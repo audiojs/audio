@@ -2,6 +2,10 @@
   * @name Audio
   * @param {Array} sample - Audio frequency sample.
   * @param {Object} options - Object of options for the audio.
+  * @param {Number} options.rate=44100 - Sample rate.
+  * @param {Number} options.depth=16 - Bit depth.
+  * @param {String} options.order='LE' - Bit order.
+  * @param {Number} options.length=sample.length - Length of audio.
   * @class
   */
 function Audio(sample, options) {
@@ -25,12 +29,24 @@ function Audio(sample, options) {
   length *= this._byteDepth;
 
   this.sample = Buffer.alloc(length);
-  this.write(sample);
+  if (sample && sample.constructor === Buffer) {
+    this.sample = sample;
+  } else {
+    this.write(sample);
+  }
 }
 
 Audio.prototype = {
   constructor: Audio,
 
+  /** Write pulse values to the sample.
+    * @name write
+    * @param {Array|Number} value - Number value or array values to write.
+    * @param {Number} location=0 - Starting point to write value or values.
+    * @param {Boolean} noAssert=false - Do not assert on invalid positions.
+    * @memberof Audio.prototype
+    * @function
+    */
   write: function write(value, location, noAssert) {
     if (typeof location === 'undefined') {
       location = 0;
@@ -41,16 +57,33 @@ Audio.prototype = {
       }
       return;
     }
-    if (value > this.depth || value < -this.depth) {
-      return;
+    if (value <= this.depth && value >= -this.depth) {
+      var bufloc = location * this._byteDepth;
+      this.sample[this._writing](value, bufloc, this._byteDepth, noAssert);
     }
-    var bufloc = location * this._byteDepth;
-    this.sample[this._writing](value, bufloc, this._byteDepth, noAssert);
   },
 
-  read: function read(location, noAssert) {
-    var bufloc = location * this._byteDepth;
-    return this.sample[this._reading](bufloc, this._byteDepth, noAssert);
+  /** Slice pulse values from the sample.
+    * @name slice
+    * @param {Number} begin - Beginning slice point
+    * @param {Number} end - Ending slice point.
+    * @return {Array} Pulse values
+    * @memberof Audio.prototype
+    * @function
+    */
+  slice: function slice(begin, end) {
+    if (typeof end === 'undefined') {
+      end = (this.sample.length - 1) / this._byteDepth;
+    }
+    var max = end - begin;
+    begin *= this._byteDepth;
+    end *= this._byteDepth;
+    var pulses = [];
+    for (var i = 0; i < max; i++) {
+      var start = begin + (i * this._byteDepth);
+      pulses.push(this.sample[this._reading](start, this._byteDepth));
+    }
+    return pulses;
   }
 };
 
