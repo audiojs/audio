@@ -39,5 +39,5 @@ See [the `doc` folder](/doc) for more information.
 [travis-icon]: https://img.shields.io/travis/audiojs/audio.svg
 [gitter]: https://gitter.im/audiojs/audio
 [gitter-icon]: https://img.shields.io/gitter/room/audiojs/audio.svg
-[npm-image]: https://badge.fury.io/js/decode-wav.svg
-[npm-url]: https://npmjs.org/package/decode-wav
+[npm-image]: https://badge.fury.io/js/audio.svg
+[npm-url]: https://npmjs.org/package/audio
