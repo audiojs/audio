@@ -9,6 +9,10 @@
   * @class
   */
 function Audio(sample, options) {
+  if (!options && sample && sample.constructor === Object) {
+    options = sample;
+    sample = [];
+  }
   options = options || {};
   this.rate = options.rate || 44100;
   this.depth = options.depth || 16;
