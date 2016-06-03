@@ -1,18 +1,29 @@
-# Audio
-> Digital audio in JavaScript.
+# Audio [![Travis][travis-icon]][travis] [![Gitter][gitter-icon]][gitter]
+> Audio in JavaScript.
 
-A JavaScript object used to express LPCM digital audio.
+A bare-bones JavaScript object for LPCM digital audio.  Store a buffer sample, bit depth of any size, and sample rate, then read and write pulse data.
+
+```javascript
+var Audio = require('audio');
+
+// Initialize audio.
+var foo = new Audio([10, -4], {length: 441000});
+
+// Write more pulse data.
+foo.write([3, 10, -3], 2);
+
+// Read pulse data.
+foo.slice(2, 4);
+// => [3, 10]
+```
 
 ## Installation
 ```shell
 $ npm install --save audio
 ```
 
-### Usage
-```javascript
-var Audio = require('audio');
-```
-See [the API docs (`API.md`)](/API.md) for more information.
+## Documentation
+See [the `doc` folder](/doc) for more information.
 
 ## Credits
 | ![jamen][avatar] |
@@ -22,5 +33,9 @@ See [the API docs (`API.md`)](/API.md) for more information.
 ## License
 [MIT](LICENSE) &copy; Jamen Marzonie
 
-  [avatar]: https://avatars.githubusercontent.com/u/6251703?v=3&s=125
-  [github]: https://github.com/jamen
+[avatar]: https://avatars.githubusercontent.com/u/6251703?v=3&s=125
+[github]: https://github.com/jamen
+[travis]: https://travis-ci.org/audiojs/audio
+[travis-icon]: https://img.shields.io/travis/audiojs/audio.svg
+[gitter]: https://gitter.im/audiojs/audio
+[gitter-icon]: https://img.shields.io/gitter/room/audiojs/audio.svg
