@@ -5,11 +5,9 @@
   "repository": "audiojs/audio",
   "main": "index.js",
   "license": "MIT",
-  "files": [
-    "index.js"
-  ],
+  "files": ["index.js"],
   "scripts": {
-    "test": "eslint index.js && tape 'test/*.js' | tap-spec"
+    "test": "eslint index.js test && tape 'test/*.js' | tap-spec"
   },
   "devDependencies": {
     "eslint": "^2.11.0",
