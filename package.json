@@ -1,11 +1,13 @@
 {
   "name": "audio",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Digital audio in JavaScript.",
   "repository": "audiojs/audio",
   "main": "index.js",
   "license": "MIT",
-  "files": ["index.js"],
+  "files": [
+    "index.js"
+  ],
   "scripts": {
     "test": "eslint index.js test && tape 'test/*.js' | tap-spec"
   },
@@ -16,6 +18,6 @@
     "tape": "^4.5.1"
   },
   "engines": {
-    "node" : ">=0.11"
+    "node": ">=0.11"
   }
 }
