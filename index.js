@@ -1,10 +1,10 @@
 /** Digital audio object.
   * @name Audio
-  * @param {Array} sample - Audio frequency sample.
+  * @param {Array|Buffer} sample - Audio frequency sample.
   * @param {Object} options - Object of options for the audio.
   * @param {Number} options.rate=44100 - Sample rate.
   * @param {Number} options.depth=16 - Bit depth.
-  * @param {String} options.order='LE' - Bit order.
+  * @param {String} options.order='LE' - Bit order, either 'BE' or 'LE'.
   * @param {Number} options.length=sample.length - Length of audio.
   * @class
   */
@@ -32,10 +32,10 @@ function Audio(sample, options) {
   }
   length *= this._byteDepth;
 
-  this.sample = Buffer.alloc(length);
-  if (sample && sample.constructor === Buffer) {
+  if (sample instanceof Buffer) {
     this.sample = sample;
   } else {
+    this.sample = (new Buffer(length)).fill(0);
     this.write(sample);
   }
 }
