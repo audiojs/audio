@@ -14,11 +14,11 @@ Digital audio object.
 
 | Param | Type | Default | Description |
 | --- | --- | --- | --- |
-| sample | <code>Array</code> |  | Audio frequency sample. |
+| sample | <code>Array</code> &#124; <code>Buffer</code> |  | Audio frequency sample. |
 | options | <code>Object</code> |  | Object of options for the audio. |
 | options.rate | <code>Number</code> | <code>44100</code> | Sample rate. |
 | options.depth | <code>Number</code> | <code>16</code> | Bit depth. |
-| options.order | <code>String</code> | <code>&#x27;LE&#x27;</code> | Bit order. |
+| options.order | <code>String</code> | <code>&#x27;LE&#x27;</code> | Bit order, either 'BE' or 'LE'. |
 | options.length | <code>Number</code> | <code>sample.length</code> | Length of audio. |
 
 <a name="Audio+write"></a>
@@ -44,3 +44,4 @@ Slice pulse values from the sample.
 | --- | --- | --- |
 | begin | <code>Number</code> | Beginning slice point |
 | end | <code>Number</code> | Ending slice point. |
+
