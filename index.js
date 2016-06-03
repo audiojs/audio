@@ -32,7 +32,7 @@ function Audio(sample, options) {
   }
   length *= this._byteDepth;
 
-  if (sample && sample.constructor === Buffer) {
+  if (sample instanceof Buffer) {
     this.sample = sample;
   } else {
     this.sample = (new Buffer(length)).fill(0);
