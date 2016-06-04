@@ -25,6 +25,8 @@ function Audio(sample, options) {
   this._byteDepth = Math.ceil(this.depth / 8);
   this._writing = 'writeInt' + this.order;
   this._reading = 'readInt' + this.order;
+  this._max = Math.pow(2, this.depth - 1) - 1;
+  this._min = -Math.pow(2, this.depth - 1);
 
   var length = options.length;
   if (typeof length === 'undefined') {
@@ -61,7 +63,7 @@ Audio.prototype = {
       }
       return;
     }
-    if (value <= this.depth && value >= -this.depth) {
+    if (value <= this._max && value >= this._min) {
       var bufloc = location * this._byteDepth;
       this.sample[this._writing](value, bufloc, this._byteDepth, noAssert);
     }
