@@ -1,94 +1,155 @@
+var assign = require('object-assign');
+
 /** Digital audio object.
-  * @name Audio
-  * @param {Array|Buffer} sample - Audio frequency sample.
-  * @param {Object} options - Object of options for the audio.
-  * @param {Number} options.rate=44100 - Sample rate.
-  * @param {Number} options.depth=16 - Bit depth.
-  * @param {String} options.order='LE' - Bit order, either 'BE' or 'LE'.
-  * @param {Number} options.length=sample.length - Length of audio.
   * @class
+  * @name Audio
+  * @param {Array|Buffer} [sample] - Initial sample to write.
+  * @param {Object} [options] - Options for your audio.
+  * @param {Number} [options.sampleRate=44100] - Audio sample rate.
+  * @param {Number} [options.bitDepth=16] - Audio bit depth.
+  * @param {Number} [options.channels=2] - Number of channels.
+  * @param {Number} [options.length] - Length of audio buffer in bytes.
+  * @param {Number} [options.max] - Maximum pulse value.
+  * @param {Number} [options.min] - Minimum pulse value.
+  * @param {String} [options.byteOrder='LE'] - Audio byte order ('LE' or 'BE').
+  * @param {Boolean} [options.signed] - Sample data is signed.
+  * @param {Boolean} [noAssert=false] - Avoid initial write's assertion.
+  * @example
+  * new Audio(sample, {...options});
+  * new Audio({...options});
+  * new Audio(sample);
   */
-function Audio(sample, options) {
-  if (!options && sample && sample.constructor === Object) {
+function Audio(sample, options, noAssert) {
+  if (sample && sample.constructor === Object) {
     options = sample;
     sample = [];
   }
-  options = options || {};
-  this.rate = options.rate || 44100;
-  this.depth = options.depth || 16;
-  this.order = options.order || 'LE';
 
-  if (this.order !== 'LE' && this.order !== 'BE') {
+  // Assign options to object, fill in defaults.
+  assign(this, {
+    sampleRate: 44100,
+    bitDepth: 16,
+    channels: 2,
+    byteOrder: 'LE'
+  }, options);
+
+  // Default signed
+  if (typeof this.signed === 'undefined') {
+    this.signed = this.bitDepth <= 8;
+  }
+
+  // Check that byteOrder is valid.
+  if (this.byteOrder !== 'LE' && this.byteOrder !== 'BE') {
     throw new Error('Order must be "LE" or "BE" (default LE)');
   }
 
-  this._byteDepth = Math.ceil(this.depth / 8);
-  this._writing = 'writeInt' + this.order;
-  this._reading = 'readInt' + this.order;
-  this._max = Math.pow(2, this.depth - 1) - 1;
-  this._min = -Math.pow(2, this.depth - 1);
-
-  var length = options.length;
-  if (typeof length === 'undefined') {
-    length = sample.length;
+  // Default min and max
+  if (typeof this.max === 'undefined') {
+    this.max = Math.pow(2, this.bitDepth - this.signed) - 1;
   }
-  length *= this._byteDepth;
-
-  if (sample instanceof Buffer) {
-    this.sample = sample;
-  } else {
-    this.sample = (new Buffer(length)).fill(0);
-    this.write(sample);
+  if (typeof this.min === 'undefined') {
+    this.min = this.signed ? -Math.pow(2, this.bitDepth - 1) : 0;
   }
+
+  // Sample byte sizing
+  this._byteSize = Math.ceil(this.bitDepth / 8);
+
+  // Flexible sample buffer sizing
+  if (typeof this.length === 'undefined') {
+    if (sample.constructor === Buffer) {
+      this.length = sample.length;
+    } else if (sample.constructor === Array) {
+      this.length = sample.length * this._byteSize;
+    } else {
+      throw new Error('Could not determine sample buffer size.');
+    }
+  }
+
+  // Create sample buffer.
+  this.sample = new Buffer(this.length).fill(0);
+
+  // Setup buffer reading and writing with info.
+  var typing = (this.signed ? '' : 'U') + 'Int' + this.byteOrder;
+  this._write = this.sample['write' + typing];
+  this._read = this.sample['read' + typing];
+
+  // Write initial sample
+  this.write(sample, noAssert || this.noAssert);
 }
 
 Audio.prototype = {
+  // For reference and type checking.
   constructor: Audio,
 
   /** Write pulse values to the sample.
+    * @method
+    * @memberof Audio#
     * @name write
-    * @param {Array|Number} value - Number value or array values to write.
-    * @param {Number} location=0 - Starting point to write value or values.
-    * @param {Boolean} noAssert=false - Do not assert on invalid positions.
-    * @memberof Audio.prototype
-    * @function
+    * @param {Array|Buffer} value - Array of pulses or a buffer of PCM data.
+    * @param {Number} [location=0] - Offset to write data.
+    * @param {Boolean} [noAssert=false] - Skip writing assertions.
+    * @example
+    * audio.write([1, 2, 100, -45]);
+    * audio.write(new Buffer(...data), 50);
     */
   write: function write(value, location, noAssert) {
+    // Default location.
     if (typeof location === 'undefined') {
       location = 0;
     }
+
     if (value && value.constructor === Array) {
+      // Write array of pulse values.
       for (var i = 0, max = value.length; i < max; i++) {
-        this.write(value[i], location + i, noAssert);
+        var val = value[i];
+        location = this._byteSize * (location + i);
+        if (noAssert && (val < this.min || val > this.max)) {
+          val = val <= this.min ? this.min : this.max;
+        } else {
+          var range = this.min + '-' + this.max;
+          throw new RangeError('Value ' + val + ' not in range ' + range);
+        }
+        this._write(val, location, this._byteSize, noAssert);
       }
       return;
+    } else if (value && value.constructor === Buffer) {
+      // Write buffer
+      location *= this._byteSize;
+      value.copy(this.sample, 0, location);
+      return;
     }
-    if (value <= this._max && value >= this._min) {
-      var bufloc = location * this._byteDepth;
-      this.sample[this._writing](value, bufloc, this._byteDepth, noAssert);
+
+    if (!noAssert) {
+      // Error if no writing happened.
+      throw new Error('Value must be an array or buffer.');
     }
   },
 
   /** Slice pulse values from the sample.
+    * @method
+    * @memberof Audio#
     * @name slice
-    * @param {Number} begin - Beginning slice point
-    * @param {Number} end - Ending slice point.
-    * @return {Array} Pulse values
-    * @memberof Audio.prototype
-    * @function
+    * @param {Number} being - Location to start slice.
+    * @param {Number} [end] - Ending location for slice.
+    * @param {Boolean} [buf] - Keep data as a buffer.
+    * @return {Array} Array of pulse values or buffer with "buf" param.
+    * @example
+    * audio.slice(10, 15);
+    * audio.slice(1000);
+    * audio.slice(37, 65, true);
     */
-  slice: function slice(begin, end) {
-    if (typeof end === 'undefined') {
-      end = (this.sample.length - 1) / this._byteDepth;
+  slice: function slice(begin, end, buf) {
+    // Simple buffer slicing
+    if (buf) {
+      return this.sample.slice(begin * this._byteSize, end * this._byteSize);
     }
-    var max = end - begin;
-    begin *= this._byteDepth;
-    end *= this._byteDepth;
+
     var pulses = [];
-    for (var i = 0; i < max; i++) {
-      var start = begin + (i * this._byteDepth);
-      pulses.push(this.sample[this._reading](start, this._byteDepth));
+    for (var i = 0, max = end - begin; i < max; i++) {
+      var pulse = this._read(this._byteSize * (begin + i), this._byteSize);
+      pulses.push(pulse);
     }
+
     return pulses;
   }
 };
