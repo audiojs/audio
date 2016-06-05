@@ -3,18 +3,18 @@
 **Kind**: global class  
 
 * [Audio](#Audio)
-    * [new Audio(sample, [options], [noAssert])](#new_Audio_new)
+    * [new Audio([input], [options], [noAssert])](#new_Audio_new)
     * [.write(value, [location], [noAssert])](#Audio+write)
     * [.slice(begin, [end], [buf])](#Audio+slice) ⇒ <code>Array</code>
 
 <a name="new_Audio_new"></a>
-### new Audio(sample, [options], [noAssert])
+### new Audio([input], [options], [noAssert])
 Digital audio object.
 
 
 | Param | Type | Default | Description |
 | --- | --- | --- | --- |
-| sample | <code>Array</code> &#124; <code>Buffer</code> |  | Initial sample to write. |
+| [input] | <code>Array</code> &#124; <code>Buffer</code> |  | Initial sample to write. |
 | [options] | <code>Object</code> |  | Options for your audio. |
 | [options.sampleRate] | <code>Number</code> | <code>44100</code> | Audio sample rate. |
 | [options.bitDepth] | <code>Number</code> | <code>16</code> | Audio bit depth. |
