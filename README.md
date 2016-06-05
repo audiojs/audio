@@ -13,12 +13,15 @@ var test = new Audio({
 ```
 See more options and usage in [the documentation](/doc).
 
-This object allows you to hold extensive PCM data and do simple reading and writing on it, where you can also use algorithmic functions for manipulating.  It also acts as a middleman for decoding and encoding different audio formats in JavaScript.
+This object allows you to hold extensive PCM data and do reading and writing on it, where you can also use [other algorithm/compression/whatever functions][npm-audiojs].  It also acts as a middleman for decoding and encoding different audio formats in JavaScript.
+
+Visit [audio.js](https://github.com/audiojs) for more audio utilities in JavaScript.
 
 ## Installation
 ```shell
 $ npm install --save audio
 ```
+For use in the browser use [Browserify][browserify].
 
 ## Credits
 | ![jamen][avatar] |
@@ -30,7 +33,9 @@ $ npm install --save audio
 
 [avatar]: https://avatars.githubusercontent.com/u/6251703?v=3&s=125
 [github]: https://github.com/jamen
-[travis]: https://travis-ci.org/audiojs/audio
-[travis-icon]: https://img.shields.io/travis/audiojs/audio.svg
-[gitter]: https://gitter.im/audiojs/audio
-[gitter-icon]: https://img.shields.io/gitter/room/audiojs/audio.svg
+[travis]: https://travis-ci.org/jamen/node-audio
+[travis-icon]: https://img.shields.io/travis/jamen/node-audio.svg
+[gitter]: https://gitter.im/jamen/node-audio
+[gitter-icon]: https://img.shields.io/gitter/room/jamen/node-audio.svg
+[browserify]: http://npmjs.com/browserify
+[audiojs]: https://www.npmjs.com/browse/keyword/audiojs

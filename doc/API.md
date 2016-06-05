@@ -1,13 +1,24 @@
 <a name="Audio"></a>
+
 ## Audio
 **Kind**: global class  
 
 * [Audio](#Audio)
     * [new Audio([input], [options], [noAssert])](#new_Audio_new)
+    * [.sampleRate](#Audio+sampleRate) : <code>Number</code>
+    * [.bitDepth](#Audio+bitDepth) : <code>Number</code>
+    * [.channel](#Audio+channel) : <code>Number</code>
+    * [.sampleRate](#Audio+sampleRate) : <code>String</code>
+    * [.signed](#Audio+signed) : <code>Boolean</code>
+    * [.max](#Audio+max) : <code>Number</code>
+    * [.min](#Audio+min) : <code>Number</code>
+    * [.length](#Audio+length) : <code>Number</code>
+    * [.sample](#Audio+sample) : <code>Buffer</code>
     * [.write(value, [location], [noAssert])](#Audio+write)
     * [.slice(begin, [end], [buf])](#Audio+slice) ⇒ <code>Array</code>
 
 <a name="new_Audio_new"></a>
+
 ### new Audio([input], [options], [noAssert])
 Digital audio object.
 
@@ -32,7 +43,66 @@ new Audio(sample, {...options});
 new Audio({...options});
 new Audio(sample);
 ```
+<a name="Audio+sampleRate"></a>
+
+### audio.sampleRate : <code>Number</code>
+Audio's sample rate
+
+**Kind**: instance property of <code>[Audio](#Audio)</code>  
+**Default**: <code>44100</code>  
+<a name="Audio+bitDepth"></a>
+
+### audio.bitDepth : <code>Number</code>
+Audio's bit-depth
+
+**Kind**: instance property of <code>[Audio](#Audio)</code>  
+**Default**: <code>16</code>  
+<a name="Audio+channel"></a>
+
+### audio.channel : <code>Number</code>
+Audio's number of channels.
+
+**Kind**: instance property of <code>[Audio](#Audio)</code>  
+**Default**: <code>2</code>  
+<a name="Audio+sampleRate"></a>
+
+### audio.sampleRate : <code>String</code>
+Sample data's byte order (either 'LE' or 'BE')
+
+**Kind**: instance property of <code>[Audio](#Audio)</code>  
+**Default**: <code>&#x27;LE&#x27;</code>  
+<a name="Audio+signed"></a>
+
+### audio.signed : <code>Boolean</code>
+Sample data is signed.
+
+**Kind**: instance property of <code>[Audio](#Audio)</code>  
+<a name="Audio+max"></a>
+
+### audio.max : <code>Number</code>
+Maximum sample pulse value
+
+**Kind**: instance property of <code>[Audio](#Audio)</code>  
+<a name="Audio+min"></a>
+
+### audio.min : <code>Number</code>
+Minimum sample pulse value
+
+**Kind**: instance property of <code>[Audio](#Audio)</code>  
+<a name="Audio+length"></a>
+
+### audio.length : <code>Number</code>
+Audio sample's length.
+
+**Kind**: instance property of <code>[Audio](#Audio)</code>  
+<a name="Audio+sample"></a>
+
+### audio.sample : <code>Buffer</code>
+Audio's sample data
+
+**Kind**: instance property of <code>[Audio](#Audio)</code>  
 <a name="Audio+write"></a>
+
 ### audio.write(value, [location], [noAssert])
 Write pulse values to the sample.
 
@@ -50,6 +120,7 @@ audio.write([1, 2, 100, -45]);
 audio.write(new Buffer(...data), 50);
 ```
 <a name="Audio+slice"></a>
+
 ### audio.slice(begin, [end], [buf]) ⇒ <code>Array</code>
 Slice pulse values from the sample.
 
