@@ -21,9 +21,9 @@ test('writing audio', function(t) {
   );
 
   // Writing unorthodox values.
-  var baz = new Audio({bitDepth: 8});
-  baz.write([300, -300], 0, true);
-  t.is(baz.sample, new Buffer([127, -128]), 'writing unorthodox values');
+  var baz = new Audio({bitDepth: 8, length: 2});
+  baz.write([255, -255], 0, true);
+  t.same(baz.sample, new Buffer([127, -128]), 'writing unorthodox values');
 
   t.end();
 });
