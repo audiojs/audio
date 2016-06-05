@@ -1,4 +1,4 @@
-# audio [![Travis][travis-icon]][travis] [![Gitter][gitter-icon]][gitter]
+# Audio [![Travis][travis-icon]][travis] [![Gitter][gitter-icon]][gitter]
 > Audio in JavaScript.
 
 ```javascript
