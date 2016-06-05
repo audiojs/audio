@@ -13,7 +13,7 @@ var test = new Audio({
 ```
 See more options and usage in [the documentation](/docs).
 
-This object enables you to hold extensive PCM data and do reading and writing on it, where it also works as a central object for [other algorithmic functions][npm-audiojs] for things like conversion, compression, or any type of audio manipulation.  For example, it can work as the middleman for encoding and decoding audio formats.
+This object enables you to hold extensive PCM data and do reading and writing on it, where it also works as a central object for [other algorithmic functions][npm-audiojs] for things like conversion, compression, or any type of audio manipulation.  For example, it can work as the middleman for converting to and from different audio formats.
 
 Visit [audio.js](https://github.com/audiojs) for more audio utilities in JavaScript.
 
