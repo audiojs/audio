@@ -1,7 +1,29 @@
 var test = require('tape');
 var Audio = require('..');
 
-test('', function(t) {
+test('writing audio', function(t) {
+  // Writing pulses
+  var bar = new Audio([0, 0, 0, 0, 3]);
+  bar.write([1, 2], 2);
+  t.same(
+    bar.sample,
+    new Buffer([0, 0, 0, 0, 1, 0, 2, 0, 3, 0]),
+    'writing pulses'
+  );
+
+  // Writing buffers
+  var foo = new Audio(new Buffer(10).fill(0));
+  foo.write(new Buffer([1, 2, 3, 4]), 2);
+  t.same(
+    foo.sample,
+    new Buffer([0, 0, 0, 0, 1, 2, 3, 4, 0, 0]),
+    'writing buffers'
+  );
+
+  // Writing unorthodox values.
+  var baz = new Audio({bitDepth: 8});
+  baz.write([300, -300], 0, true);
+  t.is(baz.sample, new Buffer([127, -128]), 'writing unorthodox values');
 
   t.end();
 });

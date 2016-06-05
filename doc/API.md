@@ -3,18 +3,18 @@
 **Kind**: global class  
 
 * [Audio](#Audio)
-    * [new Audio([sample], [options], [noAssert])](#new_Audio_new)
+    * [new Audio(sample, [options], [noAssert])](#new_Audio_new)
     * [.write(value, [location], [noAssert])](#Audio+write)
-    * [.slice(being, [end], [buf])](#Audio+slice) ⇒ <code>Array</code>
+    * [.slice(begin, [end], [buf])](#Audio+slice) ⇒ <code>Array</code>
 
 <a name="new_Audio_new"></a>
-### new Audio([sample], [options], [noAssert])
+### new Audio(sample, [options], [noAssert])
 Digital audio object.
 
 
 | Param | Type | Default | Description |
 | --- | --- | --- | --- |
-| [sample] | <code>Array</code> &#124; <code>Buffer</code> |  | Initial sample to write. |
+| sample | <code>Array</code> &#124; <code>Buffer</code> |  | Initial sample to write. |
 | [options] | <code>Object</code> |  | Options for your audio. |
 | [options.sampleRate] | <code>Number</code> | <code>44100</code> | Audio sample rate. |
 | [options.bitDepth] | <code>Number</code> | <code>16</code> | Audio bit depth. |
@@ -50,7 +50,7 @@ audio.write([1, 2, 100, -45]);
 audio.write(new Buffer(...data), 50);
 ```
 <a name="Audio+slice"></a>
-### audio.slice(being, [end], [buf]) ⇒ <code>Array</code>
+### audio.slice(begin, [end], [buf]) ⇒ <code>Array</code>
 Slice pulse values from the sample.
 
 **Kind**: instance method of <code>[Audio](#Audio)</code>  
@@ -58,7 +58,7 @@ Slice pulse values from the sample.
 
 | Param | Type | Description |
 | --- | --- | --- |
-| being | <code>Number</code> | Location to start slice. |
+| begin | <code>Number</code> | Location to start slice. |
 | [end] | <code>Number</code> | Ending location for slice. |
 | [buf] | <code>Boolean</code> | Keep data as a buffer. |
 
