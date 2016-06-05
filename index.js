@@ -116,7 +116,7 @@ Audio.prototype = {
           }
           val = val <= this.min ? this.min : this.max;
         }
-        this._write(val, bufloc, this._byteSize);
+        this._write(val, bufloc, this._byteSize, noAssert);
       }
       return;
     } else if (value && value.constructor === Buffer) {
