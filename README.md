@@ -39,3 +39,4 @@ For use in the browser use [Browserify][browserify].
 [gitter-icon]: https://img.shields.io/gitter/room/jamen/node-audio.svg
 [browserify]: http://npmjs.com/browserify
 [audiojs]: https://www.npmjs.com/browse/keyword/audiojs
+[npm-audiojs]: https://www.npmjs.com/browse/keyword/audiojs
