@@ -1,6 +1,6 @@
 {
   "name": "audio",
-  "version": "0.1.1",
+  "version": "1.0.1",
   "description": "Digital audio in JavaScript.",
   "repository": "audiojs/audio",
   "main": "index.js",
