@@ -27,6 +27,10 @@ function Audio(input, options, noAssert) {
     input = [];
   }
 
+  if (typeof options.sample !== 'undefined') {
+    input = options.sample;
+  }
+
   // Assign options to object, fill in defaults.
   assign(this, {
     sampleRate: 44100,
