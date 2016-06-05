@@ -2,10 +2,28 @@ var test = require('tape');
 var Audio = require('..');
 
 test('writing audio', function(t) {
-  var foo = new Audio([12, 4, 9], {
-    length: 6
-  });
-  foo.write([-2, 4, 10], 3);
-  t.same(foo, new Audio([12, 4, 9, -2, 4, 10]));
+  // Writing pulses
+  var bar = new Audio([0, 0, 0, 0, 3]);
+  bar.write([1, 2], 2);
+  t.same(
+    bar.sample,
+    new Buffer([0, 0, 0, 0, 1, 0, 2, 0, 3, 0]),
+    'writing pulses'
+  );
+
+  // Writing buffers
+  var foo = new Audio(new Buffer(10).fill(0));
+  foo.write(new Buffer([1, 2, 3, 4]), 2);
+  t.same(
+    foo.sample,
+    new Buffer([0, 0, 0, 0, 1, 2, 3, 4, 0, 0]),
+    'writing buffers'
+  );
+
+  // Writing unorthodox values.
+  var baz = new Audio({bitDepth: 8, length: 2});
+  baz.write([255, -255], 0, true);
+  t.same(baz.sample, new Buffer([127, -128]), 'writing unorthodox values');
+
   t.end();
 });
