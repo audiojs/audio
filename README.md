@@ -1,29 +1,24 @@
-# Audio [![NPM version][npm-image]][npm-url] [![Travis][travis-icon]][travis] [![Gitter][gitter-icon]][gitter]
+# `Audio` [![Travis][travis-icon]][travis] [![Gitter][gitter-icon]][gitter]
 > Audio in JavaScript.
 
-A bare-bones JavaScript object for LPCM digital audio.  Store a buffer sample, bit depth of any size, and sample rate, then read and write pulse data.
-
 ```javascript
-var Audio = require('audio');
-
-// Initialize audio.
-var foo = new Audio([10, -4], {length: 441000});
-
-// Write more pulse data.
-foo.write([3, 10, -3], 2);
-
-// Read pulse data.
-foo.slice(2, 4);
-// => [3, 10]
+var test = new Audio({
+  sample: [34, 334, -23, 0, ...pulses], // Pulse data or buffer
+  sampleRate: 44100, // Sample rate
+  bitDepth: 16, // Bit depth
+  length: 44100 * 10, // 10s length
+  byteOrder: 'LE', // Either BE or LE
+  // ...
+});
 ```
+See more options and usage in [the documentation](/doc).
+
+This object allows you to hold extensive PCM data and do simple reading and writing on it, where you can also use npm-hosted algorithmic functions for manipulating.  It also acts as a middleman for decoding and encoding different audio formats in JavaScript.
 
 ## Installation
 ```shell
 $ npm install --save audio
 ```
-
-## Documentation
-See [the `doc` folder](/doc) for more information.
 
 ## Credits
 | ![jamen][avatar] |
@@ -39,5 +34,3 @@ See [the `doc` folder](/doc) for more information.
 [travis-icon]: https://img.shields.io/travis/audiojs/audio.svg
 [gitter]: https://gitter.im/audiojs/audio
 [gitter-icon]: https://img.shields.io/gitter/room/audiojs/audio.svg
-[npm-image]: https://badge.fury.io/js/audio.svg
-[npm-url]: https://npmjs.org/package/audio
