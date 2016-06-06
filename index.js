@@ -27,15 +27,55 @@ function Audio(input, options, noAssert) {
     input = [];
   }
 
+  if (options && typeof options.sample !== 'undefined') {
+    input = options.sample;
+  }
+
   // Assign options to object, fill in defaults.
   assign(this, {
+    /** Audio's sample rate
+      * @type {Number}
+      * @memberof Audio
+      * @instance
+      * @name sampleRate
+      * @default 44100
+      */
     sampleRate: 44100,
+
+    /** Audio's bit-depth
+      * @type {Number}
+      * @memberof Audio
+      * @instance
+      * @name bitDepth
+      * @default 16
+      */
     bitDepth: 16,
+
+    /** Audio's number of channels.
+      * @type {Number}
+      * @memberof Audio
+      * @instance
+      * @name channel
+      * @default 2
+      */
     channels: 2,
+
+    /** Sample data's byte order (either 'LE' or 'BE')
+      * @type {String}
+      * @memberof Audio
+      * @instance
+      * @name sampleRate
+      * @default 'LE'
+      */
     byteOrder: 'LE'
   }, options);
 
-  // Default signed
+  /** Sample data is signed.
+    * @type {Boolean}
+    * @memberof Audio
+    * @instance
+    * @name signed
+    */
   if (typeof this.signed === 'undefined') {
     this.signed = this.bitDepth <= 8;
   }
@@ -45,10 +85,22 @@ function Audio(input, options, noAssert) {
     throw new TypeError('Order must be "LE" or "BE" (default "LE")');
   }
 
-  // Default min and max
+  /** Maximum sample pulse value
+    * @type {Number}
+    * @memberof Audio
+    * @instance
+    * @name max
+    */
   if (typeof this.max === 'undefined') {
     this.max = Math.pow(2, this.bitDepth - this.signed) - 1;
   }
+
+  /** Minimum sample pulse value
+    * @type {Number}
+    * @memberof Audio
+    * @instance
+    * @name min
+    */
   if (typeof this.min === 'undefined') {
     this.min = this.signed ? -Math.pow(2, this.bitDepth - 1) : 0;
   }
@@ -56,7 +108,12 @@ function Audio(input, options, noAssert) {
   // Sample byte sizing
   this._byteSize = Math.ceil(this.bitDepth / 8);
 
-  // Flexible sample buffer sizing
+  /** Audio sample's length.
+    * @type {Number}
+    * @memberof Audio
+    * @instance
+    * @name length
+    */
   if (typeof this.length === 'undefined') {
     if (input.constructor === Buffer) {
       this.length = input.length;
@@ -67,7 +124,12 @@ function Audio(input, options, noAssert) {
     }
   }
 
-  // Create sample buffer.
+  /** Audio's sample data
+    * @type {Buffer}
+    * @memberof Audio
+    * @instance
+    * @name sample
+    */
   this.sample = new Buffer(this.length).fill(0);
 
   // Setup buffer reading and writing with info.
