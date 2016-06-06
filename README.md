@@ -1,7 +1,7 @@
 # Audio [![Travis][travis-icon]][travis] [![Gitter][gitter-icon]][gitter]
 > Audio in JavaScript.
 
-An object that enables you to store, read, and write [PCM audio][pcm] data more easily.  You can use [other algorithmic functions][npm-audiojs] for any type of audio manipulation, such as compression or conversion to and from different audio formats.  This object works as the building block for audio in JavaScript, where [Audio.js][audiojs] is a suite of common audio utilities based on top of it.
+An object that enables you to store, read, and write [PCM audio][pcm] data more easily.  You can use [algorithmic functions][npm-audiojs] for any type of audio manipulation, such as compression or conversion to and from different audio formats.  This object works as the building block for audio in JavaScript, and [Audio.js][audiojs] is a suite of common audio utilities based on top of it.
 
 ```javascript
 var test = new Audio({
@@ -15,14 +15,17 @@ var test = new Audio({
 ```
 See more options and usage in [the documentation](/docs).
 
-## Installation
+## Usage
 ```shell
 $ npm install --save audio
 ```
 For use in the browser use [Browserify][browserify].
 
-## Documentation
 See [the "docs" folder](/docs) for more information on using `Audio`.
+
+## Also See
+ - [Audio.js][audiojs]: A suite of utilities based around this object.
+ - [node-speaker][node-speaker]: Write PCM data to the speakers in Node.js.
 
 ## Credits
 | ![jamen][avatar] |
@@ -42,3 +45,4 @@ See [the "docs" folder](/docs) for more information on using `Audio`.
 [npm-audiojs]: https://www.npmjs.com/browse/keyword/audiojs
 [audiojs]: https://github.com/audiojs
 [pcm]: https://en.wikipedia.org/wiki/Pulse-code_modulation
+[node-speaker]: https://github.com/tootallnate/node-speaker
