@@ -1,6 +1,6 @@
 {
   "name": "audio",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Digital audio in JavaScript.",
   "repository": "jamen/node-audio",
   "main": "index.js",
