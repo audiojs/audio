@@ -1,6 +1,8 @@
 # Audio [![Travis][travis-icon]][travis] [![Gitter][gitter-icon]][gitter]
 > Audio in JavaScript.
 
+An object that enables you to store, read, and write [PCM audio][pcm] data more easily.  You can use [other algorithmic functions][npm-audiojs] for any type of audio manipulation, such as compression or conversion to and from different audio formats.  This object works as the building block for audio in JavaScript, where [Audio.js][audiojs] is a suite of common audio utilities based on top of it.
+
 ```javascript
 var test = new Audio({
   sample: [34, 334, -23, 0, ...pulses], // Pulse data or buffer
@@ -13,15 +15,14 @@ var test = new Audio({
 ```
 See more options and usage in [the documentation](/docs).
 
-This object enables you to hold extensive PCM data and do reading and writing on it, where it also works as a central object for [other algorithmic functions][npm-audiojs] for things like conversion, compression, or any type of audio manipulation.  For example, it can work as the middleman for converting to and from different audio formats.
-
-Visit [audio.js](https://github.com/audiojs) for more audio utilities in JavaScript.
-
 ## Installation
 ```shell
 $ npm install --save audio
 ```
 For use in the browser use [Browserify][browserify].
+
+## Documentation
+See [the "docs" folder](/docs) for more information on using `Audio`.
 
 ## Credits
 | ![jamen][avatar] |
@@ -38,5 +39,6 @@ For use in the browser use [Browserify][browserify].
 [gitter]: https://gitter.im/jamen/node-audio
 [gitter-icon]: https://img.shields.io/gitter/room/jamen/node-audio.svg
 [browserify]: http://npmjs.com/browserify
-[audiojs]: https://www.npmjs.com/browse/keyword/audiojs
 [npm-audiojs]: https://www.npmjs.com/browse/keyword/audiojs
+[audiojs]: https://github.com/audiojs
+[pcm]: https://en.wikipedia.org/wiki/Pulse-code_modulation
