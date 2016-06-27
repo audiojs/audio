@@ -153,7 +153,7 @@ Audio.prototype = {
     * @method
     * @memberof Audio#
     * @name write
-    * @param {Array|Buffer} value - Array of pulses or a buffer of PCM data.
+    * @param {Array|Buffer|Number} value - Pulse number or array of pulses or a buffer of PCM data.
     * @param {Number} [location=0] - Offset to write data.
     * @param {Boolean} [noAssert=false] - Skip writing assertions.
     * @example
@@ -180,6 +180,9 @@ Audio.prototype = {
         }
         this._write(val, bufloc, this._byteSize, noAssert);
       }
+      return;
+    } else if (typeof value === 'number') {
+      this._write(value, this._byteSize * location, this._byteSize, noAssert);
       return;
     } else if (value && value.constructor === Buffer) {
       // Write buffer

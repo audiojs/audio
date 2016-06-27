@@ -25,5 +25,16 @@ test('writing audio', function(t) {
   baz.write([255, -255], 0, true);
   t.same(baz.sample, new Buffer([127, -128]), 'writing unorthodox values');
 
+  // Writing single pulse values.
+  var qux = new Audio([0, 0, 0, 0, 3], {bitDepth: 8});
+  qux.write(1, 0);
+  qux.write(3, 1);
+  qux.write(10, 3);
+  t.same(
+    qux.sample,
+    new Buffer([1, 3, 0, 10, 3]),
+    'writing single pulses'
+  );
+
   t.end();
 });
