@@ -2,7 +2,7 @@
   "name": "audio",
   "version": "1.2.0",
   "description": "Digital audio in JavaScript.",
-  "repository": "jamen/node-audio",
+  "repository": "audiojs/audio",
   "main": "index.js",
   "license": "MIT",
   "files": [

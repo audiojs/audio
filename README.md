@@ -37,10 +37,10 @@ See [the "docs" folder](/docs) for more information on using `Audio`.
 
 [avatar]: https://avatars.githubusercontent.com/u/6251703?v=3&s=125
 [github]: https://github.com/jamen
-[travis]: https://travis-ci.org/jamen/node-audio
-[travis-icon]: https://img.shields.io/travis/jamen/node-audio.svg
-[gitter]: https://gitter.im/jamen/node-audio
-[gitter-icon]: https://img.shields.io/gitter/room/jamen/node-audio.svg
+[travis]: https://travis-ci.org/audiojs/audio
+[travis-icon]: https://img.shields.io/travis/audiojs/audio.svg
+[gitter]: https://gitter.im/audiojs/audio
+[gitter-icon]: https://img.shields.io/gitter/room/audiojs/audio.svg
 [browserify]: http://npmjs.com/browserify
 [npm-audiojs]: https://www.npmjs.com/browse/keyword/audiojs
 [audiojs]: https://github.com/audiojs
