@@ -1,16 +1,15 @@
 var test = require('tape');
 var Audio = require('..');
 
-test('writing audio', function(t) {
+test('reading audio', function(t) {
   // Mono
   var mono = new Audio({
     source: new Buffer([0, 50, 100, 50]),
     bitDepth: 8,
     channels: 1
   });
-  var monoWrite = mono.write(10, 1);
-  t.is(mono.read(1), 10, 'mono write');
-  t.is(monoWrite, 2, 'mono write position');
+  t.is(mono.read(0), 0, 'mono first block');
+  t.is(mono.read(1), 50, 'mono second block');
 
   // Stereo
   var stereo = new Audio({
@@ -18,9 +17,8 @@ test('writing audio', function(t) {
     bitDepth: 8,
     channels: 2
   });
-  var stereoWrite = stereo.write(10, 1, 2);
-  t.is(stereo.read(1, 2), 10, 'stereo write');
-  t.is(stereoWrite, 4, 'stereo write position');
+  t.is(stereo.read(0, 1), 0, 'stereo left');
+  t.is(stereo.read(1, 2), 50, 'stereo right');
 
   // 4 channels
   var four = new Audio({
