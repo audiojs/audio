@@ -18,12 +18,13 @@ test('initializing audio', function(t) {
   t.is(xuq.signed, false, 'unsigned with bit-depth of 8 from custom option');
 
   // Dynamic length defaults + custom
-  var faz = new Audio(new Buffer(100).fill(0));
+  var faz = new Audio(new Buffer(400).fill(0));
   var fox = new Audio({bitDepth: 8, length: 1000});
   var fax = new Audio({length: 10000});
-  t.is(faz.source.length, 100, 'length from buffer');
-  t.is(fox.source.length, 88200, 'length for 1s 8-bit depth');
-  t.is(fax.source.length, 1764000, 'length for 10s 16-bit depth');
+  t.is(faz.length, 3, 'length of 400 bytes of 16-bit 2 channel audio');
+  t.is(fox.length, 1000, 'length of custom input');
+  t.is(fox.source.length, 88200, 'length of source for 1s 8-bit depth');
+  t.is(fax.source.length, 1764000, 'length of source for 10s 16-bit depth');
 
   t.end();
 });
