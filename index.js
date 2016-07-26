@@ -26,36 +26,32 @@ var Audio = function Audio(options, _) {
   // Byte depth: Bit depth in bytes.
   this.byteDepth = options.byteDepth || Math.ceil(this.bitDepth / 8);
 
-  // Block size: Byte depth alignment with channels.
-  this.blockSize = options.blockSize || this.channels * this.byteDepth;
-
-  // Byte rate: Sample rate alignment with blocks.
-  this.byteRate = options.byteRate || this.blockSize * this.sampleRate;
-
   // Byte order: Either "BE" or "LE".
   this.byteOrder = options.byteOrder || 'LE';
 
-  // Source buffer: The raw PCM data.
-  if (!this.source) {
-    if (options.source) {
-      this.source = options.source;
-    } else {
-      // new Audio(<length>, [options])
-      var len = typeof options === 'number' ? options : options.length;
+  // Block size: Byte depth alignment with channels.
+  this.blockSize = options.blockSize || this.channels * this.byteDepth;
 
-      // Create from in milliseconds.
-      var size = (len || DEFAULT_LENGTH) / 1000 * this.byteRate;
-      this.source = new Buffer(size).fill(0);
-    }
+  // Block rate: Sample rate alignment with blocks.
+  this.blockRate = options.blockRate || this.blockSize * this.sampleRate;
+
+  // Source buffer: The raw PCM data.
+  if (options.source) {
+    this.source = options.source;
+  } else if (!this.source) {
+    // new Audio(<length>, [options])
+    var len = typeof options === 'number' ? options : options.length;
+
+    // Create from in milliseconds.
+    var size = (len || DEFAULT_LENGTH) / 1000 * this.blockRate;
+    this.source = new Buffer(size).fill(0);
   }
 
   // Length: The amount of blocks.
-  if (!this.length) {
-    if (options.length) {
-      this.length = options.length;
-    } else {
-      this.length = Math.ceil(this.source.length / this.blockSize);
-    }
+  if (options.length) {
+    this.length = options.length;
+  } else if (!this.length && this.length !== 0) {
+    this.length = Math.ceil(this.source.length / this.blockSize);
   }
 
   // Signed: Whether or not the PCM data is signed.
@@ -76,14 +72,12 @@ var Audio = function Audio(options, _) {
 Audio.prototype = {
   constructor: Audio,
 
-  // Read pulse data.
+  // Read sample data.
   read: function read(offset, channel) {
     channel = channel || 1;
 
-    // Align offset to blocks.
+    // Align input values to the source.
     offset *= this.blockSize;
-
-    // shift starting index from 1 to 0, then align channels to byte depth.
     channel--;
     channel *= this.byteDepth;
 
@@ -91,14 +85,12 @@ Audio.prototype = {
     return this._read(offset + channel);
   },
 
-  // Write pulse data.
+  // Write sample data.
   write: function write(value, offset, channel) {
     channel = channel || 1;
 
-    // Align offset to blocks.
+    // Align input values to the source.
     offset *= this.blockSize;
-
-    // shift starting index from 1 to 0, then align channels to byte depth.
     channel--;
     channel *= this.byteDepth;
 
