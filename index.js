@@ -9,10 +9,6 @@ var Audio = function Audio(options, _) {
     // new Audio(<source>, [options])
     this.source = options;
     options = _ || {};
-  } else if (typeof options === 'number') {
-    // new Audio(<length>, [options])
-    this.length = options;
-    options = _ || {};
   } else if (!options) {
     // new Audio()
     options = {};
@@ -44,18 +40,21 @@ var Audio = function Audio(options, _) {
     if (options.source) {
       this.source = options.source;
     } else {
-      var size = (options.length || DEFAULT_LENGTH) / 1000 * this.byteRate;
+      // new Audio(<length>, [options])
+      var len = typeof options === 'number' ? options : options.length;
+
+      // Create from in milliseconds.
+      var size = (len || DEFAULT_LENGTH) / 1000 * this.byteRate;
       this.source = new Buffer(size).fill(0);
     }
   }
 
-  // Length: Size of the audio in milliseconds (rounded).
+  // Length: The amount of blocks.
   if (!this.length) {
     if (options.length) {
       this.length = options.length;
     } else {
-      var len = Math.ceil(this.source.length / Math.ceil(this.byteRate / 1000));
-      this.length = len;
+      this.length = Math.ceil(this.source.length / this.blockSize);
     }
   }
 
