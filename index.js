@@ -104,6 +104,19 @@ Audio.prototype = {
 
     // Write value to source.
     return this._write(value, offset + channel);
+  },
+
+  // Slice or replicate the object.
+  slice: function slice(start, end) {
+    start = start || 0;
+    end = end === 0 ? 0 : end || this.length;
+
+    // Align start and end to blocs.
+    start *= this.blockSize;
+    end *= this.blockSize;
+
+    // Replicate self, with a new sliced source.
+    return new Audio(this.source.slice(start, end), this);
   }
 };
 
