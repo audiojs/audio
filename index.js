@@ -6,7 +6,7 @@ var DEFAULT_LENGTH = 10000;
 
 var Audio = function Audio(options, _) {
   if (options instanceof Buffer) {
-    // new Audio(<sample>, [options])
+    // new Audio(<source>, [options])
     this.source = options;
     options = _ || {};
   } else if (!options) {
@@ -24,24 +24,16 @@ var Audio = function Audio(options, _) {
   this.channels = options.channels || DEFAULT_CHANNELS;
 
   // Byte depth: Bit depth in bytes.
-  this.byteDepth = Math.ceil(this.bitDepth / 8);
+  this.byteDepth = options.byteDepth || Math.ceil(this.bitDepth / 8);
 
   // Block size: Byte depth alignment with channels.
-  this.blockSize = this.channels * this.byteDepth;
+  this.blockSize = options.blockSize || this.channels * this.byteDepth;
 
   // Byte rate: Sample rate alignment with blocks.
-  this.byteRate = this.blockSize * this.sampleRate;
+  this.byteRate = options.byteRate || this.blockSize * this.sampleRate;
 
   // Byte order: Either "BE" or "LE".
   this.byteOrder = options.byteOrder || 'LE';
-
-  // Signed: Whether or not the PCM data is signed.
-  if (options.signed) {
-    this.signed = options.signed;
-  } else {
-    // If bit depth is 8 be unsigned, otherwise be signed.
-    this.signed = this.bitDepth !== 8;
-  }
 
   // Source buffer: The raw PCM data.
   if (!this.source) {
@@ -51,6 +43,24 @@ var Audio = function Audio(options, _) {
       var size = (options.length || DEFAULT_LENGTH) / 1000 * this.byteRate;
       this.source = new Buffer(size).fill(0);
     }
+  }
+
+  // Length: Size of the audio in milliseconds (rounded).
+  if (!this.length) {
+    if (options.length) {
+      this.length = options.length;
+    } else {
+      var len = Math.ceil(this.source.length / Math.ceil(this.byteRate / 1000));
+      this.length = len;
+    }
+  }
+
+  // Signed: Whether or not the PCM data is signed.
+  if (options.signed) {
+    this.signed = options.signed;
+  } else {
+    // If bit depth is 8 be unsigned, otherwise be signed.
+    this.signed = this.bitDepth !== 8;
   }
 
   // Alias helper functions
