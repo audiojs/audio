@@ -9,6 +9,10 @@ var Audio = function Audio(options, _) {
     // new Audio(<source>, [options])
     this.source = options;
     options = _ || {};
+  } else if (typeof options === 'number') {
+    // new Audio(<length>, [options])
+    this.length = options;
+    options = _ || {};
   } else if (!options) {
     // new Audio()
     options = {};

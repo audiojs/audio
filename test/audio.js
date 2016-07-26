@@ -26,5 +26,10 @@ test('initializing audio', function(t) {
   t.is(fox.source.length, 88200, 'length of source for 1s 8-bit depth');
   t.is(fax.source.length, 1764000, 'length of source for 10s 16-bit depth');
 
+  // Shorthand length initalizing
+  var qax = new Audio(1000);
+  t.is(qax.length, 1000, 'length shorthand initializing');
+  t.is(qax.source.length, 1764000, 'length shorthand initializing source');
+
   t.end();
 });
