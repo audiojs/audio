@@ -2,17 +2,10 @@
 var DEFAULT_SAMPLE_RATE = 44100;
 var DEFAULT_BIT_DEPTH = 16;
 var DEFAULT_CHANNELS = 2;
-var DEFAULT_LENGTH = 10000;
+var DEFAULT_BYTE_ORDER = 'LE';
 
-var Audio = function Audio(options, _) {
-  if (options instanceof Buffer) {
-    // new Audio(<source>, [options])
-    this.source = options;
-    options = _ || {};
-  } else if (!options) {
-    // new Audio()
-    options = {};
-  }
+var Audio = function Audio(options, override) {
+  options = options || {};
 
   // Sample rate: PCM sample rate in hertz
   this.sampleRate = options.sampleRate || DEFAULT_SAMPLE_RATE;
@@ -22,6 +15,9 @@ var Audio = function Audio(options, _) {
 
   // Amount of channels: Mono, stereo, etc.
   this.channels = options.channels || DEFAULT_CHANNELS;
+
+  // Byte order: Either "BE" or "LE".
+  this.byteOrder = options.byteOrder || DEFAULT_BYTE_ORDER;
 
   // Byte depth: Bit depth in bytes.
   this.byteDepth = options.byteDepth || Math.ceil(this.bitDepth / 8);
@@ -36,30 +32,27 @@ var Audio = function Audio(options, _) {
   this.blockRate = options.blockRate || this.blockSize * this.sampleRate;
 
   // Source buffer: The raw PCM data.
-  if (options.source) {
-    this.source = options.source;
-  } else if (!this.source) {
-    // new Audio(<length>, [options])
-    var len = typeof options === 'number' ? options : options.length;
+  if (options.source || override) {
+    this.source = override || options.source;
+  } else {
+    var length = this.blockRate * options.duration || 0;
+    this.source = new Buffer(length).fill(0);
+  }
 
-    // Create from in milliseconds.
-    var size = (len || DEFAULT_LENGTH) / 1000 * this.blockRate;
-    this.source = new Buffer(size).fill(0);
+  // Check that the source is aligned with the block size.
+  if (this.source.length % this.blockSize !== 0 && !options.noAssert) {
+    throw new RangeError('Source is not aligned to the block size.');
   }
 
   // Length: The amount of blocks.
-  if (options.length) {
-    this.length = options.length;
-  } else if (!this.length && this.length !== 0) {
-    this.length = Math.ceil(this.source.length / this.blockSize);
-  }
+  this.length = this.source.length / this.blockSize;
 
   // Signed: Whether or not the PCM data is signed.
-  if (options.signed) {
-    this.signed = options.signed;
-  } else {
+  if (typeof options.signed === 'undefined') {
     // If bit depth is 8 be unsigned, otherwise be signed.
     this.signed = this.bitDepth !== 8;
+  } else {
+    this.signed = options.signed;
   }
 
   // Alias helper functions
@@ -76,7 +69,7 @@ Audio.prototype = {
   read: function read(offset, channel) {
     channel = channel || 1;
 
-    // Align input values to the source.
+    // Align inputs to source bytes.
     offset *= this.blockSize;
     channel--;
     channel *= this.byteDepth;
@@ -89,7 +82,7 @@ Audio.prototype = {
   write: function write(value, offset, channel) {
     channel = channel || 1;
 
-    // Align input values to the source.
+    // Align inputs to source bytes.
     offset *= this.blockSize;
     channel--;
     channel *= this.byteDepth;
@@ -98,17 +91,17 @@ Audio.prototype = {
     return this._write(value, offset + channel);
   },
 
-  // Slice or replicate the object.
+  // Slice or replicate the audio.
   slice: function slice(start, end) {
     start = start || 0;
-    end = end === 0 ? 0 : end || this.length;
 
     // Align start and end to blocs.
     start *= this.blockSize;
     end *= this.blockSize;
 
     // Replicate self, with a new sliced source.
-    return new Audio(this.source.slice(start, end), this);
+    var override = this.source.slice(start, end || this.source.length);
+    return new Audio(this, override);
   }
 };
 
