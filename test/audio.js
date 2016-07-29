@@ -22,20 +22,9 @@ test('initializing audio', function(t) {
   var fox = new Audio({bitDepth: 8, duration: 7});
   var fax = new Audio({duration: 2});
   t.is(faz.length, 100, 'length of 400 bytes of 16-bit 2 channel audio');
-<<<<<<< Updated upstream
-  t.is(fox.length, 1000, 'length of custom input');
-  t.is(fox.source.length, 88200, 'length of source for 1s 8-bit depth');
-  t.is(fax.source.length, 1764000, 'length of source for 10s 16-bit depth');
-
-  // Shorthand length initalizing
-  var qax = new Audio(1000);
-  t.is(qax.length, 44100, 'length shorthand initializing');
-  t.is(qax.source.length, 176400, 'length shorthand initializing source');
-=======
   t.is(fox.length, 308700, 'length of custom input');
   t.is(fox.source.length, 617400, 'length of source for 1s 8-bit depth');
   t.is(fax.source.length, 352800, 'length of source for 10s 16-bit depth');
->>>>>>> Stashed changes
 
   t.end();
 });

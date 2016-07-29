@@ -4,7 +4,7 @@ var DEFAULT_BIT_DEPTH = 16;
 var DEFAULT_CHANNELS = 2;
 var DEFAULT_BYTE_ORDER = 'LE';
 
-var Audio = function Audio(options, override) {
+var Audio = function Audio(options, _override) {
   options = options || {};
 
   // Sample rate: PCM sample rate in hertz
@@ -31,9 +31,9 @@ var Audio = function Audio(options, override) {
   // Block rate: Sample rate alignment with blocks.
   this.blockRate = options.blockRate || this.blockSize * this.sampleRate;
 
-  // Source buffer: The raw PCM data.
-  if (options.source || override) {
-    this.source = override || options.source;
+  // Source: Buffer containing PCM data that is formatted to the options.
+  if (options.source || _override) {
+    this.source = _override || options.source;
   } else {
     var length = this.blockRate * options.duration || 0;
     this.source = new Buffer(length).fill(0);
@@ -45,7 +45,7 @@ var Audio = function Audio(options, override) {
   }
 
   // Length: The amount of blocks.
-  this.length = this.source.length / this.blockSize;
+  this.length = options.length || this.source.length / this.blockSize;
 
   // Signed: Whether or not the PCM data is signed.
   if (typeof options.signed === 'undefined') {
@@ -94,13 +94,14 @@ Audio.prototype = {
   // Slice or replicate the audio.
   slice: function slice(start, end) {
     start = start || 0;
+    end = typeof end === 'number' ? end : this.length;
 
     // Align start and end to blocs.
     start *= this.blockSize;
     end *= this.blockSize;
 
     // Replicate self, with a new sliced source.
-    var override = this.source.slice(start, end || this.source.length);
+    var override = this.source.slice(start, end);
     return new Audio(this, override);
   }
 };
