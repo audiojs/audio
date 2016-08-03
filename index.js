@@ -20,32 +20,29 @@ var Audio = function Audio(options, _override) {
   this.byteOrder = options.byteOrder || DEFAULT_BYTE_ORDER;
 
   // Byte depth: Bit depth in bytes.
-  this.byteDepth = options.byteDepth || Math.ceil(this.bitDepth / 8);
-
-  // Byte order: Either "BE" or "LE".
-  this.byteOrder = options.byteOrder || 'LE';
+  this._byteDepth = options._byteDepth || Math.ceil(this.bitDepth / 8);
 
   // Block size: Byte depth alignment with channels.
-  this.blockSize = options.blockSize || this.channels * this.byteDepth;
+  this._blockSize = options._blockSize || this.channels * this._byteDepth;
 
   // Block rate: Sample rate alignment with blocks.
-  this.blockRate = options.blockRate || this.blockSize * this.sampleRate;
+  this._blockRate = options._blockRate || this._blockSize * this.sampleRate;
 
   // Source: Buffer containing PCM data that is formatted to the options.
   if (options.source || _override) {
     this.source = _override || options.source;
   } else {
-    var length = this.blockRate * options.duration || 0;
+    var length = this._blockRate * options.duration || 0;
     this.source = new Buffer(length).fill(0);
   }
 
   // Check that the source is aligned with the block size.
-  if (this.source.length % this.blockSize !== 0 && !options.noAssert) {
+  if (this.source.length % this._blockSize !== 0 && !options.noAssert) {
     throw new RangeError('Source is not aligned to the block size.');
   }
 
   // Length: The amount of blocks.
-  this.length = options.length || this.source.length / this.blockSize;
+  this.length = options.length || this.source.length / this._blockSize;
 
   // Signed: Whether or not the PCM data is signed.
   if (typeof options.signed === 'undefined') {
@@ -56,8 +53,9 @@ var Audio = function Audio(options, _override) {
   }
 
   // Alias helper functions
-  var order = (this.byteDepth * 8) === 8 ? '' : this.byteOrder;
-  var typeTag = (this.signed ? '' : 'U') + 'Int' + (this.byteDepth * 8) + order;
+  var order = (this._byteDepth * 8) === 8 ? '' : this.byteOrder;
+  var sign = this.signed ? '' : 'U';
+  var typeTag = sign + 'Int' + (this._byteDepth * 8) + order;
   this._write = this.source['write' + typeTag].bind(this.source);
   this._read = this.source['read' + typeTag].bind(this.source);
 };
@@ -70,9 +68,9 @@ Audio.prototype = {
     channel = channel || 1;
 
     // Align inputs to source bytes.
-    offset *= this.blockSize;
+    offset *= this._blockSize;
     channel--;
-    channel *= this.byteDepth;
+    channel *= this._byteDepth;
 
     // Read value from source.
     return this._read(offset + channel);
@@ -83,9 +81,9 @@ Audio.prototype = {
     channel = channel || 1;
 
     // Align inputs to source bytes.
-    offset *= this.blockSize;
+    offset *= this._blockSize;
     channel--;
-    channel *= this.byteDepth;
+    channel *= this._byteDepth;
 
     // Write value to source.
     return this._write(value, offset + channel);
@@ -97,8 +95,8 @@ Audio.prototype = {
     end = typeof end === 'number' ? end : this.length;
 
     // Align start and end to blocs.
-    start *= this.blockSize;
-    end *= this.blockSize;
+    start *= this._blockSize;
+    end *= this._blockSize;
 
     // Replicate self, with a new sliced source.
     var override = this.source.slice(start, end);
