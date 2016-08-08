@@ -42,7 +42,7 @@ It saves your time by doing the reading and writing math for you, using properti
 
 Note: Properties not used in the methods are still important, like with `sampleRate` with playback.
 
-Here is an example of using `.read` and `.write` with `through2` to reverse some audio:
+Here is an example of a utility with `through2` to reverse some audio:
 
 ```javascript
 function reverse(options) {
