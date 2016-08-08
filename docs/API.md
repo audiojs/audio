@@ -98,6 +98,15 @@ Whether the `source` values are signed or unsigned.
 audio.signed === true;
 ```
 
+## Extras
+- `_byteDepth`: Bit-depth turned into ceil rounded bytes. (`ceil (bitDepth / 8)`)
+- `_blockSize`: The size of a block (pulses of each channel) in bytes. (`channels * _byteDepth`)
+- `_read`: A Buffer read function adjusted to `_blockSize`.  [i.e. `Buffer#read<signed>Int<_blockSize>(...)`
+- `_write`: Just like `_read` but with `Buffer#write`.
+- `_blockRate`: Amount of blocks per second, for simulating time. (i.e. used with duration, or in playback)
+
+Refer to this [_Stereo source_][stereo-source] flowchart for help with terminology.
 
 [npm-audiojs]: https://www.npmjs.com/browse/keyword/audiojs
 [node-speaker]: https://github.com/tootallnate/node-speaker
+[stereo-source]: flowcharts/stereo-source.svg
