@@ -1,4 +1,4 @@
-## Writing Utilities
+## Quick Rules
 Create and use utilities for any type of audio manipulation.  They are hosted on
 npm to be shared and reused, creating a framework.  Here are some common utility
 guidelines to keep a clean structured system:
@@ -34,5 +34,37 @@ guidelines to keep a clean structured system:
     }
     ```
 
+## Using `Audio`
+It saves your time by doing the reading and writing math for you, using properties you tell it to use. More specifically `Audio`'s purpose is to:
+ 1. Store the source of some [PCM audio][pcm-audio].
+ 2. Store the properties of that source (duration of the audio, bit depth, amount of channels, signed values, and the byte order).
+ 3. Does the audio math for you in the methods (i.e. `.read`, `.write`, and `.slice`).
+
+Note: Properties not used in the methods are still important, like with `sampleRate` with playback.
+
+Here is an example of using `.read` and `.write` with `through2` to reverse some audio:
+
+```javascript
+function reverse(options) {
+  options = options || {};
+  return through2.obj(function(audio, enc, callback) {
+    // Reverse the source
+    audio.source = audio.source.reverse();
+
+    // Pipe audio.
+    callback(null, audio);
+  });
+};
+
+// Example of using:
+fs.createReadStream('./foo.wav')
+.pipe(decodeWav())
+.pipe(reverse())
+// you've used your utility!
+```
+
+(You don't have to use `through2`, only for simplicity here)
+
 [npm-audiojs]: https://www.npmjs.com/browse/keyword/audiojs
 [through2]: https://www.npmjs.com/package/through2
+[pcm-audio]: https://en.wikipedia.org/wiki/Pulse-code_modulation
