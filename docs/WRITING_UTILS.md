@@ -8,11 +8,12 @@ guidelines to keep a clean structured system:
     `Duplex` depending on the purpose.  An example of using plugins:
 
     ```js
-    fs.createWriteStream('./') // Create buffer stream
-    .pipe(decode({ ...options })) // Decode utility
-    .pipe(manipulate(...)) // Manipulation utility
-    .pipe(encode(...)) // Encoding utility
-    // ... others
+    fs.createReadStream('./foo.wav') // Create buffer stream
+    .pipe(decodeWav({ ...options })) // Decode utility (Buffer of WAV -> Audio)
+    .pipe(manipulate(...)) // Manipulation utility (mutates Audio)
+    .pipe(encodeMp3(...)) // Encoding utility (Audio -> Buffer of MP3)
+    // ... use the buffer for whatever...
+    .pipe(fs.createWriteStream('./foo.mp3'));
     ```
 
  2. Prefix your utility with `audio-` on npm, i.e. `audio-decode-wav`
