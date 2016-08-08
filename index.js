@@ -4,7 +4,7 @@ var DEFAULT_BIT_DEPTH = 16;
 var DEFAULT_CHANNELS = 2;
 var DEFAULT_BYTE_ORDER = 'LE';
 
-var Audio = function Audio(options, _override) {
+var Audio = function Audio(options, _replaceSource) {
   options = options || {};
 
   // Sample rate: PCM sample rate in hertz
@@ -29,8 +29,8 @@ var Audio = function Audio(options, _override) {
   this._blockRate = options._blockRate || this._blockSize * this.sampleRate;
 
   // Source: Buffer containing PCM data that is formatted to the options.
-  if (options.source || _override) {
-    this.source = _override || options.source;
+  if (options.source || _replaceSource) {
+    this.source = _replaceSource || options.source;
   } else {
     var length = this._blockRate * options.duration || 0;
     this.source = new Buffer(length).fill(0);
