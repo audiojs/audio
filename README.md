@@ -22,7 +22,7 @@ See [the "docs" folder](/docs) for more information on using `Audio`.
 
 ## Installation
 ```shell
-$ npm install --save audio
+$ npm install --save audio@next
 ```
 For use in the browser use [Browserify][browserify].
 
