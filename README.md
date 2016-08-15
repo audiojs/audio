@@ -28,7 +28,7 @@ For use in the browser use [Browserify][browserify].
 
 ## Also See
 - [Audio.js][audiojs]: A suite of utilities based around this object.
-- [node-speaker][node-speaker]: Write PCM data to the speakers in Node.js.
+- [`audio-out`][audio-out]: Output an Audio object to the speaker
 
 ## Credits
 | ![jamen][avatar] |
@@ -47,5 +47,6 @@ For use in the browser use [Browserify][browserify].
 [browserify]: http://npmjs.com/browserify
 [npm-audiojs]: https://www.npmjs.com/browse/keyword/audiojs
 [audiojs]: https://github.com/audiojs
+[audio-out]: https://github.com/audiojs/out
 [pcm]: https://en.wikipedia.org/wiki/Pulse-code_modulation
 [node-speaker]: https://github.com/tootallnate/node-speaker
