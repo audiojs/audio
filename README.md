@@ -1,31 +1,34 @@
 # Audio [![Travis][travis-icon]][travis] [![Gitter][gitter-icon]][gitter]
 > Audio in JavaScript.
 
-An object that enables you to store, read, and write [PCM audio][pcm] data more easily.  You can use [algorithmic functions][npm-audiojs] for any type of audio manipulation, such as compression or conversion to and from different audio formats.  This object works as the building block for audio in JavaScript, and [Audio.js][audiojs] is a suite of common audio utilities based on top of it.
+An object that enables you to store, read, and write [PCM audio][pcm] data more easily.  You can use [utilities][npm-audiojs] for any type of audio manipulation, such as compression or conversion to and from different audio formats.  This object works as the building block for audio in JavaScript, and [Audio.js][audiojs] is a suite of common audio utilities using it in streams.
 
 ```javascript
 var test = new Audio({
-  sample: [34, 334, -23, 0, ...pulses], // Pulse data or buffer
-  sampleRate: 44100, // Sample rate
-  bitDepth: 16, // Bit depth
-  length: 44100 * 10, // 10s length
-  byteOrder: 'LE', // Either BE or LE
-  // ...
+  sampleRate: 44100,
+  bitDepth: 16,
+  source: new Buffer(/* ... */),
+  // more options in docs...
 });
-```
-See more options and usage in [the documentation](/docs).
 
-## Usage
+// Read left channel on block 2:
+var left = test.read(2, 1);
+
+// Read right channel on block 3
+var right = test.read(3, 2);
+```
+
+See [the "docs" folder](/docs) for more information on using `Audio`.
+
+## Installation
 ```shell
 $ npm install --save audio
 ```
 For use in the browser use [Browserify][browserify].
 
-See [the "docs" folder](/docs) for more information on using `Audio`.
-
 ## Also See
- - [Audio.js][audiojs]: A suite of utilities based around this object.
- - [node-speaker][node-speaker]: Write PCM data to the speakers in Node.js.
+- [Audio.js][audiojs]: A suite of utilities based around this object.
+- [node-speaker][node-speaker]: Write PCM data to the speakers in Node.js.
 
 ## Credits
 | ![jamen][avatar] |
