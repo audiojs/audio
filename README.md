@@ -1,52 +1,44 @@
-# Audio [![Travis][travis-icon]][travis] [![Gitter][gitter-icon]][gitter]
-> Audio in JavaScript.
-
-An object that enables you to store, read, and write [PCM audio][pcm] data more easily.  You can use [utilities][npm-audiojs] for any type of audio manipulation, such as compression or conversion to and from different audio formats.  This object works as the building block for audio in JavaScript, and [Audio.js][audiojs] is a suite of common audio utilities using it in streams.
+# Audio [![build status][travis-i]][travis] [![gitter][gitter-i]][gitter]
+> Framework for handling audio in JavaScript.
 
 ```javascript
-var test = new Audio({
-  sampleRate: 44100,
-  bitDepth: 16,
-  source: new Buffer(/* ... */),
-  // more options in docs...
-});
-
-// Read left channel on block 2:
-var left = test.read(2, 1);
-
-// Read right channel on block 3
-var right = test.read(3, 2);
+fs.createReadStream('./foo.wav')
+// Use streams to create, manipulate, or serialize audio.
+// Decoding the read stream into Audio here with audio-wav.
+.pipe(wav.decode())
+// Create streams to use Audio in the pipeline:
+.pipe(through2.obj(function(audio, enc, callback) {
+  // Read or write values on the audio.
+  var right = audio.read(100, 2);
+  audio.write(7, 500, 1);
+  // Push audio in the stream.
+  callback(null, audio);
+}));
 ```
-
-See [the "docs" folder](/docs) for more information on using `Audio`.
+(See more examples and usage in [the docs](docs/))
 
 ## Installation
-```shell
-$ npm install --save audio@next
-```
-For use in the browser use [Browserify][browserify].
+Use the [npm keyword "audiojs"][npm-audiojs] to find utilities (with directions in their READMEs).
 
-## Also See
-- [Audio.js][audiojs]: A suite of utilities based around this object.
-- [`audio-out`][audio-out]: Output an Audio object to the speaker
+If you are creating a utility and need to use the `Audio` object:
+```shell
+$ npm install --save audio
+```
 
 ## Credits
-| ![jamen][avatar] |
-|:---:|
-| [Jamen Marzonie][github] |
+
+|  ![jamen][author-avatar]  |
+|:-------------------------:|
+| [Jamen Marz][author-site] |
 
 ## License
-[MIT](LICENSE) &copy; Jamen Marzonie
+[MIT](LICENSE) &copy; Jamen Marz
 
-[avatar]: https://avatars.githubusercontent.com/u/6251703?v=3&s=125
-[github]: https://github.com/jamen
+
 [travis]: https://travis-ci.org/audiojs/audio
-[travis-icon]: https://img.shields.io/travis/audiojs/audio.svg
+[travis-i]: https://travis-ci.org/audiojs/audio.svg
 [gitter]: https://gitter.im/audiojs/audio
-[gitter-icon]: https://img.shields.io/gitter/room/audiojs/audio.svg
-[browserify]: http://npmjs.com/browserify
+[gitter-i]: https://badges.gitter.im/Join%20Chat.svg
 [npm-audiojs]: https://www.npmjs.com/browse/keyword/audiojs
-[audiojs]: https://github.com/audiojs
-[audio-out]: https://github.com/audiojs/out
-[pcm]: https://en.wikipedia.org/wiki/Pulse-code_modulation
-[node-speaker]: https://github.com/tootallnate/node-speaker
+[author-site]: https://github.com/jamen
+[author-avatar]: https://avatars.githubusercontent.com/u/6251703?v=3&s=125
