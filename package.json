@@ -1,7 +1,7 @@
 {
   "name": "audio",
   "version": "2.0.0-0",
-  "description": "Digital audio in JavaScript.",
+  "description": "Framework for handling audio in JavaScript.",
   "repository": "audiojs/audio",
   "main": "index.js",
   "license": "MIT",
