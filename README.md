@@ -3,10 +3,10 @@
 
 ```javascript
 // Use streams to create, manipulate, or serialize audio.
-// For example, audio-wav, for decoding and encoding WAV.
+// For example, decoding and encoding with audio-wav:
 fs.createReadStream('./foo.wav').pipe(wav.decode())
 
-// Create your own streams to use the Audio directly.
+// Create your own streams to use the PCM data directly.
 .pipe(through2.obj(function(audio, enc, callback) {
   // Read pulse values
   var left = audio.read(200, 1);
