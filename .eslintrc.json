@@ -1,3 +1,6 @@
 {
-  "extends": "google"
+  "extends": "google",
+  "rules": {
+    "linebreak-style": 0
+  }
 }
