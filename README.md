@@ -1,31 +1,80 @@
 # Audio [![build status][travis-i]][travis] [![gitter][gitter-i]][gitter]
-> Framework for handling audio in JavaScript.
 
-```javascript
-// Use streams to create, manipulate, or serialize audio.
-// For example, decoding and encoding with audio-wav:
-fs.createReadStream('./foo.wav').pipe(wav.decode())
+> High-level class for working with waveform/audio data.
 
-// Create your own streams to use the PCM data directly.
-.pipe(through2.obj(function(audio, enc, callback) {
-  // Read pulse values
-  var left = audio.read(200, 1);
-  var right = audio.read(100, 2);
+[![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
 
-  // Write pulse values
-  audio.write(7, 500, 2);
+```js
+const Audio = require('audio');
 
-  // Push audio to continue pipe chain.
-  callback(null, audio);
-}));
+let audio = Audio('./foo.wav');
+
+//properties
+audio.duration;
+audio.channels;
+audio.sampleRate;
+audio.buffer;
+audio.bars;
+
+//CRUD
+audio.load(url|audioBuffer|audio|arrayBuffer|number|listOfSourcesForSprite);
+audio.read(start, len);
+audio.write(start, buf|array);
+audio.splice(start, number, buf|array?);
+audio.push(buf|array);
+audio.shift(buf|array);
+
+//playback
+audio.play();
+audio.pause();
+audio.currentTime;
+audio.rate;
+audio.loop;
+audio.paused;
+audio.volume;
+
+//get frequencies data for the offset
+audio.frequencies(start?, fftSize?);
+
+//get grouped representation of the time domain data
+audio.bars(groupSize, channel, start?, end?);
+
+//normalize selection or whole length
+audio.slice(start?, end?);
+audio.normalize(start?, end?);
+audio.reverse(start?, end?);
+audio.inverse(start?, end?);
+audio.trim(start?, end?);
+audio.gain(volume, start?, end?);
+audio.filter(params, start?, end?);
+audio.map(fn(v, x, channel), start?, end?);
+audio.mix(otherAudio, start?, end?)
+audio.fadeIn(time, start?, end?);
+audio.fadeOut(time, start?, end?);
+audio.convolve(a, b);
+audio.operation(fn, a, b);
+
+//events
+audio.on('load');
+audio.on('end');
+audio.on('play');
+audio.on('pause');
+audio.on('change');
+
+//utils
+audio.download(fileName);
+ausio.toString();
+ausio.toBuffer();
+ausio.toArray();
+ausio.toJSON();
 ```
 
-A framework and object for using audio in JavaScript.  Based on top of streams to allow chaining utilities that wrap more complex operations.
-
 ## Documentation
+
 See [the `docs/` folder](docs/) for info on the framework and object.  Use [StackOverflow][stackoverflow] for your questions.
 
 ## Installation
+
 Use the [npm keyword "audiojs"][npm-audiojs] to find utilities (with directions in their own READMEs).
 
 If you are creating a utility and need to use the `Audio` object:
