@@ -14,6 +14,8 @@ const extend = require('just-extend');
 const decode = require('audio-decode');
 const isBrowser = require('is-browser');
 const util = require('audio-buffer-utils');
+const Source = require('audio-source');
+const play = require('./src/audio-play');
 
 
 module.exports = Audio;
@@ -109,7 +111,7 @@ Audio.prototype.load = function load (src, cb) {
 				this.emit('error', err);
 				throw err;
 			}
-			decode(arrayBuf, {context: this.context}, (err, buf) => {
+			decode(arrayBuf, (err, buf) => {
 				if (err) {
 					cb && cb(err);
 					return this.emit('error', err);
@@ -143,7 +145,12 @@ Audio.prototype.write = function (data) {
 
 //preview the sound
 Audio.prototype.play = function play () {
+	//get slice of data and send it to output
+	let buffer = util.slice(this.buffer, from?, to?);
 
+	play(buffer, how?);
+
+	return this;
 }
 
 
