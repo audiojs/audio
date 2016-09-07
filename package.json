@@ -1,16 +1,18 @@
 {
   "name": "audio",
   "version": "2.0.0-1",
-  "description": "Class for handling audio in JavaScript",
+  "description": "Class for audio in JavaScript",
   "repository": "audiojs/audio",
   "main": "index.js",
   "license": "MIT",
-  "files": [
-    "index.js"
-  ],
+  "browser": {
+    "./src/play.js": "./src/browser-play.js"
+  },
   "scripts": {
-    "lint": "eslint index.js test",
-    "test": "npm run lint && tape test/*.js | tap-spec"
+    "lint": "eslint index.js --ignore-pattern test*",
+    "preversion": "npm run lint && npm run test",
+    "test": "node test.js",
+    "test:browser": "budo test.js"
   },
   "devDependencies": {
     "audio-lena": "^1.0.1",

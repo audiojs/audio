@@ -25,7 +25,7 @@ audio.push(buf|array);
 audio.shift(buf|array);
 
 //playback
-audio.play();
+audio.play(start?, end?);
 audio.pause();
 audio.currentTime;
 audio.rate;
