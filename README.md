@@ -14,9 +14,9 @@ audio.duration;
 audio.channels;
 audio.sampleRate;
 audio.buffer;
-audio.bars;
 
 //CRUD
+//put to sep module?
 audio.load(url|audioBuffer|audio|arrayBuffer|number|listOfSourcesForSprite);
 audio.read(start, len);
 audio.write(start, buf|array);
@@ -25,21 +25,20 @@ audio.push(buf|array);
 audio.shift(buf|array);
 
 //playback
-audio.play(start?, end?);
-audio.pause();
+//put to audio-play mb?
+//what’s up with arguments?
+audio.play(start?, end?, opts?);
 audio.currentTime;
 audio.rate;
 audio.loop;
 audio.paused;
 audio.volume;
+audio.pause();
 
 //get frequencies data for the offset
 audio.frequencies(start?, fftSize?);
 
-//get grouped representation of the time domain data
-audio.bars(groupSize, channel, start?, end?);
-
-//normalize selection or whole length
+//utilities
 audio.slice(start?, end?);
 audio.normalize(start?, end?);
 audio.reverse(start?, end?);

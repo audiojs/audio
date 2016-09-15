@@ -8,14 +8,13 @@
 const AudioBuffer = require('audio-buffer');
 const Emitter = require('events').EventEmitter;
 const inherits = require('inherits');
-const xhr = require('xhr');
-const xhrProgress = require('xhr-progress');
+const load = require('audio-loader');
 const extend = require('just-extend');
-const decode = require('audio-decode');
 const isBrowser = require('is-browser');
 const util = require('audio-buffer-utils');
-const Source = require('audio-source');
-const play = require('./src/audio-play');
+const play = require('audio-play');
+const decode = require('audio-decode');
+const normOffset = require('negative-index');
 
 
 module.exports = Audio;
@@ -27,173 +26,170 @@ inherits(Audio, Emitter);
 
 //@contructor
 function Audio(source, options) {
+	if (!(this instanceof Audio)) return new Audio(source, options);
+
 	options = options || {};
 
 	extend(this, options);
 
+
+	//launch init
+	this.isReady = false;
+
+	if (this.buffer) {
+		this.isReady = true;
+		this.emit('ready');
+	}
 	//load source from url
-	if (typeof source === 'string') {
-		this.load(source);
-	}
-	else if (source instanceof ArrayBuffer) {
-		this.decode(source);
-	}
 	else {
-		//create audio buffer from any source data
-		this.buffer = util.create(source);
+		this.load(source, () => {
+			this.isReady = true;
+			this.emit('ready');
+		});
 	}
-
-
-
-
-	// // Sample rate: PCM sample rate in hertz
-	// this.sampleRate = options.sampleRate || DEFAULT_SAMPLE_RATE;
-
-	// // Bit depth: PCM bit-depth.
-	// this.bitDepth = options.bitDepth || DEFAULT_BIT_DEPTH;
-
-	// // Amount of channels: Mono, stereo, etc.
-	// this.channels = options.channels || DEFAULT_CHANNELS;
-
-	// // Byte order: Either "BE" or "LE".
-	// this.byteOrder = options.byteOrder || DEFAULT_BYTE_ORDER;
-
-	// // Byte depth: Bit depth in bytes.
-	// this._byteDepth = options._byteDepth || Math.ceil(this.bitDepth / 8);
-
-	// // Block size: Byte depth alignment with channels.
-	// this._blockSize = options._blockSize || this.channels * this._byteDepth;
-
-	// // Block rate: Sample rate alignment with blocks.
-	// this._blockRate = options._blockRate || this._blockSize * this.sampleRate;
-
-	// Source: Buffer containing PCM data that is formatted to the options.
-	// if (options.source || _replaceSource) {
-	//   this.source = _replaceSource || options.source;
-	// } else {
-	//   var length = this._blockRate * options.duration || 0;
-	//   this.source = new Buffer(length).fill(0);
-	// }
-
-	// Check that the source is aligned with the block size.
-	// if (this.source.length % this._blockSize !== 0 && !options.noAssert) {
-	//   throw new RangeError('Source is not aligned to the block size.');
-	// }
 }
 
 
-
-//regulate volume of playback/output/read etc
-Audio.prototype.volume = 1;
-
-//regulate rate of playback/output/read etc
-Audio.prototype.rate = 1;
-
-
 //load file by url
-Audio.prototype.load = function load (src, cb) {
-	//TODO: add audio-element mode
-	//can load file in node
-	if (!isBrowser && /\\\/\./.test(src[0])) {
-		fs.readFile();
-	}
+Audio.prototype.load = function (src, cb) {
+	if (!src) return this;
 
-	let xhrObject = xhr({
-			uri: src,
-			responseType: 'arraybuffer'
-		},
-		(err, resp, arrayBuf) => {
-			if (!/^2/.test(resp.statusCode)) {
-				err = new Error('Status code ' + resp.statusCode + ' requesting ' + src)
-			}
-			if (err) {
-				cb && cb(err);
-				this.emit('error', err);
-				throw err;
-			}
-			decode(arrayBuf, (err, buf) => {
-				if (err) {
-					cb && cb(err);
-					return this.emit('error', err);
-				}
-
-				this.buffer = buf;
-
-				cb && cb(null, buf);
-				this.emit('load', buf);
-			});
-		});
-
-	xhrProgress(xhrObject).on('data', (amount, total) => {
-		this.emit('progress', amount, total);
+	load(src).then(audioBuffer => {
+		this.buffer = audioBuffer;
+		cb && cb(null, audioBuffer);
+		this.emit('load', audioBuffer);
+	}, err => {
+		cb && cb(err);
+		this.emit('error', err);
 	});
 
 	return this;
 }
 
 
-//return slice of data as audio buffer
-Audio.prototype.read = function () {
+//return slice of data as an audio buffer
+Audio.prototype.read = function (start, duration) {
+	start = normOffset(start || 0, this.buffer.duration) * this.buffer.sampleRate;
+	duration = (duration || this.buffer.duration) * this.buffer.sampleRate;
+	let buf = util.slice(this.buffer, start, start + duration);
 
+	//FIXME: pad if duration is more than buffer.duration?
+
+	return buf;
 }
 
-//put a slice of data as audio buffer
-Audio.prototype.write = function (data) {
+//put audio buffer data by offset
+Audio.prototype.write = function (buffer, offsetTime) {
+	if (!buffer || !buffer.length) return this;
 
-}
+	let offset = normOffset(offsetTime || 0, this.buffer.duration) * this.buffer.sampleRate;
 
+	let beginning = util.slice(0, offset);
+	let end = util.slice(offset);
 
-//preview the sound
-Audio.prototype.play = function play () {
-	//get slice of data and send it to output
-	let buffer = util.slice(this.buffer, from?, to?);
-
-	play(buffer, how?);
+	this.buffer = util.concat(beginning, buffer, end);
 
 	return this;
 }
 
 
-//pause playback
-Audio.prototype.pause = function pause () {
+//preview the sound
+Audio.prototype.play = function (how, end) {
+	//if not ready - wait for it
+	if (!this.buffer) return this.once('ready', () => this.play(how, end));
 
+	if (!this.playback) {
+		how = how || {};
+		how.autostart = true;
+		this.playback = play(this.buffer, how, () => {
+			this.stop();
+			end && end();
+		});
+	}
+	else this.playback.play();
+
+	this.emit('play');
+
+	return this;
+}
+
+//pause playback
+Audio.prototype.pause = function () {
+	if (this.playback) this.playback.pause();
+
+	this.emit('pause');
+
+	return this;
+}
+
+//reset playback
+Audio.prototype.stop = function () {
+	if (this.playback) this.playback.pause();
+	this.playback = null;
+
+	this.emit('stop');
+
+	return this;
 }
 
 
-//utilities
+//Modifiers
+
+//regulate volume of playback/output/read etc
+Audio.prototype.volume = function volume () {
+	return this;
+};
+
+//regulate rate of playback/output/read etc
+Audio.prototype.rate = function rate () {
+	return this;
+};
+
 Audio.prototype.reverse = function reverse () {
 
+	return this;
 }
 Audio.prototype.size = function size () {
 
+	return this;
 }
 Audio.prototype.mix = function mix () {
 
+	return this;
 }
 Audio.prototype.trim = function trim () {
 
+	return this;
 }
 Audio.prototype.normalize = function normalize () {
 
+	return this;
 }
 Audio.prototype.shift = function shift () {
 
+	return this;
 }
 Audio.prototype.pad = function pad () {
 
+	return this;
 }
 Audio.prototype.concat = function concat () {
 
+	return this;
 }
 Audio.prototype.slice = function slice () {
 
+	return this;
 }
 Audio.prototype.invert = function invert () {
 
+	return this;
 }
 Audio.prototype.copy = function copy () {
 
+	return this;
 }
 Audio.prototype.isEqual = function isEqual () {
 
+	return this;
 }
