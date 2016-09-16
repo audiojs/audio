@@ -132,7 +132,7 @@ Methods are mutable, because data may be pretty big. If you need immutability do
 //slice the data to indicated part
 audio.slice(start?, end?)
 
-//normalize part of
+//normalize fragment or complete data
 audio.normalize(start?, end?)
 
 //change the direction of samples for the indicated part
@@ -144,26 +144,30 @@ audio.inverse(start?, end?)
 //make sure there is no silence for the indicated range
 audio.trim(start?, end?, threshold?)
 
-//make sure there is silence for the indicated range
-audio.padStart(duration?)
-audio.padEnd(duration?)
+//make sure the duration of the fragment is ok
+audio.padStart(duration?, value?)
+audio.padEnd(duration?, value?)
 
-//change volume of audio
+//change volume of the range
 audio.gain(volume, start?, end?)
 
-//merge second audio into the first one at the indicated fragment
+//cancel values less then indicated threshold 0
+audio.threshold(value, start?, end);
+
+//merge second audio into the first one at the indicated range
 audio.mix(otherAudio, start?, end?)
 
 //change sample rate to the new one
 audio.resample(sampleRate, how?)
 
 //upmix or downmix channels
-audio.map(channelsNumber, how?)
+audio.remap(channelsNumber, how?)
 
-//change play rate
+//change play rate, pitch will be shifted
 audio.scale(amount, start?, end?)
 
 //apply per-sample processing
+audio.fill(value, start?, end?)
 audio.fill((value, n, channel) => value, start?, end?)
 
 //fill with 0
@@ -182,6 +186,10 @@ audio.process(require('audio-biquad')({frequency:2000, type: 'lowpass'}))
 
 //process audio with async function
 audio.process((audioBuffer, cb) => cb(null, audioBuffer), start?, end?)
+
+//reserved methods
+audio.map()
+audio.filter()
 ```
 
 ### Events
@@ -197,19 +205,19 @@ audio.on('load')
 audio.on('play')
 audio.on('pause')
 audio.on('stop')
+audio.on('ended')
 ```
 
 ### Utils
 
 ```js
-//get new audio with copied data into a separate buffer
+//get new audio with copied data into a new buffer
 audio.clone()
 
-//get audio wrapper for the part of the buffer. Audio buffer will be kept the same.
-//useful for creating sprites
+//get audio wrapper for the part of the buffer not copying the data. Mb useful for audio sprites
 audio.subaudio(start?, end?)
 
-//download file in browser, place audio to a file in node
+//download as a wav file in browser, place audio to a file in node
 audio.download(fileName)
 
 //return buffer representation of data
@@ -218,16 +226,15 @@ audio.toBuffer()
 
 ## Motivation
 
-Looking at [Color](https://npmjs.org/package/color) and [jQuery](https://jquery.org), there was no analogous class for audio. _Audio_ is intended to fill that gap.
-
-It embodies reliable and performant practices of modern components.
+We wanted to create analog of [Color](https://npmjs.org/package/color) and [jQuery](https://jquery.org) for audio. It embodies reliable and performant practices of modern components.
 
 
 ## Credits
 
-|  ![jamen][author-avatar]  |
-|:-------------------------:|
-| [Jamen Marz][author-site] |
+|  ![jamen][author-avatar]  | ![dfcreative][https://avatars2.githubusercontent.com/u/300067?v=3&u=9c2bd522c36d3ae54f3957b0babc2ff27ca4b91c&s=140] |
+|:-------------------------:|:-------------------------:|
+| [Jamen Marz][author-site] | [Dima Yv][https://github.com/dfcreative] |
+
 
 ## License
 [MIT](LICENSE) &copy; Jamen Marz
