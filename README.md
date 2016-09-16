@@ -94,7 +94,7 @@ audio.pull(start?, duration?)
 
 ### Playback
 
-Preview the selected chunk.
+Preview the selected range.
 
 ```js
 audio.play(start?, end?, {loop: false, rate: 1, volume: 1}?)
@@ -104,33 +104,29 @@ audio.stop()
 
 ### Metrics
 
-Think carefully here.
-
 ```js
-//get frequencies data for the offset
-audio.frequencies(start?, end?, how?)
+//get array with frequencies for the offset (make FFT)
+let magnitudes = audio.frequencies(start?, end?, how?)
 
 //estimate average, max, min and other params for the indicated range
-audio.stats(start?, end?)
+let stats = audio.stats(start?, end?)
 
 //estimate loudness for a fragment
-audio.loudness(start?, end?)
+let loudness = audio.loudness(start?, end?)
 
 //guess tonic, or main frequency for the range — returns scientific notation
-audio.tone(start?, end?)
+let tonic = audio.tone(start?, end?)
 
 //guess tempo for the range
-audio.tempo(start?, end?)
+let tempo = audio.tempo(start?, end?)
 
 //size of underlying buffer, in bytes
-audio.size(start?, end?)
+let size = audio.size(start?, end?)
 ```
 
 ### Manipulations
 
-All the manipulation methods are mutable, because data might be pretty big. If you need immutability do `audio.clone()` between each operation.
-
-We should think carefully about this API.
+Methods are mutable, because data may be pretty big. If you need immutability do `audio.clone()` after each method call.
 
 ```js
 //slice the data to indicated part
