@@ -231,9 +231,9 @@ We wanted to create analog of [Color](https://npmjs.org/package/color) and [jQue
 
 ## Credits
 
-|  ![jamen][author-avatar]  | ![dfcreative][https://avatars2.githubusercontent.com/u/300067?v=3&u=9c2bd522c36d3ae54f3957b0babc2ff27ca4b91c&s=140] |
+|  ![jamen][author-avatar]  | ![dfcreative](https://avatars2.githubusercontent.com/u/300067?v=3&u=9c2bd522c36d3ae54f3957b0babc2ff27ca4b91c&s=140) |
 |:-------------------------:|:-------------------------:|
-| [Jamen Marz][author-site] | [Dima Yv][https://github.com/dfcreative] |
+| [Jamen Marz][author-site] | [Dima Yv](https://github.com/dfcreative) |
 
 
 ## License
