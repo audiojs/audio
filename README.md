@@ -1,20 +1,59 @@
 # Audio [![build status][travis-i]][travis] [![gitter][gitter-i]][gitter]
 
-> High-level class for working with waveform/audio data.
+Class for processing audio in javascript, nodejs/browser.
 
 [![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
 
 ```js
 const Audio = require('audio');
 
-let audio = Audio('./foo.wav');
+//Load sample, trim/normalize and download back
+Audio('./sample.mp3').trim().normalize().download();
 
-//properties
-audio.duration;
-audio.channels;
-audio.sampleRate;
-audio.buffer;
+//Simple montage
+let result = Audio('./first.mp3').write(Audio(.5)).write(Audio('./second.mp3'));
 
+result.normalize().download();
+```
+
+## API
+
+<details><summary>**`const Audio = require('audio')`**</summary>
+</details>
+<details><summary>**`let audio = Audio(source, options? ready?)`**</summary>
+
+Create _Audio_ instance from the _source_, invoke _ready_ callback if passed.
+
+Possible source values:
+
+| type | meaning |
+|---|---|
+| _String_ | Load audio from URL or local path. |
+| _Number_ | Create audio with silence. |
+| _AudioBuffer_ | Wrap _AudioBuffer_ instance. [audio-buffer](https://npmjs.org/package/audio-buffer) can be used to polyfill _AudioBuffer_. |
+| _ArrayBuffer_, _Buffer_ | Decode data contained in buffer, if it is encoded. |
+| _Array_, _FloatArray_ | Create audio from samples within `-1..1` range. |
+
+Possible options:
+
+| name | meaning |
+|---|---|
+| _context_ | WebAudioAPI context to use (optional). |
+
+</details>
+<details><summary>**`audio.duration`**</summary>
+</details>
+<details><summary>**`audio.channels`**</summary>
+</details>
+<details><summary>**`audio.sampleRate`**</summary>
+</details>
+<details><summary>**`audio.buffer`**</summary>
+
+_AudioBuffer_ instance with actual samples data.
+
+</details>
+
+```js
 //CRUD
 //put to sep module?
 audio.load(url|audioBuffer|audio|arrayBuffer|number|listOfSourcesForSprite);
@@ -68,9 +107,11 @@ ausio.toArray();
 ausio.toJSON();
 ```
 
-## Documentation
+## Motivation
 
-See [the `docs/` folder](docs/) for info on the framework and object.  Use [StackOverflow][stackoverflow] for your questions.
+_Audio_ is designed to be an universal and easy to use class for manipulating audio.
+It is like [Color](https://npmjs.org/package/color) for color manipulations, or [jQuery](https://jquery.org) for DOM manipulations. It embodies best modern practices of reliable components.
+
 
 ## Installation
 
