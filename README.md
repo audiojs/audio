@@ -5,16 +5,16 @@ Class for audio manupulations in javascript, nodejs/browser.
 [![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
 
 ```js
-const Audio = require('audio');
+const Audio = require('audio')
 
 //Load sample
-let audio = Audio('./sample.mp3');
+let audio = Audio('./sample.mp3')
 
 //trim/normalize, fade
-audio.trim().normalize().fadeIn(.3).fadeOut(1);
+audio.trim().normalize().fadeIn(.3).fadeOut(1)
 
 //download processed audio back
-audio.download();
+audio.download()
 ```
 
 ## API
@@ -22,9 +22,9 @@ audio.download();
 ### Creating
 
 ```js
-const Audio = require('audio');
+const Audio = require('audio')
 
-let audio = new Audio(source, options?, ready?);
+let audio = new Audio(source, options?, ready?)
 ```
 
 Create _Audio_ instance from the _source_, invoke _ready_ callback.
@@ -75,20 +75,20 @@ audio.loop;
 
 ```js
 //Load audio from source. Source can be any argument, same as in constructor.
-audio.load(source);
+audio.load(source, (err, audio) => {})
 
-//Put data by the offset. Source can be an _Audio_, _AudioBuffer_ or _Stream_.
+//Put source data by the offset, can be an _Audio_, _AudioBuffer_ or _Stream_.
 //Plays role of concat/push/unshift/set
-audio.write(source, start?);
+audio.write(source, start?)
 
-//Remove data from the indicated offset
-audio.delete(start?, duration?);
+//Remove indicated range of data
+audio.delete(start?, end?)
 
 //Get audio buffer of the duration starting from the offset time.
-audio.read(start?, duration?);
+audio.read(start?, duration?)
 
 //Create stream/pull-stream for the data
-audio.stream(start?, duration?).pipe(...);
+audio.stream(start?, duration?).pipe(...)
 audio.pull(start?, duration?)
 ```
 
@@ -97,9 +97,9 @@ audio.pull(start?, duration?)
 Preview the selected chunk.
 
 ```js
-audio.play(start?, end?, {loop: false, rate: 1, volume: 1}?);
-audio.pause();
-audio.stop();
+audio.play(start?, end?, {loop: false, rate: 1, volume: 1}?)
+audio.pause()
+audio.stop()
 ```
 
 ### Metrics
@@ -108,22 +108,22 @@ Think carefully here.
 
 ```js
 //get frequencies data for the offset
-audio.frequencies(start?, end?, how?);
+audio.frequencies(start?, end?, how?)
 
 //estimate average, max, min and other params for the indicated range
-audio.stats(start?, end?);
+audio.stats(start?, end?)
 
 //estimate loudness for a fragment
-audio.loudness(start?, end?);
+audio.loudness(start?, end?)
 
 //guess tonic, or main frequency for the range — returns scientific notation
-audio.tone(start?, end?);
+audio.tone(start?, end?)
 
 //guess tempo for the range
-audio.tempo(start?, end?);
+audio.tempo(start?, end?)
 
 //size of underlying buffer, in bytes
-audio.size(start?, end?);
+audio.size(start?, end?)
 ```
 
 ### Manipulations
@@ -134,90 +134,90 @@ We should think carefully about this API.
 
 ```js
 //slice the data to indicated part
-audio.slice(start?, end?);
+audio.slice(start?, end?)
 
 //normalize part of
-audio.normalize(start?, end?);
+audio.normalize(start?, end?)
 
 //change the direction of samples for the indicated part
-audio.reverse(start?, end?);
+audio.reverse(start?, end?)
 
 //inverse phase for the indicated range
-audio.inverse(start?, end?);
+audio.inverse(start?, end?)
 
 //make sure there is no silence for the indicated range
-audio.trim(start?, end?, threshold?);
+audio.trim(start?, end?, threshold?)
 
 //make sure there is silence for the indicated range
-audio.padStart(duration?);
-audio.padEnd(duration?);
+audio.padStart(duration?)
+audio.padEnd(duration?)
 
 //change volume of audio
-audio.gain(volume, start?, end?);
+audio.gain(volume, start?, end?)
 
 //merge second audio into the first one at the indicated fragment
-audio.mix(otherAudio, start?, end?);
+audio.mix(otherAudio, start?, end?)
 
 //change sample rate to the new one
-audio.resample(sampleRate, how?);
+audio.resample(sampleRate, how?)
 
 //upmix or downmix channels
-audio.map(channelsNumber, how?);
+audio.map(channelsNumber, how?)
 
 //change play rate
-audio.scale(amount, start?, end?);
+audio.scale(amount, start?, end?)
 
 //apply per-sample processing
-audio.fill((value, n, channel) => value, start?, end?);
+audio.fill((value, n, channel) => value, start?, end?)
 
 //fill with 0
-audio.silence(start?, end?);
+audio.silence(start?, end?)
 
 //fill with random
-audio.noise(start?, end?);
+audio.noise(start?, end?)
 
 //apply gradual fade to the part of audio
-audio.fadeIn(duration?, start?, easing?);
-audio.fadeOut(duration?, start?, easing?);
+audio.fadeIn(duration?, start?, easing?)
+audio.fadeOut(duration?, start?, easing?)
 
 //process audio with sync function, see any audiojs/audio-* module
-audio.process(audioBuffer => audioBuffer, start?, end?);
-audio.process(require('audio-biquad')({frequency:2000, type: 'lowpass'}));
+audio.process(audioBuffer => audioBuffer, start?, end?)
+audio.process(require('audio-biquad')({frequency:2000, type: 'lowpass'}))
 
 //process audio with async function
-audio.process((audioBuffer, cb) => cb(null, audioBuffer), start?, end?);
+audio.process((audioBuffer, cb) => cb(null, audioBuffer), start?, end?)
 ```
 
 ### Events
 
 ```js
 //fired once when audio buffer is ready
-audio.on('ready');
+audio.on('ready')
 
 //fired when new data is recieved and decoded
-audio.on('load');
+audio.on('load')
 
 //playback events
-audio.on('play');
-audio.on('pause');
-audio.on('stop');
+audio.on('play')
+audio.on('pause')
+audio.on('stop')
 ```
 
 ### Utils
 
 ```js
 //get new audio with copied data into a separate buffer
-audio.clone();
+audio.clone()
 
 //get audio wrapper for the part of the buffer. Audio buffer will be kept the same.
 //useful for creating sprites
-audio.subaudio(start?, end?);
+audio.subaudio(start?, end?)
 
 //download file in browser, place audio to a file in node
-audio.download(fileName);
+audio.download(fileName)
 
 //return buffer representation of data
-audio.toBuffer();
+audio.toBuffer()
 ```
 
 ## Motivation
