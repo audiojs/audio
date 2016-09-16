@@ -25,13 +25,21 @@ inherits(Audio, Emitter);
 
 
 //@contructor
-function Audio(source, options) {
+function Audio(source, options, ready) {
 	if (!(this instanceof Audio)) return new Audio(source, options);
 
-	options = options || {};
+	if (options instanceof Function) {
+		ready = options;
+		options = {};
+	}
 
+	options = options || {};
 	extend(this, options);
 
+	options.onready = options.onready || ready;
+
+	//if user looks for loading
+	if (options.onready) this.once('ready', options.onready);
 
 	//launch init
 	this.isReady = false;
@@ -115,9 +123,11 @@ Audio.prototype.play = function (how, end) {
 
 //pause playback
 Audio.prototype.pause = function () {
-	if (this.playback) this.playback.pause();
+	if (this.playback) {
+		this.playback.pause();
+		this.emit('pause');
+	}
 
-	this.emit('pause');
 
 	return this;
 }
