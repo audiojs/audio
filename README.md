@@ -10,8 +10,8 @@ const Audio = require('audio');
 //Load sample
 let audio = Audio('./sample.mp3');
 
-//trim/normalize, add fade
-audio.trim().normalize().fadeIn(.3).fadeOut(1)
+//trim/normalize, fade
+audio.trim().normalize().fadeIn(.3).fadeOut(1);
 
 //download processed audio back
 audio.download();
@@ -27,18 +27,18 @@ const Audio = require('audio');
 let audio = new Audio(source, options? ready?);
 ```
 
-Create _Audio_ instance from the _source_, invoke _ready_ callback if passed.
+Create _Audio_ instance from the _source_, invoke _ready_ callback.
 
-Possible source values:
+Source can be:
 
 | type | meaning |
 |---|---|
-| _String_ | Load audio from URL or local path. |
-| _Number_ | Create audio with silence of the duration. |
-| _AudioBuffer_ | Wrap _AudioBuffer_ instance. [audio-buffer](https://npmjs.org/package/audio-buffer) can be used to polyfill _AudioBuffer_. |
-| _ArrayBuffer_, _Buffer_ | Decode data contained in buffer/arrayBuffer. |
-| _Array_, _FloatArray_ | Create audio from samples within `-1..1` range. |
-| _Stream_, _source_ or _Function_ | Create audio from source stream. |
+| _String_ | Load audio from URL or local path: `Audio('./sample.mp3')` |
+| _AudioBuffer_ | Wrap _AudioBuffer_ instance. `Audio(new AudioBuffer(data))`. See also [audio-buffer](https://npmjs.org/package/audio-buffer). |
+| _ArrayBuffer_, _Buffer_ | Decode data contained in buffer or arrayBuffer. `Audio(rawData)`. |
+| _Array_, _FloatArray_ | Create audio from samples within `-1..1` range. `Audio(Array(1024).fill(0))`. |
+| _Stream_, _source_ or _Function_ | Create audio from source stream. `Audio(WAAStream(oscillatorNode))`. The sources will be written  |
+| _Number_ | Create silence of the duration: `Audio(4*60 + 33)` to create digital copy of [the masterpiece](https://en.wikipedia.org/wiki/4%E2%80%B233%E2%80%B3). |
 
 Possible options:
 
@@ -46,23 +46,29 @@ Possible options:
 |---|---|
 | _context_ | WebAudioAPI context to use (optional). |
 
-Load audio from remote
+
+If you are going to use audio from worker, use `require('audio/worker')`.
+
 
 ### Properties
 
 Read-only properties. To change them, use according methods.
 
 ```js
-//data properties
+//audio data properties
 audio.duration;
 audio.channels;
 audio.sampleRate;
 
-//audio buffer with the data
+//audio buffer with the actual data
 audio.buffer;
 
-//current playback time
+//playback params
 audio.currentTime;
+audio.paused;
+audio.rate;
+audio.volume;
+audio.loop;
 ```
 
 ### Reading & writing
