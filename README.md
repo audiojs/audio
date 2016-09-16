@@ -1,6 +1,6 @@
 # Audio [![build status][travis-i]][travis] [![gitter][gitter-i]][gitter]
 
-Class for processing audio in javascript, nodejs/browser.
+Class for audio manupulations in javascript, nodejs/browser.
 
 [![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
 
@@ -24,7 +24,7 @@ audio.download();
 ```js
 const Audio = require('audio');
 
-let audio = new Audio(source, options? ready?);
+let audio = new Audio(source, options?, ready?);
 ```
 
 Create _Audio_ instance from the _source_, invoke _ready_ callback.
@@ -35,9 +35,9 @@ Source can be:
 |---|---|
 | _String_ | Load audio from URL or local path: `Audio('./sample.mp3')` |
 | _AudioBuffer_ | Wrap _AudioBuffer_ instance. `Audio(new AudioBuffer(data))`. See also [audio-buffer](https://npmjs.org/package/audio-buffer). |
-| _ArrayBuffer_, _Buffer_ | Decode data contained in buffer or arrayBuffer. `Audio(rawData)`. |
-| _Array_, _FloatArray_ | Create audio from samples within `-1..1` range. `Audio(Array(1024).fill(0))`. |
-| _Stream_, _source_ or _Function_ | Create audio from source stream. `Audio(WAAStream(oscillatorNode))`. The sources will be written  |
+| _ArrayBuffer_, _Buffer_ | Decode data contained in a buffer or arrayBuffer. `Audio(pcmBuffer)`. |
+| _Array_, _FloatArray_ | Create audio from samples of `-1..1` range. `Audio(Array(1024).fill(0))`. |
+| _Stream_, _source_ or _Function_ | Create audio from source stream. `Audio(WAAStream(oscillatorNode))`. `'ready'` event will be triggered as soon as stream is ended. |
 | _Number_ | Create silence of the duration: `Audio(4*60 + 33)` to create digital copy of [the masterpiece](https://en.wikipedia.org/wiki/4%E2%80%B233%E2%80%B3). |
 
 Possible options:
@@ -86,6 +86,10 @@ audio.delete(start?, duration?);
 
 //Get audio buffer of the duration starting from the offset time.
 audio.read(start?, duration?);
+
+//Create stream/pull-stream for the data
+audio.stream(start?, duration?).pipe(...);
+audio.pull(start?, duration?)
 ```
 
 ### Playback
