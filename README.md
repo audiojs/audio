@@ -7,20 +7,25 @@ Class for processing audio in javascript, nodejs/browser.
 ```js
 const Audio = require('audio');
 
-//Load sample, trim/normalize and download back
-Audio('./sample.mp3').trim().normalize().download();
+//Load sample
+let audio = Audio('./sample.mp3');
 
-//Simple montage
-let result = Audio('./first.mp3').write(Audio(.5)).write(Audio('./second.mp3'));
+//trim/normalize, add fade
+audio.trim().normalize().fadeIn(.3).fadeOut(1)
 
-result.normalize().download();
+//download processed audio back
+audio.download();
 ```
 
 ## API
 
-<details><summary>**`const Audio = require('audio')`**</summary>
-</details>
-<details><summary>**`let audio = Audio(source, options? ready?)`**</summary>
+### Creating
+
+```js
+const Audio = require('audio');
+
+let audio = new Audio(source, options? ready?);
+```
 
 Create _Audio_ instance from the _source_, invoke _ready_ callback if passed.
 
@@ -29,10 +34,11 @@ Possible source values:
 | type | meaning |
 |---|---|
 | _String_ | Load audio from URL or local path. |
-| _Number_ | Create audio with silence. |
+| _Number_ | Create audio with silence of the duration. |
 | _AudioBuffer_ | Wrap _AudioBuffer_ instance. [audio-buffer](https://npmjs.org/package/audio-buffer) can be used to polyfill _AudioBuffer_. |
-| _ArrayBuffer_, _Buffer_ | Decode data contained in buffer, if it is encoded. |
+| _ArrayBuffer_, _Buffer_ | Decode data contained in buffer/arrayBuffer. |
 | _Array_, _FloatArray_ | Create audio from samples within `-1..1` range. |
+| _Stream_, _source_ or _Function_ | Create audio from source stream. |
 
 Possible options:
 
@@ -40,88 +46,170 @@ Possible options:
 |---|---|
 | _context_ | WebAudioAPI context to use (optional). |
 
-</details>
-<details><summary>**`audio.duration`**</summary>
-</details>
-<details><summary>**`audio.channels`**</summary>
-</details>
-<details><summary>**`audio.sampleRate`**</summary>
-</details>
-<details><summary>**`audio.buffer`**</summary>
+Load audio from remote
 
-_AudioBuffer_ instance with actual samples data.
+### Properties
 
-</details>
+Read-only properties. To change them, use according methods.
 
 ```js
-//CRUD
-//put to sep module?
-audio.load(url|audioBuffer|audio|arrayBuffer|number|listOfSourcesForSprite);
-audio.read(start, len);
-audio.write(start, buf|array);
-audio.splice(start, number, buf|array?);
-audio.push(buf|array);
-audio.shift(buf|array);
+//data properties
+audio.duration;
+audio.channels;
+audio.sampleRate;
 
-//playback
-//put to audio-play mb?
-//what’s up with arguments?
-audio.play(start?, end?, opts?);
+//audio buffer with the data
+audio.buffer;
+
+//current playback time
 audio.currentTime;
-audio.rate;
-audio.loop;
-audio.paused;
-audio.volume;
+```
+
+### Reading & writing
+
+```js
+//Load audio from source. Source can be any argument, same as in constructor.
+audio.load(source);
+
+//Put data by the offset. Source can be an _Audio_, _AudioBuffer_ or _Stream_.
+//Plays role of concat/push/unshift/set
+audio.write(source, start?);
+
+//Remove data from the indicated offset
+audio.delete(start?, duration?);
+
+//Get audio buffer of the duration starting from the offset time.
+audio.read(start?, duration?);
+```
+
+### Playback
+
+Preview the selected chunk.
+
+```js
+audio.play(start?, end?, {loop: false, rate: 1, volume: 1}?);
 audio.pause();
+audio.stop();
+```
 
+### Metrics
+
+Think carefully here.
+
+```js
 //get frequencies data for the offset
-audio.frequencies(start?, fftSize?);
+audio.frequencies(start?, end?, how?);
 
-//utilities
+//estimate average, max, min and other params for the indicated range
+audio.stats(start?, end?);
+
+//estimate loudness for a fragment
+audio.loudness(start?, end?);
+
+//size of underlying buffer, in bytes
+audio.size(start?, end?);
+```
+
+### Manipulations
+
+All the manipulation methods are mutable, because data might be pretty big. If you need immutability do `audio.clone()` between each operation.
+
+We should think carefully about this API.
+
+```js
+//slice the data to indicated part
 audio.slice(start?, end?);
-audio.normalize(start?, end?);
-audio.reverse(start?, end?);
-audio.inverse(start?, end?);
-audio.trim(start?, end?);
-audio.gain(volume, start?, end?);
-audio.filter(params, start?, end?);
-audio.map(fn(v, x, channel), start?, end?);
-audio.mix(otherAudio, start?, end?)
-audio.fadeIn(time, start?, end?);
-audio.fadeOut(time, start?, end?);
-audio.convolve(a, b);
-audio.operation(fn, a, b);
 
-//events
+//normalize part of
+audio.normalize(start?, end?);
+
+//change the direction of samples for the indicated part
+audio.reverse(start?, end?);
+
+//inverse phase for the indicated range
+audio.inverse(start?, end?);
+
+//make sure there is no silence for the indicated range
+audio.trim(start?, end?, threshold?);
+
+//make sure there is silence for the indicated range
+audio.padStart(duration?);
+audio.padEnd(duration?);
+
+//change volume of audio
+audio.gain(volume, start?, end?);
+
+//merge second audio into the first one at the indicated fragment
+audio.mix(otherAudio, start?, end?);
+
+//change sample rate to the new one
+audio.resample(sampleRate, how?);
+
+//upmix or downmix channels
+audio.map(channelsNumber, how?);
+
+//change play rate
+audio.scale(amount, start?, end?);
+
+//apply per-sample processing
+audio.fill((value, n, channel) => value, start?, end?);
+
+//fill with 0
+audio.silence(start?, end?);
+
+//fill with random
+audio.noise(start?, end?);
+
+//apply gradual fade to the part of audio
+audio.fadeIn(duration?, start?, easing?);
+audio.fadeOut(duration?, start?, easing?);
+
+//process audio with sync function, see any audiojs/audio-* module
+audio.process(audioBuffer => audioBuffer, start?, end?);
+audio.process(require('audio-biquad')({frequency:2000, type: 'lowpass'}));
+
+//process audio with async function
+audio.process((audioBuffer, cb) => cb(null, audioBuffer), start?, end?);
+```
+
+### Events
+
+```js
+//fired once when audio buffer is ready
+audio.on('ready');
+
+//fired when new data is recieved and decoded
 audio.on('load');
-audio.on('end');
+
+//playback events
 audio.on('play');
 audio.on('pause');
-audio.on('change');
+audio.on('stop');
+```
 
-//utils
+### Utils
+
+```js
+//get new audio with copied data into a separate buffer
+audio.clone();
+
+//get audio wrapper for the part of the buffer. Audio buffer will be kept the same.
+//useful for creating sprites
+audio.subaudio(start?, end?);
+
+//download file in browser, place audio to a file in node
 audio.download(fileName);
-ausio.toString();
-ausio.toBuffer();
-ausio.toArray();
-ausio.toJSON();
+
+//return buffer representation of data
+audio.toBuffer();
 ```
 
 ## Motivation
 
-_Audio_ is designed to be an universal and easy to use class for manipulating audio.
-It is like [Color](https://npmjs.org/package/color) for color manipulations, or [jQuery](https://jquery.org) for DOM manipulations. It embodies best modern practices of reliable components.
+Looking at [Color](https://npmjs.org/package/color) and [jQuery](https://jquery.org), there was no analogous class for audio. _Audio_ is intended to fill that gap.
 
+It embodies reliable and performant practices of modern components.
 
-## Installation
-
-Use the [npm keyword "audiojs"][npm-audiojs] to find utilities (with directions in their own READMEs).
-
-If you are creating a utility and need to use the `Audio` object:
-```shell
-$ npm install --save audio
-```
-(Use `audio@next` for latest prerelease versions)
 
 ## Credits
 
