@@ -106,6 +106,12 @@ audio.stats(start?, end?);
 //estimate loudness for a fragment
 audio.loudness(start?, end?);
 
+//guess tonic, or main frequency for the range — returns scientific notation
+audio.tone(start?, end?);
+
+//guess tempo for the range
+audio.tempo(start?, end?);
+
 //size of underlying buffer, in bytes
 audio.size(start?, end?);
 ```
