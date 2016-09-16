@@ -146,9 +146,39 @@ Audio.prototype.stop = function () {
 //Modifiers
 
 //regulate volume of playback/output/read etc
-Audio.prototype.volume = function volume () {
+Audio.prototype.volume = function volume (start, end) {
+	if (arguments.length < 2) {
+		duration = start;
+		start = 0;
+	}
+	if (duration == null) duration = .5;
+	start = normOffset(start);
+
 	return this;
 };
+
+//apply fade curve
+Audio.prototype.fadeIn = function (start, duration) {
+	if (arguments.length < 2) {
+		duration = start;
+		start = 0;
+	}
+	if (duration == null) duration = .5;
+	start = normOffset(start);
+
+	return this;
+}
+
+Audio.prototype.fadeOut = function (start, duration) {
+	if (arguments.length < 2) {
+		duration = start;
+		start = 0;
+	}
+	if (duration == null) duration = .5;
+	start = normOffset(start);
+
+	return this;
+}
 
 //regulate rate of playback/output/read etc
 Audio.prototype.rate = function rate () {
