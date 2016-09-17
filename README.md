@@ -8,12 +8,12 @@ Class for audio manupulations in javascript, nodejs/browser.
 const Audio = require('audio')
 
 //Load sample
-let audio = Audio('./sample.mp3')
+let audio = Audio('./sample.mp3');
 
-//trim/normalize, fade
+//trim/normalize, add fade
 audio.trim().normalize().fadeIn(.3).fadeOut(1)
 
-//download processed audio back
+//download processed audio as a wav file
 audio.download()
 ```
 
@@ -62,13 +62,6 @@ audio.sampleRate;
 
 //audio buffer with the actual data
 audio.buffer;
-
-//playback params
-audio.currentTime;
-audio.paused;
-audio.rate;
-audio.volume;
-audio.loop;
 ```
 
 ### Reading & writing
@@ -79,13 +72,13 @@ audio.load(source, (err, audio) => {})
 
 //Put source data by the offset, can be an _Audio_, _AudioBuffer_ or _Stream_.
 //Plays role of concat/push/unshift/set
-audio.write(source, start?)
+audio.write(source, start?, (err, audio) => {})
 
 //Remove indicated range of data
-audio.delete(start?, end?)
+audio.delete(start?, end?, (err, audio) => {})
 
 //Get audio buffer of the duration starting from the offset time.
-audio.read(start?, duration?)
+audio.read(start?, duration?, (err, buffer) => {})
 
 //Create stream/pull-stream for the data
 audio.stream(start?, duration?).pipe(...)
@@ -97,95 +90,105 @@ audio.pull(start?, duration?)
 Preview the selected range.
 
 ```js
-audio.play(start?, end?, {loop: false, rate: 1, volume: 1}?)
+//start playback of selected region, invoke callback on end
+audio.play(start?, end?, {loop: false, rate: 1, volume: 1}?, (err) => {})
 audio.pause()
 audio.stop()
+
+//read-only playback params
+audio.currentTime;
+audio.paused;
+audio.rate;
+audio.volume;
+audio.loop;
 ```
 
 ### Metrics
 
 ```js
 //get array with frequencies for the offset (make FFT)
-let magnitudes = audio.frequencies(start?, end?, how?)
+audio.frequencies(start?, end?, how?, (err, magnitudes) => {})
 
 //estimate average, max, min and other params for the indicated range
-let stats = audio.stats(start?, end?)
+audio.stats(start?, end?, (err, stats) => {})
 
 //estimate loudness for a fragment
-let loudness = audio.loudness(start?, end?)
+audio.loudness(start?, end?, (err, loudness) => {})
 
 //guess tonic, or main frequency for the range — returns scientific notation
-let tonic = audio.tone(start?, end?)
+audio.tone(start?, end?, (err, note) => {})
 
 //guess tempo for the range
-let tempo = audio.tempo(start?, end?)
+audio.tempo(start?, end?, (err, bpm) => {})
 
 //size of underlying buffer, in bytes
-let size = audio.size(start?, end?)
+audio.size(start?, end?, (err, size) => {})
 ```
 
 ### Manipulations
 
 Methods are mutable, because data may be pretty big. If you need immutability do `audio.clone()` after each method call.
 
+Note also that if audio data is not ready, all the applied manipulations will be queued.
+
 ```js
 //slice the data to indicated part
-audio.slice(start?, end?)
+audio.slice(start?, end?, (err, audio) => {})
 
 //normalize fragment or complete data
-audio.normalize(start?, end?)
+audio.normalize(start?, end?, (err, audio) => {})
 
 //change the direction of samples for the indicated part
-audio.reverse(start?, end?)
+audio.reverse(start?, end?, (err, audio) => {})
 
 //inverse phase for the indicated range
-audio.inverse(start?, end?)
+audio.inverse(start?, end?, (err, audio) => {})
 
 //make sure there is no silence for the indicated range
-audio.trim(start?, end?, threshold?)
+audio.trim(start?, end?, threshold?, (err, audio) => {})
 
 //make sure the duration of the fragment is ok
-audio.padStart(duration?, value?)
-audio.padEnd(duration?, value?)
+audio.padStart(duration?, value?, (err, audio) => {})
+audio.padEnd(duration?, value?, (err, audio) => {})
 
 //change volume of the range
-audio.gain(volume, start?, end?)
+audio.gain(volume, start?, end?, (err, audio) => {})
 
 //cancel values less then indicated threshold 0
-audio.threshold(value, start?, end);
+audio.threshold(value, start?, end?, (err, audio) => {});
 
 //merge second audio into the first one at the indicated range
-audio.mix(otherAudio, start?, end?)
+audio.mix(otherAudio, start?, end?, (err, audio) => {})
 
 //change sample rate to the new one
-audio.resample(sampleRate, how?)
+audio.resample(sampleRate, how?, (err, audio) => {})
 
 //upmix or downmix channels
-audio.remap(channelsNumber, how?)
+audio.remap(channelsNumber, how?, (err, audio) => {})
 
 //change play rate, pitch will be shifted
-audio.scale(amount, start?, end?)
+audio.scale(amount, start?, end?, (err, audio) => {})
 
 //apply per-sample processing
-audio.fill(value, start?, end?)
-audio.fill((value, n, channel) => value, start?, end?)
+audio.fill(value, start?, end?, (err, audio) => {})
+audio.fill((value, n, channel) => value, start?, end?, (err, audio) => {})
 
 //fill with 0
-audio.silence(start?, end?)
+audio.silence(start?, end?, (err, audio) => {})
 
 //fill with random
-audio.noise(start?, end?)
+audio.noise(start?, end?, (err, audio) => {})
 
 //apply gradual fade to the part of audio
-audio.fadeIn(duration?, start?, easing?)
-audio.fadeOut(duration?, start?, easing?)
+audio.fadeIn(duration?, start?, easing?, (err, audio) => {})
+audio.fadeOut(duration?, start?, easing?, (err, audio) => {})
 
 //process audio with sync function, see any audiojs/audio-* module
-audio.process(audioBuffer => audioBuffer, start?, end?)
-audio.process(require('audio-biquad')({frequency:2000, type: 'lowpass'}))
+audio.process(audioBuffer => audioBuffer, start?, end?, (err, audio) => {})
+audio.process(require('audio-biquad')({frequency:2000, type: 'lowpass'}), (err, audio) => {})
 
 //process audio with async function
-audio.process((audioBuffer, cb) => cb(null, audioBuffer), start?, end?)
+audio.process((chunk, cb) => cb(null, chunk), start?, end?, (err, audio) => {})
 
 //reserved methods
 audio.map()
@@ -198,7 +201,7 @@ audio.filter()
 //fired once when audio buffer is ready
 audio.on('ready')
 
-//fired when new data is recieved and decoded
+//fired whenever new data is recieved and decoded
 audio.on('load')
 
 //playback events
