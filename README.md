@@ -7,14 +7,41 @@ Class for audio manupulations in javascript, nodejs/browser.
 ```js
 const Audio = require('audio')
 
-//Load sample
-let audio = Audio('./sample.mp3');
+//Basic processing: trim, normalize, fade, save
+Audio('./sample.mp3').trim().normalize().fadeIn(.3).fadeOut(1).download();
 
-//trim/normalize, add fade
-audio.trim().normalize().fadeIn(.3).fadeOut(1)
 
-//download processed audio as a wav file
-audio.download()
+//Record 4s of mic input
+navigator.getUserMedia({audio: true}, stream =>	Audio(stream, {duration: 4}).download());
+
+
+//Record, process and download web-audio experiment
+let ctx = new AudioContext();
+let osc = ctx.createOscillator();
+osc.type = 'sawtooth';
+osc.frequency.value = 440;
+osc.start();
+osc.connect(ctx.destination);
+setTimeout(() => {
+	//once node stopped, audio stream ends and audio invokes planned download
+	osc.stop();
+}, 2000);
+Audio(osc).download();
+
+
+//Download AudioBuffer returned from offlineContext
+let offlineCtx = new OfflineAudioContext(2,44100*40,44100);
+osc.connect(offlineCtx);
+offlineCtx.startRendering().then((audioBuffer) => {
+	Audio(audioBuffer).download();
+});
+
+
+//Montage audio
+let audio = Audio('./record.mp3');
+audio.set(Audio(audio.get(2.1, 1)).scale(.9), 3.1); //repeat slowed down fragment
+audio.delete(2.4, 2.6).fadeOut(.3, 2.1); //delete fragment, fade out
+audio.splice(2.4, Audio('./other-record.mp3')); //insert other fragment not overwriting the existing data
 ```
 
 ## API
@@ -24,7 +51,7 @@ audio.download()
 ```js
 const Audio = require('audio')
 
-let audio = new Audio(source, options?, ready?)
+let audio = new Audio(source, options?, (err, audio) => {})
 ```
 
 Create _Audio_ instance from the _source_, invoke _ready_ callback.
@@ -37,32 +64,22 @@ Source can be:
 | _AudioBuffer_ | Wrap _AudioBuffer_ instance. `Audio(new AudioBuffer(data))`. See also [audio-buffer](https://npmjs.org/package/audio-buffer). |
 | _ArrayBuffer_, _Buffer_ | Decode data contained in a buffer or arrayBuffer. `Audio(pcmBuffer)`. |
 | _Array_, _FloatArray_ | Create audio from samples of `-1..1` range. `Audio(Array(1024).fill(0))`. |
-| _Stream_, _source_ or _Function_ | Create audio from source stream. `Audio(WAAStream(oscillatorNode))`. `'ready'` event will be triggered as soon as stream is ended. |
+| _Stream_, _pull-stream_ or _Function_ | Create audio from source stream. `Audio(WAAStream(oscillatorNode))`. `'ready'` event will be triggered as soon as stream is ended. |
+| _WebAudioNode_ | Capture input from web-audio |
 | _Number_ | Create silence of the duration: `Audio(4*60 + 33)` to create digital copy of [the masterpiece](https://en.wikipedia.org/wiki/4%E2%80%B233%E2%80%B3). |
 
 Possible options:
 
-| name | meaning |
+| name | default | meaning |
 |---|---|
-| _context_ | WebAudioAPI context to use (optional). |
+| _context_ | [audio-context](https://npmjs.org/package/audio-context) | WebAudioAPI context to use (optional). |
+| _duration_ | `null` | Max duration of an audio. If undefined, it will take the whole possible input. |
+| _sampleRate_ | `context.sampleRate` | Default sample rate to store the audio data. The input will be resampled, if sampleRate differs. |
+| _channels_ | `2` | Upmix or downmix audio input to the indicated number of channels. If undefined - will take source number of channels. |
 
 
 If you are going to use audio from worker, use `require('audio/worker')`.
 
-
-### Properties
-
-Read-only properties. To change them, use according methods.
-
-```js
-//audio data properties
-audio.duration;
-audio.channels;
-audio.sampleRate;
-
-//audio buffer with the actual data
-audio.buffer;
-```
 
 ### Reading & writing
 
@@ -70,19 +87,25 @@ audio.buffer;
 //Load audio from source. Source can be any argument, same as in constructor.
 audio.load(source, (err, audio) => {})
 
-//Put source data by the offset, can be an _Audio_, _AudioBuffer_ or _Stream_.
-//Plays role of concat/push/unshift/set
-audio.write(source, start?, (err, audio) => {})
-
-//Remove indicated range of data
-audio.delete(start?, end?, (err, audio) => {})
+//Sets a new audio data by offset.
+audio.set(source, start? (err, audio) => {})
 
 //Get audio buffer of the duration starting from the offset time.
+audio.get(start?, duration?, (err, buffer) => {})
+
+//Inserts and/or deletes a new audio data by offset. Slower than set
+audio.splice(start?, deleteDuration?, insertData?, (err, audio) => {})
+
+
+//FIXME: think how it should work
+//Writes data from the stream by the offset
+audio.write(source, start?, (err, audio) => {})
+
+//Creates stream/pull-stream reader for the data
 audio.read(start?, duration?, (err, buffer) => {})
 
-//Create stream/pull-stream for the data
-audio.stream(start?, duration?).pipe(...)
-audio.pull(start?, duration?)
+//Ensures any writers are ended. Call if need to stop recording.
+audio.end()
 ```
 
 ### Playback
@@ -127,7 +150,7 @@ audio.size(start?, end?, (err, size) => {})
 
 ### Manipulations
 
-Methods are mutable, because data may be pretty big. If you need immutability do `audio.clone()` after each method call.
+Methods are mutable, because data may be pretty big. If you need immutability do `audio.clone()`.
 
 Note also that if audio data is not ready, all the applied manipulations will be queued.
 
@@ -147,14 +170,14 @@ audio.inverse(start?, end?, (err, audio) => {})
 //make sure there is no silence for the indicated range
 audio.trim(start?, end?, threshold?, (err, audio) => {})
 
-//make sure the duration of the fragment is ok
+//make sure the duration of the fragment is long enough
 audio.padStart(duration?, value?, (err, audio) => {})
 audio.padEnd(duration?, value?, (err, audio) => {})
 
 //change volume of the range
 audio.gain(volume, start?, end?, (err, audio) => {})
 
-//cancel values less then indicated threshold 0
+//cancel values less than indicated threshold 0
 audio.threshold(value, start?, end?, (err, audio) => {});
 
 //merge second audio into the first one at the indicated range
@@ -230,6 +253,8 @@ audio.toBuffer()
 ## Motivation
 
 We wanted to create analog of [Color](https://npmjs.org/package/color) and [jQuery](https://jquery.org) for audio. It embodies reliable and performant practices of modern components.
+
+The API is designed to be asynchronous maintaining the synchronous style of code, therefore each method takes callback as a last argument and sequence of called methods are queued. That allows for working with big data and enables workers.
 
 
 ## Credits
