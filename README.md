@@ -22,11 +22,11 @@ osc.type = 'sawtooth';
 osc.frequency.value = 440;
 osc.start();
 osc.connect(ctx.destination);
+let audio = Audio(osc);
 setTimeout(() => {
-	//once node stopped, audio stream ends and audio invokes planned download
 	osc.stop();
+	audio.end().download();
 }, 2000);
-Audio(osc).download();
 
 
 //Download AudioBuffer returned from offlineContext
