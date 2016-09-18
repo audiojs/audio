@@ -71,7 +71,7 @@ Source can be:
 Possible options:
 
 | name | default | meaning |
-|---|---|
+|---|---|---|
 | _context_ | [audio-context](https://npmjs.org/package/audio-context) | WebAudioAPI context to use (optional). |
 | _duration_ | `null` | Max duration of an audio. If undefined, it will take the whole possible input. |
 | _sampleRate_ | `context.sampleRate` | Default sample rate to store the audio data. The input will be resampled, if sampleRate differs. |
