@@ -15,7 +15,7 @@ const util = require('audio-buffer-utils');
 const play = require('audio-play');
 const decode = require('audio-decode');
 const normOffset = require('negative-index');
-
+const tick = require('next-tick');
 
 module.exports = Audio;
 
@@ -25,28 +25,31 @@ inherits(Audio, Emitter);
 
 
 //@contructor
-function Audio(source, options, ready) {
+function Audio(source, options, cb) {
 	if (!(this instanceof Audio)) return new Audio(source, options);
 
 	if (options instanceof Function) {
-		ready = options;
+		cb = options;
 		options = {};
 	}
 
 	options = options || {};
 	extend(this, options);
 
-	options.onready = options.onready || ready;
+	//pool of planned manipulations
+	this.tasks = [];
 
 	//if user looks for loading
-	if (options.onready) this.once('ready', options.onready);
+	if (cb) this.once('ready', cb);
 
 	//launch init
 	this.isReady = false;
 
 	if (this.buffer) {
-		this.isReady = true;
-		this.emit('ready');
+		tick(() => {
+			this.isReady = true;
+			this.emit('ready');
+		})
 	}
 	//load source from url
 	else {
@@ -55,6 +58,21 @@ function Audio(source, options, ready) {
 			this.emit('ready');
 		});
 	}
+}
+
+//queue task
+Audio.prototype.queue = function (task) {
+	this.tasks.push(task);
+
+	return this.dequeue();
+}
+//invoke last planned task, if any
+Audio.prototype.dequeue = function () {
+	let task = this.tasks.shift();
+
+	task();
+
+	return this;
 }
 
 
