@@ -17,8 +17,12 @@ const decode = require('audio-decode');
 const normOffset = require('negative-index');
 const tick = require('next-tick');
 const nidx = require('negative-index')
+const isPromise = require('is-promise')
 
 module.exports = Audio;
+
+
+let cache = {};
 
 
 //for events sake
@@ -50,18 +54,48 @@ function Audio(source, options, onload) {
 	});
 }
 
+//cache URL
+Audio.prototype.cache = true;
+
 //load file by url
 Audio.prototype.load = function (src, onload) {
 	if (!src) return this;
 
-	load(src).then(audioBuffer => {
+	//load cached version, if any
+	if (this.cache && cache[src]) {
+		//if loading already - just clone when loaded
+		if (isPromise(cache[src])) {
+			cache[src].then((audioBuffer) => {
+				this.load(src);
+			});
+		}
+		else {
+			this.buffer = util.clone(cache[src])
+			onload && onload(null, this);
+			this.emit('load', this);
+		}
+		return this;
+	}
+
+	let promise = load(src).then(audioBuffer => {
 		this.buffer = audioBuffer;
+
+		//save cache
+		if (this.cache) {
+			cache[src] = audioBuffer;
+		}
+
 		onload && onload(null, this);
 		this.emit('load', this);
 	}, err => {
 		onload && onload(err);
 		this.emit('error', err);
 	});
+
+	//save promise to cache
+	if (this.cache) {
+		cache[src] = promise;
+	}
 
 	return this;
 }
