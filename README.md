@@ -1,6 +1,6 @@
 # Audio [![build status][travis-i]][travis] [![gitter][gitter-i]][gitter]
 
-Class for audio manupulations in javascript, nodejs/browser.
+High-level audio container.
 
 [![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
 
@@ -51,10 +51,10 @@ audio.splice(2.4, Audio('./other-record.mp3')); //insert other fragment not over
 ```js
 const Audio = require('audio')
 
-let audio = new Audio(source, options?, (err, audio) => {})
+let audio = new Audio(source, options?, (err, audio) => {}?)
 ```
 
-Create _Audio_ instance from the _source_, invoke _ready_ callback.
+Create _Audio_ instance from the _source_, invoke _load_ callback.
 
 Source can be:
 
@@ -78,10 +78,22 @@ Possible options:
 | _channels_ | `2` | Upmix or downmix audio input to the indicated number of channels. If undefined - will take source number of channels. |
 
 
-If you are going to use audio from worker, use `require('audio/worker')`.
+### Playback
 
+Listen part of the audio.
 
-### Reading & writing
+```js
+//start playback of selected region, invoke callback on end
+audio.play(start?, duration?, {loop: false, rate: 1, volume: 1}?, (err) => {})
+
+//pause current playback
+audio.pause()
+
+//reset playback
+audio.stop()
+```
+
+### Manipulation
 
 ```js
 //Load audio from source. Source can be any argument, same as in constructor.
@@ -106,24 +118,6 @@ audio.read(start?, duration?, (err, buffer) => {})
 
 //Ensures any writers are ended. Call if need to stop recording.
 audio.end()
-```
-
-### Playback
-
-Preview the selected range.
-
-```js
-//start playback of selected region, invoke callback on end
-audio.play(start?, end?, {loop: false, rate: 1, volume: 1}?, (err) => {})
-audio.pause()
-audio.stop()
-
-//read-only playback params
-audio.currentTime;
-audio.paused;
-audio.rate;
-audio.volume;
-audio.loop;
 ```
 
 ### Metrics

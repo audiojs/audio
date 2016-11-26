@@ -16,6 +16,7 @@
   },
   "devDependencies": {
     "audio-lena": "^1.0.1",
+    "audio-source": "^1.1.1",
     "eslint": "^2.11.0",
     "eslint-config-google": "^0.5.0",
     "tap-spec": "^4.1.1",
@@ -34,11 +35,11 @@
   "dependencies": {
     "audio-buffer": "^2.4.2",
     "audio-buffer-utils": "^3.1.2",
-    "audio-decode": "^1.0.1",
+    "audio-decode": "^1.2.1",
     "audio-loader": "^0.6.0",
     "audio-play": "github:audiojs/audio-play",
     "just-extend": "^1.1.21",
-    "negative-index": "^1.0.0",
+    "negative-index": "^1.0.1",
     "next-tick": "^1.0.0",
     "xhr": "^2.2.2",
     "xhr-progress": "0.0.0"
