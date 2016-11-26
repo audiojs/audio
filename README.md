@@ -56,11 +56,11 @@ let audio = new Audio(source, options?, (err, audio) => {}?)
 
 Create _Audio_ instance from the _source_, invoke _load_ callback.
 
-Source can be:
+`source` can be:
 
 | type | meaning |
 |---|---|
-| _String_ | Load audio from URL or local path: `Audio('./sample.mp3')` |
+| _String_ | Load audio from URL or local path: `Audio('./sample.mp3')`. Result for the URL will be cached to increase performance of future instances. To force no-cache loading, do `Audio(src, {cache: false})`. |
 | _AudioBuffer_ | Wrap _AudioBuffer_ instance. `Audio(new AudioBuffer(data))`. See also [audio-buffer](https://npmjs.org/package/audio-buffer). |
 | _ArrayBuffer_, _Buffer_ | Decode data contained in a buffer or arrayBuffer. `Audio(pcmBuffer)`. |
 | _Array_, _FloatArray_ | Create audio from samples of `-1..1` range. `Audio(Array(1024).fill(0))`. |
@@ -68,7 +68,7 @@ Source can be:
 | _WebAudioNode_ | Capture input from web-audio |
 | _Number_ | Create silence of the duration: `Audio(4*60 + 33)` to create digital copy of [the masterpiece](https://en.wikipedia.org/wiki/4%E2%80%B233%E2%80%B3). |
 
-Possible options:
+Possible `options`:
 
 | name | default | meaning |
 |---|---|---|
@@ -76,6 +76,7 @@ Possible options:
 | _duration_ | `null` | Max duration of an audio. If undefined, it will take the whole possible input. |
 | _sampleRate_ | `context.sampleRate` | Default sample rate to store the audio data. The input will be resampled, if sampleRate differs. |
 | _channels_ | `2` | Upmix or downmix audio input to the indicated number of channels. If undefined - will take source number of channels. |
+| _cache_ | `true` | Load cached version of source, if available. |
 
 
 ### Playback

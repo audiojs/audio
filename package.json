@@ -38,6 +38,7 @@
     "audio-decode": "^1.2.1",
     "audio-loader": "^0.6.0",
     "audio-play": "github:audiojs/audio-play",
+    "is-promise": "^2.1.0",
     "just-extend": "^1.1.21",
     "negative-index": "^1.0.1",
     "next-tick": "^1.0.0",
