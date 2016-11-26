@@ -16,6 +16,7 @@ const play = require('audio-play');
 const decode = require('audio-decode');
 const normOffset = require('negative-index');
 const tick = require('next-tick');
+const nidx = require('negative-index')
 
 module.exports = Audio;
 
@@ -25,74 +26,47 @@ inherits(Audio, Emitter);
 
 
 //@contructor
-function Audio(source, options, cb) {
+function Audio(source, options, onload) {
 	if (!(this instanceof Audio)) return new Audio(source, options);
 
 	if (options instanceof Function) {
-		cb = options;
+		onload = options;
 		options = {};
 	}
 
 	options = options || {};
 	extend(this, options);
 
-	//pool of planned manipulations
-	this.tasks = [];
-
 	//if user looks for loading
-	if (cb) this.once('ready', cb);
+	if (onload) this.once('load', onload);
+
+	this.buffer = new AudioBuffer(this.channels, 1, this.sampleRate);
 
 	//launch init
 	this.isReady = false;
 
-	if (this.buffer) {
-		tick(() => {
-			this.isReady = true;
-			this.emit('ready');
-		})
-	}
-	//load source from url
-	else {
-		this.load(source, () => {
-			this.isReady = true;
-			this.emit('ready');
-		});
-	}
+	this.load(source, () => {
+		this.isReady = true;
+	});
 }
-
-//queue task
-Audio.prototype.queue = function (task) {
-	this.tasks.push(task);
-
-	return this.dequeue();
-}
-//invoke last planned task, if any
-Audio.prototype.dequeue = function () {
-	let task = this.tasks.shift();
-
-	task();
-
-	return this;
-}
-
 
 //load file by url
-Audio.prototype.load = function (src, cb) {
+Audio.prototype.load = function (src, onload) {
 	if (!src) return this;
 
 	load(src).then(audioBuffer => {
 		this.buffer = audioBuffer;
-		cb && cb(null, audioBuffer);
-		this.emit('load', audioBuffer);
+		onload && onload(null, this);
+		this.emit('load', this);
 	}, err => {
-		cb && cb(err);
+		onload && onload(err);
 		this.emit('error', err);
 	});
 
 	return this;
 }
 
-
+/*
 //return slice of data as an audio buffer
 Audio.prototype.read = function (start, duration) {
 	start = normOffset(start || 0, this.buffer.duration) * this.buffer.sampleRate;
@@ -117,19 +91,83 @@ Audio.prototype.write = function (buffer, offsetTime) {
 
 	return this;
 }
+*/
 
 
 //preview the sound
-Audio.prototype.play = function (how, end) {
-	//if not ready - wait for it
-	if (!this.buffer) return this.once('ready', () => this.play(how, end));
+Audio.prototype.play = function (start, duration, how, onend) {
+	//sort out args
+	if (arguments.length === 1) {
+		//start
+		if (typeof start === 'number') {
+		}
+		//onend
+		else if (start instanceof Function) {
+			onend = start;
+			start = null
+		}
+		//how
+		else {
+			how = start
+			start = null
+		}
+	}
+	else if (arguments.length === 2) {
+		//start, duration
+		if (typeof duration === 'number') {
+		}
+		else if (duration instanceof Function) {
+			onend = duration;
+			duration = null
+			//start, onend
+			if (typeof start === 'number') {
+			}
+			//how, onend
+			else {
+				how = start
+				start = null
+			}
+		}
+		//start, how
+		else {
+			how = duration
+			duration = null
+		}
+	}
+	else if (arguments.length === 3) {
+		if (how instanceof Function) {
+			onend = how
+			how = null
+			//start, duration, onend
+			if (typeof duration === 'number') {
+			}
+			//start, how, onend
+			else {
+				how = duration
+				duration = null
+			}
+		}
+		//start, duration, how
+		else {
+		}
+	}
+	//start, duration, how, onend
+	//no args
+	else {
+	}
+
+	//normalize args
+	start = start == null ? (this.playback && this.playback.currentTime) : nidx(start || 0, this.buffer.duration);
+	duration = duration || (this.buffer.duration - start);
+	how = how || {};
 
 	if (!this.playback) {
-		how = how || {};
 		how.autostart = true;
+		how.start = start;
+		how.end = nidx(start + duration, this.buffer.duration);
 		this.playback = play(this.buffer, how, () => {
 			this.stop();
-			end && end();
+			onend && onend();
 		});
 	}
 	else this.playback.play();
@@ -145,7 +183,6 @@ Audio.prototype.pause = function () {
 		this.playback.pause();
 		this.emit('pause');
 	}
-
 
 	return this;
 }
