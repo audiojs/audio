@@ -13,7 +13,6 @@ const extend = require('just-extend');
 const isBrowser = require('is-browser');
 const util = require('audio-buffer-utils');
 const decode = require('audio-decode');
-const normOffset = require('negative-index');
 const tick = require('next-tick');
 const nidx = require('negative-index')
 const isPromise = require('is-promise')
@@ -26,9 +25,9 @@ inherits(Audio, Emitter);
 
 
 //require functionality
-require('./playback')
-require('./metrics')
-require('./manipulations')
+require('./src/playback')
+require('./src/metrics')
+require('./src/manipulations')
 
 
 //@contructor
@@ -105,23 +104,31 @@ Audio.prototype.load = function (src, onload) {
 	return this;
 }
 
-/*
 //return slice of data as an audio buffer
 Audio.prototype.read = function (start, duration) {
-	start = normOffset(start || 0, this.buffer.duration) * this.buffer.sampleRate;
-	duration = (duration || this.buffer.duration) * this.buffer.sampleRate;
-	let buf = util.slice(this.buffer, start, start + duration);
+	start = start || 0;
+	duration = duration || this.buffer.duration;
 
-	//FIXME: pad if duration is more than buffer.duration?
+	return this.readRaw(start * this.buffer.sampleRate, length * this.buffer.sampleRate)
 
 	return buf;
 }
 
+Audio.prototype.readRaw = function (offset, length) {
+	offset = Math.floor(nidx(offset || 0, this.buffer.length));
+	length = Math.floor(Math.min(length || this.buffer.length, this.buffer.length - offset));
+	console.log(this.buffer.getChannelData(0)[offset])
+	let buf = util.slice(this.buffer, offset, offset + length);
+
+	return buf;
+}
+
+/*
 //put audio buffer data by offset
 Audio.prototype.write = function (buffer, offsetTime) {
 	if (!buffer || !buffer.length) return this;
 
-	let offset = normOffset(offsetTime || 0, this.buffer.duration) * this.buffer.sampleRate;
+	let offset = nidx(offsetTime || 0, this.buffer.duration) * this.buffer.sampleRate;
 
 	let beginning = util.slice(0, offset);
 	let end = util.slice(offset);
@@ -131,95 +138,3 @@ Audio.prototype.write = function (buffer, offsetTime) {
 	return this;
 }
 */
-
-
-//Modifiers
-
-//regulate volume of playback/output/read etc
-Audio.prototype.volume = function volume (start, end) {
-	if (arguments.length < 2) {
-		duration = start;
-		start = 0;
-	}
-	if (duration == null) duration = .5;
-	start = normOffset(start);
-
-	return this;
-};
-
-//apply fade curve
-Audio.prototype.fadeIn = function (start, duration) {
-	if (arguments.length < 2) {
-		duration = start;
-		start = 0;
-	}
-	if (duration == null) duration = .5;
-	start = normOffset(start);
-
-	return this;
-}
-
-Audio.prototype.fadeOut = function (start, duration) {
-	if (arguments.length < 2) {
-		duration = start;
-		start = 0;
-	}
-	if (duration == null) duration = .5;
-	start = normOffset(start);
-
-	return this;
-}
-
-//regulate rate of playback/output/read etc
-Audio.prototype.rate = function rate () {
-	return this;
-};
-
-Audio.prototype.reverse = function reverse () {
-
-	return this;
-}
-Audio.prototype.size = function size () {
-
-	return this;
-}
-Audio.prototype.mix = function mix () {
-
-	return this;
-}
-Audio.prototype.trim = function trim () {
-
-	return this;
-}
-Audio.prototype.normalize = function normalize () {
-
-	return this;
-}
-Audio.prototype.shift = function shift () {
-
-	return this;
-}
-Audio.prototype.pad = function pad () {
-
-	return this;
-}
-Audio.prototype.concat = function concat () {
-
-	return this;
-}
-Audio.prototype.slice = function slice () {
-
-	return this;
-}
-Audio.prototype.invert = function invert () {
-
-	return this;
-}
-Audio.prototype.copy = function copy () {
-
-	return this;
-}
-Audio.prototype.isEqual = function isEqual () {
-
-	return this;
-}

@@ -50,11 +50,7 @@ audio.splice(2.4, Audio('./other-record.mp3')); //insert other fragment not over
 
 ### Creating
 
-```js
-const Audio = require('audio')
-
-let audio = new Audio(source, options?, (err, audio) => {}?)
-```
+#### `new Audio(source, options?, (err, audio) => {}?)`
 
 Create _Audio_ instance from the _source_, invoke _load_ callback.
 
@@ -85,40 +81,52 @@ Possible `options`:
 
 Listen part of the audio.
 
-```js
-//start playback of selected region, invoke callback on end
-audio.play(start?, duration?, {loop: false, rate: 1, volume: 1}?, (err) => {})
 
-//pause current playback
-audio.pause()
+#### `audio.play(start = 0, duration?, options?, err => {}?)`
 
-//reset playback
-audio.stop()
-```
+Start playback from the indicated offset, invoke callback on end.
+
+Possible `options`:
+
+| name | default | meaning |
+|---|---|---|
+| _loop_ | `true` | Repeat after end. |
+| _rate_ | `1` | Speed up/slow down playback. |
+| _volume_ | `1` | Gain hearable sound. |
+
+#### `audio.pause()`
+
+Pause current playback. Calling `audio.play()` once again will continue from the point of pause.
+
+#### `audio.stop()`
+
+Reset playback. Calling `audio.play()` will start from the beginning.
 
 
 ### Metrics
 
-```js
-//get array with frequencies for the offset (make FFT)
-audio.spectrum(start?, size?, how?, (err, magnitudes) => {})
+#### `audio.spectrum(start?, options?)`
 
-//estimate average, max, min and other params for the indicated range
-audio.stats(start?, end?, (err, stats) => {})
+Get array with spectral component magnitudes (magnitude is length of a phasor).
 
-//estimate loudness for a fragment
-audio.loudness(start?, end?, (err, loudness) => {})
+Possible `options`:
 
-//guess tonic, or main frequency for the range — returns scientific notation
-audio.tone(start?, end?, (err, note) => {})
+| name | default | meaning |
+|---|---|---|
+| _size_ | `1024` | Size of FFT transform, e. g. number of frequencies to capture. |
+| _channel_ | `0` | Channel number to get data for, `0` is left channel, `1` is right etc. |
+| _db_ | `false` | Convert resulting magnitudes from `0..1` range to decibels `-100..0`. |
 
-//guess tempo for the range
-audio.tempo(start?, end?, (err, bpm) => {})
 
-//size of underlying buffer, in bytes
-audio.size(start?, end?, (err, size) => {})
-```
+Ideas:
 
+* chord/scale detection
+* cepstrum
+* average, max, min and other params for the indicated range `audio.stats(start?, (err, stats) => {})`
+* loudness for a fragment `audio.loudness(start?, (err, loudness) => {})`
+* tonic, or main frequency for the range — returns scientific notation `audio.pitch(start?, (err, note) => {})`
+* tempo for the range `audio.tempo(start?, (err, bpm) => {})`
+* size of underlying buffer, in bytes `audio.size(start?, (err, size) => {})`
 
 ### Manipulations
 
