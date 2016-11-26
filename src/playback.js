@@ -1,7 +1,7 @@
 /**
  * Extend audio with playback functionality
  *
- * @module  audio/playback
+ * @module  audio/src/playback
  */
 
 'use strict'
@@ -9,7 +9,7 @@
 const isPromise = require('is-promise')
 const play = require('audio-play')
 const nidx = require('negative-index')
-let Audio = require('./')
+let Audio = require('../')
 
 
 //preview the sound
