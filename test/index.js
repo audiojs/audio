@@ -40,6 +40,19 @@ t.test('End writing', t => {
 });
 
 
+
+
+t.test('Caching resource', t => {
+	let a = Audio('./chopin.mp3').on('load', (audio) => {
+	})
+
+	let b = Audio('./chopin.mp3').on('load', (audio) => {
+	})
+
+	assert.equal(Object.keys(Audio.cache).length === 1)
+});
+
+
 // t.test('create from buffer', t => {
 // 	Audio(lena).volume(.5).play(() => {
 // 		console.log('end');
@@ -61,4 +74,9 @@ t.test('End writing', t => {
 // 	Audio('./lena.wav')
 
 // 	t.end();
+// });
+
+// t.test('clone instance', t => {
+// let audio = Audio();
+// Audio(audio)
 // });

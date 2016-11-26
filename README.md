@@ -1,12 +1,13 @@
-# Audio [![build status][travis-i]][travis] [![gitter][gitter-i]][gitter]
+# Audio [![build status][travis-i]][travis] [![gitter][gitter-i]][gitter] [![experimental](http://badges.github.io/stability-badges/dist/experimental.svg)](http://github.com/badges/stability-badges)
 
-High-level audio container.
+Class for audio manipulations in javascript.
 
 [![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
 
 ```js
 const Audio = require('audio')
 
+/*
 //Basic processing: trim, normalize, fade, save
 Audio('./sample.mp3').trim().normalize().fadeIn(.3).fadeOut(1).download();
 
@@ -42,6 +43,7 @@ let audio = Audio('./record.mp3');
 audio.set(Audio(audio.get(2.1, 1)).scale(.9), 3.1); //repeat slowed down fragment
 audio.delete(2.4, 2.6).fadeOut(.3, 2.1); //delete fragment, fade out
 audio.splice(2.4, Audio('./other-record.mp3')); //insert other fragment not overwriting the existing data
+*/
 ```
 
 ## API
@@ -76,7 +78,7 @@ Possible `options`:
 | _duration_ | `null` | Max duration of an audio. If undefined, it will take the whole possible input. |
 | _sampleRate_ | `context.sampleRate` | Default sample rate to store the audio data. The input will be resampled, if sampleRate differs. |
 | _channels_ | `2` | Upmix or downmix audio input to the indicated number of channels. If undefined - will take source number of channels. |
-| _cache_ | `true` | Load cached version of source, if available. |
+| _cache_ | `true` | Load cached version of source, if available. Used to avoid extra URL requests. |
 
 
 ### Playback
@@ -94,7 +96,36 @@ audio.pause()
 audio.stop()
 ```
 
-### Manipulation
+
+### Metrics
+
+```js
+//get array with frequencies for the offset (make FFT)
+audio.spectrum(start?, size?, how?, (err, magnitudes) => {})
+
+//estimate average, max, min and other params for the indicated range
+audio.stats(start?, end?, (err, stats) => {})
+
+//estimate loudness for a fragment
+audio.loudness(start?, end?, (err, loudness) => {})
+
+//guess tonic, or main frequency for the range — returns scientific notation
+audio.tone(start?, end?, (err, note) => {})
+
+//guess tempo for the range
+audio.tempo(start?, end?, (err, bpm) => {})
+
+//size of underlying buffer, in bytes
+audio.size(start?, end?, (err, size) => {})
+```
+
+
+### Manipulations
+
+Methods are mutable, because data may be pretty big. If you need immutability do `audio.clone()`.
+
+Note also that if audio data is not ready, all the applied manipulations will be queued.
+
 
 ```js
 //Load audio from source. Source can be any argument, same as in constructor.
@@ -119,37 +150,7 @@ audio.read(start?, duration?, (err, buffer) => {})
 
 //Ensures any writers are ended. Call if need to stop recording.
 audio.end()
-```
 
-### Metrics
-
-```js
-//get array with frequencies for the offset (make FFT)
-audio.frequencies(start?, end?, how?, (err, magnitudes) => {})
-
-//estimate average, max, min and other params for the indicated range
-audio.stats(start?, end?, (err, stats) => {})
-
-//estimate loudness for a fragment
-audio.loudness(start?, end?, (err, loudness) => {})
-
-//guess tonic, or main frequency for the range — returns scientific notation
-audio.tone(start?, end?, (err, note) => {})
-
-//guess tempo for the range
-audio.tempo(start?, end?, (err, bpm) => {})
-
-//size of underlying buffer, in bytes
-audio.size(start?, end?, (err, size) => {})
-```
-
-### Manipulations
-
-Methods are mutable, because data may be pretty big. If you need immutability do `audio.clone()`.
-
-Note also that if audio data is not ready, all the applied manipulations will be queued.
-
-```js
 //slice the data to indicated part
 audio.slice(start?, end?, (err, audio) => {})
 
