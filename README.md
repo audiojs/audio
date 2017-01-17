@@ -2,6 +2,14 @@
 
 Class for userland audio manipulations in javascript — nodejs and browsers.
 
+<!--
+	ideas:
+	  - docs
+	  - playground
+	  - downloads
+	  - size
+	  - image (just teaser/logo)
+-->
 
 ## Usage
 
@@ -19,17 +27,24 @@ Audio('./sample.mp3').on('load', (err, audio) => {
 })
 ```
 
+<!--
+	ideas:
+	  - image
+		file → waveform → processed waveform → file
+	  - try yourself - requirebin demo with file opener and processing
+-->
+
 #### 2. Record 4s of microphone input
 
 ```js
 const Audio = require('audio')
 
-navigator.getUserMedia = (navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia)
-
-navigator.getUserMedia({audio: true}, stream =>	Audio(stream, {duration: 4}).download());
+navigator.getUserMedia({audio: true}, stream =>	{
+	Audio(stream, {duration: 4}).on('end', (err, audio) => audio.download())
+});
 ```
 
-#### 3. Record, process and download 2 seconds audio of web-audio experiment
+#### 3. Record and download 2 seconds of web-audio experiment
 
 ```js
 const Audio = require('audio')
@@ -43,20 +58,25 @@ osc.start()
 osc.connect(ctx.destination)
 
 //record 2 seconds of web-audio experiment
-let audio = new Audio(osc)
-audio.schedule(2, () => {
+let audio = new Audio
+audio.duration = 2
+audio.record(osc)
+audio.on('end', () => {
 	osc.stop()
 	audio.end().download()
 })
 ```
 
-#### 4. Download AudioBuffer returned from offlineContext
+#### 4. Download AudioBuffer returned from offline context
 
 ```js
 const Audio = require('audio')
 
+//setup offline context
 let offlineCtx = new OfflineAudioContext(2,44100*40,44100)
 audioNode.connect(offlineCtx)
+
+//process result of offline context
 offlineCtx.startRendering().then((audioBuffer) => {
 	Audio(audioBuffer).download()
 })
@@ -110,13 +130,27 @@ audio.on('load', (err, audio) => {
 
 ## API
 
+In order to be user-friendly, _audio_ takes on some conventions.
+Methods follow natural language convention `audio.<do>(<what>, <how>?, <after>?)`, or in other words `audio.<method>(<data>, <options>?, <callback>?)`.
+Every method has optional callback argument, following node-style callbacks. First argument of the callback is error and the second is data: `audio.trim(..., (error, data) => {})`.
+
+
+
 ### Creating
 
-#### `new Audio(source, [options, (err, audio) => {}])`
+#### `let audio = new Audio(source, options?, callback?)`
 
-Create _Audio_ instance from the _source_, invoke _load_ callback.
+Create _Audio_ instance from the _source_ based on _options_. Invoke _callback_ when the _source_ is loaded and audio is ready. The _callback_ will take _error_ and _audio_ arguments.
 
-`source` can be static, dynamic or stream. Static source, like _AudioBuffer_, _Array_ or _Number_, sets contents immediately in synchronous fashion. Dynamic source like _String_ or _Promise_ waits for it to load and only then invokes the callback. Stream source puts audio into [recording state](#recording), updating contents as it becomes available.
+```js
+let audio = new Audio('./sample.mp3', {duration: 2}, (err, audio) => {
+	if (err) throw Error(err);
+
+	// audio contains fully loaded and decoded sample.mp3 here
+})
+```
+
+Source can be syncronous, asynchronous or stream. Sync source, like _AudioBuffer_, _Array_ or _Number_, sets contents immediately. Async source, like _String_ or _Promise_, waits for it to load and only then invokes the callback. Stream source puts audio into [recording state](#recording), updating contents as it becomes available, and when input stream ends or reaches max duration it fires `end` event.
 
 | source type | meaning | loading method |
 |---|---|---|
@@ -141,32 +175,36 @@ Possible `options`:
 | _cache_ | `true` | Load cached version of source, if available. Used to avoid extra URL requests. |
 
 
-### Static source
 
-#### `audio.read(start?, duration?, (err, buffer) => {})`
+
+
+
+#### `audio.read(start?, duration?, callback)`
 
 Get audio buffer of the duration starting from the offset time.
 
-#### `audio.readRaw(offset?, duration?, (err, buffer) => {})`
+#### `audio.readRaw(offset?, duration?, callback)`
 
 Get audio buffer of the duration starting from the offset sample.
 
-#### `audio.write(buffer, start?, (err, audio) => {}?)`
+#### `audio.write(buffer, start?, callback?)`
 
 Sets a new audio data by offset.
 
-#### `audio.writeRaw(buffer, offset?, (err, audio) => {}?)`
+#### `audio.writeRaw(buffer, offset?, callback?)`
 
 Sets a new audio data by offset.
 
-#### `audio.replace(start?, deleteDuration?, insertData?, (err, audio) => {})`
+#### `audio.replace(start?, deleteDuration?, insertData?, callback?)`
 
 Inserts and/or deletes new audio data by offset. Slower than set
 
+#### `audio.insert()`
 
-### Dynamic source
+#### `audio.delete()`
 
-#### `audio.load(source, (err, audio) => {}?)`
+
+#### `audio.load(source, callback?)`
 
 Load audio from source, discard old content. Source can be any argument, same as in the constructor. `load` event will be fired once audio is received and decoded.
 
@@ -196,10 +234,14 @@ Indicates whether audio is in the recording state.
 
 Stop recording.
 
+#### `audio.schedule(time)`
+
 
 ### Playback
 
 Listen part of the audio.
+
+?! In some sense playback is akin to idle time-bound processing.
 
 #### `audio.play(start = 0, duration?, options?, err => {}?)`
 
@@ -249,12 +291,6 @@ Boolean that indicates whether the media element has finished playing.
 
 MediaError object for the most recent error, or null if there has not been an error.
 
-#### `audio.on('play')`
-#### `audio.on('pause')`
-#### `audio.on('stop')`
-#### `audio.on('ended')`
-
-Playback events.
 
 
 ### Metrics
@@ -289,63 +325,58 @@ Methods are mutable, because data may be pretty big. If you need immutability do
 
 ```js
 //normalize fragment or complete data
-audio.normalize(start?, end?, (err, audio) => {})
+audio.normalize(start?, duration?, callback?)
 
 //change the direction of samples for the indicated part
-audio.reverse(start?, end?, (err, audio) => {})
+audio.reverse(start?, duration?, callback?)
 
 //inverse phase for the indicated range
-audio.inverse(start?, end?, (err, audio) => {})
+audio.inverse(start?, duration?, callback?)
 
 //make sure there is no silence for the indicated range
-audio.trim(start?, end?, threshold?, (err, audio) => {})
+audio.trim(start?, duration?, threshold?, callback?)
 
 //make sure the duration of the fragment is long enough
-audio.padStart(duration?, value?, (err, audio) => {})
-audio.padEnd(duration?, value?, (err, audio) => {})
+audio.padStart(duration?, value?, callback?)
+audio.padEnd(duration?, value?, callback?)
 
 //change volume of the range
-audio.gain(volume, start?, end?, (err, audio) => {})
+audio.gain(volume, start?, duration?, callback?)
 
 //cancel values less than indicated threshold 0
-audio.threshold(value, start?, end?, (err, audio) => {});
+audio.threshold(value, start?, duration?, callback?);
 
 //merge second audio into the first one at the indicated range
-audio.mix(otherAudio, start?, end?, (err, audio) => {})
+audio.mix(otherAudio, start?, duration?, callback?)
 
 //change sample rate to the new one
-audio.resample(sampleRate, how?, (err, audio) => {})
+audio.resample(sampleRate, how?, callback?)
 
 //upmix or downmix channels
-audio.remap(channelsNumber, how?, (err, audio) => {})
+audio.remix(channelsNumber, how?, callback?)
 
 //change play rate, pitch will be shifted
-audio.scale(amount, start?, end?, (err, audio) => {})
+audio.scale(amount, start?, duration?, callback?)
 
 //apply per-sample processing
-audio.fill(value, start?, end?, (err, audio) => {})
-audio.fill((value, n, channel) => value, start?, end?, (err, audio) => {})
+audio.fill(value|(value, n, channel) => value, start?, duration?, callback?)
 
 //fill with 0
-audio.silence(start?, end?, (err, audio) => {})
+audio.silence(start?, duration?, callback?)
 
 //fill with random
-audio.noise(start?, end?, (err, audio) => {})
+audio.noise(start?, duration?, callback?)
 
 //apply gradual fade to the part of audio
-audio.fadeIn(duration?, start?, easing?, (err, audio) => {})
-audio.fadeOut(duration?, start?, easing?, (err, audio) => {})
+audio.fadeIn(duration?, start?, easing?, callback?)
+audio.fadeOut(duration?, start?, easing?, callback?)
 
 //process audio with sync function, see any audiojs/audio-* module
-audio.process(audioBuffer => audioBuffer, start?, end?, (err, audio) => {})
-audio.process(require('audio-biquad')({frequency:2000, type: 'lowpass'}), (err, audio) => {})
+audio.process(audioBuffer => audioBuffer, start?, duration?, callback?)
+audio.process(require('audio-biquad')({frequency:2000, type: 'lowpass'}), callback?)
 
 //process audio with async function
-audio.process((chunk, cb) => cb(null, chunk), start?, end?, (err, audio) => {})
-
-//reserved methods
-audio.map()
-audio.filter()
+audio.process((chunk, callback?) => cb(null, chunk), start?, duration?, callback?)
 ```
 
 
@@ -356,7 +387,7 @@ audio.filter()
 audio.clone()
 
 //get audio wrapper for the part of the buffer not copying the data. Mb useful for audio sprites
-audio.subaudio(start?, end?)
+audio.subaudio(start?, duration?)
 
 //download as a wav file in browser, place audio to a file in node
 audio.download(fileName, options?)
@@ -364,6 +395,16 @@ audio.download(fileName, options?)
 //return buffer representation of data
 audio.toBuffer()
 ```
+
+
+### Events
+
+#### `audio.on('play')`
+#### `audio.on('pause')`
+#### `audio.on('stop')`
+#### `audio.on('end')`
+#### `audio.on('record')`
+#### `audio.on('load')`
 
 
 ## Motivation
