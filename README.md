@@ -1,12 +1,20 @@
-# Audio [![build status][travis-i]][travis] [![gitter][gitter-i]][gitter] [![experimental](http://badges.github.io/stability-badges/dist/experimental.svg)](http://github.com/badges/stability-badges)
+# Audio
+
+[![experimental](http://badges.github.io/stability-badges/dist/experimental.svg)](http://github.com/badges/stability-badges)
+[![Build Status](https://img.shields.io/travis/audiojs/audio.svg?style=flat-square)](https://travis-ci.org/audiojs/audio)
+[![NPM Version](https://img.shields.io/npm/v/web-audio-scheduler.svg?style=flat-square)](https://www.npmjs.org/package/web-audio-scheduler)
+[![License](https://img.shields.io/badge/license-MIT-brightgreen.svg?style=flat-square)](https://audiojs.mit-license.org/)
+
+[image]
 
 Class for userland audio manipulations in javascript — nodejs and browsers.
 
-[![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
 
 ## Usage
 
-Basic processing: trim, normalize, fade, save.
+[![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
+
+#### Basic processing - trim, normalize, fade, save
 
 ```js
 const Audio = require('audio')
@@ -16,8 +24,7 @@ Audio('./sample.mp3').on('load', (err, audio) => {
 })
 ```
 
-
-Record 4s of microphone input.
+#### Record 4s of microphone input
 
 ```js
 const Audio = require('audio')
@@ -27,12 +34,12 @@ navigator.getUserMedia = (navigator.getUserMedia || navigator.webkitGetUserMedia
 navigator.getUserMedia({audio: true}, stream =>	Audio(stream, {duration: 4}).download());
 ```
 
-
-Record, process and download 2 seconds audio of web-audio experiment.
+#### Record, process and download 2 seconds audio of web-audio experiment
 
 ```js
 const Audio = require('audio')
 
+//create web-audio experiment
 let ctx = new AudioContext()
 let osc = ctx.createOscillator()
 osc.type = 'sawtooth'
@@ -40,6 +47,7 @@ osc.frequency.value = 440
 osc.start()
 osc.connect(ctx.destination)
 
+//record 2 seconds of web-audio experiment
 let audio = new Audio(osc)
 audio.schedule(2, () => {
 	osc.stop()
@@ -47,8 +55,7 @@ audio.schedule(2, () => {
 })
 ```
 
-
-Download AudioBuffer returned from offlineContext.
+#### Download AudioBuffer returned from offlineContext
 
 ```js
 const Audio = require('audio')
@@ -60,7 +67,7 @@ offlineCtx.startRendering().then((audioBuffer) => {
 })
 ```
 
-Montage audio.
+#### Montage audio
 
 ```js
 const Audio = require('audio')
@@ -81,13 +88,18 @@ let audio = Audio('./record.mp3', (err, audio) => {
 })
 ```
 
-Wrap HTML5 audio.
+#### Wrap HTML5 audio
 
 ```js
 const Audio = require('audio')
 
 let audioEl = document.querySelector('.my-audio')
-audioEl
+audioEl.src = './chopin.mp3'
+
+let audio = new Audio(audioEl)
+audio.on('load', (err, audio) => {
+	audio.
+})
 ```
 
 
@@ -95,14 +107,14 @@ audioEl
 
 ### Creating
 
-#### `let audio = new Audio(source, [options, (err, audio) => {}])`
+#### `new Audio(source, [options, (err, audio) => {}])`
 
 Create _Audio_ instance from the _source_, invoke _load_ callback.
 
 `source` can be static, dynamic or stream. Static source, like _AudioBuffer_, _Array_ or _Number_, sets contents immediately in synchronous fashion. Dynamic source like _String_ or _Promise_ waits for it to load and only then invokes the callback. Stream source puts audio into [recording state](#recording), updating contents as it becomes available.
 
 | source type | meaning | loading method |
-|---|---|
+|---|---|---|
 | _String_ | Load audio from URL or local path: `Audio('./sample.mp3', (error, audio) => {})`. Result for the URL will be cached for the future instances. To force no-cache loading, do `Audio(src, {cache: false})`. | dynamic |
 | _AudioBuffer_ | Wrap _AudioBuffer_ instance: `Audio(new AudioBuffer(data))`. See also [audio-buffer](https://npmjs.org/package/audio-buffer). | static |
 | _ArrayBuffer_, _Buffer_ | Decode data contained in a buffer or arrayBuffer. `Audio(pcmBuffer)`. | static |
