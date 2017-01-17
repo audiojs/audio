@@ -50,23 +50,23 @@ audio.splice(2.4, Audio('./other-record.mp3')); //insert other fragment not over
 
 ### Creating
 
-#### `new Audio(source, options?, (err, audio) => {}?)`
+#### `let audio = new Audio(source, [options, (err, audio) => {}])`
 
 Create _Audio_ instance from the _source_, invoke _load_ callback.
 
-`source` can be static, dynamic or stream. Static source, like _AudioBuffer_ or _Array_, sets contents immediately and behaves synchronously. Dynamic source like _String_ or _Promise_ waits for source to load and only then invokes the callback. Stream source puts audio in [recording state](#recording), updating contents as it becomes available.
+`source` can be static, dynamic or stream. Static source, like _AudioBuffer_, _Array_ or _Number_, sets contents immediately in synchronous fashion. Dynamic source like _String_ or _Promise_ waits for it to load and only then invokes the callback. Stream source puts audio into [recording state](#recording), updating contents as it becomes available.
 
-| type | meaning |
+| source type | meaning | loading method |
 |---|---|
-| _String_ | Load audio from URL or local path: `Audio('./sample.mp3', done)`. Result for the URL will be cached to increase performance of future instances. To force no-cache loading, do `Audio(src, {cache: false})`. |
-| _AudioBuffer_ | Wrap _AudioBuffer_ instance: `Audio(new AudioBuffer(data))`. See also [audio-buffer](https://npmjs.org/package/audio-buffer). |
-| _ArrayBuffer_, _Buffer_ | Decode data contained in a buffer or arrayBuffer. `Audio(pcmBuffer)`. |
-| _Array_, _FloatArray_ | Create audio from samples of `-1..1` range. `Audio(Array(1024).fill(0))`. |
-| _File_ | Try to decode audio from [_File_](https://developer.mozilla.org/en/docs/Web/API/File) instance. |
-| _Number_ | Create silence of the duration: `Audio(4*60 + 33)` to create digital copy of [the masterpiece](https://en.wikipedia.org/wiki/4%E2%80%B233%E2%80%B3). |
-| _Stream_, _pull-stream_ or _Function_ | Create audio from source stream. `Audio(WAAStream(oscillatorNode))`. Puts audio into recording state. |
-| _WebAudioNode_, _MediaStreamSource_ | Capture input from web-audio. Puts audio into recording state. |
-| _HTMLAudioElement_, _HTMLMediaElement_ | Wrap [`<audio>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/audio) or [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video) element, capture it's contents. Puts audio into recording state. |
+| _String_ | Load audio from URL or local path: `Audio('./sample.mp3', (error, audio) => {})`. Result for the URL will be cached for the future instances. To force no-cache loading, do `Audio(src, {cache: false})`. | dynamic |
+| _AudioBuffer_ | Wrap _AudioBuffer_ instance: `Audio(new AudioBuffer(data))`. See also [audio-buffer](https://npmjs.org/package/audio-buffer). | static |
+| _ArrayBuffer_, _Buffer_ | Decode data contained in a buffer or arrayBuffer. `Audio(pcmBuffer)`. | static |
+| _Array_, _FloatArray_ | Create audio from samples of `-1..1` range. `Audio(Array(1024).fill(0))`. | static |
+| _File_ | Try to decode audio from [_File_](https://developer.mozilla.org/en/docs/Web/API/File) instance. | static |
+| _Number_ | Create silence of the duration: `Audio(4*60 + 33)` to create digital copy of [the masterpiece](https://en.wikipedia.org/wiki/4%E2%80%B233%E2%80%B3). | static |
+| _Stream_, _pull-stream_ or _Function_ | Create audio from source stream. `Audio(WAAStream(oscillatorNode))`. Puts audio into recording state. | stream |
+| _WebAudioNode_, _MediaStreamSource_ | Capture input from web-audio. Puts audio into recording state. | stream |
+| _HTMLAudioElement_, _HTMLMediaElement_ | Wrap [`<audio>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/audio) or [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video) element, capture it's contents. Puts audio into recording state. | stream |
 
 Possible `options`:
 
@@ -74,9 +74,9 @@ Possible `options`:
 |---|---|---|
 | _context_ | [audio-context](https://npmjs.org/package/audio-context) | WebAudioAPI context to use (optional). |
 | _duration_ | `null` | Max duration of an audio. If undefined, it will take the whole possible input. |
-| _sampleRate_ | `context.sampleRate` | Default sample rate to store the audio data. The input will be resampled, if sampleRate differs. |
-| _channels_ | `2` | Upmix or downmix audio input to the indicated number of channels. If undefined - will take source number of channels. |
-| _cache_ | `true` | Load cached version of source, if available. Use to avoid extra URL requests. |
+| _sampleRate_ | `context.sampleRate` | Default sample rate for the audio data. |
+| _channels_ | `2` | Upmix or downmix audio input to the indicated number of channels. If undefined it will take source number of channels. |
+| _cache_ | `true` | Load cached version of source, if available. Used to avoid extra URL requests. |
 
 
 ### Static source
@@ -287,7 +287,7 @@ audio.toBuffer()
 
 ## Motivation
 
-We wanted to create analog of [Color](https://npmjs.org/package/color) and [jQuery](https://jquery.org) for audio. It embodies reliable and performant practices of modern components.
+We wanted to create analog of [Color](https://npmjs.org/package/color) and [jQuery](https://jquery.org) for audio. It embodies reliable and performant modern practices of stream components and packages in general.
 
 ## Credits
 
