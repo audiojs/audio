@@ -7,7 +7,9 @@ Class for userland audio manipulations in javascript — nodejs and browsers.
 
 [![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
 
-#### Basic processing - trim, normalize, fade, save
+Common use-cases.
+
+#### 1. Basic processing — trim, normalize, fade, save
 
 ```js
 const Audio = require('audio')
@@ -17,7 +19,7 @@ Audio('./sample.mp3').on('load', (err, audio) => {
 })
 ```
 
-#### Record 4s of microphone input
+#### 2. Record 4s of microphone input
 
 ```js
 const Audio = require('audio')
@@ -27,7 +29,7 @@ navigator.getUserMedia = (navigator.getUserMedia || navigator.webkitGetUserMedia
 navigator.getUserMedia({audio: true}, stream =>	Audio(stream, {duration: 4}).download());
 ```
 
-#### Record, process and download 2 seconds audio of web-audio experiment
+#### 3. Record, process and download 2 seconds audio of web-audio experiment
 
 ```js
 const Audio = require('audio')
@@ -48,7 +50,7 @@ audio.schedule(2, () => {
 })
 ```
 
-#### Download AudioBuffer returned from offlineContext
+#### 4. Download AudioBuffer returned from offlineContext
 
 ```js
 const Audio = require('audio')
@@ -60,7 +62,7 @@ offlineCtx.startRendering().then((audioBuffer) => {
 })
 ```
 
-#### Montage audio
+#### 5. Montage audio
 
 ```js
 const Audio = require('audio')
@@ -81,17 +83,27 @@ let audio = Audio('./record.mp3', (err, audio) => {
 })
 ```
 
-#### Wrap HTML5 audio
+#### 6. Render waveform of HTML5 `<audio>`
 
 ```js
 const Audio = require('audio')
+const Waveform = require('gl-waveform')
 
+//create waveform renderer
+let wf = Waveform();
+
+//get audio element
 let audioEl = document.querySelector('.my-audio')
 audioEl.src = './chopin.mp3'
 
+//create audio holder
 let audio = new Audio(audioEl)
 audio.on('load', (err, audio) => {
-	audio.
+	let buf = audio.readRaw(4096)
+	let data = buf.getChannelData(0)
+
+	//put left channel data to waveform renderer
+	wf.push(data);
 })
 ```
 
