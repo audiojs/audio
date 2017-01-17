@@ -1,50 +1,95 @@
 # Audio [![build status][travis-i]][travis] [![gitter][gitter-i]][gitter] [![experimental](http://badges.github.io/stability-badges/dist/experimental.svg)](http://github.com/badges/stability-badges)
 
-Class for audio manipulations in javascript — nodejs and browsers.
+Class for userland audio manipulations in javascript — nodejs and browsers.
 
 [![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
+
+## Usage
+
+Basic processing: trim, normalize, fade, save.
 
 ```js
 const Audio = require('audio')
 
-/*
-//Basic processing: trim, normalize, fade, save
-Audio('./sample.mp3').trim().normalize().fadeIn(.3).fadeOut(1).download();
-
-
-//Record 4s of mic input
-navigator.getUserMedia({audio: true}, stream =>	Audio(stream, {duration: 4}).download());
-
-
-//Record, process and download web-audio experiment
-let ctx = new AudioContext();
-let osc = ctx.createOscillator();
-osc.type = 'sawtooth';
-osc.frequency.value = 440;
-osc.start();
-osc.connect(ctx.destination);
-let audio = Audio(osc);
-setTimeout(() => {
-	osc.stop();
-	audio.end().download();
-}, 2000);
-
-
-//Download AudioBuffer returned from offlineContext
-let offlineCtx = new OfflineAudioContext(2,44100*40,44100);
-osc.connect(offlineCtx);
-offlineCtx.startRendering().then((audioBuffer) => {
-	Audio(audioBuffer).download();
-});
-
-
-//Montage audio
-let audio = Audio('./record.mp3');
-audio.set(Audio(audio.get(2.1, 1)).scale(.9), 3.1); //repeat slowed down fragment
-audio.delete(2.4, 2.6).fadeOut(.3, 2.1); //delete fragment, fade out
-audio.splice(2.4, Audio('./other-record.mp3')); //insert other fragment not overwriting the existing data
-*/
+Audio('./sample.mp3').on('load', (err, audio) => {
+	audio.trim().normalize().fadeIn(.3).fadeOut(1).download();
+})
 ```
+
+
+Record 4s of microphone input.
+
+```js
+const Audio = require('audio')
+
+navigator.getUserMedia = (navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia)
+
+navigator.getUserMedia({audio: true}, stream =>	Audio(stream, {duration: 4}).download());
+```
+
+
+Record, process and download 2 seconds audio of web-audio experiment.
+
+```js
+const Audio = require('audio')
+
+let ctx = new AudioContext()
+let osc = ctx.createOscillator()
+osc.type = 'sawtooth'
+osc.frequency.value = 440
+osc.start()
+osc.connect(ctx.destination)
+
+let audio = new Audio(osc)
+audio.schedule(2, () => {
+	osc.stop()
+	audio.end().download()
+})
+```
+
+
+Download AudioBuffer returned from offlineContext.
+
+```js
+const Audio = require('audio')
+
+let offlineCtx = new OfflineAudioContext(2,44100*40,44100)
+audioNode.connect(offlineCtx)
+offlineCtx.startRendering().then((audioBuffer) => {
+	Audio(audioBuffer).download()
+})
+```
+
+Montage audio.
+
+```js
+const Audio = require('audio')
+
+let audio = Audio('./record.mp3', (err, audio) => {
+	//repeat slowed down fragment
+	audio.write(Audio(audio.read(2.1, 1)).scale(.9), 3.1)
+
+	//delete fragment, fade out
+	audio.delete(2.4, 2.6).fadeOut(.3, 2.1)
+
+	//insert other fragment not overwriting the existing data
+	Audio('./other-record.mp3', (err, otherAudio) => {
+		audio.insert(2.4, otherAudio)
+	})
+
+	audio.download('edited-record')
+})
+```
+
+Wrap HTML5 audio.
+
+```js
+const Audio = require('audio')
+
+let audioEl = document.querySelector('.my-audio')
+audioEl
+```
+
 
 ## API
 
@@ -108,7 +153,9 @@ Inserts and/or deletes new audio data by offset. Slower than set
 
 Load audio from source, discard old content. Source can be any argument, same as in the constructor. `load` event will be fired once audio is received and decoded.
 
-#### `audio.isLoading`
+<small>[audio-loader](https://github.com/audiojs/audio-loader) is used internally to tackle loading routines</small>
+
+#### `audio.loading`
 
 Whether audio content is loading.
 
@@ -117,21 +164,14 @@ Whether audio content is loading.
 
 To capture dynamic inputs like microphone, `<audio>` element or streams, _Audio_ utilizes classical _recording_ paradigm. To start recording invoke `audio.record(source)` and then it's contents will be periodically updated from the source, whether it is _MediaSourceStream_ mic input, `<audio>` source element, _WebAudioNode_ or _Stream_. When the source is finished, the `end` event will be fired and recording will stop.
 
-```js
-let audio = new Audio()
-
-//record mic input
-navigator.getUserMedia({audio: true, video: false},	stream => {
-	audio.record(stream)
-	setTimeout(() => audio.end(), 2000)
-})
-```
 
 #### `audio.record(source, offset?)`
 
 Start recording from the source. New audio data will be placed to the end, unless specific `offset` is defined. Offset can be negative, that indicates offset from the end.
 
-#### `audio.isRecording`
+<small>Similar to [captureStream](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/captureStream).</small>
+
+#### `audio.recording`
 
 Indicates whether audio is in the recording state.
 
@@ -162,11 +202,35 @@ Pause current playback. Calling `audio.play()` once again will continue from the
 
 #### `audio.stop()`
 
-Reset playback. Calling `audio.play()` will start from the beginning.
+Reset playback/recording. Calling `audio.play()` will start from the beginning.
 
-#### `audio.isPaused`
+#### `audio.muted`
+
+#### `audio.loop`
+
+#### `audio.rate`
+
+#### `audio.volume`
+
+#### `audio.paused` read only
 
 If playback is active.
+
+#### `audio.currentTime`
+
+Current playback/recording time in seconds. Setting this value seeks the audio to the new time.
+
+#### `audio.duration` read only
+
+Returns a double indicating the length of the media in seconds, or 0 if no media data is available.
+
+#### `audio.ended` read only
+
+Boolean that indicates whether the media element has finished playing.
+
+#### `audio.error` read only
+
+MediaError object for the most recent error, or null if there has not been an error.
 
 #### `audio.on('play')`
 #### `audio.on('pause')`
@@ -287,24 +351,15 @@ audio.toBuffer()
 
 ## Motivation
 
-We wanted to create analog of [Color](https://npmjs.org/package/color) and [jQuery](https://jquery.org) for audio. It embodies reliable and performant modern practices of stream components and packages in general.
+We wanted to create versatile polyfunctional userland utility for audio manipulations, to the contrary of low-level packages of various kinds. We looked an analog of [Color](https://npmjs.org/package/color) for color manipulations, [jQuery](https://jquery.org) for DOM or [regl](https://npmjs.org/package/regl) for WebGL, [opentype.js](http://opentype.js.org/) for fonts, but for audio. It embodies reliable and performant modern practices of audio components and packages in general.
 
 ## Credits
 
-|  ![jamen][author-avatar]  | ![dfcreative](https://avatars2.githubusercontent.com/u/300067?v=3&u=9c2bd522c36d3ae54f3957b0babc2ff27ca4b91c&s=140) |
-|:-------------------------:|:-------------------------:|
-| [Jamen Marz][author-site] | [Dima Yv](https://github.com/dfcreative) |
+Thanks to all the wonderful people:
 
+* [Jamen Marz](https://github.com/jamen) for initiative and help on making decisions.
+* [Daniel Gómez Blasco](https://github.com/danigb/) for patience and work on [audio-loader](https://github.com/audiojs/audio-loader) component.
+* [Michael Williams](https://github.com/ahdinosaur) for stream insights.
 
 ## License
-[MIT](LICENSE) &copy; Jamen Marz
-
-
-[travis]: https://travis-ci.org/audiojs/audio
-[travis-i]: https://travis-ci.org/audiojs/audio.svg
-[gitter]: https://gitter.im/audiojs/audio
-[gitter-i]: https://badges.gitter.im/Join%20Chat.svg
-[npm-audiojs]: https://www.npmjs.com/browse/keyword/audiojs
-[author-site]: https://github.com/jamen
-[author-avatar]: https://avatars.githubusercontent.com/u/6251703?v=3&s=125
-[stackoverflow]: http://stackoverflow.com/questions/ask
+[MIT](LICENSE) &copy;
