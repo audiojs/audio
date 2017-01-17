@@ -110,8 +110,6 @@ Audio.prototype.read = function (start, duration) {
 	duration = duration || this.buffer.duration;
 
 	return this.readRaw(start * this.buffer.sampleRate, length * this.buffer.sampleRate)
-
-	return buf;
 }
 
 //return audio buffer by sample number
