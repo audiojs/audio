@@ -24,7 +24,7 @@ module.exports = Audio;
 inherits(Audio, Emitter);
 
 
-//require functionality
+//augment functionality
 require('./src/playback')
 require('./src/metrics')
 require('./src/manipulations')
