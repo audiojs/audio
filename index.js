@@ -55,7 +55,7 @@ function Audio(source, options, onload) {
 	});
 }
 
-//cache of loaded buffers for urls
+//cache of loaded audio buffers for urls
 Audio.cache = {};
 
 //cache URL
@@ -114,10 +114,10 @@ Audio.prototype.read = function (start, duration) {
 	return buf;
 }
 
+//return audio buffer by sample number
 Audio.prototype.readRaw = function (offset, length) {
 	offset = Math.floor(nidx(offset || 0, this.buffer.length));
 	length = Math.floor(Math.min(length || this.buffer.length, this.buffer.length - offset));
-	console.log(this.buffer.getChannelData(0)[offset])
 	let buf = util.slice(this.buffer, offset, offset + length);
 
 	return buf;
