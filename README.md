@@ -1,6 +1,6 @@
 # Audio [![build status][travis-i]][travis] [![gitter][gitter-i]][gitter] [![experimental](http://badges.github.io/stability-badges/dist/experimental.svg)](http://github.com/badges/stability-badges)
 
-Class for audio manipulations in javascript.
+Class for audio manipulations in javascript — nodejs and browsers.
 
 [![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
 
@@ -54,17 +54,19 @@ audio.splice(2.4, Audio('./other-record.mp3')); //insert other fragment not over
 
 Create _Audio_ instance from the _source_, invoke _load_ callback.
 
-`source` can be:
+`source` can be static, dynamic or stream. Static source, like _AudioBuffer_ or _Array_, sets contents immediately and behaves synchronously. Dynamic source like _String_ or _Promise_ waits for source to load and only then invokes the callback. Stream source puts audio in [recording state](#recording), updating contents as it becomes available.
 
 | type | meaning |
 |---|---|
-| _String_ | Load audio from URL or local path: `Audio('./sample.mp3')`. Result for the URL will be cached to increase performance of future instances. To force no-cache loading, do `Audio(src, {cache: false})`. |
-| _AudioBuffer_ | Wrap _AudioBuffer_ instance. `Audio(new AudioBuffer(data))`. See also [audio-buffer](https://npmjs.org/package/audio-buffer). |
+| _String_ | Load audio from URL or local path: `Audio('./sample.mp3', done)`. Result for the URL will be cached to increase performance of future instances. To force no-cache loading, do `Audio(src, {cache: false})`. |
+| _AudioBuffer_ | Wrap _AudioBuffer_ instance: `Audio(new AudioBuffer(data))`. See also [audio-buffer](https://npmjs.org/package/audio-buffer). |
 | _ArrayBuffer_, _Buffer_ | Decode data contained in a buffer or arrayBuffer. `Audio(pcmBuffer)`. |
 | _Array_, _FloatArray_ | Create audio from samples of `-1..1` range. `Audio(Array(1024).fill(0))`. |
-| _Stream_, _pull-stream_ or _Function_ | Create audio from source stream. `Audio(WAAStream(oscillatorNode))`. `'ready'` event will be triggered as soon as stream is ended. |
-| _WebAudioNode_ | Capture input from web-audio |
+| _File_ | Try to decode audio from [_File_](https://developer.mozilla.org/en/docs/Web/API/File) instance. |
 | _Number_ | Create silence of the duration: `Audio(4*60 + 33)` to create digital copy of [the masterpiece](https://en.wikipedia.org/wiki/4%E2%80%B233%E2%80%B3). |
+| _Stream_, _pull-stream_ or _Function_ | Create audio from source stream. `Audio(WAAStream(oscillatorNode))`. Puts audio into recording state. |
+| _WebAudioNode_, _MediaStreamSource_ | Capture input from web-audio. Puts audio into recording state. |
+| _HTMLAudioElement_, _HTMLMediaElement_ | Wrap [`<audio>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/audio) or [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video) element, capture it's contents. Puts audio into recording state. |
 
 Possible `options`:
 
@@ -74,13 +76,73 @@ Possible `options`:
 | _duration_ | `null` | Max duration of an audio. If undefined, it will take the whole possible input. |
 | _sampleRate_ | `context.sampleRate` | Default sample rate to store the audio data. The input will be resampled, if sampleRate differs. |
 | _channels_ | `2` | Upmix or downmix audio input to the indicated number of channels. If undefined - will take source number of channels. |
-| _cache_ | `true` | Load cached version of source, if available. Used to avoid extra URL requests. |
+| _cache_ | `true` | Load cached version of source, if available. Use to avoid extra URL requests. |
+
+
+### Static source
+
+#### `audio.read(start?, duration?, (err, buffer) => {})`
+
+Get audio buffer of the duration starting from the offset time.
+
+#### `audio.readRaw(offset?, duration?, (err, buffer) => {})`
+
+Get audio buffer of the duration starting from the offset sample.
+
+#### `audio.write(buffer, start?, (err, audio) => {}?)`
+
+Sets a new audio data by offset.
+
+#### `audio.writeRaw(buffer, offset?, (err, audio) => {}?)`
+
+Sets a new audio data by offset.
+
+#### `audio.replace(start?, deleteDuration?, insertData?, (err, audio) => {})`
+
+Inserts and/or deletes new audio data by offset. Slower than set
+
+
+### Dynamic source
+
+#### `audio.load(source, (err, audio) => {}?)`
+
+Load audio from source, discard old content. Source can be any argument, same as in the constructor. `load` event will be fired once audio is received and decoded.
+
+#### `audio.isLoading`
+
+Whether audio content is loading.
+
+
+### Recording
+
+To capture dynamic inputs like microphone, `<audio>` element or streams, _Audio_ utilizes classical _recording_ paradigm. To start recording invoke `audio.record(source)` and then it's contents will be periodically updated from the source, whether it is _MediaSourceStream_ mic input, `<audio>` source element, _WebAudioNode_ or _Stream_. When the source is finished, the `end` event will be fired and recording will stop.
+
+```js
+let audio = new Audio()
+
+//record mic input
+navigator.getUserMedia({audio: true, video: false},	stream => {
+	audio.record(stream)
+	setTimeout(() => audio.end(), 2000)
+})
+```
+
+#### `audio.record(source, offset?)`
+
+Start recording from the source. New audio data will be placed to the end, unless specific `offset` is defined. Offset can be negative, that indicates offset from the end.
+
+#### `audio.isRecording`
+
+Indicates whether audio is in the recording state.
+
+#### `audio.end()`
+
+Stop recording.
 
 
 ### Playback
 
 Listen part of the audio.
-
 
 #### `audio.play(start = 0, duration?, options?, err => {}?)`
 
@@ -102,12 +164,23 @@ Pause current playback. Calling `audio.play()` once again will continue from the
 
 Reset playback. Calling `audio.play()` will start from the beginning.
 
+#### `audio.isPaused`
+
+If playback is active.
+
+#### `audio.on('play')`
+#### `audio.on('pause')`
+#### `audio.on('stop')`
+#### `audio.on('ended')`
+
+Playback events.
+
 
 ### Metrics
 
 #### `audio.spectrum(start?, options?)`
 
-Get array with spectral component magnitudes (magnitude is length of a phasor).
+Get array with spectral component magnitudes (magnitude is length of a phasor). Underneath the [fourier-transform](https://www.npmjs.com/package/fourier-transform) is used.
 
 Possible `options`:
 
@@ -128,40 +201,12 @@ Ideas:
 * tempo for the range `audio.tempo(start?, (err, bpm) => {})`
 * size of underlying buffer, in bytes `audio.size(start?, (err, size) => {})`
 
+
 ### Manipulations
 
 Methods are mutable, because data may be pretty big. If you need immutability do `audio.clone()`.
 
-Note also that if audio data is not ready, all the applied manipulations will be queued.
-
-
 ```js
-//Load audio from source. Source can be any argument, same as in constructor.
-audio.load(source, (err, audio) => {})
-
-//Sets a new audio data by offset.
-audio.set(source, start? (err, audio) => {})
-
-//Get audio buffer of the duration starting from the offset time.
-audio.get(start?, duration?, (err, buffer) => {})
-
-//Inserts and/or deletes a new audio data by offset. Slower than set
-audio.splice(start?, deleteDuration?, insertData?, (err, audio) => {})
-
-
-//FIXME: think how it should work
-//Writes data from the stream by the offset
-audio.write(source, start?, (err, audio) => {})
-
-//Creates stream/pull-stream reader for the data
-audio.read(start?, duration?, (err, buffer) => {})
-
-//Ensures any writers are ended. Call if need to stop recording.
-audio.end()
-
-//slice the data to indicated part
-audio.slice(start?, end?, (err, audio) => {})
-
 //normalize fragment or complete data
 audio.normalize(start?, end?, (err, audio) => {})
 
@@ -222,21 +267,6 @@ audio.map()
 audio.filter()
 ```
 
-### Events
-
-```js
-//fired once when audio buffer is ready
-audio.on('ready')
-
-//fired whenever new data is recieved and decoded
-audio.on('load')
-
-//playback events
-audio.on('play')
-audio.on('pause')
-audio.on('stop')
-audio.on('ended')
-```
 
 ### Utils
 
@@ -248,18 +278,16 @@ audio.clone()
 audio.subaudio(start?, end?)
 
 //download as a wav file in browser, place audio to a file in node
-audio.download(fileName)
+audio.download(fileName, options?)
 
 //return buffer representation of data
 audio.toBuffer()
 ```
 
+
 ## Motivation
 
 We wanted to create analog of [Color](https://npmjs.org/package/color) and [jQuery](https://jquery.org) for audio. It embodies reliable and performant practices of modern components.
-
-The API is designed to be asynchronous maintaining the synchronous style of code, therefore each method takes callback as a last argument and sequence of called methods are queued. That allows for working with big data and enables workers.
-
 
 ## Credits
 
