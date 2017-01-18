@@ -23,7 +23,7 @@ Common use-cases.
 const Audio = require('audio')
 
 Audio('./sample.mp3').on('load', (err, audio) => {
-	audio.trim().normalize().fadeIn(.3).fadeOut(1).download();
+	audio.trim().normalize().fadeIn(.3).fadeOut(1).download('resample');
 })
 ```
 
@@ -40,7 +40,7 @@ Audio('./sample.mp3').on('load', (err, audio) => {
 const Audio = require('audio')
 
 navigator.getUserMedia({audio: true}, stream =>	{
-	Audio(stream, {duration: 4}).on('end', (err, audio) => audio.download())
+	Audio(stream, {duration: 4}).on('end', audio => audio.download())
 });
 ```
 
@@ -59,11 +59,10 @@ osc.connect(ctx.destination)
 
 //record 2 seconds of web-audio experiment
 let audio = new Audio
-audio.duration = 2
-audio.record(osc)
+audio.record(osc, -0, 2)
 audio.on('end', () => {
 	osc.stop()
-	audio.end().download()
+	audio.download('experiment')
 })
 ```
 
@@ -73,7 +72,7 @@ audio.on('end', () => {
 const Audio = require('audio')
 
 //setup offline context
-let offlineCtx = new OfflineAudioContext(2,44100*40,44100)
+let offlineCtx = new OfflineAudioContext(2, 44100*40, 44100)
 audioNode.connect(offlineCtx)
 
 //process result of offline context
@@ -199,13 +198,13 @@ Load audio data from remote-ish source, discard old content. Source can be any a
 
 Whether source is the state of loading.
 
-#### `audio.on('load', (err, audio) => {})`
+#### `audio.on('load', audio => {})`
 
 `'load'` event fired once audio has completed loading the resource or there was an error.
 
-#### `audio.record(source, offset?)`
+#### `audio.record(source, time?, duration?)`
 
-Start recording from stream-y source. New audio data will be placed to the end, unless specific `offset` is defined. Offset can be negative, that indicates offset from the end.
+Start recording from stream-y source. New audio data will be placed to the end, unless specific offset `time` is defined. Offset can be negative, that indicates offset from the end.
 
 <small>Similar to [captureStream](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/captureStream).</small>
 
@@ -213,7 +212,7 @@ Start recording from stream-y source. New audio data will be placed to the end, 
 
 Indicates whether audio is in the recording state.
 
-#### `audio.on('end', (err, audio) => {})`
+#### `audio.on('end', audio => {})`
 
 `'end'` event is fired once input stream has finished, max duration is reached or `end` method is called.
 
@@ -229,6 +228,9 @@ Boolean that indicates whether the audio has finished recording.
 
 MediaError object for the most recent error, or null if there has not been an error.
 
+#### `audio.on('error', error => {})`
+
+Fired when error during loading or streaming happened.
 
 
 ### Reading & Writing
@@ -306,8 +308,8 @@ Current playback time in seconds. Setting this value seeks the audio to the new 
 
 Indicates the length of the audio in seconds, or 0 if no data is available.
 
-#### `audio.on('play')`
-#### `audio.on('pause')`
+#### `audio.on('play', () => {})`
+#### `audio.on('pause', () => {})`
 
 Playback events.
 
