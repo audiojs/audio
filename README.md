@@ -133,15 +133,16 @@ const Audio = require('audio')
 const Biquad = require('audio-biquad')
 
 let lpf = new Biquad({frequency: 2000, type: 'lowpass'})
-let audio = new Audio(10)
-audio.process(lpf)
+let audio = Audio(10).noise().process(lpf)
 ```
 
 ## API
 
 In order to be user-friendly, _audio_ takes on some conventions.
-Methods follow natural language convention `audio.<do>(<what>, <how>?, <after>?)`, or in other words `audio.<method>(<data>, <options>?, <callback>?)`.
-Every method has optional callback argument, following node-style callbacks. First argument of the callback is error and the second is data: `audio.trim(..., (error, data) => {})`.
+
+Methods follow natural language convention `audio.do(what, how?, after?)`, or in other words `audio.method(data, options?, callback?)`.
+
+Async methods have optional callback argument, following node-style callbacks. First argument of the callback is error and the second is data: `audio.trim(..., (error, data) => {})`.
 
 
 
@@ -192,25 +193,21 @@ To capture stream inputs like microphone, `<audio>` element or streams, _Audio_ 
 
 Load audio data from remote-ish source, discard old content. Source can be any argument, same as in the constructor. `load` event will be fired once audio is received and decoded.
 
-<small>[audio-loader](https://github.com/audiojs/audio-loader) is used internally to tackle loading routines</small>
-
-#### `audio.loading`
-
-Whether source is the state of loading.
+[audio-loader](https://github.com/audiojs/audio-loader) is used internally to tackle loading routines.
 
 #### `audio.on('load', audio => {})`
 
-`'load'` event fired once audio has completed loading the resource or there was an error.
+Fired once audio has completed loading the resource.
+
+#### `audio.loading`
+
+Whether source is in the state of loading.
 
 #### `audio.record(source, time?, duration?)`
 
 Start recording from stream-y source. New audio data will be placed to the end, unless specific offset `time` is defined. Offset can be negative, that indicates offset from the end.
 
 <small>Similar to [captureStream](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/captureStream).</small>
-
-#### `audio.recording`
-
-Indicates whether audio is in the recording state.
 
 #### `audio.on('end', audio => {})`
 
@@ -220,17 +217,19 @@ Indicates whether audio is in the recording state.
 
 Stop recording.
 
-#### `audio.ended` read only
+#### `audio.recording`
 
-Boolean that indicates whether the audio has finished recording.
-
-#### `audio.error` read only
-
-MediaError object for the most recent error, or null if there has not been an error.
+Indicates whether audio is in the recording state.
 
 #### `audio.on('error', error => {})`
 
 Fired when error during loading or streaming happened.
+
+#### `audio.error` read only
+
+Error object for the most recent error, or null if there has not been an error.
+
+
 
 
 ### Reading & Writing
