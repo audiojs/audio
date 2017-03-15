@@ -33,19 +33,14 @@
     "node": ">=0.11"
   },
   "dependencies": {
-    "audio-buffer": "^2.4.2",
-    "audio-buffer-utils": "^3.1.2",
-    "audio-decode": "^1.2.1",
+    "audio-buffer": "^2.4.6",
+    "audio-buffer-utils": "^4.0.3",
     "audio-loader": "^0.6.0",
-    "audio-play": "github:audiojs/audio-play",
-    "bit-twiddle": "^1.0.2",
-    "decibels": "^1.0.1",
+    "audio-play": "^2.1.0",
+    "buffer-to-arraybuffer": "0.0.4",
     "fourier-transform": "^1.0.2",
+    "is-buffer": "^1.1.5",
     "is-promise": "^2.1.0",
-    "just-extend": "^1.1.21",
-    "negative-index": "^1.0.1",
-    "next-tick": "^1.0.0",
-    "xhr": "^2.2.2",
-    "xhr-progress": "0.0.0"
+    "negative-index": "^1.0.1"
   }
 }

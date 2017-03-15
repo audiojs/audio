@@ -8,7 +8,7 @@
 
 
 let Audio = require('../')
-
+let util = require('audio-buffer-utils')
 
 
 //Modifiers
@@ -65,7 +65,13 @@ Audio.prototype.trim = function trim () {
 
 	return this;
 }
-Audio.prototype.normalize = function normalize () {
+
+//normalize contents by the offset
+Audio.prototype.normalize = function normalize (time = 0, duration = this.buffer.duration) {
+	let start = Math.floor(time * this.buffer.sampleRate)
+	let end = Math.floor(duration * this.buffer.sampleRate) + start
+
+	util.normalize(this.buffer, start, end)
 
 	return this;
 }
