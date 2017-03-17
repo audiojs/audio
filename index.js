@@ -14,6 +14,7 @@ const nidx = require('negative-index')
 const isPromise = require('is-promise')
 const isBuffer = require('is-buffer')
 const b2ab = require('buffer-to-arraybuffer')
+const pcm = require('pcm-util')
 
 module.exports = Audio;
 
@@ -37,83 +38,68 @@ function Audio(source, options, onload) {
 		options = {}
 	}
 
-	options = options || {}
-	extend(this, options)
+	//handle channels-only options
+	if (typeof options === 'number') options = {channels: options}
+
+	options = extend({}, pcm.defaults, options)
+
+	//init cache
+	if (options.cache != null) this.cache = options.cache
 
 	//if user looks for loading
 	if (onload) this.once('load', onload)
 
 	//launch init
-	this.isReady = false;
+	this.isReady = false
 
-	this.load(source, () => {
-		this.isReady = true;
-	})
-}
 
-//cache of loaded audio buffers for urls
-Audio.cache = {};
-
-//cache URL
-Audio.prototype.cache = true;
-
-//default params
-Audio.prototype.channels = 2;
-Audio.prototype.sampleRate = 44100;
-Audio.prototype.duration = 0;
-
-//load file by url
-Audio.prototype.load = function (src, onload) {
-	if (!src) return this;
-
-	//async string case
-	if (typeof src === 'string') {
+	//async source
+	if (typeof source === 'string') {
 		//load cached version, if any
-		if (this.cache && Audio.cache[src]) {
-			//if loading already - just clone when loaded
-			if (isPromise(Audio.cache[src])) {
-				Audio.cache[src].then((audioBuffer) => {
-					this.load(src)
+		if (this.cache && Audio.cache[source]) {
+			//if source is cached but loading - just clone when loaded
+			if (isPromise(Audio.cache[source])) {
+				Audio.cache[source].then((audioBuffer) => {
+					this.buffer = util.clone(audioBuffer)
+					onload && onload(null, this)
+					this.emit('load', this)
 				})
 			}
+			//if source is cached - clone
 			else {
-				this.buffer = util.clone(Audio.cache[src])
+				this.buffer = util.clone(Audio.cache[source])
 				onload && onload(null, this)
 				this.emit('load', this)
 			}
-			return this;
 		}
 
-		//if no cache - create empty stub till loading
 		else {
-			//create empty buffer if async source
-			this.buffer = util.create(1, this.channels, this.sampleRate)
-		}
+			//load remote source
+			let promise = load(source).then(audioBuffer => {
+				this.buffer = audioBuffer;
 
-		let promise = load(src).then(audioBuffer => {
-			this.buffer = audioBuffer;
+				//save cache
+				if (this.cache) {
+					Audio.cache[source] = audioBuffer
+				}
 
-			//save cache
+				onload && onload(null, this)
+				this.emit('load', this)
+			}, err => {
+				onload && onload(err)
+				this.emit('error', err)
+			})
+
+			//save promise to cache
 			if (this.cache) {
-				Audio.cache[src] = audioBuffer
+				Audio.cache[source] = promise;
 			}
-
-			onload && onload(null, this)
-			this.emit('load', this)
-		}, err => {
-			onload && onload(err)
-			this.emit('error', err)
-		})
-
-		//save promise to cache
-		if (this.cache) {
-			Audio.cache[src] = promise;
 		}
 	}
 
-	//direct access cases
-	else if (Array.isArray(src) || typeof src === 'number') {
-		this.buffer = util.create(src, this.channels, this.sampleRate)
+	//syn data source cases
+	else if (Array.isArray(source) || typeof source === 'number') {
+		this.buffer = util.create(source, options.channels, options.sampleRate)
 
 		onload && onload(null, this)
 		this.emit('load', this)
@@ -125,11 +111,11 @@ Audio.prototype.load = function (src, onload) {
 	//redirect other cases to audio-loader
 	else {
 		//enforce arraybuffer
-		if (isBuffer(src)) {
-			src = b2ab(src)
+		if (isBuffer(source)) {
+			source = b2ab(source)
 		}
 
-		load(src).then(audioBuffer => {
+		load(source).then(audioBuffer => {
 			this.buffer = audioBuffer
 			onload && onload(null, this)
 			this.emit('load', this)
@@ -137,17 +123,54 @@ Audio.prototype.load = function (src, onload) {
 			onload && onload(err)
 			this.emit('error', err)
 		})
+
 	}
 
-
-	return this;
+	//create silent buffer for the time of loading
+	if (!this.buffer) this.buffer = util.create(1, options.channels, options.sampleRate)
 }
+
+//cache of loaded audio buffers for urls
+Audio.cache = {};
+
+//cache URL
+Audio.prototype.cache = true;
+
+//default params
+//TODO: make properties map channels/sampleRate by writing them
+Object.defineProperties(Audio.prototype, {
+	channels: {
+		set: (v) => {
+			//TODO
+		},
+		get: () => {
+			return this.buffer.channels
+		}
+	},
+	sampleRate: {
+		set: (v) => {
+			//TODO
+		},
+		get: () => {
+			return this.buffer.sampleRate
+		}
+	},
+	duration: {
+		set: (v) => {
+			//TODO
+		},
+		get: () => {
+			return this.buffer.duration
+		}
+	}
+})
 
 //return slice of data as an audio buffer
 Audio.prototype.read = function (start = 0, duration = this.buffer.duration) {
 	return this.readRaw(start * this.buffer.sampleRate, duration * this.buffer.sampleRate)
 }
 
+//TODO: provide nicer name for getting raw data as array, not audio buffer
 //return audio buffer by sample number
 Audio.prototype.readRaw = function (offset = 0, length = this.buffer.length) {
 	offset = Math.floor(nidx(offset, this.buffer.length))

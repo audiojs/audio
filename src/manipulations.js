@@ -52,6 +52,12 @@ Audio.prototype.fade = function (start, duration, easing) {
 	return this
 }
 
+//trim start/end silence
+Audio.prototype.trim = function trim (threshold = 0) {
+
+	return this;
+}
+
 //regulate volume of playback/output/read etc
 Audio.prototype.volume = function volume (start, end) {
 	if (arguments.length < 2) {
@@ -76,10 +82,6 @@ Audio.prototype.reverse = function reverse () {
 	return this;
 }
 Audio.prototype.mix = function mix () {
-
-	return this;
-}
-Audio.prototype.trim = function trim () {
 
 	return this;
 }

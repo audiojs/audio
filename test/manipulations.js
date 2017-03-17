@@ -2,7 +2,7 @@ const Audio = require('../');
 const t = require('tape');
 const assert = require('assert')
 
-t('Normalize', t => {
+t('normalize', t => {
 	//full normalize
 	let audio = Audio([0, .1, 0, -.1], {channels: 1})
 
@@ -18,7 +18,7 @@ t('Normalize', t => {
 	t.end();
 })
 
-t('Fade', t => {
+t('fade', t => {
 	let audio = Audio(Array(1000).fill(1), {channels: 1})
 
 	let inCurve = Array(100).fill(1).map((v, i) => (i + .5)/100)
@@ -31,6 +31,14 @@ t('Fade', t => {
 	//fade out
 	audio.fade(0, -100/audio.sampleRate)
 	assert.deepEqual(audio.readRaw(-100).getChannelData(0), outCurve)
+
+	t.end();
+})
+
+t.only('trim', t => {
+	let audio = new Audio([0,0,0,.1,.2,-.1,-.2,0,0], 1).trim()
+
+	assert.deepEqual(audio.buffer.getChannelData(0), [.1,.2,-.1,-.2])
 
 	t.end();
 })
