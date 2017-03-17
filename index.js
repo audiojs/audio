@@ -156,6 +156,7 @@ Audio.prototype.read = function (start = 0, duration = this.buffer.duration) {
 Audio.prototype.readRaw = function (offset = 0, length = this.buffer.length) {
 	offset = Math.floor(nidx(offset, this.buffer.length))
 	length = Math.floor(Math.min(length, this.buffer.length - offset))
+
 	let buf = util.slice(this.buffer, offset, offset + length)
 
 	return buf;

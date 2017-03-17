@@ -7,11 +7,50 @@
 'use strict'
 
 
+const util = require('audio-buffer-utils')
+const nidx = require('negative-index')
+
 let Audio = require('../')
-let util = require('audio-buffer-utils')
 
 
-//Modifiers
+//normalize contents by the offset
+Audio.prototype.normalize = function normalize (time = 0, duration = this.buffer.duration) {
+	let start = Math.floor(time * this.buffer.sampleRate)
+	let end = Math.floor(duration * this.buffer.sampleRate) + start
+
+	util.normalize(this.buffer, start, end)
+
+	return this;
+}
+
+//fade in/out
+Audio.prototype.fade = function (start, duration, easing) {
+	if (arguments.length < 2) {
+		easing = duration
+		duration = start
+		start = 0
+	}
+	if (duration == null) duration = .5
+	start = nidx(start, this.buffer.duration)
+
+	let step = duration > 0 ? 1 : -1
+	let halfStep = step*.5
+	let startOffset = start * this.buffer.sampleRate
+	let len = duration * this.buffer.sampleRate
+	let endOffset = startOffset + len
+	let map = typeof easing === 'function' ? easing : (t) => t
+
+	for (let c = 0, l = this.buffer.length; c < this.buffer.numberOfChannels; c++) {
+		let data = this.buffer.getChannelData(c)
+		for (let i = startOffset; i != endOffset; i+=step) {
+			let idx = Math.floor(nidx(i + halfStep, l))
+			let t = (i + halfStep - startOffset) / len
+			data[idx] *= map(t)
+		}
+	}
+
+	return this
+}
 
 //regulate volume of playback/output/read etc
 Audio.prototype.volume = function volume (start, end) {
@@ -20,33 +59,12 @@ Audio.prototype.volume = function volume (start, end) {
 		start = 0;
 	}
 	if (duration == null) duration = .5;
-	start = normOffset(start);
+
+	start = Math.floor(nidx(start, this.buffer.length))
+	start = nidx(start, duration);
 
 	return this;
 };
-
-//apply fade curve
-Audio.prototype.fadeIn = function (start, duration) {
-	if (arguments.length < 2) {
-		duration = start;
-		start = 0;
-	}
-	if (duration == null) duration = .5;
-	start = normOffset(start);
-
-	return this;
-}
-
-Audio.prototype.fadeOut = function (start, duration) {
-	if (arguments.length < 2) {
-		duration = start;
-		start = 0;
-	}
-	if (duration == null) duration = .5;
-	start = normOffset(start);
-
-	return this;
-}
 
 //regulate rate of playback/output/read etc
 Audio.prototype.rate = function rate () {
@@ -66,15 +84,6 @@ Audio.prototype.trim = function trim () {
 	return this;
 }
 
-//normalize contents by the offset
-Audio.prototype.normalize = function normalize (time = 0, duration = this.buffer.duration) {
-	let start = Math.floor(time * this.buffer.sampleRate)
-	let end = Math.floor(duration * this.buffer.sampleRate) + start
-
-	util.normalize(this.buffer, start, end)
-
-	return this;
-}
 Audio.prototype.shift = function shift () {
 
 	return this;
