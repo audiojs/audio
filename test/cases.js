@@ -2,7 +2,7 @@
 
 
 //Basic processing: trim, normalize, fade, save
-Audio('./sample.mp3').trim().normalize().fadeIn(.3).fadeOut(1).download();
+Audio('./sample.mp3').trim().normalize().fade(.3).fade(-1).download();
 //- obvious load event is ignored, expected sync API is actually a sort of hidden mechanism. better stick to `.on` method, make it close to Image class, make it sync
 
 

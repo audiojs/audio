@@ -6,7 +6,7 @@ const Gen = require('audio-generator')
 
 
 //dictaphone cases
-t.test('Create empty instance', t => {
+t('Create empty instance', t => {
 	let a = Audio();
 
 	assert.equal(a.length, 0);
@@ -17,7 +17,7 @@ t.test('Create empty instance', t => {
 	t.end();
 });
 
-t.test('Write stream', t => {
+t('Write stream', t => {
 	let source = createSource(lena);
 
 	let a = Audio();
@@ -27,7 +27,7 @@ t.test('Write stream', t => {
 	});
 });
 
-t.test('End writing', t => {
+t('End writing', t => {
 	let gen = Gen((t) => {
 		return Math.sin(t*440*Math.PI*2)
 	});
@@ -42,7 +42,7 @@ t.test('End writing', t => {
 
 
 
-t.test('Caching resource', t => {
+t('Caching resource', t => {
 	let a = Audio('./chopin.mp3').on('load', (audio) => {
 	})
 
@@ -53,30 +53,35 @@ t.test('Caching resource', t => {
 });
 
 
-// t.test('create from buffer', t => {
+t('Download', t => {
+	t.end()
+})
+
+
+// t('create from buffer', t => {
 // 	Audio(lena).volume(.5).play(() => {
 // 		console.log('end');
 // 		t.end();
 // 	});
 // });
 
-// t.test('create from audio buffer', t => {
+// t('create from audio buffer', t => {
 
 // 	t.end();
 // });
 
-// t.test('create from array', t => {
+// t('create from array', t => {
 // 	t.end();
 
 // });
 
-// t.test('load', t => {
+// t('load', t => {
 // 	Audio('./lena.wav')
 
 // 	t.end();
 // });
 
-// t.test('clone instance', t => {
+// t('clone instance', t => {
 // let audio = Audio();
 // Audio(audio)
 // });
