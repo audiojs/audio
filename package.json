@@ -11,8 +11,8 @@
   "scripts": {
     "lint": "eslint index.js --ignore-pattern test*",
     "preversion": "npm run lint && npm run test",
-    "test": "node test/index.js",
-    "test:browser": "budo test/index.js"
+    "test": "node test/manipulations.js",
+    "test:browser": "budo test/manipulations.js"
   },
   "devDependencies": {
     "audio-lena": "^1.0.1",

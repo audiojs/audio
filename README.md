@@ -181,6 +181,14 @@ Possible `options`:
 
 [AudioBuffer](https://github.com/audiojs/audio-buffer) with the raw actual audio data. Can be modified directly.
 
+#### `audio.read(time?, duration?)`
+
+Get _AudioBuffer_ of the `duration` starting from the `start` time.
+
+#### `audio.write(audioBuffer, time?)`
+
+Write _AudioBuffer_ at the `start` time. Old data will be overridden, use `insert` method to save the old data. If `audioBuffer` is longer than the `duration`, audio will be extended to fit the `audioBuffer`. If `start` time is not defined, new audio will be written to the end, unless `duration` is explicitly set.
+
 #### `audio.load(source, callback?)`
 
 Load audio data from source, whether remote, stream or static data; discard old content. Source can be any argument, same as in the constructor. `load` event will be fired once audio is received and decoded, or in case of stream — when the stream is ended or max duration reached.
@@ -271,29 +279,42 @@ Ideas:
 
 Methods are mutable, because data may be pretty big. If you need immutability do `audio.clone()`. Manipulations heavily use [audio-buffer-utils](https://github.com/jaz303/audio-buffer-utils) internally.
 
-
-#### `audio.read(time?, duration?)`
-
-Get _AudioBuffer_ of the `duration` starting from the `start` time.
-
-#### `audio.write(audioBuffer, time?)`
-
-Write _AudioBuffer_ at the `start` time. Old data will be overridden, use `insert` method to save the old data. If `audioBuffer` is longer than the `duration`, audio will be extended to fit the `audioBuffer`. If `start` time is not defined, new audio will be written to the end, unless `duration` is explicitly set.
-
 #### `audio.splice(time?, deleteDuration?, newData?)`
 
 Insert and/or delete new audio data at the start `time`.
+
+#### `audio.fade(time = 0, duration = .5, easing?)`
+
+Fade in part of the audio of the `duration` stating at `time`.
+Pass negative `duration` to fade out from the indicated time (backward direction).
+
+Default `easing` is linear, but any of [eases](https://npmjs.org/package/eases) functions can be passed. `easing` function has signature `v = ease(t)`, where `t` and `v` are from `0..1` range.
+
+```js
+const Audio = require('audio')
+const eases = require('eases')
+
+let audio = Audio('./source').on('load', audio => {
+	audio
+
+	//fade in first second
+	.fade(0, 1, eases.cubicInOut)
+
+	//fade out last second
+	.fade(-0, -1, eases.cubicInOut)
+})
+```
 
 #### `audio.normalize(time?, duration?)`
 
 Normalize fragment or full audio.
 
 ```js
-let audio = new Audio([0, .1, 0, -.1], {channels: 1})
+const Audio = require('audio')
 
-audio.normalize()
+let audio = new Audio([0, .1, 0, -.1], {channels: 1}).normalize()
 
-audio.read() //AudioBuffer([0, 1, 0, -1])
+let buf = audio.read() // <AudioBuffer 0, 1, 0, -1>
 ```
 
 #### `audio.reverse(time?, duration?)`
@@ -349,12 +370,6 @@ Fill with 0.
 #### `audio.noise(time?, duration?)`
 
 Fill with random.
-
-#### `audio.fadeIn(duration?, time?, easing?)`
-#### `audio.fadeOut(duration?, time?, easing?)`
-
-Apply gradual fade to the part of audio.
-
 
 #### `audio.process(audioBuffer => audioBuffer, time?, duration?)`
 #### `audio.process((chunk, callback?) => cb(null, chunk), time?, duration?, callback?)`
