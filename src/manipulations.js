@@ -24,13 +24,39 @@ Audio.prototype.normalize = function normalize (time = 0, duration = this.buffer
 }
 
 //fade in/out
-Audio.prototype.fade = function (start, duration, easing) {
-	if (arguments.length < 2) {
-		easing = duration
+Audio.prototype.fade = function (start, duration, map) {
+	//0, 1, easing
+	//0, -1, easing
+	//-0, -1, easing
+	if (arguments.length === 3) {
+
+	}
+
+	//1, easing
+	//-1, easing
+	//0, 1
+	//0, -1
+	//-0, -1
+	else if (arguments.length === 2) {
+		let last = arguments[arguments.length - 1]
+		if (typeof last === 'number') {
+			duration = last
+		}
+		else {
+			map = last
+			duration = start
+		}
+	}
+
+	//1
+	//-1
+	else if (arguments.length === 1) {
 		duration = start
 		start = 0
 	}
-	if (duration == null) duration = .5
+
+	map = typeof map === 'function' ? map : t => t
+
 	start = nidx(start, this.buffer.duration)
 
 	let step = duration > 0 ? 1 : -1
@@ -38,7 +64,6 @@ Audio.prototype.fade = function (start, duration, easing) {
 	let startOffset = start * this.buffer.sampleRate
 	let len = duration * this.buffer.sampleRate
 	let endOffset = startOffset + len
-	let map = typeof easing === 'function' ? easing : (t) => t
 
 	for (let c = 0, l = this.buffer.length; c < this.buffer.numberOfChannels; c++) {
 		let data = this.buffer.getChannelData(c)

@@ -15,13 +15,13 @@ Class for high-level audio manipulations in javascript − nodejs and browsers.
 
 [![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
 
-#### 1. Basic processing — trim, normalize, fade, save
+#### 1. Basic processing — trim, normalize, fade in, fade out, save
 
 ```js
 const Audio = require('audio')
 
 Audio('./sample.mp3').on('load', (err, audio) => {
-	audio.trim().normalize().fadeIn(.3).fadeOut(1).download('resample');
+	audio.trim().normalize().fade(.3).fade(-1).download('sample-edited');
 })
 ```
 
@@ -294,14 +294,25 @@ const Audio = require('audio')
 const eases = require('eases')
 
 let audio = Audio('./source').on('load', audio => {
-	audio
+	audio.fade(1, easing.cubicInOut).fade(-1, easing.quadIn)
 
-	//fade in 1 second from the beginning
-	.fade(0, 1, eases.cubicInOut)
-
-	//fade out 1 second from the end
-	.fade(0, -1, eases.cubicInOut)
 })
+
+//Cases:
+
+//fade in 1 second from the beginning
+audio.fade(0, 1)
+audio.fade(1)
+
+//fade in 1 second starting at .5 s
+audio.fade(.5, 1)
+
+//fade out 1 second from the end
+audio.fade(0, -1)
+audio.fade(-1)
+
+//fade out 1 second 0.5s before the end
+audio.fade(-.5, -1)
 ```
 
 #### `audio.normalize(time?, duration?)`

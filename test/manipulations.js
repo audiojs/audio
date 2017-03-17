@@ -25,11 +25,11 @@ t('fade', t => {
 	let outCurve = inCurve.slice().reverse()
 
 	//fade in
-	audio.fade(0, 100/audio.sampleRate)
+	audio.fade(100/audio.sampleRate)
 	assert.deepEqual(audio.readRaw(0, 100).getChannelData(0), inCurve)
 
 	//fade out
-	audio.fade(0, -100/audio.sampleRate)
+	audio.fade(-100/audio.sampleRate)
 	assert.deepEqual(audio.readRaw(-100).getChannelData(0), outCurve)
 
 	t.end();
@@ -40,7 +40,7 @@ t('trim', t => {
 
 	assert.deepEqual(audio.buffer.getChannelData(0), [.1,.2,-.1,-.2])
 
-	//trim left
+	//TODO: trim left
 	// audio.write([0,0,0,.1,.2,-.1,-.2,0,0])
 	// audio.trim();
 

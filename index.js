@@ -196,3 +196,32 @@ Audio.prototype.write = function (buffer, offsetTime) {
 	return this;
 }
 */
+
+
+//download file (WAA) or create a file in node
+Audio.prototype.download = function (fileName) {
+	if (util.isBrowser()) {
+		window.requestFileSystem = window.requestFileSystem || window.webkitRequestFileSystem;
+		window.requestFileSystem(window.TEMPORARY, arrayBuffer.byteLength, function(fs) {
+		fs.root.getFile(fileName, {create: true}, function(fileEntry) {
+			fileEntry.createWriter(function(writer) {
+				var dataView = new DataView(arrayBuffer);
+				var blob = new Blob([dataView], {type: 'font/opentype'});
+				writer.write(blob);
+
+				writer.addEventListener('writeend', function() {
+					// Navigating to the file will download it.
+					location.href = fileEntry.toURL();
+				}, false);
+			});
+			});
+		},
+		function(err) {
+			throw new Error(err.name + ': ' + err.message);
+		});
+	} else {
+		var fs = require('fs');
+		var buffer = util.arrayBufferToNodeBuffer(arrayBuffer);
+		fs.writeFileSync(fileName, buffer);
+	}
+}
