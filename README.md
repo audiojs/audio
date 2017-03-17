@@ -144,23 +144,19 @@ let audio = Audio(10).noise().process(lpf)
 Create _Audio_ instance from the _source_ based on _options_ (or number of _channels_), invoke _callback_ when ready.
 
 ```js
-let audio = new Audio('./sample.mp3', {duration: 2}, (err, audio) => {
+let audio = new Audio('./sample.mp3', (err, audio) => {
 	if (err) throw Error(err);
 
 	// `audio` contains fully loaded and decoded sample.mp3 here
 })
 ```
 
-Source can be sync, async or stream.
+`source` can be _sync_, _async_ or _stream_.
 
-_Sync_ source sets contents immediately and returns ready instance.
-
-_Async_ source waits for content to load and fires `load` when ready. `audio.isReady` indicator can be used for checking. Not ready audio contains silent 1-sample buffer.
+* _Sync_ source sets contents immediately and returns ready instance.
+* _Async_ source waits for content to load and fires `load` when ready. `audio.isReady` indicator can be used for checking. Not ready audio contains silent 1-sample buffer.
 [audio-loader](https://github.com/audiojs/audio-loader) is used internally to tackle loading routine.
-
-<!--
-_Stream_ source puts audio into recording state, updating contents gradually until input stream ends or max duration reaches.
--->
+* _Stream_ source puts audio into recording state, updating contents gradually until input stream ends or max duration reaches.
 
 | source type | meaning | method |
 |---|---|---|
