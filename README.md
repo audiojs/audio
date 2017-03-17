@@ -151,12 +151,11 @@ let audio = new Audio('./sample.mp3', (err, audio) => {
 })
 ```
 
-`source` can be _sync_, _async_ or _stream_.
+`source` can be _sync_, _async_ or _stream_:
 
-* _Sync_ source sets contents immediately and returns ready instance.
-* _Async_ source waits for content to load and fires `load` when ready. `audio.isReady` indicator can be used for checking. Not ready audio contains silent 1-sample buffer.
-[audio-loader](https://github.com/audiojs/audio-loader) is used internally to tackle loading routine.
-* _Stream_ source puts audio into recording state, updating contents gradually until input stream ends or max duration reaches.
+* _Sync_ source sets contents immediately and returns ready to use audio instance.
+* _Async_ source waits for content to load and fires `load` when ready (similar to _Image_ class). `audio.isReady` indicator can be used to check status. Not ready audio contains 1-sample buffer with silence. [audio-loader](https://github.com/audiojs/audio-loader) is used internally.
+* [WIP] _Stream_ source puts audio into recording state, updating contents gradually until input stream ends or max duration reaches.
 
 | source type | meaning | method |
 |---|---|---|
@@ -278,7 +277,7 @@ Ideas:
 
 Methods are mutable, because data may be pretty big. If you need immutability do `audio.clone()`. Manipulations heavily use [audio-buffer-utils](https://github.com/jaz303/audio-buffer-utils) internally.
 
-#### `audio.fade(time = 0, duration = .5, easing?)`
+#### `audio.fade(time=0, duration, easing?)`
 
 Fade in part of the audio of the `duration` stating at `time`.
 Pass negative `duration` to fade out from the indicated time (backward direction).
@@ -290,25 +289,18 @@ const Audio = require('audio')
 const eases = require('eases')
 
 let audio = Audio('./source').on('load', audio => {
-	audio.fade(1, easing.cubicInOut).fade(-1, easing.quadIn)
+	//fade in 1s from the beginning
+	audio.fade(1, easing.cubicInOut)
 
+	//fade out 1s from the end
+	.fade(-1, easing.quadIn)
+
+	//fade in .2s starting at .6s
+	.fade(.6, .2)
+
+	//fade out .2s starting at .8s (ending at 1s)
+	.fade(1, .2)
 })
-
-//Cases:
-
-//fade in 1 second from the beginning
-audio.fade(0, 1)
-audio.fade(1)
-
-//fade in 1 second starting at .5 s
-audio.fade(.5, 1)
-
-//fade out 1 second from the end
-audio.fade(0, -1)
-audio.fade(-1)
-
-//fade out 1 second 0.5s before the end
-audio.fade(-.5, -1)
 ```
 
 #### `audio.normalize(time?, duration?)`
