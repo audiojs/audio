@@ -22,6 +22,8 @@ module.exports = Audio;
 //for events sake
 inherits(Audio, Emitter)
 
+//TODO: emit load event in next tick to allow for after-
+
 
 //augment functionality
 require('./src/playback')
