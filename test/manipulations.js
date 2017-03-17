@@ -35,10 +35,14 @@ t('fade', t => {
 	t.end();
 })
 
-t.only('trim', t => {
+t('trim', t => {
 	let audio = new Audio([0,0,0,.1,.2,-.1,-.2,0,0], 1).trim()
 
 	assert.deepEqual(audio.buffer.getChannelData(0), [.1,.2,-.1,-.2])
+
+	//trim left
+	// audio.write([0,0,0,.1,.2,-.1,-.2,0,0])
+	// audio.trim();
 
 	t.end();
 })
