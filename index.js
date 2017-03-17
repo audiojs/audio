@@ -3,17 +3,13 @@
  *
  * High-level audio container
  */
-'use strict';
+'use strict'
 
-const AudioBuffer = require('audio-buffer')
 const Emitter = require('events')
 const inherits = require('inherits')
 const load = require('audio-loader')
 const extend = require('object-assign')
-const isBrowser = require('is-browser')
 const util = require('audio-buffer-utils')
-const decode = require('audio-decode')
-const tick = require('next-tick')
 const nidx = require('negative-index')
 const isPromise = require('is-promise')
 const isBuffer = require('is-buffer')
