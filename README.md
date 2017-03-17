@@ -1,4 +1,4 @@
-# Audio [![unstable](http://badges.github.io/stability-badges/dist/unstable.svg)](http://github.com/badges/stability-badges) [![Build Status](https://img.shields.io/travis/audiojs/audio.svg?style=flat-square)](https://travis-ci.org/audiojs/audio) [![NPM Version](https://img.shields.io/npm/v/audio.svg?style=flat-square)](https://www.npmjs.org/package/audio) [![License](https://img.shields.io/badge/license-MIT-brightgreen.svg?style=flat-square)](https://audiojs.mit-license.org/)
+# Audio [![unstable](http://badges.github.io/stability-badges/dist/unstable.svg)](http://github.com/badges/stability-badges)[![Build Status](https://img.shields.io/travis/audiojs/audio.svg?style=flat-square)](https://travis-ci.org/audiojs/audio)[![NPM Version](https://img.shields.io/npm/v/audio.svg?style=flat-square)](https://www.npmjs.org/package/audio) [![License](https://img.shields.io/badge/license-MIT-brightgreen.svg?style=flat-square)](https://audiojs.mit-license.org/)
 
 Class for high-level audio manipulations in javascript − nodejs and browsers.
 
@@ -15,7 +15,7 @@ Class for high-level audio manipulations in javascript − nodejs and browsers.
 
 [![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
 
-#### 1. Basic processing — trim, normalize, fade in, fade out, save
+### 1. Basic processing — trim, normalize, fade in, fade out, save
 
 ```js
 const Audio = require('audio')
@@ -33,7 +33,7 @@ Audio('./sample.mp3').on('load', (err, audio) => {
 -->
 
 <!--
-#### 2. Record 4s of microphone input
+### 2. Record 4s of microphone input
 
 ```js
 const Audio = require('audio')
@@ -43,7 +43,7 @@ navigator.getUserMedia({audio: true}, stream =>	{
 });
 ```
 
-#### 3. Record and download 2 seconds of web-audio experiment
+### 3. Record and download 2 seconds of web-audio experiment
 
 ```js
 const Audio = require('audio')
@@ -64,7 +64,7 @@ audio.on('end', () => {
 })
 ```
 
-#### 4. Download AudioBuffer returned from offline context
+### 4. Download AudioBuffer returned from offline context
 
 ```js
 const Audio = require('audio')
@@ -79,7 +79,7 @@ offlineCtx.startRendering().then((audioBuffer) => {
 })
 ```
 
-#### 5. Montage audio
+### 5. Montage audio
 
 ```js
 const Audio = require('audio')
@@ -100,7 +100,7 @@ let audio = Audio('./record.mp3', (err, audio) => {
 })
 ```
 
-#### 6. Render waveform of HTML5 `<audio>`
+### 6. Render waveform of HTML5 `<audio>`
 
 ```js
 const Audio = require('audio')
@@ -137,40 +137,51 @@ let audio = Audio(10).noise().process(lpf)
 
 ## API
 
-### Creating
+### `let audio = new Audio(source, channels=2|options?, onload?)`
 
-#### `audio = new Audio(source, channels|options?, onload?)`
-
-Create _Audio_ instance from the _source_ based on _options_ (or number of _channels_), invoke _callback_ when ready.
+Create _Audio_ instance from the _source_ based on _options_ (or number of _channels_), invoke _onload_ when ready.
 
 ```js
-let audio = new Audio('./sample.mp3', (err, audio) => {
-	if (err) throw Error(err);
+//create 2-channel audio of duration 4m 33s
+let blankAudio = new Audio(4*60 + 33, 2)
 
-	// `audio` contains fully loaded and decoded sample.mp3 here
+//create from AudioBuffer
+let bufAudio = new Audio(new AudioBuffer(2, [.1,.1,...]))
+
+//create from raw data
+let arrAudio = new Audio([0,1,.2,.3,...], {channels: 2})
+
+//decode mp3/wav arrayBuffer/buffer
+let wavAudio = new Audio(require('audio-lena/mp3'), (err, wavAudio) => {
+	// `wavAudio` here is decoded from the mp3 source
+});
+
+//create from remote source
+let remoteAudio = new Audio('./sample.mp3', (err, remoteAudio) => {
+	// `remoteAudio` here is fully loaded and decoded
 })
 ```
 
 `source` can be _sync_, _async_ or _stream_:
 
 * _Sync_ source sets contents immediately and returns ready to use audio instance.
-* _Async_ source waits for content to load and fires `load` when ready (similar to _Image_ class). `audio.isReady` indicator can be used to check status. Not ready audio contains 1-sample buffer with silence. [audio-loader](https://github.com/audiojs/audio-loader) is used internally.
-* [WIP] _Stream_ source puts audio into recording state, updating contents gradually until input stream ends or max duration reaches.
+* _Async_ source waits for content to load and emits `load` event when ready (similar to _Image_ class). `audio.isReady` indicator can be used to check status. Not ready audio contains 1-sample buffer with silence. [audio-loader](https://github.com/audiojs/audio-loader) is used internally.
+* [WIP] _Stream_ source puts audio into recording state, updating contents gradually until input stream ends or max duration reaches. `data` and `end` events are emitted during the consuming stream.
 
 | source type | meaning | method |
 |---|---|---|
 | _String_ | Load audio from URL or local path: `Audio('./sample.mp3', (error, audio) => {})`. Result for the URL will be cached for the future instances. To force no-cache loading, do `Audio(src, {cache: false})`. | async |
-| _AudioBuffer_ | Wrap _AudioBuffer_ instance: `Audio(new AudioBuffer(data))`. See also [audio-buffer](https://npmjs.org/package/audio-buffer). | sync |
-| _ArrayBuffer_, _Buffer_ | Decode data contained in a buffer or arrayBuffer. `Audio(pcmBuffer)`. | sync |
-| _Array_, _FloatArray_ | Create audio from samples of `-1..1` range. `Audio(Array(1024).fill(0))`. | sync |
-| _Number_ | Create silence of the duration: `Audio(4*60 + 33)` to create digital copy of [the masterpiece](https://en.wikipedia.org/wiki/4%E2%80%B233%E2%80%B3). | sync |
+| _AudioBuffer_ | Create from _AudioBuffer_. See [audio-buffer](https://github.com/audiojs/audio-buffer) instance. | sync |
+| _ArrayBuffer_, _Buffer_ | Decode data contained in a _buffer_ or _arrayBuffer_. See [audio-decode](https://github.com/audiojs/audio-decode). | sync |
+| _Array_, _FloatArray_ | Create audio from waw samples of `-1..1` range. | sync |
+| _Number_ | Create blank audio of the duration. | sync |
 <!--| _File_ | Try to decode audio from [_File_](https://developer.mozilla.org/en/docs/Web/API/File) instance. | sync |
 | _Stream_, _pull-stream_ or _Function_ | Create audio from source stream. `Audio(WAAStream(oscillatorNode))`. Puts audio into recording state. | stream |
 | _WebAudioNode_, _MediaStreamSource_ | Capture input from web-audio. Puts audio into recording state. | stream |
 | _HTMLAudioElement_, _HTMLMediaElement_ | Wrap [`<audio>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/audio) or [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video) element, capture it's contents. Puts audio into recording state. | stream |
 -->
 
-Possible `options`:
+Optionally pass number of `channels` or `options` as the second argument. Available `options`:
 
 | name | default | meaning |
 |---|---|---|
@@ -180,76 +191,190 @@ Possible `options`:
 | _channels_ | `2` | Upmix or downmix audio input to the indicated number of channels. If undefined it will take source number of channels. _channels_ number can be passed directly instead of options object. |
 | _cache_ | `true` | Load cached version of source, if available. Used to avoid extra URL requests. |
 
-#### `audio.buffer`
+### `audio.buffer`
 
 [AudioBuffer](https://github.com/audiojs/audio-buffer) with the raw actual audio data. Can be modified directly.
 
-#### `audio.read(time?, duration?)`
+### `audio.channels`
+
+Number of channels. Setting that property will upmix or downmix channels, see [channel interpretation](https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API/Basic_concepts_behind_Web_Audio_API#Up-mixing_and_down-mixing) table.
+
+### `audio.sampleRate`
+
+Buffer sample rate. Changing this property will resample audio to target rate.
+
+### `audio.duration`
+
+Buffer duration. Changing this property will whether right-trim or right-pad the data.
+
+### `audio.read(time?, duration?)`
 
 Get _AudioBuffer_ of the `duration` starting from the `start` time.
 
-#### `audio.write(audioBuffer, time?)`
+### `audio.write(audioBuffer, time?)`
 
 Write _AudioBuffer_ at the `start` time. Old data will be overridden, use `insert` method to save the old data. If `audioBuffer` is longer than the `duration`, audio will be extended to fit the `audioBuffer`. If `start` time is not defined, new audio will be written to the end, unless `duration` is explicitly set.
 
-#### `audio.on('load', audio => {})`
 
-Fired once audio has completed loading the resource.
+## Manipulations
 
-<!--
-#### `audio.on('data', audioBuffer => {})`
+### `audio.fade(time=0, duration, easing?)`
 
-Fired every time new stream data is obtained.
--->
+Fade in part of the audio of the `duration` stating at `time`.
+Pass negative `duration` to fade out from the indicated time (backward direction).
 
-### Playback
+Default `easing` is linear, but any of [eases](https://npmjs.org/package/eases) functions can be used. `easing` function has signature `v = ease(t)`, where `t` and `v` are from `0..1` range.
 
-Preview methods.
+```js
+const Audio = require('audio')
+const eases = require('eases')
 
-#### `audio.play(time?, duration?, callback?)`
+let audio = Audio('./source').on('load', audio => {
+	//fade in 1s from the beginning
+	audio.fade(1, easing.cubicInOut)
+
+	//fade out 1s from the end
+	.fade(-1, easing.quadIn)
+
+	//fade in .2s starting at .6s
+	.fade(.6, .2)
+
+	//fade out .2s starting at .8s (ending at 1s)
+	.fade(1, .2)
+})
+```
+
+### `audio.normalize(time?, duration?)`
+
+Normalize fragment or full audio, i.e. bring data to -1..+1 range. Channels amplitudes ratio will be preserved. See [`audio-buffer-utils/normalize`](https://github.com/audiojs/audio-buffer-utils#utilnormalizebuffer-target-start--0-end---0).
+
+```js
+const Audio = require('audio')
+
+let audio = new Audio([0, .1, 0, -.1], {channels: 1}).normalize()
+// <Audio 0, 1, 0, -1>
+```
+
+### `audio.trim(threshold?)`
+
+Make sure there is no silence at the beginning/end of audio. Duration may be reduced therefore.
+
+```js
+const Audio = require('audio')
+
+let audio = new Audio([0,0,0,.1,.2,-.1,-.2,0,0], 1).trim()
+// <Audio .1, .2, -.1, -.2>
+```
+
+### `audio.splice(time?, deleteDuration?, newData?)`
+
+Insert and/or delete new audio data at the start `time`.
+
+### `audio.reverse(time?, duration?)`
+
+Change the direction of samples for the indicated part.
+
+### `audio.inverse(time?, duration?)`
+
+Inverse phase for the indicated range.
+
+### `audio.padStart(duration?, value?)`
+### `audio.padEnd(duration?, value?)`
+
+Make sure the duration of the fragment is long enough.
+
+
+### `audio.gain(volume, time?, duration?)`
+
+Change volume of the range.
+
+### `audio.threshold(value, time?, duration?);`
+
+Cancel values less than indicated threshold 0.
+
+### `audio.mix(otherAudio, time?, duration?)`
+
+Merge second audio into the first one at the indicated range.
+
+### `audio.resample(sampleRate, how?)`
+
+Change sample rate to the new one.
+
+### `audio.remix(channelsNumber, how?)`
+
+Upmix or downmix channels.
+
+### `audio.scale(amount, time?, duration?)`
+
+Change playback rate, pitch will be shifted.
+
+### `audio.fill(value|(value, n, channel) => value, time?, duration?)`
+
+Apply per-sample processing.
+
+### `audio.silence(time?, duration?)`
+
+Fill with 0.
+
+### `audio.noise(time?, duration?)`
+
+Fill with random.
+
+### `audio.process(audioBuffer => audioBuffer, time?, duration?)`
+### `audio.process((chunk, callback?) => cb(null, chunk), time?, duration?, callback?)`
+
+Process audio with sync or async function, see any audiojs/audio-* modules.
+
+
+
+## Playback
+
+Prelisten methods.
+
+### `audio.play(time?, duration?, callback?)`
 
 Start playback from the indicated `start` time offset, invoke callback on end.
 
-#### `audio.pause()`
+### `audio.pause()`
 
 Pause current playback. Calling `audio.play()` once again will continue from the point of pause.
 
-#### `audio.muted`
+### `audio.muted`
 
 Mute playback not pausing it.
 
-#### `audio.loop`
+### `audio.loop`
 
 Repeat playback when the end is reached.
 
-#### `audio.rate`
+### `audio.rate`
 
 Playback rate, by default `1`.
 
-#### `audio.volume`
+### `audio.volume`
 
 Playback volume, defaults to `1`.
 
-#### `audio.paused` read only
+### `audio.paused` read only
 
 If playback is paused.
 
-#### `audio.currentTime`
+### `audio.currentTime`
 
 Current playback time in seconds. Setting this value seeks the audio to the new time.
 
-#### `audio.duration` read only
+### `audio.duration` read only
 
 Indicates the length of the audio in seconds, or 0 if no data is available.
 
-#### `audio.on('end', audio => {})`
+### `audio.on('end', audio => {})`
 
 Fired once playback has finished.
 
 
-### Metrics
+## Metrics
 
-#### `audio.spectrum(time?, options?)`
+### `audio.spectrum(time?, options?)`
 
 Get array with spectral component magnitudes (magnitude is length of a [phasor](wiki) — real and imaginary parts). [fourier-transform](https://www.npmjs.com/package/fourier-transform) is used internally.
 
@@ -273,120 +398,8 @@ Ideas:
 * size of underlying buffer, in bytes `audio.size(time?, (err, size) => {})`
 -->
 
-### Manipulations
 
-Methods are mutable, because data may be pretty big. If you need immutability do `audio.clone()`. Manipulations heavily use [audio-buffer-utils](https://github.com/jaz303/audio-buffer-utils) internally.
-
-#### `audio.fade(time=0, duration, easing?)`
-
-Fade in part of the audio of the `duration` stating at `time`.
-Pass negative `duration` to fade out from the indicated time (backward direction).
-
-Default `easing` is linear, but any of [eases](https://npmjs.org/package/eases) functions can be passed. `easing` function has signature `v = ease(t)`, where `t` and `v` are from `0..1` range.
-
-```js
-const Audio = require('audio')
-const eases = require('eases')
-
-let audio = Audio('./source').on('load', audio => {
-	//fade in 1s from the beginning
-	audio.fade(1, easing.cubicInOut)
-
-	//fade out 1s from the end
-	.fade(-1, easing.quadIn)
-
-	//fade in .2s starting at .6s
-	.fade(.6, .2)
-
-	//fade out .2s starting at .8s (ending at 1s)
-	.fade(1, .2)
-})
-```
-
-#### `audio.normalize(time?, duration?)`
-
-Normalize fragment or full audio, i.e. bring data to -1..+1 range. Channels amplitudes ratio will be preserved. See [`audio-buffer-utils/normalize`](https://github.com/audiojs/audio-buffer-utils#utilnormalizebuffer-target-start--0-end---0).
-
-```js
-const Audio = require('audio')
-
-let audio = new Audio([0, .1, 0, -.1], {channels: 1}).normalize()
-// <Audio 0, 1, 0, -1>
-```
-
-#### `audio.trim(threshold?)`
-
-Make sure there is no silence at the beginning/end of audio. Duration may be reduced therefore.
-
-```js
-const Audio = require('audio')
-
-let audio = new Audio([0,0,0,.1,.2,-.1,-.2,0,0], 1).trim()
-// <Audio .1, .2, -.1, -.2>
-```
-
-#### `audio.splice(time?, deleteDuration?, newData?)`
-
-Insert and/or delete new audio data at the start `time`.
-
-#### `audio.reverse(time?, duration?)`
-
-Change the direction of samples for the indicated part.
-
-#### `audio.inverse(time?, duration?)`
-
-Inverse phase for the indicated range.
-
-#### `audio.padStart(duration?, value?)`
-#### `audio.padEnd(duration?, value?)`
-
-Make sure the duration of the fragment is long enough.
-
-
-#### `audio.gain(volume, time?, duration?)`
-
-Change volume of the range.
-
-#### `audio.threshold(value, time?, duration?);`
-
-Cancel values less than indicated threshold 0.
-
-#### `audio.mix(otherAudio, time?, duration?)`
-
-Merge second audio into the first one at the indicated range.
-
-#### `audio.resample(sampleRate, how?)`
-
-Change sample rate to the new one.
-
-#### `audio.remix(channelsNumber, how?)`
-
-Upmix or downmix channels.
-
-#### `audio.scale(amount, time?, duration?)`
-
-Change playback rate, pitch will be shifted.
-
-#### `audio.fill(value|(value, n, channel) => value, time?, duration?)`
-
-Apply per-sample processing.
-
-#### `audio.silence(time?, duration?)`
-
-Fill with 0.
-
-#### `audio.noise(time?, duration?)`
-
-Fill with random.
-
-#### `audio.process(audioBuffer => audioBuffer, time?, duration?)`
-#### `audio.process((chunk, callback?) => cb(null, chunk), time?, duration?, callback?)`
-
-Process audio with sync or async function, see any audiojs/audio-* modules.
-
-
-
-### Utils
+## Utils
 
 ```js
 //get new audio with copied data into a new buffer
