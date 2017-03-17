@@ -54,6 +54,9 @@ Audio.prototype.fade = function (start, duration, easing) {
 
 //trim start/end silence
 Audio.prototype.trim = function trim (threshold = 0) {
+	this.buffer = util.trim(this.buffer, threshold)
+
+	//TODO: trimLeft, trimRight
 
 	return this;
 }

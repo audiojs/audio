@@ -140,26 +140,26 @@ Audio.prototype.cache = true;
 //TODO: make properties map channels/sampleRate by writing them
 Object.defineProperties(Audio.prototype, {
 	channels: {
-		set: (v) => {
+		set: function () {
 			//TODO
 		},
-		get: () => {
+		get: function () {
 			return this.buffer.channels
 		}
 	},
 	sampleRate: {
-		set: (v) => {
+		set: function () {
 			//TODO
 		},
-		get: () => {
+		get: function () {
 			return this.buffer.sampleRate
 		}
 	},
 	duration: {
-		set: (v) => {
+		set: function () {
 			//TODO
 		},
-		get: () => {
+		get: function () {
 			return this.buffer.duration
 		}
 	}
