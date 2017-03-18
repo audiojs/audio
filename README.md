@@ -135,7 +135,9 @@ let audio = Audio(10).noise().process(lpf)
 ```
 -->
 
-## API
+# API
+
+## Creation
 
 ### `let audio = new Audio(source, channels=2 | options?, onload?)`
 
@@ -143,9 +145,9 @@ Create _Audio_ instance from the _source_ based on _options_ (or number of _chan
 
 `source` can be _sync_, _async_ or _stream_:
 
-* _Sync_ source − sets contents immediately and returns ready to use audio instance. That can be _AudioBuffer_ (see [audio-buffer](https://github.com/audiojs/audio-buffer)), _ArrayBuffer_/_Buffer_ with encoded mp3/wav/etc data (see [audio-decode](https://github.com/audiojs/audio-decode)), _Number_ indicating duration, _Array_/_FloatArray_ with raw data, _File_ (see [File](https://developer.mozilla.org/en/docs/Web/API/File)).
-* _Async_ source − waits for content to load and emits `load` event when ready (similar to _Image_ class). `audio.isReady` indicator can be used to check status. Not ready audio contains 1-sample buffer with silence. [audio-loader](https://github.com/audiojs/audio-loader) is used internally.
-* [WIP] _Stream_ source − starts recording, updating contents until input stream ends or max duration reaches. `data` and `end` events are emitted during the consuming stream. That can be _Stream_/_pull-stream_/_Function_, _MediaStreamSource_ or _WebAudioNode_. Takes role of [audiorecorder](https://npmjs.org/package/audiorecorder).
+* _Sync_ source − sets contents immediately and returns ready to use audio instance. Can be [_AudioBuffer_](https://github.com/audiojs/audio-buffer), _ArrayBuffer_/_Buffer_ with encoded mp3/wav/etc data (see [audio-decode](https://github.com/audiojs/audio-decode)), _Number_ indicating duration, _Array_/_FloatArray_ with raw data, [_File_](https://developer.mozilla.org/en/docs/Web/API/File).
+* _Async_ source − waits for content to load and emits `load` event when ready (similar to _Image_). `audio.isReady` indicator can be used to check status. Not ready audio contains 1-sample buffer with silence. [audio-loader](https://github.com/audiojs/audio-loader) is used internally to tackle loading routine.
+* [WIP] _Stream_ source − starts recording, updating contents until input stream ends or max duration reaches. `data` and `end` events are emitted during stream consumption. Can be [_Stream_](https://nodejs.org/api/stream.html), [_pull-stream_](https://github.com/pull-stream/pull-stream), _Function_, [_MediaStream_](https://developer.mozilla.org/en-US/docs/Web/API/MediaStream) or _WebAudioNode_. Takes role of [audiorecorder](https://npmjs.org/package/audiorecorder).
 
 <!--
 | _HTMLAudioElement_, _HTMLMediaElement_ | Wrap [`<audio>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/audio) or [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video) element, capture it's contents. Puts audio into recording state. | stream |
@@ -153,11 +155,11 @@ Create _Audio_ instance from the _source_ based on _options_ (or number of _chan
 
 `options` may include:
 
-* _channels_ − number of channels for the audio, by default infers from source or sets to 2.
+* _channels_ − number of channels for the audio, inferred from the source or taken default `2`.
 * _context_ − WebAudioAPI context to use (optional), defaults to [audio-context](https://npmjs.org/package/audio-context).
 * _duration_ − max duration of an audio, by default takes whole available input.
-* _sampleRate_ − sample rate for the audio data, by default inferred from source.
-* _cache_ − load cached version of source, if available. Used to avoid extra URL requests. By default enabled.
+* _sampleRate_ − sample rate for the audio data, inferred from source or taken default `44100`.
+* _cache_ − load cached version of source, if available. Used to avoid extra URL requests. By default `true`.
 
 Examples:
 
@@ -187,19 +189,19 @@ let streamAudio = Audio(WAAStream(oscillatorNode)).on('end', (streamAudio) => {
 })
 ```
 
-### `audio.buffer`
+#### `audio.buffer`
 
 [AudioBuffer](https://github.com/audiojs/audio-buffer) with raw audio data. Can be modified directly.
 
-### `audio.channels`
+#### `audio.channels`
 
 Number of channels. Changing this property will up-mix or down-mix channels, see [channel interpretation](https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API/Basic_concepts_behind_Web_Audio_API#Up-mixing_and_down-mixing) table.
 
-### `audio.sampleRate`
+#### `audio.sampleRate`
 
 Buffer sample rate. Changing this property will resample audio to target rate.
 
-### `audio.duration`
+#### `audio.duration`
 
 Buffer duration. Changing this property may right-trim or right-pad the data.
 
