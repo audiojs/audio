@@ -141,6 +141,26 @@ let audio = Audio(10).noise().process(lpf)
 
 Create _Audio_ instance from the _source_ based on _options_ (or number of _channels_), invoke _onload_ when ready.
 
+`source` can be _sync_, _async_ or _stream_:
+
+* _Sync_ source − sets contents immediately and returns ready to use audio instance. That can be _AudioBuffer_ (see [audio-buffer](https://github.com/audiojs/audio-buffer)), _ArrayBuffer_/_Buffer_ with encoded mp3/wav/etc data (see [audio-decode](https://github.com/audiojs/audio-decode)), _Number_ indicating duration, _Array_/_FloatArray_ with raw data, _File_ (see [File](https://developer.mozilla.org/en/docs/Web/API/File)).
+* _Async_ source − waits for content to load and emits `load` event when ready (similar to _Image_ class). `audio.isReady` indicator can be used to check status. Not ready audio contains 1-sample buffer with silence. [audio-loader](https://github.com/audiojs/audio-loader) is used internally.
+* [WIP] _Stream_ source − starts recording, updating contents until input stream ends or max duration reaches. `data` and `end` events are emitted during the consuming stream. That can be _Stream_/_pull-stream_/_Function_, _MediaStreamSource_ or _WebAudioNode_. Takes role of [audiorecorder](https://npmjs.org/package/audiorecorder).
+
+<!--
+| _HTMLAudioElement_, _HTMLMediaElement_ | Wrap [`<audio>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/audio) or [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video) element, capture it's contents. Puts audio into recording state. | stream |
+-->
+
+`options` may include:
+
+* _channels_ − number of channels for the audio, by default infers from source or sets to 2.
+* _context_ − WebAudioAPI context to use (optional), defaults to [audio-context](https://npmjs.org/package/audio-context).
+* _duration_ − max duration of an audio, by default takes whole available input.
+* _sampleRate_ − sample rate for the audio data, by default inferred from source.
+* _cache_ − load cached version of source, if available. Used to avoid extra URL requests. By default enabled.
+
+Examples:
+
 ```js
 //create 2-channel audio of duration 4m 33s
 let blankAudio = new Audio(4*60 + 33, 2)
@@ -166,26 +186,6 @@ let streamAudio = Audio(WAAStream(oscillatorNode)).on('end', (streamAudio) => {
 
 })
 ```
-
-`source` can be _sync_, _async_ or _stream_:
-
-* _Sync_ source − sets contents immediately and returns ready to use audio instance. That can be _AudioBuffer_ (see [audio-buffer](https://github.com/audiojs/audio-buffer)), _ArrayBuffer_/_Buffer_ with encoded mp3/wav/etc data (see [audio-decode](https://github.com/audiojs/audio-decode)), _Number_ indicating duration, _Array_/_FloatArray_ with raw data, _File_ (see [File](https://developer.mozilla.org/en/docs/Web/API/File)).
-* _Async_ source − waits for content to load and emits `load` event when ready (similar to _Image_ class). `audio.isReady` indicator can be used to check status. Not ready audio contains 1-sample buffer with silence. [audio-loader](https://github.com/audiojs/audio-loader) is used internally.
-* [WIP] _Stream_ source − starts recording, updating contents until input stream ends or max duration reaches. `data` and `end` events are emitted during the consuming stream. That can be _Stream_/_pull-stream_/_Function_, _MediaStreamSource_ or _WebAudioNode_. Takes role of [audiorecorder](https://npmjs.org/package/audiorecorder).
-
-<!--
-| _HTMLAudioElement_, _HTMLMediaElement_ | Wrap [`<audio>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/audio) or [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video) element, capture it's contents. Puts audio into recording state. | stream |
--->
-
-`options` may include:
-
-| name | default | meaning |
-|---|---|---|
-| _context_ | [audio-context](https://npmjs.org/package/audio-context) | WebAudioAPI context to use (optional). |
-| _duration_ | `null` | Max duration of an audio. If undefined, it will take the whole possible input. |
-| _sampleRate_ | `context.sampleRate` | Default sample rate for the audio data. |
-| _channels_ | `2` | Upmix or downmix audio input to the indicated number of channels. If undefined it will take source number of channels. _channels_ number can be passed directly instead of options object. |
-| _cache_ | `true` | Load cached version of source, if available. Used to avoid extra URL requests. |
 
 ### `audio.buffer`
 
@@ -400,7 +400,7 @@ Get new audio with copied data into a new audio buffer.
 
 Get audio wrapper for the part of the buffer not copying the data. Mb useful for audio sprites.
 
-### `audio.download(fileName, options?)`
+### `audio.save(fileName, options?)`
 
 Download as a wav file in browser, write audio to file in node.
 

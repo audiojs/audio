@@ -201,7 +201,7 @@ Audio.prototype.write = function (buffer, offsetTime) {
 
 
 //download file or create a file in node
-Audio.prototype.download = function (fileName) {
+Audio.prototype.save = function (fileName) {
 	if (!fileName) throw Error('File name is not provided')
 
 	saveAs(isBrowser ? this.toBlob() : this.toBuffer(), fileName)
