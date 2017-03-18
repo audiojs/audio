@@ -15,14 +15,14 @@ const isPromise = require('is-promise')
 const isBuffer = require('is-buffer')
 const b2ab = require('buffer-to-arraybuffer')
 const pcm = require('pcm-util')
+// const saveAs = require('save-file')
+const isBrowser = require('is-browser')
 
 module.exports = Audio;
 
 
 //for events sake
 inherits(Audio, Emitter)
-
-//TODO: emit load event in next tick to allow for after-
 
 
 //augment functionality
@@ -200,30 +200,21 @@ Audio.prototype.write = function (buffer, offsetTime) {
 */
 
 
-//download file (WAA) or create a file in node
+//download file or create a file in node
 Audio.prototype.download = function (fileName) {
-	if (util.isBrowser()) {
-		window.requestFileSystem = window.requestFileSystem || window.webkitRequestFileSystem;
-		window.requestFileSystem(window.TEMPORARY, arrayBuffer.byteLength, function(fs) {
-		fs.root.getFile(fileName, {create: true}, function(fileEntry) {
-			fileEntry.createWriter(function(writer) {
-				var dataView = new DataView(arrayBuffer);
-				var blob = new Blob([dataView], {type: 'font/opentype'});
-				writer.write(blob);
+	if (!fileName) throw Error('File name is not provided')
 
-				writer.addEventListener('writeend', function() {
-					// Navigating to the file will download it.
-					location.href = fileEntry.toURL();
-				}, false);
-			});
-			});
-		},
-		function(err) {
-			throw new Error(err.name + ': ' + err.message);
-		});
-	} else {
-		var fs = require('fs');
-		var buffer = util.arrayBufferToNodeBuffer(arrayBuffer);
-		fs.writeFileSync(fileName, buffer);
-	}
+	saveAs(isBrowser ? this.toBlob() : this.toBuffer(), fileName)
+
+	return this
+}
+
+//get blob representation of data
+Audio.prototype.toBlob = function () {
+	//TODO
+}
+
+//get array-buffer representation of data
+Audio.prototype.toBuffer = function () {
+	//TODO
 }
