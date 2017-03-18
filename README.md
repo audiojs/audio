@@ -161,8 +161,6 @@ Create _Audio_ instance from the _source_ based on _options_ (or number of _chan
 * _sampleRate_ − sample rate for the audio data, inferred from source or taken default `44100`.
 * _cache_ − load cached version of source, if available. Used to avoid extra URL requests. By default `true`.
 
-Examples:
-
 ```js
 //create 2-channel audio of duration 4m 33s
 let blankAudio = new Audio(4*60 + 33, 2)
@@ -189,19 +187,21 @@ let streamAudio = Audio(WAAStream(oscillatorNode)).on('end', (streamAudio) => {
 })
 ```
 
-#### `audio.buffer`
+## Properties
+
+### `audio.buffer`
 
 [AudioBuffer](https://github.com/audiojs/audio-buffer) with raw audio data. Can be modified directly.
 
-#### `audio.channels`
+### `audio.channels`
 
 Number of channels. Changing this property will up-mix or down-mix channels, see [channel interpretation](https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API/Basic_concepts_behind_Web_Audio_API#Up-mixing_and_down-mixing) table.
 
-#### `audio.sampleRate`
+### `audio.sampleRate`
 
 Buffer sample rate. Changing this property will resample audio to target rate.
 
-#### `audio.duration`
+### `audio.duration`
 
 Buffer duration. Changing this property may right-trim or right-pad the data.
 
@@ -311,11 +311,12 @@ Fill with 0.
 
 Fill with random.
 
-### `audio.process(audioBuffer => audioBuffer, time?, duration?)`
-### `audio.process((chunk, callback?) => cb(null, chunk), time?, duration?, callback?)`
+### `audio.process(fn, time?, duration?, onend?)`
 
-Process audio with sync or async function, see any audiojs/audio-* modules.
+Process audio or part with _sync_ or _async_ function, see any [audiojs/audio-* modules](https://github.com/audiojs).
 
+* _sync_ function has signature `(audioBuffer) => audioBuffer`.
+* _async_ function has signature `(audioBuffer, cb) => cb(err, audioBuffer)`.
 
 
 ## Playback
