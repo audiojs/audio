@@ -137,7 +137,7 @@ let audio = Audio(10).noise().process(lpf)
 
 ## API
 
-### `let audio = new Audio(source, channels=2|options?, onload?)`
+### `let audio = new Audio(source, channels=2 | options?, onload?)`
 
 Create _Audio_ instance from the _source_ based on _options_ (or number of _channels_), invoke _onload_ when ready.
 
@@ -160,28 +160,24 @@ let wavAudio = new Audio(require('audio-lena/mp3'), (err, wavAudio) => {
 let remoteAudio = new Audio('./sample.mp3', (err, remoteAudio) => {
 	// `remoteAudio` here is fully loaded and decoded
 })
+
+//record stream
+let streamAudio = Audio(WAAStream(oscillatorNode)).on('end', (streamAudio) => {
+
+})
 ```
 
 `source` can be _sync_, _async_ or _stream_:
 
-* _Sync_ source sets contents immediately and returns ready to use audio instance.
-* _Async_ source waits for content to load and emits `load` event when ready (similar to _Image_ class). `audio.isReady` indicator can be used to check status. Not ready audio contains 1-sample buffer with silence. [audio-loader](https://github.com/audiojs/audio-loader) is used internally.
-* [WIP] _Stream_ source puts audio into recording state, updating contents gradually until input stream ends or max duration reaches. `data` and `end` events are emitted during the consuming stream.
+* _Sync_ source − sets contents immediately and returns ready to use audio instance. That can be _AudioBuffer_ (see [audio-buffer](https://github.com/audiojs/audio-buffer)), _ArrayBuffer_/_Buffer_ with encoded mp3/wav/etc data (see [audio-decode](https://github.com/audiojs/audio-decode)), _Number_ indicating duration, _Array_/_FloatArray_ with raw data, _File_ (see [File](https://developer.mozilla.org/en/docs/Web/API/File)).
+* _Async_ source − waits for content to load and emits `load` event when ready (similar to _Image_ class). `audio.isReady` indicator can be used to check status. Not ready audio contains 1-sample buffer with silence. [audio-loader](https://github.com/audiojs/audio-loader) is used internally.
+* [WIP] _Stream_ source − starts recording, updating contents until input stream ends or max duration reaches. `data` and `end` events are emitted during the consuming stream. That can be _Stream_/_pull-stream_/_Function_, _MediaStreamSource_ or _WebAudioNode_. Takes role of [audiorecorder](https://npmjs.org/package/audiorecorder).
 
-| source type | meaning | method |
-|---|---|---|
-| _String_ | Load audio from URL or local path: `Audio('./sample.mp3', (error, audio) => {})`. Result for the URL will be cached for the future instances. To force no-cache loading, do `Audio(src, {cache: false})`. | async |
-| _AudioBuffer_ | Create from _AudioBuffer_. See [audio-buffer](https://github.com/audiojs/audio-buffer) instance. | sync |
-| _ArrayBuffer_, _Buffer_ | Decode data contained in a _buffer_ or _arrayBuffer_. See [audio-decode](https://github.com/audiojs/audio-decode). | sync |
-| _Array_, _FloatArray_ | Create audio from waw samples of `-1..1` range. | sync |
-| _Number_ | Create blank audio of the duration. | sync |
-<!--| _File_ | Try to decode audio from [_File_](https://developer.mozilla.org/en/docs/Web/API/File) instance. | sync |
-| _Stream_, _pull-stream_ or _Function_ | Create audio from source stream. `Audio(WAAStream(oscillatorNode))`. Puts audio into recording state. | stream |
-| _WebAudioNode_, _MediaStreamSource_ | Capture input from web-audio. Puts audio into recording state. | stream |
+<!--
 | _HTMLAudioElement_, _HTMLMediaElement_ | Wrap [`<audio>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/audio) or [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video) element, capture it's contents. Puts audio into recording state. | stream |
 -->
 
-Optionally pass number of `channels` or `options` as the second argument. Available `options`:
+`options` may include:
 
 | name | default | meaning |
 |---|---|---|
@@ -193,11 +189,11 @@ Optionally pass number of `channels` or `options` as the second argument. Availa
 
 ### `audio.buffer`
 
-[AudioBuffer](https://github.com/audiojs/audio-buffer) with the raw actual audio data. Can be modified directly.
+[AudioBuffer](https://github.com/audiojs/audio-buffer) with raw audio data. Can be modified directly.
 
 ### `audio.channels`
 
-Number of channels. Setting that property will upmix or downmix channels, see [channel interpretation](https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API/Basic_concepts_behind_Web_Audio_API#Up-mixing_and_down-mixing) table.
+Number of channels. Changing this property will up-mix or down-mix channels, see [channel interpretation](https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API/Basic_concepts_behind_Web_Audio_API#Up-mixing_and_down-mixing) table.
 
 ### `audio.sampleRate`
 
@@ -205,8 +201,9 @@ Buffer sample rate. Changing this property will resample audio to target rate.
 
 ### `audio.duration`
 
-Buffer duration. Changing this property will whether right-trim or right-pad the data.
+Buffer duration. Changing this property may right-trim or right-pad the data.
 
+<!--
 ### `audio.read(time?, duration?)`
 
 Get _AudioBuffer_ of the `duration` starting from the `start` time.
@@ -214,11 +211,11 @@ Get _AudioBuffer_ of the `duration` starting from the `start` time.
 ### `audio.write(audioBuffer, time?)`
 
 Write _AudioBuffer_ at the `start` time. Old data will be overridden, use `insert` method to save the old data. If `audioBuffer` is longer than the `duration`, audio will be extended to fit the `audioBuffer`. If `start` time is not defined, new audio will be written to the end, unless `duration` is explicitly set.
-
+-->
 
 ## Manipulations
 
-### `audio.fade(time=0, duration, easing?)`
+### `audio.fade(time=0, duration, easing='linear')`
 
 Fade in part of the audio of the `duration` stating at `time`.
 Pass negative `duration` to fade out from the indicated time (backward direction).
@@ -295,14 +292,6 @@ Cancel values less than indicated threshold 0.
 ### `audio.mix(otherAudio, time?, duration?)`
 
 Merge second audio into the first one at the indicated range.
-
-### `audio.resample(sampleRate, how?)`
-
-Change sample rate to the new one.
-
-### `audio.remix(channelsNumber, how?)`
-
-Upmix or downmix channels.
 
 ### `audio.scale(amount, time?, duration?)`
 
@@ -386,50 +375,58 @@ Possible `options`:
 | _channel_ | `0` | Channel number to get data for, `0` is left channel, `1` is right etc. |
 | _db_ | `false` | Convert resulting magnitudes from `0..1` range to decibels `-100..0`. |
 
+### `audio.loudness(time, duration)`
+### `audio.cepstrum(time, duration)`
+### `audio.average(time, duration)`
+### `audio.variance(time, duration)`
+### `audio.size(time, duration)`
+
 <!--
 Ideas:
 
 * chord/scale detection
-* cepstrum
-* average, max, min, stdev and other params for the indicated range `audio.stats(time?, (err, stats) => {})`
-* loudness for a fragment `audio.loudness(time?, (err, loudness) => {})`
 * tonic, or main frequency for the range — returns scientific notation `audio.pitch(time?, (err, note) => {})`
 * tempo for the range `audio.tempo(time?, (err, bpm) => {})`
-* size of underlying buffer, in bytes `audio.size(time?, (err, size) => {})`
 -->
 
 
 ## Utils
 
-```js
-//get new audio with copied data into a new buffer
-audio.clone()
+### `audio.clone()`
 
-//get audio wrapper for the part of the buffer not copying the data. Mb useful for audio sprites
-audio.subaudio(time?, duration?)
+Get new audio with copied data into a new audio buffer.
 
-//download as a wav file in browser, place audio to a file in node
-audio.download(fileName, options?)
+### `audio.subaudio(time?, duration?)`
 
-//return buffer representation of data
-audio.toBuffer()
-```
+Get audio wrapper for the part of the buffer not copying the data. Mb useful for audio sprites.
+
+### `audio.download(fileName, options?)`
+
+Download as a wav file in browser, write audio to file in node.
+
+### `audio.toBuffer()`
+
+Return [ArrayBuffer](https://nodejs.org/api/buffer.html) representation of data.
+
+### `audio.toBlob()`
+
+Return [Blob](https://developer.mozilla.org/en-US/docs/Web/API/Blob/Blob) with data.
 
 
 ## Motivation
 
-We wanted to create versatile polyfunctional userland utility for audio manipulations, to the contrary of low-level audio packages of various kinds. We looked for an analog of [Color](https://npmjs.org/package/color) for color manipulations, [jQuery](https://jquery.org) for DOM or [regl](https://npmjs.org/package/regl) for WebGL, [opentype.js](http://opentype.js.org/) for fonts, but for audio.
+We wanted to create versatile polyfunctional userland utility for audio manipulations, to the contrary of low-level [audio packages](https://github.com/audiojs). We looked for an analog of [Color](https://npmjs.org/package/color) for color manipulations, [jQuery](https://jquery.org) for DOM, [regl](https://npmjs.org/package/regl) for WebGL, [opentype.js](http://opentype.js.org/) for fonts, in audio world.
 
-As a result it turned out to be infrastructural high-level glue component for _audio-*_ packages and _gl-*_ audio visualizing components. It embodies reliable and performant modern practices of audio components and packages in general.
+As a result it turned out to be infrastructural high-level glue component for _audio-*_ packages and _gl-*_ audio visualizing components.
 
 
 ## Credits
 
-Thanks to all these wonderful people:
+Acknowledgement to contributors:
 
-* [Jamen Marz](https://github.com/jamen) for initiative and help on making decisions.
+* [Jamen Marz](https://github.com/jamen) for initiative and help with making decisions.
 * [Daniel Gómez Blasco](https://github.com/danigb/) for patience and work on [audio-loader](https://github.com/audiojs/audio-loader).
-* [Michael Williams](https://github.com/ahdinosaur) for stream insights.
+* [Michael Williams](https://github.com/ahdinosaur) for audio stream insights.
 
 ## License
 
