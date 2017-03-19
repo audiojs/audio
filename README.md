@@ -15,7 +15,7 @@ Class for high-level audio manipulations in javascript − nodejs and browsers.
 
 [![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
 
-#### Load audio from file, trim, normalize, fade in, fade out, save.
+Load audio from file, trim, normalize, fade in, fade out, save.
 
 ```js
 const Audio = require('audio')
@@ -32,7 +32,8 @@ Audio('./sample.mp3').on('load', (audio) => {
 	  - try yourself - requirebin demo with file opener and processing
 -->
 
-#### Record 4s of microphone input.
+<!--
+Record 4s of microphone input.
 
 ```js
 const Audio = require('audio')
@@ -42,7 +43,6 @@ navigator.getUserMedia({audio: true}, stream =>	{
 });
 ```
 
-<!--
 ### 3. Record and download 2 seconds of web-audio experiment
 
 ```js
@@ -272,6 +272,7 @@ let audio = new Audio([0,0,0,.1,.2,-.1,-.2,0,0], 1).trim()
 // <Audio .1, .2, -.1, -.2>
 ```
 
+<!--
 ### `audio.splice(time?, deleteDuration?, newData?)`
 
 Insert and/or delete new audio data at the start `time`.
@@ -393,7 +394,6 @@ Possible `options`:
 ### `audio.variance(time, duration)`
 ### `audio.size(time, duration)`
 
-<!--
 Ideas:
 
 * chord/scale detection
@@ -406,10 +406,10 @@ Ideas:
 
 ### `audio.clone()`
 
-Get new audio with copied data into a new audio buffer.
+Get new audio instance with cloned data.
 
 ```js
-let aCopy = audio.clone()
+let audioCopy = audio.clone()
 ```
 
 ### `audio.save(fileName, done?)`
@@ -437,9 +437,9 @@ encode(audio.buffer, (err, buf) => {
 
 ## Motivation
 
-We wanted to create versatile polyfunctional userland utility for audio manipulations, to the contrary of low-level [audio packages](https://github.com/audiojs). We looked for an analog of [Color](https://npmjs.org/package/color) for color manipulations, [jQuery](https://jquery.org) for DOM, [regl](https://npmjs.org/package/regl) for WebGL, [opentype.js](http://opentype.js.org/) for fonts, in audio world.
+We wanted to create high-level utility for audio manipulations, to the contrary low-level [audio packages](https://github.com/audiojs). We looked for an analog of [Color](https://npmjs.org/package/color) for color manipulations, [jQuery](https://jquery.org) for DOM, [regl](https://npmjs.org/package/regl) for WebGL, [opentype.js](http://opentype.js.org/) for fonts, in audio world.
 
-As a result it turned out to be infrastructural high-level glue component for _audio-*_ packages and _gl-*_ audio visualizing components.
+The result turned out to be central infrastructural component for [audiojs packages](https://github.com/audiojs) and glue for [audio visualizing components](https://github.com/audio-lab).
 
 
 ## Credits
