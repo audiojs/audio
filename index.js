@@ -15,10 +15,13 @@ const isPromise = require('is-promise')
 const isBuffer = require('is-buffer')
 const b2ab = require('buffer-to-arraybuffer')
 const pcm = require('pcm-util')
-// const saveAs = require('save-file')
+const saveAs = require('save-file')
 const isBrowser = require('is-browser')
+const toWav = require('audiobuffer-to-wav')
+const callsites = require('callsites')
+const path = require('path')
 
-module.exports = Audio;
+module.exports = Audio
 
 
 //for events sake
@@ -48,8 +51,9 @@ function Audio(source, options, onload) {
 	//init cache
 	if (options.cache != null) this.cache = options.cache
 
-	//if user looks for loading
-	if (onload) this.once('load', onload)
+	//enable metrics
+	if (options.stats) this.stats = true
+
 
 	//launch init
 	this.isReady = false
@@ -78,7 +82,7 @@ function Audio(source, options, onload) {
 		else {
 			//load remote source
 			let promise = load(source).then(audioBuffer => {
-				this.buffer = audioBuffer;
+				this.buffer = audioBuffer
 
 				//save cache
 				if (this.cache) {
@@ -94,7 +98,7 @@ function Audio(source, options, onload) {
 
 			//save promise to cache
 			if (this.cache) {
-				Audio.cache[source] = promise;
+				Audio.cache[source] = promise
 			}
 		}
 	}
@@ -133,10 +137,13 @@ function Audio(source, options, onload) {
 }
 
 //cache of loaded audio buffers for urls
-Audio.cache = {};
+Audio.cache = {}
 
-//cache URL
-Audio.prototype.cache = true;
+//cache URLs
+Audio.prototype.cache = true
+
+//enable metrics
+Audio.prototype.stats = false
 
 //default params
 //TODO: make properties map channels/sampleRate by writing them
@@ -180,41 +187,41 @@ Audio.prototype.readRaw = function (offset = 0, length = this.buffer.length) {
 
 	let buf = util.slice(this.buffer, offset, offset + length)
 
-	return buf;
+	return buf
 }
 
 /*
 //put audio buffer data by offset
 Audio.prototype.write = function (buffer, offsetTime) {
-	if (!buffer || !buffer.length) return this;
+	if (!buffer || !buffer.length) return this
 
-	let offset = nidx(offsetTime || 0, this.buffer.duration) * this.buffer.sampleRate;
+	let offset = nidx(offsetTime || 0, this.buffer.duration) * this.buffer.sampleRate
 
 	let beginning = util.slice(0, offset)
 	let end = util.slice(offset)
 
 	this.buffer = util.concat(beginning, buffer, end)
 
-	return this;
+	return this
 }
 */
 
 
 //download file or create a file in node
-Audio.prototype.save = function (fileName) {
+Audio.prototype.save = function (fileName, ondone) {
 	if (!fileName) throw Error('File name is not provided')
 
-	saveAs(isBrowser ? this.toBlob() : this.toBuffer(), fileName)
+	let wav = toWav(this.buffer)
+
+	//fix path for node
+	if (!isBrowser) {
+		var callerPath = callsites()[1].getFileName()
+		fileName = path.dirname(callerPath) + path.sep + fileName
+	}
+
+	saveAs(wav, fileName, (err) => {
+		ondone(err, this)
+	})
 
 	return this
-}
-
-//get blob representation of data
-Audio.prototype.toBlob = function () {
-	//TODO
-}
-
-//get array-buffer representation of data
-Audio.prototype.toBuffer = function () {
-	//TODO
 }
