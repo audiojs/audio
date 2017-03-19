@@ -20,8 +20,8 @@ Class for high-level audio manipulations in javascript − nodejs and browsers.
 ```js
 const Audio = require('audio')
 
-Audio('./sample.mp3').on('load', (err, audio) => {
-	audio.trim().normalize().fade(.3).fade(-1).download('sample-edited');
+Audio('./sample.mp3').on('load', (audio) => {
+	audio.trim().normalize().fade(.3).fade(-1).save('sample-edited.wav');
 })
 ```
 

@@ -45,6 +45,7 @@ Audio.prototype.fade = function (start, duration, map) {
 		else {
 			map = last
 			duration = start
+			start = 0
 		}
 	}
 
