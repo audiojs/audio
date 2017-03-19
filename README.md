@@ -15,7 +15,7 @@ Class for high-level audio manipulations in javascript − nodejs and browsers.
 
 [![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
 
-### 1. Basic processing — trim, normalize, fade in, fade out, save
+Basic processing — trim, normalize, fade in, fade out, save
 
 ```js
 const Audio = require('audio')
@@ -32,17 +32,17 @@ Audio('./sample.mp3').on('load', (audio) => {
 	  - try yourself - requirebin demo with file opener and processing
 -->
 
-<!--
-### 2. Record 4s of microphone input
+Record 4s of microphone input
 
 ```js
 const Audio = require('audio')
 
 navigator.getUserMedia({audio: true}, stream =>	{
-	Audio(stream, {duration: 4}).on('end', audio => audio.download())
+	Audio(stream, {duration: 4}).on('end', audio => audio.save())
 });
 ```
 
+<!--
 ### 3. Record and download 2 seconds of web-audio experiment
 
 ```js
