@@ -53,7 +53,13 @@ t('Caching resource', t => {
 });
 
 
-t('Download', t => {
+t.only('Download', t => {
+	let a = Audio(lena, (err, a) => {
+		a.save('lena.wav', (err, a) => {
+
+		})
+	})
+
 	t.end()
 })
 

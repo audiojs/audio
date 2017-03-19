@@ -1,20 +1,18 @@
 {
   "name": "audio",
-  "version": "2.0.0-1",
-  "description": "Class for audio in JavaScript",
+  "version": "2.0.0",
+  "description": "Class for high-level audio manipulations",
   "repository": "audiojs/audio",
   "main": "index.js",
   "license": "MIT",
-  "browser": {
-    "./src/play.js": "./src/browser-play.js"
-  },
+  "browser": {},
   "scripts": {
-    "lint": "eslint index.js --ignore-pattern test*",
-    "preversion": "npm run lint && npm run test",
+    "lint": "eslint *.js */*.js --ignore-pattern test*",
     "test": "node test/manipulations.js",
     "test:browser": "budo test/manipulations.js"
   },
   "devDependencies": {
+    "audio-generator": "^2.1.2",
     "audio-lena": "^1.0.1",
     "audio-source": "^1.1.1",
     "tape": "^4.6.0"
@@ -22,9 +20,11 @@
   "keywords": [
     "audiojs",
     "audio",
+    "dsp",
     "javascript",
     "pcm",
-    "lpcm"
+    "lpcm",
+    "audiobuffer"
   ],
   "engines": {
     "node": ">=0.11"
@@ -34,14 +34,15 @@
     "audio-buffer-utils": "^4.0.3",
     "audio-loader": "^0.6.0",
     "audio-play": "^2.1.0",
+    "audiobuffer-to-wav": "^1.0.0",
     "buffer-to-arraybuffer": "0.0.4",
-    "file-saver": "^1.3.3",
+    "callsites": "^2.0.0",
     "fourier-transform": "^1.0.2",
     "is-browser": "^2.0.1",
     "is-buffer": "^1.1.5",
     "is-promise": "^2.1.0",
     "negative-index": "^1.0.1",
     "pcm-util": "^2.0.3",
-    "write-file": "^1.0.0"
+    "save-file": "github:dfcreative/save-file"
   }
 }

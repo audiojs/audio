@@ -160,6 +160,7 @@ Create _Audio_ instance from the _source_ based on _options_ (or number of _chan
 * _duration_ − max duration of an audio, by default takes whole available input.
 * _sampleRate_ − sample rate for the audio data, inferred from source or taken default `44100`.
 * _cache_ − load cached version of source, if available. Used to avoid extra URL requests. By default `true`.
+* _stats_ − track stats of audio for metrics, that increases memory consumption by at least 3 times (no worries it is still O(N)). By default it is disabled.
 
 ```js
 //create 2-channel audio of duration 4m 33s
@@ -174,7 +175,7 @@ let arrAudio = new Audio([0,1,.2,.3,...], {channels: 2})
 //decode mp3/wav arrayBuffer/buffer
 let wavAudio = new Audio(require('audio-lena/mp3'), (err, wavAudio) => {
 	// `wavAudio` here is decoded from the mp3 source
-});
+})
 
 //create from remote source
 let remoteAudio = new Audio('./sample.mp3', (err, remoteAudio) => {
@@ -205,17 +206,23 @@ Buffer sample rate. Changing this property will resample audio to target rate.
 
 Buffer duration. Changing this property may right-trim or right-pad the data.
 
-<!--
-### `audio.read(time?, duration?)`
-
-Get _AudioBuffer_ of the `duration` starting from the `start` time.
-
-### `audio.write(audioBuffer, time?)`
-
-Write _AudioBuffer_ at the `start` time. Old data will be overridden, use `insert` method to save the old data. If `audioBuffer` is longer than the `duration`, audio will be extended to fit the `audioBuffer`. If `start` time is not defined, new audio will be written to the end, unless `duration` is explicitly set.
--->
 
 ## Manipulations
+
+### `audio.read(time=0, duration?)`
+
+Get _AudioBuffer_ of the `duration` starting at the `time`. If no `duration` provided, the remainder of data will be read. Returned audio buffer contains cloned data, not the original one. Use `audio.buffer` to get actual data.
+
+Also use `audio.readRaw(offset, length)` to read data in sample offsets.
+
+```js
+//get last 1s of samples of the left channel
+audio.read(-1).getChannelData(0)
+```
+
+### `audio.write(audioBuffer, time=-0)`
+
+Write _AudioBuffer_ starting at the `time`. Old data will be overwritten, use `splice` method to save the old data. If `audioBuffer` is longer than the `duration`, audio will be extended to fit the `audioBuffer`. If `time` is not defined, new audio will be written to the end, unless `duration` is explicitly set.
 
 ### `audio.fade(time=0, duration, easing='linear')`
 
@@ -366,6 +373,8 @@ Fired once playback has finished.
 
 ## Metrics
 
+Enable different audio params. Please note that enabled metrics require 3 times more memory for storing file than
+
 ### `audio.spectrum(time?, options?)`
 
 Get array with spectral component magnitudes (magnitude is length of a [phasor](wiki) — real and imaginary parts). [fourier-transform](https://www.npmjs.com/package/fourier-transform) is used internally.
@@ -399,21 +408,31 @@ Ideas:
 
 Get new audio with copied data into a new audio buffer.
 
-### `audio.subaudio(time?, duration?)`
+```js
+let aCopy = audio.clone()
+```
 
-Get audio wrapper for the part of the buffer not copying the data. Mb useful for audio sprites.
+### `audio.save(fileName, done?)`
 
-### `audio.save(fileName, options?)`
+Download as a wav file in browser, write audio to file in node. In node file is going to be saved to the same directory as the caller's one. To redefine directory, use absolute path as `audio.save(__dirname + '/my-audio.wav')`
 
-Download as a wav file in browser, write audio to file in node.
+```js
+//save as wav file
+audio.save('my-audio.wav', (err, audio) => {
+	if (err) throw err;
+})
+```
 
-### `audio.toBuffer()`
+If you need custom output format, like _ogg_, _mp3_ or other, please use [audio-encode](https://github.com/audiojs/audio-encode).
 
-Return [ArrayBuffer](https://nodejs.org/api/buffer.html) representation of data.
-
-### `audio.toBlob()`
-
-Return [Blob](https://developer.mozilla.org/en-US/docs/Web/API/Blob/Blob) with data.
+```js
+//save as ogg file
+const encode = require('audio-encode/ogg')
+const save = require('save-file')
+encode(audio.buffer, (err, buf) => {
+	save(buf, 'my-audio.ogg')
+})
+```
 
 
 ## Motivation
