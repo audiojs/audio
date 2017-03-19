@@ -15,6 +15,7 @@
     "audio-generator": "^2.1.2",
     "audio-lena": "^1.0.1",
     "audio-source": "^1.1.1",
+    "eases": "^1.0.8",
     "tape": "^4.6.0"
   },
   "keywords": [

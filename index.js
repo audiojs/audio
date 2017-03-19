@@ -220,7 +220,7 @@ Audio.prototype.save = function (fileName, ondone) {
 	}
 
 	saveAs(wav, fileName, (err) => {
-		ondone(err, this)
+		ondone && ondone(err, this)
 	})
 
 	return this

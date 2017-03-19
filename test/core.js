@@ -57,7 +57,7 @@ t('Caching resource', t => {
 });
 
 
-t.only('Download', t => {
+t.only('save', t => {
 	let a = Audio(lena, (err, a) => {
 		a.save('lena.wav', (err, a) => {
 			if (!isBrowser) {
@@ -68,7 +68,6 @@ t.only('Download', t => {
 			t.end()
 		})
 	})
-
 })
 
 
