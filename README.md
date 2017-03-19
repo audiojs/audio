@@ -1,4 +1,4 @@
-# Audio [![unstable](http://badges.github.io/stability-badges/dist/unstable.svg)](http://github.com/badges/stability-badges)[![Build Status](https://img.shields.io/travis/audiojs/audio.svg?style=flat-square)](https://travis-ci.org/audiojs/audio)[![NPM Version](https://img.shields.io/npm/v/audio.svg?style=flat-square)](https://www.npmjs.org/package/audio) [![License](https://img.shields.io/badge/license-MIT-brightgreen.svg?style=flat-square)](https://audiojs.mit-license.org/)
+# Audio [![unstable](http://badges.github.io/stability-badges/dist/unstable.svg)](http://github.com/badges/stability-badges) [![Build Status](https://img.shields.io/travis/audiojs/audio.svg?style=flat-square)](https://travis-ci.org/audiojs/audio) [![NPM Version](https://img.shields.io/npm/v/audio.svg?style=flat-square)](https://www.npmjs.org/package/audio) [![License](https://img.shields.io/badge/license-MIT-brightgreen.svg?style=flat-square)](https://audiojs.mit-license.org/)
 
 Class for high-level audio manipulations in javascript − nodejs and browsers.
 
@@ -15,7 +15,7 @@ Class for high-level audio manipulations in javascript − nodejs and browsers.
 
 [![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
 
-Basic processing — trim, normalize, fade in, fade out, save
+#### Load audio from file, trim, normalize, fade in, fade out, save.
 
 ```js
 const Audio = require('audio')
@@ -32,7 +32,7 @@ Audio('./sample.mp3').on('load', (audio) => {
 	  - try yourself - requirebin demo with file opener and processing
 -->
 
-Record 4s of microphone input
+#### Record 4s of microphone input.
 
 ```js
 const Audio = require('audio')
@@ -141,7 +141,7 @@ let audio = Audio(10).noise().process(lpf)
 
 ### `let audio = new Audio(source, channels=2 | options?, onload?)`
 
-Create _Audio_ instance from the _source_ based on _options_ (or number of _channels_), invoke _onload_ when ready.
+Create _Audio_ instance from the `source` based on `options` (or number of `channels`), invoke `onload` when ready.
 
 `source` can be _sync_, _async_ or _stream_:
 
