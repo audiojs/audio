@@ -190,21 +190,22 @@ Audio.prototype.readRaw = function (offset = 0, length = this.buffer.length) {
 	return buf
 }
 
-/*
-//put audio buffer data by offset
-Audio.prototype.write = function (buffer, offsetTime) {
+//write audiobuffer at the indicated position
+Audio.prototype.write = function (buf, start=0) {
+	return this.writeRaw(buf, start * this.buffer.sampleRate)
+}
+
+//write audio buffer data by offset
+Audio.prototype.writeRaw = function (buffer, offset=0) {
 	if (!buffer || !buffer.length) return this
 
-	let offset = nidx(offsetTime || 0, this.buffer.duration) * this.buffer.sampleRate
+	offset = Math.floor(nidx(offset, this.buffer.length))
 
-	let beginning = util.slice(0, offset)
-	let end = util.slice(offset)
-
-	this.buffer = util.concat(beginning, buffer, end)
+	util.copy(buffer, this.buffer, offset)
 
 	return this
 }
-*/
+
 
 
 //download file or create a file in node
