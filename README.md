@@ -1,6 +1,6 @@
 # Audio [![Build Status](https://img.shields.io/travis/audiojs/audio.svg?style=flat-square)](https://travis-ci.org/audiojs/audio) [![NPM Version](https://img.shields.io/npm/v/audio.svg?style=flat-square)](https://www.npmjs.org/package/audio) [![unstable](http://badges.github.io/stability-badges/dist/unstable.svg)](http://github.com/badges/stability-badges)
 
-Class for high-level audio manipulations in javascript − nodejs and browsers.
+Class for high-level audio manipulations in javascript − nodejs and browsers. Essentially it is a wrapper for [AudioBuffer](https://github.com/audiojs/audio-buffer).
 
 <!--
 	ideas:
@@ -220,9 +220,13 @@ Also use `audio.readRaw(offset, length)` to read data in sample offsets.
 audio.read(-1).getChannelData(0)
 ```
 
-### `audio.write(audioBuffer, time=-0)`
+### `audio.write(audioBuffer, time=0)`
 
-Write _AudioBuffer_ starting at the `time`. Old data will be overwritten, use `splice` method to save the old data. If `audioBuffer` is longer than the `duration`, audio will be extended to fit the `audioBuffer`. If `time` is not defined, new audio will be written to the end, unless `duration` is explicitly set.
+Write _AudioBuffer_ starting at the `time`. Old data will be written over, use `splice` method to save the old data. If `audioBuffer` is longer than the `duration`, audio will be extended to fit the `audioBuffer`. If `time` is not defined, new audio will be written to the end, unless `duration` is explicitly set.
+
+```js
+Audio(2).write(AudioBuffer(1, rawData), .5)
+```
 
 ### `audio.fade(time=0, duration, easing='linear')`
 

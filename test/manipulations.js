@@ -1,6 +1,17 @@
 const Audio = require('../');
 const t = require('tape');
 const assert = require('assert')
+const AudioBuffer = require('audio-buffer')
+
+t('write', t => {
+	let audio = Audio([0, .1, .2, .3, .4, .5], 1)
+
+	audio.write(AudioBuffer(1, [1,1]), 2/audio.sampleRate)
+
+	assert.deepEqual(audio.readRaw(1,4).getChannelData(0), [.1,1,1,.4])
+
+	t.end()
+})
 
 t('normalize', t => {
 	//full normalize
