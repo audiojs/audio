@@ -3,6 +3,10 @@ const lena = require('audio-lena');
 const t = require('tape');
 const createSource = require('audio-source')
 const Gen = require('audio-generator')
+const fs = require('fs')
+const path = require('path')
+const isBrowser = require('is-browser')
+const assert = require('assert')
 
 
 //dictaphone cases
@@ -56,11 +60,15 @@ t('Caching resource', t => {
 t.only('Download', t => {
 	let a = Audio(lena, (err, a) => {
 		a.save('lena.wav', (err, a) => {
-
+			if (!isBrowser) {
+				let p = __dirname + path.sep + 'lena.wav'
+				assert.ok(fs.existsSync(p))
+				fs.unlinkSync(p);
+			}
+			t.end()
 		})
 	})
 
-	t.end()
 })
 
 
