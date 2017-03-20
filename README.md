@@ -155,12 +155,12 @@ Create _Audio_ instance from the `source` based on `options` (or number of `chan
 
 `options` may include:
 
-* `channels` − number of channels for the audio, inferred from the source or taken default `2`.
-* `context` − WebAudioAPI context to use (optional), defaults to [audio-context](https://npmjs.org/package/audio-context).
-* `duration` − max duration of an audio, by default takes whole available input.
-* `sampleRate` − sample rate for the audio data, inferred from source or taken default `44100`.
-* `cache` − load cached version of source, if available. Used to avoid extra URL requests. By default `true`.
-* `stats` − track stats for metrics, that increases memory consumption by ~3 times (no worries, still O(N)). By default it is disabled.
+* `channels` − number of channels, inferred from source or defaults to `2`.
+* `context` − web audio context (optional), defaults to [audio-context](https://npmjs.org/package/audio-context).
+* `duration` − max duration, by default takes whole available input.
+* `sampleRate` − inferred from source or defaults to `44100`.
+* `cache` − cache URL sources to avoid extra requests. By default `true`.
+* `stats` − track stats for metrics. Increases memory consumption up to 3 times (yet O(N)). By default disabled.
 
 ```js
 //create 2-channel audio of duration 4m 33s
@@ -211,7 +211,7 @@ Buffer duration. Changing this property may right-trim or right-pad the data.
 
 ### `audio.read(time=0, duration?)`
 
-Get _AudioBuffer_ of the `duration` starting at the `time`. If no `duration` provided, the remainder of data will be read. Returned audio buffer contains cloned data, not the original one. Use `audio.buffer` to get actual data.
+Get _AudioBuffer_ of `duration` starting at `time`. If no `duration` provided, all available data will be returned. Returned data is cloned, if you need the original data, read `audio.buffer` directly.
 
 Also use `audio.readRaw(offset, length)` to read data in sample offsets.
 
@@ -222,7 +222,7 @@ audio.read(-1).getChannelData(0)
 
 ### `audio.write(audioBuffer, time=0)`
 
-Write _AudioBuffer_ starting at the `time`. Old data will be written over, use `splice` method to save the old data. If `audioBuffer` is longer than the `duration`, audio will be extended to fit the `audioBuffer`. If `time` is not defined, new audio will be written to the end, unless `duration` is explicitly set.
+Write _AudioBuffer_ starting at `time`. Old data will be overwritten, to save data see `splice`. If `audioBuffer` is longer than the `duration`, audio will be extended to fit the `audioBuffer`. If `time` is not defined, new audio will be written to the end, unless `duration` is explicitly set.
 
 ```js
 Audio(2).write(AudioBuffer(1, rawData), .5)
@@ -230,8 +230,8 @@ Audio(2).write(AudioBuffer(1, rawData), .5)
 
 ### `audio.fade(time=0, duration, easing='linear')`
 
-Fade in part of the audio of the `duration` stating at `time`.
-Pass negative `duration` to fade out from the indicated time (backward direction).
+Fade in/out part of the audio of `duration` stating at `time`.
+To fade out pass negative `duration` (backward direction).
 
 Default `easing` is linear, but any of [eases](https://npmjs.org/package/eases) functions can be used. `easing` function has signature `v = ease(t)`, where `t` and `v` are from `0..1` range.
 
