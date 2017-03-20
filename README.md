@@ -1,6 +1,6 @@
 # Audio [![Build Status](https://img.shields.io/travis/audiojs/audio.svg?style=flat-square)](https://travis-ci.org/audiojs/audio) [![NPM Version](https://img.shields.io/npm/v/audio.svg?style=flat-square)](https://www.npmjs.org/package/audio) [![unstable](http://badges.github.io/stability-badges/dist/unstable.svg)](http://github.com/badges/stability-badges)
 
-Class for high-level audio manipulations in javascript − nodejs and browsers. Essentially it is a wrapper for [AudioBuffer](https://github.com/audiojs/audio-buffer).
+Class for high-level audio manipulations in javascript − nodejs and browsers.
 
 <!--
 	ideas:
@@ -145,8 +145,8 @@ Create _Audio_ instance from the `source` based on `options` (or number of `chan
 
 `source` can be _sync_, _async_ or _stream_:
 
-* _Sync_ source − sets contents immediately and returns ready to use audio instance. Can be [_AudioBuffer_](https://github.com/audiojs/audio-buffer), _ArrayBuffer_/_Buffer_ with encoded mp3/wav/etc data (see [audio-decode](https://github.com/audiojs/audio-decode)), _Number_ indicating duration, _Array_/_FloatArray_ with raw data, [_File_](https://developer.mozilla.org/en/docs/Web/API/File).
-* _Async_ source − waits for content to load and emits `load` event when ready (similar to _Image_). `audio.isReady` indicator can be used to check status. Not ready audio contains 1-sample buffer with silence. [audio-loader](https://github.com/audiojs/audio-loader) is used internally to tackle loading routine.
+* _Sync_ source − sets contents immediately and returns ready to use audio instance. Can be [_AudioBuffer_](https://github.com/audiojs/audio-buffer), _Number_ indicating duration or _Array_/_FloatArray_ with raw channels data.
+* _Async_ source − loads and decodes content and emits `load` event when ready. Can be a string or _ArrayBuffer_/_Buffer_/_Blob_/[_File_](https://developer.mozilla.org/en/docs/Web/API/File) with encoded mp3/wav/ogg/etc data. `audio.isReady` indicator can be used to check status. For the time of loading audio contains 1-sample buffer with silence. [audio-loader](https://github.com/audiojs/audio-loader) and [audio-decode](https://github.com/audiojs/audio-decode) are used internally.
 * [WIP] _Stream_ source − starts recording, updating contents until input stream ends or max duration reaches. `data` and `end` events are emitted during stream consumption. Can be [_Stream_](https://nodejs.org/api/stream.html), [_pull-stream_](https://github.com/pull-stream/pull-stream), _Function_, [_MediaStream_](https://developer.mozilla.org/en-US/docs/Web/API/MediaStream) or _WebAudioNode_. Takes role of [audiorecorder](https://npmjs.org/package/audiorecorder).
 
 <!--
@@ -155,12 +155,12 @@ Create _Audio_ instance from the `source` based on `options` (or number of `chan
 
 `options` may include:
 
-* _channels_ − number of channels for the audio, inferred from the source or taken default `2`.
-* _context_ − WebAudioAPI context to use (optional), defaults to [audio-context](https://npmjs.org/package/audio-context).
-* _duration_ − max duration of an audio, by default takes whole available input.
-* _sampleRate_ − sample rate for the audio data, inferred from source or taken default `44100`.
-* _cache_ − load cached version of source, if available. Used to avoid extra URL requests. By default `true`.
-* _stats_ − track stats of audio for metrics, that increases memory consumption by at least 3 times (no worries it is still O(N)). By default it is disabled.
+* `channels` − number of channels for the audio, inferred from the source or taken default `2`.
+* `context` − WebAudioAPI context to use (optional), defaults to [audio-context](https://npmjs.org/package/audio-context).
+* `duration` − max duration of an audio, by default takes whole available input.
+* `sampleRate` − sample rate for the audio data, inferred from source or taken default `44100`.
+* `cache` − load cached version of source, if available. Used to avoid extra URL requests. By default `true`.
+* `stats` − track stats for metrics, that increases memory consumption by ~3 times (no worries, still O(N)). By default it is disabled.
 
 ```js
 //create 2-channel audio of duration 4m 33s
