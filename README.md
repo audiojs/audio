@@ -159,6 +159,7 @@ Create _Audio_ instance from the `source` based on `options` (or number of `chan
 * `context` − web audio context (optional), defaults to [audio-context](https://npmjs.org/package/audio-context).
 * `duration` − max duration, by default takes whole available input.
 * `sampleRate` − inferred from source or defaults to `44100`.
+* `range` — db range to use for quietest sound, defaults to 40.
 * `cache` − cache URL sources to avoid extra requests. By default `true`.
 * `stats` − track stats for metrics. Increases memory consumption up to 3 times (yet O(N)). By default disabled.
 
@@ -211,7 +212,7 @@ Buffer duration. Changing this property may right-trim or right-pad the data.
 
 ### `audio.read(time=0, duration?)`
 
-Get _AudioBuffer_ of `duration` starting at `time`. If no `duration` provided, all available data will be returned. Returned data is cloned, if you need the original data, read `audio.buffer` directly.
+Get _AudioBuffer_ of `duration` starting at `time`. If no `duration` provided, all available data will be returned. The result is cloned, if you need the original data, read `audio.buffer` directly.
 
 Also use `audio.readRaw(offset, length)` to read data in sample offsets.
 
@@ -222,7 +223,7 @@ audio.read(-1).getChannelData(0)
 
 ### `audio.write(audioBuffer, time=0)`
 
-Write _AudioBuffer_ starting at `time`. Old data will be overwritten, to save data see `splice`. If `audioBuffer` is longer than the `duration`, audio will be extended to fit the `audioBuffer`. If `time` is not defined, new audio will be written to the end, unless `duration` is explicitly set.
+Write _AudioBuffer_ starting at `time`. Old data will be overwritten, to insert data see `splice` method. If `audioBuffer` is longer than the `duration`, audio will be extended to fit the `audioBuffer`. If `time` is not defined, new audio will be written to the end, unless `duration` is explicitly set.
 
 ```js
 Audio(2).write(AudioBuffer(1, rawData), .5)
@@ -235,8 +236,9 @@ To fade out pass negative `duration` (backward direction).
 
 Default `easing` is linear, but any of [eases](https://npmjs.org/package/eases) functions can be used. `easing` function has signature `v = ease(t)`, where `t` and `v` are from `0..1` range.
 
+Fading is done by decibels to compensate logarithmic volume perception, hearable range can be adjusted by `range` property.
+
 ```js
-const Audio = require('audio')
 const eases = require('eases')
 
 let audio = Audio('./source').on('load', audio => {
@@ -256,11 +258,9 @@ let audio = Audio('./source').on('load', audio => {
 
 ### `audio.normalize(time?, duration?)`
 
-Normalize fragment or full audio, i.e. bring data to -1..+1 range. Channels amplitudes ratio will be preserved. See [`audio-buffer-utils/normalize`](https://github.com/audiojs/audio-buffer-utils#utilnormalizebuffer-target-start--0-end---0).
+Normalize fragment or full audio, i.e. bring data to -1..+1 range. Channels amplitudes ratio is preserved. See [`audio-buffer-utils/normalize`](https://github.com/audiojs/audio-buffer-utils#utilnormalizebuffer-target-start--0-end---0).
 
 ```js
-const Audio = require('audio')
-
 let audio = new Audio([0, .1, 0, -.1], {channels: 1}).normalize()
 // <Audio 0, 1, 0, -1>
 ```
@@ -270,10 +270,17 @@ let audio = new Audio([0, .1, 0, -.1], {channels: 1}).normalize()
 Make sure there is no silence at the beginning/end of audio. Duration may be reduced therefore.
 
 ```js
-const Audio = require('audio')
-
 let audio = new Audio([0,0,0,.1,.2,-.1,-.2,0,0], 1).trim()
 // <Audio .1, .2, -.1, -.2>
+```
+
+### `audio.gain(volume, time?, duration?)`
+
+Change volume of the range.
+
+```js
+let audio = new Audio(Array(44100).fill(1), 1).gain(.5)
+// <Audio .5, .5, .5, .5, ...>
 ```
 
 <!--
@@ -295,9 +302,6 @@ Inverse phase for the indicated range.
 Make sure the duration of the fragment is long enough.
 
 
-### `audio.gain(volume, time?, duration?)`
-
-Change volume of the range.
 
 ### `audio.threshold(value, time?, duration?);`
 

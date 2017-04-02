@@ -145,6 +145,9 @@ Audio.prototype.cache = true
 //enable metrics
 Audio.prototype.stats = false
 
+//db range
+Audio.prototype.range = 40
+
 //default params
 //TODO: make properties map channels/sampleRate by writing them
 Object.defineProperties(Audio.prototype, {

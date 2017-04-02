@@ -9,6 +9,7 @@
 
 const util = require('audio-buffer-utils')
 const nidx = require('negative-index')
+const db = require('decibels')
 
 let Audio = require('../')
 
@@ -23,7 +24,7 @@ Audio.prototype.normalize = function normalize (time = 0, duration = this.buffer
 	return this;
 }
 
-//fade in/out
+//fade in/out by db range
 Audio.prototype.fade = function (start, duration, map) {
 	//0, 1, easing
 	//0, -1, easing
@@ -65,13 +66,16 @@ Audio.prototype.fade = function (start, duration, map) {
 	let startOffset = start * this.buffer.sampleRate
 	let len = duration * this.buffer.sampleRate
 	let endOffset = startOffset + len
+	let range = this.range
 
 	for (let c = 0, l = this.buffer.length; c < this.buffer.numberOfChannels; c++) {
 		let data = this.buffer.getChannelData(c)
 		for (let i = startOffset; i != endOffset; i+=step) {
 			let idx = Math.floor(nidx(i + halfStep, l))
 			let t = (i + halfStep - startOffset) / len
-			data[idx] *= map(t)
+
+			//volume is mapped by easing and 0..-40db
+			data[idx] *= db.toGain(map(t) * range - range)
 		}
 	}
 
@@ -87,16 +91,10 @@ Audio.prototype.trim = function trim (threshold = 0) {
 	return this;
 }
 
-//regulate volume of playback/output/read etc
-Audio.prototype.volume = function volume (start, end) {
-	if (arguments.length < 2) {
-		duration = start;
-		start = 0;
-	}
-	if (duration == null) duration = .5;
-
-	start = Math.floor(nidx(start, this.buffer.length))
-	start = nidx(start, duration);
+//change gain of the audio
+Audio.prototype.gain = function gain (volume = 1, start = 0, duration = this.buffer.duration) {
+	start = nidx(start, this.buffer.duration)
+	let startOffset = start * this.buffer.sampleRate
 
 	return this;
 };
