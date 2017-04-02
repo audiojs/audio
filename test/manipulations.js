@@ -61,6 +61,8 @@ t('trim', t => {
 
 t('gain', t => {
 	let audio = new Audio(Array(44100).fill(1), 1).gain(.5)
-	assert.deepEqual(audio.buffer.getChannelData(0), Array(44100).fill(db.toGain(.5*40 - 40)))
+	assert.deepEqual(audio.buffer.getChannelData(0), Array(44100).fill(db.toGain(.5*audio.range - audio.range)))
 	// <Audio .5, .5, .5, .5, ...>
+
+	t.end()
 })
