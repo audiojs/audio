@@ -65,7 +65,7 @@ Audio.prototype.fade = function (start, duration, map) {
 	let halfStep = step*.5
 	let startOffset = start * this.buffer.sampleRate
 	let len = duration * this.buffer.sampleRate
-	let endOffset = startOffset + len
+	let endOffset = Math.min(startOffset + len, this.buffer.length)
 	let range = this.range
 
 	for (let c = 0, l = this.buffer.length; c < this.buffer.numberOfChannels; c++) {
@@ -95,6 +95,16 @@ Audio.prototype.trim = function trim (threshold = 0) {
 Audio.prototype.gain = function gain (volume = 1, start = 0, duration = this.buffer.duration) {
 	start = nidx(start, this.buffer.duration)
 	let startOffset = start * this.buffer.sampleRate
+	let len = duration * this.buffer.sampleRate
+	let endOffset = Math.min(startOffset + len, this.buffer.length)
+	let range = this.range
+
+	for (let c = 0; c < this.buffer.numberOfChannels; c++) {
+		let data = this.buffer.getChannelData(c)
+		for (let i = startOffset; i != endOffset; i++) {
+			data[i] *= db.toGain(volume * range - range)
+		}
+	}
 
 	return this;
 };
