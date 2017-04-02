@@ -2,6 +2,7 @@ const Audio = require('../');
 const t = require('tape');
 const assert = require('assert')
 const AudioBuffer = require('audio-buffer')
+const db = require('decibels')
 
 t('write', t => {
 	let audio = Audio([0, .1, .2, .3, .4, .5], 1)
@@ -32,7 +33,7 @@ t('normalize', t => {
 t('fade', t => {
 	let audio = Audio(Array(1000).fill(1), {channels: 1})
 
-	let inCurve = Array(100).fill(1).map((v, i) => (i + .5)/100)
+	let inCurve = Array(100).fill(1).map((v, i) => (i + .5)/100).map(v => db.toGain(v*40 - 40))
 	let outCurve = inCurve.slice().reverse()
 
 	//fade in
@@ -56,4 +57,10 @@ t('trim', t => {
 	// audio.trim();
 
 	t.end();
+})
+
+t('gain', t => {
+	let audio = new Audio(Array(44100).fill(1), 1).gain(.5)
+	assert.deepEqual(audio.buffer.getChannelData(0), Array(44100).fill(db.toGain(.5*40 - 40)))
+	// <Audio .5, .5, .5, .5, ...>
 })

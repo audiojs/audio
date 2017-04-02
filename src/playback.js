@@ -116,4 +116,19 @@ Audio.prototype.stop = function () {
 }
 
 
+//regulate volume of playback/output/read etc
+Audio.prototype.volume = function volume (start, end) {
+	if (arguments.length < 2) {
+		duration = start;
+		start = 0;
+	}
+	if (duration == null) duration = .5;
+
+	start = Math.floor(nidx(start, this.buffer.length))
+	start = nidx(start, duration);
+
+	return this;
+};
+
+
 module.exports = Audio;

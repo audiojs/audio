@@ -5,13 +5,13 @@ const lena = require('audio-lena')
 const Waveform = require('../../gl-waveform')
 const eases = require('eases')
 
-let wf = Waveform()
+let wf = Waveform({scale: 1024})
 
 
 //Basic processing: trim, normalize, fade, save
 t('Basic', t => {
 	Audio(lena.mp3).on('load', (a) => {
-		a.trim(.05).normalize().fade(4).fade(-4).save('lena-processed.wav', t.end())
+		a.trim(.05).normalize().fade(4).fade(-4)//.save('lena-processed.wav', t.end())
 
 		wf.push(a.read().getChannelData(0))
 	})
