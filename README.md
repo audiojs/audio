@@ -207,6 +207,9 @@ Buffer sample rate. Changing this property will resample audio to target rate.
 
 Buffer duration. Changing this property may right-trim or right-pad the data.
 
+### `audio.range`
+
+Hearable range in decibels, defaults to `40`.
 
 ## Manipulations
 
@@ -276,11 +279,11 @@ let audio = new Audio([0,0,0,.1,.2,-.1,-.2,0,0], 1).trim()
 
 ### `audio.gain(volume, time?, duration?)`
 
-Change volume of the range.
+Change volume of indicated `time`, `duration` range based on volume range (see `audio.range`).
 
 ```js
+//make half as loud
 let audio = new Audio(Array(44100).fill(1), 1).gain(.5)
-// <Audio .5, .5, .5, .5, ...>
 ```
 
 <!--
