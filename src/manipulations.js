@@ -14,12 +14,61 @@ const db = require('decibels')
 let Audio = require('../')
 
 
+
+//return channels data distributed in array
+Audio.prototype.data = function (start = 0, duration = this.buffer.duration) {
+	let [startOffset, endOffset] = offsets(start, duration, this.buffer)
+	let data = []
+
+	//transfer data per-channel
+	for (var channel = 0; channel < this.buffer.numberOfChannels; channel++) {
+		data[channel] = this.buffer.getChannelData(channel).subarray(startOffset, endOffset);
+	}
+
+	return data
+}
+
+//return slice of data as an audio buffer
+Audio.prototype.read = function (start = 0, duration = this.buffer.duration) {
+	return this.readRaw(start * this.buffer.sampleRate, duration * this.buffer.sampleRate)
+}
+
+//TODO: provide nicer name for getting raw data as array, not audio buffer
+//return audio buffer by sample number
+Audio.prototype.readRaw = function (offset = 0, length = this.buffer.length) {
+	offset = Math.floor(nidx(offset, this.buffer.length))
+	length = Math.floor(Math.min(length, this.buffer.length - offset))
+
+	let buf = util.slice(this.buffer, offset, offset + length)
+
+	return buf
+}
+
+//write audiobuffer at the indicated position
+Audio.prototype.write = function (buf, start=0) {
+	return this.writeRaw(buf, start * this.buffer.sampleRate)
+}
+
+//write audio buffer data by offset
+Audio.prototype.writeRaw = function (buffer, offset=0) {
+	if (!buffer || !buffer.length) return this
+
+	offset = Math.floor(nidx(offset, this.buffer.length))
+
+	util.copy(buffer, this.buffer, offset)
+
+	return this
+}
+
+
+
+
 //normalize contents by the offset
 Audio.prototype.normalize = function normalize (time = 0, duration = this.buffer.duration) {
-	let start = Math.floor(time * this.buffer.sampleRate)
-	let end = Math.floor(duration * this.buffer.sampleRate) + start
 
-	util.normalize(this.buffer, start, end)
+	let [startOffset, endOffset] = offsets(time, duration, this.buffer)
+
+	util.normalize(this.buffer, startOffset, endOffset)
 
 	return this;
 }
@@ -59,13 +108,11 @@ Audio.prototype.fade = function (start, duration, map) {
 
 	map = typeof map === 'function' ? map : t => t
 
-	start = nidx(start, this.buffer.duration)
-
 	let step = duration > 0 ? 1 : -1
 	let halfStep = step*.5
-	let startOffset = start * this.buffer.sampleRate
-	let len = duration * this.buffer.sampleRate
-	let endOffset = Math.min(startOffset + len, this.buffer.length)
+
+	let [startOffset, endOffset] = offsets(start, duration, this.buffer)
+	let len = endOffset - startOffset
 	let range = this.range
 
 	for (let c = 0, l = this.buffer.length; c < this.buffer.numberOfChannels; c++) {
@@ -93,10 +140,7 @@ Audio.prototype.trim = function trim (threshold = 0) {
 
 //change gain of the audio
 Audio.prototype.gain = function gain (volume = 1, start = 0, duration = this.buffer.duration) {
-	start = nidx(start, this.buffer.duration)
-	let startOffset = start * this.buffer.sampleRate
-	let len = duration * this.buffer.sampleRate
-	let endOffset = Math.min(startOffset + len, this.buffer.length)
+	let [startOffset, endOffset] = offsets(start, duration, this.buffer)
 	let range = this.range
 
 	for (let c = 0; c < this.buffer.numberOfChannels; c++) {
@@ -107,17 +151,33 @@ Audio.prototype.gain = function gain (volume = 1, start = 0, duration = this.buf
 	}
 
 	return this;
-};
+}
+
+//reverse sequence of samples
+Audio.prototype.reverse = function (start = 0, duration = this.buffer.duration) {
+
+	let [startOffset, endOffset] = offsets(start, duration, this.buffer)
+
+	util.reverse(this.buffer, startOffset, endOffset)
+
+	return this
+}
+
+//invert sequence of samples
+Audio.prototype.invert = function (start = 0, duration = this.buffer.duration) {
+
+	let [startOffset, endOffset] = offsets(start, duration, this.buffer)
+
+	util.reverse(this.buffer, startOffset, endOffset)
+
+	return this
+}
 
 //regulate rate of playback/output/read etc
 Audio.prototype.rate = function rate () {
 	return this;
 };
 
-Audio.prototype.reverse = function reverse () {
-
-	return this;
-}
 Audio.prototype.mix = function mix () {
 
 	return this;
@@ -150,4 +210,15 @@ Audio.prototype.copy = function copy () {
 Audio.prototype.isEqual = function isEqual () {
 
 	return this;
+}
+
+
+//get start/end offsets for the buffer
+function offsets (start, duration, buffer) {
+	start = nidx(start, buffer.duration)
+	let startOffset = start * buffer.sampleRate
+	let len = duration * buffer.sampleRate
+	let endOffset = Math.min(startOffset + len, buffer.length)
+
+	return [startOffset, endOffset]
 }
