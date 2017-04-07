@@ -66,3 +66,20 @@ t('gain', t => {
 
 	t.end()
 })
+
+t('reverse', t => {
+	let data = Array(1000).fill(1).map((v, i) => (.5 + i)/1000)
+	let fixture = data.slice().reverse()
+
+	let audio = new Audio(data, 1)
+
+	audio.reverse()
+
+	assert.deepEqual(audio.data()[0], fixture)
+
+	audio.reverse(10/44100, 10/44100)
+
+	assert.deepEqual(audio.data(10/44100, 10/44100)[0], data.slice(980, 990))
+
+	t.end()
+})

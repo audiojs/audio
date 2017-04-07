@@ -211,8 +211,24 @@ Buffer duration. Changing this property may right-trim or right-pad the data.
 
 Hearable range in decibels, defaults to `40`.
 
+
 ## Manipulations
 
+### `audio.push(data)`
+
+Append new data to the end. Mind `duration` limitation. `data` should be [_AudioBuffer_](https://github.com/audiojs/audio-buffer) instance.
+
+
+### `audio.data(start=0, duration?)`
+
+Get array with channels data for the indicated range. Data is returned as subarrays.
+
+```js
+//get 1s of left channel data starting from 1.5s
+audio.data(1.5, 1)[0]
+```
+
+<!--
 ### `audio.read(time=0, duration?)`
 
 Get _AudioBuffer_ of `duration` starting at `time`. If no `duration` provided, all available data will be returned. The result is cloned, if you need the original data, read `audio.buffer` directly.
@@ -231,6 +247,7 @@ Write _AudioBuffer_ starting at `time`. Old data will be overwritten, to insert 
 ```js
 Audio(2).write(AudioBuffer(1, rawData), .5)
 ```
+-->
 
 ### `audio.fade(time=0, duration, easing='linear')`
 
@@ -286,14 +303,22 @@ Change volume of indicated `time`, `duration` range based on volume range (see `
 let audio = new Audio(Array(44100).fill(1), 1).gain(.5)
 ```
 
+### `audio.reverse(time?, duration?)`
+
+Change the direction of samples for the indicated part.
+
+```js
+Audio('./sample.mp3', audio => {
+	//reverse first three seconds of audio and play
+	audio.reverse(0, 3).play()
+})
+```
+
+
 <!--
 ### `audio.splice(time?, deleteDuration?, newData?)`
 
 Insert and/or delete new audio data at the start `time`.
-
-### `audio.reverse(time?, duration?)`
-
-Change the direction of samples for the indicated part.
 
 ### `audio.inverse(time?, duration?)`
 

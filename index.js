@@ -177,39 +177,6 @@ Object.defineProperties(Audio.prototype, {
 	}
 })
 
-//return slice of data as an audio buffer
-Audio.prototype.read = function (start = 0, duration = this.buffer.duration) {
-	return this.readRaw(start * this.buffer.sampleRate, duration * this.buffer.sampleRate)
-}
-
-//TODO: provide nicer name for getting raw data as array, not audio buffer
-//return audio buffer by sample number
-Audio.prototype.readRaw = function (offset = 0, length = this.buffer.length) {
-	offset = Math.floor(nidx(offset, this.buffer.length))
-	length = Math.floor(Math.min(length, this.buffer.length - offset))
-
-	let buf = util.slice(this.buffer, offset, offset + length)
-
-	return buf
-}
-
-//write audiobuffer at the indicated position
-Audio.prototype.write = function (buf, start=0) {
-	return this.writeRaw(buf, start * this.buffer.sampleRate)
-}
-
-//write audio buffer data by offset
-Audio.prototype.writeRaw = function (buffer, offset=0) {
-	if (!buffer || !buffer.length) return this
-
-	offset = Math.floor(nidx(offset, this.buffer.length))
-
-	util.copy(buffer, this.buffer, offset)
-
-	return this
-}
-
-
 
 //download file or create a file in node
 Audio.prototype.save = function (fileName, ondone) {
