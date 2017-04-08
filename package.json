@@ -38,6 +38,7 @@
     "audiobuffer-to-wav": "^1.0.0",
     "buffer-to-arraybuffer": "0.0.4",
     "callsites": "^2.0.0",
+    "clamp": "^1.0.1",
     "decibels": "^1.0.1",
     "fourier-transform": "^1.0.2",
     "is-browser": "^2.0.1",

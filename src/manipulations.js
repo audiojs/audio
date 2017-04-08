@@ -10,6 +10,7 @@
 const util = require('audio-buffer-utils')
 const nidx = require('negative-index')
 const db = require('decibels')
+const clamp = require('clamp')
 
 let Audio = require('../')
 
@@ -75,8 +76,30 @@ Audio.prototype.writeRaw = function (buffer, offset=0) {
 Audio.prototype.normalize = function normalize (start, duration, options) {
 	options = this.parseArgs(start, duration, options)
 
-	//todo: normalize compound channels
-	util.normalize(this.buffer, options.from, options.to)
+	//find max for the channels set
+	let max = 0
+	if (typeof options.channel == 'number') {
+		let data = this.buffer.getChannelData(options.channel)
+		for (let i = options.from; i < options.to; i++) {
+			max = Math.max(Math.abs(data[i]), max)
+		}
+	}
+	else {
+		for (let c = 0; c < options.channel.length; c++) {
+			let channel = options.channel[c]
+			let data = this.buffer.getChannelData(channel)
+			for (let i = options.from; i < options.to; i++) {
+				max = Math.max(Math.abs(data[i]), max)
+			}
+		}
+	}
+
+	let amp = Math.max(1 / max, 1)
+
+	//fill values
+	util.fill(this.buffer, function (value, i, ch) {
+		return clamp(value * amp, -1, 1)
+	}, options.from, options.to);
 
 	return this;
 }

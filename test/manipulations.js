@@ -21,6 +21,9 @@ t('data', t => {
 
 	assert.deepEqual(audio.data({channel: 1}).length, audio.sampleRate)
 
+	let audio3 = Audio([0, .1, 0, .2, 0, .3], 3)
+	assert.deepEqual(audio3.data(), [[0, .1], [0, .2], [0, .3]])
+
 	t.end()
 })
 
@@ -29,13 +32,17 @@ t('normalize', t => {
 	let audio = Audio([0, .1, 0, -.1], {channels: 1})
 
 	audio.normalize()
-	assert.deepEqual(audio.data()[0], [0, 1, 0, -1]);
-
+	assert.deepEqual(audio.data({channel: 0}), [0, 1, 0, -1]);
 
 	//partial normalize
 	let audio2 = Audio([0, .1, 0, -.1], {channels: 1})
 	audio2.normalize(2/audio2.sampleRate)
 	assert.deepEqual(audio2.data()[0], [0, .1, 0, -1]);
+
+	//partial channels
+	let audio3 = Audio([0, .1, 0, .2, 0, .3], 3)
+	audio3.normalize({channel: [0, 1]})
+	assert.deepEqual(audio3.data({channel: [0, 1]}), [[0, .5], [0, 1]])
 
 	t.end();
 })

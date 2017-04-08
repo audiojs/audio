@@ -290,13 +290,18 @@ let audio = Audio('./source').on('load', audio => {
 })
 ```
 
-### `audio.normalize(time?, duration?, {channel})`
+### `audio.normalize(start?, duration?, {channel}?)`
 
-Normalize fragment or full audio, i.e. bring data to -1..+1 range. Channels amplitudes ratio is preserved. See [`audio-buffer-utils/normalize`](https://github.com/audiojs/audio-buffer-utils#utilnormalizebuffer-target-start--0-end---0).
+Normalize interval or full audio, i.e. bring amplitudes to -1..+1 range. Max amplitude is found within all channels or only indicated ones.
 
 ```js
-let audio = new Audio([0, .1, 0, -.1], {channels: 1}).normalize()
-// <Audio 0, 1, 0, -1>
+//normalize full contents
+let audio = Audio([0, .1, 0, -.1], {channels: 1}).normalize()
+audio.data({channel: 0}) // [0, 1, 0, -1]
+
+//normalize 0 and 1 channels
+audio = Audio([0, .1, 0 , .2, 0, .3], {channels: 3}).normalize({channel: [0, 1]})
+audio.data() // [[0, .5], [0, 1], [0, .3]]
 ```
 
 ### `audio.trim({threshold=-40, left?, right?}?)`
