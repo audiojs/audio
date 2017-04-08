@@ -214,18 +214,32 @@ Hearable range in decibels, defaults to `40`.
 
 ## Manipulations
 
-### `audio.push(data)`
+Most methods have signature `audio.method(param, start=0, duration=audio.duration, options?)`. `start` and `duration` are optional and define interval to affect, in seconds. `options` may provide `channel` property, restricting action to a specific channel or list of channels. Also options may have `from` and `to` properties defining interval in raw sample offsets, as an alternate to `start` and `duration`.
 
-Append new data to the end. `data` should be [_AudioBuffer_](https://github.com/audiojs/audio-buffer) instance.
+### `audio.append(otherAudio)`
 
+Append new data to the end. `otherAudio` can be [_AudioBuffer_](https://github.com/audiojs/audio-buffer) or other _Audio_ instance.
 
-### `samples = audio.data(start=0, duration?, channel?)`
+<!--
+### audio.append(audio)
+### audio.overlay(otherAudio)
+### audio.pan()
+### audio.dcOffset()
+### audio.removeDcOffset()
+### audio.repeat(3)
+### audio.slice(start, end)
+-->
 
-Get array with channels data for the indicated range. Data is returned as subarrays, so modifying it will affect the actual data.
+### `data = audio.data(start=0, duration=audio.duration, {channel}?)`
+
+Get channel or channels data for the indicated range. Returned data is list of arrays or single array with raw samples. Returned data is bound to data, so modifying it will change audio.
 
 ```js
 //get 1s of raw data starting from 1.5s
 let [leftChannel, rightChannel] = audio.data(1.5, 1)
+
+//get complete raw data for the right channel
+let rightChannelData = audio.data({channel: 1})
 ```
 
 <!--
@@ -249,7 +263,7 @@ Audio(2).write(AudioBuffer(1, rawData), .5)
 ```
 -->
 
-### `audio.fade(time=0, duration=0.5, easing='linear')`
+### `audio.fade(time=0, duration=0.5, {easing: 'linear', gain: -40db, channel}?)`
 
 Fade in/out part of the audio of `duration` stating at `time`.
 To fade out pass negative `duration` (backward direction).
@@ -276,7 +290,7 @@ let audio = Audio('./source').on('load', audio => {
 })
 ```
 
-### `audio.normalize(time?, duration?)`
+### `audio.normalize(time?, duration?, {channel})`
 
 Normalize fragment or full audio, i.e. bring data to -1..+1 range. Channels amplitudes ratio is preserved. See [`audio-buffer-utils/normalize`](https://github.com/audiojs/audio-buffer-utils#utilnormalizebuffer-target-start--0-end---0).
 
@@ -285,13 +299,23 @@ let audio = new Audio([0, .1, 0, -.1], {channels: 1}).normalize()
 // <Audio 0, 1, 0, -1>
 ```
 
-### `audio.trim(threshold?)`
+### `audio.trim({threshold=-40, left?, right?}?)`
 
-Make sure there is no silence at the beginning/end of audio. Duration may be reduced therefore.
+Trim silence at the beginning/end. Audio duration is reduced. Optional argument may define `threshold` in decibels, `left` and `right` restrictions.
+Alternately, `level` property may define threshold directly.
 
 ```js
-let audio = new Audio([0,0,0,.1,.2,-.1,-.2,0,0], 1).trim()
-// <Audio .1, .2, -.1, -.2>
+//trim silence from ends
+Audio([0,0,0,.1,.2,-.1,-.2,0,0], 1).trim()
+// <.1, .2, -.1, -.2>
+
+//trim samples from the beginning below -30 db
+Audio([0.0001, 0, .1, .2, ...], 1).trim({threshold: -30, left: true})
+// <.1, .2, ...>
+
+//remove samples below .02 from the end
+Audio([.1, .2, -.1, -.2, 0, .0001]).trim({level: .02, left: false})
+// <.1, .2, -.1, -.2>
 ```
 
 ### `audio.gain(volume, time?, duration?)`
@@ -334,7 +358,6 @@ Insert and/or delete new audio data at the start `time`.
 ### `audio.padEnd(duration?, value?)`
 
 Make sure the duration of the fragment is long enough.
-
 
 
 ### `audio.threshold(value, time?, duration?);`
