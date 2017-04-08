@@ -73,6 +73,7 @@ Audio.prototype.normalize = function normalize (time = 0, duration = this.buffer
 	return this;
 }
 
+
 //fade in/out by db range
 Audio.prototype.fade = function (start, duration, map) {
 	//0, 1, easing
@@ -129,6 +130,7 @@ Audio.prototype.fade = function (start, duration, map) {
 	return this
 }
 
+
 //trim start/end silence
 Audio.prototype.trim = function trim (threshold = 0) {
 	this.buffer = util.trim(this.buffer, threshold)
@@ -137,6 +139,7 @@ Audio.prototype.trim = function trim (threshold = 0) {
 
 	return this;
 }
+
 
 //change gain of the audio
 Audio.prototype.gain = function gain (volume = 1, start = 0, duration = this.buffer.duration) {
@@ -150,8 +153,9 @@ Audio.prototype.gain = function gain (volume = 1, start = 0, duration = this.buf
 		}
 	}
 
-	return this;
+	return this
 }
+
 
 //reverse sequence of samples
 Audio.prototype.reverse = function (start = 0, duration = this.buffer.duration) {
@@ -163,20 +167,22 @@ Audio.prototype.reverse = function (start = 0, duration = this.buffer.duration) 
 	return this
 }
 
+
 //invert sequence of samples
 Audio.prototype.invert = function (start = 0, duration = this.buffer.duration) {
 
 	let [startOffset, endOffset] = offsets(start, duration, this.buffer)
 
-	util.reverse(this.buffer, startOffset, endOffset)
+	util.invert(this.buffer, startOffset, endOffset)
 
 	return this
 }
 
+
 //regulate rate of playback/output/read etc
 Audio.prototype.rate = function rate () {
 	return this;
-};
+}
 
 Audio.prototype.mix = function mix () {
 
@@ -199,10 +205,6 @@ Audio.prototype.slice = function slice () {
 
 	return this;
 }
-Audio.prototype.invert = function invert () {
-
-	return this;
-}
 Audio.prototype.copy = function copy () {
 
 	return this;
@@ -215,8 +217,8 @@ Audio.prototype.isEqual = function isEqual () {
 
 //get start/end offsets for the buffer
 function offsets (start, duration, buffer) {
-	start = nidx(start, buffer.duration)
-	let startOffset = start * buffer.sampleRate
+	let startOffset = Math.floor(start * buffer.sampleRate)
+	startOffset = nidx(startOffset, buffer.length)
 	let len = duration * buffer.sampleRate
 	let endOffset = Math.min(startOffset + len, buffer.length)
 

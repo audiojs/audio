@@ -216,16 +216,16 @@ Hearable range in decibels, defaults to `40`.
 
 ### `audio.push(data)`
 
-Append new data to the end. Mind `duration` limitation. `data` should be [_AudioBuffer_](https://github.com/audiojs/audio-buffer) instance.
+Append new data to the end. `data` should be [_AudioBuffer_](https://github.com/audiojs/audio-buffer) instance.
 
 
-### `audio.data(start=0, duration?)`
+### `samples = audio.data(start=0, duration?, channel?)`
 
-Get array with channels data for the indicated range. Data is returned as subarrays.
+Get array with channels data for the indicated range. Data is returned as subarrays, so modifying it will affect the actual data.
 
 ```js
-//get 1s of left channel data starting from 1.5s
-audio.data(1.5, 1)[0]
+//get 1s of raw data starting from 1.5s
+let [leftChannel, rightChannel] = audio.data(1.5, 1)
 ```
 
 <!--
@@ -249,7 +249,7 @@ Audio(2).write(AudioBuffer(1, rawData), .5)
 ```
 -->
 
-### `audio.fade(time=0, duration, easing='linear')`
+### `audio.fade(time=0, duration=0.5, easing='linear')`
 
 Fade in/out part of the audio of `duration` stating at `time`.
 To fade out pass negative `duration` (backward direction).
@@ -314,15 +314,21 @@ Audio('./sample.mp3', audio => {
 })
 ```
 
+### `audio.invert(time?, duration?)`
+
+Invert phase for the indicated range.
+
+```js
+//invert 1s following after the second second of audio
+Audio(sample).invert(2, 1)
+```
+
 
 <!--
 ### `audio.splice(time?, deleteDuration?, newData?)`
 
 Insert and/or delete new audio data at the start `time`.
 
-### `audio.inverse(time?, duration?)`
-
-Inverse phase for the indicated range.
 
 ### `audio.padStart(duration?, value?)`
 ### `audio.padEnd(duration?, value?)`
