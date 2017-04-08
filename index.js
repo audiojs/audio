@@ -104,8 +104,14 @@ function Audio(source, options, onload) {
 	}
 
 	//syn data source cases
-	else if (Array.isArray(source) || typeof source === 'number') {
+	else if (Array.isArray(source)) {
 		this.buffer = util.create(source, options.channels, options.sampleRate)
+
+		onload && onload(null, this)
+		this.emit('load', this)
+	}
+	else if (typeof source === 'number') {
+		this.buffer = util.create(source*options.sampleRate, options.channels, options.sampleRate)
 
 		onload && onload(null, this)
 		this.emit('load', this)
@@ -145,9 +151,6 @@ Audio.prototype.cache = true
 //enable metrics
 Audio.prototype.stats = false
 
-//db range
-Audio.prototype.range = 40
-
 //default params
 //TODO: make properties map channels/sampleRate by writing them
 Object.defineProperties(Audio.prototype, {
@@ -156,7 +159,7 @@ Object.defineProperties(Audio.prototype, {
 			//TODO
 		},
 		get: function () {
-			return this.buffer.channels
+			return this.buffer.numberOfChannels
 		}
 	},
 	sampleRate: {

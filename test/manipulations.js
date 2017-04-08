@@ -4,7 +4,7 @@ const assert = require('assert')
 const AudioBuffer = require('audio-buffer')
 const db = require('decibels')
 
-t('write', t => {
+t.skip('write', t => {
 	let audio = Audio([0, .1, .2, .3, .4, .5], 1)
 
 	audio.write(AudioBuffer(1, [1,1]), 2/audio.sampleRate)
@@ -15,9 +15,11 @@ t('write', t => {
 })
 
 t('data', t => {
-	let audio = new Audio(1000, 1)
+	let audio = new Audio(1, 2)
 
-	assert.deepEqual(audio.data(-100/44100)[0].length, 100)
+	assert.deepEqual(audio.data(-100/audio.sampleRate)[0].length, 100)
+
+	assert.deepEqual(audio.data({channel: 1}).length, audio.sampleRate)
 
 	t.end()
 })
@@ -38,7 +40,7 @@ t('normalize', t => {
 	t.end();
 })
 
-t('fade', t => {
+t.skip('fade', t => {
 	let audio = Audio(Array(1000).fill(1), {channels: 1})
 
 	let inCurve = Array(100).fill(1).map((v, i) => (i + .5)/100).map(v => db.toGain(v*40 - 40))
@@ -60,9 +62,16 @@ t('trim', t => {
 
 	assert.deepEqual(audio.buffer.getChannelData(0), [.1,.2,-.1,-.2])
 
-	//TODO: trim left
-	// audio.write([0,0,0,.1,.2,-.1,-.2,0,0])
-	// audio.trim();
+
+	//trim samples from the beginning below -30 db
+	audio = Audio([0.0001, 0, .1, .2], 1).trim({threshold: -30, left: true})
+
+	assert.deepEqual(audio.data({channel: 0}), [.1, .2])
+
+	//remove samples below .02 from the end
+	audio = Audio([.1, .2, -.1, -.2, 0, .0001], 1).trim({level: .02, left: false})
+
+	assert.deepEqual(audio.data()[0], [.1, .2, -.1, -.2])
 
 	t.end();
 })
