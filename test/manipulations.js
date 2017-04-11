@@ -47,7 +47,7 @@ t('normalize', t => {
 	t.end();
 })
 
-t.skip('fade', t => {
+t('fade', t => {
 	let audio = Audio(Array(1000).fill(1), {channels: 1})
 
 	let inCurve = Array(100).fill(1).map((v, i) => (i + .5)/100).map(v => db.toGain(v*40 - 40))
@@ -55,7 +55,7 @@ t.skip('fade', t => {
 
 	//fade in
 	audio.fade(100/audio.sampleRate)
-	assert.deepEqual(audio.data(0, 100/44100)[0], inCurve)
+	assert.deepEqual(audio.data(0, 100/audio.sampleRate)[0], inCurve)
 
 	//fade out
 	audio.fade(-100/audio.sampleRate)
@@ -84,8 +84,8 @@ t('trim', t => {
 })
 
 t('gain', t => {
-	let audio = new Audio(Array(44100).fill(1), 1).gain(.5)
-	assert.deepEqual(audio.buffer.getChannelData(0), Array(44100).fill(db.toGain(.5*audio.range - audio.range)))
+	let audio = new Audio(Array(44100).fill(1), 1).gain(-20)
+	assert.deepEqual(audio.buffer.getChannelData(0), Array(44100).fill(.1))
 	// <Audio .5, .5, .5, .5, ...>
 
 	t.end()

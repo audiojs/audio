@@ -20,12 +20,17 @@ const isBrowser = require('is-browser')
 const toWav = require('audiobuffer-to-wav')
 const callsites = require('callsites')
 const path = require('path')
+const db = require('decibels')
 
 module.exports = Audio
 
 
 //for events sake
 inherits(Audio, Emitter)
+
+//utilities
+Audio.prototype.toGain = Audio.prototype.fromDb = db.toGain
+Audio.prototype.fromGain = Audio.prototype.toDb = db.fromGain
 
 
 //augment functionality
@@ -199,3 +204,4 @@ Audio.prototype.save = function (fileName, ondone) {
 
 	return this
 }
+

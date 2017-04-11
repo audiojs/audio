@@ -133,6 +133,8 @@ const Biquad = require('audio-biquad')
 let lpf = new Biquad({frequency: 2000, type: 'lowpass'})
 let audio = Audio(10).noise().process(lpf)
 ```
+
+### 8. Data handle - subaudio, for sprites etc
 -->
 
 # API
@@ -211,6 +213,9 @@ Buffer duration. Changing this property may right-trim or right-pad the data.
 
 Hearable range in decibels, defaults to `40`.
 
+### `audio.length`
+
+Get total length in samples.
 
 ## Manipulations
 
@@ -221,16 +226,19 @@ Most methods have signature `audio.method(param, start=0, duration=audio.duratio
 Append new data to the end. `otherAudio` can be [_AudioBuffer_](https://github.com/audiojs/audio-buffer) or other _Audio_ instance.
 
 <!--
+### audio.slice(start, end) - return copy of audio
+### audio.sub(start, end) - return subaudio handle
+### audio.copy(dest, start, end) - copy to destination
+
 ### audio.append(audio)
 ### audio.overlay(otherAudio)
 ### audio.pan()
 ### audio.dcOffset()
 ### audio.removeDcOffset()
 ### audio.repeat(3)
-### audio.slice(start, end)
 -->
 
-### `data = audio.data(start=0, duration=audio.duration, {channel}?)`
+### `audio.data(time?, duration?, {channel}?)`
 
 Get channel or channels data for the indicated range. Returned data is list of arrays or single array with raw samples. Returned data is bound to data, so modifying it will change audio.
 
@@ -263,10 +271,9 @@ Audio(2).write(AudioBuffer(1, rawData), .5)
 ```
 -->
 
-### `audio.fade(time=0, duration=0.5, {easing: 'linear', gain: -40db, channel}?)`
+### `audio.fade(start=0, duration, {gain: -40db, easing, channel}?)`
 
-Fade in/out part of the audio of `duration` stating at `time`.
-To fade out pass negative `duration` (backward direction).
+Fade in or fade out volume starting from `time` of `duration`. Negative duration will fade backwards. Options object may specify `easing` function or specific `gain`.
 
 Default `easing` is linear, but any of [eases](https://npmjs.org/package/eases) functions can be used. `easing` function has signature `v = ease(t)`, where `t` and `v` are from `0..1` range.
 
@@ -282,32 +289,31 @@ let audio = Audio('./source').on('load', audio => {
 	//fade out 1s from the end
 	.fade(-1, easing.quadIn)
 
-	//fade in .2s starting at .6s
-	.fade(.6, .2)
+	//fade in 20db during .2s starting at .6s
+	.fade(.6, .2, {gain: -20})
 
-	//fade out .2s starting at .8s (ending at 1s)
-	.fade(1, .2)
+	//fade out 5db during .2s starting at .8s (ending at 1s)
+	.fade(1, .2, {gain: -5})
 })
 ```
 
-### `audio.normalize(start?, duration?, {channel}?)`
+### `audio.normalize(time?, duration?, {channel}?)`
 
-Normalize interval or full audio, i.e. bring amplitudes to -1..+1 range. Max amplitude is found within all channels or only indicated ones.
+Normalize interval or full audio, i.e. bring amplitudes to -1..+1 range. Max amplitude is found within all defined channels, is any.
 
 ```js
 //normalize full contents
-let audio = Audio([0, .1, 0, -.1], {channels: 1}).normalize()
+let audio = Audio([0,.1,0,-.1], {channels: 1}).normalize()
 audio.data({channel: 0}) // [0, 1, 0, -1]
 
 //normalize 0 and 1 channels
-audio = Audio([0, .1, 0 , .2, 0, .3], {channels: 3}).normalize({channel: [0, 1]})
+audio = Audio([0,.1,  0,.2,  0,.3], {channels: 3}).normalize({channel: [0, 1]})
 audio.data() // [[0, .5], [0, 1], [0, .3]]
 ```
 
-### `audio.trim({threshold=-40, left?, right?}?)`
+### `audio.trim({threshold=-40, left?, right?, level?}?)`
 
-Trim silence at the beginning/end. Audio duration is reduced. Optional argument may define `threshold` in decibels, `left` and `right` restrictions.
-Alternately, `level` property may define threshold directly.
+Trim silence at the beginning/end. Optionally define `threshold` in decibels, `left` and `right` trim restrictions. `level` can be used to define threshold as absolute value `0..1`.
 
 ```js
 //trim silence from ends
@@ -323,16 +329,16 @@ Audio([.1, .2, -.1, -.2, 0, .0001]).trim({level: .02, left: false})
 // <.1, .2, -.1, -.2>
 ```
 
-### `audio.gain(volume, time?, duration?)`
+### `audio.gain(volume, time?, duration?, {channel}?)`
 
-Change volume of indicated `time`, `duration` range based on volume range (see `audio.range`).
+Change volume of the interval of `duration` starting at `time`. `volume` is in decibels.
 
 ```js
 //make half as loud
-let audio = new Audio(Array(44100).fill(1), 1).gain(.5)
+let audio = new Audio(Array(44100).fill(1), 1).gain(-20)
 ```
 
-### `audio.reverse(time?, duration?)`
+### `audio.reverse(time?, duration?, {channel}?)`
 
 Change the direction of samples for the indicated part.
 
@@ -474,13 +480,13 @@ Ideas:
 
 ## Utils
 
-### `audio.clone()`
+### `audio.fromDb(db)`
 
-Get new audio instance with cloned data.
+Convert decibels to gain.
 
-```js
-let audioCopy = audio.clone()
-```
+### `audio.toDb(gain)`
+
+Convert gain to decibels.
 
 ### `audio.save(fileName, done?)`
 
@@ -522,4 +528,4 @@ Acknowledgement to contributors:
 
 ## License
 
-[MIT](LICENSE) &copy; audiojs.
+[MIT](LICENSE) &copy; <a href="https://github.com/audiojs">audiojs</a>.
