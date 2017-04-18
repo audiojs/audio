@@ -9,7 +9,7 @@ t.skip('write', t => {
 
 	audio.write(AudioBuffer(1, [1,1]), 2/audio.sampleRate)
 
-	assert.deepEqual(audio.data(1/44100,4/44100)[0], [.1,1,1,.4])
+	t.deepEqual(audio.data(1/44100,4/44100)[0], [.1,1,1,.4])
 
 	t.end()
 })
@@ -17,32 +17,32 @@ t.skip('write', t => {
 t('data', t => {
 	let audio = new Audio(1, 2)
 
-	assert.deepEqual(audio.data(-100/audio.sampleRate)[0].length, 100)
+	t.deepEqual(audio.data(-100/audio.sampleRate)[0].length, 100)
 
-	assert.deepEqual(audio.data({channel: 1}).length, audio.sampleRate)
+	t.deepEqual(audio.data({channel: 1}).length, audio.sampleRate)
 
 	let audio3 = Audio([0, .1, 0, .2, 0, .3], 3)
-	assert.deepEqual(audio3.data(), [[0, .1], [0, .2], [0, .3]])
+	t.deepEqual(audio3.data(), [[0, .1], [0, .2], [0, .3]])
 
 	t.end()
 })
 
-t('normalize', t => {
+t.only('normalize', t => {
 	//full normalize
 	let audio = Audio([0, .1, 0, -.1], {channels: 1})
 
 	audio.normalize()
-	assert.deepEqual(audio.data({channel: 0}), [0, 1, 0, -1]);
+	t.deepEqual(audio.data({channel: 0}), [0, 1, 0, -1]);
 
 	//partial normalize
 	let audio2 = Audio([0, .1, 0, -.1], {channels: 1})
 	audio2.normalize(2/audio2.sampleRate)
-	assert.deepEqual(audio2.data()[0], [0, .1, 0, -1]);
+	t.deepEqual(audio2.data()[0], new Float32Array([0, .1, 0, -1]));
 
 	//partial channels
 	let audio3 = Audio([0, .1, 0, .2, 0, .3], 3)
 	audio3.normalize({channel: [0, 1]})
-	assert.deepEqual(audio3.data({channel: [0, 1]}), [[0, .5], [0, 1]])
+	t.deepEqual(audio3.data({channel: [0, 1]}), [[0, .5], [0, 1]])
 
 	t.end();
 })
@@ -55,11 +55,11 @@ t('fade', t => {
 
 	//fade in
 	audio.fade(100/audio.sampleRate)
-	assert.deepEqual(audio.data(0, 100/audio.sampleRate)[0], inCurve)
+	t.deepEqual(audio.data(0, 100/audio.sampleRate)[0], inCurve)
 
 	//fade out
 	audio.fade(-100/audio.sampleRate)
-	assert.deepEqual(audio.data(-100/44100)[0], outCurve)
+	t.deepEqual(audio.data(-100/44100)[0], outCurve)
 
 	t.end();
 })
@@ -67,25 +67,25 @@ t('fade', t => {
 t('trim', t => {
 	let audio = new Audio([0,0,0,.1,.2,-.1,-.2,0,0], 1).trim()
 
-	assert.deepEqual(audio.buffer.getChannelData(0), [.1,.2,-.1,-.2])
+	t.deepEqual(audio.buffer.getChannelData(0), [.1,.2,-.1,-.2])
 
 
 	//trim samples from the beginning below -30 db
 	audio = Audio([0.0001, 0, .1, .2], 1).trim({threshold: -30, left: true})
 
-	assert.deepEqual(audio.data({channel: 0}), [.1, .2])
+	t.deepEqual(audio.data({channel: 0}), [.1, .2])
 
 	//remove samples below .02 from the end
 	audio = Audio([.1, .2, -.1, -.2, 0, .0001], 1).trim({level: .02, left: false})
 
-	assert.deepEqual(audio.data()[0], [.1, .2, -.1, -.2])
+	t.deepEqual(audio.data()[0], [.1, .2, -.1, -.2])
 
 	t.end();
 })
 
 t('gain', t => {
 	let audio = new Audio(Array(44100).fill(1), 1).gain(-20)
-	assert.deepEqual(audio.buffer.getChannelData(0), Array(44100).fill(.1))
+	t.deepEqual(audio.buffer.getChannelData(0), Array(44100).fill(.1))
 	// <Audio .5, .5, .5, .5, ...>
 
 	t.end()
@@ -99,11 +99,11 @@ t('reverse', t => {
 
 	audio.reverse()
 
-	assert.deepEqual(audio.data()[0], fixture)
+	t.deepEqual(audio.data()[0], fixture)
 
 	audio.reverse(10/44100, 10/44100)
 
-	assert.deepEqual(audio.data(10/44100, 10/44100)[0], data.slice(980, 990))
+	t.deepEqual(audio.data(10/44100, 10/44100)[0], data.slice(980, 990))
 
 	t.end()
 })
@@ -117,11 +117,11 @@ t('invert', t => {
 
 	audio.invert()
 
-	assert.deepEqual(audio.data()[0], fixture)
+	t.deepEqual(audio.data()[0], fixture)
 
 	audio.invert(10/44100, 10/44100)
 
-	assert.deepEqual(audio.data(10/44100, 10/44100)[0], data.slice(10, 20))
+	t.deepEqual(audio.data(10/44100, 10/44100)[0], data.slice(10, 20))
 
 	t.end()
 })

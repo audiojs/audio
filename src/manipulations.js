@@ -20,15 +20,16 @@ Audio.prototype.data = function (start, duration, options) {
 	options = this.parseArgs(start, duration, options)
 
 	if (typeof options.channel == 'number') {
-		return this.buffer.getChannelData(options.channel).subarray(options.from, options.to)
+		return this.bufferList.getChannelData(options.channel).subarray(options.from, options.to)
 	}
 	//transfer data for indicated channels
 	else {
 		let data = []
+		let buf = this.bufferList.shallowSlice(options.from, options.to)
 		for (let i = 0; i < options.channel.length; i++) {
 			let channel = options.channel[i]
 
-			data.push(this.buffer.getChannelData(channel).subarray(options.from, options.to))
+			data.push(buf.getChannelData(channel))
 		}
 		return data
 	}
@@ -37,33 +38,33 @@ Audio.prototype.data = function (start, duration, options) {
 
 /*
 //return slice of data as an audio buffer
-Audio.prototype.read = function (start = 0, duration = this.buffer.duration) {
-	return this.readRaw(start * this.buffer.sampleRate, duration * this.buffer.sampleRate)
+Audio.prototype.read = function (start = 0, duration = this.bufferList.duration) {
+	return this.readRaw(start * this.bufferList.sampleRate, duration * this.bufferList.sampleRate)
 }
 
 //TODO: provide nicer name for getting raw data as array, not audio buffer
 //return audio buffer by sample number
-Audio.prototype.readRaw = function (offset = 0, length = this.buffer.length) {
-	offset = Math.floor(nidx(offset, this.buffer.length))
-	length = Math.floor(Math.min(length, this.buffer.length - offset))
+Audio.prototype.readRaw = function (offset = 0, length = this.bufferList.length) {
+	offset = Math.floor(nidx(offset, this.bufferList.length))
+	length = Math.floor(Math.min(length, this.bufferList.length - offset))
 
-	let buf = util.slice(this.buffer, offset, offset + length)
+	let buf = util.slice(this.bufferList, offset, offset + length)
 
 	return buf
 }
 
 //write audiobuffer at the indicated position
 Audio.prototype.write = function (buf, start=0) {
-	return this.writeRaw(buf, start * this.buffer.sampleRate)
+	return this.writeRaw(buf, start * this.bufferList.sampleRate)
 }
 
 //write audio buffer data by offset
 Audio.prototype.writeRaw = function (buffer, offset=0) {
 	if (!buffer || !buffer.length) return this
 
-	offset = Math.floor(nidx(offset, this.buffer.length))
+	offset = Math.floor(nidx(offset, this.bufferList.length))
 
-	util.copy(buffer, this.buffer, offset)
+	util.copy(buffer, this.bufferList, offset)
 
 	return this
 }
@@ -75,30 +76,29 @@ Audio.prototype.writeRaw = function (buffer, offset=0) {
 Audio.prototype.normalize = function normalize (start, duration, options) {
 	options = this.parseArgs(start, duration, options)
 
-	//find max for the channels set
+	//find max amp for the channels set
 	let max = 0
 	if (typeof options.channel == 'number') {
-		let data = this.buffer.getChannelData(options.channel)
+		options.channel = [options.channel]
+	}
+	for (let c = 0; c < options.channel.length; c++) {
+		let channel = options.channel[c]
+		let data = this.bufferList.getChannelData(channel)
 		for (let i = options.from; i < options.to; i++) {
 			max = Math.max(Math.abs(data[i]), max)
-		}
-	}
-	else {
-		for (let c = 0; c < options.channel.length; c++) {
-			let channel = options.channel[c]
-			let data = this.buffer.getChannelData(channel)
-			for (let i = options.from; i < options.to; i++) {
-				max = Math.max(Math.abs(data[i]), max)
-			}
 		}
 	}
 
 	let amp = Math.max(1 / max, 1)
 
 	//fill values
-	util.fill(this.buffer, function (value, i, ch) {
+	this.bufferList = this.bufferList.map((buf, idx) => {
+		return util.fill(buf, clamper)
+	}, options.from, options.to)
+
+	function clamper(value, i, ch) {
 		return clamp(value * amp, -1, 1)
-	}, options.from, options.to);
+	}
 
 	return this;
 }
@@ -132,9 +132,10 @@ Audio.prototype.fade = function (start, duration, options) {
 		options.channel = [options.channel]
 	}
 
-	for (let c = 0, l = this.buffer.length; c < options.channel.length; c++) {
+	//TODO: slice part of data to fade, process, insert back
+	for (let c = 0, l = this.bufferList.length; c < options.channel.length; c++) {
 		let channel = options.channel[c]
-		let data = this.buffer.getChannelData(channel)
+		let data = this.bufferList.getChannelData(channel)
 
 		for (let i = options.from; i != options.to; i+= step) {
 			let idx = Math.floor(i + halfStep)
@@ -150,6 +151,7 @@ Audio.prototype.fade = function (start, duration, options) {
 
 
 //trim start/end silence
+//TODO: implement manual trim
 Audio.prototype.trim = function trim (options) {
 	if (!options) options = {}
 
@@ -161,9 +163,9 @@ Audio.prototype.trim = function trim (options) {
 	if (options.left == null) options.left = true
 	if (options.right == null) options.right = true
 
-	if (options.left && options.right) this.buffer = util.trim(this.buffer, options.level)
-	else if (options.left) this.buffer = util.trimLeft(this.buffer, options.level)
-	else if (options.right) this.buffer = util.trimRight(this.buffer, options.level)
+	if (options.left && options.right) this.bufferList = util.trim(this.bufferList, options.level)
+	else if (options.left) this.bufferList = util.trimLeft(this.bufferList, options.level)
+	else if (options.right) this.bufferList = util.trimRight(this.bufferList, options.level)
 
 	return this
 }
@@ -181,9 +183,9 @@ Audio.prototype.gain = function (gain = 0, start, duration, options) {
 		options.channel = [options.channel]
 	}
 
-	for (let c = 0, l = this.buffer.length; c < options.channel.length; c++) {
+	for (let c = 0, l = this.bufferList.length; c < options.channel.length; c++) {
 		let channel = options.channel[c]
-		let data = this.buffer.getChannelData(channel)
+		let data = this.bufferList.getChannelData(channel)
 
 		for (let i = options.from; i != options.to; i++) {
 			data[i] *= level
@@ -199,9 +201,9 @@ Audio.prototype.reverse = function (start, duration, options) {
 
 	options = this.parseArgs(start, duration, options)
 
-	for (let c = 0, l = this.buffer.length; c < options.channel.length; c++) {
+	for (let c = 0, l = this.bufferList.length; c < options.channel.length; c++) {
 		let channel = options.channel[c]
-		let data = this.buffer.getChannelData(channel)
+		let data = this.bufferList.getChannelData(channel)
 
 		data.subarray(options.from, options.to).reverse()
 	}
@@ -215,9 +217,9 @@ Audio.prototype.invert = function (start, duration, options) {
 
 	options = this.parseArgs(start, duration, options)
 
-	for (let c = 0, l = this.buffer.length; c < options.channel.length; c++) {
+	for (let c = 0, l = this.bufferList.length; c < options.channel.length; c++) {
 		let channel = options.channel[c]
-		let data = this.buffer.getChannelData(channel)
+		let data = this.bufferList.getChannelData(channel)
 
 		for (let i = options.from; i < options.to; i++) {
 			data[i] *= -1
@@ -312,17 +314,17 @@ Audio.prototype.parseArgs = function (start, duration, options) {
 	//detect raw interval
 	if (options.from == null) {
 		let startOffset = Math.floor(start * this.sampleRate)
-		startOffset = nidx(startOffset, this.buffer.length)
+		startOffset = nidx(startOffset, this.bufferList.length)
 		options.from = startOffset
 	}
 	if (options.to == null) {
 		let len = duration * this.sampleRate
 		let endOffset;
 		if (len < 0) {
-			endOffset = nidx(options.from + len, this.buffer.length)
+			endOffset = nidx(options.from + len, this.bufferList.length)
 		}
 		else {
-			endOffset = Math.min(options.from + len, this.buffer.length)
+			endOffset = Math.min(options.from + len, this.bufferList.length)
 		}
 		options.to = endOffset
 	}
