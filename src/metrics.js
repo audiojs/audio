@@ -9,7 +9,7 @@
 
 let Audio = require('../')
 const ft = require('fourier-transform')
-const bit = require('bit-twiddle')
+// const bit = require('bit-twiddle')
 const db = require('decibels')
 
 Audio.prototype.spectrum = function (start, options) {
