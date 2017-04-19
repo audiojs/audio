@@ -22,12 +22,12 @@ t('data', t => {
 	t.deepEqual(audio.data({channel: 1}).length, audio.sampleRate)
 
 	let audio3 = Audio([0, .1, 0, .2, 0, .3], 3)
-	t.deepEqual(audio3.data(), [[0, .1], [0, .2], [0, .3]])
+	t.deepEqual(audio3.data(), [new Float32Array([0, .1]), new Float32Array([0, .2]), new Float32Array([0, .3])])
 
 	t.end()
 })
 
-t.only('normalize', t => {
+t('normalize', t => {
 	//full normalize
 	let audio = Audio([0, .1, 0, -.1], {channels: 1})
 
@@ -47,7 +47,7 @@ t.only('normalize', t => {
 	t.end();
 })
 
-t('fade', t => {
+t.only('fade', t => {
 	let audio = Audio(Array(1000).fill(1), {channels: 1})
 
 	let inCurve = Array(100).fill(1).map((v, i) => (i + .5)/100).map(v => db.toGain(v*40 - 40))
