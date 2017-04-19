@@ -83,8 +83,8 @@ Audio.prototype.normalize = function normalize (start, duration, options) {
 	}
 	for (let c = 0; c < options.channel.length; c++) {
 		let channel = options.channel[c]
-		let data = this.bufferList.getChannelData(channel)
-		for (let i = options.from; i < options.to; i++) {
+		let data = this.bufferList.getChannelData(channel, options.from, options.to)
+		for (let i = 0; i < data.length; i++) {
 			max = Math.max(Math.abs(data[i]), max)
 		}
 	}
@@ -92,13 +92,16 @@ Audio.prototype.normalize = function normalize (start, duration, options) {
 	let amp = Math.max(1 / max, 1)
 
 	//fill values
-	this.bufferList = this.bufferList.map((buf, idx) => {
-		return util.fill(buf, clamper)
-	}, options.from, options.to)
+	this.bufferList.each((buf, idx, offset) => {
+		for (let c = 0, l = Math.min(options.to - offset, buf.length); c < options.channel.length; c++) {
+			let channel = options.channel[c]
+			let data = buf.getChannelData(channel)
 
-	function clamper(value, i, ch) {
-		return clamp(value * amp, -1, 1)
-	}
+			for (let i = Math.max(options.from - offset, 0); i < l; i++) {
+				data[i] = clamp(data[i] * amp, -1, 1)
+			}
+		}
+	}, options.from, options.to)
 
 	return this;
 }
@@ -133,18 +136,22 @@ Audio.prototype.fade = function (start, duration, options) {
 	}
 
 	//TODO: slice part of data to fade, process, insert back
-	for (let c = 0, l = this.bufferList.length; c < options.channel.length; c++) {
-		let channel = options.channel[c]
-		let data = this.bufferList.getChannelData(channel)
+	return this.bufferList.map(buf => {
+		for (let c = 0, l = buf.length; c < options.channel.length; c++) {
+			let channel = options.channel[c]
+			let data = buf.getChannelData(channel)
 
-		for (let i = options.from; i != options.to; i+= step) {
-			let idx = Math.floor(i + halfStep)
-			let t = (i + halfStep - options.from) / len
+			for (let i = options.from; i != options.to; i+= step) {
+				let idx = Math.floor(i + halfStep)
+				let t = (i + halfStep - options.from) / len
 
-			//volume is mapped by easing and 0..-40db
-			data[idx] *= this.fromDb(-easing(t) * gain + gain)
+				//volume is mapped by easing and 0..-40db
+				data[idx] *= this.fromDb(-easing(t) * gain + gain)
+			}
 		}
-	}
+	}, options.from, options.to)
+
+
 
 	return this
 }
