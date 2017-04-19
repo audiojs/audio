@@ -47,19 +47,19 @@ t('normalize', t => {
 	t.end();
 })
 
-t.only('fade', t => {
-	let audio = Audio(Array(1000).fill(1), {channels: 1})
+t('fade', t => {
+	let audio = Audio(Array(100).fill(1), {channels: 1})
 
-	let inCurve = Array(100).fill(1).map((v, i) => (i + .5)/100).map(v => db.toGain(v*40 - 40))
+	let inCurve = Array(10).fill(1).map((v, i) => (i + .5)/10).map(v => db.toGain(v*40 - 40))
 	let outCurve = inCurve.slice().reverse()
 
 	//fade in
-	audio.fade(100/audio.sampleRate)
-	t.deepEqual(audio.data(0, 100/audio.sampleRate)[0], inCurve)
+	audio.fade(10/audio.sampleRate)
+	t.deepEqual(audio.data(0, 10/audio.sampleRate)[0], new Float32Array(inCurve))
 
 	//fade out
-	audio.fade(-100/audio.sampleRate)
-	t.deepEqual(audio.data(-100/44100)[0], outCurve)
+	audio.fade(-10/audio.sampleRate)
+	t.deepEqual(audio.data(-10/44100)[0], new Float32Array(outCurve))
 
 	t.end();
 })

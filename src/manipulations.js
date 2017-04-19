@@ -135,13 +135,12 @@ Audio.prototype.fade = function (start, duration, options) {
 		options.channel = [options.channel]
 	}
 
-	//TODO: slice part of data to fade, process, insert back
-	return this.bufferList.map(buf => {
-		for (let c = 0, l = buf.length; c < options.channel.length; c++) {
+	this.bufferList.each((buf, idx, offset) => {
+		for (let c = 0, l = Math.min(options.to - offset, buf.length); c < options.channel.length; c++) {
 			let channel = options.channel[c]
 			let data = buf.getChannelData(channel)
 
-			for (let i = options.from; i != options.to; i+= step) {
+			for (let i = Math.max(options.from - offset, 0); i != options.to; i+= step) {
 				let idx = Math.floor(i + halfStep)
 				let t = (i + halfStep - options.from) / len
 
@@ -150,8 +149,6 @@ Audio.prototype.fade = function (start, duration, options) {
 			}
 		}
 	}, options.from, options.to)
-
-
 
 	return this
 }
