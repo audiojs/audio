@@ -155,7 +155,6 @@ Audio.prototype.fade = function (start, duration, options) {
 
 
 //trim start/end silence
-//TODO: implement manual trim
 Audio.prototype.trim = function trim (options) {
 	if (!options) options = {}
 
@@ -218,14 +217,16 @@ Audio.prototype.gain = function (gain = 0, start, duration, options) {
 		options.channel = [options.channel]
 	}
 
-	for (let c = 0, l = this.bufferList.length; c < options.channel.length; c++) {
-		let channel = options.channel[c]
-		let data = this.bufferList.getChannelData(channel)
+	this.bufferList.each((buf, idx, offset) => {
+		for (let c = 0, l = Math.min(options.to - offset, buf.length); c < options.channel.length; c++) {
+			let channel = options.channel[c]
+			let data = buf.getChannelData(channel)
 
-		for (let i = options.from; i != options.to; i++) {
-			data[i] *= level
+			for (let i = Math.max(options.from - offset, 0); i < l; i++) {
+				data[i] *= level
+			}
 		}
-	}
+	}, options.from, options.to)
 
 	return this
 }

@@ -64,7 +64,7 @@ t('fade', t => {
 	t.end();
 })
 
-t.only('trim', t => {
+t('trim', t => {
 	let audio = new Audio([0,0,0,.1,.2,-.1,-.2,0,0], 1).trim()
 
 	t.deepEqual(audio.data({channel: 0}), new Float32Array([.1,.2,-.1,-.2]))
@@ -85,7 +85,8 @@ t.only('trim', t => {
 
 t('gain', t => {
 	let audio = new Audio(Array(44100).fill(1), 1).gain(-20)
-	t.deepEqual(audio.buffer.getChannelData(0), Array(44100).fill(.1))
+
+	t.deepEqual(audio.data()[0], new Float32Array(Array(44100).fill(.1)))
 	// <Audio .5, .5, .5, .5, ...>
 
 	t.end()
