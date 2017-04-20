@@ -167,9 +167,40 @@ Audio.prototype.trim = function trim (options) {
 	if (options.left == null) options.left = true
 	if (options.right == null) options.right = true
 
-	if (options.left && options.right) this.bufferList = util.trim(this.bufferList, options.level)
-	else if (options.left) this.bufferList = util.trimLeft(this.bufferList, options.level)
-	else if (options.right) this.bufferList = util.trimRight(this.bufferList, options.level)
+	let tlr = options.level, first = 0, last = this.length;
+
+	//trim left
+	if (options.left) {
+		// this.bufferList = util.trimLeft(this.bufferList, options.level)
+		this.bufferList.each((buf, idx, offset) => {
+			for (let c = 0; c < buf.numberOfChannels; c++) {
+				let data = buf.getChannelData(c)
+				for (let i = 0; i < buf.length; i++) {
+					if (Math.abs(data[i]) > tlr) {
+						first = offset + i
+						return false
+					}
+				}
+			}
+		})
+	}
+
+	//trim right
+	if (options.right) {
+		this.bufferList.each((buf, idx, offset) => {
+			for (let c = 0; c < buf.numberOfChannels; c++) {
+				let data = buf.getChannelData(c)
+				for (let i = buf.length; i--;) {
+					if (Math.abs(data[i]) > tlr) {
+						last = offset + i + 1
+						return false
+					}
+				}
+			}
+		}, {reversed: true})
+	}
+
+	this.bufferList = this.bufferList.shallowSlice(first, last)
 
 	return this
 }
