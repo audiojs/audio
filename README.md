@@ -161,7 +161,6 @@ Create _Audio_ instance from the `source` based on `options` (or number of `chan
 * `context` − web audio context (optional), defaults to [audio-context](https://npmjs.org/package/audio-context).
 * `duration` − max duration, by default takes whole available input.
 * `sampleRate` − inferred from source or defaults to `44100`.
-* `range` — db range to use for quietest sound, defaults to 40.
 * `cache` − cache URL sources to avoid extra requests. By default `true`.
 * `stats` − track stats for metrics. Increases memory consumption up to 3 times (yet O(N)). By default disabled.
 
@@ -195,23 +194,19 @@ let streamAudio = Audio(WAAStream(oscillatorNode)).on('end', (streamAudio) => {
 
 ### `audio.buffer`
 
-[AudioBuffer](https://github.com/audiojs/audio-buffer) with raw audio data. Can be modified directly.
+[AudioBufferList](https://github.com/audiojs/audio-buffer-list) with raw audio data. Can be modified directly.
 
 ### `audio.channels`
 
-Number of channels. Changing this property will up-mix or down-mix channels, see [channel interpretation](https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API/Basic_concepts_behind_Web_Audio_API#Up-mixing_and_down-mixing) table.
+Number of channels. Changing this property will up-mix or down-mix channels, see interpretation table in [audio-buffer-remix](https://github.com/audiojs/audio-buffer-remix).
 
 ### `audio.sampleRate`
 
-Buffer sample rate. Changing this property will resample audio to target rate.
+Buffer sample rate. Changing this property will resample audio to target rate. (WIP)
 
 ### `audio.duration`
 
 Buffer duration. Changing this property may right-trim or right-pad the data.
-
-### `audio.range`
-
-Hearable range in decibels, defaults to `40`.
 
 ### `audio.length`
 
@@ -480,17 +475,13 @@ Ideas:
 
 ## Utils
 
-### `audio.fromDb(db)`
+### `audio.fromDb(db), audio.toDb(gain)`
 
-Convert decibels to gain.
-
-### `audio.toDb(gain)`
-
-Convert gain to decibels.
+Convert gain to decibels or backwards, see [decibels](https://github.com/audiojs/decibels).
 
 ### `audio.save(fileName, done?)`
 
-Download as a wav file in browser, write audio to file in node. In node file is going to be saved to the same directory as the caller's one. To redefine directory, use absolute path as `audio.save(__dirname + '/my-audio.wav')`
+Download as a wav file in browser, write audio to file in node. In node file is going to be saved to the same directory as the caller's one. To redefine directory, use absolute path as `audio.save(__dirname + '/my-audio.wav')`. See [save-file](https://github.com/dfcreative/save-file) for details.
 
 ```js
 //save as wav file
@@ -513,9 +504,8 @@ encode(audio.buffer, (err, buf) => {
 
 ## Motivation
 
-We wanted to create high-level utility for audio manipulations, to the contrary low-level [audio packages](https://github.com/audiojs). We looked for an analog of [Color](https://npmjs.org/package/color) for color manipulations, [jQuery](https://jquery.org) for DOM, [regl](https://npmjs.org/package/regl) for WebGL, [opentype.js](http://opentype.js.org/) for fonts, in audio world.
-
-The result turned out to be central infrastructural component for [audiojs packages](https://github.com/audiojs) and glue for [audio visualizing components](https://github.com/audio-lab).
+We wanted to create high-level utility for audio manipulations, to the contrary of low-level audio packages, which are plenty in npm. We looked for analog of [Color](https://npmjs.org/package/color) for color manipulations, [jQuery](https://jquery.org) for DOM, [regl](https://npmjs.org/package/regl) for WebGL, [opentype.js](http://opentype.js.org/) for fonts, in audio land.
+The road took us couple of years and multitude of components.
 
 
 ## Credits
@@ -525,6 +515,7 @@ Acknowledgement to contributors:
 * [Jamen Marz](https://github.com/jamen) for initiative and help with making decisions.
 * [Daniel Gómez Blasco](https://github.com/danigb/) for patience and work on [audio-loader](https://github.com/audiojs/audio-loader).
 * [Michael Williams](https://github.com/ahdinosaur) for audio stream insights.
+
 
 ## License
 
