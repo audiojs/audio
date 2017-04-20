@@ -73,14 +73,14 @@ function Audio(source, options, onload) {
 			//if source is cached but loading - just clone when loaded
 			if (isPromise(Audio.cache[source])) {
 				Audio.cache[source].then((audioBufferList) => {
-					this.bufferList = new AudioBufferList(audioBufferList.slice())
+					this.buffer = new AudioBufferList(audioBufferList.slice())
 					onload && onload(null, this)
 					this.emit('load', this)
 				})
 			}
 			//if source is cached - clone
 			else {
-				this.bufferList = new AudioBufferList(Audio.cache[source].slice())
+				this.buffer = new AudioBufferList(Audio.cache[source].slice())
 				onload && onload(null, this)
 				this.emit('load', this)
 			}
@@ -89,11 +89,11 @@ function Audio(source, options, onload) {
 		else {
 			//load remote source
 			let promise = load(source).then(audioBuffer => {
-				this.bufferList = new AudioBufferList(audioBuffer)
+				this.buffer = new AudioBufferList(audioBuffer)
 
 				//save cache
 				if (this.cache) {
-					Audio.cache[source] = this.bufferList
+					Audio.cache[source] = this.buffer
 				}
 
 				onload && onload(null, this)
@@ -112,13 +112,13 @@ function Audio(source, options, onload) {
 
 	//sync data source cases
 	else if (Array.isArray(source)) {
-		this.bufferList = new AudioBufferList(util.create(source, options.channels, options.sampleRate))
+		this.buffer = new AudioBufferList(util.create(source, options.channels, options.sampleRate))
 
 		onload && onload(null, this)
 		this.emit('load', this)
 	}
 	else if (typeof source === 'number') {
-		this.bufferList = new AudioBufferList(util.create(source*options.sampleRate, options.channels, options.sampleRate))
+		this.buffer = new AudioBufferList(util.create(source*options.sampleRate, options.channels, options.sampleRate))
 
 		onload && onload(null, this)
 		this.emit('load', this)
@@ -136,7 +136,7 @@ function Audio(source, options, onload) {
 		}
 
 		load(source).then(audioBuffer => {
-			this.bufferList = new AudioBufferList(audioBuffer)
+			this.buffer = new AudioBufferList(audioBuffer)
 			onload && onload(null, this)
 			this.emit('load', this)
 		}, err => {
@@ -147,7 +147,7 @@ function Audio(source, options, onload) {
 	}
 
 	//create silent buffer for the time of loading
-	if (!this.bufferList) this.bufferList = new AudioBufferList(util.create(1, options.channels, options.sampleRate))
+	if (!this.buffer) this.buffer = new AudioBufferList(util.create(1, options.channels, options.sampleRate))
 }
 
 //cache of loaded audio buffers for urls
@@ -164,11 +164,11 @@ Audio.prototype.stats = false
 Object.defineProperties(Audio.prototype, {
 	channels: {
 		set: function (channels) {
-			this.bufferList = remix(this.bufferList, this.numberOfChannels, channels)
+			this.buffer = remix(this.buffer, this.numberOfChannels, channels)
 			this.numberOfChannels = channels
 		},
 		get: function () {
-			return this.bufferList.numberOfChannels
+			return this.buffer.numberOfChannels
 		}
 	},
 	sampleRate: {
@@ -177,16 +177,16 @@ Object.defineProperties(Audio.prototype, {
 			throw Error('Unimplemented.')
 		},
 		get: function () {
-			return this.bufferList.sampleRate
+			return this.buffer.sampleRate
 		}
 	},
 	duration: {
 		set: function (duration) {
 			let length = Math.floor(duration * this.sampleRate)
-			this.bufferList = this.bufferList.shallowSlice(0, length)
+			this.buffer = this.buffer.shallowSlice(0, length)
 		},
 		get: function () {
-			return this.bufferList.duration
+			return this.buffer.duration
 		}
 	}
 })
@@ -196,7 +196,7 @@ Object.defineProperties(Audio.prototype, {
 Audio.prototype.save = function (fileName, ondone) {
 	if (!fileName) throw Error('File name is not provided')
 
-	let wav = toWav(this.bufferList.slice())
+	let wav = toWav(this.buffer.slice())
 
 	//fix path for node
 	if (!isBrowser) {
