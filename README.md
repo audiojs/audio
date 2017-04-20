@@ -226,21 +226,21 @@ Most methods have signature `audio.method(param, start=0, duration=audio.duratio
 Append new data to the end. `otherAudio` can be [_AudioBuffer_](https://github.com/audiojs/audio-buffer) or other _Audio_ instance.
 
 <!--
+### audio.insert, audio.delete, audio.repeat, audio.append, audio.clone
+
 ### audio.slice(start, end) - return copy of audio
 ### audio.sub(start, end) - return subaudio handle
 ### audio.copy(dest, start, end) - copy to destination
 
-### audio.append(audio)
 ### audio.overlay(otherAudio)
 ### audio.pan()
 ### audio.dcOffset()
 ### audio.removeDcOffset()
-### audio.repeat(3)
 -->
 
 ### `audio.data(time?, duration?, {channel}?)`
 
-Get channel or channels data for the indicated range. Returned data is list of arrays or single array with raw samples. Returned data is bound to data, so modifying it will change audio.
+Get channel or channels data for the indicated range. Returned data is a list of arrays or single array with raw samples. Returned data is subarrayed, so modifying it will change actual audio.
 
 ```js
 //get 1s of raw data starting from 1.5s

@@ -36,6 +36,42 @@ Audio.prototype.data = function (start, duration, options) {
 }
 
 
+/*
+//return slice of data as an audio buffer
+Audio.prototype.read = function (start = 0, duration = this.bufferList.duration) {
+	return this.readRaw(start * this.bufferList.sampleRate, duration * this.bufferList.sampleRate)
+}
+
+//TODO: provide nicer name for getting raw data as array, not audio buffer
+//return audio buffer by sample number
+Audio.prototype.readRaw = function (offset = 0, length = this.bufferList.length) {
+	offset = Math.floor(nidx(offset, this.bufferList.length))
+	length = Math.floor(Math.min(length, this.bufferList.length - offset))
+
+	let buf = util.slice(this.bufferList, offset, offset + length)
+
+	return buf
+}
+
+//write audiobuffer at the indicated position
+Audio.prototype.write = function (buf, start=0) {
+	return this.writeRaw(buf, start * this.bufferList.sampleRate)
+}
+
+//write audio buffer data by offset
+Audio.prototype.writeRaw = function (buffer, offset=0) {
+	if (!buffer || !buffer.length) return this
+
+	offset = Math.floor(nidx(offset, this.bufferList.length))
+
+	util.copy(buffer, this.bufferList, offset)
+
+	return this
+}
+*/
+
+
+
 //normalize contents by the offset
 Audio.prototype.normalize = function normalize (start, duration, options) {
 	options = this.parseArgs(start, duration, options)
