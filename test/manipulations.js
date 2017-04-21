@@ -110,7 +110,7 @@ t('reverse', t => {
 })
 
 
-t.only('invert', t => {
+t('invert', t => {
 	let data = Array(1000).fill(1).map((v, i) => (.5 + i)/1000)
 	let fixture = Array(1000).fill(1).map((v, i) => -(.5 + i)/1000)
 
@@ -118,11 +118,11 @@ t.only('invert', t => {
 
 	audio.invert()
 
-	t.deepEqual(audio.data()[0], fixture)
+	t.deepEqual(audio.data()[0], new Float32Array(fixture))
 
 	audio.invert(10/44100, 10/44100)
 
-	t.deepEqual(audio.data(10/44100, 10/44100)[0], data.slice(10, 20))
+	t.deepEqual(audio.data(10/44100, 10/44100)[0], new Float32Array(data.slice(10, 20)))
 
 	t.end()
 })
