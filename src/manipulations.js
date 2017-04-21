@@ -25,7 +25,7 @@ Audio.prototype.data = function (start, duration, options) {
 	//transfer data for indicated channels
 	else {
 		let data = []
-		let buf = this.buffer.shallowSlice(options.from, options.to)
+		let buf = this.buffer.slice(options.from, options.to)
 		for (let i = 0; i < options.channel.length; i++) {
 			let channel = options.channel[i]
 
@@ -199,7 +199,7 @@ Audio.prototype.trim = function trim (options) {
 		}, {reversed: true})
 	}
 
-	this.buffer = this.buffer.shallowSlice(first, last)
+	this.buffer = this.buffer.slice(first, last)
 
 	return this
 }
@@ -241,19 +241,7 @@ Audio.prototype.reverse = function (start, duration, options) {
 		options.channel = [options.channel]
 	}
 
-	let deleted = this.buffer.delete(options.from, options.to - options.from)
-
-	deleted.reverse()
-
-	this.buffer.insert(options.from, deleted.reverse())
-
-
-	// for (let c = 0, l = this.buffer.length; c < options.channel.length; c++) {
-	// 	let channel = options.channel[c]
-	// 	let data = this.buffer.getChannelData(channel)
-
-	// 	data.subarray(options.from, options.to).reverse()
-	// }
+	this.buffer.reverse(options.from, options.to)
 
 	return this
 }
