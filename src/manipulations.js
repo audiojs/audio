@@ -252,14 +252,20 @@ Audio.prototype.invert = function (start, duration, options) {
 
 	options = this.parseArgs(start, duration, options)
 
-	for (let c = 0, l = this.buffer.length; c < options.channel.length; c++) {
-		let channel = options.channel[c]
-		let data = this.buffer.getChannelData(channel)
-
-		for (let i = options.from; i < options.to; i++) {
-			data[i] *= -1
-		}
+	if (typeof options.channel == 'number') {
+		options.channel = [options.channel]
 	}
+
+	this.buffer.each((buf, idx, offset) => {
+		for (let c = 0, l = Math.min(options.to - offset, buf.length); c < options.channel.length; c++) {
+			let channel = options.channel[c]
+			let data = buf.getChannelData(channel)
+
+			for (let i = Math.max(options.from - offset, 0); i < l; i++) {
+				data[i] *= -1
+			}
+		}
+	}, options.from, options.to)
 
 	return this
 }
