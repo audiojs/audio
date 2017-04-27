@@ -148,7 +148,7 @@ Create _Audio_ instance from the `source` based on `options` (or number of `chan
 
 <details>
 
-<summary>`source`</summary>
+<summary>**source**</summary>
 Can be _sync_, _async_ or _stream_:
 
 * **Sync source** − [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Number_ indicating duration or _Array_/_FloatArray_ with raw channels data or array with any of these to load sequence. Sets contents immediately and returns ready to use audio instance.
@@ -161,7 +161,7 @@ Can be _sync_, _async_ or _stream_:
 </details>
 
 <details>
-<summary>`options`</summary>
+<summary>**options**</summary>
 
 May include:
 
@@ -174,6 +174,7 @@ May include:
 </details>
 
 <br/>
+
 ```js
 //create 2-channel audio of duration 4m 33s
 let blankAudio = new Audio(4*60 + 33, 2)
