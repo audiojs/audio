@@ -20,7 +20,7 @@ const Audio = require('audio')
 
 // Load audio from file, trim, normalize, fade in, fade out, save.
 Audio('./sample.mp3').then(audio =>
-	audio.trim().normalize().fade(.3).fade(-1).save('sample-edited.wav')
+    audio.trim().normalize().fade(.3).fade(-1).save('sample-edited.wav')
 )
 ```
 
@@ -187,12 +187,12 @@ let arrAudio = new Audio([0,1,.2,.3,...], {channels: 2})
 
 //decode mp3/wav arrayBuffer/buffer, nodejs-callback style
 let wavAudio = new Audio(require('audio-lena/mp3'), (err, wavAudio) => {
-	// `wavAudio` here is decoded from the mp3 source
+    // `wavAudio` here is decoded from the mp3 source
 })
 
 //create from remote source, promise-callback style
 let remoteAudio = new Audio('./sample.mp3').then((remoteAudio) => {
-	// `remoteAudio` here is fully loaded and decoded
+    // `remoteAudio` here is fully loaded and decoded
 })
 
 //record stream, emitter-callback style
@@ -207,7 +207,7 @@ Promise interface for loading source. If multiple sources provided, promise will
 
 ```js
 Audio(['./a.mp3', './b.wav', './c.flac']).then(audio => {
-	// audio here contains joined content of a, b and c
+    // audio here contains joined content of a, b and c
 })
 ```
 
@@ -215,13 +215,13 @@ Audio(['./a.mp3', './b.wav', './c.flac']).then(audio => {
 
 Events:
 
-* `load` − when source is loaded
-* `progress` − when part of the source is received
-* `error` − when something went wrong during loading
+* **load** − when source is loaded
+* **progress** − when part of the source is received
+* **error** − when something went wrong during loading
 
 ### audio.buffer
 
-[AudioBufferList](https://github.com/audiojs/audio-buffer-list) with raw audio data. Can be modified directly.
+[_AudioBufferList_](https://github.com/audiojs/audio-buffer-list) with raw audio data. Can be modified directly.
 
 ### audio.channels
 
@@ -254,8 +254,6 @@ new Audio('./src.mp3')
     	//...audio here contains both src and src2
     })
 ```
-
-Optional `start` raw offset can be passed in options.
 
 ### audio.remove(time=0, duration?, {start, end, channel}?)
 
@@ -312,17 +310,17 @@ Fading is done by decibels to compensate logarithmic volume perception, hearable
 const eases = require('eases')
 
 let audio = Audio('./source').on('load', audio => {
-	//fade in 1s from the beginning
-	audio.fade(1, easing.cubicInOut)
+    //fade in 1s from the beginning
+    audio.fade(1, easing.cubicInOut)
 
-	//fade out 1s from the end
-	.fade(-1, easing.quadIn)
+    //fade out 1s from the end
+    .fade(-1, easing.quadIn)
 
-	//fade in 20db during .2s starting at .6s
-	.fade(.6, .2, {gain: -20})
+    //fade in 20db during .2s starting at .6s
+    .fade(.6, .2, {gain: -20})
 
-	//fade out 5db during .2s starting at .8s (ending at 1s)
-	.fade(1, .2, {gain: -5})
+    //fade out 5db during .2s starting at .8s (ending at 1s)
+    .fade(1, .2, {gain: -5})
 })
 ```
 
@@ -382,8 +380,8 @@ Change the direction of samples for the indicated part.
 
 ```js
 Audio('./sample.mp3', audio => {
-	//reverse first three seconds of audio and play
-	audio.reverse(0, 3).play()
+    //reverse first three seconds of audio and play
+    audio.reverse(0, 3).play()
 })
 ```
 
@@ -538,7 +536,7 @@ Download as a wav file in browser, write audio to file in node. In node file is 
 ```js
 //save as wav file
 audio.save('my-audio.wav', (err, audio) => {
-	if (err) throw err;
+    if (err) throw err;
 })
 ```
 
@@ -549,7 +547,7 @@ If you need custom output format, like _ogg_, _mp3_ or other, please use [audio-
 const encode = require('audio-encode/ogg')
 const save = require('save-file')
 encode(audio.buffer, (err, buf) => {
-	save(buf, 'my-audio.ogg')
+    save(buf, 'my-audio.ogg')
 })
 ```
 
