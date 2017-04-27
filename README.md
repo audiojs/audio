@@ -146,11 +146,14 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 
 Create _Audio_ instance from the `source` based on `options` (or number of `channels`), invoke callback when source is loaded. Returns `then`able audio instance, which resolves once the source is loaded.
 
+<details>
+<summary>Source types & options</summary>
+
 `source` can be _sync_, _async_ or _stream_:
 
-* **Sync** source − [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Number_ indicating duration or _Array_/_FloatArray_ with raw channels data or array with any of these to load sequence. Sets contents immediately and returns ready to use audio instance.
-* **Async** source − URL string, _ArrayBuffer_, _Buffer_, _Blob_, [_File_](https://developer.mozilla.org/en/docs/Web/API/File) with encoded mp3/wav/ogg/etc data. The data is loaded and decoded, `load` event fired when ready. `audio.isReady` indicator can be used to check status. For the time of loading audio contains zero buffer with silence. [audio-loader](https://github.com/audiojs/audio-loader) and [audio-decode](https://github.com/audiojs/audio-decode) are used internally.
-* **Stream** source − [_Stream_](https://nodejs.org/api/stream.html), [_pull-stream_](https://github.com/pull-stream/pull-stream), _Function_, [_MediaStream_](https://developer.mozilla.org/en-US/docs/Web/API/MediaStream)_WebAudioNode_ or _Array_ with sequence of any sources. Starts recording, updating contents until input stream ends or max duration reaches. `data` and `end` events are emitted during stream consumption. Returned thenable takes arguments `.then(success, error, progress)`. Plays role of [audiorecorder](https://npmjs.org/package/audiorecorder).
+* **Sync source** − [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Number_ indicating duration or _Array_/_FloatArray_ with raw channels data or array with any of these to load sequence. Sets contents immediately and returns ready to use audio instance.
+* **Async source** − URL string, _ArrayBuffer_, _Buffer_, _Blob_, [_File_](https://developer.mozilla.org/en/docs/Web/API/File) with encoded mp3/wav/ogg/etc data. The data is loaded and decoded, `load` event fired when ready. `audio.isReady` indicator can be used to check status. For the time of loading audio contains zero buffer with silence. [audio-loader](https://github.com/audiojs/audio-loader) and [audio-decode](https://github.com/audiojs/audio-decode) are used internally.
+* **Stream source** − [_Stream_](https://nodejs.org/api/stream.html), [_pull-stream_](https://github.com/pull-stream/pull-stream), _Function_, [_MediaStream_](https://developer.mozilla.org/en-US/docs/Web/API/MediaStream)_WebAudioNode_ or _Array_ with sequence of any sources. Starts recording, updating contents until input stream ends or max duration reaches. `data` and `end` events are emitted during stream consumption. Returned thenable takes arguments `.then(success, error, progress)`. Plays role of [audiorecorder](https://npmjs.org/package/audiorecorder).
 
 <!--
 | _HTMLAudioElement_, _HTMLMediaElement_ | Wrap [`<audio>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/audio) or [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video) element, capture it's contents. Puts audio into recording state. | stream |
@@ -158,11 +161,13 @@ Create _Audio_ instance from the `source` based on `options` (or number of `chan
 
 `options` may include:
 
-* `channels` − number of channels, inferred from source or defaults to `2`.
-* `context` − web audio context (optional), defaults to [audio-context](https://npmjs.org/package/audio-context).
-* `sampleRate` − inferred from source or defaults to `44100`.
-* `cache` − cache URL sources to avoid extra requests. By default `true`.
-* `stats` − track stats for metrics. Increases memory consumption up to 3 times (yet O(N)). By default disabled.
+* **channels** − number of channels, inferred from source or defaults to `2`.
+* **context** − web audio context (optional), defaults to [audio-context](https://npmjs.org/package/audio-context).
+* **sampleRate** − inferred from source or defaults to `44100`.
+* **cache** − cache URL sources to avoid extra requests. By default `true`.
+* **stats** − track stats for metrics. Increases memory consumption up to 3 times (yet O(N)). By default disabled.
+
+</details>
 
 ```js
 //create 2-channel audio of duration 4m 33s
