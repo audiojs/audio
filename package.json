@@ -1,30 +1,53 @@
 {
   "name": "audio",
-  "version": "2.0.0-1",
-  "description": "Framework for handling audio in JavaScript.",
+  "version": "2.0.0",
+  "description": "Class for high-level audio manipulations",
   "repository": "audiojs/audio",
   "main": "index.js",
   "license": "MIT",
-  "files": [
-    "index.js"
-  ],
+  "browser": {},
   "scripts": {
-    "test": "eslint index.js test && tape 'test/*.js' | tap-spec"
+    "lint": "eslint *.js */*.js --ignore-pattern test*",
+    "test": "node test/manipulations.js",
+    "test:browser": "budo test/manipulations.js"
   },
   "devDependencies": {
-    "eslint": "^2.11.0",
-    "eslint-config-google": "^0.5.0",
-    "tap-spec": "^4.1.1",
-    "tape": "^4.5.1"
+    "audio-generator": "^2.1.2",
+    "audio-lena": "^1.0.1",
+    "audio-source": "^1.1.1",
+    "eases": "^1.0.8",
+    "tape": "^4.6.0"
   },
   "keywords": [
     "audiojs",
     "audio",
+    "dsp",
     "javascript",
     "pcm",
-    "lpcm"
+    "lpcm",
+    "audiobuffer"
   ],
   "engines": {
     "node": ">=0.11"
+  },
+  "dependencies": {
+    "audio-buffer": "^3.1.2",
+    "audio-buffer-list": "^2.0.0",
+    "audio-buffer-remix": "^1.0.3",
+    "audio-loader": "^0.6.0",
+    "audio-play": "^2.1.0",
+    "audiobuffer-to-wav": "^1.0.0",
+    "buffer-to-arraybuffer": "0.0.4",
+    "callsites": "^2.0.0",
+    "clamp": "^1.0.1",
+    "decibels": "^1.0.1",
+    "fourier-transform": "^1.0.2",
+    "is-audio-buffer": "^1.0.7",
+    "is-browser": "^2.0.1",
+    "is-buffer": "^1.1.5",
+    "is-promise": "^2.1.0",
+    "negative-index": "^1.0.1",
+    "pcm-util": "^2.0.3",
+    "save-file": "github:dfcreative/save-file"
   }
 }
