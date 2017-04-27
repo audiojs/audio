@@ -23,6 +23,7 @@ const path = require('path')
 const db = require('decibels')
 const AudioBufferList = require('audio-buffer-list')
 const remix = require('audio-buffer-remix')
+const isAudioBuffer = require('is-audio-buffer')
 
 module.exports = Audio
 
@@ -53,7 +54,7 @@ function Audio(source, options, onload) {
 	//handle channels-only options
 	if (typeof options === 'number') options = {channels: options}
 
-	options = extend({}, pcm.defaults, options)
+	if (!options) options = {}
 
 	//init cache
 	if (options.cache != null) this.cache = options.cache
@@ -61,9 +62,8 @@ function Audio(source, options, onload) {
 	//enable metrics
 	if (options.stats) this.stats = true
 
-
-	//launch init
-	this.isReady = false
+	//create buffer holder
+	this.buffer = new AudioBufferList()
 
 
 	//async source
@@ -71,31 +71,27 @@ function Audio(source, options, onload) {
 		//load cached version, if any
 		if (this.cache && Audio.cache[source]) {
 			//if source is cached but loading - just clone when loaded
-			if (isPromise(Audio.cache[source])) {
-				Audio.cache[source].then((audioBufferList) => {
-					this.buffer = new AudioBufferList(audioBufferList.slice())
-					onload && onload(null, this)
-					this.emit('load', this)
-				})
-			}
-			//if source is cached - clone
-			else {
-				this.buffer = new AudioBufferList(Audio.cache[source].slice())
+
+			// if (isPromise(Audio.cache[source])) {
+			this.promise = Audio.cache[source].then((audio) => {
+				this.insert(audio.buffer.clone())
 				onload && onload(null, this)
 				this.emit('load', this)
-			}
+			}, (err) => {
+				onload && onload(err)
+				this.emit('error', err)
+			})
+				// return
+			// }
+
+			//if source is cached - clone
+			// this.insert(Audio.cache[source].clone())
 		}
 
 		else {
 			//load remote source
-			let promise = load(source).then(audioBuffer => {
-				this.buffer = new AudioBufferList(audioBuffer)
-
-				//save cache
-				if (this.cache) {
-					Audio.cache[source] = this.buffer
-				}
-
+			this.promise = load(source).then(audioBuffer => {
+				this.insert(audioBuffer)
 				onload && onload(null, this)
 				this.emit('load', this)
 			}, err => {
@@ -105,27 +101,59 @@ function Audio(source, options, onload) {
 
 			//save promise to cache
 			if (this.cache) {
-				Audio.cache[source] = promise
+				Audio.cache[source] = this
 			}
 		}
 	}
 
-	//sync data source cases
 	else if (Array.isArray(source)) {
-		this.buffer = new AudioBufferList(util.create(source, options.channels, options.sampleRate))
+		let items = []
+		//make sure every array item audio instance is created and loaded
+		for (let i = 0; i < source.length; i++) {
+			let a = source[i]
+			items[i] = Audio.isAudio(a) ? a : Audio(a, options)
+		}
 
-		onload && onload(null, this)
-		this.emit('load', this)
+		//then do promise once all loaded
+		this.promise = Promise.all(source).then(list => {
+			this.insert(list)
+			onload && onload(null, this)
+			this.emit('load', this)
+		}, err => {
+			onload && onload(err)
+			this.emit('error', err)
+		})
 	}
 	else if (typeof source === 'number') {
-		this.buffer = new AudioBufferList(util.create(source*options.sampleRate, options.channels, options.sampleRate))
-
+		this.promise = Promise.resolve()
+		let rate = options.sampleRate || pcm.defaults.sampleRate
+		this.insert(source*rate, options)
 		onload && onload(null, this)
 		this.emit('load', this)
 	}
 
 	//TODO: stream case
 	//TODO: buffer case
+
+	//audiobuffer[list] case
+	else if (isAudioBuffer(source)) {
+		this.promise = Promise.resolve()
+		this.insert(source)
+		onload && onload(null, this)
+		this.emit('load', this)
+	}
+
+	//other Audio instance
+	else if (Audio.isAudio(source)) {
+		this.promise = source.then(audio => {
+			this.insert(audio.buffer.clone())
+			onload && onload(null, this)
+			this.emit('load', this)
+		}, err => {
+			onload && onload(err)
+			this.emit('error', err)
+		})
+	}
 
 	//redirect other cases to audio-loader
 	else {
@@ -135,20 +163,17 @@ function Audio(source, options, onload) {
 			source = b2ab(source)
 		}
 
-		load(source).then(audioBuffer => {
-			this.buffer = new AudioBufferList(audioBuffer)
+		this.promise = load(source).then(audioBuffer => {
+			this.insert(audioBuffer)
 			onload && onload(null, this)
 			this.emit('load', this)
 		}, err => {
 			onload && onload(err)
 			this.emit('error', err)
 		})
-
 	}
-
-	//create silent buffer for the time of loading
-	if (!this.buffer) this.buffer = new AudioBufferList(util.create(1, options.channels, options.sampleRate))
 }
+
 
 //cache of loaded audio buffers for urls
 Audio.cache = {}
@@ -158,6 +183,40 @@ Audio.prototype.cache = true
 
 //enable metrics
 Audio.prototype.stats = false
+
+//insert new data at the offset
+Audio.prototype.insert = function (time, source, options) {
+	if (options == null) {
+		options = source
+		source = time
+		time = -0
+	}
+
+
+	//do insert
+	options = this.parseArgs(time, 0, options)
+
+	//make sure audio is padded till the indicated time
+	if (time > this.duration) {
+		this.pad(time, {right: true})
+	}
+	let buffer = Audio.isAudio(source) ? source.buffer : isAudioBuffer(source) ? source : new AudioBufferList(source, options)
+
+	if (options.start === this.buffer.length) {
+		this.buffer.append(buffer)
+	}
+	else {
+		this.buffer.insert(options.start, buffer)
+	}
+
+	return this
+}
+
+//resolved once promise is resolved
+Audio.prototype.then = function (success, error, progress) {
+	return this.promise.then(success, error, progress)
+}
+
 
 //default params
 //TODO: make properties map channels/sampleRate by writing them
@@ -183,7 +242,12 @@ Object.defineProperties(Audio.prototype, {
 	duration: {
 		set: function (duration) {
 			let length = Math.floor(duration * this.sampleRate)
-			this.buffer = this.buffer.shallowSlice(0, length)
+			if (length < this.length) {
+				this.buffer = this.buffer.slice(0, length)
+			}
+			else if (length > this.length) {
+				this.buffer = this.pad()
+			}
 		},
 		get: function () {
 			return this.buffer.duration
@@ -191,6 +255,10 @@ Object.defineProperties(Audio.prototype, {
 	}
 })
 
+//check if source is instance of audio
+Audio.isAudio = function (source) {
+	return source instanceof Audio
+}
 
 //download file or create a file in node
 Audio.prototype.save = function (fileName, ondone) {
@@ -211,3 +279,74 @@ Audio.prototype.save = function (fileName, ondone) {
 	return this
 }
 
+//include start/end offsets and channel for options. Purely helper.
+Audio.prototype.parseArgs = function (start, duration, options) {
+	//no args at all
+	if (start == null) {
+		options = {}
+		start = 0
+		duration = this.duration
+	}
+	//single arg
+	else if (duration == null) {
+		//{}
+		if (typeof start !== 'number') {
+			options = start
+			start = 0
+			duration = this.duration
+		}
+		//number
+		else {
+			options = {}
+			duration = this.duration
+		}
+	}
+	//two args
+	else if (options == null) {
+		//1, 1
+		if (typeof duration === 'number') {
+			options = {}
+		}
+		//1, {}
+		else if (typeof duration != 'number') {
+			options = duration
+			duration = this.duration
+		}
+	}
+
+	if (!start && duration < 0) start = -0;
+
+	//ensure channels
+	if (options.channel == null) {
+		options.channel = []
+		for (let i = 0; i < this.channels; i++) {
+			options.channel.push(i)
+		}
+	}
+
+	//detect raw interval
+	if (options.start == null) {
+		let startOffset = Math.floor(start * this.sampleRate)
+		startOffset = nidx(startOffset, this.buffer.length)
+		options.start = startOffset
+	}
+	if (options.end == null) {
+		let len = duration * this.sampleRate
+		let endOffset;
+		if (len < 0) {
+			endOffset = nidx(options.start + len, this.buffer.length)
+		}
+		else {
+			endOffset = Math.min(options.start + len, this.buffer.length)
+		}
+		options.end = endOffset
+	}
+
+	return options
+}
+
+//create a duplicate or clone of audio
+Audio.prototype.clone = function (deep) {
+	if (deep == null || deep) return new Audio(this.buffer.clone())
+	else return new Audio(this.buffer)
+}
