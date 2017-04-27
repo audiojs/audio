@@ -1,4 +1,4 @@
-# Audio [![Build Status](https://img.shields.io/travis/audiojs/audio.svg?style=flat-square)](https://travis-ci.org/audiojs/audio) [![NPM Version](https://img.shields.io/npm/v/audio.svg?style=flat-square)](https://www.npmjs.org/package/audio) [![unstable](http://badges.github.io/stability-badges/dist/unstable.svg)](http://github.com/badges/stability-badges)
+# Audio [![Build Status](https://img.shields.io/travis/audiojs/audio.svg?style=flat-square)](https://travis-ci.org/audiojs/audio) [![unstable](https://img.shields.io/badge/stability-unstable-orange.svg?style=flat-square)](http://github.com/badges/stability-badges)
 
 Class for high-level audio manipulations in javascript − nodejs and browsers.
 
@@ -142,8 +142,6 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 -->
 
 ## API
-
-Most methods have signature `audio.do(args..., start=0, duration=audio.duration, {channel, start, end, ...}?,  (err, audio)=>{}?)`. `start` and `duration` optionally define interval, in seconds. Options argument may provide `channel` number or array, restricting method to the specific channel or list of channels. Also options may have `start` and `end` properties defining interval in raw sample offsets, as alternative to `start` and `duration`. If callback is not provided, the method returns `then`able promise, which takes `.then(success, error, progress)` signature, otherwise it returns self to make chain calls.
 
 ### `new Audio(source, options?|channels=2, (err, audio)=>{}?)`
 
