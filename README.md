@@ -20,9 +20,9 @@ Load audio from file, trim, normalize, fade in, fade out, save.
 ```js
 const Audio = require('audio')
 
-Audio('./sample.mp3').on('load', (audio) => {
-	audio.trim().normalize().fade(.3).fade(-1).save('sample-edited.wav');
-})
+Audio('./sample.mp3').then(audio =>
+	audio.trim().normalize().fade(.3).fade(-1).save('sample-edited.wav')
+)
 ```
 
 <!--
@@ -135,21 +135,25 @@ let audio = Audio(10).noise().process(lpf)
 ```
 
 ### 8. Data handle - subaudio, for sprites etc
+
+### 9. Load intro, append 1s pause, start recording. Once ended, save as file.
+
+Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(Date() + '-recording.mp3'))
 -->
 
-# API
+## API
 
-## Creation
+Most methods have signature `audio.do(args..., start=0, duration=audio.duration, {channel, start, end, ...}?,  (err, audio)=>{}?)`. `start` and `duration` optionally define interval, in seconds. Options argument may provide `channel` number or array, restricting method to the specific channel or list of channels. Also options may have `start` and `end` properties defining interval in raw sample offsets, as alternative to `start` and `duration`. If callback is not provided, the method returns `then`able promise, which takes `.then(success, error, progress)` signature, otherwise it returns self to make chain calls.
 
-### `let audio = new Audio(source, channels=2 | options?, onload?)`
+### `new Audio(source, {channels, sampleRate, context, cache, stats}?|channels=2, (err, audio)=>{}?)`
 
-Create _Audio_ instance from the `source` based on `options` (or number of `channels`), invoke `onload` when ready.
+Create _Audio_ instance from the `source` based on `options` (or number of `channels`), invoke callback when source is loaded. Returns `then`able audio instance, which resolves once the source is loaded.
 
 `source` can be _sync_, _async_ or _stream_:
 
-* _Sync_ source − sets contents immediately and returns ready to use audio instance. Can be [_AudioBuffer_](https://github.com/audiojs/audio-buffer), _Number_ indicating duration or _Array_/_FloatArray_ with raw channels data.
-* _Async_ source − loads and decodes content and emits `load` event when ready. Can be a string or _ArrayBuffer_/_Buffer_/_Blob_/[_File_](https://developer.mozilla.org/en/docs/Web/API/File) with encoded mp3/wav/ogg/etc data. `audio.isReady` indicator can be used to check status. For the time of loading audio contains 1-sample buffer with silence. [audio-loader](https://github.com/audiojs/audio-loader) and [audio-decode](https://github.com/audiojs/audio-decode) are used internally.
-* [WIP] _Stream_ source − starts recording, updating contents until input stream ends or max duration reaches. `data` and `end` events are emitted during stream consumption. Can be [_Stream_](https://nodejs.org/api/stream.html), [_pull-stream_](https://github.com/pull-stream/pull-stream), _Function_, [_MediaStream_](https://developer.mozilla.org/en-US/docs/Web/API/MediaStream) or _WebAudioNode_. Takes role of [audiorecorder](https://npmjs.org/package/audiorecorder).
+* _Sync_ source − [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Number_ indicating duration or _Array_/_FloatArray_ with raw channels data or array with any of these to load sequence. Sets contents immediately and returns ready to use audio instance.
+* _Async_ source − URL string, _ArrayBuffer_, _Buffer_, _Blob_, [_File_](https://developer.mozilla.org/en/docs/Web/API/File) with encoded mp3/wav/ogg/etc data. The data is loaded and decoded, `load` event fired when ready. `audio.isReady` indicator can be used to check status. For the time of loading audio contains zero buffer with silence. [audio-loader](https://github.com/audiojs/audio-loader) and [audio-decode](https://github.com/audiojs/audio-decode) are used internally.
+* _Stream_ source − [_Stream_](https://nodejs.org/api/stream.html), [_pull-stream_](https://github.com/pull-stream/pull-stream), _Function_, [_MediaStream_](https://developer.mozilla.org/en-US/docs/Web/API/MediaStream)_WebAudioNode_ or _Array_ with sequence of any sources. Starts recording, updating contents until input stream ends or max duration reaches. `data` and `end` events are emitted during stream consumption. Returned thenable takes arguments `.then(success, error, progress)`. Plays role of [audiorecorder](https://npmjs.org/package/audiorecorder).
 
 <!--
 | _HTMLAudioElement_, _HTMLMediaElement_ | Wrap [`<audio>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/audio) or [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video) element, capture it's contents. Puts audio into recording state. | stream |
@@ -159,7 +163,6 @@ Create _Audio_ instance from the `source` based on `options` (or number of `chan
 
 * `channels` − number of channels, inferred from source or defaults to `2`.
 * `context` − web audio context (optional), defaults to [audio-context](https://npmjs.org/package/audio-context).
-* `duration` − max duration, by default takes whole available input.
 * `sampleRate` − inferred from source or defaults to `44100`.
 * `cache` − cache URL sources to avoid extra requests. By default `true`.
 * `stats` − track stats for metrics. Increases memory consumption up to 3 times (yet O(N)). By default disabled.
@@ -174,23 +177,31 @@ let bufAudio = new Audio(new AudioBuffer(2, [.1,.1,...]))
 //create from raw data
 let arrAudio = new Audio([0,1,.2,.3,...], {channels: 2})
 
-//decode mp3/wav arrayBuffer/buffer
+//decode mp3/wav arrayBuffer/buffer, nodejs-callback style
 let wavAudio = new Audio(require('audio-lena/mp3'), (err, wavAudio) => {
 	// `wavAudio` here is decoded from the mp3 source
 })
 
-//create from remote source
-let remoteAudio = new Audio('./sample.mp3', (err, remoteAudio) => {
+//create from remote source, promise-callback style
+let remoteAudio = new Audio('./sample.mp3').then((remoteAudio) => {
 	// `remoteAudio` here is fully loaded and decoded
 })
 
-//record stream
+//record stream, emitter-callback style
 let streamAudio = Audio(WAAStream(oscillatorNode)).on('end', (streamAudio) => {
 
 })
-```
 
-## Properties
+```
+### `audio.then(success, error, progress)`
+
+### `auidio.on(evt, audio=>{})`
+
+Events list:
+
+* `load`
+* `progress`
+* `error`
 
 ### `audio.buffer`
 
@@ -212,16 +223,29 @@ Buffer duration. Changing this property may right-trim or right-pad the data.
 
 Get total length in samples.
 
-## Manipulations
 
-Most methods have signature `audio.method(param, start=0, duration=audio.duration, options?)`. `start` and `duration` are optional and define interval to affect, in seconds. `options` may provide `channel` property, restricting action to a specific channel or list of channels. Also options may have `from` and `to` properties defining interval in raw sample offsets, as an alternate to `start` and `duration`.
+### `audio.insert(time=-0, source, (err, audio) => {}?)`
 
-### `audio.append(otherAudio)`
+Insert data at the `time` offset. If `time` is undefined, the `source` will be appended to the end. `source` should be sync data, like [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), loaded _Audio_ instance or array of any of these. If you need async/stream data inserted − create new audio and wait for it to load, then insert, as so:
 
-Append new data to the end. `otherAudio` can be [_AudioBuffer_](https://github.com/audiojs/audio-buffer) or other _Audio_ instance.
+```js
+new Audio('./src.mp3')
+    .then(audio =>
+        new Audio('./src2.mp3')
+        .then(audio2 => audio.insert(audio2))
+    )
+    .then(audio => {
+    	//...audio here contains both src and src2
+    })
+```
+
+
+### `audio.remove(time=0, duration?)`
+
+Delete duration from the audio. Returns the removed audio fragment.
 
 <!--
-### audio.insert, audio.delete, audio.repeat, audio.append, audio.clone
+### audio.repeat audio.clone
 
 ### audio.slice(start, end) - return copy of audio
 ### audio.sub(start, end) - return subaudio handle
@@ -232,18 +256,6 @@ Append new data to the end. `otherAudio` can be [_AudioBuffer_](https://github.c
 ### audio.dcOffset()
 ### audio.removeDcOffset()
 -->
-
-### `audio.data(time?, duration?, {channel}?)`
-
-Get channel or channels data for the indicated range. Returned data is a list of arrays or single array with raw samples. Returned data is subarrayed, so modifying it will change actual audio.
-
-```js
-//get 1s of raw data starting from 1.5s
-let [leftChannel, rightChannel] = audio.data(1.5, 1)
-
-//get complete raw data for the right channel
-let rightChannelData = audio.data({channel: 1})
-```
 
 <!--
 ### `audio.read(time=0, duration?)`
@@ -265,6 +277,7 @@ Write _AudioBuffer_ starting at `time`. Old data will be overwritten, to insert 
 Audio(2).write(AudioBuffer(1, rawData), .5)
 ```
 -->
+
 
 ### `audio.fade(start=0, duration, {gain: -40db, easing, channel}?)`
 
@@ -292,7 +305,8 @@ let audio = Audio('./source').on('load', audio => {
 })
 ```
 
-### `audio.normalize(time?, duration?, {channel}?)`
+
+### `audio.normalize(time=0, duration?, {channel}?)`
 
 Normalize interval or full audio, i.e. bring amplitudes to -1..+1 range. Max amplitude is found within all defined channels, is any.
 
@@ -305,6 +319,7 @@ audio.data({channel: 0}) // [0, 1, 0, -1]
 audio = Audio([0,.1,  0,.2,  0,.3], {channels: 3}).normalize({channel: [0, 1]})
 audio.data() // [[0, .5], [0, 1], [0, .3]]
 ```
+
 
 ### `audio.trim({threshold=-40, left?, right?, level?}?)`
 
@@ -324,7 +339,13 @@ Audio([.1, .2, -.1, -.2, 0, .0001]).trim({level: .02, left: false})
 // <.1, .2, -.1, -.2>
 ```
 
-### `audio.gain(volume, time?, duration?, {channel}?)`
+
+### `audio.pad(duration, {value: 0, left, right}?)`
+
+Make sure the duration of the audio is long enough.
+
+
+### `audio.gain(volume, time=0, duration?, {channel}?)`
 
 Change volume of the interval of `duration` starting at `time`. `volume` is in decibels.
 
@@ -333,7 +354,8 @@ Change volume of the interval of `duration` starting at `time`. `volume` is in d
 let audio = new Audio(Array(44100).fill(1), 1).gain(-20)
 ```
 
-### `audio.reverse(time?, duration?, {channel}?)`
+
+### `audio.reverse(time=0, duration?, {channel}?)`
 
 Change the direction of samples for the indicated part.
 
@@ -344,7 +366,8 @@ Audio('./sample.mp3', audio => {
 })
 ```
 
-### `audio.invert(time?, duration?)`
+
+### `audio.invert(time=0, duration?)`
 
 Invert phase for the indicated range.
 
@@ -353,44 +376,50 @@ Invert phase for the indicated range.
 Audio(sample).invert(2, 1)
 ```
 
+### `audio.data(time=0, duration?, {channel}?)`
+
+Get channel or channels data for the indicated range as a list of arrays or single array with raw samples.
+
+```js
+//get 1s of raw data starting from 1.5s
+let [leftChannel, rightChannel] = audio.data(1.5, 1)
+
+//get complete raw data for the right channel
+let rightChannelData = audio.data({channel: 1})
+```
 
 <!--
-### `audio.splice(time?, deleteDuration?, newData?)`
-
-Insert and/or delete new audio data at the start `time`.
 
 
-### `audio.padStart(duration?, value?)`
-### `audio.padEnd(duration?, value?)`
 
-Make sure the duration of the fragment is long enough.
-
-
-### `audio.threshold(value, time?, duration?);`
+### `audio.threshold(level, time=0, duration?, {minPause, channel}?);`
 
 Cancel values less than indicated threshold 0.
 
-### `audio.mix(otherAudio, time?, duration?)`
+
+### `audio.mix(otherAudio, time=0, duration?, {channel}?)`
 
 Merge second audio into the first one at the indicated range.
 
-### `audio.scale(amount, time?, duration?)`
+
+### `audio.scale(amount, time=0, duration?)`
 
 Change playback rate, pitch will be shifted.
 
-### `audio.fill(value|(value, n, channel) => value, time?, duration?)`
+### `audio.fill(value|(value, n, channel) => value, time=0, duration?)`
 
 Apply per-sample processing.
 
-### `audio.silence(time?, duration?)`
+### `audio.silence(time=0, duration?)`
 
 Fill with 0.
 
-### `audio.noise(time?, duration?)`
+### `audio.noise(time=0, duration?)`
 
 Fill with random.
 
-### `audio.process(fn, time?, duration?, onend?)`
+
+### `audio.process((buf, cb) => cb(buf), time=0, duration?, onend?, {channel}?)`
 
 Process audio or part with _sync_ or _async_ function, see any [audiojs/audio-* modules](https://github.com/audiojs).
 
@@ -402,7 +431,7 @@ Process audio or part with _sync_ or _async_ function, see any [audiojs/audio-* 
 
 Prelisten methods.
 
-### `audio.play(time?, duration?, callback?)`
+### `audio.play(time=0, duration?, callback?)`
 
 Start playback from the indicated `start` time offset, invoke callback on end.
 
@@ -447,7 +476,7 @@ Fired once playback has finished.
 
 Enable different audio params. Please note that enabled metrics require 3 times more memory for storing file than
 
-### `audio.spectrum(time?, options?)`
+### `audio.spectrum(time=0, options?)`
 
 Get array with spectral component magnitudes (magnitude is length of a [phasor](wiki) — real and imaginary parts). [fourier-transform](https://www.npmjs.com/package/fourier-transform) is used internally.
 
@@ -468,14 +497,16 @@ Possible `options`:
 Ideas:
 
 * chord/scale detection
-* tonic, or main frequency for the range — returns scientific notation `audio.pitch(time?, (err, note) => {})`
-* tempo for the range `audio.tempo(time?, (err, bpm) => {})`
+* tonic, or main frequency for the range — returns scientific notation `audio.pitch(time=0, (err, note) => {})`
+* tempo for the range `audio.tempo(time=0, (err, bpm) => {})`
 -->
 
 
-## Utils
+### `Audio.isAudio(src)`
 
-### `audio.fromDb(db), audio.toDb(gain)`
+Check if `src` is instance of _Audio_.
+
+### `audio.fromDb(db)`, `audio.toDb(gain)`
 
 Convert gain to decibels or backwards, see [decibels](https://github.com/audiojs/decibels).
 

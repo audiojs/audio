@@ -14,7 +14,46 @@ t.skip('write', t => {
 	t.end()
 })
 
-t('data', t => {
+t('pad', t => {
+	t.end()
+})
+
+t('clone', t => {
+	t.end()
+})
+
+t('insert sync', t => {
+	let a = new Audio(.1)
+
+	a.insert(a)
+	t.equal(a.duration, .2)
+	t.notOk(a.buffer.buffers[0].buffers)
+
+	t.end()
+})
+
+t('async', t => {
+
+	t.end()
+})
+
+t('stream', t => {
+	// let a = Audio(MediaInput, a => {
+
+	// })
+
+	t.end()
+})
+
+t('sync sequence', t => {
+	t.end()
+})
+
+t('mixed sequence', t => {
+	t.end()
+})
+
+t.only('data', t => {
 	let audio = new Audio(1, 2)
 
 	t.deepEqual(audio.data(-100/audio.sampleRate)[0].length, 100)
