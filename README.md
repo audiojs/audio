@@ -147,7 +147,9 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 Create _Audio_ instance from the `source` based on `options` (or number of `channels`), invoke callback when source is loaded. Returns `then`able audio instance, which resolves once the source is loaded.
 
 <details>
+
 <summary>Source types & options</summary>
+
 
 `source` can be _sync_, _async_ or _stream_:
 
@@ -168,6 +170,7 @@ Create _Audio_ instance from the `source` based on `options` (or number of `chan
 * **stats** − track stats for metrics. Increases memory consumption up to 3 times (yet O(N)). By default disabled.
 
 </details>
+
 
 ```js
 //create 2-channel audio of duration 4m 33s
