@@ -9,7 +9,6 @@ const Emitter = require('events')
 const inherits = require('inherits')
 const load = require('audio-loader')
 const extend = require('object-assign')
-const util = require('audio-buffer-utils')
 const nidx = require('negative-index')
 const isPromise = require('is-promise')
 const isBuffer = require('is-buffer')
@@ -21,6 +20,7 @@ const toWav = require('audiobuffer-to-wav')
 const callsites = require('callsites')
 const path = require('path')
 const db = require('decibels')
+const AudioBuffer = require('audio-buffer')
 const AudioBufferList = require('audio-buffer-list')
 const remix = require('audio-buffer-remix')
 const isAudioBuffer = require('is-audio-buffer')
@@ -104,6 +104,14 @@ function Audio(source, options, onload) {
 				Audio.cache[source] = this
 			}
 		}
+	}
+
+	//data-arrays
+	else if (ArrayBuffer.isView(source) || Array.isArray(source) && typeof source[0] === 'number') {
+		source = new AudioBuffer(options.channels, source, options.sampleRate)
+		this.insert(source, options)
+		onload && onload(null, this)
+		this.emit('load', this)
 	}
 
 	else if (Array.isArray(source)) {
@@ -200,8 +208,8 @@ Audio.prototype.insert = function (time, source, options) {
 	if (time > this.duration) {
 		this.pad(time, {right: true})
 	}
-	let buffer = Audio.isAudio(source) ? source.buffer : isAudioBuffer(source) ? source : new AudioBufferList(source, options)
 
+	let buffer = Audio.isAudio(source) ? source.buffer : isAudioBuffer(source) ? source : new AudioBufferList(source, options)
 	if (options.start === this.buffer.length) {
 		this.buffer.append(buffer)
 	}

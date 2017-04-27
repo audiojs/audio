@@ -53,7 +53,7 @@ t('mixed sequence', t => {
 	t.end()
 })
 
-t.only('data', t => {
+t('data', t => {
 	let audio = new Audio(1, 2)
 
 	t.deepEqual(audio.data(-100/audio.sampleRate)[0].length, 100)
@@ -61,7 +61,8 @@ t.only('data', t => {
 	t.deepEqual(audio.data({channel: 1}).length, audio.sampleRate)
 
 	let audio3 = Audio([0, .1, 0, .2, 0, .3], 3)
-	t.deepEqual(audio3.data(), [new Float32Array([0, .1]), new Float32Array([0, .2]), new Float32Array([0, .3])])
+	t.deepEqual(audio3.data(),
+		[new Float32Array([0, .1]), new Float32Array([0, .2]), new Float32Array([0, .3])])
 
 	t.end()
 })
