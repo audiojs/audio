@@ -145,7 +145,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 
 Most methods have signature `audio.do(args..., start=0, duration=audio.duration, {channel, start, end, ...}?,  (err, audio)=>{}?)`. `start` and `duration` optionally define interval, in seconds. Options argument may provide `channel` number or array, restricting method to the specific channel or list of channels. Also options may have `start` and `end` properties defining interval in raw sample offsets, as alternative to `start` and `duration`. If callback is not provided, the method returns `then`able promise, which takes `.then(success, error, progress)` signature, otherwise it returns self to make chain calls.
 
-### `new Audio(source, {channels, sampleRate, context, cache, stats}?|channels=2, (err, audio)=>{}?)`
+### `new Audio(source, options?|channels=2, (err, audio)=>{}?)`
 
 Create _Audio_ instance from the `source` based on `options` (or number of `channels`), invoke callback when source is loaded. Returns `then`able audio instance, which resolves once the source is loaded.
 
@@ -191,17 +191,25 @@ let remoteAudio = new Audio('./sample.mp3').then((remoteAudio) => {
 let streamAudio = Audio(WAAStream(oscillatorNode)).on('end', (streamAudio) => {
 
 })
-
 ```
+
 ### `audio.then(success, error, progress)`
 
-### `auidio.on(evt, audio=>{})`
+Promise interface for loading source. If multiple sources provided, promise will resolve when all sources are loaded:
 
-Events list:
+```js
+Audio(['./a.mp3', './b.wav', './c.flac']).then(audio => {
+	// audio here contains joined content of a, b and c
+})
+```
 
-* `load`
-* `progress`
-* `error`
+### `auidio.on(evt, audio=>{})`, `audio.once(evt, audio=>{})`
+
+Events:
+
+* `load` − when source is loaded
+* `progress` − when part of the source is received
+* `error` − when something went wrong during loading
 
 ### `audio.buffer`
 
@@ -224,7 +232,7 @@ Buffer duration. Changing this property may right-trim or right-pad the data.
 Get total length in samples.
 
 
-### `audio.insert(time=-0, source, (err, audio) => {}?)`
+### `audio.insert(time=-0, source, {start, channel}?)`
 
 Insert data at the `time` offset. If `time` is undefined, the `source` will be appended to the end. `source` should be sync data, like [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), loaded _Audio_ instance or array of any of these. If you need async/stream data inserted − create new audio and wait for it to load, then insert, as so:
 
@@ -239,14 +247,19 @@ new Audio('./src.mp3')
     })
 ```
 
+Optional `start` raw offset can be passed in options.
 
-### `audio.remove(time=0, duration?)`
+### `audio.remove(time=0, duration?, {start, end, channel}?)`
 
 Delete duration from the audio. Returns the removed audio fragment.
 
-<!--
-### audio.repeat audio.clone
+### `audio.clone(deep?)`
 
+Return cloned instance, by default pointing the same buffer. Pass `deep = true` to clone the buffer contents.
+
+<!--
+
+### audio.repeat
 ### audio.slice(start, end) - return copy of audio
 ### audio.sub(start, end) - return subaudio handle
 ### audio.copy(dest, start, end) - copy to destination
@@ -342,7 +355,7 @@ Audio([.1, .2, -.1, -.2, 0, .0001]).trim({level: .02, left: false})
 
 ### `audio.pad(duration, {value: 0, left, right}?)`
 
-Make sure the duration of the audio is long enough.
+Make sure the duration of the audio is long enough. Pass `{left: true}` or `{right: true}` depending on what direction you need to pad.
 
 
 ### `audio.gain(volume, time=0, duration?, {channel}?)`
