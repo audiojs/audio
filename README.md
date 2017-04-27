@@ -148,10 +148,8 @@ Create _Audio_ instance from the `source` based on `options` (or number of `chan
 
 <details>
 
-<summary>Source types & options</summary>
-
-
-`source` can be _sync_, _async_ or _stream_:
+<summary>`source`</summary>
+Can be _sync_, _async_ or _stream_:
 
 * **Sync source** − [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Number_ indicating duration or _Array_/_FloatArray_ with raw channels data or array with any of these to load sequence. Sets contents immediately and returns ready to use audio instance.
 * **Async source** − URL string, _ArrayBuffer_, _Buffer_, _Blob_, [_File_](https://developer.mozilla.org/en/docs/Web/API/File) with encoded mp3/wav/ogg/etc data. The data is loaded and decoded, `load` event fired when ready. `audio.isReady` indicator can be used to check status. For the time of loading audio contains zero buffer with silence. [audio-loader](https://github.com/audiojs/audio-loader) and [audio-decode](https://github.com/audiojs/audio-decode) are used internally.
@@ -160,8 +158,12 @@ Create _Audio_ instance from the `source` based on `options` (or number of `chan
 <!--
 | _HTMLAudioElement_, _HTMLMediaElement_ | Wrap [`<audio>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/audio) or [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video) element, capture it's contents. Puts audio into recording state. | stream |
 -->
+</details>
 
-`options` may include:
+<details>
+<summary>`options`</summary>
+
+May include:
 
 * **channels** − number of channels, inferred from source or defaults to `2`.
 * **context** − web audio context (optional), defaults to [audio-context](https://npmjs.org/package/audio-context).
@@ -171,7 +173,7 @@ Create _Audio_ instance from the `source` based on `options` (or number of `chan
 
 </details>
 
-
+<br/>
 ```js
 //create 2-channel audio of duration 4m 33s
 let blankAudio = new Audio(4*60 + 33, 2)
