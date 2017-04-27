@@ -7,9 +7,9 @@
 'use strict'
 
 
-const util = require('audio-buffer-utils')
 const nidx = require('negative-index')
 const clamp = require('clamp')
+const AudioBuffer = require('audio-buffer')
 
 let Audio = require('../')
 
@@ -299,9 +299,17 @@ Audio.prototype.pad = function pad (duration, options) {
 	//ignore already lengthy audio
 	if (options.end - options.start <= this.length) return this;
 
-	let buf = util.create(options.end - options.start - this.length, this.channels)
+	let buf = new AudioBuffer(this.channels, options.end - options.start - this.length)
 
-	if (options.value) util.fill(buf, options.value)
+	if (options.value) {
+		let v = options.value
+		for (let c = 0; c < this.channels; c++) {
+			let data = buf.getChannelData(c)
+			for (let i = 0; i < buf.length; i++) {
+				data[i] = v
+			}
+		}
+	}
 
 	//pad left
 	if (options.left) {
