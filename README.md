@@ -1,4 +1,4 @@
-# ▶ Audio [![Build Status](https://img.shields.io/travis/audiojs/audio.svg?style=flat-square)](https://travis-ci.org/audiojs/audio) [![experimental](https://img.shields.io/badge/stability-experimental-red.svg?style=flat-square)](http://github.com/badges/stability-badges)
+# Audio [![Build Status](https://img.shields.io/travis/audiojs/audio.svg?style=flat-square)](https://travis-ci.org/audiojs/audio) [![experimental](https://img.shields.io/badge/stability-experimental-red.svg?style=flat-square)](http://github.com/badges/stability-badges)
 
 **Work In Progress**.
 
