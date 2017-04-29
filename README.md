@@ -1,11 +1,12 @@
 # Audio — Work In Progress
 
-[![Build Status](https://img.shields.io/travis/audiojs/audio.svg?style=flat-square)](https://travis-ci.org/audiojs/audio)
-[![Code Climate](https://codeclimate.com/github/audiojs/audio/badges/gpa.svg?style=flat-square)](https://codeclimate.com/github/audiojs/audio)
-[![Greenkeeper badge](https://badges.greenkeeper.io/audiojs/audio.svg?style=flat-square)](https://greenkeeper.io/)
-[![experimental](https://img.shields.io/badge/stability-experimental-red.svg?style=flat-square)](http://github.com/badges/stability-badges)
-[![npm](https://img.shields.io/npm/v/audio.svg?style=flat-square)](https://www.npmjs.com/package/audio)
-[![license](https://img.shields.io/npm/l/audio.svg?style=flat-square)](https://www.npmjs.com/package/audio)
+[![Build Status](https://img.shields.io/travis/audiojs/audio.svg)](https://travis-ci.org/audiojs/audio)
+[![Code Climate](https://codeclimate.com/github/audiojs/audio/badges/gpa.svg)](https://codeclimate.com/github/audiojs/audio)
+[![Greenkeeper badge](https://badges.greenkeeper.io/audiojs/audio.svg)](https://greenkeeper.io/)
+[![Downloads](https://img.shields.io/npm/dm/audio.svg)](https://npmjs.org/package/audio)
+[![experimental](https://img.shields.io/badge/stability-experimental-red.svg)](http://github.com/badges/stability-badges)
+[![npm](https://img.shields.io/npm/v/audio.svg)](https://www.npmjs.com/package/audio)
+[![license](https://img.shields.io/npm/l/audio.svg)](https://www.npmjs.com/package/audio)
 
 
 Class for high-level audio manipulations in javascript.
