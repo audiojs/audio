@@ -168,13 +168,13 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 ## API
 
 * [**Creation**](#creation)
-	* [new Audio()]()
+	* [new Audio(src [, options] [, callback])]()
 * [**Properties**](#properties)
 	* [audio.buffer]()
 	* [audio.channels]()
 	* [audio.duration]()
 	* [audio.length]()
-	* [audio.sampleRate]()
+	* [audio.sampleRate]() <kbd>readonly</kbd>
 * [**Playback**](#playback)
 	* [audio.play()]()
 	* [audio.pause()]()
