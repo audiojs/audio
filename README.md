@@ -20,14 +20,6 @@ Class for high-level audio manipulations in javascript.
 	  - image (just teaser/logo)
 -->
 
-## Table of Content
-
-* [Usage](#usage)
-* [API](#api)
-* [See Also](#see-also)
-* [Credits](#credits)
-
-
 ## Usage
 
 [![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
