@@ -1,10 +1,10 @@
 # Audio — Work In Progress
 
-[![Build Status](https://img.shields.io/travis/audiojs/audio.svg)](https://travis-ci.org/audiojs/audio)
-[![Code Climate](https://codeclimate.com/github/audiojs/audio/badges/gpa.svg)](https://codeclimate.com/github/audiojs/audio)
-[![Greenkeeper badge](https://badges.greenkeeper.io/audiojs/audio.svg)](https://greenkeeper.io/)
-[![Downloads](https://img.shields.io/npm/dm/audio.svg)](https://npmjs.org/package/audio)
 [![experimental](https://img.shields.io/badge/stability-experimental-red.svg)](http://github.com/badges/stability-badges)
+[![Build Status](https://img.shields.io/travis/audiojs/audio.svg)](https://travis-ci.org/audiojs/audio)
+[![Greenkeeper badge](https://badges.greenkeeper.io/audiojs/audio.svg)](https://greenkeeper.io/)
+[![Code Climate](https://codeclimate.com/github/audiojs/audio/badges/gpa.svg)](https://codeclimate.com/github/audiojs/audio)
+[![Downloads](https://img.shields.io/npm/dm/audio.svg)](https://npmjs.org/package/audio)
 [![npm](https://img.shields.io/npm/v/audio.svg)](https://www.npmjs.com/package/audio)
 [![license](https://img.shields.io/npm/l/audio.svg)](https://www.npmjs.com/package/audio)
 
