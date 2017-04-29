@@ -12,6 +12,19 @@ Class for high-level audio manipulations in javascript.
 	  - image (just teaser/logo)
 -->
 
+* [Usage]()
+* [API]()
+	* [Creation]()
+	* [Properties]()
+	* [Playback]()
+	* [Manipulations]()
+	* [Metrics]()
+	* [Utilities]()
+* [FAQ]()
+* [See Also]()
+* [Support]()
+
+
 ## Usage
 
 [![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
@@ -27,24 +40,24 @@ Audio('./sample.mp3').on('load', audio =>
 ```
 
 <!--
-	ideas:
-	  - image
-		file → waveform → processed waveform → file
-	  - try yourself - requirebin demo with file opener and processing
+ideas:
+- image
+  file → waveform → processed waveform → file
+- try yourself - requirebin demo with file opener and processing
 
-	mvp:
+mvp:
 
-	- stats: averages, variance
-	- push data
-	- delete data (splice?)
-	- insert data (splice?)
+- stats: averages, variance
+- push data
+- delete data (splice?)
+- insert data (splice?)
 
-	- remove Buffer, process from exports
+- remove Buffer, process from exports
 
-	test projects:
+test projects:
 
-	- waveform player for Steve's website
-	- text waveform
+- waveform player for Steve's website
+- text waveform
 
 -->
 
@@ -160,10 +173,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 ## API
 
 * [Creation]()
-	* [new Audio]()
-	* [Audio.noise]()
-	* [Audio.silence]()
-	* [Audio.constant]()
+	* [new Audio()]()
 * [Properties]()
 	* [audio.buffer]()
 	* [audio.channels]()
@@ -189,15 +199,15 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 	* [audio.repeat]()
 	* [audio.trim]()
 	* [audio.pad]()
+	* [audio.gain]()
 	* [audio.fade]()
 	* [audio.normalize]()
-	* [audio.gain]()
+	* [audio.removeDC]()
+	* [audio.threshold]()
 	* [audio.reverse]()
 	* [audio.invert]()
 	* [audio.shift]()
 	* [audio.pan]()
-	* [audio.removeDC]()
-	* [audio.threshold]()
 	* [audio.mix]()
 	* [audio.scale]()
 	* [audio.silence]()
@@ -651,6 +661,12 @@ encode(audio.buffer, (err, buf) => {
     save(buf, 'my-audio.ogg')
 })
 ```
+
+## See Also
+
+* [audiojs]()
+* [audio-buffer]()
+* [audio-loader]()
 
 
 ## Credits
