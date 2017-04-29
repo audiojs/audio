@@ -24,6 +24,8 @@ const AudioBuffer = require('audio-buffer')
 const AudioBufferList = require('audio-buffer-list')
 const remix = require('audio-buffer-remix')
 const isAudioBuffer = require('is-audio-buffer')
+const isRelative = require('is-relative')
+const isPlainObj = require('is-plain-obj')
 
 module.exports = Audio
 
@@ -31,15 +33,16 @@ module.exports = Audio
 //for events sake
 inherits(Audio, Emitter)
 
+
 //utilities
 Audio.prototype.toGain = Audio.prototype.fromDb = db.toGain
 Audio.prototype.fromGain = Audio.prototype.toDb = db.fromGain
 
 
 //augment functionality
+require('./src/manipulations')
 require('./src/playback')
 require('./src/metrics')
-require('./src/manipulations')
 
 
 //@contructor
@@ -68,11 +71,12 @@ function Audio(source, options, onload) {
 
 	//async source
 	if (typeof source === 'string') {
+		source = resolvePath(source, 3)
+
 		//load cached version, if any
 		if (this.cache && Audio.cache[source]) {
 			//if source is cached but loading - just clone when loaded
 
-			// if (isPromise(Audio.cache[source])) {
 			this.promise = Audio.cache[source].then((audio) => {
 				this.insert(audio.buffer.clone())
 				onload && onload(null, this)
@@ -81,11 +85,6 @@ function Audio(source, options, onload) {
 				onload && onload(err)
 				this.emit('error', err)
 			})
-				// return
-			// }
-
-			//if source is cached - clone
-			// this.insert(Audio.cache[source].clone())
 		}
 
 		else {
@@ -95,6 +94,7 @@ function Audio(source, options, onload) {
 				onload && onload(null, this)
 				this.emit('load', this)
 			}, err => {
+				console.log(err)
 				onload && onload(err)
 				this.emit('error', err)
 			})
@@ -163,6 +163,13 @@ function Audio(source, options, onload) {
 		})
 	}
 
+	//null-case
+	else if (!source) {
+		this.promise = Promise.resolve()
+		onload && onload(null, this)
+		this.emit('load', this)
+	}
+
 	//redirect other cases to audio-loader
 	else {
 		//enforce arraybuffer
@@ -192,24 +199,93 @@ Audio.prototype.cache = true
 //enable metrics
 Audio.prototype.stats = false
 
+//default params
+Object.defineProperties(Audio.prototype, {
+	channels: {
+		set: function (channels) {
+			this.buffer = remix(this.buffer, this.numberOfChannels, channels)
+			this.numberOfChannels = channels
+		},
+		get: function () {
+			return this.buffer.numberOfChannels || pcm.defaults.channels
+		}
+	},
+	sampleRate: {
+		set: function () {
+			//TODO
+			throw Error('Unimplemented.')
+		},
+		get: function () {
+			return this.buffer.sampleRate || pcm.defaults.sampleRate
+		}
+	},
+	duration: {
+		set: function (duration) {
+			let length = Math.floor(duration * this.sampleRate)
+			if (length < this.length) {
+				this.buffer = this.buffer.slice(0, length)
+			}
+			else if (length > this.length) {
+				this.buffer = this.pad(duration, {right: true})
+			}
+		},
+		get: function () {
+			return this.buffer.duration
+		}
+	},
+	length: {
+		set: function (length) {
+			if (length < this.length) {
+				this.buffer = this.buffer.slice(0, length)
+			}
+			else if (length > this.length) {
+				//TODO
+				// this.buffer = this.pad({start: , right: true})
+			}
+		},
+		get: function () {
+			return this.buffer.length
+		}
+	}
+})
+
+
 //insert new data at the offset
 Audio.prototype.insert = function (time, source, options) {
-	if (options == null) {
-		options = source
-		source = time
-		time = -0
+	//5, source, options
+	//5, source
+	if (typeof time == 'number') {}
+	else {
+		//source, options
+		if ( isPlainObj(source) ) {
+			options = source
+			source = time
+		}
+		//source, 5, options
+		//source, 5
+		//source
+		else {
+			[source, time] = [time, source]
+		}
 	}
 
+	//by default insert to the end
+	if (time == null) time = -0
 
 	//do insert
-	options = this.parseArgs(time, 0, options)
+	options = this._parseArgs(time, 0, options)
 
 	//make sure audio is padded till the indicated time
 	if (time > this.duration) {
 		this.pad(time, {right: true})
 	}
 
+	//TODO: insert channels data
 	let buffer = Audio.isAudio(source) ? source.buffer : isAudioBuffer(source) ? source : new AudioBufferList(source, options)
+
+	//reset undefined channels
+	for
+
 	if (options.start === this.buffer.length) {
 		this.buffer.append(buffer)
 	}
@@ -220,48 +296,75 @@ Audio.prototype.insert = function (time, source, options) {
 	return this
 }
 
+//remove data at the offset
+Audio.prototype.remove = function remove (time, duration, options) {
+	options = this._parseArgs(time, 0, options)
+
+	this.buffer.remove(options.start, options.end)
+
+	return this
+}
+
+//put data by the offset
+Audio.prototype.set = function set (time, data, options) {
+	//5, data, options
+	//5, data
+	if (typeof time == 'number') {}
+	else {
+		//data, options
+		if ( isPlainObj(data) ) {
+			options = data
+			data = time
+		}
+		//data, 5, options
+		//data, 5
+		//data
+		else {
+			[data, time] = [time, data]
+		}
+	}
+
+	options = this._parseArgs(time, 0, options)
+
+	if (typeof options.channel == 'number') {
+		options.channel = [options.channel]
+	}
+
+	for (let c = 0; c < options.channels.length; c++ ) {
+		let channel = options.channel[c]
+
+		//TODO: figure out how to get proper data
+		this.buffer.copyToChannel(data, channel, options.start)
+	}
+
+	return this
+}
+
+//return channels data distributed in array
+Audio.prototype.data = function (start, duration, options) {
+	options = this._parseArgs(start, duration, options)
+
+	if (typeof options.channel == 'number') {
+		return this.buffer.getChannelData(options.channel).subarray(options.start, options.end)
+	}
+	//transfer data for indicated channels
+	else {
+		let data = []
+		let buf = this.buffer.slice(options.start, options.end)
+		for (let i = 0; i < options.channel.length; i++) {
+			let channel = options.channel[i]
+
+			data.push(buf.getChannelData(channel))
+		}
+		return data
+	}
+}
+
 //resolved once promise is resolved
 Audio.prototype.then = function (success, error, progress) {
 	return this.promise.then(success, error, progress)
 }
 
-
-//default params
-//TODO: make properties map channels/sampleRate by writing them
-Object.defineProperties(Audio.prototype, {
-	channels: {
-		set: function (channels) {
-			this.buffer = remix(this.buffer, this.numberOfChannels, channels)
-			this.numberOfChannels = channels
-		},
-		get: function () {
-			return this.buffer.numberOfChannels
-		}
-	},
-	sampleRate: {
-		set: function () {
-			//TODO
-			throw Error('Unimplemented.')
-		},
-		get: function () {
-			return this.buffer.sampleRate
-		}
-	},
-	duration: {
-		set: function (duration) {
-			let length = Math.floor(duration * this.sampleRate)
-			if (length < this.length) {
-				this.buffer = this.buffer.slice(0, length)
-			}
-			else if (length > this.length) {
-				this.buffer = this.pad()
-			}
-		},
-		get: function () {
-			return this.buffer.duration
-		}
-	}
-})
 
 //check if source is instance of audio
 Audio.isAudio = function (source) {
@@ -275,10 +378,7 @@ Audio.prototype.save = function (fileName, ondone) {
 	let wav = toWav(this.buffer.slice())
 
 	//fix path for node
-	if (!isBrowser) {
-		var callerPath = callsites()[1].getFileName()
-		fileName = path.dirname(callerPath) + path.sep + fileName
-	}
+	fileName = resolvePath(fileName)
 
 	saveAs(wav, fileName, (err) => {
 		ondone && ondone(err, this)
@@ -287,8 +387,9 @@ Audio.prototype.save = function (fileName, ondone) {
 	return this
 }
 
+
 //include start/end offsets and channel for options. Purely helper.
-Audio.prototype.parseArgs = function (start, duration, options) {
+Audio.prototype._parseArgs = function (start, duration, options) {
 	//no args at all
 	if (start == null) {
 		options = {}
@@ -357,4 +458,15 @@ Audio.prototype.parseArgs = function (start, duration, options) {
 Audio.prototype.clone = function (deep) {
 	if (deep == null || deep) return new Audio(this.buffer.clone())
 	else return new Audio(this.buffer)
+}
+
+
+function resolvePath (fileName, depth=2) {
+	if (!isBrowser && isRelative(fileName)) {
+		var callerPath = callsites()[depth].getFileName()
+		fileName = path.dirname(callerPath) + path.sep + fileName
+		fileName = path.normalize(fileName)
+	}
+
+	return fileName
 }

@@ -52,7 +52,7 @@ Audio.prototype.writeRaw = function (buffer, offset=0) {
 
 //normalize contents by the offset
 Audio.prototype.normalize = function normalize (start, duration, options) {
-	options = this.parseArgs(start, duration, options)
+	options = this._parseArgs(start, duration, options)
 
 	//find max amp for the channels set
 	let max = 0
@@ -92,7 +92,7 @@ Audio.prototype.fade = function (start, duration, options) {
 		start = 0;
 	}
 
-	options = this.parseArgs(start, duration, options)
+	options = this._parseArgs(start, duration, options)
 
 	let easing = typeof options.easing === 'function' ? options.easing : t => t
 
@@ -187,7 +187,7 @@ Audio.prototype.trim = function trim (options) {
 Audio.prototype.gain = function (gain = 0, start, duration, options) {
 	if (!gain) return this
 
-	options = this.parseArgs(start, duration, options)
+	options = this._parseArgs(start, duration, options)
 
 	let level = this.fromDb(gain)
 
@@ -213,7 +213,7 @@ Audio.prototype.gain = function (gain = 0, start, duration, options) {
 //reverse sequence of samples
 Audio.prototype.reverse = function (start, duration, options) {
 
-	options = this.parseArgs(start, duration, options)
+	options = this._parseArgs(start, duration, options)
 
 	if (typeof options.channel == 'number') {
 		options.channel = [options.channel]
@@ -228,7 +228,7 @@ Audio.prototype.reverse = function (start, duration, options) {
 //invert sequence of samples
 Audio.prototype.invert = function (start, duration, options) {
 
-	options = this.parseArgs(start, duration, options)
+	options = this._parseArgs(start, duration, options)
 
 	if (typeof options.channel == 'number') {
 		options.channel = [options.channel]
@@ -246,27 +246,6 @@ Audio.prototype.invert = function (start, duration, options) {
 	}, options.start, options.end)
 
 	return this
-}
-
-
-//return channels data distributed in array
-Audio.prototype.data = function (start, duration, options) {
-	options = this.parseArgs(start, duration, options)
-
-	if (typeof options.channel == 'number') {
-		return this.buffer.getChannelData(options.channel).subarray(options.start, options.end)
-	}
-	//transfer data for indicated channels
-	else {
-		let data = []
-		let buf = this.buffer.slice(options.start, options.end)
-		for (let i = 0; i < options.channel.length; i++) {
-			let channel = options.channel[i]
-
-			data.push(buf.getChannelData(channel))
-		}
-		return data
-	}
 }
 
 //regulate rate of playback/output/read etc
