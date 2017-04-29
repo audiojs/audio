@@ -658,11 +658,11 @@ encode(audio.buffer, (err, buf) => {
 
 ## See Also
 
-* [audiojs](https://github.com/audiojs)
-* [web-audio-api](https://github.com/audiojs/web-audio-api)
+* [audiojs](https://github.com/audiojs) − collection of open-source audio components for javascript
+* [web-audio-api](https://github.com/audiojs/web-audio-api) − web-audio-api implementation for nodejs
 
 
-### Credits
+## Credits
 
 Acknowledgement to contributors:
 
