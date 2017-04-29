@@ -1,7 +1,8 @@
 # Audio [![Build Status](https://img.shields.io/travis/audiojs/audio.svg?style=flat-square)](https://travis-ci.org/audiojs/audio) [![experimental](https://img.shields.io/badge/stability-experimental-red.svg?style=flat-square)](http://github.com/badges/stability-badges)
 
-Class for high-level audio manipulations in javascript.
 **Work In Progress**.
+
+Class for high-level audio manipulations in javascript.
 
 <!--
 	ideas:
@@ -14,12 +15,6 @@ Class for high-level audio manipulations in javascript.
 
 * [Usage]()
 * [API]()
-	* [Creation]()
-	* [Properties]()
-	* [Playback]()
-	* [Manipulations]()
-	* [Metrics]()
-	* [Utilities]()
 * [FAQ]()
 * [See Also]()
 * [Support]()
@@ -662,9 +657,12 @@ encode(audio.buffer, (err, buf) => {
 })
 ```
 
+## FAQ
+
+
 ## See Also
 
-* [audiojs]()
+* [audiojs](https://github.com/audiojs)
 * [audio-buffer]()
 * [audio-loader]()
 
