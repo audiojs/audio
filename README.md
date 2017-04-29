@@ -180,13 +180,13 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 	* [Audio.wave(dur, opts?)]()
 	* [audio.on('load', cb)]()
 	* [audio.then(succ, err)]()
-	* [audio.complete]() <kbd>readonly</kbd>
 * [**Properties**](#properties)
 	* [audio.buffer]()
 	* [audio.channels]()
 	* [audio.duration]()
 	* [audio.length]()
 	* [audio.sampleRate]() <kbd>readonly</kbd>
+	* [audio.complete]() <kbd>readonly</kbd>
 * [**Playback**](#playback)
 	* [audio.play(t?, dur?, opts?)]()
 	* [audio.pause()]()
@@ -206,7 +206,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 	* [audio.repeat(times)]()
 	* [audio.trim(opts?)]()
 	* [audio.pad(dur, opts?)]()
-	* [audio.gain(volume, t?, dur?, opts?)]()
+	* [audio.gain(vol, t?, dur?, opts?)]()
 	* [audio.fade(t?, dur?, opts?)]()
 	* [audio.normalize(t?, dur?, opts?)]()
 	* [audio.removeDCOffset(t?, dur?)]()
@@ -216,7 +216,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 	* [audio.shift(amt, opts?)]()
 	* [audio.pan(amt, opts?)]()
 	* [audio.remix(ch, opts?)]()
-	* [audio.overlay(a2, opts?)]()
+	* [audio.overlay(audio, opts?)]()
 	* [audio.scale(amt, opts?)]()
 	* [audio.process(fn, opts?)]()
 * [**Metrics**](#metrics)
@@ -227,6 +227,9 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 	* [audio.variance(t?, dur)]()
 	* [audio.size(t?, dur, opts?)]()
 * [**Utilities**](#utilities)
+	* [Audio.on(evt, cb)]()
+	* [Audio.once(evt, cb)]()
+	* [Audio.off(evt, cb)]()
 	* [Audio.isAudio(a)]()
 	* [Audio.fromDb(vol)]()
 	* [Audio.toDb(vol)]()
@@ -338,7 +341,7 @@ Playback rate, by default `1`.
 
 Playback volume, defaults to `1`.
 
-### `audio.paused``
+### `audio.paused`
 
 If playback is paused.
 
@@ -407,7 +410,7 @@ Audio('./src.mp3').then(audio =>
 })
 ```
 
-### `audio.remove(time=0, duration?, {start, end})`
+### `audio.remove(time=0, duration?, {start, end}?)`
 
 Remove fragment of the indicated `duration` starting from the indicated `time`. If time is undefined, the fragment will be removed from the beginning of audio. Alternatively, indicate fragment by `start` and `end` properties. Returns audio with the removed fragment.
 
@@ -416,7 +419,7 @@ Remove fragment of the indicated `duration` starting from the indicated `time`. 
 let fragment = audio.remove(.5, 1)
 ```
 
-### `audio.slice(time=0, duration=total, {start, end, channels, clone})`
+### `audio.slice(time=0, duration=total, {start, end, channels, clone}?)`
 
 Get fragment of audio containing the indicated part. By default it returns sub-audio, unless `{clone: true}` is indicated by options.
 
@@ -446,7 +449,7 @@ audio = audio.repeat(1)
 twiceAudio = audio.repeat(2)
 ```
 
-### `audio.trim({threshold:-40, left?, right?, level?}?)`
+### `audio.trim({threshold:-40, left, right, level}?)`
 
 Trim silence at the beginning/end. Optionally define `threshold` in decibels, `left` and `right` trim restrictions. `level` can be used to define threshold as absolute value `0..1`.
 
