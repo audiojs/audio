@@ -159,6 +159,69 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 
 ## API
 
+* [Creation]()
+	* [new Audio]()
+	* [Audio.noise]()
+	* [Audio.silence]()
+	* [Audio.constant]()
+* [Properties]()
+	* [audio.buffer]()
+	* [audio.channels]()
+	* [audio.duration]()
+	* [audio.length]()
+	* [audio.sampleRate]()
+* [Playback]()
+	* [audio.play]()
+	* [audio.pause]()
+	* [audio.muted]()
+	* [audio.loop]()
+	* [audio.rate]()
+	* [audio.volume]()
+	* [audio.paused]()
+	* [audio.currentTime]()
+* [Manipulations]()
+	* [audio.get]()
+	* [audio.set]()
+	* [audio.append]()
+	* [audio.insert]()
+	* [audio.remove]()
+	* [audio.slice]()
+	* [audio.repeat]()
+	* [audio.trim]()
+	* [audio.pad]()
+	* [audio.fade]()
+	* [audio.normalize]()
+	* [audio.gain]()
+	* [audio.reverse]()
+	* [audio.invert]()
+	* [audio.shift]()
+	* [audio.pan]()
+	* [audio.removeDC]()
+	* [audio.threshold]()
+	* [audio.mix]()
+	* [audio.scale]()
+	* [audio.silence]()
+	* [audio.noise]()
+	* [audio.constant]()
+	* [audio.process]()
+* [Metrics]()
+	* [audio.spectrum]()
+	* [audio.loudness(time, duration)]()
+	* [audio.cepstrum(time, duration)]()
+	* [audio.average(time, duration)]()
+	* [audio.variance(time, duration)]()
+	* [audio.size(time, duration)]()
+* [Utilities]()
+	* [audio.on]()
+	* [audio.once]()
+	* [audio.off]()
+	* [audio.then]()
+	* [Audio.isAudio]()
+	* [Audio.fromDb]()
+	* [Audio.toDb]()
+	* [audio.save]()
+
+
 ## Creation
 
 ### new Audio(source, options?, (error, audio)=>{}?)
@@ -236,6 +299,41 @@ Buffer duration. Changing this property will trim or pad the data.
 ### audio.length
 
 Get total length of audio in samples.
+
+
+## Playback
+
+### audio.play(time=0, duration?, {rate, loop, volume}?, onended?)
+
+Start playback from the indicated `start` time offset, invoke callback on end.
+
+### audio.pause()
+
+Pause current playback. Calling `audio.play()` once again will continue from the point of pause.
+
+### audio.muted
+
+Mute playback not pausing it.
+
+### audio.loop
+
+Repeat playback when the end is reached.
+
+### audio.rate
+
+Playback rate, by default `1`.
+
+### audio.volume
+
+Playback volume, defaults to `1`.
+
+### audio.paused`
+
+If playback is paused.
+
+### audio.currentTime
+
+Current playback time in seconds. Setting this value seeks the audio to the new time.
 
 
 ## Manipulations
@@ -485,41 +583,6 @@ Process audio or part with _sync_ or _async_ function, see any [audiojs/audio-* 
 * _async_ function has signature `(audioBuffer, cb) => cb(err, audioBuffer)`.
 
 Options may define `{frame: frameSize}` to process chunks evenly.
-
-
-## Playback
-
-### audio.play(time=0, duration?, {rate, loop, volume}?, onended?)
-
-Start playback from the indicated `start` time offset, invoke callback on end.
-
-### audio.pause()
-
-Pause current playback. Calling `audio.play()` once again will continue from the point of pause.
-
-### audio.muted
-
-Mute playback not pausing it.
-
-### audio.loop
-
-Repeat playback when the end is reached.
-
-### audio.rate
-
-Playback rate, by default `1`.
-
-### audio.volume
-
-Playback volume, defaults to `1`.
-
-### audio.paused`
-
-If playback is paused.
-
-### audio.currentTime
-
-Current playback time in seconds. Setting this value seeks the audio to the new time.
 
 
 ## Metrics
