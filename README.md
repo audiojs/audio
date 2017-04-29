@@ -13,11 +13,10 @@ Class for high-level audio manipulations in javascript.
 	  - image (just teaser/logo)
 -->
 
-* [Usage]()
-* [API]()
-* [FAQ]()
-* [See Also]()
-* [Support]()
+* [Usage](#usage)
+* [API](#api)
+* [See Also](#see-also)
+* [Credits](#credits)
 
 
 ## Usage
@@ -657,17 +656,13 @@ encode(audio.buffer, (err, buf) => {
 })
 ```
 
-## FAQ
-
-
 ## See Also
 
 * [audiojs](https://github.com/audiojs)
-* [audio-buffer]()
-* [audio-loader]()
+* [web-audio-api](https://github.com/audiojs/web-audio-api)
 
 
-## Credits
+### Credits
 
 Acknowledgement to contributors:
 
