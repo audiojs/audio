@@ -8,8 +8,8 @@
   "browser": {},
   "scripts": {
     "lint": "eslint *.js */*.js --ignore-pattern test*",
-    "test": "node test/manipulations.js",
-    "test:browser": "budo test/manipulations.js"
+    "test": "node test",
+    "test:browser": "budo test"
   },
   "devDependencies": {
     "audio-generator": "^2.1.2",
@@ -48,6 +48,6 @@
     "is-promise": "^2.1.0",
     "negative-index": "^1.0.1",
     "pcm-util": "^2.0.3",
-    "save-file": "github:dfcreative/save-file"
+    "save-file": "^1.1.3"
   }
 }
