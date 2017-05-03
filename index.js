@@ -26,6 +26,7 @@ const remix = require('audio-buffer-remix')
 const isAudioBuffer = require('is-audio-buffer')
 const isRelative = require('is-relative')
 const isPlainObj = require('is-plain-obj')
+const getContext = require('audio-context')
 
 module.exports = Audio
 
@@ -108,12 +109,14 @@ function Audio(source, options, onload) {
 
 	//data-arrays
 	else if (ArrayBuffer.isView(source) || Array.isArray(source) && typeof source[0] === 'number') {
+		if (!options.channels) options.channels = 1;
 		source = new AudioBuffer(options.channels, source, options.sampleRate)
 		this.insert(source, options)
 		onload && onload(null, this)
 		this.emit('load', this)
 	}
 
+	//multiple sources
 	else if (Array.isArray(source)) {
 		let items = []
 		//make sure every array item audio instance is created and loaded
@@ -260,6 +263,7 @@ Audio.prototype.insert = function (time, source, options) {
 		if ( isPlainObj(source) ) {
 			options = source
 			source = time
+			time = null
 		}
 		//source, 5, options
 		//source, 5
@@ -281,10 +285,7 @@ Audio.prototype.insert = function (time, source, options) {
 	}
 
 	//TODO: insert channels data
-	let buffer = Audio.isAudio(source) ? source.buffer : isAudioBuffer(source) ? source : new AudioBufferList(source, options)
-
-	//reset undefined channels
-	for
+	let buffer = Audio.isAudio(source) ? source.buffer : isAudioBuffer(source) ? source : new AudioBufferList(source, {channels: options.channels})
 
 	if (options.start === this.buffer.length) {
 		this.buffer.append(buffer)
@@ -326,8 +327,8 @@ Audio.prototype.set = function set (time, data, options) {
 
 	options = this._parseArgs(time, 0, options)
 
-	if (typeof options.channel == 'number') {
-		options.channel = [options.channel]
+	if (typeof options.channels == 'number') {
+		options.channels = [options.channels]
 	}
 
 	for (let c = 0; c < options.channels.length; c++ ) {
@@ -341,10 +342,10 @@ Audio.prototype.set = function set (time, data, options) {
 }
 
 //return channels data distributed in array
-Audio.prototype.data = function (start, duration, options) {
-	options = this._parseArgs(start, duration, options)
+Audio.prototype.get = function (time, duration, options) {
+	options = this._parseArgs(time, duration, options)
 
-	if (typeof options.channel == 'number') {
+	if (typeof options.channels == 'number') {
 		return this.buffer.getChannelData(options.channel).subarray(options.start, options.end)
 	}
 	//transfer data for indicated channels
@@ -426,10 +427,10 @@ Audio.prototype._parseArgs = function (start, duration, options) {
 	if (!start && duration < 0) start = -0;
 
 	//ensure channels
-	if (options.channel == null) {
-		options.channel = []
+	if (options.channels == null) {
+		options.channels = []
 		for (let i = 0; i < this.channels; i++) {
-			options.channel.push(i)
+			options.channels.push(i)
 		}
 	}
 

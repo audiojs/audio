@@ -56,11 +56,11 @@ Audio.prototype.normalize = function normalize (start, duration, options) {
 
 	//find max amp for the channels set
 	let max = 0
-	if (typeof options.channel == 'number') {
+	if (typeof options.channels == 'number') {
 		options.channel = [options.channel]
 	}
 	for (let c = 0; c < options.channel.length; c++) {
-		let channel = options.channel[c]
+		let channel = options.channels[c]
 		let data = this.buffer.getChannelData(channel, options.start, options.end)
 		for (let i = 0; i < data.length; i++) {
 			max = Math.max(Math.abs(data[i]), max)
@@ -71,8 +71,8 @@ Audio.prototype.normalize = function normalize (start, duration, options) {
 
 	//fill values
 	this.buffer.each((buf, idx, offset) => {
-		for (let c = 0, l = Math.min(options.end - offset, buf.length); c < options.channel.length; c++) {
-			let channel = options.channel[c]
+		for (let c = 0, l = Math.min(options.end - offset, buf.length); c < options.channels.length; c++) {
+			let channel = options.channels[c]
 			let data = buf.getChannelData(channel)
 
 			for (let i = Math.max(options.start - offset, 0); i < l; i++) {
@@ -109,13 +109,13 @@ Audio.prototype.fade = function (start, duration, options) {
 		gain = options.gain == null ? -40 : options.gain
 	}
 
-	if (typeof options.channel == 'number') {
-		options.channel = [options.channel]
+	if (typeof options.channels == 'number') {
+		options.channels = [options.channels]
 	}
 
 	this.buffer.each((buf, idx, offset) => {
-		for (let c = 0, l = Math.min(options.end - offset, buf.length); c < options.channel.length; c++) {
-			let channel = options.channel[c]
+		for (let c = 0, l = Math.min(options.end - offset, buf.length); c < options.channels.length; c++) {
+			let channel = options.channels[c]
 			let data = buf.getChannelData(channel)
 
 			for (let i = Math.max(options.start - offset, 0); i != options.end; i+= step) {
@@ -191,13 +191,13 @@ Audio.prototype.gain = function (gain = 0, start, duration, options) {
 
 	let level = this.fromDb(gain)
 
-	if (typeof options.channel == 'number') {
-		options.channel = [options.channel]
+	if (typeof options.channels == 'number') {
+		options.channels = [options.channels]
 	}
 
 	this.buffer.each((buf, idx, offset) => {
-		for (let c = 0, l = Math.min(options.end - offset, buf.length); c < options.channel.length; c++) {
-			let channel = options.channel[c]
+		for (let c = 0, l = Math.min(options.end - offset, buf.length); c < options.channels.length; c++) {
+			let channel = options.channels[c]
 			let data = buf.getChannelData(channel)
 
 			for (let i = Math.max(options.start - offset, 0); i < l; i++) {
@@ -215,8 +215,8 @@ Audio.prototype.reverse = function (start, duration, options) {
 
 	options = this._parseArgs(start, duration, options)
 
-	if (typeof options.channel == 'number') {
-		options.channel = [options.channel]
+	if (typeof options.channels == 'number') {
+		options.channels = [options.channels]
 	}
 
 	this.buffer.reverse(options.start, options.end)
@@ -230,13 +230,13 @@ Audio.prototype.invert = function (start, duration, options) {
 
 	options = this._parseArgs(start, duration, options)
 
-	if (typeof options.channel == 'number') {
-		options.channel = [options.channel]
+	if (typeof options.channels == 'number') {
+		options.channels = [options.channels]
 	}
 
 	this.buffer.each((buf, idx, offset) => {
-		for (let c = 0, l = Math.min(options.end - offset, buf.length); c < options.channel.length; c++) {
-			let channel = options.channel[c]
+		for (let c = 0, l = Math.min(options.end - offset, buf.length); c < options.channels.length; c++) {
+			let channel = options.channels[c]
 			let data = buf.getChannelData(channel)
 
 			for (let i = Math.max(options.start - offset, 0); i < l; i++) {
