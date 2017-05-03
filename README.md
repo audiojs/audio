@@ -31,11 +31,11 @@ const Audio = require('audio')
 
 Audio('./sample.mp3').on('load', audio =>
     audio
-    .trim()
-    .normalize()
-    .fade(.5)
-    .fade(-.5)
-    .save('sample-edited.wav')
+        .trim()
+        .normalize()
+        .fade(.5)
+        .fade(-.5)
+        .save('sample-edited.wav')
 )
 ```
 

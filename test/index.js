@@ -1,12 +1,12 @@
-const Audio = require('../');
-const t = require('tape');
-const assert = require('assert')
+const Audio = require('../')
+const t = require('tape')
 const AudioBuffer = require('audio-buffer')
 const db = require('decibels')
 const lena = require('audio-lena')
 const isBrowser = require('is-browser')
 const path = require('path')
 const fs = require('fs')
+const AudioBufferList = require('audio-buffer-list')
 
 t.skip('write', t => {
 	let audio = Audio([0, .1, .2, .3, .4, .5], 1)
@@ -20,7 +20,7 @@ t.skip('write', t => {
 
 
 //dictaphone cases
-t('Create empty instance', t => {
+t('create empty instance', t => {
 	let a = Audio();
 
 	t.equal(a.length, 0);
@@ -31,34 +31,48 @@ t('Create empty instance', t => {
 	t.end();
 });
 
-t.skip('Write stream', t => {
-	let source = createSource(lena);
+t('create from audio buffer', t => {
+	let a = Audio(new AudioBuffer(3, [0,.1,.2,.3,.4,.5], 48000))
 
-	let a = Audio();
+	t.equal(a.length, 2)
+	t.equal(a.channels, 3)
+	t.equal(a.sampleRate, 48000)
 
-	a.write(source, (err, a) => {
+	a.then(a => {
+	}).then(t.end())
+})
 
-	});
+t('create from audio buffer list', t => {
+	let src = new AudioBufferList(2).repeat(2)
 
-	t.end()
+	let a = Audio(src)
+
+	t.equal(a.length, 4)
+	t.equal(a.channels, 2)
+	t.equal(a.sampleRate, 44100)
+
+	a.then(a => {
+		t.end()
+	})
+})
+
+t('create from raw array', t => {
+	let src = new Audio(new Float32Array([0, .5]))
+
+	t.equal(src.channels, 1)
+	t.equal(src.length, 2)
+	t.equal(src.duration, 2/src.sampleRate)
+
+	t.end();
 });
 
-t.skip('End writing', t => {
-	let gen = Gen((t) => {
-		return Math.sin(t*440*Math.PI*2)
-	});
-	let through = Through((chunk, done) => {
-		setTimeout(() => done(chunk), 200)
-	});
+t.skip('create from buffer', t => {
+	Audio(lena).volume(.5).play(() => {
+		t.end()
+	})
+})
 
-	a.write()
-	a.end();
-});
-
-
-
-
-t.only('caching', t => {
+t('caching', t => {
 	let a = Audio('./chopin.mp3').on('load', (audio) => {
 	})
 
@@ -69,37 +83,6 @@ t.only('caching', t => {
 	})
 });
 
-
-t('save', t => {
-	let a = Audio(lena, (err, a) => {
-		a.save('lena.wav', (err, a) => {
-			if (!isBrowser) {
-				let p = __dirname + path.sep + 'lena.wav'
-				t.ok(fs.existsSync(p))
-				fs.unlinkSync(p);
-			}
-			t.end()
-		})
-	})
-})
-
-
-t.skip('create from buffer', t => {
-	Audio(lena).volume(.5).play(() => {
-		console.log('end');
-		t.end();
-	});
-});
-
-t.skip('create from audio buffer', t => {
-
-	t.end();
-});
-
-t.skip('create from array', t => {
-	t.end();
-
-});
 
 t.skip('load', t => {
 	Audio('./lena.wav')
@@ -264,4 +247,43 @@ t('invert', t => {
 	t.deepEqual(audio.data(10/44100, 10/44100)[0], new Float32Array(data.slice(10, 20)))
 
 	t.end()
+})
+
+t.skip('Write stream', t => {
+	let source = createSource(lena);
+
+	let a = Audio();
+
+	a.write(source, (err, a) => {
+
+	});
+
+	t.end()
+});
+
+t.skip('End writing', t => {
+	let gen = Gen((t) => {
+		return Math.sin(t*440*Math.PI*2)
+	});
+	let through = Through((chunk, done) => {
+		setTimeout(() => done(chunk), 200)
+	});
+
+	a.write()
+	a.end();
+});
+
+
+
+t('save', t => {
+	let a = Audio(lena, (err, a) => {
+		a.save('lena.wav', (err, a) => {
+			if (!isBrowser) {
+				let p = __dirname + path.sep + 'lena.wav'
+				t.ok(fs.existsSync(p))
+				fs.unlinkSync(p);
+			}
+			t.end()
+		})
+	})
 })
