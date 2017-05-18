@@ -107,8 +107,8 @@ function Audio(source, options, onload) {
 		}
 	}
 
-	//data-arrays
-	else if (ArrayBuffer.isView(source) || Array.isArray(source) && typeof source[0] === 'number') {
+	//float-arrays
+	else if (ArrayBuffer.isView(source) || (Array.isArray(source) && typeof source[0] === 'number')) {
 		if (!options.channels) options.channels = 1;
 		source = new AudioBuffer(options.channels, source, options.sampleRate)
 		this.insert(source, options)
@@ -180,7 +180,6 @@ function Audio(source, options, onload) {
 		if (isBuffer(source)) {
 			source = b2ab(source)
 		}
-
 		this.promise = load(source).then(audioBuffer => {
 			this.insert(audioBuffer)
 			onload && onload(null, this)
@@ -363,7 +362,9 @@ Audio.prototype.get = function (time, duration, options) {
 
 //resolved once promise is resolved
 Audio.prototype.then = function (success, error, progress) {
-	return this.promise.then(success, error, progress)
+	return this.promise.then(() => {
+		success.call(this.promise, this)
+	}, error, progress)
 }
 
 
