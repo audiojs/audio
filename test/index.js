@@ -66,9 +66,26 @@ t('create from raw array', t => {
 	t.end();
 });
 
-t.skip('create from buffer', t => {
-	Audio(lena).volume(.5).play(() => {
+t.only('create from buffer', t => {
+	Promise.all([
+	// Audio(lena.wav).then(a => {
+	// 	t.ok(a)
+	// 	t.equal(Math.floor(a.duration), 12)
+	// }),
+
+	// Audio(lena.mp3).then(a => {
+	// 	t.ok(a)
+	// 	t.equal(Math.floor(a.duration), 12)
+	// }),
+
+	Audio(lena.raw).then(a => {
+		t.ok(a)
+		t.equal(Math.floor(a.duration), 12)
+	})
+	]).then(a => {
 		t.end()
+	}, err => {
+		t.fail(err)
 	})
 })
 

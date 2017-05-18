@@ -174,12 +174,11 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 
 * [**Creation**](#creation)
 	* [new Audio(src, opts?, cb?)]()
-	* [Audio.silence(dur, opts?)]()
-	* [Audio.noise(dur, type, opts?)]()
-	* [Audio.constant(dur, lvl, opts?)]()
-	* [Audio.wave(dur, opts?)]()
-	* [audio.on('load', cb)]()
-	* [audio.then(succ, err)]()
+	* [Audio.constant(dur, value=0, opts?)]()
+	* [Audio.noise(dur, type='white', opts?)]()
+	* [Audio.periodic(dur, type='sine', opts?)]()
+	* [Audio.load(url, opts?)]()
+	* [Audio.record(stream, opts?)]()
 * [**Properties**](#properties)
 	* [audio.buffer]()
 	* [audio.channels]()
@@ -227,13 +226,14 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 	* [audio.variance(t?, dur)]()
 	* [audio.size(t?, dur, opts?)]()
 * [**Utilities**](#utilities)
-	* [Audio.on(evt, cb)]()
-	* [Audio.once(evt, cb)]()
-	* [Audio.off(evt, cb)]()
+	* [audio.then(succ, err)]()
+	* [audio.on(evt, cb)]()
+	* [audio.once(evt, cb)]()
+	* [audio.off(evt, cb)]()
+	* [audio.save(name, opts?, cb?)]()
 	* [Audio.isAudio(a)]()
 	* [Audio.fromDb(vol)]()
 	* [Audio.toDb(vol)]()
-	* [audio.save(name, opts?, cb?)]()
 
 
 ## Creation
@@ -244,7 +244,7 @@ Create _Audio_ instance from **source** with provided **options**.
 
 Types of **source**:
 
-* **Sync** − creates audio instantly. One of [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Number_ indicating duration, _FloatArray_ with raw channels data or Array with any of mentioned.
+* **Sync** − creates audio instantly. One of [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Number_ indicating duration, _FloatArray_ with raw channels data, Array with any of mentioned or _Function_ with `(idx, channel) => value` signature.
 * **Async** − invokes callback once source is loaded. Can be URL/path string or encoded binary data in _ArrayBuffer_, _Buffer_, _Blob_ or [_File_](https://developer.mozilla.org/en/docs/Web/API/File). [audio-loader](https://github.com/audiojs/audio-loader) and [audio-decode](https://github.com/audiojs/audio-decode) are used internally.
 
 <!--
