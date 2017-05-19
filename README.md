@@ -174,79 +174,78 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 
 **1. [Creation](#creation)**
 
-[new Audio(src, opts?, cb?)]()
-[Audio.constant(dur, val=0, opts?)]()
-[Audio.noise(dur, type?, opts?)]()
-[Audio.periodic(dur, type?, opts?)]()
-[Audio.from(src, opts?)]()
-[Audio.decode(data, opts?)]()
-[Audio.load(url, opts?)]()
-[Audio.record(streamish, opts?)]()
+* [ ] [new Audio(src, opts?, cb?)]()
+* [ ] [Audio.constant(dur, val=0, opts?)]()
+* [ ] [Audio.noise(dur, type?, opts?)]()
+* [ ] [Audio.periodic(dur, type?, opts?)]()
+* [ ] [Audio.from(data, opts?)]()
+* [ ] [Audio.decode(buf, opts?)]()
+* [ ] [Audio.load(url, opts?)]()
+* [ ] [Audio.record(stream, opts?)]()
 
 **2. [Properties](#properties)**
 
-[audio.buffer]()
-[audio.channels]()
-[audio.duration]()
-[audio.length]()
-[audio.sampleRate]() <kbd>readonly</kbd>
-[audio.complete]() <kbd>readonly</kbd>
+* [ ] [audio.buffer]()
+* [ ] [audio.channels]()
+* [ ] [audio.duration]()
+* [ ] [audio.length]()
+* [ ] [audio.sampleRate]() <kbd>readonly</kbd>
 
 **3. [Playback](#playback)**
 
-[audio.play(t?, dur?, opts?)]()
-[audio.pause()]()
-[audio.muted]()
-[audio.loop]()
-[audio.rate]()
-[audio.volume]()
-[audio.paused]() <kbd>readonly</kbd>
-[audio.currentTime]()
+* [ ] [audio.play(t?, dur?, opts?)]()
+* [ ] [audio.pause()]()
+* [ ] [audio.muted]()
+* [ ] [audio.loop]()
+* [ ] [audio.rate]()
+* [ ] [audio.volume]()
+* [ ] [audio.paused]() <kbd>readonly</kbd>
+* [ ] [audio.currentTime]()
 
 **4. [Manipulations](#manipulations)**
 
-[audio.get(t?, dur?, opts?)]()
-[audio.set(t?, data, opts?)]()
-[audio.insert(t?, data, opts?)]()
-[audio.append(first, second, ...)]()
-[audio.remove(t?, dur, opts?)]()
-[audio.slice(t?, dur?, opts?)]()
-[audio.repeat(times)]()
-[audio.trim(opts?)]()
-[audio.pad(dur, opts?)]()
-[audio.gain(vol, t?, dur?, opts?)]()
-[audio.fade(t?, dur?, opts?)]()
-[audio.normalize(t?, dur?, opts?)]()
-[audio.removeDCOffset(t?, dur?)]()
-[audio.threshold(lvl, t?, dur?, opts?)]()
-[audio.reverse(t?, dur?, opts?)]()
-[audio.invert(t?, dur?, opts?)]()
-[audio.shift(amt, opts?)]()
-[audio.pan(amt, opts?)]()
-[audio.remix(ch, opts?)]()
-[audio.overlay(audio, opts?)]()
-[audio.scale(amt, opts?)]()
-[audio.process(fn, opts?)]()
+* [ ] [audio.get(t?, dur?, opts?)]()
+* [ ] [audio.set(t?, data, opts?)]()
+* [ ] [audio.insert(t?, data, opts?)]()
+* [ ] [audio.append(first, second, ...)]()
+* [ ] [audio.remove(t?, dur, opts?)]()
+* [ ] [audio.slice(t?, dur?, opts?)]()
+* [ ] [audio.repeat(times)]()
+* [ ] [audio.trim(opts?)]()
+* [ ] [audio.pad(dur, opts?)]()
+* [ ] [audio.gain(vol, t?, dur?, opts?)]()
+* [ ] [audio.fade(t?, dur?, opts?)]()
+* [ ] [audio.normalize(t?, dur?, opts?)]()
+* [ ] [audio.removeDCOffset(t?, dur?)]()
+* [ ] [audio.threshold(lvl, t?, dur?, opts?)]()
+* [ ] [audio.reverse(t?, dur?, opts?)]()
+* [ ] [audio.invert(t?, dur?, opts?)]()
+* [ ] [audio.shift(amt, opts?)]()
+* [ ] [audio.pan(amt, opts?)]()
+* [ ] [audio.remix(ch, opts?)]()
+* [ ] [audio.overlay(audio, opts?)]()
+* [ ] [audio.scale(amt, opts?)]()
+* [ ] [audio.process(fn, opts?)]()
 
 **5. [Metrics](#metrics)**
 
-[audio.spectrum(t?, dur, opts?)]()
-[audio.loudness(t?, dur)]()
-[audio.cepstrum(t?, dur)]()
-[audio.average(t?, dur)]()
-[audio.variance(t?, dur)]()
-[audio.size(t?, dur, opts?)]()
+* [ ] [audio.spectrum(t?, dur, opts?)]()
+* [ ] [audio.loudness(t?, dur)]()
+* [ ] [audio.cepstrum(t?, dur)]()
+* [ ] [audio.average(t?, dur)]()
+* [ ] [audio.variance(t?, dur)]()
+* [ ] [audio.size(t?, dur, opts?)]()
 
 **6. [Utilities](#utilities)**
 
-[audio.then(succ, err)]()
-[audio.on(evt, cb)]()
-[audio.once(evt, cb)]()
-[audio.off(evt, cb)]()
-[audio.save(name, opts?, cb?)]()
-[Audio.isAudio(a)]()
-[Audio.fromDb(vol)]()
-[Audio.toDb(vol)]()
+* [ ] [audio.then(succ, err)]()
+* [ ] [audio.on(evt, cb)]()
+* [ ] [audio.once(evt, cb)]()
+* [ ] [audio.off(evt, cb)]()
+* [ ] [audio.save(name, opts?, cb?)]()
+* [ ] [Audio.isAudio(a)]()
+* [ ] [Audio.fromDb(vol)]()
+* [ ] [Audio.toDb(vol)]()
 
 
 ## Creation
