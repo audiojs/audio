@@ -202,32 +202,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [ ] [audio.paused]() <kbd>readonly</kbd>
 * [ ] [audio.currentTime]()
 
-**4. [Manipulations](#manipulations)**
-
-* [ ] [audio.get(t?, dur?, opts?)]()
-* [ ] [audio.set(t?, data, opts?)]()
-* [ ] [audio.insert(t?, data, opts?)]()
-* [ ] [audio.append(first, second, ...)]()
-* [ ] [audio.remove(t?, dur, opts?)]()
-* [ ] [audio.slice(t?, dur?, opts?)]()
-* [ ] [audio.repeat(times)]()
-* [ ] [audio.trim(opts?)]()
-* [ ] [audio.pad(dur, opts?)]()
-* [ ] [audio.gain(vol, t?, dur?, opts?)]()
-* [ ] [audio.fade(t?, dur?, opts?)]()
-* [ ] [audio.normalize(t?, dur?, opts?)]()
-* [ ] [audio.removeDCOffset(t?, dur?)]()
-* [ ] [audio.threshold(lvl, t?, dur?, opts?)]()
-* [ ] [audio.reverse(t?, dur?, opts?)]()
-* [ ] [audio.invert(t?, dur?, opts?)]()
-* [ ] [audio.shift(amt, opts?)]()
-* [ ] [audio.pan(amt, opts?)]()
-* [ ] [audio.remix(ch, opts?)]()
-* [ ] [audio.overlay(audio, opts?)]()
-* [ ] [audio.scale(amt, opts?)]()
-* [ ] [audio.process(fn, opts?)]()
-
-**5. [Metrics](#metrics)**
+**4. [Metrics](#metrics)**
 
 * [ ] [audio.spectrum(t?, dur, opts?)]()
 * [ ] [audio.loudness(t?, dur)]()
@@ -235,6 +210,31 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [ ] [audio.average(t?, dur)]()
 * [ ] [audio.variance(t?, dur)]()
 * [ ] [audio.size(t?, dur, opts?)]()
+
+**5. [Manipulations](#manipulations)**
+
+* [ ] [audio.get(t?, dur?, opts?)]()
+* [ ] [audio.set(t?, data, opts?)]()
+* [ ] [audio.insert(t?, data, opts?)]()
+* [ ] [audio.append(first, second, ...)]()
+* [ ] [audio.remove(t?, dur, opts?)]()
+* [ ] [audio.slice(t?, dur?, opts?)]()
+* [ ] [audio.trim(opts?)]()
+* [ ] [audio.pad(dur, opts?)]()
+* [ ] [audio.shift(amt, opts?)]()
+* [ ] [audio.reverse(t?, dur?, opts?)]()
+* [ ] [audio.invert(t?, dur?, opts?)]()
+* [ ] [audio.repeat(times)]()
+* [ ] [audio.gain(vol, t?, dur?, opts?)]()
+* [ ] [audio.fade(t?, dur?, opts?)]()
+* [ ] [audio.normalize(t?, dur?, opts?)]()
+* [ ] [audio.removeDCOffset(t?, dur?)]()
+* [ ] [audio.threshold(lvl, t?, dur?, opts?)]()
+* [ ] [audio.pan(amt, opts?)]()
+* [ ] [audio.remix(ch, opts?)]()
+* [ ] [audio.overlay(audio, opts?)]()
+* [ ] [audio.scale(amt, opts?)]()
+* [ ] [audio.process(fn, opts?)]()
 
 **6. [Utilities](#utilities)**
 
@@ -250,23 +250,22 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 
 ## Creation
 
-### `new Audio(source, options, (error, audio)=>{}?)`
+### `let audio = new Audio(source, options)`
 
 Create _Audio_ instance from **source** with provided **options**.
 
-Types of **source**:
-
-* **Sync** − creates audio instantly. One of [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Number_ indicating duration, _FloatArray_ with raw channels data, Array with any of mentioned or _Function_ with `(idx, channel) => value` signature.
-* **Async** − invokes callback once source is loaded. Can be URL/path string or encoded binary data in _ArrayBuffer_, _Buffer_, _Blob_ or [_File_](https://developer.mozilla.org/en/docs/Web/API/File). [audio-loader](https://github.com/audiojs/audio-loader) and [audio-decode](https://github.com/audiojs/audio-decode) are used internally.
+**source** can be [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Number_ indicating duration in seconds, _FloatArray_ with [planar](https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API/Basic_concepts_behind_Web_Audio_API#Planar_versus_interleaved_buffers) channels data, Array with any of mentioned or _Function_ with `(idx, channel) => value` signature, generating data.
 
 <!--
+* **Async** − invokes callback once source is loaded. Can be URL/path string or encoded binary data in _ArrayBuffer_, _Buffer_, _Blob_ or [_File_](https://developer.mozilla.org/en/docs/Web/API/File). [audio-loader](https://github.com/audiojs/audio-loader) and [audio-decode](https://github.com/audiojs/audio-decode) are used internally.
+
 * **Stream** − [_Stream_](https://nodejs.org/api/stream.html), [_pull-stream_](https://github.com/pull-stream/pull-stream), _Function_, [_MediaStream_](https://developer.mozilla.org/en-US/docs/Web/API/MediaStream)_WebAudioNode_ or _Array_ with sequence of any sources. Starts recording, updating contents until input stream ends or max duration reaches. `data` and `end` events are emitted during stream consumption. Returned thenable takes arguments `.then(success, error, progress)`. Plays role of [audiorecorder](https://npmjs.org/package/audiorecorder).
 -->
 <!--
 | _HTMLAudioElement_, _HTMLMediaElement_ | Wrap [`<audio>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/audio) or [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video) element, capture it's contents. Puts audio into recording state. | stream |
 -->
 
-Options:
+**options**
 
 * **channels** − if number, the source will be remixed into that number of channels. If list, the corresponding source channels will be used. See [audio-buffer-remix](https://github.com/audiojs/audio-buffer-remix).
 * **context** − web audio context. If not provided, the [audio-context](https://github.com/audiojs/audio-context) will be used.
