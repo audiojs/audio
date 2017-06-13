@@ -291,6 +291,9 @@ let joinedAudio = new Audio([blankAudio, rawAudio, bufAudio], {channels: 2})
 
 The options are applicable to every audio constructor below.
 
+---
+
+
 ### `Audio.constant(duration, value=0, options?)`
 
 Create `audio` instance with pefilled constant `value` of the `duration`. Constant value is expected to be from `-1..1` range, anything over it is considered clipping.
@@ -302,7 +305,10 @@ let recording = new Audio(4*60 + 33, 2)
 
 **Related**
 
-* [`ConstantSourceNode](https://developer.mozilla.org/en-US/docs/Web/API/ConstantSourceNode)
+* [ConstantSourceNode](https://developer.mozilla.org/en-US/docs/Web/API/ConstantSourceNode)
+
+---
+
 
 ### `Audio.noise(duration, type='white', options?)`
 
@@ -329,6 +335,9 @@ noise.play({loop: true})
 
 * [audio-noise](https://github.com/audiojs/audio-noise)
 * [Colors of Noise](https://en.wikipedia.org/wiki/Colors_of_noise)
+
+---
+
 
 ### `Audio.periodic(duration, frequency, timbre|type='sine', options?)`
 
@@ -359,9 +368,15 @@ let timbre2 = Audio.periodic(3, 440, [[0,1], [1,1]])
 
 * [PeriodicWave](https://developer.mozilla.org/en-US/docs/Web/API/PeriodicWave)
 
+---
+
+
 ### `Audio.from(data, map?, options?)`
 
 Create audio from raw data, such as _Float32Array_, _Buffer_ or _AudioBuffer_.
+
+---
+
 
 ### `Audio.decode(buffer, (error, audio)=>{}?)`
 
@@ -373,6 +388,9 @@ new Audio(require('audio-lena/wav'), (err, wavAudio) => {
     if (err) throw err;
 })
 ```
+
+---
+
 
 ### `Audio.load(url, (error, audio)=>{}?)`
 
@@ -388,6 +406,9 @@ Audio('./test/chopin.mp3')
 	.on('progress', buf => {})
 	.on('load', streamAudio => {})
 ```
+
+---
+
 
 ### `Audio.record(stream, (error, audio)={}?)`
 
