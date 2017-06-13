@@ -177,7 +177,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [ ] [new Audio(src, opts?, cb?)]()
 * [ ] [Audio.constant(dur, val=0, opts?)]()
 * [ ] [Audio.noise(dur, type?, opts?)]()
-* [ ] [Audio.periodic(dur, type?, opts?)]()
+* [ ] [Audio.periodic(dur, freq, type?, opts?)]()
 * [ ] [Audio.from(data, opts?)]()
 * [ ] [Audio.decode(buf, opts?)]()
 * [ ] [Audio.load(url, opts?)]()
@@ -209,6 +209,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [ ] [audio.cepstrum(t?, dur)]()
 * [ ] [audio.average(t?, dur)]()
 * [ ] [audio.variance(t?, dur)]()
+* [ ] [audio.clip(t?, dur)]()
 * [ ] [audio.size(t?, dur, opts?)]()
 
 **5. [Manipulations](#manipulations)**
@@ -250,11 +251,25 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 
 ## Creation
 
-### `let audio = new Audio(source, map?, options?)`
+### `let audio = new Audio(source, channels|options?)`
 
-Create _Audio_ instance from **`source`** with provided **`options`**.
+Create `audio` instance from `source` with provided `options`.
 
-**Source** can be [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Number_ indicating duration in seconds, _FloatArray_ with [planar](https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API/Basic_concepts_behind_Web_Audio_API#Planar_versus_interleaved_buffers) channels data or _Array_ with any of mentioned.
+```js
+// Create one second of silence
+let blankAudio = new Audio(1)
+
+// Create from AudioBuffer
+let bufAudio = new Audio(audioCtx.createBuffer(2, 22050, 44100))
+
+// Create from raw planar data
+let rawAudio = new Audio(new Float32Array([0,1,.2,.3,...]), {channels: 2})
+
+// Create from multiple sources
+let joinedAudio = new Audio([blankAudio, rawAudio, bufAudio], {channels: 2})
+```
+
+**Source** can be [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Number_ indicating duration in seconds, _FloatArray_ samples data or _Array_ with any of mentioned.
 
 **Map** function has `(value, channel) => value` signature, mapping individual samples.
 
@@ -267,43 +282,114 @@ Create _Audio_ instance from **`source`** with provided **`options`**.
 | _HTMLAudioElement_, _HTMLMediaElement_ | Wrap [`<audio>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/audio) or [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video) element, capture it's contents. Puts audio into recording state. | stream |
 -->
 
-**Options** can define following properties
+**Options** can define the following
 
 | Property | Description | Default |
 |---|---|---|
-| `channels` | _Number_ or _Array_, indicating channels layout. If number is less than source channels number, the exceeding channels will be dropped. If array, only indicated channels will be picked from the source. | `source` number of channels or `1` |
-| `context` | Web audio context (browser-only). | [`audio-context`](https://github.com/audiojs/audio-context) |
+| `channels` | _Number_ or _Array_, indicating number of channels or source channels layout. | `source` number of channels or `1` |
+| `context` | Web audio context instance. | [`audio-context`](https://github.com/audiojs/audio-context) |
+| `stats` | Track statistics for metrics. Increases memory consumption 3 times. | `false` |
+| `offset` | Start with the defined offset in the source. Comes handy in `Audio.periodic()` constructor.  | `0` |
 
-<!--
-* **stats** − track stats for metrics. Increases memory consumption up to 3 times (yet O(N)). By default disabled.
-* -->
+The options are applicable to every audio constructor below.
+
+### `let audio = Audio.constant(duration, value=0, options?)`
+
+Create `audio` instance with pefilled constant `value` of the `duration`. Constant value is expected to be from `-1..1` range, anything over it is considered clipping.
 
 ```js
-//create 2-channel digital copy of the masterpiece 4:33
-let blankAudio = new Audio(4*60 + 33, 2)
+// Create stereo digital copy of the masterpiece 4:33
+let recording = new Audio(4*60 + 33, 2)
+```
 
-//create from AudioBuffer
-let bufAudio = new Audio(audioCtx.createBuffer(2, 22050, 44100))
+**Related**
 
-//create from raw data
-let rawAudio = new Audio(new Float32Array([0,1,.2,.3,...]), {channels: 2})
+* [`ConstantSourceNode](https://developer.mozilla.org/en-US/docs/Web/API/ConstantSourceNode)
 
-//create from multiple sources
-let joinedAudio = new Audio([blankAudio, rawAudio, bufAudio], {channels: 2})
+### `let audio = Audio.noise(duration, type='white', options?)`
 
-//decode binary data, callback style
+Create `audio` instance filled with noise of specific `type`.
+
+```js
+// Create 5 seconds of pink noise
+let noise = Audio.noise(5, 'pink', {channels: 2})
+
+noise.play({loop: true})
+```
+
+| Type | Spectrum | Meaning |
+|---|---|
+| `'white'` | | Flat spectrum noise. See [wiki](https://en.wikipedia.org/wiki/White_noise). |
+| `'pink'` | | -3dB/octave. See [wiki](https://en.wikipedia.org/wiki/Pink_noise). |
+| `'brown'` | | -6dB/octave. See [wiki](https://en.wikipedia.org/wiki/Brownian_noise). |
+| `'blue'` | | +3dB/octave. |
+| `'violet'` | | +6dB/octave. |
+| `'grey'` | | White noise weighted by loudness curve, see [a-weighting](https://github.com/audiojs/a-weighting). Also see [wiki](https://en.wikipedia.org/wiki/Grey_noise) |
+| `'green'` | | |
+
+**Related**
+
+* [audio-noise](https://github.com/audiojs/audio-noise)
+* [Colors of Noise](https://en.wikipedia.org/wiki/Colors_of_noise)
+
+### `let audio = Audio.periodic(duration, frequency, timbre|type='sine', options?)`
+
+Create `audio` instance by generating periodic waveform with `frequency` of the `duration`.
+
+```js
+// Create oscillated 440Hz sine wave
+let sine = Audio.periodic(2, 440)
+
+// Create custom timbre
+let timbre1 = Audio.periodic(2, 440, [0, 1, 0], {channels: 2})
+
+// Create from real/imaginary parts
+let timbre2 = Audio.periodic(3, 440, [[0,1], [1,1]])
+```
+
+| Type | Waveform | Meaning |
+|---|---|---|
+| `'sine'`, `'sin'`, `'cos'` | |  |
+| `'saw'`, `'sawtooth'` | |  |
+| `'pulse'` | |  |
+| `'square'`, `'rect'`, `'rectangle'` | |  |
+| `'triangle'`, `'tri'` | |  |
+| `[a0, a1, a2, ...]` | | Create periodic wave with defined harmonic coefficients based off base frequency |
+| `[[r0, r1, r2, ...], [i0, i1, i2, ...]]` | | Create periodic wave based off real/imaginary harmonic coefficients |
+
+**Related**
+
+* [PeriodicWave](https://developer.mozilla.org/en-US/docs/Web/API/PeriodicWave)
+
+### `let audio = Audio.from(data, map?, options?)`
+
+Create audio from raw data, such as _Float32Array_, _Buffer_ or _AudioBuffer_.
+
+### `let promise = Audio.decode(buffer, (error, audio)=>{}?)`
+
+```js
+// Decode binary data, callback style
 new Audio(require('audio-lena/wav'), (err, wavAudio) => {
     if (err) throw err;
 })
+```
 
-//load remote file, promise style
+### `let promise = Audio.load(url, (error, audio)=>{}?)`
+
+```js
+// Load remote file, promise style
 new Audio('http://techslides.com/demos/samples/sample.flac').then(success, error, progress)
 
-//load and decode local file, emitter style
+// Load and decode local file, emitter style
 Audio('./test/chopin.mp3')
 	.on('error', err => {})
 	.on('progress', buf => {})
 	.on('load', streamAudio => {})
+```
+
+### `let promise = Audio.record(stream, (error, audio)={}?)`
+
+```js
 ```
 
 ## Properties
@@ -362,6 +448,36 @@ If playback is paused.
 ### `audio.currentTime`
 
 Current playback time in seconds. Setting this value seeks the audio to the new time.
+
+
+## Metrics
+
+### `audio.spectrum(time=0, options?)`
+
+Get array with spectral component magnitudes (magnitude is length of a [phasor](wiki) — real and imaginary parts). [fourier-transform](https://www.npmjs.com/package/fourier-transform) is used internally.
+
+Possible `options`:
+
+| name | default | meaning |
+|---|---|---|
+| _size_ | `1024` | Size of FFT transform, e. g. number of frequencies to capture. |
+| _channel_ | `0` | Channel number to get data for, `0` is left channel, `1` is right etc. |
+| _db_ | `false` | Convert resulting magnitudes from `0..1` range to decibels `-100..0`. |
+
+### `audio.loudness(time, duration)`
+### `audio.cepstrum(time, duration)`
+### `audio.average(time, duration)`
+### `audio.variance(time, duration)`
+### `audio.clip(time, duration)`
+### `audio.size(time, duration)`
+<!--
+Ideas:
+
+* chord/scale detection
+* tonic, or main frequency for the range — returns scientific notation `audio.pitch(time=0, (err, note) => {})`
+* tempo for the range `audio.tempo(time=0, (err, bpm) => {})`
+-->
+
 
 
 ## Manipulations
@@ -612,33 +728,6 @@ Process audio or part with _sync_ or _async_ function, see any [audiojs/audio-* 
 
 Options may define `{frame: frameSize}` to process chunks evenly.
 
-
-## Metrics
-
-### `audio.spectrum(time=0, options?)`
-
-Get array with spectral component magnitudes (magnitude is length of a [phasor](wiki) — real and imaginary parts). [fourier-transform](https://www.npmjs.com/package/fourier-transform) is used internally.
-
-Possible `options`:
-
-| name | default | meaning |
-|---|---|---|
-| _size_ | `1024` | Size of FFT transform, e. g. number of frequencies to capture. |
-| _channel_ | `0` | Channel number to get data for, `0` is left channel, `1` is right etc. |
-| _db_ | `false` | Convert resulting magnitudes from `0..1` range to decibels `-100..0`. |
-
-### `audio.loudness(time, duration)`
-### `audio.cepstrum(time, duration)`
-### `audio.average(time, duration)`
-### `audio.variance(time, duration)`
-### `audio.size(time, duration)`
-<!--
-Ideas:
-
-* chord/scale detection
-* tonic, or main frequency for the range — returns scientific notation `audio.pitch(time=0, (err, note) => {})`
-* tempo for the range `audio.tempo(time=0, (err, bpm) => {})`
--->
 
 ## Utilities
 
