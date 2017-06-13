@@ -250,11 +250,13 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 
 ## Creation
 
-### `let audio = new Audio(source, options)`
+### `let audio = new Audio(source, map?, options?)`
 
-Create _Audio_ instance from **source** with provided **options**.
+Create _Audio_ instance from **`source`** with provided **`options`**.
 
-**source** can be [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Number_ indicating duration in seconds, _FloatArray_ with [planar](https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API/Basic_concepts_behind_Web_Audio_API#Planar_versus_interleaved_buffers) channels data, Array with any of mentioned or _Function_ with `(idx, channel) => value` signature, generating data.
+**Source** can be [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Number_ indicating duration in seconds, _FloatArray_ with [planar](https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API/Basic_concepts_behind_Web_Audio_API#Planar_versus_interleaved_buffers) channels data or _Array_ with any of mentioned.
+
+**Map** function has `(value, channel) => value` signature, mapping individual samples.
 
 <!--
 * **Async** − invokes callback once source is loaded. Can be URL/path string or encoded binary data in _ArrayBuffer_, _Buffer_, _Blob_ or [_File_](https://developer.mozilla.org/en/docs/Web/API/File). [audio-loader](https://github.com/audiojs/audio-loader) and [audio-decode](https://github.com/audiojs/audio-decode) are used internally.
@@ -265,11 +267,12 @@ Create _Audio_ instance from **source** with provided **options**.
 | _HTMLAudioElement_, _HTMLMediaElement_ | Wrap [`<audio>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/audio) or [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video) element, capture it's contents. Puts audio into recording state. | stream |
 -->
 
-**options**
+**Options** can define following properties
 
-* **channels** − if number, the source will be remixed into that number of channels. If list, the corresponding source channels will be used. See [audio-buffer-remix](https://github.com/audiojs/audio-buffer-remix).
-* **context** − web audio context. If not provided, the [audio-context](https://github.com/audiojs/audio-context) will be used.
-* **cache** − cache async sources to avoid extra requests. By default `true`.
+| Property | Description | Default |
+|---|---|---|
+| `channels` | _Number_ or _Array_, indicating channels layout. If number is less than source channels number, the exceeding channels will be dropped. If array, only indicated channels will be picked from the source. | `source` number of channels or `1` |
+| `context` | Web audio context (browser-only). | [`audio-context`](https://github.com/audiojs/audio-context) |
 
 <!--
 * **stats** − track stats for metrics. Increases memory consumption up to 3 times (yet O(N)). By default disabled.
