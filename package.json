@@ -31,9 +31,10 @@
     "node": ">=0.11"
   },
   "dependencies": {
-    "audio-buffer": "^3.2.1",
-    "audio-buffer-list": "^2.0.6",
+    "audio-buffer": "^4.0.1",
+    "audio-buffer-list": "^3.0.1",
     "audio-buffer-remix": "^1.0.3",
+    "audio-buffer-utils": "^5.0.1",
     "audio-context": "^1.0.0",
     "audio-loader": "^1.0.2",
     "audio-play": "^2.1.1",

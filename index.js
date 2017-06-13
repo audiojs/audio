@@ -111,9 +111,7 @@ function Audio(source, options, onload) {
 	else if (ArrayBuffer.isView(source) || (Array.isArray(source) && typeof source[0] === 'number')) {
 		if (!options.channels) options.channels = 1;
 		source = new AudioBuffer(options.channels, source, options.sampleRate)
-		this.insert(source, options)
-		onload && onload(null, this)
-		this.emit('load', this)
+		success(source)
 	}
 
 	//multiple sources
@@ -126,21 +124,11 @@ function Audio(source, options, onload) {
 		}
 
 		//then do promise once all loaded
-		this.promise = Promise.all(source).then(list => {
-			this.insert(list)
-			onload && onload(null, this)
-			this.emit('load', this)
-		}, err => {
-			onload && onload(err)
-			this.emit('error', err)
-		})
+		this.promise = Promise.all(source).then(success, error)
 	}
 	else if (typeof source === 'number') {
 		this.promise = Promise.resolve()
-		let rate = options.sampleRate || pcm.defaults.sampleRate
-		this.insert(source*rate, options)
-		onload && onload(null, this)
-		this.emit('load', this)
+		success(source*rate)
 	}
 
 	//TODO: stream case
@@ -169,8 +157,7 @@ function Audio(source, options, onload) {
 	//null-case
 	else if (!source) {
 		this.promise = Promise.resolve()
-		onload && onload(null, this)
-		this.emit('load', this)
+		success(this.buffer)
 	}
 
 	//redirect other cases to audio-loader
@@ -182,12 +169,21 @@ function Audio(source, options, onload) {
 		}
 		this.promise = load(source).then(audioBuffer => {
 			this.insert(audioBuffer)
-			onload && onload(null, this)
-			this.emit('load', this)
-		}, err => {
-			onload && onload(err)
-			this.emit('error', err)
-		})
+			success(audioBuffer)
+		}, error)
+	}
+
+	let that = this
+
+	function success (data) {
+		this.insert(data)
+		onload && onload(null, data)
+		that.emit('load', that, data)
+	}
+
+	function error (err) {
+		onload && onload(err)
+		that.emit('error', err)
 	}
 }
 

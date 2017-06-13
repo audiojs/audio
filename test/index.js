@@ -66,7 +66,7 @@ t('create from raw array', t => {
 	t.end();
 });
 
-t.only('create from buffer', t => {
+t('create from buffer', t => {
 	Promise.all([
 	// Audio(lena.wav).then(a => {
 	// 	t.ok(a)
@@ -91,10 +91,10 @@ t.only('create from buffer', t => {
 
 t('caching', t => {
 	let a = Audio('./chopin.mp3').on('load', (audio) => {
+		t.ok(audio)
 	})
 
 	let b = Audio('./chopin.mp3').on('load', (audio) => {
-		console.log(123)
 		t.equal(Object.keys(Audio.cache).length, 1)
 		t.end()
 	})
