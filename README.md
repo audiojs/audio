@@ -271,8 +271,6 @@ let joinedAudio = new Audio([blankAudio, rawAudio, bufAudio], {channels: 2})
 
 **Source** can be [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Number_ indicating duration in seconds, _FloatArray_ samples data or _Array_ with any of mentioned.
 
-**Map** function has `(value, channel) => value` signature, mapping individual samples.
-
 <!--
 * **Async** − invokes callback once source is loaded. Can be URL/path string or encoded binary data in _ArrayBuffer_, _Buffer_, _Blob_ or [_File_](https://developer.mozilla.org/en/docs/Web/API/File). [audio-loader](https://github.com/audiojs/audio-loader) and [audio-decode](https://github.com/audiojs/audio-decode) are used internally.
 
@@ -293,7 +291,7 @@ let joinedAudio = new Audio([blankAudio, rawAudio, bufAudio], {channels: 2})
 
 The options are applicable to every audio constructor below.
 
-### `let audio = Audio.constant(duration, value=0, options?)`
+### `Audio.constant(duration, value=0, options?)`
 
 Create `audio` instance with pefilled constant `value` of the `duration`. Constant value is expected to be from `-1..1` range, anything over it is considered clipping.
 
@@ -306,7 +304,7 @@ let recording = new Audio(4*60 + 33, 2)
 
 * [`ConstantSourceNode](https://developer.mozilla.org/en-US/docs/Web/API/ConstantSourceNode)
 
-### `let audio = Audio.noise(duration, type='white', options?)`
+### `Audio.noise(duration, type='white', options?)`
 
 Create `audio` instance filled with noise of specific `type`.
 
@@ -332,7 +330,7 @@ noise.play({loop: true})
 * [audio-noise](https://github.com/audiojs/audio-noise)
 * [Colors of Noise](https://en.wikipedia.org/wiki/Colors_of_noise)
 
-### `let audio = Audio.periodic(duration, frequency, timbre|type='sine', options?)`
+### `Audio.periodic(duration, frequency, timbre|type='sine', options?)`
 
 Create `audio` instance by generating periodic waveform with `frequency` of the `duration`.
 
@@ -361,11 +359,13 @@ let timbre2 = Audio.periodic(3, 440, [[0,1], [1,1]])
 
 * [PeriodicWave](https://developer.mozilla.org/en-US/docs/Web/API/PeriodicWave)
 
-### `let audio = Audio.from(data, map?, options?)`
+### `Audio.from(data, map?, options?)`
 
 Create audio from raw data, such as _Float32Array_, _Buffer_ or _AudioBuffer_.
 
-### `let promise = Audio.decode(buffer, (error, audio)=>{}?)`
+### `Audio.decode(buffer, (error, audio)=>{}?)`
+
+Create promise to decode `buffer` data.
 
 ```js
 // Decode binary data, callback style
@@ -374,7 +374,9 @@ new Audio(require('audio-lena/wav'), (err, wavAudio) => {
 })
 ```
 
-### `let promise = Audio.load(url, (error, audio)=>{}?)`
+### `Audio.load(url, (error, audio)=>{}?)`
+
+Create promise to load and decode remote data.
 
 ```js
 // Load remote file, promise style
@@ -387,7 +389,9 @@ Audio('./test/chopin.mp3')
 	.on('load', streamAudio => {})
 ```
 
-### `let promise = Audio.record(stream, (error, audio)={}?)`
+### `Audio.record(stream, (error, audio)={}?)`
+
+Create promise to record stream-ish source. Promise recieves `progress` clause.
 
 ```js
 ```
