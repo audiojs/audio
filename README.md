@@ -316,7 +316,7 @@ noise.play({loop: true})
 ```
 
 | Type | Spectrum | Meaning |
-|---|---|
+|---|---|---|
 | `'white'` | | Flat spectrum noise. See [wiki](https://en.wikipedia.org/wiki/White_noise). |
 | `'pink'` | | -3dB/octave. See [wiki](https://en.wikipedia.org/wiki/Pink_noise). |
 | `'brown'` | | -6dB/octave. See [wiki](https://en.wikipedia.org/wiki/Brownian_noise). |
