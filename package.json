@@ -13,7 +13,7 @@
   },
   "devDependencies": {
     "audio-generator": "^2.1.2",
-    "audio-lena": "^1.0.1",
+    "audio-lena": "^1.1.2",
     "audio-source": "^1.1.1",
     "eases": "^1.0.8",
     "tape": "^4.6.0"
@@ -32,11 +32,11 @@
   },
   "dependencies": {
     "audio-buffer": "^4.0.1",
-    "audio-buffer-list": "^3.0.1",
+    "audio-buffer-list": "^3.1.0",
     "audio-buffer-remix": "^1.0.3",
     "audio-buffer-utils": "^5.0.1",
-    "audio-context": "^1.0.0",
-    "audio-loader": "^1.0.2",
+    "audio-context": "^1.0.1",
+    "audio-loader": "^1.0.3",
     "audio-play": "^2.1.1",
     "audiobuffer-to-wav": "^1.0.0",
     "buffer-to-arraybuffer": ">=0.0.4",
@@ -44,12 +44,11 @@
     "clamp": "^1.0.1",
     "decibels": "^1.0.1",
     "fourier-transform": "^1.0.2",
-    "is-audio-buffer": "^1.0.8",
+    "is-audio-buffer": "^1.0.11",
     "is-browser": "^2.0.1",
     "is-buffer": "^1.1.5",
     "is-promise": "^2.1.0",
-    "negative-index": "^1.0.1",
-    "pcm-util": "^2.0.3",
+    "negative-index": "^1.0.2",
     "save-file": "^1.1.3"
   }
 }

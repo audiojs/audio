@@ -17,6 +17,11 @@ t('Basic', t => {
 	})
 })
 
+//concat multiple remote sources
+t('multiple remotes', t => {
+	Audio.load('./a.mp3', './b.mp3')
+})
+
 
 t.skip('record mic', t => {
 	//Record 4s of mic input

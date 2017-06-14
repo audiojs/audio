@@ -7,39 +7,52 @@ const isBrowser = require('is-browser')
 const path = require('path')
 const fs = require('fs')
 const AudioBufferList = require('audio-buffer-list')
-
-t.skip('write', t => {
-	let audio = Audio([0, .1, .2, .3, .4, .5], 1)
-
-	audio.write(AudioBuffer(1, [1,1]), 2/audio.sampleRate)
-
-	t.deepEqual(audio.data(1/44100,4/44100)[0], [.1,1,1,.4])
-
-	t.end()
-})
+const util = require('audio-buffer-utils')
 
 
-//dictaphone cases
 t('create empty instance', t => {
 	let a = Audio();
 
 	t.equal(a.length, 0);
 	t.equal(a.duration, 0);
-	t.equal(a.channels, 2);
+	t.equal(a.channels, 1);
 	t.equal(a.sampleRate, 44100);
 
 	t.end();
 });
 
+t('create duration', t => {
+	let a = Audio(2);
+
+	t.equal(a.length, 2*44100);
+	t.equal(a.duration, 2);
+	t.equal(a.channels, 1);
+
+	t.end();
+});
+
+t('create multiple instances', t => {
+	let a = Audio([
+		2,
+		Audio(1),
+		new AudioBuffer(null, {length: 44100, numberOfChannels: 2})
+	])
+
+	t.equal(a.duration, 4)
+	t.equal(a.length, 4*44100)
+	t.equal(a.channels, 2)
+
+	t.end()
+});
+
 t('create from audio buffer', t => {
-	let a = Audio(new AudioBuffer(3, [0,.1,.2,.3,.4,.5], 48000))
+	let a = Audio(util.create([0,.1,.2,.3,.4,.5], 3, 48000))
 
 	t.equal(a.length, 2)
 	t.equal(a.channels, 3)
 	t.equal(a.sampleRate, 48000)
 
-	a.then(a => {
-	}).then(t.end())
+	t.end()
 })
 
 t('create from audio buffer list', t => {
@@ -48,12 +61,10 @@ t('create from audio buffer list', t => {
 	let a = Audio(src)
 
 	t.equal(a.length, 4)
-	t.equal(a.channels, 2)
+	t.equal(a.channels, 1)
 	t.equal(a.sampleRate, 44100)
 
-	a.then(a => {
-		t.end()
-	})
+	t.end()
 })
 
 t('create from raw array', t => {
@@ -66,7 +77,7 @@ t('create from raw array', t => {
 	t.end();
 });
 
-t('create from buffer', t => {
+t.skip('create from buffer', t => {
 	Promise.all([
 	// Audio(lena.wav).then(a => {
 	// 	t.ok(a)
@@ -89,7 +100,7 @@ t('create from buffer', t => {
 	})
 })
 
-t('caching', t => {
+t.skip('Audio.load caching', t => {
 	let a = Audio('./chopin.mp3').on('load', (audio) => {
 		t.ok(audio)
 	})
@@ -101,7 +112,7 @@ t('caching', t => {
 });
 
 
-t.skip('load', t => {
+t.skip('Audio.load', t => {
 	Audio('./lena.wav')
 
 	t.end();
@@ -112,6 +123,10 @@ t.skip('clone instance', t => {
 	Audio(audio)
 });
 
+t('options.length')
+t('options.channels array')
+t('options.channels number')
+
 
 t('pad', t => {
 	t.end()
@@ -121,7 +136,7 @@ t('clone', t => {
 	t.end()
 })
 
-t('insert sync', t => {
+t.skip('insert sync', t => {
 	let a = new Audio(.1)
 
 	a.insert(a)
@@ -131,12 +146,12 @@ t('insert sync', t => {
 	t.end()
 })
 
-t('async', t => {
+t.skip('async', t => {
 
 	t.end()
 })
 
-t('stream', t => {
+t.skip('stream', t => {
 	// let a = Audio(MediaInput, a => {
 
 	// })
@@ -144,15 +159,15 @@ t('stream', t => {
 	t.end()
 })
 
-t('sync sequence', t => {
+t.skip('sync sequence', t => {
 	t.end()
 })
 
-t('mixed sequence', t => {
+t.skip('mixed sequence', t => {
 	t.end()
 })
 
-t('data', t => {
+t.skip('data', t => {
 	let audio = new Audio(1, 2)
 
 	t.deepEqual(audio.data(-100/audio.sampleRate)[0].length, 100)
@@ -166,7 +181,7 @@ t('data', t => {
 	t.end()
 })
 
-t('normalize', t => {
+t.skip('normalize', t => {
 	//full normalize
 	let audio = Audio([0, .1, 0, -.1], {channels: 1})
 
@@ -186,7 +201,7 @@ t('normalize', t => {
 	t.end();
 })
 
-t('fade', t => {
+t.skip('fade', t => {
 	let audio = Audio(Array(100).fill(1), {channels: 1})
 
 	let inCurve = Array(10).fill(1).map((v, i) => (i + .5)/10).map(v => db.toGain(v*40 - 40))
@@ -203,7 +218,7 @@ t('fade', t => {
 	t.end();
 })
 
-t('trim', t => {
+t.skip('trim', t => {
 	let audio = new Audio([0,0,0,.1,.2,-.1,-.2,0,0], 1).trim()
 
 	t.deepEqual(audio.data({channel: 0}), new Float32Array([.1,.2,-.1,-.2]))
@@ -222,7 +237,7 @@ t('trim', t => {
 	t.end();
 })
 
-t('gain', t => {
+t.skip('gain', t => {
 	let audio = new Audio(Array(44100).fill(1), 1).gain(-20)
 
 	t.deepEqual(audio.data({channel: 0}), new Float32Array(Array(44100).fill(.1)))
@@ -231,7 +246,7 @@ t('gain', t => {
 	t.end()
 })
 
-t('reverse', t => {
+t.skip('reverse', t => {
 	let data = Array(1000).fill(1).map((v, i) => (.5 + i)/10)
 	let fixture = new Float32Array(data.slice().reverse())
 
@@ -249,7 +264,7 @@ t('reverse', t => {
 })
 
 
-t('invert', t => {
+t.skip('invert', t => {
 	let data = Array(1000).fill(1).map((v, i) => (.5 + i)/1000)
 	let fixture = Array(1000).fill(1).map((v, i) => -(.5 + i)/1000)
 
@@ -292,7 +307,7 @@ t.skip('End writing', t => {
 
 
 
-t('save', t => {
+t.skip('save', t => {
 	let a = Audio(lena, (err, a) => {
 		a.save('lena.wav', (err, a) => {
 			if (!isBrowser) {
@@ -303,4 +318,14 @@ t('save', t => {
 			t.end()
 		})
 	})
+})
+
+t.skip('write', t => {
+	let audio = Audio([0, .1, .2, .3, .4, .5], 1)
+
+	audio.write(AudioBuffer(1, [1,1]), 2/audio.sampleRate)
+
+	t.deepEqual(audio.data(1/44100,4/44100)[0], [.1,1,1,.4])
+
+	t.end()
 })
