@@ -174,7 +174,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 
 **1. [Creation](#creation)**
 
-* [x] [new Audio(src, opts?, cb?)]()
+* [x] [new Audio(src?, opts?)]()
 * [ ] [Audio.from(data, opts?)]()
 * [ ] [Audio.decode(buf, opts?)]()
 * [ ] [Audio.load(url, opts?)]()
@@ -271,23 +271,23 @@ let joinedAudio = new Audio([blankAudio, rawAudio, bufAudio], {channels: 2})
 
 // Create from fully-defined options
 let optAudio = new Audio({
-	channels: 3,
-	data: rawAudio
+  channels: 3,
+  data: rawAudio
 })
 ```
 
-**Source** can be [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Number_ indicating duration in seconds, _FloatArray_ samples data or _Array_ with any of mentioned.
+#### Source
 
-<!--
-* **Async** − invokes callback once source is loaded. Can be URL/path string or encoded binary data in _ArrayBuffer_, _Buffer_, _Blob_ or [_File_](https://developer.mozilla.org/en/docs/Web/API/File). [audio-loader](https://github.com/audiojs/audio-loader) and [audio-decode](https://github.com/audiojs/audio-decode) are used internally.
+| Type | Meaning |
+|---|---|
+| [_AudioBuffer_](https://github.com/audiojs/audio-buffer) | Wrap audio buffer |
+| [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list) | Wrap audio buffer list |
+| _Audio_ | Other audio instance is cloned |
+| _Number_ | Silence of the indicated duration, in seconds |
+| _FloatArray_ | Raw data with planar layout `[l, l, l, l, ... r, r, r, r, ...]` |
+| _Array_ | List of any sources above to concat |
 
-* **Stream** − [_Stream_](https://nodejs.org/api/stream.html), [_pull-stream_](https://github.com/pull-stream/pull-stream), _Function_, [_MediaStream_](https://developer.mozilla.org/en-US/docs/Web/API/MediaStream)_WebAudioNode_ or _Array_ with sequence of any sources. Starts recording, updating contents until input stream ends or max duration reaches. `data` and `end` events are emitted during stream consumption. Returned thenable takes arguments `.then(success, error, progress)`. Plays role of [audiorecorder](https://npmjs.org/package/audiorecorder).
--->
-<!--
-| _HTMLAudioElement_, _HTMLMediaElement_ | Wrap [`<audio>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/audio) or [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video) element, capture it's contents. Puts audio into recording state. | stream |
--->
-
-**Options** can define the following
+#### Options
 
 | Property | Description | Default |
 |---|---|---|
@@ -301,9 +301,9 @@ let optAudio = new Audio({
 ---
 
 
-### `Audio.from(data|list, map?, options?)`
+### `Audio.from(source, map?, options?)`
 
-Create audio from raw data, such as _Float32Array_, _Buffer_ or _AudioBuffer_.
+Create audio from raw data, such as _Float32Array_, _Buffer_ or _AudioBuffer_. Source can be all the same as in the constructor. `map` function optionally can be applied to map provided values, it has the signature `(value, idx, channel, time) => value`.
 
 ---
 
@@ -337,6 +337,10 @@ Audio('./test/chopin.mp3')
 	.on('load', streamAudio => {})
 ```
 
+<!--
+* **Async** − invokes callback once source is loaded. Can be URL/path string or encoded binary data in _ArrayBuffer_, _Buffer_, _Blob_ or [_File_](https://developer.mozilla.org/en/docs/Web/API/File). [audio-loader](https://github.com/audiojs/audio-loader) and [audio-decode](https://github.com/audiojs/audio-decode) are used internally.
+-->
+
 ---
 
 
@@ -346,6 +350,14 @@ Create promise to record stream-ish source. Promise recieves `progress` clause.
 
 ```js
 ```
+
+<!--
+
+* **Stream** − [_Stream_](https://nodejs.org/api/stream.html), [_pull-stream_](https://github.com/pull-stream/pull-stream), _Function_, [_MediaStream_](https://developer.mozilla.org/en-US/docs/Web/API/MediaStream)_WebAudioNode_ or _Array_ with sequence of any sources. Starts recording, updating contents until input stream ends or max duration reaches. `data` and `end` events are emitted during stream consumption. Returned thenable takes arguments `.then(success, error, progress)`. Plays role of [audiorecorder](https://npmjs.org/package/audiorecorder).
+-->
+<!--
+| _HTMLAudioElement_, _HTMLMediaElement_ | Wrap [`<audio>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/audio) or [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video) element, capture it's contents. Puts audio into recording state. | stream |
+-->
 
 ## Properties
 
