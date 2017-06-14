@@ -26,7 +26,6 @@ const isAudioBuffer = require('is-audio-buffer')
 const isRelative = require('is-relative')
 const isPlainObj = require('is-plain-obj')
 const getContext = require('audio-context')
-const util = require('audio-buffer-utils')
 
 module.exports = Audio
 
@@ -53,67 +52,98 @@ function Audio(source, options) {
 	//handle channels-only options
 	if (typeof options === 'number') options = {channels: options}
 
+	if (isPlainObj(source)) {
+		options = source
+		source = null
+	}
+
 	if (!options) options = {}
 
 	//enable metrics
 	if (options.stats) this.stats = true
 
+	if (options.data) source = options.data
+
 	let context = options.context
-	let sampleRate = options.sampleRate || (context && context.sampleRate) || 44100
-	let channels = options.channels || 1
+	let sampleRate = options.sampleRate || options.rate || (context && context.sampleRate) || 44100
+	let channels = options.channels || options.numberOfChannels || 1
 
-	//create buffer holder
-	this.buffer = new AudioBufferList()
+	if (options.duration != null) {
+		options.length = options.duration * sampleRate
+	}
 
+	//create cases
 	//duration
 	if (typeof source === 'number') {
-		this.insert(new AudioBuffer(context, {
-			length: source*sampleRate,
+		let length = options.length != null ? options.length : source*sampleRate
+		this.buffer = new AudioBufferList(length, {
+			context: context,
 			sampleRate: sampleRate,
 			channels: channels
-		}))
+		})
 	}
 
 	//float-arrays
 	else if (ArrayBuffer.isView(source)) {
-		source = util.create(source, channels, sampleRate)
-		this.insert(source)
+		this.buffer = new AudioBufferList(source, {
+			channels: channels,
+			sampleRate: sampleRate
+		})
 	}
 
 	//multiple sources
 	else if (Array.isArray(source)) {
 		//make sure every array item audio instance is created and loaded
+		let items = [], channels = 1
 		for (let i = 0; i < source.length; i++) {
 			let subsource = Audio.isAudio(source[i]) ? source[i].buffer : Audio(source[i], options).buffer
-
-			this.insert(subsource)
+			items.push(subsource)
+			channels = Math.max(subsource.numberOfChannels, channels)
 		}
+
+		this.buffer = new AudioBufferList(items, {numberOfChannels: channels, sampleRate: sampleRate})
 	}
 
-	//audiobuffer[list] case
-	else if (isAudioBuffer(source) || source instanceof AudioBufferList) {
-		this.insert(source)
+	//audiobufferlist case
+	else if (AudioBufferList.isInstance(source)) {
+		this.buffer = source
+	}
+
+	//audiobuffer case
+	else if (isAudioBuffer(source) ) {
+		this.buffer = new AudioBufferList(source)
 	}
 
 	//other Audio instance
 	else if (Audio.isAudio(source)) {
-		this.insert(audio.buffer.clone())
+		this.buffer = audio.buffer.clone()
 	}
 
 	//null-case
-	else if (!source) {}
+	else if (!source) {
+		this.buffer = new AudioBufferList(options.length || 0, {numberOfChannels: channels, sampleRate: sampleRate})
+	}
 
 	//redirect other cases to audio-loader
 	else {
-		//enforce arraybuffer
-		//FIXME: it is possible to do direct reading of arrays via pcm.toAudioBuffer
 		if (isBuffer(source)) {
 			source = b2ab(source)
 		}
 
-		let audioBuffer = util.create(source, channels, sampleRate)
-		this.insert(audioBuffer)
+		this.buffer = new AudioBufferList(source, {numberOfChannels: channels, sampleRate: sampleRate})
 	}
+
+	//slice by length
+	if (options.length != null) {
+		if (this.buffer.length > options.length) {
+			this.buffer = this.buffer.slice(0, options.length)
+		}
+		else if (this.buffer.length < options.length) {
+			this.buffer.append(options.length - this.buffer.length)
+		}
+	}
+
+	//TODO: remix channels if provided in options
 }
 
 

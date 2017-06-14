@@ -252,7 +252,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 
 ## Creation
 
-### `let audio = new Audio(source, channels|options?)`
+### `let audio = new Audio(source?, channels|options?)`
 
 Create `audio` instance from `source` with provided `options`.
 
@@ -268,6 +268,12 @@ let rawAudio = new Audio(new Float32Array([0,1,.2,.3,...]), {channels: 2})
 
 // Create from multiple sources
 let joinedAudio = new Audio([blankAudio, rawAudio, bufAudio], {channels: 2})
+
+// Create from fully-defined options
+let optAudio = new Audio({
+	channels: 3,
+	data: rawAudio
+})
 ```
 
 **Source** can be [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Number_ indicating duration in seconds, _FloatArray_ samples data or _Array_ with any of mentioned.
@@ -285,12 +291,12 @@ let joinedAudio = new Audio([blankAudio, rawAudio, bufAudio], {channels: 2})
 
 | Property | Description | Default |
 |---|---|---|
-| `channels` | _Number_ or _Array_, indicating number of channels or source channels layout. | `source` channels or `1` |
+| `channels`, `numberOfChannels` | _Number_ or _Array_, indicating number of channels or source channels layout. | `source` channels or `1` |
 | `context` | Web audio context instance. | [`audio-context`](https://github.com/audiojs/audio-context) |
 | `stats` | Track statistics for metrics. Increases memory consumption 3 times. | `false` |
-| `length` | Ensure the length of the resulting audio, longer source will be cropped, shorter source will be padded | `source` length |
-
-The options are applicable to every audio constructor below.
+| `length`, `duration` | Ensure the length or duration, duration is in seconds | `source` length |
+| `sampleRate`, `rate` | Ensure sample rate | `source` sample rate |
+| `data` | Source data | `null` |
 
 ---
 
