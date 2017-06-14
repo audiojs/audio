@@ -13,7 +13,6 @@ const nidx = require('negative-index')
 const isPromise = require('is-promise')
 const isBuffer = require('is-buffer')
 const b2ab = require('buffer-to-arraybuffer')
-const pcm = require('pcm-util')
 const saveAs = require('save-file')
 const isBrowser = require('is-browser')
 const toWav = require('audiobuffer-to-wav')
@@ -27,6 +26,7 @@ const isAudioBuffer = require('is-audio-buffer')
 const isRelative = require('is-relative')
 const isPlainObj = require('is-plain-obj')
 const getContext = require('audio-context')
+const util = require('audio-buffer-utils')
 
 module.exports = Audio
 
@@ -47,118 +47,61 @@ require('./src/metrics')
 
 
 //@contructor
-function Audio(source, options, onload) {
-	if (!(this instanceof Audio)) return new Audio(source, options, onload)
-
-	if (options instanceof Function) {
-		onload = options
-		options = {}
-	}
+function Audio(source, options) {
+	if (!(this instanceof Audio)) return new Audio(source, options)
 
 	//handle channels-only options
 	if (typeof options === 'number') options = {channels: options}
 
 	if (!options) options = {}
 
-	//init cache
-	if (options.cache != null) this.cache = options.cache
-
 	//enable metrics
 	if (options.stats) this.stats = true
+
+	let context = options.context
+	let sampleRate = options.sampleRate || (context && context.sampleRate) || 44100
+	let channels = options.channels || 1
 
 	//create buffer holder
 	this.buffer = new AudioBufferList()
 
-
-	//async source
-	if (typeof source === 'string') {
-		source = resolvePath(source, 3)
-
-		//load cached version, if any
-		if (this.cache && Audio.cache[source]) {
-			//if source is cached but loading - just clone when loaded
-
-			this.promise = Audio.cache[source].then((audio) => {
-				this.insert(audio.buffer.clone())
-				onload && onload(null, this)
-				this.emit('load', this)
-			}, (err) => {
-				onload && onload(err)
-				this.emit('error', err)
-			})
-		}
-
-		else {
-			//load remote source
-			this.promise = load(source).then(audioBuffer => {
-				this.insert(audioBuffer)
-				onload && onload(null, this)
-				this.emit('load', this)
-			}, err => {
-				console.log(err)
-				onload && onload(err)
-				this.emit('error', err)
-			})
-
-			//save promise to cache
-			if (this.cache) {
-				Audio.cache[source] = this
-			}
-		}
+	//duration
+	if (typeof source === 'number') {
+		this.insert(new AudioBuffer(context, {
+			length: source*sampleRate,
+			sampleRate: sampleRate,
+			channels: channels
+		}))
 	}
 
 	//float-arrays
-	else if (ArrayBuffer.isView(source) || (Array.isArray(source) && typeof source[0] === 'number')) {
-		if (!options.channels) options.channels = 1;
-		source = new AudioBuffer(options.channels, source, options.sampleRate)
-		success(source)
+	else if (ArrayBuffer.isView(source)) {
+		source = util.create(source, channels, sampleRate)
+		this.insert(source)
 	}
 
 	//multiple sources
 	else if (Array.isArray(source)) {
-		let items = []
 		//make sure every array item audio instance is created and loaded
 		for (let i = 0; i < source.length; i++) {
-			let a = source[i]
-			items[i] = Audio.isAudio(a) ? a : Audio(a, options)
+			let subsource = Audio.isAudio(source[i]) ? source[i].buffer : Audio(source[i], options).buffer
+
+			this.insert(subsource)
 		}
-
-		//then do promise once all loaded
-		this.promise = Promise.all(source).then(success, error)
 	}
-	else if (typeof source === 'number') {
-		this.promise = Promise.resolve()
-		success(source*rate)
-	}
-
-	//TODO: stream case
-	//TODO: buffer case
 
 	//audiobuffer[list] case
-	else if (isAudioBuffer(source)) {
-		this.promise = Promise.resolve()
+	else if (isAudioBuffer(source) || source instanceof AudioBufferList) {
 		this.insert(source)
-		onload && onload(null, this)
-		this.emit('load', this)
 	}
 
 	//other Audio instance
 	else if (Audio.isAudio(source)) {
-		this.promise = source.then(audio => {
-			this.insert(audio.buffer.clone())
-			onload && onload(null, this)
-			this.emit('load', this)
-		}, err => {
-			onload && onload(err)
-			this.emit('error', err)
-		})
+		this.insert(audio.buffer.clone())
 	}
 
 	//null-case
-	else if (!source) {
-		this.promise = Promise.resolve()
-		success(this.buffer)
-	}
+	else if (!source) {}
 
 	//redirect other cases to audio-loader
 	else {
@@ -167,23 +110,9 @@ function Audio(source, options, onload) {
 		if (isBuffer(source)) {
 			source = b2ab(source)
 		}
-		this.promise = load(source).then(audioBuffer => {
-			this.insert(audioBuffer)
-			success(audioBuffer)
-		}, error)
-	}
 
-	let that = this
-
-	function success (data) {
-		this.insert(data)
-		onload && onload(null, data)
-		that.emit('load', that, data)
-	}
-
-	function error (err) {
-		onload && onload(err)
-		that.emit('error', err)
+		let audioBuffer = util.create(source, channels, sampleRate)
+		this.insert(audioBuffer)
 	}
 }
 
@@ -205,7 +134,7 @@ Object.defineProperties(Audio.prototype, {
 			this.numberOfChannels = channels
 		},
 		get: function () {
-			return this.buffer.numberOfChannels || pcm.defaults.channels
+			return this.buffer.numberOfChannels
 		}
 	},
 	sampleRate: {
@@ -214,7 +143,7 @@ Object.defineProperties(Audio.prototype, {
 			throw Error('Unimplemented.')
 		},
 		get: function () {
-			return this.buffer.sampleRate || pcm.defaults.sampleRate
+			return this.buffer.sampleRate || 44100
 		}
 	},
 	duration: {
@@ -247,6 +176,65 @@ Object.defineProperties(Audio.prototype, {
 	}
 })
 
+//load audio from remote/local url
+Audio.load = function (source, callback) {
+	source = resolvePath(source, 3)
+
+	//load cached version, if any
+	if (this.cache && Audio.cache[source]) {
+		//if source is cached but loading - just clone when loaded
+
+		this.promise = Audio.cache[source].then(success, error)
+	}
+
+	//multiple sources
+	else if (Array.isArray(source)) {
+		let items = []
+		//make sure every array item audio instance is created and loaded
+		for (let i = 0; i < source.length; i++) {
+			let a = source[i]
+			items[i] = Audio.isAudio(a) ? a : Audio(a, options)
+		}
+
+		//then do promise once all loaded
+		this.promise = Promise.all(source).then(success, error)
+	}
+
+	else {
+		//load remote source
+		this.promise = load(source).then(audioBuffer => {
+			this.insert(audioBuffer)
+			onload && onload(null, this)
+			this.emit('load', this)
+		}, err => {
+			console.log(err)
+			onload && onload(err)
+			this.emit('error', err)
+		})
+
+		//save promise to cache
+		if (this.cache) {
+			Audio.cache[source] = this
+		}
+	}
+}
+
+Audio.from = function () {
+
+}
+
+Audio.decode = function () {
+		//enforce arraybuffer
+		//FIXME: it is possible to do direct reading of arrays via pcm.toAudioBuffer
+		if (isBuffer(source)) {
+			source = b2ab(source)
+		}
+		this.promise = load(source).then(audioBuffer => {
+			this.insert(audioBuffer)
+			success(audioBuffer)
+		}, error)
+
+}
 
 //insert new data at the offset
 Audio.prototype.insert = function (time, source, options) {
@@ -354,13 +342,6 @@ Audio.prototype.get = function (time, duration, options) {
 		}
 		return data
 	}
-}
-
-//resolved once promise is resolved
-Audio.prototype.then = function (success, error, progress) {
-	return this.promise.then(() => {
-		success.call(this.promise, this)
-	}, error, progress)
 }
 
 

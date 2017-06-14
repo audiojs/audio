@@ -174,10 +174,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 
 **1. [Creation](#creation)**
 
-* [ ] [new Audio(src, opts?, cb?)]()
-* [ ] [Audio.constant(dur, val=0, opts?)]()
-* [ ] [Audio.noise(dur, type?, opts?)]()
-* [ ] [Audio.periodic(dur, freq, type?, opts?)]()
+* [x] [new Audio(src, opts?, cb?)]()
 * [ ] [Audio.from(data, opts?)]()
 * [ ] [Audio.decode(buf, opts?)]()
 * [ ] [Audio.load(url, opts?)]()
@@ -217,7 +214,6 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [ ] [audio.get(t?, dur?, opts?)]()
 * [ ] [audio.set(t?, data, opts?)]()
 * [ ] [audio.insert(t?, data, opts?)]()
-* [ ] [audio.append(first, second, ...)]()
 * [ ] [audio.remove(t?, dur, opts?)]()
 * [ ] [audio.slice(t?, dur?, opts?)]()
 * [ ] [audio.trim(opts?)]()
@@ -236,17 +232,22 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [ ] [audio.overlay(audio, opts?)]()
 * [ ] [audio.scale(amt, opts?)]()
 * [ ] [audio.process(fn, opts?)]()
+* [ ] [audio.map(t?, dur?, map, opts?)]()
+* [ ] [audio.constant(t?, dur?, val=0, opts?)]()
+* [ ] [audio.noise(t?, dur?, type?, opts?)]()
+* [ ] [audio.periodic(t?, dur?, freq, type?, opts?)]()
 
 **6. [Utilities](#utilities)**
 
-* [ ] [audio.then(succ, err)]()
 * [ ] [audio.on(evt, cb)]()
 * [ ] [audio.once(evt, cb)]()
 * [ ] [audio.off(evt, cb)]()
 * [ ] [audio.save(name, opts?, cb?)]()
 * [ ] [Audio.isAudio(a)]()
-* [ ] [Audio.fromDb(vol)]()
-* [ ] [Audio.toDb(vol)]()
+* [ ] [Audio.gain(db)]()
+* [ ] [Audio.db(gain)]()
+* [ ] [Audio.time(offset)]()
+* [ ] [Audio.offset(time)]()
 
 
 ## Creation
@@ -284,101 +285,24 @@ let joinedAudio = new Audio([blankAudio, rawAudio, bufAudio], {channels: 2})
 
 | Property | Description | Default |
 |---|---|---|
-| `channels` | _Number_ or _Array_, indicating number of channels or source channels layout. | `source` number of channels or `1` |
+| `channels` | _Number_ or _Array_, indicating number of channels or source channels layout. | `source` channels or `1` |
 | `context` | Web audio context instance. | [`audio-context`](https://github.com/audiojs/audio-context) |
 | `stats` | Track statistics for metrics. Increases memory consumption 3 times. | `false` |
-| `offset` | Start with the defined offset in the source. Comes handy in `Audio.periodic()` constructor.  | `0` |
+| `length` | Ensure the length of the resulting audio, longer source will be cropped, shorter source will be padded | `source` length |
 
 The options are applicable to every audio constructor below.
 
 ---
 
 
-### `Audio.constant(duration, value=0, options?)`
-
-Create `audio` instance with pefilled constant `value` of the `duration`. Constant value is expected to be from `-1..1` range, anything over it is considered clipping.
-
-```js
-// Create stereo digital copy of the masterpiece 4:33
-let recording = new Audio(4*60 + 33, 2)
-```
-
-**Related**
-
-* [ConstantSourceNode](https://developer.mozilla.org/en-US/docs/Web/API/ConstantSourceNode)
-
----
-
-
-### `Audio.noise(duration, type='white', options?)`
-
-Create `audio` instance filled with noise of specific `type`.
-
-```js
-// Create 5 seconds of pink noise
-let noise = Audio.noise(5, 'pink', {channels: 2})
-
-noise.play({loop: true})
-```
-
-| Type | Spectrum | Meaning |
-|---|---|---|
-| `'white'` | | Flat spectrum noise. See [wiki](https://en.wikipedia.org/wiki/White_noise). |
-| `'pink'` | | -3dB/octave. See [wiki](https://en.wikipedia.org/wiki/Pink_noise). |
-| `'brown'` | | -6dB/octave. See [wiki](https://en.wikipedia.org/wiki/Brownian_noise). |
-| `'blue'` | | +3dB/octave. |
-| `'violet'` | | +6dB/octave. |
-| `'grey'` | | White noise weighted by loudness curve, see [a-weighting](https://github.com/audiojs/a-weighting). Also see [wiki](https://en.wikipedia.org/wiki/Grey_noise) |
-| `'green'` | | |
-
-**Related**
-
-* [audio-noise](https://github.com/audiojs/audio-noise)
-* [Colors of Noise](https://en.wikipedia.org/wiki/Colors_of_noise)
-
----
-
-
-### `Audio.periodic(duration, frequency, timbre|type='sine', options?)`
-
-Create `audio` instance by generating periodic waveform with `frequency` of the `duration`.
-
-```js
-// Create oscillated 440Hz sine wave
-let sine = Audio.periodic(2, 440)
-
-// Create custom timbre
-let timbre1 = Audio.periodic(2, 440, [0, 1, 0], {channels: 2})
-
-// Create from real/imaginary parts
-let timbre2 = Audio.periodic(3, 440, [[0,1], [1,1]])
-```
-
-| Type | Waveform | Meaning |
-|---|---|---|
-| `'sine'`, `'sin'`, `'cos'` | |  |
-| `'saw'`, `'sawtooth'` | |  |
-| `'pulse'` | |  |
-| `'square'`, `'rect'`, `'rectangle'` | |  |
-| `'triangle'`, `'tri'` | |  |
-| `[a0, a1, a2, ...]` | | Create periodic wave with defined harmonic coefficients based off base frequency |
-| `[[r0, r1, r2, ...], [i0, i1, i2, ...]]` | | Create periodic wave based off real/imaginary harmonic coefficients |
-
-**Related**
-
-* [PeriodicWave](https://developer.mozilla.org/en-US/docs/Web/API/PeriodicWave)
-
----
-
-
-### `Audio.from(data, map?, options?)`
+### `Audio.from(data|list, map?, options?)`
 
 Create audio from raw data, such as _Float32Array_, _Buffer_ or _AudioBuffer_.
 
 ---
 
 
-### `Audio.decode(buffer, (error, audio)=>{}?)`
+### `Audio.decode(buffer|list, (error, audio)=>{}?)`
 
 Create promise to decode `buffer` data.
 
@@ -392,9 +316,9 @@ new Audio(require('audio-lena/wav'), (err, wavAudio) => {
 ---
 
 
-### `Audio.load(url, (error, audio)=>{}?)`
+### `Audio.load(source|list, (error, audio)=>{}?)`
 
-Create promise to load and decode remote data.
+Create promise to load and decode remote data. If `source` is array, then all indicated elements will be loaded in parallel, decoded and concatenated, and callback will be invoked on finish.
 
 ```js
 // Load remote file, promise style
@@ -715,7 +639,7 @@ Apply stereo panning with audio compensation.
 ```js
 ```
 
-### `audio.removeDC()`
+### `audio.removeDCOffset()`
 
 Remove DC offset, if any.
 
@@ -731,19 +655,6 @@ Lay second audio over the first one at the indicated interval.
 
 Change playback rate, pitch will be shifted.
 
-### `audio.silence(time=0, duration?)`
-
-Fill indicated fragment with 0.
-
-### `audio.noise(time=0, duration?, {type:'white'})`
-
-Fill indicated fragment with type of noise. Available noises:
-
-* **white**
-* **brown**
-* **red**
-* **blue**
-
 ### `audio.process((buf, cb) => cb(buf), time=0, duration?, {channels, frame}?, onready?)`
 
 Process audio or part with _sync_ or _async_ function, see any [audiojs/audio-* modules](https://github.com/audiojs).
@@ -753,6 +664,86 @@ Process audio or part with _sync_ or _async_ function, see any [audiojs/audio-* 
 
 Options may define `{frame: frameSize}` to process chunks evenly.
 
+### `audio.map((value, time, idx, channel) => value, time=0, duration?, {channels, frame}?)`
+
+Map every value
+
+
+### `audio.constant(duration, value=0, options?)`
+
+Create `audio` instance with pefilled constant `value` of the `duration`. Constant value is expected to be from `-1..1` range, anything over it is considered clipping.
+
+```js
+// Create stereo digital copy of the masterpiece 4:33
+let recording = new Audio(4*60 + 33, 2)
+```
+
+**Related**
+
+* [ConstantSourceNode](https://developer.mozilla.org/en-US/docs/Web/API/ConstantSourceNode)
+
+---
+
+
+### `audio.noise(duration, type='white', options?)`
+
+Create `audio` instance filled with noise of specific `type`.
+
+```js
+// Create 5 seconds of pink noise
+let noise = Audio.noise(5, 'pink', {channels: 2})
+
+noise.play({loop: true})
+```
+
+| Type | Spectrum | Meaning |
+|---|---|---|
+| `'white'` | | Flat spectrum noise. See [wiki](https://en.wikipedia.org/wiki/White_noise). |
+| `'pink'` | | -3dB/octave. See [wiki](https://en.wikipedia.org/wiki/Pink_noise). |
+| `'brown'` | | -6dB/octave. See [wiki](https://en.wikipedia.org/wiki/Brownian_noise). |
+| `'blue'` | | +3dB/octave. |
+| `'violet'` | | +6dB/octave. |
+| `'grey'` | | White noise weighted by loudness curve, see [a-weighting](https://github.com/audiojs/a-weighting). Also see [wiki](https://en.wikipedia.org/wiki/Grey_noise) |
+| `'green'` | | |
+
+**Related**
+
+* [audio-noise](https://github.com/audiojs/audio-noise)
+* [Colors of Noise](https://en.wikipedia.org/wiki/Colors_of_noise)
+
+---
+
+
+### `audio.periodic(duration, frequency, timbre|type='sine', options?)`
+
+Create `audio` instance by generating periodic waveform with `frequency` of the `duration`.
+
+```js
+// Create oscillated 440Hz sine wave
+let sine = Audio.periodic(2, 440)
+
+// Create custom timbre
+let timbre1 = Audio.periodic(2, 440, [0, 1, 0], {channels: 2})
+
+// Create from real/imaginary parts
+let timbre2 = Audio.periodic(3, 440, [[0,1], [1,1]])
+```
+
+| Type | Waveform | Meaning |
+|---|---|---|
+| `'sine'`, `'sin'`, `'cos'` | |  |
+| `'saw'`, `'sawtooth'` | |  |
+| `'pulse'` | |  |
+| `'square'`, `'rect'`, `'rectangle'` | |  |
+| `'triangle'`, `'tri'` | |  |
+| `[a0, a1, a2, ...]` | | Create periodic wave with defined harmonic coefficients based off base frequency |
+| `[[r0, r1, r2, ...], [i0, i1, i2, ...]]` | | Create periodic wave based off real/imaginary harmonic coefficients |
+
+**Related**
+
+* [PeriodicWave](https://developer.mozilla.org/en-US/docs/Web/API/PeriodicWave)
+
+---
 
 ## Utilities
 
