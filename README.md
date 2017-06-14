@@ -431,9 +431,9 @@ Ideas:
 
 ## Manipulations
 
-### `audio.get(time=0, duration?, {start, end, channels}?)`
+### `audio.get(time=0, duration?, {start, end, channels, type}?)`
 
-Get audio data as a list of float arrays for indicated range. Range can be defined whether as `time` and `duration` or `start` and `end` offsets. To get single channel data, `channels` can be defined as a number.
+Get audio data as a list of float arrays or _AudioBuffer_ for indicated range. Range can be defined whether as `time` and `duration` or `start` and `end` offsets. To get single channel data, `channels` can be defined as a number.
 
 ```js
 //get channels data
