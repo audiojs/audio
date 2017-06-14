@@ -31,6 +31,36 @@ t('create duration', t => {
 	t.end();
 });
 
+t('create duration with channels', t => {
+	let a = Audio(4, 3)
+
+	t.equal(a.length, 4*44100);
+	t.equal(a.duration, 4);
+	t.equal(a.channels, 3);
+
+	t.end()
+})
+
+t('create length from options', t => {
+	let a = Audio({length: 1024, channels: 3})
+
+	t.equal(a.length, 1024)
+	t.equal(a.channels, 3)
+
+	t.end()
+})
+
+t('create duration from options', t => {
+	let a = Audio({duration: 1, channels: 3, rate: 70000})
+
+	t.equal(a.length, 70000)
+	t.equal(a.sampleRate, 70000)
+	t.equal(a.duration, 1)
+	t.equal(a.channels, 3)
+
+	t.end()
+})
+
 t('create multiple instances', t => {
 	let a = Audio([
 		2,
