@@ -93,15 +93,23 @@ function Audio(source, options) {
 
 	//multiple sources
 	else if (Array.isArray(source)) {
-		//make sure every array item audio instance is created and loaded
-		let items = [], channels = 1
-		for (let i = 0; i < source.length; i++) {
-			let subsource = Audio.isAudio(source[i]) ? source[i].buffer : Audio(source[i], options).buffer
-			items.push(subsource)
-			channels = Math.max(subsource.numberOfChannels, channels)
+		//if nested arrays data - probably it is channels layout
+		if (Array.isArray(source[0]) || ArrayBuffer.isView(source[0])) {
+			channels = source.length
+			this.buffer = new AudioBufferList(source, channels, sampleRate)
 		}
 
-		this.buffer = new AudioBufferList(items, {numberOfChannels: channels, sampleRate: sampleRate})
+		else {
+			//make sure every array item audio instance is created and loaded
+			let items = [], channels = 1
+			for (let i = 0; i < source.length; i++) {
+				let subsource = Audio.isAudio(source[i]) ? source[i].buffer : Audio(source[i], options).buffer
+				items.push(subsource)
+				channels = Math.max(subsource.numberOfChannels, channels)
+			}
+
+			this.buffer = new AudioBufferList(items, {numberOfChannels: channels, sampleRate: sampleRate})
+		}
 	}
 
 	//audiobufferlist case
