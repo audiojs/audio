@@ -288,8 +288,8 @@ let optAudio = new Audio({
 | _Audio_ | Other audio instance is cloned |
 | _Number_ | Silence of the indicated duration, in seconds |
 | _FloatArray_ | Raw data with planar layout `[l, l, l, l, ... r, r, r, r, ...]` |
-| _Array_ with arrays | Raw channels data `[[l, l, l...], [r, r, r...]]` |
-| _Array_ with sources | List of any sources to concat |
+| _Array<Array>_ | Raw channels data `[[l, l, l...], [r, r, r...]]` |
+| _Array<Source>_ | Join multiple sources |
 
 #### Options
 
