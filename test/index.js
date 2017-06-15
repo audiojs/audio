@@ -107,6 +107,16 @@ t('create from raw array', t => {
 	t.end();
 });
 
+t('create from channels data', t => {
+	let src = Audio([new Float32Array([0,0,0]), [1,1,1], [2,2,2]])
+
+	t.equal(src.length, 3)
+	t.equal(src.channels, 3)
+	t.equal(src.sampleRate, 44100)
+
+	t.end()
+})
+
 t.skip('create from buffer', t => {
 	Promise.all([
 	// Audio(lena.wav).then(a => {

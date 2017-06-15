@@ -29,13 +29,13 @@ Load `./sample.mp3`, trim, normalize, fade in, fade out, save:
 ```js
 const Audio = require('audio')
 
-Audio('./sample.mp3').on('load', audio =>
-    audio
-        .trim()
-        .normalize()
-        .fade(.5)
-        .fade(-.5)
-        .save('sample-edited.wav')
+Audio.load('./sample.mp3').then(audio =>
+  audio
+    .trim()
+    .normalize()
+    .fade(.5)
+    .fade(-.5)
+    .save('sample-edited.wav')
 )
 ```
 
@@ -269,6 +269,9 @@ let rawAudio = new Audio(new Float32Array([0,1,.2,.3,...]), {channels: 2})
 // Create from multiple sources
 let joinedAudio = new Audio([blankAudio, rawAudio, bufAudio], {channels: 2})
 
+// Create from channels data
+let chData = new Audio([[0,0,0], [.1,.1,.1], [.2,.2,.2]])
+
 // Create from fully-defined options
 let optAudio = new Audio({
   channels: 3,
@@ -285,7 +288,8 @@ let optAudio = new Audio({
 | _Audio_ | Other audio instance is cloned |
 | _Number_ | Silence of the indicated duration, in seconds |
 | _FloatArray_ | Raw data with planar layout `[l, l, l, l, ... r, r, r, r, ...]` |
-| _Array_ | List of any sources above to concat |
+| _Array_ with arrays | Raw channels data `[[l, l, l...], [r, r, r...]]` |
+| _Array_ with sources | List of any sources to concat |
 
 #### Options
 
