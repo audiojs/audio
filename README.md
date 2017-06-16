@@ -175,9 +175,8 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 **1. [Creation](#creation)**
 
 * [x] [new Audio(src?, opts?)]()
-* [ ] [Audio.from(data, opts?)]()
-* [ ] [Audio.decode(buf, opts?)]()
 * [ ] [Audio.load(url, opts?)]()
+* [ ] [Audio.decode(buf, opts?)]()
 * [ ] [Audio.record(stream, opts?)]()
 
 **2. [Properties](#properties)**
@@ -301,13 +300,6 @@ let optAudio = new Audio({
 | `length`, `duration` | Ensure the length or duration, duration is in seconds | `source` length |
 | `sampleRate`, `rate` | Ensure sample rate | `source` sample rate |
 | `data` | Source data | `null` |
-
----
-
-
-### `Audio.from(source, map?, options?)`
-
-Create audio from raw data, such as _Float32Array_, _Buffer_ or _AudioBuffer_. Source can be all the same as in the constructor. `map` function optionally can be applied to map provided values, it has the signature `(value, idx, channel, time) => value`.
 
 ---
 
