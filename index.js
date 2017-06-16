@@ -119,7 +119,7 @@ function Audio(source, options) {
 
 	//other Audio instance
 	else if (Audio.isAudio(source)) {
-		this.buffer = audio.buffer.clone()
+		this.buffer = source.buffer.clone()
 	}
 
 	//null-case
@@ -220,57 +220,62 @@ Audio.load = function (source, callback) {
 		if (Audio.cache[source]) {
 			//if source is cached but loading - just clone when loaded
 			if (isPromise(Audio.cache[source])) {
-				Audio.cache[source].then(audio => {
+				promise = Audio.cache[source].then(audio => {
 					audio = Audio(audio)
 					callback && callback(null, audio)
+					return Promise.resolve(audio)
 				}, error => {
 					callback && callback(error)
+					return Promise.reject(error)
+				})
+				.catch(error => {
+					callback && callback(error)
+					return Promise.reject(error)
 				})
 			}
+			// else clone right ahead
 			else {
-				promise = new Promise((ok, nok) => {
-					ok(Audio(Audio.cache[source]))
-				}).then(audio => {
-					callback && callback(null, audio)
-				}, err => {
-					callback(err)
-				})
+				promise = Promise.resolve(Audio(Audio.cache[source]))
 			}
 		}
 
-		//multiple sources
-		else if (Array.isArray(source)) {
-			let items = []
-
-			//make sure every array item audio instance is created and loaded
-			for (let i = 0; i < source.length; i++) {
-				let a = source[i]
-				items[i] = typeof a === 'string' ? Audio.load(a) : new Promise((ok, nok) => ok(Audio(a)))
-			}
-
-			//then do promise once all loaded
-			promise = Promise.all(source).then((list) => {
-				callback && callback(null, list)
-			}, error => {
-				callback && callback(error)
-			})
-		}
-
-		//load source from path
+		//load source by path
 		else {
 			promise = load(source).then(audioBuffer => {
 				let audio = Audio(audioBuffer)
 				Audio.cache[source] = audio
 				callback && callback(null, audio)
-				return audio
+				return Promise.resolve(audio)
 			}, err => {
 				callback && callback(err)
 				return err
+			})
+			.catch(error => {
+				callback && callback(error)
+				return Promise.reject(error)
 			})
 
 			//save promise to cache
 			Audio.cache[source] = promise
 		}
+	}
+
+	//multiple sources
+	else if (Array.isArray(source)) {
+		let items = []
+
+		//make sure every array item audio instance is created and loaded
+		for (let i = 0; i < source.length; i++) {
+			let a = source[i]
+			items[i] = typeof a === 'string' ? Audio.load(a) : new Promise((ok, nok) => ok(Audio(a)))
+		}
+
+		//then do promise once all loaded
+		promise = Promise.all(source).then((list) => {
+			callback && callback(null, list)
+		}, error => {
+			callback && callback(error)
+		})
 	}
 
 	//fall back non-string sources to decode
