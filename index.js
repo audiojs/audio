@@ -250,8 +250,7 @@ Audio.load = function (source, callback) {
 
 			//then do promise once all loaded
 			promise = Promise.all(source).then((list) => {
-				let audio = Audio(list)
-				callback && callback(null, audio)
+				callback && callback(null, list)
 			}, error => {
 				callback && callback(error)
 			})
