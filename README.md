@@ -285,10 +285,13 @@ let optAudio = new Audio({
 | _AudioBuffer_ | Create audio based on audio buffer (that is [web-audio-api audio-buffer](https://developer.mozilla.org/en-US/docs/Web/API/AudioBuffer)). |
 | _AudioBufferList_ | Create audio based on audio-buffer-list. |
 | _Audio_ | Clone passed audio instance. |
-| _Number_ | create silent audio of the indicated duration, in seconds. |
+| _Number_ | Create silent audio of the indicated duration, in seconds. |
 | _FloatArray_ | Read raw data with planar layout `[l, l, l, l, ... r, r, r, r, ...]`. |
 | _Array_ of _Arrays_ | Read raw channels data `[[l, l, l...], [r, r, r...]]`. |
 | _Array_ of anything | Join multiple various sources together. |
+| TODO: ndsamples | |
+| TODO: ndarray | |
+| TODO: ArrayBuffer, Buffer | |
 
 #### Options
 
@@ -311,7 +314,7 @@ let optAudio = new Audio({
 
 ### Audio.load(source, (error, audio)=>{}?)
 
-Load and decode local or remote audio file, a promise is returned. Callback is invoked when data is ready.
+Load and decode local or remote audio file or list of files. Callback is invoked when all data is loaded and decoded. Returns promise.
 
 ```js
 // Load remote file, promise style
@@ -324,10 +327,10 @@ Audio.load('./chopin.mp3', (error, audio) => {
 
 // Load multiple sources
 Audio.load([
-	'./intro.wav',
-	'https://github.com/audiojs/audio/raw/master/test/samples/lena.mp3',
-	Audio.load('./outro.wav'),
-	Audio(2)
+  './intro.wav',
+  'https://github.com/audiojs/audio/raw/master/test/samples/lena.mp3',
+  Audio.load('./outro.wav'),
+  Audio(2)
 ]).then(items => {
   //join items
   Audio(items)
@@ -340,7 +343,7 @@ Audio.load([
 |---|---|
 | Local path: `./*`, `/*`, `../*`, `C:\*` etc. | Load or read local file relative to caller module's directory, ie. from the place where `Audio.load()` is invoked. In browser it is relative to current URL. |
 | Remote path: `http[s]://*` | Load and decode remote file. |
-| _Array \<*\>_ | Listed sources are loaded in parallel and callback is invoked when all sources are ready. |
+| _Array_ or anything | Listed sources are loaded in parallel and callback is invoked when all sources are ready. |
 
 #### Related APIs
 
