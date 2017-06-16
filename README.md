@@ -306,7 +306,7 @@ let optAudio = new Audio({
 
 ### `Audio.load(source, (error, audio)=>{}?)`
 
-Load and decode remote data, a promise is returned. Callback is invoked when data is ready.
+Load and decode local or remote audio file, a promise is returned. Callback is invoked when data is ready.
 
 ```js
 // Load remote file, promise style
@@ -322,9 +322,8 @@ Audio.load('./chopin.mp3', (error, audio) => {
 })
 
 // Load multiple sources
-Audio.load(['./intro.mp3', './content.mp3', './']).then(items => {
-	//items contain loaded and decoded audio instances
-	//join them like so
+Audio.load(['./intro.wav', './content.mp3', './outro.wav']).then(items => {
+	//join items
 	Audio(items)
 })
 ```
@@ -333,8 +332,8 @@ Audio.load(['./intro.mp3', './content.mp3', './']).then(items => {
 
 | Type | Meaning |
 |---|---|
-| `./*`, `/*`, `../*`, `C:\*` | Load local file relative to caller module's directory. |
-| `http[s]://*` | Load remote file. |
+| Local path: `./*`, `/*`, `../*`, `C:\*` | Load or read local file relative to caller module's directory, ie. from the place where `Audio.load()` is invoked. In browser it is relative to current URL. |
+| Remote path: `http[s]://*` | Load and decode remote file. |
 | _Array_ | Listed sources are loaded and decoded in parallel and callback is invoked when all sources are ready. |
 
 #### Related APIs
