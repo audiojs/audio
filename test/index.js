@@ -237,7 +237,7 @@ t('load multiple sources', t => {
 	})
 })
 
-t.only('load multiple mixed', t => {
+t('load multiple mixed', t => {
 	Audio.load(localWav).then(a => {
 		return Audio.load([a, Audio.load(remoteMp3), localWav, Audio(2), util.create(44100)])
 	})
