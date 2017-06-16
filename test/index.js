@@ -11,7 +11,9 @@ const util = require('audio-buffer-utils')
 
 
 let remoteMp3 = 'https://github.com/audiojs/audio/raw/master/test/samples/lena.mp3'
+let remoteWav = 'https://github.com/audiojs/audio/raw/master/test/samples/lena.wav'
 let localWav = './samples/lena.wav'
+let localMp3 = './samples/lena.mp3'
 
 
 t('create empty instance', t => {
@@ -154,22 +156,17 @@ t('load wav', t => {
 	})
 })
 
-t('load flac')
-
-t('load mp3')
-
-t('load ogg')
-
-t.only('load remote', t => {
+t('load remote', t => {
 	Audio.load(remoteMp3, (err, a) => {
 		t.ok(a)
+		t.equal(~~a.duration, 12)
 		t.end()
 	})
 })
 
 t('load callback', t => {
-	Audio.load('./chopin.mp3', (err, audio) => {
-		t.equal(audio.channels, 2)
+	Audio.load(localMp3, (err, audio) => {
+		t.equal(audio.channels, 1)
 		t.end();
 	}, err => {
 		t.fail(err)
@@ -226,16 +223,40 @@ t('load error', t => {
 	})
 })
 
-t.skip('load multiple sources', t => {
-	Audio.load(['./chopin.mp3'])
+t('load multiple sources', t => {
+	Audio.load([localMp3, remoteMp3, localWav]).then(list => {
+		t.equal(list.length, 3)
+
+		let a = Audio(list)
+
+		t.equal(~~a.duration, 36)
+
+		t.end()
+	}, err => {
+		t.fail(err)
+	})
 })
 
-t('load multiple mixed', t => {
-
+t.only('load multiple mixed', t => {
+	Audio.load(localWav).then(a => {
+		return Audio.load([a, Audio.load(remoteMp3), localWav, Audio(2), util.create(44100)])
+	})
+	.then(list => {
+		let audio = Audio(list)
+		t.equal(~~audio.duration, 36 + 2 + 1)
+		t.end()
+	}, err => {
+		t.fail(err)
+	})
 })
 
-t('load multiple with error', t => {
-
+t('load multiple error', t => {
+	Audio.load([localMp3, 'xxx']).then(list => {
+		t.fail()
+	}, err => {
+		t.ok(err)
+		t.end()
+	})
 })
 
 t.skip('clone instance', t => {
