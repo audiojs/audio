@@ -47,7 +47,10 @@
     "is-audio-buffer": "^1.0.11",
     "is-browser": "^2.0.1",
     "is-buffer": "^1.1.5",
+    "is-path": "^1.0.2",
     "is-promise": "^2.1.0",
+    "is-relative": "^0.2.1",
+    "is-url": "^1.2.2",
     "negative-index": "^1.0.2",
     "save-file": "^1.1.3"
   }

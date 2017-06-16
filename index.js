@@ -21,9 +21,10 @@ const AudioBuffer = require('audio-buffer')
 const AudioBufferList = require('audio-buffer-list')
 const remix = require('audio-buffer-remix')
 const isAudioBuffer = require('is-audio-buffer')
-const isRelative = require('is-relative')
 const isPlainObj = require('is-plain-obj')
+const isRelative = require('is-relative')
 const getContext = require('audio-context')
+const isURL = require('is-url')
 
 
 module.exports = Audio
@@ -497,7 +498,7 @@ Audio.prototype.clone = function (deep) {
 
 
 function resolvePath (fileName, depth=2) {
-	if (!isBrowser && isRelative(fileName)) {
+	if (!isBrowser && isRelative(fileName) && !isURL(fileName)) {
 		var callerPath = callsites()[depth].getFileName()
 		fileName = path.dirname(callerPath) + path.sep + fileName
 		fileName = path.normalize(fileName)
