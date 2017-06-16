@@ -150,8 +150,17 @@ t('load wav', t => {
 	})
 })
 
-t('load remote', t => {
-	Audio.load('')
+t('load flac')
+
+t('load mp3')
+
+t('load ogg')
+
+t.only('load remote', t => {
+	Audio.load('https://github.com/audiojs/audio/raw/master/test/sample.flac', (err, a) => {
+		t.ok(a)
+		t.end()
+	})
 })
 
 t('load callback', t => {
