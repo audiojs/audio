@@ -318,7 +318,7 @@ Load and decode local or remote audio file or list of files. Callback is invoked
 
 ```js
 // Load remote file, promise style
-new Audio('https://github.com/audiojs/audio/raw/master/test/samples/lena.mp3').then(audio => {}, error => {})
+new Audio('https://remote.url/file.mp3').then(audio => {}, error => {})
 
 // Load local file, callback style
 Audio.load('./chopin.mp3', (error, audio) => {
@@ -328,7 +328,7 @@ Audio.load('./chopin.mp3', (error, audio) => {
 // Load multiple sources
 Audio.load([
   './intro.wav',
-  'https://github.com/audiojs/audio/raw/master/test/samples/lena.mp3',
+  'https://remote.url/file.mp3',
   Audio.load('./outro.wav'),
   Audio(2)
 ]).then(items => {
@@ -343,7 +343,8 @@ Audio.load([
 |---|---|
 | Local path: `./*`, `/*`, `../*`, `C:\*` etc. | Load or read local file relative to caller module's directory, ie. from the place where `Audio.load()` is invoked. In browser it is relative to current URL. |
 | Remote path: `http[s]://*` | Load and decode remote file. |
-| _Array_ or anything | Listed sources are loaded in parallel and callback is invoked when all sources are ready. |
+| TODO: base64 string | |
+| _Array_ of anything | Listed sources are loaded in parallel and callback is invoked when all sources are ready. |
 
 #### Related APIs
 
@@ -352,7 +353,7 @@ Audio.load([
 ---
 
 
-### Audio.decode(buffer|list, (error, audio)=>{}?)
+### Audio.decode(source, (error, audio)=>{}?)
 
 Create promise to decode `buffer` data.
 encoded binary data in _ArrayBuffer_, _Buffer_, _Blob_ or [_File_](https://developer.mozilla.org/en/docs/Web/API/File). [audio-loader](https://github.com/audiojs/audio-loader) and [audio-decode](https://github.com/audiojs/audio-decode) are used internally.
@@ -364,14 +365,42 @@ new Audio(require('audio-lena/wav'), (err, wavAudio) => {
 })
 ```
 
+#### Source
+
+TODO
+
+| Type | Meaning |
+|---|---|
+| _ArrayBuffer_ | |
+| _Buffer_ | |
+| _Blob_ | |
+| _File_ | |
+| base64 string | |
+
+
 ---
 
-### Audio.record(stream, (error, audio)={}?)
+### Audio.record(source, (error, audio)={}?)
 
 Create promise to record stream-ish source. Promise recieves `progress` clause.
 
 ```js
 ```
+
+#### Source
+
+TODO
+
+| Type | Meaning |
+|---|---|
+| _Stream_ | |
+| _pull-stream_ | |
+| _Function_ | |
+| _MediaStream_ | |
+| _WebAudioNode_ | |
+| _HTMLAudioElement_, _HTMLMediaElement_ | |
+| _Array_ with sources | |
+
 
 <!--
 
