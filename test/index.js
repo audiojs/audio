@@ -150,7 +150,14 @@ t('load wav', t => {
 	})
 });
 
-t('load callback')
+t('load callback', t => {
+	Audio.load('./chopin.mp3', (err, audio) => {
+		t.equal(audio.channels, 2)
+		t.end();
+	}, err => {
+		t.fail(err)
+	})
+})
 
 t('load caching', t => {
 	let a
@@ -163,7 +170,7 @@ t('load caching', t => {
 
 	//load once first item is loaded
 	Audio.load('./lena.wav').then((audio) => {
-		t.equal(Object.keys(Audio.cache).length, 1)
+		t.ok(Object.keys(Audio.cache).length)
 		t.ok(Audio.isAudio(audio))
 		t.notEqual(audio, a)
 	})
@@ -179,7 +186,27 @@ t('load caching', t => {
 })
 
 t('load error', t => {
-	t.end()
+	t.plan(5)
+
+	Audio.load('nonexistent', (err, audio) => {
+		t.ok(err)
+	})
+
+	Audio.load('./', (err, audio) => {
+		t.ok(err)
+	})
+
+	Audio.load('../', (err, audio) => {
+		t.ok(err)
+	})
+
+	Audio.load('/', (err, audio) => {
+		t.ok(err)
+	})
+
+	Audio.load('*').then(ok => {}, err => {
+		t.ok(err)
+	})
 })
 
 t('load multiple sources')

@@ -228,10 +228,6 @@ Audio.load = function (source, callback) {
 					callback && callback(error)
 					return Promise.reject(error)
 				})
-				.catch(error => {
-					callback && callback(error)
-					return Promise.reject(error)
-				})
 			}
 			// else clone right ahead
 			else {
@@ -246,11 +242,7 @@ Audio.load = function (source, callback) {
 				Audio.cache[source] = audio
 				callback && callback(null, audio)
 				return Promise.resolve(audio)
-			}, err => {
-				callback && callback(err)
-				return err
-			})
-			.catch(error => {
+			}, error => {
 				callback && callback(error)
 				return Promise.reject(error)
 			})
