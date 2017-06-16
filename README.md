@@ -340,7 +340,7 @@ Audio.load([
 |---|---|
 | Local path: `./*`, `/*`, `../*`, `C:\*` etc. | Load or read local file relative to caller module's directory, ie. from the place where `Audio.load()` is invoked. In browser it is relative to current URL. |
 | Remote path: `http[s]://*` | Load and decode remote file. |
-| _Array \<*\>_ | Listed sources are loaded in parallel and callback is invoked when all sources are ready. Sources can be _Audio_ instances,  |
+| _Array \<*\>_ | Listed sources are loaded in parallel and callback is invoked when all sources are ready. |
 
 #### Related APIs
 
