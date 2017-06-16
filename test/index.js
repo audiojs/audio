@@ -9,11 +9,10 @@ const fs = require('fs')
 const AudioBufferList = require('audio-buffer-list')
 const util = require('audio-buffer-utils')
 
-
-let remoteMp3 = 'https://github.com/audiojs/audio/raw/master/test/samples/lena.mp3'
-let remoteWav = 'https://github.com/audiojs/audio/raw/master/test/samples/lena.wav'
-let localWav = './samples/lena.wav'
-let localMp3 = './samples/lena.mp3'
+let remoteMp3 = 'https://raw.githubusercontent.com/audiojs/audio/master/test/samples/lena.mp3'
+let remoteWav = 'https://raw.githubusercontent.com/audiojs/audio/master/test/samples/lena.wav'
+let localWav = !isBrowser ? './samples/lena.wav' : './test/samples/lena.wav'
+let localMp3 = !isBrowser ? './samples/lena.mp3' : './test/samples/lena.mp3'
 
 
 t('create empty instance', t => {
