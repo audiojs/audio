@@ -10,7 +10,13 @@ const AudioBufferList = require('audio-buffer-list')
 const util = require('audio-buffer-utils')
 
 
+t('decode base64')
 
-require('./Audio.create')
-require('./Audio.load')
-require('./Audio.decode')
+t('decode File mp3')
+t('decode File flac')
+t('decode File alac m4c')
+t('decode File alac the other one')
+t('decode File aac')
+t('decode File wav')
+
+t('decode Blob')
