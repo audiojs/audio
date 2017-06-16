@@ -140,7 +140,17 @@ t.skip('create from buffer', t => {
 	})
 })
 
-t.skip('Audio.load caching', t => {
+t('load wav', t => {
+	Audio.load('./lena.wav').then(audio => {
+		t.equal(audio.length, 541184)
+		t.equal(audio.channels, 1)
+		t.end();
+	}, err => {
+		t.fail(err)
+	})
+});
+
+t.only('load caching', t => {
 	let a = Audio('./chopin.mp3').on('load', (audio) => {
 		t.ok(audio)
 	})
@@ -151,12 +161,9 @@ t.skip('Audio.load caching', t => {
 	})
 });
 
+t('load multiple sources')
 
-t.skip('Audio.load', t => {
-	Audio('./lena.wav')
-
-	t.end();
-});
+t('load multiple mixed')
 
 t.skip('clone instance', t => {
 	let audio = Audio();

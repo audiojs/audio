@@ -5,8 +5,6 @@
  */
 'use strict'
 
-const Emitter = require('events')
-const inherits = require('inherits')
 const load = require('audio-loader')
 const extend = require('object-assign')
 const nidx = require('negative-index')
@@ -27,11 +25,8 @@ const isRelative = require('is-relative')
 const isPlainObj = require('is-plain-obj')
 const getContext = require('audio-context')
 
+
 module.exports = Audio
-
-
-//for events sake
-inherits(Audio, Emitter)
 
 
 //utilities
@@ -216,50 +211,77 @@ Object.defineProperties(Audio.prototype, {
 
 //load audio from remote/local url
 Audio.load = function (source, callback) {
-	source = resolvePath(source, 3)
+	let promise
 
-	//load cached version, if any
-	if (this.cache && Audio.cache[source]) {
-		//if source is cached but loading - just clone when loaded
+	if (typeof source === 'string') {
+		source = resolvePath(source, 2)
 
-		this.promise = Audio.cache[source].then(success, error)
-	}
-
-	//multiple sources
-	else if (Array.isArray(source)) {
-		let items = []
-		//make sure every array item audio instance is created and loaded
-		for (let i = 0; i < source.length; i++) {
-			let a = source[i]
-			items[i] = Audio.isAudio(a) ? a : Audio(a, options)
+		//load cached version, if any
+		if (Audio.cache[source]) {
+			//if source is cached but loading - just clone when loaded
+			if (isPromise(Audio.cache[source])) {
+				Audio.cache[source].then(audio => {
+					audio = Audio(audio)
+					callback && callback(null, audio)
+				}, error => {
+					callback && callback(error)
+				})
+			}
+			else {
+				promise = new Promise((ok, nok) => {
+					ok(Audio(Audio.cache[source]))
+				}).then(audio => {
+					callback && callback(null, audio)
+				}, err => {
+					callback(err)
+				})
+			}
 		}
 
-		//then do promise once all loaded
-		this.promise = Promise.all(source).then(success, error)
+		//multiple sources
+		else if (Array.isArray(source)) {
+			let items = []
+
+			//make sure every array item audio instance is created and loaded
+			for (let i = 0; i < source.length; i++) {
+				let a = source[i]
+				items[i] = typeof a === 'string' ? Audio.load(a) : new Promise((ok, nok) => ok(Audio(a)))
+			}
+
+			//then do promise once all loaded
+			promise = Promise.all(source).then((list) => {
+				let audio = Audio(list)
+				callback && callback(null, audio)
+			}, error => {
+				callback && callback(error)
+			})
+		}
+
+		//load source from path
+		else {
+			promise = load(source).then(audioBuffer => {
+				let audio = Audio(audioBuffer)
+				Audio.cache[source] = audio
+				callback && callback(null, audio)
+				return audio
+			}, err => {
+				callback && callback(err)
+				return err
+			})
+
+			//save promise to cache
+			Audio.cache[source] = promise
+		}
 	}
 
+	//fall back non-string sources to decode
 	else {
-		//load remote source
-		this.promise = load(source).then(audioBuffer => {
-			this.insert(audioBuffer)
-			onload && onload(null, this)
-			this.emit('load', this)
-		}, err => {
-			console.log(err)
-			onload && onload(err)
-			this.emit('error', err)
-		})
-
-		//save promise to cache
-		if (this.cache) {
-			Audio.cache[source] = this
-		}
+		promise = Audio.decode(source, callback)
 	}
+
+	return promise
 }
 
-Audio.from = function () {
-
-}
 
 Audio.decode = function () {
 		//enforce arraybuffer
