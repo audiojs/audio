@@ -326,14 +326,8 @@ Audio.load('./chopin.mp3', (error, audio) => {
 })
 
 // Load multiple sources
-Audio.load([
-  './intro.wav',
-  'https://remote.url/file.mp3',
-  Audio.load('./outro.wav'),
-  Audio(2)
-]).then(items => {
-  //join items
-  Audio(items)
+Audio.load([ './intro.wav', 'https://remote.url/file.mp3', Audio.load('./outro.wav'), Audio(2) ]).then(items => {
+  let joined = Audio(items)
 })
 ```
 
