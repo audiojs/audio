@@ -72,7 +72,7 @@ navigator.getUserMedia({audio: true}, stream =>	{
 });
 ```
 
-### `3. Record and download 2 seconds of web-audio experiment`
+### 3. Record and download 2 seconds of web-audio experiment
 
 ```js
 const Audio = require('audio')
@@ -251,7 +251,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 
 ## Creation
 
-### `let audio = new Audio(source?, channels|options?)`
+### let audio = new Audio(source?, channels|options?)
 
 Create `audio` instance from `source` with provided `options`.
 
@@ -304,7 +304,7 @@ let optAudio = new Audio({
 ---
 
 
-### `Audio.load(source, (error, audio)=>{}?)`
+### Audio.load(source, (error, audio)=>{}?)
 
 Load and decode local or remote audio file, a promise is returned. Callback is invoked when data is ready.
 
@@ -339,7 +339,7 @@ Audio.load(['./intro.wav', './content.mp3', './outro.wav']).then(items => {
 ---
 
 
-### `Audio.decode(buffer|list, (error, audio)=>{}?)`
+### Audio.decode(buffer|list, (error, audio)=>{}?)
 
 Create promise to decode `buffer` data.
 encoded binary data in _ArrayBuffer_, _Buffer_, _Blob_ or [_File_](https://developer.mozilla.org/en/docs/Web/API/File). [audio-loader](https://github.com/audiojs/audio-loader) and [audio-decode](https://github.com/audiojs/audio-decode) are used internally.
@@ -353,7 +353,7 @@ new Audio(require('audio-lena/wav'), (err, wavAudio) => {
 
 ---
 
-### `Audio.record(stream, (error, audio)={}?)`
+### Audio.record(stream, (error, audio)={}?)
 
 Create promise to record stream-ish source. Promise recieves `progress` clause.
 
@@ -370,65 +370,65 @@ Create promise to record stream-ish source. Promise recieves `progress` clause.
 
 ## Properties
 
-### `audio.buffer`
+### audio.buffer
 
 [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list) with audio data. Readable, writable.
 
-### `audio.channels`
+### audio.channels
 
 Number of channels. Changing this property will up-mix or down-mix channels, see interpretation table in [audio-buffer-remix](https://github.com/audiojs/audio-buffer-remix).
 
-### `audio.sampleRate`
+### audio.sampleRate
 
 Buffer sample rate. Changing this property will resample audio to target rate. (WIP)
 
-### `audio.duration`
+### audio.duration
 
 Buffer duration. Changing this property will trim or pad the data.
 
-### `audio.length`
+### audio.length
 
 Get total length of audio in samples.
 
 
 ## Playback
 
-### `audio.play(time=0, duration?, {rate, loop, volume}?, onended?)`
+### audio.play(time=0, duration?, {rate, loop, volume}?, onended?)
 
 Start playback from the indicated `start` time offset, invoke callback on end.
 
-### `audio.pause()`
+### audio.pause()
 
 Pause current playback. Calling `audio.play()` once again will continue from the point of pause.
 
-### `audio.muted`
+### audio.muted
 
 Mute playback not pausing it.
 
-### `audio.loop`
+### audio.loop
 
 Repeat playback when the end is reached.
 
-### `audio.rate`
+### audio.rate
 
 Playback rate, by default `1`.
 
-### `audio.volume`
+### audio.volume
 
 Playback volume, defaults to `1`.
 
-### `audio.paused`
+### audio.paused
 
 If playback is paused.
 
-### `audio.currentTime`
+### audio.currentTime
 
 Current playback time in seconds. Setting this value seeks the audio to the new time.
 
 
 ## Metrics
 
-### `audio.spectrum(time=0, options?)`
+### audio.spectrum(time=0, options?)
 
 Get array with spectral component magnitudes (magnitude is length of a [phasor](wiki) — real and imaginary parts). [fourier-transform](https://www.npmjs.com/package/fourier-transform) is used internally.
 
@@ -440,12 +440,12 @@ Possible `options`:
 | _channel_ | `0` | Channel number to get data for, `0` is left channel, `1` is right etc. |
 | _db_ | `false` | Convert resulting magnitudes from `0..1` range to decibels `-100..0`. |
 
-### `audio.loudness(time, duration)`
-### `audio.cepstrum(time, duration)`
-### `audio.average(time, duration)`
-### `audio.variance(time, duration)`
-### `audio.clip(time, duration)`
-### `audio.size(time, duration)`
+### audio.loudness(time, duration)
+### audio.cepstrum(time, duration)
+### audio.average(time, duration)
+### audio.variance(time, duration)
+### audio.clip(time, duration)
+### audio.size(time, duration)
 <!--
 Ideas:
 
@@ -458,7 +458,7 @@ Ideas:
 
 ## Manipulations
 
-### `audio.get(time=0, duration?, {start, end, channels, type}?)`
+### audio.get(time=0, duration?, {start, end, channels, type}?)
 
 Get audio data as a list of float arrays or _AudioBuffer_ for indicated range. Range can be defined whether as `time` and `duration` or `start` and `end` offsets. To get single channel data, `channels` can be defined as a number.
 
@@ -473,7 +473,7 @@ let [slChannel, srChannel] = audio.get(.5, 1, {channels: [2,3]})
 let rightChannelData = audio.get({channels: 1, start: -1000, end: 0})
 ```
 
-### `audio.set(data, time=0, {start, channels}?)`
+### audio.set(data, time=0, {start, channels}?)
 
 Write data to audio starting at the indicated time. `data` is one of [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Audio_, _FloatArray_ or list of _FloatArrays_. `data` and `time` can swap places for compatibility.
 
@@ -488,7 +488,7 @@ audio.set(audioCtx.createBuffer(2, 22050, 44100), .5, {channels: [2,3]})
 audio.set(new Float32Array(100).fill(0), {start: 1000, channels: 1})
 ```
 
-### `audio.append(data1, data2, ..., {channels}?)`
+### audio.append(data1, data2, ..., {channels}?)
 
 Append data to the end of audio. `data` should be [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Audio_, _FloatArray_ or list of _FloatArrays_.
 
@@ -497,7 +497,7 @@ Append data to the end of audio. `data` should be [_AudioBuffer_](https://github
 audio.append([new Float32Array(100), new Float32Array(100)], audioCtx.createBuffer(2, 22050, 44100), audio2)
 ```
 
-### `audio.insert(data, time=0, {start, channels}?)`
+### audio.insert(data, time=0, {start, channels}?)
 
 Insert data at the indicated `time`. If `time` is omitted, the `data` will be appended to the beginning of audio. `data` should be [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Audio_, _FloatArray_ or list of _FloatArrays_. `data` and `time` can be swapped places for compatibility.
 
@@ -516,7 +516,7 @@ Audio('./src.mp3').then(audio =>
 })
 ```
 
-### `audio.remove(time=0, duration?, {start, end}?)`
+### audio.remove(time=0, duration?, {start, end}?)
 
 Remove fragment of the indicated `duration` starting from the indicated `time`. If time is undefined, the fragment will be removed from the beginning of audio. Alternatively, indicate fragment by `start` and `end` properties. Returns audio with the removed fragment.
 
@@ -525,7 +525,7 @@ Remove fragment of the indicated `duration` starting from the indicated `time`. 
 let fragment = audio.remove(.5, 1)
 ```
 
-### `audio.slice(time=0, duration=total, {start, end, channels, clone}?)`
+### audio.slice(time=0, duration=total, {start, end, channels, clone}?)
 
 Get fragment of audio containing the indicated part. By default it returns sub-audio, unless `{clone: true}` is indicated by options.
 
@@ -540,7 +540,7 @@ let frag1 = audio.slice(.5, 1, {channels: [0,1]})
 let frag2 = audio.slice({start: 100, end: 200, clone: true})
 ```
 
-### `audio.repeat(times)`
+### audio.repeat(times)
 
 Repeat existing contents of audio indicated number of times.
 
@@ -555,7 +555,7 @@ audio = audio.repeat(1)
 twiceAudio = audio.repeat(2)
 ```
 
-### `audio.trim({threshold:-40, left, right, level}?)`
+### audio.trim({threshold:-40, left, right, level}?)
 
 Trim silence at the beginning/end. Optionally define `threshold` in decibels, `left` and `right` trim restrictions. `level` can be used to define threshold as absolute value `0..1`.
 
@@ -573,7 +573,7 @@ Audio([.1, .2, -.1, -.2, 0, .0001]).trim({level: .02, left: false})
 // <.1, .2, -.1, -.2>
 ```
 
-### `audio.pad(duration, {value:0, left, right}?)`
+### audio.pad(duration, {value:0, left, right}?)
 
 Make sure the duration of the audio is at least the indicated `duration`. Pass `{left: true}` or `{right: true}` depending on what direction you need to pad.
 
@@ -585,7 +585,7 @@ audio.pad(10)
 audio.pad(10, {left: true, value: 1})
 ```
 
-### `audio.fade(time=0, duration=0.4, {gain:-40db, easing, start, end, channels}?)`
+### audio.fade(time=0, duration=0.4, {gain:-40db, easing, start, end,channels}?)`
 
 Fade in or fade out volume for the `duration` starting from `time`. Duration can be negative, in that case it will fade backwards, i.e. fade out. Options may supply `easing` function or specific `gain`.
 
@@ -611,7 +611,7 @@ Audio('./source.ogg').on('load', audio => {
 })
 ```
 
-### `audio.normalize(time=0, duration?, {start, end, channels}?)`
+### audio.normalize(time=0, duration?, {start, end, channels}?)
 
 Normalize indicated interval or full audio, i.e. bring amplitudes to -1..+1 range. Max amplitude is found within all defined `channels`, if supplied.
 
@@ -625,7 +625,7 @@ audio = Audio(new Float32Array([0,.1,  0,.2,  0,.3]), {channels: 3}).normalize({
 audio.get() // [[0, .5], [0, 1], [0, .3]]
 ```
 
-### `audio.gain(volume, time=0, duration?, {start, end, channels}?)`
+### audio.gain(volume, time=0, duration?, {start, end, channels}?)
 
 Change volume of the interval of `duration` starting at `time`. `volume` is in decibels.
 
@@ -634,7 +634,7 @@ Change volume of the interval of `duration` starting at `time`. `volume` is in d
 let audio = new Audio(Array(44100).fill(1), 1).gain(-20)
 ```
 
-### `audio.reverse(time=0, duration?, {start, end, channels}?)`
+### audio.reverse(time=0, duration?, {start, end, channels}?)
 
 Change the direction of samples for the indicated part.
 
@@ -645,7 +645,7 @@ Audio('./sample.mp3', audio => {
 })
 ```
 
-### `audio.invert(time=0, duration?, {start, end, channels}?)`
+### audio.invert(time=0, duration?, {start, end, channels}?)
 
 Invert phase for the indicated range.
 
@@ -655,34 +655,34 @@ Audio(sample).invert(2, 1)
 ```
 
 
-### `audio.shift(time=0, {rotate: false})`
+### audio.shift(time=0, {rotate: false})
 
 Shift contents of audio to the left or right.
 
-### `audio.pan(balance=.5, {gain: -5})`
+### audio.pan(balance=.5, {gain: -5})
 
 Apply stereo panning with audio compensation.
 
 ```js
 ```
 
-### `audio.removeDCOffset()`
+### audio.removeDCOffset()
 
 Remove DC offset, if any.
 
-### `audio.threshold(level, time=0, duration?, {minPause, channels}?);`
+### audio.threshold(level, time=0, duration?, {minPause, channels}?);
 
 Cancel values less than indicated threshold.
 
-### `audio.mix(otherAudio, time=0, duration?, {channels}?)`
+### audio.mix(otherAudio, time=0, duration?, {channels}?)
 
 Lay second audio over the first one at the indicated interval.
 
-### `audio.scale(amount, time=0, duration?)`
+### audio.scale(amount, time=0, duration?)
 
 Change playback rate, pitch will be shifted.
 
-### `audio.process((buf, cb) => cb(buf), time=0, duration?, {channels, frame}?, onready?)`
+### audio.process((buf, cb) => cb(buf), time=0, duration?, {channels, frame}?,onready?)`
 
 Process audio or part with _sync_ or _async_ function, see any [audiojs/audio-* modules](https://github.com/audiojs).
 
@@ -691,12 +691,12 @@ Process audio or part with _sync_ or _async_ function, see any [audiojs/audio-* 
 
 Options may define `{frame: frameSize}` to process chunks evenly.
 
-### `audio.map((value, time, idx, channel) => value, time=0, duration?, {channels, frame}?)`
+### audio.map((value, time, idx, channel) => value, time=0, duration?,{channels, frame}?)`
 
 Map every value
 
 
-### `audio.constant(duration, value=0, options?)`
+### audio.constant(duration, value=0, options?)
 
 Create `audio` instance with pefilled constant `value` of the `duration`. Constant value is expected to be from `-1..1` range, anything over it is considered clipping.
 
@@ -712,7 +712,7 @@ let recording = new Audio(4*60 + 33, 2)
 ---
 
 
-### `audio.noise(duration, type='white', options?)`
+### audio.noise(duration, type='white', options?)
 
 Create `audio` instance filled with noise of specific `type`.
 
@@ -741,7 +741,7 @@ noise.play({loop: true})
 ---
 
 
-### `audio.periodic(duration, frequency, timbre|type='sine', options?)`
+### audio.periodic(duration, frequency, timbre|type='sine', options?)
 
 Create `audio` instance by generating periodic waveform with `frequency` of the `duration`.
 
@@ -774,23 +774,23 @@ let timbre2 = Audio.periodic(3, 440, [[0,1], [1,1]])
 
 ## Utilities
 
-### `audio.then(success, fail, progress)`
+### audio.then(success, fail, progress)
 
 Promise to invoke method once source is loaded.
 
-### `audio.on(evt, cb)`, `audio.once(evt, cb)`, `audio.off(evt, cb)`
+### audio.on(evt, cb)`, `audio.once(evt, cb)`, `audio.off(evt, cb)
 
 EventEmitter interface.
 
-### `Audio.isAudio(src)`
+### Audio.isAudio(src)
 
 Check if `src` is instance of _Audio_.
 
-### `audio.fromDb(db)`, `audio.toDb(gain)`
+### audio.fromDb(db)`, `audio.toDb(gain)
 
 Convert gain to decibels or backwards, see [decibels](https://github.com/audiojs/decibels).
 
-### `audio.save(fileName, done?)`
+### audio.save(fileName, done?)
 
 Download as a wav file in browser, write audio to file in node. In node file is going to be saved to the same directory as the caller's one. To redefine directory, use absolute path as `audio.save(__dirname + '/my-audio.wav')`. See [save-file](https://github.com/dfcreative/save-file) for details.
 
