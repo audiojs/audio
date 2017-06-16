@@ -10,8 +10,8 @@ const AudioBufferList = require('audio-buffer-list')
 const util = require('audio-buffer-utils')
 
 
-let sampleMp3 = 'https://github.com/audiojs/audio/raw/master/test/samples/chopin.mp3'
-let sampleWav = ''
+let remoteMp3 = 'https://github.com/audiojs/audio/raw/master/test/samples/lena.mp3'
+let localWav = './samples/lena.wav'
 
 
 t('create empty instance', t => {
@@ -161,7 +161,7 @@ t('load mp3')
 t('load ogg')
 
 t.only('load remote', t => {
-	Audio.load('https://github.com/audiojs/audio/raw/master/test/samples/chopin.mp3', (err, a) => {
+	Audio.load(remoteMp3, (err, a) => {
 		t.ok(a)
 		t.end()
 	})
