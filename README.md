@@ -282,24 +282,24 @@ let optAudio = new Audio({
 
 | Type | Meaning |
 |---|---|
-| _AudioBuffer_ | Wrap audio buffer |
-| _AudioBufferList_ | Wrap audio buffer list |
-| _Audio_ | Other audio instance is cloned |
-| _Number_ | Silence of the indicated duration, in seconds |
-| _FloatArray_ | Raw data with planar layout `[l, l, l, l, ... r, r, r, r, ...]` |
-| _Array \<Array\>_ | Raw channels data `[[l, l, l...], [r, r, r...]]` |
-| _Array \<Source\>_ | Join multiple sources |
+| _AudioBuffer_ | Create audio based on audio buffer (that is [web-audio-api audio-buffer](https://developer.mozilla.org/en-US/docs/Web/API/AudioBuffer)). |
+| _AudioBufferList_ | Create audio based on audio-buffer-list. |
+| _Audio_ | Clone passed audio instance. |
+| _Number_ | create silent audio of the indicated duration, in seconds. |
+| _FloatArray_ | Read raw data with planar layout `[l, l, l, l, ... r, r, r, r, ...]`. |
+| _Array_ of _Arrays_ | Read raw channels data `[[l, l, l...], [r, r, r...]]`. |
+| _Array_ of anything | Join multiple various sources together. |
 
 #### Options
 
 | Property | Description | Default |
 |---|---|---|
-| `channels`, `numberOfChannels` | _Number_ or _Array_, indicating number of channels or source channels layout. | `source` channels or `1` |
-| `context` | Web audio context instance. | [`audio-context`](https://github.com/audiojs/audio-context) |
+| `channels`, `numberOfChannels` | _Number_ or _Array_, indicating source channels count or channels layout. | `source` channels or `1` |
+| `context` | Web audio context instance, optional. | [`audio-context`](https://github.com/audiojs/audio-context) |
 | `stats` | Track statistics for metrics. Increases memory consumption 3 times. | `false` |
 | `length`, `duration` | Ensure the length or duration, duration is in seconds | `source` length |
-| `sampleRate`, `rate` | Ensure sample rate | `source` sample rate |
-| `data` | Source data | `null` |
+| `sampleRate`, `rate` | Ensure sample rate. | `source` sample rate |
+| `data` | Source data, if no `source` provided as the first argument. | `null` |
 
 #### Related APIs
 
