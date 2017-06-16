@@ -318,7 +318,7 @@ Load and decode local or remote audio file or list of files. Callback is invoked
 
 ```js
 // Load remote file, promise style
-new Audio('https://remote.url/file.mp3').then(audio => {}, error => {})
+Audio.load('https://remote.url/file.mp3').then(audio => {}, error => {})
 
 // Load local file, callback style
 Audio.load('./chopin.mp3', (error, audio) => {
