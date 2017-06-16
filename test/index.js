@@ -148,7 +148,11 @@ t('load wav', t => {
 	}, err => {
 		t.fail(err)
 	})
-});
+})
+
+t('load remote', t => {
+	Audio.load('')
+})
 
 t('load callback', t => {
 	Audio.load('./chopin.mp3', (err, audio) => {
@@ -209,14 +213,23 @@ t('load error', t => {
 	})
 })
 
-t('load multiple sources')
+t.skip('load multiple sources', t => {
+	Audio.load(['./chopin.mp3'])
+})
 
-t('load multiple mixed')
+t('load multiple mixed', t => {
+
+})
+
+t('load multiple with error', t => {
+
+})
 
 t.skip('clone instance', t => {
 	let audio = Audio();
 	Audio(audio)
 });
+
 
 t('options.length')
 t('options.channels array')
