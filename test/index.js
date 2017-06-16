@@ -150,16 +150,37 @@ t('load wav', t => {
 	})
 });
 
-t.only('load caching', t => {
-	let a = Audio('./chopin.mp3').on('load', (audio) => {
+t('load callback')
+
+t('load caching', t => {
+	let a
+
+	//put into cache
+	Audio.load('./lena.wav').then((audio) => {
 		t.ok(audio)
+		a = audio
 	})
 
-	let b = Audio('./chopin.mp3').on('load', (audio) => {
+	//load once first item is loaded
+	Audio.load('./lena.wav').then((audio) => {
 		t.equal(Object.keys(Audio.cache).length, 1)
+		t.ok(Audio.isAudio(audio))
+		t.notEqual(audio, a)
+	})
+
+	//load already loaded
+	.then(audio => {
+		return Audio.load('./lena.wav')
+	})
+	.then(a => {
+		t.ok(Audio.isAudio(a))
 		t.end()
 	})
-});
+})
+
+t('load error', t => {
+	t.end()
+})
 
 t('load multiple sources')
 

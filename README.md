@@ -310,21 +310,17 @@ Load and decode local or remote audio file, a promise is returned. Callback is i
 
 ```js
 // Load remote file, promise style
-new Audio('http://techslides.com/demos/samples/sample.flac').then(
-  audio => {
-  },
-  error => {
-  })
+new Audio('http://techslides.com/demos/samples/sample.flac').then(audio => {}, error => {})
 
 // Load local file, callback style
 Audio.load('./chopin.mp3', (error, audio) => {
-	audio.normalize().trim().fade(-1).insert(intro, 0).saveAs('concert.wav')
+  audio.normalize().trim().fade(-1).insert(intro, 0).saveAs('concert.wav')
 })
 
 // Load multiple sources
 Audio.load(['./intro.wav', './content.mp3', './outro.wav']).then(items => {
-	//join items
-	Audio(items)
+  //join items
+  Audio(items)
 })
 ```
 
