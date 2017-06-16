@@ -282,8 +282,8 @@ let optAudio = new Audio({
 
 | Type | Meaning |
 |---|---|
-| [_AudioBuffer_](https://github.com/audiojs/audio-buffer) | Wrap audio buffer |
-| [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list) | Wrap audio buffer list |
+| _AudioBuffer_ | Wrap audio buffer |
+| _AudioBufferList_ | Wrap audio buffer list |
 | _Audio_ | Other audio instance is cloned |
 | _Number_ | Silence of the indicated duration, in seconds |
 | _FloatArray_ | Raw data with planar layout `[l, l, l, l, ... r, r, r, r, ...]` |
@@ -301,6 +301,11 @@ let optAudio = new Audio({
 | `sampleRate`, `rate` | Ensure sample rate | `source` sample rate |
 | `data` | Source data | `null` |
 
+#### Related APIs
+
+* [audio-buffer](https://github.com/audiojs/audio-buffer)
+* [audio-buffer-list](https://github.com/audiojs/audio-buffer-list)
+
 ---
 
 
@@ -310,7 +315,7 @@ Load and decode local or remote audio file, a promise is returned. Callback is i
 
 ```js
 // Load remote file, promise style
-new Audio('http://techslides.com/demos/samples/sample.flac').then(audio => {}, error => {})
+new Audio('https://github.com/audiojs/audio/raw/master/test/samples/lena.mp3').then(audio => {}, error => {})
 
 // Load local file, callback style
 Audio.load('./chopin.mp3', (error, audio) => {
@@ -318,7 +323,12 @@ Audio.load('./chopin.mp3', (error, audio) => {
 })
 
 // Load multiple sources
-Audio.load(['./intro.wav', './content.mp3', './outro.wav']).then(items => {
+Audio.load([
+	'./intro.wav',
+	'https://github.com/audiojs/audio/raw/master/test/samples/lena.mp3',
+	Audio.load('./outro.wav'),
+	Audio(2)
+]).then(items => {
   //join items
   Audio(items)
 })
@@ -330,7 +340,7 @@ Audio.load(['./intro.wav', './content.mp3', './outro.wav']).then(items => {
 |---|---|
 | Local path: `./*`, `/*`, `../*`, `C:\*` etc. | Load or read local file relative to caller module's directory, ie. from the place where `Audio.load()` is invoked. In browser it is relative to current URL. |
 | Remote path: `http[s]://*` | Load and decode remote file. |
-| _Array \<String\>_ | Listed sources are loaded and decoded in parallel and callback is invoked when all sources are ready. |
+| _Array \<*\>_ | Listed sources are loaded in parallel and callback is invoked when all sources are ready. Sources can be _Audio_ instances,  |
 
 #### Related APIs
 

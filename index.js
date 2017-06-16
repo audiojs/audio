@@ -260,14 +260,25 @@ Audio.load = function (source, callback) {
 		//make sure every array item audio instance is created and loaded
 		for (let i = 0; i < source.length; i++) {
 			let a = source[i]
-			items[i] = typeof a === 'string' ? Audio.load(a) : new Promise((ok, nok) => ok(Audio(a)))
+			if (typeof a === 'string') {
+				a = resolvePath(a, 2)
+				items[i] = Audio.load(a)
+			}
+			else if (isPromise(a)) {
+				items[i] = a
+			}
+			else {
+				items[i] = Promise.resolve(Audio(a))
+			}
 		}
 
 		//then do promise once all loaded
-		promise = Promise.all(source).then((list) => {
+		promise = Promise.all(items).then((list) => {
 			callback && callback(null, list)
+			return Promise.resolve(list)
 		}, error => {
 			callback && callback(error)
+			return Promise.reject(error)
 		})
 	}
 
