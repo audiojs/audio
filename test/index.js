@@ -10,6 +10,10 @@ const AudioBufferList = require('audio-buffer-list')
 const util = require('audio-buffer-utils')
 
 
+let sampleMp3 = 'https://github.com/audiojs/audio/raw/master/test/samples/chopin.mp3'
+let sampleWav = ''
+
+
 t('create empty instance', t => {
 	let a = Audio();
 
@@ -141,7 +145,7 @@ t.skip('create from buffer', t => {
 })
 
 t('load wav', t => {
-	Audio.load('./lena.wav').then(audio => {
+	Audio.load(localWav).then(audio => {
 		t.equal(audio.length, 541184)
 		t.equal(audio.channels, 1)
 		t.end();
@@ -157,7 +161,7 @@ t('load mp3')
 t('load ogg')
 
 t.only('load remote', t => {
-	Audio.load('https://github.com/audiojs/audio/raw/master/test/sample.flac', (err, a) => {
+	Audio.load('https://github.com/audiojs/audio/raw/master/test/samples/chopin.mp3', (err, a) => {
 		t.ok(a)
 		t.end()
 	})
@@ -176,13 +180,13 @@ t('load caching', t => {
 	let a
 
 	//put into cache
-	Audio.load('./lena.wav').then((audio) => {
+	Audio.load(localWav).then((audio) => {
 		t.ok(audio)
 		a = audio
 	})
 
 	//load once first item is loaded
-	Audio.load('./lena.wav').then((audio) => {
+	Audio.load(localWav).then((audio) => {
 		t.ok(Object.keys(Audio.cache).length)
 		t.ok(Audio.isAudio(audio))
 		t.notEqual(audio, a)
@@ -190,7 +194,7 @@ t('load caching', t => {
 
 	//load already loaded
 	.then(audio => {
-		return Audio.load('./lena.wav')
+		return Audio.load(localWav)
 	})
 	.then(a => {
 		t.ok(Audio.isAudio(a))
