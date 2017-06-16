@@ -332,9 +332,9 @@ Audio.load(['./intro.wav', './content.mp3', './outro.wav']).then(items => {
 
 | Type | Meaning |
 |---|---|
-| Local path: `./*`, `/*`, `../*`, `C:\*` | Load or read local file relative to caller module's directory, ie. from the place where `Audio.load()` is invoked. In browser it is relative to current URL. |
+| Local path: `./*`, `/*`, `../*`, `C:\*` etc. | Load or read local file relative to caller module's directory, ie. from the place where `Audio.load()` is invoked. In browser it is relative to current URL. |
 | Remote path: `http[s]://*` | Load and decode remote file. |
-| _Array_ | Listed sources are loaded and decoded in parallel and callback is invoked when all sources are ready. |
+| _Array \<String\>_ | Listed sources are loaded and decoded in parallel and callback is invoked when all sources are ready. |
 
 #### Related APIs
 
