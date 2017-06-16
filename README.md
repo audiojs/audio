@@ -208,33 +208,38 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [ ] [audio.clip(t?, dur)]()
 * [ ] [audio.size(t?, dur, opts?)]()
 
-**5. [Manipulations](#manipulations)**
+**5 [Manipulations](#manipulations)**
+
+Fragment
 
 * [ ] [audio.get(t?, dur?, opts?)]()
-* [ ] [audio.set(t?, data, opts?)]()
-* [ ] [audio.insert(t?, data, opts?)]()
-* [ ] [audio.remove(t?, dur, opts?)]()
+* [ ] [audio.set(data, t?, opts?)]()
+* [ ] [audio.insert(data, t?, opts?)]()
 * [ ] [audio.slice(t?, dur?, opts?)]()
-* [ ] [audio.trim(opts?)]()
-* [ ] [audio.pad(dur, opts?)]()
-* [ ] [audio.shift(amt, opts?)]()
+* [ ] [audio.remove(t?, dur?, opts?)]()
 * [ ] [audio.reverse(t?, dur?, opts?)]()
 * [ ] [audio.invert(t?, dur?, opts?)]()
-* [ ] [audio.repeat(times)]()
 * [ ] [audio.gain(vol, t?, dur?, opts?)]()
 * [ ] [audio.fade(t?, dur?, opts?)]()
 * [ ] [audio.normalize(t?, dur?, opts?)]()
-* [ ] [audio.removeDCOffset(t?, dur?)]()
+* [ ] [audio.removeDCOffset(t?, dur?, opts?)]()
 * [ ] [audio.threshold(lvl, t?, dur?, opts?)]()
-* [ ] [audio.pan(amt, opts?)]()
-* [ ] [audio.remix(ch, opts?)]()
-* [ ] [audio.overlay(audio, opts?)]()
+* [ ] [audio.pan(amt, t?, dur?, opts?)]()
+* [ ] [audio.overlay(audio, t?, dur?, opts?)]()
+* [ ] [audio.map(map, t?, dur?, opts?)]()
+* [ ] [audio.constant(lvl, t?, dur?, opts?)]()
+* [ ] [audio.noise(type?, t?, dur? opts?)]()
+* [ ] [audio.periodic(freq, type, t?, dur?, opts?)]()
+
+Whole
+
 * [ ] [audio.scale(amt, opts?)]()
+* [ ] [audio.shift(amt, opts?)]()
+* [ ] [audio.trim(opts?)]()
+* [ ] [audio.repeat(times)]()
+* [ ] [audio.pad(dur, opts?)]()
+* [ ] [audio.remix(ch, opts?)]()
 * [ ] [audio.process(fn, opts?)]()
-* [ ] [audio.map(t?, dur?, map, opts?)]()
-* [ ] [audio.constant(t?, dur?, val=0, opts?)]()
-* [ ] [audio.noise(t?, dur?, type?, opts?)]()
-* [ ] [audio.periodic(t?, dur?, freq, type?, opts?)]()
 
 **6. [Utilities](#utilities)**
 
@@ -242,6 +247,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [ ] [audio.once(evt, cb)]()
 * [ ] [audio.off(evt, cb)]()
 * [ ] [audio.save(name, opts?, cb?)]()
+* [ ] [audio.stream()]()
 * [ ] [Audio.isAudio(a)]()
 * [ ] [Audio.gain(db)]()
 * [ ] [Audio.db(gain)]()
