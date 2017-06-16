@@ -175,7 +175,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 **1. [Creation](#creation)**
 
 * [x] [new Audio(src?, opts?)]()
-* [ ] [Audio.load(url, opts?)]()
+* [x] [Audio.load(url, opts?)]()
 * [ ] [Audio.decode(buf, opts?)]()
 * [ ] [Audio.record(stream, opts?)]()
 
@@ -287,8 +287,8 @@ let optAudio = new Audio({
 | _Audio_ | Other audio instance is cloned |
 | _Number_ | Silence of the indicated duration, in seconds |
 | _FloatArray_ | Raw data with planar layout `[l, l, l, l, ... r, r, r, r, ...]` |
-| _Array\<Array\>_ | Raw channels data `[[l, l, l...], [r, r, r...]]` |
-| _Array\<Source\>_ | Join multiple sources |
+| _Array \<Array\>_ | Raw channels data `[[l, l, l...], [r, r, r...]]` |
+| _Array \<Source\>_ | Join multiple sources |
 
 #### Options
 
@@ -304,9 +304,49 @@ let optAudio = new Audio({
 ---
 
 
+### `Audio.load(source, (error, audio)=>{}?)`
+
+Load and decode remote data, a promise is returned. Callback is invoked when data is ready.
+
+```js
+// Load remote file, promise style
+new Audio('http://techslides.com/demos/samples/sample.flac').then(
+  audio => {
+  },
+  error => {
+  })
+
+// Load local file, callback style
+Audio.load('./chopin.mp3', (error, audio) => {
+	audio.normalize().trim().fade(-1).insert(intro, 0).saveAs('concert.wav')
+})
+
+// Load multiple sources
+Audio.load(['./intro.mp3', './content.mp3', './']).then(items => {
+	//items contain loaded and decoded audio instances
+	//join them like so
+	Audio(items)
+})
+```
+
+#### Source
+
+| Type | Meaning |
+| `./*`, `/*`, `../*`, `C:\*` | Load local file relative to caller module's directory. |
+| `http[s]://*` | Load remote file. |
+| _Array_ | Listed sources are loaded and decoded in parallel and callback is invoked when all sources are ready. |
+
+#### Related APIs
+
+* [audio-loader](https://github.com/audiojs/audio-loader)
+
+---
+
+
 ### `Audio.decode(buffer|list, (error, audio)=>{}?)`
 
 Create promise to decode `buffer` data.
+encoded binary data in _ArrayBuffer_, _Buffer_, _Blob_ or [_File_](https://developer.mozilla.org/en/docs/Web/API/File). [audio-loader](https://github.com/audiojs/audio-loader) and [audio-decode](https://github.com/audiojs/audio-decode) are used internally.
 
 ```js
 // Decode binary data, callback style
@@ -316,29 +356,6 @@ new Audio(require('audio-lena/wav'), (err, wavAudio) => {
 ```
 
 ---
-
-
-### `Audio.load(source|list, (error, audio)=>{}?)`
-
-Create promise to load and decode remote data. If `source` is array, then all indicated elements will be loaded in parallel, decoded and concatenated, and callback will be invoked on finish.
-
-```js
-// Load remote file, promise style
-new Audio('http://techslides.com/demos/samples/sample.flac').then(success, error, progress)
-
-// Load and decode local file, emitter style
-Audio('./test/chopin.mp3')
-	.on('error', err => {})
-	.on('progress', buf => {})
-	.on('load', streamAudio => {})
-```
-
-<!--
-* **Async** − invokes callback once source is loaded. Can be URL/path string or encoded binary data in _ArrayBuffer_, _Buffer_, _Blob_ or [_File_](https://developer.mozilla.org/en/docs/Web/API/File). [audio-loader](https://github.com/audiojs/audio-loader) and [audio-decode](https://github.com/audiojs/audio-decode) are used internally.
--->
-
----
-
 
 ### `Audio.record(stream, (error, audio)={}?)`
 
