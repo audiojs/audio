@@ -332,6 +332,7 @@ Audio.load(['./intro.mp3', './content.mp3', './']).then(items => {
 #### Source
 
 | Type | Meaning |
+|---|---|
 | `./*`, `/*`, `../*`, `C:\*` | Load local file relative to caller module's directory. |
 | `http[s]://*` | Load remote file. |
 | _Array_ | Listed sources are loaded and decoded in parallel and callback is invoked when all sources are ready. |
