@@ -210,8 +210,6 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 
 **5 [Manipulations](#manipulations)**
 
-Fragment
-
 * [ ] [audio.get(t?, dur?, opts?)]()
 * [ ] [audio.set(data, t?, opts?)]()
 * [ ] [audio.insert(data, t?, opts?)]()
@@ -230,9 +228,6 @@ Fragment
 * [ ] [audio.constant(lvl, t?, dur?, opts?)]()
 * [ ] [audio.noise(type?, t?, dur? opts?)]()
 * [ ] [audio.periodic(freq, type, t?, dur?, opts?)]()
-
-Whole
-
 * [ ] [audio.scale(amt, opts?)]()
 * [ ] [audio.shift(amt, opts?)]()
 * [ ] [audio.trim(opts?)]()
