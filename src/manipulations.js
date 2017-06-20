@@ -48,6 +48,113 @@ Audio.prototype.writeRaw = function (buffer, offset=0) {
 }
 */
 
+//insert new data at the offset
+Audio.prototype.insert = function (time, source, options) {
+	//5, source, options
+	//5, source
+	if (typeof time == 'number') {}
+	else {
+		//source, options
+		if ( isPlainObj(source) ) {
+			options = source
+			source = time
+			time = null
+		}
+		//source, 5, options
+		//source, 5
+		//source
+		else {
+			[source, time] = [time, source]
+		}
+	}
+
+	//by default insert to the end
+	if (time == null) time = -0
+
+	//do insert
+	options = this._parseArgs(time, 0, options)
+
+	//make sure audio is padded till the indicated time
+	if (time > this.duration) {
+		this.pad(time, {right: true})
+	}
+
+	//TODO: insert channels data
+	let buffer = Audio.isAudio(source) ? source.buffer : isAudioBuffer(source) ? source : new AudioBufferList(source, {channels: options.channels})
+
+	if (options.start === this.buffer.length) {
+		this.buffer.append(buffer)
+	}
+	else {
+		this.buffer.insert(options.start, buffer)
+	}
+
+	return this
+}
+
+//remove data at the offset
+Audio.prototype.remove = function remove (time, duration, options) {
+	options = this._parseArgs(time, 0, options)
+
+	this.buffer.remove(options.start, options.end)
+
+	return this
+}
+
+//put data by the offset
+Audio.prototype.set = function set (time, data, options) {
+	//5, data, options
+	//5, data
+	if (typeof time == 'number') {}
+	else {
+		//data, options
+		if ( isPlainObj(data) ) {
+			options = data
+			data = time
+		}
+		//data, 5, options
+		//data, 5
+		//data
+		else {
+			[data, time] = [time, data]
+		}
+	}
+
+	options = this._parseArgs(time, 0, options)
+
+	if (typeof options.channels == 'number') {
+		options.channels = [options.channels]
+	}
+
+	for (let c = 0; c < options.channels.length; c++ ) {
+		let channel = options.channel[c]
+
+		//TODO: figure out how to get proper data
+		this.buffer.copyToChannel(data, channel, options.start)
+	}
+
+	return this
+}
+
+//return channels data distributed in array
+Audio.prototype.get = function (time, duration, options) {
+	options = this._parseArgs(time, duration, options)
+
+	if (typeof options.channels == 'number') {
+		return this.buffer.getChannelData(options.channel).subarray(options.start, options.end)
+	}
+	//transfer data for indicated channels
+	else {
+		let data = []
+		let buf = this.buffer.slice(options.start, options.end)
+		for (let i = 0; i < options.channel.length; i++) {
+			let channel = options.channel[i]
+
+			data.push(buf.getChannelData(channel))
+		}
+		return data
+	}
+}
 
 
 //normalize contents by the offset

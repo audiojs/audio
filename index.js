@@ -6,11 +6,10 @@
 'use strict'
 
 const load = require('audio-loader')
+const decode = require('audio-decode')
 const extend = require('object-assign')
 const nidx = require('negative-index')
 const isPromise = require('is-promise')
-const isBuffer = require('is-buffer')
-const b2ab = require('buffer-to-arraybuffer')
 const saveAs = require('save-file')
 const isBrowser = require('is-browser')
 const toWav = require('audiobuffer-to-wav')
@@ -26,7 +25,6 @@ const isRelative = require('is-relative')
 const getContext = require('audio-context')
 const isURL = require('is-url')
 
-
 module.exports = Audio
 
 
@@ -36,9 +34,9 @@ Audio.prototype.fromGain = Audio.prototype.toDb = db.fromGain
 
 
 //augment functionality
-require('./src/manipulations')
 require('./src/playback')
 require('./src/metrics')
+require('./src/manipulations')
 
 
 //@contructor
@@ -128,12 +126,8 @@ function Audio(source, options) {
 		this.buffer = new AudioBufferList(options.length || 0, {numberOfChannels: channels, sampleRate: sampleRate})
 	}
 
-	//redirect other cases to audio-loader
+	//redirect other cases to audio-buffer-list
 	else {
-		if (isBuffer(source)) {
-			source = b2ab(source)
-		}
-
 		this.buffer = new AudioBufferList(source, {numberOfChannels: channels, sampleRate: sampleRate})
 	}
 
@@ -257,7 +251,7 @@ Audio.load = function (source, callback) {
 	else if (Array.isArray(source)) {
 		let items = []
 
-		//make sure every array item audio instance is created and loaded
+		//make sure for every array item audio instance is created and loaded
 		for (let i = 0; i < source.length; i++) {
 			let a = source[i]
 			if (typeof a === 'string') {
@@ -290,128 +284,90 @@ Audio.load = function (source, callback) {
 	return promise
 }
 
+//decode audio buffer
+Audio.decode = function (source, options, callback) {
+	if (typeof options === 'function') {
+		callback = options
+		options = {context: this.context}
+	}
 
-Audio.decode = function () {
-		//enforce arraybuffer
-		//FIXME: it is possible to do direct reading of arrays via pcm.toAudioBuffer
-		if (isBuffer(source)) {
-			source = b2ab(source)
+	if (!source) throw Error('No source to decode');
+
+	//decode multiple items
+	if (Array.isArray(source)) {
+		let items = []
+
+		//make sure for every array item audio instance is created and loaded
+		for (let i = 0; i < source.length; i++) {
+			let a = source[i]
+			if (isPromise(a)) {
+				items[i] = a
+			}
+			else {
+				items[i] = Audio.decode(a)
+			}
 		}
-		this.promise = load(source).then(audioBuffer => {
-			this.insert(audioBuffer)
-			success(audioBuffer)
-		}, error)
 
-}
+		//then do promise once all loaded
+		return Promise.all(items).then((list) => {
+			callback && callback(null, list)
+			return Promise.resolve(list)
+		}, error => {
+			callback && callback(error)
+			return Promise.reject(error)
+		})
+	}
 
-//insert new data at the offset
-Audio.prototype.insert = function (time, source, options) {
-	//5, source, options
-	//5, source
-	if (typeof time == 'number') {}
+	//convert to AudioBuffer
+	return decode(source, options).then(
+		audioBuffer => {
+			let audio = Audio(audioBuffer)
+			callback && callback(null, audio)
+			return audio
+		},
+		error => {
+			callback && callback(error)
+			return Promise.reject(error)
+		}
+	)
+
+
+
+/*
+	//handle source cases
+	if (isFile(source)) {
+
+	}
+
+	else if (isBlob(source)) {
+
+	}
+
+	else if (typeof source === 'string' && isBase64(source)) {
+
+	}
+
+	else if (isBuffer(source)) {
+		source = b2ab(source)
+	}
+
+	else if (isRawArrayData(source)) {
+
+	}
+
+	//redirect any other source type to audio-decode
 	else {
-		//source, options
-		if ( isPlainObj(source) ) {
-			options = source
-			source = time
-			time = null
-		}
-		//source, 5, options
-		//source, 5
-		//source
-		else {
-			[source, time] = [time, source]
-		}
+
 	}
 
-	//by default insert to the end
-	if (time == null) time = -0
-
-	//do insert
-	options = this._parseArgs(time, 0, options)
-
-	//make sure audio is padded till the indicated time
-	if (time > this.duration) {
-		this.pad(time, {right: true})
-	}
-
-	//TODO: insert channels data
-	let buffer = Audio.isAudio(source) ? source.buffer : isAudioBuffer(source) ? source : new AudioBufferList(source, {channels: options.channels})
-
-	if (options.start === this.buffer.length) {
-		this.buffer.append(buffer)
-	}
-	else {
-		this.buffer.insert(options.start, buffer)
-	}
-
-	return this
+	return promise
+	*/
 }
 
-//remove data at the offset
-Audio.prototype.remove = function remove (time, duration, options) {
-	options = this._parseArgs(time, 0, options)
+//record streamish source
+Audio.record = function (source, options, callback) {
 
-	this.buffer.remove(options.start, options.end)
-
-	return this
 }
-
-//put data by the offset
-Audio.prototype.set = function set (time, data, options) {
-	//5, data, options
-	//5, data
-	if (typeof time == 'number') {}
-	else {
-		//data, options
-		if ( isPlainObj(data) ) {
-			options = data
-			data = time
-		}
-		//data, 5, options
-		//data, 5
-		//data
-		else {
-			[data, time] = [time, data]
-		}
-	}
-
-	options = this._parseArgs(time, 0, options)
-
-	if (typeof options.channels == 'number') {
-		options.channels = [options.channels]
-	}
-
-	for (let c = 0; c < options.channels.length; c++ ) {
-		let channel = options.channel[c]
-
-		//TODO: figure out how to get proper data
-		this.buffer.copyToChannel(data, channel, options.start)
-	}
-
-	return this
-}
-
-//return channels data distributed in array
-Audio.prototype.get = function (time, duration, options) {
-	options = this._parseArgs(time, duration, options)
-
-	if (typeof options.channels == 'number') {
-		return this.buffer.getChannelData(options.channel).subarray(options.start, options.end)
-	}
-	//transfer data for indicated channels
-	else {
-		let data = []
-		let buf = this.buffer.slice(options.start, options.end)
-		for (let i = 0; i < options.channel.length; i++) {
-			let channel = options.channel[i]
-
-			data.push(buf.getChannelData(channel))
-		}
-		return data
-	}
-}
-
 
 //check if source is instance of audio
 Audio.isAudio = function (source) {
@@ -434,6 +390,22 @@ Audio.prototype.save = function (fileName, ondone) {
 	return this
 }
 
+//create a duplicate or clone of audio
+Audio.prototype.clone = function (deep) {
+	if (deep == null || deep) return new Audio(this.buffer.clone())
+	else return new Audio(this.buffer)
+}
+
+
+function resolvePath (fileName, depth=2) {
+	if (!isBrowser && isRelative(fileName) && !isURL(fileName)) {
+		var callerPath = callsites()[depth].getFileName()
+		fileName = path.dirname(callerPath) + path.sep + fileName
+		fileName = path.normalize(fileName)
+	}
+
+	return fileName
+}
 
 //include start/end offsets and channel for options. Purely helper.
 Audio.prototype._parseArgs = function (start, duration, options) {
@@ -499,21 +471,4 @@ Audio.prototype._parseArgs = function (start, duration, options) {
 	}
 
 	return options
-}
-
-//create a duplicate or clone of audio
-Audio.prototype.clone = function (deep) {
-	if (deep == null || deep) return new Audio(this.buffer.clone())
-	else return new Audio(this.buffer)
-}
-
-
-function resolvePath (fileName, depth=2) {
-	if (!isBrowser && isRelative(fileName) && !isURL(fileName)) {
-		var callerPath = callsites()[depth].getFileName()
-		fileName = path.dirname(callerPath) + path.sep + fileName
-		fileName = path.normalize(fileName)
-	}
-
-	return fileName
 }
