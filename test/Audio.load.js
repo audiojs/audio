@@ -136,3 +136,5 @@ t('load multiple error', t => {
 		t.end()
 	})
 })
+
+t('fallback to decode')

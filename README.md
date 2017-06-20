@@ -176,7 +176,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 
 * [x] [new Audio(src?, opts?)]()
 * [x] [Audio.load(url, opts?)]()
-* [ ] [Audio.decode(buf, opts?)]()
+* [x] [Audio.decode(buf, opts?)]()
 * [ ] [Audio.record(stream, opts?)]()
 
 **2. [Properties](#properties)**
@@ -285,7 +285,7 @@ let optAudio = new Audio({
 |---|---|
 | _AudioBuffer_ | Create audio based on audio buffer (that is [web-audio-api audio-buffer](https://developer.mozilla.org/en-US/docs/Web/API/AudioBuffer)). |
 | _AudioBufferList_ | Create audio based on audio-buffer-list. |
-| _Audio_ | Clone passed audio instance. |
+| _Audio_ | Create based on passed audio instance. |
 | _Number_ | Create silent audio of the indicated duration, in seconds. |
 | _FloatArray_ | Read raw data with planar layout `[l, l, l, l, ... r, r, r, r, ...]`. |
 | _Array_ of _Arrays_ | Read raw channels data `[[l, l, l...], [r, r, r...]]`. |
@@ -350,19 +350,34 @@ Audio.load([ './intro.wav', 'https://remote.url/file.mp3', Audio.load('./outro.w
 
 ### Audio.decode(source, (error, audio)=>{}?)
 
-Create promise to decode `buffer` data.
-encoded binary data in _ArrayBuffer_, _Buffer_, _Blob_ or [_File_](https://developer.mozilla.org/en/docs/Web/API/File). [audio-loader](https://github.com/audiojs/audio-loader) and [audio-decode](https://github.com/audiojs/audio-decode) are used internally.
+Decode audio data from `source` with data in an audio format.
 
 ```js
+let mp3Buffer = require('audio-lena/mp3')
+
 // Decode binary data, callback style
-new Audio(require('audio-lena/wav'), (err, wavAudio) => {
+Audio.decode(mp3Buffer, (err, audio) => {
     if (err) throw err;
+
+    // audio is ready
 })
 ```
 
-#### Source
+`wav` and `mp3` formats are supported out of the box. To enable other formats, include proper codec from [audiocogs](https://github.com/audiocogs):
 
-TODO
+```js
+// Enable codec
+require('flac.js')
+
+let flacDatauri = require('audio-lena/flac-datauri')
+
+// Decode flac data-uri string, promise style
+Audio.decode(flacDatauri).then(audio => {
+	// audio is ready
+}, err => throw err)
+```
+
+#### Source
 
 | Type | Meaning |
 |---|---|
@@ -370,8 +385,25 @@ TODO
 | _Buffer_ | |
 | _Blob_ | |
 | _File_ | |
-| base64 string | |
+| dataURI string | |
+| Base64 string | |
+| _AudioBufferView_ | |
+| _Array_ of above | Decode list of sources, invoke callback when everything succeeded. |
 
+#### Format
+
+| Format | Package |
+|---|---|
+| `mp4` | |
+| `aac` | |
+| `flac` | |
+| `ogg` | |
+
+#### Related APIs
+
+* [audio-decode](https://github.com/audiojs/audio-decode)
+* [audio-type](https://github.com/audiojs/audio-type)
+* [audiocogs](https://github.com/audiocogs)
 
 ---
 
