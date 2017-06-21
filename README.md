@@ -327,7 +327,12 @@ Audio.load('./chopin.mp3', (error, audio) => {
 })
 
 // Load multiple sources
-Audio.load([ './intro.wav', 'https://remote.url/file.mp3', Audio.load('./outro.wav'), Audio(2) ]).then(items => {
+Audio.load([
+  './intro.wav',
+  'https://remote.url/file.mp3',
+  Audio.load('./outro.wav'),
+  Audio(2)
+]).then(items => {
   let joined = Audio(items)
 })
 ```
@@ -350,60 +355,49 @@ Audio.load([ './intro.wav', 'https://remote.url/file.mp3', Audio.load('./outro.w
 
 ### Audio.decode(source, (error, audio)=>{}?)
 
-Decode audio data from `source` with data in an audio format.
+Decode audio data from `source` with data in an audio format. `wav` and `mp3` formats are supported out of the box, to enable other formats, include proper codec from [audiocogs](https://github.com/audiocogs), such as [flac.js](https://github.com/audiocogs/flac.js), [opus.js](https://github.com/audiocogs/opus.js) and others.
 
 ```js
-let mp3Buffer = require('audio-lena/mp3')
-
 // Decode binary data, callback style
-Audio.decode(mp3Buffer, (err, audio) => {
-    if (err) throw err;
+Audio.decode(require('audio-lena/mp3'), (err, audio) => {})
 
-    // audio is ready
-})
-```
-
-`wav` and `mp3` formats are supported out of the box. To enable other formats, include proper codec from [audiocogs](https://github.com/audiocogs):
-
-```js
-// Enable codec
-require('flac.js')
-
-let flacDatauri = require('audio-lena/flac-datauri')
 
 // Decode flac data-uri string, promise style
-Audio.decode(flacDatauri).then(audio => {
-	// audio is ready
-}, err => throw err)
+require('flac.js')
+Audio.decode(require('audio-lena/flac-datauri')).then(audio => {}, err => {})
 ```
 
 #### Source
 
 | Type | Meaning |
 |---|---|
-| _ArrayBuffer_ | |
-| _Buffer_ | |
-| _Blob_ | |
-| _File_ | |
-| dataURI string | |
-| Base64 string | |
-| _AudioBufferView_ | |
+| _ArrayBuffer_ | Array buffer instance with encoded data, default for browser/node. |
+| _Buffer_ | [Nodejs buffer](https://nodejs.org/api/buffer.html) with encoded data. |
+| _Blob_ | [Blob](https://developer.mozilla.org/en/docs/Web/API/Blob) instance with encoded data. |
+| _File_ | [File](https://developer.mozilla.org/en/docs/Web/API/File) with encoded data, the name will be dropped. |
+| dataURI string | [Data-URI](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/Data_URIs) string of a kind `data:audio/<type>;base64,<data>` .|
+| Base64 string | String with [base64](https://developer.mozilla.org/en/docs/Web/API/WindowBase64/Base64_encoding_and_decoding)-encoded data. |
+| _AudioBufferView_ | _Float32Array_, _UInt8Array_ etc. with encoded data. |
 | _Array_ of above | Decode list of sources, invoke callback when everything succeeded. |
 
 #### Format
 
 | Format | Package |
 |---|---|
-| `mp4` | |
-| `aac` | |
-| `flac` | |
-| `ogg` | |
+| `wav` | shipped by default |
+| `mp3` | shipped by default via [mp3.js](https://github.com/audiocogs/mp3.js) |
+| `mp4` | [mp4.js](https://github.com/audiocogs/mp4.js) |
+| `aac` | [aac.js](https://github.com/audiocogs/mp4.js) |
+| `flac` | [flac.js](https://github.com/audiocogs/flac.js) |
+| `alac` | [alac.js](https://github.com/audiocogs/alac.js) |
+| `opus` | [opus.js](https://github.com/audiocogs/opus.js) |
+| `ogg` | TODO: not working due to issues in [vorbis.js](https://github.com/audiocogs/vorbis.js/issues/3) |
 
 #### Related APIs
 
 * [audio-decode](https://github.com/audiojs/audio-decode)
 * [audio-type](https://github.com/audiojs/audio-type)
-* [audiocogs](https://github.com/audiocogs)
+* [aurora](https://github.com/audiocogs/aurora.js)
 
 ---
 
