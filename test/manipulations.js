@@ -1,3 +1,5 @@
+'use strict'
+
 const Audio = require('../')
 const t = require('tape')
 const AudioBuffer = require('audio-buffer')
@@ -10,9 +12,6 @@ const AudioBufferList = require('audio-buffer-list')
 const util = require('audio-buffer-utils')
 
 
-
-require('./Audio.create')
-require('./Audio.load')
 
 t.skip('clone instance', t => {
 	let audio = Audio();
@@ -225,4 +224,15 @@ t.skip('write', t => {
 	t.deepEqual(audio.data(1/44100,4/44100)[0], [.1,1,1,.4])
 
 	t.end()
+})
+
+
+
+
+t.skip('periodic', t => {
+	let audio = Audio({length: 8})
+
+	audio.periodic('saw', {from: 2, to: 6, frequency: 44100})
+
+	t.deepEqual(audio.toArray(), [])
 })

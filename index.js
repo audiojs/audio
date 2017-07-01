@@ -24,6 +24,9 @@ const isPlainObj = require('is-plain-obj')
 const isRelative = require('is-relative')
 const getContext = require('audio-context')
 const isURL = require('is-url')
+const convert = require('pcm-convert')
+const aformat = require('audio-format')
+const createBuffer = require('audio-buffer-from')
 
 module.exports = Audio
 
@@ -59,55 +62,16 @@ function Audio(source, options) {
 	if (options.data) source = options.data
 
 	let context = options.context
-	let sampleRate = options.sampleRate || options.rate || (context && context.sampleRate) || 44100
-	let channels = options.channels || options.numberOfChannels || 1
 
-	if (options.duration != null) {
-		options.length = options.duration * sampleRate
-	}
-
-	//create cases
-	//duration
-	if (typeof source === 'number') {
-		let length = options.length != null ? options.length : source*sampleRate
-		this.buffer = new AudioBufferList(length, {
-			context: context,
-			sampleRate: sampleRate,
-			channels: channels
-		})
-	}
-
-	//float-arrays
-	else if (ArrayBuffer.isView(source)) {
-		this.buffer = new AudioBufferList(source, {
-			channels: channels,
-			sampleRate: sampleRate
-		})
-	}
-
-	//multiple sources
-	else if (Array.isArray(source)) {
-		//if nested arrays data - probably it is channels layout
-		if (Array.isArray(source[0]) || ArrayBuffer.isView(source[0])) {
-			channels = source.length
-			this.buffer = new AudioBufferList(source, channels, sampleRate)
-		}
-
-		else {
-			//make sure every array item audio instance is created and loaded
-			let items = [], channels = 1
-			for (let i = 0; i < source.length; i++) {
-				let subsource = Audio.isAudio(source[i]) ? source[i].buffer : Audio(source[i], options).buffer
-				items.push(subsource)
-				channels = Math.max(subsource.numberOfChannels, channels)
-			}
-
-			this.buffer = new AudioBufferList(items, {numberOfChannels: channels, sampleRate: sampleRate})
-		}
+	//empty case
+	if (source === undefined || typeof source === 'number') {
+		options.duration = source || 0
+		source = null
+		this.buffer = new AudioBufferList(createBuffer(options))
 	}
 
 	//audiobufferlist case
-	else if (AudioBufferList.isInstance(source)) {
+ 	if (AudioBufferList.isInstance(source)) {
 		this.buffer = source
 	}
 
@@ -121,14 +85,22 @@ function Audio(source, options) {
 		this.buffer = source.buffer.clone()
 	}
 
-	//null-case
-	else if (!source) {
-		this.buffer = new AudioBufferList(options.length || 0, {numberOfChannels: channels, sampleRate: sampleRate})
+	//if nested arrays data - probably it is channels layout
+	else if (Array.isArray(source) && !(Array.isArray(source[0]) || ArrayBuffer.isView(source[0]))) {
+		//make sure every array item audio instance is created and loaded
+		let items = [], channels = 1
+		for (let i = 0; i < source.length; i++) {
+			let subsource = Audio.isAudio(source[i]) ? source[i].buffer : Audio(source[i], options).buffer
+			items.push(subsource)
+			channels = Math.max(subsource.numberOfChannels, channels)
+		}
+
+		this.buffer = new AudioBufferList(items, {numberOfChannels: channels, sampleRate: items[0].sampleRate})
 	}
 
-	//redirect other cases to audio-buffer-list
 	else {
-		this.buffer = new AudioBufferList(source, {numberOfChannels: channels, sampleRate: sampleRate})
+		let buf = createBuffer(source, options)
+		this.buffer = new AudioBufferList(buf)
 	}
 
 	//slice by length
@@ -330,38 +302,6 @@ Audio.decode = function (source, options, callback) {
 			return Promise.reject(error)
 		}
 	)
-
-
-
-/*
-	//handle source cases
-	if (isFile(source)) {
-
-	}
-
-	else if (isBlob(source)) {
-
-	}
-
-	else if (typeof source === 'string' && isBase64(source)) {
-
-	}
-
-	else if (isBuffer(source)) {
-		source = b2ab(source)
-	}
-
-	else if (isRawArrayData(source)) {
-
-	}
-
-	//redirect any other source type to audio-decode
-	else {
-
-	}
-
-	return promise
-	*/
 }
 
 //record streamish source
@@ -396,6 +336,22 @@ Audio.prototype.clone = function (deep) {
 	else return new Audio(this.buffer)
 }
 
+//get array representation of audio
+Audio.prototype.toArray = function (options) {
+	if (!options) {
+		options = {dtype: 'array'}
+	} else if (typeof options === 'string') {
+		options = aformat.parse(options)
+	}
+
+	let format = extend({
+		channels: this.channels
+	}, options)
+
+	let arr = convert(this.buffer.copy(), format)
+
+	return arr
+}
 
 function resolvePath (fileName, depth=2) {
 	if (!isBrowser && isRelative(fileName) && !isURL(fileName)) {
@@ -407,20 +363,20 @@ function resolvePath (fileName, depth=2) {
 	return fileName
 }
 
-//include start/end offsets and channel for options. Purely helper.
-Audio.prototype._parseArgs = function (start, duration, options) {
+//include start/end offsets and channel for options.
+Audio.prototype._parseArgs = function (time, duration, options) {
 	//no args at all
-	if (start == null) {
+	if (time == null) {
 		options = {}
-		start = 0
+		time = 0
 		duration = this.duration
 	}
 	//single arg
 	else if (duration == null) {
 		//{}
-		if (typeof start !== 'number') {
-			options = start
-			start = 0
+		if (typeof time !== 'number') {
+			options = time
+			time = 0
 			duration = this.duration
 		}
 		//number
@@ -442,7 +398,7 @@ Audio.prototype._parseArgs = function (start, duration, options) {
 		}
 	}
 
-	if (!start && duration < 0) start = -0;
+	if (!time && duration < 0) time = -0;
 
 	//ensure channels
 	if (options.channels == null) {
@@ -454,7 +410,7 @@ Audio.prototype._parseArgs = function (start, duration, options) {
 
 	//detect raw interval
 	if (options.start == null) {
-		let startOffset = Math.floor(start * this.sampleRate)
+		let startOffset = Math.floor(time * this.sampleRate)
 		startOffset = nidx(startOffset, this.buffer.length)
 		options.start = startOffset
 	}
