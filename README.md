@@ -211,13 +211,13 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 **5 [Manipulations](#manipulations)**
 
 * [ ] [audio.get(t?, dur?, opts?)]()
-* [ ] [audio.set(data, t?, opts?)]()
-* [ ] [audio.insert(data, t?, opts?)]()
+* [ ] [audio.set(data, t?, dur?, opts?)]()
+* [ ] [audio.insert(data, t?, dur?, opts?)]()
 * [ ] [audio.slice(t?, dur?, opts?)]()
 * [ ] [audio.remove(t?, dur?, opts?)]()
 * [ ] [audio.reverse(t?, dur?, opts?)]()
 * [ ] [audio.invert(t?, dur?, opts?)]()
-* [ ] [audio.gain(vol, t?, dur?, opts?)]()
+* [ ] [audio.gain(db, t?, dur?, opts?)]()
 * [ ] [audio.fade(t?, dur?, opts?)]()
 * [ ] [audio.normalize(t?, dur?, opts?)]()
 * [ ] [audio.removeDCOffset(t?, dur?, opts?)]()
@@ -227,22 +227,20 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [ ] [audio.map(map, t?, dur?, opts?)]()
 * [ ] [audio.constant(lvl, t?, dur?, opts?)]()
 * [ ] [audio.noise(type?, t?, dur? opts?)]()
-* [ ] [audio.periodic(freq, type, t?, dur?, opts?)]()
-* [ ] [audio.scale(amt, opts?)]()
-* [ ] [audio.shift(amt, opts?)]()
-* [ ] [audio.trim(opts?)]()
-* [ ] [audio.repeat(times)]()
+* [ ] [audio.periodic(type?, t?, dur?, opts?)]()
+* [ ] [audio.scale(amt, t?, opts?)]()
+* [ ] [audio.shift(amt, t?, opts?)]()
+* [ ] [audio.trim(t?, dur?, opts?)]()
+* [ ] [audio.repeat(times, t?, dur?, opts?)]()
 * [ ] [audio.pad(dur, opts?)]()
 * [ ] [audio.remix(ch, opts?)]()
 * [ ] [audio.process(fn, opts?)]()
 
 **6. [Utilities](#utilities)**
 
-* [ ] [audio.on(evt, cb)]()
-* [ ] [audio.once(evt, cb)]()
-* [ ] [audio.off(evt, cb)]()
 * [ ] [audio.save(name, opts?, cb?)]()
-* [ ] [audio.stream()]()
+* [ ] [audio.convert(format)]()
+* [ ] [audio.stream(dst, opts?, cb?)]()
 * [ ] [Audio.isAudio(a)]()
 * [ ] [Audio.gain(db)]()
 * [ ] [Audio.db(gain)]()
@@ -277,6 +275,8 @@ let optAudio = new Audio({
   channels: 3,
   data: rawAudio
 })
+
+// Create from base64 string
 ```
 
 #### Source
@@ -293,22 +293,24 @@ let optAudio = new Audio({
 | TODO: ndsamples | |
 | TODO: ndarray | |
 | TODO: ArrayBuffer, Buffer | |
+| TODO: base64/datauri string | |
 
 #### Options
 
 | Property | Description | Default |
 |---|---|---|
 | `channels`, `numberOfChannels` | _Number_ or _Array_, indicating source channels count or channels layout. | `source` channels or `1` |
-| `context` | Web audio context instance, optional. | [`audio-context`](https://github.com/audiojs/audio-context) |
-| `stats` | Track statistics for metrics. Increases memory consumption 3 times. | `false` |
 | `length`, `duration` | Ensure the length or duration, duration is in seconds | `source` length |
-| `sampleRate`, `rate` | Ensure sample rate. | `source` sample rate |
+| `context` | Web audio context instance, optional. | [`audio-context`](https://github.com/audiojs/audio-context) |
+| `sampleRate`, `rate` | Ensure sample rate. | `source` or `context` sample rate |
+| `stats` | Track statistics for metrics. Increases memory consumption 3 times. | `false` |
 | `data` | Source data, if no `source` provided as the first argument. | `null` |
 
 #### Related APIs
 
 * [audio-buffer](https://github.com/audiojs/audio-buffer)
 * [audio-buffer-list](https://github.com/audiojs/audio-buffer-list)
+* [audio-buffer-from](https://github.com/audiojs/audio-buffer-from)
 
 ---
 
@@ -343,11 +345,14 @@ Audio.load([
 |---|---|
 | Local path: `./*`, `/*`, `../*`, `C:\*` etc. | Load or read local file relative to caller module's directory, ie. from the place where `Audio.load()` is invoked. In browser it is relative to current URL. |
 | Remote path: `http[s]://*` | Load and decode remote file. |
-| TODO: base64 string | |
+| TODO: data-uri string | |
 | _Array_ of anything | Listed sources are loaded in parallel and callback is invoked when all sources are ready. |
+
+TODO: freesound loader, soundcloud loader
 
 #### Related APIs
 
+* [audio-load](https://github.com/audiojs/audio-load)
 * [audio-loader](https://github.com/audiojs/audio-loader)
 
 ---
@@ -759,7 +764,7 @@ Options may define `{frame: frameSize}` to process chunks evenly.
 Map every value
 
 
-### audio.constant(duration, value=0, options?)
+### audio.constant(value=0, time=0, duration?, options?)
 
 Create `audio` instance with pefilled constant `value` of the `duration`. Constant value is expected to be from `-1..1` range, anything over it is considered clipping.
 
@@ -775,7 +780,7 @@ let recording = new Audio(4*60 + 33, 2)
 ---
 
 
-### audio.noise(duration, type='white', options?)
+### audio.noise(type='white', time=0, duration?, options?)
 
 Create `audio` instance filled with noise of specific `type`.
 
@@ -804,46 +809,55 @@ noise.play({loop: true})
 ---
 
 
-### audio.periodic(duration, frequency, timbre|type='sine', options?)
+### audio.periodic(type='sine', time=0, duration?, options?)
 
 Create `audio` instance by generating periodic waveform with `frequency` of the `duration`.
 
 ```js
-// Create oscillated 440Hz sine wave
-let sine = Audio.periodic(2, 440)
+// Create 2s 440Hz sine wave
+let sine = Audio(2).periodic({type: 'sine', frequency: 440})
 
-// Create custom timbre
-let timbre1 = Audio.periodic(2, 440, [0, 1, 0], {channels: 2})
+// Create 2s stereo sine with 2nd and 4th harmonics of 440 Hz
+let timbre1 = Audio(2, 2).periodic({type: 'fourier', real: [0, 1, 0, .5], frequency: 440})
 
-// Create from real/imaginary parts
-let timbre2 = Audio.periodic(3, 440, [[0,1], [1,1]])
+// Create 1s custom timbre starting from 1.5s
+let timbre2 = Audio(3).periodic(1.5, 1, {frequency: 1000, real: [0,1], imag: [1,1], normalize: false})
 ```
+
+#### Type
 
 | Type | Waveform | Meaning |
 |---|---|---|
-| `'sine'`, `'sin'`, `'cos'` | |  |
-| `'saw'`, `'sawtooth'` | |  |
-| `'pulse'` | |  |
-| `'square'`, `'rect'`, `'rectangle'` | |  |
-| `'triangle'`, `'tri'` | |  |
-| `[a0, a1, a2, ...]` | | Create periodic wave with defined harmonic coefficients based off base frequency |
-| `[[r0, r1, r2, ...], [i0, i1, i2, ...]]` | | Create periodic wave based off real/imaginary harmonic coefficients |
+| `'sine'`, `'sin'`, `'cos'` | | Sine oscillation. |
+| `'saw'`, `'sawtooth'` | | Sawtooth oscillation. |
+| `'pulse'` | | Pulse oscillation, 1-sample wide. |
+| `'square'`, `'rect'`, `'rectangle'` | | Rectangular oscillation. |
+| `'triangle'`, `'tri'` | | Triangular oscillation. |
+| `'series'` | | Periodic wave with harmonic coefficients. |
+| `[[r0, r1, r2, ...], [i0, i1, i2, ...]]` | | Periodic wave based off real/imaginary parts of fourier transform. |
 
-**Related**
+#### Options
 
-* [PeriodicWave](https://developer.mozilla.org/en-US/docs/Web/API/PeriodicWave)
+| Property | Default | Meaning |
+|---|---|---|
+| `type` | `null` | Type of periodic wave, supercedes argument. See table above. |
+| `frequency`, `f` | `440` | Base frequency of oscillation, ie. frequency of the first harmonic. |
+| `offset` | `0` | Shift oscillation by the amount of samples. |
+| `channel`, `channels` | `all` | Affect only indicated channels, can be a number or array. |
+| `start` | `null` | Start from the indicated sample offset. |
+| `end` | `null` | End at the indicated sample offset. |
+| `time` | `null` | Start at the indicated time, in seconds. Supercedes `time` argument. |
+| `duration` | `null` | Affect the duration starting from the indicated time, in seconds. |
+
+#### Related APIs
+
+* [audio-oscillator](https://github.com/audiojs/audio-oscillator)
+* [periodic-function](https://github.com/audiojs/periodic-function)
+* [createPeriodicWave](https://developer.mozilla.org/en-US/docs/Web/API/AudioContext/createPeriodicWave)
 
 ---
 
 ## Utilities
-
-### audio.then(success, fail, progress)
-
-Promise to invoke method once source is loaded.
-
-### audio.on(evt, cb)`, `audio.once(evt, cb)`, `audio.off(evt, cb)
-
-EventEmitter interface.
 
 ### Audio.isAudio(src)
 
@@ -852,6 +866,10 @@ Check if `src` is instance of _Audio_.
 ### audio.fromDb(db)`, `audio.toDb(gain)
 
 Convert gain to decibels or backwards, see [decibels](https://github.com/audiojs/decibels).
+
+### audio.toArray(dtype, t, dur)
+
+Create array representation of audio
 
 ### audio.save(fileName, done?)
 

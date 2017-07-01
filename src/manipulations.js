@@ -9,10 +9,20 @@
 
 const nidx = require('negative-index')
 const clamp = require('clamp')
-const AudioBuffer = require('audio-buffer')
+
 
 let Audio = require('../')
 
+
+
+//fill contents with periodic wave
+Audio.prototype.periodic = function periodic (type, time, duration, options) {
+	options = this._parseArgs(time, duration, options)
+
+	let oscillate = createOscillator({
+
+	})
+}
 
 /*
 //return slice of data as an audio buffer

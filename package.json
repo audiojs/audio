@@ -35,11 +35,13 @@
   },
   "dependencies": {
     "audio-buffer": "^4.0.1",
+    "audio-buffer-from": "^1.0.3",
     "audio-buffer-list": "^3.2.1",
     "audio-buffer-remix": "^1.0.3",
     "audio-buffer-utils": "^5.0.1",
     "audio-context": "^1.0.1",
     "audio-decode": "^1.2.6",
+    "audio-format": "^2.2.1",
     "audio-loader": "^1.0.3",
     "audio-play": "^2.1.1",
     "audiobuffer-to-wav": "^1.0.0",
@@ -53,6 +55,8 @@
     "is-relative": "^0.2.1",
     "is-url": "^1.2.2",
     "negative-index": "^1.0.2",
+    "pcm-convert": "^1.5.3",
+    "periodic-function": "^1.1.4",
     "save-file": "^1.1.3"
   }
 }
