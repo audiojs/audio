@@ -9,19 +9,26 @@
 
 const nidx = require('negative-index')
 const clamp = require('clamp')
-
+const assert = require('assert')
 
 let Audio = require('../')
 
+//apply processing function
+Audio.prototype.through = function (fn, time, duration, options) {
+	assert(typeof fn !== 'function', 'First argument should be a function')
 
-
-//fill contents with periodic wave
-Audio.prototype.periodic = function periodic (type, time, duration, options) {
 	options = this._parseArgs(time, duration, options)
 
-	let oscillate = createOscillator({
+	//make sure we split at proper positions
+	this.buffer.split(options.start)
+	this.buffer.split(options.end)
 
-	})
+	//apply processor
+	this.buffer.each((buf, idx, offset) => {
+		fn(buf)
+	}, options.start, options.end)
+
+	return this
 }
 
 /*

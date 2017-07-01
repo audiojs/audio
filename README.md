@@ -216,32 +216,26 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [ ] [audio.slice(t?, dur?, opts?)]()
 * [ ] [audio.remove(t?, dur?, opts?)]()
 * [ ] [audio.reverse(t?, dur?, opts?)]()
-* [ ] [audio.invert(t?, dur?, opts?)]()
 * [ ] [audio.gain(db, t?, dur?, opts?)]()
 * [ ] [audio.fade(t?, dur?, opts?)]()
 * [ ] [audio.normalize(t?, dur?, opts?)]()
-* [ ] [audio.removeDCOffset(t?, dur?, opts?)]()
-* [ ] [audio.threshold(lvl, t?, dur?, opts?)]()
 * [ ] [audio.pan(amt, t?, dur?, opts?)]()
 * [ ] [audio.overlay(audio, t?, dur?, opts?)]()
-* [ ] [audio.map(map, t?, dur?, opts?)]()
-* [ ] [audio.constant(lvl, t?, dur?, opts?)]()
-* [ ] [audio.noise(type?, t?, dur? opts?)]()
-* [ ] [audio.periodic(type?, t?, dur?, opts?)]()
+* [ ] [audio.fill(val|fn, t?, dur?, opts?)]()
 * [ ] [audio.scale(amt, t?, opts?)]()
 * [ ] [audio.shift(amt, t?, opts?)]()
 * [ ] [audio.trim(t?, dur?, opts?)]()
 * [ ] [audio.repeat(times, t?, dur?, opts?)]()
 * [ ] [audio.pad(dur, opts?)]()
-* [ ] [audio.remix(ch, opts?)]()
-* [ ] [audio.process(fn, opts?)]()
+* [ ] [audio.through(fn, opts?)]()
 
 **6. [Utilities](#utilities)**
 
 * [ ] [audio.save(name, opts?, cb?)]()
-* [ ] [audio.convert(format)]()
+* [ ] [audio.convert(format, t?, dur?, )]()
 * [ ] [audio.stream(dst, opts?, cb?)]()
 * [ ] [Audio.isAudio(a)]()
+* [ ] [Audio.isEqual(a, b, ...c)]()
 * [ ] [Audio.gain(db)]()
 * [ ] [Audio.db(gain)]()
 * [ ] [Audio.time(offset)]()
@@ -526,7 +520,7 @@ Ideas:
 
 ## Manipulations
 
-### audio.get(time=0, duration?, {start, end, channels, type}?)
+### audio.get(time=0, duration?, {start, end, channels, format}?)
 
 Get audio data as a list of float arrays or _AudioBuffer_ for indicated range. Range can be defined whether as `time` and `duration` or `start` and `end` offsets. To get single channel data, `channels` can be defined as a number.
 
@@ -693,6 +687,14 @@ audio = Audio(new Float32Array([0,.1,  0,.2,  0,.3]), {channels: 3}).normalize({
 audio.get() // [[0, .5], [0, 1], [0, .3]]
 ```
 
+| Property | Meaning |
+|---|---|
+| `dcOffset` | Remove DC offset, by default `true`. Can be a number. |
+| `range` | Amplitudes range, by default `[-1, 1]`. |
+| `channels` | Channels to affect, by default all. |
+| `start` | Start from the position. |
+| `end` | End at the position. |
+
 ### audio.gain(volume, time=0, duration?, {start, end, channels}?)
 
 Change volume of the interval of `duration` starting at `time`. `volume` is in decibels.
@@ -713,16 +715,6 @@ Audio('./sample.mp3', audio => {
 })
 ```
 
-### audio.invert(time=0, duration?, {start, end, channels}?)
-
-Invert phase for the indicated range.
-
-```js
-//invert 1s following after the second second of audio
-Audio(sample).invert(2, 1)
-```
-
-
 ### audio.shift(time=0, {rotate: false})
 
 Shift contents of audio to the left or right.
@@ -734,15 +726,7 @@ Apply stereo panning with audio compensation.
 ```js
 ```
 
-### audio.removeDCOffset()
-
-Remove DC offset, if any.
-
-### audio.threshold(level, time=0, duration?, {minPause, channels}?);
-
-Cancel values less than indicated threshold.
-
-### audio.mix(otherAudio, time=0, duration?, {channels}?)
+### audio.overlay(otherAudio, time=0, duration?, {channels}?)
 
 Lay second audio over the first one at the indicated interval.
 
@@ -750,110 +734,32 @@ Lay second audio over the first one at the indicated interval.
 
 Change playback rate, pitch will be shifted.
 
-### audio.process((buf, cb) => cb(buf), time=0, duration?, {channels, frame}?,onready?)`
+### audio.through(buf => buf, time=0, duration?, {channels, frame}?)`
 
-Process audio or part with _sync_ or _async_ function, see any [audiojs/audio-* modules](https://github.com/audiojs).
-
-* _sync_ function has signature `(audioBuffer) => audioBuffer`.
-* _async_ function has signature `(audioBuffer, cb) => cb(err, audioBuffer)`.
-
-Options may define `{frame: frameSize}` to process chunks evenly.
-
-### audio.map((value, time, idx, channel) => value, time=0, duration?,{channels, frame}?)`
-
-Map every value
-
-
-### audio.constant(value=0, time=0, duration?, options?)
-
-Create `audio` instance with pefilled constant `value` of the `duration`. Constant value is expected to be from `-1..1` range, anything over it is considered clipping.
+Process audio or part of it with a function.
 
 ```js
-// Create stereo digital copy of the masterpiece 4:33
-let recording = new Audio(4*60 + 33, 2)
+//generate 2s of gray noise in stereo
+let filter = require('audio-filter/loudness')()
+let noise = require('audio-noise/white')()
+let a = Audio(2, 2).through(noise, filter)
+
+//create oscillator with LPF
+let biquad = require('audio-filter/biquad')()
+let saw = require('audio-oscillator/sawtooth')()
+let b = Audio(2).through(saw, biquad)
 ```
-
-**Related**
-
-* [ConstantSourceNode](https://developer.mozilla.org/en-US/docs/Web/API/ConstantSourceNode)
-
----
-
-
-### audio.noise(type='white', time=0, duration?, options?)
-
-Create `audio` instance filled with noise of specific `type`.
-
-```js
-// Create 5 seconds of pink noise
-let noise = Audio.noise(5, 'pink', {channels: 2})
-
-noise.play({loop: true})
-```
-
-| Type | Spectrum | Meaning |
-|---|---|---|
-| `'white'` | | Flat spectrum noise. See [wiki](https://en.wikipedia.org/wiki/White_noise). |
-| `'pink'` | | -3dB/octave. See [wiki](https://en.wikipedia.org/wiki/Pink_noise). |
-| `'brown'` | | -6dB/octave. See [wiki](https://en.wikipedia.org/wiki/Brownian_noise). |
-| `'blue'` | | +3dB/octave. |
-| `'violet'` | | +6dB/octave. |
-| `'grey'` | | White noise weighted by loudness curve, see [a-weighting](https://github.com/audiojs/a-weighting). Also see [wiki](https://en.wikipedia.org/wiki/Grey_noise) |
-| `'green'` | | |
-
-**Related**
-
-* [audio-noise](https://github.com/audiojs/audio-noise)
-* [Colors of Noise](https://en.wikipedia.org/wiki/Colors_of_noise)
-
----
-
-
-### audio.periodic(type='sine', time=0, duration?, options?)
-
-Create `audio` instance by generating periodic waveform with `frequency` of the `duration`.
-
-```js
-// Create 2s 440Hz sine wave
-let sine = Audio(2).periodic({type: 'sine', frequency: 440})
-
-// Create 2s stereo sine with 2nd and 4th harmonics of 440 Hz
-let timbre1 = Audio(2, 2).periodic({type: 'fourier', real: [0, 1, 0, .5], frequency: 440})
-
-// Create 1s custom timbre starting from 1.5s
-let timbre2 = Audio(3).periodic(1.5, 1, {frequency: 1000, real: [0,1], imag: [1,1], normalize: false})
-```
-
-#### Type
-
-| Type | Waveform | Meaning |
-|---|---|---|
-| `'sine'`, `'sin'`, `'cos'` | | Sine oscillation. |
-| `'saw'`, `'sawtooth'` | | Sawtooth oscillation. |
-| `'pulse'` | | Pulse oscillation, 1-sample wide. |
-| `'square'`, `'rect'`, `'rectangle'` | | Rectangular oscillation. |
-| `'triangle'`, `'tri'` | | Triangular oscillation. |
-| `'series'` | | Periodic wave with harmonic coefficients. |
-| `[[r0, r1, r2, ...], [i0, i1, i2, ...]]` | | Periodic wave based off real/imaginary parts of fourier transform. |
 
 #### Options
 
 | Property | Default | Meaning |
 |---|---|---|
-| `type` | `null` | Type of periodic wave, supercedes argument. See table above. |
-| `frequency`, `f` | `440` | Base frequency of oscillation, ie. frequency of the first harmonic. |
-| `offset` | `0` | Shift oscillation by the amount of samples. |
+| `frame` | `false` | Ensure processing frame length. By default it is the same as in constructor. |
 | `channel`, `channels` | `all` | Affect only indicated channels, can be a number or array. |
 | `start` | `null` | Start from the indicated sample offset. |
 | `end` | `null` | End at the indicated sample offset. |
 | `time` | `null` | Start at the indicated time, in seconds. Supercedes `time` argument. |
 | `duration` | `null` | Affect the duration starting from the indicated time, in seconds. |
-
-#### Related APIs
-
-* [audio-oscillator](https://github.com/audiojs/audio-oscillator)
-* [periodic-function](https://github.com/audiojs/periodic-function)
-* [createPeriodicWave](https://developer.mozilla.org/en-US/docs/Web/API/AudioContext/createPeriodicWave)
 
 ---
 
