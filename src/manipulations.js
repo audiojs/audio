@@ -15,7 +15,7 @@ let Audio = require('../')
 
 //apply processing function
 Audio.prototype.through = function (fn, time, duration, options) {
-	assert(typeof fn !== 'function', 'First argument should be a function')
+	assert(typeof fn === 'function', 'First argument should be a function')
 
 	options = this._parseArgs(time, duration, options)
 
@@ -24,8 +24,8 @@ Audio.prototype.through = function (fn, time, duration, options) {
 	this.buffer.split(options.end)
 
 	//apply processor
-	this.buffer.each((buf, idx, offset) => {
-		fn(buf)
+	this.buffer.map((buf, idx, offset) => {
+		return fn(buf) || buf
 	}, options.start, options.end)
 
 	return this

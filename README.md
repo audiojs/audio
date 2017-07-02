@@ -258,8 +258,8 @@ let bufAudio = new Audio(audioCtx.createBuffer(2, 22050, 44100))
 // Create from raw planar data
 let rawAudio = new Audio(new Float32Array([0,1,.2,.3,...]), {channels: 2})
 
-// Create from multiple sources
-let joinedAudio = new Audio([blankAudio, rawAudio, bufAudio], {channels: 2})
+// Create from multiple sources wrapped to 1s of silence
+let joinedAudio = new Audio([1, blankAudio, rawAudio, bufAudio, 1], {channels: 2})
 
 // Create from channels data
 let chData = new Audio([[0,0,0], [.1,.1,.1], [.2,.2,.2]])
