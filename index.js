@@ -364,7 +364,7 @@ function resolvePath (fileName, depth=2) {
 }
 
 //include start/end offsets and channel for options.
-Audio.prototype._parseArgs = function (time, duration, options) {
+Audio.prototype._parseArgs = function (time, duration, options, cb) {
 	//no args at all
 	if (time == null) {
 		options = {}
@@ -407,6 +407,10 @@ Audio.prototype._parseArgs = function (time, duration, options) {
 			options.channels.push(i)
 		}
 	}
+
+	//take over from/to params
+	if (options.from != null) time = options.from
+	if (options.to != null) duration = options.to - time
 
 	//detect raw interval
 	if (options.start == null) {

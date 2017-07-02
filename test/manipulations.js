@@ -10,7 +10,19 @@ const path = require('path')
 const fs = require('fs')
 const AudioBufferList = require('audio-buffer-list')
 const util = require('audio-buffer-utils')
+const createOscillator = require('audio-oscillator')
 
+
+t('through', t => {
+	let a = Audio([2, 2])
+
+	a.through(buf => {
+
+	}, {from: 1, to: 3})
+	a.play()
+
+	t.end()
+})
 
 
 t.skip('clone instance', t => {
