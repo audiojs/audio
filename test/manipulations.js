@@ -14,12 +14,13 @@ const createOscillator = require('audio-oscillator')
 
 
 t('through', t => {
-	let a = Audio([2, 2])
+	let a = Audio([1, 1])
 
 	a.through(buf => {
+		util.fill(buf, 1)
+	}, {from: .5, to: 1.5})
 
-	}, {from: 1, to: 3})
-	a.play()
+	// t.equal(a.get(0, 1), )
 
 	t.end()
 })
@@ -145,11 +146,11 @@ t.skip('trim', t => {
 	t.end();
 })
 
-t.skip('gain', t => {
-	let audio = new Audio(Array(44100).fill(1), 1).gain(-20)
+t('gain', t => {
+	let audio = new Audio(new Float32Array(Array(441).fill(1))).gain(-20)
 
-	t.deepEqual(audio.data({channel: 0}), new Float32Array(Array(44100).fill(.1)))
-	// <Audio .5, .5, .5, .5, ...>
+	// t.equal(audio.get({channel: 0})[10], .1)
+	t.deepEqual(audio.get({channel: 0}), new Float32Array(Array(441).fill(.1)))
 
 	t.end()
 })

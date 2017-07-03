@@ -157,20 +157,19 @@ Audio.prototype.set = function set (time, data, options) {
 Audio.prototype.get = function (time, duration, options) {
 	options = this._parseArgs(time, duration, options)
 
-	if (typeof options.channels == 'number') {
-		return this.buffer.getChannelData(options.channel).subarray(options.start, options.end)
-	}
 	//transfer data for indicated channels
-	else {
-		let data = []
-		let buf = this.buffer.slice(options.start, options.end)
-		for (let i = 0; i < options.channel.length; i++) {
-			let channel = options.channel[i]
-
-			data.push(buf.getChannelData(channel))
-		}
-		return data
+	let data = []
+	for (let c = 0; c < options.channels.length; c++) {
+		let arr = new Float32Array(options.length)
+		let channel = options.channels[c]
+		this.buffer.copyFromChannel(arr, c, options.start, options.end)
+		data.push(arr)
 	}
+
+	if (typeof options.channel == 'number') {
+		return data[0]
+	}
+	return data
 }
 
 
@@ -308,23 +307,19 @@ Audio.prototype.trim = function trim (options) {
 
 
 //regain audio
-Audio.prototype.gain = function (gain = 0, start, duration, options) {
+Audio.prototype.gain = function (gain = 0, time, duration, options) {
 	if (!gain) return this
 
-	options = this._parseArgs(start, duration, options)
+	options = this._parseArgs(time, duration, options)
 
-	let level = this.fromDb(gain)
+	let level = Audio.fromDb(gain)
 
-	if (typeof options.channels == 'number') {
-		options.channels = [options.channels]
-	}
-
-	this.buffer.each((buf, idx, offset) => {
-		for (let c = 0, l = Math.min(options.end - offset, buf.length); c < options.channels.length; c++) {
+	this.buffer.map((buf, idx, offset) => {
+		for (let c = 0, cnum = options.channels.length; c < cnum; c++) {
 			let channel = options.channels[c]
 			let data = buf.getChannelData(channel)
 
-			for (let i = Math.max(options.start - offset, 0); i < l; i++) {
+			for (let i = 0, l = buf.length; i < l; i++) {
 				data[i] *= level
 			}
 		}

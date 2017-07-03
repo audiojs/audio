@@ -27,13 +27,14 @@ const isURL = require('is-url')
 const convert = require('pcm-convert')
 const aformat = require('audio-format')
 const createBuffer = require('audio-buffer-from')
+const assert = require('assert')
 
 module.exports = Audio
 
 
 //utilities
-Audio.prototype.toGain = Audio.prototype.fromDb = db.toGain
-Audio.prototype.fromGain = Audio.prototype.toDb = db.fromGain
+Audio.fromDb = db.toGain
+Audio.toDb = db.fromGain
 
 
 //augment functionality
@@ -401,16 +402,21 @@ Audio.prototype._parseArgs = function (time, duration, options, cb) {
 	if (!time && duration < 0) time = -0;
 
 	//ensure channels
-	if (options.channels == null) {
+	if (options.channel != null) {
+		options.channels = options.channel
+	}
+	if (options.channels == null || typeof options.channels === 'number') {
 		options.channels = []
 		for (let i = 0; i < this.channels; i++) {
 			options.channels.push(i)
 		}
 	}
+	assert(Array.isArray(options.channels), 'Bad `channels` argument')
 
 	//take over from/to params
 	if (options.from != null) time = options.from
 	if (options.to != null) duration = options.to - time
+	if (options.length != null) duration = options.length * this.sampleRate
 
 	//detect raw interval
 	if (options.start == null) {
@@ -429,6 +435,8 @@ Audio.prototype._parseArgs = function (time, duration, options, cb) {
 		}
 		options.end = endOffset
 	}
+
+	if (options.length == null) options.length = options.end - options.start
 
 	return options
 }
