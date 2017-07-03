@@ -216,7 +216,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [ ] [audio.slice(t?, dur?, opts?)]()
 * [ ] [audio.remove(t?, dur?, opts?)]()
 * [ ] [audio.reverse(t?, dur?, opts?)]()
-* [ ] [audio.gain(db, t?, dur?, opts?)]()
+* [x] [audio.gain(db, t?, dur?, opts?)]()
 * [ ] [audio.fade(t?, dur?, opts?)]()
 * [ ] [audio.normalize(t?, dur?, opts?)]()
 * [ ] [audio.pan(amt, t?, dur?, opts?)]()
