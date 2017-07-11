@@ -67,6 +67,7 @@ function Audio(source, options) {
 	//empty case
 	if (source === undefined || typeof source === 'number') {
 		options.duration = source || 0
+		assert(options.duration >= 0, 'Duration should not be negative')
 		source = null
 		this.buffer = new AudioBufferList(createBuffer(options))
 	}
@@ -86,8 +87,11 @@ function Audio(source, options) {
 		this.buffer = source.buffer.clone()
 	}
 
-	//if nested arrays data - probably it is channels layout
-	else if (Array.isArray(source) && !(Array.isArray(source[0]) || ArrayBuffer.isView(source[0]))) {
+	//multiple source
+	else if (Array.isArray(source) &&
+			!(typeof source[0] === 'number' && (source.length === 1 || typeof source[1] === 'number')) &&
+			!(source.length < 32 && source.every(ch => Array.isArray(ch) || ArrayBuffer.isView(ch)))
+		) {
 		//make sure every array item audio instance is created and loaded
 		let items = [], channels = 1
 		for (let i = 0; i < source.length; i++) {
@@ -100,8 +104,13 @@ function Audio(source, options) {
 	}
 
 	else {
-		let buf = createBuffer(source, options)
-		this.buffer = new AudioBufferList(buf)
+		try {
+			let buf = createBuffer(source, options)
+			this.buffer = new AudioBufferList(buf)
+		}
+		catch (e) {
+			throw Error('Bad arguments')
+		}
 	}
 
 	//slice by length
@@ -417,6 +426,7 @@ Audio.prototype._parseArgs = function (time, duration, options, cb) {
 	if (options.from != null) time = options.from
 	if (options.to != null) duration = options.to - time
 	if (options.length != null) duration = options.length * this.sampleRate
+	if (options.duration != null) duration = options.duration
 
 	//detect raw interval
 	if (options.start == null) {
@@ -436,7 +446,11 @@ Audio.prototype._parseArgs = function (time, duration, options, cb) {
 		options.end = endOffset
 	}
 
+	//provide full options
 	if (options.length == null) options.length = options.end - options.start
+	if (options.from == null) options.from = options.start / this.sampleRate
+	if (options.to == null) options.to = options.end / this.sampleRate
+	if (options.duration == null) options.duration = options.length / this.sampleRate
 
 	return options
 }

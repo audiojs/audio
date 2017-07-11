@@ -160,16 +160,24 @@ Audio.prototype.get = function (time, duration, options) {
 	//transfer data for indicated channels
 	let data = []
 	for (let c = 0; c < options.channels.length; c++) {
-		let arr = new Float32Array(options.length)
-		let channel = options.channels[c]
-		this.buffer.copyFromChannel(arr, c, options.start, options.end)
-		data.push(arr)
+		data.push(this.getChannelData(c), options.from, options.duration)
 	}
 
 	if (typeof options.channel == 'number') {
 		return data[0]
 	}
 	return data
+}
+
+//fetch channel data
+Audio.prototype.getChannelData = function (channel, time, duration, options) {
+	options = this._parseArgs(time, duration, options)
+
+	//transfer data for indicated channels
+	let arr = new Float32Array(options.length)
+	this.buffer.copyFromChannel(arr, channel, options.start, options.end)
+
+	return arr
 }
 
 
