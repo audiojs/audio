@@ -90,7 +90,7 @@ t.skip('data', t => {
 	t.end()
 })
 
-t.skip('normalize', t => {
+t.only('normalize', t => {
 	//full normalize
 	let audio = Audio([0, .1, 0, -.1], {channels: 1})
 

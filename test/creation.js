@@ -17,10 +17,6 @@ let localWav = !isBrowser ? './samples/lena.wav' : './test/samples/lena.wav'
 let localMp3 = !isBrowser ? './samples/lena.mp3' : './test/samples/lena.mp3'
 
 
-//TODO
-// t='data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgA',new Audio(t+btoa(t+S)).play()
-
-
 t('create empty instance', t => {
 	let a = Audio();
 
@@ -72,7 +68,7 @@ t('create duration from options', t => {
 	t.end()
 })
 
-t('create multiple instances', t => {
+t('create from multiple arguments', t => {
 	let a = Audio([
 		2,
 		Audio(1),
@@ -85,6 +81,12 @@ t('create multiple instances', t => {
 
 	t.end()
 });
+
+t.skip('create by concatenating the arguments', t => {
+	let a = Audio([0,1], [0,1])
+
+	t.equal(a.length, 4)
+})
 
 t('create from audio buffer', t => {
 	let a = Audio(util.create([0,.1,.2,.3,.4,.5], 3, 48000))
@@ -127,6 +129,22 @@ t('create from channels data', t => {
 
 	t.end()
 })
+
+t('create from direct string')
+
+t('create from uint8 array')
+
+t('create from arraybuffer with dtype')
+
+t('create from base64 string')
+
+t('create from base64 string with dtype')
+
+t('create from datauri octet-stream')
+
+t('create from ndarray')
+
+t('create from ndsamples')
 
 t.skip('create from buffer', t => {
 	Promise.all([
@@ -399,3 +417,75 @@ t('error decoding (bad argument)', t => {
 
 t('error decoding format')
 
+t('properly detect numeric array vs items array', t => {
+	let num, mul, ch, err
+
+	num = new Audio([0])
+	t.equal(num.length, 1)
+	t.equal(num.channels, 1)
+
+	num = new Audio([1])
+	t.equal(num.length, 1)
+	t.equal(num.channels, 1)
+
+	num = new Audio([-1])
+	t.equal(num.length, 1)
+	t.equal(num.channels, 1)
+
+	num = new Audio([0, 1])
+	t.equal(num.length, 2)
+	t.equal(num.channels, 1)
+
+	num = new Audio([-1, 1])
+	t.equal(num.length, 2)
+	t.equal(num.channels, 1)
+
+	num = new Audio([1, 1, 1])
+	t.equal(num.length, 3)
+	t.equal(num.channels, 1)
+
+	num = new Audio([1, 1])
+	t.equal(num.length, 2)
+	t.equal(num.channels, 1)
+
+	mul = new Audio([1, Audio(0), 1])
+	t.equal(mul.length, 44100*2)
+	t.equal(mul.channels, 1)
+
+	mul = new Audio([Audio(0)])
+	t.equal(mul.length, 0)
+	t.equal(mul.channels, 1)
+
+	ch = new Audio([[0, 1], [0, 1]])
+	t.equal(ch.length, 2)
+	t.equal(ch.channels, 2)
+
+	ch = new Audio([new Float32Array([0, 1]), new Float32Array([0, 1])])
+	t.equal(ch.length, 2)
+	t.equal(ch.channels, 2)
+
+	ch = new Audio([1, new Float32Array([0, 1]), new Float32Array([0, 1])], {channels: 2})
+	t.equal(ch.length, 44102)
+	t.equal(ch.channels, 2)
+
+
+	err = new Audio([1, 1, Audio(0)])
+	t.notOk(err.getChannelData(0)[3])
+
+	err = new Audio([-1, 1, Audio(0)])
+	t.notOk(err.getChannelData(0)[3])
+
+	t.throws(() => {
+		err = new Audio([-1, Audio(0)])
+	})
+
+	t.throws(() => {
+		err = new Audio([Audio(0), -1])
+	})
+
+	mul = new Audio([Audio(0), 1])
+	t.equal(mul.length, 44100)
+	t.equal(mul.channels, 1)
+
+	t.end()
+})
