@@ -166,6 +166,7 @@ t.skip('create from buffer', t => {
 		t.end()
 	}, err => {
 		t.fail(err)
+		t.end()
 	})
 })
 
@@ -183,12 +184,16 @@ t('load wav', t => {
 		t.end();
 	}, err => {
 		t.fail(err)
+		t.end()
 	})
 })
 
 t('load remote', t => {
 	Audio.load(remoteMp3, (err, a) => {
-		if (err) return t.fail(err)
+		if (err) {
+			t.fail(err)
+			return t.end()
+		}
 
 		t.ok(a)
 		t.notEqual(a.duration, 0)
@@ -202,6 +207,7 @@ t('load callback', t => {
 		t.end();
 	}, err => {
 		t.fail(err)
+		t.end()
 	})
 })
 
@@ -270,6 +276,7 @@ t('load multiple sources', t => {
 		t.end()
 	}, err => {
 		t.fail(err)
+		t.end()
 	})
 })
 
@@ -283,12 +290,14 @@ t('load multiple mixed', t => {
 		t.end()
 	}, err => {
 		t.fail(err)
+		t.end()
 	})
 })
 
 t('load multiple error', t => {
 	Audio.load([localMp3, 'xxx']).then(list => {
 		t.fail()
+		t.end()
 	}, err => {
 		t.ok(err)
 		t.end()
@@ -307,6 +316,7 @@ t('decode base64', t => {
 		t.end()
 	}, err => {
 		t.fail(err)
+		t.end()
 	})
 })
 
@@ -317,6 +327,7 @@ t('decode mp3', t => {
 		t.end()
 	}, err => {
 		t.fail(err)
+		t.end()
 	})
 })
 t('decode wav', t => {
@@ -326,6 +337,7 @@ t('decode wav', t => {
 		t.end()
 	}, err => {
 		t.fail(err)
+		t.end()
 	})
 })
 
@@ -337,6 +349,7 @@ t.skip('decode ogg', t => {
 		t.end()
 	}, err => {
 		t.fail(err)
+		t.end()
 	})
 })
 
@@ -348,13 +361,17 @@ t('decode flac', t => {
 		t.end()
 	}, err => {
 		t.fail(err)
+		t.end()
 	})
 })
 
 isBrowser && t('decode Blob', t => {
 	let mp3 = require('audio-lena/mp3')
 	Audio.decode(new Blob([mp3]), (err, audio) => {
-		if (err) t.fail(err)
+		if (err) {
+			t.fail(err)
+			t.end()
+		}
 
 		t.equal(~~audio.duration, 12)
 		t.equal(audio.channels, 1)
@@ -368,7 +385,10 @@ t('decode Buffer', t => {
 	t.plan(3)
 
 	Audio.decode(mp3, (err, audio) => {
-		if (err) t.fail(err)
+		if (err) {
+			t.fail(err)
+			t.end()
+		}
 
 		t.equal(~~audio.duration, 12)
 		t.equal(audio.channels, 1)
@@ -382,7 +402,10 @@ t.skip('decode TypedArray', t => {
 	t.plan(3)
 
 	Audio.decode(arr, (err, audio) => {
-		if (err) t.fail(err)
+		if (err) {
+			t.fail(err)
+			t.end()
+		}
 
 		t.equal(~~audio.duration, 12)
 		t.equal(audio.channels, 1)
@@ -399,17 +422,24 @@ t('decode multiple items', t => {
 		t.equal(~~list[1].duration, 12)
 		t.equal(~~list[2].duration, 12)
 		t.end()
-	}, err => t.fail(err))
+	}, err => {
+		t.fail(err)
+		t.end()
+	})
 })
 
 t('error decoding (bad argument)', t => {
 	Audio.decode('xxxx', (err, audio) => {
-		if (!err) t.fail('No error raised')
+		if (!err) {
+			t.fail('No error raised')
+		}
 		t.ok(err)
 	})
 
 	Audio.decode([require('audio-lena/mp3'), 'xxxx'], (err, audio) => {
-		if (!err) t.fail('No error raised')
+		if (!err) {
+			t.fail('No error raised')
+		}
 		t.ok(err)
 		t.end()
 	})

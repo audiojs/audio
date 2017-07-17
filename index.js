@@ -376,13 +376,13 @@ function resolvePath (fileName, depth=2) {
 //include start/end offsets and channel for options.
 Audio.prototype._parseArgs = function (time, duration, options, cb) {
 	//no args at all
-	if (time == null) {
+	if (!arguments.length) {
 		options = {}
 		time = 0
 		duration = this.duration
 	}
 	//single arg
-	else if (duration == null) {
+	else if (arguments.length === 1) {
 		//{}
 		if (typeof time !== 'number') {
 			options = time
@@ -396,7 +396,7 @@ Audio.prototype._parseArgs = function (time, duration, options, cb) {
 		}
 	}
 	//two args
-	else if (options == null) {
+	else if (arguments.length === 2) {
 		//1, 1
 		if (typeof duration === 'number') {
 			options = {}
@@ -408,15 +408,20 @@ Audio.prototype._parseArgs = function (time, duration, options, cb) {
 		}
 	}
 
+	if (!options) options = {}
+	if (time == null) time = 0
+	if (duration == null) duration = this.duration
+
 	if (!time && duration < 0) time = -0;
 
 	//ensure channels
 	if (options.channel != null) {
-		options.channels = options.channel
+		options.channels = [options.channel]
 	}
 	if (options.channels == null || typeof options.channels === 'number') {
+		let channels = options.channels || this.channels
 		options.channels = []
-		for (let i = 0; i < this.channels; i++) {
+		for (let i = 0; i < channels; i++) {
 			options.channels.push(i)
 		}
 	}
@@ -451,6 +456,8 @@ Audio.prototype._parseArgs = function (time, duration, options, cb) {
 	if (options.from == null) options.from = options.start / this.sampleRate
 	if (options.to == null) options.to = options.end / this.sampleRate
 	if (options.duration == null) options.duration = options.length / this.sampleRate
+
+	if (options.format) options.dtype = options.format
 
 	return options
 }
