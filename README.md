@@ -210,8 +210,8 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 
 **5 [Manipulations](#manipulations)**
 
-* [ ] [audio.get(t?, dur?, opts?)]()
-* [ ] [audio.set(data, t?, dur?, opts?)]()
+* [ ] [audio.read(dst?, t?, dur?, opts?)]()
+* [ ] [audio.write(src, t?, dur?, opts?)]()
 * [ ] [audio.insert(data, t?, dur?, opts?)]()
 * [ ] [audio.slice(t?, dur?, opts?)]()
 * [ ] [audio.remove(t?, dur?, opts?)]()
@@ -520,22 +520,25 @@ Ideas:
 
 ## Manipulations
 
-### audio.get(time=0, duration?, {start, end, channels, format}?)
+### audio.read(destination?, time=0, duration?, {start, end|length, channels, format: 'audiobuffer'}?)
 
-Get audio data as a list of float arrays or _AudioBuffer_ for indicated range. Range can be defined whether as `time` and `duration` or `start` and `end` offsets. To get single channel data, `channels` can be defined as a number.
+Read audio data from the indicated range, put result into `destination`. If destination is not defined, a new container will be created based on `format`, by default `'array'` with channels data.
 
 ```js
-//get channels data
-let [leftChannel, rightChannel] = audio.get()
+//get channels data for the 5s subrange starting from the 1s
+let [leftChannel, rightChannel] = audio.read(1, 5, {format: 'array'})
+
+//get audiobuffer with data
+let abuf = audio.read({format: 'audiobuffer'})
 
 //get 1s of SR and SL channels data, starting from 0.5s
-let [slChannel, srChannel] = audio.get(.5, 1, {channels: [2,3]})
+let [slChannel, srChannel] = audio.read(.5, 1, {channels: [2,3]})
 
 //get last 1000 samples of right channel data
-let rightChannelData = audio.get({channels: 1, start: -1000, end: 0})
+let rightChannelData = audio.read(new Float32Array(1000), {channel: 1, start: -1000, end: 0})
 ```
 
-### audio.set(data, time=0, {start, channels}?)
+### audio.write(data, time=0, duration?, {start, channels}?)
 
 Write data to audio starting at the indicated time. `data` is one of [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Audio_, _FloatArray_ or list of _FloatArrays_. `data` and `time` can swap places for compatibility.
 

@@ -10,8 +10,97 @@
 const nidx = require('negative-index')
 const clamp = require('clamp')
 const assert = require('assert')
+const convert = require('pcm-convert')
+const bufferFrom = require('audio-buffer-from')
+const isPlainObj = require('is-plain-obj')
 
 let Audio = require('../')
+
+
+//return channels data distributed in array
+Audio.prototype.read = function (dst, time, duration, options) {
+	if (typeof dst === 'number') {
+		options = duration
+		duration = time
+		time = dst
+		dst = null
+	}
+	else if (isPlainObj(dst)) {
+		options = dst
+		time = null
+		duration = null
+		dst = null
+	}
+	options = this._parseArgs(time, duration, options)
+
+	//transfer data for indicated channels
+	let data = []
+	for (let c = 0; c < options.channels.length; c++) {
+		data.push(Array.from(this.getChannelData(c)), options.from, options.duration)
+	}
+
+	if (options.dtype === 'audiobuffer') {
+		data = bufferFrom(data, {sampleRate: this.sampleRate})
+		return data
+	}
+	else {
+		if (typeof options.channel == 'number') {
+			data = data[0]
+		}
+		data = convert(data, 'float32', options.dtype, dst)
+	}
+
+	return data
+}
+
+
+//put data by the offset
+Audio.prototype.set = function set (time, data, options) {
+	//5, data, options
+	//5, data
+	if (typeof time == 'number') {}
+	else {
+		//data, options
+		if ( isPlainObj(data) ) {
+			options = data
+			data = time
+		}
+		//data, 5, options
+		//data, 5
+		//data
+		else {
+			[data, time] = [time, data]
+		}
+	}
+
+	options = this._parseArgs(time, 0, options)
+
+	if (typeof options.channels == 'number') {
+		options.channels = [options.channels]
+	}
+
+	for (let c = 0; c < options.channels.length; c++ ) {
+		let channel = options.channel[c]
+
+		//TODO: figure out how to get proper data
+		this.buffer.copyToChannel(data, channel, options.start)
+	}
+
+	return this
+}
+
+
+//fetch channel data
+Audio.prototype.getChannelData = function (channel, time, duration, options) {
+	options = this._parseArgs(time, duration, options)
+
+	//transfer data for indicated channels
+	let arr = new Float32Array(options.length)
+	this.buffer.copyFromChannel(arr, channel, options.start, options.end)
+
+	return arr
+}
+
 
 //apply processing function
 Audio.prototype.through = function (fn, time, duration, options) {
@@ -118,67 +207,6 @@ Audio.prototype.remove = function remove (time, duration, options) {
 	return this
 }
 
-//put data by the offset
-Audio.prototype.set = function set (time, data, options) {
-	//5, data, options
-	//5, data
-	if (typeof time == 'number') {}
-	else {
-		//data, options
-		if ( isPlainObj(data) ) {
-			options = data
-			data = time
-		}
-		//data, 5, options
-		//data, 5
-		//data
-		else {
-			[data, time] = [time, data]
-		}
-	}
-
-	options = this._parseArgs(time, 0, options)
-
-	if (typeof options.channels == 'number') {
-		options.channels = [options.channels]
-	}
-
-	for (let c = 0; c < options.channels.length; c++ ) {
-		let channel = options.channel[c]
-
-		//TODO: figure out how to get proper data
-		this.buffer.copyToChannel(data, channel, options.start)
-	}
-
-	return this
-}
-
-//return channels data distributed in array
-Audio.prototype.get = function (time, duration, options) {
-	options = this._parseArgs(time, duration, options)
-
-	//transfer data for indicated channels
-	let data = []
-	for (let c = 0; c < options.channels.length; c++) {
-		data.push(this.getChannelData(c), options.from, options.duration)
-	}
-
-	if (typeof options.channel == 'number') {
-		return data[0]
-	}
-	return data
-}
-
-//fetch channel data
-Audio.prototype.getChannelData = function (channel, time, duration, options) {
-	options = this._parseArgs(time, duration, options)
-
-	//transfer data for indicated channels
-	let arr = new Float32Array(options.length)
-	this.buffer.copyFromChannel(arr, channel, options.start, options.end)
-
-	return arr
-}
 
 
 //normalize contents by the offset

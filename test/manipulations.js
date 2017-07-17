@@ -25,6 +25,45 @@ t('through', t => {
 	t.end()
 })
 
+t.only('read', t => {
+	let saw = Array.from({length: 10}, (v, i) => i / 10)
+
+	let a = Audio([saw, saw, saw])
+	t.equal(a.length, 10)
+	t.equal(a.channels, 3)
+
+	let data
+
+	// let data = a.getChannelData(1)
+	// t.deepEqual(data, new Float32Array([0,.1,.2,.3,.4,.5,.6,.7,.8,.9]))
+
+	//channels data
+	data = a.read({channel: 1})
+	t.deepEqual(data, new Float32Array([0,.1,.2,.3,.4,.5,.6,.7,.8,.9]))
+
+	// b = a.read({format: 'audiobuffer'})
+
+	// b = a.read({channel: 1})
+
+	// b = a.read({channel: 0, format: 'uint8'})
+
+	// b = a.read(.2, .8, {})
+
+	// b = a.read(new Uint8Array())
+
+	// b = a.read(new Float32Array(), .5)
+
+	// b = a.read(new ArrayBuffer(), .5, .6, {format: 'int8'})
+
+	// b = a.read(.6, .7, {format: 'float32 interleaved', channel: 1})
+
+	t.end()
+})
+
+t('write', t => {
+
+})
+
 
 t.skip('clone instance', t => {
 	let audio = Audio();
@@ -90,7 +129,7 @@ t.skip('data', t => {
 	t.end()
 })
 
-t.only('normalize', t => {
+t('normalize', t => {
 	//full normalize
 	let audio = Audio([0, .1, 0, -.1], {channels: 1})
 
