@@ -220,7 +220,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [ ] [audio.fade(t?, dur?, opts?)]()
 * [ ] [audio.normalize(t?, dur?, opts?)]()
 * [ ] [audio.pan(amt, t?, dur?, opts?)]()
-* [ ] [audio.overlay(audio, t?, dur?, opts?)]()
+* [ ] [audio.mix(audio, t?, dur?, opts?)]()
 * [ ] [audio.fill(val|fn, t?, dur?, opts?)]()
 * [ ] [audio.scale(amt, t?, opts?)]()
 * [ ] [audio.shift(amt, t?, opts?)]()
@@ -736,7 +736,7 @@ Apply stereo panning with audio compensation.
 ```js
 ```
 
-### audio.overlay(otherAudio, time=0, duration?, {channels}?)
+### audio.mix(otherAudio, time=0, duration?, {channels}?)
 
 Lay second audio over the first one at the indicated interval.
 
@@ -779,13 +779,9 @@ let b = Audio(2).through(saw, biquad)
 
 Check if `src` is instance of _Audio_.
 
-### audio.fromDb(db)`, `audio.toDb(gain)
+### Audio.fromDb(db), Audio.toDb(gain)
 
 Convert gain to decibels or backwards, see [decibels](https://github.com/audiojs/decibels).
-
-### audio.toArray(dtype, t, dur)
-
-Create array representation of audio
 
 ### audio.save(fileName, done?)
 
