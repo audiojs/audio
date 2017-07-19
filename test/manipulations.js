@@ -26,7 +26,7 @@ t('through', t => {
 	t.end()
 })
 
-t.only('read', t => {
+t('read', t => {
 	let saw = Array.from({length: 10}, (v, i) => i / 10)
 
 	let a = Audio([saw, saw, saw])
@@ -76,7 +76,9 @@ t.only('read', t => {
 	t.end()
 })
 
-t('write', t => {
+t.only('write', t => {
+	let a = new Audio(30/44100)
+
 
 })
 
