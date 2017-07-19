@@ -74,7 +74,7 @@ Audio.prototype.read = function (dst, time, duration, options) {
 
 
 //put data by the offset
-Audio.prototype.write = function write (time, data, options) {
+Audio.prototype.write = function write (data, time, duration, options) {
 	//5, data, options
 	//5, data
 	if (typeof time == 'number') {}

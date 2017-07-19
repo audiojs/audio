@@ -306,7 +306,6 @@ let optAudio = new Audio({
 * [audio-buffer-list](https://github.com/audiojs/audio-buffer-list)
 * [audio-buffer-from](https://github.com/audiojs/audio-buffer-from)
 
----
 
 
 ### Audio.load(source, (error, audio)=>{}?)
@@ -349,7 +348,6 @@ TODO: freesound loader, soundcloud loader
 * [audio-load](https://github.com/audiojs/audio-load)
 * [audio-loader](https://github.com/audiojs/audio-loader)
 
----
 
 
 ### Audio.decode(source, (error, audio)=>{}?)
@@ -398,7 +396,7 @@ Audio.decode(require('audio-lena/flac-datauri')).then(audio => {}, err => {})
 * [audio-type](https://github.com/audiojs/audio-type)
 * [aurora](https://github.com/audiocogs/aurora.js)
 
----
+
 
 ### Audio.record(source, (error, audio)={}?)
 
@@ -429,6 +427,8 @@ TODO
 <!--
 | _HTMLAudioElement_, _HTMLMediaElement_ | Wrap [`<audio>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/audio) or [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video) element, capture it's contents. Puts audio into recording state. | stream |
 -->
+
+---
 
 ## Properties
 
@@ -487,6 +487,8 @@ If playback is paused.
 
 Current playback time in seconds. Setting this value seeks the audio to the new time.
 
+---
+
 
 ## Metrics
 
@@ -516,11 +518,12 @@ Ideas:
 * tempo for the range `audio.tempo(time=0, (err, bpm) => {})`
 -->
 
+---
 
 
 ## Manipulations
 
-### audio.read(destination?, time=0, duration?, {channel|channels, format}?)
+### audio.read(destination?, time=0, duration?, {channel|channels, format, start, end}?)
 
 Read audio data from the indicated range, put result into `destination`. If destination is not defined, an array or object will be created based on `format`. By default returns array with channels data.
 
@@ -538,6 +541,8 @@ let [slChannel, srChannel] = audio.read(.5, 1, {channels: [2,3]})
 let rightChannelData = audio.read(new Float32Array(1000), {channel: 1, start: -1000, end: 0})
 ```
 
+#### Options
+
 Property | Description | Default
 ---|---|---
 `channel` | A channel to read data from. | `null`
@@ -545,20 +550,47 @@ Property | Description | Default
 `start`, `end` or `length` | Optional interval markers, in samples. | `null`
 `format` or `dtype` | Returned data type. | `destination` type
 
-### audio.write(data, time=0, duration?, {start, channels}?)
 
-Write data to audio starting at the indicated time. `data` is one of [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Audio_, _FloatArray_ or list of _FloatArrays_. `data` and `time` can swap places for compatibility.
+### audio.write(data, time=0, duration?, {channel|channels, format, start, end}?)
+
+Write data to audio starting at the indicated `time`, optionally sliced by the `duration`.
 
 ```js
 //write data to left and right channels
-audio.set([new Float32Array(100), new Float32Array(100)])
+audio.write([new Float32Array(100), new Float32Array(100)])
 
-//write L and R buffer channels to SL and SR channels starting from 0.5s
-audio.set(audioCtx.createBuffer(2, 22050, 44100), .5, {channels: [2,3]})
+//write L and R buffer channels to SL and SR channels starting from 0.5s of the duration .25s
+audio.write(audioCtx.createBuffer(2, 22050, 44100), .5, .25, {channels: [2,3]})
 
-//write 100 samples to right channel starting from 1000 sample
-audio.set(new Float32Array(100).fill(0), {start: 1000, channels: 1})
+//write 100 samples to the right channel starting from 1000 sample
+audio.write(new Float32Array(100).fill(0), {start: 1000, channels: 1})
 ```
+
+#### Source
+
+Type | Meaning
+---|---
+`Array` of `Arrays` | Array with channels data.
+`AudioBuffer`, `AudioBufferList`, `Audio` | Other audio source.
+`Array` of `Numbers`, `Float32Array`, `Float64Array` | Raw samples from `-1..+1` range, interpreted by `options.format` |
+`Int8Array`, `Uint8Array`, `TypedArray` | Other typed array, interpreted by `options.format`.
+`ArrayBuffer`, `Buffer` | Raw data, interpreted by `options.format`.
+`base64`, `dataURI` string | String with raw data, decoded based on `options.format`.
+`ndarray`, `ndsamples` | n-dimensional array with `[length, channels]` shape.
+
+#### Options
+
+Property | Meaning
+---|---|---
+`channels`, `channel` | Target channels to write source data, can be an array or number
+`start`, `end` or `length` | Optional interval markers, in samples.
+`format` or `dtype` | Indicate data format, if necessary, like `'uint8 stereo interleaved'`.
+
+#### Related API
+
+* [audio-format](https://github.com/audiojs/audio-format)
+* [audio-buffer-from](https://github.com/audiojs/audio-buffer-from)
+
 
 ### audio.append(data1, data2, ..., {channels}?)
 
@@ -772,6 +804,7 @@ let b = Audio(2).through(saw, biquad)
 | `duration` | `null` | Affect the duration starting from the indicated time, in seconds. |
 
 ---
+
 
 ## Utilities
 
