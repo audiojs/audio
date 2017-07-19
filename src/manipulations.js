@@ -32,10 +32,6 @@ Audio.prototype.read = function (dst, time, duration, options) {
 		duration = null
 		dst = null
 	}
-	else if (isPlainObj(time)) {
-		options = time
-		duration = time = null
-	}
 	options = this._parseArgs(time, duration, options)
 
 	//transfer data for indicated channels
@@ -75,24 +71,13 @@ Audio.prototype.read = function (dst, time, duration, options) {
 
 //put data by the offset
 Audio.prototype.write = function write (data, time, duration, options) {
-	//5, data, options
-	//5, data
-	if (typeof time == 'number') {}
-	else {
-		//data, options
-		if ( isPlainObj(data) ) {
-			options = data
-			data = time
-		}
-		//data, 5, options
-		//data, 5
-		//data
-		else {
-			[data, time] = [time, data]
-		}
+	if (typeof data === 'number') {
+		options = duration
+		duration = time
+		time = data
+		data = null
 	}
-
-	options = this._parseArgs(time, 0, options)
+	options = this._parseArgs(time, duration, options)
 
 	if (typeof options.channels == 'number') {
 		options.channels = [options.channels]

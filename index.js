@@ -376,13 +376,13 @@ function resolvePath (fileName, depth=2) {
 //include start/end offsets and channel for options.
 Audio.prototype._parseArgs = function (time, duration, options, cb) {
 	//no args at all
-	if (!arguments.length) {
+	if (time == null && duration == null && options == null) {
 		options = {}
 		time = 0
 		duration = this.duration
 	}
 	//single arg
-	else if (arguments.length === 1) {
+	else if (time != null && duration == null && options == null) {
 		//{}
 		if (typeof time !== 'number') {
 			options = time
@@ -396,7 +396,7 @@ Audio.prototype._parseArgs = function (time, duration, options, cb) {
 		}
 	}
 	//two args
-	else if (arguments.length === 2) {
+	else if (time != null && duration != null && options == null) {
 		//1, 1
 		if (typeof duration === 'number') {
 			options = {}

@@ -232,7 +232,6 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 **6. [Utilities](#utilities)**
 
 * [ ] [audio.save(name, opts?, cb?)]()
-* [ ] [audio.convert(format, t?, dur?, )]()
 * [ ] [audio.stream(dst, opts?, cb?)]()
 * [ ] [Audio.isAudio(a)]()
 * [ ] [Audio.isEqual(a, b, ...c)]()
@@ -572,9 +571,9 @@ audio.write(new Float32Array(100).fill(0), {start: 1000, channels: 1})
 
 Type | Meaning
 ---|---
-`Array` of `Arrays` | Array with channels data.
+`Array<Array>` | Array with channels data.
 `AudioBuffer`, `AudioBufferList`, `Audio` | Other audio source.
-`Array` of `Numbers`, `Float32Array`, `Float64Array` | Raw samples from `-1..+1` range, interpreted by `options.format` |
+`Array<Number>`, `Float32Array`, `Float64Array` | Raw samples from `-1..+1` range, interpreted by `options.format` |
 `Int8Array`, `Uint8Array`, `TypedArray` | Other typed array, interpreted by `options.format`.
 `ArrayBuffer`, `Buffer` | Raw data, interpreted by `options.format`.
 `base64`, `dataURI` string | String with raw data, decoded based on `options.format`.
@@ -584,9 +583,9 @@ Type | Meaning
 
 Property | Meaning
 ---|---
-`channels`, `channel` | Target channels to write source data, can be an array or number
+`channels`, `channel` | Target channels to write source data, can be an array or number.
 `start`, `end` or `length` | Optional interval markers, in samples.
-`format` or `dtype` | Indicate data format, if necessary, like `'uint8 stereo interleaved'`.
+`format` or `dtype` | Source data format, if necessary, like `'uint8 stereo interleaved'`.
 
 #### Related API
 
