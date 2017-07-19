@@ -452,6 +452,8 @@ Buffer duration. Changing this property will trim or pad the data.
 
 Get total length of audio in samples.
 
+---
+
 
 ## Playback
 
@@ -581,7 +583,7 @@ Type | Meaning
 #### Options
 
 Property | Meaning
----|---|---
+---|---
 `channels`, `channel` | Target channels to write source data, can be an array or number
 `start`, `end` or `length` | Optional interval markers, in samples.
 `format` or `dtype` | Indicate data format, if necessary, like `'uint8 stereo interleaved'`.
