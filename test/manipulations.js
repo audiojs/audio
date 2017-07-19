@@ -11,6 +11,7 @@ const fs = require('fs')
 const AudioBufferList = require('audio-buffer-list')
 const util = require('audio-buffer-utils')
 const createOscillator = require('audio-oscillator')
+const isAudioBuffer = require('is-audio-buffer')
 
 
 t('through', t => {
@@ -34,28 +35,43 @@ t.only('read', t => {
 
 	let data
 
-	// let data = a.getChannelData(1)
-	// t.deepEqual(data, new Float32Array([0,.1,.2,.3,.4,.5,.6,.7,.8,.9]))
+	data = a.getChannelData(1)
+	t.deepEqual(data, new Float32Array([0,.1,.2,.3,.4,.5,.6,.7,.8,.9]))
 
-	//channels data
 	data = a.read({channel: 1})
 	t.deepEqual(data, new Float32Array([0,.1,.2,.3,.4,.5,.6,.7,.8,.9]))
 
-	// b = a.read({format: 'audiobuffer'})
+	data = a.read({format: 'audiobuffer'})
+	t.ok(isAudioBuffer(data))
+	t.equal(data.length, 10)
+	t.equal(data.numberOfChannels, 3)
+	t.deepEqual(data.getChannelData(1), new Float32Array([0,.1,.2,.3,.4,.5,.6,.7,.8,.9]))
 
-	// b = a.read({channel: 1})
+	data = a.read({channel: 1})
+	t.equal(data.length, 10)
+	t.ok(Array.isArray(data))
+	t.deepEqual(data, new Float32Array([0,.1,.2,.3,.4,.5,.6,.7,.8,.9]))
 
-	// b = a.read({channel: 0, format: 'uint8'})
+	data = a.read({channel: 0, format: 'uint8'})
+	t.equal(data.length, 10)
+	t.ok(ArrayBuffer.isView(data))
+	t.deepEqual(data, [127, 140, 153, 165, 178, 191, 204, 216, 229, 242])
 
-	// b = a.read(.2, .8, {})
+	data = a.read(2/44100, 8/44100, {})
+	t.equal(data[0].length, 8)
+	t.deepEqual(data[0], new Float32Array([.2,.3,.4,.5,.6,.7,.8,.9]))
 
-	// b = a.read(new Uint8Array())
+	data = a.read(new Uint8Array(10), {channel: 0})
+	t.deepEqual(data, [127, 140, 153, 165, 178, 191, 204, 216, 229, 242])
 
-	// b = a.read(new Float32Array(), .5)
+	data = a.read(new Float32Array(15), 5/44100)
+	t.deepEqual(data, new Float32Array([.5,.6,.7,.8,.9,.5,.6,.7,.8,.9,.5,.6,.7,.8,.9]))
 
-	// b = a.read(new ArrayBuffer(), .5, .6, {format: 'int8'})
+	data = a.read(new Int8Array(3).buffer, 5/44100, 1/44100, {format: 'int8'})
+	t.deepEqual(new Int8Array(data), [63, 63, 63])
 
-	// b = a.read(.6, .7, {format: 'float32 interleaved', channel: 1})
+	data = a.read(6/44100, 2/44100, {format: 'float32 interleaved', channels: [1, 2]})
+	t.deepEqual(data, new Float32Array([.6, .6, .7, .7]))
 
 	t.end()
 })

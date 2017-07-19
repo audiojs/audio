@@ -210,7 +210,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 
 **5 [Manipulations](#manipulations)**
 
-* [ ] [audio.read(dst?, t?, dur?, opts?)]()
+* [x] [audio.read(dst?, t?, dur?, opts?)]()
 * [ ] [audio.write(src, t?, dur?, opts?)]()
 * [ ] [audio.insert(data, t?, dur?, opts?)]()
 * [ ] [audio.slice(t?, dur?, opts?)]()
@@ -520,15 +520,15 @@ Ideas:
 
 ## Manipulations
 
-### audio.read(destination?, time=0, duration?, {start, end|length, channels, format: 'audiobuffer'}?)
+### audio.read(destination?, time=0, duration?, {channel|channels, format}?)
 
-Read audio data from the indicated range, put result into `destination`. If destination is not defined, a new container will be created based on `format`, by default `'array'` with channels data.
+Read audio data from the indicated range, put result into `destination`. If destination is not defined, an array or object will be created based on `format`. By default returns array with channels data.
 
 ```js
 //get channels data for the 5s subrange starting from the 1s
 let [leftChannel, rightChannel] = audio.read(1, 5, {format: 'array'})
 
-//get audiobuffer with data
+//get audiobuffer with whole audio data
 let abuf = audio.read({format: 'audiobuffer'})
 
 //get 1s of SR and SL channels data, starting from 0.5s
@@ -537,6 +537,13 @@ let [slChannel, srChannel] = audio.read(.5, 1, {channels: [2,3]})
 //get last 1000 samples of right channel data
 let rightChannelData = audio.read(new Float32Array(1000), {channel: 1, start: -1000, end: 0})
 ```
+
+Property | Description | Default
+---|---|---
+`channel` | A channel to read data from. | `null`
+`channels`, `numberOfChannels` | _Number_ or _Array_, indicating channels to read data from. | `this.channels`
+`start`, `end` or `length` | Optional interval markers, in samples. | `null`
+`format` or `dtype` | Returned data type. | `destination` type
 
 ### audio.write(data, time=0, duration?, {start, channels}?)
 
