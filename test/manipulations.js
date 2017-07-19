@@ -76,10 +76,17 @@ t('read', t => {
 	t.end()
 })
 
-t.only('write', t => {
-	let a = new Audio(30/44100)
+t('write', t => {
+	let a = new Audio(10/44100)
+	let d
 
+	a.write([[0,.5,1], new Float32Array([0, -.5, -1])])
+	d = a.getChannelData(0)
+	t.deepEqual(d, [0, .5, 1])
 
+	// a.write(audioCtx.createBuffer(2, 22050, 44100), .5, .25, {channels: [2,3]})
+
+	// a.write(new Uint8Array(Array(100).fill(127)), {start: 1000, channels: 1})
 })
 
 
