@@ -13,6 +13,7 @@ const assert = require('assert')
 const convert = require('pcm-convert')
 const bufferFrom = require('audio-buffer-from')
 const isPlainObj = require('is-plain-obj')
+const aFormat = require('audio-format')
 
 let Audio = require('../')
 
@@ -31,12 +32,16 @@ Audio.prototype.read = function (dst, time, duration, options) {
 		duration = null
 		dst = null
 	}
+	else if (isPlainObj(time)) {
+		options = time
+		duration = time = null
+	}
 	options = this._parseArgs(time, duration, options)
 
 	//transfer data for indicated channels
 	let data = []
 	for (let c = 0; c < options.channels.length; c++) {
-		data.push(Array.from(this.getChannelData(c)), options.from, options.duration)
+		data.push(this.getChannelData(c, options.from, options.duration, options))
 	}
 
 	if (options.dtype === 'audiobuffer') {
@@ -44,10 +49,24 @@ Audio.prototype.read = function (dst, time, duration, options) {
 		return data
 	}
 	else {
-		if (typeof options.channel == 'number') {
-			data = data[0]
+		if (options.dtype || dst) {
+			//pre-convert data to float32 array
+			let len = data[0].length
+			let arr = new Float32Array(data.length * len)
+			for (let c = 0; c < data.length; c++) {
+				arr.set(data[c], c*len)
+			}
+
+			data = convert(arr, 'float32', options.dtype, dst)
 		}
-		data = convert(data, 'float32', options.dtype, dst)
+		else if (ArrayBuffer.isView(data[0])) {
+			//make sure data items are arrays
+			data = data.map(ch => Array.from(ch))
+
+			if (typeof options.channel == 'number') {
+				data = data[0]
+			}
+		}
 	}
 
 	return data
@@ -55,7 +74,7 @@ Audio.prototype.read = function (dst, time, duration, options) {
 
 
 //put data by the offset
-Audio.prototype.set = function set (time, data, options) {
+Audio.prototype.write = function write (time, data, options) {
 	//5, data, options
 	//5, data
 	if (typeof time == 'number') {}
