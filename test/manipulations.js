@@ -12,6 +12,7 @@ const AudioBufferList = require('audio-buffer-list')
 const util = require('audio-buffer-utils')
 const createOscillator = require('audio-oscillator')
 const isAudioBuffer = require('is-audio-buffer')
+const createBuffer = require('audio-buffer-from')
 
 
 t('through', t => {
@@ -21,7 +22,7 @@ t('through', t => {
 		util.fill(buf, 1)
 	}, {from: .5, to: 1.5})
 
-	// t.equal(a.get(0, 1), )
+	// t.equal(a.read(0, 1), )
 
 	t.end()
 })
@@ -77,16 +78,35 @@ t('read', t => {
 })
 
 t('write', t => {
-	let a = new Audio(10/44100)
+	let a = new Audio(10/44100, 3)
 	let d
 
 	a.write([[0,.5,1], new Float32Array([0, -.5, -1])])
-	d = a.getChannelData(0)
-	t.deepEqual(d, [0, .5, 1])
+	t.deepEqual(a.getChannelData(0), [0,.5,1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.getChannelData(1), [0,-.5,-1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.getChannelData(2), [0,0,0, 0,0,0,0,0,0,0])
 
-	// a.write(audioCtx.createBuffer(2, 22050, 44100), .5, .25, {channels: [2,3]})
+	a.write(createBuffer(4, 2), 1/44100, 1/44100, {channels: [1,2]})
+	t.deepEqual(a.getChannelData(0), [0,.5,1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.getChannelData(1), [0,0,-1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.getChannelData(2), [0,0,0, 0,0,0,0,0,0,0])
 
-	// a.write(new Uint8Array(Array(100).fill(127)), {start: 1000, channels: 1})
+	a.write(new Uint8Array([255,255,255]), {start: 8, channel: 2})
+	t.deepEqual(a.getChannelData(0), [0,.5,1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.getChannelData(1), [0,0,-1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.getChannelData(2), [0,0,0, 0,0,0,0,0,1,1])
+
+	a.write(new AudioBufferList([-1,1]))
+	t.deepEqual(a.getChannelData(0), [-1,1,1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.getChannelData(1), [0,0,-1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.getChannelData(2), [0,0,0, 0,0,0,0,0,1,1])
+
+	a.write(new Audio([-1,-1,-1,-1], 2), 5/44100, {channels: [0,2]})
+	t.deepEqual(a.getChannelData(0), [-1,1,1, 0,0,-1,-1,0,0,0])
+	t.deepEqual(a.getChannelData(1), [0,0,-1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.getChannelData(2), [0,0,0, 0,0,-1,-1,0,1,1])
+
+	t.end()
 })
 
 
@@ -154,7 +174,7 @@ t.skip('data', t => {
 	t.end()
 })
 
-t('normalize', t => {
+t.skip('normalize', t => {
 	//full normalize
 	let audio = Audio([0, .1, 0, -.1], {channels: 1})
 
@@ -213,8 +233,8 @@ t.skip('trim', t => {
 t('gain', t => {
 	let audio = new Audio(new Float32Array(Array(441).fill(1))).gain(-20)
 
-	// t.equal(audio.get({channel: 0})[10], .1)
-	t.deepEqual(audio.get({channel: 0}), new Float32Array(Array(441).fill(.1)))
+	// t.equal(audio.read({channel: 0})[10], .1)
+	t.deepEqual(audio.read({channel: 0}), new Float32Array(Array(441).fill(.1)))
 
 	t.end()
 })

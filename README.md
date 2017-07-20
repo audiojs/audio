@@ -211,7 +211,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 **5 [Manipulations](#manipulations)**
 
 * [x] [audio.read(dst?, t?, dur?, opts?)]()
-* [ ] [audio.write(src, t?, dur?, opts?)]()
+* [x] [audio.write(src, t?, dur?, opts?)]()
 * [ ] [audio.insert(data, t?, dur?, opts?)]()
 * [ ] [audio.slice(t?, dur?, opts?)]()
 * [ ] [audio.remove(t?, dur?, opts?)]()
@@ -554,7 +554,7 @@ Property | Description | Default
 
 ### audio.write(data, time=0, duration?, {channel|channels, format, start, end}?)
 
-Write data to audio starting at the indicated `time`, optionally sliced by the `duration`.
+Write `data` to audio starting at the indicated `time`, optionally sliced by the `duration`. Optionally indicate `format` of data source.
 
 ```js
 //write data to left and right channels
@@ -567,7 +567,7 @@ audio.write(audioCtx.createBuffer(2, 22050, 44100), .5, .25, {channels: [2,3]})
 audio.write(new Float32Array(100).fill(0), {start: 1000, channels: 1})
 ```
 
-#### Source
+#### Data type
 
 Type | Meaning
 ---|---

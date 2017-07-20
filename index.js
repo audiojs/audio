@@ -140,8 +140,7 @@ Audio.prototype.stats = false
 Object.defineProperties(Audio.prototype, {
 	channels: {
 		set: function (channels) {
-			this.buffer = remix(this.buffer, this.numberOfChannels, channels)
-			this.numberOfChannels = channels
+			this.buffer = remix(this.buffer, this.buffer.numberOfChannels, channels)
 		},
 		get: function () {
 			return this.buffer.numberOfChannels

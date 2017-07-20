@@ -71,22 +71,16 @@ Audio.prototype.read = function (dst, time, duration, options) {
 
 //put data by the offset
 Audio.prototype.write = function write (data, time, duration, options) {
-	if (typeof data === 'number') {
-		options = duration
-		duration = time
-		time = data
-		data = null
-	}
 	options = this._parseArgs(time, duration, options)
 
-	if (typeof options.channels == 'number') {
-		options.channels = [options.channels]
-	}
+	//TODO: make shortcut for buffer-list/audio to avoid coercing to a-buffer
 
-	for (let c = 0; c < options.channels.length; c++ ) {
-		let channel = options.channel[c]
+	let buf = data.getChannelData ? data : bufferFrom(data, {format: options.format})
+	let bufChannels = buf.numberOfChannels || buf.channels
 
-		//TODO: figure out how to get proper data
+	for (let c = 0, l = Math.min(options.channels.length, bufChannels); c < l; c++ ) {
+		let channel = options.channels[c]
+		let data = buf.getChannelData(c).subarray(0, options.length)
 		this.buffer.copyToChannel(data, channel, options.start)
 	}
 
@@ -96,6 +90,8 @@ Audio.prototype.write = function write (data, time, duration, options) {
 
 //fetch channel data
 Audio.prototype.getChannelData = function (channel, time, duration, options) {
+	assert(channel <= this.channels, 'Audio has only ' + this.channels + ' channels')
+
 	options = this._parseArgs(time, duration, options)
 
 	//transfer data for indicated channels
