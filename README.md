@@ -200,12 +200,12 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 
 **4. [Metrics](#metrics)**
 
+* [ ] [audio.average(t?, dur?, opts?)]()
+* [ ] [audio.variance(t?, dur?, opts?)]()
+* [x] [audio.range(t?, dur?, opts?)]()
 * [ ] [audio.spectrum(t?, dur, opts?)]()
 * [ ] [audio.loudness(t?, dur)]()
 * [ ] [audio.cepstrum(t?, dur)]()
-* [ ] [audio.average(t?, dur)]()
-* [ ] [audio.variance(t?, dur)]()
-* [ ] [audio.clip(t?, dur)]()
 * [ ] [audio.size(t?, dur, opts?)]()
 
 **5 [Manipulations](#manipulations)**
@@ -296,8 +296,9 @@ let optAudio = new Audio({
 | `length`, `duration` | Ensure the length or duration, duration is in seconds | `source` length |
 | `context` | Web audio context instance, optional. | [`audio-context`](https://github.com/audiojs/audio-context) |
 | `sampleRate`, `rate` | Ensure sample rate. | `source` or `context` sample rate |
-| `stats` | Track statistics for metrics. Increases memory consumption 3 times. | `false` |
+| `stats` | Track statistics. Increases memory consumption 3 times, but allows for fetching metrics data `O(C)`, useful for rendering purposes. | `false` |
 | `data` | Source data, if no `source` provided as the first argument. | `null` |
+| `format` | Source data format, if necessary, such as `'uint8 interleaved'`. Useful for cases of raw data. | `auto` |
 
 #### Related APIs
 
@@ -492,6 +493,18 @@ Current playback time in seconds. Setting this value seeks the audio to the new 
 
 
 ## Metrics
+
+### audio.range(time=0, duration?, {channel|channels}?)
+
+Find amplitudes range for the indicated time interval. Returns an array with `min, max` values. Accounts for all channels.
+
+```js
+//get min/max amplitude for the .5s interval starting from 1s
+let [min, max] = audio.range(1, .5)
+
+//get min/max amplitude in left channel
+let [lMin, lMax] = audio.range({channel: 0})
+```
 
 ### audio.spectrum(time=0, options?)
 
