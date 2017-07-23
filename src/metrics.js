@@ -7,10 +7,35 @@
 'use strict'
 
 
-let Audio = require('../')
 const ft = require('fourier-transform')
-// const bit = require('bit-twiddle')
-const db = require('decibels')
+
+let Audio = require('../')
+
+//get amplitudes range for the interval
+Audio.prototype.range = function (time, duration, options) {
+	options = this._parseArgs(time, duration, options)
+
+	if (this.stats) {
+		//TODO: implement fast bounds search, extremum-based
+	}
+
+	let max = -1, min = 1
+
+	//search across channels
+	this.buffer.map((buf, idx, offset) => {
+		for (let c = 0, l = buf.length; c < options.channels.length; c++) {
+			let channel = options.channels[c]
+			let data = buf.getChannelData(channel)
+
+			for (let i = 0; i < l; i++) {
+				if (data[i] > max) max = data[i]
+				if (data[i] < min) min = data[i]
+			}
+		}
+	}, options.start, options.end)
+
+	return [min, max]
+}
 
 Audio.prototype.spectrum = function (start, options) {
 	if (typeof start !== 'number') {

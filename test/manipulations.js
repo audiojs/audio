@@ -174,22 +174,22 @@ t.skip('data', t => {
 	t.end()
 })
 
-t.skip('normalize', t => {
+t.only('normalize', t => {
 	//full normalize
 	let audio = Audio([0, .1, 0, -.1], {channels: 1})
 
 	audio.normalize()
-	t.deepEqual(audio.data({channel: 0}), [0, 1, 0, -1]);
+	t.deepEqual(audio.read({channel: 0}), [0, 1, 0, -1]);
 
 	//partial normalize
 	let audio2 = Audio([0, .1, 0, -.1], {channels: 1})
 	audio2.normalize(2/audio2.sampleRate)
-	t.deepEqual(audio2.data()[0], new Float32Array([0, .1, 0, -1]));
+	t.deepEqual(audio2.read()[0], new Float32Array([0, .1, 0, -1]));
 
 	//partial channels
 	let audio3 = Audio([0, .1, 0, .2, 0, .3], 3)
 	audio3.normalize({channel: [0, 1]})
-	t.deepEqual(audio3.data({channel: [0, 1]}), [[0, .5], [0, 1]])
+	t.deepEqual(audio3.read({channel: [0, 1]}), [[0, .5], [0, 1]])
 
 	t.end();
 })

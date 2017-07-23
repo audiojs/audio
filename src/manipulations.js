@@ -7,7 +7,6 @@
 'use strict'
 
 
-const nidx = require('negative-index')
 const clamp = require('clamp')
 const assert = require('assert')
 const convert = require('pcm-convert')
@@ -120,39 +119,6 @@ Audio.prototype.through = function (fn, time, duration, options) {
 	return this
 }
 
-/*
-//return slice of data as an audio buffer
-Audio.prototype.read = function (start = 0, duration = this.buffer.duration) {
-	return this.readRaw(start * this.buffer.sampleRate, duration * this.buffer.sampleRate)
-}
-
-//TODO: provide nicer name for getting raw data as array, not audio buffer
-//return audio buffer by sample number
-Audio.prototype.readRaw = function (offset = 0, length = this.buffer.length) {
-	offset = Math.floor(nidx(offset, this.buffer.length))
-	length = Math.floor(Math.min(length, this.buffer.length - offset))
-
-	let buf = util.slice(this.buffer, offset, offset + length)
-
-	return buf
-}
-
-//write audiobuffer at the indicated position
-Audio.prototype.write = function (buf, start=0) {
-	return this.writeRaw(buf, start * this.buffer.sampleRate)
-}
-
-//write audio buffer data by offset
-Audio.prototype.writeRaw = function (buffer, offset=0) {
-	if (!buffer || !buffer.length) return this
-
-	offset = Math.floor(nidx(offset, this.buffer.length))
-
-	util.copy(buffer, this.buffer, offset)
-
-	return this
-}
-*/
 
 //insert new data at the offset
 Audio.prototype.insert = function (time, source, options) {
@@ -208,33 +174,23 @@ Audio.prototype.remove = function remove (time, duration, options) {
 }
 
 
-
 //normalize contents by the offset
-Audio.prototype.normalize = function normalize (start, duration, options) {
-	options = this._parseArgs(start, duration, options)
+Audio.prototype.normalize = function normalize (time, duration, options) {
+	options = this._parseArgs(time, duration, options)
 
-	//find max amp for the channels set
-	let max = 0
-	if (typeof options.channels == 'number') {
-		options.channel = [options.channel]
-	}
-	for (let c = 0; c < options.channel.length; c++) {
-		let channel = options.channels[c]
-		let data = this.buffer.getChannelData(channel, options.start, options.end)
-		for (let i = 0; i < data.length; i++) {
-			max = Math.max(Math.abs(data[i]), max)
-		}
-	}
+	//find max amplitude for the channels set
+	let range = this.range(options)
+	let max = Math.max(Math.abs(range[0]), Math.abs(range[1]))
 
 	let amp = Math.max(1 / max, 1)
 
-	//fill values
+	//amp values
 	this.buffer.each((buf, idx, offset) => {
-		for (let c = 0, l = Math.min(options.end - offset, buf.length); c < options.channels.length; c++) {
+		for (let c = 0, l = buf.length; c < options.channels.length; c++) {
 			let channel = options.channels[c]
 			let data = buf.getChannelData(channel)
 
-			for (let i = Math.max(options.start - offset, 0); i < l; i++) {
+			for (let i = 0; i < l; i++) {
 				data[i] = clamp(data[i] * amp, -1, 1)
 			}
 		}
