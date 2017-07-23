@@ -415,9 +415,12 @@ Audio.prototype._parseArgs = function (time, duration, options, cb) {
 
 	//ensure channels
 	if (options.channel != null) {
-		options.channels = [options.channel]
+		options.channels = options.channel
 	}
-	if (options.channels == null || typeof options.channels === 'number') {
+	if (typeof options.channels === 'number') {
+		options.channels = [options.channels]
+	}
+	if (options.channels == null) {
 		let channels = options.channels || this.channels
 		options.channels = []
 		for (let i = 0; i < channels; i++) {

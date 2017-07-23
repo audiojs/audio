@@ -218,7 +218,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [ ] [audio.reverse(t?, dur?, opts?)]()
 * [x] [audio.gain(db, t?, dur?, opts?)]()
 * [ ] [audio.fade(t?, dur?, opts?)]()
-* [ ] [audio.normalize(t?, dur?, opts?)]()
+* [x] [audio.normalize(t?, dur?, opts?)]()
 * [ ] [audio.pan(amt, t?, dur?, opts?)]()
 * [ ] [audio.mix(audio, t?, dur?, opts?)]()
 * [ ] [audio.fill(val|fn, t?, dur?, opts?)]()
@@ -745,11 +745,11 @@ audio.get() // [[0, .5], [0, 1], [0, .3]]
 
 | Property | Meaning |
 |---|---|
-| `dcOffset` | Remove DC offset, by default `true`. Can be a number. |
-| `range` | Amplitudes range, by default `[-1, 1]`. |
 | `channels` | Channels to affect, by default all. |
 | `start` | Start from the position. |
 | `end` | End at the position. |
+| `dcOffset` | TODO: Remove DC offset, by default `true`. Can be a number. |
+| `range` | TODO: Amplitudes range, by default `[-1, 1]`. |
 
 ### audio.gain(volume, time=0, duration?, {start, end, channels}?)
 
