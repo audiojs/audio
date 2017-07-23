@@ -185,7 +185,7 @@ Audio.prototype.normalize = function normalize (time, duration, options) {
 	let amp = Math.max(1 / max, 1)
 
 	//amp values
-	this.buffer.each((buf, idx, offset) => {
+	this.buffer.map((buf, idx, offset) => {
 		for (let c = 0, l = buf.length; c < options.channels.length; c++) {
 			let channel = options.channels[c]
 			let data = buf.getChannelData(channel)
