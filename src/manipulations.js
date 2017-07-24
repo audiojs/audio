@@ -323,35 +323,35 @@ Audio.prototype.gain = function (gain = 0, time, duration, options) {
 
 //reverse sequence of samples
 Audio.prototype.reverse = function (start, duration, options) {
-
 	options = this._parseArgs(start, duration, options)
 
-	if (typeof options.channels == 'number') {
-		options.channels = [options.channels]
-	}
+	this.buffer.join(options.start, options.end)
 
-	this.buffer.reverse(options.start, options.end)
+	this.buffer.map((buf, idx, offset) => {
+		// console.log(idx)
+		for (let c = 0, cnum = options.channels.length; c < cnum; c++) {
+			let channel = options.channels[c]
+			let data = buf.getChannelData(channel)
+
+			Array.prototype.reverse.call(data)
+		}
+	}, options.start, options.end)
 
 	return this
 }
 
 
 //invert sequence of samples
-Audio.prototype.invert = function (start, duration, options) {
+Audio.prototype.invert = function (time, duration, options) {
+	options = this._parseArgs(time, duration, options)
 
-	options = this._parseArgs(start, duration, options)
-
-	if (typeof options.channels == 'number') {
-		options.channels = [options.channels]
-	}
-
-	this.buffer.each((buf, idx, offset) => {
-		for (let c = 0, l = Math.min(options.end - offset, buf.length); c < options.channels.length; c++) {
+	this.buffer.map((buf, idx, offset) => {
+		for (let c = 0, l = buf.length; c < options.channels.length; c++) {
 			let channel = options.channels[c]
 			let data = buf.getChannelData(channel)
 
-			for (let i = Math.max(options.start - offset, 0); i < l; i++) {
-				data[i] *= -1
+			for (let i = 0; i < l; i++) {
+				data[i] = -data[i]
 			}
 		}
 	}, options.start, options.end)

@@ -115,12 +115,6 @@ t.skip('clone instance', t => {
 	Audio(audio)
 });
 
-
-t('options.length')
-t('options.channels array')
-t('options.channels number')
-
-
 t('pad', t => {
 	t.end()
 })
@@ -160,15 +154,15 @@ t.skip('mixed sequence', t => {
 	t.end()
 })
 
-t.skip('data', t => {
+t.skip('read', t => {
 	let audio = new Audio(1, 2)
 
-	t.deepEqual(audio.data(-100/audio.sampleRate)[0].length, 100)
+	t.deepEqual(audio.read(-100/audio.sampleRate)[0].length, 100)
 
-	t.deepEqual(audio.data({channel: 1}).length, audio.sampleRate)
+	t.deepEqual(audio.read({channel: 1}).length, audio.sampleRate)
 
 	let audio3 = Audio([0, .1, 0, .2, 0, .3], 3)
-	t.deepEqual(audio3.data(),
+	t.deepEqual(audio3.read(),
 		[new Float32Array([0, .1]), new Float32Array([0, .2]), new Float32Array([0, .3])])
 
 	t.end()
@@ -239,25 +233,26 @@ t('gain', t => {
 	t.end()
 })
 
-t.skip('reverse', t => {
-	let data = Array(1000).fill(1).map((v, i) => (.5 + i)/10)
+t('reverse', t => {
+	let data = Array(10).fill(1).map((v, i) => (.5 + i)/10)
 	let fixture = new Float32Array(data.slice().reverse())
 
-	let audio = new Audio(data, 1)
+	let audio = new Audio([data, data])
 
 	audio.reverse()
 
-	t.deepEqual(audio.data({channel: 0}), fixture)
+	t.deepEqual(audio.read({channel: 0}), fixture)
 
-	audio.reverse(10/44100, 10/44100)
+	audio.reverse(1/44100, 1/44100, {channel: 1})
 
-	t.deepEqual(audio.data(10/44100, 10/44100)[0], new Float32Array(data.slice(980, 990)))
+	t.deepEqual(audio.read(1/44100, 1/44100)[0], new Float32Array(fixture.slice(1, 2)))
+	t.deepEqual(audio.read(1/44100, 1/44100)[1], new Float32Array(data.slice(8, 9)))
 
 	t.end()
 })
 
 
-t.skip('invert', t => {
+t('invert', t => {
 	let data = Array(1000).fill(1).map((v, i) => (.5 + i)/1000)
 	let fixture = Array(1000).fill(1).map((v, i) => -(.5 + i)/1000)
 
@@ -265,11 +260,11 @@ t.skip('invert', t => {
 
 	audio.invert()
 
-	t.deepEqual(audio.data()[0], new Float32Array(fixture))
+	t.deepEqual(audio.read()[0], new Float32Array(fixture))
 
 	audio.invert(10/44100, 10/44100)
 
-	t.deepEqual(audio.data(10/44100, 10/44100)[0], new Float32Array(data.slice(10, 20)))
+	t.deepEqual(audio.read(10/44100, 10/44100)[0], new Float32Array(data.slice(10, 20)))
 
 	t.end()
 })
