@@ -33,8 +33,14 @@ module.exports = Audio
 
 
 //utilities
-Audio.fromDb = db.toGain
-Audio.toDb = db.fromGain
+Audio.gain = db.toGain
+Audio.db = db.fromGain
+Audio.prototype.time = function getTime(offset) {
+	return this.sampleRate * offset
+}
+Audio.prototype.offset = function getOffset(time) {
+	return time / this.sampleRate
+}
 
 
 //augment functionality
