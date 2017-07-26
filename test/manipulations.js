@@ -115,7 +115,16 @@ t.skip('clone instance', t => {
 	Audio(audio)
 });
 
-t('pad', t => {
+t.skip('pad', t => {
+	let a = Audio(.05, 2)
+
+	t.equal(a.length, 220)
+
+	t.pad(a, .1)
+
+	t.equal(a.duration, .1)
+	t.equal(a.length, 441)
+
 	t.end()
 })
 
