@@ -827,7 +827,11 @@ let b = Audio(2).through(saw, biquad)
 
 Check if `src` is instance of _Audio_.
 
-### Audio.fromDb(db), Audio.toDb(gain)
+### Audio.isEqual(a, b, ..., options)
+
+Test if audio instances have same content. Comparison can be done by frequencies or samples with defined precision.
+
+### Audio.db(level), Audio.gain(db)
 
 Convert gain to decibels or backwards, see [decibels](https://github.com/audiojs/decibels).
 
@@ -852,6 +856,12 @@ encode(audio.buffer, (err, buf) => {
     save(buf, 'my-audio.ogg')
 })
 ```
+
+### audio.stream()
+
+### audio.time()
+
+### audio.offset()
 
 ## See Also
 
