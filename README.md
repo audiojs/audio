@@ -218,7 +218,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [x] [audio.reverse(t?, dur?, opts?)]()
 * [x] [audio.invert(t?, dur?, opts?)]()
 * [x] [audio.gain(db, t?, dur?, opts?)]()
-* [ ] [audio.fade(t?, dur?, opts?)]()
+* [x] [audio.fade(t?, dur, opts?)]()
 * [x] [audio.normalize(t?, dur?, opts?)]()
 * [ ] [audio.pan(amt, t?, dur?, opts?)]()
 * [ ] [audio.mix(audio, t?, dur?, opts?)]()
@@ -234,12 +234,12 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 
 * [ ] [audio.save(name, opts?, cb?)]()
 * [ ] [audio.stream(dst, opts?, cb?)]()
-* [ ] [Audio.isAudio(a)]()
+* [x] [Audio.isAudio(a)]()
 * [ ] [Audio.isEqual(a, b, ...c)]()
-* [ ] [Audio.gain(db)]()
-* [ ] [Audio.db(gain)]()
-* [ ] [Audio.time(offset)]()
-* [ ] [Audio.offset(time)]()
+* [x] [Audio.gain(db)]()
+* [x] [Audio.db(gain)]()
+* [ ] [audio.time(offset)]()
+* [ ] [audio.offset(time)]()
 
 
 ## Creation
@@ -715,7 +715,7 @@ Fading is done by decibels to compensate logarithmic volume perception.
 ```js
 const eases = require('eases')
 
-Audio('./source.ogg').on('load', audio => {
+Audio.load('./source.ogg', audio => {
     //fade in 1s from the beginning
     audio.fade(1, easing.cubicInOut)
 

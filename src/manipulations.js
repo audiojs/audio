@@ -201,35 +201,32 @@ Audio.prototype.normalize = function normalize (time, duration, options) {
 
 
 //fade in/out by db range
-Audio.prototype.fade = function (start, duration, options) {
+Audio.prototype.fade = function (time, duration, options) {
+	//first arg goes duration by default
 	if (typeof duration != 'number' || duration == null) {
-		duration = start;
-		start = 0;
+		duration = time;
+		time = 0;
 	}
 
-	options = this._parseArgs(start, duration, options)
+	options = this._parseArgs(time, duration, options)
 
 	let easing = typeof options.easing === 'function' ? options.easing : t => t
 
-	let step = duration > 0 ? 1 : -1
+	let step = options.duration > 0 ? 1 : -1
 	let halfStep = step*.5
 
-	let len = options.end - options.start
+	let len = options.length
 
 	let gain
 	if (options.level != null) {
-		gain = this.toDb(options.level)
+		gain = Audio.db(options.level)
 	}
 	else {
 		gain = options.gain == null ? -40 : options.gain
 	}
 
-	if (typeof options.channels == 'number') {
-		options.channels = [options.channels]
-	}
-
-	this.buffer.each((buf, idx, offset) => {
-		for (let c = 0, l = Math.min(options.end - offset, buf.length); c < options.channels.length; c++) {
+	this.buffer.map((buf, idx, offset) => {
+		for (let c = 0, l = buf.length; c < options.channels.length; c++) {
 			let channel = options.channels[c]
 			let data = buf.getChannelData(channel)
 
@@ -238,7 +235,7 @@ Audio.prototype.fade = function (start, duration, options) {
 				let t = (i + halfStep - options.start) / len
 
 				//volume is mapped by easing and 0..-40db
-				data[idx] *= this.fromDb(-easing(t) * gain + gain)
+				data[idx] *= Audio.gain(-easing(t) * gain + gain)
 			}
 		}
 	}, options.start, options.end)
@@ -252,7 +249,7 @@ Audio.prototype.trim = function trim (options) {
 	if (!options) options = {}
 
 	if (options.threshold == null) options.threshold = -40
-	if (options.level == null) options.level = this.fromDb(options.threshold)
+	if (options.level == null) options.level = Audio.gain(options.threshold)
 
 	if (options.left && options.right == null) options.right = false
 	else if (options.right && options.left == null) options.left = false
@@ -304,7 +301,7 @@ Audio.prototype.gain = function (gain = 0, time, duration, options) {
 
 	options = this._parseArgs(time, duration, options)
 
-	let level = Audio.fromDb(gain)
+	let level = Audio.gain(gain)
 
 	this.buffer.map((buf, idx, offset) => {
 		for (let c = 0, cnum = options.channels.length; c < cnum; c++) {
