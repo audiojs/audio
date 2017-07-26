@@ -215,6 +215,10 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [ ] [audio.insert(data, t?, dur?, opts?)]()
 * [ ] [audio.slice(t?, dur?, opts?)]()
 * [ ] [audio.remove(t?, dur?, opts?)]()
+* [ ] [audio.pad(dur, opts?)]()
+* [ ] [audio.shift(amt, t?, opts?)]()
+* [ ] [audio.trim(t?, dur?, opts?)]()
+* [ ] [audio.repeat(times, t?, dur?, opts?)]()
 * [x] [audio.reverse(t?, dur?, opts?)]()
 * [x] [audio.invert(t?, dur?, opts?)]()
 * [x] [audio.gain(db, t?, dur?, opts?)]()
@@ -224,10 +228,6 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [ ] [audio.mix(audio, t?, dur?, opts?)]()
 * [ ] [audio.fill(val|fn, t?, dur?, opts?)]()
 * [ ] [audio.scale(amt, t?, opts?)]()
-* [ ] [audio.shift(amt, t?, opts?)]()
-* [ ] [audio.trim(t?, dur?, opts?)]()
-* [ ] [audio.repeat(times, t?, dur?, opts?)]()
-* [ ] [audio.pad(dur, opts?)]()
 * [ ] [audio.through(fn, opts?)]()
 
 **6. [Utilities](#utilities)**
