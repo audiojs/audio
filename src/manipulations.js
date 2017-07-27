@@ -72,9 +72,27 @@ Audio.prototype.read = function (dst, time, duration, options) {
 Audio.prototype.write = function write (data, time, duration, options) {
 	options = this._parseArgs(time, duration, options)
 
-	//TODO: make shortcut for buffer-list/audio to avoid coercing to a-buffer
+	//TODO: make shortcut for buffer-list/audio to avoid coercing to audiobuffer
+
+	//fill with value
+	if (typeof data === 'number') {
+		let val = data
+		this.buffer.map((buf, idx, offset) => {
+			for (let c = 0, l = buf.length; c < options.channels.length; c++) {
+				let channel = options.channels[c]
+				let data = buf.getChannelData(channel)
+
+				for (let i = 0; i < l; i++) {
+					data[i] = val
+				}
+			}
+		}, options.start, options.end)
+
+		return this
+	}
 
 	let buf = data.getChannelData ? data : bufferFrom(data, {format: options.format})
+
 	let bufChannels = buf.numberOfChannels || buf.channels
 
 	for (let c = 0, l = Math.min(options.channels.length, bufChannels); c < l; c++ ) {
@@ -373,39 +391,49 @@ Audio.prototype.shift = function shift () {
 
 //return audio padded to the duration
 Audio.prototype.pad = function pad (duration, options) {
-	if (!options) options = {}
+	assert(typeof duration === 'number', 'First arg should be a number')
+
+	let length = duration * this.sampleRate
+
+	if (options == null) options = {}
+	else if (typeof options === 'string') {
+		let dir = options
+		options = {}
+		if (dir === 'left') options.left = true
+		else if (dir === 'right') options.right = true
+	}
+	else if (typeof options === 'number') {
+		options = {value: options}
+	}
 
 	if (options.value == null) options.value = 0
 
-	if (options.left && options.right == null) options.right = false
-	else if (options.right && options.left == null) options.left = false
-	if (options.left == null) options.left = true
-	if (options.right == null) options.right = true
-
+	if (options.left == null && options.right == null) options.right = true
 
 	//ignore already lengthy audio
-	if (options.end - options.start <= this.length) return this;
+	if (length <= this.length) return this;
 
-	let buf = new AudioBuffer(this.channels, options.end - options.start - this.length)
+	let buf = bufferFrom(length - this.length, this.channels)
 
 	if (options.value) {
 		let v = options.value
-		for (let c = 0; c < this.channels; c++) {
+		let channels = this.channels
+		for (let c = 0; c < channels; c++) {
 			let data = buf.getChannelData(c)
-			for (let i = 0; i < buf.length; i++) {
+			for (let i = 0, l = buf.length; i < l; i++) {
 				data[i] = v
 			}
 		}
 	}
 
-	//pad left
-	if (options.left) {
-		this.buffer.insert(0, buf)
+	//pad right
+	if (options.right) {
+		this.buffer.append(buf)
 	}
 
-	//trim right
-	else if (options.right) {
-		this.buffer.append(buf)
+	//pad left
+	else if (options.left) {
+		this.buffer.insert(0, buf)
 	}
 
 	return this

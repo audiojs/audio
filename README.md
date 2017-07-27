@@ -211,11 +211,11 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 **5 [Manipulations](#manipulations)**
 
 * [x] [audio.read(dst?, t?, dur?, opts?)]()
-* [x] [audio.write(src, t?, dur?, opts?)]()
+* [x] [audio.write(src|val, t?, dur?, opts?)]()
 * [ ] [audio.insert(data, t?, dur?, opts?)]()
 * [ ] [audio.slice(t?, dur?, opts?)]()
 * [ ] [audio.remove(t?, dur?, opts?)]()
-* [ ] [audio.pad(dur, opts?)]()
+* [x] [audio.pad(dur, opts?)]()
 * [ ] [audio.shift(amt, t?, opts?)]()
 * [ ] [audio.trim(t?, dur?, opts?)]()
 * [ ] [audio.repeat(times, t?, dur?, opts?)]()
@@ -226,7 +226,6 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [x] [audio.normalize(t?, dur?, opts?)]()
 * [ ] [audio.pan(amt, t?, dur?, opts?)]()
 * [ ] [audio.mix(audio, t?, dur?, opts?)]()
-* [ ] [audio.fill(val|fn, t?, dur?, opts?)]()
 * [ ] [audio.scale(amt, t?, opts?)]()
 * [ ] [audio.through(fn, opts?)]()
 
@@ -579,12 +578,16 @@ audio.write(audioCtx.createBuffer(2, 22050, 44100), .5, .25, {channels: [2,3]})
 
 //write 100 samples to the right channel starting from 1000 sample
 audio.write(new Float32Array(100).fill(0), {start: 1000, channels: 1})
+
+//fill 1s of audio starting from .5s with constant value .5
+audio.write(.5, .5, 1)
 ```
 
 #### Data type
 
 Type | Meaning
 ---|---
+`Number` | Value to fill interval with.
 `Array<Array>` | Array with channels data.
 `AudioBuffer`, `AudioBufferList`, `Audio` | Other audio source.
 `Array<Number>`, `Float32Array`, `Float64Array` | Raw samples from `-1..+1` range, interpreted by `options.format` |
@@ -692,9 +695,9 @@ Audio([.1, .2, -.1, -.2, 0, .0001]).trim({level: .02, left: false})
 // <.1, .2, -.1, -.2>
 ```
 
-### audio.pad(duration, {value:0, left, right}?)
+### audio.pad(duration, value=0|{value, left, right}?)
 
-Make sure the duration of the audio is at least the indicated `duration`. Pass `{left: true}` or `{right: true}` depending on what direction you need to pad.
+Make sure the duration of the audio is at least the indicated `duration`. Pass `{left: true}` or `{right: true}` depending on what direction you need to pad. Pass `value` to fill, defaults to `0`.
 
 ```js
 //pad right, same as audio.duration = 10
@@ -702,6 +705,9 @@ audio.pad(10)
 
 //pad left with value 1
 audio.pad(10, {left: true, value: 1})
+
+//pad right with .1 constant value
+audio.pad(10, .1)
 ```
 
 ### audio.fade(time=0, duration=0.4, {gain:-40db, easing, start, end,channels}?)`

@@ -15,6 +15,12 @@ const isAudioBuffer = require('is-audio-buffer')
 const createBuffer = require('audio-buffer-from')
 
 
+function f32(v) {
+	if (v.length) return new Float32Array(v)
+
+	return new Float32Array([v])[0]
+}
+
 t('through', t => {
 	let a = Audio([1, 1])
 
@@ -106,6 +112,17 @@ t('write', t => {
 	t.deepEqual(a.getChannelData(1), [0,0,-1, 0,0,0,0,0,0,0])
 	t.deepEqual(a.getChannelData(2), [0,0,0, 0,0,-1,-1,0,1,1])
 
+
+	t.end()
+})
+
+t('write value', t => {
+	let audio = Audio([0, .1, .2, .3, .4, .5], 1)
+
+	audio.write(1, 2/audio.sampleRate, 2/audio.sampleRate)
+
+	t.deepEqual(audio.read(1/44100,4/44100)[0], f32([.1,1,1,.4]))
+
 	t.end()
 })
 
@@ -115,15 +132,26 @@ t.skip('clone instance', t => {
 	Audio(audio)
 });
 
-t.skip('pad', t => {
-	let a = Audio(.05, 2)
+t('pad', t => {
+	let a = Audio(.005, 2)
 
-	t.equal(a.length, 220)
+	t.equal(a.length, 220.5)
+	t.equal(a.duration, .005)
 
-	t.pad(a, .1)
+	a.pad(.01)
 
-	t.equal(a.duration, .1)
+	t.equal(a.duration, .01)
 	t.equal(a.length, 441)
+
+	a.write(1)
+
+	//pad right
+	a.pad(.015, .5)
+	t.deepEqual(a.read(.01, 2/a.sampleRate)[0], [.5,.5])
+
+	//pad left
+	a.pad(.02, {value: .1, left: true})
+	t.deepEqual(a.read(.0, 2/a.sampleRate)[0], f32([.1,.1]))
 
 	t.end()
 })
@@ -316,17 +344,6 @@ t.skip('save', t => {
 		})
 	})
 })
-
-t.skip('write', t => {
-	let audio = Audio([0, .1, .2, .3, .4, .5], 1)
-
-	audio.write(AudioBuffer(1, [1,1]), 2/audio.sampleRate)
-
-	t.deepEqual(audio.data(1/44100,4/44100)[0], [.1,1,1,.4])
-
-	t.end()
-})
-
 
 
 
