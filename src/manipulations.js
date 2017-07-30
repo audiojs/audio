@@ -278,8 +278,7 @@ Audio.prototype.trim = function trim (options) {
 
 	//trim left
 	if (options.left) {
-		// this.buffer = util.trimLeft(this.buffer, options.level)
-		this.buffer.each((buf, idx, offset) => {
+		this.buffer.map((buf, idx, offset) => {
 			for (let c = 0; c < buf.numberOfChannels; c++) {
 				let data = buf.getChannelData(c)
 				for (let i = 0; i < buf.length; i++) {
@@ -294,7 +293,7 @@ Audio.prototype.trim = function trim (options) {
 
 	//trim right
 	if (options.right) {
-		this.buffer.each((buf, idx, offset) => {
+		this.buffer.map((buf, idx, offset) => {
 			for (let c = 0; c < buf.numberOfChannels; c++) {
 				let data = buf.getChannelData(c)
 				for (let i = buf.length; i--;) {

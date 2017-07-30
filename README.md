@@ -217,7 +217,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [ ] [audio.remove(t?, dur?, opts?)]()
 * [x] [audio.pad(dur, opts?)]()
 * [ ] [audio.shift(amt, t?, opts?)]()
-* [ ] [audio.trim(t?, dur?, opts?)]()
+* [x] [audio.trim(opts?)]()
 * [ ] [audio.repeat(times, t?, dur?, opts?)]()
 * [x] [audio.reverse(t?, dur?, opts?)]()
 * [x] [audio.invert(t?, dur?, opts?)]()
@@ -239,6 +239,8 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [x] [Audio.db(gain)]()
 * [ ] [audio.time(offset)]()
 * [ ] [audio.offset(time)]()
+
+<!-- TODO: remove unnecessary tables from readme to allow for easier read flow -->
 
 
 ## Creation
@@ -677,7 +679,7 @@ audio = audio.repeat(1)
 twiceAudio = audio.repeat(2)
 ```
 
-### audio.trim({threshold:-40, left, right, level}?)
+### audio.trim({threshold:-40, left|right, level}?)
 
 Trim silence at the beginning/end. Optionally define `threshold` in decibels, `left` and `right` trim restrictions. `level` can be used to define threshold as absolute value `0..1`.
 

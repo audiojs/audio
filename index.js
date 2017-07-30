@@ -351,6 +351,33 @@ Audio.prototype.clone = function (deep) {
 	else return new Audio(this.buffer)
 }
 
+//test if audio is equal
+Audio.isEqual = function (a, b) {
+	if (arguments.length > 2) {
+		for (let i = 0; i < arguments.length - 1; i++) {
+			if (!Audio.isEqual(arguments[i], arguments[i + 1])) return false
+		}
+
+		return true
+	}
+
+	if (a === b) return true
+	if (a.length !== b.length || a.numberOfChannels !== b.numberOfChannels) return false
+
+	for (let i = 0, l = this.buffer.buffers.length; i < l; i++) {
+		for (let channel = 0; channel < a.numberOfChannels; channel++) {
+			let dataA = a.getChannelData(channel);
+			let dataB = b.getChannelData(channel);
+
+			for (let i = 0; i < dataA.length; i++) {
+				if (dataA[i] !== dataB[i]) return false;
+			}
+		}
+	}
+
+	return true
+}
+
 //get array representation of audio
 Audio.prototype.toArray = function (options) {
 	if (!options) {

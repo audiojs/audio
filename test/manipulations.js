@@ -156,7 +156,9 @@ t('pad', t => {
 	t.end()
 })
 
-t('clone', t => {
+t.skip('clone', t => {
+	let a = Audio([0,0,1,1])
+
 	t.end()
 })
 
@@ -242,21 +244,21 @@ t('fade', t => {
 	t.end();
 })
 
-t.skip('trim', t => {
+t('trim', t => {
 	let audio = new Audio([0,0,0,.1,.2,-.1,-.2,0,0], 1).trim()
 
-	t.deepEqual(audio.data({channel: 0}), new Float32Array([.1,.2,-.1,-.2]))
+	t.deepEqual(audio.read({channel: 0}), new Float32Array([.1,.2,-.1,-.2]))
 
 
 	//trim samples from the beginning below -30 db
-	audio = Audio([0.0001, 0, .1, .2], 1).trim({threshold: -30, left: true})
+	audio = Audio([0.0001, 0, .1, .2, 0], 1).trim({threshold: -30, left: true})
 
-	t.deepEqual(audio.data({channel: 0}), new Float32Array([.1, .2]))
+	t.deepEqual(audio.read({channel: 0}), new Float32Array([.1, .2, 0]))
 
 	//remove samples below .02 from the end
-	audio = Audio([.1, .2, -.1, -.2, 0, .0001], 1).trim({level: .02, left: false})
+	audio = Audio([0, .1, .2, -.1, -.2, 0, .0001], 1).trim({level: .02, left: false})
 
-	t.deepEqual(audio.data()[0], new Float32Array([.1, .2, -.1, -.2]))
+	t.deepEqual(audio.read()[0], new Float32Array([0, .1, .2, -.1, -.2]))
 
 	t.end();
 })
