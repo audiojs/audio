@@ -197,7 +197,7 @@ Audio.prototype.normalize = function normalize (time, duration, options) {
 	options = this._parseArgs(time, duration, options)
 
 	//find max amplitude for the channels set
-	let range = this.range(options)
+	let range = this.bounds(options)
 	let max = Math.max(Math.abs(range[0]), Math.abs(range[1]))
 
 	let amp = Math.max(1 / max, 1)

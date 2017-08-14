@@ -12,7 +12,7 @@ const ft = require('fourier-transform')
 let Audio = require('../')
 
 //get amplitudes range for the interval
-Audio.prototype.range = function (time, duration, options) {
+Audio.prototype.bounds = function (time, duration, options) {
 	options = this._parseArgs(time, duration, options)
 
 	if (this.stats) {
