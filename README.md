@@ -202,7 +202,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 
 * [ ] [audio.average(t?, dur?, opts?)]()
 * [ ] [audio.variance(t?, dur?, opts?)]()
-* [x] [audio.range(t?, dur?, opts?)]()
+* [x] [audio.bounds(t?, dur?, opts?)]()
 * [ ] [audio.spectrum(t?, dur, opts?)]()
 * [ ] [audio.loudness(t?, dur)]()
 * [ ] [audio.cepstrum(t?, dur)]()
@@ -400,27 +400,83 @@ Audio.decode(require('audio-lena/flac-datauri')).then(audio => {}, err => {})
 
 
 
-### Audio.record(source, (error, audio)={}?)
+### Audio.record(source, duration|options?, (error, audio)=>{}?)
 
-Create promise to record stream-ish source. Promise recieves `progress` clause.
+Create audio instance by recording stream-ish source. If callback provided, it will be called when the source is  Promise recieves `progress` clause.
 
 ```js
+//record mic input
+navigator.getUserMedia({audio: true, video: false}, stream => {
+	Audio.record(stream, 5).then(audio => {
+		// `audio` contains 5 seconds of recorded mic input
+	})
+})
+
+
+//record HTML audio
+let audioEl = document.createElement('audio')
+audioEl.src = 'https://remote.url/audio.mp3'
+Audio.record(audioEl, (err, audio) => {
+	// `audio` here is ready
+})
+
+
+//record web-audio
+let ctx = new AudioContext()
+let oscillator = ctx.createOscillator()
+oscillator.type = 'square'
+oscillator.frequency.value = 440
+oscillator.start()
+Audio.record(oscillator, (err, audio) => {
+	// this callback is invoked once oscillator is stopped
+})
+setTimeout(() => {
+	oscillator.stop()
+}, 2000)
+
+
+//record node-stream with pcm data
+//FIXME: get real case of node stream source
+let stream = require('mic-input')
+Audio.record(stream, (err, audio) => {
+	// callback is invoked once stream is ended
+})
+
+
+//record pull-stream
+//FIXME: get real case of pull stream source
+let source = require('pull--source')
+Audio.record(source).then(audio => {
+
+})
+
+
+//record multiple sources
+Audio.record([a, b, c], (err, audio) => {
+	// callback is invoked once all three of sources are recorded
+})
 ```
 
 #### Source
 
-TODO
+Type | Meaning
+---|---
+_Stream_ |
+_pull-stream_ |
+_Function_ |
+_MediaStream_ |
+_WebAudioNode_ |
+_HTMLAudioElement_, _HTMLMediaElement_ |
+_Array_ with sources |
 
-| Type | Meaning |
-|---|---|
-| _Stream_ | |
-| _pull-stream_ | |
-| _Function_ | |
-| _MediaStream_ | |
-| _WebAudioNode_ | |
-| _HTMLAudioElement_, _HTMLMediaElement_ | |
-| _Array_ with sources | |
+#### Options
 
+Property | Meaning
+---|---
+`duration`, `from`, `to` | Recording interval in seconds
+`length`, `start`, `end | Recording interval in samples
+`channel`, `channels` | Channels to record
+``
 
 <!--
 
@@ -496,16 +552,16 @@ Current playback time in seconds. Setting this value seeks the audio to the new 
 
 ## Metrics
 
-### audio.range(time=0, duration?, {channel|channels}?)
+### audio.bounds(time=0, duration?, {channel|channels}?)
 
-Find amplitudes range for the indicated time interval. Returns an array with `min, max` values. Accounts for all channels.
+Find amplitudes boundaries for the indicated time interval. Returns an array with `min, max` values. Accounts for all channels, unless specified.
 
 ```js
 //get min/max amplitude for the .5s interval starting from 1s
-let [min, max] = audio.range(1, .5)
+let [min, max] = audio.bounds(1, .5)
 
 //get min/max amplitude in left channel
-let [lMin, lMax] = audio.range({channel: 0})
+let [lMin, lMax] = audio.bounds({channel: 0})
 ```
 
 ### audio.spectrum(time=0, options?)
