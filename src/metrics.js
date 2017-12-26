@@ -9,10 +9,15 @@
 
 const ft = require('fourier-transform')
 
+//TODO: make external package
+const loudness = {
+	rms: require('compute-qmean')
+}
+
 let Audio = require('../')
 
 //get amplitudes range for the interval
-Audio.prototype.bounds = function (time, duration, options) {
+Audio.prototype.limits = function (time, duration, options) {
 	options = this._parseArgs(time, duration, options)
 
 	if (this.stats) {
@@ -69,9 +74,41 @@ Audio.prototype.stats = function () {
 
 }
 
+//calculate loudness by provided method/interval
+Audio.prototype.loudness = function (time, duration, options) {
+	if (typeof options === 'string') options = {method: options}
 
-Audio.prototype.loudness = function () {
+	options = this._parseArgs(time, duration, options)
 
+	if (options.type) options.method = options.type
+
+	let calc = loudness[options.method] || loudness.rms
+
+	let result = []
+
+	let mean2 = []
+	if (this.stats) {
+		for (let c = 0; c < options.channels.length; c++) {
+			let channel = options.channels[c]
+			mean2.push(this.stats.mean2[channel])
+		}
+	}
+	else {
+		//TODO: compute-qmean has faster rms calculation, utilize it's method
+		for (let c = 0; c < options.channels.length; c++) {
+			let channel = options.channels[c]
+			let data = this.getChannelData(channel, options.from, options.duration)
+			let sum2 = 0
+			for (let i = 0, l = data.length; i < l; i++) {
+				// sum2 +=
+			}
+
+			// result.push(val)
+		}
+	}
+
+
+	return options.channels.length === 1 ? result[0] : result
 }
 
 

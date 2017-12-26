@@ -3,8 +3,31 @@
 let Audio = require('../')
 let t = require('tape')
 
+t('offset', t => {
+	let a1 = Audio({rate: 22000})
 
-t('toArray default', t => {
+	t.equal(a1.offset(1.2), 22000 * 1.2)
+
+
+	let a2 = Audio()
+	t.equal(a2.offset(-1.2), -44100 * 1.2)
+
+	t.end()
+})
+
+t('time', t => {
+	let a1 = Audio({rate: 22000})
+
+	t.equal(a1.time(22000), 1)
+
+
+	let a2 = Audio()
+	t.equal(a2.time(-1.2), -1.2 / 44100)
+
+	t.end()
+})
+
+t.skip('toArray default', t => {
 	let a = Audio(.5)
 
 	let arr = a.toArray()
@@ -15,7 +38,7 @@ t('toArray default', t => {
 	t.end()
 })
 
-t('toArray uint8 interleaved', t => {
+t.skip('toArray uint8 interleaved', t => {
 	let a = Audio(.5, 2)
 
 	let arr = a.toArray('uint8 interleaved')
