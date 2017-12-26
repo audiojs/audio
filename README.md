@@ -175,9 +175,8 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 **1. [Creation](#creation)**
 
 * [x] [new Audio(src?, opts?)]()
-* [x] [Audio.load(url, opts?)]()
-* [x] [Audio.decode(buf, opts?)]()
-* [ ] [Audio.record(stream, opts?)]()
+* [ ] [Audio.load(url, opts?, cb?)]()
+* [x] [Audio.decode(buf, opts?, cb?)]()
 
 **2. [Properties](#properties)**
 
@@ -185,30 +184,22 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [ ] [audio.channels]()
 * [ ] [audio.duration]()
 * [ ] [audio.length]()
-* [ ] [audio.sampleRate]() <kbd>readonly</kbd>
+* [ ] [audio.sampleRate]()
 
-**3. [Playback](#playback)**
+**3. [Utilities](#utilities)**
 
-* [ ] [audio.play(t?, dur?, opts?)]()
-* [ ] [audio.pause()]()
-* [ ] [audio.muted]()
-* [ ] [audio.loop]()
-* [ ] [audio.rate]()
-* [ ] [audio.volume]()
-* [ ] [audio.paused]() <kbd>readonly</kbd>
-* [ ] [audio.currentTime]()
+* [x] [audio.time(offset)]()
+* [x] [audio.offset(time)]()
+* [x] [Audio.gain(db)]()
+* [x] [Audio.db(gain)]()
+* [x] [Audio.isAudio(a)]()
+* [ ] [Audio.isEqual(a, b, ...c)]()
+* [ ] [Audio.record(stream, opts?)]()
+* [ ] [audio.serialize(format)]
+* [ ] [audio.save(filename, opts?)]()
+* [ ] [audio.stream(dst, opts?, onend?)]()
 
-**4. [Metrics](#metrics)**
-
-* [ ] [audio.average(t?, dur?, opts?)]()
-* [ ] [audio.variance(t?, dur?, opts?)]()
-* [x] [audio.bounds(t?, dur?, opts?)]()
-* [ ] [audio.spectrum(t?, dur, opts?)]()
-* [ ] [audio.loudness(t?, dur)]()
-* [ ] [audio.cepstrum(t?, dur)]()
-* [ ] [audio.size(t?, dur, opts?)]()
-
-**5 [Manipulations](#manipulations)**
+**4. [Manipulations](#manipulations)**
 
 * [x] [audio.read(dst?, t?, dur?, opts?)]()
 * [x] [audio.write(src|val, t?, dur?, opts?)]()
@@ -229,16 +220,27 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [ ] [audio.scale(amt, t?, opts?)]()
 * [ ] [audio.through(fn, opts?)]()
 
-**6. [Utilities](#utilities)**
+**5. [Playback](#playback)**
 
-* [ ] [audio.save(name, opts?, cb?)]()
-* [ ] [audio.stream(dst, opts?, cb?)]()
-* [x] [Audio.isAudio(a)]()
-* [ ] [Audio.isEqual(a, b, ...c)]()
-* [x] [Audio.gain(db)]()
-* [x] [Audio.db(gain)]()
-* [ ] [audio.time(offset)]()
-* [ ] [audio.offset(time)]()
+* [ ] [audio.play(t?, dur?, opts?)]()
+* [ ] [audio.pause()]()
+* [ ] [audio.muted]()
+* [ ] [audio.loop]()
+* [ ] [audio.rate]()
+* [ ] [audio.volume]()
+* [ ] [audio.paused]() <kbd>readonly</kbd>
+* [ ] [audio.currentTime]()
+
+**6. [Metrics](#metrics)**
+
+* [ ] [audio.average(t?, dur?, opts?)]()
+* [ ] [audio.variance(t?, dur?, opts?)]()
+* [x] [audio.limits(t?, dur?, opts?)]()
+* [ ] [audio.spectrum(t?, dur, opts?)]()
+* [ ] [audio.loudness(t?, dur)]()
+* [ ] [audio.cepstrum(t?, dur)]()
+* [ ] [audio.size(t?, dur, opts?)]()
+
 
 <!-- TODO: remove unnecessary tables from readme to allow for easier read flow -->
 
@@ -552,16 +554,16 @@ Current playback time in seconds. Setting this value seeks the audio to the new 
 
 ## Metrics
 
-### audio.bounds(time=0, duration?, {channel|channels}?)
+### audio.limits(time=0, duration?, {channel|channels}?)
 
-Find amplitudes boundaries for the indicated time interval. Returns an array with `min, max` values. Accounts for all channels, unless specified.
+Find amplitudes boundaries (range) for the indicated time interval. Returns an array with `min, max` values. Accounts for all channels, unless specified.
 
 ```js
 //get min/max amplitude for the .5s interval starting from 1s
-let [min, max] = audio.bounds(1, .5)
+let [min, max] = audio.limits(1, .5)
 
 //get min/max amplitude in left channel
-let [lMin, lMax] = audio.bounds({channel: 0})
+let [lMin, lMax] = audio.limits({channel: 0})
 ```
 
 ### audio.spectrum(time=0, options?)
@@ -570,13 +572,33 @@ Get array with spectral component magnitudes (magnitude is length of a [phasor](
 
 Possible `options`:
 
-| name | default | meaning |
-|---|---|---|
-| _size_ | `1024` | Size of FFT transform, e. g. number of frequencies to capture. |
-| _channel_ | `0` | Channel number to get data for, `0` is left channel, `1` is right etc. |
-| _db_ | `false` | Convert resulting magnitudes from `0..1` range to decibels `-100..0`. |
+name | default | meaning
+---|---|---
+_size_ | `1024` | Size of FFT transform, e. g. number of frequencies to capture.
+_channel_ | `0` | Channel number to get data for, `0` is left channel, `1` is right etc.
+_db_ | `false` | Convert resulting magnitudes from `0..1` range to decibels `-100..0`.
 
-### audio.loudness(time, duration)
+### audio.loudness(time=0, duration?, options|method?)
+
+Get loudness estimation for the interval indicated by `time` and `duration`. Returns an array with per-channel loudness values.
+
+```js
+//calculate RMS for 2 channels for the 120ms duration, starting from 1s
+let [leftRms, rightRms] = audio.loudness(1, .12)
+```
+
+#### Options
+
+Property | Default | Meaning
+---|---|---
+`method` | `'rms'` | Method of calculating loudness estimation. `'rms'` (root mean square) is used by default as fastest. Available methods: `TODO`
+`channel`, `channels` | `null` | Target channels to calculate loudness for
+
+#### Related API
+
+* [audio-loudness](https://github.com/audiojs/audio-loudness) − loudness estimation algorithms.
+
+
 ### audio.cepstrum(time, duration)
 ### audio.average(time, duration)
 ### audio.variance(time, duration)
@@ -595,13 +617,13 @@ Ideas:
 
 ## Manipulations
 
-### audio.read(destination?, time=0, duration?, {channel|channels, format, start, end}?)
+### audio.read(destination?, time=0, duration?, {channel[s], format, start, end}?)
 
-Read audio data from the indicated range, put result into `destination`. If destination is not defined, an array or object will be created based on `format`. By default returns array with channels data.
+Read audio data from the indicated range, put result into `destination`. If destination is not defined, an array or object will be created based on `format`. By default returns an array with channels data.
 
 ```js
 //get channels data for the 5s subrange starting from the 1s
-let [leftChannel, rightChannel] = audio.read(1, 5, {format: 'array'})
+let [leftChannel, rightChannel] = audio.read(1, 5)
 
 //get audiobuffer with whole audio data
 let abuf = audio.read({format: 'audiobuffer'})
@@ -610,16 +632,14 @@ let abuf = audio.read({format: 'audiobuffer'})
 let [slChannel, srChannel] = audio.read(.5, 1, {channels: [2,3]})
 
 //get last 1000 samples of right channel data
-let rightChannelData = audio.read(new Float32Array(1000), {channel: 1, start: -1000, end: 0})
+let rightChannelData = audio.read(new Float32Array(1000), Audio.time(-1000), {channel: 1})
 ```
 
 #### Options
 
 Property | Description | Default
 ---|---|---
-`channel` | A channel to read data from. | `null`
-`channels`, `numberOfChannels` | _Number_ or _Array_, indicating channels to read data from. | `this.channels`
-`start`, `end` or `length` | Optional interval markers, in samples. | `null`
+`channel`, `channels` | Channel number or array with channel numbers to read data from. | `null`
 `format` or `dtype` | Returned data type. | `destination` type
 
 

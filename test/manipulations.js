@@ -59,7 +59,7 @@ t('read', t => {
 	t.ok(Array.isArray(data))
 	t.deepEqual(data, new Float32Array([0,.1,.2,.3,.4,.5,.6,.7,.8,.9]))
 
-	data = a.read({channel: 0, format: 'uint8'})
+	data = a.read({channel: 0, dtype: 'uint8'})
 	t.equal(data.length, 10)
 	t.ok(ArrayBuffer.isView(data))
 	t.deepEqual(data, [127, 140, 153, 165, 178, 191, 204, 216, 229, 242])
