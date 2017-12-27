@@ -5,8 +5,8 @@
 'use strict'
 
 
-const load = require('audio-loader')
-const decode = require('audio-decode')
+const loadAudio = require('audio-loader')
+const decodeAudio = require('audio-decode')
 const extend = require('object-assign')
 const nidx = require('negative-index')
 const isPromise = require('is-promise')
@@ -111,15 +111,15 @@ Audio.from = function from (...sources) {
 
 	for (let i = 0; i < sources.length; i++) {
 		let source = sources[i], subsource
+		console.log(source)
 
 		//multiple source
 		if (Array.isArray(source) &&
 				!(typeof source[0] === 'number' && (source.length === 1 || typeof source[1] === 'number')) &&
 				!(source.length < 32 && source.every(ch => Array.isArray(ch) || ArrayBuffer.isView(ch)))
 			) {
-			subsource = Audio.from(...source).buffer
+			subsource = Audio.from(...source, options).buffer
 		}
-
 		else {
 			subsource = source instanceof Audio ? source.buffer : Audio(source, options).buffer
 		}
@@ -162,7 +162,7 @@ Audio.load = function load (source, callback) {
 
 		// load source by path
 		else {
-			promise = load(source).then(audioBuffer => {
+			promise = loadAudio(source).then(audioBuffer => {
 				let audio = Audio(audioBuffer)
 				Audio.cache[source] = audio
 				callback && callback(null, audio)
@@ -250,7 +250,7 @@ Audio.decode = function decode (source, options, callback) {
 	}
 
 	// convert to AudioBuffer
-	return decode(source, options).then(
+	return decodeAudio(source, options).then(
 		audioBuffer => {
 			let audio = Audio(audioBuffer)
 			callback && callback(null, audio)
