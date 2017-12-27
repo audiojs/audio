@@ -1,7 +1,7 @@
 'use strict'
 
-require('./util')
+require('./core')
 require('./creation')
-require('./properties')
 require('./manipulations')
 require('./metrics')
+require('./playback')

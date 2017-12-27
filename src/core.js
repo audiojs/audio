@@ -15,7 +15,6 @@ const isBrowser = require('is-browser')
 const toWav = require('audiobuffer-to-wav')
 const callsites = require('callsites')
 const path = require('path')
-const db = require('decibels')
 const AudioBuffer = require('audio-buffer')
 const AudioBufferList = require('audio-buffer-list')
 const remix = require('audio-buffer-remix')
@@ -33,30 +32,18 @@ const assert = require('assert')
 let Audio = require('../')
 
 
-// conversions
-Audio.gain = db.toGain
-
-Audio.db = db.fromGain
-
-Audio.prototype.time = function offsetToTime (offset) {
-	return offset / this.sampleRate
-}
-
-Audio.prototype.offset = function timeToOffset (time) {
-	return time * this.sampleRate
-}
-
-
-//cache of loaded audio buffers for urls
+// cache of loaded audio buffers for urls
 Audio.cache = {}
 
-//cache URLs
+
+// cache URLs
 Audio.prototype.cache = true
 
-//enable metrics
+
+// enable metrics
 Audio.prototype.stats = false
 
-//default params
+// default params
 Object.defineProperties(Audio.prototype, {
 	channels: {
 		set: function (channels) {
@@ -68,7 +55,7 @@ Object.defineProperties(Audio.prototype, {
 	},
 	sampleRate: {
 		set: function () {
-			//TODO
+			// TODO
 			throw Error('Unimplemented.')
 		},
 		get: function () {
@@ -95,7 +82,7 @@ Object.defineProperties(Audio.prototype, {
 				this.buffer = this.buffer.slice(0, length)
 			}
 			else if (length > this.length) {
-				//TODO
+				// TODO
 				// this.buffer = this.pad({start: , right: true})
 			}
 		},
@@ -105,16 +92,58 @@ Object.defineProperties(Audio.prototype, {
 	}
 })
 
-//load audio from remote/local url
-Audio.load = function (source, callback) {
+
+// create audio from multiple sources
+Audio.join =
+Audio.concat =
+Audio.create =
+Audio.from = function from (...sources) {
+	let items = [], channels = 1
+
+	let options = sources[sources.length - 1]
+
+	if ((isPlainObj(options) && (!options.duration || !options.length)) || typeof options === 'string' ) {
+		sources.pop()
+	}
+	else {
+		options = null
+	}
+
+	for (let i = 0; i < sources.length; i++) {
+		let source = sources[i], subsource
+
+		//multiple source
+		if (Array.isArray(source) &&
+				!(typeof source[0] === 'number' && (source.length === 1 || typeof source[1] === 'number')) &&
+				!(source.length < 32 && source.every(ch => Array.isArray(ch) || ArrayBuffer.isView(ch)))
+			) {
+			subsource = Audio.from(...source).buffer
+		}
+
+		else {
+			subsource = source instanceof Audio ? source.buffer : Audio(source, options).buffer
+		}
+
+		items.push(subsource)
+		channels = Math.max(subsource.numberOfChannels, channels)
+	}
+
+	let buffer = new AudioBufferList(items, {numberOfChannels: channels, sampleRate: items[0].sampleRate})
+
+	return new Audio(buffer)
+}
+
+
+// load audio from remote/local url
+Audio.load = function load (source, callback) {
 	let promise
 
 	if (typeof source === 'string') {
 		source = resolvePath(source, 2)
 
-		//load cached version, if any
+		// load cached version, if any
 		if (Audio.cache[source]) {
-			//if source is cached but loading - just clone when loaded
+			// if source is cached but loading - just clone when loaded
 			if (isPromise(Audio.cache[source])) {
 				promise = Audio.cache[source].then(audio => {
 					audio = Audio(audio)
@@ -131,7 +160,7 @@ Audio.load = function (source, callback) {
 			}
 		}
 
-		//load source by path
+		// load source by path
 		else {
 			promise = load(source).then(audioBuffer => {
 				let audio = Audio(audioBuffer)
@@ -143,16 +172,16 @@ Audio.load = function (source, callback) {
 				return Promise.reject(error)
 			})
 
-			//save promise to cache
+			// save promise to cache
 			Audio.cache[source] = promise
 		}
 	}
 
-	//multiple sources
+	// multiple sources
 	else if (Array.isArray(source)) {
 		let items = []
 
-		//make sure for every array item audio instance is created and loaded
+		// make sure for every array item audio instance is created and loaded
 		for (let i = 0; i < source.length; i++) {
 			let a = source[i]
 			if (typeof a === 'string') {
@@ -167,7 +196,7 @@ Audio.load = function (source, callback) {
 			}
 		}
 
-		//then do promise once all loaded
+		// then do promise once all loaded
 		promise = Promise.all(items).then((list) => {
 			callback && callback(null, list)
 			return Promise.resolve(list)
@@ -177,7 +206,7 @@ Audio.load = function (source, callback) {
 		})
 	}
 
-	//fall back non-string sources to decode
+	// fall back non-string sources to decode
 	else {
 		promise = Audio.decode(source, callback)
 	}
@@ -185,8 +214,9 @@ Audio.load = function (source, callback) {
 	return promise
 }
 
-//decode audio buffer
-Audio.decode = function (source, options, callback) {
+
+// decode audio buffer
+Audio.decode = function decode (source, options, callback) {
 	if (typeof options === 'function') {
 		callback = options
 		options = {context: this.context}
@@ -194,11 +224,11 @@ Audio.decode = function (source, options, callback) {
 
 	if (!source) throw Error('No source to decode');
 
-	//decode multiple items
+	// decode multiple items
 	if (Array.isArray(source)) {
 		let items = []
 
-		//make sure for every array item audio instance is created and loaded
+		// make sure for every array item audio instance is created and loaded
 		for (let i = 0; i < source.length; i++) {
 			let a = source[i]
 			if (isPromise(a)) {
@@ -209,7 +239,7 @@ Audio.decode = function (source, options, callback) {
 			}
 		}
 
-		//then do promise once all loaded
+		// then do promise once all loaded
 		return Promise.all(items).then((list) => {
 			callback && callback(null, list)
 			return Promise.resolve(list)
@@ -219,7 +249,7 @@ Audio.decode = function (source, options, callback) {
 		})
 	}
 
-	//convert to AudioBuffer
+	// convert to AudioBuffer
 	return decode(source, options).then(
 		audioBuffer => {
 			let audio = Audio(audioBuffer)
@@ -233,23 +263,20 @@ Audio.decode = function (source, options, callback) {
 	)
 }
 
-//record streamish source
-Audio.record = function (source, options, callback) {
+
+// record streamish source
+Audio.record = function record (source, options, callback) {
 
 }
 
-//check if source is instance of audio
-Audio.isAudio = function (source) {
-	return source instanceof Audio
-}
 
-//download file or create a file in node
-Audio.prototype.save = function (fileName, ondone) {
+// download file or create a file in node
+Audio.prototype.save = function save (fileName, ondone) {
 	if (!fileName) throw Error('File name is not provided')
 
 	let wav = toWav(this.buffer.slice())
 
-	//fix path for node
+	// fix path for node
 	fileName = resolvePath(fileName)
 
 	saveAs(wav, fileName, (err) => {
@@ -259,29 +286,27 @@ Audio.prototype.save = function (fileName, ondone) {
 	return this
 }
 
-//create a duplicate or clone of audio
-Audio.prototype.clone = function (deep) {
+
+// create a duplicate or clone of audio
+Audio.prototype.clone = function clone (deep) {
 	if (deep == null || deep) return new Audio(this.buffer.clone())
 	else return new Audio(this.buffer)
 }
 
-//test if audio is equal
-Audio.isEqual = function (a, b) {
-	if (arguments.length > 2) {
-		for (let i = 0; i < arguments.length - 1; i++) {
-			if (!Audio.isEqual(arguments[i], arguments[i + 1])) return false
-		}
 
-		return true
-	}
+// test if audio is equal
+Audio.equal =
+Audio.isEqual = function (a, ...sources) {
+	for (let i = 0; i < sources.length; i++) {
+		let b = sources[i]
 
-	if (a === b) return true
-	if (a.length !== b.length || a.numberOfChannels !== b.numberOfChannels) return false
+		if (a === b) return true
+		if (a.length !== b.length || a.channels !== b.channels || a.sampleRate != b.sampleRate) return false
 
-	for (let i = 0, l = this.buffer.buffers.length; i < l; i++) {
-		for (let channel = 0; channel < a.numberOfChannels; channel++) {
-			let dataA = a.getChannelData(channel);
-			let dataB = b.getChannelData(channel);
+
+		for (let c = 0; c < a.channels; c++) {
+			let dataA = a.getChannelData(c);
+			let dataB = b.getChannelData(c);
 
 			for (let i = 0; i < dataA.length; i++) {
 				if (dataA[i] !== dataB[i]) return false;
@@ -292,75 +317,49 @@ Audio.isEqual = function (a, b) {
 	return true
 }
 
-//get array representation of audio
-Audio.prototype.toArray = function (options) {
-	if (!options) {
-		options = {dtype: 'array'}
-	} else if (typeof options === 'string') {
-		options = aformat.parse(options)
-	}
 
-	let format = extend({
-		channels: this.channels
-	}, options)
-
-	let arr = convert(this.buffer.copy(), format)
-
-	return arr
-}
-
-function resolvePath (fileName, depth=2) {
-	if (!isBrowser && isRelative(fileName) && !isURL(fileName)) {
-		var callerPath = callsites()[depth].getFileName()
-		fileName = path.dirname(callerPath) + path.sep + fileName
-		fileName = path.normalize(fileName)
-	}
-
-	return fileName
-}
-
-//include start/end offsets and channel for options.
-Audio.prototype._parseArgs = function (time, duration, options, cb) {
-	//no args at all
+// calc start, end, length and channels params from options
+Audio.prototype._args = function (time, duration, options, cb) {
+	// no args at all
 	if (time == null && duration == null && options == null) {
 		options = {}
 		time = 0
 		duration = this.duration
 	}
-	//single arg
+	// single arg
 	else if (time != null && duration == null && options == null) {
-		//{}
+		// {}
 		if (typeof time !== 'number') {
 			options = time
 			time = 0
 			duration = this.duration
 		}
-		//number
+		// number
 		else {
 			options = {}
 			duration = this.duration
 		}
 	}
-	//two args
+	// two args
 	else if (time != null && duration != null && options == null) {
-		//1, 1
+		// 1, 1
 		if (typeof duration === 'number') {
 			options = {}
 		}
-		//1, {}
+		// 1, {}
 		else if (typeof duration != 'number') {
 			options = duration
 			duration = this.duration
 		}
 	}
 
-	if (!options) options = {}
+	options = extend({}, options)
 	if (time == null) time = 0
 	if (duration == null) duration = this.duration
 
 	if (!time && duration < 0) time = -0;
 
-	//ensure channels
+	// ensure channels
 	if (options.channel != null) {
 		options.channels = options.channel
 	}
@@ -376,13 +375,14 @@ Audio.prototype._parseArgs = function (time, duration, options, cb) {
 	}
 	assert(Array.isArray(options.channels), 'Bad `channels` argument')
 
-	//take over from/to params
+	// take over from/to params
+	// FIXME: reconsider these params
 	if (options.from != null) time = options.from
 	if (options.to != null) duration = options.to - time
 	if (options.length != null) duration = options.length * this.sampleRate
 	if (options.duration != null) duration = options.duration
 
-	//detect raw interval
+	// detect raw interval
 	if (options.start == null) {
 		let startOffset = Math.floor(time * this.sampleRate)
 		startOffset = nidx(startOffset, this.buffer.length)
@@ -400,13 +400,24 @@ Audio.prototype._parseArgs = function (time, duration, options, cb) {
 		options.end = endOffset
 	}
 
-	//provide full options
+	// provide full options
 	if (options.length == null) options.length = options.end - options.start
 	if (options.from == null) options.from = options.start / this.sampleRate
 	if (options.to == null) options.to = options.end / this.sampleRate
 	if (options.duration == null) options.duration = options.length / this.sampleRate
 
-	if (options.format) options.dtype = options.format
+	if (options.dtype) options.format = options.dtype
 
 	return options
+}
+
+// path resolver taking in account file structure
+function resolvePath (fileName, depth=2) {
+	if (!isBrowser && isRelative(fileName) && !isURL(fileName)) {
+		var callerPath = callsites()[depth].getFileName()
+		fileName = path.dirname(callerPath) + path.sep + fileName
+		fileName = path.normalize(fileName)
+	}
+
+	return fileName
 }
