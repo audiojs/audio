@@ -21,6 +21,27 @@ function f32(v) {
 	return new Float32Array([v])[0]
 }
 
+t('fill', t => {
+	let a = Audio({length: 44100}).fill(1)
+
+	t.equal(a.length, 44100)
+	t.equal(a.duration, 1)
+	t.deepEqual(a.read({channel: 1}), Array.from({length: 44100}, x => 1))
+
+	let _i = 0;
+	a.fill((v, i, ch) => {
+		t.equal(ch, 0)
+		t.equal(i, _i)
+		_i++
+
+		return v * .5
+	})
+
+	t.deepEqual(a.read({channel: 1}))
+
+	t.end()
+})
+
 t('through', t => {
 	let a = Audio([1, 1])
 
@@ -36,7 +57,7 @@ t('through', t => {
 t('read', t => {
 	let saw = Array.from({length: 10}, (v, i) => i / 10)
 
-	let a = Audio([saw, saw, saw])
+	let a = Audio.from([saw, saw, saw])
 	t.equal(a.length, 10)
 	t.equal(a.channels, 3)
 
@@ -79,6 +100,13 @@ t('read', t => {
 
 	data = a.read(6/44100, 2/44100, {format: 'float32 interleaved', channels: [1, 2]})
 	t.deepEqual(data, new Float32Array([.6, .6, .7, .7]))
+
+
+
+	let silence = Audio({length: 10})
+	t.throws(() => {
+		silence.read({channel: 1})
+	})
 
 	t.end()
 })

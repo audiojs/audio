@@ -11,9 +11,27 @@ const isPlainObj = require('is-plain-obj')
 const AudioBufferList = require('audio-buffer-list')
 const createBuffer = require('audio-buffer-from')
 const isAudioBuffer = require('is-audio-buffer')
+const db = require('decibels')
+
+module.exports = Audio
 
 
-module.exports = function Audio(source, options) {
+// conversions
+Audio.gain = db.toGain
+
+Audio.db = db.fromGain
+
+Audio.prototype.time = function offsetToTime (offset) {
+	return offset / this.sampleRate
+}
+
+Audio.prototype.offset = function timeToOffset (time) {
+	return time * this.sampleRate
+}
+
+
+// @constructor
+function Audio(source, options) {
 	if (!(this instanceof Audio)) return new Audio(source, options)
 
 	//handle channels-only options
@@ -42,7 +60,7 @@ module.exports = function Audio(source, options) {
 	}
 
 	//audiobufferlist case
- 	if (AudioBufferList.isInstance(source)) {
+ 	if (source instanceof AudioBufferList) {
 		this.buffer = source
 	}
 
@@ -52,24 +70,8 @@ module.exports = function Audio(source, options) {
 	}
 
 	//other Audio instance
-	else if (Audio.isAudio(source)) {
+	else if (source instanceof Audio) {
 		this.buffer = source.buffer.clone()
-	}
-
-	//multiple source
-	else if (Array.isArray(source) &&
-			!(typeof source[0] === 'number' && (source.length === 1 || typeof source[1] === 'number')) &&
-			!(source.length < 32 && source.every(ch => Array.isArray(ch) || ArrayBuffer.isView(ch)))
-		) {
-		//make sure every array item audio instance is created and loaded
-		let items = [], channels = 1
-		for (let i = 0; i < source.length; i++) {
-			let subsource = Audio.isAudio(source[i]) ? source[i].buffer : Audio(source[i], options).buffer
-			items.push(subsource)
-			channels = Math.max(subsource.numberOfChannels, channels)
-		}
-
-		this.buffer = new AudioBufferList(items, {numberOfChannels: channels, sampleRate: items[0].sampleRate})
 	}
 
 	else {

@@ -54,6 +54,11 @@ t('create length from options', t => {
 	t.equal(a.length, 1024)
 	t.equal(a.channels, 3)
 
+
+	let a2 = Audio({duration: 1, channels: 1})
+	t.equal(a2.length, 44100)
+	t.equal(a2.channels, 1)
+
 	t.end()
 })
 
@@ -69,7 +74,7 @@ t('create duration from options', t => {
 })
 
 t('create from multiple arguments', t => {
-	let a = Audio([
+	let a = Audio.from([
 		2,
 		Audio(1),
 		new AudioBuffer(null, {length: 44100, numberOfChannels: 2})
@@ -83,7 +88,7 @@ t('create from multiple arguments', t => {
 });
 
 t.skip('create by concatenating the arguments', t => {
-	let a = Audio([0,1], [0,1])
+	let a = Audio.from([0,1], [0,1])
 
 	t.equal(a.length, 4)
 })
