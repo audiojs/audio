@@ -27,9 +27,16 @@ ideas:
 	- image (just teaser/logo)
 -->
 
-## Usage & use-cases
+## Usage
 
 [![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
+
+```js
+const Audio = require('audio')
+```
+
+
+## Use-cases
 
 <!--
 ideas:
@@ -50,8 +57,6 @@ mvp:
 > Load `./sample.mp3`, trim, normalize, fade in, fade out, save:
 
 ```js
-const Audio = require('audio')
-
 Audio.load('./sample.mp3').then(audio =>
   audio
     .trim()
@@ -66,8 +71,6 @@ Audio.load('./sample.mp3').then(audio =>
 > Record 4s of mic input.
 
 ```js
-const Audio = require('audio')
-
 navigator.getUserMedia({audio: true}, stream =>
 
 	Audio.record(stream, (err, audio) => {
@@ -80,8 +83,6 @@ navigator.getUserMedia({audio: true}, stream =>
 > Record and download 2 seconds of web-audio experiment
 
 ```js
-const Audio = require('audio')
-
 //create web-audio experiment
 let ctx = new AudioContext()
 let osc = ctx.createOscillator()
@@ -102,8 +103,6 @@ audio.on('end', () => {
 > Download AudioBuffer returned from offline context
 
 ```js
-const Audio = require('audio')
-
 //setup offline context
 let offlineCtx = new OfflineAudioContext(2, 44100*40, 44100)
 audioNode.connect(offlineCtx)
@@ -118,8 +117,6 @@ offlineCtx.startRendering().then((audioBuffer) => {
 > Montage audio
 
 ```js
-const Audio = require('audio')
-
 let audio = Audio.load('./record.mp3', (err, audio) => {
 	//repeat slowed down fragment
 	audio.write(audio.copy(2.1, 1).scale(.9), 3.1)
@@ -139,7 +136,6 @@ let audio = Audio.load('./record.mp3', (err, audio) => {
 > Render waveform of HTML5 `<audio>`
 
 ```js
-const Audio = require('audio')
 const Waveform = require('gl-waveform')
 
 //create waveform renderer
@@ -163,7 +159,6 @@ audio.on('load', (err, audio) => {
 > Process audio with _audio-*_ modules
 
 ```js
-const Audio = require('audio')
 const Biquad = require('audio-biquad')
 
 let lpf = new Biquad({frequency: 2000, type: 'lowpass'})
