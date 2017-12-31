@@ -1,4 +1,4 @@
-# Audio — Work In Progress
+# Audio
 
 [![experimental](https://img.shields.io/badge/stability-experimental-red.svg)](http://github.com/badges/stability-badges)
 [![Build Status](https://img.shields.io/travis/audiojs/audio.svg)](https://travis-ci.org/audiojs/audio)
@@ -8,7 +8,7 @@
 [![npm](https://img.shields.io/npm/v/audio.svg)](https://www.npmjs.com/package/audio)
 [![license](https://img.shields.io/npm/l/audio.svg)](https://www.npmjs.com/package/audio)
 
-Class for high-level audio manipulations in javascript. Abstract from the level of raw data and DSP to the level of natural sound manipulations.
+Class for high-level audio manipulations in javascript. An abstraction from the level of raw data and DSP to the level of natural sound manipulations.
 
 <!--
 ideas:
@@ -27,7 +27,7 @@ ideas:
 	- image (just teaser/logo)
 -->
 
-## Usage
+## Usage / Use-cases
 
 [![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
 
@@ -47,9 +47,7 @@ mvp:
 
 -->
 
-## Use cases
-
-Load `./sample.mp3`, trim, normalize, fade in, fade out, save:
+	Load `./sample.mp3`, trim, normalize, fade in, fade out, save:
 
 ```js
 const Audio = require('audio')
@@ -65,7 +63,7 @@ Audio.load('./sample.mp3').then(audio =>
 ```
 
 
-Record 4s of mic input.
+	Record 4s of mic input.
 
 ```js
 const Audio = require('audio')
@@ -79,7 +77,7 @@ navigator.getUserMedia({audio: true}, stream =>
 ```
 
 
-Record and download 2 seconds of web-audio experiment
+	Record and download 2 seconds of web-audio experiment
 
 ```js
 const Audio = require('audio')
@@ -101,7 +99,7 @@ audio.on('end', () => {
 ```
 
 
-Download AudioBuffer returned from offline context
+	Download AudioBuffer returned from offline context
 
 ```js
 const Audio = require('audio')
@@ -117,7 +115,7 @@ offlineCtx.startRendering().then((audioBuffer) => {
 ```
 
 
-Montage audio
+	Montage audio
 
 ```js
 const Audio = require('audio')
@@ -138,7 +136,7 @@ let audio = Audio.load('./record.mp3', (err, audio) => {
 })
 ```
 
-### 6. Render waveform of HTML5 `<audio>`
+	Render waveform of HTML5 `<audio>`
 
 ```js
 const Audio = require('audio')
@@ -162,7 +160,7 @@ audio.on('load', (err, audio) => {
 })
 ```
 
-### 7. Process audio with _audio-*_ modules
+	Process audio with _audio-*_ modules
 
 ```js
 const Audio = require('audio')
@@ -172,14 +170,14 @@ let lpf = new Biquad({frequency: 2000, type: 'lowpass'})
 let audio = Audio(10).noise().process(lpf)
 ```
 
-### 8. Data handle - subaudio, for sprites etc
+	Data handle - subaudio, for sprites etc
 
-### 9. Load intro, append 1s pause, start recording. Once ended, save as file.
+	Load intro, append 1s pause, start recording. Once ended, save as file.
 
 Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(Date() + '-recording.mp3'))
 
 
-## API
+## [API](https://github.com/audiojs/audio/blob/master/api.md)
 
 **1. [Core](#creation)**
 
