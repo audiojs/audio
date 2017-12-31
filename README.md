@@ -251,6 +251,9 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [audiojs](https://github.com/audiojs) − open-source audio components for javascript
 * [web-audio-api](https://github.com/audiojs/web-audio-api) − web-audio-api implementation for nodejs
 
+## Related
+
+* [tuna](https://github.com/Theodeus/tuna)
 
 ## Credits
 
