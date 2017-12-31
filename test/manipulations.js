@@ -22,22 +22,19 @@ function f32(v) {
 }
 
 t('fill', t => {
-	let a = Audio({length: 44100}).fill(1)
+	let a = Audio({length: 441}).fill(1)
 
-	t.equal(a.length, 44100)
-	t.equal(a.duration, 1)
-	t.deepEqual(a.read({channel: 1}), Array.from({length: 44100}, x => 1))
+	t.equal(a.length, 441)
+	t.equal(a.duration, .01)
+	t.deepEqual(a.read({channel: 0}), Array.from({length: 441}, x => 1))
 
 	let _i = 0;
 	a.fill((v, i, ch) => {
-		t.equal(ch, 0)
 		t.equal(i, _i)
 		_i++
 
 		return v * .5
 	})
-
-	t.deepEqual(a.read({channel: 1}))
 
 	t.end()
 })
@@ -89,13 +86,17 @@ t('read', t => {
 	t.equal(data[0].length, 8)
 	t.deepEqual(data[0], new Float32Array([.2,.3,.4,.5,.6,.7,.8,.9]))
 
-	data = a.read(new Uint8Array(10), {channel: 0})
+	t.throws(() => {
+		a.read(new Uint8Array(10), {channel: 0})
+	})
+
+	data = a.read({dest: new Uint8Array(10), channel: 0})
 	t.deepEqual(data, [127, 140, 153, 165, 178, 191, 204, 216, 229, 242])
 
-	data = a.read(new Float32Array(15), 5/44100)
+	data = a.read(5/44100, { dst: new Float32Array(15)})
 	t.deepEqual(data, new Float32Array([.5,.6,.7,.8,.9,.5,.6,.7,.8,.9,.5,.6,.7,.8,.9]))
 
-	data = a.read(new Int8Array(3).buffer, 5/44100, 1/44100, {format: 'int8'})
+	data = a.read(5/44100, 1/44100, {dst: new Int8Array(3).buffer, format: 'int8'})
 	t.deepEqual(new Int8Array(data), [63, 63, 63])
 
 	data = a.read(6/44100, 2/44100, {format: 'float32 interleaved', channels: [1, 2]})

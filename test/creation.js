@@ -451,75 +451,83 @@ t('error decoding (bad argument)', t => {
 
 t('error decoding format')
 
-t.only('properly detect numeric array vs items array', t => {
+t('properly detect numeric array vs items array', t => {
 	let num, mul, ch, err
 
-	// num = new Audio([0])
-	// t.equal(num.length, 1)
-	// t.equal(num.channels, 1)
+	num = new Audio([0])
+	t.equal(num.length, 1)
+	t.equal(num.channels, 1)
 
-	// num = new Audio([1])
-	// t.equal(num.length, 1)
-	// t.equal(num.channels, 1)
+	num = new Audio([1])
+	t.equal(num.length, 1)
+	t.equal(num.channels, 1)
 
-	// num = new Audio([-1])
-	// t.equal(num.length, 1)
-	// t.equal(num.channels, 1)
+	num = new Audio([-1])
+	t.equal(num.length, 1)
+	t.equal(num.channels, 1)
 
-	// num = new Audio([0, 1])
-	// t.equal(num.length, 2)
-	// t.equal(num.channels, 1)
+	num = new Audio([0, 1])
+	t.equal(num.length, 2)
+	t.equal(num.channels, 1)
 
-	// num = new Audio([-1, 1])
-	// t.equal(num.length, 2)
-	// t.equal(num.channels, 1)
+	num = new Audio([-1, 1])
+	t.equal(num.length, 2)
+	t.equal(num.channels, 1)
 
-	// num = new Audio([1, 1, 1])
-	// t.equal(num.length, 3)
-	// t.equal(num.channels, 1)
+	num = new Audio([1, 1, 1])
+	t.equal(num.length, 3)
+	t.equal(num.channels, 1)
 
-	// num = new Audio([1, 1])
-	// t.equal(num.length, 2)
-	// t.equal(num.channels, 1)
+	num = new Audio([1, 1])
+	t.equal(num.length, 2)
+	t.equal(num.channels, 1)
 
 	mul = Audio.from([1, Audio(0), 1])
 	t.equal(mul.length, 44100*2)
 	t.equal(mul.channels, 1)
 
-	// mul = Audio.from([Audio(0)])
-	// t.equal(mul.length, 0)
-	// t.equal(mul.channels, 1)
+	mul = Audio.from([Audio(0)])
+	t.equal(mul.length, 0)
+	t.equal(mul.channels, 1)
 
-	// ch = new Audio([[0, 1], [0, 1]])
-	// t.equal(ch.length, 2)
-	// t.equal(ch.channels, 2)
+	ch = new Audio([[0, 1], [0, 1]])
+	t.equal(ch.length, 2)
+	t.equal(ch.channels, 2)
 
-	// ch = new Audio([new Float32Array([0, 1]), new Float32Array([0, 1])])
-	// t.equal(ch.length, 2)
-	// t.equal(ch.channels, 2)
+	ch = new Audio([new Float32Array([0, 1]), new Float32Array([0, 1])])
+	t.equal(ch.length, 2)
+	t.equal(ch.channels, 2)
 
-	// mul = Audio.from([1, new Float32Array([0, 1]), new Float32Array([0, 1])], {channels: 2})
-	// t.equal(mul.length, 44102)
-	// t.equal(mul.channels, 2)
+	mul = Audio.from([1, new Float32Array([0, 1]), new Float32Array([0, 1])], {channels: 2})
+	t.equal(mul.length, 44102)
+	t.equal(mul.channels, 2)
 
 
-	// err = new Audio([1, 1, Audio(0)])
-	// t.notOk(err.getChannelData(0)[3])
+	err = new Audio([1, 1, Audio(0)])
+	t.notOk(err.getChannelData(0)[3])
 
-	// err = new Audio([-1, 1, Audio(0)])
-	// t.notOk(err.getChannelData(0)[3])
+	err = new Audio([-1, 1, Audio(0)])
+	t.notOk(err.getChannelData(0)[3])
 
-	// t.throws(() => {
-	// 	err = new Audio([-1, Audio(0)])
-	// })
+	t.throws(() => {
+		err = Audio.from([-1, Audio(0)])
+	})
 
-	// t.throws(() => {
-	// 	err = new Audio([Audio(0), -1])
-	// })
+	t.throws(() => {
+		err = Audio.from([Audio(0), -1])
+	})
 
-	// mul = Audio.from([Audio(0), 1])
-	// t.equal(mul.length, 44100)
-	// t.equal(mul.channels, 1)
+	t.throws(() => {
+		err = Audio([-1, Audio(0)])
+	})
+
+	t.throws(() => {
+		err = Audio([Audio(0), -1])
+	})
+
+	mul = Audio.from([Audio(0), 1])
+	t.equal(mul.length, 44100)
+	t.equal(mul.channels, 1)
 
 	t.end()
 })

@@ -11,24 +11,18 @@ const extend = require('object-assign')
 const nidx = require('negative-index')
 const isPromise = require('is-promise')
 const saveAs = require('save-file')
-const isBrowser = require('is-browser')
 const toWav = require('audiobuffer-to-wav')
-const callsites = require('callsites')
-const path = require('path')
 const AudioBuffer = require('audio-buffer')
 const AudioBufferList = require('audio-buffer-list')
 const remix = require('audio-buffer-remix')
 const isAudioBuffer = require('is-audio-buffer')
 const isPlainObj = require('is-plain-obj')
-const isRelative = require('is-relative')
 const getContext = require('audio-context')
-const isURL = require('is-url')
 const convert = require('pcm-convert')
 const aformat = require('audio-format')
 const createBuffer = require('audio-buffer-from')
-const assert = require('assert')
 
-
+let {parseArgs, resolvePath, isMultisource} = require('./util')
 let Audio = require('../')
 
 
@@ -111,19 +105,18 @@ Audio.from = function from (...sources) {
 
 	for (let i = 0; i < sources.length; i++) {
 		let source = sources[i], subsource
-		console.log(source)
 
 		//multiple source
-		if (Array.isArray(source) &&
-				!(typeof source[0] === 'number' && (source.length === 1 || typeof source[1] === 'number')) &&
-				!(source.length < 32 && source.every(ch => Array.isArray(ch) || ArrayBuffer.isView(ch)))
-			) {
-			subsource = Audio.from(...source, options).buffer
+		if (isMultisource(source)) {
+			if (options) {
+				subsource = Audio.from(...source, options).buffer
+			} else {
+				subsource = Audio.from(...source).buffer
+			}
 		}
 		else {
 			subsource = source instanceof Audio ? source.buffer : Audio(source, options).buffer
 		}
-
 		items.push(subsource)
 		channels = Math.max(subsource.numberOfChannels, channels)
 	}
@@ -317,107 +310,3 @@ Audio.isEqual = function (a, ...sources) {
 	return true
 }
 
-
-// calc start, end, length and channels params from options
-Audio.prototype._args = function (time, duration, options, cb) {
-	// no args at all
-	if (time == null && duration == null && options == null) {
-		options = {}
-		time = 0
-		duration = this.duration
-	}
-	// single arg
-	else if (time != null && duration == null && options == null) {
-		// {}
-		if (typeof time !== 'number') {
-			options = time
-			time = 0
-			duration = this.duration
-		}
-		// number
-		else {
-			options = {}
-			duration = this.duration
-		}
-	}
-	// two args
-	else if (time != null && duration != null && options == null) {
-		// 1, 1
-		if (typeof duration === 'number') {
-			options = {}
-		}
-		// 1, {}
-		else if (typeof duration != 'number') {
-			options = duration
-			duration = this.duration
-		}
-	}
-
-	options = extend({}, options)
-	if (time == null) time = 0
-	if (duration == null) duration = this.duration
-
-	if (!time && duration < 0) time = -0;
-
-	// ensure channels
-	if (options.channel != null) {
-		options.channels = options.channel
-	}
-	if (typeof options.channels === 'number') {
-		options.channels = [options.channels]
-	}
-	if (options.channels == null) {
-		let channels = options.channels || this.channels
-		options.channels = []
-		for (let i = 0; i < channels; i++) {
-			options.channels.push(i)
-		}
-	}
-	assert(Array.isArray(options.channels), 'Bad `channels` argument')
-
-	// take over from/to params
-	// FIXME: reconsider these params
-	if (options.from != null) time = options.from
-	if (options.to != null) duration = options.to - time
-	if (options.length != null) duration = options.length * this.sampleRate
-	if (options.duration != null) duration = options.duration
-
-	// detect raw interval
-	if (options.start == null) {
-		let startOffset = Math.floor(time * this.sampleRate)
-		startOffset = nidx(startOffset, this.buffer.length)
-		options.start = startOffset
-	}
-	if (options.end == null) {
-		let len = duration * this.sampleRate
-		let endOffset;
-		if (len < 0) {
-			endOffset = nidx(options.start + len, this.buffer.length)
-		}
-		else {
-			endOffset = Math.min(options.start + len, this.buffer.length)
-		}
-		options.end = endOffset
-	}
-
-	// provide full options
-	if (options.length == null) options.length = options.end - options.start
-	if (options.from == null) options.from = options.start / this.sampleRate
-	if (options.to == null) options.to = options.end / this.sampleRate
-	if (options.duration == null) options.duration = options.length / this.sampleRate
-
-	if (options.dtype) options.format = options.dtype
-
-	return options
-}
-
-// path resolver taking in account file structure
-function resolvePath (fileName, depth=2) {
-	if (!isBrowser && isRelative(fileName) && !isURL(fileName)) {
-		var callerPath = callsites()[depth].getFileName()
-		fileName = path.dirname(callerPath) + path.sep + fileName
-		fileName = path.normalize(fileName)
-	}
-
-	return fileName
-}

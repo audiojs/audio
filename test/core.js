@@ -5,6 +5,9 @@ let t = require('tape')
 let AudioBuffer = require('audio-buffer')
 
 
+// TODO: test if is online/offline
+
+
 t('audio.offset', t => {
 	let a1 = Audio({rate: 22000})
 
