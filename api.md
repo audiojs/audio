@@ -32,7 +32,7 @@
 
 **4. [Manipulations](#manipulations)**
 
-* [ ] [audio.read(t?, dur?, dst|opts?)]()
+* [x] [audio.read(t?, dur?, dst|opts?)]()
 * [ ] [audio.write(src|val, t?, dur?, opts?)]()
 * [ ] [audio.insert(data, t?, dur?, opts?)]()
 * [ ] [audio.fill(val|fn, t?, dur?, opts?)]()

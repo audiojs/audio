@@ -14,11 +14,12 @@ const loudness = {
 	rms: require('compute-qmean')
 }
 
+let {parseArgs} = require('./util')
 let Audio = require('../')
 
 //get amplitudes range for the interval
 Audio.prototype.limits = function (time, duration, options) {
-	options = this._parseArgs(time, duration, options)
+	options = parseArgs(this, time, duration, options)
 
 	if (this.stats) {
 		//TODO: implement fast bounds search, extremum-based
@@ -78,7 +79,7 @@ Audio.prototype.stats = function () {
 Audio.prototype.loudness = function (time, duration, options) {
 	if (typeof options === 'string') options = {method: options}
 
-	options = this._parseArgs(time, duration, options)
+	options = parseArgs(this, time, duration, options)
 
 	if (options.type) options.method = options.type
 
