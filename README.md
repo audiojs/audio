@@ -27,7 +27,7 @@ ideas:
 	- image (just teaser/logo)
 -->
 
-## Usage / Use-cases
+## Usage & use-cases
 
 [![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
 
@@ -47,7 +47,7 @@ mvp:
 
 -->
 
-	Load `./sample.mp3`, trim, normalize, fade in, fade out, save:
+> Load `./sample.mp3`, trim, normalize, fade in, fade out, save:
 
 ```js
 const Audio = require('audio')
@@ -63,7 +63,7 @@ Audio.load('./sample.mp3').then(audio =>
 ```
 
 
-	Record 4s of mic input.
+> Record 4s of mic input.
 
 ```js
 const Audio = require('audio')
@@ -77,7 +77,7 @@ navigator.getUserMedia({audio: true}, stream =>
 ```
 
 
-	Record and download 2 seconds of web-audio experiment
+> Record and download 2 seconds of web-audio experiment
 
 ```js
 const Audio = require('audio')
@@ -99,7 +99,7 @@ audio.on('end', () => {
 ```
 
 
-	Download AudioBuffer returned from offline context
+> Download AudioBuffer returned from offline context
 
 ```js
 const Audio = require('audio')
@@ -115,7 +115,7 @@ offlineCtx.startRendering().then((audioBuffer) => {
 ```
 
 
-	Montage audio
+> Montage audio
 
 ```js
 const Audio = require('audio')
@@ -136,7 +136,7 @@ let audio = Audio.load('./record.mp3', (err, audio) => {
 })
 ```
 
-	Render waveform of HTML5 `<audio>`
+> Render waveform of HTML5 `<audio>`
 
 ```js
 const Audio = require('audio')
@@ -160,7 +160,7 @@ audio.on('load', (err, audio) => {
 })
 ```
 
-	Process audio with _audio-*_ modules
+> Process audio with _audio-*_ modules
 
 ```js
 const Audio = require('audio')
