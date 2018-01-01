@@ -21,6 +21,7 @@
     "ogg.js": "^0.1.0",
     "opus.js": "^0.1.1",
     "tape": "^4.6.0",
+    "periodic-function": "^1.1.4",
     "vorbis.js": "^0.1.1"
   },
   "keywords": [
@@ -59,7 +60,6 @@
     "is-url": "^1.2.2",
     "negative-index": "^1.0.2",
     "pcm-convert": "^1.5.3",
-    "periodic-function": "^1.1.4",
     "save-file": "^1.1.3"
   }
 }

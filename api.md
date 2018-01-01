@@ -559,11 +559,11 @@ Property | Description | Default
 `format` or `dtype` | Returned data type. | `destination` type
 
 
-### audio.write(data, time=0, duration?, {channel|channels, format, start, end}?)
+### audio.write(data, time=0, duration?, {channel|channels, format}?)
 
 Alias: `audio.set`
 
-Write `data` to audio starting at the indicated `time`, optionally sliced by the `duration`. Optionally indicate `format` of data source.
+Write `data` to audio starting at the indicated `time`, sliced by the `duration`. Optionally indicate `format` of data source or `channels` to write data to.
 
 ```js
 // write data to left and right channels
@@ -573,7 +573,7 @@ audio.write([new Float32Array(100), new Float32Array(100)])
 audio.write(audioCtx.createBuffer(2, 22050, 44100), .5, .25, {channels: [2,3]})
 
 // write 100 samples to the right channel starting from 1000 sample
-audio.write(new Float32Array(100).fill(0), {start: 1000, channels: 1})
+audio.write(new Float32Array(100).fill(0), audio.time(1000), {channel: 1})
 
 // fill 1s of audio starting from .5s with constant value .5
 audio.write(.5, .5, 1)
@@ -597,7 +597,6 @@ Type | Meaning
 Property | Meaning
 ---|---
 `channels`, `channel` | Target channels to write source data, can be an array or number.
-`start`, `end` or `length` | Optional interval markers, in samples.
 `format` or `dtype` | Source data format, if necessary, like `'uint8 stereo interleaved'`.
 
 #### Related API

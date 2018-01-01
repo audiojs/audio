@@ -141,7 +141,6 @@ t('write', t => {
 	t.deepEqual(a.getChannelData(1), [0,0,-1, 0,0,0,0,0,0,0])
 	t.deepEqual(a.getChannelData(2), [0,0,0, 0,0,-1,-1,0,1,1])
 
-
 	t.end()
 })
 
