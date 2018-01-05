@@ -33,8 +33,8 @@
 **4. [Manipulations](#manipulations)**
 
 * [x] [audio.read(t?, dur?, dst|opts?)]()
-* [ ] [audio.write(data|val|fn, t?, dur?, opts?)]()
-* [ ] [audio.insert(data|val|fn, t?, dur?, opts?)]()
+* [x] [audio.write(data|val|fn, t?, dur?, opts?)]()
+* [x] [audio.insert(data|val|fn, t?, dur?, opts?)]()
 * [ ] [audio.slice(t?, dur?, opts?)]()
 * [ ] [audio.remove(t?, dur?, opts?)]()
 * [ ] [audio.pad(dur, opts?)]()
@@ -79,16 +79,16 @@
 
 ## Creation
 
-### let audio = new Audio(source?, format|options?)
+### let audio = new Audio(source?, channels|format|options?)
 
-Create `audio` instance from `source` with optional `format` string or `options`.
+Create `audio` instance from `source` with optional `channels` number, `format` string or `options` object.
 
 ```js
 // Create blank audio
 let blankAudio = new Audio()
 
-// Create one second of silence
-let silentAudio = new Audio(1, {channels: 2})
+// Create one second of silence in stereo
+let silentAudio = new Audio(1, 2)
 
 // Create from AudioBuffer
 let bufAudio = new Audio(audioCtx.createBuffer(2, 22050, 44100))
@@ -620,22 +620,22 @@ Property | Meaning
 * [audio-buffer-from](https://github.com/audiojs/audio-buffer-from)
 
 
-### audio.insert(data, time=0, {start, channels}?)
+### audio.insert(data|value|fn, time=-0, duration?, {channel|channels}?)
 
-Alias: `audio.push`, `audio.concat`, `audio.add`, `audio.append`
+Alias: `audio.push`, `audio.put`, `audio.concat`, `audio.add`, `audio.append`
 
-Insert data at the indicated `time`. If `time` is omitted, the `data` will be appended to the beginning of audio. `data` should be [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Audio_, _FloatArray_ or list of _FloatArrays_. `data` and `time` can be swapped places for compatibility.
+Insert data at the indicated `time`. If `time` is omitted, the `data` will be appended to the end of audio. `data` may have all the same types as `audio.write`. `channels` indicates target channels to put data.
 
 ```js
 // append data to the end
-audio.insert([new Float32Array(100), new Float32Array(100)], -0)
+audio.insert([new Float32Array(100), new Float32Array(100)])
 
 // prepend L and R buffer channels to SL and SR channels
-audio.insert(audioCtx.createBuffer(2, 22050, 44100), {channels: [2,3]})
+audio.insert(ctx.createBuffer(2, 22050, 44100), {channels: [2, 3]})
 
 // insert async data
-Audio('./src.mp3').then(audio =>
-    Audio('./src2.mp3').then(audio2 => audio.insert(audio2))
+Audio.load('./src.mp3').then(audio =>
+  Audio.load('./src2.mp3').then(audio2 => audio.insert(audio2))
 ).then(audio => {
 	//...audio here contains both src and src2
 })

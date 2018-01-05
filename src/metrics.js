@@ -28,7 +28,7 @@ Audio.prototype.limits = function (time, duration, options) {
 	let max = -1, min = 1
 
 	//search across channels
-	this.buffer.map((buf, idx, offset) => {
+	this.buffer.fill((buf, idx, offset) => {
 		for (let c = 0, l = buf.length; c < options.channels.length; c++) {
 			let channel = options.channels[c]
 			let data = buf.getChannelData(channel)

@@ -88,8 +88,21 @@ t('read', t => {
 		silence.read({channel: 1})
 	})
 
+
+	// ex-read test
+	let audio = new Audio(1, 2)
+
+	t.deepEqual(audio.read(-100/audio.sampleRate)[0].length, 100)
+
+	t.deepEqual(audio.read({channel: 1}).length, audio.sampleRate)
+
+	let audio3 = Audio([0, .1, 0, .2, 0, .3], 3)
+	t.deepEqual(audio3.read(),
+		[new Float32Array([0, .1]), new Float32Array([0, .2]), new Float32Array([0, .3])])
+
 	t.end()
 })
+
 
 t('write', t => {
 	let a = new Audio(10/44100, 3)
@@ -116,9 +129,9 @@ t('write', t => {
 	t.deepEqual(a.read({channel: 2}), [0,0,0, 0,0,0,0,0,1,1])
 
 	a.write(new Audio([-1,-1,-1,-1], 2), 5/44100, {channels: [0,2]})
-	t.deepEqual(a.read({channel: 0}), [-1,1,1, 0,0,-1,-1,0,0,0])
-	t.deepEqual(a.read({channel: 1}), [0,0,-1, 0,0,0,0,0,0,0])
-	t.deepEqual(a.read({channel: 2}), [0,0,0, 0,0,-1,-1,0,1,1])
+	t.deepEqual(a.read({channel: 0}), [-1,1,1,0,0,-1,-1,0,0,0])
+	t.deepEqual(a.read({channel: 1}), [0,0,-1,0,0,0,0,0,0,0])
+	t.deepEqual(a.read({channel: 2}), [0,0,0,0,0,-1,-1,0,1,1])
 
 	t.end()
 })
@@ -151,6 +164,38 @@ t('write function', t => {
 	t.end()
 })
 
+
+t('insert', t => {
+	let a = new Audio(7/44100, 3)
+	let d
+
+	a.insert([[0,.5,1], new Float32Array([0, -.5, -1])], 0)
+	t.deepEqual(a.read({channel: 0}), [0,.5,1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.read({channel: 1}), [0,-.5,-1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.read({channel: 2}), [0,0,0, 0,0,0,0,0,0,0])
+
+	a.insert(createBuffer(2, 2), 1/44100, 1/44100, {channels: [1,2]})
+	t.deepEqual(a.read({channel: 0}), [0,0,0,.5,1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.read({channel: 1}), [0,0,0,-.5,-1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.read({channel: 2}), [0,0,0,0,0, 0,0,0,0,0,0,0])
+
+	a.insert(new Uint8Array([255,255,255]), {channel: 2})
+	t.deepEqual(a.read({channel: 0}), [0,0,0,.5,1, 0,0,0,0,0,0,0,0,0,0])
+	t.deepEqual(a.read({channel: 1}), [0,0,0,-.5,-1, 0,0,0,0,0,0,0,0,0,0])
+	t.deepEqual(a.read({channel: 2}), [0,0,0,0,0, 0,0,0,0,0,0,0,1,1,1])
+
+	a.insert(new AudioBufferList([-1,1]))
+	t.deepEqual(a.read({channel: 0}), [0,0,0,.5,1, 0,0,0,0,0,0,0,0,0,0,-1,1])
+	t.deepEqual(a.read({channel: 1}), [0,0,0,-.5,-1, 0,0,0,0,0,0,0,0,0,0,0,0])
+	t.deepEqual(a.read({channel: 2}), [0,0,0,0,0, 0,0,0,0,0,0,0,1,1,1,0,0])
+
+	a.insert(new Audio([-1,-1,-1,-1], 2), 5/44100, {channels: [0,2]})
+	t.deepEqual(a.read({channel: 0}), [0,0,0,.5,1, -1,-1, 0,0,0,0,0,0,0,0,0,0,-1,1])
+	t.deepEqual(a.read({channel: 1}), [0,0,0,-.5,-1, 0,0, 0,0,0,0,0,0,0,0,0,0,0,0])
+	t.deepEqual(a.read({channel: 2}), [0,0,0,0,0, -1,-1, 0,0,0,0,0,0,0,1,1,1,0,0])
+
+	t.end()
+})
 
 t.skip('clone instance', t => {
 	let audio = Audio();
@@ -187,20 +232,6 @@ t.skip('clone', t => {
 	t.end()
 })
 
-t.skip('insert sync', t => {
-	let a = new Audio(.1)
-
-	a.insert(a)
-	t.equal(a.duration, .2)
-	t.notOk(a.buffer.buffers[0].buffers)
-
-	t.end()
-})
-
-t.skip('async', t => {
-
-	t.end()
-})
 
 t.skip('stream', t => {
 	// let a = Audio(MediaInput, a => {
@@ -215,20 +246,6 @@ t.skip('sync sequence', t => {
 })
 
 t.skip('mixed sequence', t => {
-	t.end()
-})
-
-t.skip('read', t => {
-	let audio = new Audio(1, 2)
-
-	t.deepEqual(audio.read(-100/audio.sampleRate)[0].length, 100)
-
-	t.deepEqual(audio.read({channel: 1}).length, audio.sampleRate)
-
-	let audio3 = Audio([0, .1, 0, .2, 0, .3], 3)
-	t.deepEqual(audio3.read(),
-		[new Float32Array([0, .1]), new Float32Array([0, .2]), new Float32Array([0, .3])])
-
 	t.end()
 })
 
