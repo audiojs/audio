@@ -22,18 +22,6 @@ function f32(v) {
 }
 
 
-t('through', t => {
-	let a = Audio([1, 1])
-
-	a.through(buf => {
-		util.fill(buf, 1)
-	}, {from: .5, to: 1.5})
-
-	// t.equal(a.read(0, 1), )
-
-	t.end()
-})
-
 t('read', t => {
 	let saw = Array.from({length: 10}, (v, i) => i / 10)
 
@@ -196,6 +184,26 @@ t('insert', t => {
 
 	t.end()
 })
+
+
+t('remove', t => {
+	let a = Audio([0, .1, .2, .3, .4], 1)
+
+	let frag = a.remove(a.time(1), a.time(1))
+
+	t.deepEqual(a.read({channel: 0}), f32([0, .2, .3, .4]))
+	t.deepEqual(frag.read({channel: 0}), f32([.1]))
+
+	let frag2 = a.remove(a.time(2), a.time(1), {delete: true})
+
+	t.deepEqual(a.read({channel: 0}), f32([0, .2, .4]))
+	t.equal(frag2, a)
+
+	t.end()
+})
+
+
+
 
 t.skip('clone instance', t => {
 	let audio = Audio();
@@ -397,4 +405,17 @@ t.skip('periodic', t => {
 	audio.periodic('saw', {from: 2, to: 6, frequency: 44100})
 
 	t.deepEqual(audio.toArray(), [])
+})
+
+
+t('through', t => {
+	let a = Audio([1, 1])
+
+	a.through(buf => {
+		util.fill(buf, 1)
+	}, {from: .5, to: 1.5})
+
+	// t.equal(a.read(0, 1), )
+
+	t.end()
 })

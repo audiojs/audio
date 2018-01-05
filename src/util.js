@@ -81,7 +81,8 @@ function parseArgs (audio, time, duration, options) {
 		to: 'to toOffset endOffset',
 		duration: 'duration time',
 		length: 'length number',
-		format: 'format dtype dataFormat dataType type'
+		format: 'format dtype dataFormat dataType type',
+		delete: 'delete del'
 	})
 
 	// ensure channels

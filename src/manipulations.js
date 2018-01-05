@@ -155,11 +155,13 @@ Audio.prototype.insert = function (value, time, duration, options) {
 
 // remove data at the offset
 Audio.prototype.remove = function remove (time, duration, options) {
-	options = parseArgs(this, time, 0, options)
+	let o = parseArgs(this, time, duration, options)
 
-	this.buffer.remove(options.start, options.end)
+	let fragment = this.buffer.remove(o.start, o.length)
 
-	return this
+	if (o.delete) return this
+
+	return Audio(fragment)
 }
 
 
