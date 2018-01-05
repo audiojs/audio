@@ -47,8 +47,8 @@ t('Audio.equal', t => {
 	let a1 = Audio({length: 1000})
 	let a2 = Audio({length: 1000})
 	let a3 = Audio({length: 1001})
-	let a4 = Audio({length: 1000}).fill(1)
-	let a5 = Audio.from(Audio({length: 500}).fill(1), Audio({length: 500}).fill(1))
+	let a4 = Audio({length: 1000}).write(1)
+	let a5 = Audio.from(Audio({length: 500}).write(1), Audio({length: 500}).write(1))
 
 	t.ok(Audio.equal(a1, a2))
 	t.notOk(Audio.equal(a2, a3))
