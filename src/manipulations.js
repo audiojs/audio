@@ -13,12 +13,11 @@ const bufferFrom = require('audio-buffer-from')
 const isPlainObj = require('is-plain-obj')
 const aFormat = require('audio-format')
 
-let {parseArgs} = require('./util')
+let { parseArgs } = require('./util')
 let Audio = require('../')
 
 
 // return channels data distributed in array
-Audio.prototype.get =
 Audio.prototype.read = function (t, d, options) {
 	let {start, end, from, to, duration, format, channels, destination, channel, length} = parseArgs(this, t, d, options)
 
@@ -60,8 +59,6 @@ Audio.prototype.read = function (t, d, options) {
 
 
 // put data by the offset
-Audio.prototype.fill =
-Audio.prototype.set =
 Audio.prototype.write = function write (value, time, duration, options) {
 	let {start, end, length, channels, format} = parseArgs(this, time, duration, options)
 
@@ -107,11 +104,6 @@ Audio.prototype.write = function write (value, time, duration, options) {
 
 
 // insert new data at the offset
-Audio.prototype.push =
-Audio.prototype.add =
-Audio.prototype.append =
-Audio.prototype.put =
-Audio.prototype.concat =
 Audio.prototype.insert = function (value, time, duration, options) {
 	let toEnd = false
 	if (time == null || isPlainObj(time)) {
@@ -162,9 +154,6 @@ Audio.prototype.insert = function (value, time, duration, options) {
 
 
 // remove data at the offset
-Audio.prototype.delete =
-Audio.prototype.cut =
-Audio.prototype.consume =
 Audio.prototype.remove = function remove (time, duration, options) {
 	options = parseArgs(this, time, 0, options)
 
@@ -175,7 +164,6 @@ Audio.prototype.remove = function remove (time, duration, options) {
 
 
 // apply processing function
-Audio.prototype.process =
 Audio.prototype.through = function (fn, time, duration, options) {
 	if(typeof fn !== 'function') throw Error('First argument should be a function')
 

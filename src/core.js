@@ -88,9 +88,6 @@ Object.defineProperties(Audio.prototype, {
 
 
 // create audio from multiple sources
-Audio.join =
-Audio.concat =
-Audio.create =
 Audio.from = function from (...sources) {
 	let items = [], channels = 1
 
@@ -264,8 +261,6 @@ Audio.record = function record (source, options, callback) {
 
 
 // download file or create a file in node
-Audio.prototype.saveAs =
-Audio.prototype.download =
 Audio.prototype.save = function save (fileName, ondone) {
 	if (!fileName) throw Error('File name is not provided')
 
@@ -283,7 +278,6 @@ Audio.prototype.save = function save (fileName, ondone) {
 
 
 // create a duplicate or clone of audio
-Audio.prototype.copy =
 Audio.prototype.clone = function clone (deep) {
 	if (deep == null || deep) return new Audio(this.buffer.clone())
 	else return new Audio(this.buffer)
@@ -291,9 +285,7 @@ Audio.prototype.clone = function clone (deep) {
 
 
 // test if audio is equal
-Audio.equal =
-Audio.equals =
-Audio.isEqual = function (a, ...sources) {
+Audio.equal = function (a, ...sources) {
 	for (let i = 0; i < sources.length; i++) {
 		let b = sources[i]
 

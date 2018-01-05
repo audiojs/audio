@@ -147,14 +147,14 @@ t('write value', t => {
 })
 
 t('write function', t => {
-	let a = Audio({length: 441}).fill(1)
+	let a = Audio({length: 441}).write(1)
 
 	t.equal(a.length, 441)
 	t.equal(a.duration, .01)
 	t.deepEqual(a.read({channel: 0}), Array.from({length: 441}, x => 1))
 
 	let _i = 0;
-	a.fill((v, i, ch) => {
+	a.write((v, i, ch) => {
 		t.equal(i, _i)
 		_i++
 
