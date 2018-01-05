@@ -117,7 +117,8 @@ function parseArgs (audio, time, duration, options) {
 		options.start = startOffset
 	}
 	if (options.end == null) {
-		let len = duration * audio.sampleRate
+		let len = Math.ceil(duration * audio.sampleRate)
+
 		let endOffset;
 		if (len < 0) {
 			endOffset = nidx(options.start + len, audio.buffer.length)

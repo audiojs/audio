@@ -7,7 +7,7 @@
 'use strict'
 
 const isPlainObj = require('is-plain-obj')
-const AudioBufferList = require('audio-buffer-list')
+const AudioBufferList = require('../audio-buffer-list')
 const createBuffer = require('audio-buffer-from')
 const isAudioBuffer = require('is-audio-buffer')
 const db = require('decibels')
