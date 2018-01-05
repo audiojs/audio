@@ -33,9 +33,9 @@
 **4. [Manipulations](#manipulations)**
 
 * [x] [audio.read(t?, dur?, dst|opts?)]()
-* [x] [audio.write(data|val|fn, t?, dur?, opts?)]()
-* [x] [audio.insert(data|val|fn, t?, dur?, opts?)]()
-* [ ] [audio.remove(t?, dur?, opts?)]()
+* [x] [audio.write(src, t?, dur?, opts?)]()
+* [x] [audio.insert(src, t?, dur?, opts?)]()
+* [x] [audio.remove(t?, dur?, opts?)]()
 * [ ] [audio.slice(t?, dur?, opts?)]()
 * [ ] [audio.pad(dur, opts?)]()
 * [ ] [audio.shift(amt, t?, opts?)]()
@@ -624,7 +624,7 @@ Property | Meaning
 
 Alias: `audio.push`, `audio.put`, `audio.concat`, `audio.add`, `audio.append`
 
-Insert data at the indicated `time`. If `time` is omitted, the `data` will be appended to the end of audio. `data` may have all the same types as `audio.write`. `channels` indicates target channels to put data.
+Insert data at the indicated `time`. If `time` is omitted, the `data` will be appended to the end of audio. `data` may have the same types as `audio.write`. `channels` indicate channels to affect.
 
 ```js
 // append data to the end
@@ -641,15 +641,18 @@ Audio.load('./src.mp3').then(audio =>
 })
 ```
 
-### audio.remove(time=0, duration?, {}?)
+### audio.remove(time=0, duration?, {delete}?)
 
 Alias: `audio.delete`, `audio.cut`, `audio.consume`
 
-Remove fragment of the indicated `duration` starting from the indicated `time`. If time is undefined, the fragment will be removed from the beginning of audio. Alternatively, indicate fragment by `start` and `end` properties. Returns audio with the removed fragment.
+Remove fragment of the interval indicated by `time` and `duration`. Returns removed fragment. Pass `delete` flag to return initial audio with fragment removed (that is faster).
 
 ```js
-// remove 1s starting from 0.5s
+// remove 1s starting at 0.5s
 let fragment = audio.remove(.5, 1)
+
+// delete 1s starting at .5s
+audio.remove(.5, 1, {delete: true})
 ```
 
 ### audio.slice(time=0, duration=audio.duration, {channels, copy}?)
