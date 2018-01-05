@@ -21,23 +21,6 @@ function f32(v) {
 	return new Float32Array([v])[0]
 }
 
-t('fill', t => {
-	let a = Audio({length: 441}).fill(1)
-
-	t.equal(a.length, 441)
-	t.equal(a.duration, .01)
-	t.deepEqual(a.read({channel: 0}), Array.from({length: 441}, x => 1))
-
-	let _i = 0;
-	a.fill((v, i, ch) => {
-		t.equal(i, _i)
-		_i++
-
-		return v * .5
-	})
-
-	t.end()
-})
 
 t('through', t => {
 	let a = Audio([1, 1])
@@ -59,9 +42,6 @@ t('read', t => {
 	t.equal(a.channels, 3)
 
 	let data
-
-	data = a.getChannelData(1)
-	t.deepEqual(data, new Float32Array([0,.1,.2,.3,.4,.5,.6,.7,.8,.9]))
 
 	data = a.read({channel: 1})
 	t.deepEqual(data, new Float32Array([0,.1,.2,.3,.4,.5,.6,.7,.8,.9]))
@@ -93,15 +73,14 @@ t('read', t => {
 	data = a.read({dest: new Uint8Array(10), channel: 0})
 	t.deepEqual(data, [127, 140, 153, 165, 178, 191, 204, 216, 229, 242])
 
-	data = a.read(5/44100, { dst: new Float32Array(15)})
+	data = a.read(a.time(5), { dst: new Float32Array(15)})
 	t.deepEqual(data, new Float32Array([.5,.6,.7,.8,.9,.5,.6,.7,.8,.9,.5,.6,.7,.8,.9]))
 
-	data = a.read(5/44100, 1/44100, {dst: new Int8Array(3).buffer, format: 'int8'})
+	data = a.read(a.time(5), a.time(1), {dst: new Int8Array(3).buffer, format: 'int8'})
 	t.deepEqual(new Int8Array(data), [63, 63, 63])
 
-	data = a.read(6/44100, 2/44100, {format: 'float32 interleaved', channels: [1, 2]})
+	data = a.read(a.time(6), a.time(2), {format: 'float32 interleaved', channels: [1, 2]})
 	t.deepEqual(data, new Float32Array([.6, .6, .7, .7]))
-
 
 
 	let silence = Audio({length: 10})
@@ -117,29 +96,29 @@ t('write', t => {
 	let d
 
 	a.write([[0,.5,1], new Float32Array([0, -.5, -1])])
-	t.deepEqual(a.getChannelData(0), [0,.5,1, 0,0,0,0,0,0,0])
-	t.deepEqual(a.getChannelData(1), [0,-.5,-1, 0,0,0,0,0,0,0])
-	t.deepEqual(a.getChannelData(2), [0,0,0, 0,0,0,0,0,0,0])
+	t.deepEqual(a.read({channel: 0}), [0,.5,1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.read({channel: 1}), [0,-.5,-1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.read({channel: 2}), [0,0,0, 0,0,0,0,0,0,0])
 
 	a.write(createBuffer(4, 2), 1/44100, 1/44100, {channels: [1,2]})
-	t.deepEqual(a.getChannelData(0), [0,.5,1, 0,0,0,0,0,0,0])
-	t.deepEqual(a.getChannelData(1), [0,0,-1, 0,0,0,0,0,0,0])
-	t.deepEqual(a.getChannelData(2), [0,0,0, 0,0,0,0,0,0,0])
+	t.deepEqual(a.read({channel: 0}), [0,.5,1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.read({channel: 1}), [0,0,-1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.read({channel: 2}), [0,0,0, 0,0,0,0,0,0,0])
 
 	a.write(new Uint8Array([255,255,255]), {start: 8, channel: 2})
-	t.deepEqual(a.getChannelData(0), [0,.5,1, 0,0,0,0,0,0,0])
-	t.deepEqual(a.getChannelData(1), [0,0,-1, 0,0,0,0,0,0,0])
-	t.deepEqual(a.getChannelData(2), [0,0,0, 0,0,0,0,0,1,1])
+	t.deepEqual(a.read({channel: 0}), [0,.5,1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.read({channel: 1}), [0,0,-1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.read({channel: 2}), [0,0,0, 0,0,0,0,0,1,1])
 
 	a.write(new AudioBufferList([-1,1]))
-	t.deepEqual(a.getChannelData(0), [-1,1,1, 0,0,0,0,0,0,0])
-	t.deepEqual(a.getChannelData(1), [0,0,-1, 0,0,0,0,0,0,0])
-	t.deepEqual(a.getChannelData(2), [0,0,0, 0,0,0,0,0,1,1])
+	t.deepEqual(a.read({channel: 0}), [-1,1,1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.read({channel: 1}), [0,0,-1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.read({channel: 2}), [0,0,0, 0,0,0,0,0,1,1])
 
 	a.write(new Audio([-1,-1,-1,-1], 2), 5/44100, {channels: [0,2]})
-	t.deepEqual(a.getChannelData(0), [-1,1,1, 0,0,-1,-1,0,0,0])
-	t.deepEqual(a.getChannelData(1), [0,0,-1, 0,0,0,0,0,0,0])
-	t.deepEqual(a.getChannelData(2), [0,0,0, 0,0,-1,-1,0,1,1])
+	t.deepEqual(a.read({channel: 0}), [-1,1,1, 0,0,-1,-1,0,0,0])
+	t.deepEqual(a.read({channel: 1}), [0,0,-1, 0,0,0,0,0,0,0])
+	t.deepEqual(a.read({channel: 2}), [0,0,0, 0,0,-1,-1,0,1,1])
 
 	t.end()
 })
@@ -150,6 +129,24 @@ t('write value', t => {
 	audio.write(1, 2/audio.sampleRate, 2/audio.sampleRate)
 
 	t.deepEqual(audio.read(1/44100,4/44100)[0], f32([.1,1,1,.4]))
+
+	t.end()
+})
+
+t('write function', t => {
+	let a = Audio({length: 441}).fill(1)
+
+	t.equal(a.length, 441)
+	t.equal(a.duration, .01)
+	t.deepEqual(a.read({channel: 0}), Array.from({length: 441}, x => 1))
+
+	let _i = 0;
+	a.fill((v, i, ch) => {
+		t.equal(i, _i)
+		_i++
+
+		return v * .5
+	})
 
 	t.end()
 })

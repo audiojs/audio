@@ -33,9 +33,8 @@
 **4. [Manipulations](#manipulations)**
 
 * [x] [audio.read(t?, dur?, dst|opts?)]()
-* [ ] [audio.write(src|val, t?, dur?, opts?)]()
-* [ ] [audio.insert(data, t?, dur?, opts?)]()
-* [ ] [audio.fill(val|fn, t?, dur?, opts?)]()
+* [ ] [audio.write(data|val|fn, t?, dur?, opts?)]()
+* [ ] [audio.insert(data|val|fn, t?, dur?, opts?)]()
 * [ ] [audio.slice(t?, dur?, opts?)]()
 * [ ] [audio.remove(t?, dur?, opts?)]()
 * [ ] [audio.pad(dur, opts?)]()
@@ -549,21 +548,25 @@ let [slChannel, srChannel] = audio.read(.5, 1, {channels: [2,3]})
 
 // get last 1000 samples of right channel data
 let rightChannelData = audio.read(new Float32Array(1000), Audio.time(-1000), {channel: 1})
+
+// read 10 samples of left channel as uint8 numbers, put into destination container
+let uintArr = a.read(0, a.time(10), {dest: new Uint8Array(10), channel: 0})
 ```
 
 #### Options
 
 Property | Description | Default
 ---|---|---
-`channel`, `channels` | Channel number or array with channel numbers to read data from. | `null`
+`channel`, `channels` | Channel number or array with channel numbers to read data from. | all channels
 `format` or `dtype` | Returned data type. | `destination` type
+`destination`, `dest`, `dst` | Data container to put data. | `null`
 
 
-### audio.write(data, time=0, duration?, {channel|channels, format}?)
+### audio.write(data|value|fn, time=0, duration?, {channel|channels, format}?)
 
-Alias: `audio.set`
+Alias: `audio.set`, `audio.fill`
 
-Write `data` to audio starting at the indicated `time`, sliced by the `duration`. Optionally indicate `format` of data source or `channels` to write data to.
+Write `data` to audio, starting at the indicated `time`, sliced by the `duration`. Optionally indicate `format` of data source or `channels` to write data to.
 
 ```js
 // write data to left and right channels
@@ -575,15 +578,27 @@ audio.write(audioCtx.createBuffer(2, 22050, 44100), .5, .25, {channels: [2,3]})
 // write 100 samples to the right channel starting from 1000 sample
 audio.write(new Float32Array(100).fill(0), audio.time(1000), {channel: 1})
 
-// fill 1s of audio starting from .5s with constant value .5
-audio.write(.5, .5, 1)
+// fill 1s of audio starting from .5s with constant value .25
+audio.write(.25, .5, 1)
+
+// create 1000 samples filled with constant value 1
+let constAudio = Audio({length: 1000}).write(1)
+
+// create 1000 samples filled with sine wave
+let sinAudio = Audio({length: 1000, channels: 2}).write((v, i, c, a) => {
+  return Math.sin(Math.PI * 2 * 440 * i / a.sampleRate)
+})
+
+// reset left channel to zero value
+sinAudio.write(0, {channels: [0]})
 ```
 
 #### Data type
 
 Type | Meaning
 ---|---
-`Number` | Value to fill interval with.
+`Number` | Constant value to fill interval with.
+`Function` | Function, returning number. Takes value `v`, sample index `i` and channel number `ch` arguments.
 `Array<Array>` | Array with channels data.
 `AudioBuffer`, `AudioBufferList`, `Audio` | Other audio source.
 `Array<Number>`, `Float32Array`, `Float64Array` | Raw samples from `-1..+1` range, interpreted by `options.format` |
@@ -605,15 +620,6 @@ Property | Meaning
 * [audio-buffer-from](https://github.com/audiojs/audio-buffer-from)
 
 
-### audio.append(data1, data2, ..., {channels}?)
-
-Append data to the end of audio. `data` should be [_AudioBuffer_](https://github.com/audiojs/audio-buffer), [_AudioBufferList_](https://github.com/audiojs/audio-buffer-list), _Audio_, _FloatArray_ or list of _FloatArrays_.
-
-```js
-// write data to left and right channels
-audio.append([new Float32Array(100), new Float32Array(100)], audioCtx.createBuffer(2, 22050, 44100), audio2)
-```
-
 ### audio.insert(data, time=0, {start, channels}?)
 
 Alias: `audio.push`, `audio.concat`, `audio.add`, `audio.append`
@@ -634,24 +640,6 @@ Audio('./src.mp3').then(audio =>
 	//...audio here contains both src and src2
 })
 ```
-
-### audio.fill(value|(v, i, ch) => value, time=0, duration?, {channel[s]}?)
-
-Fill fragment of audio with constant value or function, returning number. Function takes value `v`, sample index `i` and channel number `ch` arguments. An object with `channel[s]` property .
-
-```js
-// create 1000 samples filled with constant value 1
-let constAudio = Audio({length: 1000}).fill(1)
-
-// create 1000 samples filled with sine wave
-let sinAudio = Audio({length: 1000, channels: 2}).fill((v, i, c, a) => {
-	return Math.sin(Math.PI * 2 * 440 * i / a.sampleRate)
-})
-
-// reset left channel to zero value
-sinAudio.fill(0, {channels: [0]})
-```
-
 
 ### audio.remove(time=0, duration?, {}?)
 
