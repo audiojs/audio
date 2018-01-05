@@ -73,15 +73,15 @@ function parseArgs (audio, time, duration, options) {
 
 	options = pick(options, {
 		channel: 'channel ch numberOfChannel',
-		channels: 'channels',
-		destination: 'destination dest dst target out container',
+		channels: 'channels channelMap',
+		destination: 'destination dest dst target out output container',
 		start: 'start startTime fromTime',
 		end: 'end endTime toTime',
 		from: 'from offset fromOffset startOffset',
 		to: 'to toOffset endOffset',
 		duration: 'duration time',
-		length: 'length',
-		format: 'format dtype'
+		length: 'length number',
+		format: 'format dtype dataFormat dataType type'
 	})
 
 	// ensure channels

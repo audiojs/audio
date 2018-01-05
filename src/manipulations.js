@@ -19,12 +19,14 @@ let Audio = require('../')
 
 // return channels data distributed in array
 Audio.prototype.read = function (t, d, options) {
-	let {start, end, from, to, duration, format, channels, destination, channel} = parseArgs(this, t, d, options)
+	let {start, end, from, to, duration, format, channels, destination, channel, length} = parseArgs(this, t, d, options)
 
 	//transfer data for indicated channels
 	let data = []
 	for (let c = 0; c < channels.length; c++) {
-		data.push(this.getChannelData(c, from, duration, options))
+		let arr = new Float32Array(length)
+		this.buffer.copyFromChannel(arr, channels[c], start, end)
+		data.push(arr)
 	}
 
 	if (format === 'audiobuffer') {
@@ -48,7 +50,6 @@ Audio.prototype.read = function (t, d, options) {
 
 		if (typeof channel == 'number') {
 			if (channel >= this.channels) throw Error('Bad channel number `' + channel + '`')
-
 			data = data[0]
 		}
 	}
@@ -58,54 +59,51 @@ Audio.prototype.read = function (t, d, options) {
 
 
 // put data by the offset
-Audio.prototype.write = function write (data, time, duration, options) {
-	options = parseArgs(this, time, duration, options)
+Audio.prototype.fill =
+Audio.prototype.set =
+Audio.prototype.write = function write (value, time, duration, options) {
+	let {start, end, length, channels, format} = parseArgs(this, time, duration, options)
 
-	//TODO: make shortcut for buffer-list/audio to avoid coercing to audiobuffer
-
-	//fill with value
-	if (typeof data === 'number') {
-		let val = data
+	// fill with value
+	if (typeof value === 'number') {
 		this.buffer.map((buf, idx, offset) => {
-			for (let c = 0, l = buf.length; c < options.channels.length; c++) {
-				let channel = options.channels[c]
+			for (let c = 0, l = buf.length; c < channels.length; c++) {
+				let channel = channels[c]
 				let data = buf.getChannelData(channel)
 
 				for (let i = 0; i < l; i++) {
-					data[i] = val
+					data[i] = value
 				}
 			}
-		}, options.start, options.end)
-
-		return this
+		}, start, end)
 	}
+	// fill with function
+	else if (typeof value === 'function') {
+		this.buffer.map((buf, idx, offset) => {
+			for (let c = 0, l = buf.length; c < channels.length; c++) {
+				let channel = channels[c]
+				let data = buf.getChannelData(channel)
 
-	let buf = data.getChannelData ? data : bufferFrom(data, {format: options.format})
+				for (let i = 0; i < l; i++) {
+					data[i] = value.call(this, data[i], i + offset, c, this)
+				}
+			}
+		}, start, end)
+	}
+	// write any other argument
+	else {
+		let buf = value.getChannelData ? value : bufferFrom(value, { format })
 
-	let bufChannels = buf.numberOfChannels || buf.channels
+		let bufChannels = buf.numberOfChannels || buf.channels
 
-	for (let c = 0, l = Math.min(options.channels.length, bufChannels); c < l; c++ ) {
-		let channel = options.channels[c]
-		let data = buf.getChannelData(c).subarray(0, options.length)
-		this.buffer.copyToChannel(data, channel, options.start)
+		for (let c = 0, l = Math.min(channels.length, bufChannels); c < l; c++ ) {
+			let channel = channels[c]
+			let data = buf.getChannelData(c).subarray(0, length)
+			this.buffer.copyToChannel(data, channel, start)
+		}
 	}
 
 	return this
-}
-
-
-// fetch channel data
-Audio.prototype.getChannelData = function (channel, time, duration, options) {
-	if (channel > this.channels)
-		throw Error('Audio has only ' + this.channels + ' channels')
-
-	options = parseArgs(this, time, duration, options)
-
-	//transfer data for indicated channels
-	let arr = new Float32Array(options.length)
-	this.buffer.copyFromChannel(arr, channel, options.start, options.end)
-
-	return arr
 }
 
 
@@ -440,36 +438,3 @@ Audio.prototype.copy = function copy () {
 	return this;
 }
 
-
-// fill fragment with value/function
-Audio.prototype.fill = function fill (value, time, duration, options) {
-	let {start, end, length, channels} = parseArgs(this, time, duration, options)
-
-	// make sure we split at proper positions
-	this.buffer.split(start)
-	this.buffer.split(end)
-
-	// apply processor
-	if (typeof value === 'number') {
-		this.buffer.map((buf, idx, offset) => {
-			for (let c = 0; c < buf.numberOfChannels; c++) {
-				let data = buf.getChannelData(c)
-				for (let i = 0; i < data.length; i++) {
-					data[i] = value
-				}
-			}
-		}, start, end)
-	}
-	else {
-		this.buffer.map((buf, idx, offset) => {
-			for (let c = 0; c < buf.numberOfChannels; c++) {
-				let data = buf.getChannelData(c)
-				for (let i = 0; i < data.length; i++) {
-					data[i] = value.call(this, data[i], i + offset, c, this)
-				}
-			}
-		}, start, end)
-	}
-
-	return this
-}

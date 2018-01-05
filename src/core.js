@@ -298,8 +298,8 @@ Audio.isEqual = function (a, ...sources) {
 
 
 		for (let c = 0; c < a.channels; c++) {
-			let dataA = a.getChannelData(c);
-			let dataB = b.getChannelData(c);
+			let dataA = a.read({channel: c});
+			let dataB = b.read({channel: c});
 
 			for (let i = 0; i < dataA.length; i++) {
 				if (dataA[i] !== dataB[i]) return false;

@@ -504,10 +504,10 @@ t('properly detect numeric array vs items array', t => {
 
 
 	err = new Audio([1, 1, Audio(0)])
-	t.notOk(err.getChannelData(0)[3])
+	t.notOk(err.read({channel: 0})[3])
 
 	err = new Audio([-1, 1, Audio(0)])
-	t.notOk(err.getChannelData(0)[3])
+	t.notOk(err.read({channel: 0})[3])
 
 	t.throws(() => {
 		err = Audio.from([-1, Audio(0)])
