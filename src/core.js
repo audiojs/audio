@@ -276,14 +276,6 @@ Audio.prototype.save = function save (fileName, ondone) {
 	return this
 }
 
-
-// create a duplicate or clone of audio
-Audio.prototype.clone = function clone (deep) {
-	if (deep == null || deep) return new Audio(this.buffer.clone())
-	else return new Audio(this.buffer)
-}
-
-
 // test if audio is equal
 Audio.equal = function (a, ...sources) {
 	for (let i = 0; i < sources.length; i++) {

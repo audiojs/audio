@@ -28,7 +28,20 @@ const protoAlias = {
 	saveAs: 'save',
 	download: 'save',
 
-	copy: 'clone'
+	copy: 'slice',
+	clone: 'slice',
+	subaudio: 'slice',
+
+	rotate: 'shift',
+
+	remap: 'channels',
+	remix: 'channels',
+	mapChannels: 'channels',
+
+	format: 'convert',
+	toArray: 'convert',
+	toBuffer: 'convert',
+	toArrayBuffer: 'covert'
 }
 
 for (let alias in protoAlias) {

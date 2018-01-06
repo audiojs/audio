@@ -20,7 +20,6 @@ module.exports = Audio
 
 // conversions
 Audio.gain = db.toGain
-
 Audio.db = db.fromGain
 
 Audio.prototype.time = function offsetToTime (offset) {
@@ -28,7 +27,7 @@ Audio.prototype.time = function offsetToTime (offset) {
 }
 
 Audio.prototype.offset = function timeToOffset (time) {
-	return time * this.sampleRate
+	return Math.ceil(time * this.sampleRate)
 }
 
 
@@ -90,7 +89,7 @@ function Audio(source, options) {
 			this.buffer = new AudioBufferList(buf)
 		}
 		catch (e) {
-			throw Error('Bad arguments')
+			throw e
 		}
 	}
 
