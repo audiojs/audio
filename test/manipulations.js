@@ -189,12 +189,12 @@ t('insert', t => {
 t('remove', t => {
 	let a = Audio([0, .1, .2, .3, .4], 1)
 
-	let frag = a.remove(a.time(1), a.time(1))
+	let frag = a.remove(a.time(1), a.time(1), {keep: true})
 
 	t.deepEqual(a.read({channel: 0}), f32([0, .2, .3, .4]))
 	t.deepEqual(frag.read({channel: 0}), f32([.1]))
 
-	let frag2 = a.remove(a.time(2), a.time(1), {delete: true})
+	let frag2 = a.remove(a.time(2), a.time(1))
 
 	t.deepEqual(a.read({channel: 0}), f32([0, .2, .4]))
 	t.equal(frag2, a)
@@ -203,6 +203,20 @@ t('remove', t => {
 })
 
 
+t('slice', t => {
+	let a = Audio([0, .1, .2, .3, .4])
+
+	let frag1 = a.slice(a.time(1), a.time(4))
+	t.deepEqual(a.read({channel: 0}), f32([.1, .2, .3, .4]))
+	t.equal(frag1, a)
+
+	let frag2 = a.slice(a.time(0), a.time(1), {copy: true})
+	t.deepEqual(a.read({channel: 0}), f32([.1, .2, .3, .4]))
+	t.notEqual(frag2, a)
+	t.deepEqual(frag2.read({channel: 0}), f32([.1]))
+
+	t.end()
+})
 
 
 t.skip('clone instance', t => {
@@ -314,10 +328,10 @@ t('trim', t => {
 })
 
 t('gain', t => {
-	let audio = new Audio(new Float32Array(Array(441).fill(1))).gain(-20)
+	let audio = new Audio(f32(Array(441).fill(1))).gain(-20)
 
 	// t.equal(audio.read({channel: 0})[10], .1)
-	t.deepEqual(audio.read({channel: 0}), new Float32Array(Array(441).fill(.1)))
+	t.deepEqual(audio.read({channel: 0}), f32(Array(441).fill(Audio.gain(-20))))
 
 	t.end()
 })

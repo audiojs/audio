@@ -82,7 +82,8 @@ function parseArgs (audio, time, duration, options) {
 		duration: 'duration time',
 		length: 'length number',
 		format: 'format dtype dataFormat dataType type',
-		delete: 'delete del'
+		keep: 'keep cut keepFragment return',
+		copy: 'copy cpy cp clone'
 	})
 
 	// ensure channels

@@ -12,6 +12,7 @@ const convert = require('pcm-convert')
 const bufferFrom = require('audio-buffer-from')
 const isPlainObj = require('is-plain-obj')
 const aFormat = require('audio-format')
+const AudioBufferList = require('../../audio-buffer-list')
 
 let { parseArgs } = require('./util')
 let Audio = require('../')
@@ -159,9 +160,44 @@ Audio.prototype.remove = function remove (time, duration, options) {
 
 	let fragment = this.buffer.remove(o.start, o.length)
 
-	if (o.delete) return this
+	if (!o.keep) return this
 
 	return Audio(fragment)
+}
+
+
+// return sliced [copy] of audio
+Audio.prototype.slice = function slice (time, duration, options) {
+	let {start, end, channels, copy} = parseArgs(this, time, duration, options)
+
+	if (copy) {
+		let src = this.buffer.slice(start, end)
+		let copy = new AudioBufferList(0, channels.length)
+
+		for (let i = 0; i < src.buffers.length; i++) {
+			let buffer = src.buffers[i]
+			let buf = bufferFrom(buffer.length, {
+				channels: channels.length,
+				rate: buffer.sampleRate
+			});
+
+			// FIXME: channels are unnecessary extension here
+			for (let c = 0; c < channels.length; c++) {
+				let channel = channels[c]
+				let data = buf.getChannelData(c)
+				data.set(buffer.getChannelData(channel))
+			}
+
+			// FIXME: use insert
+			copy.append(buf)
+		}
+
+		return new Audio(copy)
+	}
+
+	this.buffer = this.buffer.slice(start, end)
+
+	return this
 }
 
 
@@ -305,7 +341,7 @@ Audio.prototype.trim = function trim (options) {
 
 
 // regain audio
-Audio.prototype.gain = function (gain = 0, time, duration, options) {
+Audio.prototype.gain = function (gain=0, time, duration, options) {
 	if (!gain) return this
 
 	options = parseArgs(this, time, duration, options)

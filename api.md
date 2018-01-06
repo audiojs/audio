@@ -25,10 +25,9 @@
 * [x] [Audio.db(gain)]()
 * [x] [audio.time(offset)]()
 * [x] [audio.offset(time)]()
-* [ ] [audio.convert(format)]
+* [ ] [audio.convert(format)]()
 * [ ] [audio.save(filename, opts?)]()
 * [ ] [audio.stream(dst, opts?, onend?)]()
-* [ ] [audio.clone()]
 
 **4. [Manipulations](#manipulations)**
 
@@ -36,12 +35,12 @@
 * [x] [audio.write(src, t?, dur?, opts?)]()
 * [x] [audio.insert(src, t?, dur?, opts?)]()
 * [x] [audio.remove(t?, dur?, opts?)]()
-* [ ] [audio.slice(t?, dur?, opts?)]()
-* [ ] [audio.pad(dur, opts?)]()
-* [ ] [audio.shift(amt, t?, opts?)]()
+* [x] [audio.slice(t?, dur?, opts?)]()
 * [ ] [audio.trim(opts?)]()
+* [ ] [audio.pad(dur, opts?)]()
 * [ ] [audio.repeat(times, t?, dur?, opts?)]()
 * [ ] [audio.reverse(t?, dur?, opts?)]()
+* [ ] [audio.shift(amt, t?, opts?)]()
 * [ ] [audio.invert(t?, dur?, opts?)]()
 * [ ] [audio.gain(db, t?, dur?, opts?)]()
 * [ ] [audio.fade(t?, dur, opts?)]()
@@ -641,35 +640,35 @@ Audio.load('./src.mp3').then(audio =>
 })
 ```
 
-### audio.remove(time=0, duration?, {delete}?)
+### audio.remove(time=0, duration?, {keep}?)
 
-Alias: `audio.delete`, `audio.cut`, `audio.consume`
+Alias: `audio.delete`, `audio.keep`, `audio.consume`
 
-Remove fragment of the interval indicated by `time` and `duration`. Returns removed fragment. Pass `delete` flag to return initial audio with fragment removed (that is faster).
+Remove fragment of the interval indicated by `time` and `duration`. Returns modified audio. Pass `keep` flag to return removed fragment.
 
 ```js
-// remove 1s starting at 0.5s
-let fragment = audio.remove(.5, 1)
-
 // delete 1s starting at .5s
-audio.remove(.5, 1, {delete: true})
+audio.remove(.5, 1)
+
+// remove 1s starting at 0.5s, return the fragment
+let fragment = audio.remove(.5, 1, {keep: true})
 ```
 
-### audio.slice(time=0, duration=audio.duration, {channels, copy}?)
+### audio.slice(time=0, duration?, {copy: false}?)
 
-Alias: `audio.copy`
+Alias: `audio.copy`, `audio.clone`, `audio.subaudio`
 
-Get fragment of audio containing the indicated part. By default it returns subdata, unless `{copy: true}` is indicated by options.
+Get fragment of audio with indicated part. By default slices audio in place, unless `{copy: true}` flag is passed, then returns fragment copied from source.
 
 ```js
-// get shallow copy of audio
-let dup = audio.slice()
+// slice to 1s starting from .5s
+audio.slice(.5, 1)
 
-// get 0.5s...1.5s fragment with only stereo channels
-let frag1 = audio.slice(.5, 1, {channels: [0,1]})
+// get 100 samples of audio content
+let samples = audio.slice(audio.time(100), audio.time(100), {copy: true})
 
-// clone 100 samples of audio contents
-let frag2 = audio.slice({start: 100, end: 200, clone: true})
+// clone audio
+let dup = audio.slice({copy: true})
 ```
 
 ### audio.repeat(times)
@@ -794,7 +793,6 @@ Shift contents of audio to the left or right.
 
 ```js
 ```
-
 
 ### audio.pan(balance=.5, {gain: -5})
 
