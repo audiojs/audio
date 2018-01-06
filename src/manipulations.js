@@ -292,20 +292,19 @@ Audio.prototype.fade = function (time, duration, options) {
 
 // trim start/end silence
 Audio.prototype.trim = function trim (options) {
-	if (!options) options = {}
+	let {threshold, left, right} = parseArgs(this, options)
 
-	if (options.threshold == null) options.threshold = -40
-	if (options.level == null) options.level = Audio.gain(options.threshold)
+	if (threshold == null) threshold = -40
 
-	if (options.left && options.right == null) options.right = false
-	else if (options.right && options.left == null) options.left = false
-	if (options.left == null) options.left = true
-	if (options.right == null) options.right = true
+	if (left && right == null) right = false
+	else if (right && left == null) left = false
+	if (left == null) left = true
+	if (right == null) right = true
 
-	let tlr = options.level, first = 0, last = this.length;
+	let tlr = Audio.gain(threshold), first = 0, last = this.length;
 
 	//trim left
-	if (options.left) {
+	if (left) {
 		this.buffer.fill((buf, idx, offset) => {
 			for (let c = 0; c < buf.numberOfChannels; c++) {
 				let data = buf.getChannelData(c)
@@ -320,7 +319,7 @@ Audio.prototype.trim = function trim (options) {
 	}
 
 	//trim right
-	if (options.right) {
+	if (right) {
 		this.buffer.fill((buf, idx, offset) => {
 			for (let c = 0; c < buf.numberOfChannels; c++) {
 				let data = buf.getChannelData(c)

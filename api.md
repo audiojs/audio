@@ -36,7 +36,7 @@
 * [x] [audio.insert(src, t?, dur?, opts?)]()
 * [x] [audio.remove(t?, dur?, opts?)]()
 * [x] [audio.slice(t?, dur?, opts?)]()
-* [ ] [audio.trim(opts?)]()
+* [x] [audio.trim(opts?)]()
 * [ ] [audio.pad(dur, opts?)]()
 * [ ] [audio.repeat(times, t?, dur?, opts?)]()
 * [ ] [audio.reverse(t?, dur?, opts?)]()
@@ -640,6 +640,7 @@ Audio.load('./src.mp3').then(audio =>
 })
 ```
 
+
 ### audio.remove(time=0, duration?, {keep}?)
 
 Alias: `audio.delete`, `audio.keep`, `audio.consume`
@@ -653,6 +654,7 @@ audio.remove(.5, 1)
 // remove 1s starting at 0.5s, return the fragment
 let fragment = audio.remove(.5, 1, {keep: true})
 ```
+
 
 ### audio.slice(time=0, duration?, {copy: false}?)
 
@@ -671,6 +673,26 @@ let samples = audio.slice(audio.time(100), audio.time(100), {copy: true})
 let dup = audio.slice({copy: true})
 ```
 
+
+### audio.trim({threshold:-40, left|right}?)
+
+Trim silence at the beginning/end. `threshold` in decibels may define tolerance, `left` and `right` may indicate trim direction.
+
+```js
+// trim silence from ends
+Audio([0,0,0,.1,.2,-.1,-.2,0,0], 1).trim()
+// <.1, .2, -.1, -.2>
+
+// trim samples from the beginning below -30 db
+Audio([0.0001, 0, .1, .2, ...], 1).trim({threshold: -30, left: true})
+// <.1, .2, ...>
+
+// remove samples below .02 level from the end
+Audio([.1, .2, -.1, -.2, 0, .0001]).trim({threshold: Audio.db(.02), left: false})
+// <.1, .2, -.1, -.2>
+```
+
+
 ### audio.repeat(times)
 
 Repeat existing contents of audio indicated number of times.
@@ -686,23 +708,6 @@ audio = audio.repeat(1)
 twiceAudio = audio.repeat(2)
 ```
 
-### audio.trim({threshold:-40, left|right, level}?)
-
-Trim silence at the beginning/end. Optionally define `threshold` in decibels, `left` and `right` trim restrictions. `level` can be used to define threshold as absolute value `0..1`.
-
-```js
-// trim silence from ends
-Audio([0,0,0,.1,.2,-.1,-.2,0,0], 1).trim()
-// <.1, .2, -.1, -.2>
-
-// trim samples from the beginning below -30 db
-Audio([0.0001, 0, .1, .2, ...], 1).trim({threshold: -30, left: true})
-// <.1, .2, ...>
-
-// remove samples below .02 from the end
-Audio([.1, .2, -.1, -.2, 0, .0001]).trim({level: .02, left: false})
-// <.1, .2, -.1, -.2>
-```
 
 ### audio.pad(duration, value=0|{value, left, right}?)
 

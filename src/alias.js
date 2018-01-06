@@ -61,6 +61,8 @@ const classAlias = {
 	equals: 'equal',
 	isEqual: 'equal',
 
+	decibel: 'db',
+	decibels: 'db',
 	toDb: 'db',
 	fromGain: 'db',
 	toGain: 'gain',
@@ -70,11 +72,13 @@ const classAlias = {
 	fromTime: 'offset',
 	timeToOffset: 'offset',
 	t2o: 'offset',
+	o: 'offset',
 
 	toTime: 'time',
 	fromOffset: 'time',
 	offsetToTime: 'time',
-	o2t: 'time'
+	o2t: 'time',
+	t: 'time'
 }
 
 for (let alias in classAlias) {

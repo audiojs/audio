@@ -215,14 +215,33 @@ t('slice', t => {
 	t.notEqual(frag2, a)
 	t.deepEqual(frag2.read({channel: 0}), f32([.1]))
 
+	let dup = a.slice({copy: true})
+	t.ok(Audio.equal(a, dup))
+	t.notEqual(dup, a)
+
 	t.end()
 })
 
 
-t.skip('clone instance', t => {
-	let audio = Audio();
-	Audio(audio)
-});
+t('trim', t => {
+	let audio = new Audio([0,0,0,.1,.2,-.1,-.2,0,0], 1).trim()
+
+	t.deepEqual(audio.read({channel: 0}), new Float32Array([.1,.2,-.1,-.2]))
+
+
+	//trim samples from the beginning below -30 db
+	audio = Audio([0.0001, 0, .1, .2, 0], 1).trim({threshold: -30, left: true})
+
+	t.deepEqual(audio.read({channel: 0}), new Float32Array([.1, .2, 0]))
+
+	//remove samples below .02 from the end
+	audio = Audio([0, .1, .2, -.1, -.2, 0, .0001], 1).trim({threshold: Audio.db(.02), left: false})
+
+	t.deepEqual(audio.read()[0], new Float32Array([0, .1, .2, -.1, -.2]))
+
+	t.end();
+})
+
 
 t('pad', t => {
 	let a = Audio(.005, 2)
@@ -304,25 +323,6 @@ t('fade', t => {
 	//fade out
 	// audio.fade(-10/audio.sampleRate)
 	// t.deepEqual(audio.read(-10/44100)[0], new Float32Array(outCurve))
-
-	t.end();
-})
-
-t('trim', t => {
-	let audio = new Audio([0,0,0,.1,.2,-.1,-.2,0,0], 1).trim()
-
-	t.deepEqual(audio.read({channel: 0}), new Float32Array([.1,.2,-.1,-.2]))
-
-
-	//trim samples from the beginning below -30 db
-	audio = Audio([0.0001, 0, .1, .2, 0], 1).trim({threshold: -30, left: true})
-
-	t.deepEqual(audio.read({channel: 0}), new Float32Array([.1, .2, 0]))
-
-	//remove samples below .02 from the end
-	audio = Audio([0, .1, .2, -.1, -.2, 0, .0001], 1).trim({level: .02, left: false})
-
-	t.deepEqual(audio.read()[0], new Float32Array([0, .1, .2, -.1, -.2]))
 
 	t.end();
 })
