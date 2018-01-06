@@ -37,7 +37,7 @@
 * [x] [audio.remove(t?, dur?, opts?)]()
 * [x] [audio.slice(t?, dur?, opts?)]()
 * [x] [audio.trim(opts?)]()
-* [ ] [audio.pad(dur, opts?)]()
+* [x] [audio.pad(dur, opts?)]()
 * [ ] [audio.repeat(times, t?, dur?, opts?)]()
 * [ ] [audio.reverse(t?, dur?, opts?)]()
 * [ ] [audio.shift(amt, t?, opts?)]()
@@ -693,25 +693,11 @@ Audio([.1, .2, -.1, -.2, 0, .0001]).trim({threshold: Audio.db(.02), left: false}
 ```
 
 
-### audio.repeat(times)
+### audio.pad(duration, value=0|{value, left}?)
 
-Repeat existing contents of audio indicated number of times.
+Alias: `audio.leftPad`, `audio.rightPad`
 
-```js
-// empty audio
-zero = audio.repeat(0)
-
-// no operation
-audio = audio.repeat(1)
-
-// repeat two times
-twiceAudio = audio.repeat(2)
-```
-
-
-### audio.pad(duration, value=0|{value, left, right}?)
-
-Make sure the duration of the audio is at least the indicated `duration`. Pass `{left: true}` or `{right: true}` depending on what direction you need to pad. Pass `value` to fill, defaults to `0`.
+Make sure the duration of the audio is at least the indicated `duration`. Pass `{left: true}` to pad left. Optionally indicate `value`, defaults to `0`.
 
 ```js
 // pad right, same as audio.duration = 10
@@ -723,6 +709,7 @@ audio.pad(10, {left: true, value: 1})
 // pad right with .1 constant value
 audio.pad(10, .1)
 ```
+
 
 ### audio.fade(time=0, duration=0.4, {gain:-40db, easing, start, end,channels}?)`
 
@@ -750,6 +737,23 @@ Audio.load('./source.ogg', audio => {
 })
 ```
 
+
+### audio.repeat(times)
+
+Repeat existing contents of audio indicated number of times.
+
+```js
+// empty audio
+zero = audio.repeat(0)
+
+// no operation
+audio = audio.repeat(1)
+
+// repeat two times
+twiceAudio = audio.repeat(2)
+```
+
+
 ### audio.normalize(time=0, duration?, {start, end, channels}?)
 
 Normalize indicated interval or full audio, i.e. bring amplitudes to -1..+1 range. Max amplitude is found within all defined `channels`.
@@ -772,6 +776,7 @@ audio.get() //[[0, .5], [0, 1], [0, .3]]
 | `dcOffset` | TODO: Remove DC offset, by default `true`. Can be a number. |
 | `range` | TODO: Amplitudes range, by default `[-1, 1]`. |
 
+
 ### audio.gain(volume, time=0, duration?, {start, end, channels}?)
 
 Change volume of the interval of `duration` starting at `time`. `volume` is in decibels.
@@ -780,6 +785,7 @@ Change volume of the interval of `duration` starting at `time`. `volume` is in d
 // make half as loud
 let audio = new Audio(Array(44100).fill(1), 1).gain(-20)
 ```
+
 
 ### audio.reverse(time=0, duration?, {start, end, channels}?)
 
@@ -792,12 +798,14 @@ Audio('./sample.mp3', audio => {
 })
 ```
 
+
 ### audio.shift(time=0, {rotate: false})
 
 Shift contents of audio to the left or right.
 
 ```js
 ```
+
 
 ### audio.pan(balance=.5, {gain: -5})
 

@@ -34,6 +34,12 @@ const protoAlias = {
 
 	rotate: 'shift',
 
+	leftPad: 'pad',
+	rightPad: 'pad',
+
+	fadeIn: 'fade',
+	fadeOut: 'fade',
+
 	remap: 'channels',
 	remix: 'channels',
 	mapChannels: 'channels',

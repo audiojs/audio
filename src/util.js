@@ -86,7 +86,8 @@ function parseArgs (audio, time, duration, options) {
 		copy: 'copy cpy cp clone',
 		left: 'left beginning begin head',
 		right: 'right ending end tail',
-		threshold: 'threshold level lvl tol db'
+		threshold: 'threshold level lvl tol db',
+		value: 'value val'
 	})
 
 	// ensure channels

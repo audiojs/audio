@@ -339,6 +339,50 @@ Audio.prototype.trim = function trim (options) {
 }
 
 
+// return audio padded to the duration
+Audio.prototype.pad = function pad (duration, options) {
+	if (typeof options === 'number') {
+		options = {value: options}
+	}
+
+	if (typeof duration !== 'number') throw Error('First argument should be a number')
+
+	let length = this.offset(duration)
+
+	let {value, left} = parseArgs(this, options)
+
+
+	if (value == null) value = 0
+
+	//ignore already lengthy audio
+	if (length <= this.length) return this;
+
+	let buf = bufferFrom(length - this.length, this.channels)
+
+	if (value) {
+		let v = value
+		let channels = this.channels
+		for (let c = 0; c < channels; c++) {
+			let data = buf.getChannelData(c)
+			for (let i = 0, l = buf.length; i < l; i++) {
+				data[i] = v
+			}
+		}
+	}
+
+	//pad left
+	if (left) {
+		this.buffer.insert(0, buf)
+	}
+	//pad right
+	else {
+		this.buffer.append(buf)
+	}
+
+	return this
+}
+
+
 // regain audio
 Audio.prototype.gain = function (gain=0, time, duration, options) {
 	if (!gain) return this
@@ -415,56 +459,5 @@ Audio.prototype.mix = function mix () {
 Audio.prototype.shift = function shift () {
 
 	return this;
-}
-
-
-// return audio padded to the duration
-Audio.prototype.pad = function pad (duration, options) {
-	if (typeof duration !== 'number') throw Error('First arg should be a number')
-
-	let length = duration * this.sampleRate
-
-	if (options == null) options = {}
-	else if (typeof options === 'string') {
-		let dir = options
-		options = {}
-		if (dir === 'left') options.left = true
-		else if (dir === 'right') options.right = true
-	}
-	else if (typeof options === 'number') {
-		options = {value: options}
-	}
-
-	if (options.value == null) options.value = 0
-
-	if (options.left == null && options.right == null) options.right = true
-
-	//ignore already lengthy audio
-	if (length <= this.length) return this;
-
-	let buf = bufferFrom(length - this.length, this.channels)
-
-	if (options.value) {
-		let v = options.value
-		let channels = this.channels
-		for (let c = 0; c < channels; c++) {
-			let data = buf.getChannelData(c)
-			for (let i = 0, l = buf.length; i < l; i++) {
-				data[i] = v
-			}
-		}
-	}
-
-	//pad right
-	if (options.right) {
-		this.buffer.append(buf)
-	}
-
-	//pad left
-	else if (options.left) {
-		this.buffer.insert(0, buf)
-	}
-
-	return this
 }
 

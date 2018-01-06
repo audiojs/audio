@@ -531,3 +531,12 @@ t('properly detect numeric array vs items array', t => {
 
 	t.end()
 })
+
+
+t('round duration', t => {
+	let a = Audio(.005)
+
+	t.equal(a.length, 221)
+
+	t.end()
+})

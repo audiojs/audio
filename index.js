@@ -59,6 +59,7 @@ function Audio(source, options) {
 		if (options.duration < 0) throw Error('Duration should not be negative')
 
 		source = null
+
 		this.buffer = new AudioBufferList(createBuffer(options))
 	}
 

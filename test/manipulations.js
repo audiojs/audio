@@ -246,8 +246,7 @@ t('trim', t => {
 t('pad', t => {
 	let a = Audio(.005, 2)
 
-	t.equal(a.length, 220.5)
-	t.equal(a.duration, .005)
+	t.equal(a.length, 221)
 
 	a.pad(.01)
 
@@ -258,14 +257,15 @@ t('pad', t => {
 
 	//pad right
 	a.pad(.015, .5)
-	t.deepEqual(a.read(.01, 2/a.sampleRate)[0], [.5,.5])
+	t.deepEqual(a.read(.01, a.time(2))[0], [.5,.5])
 
 	//pad left
 	a.pad(.02, {value: .1, left: true})
-	t.deepEqual(a.read(.0, 2/a.sampleRate)[0], f32([.1,.1]))
+	t.deepEqual(a.read(.0, a.time(2))[0], f32([.1,.1]))
 
 	t.end()
 })
+
 
 t.skip('clone', t => {
 	let a = Audio([0,0,1,1])
