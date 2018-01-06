@@ -83,7 +83,10 @@ function parseArgs (audio, time, duration, options) {
 		length: 'length number',
 		format: 'format dtype dataFormat dataType type',
 		keep: 'keep cut keepFragment return',
-		copy: 'copy cpy cp clone'
+		copy: 'copy cpy cp clone',
+		left: 'left beginning begin head',
+		right: 'right ending end tail',
+		threshold: 'threshold level lvl tol db'
 	})
 
 	// ensure channels
