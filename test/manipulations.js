@@ -267,11 +267,31 @@ t('pad', t => {
 })
 
 
-t.skip('clone', t => {
-	let a = Audio([0,0,1,1])
+t('shift', t => {
+	let a = Audio([0, .25, .5, .75, 1])
+
+	a.shift(-a.time(2))
+	t.deepEqual(a.read({channel: 0}), [.5, .75, 1, 0, 0])
+
+	a.shift(a.time(3))
+	t.deepEqual(a.read({channel: 0}), [0, 0, 0, .5, .75])
+
+	a.shift(a.time(10))
+	t.deepEqual(a.read({channel: 0}), [0, 0, 0, 0, 0])
+
+
+	a.write([0, .25, .5, .75, 1])
+
+	a.shift(-a.time(2), {rotate: true})
+	t.deepEqual(a.read({channel: 0}), [.5, .75, 1, 0, .25])
+
+	a.shift(a.time(3), {rotate: true})
+	t.deepEqual(a.read({channel: 0}), [1, 0, 0.25, .5, .75])
 
 	t.end()
 })
+
+t.skip('shift channels')
 
 
 t.skip('stream', t => {
