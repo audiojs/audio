@@ -87,7 +87,8 @@ function parseArgs (audio, time, duration, options) {
 		left: 'left beginning begin head',
 		right: 'right ending end tail',
 		threshold: 'threshold level lvl tol db',
-		value: 'value val'
+		value: 'value val',
+		rotate: 'rotate circular'
 	})
 
 	// ensure channels

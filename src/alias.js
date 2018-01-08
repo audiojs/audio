@@ -32,6 +32,8 @@ const protoAlias = {
 	clone: 'slice',
 	subaudio: 'slice',
 
+	crop: 'trim',
+
 	rotate: 'shift',
 
 	leftPad: 'pad',

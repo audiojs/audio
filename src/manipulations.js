@@ -178,7 +178,7 @@ Audio.prototype.slice = function slice (time, duration, options) {
 			let buffer = src.buffers[i]
 			let buf = bufferFrom(buffer.length, {
 				channels: channels.length,
-				rate: buffer.sampleRate
+				sampleRate: buffer.sampleRate
 			});
 
 			// FIXME: channels are unnecessary extension here
@@ -242,7 +242,7 @@ Audio.prototype.normalize = function normalize (time, duration, options) {
 		}
 	}, options.start, options.end)
 
-	return this;
+	return this
 }
 
 
@@ -355,9 +355,9 @@ Audio.prototype.pad = function pad (duration, options) {
 	if (value == null) value = 0
 
 	//ignore already lengthy audio
-	if (length <= this.length) return this;
+	if (length <= this.length) return this
 
-	let buf = bufferFrom(length - this.length, this.channels)
+	let buf = bufferFrom(length - this.length, {channels: this.channels, rate: this.sampleRate})
 
 	if (value) {
 		let v = value
@@ -381,6 +381,47 @@ Audio.prototype.pad = function pad (duration, options) {
 
 	return this
 }
+
+
+// move samples within audio by amount
+Audio.prototype.shift = function shift (amount, options) {
+	let {rotate, channels} = parseArgs(this, options)
+
+	if (typeof amount !== 'number') throw Error('First argument should be a number')
+	let length = this.offset(Math.abs(amount))
+	let offset = amount < 0 ? -length : length;
+
+	// short way
+	if (channels.length === this.channels) {
+		let remains = Math.max(this.length - length, 0)
+		let remBuffer, fillBuffer
+
+		if (!rotate) {
+			fillBuffer = bufferFrom(this.length - remains, {
+				channels: this.channels,
+				sampleRate: this.sampleRate
+			})
+		}
+
+		if (offset > 0) {
+			remBuffer = this.buffer.slice(0, remains)
+			if (rotate) fillBuffer = this.buffer.slice(-this.length + remains)
+			this.buffer = new AudioBufferList([fillBuffer, remBuffer], this.channels)
+		}
+		else {
+			remBuffer = this.buffer.slice(-remains)
+			if (rotate) fillBuffer = this.buffer.slice(0, this.length - remains)
+			this.buffer = new AudioBufferList([remBuffer, fillBuffer], this.channels)
+		}
+	}
+	else {
+		// TODO: impl channel shift
+		throw Error('Unimplemented: channel shift')
+	}
+
+	return this
+}
+
 
 
 // regain audio
@@ -446,18 +487,12 @@ Audio.prototype.invert = function (time, duration, options) {
 
 // regulate rate of playback/output/read etc
 Audio.prototype.rate = function rate () {
-	return this;
+	return this
 }
 
 
 Audio.prototype.mix = function mix () {
 
-	return this;
-}
-
-
-Audio.prototype.shift = function shift () {
-
-	return this;
+	return this
 }
 

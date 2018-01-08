@@ -38,9 +38,9 @@
 * [x] [audio.slice(t?, dur?, opts?)]()
 * [x] [audio.trim(opts?)]()
 * [x] [audio.pad(dur, opts?)]()
-* [ ] [audio.repeat(times, t?, dur?, opts?)]()
-* [ ] [audio.reverse(t?, dur?, opts?)]()
 * [ ] [audio.shift(amt, t?, opts?)]()
+* [ ] [audio.reverse(t?, dur?, opts?)]()
+* [ ] [audio.repeat(times, t?, dur?, opts?)]()
 * [ ] [audio.invert(t?, dur?, opts?)]()
 * [ ] [audio.gain(db, t?, dur?, opts?)]()
 * [ ] [audio.fade(t?, dur, opts?)]()
@@ -676,6 +676,8 @@ let dup = audio.slice({copy: true})
 
 ### audio.trim({threshold:-40, left|right}?)
 
+Alias: `audio.crop`
+
 Trim silence at the beginning/end. `threshold` in decibels may define tolerance, `left` and `right` may indicate trim direction.
 
 ```js
@@ -708,6 +710,21 @@ audio.pad(10, {left: true, value: 1})
 
 // pad right with .1 constant value
 audio.pad(10, .1)
+```
+
+
+### audio.shift(amount=0, {rotate: false, channel|channels?})
+
+Alias: `audio.rotate`
+
+Shift contents of audio to the left or right on the `amount` of time in seconds. Indicate `rotate` flag to shift in circular fashion. Pass `channel` or `channels` to apply shift to specific channels.
+
+```js
+// shift contents 0.5s to the left
+audio.shift(-.5)
+
+// shift 100 samples in the left channel to the right in circular fashion
+audio.shift(audio.time(100), {rotate: true, channel: 0})
 ```
 
 
@@ -796,14 +813,6 @@ Audio('./sample.mp3', audio => {
     //reverse first three seconds of audio and play
     audio.reverse(0, 3).play()
 })
-```
-
-
-### audio.shift(time=0, {rotate: false})
-
-Shift contents of audio to the left or right.
-
-```js
 ```
 
 
