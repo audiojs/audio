@@ -38,7 +38,7 @@
 * [x] [audio.slice(t?, dur?, opts?)]()
 * [x] [audio.trim(opts?)]()
 * [x] [audio.pad(dur, opts?)]()
-* [ ] [audio.shift(amt, t?, opts?)]()
+* [x] [audio.shift(amt, t?, opts?)]()
 * [ ] [audio.reverse(t?, dur?, opts?)]()
 * [ ] [audio.repeat(times, t?, dur?, opts?)]()
 * [ ] [audio.invert(t?, dur?, opts?)]()
@@ -717,13 +717,13 @@ audio.pad(10, .1)
 
 Alias: `audio.rotate`
 
-Shift contents of audio to the left or right on the `amount` of time in seconds. Indicate `rotate` flag to shift in circular fashion. Pass `channel` or `channels` to apply shift to specific channels.
+Shift contents of audio to the left or right on the `amount` of time in seconds. Indicate `rotate` flag to shift in circular fashion. Pass `channel` or `channels` to shift specific channels only.
 
 ```js
-// shift contents 0.5s to the left
+// shift contents for 0.5s to the left
 audio.shift(-.5)
 
-// shift 100 samples in the left channel to the right in circular fashion
+// shift 100 samples of the left channel to the right in circular fashion
 audio.shift(audio.time(100), {rotate: true, channel: 0})
 ```
 
