@@ -17,6 +17,10 @@ const loudness = {
 let {parseArgs} = require('./util')
 let Audio = require('../')
 
+function isPow2(v) {
+	return !(v & (v-1)) && (!!v);
+}
+
 //get amplitudes range for the interval
 Audio.prototype.limits = function (time, duration, options) {
 	options = parseArgs(this, time, duration, options)
@@ -52,7 +56,7 @@ Audio.prototype.spectrum = function (start, options) {
 
 	if (!options.size) options.size = 1024;
 
-	if (!bit.isPow2(options.size)) throw Error('Size must be a power of 2')
+	if (!isPow2(options.size)) throw Error('Size must be a power of 2')
 
 	if (options.channel == null) options.channel = 0;
 
