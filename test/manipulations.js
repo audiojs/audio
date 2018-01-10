@@ -206,16 +206,16 @@ t('remove', t => {
 t('slice', t => {
 	let a = Audio([0, .1, .2, .3, .4])
 
-	let frag1 = a.slice(a.time(1), a.time(4))
+	let frag1 = a.slice(a.time(1), a.time(4), {copy: false})
 	t.deepEqual(a.read({channel: 0}), f32([.1, .2, .3, .4]))
 	t.equal(frag1, a)
 
-	let frag2 = a.slice(a.time(0), a.time(1), {copy: true})
+	let frag2 = a.slice(a.time(0), a.time(1))
 	t.deepEqual(a.read({channel: 0}), f32([.1, .2, .3, .4]))
 	t.notEqual(frag2, a)
 	t.deepEqual(frag2.read({channel: 0}), f32([.1]))
 
-	let dup = a.slice({copy: true})
+	let dup = a.slice()
 	t.ok(Audio.equal(a, dup))
 	t.notEqual(dup, a)
 

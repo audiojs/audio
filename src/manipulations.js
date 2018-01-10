@@ -170,6 +170,8 @@ Audio.prototype.remove = function remove (time, duration, options) {
 Audio.prototype.slice = function slice (time, duration, options) {
 	let {start, end, channels, copy} = parseArgs(this, time, duration, options)
 
+	if (copy == null) copy = true
+
 	if (copy) {
 		let src = this.buffer.slice(start, end)
 		let copy = new AudioBufferList(0, channels.length)
