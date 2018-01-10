@@ -656,21 +656,21 @@ let fragment = audio.remove(.5, 1, {keep: true})
 ```
 
 
-### audio.slice(time=0, duration?, {copy: false}?)
+### audio.slice(time=0, duration?, {copy}?)
 
 Alias: `audio.copy`, `audio.clone`, `audio.subaudio`
 
-Get fragment of audio with indicated part. By default slices audio in place, unless `{copy: true}` flag is passed, then returns fragment copied from source.
+Get fragment of audio with indicated part. By default creates a new audio fragment (immutable behavior), unless `{copy: false}` flag is passed, then modifies original audio in-place, which is faster.
 
 ```js
-// slice to 1s starting from .5s
-audio.slice(.5, 1)
+// clone audio
+let dup = audio.slice()
 
 // get 100 samples of audio content
-let samples = audio.slice(audio.time(100), audio.time(100), {copy: true})
+let samples = audio.slice(audio.time(100), audio.time(100))
 
-// clone audio
-let dup = audio.slice({copy: true})
+// slice to 1s starting from .5s
+audio.slice(.5, 1, {copy: false})
 ```
 
 
