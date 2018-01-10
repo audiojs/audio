@@ -60,8 +60,8 @@ Audio.prototype.spectrum = function (start, options) {
 
 	if (options.channel == null) options.channel = 0;
 
-	let buf = this.readRaw(start * this.buffer.sampleRate, options.size);
-	let waveform = buf.getChannelData(options.channel);
+	let waveform = this.readRaw(start, { channel: options.channel })
+
 	let magnitudes = ft(waveform);
 
 	if (options.db) {
