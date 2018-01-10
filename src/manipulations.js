@@ -12,7 +12,7 @@ const convert = require('pcm-convert')
 const bufferFrom = require('audio-buffer-from')
 const isPlainObj = require('is-plain-obj')
 const aFormat = require('audio-format')
-const AudioBufferList = require('../../audio-buffer-list')
+const AudioBufferList = require('audio-buffer-list')
 
 let { parseArgs } = require('./util')
 let Audio = require('../')
@@ -65,7 +65,7 @@ Audio.prototype.write = function write (value, time, duration, options) {
 
 	// fill with value
 	if (typeof value === 'number') {
-		this.buffer.fill((buf, idx, offset) => {
+		this.buffer.map((buf, idx, offset) => {
 			for (let c = 0, l = buf.length; c < channels.length; c++) {
 				let channel = channels[c]
 				let data = buf.getChannelData(channel)
@@ -78,7 +78,7 @@ Audio.prototype.write = function write (value, time, duration, options) {
 	}
 	// fill with function
 	else if (typeof value === 'function') {
-		this.buffer.fill((buf, idx, offset) => {
+		this.buffer.map((buf, idx, offset) => {
 			for (let c = 0, l = buf.length; c < channels.length; c++) {
 				let channel = channels[c]
 				let data = buf.getChannelData(channel)
@@ -212,7 +212,7 @@ Audio.prototype.through = function (fn, time, duration, options) {
 	this.buffer.split(options.end)
 
 	//apply processor
-	this.buffer.fill((buf, idx, offset) => {
+	this.buffer.map((buf, idx, offset) => {
 		return fn(buf) || buf
 	}, options.start, options.end)
 
@@ -231,7 +231,7 @@ Audio.prototype.normalize = function normalize (time, duration, options) {
 	let amp = Math.max(1 / max, 1)
 
 	//amp values
-	this.buffer.fill((buf, idx, offset) => {
+	this.buffer.map((buf, idx, offset) => {
 		for (let c = 0, l = buf.length; c < options.channels.length; c++) {
 			let channel = options.channels[c]
 			let data = buf.getChannelData(channel)
@@ -271,7 +271,7 @@ Audio.prototype.fade = function (time, duration, options) {
 		gain = options.gain == null ? -40 : options.gain
 	}
 
-	this.buffer.fill((buf, idx, offset) => {
+	this.buffer.map((buf, idx, offset) => {
 		for (let c = 0, l = buf.length; c < options.channels.length; c++) {
 			let channel = options.channels[c]
 			let data = buf.getChannelData(channel)
@@ -305,7 +305,7 @@ Audio.prototype.trim = function trim (options) {
 
 	//trim left
 	if (left) {
-		this.buffer.fill((buf, idx, offset) => {
+		this.buffer.map((buf, idx, offset) => {
 			for (let c = 0; c < buf.numberOfChannels; c++) {
 				let data = buf.getChannelData(c)
 				for (let i = 0; i < buf.length; i++) {
@@ -320,7 +320,7 @@ Audio.prototype.trim = function trim (options) {
 
 	//trim right
 	if (right) {
-		this.buffer.fill((buf, idx, offset) => {
+		this.buffer.map((buf, idx, offset) => {
 			for (let c = 0; c < buf.numberOfChannels; c++) {
 				let data = buf.getChannelData(c)
 				for (let i = buf.length; i--;) {
@@ -432,7 +432,7 @@ Audio.prototype.gain = function (gain=0, time, duration, options) {
 
 	let level = Audio.gain(gain)
 
-	this.buffer.fill((buf, idx, offset) => {
+	this.buffer.map((buf, idx, offset) => {
 		for (let c = 0, cnum = options.channels.length; c < cnum; c++) {
 			let channel = options.channels[c]
 			let data = buf.getChannelData(channel)
@@ -453,7 +453,7 @@ Audio.prototype.reverse = function (start, duration, options) {
 
 	this.buffer.join(options.start, options.end)
 
-	this.buffer.fill((buf, idx, offset) => {
+	this.buffer.map((buf, idx, offset) => {
 		// console.log(idx)
 		for (let c = 0, cnum = options.channels.length; c < cnum; c++) {
 			let channel = options.channels[c]
@@ -471,7 +471,7 @@ Audio.prototype.reverse = function (start, duration, options) {
 Audio.prototype.invert = function (time, duration, options) {
 	options = parseArgs(this, time, duration, options)
 
-	this.buffer.fill((buf, idx, offset) => {
+	this.buffer.map((buf, idx, offset) => {
 		for (let c = 0, l = buf.length; c < options.channels.length; c++) {
 			let channel = options.channels[c]
 			let data = buf.getChannelData(channel)
