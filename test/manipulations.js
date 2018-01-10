@@ -222,6 +222,29 @@ t('slice', t => {
 	t.end()
 })
 
+t('slice & save', t => {
+	let localWav = !isBrowser ? './samples/lena.wav' : './test/samples/lena.wav'
+
+	t.plan(2)
+
+	Audio.load(localWav, (err, a) => {
+		a.slice(1, 2).save('x.wav', e => {
+			if (!isBrowser) {
+				let p = __dirname + path.sep + 'x.wav'
+				t.ok(fs.existsSync(p))
+				fs.unlinkSync(p);
+			}
+		})
+		a.slice(2, 3).save('y.wav', e => {
+			if (!isBrowser) {
+				let p = __dirname + path.sep + 'y.wav'
+				t.ok(fs.existsSync(p))
+				fs.unlinkSync(p);
+			}
+		})
+	})
+})
+
 
 t('trim', t => {
 	let audio = new Audio([0,0,0,.1,.2,-.1,-.2,0,0], 1).trim()
