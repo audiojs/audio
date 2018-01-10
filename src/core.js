@@ -264,7 +264,9 @@ Audio.record = function record (source, options, callback) {
 Audio.prototype.save = function save (fileName, ondone) {
 	if (!fileName) throw Error('File name is not provided')
 
-	let wav = toWav(this.buffer.slice())
+	let buffer = this.read({format: 'audiobuffer'})
+
+	let wav = toWav(buffer)
 
 	// fix path for node
 	fileName = resolvePath(fileName)
