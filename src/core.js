@@ -136,7 +136,9 @@ Audio.load = function load (source, callback) {
 			// if source is cached but loading - just clone when loaded
 			if (isPromise(Audio.cache[source])) {
 				promise = Audio.cache[source].then(audio => {
-					audio = Audio(audio)
+					// in order to avoid fetching modified source, we clone cached source
+					audio = Audio(Audio.cache[source])
+
 					callback && callback(null, audio)
 					return Promise.resolve(audio)
 				}, error => {
@@ -154,7 +156,10 @@ Audio.load = function load (source, callback) {
 		else {
 			promise = loadAudio(source).then(audioBuffer => {
 				let audio = Audio(audioBuffer)
-				Audio.cache[source] = audio
+
+				// since user may modify original audio later, we have to put clone into cache
+				Audio.cache[source] = Audio(audio)
+
 				callback && callback(null, audio)
 				return Promise.resolve(audio)
 			}, error => {

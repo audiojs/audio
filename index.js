@@ -68,14 +68,14 @@ function Audio(source, options) {
 		this.buffer = source
 	}
 
-	// audiobuffer case
-	else if (isAudioBuffer(source)) {
-		this.buffer = new AudioBufferList(source)
-	}
-
 	// other Audio instance
 	else if (source instanceof Audio) {
 		this.buffer = source.buffer.clone()
+	}
+
+	// audiobuffer case
+	else if (isAudioBuffer(source)) {
+		this.buffer = new AudioBufferList(source)
 	}
 
 	// array with malformed data
