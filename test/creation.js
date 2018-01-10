@@ -221,11 +221,30 @@ t('load caching', t => {
 
 	//put into cache
 	Audio.load(localWav).then((audio) => {
+		a = audio
+
+		a.slice(0, 1).save('x.wav', e => {
+			if (!isBrowser) {
+				let p = __dirname + path.sep + 'x.wav'
+				t.ok(fs.existsSync(p))
+				fs.unlinkSync(p);
+			}
+		})
+
+
 		t.ok(audio)
 	})
 
 	//load once first item is loaded
-	Audio.load(localWav).then((audio) => {
+	Audio.load(localWav, (err, audio) => {
+		audio.slice(1, 2).save('y.wav', e => {
+			if (!isBrowser) {
+				let p = __dirname + path.sep + 'y.wav'
+				t.ok(fs.existsSync(p))
+				fs.unlinkSync(p);
+			}
+		})
+
 		t.ok(Object.keys(Audio.cache).length)
 		t.ok(audio instanceof Audio)
 		t.notEqual(audio, a)
