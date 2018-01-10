@@ -148,7 +148,13 @@ Audio.load = function load (source, callback) {
 			}
 			// else clone right ahead
 			else {
-				promise = Promise.resolve(Audio(Audio.cache[source]))
+				promise = Promise.resolve(Audio(Audio.cache[source])).then(audio => {
+					callback && callback(null, audio)
+					return Promise.resolve(audio)
+				}, error => {
+					callback && callback(error)
+					return Promise.reject(error)
+				})
 			}
 		}
 
