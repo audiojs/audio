@@ -8,6 +8,8 @@
 
 
 const ft = require('fourier-transform')
+const utils = require('audio-buffer-utils')
+const db = require('decibels')
 
 //TODO: make external package
 const loudness = {
@@ -47,28 +49,25 @@ Audio.prototype.limits = function (time, duration, options) {
 	return [min, max]
 }
 
-Audio.prototype.spectrum = function (start, options) {
+Audio.prototype.spectrum = function (start,  options) {
 	if (typeof start !== 'number') {
 		options = start
 	}
-	options = options || {}
+
 	start = start || 0
-
+	options = options || {}
 	if (!options.size) options.size = 1024;
-
 	if (!isPow2(options.size)) throw Error('Size must be a power of 2')
-
 	if (options.channel == null) options.channel = 0;
 
-	let waveform = this.readRaw(start, { channel: options.channel })
-
-	let magnitudes = ft(waveform);
+	let buf = this.read(start, this.time(options.size), { channel: options.channel })
+	let magnitudes = ft(buf)
 
 	if (options.db) {
 		magnitudes = magnitudes.map(value => db.fromGain(value))
 	}
 
-	return magnitudes;
+	return magnitudes
 }
 
 Audio.prototype.cepstrum = function () {
