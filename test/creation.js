@@ -135,21 +135,41 @@ t('create from channels data', t => {
 	t.end()
 })
 
-t('create from direct string')
+t.skip('create from direct string')
 
-t('create from uint8 array')
 
-t('create from arraybuffer with dtype')
 
-t('create from base64 string')
+isBrowser && t('create from File', t => {
+	Audio.decode(new File([lena.mp3], 'lena.mp3'), (err, a) => {
+		t.ok(a.duration > 8)
+		t.equal(a.channels, 1)
 
-t('create from base64 string with dtype')
+		t.end()
+	});
+})
 
-t('create from datauri octet-stream')
+isBrowser && t('create from Blob', t => {
+	Audio.decode(new Blob([lena.mp3]), (err, a) => {
+		t.ok(a.duration > 8)
+		t.equal(a.channels, 1)
 
-t('create from ndarray')
+		t.end()
+	});
+})
 
-t('create from ndsamples')
+t.skip('create from uint8 array')
+
+t.skip('create from arraybuffer with dtype')
+
+t.skip('create from base64 string')
+
+t.skip('create from base64 string with dtype')
+
+t.skip('create from datauri octet-stream')
+
+t.skip('create from ndarray')
+
+t.skip('create from ndsamples')
 
 t.skip('create from buffer', t => {
 	Promise.all([
