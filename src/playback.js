@@ -10,11 +10,12 @@ const isPromise = require('is-promise')
 const play = require('audio-play')
 const nidx = require('negative-index')
 let Audio = require('../')
+let { parseArgs } = require('./util')
 
 
 //preview the sound
 Audio.prototype.play = function (time, duration, opts, onend) {
-	opts = this._parseArgs(time, duration, opts)
+	opts = parseArgs(this, time, duration, opts)
 
 	if (!this.playback) {
 		let buf = this.buffer.copy(opts.start, opts.end)
