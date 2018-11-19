@@ -49,7 +49,7 @@
     "audio-loader": "^1.0.3",
     "audio-play": "^2.2.0",
     "audiobuffer-to-wav": "^1.0.0",
-    "callsites": "^2.0.0",
+    "callsites": "^3.0.0",
     "clamp": "^1.0.1",
     "compute-qmean": "^1.0.0",
     "decibels": "^2.0.0",
