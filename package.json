@@ -14,7 +14,7 @@
   "devDependencies": {
     "audio-generator": "^2.1.2",
     "audio-lena": "^2.0.0",
-    "audio-oscillator": "^2.0.0",
+    "audio-oscillator": "^3.0.0",
     "audio-source": "^1.1.1",
     "eases": "^1.0.8",
     "flac.js": "^0.2.1",
