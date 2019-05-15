@@ -12,22 +12,22 @@
 
 **2. [Properties](#properties)**
 
-* [ ] [audio.buffer]()
 * [ ] [audio.channels]()
 * [ ] [audio.duration]()
 * [ ] [audio.length]()
 * [ ] [audio.sampleRate]()
+* [ ] [audio.buffer]()
 
 **3. [Utilities](#utilities)**
 
+* [x] [audio.time(offset)]()
+* [x] [audio.offset(time)]()
+* [ ] [audio.save(filename, opts?)]()
+* [ ] [audio.convert(format)]()
+* [ ] [audio.stream(dst, opts?, onend?)]()
 * [x] [Audio.equal(a, b, ...c)]()
 * [x] [Audio.gain(db)]()
 * [x] [Audio.db(gain)]()
-* [x] [audio.time(offset)]()
-* [x] [audio.offset(time)]()
-* [ ] [audio.convert(format)]()
-* [ ] [audio.save(filename, opts?)]()
-* [ ] [audio.stream(dst, opts?, onend?)]()
 
 **4. [Manipulations](#manipulations)**
 
@@ -394,7 +394,7 @@ Convert gain to decibels or backwards, see [decibels](https://github.com/audiojs
 
 Alias: `audio.saveAs`, `audio.download`
 
-Download as a wav file in browser, write audio to file in node. In node file is going to be saved to the same directory as the caller's one. To redefine directory, use absolute path as `audio.save(__dirname + '/my-audio.wav')`. See [save-file](https://github.com/dfcreative/save-file) for details.
+Download as a wav file in browser, write audio to file in node. In node file is going to be saved to the same directory as the caller's one. To redefine directory, use absolute path as `audio.save(__dirname + '/my-audio.wav')`. See [save-file](https://github.com/dy/save-file) for details.
 
 ```js
 // save as wav file

@@ -8,7 +8,7 @@
 [![npm](https://img.shields.io/npm/v/audio.svg)](https://www.npmjs.com/package/audio)
 [![license](https://img.shields.io/npm/l/audio.svg)](https://www.npmjs.com/package/audio)
 
-Class for high-level audio manipulations in javascript. An abstraction from the level of raw data and DSP to the level of natural sound manipulations.
+Data structure for audio manipulations.
 
 <!--
 ideas:
@@ -35,7 +35,6 @@ ideas:
 const Audio = require('audio')
 ```
 
-
 ## Use-cases
 
 <!--
@@ -54,33 +53,30 @@ mvp:
 
 -->
 
-> Load `./sample.mp3`, trim, normalize, fade in, fade out, save:
+### Load `./sample.mp3`, trim, normalize, fade in, fade out, save:
 
 ```js
-Audio.load('./sample.mp3').then(audio =>
-  audio
-    .trim()
-    .normalize()
-    .fade(.5)
-    .fade(-.5)
-    .save('sample-edited.wav')
-)
+let audio = await new Audio('./sample.mp3')
+
+audio
+	.trim()						// remove silent head/tail
+	.normalize()				// make sure max amplitude is at 1
+	.fade(.5)					// fade in 0.5s at the beginning
+	.fade(-3)					// fade out 3s at the end
+	.save('sample-edited.wav')	// save as file
 ```
 
 
-> Record 4s of mic input.
+### Record 4s of mic input.
 
 ```js
 navigator.getUserMedia({audio: true}, stream =>
-
-	Audio.record(stream, (err, audio) => {
-		audio.save('my-record.wav')
-	})
+	let audio = await new Audio(stream)
+	audio.save('my-record.wav')
 )
 ```
 
-
-> Record and download 2 seconds of web-audio experiment
+### Record and download 2 seconds of web-audio experiment
 
 ```js
 //create web-audio experiment
@@ -92,15 +88,12 @@ osc.start()
 osc.connect(ctx.destination)
 
 //record 2 seconds of web-audio experiment
-let audio = Audio(osc, {duration: 2})
-audio.on('end', () => {
-	osc.stop()
-	audio.download('experiment')
-})
+let audio = await Audio.record(osc, 2)
+audio.save('experiment.wav')
+osc.stop()
 ```
 
-
-> Download AudioBuffer returned from offline context
+### Download AudioBuffer returned from offline context
 
 ```js
 //setup offline context
@@ -114,49 +107,44 @@ offlineCtx.startRendering().then((audioBuffer) => {
 ```
 
 
-> Montage audio
+### Montage audio
 
 ```js
-let audio = Audio.load('./record.mp3', (err, audio) => {
-	//repeat slowed down fragment
-	audio.write(audio.copy(2.1, 1).scale(.9), 3.1)
+let audio = await Audio('./record.mp3')
 
-	//delete fragment, fade out
-	audio.delete(2.4, 2.6).fadeOut(.3, 2.1)
+// repeat slowed down fragment
+audio.write(audio.slice(2.1, 1).scale(.9), 3.1)
 
-	//insert other fragment not overwriting the existing data
-	Audio('./other-record.mp3', (err, otherAudio) => {
-		audio.insert(2.4, otherAudio)
-	})
+// delete fragment, fade out starting from 0.3s for the duration of 2.1s
+audio.remove(2.4, 2.6).fade(.3, 2.1)
 
-	audio.download('edited-record')
-})
+// insert other fragment not overwriting the existing data
+audio.insert(await Audio('./other-record.mp3'))
+
+audio.save('edited-record', 'wav')
 ```
 
-> Render waveform of HTML5 `<audio>`
+### Render waveform of HTML5 `<audio>`
 
 ```js
-const Waveform = require('gl-waveform')
+import Waveform from '@a-vis/waveform'
 
 //create waveform renderer
-let wf = Waveform();
+let waveform = Waveform();
 
 //get audio element
-let audioEl = document.querySelector('.my-audio')
-audioEl.src = './chopin.mp3'
+let audio = <audio src="./chopin.mp3"/>
 
 //create audio holder
-let audio = new Audio(audioEl)
 audio.on('load', (err, audio) => {
-	let buf = audio.readRaw(4096)
-	let data = buf.getChannelData(0)
+	let buf = audio.read(4096).getChannelData(0)
 
 	//put left channel data to waveform renderer
-	wf.push(data);
+	waveform.push(data).render()
 })
 ```
 
-> Process audio with _audio-*_ modules
+### Process audio with _audio-*_ modules
 
 ```js
 const Biquad = require('audio-biquad')
@@ -247,12 +235,16 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 ## Related
 
 * [tuna](https://github.com/Theodeus/tuna)
+* [aural](https://github.com/mjanssen/aural)
+* [pizzicato](https://github.com/alemangui/pizzicato)
+* [ciseaux](https://github.com/mohayonao/ciseaux)
+* [pjsaudio](https://github.com/corbanbrook/pjsaudio)
 
 ## Credits
 
 Acknowledgement to contributors:
 
-* [Dmitry Yv](https://github.com/dfcreative) for redesign and take on main implementation.
+* [Dmitry Yv](https://github.com/dy) for redesign and take on main implementation.
 * [Jamen Marz](https://github.com/jamen) for initiative and help with making decisions.
 * [Daniel Gómez Blasco](https://github.com/danigb/) for patience and work on [audio-loader](https://github.com/audiojs/audio-loader).
 * [Michael Williams](https://github.com/ahdinosaur) for audio stream insights.
