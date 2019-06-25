@@ -247,6 +247,7 @@ Please use any of the analogs for now:
 * [pizzicato](https://github.com/alemangui/pizzicato)
 * [ciseaux](https://github.com/mohayonao/ciseaux)
 * [pjsaudio](https://github.com/corbanbrook/pjsaudio)
+* [howler](https://github.com/goldfire/howler.js)
 
 ## Credits
 
