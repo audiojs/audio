@@ -27,6 +27,7 @@ ideas:
 	- image (just teaser/logo)
 -->
 
+<!--
 ## Usage
 
 [![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
@@ -34,6 +35,7 @@ ideas:
 ```js
 const Audio = require('audio')
 ```
+-->
 
 ## Use-cases
 
@@ -53,6 +55,7 @@ mvp:
 
 -->
 
+<!--
 ### Load `./sample.mp3`, trim, normalize, fade in, fade out, save:
 
 ```js
@@ -233,6 +236,11 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [web-audio-api](https://github.com/audiojs/web-audio-api) − web-audio-api implementation for nodejs
 
 ## Related
+-->
+
+The package is work in progress.
+
+Please use any of the analogs for now:
 
 * [tuna](https://github.com/Theodeus/tuna)
 * [aural](https://github.com/mjanssen/aural)
