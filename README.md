@@ -242,6 +242,7 @@ The package is work in progress.
 
 Please use any of the analogs for now:
 
+* [wad](https://github.com/rserota/wad)
 * [tuna](https://github.com/Theodeus/tuna)
 * [aural](https://github.com/mjanssen/aural)
 * [pizzicato](https://github.com/alemangui/pizzicato)
