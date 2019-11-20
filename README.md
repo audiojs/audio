@@ -249,6 +249,10 @@ Please use any of the analogs for now:
 * [ciseaux](https://github.com/mohayonao/ciseaux)
 * [pjsaudio](https://github.com/corbanbrook/pjsaudio)
 * [howler](https://github.com/goldfire/howler.js)
+* [dsp.js](https://github.com/corbanbrook/dsp.js)
+* [audiolet](https://github.com/oampo/Audiolet)
+* [dynamicaudio](https://github.com/bfirsh/dynamicaudio.js)
+* [audiolib](https://github.com/jussi-kalliokoski/audiolib.js)
 
 ## Credits
 
