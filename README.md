@@ -253,6 +253,7 @@ Please use any of the analogs for now:
 * [audiolet](https://github.com/oampo/Audiolet)
 * [dynamicaudio](https://github.com/bfirsh/dynamicaudio.js)
 * [audiolib](https://github.com/jussi-kalliokoski/audiolib.js)
+* [bufaudio](https://github.com/eipark/buffaudio) 
 
 ## Credits
 
