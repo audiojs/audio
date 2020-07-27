@@ -238,7 +238,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 ## Related
 -->
 
-The package is work in progress.
+The package development is on hold.
 
 Please use any of the analogs for now:
 
@@ -254,6 +254,7 @@ Please use any of the analogs for now:
 * [dynamicaudio](https://github.com/bfirsh/dynamicaudio.js)
 * [audiolib](https://github.com/jussi-kalliokoski/audiolib.js)
 * [bufaudio](https://github.com/eipark/buffaudio) 
+* [crunker](https://github.com/jackedgson/crunker)
 
 ## Credits
 
