@@ -255,6 +255,7 @@ Please use any of the analogs for now:
 * [audiolib](https://github.com/jussi-kalliokoski/audiolib.js)
 * [bufaudio](https://github.com/eipark/buffaudio) 
 * [crunker](https://github.com/jackedgson/crunker)
+* [sonorous](https://github.com/EkoLabs/sonorous)
 
 ## Credits
 
