@@ -256,6 +256,7 @@ Please use any of the analogs for now:
 * [bufaudio](https://github.com/eipark/buffaudio) 
 * [crunker](https://github.com/jackedgson/crunker)
 * [sonorous](https://github.com/EkoLabs/sonorous)
+* [waud](https://github.com/waud/waud)
 
 ## Credits
 
