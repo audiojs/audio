@@ -248,6 +248,7 @@ Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(
 * [crunker](https://github.com/jackedgson/crunker)
 * [sonorous](https://github.com/EkoLabs/sonorous)
 * [waud](https://github.com/waud/waud)
+* [tape.js](https://github.com/alien35/tape.js)
 
 <!--
 ## Credits
