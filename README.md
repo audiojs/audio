@@ -264,3 +264,5 @@ Acknowledgement to contributors:
 ## License
 
 [MIT](LICENSE) &copy; <a href="https://github.com/audiojs">audiojs</a>.
+
+<p align=center><a href="https://github.com/krishnized/license/">ॐ</a></p>
