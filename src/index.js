@@ -72,13 +72,14 @@ async function resolve(source) {
 
 // ── Create ───────────────────────────────────────────────────────────────
 
-function create(pages, sampleRate, numberOfChannels, length, source) {
+function create(pages, sampleRate, numberOfChannels, length, source, opts = {}) {
   let a = Object.create(proto)
   a.pages = pages
   a.sampleRate = sampleRate
   a.numberOfChannels = numberOfChannels
   a.length = length
   a.source = source
+  a.storage = opts.storage || 'memory'  // 'memory' | 'persistent' | 'auto'
   a.edits = []
   a.version = 0
   a.onchange = null
@@ -103,7 +104,7 @@ async function fromEncoded(buf, opts = {}) {
   let pages = [], len = channelData[0].length
   for (let off = 0; off < len; off += PAGE_SIZE)
     pages.push({ data: channelData.map(ch => ch.slice(off, Math.min(off + PAGE_SIZE, len))) })
-  let a = create(pages, sampleRate, channelData.length, len, buf)
+  let a = create(pages, sampleRate, channelData.length, len, buf, opts)
 
   if (opts.onprogress) {
     let blocks = a.index.min[0].length, bpp = Math.ceil(PAGE_SIZE / BLOCK_SIZE), prev = 0
@@ -440,28 +441,55 @@ const proto = {
     return { min: outMin, max: outMax }
   },
 
-  // Playback — returns controller, starts async
+  // Playback — returns controller, starts async. Browser: WAA. Node: audio-speaker.
   play(offset = 0, duration) {
-    let a = this
-    let ctrl = { playing: false, currentTime: offset, ontimeupdate: null, onended: null, pause() { ctrl.playing = false }, stop() { ctrl.playing = false } }
-    ;(async () => {
+    let a = this, pcm = render(a, offset, duration)
+    let ctrl = { playing: false, currentTime: offset, ontimeupdate: null, onended: null,
+      pause() { ctrl.playing = false; ctrl._node?.stop?.() },
+      stop() { ctrl.playing = false; ctrl._node?.stop?.() },
+      _node: null }
+
+    // Browser — Web Audio API
+    if (typeof AudioContext !== 'undefined' || typeof webkitAudioContext !== 'undefined') {
+      let AC = typeof AudioContext !== 'undefined' ? AudioContext : webkitAudioContext
+      let ctx = new AC({ sampleRate: a.sampleRate })
+      let buf = ctx.createBuffer(a.numberOfChannels, pcm[0].length, a.sampleRate)
+      for (let c = 0; c < a.numberOfChannels; c++) buf.copyToChannel(pcm[c], c)
+      let src = ctx.createBufferSource()
+      src.buffer = buf
+      src.connect(ctx.destination)
+      src.start(0)
       ctrl.playing = true
-      let speaker
-      try { speaker = (await import('audio-speaker')).default } catch { }
-      if (!speaker) { ctrl.playing = false; return }
-      let pcm = render(a, offset, duration)
-      let write = speaker({ sampleRate: a.sampleRate, channels: a.numberOfChannels })
-      let chunk = Math.round(a.sampleRate * 0.1)
-      for (let off = 0; off < pcm[0].length && ctrl.playing; off += chunk) {
-        let end = Math.min(off + chunk, pcm[0].length)
-        let interleaved = new Float32Array((end - off) * a.numberOfChannels)
-        for (let i = 0; i < end - off; i++) for (let c = 0; c < a.numberOfChannels; c++) interleaved[i * a.numberOfChannels + c] = pcm[c][off + i]
-        await new Promise(resolve => write(Buffer.from(interleaved.buffer), resolve))
-        ctrl.currentTime = offset + (off + end) / 2 / a.sampleRate
+      ctrl._node = src
+      // Track time
+      let startTime = ctx.currentTime
+      let iv = setInterval(() => {
+        if (!ctrl.playing) { clearInterval(iv); return }
+        ctrl.currentTime = offset + (ctx.currentTime - startTime)
         ctrl.ontimeupdate?.(ctrl.currentTime)
-      }
-      write(null); ctrl.playing = false; ctrl.onended?.()
-    })()
+      }, 50)
+      src.onended = () => { ctrl.playing = false; clearInterval(iv); ctrl.onended?.(); ctx.close() }
+    }
+    // Node — audio-speaker (lazy-loaded)
+    else {
+      ;(async () => {
+        ctrl.playing = true
+        let speaker
+        try { speaker = (await import('audio-speaker')).default } catch { }
+        if (!speaker) { ctrl.playing = false; return }
+        let write = speaker({ sampleRate: a.sampleRate, channels: a.numberOfChannels })
+        let chunk = Math.round(a.sampleRate * 0.1)
+        for (let off = 0; off < pcm[0].length && ctrl.playing; off += chunk) {
+          let end = Math.min(off + chunk, pcm[0].length)
+          let interleaved = new Float32Array((end - off) * a.numberOfChannels)
+          for (let i = 0; i < end - off; i++) for (let c = 0; c < a.numberOfChannels; c++) interleaved[i * a.numberOfChannels + c] = pcm[c][off + i]
+          await new Promise(resolve => write(Buffer.from(interleaved.buffer), resolve))
+          ctrl.currentTime = offset + (off + end) / 2 / a.sampleRate
+          ctrl.ontimeupdate?.(ctrl.currentTime)
+        }
+        write(null); ctrl.playing = false; ctrl.onended?.()
+      })()
+    }
     return ctrl
   },
 

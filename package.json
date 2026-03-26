@@ -7,9 +7,15 @@
   "exports": "./src/index.js",
   "license": "MIT",
   "repository": "audiojs/audio",
-  "keywords": ["audiojs", "audio", "dsp", "pcm"],
+  "keywords": [
+    "audiojs",
+    "audio",
+    "dsp",
+    "pcm"
+  ],
   "scripts": {
-    "test": "node test/index.js"
+    "test": "node test/index.js",
+    "test:browser": "npx esbuild test/browser.js --bundle --format=esm --outfile=test/browser.bundle.js --platform=browser --external:fs/promises --external:url --external:audio-speaker && node test/serve.js"
   },
   "dependencies": {
     "audio-decode": "file:../audio-decode",
@@ -17,6 +23,7 @@
   },
   "devDependencies": {
     "audio-lena": "file:../audio-lena",
+    "esbuild": "^0.27.4",
     "tst": "file:../tst"
   }
 }
