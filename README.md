@@ -1,268 +1,157 @@
-# Audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml)
+# audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml)
 
-Data structure for audio manipulations.
-
-<!--
-ideas:
-	- docs
-	- playground: editing based on settings-panel (demo)
-	- gallery:
-		- spectrum vis
-		- waveform vis
-		- demoscene vis
-		- benchmark
-		- recorder app w/ choo
-		- text waveform
-		- player component
-	- downloads
-	- size
-	- image (just teaser/logo)
--->
-
-<!--
-## Usage
-
-[![npm install audio](https://nodei.co/npm/audio.png?mini=true)](https://npmjs.org/package/audio/)
+Indexed, paged audio document with immutable source and declarative ops.
 
 ```js
-const Audio = require('audio')
-```
--->
+import audio from 'audio'
 
-## Use-cases
-
-<!--
-ideas:
-- image
-  file → waveform → processed waveform → file
-- try yourself - requirebin demo with file opener and processing
-
-mvp:
-
-- stats: averages, variance
-- push data
-- delete data (splice?)
-- insert data (splice?)
-- remove Buffer, process from exports
-
--->
-
-<!--
-### Load `./sample.mp3`, trim, normalize, fade in, fade out, save:
-
-```js
-let audio = await new Audio('./sample.mp3')
-
-audio
-	.trim()						// remove silent head/tail
-	.normalize()				// make sure max amplitude is at 1
-	.fade(.5)					// fade in 0.5s at the beginning
-	.fade(-3)					// fade out 3s at the end
-	.save('sample-edited.wav')	// save as file
+let a = await audio('file.mp3')
+a.gain(-3).trim().normalize()
+await a.save('out.wav')
 ```
 
+## Install
 
-### Record 4s of mic input.
-
-```js
-navigator.getUserMedia({audio: true}, stream =>
-	let audio = await new Audio(stream)
-	audio.save('my-record.wav')
-)
+```sh
+npm i audio
 ```
 
-### Record and download 2 seconds of web-audio experiment
+## API
+
+### Create
 
 ```js
-//create web-audio experiment
-let ctx = new AudioContext()
-let osc = ctx.createOscillator()
-osc.type = 'sawtooth'
-osc.frequency.value = 440
-osc.start()
-osc.connect(ctx.destination)
-
-//record 2 seconds of web-audio experiment
-let audio = await Audio.record(osc, 2)
-audio.save('experiment.wav')
-osc.stop()
-```
-
-### Download AudioBuffer returned from offline context
-
-```js
-//setup offline context
-let offlineCtx = new OfflineAudioContext(2, 44100*40, 44100)
-audioNode.connect(offlineCtx)
-
-//process result of offline context
-offlineCtx.startRendering().then((audioBuffer) => {
-	Audio(audioBuffer).save()
+// Async — decode from file, URL, ArrayBuffer, Uint8Array
+let a = await audio('file.mp3')
+let b = await audio('file.mp3', {
+  onprogress({ delta, offset, total }) {}   // progressive index as decode streams
 })
+
+// Sync — from PCM data, AudioBuffer, or silence
+let c = audio.from([ch1, ch2])              // Float32Array[] channels
+let d = audio.from(3, { channels: 2 })     // seconds of silence
+let e = audio.from(audioBuffer)             // AudioBuffer
 ```
 
+### Ops
 
-### Montage audio
+All ops are sync, chainable, and queue to the edit list.
 
 ```js
-let audio = await Audio('./record.mp3')
+// Structural — reorganize timeline
+a.slice(offset, duration)     // → new audio (shares source)
+a.insert(other, offset?)
+a.remove(offset, duration)
+a.pad(duration, {side:'end'})
+a.repeat(times)
 
-// repeat slowed down fragment
-audio.write(audio.slice(2.1, 1).scale(.9), 3.1)
+// Sample — transform values
+a.gain(db, offset?, duration?)
+a.fade(duration)              // +seconds = in, -seconds = out
+a.reverse(offset?, duration?)
+a.mix(other, offset?, duration?)
+a.write(data, offset?)
 
-// delete fragment, fade out starting from 0.3s for the duration of 2.1s
-audio.remove(2.4, 2.6).fade(.3, 2.1)
-
-// insert other fragment not overwriting the existing data
-audio.insert(await Audio('./other-record.mp3'))
-
-audio.save('edited-record', 'wav')
+// Smart — analyze index, then queue basic op
+a.trim(threshold?)            // → scans index → slice()
+a.normalize(targetDb?)        // → reads peak → gain()
 ```
 
-### Render waveform of HTML5 `<audio>`
+### Custom Ops
 
 ```js
-import Waveform from '@a-vis/waveform'
-
-//create waveform renderer
-let waveform = Waveform();
-
-//get audio element
-let audio = <audio src="./chopin.mp3"/>
-
-//create audio holder
-audio.on('load', (err, audio) => {
-	let buf = audio.read(4096).getChannelData(0)
-
-	//put left channel data to waveform renderer
-	waveform.push(data).render()
+audio.define('invert', (block) => {
+  for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] = -ch[i]
+  return block
 })
+
+a.invert()        // chainable, serializable
+a.invert(2, 1)    // apply to range 2s..3s
 ```
 
-### Process audio with _audio-*_ modules
+### Output
 
 ```js
-const Biquad = require('audio-biquad')
-
-let lpf = new Biquad({frequency: 2000, type: 'lowpass'})
-let audio = Audio(10).noise().process(lpf)
+let pcm = await a.read()                        // Float32Array[]
+let pcm = await a.read(offset, duration)         // sub-range
+let pcm = await a.read(0, 1, {format: 'int16'})  // format conversion
+let bytes = await a.encode('mp3')                // Uint8Array
+await a.save('out.mp3')                          // persist to file
 ```
 
-	Data handle - subaudio, for sprites etc
+### Analysis
 
-	Load intro, append 1s pause, start recording. Once ended, save as file.
+```js
+await a.limits(offset?, duration?)    // {min, max}
+await a.loudness(offset?, duration?)  // LUFS
+await a.peaks(count)                  // {min: Float32Array, max: Float32Array}
+await a.peaks(100, {channel: 0})      // per-channel
+```
 
-Audio(['./intro.mp3', 1, MediaStream]).once('ready', (err, audio) => audio.save(Date() + '-recording.mp3'))
+### Playback
 
+```js
+let p = a.play(offset?, duration?)
+p.pause()
+p.stop()
+p.currentTime          // seconds (get/set)
+p.playing              // boolean
+p.ontimeupdate = t => {}
+p.onended = () => {}
+```
 
-## [API](https://github.com/audiojs/audio/blob/master/api.md)
+### Streaming
 
-**1. [Core](#creation)**
+```js
+for await (let block of a.stream(offset?, duration?)) {
+  // block: Float32Array[] per page
+}
+```
 
-* [new Audio(src?, opts?)]()
-* [Audio.from(a, b?, c?, ..., opts?)]()
-* [Audio.load(url, opts?, cb?)]()
-* [Audio.decode(buf, opts?, cb?)]()
-* [audio.buffer]()
-* [audio.channels]()
-* [audio.duration]()
-* [audio.length]()
-* [audio.sampleRate]()
-* [audio.time(offset)]()
-* [audio.offset(time)]()
-* [Audio.gain(db)]()
-* [Audio.db(gain)]()
-* [Audio.isAudio(a)]()
-* [Audio.isEqual(a, b, ...c)]()
-* [audio.serialize(format)]()
-* [audio.save(filename, opts?)]()
-* [Audio.record(stream, opts?)]()
-* [audio.stream(dst, opts?, onend?)]()
-* [audio.clone()]()
+### Properties
 
-**2. [Manipulations](#manipulations)**
+```js
+a.duration       // seconds
+a.channels       // number
+a.sampleRate     // Hz
+a.length         // total samples
+a.edits          // edit list (inspectable)
+a.version        // increments on edit/undo
+a.onchange       // callback
+a.toJSON()       // serialize edits
+a.undo()         // returns popped edit
+```
 
-* [audio.read(dst?, t?, dur?, opts?)]()
-* [audio.write(src|val, t?, dur?, opts?)]()
-* [audio.insert(data, t?, dur?, opts?)]()
-* [audio.slice(t?, dur?, opts?)]()
-* [audio.remove(t?, dur?, opts?)]()
-* [audio.pad(dur, opts?)]()
-* [audio.shift(amt, t?, opts?)]()
-* [audio.trim(opts?)]()
-* [audio.repeat(times, t?, dur?, opts?)]()
-* [audio.reverse(t?, dur?, opts?)]()
-* [audio.invert(t?, dur?, opts?)]()
-* [audio.gain(db, t?, dur?, opts?)]()
-* [audio.fade(t?, dur, opts?)]()
-* [audio.normalize(t?, dur?, opts?)]()
-* [audio.pan(amt, t?, dur?, opts?)]()
-* [audio.mix(audio, t?, dur?, opts?)]()
-* [audio.scale(amt, t?, opts?)]()
-* [audio.map(fn, opts?)]()
+### Index
 
-**3. [Metrics](#metrics)**
+Always-resident summaries built during decode. Powers analysis and waveform display without loading PCM.
 
-* [audio.statistics(t?, dur?, opts?)]()
-* [audio.bounds(t?, dur?, opts?)]()
-* [audio.spectrum(t?, dur, opts?)]()
-* [audio.cepstrum(t?, dur)]()
-* [audio.loudness(t?, dur)]()
-* [audio.memory(t?, dur, opts?)]()
+```js
+a.index.blockSize   // 1024
+a.index.min         // [Float32Array, ...] per-channel, per-block
+a.index.max
+a.index.energy      // K-weighted mean square per block
+```
 
-**4. [Playback](#playback)**
+## Physical Units
 
-* [audio.play(t?, dur?, opts?)]()
-* [audio.pause()]()
-* [audio.muted]()
-* [audio.loop]()
-* [audio.rate]()
-* [audio.volume]()
-* [audio.paused]() <kbd>readonly</kbd>
-* [audio.currentTime]()
+All parameters in physical quantities. No samples or indices in the public API.
 
+- **Time**: seconds (float)
+- **Amplitude**: dB
+- **Frequency**: Hz
+- **Loudness**: LUFS
 
-## See Also
+## Ecosystem
 
-* [audiojs](https://github.com/audiojs) − open-source audio components for javascript
-* [web-audio-api](https://github.com/audiojs/web-audio-api) − web-audio-api implementation for nodejs
-
-## Related
--->
-
-
-## Alternatives
-
-* [wad](https://github.com/rserota/wad)
-* [tuna](https://github.com/Theodeus/tuna)
-* [aural](https://github.com/mjanssen/aural)
-* [pizzicato](https://github.com/alemangui/pizzicato)
-* [ciseaux](https://github.com/mohayonao/ciseaux)
-* [pjsaudio](https://github.com/corbanbrook/pjsaudio)
-* [howler](https://github.com/goldfire/howler.js)
-* [dsp.js](https://github.com/corbanbrook/dsp.js)
-* [audiolet](https://github.com/oampo/Audiolet)
-* [dynamicaudio](https://github.com/bfirsh/dynamicaudio.js)
-* [audiolib](https://github.com/jussi-kalliokoski/audiolib.js)
-* [bufaudio](https://github.com/eipark/buffaudio)
-* [crunker](https://github.com/jackedgson/crunker)
-* [sonorous](https://github.com/EkoLabs/sonorous)
-* [waud](https://github.com/waud/waud)
-* [tape.js](https://github.com/alien35/tape.js)
-
-<!--
-## Credits
-
-Acknowledgement to contributors:
-
-* [Dmitry Yv](https://github.com/dy) for redesign and take on main implementation.
-* [Jamen Marz](https://github.com/jamen) for initiative and help with making decisions.
-* [Daniel Gómez Blasco](https://github.com/danigb/) for patience and work on [audio-loader](https://github.com/audiojs/audio-loader).
-* [Michael Williams](https://github.com/ahdinosaur) for audio stream insights.
- -->
+| Package | Purpose |
+|---------|---------|
+| [audio-decode](https://github.com/audiojs/audio-decode) | Codec decoding (13+ formats) |
+| [audio-encode](https://github.com/audiojs/audio-encode) | Codec encoding |
+| [audio-buffer](https://github.com/audiojs/audio-buffer) | Standalone AudioBuffer |
+| [audio-mic](https://github.com/nickolanack/audio-mic) | Microphone input |
+| [audio-speaker](https://github.com/nickolanack/audio-speaker) | Audio output |
 
 ## License
 
-[MIT](LICENSE) &copy; <a href="https://github.com/audiojs">audiojs</a>.
-
-<p align=center><a href="https://github.com/krishnized/license/">ॐ</a></p>
+MIT
