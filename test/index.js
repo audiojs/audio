@@ -434,8 +434,8 @@ test('encode + decode round-trip', async t => {
   let ch = new Float32Array(44100)
   for (let i = 0; i < ch.length; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / 44100)
   let a = audio.from([ch], { sampleRate: 44100 })
-  let wav = await a.encode('wav')
-  t.ok(wav instanceof Uint8Array, 'encoded to Uint8Array')
+  let wav = await a.read({ format: 'wav' })
+  t.ok(wav instanceof Uint8Array, 'read as wav → Uint8Array')
   t.ok(wav.length > 1000, `wav size: ${wav.length}`)
 
   // Decode back

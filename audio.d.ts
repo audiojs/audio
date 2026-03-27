@@ -63,11 +63,10 @@ export interface AudioInstance {
   normalize(targetDb?: number): this
 
   // ── Output ───────────────────────────────────────────────────
-  /** Read PCM data. Returns copies. Optional sub-range and format conversion. */
-  read(offset?: number, duration?: number, opts?: { format?: 'int16' | 'uint8' }): Promise<Float32Array[] | Int16Array[] | Uint8Array[]>
-  /** Encode to format (e.g. 'wav', 'mp3') */
-  encode(format: string): Promise<Uint8Array>
-  /** Save to file path (Node) or FileSystemFileHandle (browser) */
+  /** Read audio data. Format determines return type: PCM (default), codec ('wav','mp3',...) → Uint8Array, or typed ('int16','uint8'). */
+  read(offset?: number, duration?: number, opts?: { format?: string }): Promise<Float32Array[] | Int16Array[] | Uint8Array[] | Uint8Array>
+  read(opts?: { format?: string }): Promise<Float32Array[] | Uint8Array>
+  /** Save to file path (Node) or FileSystemFileHandle (browser). Format inferred from extension. */
   save(target: string | FileSystemWritableFileStream): Promise<void>
 
   // ── Analysis ─────────────────────────────────────────────────

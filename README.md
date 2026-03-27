@@ -72,11 +72,12 @@ a.invert(2, 1)    // apply to range 2s..3s
 ### Output
 
 ```js
-let pcm = await a.read()                        // Float32Array[]
-let pcm = await a.read(offset, duration)         // sub-range
-let pcm = await a.read(0, 1, {format: 'int16'})  // format conversion
-let bytes = await a.encode('mp3')                // Uint8Array
-await a.save('out.mp3')                          // persist to file
+let pcm = await a.read()                         // Float32Array[] (PCM)
+let pcm = await a.read(offset, duration)          // sub-range
+let pcm = await a.read(0, 1, {format: 'int16'})   // PCM format conversion
+let wav = await a.read({format: 'wav'})           // Uint8Array (encoded)
+let mp3 = await a.read({format: 'mp3'})           // encode to any format
+await a.save('out.mp3')                           // encode + write (format from ext)
 ```
 
 ### Analysis
