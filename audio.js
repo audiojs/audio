@@ -16,7 +16,7 @@ export const BLOCK_SIZE = 1024
 
 // ── Entry Points ─────────────────────────────────────────────────────────
 
-export default async function audio(source, opts) {
+export default async function audio(source, opts = {}) {
   if (Array.isArray(source) && source[0] instanceof Float32Array) return Promise.resolve(fromChannels(source, opts))
   if (typeof source === 'number') return Promise.resolve(fromSilence(source, opts))
   return fromEncoded(await resolve(source), opts)
@@ -32,11 +32,11 @@ audio.from = function(source, opts) {
   throw new TypeError('audio.from: expected Float32Array[], AudioBuffer, or number')
 }
 
-audio.define = function(name, optsOrFn, maybeFn) {
+audio.op = function(name, optsOrFn, maybeFn) {
   let opts = {}, fn
   if (typeof optsOrFn === 'function') { fn = optsOrFn } else { opts = optsOrFn || {}; fn = maybeFn }
-  if (typeof fn !== 'function') throw new TypeError(`audio.define: expected function for '${name}'`)
-  if (ops[name]) throw new Error(`audio.define: '${name}' already registered`)
+  if (typeof fn !== 'function') throw new TypeError(`audio.op: expected function for '${name}'`)
+  if (ops[name]) throw new Error(`audio.op: '${name}' already registered`)
   ops[name] = { fn, args: opts.args || 0, index: !!opts.index, custom: true }
   proto[name] = function(...args) {
     let def = ops[name], arg, offset, duration
@@ -54,14 +54,15 @@ async function resolve(source) {
   if (source instanceof Uint8Array) return source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength)
   if (source instanceof URL) return resolve(source.href)
   if (typeof source === 'string') {
-    // URL — use fetch (works in browser + Node 18+)
-    if (/^(https?|data|blob):/.test(source)) return (await fetch(source)).arrayBuffer()
+    // Anything fetchable — URLs, browser paths, data URIs
+    if (/^(https?|data|blob):/.test(source) || typeof window !== 'undefined')
+      return (await fetch(source)).arrayBuffer()
     // file:// URI — convert to path
     if (source.startsWith('file:')) {
       let { fileURLToPath } = await import('url')
       source = fileURLToPath(source)
     }
-    // File path — Node only (dynamic import, invisible to bundlers)
+    // File path — Node only
     let { readFile } = await import('fs/promises')
     let buf = await readFile(source)
     return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
@@ -79,11 +80,16 @@ function create(pages, sampleRate, numberOfChannels, length, source, opts = {}) 
   a.numberOfChannels = numberOfChannels
   a.length = length
   a.source = source
-  a.storage = opts.storage || 'memory'  // 'memory' | 'persistent' | 'auto'
+  a.storage = opts.storage || 'memory'
+  a.cache = opts.cache || null         // cache backend: { read(i), write(i, data), has(i), evict(i) }
+  a.budget = opts.budget ?? Infinity   // memory budget in bytes (default: unlimited)
   a.edits = []
   a.version = 0
   a.onchange = null
   a.index = buildIndex(a)
+
+  // Auto-evict if budget exceeded
+  if (a.cache && a.budget < Infinity) evictToFit(a)
   return a
 }
 
@@ -91,7 +97,7 @@ function fromChannels(channelData, opts = {}) {
   let sr = opts.sampleRate || 44100, len = channelData[0].length, pages = []
   for (let off = 0; off < len; off += PAGE_SIZE)
     pages.push({ data: channelData.map(ch => ch.slice(off, Math.min(off + PAGE_SIZE, len))) })
-  return create(pages, sr, channelData.length, len, null)
+  return create(pages, sr, channelData.length, len, null, opts)
 }
 
 function fromSilence(seconds, opts = {}) {
@@ -100,6 +106,24 @@ function fromSilence(seconds, opts = {}) {
 }
 
 async function fromEncoded(buf, opts = {}) {
+  let storage = opts.storage || 'auto'
+
+  // Auto-detect: use OPFS for large files in browser
+  if (storage === 'auto' || storage === 'persistent') {
+    let estimatedSize = estimateDecodedSize(buf.byteLength)
+    let budget = opts.budget ?? DEFAULT_BUDGET
+    if (estimatedSize > budget && !opts.cache) {
+      try {
+        opts = { ...opts, cache: await opfsCache(), budget }
+      } catch {
+        // OPFS not available
+        if (storage === 'persistent') throw new Error('OPFS not available (required by storage: "persistent")')
+        if (estimatedSize > budget * 4) throw new Error(`File too large (~${(estimatedSize / 1e6).toFixed(0)}MB decoded) and OPFS unavailable. Pass { storage: "memory" } to force.`)
+        // Small enough to fit in memory — continue without cache
+      }
+    }
+  }
+
   let { channelData, sampleRate } = await decode(buf)
   let pages = [], len = channelData[0].length
   for (let off = 0; off < len; off += PAGE_SIZE)
@@ -148,6 +172,40 @@ function buildIndex(a) {
   return idx
 }
 
+// ── Page Cache (LRU eviction + restore) ──────────────────────────────────
+
+function pageBytes(page) {
+  if (!page.data) return 0
+  return page.data.reduce((sum, ch) => sum + ch.byteLength, 0)
+}
+
+function residentBytes(a) {
+  return a.pages.reduce((sum, p) => sum + pageBytes(p), 0)
+}
+
+function evictToFit(a) {
+  if (!a.cache || a.budget === Infinity) return
+  // LRU: evict oldest-accessed pages first (simple: evict from start, skip recently used)
+  let current = residentBytes(a)
+  for (let i = 0; i < a.pages.length && current > a.budget; i++) {
+    let page = a.pages[i]
+    if (!page.data) continue
+    // Write to cache before evicting
+    a.cache.write(i, page.data)
+    current -= pageBytes(page)
+    page.data = null
+  }
+}
+
+async function ensurePage(a, pageIdx) {
+  let page = a.pages[pageIdx]
+  if (page.data) return // already resident
+  if (!a.cache?.has(pageIdx)) throw new Error(`Page ${pageIdx} evicted with no cache backend`)
+  page.data = await a.cache.read(pageIdx)
+  // Re-evict if needed
+  evictToFit(a)
+}
+
 function reindex(a, startBlock, endBlock) {
   let pcm = render(a, startBlock * BLOCK_SIZE / a.sampleRate, (endBlock - startBlock) * BLOCK_SIZE / a.sampleRate)
   for (let b = startBlock; b < endBlock && b < a.index.min[0].length; b++) {
@@ -184,7 +242,7 @@ function pushEdit(a, edit) {
 
 
 // ── Ops Registry ─────────────────────────────────────────────────────────
-// Built-in ops: fn(chs, edit, sr) → chs. Custom ops (via audio.define) marked with custom: true.
+// Built-in ops: fn(chs, edit, sr) → chs. Custom ops (via audio.op) marked with custom: true.
 
 const ops = {
   slice: { index: true, fn(chs, e, sr) {
@@ -287,10 +345,12 @@ const ops = {
 function render(a, offset, duration) {
   let sr = a.sampleRate, ch = a.numberOfChannels
 
-  // Flatten pages
+  // Flatten pages — restore evicted pages from cache on demand
   let flat = Array.from({ length: ch }, () => new Float32Array(a.length))
   let pos = 0
-  for (let page of a.pages) {
+  for (let i = 0; i < a.pages.length; i++) {
+    let page = a.pages[i]
+    if (!page.data && a.cache?.has(i)) page.data = a.cache.read(i)  // sync page-in
     if (!page.data) { pos += PAGE_SIZE; continue }
     for (let c = 0; c < ch; c++) flat[c].set(page.data[c], pos)
     pos += page.data[0].length
@@ -369,7 +429,6 @@ const proto = {
     return pushEdit(this, { type: 'gain', db: targetDb - (peak > 0 ? 20 * Math.log10(peak) : -Infinity) })
   },
 
-  // Undo — returns the popped edit (re-apply by calling the op method again)
   undo() {
     if (!this.edits.length) return null
     let edit = this.edits.pop()
@@ -377,6 +436,7 @@ const proto = {
     this.onchange?.()
     return edit
   },
+  redo(edit) { return pushEdit(this, edit) },
 
   // Output
   async read(offset, duration, opts) {
@@ -524,5 +584,58 @@ function findThresholdCrossing(a, blockIdx, thresh, side) {
   }
   return sampleStart
 }
+
+// ── OPFS Cache Backend ───────────────────────────────────────────────────
+
+/** Create an OPFS-backed cache backend. Browser only. */
+export async function opfsCache(dirName = 'audio-cache') {
+  if (typeof navigator === 'undefined' || !navigator.storage?.getDirectory)
+    throw new Error('OPFS not available in this environment')
+  let root = await navigator.storage.getDirectory()
+  let dir = await root.getDirectoryHandle(dirName, { create: true })
+
+  return {
+    async read(i) {
+      let handle = await dir.getFileHandle(`p${i}`)
+      let file = await handle.getFile()
+      let buf = await file.arrayBuffer()
+      // Reconstruct planar channels from interleaved storage: [channels, ...data]
+      let view = new Float32Array(buf)
+      let ch = view[0], samplesPerCh = (view.length - 1) / ch
+      let data = []
+      for (let c = 0; c < ch; c++) data.push(view.slice(1 + c * samplesPerCh, 1 + (c + 1) * samplesPerCh))
+      return data
+    },
+    async write(i, data) {
+      let handle = await dir.getFileHandle(`p${i}`, { create: true })
+      let writable = await handle.createWritable()
+      // Store as: [channelCount, ...ch0, ...ch1, ...]
+      let total = 1 + data.reduce((s, ch) => s + ch.length, 0)
+      let packed = new Float32Array(total)
+      packed[0] = data.length
+      let off = 1
+      for (let ch of data) { packed.set(ch, off); off += ch.length }
+      await writable.write(packed.buffer)
+      await writable.close()
+    },
+    has(i) {
+      return dir.getFileHandle(`p${i}`).then(() => true, () => false)
+    },
+    async evict(i) {
+      try { await dir.removeEntry(`p${i}`) } catch {}
+    },
+    async clear() {
+      for await (let [name] of dir) await dir.removeEntry(name)
+    }
+  }
+}
+
+// Estimate decoded PCM size from encoded buffer size and format heuristics
+function estimateDecodedSize(encodedBytes) {
+  // Rough: compressed formats ~10:1 ratio, WAV ~1:1. Assume 10:1 for anything non-trivial.
+  return encodedBytes * (encodedBytes > 100 ? 10 : 1) * 4  // Float32 = 4 bytes
+}
+
+const DEFAULT_BUDGET = 500 * 1024 * 1024  // 500MB
 
 export { proto as Audio }

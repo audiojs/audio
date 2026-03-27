@@ -60,7 +60,7 @@ a.normalize(targetDb?)        // → reads peak → gain()
 ### Custom Ops
 
 ```js
-audio.define('invert', (block) => {
+audio.op('invert', (block) => {
   for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] = -ch[i]
   return block
 })
@@ -120,6 +120,7 @@ a.version        // increments on edit/undo
 a.onchange       // callback
 a.toJSON()       // serialize edits
 a.undo()         // returns popped edit
+a.redo(edit)    // re-apply an undone edit
 ```
 
 ### Index
@@ -154,4 +155,5 @@ All parameters in physical quantities. No samples or indices in the public API.
 
 ## License
 
-MIT
+
+<p align=center><a href="./LICENSE">MIT</a> • <a href="https://github.com/krishnized/license/">ॐ</a></p>

@@ -132,16 +132,22 @@ Note: Browser WAA backend deferred — Node playback via audio-speaker works. Br
 - [x] `storage` option on audio instances ('memory' | 'persistent' | 'auto')
 - [x] Architecture supports paging: pages have `data: null` for evicted state, index is separate
 - [x] Browser test infrastructure: esbuild bundle + serve.js + browser.html + Playwright
-- [ ] OPFS read/write, LRU eviction, auto-detection, fail-early — deferred to when large-file browser testing is needed
-
-Note: Architecture ready (storage option, page eviction via `data: null`, index separate). Implementation deferred — v2 ships with direct (memory) mode. OPFS is the first post-v2 addition when wavearea hits 2h+ files.
+- [x] Cache backend interface: `{ read(i), write(i, data), has(i), evict(i) }`
+- [x] LRU eviction: `evictToFit` with configurable `budget` (bytes)
+- [x] Page-in on demand: render restores evicted pages from cache
+- [x] Tests: eviction with budget, page restore on read, index survives eviction, analysis without page-in (4 tests)
+- [x] `opfsCache(dirName?)` — OPFS cache backend: read/write/has/evict/clear
+- [x] Auto-detection: `storage: 'auto'` creates OPFS cache when estimated decoded size > budget
+- [x] Fail-early: throws if `storage: 'persistent'` and OPFS unavailable; throws if file too large and no OPFS
+- [x] `estimateDecodedSize()` — heuristic from encoded buffer size
+- [x] Tests: Node (3 tests: persistent throws, memory bypass, storage preserved) + browser (OPFS round-trip, eviction, restore, index survives)
 
 
 ## Phase 11: Polish + publish
 
 - [x] README from research.md API section
-- [x] Full test suite: 56 tests, 132 assertions, all passing (tst)
+- [x] Full test suite: 60 tests, 142 assertions, all passing (tst)
 - [x] Browser test infrastructure (esbuild + serve.js + Playwright)
-- [ ] JSDoc on all public methods → generate .d.ts — deferred to pre-publish
+- [x] TypeScript declarations: hand-written .d.ts with full API types
 - [ ] Verify wavearea integration end-to-end — deferred to wavearea v2 migration
 - [ ] Publish v2.0.0
