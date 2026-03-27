@@ -3,8 +3,9 @@
   "version": "2.0.0",
   "description": "Indexed, paged audio document with immutable source and declarative ops",
   "type": "module",
-  "main": "src/index.js",
-  "exports": "./src/index.js",
+  "main": "audio.js",
+  "exports": "./audio.js",
+  "types": "./audio.d.ts",
   "license": "MIT",
   "repository": "audiojs/audio",
   "keywords": [
@@ -15,15 +16,14 @@
   ],
   "scripts": {
     "test": "node test/index.js",
-    "test:browser": "npx esbuild test/browser.js --bundle --format=esm --outfile=test/browser.bundle.js --platform=browser --external:fs/promises --external:url --external:audio-speaker && node test/serve.js"
+    "test:browser": "node test/serve.js"
   },
   "dependencies": {
-    "audio-decode": "file:../audio-decode",
-    "audio-encode": "file:../audio-encode"
+    "audio-decode": "^3.5.0",
+    "audio-encode": "^1.1.0"
   },
   "devDependencies": {
-    "audio-lena": "file:../audio-lena",
-    "esbuild": "^0.27.4",
-    "tst": "file:../tst"
+    "audio-lena": "^3.0.0",
+    "tst": "^9.4.0"
   }
 }

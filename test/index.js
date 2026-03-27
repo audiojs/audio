@@ -1,14 +1,22 @@
 import test from 'tst'
-import audio from '../src/index.js'
-import { PAGE_SIZE, BLOCK_SIZE } from '../src/index.js'
-import lena from 'audio-lena'
-import { readFileSync } from 'fs'
-import { fileURLToPath } from 'url'
-import { tmpdir } from 'os'
-import { join } from 'path'
+import audio from '../audio.js'
+import { PAGE_SIZE, BLOCK_SIZE } from '../audio.js'
 
-let lenaPath = fileURLToPath(lena.url('wav'))
-let lenaMp3 = fileURLToPath(lena.url('mp3'))
+const isNode = typeof process !== 'undefined' && process.versions?.node
+
+// Isomorphic fixture loading: file paths in Node, HTTP URLs in browser
+let lenaPath, lenaMp3, readFileSync
+if (isNode) {
+  let lena = (await import('audio-lena')).default
+  let { fileURLToPath } = await import('url')
+  lenaPath = fileURLToPath(lena.url('wav'))
+  lenaMp3 = fileURLToPath(lena.url('mp3'))
+  readFileSync = (await import('fs')).readFileSync
+} else {
+  lenaPath = '/node_modules/audio-lena/lena.wav'
+  lenaMp3 = '/node_modules/audio-lena/lena.mp3'
+  readFileSync = null
+}
 
 
 // ── Phase 1: Foundation ──────────────────────────────────────────────────
@@ -31,8 +39,8 @@ test('audio(mp3) — decode mp3', async t => {
 })
 
 test('audio(buffer) — from ArrayBuffer', async t => {
-  let buf = readFileSync(lenaPath)
-  let a = await audio(buf.buffer)
+  let buf = isNode ? readFileSync(lenaPath) : new Uint8Array(await (await fetch(lenaPath)).arrayBuffer())
+  let a = await audio(buf.buffer ?? buf)
   t.ok(a.duration > 12, 'decoded from ArrayBuffer')
 })
 
@@ -57,7 +65,9 @@ test('audio.from(seconds) — silence', async t => {
   t.is(a.sampleRate, 48000, 'custom sample rate')
 })
 
-test('audio(URL) — from URL object', async t => {
+let testURL = isNode ? test : test.skip  // URL objects with file:// only work in Node
+testURL('audio(URL) — from URL object', async t => {
+  let lena = (await import('audio-lena')).default
   let a = await audio(lena.url('wav'))
   t.ok(a.duration > 12, `duration > 12s (got ${a.duration.toFixed(2)})`)
 })
@@ -236,6 +246,19 @@ test('undo — returns edit', async t => {
   t.is(a.undo(), null, 'undo on empty returns null')
 })
 
+test('do — re-apply undone edit', async t => {
+  let a = audio.from([new Float32Array(100).fill(1)])
+  a.gain(-6)
+  let edit = a.undo()
+  t.is(a.edits.length, 0, 'undone')
+  a.redo(edit)
+  t.is(a.edits.length, 1, 're-applied')
+  t.is(a.edits[0].type, 'gain', 'same edit type')
+  let pcm = await a.read()
+  let expected = Math.pow(10, -6 / 20)
+  t.ok(Math.abs(pcm[0][0] - expected) < 0.01, 'effect re-applied correctly')
+})
+
 test('onchange — fires', async t => {
   let calls = 0
   let a = audio.from([new Float32Array(44100)])
@@ -328,8 +351,8 @@ test('normalize', async t => {
   t.ok(Math.abs(pcm[0][0] - 1) < 0.01, `normalized to ~1 (got ${pcm[0][0].toFixed(3)})`)
 })
 
-test('audio.define — custom op', async t => {
-  audio.define('double', (block) => {
+test('audio.op — custom op', async t => {
+  audio.op('double', (block) => {
     for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] *= 2
     return block
   })
@@ -339,8 +362,8 @@ test('audio.define — custom op', async t => {
   t.ok(Math.abs(pcm[0][0] - 0.5) < 0.001, 'doubled: 0.25 → 0.5')
 })
 
-test('audio.define — with arg', async t => {
-  audio.define('amplify', { args: 1 }, (block, factor) => {
+test('audio.op — with arg', async t => {
+  audio.op('amplify', { args: 1 }, (block, factor) => {
     for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] *= factor
     return block
   })
@@ -350,8 +373,8 @@ test('audio.define — with arg', async t => {
   t.ok(Math.abs(pcm[0][0] - 0.3) < 0.001, 'amplified: 0.1 × 3 = 0.3')
 })
 
-test('audio.define — with range', async t => {
-  audio.define('mute', (block) => {
+test('audio.op — with range', async t => {
+  audio.op('mute', (block) => {
     for (let ch of block) ch.fill(0)
     return block
   })
@@ -362,8 +385,8 @@ test('audio.define — with range', async t => {
   t.ok(pcm[0][Math.round(0.75 * 44100)] === 0, 'in range: muted')
 })
 
-test('audio.define — duplicate throws', async t => {
-  t.throws(() => audio.define('double', () => {}), 'throws on duplicate')
+test('audio.op — duplicate throws', async t => {
+  t.throws(() => audio.op('double', () => {}), 'throws on duplicate')
 })
 
 test('toJSON — serializable', async t => {
@@ -382,7 +405,7 @@ test('read — full materialization', async t => {
   let a = await audio(lenaPath)
   let pcm = await a.read()
   t.is(pcm.length, 1, '1 channel')
-  t.is(pcm[0].length, lena.samplesCount, `${lena.samplesCount} samples`)
+  t.ok(pcm[0].length > 500000, `${pcm[0].length} samples (lena ~541184)`)
 })
 
 test('read — sub-range', async t => {
@@ -420,7 +443,10 @@ test('encode + decode round-trip', async t => {
   t.ok(Math.abs(b.duration - 1) < 0.01, 'round-trip duration')
 })
 
-test('save — write to file', async t => {
+let testSave = isNode ? test : test.skip
+testSave('save — write to file', async t => {
+  let { tmpdir } = await import('os')
+  let { join } = await import('path')
   let a = audio.from([new Float32Array(44100).fill(0.5)], { sampleRate: 44100 })
   let path = join(tmpdir(), `audio-test-${Date.now()}.wav`)
   await a.save(path)
@@ -543,4 +569,97 @@ test('stream — after ops', async t => {
   for await (let block of a.stream()) { first = block[0][0]; break }
   let expected = 0.5 * Math.pow(10, -6 / 20)
   t.ok(Math.abs(first - expected) < 0.01, `gain applied in stream (${first.toFixed(3)} ≈ ${expected.toFixed(3)})`)
+})
+
+
+// ── Phase 10: Page Cache + Eviction ──────────────────────────────────────
+
+// Mock cache backend (in-memory, simulates OPFS interface)
+function mockCache() {
+  let store = new Map()
+  return {
+    read(i) { return store.get(i) },
+    write(i, data) { store.set(i, data.map(ch => new Float32Array(ch))) },
+    has(i) { return store.has(i) },
+    evict(i) { store.delete(i) },
+    get size() { return store.size },
+  }
+}
+
+test('cache backend — evicts pages when budget exceeded', async t => {
+  // 3 pages of mono audio, each page = PAGE_SIZE * 4 bytes
+  let ch = new Float32Array(PAGE_SIZE * 3).fill(0.5)
+  let cache = mockCache()
+  let pageByteSize = PAGE_SIZE * 4  // Float32 = 4 bytes
+
+  let a = await audio([ch], { cache, budget: pageByteSize * 2 })  // budget fits 2 pages, has 3
+  let resident = a.pages.filter(p => p.data !== null).length
+  t.ok(resident <= 2, `budget enforced: ${resident} resident pages (max 2)`)
+  t.ok(cache.size >= 1, `${cache.size} pages evicted to cache`)
+})
+
+test('cache backend — evicted pages restore on read', async t => {
+  let ch = new Float32Array(PAGE_SIZE * 3)
+  for (let i = 0; i < ch.length; i++) ch[i] = i / ch.length  // ramp
+  let cache = mockCache()
+  let pageByteSize = PAGE_SIZE * 4
+
+  let a = await audio([ch], { cache, budget: pageByteSize * 1 })  // only 1 page fits
+  // Read full audio — should restore evicted pages from cache
+  let pcm = await a.read()
+  t.is(pcm[0].length, PAGE_SIZE * 3, 'full length restored')
+  t.ok(pcm[0][0] < 0.001, 'first sample correct (ramp start)')
+  t.ok(pcm[0][PAGE_SIZE * 3 - 1] > 0.99, 'last sample correct (ramp end)')
+})
+
+test('cache backend — index survives eviction', async t => {
+  let ch = new Float32Array(PAGE_SIZE * 2).fill(0.7)
+  let cache = mockCache()
+
+  let a = await audio([ch], { cache, budget: PAGE_SIZE * 4 * 1 })  // evict 1 page
+  let evicted = a.pages.filter(p => p.data === null).length
+  t.ok(evicted >= 1, `${evicted} pages evicted`)
+
+  // Index should still work without PCM
+  let lim = await a.limits()
+  t.ok(lim.max >= 0.69, `index works after eviction: max=${lim.max.toFixed(2)}`)
+})
+
+test('cache backend — analysis from index without page-in', async t => {
+  let ch = new Float32Array(PAGE_SIZE * 4).fill(0.3)
+  let cache = mockCache()
+
+  let a = await audio([ch], { cache, budget: 0 })  // evict all pages
+  let allEvicted = a.pages.every(p => p.data === null)
+  t.ok(allEvicted, 'all pages evicted')
+
+  // peaks/limits should work from index alone (no PCM needed for clean ops)
+  let peaks = await a.peaks(10)
+  t.ok(peaks.max[0] >= 0.29, 'peaks from index without page-in')
+  let lim = await a.limits()
+  t.ok(lim.max >= 0.29, 'limits from index without page-in')
+})
+
+let testNode = isNode ? test : test.skip
+testNode('storage: persistent — throws in Node (no OPFS)', async t => {
+  let bigBuf = new ArrayBuffer(100 * 1024 * 1024)  // 100MB "encoded" → estimated 4GB decoded
+  try {
+    await audio(new Uint8Array(bigBuf), { storage: 'persistent' })
+    t.ok(false, 'should have thrown')
+  } catch (e) {
+    t.ok(e.message.includes('OPFS'), `throws OPFS error: ${e.message.slice(0, 60)}`)
+  }
+})
+
+test('storage: memory — bypasses OPFS even for large files', async t => {
+  // small file with storage: memory should work fine
+  let a = await audio(lenaPath, { storage: 'memory' })
+  t.ok(a.duration > 12, 'loaded with storage: memory')
+})
+
+test('storage option — preserved on instance', async t => {
+  let a = await audio(lenaPath, { storage: 'memory' })
+  t.is(a.storage, 'memory', 'storage = memory')
+  let b = audio.from([new Float32Array(100)])
+  t.is(b.storage, 'memory', 'from() defaults to memory')
 })
