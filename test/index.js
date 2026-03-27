@@ -251,12 +251,48 @@ test('do — re-apply undone edit', async t => {
   a.gain(-6)
   let edit = a.undo()
   t.is(a.edits.length, 0, 'undone')
-  a.redo(edit)
+  a.do(edit)
   t.is(a.edits.length, 1, 're-applied')
   t.is(a.edits[0].type, 'gain', 'same edit type')
   let pcm = await a.read()
   let expected = Math.pow(10, -6 / 20)
   t.ok(Math.abs(pcm[0][0] - expected) < 0.01, 'effect re-applied correctly')
+})
+
+test('do — inline function', async t => {
+  let a = audio.from([new Float32Array(100).fill(1)])
+  a.do((block) => {
+    for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] *= 0.5
+    return block
+  })
+  let pcm = await a.read()
+  t.ok(Math.abs(pcm[0][0] - 0.5) < 0.01, 'inline fn applied: 1 * 0.5 = 0.5')
+})
+
+test('do — inline function stop signal', async t => {
+  let a = audio.from([new Float32Array(44100).fill(1)], { sampleRate: 44100 })
+  let blocksProcessed = 0
+  a.do((block) => {
+    blocksProcessed++
+    if (blocksProcessed >= 3) return false  // stop after 3 blocks
+    for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] = 0
+    return block
+  })
+  let pcm = await a.read()
+  t.ok(pcm[0][0] === 0, 'first block processed (zeroed)')
+  t.ok(pcm[0][BLOCK_SIZE * 3] === 1, 'blocks after stop unchanged')
+})
+
+test('do — variadic', async t => {
+  let a = audio.from([new Float32Array(100).fill(1)])
+  a.do(
+    { type: 'gain', db: -6 },
+    (block) => { for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] *= 2; return block }
+  )
+  t.is(a.edits.length, 2, 'two edits from one do() call')
+  let pcm = await a.read()
+  let expected = Math.pow(10, -6 / 20) * 2
+  t.ok(Math.abs(pcm[0][0] - expected) < 0.01, `gain + double: ${pcm[0][0].toFixed(3)} ≈ ${expected.toFixed(3)}`)
 })
 
 test('onchange — fires', async t => {
@@ -352,7 +388,7 @@ test('normalize', async t => {
 })
 
 test('audio.op — custom op', async t => {
-  audio.op('double', (block) => {
+  audio.op('double', () => (block) => {
     for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] *= 2
     return block
   })
@@ -363,7 +399,7 @@ test('audio.op — custom op', async t => {
 })
 
 test('audio.op — with arg', async t => {
-  audio.op('amplify', { args: 1 }, (block, factor) => {
+  audio.op('amplify', (factor) => (block) => {
     for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] *= factor
     return block
   })
@@ -374,7 +410,7 @@ test('audio.op — with arg', async t => {
 })
 
 test('audio.op — with range', async t => {
-  audio.op('mute', (block) => {
+  audio.op('mute', () => (block) => {
     for (let ch of block) ch.fill(0)
     return block
   })
@@ -386,7 +422,7 @@ test('audio.op — with range', async t => {
 })
 
 test('audio.op — duplicate throws', async t => {
-  t.throws(() => audio.op('double', () => {}), 'throws on duplicate')
+  t.throws(() => audio.op('double', () => () => {}), 'throws on duplicate')
 })
 
 test('toJSON — serializable', async t => {
