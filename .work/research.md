@@ -4,6 +4,12 @@
 
 `load → transform → save`. Compact, terse, portable. Handles 2h+ files in the browser without tab death.
 
+## Values
+
+- Commands
+- Big files
+- Plugins
+- One-off runs?
 
 ## Mental Model
 
@@ -442,9 +448,310 @@ What audio provides per track: non-destructive editing, undo, waveform index, pa
 - Node temp-file page cache (V8 handles multi-GB; add if needed)
 
 
+## CLI
+
+`npx audio` — sox-style. Effects are positional words, not flags. Units explicit when needed.
+
+### Convention (modeled after sox)
+
+```sh
+audio [input] [ops...] [-o output]
+```
+
+```sh
+# Basic
+audio in.mp3 gain -3db trim normalize -o out.wav
+
+# Ranges — offset..end syntax
+audio in.mp3 gain -3db 1s..10s -o out.wav       # gain only 1s to 10s
+audio in.mp3 fade 0..0.5s fade -0.5s.. -o out.wav  # fade in first 0.5s, fade out last 0.5s
+
+# Fade with curve
+audio in.mp3 fade 0..1s ease-in fade -1s.. ease-out -o out.wav
+
+# Pipe — `-` or implicit stdin/stdout (sox convention)
+cat in.raw | audio gain -3db > out.raw
+audio in.mp3 encode mp3 -o -                     # stdout
+audio - gain -3db -o out.wav --rate 44100 --ch 2  # stdin with format hint
+
+# Macro — apply saved edit list
+audio in.mp3 --macro recipe.json -o out.wav
+
+# Plugins — auto-discovered from node_modules/audio-*
+npm i audio-compress
+audio in.wav compress --ratio 4 -o out.wav       # just works
+```
+
+### Units
+
+| Domain | Suffix | Default (no suffix) | Examples |
+|--------|--------|---------------------|----------|
+| Time | `s`, `ms` | seconds | `0.5s`, `500ms`, `0.5` |
+| Amplitude | `db`, none | dB for gain, linear for others | `-3db`, `0.5` |
+| Frequency | `hz`, `khz` | Hz | `440hz`, `2khz` |
+
+### Ranges
+
+`offset..end` syntax. Negative = from end. Open-ended = start/end.
+
+```
+1s..10s      # from 1s to 10s
+0..0.5s      # first half second
+-1s..        # last second to end
+..5s         # start to 5 seconds
+-1s..-0.5s   # 0.5s interval, 1s from end
+```
+
+This replaces the JS API's `(offset, duration)` convention for CLI. Ranges are more readable in a terminal than offset+duration.
+
+### Fade
+
+```sh
+fade 0..0.5s              # fade in, first 0.5s, linear (default)
+fade -0.5s..              # fade out, last 0.5s
+fade 0..1s ease-in        # fade in with curve
+fade -1s.. ease-out       # fade out with curve
+```
+
+Curves: `linear` (default), `ease-in`, `ease-out`, `ease-in-out`, `log`, `exp`. Matches CSS easing naming.
+
+### stdin/stdout
+
+Sox convention: `-` for explicit stdin/stdout. Or implicit — if no input file specified and stdin has data, read from stdin. If no `-o`, write to stdout.
+
+```sh
+# Explicit
+audio - gain -3db -o - < in.raw > out.raw
+
+# Implicit
+cat in.raw | audio gain -3db > out.raw
+```
+
+For raw PCM stdin: `--rate`, `--ch`, `--format` specify the format (like sox's `-t raw -r 44100 -c 2`).
+
+### Plugin discovery
+
+eslint model: scan `node_modules/audio-*` at startup. Any package that calls `audio.op()` registers its commands automatically. No config file, no forced install.
+
+```
+node_modules/
+  audio-compress/   → exports audio.op('compress', ...)
+  audio-reverb/     → exports audio.op('reverb', ...)
+```
+
+User installs what they need: `npm i audio-compress`. The CLI finds it. Convention over configuration.
+
+Not sox/ffmpeg style (fixed set). Not forced install. Just: if it's there, it works.
+
+### Macros
+
+Serialized edit lists. `toJSON().edits` exports, `redo(edit)` replays.
+
+```json
+[
+  {"type": "trim", "threshold": -40},
+  {"type": "normalize", "targetDb": 0},
+  {"type": "fade", "duration": 0.5},
+  {"type": "fade", "duration": -0.5}
+]
+```
+
+```sh
+audio in.mp3 --macro podcast-cleanup.json -o out.wav
+```
+
+In code:
+```js
+let recipe = JSON.parse(fs.readFileSync('recipe.json'))
+let a = await audio('in.mp3')
+for (let edit of recipe) a.redo(edit)
+await a.save('out.wav')
+```
+
+No special macro runtime. Edits ARE macros.
+
+
+## Index Extensions
+
+The index is currently fixed: min, max, energy. But analysis needs are open-ended: K-weighted energy, pitch, chord, cepstrum, BPM, spectral centroid, zero-crossing rate, etc.
+
+**Design: index fields are pluggable.**
+
+```js
+// Register a custom index field — one function, context tells you why
+audio.index('pitch', (block, ctx) => {
+  // ctx.op: 'decode' | 'gain' | 'fade' | ... — what triggered this
+  // ctx.prev: previous value for this block (null on first decode)
+  // ctx.edit: the edit object (null on decode)
+  // ctx.sampleRate, ctx.blockSize
+
+  // Short-circuit: ops that don't affect pitch
+  if (ctx.op === 'gain' || ctx.op === 'reverse') return ctx.prev
+
+  // Compute from PCM (decode, fade, or any dirty op)
+  return detectPitch(block[0], ctx.sampleRate)
+})
+
+// Now available:
+a.index.pitch     // Float32Array — one value per block
+```
+
+**Contract:**
+- One function: `(block, ctx) => value`. Called per block.
+- `ctx.op` = `'decode'` on initial build, or the op type on update.
+- Return `ctx.prev` = field is clean for this op (no recompute, value preserved).
+- Return new value = field updated.
+- If the function needs PCM (for decode or dirty ops), it gets the block. For clean ops, it can short-circuit without touching PCM.
+- Index fields survive page eviction (tiny per block — one number).
+- Custom index fields participate in dirty tracking: stale ranges per-field, not global.
+
+**Built-in fields use the same mechanism:**
+```js
+// Internally, audio registers:
+audio.index('min', (block, ctx) => {
+  if (ctx.op === 'gain') return ctx.prev * (10 ** (ctx.edit.db / 20))
+  if (ctx.op === 'reverse') return ctx.prev
+  return Math.min(...block[0])  // compute from PCM
+})
+```
+
+**K-weighted energy example:**
+```js
+import { kWeightFilter } from 'digital-filter'
+
+audio.index('kEnergy', (block, ctx) => {
+  if (ctx.op === 'gain') return ctx.prev * (10 ** (ctx.edit.db / 10))  // energy scales with gain²
+  if (ctx.op === 'reverse') return ctx.prev  // energy unchanged
+
+  // Compute from PCM (decode or dirty op)
+  let filtered = kWeightFilter(block[0], ctx.sampleRate)
+  return filtered.reduce((s, v) => s + v * v, 0) / filtered.length
+})
+
+// Now loudness() can use a.index.kEnergy instead of plain energy
+```
+
+**Dirty tracking becomes per-field:**
+
+Currently: one dirty range for all index fields. With extensions: each field tracks its own stale blocks. A `gain` op might be clean for min/max/energy/kEnergy but dirty for pitch. A `reverse` might be clean for energy but dirty for BPM.
+
+```
+a.gain(-3)         // min/max/energy: clean (arithmetic). pitch: clean. bpm: clean.
+a.fade(0.5)        // min/max: dirty for range. energy: dirty. pitch: dirty. bpm: dirty.
+```
+
+The stale check walks edits per field, not globally. Analysis methods check only their own field's staleness.
+
+**Memory:** Each index field adds ~1.2MB for 2h stereo at 1024 blockSize (one Float32 per block × ~310K blocks). 10 custom fields = 12MB total. Still negligible vs PCM.
+
+
+## Custom Processing
+
+Beyond simple ops (block-level transforms), users need complex processing chains:
+
+### Compound ops (macros)
+
+Audacity-style batch processing. A macro is a list of edits applied sequentially:
+
+```js
+// Define a reusable processing chain
+let podcast = [
+  { type: 'trim', threshold: -30 },
+  { type: 'normalize', targetDb: -1 },
+  { type: 'fade', duration: 0.5 },
+  { type: 'fade', duration: -0.5 },
+]
+
+// Apply to any audio
+let a = await audio('episode.mp3')
+for (let edit of podcast) a.redo(edit)
+await a.save('clean.mp3')
+```
+
+No special macro API needed — `redo(edit)` already pushes edits. A "macro" is just an array of edit objects.
+
+### Conditional ops (smart processing)
+
+Ops that analyze audio and decide what to do:
+
+```js
+// Speed up silence (podcast editing)
+audio.op('speedSilence', { args: 1 }, (block, { threshold, speedFactor }, ctx) => {
+  // If block is below threshold, compress time (return shorter block)
+  // This is a structural change — needs special handling
+})
+```
+
+Problem: current ops are shape-preserving (same block length in/out). Structural changes (time compression) can't be expressed as sample ops.
+
+**Solution: allow ops to return different-length blocks.** If an op returns a shorter block, the output timeline adjusts. This breaks the "shape-preserving" contract but enables powerful processing:
+
+```js
+audio.op('silenceSpeed', { args: 1, structural: true }, (block, opts, ctx) => {
+  let energy = block[0].reduce((s, v) => s + v * v, 0) / block[0].length
+  if (energy < opts.threshold) {
+    // Compress: keep every Nth sample
+    let factor = opts.speed || 4
+    return block.map(ch => ch.filter((_, i) => i % factor === 0))
+  }
+  return block
+})
+```
+
+This is a post-v2 extension. For v2, shape-preserving ops cover the common case.
+
+### Filter chains (DSP pipelines)
+
+Integration with `digital-filter`, `audio-filter`, etc.:
+
+```js
+import { biquad } from 'digital-filter'
+
+// Register a filter as an op
+audio.op('lowpass', { args: 1 }, (block, freq, ctx) => {
+  let filter = biquad('lowpass', freq, ctx.sampleRate)
+  return block.map(ch => filter(ch))
+})
+
+a.lowpass(2000)  // chainable, serializable
+```
+
+Filters are just ops. The `digital-filter` package provides the DSP, `audio.op()` provides the integration. No special filter API needed.
+
+
+## Plugin Contract (revised)
+
+With index extensions and structural ops, the plugin contract evolves:
+
+```js
+audio.op(name, opts?, fn)
+```
+
+**opts:**
+- `args: 0 | 1` — calling convention
+- `index: true | false | { field: rule, ... }` — per-field index behavior
+  - `true` = all fields clean
+  - `false` = all fields dirty (default)
+  - `{ min: true, max: true, energy: false, pitch: null }` = per-field
+- `structural: false` — if true, op may change block length (post-v2)
+
+**Example:**
+```js
+audio.op('compress', { args: 1, index: { min: false, max: false, energy: false } }, (block, opts, ctx) => {
+  // Compressor changes dynamics — min/max/energy all affected
+  ...
+})
+```
+
+For most ops, `index: false` (the default) is correct and safe. Only ops that provably preserve specific fields need the per-field declaration. This keeps the simple case simple.
+
+
 ## Open Questions
 
 - [ ] Page size: benchmark 2^15 vs 2^16 vs 2^17
 - [ ] OPFS budget: 500MB default, auto-detect available?
 - [ ] Worker bundling: inline blob URL or separate file?
-- [ ] Index rebuild after dirty ops: lazy (on next analysis call) or eager (on op push)?
+- [ ] Index rebuild: lazy per-field or global?
+- [ ] CLI arg parsing: custom or use existing lib (like sade)?
+- [ ] Structural custom ops: how to handle variable-length output blocks?
+- [ ] Index extensions: eager (compute during decode) vs lazy (compute on first access)?

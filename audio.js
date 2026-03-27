@@ -430,21 +430,26 @@ const proto = {
   },
   redo(edit) { return pushEdit(this, edit) },
 
-  // Output
+  // Output — read() is the universal output. Format determines return type.
   async read(offset, duration, opts) {
+    // Normalize args: read(opts), read(offset, opts), read(offset, duration, opts)
+    if (typeof offset === 'object' && !opts) { opts = offset; offset = undefined }
+    else if (typeof duration === 'object' && !opts) { opts = duration; duration = undefined }
+    let fmt = opts?.format
     let pcm = render(this, offset, duration)
-    if (opts?.format === 'int16') return pcm.map(ch => { let o = new Int16Array(ch.length); for (let i = 0; i < ch.length; i++) o[i] = Math.max(-32768, Math.min(32767, Math.round(ch[i] * 32767))); return o })
-    if (opts?.format === 'uint8') return pcm.map(ch => { let o = new Uint8Array(ch.length); for (let i = 0; i < ch.length; i++) o[i] = Math.round((ch[i] + 1) * 127.5); return o })
+
+    // Codec format → encode to bytes (replaces encode())
+    if (fmt && encode[fmt]) return encode[fmt](pcm, { sampleRate: this.sampleRate })
+
+    // PCM format conversion
+    if (fmt === 'int16') return pcm.map(ch => { let o = new Int16Array(ch.length); for (let i = 0; i < ch.length; i++) o[i] = Math.max(-32768, Math.min(32767, Math.round(ch[i] * 32767))); return o })
+    if (fmt === 'uint8') return pcm.map(ch => { let o = new Uint8Array(ch.length); for (let i = 0; i < ch.length; i++) o[i] = Math.round((ch[i] + 1) * 127.5); return o })
+
     return pcm
-  },
-  async encode(format) {
-    let fn = encode[format]
-    if (!fn) throw new Error(`Unsupported format: ${format}`)
-    return fn(render(this), { sampleRate: this.sampleRate })
   },
   async save(target) {
     let format = typeof target === 'string' ? target.split('.').pop() : 'wav'
-    let bytes = await this.encode(format)
+    let bytes = await this.read({ format })
     if (typeof target === 'string') {
       let { writeFile } = await import('fs/promises')
       await writeFile(target, Buffer.from(bytes))

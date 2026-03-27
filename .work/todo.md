@@ -151,3 +151,20 @@ Note: Browser WAA backend deferred — Node playback via audio-speaker works. Br
 - [x] TypeScript declarations: hand-written .d.ts with full API types
 - [ ] Verify wavearea integration end-to-end — deferred to wavearea v2 migration
 - [ ] Publish v2.0.0
+
+
+## Known Defects
+
+- [ ] `onprogress` is not truly progressive — full decode happens first, then onprogress fires per-page. Should stream chunks as they decode (requires audio-decode streaming integration).
+- [ ] `energy` index field is plain RMS² (`sum(v²)/count`), not K-weighted. `loudness()` claims LUFS but operates on unweighted energy. Fix: either rename to approximate RMS loudness, or implement K-weighting filter (digital-filter dep), or make energy a pluggable index field.
+- [ ] `estimateDecodedSize` uses crude 10:1 heuristic. Could check audio-type for format-specific ratios.
+
+
+## Post-v2 Roadmap
+
+- [ ] CLI: `npx audio` — sox-style, ops as commands, plugin auto-discovery, pipe support
+- [ ] Index extensions: `audio.index(name, fn)` — pluggable analysis fields (pitch, kEnergy, BPM, etc.)
+- [ ] Macros: serialized edit lists, `--macro` CLI flag
+- [ ] Structural custom ops: variable-length output blocks (time stretch, silence speedup)
+- [ ] Filter chain integration: digital-filter, audio-filter packages as audio.op()
+- [ ] True streaming decode: worker-based progressive decode with per-chunk onprogress
