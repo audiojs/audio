@@ -90,7 +90,7 @@ export interface AudioInstance {
   /** Pop last edit. Returns the removed edit, or null if empty. */
   undo(): EditOp | null
   /** Re-apply a previously undone edit */
-  redo(edit: EditOp): this
+  do(...edits: EditOp[]): this
   /** Serialize edits to JSON */
   toJSON(): { edits: EditOp[], sampleRate: number, channels: number, duration: number }
 }
@@ -116,13 +116,6 @@ export interface PlaybackController {
   stop(): void
 }
 
-export interface DefineOpts {
-  /** Number of custom args before offset/duration. 0 = a.name(offset?, duration?). 1 = a.name(arg, offset?, duration?). */
-  args?: number
-  /** If true, index survives this op (default false = dirty). */
-  index?: boolean
-}
-
 export interface AudioOpts {
   sampleRate?: number
   channels?: number
@@ -143,9 +136,8 @@ declare function audio(source: string | URL | ArrayBuffer | Uint8Array | Float32
 declare namespace audio {
   /** Sync entry — from PCM data, AudioBuffer, or silence */
   function from(source: Float32Array[] | AudioBuffer | number, opts?: AudioOpts): AudioInstance
-  /** Register custom sample op */
-  function op(name: string, fn: (block: Float32Array[], arg?: any, ctx?: { offset: number, sampleRate: number, blockSize: number }) => Float32Array[]): void
-  function op(name: string, opts: DefineOpts, fn: (block: Float32Array[], arg?: any, ctx?: { offset: number, sampleRate: number, blockSize: number }) => Float32Array[]): void
+  /** Register custom sample op. Init function takes params, returns block processor. */
+  function op(name: string, init: (...args: any[]) => (block: Float32Array[], ctx: { offset: number, sampleRate: number, blockSize: number }) => Float32Array[] | false | null): void
 }
 
 export default audio

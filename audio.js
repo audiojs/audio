@@ -32,17 +32,14 @@ audio.from = function(source, opts) {
   throw new TypeError('audio.from: expected Float32Array[], AudioBuffer, or number')
 }
 
-audio.op = function(name, optsOrFn, maybeFn) {
-  let opts = {}, fn
-  if (typeof optsOrFn === 'function') { fn = optsOrFn } else { opts = optsOrFn || {}; fn = maybeFn }
-  if (typeof fn !== 'function') throw new TypeError(`audio.op: expected function for '${name}'`)
+audio.op = function(name, init) {
+  if (typeof init !== 'function') throw new TypeError(`audio.op: expected function for '${name}'`)
   if (ops[name]) throw new Error(`audio.op: '${name}' already registered`)
-  ops[name] = { fn, args: opts.args || 0, index: !!opts.index, custom: true }
+  let nargs = init.length  // init params = op args count
+  ops[name] = { init, nargs, custom: true }
   proto[name] = function(...args) {
-    let def = ops[name], arg, offset, duration
-    if (def.args >= 1) { arg = args[0]; offset = args[1]; duration = args[2] }
-    else { offset = args[0]; duration = args[1] }
-    return pushEdit(this, { type: name, arg, offset, duration })
+    let opArgs = args.slice(0, nargs), offset = args[nargs], duration = args[nargs + 1]
+    return pushEdit(this, { type: name, args: opArgs, offset, duration })
   }
 }
 
@@ -350,18 +347,34 @@ function render(a, offset, duration) {
 
   // Apply edits
   for (let edit of a.edits) {
+    // Inline function via .do(fn)
+    if (edit.type === '_fn') {
+      let out = flat.map(ch => new Float32Array(ch))
+      for (let off = 0; off < out[0].length; off += BLOCK_SIZE) {
+        let be = Math.min(off + BLOCK_SIZE, out[0].length)
+        let block = out.map(ch => ch.subarray(off, be))
+        let result = edit.fn(block, { offset: off / sr, sampleRate: sr, blockSize: be - off })
+        if (result === false || result === null) break  // stop signal
+        if (result && result !== block) for (let c = 0; c < out.length; c++) out[c].set(result[c], off)
+      }
+      flat = out
+      continue
+    }
+
     let op = ops[edit.type]
     if (!op) throw new Error(`Unknown op: ${edit.type}`)
 
     if (op.custom) {
-      // Custom ops — apply per block within range
+      // Custom ops — init creates fresh processor per render (holds state between blocks)
+      let processor = op.init(...(edit.args || []))
       let s = edit.offset != null ? Math.round(edit.offset * sr) : 0
       let e = edit.duration != null ? s + Math.round(edit.duration * sr) : flat[0].length
       let out = flat.map(ch => new Float32Array(ch))
       for (let off = s; off < e; off += BLOCK_SIZE) {
         let be = Math.min(off + BLOCK_SIZE, e, out[0].length)
         let block = out.map(ch => ch.subarray(off, be))
-        let result = op.fn(block, edit.arg, { offset: off / sr, sampleRate: sr, blockSize: be - off })
+        let result = processor(block, { offset: off / sr, sampleRate: sr, blockSize: be - off })
+        if (result === false || result === null) break
         if (result && result !== block) for (let c = 0; c < out.length; c++) out[c].set(result[c], off)
       }
       flat = out
@@ -428,7 +441,13 @@ const proto = {
     this.onchange?.()
     return edit
   },
-  redo(edit) { return pushEdit(this, edit) },
+  do(...edits) {
+    for (let e of edits) {
+      if (typeof e === 'function') pushEdit(this, { type: '_fn', fn: e })
+      else pushEdit(this, e)
+    }
+    return this
+  },
 
   // Output — read() is the universal output. Format determines return type.
   async read(offset, duration, opts) {

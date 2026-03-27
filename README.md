@@ -57,16 +57,90 @@ a.trim(threshold?)            // → scans index → slice()
 a.normalize(targetDb?)        // → reads peak → gain()
 ```
 
-### Custom Ops
+### Inline Processing
+
+`do()` accepts edit objects, functions, or both — variadic:
 
 ```js
-audio.op('invert', (block) => {
-  for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] = -ch[i]
+// Inline function — one-off block processor
+a.do((block, ctx) => {
+  for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] *= 0.5
   return block
 })
 
-a.invert()        // chainable, serializable
-a.invert(2, 1)    // apply to range 2s..3s
+// Return false to stop early (eg. process until silence)
+a.do((block) => {
+  if (isSilent(block)) return false   // stop processing
+  return applyFilter(block)
+})
+
+// Mix edits and functions in one call
+a.do(
+  { type: 'trim' },
+  (block) => lowpass(block, 2000),
+  { type: 'normalize' }
+)
+```
+
+### Plugins
+
+Register named ops via `audio.op(name, init)`. The init function takes params, returns a block processor:
+
+```js
+// No params — init returns processor directly
+audio.op('invert', () => (block) => {
+  for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] = -ch[i]
+  return block
+})
+a.invert()
+a.invert(2, 1)         // apply to range 2s..3s
+
+// With params — closed over, available to every block
+audio.op('amplify', (factor) => (block) => {
+  for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] *= factor
+  return block
+})
+a.amplify(2)
+
+// Stateful — init creates fresh state per render (filter memory, etc.)
+audio.op('lowpass', (freq) => {
+  let prev = 0                  // state between blocks
+  return (block, ctx) => {
+    let rc = 1 / (2 * Math.PI * freq)
+    let dt = 1 / ctx.sampleRate
+    let a = dt / (rc + dt)
+    for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] = prev = prev + a * (ch[i] - prev)
+    return block
+  }
+})
+a.lowpass(2000)
+```
+
+A plugin is just a package that calls `audio.op()`:
+
+```js
+// audio-compress/index.js
+import audio from 'audio'
+audio.op('compress', (threshold, ratio) => (block, ctx) => { ... })
+```
+
+```js
+import 'audio-compress'
+a.compress(-20, 4)
+```
+
+### Macros
+
+Edits are serializable. `toJSON()` exports them, `do()` replays:
+
+```js
+// Save a processing recipe
+let recipe = a.gain(-3).trim().normalize().toJSON().edits
+
+// Apply to another file
+let b = await audio('other.mp3')
+b.do(...recipe)
+await b.save('processed.wav')
 ```
 
 ### Output
@@ -124,9 +198,10 @@ a.onchange       // callback
 ### History
 
 ```js
-a.undo()         // pop last edit, returns it
-a.redo(edit)     // re-apply an undone edit
-a.toJSON()       // serialize edits
+a.undo()                // pop last edit, returns it
+a.do(edit)              // push edit (re-apply, replay macro, inline fn)
+a.do(...edits)          // variadic — multiple edits at once
+a.toJSON()              // serialize edits
 ```
 
 ### Index

@@ -63,20 +63,22 @@ a.write(data, offset?)                      // overwrite region
 a.trim(threshold?)                          // → scans index → slice()
 a.normalize(targetDb = 0)                   // → reads index peak → gain()
 
-// Custom ops — audio.define(name, opts?, fn)
-audio.define('invert', (block) => {
+// Custom ops — audio.op(name, init)
+audio.op('invert', () => (block) => {
   for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] = -ch[i]
   return block
 })
 a.invert()                                  // whole audio
 a.invert(2, 1)                              // range 2s..3s
 
-// Output (async, copies)
+// Inline processing via .do()
+a.do((block) => { /* one-off transform */ return block })
+
+// Output (async — format determines return type)
 let pcm = await a.read(offset?, duration?)         // → Float32Array[]
-let raw = await a.read(0, 1, { format: 'int16' })  // → Int16Array[] (pcm-convert internally)
-let bytes = await a.encode('mp3')                  // → Uint8Array
-await a.save('/tmp/out.mp3')                       // Node path: encode + write file
-await a.save(fileHandle)                           // browser File System Access handle
+let raw = await a.read(0, 1, { format: 'int16' })  // → Int16Array[]
+let wav = await a.read({ format: 'wav' })          // → Uint8Array (encoded)
+await a.save('/tmp/out.mp3')                       // encode + write (format from ext)
 
 // Analyze (async — instant from index, materializes if needed)
 await a.limits(offset?, duration?)          // → {min, max}
@@ -103,7 +105,7 @@ a.sampleRate                                // Hz
 // Edit history
 a.edits                                     // active edit list (inspectable, readonly)
 a.undo()                                    // undo last edit (moves to redo stack)
-a.redo()                                    // redo (moves back to edits)
+a.do()                                    // redo (moves back to edits)
 a.version                                   // monotonic counter (increments on any edit change)
 a.onchange = () => {}                       // fired on edit/undo/redo
 a.toJSON()                                  // serialize edits
@@ -143,8 +145,8 @@ All prerequisites implemented. audio-play and audio-buffer-list absorbed into `a
 - `audio.from()` is the sync escape hatch — PCM-backed, always resident, never paged. Returns instance directly.
 - Index is always resident. Pages are not.
 - Custom ops are sample-only, block-local, and shape-preserving: same channel count in, same channel count out, same block lengths.
-- `a.edits` is inspectable state, not a mutation API. Only ops, `undo()`, and `redo()` change history.
-- `save(target)` persists to an explicit target only. Downloads/UI save flows belong above `audio`, typically on top of `encode()`.
+- `a.edits` is inspectable state, not a mutation API. Only ops, `undo()`, and `do()` change history.
+- `save(target)` persists to an explicit target only. Downloads/UI save flows belong above `audio`, on top of `read({ format })`.
 
 
 ## Architecture
@@ -246,50 +248,50 @@ All ops queue to `a.edits`. Three kinds internally:
 - `slice(offset, duration)` → new Audio
 - `insert(other, offset?)`, `remove(offset, duration)`, `pad(duration, {side})`, `repeat(times)`
 
-**Sample** (built-in + custom) — transform block values. Convention: `(arg, offset?, duration?)`:
+**Sample** (built-in + custom) — transform block values:
 - Built-in: `gain`, `fade`, `reverse`, `mix`, `write`
-- Custom: registered via `audio.define()`
+- Custom: registered via `audio.op()`
 
 **Smart** (built-in only) — analyze index, then queue a structural/sample op:
 - `trim(threshold?)` → scans index → queues `slice()`
 - `normalize(targetDb?)` → reads index peak → queues `gain()`
 
-### audio.define(name, opts?, fn)
+**Inline** — anonymous functions via `do()`:
+- `a.do((block, ctx) => ...)` — one-off block processor
+- Return `false`/`null` to stop early
 
-Register a custom sample op. Name and options first, function (often multi-line) last.
+### audio.op(name, init)
 
-`fn(block, arg?, ctx?) => block`
-- `block`: `[Float32Array, ...]` — this block's channels
-- `arg`: user's first argument (when `args: 1`)
-- `ctx`: `{ offset, sampleRate, blockSize }` — block's position
-
-`opts` (optional): `{ args, index }`
-- `args`: 0 (default) or 1. 0 = `a.name(offset?, duration?)`. 1 = `a.name(arg, offset?, duration?)`.
-- `index`: true = index survives this op. Default false (dirty, safe).
-
-Registration rules:
-- `name` must be a valid identifier, not already registered (built-in names reserved)
-- Sample ops only — must preserve channel count and block length
+Register a custom sample op. `init` takes params, returns a block processor. Fresh per render — closure holds state between blocks.
 
 ```js
-// Simplest — no opts needed
-audio.define('invert', (block) => {
+// No params
+audio.op('invert', () => (block) => {
   for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] = -ch[i]
   return block
 })
 a.invert()
 a.invert(2, 1)          // range 2s..3s
 
-// With arg — { args: 1 } means first user param is the op arg
-audio.define('eq', { args: 1 }, (block, { low, mid, high }, ctx) => { ... })
+// With params — closed over
+audio.op('eq', ({ low, mid, high }) => (block, ctx) => { ... })
 a.eq({ low: 3, high: -2 })
 a.eq({ low: 3 }, 10, 5)  // range 10s..15s
 
-// Index-safe
-audio.define('invert', { index: true }, (block) => { ... })
+// Stateful — fresh state per render (filter memory, running averages)
+audio.op('lowpass', (freq) => {
+  let prev = 0
+  return (block, ctx) => { /* IIR filter using prev */ return block }
+})
+a.lowpass(2000)
 ```
 
-Built-in sample ops use the same mechanism. A "plugin" is a package that calls `audio.define`.
+`init.length` (number of params) determines arg split: init params first, then offset/duration. A "plugin" is a package that calls `audio.op()`.
+
+Registration rules:
+- `name` must be a valid identifier, not already registered
+- Block processor must preserve channel count and block length
+- Return `false`/`null` from processor to stop early
 
 **Index-clean** — index stays valid with arithmetic adjustment:
 - `slice, insert, remove, pad, repeat` — structural: select/reorder index blocks
@@ -297,13 +299,13 @@ Built-in sample ops use the same mechanism. A "plugin" is a package that calls `
 - `reverse` — reorder index blocks, values unchanged
 - `trim` — scans index for boundaries, refines at sample level in boundary pages
 - `normalize` — reads `max(index.max)` → becomes gain op
-- Custom ops with `{ index: true }`
+- Custom ops declared index-safe
 
 **Index-dirty** (default for custom ops) — affected range stale, rebuilt on next analysis:
 - `fade` — position-dependent gain, can't update min/max without PCM
 - `mix` — combines two sources, index is not additive
 - `write` — arbitrary data injection
-- Custom ops without `{ index: true }` (dirty by default, safe)
+- Custom ops (dirty by default, safe)
 
 Dirty is **range-scoped**, not global. Every op carries offset/duration — engine marks only those index blocks as stale. `fade(0.5)` on a 2h file stales ~21 blocks out of ~310K. Analysis rebuilds only stale blocks.
 
@@ -421,22 +423,22 @@ What audio provides per track: non-destructive editing, undo, waveform index, pa
 
 ### Extending
 
-`audio.define()` is the extension mechanism — same one built-ins use internally. Future effect packages (audio-vst, audio-wam, audio-faust) just call it.
+`audio.op()` is the extension mechanism — same one built-ins use internally. Future effect packages (audio-vst, audio-wam, audio-faust) just call it.
 
 
 ## v2 Scope
 
 **Ships:**
 - `audio()` async canonical path + `audio.from()` sync resident fast path
-- `audio.define()` — register custom ops, explicit contract
-- 12 built-in ops (9 index-clean + 3 index-dirty) + custom via audio.define()
+- `audio.op()` — register custom ops, explicit contract
+- 12 built-in ops (9 index-clean + 3 index-dirty) + custom via audio.op()
 - Index: min + max + energy per block per channel, built during decode
 - Materialization: smart op resolution → structural → sample
-- Output: `read()` (with format option), `encode()`, `save(target)`
+- Output: `read()` (with format option — PCM or codec), `save(target)`
 - 3 analysis methods: always async (instant from index when clean, materializes when dirty)
 - Playback controllers via `play()`, parallel by default
 - `stream()` async iterator for streaming
-- `edits`, `undo()`, `redo()`, `version`, `onchange`, `toJSON()`
+- `edits`, `undo()`, `do()`, `version`, `onchange`, `toJSON()`
 - OPFS page cache for browser large files
 - node:test, JSDoc + .d.ts
 
@@ -545,7 +547,7 @@ Not sox/ffmpeg style (fixed set). Not forced install. Just: if it's there, it wo
 
 ### Macros
 
-Serialized edit lists. `toJSON().edits` exports, `redo(edit)` replays.
+Serialized edit lists. `toJSON().edits` exports, `do(edit)` replays.
 
 ```json
 [
@@ -564,7 +566,7 @@ In code:
 ```js
 let recipe = JSON.parse(fs.readFileSync('recipe.json'))
 let a = await audio('in.mp3')
-for (let edit of recipe) a.redo(edit)
+for (let edit of recipe) a.do(edit)
 await a.save('out.wav')
 ```
 
@@ -664,86 +666,70 @@ let podcast = [
 
 // Apply to any audio
 let a = await audio('episode.mp3')
-for (let edit of podcast) a.redo(edit)
+for (let edit of podcast) a.do(edit)
 await a.save('clean.mp3')
 ```
 
-No special macro API needed — `redo(edit)` already pushes edits. A "macro" is just an array of edit objects.
+No special macro API needed — `do(edit)` already pushes edits. A "macro" is just an array of edit objects.
 
 ### Conditional ops (smart processing)
 
-Ops that analyze audio and decide what to do:
+Ops that analyze and decide — the init closure enables this naturally:
 
 ```js
 // Speed up silence (podcast editing)
-audio.op('speedSilence', { args: 1 }, (block, { threshold, speedFactor }, ctx) => {
-  // If block is below threshold, compress time (return shorter block)
-  // This is a structural change — needs special handling
-})
-```
-
-Problem: current ops are shape-preserving (same block length in/out). Structural changes (time compression) can't be expressed as sample ops.
-
-**Solution: allow ops to return different-length blocks.** If an op returns a shorter block, the output timeline adjusts. This breaks the "shape-preserving" contract but enables powerful processing:
-
-```js
-audio.op('silenceSpeed', { args: 1, structural: true }, (block, opts, ctx) => {
+audio.op('silenceSpeed', (threshold, speed) => (block, ctx) => {
   let energy = block[0].reduce((s, v) => s + v * v, 0) / block[0].length
-  if (energy < opts.threshold) {
-    // Compress: keep every Nth sample
-    let factor = opts.speed || 4
-    return block.map(ch => ch.filter((_, i) => i % factor === 0))
+  if (energy < threshold) {
+    return block.map(ch => ch.filter((_, i) => i % speed === 0))
   }
   return block
 })
 ```
 
-This is a post-v2 extension. For v2, shape-preserving ops cover the common case.
+Post-v2: allow ops to return different-length blocks (structural custom ops). For v2, shape-preserving covers the common case.
 
 ### Filter chains (DSP pipelines)
 
-Integration with `digital-filter`, `audio-filter`, etc.:
+The init pattern is perfect for stateful DSP — filter memory lives in the closure, fresh per render:
 
 ```js
 import { biquad } from 'digital-filter'
 
-// Register a filter as an op
-audio.op('lowpass', { args: 1 }, (block, freq, ctx) => {
-  let filter = biquad('lowpass', freq, ctx.sampleRate)
-  return block.map(ch => filter(ch))
+audio.op('lowpass', (freq) => {
+  let filter = biquad('lowpass', freq)  // filter state lives here
+  return (block, ctx) => block.map(ch => filter(ch))
 })
 
-a.lowpass(2000)  // chainable, serializable
+a.lowpass(2000)  // chainable, serializable, stateful across blocks
 ```
 
-Filters are just ops. The `digital-filter` package provides the DSP, `audio.op()` provides the integration. No special filter API needed.
+Filters are just ops. `digital-filter` provides DSP, `audio.op()` provides integration. No special filter API.
 
 
-## Plugin Contract (revised)
+## Plugin Contract
 
-With index extensions and structural ops, the plugin contract evolves:
+`audio.op(name, init)` — one pattern for everything.
 
 ```js
-audio.op(name, opts?, fn)
+audio.op(name, init)
+// init(...params) → processor(block, ctx) → block | false | null
 ```
 
-**opts:**
-- `args: 0 | 1` — calling convention
-- `index: true | false | { field: rule, ... }` — per-field index behavior
-  - `true` = all fields clean
-  - `false` = all fields dirty (default)
-  - `{ min: true, max: true, energy: false, pitch: null }` = per-field
-- `structural: false` — if true, op may change block length (post-v2)
+- `init.length` determines arg split: init params, then offset/duration
+- Init runs at render time — fresh closure per materialization
+- Closure holds state between blocks (filter memory, running averages)
+- Processor returns `block` (continue), `false`/`null` (stop early)
+- All custom ops are index-dirty by default (safe). Index extensions handle per-field rules separately.
 
-**Example:**
 ```js
-audio.op('compress', { args: 1, index: { min: false, max: false, energy: false } }, (block, opts, ctx) => {
-  // Compressor changes dynamics — min/max/energy all affected
-  ...
+// Plugin package — just a file that calls audio.op()
+import audio from 'audio'
+audio.op('compress', (threshold, ratio) => {
+  let env = 0  // envelope follower state
+  return (block, ctx) => { /* compression with stateful envelope */ return block }
 })
 ```
-
-For most ops, `index: false` (the default) is correct and safe. Only ops that provably preserve specific fields need the per-field declaration. This keeps the simple case simple.
 
 
 ## Open Questions
