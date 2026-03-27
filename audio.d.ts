@@ -150,3 +150,12 @@ declare namespace audio {
 }
 
 export default audio
+
+/** OPFS-backed cache backend for large files (browser only) */
+export function opfsCache(dirName?: string): Promise<{
+  read(i: number): Promise<Float32Array[]>
+  write(i: number, data: Float32Array[]): Promise<void>
+  has(i: number): Promise<boolean>
+  evict(i: number): Promise<void>
+  clear(): Promise<void>
+}>
