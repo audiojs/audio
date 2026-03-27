@@ -102,7 +102,7 @@ function fromChannels(channelData, opts = {}) {
 
 function fromSilence(seconds, opts = {}) {
   let sr = opts.sampleRate || 44100, ch = opts.channels || 1
-  return fromChannels(Array.from({ length: ch }, () => new Float32Array(Math.round(seconds * sr))), { sampleRate: sr })
+  return fromChannels(Array.from({ length: ch }, () => new Float32Array(Math.round(seconds * sr))), { ...opts, sampleRate: sr })
 }
 
 async function fromEncoded(buf, opts = {}) {
@@ -153,7 +153,8 @@ function buildIndex(a) {
     blockSize: BLOCK_SIZE,
     min: Array.from({ length: ch }, () => new Float32Array(totalBlocks)),
     max: Array.from({ length: ch }, () => new Float32Array(totalBlocks)),
-    energy: Array.from({ length: ch }, () => new Float32Array(totalBlocks)),
+    energy: Array.from({ length: ch }, () => new Float32Array(totalBlocks)),  // mean square (RMS²)
+
   }
   let bi = 0
   for (let page of a.pages) {
@@ -195,15 +196,6 @@ function evictToFit(a) {
     current -= pageBytes(page)
     page.data = null
   }
-}
-
-async function ensurePage(a, pageIdx) {
-  let page = a.pages[pageIdx]
-  if (page.data) return // already resident
-  if (!a.cache?.has(pageIdx)) throw new Error(`Page ${pageIdx} evicted with no cache backend`)
-  page.data = await a.cache.read(pageIdx)
-  // Re-evict if needed
-  evictToFit(a)
 }
 
 function reindex(a, startBlock, endBlock) {
@@ -638,4 +630,3 @@ function estimateDecodedSize(encodedBytes) {
 
 const DEFAULT_BUDGET = 500 * 1024 * 1024  // 500MB
 
-export { proto as Audio }

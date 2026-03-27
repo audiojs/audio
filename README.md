@@ -118,9 +118,14 @@ a.length         // total samples
 a.edits          // edit list (inspectable)
 a.version        // increments on edit/undo
 a.onchange       // callback
+```
+
+### History
+
+```js
+a.undo()         // pop last edit, returns it
+a.redo(edit)     // re-apply an undone edit
 a.toJSON()       // serialize edits
-a.undo()         // returns popped edit
-a.redo(edit)    // re-apply an undone edit
 ```
 
 ### Index
@@ -131,7 +136,7 @@ Always-resident summaries built during decode. Powers analysis and waveform disp
 a.index.blockSize   // 1024
 a.index.min         // [Float32Array, ...] per-channel, per-block
 a.index.max
-a.index.energy      // K-weighted mean square per block
+a.index.energy      // mean square energy per block (for loudness)
 ```
 
 ## Physical Units
