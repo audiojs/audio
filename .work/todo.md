@@ -155,9 +155,11 @@ Note: Browser WAA backend deferred — Node playback via audio-speaker works. Br
 
 ## Known Defects
 
-- [ ] `onprogress` is not truly progressive — full decode happens first, then onprogress fires per-page. Should stream chunks as they decode (requires audio-decode streaming integration).
+- [x] `onprogress` now `await`s the callback, yielding between pages so consumers can render progressively. True streaming decode (per-chunk from audio-decode) deferred to post-v2.
 - [ ] `energy` index field is plain RMS² (`sum(v²)/count`), not K-weighted. `loudness()` claims LUFS but operates on unweighted energy. Fix: either rename to approximate RMS loudness, or implement K-weighting filter (digital-filter dep), or make energy a pluggable index field.
-- [ ] `estimateDecodedSize` uses crude 10:1 heuristic. Could check audio-type for format-specific ratios.
+- [x] `estimateDecodedSize` now peeks at format magic bytes (RIFF/FORM→2×, fLaC→5×, lossy→20×) instead of blanket 10:1×4. WAV files no longer falsely trigger OPFS caching.
+- [x] Structural ops (slice, remove, insert, pad, repeat) were incorrectly marked `index: true`. Fixed — now index-dirty (global rebuild on analysis). Was a silent correctness bug: analysis after structural ops returned stale index data.
+- [x] `a.duration` / `a.length` / `a.channels` now reflect edits. `length` getter walks edit list to compute effective sample count. `channels` getter tracks remix ops. `sourceLength` stores raw decoded length for internal use. Undo restores correctly.
 
 
 ## Post-v2 Roadmap
