@@ -294,22 +294,54 @@ Registration rules:
 - Return `false`/`null` from processor to stop early
 
 **Index-clean** — index stays valid with arithmetic adjustment:
-- `slice, insert, remove, pad, repeat` — structural: select/reorder index blocks
 - `gain` — shift min/max/energy by dB offset
-- `reverse` — reorder index blocks, values unchanged
-- `trim` — scans index for boundaries, refines at sample level in boundary pages
+- `reverse` — reorder index blocks within range, values unchanged
+- `trim` — scans index for boundaries, refines at sample level in boundary pages (then becomes a slice)
 - `normalize` — reads `max(index.max)` → becomes gain op
-- Custom ops declared index-safe
 
-**Index-dirty** (default for custom ops) — affected range stale, rebuilt on next analysis:
+**Index-dirty (range-scoped)** — affected blocks stale, rebuilt on next analysis:
 - `fade` — position-dependent gain, can't update min/max without PCM
 - `mix` — combines two sources, index is not additive
 - `write` — arbitrary data injection
 - Custom ops (dirty by default, safe)
 
-Dirty is **range-scoped**, not global. Every op carries offset/duration — engine marks only those index blocks as stale. `fade(0.5)` on a 2h file stales ~21 blocks out of ~310K. Analysis rebuilds only stale blocks.
+Range-scoped: `fade(0.5)` on a 2h file stales ~21 blocks out of ~310K. Analysis rebuilds only stale blocks.
 
-**Rule:** analysis is always async. When no stale blocks, resolves instantly from index. When stale blocks exist, materializes + reindexes only those blocks, then answers. Uniform return type.
+**Index-dirty (global)** — entire index invalid, full rebuild on next analysis:
+- `slice, insert, remove, pad, repeat` — structural ops shift the output timeline. Block N no longer corresponds to the same audio position. The index must be fully rebuilt from materialized output.
+
+This is the key distinction: sample ops dirty a *range*. Structural ops dirty *everything* — because block boundaries shift.
+
+**When range values fall between blocks:** Materialization works at sample level — exact sample positions via `Math.round(offset * sr)`. No block alignment issue for the PCM output. For index dirty tracking, ranges expand to full blocks via floor/ceil. Slightly conservative (reindexes a bit more than needed), but correct.
+
+**Rule:** analysis is always async. When no stale blocks, resolves instantly from index. When stale blocks exist, materializes + reindexes affected blocks (range-scoped) or all blocks (structural). Uniform return type.
+
+
+### Structural custom ops
+
+Current custom ops (via `audio.op()`) are sample-level: they process blocks, preserve shape. Structural ops (insert, remove, pad, repeat, slice) change the timeline and are built-in only.
+
+**Problem:** users may need custom structural ops — time stretching, silence compression, resampling. These change audio length.
+
+**Approach:** allow the init function to return a *timeline modifier* instead of a block processor, signaled by returning a different shape:
+
+```js
+// Sample op (current) — returns block processor
+audio.op('invert', () => (block, ctx) => { ... return block })
+
+// Structural op (future) — returns timeline modifier
+audio.op('silenceSpeed', (threshold, speed) => ({
+  structural: true,
+  process(channels, sr) {
+    // receives full channel arrays, returns modified arrays (different length ok)
+    return channels.map(ch => compressSilence(ch, threshold, speed, sr))
+  }
+}))
+```
+
+The distinction: if init returns a function → sample op (per block). If init returns an object with `structural: true` → structural op (full arrays). Structural custom ops make the index globally dirty.
+
+Post-v2 — the sample op pattern covers the common case.
 
 ### Materialization
 

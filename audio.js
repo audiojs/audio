@@ -9,34 +9,50 @@
 
 import decode from 'audio-decode'
 import encode from 'audio-encode'
+import convert from 'pcm-convert'
+import AudioBuffer from 'audio-buffer'
+import { remix as remixChannels } from 'audio-buffer/util'
 
+/** Samples per page (2^16) */
 export const PAGE_SIZE = 65536
+/** Samples per index block */
 export const BLOCK_SIZE = 1024
+
+// BS.1770 loudness constants
+const GATE_WINDOW = 0.4, ABS_GATE = -70, REL_GATE = -10, LUFS_OFFSET = -0.691
 
 
 // ── Entry Points ─────────────────────────────────────────────────────────
 
+/** Create audio from any source. Always async. File/URL/bytes → decode. PCM/number → wrap. */
 export default async function audio(source, opts = {}) {
-  if (Array.isArray(source) && source[0] instanceof Float32Array) return Promise.resolve(fromChannels(source, opts))
-  if (typeof source === 'number') return Promise.resolve(fromSilence(source, opts))
+  if (Array.isArray(source) && source[0] instanceof Float32Array) return fromChannels(source, opts)
+  if (typeof source === 'number') return fromSilence(source, opts)
   return fromEncoded(await resolve(source), opts)
 }
 
+/** Sync creation from PCM data, AudioBuffer, audio instance, or seconds of silence. */
 audio.from = function(source, opts) {
   if (Array.isArray(source) && source[0] instanceof Float32Array) return fromChannels(source, opts)
   if (typeof source === 'number') return fromSilence(source, opts)
+  if (source?.pages) {
+    // Clone another audio instance — renders edits into fresh PCM
+    let pcm = render(source)
+    return fromChannels(pcm, { sampleRate: source.sampleRate, ...opts })
+  }
   if (source?.getChannelData) {
     let chs = Array.from({ length: source.numberOfChannels }, (_, i) => new Float32Array(source.getChannelData(i)))
     return fromChannels(chs, { sampleRate: source.sampleRate, ...opts })
   }
-  throw new TypeError('audio.from: expected Float32Array[], AudioBuffer, or number')
+  throw new TypeError('audio.from: expected Float32Array[], AudioBuffer, audio instance, or number')
 }
 
+/** Register a named op. init(...params) → processor(channels, ctx) → channels. */
 audio.op = function(name, init) {
   if (typeof init !== 'function') throw new TypeError(`audio.op: expected function for '${name}'`)
   if (ops[name]) throw new Error(`audio.op: '${name}' already registered`)
   let nargs = init.length  // init params = op args count
-  ops[name] = { init, nargs, custom: true }
+  ops[name] = { init, nargs }
   proto[name] = function(...args) {
     let opArgs = args.slice(0, nargs), offset = args[nargs], duration = args[nargs + 1]
     return pushEdit(this, { type: name, args: opArgs, offset, duration })
@@ -46,6 +62,7 @@ audio.op = function(name, init) {
 
 // ── Source Resolution (browser + node) ───────────────────────────────────
 
+/** Resolve source to ArrayBuffer. Fetch for URLs/browser, fs for Node file paths. */
 async function resolve(source) {
   if (source instanceof ArrayBuffer) return source
   if (source instanceof Uint8Array) return source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength)
@@ -70,12 +87,13 @@ async function resolve(source) {
 
 // ── Create ───────────────────────────────────────────────────────────────
 
-function create(pages, sampleRate, numberOfChannels, length, source, opts = {}) {
+/** Create audio instance with pages, index, and metadata. */
+function create(pages, sampleRate, numberOfChannels, length, source, opts = {}, pcm) {
   let a = Object.create(proto)
   a.pages = pages
   a.sampleRate = sampleRate
   a.numberOfChannels = numberOfChannels
-  a.length = length
+  a._len = length
   a.source = source
   a.storage = opts.storage || 'memory'
   a.cache = opts.cache || null         // cache backend: { read(i), write(i, data), has(i), evict(i) }
@@ -83,31 +101,32 @@ function create(pages, sampleRate, numberOfChannels, length, source, opts = {}) 
   a.edits = []
   a.version = 0
   a.onchange = null
-  a.index = buildIndex(a)
+  a.index = buildIndex(pcm, numberOfChannels)
 
   // Auto-evict if budget exceeded
   if (a.cache && a.budget < Infinity) evictToFit(a)
   return a
 }
 
+/** Create from planar Float32Array channels. Split into pages, build index. */
 function fromChannels(channelData, opts = {}) {
-  let sr = opts.sampleRate || 44100, len = channelData[0].length, pages = []
-  for (let off = 0; off < len; off += PAGE_SIZE)
-    pages.push({ data: channelData.map(ch => ch.slice(off, Math.min(off + PAGE_SIZE, len))) })
-  return create(pages, sr, channelData.length, len, null, opts)
+  let sr = opts.sampleRate || 44100
+  return create(toPages(channelData), sr, channelData.length, channelData[0].length, null, opts, channelData)
 }
 
+/** Create silence of given duration. */
 function fromSilence(seconds, opts = {}) {
   let sr = opts.sampleRate || 44100, ch = opts.channels || 1
   return fromChannels(Array.from({ length: ch }, () => new Float32Array(Math.round(seconds * sr))), { ...opts, sampleRate: sr })
 }
 
+/** Decode encoded audio, build pages + index. Auto-detect OPFS for large files. */
 async function fromEncoded(buf, opts = {}) {
   let storage = opts.storage || 'auto'
 
   // Auto-detect: use OPFS for large files in browser
   if (storage === 'auto' || storage === 'persistent') {
-    let estimatedSize = estimateDecodedSize(buf.byteLength)
+    let estimatedSize = estimateDecodedSize(buf)
     let budget = opts.budget ?? DEFAULT_BUDGET
     if (estimatedSize > budget && !opts.cache) {
       try {
@@ -122,18 +141,15 @@ async function fromEncoded(buf, opts = {}) {
   }
 
   let { channelData, sampleRate } = await decode(buf)
-  let pages = [], len = channelData[0].length
-  for (let off = 0; off < len; off += PAGE_SIZE)
-    pages.push({ data: channelData.map(ch => ch.slice(off, Math.min(off + PAGE_SIZE, len))) })
-  let a = create(pages, sampleRate, channelData.length, len, buf, opts)
+  let a = create(toPages(channelData), sampleRate, channelData.length, channelData[0].length, buf, opts, channelData)
 
   if (opts.onprogress) {
     let blocks = a.index.min[0].length, bpp = Math.ceil(PAGE_SIZE / BLOCK_SIZE), prev = 0
     for (let p = 0; p < a.pages.length; p++) {
       let end = Math.min(prev + bpp, blocks)
-      opts.onprogress({
+      await opts.onprogress({
         delta: { fromBlock: prev, min: a.index.min.map(arr => arr.slice(prev, end)), max: a.index.max.map(arr => arr.slice(prev, end)), energy: a.index.energy.map(arr => arr.slice(prev, end)) },
-        offset: end * BLOCK_SIZE / a.sampleRate, total: a.length / a.sampleRate,
+        offset: end * BLOCK_SIZE / a.sampleRate, total: a._len / a.sampleRate,
       })
       prev = end
     }
@@ -144,27 +160,29 @@ async function fromEncoded(buf, opts = {}) {
 
 // ── Index ────────────────────────────────────────────────────────────────
 
-function buildIndex(a) {
-  let ch = a.numberOfChannels, totalBlocks = Math.ceil(a.length / BLOCK_SIZE)
+/** Split channels into pages of PAGE_SIZE samples. */
+function toPages(channelData) {
+  let len = channelData[0].length, pages = []
+  for (let off = 0; off < len; off += PAGE_SIZE)
+    pages.push({ data: channelData.map(ch => ch.slice(off, Math.min(off + PAGE_SIZE, len))) })
+  return pages
+}
+
+/** Build index from flat PCM: per-channel per-block min, max, energy (RMS²). */
+function buildIndex(pcm, ch) {
+  let len = pcm[0].length, totalBlocks = Math.ceil(len / BLOCK_SIZE)
   let idx = {
     blockSize: BLOCK_SIZE,
     min: Array.from({ length: ch }, () => new Float32Array(totalBlocks)),
     max: Array.from({ length: ch }, () => new Float32Array(totalBlocks)),
-    energy: Array.from({ length: ch }, () => new Float32Array(totalBlocks)),  // mean square (RMS²)
-
+    energy: Array.from({ length: ch }, () => new Float32Array(totalBlocks)),
   }
-  let bi = 0
-  for (let page of a.pages) {
-    if (!page.data) { bi += Math.ceil(PAGE_SIZE / BLOCK_SIZE); continue }
-    let pLen = page.data[0].length
-    for (let off = 0; off < pLen; off += BLOCK_SIZE) {
-      let end = Math.min(off + BLOCK_SIZE, pLen)
-      for (let c = 0; c < ch; c++) {
-        let s = page.data[c], mn = Infinity, mx = -Infinity, sum = 0
-        for (let i = off; i < end; i++) { let v = s[i]; if (v < mn) mn = v; if (v > mx) mx = v; sum += v * v }
-        idx.min[c][bi] = mn; idx.max[c][bi] = mx; idx.energy[c][bi] = sum / (end - off)
-      }
-      bi++
+  for (let bi = 0; bi < totalBlocks; bi++) {
+    let off = bi * BLOCK_SIZE, end = Math.min(off + BLOCK_SIZE, len)
+    for (let c = 0; c < ch; c++) {
+      let mn = Infinity, mx = -Infinity, sum = 0
+      for (let i = off; i < end; i++) { let v = pcm[c][i]; if (v < mn) mn = v; if (v > mx) mx = v; sum += v * v }
+      idx.min[c][bi] = mn; idx.max[c][bi] = mx; idx.energy[c][bi] = sum / (end - off)
     }
   }
   return idx
@@ -172,15 +190,18 @@ function buildIndex(a) {
 
 // ── Page Cache (LRU eviction + restore) ──────────────────────────────────
 
+/** Bytes of PCM data in a page (0 if evicted). */
 function pageBytes(page) {
   if (!page.data) return 0
   return page.data.reduce((sum, ch) => sum + ch.byteLength, 0)
 }
 
+/** Total resident PCM bytes across all pages. */
 function residentBytes(a) {
   return a.pages.reduce((sum, p) => sum + pageBytes(p), 0)
 }
 
+/** Evict pages to cache until resident bytes fit within budget. LRU from start. */
 function evictToFit(a) {
   if (!a.cache || a.budget === Infinity) return
   // LRU: evict oldest-accessed pages first (simple: evict from start, skip recently used)
@@ -195,33 +216,17 @@ function evictToFit(a) {
   }
 }
 
-function reindex(a, startBlock, endBlock) {
-  let pcm = render(a, startBlock * BLOCK_SIZE / a.sampleRate, (endBlock - startBlock) * BLOCK_SIZE / a.sampleRate)
-  for (let b = startBlock; b < endBlock && b < a.index.min[0].length; b++) {
-    let off = (b - startBlock) * BLOCK_SIZE, end = Math.min(off + BLOCK_SIZE, pcm[0].length)
-    for (let c = 0; c < a.numberOfChannels; c++) {
-      let mn = Infinity, mx = -Infinity, sum = 0
-      for (let i = off; i < end; i++) { let v = pcm[c][i]; if (v < mn) mn = v; if (v > mx) mx = v; sum += v * v }
-      a.index.min[c][b] = mn; a.index.max[c][b] = mx; a.index.energy[c][b] = sum / (end - off)
-    }
-  }
-}
-
-function staleRange(a) {
-  let stale = null
-  for (let edit of a.edits) {
-    let op = ops[edit.type]
-    if (op?.index) continue  // index-safe — skip
-    let s = edit.offset != null ? Math.floor(edit.offset * a.sampleRate / BLOCK_SIZE) : 0
-    let e = edit.duration != null ? Math.ceil((edit.offset + edit.duration) * a.sampleRate / BLOCK_SIZE) : a.index.min[0].length
-    if (!stale) stale = [s, e]; else { stale[0] = Math.min(stale[0], s); stale[1] = Math.max(stale[1], e) }
-  }
-  return stale
+/** Rebuild index from materialized output when edits exist. */
+function refreshIndex(a) {
+  if (!a.edits.length) return
+  let pcm = render(a)
+  a.index = buildIndex(pcm, pcm.length)
 }
 
 
 // ── Edit History ─────────────────────────────────────────────────────────
 
+/** Push edit to list, bump version, notify. */
 function pushEdit(a, edit) {
   a.edits.push(edit)
   a.version++
@@ -231,111 +236,19 @@ function pushEdit(a, edit) {
 
 
 // ── Ops Registry ─────────────────────────────────────────────────────────
-// Built-in ops: fn(chs, edit, sr) → chs. Custom ops (via audio.op) marked with custom: true.
+// All ops registered via audio.op(). init(...params) → processor(channels, ctx) → channels.
 
-const ops = {
-  slice: { index: true, fn(chs, e, sr) {
-    let s = Math.round((e.offset || 0) * sr)
-    let end = e.duration != null ? s + Math.round(e.duration * sr) : chs[0].length
-    return chs.map(ch => ch.slice(s, Math.min(end, ch.length)))
-  }},
-
-  remove: { index: true, fn(chs, e, sr) {
-    let s = Math.round((e.offset || 0) * sr), d = Math.round((e.duration || 0) * sr)
-    return chs.map(ch => {
-      let o = new Float32Array(ch.length - d)
-      o.set(ch.subarray(0, s))
-      o.set(ch.subarray(s + d), s)
-      return o
-    })
-  }},
-
-  insert: { index: true, fn(chs, e, sr) {
-    let p = Math.round((e.offset || 0) * sr), src = render(e.source)
-    return chs.map((ch, c) => {
-      let ins = src[c] || new Float32Array(src[0].length)
-      let o = new Float32Array(ch.length + ins.length)
-      o.set(ch.subarray(0, p))
-      o.set(ins, p)
-      o.set(ch.subarray(p), p + ins.length)
-      return o
-    })
-  }},
-
-  pad: { index: true, fn(chs, e, sr) {
-    let n = Math.round((e.duration || 0) * sr)
-    return chs.map(ch => {
-      let o = new Float32Array(ch.length + n)
-      if (e.side === 'start') o.set(ch, n); else o.set(ch)
-      return o
-    })
-  }},
-
-  repeat: { index: true, fn(chs, e) {
-    let t = e.times || 1
-    return chs.map(ch => {
-      let o = new Float32Array(ch.length * (t + 1))
-      for (let i = 0; i <= t; i++) o.set(ch, i * ch.length)
-      return o
-    })
-  }},
-
-  gain: { index: true, fn(chs, e, sr) {
-    let f = 10 ** ((e.db || 0) / 20)
-    let s = e.offset != null ? Math.round(e.offset * sr) : 0
-    let end = e.duration != null ? s + Math.round(e.duration * sr) : chs[0].length
-    return chs.map(ch => {
-      let o = new Float32Array(ch)
-      for (let i = s; i < Math.min(end, o.length); i++) o[i] *= f
-      return o
-    })
-  }},
-
-  fade: { fn(chs, e, sr) {
-    let fadeIn = e.duration > 0, n = Math.round(Math.abs(e.duration) * sr)
-    return chs.map(ch => {
-      let o = new Float32Array(ch)
-      if (fadeIn) for (let i = 0; i < Math.min(n, o.length); i++) o[i] *= i / n
-      else { let s = o.length - n; for (let i = Math.max(0, s); i < o.length; i++) o[i] *= (o.length - i) / n }
-      return o
-    })
-  }},
-
-  reverse: { index: true, fn(chs, e, sr) {
-    let s = e.offset != null ? Math.round(e.offset * sr) : 0
-    let end = e.duration != null ? s + Math.round(e.duration * sr) : chs[0].length
-    return chs.map(ch => { let o = new Float32Array(ch); o.subarray(s, Math.min(end, o.length)).reverse(); return o })
-  }},
-
-  mix: { fn(chs, e, sr) {
-    let p = e.offset != null ? Math.round(e.offset * sr) : 0, src = render(e.source)
-    return chs.map((ch, c) => {
-      let o = new Float32Array(ch), m = src[c] || src[0]
-      let n = e.duration != null ? Math.round(e.duration * sr) : m.length
-      for (let i = 0; i < Math.min(n, m.length) && p + i < o.length; i++) o[p + i] += m[i]
-      return o
-    })
-  }},
-
-  write: { fn(chs, e, sr) {
-    let p = e.offset != null ? Math.round(e.offset * sr) : 0
-    return chs.map((ch, c) => {
-      let o = new Float32Array(ch)
-      let s = Array.isArray(e.data) ? (e.data[c] || e.data[0]) : e.data
-      for (let i = 0; i < s.length && p + i < o.length; i++) o[p + i] = s[i]
-      return o
-    })
-  }},
-}
+const ops = {}
 
 
 // ── Render (apply edits to source pages → PCM) ──────────────────────────
 
+/** Materialize audio: flatten pages → apply edits → extract range. */
 function render(a, offset, duration) {
   let sr = a.sampleRate, ch = a.numberOfChannels
 
   // Flatten pages — restore evicted pages from cache on demand
-  let flat = Array.from({ length: ch }, () => new Float32Array(a.length))
+  let flat = Array.from({ length: ch }, () => new Float32Array(a._len))
   let pos = 0
   for (let i = 0; i < a.pages.length; i++) {
     let page = a.pages[i]
@@ -345,43 +258,18 @@ function render(a, offset, duration) {
     pos += page.data[0].length
   }
 
-  // Apply edits
+  // Apply edits — one path for all ops
   for (let edit of a.edits) {
-    // Inline function via .do(fn)
-    if (edit.type === '_fn') {
-      let out = flat.map(ch => new Float32Array(ch))
-      for (let off = 0; off < out[0].length; off += BLOCK_SIZE) {
-        let be = Math.min(off + BLOCK_SIZE, out[0].length)
-        let block = out.map(ch => ch.subarray(off, be))
-        let result = edit.fn(block, { offset: off / sr, sampleRate: sr, blockSize: be - off })
-        if (result === false || result === null) break  // stop signal
-        if (result && result !== block) for (let c = 0; c < out.length; c++) out[c].set(result[c], off)
-      }
-      flat = out
-      continue
-    }
+    let processor = edit.type === '_fn'
+      ? edit.fn                           // inline via .do(fn)
+      : ops[edit.type]?.init(...(edit.args || []))  // registered via audio.op()
 
-    let op = ops[edit.type]
-    if (!op) throw new Error(`Unknown op: ${edit.type}`)
-
-    if (op.custom) {
-      // Custom ops — init creates fresh processor per render (holds state between blocks)
-      let processor = op.init(...(edit.args || []))
-      let s = edit.offset != null ? Math.round(edit.offset * sr) : 0
-      let e = edit.duration != null ? s + Math.round(edit.duration * sr) : flat[0].length
-      let out = flat.map(ch => new Float32Array(ch))
-      for (let off = s; off < e; off += BLOCK_SIZE) {
-        let be = Math.min(off + BLOCK_SIZE, e, out[0].length)
-        let block = out.map(ch => ch.subarray(off, be))
-        let result = processor(block, { offset: off / sr, sampleRate: sr, blockSize: be - off })
-        if (result === false || result === null) break
-        if (result && result !== block) for (let c = 0; c < out.length; c++) out[c].set(result[c], off)
-      }
-      flat = out
-    } else {
-      // Built-in ops — whole-audio transform
-      flat = op.fn(flat, edit, sr)
-    }
+    if (!processor) throw new Error(`Unknown op: ${edit.type}`)
+    // Normalize negative offset: -1 = 1s from end
+    let off = edit.offset != null && edit.offset < 0 ? flat[0].length / sr + edit.offset : edit.offset
+    let result = processor(flat, { offset: off, duration: edit.duration, sampleRate: sr })
+    if (result === false || result === null) continue  // skip this op
+    if (result) flat = result
   }
 
   // Extract range
@@ -396,42 +284,49 @@ function render(a, offset, duration) {
 // ── Prototype (methods on every audio instance) ──────────────────────────
 
 const proto = {
-  get duration() { return this.length / this.sampleRate },
-  get channels() { return this.numberOfChannels },
-
-  // Structural
-  slice(offset, duration) {
-    let child = create(this.pages, this.sampleRate, this.numberOfChannels, this.length, this.source)
-    child.index = this.index
-    return pushEdit(child, { type: 'slice', offset, duration })
+  get length() {
+    let len = this._len, sr = this.sampleRate
+    for (let { type, args = [], offset: off, duration: dur } of this.edits) {
+      if (type === 'crop') {
+        let s = off != null ? (off < 0 ? len / sr + off : off) : 0
+        len = dur != null ? Math.round(dur * sr) : len - Math.round(s * sr)
+      } else if (type === 'remove') len -= Math.round((dur || 0) * sr)
+      else if (type === 'insert') {
+        let n = typeof args[0] === 'number' ? Math.round(args[0] * sr) : args[0]?.length || 0
+        len += dur != null ? Math.min(n, Math.round(dur * sr)) : n
+      } else if (type === 'repeat') {
+        let t = args[0] || 1
+        if (off == null) len *= t + 1
+        else {
+          let s = off < 0 ? len / sr + off : off
+          len += (dur != null ? Math.round(dur * sr) : len - Math.round(s * sr)) * t
+        }
+      }
+    }
+    return len
   },
-  insert(other, offset) { return pushEdit(this, { type: 'insert', source: other, offset: offset ?? this.duration }) },
-  remove(offset, duration) { return pushEdit(this, { type: 'remove', offset, duration }) },
-  pad(duration, opts) { return pushEdit(this, { type: 'pad', duration, side: opts?.side || 'end' }) },
-  repeat(times) { return pushEdit(this, { type: 'repeat', times }) },
+  get duration() { return this.length / this.sampleRate },
+  get channels() {
+    let ch = this.numberOfChannels
+    for (let edit of this.edits) if (edit.type === 'remix') ch = edit.args[0]
+    return ch
+  },
 
-  // Sample
-  gain(db, offset, duration) { return pushEdit(this, { type: 'gain', db, offset, duration }) },
-  fade(dur) { return pushEdit(this, { type: 'fade', duration: dur }) },
-  reverse(offset, duration) { return pushEdit(this, { type: 'reverse', offset, duration }) },
-  mix(other, offset, duration) { return pushEdit(this, { type: 'mix', source: other, offset, duration }) },
-  write(data, offset) { return pushEdit(this, { type: 'write', data, offset }) },
-
-  // Smart
+  // Smart ops — analyze index, then queue a basic op
   trim(threshold = -40) {
     let thresh = 10 ** (threshold / 20), blocks = this.index.min[0].length
     let s = 0, e = blocks - 1
     for (; s < blocks; s++) if (isBlockLoud(this, s, thresh)) break
     for (; e >= s; e--) if (isBlockLoud(this, e, thresh)) break
     let ss = findThresholdCrossing(this, s, thresh, 'start'), se = findThresholdCrossing(this, e, thresh, 'end')
-    return pushEdit(this, { type: 'slice', offset: ss / this.sampleRate, duration: Math.max(0, (se - ss) / this.sampleRate) })
+    return pushEdit(this, { type: 'crop', args: [], offset: ss / this.sampleRate, duration: Math.max(0, (se - ss) / this.sampleRate) })
   },
   normalize(targetDb = 0) {
     let peak = 0
     for (let c = 0; c < this.numberOfChannels; c++)
       for (let i = 0; i < this.index.max[c].length; i++)
         peak = Math.max(peak, Math.abs(this.index.max[c][i]), Math.abs(this.index.min[c][i]))
-    return pushEdit(this, { type: 'gain', db: targetDb - (peak > 0 ? 20 * Math.log10(peak) : -Infinity) })
+    return pushEdit(this, { type: 'gain', args: [targetDb - (peak > 0 ? 20 * Math.log10(peak) : -Infinity)] })
   },
 
   undo() {
@@ -444,7 +339,14 @@ const proto = {
   do(...edits) {
     for (let e of edits) {
       if (typeof e === 'function') pushEdit(this, { type: '_fn', fn: e })
-      else pushEdit(this, e)
+      else if (e.args) pushEdit(this, e)  // new format: { type, args, offset?, duration? }
+      else {
+        // Old/macro format: { type, ...params }. Extract args from the op's init.
+        let { type, offset, duration, ...rest } = e
+        let op = ops[type]
+        let args = op ? Object.values(rest).slice(0, op.nargs) : []
+        pushEdit(this, { type, args, offset, duration })
+      }
     }
     return this
   },
@@ -457,12 +359,11 @@ const proto = {
     let fmt = opts?.format
     let pcm = render(this, offset, duration)
 
-    // Codec format → encode to bytes (replaces encode())
+    // Codec format → encode to bytes
     if (fmt && encode[fmt]) return encode[fmt](pcm, { sampleRate: this.sampleRate })
 
-    // PCM format conversion
-    if (fmt === 'int16') return pcm.map(ch => { let o = new Int16Array(ch.length); for (let i = 0; i < ch.length; i++) o[i] = Math.max(-32768, Math.min(32767, Math.round(ch[i] * 32767))); return o })
-    if (fmt === 'uint8') return pcm.map(ch => { let o = new Uint8Array(ch.length); for (let i = 0; i < ch.length; i++) o[i] = Math.round((ch[i] + 1) * 127.5); return o })
+    // PCM format conversion via pcm-convert
+    if (fmt) return pcm.map(ch => convert(ch, 'float32', fmt))
 
     return pcm
   },
@@ -477,7 +378,7 @@ const proto = {
 
   // Analysis
   async limits(offset, duration) {
-    let s = staleRange(this); if (s) reindex(this, s[0], s[1])
+    refreshIndex(this)
     let { min, max } = this.index
     let sb = offset != null ? Math.floor(offset * this.sampleRate / BLOCK_SIZE) : 0
     let eb = duration != null ? Math.ceil((offset + duration) * this.sampleRate / BLOCK_SIZE) : min[0].length
@@ -487,25 +388,25 @@ const proto = {
     return { min: mn, max: mx }
   },
   async loudness(offset, duration) {
-    let s = staleRange(this); if (s) reindex(this, s[0], s[1])
+    refreshIndex(this)
     let { energy } = this.index
     let sb = offset != null ? Math.floor(offset * this.sampleRate / BLOCK_SIZE) : 0
     let eb = duration != null ? Math.ceil((offset + duration) * this.sampleRate / BLOCK_SIZE) : energy[0].length
-    let winBlocks = Math.ceil(0.4 * this.sampleRate / BLOCK_SIZE), gates = []
+    let winBlocks = Math.ceil(GATE_WINDOW * this.sampleRate / BLOCK_SIZE), gates = []
     for (let i = sb; i < eb; i += winBlocks) {
       let we = Math.min(i + winBlocks, eb), sum = 0, n = 0
       for (let c = 0; c < this.numberOfChannels; c++) for (let j = i; j < we; j++) { sum += energy[c][j]; n++ }
       if (n > 0) gates.push(sum / n)
     }
-    let absT = 10 ** (-70 / 10), gated = gates.filter(g => g > absT)
+    let absT = 10 ** (ABS_GATE / 10), gated = gates.filter(g => g > absT)
     if (!gated.length) return -Infinity
     let mean = gated.reduce((a, b) => a + b, 0) / gated.length
-    let final = gated.filter(g => g > mean * 10 ** (-10 / 10))
+    let final = gated.filter(g => g > mean * 10 ** (REL_GATE / 10))
     if (!final.length) return -Infinity
-    return -0.691 + 10 * Math.log10(final.reduce((a, b) => a + b, 0) / final.length)
+    return LUFS_OFFSET + 10 * Math.log10(final.reduce((a, b) => a + b, 0) / final.length)
   },
   async peaks(count, opts) {
-    let s = staleRange(this); if (s) reindex(this, s[0], s[1])
+    refreshIndex(this)
     let { min, max } = this.index, ch = opts?.channel, total = min[0].length, bpp = total / count
     let outMin = new Float32Array(count), outMax = new Float32Array(count)
     let cS = ch != null ? ch : 0, cE = ch != null ? ch + 1 : this.numberOfChannels
@@ -581,12 +482,14 @@ const proto = {
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
+/** Check if any channel in this block exceeds threshold (for trim). */
 function isBlockLoud(a, block, thresh) {
   for (let c = 0; c < a.numberOfChannels; c++)
     if (Math.abs(a.index.max[c][block]) > thresh || Math.abs(a.index.min[c][block]) > thresh) return true
   return false
 }
 
+/** Find exact sample where audio crosses threshold within a block (trim precision). */
 function findThresholdCrossing(a, blockIdx, thresh, side) {
   let sampleStart = blockIdx * BLOCK_SIZE, pageIdx = Math.floor(sampleStart / PAGE_SIZE), page = a.pages[pageIdx]
   if (!page?.data) return sampleStart
@@ -646,11 +549,141 @@ export async function opfsCache(dirName = 'audio-cache') {
   }
 }
 
-// Estimate decoded PCM size from encoded buffer size and format heuristics
-function estimateDecodedSize(encodedBytes) {
-  // Rough: compressed formats ~10:1 ratio, WAV ~1:1. Assume 10:1 for anything non-trivial.
-  return encodedBytes * (encodedBytes > 100 ? 10 : 1) * 4  // Float32 = 4 bytes
+/** Rough estimate of decoded float32 byte count from encoded buffer. Peeks at format. */
+function estimateDecodedSize(buf) {
+  let h = new Uint8Array(buf, 0, 4), tag = String.fromCharCode(h[0], h[1], h[2], h[3])
+  if (tag === 'RIFF' || tag === 'FORM') return buf.byteLength * 2  // WAV/AIFF: int16→float32
+  if (tag === 'fLaC') return buf.byteLength * 5                     // FLAC: lossless
+  return buf.byteLength * 20                                        // lossy: MP3/OGG/AAC
 }
 
 const DEFAULT_BUDGET = 500 * 1024 * 1024  // 500MB
+
+
+// ── Built-in Ops ─────────────────────────────────────────────────────────
+// Registered via audio.op() — same mechanism as custom ops.
+
+audio.op('crop', () => (chs, { offset = 0, duration, sampleRate: sr }) => {
+  let s = Math.round(offset * sr)
+  let end = duration != null ? s + Math.round(duration * sr) : chs[0].length
+  return chs.map(ch => ch.slice(s, Math.min(end, ch.length)))
+})
+
+audio.op('remove', () => (chs, { offset = 0, duration = 0, sampleRate: sr }) => {
+  let s = Math.round(offset * sr), d = Math.round(duration * sr)
+  return chs.map(ch => {
+    let o = new Float32Array(ch.length - d)
+    o.set(ch.subarray(0, s))
+    o.set(ch.subarray(s + d), s)
+    return o
+  })
+})
+
+audio.op('insert', (source) => (chs, { offset, duration, sampleRate: sr }) => {
+    let src = typeof source === 'number'
+      ? Array.from({ length: chs.length }, () => new Float32Array(Math.round(source * sr)))
+      : render(source)
+    // Crop source to duration if specified
+    if (duration != null) {
+      let n = Math.round(duration * sr)
+      src = src.map(ch => ch.slice(0, n))
+    }
+    let p = Math.round((offset ?? chs[0].length / sr) * sr)
+    return chs.map((ch, c) => {
+      let ins = src[c] || new Float32Array(src[0].length)
+      let o = new Float32Array(ch.length + ins.length)
+      o.set(ch.subarray(0, p))
+      o.set(ins, p)
+      o.set(ch.subarray(p), p + ins.length)
+      return o
+    })
+})
+
+audio.op('repeat', (times) => (chs, { offset, duration, sampleRate: sr }) => {
+  let t = times || 1
+  if (offset == null) {
+    // Repeat whole audio
+    return chs.map(ch => {
+      let o = new Float32Array(ch.length * (t + 1))
+      for (let i = 0; i <= t; i++) o.set(ch, i * ch.length)
+      return o
+    })
+  }
+  // Repeat a segment in place: [before][segment × (t+1)][after]
+  let s = Math.round(offset * sr)
+  let e = duration != null ? s + Math.round(duration * sr) : chs[0].length
+  let segLen = e - s
+  return chs.map(ch => {
+    let o = new Float32Array(ch.length + segLen * t)
+    o.set(ch.subarray(0, s))
+    for (let i = 0; i <= t; i++) o.set(ch.subarray(s, e), s + i * segLen)
+    o.set(ch.subarray(e), s + (t + 1) * segLen)
+    return o
+  })
+})
+
+audio.op('gain', (db) => (chs, { offset, duration, sampleRate: sr }) => {
+  let f = 10 ** (db / 20)
+  let s = offset != null ? Math.round(offset * sr) : 0
+  let end = duration != null ? s + Math.round(duration * sr) : chs[0].length
+  return chs.map(ch => {
+    let o = new Float32Array(ch)
+    for (let i = s; i < Math.min(end, o.length); i++) o[i] *= f
+    return o
+  })
+})
+
+audio.op('fade', (dur, curve) => {
+  curve = curve || 'linear'
+  let curves = { linear: t => t, exp: t => t * t, log: t => Math.sqrt(t), cos: t => (1 - Math.cos(t * Math.PI)) / 2 }
+  let fn = curves[curve] || curves.linear
+  let fadeIn = dur > 0, n = Math.abs(dur)
+
+  return (chs, { offset = 0, sampleRate: sr }) => {
+    let s = Math.round(offset * sr)
+    let samples = Math.round(n * sr)
+    return chs.map(ch => {
+      let o = new Float32Array(ch)
+      for (let i = 0; i < samples && s + i < o.length; i++) {
+        o[Math.max(0, s + i)] *= fn(fadeIn ? i / samples : 1 - i / samples)
+      }
+      return o
+    })
+  }
+})
+
+audio.op('reverse', () => (chs, { offset, duration, sampleRate: sr }) => {
+  let s = offset != null ? Math.round(offset * sr) : 0
+  let end = duration != null ? s + Math.round(duration * sr) : chs[0].length
+  return chs.map(ch => { let o = new Float32Array(ch); o.subarray(s, Math.min(end, o.length)).reverse(); return o })
+})
+
+audio.op('mix', (source) => (chs, { offset, duration, sampleRate: sr }) => {
+  let p = offset != null ? Math.round(offset * sr) : 0, src = render(source)
+  return chs.map((ch, c) => {
+    let o = new Float32Array(ch), m = src[c] || src[0]
+    let n = duration != null ? Math.round(duration * sr) : m.length
+    for (let i = 0; i < Math.min(n, m.length) && p + i < o.length; i++) o[p + i] += m[i]
+    return o
+  })
+})
+
+audio.op('write', (data) => (chs, { offset = 0, sampleRate: sr }) => {
+  let p = Math.round(offset * sr)
+  return chs.map((ch, c) => {
+    let o = new Float32Array(ch)
+    let s = Array.isArray(data) ? (data[c] || data[0]) : data
+    for (let i = 0; i < s.length && p + i < o.length; i++) o[p + i] = s[i]
+    return o
+  })
+})
+
+/** Remix channels: mono→stereo, stereo→mono, etc. Uses audio-buffer/util remix. */
+audio.op('remix', (channels) => (chs, { sampleRate: sr }) => {
+  // Bridge to AudioBuffer for remix
+  let buf = new AudioBuffer(chs.length, chs[0].length, sr)
+  for (let c = 0; c < chs.length; c++) buf.getChannelData(c).set(chs[c])
+  let out = remixChannels(buf, channels)
+  return Array.from({ length: out.numberOfChannels }, (_, c) => new Float32Array(out.getChannelData(c)))
+})
 

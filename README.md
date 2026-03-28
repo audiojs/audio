@@ -39,18 +39,18 @@ All ops are sync, chainable, and queue to the edit list.
 
 ```js
 // Structural — reorganize timeline
-a.slice(offset, duration)     // → new audio (shares source)
-a.insert(other, offset?)
+a.crop(offset, duration)      // keep only this range
+a.insert(source, offset?, duration?) // source: audio or number (seconds of silence)
 a.remove(offset, duration)
-a.pad(duration, {side:'end'})
-a.repeat(times)
+a.repeat(times, offset?, duration?)
 
 // Sample — transform values
 a.gain(db, offset?, duration?)
-a.fade(duration)              // +seconds = in, -seconds = out
+a.fade(duration, curve?)      // +dur = in, -dur = out. curve: 'linear','exp','log','cos'
 a.reverse(offset?, duration?)
 a.mix(other, offset?, duration?)
 a.write(data, offset?)
+a.remix(channels)               // mono→stereo, stereo→mono, etc.
 
 // Smart — analyze index, then queue basic op
 a.trim(threshold?)            // → scans index → slice()

@@ -13,13 +13,15 @@ export interface AudioInstance {
   index: AudioIndex
   /** Sample rate in Hz */
   sampleRate: number
-  /** Number of channels */
+  /** Source channel count (before edits) */
   numberOfChannels: number
-  /** Alias for numberOfChannels */
+  /** Effective channel count (reflects remix edits) */
   readonly channels: number
-  /** Total samples */
-  length: number
-  /** Duration in seconds */
+  /** @internal Source sample count (before edits) */
+  _len: number
+  /** Effective sample count (reflects structural edits) */
+  readonly length: number
+  /** Effective duration in seconds (reflects structural edits) */
   readonly duration: number
   /** Encoded source bytes (for re-decode/paging), null for PCM-backed */
   source: ArrayBuffer | null
@@ -55,6 +57,9 @@ export interface AudioInstance {
   mix(other: AudioInstance, offset?: number, duration?: number): this
   /** Overwrite region with data */
   write(data: Float32Array[] | Float32Array, offset?: number): this
+
+  /** Remix channels: mono→stereo, stereo→mono, etc. */
+  remix(channels: number): this
 
   // ── Smart ops ────────────────────────────────────────────────
   /** Remove silence from edges (threshold in dB, default -40) */
