@@ -6,6 +6,7 @@
   "main": "audio.js",
   "exports": "./audio.js",
   "types": "./audio.d.ts",
+  "bin": "./bin/cli.js",
   "license": "MIT",
   "repository": "audiojs/audio",
   "keywords": [
@@ -15,7 +16,7 @@
     "pcm"
   ],
   "scripts": {
-    "test": "node test/index.js",
+    "test": "node test/index.js && node test/cli.js",
     "test:browser": "node test/serve.js"
   },
   "dependencies": {

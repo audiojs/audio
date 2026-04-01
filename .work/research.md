@@ -369,6 +369,7 @@ One Audio instance per track. Parallel playback, non-destructive editing, undo, 
 A plugin written to `audio-module` contract can also register as an `audio` op via `audio.op()`. The compilation toolchain lives in `audio-module`.
 
 
+
 ## Industry Landscape
 
 ### Market Leaders & Why Users Love Them
@@ -417,7 +418,7 @@ A plugin written to `audio-module` contract can also register as an `audio` op v
 **Current solution**: Audacity (GUI) or sox (CLI)
 **audio CLI advantage**: `audio podcast.wav trim normalize denoise -o podcast.mp3` — one intuitive line
 
-#### **Sound Designer**  
+#### **Sound Designer**
 **Pain**: Apply complex chains, iterate variations, export multiple formats
 **Current solution**: Reaper (full DAW) or SoundForge (Windows-only)
 **audio CLI advantage**: Macros as JSON edits, parallelizable (batch processing with state tracking)
@@ -470,17 +471,17 @@ A plugin written to `audio-module` contract can also register as an `audio` op v
 ## Strategic Insights for audio
 
 ### What audio CLI Should Be
-✓ The **sharp** of audio: "I have audio, I want transformed audio, one line of code"  
-✓ **Non-destructive** by architecture: edits are first-class, serializable, replayable  
-✓ **Discoverable**: `audio --help` shows all ops, `audio op-name --help` shows args  
-✓ **Scriptable**: Both shell + JS, JSON macro export/import  
-✓ **Batch-native**: Process 1000s with same state tracking as single file  
+✓ The **sharp** of audio: "I have audio, I want transformed audio, one line of code"
+✓ **Non-destructive** by architecture: edits are first-class, serializable, replayable
+✓ **Discoverable**: `audio --help` shows all ops, `audio op-name --help` shows args
+✓ **Scriptable**: Both shell + JS, JSON macro export/import
+✓ **Batch-native**: Process 1000s with same state tracking as single file
 
 ### What audio Should NOT Be
-✗ A DAW (leave mixing/arrangement to DAWs built on top)  
-✗ A VST/AU host (use audio-module bridge for plugin compilation)  
-✗ A real-time DSP engine (too heavy; use Web Audio API)  
-✗ Slower than sox/ffmpeg (streaming render v2.1 must be fast)  
+✗ A DAW (leave mixing/arrangement to DAWs built on top)
+✗ A VST/AU host (use audio-module bridge for plugin compilation)
+✗ A real-time DSP engine (too heavy; use Web Audio API)
+✗ Slower than sox/ffmpeg (streaming render v2.1 must be fast)
 
 ### Moat (What Competitors Can't Copy)
 - **Index-powered operations** without PCM load: 2h file waveform in 7MB, instant analysis
