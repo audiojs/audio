@@ -1,5 +1,5 @@
 import test from 'tst'
-import { parseArgs, parseRange } from '../bin/cli-utils.js'
+import { parseValue, parseRange, parseArgs } from '../bin/cli.js'
 import audio from '../audio.js'
 import { spawn } from 'child_process'
 import { fileURLToPath } from 'url'
@@ -69,6 +69,30 @@ test('parseArgs — help flag', t => {
 
 // ── Unit Parsing ─────────────────────────────────────────────────────────
 
+test('parseValue — dB value', t => {
+  t.is(parseValue('-3db'), -3, '-3db')
+  t.is(parseValue('6db'), 6, '6db')
+  t.is(parseValue('-3dB'), -3, '-3dB case-insensitive')
+})
+
+test('parseValue — seconds', t => {
+  t.is(parseValue('1.5s'), 1.5, '1.5s')
+  t.is(parseValue('500ms'), 0.5, '500ms')
+  t.is(parseValue('1'), 1, 'bare number')
+})
+
+test('parseValue — Hz', t => {
+  t.is(parseValue('440hz'), 440, '440hz')
+  t.is(parseValue('2khz'), 2000, '2khz')
+  t.is(parseValue('440'), 440, 'bare number')
+})
+
+test('parseValue — filename passthrough', t => {
+  t.is(parseValue('db-mix.wav'), 'db-mix.wav', 'filename with db- passes through')
+  t.is(parseValue('song.seconds.wav'), 'song.seconds.wav', 'filename with seconds passes through')
+  t.is(parseValue('normalize'), 'normalize', 'word passes through')
+})
+
 test('parseRange — 1s..10s', t => {
   let range = parseRange('1s..10s')
   t.is(range.offset, 1)
@@ -97,6 +121,35 @@ test('parseRange — with ms', t => {
   let range = parseRange('500ms..1500ms')
   t.is(range.offset, 0.5)
   t.is(range.duration, 1)
+})
+
+test('parseArgs — explicit -i flag', t => {
+  let result = parseArgs(['-i', 'in.wav', 'gain', '-3', '-o', 'out.wav'])
+  t.is(result.input, 'in.wav', 'explicit -i sets input')
+  t.is(result.ops[0].name, 'gain', 'ops follow')
+})
+
+test('parseArgs — explicit --input flag', t => {
+  let result = parseArgs(['--input', 'in.wav', 'gain', '-3'])
+  t.is(result.input, 'in.wav', 'explicit --input sets input')
+})
+
+test('parseArgs — -i flag anywhere', t => {
+  let result = parseArgs(['gain', '-3', '-i', 'in.wav'])
+  t.is(result.input, 'in.wav', '-i can appear after ops')
+})
+
+// ── Op Discovery ─────────────────────────────────────────────────────────
+
+test('ops registry — all built-ins available', async t => {
+  let { ops } = await import('../audio.js')
+  t.ok(ops.gain, 'gain op exists')
+  t.ok(ops.fade, 'fade op exists')
+  t.ok(ops.trim, 'trim op exists')
+  t.ok(ops.normalize, 'normalize op exists')
+  t.ok(ops.remix, 'remix op exists')
+  t.ok(typeof ops.trim === 'function', 'trim is function')
+  t.ok(typeof ops.normalize === 'function', 'normalize is function')
 })
 
 // ── CLI Execution ────────────────────────────────────────────────────────
