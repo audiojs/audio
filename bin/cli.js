@@ -10,15 +10,126 @@
  *   cat in.wav | audio gain -3db > out.wav
  */
 
-import audio from '../audio.js'
-import { parseArgs, formatError, getStdinBuffer } from './cli-utils.js'
+import audio, { ops } from '../audio.js'
 
 const VERSION = '2.0.0'
+
+// ── Unit Parsing ─────────────────────────────────────────────────────────
+
+function parseValue(str) {
+  if (str.includes('..')) return str  // range syntax — handled separately
+  let m = str.match(/^(-?[\d.]+)(db|khz|hz|ms|s)?$/i)
+  if (!m) return str  // not a number — pass as-is
+  let v = Number(m[1]), unit = m[2]?.toLowerCase()
+  if (unit === 'ms') return v / 1000
+  if (unit === 'khz') return v * 1000
+  return v  // db, hz, s, or bare number — all are just raw values
+}
+
+function parseRange(str) {
+  let [start, end] = str.split('..')
+  let s = start ? parseValue(start) : 0
+  let e = end ? parseValue(end) : undefined
+  return { offset: s, duration: e != null ? e - s : undefined }
+}
+
+// ── Argument Parsing ─────────────────────────────────────────────────────
+
+function isFlag(s) {
+  if (s.startsWith('--')) return true
+  if (!s.startsWith('-')) return false
+  let match = s.match(/^-[\d.]+(db|hz|khz|s|ms)?$/i)
+  return !match
+}
+
+function isOpName(s) {
+  return s in ops
+}
+
+function parseArgs(args) {
+  let input = null, ops_ = [], output = null, format = null, verbose = false, showHelp = false
+  let i = 0
+
+  // Check for explicit -i / --input flag at start
+  if (args[0] === '-i' || args[0] === '--input') {
+    input = args[1]
+    i = 2
+  }
+  // Otherwise try positional first arg if it looks like a file
+  else if (args.length && !isFlag(args[0]) && !isOpName(args[0])) {
+    input = args[i++]
+  }
+
+  // Process remaining args
+  while (i < args.length) {
+    let arg = args[i]
+
+    if (arg === '--help' || arg === '-h') {
+      showHelp = true
+      i++
+    } else if (arg === '--verbose' || arg === '-v') {
+      verbose = true
+      i++
+    } else if (arg === '--output' || arg === '-o') {
+      output = args[++i]
+      i++
+    } else if (arg === '--format') {
+      format = args[++i]
+      i++
+    } else if (arg === '-i' || arg === '--input') {
+      input = args[++i]
+      i++
+    } else if (isFlag(arg)) {
+      throw new Error(`Unknown flag: ${arg}`)
+    } else {
+      // Parse operation
+      let name = arg
+      let opArgs = []
+      i++
+
+      // Collect args until next op or flag
+      while (i < args.length && !isOpName(args[i]) && !isFlag(args[i])) {
+        opArgs.push(parseValue(args[i]))
+        i++
+      }
+
+      // Check for range syntax at end of args
+      let offset = null, duration = null
+      if (opArgs.length > 0 && typeof opArgs[opArgs.length - 1] === 'string' && opArgs[opArgs.length - 1].includes('..')) {
+        let range = parseRange(opArgs.pop())
+        offset = range.offset
+        duration = range.duration
+      }
+
+      ops_.push({ name, args: opArgs, offset, duration })
+    }
+  }
+
+  return { input, ops: ops_, output, format, verbose, showHelp }
+}
+
+// ── I/O ──────────────────────────────────────────────────────────────────
+
+async function getStdinBuffer() {
+  return new Promise((resolve, reject) => {
+    let chunks = []
+    let stdin = process.stdin
+
+    stdin.on('data', chunk => chunks.push(chunk))
+    stdin.on('end', () => resolve(Buffer.concat(chunks)))
+    stdin.on('error', reject)
+  })
+}
+
+function formatError(err) {
+  return typeof err === 'string' ? err : err.message || String(err)
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────
 
 async function main() {
   let args = process.argv.slice(2)
 
-  // Handle --version and --help at top level
   if (!args.length || args[0] === '--help' || args[0] === '-h') {
     showUsage()
     process.exit(args.length ? 0 : 1)
@@ -42,7 +153,6 @@ async function main() {
     if (opts.input) {
       source = opts.input
     } else {
-      // Read from stdin
       process.stderr.write('Reading from stdin...\n')
       let buf = await getStdinBuffer()
       source = buf
@@ -62,65 +172,30 @@ async function main() {
     if (opts.ops.length) {
       if (opts.verbose) console.error(`Applying ${opts.ops.length} operation(s)...`)
       for (let op of opts.ops) {
-        applyOp(a, op)
+        let { name, args, offset, duration } = op
+        let fullArgs = args.slice()
+        if (offset != null) fullArgs.push(offset)
+        if (duration != null) fullArgs.push(duration)
+        if (typeof a[name] !== 'function') throw new Error(`Unknown operation: ${name}`)
+        a[name](...fullArgs)
       }
     }
 
     // Save output
     if (opts.verbose) console.error('Rendering and saving...')
     let output = opts.output || 'out.wav'
-    let format = opts.format || (typeof output === 'string' ? output.split('.').pop() : 'wav')
+    let fmt = opts.format || (typeof output === 'string' ? output.split('.').pop() : 'wav')
 
-    if (output === '-' || !output) {
-      // stdout
-      let bytes = await a.read({ format })
+    if (output === '-') {
+      let bytes = await a.read({ format: fmt })
       process.stdout.write(Buffer.from(bytes))
     } else {
-      // file
-      await a.save(output, { format })
+      await a.save(output, { format: fmt })
       if (opts.verbose) console.error(`Saved: ${output}`)
     }
   } catch (err) {
     console.error(`audio: ${formatError(err)}`)
     process.exit(1)
-  }
-}
-
-function applyOp(a, op) {
-  let { name, args, offset, duration } = op
-
-  // Build full arg list: op-specific args + range (offset, duration)
-  let fullArgs = args.slice()
-  if (offset != null) fullArgs.push(offset)
-  if (duration != null) fullArgs.push(duration)
-
-  // Find nargs from audio.op() registry or use heuristics
-  switch (name) {
-    // Structural ops
-    case 'crop': a.crop(...fullArgs); break
-    case 'remove': a.remove(...fullArgs); break
-    case 'insert': a.insert(...fullArgs); break
-    case 'repeat': a.repeat(...fullArgs); break
-
-    // Sample ops
-    case 'gain': a.gain(...fullArgs); break
-    case 'fade': a.fade(...fullArgs); break
-    case 'reverse': a.reverse(...fullArgs); break
-    case 'mix': a.mix(...fullArgs); break
-    case 'write': a.write(...fullArgs); break
-    case 'remix': a.remix(...fullArgs); break
-
-    // Smart ops
-    case 'trim': a.trim(...fullArgs); break
-    case 'normalize': a.normalize(...fullArgs); break
-
-    default:
-      // Try as custom op if available
-      if (typeof a[name] === 'function') {
-        a[name](...fullArgs)
-      } else {
-        throw new Error(`Unknown operation: ${name}`)
-      }
   }
 }
 
@@ -133,6 +208,7 @@ Usage:
 
 Input:
   input         File path, URL, or omit for stdin
+  -i, --input   Explicit input file (use with ops as first args)
   -o, --output  Output file or '-' for stdout (default: out.wav)
 
 Operations (positional):
@@ -163,21 +239,26 @@ Units:
 Options:
   --verbose, -v Show progress and debug info
   --format FMT  Override output format (default: from extension)
-  --macro FILE  Apply serialized edit list (v2+)
   --help, -h    Show this help
   --version     Show version
 
 Examples:
   audio in.mp3 gain -3db trim normalize -o out.wav
   audio in.wav gain -3db 1s..10s -o out.wav
-  cat in.raw | audio gain -3db > out.raw
-  audio in.wav trim normalize --verbose -o podcast.mp3
+  audio -i in.wav gain -3db -o out.wav
+  cat in.wav | audio gain -3db > out.wav
 
 For more info: https://github.com/audiojs/audio
 `)
 }
 
-main().catch(err => {
-  console.error(`audio: ${formatError(err)}`)
-  process.exit(1)
-})
+// Exports for testing
+export { parseValue, parseRange, parseArgs }
+
+// Run CLI if invoked directly (not imported)
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch(err => {
+    console.error(`audio: ${formatError(err)}`)
+    process.exit(1)
+  })
+}

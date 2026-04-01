@@ -80,13 +80,16 @@ const indexFields = {}
 audio.op = function(name, init) {
   if (typeof init !== 'function') throw new TypeError(`audio.op: expected function for '${name}'`)
   if (ops[name]) throw new Error(`audio.op: '${name}' already registered`)
-  let nargs = init.length  // init params = op args count
-  ops[name] = { init, nargs }
+  let nargs = init.length
+  ops[name] = init
   proto[name] = function(...args) {
     let opArgs = args.slice(0, nargs), offset = args[nargs], duration = args[nargs + 1]
     return pushEdit(this, { type: name, args: opArgs, offset, duration })
   }
 }
+
+/** All registered ops — name → init fn. Includes smart ops (trim, normalize) registered after proto. */
+export { ops }
 
 
 // ── Source Resolution (browser + node) ───────────────────────────────────
@@ -458,8 +461,8 @@ function renderCached(a) {
   // Apply edits — one path for all ops
   for (let edit of a.edits) {
     let processor = edit.type === '_fn'
-      ? edit.fn                           // inline via .do(fn)
-      : ops[edit.type]?.init(...(edit.args || []))  // registered via audio.op()
+      ? edit.fn
+      : ops[edit.type]?.(...(edit.args || []))
 
     if (!processor) throw new Error(`Unknown op: ${edit.type}`)
     // Normalize negative offset: -1 = 1s from end
@@ -620,7 +623,7 @@ function* planChunks(a, plan, offset, duration) {
 
   // Instantiate sample op processors (resolve negative offsets)
   let totalDur = totalLen / sr
-  let procs = pipeline.map(ed => ({ proc: ops[ed.type].init(...(ed.args || [])), off: ed.offset != null && ed.offset < 0 ? totalDur + ed.offset : ed.offset, dur: ed.duration }))
+  let procs = pipeline.map(ed => ({ proc: ops[ed.type]?.(...(ed.args || [])), off: ed.offset != null && ed.offset < 0 ? totalDur + ed.offset : ed.offset, dur: ed.duration }))
 
   for (let outOff = s; outOff < e; outOff += PAGE_SIZE) {
     let len = Math.min(PAGE_SIZE, e - outOff)
@@ -920,19 +923,15 @@ const proto = {
     return { min: outMin, max: outMax }
   },
 
-  // Playback — Web Audio API in browser, audio-speaker in Node
+  // Playback — cross-platform via audio-speaker (conditionally exports to Web Audio API in browser)
   play(offset = 0, duration) {
     let a = this
-    let isNode = typeof process !== 'undefined' && process.versions?.node
     let ctrl = { playing: false, currentTime: offset, ontimeupdate: null, onended: null,
       pause() { ctrl.playing = false },
-      stop() { ctrl.playing = false; ctrl._stopRequested = true; ctrl._source?.stop?.(); ctrl._source?.disconnect?.() } }
+      stop() { ctrl.playing = false } }
 
-    if (isNode) {
-      return playNode(a, offset, duration, ctrl)
-    } else {
-      return playBrowser(a, offset, duration, ctrl)
-    }
+    playAudio(a, offset, duration, ctrl)
+    return ctrl
   },
 
   // Streaming — plan-based when possible, otherwise cached render
@@ -962,8 +961,8 @@ const proto = {
 
 // ── Playback Backends ───────────────────────────────────────────────────
 
-/** Node.js playback via audio-speaker. */
-function playNode(a, offset, duration, ctrl) {
+/** Playback via audio-speaker (cross-platform: Node + browser via conditional exports). */
+function playAudio(a, offset, duration, ctrl) {
   ;(async () => {
     try {
       await ensurePages(a)
@@ -988,66 +987,6 @@ function playNode(a, offset, duration, ctrl) {
         ctrl.ontimeupdate?.(ctrl.currentTime)
       }
       write(null); ctrl.playing = false; ctrl.onended?.()
-    } catch (err) {
-      console.error('Playback error:', err)
-      ctrl.playing = false
-    }
-  })()
-  return ctrl
-}
-
-/** Browser playback via Web Audio API. */
-function playBrowser(a, offset, duration, ctrl) {
-  ;(async () => {
-    try {
-      await ensurePages(a)
-      let plan = buildPlan(a)
-      if (plan) { let seen = new Set(); for (let s of plan.segs) if (s.ref && s.ref !== SILENCE && !seen.has(s.ref)) { seen.add(s.ref); await ensurePages(s.ref) } }
-
-      // Get Web Audio API context
-      let AudioContextClass = window.AudioContext || window.webkitAudioContext
-      let ctx = new AudioContextClass()
-      let ch = a.channels
-
-      // Render audio to buffer (or stream for large files)
-      let pcm = plan ? readPlan(a, plan, offset, duration) : renderCached(a).map(ch => {
-        if (offset == null) return ch.slice()
-        let s = Math.round(offset * a.sampleRate)
-        return ch.slice(s, duration != null ? s + Math.round(duration * a.sampleRate) : ch.length)
-      })
-
-      // Create AudioBuffer
-      let buf = ctx.createBuffer(ch, pcm[0].length, a.sampleRate)
-      for (let c = 0; c < ch; c++) buf.getChannelData(c).set(pcm[c])
-
-      // Create and start source
-      let source = ctx.createBufferSource()
-      source.buffer = buf
-      source.connect(ctx.destination)
-
-      ctrl._source = source
-      ctrl.playing = true
-      let startTime = ctx.currentTime - offset
-      source.start(0, offset)
-
-      // Update currentTime periodically
-      let updateInterval = setInterval(() => {
-        if (ctrl.playing) {
-          let elapsed = ctx.currentTime - startTime
-          ctrl.currentTime = Math.max(offset, Math.min(offset + buf.duration, elapsed))
-          ctrl.ontimeupdate?.(ctrl.currentTime)
-        } else {
-          clearInterval(updateInterval)
-        }
-      }, 50)
-
-      // Handle end
-      source.onended = () => {
-        clearInterval(updateInterval)
-        ctrl.playing = false
-        ctrl.currentTime = offset + buf.duration
-        ctrl.onended?.()
-      }
     } catch (err) {
       console.error('Playback error:', err)
       ctrl.playing = false
@@ -1269,3 +1208,7 @@ audio.op('remix', (channels) => (chs, { sampleRate: sr }) => {
   let out = remixChannels(buf, channels)
   return Array.from({ length: out.numberOfChannels }, (_, c) => new Float32Array(out.getChannelData(c)))
 })
+
+// Register smart ops in ops dict for CLI discovery (they're also proto methods)
+ops.trim = proto.trim
+ops.normalize = proto.normalize
