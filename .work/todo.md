@@ -1,4 +1,30 @@
-# audio v2 — Implementation Plan
+
+- [ ] Verify wavearea integration end-to-end — deferred to wavearea v2 migration
+- [ ] Publish v2.0.0
+
+
+## Known Defects
+
+- [ ] `record`
+- [x] `onprogress` now `await`s the callback, yielding between pages so consumers can render progressively. True streaming decode (per-chunk from audio-decode) deferred to post-v2.
+- [ ] `energy` index field is plain RMS² (`sum(v²)/count`), not K-weighted. `loudness()` claims LUFS but operates on unweighted energy. Fix: either rename to approximate RMS loudness, or implement K-weighting filter (digital-filter dep), or make energy a pluggable index field.
+- [x] `estimateDecodedSize` now peeks at format magic bytes (RIFF/FORM→2×, fLaC→5×, lossy→20×) instead of blanket 10:1×4. WAV files no longer falsely trigger OPFS caching.
+- [x] Structural ops (slice, remove, insert, pad, repeat) were incorrectly marked `index: true`. Fixed — now index-dirty (global rebuild on analysis). Was a silent correctness bug: analysis after structural ops returned stale index data.
+- [x] `a.duration` / `a.length` / `a.channels` now reflect edits. `length` getter walks edit list to compute effective sample count. `channels` getter tracks remix ops. `sourceLength` stores raw decoded length for internal use. Undo restores correctly.
+
+
+## Post-v2 Roadmap
+
+- [ ] CLI: `npx audio` — sox-style, ops as commands, plugin auto-discovery, pipe support
+- [ ] Index extensions: `audio.index(name, fn)` — pluggable analysis fields (pitch, kEnergy, BPM, etc.)
+- [ ] Macros: serialized edit lists, `--macro` CLI flag
+- [ ] Structural custom ops: variable-length output blocks (time stretch, silence speedup)
+- [ ] Filter chain integration: digital-filter, audio-filter packages as audio.op()
+- [ ] True streaming decode: worker-based progressive decode with per-chunk onprogress
+
+
+
+## Archive
 
 ## Phase 1: Foundation — data model + create + properties
 
@@ -149,24 +175,3 @@ Note: Browser WAA backend deferred — Node playback via audio-speaker works. Br
 - [x] Full test suite: 60 tests, 142 assertions, all passing (tst)
 - [x] Browser test infrastructure (esbuild + serve.js + Playwright)
 - [x] TypeScript declarations: hand-written .d.ts with full API types
-- [ ] Verify wavearea integration end-to-end — deferred to wavearea v2 migration
-- [ ] Publish v2.0.0
-
-
-## Known Defects
-
-- [x] `onprogress` now `await`s the callback, yielding between pages so consumers can render progressively. True streaming decode (per-chunk from audio-decode) deferred to post-v2.
-- [ ] `energy` index field is plain RMS² (`sum(v²)/count`), not K-weighted. `loudness()` claims LUFS but operates on unweighted energy. Fix: either rename to approximate RMS loudness, or implement K-weighting filter (digital-filter dep), or make energy a pluggable index field.
-- [x] `estimateDecodedSize` now peeks at format magic bytes (RIFF/FORM→2×, fLaC→5×, lossy→20×) instead of blanket 10:1×4. WAV files no longer falsely trigger OPFS caching.
-- [x] Structural ops (slice, remove, insert, pad, repeat) were incorrectly marked `index: true`. Fixed — now index-dirty (global rebuild on analysis). Was a silent correctness bug: analysis after structural ops returned stale index data.
-- [x] `a.duration` / `a.length` / `a.channels` now reflect edits. `length` getter walks edit list to compute effective sample count. `channels` getter tracks remix ops. `sourceLength` stores raw decoded length for internal use. Undo restores correctly.
-
-
-## Post-v2 Roadmap
-
-- [ ] CLI: `npx audio` — sox-style, ops as commands, plugin auto-discovery, pipe support
-- [ ] Index extensions: `audio.index(name, fn)` — pluggable analysis fields (pitch, kEnergy, BPM, etc.)
-- [ ] Macros: serialized edit lists, `--macro` CLI flag
-- [ ] Structural custom ops: variable-length output blocks (time stretch, silence speedup)
-- [ ] Filter chain integration: digital-filter, audio-filter packages as audio.op()
-- [ ] True streaming decode: worker-based progressive decode with per-chunk onprogress

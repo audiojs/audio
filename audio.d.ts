@@ -23,8 +23,8 @@ export interface AudioInstance {
   readonly length: number
   /** Effective duration in seconds (reflects structural edits) */
   readonly duration: number
-  /** Encoded source bytes (for re-decode/paging), null for PCM-backed */
-  source: ArrayBuffer | null
+  /** Original source reference (URL/path string, or null for PCM-backed) */
+  source: string | null
   /** Storage mode: 'memory' | 'persistent' | 'auto' */
   storage: string
   /** Edit list (inspectable) */
@@ -35,22 +35,20 @@ export interface AudioInstance {
   onchange: (() => void) | null
 
   // ── Structural ops ───────────────────────────────────────────
-  /** Extract sub-range as new audio (shares source pages) */
-  slice(offset: number, duration: number): AudioInstance
+  /** Trim to sub-range in place */
+  crop(offset?: number, duration?: number): this
   /** Insert other audio at position (seconds) */
   insert(other: AudioInstance, offset?: number): this
   /** Delete range */
   remove(offset: number, duration: number): this
-  /** Add silence */
-  pad(duration: number, opts?: { side?: 'start' | 'end' }): this
   /** Repeat N times */
   repeat(times: number): this
 
   // ── Sample ops ───────────────────────────────────────────────
   /** Adjust volume in dB, optionally within range */
   gain(db: number, offset?: number, duration?: number): this
-  /** Fade in (+seconds) or out (-seconds) */
-  fade(duration: number): this
+  /** Fade in (positive duration, from start) or out (negative duration, from end). curve: 'linear'|'exp'|'log'|'cos' */
+  fade(duration: number, curve?: 'linear' | 'exp' | 'log' | 'cos'): this
   /** Reverse sample order, optionally within range */
   reverse(offset?: number, duration?: number): this
   /** Overlay other audio */
@@ -62,25 +60,23 @@ export interface AudioInstance {
   remix(channels: number): this
 
   // ── Smart ops ────────────────────────────────────────────────
-  /** Remove silence from edges (threshold in dB, default -40) */
+  /** Remove silence from edges (auto-detects floor from energy if threshold undefined) */
   trim(threshold?: number): this
-  /** Normalize to target dBFS (default 0) */
-  normalize(targetDb?: number): this
+  /** Normalize to target level (default 0 dBFS). Mode: 'peak' (default) or 'lufs' */
+  normalize(targetDb?: number, opts?: { mode?: 'peak' | 'lufs' }): this
 
   // ── Output ───────────────────────────────────────────────────
-  /** Read audio data. Format determines return type: PCM (default), codec ('wav','mp3',...) → Uint8Array, or typed ('int16','uint8'). */
-  read(offset?: number, duration?: number, opts?: { format?: string }): Promise<Float32Array[] | Int16Array[] | Uint8Array[] | Uint8Array>
-  read(opts?: { format?: string }): Promise<Float32Array[] | Uint8Array>
-  /** Save to file path (Node) or FileSystemFileHandle (browser). Format inferred from extension. */
-  save(target: string | FileSystemWritableFileStream): Promise<void>
+  /** Read audio data. Format determines return type: PCM (default), codec ('wav','mp3',...) → Uint8Array, or typed ('int16','uint8'). Meta passed to encoder. */
+  read(offset?: number, duration?: number, opts?: { format?: string, meta?: Record<string, any> }): Promise<Float32Array[] | Int16Array[] | Uint8Array[] | Uint8Array>
+  read(opts?: { format?: string, meta?: Record<string, any> }): Promise<Float32Array[] | Uint8Array>
+  /** Save to file path (Node) or FileSystemFileHandle (browser). Format inferred from extension or opts.format. */
+  save(target: string | FileSystemWritableFileStream, opts?: { format?: string, meta?: Record<string, any> }): Promise<void>
 
   // ── Analysis ─────────────────────────────────────────────────
-  /** Amplitude range. Instant from index when clean, materializes dirty blocks. */
-  limits(offset?: number, duration?: number): Promise<{ min: number, max: number }>
-  /** Integrated LUFS loudness (BS.1770). */
-  loudness(offset?: number, duration?: number): Promise<number>
-  /** Downsampled waveform peaks. Per-channel via { channel }. */
-  peaks(count: number, opts?: { channel?: number }): Promise<{ min: Float32Array, max: Float32Array }>
+  /** Aggregate statistics for a range. Instant from index when clean, materializes dirty blocks. */
+  stat(offset?: number, duration?: number): Promise<AudioStat>
+  /** Downsampled waveform peaks. Sub-range via offset/duration; per-channel via opts.channels. */
+  peaks(count: number, offset?: number, duration?: number, opts?: { channel?: number, channels?: boolean }): Promise<{ min: Float32Array | Float32Array[], max: Float32Array | Float32Array[] }>
 
   // ── Playback ─────────────────────────────────────────────────
   /** Start playback. Returns controller. Parallel by default. */
@@ -91,13 +87,34 @@ export interface AudioInstance {
   stream(offset?: number, duration?: number): AsyncGenerator<Float32Array[], void, unknown>
 
   // ── History ──────────────────────────────────────────────────
-  /** Pop last edit. Returns the removed edit, or null if empty. */
-  /** Pop last edit. Returns the removed edit, or null if empty. */
-  undo(): EditOp | null
+  /** Pop edit(s). n=1 (default) returns single edit or null; n>1 returns array. */
+  undo(n?: number): EditOp | EditOp[] | null
   /** Re-apply a previously undone edit */
   do(...edits: EditOp[]): this
-  /** Serialize edits to JSON */
-  toJSON(): { edits: EditOp[], sampleRate: number, channels: number, duration: number }
+
+  // ── Views ────────────────────────────────────────────────────
+  /** Create a shared-page view, optionally scoped to a range. */
+  view(offset?: number, duration?: number): AudioInstance
+  /** Split at offsets, returning views. No copies. */
+  split(...offsets: number[]): AudioInstance[]
+  /** Serialize document to JSON */
+  toJSON(): { source: string | null, edits: EditOp[], sampleRate: number, channels: number, duration: number }
+
+  /** Playback hint — preloads nearby pages, warms render cache */
+  cursor: number
+}
+
+export interface AudioStat {
+  /** Minimum sample amplitude */
+  min: number
+  /** Maximum sample amplitude */
+  max: number
+  /** Root mean square (from K-weighted energy) */
+  rms: number
+  /** Peak amplitude in dBFS */
+  peak: number
+  /** Integrated loudness in LUFS (BS.1770, K-weighted) */
+  loudness: number
 }
 
 export interface AudioIndex {
@@ -105,6 +122,7 @@ export interface AudioIndex {
   min: Float32Array[]
   max: Float32Array[]
   energy: Float32Array[]
+  [field: string]: number | Float32Array[]
 }
 
 export interface EditOp {
@@ -125,6 +143,8 @@ export interface AudioOpts {
   sampleRate?: number
   channels?: number
   storage?: 'memory' | 'persistent' | 'auto'
+  /** 'worker' decodes in a Web Worker (browser), 'main' decodes on current thread (default) */
+  decode?: 'worker' | 'main'
   onprogress?: (event: { delta: ProgressDelta, offset: number, total: number }) => void
 }
 
@@ -135,17 +155,41 @@ export interface ProgressDelta {
   energy: Float32Array[]
 }
 
-/** Async entry — decode from file/URL/bytes, or wrap PCM/silence */
-declare function audio(source: string | URL | ArrayBuffer | Uint8Array | Float32Array[] | number, opts?: AudioOpts): Promise<AudioInstance>
+/** Serialized audio document (from toJSON) */
+export interface AudioDocument {
+  source: string | null
+  edits: EditOp[]
+  sampleRate: number
+  channels: number
+  duration: number
+}
+
+/** Async entry — decode from file/URL/bytes, wrap PCM/silence, or restore from JSON document */
+declare function audio(source: string | URL | ArrayBuffer | Uint8Array | Float32Array[] | number | AudioDocument, opts?: AudioOpts): Promise<AudioInstance>
 
 declare namespace audio {
-  /** Sync entry — from PCM data, AudioBuffer, or silence */
-  function from(source: Float32Array[] | AudioBuffer | number, opts?: AudioOpts): AudioInstance
-  /** Register custom sample op. Init function takes params, returns block processor. */
-  function op(name: string, init: (...args: any[]) => (block: Float32Array[], ctx: { offset: number, sampleRate: number, blockSize: number }) => Float32Array[] | false | null): void
+  /** Sync entry — from PCM data, AudioBuffer, audio instance (structural copy), or silence */
+  function from(source: Float32Array[] | AudioBuffer | AudioInstance | number, opts?: AudioOpts): AudioInstance
+  /** Standard loudness targets (LUFS) */
+  const LUFS_STREAMING: number  // YouTube, Spotify, Apple Music: -14
+  const LUFS_PODCAST: number    // podcast standard: -16
+  const LUFS_BROADCAST: number  // EBU R128 broadcast: -23
+  /** Register custom op. Init function takes params, returns block processor. */
+  function op(name: string, init: (...args: any[]) => (block: Float32Array[], ctx: { offset: number, sampleRate: number, blockSize: number, blockOffset?: number }) => Float32Array[] | false | null): void
+  /** Register custom index field. Receives all channels per block. Return number (cross-channel) or number[] (per-channel). */
+  function index(name: string, fn: (channels: Float32Array[]) => number | number[]): void
 }
 
 export default audio
+
+/** Decode encoded buffer into pages + index. Shared engine for main thread and worker. */
+export function decodeBuf(buf: ArrayBuffer | Uint8Array, onprogress?: (event: { delta: ProgressDelta, offset: number, total: number }) => void): Promise<{
+  pages: Float32Array[][]
+  index: AudioIndex
+  sampleRate: number
+  channels: number
+  length: number
+}>
 
 /** OPFS-backed cache backend for large files (browser only) */
 export function opfsCache(dirName?: string): Promise<{
