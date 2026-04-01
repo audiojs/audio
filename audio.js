@@ -920,38 +920,19 @@ const proto = {
     return { min: outMin, max: outMax }
   },
 
-  // Playback — streams from read plan when possible, falls back to cached render
+  // Playback — Web Audio API in browser, audio-speaker in Node
   play(offset = 0, duration) {
-    let a = this, write
+    let a = this
+    let isNode = typeof process !== 'undefined' && process.versions?.node
     let ctrl = { playing: false, currentTime: offset, ontimeupdate: null, onended: null,
       pause() { ctrl.playing = false },
-      stop() { ctrl.playing = false; write?.close() } }
+      stop() { ctrl.playing = false; ctrl._stopRequested = true; ctrl._source?.stop?.(); ctrl._source?.disconnect?.() } }
 
-    ;(async () => {
-      await ensurePages(a)
-      let plan = buildPlan(a)
-      if (plan) { let seen = new Set(); for (let s of plan.segs) if (s.ref && s.ref !== SILENCE && !seen.has(s.ref)) { seen.add(s.ref); await ensurePages(s.ref) } }
-      let Speaker = (await import('audio-speaker')).default
-      let ch = a.channels
-      write = Speaker({ sampleRate: a.sampleRate, channels: ch, bitDepth: 32 })
-      ctrl.playing = true
-
-      let chunks = plan ? planChunks(a, plan, offset, duration) : chunksFromPcm(renderCached(a))
-
-      let played = 0
-      for (let chunk of chunks) {
-        if (!ctrl.playing) break
-        let len = chunk[0].length
-        let buf = new Float32Array(len * ch)
-        for (let i = 0; i < len; i++) for (let c = 0; c < ch; c++) buf[i * ch + c] = (chunk[c] || chunk[0])[i]
-        await new Promise(r => write(new Uint8Array(buf.buffer), r))
-        played += len
-        ctrl.currentTime = offset + played / a.sampleRate
-        ctrl.ontimeupdate?.(ctrl.currentTime)
-      }
-      write(null); ctrl.playing = false; ctrl.onended?.()
-    })()
-    return ctrl
+    if (isNode) {
+      return playNode(a, offset, duration, ctrl)
+    } else {
+      return playBrowser(a, offset, duration, ctrl)
+    }
   },
 
   // Streaming — plan-based when possible, otherwise cached render
@@ -976,6 +957,103 @@ const proto = {
   },
 
   toJSON() { return { source: this.source, edits: this.edits, sampleRate: this.sampleRate, channels: this.numberOfChannels, duration: this.duration } },
+}
+
+
+// ── Playback Backends ───────────────────────────────────────────────────
+
+/** Node.js playback via audio-speaker. */
+function playNode(a, offset, duration, ctrl) {
+  ;(async () => {
+    try {
+      await ensurePages(a)
+      let plan = buildPlan(a)
+      if (plan) { let seen = new Set(); for (let s of plan.segs) if (s.ref && s.ref !== SILENCE && !seen.has(s.ref)) { seen.add(s.ref); await ensurePages(s.ref) } }
+      let Speaker = (await import('audio-speaker')).default
+      let ch = a.channels
+      let write = Speaker({ sampleRate: a.sampleRate, channels: ch, bitDepth: 32 })
+      ctrl.playing = true
+
+      let chunks = plan ? planChunks(a, plan, offset, duration) : chunksFromPcm(renderCached(a))
+
+      let played = 0
+      for (let chunk of chunks) {
+        if (!ctrl.playing) break
+        let len = chunk[0].length
+        let buf = new Float32Array(len * ch)
+        for (let i = 0; i < len; i++) for (let c = 0; c < ch; c++) buf[i * ch + c] = (chunk[c] || chunk[0])[i]
+        await new Promise(r => write(new Uint8Array(buf.buffer), r))
+        played += len
+        ctrl.currentTime = offset + played / a.sampleRate
+        ctrl.ontimeupdate?.(ctrl.currentTime)
+      }
+      write(null); ctrl.playing = false; ctrl.onended?.()
+    } catch (err) {
+      console.error('Playback error:', err)
+      ctrl.playing = false
+    }
+  })()
+  return ctrl
+}
+
+/** Browser playback via Web Audio API. */
+function playBrowser(a, offset, duration, ctrl) {
+  ;(async () => {
+    try {
+      await ensurePages(a)
+      let plan = buildPlan(a)
+      if (plan) { let seen = new Set(); for (let s of plan.segs) if (s.ref && s.ref !== SILENCE && !seen.has(s.ref)) { seen.add(s.ref); await ensurePages(s.ref) } }
+
+      // Get Web Audio API context
+      let AudioContextClass = window.AudioContext || window.webkitAudioContext
+      let ctx = new AudioContextClass()
+      let ch = a.channels
+
+      // Render audio to buffer (or stream for large files)
+      let pcm = plan ? readPlan(a, plan, offset, duration) : renderCached(a).map(ch => {
+        if (offset == null) return ch.slice()
+        let s = Math.round(offset * a.sampleRate)
+        return ch.slice(s, duration != null ? s + Math.round(duration * a.sampleRate) : ch.length)
+      })
+
+      // Create AudioBuffer
+      let buf = ctx.createBuffer(ch, pcm[0].length, a.sampleRate)
+      for (let c = 0; c < ch; c++) buf.getChannelData(c).set(pcm[c])
+
+      // Create and start source
+      let source = ctx.createBufferSource()
+      source.buffer = buf
+      source.connect(ctx.destination)
+
+      ctrl._source = source
+      ctrl.playing = true
+      let startTime = ctx.currentTime - offset
+      source.start(0, offset)
+
+      // Update currentTime periodically
+      let updateInterval = setInterval(() => {
+        if (ctrl.playing) {
+          let elapsed = ctx.currentTime - startTime
+          ctrl.currentTime = Math.max(offset, Math.min(offset + buf.duration, elapsed))
+          ctrl.ontimeupdate?.(ctrl.currentTime)
+        } else {
+          clearInterval(updateInterval)
+        }
+      }, 50)
+
+      // Handle end
+      source.onended = () => {
+        clearInterval(updateInterval)
+        ctrl.playing = false
+        ctrl.currentTime = offset + buf.duration
+        ctrl.onended?.()
+      }
+    } catch (err) {
+      console.error('Playback error:', err)
+      ctrl.playing = false
+    }
+  })()
+  return ctrl
 }
 
 

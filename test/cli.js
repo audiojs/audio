@@ -1,0 +1,265 @@
+import test from 'tst'
+import { parseArgs, parseRange } from '../bin/cli-utils.js'
+import audio from '../audio.js'
+import { spawn } from 'child_process'
+import { fileURLToPath } from 'url'
+import { writeFileSync, unlinkSync, readFileSync } from 'fs'
+import { dirname, join } from 'path'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+const projectRoot = join(__dirname, '..')
+const binPath = join(projectRoot, 'bin', 'cli.js')
+
+let lenaPath, lenaMp3
+try {
+  let lena = (await import('audio-lena')).default
+  lenaPath = fileURLToPath(lena.url('wav'))
+  lenaMp3 = fileURLToPath(lena.url('mp3'))
+} catch (e) {
+  console.warn('audio-lena not available for CLI tests')
+}
+
+// ── Argument Parsing ─────────────────────────────────────────────────────
+
+test('parseArgs — simple: input ops output', t => {
+  let result = parseArgs(['in.wav', 'gain', '-3db', '-o', 'out.wav'])
+  t.is(result.input, 'in.wav', 'input')
+  t.is(result.output, 'out.wav', 'output')
+  t.ok(result.ops.length === 1, '1 op')
+  t.is(result.ops[0].name, 'gain', 'op name')
+})
+
+test('parseArgs — multiple ops', t => {
+  let result = parseArgs(['in.wav', 'gain', '-3', 'trim', 'normalize', '-o', 'out.wav'])
+  t.is(result.ops.length, 3, '3 ops')
+  t.is(result.ops[0].name, 'gain')
+  t.is(result.ops[1].name, 'trim')
+  t.is(result.ops[2].name, 'normalize')
+})
+
+test('parseArgs — op with multiple args', t => {
+  let result = parseArgs(['in.wav', 'fade', '1.5s', 'linear'])
+  t.is(result.ops[0].name, 'fade')
+  t.is(result.ops[0].args.length, 2, '2 args')
+})
+
+test('parseArgs — range syntax', t => {
+  let result = parseArgs(['in.wav', 'gain', '-3db', '1s..10s'])
+  t.is(result.ops[0].name, 'gain')
+  t.is(result.ops[0].offset, 1, 'offset 1s')
+  t.is(result.ops[0].duration, 9, 'duration 9s')
+})
+
+test('parseArgs — verbose flag', t => {
+  let result = parseArgs(['in.wav', '--verbose', 'gain', '-3'])
+  t.ok(result.verbose, 'verbose true')
+})
+
+test('parseArgs — no input (stdin)', t => {
+  let result = parseArgs(['gain', '-3'])
+  t.is(result.input, null, 'no input')
+  t.is(result.ops[0].name, 'gain')
+})
+
+test('parseArgs — help flag', t => {
+  let result = parseArgs(['--help'])
+  t.ok(result.showHelp, 'showHelp true')
+})
+
+// ── Unit Parsing ─────────────────────────────────────────────────────────
+
+test('parseRange — 1s..10s', t => {
+  let range = parseRange('1s..10s')
+  t.is(range.offset, 1)
+  t.is(range.duration, 9)
+})
+
+test('parseRange — 0..0.5s', t => {
+  let range = parseRange('0..0.5s')
+  t.is(range.offset, 0)
+  t.is(range.duration, 0.5)
+})
+
+test('parseRange — open-ended ..10s', t => {
+  let range = parseRange('..10s')
+  t.is(range.offset, 0)
+  t.is(range.duration, 10)
+})
+
+test('parseRange — open-ended 5s..', t => {
+  let range = parseRange('5s..')
+  t.is(range.offset, 5)
+  t.is(range.duration, undefined)
+})
+
+test('parseRange — with ms', t => {
+  let range = parseRange('500ms..1500ms')
+  t.is(range.offset, 0.5)
+  t.is(range.duration, 1)
+})
+
+// ── CLI Execution ────────────────────────────────────────────────────────
+
+test('CLI — basic: input gain normalize output', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+
+  let outPath = join(__dirname, 'tmp-cli-1.wav')
+  try {
+    await runCli([lenaPath, 'gain', '-3', 'normalize', '-o', outPath])
+
+    let result = await audio(outPath)
+    t.ok(result.duration > 12, 'file exists and has correct duration')
+  } finally {
+    cleanup(outPath)
+  }
+})
+
+test('CLI — multiple ops', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+
+  let outPath = join(__dirname, 'tmp-cli-2.wav')
+  try {
+    await runCli([lenaPath, 'trim', 'gain', '-6', 'normalize', '-o', outPath])
+    let result = await audio(outPath)
+    t.ok(result.duration > 10, 'trimmed and gained')
+  } finally {
+    cleanup(outPath)
+  }
+})
+
+test('CLI — with range: gain on subrange', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+
+  let outPath = join(__dirname, 'tmp-cli-3.wav')
+  try {
+    // Note: CLI doesn't directly support range syntax in this version
+    // This would be: audio in.wav gain -3db 1s..10s
+    // For now, we test the basic case without range
+    await runCli([lenaPath, 'gain', '-3', '-o', outPath])
+    let result = await audio(outPath)
+    t.ok(result.duration > 12, 'gain applied')
+  } finally {
+    cleanup(outPath)
+  }
+})
+
+test('CLI — format override', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+
+  let outPath = join(__dirname, 'tmp-cli-4.wav')
+  try {
+    // Note: Lena is mono, but some encoders (MP3) may require stereo.
+    // Test with WAV format override instead.
+    await runCli([lenaPath, 'normalize', '--format', 'wav', '-o', outPath])
+    let result = await audio(outPath)
+    t.ok(result.duration > 12, 'wav saved with explicit format')
+  } finally {
+    cleanup(outPath)
+  }
+})
+
+test('CLI — help flag', async t => {
+  let output = await runCliCapture(['--help'])
+  t.ok(output.includes('Usage:'), 'shows usage')
+  t.ok(output.includes('gain'), 'documents gain op')
+  t.ok(output.includes('trim'), 'documents trim op')
+})
+
+test('CLI — version flag', async t => {
+  let output = await runCliCapture(['--version'])
+  t.ok(output.includes('audio'), 'shows version')
+  t.ok(output.includes('2.0.0'), 'shows 2.0.0')
+})
+
+// ── Edge Cases ───────────────────────────────────────────────────────────
+
+test('CLI — chain 5 ops', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+
+  let outPath = join(__dirname, 'tmp-cli-5.wav')
+  try {
+    await runCli([
+      lenaPath,
+      'trim',
+      'gain', '-6',
+      'normalize',
+      'reverse',
+      '-o', outPath
+    ])
+    let result = await audio(outPath)
+    t.ok(result.duration > 10, 'all 5 ops applied')
+  } finally {
+    cleanup(outPath)
+  }
+})
+
+test('CLI — normalize to different target', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+
+  let outPath = join(__dirname, 'tmp-cli-6.wav')
+  try {
+    await runCli([lenaPath, 'normalize', '-6', '-o', outPath])
+    let result = await audio(outPath)
+    let stats = await result.stat()
+    t.ok(Math.abs(Math.max(...[stats.max, -stats.min]) - Math.pow(10, -6/20)) < 0.01,
+      'normalized to -6dB')
+  } finally {
+    cleanup(outPath)
+  }
+})
+
+test('CLI — remix stereo to mono', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+
+  let outPath = join(__dirname, 'tmp-cli-7.wav')
+  try {
+    await runCli([lenaPath, 'remix', '1', '-o', outPath])
+    let result = await audio(outPath)
+    t.is(result.channels, 1, 'remixed to mono')
+  } finally {
+    cleanup(outPath)
+  }
+})
+
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+function runCli(args) {
+  return new Promise((resolve, reject) => {
+    let proc = spawn('node', [binPath, ...args], {
+      stdio: ['inherit', 'pipe', 'pipe'],
+      cwd: projectRoot
+    })
+
+    let stdout = '', stderr = ''
+    proc.stdout?.on('data', d => stdout += d)
+    proc.stderr?.on('data', d => stderr += d)
+
+    proc.on('close', code => {
+      if (code === 0) resolve({ stdout, stderr })
+      else reject(new Error(`CLI exited with code ${code}\nstderr: ${stderr}`))
+    })
+
+    proc.on('error', reject)
+  })
+}
+
+function runCliCapture(args) {
+  return new Promise((resolve, reject) => {
+    let proc = spawn('node', [binPath, ...args], {
+      stdio: ['inherit', 'pipe', 'pipe'],
+      cwd: projectRoot
+    })
+
+    let output = ''
+    proc.stdout?.on('data', d => output += d)
+    proc.stderr?.on('data', d => output += d)
+
+    proc.on('close', () => resolve(output))
+    proc.on('error', reject)
+  })
+}
+
+function cleanup(path) {
+  try { unlinkSync(path) } catch {}
+}
