@@ -1,115 +1,303 @@
 # audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml)
 
-Indexed, paged audio document with immutable source and declarative ops.
+> Audio document for JavaScript — load, edit, save, play, analyze.
 
 ```js
 import audio from 'audio'
 
-let a = await audio('file.mp3')
-a.gain(-3).trim().normalize()
-await a.save('out.wav')
+let a = await audio('voice.mp3')
+a.trim().normalize().fade(0.5).fade(-0.5)
+await a.save('clean.wav')
 ```
-
-## Install
 
 ```sh
 npm i audio
 ```
 
-## API
+All parameters use physical units: **seconds**, **dB**, **Hz**, **LUFS**. No sample indices in the public API.
 
-### Create
+## Quick Reference
+
+| Method | Description |
+|--------|-------------|
+| `audio(source, opts?)` | Decode from file/URL/bytes (async, paged) |
+| `audio.from(source, opts?)` | Wrap PCM/AudioBuffer/silence (sync, resident) |
+| **Structural** | |
+| `.crop(offset?, duration?)` | Keep only this range |
+| `.insert(source, offset?)` | Insert audio at position; number = seconds of silence |
+| `.remove(offset, duration)` | Delete range |
+| `.repeat(times)` | Repeat N times |
+| **Sample** | |
+| `.gain(db, offset?, duration?)` | Adjust volume in dB |
+| `.fade(duration, curve?)` | Positive = fade in from start, negative = fade out from end |
+| `.reverse(offset?, duration?)` | Reverse samples |
+| `.mix(other, offset?, duration?)` | Overlay audio |
+| `.write(data, offset?)` | Overwrite region |
+| `.remix(channels)` | Change channel count |
+| **Smart** | |
+| `.trim(threshold?)` | Remove silence from edges |
+| `.normalize(targetDb?)` | Normalize to peak dB |
+| **Inline** | |
+| `.do(...edits)` | Apply edit objects and/or processor functions |
+| **Output** | |
+| `.read(offset?, duration?, opts?)` | Get PCM or encoded bytes |
+| `.save(target)` | Encode + write to file |
+| **Analysis** | |
+| `.stat(offset?, duration?)` | {min, max, rms, peak, loudness} |
+| `.peaks(count, opts?)` | Downsampled waveform |
+| **Playback** | |
+| `.play(offset?, duration?)` | Start playback (Node: audio-speaker, browser: WAA) |
+| **Streaming** | |
+| `.stream(offset?, duration?)` | Async iterator over blocks |
+| **History** | |
+| `.undo()` | Pop last edit |
+| `.do(...edits)` | Re-apply undone edits |
+| `.toJSON()` | Serialize document |
+| `audio(json)` | Restore from serialized document |
+| **Properties** | |
+| `.duration` `.channels` `.sampleRate` `.length` | Read-only |
+| `.source` `.edits` `.version` `.onchange` `.cursor` | State |
+
+## Create
+
+**`audio(source)` — async.** Decodes encoded audio. Returns a Promise.
 
 ```js
-// Async — decode from file, URL, ArrayBuffer, Uint8Array
-let a = await audio('file.mp3')
-let b = await audio('file.mp3', {
-  onprogress({ delta, offset, total }) {}   // progressive index as decode streams
-})
+let a = await audio('file.mp3')          // file path (Node)
+let b = await audio(url)                  // URL string or URL object
+let c = await audio(uint8array)           // encoded bytes
 
-// Sync — from PCM data, AudioBuffer, or silence
-let c = audio.from([ch1, ch2])              // Float32Array[] channels
-let d = audio.from(3, { channels: 2 })     // seconds of silence
-let e = audio.from(audioBuffer)             // AudioBuffer
+// Progressive decode — streams index deltas as pages decode
+let d = await audio('long.flac', {
+  onprogress({ delta, offset, total }) {
+    // delta.min, delta.max, delta.energy — Float32Array[] per channel
+    // Append to waveform display as decode streams
+    appendWaveform(delta.min, delta.max)
+  }
+})
 ```
 
-### Ops
-
-All ops are sync, chainable, and queue to the edit list.
+**`audio.from(source)` — sync.** Wraps existing PCM. No decode, no I/O.
 
 ```js
-// Structural — reorganize timeline
-a.crop(offset, duration)      // keep only this range
-a.insert(source, offset?, duration?) // source: audio or number (seconds of silence)
-a.remove(offset, duration)
-a.repeat(times, offset?, duration?)
-
-// Sample — transform values
-a.gain(db, offset?, duration?)
-a.fade(duration, curve?)      // +dur = in, -dur = out. curve: 'linear','exp','log','cos'
-a.reverse(offset?, duration?)
-a.mix(other, offset?, duration?)
-a.write(data, offset?)
-a.remix(channels)               // mono→stereo, stereo→mono, etc.
-
-// Smart — analyze index, then queue basic op
-a.trim(threshold?)            // → scans index → slice()
-a.normalize(targetDb?)        // → reads peak → gain()
+let e = audio.from([left, right])         // Float32Array[] channels
+let f = audio.from(3, { channels: 2 })   // 3 seconds of silence
+let g = audio.from(audioBuffer)           // Web Audio AudioBuffer
 ```
 
-### Inline Processing
+Encoded sources are paged (64K-sample chunks, evictable to OPFS for large files). PCM sources via `audio.from()` are always resident.
 
-`do()` accepts edit objects, functions, or both — variadic:
+## Ops
+
+All ops are sync, chainable, non-destructive. They push to the edit list — source pages are never mutated.
+
+### Structural — reorganize timeline
 
 ```js
-// Inline function — one-off block processor
-a.do((block, ctx) => {
-  for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] *= 0.5
-  return block
+a.crop(1, 5)              // keep seconds 1–6
+a.remove(10, 2)           // delete seconds 10–12
+a.insert(intro, 0)        // prepend another audio document
+a.insert(3)               // append 3s silence (number = seconds of silence)
+a.insert(3, 0)            // prepend 3s silence
+a.repeat(2)               // double the audio
+```
+
+### Sample — transform values
+
+```js
+a.gain(-3)                // reduce by 3dB
+a.gain(6, 10, 5)          // boost 6dB from 10s for 5s
+
+a.fade(0.5)               // fade in first 0.5s (positive = from start)
+a.fade(-1)                // fade out last 1s (negative = from end)
+a.fade(-1, 'exp')         // fade out, exponential curve
+
+a.reverse()               // reverse entire audio
+a.reverse(5, 2)           // reverse 2s starting at 5s
+
+a.mix(other)              // overlay other audio
+a.mix(other, 10, 5)       // overlay at 10s for 5s
+
+a.write([left, right], 2) // overwrite from 2s with PCM data
+
+a.remix(1)                // stereo → mono
+a.remix(2)                // mono → stereo
+```
+
+### Smart — analyze then act
+
+```js
+a.trim()                  // remove silence from edges (default -40dB threshold)
+a.trim(-30)               // custom threshold
+
+a.normalize()             // normalize to 0dBFS
+a.normalize(-1)           // normalize to -1dBFS
+```
+
+Smart ops scan the index first, then queue a basic op (`trim` → `crop`, `normalize` → `gain`).
+
+### Inline — one-off processing via `.do()`
+
+`.do()` accepts edit objects (from undo/serialization) and/or inline processor functions. Each argument becomes one edit.
+
+```js
+// Processor function — receives all channels, returns modified
+a.do((channels, ctx) => {
+  for (let ch of channels)
+    for (let i = 0; i < ch.length; i++)
+      ch[i] *= 0.5
+  return channels
 })
 
-// Return false to stop early (eg. process until silence)
-a.do((block) => {
-  if (isSilent(block)) return false   // stop processing
-  return applyFilter(block)
+// Return false to skip (no-op)
+a.do((channels) => {
+  if (isSilent(channels)) return false
+  return channels
 })
 
-// Mix edits and functions in one call
+// Mix edit objects and functions
 a.do(
-  { type: 'trim' },
-  (block) => lowpass(block, 2000),
-  { type: 'normalize' }
+  { type: 'trim', args: [-30] },
+  (channels) => lowpass(channels, 2000),
+  { type: 'normalize', args: [0] }
 )
+
+// Re-apply undone edits
+let edit = a.undo()
+a.do(edit)
+```
 ```
 
-### Plugins
-
-Register named ops via `audio.op(name, init)`. The init function takes params, returns a block processor:
+## Output
 
 ```js
-// No params — init returns processor directly
+// PCM — Float32Array[] channels
+let pcm = await a.read()
+let pcm = await a.read(5, 2)                   // 2s from 5s
+
+// Typed PCM
+let raw = await a.read(0, 1, { format: 'int16' })
+
+// Encoded
+let wav = await a.read({ format: 'wav' })       // Uint8Array
+let mp3 = await a.read({ format: 'mp3' })
+
+// Save — format from extension
+await a.save('out.wav')
+await a.save('out.mp3')
+```
+
+## Analysis
+
+Two methods: `stat()` for aggregate metrics, `peaks()` for waveform visualization. Both async — instant from index when clean, materializes dirty blocks when needed.
+
+```js
+// Measurement — all stats for a range
+let s = await a.stat()
+s.min                          // minimum amplitude
+s.max                          // maximum amplitude
+s.rms                          // root mean square (K-weighted)
+s.peak                         // peak in dBFS
+s.loudness                     // integrated LUFS (BS.1770, K-weighted)
+
+let s = await a.stat(10, 5)   // stats for 10s–15s
+
+// Visualization — downsampled waveform
+let w = await a.peaks(800)              // 800-point waveform
+let l = await a.peaks(800, { channel: 0 })  // per-channel
+```
+
+## Playback
+
+`play()` returns an independent controller. Multiple controllers play simultaneously. Node uses `audio-speaker`; browser uses Web Audio API.
+
+```js
+let p = a.play()              // play from start
+let p = a.play(10, 5)         // play 5s from 10s
+
+p.pause()
+p.stop()
+
+p.currentTime                  // seconds (get/set)
+p.playing                      // boolean
+p.ontimeupdate = (t) => {}
+p.onended = () => {}
+
+// Parallel playback
+let p1 = a.play(0)
+let p2 = a.play(30)           // both play at once
+```
+
+## Streaming
+
+Async iterator over materialized blocks — one page at a time, ops applied.
+
+```js
+for await (let block of a.stream()) {
+  // block: Float32Array[] — channels for one page
+  process(block)
+}
+
+// Sub-range
+for await (let block of a.stream(10, 5)) { ... }
+```
+
+## History
+
+The document is serializable. `toJSON()` returns `{ source, edits, sampleRate, channels, duration }` — enough to fully restore the document from the original source.
+
+```js
+a.undo()                       // pop last edit
+
+// Serialize
+let json = JSON.stringify(a)   // toJSON() called automatically
+
+// Restore — reloads source, replays edits
+let b = await audio(JSON.parse(json))
+```
+
+```js
+a.version                      // monotonic counter
+a.onchange = () => {}          // fires on edit/undo
+a.source                       // original URL/path, or null for PCM
+```
+
+## Plugins
+
+### Custom ops
+
+Register via `audio.op(name, init)`. The init function takes params, returns a block processor. Fresh state per render.
+
+```js
+// Simple — no params
 audio.op('invert', () => (block) => {
-  for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] = -ch[i]
+  for (let ch of block)
+    for (let i = 0; i < ch.length; i++)
+      ch[i] = -ch[i]
   return block
 })
 a.invert()
-a.invert(2, 1)         // apply to range 2s..3s
+a.invert(2, 1)                 // range: 2s for 1s
 
-// With params — closed over, available to every block
+// With params
 audio.op('amplify', (factor) => (block) => {
-  for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] *= factor
+  for (let ch of block)
+    for (let i = 0; i < ch.length; i++)
+      ch[i] *= factor
   return block
 })
 a.amplify(2)
 
-// Stateful — init creates fresh state per render (filter memory, etc.)
+// Stateful — filter memory in closure, fresh per render
 audio.op('lowpass', (freq) => {
-  let prev = 0                  // state between blocks
+  let prev = 0
   return (block, ctx) => {
     let rc = 1 / (2 * Math.PI * freq)
     let dt = 1 / ctx.sampleRate
     let a = dt / (rc + dt)
-    for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] = prev = prev + a * (ch[i] - prev)
+    for (let ch of block)
+      for (let i = 0; i < ch.length; i++)
+        ch[i] = prev = prev + a * (ch[i] - prev)
     return block
   }
 })
@@ -121,7 +309,10 @@ A plugin is just a package that calls `audio.op()`:
 ```js
 // audio-compress/index.js
 import audio from 'audio'
-audio.op('compress', (threshold, ratio) => (block, ctx) => { ... })
+audio.op('compress', (threshold, ratio) => {
+  let env = 0
+  return (block, ctx) => { /* ... */ return block }
+})
 ```
 
 ```js
@@ -129,112 +320,148 @@ import 'audio-compress'
 a.compress(-20, 4)
 ```
 
-### Macros
+### Custom index fields
 
-Edits are serializable. `toJSON()` exports them, `do()` replays:
+Extend the always-resident index with computed fields per block:
 
 ```js
-// Save a processing recipe
-let recipe = a.gain(-3).trim().normalize().toJSON().edits
+audio.index('rms', (channels) => channels.map(ch => {
+  let sum = 0
+  for (let i = 0; i < ch.length; i++) sum += ch[i] * ch[i]
+  return Math.sqrt(sum / ch.length)
+}))
 
-// Apply to another file
-let b = await audio('other.mp3')
-b.do(...recipe)
-await b.save('processed.wav')
+a.index.rms    // [Float32Array, ...] per-channel
 ```
 
-### Output
+Return `number[]` for per-channel values, `number` for cross-channel (broadcast to all channels).
+
+## Recipes
+
+### Podcast cleanup
 
 ```js
-let pcm = await a.read()                         // Float32Array[] (PCM)
-let pcm = await a.read(offset, duration)          // sub-range
-let pcm = await a.read(0, 1, {format: 'int16'})   // PCM format conversion
-let wav = await a.read({format: 'wav'})           // Uint8Array (encoded)
-let mp3 = await a.read({format: 'mp3'})           // encode to any format
-await a.save('out.mp3')                           // encode + write (format from ext)
+let a = await audio('raw-episode.wav')
+a.trim(-30).normalize(-1).fade(1).fade(-2)
+await a.save('episode.mp3')
 ```
 
-### Analysis
+### Waveform display
 
 ```js
-await a.limits(offset?, duration?)    // {min, max}
-await a.loudness(offset?, duration?)  // LUFS
-await a.peaks(count)                  // {min: Float32Array, max: Float32Array}
-await a.peaks(100, {channel: 0})      // per-channel
+// Progressive — render waveform as decode streams (no waiting for full decode)
+let a = await audio('track.flac', {
+  onprogress({ delta, offset, total }) {
+    // delta.min/max: Float32Array[] per channel, per index block (1024 samples)
+    for (let i = 0; i < delta.min[0].length; i++) {
+      let block = delta.fromBlock + i
+      drawBar(block, delta.min[0][i], delta.max[0][i])
+    }
+  }
+})
+
+// Final waveform — downsampled to exact pixel count
+let w = await a.peaks(canvas.width)
+drawWaveform(w.min, w.max)  // w.min, w.max: Float32Array[canvas.width]
 ```
 
-### Playback
+### Batch processing with macros
 
 ```js
-let p = a.play(offset?, duration?)
-p.pause()
-p.stop()
-p.currentTime          // seconds (get/set)
-p.playing              // boolean
-p.ontimeupdate = t => {}
-p.onended = () => {}
-```
+let recipe = [
+  { type: 'trim', args: [-30] },
+  { type: 'normalize', args: [0] },
+  { type: 'fade', args: [0.5] },
+  { type: 'fade', args: [-0.5] },
+]
 
-### Streaming
-
-```js
-for await (let block of a.stream(offset?, duration?)) {
-  // block: Float32Array[] per page
+for (let file of files) {
+  let a = await audio(file)
+  a.do(...recipe)
+  await a.save(file.replace('.wav', '.mp3'))
 }
 ```
 
-### Properties
+### Multi-track mixing
 
 ```js
-a.duration       // seconds
-a.channels       // number
-a.sampleRate     // Hz
-a.length         // total samples
-a.edits          // edit list (inspectable)
-a.version        // increments on edit/undo
-a.onchange       // callback
+let tracks = await Promise.all(files.map(f => audio(f)))
+
+tracks[0].gain(-3)
+tracks[1].gain(-6).fade(2)
+
+// Bounce — mix in windows
+for (let t = 0; t < duration; t += 1) {
+  let chunks = await Promise.all(tracks.map(tr => tr.read(t, 1)))
+  output.write(mixdown(chunks))
+}
 ```
-
-### History
-
-```js
-a.undo()                // pop last edit, returns it
-a.do(edit)              // push edit (re-apply, replay macro, inline fn)
-a.do(...edits)          // variadic — multiple edits at once
-a.toJSON()              // serialize edits
-```
-
-### Index
-
-Always-resident summaries built during decode. Powers analysis and waveform display without loading PCM.
-
-```js
-a.index.blockSize   // 1024
-a.index.min         // [Float32Array, ...] per-channel, per-block
-a.index.max
-a.index.energy      // mean square energy per block (for loudness)
-```
-
-## Physical Units
-
-All parameters in physical quantities. No samples or indices in the public API.
-
-- **Time**: seconds (float)
-- **Amplitude**: dB
-- **Frequency**: Hz
-- **Loudness**: LUFS
 
 ## Ecosystem
 
 | Package | Purpose |
 |---------|---------|
-| [audio-decode](https://github.com/audiojs/audio-decode) | Codec decoding (13+ formats) |
+| [audio-decode](https://github.com/audiojs/audio-decode) | Codec decoding (13+ formats, streaming) |
 | [audio-encode](https://github.com/audiojs/audio-encode) | Codec encoding |
+| [audio-type](https://github.com/nickolanack/audio-type) | Audio format detection |
+| [audio-filter](https://github.com/audiojs/audio-filter) | Audio filters (K-weighting, EQ, etc.) |
 | [audio-buffer](https://github.com/audiojs/audio-buffer) | Standalone AudioBuffer |
+| [pcm-convert](https://github.com/nickolanack/pcm-convert) | PCM format conversion |
+| [audio-speaker](https://github.com/nickolanack/audio-speaker) | Audio output (Node) |
 | [audio-mic](https://github.com/nickolanack/audio-mic) | Microphone input |
-| [audio-speaker](https://github.com/nickolanack/audio-speaker) | Audio output |
+
+## Architecture
+
+```
+source (file/URL/bytes)
+  |
+  v
++-----------------------------------------------------+
+|  Decode (audio-decode) — chunked streaming           |
+|  WASM codecs chunk-fed, index built per page         |
+|  Optional: decode in Worker (audio/worker)           |
++----------+--------------------------+---------------+
+           |                          |
+           v                          v
++------------------+    +--------------------------+
+|  Pages           |    |  Index                   |
+|  64K-sample      |    |  per-block (1024)        |
+|  chunks, evict-  |    |  min / max / K-energy    |
+|  able to OPFS    |    |  always resident         |
++--------+---------+    +-------------+------------+
+         |                            |
+         |    +----------------+      |
+         +--->|  Edit List     |<-----+
+              |  declarative,  |
+              |  lazy, undo-   |
+              |  able ops      |
+              +-------+--------+
+                      |
+              +-------+--------+
+              |  Read Plan     |
+              |  structural -> |
+              |  segment map   |
+              |  sample ->     |
+              |  pipeline      |
+              +-------+--------+
+                      |
+         +------------+------------+
+         v            v            v
+      .read()      .stream()   .play()
+```
+
+**Pages** — Source PCM in 64K-sample chunks. Large files auto-evict to OPFS and restore on demand, keeping memory bounded. Pages from `audio.from()` are subarray views (zero-copy).
+
+**Index** — Built incrementally during decode: per-channel, per-block (1024 samples) min/max/energy. Energy is K-weighted (BS.1770) for real LUFS measurement. Powers `stat()`, `peaks()`, `trim()`, `normalize()` without touching PCM. ~7MB for 2h stereo. Extensible via `audio.index()`.
+
+**Edit list** — All ops push to an append-only list. Source pages are never mutated. Edits are serializable (`toJSON`), replayable (`do`), undoable (`undo`).
+
+**Read plan** — On output, edits compile to a read plan: structural edits produce a segment map, sample edits form a pipeline. `read()`, `stream()`, and `play()` walk the plan chunk-by-chunk — no full materialization needed.
+
+**Storage** — `audio(file, { storage })` controls paging: `'auto'` (default) uses OPFS when available and needed, `'persistent'` requires OPFS, `'memory'` forces in-memory.
+
+**Worker** — `import { decodeWorker } from 'audio/worker'` decodes in a Web Worker, streaming index deltas back via `onprogress`. Keeps the main thread free for rendering.
 
 ## License
 
-
-<p align=center><a href="./LICENSE">MIT</a> • <a href="https://github.com/krishnized/license/">ॐ</a></p>
+<p align=center><a href="./LICENSE">MIT</a> <a href="https://github.com/krishnized/license/">ॐ</a></p>

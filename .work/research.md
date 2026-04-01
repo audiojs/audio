@@ -4,12 +4,44 @@
 
 `load → transform → save`. Compact, terse, portable. Handles 2h+ files in the browser without tab death.
 
-## Values
+### Essence
+Take any audio input, apply operations, produce output. Like `sharp` for images. The taste of water in this package is the single line: `await audio('in.mp3').gain(-3).save('out.wav')` — if that works perfectly across Node + browser, the package has justified its existence.
 
-- Commands
-- Big files
-- Plugins
-- One-off runs?
+### Pure form
+A universal audio buffer smarter than raw PCM. Knows its own structure (index), handles its own memory (pages), records its own history (edits). The limit as versions → ∞: the audio equivalent of a spreadsheet cell — reactive, lazy, infinite capacity, zero ceremony.
+
+### Theoretical minimum
+```js
+let a = await audio(input)
+let pcm = await a.read()
+```
+Load anything, get PCM. Everything else is acceleration toward this.
+
+### Bone (in)
+- Load any format → PCM
+- Non-destructive editing (structural + sample ops)
+- Index-powered analysis (peaks, loudness, limits)
+- Encode + save
+- Playback
+- CLI for sox-style audio manipulation
+- Plugin system (`audio.op()`) for extending ops
+
+### Flesh (out — must NOT become)
+- Audio module compiler (→ `audio-module`)
+- DAW framework (consumer builds that on top)
+- Real-time DSP engine (→ `web-audio-api` / AudioWorklet)
+- Plugin format wrapper (CLAP/VST/WAM → `audio-module`)
+- Package manager for audio plugins
+
+### Single-player value
+One developer, one audio file, one script. No network, no server, no framework. `npx audio in.mp3 trim normalize -o out.wav`. Done. Value is immediate, complete, standalone. First user stays because the alternative is sox (arcane flags) or ffmpeg (not JS) or Web Audio API (ceremony).
+
+### Soul / spark
+The index. Always-resident, survives page eviction, powers analysis without touching PCM. 2-hour file waveform renders instantly from 7MB of index data. The architectural separation of index / pages / edits — that's the insight competitors would have to rebuild from scratch. The edit list is both undo history and serializable macro. Non-destructive by architecture, not by convention.
+
+### Spine
+Happy path: `audio(file) → ops → read/save/play`. 90% of users do exactly this. The gravity is the edit list — everything orbits it. Structural ops reshape timeline, sample ops transform values, smart ops analyze-then-queue. One list, three kinds, uniform serialization. What breaks first under weight: materialization of long edit chains on large files (→ streaming render in v2.1).
+
 
 ## Mental Model
 
@@ -22,7 +54,7 @@ Ops    → declarative edit list
 
 Any output (read, save, play) = load needed pages + apply ops. Play does it in rolling windows, save does it all at once. Same pipeline, different consumer.
 
-`audio()` takes anything — files, URLs, bytes, PCM, AudioBuffer, silence duration. Always async (resolves immediately for PCM). Can page/re-decode encoded sources. `audio.from()` is the sync escape hatch when you know you have PCM and don't want a Promise. Same instance API.
+`audio()` takes anything — files, URLs, bytes, PCM, AudioBuffer, silence duration. Always async (resolves immediately for PCM). Can page/re-decode encoded sources. `audio.from()` is the sync escape hatch when you know you have PCM and don't want a Promise.
 
 
 ## API
@@ -38,29 +70,29 @@ let a = await audio('file.mp3')             // file/URL/bytes → decode + index
 let b = await audio('file.mp3', {
   onprogress({ delta, offset, total }) {}   // progressive index as decode streams
 })
-let c = await audio([ch1, ch2])             // PCM data → wraps instantly (async resolves immediately)
+let c = await audio([ch1, ch2])             // PCM data → wraps instantly
 let d = await audio(3, {channels: 2})       // seconds of silence
 
 // audio.from() — sync guarantee when you know you have PCM
-let e = audio.from([ch1, ch2])              // sync, always resident
+let e = audio.from([ch1, ch2])
 let f = audio.from(3, {channels: 2})
 
-// Structural ops — reorganize timeline (unique params each)
-a.slice(offset, duration)                   // → new Audio (shares source)
+// Structural ops — reorganize timeline
+a.crop(offset, duration)                    // trim to range
 a.insert(other, offset?)                    // insert other audio at position
 a.remove(offset, duration)                  // delete range
-a.pad(duration, {side:'end'})               // add silence
-a.repeat(times)                             // repeat N times
+a.repeat(times, offset?, duration?)         // repeat N times
 
 // Sample ops — transform values (arg, offset?, duration?)
 a.gain(db, offset?, duration?)              // dB
-a.fade(duration)                            // +duration = in, -duration = out
+a.fade(duration, curve?)                    // +duration = in, -duration = out
 a.reverse(offset?, duration?)
 a.mix(other, offset?, duration?)            // overlay other audio
 a.write(data, offset?)                      // overwrite region
+a.remix(channels)                           // mono↔stereo
 
 // Smart ops — analyze index, then queue structural/sample op
-a.trim(threshold?)                          // → scans index → slice()
+a.trim(threshold?)                          // → scans index → crop()
 a.normalize(targetDb = 0)                   // → reads index peak → gain()
 
 // Custom ops — audio.op(name, init)
@@ -77,16 +109,15 @@ a.do((block) => { /* one-off transform */ return block })
 // Output (async — format determines return type)
 let pcm = await a.read(offset?, duration?)         // → Float32Array[]
 let raw = await a.read(0, 1, { format: 'int16' })  // → Int16Array[]
-let wav = await a.read({ format: 'wav' })          // → Uint8Array (encoded)
+let wav = await a.read({ format: 'wav' })           // → Uint8Array (encoded)
 await a.save('/tmp/out.mp3')                       // encode + write (format from ext)
 
 // Analyze (async — instant from index, materializes if needed)
-await a.limits(offset?, duration?)          // → {min, max}
-await a.loudness(offset?, duration?)        // → LUFS
+await a.stat(offset?, duration?)            // → {min, max, rms, peak, loudness}
 await a.peaks(count)                        // → {min: Float32Array, max: Float32Array}
 
 // Playback — controller returned, parallel by default
-let p = a.play(offset?, duration?, opts?)   // opts: { loop, volume, speed }
+let p = a.play(offset?, duration?)
 p.pause()
 p.stop()
 p.currentTime                               // seconds (get/set)
@@ -103,11 +134,11 @@ a.channels                                  // number
 a.sampleRate                                // Hz
 
 // Edit history
-a.edits                                     // active edit list (inspectable, readonly)
-a.undo()                                    // undo last edit (moves to redo stack)
-a.do()                                    // redo (moves back to edits)
-a.version                                   // monotonic counter (increments on any edit change)
-a.onchange = () => {}                       // fired on edit/undo/redo
+a.edits                                     // active edit list
+a.undo()                                    // undo last edit
+a.do(...edits)                              // apply / replay edits
+a.version                                   // monotonic counter
+a.onchange = () => {}
 a.toJSON()                                  // serialize edits
 ```
 
@@ -115,15 +146,14 @@ a.toJSON()                                  // serialize edits
 ## Ecosystem
 
 ```
-audio           — this package
-audio-buffer    — standalone AudioBuffer (no AudioContext), includes from/utils/remix
+audio           — this package (document library)
+audio-buffer    — standalone AudioBuffer (no AudioContext)
 audio-decode    — codec decoding (13+ formats)
 audio-encode    — codec encoding
 audio-mic       — microphone input
 audio-speaker   — audio output (lazy-loaded by audio for Node playback)
+audio-module    — cross-platform plugin compiler (separate concern)
 ```
-
-All prerequisites implemented. audio-play and audio-buffer-list absorbed into `audio`.
 
 
 ## Conventions
@@ -153,375 +183,96 @@ All prerequisites implemented. audio-play and audio-buffer-list absorbed into `a
 
 ### Index (always resident)
 
-The index is the primary product for UX. Built during decode, retained permanently, survives page eviction. Powers waveform display, analysis, and smart op resolution.
+Built during decode, retained permanently, survives page eviction. Powers waveform display, analysis, and smart op resolution.
 
 ```js
 index: {
-  blockSize: 1024,                // samples per block — one resolution for everything
+  blockSize: 1024,                // samples per block
   min: [Float32Array, ...],       // per-channel, per-block min amplitude
   max: [Float32Array, ...],       // per-channel, per-block max amplitude
-  energy: [Float32Array, ...],    // per-channel, per-block K-weighted mean square
+  energy: [Float32Array, ...],    // per-channel, per-block mean square
 }
 ```
 
-Everything at blockSize. One resolution, no exceptions:
-- `min/max` → `peaks()`, `limits()`, `trim()`, `normalize()`, waveform display
-- `energy` → `loudness()` aggregates into 400ms windows + applies BS.1770 gating at query time
-- Per-channel stored, collapsed on read by default
-- Stereo waveform / loudness overlay: per-channel access without index change
-
 Memory: ~7MB for 2h stereo (3 arrays × 2 channels × ~310K blocks × 4 bytes). Negligible vs PCM.
-
-### onprogress() shape
-
-`onprogress()` is append-only. It does **not** receive the whole index on every decode step.
-
-```js
-onprogress({
-  delta: {
-    fromBlock,                           // starting block index for this batch
-    min: [Float32Array, ...],            // per-channel min blocks
-    max: [Float32Array, ...],            // per-channel max blocks
-    energy: [Float32Array, ...],         // per-channel K-weighted energy blocks
-  },
-  offset,                                // decoded seconds so far
-  total                                  // total seconds if known
-})
-```
-
-This keeps progress events bounded for 2h+ files and lets consumers append UI state without copying a growing index object.
-
-### Multichannel semantics
-
-Index stores **per-channel** data. API returns **collapsed** by default:
-
-- `peaks()` → collapsed min/max across channels (single waveform)
-- `limits()` → global min/max across channels
-- `loudness()` → integrated program loudness (BS.1770 weighted)
-
-Per-channel access: `peaks(count, { channel: 0 })` or similar — no index change needed. Stereo waveform display is a consumer decision, not an architecture change.
 
 ### Pages (PCM, paged on demand)
 
 Planar Float32Arrays per channel. Stored in pages (chunks), loaded/cached on demand.
 
-```js
-this.pages = [
-  { data: [Float32Array, Float32Array] | null },  // null = evicted
-  ...
-]
-this.index = { ... }                               // always resident
-this.edits = [...]                                 // edit ops
-this.sampleRate = 44100
-this.channels = 2
-```
-
-**Residency is automatic, not user-configured:**
+**Residency is automatic:**
 - Small files: all pages resident after decode
 - Large browser files: pages backed by OPFS (auto-detected). Budget ~500MB resident, rest paged
-- Node: all resident (V8 handles multi-GB). Temp-file backing available for extreme cases
-- `storage` option for override: `audio(file, { storage: 'memory' | 'persistent' | 'auto' })`
+- Node: all resident (V8 handles multi-GB)
+- `storage` option for override: `'memory' | 'persistent' | 'auto'`
 
-**`storage: 'auto'` behavior (browser):**
-- If OPFS is available and writable, use persistent paged mode automatically
-- If OPFS is unavailable/denied/quota-limited, fall back to memory mode **only if** estimated decoded size fits the safe memory budget
-- If OPFS is unavailable and the file is too large for safe in-memory decode, fail early with a clear error instead of risking tab death
-
-**Explicit overrides:**
-- `storage: 'persistent'` = require OPFS, throw if unavailable
-- `storage: 'memory'` = force in-memory decode, even for large files
-- `storage: 'auto'` = safest default path
-
-AudioBuffer is an I/O format only — audio-decode output, audio.from() input.
-
-### Page size
-
-Page size: 2^16 = 65536 samples ≈ 1.49s at 44100Hz. Power-of-2 for FFT.
-
-blockSize: 1024 (power-of-2, divides pageSize evenly). Configurable via `audio(file, { blockSize })` if needed — default covers wavearea and general use.
+Page size: 2^16 = 65536 samples ≈ 1.49s at 44100Hz.
 
 ### Ops: three kinds, one edit list
 
-All ops queue to `a.edits`. Three kinds internally:
+**Structural** — reorganize timeline: `crop`, `insert`, `remove`, `repeat`
+**Sample** (built-in + custom) — transform values: `gain`, `fade`, `reverse`, `mix`, `write`, `remix`, custom via `audio.op()`
+**Smart** — analyze index then queue op: `trim`, `normalize`
+**Inline** — anonymous functions via `do()`
 
-**Structural** (built-in only) — reorganize timeline. Each has unique params:
-- `slice(offset, duration)` → new Audio
-- `insert(other, offset?)`, `remove(offset, duration)`, `pad(duration, {side})`, `repeat(times)`
+### Index dirtiness
 
-**Sample** (built-in + custom) — transform block values:
-- Built-in: `gain`, `fade`, `reverse`, `mix`, `write`
-- Custom: registered via `audio.op()`
-
-**Smart** (built-in only) — analyze index, then queue a structural/sample op:
-- `trim(threshold?)` → scans index → queues `slice()`
-- `normalize(targetDb?)` → reads index peak → queues `gain()`
-
-**Inline** — anonymous functions via `do()`:
-- `a.do((block, ctx) => ...)` — one-off block processor
-- Return `false`/`null` to stop early
-
-### audio.op(name, init)
-
-Register a custom sample op. `init` takes params, returns a block processor. Fresh per render — closure holds state between blocks.
-
-```js
-// No params
-audio.op('invert', () => (block) => {
-  for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] = -ch[i]
-  return block
-})
-a.invert()
-a.invert(2, 1)          // range 2s..3s
-
-// With params — closed over
-audio.op('eq', ({ low, mid, high }) => (block, ctx) => { ... })
-a.eq({ low: 3, high: -2 })
-a.eq({ low: 3 }, 10, 5)  // range 10s..15s
-
-// Stateful — fresh state per render (filter memory, running averages)
-audio.op('lowpass', (freq) => {
-  let prev = 0
-  return (block, ctx) => { /* IIR filter using prev */ return block }
-})
-a.lowpass(2000)
-```
-
-`init.length` (number of params) determines arg split: init params first, then offset/duration. A "plugin" is a package that calls `audio.op()`.
-
-Registration rules:
-- `name` must be a valid identifier, not already registered
-- Block processor must preserve channel count and block length
-- Return `false`/`null` from processor to stop early
-
-**Index-clean** — index stays valid with arithmetic adjustment:
-- `gain` — shift min/max/energy by dB offset
-- `reverse` — reorder index blocks within range, values unchanged
-- `trim` — scans index for boundaries, refines at sample level in boundary pages (then becomes a slice)
-- `normalize` — reads `max(index.max)` → becomes gain op
-
-**Index-dirty (range-scoped)** — affected blocks stale, rebuilt on next analysis:
-- `fade` — position-dependent gain, can't update min/max without PCM
-- `mix` — combines two sources, index is not additive
-- `write` — arbitrary data injection
-- Custom ops (dirty by default, safe)
-
-Range-scoped: `fade(0.5)` on a 2h file stales ~21 blocks out of ~310K. Analysis rebuilds only stale blocks.
-
-**Index-dirty (global)** — entire index invalid, full rebuild on next analysis:
-- `slice, insert, remove, pad, repeat` — structural ops shift the output timeline. Block N no longer corresponds to the same audio position. The index must be fully rebuilt from materialized output.
-
-This is the key distinction: sample ops dirty a *range*. Structural ops dirty *everything* — because block boundaries shift.
-
-**When range values fall between blocks:** Materialization works at sample level — exact sample positions via `Math.round(offset * sr)`. No block alignment issue for the PCM output. For index dirty tracking, ranges expand to full blocks via floor/ceil. Slightly conservative (reindexes a bit more than needed), but correct.
-
-**Rule:** analysis is always async. When no stale blocks, resolves instantly from index. When stale blocks exist, materializes + reindexes affected blocks (range-scoped) or all blocks (structural). Uniform return type.
-
-
-### Structural custom ops
-
-Current custom ops (via `audio.op()`) are sample-level: they process blocks, preserve shape. Structural ops (insert, remove, pad, repeat, slice) change the timeline and are built-in only.
-
-**Problem:** users may need custom structural ops — time stretching, silence compression, resampling. These change audio length.
-
-**Approach:** allow the init function to return a *timeline modifier* instead of a block processor, signaled by returning a different shape:
-
-```js
-// Sample op (current) — returns block processor
-audio.op('invert', () => (block, ctx) => { ... return block })
-
-// Structural op (future) — returns timeline modifier
-audio.op('silenceSpeed', (threshold, speed) => ({
-  structural: true,
-  process(channels, sr) {
-    // receives full channel arrays, returns modified arrays (different length ok)
-    return channels.map(ch => compressSilence(ch, threshold, speed, sr))
-  }
-}))
-```
-
-The distinction: if init returns a function → sample op (per block). If init returns an object with `structural: true` → structural op (full arrays). Structural custom ops make the index globally dirty.
-
-Post-v2 — the sample op pattern covers the common case.
+**Clean** (arithmetic update): `gain`, `reverse`, `trim`, `normalize`
+**Range-dirty** (affected blocks stale): `fade`, `mix`, `write`, custom ops
+**Global-dirty** (full rebuild): `crop`, `remove`, `insert`, `repeat` — structural ops shift block boundaries
 
 ### Materialization
 
-```
-1. Resolve smart ops: trim scans index → refines at sample level in boundary pages → slice(). normalize reads index peak → gain().
-2. Structural: build output timeline (which source samples → which output positions)
-3. Sample: iterate timeline, apply gain/fade/reverse per sample (pages loaded on demand)
-```
+Currently: cached full render (strategy D). Trivial, correct, sufficient for typical files.
 
-### Concurrency
+**v2.1 planned**: Read plan + streaming render (strategy C):
+1. Walk structural edits → segment map (which source → which output)
+2. For each output chunk, read source pages per plan, apply sample ops, yield
 
-Materialization is reentrant. Playback is controller-based, parallel by default:
+Enables: instant playback start, large file support without full materialization, cursor/preload.
 
-- `read()`, `encode()`, `save()`, analysis, and `stream()` may run concurrently on the same instance
-- `play()` returns an independent controller. Multiple controllers can play simultaneously (parallel by default)
-- Every materialization consumer and every playback controller has its own cursor/state
-- Edits are snapshot-based per call: a `read()` started at version N finishes against version N even if later ops are queued
-
-
-## Playback
-
-Playback lives on returned controllers, not on the Audio document. `play()` starts async and returns a playback handle immediately.
+### Cursor / Preload (v2.1)
 
 ```js
-let p1 = a.play(0)                          // starts playing
-let p2 = a.play(0.5, 1, { volume: 0.5 })   // overlaps — both play simultaneously
-p1.stop()                                    // stop just this one
-p2.currentTime                               // seconds, get/set
-p2.playing                                   // boolean
-p2.ontimeupdate = (t) => {}
-p2.onended = () => {}
+a.cursor = 30.5  // seconds — "user is here"
+// → preload pages near cursor
+// → pre-render play-ahead buffer (with read plan)
 ```
 
-Parallel by default. Each `play()` returns an independent controller. Multiple controllers can play simultaneously (sprites, overlapping hits). Exclusive playback is the caller's choice: stop the previous controller before starting a new one.
-
-Browser: WAA (AudioBufferSourceNode, windowed buffer for large files). Node: audio-speaker (lazy-loaded). Buffering/seeking handled internally.
-
-
-## Streaming
-
-`stream()` yields materialized blocks one at a time — pages loaded on demand, ops applied per block.
-
-```js
-for await (let block of a.stream(offset?, duration?)) {
-  // block: Float32Array[] — one page's worth of channels
-  process(block)
-}
-```
-
-This fits the paged architecture naturally — pages are already chunked. Streaming = "materialize and yield one page at a time." Useful for encoding large files, piping to network, progressive processing without holding everything in memory.
-
-
-## Integration
-
-### Web Audio API
-
-`audio.from(audioBuffer)` in, `read()` out. Construct AudioBuffer from returned channels at the boundary.
-
-### Wavearea
-
-Audio collapses wavearea's 4 layers into 1:
-
-```js
-let a = await audio(file, {
-  onprogress({ delta }) {
-    let min = collapseChannels(delta.min)   // collapse per-channel blocks for single-waveform UI
-    let max = collapseChannels(delta.max)
-    waveform += deltaToWavefont(min, max)
-  }
-})
-
-let p = a.play(caretTime)
-p.ontimeupdate = (t) => { caret = timeToBlock(t) }
-
-a.remove(start, duration)
-a.insert(clipboard, offset)
-a.undo()
-```
-
-Eliminates: api.js, worker.js, player.js, most of store/. Keeps: wavefont encoding, UI.
-
-Index powers waveform display without PCM. Pages loaded only for playback/editing. In browser, OPFS-backed auto mode handles 2h+ files when available and otherwise fails safely before tab death.
-
-### DAWs
-
-Audio is the per-track engine. A DAW uses one Audio instance per track.
-
-```js
-// DAW = N tracks + mixer + transport
-let tracks = await Promise.all(files.map(f => audio(f, { onprogress })))
-
-// per-track editing
-tracks[0].gain(-3).fade(.5)
-tracks[2].remove(10, 2).insert(clipboard, 10)
-tracks[1].undo()
-
-// per-track waveform — from index, no PCM
-for (let t of tracks) drawWaveform(await t.peaks(width))
-
-// bounce/export — materialize in windows, mix progressively
-for (let t = 0; t < duration; t += windowSize) {
-  let chunks = await Promise.all(tracks.map(tr => tr.read(t, windowSize)))
-  output.write(mixdown(chunks))
-}
-
-// session save/load
-let session = tracks.map(t => t.toJSON())
-```
-
-What audio provides per track: non-destructive editing, undo, waveform index, paged PCM, materialization, playback controllers, session serialization. What the DAW adds on top: multi-track mixing (sum Float32Arrays), master transport (coordinate controllers), automation curves, routing.
-
-### Extending
-
-`audio.op()` is the extension mechanism — same one built-ins use internally. Future effect packages (audio-vst, audio-wam, audio-faust) just call it.
-
-
-## v2 Scope
-
-**Ships:**
-- `audio()` async canonical path + `audio.from()` sync resident fast path
-- `audio.op()` — register custom ops, explicit contract
-- 12 built-in ops (9 index-clean + 3 index-dirty) + custom via audio.op()
-- Index: min + max + energy per block per channel, built during decode
-- Materialization: smart op resolution → structural → sample
-- Output: `read()` (with format option — PCM or codec), `save(target)`
-- 3 analysis methods: always async (instant from index when clean, materializes when dirty)
-- Playback controllers via `play()`, parallel by default
-- `stream()` async iterator for streaming
-- `edits`, `undo()`, `do()`, `version`, `onchange`, `toJSON()`
-- OPFS page cache for browser large files
-- node:test, JSDoc + .d.ts
-
-**Does NOT ship:**
-- CLI
-- audio-vst / audio-wam / audio-faust packages
-- Piped/writable stream output (ReadableStream/WritableStream API)
-- Spectrum analysis
-- Node temp-file page cache (V8 handles multi-GB; add if needed)
+Makes sense only with streaming render. For wavearea integration, cursor = caret position.
 
 
 ## CLI
 
-`npx audio` — sox-style. Effects are positional words, not flags. Units explicit when needed.
-
-### Convention (modeled after sox)
+`npx audio` — sox-style. Effects are positional words, not flags.
 
 ```sh
 audio [input] [ops...] [-o output]
-```
 
-```sh
 # Basic
 audio in.mp3 gain -3db trim normalize -o out.wav
 
 # Ranges — offset..end syntax
-audio in.mp3 gain -3db 1s..10s -o out.wav       # gain only 1s to 10s
-audio in.mp3 fade 0..0.5s fade -0.5s.. -o out.wav  # fade in first 0.5s, fade out last 0.5s
+audio in.mp3 gain -3db 1s..10s -o out.wav
+audio in.mp3 fade 0..0.5s fade -0.5s.. -o out.wav
 
-# Fade with curve
-audio in.mp3 fade 0..1s ease-in fade -1s.. ease-out -o out.wav
-
-# Pipe — `-` or implicit stdin/stdout (sox convention)
+# Pipe
 cat in.raw | audio gain -3db > out.raw
-audio in.mp3 encode mp3 -o -                     # stdout
-audio - gain -3db -o out.wav --rate 44100 --ch 2  # stdin with format hint
 
 # Macro — apply saved edit list
 audio in.mp3 --macro recipe.json -o out.wav
 
 # Plugins — auto-discovered from node_modules/audio-*
 npm i audio-compress
-audio in.wav compress --ratio 4 -o out.wav       # just works
+audio in.wav compress --ratio 4 -o out.wav
 ```
 
 ### Units
 
-| Domain | Suffix | Default (no suffix) | Examples |
-|--------|--------|---------------------|----------|
+| Domain | Suffix | Default | Examples |
+|--------|--------|---------|----------|
 | Time | `s`, `ms` | seconds | `0.5s`, `500ms`, `0.5` |
-| Amplitude | `db`, none | dB for gain, linear for others | `-3db`, `0.5` |
+| Amplitude | `db` | dB for gain | `-3db`, `0.5` |
 | Frequency | `hz`, `khz` | Hz | `440hz`, `2khz` |
 
 ### Ranges
@@ -532,211 +283,19 @@ audio in.wav compress --ratio 4 -o out.wav       # just works
 1s..10s      # from 1s to 10s
 0..0.5s      # first half second
 -1s..        # last second to end
-..5s         # start to 5 seconds
--1s..-0.5s   # 0.5s interval, 1s from end
 ```
-
-This replaces the JS API's `(offset, duration)` convention for CLI. Ranges are more readable in a terminal than offset+duration.
-
-### Fade
-
-```sh
-fade 0..0.5s              # fade in, first 0.5s, linear (default)
-fade -0.5s..              # fade out, last 0.5s
-fade 0..1s ease-in        # fade in with curve
-fade -1s.. ease-out       # fade out with curve
-```
-
-Curves: `linear` (default), `ease-in`, `ease-out`, `ease-in-out`, `log`, `exp`. Matches CSS easing naming.
-
-### stdin/stdout
-
-Sox convention: `-` for explicit stdin/stdout. Or implicit — if no input file specified and stdin has data, read from stdin. If no `-o`, write to stdout.
-
-```sh
-# Explicit
-audio - gain -3db -o - < in.raw > out.raw
-
-# Implicit
-cat in.raw | audio gain -3db > out.raw
-```
-
-For raw PCM stdin: `--rate`, `--ch`, `--format` specify the format (like sox's `-t raw -r 44100 -c 2`).
 
 ### Plugin discovery
 
-eslint model: scan `node_modules/audio-*` at startup. Any package that calls `audio.op()` registers its commands automatically. No config file, no forced install.
-
-```
-node_modules/
-  audio-compress/   → exports audio.op('compress', ...)
-  audio-reverb/     → exports audio.op('reverb', ...)
-```
-
-User installs what they need: `npm i audio-compress`. The CLI finds it. Convention over configuration.
-
-Not sox/ffmpeg style (fixed set). Not forced install. Just: if it's there, it works.
+eslint model: scan `node_modules/audio-*` at startup. Any package that calls `audio.op()` registers its commands automatically. No config file.
 
 ### Macros
 
 Serialized edit lists. `toJSON().edits` exports, `do(edit)` replays.
 
-```json
-[
-  {"type": "trim", "threshold": -40},
-  {"type": "normalize", "targetDb": 0},
-  {"type": "fade", "duration": 0.5},
-  {"type": "fade", "duration": -0.5}
-]
-```
-
 ```sh
 audio in.mp3 --macro podcast-cleanup.json -o out.wav
 ```
-
-In code:
-```js
-let recipe = JSON.parse(fs.readFileSync('recipe.json'))
-let a = await audio('in.mp3')
-for (let edit of recipe) a.do(edit)
-await a.save('out.wav')
-```
-
-No special macro runtime. Edits ARE macros.
-
-
-## Index Extensions
-
-The index is currently fixed: min, max, energy. But analysis needs are open-ended: K-weighted energy, pitch, chord, cepstrum, BPM, spectral centroid, zero-crossing rate, etc.
-
-**Design: index fields are pluggable.**
-
-```js
-// Register a custom index field — one function, context tells you why
-audio.index('pitch', (block, ctx) => {
-  // ctx.op: 'decode' | 'gain' | 'fade' | ... — what triggered this
-  // ctx.prev: previous value for this block (null on first decode)
-  // ctx.edit: the edit object (null on decode)
-  // ctx.sampleRate, ctx.blockSize
-
-  // Short-circuit: ops that don't affect pitch
-  if (ctx.op === 'gain' || ctx.op === 'reverse') return ctx.prev
-
-  // Compute from PCM (decode, fade, or any dirty op)
-  return detectPitch(block[0], ctx.sampleRate)
-})
-
-// Now available:
-a.index.pitch     // Float32Array — one value per block
-```
-
-**Contract:**
-- One function: `(block, ctx) => value`. Called per block.
-- `ctx.op` = `'decode'` on initial build, or the op type on update.
-- Return `ctx.prev` = field is clean for this op (no recompute, value preserved).
-- Return new value = field updated.
-- If the function needs PCM (for decode or dirty ops), it gets the block. For clean ops, it can short-circuit without touching PCM.
-- Index fields survive page eviction (tiny per block — one number).
-- Custom index fields participate in dirty tracking: stale ranges per-field, not global.
-
-**Built-in fields use the same mechanism:**
-```js
-// Internally, audio registers:
-audio.index('min', (block, ctx) => {
-  if (ctx.op === 'gain') return ctx.prev * (10 ** (ctx.edit.db / 20))
-  if (ctx.op === 'reverse') return ctx.prev
-  return Math.min(...block[0])  // compute from PCM
-})
-```
-
-**K-weighted energy example:**
-```js
-import { kWeightFilter } from 'digital-filter'
-
-audio.index('kEnergy', (block, ctx) => {
-  if (ctx.op === 'gain') return ctx.prev * (10 ** (ctx.edit.db / 10))  // energy scales with gain²
-  if (ctx.op === 'reverse') return ctx.prev  // energy unchanged
-
-  // Compute from PCM (decode or dirty op)
-  let filtered = kWeightFilter(block[0], ctx.sampleRate)
-  return filtered.reduce((s, v) => s + v * v, 0) / filtered.length
-})
-
-// Now loudness() can use a.index.kEnergy instead of plain energy
-```
-
-**Dirty tracking becomes per-field:**
-
-Currently: one dirty range for all index fields. With extensions: each field tracks its own stale blocks. A `gain` op might be clean for min/max/energy/kEnergy but dirty for pitch. A `reverse` might be clean for energy but dirty for BPM.
-
-```
-a.gain(-3)         // min/max/energy: clean (arithmetic). pitch: clean. bpm: clean.
-a.fade(0.5)        // min/max: dirty for range. energy: dirty. pitch: dirty. bpm: dirty.
-```
-
-The stale check walks edits per field, not globally. Analysis methods check only their own field's staleness.
-
-**Memory:** Each index field adds ~1.2MB for 2h stereo at 1024 blockSize (one Float32 per block × ~310K blocks). 10 custom fields = 12MB total. Still negligible vs PCM.
-
-
-## Custom Processing
-
-Beyond simple ops (block-level transforms), users need complex processing chains:
-
-### Compound ops (macros)
-
-Audacity-style batch processing. A macro is a list of edits applied sequentially:
-
-```js
-// Define a reusable processing chain
-let podcast = [
-  { type: 'trim', threshold: -30 },
-  { type: 'normalize', targetDb: -1 },
-  { type: 'fade', duration: 0.5 },
-  { type: 'fade', duration: -0.5 },
-]
-
-// Apply to any audio
-let a = await audio('episode.mp3')
-for (let edit of podcast) a.do(edit)
-await a.save('clean.mp3')
-```
-
-No special macro API needed — `do(edit)` already pushes edits. A "macro" is just an array of edit objects.
-
-### Conditional ops (smart processing)
-
-Ops that analyze and decide — the init closure enables this naturally:
-
-```js
-// Speed up silence (podcast editing)
-audio.op('silenceSpeed', (threshold, speed) => (block, ctx) => {
-  let energy = block[0].reduce((s, v) => s + v * v, 0) / block[0].length
-  if (energy < threshold) {
-    return block.map(ch => ch.filter((_, i) => i % speed === 0))
-  }
-  return block
-})
-```
-
-Post-v2: allow ops to return different-length blocks (structural custom ops). For v2, shape-preserving covers the common case.
-
-### Filter chains (DSP pipelines)
-
-The init pattern is perfect for stateful DSP — filter memory lives in the closure, fresh per render:
-
-```js
-import { biquad } from 'digital-filter'
-
-audio.op('lowpass', (freq) => {
-  let filter = biquad('lowpass', freq)  // filter state lives here
-  return (block, ctx) => block.map(ch => filter(ch))
-})
-
-a.lowpass(2000)  // chainable, serializable, stateful across blocks
-```
-
-Filters are just ops. `digital-filter` provides DSP, `audio.op()` provides integration. No special filter API.
 
 
 ## Plugin Contract
@@ -751,25 +310,225 @@ audio.op(name, init)
 - `init.length` determines arg split: init params, then offset/duration
 - Init runs at render time — fresh closure per materialization
 - Closure holds state between blocks (filter memory, running averages)
-- Processor returns `block` (continue), `false`/`null` (stop early)
-- All custom ops are index-dirty by default (safe). Index extensions handle per-field rules separately.
+- All custom ops are index-dirty by default (safe)
 
 ```js
 // Plugin package — just a file that calls audio.op()
 import audio from 'audio'
 audio.op('compress', (threshold, ratio) => {
-  let env = 0  // envelope follower state
-  return (block, ctx) => { /* compression with stateful envelope */ return block }
+  let env = 0
+  return (block, ctx) => { /* compression */ return block }
 })
 ```
 
+
+## Index Extensions (post-v2)
+
+Index fields are pluggable:
+
+```js
+audio.index('pitch', (block, ctx) => {
+  if (ctx.op === 'gain' || ctx.op === 'reverse') return ctx.prev
+  return detectPitch(block[0], ctx.sampleRate)
+})
+
+a.index.pitch     // Float32Array — one value per block
+```
+
+Each field tracks its own staleness. Memory: ~1.2MB per field for 2h stereo.
+
+
+## Structural Custom Ops (post-v2)
+
+Allow variable-length output from custom ops:
+
+```js
+audio.op('silenceSpeed', (threshold, speed) => ({
+  structural: true,
+  process(channels, sr) {
+    return channels.map(ch => compressSilence(ch, threshold, speed, sr))
+  }
+}))
+```
+
+Shape-preserving sample ops cover the common case for v2.
+
+
+## Integration
+
+### Wavearea
+Audio collapses wavearea's 4 layers into 1: index powers waveform display, pages loaded only for playback/editing, OPFS handles 2h+ files.
+
+### DAWs
+One Audio instance per track. Parallel playback, non-destructive editing, undo, session serialization via `toJSON()`.
+
+### Web Audio API
+`audio.from(audioBuffer)` in, `read()` out.
+
+### audio-module bridge
+A plugin written to `audio-module` contract can also register as an `audio` op via `audio.op()`. The compilation toolchain lives in `audio-module`.
+
+
+## Industry Landscape
+
+### Market Leaders & Why Users Love Them
+
+#### **Logic Pro** (Apple, $200 one-time)
+- **Why users love it**: Sound library (7,000+ instrument patches, 2,800 loops), Flex Time (non-destructive timing), Flex Pitch (non-destructive pitch), AI Drummer
+- **Happy path**: Musicians on Mac who want to go from zero to production in one tool. Value = no subscription + massive library + native integration
+- **Workflow**: Visual waveform editing, multi-track arrangement, real-time effects preview
+
+#### **Reaper** (Cockos, $60)
+- **Why users love it**: Extreme customization (3-5 ways to do every action), stability, speed, generous trial, plugin ecosystem (VST/VST3/AU/CLAP)
+- **Happy path**: Sound designers & film post who need total workflow control + want to debug their process. Value = affordable + ultimate flexibility
+- **Workflow**: Deeply customizable UI, keyboard shortcuts, workspace theming, scripting support
+
+#### **Pro Tools** (Avid, subscription model)
+- **Why users love it**: Industry standard (every major studio has it), deep film/video integration, native video playback, collaborative workflows
+- **Happy path**: Studios doing client work where standardization matters. Plugins ecosystem (AAX). Value = interoperability + client expectations
+- **Workflow**: Video-first design, session sharing, mixing console metaphor
+
+#### **Audacity** (Open source, free)
+- **Why users love it**: Free, cross-platform, spectral editing, plugin system (VST/LV2/Nyquist), format support (WAV/MP3/FLAC/OGG)
+- **Happy path**: Beginners, podcasters, casual users who need to trim/normalize/add basic effects
+- **Drawback**: Dated interface, no real-time effects, clunky workflow
+
+#### **Nuendo** (Steinberg, subscription)
+- **Why users love it**: Film/post-production focus, spatial audio (Dolby Atmos), advanced synchronization, Cubase compatibility
+- **Happy path**: Post-production workflows at scale (video sync, multi-track dialogue, object audio)
+
+### CLI Audio Tools Gap (sox, ffmpeg)
+
+| Aspect | sox/ffmpeg | Industry DAWs | audio (CLI) Opportunity |
+|--------|-----------|---------------|------------------------|
+| **Discoverability** | Arcane flag syntax | Visual, self-documenting | Clear, learnable CLI |
+| **Non-destructive** | Destructive (overwrites) | Full undo/redo + edit list | Native via edit list |
+| **Visual feedback** | None (command-line only) | Waveform, spectral, meters | Text-based analysis + optional JSON |
+| **Format support** | Good (ffmpeg), basic (sox) | Extensive | Leverage audio-decode ecosystem |
+| **Scripting** | Possible but awkward | Macros/automation | Serializable edits as JSON macros |
+| **Batch operations** | Designed for this | Not native | Perfect fit for CLI |
+| **Plugin ecosystem** | None | Extensive (VST/AU/CLAP) | audio.op() model |
+| **Learning curve** | Steep (flag memorization) | Moderate (UI guided) | Gentle (English-like operations) |
+
+### User Type Happy Paths
+
+#### **Podcaster** (most common CLI user)
+**Pain**: Trim silence, normalize levels, remove background noise, export MP3
+**Current solution**: Audacity (GUI) or sox (CLI)
+**audio CLI advantage**: `audio podcast.wav trim normalize denoise -o podcast.mp3` — one intuitive line
+
+#### **Sound Designer**  
+**Pain**: Apply complex chains, iterate variations, export multiple formats
+**Current solution**: Reaper (full DAW) or SoundForge (Windows-only)
+**audio CLI advantage**: Macros as JSON edits, parallelizable (batch processing with state tracking)
+
+#### **Batch Audio Processing**
+**Pain**: Process 1000s of files (codec conversion, gain normalization, format detection)
+**Current solution**: sox loops or shell scripts
+**audio CLI advantage**: JavaScript + CLI = more expressive than shell, more maintainable
+
+#### **Web Audio Integration**
+**Pain**: Audio processing in browser (video posters, podcasters, streaming)
+**Current solution**: Web Audio API (low-level) or ffmpeg.wasm (slow, large)
+**audio CLI advantage**: Same library (Node + browser), non-destructive editing survives serialization
+
+---
+
+## Demanded Features (Priority Order)
+
+### Tier 1: Must-Have (Every Industry Tool)
+1. **Multi-format input** → PCM (MP3, WAV, FLAC, OGG, M4A, WebM)
+2. **Encode + save** (same formats + OPUS, AIFF)
+3. **Gain** (dB + linear)
+4. **Fade** (in/out, curves)
+5. **Trim** (silence detection + manual ranges)
+6. **Normalize** (peak + LUFS)
+7. **Playback** (with position control)
+8. **Undo/redo** (full history, serializable)
+9. **Batch operations** (same edits to many files)
+
+### Tier 2: Competitive (What Sets Leaders Apart)
+1. **Spectral analysis** (frequency-domain visualization)
+2. **Pitch/time stretch** (non-destructive, independent)
+3. **Silence compression** (smart removal)
+4. **Noise gate** (threshold-based reduction)
+5. **EQ** (parametric, visual)
+6. **Compression** (threshold/ratio/attack/release)
+7. **Plugin ecosystem** (custom ops via audio.op())
+8. **Mixing** (multi-track support, pan, crossfade)
+
+### Tier 3: Delighting (Why Users Choose One Over Another)
+1. **Spectral editing** (select-and-delete in frequency domain)
+2. **Time-stretch perception** (preserve/alter formants)
+3. **Vocal removal** (stem separation)
+4. **AI effects** (diarization, speech enhancement)
+5. **Workflow scripting** (user-defined macros)
+6. **Real-time preview** (hear changes before commit)
+
+---
+
+## Strategic Insights for audio
+
+### What audio CLI Should Be
+✓ The **sharp** of audio: "I have audio, I want transformed audio, one line of code"  
+✓ **Non-destructive** by architecture: edits are first-class, serializable, replayable  
+✓ **Discoverable**: `audio --help` shows all ops, `audio op-name --help` shows args  
+✓ **Scriptable**: Both shell + JS, JSON macro export/import  
+✓ **Batch-native**: Process 1000s with same state tracking as single file  
+
+### What audio Should NOT Be
+✗ A DAW (leave mixing/arrangement to DAWs built on top)  
+✗ A VST/AU host (use audio-module bridge for plugin compilation)  
+✗ A real-time DSP engine (too heavy; use Web Audio API)  
+✗ Slower than sox/ffmpeg (streaming render v2.1 must be fast)  
+
+### Moat (What Competitors Can't Copy)
+- **Index-powered operations** without PCM load: 2h file waveform in 7MB, instant analysis
+- **Non-destructive by default**: Edits live in memory, survive serialization, replayable like code
+- **Unified model**: Same ops in Node + browser + CLI, same edit list format everywhere
+- **Plugin contract simplicity**: `audio.op(name, init)` is 10x simpler than VST/AU/CLAP
+
+---
+
+## CLI Roadmap (Aligned with User Needs)
+
+### v1 (Now)
+- Tier 1 must-haves: format, gain, fade, trim, normalize, playback, undo
+- CLI: positional ops, range syntax (1s..10s), macro export
+
+### v1.5 (Next Sprint)
+- Tier 1 completeness: all common formats, encode variants
+- Spectral ops: freq analysis for smart trim
+
+### v2 (Q2)
+- Tier 2 competitive: pitch/time stretch, silence compression, EQ, compression
+- Streaming render: instant playback start on large files
+- Plugin ecosystem: audio.op() discovery, npm plugin packages
+
+### v2.5 (Post-release)
+- Tier 3 delighting: spectral editing, stem separation, AI effects
+- Scripting surface: user-defined macros, batch templates
+
+---
+
+## Sources
+
+- [Best Audio Editing Software in 2026 Guide](https://www.appypieautomate.ai/blog/best-audio-editing-software)
+- [13 Best Audacity Alternatives 2026](https://tutorialtactic.com/blog/audacity-alternatives/)
+- [15 Best Professional Audio Editing Software 2026](https://wplook.com/audio-editing-software/)
+- [Reaper vs Pro Tools Comparison](https://www.selecthub.com/audio-editing-software/pro-tools-vs-reaper-audio/)
+- [Five Things To Love About REAPER](https://www.production-expert.com/production-expert-1/five-things-to-love-about-reaper/)
+- [SoX Audio Processing](https://www.stefaanlippens.net/audio_conversion_execution_speed_comparison_of_SoX_FFmpeg_MPlayer/)
+- [DAW Comparisons and Features](https://online.berklee.edu/help/en_US/daw/2077278-comparison-of-daws/)
+- [Digital Audio Workstation Overview](https://blog.landr.com/best-daw/)
 
 ## Open Questions
 
 - [ ] Page size: benchmark 2^15 vs 2^16 vs 2^17
 - [ ] OPFS budget: 500MB default, auto-detect available?
-- [ ] Worker bundling: inline blob URL or separate file?
 - [ ] Index rebuild: lazy per-field or global?
-- [ ] CLI arg parsing: custom or use existing lib (like sade)?
+- [ ] CLI arg parsing: custom or use existing lib?
 - [ ] Structural custom ops: how to handle variable-length output blocks?
 - [ ] Index extensions: eager (compute during decode) vs lazy (compute on first access)?
+- [ ] Spectral editing: defer to v2.5 or prioritize earlier?
+- [ ] Plugin discovery: npm registry or custom ecosystem?
