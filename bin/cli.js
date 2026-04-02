@@ -47,7 +47,8 @@ function isOpName(s) {
 }
 
 function parseArgs(args) {
-  let input = null, ops_ = [], output = null, format = null, verbose = false, showHelp = false
+  let input = null, ops_ = [], output = null, format = null
+  let verbose = false, showHelp = false, play = false, stat = false, force = false
   let i = 0
 
   // Check for explicit -i / --input flag at start
@@ -79,6 +80,15 @@ function parseArgs(args) {
     } else if (arg === '-i' || arg === '--input') {
       input = args[++i]
       i++
+    } else if (arg === '--play' || arg === '-p') {
+      play = true
+      i++
+    } else if (arg === '--stat' || arg === '--info') {
+      stat = true
+      i++
+    } else if (arg === '--force' || arg === '-f') {
+      force = true
+      i++
     } else if (isFlag(arg)) {
       throw new Error(`Unknown flag: ${arg}`)
     } else {
@@ -105,7 +115,7 @@ function parseArgs(args) {
     }
   }
 
-  return { input, ops: ops_, output, format, verbose, showHelp }
+  return { input, ops: ops_, output, format, verbose, showHelp, play, stat, force }
 }
 
 // ── I/O ──────────────────────────────────────────────────────────────────
@@ -125,6 +135,11 @@ function formatError(err) {
   return typeof err === 'string' ? err : err.message || String(err)
 }
 
+function formatDuration(s) {
+  let m = Math.floor(s / 60), sec = (s % 60).toFixed(2)
+  return m > 0 ? `${m}m${sec}s` : `${sec}s`
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -135,7 +150,7 @@ async function main() {
     process.exit(args.length ? 0 : 1)
   }
 
-  if (args[0] === '--version' || args[0] === '-v') {
+  if (args[0] === '--version' || args[0] === '-V') {
     console.log(`audio ${VERSION}`)
     process.exit(0)
   }
@@ -161,12 +176,25 @@ async function main() {
     // Load audio
     if (opts.verbose) console.error(`Loading: ${typeof source === 'string' ? source : '(stdin)'}`)
     let a = await audio(source, {
-      onprogress: opts.verbose ? ({ delta, offset, total }) => {
+      onprogress: opts.verbose ? ({ offset, total }) => {
         let pct = Math.round(100 * offset / total)
         process.stderr.write(`\rDecoding... ${pct}%`)
       } : undefined
     })
     if (opts.verbose) console.error('\n')
+
+    // --stat / --info: show audio info and exit
+    if (opts.stat) {
+      let s = await a.stat()
+      console.log(`  Duration:   ${formatDuration(a.duration)}`)
+      console.log(`  Channels:   ${a.channels}`)
+      console.log(`  SampleRate: ${a.sampleRate} Hz`)
+      console.log(`  Samples:    ${a.length}`)
+      console.log(`  Peak:       ${s.peak.toFixed(1)} dBFS`)
+      console.log(`  RMS:        ${(20 * Math.log10(s.rms)).toFixed(1)} dB`)
+      console.log(`  Loudness:   ${s.loudness.toFixed(1)} LUFS`)
+      if (!opts.ops.length && !opts.output) process.exit(0)
+    }
 
     // Apply operations
     if (opts.ops.length) {
@@ -181,17 +209,36 @@ async function main() {
       }
     }
 
-    // Save output
-    if (opts.verbose) console.error('Rendering and saving...')
-    let output = opts.output || 'out.wav'
-    let fmt = opts.format || (typeof output === 'string' ? output.split('.').pop() : 'wav')
+    // --play: play the result
+    if (opts.play) {
+      let p = a.play()
+      await new Promise(resolve => { p.onended = resolve })
+      if (!opts.output) process.exit(0)
+    }
 
-    if (output === '-') {
-      let bytes = await a.read({ format: fmt })
-      process.stdout.write(Buffer.from(bytes))
-    } else {
-      await a.save(output, { format: fmt })
-      if (opts.verbose) console.error(`Saved: ${output}`)
+    // Save output (skip if only --stat or --play without -o)
+    if (opts.output || (!opts.stat && !opts.play)) {
+      let output = opts.output || 'out.wav'
+
+      // Check for overwrite
+      if (!opts.force && output !== '-') {
+        let { existsSync } = await import('fs')
+        if (existsSync(output)) {
+          process.stderr.write(`audio: ${output} already exists (use --force to overwrite)\n`)
+          process.exit(1)
+        }
+      }
+
+      if (opts.verbose) console.error('Rendering and saving...')
+      let fmt = opts.format || (typeof output === 'string' ? output.split('.').pop() : 'wav')
+
+      if (output === '-') {
+        let bytes = await a.read({ format: fmt })
+        process.stdout.write(Buffer.from(bytes))
+      } else {
+        await a.save(output, { format: fmt })
+        if (opts.verbose) console.error(`Saved: ${output}`)
+      }
     }
   } catch (err) {
     console.error(`audio: ${formatError(err)}`)
@@ -215,14 +262,13 @@ Operations (positional):
   gain DB       Amplify in dB (e.g., gain -3db, gain 6)
   fade DUR      Fade in/out (positive = in from start, negative = out from end)
   trim [THR]    Auto-trim silence (threshold in dB, optional)
-  normalize [DB] Peak or LUFS normalize (default: 0dB)
+  normalize [DB] Peak normalize (default: 0dB). Presets: streaming, podcast, broadcast
   reverse       Reverse audio
   crop OFF DUR  Crop to range in seconds
   remove OFF DUR Delete range in seconds
   insert SRC OFF Insert audio from file/duration
   repeat N      Repeat N times
   mix SRC OFF   Mix in another audio file
-  write DATA    Overwrite region (advanced)
   remix CH      Remix channels (e.g., remix 2 for stereo)
 
 Range syntax (for offset+duration):
@@ -237,15 +283,20 @@ Units:
   Hz: 440hz, 2khz
 
 Options:
+  --play, -p    Play the result (after ops, before save)
+  --stat        Show audio info (duration, channels, peak, loudness)
+  --force, -f   Overwrite output file if it exists
   --verbose, -v Show progress and debug info
   --format FMT  Override output format (default: from extension)
   --help, -h    Show this help
-  --version     Show version
+  --version, -V Show version
 
 Examples:
+  audio in.mp3 --stat
   audio in.mp3 gain -3db trim normalize -o out.wav
+  audio in.wav --play
   audio in.wav gain -3db 1s..10s -o out.wav
-  audio -i in.wav gain -3db -o out.wav
+  audio in.mp3 normalize streaming -o out.wav
   cat in.wav | audio gain -3db > out.wav
 
 For more info: https://github.com/audiojs/audio
