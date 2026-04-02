@@ -62,8 +62,9 @@ export interface AudioInstance {
   // ── Smart ops ────────────────────────────────────────────────
   /** Remove silence from edges (auto-detects floor from energy if threshold undefined) */
   trim(threshold?: number): this
-  /** Normalize to target level (default 0 dBFS). Mode: 'peak' (default) or 'lufs' */
-  normalize(targetDb?: number, opts?: { mode?: 'peak' | 'lufs' }): this
+  /** Normalize to target level (default 0 dBFS). Mode: 'peak' (default) or 'lufs'. Preset shorthand: 'streaming' (-14 LUFS), 'podcast' (-16 LUFS), 'broadcast' (-23 LUFS). */
+  normalize(preset: 'streaming' | 'podcast' | 'broadcast'): this
+  normalize(targetDb?: number, opts?: 'lufs' | { mode?: 'peak' | 'lufs' }): this
 
   // ── Output ───────────────────────────────────────────────────
   /** Read audio data. Format determines return type: PCM (default), codec ('wav','mp3',...) → Uint8Array, or typed ('int16','uint8'). Meta passed to encoder. */
@@ -90,7 +91,7 @@ export interface AudioInstance {
   /** Pop edit(s). n=1 (default) returns single edit or null; n>1 returns array. */
   undo(n?: number): EditOp | EditOp[] | null
   /** Re-apply a previously undone edit */
-  do(...edits: EditOp[]): this
+  apply(...edits: EditOp[]): this
 
   // ── Views ────────────────────────────────────────────────────
   /** Create a shared-page view, optionally scoped to a range. */
@@ -100,7 +101,7 @@ export interface AudioInstance {
   /** Serialize document to JSON */
   toJSON(): { source: string | null, edits: EditOp[], sampleRate: number, channels: number, duration: number }
 
-  /** Playback hint — preloads nearby pages, warms render cache */
+  /** Playback hint — preloads nearby pages */
   cursor: number
 }
 
@@ -170,10 +171,8 @@ declare function audio(source: string | URL | ArrayBuffer | Uint8Array | Float32
 declare namespace audio {
   /** Sync entry — from PCM data, AudioBuffer, audio instance (structural copy), or silence */
   function from(source: Float32Array[] | AudioBuffer | AudioInstance | number, opts?: AudioOpts): AudioInstance
-  /** Standard loudness targets (LUFS) */
-  const LUFS_STREAMING: number  // YouTube, Spotify, Apple Music: -14
-  const LUFS_PODCAST: number    // podcast standard: -16
-  const LUFS_BROADCAST: number  // EBU R128 broadcast: -23
+  /** Concatenate multiple sources into one audio instance */
+  function concat(...sources: (AudioInstance | Float32Array[] | number)[]): AudioInstance
   /** Register custom op. Init function takes params, returns block processor. */
   function op(name: string, init: (...args: any[]) => (block: Float32Array[], ctx: { offset: number, sampleRate: number, blockSize: number, blockOffset?: number }) => Float32Array[] | false | null): void
   /** Register custom index field. Receives all channels per block. Return number (cross-channel) or number[] (per-channel). */

@@ -3,7 +3,7 @@
  * Loaded by audio.js when opts.decode === 'worker'.
  * Calls decodeBuf in the worker thread, posts progress + result back.
  */
-import { decodeBuf } from './audio.js'
+import { decodeBuf } from './core.js'
 
 self.onmessage = async (e) => {
   try {

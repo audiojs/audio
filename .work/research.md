@@ -103,8 +103,8 @@ audio.op('invert', () => (block) => {
 a.invert()                                  // whole audio
 a.invert(2, 1)                              // range 2s..3s
 
-// Inline processing via .do()
-a.do((block) => { /* one-off transform */ return block })
+// Inline processing via .apply()
+a.apply((block) => { /* one-off transform */ return block })
 
 // Output (async — format determines return type)
 let pcm = await a.read(offset?, duration?)         // → Float32Array[]
@@ -136,7 +136,7 @@ a.sampleRate                                // Hz
 // Edit history
 a.edits                                     // active edit list
 a.undo()                                    // undo last edit
-a.do(...edits)                              // apply / replay edits
+a.apply(...edits)                           // apply / replay edits
 a.version                                   // monotonic counter
 a.onchange = () => {}
 a.toJSON()                                  // serialize edits
@@ -213,7 +213,7 @@ Page size: 2^16 = 65536 samples ≈ 1.49s at 44100Hz.
 **Structural** — reorganize timeline: `crop`, `insert`, `remove`, `repeat`
 **Sample** (built-in + custom) — transform values: `gain`, `fade`, `reverse`, `mix`, `write`, `remix`, custom via `audio.op()`
 **Smart** — analyze index then queue op: `trim`, `normalize`
-**Inline** — anonymous functions via `do()`
+**Inline** — anonymous functions via `apply()`
 
 ### Index dirtiness
 
@@ -223,23 +223,29 @@ Page size: 2^16 = 65536 samples ≈ 1.49s at 44100Hz.
 
 ### Materialization
 
-Currently: cached full render (strategy D). Trivial, correct, sufficient for typical files.
-
-**v2.1 planned**: Read plan + streaming render (strategy C):
+**Streaming render** (v2): Read plan + streaming.
 1. Walk structural edits → segment map (which source → which output)
 2. For each output chunk, read source pages per plan, apply sample ops, yield
+3. Smart ops (trim, normalize) use `.resolve` to resolve from index → simpler streamable ops
 
-Enables: instant playback start, large file support without full materialization, cursor/preload.
+Falls back to cached full render when pipeline can't be streamed (inline fns, sample ops before structural).
 
-### Cursor / Preload (v2.1)
+### Smart op resolution (`.resolve`)
+
+Ops like `trim` and `normalize` are "measure-then-act" — they need global stats, then produce a trivial transform. The `.resolve(args, ctx)` property on the init function allows them to resolve from the index without full render:
+- `trim` resolves to `crop` (using index min/max for silence boundaries)
+- `normalize` resolves to `gain` (using index peak or K-weighted energy for LUFS)
+
+This makes `audio('file').trim().normalize().save('out.wav')` fully streamable.
+
+### Cursor / Preload
 
 ```js
 a.cursor = 30.5  // seconds — "user is here"
 // → preload pages near cursor
-// → pre-render play-ahead buffer (with read plan)
 ```
 
-Makes sense only with streaming render. For wavearea integration, cursor = caret position.
+For wavearea integration, cursor = caret position.
 
 
 ## CLI
@@ -291,7 +297,7 @@ eslint model: scan `node_modules/audio-*` at startup. Any package that calls `au
 
 ### Macros
 
-Serialized edit lists. `toJSON().edits` exports, `do(edit)` replays.
+Serialized edit lists. `toJSON().edits` exports, `apply(edit)` replays.
 
 ```sh
 audio in.mp3 --macro podcast-cleanup.json -o out.wav
@@ -491,24 +497,26 @@ A plugin written to `audio-module` contract can also register as an `audio` op v
 
 ---
 
-## CLI Roadmap (Aligned with User Needs)
+## Roadmap
 
-### v1 (Now)
-- Tier 1 must-haves: format, gain, fade, trim, normalize, playback, undo
-- CLI: positional ops, range syntax (1s..10s), macro export
+### v2.0 (Current)
+- Tier 1 complete: format, gain, fade, trim, normalize, playback, undo, CLI
+- Streaming render with plan-based pipeline
+- Smart op resolution (.resolve) — trim/normalize avoid full render
+- Ops fully decoupled from core (op/plan.js)
+- OPFS paging for large browser files
+- CLI: positional ops, range syntax, --play, --stat
 
-### v1.5 (Next Sprint)
-- Tier 1 completeness: all common formats, encode variants
-- Spectral ops: freq analysis for smart trim
+### v2.1 (Next)
+- Plugin ecosystem: audio.op() discovery from node_modules/audio-*
+- In-place pipeline mutation for memory efficiency
+- Spectral analysis index field
+- CLI: macro import/export, pipe support
 
-### v2 (Q2)
-- Tier 2 competitive: pitch/time stretch, silence compression, EQ, compression
-- Streaming render: instant playback start on large files
-- Plugin ecosystem: audio.op() discovery, npm plugin packages
-
-### v2.5 (Post-release)
-- Tier 3 delighting: spectral editing, stem separation, AI effects
-- Scripting surface: user-defined macros, batch templates
+### v3 (Future)
+- Tier 2 competitive: pitch/time stretch, EQ, compression, gate (via audio-effect plugins)
+- Structural custom ops (variable-length output)
+- Index delta-tracking through edits (avoid stale index rebuild)
 
 ---
 
@@ -527,9 +535,7 @@ A plugin written to `audio-module` contract can also register as an `audio` op v
 
 - [ ] Page size: benchmark 2^15 vs 2^16 vs 2^17
 - [ ] OPFS budget: 500MB default, auto-detect available?
-- [ ] Index rebuild: lazy per-field or global?
-- [ ] CLI arg parsing: custom or use existing lib?
 - [ ] Structural custom ops: how to handle variable-length output blocks?
 - [ ] Index extensions: eager (compute during decode) vs lazy (compute on first access)?
-- [ ] Spectral editing: defer to v2.5 or prioritize earlier?
 - [ ] Plugin discovery: npm registry or custom ecosystem?
+- [ ] Index delta-tracking through edits: can we avoid stale index for gain→trim chains?

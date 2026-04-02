@@ -1,6 +1,6 @@
 # audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml)
 
-> Audio document for JavaScript — load, edit, save, play, analyze.
+> Audio is paged, indexed, immutable audio document — load, edit, save, play, analyze. It incorporates index/pages/edits architecture.
 
 ```js
 import audio from 'audio'
@@ -22,6 +22,7 @@ All parameters use physical units: **seconds**, **dB**, **Hz**, **LUFS**. No sam
 |--------|-------------|
 | `audio(source, opts?)` | Decode from file/URL/bytes (async, paged) |
 | `audio.from(source, opts?)` | Wrap PCM/AudioBuffer/silence (sync, resident) |
+| `audio.concat(...sources)` | Join audio documents end-to-end |
 | **Structural** | |
 | `.crop(offset?, duration?)` | Keep only this range |
 | `.insert(source, offset?)` | Insert audio at position; number = seconds of silence |
@@ -34,11 +35,10 @@ All parameters use physical units: **seconds**, **dB**, **Hz**, **LUFS**. No sam
 | `.mix(other, offset?, duration?)` | Overlay audio |
 | `.write(data, offset?)` | Overwrite region |
 | `.remix(channels)` | Change channel count |
-| **Smart** | |
 | `.trim(threshold?)` | Remove silence from edges |
-| `.normalize(targetDb?)` | Normalize to peak dB |
+| `.normalize(target?)` | Normalize to peak, LUFS preset, or explicit LUFS |
 | **Inline** | |
-| `.do(...edits)` | Apply edit objects and/or processor functions |
+| `.apply(...edits)` | Apply edit objects and/or processor functions |
 | **Output** | |
 | `.read(offset?, duration?, opts?)` | Get PCM or encoded bytes |
 | `.save(target)` | Encode + write to file |
@@ -51,7 +51,7 @@ All parameters use physical units: **seconds**, **dB**, **Hz**, **LUFS**. No sam
 | `.stream(offset?, duration?)` | Async iterator over blocks |
 | **History** | |
 | `.undo()` | Pop last edit |
-| `.do(...edits)` | Re-apply undone edits |
+| `.apply(...edits)` | Re-apply undone edits |
 | `.toJSON()` | Serialize document |
 | `audio(json)` | Restore from serialized document |
 | **Properties** | |
@@ -83,6 +83,12 @@ let d = await audio('long.flac', {
 let e = audio.from([left, right])         // Float32Array[] channels
 let f = audio.from(3, { channels: 2 })   // 3 seconds of silence
 let g = audio.from(audioBuffer)           // Web Audio AudioBuffer
+```
+
+**`audio.concat(...sources)` — async.** Joins audio documents end-to-end (inverse of split).
+
+```js
+let c = audio.concat(a, b)               // join end-to-end
 ```
 
 Encoded sources are paged (64K-sample chunks, evictable to OPFS for large files). PCM sources via `audio.from()` are always resident.
@@ -124,25 +130,28 @@ a.remix(1)                // stereo → mono
 a.remix(2)                // mono → stereo
 ```
 
-### Smart — analyze then act
+### Analysis — scan then transform
 
 ```js
-a.trim()                  // remove silence from edges (default -40dB threshold)
-a.trim(-30)               // custom threshold
+a.trim()                  // remove silence from edges (auto threshold)
+a.trim(-30)               // custom threshold in dB
 
-a.normalize()             // normalize to 0dBFS
-a.normalize(-1)           // normalize to -1dBFS
+a.normalize()                        // normalize to 0dBFS (peak mode)
+a.normalize('streaming')             // -14 LUFS (YouTube, Spotify, Apple Music)
+a.normalize('podcast')               // -16 LUFS
+a.normalize('broadcast')             // -23 LUFS (EBU R128)
+a.normalize(-14, 'lufs')             // explicit LUFS target
 ```
 
-Smart ops scan the index first, then queue a basic op (`trim` → `crop`, `normalize` → `gain`).
+These ops need the full audio to analyze before transforming (find peak, detect silence). They're regular processors — same contract as `gain` or `fade` — but can't be streamed per-chunk.
 
-### Inline — one-off processing via `.do()`
+### Inline — one-off processing via `.apply()`
 
-`.do()` accepts edit objects (from undo/serialization) and/or inline processor functions. Each argument becomes one edit.
+`.apply()` accepts edit objects (from undo/serialization) and/or inline processor functions. Each argument becomes one edit.
 
 ```js
 // Processor function — receives all channels, returns modified
-a.do((channels, ctx) => {
+a.apply((channels, ctx) => {
   for (let ch of channels)
     for (let i = 0; i < ch.length; i++)
       ch[i] *= 0.5
@@ -150,13 +159,13 @@ a.do((channels, ctx) => {
 })
 
 // Return false to skip (no-op)
-a.do((channels) => {
+a.apply((channels) => {
   if (isSilent(channels)) return false
   return channels
 })
 
 // Mix edit objects and functions
-a.do(
+a.apply(
   { type: 'trim', args: [-30] },
   (channels) => lowpass(channels, 2000),
   { type: 'normalize', args: [0] }
@@ -164,8 +173,7 @@ a.do(
 
 // Re-apply undone edits
 let edit = a.undo()
-a.do(edit)
-```
+a.apply(edit)
 ```
 
 ## Output
@@ -320,6 +328,20 @@ import 'audio-compress'
 a.compress(-20, 4)
 ```
 
+#### Op properties
+
+Ops can declare optional properties on the init function to integrate with the engine:
+
+| Property | Type | Purpose |
+|----------|------|---------|
+| `.plan` | `function` | Structural segment planning (enables streaming) |
+| `.plan` | `false` | Cannot be streamed — needs full render |
+| `.dur` | `function` | Declares how the op changes audio length |
+| `.ch` | `function` | Declares how the op changes channel count |
+| `.resolve` | `function` | Index-based resolution (avoids full render) |
+
+Built-in ops use these — for example `crop` has `.dur` and `.plan`, `remix` has `.ch`, `trim` has `.plan = false`. Most ops need no properties at all.
+
 ### Custom index fields
 
 Extend the always-resident index with computed fields per block:
@@ -377,7 +399,7 @@ let recipe = [
 
 for (let file of files) {
   let a = await audio(file)
-  a.do(...recipe)
+  a.apply(...recipe)
   await a.save(file.replace('.wav', '.mp3'))
 }
 ```
@@ -397,6 +419,19 @@ for (let t = 0; t < duration; t += 1) {
 }
 ```
 
+## CLI
+
+```sh
+npx audio in.mp3 --stat                         # show info (duration, peak, loudness)
+npx audio in.mp3 gain -3db trim normalize -o out.wav
+npx audio in.wav --play                          # play to speakers
+npx audio in.wav gain -3db 1s..10s -o out.wav    # range syntax
+npx audio in.mp3 normalize streaming -o out.wav  # LUFS preset
+cat in.wav | audio gain -3db > out.wav           # pipe stdin/stdout
+```
+
+Flags: `--play` / `-p` (play result), `--stat` (show audio info), `--force` / `-f` (overwrite output), `--verbose` / `-v`, `-o` (output file), `--format` (override format).
+
 ## Ecosystem
 
 | Package | Purpose |
@@ -405,62 +440,108 @@ for (let t = 0; t < duration; t += 1) {
 | [audio-encode](https://github.com/audiojs/audio-encode) | Codec encoding |
 | [audio-type](https://github.com/nickolanack/audio-type) | Audio format detection |
 | [audio-filter](https://github.com/audiojs/audio-filter) | Audio filters (K-weighting, EQ, etc.) |
-| [audio-buffer](https://github.com/audiojs/audio-buffer) | Standalone AudioBuffer |
 | [pcm-convert](https://github.com/nickolanack/pcm-convert) | PCM format conversion |
 | [audio-speaker](https://github.com/nickolanack/audio-speaker) | Audio output (Node) |
 | [audio-mic](https://github.com/nickolanack/audio-mic) | Microphone input |
 
 ## Architecture
 
+### File structure
+
+```
+audio.js         Entry — imports core + all ops, registers them. Thin.
+core.js          Engine — decode, pages, index, render, playback, proto.
+op/
+  plan.js          Plan utilities — segment operations for structural ops
+  crop.js          Structural ops — reshape timeline, declare .plan and .dur
+  remove.js
+  insert.js
+  repeat.js
+  reverse.js
+  gain.js          Sample ops — transform values per-chunk
+  fade.js
+  mix.js
+  write.js
+  remix.js         Channel op — declares .ch
+  trim.js          Analysis ops — need full render (.plan = false)
+  normalize.js
+```
+
+Three import paths:
+
+```js
+import audio from 'audio'           // full bundle — all 12 built-in ops
+import audio from 'audio/core'      // bare engine — no ops, register your own
+import gain from 'audio/op/gain.js' // individual op
+```
+
+Ops don't import from core — structural ops use `op/plan.js` for plan utilities.
+
+### Op contract
+
+Every op follows one pattern — `audio.op(name, init)`:
+
+```
+init(params...) → processor(channels, ctx) → channels | false
+```
+
+`init` takes user parameters (dB, seconds, etc.) and returns a processor function. The processor receives `Float32Array[]` channels and a context `{ offset, duration, sampleRate, blockOffset }`, and returns transformed channels (or `false` to skip).
+
+Ops that affect metadata declare properties on the init function:
+
+```
+.plan     function → structural (segment planner for streaming)
+          false    → needs full PCM, can't stream (eg. trim, normalize)
+.dur      function → changes audio length (crop, remove, insert, repeat)
+.ch       function → changes channel count (remix)
+.resolve  function → index-based resolution (avoids full render)
+```
+
+Core reads these properties — no op names are hardcoded in the engine.
+
+### Data flow
+
 ```
 source (file/URL/bytes)
-  |
-  v
-+-----------------------------------------------------+
-|  Decode (audio-decode) — chunked streaming           |
-|  WASM codecs chunk-fed, index built per page         |
-|  Optional: decode in Worker (audio/worker)           |
-+----------+--------------------------+---------------+
-           |                          |
-           v                          v
-+------------------+    +--------------------------+
-|  Pages           |    |  Index                   |
-|  64K-sample      |    |  per-block (1024)        |
-|  chunks, evict-  |    |  min / max / K-energy    |
-|  able to OPFS    |    |  always resident         |
-+--------+---------+    +-------------+------------+
-         |                            |
-         |    +----------------+      |
-         +--->|  Edit List     |<-----+
-              |  declarative,  |
-              |  lazy, undo-   |
-              |  able ops      |
-              +-------+--------+
-                      |
-              +-------+--------+
-              |  Read Plan     |
-              |  structural -> |
-              |  segment map   |
-              |  sample ->     |
-              |  pipeline      |
-              +-------+--------+
-                      |
-         +------------+------------+
-         v            v            v
-      .read()      .stream()   .play()
+  │
+  ▼
+┌─────────────────────────────────────────┐
+│ Decode — chunked streaming (WASM)       │
+│ Index built per page during decode      │
+└──────────┬──────────────────┬───────────┘
+           │                  │
+           ▼                  ▼
+    ┌────────────┐    ┌──────────────┐
+    │ Pages      │    │ Index        │
+    │ 64K-sample │    │ per-block    │
+    │ evictable  │    │ min/max/     │
+    │ to OPFS    │    │ K-energy     │
+    └──────┬─────┘    └──────┬───────┘
+           │                 │
+           ▼                 ▼
+      ┌──────────────────────────┐
+      │ Edit List                │
+      │ append-only, lazy, undo  │
+      └────────────┬─────────────┘
+                   │
+      ┌────────────┴─────────────┐
+      │ Read Plan                │
+      │ structural → segment map │
+      │ sample → pipeline        │
+      └────┬─────────┬──────┬───┘
+           ▼         ▼      ▼
+       .read()  .stream()  .play()
 ```
 
 **Pages** — Source PCM in 64K-sample chunks. Large files auto-evict to OPFS and restore on demand, keeping memory bounded. Pages from `audio.from()` are subarray views (zero-copy).
 
-**Index** — Built incrementally during decode: per-channel, per-block (1024 samples) min/max/energy. Energy is K-weighted (BS.1770) for real LUFS measurement. Powers `stat()`, `peaks()`, `trim()`, `normalize()` without touching PCM. ~7MB for 2h stereo. Extensible via `audio.index()`.
+**Index** — Built incrementally during decode: per-channel, per-block (1024 samples) min/max/energy. Energy is K-weighted (BS.1770) for LUFS measurement. Powers `stat()` and `peaks()` without touching PCM. Extensible via `audio.index()`.
 
-**Edit list** — All ops push to an append-only list. Source pages are never mutated. Edits are serializable (`toJSON`), replayable (`do`), undoable (`undo`).
+**Edit list** — All ops push to an append-only list. Source pages are never mutated. Edits are serializable (`toJSON`), replayable (`apply`), undoable (`undo`).
 
-**Read plan** — On output, edits compile to a read plan: structural edits produce a segment map, sample edits form a pipeline. `read()`, `stream()`, and `play()` walk the plan chunk-by-chunk — no full materialization needed.
+**Read plan** — On output, edits compile to a read plan. Structural ops (those with `.plan`) produce a segment map. Sample ops form a per-chunk pipeline. `read()`, `stream()`, and `play()` walk the plan — no full materialization unless an op requires it (`.plan = false`).
 
 **Storage** — `audio(file, { storage })` controls paging: `'auto'` (default) uses OPFS when available and needed, `'persistent'` requires OPFS, `'memory'` forces in-memory.
-
-**Worker** — `import { decodeWorker } from 'audio/worker'` decodes in a Web Worker, streaming index deltas back via `onprogress`. Keeps the main thread free for rendering.
 
 ## License
 
