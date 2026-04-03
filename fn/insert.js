@@ -1,9 +1,12 @@
 import { planInsert as insertSegs, SILENCE } from '../plan.js'
 
-let insert = (source) => (chs, { offset, duration, sampleRate: sr, render }) => {
+const insert = (chs, ctx) => {
+  let source = ctx.args[0], sr = ctx.sampleRate
+  let offset = ctx.args[1] ?? ctx.offset
+  let duration = ctx.duration
   let src = typeof source === 'number'
     ? Array.from({ length: chs.length }, () => new Float32Array(Math.round(source * sr)))
-    : render(source)
+    : ctx.render(source)
   if (duration != null) {
     let n = Math.round(duration * sr)
     src = src.map(ch => ch.slice(0, n))
@@ -19,16 +22,14 @@ let insert = (source) => (chs, { offset, duration, sampleRate: sr, render }) => 
   })
 }
 
-insert.dur = (len, sr, args, off, dur) => {
+insert.dur = (len, sr, args) => {
   let n = typeof args[0] === 'number' ? Math.round(args[0] * sr) : args[0]?.length || 0
-  return len + (dur != null ? Math.min(n, Math.round(dur * sr)) : n)
+  return len + n
 }
 
-insert.plan = (segs, total, sr, args, off, dur) => {
-  let s = off != null ? Math.round((off < 0 ? total / sr + off : off) * sr) : null
-  let source = args[0], at = s ?? total
+insert.plan = (segs, total, sr, args) => {
+  let source = args[0], at = args[1] != null ? Math.round(args[1] * sr) : total
   let iLen = typeof source === 'number' ? Math.round(source * sr) : source.length
-  if (dur != null) iLen = Math.min(iLen, Math.round(dur * sr))
   return insertSegs(segs, at, iLen, typeof source === 'number' ? null : source)
 }
 

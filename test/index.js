@@ -28,7 +28,7 @@ test('audio(wav) — load from file path', async t => {
   t.is(a.channels, 1, 'channels')
   t.ok(a.duration > 12 && a.duration < 13, `duration ~12.27s (got ${a.duration.toFixed(2)})`)
   t.ok(a.pages.length > 0, `has ${a.pages.length} pages`)
-  t.ok(a.index.min[0].length > 0, 'index populated')
+  t.ok(a.stats.min[0].length > 0, 'index populated')
 })
 
 test('audio(mp3) — decode mp3', async t => {
@@ -96,39 +96,39 @@ test('audio.from(AudioBuffer-like) — from object with getChannelData', async t
   t.is(a.channels, 1, 'mono')
 })
 
-test('audio.index — custom field', async t => {
+test('audio.stat — custom field', async t => {
   // Per-channel metric — return array
-  audio.index('rms', (channels) => channels.map(ch => {
+  audio.stat('blockRms', (channels) => channels.map(ch => {
     let sum = 0
     for (let i = 0; i < ch.length; i++) sum += ch[i] * ch[i]
     return Math.sqrt(sum / ch.length)
   }))
   let ch = new Float32Array(BLOCK_SIZE * 2).fill(0.5)
   let a = audio.from([ch])
-  t.ok(a.index.rms, 'custom index field exists')
-  t.is(a.index.rms[0].length, 2, '2 blocks')
-  t.ok(Math.abs(a.index.rms[0][0] - 0.5) < 0.01, `rms ≈ 0.5 (got ${a.index.rms[0][0].toFixed(3)})`)
+  t.ok(a.stats.blockRms, 'custom stat field exists')
+  t.is(a.stats.blockRms[0].length, 2, '2 blocks')
+  t.ok(Math.abs(a.stats.blockRms[0][0] - 0.5) < 0.01, `blockRms ≈ 0.5 (got ${a.stats.blockRms[0][0].toFixed(3)})`)
 
   // Cross-channel metric — return number (broadcast to all channels)
-  audio.index('correlation', (channels) => {
+  audio.stat('correlation', (channels) => {
     if (channels.length < 2) return 1
     let L = channels[0], R = channels[1], sum = 0
     for (let i = 0; i < L.length; i++) sum += L[i] * R[i]
     return sum / L.length
   })
   let stereo = audio.from([new Float32Array(BLOCK_SIZE).fill(0.5), new Float32Array(BLOCK_SIZE).fill(0.5)])
-  t.ok(stereo.index.correlation, 'cross-channel field exists')
-  t.ok(stereo.index.correlation[0][0] > 0.2, `correlated (${stereo.index.correlation[0][0].toFixed(3)})`)
-  t.is(stereo.index.correlation[0][0], stereo.index.correlation[1][0], 'same value both channels')
+  t.ok(stereo.stats.correlation, 'cross-channel field exists')
+  t.ok(stereo.stats.correlation[0][0] > 0.2, `correlated (${stereo.stats.correlation[0][0].toFixed(3)})`)
+  t.is(stereo.stats.correlation[0][0], stereo.stats.correlation[1][0], 'same value both channels')
 })
 
 test('index — block structure', async t => {
   let a = audio.from([new Float32Array(PAGE_SIZE * 2)])
-  t.is(a.index.blockSize, BLOCK_SIZE, 'blockSize = 1024')
+  t.is(a.stats.blockSize, BLOCK_SIZE, 'blockSize = 1024')
   let expectedBlocks = Math.ceil(PAGE_SIZE * 2 / BLOCK_SIZE)
-  t.is(a.index.min[0].length, expectedBlocks, `${expectedBlocks} blocks`)
-  t.is(a.index.max[0].length, expectedBlocks, 'max same length')
-  t.is(a.index.energy[0].length, expectedBlocks, 'energy same length')
+  t.is(a.stats.min[0].length, expectedBlocks, `${expectedBlocks} blocks`)
+  t.is(a.stats.max[0].length, expectedBlocks, 'max same length')
+  t.is(a.stats.energy[0].length, expectedBlocks, 'energy same length')
 })
 
 test('index — values correct for sine wave', async t => {
@@ -137,9 +137,9 @@ test('index — values correct for sine wave', async t => {
   for (let i = 0; i < len; i++) ch[i] = Math.sin(2 * Math.PI * 440 * i / sr)
   let a = audio.from([ch], { sampleRate: sr })
 
-  t.ok(a.index.max[0][0] > 0.99, `max ≈ 1 (got ${a.index.max[0][0].toFixed(3)})`)
-  t.ok(a.index.min[0][0] < -0.99, `min ≈ -1 (got ${a.index.min[0][0].toFixed(3)})`)
-  t.ok(a.index.energy[0][0] > 0.4, `energy > 0.4 (got ${a.index.energy[0][0].toFixed(3)})`)
+  t.ok(a.stats.max[0][0] > 0.99, `max ≈ 1 (got ${a.stats.max[0][0].toFixed(3)})`)
+  t.ok(a.stats.min[0][0] < -0.99, `min ≈ -1 (got ${a.stats.min[0][0].toFixed(3)})`)
+  t.ok(a.stats.energy[0][0] > 0.4, `energy > 0.4 (got ${a.stats.energy[0][0].toFixed(3)})`)
 })
 
 
@@ -169,7 +169,7 @@ test('onprogress — delta covers full index', async t => {
   let a = await audio(lenaPath, {
     onprogress({ delta }) { totalBlocks += delta.min[0].length }
   })
-  t.is(totalBlocks, a.index.min[0].length, 'deltas cover all index blocks')
+  t.is(totalBlocks, a.stats.min[0].length, 'deltas cover all index blocks')
 })
 
 
@@ -477,7 +477,7 @@ test('normalize', async t => {
 })
 
 test('audio.op — custom op', async t => {
-  audio.op('double', () => (block) => {
+  audio.op('double', (block) => {
     for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] *= 2
     return block
   })
@@ -488,7 +488,8 @@ test('audio.op — custom op', async t => {
 })
 
 test('audio.op — with arg', async t => {
-  audio.op('amplify', (factor) => (block) => {
+  audio.op('amplify', (block, ctx) => {
+    let factor = ctx.args[0]
     for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] *= factor
     return block
   })
@@ -499,7 +500,8 @@ test('audio.op — with arg', async t => {
 })
 
 test('audio.op — with range', async t => {
-  audio.op('mute', () => (chs, { offset = 0, duration, sampleRate: sr }) => {
+  audio.op('mute', (chs, ctx) => {
+    let sr = ctx.sampleRate, offset = ctx.args[0] ?? 0, duration = ctx.args[1]
     let s = Math.round(offset * sr), e = duration != null ? s + Math.round(duration * sr) : chs[0].length
     return chs.map(ch => { let o = new Float32Array(ch); for (let i = s; i < Math.min(e, o.length); i++) o[i] = 0; return o })
   })
@@ -621,29 +623,29 @@ testSave('save — write to file', async t => {
 
 // ── Phase 7: Analysis ────────────────────────────────────────────────────
 
-test('stat — sine wave', async t => {
+test('db — sine wave', async t => {
   let ch = new Float32Array(44100)
   for (let i = 0; i < ch.length; i++) ch[i] = 0.8 * Math.sin(2 * Math.PI * 440 * i / 44100)
   let a = audio.from([ch], { sampleRate: 44100 })
-  let s = await a.stat()
-  t.ok(s.max > 0.79 && s.max < 0.81, `max ≈ 0.8 (got ${s.max.toFixed(3)})`)
-  t.ok(s.min < -0.79 && s.min > -0.81, `min ≈ -0.8 (got ${s.min.toFixed(3)})`)
-  t.ok(s.rms > 0, `rms > 0 (got ${s.rms.toFixed(3)})`)
-  t.ok(s.peak < 0 && s.peak > -3, `peak ≈ -2dB (got ${s.peak.toFixed(1)})`)
-  t.ok(s.loudness < 0, `loudness negative (got ${s.loudness.toFixed(1)})`)
+  let peak = await a.db()
+  t.ok(peak < 0 && peak > -3, `peak ≈ -2dB (got ${peak.toFixed(1)})`)
+  let r = await a.rms()
+  t.ok(r > 0, `rms > 0 (got ${r.toFixed(3)})`)
+  let l = await a.loudness()
+  t.ok(l < 0, `loudness negative (got ${l.toFixed(1)})`)
 })
 
-test('stat — with range', async t => {
+test('db — with range', async t => {
   let ch = new Float32Array(44100 * 2).fill(0)
   for (let i = 44100; i < 88200; i++) ch[i] = 0.5
   let a = audio.from([ch], { sampleRate: 44100 })
-  let full = await a.stat()
-  t.ok(full.max >= 0.5, 'full max includes signal')
-  let first = await a.stat(0, 0.5)
-  t.ok(first.max < 0.01, 'first 0.5s is silent')
+  let full = await a.db()
+  t.ok(full > -7, 'full db includes signal')
+  let first = await a.db(0, 0.5)
+  t.ok(first === -Infinity, 'first 0.5s is silent')
 })
 
-test('peaks', async t => {
+test('waveform', async t => {
   let a = await audio(lenaPath)
   let p = await a.peaks(100)
   t.is(p.min.length, 100, '100 min peaks')
@@ -652,7 +654,7 @@ test('peaks', async t => {
   t.ok(Math.max(...p.max) > 0, 'has signal')
 })
 
-test('peaks — per-channel', async t => {
+test('waveform — per-channel', async t => {
   let a = audio.from([new Float32Array(44100).fill(0.5), new Float32Array(44100).fill(-0.3)])
   let p0 = await a.peaks(10, { channel: 0 })
   let p1 = await a.peaks(10, { channel: 1 })
@@ -660,32 +662,34 @@ test('peaks — per-channel', async t => {
   t.ok(p1.min[0] < -0.2, 'ch1 negative')
 })
 
-test('stat — loudness (K-weighted LUFS)', async t => {
+test('loudness — K-weighted LUFS', async t => {
   let ch = new Float32Array(44100)
   for (let i = 0; i < ch.length; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 1000 * i / 44100)
   let a = audio.from([ch], { sampleRate: 44100 })
-  let s = await a.stat()
-  t.ok(typeof s.loudness === 'number', 'returns number')
-  t.ok(s.loudness < 0, `LUFS is negative (got ${s.loudness.toFixed(1)})`)
-  t.ok(s.loudness > -30, `LUFS > -30 (got ${s.loudness.toFixed(1)})`)
+  let l = await a.loudness()
+  t.ok(typeof l === 'number', 'returns number')
+  t.ok(l < 0, `LUFS is negative (got ${l.toFixed(1)})`)
+  t.ok(l > -30, `LUFS > -30 (got ${l.toFixed(1)})`)
 })
 
-test('stat — lena real audio', async t => {
+test('loudness + db — lena real audio', async t => {
   let a = await audio(lenaPath)
-  let s = await a.stat()
-  t.ok(s.loudness < 0, `LUFS negative (got ${s.loudness.toFixed(1)})`)
-  t.ok(s.loudness > -40, `LUFS > -40 (got ${s.loudness.toFixed(1)})`)
-  t.ok(s.rms > 0, `rms > 0 (got ${s.rms.toFixed(3)})`)
-  t.ok(s.peak < 0, `peak dBFS negative (got ${s.peak.toFixed(1)})`)
+  let l = await a.loudness()
+  t.ok(l < 0, `LUFS negative (got ${l.toFixed(1)})`)
+  t.ok(l > -40, `LUFS > -40 (got ${l.toFixed(1)})`)
+  let r = await a.rms()
+  t.ok(r > 0, `rms > 0 (got ${r.toFixed(3)})`)
+  let peak = await a.db()
+  t.ok(peak < 0, `peak dBFS negative (got ${peak.toFixed(1)})`)
 })
 
-test('stat — after dirty op reindexes', async t => {
+test('db — after dirty op reindexes', async t => {
   let ch = new Float32Array(44100).fill(0.5)
   let a = audio.from([ch], { sampleRate: 44100 })
-  let before = await a.stat()
+  let before = await a.db()
   a.fade(0.5)  // dirty op
-  let after = await a.stat()
-  t.ok(after.max <= before.max, 'max changed after fade')
+  let after = await a.db()
+  t.ok(after <= before, 'db changed after fade')
 })
 
 
@@ -812,8 +816,8 @@ test('cursor — preloads nearby pages only', async t => {
   a.gain(-3)
   a.cursor = 1.5
   // Cursor should preload pages but NOT warm render cache
-  t.ok(a._cache === null, 'render cache NOT warmed by cursor (lazy)')
-  t.ok(a._cursor === 1.5, 'cursor position set')
+  t.ok(a._.pcm === null, 'render cache NOT warmed by cursor (lazy)')
+  t.ok(a._.cursor === 1.5, 'cursor position set')
 })
 
 // ── Phase 10: Page Cache + Eviction ──────────────────────────────────────
@@ -864,9 +868,9 @@ test('cache backend — index survives eviction', async t => {
   let evicted = a.pages.filter(p => p === null).length
   t.ok(evicted >= 1, `${evicted} pages evicted`)
 
-  // Index should still work without PCM
-  let s = await a.stat()
-  t.ok(s.max >= 0.69, `index works after eviction: max=${s.max.toFixed(2)}`)
+  // Stats should still work without PCM
+  let peak = await a.db()
+  t.ok(peak > -4, `stats work after eviction: db=${peak.toFixed(1)}`)
 })
 
 test('cache backend — analysis from index without page-in', async t => {
@@ -877,11 +881,11 @@ test('cache backend — analysis from index without page-in', async t => {
   let allEvicted = a.pages.every(p => p === null)
   t.ok(allEvicted, 'all pages evicted')
 
-  // peaks/stat should work from index alone (no PCM needed for clean ops)
-  let peaks = await a.peaks(10)
-  t.ok(peaks.max[0] >= 0.29, 'peaks from index without page-in')
-  let s = await a.stat()
-  t.ok(s.max >= 0.29, 'stat from index without page-in')
+  // waveform/db should work from stats alone (no PCM needed for clean ops)
+  let w = await a.peaks(10)
+  t.ok(w.max[0] >= 0.29, 'waveform from stats without page-in')
+  let peak = await a.db()
+  t.ok(peak > -11, 'db from stats without page-in')
 })
 
 let testNode = isNode ? test : test.skip
@@ -986,7 +990,7 @@ test('onprogress — fires incrementally for mp3', async t => {
   t.ok(deltas.length > 1, `onprogress fired ${deltas.length} times (chunked decode)`)
   // Verify deltas cover full index
   let totalBlocks = deltas.reduce((n, d) => n + d.min[0].length, 0)
-  t.is(totalBlocks, a.index.min[0].length, 'deltas cover all index blocks')
+  t.is(totalBlocks, a.stats.min[0].length, 'deltas cover all index blocks')
 })
 
 test('read — no edits returns copies from source pages', async t => {
@@ -999,12 +1003,13 @@ test('read — no edits returns copies from source pages', async t => {
   t.ok(Math.abs(ch[0] - 0.7) < 0.001, 'source not mutated')
 })
 
-test('stat — no edits skips refreshIndex', async t => {
+test('db/rms — no edits uses clean stats', async t => {
   let ch = new Float32Array(44100).fill(0.5)
   let a = audio.from([ch], { sampleRate: 44100 })
-  let s = await a.stat()
-  t.ok(s.max >= 0.49, `stat from clean index: max=${s.max.toFixed(2)}`)
-  t.ok(s.rms > 0, 'rms from clean index')
+  let peak = await a.db()
+  t.ok(peak > -7, `db from clean stats: ${peak.toFixed(1)}`)
+  let r = await a.rms()
+  t.ok(r > 0, 'rms from clean stats')
 })
 
 test('insert audio — plan-based matches render', async t => {
@@ -1021,7 +1026,7 @@ test('insert audio — plan-based matches render', async t => {
 
 // ── Phase 12: API improvements ──────────────────────────────────────────────
 
-test('peaks — sub-range matches full-range slice', async t => {
+test('waveform — sub-range matches full-range slice', async t => {
   let ch = new Float32Array(44100).fill(0)
   for (let i = 10000; i < 20000; i++) ch[i] = 0.5
   let a = audio.from([ch], { sampleRate: 44100 })
@@ -1031,11 +1036,11 @@ test('peaks — sub-range matches full-range slice', async t => {
   t.ok(Math.max(...subPeaks.max) > 0.4, 'subrange detected signal')
 })
 
-test('peaks — per-channel returns arrays', async t => {
+test('waveform — per-channel returns arrays', async t => {
   let ch0 = new Float32Array(44100).fill(0.3)
   let ch1 = new Float32Array(44100).fill(0.7)
   let a = audio.from([ch0, ch1], { sampleRate: 44100 })
-  let peaks = await a.peaks(100, undefined, undefined, { channels: true })
+  let peaks = await a.peaks(100, { channels: true })
   t.ok(Array.isArray(peaks.min), 'min is array')
   t.is(peaks.min.length, 2, 'two channels')
   t.is(peaks.min[0].length, 100, 'first channel 100 buckets')
@@ -1046,16 +1051,16 @@ test('peaks — per-channel returns arrays', async t => {
   t.ok(ch1Min > 0.65 && ch1Min < 0.75, `channel 1 min ${ch1Min.toFixed(3)} ~0.7`)
 })
 
-test('peaks — shorthand peaks(count, opts)', async t => {
+test('waveform — shorthand peaks(count, opts)', async t => {
   let a = audio.from([new Float32Array(44100).fill(0.5)], { sampleRate: 44100 })
   let peaks = await a.peaks(100, { channel: 0 })
   t.is(peaks.min.length, 100, 'shorthand works')
 })
 
-test('cursor — set doesn\'t trigger renderCached', async t => {
+test('cursor — set doesn\'t trigger render', async t => {
   let a = audio.from([new Float32Array(44100).fill(0.5)], { sampleRate: 44100 })
   a.cursor = 0.5
-  t.ok(a._cache === null, '_cache stays null after cursor set')
+  t.ok(a._.pcm === null, '_cache stays null after cursor set')
 })
 
 test('insert clean source — source _cache stays null', async t => {
@@ -1063,7 +1068,7 @@ test('insert clean source — source _cache stays null', async t => {
   let b = audio.from([new Float32Array(22050).fill(0.9)], { sampleRate: 44100 })
   a.insert(b, 0.5)
   let pcm = await a.read()
-  t.ok(b._cache === null, 'clean source _cache not materialized')
+  t.ok(b._.pcm === null, 'clean source _cache not materialized')
 })
 
 test('undo(3) — pops 3, returns array', async t => {
@@ -1122,7 +1127,7 @@ test('view — shares pages reference', async t => {
   let a = audio.from([new Float32Array(44100).fill(0.5)], { sampleRate: 44100 })
   let v = a.view()
   t.is(v.pages, a.pages, 'view shares pages')
-  t.is(v.index, a.index, 'view shares index')
+  t.is(v.stats, a.stats, 'view shares stats')
 })
 
 test('view(offset, dur) — reads correct sub-range PCM', async t => {

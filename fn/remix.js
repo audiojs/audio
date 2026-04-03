@@ -1,4 +1,5 @@
-let remix = (channels) => (chs) => {
+const remix = (chs, ctx) => {
+  let channels = ctx.args[0]
   let n = chs.length, m = channels
   if (n === m) return false
   if (m < n) {
