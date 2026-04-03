@@ -9,10 +9,12 @@
 
 import audio from './core.js'
 export { default, ops, PAGE_SIZE, BLOCK_SIZE, opfsCache } from './core.js'
+export { render } from './history.js'
 export const proto = audio.fn
 
 // ── Plugins ─────────────────────────────────────────────────────────────
 
+import history from './history.js'
 import view from './fn/view.js'
 import split from './fn/split.js'
 import undo from './fn/undo.js'
@@ -43,6 +45,8 @@ import loudness from './fn/loudness.js'
 import peaks from './fn/peaks.js'
 
 audio.use(
+  // infrastructure
+  history,
   // methods
   view, split, undo, apply, play, save, concat,
   // ops

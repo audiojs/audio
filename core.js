@@ -2,22 +2,22 @@
  * audio core — paged audio container with plugin architecture.
  *
  * audio.fn   — instance prototype (like $.fn)
- * audio.op   — ops dict, wired to fn by use()
- * audio.stat — stats dict
- * audio.hook — single-slot hooks
- * audio.run  — op dispatch (history replaces)
+ * audio.op   — register op (name, init)
+ * audio.stat — register stat (name, fn)
+ * audio.hook — single-slot hooks { create }
+ * audio.run  — op dispatch, called via .call(instance) — history replaces
  * audio.use  — plugin registration
  */
 
 import encode from 'audio-encode'
 import convert from 'pcm-convert'
-import { SILENCE, PAGE_SIZE, BLOCK_SIZE } from './plan.js'
-import { statFields, statSession, buildStats } from './stats.js'
+import { PAGE_SIZE, BLOCK_SIZE } from './plan.js'
+import { statFields, buildStats } from './stats.js'
 import { evict, restorePages, opfsCache, DEFAULT_BUDGET } from './cache.js'
 import { paginate, resolveSource, estimateSize, decodeSource, decodeWorker } from './decode.js'
-import { ops, render, buildPlan, streamPlan, streamPcm, readPages, readPlan } from './render.js'
+import { ops, readPages } from './render.js'
 
-export { PAGE_SIZE, BLOCK_SIZE, opfsCache, ops, render }
+export { PAGE_SIZE, BLOCK_SIZE, opfsCache, ops }
 export { decodeSource } from './decode.js'
 
 
@@ -25,10 +25,11 @@ export { decodeSource } from './decode.js'
 
 /** Create audio from any source. Always async. */
 export default async function audio(source, opts = {}) {
+  // Deserialize from JSON — history plugin handles via hook.create
   if (source && typeof source === 'object' && !Array.isArray(source) && source.edits) {
     if (!source.source) throw new TypeError('audio: cannot restore document without source reference')
     let a = await audio(source.source, opts)
-    for (let e of source.edits) pushEdit(a, e)
+    if (a.apply) for (let e of source.edits) a.apply(e)
     return a
   }
   let a
@@ -68,11 +69,14 @@ audio.fn = proto
 /** Single-slot hooks. Chain prev manually. */
 audio.hook = { create: null }
 
-/** Op dispatch — called via .call(instance). History replaces this. */
+/** Op dispatch — called via .call(instance). Default: pushEdit. History replaces. */
 audio.run = function(name, args, opts) {
   let nargs = ops[name]?.length || 0
   let opArgs = args.slice(0, nargs), offset = args[nargs] ?? opts?.at, duration = args[nargs + 1] ?? opts?.dur
-  return pushEdit(this, { type: name, args: opArgs, offset, duration })
+  this.edits.push({ type: name, args: opArgs, offset, duration })
+  this.version++
+  this.onchange?.()
+  return this
 }
 
 /** Register plugins. Each receives audio. Wires audio.op entries to audio.fn after. */
@@ -89,8 +93,7 @@ audio.use = function(...plugins) {
   }
 }
 
-/** Register a stat. Block stat: factory → fn(channels, ctx) → number[]|number.
- *  Query stat: fn({stats, channels, from, to}, ...args) with .query = true. */
+/** Register a stat. */
 audio.stat = function(name, fn) {
   if (typeof fn !== 'function') throw new TypeError(`audio.stat: expected function for '${name}'`)
   if (statFields[name] || proto[name]) throw new Error(`audio.stat: '${name}' already registered`)
@@ -107,23 +110,24 @@ audio.stat = function(name, fn) {
   }
 }
 
-/** Register a named op. init(...params) → processor(channels, ctx) → channels. */
+/** Register a named op. */
 audio.op = function(name, init) {
   if (typeof init !== 'function') throw new TypeError(`audio.op: expected function for '${name}'`)
   if (ops[name]) throw new Error(`audio.op: '${name}' already registered`)
-  let nargs = init.length
   ops[name] = init
-  proto[name] = function(...args) {
-    let opArgs = args.slice(0, nargs), offset = args[nargs], duration = args[nargs + 1]
-    return pushEdit(this, { type: name, args: opArgs, offset, duration })
+  if (!proto[name]) {
+    proto[name] = function(...a) {
+      let opts = a.length && typeof a[a.length - 1] === 'object'
+        && !(a[a.length - 1] instanceof Float32Array)
+        && !a[a.length - 1]?.pages ? a.pop() : {}
+      return audio.run.call(this, name, a, opts)
+    }
   }
 }
 
 
-
 // ── Create ───────────────────────────────────────────────────────────────
 
-/** Create audio instance with pages and metadata. */
 function create(pages, sampleRate, ch, length, opts = {}, stats) {
   let a = Object.create(proto)
   a.pages = pages
@@ -137,25 +141,22 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
   a.onchange = null
   a.stats = stats
   a._ = { ch, len: length, lenC: length, lenV: 0, chC: ch, chV: 0, pcm: null, pcmV: -1, statsV: -1, cursor: 0 }
+  audio.hook.create?.(a)
   return a
 }
 
-/** Create from planar Float32Array channels. */
 function fromChannels(channelData, opts = {}) {
   let sr = opts.sampleRate || 44100
   return create(paginate(channelData), sr, channelData.length, channelData[0].length, opts, buildStats(channelData, channelData.length, sr))
 }
 
-/** Create silence of given duration. */
 function fromSilence(seconds, opts = {}) {
   let sr = opts.sampleRate || 44100, ch = opts.channels || 1
   return fromChannels(Array.from({ length: ch }, () => new Float32Array(Math.round(seconds * sr))), { ...opts, sampleRate: sr })
 }
 
-/** Decode encoded audio into pages + stats. Auto-detect OPFS for large files. */
 async function fromEncoded(buf, opts = {}) {
   let storage = opts.storage || 'auto'
-
   if (storage === 'auto' || storage === 'persistent') {
     let estimated = estimateSize(buf)
     let budget = opts.budget ?? DEFAULT_BUDGET
@@ -168,7 +169,6 @@ async function fromEncoded(buf, opts = {}) {
       }
     }
   }
-
   let result = opts.decode === 'worker'
     ? await decodeWorker(buf, opts.onprogress)
     : await decodeSource(buf, opts.onprogress)
@@ -178,62 +178,12 @@ async function fromEncoded(buf, opts = {}) {
 }
 
 
-// ── Edit History ─────────────────────────────────────────────────────────
-
-function pushEdit(a, edit) {
-  a.edits.push(edit)
-  a.version++
-  a.onchange?.()
-  return a
-}
-
-/** Rebuild stats from edits. */
-function rebuildStats(a) {
-  if (!a.edits.length) return
-  let plan = buildPlan(a)
-  if (!plan) { a.stats = buildStats(render(a), a._.ch, a.sampleRate); return }
-  let s = statSession(a._.ch, a.sampleRate)
-  for (let chunk of streamPlan(a, plan)) s.page(chunk)
-  a.stats = s.done()
-}
-
-
-// ── Prototype Methods ───────────────────────────────────────────────────
-
-/** Ensure stats are fresh, return stats + block range. */
-proto.query = async function(offset, duration) {
-  await restorePages(this)
-  if (this.edits.length && this._.statsV !== this.version) {
-    rebuildStats(this)
-    this._.statsV = this.version
-  }
-  let sr = this.sampleRate, bs = this.stats.blockSize
-  let first = Object.values(this.stats).find(v => v?.[0]?.length)
-  let blocks = first?.[0]?.length || 0
-  let from = offset != null ? Math.floor(offset * sr / bs) : 0
-  let to = duration != null ? Math.ceil((offset + duration) * sr / bs) : blocks
-  return { stats: this.stats, channels: this.channels, sampleRate: sr, from, to }
-}
+// ── Prototype ───────────────────────────────────────────────────────────
 
 Object.defineProperties(proto, {
-  length: { get() {
-    if (this._.lenV === this.version) return this._.lenC
-    let len = this._.len, sr = this.sampleRate
-    for (let { type, args = [], offset: off, duration: dur } of this.edits) {
-      let init = ops[type]
-      if (init?.dur) len = init.dur(len, sr, args, off, dur)
-    }
-    this._.lenC = len; this._.lenV = this.version
-    return len
-  }},
-  duration: { get() { return this.length / this.sampleRate }},
-  channels: { get() {
-    if (this._.chV === this.version) return this._.chC
-    let ch = this._.ch
-    for (let edit of this.edits) { let init = ops[edit.type]; if (init?.ch) ch = init.ch(ch, edit.args) }
-    this._.chC = ch; this._.chV = this.version
-    return ch
-  }},
+  length: { get() { return this._.len }, configurable: true },
+  duration: { get() { return this.length / this.sampleRate }, configurable: true },
+  channels: { get() { return this._.ch }, configurable: true },
   cursor: {
     get() { return this._.cursor },
     set(t) {
@@ -243,7 +193,8 @@ Object.defineProperties(proto, {
         for (let i = Math.max(0, page - 1); i <= Math.min(page + 2, this.pages.length - 1); i++)
           if (this.pages[i] === null && await this.cache.has(i)) this.pages[i] = await this.cache.read(i)
       })()
-    }
+    },
+    configurable: true,
   },
 })
 
@@ -252,33 +203,18 @@ proto.read = async function(offset, duration, opts) {
   else if (typeof duration === 'object' && !opts) { opts = duration; duration = undefined }
   let fmt = opts?.format
   await restorePages(this)
-  for (let { args } of this.edits) if (args?.[0]?.pages) await restorePages(args[0])
-
-  let pcm
-  if (!this.edits.length) pcm = readPages(this, offset, duration)
-  else {
-    let plan = buildPlan(this)
-    pcm = plan ? readPlan(this, plan, offset, duration) : render(this).map(ch => {
-      if (offset == null) return ch.slice()
-      let s = Math.round(offset * this.sampleRate)
-      return ch.slice(s, duration != null ? s + Math.round(duration * this.sampleRate) : ch.length)
-    })
-  }
-
+  let pcm = readPages(this, offset, duration)
   if (fmt && encode[fmt]) return encode[fmt](pcm, { sampleRate: this.sampleRate, ...opts?.meta })
   if (fmt) return pcm.map(ch => convert(ch, 'float32', fmt))
   return pcm
 }
 
-proto[Symbol.asyncIterator] = proto.stream = async function*(offset, duration) {
+proto.query = async function(offset, duration) {
   await restorePages(this)
-  let plan = buildPlan(this)
-  if (plan) {
-    let seen = new Set(); for (let s of plan.segs) if (s.ref && s.ref !== SILENCE && !seen.has(s.ref)) { seen.add(s.ref); await restorePages(s.ref) }
-    for (let chunk of streamPlan(this, plan, offset, duration)) yield chunk
-  } else yield* streamPcm(render(this))
-}
-
-proto.toJSON = function() {
-  return { source: this.source, edits: this.edits, sampleRate: this.sampleRate, channels: this._.ch, duration: this.duration }
+  let sr = this.sampleRate, bs = this.stats.blockSize
+  let first = Object.values(this.stats).find(v => v?.[0]?.length)
+  let blocks = first?.[0]?.length || 0
+  let from = offset != null ? Math.floor(offset * sr / bs) : 0
+  let to = duration != null ? Math.ceil((offset + duration) * sr / bs) : blocks
+  return { stats: this.stats, channels: this.channels, sampleRate: sr, from, to }
 }
