@@ -7,12 +7,24 @@
 import { SILENCE } from './plan.js'
 import { statSession, buildStats } from './stats.js'
 import { restorePages } from './cache.js'
+import { formatPcm } from './core.js'
 import { render, buildPlan, streamPlan, streamPcm, readPlan } from './render.js'
 
 export { render }
 
 export default (audio) => {
   let fn = audio.fn
+
+  // ── Init version-tracking fields on each instance ─────────────────
+
+  let prev = audio.hook.create
+  audio.hook.create = (a) => {
+    prev?.(a)
+    a._.lenC = a._.len; a._.lenV = 0
+    a._.chC = a._.ch; a._.chV = 0
+  }
+
+  // ── Override length/channels — walk edit hints ─────────────────────
 
   Object.defineProperties(fn, {
     length: { get() {
@@ -34,6 +46,8 @@ export default (audio) => {
     }, configurable: true },
   })
 
+  // ── Wrap read — apply edits via plan or full render ────────────────
+
   let _read = fn.read
   fn.read = async function(offset, duration, opts) {
     if (!this.edits.length) return _read.call(this, offset, duration, opts)
@@ -51,15 +65,10 @@ export default (audio) => {
       return ch.slice(s, duration != null ? s + Math.round(duration * this.sampleRate) : ch.length)
     })
 
-    let fmt = opts?.format
-    if (fmt) {
-      let encode = (await import('audio-encode')).default
-      let convert = (await import('pcm-convert')).default
-      if (encode[fmt]) return encode[fmt](pcm, { sampleRate: this.sampleRate, ...opts?.meta })
-      return pcm.map(ch => convert(ch, 'float32', fmt))
-    }
-    return pcm
+    return formatPcm(pcm, this.sampleRate, opts)
   }
+
+  // ── Wrap stream — apply edits via plan ─────────────────────────────
 
   fn[Symbol.asyncIterator] = fn.stream = async function*(offset, duration) {
     await restorePages(this)
@@ -71,16 +80,20 @@ export default (audio) => {
     } else yield* streamPcm(render(this))
   }
 
+  // ── Wrap query — rebuild stats if dirty ────────────────────────────
+
   let _query = fn.query
   fn.query = async function(offset, duration) {
     if (this.edits.length && this._.statsV !== this.version) {
       let plan = buildPlan(this)
-      if (!plan) { this.stats = buildStats(audio.stat, render(this), this._.ch, this.sampleRate) }
+      if (!plan) this.stats = buildStats(audio.stat, render(this), this._.ch, this.sampleRate)
       else { let s = statSession(audio.stat, this._.ch, this.sampleRate); for (let chunk of streamPlan(this, plan)) s.page(chunk); this.stats = s.done() }
       this._.statsV = this.version
     }
     return _query.call(this, offset, duration)
   }
+
+  // ── toJSON ─────────────────────────────────────────────────────────
 
   fn.toJSON = function() {
     return { source: this.source, edits: this.edits, sampleRate: this.sampleRate, channels: this._.ch, duration: this.duration }
