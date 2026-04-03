@@ -119,12 +119,6 @@ audio.op = function(name, init) {
   }
 }
 
-/** Register a plain method on audio proto. */
-audio.fn_register = function(name, fn) {
-  if (typeof fn !== 'function') throw new TypeError(`audio.fn: expected function for '${name}'`)
-  if (proto[name]) throw new Error(`audio.fn: '${name}' already registered`)
-  proto[name] = fn
-}
 
 
 // ── Create ───────────────────────────────────────────────────────────────

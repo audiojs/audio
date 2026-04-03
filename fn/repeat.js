@@ -33,4 +33,4 @@ repeat.plan = (segs, total, sr, args, off, dur) => {
   return repeatSegs(segs, args[0] || 1, total, s, dur != null ? Math.round(dur * sr) : null)
 }
 
-export default repeat
+export default (audio) => { audio.op('repeat', repeat) }

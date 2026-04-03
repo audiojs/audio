@@ -24,7 +24,6 @@ function lufsFromEnergy(energy, ch, sampleRate, blockSize) {
 }
 
 let normalize = (targetDb, opts) => {
-  // Handle preset strings: normalize('streaming'), normalize('podcast'), normalize('broadcast')
   let mode = 'peak'
   if (typeof targetDb === 'string') {
     if (!PRESETS[targetDb]) throw new Error(`normalize: unknown preset '${targetDb}'. Use: ${Object.keys(PRESETS).join(', ')}`)
@@ -97,4 +96,4 @@ normalize.resolve = (args, ctx) => {
   return { type: 'gain', args: [gainDb] }
 }
 
-export default normalize
+export default (audio) => { audio.op('normalize', normalize) }

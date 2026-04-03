@@ -1,4 +1,4 @@
-export default (data) => (chs, { offset = 0, sampleRate: sr }) => {
+const write = (data) => (chs, { offset = 0, sampleRate: sr }) => {
   let p = Math.round(offset * sr)
   return chs.map((ch, c) => {
     let o = new Float32Array(ch)
@@ -7,3 +7,5 @@ export default (data) => (chs, { offset = 0, sampleRate: sr }) => {
     return o
   })
 }
+
+export default (audio) => { audio.op('write', write) }

@@ -7,4 +7,5 @@ function db({ stats, channels, from, to }) {
   return peak > 0 ? 20 * Math.log10(peak) : -Infinity
 }
 db.query = true
-export default db
+
+export default (audio) => { audio.stat('db', db) }

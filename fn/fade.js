@@ -1,6 +1,6 @@
 const CURVES = { linear: t => t, exp: t => t * t, log: t => Math.sqrt(t), cos: t => (1 - Math.cos(t * Math.PI)) / 2 }
 
-export default (dur, curve) => {
+const fade = (dur, curve) => {
   let fn = CURVES[curve] ?? CURVES.linear
   let fadeIn = dur > 0, n = Math.abs(dur)
 
@@ -21,3 +21,5 @@ export default (dur, curve) => {
     })
   }
 }
+
+export default (audio) => { audio.op('fade', fade) }
