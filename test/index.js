@@ -515,6 +515,26 @@ test('audio.op — with range', async t => {
   t.ok(pcm[0][Math.round(0.75 * 44100)] === 0, 'in range: muted')
 })
 
+test('core without history — direct page read', async t => {
+  // Import core directly, no history plugin
+  let { default: bareAudio } = await import('../core.js')
+  let a = bareAudio.from([new Float32Array([0.1, 0.2, 0.3, 0.4])])
+  t.is(a.duration, 4 / 44100, 'source duration')
+  t.is(a.channels, 1, 'channels')
+  let pcm = await a.read()
+  t.ok(Math.abs(pcm[0][0] - 0.1) < 0.001, 'reads source PCM directly')
+})
+
+test('runtime op registration — audio.op.xxx = fn + audio.use()', async t => {
+  audio.op.invert = (chs) => chs.map(ch => { let o = new Float32Array(ch); for (let i = 0; i < o.length; i++) o[i] = -o[i]; return o })
+  audio.use()
+  let a = audio.from([new Float32Array([0.5, -0.3])])
+  a.invert()
+  let pcm = await a.read()
+  t.ok(Math.abs(pcm[0][0] - (-0.5)) < 0.001, 'inverted: 0.5 → -0.5')
+  t.ok(Math.abs(pcm[0][1] - 0.3) < 0.001, 'inverted: -0.3 → 0.3')
+})
+
 test('toJSON — serializable with source', async t => {
   let a = await audio(lenaPath)
   a.gain(-3).reverse()

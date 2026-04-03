@@ -2,15 +2,15 @@
  * Render engine — apply edits to source pages, produce PCM.
  */
 
-import audio from './core.js'
-import { SILENCE, PAGE_SIZE, BLOCK_SIZE, planLen } from './plan.js'
+import audio, { readPages } from './core.js'
+import { SILENCE, PAGE_SIZE, planLen } from './plan.js'
 
 const MAX_FLAT_SIZE = 2 ** 29
 
 /** Cached full render: reuse if version unchanged. */
 export function render(a) {
   if (a._.pcm && a._.pcmV === a.version) return a._.pcm
-  let sr = a.sampleRate, ch = a._.ch, ops = audio.op
+  let sr = a.sampleRate, ch = a._.ch
 
   if (a._.len > MAX_FLAT_SIZE) {
     let plan = buildPlan(a)
@@ -27,12 +27,11 @@ export function render(a) {
   }
 
   for (let edit of a.edits) {
-    let op = edit.type === '_fn' ? edit.fn : ops[edit.type]
+    let op = edit.type === '_fn' ? edit.fn : audio.op[edit.type]
     if (!op) throw new Error(`Unknown op: ${edit.type}`)
-    let off = edit.offset != null && edit.offset < 0 ? flat[0].length / sr + edit.offset : edit.offset
     let result = edit.type === '_fn'
       ? op(flat)
-      : op(flat, { args: edit.args || [], offset: off, duration: edit.duration, sampleRate: sr, render })
+      : op(flat, { args: edit.args || [], sampleRate: sr, render })
     if (result === false || result === null) continue
     if (result) flat = result
   }
@@ -43,24 +42,24 @@ export function render(a) {
 
 /** Build a read plan from edit list. Returns null if not streamable. */
 export function buildPlan(a) {
-  let sr = a.sampleRate, ch = a._.ch, ops = audio.op
+  let sr = a.sampleRate, ch = a._.ch
   let segs = [{ src: 0, out: 0, len: a._.len }], pipeline = [], sawSample = false
 
   for (let edit of a.edits) {
-    let { type, args = [], offset: eOff, duration: eDur } = edit
+    let { type, args = [] } = edit
     if (type === '_fn') return null
-    let init = ops[type]
-    if (!init) return null
+    let op = audio.op[type]
+    if (!op) return null
 
-    if (init.plan === false) {
-      if (init.resolve && !sawSample) {
+    if (op.plan === false) {
+      if (op.resolve && !sawSample) {
         let ctx = { stats: a.stats, sampleRate: sr, channels: ch, length: planLen(segs) }
-        let resolved = init.resolve(args, ctx)
+        let resolved = op.resolve(args, ctx)
         if (resolved === false) continue
         if (resolved) {
-          let rInit = ops[resolved.type]
-          if (rInit?.plan && typeof rInit.plan === 'function') {
-            segs = rInit.plan(segs, planLen(segs), sr, resolved.args || [], resolved.offset, resolved.duration)
+          let rOp = audio.op[resolved.type]
+          if (rOp?.plan && typeof rOp.plan === 'function') {
+            segs = rOp.plan(segs, planLen(segs), sr, resolved.args || [])
           } else {
             sawSample = true
             pipeline.push(resolved)
@@ -70,9 +69,9 @@ export function buildPlan(a) {
       }
       return null
     }
-    if (init.plan) {
+    if (op.plan) {
       if (sawSample) return null
-      segs = init.plan(segs, planLen(segs), sr, args, eOff, eDur)
+      segs = op.plan(segs, planLen(segs), sr, args)
     } else {
       sawSample = true
       pipeline.push(edit)
@@ -81,21 +80,29 @@ export function buildPlan(a) {
   return { segs, pipeline, totalLen: planLen(segs), sr }
 }
 
+/** Read samples from source pages, optionally reversed. */
 function readSource(a, c, srcOff, len, target, tOff, rev = false) {
-  let p0 = Math.floor(srcOff / PAGE_SIZE), pos = p0 * PAGE_SIZE
-  for (let p = p0; p < a.pages.length && pos < srcOff + len; p++) {
-    let pg = a.pages[p], pLen = pg ? pg[0].length : PAGE_SIZE
-    if (pos + pLen > srcOff) {
-      let s = Math.max(srcOff - pos, 0), e = Math.min(srcOff + len - pos, pLen)
-      if (pg) {
-        if (rev) {
-          for (let i = s; i < e; i++) target[tOff + (srcOff + len - 1 - (pos + i))] = pg[c][i]
-        } else {
-          target.set(pg[c].subarray(s, e), tOff + Math.max(pos - srcOff, 0))
-        }
+  if (!rev) {
+    // Forward read — delegate to core's readPages path
+    let p0 = Math.floor(srcOff / PAGE_SIZE), pos = p0 * PAGE_SIZE
+    for (let p = p0; p < a.pages.length && pos < srcOff + len; p++) {
+      let pg = a.pages[p], pLen = pg ? pg[0].length : PAGE_SIZE
+      if (pos + pLen > srcOff && pg) {
+        let s = Math.max(srcOff - pos, 0), e = Math.min(srcOff + len - pos, pLen)
+        target.set(pg[c].subarray(s, e), tOff + Math.max(pos - srcOff, 0))
       }
+      pos += pLen
     }
-    pos += pLen
+  } else {
+    let p0 = Math.floor(srcOff / PAGE_SIZE), pos = p0 * PAGE_SIZE
+    for (let p = p0; p < a.pages.length && pos < srcOff + len; p++) {
+      let pg = a.pages[p], pLen = pg ? pg[0].length : PAGE_SIZE
+      if (pos + pLen > srcOff && pg) {
+        let s = Math.max(srcOff - pos, 0), e = Math.min(srcOff + len - pos, pLen)
+        for (let i = s; i < e; i++) target[tOff + (srcOff + len - 1 - (pos + i))] = pg[c][i]
+      }
+      pos += pLen
+    }
   }
 }
 
@@ -103,13 +110,14 @@ function readSource(a, c, srcOff, len, target, tOff, rev = false) {
 export function* streamPlan(a, plan, offset, duration) {
   let { segs, pipeline, totalLen, sr } = plan
   let s = Math.round((offset || 0) * sr), e = duration != null ? s + Math.round(duration * sr) : totalLen
-  let ops = audio.op
 
   let totalDur = totalLen / sr
-  let procs = pipeline.map(ed => {
-    let off = ed.offset != null && ed.offset < 0 ? totalDur + ed.offset : ed.offset
-    return { op: ops[ed.type], args: ed.args || [], off, dur: ed.duration }
-  })
+  let procs = pipeline.map(ed => ({
+    op: audio.op[ed.type],
+    args: ed.args || [],
+    off: ed.offset != null && ed.offset < 0 ? totalDur + ed.offset : ed.offset,
+    dur: ed.duration
+  }))
 
   for (let outOff = s; outOff < e; outOff += PAGE_SIZE) {
     let len = Math.min(PAGE_SIZE, e - outOff)
@@ -153,15 +161,6 @@ export function* streamPlan(a, plan, offset, duration) {
 export function* streamPcm(pcm) {
   for (let off = 0; off < pcm[0].length; off += PAGE_SIZE)
     yield pcm.map(ch => ch.slice(off, Math.min(off + PAGE_SIZE, pcm[0].length)))
-}
-
-export function readPages(a, offset, duration) {
-  let sr = a.sampleRate, ch = a._.ch
-  let s = offset != null ? Math.round(offset * sr) : 0
-  let len = duration != null ? Math.round(duration * sr) : a._.len - s
-  let out = Array.from({ length: ch }, () => new Float32Array(len))
-  for (let c = 0; c < ch; c++) readSource(a, c, s, len, out[c], 0)
-  return out
 }
 
 export function readPlan(a, plan, offset, duration) {

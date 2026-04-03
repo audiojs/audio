@@ -15,7 +15,6 @@ import { PAGE_SIZE, BLOCK_SIZE } from './plan.js'
 import { buildStats } from './stats.js'
 import { evict, restorePages, opfsCache, DEFAULT_BUDGET } from './cache.js'
 import { paginate, resolveSource, estimateSize, decodeSource, decodeWorker } from './decode.js'
-import { readPages } from './render.js'
 
 export { PAGE_SIZE, BLOCK_SIZE, opfsCache }
 export { decodeSource } from './decode.js'
@@ -69,8 +68,8 @@ audio.stat = {}
 audio.hook = { create: null }
 
 /** Op dispatch — pushes edit. Called via .call(instance). */
-audio.run = function(name, args, opts) {
-  this.edits.push({ type: name, args, offset: opts?.offset, duration: opts?.duration })
+audio.run = function(name, args) {
+  this.edits.push({ type: name, args })
   this.version++
   this.onchange?.()
   return this
@@ -81,12 +80,45 @@ audio.use = function(...plugins) {
   for (let p of plugins) p(audio)
   for (let name in audio.op) {
     if (proto[name]) continue
-    proto[name] = function(...a) {
-      let last = a[a.length - 1]
-      let opts = a.length && last && typeof last === 'object' && !(last instanceof Float32Array) && !last.pages ? a.pop() : {}
-      return audio.run.call(this, name, a, opts)
-    }
+    proto[name] = function(...a) { return audio.run.call(this, name, a) }
   }
+}
+
+
+// ── Format ───────────────────────────────────────────────────────────────
+
+/** Encode PCM to a format. Shared by core read + history read. */
+export function formatPcm(pcm, sr, opts) {
+  let fmt = opts?.format
+  if (!fmt) return pcm
+  if (encode[fmt]) return encode[fmt](pcm, { sampleRate: sr, ...opts?.meta })
+  return pcm.map(ch => convert(ch, 'float32', fmt))
+}
+
+
+// ── Pages ────────────────────────────────────────────────────────────────
+
+/** Read samples directly from source pages. */
+function readSource(a, c, srcOff, len, target, tOff) {
+  let p0 = Math.floor(srcOff / PAGE_SIZE), pos = p0 * PAGE_SIZE
+  for (let p = p0; p < a.pages.length && pos < srcOff + len; p++) {
+    let pg = a.pages[p], pLen = pg ? pg[0].length : PAGE_SIZE
+    if (pos + pLen > srcOff && pg) {
+      let s = Math.max(srcOff - pos, 0), e = Math.min(srcOff + len - pos, pLen)
+      target.set(pg[c].subarray(s, e), tOff + Math.max(pos - srcOff, 0))
+    }
+    pos += pLen
+  }
+}
+
+/** Read range from source pages (no edits). */
+export function readPages(a, offset, duration) {
+  let sr = a.sampleRate, ch = a._.ch
+  let s = offset != null ? Math.round(offset * sr) : 0
+  let len = duration != null ? Math.round(duration * sr) : a._.len - s
+  let out = Array.from({ length: ch }, () => new Float32Array(len))
+  for (let c = 0; c < ch; c++) readSource(a, c, s, len, out[c], 0)
+  return out
 }
 
 
@@ -104,7 +136,7 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
   a.version = 0
   a.onchange = null
   a.stats = stats
-  a._ = { ch, len: length, lenC: length, lenV: 0, chC: ch, chV: 0, pcm: null, pcmV: -1, statsV: -1, cursor: 0 }
+  a._ = { ch, len: length, pcm: null, pcmV: -1, statsV: -1, cursor: 0 }
   audio.hook.create?.(a)
   return a
 }
@@ -165,12 +197,8 @@ Object.defineProperties(proto, {
 proto.read = async function(offset, duration, opts) {
   if (typeof offset === 'object' && !opts) { opts = offset; offset = undefined }
   else if (typeof duration === 'object' && !opts) { opts = duration; duration = undefined }
-  let fmt = opts?.format
   await restorePages(this)
-  let pcm = readPages(this, offset, duration)
-  if (fmt && encode[fmt]) return encode[fmt](pcm, { sampleRate: this.sampleRate, ...opts?.meta })
-  if (fmt) return pcm.map(ch => convert(ch, 'float32', fmt))
-  return pcm
+  return formatPcm(readPages(this, offset, duration), this.sampleRate, opts)
 }
 
 proto.query = async function(offset, duration) {
