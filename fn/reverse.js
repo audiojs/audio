@@ -11,4 +11,4 @@ reverse.plan = (segs, total, sr, _, off, dur) => {
   return reverseSegs(segs, s, s + (dur != null ? Math.round(dur * sr) : total - s))
 }
 
-export default reverse
+export default (audio) => { audio.op('reverse', reverse) }

@@ -17,4 +17,4 @@ remove.plan = (segs, total, sr, _, off, dur) => {
   return removeSegs(segs, s, Math.round((dur || 0) * sr))
 }
 
-export default remove
+export default (audio) => { audio.op('remove', remove) }

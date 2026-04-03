@@ -35,5 +35,6 @@ function peaks({ stats, channels, from, to }, count, opts) {
   return { min: outMin, max: outMax }
 }
 peaks.query = true
-peaks.args = 1  // count comes before offset/duration
-export default peaks
+peaks.args = 1
+
+export default (audio) => { audio.stat('peaks', peaks) }

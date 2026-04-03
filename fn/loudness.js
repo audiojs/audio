@@ -16,4 +16,5 @@ function loudness({ stats, channels, sampleRate, from, to }) {
   return LUFS_OFFSET + 10 * Math.log10(final.reduce((a, b) => a + b, 0) / final.length)
 }
 loudness.query = true
-export default loudness
+
+export default (audio) => { audio.stat('loudness', loudness) }

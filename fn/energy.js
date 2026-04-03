@@ -1,7 +1,7 @@
 import { kWeighting } from 'audio-filter/weighting'
 
 /** Per-block K-weighted mean square energy (BS.1770). Stateful — K-weighting filter carries state between blocks. */
-export default () => {
+const energy = () => {
   let kState = null
   return (channels, ctx) => {
     if (!kState) kState = channels.map(() => ({ fs: ctx.sampleRate }))
@@ -14,3 +14,5 @@ export default () => {
     })
   }
 }
+
+export default (audio) => { audio.stat('energy', energy) }

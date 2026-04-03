@@ -6,4 +6,5 @@ function rms({ stats, channels, from, to }) {
   return n ? Math.sqrt(sum / n) : 0
 }
 rms.query = true
-export default rms
+
+export default (audio) => { audio.stat('rms', rms) }

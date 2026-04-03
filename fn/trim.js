@@ -33,12 +33,10 @@ let trim = (threshold) => (chs) => {
 
 trim.plan = false
 
-/** Resolve from stats — block-level precision, avoids full render when stats are clean. */
 trim.resolve = ([threshold], { stats, sampleRate, length }) => {
   if (!stats?.min) return null
   let ch = stats.min.length, blocks = stats.min[0].length
 
-  // Auto-detect threshold from stats energy
   if (threshold == null) {
     let energies = []
     for (let c = 0; c < ch; c++)
@@ -69,4 +67,4 @@ trim.resolve = ([threshold], { stats, sampleRate, length }) => {
   return { type: 'crop', args: [], offset: startSample / sampleRate, duration: (endSample - startSample) / sampleRate }
 }
 
-export default trim
+export default (audio) => { audio.op('trim', trim) }
