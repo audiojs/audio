@@ -11,4 +11,4 @@ const gain = (chs, ctx) => {
   })
 }
 
-export default (audio) => { audio.op('gain', gain) }
+export default (audio) => { audio.op.gain = gain }

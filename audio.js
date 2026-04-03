@@ -8,7 +8,7 @@
  */
 
 import audio from './core.js'
-export { default, ops, PAGE_SIZE, BLOCK_SIZE, opfsCache } from './core.js'
+export { default, PAGE_SIZE, BLOCK_SIZE, opfsCache } from './core.js'
 export { render } from './history.js'
 export const proto = audio.fn
 

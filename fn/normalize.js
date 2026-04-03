@@ -90,4 +90,4 @@ normalize.resolve = (args, ctx) => {
   return { type: 'gain', args: [gainDb] }
 }
 
-export default (audio) => { audio.op('normalize', normalize) }
+export default (audio) => { audio.op.normalize = normalize }

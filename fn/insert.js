@@ -33,4 +33,4 @@ insert.plan = (segs, total, sr, args) => {
   return insertSegs(segs, at, iLen, typeof source === 'number' ? null : source)
 }
 
-export default (audio) => { audio.op('insert', insert) }
+export default (audio) => { audio.op.insert = insert }

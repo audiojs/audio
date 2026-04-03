@@ -15,4 +15,4 @@ const energy = () => {
   }
 }
 
-export default (audio) => { audio.stat('energy', energy) }
+export default (audio) => { audio.stat.energy = energy }

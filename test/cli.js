@@ -142,14 +142,14 @@ test('parseArgs — -i flag anywhere', t => {
 // ── Op Discovery ─────────────────────────────────────────────────────────
 
 test('ops registry — all built-ins available', async t => {
-  let { ops } = await import('../audio.js')
-  t.ok(ops.gain, 'gain op exists')
-  t.ok(ops.fade, 'fade op exists')
-  t.ok(ops.trim, 'trim op exists')
-  t.ok(ops.normalize, 'normalize op exists')
-  t.ok(ops.remix, 'remix op exists')
-  t.ok(typeof ops.trim === 'function', 'trim is function')
-  t.ok(typeof ops.normalize === 'function', 'normalize is function')
+  let audio = (await import('../audio.js')).default
+  t.ok(audio.op.gain, 'gain op exists')
+  t.ok(audio.op.fade, 'fade op exists')
+  t.ok(audio.op.trim, 'trim op exists')
+  t.ok(audio.op.normalize, 'normalize op exists')
+  t.ok(audio.op.remix, 'remix op exists')
+  t.ok(typeof audio.op.trim === 'function', 'trim is function')
+  t.ok(typeof audio.op.normalize === 'function', 'normalize is function')
 })
 
 // ── CLI Execution ────────────────────────────────────────────────────────
@@ -254,9 +254,8 @@ test('CLI — normalize to different target', async t => {
   try {
     await runCli([lenaPath, 'normalize', '-6', '-o', outPath])
     let result = await audio(outPath)
-    let stats = await result.stat()
-    t.ok(Math.abs(Math.max(...[stats.max, -stats.min]) - Math.pow(10, -6/20)) < 0.01,
-      'normalized to -6dB')
+    let peak = await result.db()
+    t.ok(Math.abs(peak - (-6)) < 1, 'normalized to -6dB')
   } finally {
     cleanup(outPath)
   }

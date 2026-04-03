@@ -10,7 +10,7 @@
  *   cat in.wav | audio gain -3db > out.wav
  */
 
-import audio, { ops } from '../audio.js'
+import audio from '../audio.js'
 
 const VERSION = '2.0.0'
 
@@ -43,7 +43,7 @@ function isFlag(s) {
 }
 
 function isOpName(s) {
-  return s in ops
+  return s in audio.op
 }
 
 function parseArgs(args) {
@@ -185,14 +185,14 @@ async function main() {
 
     // --stat / --info: show audio info and exit
     if (opts.stat) {
-      let s = await a.stat()
+      let [peak, r, l] = await Promise.all([a.db(), a.rms(), a.loudness()])
       console.log(`  Duration:   ${formatDuration(a.duration)}`)
       console.log(`  Channels:   ${a.channels}`)
       console.log(`  SampleRate: ${a.sampleRate} Hz`)
       console.log(`  Samples:    ${a.length}`)
-      console.log(`  Peak:       ${s.peak.toFixed(1)} dBFS`)
-      console.log(`  RMS:        ${(20 * Math.log10(s.rms)).toFixed(1)} dB`)
-      console.log(`  Loudness:   ${s.loudness.toFixed(1)} LUFS`)
+      console.log(`  Peak:       ${peak.toFixed(1)} dBFS`)
+      console.log(`  RMS:        ${(20 * Math.log10(r)).toFixed(1)} dB`)
+      console.log(`  Loudness:   ${l.toFixed(1)} LUFS`)
       if (!opts.ops.length && !opts.output) process.exit(0)
     }
 
@@ -248,7 +248,7 @@ async function main() {
 
 function showUsage() {
   console.log(`
-audio ${VERSION} — indexed, paged audio document
+audio ${VERSION} — load, edit, save, play, analyze
 
 Usage:
   audio [input] [ops...] [-o output] [options]
