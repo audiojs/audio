@@ -36,4 +36,4 @@ repeat.plan = (segs, total, sr, args) => {
   return repeatSegs(segs, args[0] || 1, total, off, dur)
 }
 
-export default (audio) => { audio.op('repeat', repeat) }
+export default (audio) => { audio.op.repeat = repeat }

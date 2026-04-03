@@ -1,19 +1,16 @@
 /**
  * Render engine — apply edits to source pages, produce PCM.
- * Full render, plan-based streaming, and direct page reads.
  */
 
+import audio from './core.js'
 import { SILENCE, PAGE_SIZE, BLOCK_SIZE, planLen } from './plan.js'
 
-/** All registered ops — name → fn. Populated by audio.op(). */
-export const ops = Object.create(null)
-
-const MAX_FLAT_SIZE = 2 ** 29  // ~500M samples
+const MAX_FLAT_SIZE = 2 ** 29
 
 /** Cached full render: reuse if version unchanged. */
 export function render(a) {
   if (a._.pcm && a._.pcmV === a.version) return a._.pcm
-  let sr = a.sampleRate, ch = a._.ch
+  let sr = a.sampleRate, ch = a._.ch, ops = audio.op
 
   if (a._.len > MAX_FLAT_SIZE) {
     let plan = buildPlan(a)
@@ -21,7 +18,6 @@ export function render(a) {
     throw new Error(`Audio too large for full render (${(a._.len / 1e6).toFixed(0)}M samples). Use streaming.`)
   }
 
-  // Flatten pages
   let flat = Array.from({ length: ch }, () => new Float32Array(a._.len))
   let pos = 0
   for (let i = 0; i < a.pages.length; i++) {
@@ -30,7 +26,6 @@ export function render(a) {
     pos += a.pages[i][0].length
   }
 
-  // Apply edits — call ops directly with ctx
   for (let edit of a.edits) {
     let op = edit.type === '_fn' ? edit.fn : ops[edit.type]
     if (!op) throw new Error(`Unknown op: ${edit.type}`)
@@ -42,17 +37,13 @@ export function render(a) {
     if (result) flat = result
   }
 
-  a._.pcm = flat
-  a._.pcmV = a.version
+  a._.pcm = flat; a._.pcmV = a.version
   return flat
 }
 
-
-// ── Read Plan (streaming render) ─────────────────────────────────────
-
 /** Build a read plan from edit list. Returns null if not streamable. */
 export function buildPlan(a) {
-  let sr = a.sampleRate, ch = a._.ch
+  let sr = a.sampleRate, ch = a._.ch, ops = audio.op
   let segs = [{ src: 0, out: 0, len: a._.len }], pipeline = [], sawSample = false
 
   for (let edit of a.edits) {
@@ -90,7 +81,6 @@ export function buildPlan(a) {
   return { segs, pipeline, totalLen: planLen(segs), sr }
 }
 
-/** Read samples directly from source pages. */
 function readSource(a, c, srcOff, len, target, tOff, rev = false) {
   let p0 = Math.floor(srcOff / PAGE_SIZE), pos = p0 * PAGE_SIZE
   for (let p = p0; p < a.pages.length && pos < srcOff + len; p++) {
@@ -113,6 +103,7 @@ function readSource(a, c, srcOff, len, target, tOff, rev = false) {
 export function* streamPlan(a, plan, offset, duration) {
   let { segs, pipeline, totalLen, sr } = plan
   let s = Math.round((offset || 0) * sr), e = duration != null ? s + Math.round(duration * sr) : totalLen
+  let ops = audio.op
 
   let totalDur = totalLen / sr
   let procs = pipeline.map(ed => {
@@ -129,7 +120,7 @@ export function* streamPlan(a, plan, offset, duration) {
       if (iStart >= iEnd) continue
       let srcStart = seg.src + (iStart - seg.out), dstOff = iStart - outOff, n = iEnd - iStart
       if (seg.ref === SILENCE) {
-        // chunk already zero-filled
+        // zero-filled
       } else if (seg.ref) {
         if (seg.ref.edits.length === 0) {
           for (let c = 0; c < a._.ch; c++)
@@ -159,13 +150,11 @@ export function* streamPlan(a, plan, offset, duration) {
   }
 }
 
-/** Yield PAGE_SIZE chunks from a flat PCM render. */
 export function* streamPcm(pcm) {
   for (let off = 0; off < pcm[0].length; off += PAGE_SIZE)
     yield pcm.map(ch => ch.slice(off, Math.min(off + PAGE_SIZE, pcm[0].length)))
 }
 
-/** Read directly from source pages (no edits). */
 export function readPages(a, offset, duration) {
   let sr = a.sampleRate, ch = a._.ch
   let s = offset != null ? Math.round(offset * sr) : 0
@@ -175,7 +164,6 @@ export function readPages(a, offset, duration) {
   return out
 }
 
-/** Collect plan chunks into flat channel arrays. */
 export function readPlan(a, plan, offset, duration) {
   let chunks = []
   for (let chunk of streamPlan(a, plan, offset, duration)) chunks.push(chunk)

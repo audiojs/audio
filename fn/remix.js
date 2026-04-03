@@ -15,4 +15,4 @@ const remix = (chs, ctx) => {
 
 remix.ch = (_, args) => args[0]
 
-export default (audio) => { audio.op('remix', remix) }
+export default (audio) => { audio.op.remix = remix }

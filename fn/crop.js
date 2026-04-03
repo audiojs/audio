@@ -21,4 +21,4 @@ crop.plan = (segs, total, sr, args, off, dur) => {
   return cropSegs(segs, s, d != null ? Math.round(d * sr) : total - s)
 }
 
-export default (audio) => { audio.op('crop', crop) }
+export default (audio) => { audio.op.crop = crop }

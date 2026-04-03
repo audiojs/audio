@@ -2,40 +2,23 @@
  * audio core — paged audio container with plugin architecture.
  *
  * audio.fn   — instance prototype (like $.fn)
- * audio.op   — register op (name, init)
- * audio.stat — register stat (name, fn)
+ * audio.op   — ops dict: audio.op.gain = fn
+ * audio.stat — block stats dict: audio.stat.min = fn
  * audio.hook — single-slot hooks { create }
- * audio.run  — op dispatch, called via .call(instance) — history replaces
+ * audio.run  — op dispatch, called via .call(instance)
  * audio.use  — plugin registration
  */
 
 import encode from 'audio-encode'
 import convert from 'pcm-convert'
 import { PAGE_SIZE, BLOCK_SIZE } from './plan.js'
-import { statFields, buildStats } from './stats.js'
+import { buildStats } from './stats.js'
 import { evict, restorePages, opfsCache, DEFAULT_BUDGET } from './cache.js'
 import { paginate, resolveSource, estimateSize, decodeSource, decodeWorker } from './decode.js'
-import { ops, readPages } from './render.js'
+import { readPages } from './render.js'
 
-export { PAGE_SIZE, BLOCK_SIZE, opfsCache, ops }
+export { PAGE_SIZE, BLOCK_SIZE, opfsCache }
 export { decodeSource } from './decode.js'
-
-
-// ── Helpers ──────────────────────────────────────────────────────────────
-
-/** Check if value is a plain opts object (not Float32Array, not audio instance). */
-function isOpts(v) {
-  return v && typeof v === 'object' && !(v instanceof Float32Array) && !v.pages
-}
-
-/** Wire an op name to proto — creates fn wrapper that extracts opts + calls audio.run. */
-function wireOp(name) {
-  if (proto[name]) return
-  proto[name] = function(...a) {
-    let opts = a.length && isOpts(a[a.length - 1]) ? a.pop() : {}
-    return audio.run.call(this, name, a, opts)
-  }
-}
 
 
 // ── Entry Points ─────────────────────────────────────────────────────────
@@ -78,11 +61,11 @@ audio.from = function(source, opts = {}) {
 
 // ── Plugin Architecture ─────────────────────────────────────────────────
 
-/** Instance prototype — like $.fn. */
 const proto = {}
-audio.fn = proto
 
-/** Single-slot hooks. Chain prev manually. */
+audio.fn = proto
+audio.op = {}
+audio.stat = {}
 audio.hook = { create: null }
 
 /** Op dispatch — pushes edit. Called via .call(instance). */
@@ -93,35 +76,17 @@ audio.run = function(name, args, opts) {
   return this
 }
 
-/** Register plugins. Each receives audio. Wires new ops to proto. */
+/** Register plugins. Each receives audio. Wires ops to proto after. */
 audio.use = function(...plugins) {
   for (let p of plugins) p(audio)
-  for (let name of Object.keys(ops)) wireOp(name)
-}
-
-/** Register a stat. */
-audio.stat = function(name, fn) {
-  if (typeof fn !== 'function') throw new TypeError(`audio.stat: expected function for '${name}'`)
-  if (statFields[name] || proto[name]) throw new Error(`audio.stat: '${name}' already registered`)
-  if (fn.query) {
-    let n = fn.args || 0
-    proto[name] = async function(...args) {
-      let extra = args.slice(0, n), offset = args[n], duration = args[n + 1]
-      if (typeof offset === 'object') { extra.push(offset); offset = undefined; duration = undefined }
-      else if (typeof duration === 'object') { extra.push(duration); duration = undefined }
-      return fn(await this.query(offset, duration), ...extra)
+  for (let name in audio.op) {
+    if (proto[name]) continue
+    proto[name] = function(...a) {
+      let last = a[a.length - 1]
+      let opts = a.length && last && typeof last === 'object' && !(last instanceof Float32Array) && !last.pages ? a.pop() : {}
+      return audio.run.call(this, name, a, opts)
     }
-  } else {
-    statFields[name] = fn.length > 0 ? () => fn : fn
   }
-}
-
-/** Register a named op. */
-audio.op = function(name, init) {
-  if (typeof init !== 'function') throw new TypeError(`audio.op: expected function for '${name}'`)
-  if (ops[name]) throw new Error(`audio.op: '${name}' already registered`)
-  ops[name] = init
-  wireOp(name)
 }
 
 
@@ -146,7 +111,7 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
 
 function fromChannels(channelData, opts = {}) {
   let sr = opts.sampleRate || 44100
-  return create(paginate(channelData), sr, channelData.length, channelData[0].length, opts, buildStats(channelData, channelData.length, sr))
+  return create(paginate(channelData), sr, channelData.length, channelData[0].length, opts, buildStats(audio.stat, channelData, channelData.length, sr))
 }
 
 function fromSilence(seconds, opts = {}) {
@@ -170,7 +135,7 @@ async function fromEncoded(buf, opts = {}) {
   }
   let result = opts.decode === 'worker'
     ? await decodeWorker(buf, opts.onprogress)
-    : await decodeSource(buf, opts.onprogress)
+    : await decodeSource(buf, opts.onprogress, audio.stat)
   let a = create(result.pages, result.sampleRate, result.channels, result.length, opts, result.stats)
   if (a.cache && a.budget < Infinity) await evict(a)
   return a

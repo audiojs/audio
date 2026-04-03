@@ -23,4 +23,4 @@ const fade = (chs, ctx) => {
   })
 }
 
-export default (audio) => { audio.op('fade', fade) }
+export default (audio) => { audio.op.fade = fade }

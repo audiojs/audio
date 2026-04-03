@@ -5,4 +5,4 @@ const min = () => (channels) => channels.map(ch => {
   return mn
 })
 
-export default (audio) => { audio.stat('min', min) }
+export default (audio) => { audio.stat.min = min }

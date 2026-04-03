@@ -10,4 +10,4 @@ const write = (chs, ctx) => {
   })
 }
 
-export default (audio) => { audio.op('write', write) }
+export default (audio) => { audio.op.write = write }

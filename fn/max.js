@@ -5,4 +5,4 @@ const max = () => (channels) => channels.map(ch => {
   return mx
 })
 
-export default (audio) => { audio.stat('max', max) }
+export default (audio) => { audio.stat.max = max }

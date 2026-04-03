@@ -12,4 +12,4 @@ const mix = (chs, ctx) => {
   })
 }
 
-export default (audio) => { audio.op('mix', mix) }
+export default (audio) => { audio.op.mix = mix }

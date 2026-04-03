@@ -98,11 +98,11 @@ test('audio.from(AudioBuffer-like) — from object with getChannelData', async t
 
 test('audio.stat — custom field', async t => {
   // Per-channel metric — return array
-  audio.stat('blockRms', (channels) => channels.map(ch => {
+  audio.stat.blockRms = () => (channels) => channels.map(ch => {
     let sum = 0
     for (let i = 0; i < ch.length; i++) sum += ch[i] * ch[i]
     return Math.sqrt(sum / ch.length)
-  }))
+  })
   let ch = new Float32Array(BLOCK_SIZE * 2).fill(0.5)
   let a = audio.from([ch])
   t.ok(a.stats.blockRms, 'custom stat field exists')
@@ -110,12 +110,12 @@ test('audio.stat — custom field', async t => {
   t.ok(Math.abs(a.stats.blockRms[0][0] - 0.5) < 0.01, `blockRms ≈ 0.5 (got ${a.stats.blockRms[0][0].toFixed(3)})`)
 
   // Cross-channel metric — return number (broadcast to all channels)
-  audio.stat('correlation', (channels) => {
+  audio.stat.correlation = () => (channels) => {
     if (channels.length < 2) return 1
     let L = channels[0], R = channels[1], sum = 0
     for (let i = 0; i < L.length; i++) sum += L[i] * R[i]
     return sum / L.length
-  })
+  }
   let stereo = audio.from([new Float32Array(BLOCK_SIZE).fill(0.5), new Float32Array(BLOCK_SIZE).fill(0.5)])
   t.ok(stereo.stats.correlation, 'cross-channel field exists')
   t.ok(stereo.stats.correlation[0][0] > 0.2, `correlated (${stereo.stats.correlation[0][0].toFixed(3)})`)
@@ -477,10 +477,11 @@ test('normalize', async t => {
 })
 
 test('audio.op — custom op', async t => {
-  audio.op('double', (block) => {
+  audio.op.double = (block) => {
     for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] *= 2
     return block
-  })
+  }
+  audio.use()  // wire to proto
   let a = audio.from([new Float32Array(100).fill(0.25)])
   a.double()
   let pcm = await a.read()
@@ -488,11 +489,12 @@ test('audio.op — custom op', async t => {
 })
 
 test('audio.op — with arg', async t => {
-  audio.op('amplify', (block, ctx) => {
+  audio.op.amplify = (block, ctx) => {
     let factor = ctx.args[0]
     for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] *= factor
     return block
-  })
+  }
+  audio.use()  // wire to proto
   let a = audio.from([new Float32Array(100).fill(0.1)])
   a.amplify(3)
   let pcm = await a.read()
@@ -500,20 +502,17 @@ test('audio.op — with arg', async t => {
 })
 
 test('audio.op — with range', async t => {
-  audio.op('mute', (chs, ctx) => {
+  audio.op.mute = (chs, ctx) => {
     let sr = ctx.sampleRate, offset = ctx.args[0] ?? 0, duration = ctx.args[1]
     let s = Math.round(offset * sr), e = duration != null ? s + Math.round(duration * sr) : chs[0].length
     return chs.map(ch => { let o = new Float32Array(ch); for (let i = s; i < Math.min(e, o.length); i++) o[i] = 0; return o })
-  })
+  }
+  audio.use()  // wire to proto
   let a = audio.from([new Float32Array(44100).fill(1)], { sampleRate: 44100 })
   a.mute(0.5, 0.5)  // mute from 0.5s for 0.5s
   let pcm = await a.read()
   t.ok(pcm[0][0] === 1, 'before range: unchanged')
   t.ok(pcm[0][Math.round(0.75 * 44100)] === 0, 'in range: muted')
-})
-
-test('audio.op — duplicate throws', async t => {
-  t.throws(() => audio.op('double', () => () => {}), 'throws on duplicate')
 })
 
 test('toJSON — serializable with source', async t => {

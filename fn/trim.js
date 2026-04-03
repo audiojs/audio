@@ -67,4 +67,4 @@ trim.resolve = (args, { stats, sampleRate, length }) => {
   return { type: 'crop', args: [startSample / sampleRate, (endSample - startSample) / sampleRate] }
 }
 
-export default (audio) => { audio.op('trim', trim) }
+export default (audio) => { audio.op.trim = trim }
