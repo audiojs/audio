@@ -1,19 +1,24 @@
 import { planCrop as cropSegs } from '../plan.js'
 
-let crop = () => (chs, { offset = 0, duration, sampleRate: sr }) => {
+const crop = (chs, ctx) => {
+  let sr = ctx.sampleRate
+  let offset = ctx.args[0] ?? ctx.offset ?? 0
+  let duration = ctx.args[1] ?? ctx.duration
   let s = Math.round(offset * sr)
   let end = duration != null ? s + Math.round(duration * sr) : chs[0].length
   return chs.map(ch => ch.slice(s, Math.min(end, ch.length)))
 }
 
-crop.dur = (len, sr, _, off, dur) => {
-  let s = off != null ? (off < 0 ? len / sr + off : off) : 0
-  return dur != null ? Math.round(dur * sr) : len - Math.round(s * sr)
+crop.dur = (len, sr, args, off, dur) => {
+  let o = args[0] ?? off, d = args[1] ?? dur
+  let s = o != null ? (o < 0 ? len / sr + o : o) : 0
+  return d != null ? Math.round(d * sr) : len - Math.round(s * sr)
 }
 
-crop.plan = (segs, total, sr, _, off, dur) => {
-  let s = off != null ? Math.round((off < 0 ? total / sr + off : off) * sr) : 0
-  return cropSegs(segs, s, dur != null ? Math.round(dur * sr) : total - s)
+crop.plan = (segs, total, sr, args, off, dur) => {
+  let o = args[0] ?? off, d = args[1] ?? dur
+  let s = o != null ? Math.round((o < 0 ? total / sr + o : o) * sr) : 0
+  return cropSegs(segs, s, d != null ? Math.round(d * sr) : total - s)
 }
 
 export default (audio) => { audio.op('crop', crop) }

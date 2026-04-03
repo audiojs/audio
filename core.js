@@ -21,11 +21,27 @@ export { PAGE_SIZE, BLOCK_SIZE, opfsCache, ops }
 export { decodeSource } from './decode.js'
 
 
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+/** Check if value is a plain opts object (not Float32Array, not audio instance). */
+function isOpts(v) {
+  return v && typeof v === 'object' && !(v instanceof Float32Array) && !v.pages
+}
+
+/** Wire an op name to proto — creates fn wrapper that extracts opts + calls audio.run. */
+function wireOp(name) {
+  if (proto[name]) return
+  proto[name] = function(...a) {
+    let opts = a.length && isOpts(a[a.length - 1]) ? a.pop() : {}
+    return audio.run.call(this, name, a, opts)
+  }
+}
+
+
 // ── Entry Points ─────────────────────────────────────────────────────────
 
 /** Create audio from any source. Always async. */
 export default async function audio(source, opts = {}) {
-  // Deserialize from JSON — history plugin handles via hook.create
   if (source && typeof source === 'object' && !Array.isArray(source) && source.edits) {
     if (!source.source) throw new TypeError('audio: cannot restore document without source reference')
     let a = await audio(source.source, opts)
@@ -62,35 +78,25 @@ audio.from = function(source, opts = {}) {
 
 // ── Plugin Architecture ─────────────────────────────────────────────────
 
-/** Instance prototype — like $.fn. Plugins add methods directly. */
+/** Instance prototype — like $.fn. */
 const proto = {}
 audio.fn = proto
 
 /** Single-slot hooks. Chain prev manually. */
 audio.hook = { create: null }
 
-/** Op dispatch — called via .call(instance). Default: pushEdit. History replaces. */
+/** Op dispatch — pushes edit. Called via .call(instance). */
 audio.run = function(name, args, opts) {
-  let nargs = ops[name]?.length || 0
-  let opArgs = args.slice(0, nargs), offset = args[nargs] ?? opts?.at, duration = args[nargs + 1] ?? opts?.dur
-  this.edits.push({ type: name, args: opArgs, offset, duration })
+  this.edits.push({ type: name, args, offset: opts?.offset, duration: opts?.duration })
   this.version++
   this.onchange?.()
   return this
 }
 
-/** Register plugins. Each receives audio. Wires audio.op entries to audio.fn after. */
+/** Register plugins. Each receives audio. Wires new ops to proto. */
 audio.use = function(...plugins) {
   for (let p of plugins) p(audio)
-  for (let name of Object.keys(ops)) {
-    if (proto[name]) continue
-    proto[name] = function(...a) {
-      let opts = a.length && typeof a[a.length - 1] === 'object'
-        && !(a[a.length - 1] instanceof Float32Array)
-        && !a[a.length - 1]?.pages ? a.pop() : {}
-      return audio.run.call(this, name, a, opts)
-    }
-  }
+  for (let name of Object.keys(ops)) wireOp(name)
 }
 
 /** Register a stat. */
@@ -115,14 +121,7 @@ audio.op = function(name, init) {
   if (typeof init !== 'function') throw new TypeError(`audio.op: expected function for '${name}'`)
   if (ops[name]) throw new Error(`audio.op: '${name}' already registered`)
   ops[name] = init
-  if (!proto[name]) {
-    proto[name] = function(...a) {
-      let opts = a.length && typeof a[a.length - 1] === 'object'
-        && !(a[a.length - 1] instanceof Float32Array)
-        && !a[a.length - 1]?.pages ? a.pop() : {}
-      return audio.run.call(this, name, a, opts)
-    }
-  }
+  wireOp(name)
 }
 
 

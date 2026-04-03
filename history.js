@@ -1,7 +1,8 @@
 /**
  * History plugin — non-destructive edit pipeline.
- * Replaces audio.run to defer ops. Wraps read/stream to apply edits at render time.
- * Adds: undo, apply, toJSON, version-tracked length/channels, streaming render.
+ * Wraps read/stream to apply edits at render time.
+ * Overrides length/channels to walk edit hints.
+ * Adds: toJSON, stats rebuild on query.
  */
 
 import { SILENCE } from './plan.js'
@@ -14,26 +15,15 @@ export { render }
 export default (audio) => {
   let fn = audio.fn
 
-  // ── Replace op dispatch — defer edits instead of applying ──────────
-
-  audio.run = function(name, args, opts) {
-    let nargs = ops[name]?.length || 0
-    let opArgs = args.slice(0, nargs), offset = args[nargs] ?? opts?.at, duration = args[nargs + 1] ?? opts?.dur
-    this.edits.push({ type: name, args: opArgs, offset, duration })
-    this.version++
-    this.onchange?.()
-    return this
-  }
-
   // ── Override length/channels — walk edits via .dur/.ch hints ───────
 
   Object.defineProperties(fn, {
     length: { get() {
       if (this._.lenV === this.version) return this._.lenC
       let len = this._.len, sr = this.sampleRate
-      for (let { type, args = [], offset: off, duration: dur } of this.edits) {
+      for (let { type, args = [] } of this.edits) {
         let init = ops[type]
-        if (init?.dur) len = init.dur(len, sr, args, off, dur)
+        if (init?.dur) len = init.dur(len, sr, args)
       }
       this._.lenC = len; this._.lenV = this.version
       return len
@@ -106,7 +96,6 @@ export default (audio) => {
   }
 }
 
-/** Rebuild stats from edits. Streaming when possible, full render fallback. */
 function rebuildStats(a) {
   if (!a.edits.length) return
   let plan = buildPlan(a)

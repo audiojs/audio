@@ -1,6 +1,5 @@
 import { BLOCK_SIZE } from '../plan.js'
 
-/** Auto-detect threshold from energy data (bottom 10th percentile + 12dB). */
 function autoThreshold(energies) {
   let vals = energies.filter(e => e > 0)
   if (!vals.length) return -40
@@ -9,8 +8,8 @@ function autoThreshold(energies) {
   return Math.max(-80, Math.min(-20, 10 * Math.log10(floor) + 12))
 }
 
-let trim = (threshold) => (chs) => {
-  let thresh
+const trim = (chs, ctx) => {
+  let threshold = ctx.args[0]
   if (threshold == null) {
     let energies = []
     for (let c = 0; c < chs.length; c++)
@@ -21,7 +20,7 @@ let trim = (threshold) => (chs) => {
       }
     threshold = autoThreshold(energies)
   }
-  thresh = 10 ** (threshold / 20)
+  let thresh = 10 ** (threshold / 20)
 
   let len = chs[0].length, s = 0, e = len - 1
   for (; s < len; s++) { let loud = false; for (let c = 0; c < chs.length; c++) if (Math.abs(chs[c][s]) > thresh) { loud = true; break }; if (loud) break }
@@ -33,9 +32,10 @@ let trim = (threshold) => (chs) => {
 
 trim.plan = false
 
-trim.resolve = ([threshold], { stats, sampleRate, length }) => {
+trim.resolve = (args, { stats, sampleRate, length }) => {
   if (!stats?.min) return null
   let ch = stats.min.length, blocks = stats.min[0].length
+  let threshold = args[0]
 
   if (threshold == null) {
     let energies = []
@@ -61,10 +61,10 @@ trim.resolve = ([threshold], { stats, sampleRate, length }) => {
   e++
 
   if (s === 0 && e === blocks) return false
-  if (s >= e) return { type: 'crop', args: [], offset: 0, duration: 0 }
+  if (s >= e) return { type: 'crop', args: [0, 0] }
   let startSample = s * BLOCK_SIZE
   let endSample = Math.min(e * BLOCK_SIZE, length)
-  return { type: 'crop', args: [], offset: startSample / sampleRate, duration: (endSample - startSample) / sampleRate }
+  return { type: 'crop', args: [startSample / sampleRate, (endSample - startSample) / sampleRate] }
 }
 
 export default (audio) => { audio.op('trim', trim) }
