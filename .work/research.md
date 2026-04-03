@@ -47,7 +47,7 @@ Happy path: `audio(file) → ops → read/save/play`. 90% of users do exactly th
 
 ```
 Source → immutable backing (encoded file or PCM, depending on input)
-Index  → always-resident summaries (waveform, energy, peaks)
+Stats  → always-resident per-block measurements (min, max, energy — pluggable)
 Pages  → decoded PCM in chunks, paged on demand
 Ops    → declarative edit list
 ```
@@ -91,9 +91,10 @@ a.mix(other, offset?, duration?)            // overlay other audio
 a.write(data, offset?)                      // overwrite region
 a.remix(channels)                           // mono↔stereo
 
-// Smart ops — analyze index, then queue structural/sample op
-a.trim(threshold?)                          // → scans index → crop()
-a.normalize(targetDb = 0)                   // → reads index peak → gain()
+// Smart ops — analyze stats, then resolve to structural/sample op
+a.trim(threshold?)                          // → scans stats → crop()
+a.normalize(targetDb = 0)                   // → reads stats peak → gain()
+a.normalize('streaming')                    // → preset: -14 LUFS
 
 // Custom ops — audio.op(name, init)
 audio.op('invert', () => (block) => {
@@ -112,9 +113,11 @@ let raw = await a.read(0, 1, { format: 'int16' })  // → Int16Array[]
 let wav = await a.read({ format: 'wav' })           // → Uint8Array (encoded)
 await a.save('/tmp/out.mp3')                       // encode + write (format from ext)
 
-// Analyze (async — instant from index, materializes if needed)
-await a.stat(offset?, duration?)            // → {min, max, rms, peak, loudness}
-await a.peaks(count)                        // → {min: Float32Array, max: Float32Array}
+// Analyze (async — instant from stats, materializes if needed)
+await a.db(offset?, duration?)              // → peak dBFS (number)
+await a.rms(offset?, duration?)             // → RMS level (number)
+await a.loudness(offset?, duration?)        // → integrated LUFS (number)
+await a.peaks(count, opts?)                 // → {min, max} Float32Arrays
 
 // Playback — controller returned, parallel by default
 let p = a.play(offset?, duration?)
@@ -173,26 +176,28 @@ audio-module    — cross-platform plugin compiler (separate concern)
 
 - `audio()` takes any input, always returns a Promise. Encoded sources are paged (evictable + re-decodable). PCM sources resolve immediately but are still Promises.
 - `audio.from()` is the sync escape hatch — PCM-backed, always resident, never paged. Returns instance directly.
-- Index is always resident. Pages are not.
+- Stats are always resident. Pages are not.
 - Custom ops are sample-only, block-local, and shape-preserving: same channel count in, same channel count out, same block lengths.
-- `a.edits` is inspectable state, not a mutation API. Only ops, `undo()`, and `do()` change history.
+- `a.edits` is inspectable state, not a mutation API. Only ops, `undo()`, and `apply()` change history.
 - `save(target)` persists to an explicit target only. Downloads/UI save flows belong above `audio`, on top of `read({ format })`.
 
 
 ## Architecture
 
-### Index (always resident)
+### Stats (always resident, pluggable)
 
-Built during decode, retained permanently, survives page eviction. Powers waveform display, analysis, and smart op resolution.
+Per-block measurements computed during decode, retained permanently, survives page eviction. Powers peaks display, analysis, and smart op resolution (.resolve). Fully pluggable — core hardcodes nothing, `audio.js` registers min/max/energy.
 
 ```js
-index: {
+a.stats: {
   blockSize: 1024,                // samples per block
   min: [Float32Array, ...],       // per-channel, per-block min amplitude
   max: [Float32Array, ...],       // per-channel, per-block max amplitude
-  energy: [Float32Array, ...],    // per-channel, per-block mean square
+  energy: [Float32Array, ...],    // per-channel, per-block K-weighted mean square
 }
 ```
+
+Registration: `audio.stat(name, factory)` where factory returns a block function (supports stateful stats like K-weighted energy). Query methods (`db`, `rms`, `loudness`, `peaks`) are prototype extensions registered in `audio.js`.
 
 Memory: ~7MB for 2h stereo (3 arrays × 2 channels × ~310K blocks × 4 bytes). Negligible vs PCM.
 
@@ -212,10 +217,10 @@ Page size: 2^16 = 65536 samples ≈ 1.49s at 44100Hz.
 
 **Structural** — reorganize timeline: `crop`, `insert`, `remove`, `repeat`
 **Sample** (built-in + custom) — transform values: `gain`, `fade`, `reverse`, `mix`, `write`, `remix`, custom via `audio.op()`
-**Smart** — analyze index then queue op: `trim`, `normalize`
+**Smart** — analyze stats then resolve to simpler op: `trim`, `normalize`
 **Inline** — anonymous functions via `apply()`
 
-### Index dirtiness
+### Stats dirtiness
 
 **Clean** (arithmetic update): `gain`, `reverse`, `trim`, `normalize`
 **Range-dirty** (affected blocks stale): `fade`, `mix`, `write`, custom ops
@@ -226,15 +231,15 @@ Page size: 2^16 = 65536 samples ≈ 1.49s at 44100Hz.
 **Streaming render** (v2): Read plan + streaming.
 1. Walk structural edits → segment map (which source → which output)
 2. For each output chunk, read source pages per plan, apply sample ops, yield
-3. Smart ops (trim, normalize) use `.resolve` to resolve from index → simpler streamable ops
+3. Smart ops (trim, normalize) use `.resolve` to resolve from stats → simpler streamable ops
 
 Falls back to cached full render when pipeline can't be streamed (inline fns, sample ops before structural).
 
 ### Smart op resolution (`.resolve`)
 
-Ops like `trim` and `normalize` are "measure-then-act" — they need global stats, then produce a trivial transform. The `.resolve(args, ctx)` property on the init function allows them to resolve from the index without full render:
-- `trim` resolves to `crop` (using index min/max for silence boundaries)
-- `normalize` resolves to `gain` (using index peak or K-weighted energy for LUFS)
+Ops like `trim` and `normalize` are "measure-then-act" — they need global stats, then produce a trivial transform. The `.resolve(args, ctx)` property on the processor allows resolution from stats without full render:
+- `trim` resolves to `crop` (using stats.min/max for silence boundaries)
+- `normalize` resolves to `gain` (using stats peak or K-weighted energy for LUFS)
 
 This makes `audio('file').trim().normalize().save('out.wav')` fully streamable.
 
@@ -304,44 +309,98 @@ audio in.mp3 --macro podcast-cleanup.json -o out.wav
 ```
 
 
-## Plugin Contract
+## Plugin Architecture
 
-`audio.op(name, init)` — one pattern for everything.
+Every plugin is `(audio) => { ... }` — receives `audio`, extends it.
 
 ```js
-audio.op(name, init)
-// init(...params) → processor(block, ctx) → block | false | null
+audio.fn       // instance prototype (like $.fn)
+audio.op       // register op: audio.op('name', init)
+audio.stat     // register stat: audio.stat('name', fn)
+audio.hook     // single-slot hooks { create }
+audio.run      // op dispatch — history replaces
+audio.use()    // plugin registration
+audio.from()   // sync entry
 ```
 
-- `init.length` determines arg split: init params, then offset/duration
-- Init runs at render time — fresh closure per materialization
-- Closure holds state between blocks (filter memory, running averages)
-- All custom ops are index-dirty by default (safe)
+### Plugin contract
 
 ```js
-// Plugin package — just a file that calls audio.op()
-import audio from 'audio'
+// Every plugin receives audio, extends it
+export default (audio) => {
+  audio.op('gain', impl)        // register an op
+  audio.fn.play = function() {} // add a proto method
+  audio.stat('energy', impl)    // register a stat
+}
+```
+
+### Bundles
+
+```js
+// audio.js — full bundle
+import audio from './core.js'
+import history from './history.js'
+import crop from './fn/crop.js'
+import gain from './fn/gain.js'
+// ...
+audio.use(history, crop, gain, ...)
+
+// audio-mini.js — no history, no cache
+import audio from './core.js'
+import crop from './fn/crop.js'
+audio.use(crop)
+```
+
+### File structure
+
+```
+core.js          — audio container, audio.fn, audio.run, audio.use()
+decode.js        — decode engine
+plan.js          — segment utilities (used by render)
+render.js        — render engine (full + plan-based streaming)
+stats.js         — block-level stat computation
+cache.js         — OPFS paging, eviction
+history.js       — non-destructive editing (replaces audio.run, wraps read/stream)
+fn/              — all processing functions as plugins
+```
+
+### Op contract
+
+```js
 audio.op('compress', (threshold, ratio) => {
   let env = 0
   return (block, ctx) => { /* compression */ return block }
 })
 ```
 
+- `init(...params) → processor(block, ctx) → block | false | null`
+- Closure holds state between blocks (filter memory, running averages)
+- All custom ops are stats-dirty by default (safe)
 
-## Index Extensions (post-v2)
 
-Index fields are pluggable:
+## Custom Stats (v2.1)
+
+Stats are fully pluggable via `audio.stat(name, factory)`. Factory pattern for stateful stats:
 
 ```js
-audio.index('pitch', (block, ctx) => {
-  if (ctx.op === 'gain' || ctx.op === 'reverse') return ctx.prev
-  return detectPitch(block[0], ctx.sampleRate)
-})
+// Stateless — direct function (auto-wrapped)
+audio.stat('pitch', (channels) => detectPitch(channels[0]))
+a.stats.pitch     // Float32Array — one value per block
 
-a.index.pitch     // Float32Array — one value per block
+// Stateful — factory returns closure with state
+audio.stat('energy', () => {
+  let kState = null
+  return (channels, ctx) => {
+    // K-weighting filter carries state between blocks
+    if (!kState) kState = channels.map(() => ({ fs: ctx.sampleRate }))
+    // ... compute K-weighted mean square
+  }
+})
 ```
 
-Each field tracks its own staleness. Memory: ~1.2MB per field for 2h stereo.
+Query methods are prototype extensions: `proto.db = async function(off, dur) { ... }`
+
+Memory: ~1.2MB per field for 2h stereo.
 
 
 ## Structural Custom Ops (post-v2)

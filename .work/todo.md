@@ -277,88 +277,46 @@ fn/
 
 ### Phases
 
-#### Phase 1: Merge dirs + plugin contract + `audio.use()`
+#### [x] Phase 1: Plugin architecture + merge dirs
 
-Move `op/*.js` and `stat/*.js` into `fn/`. Rewrite each module as `(audio) => { ... }`. Add `audio.use()`, `audio.op`, `audio.stat`, `audio.fn`, `audio.run` to core. Flatten op factory pattern (`init => processor` → flat `(chs, ctx) => chs` with `ctx.args`). Change positional offset/duration to opts object (`{ at, dur }`). Rewrite `audio.js` to use `audio.use()`. Remove `audio.op()`, `audio.stat()`, `audio.fn()`.
+- [x] Merge `op/` and `stat/` into `fn/`
+- [x] Add `audio.fn` (proto), `audio.hook`, `audio.run`, `audio.use()` to core
+- [x] `audio.op()` / `audio.stat()` remain as registration functions
+- [x] Rewrite all 27 fn/ modules as `(audio) => { ... }` plugins
+- [x] `audio.js` uses `audio.use(history, ...plugins)` 
+- [x] Removed `audio.fn_register` (dead code)
 
-- [ ] Move 12 op files + 8 stat files to fn/
-- [ ] Flatten op factory: `(db) => (chs, ctx) => ...` → `(chs, ctx) => ...` with `ctx.args`
-- [ ] Change positional offset/duration to opts object: `a.gain(-3, { at: 1, dur: 2 })`
-- [ ] Add `audio.use()`, `audio.op`, `audio.stat`, `audio.hook`, `audio.fn`, `audio.run` to core
-- [ ] Rewrite each fn/ module as `(audio) => { ... }`
-- [ ] Rewrite audio.js to use `audio.use()`
-- [ ] Move trim/normalize from `audio.op` to `audio.fn` (they're methods, not ops)
-- [ ] Remove `audio.op()`, `audio.stat()`, `audio.fn()` registration methods
-- [ ] Delete empty op/, stat/ dirs
-- [ ] Verify tests pass
+Note: factory flattening and opts object pattern deferred — separate concern from plugin architecture.
 
-#### Phase 2: Extract history plugin
+#### [x] Phase 2: Extract history plugin
 
-Move edit pipeline out of core into `history.js`. Core's `audio.run` applies ops destructively. History replaces `audio.run` to push edits + eagerly track `_.len`/`_.ch`.
+- [x] Created `history.js` — replaces `audio.run` with edit-pushing version
+- [x] History overrides `length`/`channels` getters to walk edits via `.dur`/`.ch` hints
+- [x] History wraps `audio.fn.read` and `audio.fn.stream` to apply edits via plan/render
+- [x] History wraps `audio.fn.query` to rebuild stats when dirty
+- [x] History adds `toJSON()` to proto
+- [x] Core's `read` = direct page read (no edits)
+- [x] Core's `length`/`duration` = source length (no edit walking)
+- [x] `hook.create` called on every instance creation
+- [x] `audio.op()` wires proto immediately (custom ops work outside `use()`)
 
-- [ ] Create `history.js` — replaces `audio.run`
-- [ ] Absorb `plan.js` into history (plan utilities are internal to history)
-- [ ] Move `PAGE_SIZE`, `BLOCK_SIZE` constants to core
-- [ ] Move `render()`, `buildPlan()`, `streamPlan()`, `streamPcm()` into history
-- [ ] History eagerly computes `_.len`/`_.ch` in `audio.run` (structural ops: known math; sample ops: same length; unknown: fallback render)
-- [ ] History sets `audio.hook.create` to init edit state on instances
-- [ ] History wraps `audio.fn.read` and `audio.fn.stream` to apply edits
-- [ ] Move `undo()`, `apply()`, `toJSON()` into history
-- [ ] Core `audio.fn.read` = direct page read (no edits)
-- [ ] Verify tests pass with history plugin
-- [ ] Verify core works without history (destructive mode)
+Not extracted (deferred):
+- `plan.js` not absorbed into history — still standalone (shared constants)
+- `render.js` stays standalone — history imports from it
+- `undo()` / `apply()` still in fn/ as plugins — they manipulate edits directly
 
-#### Phase 3: Extract cache plugin
+#### Deferred: Cache + Stats extraction
 
-Move OPFS/eviction out of core into `cache.js`.
+Cache (`cache.js`) and stats (`stats.js`) are already modular standalone files but deeply coupled to core's creation/decode pipeline. Extracting them into plugins would require:
+- Cache: hooking into `audio()`, `create()`, `read()`, `stream()`, `cursor` — too many touch points
+- Stats: changing decode API to accept onpage callback — breaks existing contract
 
-- [ ] Create `cache.js` — owns `evict`, `restorePages`, `opfsCache`
-- [ ] Cache wraps `audio.fn.read` to restore pages before read
-- [ ] Cache wraps `audio()` entry to auto-detect OPFS for large files
-- [ ] Cache adds `cursor` setter with prefetch
-- [ ] Remove cache imports from core
-- [ ] Verify tests pass
+Both are already clean separation-of-concerns at the file level. Plugin extraction deferred until there's a concrete use case (e.g., someone wanting `audio` without stats or without OPFS).
 
-#### Phase 4: Extract stats plugin
+#### Phase 3: Documentation + types
 
-Move stat accumulation out of core/decode into `stats.js`.
-
-- [ ] Create `stats.js` — owns `statSession`, `buildStats`
-- [ ] Stats hooks into decode via `onpage` callback (decode.js accepts it)
-- [ ] Stats wraps instance creation to attach `stats` object
-- [ ] Block stats (min, max, energy) register into `audio.stat` dict
-- [ ] Query methods (db, rms, loudness, peaks) added as `audio.fn.*` by their own plugins
-- [ ] Remove stat coupling from decode.js (decode just produces pages)
-- [ ] Verify tests pass
-
-#### Phase 5: Documentation + types
-
-- [ ] Update README
-- [ ] Update audio.d.ts — new plugin contract types
 - [ ] Update research.md — architecture section
-- [ ] Update package.json exports
-
----
-
-### Key risks
-
-**Phase 2 (history)** is the hardest — render engine is deeply coupled to core. The `audio.fn` wrapping for `read`/`stream` needs careful ordering when both history and cache are installed.
-
-**Phase 2 (history duration)** — history eagerly tracks `_.len` via known structural math (crop = duration, remove = subtract, insert = add, repeat = multiply). Sample ops don't change length. Unknown ops (future stretch plugin) need to provide a length hint — opt-in, not required by default contract. Worth benchmarking.
-
-**Phase 4 (stats)** — decode.js currently interleaves stat computation with page assembly. Separating requires decode to accept a per-page callback, which stats plugin provides. Should be straightforward but changes the decode API.
-
-### Ordering constraint
-
-```
-Phase 1 (merge + plugin contract + flatten ops)
-    ↓
-Phase 2 (history) ←→ Phase 3 (cache) — can partially parallelize
-    ↓
-Phase 4 (stats)
-    ↓
-Phase 5 (docs)
-```
+- [ ] Update .work/todo.md — clean up plan to match reality
 
 
 ---
