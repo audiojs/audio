@@ -1,4 +1,4 @@
-import { planCrop as cropSegs } from './plan.js'
+import { planCrop as cropSegs } from '../plan.js'
 
 let crop = () => (chs, { offset = 0, duration, sampleRate: sr }) => {
   let s = Math.round(offset * sr)

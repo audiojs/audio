@@ -1,4 +1,4 @@
-import { planReverse as reverseSegs } from './plan.js'
+import { planReverse as reverseSegs } from '../plan.js'
 
 let reverse = () => (chs, { offset, duration, sampleRate: sr }) => {
   let s = offset != null ? Math.round(offset * sr) : 0
