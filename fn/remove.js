@@ -1,4 +1,4 @@
-import { planRemove as removeSegs } from './plan.js'
+import { planRemove as removeSegs } from '../plan.js'
 
 let remove = () => (chs, { offset = 0, duration = 0, sampleRate: sr }) => {
   let s = Math.round(offset * sr), d = Math.round(duration * sr)

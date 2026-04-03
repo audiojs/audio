@@ -1,4 +1,4 @@
-import { planRepeat as repeatSegs } from './plan.js'
+import { planRepeat as repeatSegs } from '../plan.js'
 
 let repeat = (times) => (chs, { offset, duration, sampleRate: sr }) => {
   let t = times || 1

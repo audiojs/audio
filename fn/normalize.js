@@ -36,7 +36,7 @@ let normalize = (targetDb, opts) => {
     else if (opts?.mode) mode = opts.mode
   }
 
-  let processor = (chs, { sampleRate: sr }) => {
+  return (chs, { sampleRate: sr }) => {
     let gain
     if (mode === 'lufs') {
       let kChs = chs.map(ch => { let k = new Float32Array(ch); kWeighting(k, { fs: sr }); return k })
@@ -64,32 +64,37 @@ let normalize = (targetDb, opts) => {
     let f = 10 ** (gain / 20)
     return chs.map(ch => { let o = new Float32Array(ch); for (let i = 0; i < o.length; i++) o[i] *= f; return o })
   }
-
-  processor.plan = false
-
-  /** Resolve from index — avoids full render when index is clean. */
-  processor.resolve = (_, { index, sampleRate }) => {
-    if (!index?.min) return null
-    let ch = index.min.length, gainDb
-    if (mode === 'lufs') {
-      let lufs = lufsFromEnergy(index.energy, ch, sampleRate, index.blockSize)
-      if (lufs == null) return false
-      gainDb = targetDb - lufs
-    } else {
-      let peak = 0
-      for (let c = 0; c < ch; c++)
-        for (let i = 0; i < index.min[c].length; i++)
-          peak = Math.max(peak, Math.abs(index.min[c][i]), Math.abs(index.max[c][i]))
-      if (!peak) return false
-      gainDb = targetDb - 20 * Math.log10(peak)
-    }
-    return { type: 'gain', args: [gainDb] }
-  }
-
-  return processor
 }
 
-// .plan and .resolve are on the returned processor, not on normalize itself.
-// Core checks init.plan first (falsy), then calls init() and checks processor.plan/resolve.
+normalize.plan = false
+
+normalize.resolve = (args, ctx) => {
+  let { stats, sampleRate } = ctx
+  if (!stats?.min) return null
+  let targetDb, mode = 'peak'
+  if (typeof args[0] === 'string') {
+    if (!PRESETS[args[0]]) return null
+    mode = 'lufs'; targetDb = PRESETS[args[0]]
+  } else {
+    targetDb = args[0] ?? 0
+    let opts = args[1]
+    if (typeof opts === 'string') mode = opts
+    else if (opts?.mode) mode = opts.mode
+  }
+  let ch = stats.min.length, gainDb
+  if (mode === 'lufs') {
+    let lufs = lufsFromEnergy(stats.energy, ch, sampleRate, stats.blockSize)
+    if (lufs == null) return false
+    gainDb = targetDb - lufs
+  } else {
+    let peak = 0
+    for (let c = 0; c < ch; c++)
+      for (let i = 0; i < stats.min[c].length; i++)
+        peak = Math.max(peak, Math.abs(stats.min[c][i]), Math.abs(stats.max[c][i]))
+    if (!peak) return false
+    gainDb = targetDb - 20 * Math.log10(peak)
+  }
+  return { type: 'gain', args: [gainDb] }
+}
 
 export default normalize

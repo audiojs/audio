@@ -1,4 +1,4 @@
-import { planInsert as insertSegs, SILENCE } from './plan.js'
+import { planInsert as insertSegs, SILENCE } from '../plan.js'
 
 let insert = (source) => (chs, { offset, duration, sampleRate: sr, render }) => {
   let src = typeof source === 'number'

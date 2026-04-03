@@ -1,4 +1,4 @@
-import { BLOCK_SIZE } from './plan.js'
+import { BLOCK_SIZE } from '../plan.js'
 
 /** Auto-detect threshold from energy data (bottom 10th percentile + 12dB). */
 function autoThreshold(energies) {
@@ -33,16 +33,16 @@ let trim = (threshold) => (chs) => {
 
 trim.plan = false
 
-/** Resolve from index — block-level precision, avoids full render when index is clean. */
-trim.resolve = ([threshold], { index, sampleRate, length }) => {
-  if (!index?.min) return null
-  let ch = index.min.length, blocks = index.min[0].length
+/** Resolve from stats — block-level precision, avoids full render when stats are clean. */
+trim.resolve = ([threshold], { stats, sampleRate, length }) => {
+  if (!stats?.min) return null
+  let ch = stats.min.length, blocks = stats.min[0].length
 
-  // Auto-detect threshold from index energy
+  // Auto-detect threshold from stats energy
   if (threshold == null) {
     let energies = []
     for (let c = 0; c < ch; c++)
-      for (let i = 0; i < index.energy[c].length; i++) energies.push(index.energy[c][i])
+      for (let i = 0; i < stats.energy[c].length; i++) energies.push(stats.energy[c][i])
     threshold = autoThreshold(energies)
   }
   let thresh = 10 ** (threshold / 20)
@@ -51,13 +51,13 @@ trim.resolve = ([threshold], { index, sampleRate, length }) => {
   for (; s < blocks; s++) {
     let loud = false
     for (let c = 0; c < ch; c++)
-      if (Math.max(Math.abs(index.min[c][s]), Math.abs(index.max[c][s])) > thresh) { loud = true; break }
+      if (Math.max(Math.abs(stats.min[c][s]), Math.abs(stats.max[c][s])) > thresh) { loud = true; break }
     if (loud) break
   }
   for (; e >= s; e--) {
     let loud = false
     for (let c = 0; c < ch; c++)
-      if (Math.max(Math.abs(index.min[c][e]), Math.abs(index.max[c][e])) > thresh) { loud = true; break }
+      if (Math.max(Math.abs(stats.min[c][e]), Math.abs(stats.max[c][e])) > thresh) { loud = true; break }
     if (loud) break
   }
   e++
