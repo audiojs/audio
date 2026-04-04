@@ -100,6 +100,10 @@ function parseArgs(args) {
       i++
     } else if (isFlag(arg)) {
       throw new Error(`Unknown flag: ${arg}`)
+    } else if (!input && !isOpName(arg)) {
+      // Positional input file (even after flags)
+      input = arg
+      i++
     } else {
       // Parse operation
       let name = arg
@@ -182,7 +186,16 @@ async function main() {
       source = buf
     }
 
-    // Load audio
+    // Streaming playback — start playing as pages decode (no ops needed)
+    if (opts.play && !opts.ops.length && !opts.output && !opts.stat && typeof source === 'string') {
+      if (opts.verbose) console.error(`Opening: ${source}`)
+      let a = await audio.open(source)
+      let p = a.play()
+      await new Promise(resolve => { p.onended = resolve })
+      process.exit(0)
+    }
+
+    // Load audio (full decode)
     if (opts.verbose) console.error(`Loading: ${typeof source === 'string' ? source : '(stdin)'}`)
     let a = await audio(source, {
       onprogress: opts.verbose ? ({ offset, total }) => {

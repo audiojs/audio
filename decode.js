@@ -1,5 +1,6 @@
 /**
- * Decode engine — streaming decode of encoded audio into pages + stats.
+ * Decode engine — streaming decode of any source into pages + stats.
+ * Single path: pages array fills progressively, consumers await via notify.
  */
 
 import decode from 'audio-decode'
@@ -42,48 +43,95 @@ export function estimateSize(buf) {
   return buf.byteLength * 20
 }
 
-/**
- * Decode encoded buffer into pages + stats.
- * Streams when format supports it; falls back to whole-file decode.
- */
-export async function decodeSource(buf, onprogress, statDict) {
-  let bytes = new Uint8Array(buf.buffer || buf)
-  let format = getType(bytes)
+/** Detect format + prepare source. Returns { format, bytes?, reader? } */
+async function detectSource(source) {
+  if (source instanceof ArrayBuffer || source instanceof Uint8Array) {
+    let bytes = new Uint8Array(source instanceof ArrayBuffer ? source : source.buffer || source)
+    return { format: getType(bytes), bytes }
+  }
+  if (typeof source === 'string' && !/^(https?|data|blob):/.test(source) && typeof window === 'undefined') {
+    let path = source
+    if (source.startsWith('file:')) { let { fileURLToPath } = await import('url'); path = fileURLToPath(source) }
+    let { open } = await import('fs/promises')
+    let fh = await open(path, 'r')
+    let hdr = new Uint8Array(12)
+    await fh.read(hdr, 0, 12, 0)
+    await fh.close()
+    let format = getType(new Uint8Array(hdr))
+    let { createReadStream } = await import('fs')
+    return { format, reader: createReadStream(path) }
+  }
+  let buf = await resolveSource(source)
+  let bytes = new Uint8Array(buf)
+  return { format: getType(bytes), bytes }
+}
 
-  // Non-streaming fallback
+/**
+ * Decode any source into pages + stats.
+ * Pages fill progressively — caller provides pages array + notify callback.
+ *
+ * Flow:
+ *   1. detectSource → { format, bytes?, reader? }
+ *   2. Non-streaming: decode whole buffer, paginate, return immediately
+ *   3. Streaming: feed chunks → push() accumulates into page buffers → flush() emits full pages
+ *      - STREAMABLE formats (mp3/flac/opus/oga) decode in FEED-sized chunks
+ *      - Node file reader streams chunks directly
+ *      - Non-streamable formats with reader: collect into bytes first
+ *   4. Returns after first page; `decoding` promise resolves when done
+ *
+ * @param {string|ArrayBuffer|Uint8Array|URL} source
+ * @param {object} [opts]
+ * @param {Array} [opts.pages] — target array (created if omitted)
+ * @param {Function} [opts.notify] — called after each page push
+ * @param {Function} [opts.onprogress] — progress callback (worker compat)
+ * @param {object} [opts.statDict] — stat functions
+ */
+export async function decodeSource(source, opts = {}) {
+  let { pages = [], notify, onprogress, statDict } = opts
+  let { format, bytes, reader } = await detectSource(source)
+
+  // ── Non-streaming fallback ────────────────────────────────────────
   if (!format || !decode[format]) {
-    let { channelData, sampleRate } = await decode(buf)
-    return { pages: paginate(channelData), stats: buildStats(statDict || {}, channelData, channelData.length, sampleRate), sampleRate, channels: channelData.length, length: channelData[0].length }
+    if (!bytes) bytes = new Uint8Array(await resolveSource(source))
+    let { channelData, sampleRate } = await decode(bytes.buffer || bytes)
+    let ps = paginate(channelData)
+    for (let p of ps) { pages.push(p); notify?.() }
+    let stats = buildStats(statDict || {}, channelData, channelData.length, sampleRate)
+    return { pages, sampleRate, channels: channelData.length, decoding: Promise.resolve({ stats, length: channelData[0].length }) }
   }
 
-  // Chunked streaming decode
+  // ── Streaming decode ──────────────────────────────────────────────
   let dec = await decode[format]()
-  let pages = [], sr = 0, ch = 0, totalLen = 0, pagePos = 0
+  let sr = 0, ch = 0, totalLen = 0, pagePos = 0
   let pageBuf = null, session
-  let estTotal = estimateSize(buf) / 4
+  let yieldLoop = () => new Promise(r => setTimeout(r, 0))
+  let firstResolve
 
   function flush(page) {
     session.page(page)
     pages.push(page)
+    totalLen += page[0].length
+    notify?.()
+    if (firstResolve) { firstResolve(); firstResolve = null }
   }
 
-  async function push(chData, sampleRate) {
+  function push(chData, sampleRate) {
     if (!pageBuf) {
       sr = sampleRate; ch = chData.length
       pageBuf = Array.from({ length: ch }, () => new Float32Array(PAGE_SIZE))
       session = statSession(statDict || {}, ch, sr)
-      estTotal = estTotal / (ch * sr)
+      if (estTotal) estTotal = estTotal / (ch * sr)
     }
     let srcPos = 0, chunkLen = chData[0].length
     while (srcPos < chunkLen) {
       let n = Math.min(chunkLen - srcPos, PAGE_SIZE - pagePos)
       for (let c = 0; c < ch; c++) pageBuf[c].set(chData[c].subarray(srcPos, srcPos + n), pagePos)
-      srcPos += n; pagePos += n; totalLen += n
+      srcPos += n; pagePos += n
       if (pagePos === PAGE_SIZE) {
         flush(pageBuf)
         if (onprogress) {
           let delta = session.delta()
-          if (delta) await onprogress({ delta, offset: totalLen / sr, total: estTotal, sampleRate: sr, channels: ch, pages })
+          if (delta) onprogress({ delta, offset: totalLen / sr, total: estTotal, sampleRate: sr, channels: ch, pages })
         }
         pageBuf = Array.from({ length: ch }, () => new Float32Array(PAGE_SIZE))
         pagePos = 0
@@ -91,26 +139,52 @@ export async function decodeSource(buf, onprogress, statDict) {
     }
   }
 
-  // Feed decoder — chunked for streaming codecs, whole-file for others
-  let STREAMABLE = new Set(['mp3', 'flac', 'opus', 'oga']), FEED = 256 * 1024
-  let feed = STREAMABLE.has(format)
-    ? async () => { for (let off = 0; off < bytes.length; off += FEED) { let r = await dec(bytes.subarray(off, Math.min(off + FEED, bytes.length))); if (r.channelData.length) await push(r.channelData, r.sampleRate) } }
-    : async () => { let r = await dec(bytes); if (r.channelData.length) await push(r.channelData, r.sampleRate) }
-  await feed()
-  let flushed = await dec()
-  if (flushed.channelData.length) await push(flushed.channelData, flushed.sampleRate)
+  let STREAMABLE = new Set(['mp3', 'flac', 'opus', 'oga']), FEED = 64 * 1024
 
-  // Partial last page
-  if (pagePos > 0) flush(pageBuf.map(c => c.slice(0, pagePos)))
-  if (!sr) throw new Error('audio: decoded no audio data')
-
-  // Final progress
-  if (onprogress) {
-    let delta = session.delta()
-    if (delta) await onprogress({ delta, offset: totalLen / sr, total: estTotal, sampleRate: sr, channels: ch, pages })
+  // For non-streamable formats with a reader, collect into bytes
+  if (reader && !STREAMABLE.has(format)) {
+    let chunks = [], total = 0; for await (let c of reader) { chunks.push(c); total += c.length }
+    bytes = new Uint8Array(total); let pos = 0; for (let c of chunks) { bytes.set(c, pos); pos += c.length }
+    reader = null
   }
 
-  return { pages, stats: session.done(), sampleRate: sr, channels: ch, length: totalLen }
+  let estTotal = bytes ? estimateSize(bytes.buffer || bytes) / 4 : 0
+
+  let decoding = (async () => {
+    try {
+      if (reader) {
+        for await (let chunk of reader) {
+          let buf = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk)
+          let r = await dec(buf)
+          if (r.channelData.length) push(r.channelData, r.sampleRate)
+          await yieldLoop()
+        }
+      } else if (STREAMABLE.has(format)) {
+        for (let off = 0; off < bytes.length; off += FEED) {
+          let r = await dec(bytes.subarray(off, Math.min(off + FEED, bytes.length)))
+          if (r.channelData.length) push(r.channelData, r.sampleRate)
+          await yieldLoop()
+        }
+      } else {
+        let r = await dec(bytes)
+        if (r.channelData.length) push(r.channelData, r.sampleRate)
+      }
+      let flushed = await dec()
+      if (flushed.channelData.length) push(flushed.channelData, flushed.sampleRate)
+      if (pagePos > 0) flush(pageBuf.map(c => c.slice(0, pagePos)))
+      if (onprogress && session) {
+        let delta = session.delta()
+        if (delta) onprogress({ delta, offset: totalLen / sr, total: estTotal, sampleRate: sr, channels: ch, pages })
+      }
+    } catch (e) { if (firstResolve) firstResolve(); throw e }
+    return { stats: session?.done(), length: totalLen }
+  })()
+
+  // Wait for first page
+  if (!pages.length) await new Promise(r => { firstResolve = r })
+  if (!sr) throw new Error('audio: decoded no audio data')
+
+  return { pages, sampleRate: sr, channels: ch, decoding }
 }
 
 /** Spawn worker.js, run decodeSource there, stream progress back. */

@@ -1,5 +1,17 @@
-import { streamEncode } from '../core.js'
-import { render, buildPlan, streamPlan } from '../render.js'
+import encode from 'encode-audio'
+import { render, buildPlan, streamPlan } from '../history.js'
+
+/** Stream-encode chunks into format. Yields Uint8Array chunks. */
+async function* streamEncode(chunks, sr, ch, fmt, meta) {
+  if (!encode[fmt]) throw new Error('Unknown format: ' + fmt)
+  let enc = await encode[fmt]({ sampleRate: sr, channels: ch, ...meta })
+  for (let chunk of chunks) {
+    let buf = await enc(chunk)
+    if (buf.length) yield buf
+  }
+  let final = await enc()
+  if (final.length) yield final
+}
 
 export default (audio) => {
   /** Save audio to file path (Node) or writable handle (browser). */
