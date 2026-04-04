@@ -8,17 +8,17 @@
  */
 
 import audio from './core.js'
-export { default, PAGE_SIZE, BLOCK_SIZE, opfsCache } from './core.js'
+export { default } from './core.js'
 export { render } from './history.js'
-export const proto = audio.fn
+
+// ── Infrastructure (self-register on import) ────────────────────────────
+
+import './history.js'
 
 // ── Plugins ─────────────────────────────────────────────────────────────
 
-import history from './history.js'
 import view from './fn/view.js'
 import split from './fn/split.js'
-import undo from './fn/undo.js'
-import apply from './fn/apply.js'
 import play from './fn/play.js'
 import save from './fn/save.js'
 import concat from './fn/concat.js'
@@ -45,10 +45,8 @@ import loudness from './fn/loudness.js'
 import peaks from './fn/peaks.js'
 
 audio.use(
-  // infrastructure
-  history,
   // methods
-  view, split, undo, apply, play, save, concat,
+  view, split, play, save, concat,
   // ops
   crop, remove, insert, repeat, gain, fade, reverse, mix, write, remix, trim, normalize,
   // stats

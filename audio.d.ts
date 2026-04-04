@@ -2,9 +2,6 @@
  * audio — paged audio instance with declarative ops.
  */
 
-export const PAGE_SIZE: number
-export const BLOCK_SIZE: number
-
 /** Core audio instance — properties and I/O. Ops, stats, and fns extend this via registration. */
 export interface AudioInstance {
   /** Decoded PCM pages */
@@ -23,6 +20,8 @@ export interface AudioInstance {
   source: string | null
   /** Storage mode */
   storage: string
+  /** Whether source is fully decoded */
+  decoded: boolean
   /** Edit list (inspectable) */
   edits: EditOp[]
   /** Monotonic counter, increments on edit/undo */
@@ -128,6 +127,18 @@ export interface AudioDocument {
 declare function audio(source: string | URL | ArrayBuffer | Uint8Array | Float32Array[] | number | AudioDocument, opts?: AudioOpts): Promise<AudioInstance>
 
 declare namespace audio {
+  /** Samples per page */
+  const PAGE_SIZE: number
+  /** Samples per stat block */
+  const BLOCK_SIZE: number
+  /** OPFS-backed cache backend for large files (browser only) */
+  function opfsCache(dirName?: string): Promise<{
+    read(i: number): Promise<Float32Array[]>
+    write(i: number, data: Float32Array[]): Promise<void>
+    has(i: number): Promise<boolean>
+    evict(i: number): Promise<void>
+    clear(): Promise<void>
+  }>
   /** Sync entry — from PCM data, AudioBuffer, audio instance (structural copy), or silence */
   function from(source: Float32Array[] | AudioBuffer | AudioInstance | number, opts?: AudioOpts): AudioInstance
   /** Concatenate multiple sources into one audio instance */
@@ -143,26 +154,8 @@ declare namespace audio {
 
 export default audio
 
-/** Decode encoded buffer into pages + stats */
-export function decodeSource(buf: ArrayBuffer | Uint8Array, onprogress?: (event: { delta: ProgressDelta, offset: number, total: number }) => void): Promise<{
-  pages: Float32Array[][]
-  stats: AudioStats
-  sampleRate: number
-  channels: number
-  length: number
-}>
-
 /** Audio instance prototype — extensible */
-export const proto: Record<string, any>
+export const fn: Record<string, any>
 
 /** All registered ops */
-export const ops: Record<string, Function>
-
-/** OPFS-backed cache backend for large files (browser only) */
-export function opfsCache(dirName?: string): Promise<{
-  read(i: number): Promise<Float32Array[]>
-  write(i: number, data: Float32Array[]): Promise<void>
-  has(i: number): Promise<boolean>
-  evict(i: number): Promise<void>
-  clear(): Promise<void>
-}>
+export const op: Record<string, Function>

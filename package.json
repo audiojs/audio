@@ -23,7 +23,9 @@
   ],
   "scripts": {
     "test": "node test/index.js && node test/cli.js",
-    "test:browser": "node test/serve.js"
+    "test:browser": "node test/browser.js",
+    "test:all": "npm test && npm run test:browser",
+    "serve": "node test/serve.js"
   },
   "dependencies": {
     "audio-decode": "^3.6.0",
@@ -36,6 +38,7 @@
   },
   "devDependencies": {
     "audio-lena": "^3.0.0",
+    "playwright": "^1.59.1",
     "tst": "^9.4.0"
   }
 }

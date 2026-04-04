@@ -4,8 +4,7 @@
  * audio.fn   — instance prototype (like $.fn)
  * audio.op   — ops dict: audio.op.gain = fn
  * audio.stat — block stats dict: audio.stat.min = fn
- * audio.hook — single-slot hooks { create }
- * audio.run  — op dispatch, called via .call(instance)
+ * audio.hook — single-slot hooks { create, beforeRead, read, beforeQuery }
  * audio.use  — plugin registration
  */
 
@@ -16,8 +15,7 @@ import { buildStats } from './stats.js'
 import { evict, restorePages, opfsCache, DEFAULT_BUDGET } from './cache.js'
 import { paginate, resolveSource, estimateSize, decodeSource, decodeWorker } from './decode.js'
 
-export { PAGE_SIZE, BLOCK_SIZE, opfsCache }
-export { decodeSource } from './decode.js'
+// Static properties set after audio is defined (see below)
 
 
 // ── Entry Points ─────────────────────────────────────────────────────────
@@ -31,11 +29,18 @@ export default async function audio(source, opts = {}) {
     return a
   }
   let a
-  if (Array.isArray(source) && source[0] instanceof Float32Array) a = fromChannels(source, opts)
-  else if (typeof source === 'number') a = fromSilence(source, opts)
+  if (Array.isArray(source) && source[0] instanceof Float32Array || typeof source === 'number') a = audio.from(source, opts)
   else {
-    let ref = typeof source === 'string' ? source : source instanceof URL ? source.href : null
-    return fromEncoded(await resolveSource(source), { ...opts, source: ref })
+    // Storage/budget check for encoded sources
+    let storage = opts.storage || 'auto'
+    if (storage === 'persistent') {
+      try { opts = { ...opts, cache: await opfsCache(), budget: opts.budget ?? DEFAULT_BUDGET } }
+      catch { throw new Error('OPFS not available (required by storage: "persistent")') }
+    }
+    a = await audio.open(source, opts)
+    await a.loaded
+    if (a.cache && a.budget < Infinity) await evict(a)
+    return a
   }
   if (a.cache && a.budget < Infinity) await evict(a)
   return a
@@ -57,71 +62,55 @@ audio.from = function(source, opts = {}) {
   throw new TypeError('audio.from: expected Float32Array[], AudioBuffer, audio instance, or number')
 }
 
+/** Open audio for streaming — resolves after first page, decodes in background.
+ *  Instance has a.loaded promise (resolves when fully decoded). */
+audio.open = async function(source, opts = {}) {
+  let ref = typeof source === 'string' ? source : source instanceof URL ? source.href : null
+  let pages = []
+  // Notify/wait queue — resolve callbacks for consumers awaiting next decoded page
+  let waiters = []
+  let notify = () => { for (let w of waiters.splice(0)) w() }
+  let result = await decodeSource(source, { pages, notify, statDict: audio.stat, onprogress: opts.onprogress })
+  let a = create(pages, result.sampleRate, result.channels, 0, { ...opts, source: ref }, null)
+  a._.waiters = waiters
+  a.decoded = false
+
+  a.loaded = result.decoding.then(final => {
+    a._.len = final.length
+    a._.lenV = -1  // invalidate cached length so history recomputes
+    a.stats = final.stats
+    a.decoded = true
+    notify()
+    return a
+  })
+
+  return a
+}
+
 
 // ── Plugin Architecture ─────────────────────────────────────────────────
 
-const proto = {}
+const fn = {}
 
-audio.fn = proto
+audio.fn = fn
 audio.op = {}
 audio.stat = {}
-audio.hook = { create: null }
+audio.hook = { create: null, beforeRead: restorePages, read: null, beforeQuery: null, run: null }
+audio.PAGE_SIZE = PAGE_SIZE
+audio.BLOCK_SIZE = BLOCK_SIZE
+audio.opfsCache = opfsCache
 
-/** Op dispatch — pushes edit. Called via .call(instance). */
-audio.run = function(name, args) {
-  this.edits.push({ type: name, args })
-  this.version++
-  this.onchange?.()
-  return this
-}
-
-/** Register plugins. Each receives audio. Wires ops to proto after. */
+/** Register plugins. Each receives audio. Wires ops to fn after. */
 audio.use = function(...plugins) {
   for (let p of plugins) p(audio)
   for (let name in audio.op) {
-    if (proto[name]) continue
-    proto[name] = function(...a) { return audio.run.call(this, name, a) }
+    if (fn[name]) continue
+    fn[name] = function(...a) { return audio.hook.run.call(this, name, a) }
   }
-}
-
-
-// ── Format ───────────────────────────────────────────────────────────────
-
-/** Encode PCM to a format. Shared by core read + history read. */
-export function formatPcm(pcm, sr, opts) {
-  let fmt = opts?.format
-  if (!fmt) return pcm
-  if (encode[fmt]) return encode[fmt](pcm, { sampleRate: sr, ...opts?.meta })
-  return pcm.map(ch => convert(ch, 'float32', fmt))
-}
-
-/** Stream-encode chunks into format. Yields Uint8Array chunks. */
-export async function* streamEncode(chunks, sr, ch, fmt, meta) {
-  if (!encode[fmt]) throw new Error('Unknown format: ' + fmt)
-  let enc = await encode[fmt]({ sampleRate: sr, channels: ch, ...meta })
-  for (let chunk of chunks) {
-    let buf = await enc(chunk)
-    if (buf.length) yield buf
-  }
-  let final = await enc()
-  if (final.length) yield final
 }
 
 
 // ── Pages ────────────────────────────────────────────────────────────────
-
-/** Read samples directly from source pages. */
-function readSource(a, c, srcOff, len, target, tOff) {
-  let p0 = Math.floor(srcOff / PAGE_SIZE), pos = p0 * PAGE_SIZE
-  for (let p = p0; p < a.pages.length && pos < srcOff + len; p++) {
-    let pg = a.pages[p], pLen = pg ? pg[0].length : PAGE_SIZE
-    if (pos + pLen > srcOff && pg) {
-      let s = Math.max(srcOff - pos, 0), e = Math.min(srcOff + len - pos, pLen)
-      target.set(pg[c].subarray(s, e), tOff + Math.max(pos - srcOff, 0))
-    }
-    pos += pLen
-  }
-}
 
 /** Read range from source pages (no edits). */
 export function readPages(a, offset, duration) {
@@ -129,7 +118,17 @@ export function readPages(a, offset, duration) {
   let s = offset != null ? Math.round(offset * sr) : 0
   let len = duration != null ? Math.round(duration * sr) : a._.len - s
   let out = Array.from({ length: ch }, () => new Float32Array(len))
-  for (let c = 0; c < ch; c++) readSource(a, c, s, len, out[c], 0)
+  for (let c = 0; c < ch; c++) {
+    let p0 = Math.floor(s / PAGE_SIZE), pos = p0 * PAGE_SIZE
+    for (let p = p0; p < a.pages.length && pos < s + len; p++) {
+      let pg = a.pages[p], pLen = pg ? pg[0].length : PAGE_SIZE
+      if (pos + pLen > s && pg) {
+        let rs = Math.max(s - pos, 0), re = Math.min(s + len - pos, pLen)
+        out[c].set(pg[c].subarray(rs, re), Math.max(pos - s, 0))
+      }
+      pos += pLen
+    }
+  }
   return out
 }
 
@@ -137,18 +136,22 @@ export function readPages(a, offset, duration) {
 // ── Create ───────────────────────────────────────────────────────────────
 
 function create(pages, sampleRate, ch, length, opts = {}, stats) {
-  let a = Object.create(proto)
+  let a = Object.create(fn)
   a.pages = pages
   a.sampleRate = sampleRate
   a.source = opts.source ?? null
   a.storage = opts.storage || 'memory'
   a.cache = opts.cache || null
   a.budget = opts.budget ?? Infinity
-  a.edits = []
-  a.version = 0
-  a.onchange = null
   a.stats = stats
-  a._ = { ch, len: length, pcm: null, pcmV: -1, statsV: -1, cursor: 0 }
+  a.decoded = true
+
+  a._ = {
+    ch,            // source channel count
+    len: length,   // source sample length
+    cursor: 0,     // playback cursor position
+    waiters: null, // decode notify queue (null when not streaming)
+  }
   audio.hook.create?.(a)
   return a
 }
@@ -163,58 +166,46 @@ function fromSilence(seconds, opts = {}) {
   return fromChannels(Array.from({ length: ch }, () => new Float32Array(Math.round(seconds * sr))), { ...opts, sampleRate: sr })
 }
 
-async function fromEncoded(buf, opts = {}) {
-  let storage = opts.storage || 'auto'
-  if (storage === 'auto' || storage === 'persistent') {
-    let estimated = estimateSize(buf)
-    let budget = opts.budget ?? DEFAULT_BUDGET
-    if (estimated > budget && !opts.cache) {
-      try {
-        opts = { ...opts, cache: await opfsCache(), budget }
-      } catch {
-        if (storage === 'persistent') throw new Error('OPFS not available (required by storage: "persistent")')
-        if (estimated > budget * 4) throw new Error(`File too large (~${(estimated / 1e6).toFixed(0)}MB decoded) and OPFS unavailable. Pass { storage: "memory" } to force.`)
-      }
-    }
-  }
-  let result = opts.decode === 'worker'
-    ? await decodeWorker(buf, opts.onprogress)
-    : await decodeSource(buf, opts.onprogress, audio.stat)
-  let a = create(result.pages, result.sampleRate, result.channels, result.length, opts, result.stats)
-  if (a.cache && a.budget < Infinity) await evict(a)
-  return a
-}
-
 
 // ── Prototype ───────────────────────────────────────────────────────────
 
-Object.defineProperties(proto, {
+Object.defineProperties(fn, {
   length: { get() { return this._.len }, configurable: true },
   duration: { get() { return this.length / this.sampleRate }, configurable: true },
   channels: { get() { return this._.ch }, configurable: true },
+  // Cursor prefetches nearby pages from cache — no-op without persistent storage
   cursor: {
     get() { return this._.cursor },
     set(t) {
       this._.cursor = t
-      let page = Math.floor(t * this.sampleRate / PAGE_SIZE)
-      if (this.cache) (async () => {
-        for (let i = Math.max(0, page - 1); i <= Math.min(page + 2, this.pages.length - 1); i++)
-          if (this.pages[i] === null && await this.cache.has(i)) this.pages[i] = await this.cache.read(i)
-      })()
+      if (this.cache) {
+        let page = Math.floor(t * this.sampleRate / PAGE_SIZE)
+        ;(async () => {
+          for (let i = Math.max(0, page - 1); i <= Math.min(page + 2, this.pages.length - 1); i++)
+            if (this.pages[i] === null && await this.cache.has(i)) this.pages[i] = await this.cache.read(i)
+        })()
+      }
     },
     configurable: true,
   },
 })
 
-proto.read = async function(offset, duration, opts) {
+fn.read = async function(offset, duration, opts) {
   if (typeof offset === 'object' && !opts) { opts = offset; offset = undefined }
   else if (typeof duration === 'object' && !opts) { opts = duration; duration = undefined }
-  await restorePages(this)
-  return formatPcm(readPages(this, offset, duration), this.sampleRate, opts)
+  await audio.hook.beforeRead?.(this)
+  let pcm = audio.hook.read
+    ? await audio.hook.read(this, offset, duration)
+    : readPages(this, offset, duration)
+  let fmt = opts?.format
+  if (!fmt) return pcm
+  if (encode[fmt]) return encode[fmt](pcm, { sampleRate: this.sampleRate, ...opts?.meta })
+  return pcm.map(ch => convert(ch, 'float32', fmt))
 }
 
-proto.query = async function(offset, duration) {
-  await restorePages(this)
+fn.query = async function(offset, duration) {
+  await audio.hook.beforeRead?.(this)
+  await audio.hook.beforeQuery?.(this)
   let sr = this.sampleRate, bs = this.stats.blockSize
   let first = Object.values(this.stats).find(v => v?.[0]?.length)
   let blocks = first?.[0]?.length || 0

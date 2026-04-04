@@ -1,6 +1,6 @@
 import test from 'tst'
 import audio from '../audio.js'
-import { PAGE_SIZE, BLOCK_SIZE } from '../audio.js'
+const { PAGE_SIZE, BLOCK_SIZE } = audio
 
 const isNode = typeof process !== 'undefined' && process.versions?.node
 
