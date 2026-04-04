@@ -6,7 +6,10 @@
 /** Sentinel for silence segments in plans */
 export const SILENCE = Symbol('silence')
 
-/** Block size for index (matches core) */
+/** Samples per page (2^16) */
+export const PAGE_SIZE = 65536
+
+/** Samples per stat block */
 export const BLOCK_SIZE = 1024
 
 export function planLen(segs) { let m = 0; for (let s of segs) m = Math.max(m, s.out + s.len); return m }

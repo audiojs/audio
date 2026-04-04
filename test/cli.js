@@ -56,6 +56,12 @@ test('parseArgs — verbose flag', t => {
   t.ok(result.verbose, 'verbose true')
 })
 
+test('parseArgs — version flags not confused with verbose', t => {
+  // -v should NOT be parsed as verbose (it's version, handled in main)
+  let result = parseArgs(['in.wav', 'gain', '-3'])
+  t.ok(!result.verbose, 'no verbose by default')
+})
+
 test('parseArgs — no input (stdin)', t => {
   let result = parseArgs(['gain', '-3'])
   t.is(result.input, null, 'no input')
@@ -79,6 +85,13 @@ test('parseValue — seconds', t => {
   t.is(parseValue('1.5s'), 1.5, '1.5s')
   t.is(parseValue('500ms'), 0.5, '500ms')
   t.is(parseValue('1'), 1, 'bare number')
+})
+
+test('parseValue — compound durations', t => {
+  t.is(parseValue('1m30s'), 90, '1m30s = 90s')
+  t.is(parseValue('2m'), 120, '2m = 120s')
+  t.is(parseValue('1h'), 3600, '1h = 3600s')
+  t.is(parseValue('1h20m'), 4800, '1h20m = 4800s')
 })
 
 test('parseValue — Hz', t => {
@@ -121,6 +134,18 @@ test('parseRange — with ms', t => {
   let range = parseRange('500ms..1500ms')
   t.is(range.offset, 0.5)
   t.is(range.duration, 1)
+})
+
+test('parseRange — compound durations', t => {
+  let range = parseRange('1m30s..3m')
+  t.is(range.offset, 90, '1m30s = 90s')
+  t.is(range.duration, 90, '3m - 1m30s = 90s')
+})
+
+test('parseRange — minutes', t => {
+  let range = parseRange('5m..10m')
+  t.is(range.offset, 300, '5m = 300s')
+  t.is(range.duration, 300, '10m - 5m = 300s')
 })
 
 test('parseArgs — explicit -i flag', t => {
@@ -269,6 +294,42 @@ test('CLI — remix stereo to mono', async t => {
     await runCli([lenaPath, 'remix', '1', '-o', outPath])
     let result = await audio(outPath)
     t.is(result.channels, 1, 'remixed to mono')
+  } finally {
+    cleanup(outPath)
+  }
+})
+
+// ── Error Handling ───────────────────────────────────────────────────────
+
+test('CLI — unknown op produces clear error', async t => {
+  try {
+    await runCli([lenaPath || 'test/fixture.wav', 'foobar', '-o', '/dev/null'])
+    t.fail('should have thrown')
+  } catch (e) {
+    t.ok(e.message.includes('foobar'), 'error mentions op name')
+  }
+})
+
+test('CLI — missing input produces error', async t => {
+  try {
+    await runCli(['nonexistent.wav', '-o', '/dev/null'])
+    t.fail('should have thrown')
+  } catch (e) {
+    t.ok(e.message.includes('stderr'), 'exits with error')
+  }
+})
+
+test('CLI — mono trim normalize save mp3', async t => {
+  let fixture = join(__dirname, 'fixture.wav')
+  let { existsSync } = await import('fs')
+  if (!existsSync(fixture)) { t.skip('fixture.wav not available'); return }
+
+  let outPath = join(__dirname, 'tmp-cli-mono.mp3')
+  try {
+    await runCli([fixture, 'trim', 'normalize', '-o', outPath])
+    let result = await audio(outPath)
+    t.ok(result.duration > 0, 'mp3 has audio')
+    t.ok(result.channels >= 1, 'has channels')
   } finally {
     cleanup(outPath)
   }

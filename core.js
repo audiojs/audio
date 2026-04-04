@@ -9,7 +9,7 @@
  * audio.use  — plugin registration
  */
 
-import encode from 'audio-encode'
+import encode from 'encode-audio'
 import convert from 'pcm-convert'
 import { PAGE_SIZE, BLOCK_SIZE } from './plan.js'
 import { buildStats } from './stats.js'
@@ -93,6 +93,18 @@ export function formatPcm(pcm, sr, opts) {
   if (!fmt) return pcm
   if (encode[fmt]) return encode[fmt](pcm, { sampleRate: sr, ...opts?.meta })
   return pcm.map(ch => convert(ch, 'float32', fmt))
+}
+
+/** Stream-encode chunks into format. Yields Uint8Array chunks. */
+export async function* streamEncode(chunks, sr, ch, fmt, meta) {
+  if (!encode[fmt]) throw new Error('Unknown format: ' + fmt)
+  let enc = await encode[fmt]({ sampleRate: sr, channels: ch, ...meta })
+  for (let chunk of chunks) {
+    let buf = await enc(chunk)
+    if (buf.length) yield buf
+  }
+  let final = await enc()
+  if (final.length) yield final
 }
 
 

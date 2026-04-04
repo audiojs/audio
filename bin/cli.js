@@ -11,6 +11,7 @@
  */
 
 import audio from '../audio.js'
+import parseDuration from 'parse-duration'
 
 const VERSION = '2.0.0'
 
@@ -18,12 +19,20 @@ const VERSION = '2.0.0'
 
 function parseValue(str) {
   if (str.includes('..')) return str  // range syntax — handled separately
-  let m = str.match(/^(-?[\d.]+)(db|khz|hz|ms|s)?$/i)
-  if (!m) return str  // not a number — pass as-is
-  let v = Number(m[1]), unit = m[2]?.toLowerCase()
-  if (unit === 'ms') return v / 1000
-  if (unit === 'khz') return v * 1000
-  return v  // db, hz, s, or bare number — all are just raw values
+  // dB
+  let m = str.match(/^(-?[\d.]+)(db)$/i)
+  if (m) return Number(m[1])
+  // Hz / kHz
+  m = str.match(/^(-?[\d.]+)(khz)$/i)
+  if (m) return Number(m[1]) * 1000
+  m = str.match(/^(-?[\d.]+)(hz)$/i)
+  if (m) return Number(m[1])
+  // bare number
+  if (/^-?[\d.]+$/.test(str)) return Number(str)
+  // duration — supports compound expressions (1m30s, 2h20m, 500ms, etc.)
+  let d = parseDuration(str, 's')
+  if (d != null && isFinite(d)) return d
+  return str  // pass as-is (e.g. filename, op name)
 }
 
 function parseRange(str) {
@@ -68,7 +77,7 @@ function parseArgs(args) {
     if (arg === '--help' || arg === '-h') {
       showHelp = true
       i++
-    } else if (arg === '--verbose' || arg === '-v') {
+    } else if (arg === '--verbose') {
       verbose = true
       i++
     } else if (arg === '--output' || arg === '-o') {
@@ -150,7 +159,7 @@ async function main() {
     process.exit(args.length ? 0 : 1)
   }
 
-  if (args[0] === '--version' || args[0] === '-V') {
+  if (args[0] === '--version' || args[0] === '-v' || args[0] === '-V') {
     console.log(`audio ${VERSION}`)
     process.exit(0)
   }
@@ -183,8 +192,8 @@ async function main() {
     })
     if (opts.verbose) console.error('\n')
 
-    // --stat / --info: show audio info and exit
-    if (opts.stat) {
+    // --stat / --info / no-ops: show audio info
+    if (opts.stat || (!opts.ops.length && !opts.output && !opts.play)) {
       let [peak, r, l] = await Promise.all([a.db(), a.rms(), a.loudness()])
       console.log(`  Duration:   ${formatDuration(a.duration)}`)
       console.log(`  Channels:   ${a.channels}`)
@@ -205,7 +214,8 @@ async function main() {
         if (offset != null) fullArgs.push(offset)
         if (duration != null) fullArgs.push(duration)
         if (typeof a[name] !== 'function') throw new Error(`Unknown operation: ${name}`)
-        a[name](...fullArgs)
+        try { a[name](...fullArgs) }
+        catch (e) { throw new Error(`${name}: ${formatError(e)}`) }
       }
     }
 
@@ -217,7 +227,7 @@ async function main() {
     }
 
     // Save output (skip if only --stat or --play without -o)
-    if (opts.output || (!opts.stat && !opts.play)) {
+    if (opts.output || (!opts.stat && !opts.play && opts.ops.length)) {
       let output = opts.output || 'out.wav'
 
       // Check for overwrite
@@ -232,13 +242,15 @@ async function main() {
       if (opts.verbose) console.error('Rendering and saving...')
       let fmt = opts.format || (typeof output === 'string' ? output.split('.').pop() : 'wav')
 
-      if (output === '-') {
-        let bytes = await a.read({ format: fmt })
-        process.stdout.write(Buffer.from(bytes))
-      } else {
-        await a.save(output, { format: fmt })
-        if (opts.verbose) console.error(`Saved: ${output}`)
-      }
+      try {
+        if (output === '-') {
+          let bytes = await a.read({ format: fmt })
+          process.stdout.write(Buffer.from(bytes))
+        } else {
+          await a.save(output, { format: fmt })
+          if (opts.verbose) console.error(`Saved: ${output}`)
+        }
+      } catch (e) { throw new Error(`save ${output}: ${formatError(e)}`) }
     }
   } catch (err) {
     console.error(`audio: ${formatError(err)}`)
@@ -286,10 +298,10 @@ Options:
   --play, -p    Play the result (after ops, before save)
   --stat        Show audio info (duration, channels, peak, loudness)
   --force, -f   Overwrite output file if it exists
-  --verbose, -v Show progress and debug info
+  --verbose     Show progress and debug info
   --format FMT  Override output format (default: from extension)
   --help, -h    Show this help
-  --version, -V Show version
+  -v, --version Show version
 
 Examples:
   audio in.mp3 --stat
@@ -307,7 +319,9 @@ For more info: https://github.com/audiojs/audio
 export { parseValue, parseRange, parseArgs }
 
 // Run CLI if invoked directly (not imported)
-if (import.meta.url === `file://${process.argv[1]}`) {
+let argv1 = process.argv[1]
+try { argv1 = (await import('fs')).realpathSync(argv1) } catch {}
+if (import.meta.url === `file://${argv1}`) {
   main().catch(err => {
     console.error(`audio: ${formatError(err)}`)
     process.exit(1)
