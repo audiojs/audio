@@ -1,11 +1,14 @@
 /**
  * Page cache — LRU eviction to OPFS and restore.
+ * Self-registers on import — overrides [LOAD], exposes opfsCache/evict on audio.
  */
 
-export const DEFAULT_BUDGET = 500 * 1024 * 1024  // 500MB
+import audio, { LOAD } from './core.js'
+
+const DEFAULT_BUDGET = 500 * 1024 * 1024  // 500MB
 
 /** Evict pages to cache until resident bytes fit within budget. LRU from start. */
-export async function evict(a) {
+async function evict(a) {
   if (!a.cache || a.budget === Infinity) return
   let bytes = p => p ? p.reduce((s, ch) => s + ch.byteLength, 0) : 0
   let current = a.pages.reduce((sum, p) => sum + bytes(p), 0)
@@ -18,14 +21,14 @@ export async function evict(a) {
 }
 
 /** Restore all evicted pages from cache backend. */
-export async function restorePages(a) {
-  if (!a.cache) return
-  for (let i = 0; i < a.pages.length; i++)
-    if (a.pages[i] === null && await a.cache.has(i)) a.pages[i] = await a.cache.read(i)
+async function restorePages() {
+  if (!this.cache) return
+  for (let i = 0; i < this.pages.length; i++)
+    if (this.pages[i] === null && await this.cache.has(i)) this.pages[i] = await this.cache.read(i)
 }
 
 /** Create an OPFS-backed cache backend. Browser only. */
-export async function opfsCache(dirName = 'audio-cache') {
+async function opfsCache(dirName = 'audio-cache') {
   if (typeof navigator === 'undefined' || !navigator.storage?.getDirectory)
     throw new Error('OPFS not available in this environment')
   let root = await navigator.storage.getDirectory()
@@ -64,3 +67,11 @@ export async function opfsCache(dirName = 'audio-cache') {
     }
   }
 }
+
+
+// ── Self-register ────────────────────────────────────────────────
+
+audio.fn[LOAD] = restorePages
+audio.opfsCache = opfsCache
+audio.evict = evict
+audio.DEFAULT_BUDGET = DEFAULT_BUDGET

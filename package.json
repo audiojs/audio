@@ -29,7 +29,7 @@
   },
   "dependencies": {
     "audio-decode": "^3.6.0",
-    "audio-filter": "^2.1.0",
+    "audio-filter": "^2.2.0",
     "audio-speaker": "^2.1.0",
     "audio-type": "^2.0.0",
     "encode-audio": "^1.2.0",

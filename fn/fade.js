@@ -1,11 +1,13 @@
 const CURVES = { linear: t => t, exp: t => t * t, log: t => Math.sqrt(t), cos: t => (1 - Math.cos(t * Math.PI)) / 2 }
 
 const fade = (chs, ctx) => {
-  let dur = ctx.args[0], curve = ctx.args[1]
+  let dur = ctx.args[0]
+  let curve = typeof ctx.args[1] === 'string' ? ctx.args[1] : undefined
   let fn = CURVES[curve] ?? CURVES.linear
   let fadeIn = dur > 0, n = Math.abs(dur)
   let sr = ctx.sampleRate, blockOffset = ctx.blockOffset || 0
-  let offset = ctx.offset
+  let offset = ctx.args[curve ? 2 : 1] ?? ctx.offset
+  if (offset != null && offset < 0) offset = chs[0].length / sr + offset
 
   let fadeStart = offset != null
     ? Math.round((offset + blockOffset) * sr)

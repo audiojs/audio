@@ -13,6 +13,8 @@ export { render } from './history.js'
 
 // ── Infrastructure (self-register on import) ────────────────────────────
 
+import './cache.js'
+import './stats.js'
 import './history.js'
 
 // ── Plugins ─────────────────────────────────────────────────────────────
@@ -35,6 +37,7 @@ import write from './fn/write.js'
 import remix from './fn/remix.js'
 import trim from './fn/trim.js'
 import normalize from './fn/normalize.js'
+import filter from './fn/filter.js'
 
 import minStat from './fn/min.js'
 import maxStat from './fn/max.js'
@@ -48,7 +51,7 @@ audio.use(
   // methods
   view, split, play, save, concat,
   // ops
-  crop, remove, insert, repeat, gain, fade, reverse, mix, write, remix, trim, normalize,
+  crop, remove, insert, repeat, gain, fade, reverse, mix, write, remix, trim, normalize, filter,
   // stats
   minStat, maxStat, energyStat, db, rms, loudness, peaks,
 )
