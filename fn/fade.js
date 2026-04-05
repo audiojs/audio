@@ -7,11 +7,12 @@ const fade = (chs, ctx) => {
   let fadeIn = dur > 0, n = Math.abs(dur)
   let sr = ctx.sampleRate, blockOffset = ctx.blockOffset || 0
   let offset = ctx.args[curve ? 2 : 1] ?? ctx.offset
-  if (offset != null && offset < 0) offset = chs[0].length / sr + offset
+  if (offset != null && offset < 0) offset = (ctx.length || chs[0].length) / sr + offset
 
+  let totalSamples = ctx.length || chs[0].length + Math.round(blockOffset * sr)
   let fadeStart = offset != null
-    ? Math.round((offset + blockOffset) * sr)
-    : fadeIn ? Math.round(blockOffset * sr) : chs[0].length - Math.round(n * sr)
+    ? Math.round(offset * sr)
+    : fadeIn ? 0 : totalSamples - Math.round(n * sr)
   let samples = Math.round(n * sr)
   let chunkStart = Math.round(blockOffset * sr)
   return chs.map(ch => {

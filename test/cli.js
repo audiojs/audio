@@ -335,6 +335,92 @@ test('CLI — mono trim normalize save mp3', async t => {
   }
 })
 
+// ── Filters ──────────────────────────────────────────────────────────────
+
+test('ops registry — filter ops available', t => {
+  t.ok(audio.op.highpass, 'highpass op')
+  t.ok(audio.op.lowpass, 'lowpass op')
+  t.ok(audio.op.eq, 'eq op')
+  t.ok(audio.op.lowshelf, 'lowshelf op')
+  t.ok(audio.op.highshelf, 'highshelf op')
+  t.ok(audio.op.notch, 'notch op')
+  t.ok(audio.op.bandpass, 'bandpass op')
+})
+
+test('API — highpass filter applies correctly', async t => {
+  // 10s stereo sine at 50Hz (below cutoff) + 1kHz (above cutoff)
+  let sr = 44100, dur = 10, n = sr * dur
+  let ch = new Float32Array(n)
+  for (let i = 0; i < n; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 50 * i / sr) + 0.5 * Math.sin(2 * Math.PI * 1000 * i / sr)
+  let a = audio.from([ch, new Float32Array(ch)], { sampleRate: sr })
+  a.highpass(200)
+  let pcm = await a.read()
+  // The 50Hz component should be mostly removed; energy should drop
+  let sum = 0
+  for (let i = sr; i < 2 * sr; i++) sum += pcm[0][i] * pcm[0][i]  // skip first second (transient)
+  let rms = Math.sqrt(sum / sr)
+  t.ok(rms < 0.6, `50Hz attenuated, rms=${rms.toFixed(3)} < 0.6`)
+  t.ok(rms > 0.2, `1kHz preserved, rms=${rms.toFixed(3)} > 0.2`)
+})
+
+test('CLI — filter alias hp works', async t => {
+  let srcPath = join(__dirname, 'tmp-filter-alias.wav')
+  let outPath = join(__dirname, 'tmp-filter-alias-out.wav')
+  try {
+    let sr = 44100, n = sr * 2
+    let ch = new Float32Array(n)
+    for (let i = 0; i < n; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr)
+    await audio.from([ch], { sampleRate: sr }).save(srcPath)
+    await runCli([srcPath, 'hp', '80hz', '-o', outPath])
+    let result = await audio(outPath)
+    t.ok(result.duration > 1, 'hp alias processed audio')
+  } finally {
+    cleanup(srcPath)
+    cleanup(outPath)
+  }
+})
+
+test('CLI — filter + mp3 encode (short)', async t => {
+  // 10s stereo sine → highpass + trim + fade → mp3
+  let srcPath = join(__dirname, 'tmp-filter-src.wav')
+  let outPath = join(__dirname, 'tmp-filter-out.mp3')
+  try {
+    let sr = 44100, dur = 10, n = sr * dur
+    let ch = new Float32Array(n)
+    for (let i = 0; i < n; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr)
+    await audio.from([ch, new Float32Array(ch)], { sampleRate: sr }).save(srcPath)
+
+    await runCli([srcPath, 'hp', '80hz', 'trim', 'fade', '1', 'fade', '-1', '-o', outPath])
+    let result = await audio(outPath)
+    t.ok(result.duration > 5, `mp3 has audio: ${result.duration.toFixed(1)}s`)
+  } finally {
+    cleanup(srcPath)
+    cleanup(outPath)
+  }
+})
+
+test('API — filter + mp3 encode (large, >28min stereo 48kHz)', async t => {
+  // Reproduces encode error -2: when buildPlan returns null (filter before trim),
+  // save.js falls back to whole-file encode which hits WASM memory limit.
+  // Threshold: ~1700s stereo 48kHz (~620MB interleaved PCM).
+  let outPath = join(__dirname, 'tmp-filter-large.mp3')
+  try {
+    let sr = 48000, dur = 1800, n = sr * dur
+    let ch = new Float32Array(n)
+    for (let i = 0; i < n; i++) ch[i] = 0.3 * Math.sin(2 * Math.PI * 440 * i / sr)
+    let a = audio.from([ch, new Float32Array(ch)], { sampleRate: sr })
+    a.highpass(50)
+    a.trim()
+    a.fade(2)
+    a.fade(-2)
+    await a.save(outPath)
+    let result = await audio(outPath)
+    t.ok(result.duration > 1700, `mp3 duration: ${result.duration.toFixed(0)}s`)
+  } finally {
+    cleanup(outPath)
+  }
+}, { timeout: 300000 })
+
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 function runCli(args) {

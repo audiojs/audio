@@ -236,14 +236,6 @@ async function resolveSource(source) {
   throw new TypeError('audio: unsupported source type')
 }
 
-/** Rough estimate of decoded float32 byte count. */
-function estimateSize(buf) {
-  let h = new Uint8Array(buf, 0, 4), tag = String.fromCharCode(h[0], h[1], h[2], h[3])
-  if (tag === 'RIFF' || tag === 'FORM') return buf.byteLength * 2
-  if (tag === 'fLaC') return buf.byteLength * 5
-  return buf.byteLength * 20
-}
-
 /** Detect format + prepare source. */
 async function detectSource(source) {
   if (source instanceof ArrayBuffer || source instanceof Uint8Array) {
@@ -266,8 +258,6 @@ async function detectSource(source) {
   let bytes = new Uint8Array(buf)
   return { format: getType(bytes), bytes }
 }
-
-const STREAMABLE = new Set(['mp3', 'flac', 'opus', 'oga'])
 
 /** Decode any source into pages + stats. Pages fill progressively. */
 async function decodeSource(source, opts = {}) {
@@ -304,7 +294,6 @@ async function decodeSource(source, opts = {}) {
       sr = sampleRate; ch = chData.length
       pageBuf = Array.from({ length: ch }, () => new Float32Array(audio.PAGE_SIZE))
       session = audio.statSession?.(sr)
-      if (estTotal) estTotal = estTotal / (ch * sr)
     }
     let srcPos = 0, chunkLen = chData[0].length
     while (srcPos < chunkLen) {
@@ -315,22 +304,13 @@ async function decodeSource(source, opts = {}) {
         flush(pageBuf)
         if (onprogress) {
           let delta = session?.delta()
-          if (delta) onprogress({ delta, offset: totalLen / sr, total: estTotal, sampleRate: sr, channels: ch, pages })
+          if (delta) onprogress({ delta, offset: totalLen / sr, sampleRate: sr, channels: ch, pages })
         }
         pageBuf = Array.from({ length: ch }, () => new Float32Array(audio.PAGE_SIZE))
         pagePos = 0
       }
     }
   }
-
-  // Collect non-streamable reader into bytes
-  if (reader && !STREAMABLE.has(format)) {
-    let chunks = [], total = 0; for await (let c of reader) { chunks.push(c); total += c.length }
-    bytes = new Uint8Array(total); let pos = 0; for (let c of chunks) { bytes.set(c, pos); pos += c.length }
-    reader = null
-  }
-
-  let estTotal = bytes ? estimateSize(bytes.buffer || bytes) / 4 : 0
 
   let decoding = (async () => {
     try {
@@ -341,23 +321,20 @@ async function decodeSource(source, opts = {}) {
           if (r.channelData.length) push(r.channelData, r.sampleRate)
           await yieldLoop()
         }
-      } else if (STREAMABLE.has(format)) {
+      } else {
         let FEED = 64 * 1024
         for (let off = 0; off < bytes.length; off += FEED) {
           let r = await dec(bytes.subarray(off, Math.min(off + FEED, bytes.length)))
           if (r.channelData.length) push(r.channelData, r.sampleRate)
           await yieldLoop()
         }
-      } else {
-        let r = await dec(bytes)
-        if (r.channelData.length) push(r.channelData, r.sampleRate)
       }
       let flushed = await dec()
       if (flushed.channelData.length) push(flushed.channelData, flushed.sampleRate)
       if (pagePos > 0) flush(pageBuf.map(c => c.slice(0, pagePos)))
       if (onprogress && session) {
         let delta = session.delta()
-        if (delta) onprogress({ delta, offset: totalLen / sr, total: estTotal, sampleRate: sr, channels: ch, pages })
+        if (delta) onprogress({ delta, offset: totalLen / sr, sampleRate: sr, channels: ch, pages })
       }
     } catch (e) { if (firstResolve) firstResolve(); throw e }
     return { stats: session?.done(), length: totalLen }
