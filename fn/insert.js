@@ -1,4 +1,20 @@
-import { planInsert as insertSegs, SILENCE } from '../plan.js'
+import { SILENCE } from '../history.js'
+
+function insertSegs(segs, at, len, ref) {
+  let r = []
+  for (let s of segs) {
+    if (s.out + s.len <= at) r.push(s)
+    else if (s.out >= at) r.push({ ...s, out: s.out + len })
+    else {
+      let f = at - s.out
+      r.push({ src: s.src, out: s.out, len: f, ref: s.ref })
+      r.push({ src: s.src + f, out: at + len, len: s.len - f, ref: s.ref })
+    }
+  }
+  r.push({ src: 0, out: at, len, ref: ref || SILENCE })
+  r.sort((a, b) => a.out - b.out)
+  return r
+}
 
 const insert = (chs, ctx) => {
   let source = ctx.args[0], sr = ctx.sampleRate

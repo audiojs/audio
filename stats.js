@@ -1,30 +1,34 @@
 /**
  * Stats engine — block-level stat computation.
- * Stat dict passed as parameter — no globals.
+ * Self-registers on import — exposes statSession on audio, adds fn.query.
  */
 
-import { BLOCK_SIZE } from './plan.js'
+import audio, { LOAD } from './core.js'
 
-/** Create a stat computation session from a stat dict. */
-export function statSession(stats, ch, sr) {
-  let fns = Object.entries(stats).map(([name, init]) => ({ name, fn: init() }))
-  let acc = Object.create(null)
-  for (let { name } of fns) acc[name] = Array.from({ length: ch }, () => [])
-  let ctx = { sampleRate: sr }, last = 0
+/** Create a stat computation session. ch inferred from first .page() call. */
+function statSession(sr) {
+  let fns, acc, ch, last = 0, ctx = { sampleRate: sr }
+
+  function init(c) {
+    ch = c
+    fns = Object.entries(audio.stat).map(([name, init]) => ({ name, fn: init() }))
+    acc = Object.create(null)
+    for (let { name } of fns) acc[name] = Array.from({ length: ch }, () => [])
+  }
 
   return {
-    block(block) {
-      for (let { name, fn } of fns) {
-        let v = fn(block, ctx)
-        if (typeof v === 'number') for (let c = 0; c < ch; c++) acc[name][c].push(v)
-        else for (let c = 0; c < ch; c++) acc[name][c].push(v[c])
-      }
-    },
     page(page) {
-      for (let off = 0; off < page[0].length; off += BLOCK_SIZE) {
-        let end = Math.min(off + BLOCK_SIZE, page[0].length)
-        this.block(Array.from({ length: ch }, (_, c) => page[c].subarray(off, end)))
+      if (!acc) init(page.length)
+      for (let off = 0; off < page[0].length; off += audio.BLOCK_SIZE) {
+        let end = Math.min(off + audio.BLOCK_SIZE, page[0].length)
+        let block = Array.from({ length: ch }, (_, c) => page[c].subarray(off, end))
+        for (let { name, fn } of fns) {
+          let v = fn(block, ctx)
+          if (typeof v === 'number') for (let c = 0; c < ch; c++) acc[name][c].push(v)
+          else for (let c = 0; c < ch; c++) acc[name][c].push(v[c])
+        }
       }
+      return this
     },
     delta() {
       let firstKey = Object.keys(acc)[0]
@@ -37,19 +41,25 @@ export function statSession(stats, ch, sr) {
       return d
     },
     done() {
-      let out = { blockSize: BLOCK_SIZE }
+      let out = { blockSize: audio.BLOCK_SIZE }
       for (let name in acc) out[name] = acc[name].map(a => new Float32Array(a))
       return out
     }
   }
 }
 
-/** Build stats from flat planar PCM. */
-export function buildStats(stats, pcm, ch, sr = 44100) {
-  let s = statSession(stats, ch, sr)
-  for (let off = 0; off < pcm[0].length; off += BLOCK_SIZE) {
-    let end = Math.min(off + BLOCK_SIZE, pcm[0].length)
-    s.block(Array.from({ length: ch }, (_, c) => pcm[c].subarray(off, end)))
-  }
-  return s.done()
+
+// ── Self-register ────────────────────────────────────────────────
+
+audio.statSession = statSession
+
+audio.fn.query = async function(offset, duration) {
+  await this[LOAD]()
+  let sr = this.sampleRate, bs = this.stats?.blockSize
+  if (!bs) return { stats: this.stats, channels: this.channels, sampleRate: sr, from: 0, to: 0 }
+  let first = Object.values(this.stats).find(v => v?.[0]?.length)
+  let blocks = first?.[0]?.length || 0
+  let from = offset != null ? Math.floor(offset * sr / bs) : 0
+  let to = duration != null ? Math.ceil((offset + duration) * sr / bs) : blocks
+  return { stats: this.stats, channels: this.channels, sampleRate: sr, from, to }
 }

@@ -1,4 +1,16 @@
-import { planRemove as removeSegs } from '../plan.js'
+function removeSegs(segs, off, dur) {
+  let r = [], end = off + dur
+  for (let s of segs) {
+    let se = s.out + s.len
+    if (se <= off) r.push(s)
+    else if (s.out >= end) r.push({ ...s, out: s.out - dur })
+    else {
+      if (s.out < off) r.push({ src: s.src, out: s.out, len: off - s.out, ref: s.ref })
+      if (se > end) r.push({ src: s.src + end - s.out, out: off, len: se - end, ref: s.ref })
+    }
+  }
+  return r
+}
 
 const remove = (chs, ctx) => {
   let sr = ctx.sampleRate

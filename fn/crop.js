@@ -1,4 +1,11 @@
-import { planCrop as cropSegs } from '../plan.js'
+function cropSegs(segs, off, len) {
+  let r = [], end = off + len
+  for (let s of segs) {
+    let a = Math.max(s.out, off), b = Math.min(s.out + s.len, end)
+    if (a < b) r.push({ src: s.src + a - s.out, out: a - off, len: b - a, ref: s.ref })
+  }
+  return r
+}
 
 const crop = (chs, ctx) => {
   let sr = ctx.sampleRate

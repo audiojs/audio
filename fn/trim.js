@@ -1,4 +1,4 @@
-import { BLOCK_SIZE } from '../plan.js'
+import audio from '../core.js'
 
 function autoThreshold(energies) {
   let vals = energies.filter(e => e > 0)
@@ -13,8 +13,8 @@ const trim = (chs, ctx) => {
   if (threshold == null) {
     let energies = []
     for (let c = 0; c < chs.length; c++)
-      for (let off = 0; off < chs[c].length; off += BLOCK_SIZE) {
-        let end = Math.min(off + BLOCK_SIZE, chs[c].length), sum = 0
+      for (let off = 0; off < chs[c].length; off += audio.BLOCK_SIZE) {
+        let end = Math.min(off + audio.BLOCK_SIZE, chs[c].length), sum = 0
         for (let i = off; i < end; i++) sum += chs[c][i] * chs[c][i]
         energies.push(sum / (end - off))
       }
@@ -62,8 +62,8 @@ trim.resolve = (args, { stats, sampleRate, length }) => {
 
   if (s === 0 && e === blocks) return false
   if (s >= e) return { type: 'crop', args: [0, 0] }
-  let startSample = s * BLOCK_SIZE
-  let endSample = Math.min(e * BLOCK_SIZE, length)
+  let startSample = s * audio.BLOCK_SIZE
+  let endSample = Math.min(e * audio.BLOCK_SIZE, length)
   return { type: 'crop', args: [startSample / sampleRate, (endSample - startSample) / sampleRate] }
 }
 

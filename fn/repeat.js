@@ -1,4 +1,34 @@
-import { planRepeat as repeatSegs } from '../plan.js'
+function repeatSegs(segs, times, total, off, dur) {
+  if (off == null) {
+    let r = []
+    for (let t = 0; t <= times; t++)
+      for (let s of segs) r.push({ ...s, out: s.out + total * t })
+    return r
+  }
+  let segLen = dur ?? (total - off), clip = cropSegs(segs, off, segLen), r = []
+  for (let s of segs) {
+    let se = s.out + s.len
+    if (se <= off + segLen) r.push(s)
+    else if (s.out >= off + segLen) r.push({ ...s, out: s.out + segLen * times })
+    else {
+      r.push({ src: s.src, out: s.out, len: off + segLen - s.out, ref: s.ref })
+      r.push({ src: s.src + off + segLen - s.out, out: off + segLen * (times + 1), len: se - off - segLen, ref: s.ref })
+    }
+  }
+  for (let t = 1; t <= times; t++)
+    for (let c of clip) r.push({ ...c, out: off + segLen * t + c.out })
+  r.sort((a, b) => a.out - b.out)
+  return r
+}
+
+function cropSegs(segs, off, len) {
+  let r = [], end = off + len
+  for (let s of segs) {
+    let a = Math.max(s.out, off), b = Math.min(s.out + s.len, end)
+    if (a < b) r.push({ src: s.src + a - s.out, out: a - off, len: b - a, ref: s.ref })
+  }
+  return r
+}
 
 const repeat = (chs, ctx) => {
   let times = ctx.args[0] || 1, sr = ctx.sampleRate

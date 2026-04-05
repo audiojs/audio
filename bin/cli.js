@@ -42,6 +42,18 @@ function parseRange(str) {
   return { offset: s, duration: e != null ? e - s : undefined }
 }
 
+// ── CLI Aliases ──────────────────────────────────────────────────────────
+
+const ALIAS = {
+  norm: 'normalize',
+  hp: 'highpass',
+  lp: 'lowpass',
+  ls: 'lowshelf',
+  hs: 'highshelf',
+  bp: 'bandpass',
+  peaking: 'eq',
+}
+
 // ── Argument Parsing ─────────────────────────────────────────────────────
 
 function isFlag(s) {
@@ -52,7 +64,7 @@ function isFlag(s) {
 }
 
 function isOpName(s) {
-  return s in audio.op
+  return s in audio.op || s in ALIAS
 }
 
 function parseArgs(args) {
@@ -106,7 +118,7 @@ function parseArgs(args) {
       i++
     } else {
       // Parse operation
-      let name = arg
+      let name = ALIAS[arg] || arg
       let opArgs = []
       i++
 
@@ -284,17 +296,26 @@ Input:
   -o, --output  Output file or '-' for stdout (default: out.wav)
 
 Operations (positional):
-  gain DB       Amplify in dB (e.g., gain -3db, gain 6)
-  fade DUR      Fade in/out (positive = in from start, negative = out from end)
-  trim [THR]    Auto-trim silence (threshold in dB, optional)
-  normalize [DB] Peak normalize (default: 0dB). Presets: streaming, podcast, broadcast
-  reverse       Reverse audio
-  crop OFF DUR  Crop to range in seconds
-  remove OFF DUR Delete range in seconds
-  insert SRC OFF Insert audio from file/duration
-  repeat N      Repeat N times
-  mix SRC OFF   Mix in another audio file
-  remix CH      Remix channels (e.g., remix 2 for stereo)
+  gain DB [RANGE]  Amplify in dB (e.g., gain -3db, gain 6 1s..5s)
+  fade DUR [CURVE] [RANGE]  Fade in/out (positive = in, negative = out)
+  trim [THR]       Auto-trim silence (threshold in dB, optional)
+  normalize [DB] [RANGE]  Peak normalize (default: 0dB). Presets: streaming, podcast, broadcast
+  reverse [RANGE]  Reverse audio
+  crop OFF DUR     Crop to range in seconds
+  remove OFF DUR   Delete range in seconds
+  insert SRC OFF   Insert audio from file/duration
+  repeat N         Repeat N times
+  mix SRC OFF      Mix in another audio file
+  remix CH         Remix channels (e.g., remix 2 for stereo)
+
+Filters:
+  highpass | hp FC [ORDER]   Remove below FC (default: 2nd-order Butterworth)
+  lowpass | lp FC [ORDER]    Remove above FC
+  eq FC GAIN [Q]             Parametric EQ boost/cut at FC
+  lowshelf | ls FC GAIN [Q]  Shelf boost/cut below FC
+  highshelf | hs FC GAIN [Q] Shelf boost/cut above FC
+  notch FC [Q]               Kill a single frequency (default Q=30)
+  bandpass | bp FC [Q]       Pass only around FC
 
 Range syntax (for offset+duration):
   1s..10s       From 1s to 10s
@@ -314,7 +335,7 @@ Options:
   --verbose     Show progress and debug info
   --format FMT  Override output format (default: from extension)
   --help, -h    Show this help
-  -v, --version Show version
+  --version, -v Show version
 
 Examples:
   audio in.mp3 --stat
@@ -322,6 +343,8 @@ Examples:
   audio in.wav --play
   audio in.wav gain -3db 1s..10s -o out.wav
   audio in.mp3 normalize streaming -o out.wav
+  audio in.mp3 highpass 80hz -o clean.mp3
+  audio in.mp3 hp 80hz eq 300hz -2db lowshelf 200hz -3db -o out.wav
   cat in.wav | audio gain -3db > out.wav
 
 For more info: https://github.com/audiojs/audio

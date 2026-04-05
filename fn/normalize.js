@@ -22,18 +22,24 @@ function lufsFromEnergy(energy, ch, sampleRate, blockSize) {
 const normalize = (chs, ctx) => {
   let targetDb = ctx.args[0], opts = ctx.args[1]
   let mode = 'peak', sr = ctx.sampleRate
+  // Determine offset/duration — after the op-specific args
+  let argIdx = 1
   if (typeof targetDb === 'string') {
     if (!PRESETS[targetDb]) throw new Error(`normalize: unknown preset '${targetDb}'. Use: ${Object.keys(PRESETS).join(', ')}`)
     mode = 'lufs'; targetDb = PRESETS[targetDb]
   } else {
     targetDb = targetDb ?? 0
-    if (typeof opts === 'string') mode = opts
-    else if (opts?.mode) mode = opts.mode
+    if (typeof opts === 'string') { mode = opts; argIdx = 2 }
+    else if (opts?.mode) { mode = opts.mode; argIdx = 2 }
   }
+  let offset = ctx.args[argIdx], duration = ctx.args[argIdx + 1]
+  let s = offset != null ? Math.round(offset * sr) : 0
+  let end = duration != null ? s + Math.round(duration * sr) : chs[0].length
 
+  // Measure only the target range
   let gain
   if (mode === 'lufs') {
-    let kChs = chs.map(ch => { let k = new Float32Array(ch); kWeighting(k, { fs: sr }); return k })
+    let kChs = chs.map(ch => { let k = new Float32Array(ch.subarray(s, end)); kWeighting(k, { fs: sr }); return k })
     let winSamples = Math.round(GATE_WINDOW * sr), gates = []
     for (let off = 0; off + winSamples <= kChs[0].length; off += winSamples) {
       let sum = 0
@@ -51,12 +57,17 @@ const normalize = (chs, ctx) => {
   } else {
     let peak = 0
     for (let c = 0; c < chs.length; c++)
-      for (let i = 0; i < chs[c].length; i++) { let v = Math.abs(chs[c][i]); if (v > peak) peak = v }
+      for (let i = s; i < Math.min(end, chs[c].length); i++) { let v = Math.abs(chs[c][i]); if (v > peak) peak = v }
     if (!peak) return false
     gain = targetDb - 20 * Math.log10(peak)
   }
+  // Apply gain only to the target range
   let f = 10 ** (gain / 20)
-  return chs.map(ch => { let o = new Float32Array(ch); for (let i = 0; i < o.length; i++) o[i] *= f; return o })
+  return chs.map(ch => {
+    let o = new Float32Array(ch)
+    for (let i = s; i < Math.min(end, o.length); i++) o[i] *= f
+    return o
+  })
 }
 
 normalize.plan = false
@@ -64,16 +75,17 @@ normalize.plan = false
 normalize.resolve = (args, ctx) => {
   let { stats, sampleRate } = ctx
   if (!stats?.min) return null
-  let targetDb, mode = 'peak'
+  let targetDb, mode = 'peak', argIdx = 1
   if (typeof args[0] === 'string') {
     if (!PRESETS[args[0]]) return null
     mode = 'lufs'; targetDb = PRESETS[args[0]]
   } else {
     targetDb = args[0] ?? 0
     let opts = args[1]
-    if (typeof opts === 'string') mode = opts
-    else if (opts?.mode) mode = opts.mode
+    if (typeof opts === 'string') { mode = opts; argIdx = 2 }
+    else if (opts?.mode) { mode = opts.mode; argIdx = 2 }
   }
+  let offset = args[argIdx], duration = args[argIdx + 1]
   let ch = stats.min.length, gainDb
   if (mode === 'lufs') {
     let lufs = lufsFromEnergy(stats.energy, ch, sampleRate, stats.blockSize)
@@ -87,7 +99,9 @@ normalize.resolve = (args, ctx) => {
     if (!peak) return false
     gainDb = targetDb - 20 * Math.log10(peak)
   }
-  return { type: 'gain', args: [gainDb] }
+  let gainArgs = [gainDb]
+  if (offset != null) { gainArgs.push(offset); if (duration != null) gainArgs.push(duration) }
+  return { type: 'gain', args: gainArgs }
 }
 
 export default (audio) => { audio.op.normalize = normalize }

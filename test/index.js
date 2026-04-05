@@ -1268,3 +1268,152 @@ test('resolve — normalize uses index when clean', async t => {
   let pos = 0; for (let b of streamed) { flat.set(b, pos); pos += b.length }
   t.ok(Math.abs(flat[0] - 1) < 0.01, `normalized via resolve: ${flat[0].toFixed(3)} ≈ 1`)
 })
+
+
+// ── Phase 13: Filters ──────────────────────────────────────────────────
+
+// Helper: generate a tone at a given frequency
+function tone(freq, dur, sr = 44100) {
+  let n = Math.round(dur * sr), ch = new Float32Array(n)
+  for (let i = 0; i < n; i++) ch[i] = Math.sin(2 * Math.PI * freq * i / sr)
+  return ch
+}
+
+// Helper: measure RMS energy in a buffer
+function rms(buf) {
+  let sum = 0
+  for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i]
+  return Math.sqrt(sum / buf.length)
+}
+
+test('highpass — removes low frequency, passes high', async t => {
+  let lo = tone(50, 0.5), hi = tone(8000, 0.5)
+  let mixed = new Float32Array(lo.length)
+  for (let i = 0; i < mixed.length; i++) mixed[i] = lo[i] + hi[i]
+
+  let a = audio.from([mixed], { sampleRate: 44100 })
+  a.highpass(1000)
+  let pcm = await a.read()
+  let outRms = rms(pcm[0]), hiRms = rms(hi)
+
+  // Low component should be attenuated — output energy much less than input
+  t.ok(outRms < rms(mixed) * 0.8, `attenuated: ${outRms.toFixed(3)} < ${(rms(mixed) * 0.8).toFixed(3)}`)
+  // High component should survive
+  t.ok(outRms > hiRms * 0.5, `high passes: ${outRms.toFixed(3)} > ${(hiRms * 0.5).toFixed(3)}`)
+})
+
+test('lowpass — removes high frequency, passes low', async t => {
+  let lo = tone(200, 0.5), hi = tone(10000, 0.5)
+  let mixed = new Float32Array(lo.length)
+  for (let i = 0; i < mixed.length; i++) mixed[i] = lo[i] + hi[i]
+
+  let a = audio.from([mixed], { sampleRate: 44100 })
+  a.lowpass(1000)
+  let pcm = await a.read()
+  let outRms = rms(pcm[0])
+
+  t.ok(outRms < rms(mixed) * 0.85, `high attenuated: ${outRms.toFixed(3)}`)
+  t.ok(outRms > rms(lo) * 0.5, `low passes: ${outRms.toFixed(3)}`)
+})
+
+test('bandpass — passes center, rejects edges', async t => {
+  // Apply bandpass separately to see what survives
+  let lo = tone(100, 0.5), mid = tone(1000, 0.5), hi = tone(10000, 0.5)
+
+  let aLo = audio.from([lo], { sampleRate: 44100 })
+  aLo.bandpass(1000, 5)
+  let loOut = rms((await aLo.read())[0])
+
+  let aMid = audio.from([mid], { sampleRate: 44100 })
+  aMid.bandpass(1000, 5)
+  let midOut = rms((await aMid.read())[0])
+
+  t.ok(loOut < rms(lo) * 0.3, `100Hz rejected: ${loOut.toFixed(3)}`)
+  t.ok(midOut > rms(mid) * 0.5, `1kHz passes: ${midOut.toFixed(3)}`)
+})
+
+test('notch — removes target frequency', async t => {
+  let target = tone(1000, 0.5), other = tone(5000, 0.5)
+  let mixed = new Float32Array(target.length)
+  for (let i = 0; i < mixed.length; i++) mixed[i] = target[i] + other[i]
+
+  let a = audio.from([mixed], { sampleRate: 44100 })
+  a.notch(1000, 10)
+  let pcm = await a.read()
+  let outRms = rms(pcm[0])
+
+  // Target should be attenuated
+  t.ok(outRms < rms(mixed) * 0.85, `notched: ${outRms.toFixed(3)} < ${(rms(mixed) * 0.85).toFixed(3)}`)
+})
+
+test('eq — parametric boost at target frequency', async t => {
+  let ch = tone(1000, 0.5)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.eq(1000, 12, 2)  // +12dB at 1kHz
+  let pcm = await a.read()
+
+  t.ok(rms(pcm[0]) > rms(ch) * 1.5, `boosted: ${rms(pcm[0]).toFixed(3)} > ${(rms(ch) * 1.5).toFixed(3)}`)
+})
+
+test('lowshelf — boosts bass region', async t => {
+  let lo = tone(100, 0.5)
+  let a = audio.from([lo], { sampleRate: 44100 })
+  a.lowshelf(500, 12)  // +12dB below 500Hz
+  let pcm = await a.read()
+
+  t.ok(rms(pcm[0]) > rms(lo) * 1.5, `shelf boost: ${rms(pcm[0]).toFixed(3)} > ${(rms(lo) * 1.5).toFixed(3)}`)
+})
+
+test('highshelf — boosts treble region', async t => {
+  let hi = tone(8000, 0.5)
+  let a = audio.from([hi], { sampleRate: 44100 })
+  a.highshelf(2000, 12)  // +12dB above 2kHz
+  let pcm = await a.read()
+
+  t.ok(rms(pcm[0]) > rms(hi) * 1.5, `shelf boost: ${rms(pcm[0]).toFixed(3)} > ${(rms(hi) * 1.5).toFixed(3)}`)
+})
+
+test('highpass — stereo channels filtered independently', async t => {
+  let lo = tone(50, 0.5), hi = tone(8000, 0.5)
+  let a = audio.from([lo, hi], { sampleRate: 44100 })
+  a.highpass(1000)
+  let pcm = await a.read()
+
+  // Left (50Hz) should be nearly silent, right (8kHz) should survive
+  t.ok(rms(pcm[0]) < 0.1, `left attenuated: ${rms(pcm[0]).toFixed(3)}`)
+  t.ok(rms(pcm[1]) > 0.3, `right passes: ${rms(pcm[1]).toFixed(3)}`)
+})
+
+test('highpass — order 4 Butterworth steeper rolloff', async t => {
+  let lo = tone(200, 0.5)
+  let a2 = audio.from([Float32Array.from(lo)], { sampleRate: 44100 })
+  let a4 = audio.from([Float32Array.from(lo)], { sampleRate: 44100 })
+  a2.highpass(1000, 2)
+  a4.highpass(1000, 4)
+  let pcm2 = await a2.read(), pcm4 = await a4.read()
+
+  // Order 4 should attenuate more than order 2
+  t.ok(rms(pcm4[0]) < rms(pcm2[0]), `order 4 steeper: ${rms(pcm4[0]).toFixed(4)} < ${rms(pcm2[0]).toFixed(4)}`)
+})
+
+test('filter — state persists across streaming blocks', async t => {
+  // Filters need continuity across blocks for correct behavior
+  let ch = tone(50, 1)  // 1s of 50Hz
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.highpass(1000)
+
+  // Streaming read
+  let blocks = []
+  for await (let blk of a.stream()) blocks.push(blk[0])
+  let streamed = new Float32Array(blocks.reduce((n, b) => n + b.length, 0))
+  let pos = 0; for (let b of blocks) { streamed.set(b, pos); pos += b.length }
+
+  // Full read
+  let full = (await a.read())[0]
+
+  // Both should match — state was preserved correctly
+  t.is(streamed.length, full.length, 'same length')
+  let maxDiff = 0
+  for (let i = 0; i < full.length; i++) maxDiff = Math.max(maxDiff, Math.abs(streamed[i] - full[i]))
+  t.ok(maxDiff < 0.01, `stream ≈ full read (maxDiff: ${maxDiff.toFixed(6)})`)
+})
