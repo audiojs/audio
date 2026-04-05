@@ -111,13 +111,14 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(offset, duration) {
   }
 
   // Edit-aware streaming (plan-based or render fallback)
+  if (this.loaded) await this.loaded
   await this[LOAD]()
   let plan = buildPlan(this)
   if (plan) {
     let seen = new Set()
     for (let s of plan.segs) if (s.ref && s.ref !== SILENCE && !seen.has(s.ref)) { seen.add(s.ref); await s.ref[LOAD]() }
     for (let chunk of streamPlan(this, plan, offset, duration)) yield chunk
-  } else yield* streamPcm(render(this))
+  } else yield* streamPcm(render(this), this.sampleRate, offset, duration)
 }
 
 
@@ -286,7 +287,7 @@ export function* streamPlan(a, plan, offset, duration) {
     let blockOff = outOff / sr
     for (let { op, args, off, dur, state } of procs) {
       let adjOff = off != null ? off - blockOff : undefined
-      let result = op(chunk, { args, offset: adjOff, duration: dur, sampleRate: sr, blockOffset: blockOff, render, state })
+      let result = op(chunk, { args, offset: adjOff, duration: dur, sampleRate: sr, blockOffset: blockOff, length: totalLen, render, state })
       if (result === false || result === null) continue
       if (result) chunk = result
     }
@@ -307,7 +308,12 @@ function readPlan(a, plan, offset, duration) {
   })
 }
 
-function* streamPcm(pcm) {
-  for (let off = 0; off < pcm[0].length; off += audio.PAGE_SIZE)
-    yield pcm.map(ch => ch.slice(off, Math.min(off + audio.PAGE_SIZE, pcm[0].length)))
+function* streamPcm(pcm, sr, offset, duration) {
+  let s = offset ? Math.round(offset * sr) : 0
+  let e = duration != null ? s + Math.round(duration * sr) : pcm[0].length
+  e = Math.min(e, pcm[0].length)
+  for (let off = s; off < e; off += audio.PAGE_SIZE) {
+    let end = Math.min(off + audio.PAGE_SIZE, e)
+    yield pcm.map(ch => ch.slice(off, end))
+  }
 }

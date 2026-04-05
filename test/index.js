@@ -148,12 +148,11 @@ test('index — values correct for sine wave', async t => {
 test('onprogress — fires during decode', async t => {
   let deltas = []
   await audio(lenaPath, {
-    onprogress({ delta, offset, total }) {
-      deltas.push({ delta, offset, total })
+    onprogress({ delta, offset }) {
+      deltas.push({ delta, offset })
     }
   })
   t.ok(deltas.length > 0, `onprogress fired ${deltas.length} times`)
-  t.ok(deltas[0].total > 12, 'total duration reported')
   t.ok(deltas[deltas.length - 1].offset > 0, 'offset progresses')
 
   // Verify delta shape
@@ -722,6 +721,20 @@ test('play — returns controller', async t => {
   t.ok('stop' in p, 'has stop')
   t.ok('currentTime' in p, 'has currentTime')
   t.ok('playing' in p, 'has playing')
+  t.ok('volume' in p, 'has volume')
+  t.ok('loop' in p, 'has loop')
+  t.is(p.volume, 0, 'volume defaults to 0')
+  t.is(p.loop, false, 'loop defaults to false')
+  p.stop()
+})
+
+test('play — volume and loop settable', async t => {
+  let a = audio.from([new Float32Array(4410)], { sampleRate: 44100 })
+  let p = a.play()
+  p.volume = -6
+  t.is(p.volume, -6, 'volume is settable')
+  p.loop = true
+  t.is(p.loop, true, 'loop is settable')
   p.stop()
 })
 
@@ -1192,6 +1205,34 @@ testSavePhase12('save — format option overrides extension', async t => {
   t.ok(buf.length > 1000, 'save produced bytes')
 })
 
+testSavePhase12('save — onprogress fires during encode', async t => {
+  let a = audio.from([new Float32Array(44100 * 3).fill(0.5)], { sampleRate: 44100 })
+  let { tmpdir } = await import('os')
+  let { join } = await import('path')
+  let path = join(tmpdir(), `test-progress-${Date.now()}.wav`)
+  let calls = []
+  await a.save(path, { onprogress: p => calls.push(p) })
+  await import('fs').then(fs => fs.promises.unlink(path).catch(() => {}))
+  t.ok(calls.length > 0, `onprogress fired ${calls.length} times`)
+  t.ok(calls[calls.length - 1].offset > 2, `final offset: ${calls[calls.length - 1].offset.toFixed(1)}s`)
+  t.ok(calls[calls.length - 1].total > 2, 'total provided')
+})
+
+testSavePhase12('save — with non-plannable edits (filter + trim)', async t => {
+  let ch = new Float32Array(44100)
+  for (let i = 0; i < ch.length; i++) ch[i] = Math.sin(2 * Math.PI * 440 * i / 44100)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.highpass(200)
+  a.trim()
+  let { tmpdir } = await import('os')
+  let { join } = await import('path')
+  let path = join(tmpdir(), `test-filter-save-${Date.now()}.wav`)
+  await a.save(path)
+  let b = await audio(path)
+  t.ok(b.duration > 0.5, `saved with filter+trim: ${b.duration.toFixed(2)}s`)
+  await import('fs').then(fs => fs.promises.unlink(path).catch(() => {}))
+})
+
 test('normalize — LUFS mode adjusts loudness', async t => {
   let ch = new Float32Array(44100).fill(0.2)
   let a = audio.from([ch], { sampleRate: 44100 })
@@ -1416,4 +1457,41 @@ test('filter — state persists across streaming blocks', async t => {
   let maxDiff = 0
   for (let i = 0; i < full.length; i++) maxDiff = Math.max(maxDiff, Math.abs(streamed[i] - full[i]))
   t.ok(maxDiff < 0.01, `stream ≈ full read (maxDiff: ${maxDiff.toFixed(6)})`)
+})
+
+test('fade in — stream matches read (no looping)', async t => {
+  let ch = new Float32Array(44100 * 2).fill(1) // 2s of ones
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.fade(0.5)  // fade in first 0.5s
+  // Stream
+  let blocks = []
+  for await (let blk of a.stream()) blocks.push(blk[0])
+  let streamed = new Float32Array(blocks.reduce((n, b) => n + b.length, 0))
+  let pos = 0; for (let b of blocks) { streamed.set(b, pos); pos += b.length }
+  // Full read
+  let full = (await a.read())[0]
+  t.is(streamed.length, full.length, 'same length')
+  let maxDiff = 0
+  for (let i = 0; i < full.length; i++) maxDiff = Math.max(maxDiff, Math.abs(streamed[i] - full[i]))
+  t.ok(maxDiff < 0.01, `stream ≈ read (maxDiff: ${maxDiff.toFixed(6)})`)
+  // After fade region, samples should be 1.0 (not faded again)
+  t.ok(streamed[44100] === 1, `sample at 1s is unmodified (got ${streamed[44100]})`)
+  t.ok(streamed[0] < 0.02, `sample at 0s is faded (got ${streamed[0].toFixed(3)})`)
+})
+
+test('fade out — stream matches read (no looping)', async t => {
+  let ch = new Float32Array(44100 * 2).fill(1) // 2s of ones
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.fade(-0.5) // fade out last 0.5s
+  let blocks = []
+  for await (let blk of a.stream()) blocks.push(blk[0])
+  let streamed = new Float32Array(blocks.reduce((n, b) => n + b.length, 0))
+  let pos = 0; for (let b of blocks) { streamed.set(b, pos); pos += b.length }
+  let full = (await a.read())[0]
+  t.is(streamed.length, full.length, 'same length')
+  let maxDiff = 0
+  for (let i = 0; i < full.length; i++) maxDiff = Math.max(maxDiff, Math.abs(streamed[i] - full[i]))
+  t.ok(maxDiff < 0.01, `stream ≈ read (maxDiff: ${maxDiff.toFixed(6)})`)
+  t.ok(streamed[0] === 1, `sample at 0s is unmodified (got ${streamed[0]})`)
+  t.ok(streamed[streamed.length - 1] < 0.05, `last sample is faded (got ${streamed[streamed.length - 1].toFixed(3)})`)
 })

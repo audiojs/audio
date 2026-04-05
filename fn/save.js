@@ -1,46 +1,37 @@
 import encode from 'encode-audio'
-import { render, buildPlan, streamPlan } from '../history.js'
 
-/** Stream-encode chunks into format. Yields Uint8Array chunks. */
-async function* streamEncode(chunks, sr, ch, fmt, meta) {
-  if (!encode[fmt]) throw new Error('Unknown format: ' + fmt)
-  let enc = await encode[fmt]({ sampleRate: sr, channels: ch, ...meta })
-  for (let chunk of chunks) {
-    let buf = await enc(chunk)
-    if (buf.length) yield buf
-  }
-  let final = await enc()
-  if (final.length) yield final
-}
+const FMT_ALIAS = { aif: 'aiff', oga: 'ogg' }
 
 export default (audio) => {
   /** Save audio to file path (Node) or writable handle (browser). */
   audio.fn.save = async function(target, opts = {}) {
     let fmt = opts.format ?? (typeof target === 'string' ? target.split('.').pop() : 'wav')
+    fmt = FMT_ALIAS[fmt] || fmt
+    if (!encode[fmt]) throw new Error('Unknown format: ' + fmt)
 
-    // Try streaming encode (avoids loading all PCM into WASM at once)
-    let plan = buildPlan(this)
-    if (plan && streamEncode) {
-      let chunks = streamPlan(this, plan)
-      let encoded = streamEncode(chunks, this.sampleRate, this.channels, fmt, opts.meta)
+    let sr = this.sampleRate, ch = this.channels
+    let enc = await encode[fmt]({ sampleRate: sr, channels: ch, ...opts.meta })
+    let onprogress = opts.onprogress, written = 0
 
-      if (typeof target === 'string') {
-        let { createWriteStream } = await import('fs')
-        let ws = createWriteStream(target)
-        for await (let buf of encoded) ws.write(Buffer.from(buf))
-        await new Promise((resolve, reject) => { ws.on('finish', resolve); ws.on('error', reject); ws.end() })
-      } else if (target?.write) {
-        for await (let buf of encoded) await target.write(buf)
-        await target.close?.()
-      }
-      return
-    }
-
-    // Fallback: whole-file encode
-    let bytes = await this.read({ format: fmt, meta: opts.meta })
+    let write, finish
     if (typeof target === 'string') {
-      let { writeFile } = await import('fs/promises')
-      await writeFile(target, Buffer.from(bytes))
-    } else if (target?.write) { await target.write(bytes); await target.close?.() }
+      let { createWriteStream } = await import('fs')
+      let ws = createWriteStream(target)
+      write = buf => ws.write(Buffer.from(buf))
+      finish = () => new Promise((res, rej) => { ws.on('finish', res); ws.on('error', rej); ws.end() })
+    } else if (target?.write) {
+      write = buf => target.write(buf)
+      finish = () => target.close?.()
+    } else throw new Error('Invalid save target')
+
+    for await (let chunk of this.stream()) {
+      let buf = await enc(chunk)
+      if (buf.length) write(buf)
+      written += chunk[0].length
+      onprogress?.({ offset: written / sr, total: this.duration })
+    }
+    let final = await enc()
+    if (final.length) write(final)
+    await finish?.()
   }
 }

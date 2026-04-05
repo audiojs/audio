@@ -286,6 +286,23 @@ audio in.wav compress --ratio 4 -o out.wav
 | Amplitude | `db` | dB for gain | `-3db`, `0.5` |
 | Frequency | `hz`, `khz` | Hz | `440hz`, `2khz` |
 
+## CLI playback
+
+```
+⏸ 0:01:23 ━━━━━━━━━━━━━━━━━━━━─── -0:03:12 ▅▆▇____
+
+         ▁▂▃▅▇█▇▅▃▂▁▁▂▃▅▇▇▅▃▂▁▁▁▁
+         50  100  250  500 1k 2k 5k 20k    menu
+
+         48kHz   1ch   ⠴ decoding  +loop
+```
+
+## Ideas
+
+* Detect which instruments are used in the song
+* Detect bpm, pitch
+* Step splitting
+
 ### Ranges
 
 `offset..end` syntax. Negative = from end. Open-ended = start/end.
