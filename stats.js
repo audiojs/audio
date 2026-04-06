@@ -1,9 +1,10 @@
 /**
- * Stats engine — block-level stat computation.
- * Self-registers on import — exposes statSession on audio, adds fn.query.
+ * Stats engine — block-level stat computation + unified stat query.
+ * Self-registers on import — exposes statSession on audio, adds fn.stat.
  */
 
 import audio, { LOAD } from './core.js'
+import { buildPlan, streamPlan } from './history.js'
 
 /** Create a stat computation session. ch inferred from first .page() call. */
 function statSession(sr) {
@@ -48,18 +49,151 @@ function statSession(sr) {
   }
 }
 
+// ── Bin reduction ────────────────────────────────────────────────
+
+/** Reduce src[from..to] into `bins` bins using `reduce` function. */
+function binReduce(src, from, to, bins, reduce, init) {
+  let out = new Float32Array(bins), bpp = (to - from) / bins
+  for (let i = 0; i < bins; i++) {
+    let a = from + Math.floor(i * bpp), b = Math.min(from + Math.floor((i + 1) * bpp), to)
+    if (b <= a) b = a + 1
+    let v = init
+    for (let j = a; j < b; j++) v = reduce(v, src[j])
+    out[i] = v === init ? 0 : v
+  }
+  return out
+}
+
+let rMin = (a, b) => b < a ? b : a
+let rMax = (a, b) => b > a ? b : a
+let rSum = (a, b) => a + b
+
+// ── Aggregate functions ─────────────────────────────────────────
+
+const GATE_WINDOW = 0.4, ABS_GATE = -70, REL_GATE = -10, LUFS_OFFSET = -0.691
+
+/** Compute LUFS from block-level energy. Returns null if audio is silent. */
+export function lufsFromEnergy(energy, ch, sampleRate, blockSize, from = 0, to) {
+  if (to == null) to = energy[0].length
+  let winBlocks = Math.ceil(GATE_WINDOW * sampleRate / blockSize), gates = []
+  for (let i = from; i < to; i += winBlocks) {
+    let we = Math.min(i + winBlocks, to), sum = 0, n = 0
+    for (let c = 0; c < ch; c++) for (let j = i; j < we; j++) { sum += energy[c][j]; n++ }
+    if (n > 0) gates.push(sum / n)
+  }
+  let absT = 10 ** (ABS_GATE / 10), gated = gates.filter(g => g > absT)
+  if (!gated.length) return null
+  let mean = gated.reduce((a, b) => a + b, 0) / gated.length
+  let final = gated.filter(g => g > mean * 10 ** (REL_GATE / 10))
+  if (!final.length) return null
+  return LUFS_OFFSET + 10 * Math.log10(final.reduce((a, b) => a + b, 0) / final.length)
+}
+
+const aggregates = {
+  db(stats, ch, from, to) {
+    let peak = 0
+    for (let c = 0; c < ch; c++)
+      for (let i = from; i < Math.min(to, stats.min[c].length); i++)
+        peak = Math.max(peak, Math.abs(stats.min[c][i]), Math.abs(stats.max[c][i]))
+    return peak > 0 ? 20 * Math.log10(peak) : -Infinity
+  },
+  rms(stats, ch, from, to) {
+    let sum = 0, n = 0
+    for (let c = 0; c < ch; c++)
+      for (let i = from; i < Math.min(to, stats.energy[c].length); i++) { sum += stats.energy[c][i]; n++ }
+    return n ? Math.sqrt(sum / n) : 0
+  },
+  loudness(stats, ch, from, to, sr) {
+    let v = lufsFromEnergy(stats.energy, ch, sr, stats.blockSize, from, to)
+    return v ?? -Infinity
+  }
+}
+
+/** Bin reduction configs for raw block stats. */
+const binConfigs = {
+  min: { reduce: rMin, init: Infinity },
+  max: { reduce: rMax, init: -Infinity },
+  energy: { reduce: rSum, init: 0 },
+  clip: { reduce: rSum, init: 0 },
+  dc: { reduce: rSum, init: 0 }
+}
+
+/** Scalar aggregation for raw block stats. */
+const scalarAgg = {
+  min(src, from, to) { let v = Infinity; for (let i = from; i < to; i++) if (src[i] < v) v = src[i]; return v === Infinity ? 0 : v },
+  max(src, from, to) { let v = -Infinity; for (let i = from; i < to; i++) if (src[i] > v) v = src[i]; return v === -Infinity ? 0 : v },
+  energy(src, from, to) { let s = 0, n = 0; for (let i = from; i < to; i++) { s += src[i]; n++ } return n ? Math.sqrt(s / n) : 0 },
+  clip(src, from, to) { let s = 0; for (let i = from; i < to; i++) s += src[i]; return s },
+  dc(src, from, to) { let s = 0, n = 0; for (let i = from; i < to; i++) { s += src[i]; n++ } return n ? s / n : 0 }
+}
 
 // ── Self-register ────────────────────────────────────────────────
 
 audio.statSession = statSession
 
-audio.fn.query = async function(offset, duration) {
-  await this[LOAD]()
-  let sr = this.sampleRate, bs = this.stats?.blockSize
-  if (!bs) return { stats: this.stats, channels: this.channels, sampleRate: sr, from: 0, to: 0 }
-  let first = Object.values(this.stats).find(v => v?.[0]?.length)
+/** Resolve block range from opts. Recomputes stats if edits are dirty. */
+async function queryRange(inst, opts) {
+  await inst[LOAD]()
+  if (inst.edits?.length && inst._.statsV !== inst.version) {
+    if (!inst._.srcStats) inst._.srcStats = inst.stats
+    let plan = buildPlan(inst)
+    let s = statSession(inst.sampleRate); for (let chunk of streamPlan(inst, plan)) s.page(chunk); inst.stats = s.done()
+    inst._.statsV = inst.version
+  }
+  let sr = inst.sampleRate, bs = inst.stats?.blockSize
+  if (!bs) return { stats: inst.stats, ch: inst.channels, sr, from: 0, to: 0 }
+  let first = Object.values(inst.stats).find(v => v?.[0]?.length)
   let blocks = first?.[0]?.length || 0
-  let from = offset != null ? Math.floor(offset * sr / bs) : 0
-  let to = duration != null ? Math.ceil((offset + duration) * sr / bs) : blocks
-  return { stats: this.stats, channels: this.channels, sampleRate: sr, from, to }
+  let at = opts?.at, dur = opts?.duration
+  let from = at != null ? Math.floor(at * sr / bs) : 0
+  let to = dur != null ? Math.ceil(((at || 0) + dur) * sr / bs) : blocks
+  return { stats: inst.stats, ch: inst.channels, sr, from, to }
+}
+
+audio.fn.stat = async function(name, opts) {
+  // Instance methods (spectrum, cepstrum, etc.)
+  if (typeof this[name] === 'function' && !audio.stat[name]) return this[name](opts)
+
+  let { stats, ch, sr, from, to } = await queryRange(this, opts)
+  let bins = opts?.bins
+
+  // Derived stats — custom aggregation, scalar only
+  if (aggregates[name]) return aggregates[name](stats, ch, from, to, sr)
+
+  // Raw block stats
+  let src = stats[name]
+  if (!src) throw new Error(`Unknown stat: '${name}'`)
+
+  let chSel = opts?.channel
+  let perCh = Array.isArray(chSel)
+  let cS = perCh ? 0 : (chSel ?? 0), cE = perCh ? ch : (chSel != null ? cS + 1 : ch)
+  let chList = perCh ? chSel : null
+
+  if (bins != null) {
+    let n = bins || (to - from), cfg = binConfigs[name] || { reduce: rMax, init: -Infinity }
+    let reduce1 = (c) => binReduce(src[c], from, to, n, cfg.reduce, cfg.init)
+    if (perCh) return chList.map(reduce1)
+    if (cE - cS === 1) return reduce1(cS)
+    // Merge channels
+    let out = new Float32Array(n), bpp = (to - from) / n
+    for (let i = 0; i < n; i++) {
+      let a = from + Math.floor(i * bpp), b = Math.min(from + Math.floor((i + 1) * bpp), to)
+      if (b <= a) b = a + 1
+      let v = cfg.init
+      for (let c = cS; c < cE; c++) for (let j = a; j < b; j++) v = cfg.reduce(v, src[c][j])
+      out[i] = v === cfg.init ? 0 : v
+    }
+    return out
+  }
+
+  // Scalar aggregate
+  let agg = scalarAgg[name]
+  if (!agg) throw new Error(`No scalar aggregate for stat: '${name}'`)
+  if (perCh) return chList.map(c => agg(src[c], from, to))
+  if (cE - cS === 1) return agg(src[cS], from, to)
+  // Merge channels
+  let vals = Array.from({ length: cE - cS }, (_, i) => agg(src[cS + i], from, to))
+  return scalarAgg[name] === scalarAgg.min ? Math.min(...vals)
+    : scalarAgg[name] === scalarAgg.max ? Math.max(...vals)
+    : vals.reduce((a, b) => a + b, 0) / vals.length
 }

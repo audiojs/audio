@@ -3,12 +3,46 @@
  * Intercepts create/run/read/stream to track and materialize edits.
  */
 
-import audio, { readPages, copyPages, walkPages, LOAD, READ, RUN } from './core.js'
+import audio, { readPages, copyPages, walkPages, LOAD, READ } from './core.js'
+import parseDuration from 'parse-duration'
+
+function parseTime(v) {
+  if (v == null) return v
+  if (typeof v === 'number') return v
+  let s = parseDuration(v, 's')
+  if (s != null && isFinite(s)) return s
+  throw new Error(`Invalid time: ${v}`)
+}
 
 /** Sentinel for silence segments in plans. */
 export const SILENCE = Symbol('silence')
 
 let fn = audio.fn
+
+// ── Op Wiring ───────────────────────────────────────────────────
+
+function isOpts(v) {
+  return v != null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v) && !v.pages
+    && ('at' in v || 'duration' in v || 'channel' in v)
+}
+
+let prevUse = audio.use
+audio.use = function(...plugins) {
+  prevUse(...plugins)
+  for (let name in audio.op) {
+    if (!fn[name]) fn[name] = function(...a) {
+      let edit = { type: name, args: a }, last = a[a.length - 1]
+      if (a.length && isOpts(last)) {
+        let { at, duration, channel } = last
+        edit.args = a.slice(0, -1)
+        if (at != null) edit.at = at
+        if (duration != null) edit.duration = duration
+        if (channel != null) edit.channel = channel
+      }
+      return this.run(edit)
+    }
+  }
+}
 
 
 // ── Edit Tracking ───────────────────────────────────────────────
@@ -23,11 +57,6 @@ audio.hook.create = (a) => {
   a._.statsV = -1                   // stats cache version
   a._.lenC = a._.len; a._.lenV = 0  // virtual length cache
   a._.chC = a._.ch; a._.chV = 0    // virtual channels cache
-}
-
-fn[RUN] = function(name, args) {
-  pushEdit(this, { type: name, args })
-  return this
 }
 
 /** Push an edit, bump version, notify. */
@@ -51,9 +80,9 @@ Object.defineProperties(fn, {
   length: { get() {
     if (this._.lenV === this.version) return this._.lenC
     let len = this._.len, sr = this.sampleRate
-    for (let { type, args = [] } of this.edits) {
+    for (let { type, args = [], at, duration } of this.edits) {
       let op = audio.op[type]
-      if (op?.dur) len = op.dur(len, sr, args)
+      if (op?.dur) len = op.dur(len, sr, args, at, duration)
     }
     this._.lenC = len; this._.lenV = this.version
     return len
@@ -76,18 +105,14 @@ fn[READ] = async function(offset, duration) {
   await this[LOAD]()
   for (let { args } of this.edits) if (args?.[0]?.pages) await args[0][LOAD]()
 
-  let plan = buildPlan(this)
-  return plan ? readPlan(this, plan, offset, duration) : render(this).map(ch => {
-    if (offset == null) return ch.slice()
-    let s = Math.round(offset * this.sampleRate)
-    return ch.slice(s, duration != null ? s + Math.round(duration * this.sampleRate) : ch.length)
-  })
+  return readPlan(this, buildPlan(this), offset, duration)
 }
 
 
 // ── Stream ─────────────────────────────────────────────────────
 
-fn[Symbol.asyncIterator] = fn.stream = async function*(offset, duration) {
+fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
+  let offset = opts?.at, duration = opts?.duration
   // Live decode streaming (no edits, still decoding)
   if (this._.waiters && !this.decoded && !this.edits.length) {
     let sr = this.sampleRate
@@ -110,29 +135,22 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(offset, duration) {
     return
   }
 
-  // Edit-aware streaming (plan-based or render fallback)
+  // Edit-aware streaming (plan-based)
   if (this.loaded) await this.loaded
   await this[LOAD]()
   let plan = buildPlan(this)
-  if (plan) {
-    let seen = new Set()
-    for (let s of plan.segs) if (s.ref && s.ref !== SILENCE && !seen.has(s.ref)) { seen.add(s.ref); await s.ref[LOAD]() }
-    for (let chunk of streamPlan(this, plan, offset, duration)) yield chunk
-  } else yield* streamPcm(render(this), this.sampleRate, offset, duration)
+  let seen = new Set()
+  for (let s of plan.segs) if (s.ref && s.ref !== SILENCE && !seen.has(s.ref)) { seen.add(s.ref); await s.ref[LOAD]() }
+  for (let chunk of streamPlan(this, plan, offset, duration)) yield chunk
 }
 
 
 // ── Query ─────────────────────────────────────────────────────────────
 
-let prevQuery = fn.query
-fn.query = async function(offset, duration) {
-  if (this.edits.length && this._.statsV !== this.version && audio.statSession) {
-    let plan = buildPlan(this)
-    if (!plan) this.stats = audio.statSession(this.sampleRate).page(render(this)).done()
-    else { let s = audio.statSession(this.sampleRate); for (let chunk of streamPlan(this, plan)) s.page(chunk); this.stats = s.done() }
-    this._.statsV = this.version
-  }
-  return prevQuery.call(this, offset, duration)
+/** Resolve offset/duration from opts (for public methods that delegate to query). */
+export function resolveRange(opts) {
+  if (!opts) return [undefined, undefined]
+  return [opts.at != null ? parseTime(opts.at) : undefined, opts.duration != null ? parseTime(opts.duration) : undefined]
 }
 
 
@@ -145,17 +163,23 @@ fn.undo = function(n = 1) {
   return n === 1 ? removed[0] : removed
 }
 
-fn.apply = function(...edits) {
+fn.run = function(...edits) {
   for (let e of edits) {
-    if (typeof e === 'function') pushEdit(this, { type: '_fn', fn: e })
-    else if (Array.isArray(e.args)) pushEdit(this, e)
-    else throw new TypeError('audio.apply: edit must have args array')
+    if (!e.type) throw new TypeError('audio.run: edit must have type')
+    pushEdit(this, { ...e, args: e.args || [] })
   }
   return this
 }
 
 fn.toJSON = function() {
-  return { source: this.source, edits: this.edits, sampleRate: this.sampleRate, channels: this._.ch, duration: this.duration }
+  let edits = this.edits.filter(e => !e.args?.some(a => typeof a === 'function'))
+  return { source: this.source, edits, sampleRate: this.sampleRate, channels: this._.ch, duration: this.duration }
+}
+
+fn.clone = function() {
+  let b = audio.from(this)
+  for (let e of this.edits) pushEdit(b, { ...e })
+  return b
 }
 
 
@@ -163,55 +187,37 @@ fn.toJSON = function() {
 
 const MAX_FLAT_SIZE = 2 ** 29
 
-/** Render all edits into flat PCM. Cached by version. */
+/** Render all edits into flat PCM. Cached by version. For ctx.render (source instances in insert/mix). */
 export function render(a) {
   if (a._.pcm && a._.pcmV === a.version) return a._.pcm
-  let sr = a.sampleRate, ch = a._.ch
-
-  if (a._.len > MAX_FLAT_SIZE) {
-    let plan = buildPlan(a)
-    if (plan) return readPlan(a, plan)
-    throw new Error(`Audio too large for full render (${(a._.len / 1e6).toFixed(0)}M samples). Use streaming.`)
-  }
-
-  let flat = readPages(a)
-
-  for (let edit of a.edits) {
-    let op = edit.type === '_fn' ? edit.fn : audio.op[edit.type]
-    if (!op) throw new Error(`Unknown op: ${edit.type}`)
-    let result = edit.type === '_fn'
-      ? op(flat)
-      : op(flat, { args: edit.args || [], sampleRate: sr, render, state: {} })
-    if (result === false || result === null) continue
-    if (result) flat = result
-  }
-
-  a._.pcm = flat; a._.pcmV = a.version
-  return flat
+  if (!a.edits.length) { let r = readPages(a); a._.pcm = r; a._.pcmV = a.version; return r }
+  if (a._.len > MAX_FLAT_SIZE) throw new Error(`Audio too large for flat render (${(a._.len / 1e6).toFixed(0)}M samples). Use streaming.`)
+  let r = readPlan(a, buildPlan(a))
+  a._.pcm = r; a._.pcmV = a.version
+  return r
 }
 
 function planLen(segs) { let m = 0; for (let s of segs) m = Math.max(m, s.out + s.len); return m }
 
-/** Build a read plan from edit list. Returns null if not plannable. */
+/** Build a read plan from edit list. Always succeeds — every op is plannable. */
 export function buildPlan(a) {
   let sr = a.sampleRate, ch = a._.ch
   let segs = [{ src: 0, out: 0, len: a._.len }], pipeline = [], sawSample = false
 
   for (let edit of a.edits) {
-    let { type, args = [] } = edit
-    if (type === '_fn') return null
+    let { type, args = [], at, duration } = edit
     let op = audio.op[type]
-    if (!op) return null
+    if (!op) throw new Error(`Unknown op: ${type}`)
 
     if (op.plan === false) {
-      if (op.resolve && !sawSample) {
-        let ctx = { stats: a.stats, sampleRate: sr, channels: ch, length: planLen(segs) }
+      if (op.resolve) {
+        let ctx = { stats: a._.srcStats || a.stats, sampleRate: sr, channels: ch, length: planLen(segs) }
         let resolved = op.resolve(args, ctx)
         if (resolved === false) continue
         if (resolved) {
           let rOp = audio.op[resolved.type]
           if (rOp?.plan && typeof rOp.plan === 'function') {
-            segs = rOp.plan(segs, planLen(segs), sr, resolved.args || [])
+            segs = rOp.plan(segs, planLen(segs), sr, resolved.args || [], resolved.at, resolved.duration)
           } else {
             sawSample = true
             pipeline.push(resolved)
@@ -219,11 +225,12 @@ export function buildPlan(a) {
           continue
         }
       }
-      return null
+      sawSample = true
+      pipeline.push(edit)
+      continue
     }
     if (op.plan) {
-      if (sawSample) return null
-      segs = op.plan(segs, planLen(segs), sr, args)
+      segs = op.plan(segs, planLen(segs), sr, args, at, duration)
     } else {
       sawSample = true
       pipeline.push(edit)
@@ -249,16 +256,25 @@ export function* streamPlan(a, plan, offset, duration) {
   let s = Math.round((offset || 0) * sr), e = duration != null ? s + Math.round(duration * sr) : totalLen
 
   let totalDur = totalLen / sr
-  let procs = pipeline.map(ed => ({
-    op: audio.op[ed.type],
-    args: ed.args || [],
-    off: ed.offset != null && ed.offset < 0 ? totalDur + ed.offset : ed.offset,
-    dur: ed.duration,
-    state: {}
-  }))
+  let procs = pipeline.map(ed => {
+    let op = audio.op[ed.type]
+    return {
+      op, args: ed.args || [],
+      at: ed.at != null && ed.at < 0 ? totalDur + ed.at : ed.at,
+      dur: ed.duration,
+      channel: ed.channel,
+      overlap: op.overlap || 0,
+      tail: null,
+      state: {}
+    }
+  })
 
-  for (let outOff = s; outOff < e; outOff += audio.PAGE_SIZE) {
-    let len = Math.min(audio.PAGE_SIZE, e - outOff)
+  // Warm up stateful ops (filters) when seeking — render prior page(s) silently to settle state
+  let ws = (s > 0 && procs.length) ? Math.max(0, s - audio.PAGE_SIZE) : s
+
+  for (let outOff = ws; outOff < e; outOff += audio.PAGE_SIZE) {
+    let pageEnd = outOff < s ? s : e
+    let len = Math.min(audio.PAGE_SIZE, pageEnd - outOff)
     let chunk = Array.from({ length: a._.ch }, () => new Float32Array(len))
 
     for (let seg of segs) {
@@ -285,14 +301,43 @@ export function* streamPlan(a, plan, offset, duration) {
     }
 
     let blockOff = outOff / sr
-    for (let { op, args, off, dur, state } of procs) {
-      let adjOff = off != null ? off - blockOff : undefined
-      let result = op(chunk, { args, offset: adjOff, duration: dur, sampleRate: sr, blockOffset: blockOff, length: totalLen, render, state })
-      if (result === false || result === null) continue
-      if (result) chunk = result
+    for (let proc of procs) {
+      let { op, args, at, dur, channel, overlap, state } = proc
+      let adjAt = at != null ? at - blockOff : undefined
+      let ctx = { args, at: adjAt, duration: dur, sampleRate: sr, blockOffset: blockOff, length: totalLen, render, state }
+
+      // Windowed op: prepend prior tail, process, trim overlap
+      if (overlap > 0) {
+        let src = channel != null ? (typeof channel === 'number' ? [channel] : channel).map(c => chunk[c]) : chunk
+        let extended = proc.tail
+          ? src.map((ch, i) => { let x = new Float32Array(proc.tail[i].length + ch.length); x.set(proc.tail[i]); x.set(ch, proc.tail[i].length); return x })
+          : src
+        ctx.overlap = proc.tail ? proc.tail[0].length : 0
+        let result = op(extended, ctx)
+        if (result && result !== false) {
+          let skip = ctx.overlap
+          if (channel != null) {
+            let chs = typeof channel === 'number' ? [channel] : channel
+            for (let i = 0; i < chs.length; i++) chunk[chs[i]] = result[i].subarray(skip, skip + chunk[0].length)
+          } else {
+            chunk = result.map(ch => ch.subarray(skip, skip + chunk[0].length))
+          }
+        }
+        // Store tail for next page
+        proc.tail = src.map(ch => ch.subarray(Math.max(0, ch.length - overlap)))
+      } else if (channel != null) {
+        let chs = typeof channel === 'number' ? [channel] : channel
+        let sub = chs.map(c => chunk[c])
+        let result = op(sub, ctx)
+        if (result && result !== false) for (let i = 0; i < chs.length; i++) chunk[chs[i]] = result[i]
+      } else {
+        let result = op(chunk, ctx)
+        if (result === false || result === null) continue
+        if (result) chunk = result
+      }
     }
 
-    yield chunk
+    if (outOff >= s) yield chunk
   }
 }
 
@@ -306,14 +351,4 @@ function readPlan(a, plan, offset, duration) {
     for (let chunk of chunks) { out.set(chunk[c], pos); pos += chunk[0].length }
     return out
   })
-}
-
-function* streamPcm(pcm, sr, offset, duration) {
-  let s = offset ? Math.round(offset * sr) : 0
-  let e = duration != null ? s + Math.round(duration * sr) : pcm[0].length
-  e = Math.min(e, pcm[0].length)
-  for (let off = s; off < e; off += audio.PAGE_SIZE) {
-    let end = Math.min(off + audio.PAGE_SIZE, e)
-    yield pcm.map(ch => ch.slice(off, end))
-  }
 }

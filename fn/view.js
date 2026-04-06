@@ -1,9 +1,10 @@
 export default (audio) => {
   /** Create a shared-page view, optionally scoped to a range. */
-  audio.fn.view = function(offset, duration) {
+  audio.fn.view = function(opts) {
     let inst = audio.from(this)
-    return offset != null || duration != null
-      ? inst.crop(offset ?? 0, duration ?? Math.max(0, this.duration - (offset ?? 0)))
+    let at = opts?.at, duration = opts?.duration
+    return at != null || duration != null
+      ? inst.crop({at: at ?? 0, duration: duration ?? Math.max(0, this.duration - (at ?? 0))})
       : inst
   }
 }

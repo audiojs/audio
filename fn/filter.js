@@ -15,60 +15,29 @@ function apply(chs, ctx, key, fn, makeParams) {
   })
 }
 
-// ── Ops ─────────────────────────────────────────────────────────────────
+// ── Filter dispatch ─────────────────────────────────────────────────────
 
-// highpass FC [ORDER]  — remove everything below FC
-const highpass = (chs, ctx) => {
-  let fc = ctx.args[0], order = ctx.args[1] ?? 2
-  return apply(chs, ctx, '_hp', hpFilter, fs => ({ fc, order, fs }))
+const types = {
+  highpass:  (chs, ctx, args) => apply(chs, ctx, '_hp', hpFilter, fs => ({ fc: args[0], order: args[1] ?? 2, fs })),
+  lowpass:   (chs, ctx, args) => apply(chs, ctx, '_lp', lpFilter, fs => ({ fc: args[0], order: args[1] ?? 2, fs })),
+  eq:        (chs, ctx, args) => apply(chs, ctx, '_eq', parametricEq, fs => ({ bands: [{ fc: args[0], Q: args[2] ?? 1, gain: args[1] ?? 0, type: 'peak' }], fs })),
+  lowshelf:  (chs, ctx, args) => apply(chs, ctx, '_ls', lsFilter, fs => ({ fc: args[0], gain: args[1] ?? 0, Q: args[2] ?? 0.707, fs })),
+  highshelf: (chs, ctx, args) => apply(chs, ctx, '_hs', hsFilter, fs => ({ fc: args[0], gain: args[1] ?? 0, Q: args[2] ?? 0.707, fs })),
+  notch:     (chs, ctx, args) => apply(chs, ctx, '_notch', notchFilter, fs => ({ fc: args[0], Q: args[1] ?? 30, fs })),
+  bandpass:  (chs, ctx, args) => apply(chs, ctx, '_bp', bpFilter, fs => ({ fc: args[0], Q: args[1] ?? 0.707, fs })),
 }
 
-// lowpass FC [ORDER]  — remove everything above FC
-const lowpass = (chs, ctx) => {
-  let fc = ctx.args[0], order = ctx.args[1] ?? 2
-  return apply(chs, ctx, '_lp', lpFilter, fs => ({ fc, order, fs }))
-}
-
-// eq FC GAIN [Q]  — parametric peaking EQ at FC
-const eq = (chs, ctx) => {
-  let fc = ctx.args[0], gain = ctx.args[1] ?? 0, Q = ctx.args[2] ?? 1
-  return apply(chs, ctx, '_eq', parametricEq, fs => ({
-    bands: [{ fc, Q, gain, type: 'peak' }], fs
-  }))
-}
-
-// lowshelf FC GAIN [Q]  — boost/cut below FC
-const lowshelf = (chs, ctx) => {
-  let fc = ctx.args[0], gain = ctx.args[1] ?? 0, Q = ctx.args[2] ?? 0.707
-  return apply(chs, ctx, '_ls', lsFilter, fs => ({ fc, gain, Q, fs }))
-}
-
-// highshelf FC GAIN [Q]  — boost/cut above FC
-const highshelf = (chs, ctx) => {
-  let fc = ctx.args[0], gain = ctx.args[1] ?? 0, Q = ctx.args[2] ?? 0.707
-  return apply(chs, ctx, '_hs', hsFilter, fs => ({ fc, gain, Q, fs }))
-}
-
-// notch FC [Q]  — kill a single frequency
-const notch = (chs, ctx) => {
-  let fc = ctx.args[0], Q = ctx.args[1] ?? 30
-  return apply(chs, ctx, '_notch', notchFilter, fs => ({ fc, Q, fs }))
-}
-
-// bandpass FC [Q]  — pass only around FC
-const bandpass = (chs, ctx) => {
-  let fc = ctx.args[0], Q = ctx.args[1] ?? 0.707
-  return apply(chs, ctx, '_bp', bpFilter, fs => ({ fc, Q, fs }))
+/** Unified filter: a.filter('highpass', 80) */
+const filter = (chs, ctx) => {
+  let [type, ...args] = ctx.args
+  let fn = types[type]
+  if (!fn) throw new Error(`Unknown filter type: ${type}`)
+  return fn(chs, ctx, args)
 }
 
 // ── Register ────────────────────────────────────────────────────────────
 
 export default (audio) => {
-  audio.op.highpass = highpass
-  audio.op.lowpass = lowpass
-  audio.op.eq = eq
-  audio.op.lowshelf = lowshelf
-  audio.op.highshelf = highshelf
-  audio.op.notch = notch
-  audio.op.bandpass = bandpass
+  audio.op.filter = filter
+  for (let name in types) audio.op[name] = (chs, ctx) => types[name](chs, ctx, ctx.args)
 }

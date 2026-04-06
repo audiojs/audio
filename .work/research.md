@@ -44,6 +44,8 @@ The soul: **the index** (always-resident per-block stats) + **segment map** (str
 - *Render-then-cache*: Current approach. Blocks on first read, O(n) memory. Doesn't scale.
 - *Lazy render with full fallback*: Partial streaming, but `buildPlan()` returning null kills it for any chain with `trim`/`normalize`/custom ops.
 
+**Filter state on seek**: Stateful ops (IIR biquads, compressors) need state from prior pages. Solution: warm-up rendering — seek to page N starts rendering from `max(0, N - warmup)` with zero state, discards warm-up pages, keeps state. `op.settle` declares settle time in samples. Boundary state snapshots cached for sequential access. This is what every DAW does.
+
 **Implication**: Every op must be classifiable:
 
 | Type | Examples | Mechanism |
@@ -156,7 +158,7 @@ a.filter('lowshelf', 200, -3)
 a.gain(-3, {at: '1m12s', duration: 5, channel: 0})
 ```
 
-**Why**: Eliminates arg-sniffing. `parse-duration` for string → ms. Numbers pass through as seconds. `{offset}` for sample-level addressing. Consistent across all ops.
+**Why**: Eliminates arg-sniffing. `parse-duration(str, 's')` → seconds directly. Numbers pass through as seconds. `{offset}` for sample-level addressing. Consistent across all ops.
 
 **Rejected**: Keeping positional args for common cases. The sniffing logic is fragile and makes every op implementation check arg types.
 
@@ -319,6 +321,77 @@ Structural ops reshape the segment map. Sample ops transform values per-page. St
 - [SoX Audio Processing](https://www.stefaanlippens.net/audio_conversion_execution_speed_comparison_of_SoX_FFmpeg_MPlayer/)
 - [DAW Comparisons and Features](https://online.berklee.edu/help/en_US/daw/2077278-comparison-of-daws/)
 - [Digital Audio Workstation Overview](https://blog.landr.com/best-daw/)
+
+## Alternatives Analysis
+
+### Covered by audio
+
+| Feature | Libs that offer it | audio status |
+|---------|-------------------|-------------|
+| Load/decode files | Howler, Wad, Pizzicato, Waud | ✅ 13+ codecs |
+| Playback + controls | All | ✅ play/pause/stop/volume/loop |
+| Structural edits (crop/splice) | Ciseaux, bufaudio | ✅ crop/insert/remove/reverse/repeat/split |
+| Gain/fade/mix | Ciseaux, bufaudio, Crunker | ✅ |
+| Filters (hp/lp/bp/notch/eq) | Tuna, Pizzicato, dsp.js, audiolib | ✅ |
+| Normalize/trim | bufaudio | ✅ |
+| Analysis (dB/RMS/loudness) | bufaudio, pjsaudio, dsp.js | ✅ |
+| Concat/merge | Crunker, Ciseaux | ✅ |
+| Function-as-source | Pizzicato, DynamicAudio | ✅ planned (`audio.from(fn)`) |
+| Recording | Wad, bufaudio | ✅ planned (`audio.record()`) |
+| Automation (time-varying) | audiolib.js | ✅ planned (Future) |
+| Plugin system | Tuna, Wad | ✅ `audio.op()` / `audio.stat()` |
+
+Unique to audio (no alternative covers): CLI, undo/redo, streaming/progressive decode, non-destructive edit serialization, page-based architecture, index-powered stats.
+
+### Genuinely missing — worth covering
+
+| Feature | Source libs | Fit | Notes |
+|---------|-----------|-----|-------|
+| **Compressor/limiter** | Tuna, Pizzicato | Plugin (`audio-compress`) | Fundamental mastering tool. Sample-level with `ctx.state`. Already in plugin plan. |
+| **Reverb** | Tuna, Pizzicato, dsp.js | Plugin (`audio-reverb`) | Convolution (impulse response) or algorithmic. Already in plugin plan. |
+| **Delay** | Tuna, Pizzicato, audiolib.js | Plugin (`audio-delay`) | Sample-level with circular buffer state. Delay + ping-pong. Not yet in plugin plan. |
+| **Pan** | Pizzicato, Howler, Wad | Core op | Stereo panning. Sample-level, trivial. `remix` can do it but `a.pan(0.5)` is the natural API. Was in v1. |
+| **Pad** | Crunker, bufaudio | Core op | Insert silence at head/tail. Structural (zero-cost). `a.pad(1)` / `a.pad({before: 0.5, after: 1})`. Was in v1. |
+| **Spectrum stat** | dsp.js, pjsaudio, bufaudio | Core stat | `a.stat('spectrum', {bins: 1024})`. FFT — windowed stat. Not in stat list yet. |
+| **BPM detection** | pjsaudio (BeatDetektor) | Core stat | Already planned as `a.stat('bpm')`. pjsaudio's autocorrelation is a reference impl. |
+| **Playback rate** | Tape.js, Howler, Wad | Core | Parked in v2.3. Tape.js has smooth speed ramping (no artifacts) — reference for unparking. |
+
+### Out of scope
+
+| Feature | Libs | Why skip |
+|---------|------|----------|
+| 3D spatial audio | Wad, Howler | Game audio territory. audio is editing/processing. |
+| Synthesis (oscillators, ADSR) | Wad, dsp.js, Audiolet, Pizzicato | audio is for recorded/file audio, not synthesis. `audio.from(fn)` covers simple generation. |
+| Modular graph routing | Audiolet | Synth/composition tool. audio is a linear pipeline. |
+| Pattern sequencing | Ciseaux (`"a bdacbba"`) | Composition, not editing. |
+| Sound pooling/sprites | Howler, Sonorous, Waud | Game audio (rapid overlapping playback). Not audio's domain. |
+| Moog filter / cabinet sim | Tuna | Too niche for core. Plugin territory. |
+| AudioContext auto-unlock | Sonorous, Waud | Browser-only UX. audio is universal (Node + browser). |
+| Bitcrusher / ring mod / chorus | Tuna, Pizzicato | Creative effects — plugin packages (`audio-effect-*`). |
+| Haxe cross-compilation | Waud | Different ecosystem strategy. |
+| Step sequencer | audiolib.js | Composition tool. |
+| Microtonal scales | Audiolet | Music theory domain, not audio processing. |
+
+### v1 API items — disposition
+
+From the commented v1 README API proposal:
+
+| v1 method | v2.3 status | Verdict |
+|-----------|-------------|---------|
+| `pan(amt)` | Missing | **Add** — fundamental sample-level op. Equal-power panning. |
+| `pad(dur)` | Missing | **Add** — structural op, zero-cost silence insert. |
+| `invert()` | Missing | **Skip** — polarity flip = multiply by -1. Niche. Not worth a method. |
+| `shift(amt)` | Missing | **Skip** — composable from `pad` + `crop`. |
+| `scale(amt)` | Missing | **Skip** — time-stretch, covered by `audio-stretch` plugin. |
+| `map(fn)` | Missing | **Skip** — covered by `_fn` custom ops / plugin system. |
+| `spectrum()` | Not in stat list | **Add** to stat list — `a.stat('spectrum', {bins})`. |
+| `cepstrum()` | Not in stat list | **Skip** — niche, plugin stat territory. |
+| `Audio.isAudio(a)` | Missing | **Maybe** — type-check utility, low priority. |
+| `time()/offset()` | Missing | **Skip** — `{at}` in seconds handles all cases. |
+| `muted` | Missing | **Skip** — `volume = -Infinity` or `.pause()`. |
+| `rate` | Parked | Keep parked — needs time-stretch for pitch-preserving. |
+
+---
 
 ## Open Questions
 

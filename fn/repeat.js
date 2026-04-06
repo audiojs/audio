@@ -1,3 +1,5 @@
+import { cropSegs } from './crop.js'
+
 function repeatSegs(segs, times, total, off, dur) {
   if (off == null) {
     let r = []
@@ -21,28 +23,18 @@ function repeatSegs(segs, times, total, off, dur) {
   return r
 }
 
-function cropSegs(segs, off, len) {
-  let r = [], end = off + len
-  for (let s of segs) {
-    let a = Math.max(s.out, off), b = Math.min(s.out + s.len, end)
-    if (a < b) r.push({ src: s.src + a - s.out, out: a - off, len: b - a, ref: s.ref })
-  }
-  return r
-}
-
 const repeat = (chs, ctx) => {
   let times = ctx.args[0] || 1, sr = ctx.sampleRate
-  let offset = ctx.args[1] ?? ctx.offset
-  let duration = ctx.args[2] ?? ctx.duration
-  if (offset == null) {
+  let at = ctx.at, dur = ctx.duration
+  if (at == null) {
     return chs.map(ch => {
       let o = new Float32Array(ch.length * (times + 1))
       for (let i = 0; i <= times; i++) o.set(ch, i * ch.length)
       return o
     })
   }
-  let s = Math.round(offset * sr)
-  let e = duration != null ? s + Math.round(duration * sr) : chs[0].length
+  let s = Math.max(0, Math.round(at * sr))
+  let e = dur != null ? s + Math.round(dur * sr) : chs[0].length
   let segLen = e - s
   return chs.map(ch => {
     let o = new Float32Array(ch.length + segLen * times)
@@ -53,17 +45,17 @@ const repeat = (chs, ctx) => {
   })
 }
 
-repeat.dur = (len, sr, args) => {
-  let t = args[0] || 1, off = args[1], dur = args[2]
+repeat.dur = (len, sr, args, off, dur) => {
+  let t = args[0] || 1
   if (off == null) return len * (t + 1)
   let s = off < 0 ? len / sr + off : off
   return len + (dur != null ? Math.round(dur * sr) : len - Math.round(s * sr)) * t
 }
 
-repeat.plan = (segs, total, sr, args) => {
-  let off = args[1] != null ? Math.round((args[1] < 0 ? total / sr + args[1] : args[1]) * sr) : null
-  let dur = args[2] != null ? Math.round(args[2] * sr) : null
-  return repeatSegs(segs, args[0] || 1, total, off, dur)
+repeat.plan = (segs, total, sr, args, off, dur) => {
+  let offSamples = off != null ? Math.round((off < 0 ? total / sr + off : off) * sr) : null
+  let durSamples = dur != null ? Math.round(dur * sr) : null
+  return repeatSegs(segs, args[0] || 1, total, offSamples, durSamples)
 }
 
 export default (audio) => { audio.op.repeat = repeat }

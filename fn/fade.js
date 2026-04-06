@@ -6,12 +6,12 @@ const fade = (chs, ctx) => {
   let fn = CURVES[curve] ?? CURVES.linear
   let fadeIn = dur > 0, n = Math.abs(dur)
   let sr = ctx.sampleRate, blockOffset = ctx.blockOffset || 0
-  let offset = ctx.args[curve ? 2 : 1] ?? ctx.offset
-  if (offset != null && offset < 0) offset = (ctx.length || chs[0].length) / sr + offset
+  let at = ctx.at != null ? ctx.at + blockOffset : undefined
+  if (at != null && at < 0) at = (ctx.length || chs[0].length) / sr + at
 
   let totalSamples = ctx.length || chs[0].length + Math.round(blockOffset * sr)
-  let fadeStart = offset != null
-    ? Math.round(offset * sr)
+  let fadeStart = at != null
+    ? Math.round(at * sr)
     : fadeIn ? 0 : totalSamples - Math.round(n * sr)
   let samples = Math.round(n * sr)
   let chunkStart = Math.round(blockOffset * sr)

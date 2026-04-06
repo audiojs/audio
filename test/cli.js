@@ -1,5 +1,5 @@
 import test from 'tst'
-import { parseValue, parseRange, parseArgs } from '../bin/cli.js'
+import { parseValue, parseRange, parseArgs, showOpHelp, OP_HELP } from '../bin/cli.js'
 import audio from '../audio.js'
 import { spawn } from 'child_process'
 import { fileURLToPath } from 'url'
@@ -279,7 +279,7 @@ test('CLI — normalize to different target', async t => {
   try {
     await runCli([lenaPath, 'normalize', '-6', '-o', outPath])
     let result = await audio(outPath)
-    let peak = await result.db()
+    let peak = await result.stat('db')
     t.ok(Math.abs(peak - (-6)) < 1, 'normalized to -6dB')
   } finally {
     cleanup(outPath)
@@ -422,6 +422,117 @@ test('API — filter + mp3 encode (large, >28min stereo 48kHz)', async t => {
 }, { timeout: 300000 })
 
 // ── Helpers ──────────────────────────────────────────────────────────────
+
+// ── Per-op Help ──────────────────────────────────────────────────────────
+
+test('parseArgs — per-op help: gain --help', t => {
+  let result = parseArgs(['in.wav', 'gain', '--help'])
+  t.is(result.helpOp, 'gain', 'helpOp set to gain')
+  t.is(result.ops.length, 0, 'no ops parsed after help')
+})
+
+test('parseArgs — per-op help: hp -h', t => {
+  let result = parseArgs(['in.wav', 'hp', '-h'])
+  t.is(result.helpOp, 'highpass', 'helpOp resolved through alias')
+})
+
+test('OP_HELP — all built-in ops have help', t => {
+  let expected = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'remove',
+    'insert', 'repeat', 'mix', 'remix', 'highpass', 'lowpass', 'eq', 'lowshelf',
+    'highshelf', 'notch', 'bandpass', 'filter']
+  for (let op of expected) t.ok(OP_HELP[op], `${op} has help`)
+})
+
+test('CLI — per-op help output', async t => {
+  let output = await runCliCapture(['gain', '--help'])
+  t.ok(output.includes('gain'), 'shows gain in help')
+  t.ok(output.includes('dB'), 'shows description')
+})
+
+// ── Macro System ─────────────────────────────────────────────────────────
+
+test('parseArgs — macro flag', t => {
+  let result = parseArgs(['in.wav', '--macro', 'recipe.json', '-o', 'out.wav'])
+  t.is(result.macro, 'recipe.json', 'macro file parsed')
+})
+
+test('CLI — macro applies edits from JSON', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+
+  let macroPath = join(__dirname, 'tmp-macro.json')
+  let outPath = join(__dirname, 'tmp-macro-out.wav')
+  try {
+    writeFileSync(macroPath, JSON.stringify([
+      { type: 'gain', args: [-6] }
+    ]))
+    await runCli([lenaPath, '--macro', macroPath, '-o', outPath])
+    let result = await audio(outPath)
+    let orig = await (await audio(lenaPath)).stat('db')
+    let peak = await result.stat('db')
+    t.ok(Math.abs(peak - (orig - 6)) < 1, `macro gain applied (got ${peak.toFixed(1)}, expected ~${(orig - 6).toFixed(1)})`)
+  } finally {
+    cleanup(macroPath)
+    cleanup(outPath)
+  }
+})
+
+test('CLI — macro combined with inline ops', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+
+  let macroPath = join(__dirname, 'tmp-macro2.json')
+  let outPath = join(__dirname, 'tmp-macro2-out.wav')
+  try {
+    writeFileSync(macroPath, JSON.stringify([{ type: 'gain', args: [-3] }]))
+    await runCli([lenaPath, 'gain', '-6', '--macro', macroPath, '-o', outPath])
+    let result = await audio(outPath)
+    let orig = await (await audio(lenaPath)).stat('db')
+    let peak = await result.stat('db')
+    // gain -6 inline + gain -3 macro = -9dB from original
+    t.ok(Math.abs(peak - (orig - 9)) < 1, `inline + macro: peak ≈ ${(orig - 9).toFixed(0)}dB (got ${peak.toFixed(1)})`)
+  } finally {
+    cleanup(macroPath)
+    cleanup(outPath)
+  }
+})
+
+
+// ── Pan / Pad CLI ────────────────────────────────────────────────────────
+
+test('parseArgs — pan op', t => {
+  let r = parseArgs(['in.wav', 'pan', '-0.5', '-o', 'out.wav'])
+  t.is(r.ops[0].name, 'pan', 'pan op parsed')
+  t.is(r.ops[0].args[0], -0.5, 'pan value')
+})
+
+test('parseArgs — pad op', t => {
+  let r = parseArgs(['in.wav', 'pad', '1s', '2s', '-o', 'out.wav'])
+  t.is(r.ops[0].name, 'pad', 'pad op parsed')
+  t.is(r.ops[0].args[0], 1, 'before')
+  t.is(r.ops[0].args[1], 2, 'after')
+})
+
+test('OP_HELP — pan and pad have help', t => {
+  t.ok(OP_HELP.pan, 'pan help exists')
+  t.ok(OP_HELP.pad, 'pad help exists')
+  t.ok(OP_HELP.pan.desc, 'pan has description')
+  t.ok(OP_HELP.pad.desc, 'pad has description')
+})
+
+test('CLI — pad adds silence', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let outPath = join(__dirname, 'tmp-pad-out.wav')
+  try {
+    let orig = await audio(lenaPath)
+    let origDur = orig.duration
+    await runCli([lenaPath, 'pad', '1s', '0', '-o', outPath, '--force'])
+    let result = await audio(outPath)
+    t.ok(Math.abs(result.duration - (origDur + 1)) < 0.1, `duration increased by ~1s (got ${result.duration.toFixed(2)} from ${origDur.toFixed(2)})`)
+  } finally {
+    cleanup(outPath)
+  }
+})
+
+// ── Helper Functions ─────────────────────────────────────────────────────
 
 function runCli(args) {
   return new Promise((resolve, reject) => {
