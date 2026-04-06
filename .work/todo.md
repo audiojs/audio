@@ -4,9 +4,18 @@
 * [ ] Pitch detection — spectral centroid or YIN, `audio.stat('pitch')` + `a.pitch()` query
 * [ ] Show BPM/pitch in CLI info line (when detected)
 * [ ] recording
+* [ ] playback speed
 
 ## Engine
 
+* [ ] Options-only ranges — drop positional offset/duration, all ops: `op(value..., {at, duration, channel}?)`
+  - `a.gain(-3, {at: '1m12s', duration: 5, channel: 0})`
+  - `a.reverse({channel: 1})`
+  - Use `parse-duration` for string → ms conversion (already a dep collaborator)
+  - Numbers pass through as seconds
+  - Removes arg-sniffing from engine; plan reads `opts.at`, `opts.duration`, `opts.channel`
+* [ ] `audio.from(fn, opts)` — function source: `audio.from(i => Math.sin(440 * TAU * i / sr), {duration: 1})`
+* [ ] `audio.from(data, {format})` — PCM conversion: `audio.from(int16arr, {format: 'int16'})`
 * [ ] Automation — any op param can be a function of time: `a.gain(t => -3 * t)`, `a.filter(t => ({ freq: 200 + t * 1000 }))`
 * [ ] In-place pipeline mutation for memory efficiency
 * [ ] Index delta-tracking through edits (avoid stale rebuild for gain→trim chains)

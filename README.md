@@ -17,18 +17,20 @@ npm i audio
 <table><tr><td valign="top">
 
 **[Create](#create)**<br>
-<sub>[audio()](#create) · [audio.from()](#audiofromsource-opts) · [audio.concat()](#audioconcatsources)</sub>
+<sub>[audio()](#create) · [audio.open()](#audioopensouce-opts) · [audio.from()](#audiofromsource-opts) · [audio.concat()](#audioconcatsources)</sub>
+
+**[Properties](#properties)**
 
 **[Ops](#ops)**<br>
-<sub>[crop](#structural) · [remove](#structural) · [insert](#structural) · [repeat](#structural) · [gain](#sample) · [fade](#sample) · [reverse](#sample) · [mix](#sample) · [write](#sample) · [remix](#sample) · [trim](#smart) · [normalize](#smart) · [apply](#inline)</sub>
+<sub>[crop](#structural) · [remove](#structural) · [insert](#structural) · [repeat](#structural) · [split](#structural) · [view](#structural) · [gain](#sample) · [fade](#sample) · [reverse](#sample) · [mix](#sample) · [write](#sample) · [remix](#sample) · [trim](#smart) · [normalize](#smart) · [apply](#inline)</sub>
 
 **[Filter](#filter)**<br>
 <sub>[highpass](#filter) · [lowpass](#filter) · [bandpass](#filter) · [notch](#filter) · [lowshelf](#filter) · [highshelf](#filter) · [eq](#filter)</sub>
 
 </td><td valign="top">
 
-**[Output](#output)**<br>
-<sub>[read](#output) · [save](#output) · [stream](#stream)</sub>
+**[I/O](#io)**<br>
+<sub>[read](#io) · [save](#io) · [stream](#io)</sub>
 
 **[Analysis](#analysis)**<br>
 <sub>[db](#analysis) · [rms](#analysis) · [loudness](#analysis) · [clip](#analysis) · [dc](#analysis) · [peaks](#analysis)</sub>
@@ -68,6 +70,14 @@ let f = audio.from(3, { channels: 2 })   // 3 seconds of silence
 let g = audio.from(audioBuffer)           // Web Audio AudioBuffer
 ```
 
+**`audio.open(source, opts?)`** — async. Starts streaming decode, returns instance immediately. Pages and stats arrive progressively. Use `.loaded` to await full decode.
+
+```js
+let a = await audio.open('long.flac')  // instance available immediately
+drawWaveform(a)                        // partial stats already usable
+await a.loaded                         // wait for full decode
+```
+
 **`audio.concat(...sources)`** — joins audio instances end-to-end.
 
 ```js
@@ -75,6 +85,24 @@ let h = audio.concat(a, b)
 ```
 
 Encoded sources are paged (64K-sample chunks, evictable to OPFS for large files). PCM sources via `audio.from()` are always resident.
+
+
+## Properties
+
+```js
+a.sampleRate               // Hz (44100, 48000, …)
+a.channels                 // effective channel count
+a.duration                 // seconds (reflects edits)
+a.length                   // samples (reflects edits)
+a.source                   // original path/URL or null
+a.pages                    // Float32Array[][] — decoded PCM
+a.stats                    // per-block stats (min/max/energy/…)
+a.edits                    // edit list (inspectable)
+a.version                  // monotonic counter — increments on edit/undo
+a.decoded                  // true when source fully decoded
+a.onchange                 // callback — fires on edit/undo
+a.cursor                   // playback hint — preloads nearby pages
+```
 
 
 ## Ops
@@ -89,6 +117,9 @@ a.remove(10, 2)           // delete seconds 10–12
 a.insert(intro, 0)        // prepend another audio
 a.insert(3)               // append 3s silence
 a.repeat(2)               // double the audio
+
+a.split(30, 60)           // split into views at 30s, 60s (zero-copy)
+a.view(10, 5)             // shared-page view of 10s–15s
 ```
 
 ### Sample
@@ -158,7 +189,7 @@ a.eq(1000, 2, 3)                     // freq, Q, dB gain
 ```
 
 
-## Output
+## I/O
 
 ```js
 let pcm = await a.read()                        // Float32Array[]
@@ -166,6 +197,10 @@ let pcm = await a.read(5, 2)                    // 2s from 5s
 let raw = await a.read(0, 1, { format: 'int16' })
 let wav = await a.read({ format: 'wav' })        // Uint8Array
 await a.save('out.mp3')
+
+for await (let block of a.stream()) {            // async iterator
+  process(block)                                 // Float32Array[] per page
+}
 ```
 
 
@@ -181,17 +216,6 @@ await a.clip()                 // clipped sample count
 await a.dc()                   // DC offset
 
 let w = await a.peaks(800)     // 800-point {min, max} for waveform
-```
-
-
-## Stream
-
-Async iterator over materialized blocks:
-
-```js
-for await (let block of a.stream()) {
-  process(block)                // Float32Array[] per page
-}
 ```
 
 
@@ -281,6 +305,7 @@ Flags: `--play` / `-p`, `--force` / `-f`, `--verbose`, `--format`, `-o`.
 | [audio-filter](https://github.com/audiojs/audio-filter) | Filters (weighting, EQ, auditory) |
 | [audio-speaker](https://github.com/audiojs/audio-speaker) | Audio output (Node) |
 | [audio-type](https://github.com/nickolanack/audio-type) | Format detection |
+| [pcm-convert](https://github.com/nickolanack/pcm-convert) | PCM format conversion |
 
 
 ## Architecture
