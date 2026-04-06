@@ -1,6 +1,6 @@
 # audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/audio)](https://npmjs.org/package/audio)
 
-Load, edit, save, play, analyze audio in JavaScript.
+High-level audio manipulations in JavaScript. Load, edit, save, play, analyze audio.
 
 ```js
 import audio from 'audio'
