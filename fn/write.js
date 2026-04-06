@@ -1,7 +1,7 @@
 const write = (chs, ctx) => {
   let data = ctx.args[0], sr = ctx.sampleRate
-  let offset = ctx.args[1] ?? ctx.offset ?? 0
-  let p = Math.round(offset * sr)
+  let p = ctx.at != null ? Math.round(ctx.at * sr) : 0
+  p = Math.max(0, p)
   return chs.map((ch, c) => {
     let o = new Float32Array(ch)
     let s = Array.isArray(data) ? (data[c] || data[0]) : data

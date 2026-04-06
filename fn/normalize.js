@@ -1,40 +1,22 @@
 import { kWeighting } from 'audio-filter/weighting'
+import { lufsFromEnergy } from '../stats.js'
 
-const GATE_WINDOW = 0.4, ABS_GATE = -70, REL_GATE = -10, LUFS_OFFSET = -0.691
 const PRESETS = { streaming: -14, podcast: -16, broadcast: -23 }
-
-function lufsFromEnergy(energy, ch, sampleRate, blockSize) {
-  let winBlocks = Math.ceil(GATE_WINDOW * sampleRate / blockSize), gates = []
-  let blocks = energy[0].length
-  for (let i = 0; i < blocks; i += winBlocks) {
-    let we = Math.min(i + winBlocks, blocks), sum = 0, n = 0
-    for (let c = 0; c < ch; c++) for (let j = i; j < we; j++) { sum += energy[c][j]; n++ }
-    if (n > 0) gates.push(sum / n)
-  }
-  let absT = 10 ** (ABS_GATE / 10), gated = gates.filter(g => g > absT)
-  if (!gated.length) return null
-  let mean = gated.reduce((a, b) => a + b, 0) / gated.length
-  let final = gated.filter(g => g > mean * 10 ** (REL_GATE / 10))
-  if (!final.length) return null
-  return LUFS_OFFSET + 10 * Math.log10(final.reduce((a, b) => a + b, 0) / final.length)
-}
+const GATE_WINDOW = 0.4, ABS_GATE = -70, REL_GATE = -10, LUFS_OFFSET = -0.691
 
 const normalize = (chs, ctx) => {
   let targetDb = ctx.args[0], opts = ctx.args[1]
   let mode = 'peak', sr = ctx.sampleRate
-  // Determine offset/duration — after the op-specific args
-  let argIdx = 1
   if (typeof targetDb === 'string') {
     if (!PRESETS[targetDb]) throw new Error(`normalize: unknown preset '${targetDb}'. Use: ${Object.keys(PRESETS).join(', ')}`)
     mode = 'lufs'; targetDb = PRESETS[targetDb]
   } else {
     targetDb = targetDb ?? 0
-    if (typeof opts === 'string') { mode = opts; argIdx = 2 }
-    else if (opts?.mode) { mode = opts.mode; argIdx = 2 }
+    if (typeof opts === 'string') { mode = opts }
+    else if (opts?.mode) { mode = opts.mode }
   }
-  let offset = ctx.args[argIdx], duration = ctx.args[argIdx + 1]
-  let s = offset != null ? Math.round(offset * sr) : 0
-  let end = duration != null ? s + Math.round(duration * sr) : chs[0].length
+  let s = ctx.at != null ? Math.round(ctx.at * sr) : 0
+  let end = ctx.duration != null ? s + Math.round(ctx.duration * sr) : chs[0].length
 
   // Measure only the target range
   let gain
@@ -75,17 +57,16 @@ normalize.plan = false
 normalize.resolve = (args, ctx) => {
   let { stats, sampleRate } = ctx
   if (!stats?.min) return null
-  let targetDb, mode = 'peak', argIdx = 1
+  let targetDb, mode = 'peak'
   if (typeof args[0] === 'string') {
     if (!PRESETS[args[0]]) return null
     mode = 'lufs'; targetDb = PRESETS[args[0]]
   } else {
     targetDb = args[0] ?? 0
     let opts = args[1]
-    if (typeof opts === 'string') { mode = opts; argIdx = 2 }
-    else if (opts?.mode) { mode = opts.mode; argIdx = 2 }
+    if (typeof opts === 'string') { mode = opts }
+    else if (opts?.mode) { mode = opts.mode }
   }
-  let offset = args[argIdx], duration = args[argIdx + 1]
   let ch = stats.min.length, gainDb
   if (mode === 'lufs') {
     let lufs = lufsFromEnergy(stats.energy, ch, sampleRate, stats.blockSize)
@@ -99,9 +80,7 @@ normalize.resolve = (args, ctx) => {
     if (!peak) return false
     gainDb = targetDb - 20 * Math.log10(peak)
   }
-  let gainArgs = [gainDb]
-  if (offset != null) { gainArgs.push(offset); if (duration != null) gainArgs.push(duration) }
-  return { type: 'gain', args: gainArgs }
+  return { type: 'gain', args: [gainDb] }
 }
 
 export default (audio) => { audio.op.normalize = normalize }

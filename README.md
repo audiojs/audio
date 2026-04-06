@@ -17,12 +17,12 @@ npm i audio
 <table><tr><td valign="top">
 
 **[Create](#create)**<br>
-<sub>[audio()](#create) · [audio.open()](#audioopensouce-opts) · [audio.from()](#audiofromsource-opts) · [audio.concat()](#audioconcatsources)</sub>
+<sub>[audio()](#create) · [audio.open()](#audioopensouce-opts) · [audio.from()](#audiofromsource-opts) · [audio.record()](#audiorecordopts) · [audio.concat()](#audioconcatsources)</sub>
 
 **[Properties](#properties)**
 
 **[Ops](#ops)**<br>
-<sub>[crop](#structural) · [remove](#structural) · [insert](#structural) · [repeat](#structural) · [split](#structural) · [view](#structural) · [gain](#sample) · [fade](#sample) · [reverse](#sample) · [mix](#sample) · [write](#sample) · [remix](#sample) · [trim](#smart) · [normalize](#smart) · [apply](#inline)</sub>
+<sub>[crop](#structural) · [remove](#structural) · [insert](#structural) · [repeat](#structural) · [pad](#structural) · [split](#structural) · [view](#structural) · [gain](#sample) · [fade](#sample) · [reverse](#sample) · [mix](#sample) · [write](#sample) · [remix](#sample) · [pan](#sample) · [trim](#smart) · [normalize](#smart) · [apply](#inline)</sub>
 
 **[Filter](#filter)**<br>
 <sub>[highpass](#filter) · [lowpass](#filter) · [bandpass](#filter) · [notch](#filter) · [lowshelf](#filter) · [highshelf](#filter) · [eq](#filter)</sub>
@@ -33,7 +33,7 @@ npm i audio
 <sub>[read](#io) · [save](#io) · [stream](#io)</sub>
 
 **[Analysis](#analysis)**<br>
-<sub>[db](#analysis) · [rms](#analysis) · [loudness](#analysis) · [clip](#analysis) · [dc](#analysis) · [peaks](#analysis)</sub>
+<sub>[stat](#analysis)</sub>
 
 **[Playback](#playback)**<br>
 <sub>[play](#playback) · [pause](#playback) · [stop](#playback)</sub>
@@ -53,9 +53,10 @@ All parameters use physical units: **seconds**, **dB**, **Hz**, **LUFS**. No sam
 let a = await audio('file.mp3')          // file path (Node)
 let b = await audio(url)                  // URL string or URL object
 let c = await audio(uint8array)           // encoded bytes
+let d = await audio([a, b])              // concat from array
 
 // progressive decode — streams stats as pages decode
-let d = await audio('long.flac', {
+let e = await audio('long.flac', {
   onprogress({ delta, offset, total }) {
     appendWaveform(delta.min, delta.max)
   }
@@ -65,9 +66,11 @@ let d = await audio('long.flac', {
 **`audio.from(source, opts?)`** — sync. Wraps existing PCM. No decode, no I/O.
 
 ```js
-let e = audio.from([left, right])         // Float32Array[] channels
-let f = audio.from(3, { channels: 2 })   // 3 seconds of silence
-let g = audio.from(audioBuffer)           // Web Audio AudioBuffer
+let f = audio.from([left, right])         // Float32Array[] channels
+let g = audio.from(3, { channels: 2 })   // 3 seconds of silence
+let h = audio.from(audioBuffer)           // Web Audio AudioBuffer
+let i = audio.from(i => Math.sin(440 * TAU * i / sr), { duration: 1 })  // function source
+let j = audio.from(int16arr, { format: 'int16' })  // typed array with format conversion
 ```
 
 **`audio.open(source, opts?)`** — async. Starts streaming decode, returns instance immediately. Pages and stats arrive progressively. Use `.loaded` to await full decode.
@@ -78,11 +81,22 @@ drawWaveform(a)                        // partial stats already usable
 await a.loaded                         // wait for full decode
 ```
 
+**`audio.record(opts?)`** — push-based recording. Feed PCM chunks, stop when done.
+
+```js
+let a = audio.record({ sampleRate: 44100, channels: 1 })
+a.push(float32chunk)                   // feed PCM data
+a.push(anotherChunk)
+a.stop()                               // finalize — stats computed
+```
+
 **`audio.concat(...sources)`** — joins audio instances end-to-end.
 
 ```js
-let h = audio.concat(a, b)
+let k = audio.concat(a, b)
 ```
+
+`audio.version` — package version string.
 
 Encoded sources are paged (64K-sample chunks, evictable to OPFS for large files). PCM sources via `audio.from()` are always resident.
 
@@ -98,9 +112,7 @@ a.source                   // original path/URL or null
 a.pages                    // Float32Array[][] — decoded PCM
 a.stats                    // per-block stats (min/max/energy/…)
 a.edits                    // edit list (inspectable)
-a.version                  // monotonic counter — increments on edit/undo
 a.decoded                  // true when source fully decoded
-a.onchange                 // callback — fires on edit/undo
 a.cursor                   // playback hint — preloads nearby pages
 ```
 
@@ -109,35 +121,50 @@ a.cursor                   // playback hint — preloads nearby pages
 
 All ops are sync, chainable, non-destructive. They push to the edit list — source pages are never mutated.
 
+All sample ops accept `{at, duration, channel}` options:
+
+```js
+a.gain(-3, {at: 1, duration: 5})       // 1s–6s only
+a.gain(-6, {channel: 0})               // left channel only
+a.gain(-6, {channel: [0, 1]})          // specific channels
+```
+
 ### Structural
 
 ```js
-a.crop(1, 5)              // keep seconds 1–6
-a.remove(10, 2)           // delete seconds 10–12
-a.insert(intro, 0)        // prepend another audio
-a.insert(3)               // append 3s silence
-a.repeat(2)               // double the audio
+a.crop({at: 1, duration: 5})       // keep seconds 1–6
+a.remove({at: 10, duration: 2})    // delete seconds 10–12
+a.insert(intro, {at: 0})           // prepend another audio
+a.insert(3)                        // append 3s silence
+a.repeat(2)                        // double the audio
+a.pad(1)                           // 1s silence both ends
+a.pad(0.5, 2)                      // 0.5s before, 2s after
 
-a.split(30, 60)           // split into views at 30s, 60s (zero-copy)
-a.view(10, 5)             // shared-page view of 10s–15s
+a.split(30, 60)                    // split into views at 30s, 60s (zero-copy)
+a.view({at: 10, duration: 5})      // shared-page view of 10s–15s
 ```
 
 ### Sample
 
 ```js
-a.gain(-3)                // reduce by 3dB
-a.gain(6, 10, 5)          // boost 6dB from 10s for 5s
+a.gain(-3)                         // reduce by 3dB
+a.gain(6, {at: 10, duration: 5})   // boost 6dB from 10s for 5s
+a.gain(t => -3 * t)                // automation: ramp down over time
 
-a.fade(0.5)               // fade in first 0.5s
-a.fade(-1)                // fade out last 1s
-a.fade(-1, 'exp')         // exponential curve
+a.fade(0.5)                        // fade in first 0.5s
+a.fade(-1)                         // fade out last 1s
+a.fade(-1, 'exp')                  // exponential curve
 
-a.reverse()               // reverse entire audio
-a.mix(other, 10, 5)       // overlay at 10s for 5s
-a.write([left, right], 2) // overwrite from 2s
+a.reverse()                        // reverse entire audio
+a.reverse({at: 5, duration: 2})    // reverse 2s range
+a.mix(other, {at: 10, duration: 5})// overlay at 10s for 5s
+a.write([left, right], {at: 2})    // overwrite from 2s
 
-a.remix(1)                // stereo → mono
-a.remix(2)                // mono → stereo
+a.remix(1)                         // stereo → mono
+a.remix(2)                         // mono → stereo
+
+a.pan(-0.5)                        // pan left (stereo balance)
+a.pan(t => Math.sin(t))            // automation: oscillating pan
 ```
 
 ### Smart
@@ -155,21 +182,30 @@ a.normalize('broadcast')             // -23 LUFS (EBU R128)
 a.normalize(-14, 'lufs')             // explicit target
 ```
 
-### Inline
+### Run
 
 ```js
-a.apply((channels, ctx) => {
+// apply edit objects directly
+a.run(
+  { type: 'trim', args: [-30] },
+  { type: 'gain', args: [-3], at: 0.5, duration: 1 },
+  { type: 'normalize', args: [0] }
+)
+
+// re-apply undone edits
+let edit = a.undo()
+a.run(edit)
+```
+
+### Transform
+
+```js
+// inline per-chunk transform
+a.transform((channels, ctx) => {
   for (let ch of channels)
     for (let i = 0; i < ch.length; i++) ch[i] *= 0.5
   return channels
 })
-
-// mix edit objects and functions
-a.apply(
-  { type: 'trim', args: [-30] },
-  (channels) => process(channels),
-  { type: 'normalize', args: [0] }
-)
 ```
 
 
@@ -192,47 +228,59 @@ a.eq(1000, 2, 3)                     // freq, Q, dB gain
 ## I/O
 
 ```js
-let pcm = await a.read()                        // Float32Array[]
-let pcm = await a.read(5, 2)                    // 2s from 5s
-let raw = await a.read(0, 1, { format: 'int16' })
-let wav = await a.read({ format: 'wav' })        // Uint8Array
+let pcm = await a.read()                          // Float32Array[]
+let pcm = await a.read({at: 5, duration: 2})      // 2s from 5s
+let ch0 = await a.read({channel: 0})              // single channel
+let raw = await a.read({at: 0, duration: 1, format: 'int16'})
+let wav = await a.read({ format: 'wav' })          // Uint8Array
 await a.save('out.mp3')
 
-for await (let block of a.stream()) {            // async iterator
-  process(block)                                 // Float32Array[] per page
+for await (let block of a.stream()) {              // async iterator
+  process(block)                                   // Float32Array[] per page
 }
 ```
 
 
 ## Analysis
 
-All async, instant from stats when clean. Support `(offset?, duration?)` for sub-range.
+All async, instant from stats when clean. `{at, duration}` for sub-range. `{bins}` for waveform data.
 
 ```js
-await a.db()                   // peak dBFS
-await a.rms()                  // RMS level
-await a.loudness()             // integrated LUFS (BS.1770)
-await a.clip()                 // clipped sample count
-await a.dc()                   // DC offset
+await a.stat('db')                      // peak dBFS
+await a.stat('rms')                     // RMS level
+await a.stat('loudness')                // integrated LUFS (BS.1770)
+await a.stat('clip')                    // clipped sample count
+await a.stat('dc')                      // DC offset
 
-let w = await a.peaks(800)     // 800-point {min, max} for waveform
+await a.stat('spectrum', {bins: 128})   // mel spectrum (dB)
+await a.stat('cepstrum', {bins: 13})    // MFCCs
+
+let w = await a.stat('max', {bins: 800})// 800-point Float32Array for waveform
+let m = await a.stat('min', {bins: 800, channel: [0, 1]})// per-channel
+let c = await a.stat('max', {channel: 0})// single channel scalar
 ```
 
 
 ## Playback
 
-Returns independent controller. Node uses `audio-speaker`; browser uses Web Audio API.
+Returns the instance. Node uses `audio-speaker`; browser uses Web Audio API.
 
 ```js
-let p = a.play()              // play from start
-let p = a.play(10, 5)         // play 5s from 10s
+a.play()                               // play from start
+a.play({at: 10, duration: 5})          // play 5s from 10s
+a.play({volume: -6, loop: true})
 
-p.pause()
-p.stop()
-p.currentTime                  // get/set seconds
-p.playing                      // boolean
-p.ontimeupdate = (t) => {}
-p.onended = () => {}
+a.pause()
+a.resume()
+a.stop()
+a.seek(30)                              // jump to 30s
+a.currentTime                           // seconds (read/write)
+a.playing                               // boolean
+a.paused                                // boolean
+a.volume                                // dB (read/write, 0 = unity)
+a.loop                                  // boolean (read/write)
+a.ontimeupdate = (t) => {}
+a.onended = () => {}
 ```
 
 
@@ -256,24 +304,29 @@ a.onchange = () => {}
 ### Custom ops
 
 ```js
-audio.op('invert', () => (block) => {
-  for (let ch of block)
-    for (let i = 0; i < ch.length; i++) ch[i] = -ch[i]
-  return block
-})
+audio.op.invert = (chs, ctx) => {
+  let s = ctx.at != null ? Math.round(ctx.at * ctx.sampleRate) : 0
+  let end = ctx.duration != null ? s + Math.round(ctx.duration * ctx.sampleRate) : chs[0].length
+  return chs.map(ch => {
+    let o = new Float32Array(ch)
+    for (let i = s; i < end; i++) o[i] = -o[i]
+    return o
+  })
+}
+audio.use()                              // wires a.invert()
 
 a.invert()
-a.invert(2, 1)                 // range: 2s for 1s
+a.invert({at: 2, duration: 1})         // range: 2s for 1s
 ```
 
 ### Custom stats
 
 ```js
-audio.stat('rms', (channels) => channels.map(ch => {
+audio.stat.rms = () => (channels) => channels.map(ch => {
   let sum = 0
   for (let i = 0; i < ch.length; i++) sum += ch[i] * ch[i]
   return Math.sqrt(sum / ch.length)
-}))
+})
 
 a.stats.rms                    // [Float32Array, ...] per-channel
 ```
@@ -288,12 +341,19 @@ npx audio in.wav --play
 npx audio in.wav gain -3db 1s..10s -o out.wav
 npx audio in.mp3 normalize streaming -o out.wav
 npx audio in.mp3 highpass 80hz lowshelf 200hz -3db -o out.wav
+npx audio '*.wav' gain -3db -o '{name}.out.{ext}'  # batch
+npx audio in.wav --macro recipe.json -o out.wav
+npx audio gain --help                            # per-op help
 cat in.wav | audio gain -3db > out.wav
 ```
 
 Ranges: `1s..10s`, `30s..1m`, `-1s..`. Units: `s`, `ms`, `m`, `h`, `db`, `hz`, `khz`.
 
-Flags: `--play` / `-p`, `--force` / `-f`, `--verbose`, `--format`, `-o`.
+Flags: `--play` / `-p`, `--force` / `-f`, `--verbose`, `--format`, `-o`, `--macro FILE`.
+
+Macro files are JSON arrays of edits: `[{"type": "gain", "args": [-3]}, {"type": "trim"}]`.
+
+Plugins in `node_modules/audio-*` are auto-discovered at startup.
 
 
 ## Ecosystem
@@ -310,14 +370,24 @@ Flags: `--play` / `-p`, `--force` / `-f`, `--verbose`, `--format`, `-o`.
 
 ## Architecture
 
+Four layers:
+
+| Layer | Purpose | Files |
+|-------|---------|-------|
+| **Source** | Immutable backing — encoded file or PCM | `core.js` (decode) |
+| **Stats** | Per-block measurements, always resident (~7MB for 2h stereo) | `stats.js` |
+| **Pages** | Decoded PCM in 64K chunks, paged on demand, evictable | `cache.js` |
+| **Edits** | Declarative op list — structural, sample, stat-conditioned | `history.js` |
+
+`audio.js` is the entry point — registers all built-in ops, stats, and methods. `fn/` contains each op/stat as a plugin.
+
+Any output (read, play, stream, save, stat) resolves the same pipeline:
+
 ```
-audio.js         Entry — registers all built-in ops, stats, methods
-core.js          Engine — decode, pages, stats, render, proto
-history.js       Non-destructive editing — edit list, undo, plan, streaming
-cache.js         OPFS paging, eviction
-stats.js         Block-level stat accumulation
-fn/              All ops, stats, and methods as plugins
+source pages → segment map (structural ops) → sample pipeline (per-page) → output
 ```
+
+Stats power waveform display and analysis without touching PCM. Stat-conditioned ops like `normalize` and `trim` resolve from stats at plan time — no extra render pass.
 
 Three import paths:
 
@@ -326,20 +396,6 @@ import audio from 'audio'            // full bundle
 import audio from 'audio/core'       // bare engine — no ops
 import gain from 'audio/fn/gain.js'  // individual plugin
 ```
-
-Data flow:
-
-```
-source → decode → pages (64K, evictable) + stats (per-block, always resident)
-                    ↓
-              edit list (append-only, non-destructive)
-                    ↓
-              read plan (structural → segments, sample → pipeline)
-                    ↓
-              .read() / .stream() / .play()
-```
-
-Stats (~7MB for 2h stereo) power instant analysis without touching PCM. Extensible via `audio.stat()`.
 
 
 <p align="center"><a href="./license.md">MIT</a> · <a href="https://github.com/krishnized/license">ॐ</a></p>

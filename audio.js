@@ -38,22 +38,19 @@ import remix from './fn/remix.js'
 import trim from './fn/trim.js'
 import normalize from './fn/normalize.js'
 import filter from './fn/filter.js'
+import pan from './fn/pan.js'
+import pad from './fn/pad.js'
+import transform from './fn/transform.js'
 
-import minStat from './fn/min.js'
-import maxStat from './fn/max.js'
-import energyStat from './fn/energy.js'
-import clipStat from './fn/clip.js'
-import dcStat from './fn/dc.js'
-import db from './fn/db.js'
-import rms from './fn/rms.js'
-import loudness from './fn/loudness.js'
-import peaks from './fn/peaks.js'
+import stat from './fn/stat.js'
+import spectrumStat from './fn/spectrum.js'
+import cepstrumStat from './fn/cepstrum.js'
 
 audio.use(
   // methods
   view, split, play, save, concat,
   // ops
-  crop, remove, insert, repeat, gain, fade, reverse, mix, write, remix, trim, normalize, filter,
+  crop, remove, insert, repeat, gain, fade, reverse, mix, write, remix, trim, normalize, filter, pan, pad, transform,
   // stats
-  minStat, maxStat, energyStat, clipStat, dcStat, db, rms, loudness, peaks,
+  stat, spectrumStat, cepstrumStat,
 )

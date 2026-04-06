@@ -11,8 +11,7 @@
  */
 
 import audio from '../audio.js'
-import { kWeighting } from 'audio-filter/weighting'
-import freqz from 'digital-filter/core/freqz.js'
+import { melSpectrum, toMel, fromMel } from '../fn/spectrum.js'
 import parseDuration from 'parse-duration'
 
 const VERSION = '2.0.0'
@@ -69,9 +68,46 @@ function isOpName(s) {
   return s in audio.op || s in ALIAS
 }
 
+// ── Per-op Help ──────────────────────────────────────────────────────────
+
+const OP_HELP = {
+  gain:      { usage: 'gain DB [RANGE]', desc: 'Amplify in dB', examples: ['gain -3db', 'gain 6 1s..5s'] },
+  fade:      { usage: 'fade [IN] [-OUT] [CURVE]', desc: 'Fade in/out (bare = 0.5s both)', examples: ['fade', 'fade 1s', 'fade .2s -1s cos'] },
+  trim:      { usage: 'trim [THR]', desc: 'Auto-trim silence (threshold in dB)', examples: ['trim', 'trim -40'] },
+  normalize: { usage: 'normalize [DB] [MODE]', desc: 'Normalize peak/loudness', examples: ['normalize', 'normalize -3', 'normalize streaming'] },
+  reverse:   { usage: 'reverse [RANGE]', desc: 'Reverse audio', examples: ['reverse', 'reverse 1s..5s'] },
+  crop:      { usage: 'crop OFF DUR', desc: 'Crop to time range', examples: ['crop 1s..10s', 'crop 0 5s'] },
+  remove:    { usage: 'remove OFF DUR', desc: 'Delete time range', examples: ['remove 2s..4s'] },
+  insert:    { usage: 'insert SRC [OFF]', desc: 'Insert audio at position', examples: ['insert other.wav 3s'] },
+  repeat:    { usage: 'repeat N', desc: 'Repeat N times', examples: ['repeat 3'] },
+  mix:       { usage: 'mix SRC [OFF]', desc: 'Mix in another audio file', examples: ['mix bg.wav 0s'] },
+  remix:     { usage: 'remix CH', desc: 'Change channel count', examples: ['remix 1', 'remix 2'] },
+  highpass:  { usage: 'highpass FC [ORDER]', desc: 'High-pass filter', examples: ['hp 80hz', 'highpass 120hz 4'] },
+  lowpass:   { usage: 'lowpass FC [ORDER]', desc: 'Low-pass filter', examples: ['lp 8000hz', 'lowpass 4khz 4'] },
+  eq:        { usage: 'eq FC GAIN [Q]', desc: 'Parametric EQ', examples: ['eq 1khz -3db', 'eq 300hz 2 0.5'] },
+  lowshelf:  { usage: 'lowshelf FC GAIN [Q]', desc: 'Low shelf filter', examples: ['ls 200hz -3db'] },
+  highshelf: { usage: 'highshelf FC GAIN [Q]', desc: 'High shelf filter', examples: ['hs 8khz 2db'] },
+  notch:     { usage: 'notch FC [Q]', desc: 'Notch (band-reject) filter', examples: ['notch 60hz', 'notch 50hz 50'] },
+  bandpass:  { usage: 'bandpass FC [Q]', desc: 'Band-pass filter', examples: ['bp 1khz', 'bandpass 440hz 10'] },
+  filter:    { usage: 'filter TYPE ...ARGS', desc: 'Generic filter dispatch', examples: ['filter highpass 80hz'] },
+  pan:       { usage: 'pan VALUE [RANGE]', desc: 'Stereo balance: -1 left, 0 center, 1 right', examples: ['pan -0.5', 'pan 1 2s..5s'] },
+  pad:       { usage: 'pad [BEFORE] [AFTER]', desc: 'Add silence to start/end (single arg = both)', examples: ['pad 1s', 'pad 0.5s 2s'] },
+}
+
+function showOpHelp(name) {
+  let key = ALIAS[name] || name
+  let h = OP_HELP[key]
+  if (!h) { console.error(`No help for: ${name}`); return }
+  console.log(`\n  ${h.usage}\n\n  ${h.desc}\n`)
+  if (h.examples.length) console.log('  Examples:')
+  for (let ex of h.examples) console.log(`    audio in.wav ${ex} -o out.wav`)
+  console.log()
+}
+
 function parseArgs(args) {
   let input = null, ops_ = [], output = null, format = null
   let verbose = false, showHelp = false, play = false, force = false
+  let macro = null, helpOp = null
   let i = 0
 
   // Check for explicit -i / --input flag at start
@@ -109,6 +145,9 @@ function parseArgs(args) {
     } else if (arg === '--force' || arg === '-f') {
       force = true
       i++
+    } else if (arg === '--macro') {
+      macro = args[++i]
+      i++
     } else if (isFlag(arg)) {
       throw new Error(`Unknown flag: ${arg}`)
     } else if (!input && !isOpName(arg)) {
@@ -133,6 +172,11 @@ function parseArgs(args) {
         let range = parseRange(opArgs.pop())
         offset = range.offset
         duration = range.duration
+      }
+
+      // Per-op help: `gain --help`
+      if (opArgs.length === 0 && i < args.length && (args[i] === '--help' || args[i] === '-h')) {
+        helpOp = name; i++; continue
       }
 
       ops_.push({ name, args: opArgs, offset, duration })
@@ -168,7 +212,7 @@ function parseArgs(args) {
   }
   ops_ = expanded
 
-  return { input, ops: ops_, output, format, verbose, showHelp, play, force }
+  return { input, ops: ops_, output, format, verbose, showHelp, play, force, macro, helpOp }
 }
 
 // ── I/O ──────────────────────────────────────────────────────────────────
@@ -267,54 +311,25 @@ async function playback(p, totalSec, decodedSec, a, src) {
 
   // FFT spectrum state
   const N = 1024, SBARS = ' ▁▂▃▄▅▆▇█'
-  const win = new Float32Array(N)
-  for (let i = 0; i < N; i++) win[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (N - 1)))
   let prev = null
 
-  // Mel scale (perceptual frequency mapping)
-  let toMel = f => 2595 * Math.log10(1 + f / 700)
-  let fromMel = m => 700 * (10 ** (m / 2595) - 1)
-
   // Auto-scaling: track running peak dB for spectrum
-  let specMax = -60, specFreqs = null, specDb = null, kWeights = null
+  let specMax = -60
 
   let spec = (block, sr, w, paused) => {
     if (!fft) return ' '.repeat(w)
-    let fMin = 30, fMax = Math.min(sr / 2, 20000), binHz = sr / N
-    let mMin = toMel(fMin), mMax = toMel(fMax)
-    if (!specFreqs || specFreqs.length !== w) {
-      specFreqs = new Float32Array(w)
-      for (let b = 0; b < w; b++) {
-        let f0 = fromMel(mMin + (mMax - mMin) * b / w)
-        let f1 = fromMel(mMin + (mMax - mMin) * (b + 1) / w)
-        specFreqs[b] = (f0 + f1) / 2
-      }
-      let { magnitude } = freqz(kWeighting.coefs(sr), Array.from(specFreqs), sr)
-      kWeights = magnitude
-    }
+    let fMin = 30, fMax = Math.min(sr / 2, 20000)
     if (block && block.length >= N) {
-      let buf = new Float32Array(N)
-      for (let i = 0; i < N; i++) buf[i] = block[i] * win[i]
-      let mag = fft(buf)
+      let mag = melSpectrum(block.subarray(0, N), sr, { bins: w, fMin, fMax })
       if (!prev || prev.length !== w) prev = new Float32Array(w)
-      for (let b = 0; b < w; b++) {
-        let f0 = fromMel(mMin + (mMax - mMin) * b / w)
-        let f1 = fromMel(mMin + (mMax - mMin) * (b + 1) / w)
-        let k0 = Math.max(1, Math.floor(f0 / binHz))
-        let k1 = Math.min(mag.length - 1, Math.ceil(f1 / binHz))
-        let sum = 0, cnt = 0
-        for (let k = k0; k <= k1; k++) { sum += mag[k] ** 2; cnt++ }
-        let rms = cnt > 0 ? Math.sqrt(sum / cnt) : 0
-        rms *= kWeights[b]
-        prev[b] = paused ? rms : Math.max(rms, prev[b] * 0.85)
-      }
+      for (let b = 0; b < w; b++) prev[b] = paused ? mag[b] : Math.max(mag[b], prev[b] * 0.85)
     } else if (prev && !paused) {
       for (let b = 0; b < prev.length; b++) prev[b] *= 0.85
     }
     if (!prev) return ' '.repeat(w)
     // Auto-scale: find current max dB, decay peak slowly
     let curMax = -100
-    specDb = new Float32Array(w)
+    let specDb = new Float32Array(w)
     for (let b = 0; b < w; b++) {
       specDb[b] = 20 * Math.log10(prev[b] + 1e-10)
       if (specDb[b] > curMax) curMax = specDb[b]
@@ -367,7 +382,7 @@ async function playback(p, totalSec, decodedSec, a, src) {
   let refreshInfo = async () => {
     if (!a?.decoded) return
     try {
-      let [peak, , l, clips, dcOff] = await Promise.all([a.db(), a.rms(), a.loudness(), a.clip(), a.dc()])
+      let [peak, , l, clips, dcOff] = await Promise.all([a.stat('db'), a.stat('rms'), a.stat('loudness'), a.stat('clip'), a.stat('dc')])
       let warn = ''
       if (clips) warn += `   clip:${clips}`
       if (Math.abs(dcOff) > 0.001) warn += `   dc:${dcOff.toFixed(4)}`
@@ -462,6 +477,29 @@ async function playback(p, totalSec, decodedSec, a, src) {
   process.stderr.write(out)
 }
 
+// ── Plugin Auto-Discovery ────────────────────────────────────────────────
+
+async function discoverPlugins() {
+  try {
+    let { readdir } = await import('fs/promises')
+    let { join } = await import('path')
+    let { createRequire } = await import('module')
+    let require = createRequire(import.meta.url)
+    let nmDir = join(require.resolve('../package.json'), '..', 'node_modules')
+    let entries
+    try { entries = await readdir(nmDir) } catch { return }
+    let plugins = entries.filter(n => n.startsWith('audio-') && !n.startsWith('audio-decode') && !n.startsWith('audio-type')
+      && !n.startsWith('audio-lena') && !n.startsWith('audio-speaker') && !n.startsWith('audio-filter') && !n.startsWith('audio-encode'))
+    for (let name of plugins) {
+      try {
+        let mod = await import(join(nmDir, name, 'index.js'))
+        let plugin = mod.default || mod
+        if (typeof plugin === 'function') audio.use(plugin)
+      } catch {}
+    }
+  } catch {}
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -478,6 +516,7 @@ async function main() {
   }
 
   try {
+    await discoverPlugins()
     let opts = parseArgs(args)
 
     if (opts.showHelp) {
@@ -485,10 +524,77 @@ async function main() {
       process.exit(0)
     }
 
+    // Per-op help
+    if (opts.helpOp) {
+      showOpHelp(opts.helpOp)
+      process.exit(0)
+    }
+
+    // Load macro edits
+    let macroOps = []
+    if (opts.macro) {
+      let { readFileSync } = await import('fs')
+      let raw = JSON.parse(readFileSync(opts.macro, 'utf-8'))
+      let edits = Array.isArray(raw) ? raw : raw.edits || raw.ops
+      if (!Array.isArray(edits)) throw new Error('Macro file must contain an array of edits')
+      macroOps = edits.map(e => ({ name: e.type || e.name, args: e.args || [], offset: e.at ?? null, duration: e.duration ?? null }))
+    }
+    let allOps = [...opts.ops, ...macroOps]
+
+    // Resolve input(s) — support glob for batch processing
+    let inputs = []
+    if (opts.input) {
+      if (opts.input.includes('*') || opts.input.includes('?')) {
+        let { glob } = await import('fs/promises')
+        if (glob) {
+          for await (let f of glob(opts.input)) inputs.push(f)
+        } else {
+          // Node < 22 fallback
+          let { globSync } = await import('glob').catch(() => ({ globSync: null }))
+          inputs = globSync ? globSync(opts.input) : [opts.input]
+        }
+        if (!inputs.length) throw new Error(`No files matching: ${opts.input}`)
+      } else {
+        inputs.push(opts.input)
+      }
+    }
+
+    // Batch mode: multiple inputs
+    if (inputs.length > 1) {
+      let { basename, extname, dirname, join } = await import('path')
+      let { existsSync } = await import('fs')
+      for (let file of inputs) {
+        let ext = extname(file), name = basename(file, ext)
+        let outFile = opts.output
+          ? opts.output.replace('{name}', name).replace('{ext}', ext.slice(1))
+          : join(dirname(file), name + '.out' + ext)
+        if (!opts.force && existsSync(outFile)) {
+          process.stderr.write(`audio: ${outFile} already exists (use --force to overwrite)\n`)
+          process.exit(1)
+        }
+        process.stderr.write(`Processing: ${file}\n`)
+        let a = await audio(file)
+        for (let op of allOps) {
+          let fullArgs = op.args.slice()
+          if (op.offset != null || op.duration != null) {
+            let rangeOpts = {}
+            if (op.offset != null) rangeOpts.at = op.offset
+            if (op.duration != null) rangeOpts.duration = op.duration
+            fullArgs.push(rangeOpts)
+          }
+          if (typeof a[op.name] !== 'function') throw new Error(`Unknown operation: ${op.name}`)
+          a[op.name](...fullArgs)
+        }
+        await a.save(outFile)
+        process.stderr.write(`  → ${outFile}\n`)
+      }
+      process.exit(0)
+    }
+
     // Determine input source
     let source
-    if (opts.input) {
-      source = opts.input
+    if (inputs.length) {
+      source = inputs[0]
     } else {
       process.stderr.write('Reading from stdin...\n')
       let buf = await getStdinBuffer()
@@ -496,7 +602,7 @@ async function main() {
     }
 
     // Streaming playback — start playing as pages decode (no ops needed)
-    if (opts.play && !opts.ops.length && !opts.output && typeof source === 'string') {
+    if (opts.play && !allOps.length && !opts.output && typeof source === 'string') {
       if (opts.verbose) console.error(`Opening: ${source}`)
       let spin = !opts.verbose ? spinner('Loading') : null
       let a = await audio.open(source)
@@ -521,8 +627,8 @@ async function main() {
     if (opts.verbose) console.error('\n')
 
     // no-ops: show audio info
-    if (!opts.ops.length && !opts.output && !opts.play) {
-      let [peak, , l, clips, dcOff] = await Promise.all([a.db(), a.rms(), a.loudness(), a.clip(), a.dc()])
+    if (!allOps.length && !opts.output && !opts.play) {
+      let [peak, , l, clips, dcOff] = await Promise.all([a.stat('db'), a.stat('rms'), a.stat('loudness'), a.stat('clip'), a.stat('dc')])
       console.log(`  Duration:   ${formatDuration(a.duration)}`)
       console.log(`  Channels:   ${a.channels}`)
       console.log(`  SampleRate: ${a.sampleRate} Hz`)
@@ -532,17 +638,21 @@ async function main() {
       console.log(`  Clipping:   ${clips || 'none'}`)
       console.log(`  DC offset:  ${Math.abs(dcOff) > 0.0001 ? dcOff.toFixed(4) : 'none'}`)
       if (loadTime) console.log(`  Loaded in:  ${loadTime}s`)
-      if (!opts.ops.length && !opts.output) process.exit(0)
+      if (!allOps.length && !opts.output) process.exit(0)
     }
 
     // Apply operations
-    if (opts.ops.length) {
-      if (opts.verbose) console.error(`Applying ${opts.ops.length} operation(s)...`)
-      for (let op of opts.ops) {
+    if (allOps.length) {
+      if (opts.verbose) console.error(`Applying ${allOps.length} operation(s)...`)
+      for (let op of allOps) {
         let { name, args, offset, duration } = op
         let fullArgs = args.slice()
-        if (offset != null) fullArgs.push(offset)
-        if (duration != null) fullArgs.push(duration)
+        if (offset != null || duration != null) {
+          let rangeOpts = {}
+          if (offset != null) rangeOpts.at = offset
+          if (duration != null) rangeOpts.duration = duration
+          fullArgs.push(rangeOpts)
+        }
         if (typeof a[name] !== 'function') throw new Error(`Unknown operation: ${name}`)
         try { a[name](...fullArgs) }
         catch (e) { throw new Error(`${name}: ${formatError(e)}`) }
@@ -556,7 +666,7 @@ async function main() {
     }
 
     // Save output
-    if (opts.output || (!opts.play && opts.ops.length)) {
+    if (opts.output || (!opts.play && allOps.length)) {
       let output = opts.output || 'out.wav'
 
       // Check for overwrite
@@ -575,7 +685,7 @@ async function main() {
           let bytes = await a.read({ format: fmt })
           process.stdout.write(Buffer.from(bytes))
         } else {
-          let spin = !opts.verbose ? spinner(opts.ops.length ? 'Processing' : 'Saving') : null
+          let spin = !opts.verbose ? spinner(allOps.length ? 'Processing' : 'Saving') : null
           await new Promise(r => setTimeout(r, 100))  // let spinner render before blocking render()
           await a.save(output, {
             format: fmt,
@@ -617,6 +727,8 @@ Operations (positional):
   repeat N         Repeat N times
   mix SRC OFF      Mix in another audio file
   remix CH         Remix channels (e.g., remix 2 for stereo)
+  pan VALUE        Stereo balance: -1 left, 0 center, 1 right
+  pad [BEFORE] [AFTER]  Add silence to edges (single arg = both)
 
 Filters (ORDER = steepness: 2 = -12dB/oct, 4 = -24dB/oct, default: 2):
   highpass | hp FC [ORDER]   Remove below FC (e.g., hp 120hz 4)
@@ -641,10 +753,14 @@ Units:
 Options:
   --play, -p    Play the result (after ops, before save)
   --force, -f   Overwrite output file if it exists
+  --macro FILE  Apply edits from JSON file
   --verbose     Show progress and debug info
   --format FMT  Override output format (default: from extension)
-  --help, -h    Show this help
+  --help, -h    Show this help (or after an op: audio gain --help)
   --version, -v Show version
+
+Batch:
+  audio '*.wav' gain -3db -o '{name}.out.{ext}'  Process multiple files
 
 Examples:
   audio in.mp3
@@ -663,7 +779,7 @@ For more info: https://github.com/audiojs/audio
 }
 
 // Exports for testing
-export { parseValue, parseRange, parseArgs }
+export { parseValue, parseRange, parseArgs, showOpHelp, OP_HELP }
 
 // Run CLI if invoked directly (not imported)
 let argv1 = process.argv[1]

@@ -18,8 +18,7 @@ function insertSegs(segs, at, len, ref) {
 
 const insert = (chs, ctx) => {
   let source = ctx.args[0], sr = ctx.sampleRate
-  let offset = ctx.args[1] ?? ctx.offset
-  let duration = ctx.duration
+  let at = ctx.at, duration = ctx.duration
   let src = typeof source === 'number'
     ? Array.from({ length: chs.length }, () => new Float32Array(Math.round(source * sr)))
     : ctx.render(source)
@@ -27,7 +26,7 @@ const insert = (chs, ctx) => {
     let n = Math.round(duration * sr)
     src = src.map(ch => ch.slice(0, n))
   }
-  let p = Math.round((offset ?? chs[0].length / sr) * sr)
+  let p = Math.round((at ?? chs[0].length / sr) * sr)
   return chs.map((ch, c) => {
     let ins = src[c] || new Float32Array(src[0].length)
     let o = new Float32Array(ch.length + ins.length)
@@ -43,8 +42,8 @@ insert.dur = (len, sr, args) => {
   return len + n
 }
 
-insert.plan = (segs, total, sr, args) => {
-  let source = args[0], at = args[1] != null ? Math.round(args[1] * sr) : total
+insert.plan = (segs, total, sr, args, off) => {
+  let source = args[0], at = off != null ? Math.round(off * sr) : total
   let iLen = typeof source === 'number' ? Math.round(source * sr) : source.length
   return insertSegs(segs, at, iLen, typeof source === 'number' ? null : source)
 }
