@@ -31,6 +31,8 @@ export default (audio) => {
                 from = ctrl._seekTo; ctrl._seekTo = null
                 ctrl.currentTime = from; seeked = true; break
               }
+              let end = Math.min(bOff + BLOCK, cLen), len = end - bOff
+              ctrl.block = chunk[0].subarray(bOff, end)
               while (ctrl.paused && ctrl.playing && ctrl._seekTo == null)
                 await new Promise(r => { ctrl._wake = r })
               ctrl._wake = null
@@ -38,8 +40,6 @@ export default (audio) => {
               if (!ctrl.playing) break
 
               let g = 10 ** (ctrl.volume / 20)
-              let end = Math.min(bOff + BLOCK, cLen), len = end - bOff
-              ctrl.block = chunk[0].subarray(bOff, end)
               let buf = new Float32Array(len * ch)
               for (let i = 0; i < len; i++) for (let c = 0; c < ch; c++)
                 buf[i * ch + c] = (chunk[c] || chunk[0])[bOff + i] * g

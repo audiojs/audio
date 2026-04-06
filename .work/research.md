@@ -297,11 +297,11 @@ audio in.wav compress --ratio 4 -o out.wav
          48kHz   1ch   ⠴ decoding  +loop
 ```
 
-## Ideas
+## Metrics
 
 * Detect which instruments are used in the song
 * Detect bpm, pitch
-* Step splitting
+* Stem splitting
 
 ### Ranges
 

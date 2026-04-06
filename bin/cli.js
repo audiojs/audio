@@ -11,6 +11,8 @@
  */
 
 import audio from '../audio.js'
+import { kWeighting } from 'audio-filter/weighting'
+import freqz from 'digital-filter/core/freqz.js'
 import parseDuration from 'parse-duration'
 
 const VERSION = '2.0.0'
@@ -69,7 +71,7 @@ function isOpName(s) {
 
 function parseArgs(args) {
   let input = null, ops_ = [], output = null, format = null
-  let verbose = false, showHelp = false, play = false, stat = false, force = false
+  let verbose = false, showHelp = false, play = false, force = false
   let i = 0
 
   // Check for explicit -i / --input flag at start
@@ -103,9 +105,6 @@ function parseArgs(args) {
       i++
     } else if (arg === '--play' || arg === '-p') {
       play = true
-      i++
-    } else if (arg === '--stat' || arg === '--info') {
-      stat = true
       i++
     } else if (arg === '--force' || arg === '-f') {
       force = true
@@ -169,7 +168,7 @@ function parseArgs(args) {
   }
   ops_ = expanded
 
-  return { input, ops: ops_, output, format, verbose, showHelp, play, stat, force }
+  return { input, ops: ops_, output, format, verbose, showHelp, play, force }
 }
 
 // ── I/O ──────────────────────────────────────────────────────────────────
@@ -190,16 +189,16 @@ function formatError(err) {
 }
 
 function formatDuration(s) {
-  let m = Math.floor(s / 60), sec = (s % 60).toFixed(2)
-  return m > 0 ? `${m}m${sec}s` : `${sec}s`
+  let h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = Math.floor(s % 60)
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`
 }
 
 function spinner(lbl) {
-  let dots = 0, t0 = Date.now()
-  let id = setInterval(() => process.stderr.write(`\r\x1b[K${lbl}${'.'.repeat(dots || 1)}`), 200)
+  let i = 0, info = '', t0 = Date.now(), spin = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+  let id = setInterval(() => process.stderr.write(`\r\x1b[K${spin[i++ % 10]} ${lbl}${info}`), 80)
   return {
-    label(l) { lbl = l; dots = 0 },
-    set(n) { dots = n },
+    label(l) { lbl = l },
+    set(s) { info = s },
     stop() { clearInterval(id); process.stderr.write('\r\x1b[K'); return ((Date.now() - t0) / 1000).toFixed(1) }
   }
 }
@@ -276,21 +275,23 @@ async function playback(p, totalSec, decodedSec, a, src) {
   let toMel = f => 2595 * Math.log10(1 + f / 700)
   let fromMel = m => 700 * (10 ** (m / 2595) - 1)
 
-  // A-weighting: perceptual loudness correction per frequency (IEC 61672:2003)
-  let aWeight = f => {
-    let f2 = f * f, f4 = f2 * f2
-    let num = 12194 ** 2 * f4
-    let den = (f2 + 20.6 ** 2) * Math.sqrt((f2 + 107.7 ** 2) * (f2 + 737.9 ** 2)) * (f2 + 12194 ** 2)
-    return 20 * Math.log10(num / den + 1e-20) + 2.0
-  }
-
   // Auto-scaling: track running peak dB for spectrum
-  let specMax = -60
+  let specMax = -60, specFreqs = null, specDb = null, kWeights = null
 
-  let spec = (block, sr, w) => {
+  let spec = (block, sr, w, paused) => {
     if (!fft) return ' '.repeat(w)
     let fMin = 30, fMax = Math.min(sr / 2, 20000), binHz = sr / N
     let mMin = toMel(fMin), mMax = toMel(fMax)
+    if (!specFreqs || specFreqs.length !== w) {
+      specFreqs = new Float32Array(w)
+      for (let b = 0; b < w; b++) {
+        let f0 = fromMel(mMin + (mMax - mMin) * b / w)
+        let f1 = fromMel(mMin + (mMax - mMin) * (b + 1) / w)
+        specFreqs[b] = (f0 + f1) / 2
+      }
+      let { magnitude } = freqz(kWeighting.coefs(sr), Array.from(specFreqs), sr)
+      kWeights = magnitude
+    }
     if (block && block.length >= N) {
       let buf = new Float32Array(N)
       for (let i = 0; i < N; i++) buf[i] = block[i] * win[i]
@@ -299,31 +300,30 @@ async function playback(p, totalSec, decodedSec, a, src) {
       for (let b = 0; b < w; b++) {
         let f0 = fromMel(mMin + (mMax - mMin) * b / w)
         let f1 = fromMel(mMin + (mMax - mMin) * (b + 1) / w)
-        let fc = (f0 + f1) / 2
         let k0 = Math.max(1, Math.floor(f0 / binHz))
         let k1 = Math.min(mag.length - 1, Math.ceil(f1 / binHz))
         let sum = 0, cnt = 0
         for (let k = k0; k <= k1; k++) { sum += mag[k] ** 2; cnt++ }
         let rms = cnt > 0 ? Math.sqrt(sum / cnt) : 0
-        rms *= 10 ** (aWeight(fc) / 20)
-        prev[b] = Math.max(rms, prev[b] * 0.85)
+        rms *= kWeights[b]
+        prev[b] = paused ? rms : Math.max(rms, prev[b] * 0.85)
       }
-    } else if (prev) {
+    } else if (prev && !paused) {
       for (let b = 0; b < prev.length; b++) prev[b] *= 0.85
     }
     if (!prev) return ' '.repeat(w)
-    // Auto-scale: find current max dB
+    // Auto-scale: find current max dB, decay peak slowly
     let curMax = -100
+    specDb = new Float32Array(w)
     for (let b = 0; b < w; b++) {
-      let db = 20 * Math.log10(prev[b] + 1e-10)
-      if (db > curMax) curMax = db
+      specDb[b] = 20 * Math.log10(prev[b] + 1e-10)
+      if (specDb[b] > curMax) curMax = specDb[b]
     }
-    specMax = Math.max(specMax, curMax)
+    specMax = Math.max(curMax, specMax - 0.3)
     let floor = specMax - 48  // 48dB dynamic range, 6dB per level
     let out = ''
     for (let b = 0; b < w; b++) {
-      let db = 20 * Math.log10(prev[b] + 1e-10)
-      let level = Math.round((db - floor) / 6)
+      let level = Math.round((specDb[b] - floor) / 6)
       out += SBARS[Math.max(0, Math.min(8, level))]
     }
     return out
@@ -332,7 +332,7 @@ async function playback(p, totalSec, decodedSec, a, src) {
   let freqLabels = (sr, w) => {
     if (!fft || w < 20) return ''
     let fMax = Math.min(sr / 2, 20000), mMin = toMel(30), mMax = toMel(fMax)
-    let marks = [[50,'50'],[100,'100'],[250,'250'],[500,'500'],[1000,'1k'],[2000,'2k'],[5000,'5k'],[10000,'10k']]
+    let marks = [[50,'50'],[100,'100'],[200,'200'],[500,'500'],[1000,'1k'],[2000,'2k'],[5000,'5k'],[10000,'10k']]
     let srLbl = fMax >= 1000 ? Math.round(fMax / 1000) + 'k' : Math.round(fMax) + ''
     let arr = new Array(w).fill(' ')
     // Max freq at right
@@ -367,8 +367,11 @@ async function playback(p, totalSec, decodedSec, a, src) {
   let refreshInfo = async () => {
     if (!a?.decoded) return
     try {
-      let [peak, r, l] = await Promise.all([a.db(), a.rms(), a.loudness()])
-      fileInfo = `${fmtRate(a.sampleRate)}   ${a.channels}ch   ${formatDuration(a.duration)}   ${peak.toFixed(1)}dBFS   ${(20 * Math.log10(r)).toFixed(1)}dB   ${l.toFixed(1)}LUFS`
+      let [peak, , l, clips, dcOff] = await Promise.all([a.db(), a.rms(), a.loudness(), a.clip(), a.dc()])
+      let warn = ''
+      if (clips) warn += `   clip:${clips}`
+      if (Math.abs(dcOff) > 0.001) warn += `   dc:${dcOff.toFixed(4)}`
+      fileInfo = `${fmtRate(a.sampleRate)}   ${a.channels}ch   ${formatDuration(a.duration)}   ${peak.toFixed(1)}dBFS   ${l.toFixed(1)}LUFS${warn}`
     } catch { fileInfo = '(info unavailable)' }
     render(p.currentTime)
   }
@@ -381,12 +384,13 @@ async function playback(p, totalSec, decodedSec, a, src) {
   let render = t => {
     let w = cols()
     let ts = totalSec?.() || 0, ds = decodedSec?.() ?? ts
-    let icon = p.paused ? '▶' : '⏸'
+    let icon = p.paused ? '⏸' : '▶'
     let ct = playTime(t), tt = ts > 0 ? '-' + playTime(ts - t) : '-0:00:00'
+    let loop = p.loop ? '↻' : ' '
     let vb = volBar(p.volume)
     let barStart = ct.length + 3  // icon + space + time + space
     let lpad = ' '.repeat(barStart)
-    let pad = barStart + tt.length + vb.length + 3
+    let pad = barStart + tt.length + vb.length + 5  // +1 loop +1 space
     let barW = Math.max(10, w - pad)
     let bar = progressBar(t, ds, ts, barW)
 
@@ -395,15 +399,13 @@ async function playback(p, totalSec, decodedSec, a, src) {
     let pFill = Math.round(Math.min(t / ref, 1) * barW)
     let cursorCol = barStart + pFill
 
-    let out = `\r\x1b[K${icon} ${ct} ${bar} ${tt} ${vb}`
+    let out = `\r\x1b[K${icon} ${ct} ${bar} ${tt} ${loop} ${vb}`
     let newLines = 1
 
     if (fft) {
       let sw = Math.min(barW, Math.max(4, w - barStart - 2))
       let sr = p.sampleRate || 44100
-      // Empty line between waveform and spectrum
-      out += '\n\x1b[K'; newLines++
-      let s = spec(p.block, sr, sw)
+      let s = spec(p.block, sr, sw, p.paused)
       out += `\n\x1b[K${lpad}${s}`
       newLines++
       let fl = freqLabels(sr, sw)
@@ -412,10 +414,9 @@ async function playback(p, totalSec, decodedSec, a, src) {
       }
     }
 
-    // Info line with loop
-    let loopTag = p.loop ? `   +${RST}l${DIM}oop` : `    ${RST}l${DIM}oop`
+    // Info line
     let decoding = a && !a.decoded ? `   ${SPIN[spinIdx++ % 10]} decoding` : ''
-    let infoStr = msg || (fileInfo ? fileInfo + loopTag + decoding : (a ? `${fmtRate(a.sampleRate)}   ${a.channels}ch${loopTag}${decoding}` : ''))
+    let infoStr = msg || (fileInfo ? fileInfo + decoding : (a ? `${fmtRate(a.sampleRate)}   ${a.channels}ch${decoding}` : ''))
     out += '\n\x1b[K'; newLines++
     if (infoStr) { out += `\n\x1b[K${lpad}${DIM}${infoStr}${RST}`; newLines++ }
 
@@ -495,7 +496,7 @@ async function main() {
     }
 
     // Streaming playback — start playing as pages decode (no ops needed)
-    if (opts.play && !opts.ops.length && !opts.output && !opts.stat && typeof source === 'string') {
+    if (opts.play && !opts.ops.length && !opts.output && typeof source === 'string') {
       if (opts.verbose) console.error(`Opening: ${source}`)
       let spin = !opts.verbose ? spinner('Loading') : null
       let a = await audio.open(source)
@@ -514,21 +515,22 @@ async function main() {
     let a = await audio(source, {
       onprogress: opts.verbose
         ? ({ offset }) => process.stderr.write(`\rDecoding... ${formatDuration(offset)}`)
-        : spin ? ({ offset }) => spin.set(Math.ceil(offset / 60)) : undefined
+        : undefined
     })
     let loadTime = spin?.stop()
     if (opts.verbose) console.error('\n')
 
-    // --stat / --info / no-ops: show audio info
-    if (opts.stat || (!opts.ops.length && !opts.output && !opts.play)) {
-      let [peak, r, l] = await Promise.all([a.db(), a.rms(), a.loudness()])
+    // no-ops: show audio info
+    if (!opts.ops.length && !opts.output && !opts.play) {
+      let [peak, , l, clips, dcOff] = await Promise.all([a.db(), a.rms(), a.loudness(), a.clip(), a.dc()])
       console.log(`  Duration:   ${formatDuration(a.duration)}`)
       console.log(`  Channels:   ${a.channels}`)
       console.log(`  SampleRate: ${a.sampleRate} Hz`)
       console.log(`  Samples:    ${a.length}`)
       console.log(`  Peak:       ${peak.toFixed(1)} dBFS`)
-      console.log(`  RMS:        ${(20 * Math.log10(r)).toFixed(1)} dB`)
       console.log(`  Loudness:   ${l.toFixed(1)} LUFS`)
+      console.log(`  Clipping:   ${clips || 'none'}`)
+      console.log(`  DC offset:  ${Math.abs(dcOff) > 0.0001 ? dcOff.toFixed(4) : 'none'}`)
       if (loadTime) console.log(`  Loaded in:  ${loadTime}s`)
       if (!opts.ops.length && !opts.output) process.exit(0)
     }
@@ -553,8 +555,8 @@ async function main() {
       if (!opts.output) process.exit(0)
     }
 
-    // Save output (skip if only --stat or --play without -o)
-    if (opts.output || (!opts.stat && !opts.play && opts.ops.length)) {
+    // Save output
+    if (opts.output || (!opts.play && opts.ops.length)) {
       let output = opts.output || 'out.wav'
 
       // Check for overwrite
@@ -573,10 +575,11 @@ async function main() {
           let bytes = await a.read({ format: fmt })
           process.stdout.write(Buffer.from(bytes))
         } else {
-          let spin = !opts.verbose ? spinner(opts.ops.length ? 'Rendering' : 'Saving') : null
+          let spin = !opts.verbose ? spinner(opts.ops.length ? 'Processing' : 'Saving') : null
+          await new Promise(r => setTimeout(r, 100))  // let spinner render before blocking render()
           await a.save(output, {
             format: fmt,
-            onprogress: spin ? ({ offset }) => { spin.label('Saving'); spin.set(Math.ceil(offset / 60)) } : undefined
+            onprogress: spin ? ({ offset, total }) => spin.set(' ' + Math.round(offset / total * 100) + '%') : undefined
           })
           let elapsed = spin?.stop()
           if (opts.verbose) console.error(`Saved: ${output}`)
@@ -637,7 +640,6 @@ Units:
 
 Options:
   --play, -p    Play the result (after ops, before save)
-  --stat        Show audio info (duration, channels, peak, loudness)
   --force, -f   Overwrite output file if it exists
   --verbose     Show progress and debug info
   --format FMT  Override output format (default: from extension)
@@ -645,7 +647,7 @@ Options:
   --version, -v Show version
 
 Examples:
-  audio in.mp3 --stat
+  audio in.mp3
   audio in.mp3 gain -3db trim normalize -o out.wav
   audio in.wav --play
   audio in.mp3 fade -o out.mp3

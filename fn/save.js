@@ -24,10 +24,12 @@ export default (audio) => {
       finish = () => target.close?.()
     } else throw new Error('Invalid save target')
 
+    let tick = 0
     for await (let chunk of this.stream()) {
       let buf = await enc(chunk)
       if (buf.length) write(buf)
       written += chunk[0].length
+      if (++tick % 2 === 0) await new Promise(r => setTimeout(r, 0))
       onprogress?.({ offset: written / sr, total: this.duration })
     }
     let final = await enc()

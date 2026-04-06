@@ -42,6 +42,8 @@ import filter from './fn/filter.js'
 import minStat from './fn/min.js'
 import maxStat from './fn/max.js'
 import energyStat from './fn/energy.js'
+import clipStat from './fn/clip.js'
+import dcStat from './fn/dc.js'
 import db from './fn/db.js'
 import rms from './fn/rms.js'
 import loudness from './fn/loudness.js'
@@ -53,5 +55,5 @@ audio.use(
   // ops
   crop, remove, insert, repeat, gain, fade, reverse, mix, write, remix, trim, normalize, filter,
   // stats
-  minStat, maxStat, energyStat, db, rms, loudness, peaks,
+  minStat, maxStat, energyStat, clipStat, dcStat, db, rms, loudness, peaks,
 )
