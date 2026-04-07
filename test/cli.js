@@ -169,11 +169,11 @@ test('parseArgs — -i flag anywhere', t => {
 
 test('ops registry — all built-ins available', async t => {
   let audio = (await import('../audio.js')).default
-  t.ok(audio.fn.gain?.process, 'gain op exists')
-  t.ok(audio.fn.fade?.process, 'fade op exists')
-  t.ok(audio.fn.trim?.process, 'trim op exists')
-  t.ok(audio.fn.normalize?.process, 'normalize op exists')
-  t.ok(audio.fn.remix?.process, 'remix op exists')
+  t.ok(audio.op('gain'), 'gain op exists')
+  t.ok(audio.op('fade'), 'fade op exists')
+  t.ok(audio.op('trim'), 'trim op exists')
+  t.ok(audio.op('normalize'), 'normalize op exists')
+  t.ok(audio.op('remix'), 'remix op exists')
   t.ok(typeof audio.fn.trim === 'function', 'trim is function')
   t.ok(typeof audio.fn.normalize === 'function', 'normalize is function')
 })
@@ -339,13 +339,13 @@ test('CLI — mono trim normalize save mp3', async t => {
 // ── Filters ──────────────────────────────────────────────────────────────
 
 test('ops registry — filter ops available', t => {
-  t.ok(audio.fn.highpass?.process, 'highpass op')
-  t.ok(audio.fn.lowpass?.process, 'lowpass op')
-  t.ok(audio.fn.eq?.process, 'eq op')
-  t.ok(audio.fn.lowshelf?.process, 'lowshelf op')
-  t.ok(audio.fn.highshelf?.process, 'highshelf op')
-  t.ok(audio.fn.notch?.process, 'notch op')
-  t.ok(audio.fn.bandpass?.process, 'bandpass op')
+  t.ok(audio.op('highpass'), 'highpass op')
+  t.ok(audio.op('lowpass'), 'lowpass op')
+  t.ok(audio.op('eq'), 'eq op')
+  t.ok(audio.op('lowshelf'), 'lowshelf op')
+  t.ok(audio.op('highshelf'), 'highshelf op')
+  t.ok(audio.op('notch'), 'notch op')
+  t.ok(audio.op('bandpass'), 'bandpass op')
 })
 
 test('API — highpass filter applies correctly', async t => {
@@ -530,6 +530,105 @@ test('CLI — pad adds silence', async t => {
     t.ok(Math.abs(result.duration - (origDur + 1)) < 0.1, `duration increased by ~1s (got ${result.duration.toFixed(2)} from ${origDur.toFixed(2)})`)
   } finally {
     cleanup(outPath)
+  }
+})
+
+// ── Glob / Batch ─────────────────────────────────────────────────────────
+
+test('parseArgs — glob input preserved', t => {
+  let r = parseArgs(['*.wav', 'gain', '-3', '-o', '{name}.out.wav'])
+  t.is(r.input, '*.wav', 'glob preserved as input')
+  t.is(r.output, '{name}.out.wav', 'template output')
+})
+
+test('CLI — batch glob processes multiple files', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let { copyFileSync } = await import('fs')
+  let src1 = join(__dirname, 'tmp-batch-a.wav')
+  let src2 = join(__dirname, 'tmp-batch-b.wav')
+  let out1 = join(__dirname, 'tmp-batch-a.done.wav')
+  let out2 = join(__dirname, 'tmp-batch-b.done.wav')
+  try {
+    copyFileSync(lenaPath, src1)
+    copyFileSync(lenaPath, src2)
+    await runCli(['test/tmp-batch-?.wav', 'gain', '-3', '-o', 'test/{name}.done.wav'])
+    let a = await audio(out1), b = await audio(out2)
+    t.ok(a.duration > 0, 'first output has audio')
+    t.ok(b.duration > 0, 'second output has audio')
+  } finally {
+    cleanup(src1); cleanup(src2); cleanup(out1); cleanup(out2)
+  }
+})
+
+test('CLI — batch template {name} and {ext}', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let { copyFileSync } = await import('fs')
+  let src1 = join(__dirname, 'tmp-btpl-a.wav')
+  let src2 = join(__dirname, 'tmp-btpl-b.wav')
+  let out1 = join(__dirname, 'tmp-btpl-a.clean.wav')
+  let out2 = join(__dirname, 'tmp-btpl-b.clean.wav')
+  try {
+    copyFileSync(lenaPath, src1)
+    copyFileSync(lenaPath, src2)
+    await runCli(['test/tmp-btpl-?.wav', 'normalize', '-o', 'test/{name}.clean.{ext}'])
+    let a = await audio(out1), b = await audio(out2)
+    t.ok(a.duration > 0, 'template output 1 created')
+    t.ok(b.duration > 0, 'template output 2 created')
+  } finally {
+    cleanup(src1); cleanup(src2); cleanup(out1); cleanup(out2)
+  }
+})
+
+test('CLI — batch no-force rejects existing output', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let { copyFileSync } = await import('fs')
+  let src1 = join(__dirname, 'tmp-bforce-a.wav')
+  let src2 = join(__dirname, 'tmp-bforce-b.wav')
+  let out1 = join(__dirname, 'tmp-bforce-a.done.wav')
+  let out2 = join(__dirname, 'tmp-bforce-b.done.wav')
+  try {
+    copyFileSync(lenaPath, src1)
+    copyFileSync(lenaPath, src2)
+    // first run creates outputs
+    await runCli(['test/tmp-bforce-?.wav', 'gain', '-3', '-o', 'test/{name}.done.wav', '--force'])
+    // second run without --force should fail
+    try {
+      await runCli(['test/tmp-bforce-?.wav', 'gain', '-3', '-o', 'test/{name}.done.wav'])
+      t.fail('should have thrown')
+    } catch (e) {
+      t.ok(e.message.includes('already exists'), 'error mentions existing file')
+    }
+  } finally {
+    cleanup(src1); cleanup(src2); cleanup(out1); cleanup(out2)
+  }
+})
+
+test('CLI — batch --force overwrites', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let { copyFileSync } = await import('fs')
+  let src1 = join(__dirname, 'tmp-bf2-a.wav')
+  let src2 = join(__dirname, 'tmp-bf2-b.wav')
+  let out1 = join(__dirname, 'tmp-bf2-a.done.wav')
+  let out2 = join(__dirname, 'tmp-bf2-b.done.wav')
+  try {
+    copyFileSync(lenaPath, src1)
+    copyFileSync(lenaPath, src2)
+    await runCli(['test/tmp-bf2-?.wav', 'gain', '-3', '-o', 'test/{name}.done.wav'])
+    await runCli(['test/tmp-bf2-?.wav', 'gain', '-6', '-o', 'test/{name}.done.wav', '--force'])
+    let a = await audio(out1), b = await audio(out2)
+    t.ok(a.duration > 0, 'overwritten output 1 valid')
+    t.ok(b.duration > 0, 'overwritten output 2 valid')
+  } finally {
+    cleanup(src1); cleanup(src2); cleanup(out1); cleanup(out2)
+  }
+})
+
+test('CLI — glob no matches throws', async t => {
+  try {
+    await runCli(['test/nonexistent-glob-*.wav', 'gain', '-3', '-o', 'out.wav'])
+    t.fail('should have thrown')
+  } catch (e) {
+    t.ok(e.message.includes('No files matching') || e.stderr?.includes('No files matching'), 'error mentions no matches')
   }
 })
 

@@ -5,8 +5,13 @@
   "type": "module",
   "main": "audio.js",
   "exports": {
-    ".": "./audio.js",
+    ".": {
+      "browser": "./dist/audio.js",
+      "default": "./audio.js"
+    },
     "./core": "./core.js",
+    "./core.js": "./core.js",
+    "./history.js": "./history.js",
     "./fn/*": "./fn/*"
   },
   "types": "./audio.d.ts",
@@ -20,6 +25,7 @@
     "pcm"
   ],
   "scripts": {
+    "build": "node build.js",
     "test": "node test/index.js && node test/cli.js",
     "test:browser": "node test/browser.js",
     "test:all": "npm test && npm run test:browser",
@@ -30,19 +36,23 @@
     "@audio/decode-caf": "^1.1.0",
     "@audio/decode-wav": "^1.1.0",
     "@audio/encode-mp3": "^1.0.1",
-    "a-weighting": "^1.1.0",
-    "audio-decode": "^3.8.0",
-    "audio-filter": "^2.2.0",
-    "audio-speaker": "^2.1.0",
-    "audio-type": "^2.0.0",
-    "encode-audio": "^1.2.1",
+    "a-weighting": "^2.0.1",
+    "audio-decode": "^3.8.1",
+    "audio-filter": "^2.2.2",
+    "audio-speaker": "^2.1.1",
+    "audio-type": "^2.4.1",
+    "encode-audio": "^1.2.2",
     "fourier-transform": "^2.2.0",
-    "parse-duration": "^2.1.5",
-    "pcm-convert": "^3.1.0",
-    "window-function": "^3.0.0"
+    "parse-duration": "^2.1.6",
+    "pcm-convert": "^3.1.1",
+    "window-function": "^3.0.1"
+  },
+  "optionalDependencies": {
+    "audio-mic": "^1.0.0"
   },
   "devDependencies": {
     "audio-lena": "^3.0.0",
+    "esbuild": "^0.28.0",
     "playwright": "^1.59.1",
     "tst": "^9.4.0"
   }

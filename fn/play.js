@@ -111,4 +111,3 @@ let proto = audio.fn
 proto.pause = function() { this.paused = true }
 proto.resume = function() { this.paused = false; if (this._._wake) this._._wake() }
 proto.stop = function() { this.playing = false; this.paused = false; if (this._._wake) this._._wake() }
-proto.seek = function(t) { this._._seekTo = Math.max(0, t); if (this._._wake) this._._wake() }

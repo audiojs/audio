@@ -16,26 +16,8 @@ audio.op('dc', (chs, ctx) => {
   return chs
 })
 
-function normalizeEdit(arg) {
-  let edit = { type: 'normalize', args: [] }
-
-  if (typeof arg === 'string' || typeof arg === 'number') {
-    edit.args = [arg]
-  } else if (arg != null && typeof arg === 'object') {
-    let { target, mode, at, duration, channel, ...extra } = arg
-    if (target != null) edit.target = target
-    if (mode) edit.mode = mode
-    if (at != null) edit.at = at
-    if (duration != null) edit.duration = duration
-    if (channel != null) edit.channel = channel
-    Object.assign(edit, extra)
-  }
-
-  return edit
-}
-
 audio.op('normalize', () => { }, {
-  lower: (args, ctx) => {
+  resolve: (args, ctx) => {
     let { stats, sampleRate } = ctx
     if (!stats?.min) return null
     if (ctx.ceiling != null) return null  // ceiling needs per-sample clipping — can't do from stats
@@ -44,7 +26,7 @@ audio.op('normalize', () => { }, {
     let mode = typeof arg === 'string' ? 'lufs' : ctx.mode || 'peak'
     let targetDb = PRESETS[arg] ?? (typeof arg === 'number' ? arg : ctx.target ?? 0)
     let totalCh = stats.min.length
-    let chs = ctx.channel != null ? [ctx.channel] : Array.from({ length: totalCh }, (_, i) => i)
+    let chs = ctx.channel != null ? (Array.isArray(ctx.channel) ? ctx.channel : [ctx.channel]) : Array.from({ length: totalCh }, (_, i) => i)
 
     let dcOff = new Float64Array(totalCh)
     if (ctx.dc !== false && stats.dc) dcOff = dcOffsets(stats, chs)
@@ -65,7 +47,12 @@ audio.op('normalize', () => { }, {
 })
 
 // wrap to desugar normalize args (string preset, number target, options object)
-audio.fn.normalize = Object.assign(
-  function(arg) { return this.run(normalizeEdit(arg)) },
-  audio.fn.normalize
-)
+let _normalize = audio.fn.normalize
+audio.fn.normalize = function(arg) {
+  if (typeof arg === 'string' || typeof arg === 'number') return _normalize.call(this, arg)
+  if (arg != null && typeof arg === 'object') {
+    let { target, mode, at, duration, channel, ...extra } = arg
+    return _normalize.call(this, target, { mode, at, duration, channel, ...extra })
+  }
+  return _normalize.call(this)
+}

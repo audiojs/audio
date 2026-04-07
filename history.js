@@ -3,54 +3,50 @@
  * Intercepts create/run/read/stream to track and materialize edits.
  */
 
-import audio, { readPages, copyPages, walkPages, LOAD, READ } from './core.js'
-import parseDuration from 'parse-duration'
-
-function parseTime(v) {
-  if (v == null) return v
-  if (typeof v === 'number') return v
-  let s = parseDuration(v, 's')
-  if (s != null && isFinite(s)) return s
-  throw new Error(`Invalid time: ${v}`)
-}
-
-/** Sentinel for silence segments in plans. */
-export const SILENCE = Symbol('silence')
+import audio, { readPages, copyPages, walkPages, parseTime, LOAD, READ } from './core.js'
 
 let fn = audio.fn
+let meta = {}
+
+// ── Segments: [src, count, dst, rate?, ref?] ────────────────────
+export function seg(src, count, dst, rate, ref) {
+  let s = [src, count, dst]
+  if (rate != null && rate !== 1) s[3] = rate
+  if (ref !== undefined) s[4] = ref
+  return s
+}
 
 // ── Op Registration ─────────────────────────────────────────────
 
 function isOpts(v) {
   return v != null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v) && !v.pages
-    && ('at' in v || 'duration' in v || 'channel' in v || 'offset' in v || 'length' in v)
 }
 
-/** Register an op: audio.op(name, process, opts?) */
-audio.op = function(name, process, opts) {
-  let m = fn[name]
-  if (!m) {
-    m = fn[name] = function(...a) {
+/** Register/query op: audio.op(name, process?, plan?, opts?) */
+audio.op = function(name, process, arg3, arg4) {
+  if (arguments.length === 1) return meta[name]
+  if (!fn[name]) {
+    fn[name] = function(...a) {
       let edit = { type: name, args: a }, last = a[a.length - 1]
       if (a.length && isOpts(last)) {
-        let { at, duration, channel, offset, length } = last
+        let { at, duration, channel, offset, length, ...extra } = last
         edit.args = a.slice(0, -1)
-        if (at != null) edit.at = at
-        if (duration != null) edit.duration = duration
+        if (at != null) edit.at = parseTime(at)
+        if (duration != null) edit.duration = parseTime(duration)
         if (offset != null) edit.offset = offset
         if (length != null) edit.length = length
         if (channel != null) edit.channel = channel
+        Object.assign(edit, extra)
       }
       return this.run(edit)
     }
-  } else {
-    fn[name] = m
   }
-  m.process = process
-  for (let k of ['plan', 'lower', 'outLen', 'ch', 'overlap']) {
-    let v = opts?.[k] ?? process[k]
-    if (v !== undefined) m[k] = v
-  }
+  let plan, opts
+  if (typeof arg3 === 'function') { plan = arg3; opts = arg4 }
+  else opts = arg3
+  let o = meta[name] = { process }
+  if (plan) o.plan = plan
+  for (let k of ['resolve', 'ch', 'overlap']) if (opts?.[k] !== undefined) o[k] = opts[k]
 }
 
 
@@ -88,21 +84,14 @@ export function popEdit(a) {
 Object.defineProperties(fn, {
   length: { get() {
     if (this._.lenV === this.version) return this._.lenC
-    let len = this._.len, sr = this.sampleRate
-    for (let { type, args = [], at, duration } of this.edits) {
-      if (fn[type]?.outLen) {
-        let offset = at != null ? Math.round(at * sr) : null
-        let span = duration != null ? Math.round(duration * sr) : null
-        len = fn[type].outLen(len, { sampleRate: sr, args, at, duration, offset, span })
-      }
-    }
+    let len = this.edits.length ? buildPlan(this).totalLen : this._.len
     this._.lenC = len; this._.lenV = this.version
     return len
   }, configurable: true },
   channels: { get() {
     if (this._.chV === this.version) return this._.chC
     let ch = this._.ch
-    for (let edit of this.edits) { if (fn[edit.type]?.ch) ch = fn[edit.type].ch(ch, edit.args) }
+    for (let edit of this.edits) { if (meta[edit.type]?.ch) ch = meta[edit.type].ch(ch, edit.args) }
     this._.chC = ch; this._.chV = this.version
     return ch
   }, configurable: true },
@@ -124,7 +113,7 @@ fn[READ] = async function(offset, duration) {
 // ── Stream ─────────────────────────────────────────────────────
 
 fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
-  let offset = opts?.at, duration = opts?.duration
+  let offset = parseTime(opts?.at), duration = parseTime(opts?.duration)
   // Live decode streaming (no edits, still decoding)
   if (this._.waiters && !this.decoded && !this.edits.length) {
     let sr = this.sampleRate
@@ -152,17 +141,8 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
   await this[LOAD]()
   let plan = buildPlan(this)
   let seen = new Set()
-  for (let s of plan.segs) if (s.ref && s.ref !== SILENCE && !seen.has(s.ref)) { seen.add(s.ref); await s.ref[LOAD]() }
+  for (let s of plan.segs) if (s[4] && s[4] !== null && !seen.has(s[4])) { seen.add(s[4]); await s[4][LOAD]() }
   for (let chunk of streamPlan(this, plan, offset, duration)) yield chunk
-}
-
-
-// ── Query ─────────────────────────────────────────────────────────────
-
-/** Resolve offset/duration from opts (for public methods that delegate to query). */
-export function resolveRange(opts) {
-  if (!opts) return [undefined, undefined]
-  return [opts.at != null ? parseTime(opts.at) : undefined, opts.duration != null ? parseTime(opts.duration) : undefined]
 }
 
 
@@ -180,6 +160,8 @@ fn.run = function(...edits) {
   for (let e of edits) {
     if (!e.type) throw new TypeError('audio.run: edit must have type')
     let edit = { ...e, args: e.args || [] }
+    if (edit.at != null) edit.at = parseTime(edit.at)
+    if (edit.duration != null) edit.duration = parseTime(edit.duration)
     if (edit.offset != null) { edit.at = edit.offset / sr; delete edit.offset }
     if (edit.length != null) { edit.duration = edit.length / sr; delete edit.length }
     pushEdit(this, edit)
@@ -203,8 +185,9 @@ fn.clone = function() {
 
 const MAX_FLAT_SIZE = 2 ** 29
 
-/** Render all edits into flat PCM. Cached by version. For ctx.render (source instances in insert/mix). */
-export function render(a) {
+/** Render all edits into flat PCM, or read a slice. For ctx.render in PCM ops. */
+export function render(a, offset, count) {
+  if (offset != null) return readRange(a, offset, count)
   if (a._.pcm && a._.pcmV === a.version) return a._.pcm
   if (!a.edits.length) { let r = readPages(a); a._.pcm = r; a._.pcmV = a.version; return r }
   if (a._.len > MAX_FLAT_SIZE) throw new Error(`Audio too large for flat render (${(a._.len / 1e6).toFixed(0)}M samples). Use streaming.`)
@@ -213,22 +196,22 @@ export function render(a) {
   return r
 }
 
-function planLen(segs) { let m = 0; for (let s of segs) m = Math.max(m, s.out + s.len); return m }
+function planLen(segs) { let m = 0; for (let s of segs) m = Math.max(m, s[2] + s[1]); return m }
 
 /** Build a read plan from edit list. Always succeeds — every op is plannable. */
 export function buildPlan(a) {
   let sr = a.sampleRate, ch = a._.ch
-  let segs = [{ src: 0, out: 0, len: a._.len }], pipeline = [], sawSample = false
+  let segs = [[0, a._.len, 0]], pipeline = [], sawSample = false
 
   for (let edit of a.edits) {
     let { type, args = [], at, duration, channel, ...extra } = edit
-    let op = fn[type]
+    let op = meta[type]
     if (!op?.process) throw new Error(`Unknown op: ${type}`)
 
-    // lower: try stats-aware replacement first
-    if (op.lower) {
-      let ctx = { ...extra, stats: a._.srcStats || a.stats, sampleRate: sr, channels: ch, channel, at, duration, length: planLen(segs) }
-      let resolved = op.lower(args, ctx)
+    // resolve: try stats-aware replacement first
+    if (op.resolve) {
+      let ctx = { ...extra, stats: a._.srcStats || a.stats, sampleRate: sr, channelCount: ch, channel, at, duration, totalDuration: planLen(segs) / sr }
+      let resolved = op.resolve(args, ctx)
       if (resolved === false) continue
       if (resolved) {
         let edits = Array.isArray(resolved) ? resolved : [resolved]
@@ -236,10 +219,10 @@ export function buildPlan(a) {
           if (channel != null && r.channel == null) r.channel = channel
           if (at != null && r.at == null) r.at = at
           if (duration != null && r.duration == null) r.duration = duration
-          let rOp = fn[r.type]
+          let rOp = meta[r.type]
           if (rOp?.plan && typeof rOp.plan === 'function') {
             let t = planLen(segs), rOffset = r.at != null ? Math.round(r.at * sr) : null, rSpan = r.duration != null ? Math.round(r.duration * sr) : null
-            segs = rOp.plan(segs, { total: t, sampleRate: sr, args: r.args || [], at: r.at, duration: r.duration, offset: rOffset, span: rSpan })
+            segs = rOp.plan(segs, { total: t, sampleRate: sr, args: r.args || [], offset: rOffset, span: rSpan })
           } else {
             sawSample = true
             pipeline.push(r)
@@ -247,13 +230,13 @@ export function buildPlan(a) {
         }
         continue
       }
-      // lowered null — fall through to plan or per-page
+      // resolved null — fall through to plan or per-page
     }
 
     // plan: structural segment rewrite
     if (op.plan) {
       let t = planLen(segs), offset = at != null ? Math.round(at * sr) : null, span = duration != null ? Math.round(duration * sr) : null
-      segs = op.plan(segs, { total: t, sampleRate: sr, args, at, duration, offset, span })
+      segs = op.plan(segs, { total: t, sampleRate: sr, args, offset, span })
     } else {
       sawSample = true
       pipeline.push(edit)
@@ -265,12 +248,44 @@ export function buildPlan(a) {
 
 // ── Plan Execution ─────────────────────────────────────────────
 
-/** Read channel samples from pages, optionally reversed. */
-function readSource(a, c, srcOff, len, target, tOff, rev) {
-  if (!rev) return copyPages(a, c, srcOff, len, target, tOff)
-  walkPages(a, c, srcOff, len, (pg, ch, s, e, off) => {
-    for (let i = s; i < e; i++) target[tOff + (len - 1 - (off + i - s))] = pg[ch][i]
-  })
+/** Read channel samples from pages, resampled by rate. */
+function readSource(a, c, srcOff, n, target, tOff, rate) {
+  let r = rate || 1, absR = Math.abs(r)
+  if (absR === 1) {
+    if (r > 0) return copyPages(a, c, srcOff, n, target, tOff)
+    return walkPages(a, c, srcOff, n, (pg, ch, s, e, off) => {
+      for (let i = s; i < e; i++) target[tOff + (n - 1 - (off + i - s))] = pg[ch][i]
+    })
+  }
+  let srcN = Math.ceil(n * absR) + 1
+  let buf = new Float32Array(srcN)
+  copyPages(a, c, srcOff, srcN, buf, 0)
+  resample(buf, target, tOff, n, r)
+}
+
+/** Linear interpolation resample: src buffer → n output samples at given rate. */
+function resample(src, target, tOff, n, rate) {
+  let absR = Math.abs(rate), rev = rate < 0
+  for (let i = 0; i < n; i++) {
+    let pos = (rev ? n - 1 - i : i) * absR
+    let idx = pos | 0, frac = pos - idx
+    target[tOff + i] = idx + 1 < src.length
+      ? src[idx] + (src[idx + 1] - src[idx]) * frac
+      : src[idx] || 0
+  }
+}
+
+/** Read a sample range from an audio instance (handles edits via plan). */
+function readRange(a, srcStart, n) {
+  if (!a.edits.length) {
+    return Array.from({ length: a._.ch }, (_, c) => {
+      let out = new Float32Array(n)
+      copyPages(a, c, srcStart, n, out, 0)
+      return out
+    })
+  }
+  let plan = buildPlan(a), sr = plan.sr
+  return readPlan(a, plan, srcStart / sr, n / sr)
 }
 
 /** Stream chunks from a read plan. */
@@ -280,56 +295,63 @@ export function* streamPlan(a, plan, offset, duration) {
 
   let totalDur = totalLen / sr
   let procs = pipeline.map(ed => {
-    let m = fn[ed.type]
+    let m = meta[ed.type]
     let { type, args, at, duration, channel, ...extra } = ed
     return {
-      op: m.process, args: args || [],
+      op: m.process,
       at: at != null && at < 0 ? totalDur + at : at,
       dur: duration,
       channel,
-      overlap: m.overlap || 0,
+      overlap: m?.overlap || 0,
       tail: null,
-      state: {},
-      extra
+      ctx: { ...extra, args: args || [], duration, sampleRate: sr, totalDuration: totalDur, render }
     }
   })
 
-  // Warm up stateful ops (filters) when seeking — render prior page(s) silently to settle state
-  let ws = (s > 0 && procs.length) ? Math.max(0, s - audio.PAGE_SIZE) : s
+  // Warm up stateful ops (filters) when seeking — render prior block(s) silently to settle state
+  let ws = (s > 0 && procs.length) ? Math.max(0, s - audio.BLOCK_SIZE) : s
 
-  for (let outOff = ws; outOff < e; outOff += audio.PAGE_SIZE) {
-    let pageEnd = outOff < s ? s : e
-    let len = Math.min(audio.PAGE_SIZE, pageEnd - outOff)
+  for (let outOff = ws; outOff < e; outOff += audio.BLOCK_SIZE) {
+    let blockEnd = outOff < s ? s : e
+    let len = Math.min(audio.BLOCK_SIZE, blockEnd - outOff)
     let chunk = Array.from({ length: a._.ch }, () => new Float32Array(len))
 
-    for (let seg of segs) {
-      let iStart = Math.max(outOff, seg.out), iEnd = Math.min(outOff + len, seg.out + seg.len)
+    for (let sg of segs) {
+      let iStart = Math.max(outOff, sg[2]), iEnd = Math.min(outOff + len, sg[2] + sg[1])
       if (iStart >= iEnd) continue
-      let srcStart = seg.src + (iStart - seg.out), dstOff = iStart - outOff, n = iEnd - iStart
-      if (seg.ref === SILENCE) {
+      let rate = sg[3] || 1, ref = sg[4], absR = Math.abs(rate)
+      let n = iEnd - iStart, dstOff = iStart - outOff
+      // For negative rate, read from the far end of the source range so reversal is globally correct across blocks
+      let srcStart = rate < 0
+        ? sg[0] + (sg[1] - (iStart - sg[2]) - n) * absR
+        : sg[0] + (iStart - sg[2]) * absR
+      if (ref === null) {
         // zero-filled by default
-      } else if (seg.ref) {
-        if (seg.ref.edits.length === 0) {
+      } else if (ref) {
+        if (ref.edits.length === 0) {
           for (let c = 0; c < a._.ch; c++)
-            readSource(seg.ref, c % seg.ref._.ch, srcStart, n, chunk[c], dstOff, seg.rev)
+            readSource(ref, c % ref._.ch, srcStart, n, chunk[c], dstOff, rate)
         } else {
-          let srcPcm = render(seg.ref)
+          let srcN = Math.ceil(n * absR) + 1
+          let srcPcm = readRange(ref, srcStart, srcN)
           for (let c = 0; c < a._.ch; c++) {
             let src = srcPcm[c % srcPcm.length]
-            if (seg.rev) { for (let i = 0; i < n; i++) chunk[c][dstOff + i] = src[srcStart + n - 1 - i] }
-            else chunk[c].set(src.subarray(srcStart, srcStart + n), dstOff)
+            if (absR === 1) {
+              if (rate < 0) { for (let i = 0; i < n; i++) chunk[c][dstOff + i] = src[n - 1 - i] }
+              else chunk[c].set(src.subarray(0, n), dstOff)
+            } else resample(src, chunk[c], dstOff, n, rate)
           }
         }
       } else {
-        for (let c = 0; c < a._.ch; c++) readSource(a, c, srcStart, n, chunk[c], dstOff, seg.rev)
+        for (let c = 0; c < a._.ch; c++) readSource(a, c, srcStart, n, chunk[c], dstOff, rate)
       }
     }
 
     let blockOff = outOff / sr
     for (let proc of procs) {
-      let { op, args, at, dur, channel, overlap, state, extra } = proc
-      let adjAt = at != null ? at - blockOff : undefined
-      let ctx = { ...extra, args, at: adjAt, duration: dur, sampleRate: sr, blockOffset: blockOff, length: totalLen, render, state }
+      let { op, at, channel, overlap, ctx } = proc
+      ctx.at = at != null ? at - blockOff : undefined
+      ctx.blockOffset = blockOff
 
       // Windowed op: prepend prior tail, process, trim overlap
       if (overlap > 0) {

@@ -1,25 +1,27 @@
 import { cropSegs } from './crop.js'
+import { seg } from '../history.js'
 
 function repeatSegs(segs, times, total, off, dur) {
   if (off == null) {
     let r = []
     for (let t = 0; t <= times; t++)
-      for (let s of segs) r.push({ ...s, out: s.out + total * t })
+      for (let s of segs) { let n = s.slice(); n[2] = s[2] + total * t; r.push(n) }
     return r
   }
   let segLen = dur ?? (total - off), clip = cropSegs(segs, off, segLen), r = []
   for (let s of segs) {
-    let se = s.out + s.len
+    let se = s[2] + s[1]
     if (se <= off + segLen) r.push(s)
-    else if (s.out >= off + segLen) r.push({ ...s, out: s.out + segLen * times })
+    else if (s[2] >= off + segLen) { let n = s.slice(); n[2] = s[2] + segLen * times; r.push(n) }
     else {
-      r.push({ src: s.src, out: s.out, len: off + segLen - s.out, ref: s.ref })
-      r.push({ src: s.src + off + segLen - s.out, out: off + segLen * (times + 1), len: se - off - segLen, ref: s.ref })
+      let absR = Math.abs(s[3] || 1), split = off + segLen - s[2]
+      r.push(seg(s[0], split, s[2], s[3], s[4]))
+      r.push(seg(s[0] + split * absR, se - off - segLen, off + segLen * (times + 1), s[3], s[4]))
     }
   }
   for (let t = 1; t <= times; t++)
-    for (let c of clip) r.push({ ...c, out: off + segLen * t + c.out })
-  r.sort((a, b) => a.out - b.out)
+    for (let c of clip) { let n = c.slice(); n[2] = off + segLen * t + c[2]; r.push(n) }
+  r.sort((a, b) => a[2] - b[2])
   return r
 }
 
@@ -45,14 +47,6 @@ const repeat = (chs, ctx) => {
   })
 }
 
-const repeatOutLen = (len, ctx) => {
-  let { args, offset, span } = ctx
-  let t = args[0] || 1
-  if (offset == null) return len * (t + 1)
-  let s = offset < 0 ? len + offset : offset
-  return len + (span ?? len - s) * t
-}
-
 const repeatPlan = (segs, ctx) => {
   let { total, args, offset, span } = ctx
   let off = offset != null ? (offset < 0 ? total + offset : offset) : null
@@ -60,4 +54,4 @@ const repeatPlan = (segs, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('repeat', repeat, { outLen: repeatOutLen, plan: repeatPlan })
+audio.op('repeat', repeat, repeatPlan)

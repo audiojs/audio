@@ -1,12 +1,15 @@
+import { seg } from '../history.js'
+
 function removeSegs(segs, off, dur) {
   let r = [], end = off + dur
   for (let s of segs) {
-    let se = s.out + s.len
+    let se = s[2] + s[1]
     if (se <= off) r.push(s)
-    else if (s.out >= end) r.push({ ...s, out: s.out - dur })
+    else if (s[2] >= end) { let n = s.slice(); n[2] = s[2] - dur; r.push(n) }
     else {
-      if (s.out < off) r.push({ src: s.src, out: s.out, len: off - s.out, ref: s.ref, rev: s.rev })
-      if (se > end) r.push({ src: s.src + end - s.out, out: off, len: se - end, ref: s.ref, rev: s.rev })
+      let absR = Math.abs(s[3] || 1)
+      if (s[2] < off) r.push(seg(s[0], off - s[2], s[2], s[3], s[4]))
+      if (se > end) r.push(seg(s[0] + (end - s[2]) * absR, se - end, off, s[3], s[4]))
     }
   }
   return r
@@ -25,13 +28,11 @@ const remove = (chs, ctx) => {
   })
 }
 
-const removeOutLen = (len, ctx) => len - (ctx.span || 0)
-
 const removePlan = (segs, ctx) => {
   let { total, offset, span } = ctx
-  let s = offset != null ? (offset < 0 ? total + offset : offset) : 0
-  return removeSegs(segs, s, span || 0)
+  let s = offset != null ? Math.min(Math.max(0, offset < 0 ? total + offset : offset), total) : 0
+  return removeSegs(segs, s, Math.min(span || 0, total - s))
 }
 
 import audio from '../core.js'
-audio.op('remove', remove, { outLen: removeOutLen, plan: removePlan })
+audio.op('remove', remove, removePlan)

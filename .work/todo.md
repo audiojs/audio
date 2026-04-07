@@ -28,7 +28,10 @@
 | `audio-pitch-correct` | Sample op | Auto-tune |
 | `audio-transient-shaper` | Sample op | Transient enhancement/suppression |
 
-
+* [ ] reduce-silences
+* [ ] pitch
+* [ ] stretch
+* [ ] sidechain? (amp mod)
 
 ## Done (v2.0–v2.3)
 

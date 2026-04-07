@@ -1,6 +1,6 @@
 import audio from '../core.js'
 
-function autoThreshold(energies) {
+export function autoThreshold(energies) {
   let vals = energies.filter(e => e > 0)
   if (!vals.length) return -40
   vals.sort((a, b) => a - b)
@@ -30,10 +30,11 @@ const trim = (chs, ctx) => {
   return s === 0 && e === len ? false : chs.map(ch => ch.slice(s, e))
 }
 
-const trimLower = (args, { stats, sampleRate, length }) => {
+const trimResolve = (args, { stats, sampleRate, totalDuration }) => {
   if (!stats?.min) return null
   let ch = stats.min.length, blocks = stats.min[0].length
   let threshold = args[0]
+  let total = Math.round(totalDuration * sampleRate)
 
   if (threshold == null) {
     let energies = []
@@ -61,8 +62,8 @@ const trimLower = (args, { stats, sampleRate, length }) => {
   if (s === 0 && e === blocks) return false
   if (s >= e) return { type: 'crop', args: [], at: 0, duration: 0 }
   let startSample = s * audio.BLOCK_SIZE
-  let endSample = Math.min(e * audio.BLOCK_SIZE, length)
+  let endSample = Math.min(e * audio.BLOCK_SIZE, total)
   return { type: 'crop', args: [], at: startSample / sampleRate, duration: (endSample - startSample) / sampleRate }
 }
 
-audio.op('trim', trim, { lower: trimLower })
+audio.op('trim', trim, { resolve: trimResolve })
