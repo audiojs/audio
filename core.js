@@ -234,7 +234,7 @@ function fromFunction(fn, opts = {}) {
   let len = Math.round(dur * sr)
   let chs = Array.from({ length: ch }, () => new Float32Array(len))
   for (let i = 0; i < len; i++) {
-    let v = fn(i, sr)
+    let v = fn(i / sr, i)
     if (typeof v === 'number') for (let c = 0; c < ch; c++) chs[c][i] = v
     else for (let c = 0; c < ch; c++) chs[c][i] = v[c] ?? 0
   }

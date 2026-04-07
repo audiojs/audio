@@ -122,6 +122,15 @@ const aggregates = {
   loudness(stats, chs, from, to, sr) {
     let v = lufsFromEnergy(stats.energy, chs, sr, stats.blockSize, from, to)
     return v ?? -Infinity
+  },
+  clip(stats, chs, from, to, sr) {
+    let bs = stats.blockSize, times = []
+    for (let i = from; i < to; i++) {
+      let n = 0
+      for (let c of chs) n += stats.clip[c][i] || 0
+      if (n > 0) times.push(i * bs / sr)
+    }
+    return new Float32Array(times)
   }
 }
 
@@ -201,30 +210,17 @@ audio.fn.stat = async function(name, opts) {
   let { stats, ch, sr, from, to } = await queryRange(this, opts)
   let bins = opts?.bins
 
-  // Derived stats — custom aggregation, scalar only
-  if (aggregates[name]) {
-    let chSel = opts?.channel
-    let chs = chSel != null
-      ? (Array.isArray(chSel) ? chSel : [chSel])
-      : Array.from({ length: ch }, (_, i) => i)
-    return aggregates[name](stats, chs, from, to, sr)
-  }
-
-  // Raw block stats
+  // Raw block stats — binned mode
   let src = stats[name], cfg = reducers[name]
-  if (!src || !cfg) throw new Error(`Unknown stat: '${name}'`)
-
-  let chSel = opts?.channel
-  let perCh = Array.isArray(chSel)
-  let cS = perCh ? 0 : (chSel ?? 0), cE = perCh ? ch : (chSel != null ? cS + 1 : ch)
-  let chList = perCh ? chSel : null
-
-  if (bins != null) {
+  if (bins != null && src && cfg) {
+    let chSel = opts?.channel
+    let perCh = Array.isArray(chSel)
+    let cS = perCh ? 0 : (chSel ?? 0), cE = perCh ? ch : (chSel != null ? cS + 1 : ch)
+    let chList = perCh ? chSel : null
     let n = bins || (to - from)
     let reduce1 = (c) => binReduce(src[c], from, to, n, cfg)
     if (perCh) return chList.map(reduce1)
     if (cE - cS === 1) return reduce1(cS)
-    // Merge channels
     let [reduce, init] = cfg
     let out = new Float32Array(n), bpp = (to - from) / n
     for (let i = 0; i < n; i++) {
@@ -237,10 +233,25 @@ audio.fn.stat = async function(name, opts) {
     return out
   }
 
-  // Scalar aggregate
+  // Derived stats — custom aggregation
+  if (aggregates[name]) {
+    let chSel = opts?.channel
+    let chs = chSel != null
+      ? (Array.isArray(chSel) ? chSel : [chSel])
+      : Array.from({ length: ch }, (_, i) => i)
+    return aggregates[name](stats, chs, from, to, sr)
+  }
+
+  // Raw block stats — scalar
+  if (!src || !cfg) throw new Error(`Unknown stat: '${name}'`)
+
+  let chSel = opts?.channel
+  let perCh = Array.isArray(chSel)
+  let cS = perCh ? 0 : (chSel ?? 0), cE = perCh ? ch : (chSel != null ? cS + 1 : ch)
+  let chList = perCh ? chSel : null
+
   if (perCh) return chList.map(c => reduceRange(cfg, src[c], from, to))
   if (cE - cS === 1) return reduceRange(cfg, src[cS], from, to)
-  // Merge channels
   let [reduce] = cfg
   let vals = Array.from({ length: cE - cS }, (_, i) => reduceRange(cfg, src[cS + i], from, to))
   return reduce === rMin ? Math.min(...vals)

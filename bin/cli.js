@@ -63,7 +63,7 @@ function isFlag(s) {
 }
 
 function isOpName(s) {
-  return audio.op(s) || s in ALIAS
+  return audio.op(s) || s in ALIAS || s === 'split' || s === 'stat'
 }
 
 // ── Per-op Help ──────────────────────────────────────────────────────────
@@ -382,7 +382,7 @@ async function playback(p, totalSec, decodedSec, a, src) {
     try {
       let [peak, , l, clips, dcOff] = await a.stat(['db', 'rms', 'loudness', 'clip', 'dc'])
       let warn = ''
-      if (clips) warn += `   clip:${clips}`
+      if (clips.length) warn += `   clip:${clips.length}`
       if (Math.abs(dcOff) > 0.001) warn += `   dc:${dcOff.toFixed(4)}`
       fileInfo = `${fmtRate(a.sampleRate)}   ${a.channels}ch   ${formatDuration(a.duration)}   ${peak.toFixed(1)}dBFS   ${l.toFixed(1)}LUFS${warn}`
     } catch { fileInfo = '(info unavailable)' }
@@ -632,10 +632,53 @@ async function main() {
       console.log(`  Samples:    ${a.length}`)
       console.log(`  Peak:       ${peak.toFixed(1)} dBFS`)
       console.log(`  Loudness:   ${l.toFixed(1)} LUFS`)
-      console.log(`  Clipping:   ${clips || 'none'}`)
+      console.log(`  Clipping:   ${clips.length || 'none'}`)
       console.log(`  DC offset:  ${Math.abs(dcOff) > 0.0001 ? dcOff.toFixed(4) : 'none'}`)
       if (loadTime) console.log(`  Loaded in:  ${loadTime}s`)
       if (!allOps.length && !opts.output) process.exit(0)
+    }
+
+    // Split — special handling for multi-output
+    let splitOp = allOps.find(op => op.name === 'split')
+    if (splitOp) {
+      let preOps = allOps.slice(0, allOps.indexOf(splitOp))
+      let postOps = allOps.slice(allOps.indexOf(splitOp) + 1)
+      for (let op of preOps) {
+        let fullArgs = op.args.slice()
+        let rangeOpts = {}
+        if (op.offset != null) rangeOpts.at = op.offset
+        if (op.duration != null) rangeOpts.duration = op.duration
+        if (op.curve) rangeOpts.curve = op.curve
+        if (Object.keys(rangeOpts).length) fullArgs.push(rangeOpts)
+        a[op.name](...fullArgs)
+      }
+
+      let parts = a.split(...splitOp.args)
+      for (let op of postOps)
+        for (let part of parts) {
+          let fullArgs = op.args.slice()
+          let rangeOpts = {}
+          if (op.offset != null) rangeOpts.at = op.offset
+          if (op.duration != null) rangeOpts.duration = op.duration
+          if (op.curve) rangeOpts.curve = op.curve
+          if (Object.keys(rangeOpts).length) fullArgs.push(rangeOpts)
+          part[op.name](...fullArgs)
+        }
+
+      let { basename, extname } = await import('path')
+      let output = opts.output || `split-{i}.wav`
+      let srcExt = typeof source === 'string' ? extname(source) : '.wav'
+      let srcName = typeof source === 'string' ? basename(source, srcExt) : 'audio'
+      for (let [i, part] of parts.entries()) {
+        let outFile = output
+          .replace('{i}', String(i + 1))
+          .replace('{name}', srcName)
+          .replace('{ext}', srcExt.slice(1))
+        let fmt = opts.format || outFile.split('.').pop()
+        await part.save(outFile, { format: fmt })
+        process.stderr.write(`  → ${outFile}\n`)
+      }
+      process.exit(0)
     }
 
     // Apply operations
