@@ -21,11 +21,16 @@ import 'my-plugin.js'   // registers op + wires a.myOp()
 
 ## Ops
 
-A reducer: `(channels, ctx) => channels | false`.
+A reducer: `(chs, ctx) => chs | false`.
 
-`channels` is `Float32Array[]` per channel, page-length (65536 samples, last page may be shorter). `ctx` has `args`, `at`, `duration`, `sampleRate`, `blockOffset`, `length`, `state`, and any extras from the edit object.
+`chs` is `Float32Array[]` per channel, page-length (65536 samples, last page may be shorter). `ctx` persists across chunks — set any property for stateful computation. Fixed fields update per chunk: `args`, `at`, `duration`, `sampleRate`, `blockOffset`, `totalDuration`, plus any extras from the edit object.
 
-`at`/`duration` arrive chunk-relative. Convert to samples:
+- `at`/`duration` — op time range (seconds), chunk-relative
+- `totalDuration` — full audio duration (seconds)
+- `blockOffset` — absolute position of this chunk (seconds)
+- `channel` — which channel(s) the op is scoped to
+
+Convert to samples:
 
 ```js
 let sr = ctx.sampleRate
@@ -35,120 +40,125 @@ let end = ctx.duration != null ? start + Math.round(ctx.duration * sr) : chs[0].
 
 Return `false` to skip (no change).
 
-### Named options
+### Options
 
 By default, `a.myOp(arg, {at, duration, channel})` maps to `{ type: 'myOp', args: [arg], at, duration, channel }`.
 
-For sugar, override the generated method and emit canonical edit(s) yourself:
+Any plain object as the last argument is treated as options. Known keys (`at`, `duration`, `channel`) are extracted to the edit; sample-based aliases `offset`/`length` convert to `at`/`duration`. **All other keys** flow through as extras on the edit and arrive in `ctx`:
+
+```js
+a.fade(1, { curve: 'exp' })
+// → edit: { type: 'fade', args: [1], curve: 'exp' }
+// → ctx.curve === 'exp'
+```
+
+### Custom wrappers
+
+For sugar beyond what the default method handles, wrap `audio.fn.myOp` after registration:
 
 ```js
 audio.op('myOp', myOp)
 
+let _myOp = audio.fn.myOp
 audio.fn.myOp = function(arg) {
-  if (typeof arg === 'object' && arg && !Array.isArray(arg)) {
-    let edit = { type: 'myOp', args: [] }
-    let { at, duration, channel, ...extra } = arg
-    Object.assign(edit, { at, duration, channel }, extra)
-    return this.run(edit)
-  }
-
-  return this.run({ type: 'myOp', args: [arg] })
+  // desugar, then delegate to the registered default
+  if (typeof arg === 'string') return _myOp.call(this, PRESETS[arg])
+  return _myOp.call(this, arg)
 }
 ```
 
-Extras on the edit flow to `ctx` — read `ctx.curve`, `ctx.ceiling`, etc.
+Wrappers desugar user-facing API into canonical calls. The default method handles edit creation.
+
+### Querying ops
+
+```js
+audio.op('gain')  // → descriptor { process, ... } or undefined
+```
 
 ## Hooks
 
-Every op is a processor. Hooks are optional — pass any combination in opts:
+Every op has a processor. Plan is the second positional arg. Other hooks go in opts:
 
 ```js
-audio.op('myOp', process, {
-  plan:    (segs, ctx) => newSegs,   // structural: rewrite segment map
-  outLen:  (len, ctx) => newLen,     // fast virtual length prediction
-  lower:   (args, ctx) => edit,      // pre-render: replace with simpler edit(s)
+audio.op('myOp', process, plan, {
+  resolve: (args, ctx) => edit,      // pre-render: replace with simpler edit(s)
   overlap: 128,                      // extra samples across chunk boundaries
 })
+```
+
+Ops without a plan hook pass opts directly:
+
+```js
+audio.op('myFilter', process, { overlap: 128 })
 ```
 
 ### plan
 
 Rewrite the segment map without touching PCM. For ops that change timeline geometry.
 
-`ctx` has `total`, `sampleRate`, `args`, `at`, `duration`, `offset`, `span`. The `offset`/`span` are `at`/`duration` pre-converted to samples (`null` if unset).
+`ctx` has `total`, `sampleRate`, `args`, `offset`, `span`. The `offset`/`span` are `at`/`duration` pre-converted to samples (`null` if unset).
 
 ```js
-audio.op('myRepeat', process, {
-  plan: (segs, ctx) => {
-    let r = [...segs]
-    for (let s of segs) r.push({ ...s, out: s.out + ctx.total })
-    return r
-  }
+import { seg } from 'audio/history.js'
+
+audio.op('myRepeat', process, (segs, ctx) => {
+  // segs: current segment map (copy instructions for the whole timeline)
+  // ctx.total: current output length in samples
+  let r = [...segs]  // keep original segments as-is
+  // append a shifted copy — each segment replayed after the current end
+  for (let s of segs) { let n = s.slice(); n[2] = s[2] + ctx.total; r.push(n) }
+  return r  // new segment map: original + one full repeat
 })
 ```
 
-**Segments** — a flat list of copy instructions: `{ src, out, len, ref?, rev? }`.
+**Segments** — a flat list of copy instructions: `[src, count, dst, rate?, ref?]`.
 
-Each segment says: "read `len` samples starting at `src` from source, write at `out` in output."
+Each segment says: "copy `count` samples from `src` in source to `dst` in output."
 
-| Field | Description |
-|-------|-------------|
-| `src` | Read offset in source (samples) |
-| `out` | Write offset in output (samples) |
-| `len` | How many samples |
-| `ref` | Which source: `undefined` = self, `SILENCE` = zero-fill, audio instance = external |
-| `rev` | Read backwards. Propagate when splitting segments |
+| Index | Field | Description |
+|-------|-------|-------------|
+| `0` | src | Read offset in source (samples) |
+| `1` | count | How many samples to copy |
+| `2` | dst | Write offset in output (samples) |
+| `3` | rate | Playback rate: omit or `1` = forward, `-1` = reverse. Future: `2` = double speed |
+| `4` | ref | Which source: `undefined` = self, `null` = zero-fill, audio instance = external |
+
+`seg(src, count, dst, rate?, ref?)` creates a segment array.
 
 Example — 10s audio at 44100Hz starts as one segment:
 
 ```
-[{ src: 0, out: 0, len: 441000 }]
+[[0, 441000, 0]]
 ```
 
 After `crop({at: 2, duration: 3})` — read 3s from the 2s mark, write at start:
 
 ```
-[{ src: 88200, out: 0, len: 132300 }]
+[[88200, 132300, 0]]
 ```
 
 After `insert(silence, {at: 1})` — split at 1s, insert 1s silence, shift the rest:
 
 ```
-[{ src: 0, out: 0, len: 44100 },
- { src: 0, out: 44100, len: 44100, ref: SILENCE },
- { src: 44100, out: 88200, len: 396900 }]
+[[0, 44100, 0],
+ [0, 44100, 44100, , null],
+ [44100, 396900, 88200]]
 ```
 
 After `reverse()` — same positions, read backwards:
 
 ```
-[{ src: 0, out: 0, len: 441000, rev: true }]
+[[0, 441000, 0, -1]]
 ```
 
-### outLen
-
-Predict output length without building the full plan. Powers `.length`/`.duration` getters.
-
-`len` is current length in samples. `ctx` has `sampleRate`, `args`, `offset`, `span`. Return new length in samples.
-
-```js
-audio.op('crop', process, {
-  outLen: (len, ctx) => {
-    let { offset, span } = ctx
-    let s = offset != null ? (offset < 0 ? len + offset : offset) : 0
-    return span ?? len - s
-  }
-})
-```
-
-### lower
+### resolve
 
 Pre-render replacement using decoded stats.
 
 ```js
 audio.op('trim', process, {
-  lower: (args, ctx) => {
-    let { stats, sampleRate, length } = ctx
+  resolve: (args, ctx) => {
+    let { stats, sampleRate, totalDuration } = ctx
     if (!stats?.min) return null  // no stats — fall back to per-page
     // ...analyze stats to find silence boundaries...
     return { type: 'crop', args: [], at: start / sampleRate, duration: (end - start) / sampleRate }
@@ -156,31 +166,36 @@ audio.op('trim', process, {
 })
 ```
 
-`ctx` has `stats`, `sampleRate`, `channels`, `channel`, `at`, `duration`, `length`, plus edit extras. Return:
+`ctx` has `stats`, `sampleRate`, `channelCount`, `channel`, `at`, `duration`, `totalDuration`, plus edit extras. Return:
 - **edit(s)** — replace this op with simpler op(s)
 - **`false`** — skip (no change needed)
 - **`null`** — fall back to per-page processing
 
-Method sugar runs at call time before edits are recorded. `lower` runs at render time with decoded audio stats. Sugar canonicalizes input; `lower` replaces abstract ops with concrete ones.
+Wrappers run at call time before edits are recorded. `resolve` runs at render time with decoded audio stats. Wrappers canonicalize input; `resolve` replaces abstract ops with concrete ones.
 
-### overlap / ctx.state
+### overlap / persistent ctx
 
 For ops that need context across streaming chunk boundaries.
 
 ```js
 const filter = (chs, ctx) => {
-  if (!ctx.state.z) ctx.state.z = chs.map(() => 0)  // init once, persists across chunks
-  // ...use ctx.state.z for filter memory
+  if (!ctx.z) ctx.z = chs.map(() => 0)  // init once, persists across chunks
+  // ...use ctx.z for filter memory
 }
-filter.overlap = 128  // extra samples per chunk boundary
+
+audio.op('filter', filter, { overlap: 128 })
 ```
+
+`ctx` is the same object across all chunks — any property you set persists. Fixed fields (`at`, `blockOffset`) update each chunk; everything else stays.
 
 ## Stats
 
-A factory returning a per-block reducer:
+A per-block reducer:
 
 ```js
-audio.stat.mystat = () => (channels, ctx) => channels.map(ch => /* number */)
+audio.stat.mystat = (chs, ctx) => chs.map(ch => /* number */)
 ```
 
 Called per 1024-sample block during decode. Return number (all channels) or array (per-channel). Stored in `a.stats.mystat` as `Float32Array[]`.
+
+`ctx` has `sampleRate` and persists across blocks within one decode session — set any property for stateful computation.

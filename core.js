@@ -10,9 +10,27 @@
 import decode from 'audio-decode'
 import getType from 'audio-type'
 import encode from 'encode-audio'
-import convert from 'pcm-convert'
+import convert, { parse as parseFmt } from 'pcm-convert'
+import parseDuration from 'parse-duration'
 
 audio.version = '2.0.0'
+
+/** Parse time value: number passthrough, string via parse-duration or timecode. */
+export function parseTime(v) {
+  if (v == null) return v
+  if (typeof v === 'number') return v
+  // Timecode: HH:MM:SS.mmm, MM:SS.mmm, or MM:SS
+  let tc = v.match(/^(\d+):(\d{1,2})(?::(\d{1,2}))?(?:\.(\d+))?$/)
+  if (tc) {
+    let [, a, b, c, frac] = tc
+    let s = c != null ? +a * 3600 + +b * 60 + +c : +a * 60 + +b
+    if (frac) s += +('0.' + frac)
+    return s
+  }
+  let s = parseDuration(v, 's')
+  if (s != null && isFinite(s)) return s
+  throw new Error(`Invalid time: ${v}`)
+}
 
 
 // ── Entry Points ─────────────────────────────────────────────────────────
@@ -67,10 +85,14 @@ audio.from = function(source, opts = {}) {
   }
   // Typed array with format conversion
   if (ArrayBuffer.isView(source) && opts.format) {
-    let pcm = convert(source, opts.format, 'float32')
-    let ch = opts.channels || 1, sr = opts.sampleRate || 44100
+    let fmt = parseFmt(opts.format)
+    let ch = fmt.channels || opts.channels || 1
+    let sr = fmt.sampleRate || opts.sampleRate || 44100
+    let src = { ...fmt, channels: ch }
+    if (ch > 1 && src.interleaved == null) src.interleaved = true
+    let pcm = convert(source, src, { dtype: 'float32', interleaved: false, channels: ch })
     let perCh = pcm.length / ch
-    let chs = Array.from({ length: ch }, (_, c) => new Float32Array(pcm.buffer, pcm.byteOffset + c * perCh * 4, perCh))
+    let chs = Array.from({ length: ch }, (_, c) => pcm.subarray(c * perCh, (c + 1) * perCh))
     return fromChannels(chs, { sampleRate: sr })
   }
   throw new TypeError('audio.from: expected Float32Array[], AudioBuffer, audio instance, function, or number')
@@ -98,7 +120,8 @@ audio.open = async function(source, opts = {}) {
   return a
 }
 
-/** Create a push-based recording instance. Call a.push(channelData) to feed PCM, a.stop() to finalize. */
+/** Create a push-based recording instance. Call a.push(channelData) to feed PCM, a.stop() to finalize.
+ *  With { input: 'mic' }, auto-captures from microphone via audio-mic. */
 audio.record = function(opts = {}) {
   let sr = opts.sampleRate || 44100, ch = opts.channels || 1
   let waiters = []
@@ -116,6 +139,7 @@ audio.record = function(opts = {}) {
   }
 
   a.stop = function() {
+    if (a._mic) { a._mic(null); a._mic = null }
     let final = acc.done()
     a._.len = final.length
     a._.lenV = -1
@@ -123,6 +147,27 @@ audio.record = function(opts = {}) {
     a.decoded = true
     notify()
     return a
+  }
+
+  if (opts.input === 'mic') {
+    a._mic = null
+    a.ready = import('audio-mic').then(({ default: mic }) => {
+      if (a.decoded) return a  // already stopped
+      let read = mic({ sampleRate: sr, channels: ch, bitDepth: 16, backend: opts.backend })
+      a._mic = read
+      read((err, buf) => {
+        if (err || !buf) return
+        let i16 = new Int16Array(buf.buffer, buf.byteOffset, buf.byteLength / 2)
+        let n = i16.length / ch
+        let chData = Array.from({ length: ch }, (_, c) => {
+          let f32 = new Float32Array(n)
+          for (let i = 0; i < n; i++) f32[i] = i16[i * ch + c] / 32768
+          return f32
+        })
+        a.push(chData)
+      })
+      return a
+    })
   }
 
   return a
@@ -200,28 +245,30 @@ Object.defineProperties(fn, {
   length: { get() { return this._.len }, configurable: true },
   duration: { get() { return this.length / this.sampleRate }, configurable: true },
   channels: { get() { return this._.ch }, configurable: true },
-  cursor: {
-    get() { return this._.cursor },
-    set(t) {
-      this._.cursor = t
-      if (this.cache) {
-        let page = Math.floor(t * this.sampleRate / audio.PAGE_SIZE)
-        ;(async () => {
-          for (let i = Math.max(0, page - 1); i <= Math.min(page + 2, this.pages.length - 1); i++)
-            if (this.pages[i] === null && await this.cache.has(i)) this.pages[i] = await this.cache.read(i)
-        })()
-      }
-    },
-    configurable: true,
-  },
+  cursor: { get() { return this._.cursor }, configurable: true },
 })
 
 fn[LOAD] = async function() {}
 fn[READ] = function(offset, duration) { return readPages(this, offset, duration) }
 
+fn.seek = function(t) {
+  t = Math.max(0, t)
+  this._.cursor = t
+  if (this.cache) {
+    let page = Math.floor(t * this.sampleRate / audio.PAGE_SIZE)
+    ;(async () => {
+      for (let i = Math.max(0, page - 1); i <= Math.min(page + 2, this.pages.length - 1); i++)
+        if (this.pages[i] === null && await this.cache.has(i)) this.pages[i] = await this.cache.read(i)
+    })()
+  }
+  if (this.playing) { this._._seekTo = t; if (this._._wake) this._._wake() }
+  return this
+}
+
 fn.read = async function(opts) {
   if (typeof opts !== 'object' || opts === null) opts = {}
   let { at, duration, format, channel, meta } = opts
+  at = parseTime(at); duration = parseTime(duration)
   await this[LOAD]()
   let pcm = await this[READ](at, duration)
   if (channel != null) pcm = [pcm[channel]]

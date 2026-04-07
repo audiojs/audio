@@ -39,7 +39,7 @@ audio.fn.save = async function(target, opts = {}) {
   if (typeof target === 'string') {
     let { createWriteStream } = await import('fs')
     let ws = createWriteStream(target)
-    write = buf => ws.write(Buffer.from(buf))
+    write = buf => { if (!ws.write(Buffer.from(buf))) return new Promise(r => ws.once('drain', r)) }
     finish = () => new Promise((res, rej) => { ws.on('finish', res); ws.on('error', rej); ws.end() })
   } else if (target?.write) {
     write = buf => target.write(buf)
@@ -47,14 +47,14 @@ audio.fn.save = async function(target, opts = {}) {
   } else throw new Error('Invalid save target')
 
   let tick = 0
-  for await (let chunk of this.stream()) {
+  for await (let chunk of this.stream({ at: opts.at, duration: opts.duration })) {
     let buf = await enc(chunk)
-    if (buf.length) write(buf)
+    if (buf.length) await write(buf)
     written += chunk[0].length
     if (++tick % 2 === 0) await new Promise(r => setTimeout(r, 0))
-    onprogress?.({ offset: written / sr, total: this.duration })
+    onprogress?.({ offset: written / sr, total: opts.duration ?? this.duration })
   }
   let final = await enc()
-  if (final.length) write(final)
+  if (final.length) await write(final)
   await finish?.()
 }

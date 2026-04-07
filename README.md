@@ -1,9 +1,15 @@
 # audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/audio)](https://npmjs.org/package/audio)
 
-High-level audio manipulations in JavaScript. Load, edit, save, play, analyze any audio in CLI/browser.
+High-level audio manipulations.
+Loading, manipulations, processing, scripting, playback, analysis, recording, streaming any audio in CLI/js.
 
+<!-- FIXME: Features/principles must be emphasized better -->
+* Non-destructive
 * Stream-first
-*
+* Scriptable
+* No memory limitation
+* Physical units / industry standards
+* Modular
 
 ```sh
 npm i audio
@@ -21,12 +27,12 @@ await a.save('clean.wav')
 <table><tr><td valign="top">
 
 **[Create](#create)**<br>
-<sub>[audio()](#create) · [audio.open()](#audioopensouce-opts) · [audio.from()](#audiofromsource-opts) · [audio.record()](#audiorecordopts) · [audio.concat()](#audioconcatsources)</sub>
+<sub>[audio()](#create) · [audio.open()](#audioopensouce-opts) · [audio.from()](#audiofromsource-opts) · [audio.record()](#audiorecordopts)</sub>
 
 **[Properties](#properties)**
 
 **[Ops](#ops)**<br>
-<sub>[crop](#structural) · [remove](#structural) · [insert](#structural) · [repeat](#structural) · [pad](#structural) · [split](#structural) · [view](#structural) · [gain](#sample) · [fade](#sample) · [reverse](#sample) · [mix](#sample) · [write](#sample) · [remix](#sample) · [pan](#sample) · [trim](#smart) · [normalize](#smart) · [apply](#inline)</sub>
+<sub>[crop](#structural) · [remove](#structural) · [insert](#structural) · [repeat](#structural) · [pad](#structural) · [speed](#structural) · [split](#structural) · [view](#structural) · [gain](#sample) · [fade](#sample) · [reverse](#sample) · [mix](#sample) · [write](#sample) · [remix](#sample) · [pan](#sample) · [trim](#smart) · [normalize](#smart) · [transform](#transform)</sub>
 
 **[Filter](#filter)**<br>
 <sub>[highpass](#filter) · [lowpass](#filter) · [bandpass](#filter) · [notch](#filter) · [lowshelf](#filter) · [highshelf](#filter) · [eq](#filter)</sub>
@@ -85,24 +91,25 @@ drawWaveform(a)                        // partial stats already usable
 await a.loaded                         // wait for full decode
 ```
 
-**`audio.record(opts?)`** — push-based recording. Feed PCM chunks, stop when done.
+**`audio.record(opts?)`** — record audio. With `{ input: 'mic' }`, captures from microphone via [`audio-mic`](https://npmjs.com/package/audio-mic). Without it, feed PCM chunks manually.
 
 ```js
+// Mic recording (requires audio-mic)
+let a = audio.record({ input: 'mic' })
+await a.ready                          // mic is capturing
+// ... record for a while ...
+a.stop()                               // finalize — stats computed
+
+// Push-based (custom source)
 let a = audio.record({ sampleRate: 44100, channels: 1 })
 a.push(float32chunk)                   // feed PCM data
 a.push(anotherChunk)
 a.stop()                               // finalize — stats computed
 ```
 
-**`audio.concat(...sources)`** — joins audio instances end-to-end.
-
-```js
-let k = audio.concat(a, b)
-```
-
 `audio.version` — package version string.
 
-Encoded sources are paged (64K-sample chunks, evictable to OPFS for large files). PCM sources via `audio.from()` are always resident.
+Encoded sources are paged (`PAGE_SIZE`-sample chunks, evictable to OPFS for large files). PCM sources via `audio.from()` are always resident.
 
 
 ## Properties
@@ -117,7 +124,6 @@ a.pages                    // Float32Array[][] — decoded PCM
 a.stats                    // per-block stats (min/max/energy/…)
 a.edits                    // edit list (inspectable)
 a.decoded                  // true when source fully decoded
-a.cursor                   // playback hint — preloads nearby pages
 ```
 
 
@@ -143,6 +149,10 @@ a.insert(3)                        // append 3s silence
 a.repeat(2)                        // double the audio
 a.pad(1)                           // 1s silence both ends
 a.pad(0.5, 2)                      // 0.5s before, 2s after
+
+a.speed(2)                         // double speed (half duration)
+a.speed(0.5)                       // half speed (double duration)
+a.speed(-1)                        // reverse at normal speed
 
 a.split(30, 60)                    // split into views at 30s, 60s (zero-copy)
 a.view({at: 10, duration: 5})      // shared-page view of 10s–15s
@@ -233,7 +243,7 @@ a.notch(60)                          // remove hum
 
 a.lowshelf(200, -3)                  // Hz, dB
 a.highshelf(8000, 2)
-a.eq(1000, 2, 3)                     // freq, Q, dB gain
+a.eq(1000, 3, 2)                     // freq, gain, Q
 ```
 
 
@@ -266,10 +276,16 @@ await a.stat('dc')                      // DC offset
 
 await a.stat('spectrum', {bins: 128})   // mel spectrum (dB)
 await a.stat('cepstrum', {bins: 13})    // MFCCs
+await a.stat('silence')                 // [{at, duration}, …] silent regions
+await a.stat('silence', {threshold: -40, minDuration: 0.5})
 
 let w = await a.stat('max', {bins: 800})// 800-point Float32Array for waveform
 let m = await a.stat('min', {bins: 800, channel: [0, 1]})// per-channel
 let c = await a.stat('max', {channel: 0})// single channel scalar
+
+// array of names — parallel query, positional result
+let [mn, mx] = await a.stat(['min', 'max'], { bins: 800 })
+let [peak, loud] = await a.stat(['db', 'loudness'])
 ```
 
 
@@ -334,7 +350,7 @@ a.invert({at: 2, duration: 1})         // range: 2s for 1s
 ### Custom stats
 
 ```js
-audio.stat.rms = () => (channels) => channels.map(ch => {
+audio.stat.rms = (chs) => chs.map(ch => {
   let sum = 0
   for (let i = 0; i < ch.length; i++) sum += ch[i] * ch[i]
   return Math.sqrt(sum / ch.length)
@@ -367,6 +383,7 @@ Macro files are JSON arrays of edits: `[{"type": "gain", "args": [-3]}, {"type":
 
 Plugins in `node_modules/audio-*` are auto-discovered at startup.
 
+
 ## Recipes
 
 ### Clean up a voice recording
@@ -384,8 +401,7 @@ npx audio raw-take.wav trim -30db normalize podcast fade 0.3s -0.5s -o clean.wav
 
 ```js
 let a = await audio('track.mp3')
-let peaks = await a.stat('max', { bins: canvas.width })
-let mins  = await a.stat('min', { bins: canvas.width })
+let [mins, peaks] = await a.stat(['min', 'max'], { bins: canvas.width })
 for (let i = 0; i < peaks.length; i++) {
   ctx.fillRect(i, h/2 - peaks[i] * h/2, 1, (peaks[i] - mins[i]) * h/2)
 }
@@ -401,7 +417,19 @@ let a = await audio('long.flac', {
 })
 ```
 
-### Record from browser mic
+### Record from mic
+
+```js
+let a = audio.record({ input: 'mic' })
+await a.ready
+
+// ... record for a while ...
+a.stop()
+a.trim().normalize()
+await a.save('recording.wav')
+```
+
+<details><summary>Web Audio API integration</summary>
 
 ```js
 let stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -418,6 +446,8 @@ a.trim().normalize()
 await a.save('recording.wav')
 ```
 
+</details>
+
 ### Podcast montage
 
 ```js
@@ -426,7 +456,7 @@ let body   = await audio('interview.wav')
 let outro  = await audio('outro.mp3')
 
 body.trim().normalize('podcast')
-let ep = audio.concat(intro, body, outro)
+let ep = intro.concat(body, outro)
 ep.fade(0.5, 2)
 await ep.save('episode.mp3')
 ```
@@ -463,6 +493,7 @@ npx audio --tone 440hz 2s -o tone.wav
 ```js
 let prices = [100, 102, 98, 105, 110, 95, 88, 92, 101, 107]
 let sr = 44100, dur = 0.2
+// FIXME: we have audio.from, a.transform - these are canonical stream names. But do they have same signature? Do from receives an index, transform receives a block? page? we should unify.
 let a = audio.from(i => {
   let idx = Math.min(Math.floor(i / (sr * dur)), prices.length - 1)
   let freq = 200 + (prices[idx] - 80) * 10
@@ -477,8 +508,7 @@ await a.save('stock-sonification.wav')
 let a = await audio('speech.wav')
 let mfcc = await a.stat('cepstrum', { bins: 13 })
 let spec = await a.stat('spectrum', { bins: 128 })
-let loud = await a.stat('loudness')
-let rms  = await a.stat('rms')
+let [loud, rms] = await a.stat(['loudness', 'rms'])
 ```
 ```sh
 npx audio speech.wav stat cepstrum --bins 13
@@ -494,6 +524,7 @@ let [ch1, ch2, ch3] = a.split(1800, 3600)
 for (let [i, ch] of [ch1, ch2, ch3].entries())
   await ch.save(`chapter-${i + 1}.mp3`)
 ```
+<!-- FIXME: we need test for this CLI -->
 ```sh
 npx audio audiobook.mp3 split 30m 60m -o 'chapter-{i}.mp3'
 ```
@@ -502,7 +533,9 @@ npx audio audiobook.mp3 split 30m 60m -o 'chapter-{i}.mp3'
 
 ```js
 let a = await audio('interview.wav')
+// FIXME: this is a bit confusing: it removes 15s starting at 120s? we need to add comment
 a.remove({ at: 120, duration: 15 })
+// FIXME: and this: it fades in 100ms starting at 120s? but we have just removed it, no? Or that's next 2 mins? looks unclear the whole edit. Why do we need duration option here?
 a.fade(0.1, { at: 120, duration: 0.1 })
 await a.save('edited.wav')
 ```
@@ -522,6 +555,7 @@ for await (let chunk of a.stream()) {
 ```sh
 npx audio 2hour-mix.flac highpass 40hz normalize broadcast | stream-to-icecast
 ```
+<!-- FIXME: stream-to-icecast can be a package from audiojs ecosystem -->
 
 ### Voiceover on music
 
@@ -529,6 +563,7 @@ npx audio 2hour-mix.flac highpass 40hz normalize broadcast | stream-to-icecast
 let music = await audio('bg.mp3')
 let voice = await audio('narration.wav')
 music.gain(-12)
+// FIXME: mix should have level and fade options, or actually we can test ourselves to apply fade, gain and then mix into other file - so that ops would be applied to mixable file first, right?
 music.mix(voice, { at: 2 })
 await music.save('mixed.wav')
 ```
@@ -537,7 +572,7 @@ npx audio bg.mp3 gain -12db mix narration.wav 2s -o mixed.wav
 ```
 
 ### Stereo autopan
-
+<!-- FIXME: we can also add example of AM -->
 ```js
 let a = await audio('song.wav')
 a.pan(t => Math.sin(t * 0.5))
@@ -548,6 +583,7 @@ await a.save('autopan.wav')
 
 ```js
 let a = await audio('master.wav')
+// FIXME: should that stat return only count, or exact indexer or timestamps?
 let clips = await a.stat('clip')
 if (clips > 0) console.warn(`${clips} clipped samples — reduce gain`)
 ```
@@ -563,6 +599,7 @@ a.play({ volume: -3 })
 a.seek(300)
 a.pause()
 a.resume()
+// FIXME: volume also needed here, right?
 ```
 ```sh
 npx audio episode.mp3 --play --volume -3db
@@ -581,6 +618,7 @@ npx audio mix-v1.wav mix-v2.wav stat loudness
 
 ### Pipe through stdin/stdout
 
+<!-- FIXME: we should test it works -->
 ```sh
 curl -s https://example.com/speech.mp3 | npx audio gain -3db normalize -o clean.wav
 ffmpeg -i video.mp4 -f wav - | npx audio trim normalize podcast > voice.wav
@@ -635,12 +673,13 @@ npx audio song.mp3 crop 45s..1m15s fade 0.5s -2s normalize -o ringtone.mp3
 ```js
 let a = await audio('beat.wav')
 let v = a.view({ at: 1, duration: 0.25 })  // grab a 250ms slice
-let glitch = audio.concat(v, v, v, v)       // 4x stutter
+let glitch = v.concat(v, v, v)              // 4x stutter
 glitch.reverse({ at: 0.25, duration: 0.25 })  // reverse 2nd hit
 glitch.gain(t => -12 * t)                  // decay into silence
 await glitch.save('glitch.wav')
 ```
 
+<!--
 ### ✴ Visionary
 
 _Not yet implemented — aspirational APIs. If these resonate, open an issue._
@@ -654,14 +693,16 @@ for (let [i, p] of parts.entries()) await p.save(`segment-${i}.mp3`)
 npx audio lecture.mp3 split --silence -40db 0.5s -o 'segment-{i}.mp3'
 ```
 
-**Time-stretch / pitch-shift** — change tempo without pitch, or pitch without tempo.
+**Pitch shift / time stretch** — change pitch without duration, or duration without pitch. (`a.speed(rate)` changes both; these are independent ops.)
 ```js
+a.pitch(12)                                // up one octave, same duration
+a.pitch(-7)                                // down a fifth, same duration
 a.stretch(0.8)                             // 80% speed, same pitch
-a.pitch(2)                                 // up one octave, same speed
+a.stretch(2)                               // double duration, same pitch
 ```
 ```sh
-npx audio vocals.wav stretch 0.8x -o slow.wav
 npx audio vocals.wav pitch +12 -o octave-up.wav
+npx audio vocals.wav stretch 0.8x -o slow.wav
 ```
 
 **Noise gate / denoise** — suppress or remove background noise.
@@ -709,7 +750,7 @@ let b = await audio.from(img, { type: 'spectrogram' })               // Griffin-
 
 **Crossfade concat** — overlap-add join with automatic crossfade.
 ```js
-let ep = audio.concat(intro, body, outro, { crossfade: 2 })
+let ep = intro.concat(body, outro, { crossfade: 2 })
 ```
 ```sh
 npx audio intro.mp3 + body.wav + outro.mp3 --crossfade 2s -o episode.mp3
@@ -729,6 +770,7 @@ let a = audio.live({ input: 'mic' })
 a.highpass(80).notch(60).gain(-3)
 a.connect(audioContext.destination)         // monitor output
 ```
+-->
 
 
 ## Architecture
@@ -738,7 +780,7 @@ a.connect(audioContext.destination)         // monitor output
 | File | Role |
 |------|------|
 | **`core.js`** | Engine — decode, paginate, plugin registry (`audio.stat`, `audio.fn`, `audio.hook`), instance factory, page I/O. The only required file. |
-| **`stats.js`** | Block-level stat engine — computes min/max/energy/clip/dc per 1024-sample block during decode. Powers waveform display, loudness measurement, and stat queries without touching PCM. |
+| **`stats.js`** | Block-level stat engine — computes min/max/energy/clip/dc per `BLOCK_SIZE`-sample block during decode. Powers waveform display, loudness measurement, and stat queries without touching PCM. |
 | **`cache.js`** | Page cache — LRU eviction to OPFS and on-demand restore. Keeps large files playable without exhausting RAM. |
 | **`history.js`** | Edit pipeline — non-destructive edit list, plan builder, stream renderer. Turns `a.gain(-3).trim()` into a declarative plan that materializes on read. |
 | **`audio.js`** | Full bundle — imports core + stats + cache + history + all plugins, calls `audio.use()`. The default import. |
@@ -747,45 +789,133 @@ a.connect(audioContext.destination)         // monitor output
 
 ### Concepts
 
-**Stream-first** means no operation touches the full PCM at once. Audio is stored in 64K-sample pages. Decode streams pages progressively. Every output — `read()`, `stream()`, `play()`, `save()`, `stat()` — walks pages one chunk at a time through the edit pipeline. A 2-hour file never needs 2 hours of float arrays in memory.
+**Stream-first** means no operation touches the full PCM at once. Audio is stored in pages. Decode streams pages progressively. Every output — `read()`, `stream()`, `play()`, `save()`, `stat()` — walks pages one chunk at a time through the edit pipeline. A 2-hour file never needs 2 hours of float arrays in memory.
 
 **Non-destructive editing** means ops don't mutate source pages. `a.gain(-3).crop({at: 1, duration: 5})` pushes two entries to `a.edits`. Source data stays immutable. The edit list replays on demand — and can be undone, serialized, or reapplied.
 
 **Plan** is the compiled form of the edit list. `buildPlan(a)` walks all edits and produces:
 
 - **Segment map** — which source ranges map to which output positions (structural ops: crop, remove, insert, repeat, pad). Like a virtual timeline of pointers.
-- **Sample pipeline** — per-page transforms applied in order (gain, fade, reverse, filter, pan). These run on each chunk as it streams through.
+- **Sample pipeline** — transforms applied per page in order (gain, fade, reverse, filter, pan). Each op receives one page-sized chunk and processes every sample in a tight loop. Page size bounds memory allocation per step, not processing cost — the same samples get touched either way.
 - **Stat-conditioned resolution** — ops like `trim` and `normalize` inspect pre-computed stats at plan time to emit concrete ops (crop, gain). No extra decode pass needed.
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          Output (read/play/stream/save)                │
-│                                                                        │
-│  source pages ──→ segment map ──→ sample pipeline ──→ output chunks   │
-│  (64K Float32)    (structural)    (per-page ops)     (stream or flat) │
-│                                                                        │
-│  ┌──────────┐    ┌────────────┐  ┌──────────────┐                     │
-│  │ page [0] │──→ │ crop/insert│──→│ gain → fade  │──→ chunk [0]       │
-│  │ page [1] │──→ │ repeat/pad │──→│ → filter     │──→ chunk [1]       │
-│  │ page [n] │──→ │ remove     │──→│ → pan        │──→ chunk [n]       │
-│  └──────────┘    └────────────┘  └──────────────┘                     │
-│        ↑                                                               │
-│  stats (min/max/energy/clip/dc) computed at decode time                │
-│  ── power waveform, loudness, trim/normalize without PCM access ──    │
-└─────────────────────────────────────────────────────────────────────────┘
+source pages ──→ segment map ──→ sample pipeline ──→ output chunks
+(Float32)        (structural)    (per-page ops)     (stream or flat)
 ```
 
-**Stats** are computed once during decode — block-level min, max, energy, clip, dc per 1024 samples. They stay resident (~7MB for 2h stereo) and power instant waveform rendering, loudness measurement (LUFS), and stat-conditioned ops — all without decoding a single page.
+### Pages and blocks
 
-**Pages and eviction** — decoded PCM lives in 64K-sample chunks. For large files with `storage: 'persistent'`, cache.js evicts cold pages to OPFS (browser filesystem) via LRU and restores them on demand. The `cursor` property preloads pages near the playback position.
+Audio is fragmented at two levels — **pages** for storage, **blocks** for processing:
+
+| | `PAGE_SIZE` (default 65536) | `BLOCK_SIZE` (default 1024) |
+|-|---|---|
+| **What** | Samples per storage chunk | Samples per processing unit |
+| **Stores** | Float32Array[] per channel | min, max, energy, clip, dc per block |
+| **Purpose** | Memory management, cache eviction, decode streaming | Op processing, stat computation, waveform resolution |
+| **Memory** | PCM data — evictable to OPFS | Stats — always resident (~7 MB for 2h stereo) |
+
+**Pages** set the streaming granularity. The edit pipeline materializes one block at a time: read source samples → apply structural ops (segment map) → run sample transforms (gain, fade, filter) → yield output block. This bounds peak memory to one block per channel, regardless of file length. Cache eviction works at page granularity: cold pages offload to OPFS, hot pages near the playhead (via `seek()`) stay resident.
+
+Ops and stats both process in `BLOCK_SIZE` chunks — same unit, same granularity. This matches Web Audio API design (128-sample render quantum). Stateful ops like filters carry state sample-to-sample within and across blocks. Keep `PAGE_SIZE` large (minutes of audio) as the memory/storage unit; `BLOCK_SIZE` small (1024 default) as the processing unit.
+
+**Blocks** are the stat unit. During decode, each page is subdivided into block-sized windows. Per block: min/max/energy/clip/dc are computed and stored. These power instant waveform rendering, loudness measurement (LUFS), and stat-conditioned ops (trim, normalize) — all without touching PCM.
+
+Both are configurable — set before creating any instances:
+
+```js
+audio.PAGE_SIZE = 131072  // 128K samples — larger pages, fewer allocs
+audio.BLOCK_SIZE = 256    // finer stat resolution — smoother waveforms
+```
+
+Each instance's stats record `stats.blockSize` — the block size used at its decode time.
+
+**Waveform zoom and block resolution.** `BLOCK_SIZE` sets the finest pre-computed stat resolution. Three zoom regimes:
+
+- **Zoomed out** (many samples per pixel): `stat('max', { bins })` aggregates multiple blocks into fewer bins. Pre-computed stats suffice — no PCM access.
+- **1:1** (one block per pixel): stats render directly.
+- **Zoomed in** (fewer samples than one block per pixel): read PCM from pages for sample-accurate waveform. The page cache makes this fast for the visible region.
+
+Changing `BLOCK_SIZE` cannot retroactively refine existing stats. For finer resolution in a zoomed region, read the PCM — pages are always available.
 
 ### Three import paths
 
 ```js
 import audio from 'audio'            // full bundle — all ops, stats, cache
-import audio from 'audio/core'       // bare engine — no ops, no cache
+import audio from 'audio/core.js'    // bare engine — no ops, no cache
 import gain from 'audio/fn/gain.js'  // individual plugin
 ```
+
+### Browser
+
+Pre-built ESM bundles in `dist/`:
+
+| File | Size | Use |
+|------|------|-----|
+| `audio.min.js` | 65K | Core + codec dispatch. Codecs load on demand via `import()`. |
+| `audio.js` | 118K | Same, unminified. |
+| `audio.all.js` | 10M | Everything bundled. Zero-config, nothing else needed. |
+
+**Quick start** — single script, no build step:
+
+```html
+<script type="module">
+  import audio from './dist/audio.all.js'
+  let a = await audio('./song.mp3')
+  a.play()
+</script>
+```
+
+**Production** — slim bundle + import map. Only mapped codecs get downloaded, and only when that format is first opened:
+
+```html
+<script type="importmap">
+{
+  "imports": {
+    "@audio/decode-wav": "https://esm.sh/@audio/decode-wav",
+    "mpg123-decoder":    "https://esm.sh/mpg123-decoder"
+  }
+}
+</script>
+<script type="module">
+  import audio from './dist/audio.min.js'
+  let a = await audio('./voice.wav')   // fetches @audio/decode-wav on first use
+</script>
+```
+
+Codecs are lazy — `audio-decode` calls `import('mpg123-decoder')` only when an MP3 file is opened. Unmapped formats throw at decode time, not at load time.
+
+<details><summary>All codec packages</summary>
+<!-- FIXME: just give one importmap for production instead of this table -->
+**Decoders** (used by `audio-decode`):
+
+| Format | Package |
+|--------|---------|
+| WAV | `@audio/decode-wav` |
+| MP3 | `mpg123-decoder` |
+| FLAC | `@wasm-audio-decoders/flac` |
+| Opus | `ogg-opus-decoder` |
+| Vorbis | `@wasm-audio-decoders/ogg-vorbis` |
+| AAC/M4A | `@audio/decode-aac` |
+| AIFF | `@audio/decode-aiff` |
+| CAF | `@audio/decode-caf` |
+| WebM | `@audio/decode-webm` |
+| AMR | `@audio/decode-amr` |
+| WMA | `@audio/decode-wma` |
+| QOA | `qoa-format` |
+
+**Encoders** (used by `encode-audio`):
+
+| Format | Package |
+|--------|---------|
+| WAV | `@audio/encode-wav` |
+| MP3 | `@audio/encode-mp3` |
+| FLAC | `@audio/encode-flac` |
+| Opus | `@audio/encode-opus` |
+| OGG | `@audio/encode-ogg` |
+| AIFF | `@audio/encode-aiff` |
+
+</details>
 
 
 ## Ecosystem

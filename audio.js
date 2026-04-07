@@ -9,6 +9,7 @@
 
 import audio from './core.js'
 export { default } from './core.js'
+export { parseTime } from './core.js'
 export { render } from './history.js'
 
 // ── Infrastructure (self-register on import) ────────────────────────────
@@ -42,6 +43,7 @@ import './fn/normalize.js'
 import './fn/filter.js'
 import './fn/pan.js'
 import './fn/pad.js'
+import './fn/speed.js'
 import './fn/transform.js'
 
 // ── Stats ───────────────────────────────────────────────────────────────
@@ -49,3 +51,4 @@ import './fn/transform.js'
 import './fn/stat.js'
 import './fn/spectrum.js'
 import './fn/cepstrum.js'
+import './fn/silence.js'

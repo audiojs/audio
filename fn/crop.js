@@ -1,8 +1,10 @@
+import { seg } from '../history.js'
+
 export function cropSegs(segs, off, len) {
   let r = [], end = off + len
   for (let s of segs) {
-    let a = Math.max(s.out, off), b = Math.min(s.out + s.len, end)
-    if (a < b) r.push({ src: s.src + a - s.out, out: a - off, len: b - a, ref: s.ref, rev: s.rev })
+    let a = Math.max(s[2], off), b = Math.min(s[2] + s[1], end)
+    if (a < b) r.push(seg(s[0] + (a - s[2]) * Math.abs(s[3] || 1), b - a, a - off, s[3], s[4]))
   }
   return r
 }
@@ -14,17 +16,11 @@ const crop = (chs, ctx) => {
   return chs.map(ch => ch.slice(Math.max(0, s), Math.min(end, ch.length)))
 }
 
-const cropOutLen = (len, ctx) => {
-  let { offset, span } = ctx
-  let s = offset != null ? (offset < 0 ? len + offset : offset) : 0
-  return span ?? len - s
-}
-
 const cropPlan = (segs, ctx) => {
   let { total, offset, span } = ctx
-  let s = offset != null ? (offset < 0 ? total + offset : offset) : 0
-  return cropSegs(segs, s, span ?? total - s)
+  let s = offset != null ? Math.min(Math.max(0, offset < 0 ? total + offset : offset), total) : 0
+  return cropSegs(segs, s, Math.max(0, Math.min(span ?? total - s, total - s)))
 }
 
 import audio from '../core.js'
-audio.op('crop', crop, { outLen: cropOutLen, plan: cropPlan })
+audio.op('crop', crop, cropPlan)

@@ -1,0 +1,42 @@
+/**
+ * Speed — change playback rate. speed(2) = double speed (half duration),
+ * speed(0.5) = half speed (double duration), speed(-1) = reverse.
+ */
+
+const speed = (chs, ctx) => {
+  let rate = ctx.args[0]
+  if (rate === 0) throw new RangeError('speed: rate cannot be 0')
+  if (!rate || rate === 1) return false
+  let absR = Math.abs(rate)
+  return chs.map(ch => {
+    let n = Math.round(ch.length / absR)
+    let out = new Float32Array(n)
+    for (let i = 0; i < n; i++) {
+      let pos = (rate < 0 ? (n - 1 - i) * absR : i * absR)
+      let idx = pos | 0, frac = pos - idx
+      out[i] = idx + 1 < ch.length
+        ? ch[idx] + (ch[idx + 1] - ch[idx]) * frac
+        : ch[idx] || 0
+    }
+    return out
+  })
+}
+
+import { seg } from '../history.js'
+
+const speedPlan = (segs, ctx) => {
+  let rate = ctx.args[0]
+  if (rate === 0) throw new RangeError('speed: rate cannot be 0')
+  if (!rate || rate === 1) return segs
+  let absR = Math.abs(rate)
+  let r = [], dst = 0
+  for (let s of segs) {
+    let count = Math.round(s[1] / absR)
+    r.push(seg(s[0], count, dst, s[4] === null ? s[3] : (s[3] || 1) * rate, s[4]))
+    dst += count
+  }
+  return r
+}
+
+import audio from '../core.js'
+audio.op('speed', speed, speedPlan)

@@ -1,11 +1,14 @@
 const mix = (chs, ctx) => {
-  let source = ctx.args[0], sr = ctx.sampleRate
+  let source = ctx.args[0], sr = ctx.sampleRate, chLen = chs[0].length
   let p = ctx.at != null ? Math.round(ctx.at * sr) : 0
-  let src = ctx.render(source)
+  let srcOff = Math.max(0, -p), dstOff = Math.max(0, p)
+  let n = Math.min(source.length - srcOff, chLen - dstOff)
+  if (ctx.duration != null) n = Math.min(n, Math.round(ctx.duration * sr) - srcOff)
+  if (n <= 0) return chs
+  let src = ctx.render(source, srcOff, n)
   for (let c = 0; c < chs.length; c++) {
-    let m = src[c] || src[0]
-    let n = ctx.duration != null ? Math.round(ctx.duration * sr) : m.length
-    for (let i = 0; i < Math.min(n, m.length) && Math.max(0, p) + i < chs[c].length; i++) chs[c][Math.max(0, p) + i] += m[i]
+    let m = src[c % src.length]
+    for (let i = 0; i < n; i++) chs[c][dstOff + i] += m[i]
   }
   return chs
 }

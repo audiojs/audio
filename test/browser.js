@@ -1,13 +1,19 @@
 /**
- * Browser test runner — starts serve.js, launches headless Chromium via Playwright, captures tst output.
+ * Browser test runner — builds bundle, starts server, launches headless Chromium via Playwright, captures tst output.
  */
 import { createServer } from 'http'
 import { readFile } from 'fs/promises'
 import { join, extname } from 'path'
 import { fileURLToPath } from 'url'
+import { execSync } from 'child_process'
 import { chromium } from 'playwright'
 
 let root = fileURLToPath(new URL('..', import.meta.url))
+
+// Build browser bundle
+console.log('Building browser bundle...')
+execSync('npm run build', { cwd: root, stdio: 'inherit' })
+
 let types = { '.html': 'text/html', '.js': 'text/javascript', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.wasm': 'application/wasm' }
 
 // Start server
@@ -44,10 +50,13 @@ page.on('console', msg => {
 page.on('pageerror', err => {
   console.error('PAGE ERROR:', err.message)
   failed = true
+  earlyExit?.()
 })
 
 // Wait for tst summary — look for "# total" line
+let earlyExit
 let done = new Promise(resolve => {
+  earlyExit = resolve
   page.on('console', msg => {
     let text = msg.text()
     if (text.includes('# fail')) failed = true

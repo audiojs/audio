@@ -14,8 +14,6 @@ import audio from '../audio.js'
 import { melSpectrum, toMel, fromMel } from '../fn/spectrum.js'
 import parseDuration from 'parse-duration'
 
-const VERSION = '2.0.0'
-
 // ── Unit Parsing ─────────────────────────────────────────────────────────
 
 function parseValue(str) {
@@ -65,7 +63,7 @@ function isFlag(s) {
 }
 
 function isOpName(s) {
-  return audio.fn[s]?.process || s in ALIAS
+  return audio.op(s) || s in ALIAS
 }
 
 // ── Per-op Help ──────────────────────────────────────────────────────────
@@ -92,6 +90,7 @@ const OP_HELP = {
   filter:    { usage: 'filter TYPE ...ARGS', desc: 'Generic filter dispatch', examples: ['filter highpass 80hz'] },
   pan:       { usage: 'pan VALUE [RANGE]', desc: 'Stereo balance: -1 left, 0 center, 1 right', examples: ['pan -0.5', 'pan 1 2s..5s'] },
   pad:       { usage: 'pad [BEFORE] [AFTER]', desc: 'Add silence to start/end (single arg = both)', examples: ['pad 1s', 'pad 0.5s 2s'] },
+  speed:     { usage: 'speed RATE', desc: 'Change speed — 2 = double, 0.5 = half, -1 = reverse', examples: ['speed 2', 'speed 0.5', 'speed -1'] },
 }
 
 function showOpHelp(name) {
@@ -381,7 +380,7 @@ async function playback(p, totalSec, decodedSec, a, src) {
   let refreshInfo = async () => {
     if (!a?.decoded) return
     try {
-      let [peak, , l, clips, dcOff] = await Promise.all([a.stat('db'), a.stat('rms'), a.stat('loudness'), a.stat('clip'), a.stat('dc')])
+      let [peak, , l, clips, dcOff] = await a.stat(['db', 'rms', 'loudness', 'clip', 'dc'])
       let warn = ''
       if (clips) warn += `   clip:${clips}`
       if (Math.abs(dcOff) > 0.001) warn += `   dc:${dcOff.toFixed(4)}`
@@ -510,7 +509,7 @@ async function main() {
   }
 
   if (args[0] === '--version' || args[0] === '-v' || args[0] === '-V') {
-    console.log(`audio ${VERSION}`)
+    console.log(`audio ${audio.version}`)
     process.exit(0)
   }
 
@@ -626,7 +625,7 @@ async function main() {
 
     // no-ops: show audio info
     if (!allOps.length && !opts.output && !opts.play) {
-      let [peak, , l, clips, dcOff] = await Promise.all([a.stat('db'), a.stat('rms'), a.stat('loudness'), a.stat('clip'), a.stat('dc')])
+      let [peak, , l, clips, dcOff] = await a.stat(['db', 'rms', 'loudness', 'clip', 'dc'])
       console.log(`  Duration:   ${formatDuration(a.duration)}`)
       console.log(`  Channels:   ${a.channels}`)
       console.log(`  SampleRate: ${a.sampleRate} Hz`)
@@ -702,7 +701,7 @@ async function main() {
 
 function showUsage() {
   console.log(`
-audio ${VERSION} — load, edit, save, play, analyze
+audio ${audio.version} — load, edit, save, play, analyze
 
 Usage:
   audio [input] [ops...] [-o output] [options]

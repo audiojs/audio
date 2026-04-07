@@ -1,14 +1,17 @@
+import { seg } from '../history.js'
+
 function reverseSegs(segs, off, end) {
   let r = []
   for (let s of segs) {
-    let se = s.out + s.len
-    if (se <= off || s.out >= end) { r.push(s); continue }
-    if (s.out < off) r.push({ src: s.src, out: s.out, len: off - s.out, ref: s.ref, rev: s.rev })
-    let iStart = Math.max(s.out, off), iEnd = Math.min(se, end)
-    r.push({ src: s.src + iStart - s.out, out: off + end - iEnd, len: iEnd - iStart, ref: s.ref, rev: !s.rev })
-    if (se > end) r.push({ src: s.src + end - s.out, out: end, len: se - end, ref: s.ref, rev: s.rev })
+    let se = s[2] + s[1]
+    if (se <= off || s[2] >= end) { r.push(s); continue }
+    let absR = Math.abs(s[3] || 1)
+    if (s[2] < off) r.push(seg(s[0], off - s[2], s[2], s[3], s[4]))
+    let iStart = Math.max(s[2], off), iEnd = Math.min(se, end)
+    r.push(seg(s[0] + (iStart - s[2]) * absR, iEnd - iStart, off + end - iEnd, -(s[3] || 1), s[4]))
+    if (se > end) r.push(seg(s[0] + (end - s[2]) * absR, se - end, end, s[3], s[4]))
   }
-  r.sort((a, b) => a.out - b.out)
+  r.sort((a, b) => a[2] - b[2])
   return r
 }
 
@@ -28,4 +31,4 @@ const reversePlan = (segs, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('reverse', reverse, { plan: reversePlan })
+audio.op('reverse', reverse, reversePlan)

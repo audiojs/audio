@@ -11,9 +11,9 @@ const fade = (chs, ctx) => {
   let fadeIn = dur > 0, n = Math.abs(dur)
   let sr = ctx.sampleRate, blockOffset = ctx.blockOffset || 0
   let at = ctx.at != null ? ctx.at + blockOffset : undefined
-  if (at != null && at < 0) at = (ctx.length || chs[0].length) / sr + at
+  if (at != null && at < 0) at = ctx.totalDuration + at
 
-  let totalSamples = ctx.length || chs[0].length + Math.round(blockOffset * sr)
+  let totalSamples = Math.round((ctx.totalDuration || chs[0].length / sr + blockOffset) * sr)
   let fadeStart = at != null
     ? Math.round(at * sr)
     : fadeIn ? 0 : totalSamples - Math.round(n * sr)
@@ -31,37 +31,18 @@ const fade = (chs, ctx) => {
 import audio from '../core.js'
 audio.op('fade', fade)
 
-const fadeEdits = (...a) => {
+// wrap to desugar: string curve, two-arg in/out shorthand
+let _fade = audio.fn.fade
+audio.fn.fade = function(...a) {
   let last = a[a.length - 1]
   let opts = typeof last === 'object' ? a.pop()
     : typeof last === 'string' ? { curve: a.pop() } : null
   if (typeof a[a.length - 1] === 'string') opts = { ...opts, curve: a.pop() }
   let [inDur, outDur] = a
-  let curve = opts?.curve
 
   if (outDur != null) {
-    let inEdit = { type: 'fade', args: [Math.abs(inDur)] }
-    let outEdit = { type: 'fade', args: [-Math.abs(outDur)] }
-    if (curve) { inEdit.curve = curve; outEdit.curve = curve }
-    if (opts) {
-      let { curve: _, ...rest } = opts
-      if (Object.keys(rest).length) { Object.assign(inEdit, rest); Object.assign(outEdit, rest) }
-    }
-    return [inEdit, outEdit]
+    _fade.call(this, Math.abs(inDur), opts || {})
+    return _fade.call(this, -Math.abs(outDur), opts || {})
   }
-
-  let edit = { type: 'fade', args: [inDur] }
-  if (curve) edit.curve = curve
-  if (opts) {
-    if (opts.at != null) edit.at = opts.at
-    if (opts.duration != null) edit.duration = opts.duration
-    if (opts.channel != null) edit.channel = opts.channel
-  }
-  return edit
+  return opts ? _fade.call(this, inDur, opts) : _fade.call(this, inDur)
 }
-
-// wrap to desugar fade args (in/out durations, curve, options)
-audio.fn.fade = Object.assign(
-  function(...a) { return this.run(...[].concat(fadeEdits(...a))) },
-  audio.fn.fade
-)

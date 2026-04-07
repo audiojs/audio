@@ -1,15 +1,18 @@
+## Vision
+
+* Universal versatile audio container/tool/swiss knife, giving a simple intuitive way to perform any industry-standard common-case audio manipulations and operations.
+* Giving a way to easily run custom processors / operations from js environments.
+* Works with files of any duration without losing performance.
+* Always responsible, no hangs or long uninteractive operations: doesn't make user wait before playback, doesn't hang during processing or save - always cancelable.
+* Provides a perspective for immediate shared operations to multiple users: keeps source immutable, operations virtual, materializing by request.
+* Direct, linear code, self-descriptive, common patterns, flat minimal abstractions.
+
 ## Principles
 
 1. **Stream-first** — every operation works per-page. No full-data paths exist. Instant playback, editing, analysis regardless of file size or edit chain depth.
 2. **Immutable** — edits are a declarative list. Source is immutable. Any state is reconstructable from source + edits.
 3. **Physical units** — seconds, dB, Hz, LUFS. Samples are internal. The user never counts frames.
 5. **Modular** — ops, stats, sources, encoders are all registered the same way: `(audio) => { ... }`. Core hardcodes nothing.
-
-
-## Vision
-
-The universal audio buffer. Like `sharp` for images, but for sound — load anything, transform instantly, output anywhere. Handles 2h+ files in the browser without tab death. Sets the standard for how audio is manipulated in JavaScript: one library, every platform, no ceremony. The package other tools build on.
-
 
 ## Mission
 
