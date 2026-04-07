@@ -100,7 +100,7 @@ const aggregates = {
   rms(stats, ch, from, to) {
     let sum = 0, n = 0
     for (let c = 0; c < ch; c++)
-      for (let i = from; i < Math.min(to, stats.energy[c].length); i++) { sum += stats.energy[c][i]; n++ }
+      for (let i = from; i < Math.min(to, stats.rms[c].length); i++) { sum += stats.rms[c][i]; n++ }
     return n ? Math.sqrt(sum / n) : 0
   },
   loudness(stats, ch, from, to, sr) {
@@ -109,10 +109,52 @@ const aggregates = {
   }
 }
 
+// ── Measurement from stats (DC-aware, channel-scoped) ───────────
+
+/** Per-channel DC offset from block stats. */
+export function dcOffsets(stats, chs) {
+  let off = new Float64Array(stats.dc.length)
+  for (let c of chs) {
+    let sum = 0
+    for (let i = 0; i < stats.dc[c].length; i++) sum += stats.dc[c][i]
+    off[c] = sum / stats.dc[c].length
+  }
+  return off
+}
+
+/** Peak amplitude in dB after DC removal. Returns null if silent. */
+export function peakDb(stats, chs, dcOff) {
+  let peak = 0
+  for (let c of chs) {
+    let d = dcOff?.[c] || 0
+    for (let i = 0; i < stats.min[c].length; i++)
+      peak = Math.max(peak, Math.abs(stats.min[c][i] - d), Math.abs(stats.max[c][i] - d))
+  }
+  return peak ? 20 * Math.log10(peak) : null
+}
+
+/** RMS level in dB after DC removal. Returns null if silent/missing. */
+export function rmsDb(stats, chs, dcOff) {
+  if (!stats.rms) return null
+  let totalE = 0, n = 0
+  for (let c of chs) {
+    let d = dcOff?.[c] || 0
+    // E[x²] = E[(x-dc)²] + dc²  →  E[(x-dc)²] = E[x²] - dc²
+    for (let i = 0; i < stats.rms[c].length; i++) { totalE += stats.rms[c][i] - d * d; n++ }
+  }
+  return n && totalE > 0 ? 10 * Math.log10(totalE / n) : null
+}
+
+/** LUFS loudness level. Returns null if silent. */
+export function lufsDb(stats, chs, sampleRate) {
+  return lufsFromEnergy(stats.energy, chs.length, sampleRate, stats.blockSize) ?? null
+}
+
 /** Bin reduction configs for raw block stats. */
 const binConfigs = {
   min: { reduce: rMin, init: Infinity },
   max: { reduce: rMax, init: -Infinity },
+  rms: { reduce: rSum, init: 0 },
   energy: { reduce: rSum, init: 0 },
   clip: { reduce: rSum, init: 0 },
   dc: { reduce: rSum, init: 0 }

@@ -41,7 +41,8 @@ test('parseArgs — multiple ops', t => {
 test('parseArgs — op with multiple args', t => {
   let result = parseArgs(['in.wav', 'fade', '1.5s', 'linear'])
   t.is(result.ops[0].name, 'fade')
-  t.is(result.ops[0].args.length, 2, '2 args')
+  t.is(result.ops[0].args.length, 1, 'duration in args')
+  t.is(result.ops[0].curve, 'linear', 'curve as option')
 })
 
 test('parseArgs — range syntax', t => {
@@ -168,13 +169,13 @@ test('parseArgs — -i flag anywhere', t => {
 
 test('ops registry — all built-ins available', async t => {
   let audio = (await import('../audio.js')).default
-  t.ok(audio.op.gain, 'gain op exists')
-  t.ok(audio.op.fade, 'fade op exists')
-  t.ok(audio.op.trim, 'trim op exists')
-  t.ok(audio.op.normalize, 'normalize op exists')
-  t.ok(audio.op.remix, 'remix op exists')
-  t.ok(typeof audio.op.trim === 'function', 'trim is function')
-  t.ok(typeof audio.op.normalize === 'function', 'normalize is function')
+  t.ok(audio.fn.gain?.process, 'gain op exists')
+  t.ok(audio.fn.fade?.process, 'fade op exists')
+  t.ok(audio.fn.trim?.process, 'trim op exists')
+  t.ok(audio.fn.normalize?.process, 'normalize op exists')
+  t.ok(audio.fn.remix?.process, 'remix op exists')
+  t.ok(typeof audio.fn.trim === 'function', 'trim is function')
+  t.ok(typeof audio.fn.normalize === 'function', 'normalize is function')
 })
 
 // ── CLI Execution ────────────────────────────────────────────────────────
@@ -338,13 +339,13 @@ test('CLI — mono trim normalize save mp3', async t => {
 // ── Filters ──────────────────────────────────────────────────────────────
 
 test('ops registry — filter ops available', t => {
-  t.ok(audio.op.highpass, 'highpass op')
-  t.ok(audio.op.lowpass, 'lowpass op')
-  t.ok(audio.op.eq, 'eq op')
-  t.ok(audio.op.lowshelf, 'lowshelf op')
-  t.ok(audio.op.highshelf, 'highshelf op')
-  t.ok(audio.op.notch, 'notch op')
-  t.ok(audio.op.bandpass, 'bandpass op')
+  t.ok(audio.fn.highpass?.process, 'highpass op')
+  t.ok(audio.fn.lowpass?.process, 'lowpass op')
+  t.ok(audio.fn.eq?.process, 'eq op')
+  t.ok(audio.fn.lowshelf?.process, 'lowshelf op')
+  t.ok(audio.fn.highshelf?.process, 'highshelf op')
+  t.ok(audio.fn.notch?.process, 'notch op')
+  t.ok(audio.fn.bandpass?.process, 'bandpass op')
 })
 
 test('API — highpass filter applies correctly', async t => {

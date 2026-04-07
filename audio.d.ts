@@ -53,7 +53,7 @@ export interface AudioInstance {
 
   type OpOpts = { at?: number, duration?: number, channel?: number | number[] }
 
-  // ── Structural ops (registered via audio.op) ────────────────
+  // ── Structural ops ───────────────────────────────────────────
   crop(opts?: { at?: number, duration?: number }): this
   insert(other: AudioInstance, opts?: { at?: number }): this
   remove(opts?: { at?: number, duration?: number }): this

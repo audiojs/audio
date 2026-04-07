@@ -36,27 +36,27 @@ export function mfcc(samples, sr, opts = {}) {
 
 // ── Stat registration ───────────────────────────────────────────
 
-export default (audio) => {
-  /** a.stat('cepstrum', {bins}) → average MFCCs over range */
-  audio.fn.cepstrum = async function(opts) {
-    let bins = opts?.bins ?? 13
-    let sr = this.sampleRate
-    let N = 1024
+import audio from '../core.js'
 
-    let pcm = await this.read({ at: opts?.at, duration: opts?.duration })
-    let ch0 = pcm[0]
+/** a.stat('cepstrum', {bins}) → average MFCCs over range */
+audio.fn.cepstrum = async function(opts) {
+  let bins = opts?.bins ?? 13
+  let sr = this.sampleRate
+  let N = 1024
 
-    let acc = new Float64Array(bins), cnt = 0
-    for (let off = 0; off < ch0.length - N; off += N) {
-      let block = ch0.subarray(off, off + N)
-      let c = mfcc(block, sr, { bins })
-      for (let k = 0; k < bins; k++) acc[k] += c[k]
-      cnt++
-    }
+  let pcm = await this.read({ at: opts?.at, duration: opts?.duration })
+  let ch0 = pcm[0]
 
-    if (cnt === 0) return new Float32Array(bins)
-    let out = new Float32Array(bins)
-    for (let k = 0; k < bins; k++) out[k] = acc[k] / cnt
-    return out
+  let acc = new Float64Array(bins), cnt = 0
+  for (let off = 0; off < ch0.length - N; off += N) {
+    let block = ch0.subarray(off, off + N)
+    let c = mfcc(block, sr, { bins })
+    for (let k = 0; k < bins; k++) acc[k] += c[k]
+    cnt++
   }
+
+  if (cnt === 0) return new Float32Array(bins)
+  let out = new Float32Array(bins)
+  for (let k = 0; k < bins; k++) out[k] = acc[k] / cnt
+  return out
 }

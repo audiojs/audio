@@ -17,40 +17,35 @@ import './cache.js'
 import './stats.js'
 import './history.js'
 
-// ── Plugins ─────────────────────────────────────────────────────────────
+// ── Methods ─────────────────────────────────────────────────────────────
 
-import view from './fn/view.js'
-import split from './fn/split.js'
-import play from './fn/play.js'
-import save from './fn/save.js'
-import concat from './fn/concat.js'
+import './fn/view.js'
+import './fn/split.js'
+import './fn/play.js'
+import './fn/save.js'
+import './fn/concat.js'
 
-import crop from './fn/crop.js'
-import remove from './fn/remove.js'
-import insert from './fn/insert.js'
-import repeat from './fn/repeat.js'
-import gain from './fn/gain.js'
-import fade from './fn/fade.js'
-import reverse from './fn/reverse.js'
-import mix from './fn/mix.js'
-import write from './fn/write.js'
-import remix from './fn/remix.js'
-import trim from './fn/trim.js'
-import normalize from './fn/normalize.js'
-import filter from './fn/filter.js'
-import pan from './fn/pan.js'
-import pad from './fn/pad.js'
-import transform from './fn/transform.js'
+// ── Ops ─────────────────────────────────────────────────────────────────
 
-import stat from './fn/stat.js'
-import spectrumStat from './fn/spectrum.js'
-import cepstrumStat from './fn/cepstrum.js'
+import './fn/crop.js'
+import './fn/remove.js'
+import './fn/insert.js'
+import './fn/repeat.js'
+import './fn/gain.js'
+import './fn/fade.js'
+import './fn/reverse.js'
+import './fn/mix.js'
+import './fn/write.js'
+import './fn/remix.js'
+import './fn/trim.js'
+import './fn/normalize.js'
+import './fn/filter.js'
+import './fn/pan.js'
+import './fn/pad.js'
+import './fn/transform.js'
 
-audio.use(
-  // methods
-  view, split, play, save, concat,
-  // ops
-  crop, remove, insert, repeat, gain, fade, reverse, mix, write, remix, trim, normalize, filter, pan, pad, transform,
-  // stats
-  stat, spectrumStat, cepstrumStat,
-)
+// ── Stats ───────────────────────────────────────────────────────────────
+
+import './fn/stat.js'
+import './fn/spectrum.js'
+import './fn/cepstrum.js'

@@ -1,11 +1,9 @@
 ## Principles
 
 1. **Stream-first** — every operation works per-page. No full-data paths exist. Instant playback, editing, analysis regardless of file size or edit chain depth.
-2. **Non-destructive** — edits are a declarative list. Source is immutable. Any state is reconstructable from source + edits.
+2. **Immutable** — edits are a declarative list. Source is immutable. Any state is reconstructable from source + edits.
 3. **Physical units** — seconds, dB, Hz, LUFS. Samples are internal. The user never counts frames.
-4. **Single path** — one pipeline serves read, play, stream, save, stat. Per-page render with segment map + sample transforms. No separate "fast path" vs "full path."
-5. **Zero ceremony** — `await audio('in.mp3').gain(-3).save('out.wav')` must work. Value is immediate, complete, standalone.
-6. **Pluggable** — ops, stats, sources, encoders are all registered the same way: `(audio) => { ... }`. Core hardcodes nothing.
+5. **Modular** — ops, stats, sources, encoders are all registered the same way: `(audio) => { ... }`. Core hardcodes nothing.
 
 
 ## Vision

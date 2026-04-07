@@ -12,22 +12,22 @@ const pan = (chs, ctx) => {
   let off = (ctx.blockOffset || 0) * sr
   if (!auto) {
     let gL = val <= 0 ? 1 : 1 - val, gR = val >= 0 ? 1 : 1 + val, gains = [gL, gR]
-    return chs.map((ch, c) => {
+    for (let c = 0; c < chs.length; c++) {
       let g = gains[c] ?? 1
-      if (g === 1) return ch
-      let o = new Float32Array(ch)
-      for (let i = Math.max(0, s); i < Math.min(end, o.length); i++) o[i] *= g
-      return o
-    })
+      if (g === 1) continue
+      for (let i = Math.max(0, s); i < Math.min(end, chs[c].length); i++) chs[c][i] *= g
+    }
+    return chs
   }
   // Automation: per-sample evaluation
-  let L = new Float32Array(chs[0]), R = new Float32Array(chs[1])
+  let L = chs[0], R = chs[1]
   for (let i = Math.max(0, s); i < Math.min(end, L.length); i++) {
     let p = val((off + i) / sr)
     L[i] *= p <= 0 ? 1 : 1 - p
     R[i] *= p >= 0 ? 1 : 1 + p
   }
-  return [L, R, ...chs.slice(2)]
+  return chs
 }
 
-export default (audio) => { audio.op.pan = pan }
+import audio from '../core.js'
+audio.op('pan', pan)

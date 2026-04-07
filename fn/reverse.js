@@ -17,12 +17,15 @@ const reverse = (chs, ctx) => {
   let s = ctx.at != null ? Math.round(ctx.at * sr) : 0
   let end = ctx.duration != null ? s + Math.round(ctx.duration * sr) : chs[0].length
   s = Math.max(0, s)
-  return chs.map(ch => { let o = new Float32Array(ch); o.subarray(s, Math.min(end, o.length)).reverse(); return o })
+  for (let ch of chs) ch.subarray(s, Math.min(end, ch.length)).reverse()
+  return chs
 }
 
-reverse.plan = (segs, total, sr, args, off, dur) => {
-  let s = off != null ? Math.round((off < 0 ? total / sr + off : off) * sr) : 0
-  return reverseSegs(segs, s, s + (dur != null ? Math.round(dur * sr) : total - s))
+const reversePlan = (segs, ctx) => {
+  let { total, offset, span } = ctx
+  let s = offset != null ? (offset < 0 ? total + offset : offset) : 0
+  return reverseSegs(segs, s, s + (span ?? total - s))
 }
 
-export default (audio) => { audio.op.reverse = reverse }
+import audio from '../core.js'
+audio.op('reverse', reverse, { plan: reversePlan })

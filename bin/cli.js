@@ -65,7 +65,7 @@ function isFlag(s) {
 }
 
 function isOpName(s) {
-  return s in audio.op || s in ALIAS
+  return audio.fn[s]?.process || s in ALIAS
 }
 
 // ── Per-op Help ──────────────────────────────────────────────────────────
@@ -189,20 +189,19 @@ function parseArgs(args) {
     if (op.name === 'fade') {
       let nums = op.args.filter(a => typeof a === 'number')
       let curve = op.args.find(a => typeof a === 'string')
-      let curveArgs = curve ? [curve] : []
 
       if (nums.length === 0) {
         // bare `fade` → 0.5s in + 0.5s out
-        expanded.push({ name: 'fade', args: [0.5, ...curveArgs], offset: null, duration: null })
-        expanded.push({ name: 'fade', args: [-0.5, ...curveArgs], offset: null, duration: null })
+        expanded.push({ name: 'fade', args: [0.5], curve, offset: null, duration: null })
+        expanded.push({ name: 'fade', args: [-0.5], curve, offset: null, duration: null })
       } else if (nums.length === 1 && nums[0] > 0) {
         // `fade 0.3` → both at 0.3s
-        expanded.push({ name: 'fade', args: [nums[0], ...curveArgs], offset: null, duration: null })
-        expanded.push({ name: 'fade', args: [-nums[0], ...curveArgs], offset: null, duration: null })
+        expanded.push({ name: 'fade', args: [nums[0]], curve, offset: null, duration: null })
+        expanded.push({ name: 'fade', args: [-nums[0]], curve, offset: null, duration: null })
       } else if (nums.length === 2 && nums[0] > 0 && nums[1] < 0) {
         // `fade 0.2 -1` → in 0.2s, out 1s
-        expanded.push({ name: 'fade', args: [nums[0], ...curveArgs], offset: null, duration: null })
-        expanded.push({ name: 'fade', args: [nums[1], ...curveArgs], offset: null, duration: null })
+        expanded.push({ name: 'fade', args: [nums[0]], curve, offset: null, duration: null })
+        expanded.push({ name: 'fade', args: [nums[1]], curve, offset: null, duration: null })
       } else {
         expanded.push(op)
       }
@@ -576,12 +575,11 @@ async function main() {
         let a = await audio(file)
         for (let op of allOps) {
           let fullArgs = op.args.slice()
-          if (op.offset != null || op.duration != null) {
-            let rangeOpts = {}
-            if (op.offset != null) rangeOpts.at = op.offset
-            if (op.duration != null) rangeOpts.duration = op.duration
-            fullArgs.push(rangeOpts)
-          }
+          let rangeOpts = {}
+          if (op.offset != null) rangeOpts.at = op.offset
+          if (op.duration != null) rangeOpts.duration = op.duration
+          if (op.curve) rangeOpts.curve = op.curve
+          if (Object.keys(rangeOpts).length) fullArgs.push(rangeOpts)
           if (typeof a[op.name] !== 'function') throw new Error(`Unknown operation: ${op.name}`)
           a[op.name](...fullArgs)
         }
@@ -645,14 +643,13 @@ async function main() {
     if (allOps.length) {
       if (opts.verbose) console.error(`Applying ${allOps.length} operation(s)...`)
       for (let op of allOps) {
-        let { name, args, offset, duration } = op
+        let { name, args, offset, duration, curve } = op
         let fullArgs = args.slice()
-        if (offset != null || duration != null) {
-          let rangeOpts = {}
-          if (offset != null) rangeOpts.at = offset
-          if (duration != null) rangeOpts.duration = duration
-          fullArgs.push(rangeOpts)
-        }
+        let rangeOpts = {}
+        if (offset != null) rangeOpts.at = offset
+        if (duration != null) rangeOpts.duration = duration
+        if (curve) rangeOpts.curve = curve
+        if (Object.keys(rangeOpts).length) fullArgs.push(rangeOpts)
         if (typeof a[name] !== 'function') throw new Error(`Unknown operation: ${name}`)
         try { a[name](...fullArgs) }
         catch (e) { throw new Error(`${name}: ${formatError(e)}`) }

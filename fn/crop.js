@@ -2,7 +2,7 @@ export function cropSegs(segs, off, len) {
   let r = [], end = off + len
   for (let s of segs) {
     let a = Math.max(s.out, off), b = Math.min(s.out + s.len, end)
-    if (a < b) r.push({ src: s.src + a - s.out, out: a - off, len: b - a, ref: s.ref })
+    if (a < b) r.push({ src: s.src + a - s.out, out: a - off, len: b - a, ref: s.ref, rev: s.rev })
   }
   return r
 }
@@ -14,14 +14,17 @@ const crop = (chs, ctx) => {
   return chs.map(ch => ch.slice(Math.max(0, s), Math.min(end, ch.length)))
 }
 
-crop.dur = (len, sr, args, off, dur) => {
-  let s = off != null ? (off < 0 ? len / sr + off : off) : 0
-  return dur != null ? Math.round(dur * sr) : len - Math.round(s * sr)
+const cropOutLen = (len, ctx) => {
+  let { offset, span } = ctx
+  let s = offset != null ? (offset < 0 ? len + offset : offset) : 0
+  return span ?? len - s
 }
 
-crop.plan = (segs, total, sr, args, off, dur) => {
-  let s = off != null ? Math.round((off < 0 ? total / sr + off : off) * sr) : 0
-  return cropSegs(segs, s, dur != null ? Math.round(dur * sr) : total - s)
+const cropPlan = (segs, ctx) => {
+  let { total, offset, span } = ctx
+  let s = offset != null ? (offset < 0 ? total + offset : offset) : 0
+  return cropSegs(segs, s, span ?? total - s)
 }
 
-export default (audio) => { audio.op.crop = crop }
+import audio from '../core.js'
+audio.op('crop', crop, { outLen: cropOutLen, plan: cropPlan })

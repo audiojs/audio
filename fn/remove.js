@@ -5,8 +5,8 @@ function removeSegs(segs, off, dur) {
     if (se <= off) r.push(s)
     else if (s.out >= end) r.push({ ...s, out: s.out - dur })
     else {
-      if (s.out < off) r.push({ src: s.src, out: s.out, len: off - s.out, ref: s.ref })
-      if (se > end) r.push({ src: s.src + end - s.out, out: off, len: se - end, ref: s.ref })
+      if (s.out < off) r.push({ src: s.src, out: s.out, len: off - s.out, ref: s.ref, rev: s.rev })
+      if (se > end) r.push({ src: s.src + end - s.out, out: off, len: se - end, ref: s.ref, rev: s.rev })
     }
   }
   return r
@@ -25,11 +25,13 @@ const remove = (chs, ctx) => {
   })
 }
 
-remove.dur = (len, sr, args, off, dur) => len - Math.round((dur || 0) * sr)
+const removeOutLen = (len, ctx) => len - (ctx.span || 0)
 
-remove.plan = (segs, total, sr, args, off, dur) => {
-  let s = off != null ? Math.round((off < 0 ? total / sr + off : off) * sr) : 0
-  return removeSegs(segs, s, Math.round((dur || 0) * sr))
+const removePlan = (segs, ctx) => {
+  let { total, offset, span } = ctx
+  let s = offset != null ? (offset < 0 ? total + offset : offset) : 0
+  return removeSegs(segs, s, span || 0)
 }
 
-export default (audio) => { audio.op.remove = remove }
+import audio from '../core.js'
+audio.op('remove', remove, { outLen: removeOutLen, plan: removePlan })

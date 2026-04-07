@@ -1,86 +1,71 @@
-import { kWeighting } from 'audio-filter/weighting'
-import { lufsFromEnergy } from '../stats.js'
+import { dcOffsets, peakDb, rmsDb, lufsDb } from '../stats.js'
+import audio from '../core.js'
 
 const PRESETS = { streaming: -14, podcast: -16, broadcast: -23 }
-const GATE_WINDOW = 0.4, ABS_GATE = -70, REL_GATE = -10, LUFS_OFFSET = -0.691
 
-const normalize = (chs, ctx) => {
-  let targetDb = ctx.args[0], opts = ctx.args[1]
-  let mode = 'peak', sr = ctx.sampleRate
-  if (typeof targetDb === 'string') {
-    if (!PRESETS[targetDb]) throw new Error(`normalize: unknown preset '${targetDb}'. Use: ${Object.keys(PRESETS).join(', ')}`)
-    mode = 'lufs'; targetDb = PRESETS[targetDb]
-  } else {
-    targetDb = targetDb ?? 0
-    if (typeof opts === 'string') { mode = opts }
-    else if (opts?.mode) { mode = opts.mode }
-  }
-  let s = ctx.at != null ? Math.round(ctx.at * sr) : 0
-  let end = ctx.duration != null ? s + Math.round(ctx.duration * sr) : chs[0].length
 
-  // Measure only the target range
-  let gain
-  if (mode === 'lufs') {
-    let kChs = chs.map(ch => { let k = new Float32Array(ch.subarray(s, end)); kWeighting(k, { fs: sr }); return k })
-    let winSamples = Math.round(GATE_WINDOW * sr), gates = []
-    for (let off = 0; off + winSamples <= kChs[0].length; off += winSamples) {
-      let sum = 0
-      for (let c = 0; c < kChs.length; c++)
-        for (let i = off; i < off + winSamples; i++) { let v = kChs[c][i]; sum += v * v }
-      gates.push(sum / (winSamples * kChs.length))
-    }
-    let absT = 10 ** (ABS_GATE / 10), gated = gates.filter(g => g > absT)
-    if (!gated.length) return false
-    let mean = gated.reduce((a, b) => a + b, 0) / gated.length
-    let final = gated.filter(g => g > mean * 10 ** (REL_GATE / 10))
-    if (!final.length) return false
-    let lufs = LUFS_OFFSET + 10 * Math.log10(final.reduce((a, b) => a + b, 0) / final.length)
-    gain = targetDb - lufs
-  } else {
-    let peak = 0
-    for (let c = 0; c < chs.length; c++)
-      for (let i = s; i < Math.min(end, chs[c].length); i++) { let v = Math.abs(chs[c][i]); if (v > peak) peak = v }
-    if (!peak) return false
-    gain = targetDb - 20 * Math.log10(peak)
+/** DC removal op — subtracts per-channel offset. */
+audio.op('dc', (chs, ctx) => {
+  let offsets = ctx.args[0]  // number or number[]
+  if (typeof offsets === 'number') offsets = [offsets]
+  for (let c = 0; c < chs.length; c++) {
+    let d = offsets[c % offsets.length] || 0
+    if (Math.abs(d) < 1e-10) continue
+    for (let i = 0; i < chs[c].length; i++) chs[c][i] -= d
   }
-  // Apply gain only to the target range
-  let f = 10 ** (gain / 20)
-  return chs.map(ch => {
-    let o = new Float32Array(ch)
-    for (let i = s; i < Math.min(end, o.length); i++) o[i] *= f
-    return o
-  })
+  return chs
+})
+
+function normalizeEdit(arg) {
+  let edit = { type: 'normalize', args: [] }
+
+  if (typeof arg === 'string' || typeof arg === 'number') {
+    edit.args = [arg]
+  } else if (arg != null && typeof arg === 'object') {
+    let { target, mode, at, duration, channel, ...extra } = arg
+    if (target != null) edit.target = target
+    if (mode) edit.mode = mode
+    if (at != null) edit.at = at
+    if (duration != null) edit.duration = duration
+    if (channel != null) edit.channel = channel
+    Object.assign(edit, extra)
+  }
+
+  return edit
 }
 
-normalize.plan = false
+audio.op('normalize', () => { }, {
+  lower: (args, ctx) => {
+    let { stats, sampleRate } = ctx
+    if (!stats?.min) return null
+    if (ctx.ceiling != null) return null  // ceiling needs per-sample clipping — can't do from stats
 
-normalize.resolve = (args, ctx) => {
-  let { stats, sampleRate } = ctx
-  if (!stats?.min) return null
-  let targetDb, mode = 'peak'
-  if (typeof args[0] === 'string') {
-    if (!PRESETS[args[0]]) return null
-    mode = 'lufs'; targetDb = PRESETS[args[0]]
-  } else {
-    targetDb = args[0] ?? 0
-    let opts = args[1]
-    if (typeof opts === 'string') { mode = opts }
-    else if (opts?.mode) { mode = opts.mode }
-  }
-  let ch = stats.min.length, gainDb
-  if (mode === 'lufs') {
-    let lufs = lufsFromEnergy(stats.energy, ch, sampleRate, stats.blockSize)
-    if (lufs == null) return false
-    gainDb = targetDb - lufs
-  } else {
-    let peak = 0
-    for (let c = 0; c < ch; c++)
-      for (let i = 0; i < stats.min[c].length; i++)
-        peak = Math.max(peak, Math.abs(stats.min[c][i]), Math.abs(stats.max[c][i]))
-    if (!peak) return false
-    gainDb = targetDb - 20 * Math.log10(peak)
-  }
-  return { type: 'gain', args: [gainDb] }
-}
+    let arg = args[0]
+    let mode = typeof arg === 'string' ? 'lufs' : ctx.mode || 'peak'
+    let targetDb = PRESETS[arg] ?? (typeof arg === 'number' ? arg : ctx.target ?? 0)
+    let totalCh = stats.min.length
+    let chs = ctx.channel != null ? [ctx.channel] : Array.from({ length: totalCh }, (_, i) => i)
 
-export default (audio) => { audio.op.normalize = normalize }
+    let dcOff = new Float64Array(totalCh)
+    if (ctx.dc !== false && stats.dc) dcOff = dcOffsets(stats, chs)
+    let hasDc = chs.some(c => Math.abs(dcOff[c]) > 1e-10)
+
+    let levelDb
+    if (mode === 'lufs') levelDb = lufsDb(stats, chs, sampleRate)
+    else if (mode === 'rms') levelDb = rmsDb(stats, chs, dcOff)
+    else levelDb = peakDb(stats, chs, dcOff)
+
+    if (levelDb == null) return mode === 'rms' ? null : false
+
+    let edits = []
+    if (hasDc) edits.push({ type: 'dc', args: [chs.map(c => dcOff[c])] })
+    edits.push({ type: 'gain', args: [targetDb - levelDb] })
+    return edits.length === 1 ? edits[0] : edits
+  }
+})
+
+// wrap to desugar normalize args (string preset, number target, options object)
+audio.fn.normalize = Object.assign(
+  function(arg) { return this.run(normalizeEdit(arg)) },
+  audio.fn.normalize
+)
