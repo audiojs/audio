@@ -45,7 +45,8 @@ export interface AudioInstance {
   stream(opts?: { at?: Time, duration?: Time }): AsyncGenerator<Float32Array[], void, unknown>
   /** Ensure stats are fresh, return stats + block range */
   stat(name: 'db' | 'rms' | 'loudness', opts?: { at?: Time, duration?: Time }): Promise<number>
-  stat(name: 'clip', opts?: { at?: Time, duration?: Time }): Promise<number>
+  stat(name: 'clip', opts?: { at?: Time, duration?: Time }): Promise<Float32Array>
+  stat(name: 'clip', opts: { bins: number, at?: Time, duration?: Time }): Promise<Float32Array>
   stat(name: 'dc', opts?: { at?: Time, duration?: Time }): Promise<number>
   stat(name: 'min' | 'max', opts?: { at?: Time, duration?: Time }): Promise<number>
   stat(name: 'min' | 'max', opts: { bins: number, at?: Time, duration?: Time, channel?: number }): Promise<Float32Array>
@@ -70,7 +71,7 @@ export interface AudioInstance {
   speed(rate: number): this
 
   // ── Sample ops ──────────────────────────────────────────────
-  gain(db: number | ((t: number) => number), opts?: { at?: Time, duration?: Time, channel?: number | number[] }): this
+  gain(value: number | ((t: number) => number), opts?: { at?: Time, duration?: Time, channel?: number | number[], unit?: 'db' | 'linear' }): this
   fade(duration: Time, curve?: 'linear' | 'exp' | 'log' | 'cos', opts?: { at?: Time }): this
   reverse(opts?: { at?: Time, duration?: Time }): this
   mix(other: AudioInstance, opts?: { at?: Time, duration?: Time }): this
@@ -179,7 +180,7 @@ declare namespace audio {
   }>
   /** Sync entry — from PCM data, AudioBuffer, audio instance (structural copy), silence, function source, or typed array with format */
   function from(source: Float32Array[] | AudioBuffer | AudioInstance | number, opts?: AudioOpts): AudioInstance
-  function from(fn: (i: number, sampleRate: number) => number | number[], opts: AudioOpts & { duration: number }): AudioInstance
+  function from(fn: (t: number, i: number) => number | number[], opts: AudioOpts & { duration: number }): AudioInstance
   function from(source: Int16Array | Int8Array | Uint8Array | Uint16Array, opts: AudioOpts & { format: string }): AudioInstance
   /** Open encoded source for streaming decode. Instance is usable immediately; .loaded resolves when fully decoded. */
   function open(source: string | URL | ArrayBuffer | Uint8Array, opts?: AudioOpts): Promise<AudioInstance & { loaded: Promise<AudioInstance> }>

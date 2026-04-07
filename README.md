@@ -1,15 +1,13 @@
 # audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/audio)](https://npmjs.org/package/audio)
 
-High-level audio manipulations.
-Loading, manipulations, processing, scripting, playback, analysis, recording, streaming any audio in CLI/js.
+High-level audio in JavaScript — load, edit, save, play, analyze any format in CLI or browser.
 
-<!-- FIXME: Features/principles must be emphasized better -->
-* Non-destructive
-* Stream-first
-* Scriptable
-* No memory limitation
-* Physical units / industry standards
-* Modular
+* **Non-destructive** — edits are plans, source pages untouched
+* **Stream-first** — block-sized chunks, constant memory
+* **Scriptable** — CLI and JS share the same ops
+* **No memory limit** — page cache + OPFS eviction for hours-long files
+* **Physical units** — seconds, dB, Hz — not samples or indices
+* **Modular** — codecs, effects, stats lazy-loaded on demand
 
 ```sh
 npm i audio
@@ -164,6 +162,7 @@ a.view({at: 10, duration: 5})      // shared-page view of 10s–15s
 a.gain(-3)                         // reduce by 3dB
 a.gain(6, {at: 10, duration: 5})   // boost 6dB from 10s for 5s
 a.gain(t => -3 * t)                // automation: ramp down over time
+a.gain(0.5, {unit: 'linear'})      // multiply by 0.5 (same as -6dB)
 
 a.fade(0.5)                        // fade in first 0.5s
 a.fade(-1)                         // fade out last 1s
@@ -258,7 +257,7 @@ let wav = await a.read({ format: 'wav' })          // Uint8Array
 await a.save('out.mp3')
 
 for await (let block of a.stream()) {              // async iterator
-  process(block)                                   // Float32Array[] per page
+  process(block)                                   // Float32Array[] per block
 }
 ```
 
@@ -492,13 +491,12 @@ npx audio --tone 440hz 2s -o tone.wav
 
 ```js
 let prices = [100, 102, 98, 105, 110, 95, 88, 92, 101, 107]
-let sr = 44100, dur = 0.2
-// FIXME: we have audio.from, a.transform - these are canonical stream names. But do they have same signature? Do from receives an index, transform receives a block? page? we should unify.
-let a = audio.from(i => {
-  let idx = Math.min(Math.floor(i / (sr * dur)), prices.length - 1)
+let dur = 0.2
+let a = audio.from(t => {
+  let idx = Math.min(Math.floor(t / dur), prices.length - 1)
   let freq = 200 + (prices[idx] - 80) * 10
-  return Math.sin(freq * Math.PI * 2 * i / sr) * 0.5
-}, { duration: prices.length * dur, sampleRate: sr })
+  return Math.sin(freq * Math.PI * 2 * t) * 0.5
+}, { duration: prices.length * dur, sampleRate: 44100 })
 await a.save('stock-sonification.wav')
 ```
 
@@ -524,7 +522,6 @@ let [ch1, ch2, ch3] = a.split(1800, 3600)
 for (let [i, ch] of [ch1, ch2, ch3].entries())
   await ch.save(`chapter-${i + 1}.mp3`)
 ```
-<!-- FIXME: we need test for this CLI -->
 ```sh
 npx audio audiobook.mp3 split 30m 60m -o 'chapter-{i}.mp3'
 ```
@@ -533,10 +530,8 @@ npx audio audiobook.mp3 split 30m 60m -o 'chapter-{i}.mp3'
 
 ```js
 let a = await audio('interview.wav')
-// FIXME: this is a bit confusing: it removes 15s starting at 120s? we need to add comment
-a.remove({ at: 120, duration: 15 })
-// FIXME: and this: it fades in 100ms starting at 120s? but we have just removed it, no? Or that's next 2 mins? looks unclear the whole edit. Why do we need duration option here?
-a.fade(0.1, { at: 120, duration: 0.1 })
+a.remove({ at: 120, duration: 15 })    // cut 2:00–2:15
+a.fade(0.1, { at: 120 })               // smooth the splice point
 await a.save('edited.wav')
 ```
 ```sh
@@ -555,7 +550,6 @@ for await (let chunk of a.stream()) {
 ```sh
 npx audio 2hour-mix.flac highpass 40hz normalize broadcast | stream-to-icecast
 ```
-<!-- FIXME: stream-to-icecast can be a package from audiojs ecosystem -->
 
 ### Voiceover on music
 
@@ -563,8 +557,7 @@ npx audio 2hour-mix.flac highpass 40hz normalize broadcast | stream-to-icecast
 let music = await audio('bg.mp3')
 let voice = await audio('narration.wav')
 music.gain(-12)
-// FIXME: mix should have level and fade options, or actually we can test ourselves to apply fade, gain and then mix into other file - so that ops would be applied to mixable file first, right?
-music.mix(voice, { at: 2 })
+music.mix(voice, { at: 2 })             // overlay narration at 2s
 await music.save('mixed.wav')
 ```
 ```sh
@@ -572,20 +565,33 @@ npx audio bg.mp3 gain -12db mix narration.wav 2s -o mixed.wav
 ```
 
 ### Stereo autopan
-<!-- FIXME: we can also add example of AM -->
 ```js
 let a = await audio('song.wav')
 a.pan(t => Math.sin(t * 0.5))
 await a.save('autopan.wav')
 ```
 
+### Tremolo / sidechain
+```js
+let a = await audio('pad.wav')
+a.gain(t => -12 * (0.5 + 0.5 * Math.cos(t * Math.PI * 4)))  // 2Hz tremolo in dB
+await a.save('tremolo.wav')
+```
+```js
+let music = await audio('mix.wav')
+let env = await audio('kick.wav').then(a => a.read({ channel: 0 }))
+music.gain(t => 1 - Math.abs(env[Math.floor(t * 44100)] || 0), { unit: 'linear' })
+await music.save('sidechained.wav')
+```
+
 ### Detect clipping
 
 ```js
 let a = await audio('master.wav')
-// FIXME: should that stat return only count, or exact indexer or timestamps?
-let clips = await a.stat('clip')
-if (clips > 0) console.warn(`${clips} clipped samples — reduce gain`)
+let clips = await a.stat('clip')          // Float32Array of block timestamps (s)
+if (clips.length) console.warn(`${clips.length} clipped blocks at: ${[...clips.slice(0, 5)].map(t => t.toFixed(2) + 's')}`)
+
+let overlay = await a.stat('clip', { bins: 1000 })  // per-bin clip counts for waveform overlay
 ```
 ```sh
 npx audio master.wav stat clip
@@ -597,9 +603,9 @@ npx audio master.wav stat clip
 let a = await audio('episode.mp3')
 a.play({ volume: -3 })
 a.seek(300)
+a.volume = -6                               // live volume change (dB)
 a.pause()
 a.resume()
-// FIXME: volume also needed here, right?
 ```
 ```sh
 npx audio episode.mp3 --play --volume -3db
@@ -618,7 +624,6 @@ npx audio mix-v1.wav mix-v2.wav stat loudness
 
 ### Pipe through stdin/stdout
 
-<!-- FIXME: we should test it works -->
 ```sh
 curl -s https://example.com/speech.mp3 | npx audio gain -3db normalize -o clean.wav
 ffmpeg -i video.mp4 -f wav - | npx audio trim normalize podcast > voice.wav
@@ -796,12 +801,12 @@ a.connect(audioContext.destination)         // monitor output
 **Plan** is the compiled form of the edit list. `buildPlan(a)` walks all edits and produces:
 
 - **Segment map** — which source ranges map to which output positions (structural ops: crop, remove, insert, repeat, pad). Like a virtual timeline of pointers.
-- **Sample pipeline** — transforms applied per page in order (gain, fade, reverse, filter, pan). Each op receives one page-sized chunk and processes every sample in a tight loop. Page size bounds memory allocation per step, not processing cost — the same samples get touched either way.
+- **Sample pipeline** — transforms applied per block in order (gain, fade, filter, pan). Each op receives one `BLOCK_SIZE` chunk. Stateful ops (filters) carry state across blocks.
 - **Stat-conditioned resolution** — ops like `trim` and `normalize` inspect pre-computed stats at plan time to emit concrete ops (crop, gain). No extra decode pass needed.
 
 ```
-source pages ──→ segment map ──→ sample pipeline ──→ output chunks
-(Float32)        (structural)    (per-page ops)     (stream or flat)
+source pages ──→ segment map ──→ sample pipeline ──→ output blocks
+(Float32)        (structural)    (per-block ops)    (stream or flat)
 ```
 
 ### Pages and blocks
@@ -886,7 +891,19 @@ Pre-built ESM bundles in `dist/`:
 Codecs are lazy — `audio-decode` calls `import('mpg123-decoder')` only when an MP3 file is opened. Unmapped formats throw at decode time, not at load time.
 
 <details><summary>All codec packages</summary>
-<!-- FIXME: just give one importmap for production instead of this table -->
+
+```html
+<script type="importmap">
+{
+  "imports": {
+    "mpg123-decoder": "https://esm.sh/mpg123-decoder",
+    "@wasm-audio-decoders/flac": "https://esm.sh/@wasm-audio-decoders/flac",
+    "ogg-opus-decoder": "https://esm.sh/ogg-opus-decoder",
+    "@wasm-audio-decoders/ogg-vorbis": "https://esm.sh/@wasm-audio-decoders/ogg-vorbis"
+  }
+}
+</script>
+```
 **Decoders** (used by `audio-decode`):
 
 | Format | Package |

@@ -52,6 +52,15 @@ test('parseArgs — range syntax', t => {
   t.is(result.ops[0].duration, 9, 'duration 9s')
 })
 
+test('parseArgs — split with time args', t => {
+  let result = parseArgs(['in.wav', 'split', '30s', '60s', '-o', 'ch-{i}.wav'])
+  t.is(result.ops[0].name, 'split', 'op name')
+  t.is(result.ops[0].args.length, 2, '2 split points')
+  t.is(result.ops[0].args[0], 30, 'first split at 30s')
+  t.is(result.ops[0].args[1], 60, 'second split at 60s')
+  t.is(result.output, 'ch-{i}.wav', 'template output')
+})
+
 test('parseArgs — verbose flag', t => {
   let result = parseArgs(['in.wav', '--verbose', 'gain', '-3'])
   t.ok(result.verbose, 'verbose true')
@@ -620,6 +629,24 @@ test('CLI — batch --force overwrites', async t => {
     t.ok(b.duration > 0, 'overwritten output 2 valid')
   } finally {
     cleanup(src1); cleanup(src2); cleanup(out1); cleanup(out2)
+  }
+})
+
+test('CLI — split saves multiple files', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+
+  let out1 = join(__dirname, 'tmp-split-1.wav')
+  let out2 = join(__dirname, 'tmp-split-2.wav')
+  try {
+    // lena is ~12s, split at 6s → 2 parts
+    await runCli([lenaPath, 'split', '6', '-o', join(__dirname, 'tmp-split-{i}.wav'), '--force'])
+
+    let a1 = await audio(out1)
+    let a2 = await audio(out2)
+    t.ok(a1.duration > 5 && a1.duration < 7, `part 1 ≈ 6s (${a1.duration.toFixed(1)})`)
+    t.ok(a2.duration > 5 && a2.duration < 7, `part 2 ≈ 6s (${a2.duration.toFixed(1)})`)
+  } finally {
+    cleanup(out1); cleanup(out2)
   }
 })
 

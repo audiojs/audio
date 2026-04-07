@@ -65,7 +65,7 @@ test('audio.from(seconds) — silence', async t => {
 
 test('audio.from(fn) — function source', async t => {
   let sr = 44100
-  let a = audio.from(i => Math.sin(2 * Math.PI * 440 * i / sr), { duration: 1, sampleRate: sr })
+  let a = audio.from(t => Math.sin(2 * Math.PI * 440 * t), { duration: 1, sampleRate: sr })
   t.is(a.duration, 1, '1 second')
   t.is(a.channels, 1, 'mono')
   let pcm = await a.read()
@@ -586,6 +586,24 @@ test('gain with range', async t => {
   t.ok(Math.abs(pcm[0][mid] - expected) < 0.001, 'in range: -6dB')
   let after = Math.round(1.5 * 44100)
   t.ok(Math.abs(pcm[0][after] - 1) < 0.001, 'after range: unchanged')
+})
+
+test('gain — linear unit', async t => {
+  let ch = new Float32Array(1000).fill(1)
+  let a = audio.from([ch])
+  a.gain(0.5, { unit: 'linear' })
+  let pcm = await a.read()
+  t.ok(Math.abs(pcm[0][0] - 0.5) < 0.001, `linear 0.5: ${pcm[0][0].toFixed(3)}`)
+})
+
+test('gain — linear automation', async t => {
+  let sr = 44100
+  let ch = new Float32Array(sr).fill(1)
+  let a = audio.from([ch], { sampleRate: sr })
+  a.gain(t => 1 - t, { unit: 'linear' })  // ramp from 1 to 0
+  let pcm = await a.read()
+  t.ok(Math.abs(pcm[0][0] - 1) < 0.01, `start ≈ 1 (got ${pcm[0][0].toFixed(3)})`)
+  t.ok(pcm[0][sr - 1] < 0.01, `end ≈ 0 (got ${pcm[0][sr - 1].toFixed(3)})`)
 })
 
 test('fade in/out', async t => {
@@ -2030,6 +2048,43 @@ test('stat(silence) — with range opts', async t => {
   t.is(segs.length, 0, 'no silence in ranged query')
 })
 
+test('stat(clip) — returns timestamps of clipping blocks', async t => {
+  let sr = 44100, bs = 1024
+  // 1s audio: first half clean, second half clipping
+  let ch = new Float32Array(sr)
+  for (let i = 0; i < sr; i++) ch[i] = i < sr / 2 ? 0.5 : 1.5
+  let a = audio.from([ch], { sampleRate: sr })
+  let clips = await a.stat('clip')
+  t.ok(clips instanceof Float32Array, 'returns Float32Array')
+  t.ok(clips.length > 0, 'has clipping blocks')
+  // All timestamps should be >= 0.5s (second half)
+  for (let i = 0; i < clips.length; i++)
+    t.ok(clips[i] >= 0.45, `clip at ${clips[i].toFixed(3)}s >= 0.45s`)
+  // Count is just .length
+  t.is(clips.length, clips.length, 'count === length')
+})
+
+test('stat(clip) — clean audio returns empty', async t => {
+  let sr = 44100
+  let ch = new Float32Array(sr).fill(0.5)
+  let a = audio.from([ch], { sampleRate: sr })
+  let clips = await a.stat('clip')
+  t.ok(clips instanceof Float32Array, 'returns Float32Array')
+  t.is(clips.length, 0, 'no clips in clean audio')
+})
+
+test('stat(clip) — bins mode returns per-bin counts', async t => {
+  let sr = 44100
+  // All clipping
+  let ch = new Float32Array(sr).fill(1.5)
+  let a = audio.from([ch], { sampleRate: sr })
+  let bins = await a.stat('clip', { bins: 10 })
+  t.ok(bins instanceof Float32Array, 'returns Float32Array')
+  t.is(bins.length, 10, '10 bins')
+  for (let i = 0; i < 10; i++)
+    t.ok(bins[i] > 0, `bin ${i} has clips: ${bins[i]}`)
+})
+
 
 // ── Automation ────────────────────────────────────────────────────────────
 
@@ -2451,4 +2506,195 @@ test('speed — streaming matches flat render', async t => {
   let maxDiff = 0
   for (let i = 0; i < Math.min(100, total); i++) maxDiff = Math.max(maxDiff, Math.abs(streamBuf[i] - flat[0][i]))
   t.ok(maxDiff < 0.001, `stream matches flat (max diff ${maxDiff.toFixed(6)})`)
+})
+
+
+// ── Phase 16: Block/page boundary stress ────────────────────────────────
+
+test('boundary — stream reads across page boundaries', async t => {
+  let origP = audio.PAGE_SIZE, origB = audio.BLOCK_SIZE
+  audio.PAGE_SIZE = 64
+  audio.BLOCK_SIZE = 32
+  try {
+    // 3.5 pages of ramp data — blocks will straddle page edges
+    let samples = 64 * 3 + 32
+    let ch = new Float32Array(samples)
+    for (let i = 0; i < samples; i++) ch[i] = i / samples
+    let a = audio.from([ch], { sampleRate: 44100 })
+
+    let streamed = []
+    for await (let block of a.stream()) streamed.push(block[0])
+    let flat = new Float32Array(streamed.reduce((n, b) => n + b.length, 0))
+    let pos = 0; for (let b of streamed) { flat.set(b, pos); pos += b.length }
+
+    t.is(flat.length, samples, 'all samples streamed')
+    // Verify samples at each page boundary
+    for (let boundary of [63, 64, 127, 128, 191, 192]) {
+      if (boundary < samples) {
+        let expected = boundary / samples
+        t.ok(Math.abs(flat[boundary] - expected) < 0.001, `sample ${boundary} at page boundary correct (${flat[boundary].toFixed(4)} ≈ ${expected.toFixed(4)})`)
+      }
+    }
+  } finally { audio.PAGE_SIZE = origP; audio.BLOCK_SIZE = origB }
+})
+
+test('boundary — block size does not divide page size evenly', async t => {
+  let origP = audio.PAGE_SIZE, origB = audio.BLOCK_SIZE
+  audio.PAGE_SIZE = 100
+  audio.BLOCK_SIZE = 30  // 100 / 30 = 3.33 — misaligned
+  try {
+    let samples = 200
+    let ch = new Float32Array(samples)
+    for (let i = 0; i < samples; i++) ch[i] = (i % 2 === 0) ? 0.5 : -0.5
+    let a = audio.from([ch], { sampleRate: 44100 })
+    a.gain(-6)
+    let pcm = await a.read()
+    let expected = 0.5 * 10 ** (-6 / 20)
+    t.is(pcm[0].length, samples, 'length preserved')
+    t.ok(Math.abs(pcm[0][99] - (-expected)) < 0.01, 'sample at page boundary correct')
+    t.ok(Math.abs(pcm[0][100] - expected) < 0.01, 'sample after page boundary correct')
+  } finally { audio.PAGE_SIZE = origP; audio.BLOCK_SIZE = origB }
+})
+
+test('boundary — reverse across blocks matches flat render', async t => {
+  let origP = audio.PAGE_SIZE, origB = audio.BLOCK_SIZE
+  audio.PAGE_SIZE = 128
+  audio.BLOCK_SIZE = 32
+  try {
+    let samples = 128 * 2
+    let ch = new Float32Array(samples)
+    for (let i = 0; i < samples; i++) ch[i] = i / samples  // ramp 0→1
+    let a = audio.from([ch], { sampleRate: 44100 })
+    a.reverse()
+    let pcm = await a.read()
+    t.is(pcm[0].length, samples, 'length preserved')
+    // reversed ramp: first sample should be last original, last sample should be first original
+    t.ok(pcm[0][0] > 0.99, `first sample ≈ 1 (got ${pcm[0][0].toFixed(4)})`)
+    t.ok(pcm[0][samples - 1] < 0.01, `last sample ≈ 0 (got ${pcm[0][samples - 1].toFixed(4)})`)
+    // Verify monotonically decreasing
+    let monotonic = true
+    for (let i = 1; i < samples; i++) if (pcm[0][i] > pcm[0][i - 1] + 0.001) { monotonic = false; break }
+    t.ok(monotonic, 'reversed ramp is monotonically decreasing')
+  } finally { audio.PAGE_SIZE = origP; audio.BLOCK_SIZE = origB }
+})
+
+test('boundary — reverse streaming matches flat render', async t => {
+  let origP = audio.PAGE_SIZE, origB = audio.BLOCK_SIZE
+  audio.PAGE_SIZE = 128
+  audio.BLOCK_SIZE = 32
+  try {
+    let samples = 256
+    let ch = new Float32Array(samples)
+    for (let i = 0; i < samples; i++) ch[i] = i / samples
+    let a = audio.from([ch], { sampleRate: 44100 })
+    a.reverse()
+
+    let flat = await a.read()
+    let streamed = []
+    for await (let block of a.stream()) streamed.push(block[0])
+    let streamBuf = new Float32Array(streamed.reduce((n, b) => n + b.length, 0))
+    let pos = 0; for (let b of streamed) { streamBuf.set(b, pos); pos += b.length }
+
+    t.is(streamBuf.length, flat[0].length, 'lengths match')
+    let maxDiff = 0
+    for (let i = 0; i < streamBuf.length; i++) maxDiff = Math.max(maxDiff, Math.abs(streamBuf[i] - flat[0][i]))
+    t.ok(maxDiff < 0.001, `stream matches flat reverse (max diff ${maxDiff.toFixed(6)})`)
+  } finally { audio.PAGE_SIZE = origP; audio.BLOCK_SIZE = origB }
+})
+
+test('boundary — filter state continuity across blocks', async t => {
+  let origP = audio.PAGE_SIZE, origB = audio.BLOCK_SIZE
+  audio.PAGE_SIZE = 256
+  audio.BLOCK_SIZE = 32
+  try {
+    // Generate white-ish noise (deterministic)
+    let sr = 44100, samples = 256 * 2
+    let ch = new Float32Array(samples)
+    let seed = 12345
+    for (let i = 0; i < samples; i++) { seed = (seed * 1103515245 + 12345) & 0x7fffffff; ch[i] = seed / 0x7fffffff * 2 - 1 }
+    let a = audio.from([ch], { sampleRate: sr })
+    a.filter('lowpass', 1000)
+
+    let flat = await a.read()
+    // Stream same audio — filter state must carry across blocks
+    let streamed = []
+    for await (let block of a.stream()) streamed.push(block[0])
+    let streamBuf = new Float32Array(streamed.reduce((n, b) => n + b.length, 0))
+    let pos = 0; for (let b of streamed) { streamBuf.set(b, pos); pos += b.length }
+
+    t.is(streamBuf.length, flat[0].length, 'lengths match')
+    let maxDiff = 0
+    for (let i = 0; i < streamBuf.length; i++) maxDiff = Math.max(maxDiff, Math.abs(streamBuf[i] - flat[0][i]))
+    t.ok(maxDiff < 0.001, `filter state continuous across blocks (max diff ${maxDiff.toFixed(6)})`)
+  } finally { audio.PAGE_SIZE = origP; audio.BLOCK_SIZE = origB }
+})
+
+test('boundary — fade spans page boundary', async t => {
+  let origP = audio.PAGE_SIZE, origB = audio.BLOCK_SIZE
+  audio.PAGE_SIZE = 128
+  audio.BLOCK_SIZE = 32
+  try {
+    let sr = 44100, samples = 128 * 3
+    let ch = new Float32Array(samples).fill(1)
+    let a = audio.from([ch], { sampleRate: sr })
+    // Fade in over ~2 pages worth of samples
+    a.fade(256 / sr)
+
+    let pcm = await a.read()
+    t.ok(pcm[0][0] < 0.01, 'fade starts at 0')
+    t.ok(pcm[0][127] < pcm[0][128], 'monotonic across first page boundary')
+    t.ok(pcm[0][255] < 1.01, 'fade end ≈ 1')
+    t.ok(Math.abs(pcm[0][samples - 1] - 1) < 0.01, 'post-fade region untouched')
+  } finally { audio.PAGE_SIZE = origP; audio.BLOCK_SIZE = origB }
+})
+
+test('boundary — crop+gain across page boundary stream vs flat', async t => {
+  let origP = audio.PAGE_SIZE, origB = audio.BLOCK_SIZE
+  audio.PAGE_SIZE = 128
+  audio.BLOCK_SIZE = 32
+  try {
+    let samples = 128 * 4
+    let ch = new Float32Array(samples)
+    for (let i = 0; i < samples; i++) ch[i] = i / samples
+    let a = audio.from([ch], { sampleRate: 44100 })
+    // Crop into middle of page 1 through middle of page 3
+    let cropStart = 64 / 44100, cropDur = 256 / 44100
+    a.crop({ at: cropStart, duration: cropDur })
+    a.gain(-6)
+
+    let flat = await a.read()
+    let streamed = []
+    for await (let block of a.stream()) streamed.push(block[0])
+    let streamBuf = new Float32Array(streamed.reduce((n, b) => n + b.length, 0))
+    let pos = 0; for (let b of streamed) { streamBuf.set(b, pos); pos += b.length }
+
+    t.is(streamBuf.length, flat[0].length, 'lengths match')
+    let maxDiff = 0
+    for (let i = 0; i < streamBuf.length; i++) maxDiff = Math.max(maxDiff, Math.abs(streamBuf[i] - flat[0][i]))
+    t.ok(maxDiff < 0.001, `crop+gain stream matches flat (max diff ${maxDiff.toFixed(6)})`)
+  } finally { audio.PAGE_SIZE = origP; audio.BLOCK_SIZE = origB }
+})
+
+test('boundary — evicted pages restored during streaming', async t => {
+  let ch = new Float32Array(PAGE_SIZE * 3)
+  for (let i = 0; i < ch.length; i++) ch[i] = i / ch.length
+  let cache = mockCache()
+  let pageBytes = PAGE_SIZE * 4
+
+  let a = await audio([ch], { cache, budget: pageBytes * 1 })  // keeps 1 page resident
+  a.gain(-6)
+
+  let flat = await a.read()  // restores all pages
+  // Re-evict
+  await audio.evict(a)
+
+  let streamed = []
+  for await (let block of a.stream()) streamed.push(block[0])
+  let streamBuf = new Float32Array(streamed.reduce((n, b) => n + b.length, 0))
+  let pos = 0; for (let b of streamed) { streamBuf.set(b, pos); pos += b.length }
+
+  t.is(streamBuf.length, flat[0].length, 'stream length matches flat after restore')
+  let maxDiff = 0
+  for (let i = 0; i < streamBuf.length; i++) maxDiff = Math.max(maxDiff, Math.abs(streamBuf[i] - flat[0][i]))
+  t.ok(maxDiff < 0.01, `restored pages stream correctly (max diff ${maxDiff.toFixed(4)})`)
 })
