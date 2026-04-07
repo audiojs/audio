@@ -73,29 +73,29 @@ export function melSpectrumDb(samples, sr, opts = {}) {
 
 // ── Stat registration ───────────────────────────────────────────
 
-export default (audio) => {
-  /** a.stat('spectrum', {bins}) → average mel spectrum in dB over range */
-  audio.fn.spectrum = async function(opts) {
-    let bins = opts?.bins ?? 128
-    let spectOpts = { bins, fMin: opts?.fMin, fMax: opts?.fMax, weight: opts?.weight }
-    let sr = this.sampleRate
-    let N = 1024  // FFT size
+import audio from '../core.js'
 
-    let pcm = await this.read({ at: opts?.at, duration: opts?.duration })
-    let ch0 = pcm[0]  // use first channel for spectrum
+/** a.stat('spectrum', {bins}) → average mel spectrum in dB over range */
+audio.fn.spectrum = async function(opts) {
+  let bins = opts?.bins ?? 128
+  let spectOpts = { bins, fMin: opts?.fMin, fMax: opts?.fMax, weight: opts?.weight }
+  let sr = this.sampleRate
+  let N = 1024  // FFT size
 
-    // Average mel spectrum over all blocks
-    let acc = new Float64Array(bins), cnt = 0
-    for (let off = 0; off < ch0.length - N; off += N) {
-      let block = ch0.subarray(off, off + N)
-      let mag = melSpectrum(block, sr, spectOpts)
-      for (let b = 0; b < bins; b++) acc[b] += mag[b] ** 2
-      cnt++
-    }
+  let pcm = await this.read({ at: opts?.at, duration: opts?.duration })
+  let ch0 = pcm[0]  // use first channel for spectrum
 
-    if (cnt === 0) return new Float32Array(bins)
-    let out = new Float32Array(bins)
-    for (let b = 0; b < bins; b++) out[b] = 20 * Math.log10(Math.sqrt(acc[b] / cnt) + 1e-10)
-    return out
+  // Average mel spectrum over all blocks
+  let acc = new Float64Array(bins), cnt = 0
+  for (let off = 0; off < ch0.length - N; off += N) {
+    let block = ch0.subarray(off, off + N)
+    let mag = melSpectrum(block, sr, spectOpts)
+    for (let b = 0; b < bins; b++) acc[b] += mag[b] ** 2
+    cnt++
   }
+
+  if (cnt === 0) return new Float32Array(bins)
+  let out = new Float32Array(bins)
+  for (let b = 0; b < bins; b++) out[b] = 20 * Math.log10(Math.sqrt(acc[b] / cnt) + 1e-10)
+  return out
 }

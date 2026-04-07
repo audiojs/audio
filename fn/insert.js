@@ -7,8 +7,8 @@ function insertSegs(segs, at, len, ref) {
     else if (s.out >= at) r.push({ ...s, out: s.out + len })
     else {
       let f = at - s.out
-      r.push({ src: s.src, out: s.out, len: f, ref: s.ref })
-      r.push({ src: s.src + f, out: at + len, len: s.len - f, ref: s.ref })
+      r.push({ src: s.src, out: s.out, len: f, ref: s.ref, rev: s.rev })
+      r.push({ src: s.src + f, out: at + len, len: s.len - f, ref: s.ref, rev: s.rev })
     }
   }
   r.push({ src: 0, out: at, len, ref: ref || SILENCE })
@@ -37,15 +37,18 @@ const insert = (chs, ctx) => {
   })
 }
 
-insert.dur = (len, sr, args) => {
+const insertOutLen = (len, ctx) => {
+  let { sampleRate: sr, args } = ctx
   let n = typeof args[0] === 'number' ? Math.round(args[0] * sr) : args[0]?.length || 0
   return len + n
 }
 
-insert.plan = (segs, total, sr, args, off) => {
-  let source = args[0], at = off != null ? Math.round(off * sr) : total
+const insertPlan = (segs, ctx) => {
+  let { total, sampleRate: sr, args, offset } = ctx
+  let source = args[0], off = offset ?? total
   let iLen = typeof source === 'number' ? Math.round(source * sr) : source.length
-  return insertSegs(segs, at, iLen, typeof source === 'number' ? null : source)
+  return insertSegs(segs, off, iLen, typeof source === 'number' ? null : source)
 }
 
-export default (audio) => { audio.op.insert = insert }
+import audio from '../core.js'
+audio.op('insert', insert, { outLen: insertOutLen, plan: insertPlan })

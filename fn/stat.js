@@ -1,3 +1,4 @@
+import audio from '../core.js'
 import { kWeighting } from 'audio-filter/weighting'
 
 /** Per-block minimum amplitude. */
@@ -28,6 +29,13 @@ const clip = () => (channels) => channels.map(ch => {
   return n
 })
 
+/** Per-block raw mean square energy (for RMS). */
+const rms = () => (channels) => channels.map(ch => {
+  let sum = 0
+  for (let i = 0; i < ch.length; i++) sum += ch[i] * ch[i]
+  return sum / ch.length
+})
+
 /** Per-block K-weighted mean square energy (BS.1770). Stateful — K-weighting filter carries state between blocks. */
 const energy = () => {
   let kState = null
@@ -43,10 +51,9 @@ const energy = () => {
   }
 }
 
-export default (audio) => {
-  audio.stat.min = min
-  audio.stat.max = max
-  audio.stat.dc = dc
-  audio.stat.clip = clip
-  audio.stat.energy = energy
-}
+audio.stat.min = min
+audio.stat.max = max
+audio.stat.dc = dc
+audio.stat.clip = clip
+audio.stat.rms = rms
+audio.stat.energy = energy

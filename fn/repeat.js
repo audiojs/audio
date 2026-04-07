@@ -45,17 +45,19 @@ const repeat = (chs, ctx) => {
   })
 }
 
-repeat.dur = (len, sr, args, off, dur) => {
+const repeatOutLen = (len, ctx) => {
+  let { args, offset, span } = ctx
   let t = args[0] || 1
-  if (off == null) return len * (t + 1)
-  let s = off < 0 ? len / sr + off : off
-  return len + (dur != null ? Math.round(dur * sr) : len - Math.round(s * sr)) * t
+  if (offset == null) return len * (t + 1)
+  let s = offset < 0 ? len + offset : offset
+  return len + (span ?? len - s) * t
 }
 
-repeat.plan = (segs, total, sr, args, off, dur) => {
-  let offSamples = off != null ? Math.round((off < 0 ? total / sr + off : off) * sr) : null
-  let durSamples = dur != null ? Math.round(dur * sr) : null
-  return repeatSegs(segs, args[0] || 1, total, offSamples, durSamples)
+const repeatPlan = (segs, ctx) => {
+  let { total, args, offset, span } = ctx
+  let off = offset != null ? (offset < 0 ? total + offset : offset) : null
+  return repeatSegs(segs, args[0] || 1, total, off, span)
 }
 
-export default (audio) => { audio.op.repeat = repeat }
+import audio from '../core.js'
+audio.op('repeat', repeat, { outLen: repeatOutLen, plan: repeatPlan })

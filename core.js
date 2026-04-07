@@ -2,7 +2,6 @@
  * audio core — paged audio container with plugin architecture.
  *
  * audio.fn       — instance prototype (like $.fn)
- * audio.op       — op handlers dict (wired to instance methods by history.js)
  * audio.stat     — block-level stat functions (indexed during decode)
  * audio.hook     — single-slot hooks { create }
  * audio.use      — plugin registration
@@ -143,9 +142,6 @@ audio.BLOCK_SIZE = 1024
 /** Internal protocol symbols for plugin overrides. */
 export const LOAD = Symbol('load')
 export const READ = Symbol('read')
-
-/** Op handlers dict. Wired to instance methods by history.js via audio.use(). */
-audio.op = {}
 
 /** Register plugins. Each receives audio. */
 audio.use = function(...plugins) {

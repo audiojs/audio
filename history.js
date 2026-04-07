@@ -19,28 +19,37 @@ export const SILENCE = Symbol('silence')
 
 let fn = audio.fn
 
-// ── Op Wiring ───────────────────────────────────────────────────
+// ── Op Registration ─────────────────────────────────────────────
 
 function isOpts(v) {
   return v != null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v) && !v.pages
-    && ('at' in v || 'duration' in v || 'channel' in v)
+    && ('at' in v || 'duration' in v || 'channel' in v || 'offset' in v || 'length' in v)
 }
 
-let prevUse = audio.use
-audio.use = function(...plugins) {
-  prevUse(...plugins)
-  for (let name in audio.op) {
-    if (!fn[name]) fn[name] = function(...a) {
+/** Register an op: audio.op(name, process, opts?) */
+audio.op = function(name, process, opts) {
+  let m = fn[name]
+  if (!m) {
+    m = fn[name] = function(...a) {
       let edit = { type: name, args: a }, last = a[a.length - 1]
       if (a.length && isOpts(last)) {
-        let { at, duration, channel } = last
+        let { at, duration, channel, offset, length } = last
         edit.args = a.slice(0, -1)
         if (at != null) edit.at = at
         if (duration != null) edit.duration = duration
+        if (offset != null) edit.offset = offset
+        if (length != null) edit.length = length
         if (channel != null) edit.channel = channel
       }
       return this.run(edit)
     }
+  } else {
+    fn[name] = m
+  }
+  m.process = process
+  for (let k of ['plan', 'lower', 'outLen', 'ch', 'overlap']) {
+    let v = opts?.[k] ?? process[k]
+    if (v !== undefined) m[k] = v
   }
 }
 
@@ -81,8 +90,11 @@ Object.defineProperties(fn, {
     if (this._.lenV === this.version) return this._.lenC
     let len = this._.len, sr = this.sampleRate
     for (let { type, args = [], at, duration } of this.edits) {
-      let op = audio.op[type]
-      if (op?.dur) len = op.dur(len, sr, args, at, duration)
+      if (fn[type]?.outLen) {
+        let offset = at != null ? Math.round(at * sr) : null
+        let span = duration != null ? Math.round(duration * sr) : null
+        len = fn[type].outLen(len, { sampleRate: sr, args, at, duration, offset, span })
+      }
     }
     this._.lenC = len; this._.lenV = this.version
     return len
@@ -90,7 +102,7 @@ Object.defineProperties(fn, {
   channels: { get() {
     if (this._.chV === this.version) return this._.chC
     let ch = this._.ch
-    for (let edit of this.edits) { let op = audio.op[edit.type]; if (op?.ch) ch = op.ch(ch, edit.args) }
+    for (let edit of this.edits) { if (fn[edit.type]?.ch) ch = fn[edit.type].ch(ch, edit.args) }
     this._.chC = ch; this._.chV = this.version
     return ch
   }, configurable: true },
@@ -164,9 +176,13 @@ fn.undo = function(n = 1) {
 }
 
 fn.run = function(...edits) {
+  let sr = this.sampleRate
   for (let e of edits) {
     if (!e.type) throw new TypeError('audio.run: edit must have type')
-    pushEdit(this, { ...e, args: e.args || [] })
+    let edit = { ...e, args: e.args || [] }
+    if (edit.offset != null) { edit.at = edit.offset / sr; delete edit.offset }
+    if (edit.length != null) { edit.duration = edit.length / sr; delete edit.length }
+    pushEdit(this, edit)
   }
   return this
 }
@@ -205,32 +221,39 @@ export function buildPlan(a) {
   let segs = [{ src: 0, out: 0, len: a._.len }], pipeline = [], sawSample = false
 
   for (let edit of a.edits) {
-    let { type, args = [], at, duration } = edit
-    let op = audio.op[type]
-    if (!op) throw new Error(`Unknown op: ${type}`)
+    let { type, args = [], at, duration, channel, ...extra } = edit
+    let op = fn[type]
+    if (!op?.process) throw new Error(`Unknown op: ${type}`)
 
-    if (op.plan === false) {
-      if (op.resolve) {
-        let ctx = { stats: a._.srcStats || a.stats, sampleRate: sr, channels: ch, length: planLen(segs) }
-        let resolved = op.resolve(args, ctx)
-        if (resolved === false) continue
-        if (resolved) {
-          let rOp = audio.op[resolved.type]
+    // lower: try stats-aware replacement first
+    if (op.lower) {
+      let ctx = { ...extra, stats: a._.srcStats || a.stats, sampleRate: sr, channels: ch, channel, at, duration, length: planLen(segs) }
+      let resolved = op.lower(args, ctx)
+      if (resolved === false) continue
+      if (resolved) {
+        let edits = Array.isArray(resolved) ? resolved : [resolved]
+        for (let r of edits) {
+          if (channel != null && r.channel == null) r.channel = channel
+          if (at != null && r.at == null) r.at = at
+          if (duration != null && r.duration == null) r.duration = duration
+          let rOp = fn[r.type]
           if (rOp?.plan && typeof rOp.plan === 'function') {
-            segs = rOp.plan(segs, planLen(segs), sr, resolved.args || [], resolved.at, resolved.duration)
+            let t = planLen(segs), rOffset = r.at != null ? Math.round(r.at * sr) : null, rSpan = r.duration != null ? Math.round(r.duration * sr) : null
+            segs = rOp.plan(segs, { total: t, sampleRate: sr, args: r.args || [], at: r.at, duration: r.duration, offset: rOffset, span: rSpan })
           } else {
             sawSample = true
-            pipeline.push(resolved)
+            pipeline.push(r)
           }
-          continue
         }
+        continue
       }
-      sawSample = true
-      pipeline.push(edit)
-      continue
+      // lowered null — fall through to plan or per-page
     }
+
+    // plan: structural segment rewrite
     if (op.plan) {
-      segs = op.plan(segs, planLen(segs), sr, args, at, duration)
+      let t = planLen(segs), offset = at != null ? Math.round(at * sr) : null, span = duration != null ? Math.round(duration * sr) : null
+      segs = op.plan(segs, { total: t, sampleRate: sr, args, at, duration, offset, span })
     } else {
       sawSample = true
       pipeline.push(edit)
@@ -257,15 +280,17 @@ export function* streamPlan(a, plan, offset, duration) {
 
   let totalDur = totalLen / sr
   let procs = pipeline.map(ed => {
-    let op = audio.op[ed.type]
+    let m = fn[ed.type]
+    let { type, args, at, duration, channel, ...extra } = ed
     return {
-      op, args: ed.args || [],
-      at: ed.at != null && ed.at < 0 ? totalDur + ed.at : ed.at,
-      dur: ed.duration,
-      channel: ed.channel,
-      overlap: op.overlap || 0,
+      op: m.process, args: args || [],
+      at: at != null && at < 0 ? totalDur + at : at,
+      dur: duration,
+      channel,
+      overlap: m.overlap || 0,
       tail: null,
-      state: {}
+      state: {},
+      extra
     }
   })
 
@@ -302,9 +327,9 @@ export function* streamPlan(a, plan, offset, duration) {
 
     let blockOff = outOff / sr
     for (let proc of procs) {
-      let { op, args, at, dur, channel, overlap, state } = proc
+      let { op, args, at, dur, channel, overlap, state, extra } = proc
       let adjAt = at != null ? at - blockOff : undefined
-      let ctx = { args, at: adjAt, duration: dur, sampleRate: sr, blockOffset: blockOff, length: totalLen, render, state }
+      let ctx = { ...extra, args, at: adjAt, duration: dur, sampleRate: sr, blockOffset: blockOff, length: totalLen, render, state }
 
       // Windowed op: prepend prior tail, process, trim overlap
       if (overlap > 0) {

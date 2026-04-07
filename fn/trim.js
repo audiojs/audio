@@ -30,9 +30,7 @@ const trim = (chs, ctx) => {
   return s === 0 && e === len ? false : chs.map(ch => ch.slice(s, e))
 }
 
-trim.plan = false
-
-trim.resolve = (args, { stats, sampleRate, length }) => {
+const trimLower = (args, { stats, sampleRate, length }) => {
   if (!stats?.min) return null
   let ch = stats.min.length, blocks = stats.min[0].length
   let threshold = args[0]
@@ -67,4 +65,4 @@ trim.resolve = (args, { stats, sampleRate, length }) => {
   return { type: 'crop', args: [], at: startSample / sampleRate, duration: (endSample - startSample) / sampleRate }
 }
 
-export default (audio) => { audio.op.trim = trim }
+audio.op('trim', trim, { lower: trimLower })

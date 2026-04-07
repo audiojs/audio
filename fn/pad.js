@@ -18,12 +18,14 @@ const pad = (chs, ctx) => {
   })
 }
 
-pad.dur = (len, sr, args) => {
+const padOutLen = (len, ctx) => {
+  let { sampleRate: sr, args } = ctx
   let before = args[0] ?? 0, after = args.length > 1 ? args[1] : before
   return len + Math.round(before * sr) + Math.round(after * sr)
 }
 
-pad.plan = (segs, total, sr, args) => {
+const padPlan = (segs, ctx) => {
+  let { total, sampleRate: sr, args } = ctx
   let before = args[0] ?? 0, after = args.length > 1 ? args[1] : before
   let bN = Math.round(before * sr), aN = Math.round(after * sr)
   let r = segs.map(s => ({ ...s, out: s.out + bN }))
@@ -32,4 +34,5 @@ pad.plan = (segs, total, sr, args) => {
   return r
 }
 
-export default (audio) => { audio.op.pad = pad }
+import audio from '../core.js'
+audio.op('pad', pad, { outLen: padOutLen, plan: padPlan })

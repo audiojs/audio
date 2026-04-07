@@ -1,18 +1,22 @@
 # audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/audio)](https://npmjs.org/package/audio)
 
-High-level audio manipulations in JavaScript. Load, edit, save, play, analyze audio.
+High-level audio manipulations in JavaScript. Load, edit, save, play, analyze any audio in CLI/browser.
+
+* Stream-first
+*
+
+```sh
+npm i audio
+```
 
 ```js
 import audio from 'audio'
 
 let a = await audio('voice.mp3')
-a.trim().normalize().fade(0.5).fade(-0.5)
+a.trim().normalize().fade(0.5, 0.5)
 await a.save('clean.wav')
 ```
 
-```sh
-npm i audio
-```
 
 <table><tr><td valign="top">
 
@@ -153,7 +157,10 @@ a.gain(t => -3 * t)                // automation: ramp down over time
 
 a.fade(0.5)                        // fade in first 0.5s
 a.fade(-1)                         // fade out last 1s
-a.fade(-1, 'exp')                  // exponential curve
+a.fade(0.5, 1)                     // fade in 0.5s, fade out 1s
+a.fade(0.5, 1, 'exp')              // both with exponential curve
+a.fade(-1, 'exp')                  // single fade with curve
+a.fade(-1, {curve: 'exp'})         // same, explicit option
 
 a.reverse()                        // reverse entire audio
 a.reverse({at: 5, duration: 2})    // reverse 2s range
@@ -175,11 +182,16 @@ Scan stats, then transform:
 a.trim()                             // remove silence from edges
 a.trim(-30)                          // custom threshold in dB
 
-a.normalize()                        // peak 0 dBFS
+a.normalize()                        // peak 0 dBFS + DC removal
+a.normalize(-1)                      // peak -1 dBFS
 a.normalize('streaming')             // -14 LUFS (YouTube, Spotify)
 a.normalize('podcast')               // -16 LUFS
 a.normalize('broadcast')             // -23 LUFS (EBU R128)
-a.normalize(-14, 'lufs')             // explicit target
+a.normalize({ mode: 'lufs', target: -14 })  // explicit LUFS target
+a.normalize({ mode: 'rms', target: -18 })   // RMS -18 dBFS
+a.normalize({ ceiling: -1 })         // peak 0dB + true-peak ceiling -1dBTP
+a.normalize({ dc: false })           // skip DC removal
+a.normalize({ channel: 0 })          // left channel only
 ```
 
 ### Run
@@ -304,7 +316,7 @@ a.onchange = () => {}
 ### Custom ops
 
 ```js
-audio.op.invert = (chs, ctx) => {
+const invert = (chs, ctx) => {
   let s = ctx.at != null ? Math.round(ctx.at * ctx.sampleRate) : 0
   let end = ctx.duration != null ? s + Math.round(ctx.duration * ctx.sampleRate) : chs[0].length
   return chs.map(ch => {
@@ -313,7 +325,7 @@ audio.op.invert = (chs, ctx) => {
     return o
   })
 }
-audio.use()                              // wires a.invert()
+audio.op('invert', invert)
 
 a.invert()
 a.invert({at: 2, duration: 1})         // range: 2s for 1s
@@ -355,6 +367,426 @@ Macro files are JSON arrays of edits: `[{"type": "gain", "args": [-3]}, {"type":
 
 Plugins in `node_modules/audio-*` are auto-discovered at startup.
 
+## Recipes
+
+### Clean up a voice recording
+
+```js
+let a = await audio('raw-take.wav')
+a.trim(-30).normalize('podcast').fade(0.3, 0.5)
+await a.save('clean.wav')
+```
+```sh
+npx audio raw-take.wav trim -30db normalize podcast fade 0.3s -0.5s -o clean.wav
+```
+
+### Render a waveform
+
+```js
+let a = await audio('track.mp3')
+let peaks = await a.stat('max', { bins: canvas.width })
+let mins  = await a.stat('min', { bins: canvas.width })
+for (let i = 0; i < peaks.length; i++) {
+  ctx.fillRect(i, h/2 - peaks[i] * h/2, 1, (peaks[i] - mins[i]) * h/2)
+}
+```
+
+### Progressive waveform (stream as it decodes)
+
+```js
+let a = await audio('long.flac', {
+  onprogress({ delta }) {
+    appendBars(delta.max[0], delta.min[0])
+  }
+})
+```
+
+### Record from browser mic
+
+```js
+let stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+let ctx = new AudioContext(), src = ctx.createMediaStreamSource(stream)
+let proc = ctx.createScriptProcessor(4096, 1, 1)
+let a = audio.record({ sampleRate: ctx.sampleRate, channels: 1 })
+proc.onaudioprocess = e => a.push([e.inputBuffer.getChannelData(0)])
+src.connect(proc); proc.connect(ctx.destination)
+
+// ... later
+proc.disconnect(); stream.getTracks().forEach(t => t.stop())
+a.stop()
+a.trim().normalize()
+await a.save('recording.wav')
+```
+
+### Podcast montage
+
+```js
+let intro  = await audio('intro.mp3')
+let body   = await audio('interview.wav')
+let outro  = await audio('outro.mp3')
+
+body.trim().normalize('podcast')
+let ep = audio.concat(intro, body, outro)
+ep.fade(0.5, 2)
+await ep.save('episode.mp3')
+```
+```sh
+npx audio intro.mp3 + interview.wav + outro.mp3 trim normalize podcast fade 0.5s -2s -o episode.mp3
+```
+
+### Batch normalize
+
+```sh
+npx audio '*.wav' trim normalize podcast -o '{name}.clean.{ext}'
+```
+
+### Batch with macro file
+
+```sh
+echo '[{"type":"trim"},{"type":"normalize","args":["podcast"]},{"type":"fade","args":[0.3]},{"type":"fade","args":[-1]}]' > recipe.json
+npx audio '*.wav' --macro recipe.json -o '{name}.processed.{ext}'
+```
+
+### Generate a tone
+
+```js
+let TAU = Math.PI * 2, sr = 44100
+let a = audio.from(i => Math.sin(440 * TAU * i / sr), { duration: 2, sampleRate: sr })
+await a.save('440hz.wav')
+```
+```sh
+npx audio --tone 440hz 2s -o tone.wav
+```
+
+### Sonify data
+
+```js
+let prices = [100, 102, 98, 105, 110, 95, 88, 92, 101, 107]
+let sr = 44100, dur = 0.2
+let a = audio.from(i => {
+  let idx = Math.min(Math.floor(i / (sr * dur)), prices.length - 1)
+  let freq = 200 + (prices[idx] - 80) * 10
+  return Math.sin(freq * Math.PI * 2 * i / sr) * 0.5
+}, { duration: prices.length * dur, sampleRate: sr })
+await a.save('stock-sonification.wav')
+```
+
+### Extract features for ML
+
+```js
+let a = await audio('speech.wav')
+let mfcc = await a.stat('cepstrum', { bins: 13 })
+let spec = await a.stat('spectrum', { bins: 128 })
+let loud = await a.stat('loudness')
+let rms  = await a.stat('rms')
+```
+```sh
+npx audio speech.wav stat cepstrum --bins 13
+npx audio speech.wav stat spectrum --bins 128
+npx audio speech.wav stat loudness rms db
+```
+
+### Split a long file
+
+```js
+let a = await audio('audiobook.mp3')
+let [ch1, ch2, ch3] = a.split(1800, 3600)
+for (let [i, ch] of [ch1, ch2, ch3].entries())
+  await ch.save(`chapter-${i + 1}.mp3`)
+```
+```sh
+npx audio audiobook.mp3 split 30m 60m -o 'chapter-{i}.mp3'
+```
+
+### Remove a section
+
+```js
+let a = await audio('interview.wav')
+a.remove({ at: 120, duration: 15 })
+a.fade(0.1, { at: 120, duration: 0.1 })
+await a.save('edited.wav')
+```
+```sh
+npx audio interview.wav remove 2m..2m15s fade 0.1s 2m..2m0.1s -o edited.wav
+```
+
+### Stream to network (low memory)
+
+```js
+let a = await audio.open('2hour-mix.flac')
+a.highpass(40).normalize('broadcast')
+for await (let chunk of a.stream()) {
+  socket.send(chunk[0].buffer)
+}
+```
+```sh
+npx audio 2hour-mix.flac highpass 40hz normalize broadcast | stream-to-icecast
+```
+
+### Voiceover on music
+
+```js
+let music = await audio('bg.mp3')
+let voice = await audio('narration.wav')
+music.gain(-12)
+music.mix(voice, { at: 2 })
+await music.save('mixed.wav')
+```
+```sh
+npx audio bg.mp3 gain -12db mix narration.wav 2s -o mixed.wav
+```
+
+### Stereo autopan
+
+```js
+let a = await audio('song.wav')
+a.pan(t => Math.sin(t * 0.5))
+await a.save('autopan.wav')
+```
+
+### Detect clipping
+
+```js
+let a = await audio('master.wav')
+let clips = await a.stat('clip')
+if (clips > 0) console.warn(`${clips} clipped samples — reduce gain`)
+```
+```sh
+npx audio master.wav stat clip
+```
+
+### Playback with seek
+
+```js
+let a = await audio('episode.mp3')
+a.play({ volume: -3 })
+a.seek(300)
+a.pause()
+a.resume()
+```
+```sh
+npx audio episode.mp3 --play --volume -3db
+```
+
+### A/B compare loudness
+
+```js
+let a = await audio('mix-v1.wav'), b = await audio('mix-v2.wav')
+let [la, lb] = await Promise.all([a.stat('loudness'), b.stat('loudness')])
+console.log(`v1: ${la.toFixed(1)} LUFS  v2: ${lb.toFixed(1)} LUFS  Δ${(lb - la).toFixed(1)}`)
+```
+```sh
+npx audio mix-v1.wav mix-v2.wav stat loudness
+```
+
+### Pipe through stdin/stdout
+
+```sh
+curl -s https://example.com/speech.mp3 | npx audio gain -3db normalize -o clean.wav
+ffmpeg -i video.mp4 -f wav - | npx audio trim normalize podcast > voice.wav
+```
+
+### Custom op — bitcrusher
+
+```js
+const crush = (chs, ctx) => {
+  let bits = ctx.args[0] ?? 8, steps = 2 ** bits
+  return chs.map(ch => {
+    let o = new Float32Array(ch.length)
+    for (let i = 0; i < ch.length; i++)
+      o[i] = Math.round(ch[i] * steps) / steps
+    return o
+  })
+}
+audio.op('crush', crush)
+
+let a = await audio('drums.wav')
+a.crush(4)
+await a.save('crushed.wav')
+```
+
+### Serialize edits, restore later
+
+```js
+let a = await audio('voice.mp3')
+a.trim().normalize('podcast').fade(0.3, 0.5)
+
+let json = JSON.stringify(a)                // { source, edits, ... }
+// ... persist to DB, send to worker, etc.
+let b = await audio(JSON.parse(json))       // re-decode + replay edits
+await b.save('restored.wav')
+```
+
+### Ringtone from any song
+
+```js
+let a = await audio('song.mp3')
+a.crop({ at: 45, duration: 30 })
+a.fade(0.5, 2)
+a.normalize()
+await a.save('ringtone.mp3')
+```
+```sh
+npx audio song.mp3 crop 45s..1m15s fade 0.5s -2s normalize -o ringtone.mp3
+```
+
+### Glitch: stutter + reverse segments
+
+```js
+let a = await audio('beat.wav')
+let v = a.view({ at: 1, duration: 0.25 })  // grab a 250ms slice
+let glitch = audio.concat(v, v, v, v)       // 4x stutter
+glitch.reverse({ at: 0.25, duration: 0.25 })  // reverse 2nd hit
+glitch.gain(t => -12 * t)                  // decay into silence
+await glitch.save('glitch.wav')
+```
+
+### ✴ Visionary
+
+_Not yet implemented — aspirational APIs. If these resonate, open an issue._
+
+**Split on silence** — auto-detect pauses, split into segments.
+```js
+let parts = a.split('silence', { threshold: -40, minDuration: 0.5 })
+for (let [i, p] of parts.entries()) await p.save(`segment-${i}.mp3`)
+```
+```sh
+npx audio lecture.mp3 split --silence -40db 0.5s -o 'segment-{i}.mp3'
+```
+
+**Time-stretch / pitch-shift** — change tempo without pitch, or pitch without tempo.
+```js
+a.stretch(0.8)                             // 80% speed, same pitch
+a.pitch(2)                                 // up one octave, same speed
+```
+```sh
+npx audio vocals.wav stretch 0.8x -o slow.wav
+npx audio vocals.wav pitch +12 -o octave-up.wav
+```
+
+**Noise gate / denoise** — suppress or remove background noise.
+```js
+a.gate(-40)                                // silence below -40dB
+a.denoise()                                // spectral noise reduction
+a.denoise(noiseProfile)                    // from a noise sample
+```
+```sh
+npx audio interview.wav denoise -o clean.wav
+npx audio interview.wav gate -40db -o gated.wav
+```
+
+**Auto-duck** — sidechain: duck music under voice automatically.
+```js
+music.duck(voice, { threshold: -20, reduction: -12, attack: 0.1, release: 0.5 })
+```
+```sh
+npx audio bg.mp3 duck narration.wav -20db -12db -o ducked.wav
+```
+
+**Beat detection** — find tempo, beat positions, downbeats.
+```js
+let { bpm, beats } = await a.stat('beats')
+a.split(...beats)                          // cut on every beat
+```
+```sh
+npx audio track.wav stat beats
+```
+
+**Source separation** — isolate vocals, drums, bass, other.
+```js
+let { vocals, drums, bass, other } = await a.separate()
+await vocals.save('vocals.wav')
+```
+```sh
+npx audio song.mp3 separate --stem vocals -o vocals.wav
+```
+
+**Spectrogram ↔ audio** — render audio as image, or resynthesize from image.
+```js
+let img = await a.stat('spectrogram', { width: 1024, height: 512 })  // ImageData
+let b = await audio.from(img, { type: 'spectrogram' })               // Griffin-Lim
+```
+
+**Crossfade concat** — overlap-add join with automatic crossfade.
+```js
+let ep = audio.concat(intro, body, outro, { crossfade: 2 })
+```
+```sh
+npx audio intro.mp3 + body.wav + outro.mp3 --crossfade 2s -o episode.mp3
+```
+
+**Loudness match** — match loudness across a batch of files.
+```js
+await audio.match('loudness', -14, [a, b, c])    // all to -14 LUFS
+```
+```sh
+npx audio '*.wav' match loudness -14lufs -o '{name}.matched.{ext}'
+```
+
+**Live processing** — real-time effect chain on mic/stream input.
+```js
+let a = audio.live({ input: 'mic' })
+a.highpass(80).notch(60).gain(-3)
+a.connect(audioContext.destination)         // monitor output
+```
+
+
+## Architecture
+
+### File Guide
+
+| File | Role |
+|------|------|
+| **`core.js`** | Engine — decode, paginate, plugin registry (`audio.stat`, `audio.fn`, `audio.hook`), instance factory, page I/O. The only required file. |
+| **`stats.js`** | Block-level stat engine — computes min/max/energy/clip/dc per 1024-sample block during decode. Powers waveform display, loudness measurement, and stat queries without touching PCM. |
+| **`cache.js`** | Page cache — LRU eviction to OPFS and on-demand restore. Keeps large files playable without exhausting RAM. |
+| **`history.js`** | Edit pipeline — non-destructive edit list, plan builder, stream renderer. Turns `a.gain(-3).trim()` into a declarative plan that materializes on read. |
+| **`audio.js`** | Full bundle — imports core + stats + cache + history + all plugins, calls `audio.use()`. The default import. |
+| **`fn/*.js`** | Plugins — each file exports one op, stat, or method. Self-contained, independently importable. |
+| **`bin/cli.js`** | CLI — parses args, auto-discovers plugins, runs ops, handles batch/glob/macro/playback. |
+
+### Concepts
+
+**Stream-first** means no operation touches the full PCM at once. Audio is stored in 64K-sample pages. Decode streams pages progressively. Every output — `read()`, `stream()`, `play()`, `save()`, `stat()` — walks pages one chunk at a time through the edit pipeline. A 2-hour file never needs 2 hours of float arrays in memory.
+
+**Non-destructive editing** means ops don't mutate source pages. `a.gain(-3).crop({at: 1, duration: 5})` pushes two entries to `a.edits`. Source data stays immutable. The edit list replays on demand — and can be undone, serialized, or reapplied.
+
+**Plan** is the compiled form of the edit list. `buildPlan(a)` walks all edits and produces:
+
+- **Segment map** — which source ranges map to which output positions (structural ops: crop, remove, insert, repeat, pad). Like a virtual timeline of pointers.
+- **Sample pipeline** — per-page transforms applied in order (gain, fade, reverse, filter, pan). These run on each chunk as it streams through.
+- **Stat-conditioned resolution** — ops like `trim` and `normalize` inspect pre-computed stats at plan time to emit concrete ops (crop, gain). No extra decode pass needed.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          Output (read/play/stream/save)                │
+│                                                                        │
+│  source pages ──→ segment map ──→ sample pipeline ──→ output chunks   │
+│  (64K Float32)    (structural)    (per-page ops)     (stream or flat) │
+│                                                                        │
+│  ┌──────────┐    ┌────────────┐  ┌──────────────┐                     │
+│  │ page [0] │──→ │ crop/insert│──→│ gain → fade  │──→ chunk [0]       │
+│  │ page [1] │──→ │ repeat/pad │──→│ → filter     │──→ chunk [1]       │
+│  │ page [n] │──→ │ remove     │──→│ → pan        │──→ chunk [n]       │
+│  └──────────┘    └────────────┘  └──────────────┘                     │
+│        ↑                                                               │
+│  stats (min/max/energy/clip/dc) computed at decode time                │
+│  ── power waveform, loudness, trim/normalize without PCM access ──    │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Stats** are computed once during decode — block-level min, max, energy, clip, dc per 1024 samples. They stay resident (~7MB for 2h stereo) and power instant waveform rendering, loudness measurement (LUFS), and stat-conditioned ops — all without decoding a single page.
+
+**Pages and eviction** — decoded PCM lives in 64K-sample chunks. For large files with `storage: 'persistent'`, cache.js evicts cold pages to OPFS (browser filesystem) via LRU and restores them on demand. The `cursor` property preloads pages near the playback position.
+
+### Three import paths
+
+```js
+import audio from 'audio'            // full bundle — all ops, stats, cache
+import audio from 'audio/core'       // bare engine — no ops, no cache
+import gain from 'audio/fn/gain.js'  // individual plugin
+```
+
 
 ## Ecosystem
 
@@ -367,35 +799,6 @@ Plugins in `node_modules/audio-*` are auto-discovered at startup.
 | [audio-type](https://github.com/nickolanack/audio-type) | Format detection |
 | [pcm-convert](https://github.com/nickolanack/pcm-convert) | PCM format conversion |
 
-
-## Architecture
-
-Four layers:
-
-| Layer | Purpose | Files |
-|-------|---------|-------|
-| **Source** | Immutable backing — encoded file or PCM | `core.js` (decode) |
-| **Stats** | Per-block measurements, always resident (~7MB for 2h stereo) | `stats.js` |
-| **Pages** | Decoded PCM in 64K chunks, paged on demand, evictable | `cache.js` |
-| **Edits** | Declarative op list — structural, sample, stat-conditioned | `history.js` |
-
-`audio.js` is the entry point — registers all built-in ops, stats, and methods. `fn/` contains each op/stat as a plugin.
-
-Any output (read, play, stream, save, stat) resolves the same pipeline:
-
-```
-source pages → segment map (structural ops) → sample pipeline (per-page) → output
-```
-
-Stats power waveform display and analysis without touching PCM. Stat-conditioned ops like `normalize` and `trim` resolve from stats at plan time — no extra render pass.
-
-Three import paths:
-
-```js
-import audio from 'audio'            // full bundle
-import audio from 'audio/core'       // bare engine — no ops
-import gain from 'audio/fn/gain.js'  // individual plugin
-```
 
 
 <p align="center"><a href="./license.md">MIT</a> · <a href="https://github.com/krishnized/license">ॐ</a></p>

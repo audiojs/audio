@@ -8,11 +8,8 @@ import { lowShelf as lsFilter, highShelf as hsFilter, parametricEq } from 'audio
 function apply(chs, ctx, key, fn, makeParams) {
   if (!ctx.state[key]) ctx.state[key] = chs.map(() => makeParams(ctx.sampleRate))
   let st = ctx.state[key]
-  return chs.map((ch, c) => {
-    let o = new Float32Array(ch)
-    fn(o, st[c])
-    return o
-  })
+  for (let c = 0; c < chs.length; c++) fn(chs[c], st[c])
+  return chs
 }
 
 // ── Filter dispatch ─────────────────────────────────────────────────────
@@ -37,7 +34,8 @@ const filter = (chs, ctx) => {
 
 // ── Register ────────────────────────────────────────────────────────────
 
-export default (audio) => {
-  audio.op.filter = filter
-  for (let name in types) audio.op[name] = (chs, ctx) => types[name](chs, ctx, ctx.args)
+import audio from '../core.js'
+audio.op('filter', filter)
+for (let name in types) {
+  audio.op(name, (chs, ctx) => types[name](chs, ctx, ctx.args))
 }

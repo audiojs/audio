@@ -13,6 +13,7 @@ const remix = (chs, ctx) => {
   return Array.from({ length: m }, (_, c) => new Float32Array(chs[c % n]))
 }
 
-remix.ch = (_, args) => args[0]
+const remixCh = (_, args) => args[0]
 
-export default (audio) => { audio.op.remix = remix }
+import audio from '../core.js'
+audio.op('remix', remix, { ch: remixCh })
