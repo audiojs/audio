@@ -427,7 +427,11 @@ async function resolveSource(source) {
 /** Detect format + prepare source. */
 async function detectSource(source) {
   if (source instanceof ArrayBuffer || source instanceof Uint8Array) {
-    let bytes = new Uint8Array(source instanceof ArrayBuffer ? source : source.buffer || source)
+    let bytes = source instanceof ArrayBuffer
+      ? new Uint8Array(source)
+      : source.byteOffset || source.byteLength !== source.buffer.byteLength
+        ? new Uint8Array(source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength))
+        : new Uint8Array(source.buffer)
     return { format: getType(bytes), bytes }
   }
   if (typeof source === 'string' && !/^(https?|data|blob):/.test(source) && typeof window === 'undefined') {

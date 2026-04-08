@@ -26,7 +26,7 @@ function repeatSegs(segs, times, total, off, dur) {
 }
 
 const repeat = (chs, ctx) => {
-  let times = ctx.args[0] || 1, sr = ctx.sampleRate
+  let times = ctx.args[0] ?? 1, sr = ctx.sampleRate
   let at = ctx.at, dur = ctx.duration
   if (at == null) {
     return chs.map(ch => {
@@ -50,7 +50,7 @@ const repeat = (chs, ctx) => {
 const repeatPlan = (segs, ctx) => {
   let { total, args, offset, span } = ctx
   let off = offset != null ? (offset < 0 ? total + offset : offset) : null
-  return repeatSegs(segs, args[0] || 1, total, off, span)
+  return repeatSegs(segs, args[0] ?? 1, total, off, span)
 }
 
 import audio from '../core.js'

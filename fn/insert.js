@@ -40,7 +40,9 @@ const insert = (chs, ctx) => {
 
 const insertPlan = (segs, ctx) => {
   let { total, sampleRate: sr, args, offset, span } = ctx
-  let source = args[0], off = Math.min(offset ?? total, total)
+  let source = args[0], off = offset ?? total
+  if (off < 0) off = total + off
+  off = Math.max(0, Math.min(off, total))
   let iLen = typeof source === 'number' ? Math.round(source * sr) : source.length
   if (span != null) iLen = Math.min(iLen, span)
   return insertSegs(segs, off, iLen, typeof source === 'number' ? null : source)
