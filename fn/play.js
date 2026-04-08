@@ -17,6 +17,14 @@ audio.fn.play = function(opts) {
 
       let from = offset, RAMP = 256 // ~6ms anti-click ramp
       while (a.playing) {
+        // If paused before playback starts (e.g. open without autoplay), wait silently
+        if (a.paused) {
+          while (a.paused && a.playing && a._._seekTo == null)
+            await new Promise(r => { a._._wake = r })
+          a._._wake = null
+          if (!a.playing) break
+          if (a._._seekTo != null) { from = a._._seekTo; a._._seekTo = null; a.currentTime = from }
+        }
         let write = Speaker({ sampleRate: sr, channels: ch, bitDepth: 32 })
         let seeked = false, played = 0, fadeIn = true
         const flush = async () => {
@@ -70,8 +78,10 @@ audio.fn.play = function(opts) {
 
             await new Promise(r => write(new Uint8Array(buf.buffer), r))
             played += len
-            a.currentTime = from + played / sr
-            a.ontimeupdate?.(a.currentTime)
+            if (a._._seekTo == null) {
+              a.currentTime = from + played / sr
+              a.ontimeupdate?.(a.currentTime)
+            }
           }
           if (seeked || !a.playing) break
         }

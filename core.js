@@ -254,6 +254,7 @@ fn[READ] = function(offset, duration) { return readPages(this, offset, duration)
 fn.seek = function(t) {
   t = Math.max(0, t)
   this._.cursor = t
+  this.currentTime = t
   if (this.cache) {
     let page = Math.floor(t * this.sampleRate / audio.PAGE_SIZE)
     ;(async () => {

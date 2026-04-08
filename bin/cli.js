@@ -43,15 +43,7 @@ function parseRange(str) {
 
 // ── CLI Aliases ──────────────────────────────────────────────────────────
 
-const ALIAS = {
-  norm: 'normalize',
-  hp: 'highpass',
-  lp: 'lowpass',
-  ls: 'lowshelf',
-  hs: 'highshelf',
-  bp: 'bandpass',
-  peaking: 'eq',
-}
+const ALIAS = {}
 
 // ── Argument Parsing ─────────────────────────────────────────────────────
 
@@ -80,13 +72,13 @@ const OP_HELP = {
   repeat:    { usage: 'repeat N', desc: 'Repeat N times', examples: ['repeat 3'] },
   mix:       { usage: 'mix SRC [OFF]', desc: 'Mix in another audio file', examples: ['mix bg.wav 0s'] },
   remix:     { usage: 'remix CH', desc: 'Change channel count', examples: ['remix 1', 'remix 2'] },
-  highpass:  { usage: 'highpass FC [ORDER]', desc: 'High-pass filter', examples: ['hp 80hz', 'highpass 120hz 4'] },
-  lowpass:   { usage: 'lowpass FC [ORDER]', desc: 'Low-pass filter', examples: ['lp 8000hz', 'lowpass 4khz 4'] },
+  highpass:  { usage: 'highpass FC [ORDER]', desc: 'High-pass filter', examples: ['highpass 80hz', 'highpass 120hz 4'] },
+  lowpass:   { usage: 'lowpass FC [ORDER]', desc: 'Low-pass filter', examples: ['lowpass 8khz', 'lowpass 4khz 4'] },
   eq:        { usage: 'eq FC GAIN [Q]', desc: 'Parametric EQ', examples: ['eq 1khz -3db', 'eq 300hz 2 0.5'] },
-  lowshelf:  { usage: 'lowshelf FC GAIN [Q]', desc: 'Low shelf filter', examples: ['ls 200hz -3db'] },
-  highshelf: { usage: 'highshelf FC GAIN [Q]', desc: 'High shelf filter', examples: ['hs 8khz 2db'] },
+  lowshelf:  { usage: 'lowshelf FC GAIN [Q]', desc: 'Low shelf filter', examples: ['lowshelf 200hz -3db'] },
+  highshelf: { usage: 'highshelf FC GAIN [Q]', desc: 'High shelf filter', examples: ['highshelf 8khz 2db'] },
   notch:     { usage: 'notch FC [Q]', desc: 'Notch (band-reject) filter', examples: ['notch 60hz', 'notch 50hz 50'] },
-  bandpass:  { usage: 'bandpass FC [Q]', desc: 'Band-pass filter', examples: ['bp 1khz', 'bandpass 440hz 10'] },
+  bandpass:  { usage: 'bandpass FC [Q]', desc: 'Band-pass filter', examples: ['bandpass 1khz', 'bandpass 440hz 10'] },
   filter:    { usage: 'filter TYPE ...ARGS', desc: 'Generic filter dispatch', examples: ['filter highpass 80hz'] },
   pan:       { usage: 'pan VALUE [RANGE]', desc: 'Stereo balance: -1 left, 0 center, 1 right', examples: ['pan -0.5', 'pan 1 2s..5s'] },
   pad:       { usage: 'pad [BEFORE] [AFTER]', desc: 'Add silence to start/end (single arg = both)', examples: ['pad 1s', 'pad 0.5s 2s'] },
@@ -106,16 +98,11 @@ function showOpHelp(name) {
 function parseArgs(args) {
   let input = null, ops_ = [], output = null, format = null
   let verbose = false, showHelp = false, play = false, force = false
-  let macro = null, helpOp = null
+  let macro = null, helpOp = null, info = false
   let i = 0
 
-  // Check for explicit -i / --input flag at start
-  if (args[0] === '-i' || args[0] === '--input') {
-    input = args[1]
-    i = 2
-  }
-  // Otherwise try positional first arg if it looks like a file
-  else if (args.length && !isFlag(args[0]) && !isOpName(args[0])) {
+  // First positional arg as input if it looks like a file
+  if (args.length && !isFlag(args[0]) && !isOpName(args[0])) {
     input = args[i++]
   }
 
@@ -135,8 +122,8 @@ function parseArgs(args) {
     } else if (arg === '--format') {
       format = args[++i]
       i++
-    } else if (arg === '-i' || arg === '--input') {
-      input = args[++i]
+    } else if (arg === '-i' || arg === '--info') {
+      info = true
       i++
     } else if (arg === '--play' || arg === '-p') {
       play = true
@@ -210,7 +197,7 @@ function parseArgs(args) {
   }
   ops_ = expanded
 
-  return { input, ops: ops_, output, format, verbose, showHelp, play, force, macro, helpOp }
+  return { input, ops: ops_, output, format, verbose, showHelp, play, force, macro, helpOp, info }
 }
 
 // ── I/O ──────────────────────────────────────────────────────────────────
@@ -397,7 +384,7 @@ async function playback(p, totalSec, decodedSec, a, src) {
   let render = t => {
     let w = cols()
     let ts = totalSec?.() || 0, ds = decodedSec?.() ?? ts
-    let icon = p.paused ? '⏸' : '▶'
+    let icon = p.paused ? '▶' : '⏸'
     let ct = playTime(t), tt = ts > 0 ? '-' + playTime(ts - t) : '-0:00:00'
     let loop = p.loop ? '↻' : ' '
     let vb = volBar(p.volume)
@@ -418,7 +405,7 @@ async function playback(p, totalSec, decodedSec, a, src) {
     if (fft) {
       let sw = Math.min(barW, Math.max(4, w - barStart - 2))
       let sr = p.sampleRate || 44100
-      let s = spec(p.block, sr, sw, p.paused)
+      let s = spec(getBlock(), sr, sw, p.paused)
       out += `\n\x1b[K${lpad}${s}`
       newLines++
       let fl = freqLabels(sr, sw)
@@ -428,7 +415,12 @@ async function playback(p, totalSec, decodedSec, a, src) {
     }
 
     // Info line
-    let decoding = a && !a.decoded ? `   ${SPIN[spinIdx++ % 10]} decoding` : ''
+    let decoding = ''
+    if (a && !a.decoded) {
+      updatePagePeaks()
+      let peakDb = peakMax > 1e-10 ? (20 * Math.log10(peakMax)).toFixed(1) + ' dBFS' : ''
+      decoding = `   ${peakDb ? peakDb + '   ' : ''}${SPIN[spinIdx++ % 10]} decoding`
+    }
     let infoStr = msg || (fileInfo ? fileInfo + decoding : (a ? `${fmtRate(a.sampleRate)}   ${a.channels}ch${decoding}` : ''))
     out += '\n\x1b[K'; newLines++
     if (infoStr) { out += `\n\x1b[K${lpad}${DIM}${infoStr}${RST}`; newLines++ }
@@ -442,8 +434,14 @@ async function playback(p, totalSec, decodedSec, a, src) {
     process.stderr.write(out)
   }
 
+  let getBlock = () => {
+    if (p.block) return p.block
+    if (a?.pages?.[0]?.[0]) return a.pages[0][0].subarray(0, Math.min(1024, a.pages[0][0].length))
+    return null
+  }
+
   render(0)
-  p.ontimeupdate = render
+  let tick = setInterval(() => render(p.currentTime), 40)
 
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(true)
@@ -463,6 +461,7 @@ async function playback(p, totalSec, decodedSec, a, src) {
   }
 
   await new Promise(r => { p.onended = r })
+  clearInterval(tick)
 
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(false)
@@ -513,6 +512,88 @@ async function main() {
     process.exit(0)
   }
 
+  // ── Shell Completions ──────────────────────────────────────────────────
+  if (args[0] === '--completions') {
+    let shell = args[1]
+    if (shell === 'zsh') {
+      console.log(`#compdef audio
+_audio() {
+  local -a reply
+  reply=(\${(f)"$(audio --completions-list "\${words[CURRENT-1]}" "\${words[CURRENT]}" 2>/dev/null)"})
+  if (( \${#reply} )); then
+    compadd -Q -- \${reply}
+  else
+    _files
+  fi
+}
+compdef _audio audio`)
+    } else if (shell === 'bash') {
+      console.log(`_audio() {
+  local cur prev
+  cur="\${COMP_WORDS[COMP_CWORD]}"
+  prev="\${COMP_WORDS[COMP_CWORD-1]}"
+  local IFS=$'\\n'
+  COMPREPLY=($(compgen -W "$(audio --completions-list "$prev" "$cur" 2>/dev/null)" -- "$cur"))
+  [[ \${#COMPREPLY[@]} -eq 0 ]] && COMPREPLY=($(compgen -f -- "$cur"))
+}
+complete -o default -F _audio audio`)
+    } else if (shell === 'fish') {
+      console.log(`complete -c audio -f -a '(audio --completions-list (commandline -cop)[-1] (commandline -ct) 2>/dev/null)'`)
+    } else {
+      console.error('Usage: audio --completions <zsh|bash|fish>')
+      console.error('  eval "$(audio --completions zsh)"')
+      process.exit(1)
+    }
+    process.exit(0)
+  }
+
+  if (args[0] === '--completions-list') {
+    await discoverPlugins()
+    let prev = args[1] || '', cur = args[2] || ''
+    let ops = Object.keys(OP_HELP).concat('split', 'stat')
+    let flags = ['--play', '--info', '--force', '--verbose', '--format', '--macro', '--help', '--version', '-o', '-p', '-i', '-f']
+
+    // Context-aware completions
+    let out = []
+    if (prev === 'normalize') {
+      out = ['streaming', 'podcast', 'broadcast', '-1', '-3', '-6']
+    } else if (prev === 'fade') {
+      out = ['linear', 'exp', 'log', 'cos']
+    } else if (prev === 'speed') {
+      out = ['0.5', '2', '-1', '0.25', '1.5']
+    } else if (prev === 'remix') {
+      out = ['1', '2']
+    } else if (prev === 'stat') {
+      out = ['db', 'rms', 'loudness', 'clip', 'dc', 'silence', 'spectrum', 'cepstrum']
+    } else if (prev === 'gain') {
+      out = ['-3db', '-6db', '-12db', '3db', '6db']
+    } else if (prev === 'highpass') {
+      out = ['80hz', '120hz', '200hz', '400hz']
+    } else if (prev === 'lowpass') {
+      out = ['4khz', '8khz', '12khz', '16khz']
+    } else if (prev === 'notch') {
+      out = ['50hz', '60hz']
+    } else if (prev === 'eq') {
+      out = ['100hz', '300hz', '1khz', '3khz', '8khz']
+    } else if (prev === 'lowshelf') {
+      out = ['100hz', '200hz', '300hz']
+    } else if (prev === 'highshelf') {
+      out = ['4khz', '8khz', '12khz']
+    } else if (prev === 'pan') {
+      out = ['-1', '-0.5', '0', '0.5', '1']
+    } else if (prev === 'trim') {
+      out = ['-20db', '-30db', '-40db', '-50db']
+    } else if (prev === '--format') {
+      out = ['wav', 'mp3', 'flac', 'ogg', 'opus', 'aiff']
+    } else if (cur.startsWith('-')) {
+      out = flags
+    } else {
+      out = ops
+    }
+    console.log(out.join('\n'))
+    process.exit(0)
+  }
+
   try {
     await discoverPlugins()
     let opts = parseArgs(args)
@@ -538,6 +619,12 @@ async function main() {
       macroOps = edits.map(e => ({ name: e.type || e.name, args: e.args || [], offset: e.at ?? null, duration: e.duration ?? null }))
     }
     let allOps = [...opts.ops, ...macroOps]
+
+    // Validate ops early — before any decode
+    for (let op of allOps) {
+      if (op.name !== 'split' && op.name !== 'stat' && !audio.op(op.name))
+        throw new Error(`Unknown operation: ${op.name}`)
+    }
 
     // Resolve input(s) — support glob for batch processing
     let inputs = []
@@ -598,13 +685,16 @@ async function main() {
       source = buf
     }
 
-    // Streaming playback — start playing as pages decode (no ops needed)
-    if (opts.play && !allOps.length && !opts.output && typeof source === 'string') {
+    // Streaming player — file source, no ops, no output (default mode)
+    // -p = autoplay, otherwise starts paused
+    if (!allOps.length && !opts.output && !opts.info && typeof source === 'string') {
       if (opts.verbose) console.error(`Opening: ${source}`)
-      let spin = !opts.verbose ? spinner('Loading') : null
+      let spin = !opts.verbose ? spinner('decoding') : null
       let a = await audio.open(source)
       spin?.stop()
-      await playback(a.play(),
+      let p = a.play()
+      if (!opts.play) a.pause()
+      await playback(p,
         () => a.decoded ? a.duration : 0,
         () => a.pages.length * 65536 / a.sampleRate,
         a, source
@@ -614,7 +704,7 @@ async function main() {
 
     // Load audio (full decode)
     if (opts.verbose) console.error(`Loading: ${typeof source === 'string' ? source : '(stdin)'}`)
-    let spin = !opts.verbose ? spinner('Loading') : null
+    let spin = !opts.verbose ? spinner('decoding') : null
     let a = await audio(source, {
       onprogress: opts.verbose
         ? ({ offset }) => process.stderr.write(`\rDecoding... ${formatDuration(offset)}`)
@@ -623,8 +713,8 @@ async function main() {
     let loadTime = spin?.stop()
     if (opts.verbose) console.error('\n')
 
-    // no-ops: show audio info
-    if (!allOps.length && !opts.output && !opts.play) {
+    // Show info: -i flag, or stdin with no ops/output
+    if (opts.info || (!allOps.length && !opts.output && !opts.play)) {
       let [peak, , l, clips, dcOff] = await a.stat(['db', 'rms', 'loudness', 'clip', 'dc'])
       console.log(`  Duration:   ${formatDuration(a.duration)}`)
       console.log(`  Channels:   ${a.channels}`)
@@ -698,14 +788,14 @@ async function main() {
       }
     }
 
-    // --play: play the result
-    if (opts.play) {
+    // Play the result: -p flag, or ops without -o (default to player)
+    if (opts.play || (allOps.length && !opts.output)) {
       await playback(a.play(), () => a.duration, () => a.duration, a, typeof source === 'string' ? source : null)
       if (!opts.output) process.exit(0)
     }
 
     // Save output
-    if (opts.output || (!opts.play && allOps.length)) {
+    if (opts.output) {
       let output = opts.output || 'out.wav'
 
       // Check for overwrite
@@ -751,7 +841,6 @@ Usage:
 
 Input:
   input         File path, URL, or omit for stdin
-  -i, --input   Explicit input file (use with ops as first args)
   -o, --output  Output file or '-' for stdout (default: out.wav)
 
 Operations (positional):
@@ -768,15 +857,16 @@ Operations (positional):
   remix CH         Remix channels (e.g., remix 2 for stereo)
   pan VALUE        Stereo balance: -1 left, 0 center, 1 right
   pad [BEFORE] [AFTER]  Add silence to edges (single arg = both)
+  speed RATE       Change speed — 2 = double, 0.5 = half, -1 = reverse
 
 Filters (ORDER = steepness: 2 = -12dB/oct, 4 = -24dB/oct, default: 2):
-  highpass | hp FC [ORDER]   Remove below FC (e.g., hp 120hz 4)
-  lowpass | lp FC [ORDER]    Remove above FC
-  eq FC GAIN [Q]             Parametric EQ boost/cut at FC
-  lowshelf | ls FC GAIN [Q]  Shelf boost/cut below FC
-  highshelf | hs FC GAIN [Q] Shelf boost/cut above FC
-  notch FC [Q]               Kill a single frequency (default Q=30)
-  bandpass | bp FC [Q]       Pass only around FC
+  highpass FC [ORDER]      Remove below FC (e.g., highpass 120hz 4)
+  lowpass FC [ORDER]       Remove above FC
+  eq FC GAIN [Q]           Parametric EQ boost/cut at FC
+  lowshelf FC GAIN [Q]     Shelf boost/cut below FC
+  highshelf FC GAIN [Q]    Shelf boost/cut above FC
+  notch FC [Q]             Kill a single frequency (default Q=30)
+  bandpass FC [Q]          Pass only around FC
 
 Range syntax (for offset+duration):
   1s..10s       From 1s to 10s
@@ -790,28 +880,36 @@ Units:
   Hz: 440hz, 2khz
 
 Options:
-  --play, -p    Play the result (after ops, before save)
+  --info, -i    Show file information (duration, peak, loudness, etc.)
+  --play, -p    Autoplay (default opens player paused)
   --force, -f   Overwrite output file if it exists
   --macro FILE  Apply edits from JSON file
   --verbose     Show progress and debug info
   --format FMT  Override output format (default: from extension)
   --help, -h    Show this help (or after an op: audio gain --help)
   --version, -v Show version
+  --completions SHELL  Print tab-completion script (zsh, bash, fish)
 
 Batch:
   audio '*.wav' gain -3db -o '{name}.out.{ext}'  Process multiple files
 
 Examples:
-  audio in.mp3
-  audio in.mp3 gain -3db trim normalize -o out.wav
-  audio in.wav --play
-  audio in.mp3 fade -o out.mp3
-  audio in.mp3 fade .2s -1s cos -o out.mp3
-  audio in.wav gain -3db 1s..10s -o out.wav
+  audio in.mp3                              Open player
+  audio in.mp3 -p                           Autoplay
+  audio in.mp3 -i                           Show file info
+  audio in.mp3 gain -3db trim -o out.wav    Edit and save
   audio in.mp3 normalize streaming -o out.wav
-  audio in.mp3 highpass 80hz -o clean.mp3
-  audio in.mp3 hp 80hz eq 300hz -2db lowshelf 200hz -3db -o out.wav
-  cat in.wav | audio gain -3db > out.wav
+  audio in.mp3 highpass 80hz eq 300hz -2db lowshelf 200hz -3db -o out.wav
+  audio in.mp3 gain -3db -p -o out.wav      Edit, play, and save
+  cat in.wav | audio gain -3db > out.wav    Pipe mode
+
+Player controls:
+  space     Pause / resume
+  ←/→       Seek ±10s
+  ⇧←/⇧→    Seek ±60s
+  ↑/↓       Volume ±3dB
+  l         Toggle loop
+  q         Quit
 
 For more info: https://github.com/audiojs/audio
 `)
