@@ -7,16 +7,23 @@ import audio, { LOAD } from './core.js'
 
 const DEFAULT_BUDGET = 500 * 1024 * 1024  // 500MB
 
-/** Evict pages to cache until resident bytes fit within budget. LRU from start. */
+/** Evict pages to cache until resident bytes fit within budget. True LRU. */
 async function evict(a) {
   if (!a.cache || a.budget === Infinity) return
   let bytes = p => p ? p.reduce((s, ch) => s + ch.byteLength, 0) : 0
   let current = a.pages.reduce((sum, p) => sum + bytes(p), 0)
-  for (let i = 0; i < a.pages.length && current > a.budget; i++) {
+  if (current <= a.budget) return
+  // Build eviction order: LRU (oldest first) if tracked, else FIFO fallback
+  let order = a._.lru && a._.lru.size
+    ? [...a._.lru]
+    : a.pages.map((_, i) => i)
+  for (let i of order) {
+    if (current <= a.budget) break
     if (!a.pages[i]) continue
     await a.cache.write(i, a.pages[i])
     current -= bytes(a.pages[i])
     a.pages[i] = null
+    if (a._.lru) a._.lru.delete(i)
   }
 }
 
@@ -71,7 +78,12 @@ async function opfsCache(dirName = 'audio-cache') {
 
 // ── Self-register ────────────────────────────────────────────────
 
-audio.fn[LOAD] = restorePages
+let prevLoad = audio.fn[LOAD]
+audio.fn[LOAD] = async function() {
+  if (!this._.lru) this._.lru = new Set()
+  await prevLoad.call(this)
+  await restorePages.call(this)
+}
 audio.opfsCache = opfsCache
 audio.evict = evict
 audio.DEFAULT_BUDGET = DEFAULT_BUDGET

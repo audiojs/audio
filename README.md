@@ -1,74 +1,45 @@
 # audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/audio)](https://npmjs.org/package/audio)
 
-High-level audio in JavaScript — load, edit, save, play, analyze any format in CLI or browser.
+High-level audio manipulations in JS. Load, edit, play, analyze, save.
 
-* **Non-destructive** — edits are plans, source pages untouched
+* **Any audio format** – load/save mp3, opus, ogg, flac, wav, aiff, and more.
 * **Stream-first** — block-sized chunks, constant memory
-* **Scriptable** — CLI and JS share the same ops
 * **No memory limit** — page cache + OPFS eviction for hours-long files
-* **Physical units** — seconds, dB, Hz — not samples or indices
+* **Non-destructive** — edits are plans, source pages untouched
+* **Scriptable** — CLI and JS share the same ops
 * **Modular** — codecs, effects, stats lazy-loaded on demand
+* **Platform agnostic** – browser, CLI
+* **Physical units** — seconds, dB, Hz — not samples or indices
 
-```sh
-npm i audio
-```
+**`npm i audio`**
 
 ```js
 import audio from 'audio'
 
-let a = await audio('voice.mp3')
-a.trim().normalize().fade(0.5, 0.5)
-await a.save('clean.wav')
+audio('voice.mp3').trim().normalize().fade(0.5, 0.5).save('clean.wav')
 ```
-
-
-<table><tr><td valign="top">
-
-**[Create](#create)**<br>
-<sub>[audio()](#create) · [audio.open()](#audioopensouce-opts) · [audio.from()](#audiofromsource-opts) · [audio.record()](#audiorecordopts)</sub>
-
-**[Properties](#properties)**
-
-**[Ops](#ops)**<br>
-<sub>[crop](#structural) · [remove](#structural) · [insert](#structural) · [repeat](#structural) · [pad](#structural) · [speed](#structural) · [split](#structural) · [view](#structural) · [gain](#sample) · [fade](#sample) · [reverse](#sample) · [mix](#sample) · [write](#sample) · [remix](#sample) · [pan](#sample) · [trim](#smart) · [normalize](#smart) · [transform](#transform)</sub>
-
-**[Filter](#filter)**<br>
-<sub>[highpass](#filter) · [lowpass](#filter) · [bandpass](#filter) · [notch](#filter) · [lowshelf](#filter) · [highshelf](#filter) · [eq](#filter)</sub>
-
-</td><td valign="top">
-
-**[I/O](#io)**<br>
-<sub>[read](#io) · [save](#io) · [stream](#io)</sub>
-
-**[Analysis](#analysis)**<br>
-<sub>[stat](#analysis)</sub>
-
-**[Playback](#playback)**<br>
-<sub>[play](#playback) · [pause](#playback) · [stop](#playback)</sub>
-
-**[History](#history)** · **[Plugins](#plugins)** · **[CLI](#cli)**
-
-</td></tr></table>
-
-All parameters use physical units: **seconds**, **dB**, **Hz**, **LUFS**. No sample indices in the public API.
 
 
 ## Create
 
-**`audio(source, opts?)`** — async. Decodes encoded audio, returns a Promise.
+**`audio(source, opts?)`** — sync. Returns instance immediately. Thenable — `await` waits for full decode. Edits can be chained before decode.
 
 ```js
-let a = await audio('file.mp3')          // file path (Node)
-let b = await audio(url)                  // URL string or URL object
-let c = await audio(uint8array)           // encoded bytes
-let d = await audio([a, b])              // concat from array
+let a = audio('file.mp3')                 // sync! instance returned immediately
+a.gain(-3).trim()                         // edits work before decode
+await a.save('out.wav')                   // consuming ops wait for decode internally
 
-// progressive decode — streams stats as pages decode
-let e = await audio('long.flac', {
-  onprogress({ delta, offset, total }) {
-    appendWaveform(delta.min, delta.max)
-  }
+let b = await audio('file.mp3')           // still works — thenable, waits for full decode
+let c = await audio(url)                  // URL string or URL object
+let d = await audio(uint8array)           // encoded bytes
+let e = audio([a, b])                     // concat from array
+
+// progressive decode — subscribe before decode starts
+let f = audio('long.flac')
+f.on('progress', ({ delta, offset }) => {
+  appendWaveform(delta.min, delta.max)
 })
+await f
 ```
 
 **`audio.from(source, opts?)`** — sync. Wraps existing PCM. No decode, no I/O.
@@ -77,32 +48,22 @@ let e = await audio('long.flac', {
 let f = audio.from([left, right])         // Float32Array[] channels
 let g = audio.from(3, { channels: 2 })   // 3 seconds of silence
 let h = audio.from(audioBuffer)           // Web Audio AudioBuffer
-let i = audio.from(i => Math.sin(440 * TAU * i / sr), { duration: 1 })  // function source
+let i = audio.from(t => Math.sin(440 * TAU * t), { duration: 1 })  // function source (t = seconds)
 let j = audio.from(int16arr, { format: 'int16' })  // typed array with format conversion
 ```
 
-**`audio.open(source, opts?)`** — async. Starts streaming decode, returns instance immediately. Pages and stats arrive progressively. Use `.loaded` to await full decode.
+**`audio()`** — no source: pushable instance. Like a tape recorder — `.push()` writes data, `.record()` starts mic, `.stop()` finalizes.
 
 ```js
-let a = await audio.open('long.flac')  // instance available immediately
-drawWaveform(a)                        // partial stats already usable
-await a.loaded                         // wait for full decode
-```
+let a = audio()
+a.push(float32chunk)                   // Float32Array or Float32Array[]
+a.push(int16arr, 'int16')              // typed arrays convert automatically
+a.push(interleaved, { format: 'int16', channels: 2 })
+a.stop()                               // drain + finalize — save/stream can finish
+await a.save('out.wav')
 
-**`audio.record(opts?)`** — record audio. With `{ input: 'mic' }`, captures from microphone via [`audio-mic`](https://npmjs.com/package/audio-mic). Without it, feed PCM chunks manually.
-
-```js
-// Mic recording (requires audio-mic)
-let a = audio.record({ input: 'mic' })
-await a.ready                          // mic is capturing
-// ... record for a while ...
-a.stop()                               // finalize — stats computed
-
-// Push-based (custom source)
-let a = audio.record({ sampleRate: 44100, channels: 1 })
-a.push(float32chunk)                   // feed PCM data
-a.push(anotherChunk)
-a.stop()                               // finalize — stats computed
+// reads work mid-stream without .stop() — partial data auto-flushes:
+let pcm = await a.read()               // whatever’s been pushed so far
 ```
 
 `audio.version` — package version string.
@@ -114,18 +75,25 @@ Encoded sources are paged (`PAGE_SIZE`-sample chunks, evictable to OPFS for larg
 
 ```js
 a.sampleRate               // Hz (44100, 48000, …)
-a.channels                 // effective channel count
+a.channels                 // effective channel count (reflects remix edits)
 a.duration                 // seconds (reflects edits)
 a.length                   // samples (reflects edits)
 a.source                   // original path/URL or null
-a.pages                    // Float32Array[][] — decoded PCM
+a.pages                    // Float32Array[][] — decoded PCM pages
 a.stats                    // per-block stats (min/max/energy/…)
 a.edits                    // edit list (inspectable)
-a.decoded                  // true when source fully decoded
+a.ready                    // Promise<true> — resolves when metadata ready
+a.currentTime              // seconds — playback/seek position (read/write)
+a.playing                  // boolean
+a.paused                   // boolean
+a.recording                // boolean — true while mic is active
+a.volume                   // dB (0 = unity)
+a.loop                     // boolean
+a.block                    // Float32Array — current playback block (for visualization)
 ```
 
 
-## Ops
+## Edit
 
 All ops are sync, chainable, non-destructive. They push to the edit list — source pages are never mutated.
 
@@ -203,36 +171,9 @@ a.normalize({ dc: false })           // skip DC removal
 a.normalize({ channel: 0 })          // left channel only
 ```
 
-### Run
+### Filter
 
-```js
-// apply edit objects directly
-a.run(
-  { type: 'trim', args: [-30] },
-  { type: 'gain', args: [-3], at: 0.5, duration: 1 },
-  { type: 'normalize', args: [0] }
-)
-
-// re-apply undone edits
-let edit = a.undo()
-a.run(edit)
-```
-
-### Transform
-
-```js
-// inline per-chunk transform
-a.transform((channels, ctx) => {
-  for (let ch of channels)
-    for (let i = 0; i < ch.length; i++) ch[i] *= 0.5
-  return channels
-})
-```
-
-
-## Filter
-
-Built-in filters via [audio-filter](https://github.com/audiojs/audio-filter). Stateful across streaming chunks.
+Built-in [audio-filter](https://github.com/audiojs/audio-filter). Stateful across streaming chunks.
 
 ```js
 a.highpass(80)                       // Hz
@@ -243,6 +184,38 @@ a.notch(60)                          // remove hum
 a.lowshelf(200, -3)                  // Hz, dB
 a.highshelf(8000, 2)
 a.eq(1000, 3, 2)                     // freq, gain, Q
+```
+
+### Custom
+
+```js
+a.run(
+  { type: 'trim', args: [-30] },
+  { type: 'gain', args: [-3], at: 0.5, duration: 1 },
+  { type: 'normalize', args: [0] }
+)
+
+let edit = a.undo()
+a.run(edit)                            // re-apply
+
+a.transform((channels, ctx) => {       // inline per-chunk
+  for (let ch of channels)
+    for (let i = 0; i < ch.length; i++) ch[i] *= 0.5
+  return channels
+})
+```
+
+### History
+
+Non-destructive. Serializable. Replayable.
+
+```js
+a.undo()
+
+let json = JSON.stringify(a)          // toJSON() auto
+let b = await audio(JSON.parse(json)) // restore from source + edits
+
+a.version                              // monotonic counter
 ```
 
 
@@ -260,6 +233,42 @@ for await (let block of a.stream()) {              // async iterator
   process(block)                                   // Float32Array[] per block
 }
 ```
+
+
+### Playback
+
+Node uses `audio-speaker`; browser uses Web Audio API.
+
+```js
+a.play()                               // play from start
+a.play({at: 10, duration: 5})          // play 5s from 10s
+a.play({volume: -6, loop: true})
+
+a.pause()
+a.resume()
+a.stop()                                // stops playback + recording
+a.seek(30)                              // jump to 30s (preloads cache pages)
+```
+
+### Recording
+
+`audio()` with no source creates a pushable instance — like a tape recorder.
+
+```js
+let a = audio()
+
+a.record()                              // start mic (requires audio-mic)
+a.stop()                                // stop + finalize
+a.record()                              // resume — appends to existing
+a.stop()
+
+a.push(float32)                         // Float32Array (mono)
+a.push([left, right])                   // Float32Array[] (multi-channel)
+a.push(int16arr, 'int16')              // typed array with format conversion
+a.push(buf, { format: 'int16', channels: 2 })
+```
+
+`stop()` drains partial data — unblocks `save()`, `stream()`, `play()`. `read()` works mid-stream without `stop()` (auto-flushes).
 
 
 ## Analysis
@@ -288,45 +297,36 @@ let [peak, loud] = await a.stat(['db', 'loudness'])
 ```
 
 
-## Playback
-
-Returns the instance. Node uses `audio-speaker`; browser uses Web Audio API.
+## Events
 
 ```js
-a.play()                               // play from start
-a.play({at: 10, duration: 5})          // play 5s from 10s
-a.play({volume: -6, loop: true})
-
-a.pause()
-a.resume()
-a.stop()
-a.seek(30)                              // jump to 30s
-a.currentTime                           // seconds (read/write)
-a.playing                               // boolean
-a.paused                                // boolean
-a.volume                                // dB (read/write, 0 = unity)
-a.loop                                  // boolean (read/write)
-a.ontimeupdate = (t) => {}
-a.onended = () => {}
+a.on('change', () => {})                  // edit list changed (op, undo)
+a.on('progress', ({ delta, offset }) => {}) // decode progress (per page)
+a.on('timeupdate', (t) => {})             // playback position changed (seconds)
+a.on('ended', () => {})                   // playback finished
+a.off('change', fn)                        // remove listener
 ```
 
-
-## History
-
-Non-destructive. Serializable. Replayable.
+`progress` fires per page during decode. Subscribe before awaiting:
 
 ```js
-a.undo()
+let a = audio('long.flac')
+a.on('progress', ({ delta, offset }) => {
+  appendWaveform(delta.min, delta.max)
+})
+await a
+```
 
-let json = JSON.stringify(a)          // toJSON() auto
-let b = await audio(JSON.parse(json)) // restore from source + edits
+Dispose releases all resources (stops playback/recording, clears listeners, frees caches):
 
-a.version                      // monotonic counter
-a.onchange = () => {}
+```js
+a.dispose()                // or: using a = audio('file.wav')
 ```
 
 
 ## Plugins
+
+See [docs/plugins.md](docs/plugins.md) for the full plugin authoring guide.
 
 ### Custom ops
 
@@ -418,40 +418,63 @@ for (let i = 0; i < peaks.length; i++) {
 ### Progressive waveform (stream as it decodes)
 
 ```js
-let a = await audio('long.flac', {
-  onprogress({ delta }) {
-    appendBars(delta.max[0], delta.min[0])
-  }
+let a = audio('long.flac')
+a.on('progress', ({ delta }) => {
+  appendBars(delta.max[0], delta.min[0])
 })
+await a
 ```
 
 ### Record from mic
 
 ```js
-let a = audio.record({ input: 'mic' })
-await a.ready
-
-// ... record for a while ...
-a.stop()
+let a = audio()
+a.record()                             // starts mic capture (requires audio-mic)
+await new Promise(r => setTimeout(r, 5000))  // record 5 seconds
+a.stop()                               // stop recording + finalize
 a.trim().normalize()
 await a.save('recording.wav')
 ```
 
-<details><summary>Web Audio API integration</summary>
+`.record()` again after `.stop()` resumes — new chunks append to existing audio.
+
+### Push from any source
+
+`audio()` is the universal receiver — anything that produces chunks calls `.push()`:
 
 ```js
-let stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-let ctx = new AudioContext(), src = ctx.createMediaStreamSource(stream)
-let proc = ctx.createScriptProcessor(4096, 1, 1)
-let a = audio.record({ sampleRate: ctx.sampleRate, channels: 1 })
-proc.onaudioprocess = e => a.push([e.inputBuffer.getChannelData(0)])
-src.connect(proc); proc.connect(ctx.destination)
+import mic from 'audio-mic'
 
-// ... later
-proc.disconnect(); stream.getTracks().forEach(t => t.stop())
-a.stop()
+let a = audio()
+let read = mic({ sampleRate: 44100, channels: 1, bitDepth: 16 })
+read((err, buf) => {
+  if (buf) a.push(new Int16Array(buf.buffer, buf.byteOffset, buf.byteLength / 2), 'int16')
+})
+
+// ... record for a while ...
+read(null)                             // stop mic
+a.stop()                               // finalize
 a.trim().normalize()
 await a.save('recording.wav')
+```
+
+<details><summary>Web Audio API / WebSocket / Node stream</summary>
+
+```js
+// Web Audio API (browser)
+let a = audio()
+proc.onaudioprocess = e => a.push([e.inputBuffer.getChannelData(0)])
+// ... later: proc.disconnect(); a.stop()
+
+// WebSocket
+let a = audio()
+ws.onmessage = e => a.push(new Int16Array(e.data), 'int16')
+ws.onclose = () => a.stop()
+
+// Node.js readable stream (raw PCM)
+let a = audio()
+pcmStream.on('data', buf => a.push(new Int16Array(buf.buffer, buf.byteOffset, buf.byteLength / 2), 'int16'))
+pcmStream.on('end', () => a.stop())
 ```
 
 </details>
@@ -488,8 +511,8 @@ npx audio '*.wav' --macro recipe.json -o '{name}.processed.{ext}'
 ### Generate a tone
 
 ```js
-let TAU = Math.PI * 2, sr = 44100
-let a = audio.from(i => Math.sin(440 * TAU * i / sr), { duration: 2, sampleRate: sr })
+let TAU = Math.PI * 2
+let a = audio.from(t => Math.sin(440 * TAU * t), { duration: 2 })
 await a.save('440hz.wav')
 ```
 ```sh
@@ -550,7 +573,7 @@ npx audio interview.wav remove 2m..2m15s fade 0.1s 2m..2m0.1s -o edited.wav
 ### Stream to network (low memory)
 
 ```js
-let a = await audio.open('2hour-mix.flac')
+let a = await audio('2hour-mix.flac')
 a.highpass(40).normalize('broadcast')
 for await (let chunk of a.stream()) {
   socket.send(chunk[0].buffer)
@@ -778,10 +801,11 @@ await audio.match('loudness', -14, [a, b, c])    // all to -14 LUFS
 npx audio '*.wav' match loudness -14lufs -o '{name}.matched.{ext}'
 ```
 
-**Live processing** — real-time effect chain on mic/stream input.
+**Live processing** — real-time effect chain on input stream.
 ```js
-let a = audio.live({ input: 'mic' })
+let a = audio()
 a.highpass(80).notch(60).gain(-3)
+mic.on('data', chunk => a.push(chunk, 'int16'))
 a.connect(audioContext.destination)         // monitor output
 ```
 -->
@@ -793,7 +817,7 @@ a.connect(audioContext.destination)         // monitor output
 
 | File | Role |
 |------|------|
-| **`core.js`** | Engine — decode, paginate, plugin registry (`audio.stat`, `audio.fn`, `audio.hook`), instance factory, page I/O. The only required file. |
+| **`core.js`** | Engine — decode, paginate, plugin registry (`audio.stat`, `audio.fn`, `audio.on`), instance factory, page I/O. The only required file. |
 | **`stats.js`** | Block-level stat engine — computes min/max/energy/clip/dc per `BLOCK_SIZE`-sample block during decode. Powers waveform display, loudness measurement, and stat queries without touching PCM. |
 | **`cache.js`** | Page cache — LRU eviction to OPFS and on-demand restore. Keeps large files playable without exhausting RAM. |
 | **`history.js`** | Edit pipeline — non-destructive edit list, plan builder, stream renderer. Turns `a.gain(-3).trim()` into a declarative plan that materializes on read. |

@@ -3,7 +3,7 @@
  *
  * audio.fn       — instance prototype (like $.fn)
  * audio.stat     — block-level stat functions (indexed during decode)
- * audio.hook     — single-slot hooks { create }
+ * audio.on       — lifecycle callbacks (e.g. audio.on('create', fn))
  * audio.use      — plugin registration
  */
 
@@ -13,7 +13,8 @@ import encode from 'encode-audio'
 import convert, { parse as parseFmt } from 'pcm-convert'
 import parseDuration from 'parse-duration'
 
-audio.version = '2.0.0'
+import { createRequire } from 'node:module'
+audio.version = createRequire(import.meta.url)('./package.json').version
 
 /** Parse time value: number passthrough, string via parse-duration or timecode. */
 export function parseTime(v) {
@@ -35,38 +36,104 @@ export function parseTime(v) {
 
 // ── Entry Points ─────────────────────────────────────────────────────────
 
-/** Create audio from any source. Always async. */
-export default async function audio(source, opts = {}) {
+/** Create audio from any source. Sync — returns instance immediately.
+ *  Thenable: `await audio('file.mp3')` waits for full decode.
+ *  Edits can be chained before decode completes. */
+export default function audio(source, opts = {}) {
+  // No source → pushable instance (tape recorder — push, record, stop)
+  if (source == null) {
+    let sr = opts.sampleRate || 44100, ch = opts.channels || 1
+    let waiters = []
+    let notify = () => { for (let w of waiters.splice(0)) w() }
+    let a = create([], sr, ch, 0, opts, null)
+    a.recording = false
+    a._.acc = pageAccumulator({ pages: a.pages, notify, onprogress: (...args) => emit(a, 'progress', ...args) })
+    a._.waiters = waiters
+    return a
+  }
   // Restore from serialized document
   if (source && typeof source === 'object' && !Array.isArray(source) && source.edits) {
     if (!source.source) throw new TypeError('audio: cannot restore document without source reference')
-    let a = await audio(source.source, opts)
+    let a = audio(source.source, opts)
     if (a.run) for (let e of source.edits) a.run(e)
     return a
   }
   // Concat from array of sources
   if (Array.isArray(source) && source.length && !(source[0] instanceof Float32Array)) {
-    let instances = await Promise.all(source.map(s => s?.pages ? s : audio(s, opts)))
+    let instances = source.map(s => s?.pages ? s : audio(s, opts))
     let first = instances[0].view ? instances[0].view() : audio.from(instances[0])
     for (let i = 1; i < instances.length; i++) first.insert(instances[i])
+    let loading = instances.filter(s => !s.decoded)
+    if (loading.length) {
+      first.ready = Promise.all(loading.map(s => s.ready)).then(() => { delete first.then; delete first.catch; return true })
+      first.ready.catch(() => {})
+      makeThenable(first)
+    }
     return first
   }
   // From PCM arrays or silence duration
   if (Array.isArray(source) && source[0] instanceof Float32Array || typeof source === 'number') {
     let a = audio.from(source, opts)
-    await audio.evict?.(a)
+    if (audio.evict && a.cache && a.budget !== Infinity) {
+      a.ready = audio.evict(a).then(() => { delete a.then; delete a.catch; return true })
+      a.ready.catch(() => {})
+      makeThenable(a)
+    }
     return a
   }
   // From encoded source (file, URL, buffer)
-  if (opts.storage === 'persistent') {
-    if (!audio.opfsCache) throw new Error('Persistent storage requires cache module (import "./cache.js")')
-    try { opts = { ...opts, cache: await audio.opfsCache(), budget: opts.budget ?? audio.DEFAULT_BUDGET ?? Infinity } }
-    catch { throw new Error('OPFS not available (required by storage: "persistent")') }
-  }
-  let a = await audio.open(source, opts)
-  await a.loaded
-  await audio.evict?.(a)
+  let ref = typeof source === 'string' ? source : source instanceof URL ? source.href : null
+  let pages = [], waiters = []
+  let notify = () => { for (let w of waiters.splice(0)) w() }
+  let a = create(pages, 0, 0, 0, { ...opts, source: ref }, null)
+  a._.waiters = waiters
+  a.decoded = false
+
+  let readyResolve, readyReject
+  a._.ready = new Promise((r, j) => { readyResolve = r; readyReject = j })
+  a._.ready.catch(() => {})  // suppress unhandled rejection
+
+  a.ready = (async () => {
+    try {
+      if (opts.storage === 'persistent') {
+        if (!audio.opfsCache) throw new Error('Persistent storage requires cache module (import "./cache.js")')
+        try { opts = { ...opts, cache: await audio.opfsCache(), budget: opts.budget ?? audio.DEFAULT_BUDGET ?? Infinity } }
+        catch { throw new Error('OPFS not available (required by storage: "persistent")') }
+        a.cache = opts.cache
+        a.budget = opts.budget
+      }
+      let result = await decodeSource(source, { pages, notify, onprogress: (...args) => emit(a, 'progress', ...args) })
+      a.sampleRate = result.sampleRate
+      a._.ch = result.channels
+      a._.chV = -1  // invalidate cached channels
+      readyResolve()
+
+      let final = await result.decoding
+      a._.len = final.length
+      a._.lenV = -1
+      a.stats = final.stats
+      a.decoded = true
+      notify()
+      audio.evict?.(a)
+      delete a.then; delete a.catch  // clear thenable before resolve to prevent unwrap loop
+      return true
+    } catch (e) {
+      readyReject(e)
+      throw e
+    }
+  })()
+  a.ready.catch(() => {})  // suppress unhandled rejection; errors surface through LOAD or await
+  makeThenable(a)
+
   return a
+}
+
+/** Make instance thenable — await resolves after full decode. Self-removing to prevent infinite unwrap. */
+function makeThenable(a) {
+  a.then = function(resolve, reject) {
+    return a.ready.then(() => { delete a.then; delete a.catch; return a }).then(resolve, reject)
+  }
+  a.catch = function(reject) { return a.then(null, reject) }
 }
 
 /** Sync creation from PCM data, AudioBuffer, audio instance, function, or seconds of silence. */
@@ -98,80 +165,6 @@ audio.from = function(source, opts = {}) {
   throw new TypeError('audio.from: expected Float32Array[], AudioBuffer, audio instance, function, or number')
 }
 
-/** Open encoded source for streaming decode. Instance has .loaded promise. */
-audio.open = async function(source, opts = {}) {
-  let ref = typeof source === 'string' ? source : source instanceof URL ? source.href : null
-  let pages = [], waiters = []
-  let notify = () => { for (let w of waiters.splice(0)) w() }
-  let result = await decodeSource(source, { pages, notify, onprogress: opts.onprogress })
-  let a = create(pages, result.sampleRate, result.channels, 0, { ...opts, source: ref }, null)
-  a._.waiters = waiters
-  a.decoded = false
-
-  a.loaded = result.decoding.then(final => {
-    a._.len = final.length
-    a._.lenV = -1
-    a.stats = final.stats
-    a.decoded = true
-    notify()
-    return a
-  })
-
-  return a
-}
-
-/** Create a push-based recording instance. Call a.push(channelData) to feed PCM, a.stop() to finalize.
- *  With { input: 'mic' }, auto-captures from microphone via audio-mic. */
-audio.record = function(opts = {}) {
-  let sr = opts.sampleRate || 44100, ch = opts.channels || 1
-  let waiters = []
-  let notify = () => { for (let w of waiters.splice(0)) w() }
-  let acc = pageAccumulator({ pages: [], notify, onprogress: opts.onprogress })
-  let a = create(acc.pages, sr, ch, 0, opts, null)
-  a._.waiters = waiters
-  a.decoded = false
-
-  a.push = function(data, sampleRate) {
-    let chData = Array.isArray(data) ? data : [data]
-    acc.push(chData, sampleRate || sr)
-    a._.len = acc.length
-    a._.lenV = -1
-  }
-
-  a.stop = function() {
-    if (a._mic) { a._mic(null); a._mic = null }
-    let final = acc.done()
-    a._.len = final.length
-    a._.lenV = -1
-    a.stats = final.stats
-    a.decoded = true
-    notify()
-    return a
-  }
-
-  if (opts.input === 'mic') {
-    a._mic = null
-    a.ready = import('audio-mic').then(({ default: mic }) => {
-      if (a.decoded) return a  // already stopped
-      let read = mic({ sampleRate: sr, channels: ch, bitDepth: 16, backend: opts.backend })
-      a._mic = read
-      read((err, buf) => {
-        if (err || !buf) return
-        let i16 = new Int16Array(buf.buffer, buf.byteOffset, buf.byteLength / 2)
-        let n = i16.length / ch
-        let chData = Array.from({ length: ch }, (_, c) => {
-          let f32 = new Float32Array(n)
-          for (let i = 0; i < n; i++) f32[i] = i16[i * ch + c] / 32768
-          return f32
-        })
-        a.push(chData)
-      })
-      return a
-    })
-  }
-
-  return a
-}
 
 
 // ── Plugin Architecture ─────────────────────────────────────────────────
@@ -180,13 +173,37 @@ const fn = {}
 
 audio.fn = fn                    // instance prototype (like $.fn)
 audio.stat = {}                  // block-level stats, pre-indexed during decode (min, max, energy)
-audio.hook = { create: null }
+let hooks = { create: [] }
+audio.on = (event, fn) => { (hooks[event] ??= []).push(fn) }
 audio.PAGE_SIZE = 65536
 audio.BLOCK_SIZE = 1024
 
 /** Internal protocol symbols for plugin overrides. */
 export const LOAD = Symbol('load')
 export const READ = Symbol('read')
+
+/** Emit event on instance. */
+export function emit(a, event, ...args) {
+  let arr = a._.ev[event]
+  if (arr) for (let cb of arr) cb(...args)
+}
+fn.on = function(event, cb) { (this._.ev[event] ??= []).push(cb); return this }
+fn.off = function(event, cb) {
+  let arr = this._.ev[event]
+  if (arr) { let i = arr.indexOf(cb); if (i >= 0) arr.splice(i, 1) }
+  return this
+}
+fn.dispose = function() {
+  this.stop()
+  this._.ev = {}
+  this._.pcm = null
+  this._.plan = null
+  this.pages.length = 0
+  this.stats = null
+  this._.waiters = null
+  this._.acc = null
+}
+fn[Symbol.dispose] = fn.dispose
 
 /** Register plugins. Each receives audio. */
 audio.use = function(...plugins) {
@@ -206,14 +223,16 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
   a.budget = opts.budget ?? Infinity
   a.stats = stats
   a.decoded = true
+  a.ready = Promise.resolve(true)
 
   a._ = {
     ch,            // source channel count
     len: length,   // source sample length
-    cursor: 0,     // playback cursor position
     waiters: null, // decode notify queue (null when not streaming)
+    ev: {},        // instance event listeners
   }
-  audio.hook.create?.(a)
+  a.currentTime = 0
+  for (let cb of hooks.create) cb(a)
   return a
 }
 
@@ -245,15 +264,80 @@ Object.defineProperties(fn, {
   length: { get() { return this._.len }, configurable: true },
   duration: { get() { return this.length / this.sampleRate }, configurable: true },
   channels: { get() { return this._.ch }, configurable: true },
-  cursor: { get() { return this._.cursor }, configurable: true },
+
 })
 
-fn[LOAD] = async function() {}
+fn[LOAD] = async function() { if (this._.ready) await this._.ready; this._.acc?.drain() }
 fn[READ] = function(offset, duration) { return readPages(this, offset, duration) }
+
+/** Push PCM data into a pushable instance. Accepts Float32Array[], Float32Array, or typed array with format. */
+fn.push = function(data, fmt) {
+  let acc = this._.acc
+  if (!acc) throw new Error('push: instance is not pushable — create with audio()')
+  let ch = this._.ch, sr = this.sampleRate
+  let chData
+  if (Array.isArray(data) && data[0] instanceof Float32Array) chData = data
+  else if (data instanceof Float32Array) chData = [data]
+  else if (ArrayBuffer.isView(data)) {
+    let f = fmt || {}
+    let srcFmt = typeof f === 'string' ? f : f.format || 'int16'
+    let nch = f.channels || ch
+    let src = { dtype: srcFmt, channels: nch }
+    if (nch > 1) src.interleaved = true
+    let pcm = convert(data, src, { dtype: 'float32', interleaved: false, channels: nch })
+    let perCh = pcm.length / nch
+    chData = Array.from({ length: nch }, (_, c) => pcm.subarray(c * perCh, (c + 1) * perCh))
+  }
+  else throw new TypeError('push: expected Float32Array[], Float32Array, or typed array')
+  acc.push(chData, (fmt && fmt.sampleRate) || sr)
+  this._.len = acc.length
+  this._.lenV = -1
+  return this
+}
+
+/** Stop recording and/or finalize pushable stream. Drain partial page, signal EOF to waiting streams. No-op on non-pushable. */
+fn.stop = function() {
+  if (this.recording) {
+    this.recording = false
+    if (this._._mic) { this._._mic(null); this._._mic = null }
+  }
+  if (this._.acc && !this.decoded) {
+    this._.acc.drain()
+    this.decoded = true
+    if (this._.waiters) for (let w of this._.waiters.splice(0)) w()
+  }
+  return this
+}
+
+/** Start recording from mic. Pushes PCM chunks until .stop(). Requires audio-mic (npm i audio-mic). */
+fn.record = function(opts = {}) {
+  if (!this._.acc) throw new Error('record: instance is not pushable — create with audio()')
+  if (this.recording) return this
+  this.recording = true
+  this.decoded = false
+  let self = this, sr = this.sampleRate, ch = this._.ch
+  ;(async () => {
+    try {
+      let { default: mic } = await import('audio-mic')
+      let read = mic({ sampleRate: sr, channels: ch, bitDepth: 16, ...opts })
+      self._._mic = read
+      read((err, buf) => {
+        if (!self.recording) return
+        if (err || !buf) return
+        self.push(new Int16Array(buf.buffer, buf.byteOffset, buf.byteLength / 2), 'int16')
+      })
+    } catch (e) {
+      self.recording = false
+      self.decoded = true
+      if (self._.waiters) for (let w of self._.waiters.splice(0)) w()
+      throw e.code === 'ERR_MODULE_NOT_FOUND' ? new Error('record: audio-mic not installed — npm i audio-mic') : e
+    }
+  })()
+  return this
+}
 
 fn.seek = function(t) {
   t = Math.max(0, t)
-  this._.cursor = t
   this.currentTime = t
   if (this.cache) {
     let page = Math.floor(t * this.sampleRate / audio.PAGE_SIZE)
@@ -296,6 +380,7 @@ export function walkPages(a, c, srcOff, len, visitor) {
     let pg = a.pages[p], pLen = pg ? pg[0].length : audio.PAGE_SIZE
     if (pos + pLen > srcOff && pg) {
       let s = Math.max(srcOff - pos, 0), e = Math.min(srcOff + len - pos, pLen)
+      if (a._.lru) { a._.lru.delete(p); a._.lru.add(p) }
       visitor(pg, c, s, e, Math.max(pos - srcOff, 0))
     }
     pos += pLen
@@ -363,13 +448,13 @@ async function detectSource(source) {
 }
 
 /** Universal page accumulator — push(chData, sampleRate) interface.
- *  Used by decodeSource and audio.record(). This IS the universal source adapter. */
+ *  Used by decodeSource and audio() push instances. This IS the universal source adapter. */
 function pageAccumulator(opts = {}) {
   let { pages = [], notify, onprogress } = opts
   let sr = 0, ch = 0, totalLen = 0, pagePos = 0
   let pageBuf = null, session
 
-  function flush(page) {
+  function emit(page) {
     session?.page(page)
     pages.push(page)
     totalLen += page[0].length
@@ -393,7 +478,7 @@ function pageAccumulator(opts = {}) {
         for (let c = 0; c < ch; c++) pageBuf[c].set(chData[c].subarray(srcPos, srcPos + n), pagePos)
         srcPos += n; pagePos += n
         if (pagePos === audio.PAGE_SIZE) {
-          flush(pageBuf)
+          emit(pageBuf)
           if (onprogress) {
             let delta = session?.delta()
             if (delta) onprogress({ delta, offset: totalLen / sr, sampleRate: sr, channels: ch, pages })
@@ -403,8 +488,20 @@ function pageAccumulator(opts = {}) {
         }
       }
     },
+    /** Flush partial page into pages array. Non-destructive — accumulator stays open. */
+    drain() {
+      if (pagePos > 0) {
+        emit(pageBuf.map(c => c.slice(0, pagePos)))
+        if (onprogress) {
+          let delta = session?.delta()
+          if (delta) onprogress({ delta, offset: totalLen / sr, sampleRate: sr, channels: ch, pages })
+        }
+        pageBuf = Array.from({ length: ch }, () => new Float32Array(audio.PAGE_SIZE))
+        pagePos = 0
+      }
+    },
     done() {
-      if (pagePos > 0) flush(pageBuf.map(c => c.slice(0, pagePos)))
+      if (pagePos > 0) emit(pageBuf.map(c => c.slice(0, pagePos)))
       if (onprogress && session) {
         let delta = session.delta()
         if (delta) onprogress({ delta, offset: totalLen / sr, sampleRate: sr, channels: ch, pages })

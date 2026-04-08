@@ -41,10 +41,6 @@ function parseRange(str) {
   return { offset: s, duration: e != null ? e - s : undefined }
 }
 
-// ── CLI Aliases ──────────────────────────────────────────────────────────
-
-const ALIAS = {}
-
 // ── Argument Parsing ─────────────────────────────────────────────────────
 
 function isFlag(s) {
@@ -55,12 +51,13 @@ function isFlag(s) {
 }
 
 function isOpName(s) {
-  return audio.op(s) || s in ALIAS || s === 'split' || s === 'stat'
+  return audio.op(s) || s === 'split' || s === 'stat'
 }
 
 // ── Per-op Help ──────────────────────────────────────────────────────────
 
-const OP_HELP = {
+// Attach CLI help metadata to registered ops (single source of truth with audio.op registry)
+const HELP = {
   gain:      { usage: 'gain DB [RANGE]', desc: 'Amplify in dB', examples: ['gain -3db', 'gain 6 1s..5s'] },
   fade:      { usage: 'fade [IN] [-OUT] [CURVE]', desc: 'Fade in/out (bare = 0.5s both)', examples: ['fade', 'fade 1s', 'fade .2s -1s cos'] },
   trim:      { usage: 'trim [THR]', desc: 'Auto-trim silence (threshold in dB)', examples: ['trim', 'trim -40'] },
@@ -84,10 +81,10 @@ const OP_HELP = {
   pad:       { usage: 'pad [BEFORE] [AFTER]', desc: 'Add silence to start/end (single arg = both)', examples: ['pad 1s', 'pad 0.5s 2s'] },
   speed:     { usage: 'speed RATE', desc: 'Change speed — 2 = double, 0.5 = half, -1 = reverse', examples: ['speed 2', 'speed 0.5', 'speed -1'] },
 }
+for (let name in HELP) { let op = audio.op(name); if (op) op.help = HELP[name] }
 
 function showOpHelp(name) {
-  let key = ALIAS[name] || name
-  let h = OP_HELP[key]
+  let h = audio.op(name)?.help
   if (!h) { console.error(`No help for: ${name}`); return }
   console.log(`\n  ${h.usage}\n\n  ${h.desc}\n`)
   if (h.examples.length) console.log('  Examples:')
@@ -142,7 +139,7 @@ function parseArgs(args) {
       i++
     } else {
       // Parse operation
-      let name = ALIAS[arg] || arg
+      let name = arg
       let opArgs = []
       i++
 
@@ -217,9 +214,10 @@ function formatError(err) {
   return typeof err === 'string' ? err : err.message || String(err)
 }
 
-function formatDuration(s) {
+function fmtTime(s, full) {
+  s = Math.max(0, s)
   let h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = Math.floor(s % 60)
-  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`
+  return full || h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`
 }
 
 function spinner(lbl) {
@@ -233,12 +231,6 @@ function spinner(lbl) {
 }
 
 const DIM = '\x1b[2m', RST = '\x1b[0m'
-
-function playTime(s) {
-  s = Math.max(0, s)
-  let h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = Math.floor(s % 60)
-  return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
-}
 
 function progressBar(played, decoded, total, width) {
   let ref = total > 0 ? total : decoded > 0 ? decoded : 1
@@ -371,7 +363,7 @@ async function playback(p, totalSec, decodedSec, a, src) {
       let warn = ''
       if (clips.length) warn += `   clip:${clips.length}`
       if (Math.abs(dcOff) > 0.001) warn += `   dc:${dcOff.toFixed(4)}`
-      fileInfo = `${fmtRate(a.sampleRate)}   ${a.channels}ch   ${formatDuration(a.duration)}   ${peak.toFixed(1)}dBFS   ${l.toFixed(1)}LUFS${warn}`
+      fileInfo = `${fmtRate(a.sampleRate)}   ${a.channels}ch   ${fmtTime(a.duration)}   ${peak.toFixed(1)}dBFS   ${l.toFixed(1)}LUFS${warn}`
     } catch { fileInfo = '(info unavailable)' }
     render(p.currentTime)
   }
@@ -385,7 +377,7 @@ async function playback(p, totalSec, decodedSec, a, src) {
     let w = cols()
     let ts = totalSec?.() || 0, ds = decodedSec?.() ?? ts
     let icon = p.paused ? '▶' : '⏸'
-    let ct = playTime(t), tt = ts > 0 ? '-' + playTime(ts - t) : '-0:00:00'
+    let ct = fmtTime(t, true), tt = ts > 0 ? '-' + fmtTime(ts - t, true) : '-0:00:00'
     let loop = p.loop ? '↻' : ' '
     let vb = volBar(p.volume)
     let barStart = ct.length + 3  // icon + space + time + space
@@ -460,7 +452,7 @@ async function playback(p, totalSec, decodedSec, a, src) {
     })
   }
 
-  await new Promise(r => { p.onended = r })
+  await new Promise(r => { p.on('ended', r) })
   clearInterval(tick)
 
   if (process.stdin.isTTY) {
@@ -550,7 +542,7 @@ complete -o default -F _audio audio`)
   if (args[0] === '--completions-list') {
     await discoverPlugins()
     let prev = args[1] || '', cur = args[2] || ''
-    let ops = Object.keys(OP_HELP).concat('split', 'stat')
+    let ops = Object.keys(HELP).concat('split', 'stat')
     let flags = ['--play', '--info', '--force', '--verbose', '--format', '--macro', '--help', '--version', '-o', '-p', '-i', '-f']
 
     // Context-aware completions
@@ -705,18 +697,16 @@ complete -o default -F _audio audio`)
     // Load audio (full decode)
     if (opts.verbose) console.error(`Loading: ${typeof source === 'string' ? source : '(stdin)'}`)
     let spin = !opts.verbose ? spinner('decoding') : null
-    let a = await audio(source, {
-      onprogress: opts.verbose
-        ? ({ offset }) => process.stderr.write(`\rDecoding... ${formatDuration(offset)}`)
-        : undefined
-    })
+    let a = audio(source)
+    if (opts.verbose) a.on('progress', ({ offset }) => process.stderr.write(`\rDecoding... ${fmtTime(offset)}`))
+    await a
     let loadTime = spin?.stop()
     if (opts.verbose) console.error('\n')
 
     // Show info: -i flag, or stdin with no ops/output
     if (opts.info || (!allOps.length && !opts.output && !opts.play)) {
       let [peak, , l, clips, dcOff] = await a.stat(['db', 'rms', 'loudness', 'clip', 'dc'])
-      console.log(`  Duration:   ${formatDuration(a.duration)}`)
+      console.log(`  Duration:   ${fmtTime(a.duration)}`)
       console.log(`  Channels:   ${a.channels}`)
       console.log(`  SampleRate: ${a.sampleRate} Hz`)
       console.log(`  Samples:    ${a.length}`)
@@ -816,10 +806,8 @@ complete -o default -F _audio audio`)
         } else {
           let spin = !opts.verbose ? spinner(allOps.length ? 'Processing' : 'Saving') : null
           await new Promise(r => setTimeout(r, 100))  // let spinner render before blocking render()
-          await a.save(output, {
-            format: fmt,
-            onprogress: spin ? ({ offset, total }) => spin.set(' ' + Math.round(offset / total * 100) + '%') : undefined
-          })
+          if (spin) a.on('progress', ({ offset, total }) => spin.set(' ' + Math.round(offset / total * 100) + '%'))
+          await a.save(output, { format: fmt })
           let elapsed = spin?.stop()
           if (opts.verbose) console.error(`Saved: ${output}`)
           else if (elapsed) console.error(`Saved ${output} in ${elapsed}s`)
@@ -832,7 +820,14 @@ complete -o default -F _audio audio`)
   }
 }
 
+const FILTERS = new Set(['highpass', 'lowpass', 'eq', 'lowshelf', 'highshelf', 'notch', 'bandpass', 'filter'])
+
 function showUsage() {
+  let ops = [], filters = []
+  for (let [name, h] of Object.entries(HELP)) {
+    let line = `  ${h.usage.padEnd(28)} ${h.desc}`
+    ;(FILTERS.has(name) ? filters : ops).push(line)
+  }
   console.log(`
 audio ${audio.version} — load, edit, save, play, analyze
 
@@ -844,29 +839,10 @@ Input:
   -o, --output  Output file or '-' for stdout (default: out.wav)
 
 Operations (positional):
-  gain DB [RANGE]  Amplify in dB (e.g., gain -3db, gain 6 1s..5s)
-  fade [IN] [-OUT] [CURVE]  Fade in/out (bare = 0.5s both, single = both same)
-  trim [THR]       Auto-trim silence (threshold in dB, optional)
-  normalize [DB] [RANGE]  Peak normalize (default: 0dB). Presets: streaming, podcast, broadcast
-  reverse [RANGE]  Reverse audio
-  crop OFF DUR     Crop to range in seconds
-  remove OFF DUR   Delete range in seconds
-  insert SRC OFF   Insert audio from file/duration
-  repeat N         Repeat N times
-  mix SRC OFF      Mix in another audio file
-  remix CH         Remix channels (e.g., remix 2 for stereo)
-  pan VALUE        Stereo balance: -1 left, 0 center, 1 right
-  pad [BEFORE] [AFTER]  Add silence to edges (single arg = both)
-  speed RATE       Change speed — 2 = double, 0.5 = half, -1 = reverse
+${ops.join('\n')}
 
 Filters (ORDER = steepness: 2 = -12dB/oct, 4 = -24dB/oct, default: 2):
-  highpass FC [ORDER]      Remove below FC (e.g., highpass 120hz 4)
-  lowpass FC [ORDER]       Remove above FC
-  eq FC GAIN [Q]           Parametric EQ boost/cut at FC
-  lowshelf FC GAIN [Q]     Shelf boost/cut below FC
-  highshelf FC GAIN [Q]    Shelf boost/cut above FC
-  notch FC [Q]             Kill a single frequency (default Q=30)
-  bandpass FC [Q]          Pass only around FC
+${filters.join('\n')}
 
 Range syntax (for offset+duration):
   1s..10s       From 1s to 10s
@@ -916,7 +892,7 @@ For more info: https://github.com/audiojs/audio
 }
 
 // Exports for testing
-export { parseValue, parseRange, parseArgs, showOpHelp, OP_HELP }
+export { parseValue, parseRange, parseArgs, showOpHelp, HELP as OP_HELP }
 
 // Run CLI if invoked directly (not imported)
 let argv1 = process.argv[1]

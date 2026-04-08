@@ -31,6 +31,20 @@ test('audio(wav) — load from file path', async t => {
   t.ok(a.stats.min[0].length > 0, 'index populated')
 })
 
+test('audio() — sync + thenable', async t => {
+  let a = audio(lenaPath)
+  t.is(a.sampleRate, 0, 'sampleRate unknown before decode')
+  t.ok(a.ready instanceof Promise, 'ready is promise before decode')
+  t.is(typeof a.then, 'function', 'thenable')
+  a.gain(-3)  // edits work before decode
+  t.is(a.edits.length, 1, 'edit pushed before decode')
+  let b = await a
+  t.ok(b === a, 'resolves to same instance')
+  t.is(a.sampleRate, 44100, 'sampleRate after decode')
+  t.is(await a.ready, true, 'ready resolves to true')
+  t.is(typeof a.then, 'undefined', 'then removed after resolve')
+})
+
 test('audio(mp3) — decode mp3', async t => {
   let a = await audio(lenaMp3)
   t.ok(a.duration > 12, `duration > 12s (got ${a.duration.toFixed(2)})`)
@@ -75,6 +89,18 @@ test('audio.from(fn) — function source', async t => {
   t.ok(maxDiff < 1e-6, `matches sine (maxDiff: ${maxDiff})`)
 })
 
+test('audio.from(fn) — receives (t, i) args', async t => {
+  let sr = 44100, logged = []
+  let a = audio.from((time, idx) => { if (idx < 3) logged.push({ time, idx }); return 0 }, { duration: 0.1, sampleRate: sr })
+  await a.read()
+  t.is(logged[0].idx, 0, 'first index is 0')
+  t.is(logged[1].idx, 1, 'second index is 1')
+  t.is(logged[2].idx, 2, 'third index is 2')
+  t.ok(Math.abs(logged[0].time - 0) < 1e-10, 'first t ≈ 0')
+  t.ok(Math.abs(logged[1].time - 1 / sr) < 1e-10, 'second t ≈ 1/sr')
+  t.ok(Math.abs(logged[2].time - 2 / sr) < 1e-10, 'third t ≈ 2/sr')
+})
+
 test('audio.from(int16) — format conversion', async t => {
   let int16 = new Int16Array([0, 16384, 32767, -32768])
   let a = audio.from(int16, { format: 'int16', sampleRate: 44100 })
@@ -111,49 +137,60 @@ test('parseTime — timecodes', async t => {
   t.is(parseTime(3.14), 3.14, 'number passthrough')
 })
 
-test('audio.record — push-based source', async t => {
-  let a = audio.record({ sampleRate: 44100, channels: 1 })
-  t.is(a.decoded, false, 'not decoded yet')
+test('audio() — push-based source', async t => {
+  let a = audio()
+  t.is(await a.ready, true, 'ready immediately for push-based')
   // Push 1s of 0.5
   a.push(new Float32Array(44100).fill(0.5))
   t.ok(a.duration > 0, `has duration after push: ${a.duration.toFixed(2)}`)
   // Push another 1s
   a.push(new Float32Array(44100).fill(-0.5))
   a.stop()
-  t.is(a.decoded, true, 'decoded after stop')
   t.ok(Math.abs(a.duration - 2) < 0.01, `2 seconds (got ${a.duration.toFixed(3)})`)
-  t.ok(a.stats, 'stats computed')
   let pcm = await a.read()
   t.ok(Math.abs(pcm[0][0] - 0.5) < 0.01, `first half: 0.5 (got ${pcm[0][0].toFixed(3)})`)
   t.ok(Math.abs(pcm[0][44100] - (-0.5)) < 0.01, `second half: -0.5 (got ${pcm[0][44100].toFixed(3)})`)
 })
 
-test('audio.record — mic input (null backend)', { skip: !isNode }, async t => {
-  let a = audio.record({ input: 'mic', sampleRate: 44100, channels: 1, backend: 'null' })
-  t.ok(a.ready instanceof Promise, 'has ready promise')
-  await a.ready
-  // null backend delivers at least one silent chunk
-  await new Promise(r => setTimeout(r, 120))
+test('audio() — record from mic (null backend)', { skip: !isNode }, async t => {
+  let a = audio()
+  a.record({ backend: 'null' })
+  await new Promise(r => setTimeout(r, 150))
   t.ok(a.duration >= 0, `recording has duration: ${a.duration.toFixed(3)}`)
   a.stop()
   t.is(a.decoded, true, 'decoded after stop')
-  t.is(a._mic, null, 'mic closed')
 })
 
-test('audio.record — mic stop before ready', { skip: !isNode }, async t => {
-  let a = audio.record({ input: 'mic', sampleRate: 44100, channels: 1, backend: 'null' })
+test('audio() — push with Int16Array format', async t => {
+  let a = audio()
+  // Push 100 samples of int16 data
+  let i16 = new Int16Array(100)
+  for (let i = 0; i < 100; i++) i16[i] = Math.round(Math.sin(i * 0.1) * 16384)
+  a.push(i16, 'int16')
+  a.stop()
+  t.ok(a.duration > 0, `has duration: ${a.duration.toFixed(4)}`)
+  let pcm = await a.read()
+  // int16 16384 → float ~0.5
+  t.ok(Math.abs(pcm[0][Math.round(Math.PI / 0.1 / 2)] - 0.5) < 0.05, 'int16 → float conversion works')
+})
+
+test('audio() — stop before push', async t => {
+  let a = audio()
   a.stop()
   t.is(a.decoded, true, 'decoded after immediate stop')
-  t.is(a._mic, null, 'mic is null')
 })
 
-test('audio.record — mic stereo deinterleave', { skip: !isNode }, async t => {
-  let a = audio.record({ input: 'mic', sampleRate: 44100, channels: 2, backend: 'null' })
-  await a.ready
-  await new Promise(r => setTimeout(r, 120))
+test('audio() — stereo push with format', async t => {
+  let a = audio(null, { channels: 2 })
+  // Interleaved stereo int16: L=16384, R=-16384
+  let i16 = new Int16Array(200)
+  for (let i = 0; i < 200; i += 2) { i16[i] = 16384; i16[i + 1] = -16384 }
+  a.push(i16, { format: 'int16', channels: 2 })
   a.stop()
-  t.is(a.decoded, true, 'decoded')
   t.is(a.channels, 2, 'stereo')
+  let pcm = await a.read()
+  t.ok(pcm[0][0] > 0.4, `left positive (${pcm[0][0].toFixed(3)})`)
+  t.ok(pcm[1][0] < -0.4, `right negative (${pcm[1][0].toFixed(3)})`)
 })
 
 test('audio(URL) — from URL object', { skip: !isNode }, async t => {
@@ -162,10 +199,9 @@ test('audio(URL) — from URL object', { skip: !isNode }, async t => {
   t.ok(a.duration > 12, `duration > 12s (got ${a.duration.toFixed(2)})`)
 })
 
-test('audio(number) — silence returns Promise', async t => {
-  let p = audio(3, { channels: 1 })
-  t.ok(p instanceof Promise, 'returns Promise')
-  let a = await p
+test('audio(number) — silence is sync', async t => {
+  let a = audio(3, { channels: 1 })
+  t.ok(a.pages, 'returns instance')
   t.is(a.duration, 3, '3 seconds')
 })
 
@@ -342,14 +378,12 @@ test('custom sizes — trim respects block resolution', async t => {
 
 // ── Phase 2: Streaming decode ────────────────────────────────────────────
 
-test('onprogress — fires during decode', async t => {
+test('on(progress) — fires during decode', async t => {
   let deltas = []
-  await audio(lenaPath, {
-    onprogress({ delta, offset }) {
-      deltas.push({ delta, offset })
-    }
-  })
-  t.ok(deltas.length > 0, `onprogress fired ${deltas.length} times`)
+  let a = audio(lenaPath)
+  a.on('progress', ({ delta, offset }) => deltas.push({ delta, offset }))
+  await a
+  t.ok(deltas.length > 0, `on(progress) fired ${deltas.length} times`)
   t.ok(deltas[deltas.length - 1].offset > 0, 'offset progresses')
 
   // Verify delta shape
@@ -360,11 +394,11 @@ test('onprogress — fires during decode', async t => {
   t.ok(Array.isArray(d.max) && Array.isArray(d.energy), 'delta has max and energy')
 })
 
-test('onprogress — delta covers full index', async t => {
+test('on(progress) — delta covers full index', async t => {
   let totalBlocks = 0
-  let a = await audio(lenaPath, {
-    onprogress({ delta }) { totalBlocks += delta.min[0].length }
-  })
+  let a = audio(lenaPath)
+  a.on('progress', ({ delta }) => { totalBlocks += delta.min[0].length })
+  await a
   t.is(totalBlocks, a.stats.min[0].length, 'deltas cover all index blocks')
 })
 
@@ -553,14 +587,69 @@ test('transform — false skips', async t => {
   t.ok(pcm[0][0] === 0.5, 'false skips, next transform applies')
 })
 
-test('onchange — fires', async t => {
+test('on(change) — fires', async t => {
   let calls = 0
   let a = audio.from([new Float32Array(44100)])
-  a.onchange = () => calls++
+  a.on('change', () => calls++)
   a.gain(-3)
   t.is(calls, 1, 'fired on edit')
   a.undo()
   t.is(calls, 2, 'fired on undo')
+})
+
+test('on — multiple listeners', async t => {
+  let a = audio.from([new Float32Array(44100)])
+  let c1 = 0, c2 = 0
+  a.on('change', () => c1++)
+  a.on('change', () => c2++)
+  a.gain(-3)
+  t.is(c1, 1, 'listener 1 fired')
+  t.is(c2, 1, 'listener 2 fired')
+})
+
+test('on — returns this for chaining', async t => {
+  let a = audio.from([new Float32Array(44100)])
+  let r = a.on('change', () => {})
+  t.is(r, a, 'returns instance')
+})
+
+test('off — removes listener', async t => {
+  let a = audio.from([new Float32Array(44100)])
+  let calls = 0
+  let fn = () => calls++
+  a.on('change', fn)
+  a.gain(-3)
+  t.is(calls, 1, 'fired before off')
+  a.off('change', fn)
+  a.gain(-3)
+  t.is(calls, 1, 'not fired after off')
+})
+
+test('dispose — releases resources', async t => {
+  let a = audio.from([new Float32Array(44100)], { sampleRate: 44100 })
+  a.on('change', () => {})
+  a.gain(-3)
+  await a.read() // populate caches
+  a.dispose()
+  t.is(a.pages.length, 0, 'pages cleared')
+  t.is(a.stats, null, 'stats cleared')
+  t.is(a._.pcm, null, 'pcm cache cleared')
+  t.is(a._.plan, null, 'plan cache cleared')
+  t.is(a._.waiters, null, 'waiters cleared')
+  t.ok(!a._.ev.change?.length, 'listeners cleared')
+})
+
+test('dispose — stops recording', async t => {
+  let a = audio()
+  a.push(new Float32Array(1024))
+  a.dispose()
+  t.is(a.decoded, true, 'decoded after dispose')
+  t.is(a.pages.length, 0, 'pages cleared')
+})
+
+test('dispose — Symbol.dispose alias', async t => {
+  let a = audio.from([new Float32Array(44100)])
+  t.is(a[Symbol.dispose], a.dispose, 'Symbol.dispose points to dispose')
 })
 
 
@@ -1117,7 +1206,7 @@ test('seek — preloads nearby pages only', async t => {
   a.seek(1.5)
   // Seek should preload pages but NOT warm render cache
   t.ok(a._.pcm === null, 'render cache NOT warmed by seek (lazy)')
-  t.ok(a._.cursor === 1.5, 'cursor position set')
+  t.ok(a.currentTime === 1.5, 'currentTime position set')
 })
 
 // ── Phase 10: Page Cache + Eviction ──────────────────────────────────────
@@ -1277,16 +1366,16 @@ test('encode wav — read with format after edits', async t => {
   t.ok(Math.abs(pcm[0][0]) < 0.01, 'fade in preserved after encode')
 })
 
-test('onprogress — fires incrementally for mp3', async t => {
+test('on(progress) — fires incrementally for mp3', async t => {
   let deltas = [], prevOffset = 0
-  let a = await audio(lenaMp3, {
-    onprogress({ delta, offset, total }) {
-      t.ok(offset >= prevOffset, `offset monotonic: ${offset} >= ${prevOffset}`)
-      prevOffset = offset
-      deltas.push(delta)
-    }
+  let a = audio(lenaMp3)
+  a.on('progress', ({ delta, offset }) => {
+    t.ok(offset >= prevOffset, `offset monotonic: ${offset} >= ${prevOffset}`)
+    prevOffset = offset
+    deltas.push(delta)
   })
-  t.ok(deltas.length > 1, `onprogress fired ${deltas.length} times (chunked decode)`)
+  await a
+  t.ok(deltas.length > 1, `on(progress) fired ${deltas.length} times (chunked decode)`)
   // Verify deltas cover full index
   let totalBlocks = deltas.reduce((n, d) => n + d.min[0].length, 0)
   t.is(totalBlocks, a.stats.min[0].length, 'deltas cover all index blocks')
@@ -1470,15 +1559,16 @@ test('save — format option overrides extension', { skip: !isNode }, async t =>
   t.ok(buf.length > 1000, 'save produced bytes')
 })
 
-test('save — onprogress fires during encode', { skip: !isNode }, async t => {
+test('save — progress event fires during encode', { skip: !isNode }, async t => {
   let a = audio.from([new Float32Array(44100 * 3).fill(0.5)], { sampleRate: 44100 })
   let { tmpdir } = await import('os')
   let { join } = await import('path')
   let path = join(tmpdir(), `test-progress-${Date.now()}.wav`)
   let calls = []
-  await a.save(path, { onprogress: p => calls.push(p) })
+  a.on('progress', p => calls.push(p))
+  await a.save(path)
   await import('fs').then(fs => fs.promises.unlink(path).catch(() => {}))
-  t.ok(calls.length > 0, `onprogress fired ${calls.length} times`)
+  t.ok(calls.length > 0, `progress fired ${calls.length} times`)
   t.ok(calls[calls.length - 1].offset > 2, `final offset: ${calls[calls.length - 1].offset.toFixed(1)}s`)
   t.ok(calls[calls.length - 1].total > 2, 'total provided')
 })

@@ -1,10 +1,10 @@
-import audio from '../core.js'
+import audio, { emit } from '../core.js'
 
 /** Playback via audio-speaker (cross-platform: Node + browser). */
 audio.fn.play = function(opts) {
   let offset = opts?.at ?? 0, duration = opts?.duration
   let a = this, BLOCK = audio.BLOCK_SIZE
-  if (a.playing) a.stop()
+  if (a.playing) { a.playing = false; a.paused = false; if (a._._wake) a._._wake() }
   a.playing = false; a.paused = false; a.currentTime = offset
   a.volume = opts?.volume ?? 0; a.loop = opts?.loop ?? false
   a.block = null; a._._wake = null; a._._seekTo = null
@@ -80,7 +80,7 @@ audio.fn.play = function(opts) {
             played += len
             if (a._._seekTo == null) {
               a.currentTime = from + played / sr
-              a.ontimeupdate?.(a.currentTime)
+              emit(a, 'timeupdate', a.currentTime)
             }
           }
           if (seeked || !a.playing) break
@@ -90,9 +90,9 @@ audio.fn.play = function(opts) {
         write(null)
         if (seeked) continue
         if (!a.playing) break
-        if (a.loop) { from = 0; a.currentTime = 0; a.ontimeupdate?.(0); continue }
+        if (a.loop) { from = 0; a.currentTime = 0; emit(a, 'timeupdate', 0); continue }
         a.paused = true
-        a.ontimeupdate?.(a.currentTime)
+        emit(a, 'timeupdate', a.currentTime)
         while (a.paused && a.playing && a._._seekTo == null)
           await new Promise(r => { a._._wake = r })
         a._._wake = null
@@ -100,7 +100,7 @@ audio.fn.play = function(opts) {
         if (a._._seekTo != null) { from = a._._seekTo; a._._seekTo = null; a.currentTime = from; continue }
         from = 0; a.currentTime = 0; continue
       }
-      a.playing = false; a.onended?.()
+      a.playing = false; emit(a, 'ended')
     } catch (err) {
       console.error('Playback error:', err)
       a.playing = false
@@ -109,15 +109,17 @@ audio.fn.play = function(opts) {
   return this
 }
 
-let prevCreate = audio.hook.create
-audio.hook.create = (a) => {
-  prevCreate?.(a)
+audio.on('create', (a) => {
   a.playing = false; a.paused = false; a.currentTime = 0
   a.volume = 0; a.loop = false; a.block = null
-  a.ontimeupdate = null; a.onended = null
-}
+})
 
 let proto = audio.fn
 proto.pause = function() { this.paused = true }
 proto.resume = function() { this.paused = false; if (this._._wake) this._._wake() }
-proto.stop = function() { this.playing = false; this.paused = false; if (this._._wake) this._._wake() }
+let prevStop = proto.stop
+proto.stop = function() {
+  this.playing = false; this.paused = false
+  if (this._._wake) this._._wake()
+  return prevStop.call(this)
+}

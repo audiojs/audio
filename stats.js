@@ -177,24 +177,84 @@ export function lufsDb(stats, chs, sampleRate) {
 
 
 
+/** Remap source stats by segment layout (plan-only edits, no sample pipeline).
+ *  Falls back to null if segments are too complex to remap cheaply. */
+function remapStats(srcStats, plan, sr) {
+  let bs = srcStats.blockSize, segs = plan.segs, totalLen = plan.totalLen
+  // Check feasibility: only self-ref (undefined) and silence (null), rate ±1
+  for (let s of segs) {
+    let rate = s[3] || 1, ref = s[4]
+    if (ref !== undefined && ref !== null) return null  // external ref
+    if (Math.abs(rate) !== 1) return null               // resampled
+  }
+  let outBlocks = Math.ceil(totalLen / bs)
+  let fields = Object.keys(srcStats).filter(k => k !== 'blockSize' && Array.isArray(srcStats[k]))
+  let ch = srcStats[fields[0]]?.length || 1
+  let out = { blockSize: bs }
+  for (let f of fields) out[f] = Array.from({ length: ch }, () => new Float32Array(outBlocks))
+
+  for (let s of segs) {
+    let srcOff = s[0], count = s[1], dstOff = s[2], rate = s[3] || 1, ref = s[4]
+    let dstBlockStart = Math.floor(dstOff / bs)
+    let dstBlockEnd = Math.ceil((dstOff + count) / bs)
+    if (ref === null) continue // silence — Float32Array already zeroed
+
+    let srcBlockStart = Math.floor(srcOff / bs)
+    let srcBlocks = srcStats[fields[0]][0].length
+    let rev = rate < 0
+    for (let i = dstBlockStart; i < dstBlockEnd && i < outBlocks; i++) {
+      let si = rev ? srcBlockStart + (dstBlockEnd - 1 - i) : srcBlockStart + (i - dstBlockStart)
+      if (si < 0 || si >= srcBlocks) continue
+      for (let f of fields) for (let c = 0; c < ch; c++) out[f][c][i] = srcStats[f][c][si]
+    }
+  }
+  return out
+}
+
+
 // ── Self-register ────────────────────────────────────────────────
 
 audio.statSession = statSession
 
 /** Resolve block range from opts. Recomputes stats if edits are dirty. */
-async function queryRange(inst, opts) {
+export async function queryRange(inst, opts) {
   await inst[LOAD]()
+  let at = parseTime(opts?.at), dur = parseTime(opts?.duration)
+  let hasRange = at != null || dur != null
+
   if (inst.edits?.length && inst._.statsV !== inst.version) {
     if (!inst._.srcStats) inst._.srcStats = inst.stats
+
+    // Range query on dirty edits — compute stats for just the requested range
+    if (hasRange) {
+      let plan = buildPlan(inst)
+      let s = statSession(inst.sampleRate)
+      for (let chunk of streamPlan(inst, plan, at || 0, dur)) s.page(chunk)
+      let stats = s.done()
+      let first = Object.values(stats).find(v => v?.[0]?.length)
+      let blocks = first?.[0]?.length || 0
+      return { stats, ch: inst.channels, sr: inst.sampleRate, from: 0, to: blocks }
+    }
+
+    // Plan-only edits (no sample pipeline) — remap source stats by segments
     let plan = buildPlan(inst)
-    let s = statSession(inst.sampleRate); for (let chunk of streamPlan(inst, plan)) s.page(chunk); inst.stats = s.done()
-    inst._.statsV = inst.version
+    if (!plan.pipeline.length && inst._.srcStats?.blockSize) {
+      let remapped = remapStats(inst._.srcStats, plan, inst.sampleRate)
+      if (remapped) { inst.stats = remapped; inst._.statsV = inst.version }
+      else {
+        let s = statSession(inst.sampleRate); for (let chunk of streamPlan(inst, plan)) s.page(chunk); inst.stats = s.done()
+        inst._.statsV = inst.version
+      }
+    } else {
+      // Full recompute — has sample-level ops
+      let s = statSession(inst.sampleRate); for (let chunk of streamPlan(inst, plan)) s.page(chunk); inst.stats = s.done()
+      inst._.statsV = inst.version
+    }
   }
   let sr = inst.sampleRate, bs = inst.stats?.blockSize
   if (!bs) return { stats: inst.stats, ch: inst.channels, sr, from: 0, to: 0 }
   let first = Object.values(inst.stats).find(v => v?.[0]?.length)
   let blocks = first?.[0]?.length || 0
-  let at = parseTime(opts?.at), dur = parseTime(opts?.duration)
   let from = at != null ? Math.floor(at * sr / bs) : 0
   let to = dur != null ? Math.ceil(((at || 0) + dur) * sr / bs) : blocks
   return { stats: inst.stats, ch: inst.channels, sr, from, to }

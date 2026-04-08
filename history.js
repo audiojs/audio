@@ -3,10 +3,10 @@
  * Intercepts create/run/read/stream to track and materialize edits.
  */
 
-import audio, { readPages, copyPages, walkPages, parseTime, LOAD, READ } from './core.js'
+import audio, { readPages, copyPages, walkPages, parseTime, LOAD, READ, emit } from './core.js'
 
 let fn = audio.fn
-let meta = {}
+let ops = {}
 
 // ── Segments: [src, count, dst, rate?, ref?] ────────────────────
 export function seg(src, count, dst, rate, ref) {
@@ -24,7 +24,7 @@ function isOpts(v) {
 
 /** Register/query op: audio.op(name, process?, plan?, opts?) */
 audio.op = function(name, process, arg3, arg4) {
-  if (arguments.length === 1) return meta[name]
+  if (arguments.length === 1) return ops[name]
   if (!fn[name]) {
     fn[name] = function(...a) {
       let edit = { type: name, args: a }, last = a[a.length - 1]
@@ -44,37 +44,35 @@ audio.op = function(name, process, arg3, arg4) {
   let plan, opts
   if (typeof arg3 === 'function') { plan = arg3; opts = arg4 }
   else opts = arg3
-  let o = meta[name] = { process }
+  let o = ops[name] = { process }
   if (plan) o.plan = plan
-  for (let k of ['resolve', 'ch', 'overlap']) if (opts?.[k] !== undefined) o[k] = opts[k]
+  for (let k of ['resolve', 'ch', 'overlap', 'help']) if (opts?.[k] !== undefined) o[k] = opts[k]
 }
 
 
 // ── Edit Tracking ───────────────────────────────────────────────
 
-let prevCreate = audio.hook.create
-audio.hook.create = (a) => {
-  prevCreate?.(a)
+audio.on('create', (a) => {
   a.edits = []
   a.version = 0
-  a.onchange = null
   a._.pcm = null; a._.pcmV = -1   // render cache
+  a._.plan = null; a._.planV = -1  // plan cache
   a._.statsV = -1                   // stats cache version
   a._.lenC = a._.len; a._.lenV = 0  // virtual length cache
   a._.chC = a._.ch; a._.chV = 0    // virtual channels cache
-}
+})
 
 /** Push an edit, bump version, notify. */
 export function pushEdit(a, edit) {
   a.edits.push(edit)
   a.version++
-  a.onchange?.()
+  emit(a, 'change')
 }
 
 /** Pop an edit, bump version, notify. */
 export function popEdit(a) {
   let e = a.edits.pop()
-  if (e) { a.version++; a.onchange?.() }
+  if (e) { a.version++; emit(a, 'change') }
   return e
 }
 
@@ -91,7 +89,7 @@ Object.defineProperties(fn, {
   channels: { get() {
     if (this._.chV === this.version) return this._.chC
     let ch = this._.ch
-    for (let edit of this.edits) { if (meta[edit.type]?.ch) ch = meta[edit.type].ch(ch, edit.args) }
+    for (let edit of this.edits) { if (ops[edit.type]?.ch) ch = ops[edit.type].ch(ch, edit.args) }
     this._.chC = ch; this._.chV = this.version
     return ch
   }, configurable: true },
@@ -137,7 +135,7 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
   }
 
   // Edit-aware streaming (plan-based)
-  if (this.loaded) await this.loaded
+  await this.ready
   await this[LOAD]()
   let plan = buildPlan(this)
   let seen = new Set()
@@ -200,13 +198,14 @@ function planLen(segs) { let m = 0; for (let s of segs) m = Math.max(m, s[2] + s
 
 /** Build a read plan from edit list. Always succeeds — every op is plannable. */
 export function buildPlan(a) {
+  if (a._.plan && a._.planV === a.version) return a._.plan
   let sr = a.sampleRate, ch = a._.ch
-  let segs = [[0, a._.len, 0]], pipeline = [], sawSample = false
+  let segs = [[0, a._.len, 0]], pipeline = []
 
   for (let edit of a.edits) {
     let { type, args = [], at, duration, channel, ...extra } = edit
-    let op = meta[type]
-    if (!op?.process) throw new Error(`Unknown op: ${type}`)
+    let op = ops[type]
+    if (!op) throw new Error(`Unknown op: ${type}`)
 
     // resolve: try stats-aware replacement first
     if (op.resolve) {
@@ -219,12 +218,11 @@ export function buildPlan(a) {
           if (channel != null && r.channel == null) r.channel = channel
           if (at != null && r.at == null) r.at = at
           if (duration != null && r.duration == null) r.duration = duration
-          let rOp = meta[r.type]
+          let rOp = ops[r.type]
           if (rOp?.plan && typeof rOp.plan === 'function') {
             let t = planLen(segs), rOffset = r.at != null ? Math.round(r.at * sr) : null, rSpan = r.duration != null ? Math.round(r.duration * sr) : null
             segs = rOp.plan(segs, { total: t, sampleRate: sr, args: r.args || [], offset: rOffset, span: rSpan })
           } else {
-            sawSample = true
             pipeline.push(r)
           }
         }
@@ -238,15 +236,19 @@ export function buildPlan(a) {
       let t = planLen(segs), offset = at != null ? Math.round(at * sr) : null, span = duration != null ? Math.round(duration * sr) : null
       segs = op.plan(segs, { total: t, sampleRate: sr, args, offset, span })
     } else {
-      sawSample = true
       pipeline.push(edit)
     }
   }
-  return { segs, pipeline, totalLen: planLen(segs), sr }
+  let plan = { segs, pipeline, totalLen: planLen(segs), sr }
+  a._.plan = plan; a._.planV = a.version
+  return plan
 }
 
 
 // ── Plan Execution ─────────────────────────────────────────────
+
+// Reusable resample buffer — avoids GC pressure during playback at non-unit rates
+let _rsBuf = null, _rsLen = 0
 
 /** Read channel samples from pages, resampled by rate. */
 function readSource(a, c, srcOff, n, target, tOff, rate) {
@@ -258,7 +260,9 @@ function readSource(a, c, srcOff, n, target, tOff, rate) {
     })
   }
   let srcN = Math.ceil(n * absR) + 1
-  let buf = new Float32Array(srcN)
+  if (srcN > _rsLen) { _rsLen = srcN; _rsBuf = new Float32Array(srcN) }
+  let buf = _rsBuf.subarray(0, srcN)
+  buf.fill(0)
   copyPages(a, c, srcOff, srcN, buf, 0)
   resample(buf, target, tOff, n, r)
 }
@@ -295,7 +299,7 @@ export function* streamPlan(a, plan, offset, duration) {
 
   let totalDur = totalLen / sr
   let procs = pipeline.map(ed => {
-    let m = meta[ed.type]
+    let m = ops[ed.type]
     let { type, args, at, duration, channel, ...extra } = ed
     return {
       op: m.process,
@@ -308,8 +312,9 @@ export function* streamPlan(a, plan, offset, duration) {
     }
   })
 
-  // Warm up stateful ops (filters) when seeking — render prior block(s) silently to settle state
-  let ws = (s > 0 && procs.length) ? Math.max(0, s - audio.BLOCK_SIZE) : s
+  // Warm up stateful ops (filters) when seeking — render prior blocks silently to settle IIR state
+  let WARMUP = 8  // ~185ms at 44.1kHz — enough for most IIR filters to settle
+  let ws = (s > 0 && procs.length) ? Math.max(0, s - audio.BLOCK_SIZE * WARMUP) : s
 
   for (let outOff = ws; outOff < e; outOff += audio.BLOCK_SIZE) {
     let blockEnd = outOff < s ? s : e
