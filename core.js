@@ -71,6 +71,8 @@ export default function audio(source, opts = {}) {
     }
     return first
   }
+  // From AudioBuffer
+  if (source?.getChannelData && source?.numberOfChannels) return audio.from(source, opts)
   // From PCM arrays or silence duration
   if (Array.isArray(source) && source[0] instanceof Float32Array || typeof source === 'number') {
     let a = audio.from(source, opts)
@@ -358,7 +360,7 @@ fn.read = async function(opts) {
   let pcm = await this[READ](at, duration)
   if (channel != null) pcm = [pcm[channel]]
   if (!format) return channel != null ? pcm[0] : pcm
-  let converted = encode[format] ? encode[format](pcm, { sampleRate: this.sampleRate, ...meta }) : pcm.map(ch => convert(ch, 'float32', format))
+  let converted = encode[format] ? await encode[format](pcm, { sampleRate: this.sampleRate, ...meta }) : pcm.map(ch => convert(ch, 'float32', format))
   return channel != null ? (Array.isArray(converted) ? converted[0] : converted) : converted
 }
 

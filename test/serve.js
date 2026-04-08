@@ -7,7 +7,7 @@ let root = fileURLToPath(new URL('..', import.meta.url))
 let types = { '.html': 'text/html', '.js': 'text/javascript', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.wasm': 'application/wasm' }
 
 createServer(async (req, res) => {
-  let rel = normalize(req.url === '/' ? 'test/test.html' : req.url.split('?')[0])
+  let rel = normalize(req.url === '/' ? 'test/test.html' : req.url.split('?')[0]).replace(/^\//, '')
   let path = resolve(root, rel)
   if (!path.startsWith(root + sep) && path !== root) { res.writeHead(403); res.end('403'); return }
   try {
