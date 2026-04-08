@@ -143,9 +143,11 @@ const aggregates = {
 export function dcOffsets(stats, chs) {
   let off = new Float64Array(stats.dc.length)
   for (let c of chs) {
+    let n = stats.dc[c].length
+    if (!n) { off[c] = 0; continue }
     let sum = 0
-    for (let i = 0; i < stats.dc[c].length; i++) sum += stats.dc[c][i]
-    off[c] = sum / stats.dc[c].length
+    for (let i = 0; i < n; i++) sum += stats.dc[c][i]
+    off[c] = sum / n
   }
   return off
 }

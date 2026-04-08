@@ -4,7 +4,7 @@ A plugin registers ops, stats, or methods on `audio`.
 
 ```js
 // my-plugin.js
-import audio from 'audio/core.js'
+import audio from 'audio'
 
 const myOp = (chs, ctx) => {
   for (let ch of chs)

@@ -13,8 +13,7 @@ import encode from 'encode-audio'
 import convert, { parse as parseFmt } from 'pcm-convert'
 import parseDuration from 'parse-duration'
 
-import { createRequire } from 'node:module'
-audio.version = createRequire(import.meta.url)('./package.json').version
+audio.version = '2.0.0'
 
 /** Parse time value: number passthrough, string via parse-duration or timecode. */
 export function parseTime(v) {
@@ -146,7 +145,7 @@ audio.from = function(source, opts = {}) {
   if (source?.pages) {
     return create(source.pages, opts.sampleRate ?? source.sampleRate,
       opts.channels ?? source._.ch, source._.len,
-      { source: source.source, storage: source.storage, cache: source.cache }, source.stats)
+      { source: source.source, storage: source.storage, cache: source.cache, budget: opts.budget ?? source.budget }, source.stats)
   }
   if (source?.getChannelData) {
     let chs = Array.from({ length: source.numberOfChannels }, (_, i) => new Float32Array(source.getChannelData(i)))
@@ -191,6 +190,8 @@ export function emit(a, event, ...args) {
 }
 fn.on = function(event, cb) { (this._.ev[event] ??= []).push(cb); return this }
 fn.off = function(event, cb) {
+  if (!event) { this._.ev = {}; return this }
+  if (!cb) { delete this._.ev[event]; return this }
   let arr = this._.ev[event]
   if (arr) { let i = arr.indexOf(cb); if (i >= 0) arr.splice(i, 1) }
   return this

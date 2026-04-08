@@ -47,7 +47,7 @@ async function opfsCache(dirName = 'audio-cache') {
       let file = await handle.getFile()
       let buf = await file.arrayBuffer()
       let view = new Float32Array(buf)
-      let ch = view[0], samplesPerCh = (view.length - 1) / ch
+      let ch = view[0] | 0, samplesPerCh = ((view.length - 1) / ch) | 0
       let data = []
       for (let c = 0; c < ch; c++) data.push(view.slice(1 + c * samplesPerCh, 1 + (c + 1) * samplesPerCh))
       return data
