@@ -302,6 +302,9 @@ fn.push = function(data, fmt) {
     chData = Array.from({ length: nch }, (_, c) => pcm.subarray(c * perCh, (c + 1) * perCh))
   }
   else throw new TypeError('push: expected Float32Array[], Float32Array, or typed array')
+  // Sync channel count on first push, validate on subsequent
+  if (!this._.ch) { this._.ch = chData.length; this._.chV = -1 }
+  else if (chData.length !== this._.ch) throw new TypeError(`push: expected ${this._.ch} channels, got ${chData.length}`)
   acc.push(chData, (fmt && fmt.sampleRate) || sr)
   this._.len = acc.length
   this._.lenV = -1

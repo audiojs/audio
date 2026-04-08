@@ -1,5 +1,6 @@
 const mix = (chs, ctx) => {
   let source = ctx.args[0], sr = ctx.sampleRate, chLen = chs[0].length
+  if (typeof source === 'number') throw new TypeError('mix: expected audio instance or Float32Array[], not a number')
   let sLen = Array.isArray(source) ? source[0].length : source.length
   let p = ctx.at != null ? Math.round(ctx.at * sr) : 0
   let srcOff = Math.max(0, -p), dstOff = Math.max(0, p)
