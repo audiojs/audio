@@ -61,12 +61,15 @@ const reducers = {
   min:    [rMin, Infinity,  v => v === Infinity ? 0 : v],
   max:    [rMax, -Infinity, v => v === -Infinity ? 0 : v],
   rms:    [rSum, 0, (v, n) => n ? Math.sqrt(v / n) : 0],
-  energy: [rSum, 0, (v, n) => n ? Math.sqrt(v / n) : 0],
+  energy: [rSum, 0, (v, n) => n ? v / n : 0],
   clip:   [rSum, 0, v => v],
   dc:     [rSum, 0, (v, n) => n ? v / n : 0]
 }
 
 function binReduce(src, from, to, bins, cfg) {
+  if (bins <= 0 || to <= from) return new Float32Array(bins || 0)
+  from = Math.max(0, from); to = Math.min(to, src.length)
+  if (to <= from) return new Float32Array(bins)
   let [reduce, init, post] = cfg
   let out = new Float32Array(bins), bpp = (to - from) / bins
   for (let i = 0; i < bins; i++) {
@@ -255,8 +258,11 @@ export async function queryRange(inst, opts) {
   if (!bs) return { stats: inst.stats, ch: inst.channels, sr, from: 0, to: 0 }
   let first = Object.values(inst.stats).find(v => v?.[0]?.length)
   let blocks = first?.[0]?.length || 0
-  let from = at != null ? Math.floor(at * sr / bs) : 0
-  let to = dur != null ? Math.ceil(((at || 0) + dur) * sr / bs) : blocks
+  let atN = at != null && at < 0 ? inst.duration + at : at
+  let from = atN != null ? Math.floor(atN * sr / bs) : 0
+  let to = dur != null ? Math.ceil(((atN || 0) + dur) * sr / bs) : blocks
+  from = Math.max(0, Math.min(from, blocks))
+  to = Math.max(from, Math.min(to, blocks))
   return { stats: inst.stats, ch: inst.channels, sr, from, to }
 }
 

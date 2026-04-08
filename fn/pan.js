@@ -11,6 +11,7 @@ const pan = (chs, ctx) => {
   let end = ctx.duration != null ? s + Math.round(ctx.duration * sr) : chs[0].length
   let off = (ctx.blockOffset || 0) * sr
   if (!auto) {
+    val = Math.max(-1, Math.min(1, val))
     let gL = val <= 0 ? 1 : 1 - val, gR = val >= 0 ? 1 : 1 + val, gains = [gL, gR]
     for (let c = 0; c < chs.length; c++) {
       let g = gains[c] ?? 1
@@ -22,7 +23,7 @@ const pan = (chs, ctx) => {
   // Automation: per-sample evaluation
   let L = chs[0], R = chs[1]
   for (let i = Math.max(0, s); i < Math.min(end, L.length); i++) {
-    let p = val((off + i) / sr)
+    let p = Math.max(-1, Math.min(1, val((off + i) / sr)))
     L[i] *= p <= 0 ? 1 : 1 - p
     R[i] *= p >= 0 ? 1 : 1 + p
   }
