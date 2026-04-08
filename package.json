@@ -37,9 +37,12 @@
   ],
   "scripts": {
     "build": "node build.js",
-    "test": "node test/index.js && TST_PARALLEL=3 node test/cli.js",
+    "test": "node test/index.js",
+    "test:cli": "TST_PARALLEL=3 node test/cli.js",
     "test:browser": "node test/browser.js",
-    "test:all": "npm test && npm run test:browser",
+    "test:all": "npm test && npm run test:cli && npm run test:browser",
+    "version": "node -p \"var s=require('fs'),v=require('./package.json').version;s.writeFileSync('core.js',s.readFileSync('core.js','utf8').replace(/audio\\.version = '[^']+'/,'audio.version = \\''+v+'\\''));''\" && git add core.js",
+    "prepublishOnly": "npm run version && npm run test:all",
     "serve": "node test/serve.js"
   },
   "dependencies": {
