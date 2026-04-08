@@ -164,14 +164,15 @@ test('parseArgs — explicit -i flag', t => {
   t.is(result.ops[0].name, 'gain', 'ops follow')
 })
 
-test('parseArgs — explicit --input flag', t => {
-  let result = parseArgs(['--input', 'in.wav', 'gain', '-3'])
-  t.is(result.input, 'in.wav', 'explicit --input sets input')
+test('parseArgs — --info flag', t => {
+  let result = parseArgs(['in.wav', '--info'])
+  t.is(result.input, 'in.wav', 'input parsed')
+  t.ok(result.info, '--info flag sets info')
 })
 
-test('parseArgs — -i flag anywhere', t => {
-  let result = parseArgs(['gain', '-3', '-i', 'in.wav'])
-  t.is(result.input, 'in.wav', '-i can appear after ops')
+test('parseArgs — -i flag', t => {
+  let result = parseArgs(['in.wav', '-i'])
+  t.ok(result.info, '-i sets info')
 })
 
 // ── Op Discovery ─────────────────────────────────────────────────────────
@@ -373,7 +374,7 @@ test('API — highpass filter applies correctly', async t => {
   t.ok(rms > 0.2, `1kHz preserved, rms=${rms.toFixed(3)} > 0.2`)
 })
 
-test('CLI — filter alias hp works', async t => {
+test('CLI — filter highpass works', async t => {
   let srcPath = join(__dirname, 'tmp-filter-alias.wav')
   let outPath = join(__dirname, 'tmp-filter-alias-out.wav')
   try {
@@ -381,9 +382,9 @@ test('CLI — filter alias hp works', async t => {
     let ch = new Float32Array(n)
     for (let i = 0; i < n; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr)
     await audio.from([ch], { sampleRate: sr }).save(srcPath)
-    await runCli([srcPath, 'hp', '80hz', '-o', outPath])
+    await runCli([srcPath, 'highpass', '80hz', '-o', outPath])
     let result = await audio(outPath)
-    t.ok(result.duration > 1, 'hp alias processed audio')
+    t.ok(result.duration > 1, 'highpass processed audio')
   } finally {
     cleanup(srcPath)
     cleanup(outPath)
@@ -400,7 +401,7 @@ test('CLI — filter + mp3 encode (short)', async t => {
     for (let i = 0; i < n; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr)
     await audio.from([ch, new Float32Array(ch)], { sampleRate: sr }).save(srcPath)
 
-    await runCli([srcPath, 'hp', '80hz', 'trim', 'fade', '1', 'fade', '-1', '-o', outPath])
+    await runCli([srcPath, 'highpass', '80hz', 'trim', 'fade', '1', 'fade', '-1', '-o', outPath])
     let result = await audio(outPath)
     t.ok(result.duration > 5, `mp3 has audio: ${result.duration.toFixed(1)}s`)
   } finally {
@@ -441,22 +442,32 @@ test('parseArgs — per-op help: gain --help', t => {
   t.is(result.ops.length, 0, 'no ops parsed after help')
 })
 
-test('parseArgs — per-op help: hp -h', t => {
-  let result = parseArgs(['in.wav', 'hp', '-h'])
-  t.is(result.helpOp, 'highpass', 'helpOp resolved through alias')
+test('parseArgs — per-op help: highpass -h', t => {
+  let result = parseArgs(['in.wav', 'highpass', '-h'])
+  t.is(result.helpOp, 'highpass', 'helpOp for highpass')
 })
 
 test('OP_HELP — all built-in ops have help', t => {
   let expected = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'remove',
     'insert', 'repeat', 'mix', 'remix', 'highpass', 'lowpass', 'eq', 'lowshelf',
-    'highshelf', 'notch', 'bandpass', 'filter']
+    'highshelf', 'notch', 'bandpass', 'filter', 'pan', 'pad', 'speed']
   for (let op of expected) t.ok(OP_HELP[op], `${op} has help`)
+  // Reverse check: every OP_HELP key is in expected list
+  for (let op of Object.keys(OP_HELP)) t.ok(expected.includes(op), `${op} in expected list`)
 })
 
 test('CLI — per-op help output', async t => {
   let output = await runCliCapture(['gain', '--help'])
   t.ok(output.includes('gain'), 'shows gain in help')
   t.ok(output.includes('dB'), 'shows description')
+})
+
+test('CLI — showUsage mentions every OP_HELP op', async t => {
+  let output = await runCliCapture(['--help'])
+  for (let op of Object.keys(OP_HELP)) {
+    if (op === 'filter') continue  // generic dispatch, not listed separately
+    t.ok(output.includes(op), `help text includes ${op}`)
+  }
 })
 
 // ── Macro System ─────────────────────────────────────────────────────────

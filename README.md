@@ -362,9 +362,10 @@ a.stats.rms                    // [Float32Array, ...] per-channel
 ## CLI
 
 ```sh
-npx audio in.mp3                                 # show info
+npx audio in.mp3                                 # open player (paused)
+npx audio in.mp3 -p                              # autoplay
+npx audio in.mp3 -i                              # show file info
 npx audio in.mp3 gain -3db trim normalize -o out.wav
-npx audio in.wav --play
 npx audio in.wav gain -3db 1s..10s -o out.wav
 npx audio in.mp3 normalize streaming -o out.wav
 npx audio in.mp3 highpass 80hz lowshelf 200hz -3db -o out.wav
@@ -376,11 +377,19 @@ cat in.wav | audio gain -3db > out.wav
 
 Ranges: `1s..10s`, `30s..1m`, `-1s..`. Units: `s`, `ms`, `m`, `h`, `db`, `hz`, `khz`.
 
-Flags: `--play` / `-p`, `--force` / `-f`, `--verbose`, `--format`, `-o`, `--macro FILE`.
+Flags: `--info` / `-i`, `--play` / `-p`, `--force` / `-f`, `--verbose`, `--format`, `-o`, `--macro FILE`.
 
 Macro files are JSON arrays of edits: `[{"type": "gain", "args": [-3]}, {"type": "trim"}]`.
 
 Plugins in `node_modules/audio-*` are auto-discovered at startup.
+
+**Tab completion** — context-aware autocomplete for ops, presets, flags:
+
+```sh
+eval "$(audio --completions zsh)"     # add to ~/.zshrc
+eval "$(audio --completions bash)"    # add to ~/.bashrc
+audio --completions fish | source     # add to fish config
+```
 
 
 ## Recipes
@@ -608,7 +617,7 @@ a.pause()
 a.resume()
 ```
 ```sh
-npx audio episode.mp3 --play --volume -3db
+npx audio episode.mp3 -p
 ```
 
 ### A/B compare loudness
