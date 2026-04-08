@@ -16,11 +16,19 @@ audio.op('dc', (chs, ctx) => {
   return chs
 })
 
-audio.op('normalize', () => { }, {
+/** Hard-clip samples to ±limit (linear). Used by ceiling normalization. */
+audio.op('clip', (chs, ctx) => {
+  let limit = ctx.args[0]
+  for (let c = 0; c < chs.length; c++)
+    for (let i = 0; i < chs[c].length; i++)
+      chs[c][i] = Math.max(-limit, Math.min(limit, chs[c][i]))
+  return chs
+})
+
+audio.op('normalize', () => false, {
   resolve: (args, ctx) => {
     let { stats, sampleRate } = ctx
     if (!stats?.min) return null
-    if (ctx.ceiling != null) return null  // ceiling needs per-sample clipping — can't do from stats
 
     let arg = args[0]
     let mode = typeof arg === 'string' ? 'lufs' : ctx.mode || 'peak'
@@ -41,7 +49,17 @@ audio.op('normalize', () => { }, {
 
     let edits = []
     if (hasDc) edits.push({ type: 'dc', args: [chs.map(c => dcOff[c])] })
-    edits.push({ type: 'gain', args: [targetDb - levelDb] })
+
+    // Ceiling mode: normalize peak then clip at ceiling level
+    if (ctx.ceiling != null) {
+      let peakLevel = peakDb(stats, chs, dcOff)
+      if (peakLevel == null) return false
+      edits.push({ type: 'gain', args: [targetDb - peakLevel] })
+      edits.push({ type: 'clip', args: [10 ** (ctx.ceiling / 20)] })
+    } else {
+      edits.push({ type: 'gain', args: [targetDb - levelDb] })
+    }
+
     return edits.length === 1 ? edits[0] : edits
   }
 })

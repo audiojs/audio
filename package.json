@@ -18,6 +18,17 @@
   "bin": "./bin/cli.js",
   "license": "MIT",
   "repository": "audiojs/audio",
+  "files": [
+    "core.js",
+    "audio.js",
+    "audio.d.ts",
+    "history.js",
+    "stats.js",
+    "cache.js",
+    "fn/",
+    "bin/",
+    "dist/"
+  ],
   "keywords": [
     "audiojs",
     "audio",
@@ -26,7 +37,7 @@
   ],
   "scripts": {
     "build": "node build.js",
-    "test": "node test/index.js && node test/cli.js",
+    "test": "node test/index.js && TST_PARALLEL=3 node test/cli.js",
     "test:browser": "node test/browser.js",
     "test:all": "npm test && npm run test:browser",
     "serve": "node test/serve.js"

@@ -7,6 +7,11 @@
 * [ ] playback speed
 * [ ] Common processing scripts (vocal warmup etc)
 
+* [ ] reduce-silences
+* [ ] pitch
+* [ ] stretch
+* [ ] sidechain? (amp mod)
+
 ### Tier 2: Competitive
 
 | Package | Type | Notes |
@@ -28,10 +33,7 @@
 | `audio-pitch-correct` | Sample op | Auto-tune |
 | `audio-transient-shaper` | Sample op | Transient enhancement/suppression |
 
-* [ ] reduce-silences
-* [ ] pitch
-* [ ] stretch
-* [ ] sidechain? (amp mod)
+* [ ] Benchmarks
 
 ## Done (v2.0–v2.3)
 

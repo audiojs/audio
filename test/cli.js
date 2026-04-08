@@ -374,7 +374,7 @@ test('API — highpass filter applies correctly', async t => {
   t.ok(rms > 0.2, `1kHz preserved, rms=${rms.toFixed(3)} > 0.2`)
 })
 
-test('CLI — filter highpass works', async t => {
+test('CLI — filter highpass works', { timeout: 15000 }, async t => {
   let srcPath = join(__dirname, 'tmp-filter-alias.wav')
   let outPath = join(__dirname, 'tmp-filter-alias-out.wav')
   try {
@@ -391,7 +391,7 @@ test('CLI — filter highpass works', async t => {
   }
 })
 
-test('CLI — filter + mp3 encode (short)', async t => {
+test('CLI — filter + mp3 encode (short)', { timeout: 30000 }, async t => {
   // 10s stereo sine → highpass + trim + fade → mp3
   let srcPath = join(__dirname, 'tmp-filter-src.wav')
   let outPath = join(__dirname, 'tmp-filter-out.mp3')
@@ -409,28 +409,6 @@ test('CLI — filter + mp3 encode (short)', async t => {
     cleanup(outPath)
   }
 })
-
-test('API — filter + mp3 encode (large, >28min stereo 48kHz)', async t => {
-  // Reproduces encode error -2: when buildPlan returns null (filter before trim),
-  // save.js falls back to whole-file encode which hits WASM memory limit.
-  // Threshold: ~1700s stereo 48kHz (~620MB interleaved PCM).
-  let outPath = join(__dirname, 'tmp-filter-large.mp3')
-  try {
-    let sr = 48000, dur = 1800, n = sr * dur
-    let ch = new Float32Array(n)
-    for (let i = 0; i < n; i++) ch[i] = 0.3 * Math.sin(2 * Math.PI * 440 * i / sr)
-    let a = audio.from([ch, new Float32Array(ch)], { sampleRate: sr })
-    a.highpass(50)
-    a.trim()
-    a.fade(2)
-    a.fade(-2)
-    await a.save(outPath)
-    let result = await audio(outPath)
-    t.ok(result.duration > 1700, `mp3 duration: ${result.duration.toFixed(0)}s`)
-  } finally {
-    cleanup(outPath)
-  }
-}, { timeout: 300000 })
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -711,3 +689,30 @@ function runCliCapture(args) {
 function cleanup(path) {
   try { unlinkSync(path) } catch {}
 }
+
+
+// ── Heavy (forked — runs in worker, last so parallel output streams first) ──
+
+test('API — filter + mp3 encode (large, >28min stereo 48kHz)', { fork: true, timeout: 300000 }, async t => {
+  // Reproduces encode error -2: when buildPlan returns null (filter before trim),
+  // save.js falls back to whole-file encode which hits WASM memory limit.
+  let { default: audio } = await import('./audio.js')
+  let { join } = await import('path')
+  let { unlinkSync } = await import('fs')
+  let outPath = join(process.cwd(), 'test', 'tmp-filter-large.mp3')
+  try {
+    let sr = 48000, dur = 1800, n = sr * dur
+    let ch = new Float32Array(n)
+    for (let i = 0; i < n; i++) ch[i] = 0.3 * Math.sin(2 * Math.PI * 440 * i / sr)
+    let a = audio.from([ch, new Float32Array(ch)], { sampleRate: sr })
+    a.highpass(50)
+    a.trim()
+    a.fade(2)
+    a.fade(-2)
+    await a.save(outPath)
+    let result = await audio(outPath)
+    t.ok(result.duration > 1700, `mp3 duration: ${result.duration.toFixed(0)}s`)
+  } finally {
+    try { unlinkSync(outPath) } catch {}
+  }
+})

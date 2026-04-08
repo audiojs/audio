@@ -6,6 +6,7 @@
 * Always responsible, no hangs or long uninteractive operations: doesn't make user wait before playback, doesn't hang during processing or save - always cancelable.
 * Provides a perspective for immediate shared operations to multiple users: keeps source immutable, operations virtual, materializing by request.
 * Direct, linear code, self-descriptive, common patterns, flat minimal abstractions.
+* If audacity had CLI
 
 ## Principles
 

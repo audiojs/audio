@@ -25,16 +25,36 @@ export interface AudioInstance {
   source: string | null
   /** Storage mode */
   storage: string
-  /** Whether source is fully decoded */
-  decoded: boolean
+  /** Promise — resolves to true when ready (decoded, mic active, etc.) */
+  ready: Promise<true>
   /** Edit list (inspectable) */
   edits: EditOp[]
   /** Monotonic counter, increments on edit/undo */
   version: number
-  /** Callback fired on edit/undo */
-  onchange: (() => void) | null
-  /** Playback cursor position (readonly — use seek() to move) */
-  readonly cursor: number
+  /** Current position in seconds (read/write, or use seek()) */
+  currentTime: number
+  /** True when playing */
+  playing: boolean
+  /** True when paused */
+  paused: boolean
+  /** Playback volume in dB (0 = unity) */
+  volume: number
+  /** Whether playback loops */
+  loop: boolean
+  /** Current playback block for visualization */
+  block: Float32Array | null
+
+  // ── Events ──────────────────────────────────────────────────────
+  /** Subscribe to instance event */
+  on(event: 'change', fn: () => void): this
+  on(event: 'progress', fn: (event: { delta: ProgressDelta, offset: number, sampleRate: number, channels: number }) => void): this
+  on(event: 'timeupdate', fn: (time: number) => void): this
+  on(event: 'ended', fn: () => void): this
+  on(event: string, fn: (...args: any[]) => void): this
+  /** Unsubscribe from instance event */
+  off(event: string, fn: (...args: any[]) => void): this
+  /** Dispose — stop playback/recording, clear listeners, release caches */
+  dispose(): void
 
   // ── Core I/O ────────────────────────────────────────────────────
   /** Move playhead — preloads nearby pages, triggers seek if playing */
@@ -92,8 +112,10 @@ export interface AudioInstance {
 
   // ── Smart ops ───────────────────────────────────────────────
   trim(threshold?: number): this
+  normalize(): this
   normalize(preset: 'streaming' | 'podcast' | 'broadcast'): this
-  normalize(targetDb?: number, opts?: 'lufs' | { mode?: 'peak' | 'lufs' }): this
+  normalize(targetDb: number, opts?: 'lufs' | { mode?: 'peak' | 'lufs' | 'rms', at?: Time, duration?: Time, channel?: number | number[] }): this
+  normalize(opts: { target?: number, mode?: 'peak' | 'lufs' | 'rms', at?: Time, duration?: Time, channel?: number | number[], dc?: boolean, ceiling?: number }): this
 
   // ── Fns (registered via audio.fn) ───────────────────────────
   view(opts?: { at?: Time, duration?: Time }): AudioInstance
@@ -104,22 +126,12 @@ export interface AudioInstance {
   play(opts?: { at?: Time, duration?: Time, volume?: number, loop?: boolean }): this
   pause(): void
   resume(): void
-  stop(): void
+  stop(): this
   save(target: string | FileSystemWritableFileStream, opts?: { format?: string, at?: Time, duration?: Time, meta?: Record<string, any> }): Promise<void>
   encode(format?: string, opts?: { at?: Time, duration?: Time, meta?: Record<string, any> }): Promise<Uint8Array>
   encode(opts?: { at?: Time, duration?: Time, meta?: Record<string, any> }): Promise<Uint8Array>
   clone(): AudioInstance
   concat(...sources: (AudioInstance | Float32Array[] | number)[]): AudioInstance
-
-  // ── Playback state ──────────────────────────────────────────
-  playing: boolean
-  paused: boolean
-  currentTime: number
-  volume: number
-  loop: boolean
-  block: Float32Array | null
-  ontimeupdate: ((time: number) => void) | null
-  onended: (() => void) | null
 }
 
 export interface AudioStats {
@@ -141,7 +153,6 @@ export interface AudioOpts {
   channels?: number
   storage?: 'memory' | 'persistent' | 'auto'
   decode?: 'worker' | 'main'
-  onprogress?: (event: { delta: ProgressDelta, offset: number, total: number }) => void
 }
 
 export interface ProgressDelta {
@@ -160,8 +171,15 @@ export interface AudioDocument {
   duration: number
 }
 
+/** No source — returns pushable instance. Use .push() to feed PCM, .record() for mic, .stop() to finalize. */
+declare function audio(source?: null, opts?: AudioOpts): AudioInstance & {
+  push(data: Float32Array[] | Float32Array | ArrayBufferView, format?: string | { format?: string, channels?: number, sampleRate?: number }): AudioInstance
+  record(opts?: Record<string, any>): AudioInstance
+  recording: boolean
+}
 /** Async entry — decode from file/URL/bytes, wrap PCM/silence, concat from array, or restore from JSON */
-declare function audio(source: string | URL | ArrayBuffer | Uint8Array | Float32Array[] | number | AudioDocument | (AudioInstance | string | URL | ArrayBuffer)[], opts?: AudioOpts): Promise<AudioInstance>
+/** Sync entry — returns instance immediately. Thenable: `await audio(src)` waits for full decode. */
+declare function audio(source: string | URL | ArrayBuffer | Uint8Array | Float32Array[] | number | AudioDocument | (AudioInstance | string | URL | ArrayBuffer)[], opts?: AudioOpts): AudioInstance & PromiseLike<AudioInstance>
 
 declare namespace audio {
   /** Package version */
@@ -182,26 +200,16 @@ declare namespace audio {
   function from(source: Float32Array[] | AudioBuffer | AudioInstance | number, opts?: AudioOpts): AudioInstance
   function from(fn: (t: number, i: number) => number | number[], opts: AudioOpts & { duration: number }): AudioInstance
   function from(source: Int16Array | Int8Array | Uint8Array | Uint16Array, opts: AudioOpts & { format: string }): AudioInstance
-  /** Open encoded source for streaming decode. Instance is usable immediately; .loaded resolves when fully decoded. */
-  function open(source: string | URL | ArrayBuffer | Uint8Array, opts?: AudioOpts): Promise<AudioInstance & { loaded: Promise<AudioInstance> }>
-  /** Create push-based recording instance. Call .push() to feed PCM, .stop() to finalize. */
-  function record(opts?: AudioOpts): AudioInstance & {
-    push(data: Float32Array | Float32Array[], sampleRate?: number): void
-    stop(): AudioInstance
-  }
-  /** Create mic recording instance. Captures audio via audio-mic. Await .ready for mic to be active. */
-  function record(opts: AudioOpts & { input: 'mic', backend?: string }): AudioInstance & {
-    ready: Promise<AudioInstance>
-    stop(): AudioInstance
-  }
   /** Op registration and query */
-  function op(name: string): { process: Function, plan?: Function, resolve?: Function, ch?: Function, overlap?: number } | undefined
-  function op(name: string, process: Function, plan?: Function, opts?: { resolve?: Function, ch?: Function, overlap?: number }): void
-  function op(name: string, process: Function, opts?: { resolve?: Function, ch?: Function, overlap?: number }): void
+  function op(name: string): { process: Function, plan?: Function, resolve?: Function, ch?: Function, overlap?: number, help?: { usage: string, desc: string, examples: string[] } } | undefined
+  function op(name: string, process: Function, plan?: Function, opts?: { resolve?: Function, ch?: Function, overlap?: number, help?: { usage: string, desc: string, examples: string[] } }): void
+  function op(name: string, process: Function, opts?: { resolve?: Function, ch?: Function, overlap?: number, help?: { usage: string, desc: string, examples: string[] } }): void
+  /** Register lifecycle callback */
+  function on(event: 'create', fn: (instance: AudioInstance) => void): void
   /** Register custom stat */
   const stat: Record<string, (chs: Float32Array[], ctx: { sampleRate: number, state: Record<string, unknown> }) => number | number[]>
-  /** Register a plain method on audio proto */
-  function fn(name: string, fn: Function): void
+  /** Audio instance prototype — extensible (like $.fn) */
+  const fn: Record<string, any>
 }
 
 export default audio

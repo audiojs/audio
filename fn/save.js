@@ -1,4 +1,4 @@
-import audio from '../core.js'
+import audio, { emit } from '../core.js'
 import encode from 'encode-audio'
 
 const FMT_ALIAS = { aif: 'aiff', oga: 'ogg' }
@@ -33,7 +33,7 @@ audio.fn.save = async function(target, opts = {}) {
 
   let sr = this.sampleRate, ch = this.channels
   let enc = await encode[fmt]({ sampleRate: sr, channels: ch, ...opts.meta })
-  let onprogress = opts.onprogress, written = 0
+  let written = 0
 
   let write, finish
   if (typeof target === 'string') {
@@ -52,7 +52,7 @@ audio.fn.save = async function(target, opts = {}) {
     if (buf.length) await write(buf)
     written += chunk[0].length
     if (++tick % 2 === 0) await new Promise(r => setTimeout(r, 0))
-    onprogress?.({ offset: written / sr, total: opts.duration ?? this.duration })
+    emit(this, 'progress', { offset: written / sr, total: opts.duration ?? this.duration })
   }
   let final = await enc()
   if (final.length) await write(final)
