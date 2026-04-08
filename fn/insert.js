@@ -43,6 +43,8 @@ const insertPlan = (segs, ctx) => {
   let source = args[0], off = offset ?? total
   if (off < 0) off = total + off
   off = Math.max(0, Math.min(off, total))
+  // Normalize raw sources to audio instances for plan segment refs
+  if (typeof source !== 'number' && !source?.pages) source = audio.from(source, { sampleRate: sr })
   let iLen = typeof source === 'number' ? Math.round(source * sr) : source.length
   if (span != null) iLen = Math.min(iLen, span)
   return insertSegs(segs, off, iLen, typeof source === 'number' ? null : source)

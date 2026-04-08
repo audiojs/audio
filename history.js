@@ -19,7 +19,7 @@ export function seg(src, count, dst, rate, ref) {
 // ── Op Registration ─────────────────────────────────────────────
 
 function isOpts(v) {
-  return v != null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v) && !v.pages
+  return v != null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v) && !v.pages && !v.getChannelData
 }
 
 /** Register/query op: audio.op(name, process?, plan?, opts?) */
@@ -184,8 +184,22 @@ fn.clone = function() {
 
 const MAX_FLAT_SIZE = 2 ** 29
 
+/** Get sample length from any source type. */
+export function srcLen(s) {
+  return Array.isArray(s) ? s[0].length : s?.getChannelData ? s.length : s._.len
+}
+
 /** Render all edits into flat PCM, or read a slice. For ctx.render in PCM ops. */
 export function render(a, offset, count) {
+  // Raw Float32Array[]
+  if (Array.isArray(a) && a[0] instanceof Float32Array) {
+    return offset != null ? a.map(ch => ch.subarray(offset, offset + count)) : a
+  }
+  // AudioBuffer
+  if (a?.getChannelData && !a.pages) {
+    let chs = Array.from({ length: a.numberOfChannels }, (_, i) => new Float32Array(a.getChannelData(i)))
+    return offset != null ? chs.map(ch => ch.subarray(offset, offset + count)) : chs
+  }
   if (offset != null) return readRange(a, offset, count)
   if (a._.pcm && a._.pcmV === a.version) return a._.pcm
   if (!a.edits.length) { let r = readPages(a); a._.pcm = r; a._.pcmV = a.version; return r }

@@ -5,9 +5,9 @@
 /** Time value: seconds as number, or parseable string ('1.5s', '500ms', '1:30') */
 type Time = number | string
 
+type AudioSource = AudioInstance | AudioBuffer | Float32Array[] | number
 type FilterType = 'highpass' | 'lowpass' | 'bandpass' | 'notch' | 'eq' | 'lowshelf' | 'highshelf'
 
-/** Core audio instance — properties and I/O. Ops, stats, and fns extend this via registration. */
 export interface AudioInstance {
   /** Decoded PCM pages */
   pages: Float32Array[][]
@@ -84,7 +84,7 @@ export interface AudioInstance {
 
   // ── Structural ops ───────────────────────────────────────────
   crop(opts?: { at?: Time, duration?: Time }): this
-  insert(other: AudioInstance, opts?: { at?: Time }): this
+  insert(other: AudioSource, opts?: { at?: Time }): this
   remove(opts?: { at?: Time, duration?: Time }): this
   repeat(times: number, opts?: { at?: Time, duration?: Time }): this
   pad(before: number, after?: number): this
@@ -94,7 +94,7 @@ export interface AudioInstance {
   gain(value: number | ((t: number) => number), opts?: { at?: Time, duration?: Time, channel?: number | number[], unit?: 'db' | 'linear' }): this
   fade(duration: Time, curve?: 'linear' | 'exp' | 'log' | 'cos', opts?: { at?: Time }): this
   reverse(opts?: { at?: Time, duration?: Time }): this
-  mix(other: AudioInstance, opts?: { at?: Time, duration?: Time }): this
+  mix(other: AudioSource, opts?: { at?: Time, duration?: Time }): this
   write(data: Float32Array[] | Float32Array, opts?: { at?: Time }): this
   remix(channels: number): this
   pan(value: number | ((t: number) => number), opts?: { at?: Time, duration?: Time, channel?: number | number[] }): this
@@ -131,7 +131,7 @@ export interface AudioInstance {
   encode(format?: string, opts?: { at?: Time, duration?: Time, meta?: Record<string, any> }): Promise<Uint8Array>
   encode(opts?: { at?: Time, duration?: Time, meta?: Record<string, any> }): Promise<Uint8Array>
   clone(): AudioInstance
-  concat(...sources: (AudioInstance | Float32Array[] | number)[]): AudioInstance
+  concat(...sources: AudioSource[]): AudioInstance
 }
 
 export interface AudioStats {
@@ -179,7 +179,7 @@ declare function audio(source?: null, opts?: AudioOpts): AudioInstance & {
 }
 /** Async entry — decode from file/URL/bytes, wrap PCM/silence, concat from array, or restore from JSON */
 /** Sync entry — returns instance immediately. Thenable: `await audio(src)` waits for full decode. */
-declare function audio(source: string | URL | ArrayBuffer | Uint8Array | Float32Array[] | number | AudioDocument | (AudioInstance | string | URL | ArrayBuffer)[], opts?: AudioOpts): AudioInstance & PromiseLike<AudioInstance>
+declare function audio(source: string | URL | ArrayBuffer | Uint8Array | AudioBuffer | Float32Array[] | number | AudioDocument | (AudioInstance | string | URL | ArrayBuffer)[], opts?: AudioOpts): AudioInstance & PromiseLike<AudioInstance>
 
 declare namespace audio {
   /** Package version */
