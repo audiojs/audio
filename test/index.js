@@ -2788,3 +2788,48 @@ test('boundary — evicted pages restored during streaming', async t => {
   for (let i = 0; i < streamBuf.length; i++) maxDiff = Math.max(maxDiff, Math.abs(streamBuf[i] - flat[0][i]))
   t.ok(maxDiff < 0.01, `restored pages stream correctly (max diff ${maxDiff.toFixed(4)})`)
 })
+
+
+// ── CLI Parsing (fast, no file I/O) ────────────────────────────────────
+
+import { parseValue, parseRange, parseArgs, showOpHelp, OP_HELP } from '../bin/cli.js'
+
+test('cli parseArgs — simple: input ops output', t => {
+  let result = parseArgs(['in.wav', 'gain', '-3db', '-o', 'out.wav'])
+  t.is(result.input, 'in.wav', 'input')
+  t.is(result.output, 'out.wav', 'output')
+  t.ok(result.ops.length === 1, '1 op')
+  t.is(result.ops[0].name, 'gain', 'op name')
+})
+
+test('cli parseArgs — multiple ops', t => {
+  let result = parseArgs(['in.wav', 'gain', '-3', 'trim', 'normalize', '-o', 'out.wav'])
+  t.is(result.ops.length, 3, '3 ops')
+})
+
+test('cli parseValue — dB, Hz, duration', t => {
+  t.is(parseValue('-3db'), -3, 'dB')
+  t.is(parseValue('440hz'), 440, 'Hz')
+  t.is(parseValue('8khz'), 8000, 'kHz')
+  t.ok(typeof parseValue('1s') === 'number', 'duration')
+})
+
+test('cli parseRange — 1s..10s', t => {
+  let r = parseRange('1s..10s')
+  t.is(r.offset, 1, 'offset')
+  t.is(r.duration, 9, 'duration')
+})
+
+test('cli OP_HELP — all built-in ops have help', t => {
+  let ops = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'remove', 'repeat', 'remix', 'pan', 'pad',
+    'highpass', 'lowpass', 'eq', 'lowshelf', 'highshelf', 'notch', 'bandpass']
+  for (let op of ops) t.ok(OP_HELP[op], `${op} has help`)
+})
+
+test('cli ops registry — all built-ins available', t => {
+  t.ok(audio.op('gain'), 'gain')
+  t.ok(audio.op('fade'), 'fade')
+  t.ok(audio.op('trim'), 'trim')
+  t.ok(audio.op('normalize'), 'normalize')
+  t.ok(audio.op('remix'), 'remix')
+})

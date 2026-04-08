@@ -18,7 +18,7 @@ audio.version = '2.0.0'
 /** Parse time value: number passthrough, string via parse-duration or timecode. */
 export function parseTime(v) {
   if (v == null) return v
-  if (typeof v === 'number') return v
+  if (typeof v === 'number') { if (!Number.isFinite(v)) throw new Error(`Invalid time: ${v}`); return v }
   // Timecode: HH:MM:SS.mmm, MM:SS.mmm, or MM:SS
   let tc = v.match(/^(\d+):(\d{1,2})(?::(\d{1,2}))?(?:\.(\d+))?$/)
   if (tc) {
@@ -137,6 +137,14 @@ function makeThenable(a) {
     return a.ready.then(() => { delete a.then; delete a.catch; return a }).then(resolve, reject)
   }
   a.catch = function(reject) { return a.then(null, reject) }
+}
+
+/** Open source for streaming — returns instance once metadata (sampleRate, channels) is available.
+ *  Decode continues in background. For immediate playback before full decode. */
+audio.open = async function(source, opts) {
+  let a = audio(source, opts)
+  if (a._.ready) await a._.ready
+  return a
 }
 
 /** Sync creation from PCM data, AudioBuffer, audio instance, function, or seconds of silence. */
@@ -321,7 +329,7 @@ fn.record = function(opts = {}) {
   this.recording = true
   this.decoded = false
   let self = this, sr = this.sampleRate, ch = this._.ch
-  ;(async () => {
+  let _rec = (async () => {
     try {
       let { default: mic } = await import('audio-mic')
       let read = mic({ sampleRate: sr, channels: ch, bitDepth: 16, ...opts })
@@ -338,6 +346,7 @@ fn.record = function(opts = {}) {
       throw e.code === 'ERR_MODULE_NOT_FOUND' ? new Error('record: audio-mic not installed — npm i audio-mic') : e
     }
   })()
+  _rec.catch(() => {})  // suppress unhandled rejection; surfaces through .ready/.stop
   return this
 }
 
@@ -400,8 +409,9 @@ export function copyPages(a, c, srcOff, len, target, tOff) {
 /** Read range from source pages (no edits). */
 export function readPages(a, offset, duration) {
   let sr = a.sampleRate, ch = a._.ch
-  let s = offset != null ? Math.round(offset * sr) : 0
+  let s = offset != null ? Math.min(Math.max(Math.round(offset * sr), 0), a._.len) : 0
   let len = duration != null ? Math.round(duration * sr) : a._.len - s
+  len = Math.min(Math.max(len, 0), a._.len - s)
   let out = Array.from({ length: ch }, () => new Float32Array(len))
   for (let c = 0; c < ch; c++) copyPages(a, c, s, len, out[c], 0)
   return out
