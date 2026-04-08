@@ -636,14 +636,11 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     let inputs = []
     if (opts.input) {
       if (opts.input.includes('*') || opts.input.includes('?')) {
-        let { glob } = await import('fs/promises')
-        if (glob) {
-          for await (let f of glob(opts.input)) inputs.push(f)
-        } else {
-          // Node < 22 fallback
-          let { globSync } = await import('glob').catch(() => ({ globSync: null }))
-          inputs = globSync ? globSync(opts.input) : [opts.input]
-        }
+        let { readdirSync } = await import('fs')
+        let { dirname, basename, join } = await import('path')
+        let dir = dirname(opts.input), pat = basename(opts.input)
+        let re = new RegExp('^' + pat.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$')
+        inputs = readdirSync(dir).filter(f => re.test(f)).map(f => join(dir, f)).sort()
         if (!inputs.length) throw new Error(`No files matching: ${opts.input}`)
       } else {
         inputs.push(opts.input)
