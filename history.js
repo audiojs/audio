@@ -137,6 +137,7 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
   // Edit-aware streaming (plan-based)
   await this.ready
   await this[LOAD]()
+  for (let { args } of this.edits) if (args?.[0]?.pages) await args[0][LOAD]()
   let plan = buildPlan(this)
   let seen = new Set()
   for (let s of plan.segs) if (s[4] && s[4] !== null && !seen.has(s[4])) { seen.add(s[4]); await s[4][LOAD]() }
