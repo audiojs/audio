@@ -45,6 +45,7 @@ export default function audio(source, opts = {}) {
     let waiters = []
     let notify = () => { for (let w of waiters.splice(0)) w() }
     let a = create([], sr, ch, 0, opts, null)
+    a.decoded = false
     a.recording = false
     a._.acc = pageAccumulator({ pages: a.pages, notify, onprogress: (...args) => emit(a, 'progress', ...args) })
     a._.waiters = waiters
@@ -61,6 +62,7 @@ export default function audio(source, opts = {}) {
   if (Array.isArray(source) && source.length && !(source[0] instanceof Float32Array)) {
     let instances = source.map(s => s?.pages ? s : audio(s, opts))
     let first = instances[0].view ? instances[0].view() : audio.from(instances[0])
+    if (!first.insert) throw new Error('audio([...]): concat requires insert plugin — import "audio" instead of "audio/core.js"')
     for (let i = 1; i < instances.length; i++) first.insert(instances[i])
     let loading = instances.filter(s => !s.decoded)
     if (loading.length) {

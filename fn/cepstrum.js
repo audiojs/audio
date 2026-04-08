@@ -44,15 +44,29 @@ audio.fn.cepstrum = async function(opts) {
   let sr = this.sampleRate
   let N = 1024
 
-  let pcm = await this.read({ at: opts?.at, duration: opts?.duration })
-  let ch0 = pcm[0]
-
   let acc = new Float64Array(bins), cnt = 0
-  for (let off = 0; off < ch0.length - N; off += N) {
-    let block = ch0.subarray(off, off + N)
-    let c = mfcc(block, sr, { bins })
-    for (let k = 0; k < bins; k++) acc[k] += c[k]
-    cnt++
+  let rem = new Float32Array(0)
+
+  for await (let pcm of this.stream({ at: opts?.at, duration: opts?.duration })) {
+    let ch0 = pcm[0]
+    if (!ch0 || !ch0.length) continue
+
+    let input = ch0
+    if (rem.length) {
+      input = new Float32Array(rem.length + ch0.length)
+      input.set(rem, 0)
+      input.set(ch0, rem.length)
+    }
+
+    let limit = input.length - (input.length % N)
+    for (let off = 0; off < limit; off += N) {
+      let block = input.subarray(off, off + N)
+      let c = mfcc(block, sr, { bins })
+      for (let k = 0; k < bins; k++) acc[k] += c[k]
+      cnt++
+    }
+
+    rem = limit < input.length ? input.slice(limit) : new Float32Array(0)
   }
 
   if (cnt === 0) return new Float32Array(bins)
