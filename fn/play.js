@@ -1,4 +1,5 @@
 import audio, { emit } from '../core.js'
+import Speaker from 'audio-speaker'
 
 /** Playback via audio-speaker (cross-platform: Node + browser). */
 audio.fn.play = function(opts) {
@@ -11,7 +12,6 @@ audio.fn.play = function(opts) {
 
   ;(async () => {
     try {
-      let Speaker = (await import('audio-speaker')).default
       let ch = a.channels, sr = a.sampleRate
       a.playing = true
 
