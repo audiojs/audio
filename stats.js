@@ -67,14 +67,14 @@ const reducers = {
 }
 
 function binReduce(src, from, to, bins, cfg) {
-  let [reduce, init] = cfg
+  let [reduce, init, post] = cfg
   let out = new Float32Array(bins), bpp = (to - from) / bins
   for (let i = 0; i < bins; i++) {
     let a = from + Math.floor(i * bpp), b = Math.min(from + Math.floor((i + 1) * bpp), to)
     if (b <= a) b = a + 1
-    let v = init
-    for (let j = a; j < b; j++) v = reduce(v, src[j])
-    out[i] = v === init ? 0 : v
+    let v = init, cnt = 0
+    for (let j = a; j < b; j++) { v = reduce(v, src[j]); cnt++ }
+    out[i] = post(v, cnt)
   }
   return out
 }
@@ -281,14 +281,14 @@ audio.fn.stat = async function(name, opts) {
     let reduce1 = (c) => binReduce(src[c], from, to, n, cfg)
     if (perCh) return chList.map(reduce1)
     if (cE - cS === 1) return reduce1(cS)
-    let [reduce, init] = cfg
+    let [reduce, init, post] = cfg
     let out = new Float32Array(n), bpp = (to - from) / n
     for (let i = 0; i < n; i++) {
       let a = from + Math.floor(i * bpp), b = Math.min(from + Math.floor((i + 1) * bpp), to)
       if (b <= a) b = a + 1
-      let v = init
-      for (let c = cS; c < cE; c++) for (let j = a; j < b; j++) v = reduce(v, src[c][j])
-      out[i] = v === init ? 0 : v
+      let v = init, cnt = 0
+      for (let c = cS; c < cE; c++) for (let j = a; j < b; j++) { v = reduce(v, src[c][j]); cnt++ }
+      out[i] = post(v, cnt)
     }
     return out
   }

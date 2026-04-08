@@ -511,6 +511,10 @@ async function main() {
       console.log(`#compdef audio
 _audio() {
   local -a reply
+  if (( CURRENT == 2 )); then
+    _files
+    return
+  fi
   reply=(\${(f)"$(audio --completions-list "\${words[CURRENT-1]}" "\${words[CURRENT]}" 2>/dev/null)"})
   if (( \${#reply} )); then
     compadd -Q -- \${reply}
@@ -524,13 +528,20 @@ compdef _audio audio`)
   local cur prev
   cur="\${COMP_WORDS[COMP_CWORD]}"
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
+  if [[ \$COMP_CWORD -eq 1 ]]; then
+    COMPREPLY=($(compgen -f -- "$cur"))
+    return
+  fi
   local IFS=$'\\n'
   COMPREPLY=($(compgen -W "$(audio --completions-list "$prev" "$cur" 2>/dev/null)" -- "$cur"))
   [[ \${#COMPREPLY[@]} -eq 0 ]] && COMPREPLY=($(compgen -f -- "$cur"))
 }
 complete -o default -F _audio audio`)
     } else if (shell === 'fish') {
-      console.log(`complete -c audio -f -a '(audio --completions-list (commandline -cop)[-1] (commandline -ct) 2>/dev/null)'`)
+      console.log(`function __audio_needs_command
+  test (count (commandline -cop)) -gt 1
+end
+complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (commandline -cop)[-1] (commandline -ct) 2>/dev/null)'`)
     } else {
       console.error('Usage: audio --completions <zsh|bash|fish>')
       console.error('  eval "$(audio --completions zsh)"')
@@ -547,7 +558,10 @@ complete -o default -F _audio audio`)
 
     // Context-aware completions
     let out = []
-    if (prev === 'normalize') {
+    if (prev === '-o' || prev === '--output') {
+      // Need filename — return empty, shell falls back to file completion
+      process.exit(0)
+    } else if (prev === 'normalize') {
       out = ['streaming', 'podcast', 'broadcast', '-1', '-3', '-6']
     } else if (prev === 'fade') {
       out = ['linear', 'exp', 'log', 'cos']
