@@ -170,7 +170,7 @@ fn.run = function(...edits) {
 
 fn.toJSON = function() {
   let edits = this.edits.filter(e => !e.args?.some(a => typeof a === 'function'))
-  return { source: this.source, edits, sampleRate: this.sampleRate, channels: this._.ch, duration: this.duration }
+  return { source: this.source, edits, sampleRate: this.sampleRate, channels: this.channels, duration: this.duration }
 }
 
 fn.clone = function() {
@@ -203,8 +203,10 @@ export function render(a, offset, count) {
   if (offset != null) return readRange(a, offset, count)
   if (a._.pcm && a._.pcmV === a.version) return a._.pcm
   if (!a.edits.length) { let r = readPages(a); a._.pcm = r; a._.pcmV = a.version; return r }
-  if (a._.len > MAX_FLAT_SIZE) throw new Error(`Audio too large for flat render (${(a._.len / 1e6).toFixed(0)}M samples). Use streaming.`)
-  let r = readPlan(a, buildPlan(a))
+  let plan = buildPlan(a)
+  let virtualLen = planLen(plan.segs)
+  if (virtualLen > MAX_FLAT_SIZE) throw new Error(`Audio too large for flat render (${(virtualLen / 1e6).toFixed(0)}M samples). Use streaming.`)
+  let r = readPlan(a, plan)
   a._.pcm = r; a._.pcmV = a.version
   return r
 }
