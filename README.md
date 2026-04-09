@@ -258,14 +258,12 @@ await a.save('sonification.wav')
 Returns instantly — edits chain before decode completes. Thenable.<br>
 
 ```js
-let a = await audio('voice.mp3')
-let b = audio('track.flac')  // no await — edits queue, consuming ops wait
+let a = await audio('voice.mp3')          // file path, URL, Blob, Response,
+let b = audio('track.flac')               //   ArrayBuffer, typed array, JSON
 b.gain(-3).trim()
 await b.save('out.wav')
+// opts: { sampleRate, channels, storage: 'memory' | 'persistent' | 'auto' }
 ```
-
-_source_: file path, URL, Blob, Response, ArrayBuffer, typed array, JSON (restore).
-_opts_: _sampleRate_, _channels_, _storage_  — either _'memory'_ (default), _'persistent'_ (OPFS), or _'auto'_.
 
 
 **`audio.from(source, opts?)`** – wrap existing PCM, AudioBuffer, silence, or function. Sync, no I/O.
@@ -273,12 +271,10 @@ _opts_: _sampleRate_, _channels_, _storage_  — either _'memory'_ (default), _'
 ```js
 let a = audio.from([left, right])                 // Float32Array[] channels
 let b = audio.from(3, { channels: 2 })           // 3s silence
-let c = audio.from(t => Math.sin(440*TAU*t), { duration: 2 })
+let c = audio.from(t => Math.sin(440*TAU*t), { duration: 2 })  // generator
 let d = audio.from(audioBuffer)                   // Web Audio AudioBuffer
 let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 ```
-
-_source_: _Float32Array[]_, _number_ (silence duration), _function_ (generator), _AudioBuffer_, _typed array_ + `{ format }`.
 
 **`audio()`** – pushable instance for `.push()`, `.record()`, `.stop()`.
 
@@ -446,19 +442,19 @@ a.transform((chs, ctx) => chs.map(ch => ch.map(s => s * 0.5)))
 
 ### Filter
 
-**`.highpass(freq)`** · **`.lowpass(freq)`** – high/low-pass filter.
+**`.highpass(freq)`**, **`.lowpass(freq)`** – high/low-pass filter.
 
 ```js
 a.highpass(80)                            // remove rumble
 ```
 
-**`.bandpass(freq, Q?)`** · **`.notch(freq, Q?)`** – band-pass / notch filter.
+**`.bandpass(freq, Q?)`**, **`.notch(freq, Q?)`** – band-pass / notch filter.
 
 ```js
 a.notch(60)                               // remove 60Hz hum
 ```
 
-**`.lowshelf(freq, dB)`** · **`.highshelf(freq, dB)`** – shelf EQ.
+**`.lowshelf(freq, dB)`**, **`.highshelf(freq, dB)`** – shelf EQ.
 
 ```js
 a.lowshelf(200, -3).highshelf(8000, 2)   // voice cleanup
@@ -522,7 +518,7 @@ a.play()
 a.play({ at: 30, duration: 10, loop: true })
 ```
 
-**`.pause()`** · **`.resume()`** · **`.stop()`** · **`.seek(t)`** – playback control.
+**`.pause()`**, **`.resume()`**, **`.stop()`**, **`.seek(t)`** – playback control.
 
 ```js
 a.pause(); a.seek(30); a.resume()         // jump to 30s and continue
@@ -564,7 +560,7 @@ Stats: `'db'` `'rms'` `'loudness'` `'clip'` `'dc'` `'silence'` `'max'` `'min'` `
 
 ### Util
 
-**`.on(event, fn)`** · **`.off(event, fn)`** – events: `'change'`, `'data'`, `'metadata'`, `'timeupdate'`, `'ended'`, `'progress'`.
+**`.on(event, fn)`**, **`.off(event, fn)`** – events: `'change'`, `'data'`, `'metadata'`, `'timeupdate'`, `'ended'`, `'progress'`.
 
 ```js
 a.on('data', ({ delta }) => drawWaveform(delta))
