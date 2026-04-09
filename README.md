@@ -126,7 +126,7 @@ npx audio kirtan.mp3
           50    500  1k     2k         5k       10k      20k
 
           48k   2ch   43:07   -0.8dBFS   -30.8LUFS
-#   ␣ pause, ←/→ seek ±10s, ⇧←/⇧→ seek ±60s, ↑/↓ volume ±3dB, l loop, q quit
+# ␣ pause, ←/→ seek ±10s, ⇧←/⇧→ seek ±60s, ↑/↓ volume ±3dB, l loop, q quit
 
 # Edit / Save
 npx audio in.mp3 gain -3db trim normalize -o out.wav
@@ -136,8 +136,8 @@ npx audio in.mp3 highpass 80hz lowshelf 200hz -3db -o out.wav
 # Clean up a recording
 npx audio raw-take.wav trim -30db normalize podcast fade 0.3s -0.5s -o clean.wav
 
-# Podcast montage
-npx audio intro.mp3 + interview.wav + outro.mp3 trim normalize podcast fade 0.5s -2s -o episode.mp3
+# Join
+npx audio intro.mp3 + content.wav + outro.mp3 trim normalize fade 0.5s -2s -o episode.mp3
 
 # Voiceover on music
 npx audio bg.mp3 gain -12db mix narration.wav 2s -o mixed.wav
