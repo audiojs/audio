@@ -1,6 +1,6 @@
 ## Next
 
-* [ ] There's an issue with player spectrum. When we pause playback, it keeps animating. Can we please freeze spectrum if we hit stop? Also it keeps animating if we seek in paused mode.
+* [ ] There's an issue with player spectrum. When we pause playback, it keeps animating as if there's inertia. Can we please freeze spectrum or maybe just 1 frame if we hit stop? Also it keeps animating if we seek in paused mode.
 * [ ] Figure out .stream contract across packages: either we can call it stream, or have a factory.
 * [ ] Wavearea integration
 * [ ] playback speed
@@ -8,6 +8,9 @@
 * [ ] Pitch detection — spectral centroid or YIN, `audio.stat('pitch')` + `a.pitch()` query
 * [ ] Show BPM/pitch in CLI info line (when detected)
 * [ ] Common processing scripts (vocal warmup etc)
+* [ ] Minimal duration guard on save — some players can't reproduce 1-sample wav (#27)
+* [ ] Crossfade / transitions convenience — `a.crossfade(b, duration)` or similar (#63)
+* [ ] Playground — drag-n-drop files + code editor, probe audiotool-style (#53, #58)
 
 ## Tier 2
 
@@ -20,6 +23,7 @@
 * [ ] declick
 * [ ] denoise
 * [ ] shrink-silence
+* [ ] Audio ponyfill — HTMLAudioElement for node, smooth currentTime, normalized loading (#68)
 
 ### Tier 3: Delighting
 
@@ -28,8 +32,13 @@
 * [ ] pitch-correct
 * [ ] audio-transient-shaper
 
-
 * [ ] Benchmarks
+
+## Issues to close (resolved by v2.0–2.3)
+
+Close with comment "Resolved in v2.0": #22, #42, #43, #44, #45, #48, #50, #52, #55, #56, #62, #64, #66, #67
+Close as not-applicable: #69 (wrong repo — Zoom complaint)
+Remaining open after triage: #27, #53, #57, #58, #63, #68
 
 ## Done (v2.0–v2.3)
 
