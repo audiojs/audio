@@ -143,9 +143,11 @@ let b = await audio(JSON.parse(json))    // re-decode + replay edits
 
 ```sh
 npx audio [file] [ops...] [-o output] [options]
-# `-i` info, `-p` autoplay, `-h` help, `-o` output, `-v` version.
+```
 
-# Playback
+### Playback
+
+```sh
 npx audio kirtan.mp3
 ▶ 0:06:37 ━━━━━━━━────────────────────────────────────────── -0:36:30   ▁▂▃▄▅__
           ▂▅▇▇██▇▆▇▇▇██▆▇▇▇▆▆▅▅▆▅▆▆▅▅▆▅▅▅▃▂▂▂▂▁_____________
@@ -153,40 +155,66 @@ npx audio kirtan.mp3
 
           48k   2ch   43:07   -0.8dBFS   -30.8LUFS
 # ␣ pause, ←/→ seek ±10s, ⇧←/⇧→ seek ±60s, ↑/↓ volume ±3dB, l loop, q quit
+```
 
-# Edit / Save
-npx audio in.mp3 gain -3db trim normalize -o out.wav
-npx audio in.wav gain -3db 1s..10s -o out.wav    # range
-npx audio in.mp3 highpass 80hz lowshelf 200hz -3db -o out.wav
+### Clean up a recording
 
-# Clean up a recording
+```sh
 npx audio raw-take.wav trim -30db normalize podcast fade 0.3s -0.5s -o clean.wav
+```
 
-# Join
+### Edit with ranges
+
+```sh
+npx audio in.mp3 gain -3db trim normalize -o out.wav
+npx audio in.wav gain -3db 1s..10s -o out.wav
+npx audio in.mp3 highpass 80hz lowshelf 200hz -3db -o out.wav
+```
+
+### Join
+
+```sh
 npx audio intro.mp3 + content.wav + outro.mp3 trim normalize fade 0.5s -2s -o episode.mp3
+```
 
-# Voiceover on music
+### Voiceover on music
+
+```sh
 npx audio bg.mp3 gain -12db mix narration.wav 2s -o mixed.wav
+```
 
-# Split a long file
+### Split a long file
+
+```sh
 npx audio audiobook.mp3 split 30m 60m -o 'chapter-{i}.mp3'
+```
 
-# Analysis
+### Analysis
+
+```sh
 npx audio speech.wav stat cepstrum --bins 13
 npx audio speech.wav stat spectrum --bins 128
 npx audio speech.wav stat loudness rms
+```
 
-# Batch
+### Batch
+
+```sh
 npx audio '*.wav' trim normalize podcast -o '{name}.clean.{ext}'
 npx audio '*.wav' gain -3db -o '{name}.out.{ext}'
-npx audio in.wav --macro recipe.json -o out.wav
+```
 
-# Stdin/stdout
+### Stdin/stdout
+
+```sh
 cat in.wav | audio gain -3db > out.wav
 curl -s https://example.com/speech.mp3 | npx audio normalize -o clean.wav
 ffmpeg -i video.mp4 -f wav - | npx audio trim normalize podcast > voice.wav
+```
 
-# tab completion
+### Tab completion
+
+```sh
 eval "$(audio --completions zsh)"       # add to ~/.zshrc
 eval "$(audio --completions bash)"      # add to ~/.bashrc
 audio --completions fish | source       # fish
@@ -194,70 +222,93 @@ audio --completions fish | source       # fish
 
 ## Quick reference
 
-| Method | Description |
-|--------|-------------|
-| `audio(source, opts?)` | Decode from file/URL/bytes (async, thenable, paged) |
-| `audio.from(source, opts?)` | Wrap PCM/AudioBuffer/silence/function (sync, resident) |
-| `audio()` | Pushable instance — `.push()`, `.record()`, `.stop()` |
-| `audio([a, b, ...])` | Concat from array |
-| **Properties** | |
-| `.duration` `.channels` `.sampleRate` `.length` | Audio dimensions (reflect edits) |
-| `.currentTime` `.playing` `.paused` `.volume` `.loop` | Playback state |
-| `.source` `.pages` `.stats` `.edits` `.version` | Internal state |
-| **Structural** | |
-| `.crop({at, duration})` | Keep only this range |
-| `.remove({at, duration})` | Delete a range |
-| `.insert(source, {at})` | Insert audio or silence at position |
-| `.repeat(n)` | Repeat n times |
-| `.pad(before, after?)` | Pad silence at edges (seconds) |
-| `.speed(rate)` | Change playback speed |
-| `.reverse({at?, duration?})` | Reverse audio or range |
-| `.split(t1, t2, ...)` | Split into views at timestamps |
-| `.view({at, duration})` | Non-destructive view of a range |
-| `.concat(b, c, ...)` | Concatenate sources |
-| **Sample** | |
-| `.gain(dB, {at?, duration?, channel?})` | Volume in dB. Accepts function for automation |
-| `.fade(in, out?, curve?)` | Fade in/out. Positive = from start, negative = from end |
-| `.mix(other, {at?, duration?})` | Overlay another audio |
-| `.write(data, {at?})` | Overwrite samples at position |
-| `.remix(channels)` | Change channel count |
-| `.pan(value, {at?, duration?})` | Stereo balance (−1..1). Accepts function |
-| **Smart** | |
-| `.trim(threshold?)` | Remove silence from edges |
-| `.normalize(target?)` | Loudness normalize. Presets: `'podcast'`, `'streaming'`, `'broadcast'` |
-| **Filter** | |
-| `.highpass(hz)` `.lowpass(hz)` | High/low-pass filter |
-| `.bandpass(freq, Q)` `.notch(freq, Q)` | Band-pass / notch filter |
-| `.lowshelf(hz, dB)` `.highshelf(hz, dB)` | Shelf EQ |
-| `.eq(freq, gain, Q)` | Parametric EQ |
-| **I/O** | |
-| `await .read({at?, duration?, channel?, format?})` | Read PCM or encode to bytes |
-| `await .save(path, {format?, at?, duration?})` | Save to file |
-| `await .encode(format?, {at?, duration?})` | Encode to Uint8Array |
-| `for await (let block of .stream())` | Async iterator over blocks |
-| **Playback** | |
-| `.play({at?, duration?, volume?, loop?})` | Start playback |
-| `.pause()` `.resume()` `.stop()` `.seek(t)` | Playback control |
-| **Recording** | |
-| `.record()` | Start mic recording |
-| `.push(data, format?)` | Feed PCM into pushable |
-| `.stop()` | Stop playback or recording |
-| **Analysis** | |
-| `await .stat(name, {at?, duration?, bins?, channel?})` | Query stat: `'db'`, `'rms'`, `'loudness'`, `'clip'`, `'dc'`, `'silence'` |
-| `await .stat('max', {bins})` | Downsampled waveform |
-| `await .stat('spectrum', {bins})` | Mel spectrum |
-| `await .stat('cepstrum', {bins})` | MFCCs |
-| `await .stat([...names], opts)` | Multiple stats at once |
-| **Events** | |
-| `.on(event, fn)` `.off(event, fn)` | `'change'`, `'data'`, `'timeupdate'`, `'ended'`, `'progress'` |
-| `.dispose()` | Release all resources |
-| **History** | |
-| `.undo()` `.run(edit1, ...)` | Undo / replay edits |
-| `JSON.stringify(a)` / `audio(json)` | Serialize / restore |
-| **Custom** | |
-| `audio.op(name, fn)` | Register custom op |
-| `audio.stat(name, descriptor)` | Register custom stat |
-| `.transform(fn)` | Inline processor |
+### Create
+
+* `audio(source, opts?)` – decode from file, URL, or bytes (async, thenable, paged)
+* `audio.from(source, opts?)` – wrap PCM, AudioBuffer, silence, or function (sync, resident)
+* `audio()` – pushable instance for `.push()`, `.record()`, `.stop()`
+* `audio([a, b, ...])` – concat from array
+
+### Properties
+
+* `.duration` `.channels` `.sampleRate` `.length` – audio dimensions (reflect edits)
+* `.currentTime` `.playing` `.paused` `.volume` `.loop` – playback state
+* `.source` `.pages` `.stats` `.edits` `.version` – internal state
+
+### Structural
+
+* `.crop({at, duration})` – keep only this range
+* `.remove({at, duration})` – delete a range
+* `.insert(source, {at})` – insert audio or silence at position
+* `.repeat(n)` – repeat n times
+* `.pad(before, after?)` – pad silence at edges (seconds)
+* `.speed(rate)` – change playback speed
+* `.reverse({at?, duration?})` – reverse audio or range
+* `.split(t1, t2, ...)` – split into views at timestamps
+* `.view({at, duration})` – non-destructive view of a range
+* `.concat(b, c, ...)` – concatenate sources
+
+### Sample
+
+* `.gain(dB, {at?, duration?, channel?})` – volume in dB, accepts function for automation
+* `.fade(in, out?, curve?)` – fade in/out, positive = from start, negative = from end
+* `.mix(other, {at?, duration?})` – overlay another audio
+* `.write(data, {at?})` – overwrite samples at position
+* `.remix(channels)` – change channel count
+* `.pan(value, {at?, duration?})` – stereo balance (−1..1), accepts function
+
+### Smart
+
+* `.trim(threshold?)` – remove silence from edges
+* `.normalize(target?)` – loudness normalize, presets: `'podcast'`, `'streaming'`, `'broadcast'`
+
+### Filter
+
+* `.highpass(hz)` `.lowpass(hz)` – high/low-pass filter
+* `.bandpass(freq, Q)` `.notch(freq, Q)` – band-pass / notch filter
+* `.lowshelf(hz, dB)` `.highshelf(hz, dB)` – shelf EQ
+* `.eq(freq, gain, Q)` – parametric EQ
+
+### I/O
+
+* `await .read({at?, duration?, channel?, format?})` – read PCM or encode to bytes
+* `await .save(path, {format?, at?, duration?})` – save to file
+* `await .encode(format?, {at?, duration?})` – encode to Uint8Array
+* `for await (let block of .stream())` – async iterator over blocks
+
+### Playback
+
+* `.play({at?, duration?, volume?, loop?})` – start playback
+* `.pause()` `.resume()` `.stop()` `.seek(t)` – playback control
+
+### Recording
+
+* `.record()` – start mic recording
+* `.push(data, format?)` – feed PCM into pushable
+* `.stop()` – stop playback or recording
+
+### Analysis
+
+* `await .stat(name, {at?, duration?, bins?, channel?})` – query a stat
+* Stats: `'db'` `'rms'` `'loudness'` `'clip'` `'dc'` `'silence'` `'max'` `'spectrum'` `'cepstrum'`
+* `await .stat([...names], opts)` – multiple stats at once
+
+### Events
+
+* `.on(event, fn)` `.off(event, fn)` – `'change'`, `'data'`, `'timeupdate'`, `'ended'`, `'progress'`
+* `.dispose()` – release all resources
+
+### History
+
+* `.undo()` – undo last edit
+* `.run(edit1, ...)` – replay edits
+* `JSON.stringify(a)` / `audio(json)` – serialize / restore
+
+### Custom
+
+* `audio.op(name, fn)` – register custom op
+* `audio.stat(name, descriptor)` – register custom stat
+* `.transform(fn)` – inline processor
 
 
 ## Browser
@@ -320,25 +371,31 @@ Only mapped codecs are fetched — `audio-decode` calls `import('mpg123-decoder'
 
 <dl>
 <dt>How is this different from Web Audio API?</dt>
-<dd>Web Audio API is a real-time graph for playback and synthesis. This is a file-oriented tool for loading, editing, analyzing, and saving audio. They complement — use Web Audio for live DSP, this for everything around it.</dd>
+<dd>Web Audio API is a real-time graph for playback and synthesis. This is for loading, editing, analyzing, and saving audio files. They work well together. For Web Audio API in Node, see <a href="https://github.com/audiojs/web-audio-api">web-audio-api</a>.</dd>
 
 <dt>What formats are supported?</dt>
-<dd>WAV, MP3, FLAC, OGG Vorbis, Opus, AAC, AIFF, CAF, WebM, AMR, WMA, QOA. Codecs are WASM-based, lazy-loaded on first use. Encoding: WAV, MP3, FLAC, Opus, OGG, AIFF.</dd>
+<dd>Decode: WAV, MP3, FLAC, OGG Vorbis, Opus, AAC, AIFF, CAF, WebM, AMR, WMA, QOA via <a href="https://github.com/audiojs/audio-decode">audio-decode</a>. Encode: WAV, MP3, FLAC, Opus, OGG, AIFF via <a href="https://github.com/audiojs/audio-encode">audio-encode</a>. Codecs are WASM-based, lazy-loaded on first use.</dd>
 
 <dt>Does it need ffmpeg or native addons?</dt>
-<dd>No. Pure JS + WASM. <code>npm i audio</code> and go.</dd>
+<dd>No, pure JS + WASM. For CLI, you can install globally: <code>npm i -g audio</code>.</dd>
 
 <dt>How big is the bundle?</dt>
-<dd>65K core. Codecs load on demand — only the formats you open get fetched.</dd>
+<dd>~20K gzipped core. Codecs load on demand via <code>import()</code>, so unused formats aren't fetched.</dd>
 
 <dt>How does it handle large files?</dt>
-<dd>Audio is stored in pages. Cold pages evict to OPFS (browser) when memory exceeds budget. A 2-hour file never needs 2 hours of float arrays in RAM.</dd>
+<dd>Audio is stored in fixed-size pages. In the browser, cold pages can evict to OPFS when memory exceeds budget. Stats stay resident (~7 MB for 2h stereo).</dd>
 
 <dt>Are edits destructive?</dt>
-<dd>No. Ops push to an edit list — source pages stay immutable. Undo, serialize, restore at any point.</dd>
+<dd>No. <code>a.gain(-3).trim()</code> pushes entries to an edit list — source pages aren't touched. Edits replay on <code>read()</code>/<code>save()</code>/<code>stream()</code>.</dd>
 
 <dt>Can I use it in the browser?</dt>
-<dd>Yes. Same API. See <a href="#browser">Browser</a> for bundle options and import maps.</dd>
+<dd>Yes, same API. See <a href="#browser">Browser</a> for bundle options and import maps.</dd>
+
+<dt>Does it need the full file before I can work with it?</dt>
+<dd>No, playback and edits work during decode. The <code>'data'</code> event fires as pages arrive.</dd>
+
+<dt>TypeScript?</dt>
+<dd>Yes, ships with <code>audio.d.ts</code>.</dd>
 </dl>
 
 
