@@ -10,10 +10,12 @@
 
 ## Principles
 
-1. **Stream-first** — every operation works per-page. No full-data paths exist. Instant playback, editing, analysis regardless of file size or edit chain depth.
-2. **Immutable** — edits are a declarative list. Source is immutable. Any state is reconstructable from source + edits.
-3. **Physical units** — seconds, dB, Hz, LUFS. Samples are internal. The user never counts frames.
-5. **Modular** — ops, stats, sources, encoders are all registered the same way: `(audio) => { ... }`. Core hardcodes nothing.
+- **Stream-first** — every operation works per-page. No full-data paths exist. Instant playback, editing, analysis regardless of file size or edit chain depth.
+- **Immutable** — edits are a declarative list. Source is immutable. Any state is reconstructable from source + edits.
+- **Physical units** — seconds, dB, Hz, LUFS. Samples are internal. The user never counts frames.
+- **Modular** — ops, stats, sources, encoders are all registered the same way: `(audio) => { ... }`. Core hardcodes nothing.
+- **Paged** - no memory limitation
+- **CLI**
 
 ## Mission
 

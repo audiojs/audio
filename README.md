@@ -1,6 +1,21 @@
 # audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/audio)](https://npmjs.org/package/audio)
 
-Audio in JavaScript. Load, edit, play, analyze, save — any format, streaming, non-destructive, scriptable.
+Audio in JavaScript.<br>
+
+* **Any format** — WASM codecs, lazy-loaded, no ffmpeg.
+* **Streaming** — instant playback and edits during decode finishes.
+* **Immutable** — virtual edits, instant ops, undo, redo, serialize.
+* **Page cache** — no 2Gb memory limit, evictable to OPFS for large files.
+* **Analysis** — peak, RMS, LUFS, spectrum, MFCCs, silence detection. Waveform in one call.
+* **CLI** — player/recorder, unix pipelines, batch glob, tab completion.
+* **Isomorphic** — same API in Node and browser.
+* **Modular** – pluggable ops, stats, autodiscovery.
+* **Domain-first** – audio units and terminology: dB, Hz, LUFS, not samples/indices.
+
+* [Reference](docs/reference.md) – full API: create, properties, edit ops, I/O, analysis, events, CLI, browser
+* [Architecture](docs/architecture.md) – stream-first design, pages & blocks, non-destructive editing, plan compilation
+* [Recipes](docs/recipes.md) – all examples with JS + CLI pairs: montage, waveform, ML, glitch, streaming
+* [Plugins](docs/plugins.md) – custom ops, stats, descriptors (process, plan, resolve, call), persistent ctx
 
 ```
 npm i audio
@@ -233,12 +248,6 @@ audio --completions fish | source       # fish
 | `audio.stat(name, descriptor)` | Register custom stat |
 | `.transform(fn)` | Inline processor |
 
-## Docs
-
-* [Reference](docs/reference.md) – full API: create, properties, edit ops, I/O, analysis, events, CLI, browser
-* [Architecture](docs/architecture.md) – stream-first design, pages & blocks, non-destructive editing, plan compilation
-* [Recipes](docs/recipes.md) – all examples with JS + CLI pairs: montage, waveform, ML, glitch, streaming
-* [Plugins](docs/plugins.md) – custom ops, stats, descriptors (process, plan, resolve, call), persistent ctx
 
 ## Browser
 
