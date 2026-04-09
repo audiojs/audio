@@ -11,7 +11,6 @@ High-level audio manipulations in JS. Load, edit, play, analyze, save.
 * **Platform agnostic** – browser, CLI
 * **Physical units** — seconds, dB, Hz — not samples or indices
 
-**`npm i audio`**
 
 ```js
 import audio from 'audio'
