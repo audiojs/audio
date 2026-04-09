@@ -9,10 +9,12 @@ npm i audio
 ```js
 import audio from 'audio'
 
-audio('raw-take.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
+audio('raw-take.wav')
+  .trim(-30)
+  .normalize('podcast')
+  .fade(0.3, 0.5)
+  .save('clean.mp3')
 ```
-
-## Principles
 
 * **Any format** — WASM codecs, lazy-loaded, no ffmpeg.
 * **Streaming** — instant playback and edits during decode finishes.
