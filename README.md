@@ -264,7 +264,7 @@ let d = audio()                           // empty, ready for .push() or .record
 let e = audio([intro, body, outro])       // concat (virtual, no copy)
 // opts: { sampleRate, channels, storage: 'memory' | 'persistent' | 'auto' }
 
-await a                                   // await for decode — if you need .duration, full stats etc
+await a    // await for decode — if you need .duration, full stats etc
 ```
 
 
