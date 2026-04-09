@@ -301,6 +301,15 @@ a.edits                   // edit list (non-destructive ops)
 a.version                 // increments on each edit
 ```
 
+Most ops take a last options argument with `at`, `duration`, `channel`. Time values accept numbers (seconds) or strings with units:
+
+```js
+a.gain(-3, { at: 10, duration: 5 })       // seconds
+a.gain(-3, { at: '1:30', duration: '30s' })  // timecode, duration string
+a.gain(-3, { at: '2m', duration: '500ms' })  // also: '1.5h', '90s', '2m30s'
+a.gain(-3, { channel: 0 })               // left channel only
+```
+
 ### Structure
 
 **`.crop({at, duration})`** – keep only this range, discard the rest.
@@ -554,6 +563,7 @@ let spec = await a.stat('spectrum', { bins: 128 })
 let peaks = await a.stat('max', { bins: 800 })   // waveform
 ```
 
+<!-- FIXME should elaborate as  -->
 Stats: `'db'` `'rms'` `'loudness'` `'clip'` `'dc'` `'silence'` `'max'` `'min'` `'spectrum'` `'cepstrum'`
 
 ### Util
