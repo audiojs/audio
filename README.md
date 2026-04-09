@@ -115,25 +115,43 @@ let b = await audio(JSON.parse(json))    // re-decode + replay edits
 
 ## CLI
 
+```sh
+npx audio [file] [ops...] [-o output] [options]
 ```
-npx audio kirtan.mp3 -p
-⏸ 0:00:24 ────────────────────────────────────────────────── -0:42:42   ▁▂▃▄▅__
-          ▃▅▆▆▇▇▇▆▆▆▇▇▇▇▆▆▆▆▅▆▆▅▅▅▅▅▅▅▄▄▄▂▂▂▁▁▁_____________
+
+Flags: `-i` info, `-p` autoplay, `-h` help, `-o` output, `-v` version.
+
+### Playback
+
+```sh
+npx audio kirtan.mp3
+▶ 0:06:37 ━━━━━━━━────────────────────────────────────────── -0:36:30   ▁▂▃▄▅__
+          ▂▅▇▇██▇▆▇▇▇██▆▇▇▇▆▆▅▅▆▅▆▆▅▅▆▅▅▅▃▂▂▂▂▁_____________
           50    500  1k     2k         5k       10k      20k
 
           48k   2ch   43:07   -0.8dBFS   -30.8LUFS
 ```
 
-Space pause, arrows seek/volume, `l` loop, `q` quit.
+<kbd>Space</kbd> pause · <kbd>←</kbd><kbd>→</kbd> seek ±10s · <kbd>⇧←</kbd><kbd>⇧→</kbd> seek ±60s · <kbd>↑</kbd><kbd>↓</kbd> volume ±3dB · <kbd>l</kbd> loop · <kbd>q</kbd> quit
+
+### Info
 
 ```sh
-# Basics
-npx audio in.mp3                                 # open player
-npx audio in.mp3 -p                              # autoplay
-npx audio in.mp3 -i                              # file info
-npx audio gain --help                            # per-op help
+npx audio in.mp3 -i
+  Duration:   43:07
+  Channels:   2
+  SampleRate: 48000 Hz
+  Samples:    124204032
+  Peak:       -0.8 dBFS
+  Loudness:   -30.8 LUFS
+  Clipping:   none
+  DC offset:  none
+  Loaded in:  5.6s
+```
 
-# Edit + save
+### Edit
+
+```sh
 npx audio in.mp3 gain -3db trim normalize -o out.wav
 npx audio in.wav gain -3db 1s..10s -o out.wav    # range
 npx audio in.mp3 highpass 80hz lowshelf 200hz -3db -o out.wav
@@ -149,9 +167,6 @@ npx audio bg.mp3 gain -12db mix narration.wav 2s -o mixed.wav
 
 # Split a long file
 npx audio audiobook.mp3 split 30m 60m -o 'chapter-{i}.mp3'
-
-# Generate a tone
-npx audio --tone 440hz 2s -o 440hz.wav
 
 # Analysis
 npx audio speech.wav stat cepstrum --bins 13
@@ -169,11 +184,8 @@ curl -s https://example.com/speech.mp3 | npx audio normalize -o clean.wav
 ffmpeg -i video.mp4 -f wav - | npx audio trim normalize podcast > voice.wav
 ```
 
-Ranges: `1s..10s`, `30s..1m`, `-1s..`. Units: `s`, `ms`, `m`, `h`, `db`, `hz`, `khz`.
 
-Flags: `-i` info, `-p` play, `-f` force, `--verbose`, `--format`, `-o` output, `--macro`.
-
-Tab completion:
+### Tab completion
 
 ```sh
 eval "$(audio --completions zsh)"       # add to ~/.zshrc
