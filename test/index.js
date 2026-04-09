@@ -649,7 +649,8 @@ test('dispose — stops recording', async t => {
 
 test('dispose — Symbol.dispose alias', async t => {
   let a = audio.from([new Float32Array(44100)])
-  t.is(a[Symbol.dispose], a.dispose, 'Symbol.dispose points to dispose')
+  if (Symbol.dispose) t.is(a[Symbol.dispose], a.dispose, 'Symbol.dispose points to dispose')
+  else t.ok(true, 'Symbol.dispose not available')
 })
 
 

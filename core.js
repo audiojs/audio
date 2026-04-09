@@ -213,7 +213,7 @@ fn.dispose = function() {
   this._.waiters = null
   this._.acc = null
 }
-fn[Symbol.dispose] = fn.dispose
+if (Symbol.dispose) fn[Symbol.dispose] = fn.dispose
 
 /** Register plugins. Each receives audio. */
 audio.use = function(...plugins) {

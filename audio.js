@@ -49,6 +49,7 @@ import './fn/transform.js'
 // ── Stats ───────────────────────────────────────────────────────────────
 
 import './fn/stat.js'
+import './fn/loudness.js'
 import './fn/spectrum.js'
 import './fn/cepstrum.js'
 import './fn/silence.js'
