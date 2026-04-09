@@ -308,6 +308,7 @@ a.gain(-3, { at: 10, duration: 5 })       // seconds
 a.gain(-3, { at: '1:30', duration: '30s' })  // timecode, duration string
 a.gain(-3, { at: '2m', duration: '500ms' })  // also: '1.5h', '90s', '2m30s'
 a.gain(-3, { channel: 0 })               // left channel only
+a.gain(-3, { channel: [0, 2] })          // channels 0 and 2
 ```
 
 ### Structure
@@ -381,8 +382,18 @@ let chorus = a.view({ at: 60, duration: 30 })  // zero-copy slice
 a.concat(outro)                           // append outro
 ```
 
+**`.remix(channels)`** – change channel count. Accepts a number or array map.
 
-### Samples
+```js
+a.remix(1)                                // stereo → mono
+a.remix(2)                                // mono → stereo
+a.remix([1, 0])                           // swap L/R
+a.remix([0, 0])                           // both from left
+a.remix([0, null, 1])                     // L, silence, R → 3ch
+```
+
+
+### Process
 
 **`.gain(dB, {at?, duration?, channel?, unit?})`** – volume in dB. Accepts function for automation.
 
@@ -411,13 +422,6 @@ a.mix(voice, { at: 2 })
 
 ```js
 a.write(float32arr, { at: 10 })           // overwrite at 10s
-```
-
-**`.remix(channels)`** – change channel count.
-
-```js
-a.remix(1)                                // stereo → mono
-a.remix(2)                                // mono → stereo
 ```
 
 **`.pan(value, {at?, duration?})`** – stereo balance. Accepts function.
@@ -515,34 +519,41 @@ for await (let block of a.stream()) send(block)  // stream blocks
 let b = a.clone()                         // independent copy, shared pages
 ```
 
+**`.push(data, format?)`** – feed PCM into a pushable instance. Independent of recording.
 
-### Playback
+```js
+let a = audio()
+a.push(new Float32Array(44100))           // mono float32
+a.push(int16buf, 'int16')                 // typed array + format
+a.push(interleaved, { format: 'int16', channels: 2 })
+a.stop()                                  // finalize
+```
 
-**`.play(opts?)`** – start playback.
+
+### Playback / Recording
+
+**`.play(opts?)`** – start playback. Re-invocation restarts.
 
 ```js
 a.play()
-a.play({ at: 30, duration: 10, loop: true })
+a.play({ at: 30, duration: 10 })          // play 30s–40s
+a.play({ volume: -6, loop: true })        // quiet, looping
 ```
 
 **`.pause()`**, **`.resume()`**, **`.stop()`**, **`.seek(t)`** – playback control.
 
 ```js
 a.pause(); a.seek(30); a.resume()         // jump to 30s and continue
+a.volume = -3                             // live volume in dB
+a.loop = true                             // live loop toggle
 ```
 
-### Recording
-
-**`.record()`** – start mic recording.
+**`.record(opts?)`** – start mic recording. Options pass through to `audio-mic`.
 
 ```js
-a.record()                                // start mic capture
-```
-
-**`.push(data, format?)`** – feed PCM into pushable instance.
-
-```js
-a.push(float32chunk)                      // feed raw PCM
+a.record()                                // default mic
+a.record({ deviceId: 'abc123' })          // specific device
+a.record({ sampleRate: 16000, channels: 1 })
 ```
 
 **`.stop()`** – stop playback or recording.
@@ -554,7 +565,7 @@ a.stop()                                  // end recording or playback
 
 ### Analysis
 
-**`await .stat(name, opts?)`** – query a stat. `{at, duration}` for sub-ranges, `{bins}` for waveforms.
+**`await .stat(name, opts?)`** – query a stat. Accepts `{at, duration}` for sub-ranges, `{channel}` for per-channel, `{bins}` for array output.
 
 ```js
 let loud = await a.stat('loudness')
@@ -563,22 +574,118 @@ let spec = await a.stat('spectrum', { bins: 128 })
 let peaks = await a.stat('max', { bins: 800 })   // waveform
 ```
 
-<!-- FIXME should elaborate as  -->
-Stats: `'db'` `'rms'` `'loudness'` `'clip'` `'dc'` `'silence'` `'max'` `'min'` `'spectrum'` `'cepstrum'`
+Without `bins` — returns scalar. With `bins` — returns `Float32Array` downsampled to that many points. Set `bins` to block count for raw per-block values:
 
-### Util
+```js
+let blocks = Math.ceil(a.length / 1024)
+let raw = await a.stat('max', { bins: blocks })   // one value per block
 
-**`.on(event, fn)`**, **`.off(event, fn)`** – subscribe to events.
+await a.stat('rms', { channel: 0 })               // left only → number
+await a.stat('rms', { channel: [0, 1] })           // per-channel → [number, number]
+await a.stat('max', { channel: 0, bins: 800 })     // left waveform → Float32Array
+```
+
+#### Level
+
+**`'db'`** – peak amplitude in dBFS.
+
+```js
+await a.stat('db')                        // -0.8
+await a.stat('db', { at: 10, duration: 5 })
+```
+
+**`'rms'`** – RMS amplitude (linear).
+
+```js
+await a.stat('rms')                       // 0.12
+await a.stat('rms', { bins: 400 })        // RMS envelope
+```
+
+**`'loudness'`** – integrated loudness in LUFS (ITU-R BS.1770).
+
+```js
+await a.stat('loudness')                  // -14.2
+```
+
+**`'dc'`** – DC offset (mean sample value).
+
+```js
+await a.stat('dc')                        // 0.002
+```
+
+#### Detection
+
+**`'clip'`** – clipped samples. Scalar returns timestamps (seconds), binned returns counts.
+
+```js
+let clips = await a.stat('clip')          // [2.1, 5.8, ...] seconds
+let counts = await a.stat('clip', { bins: 100 })  // clip count per bin
+```
+
+**`'silence'`** – silent segments as `{at, duration}` ranges.
+
+```js
+let gaps = await a.stat('silence')                        // auto threshold
+let gaps = await a.stat('silence', { threshold: -40 })    // custom
+```
+
+#### Waveform
+
+**`'max'`**, **`'min'`** – peak envelope. Use together for waveform rendering.
+
+```js
+let [mins, maxs] = await a.stat(['min', 'max'], { bins: canvas.width })
+for (let i = 0; i < maxs.length; i++)
+  ctx.fillRect(i, h/2 - maxs[i]*h/2, 1, (maxs[i] - mins[i])*h/2)
+```
+
+#### Frequency
+
+**`'spectrum'`** – mel-frequency spectrum in dB (A-weighted).
+
+```js
+await a.stat('spectrum')                              // 128 bins default
+await a.stat('spectrum', { bins: 64, at: 10, duration: 5 })
+```
+
+**`'cepstrum'`** – MFCCs (mel-frequency cepstral coefficients).
+
+```js
+await a.stat('cepstrum')                              // 13 coefficients default
+await a.stat('cepstrum', { bins: 20 })
+```
+
+### Utility
+
+**`.on(event, fn)`** – subscribe to an event. **`.off(event?, fn?)`** – unsubscribe.
 
 ```js
 a.on('data', ({ delta }) => drawWaveform(delta))
-a.on('change', () => {})                  // also: 'metadata' 'timeupdate' 'ended' 'progress'
+a.off('data', drawWaveform)               // remove one listener
+a.off('data')                             // remove all 'data' listeners
+a.off()                                   // remove all listeners on all events
 ```
 
-**`.dispose()`** – release all resources. Also `a[Symbol.dispose]()`.
+Events:
+
+| Event | Payload | When |
+|---|---|---|
+| `'data'` | `{ delta, offset, sampleRate, channels }` | PCM pages decoded/pushed — `delta` has per-block stats (`min`, `max`, `energy`, `clip`, `dc`) |
+| `'change'` | — | Any edit or undo |
+| `'metadata'` | `{ sampleRate, channels }` | Stream header decoded |
+| `'timeupdate'` | `currentTime` | Playback position advances |
+| `'ended'` | — | Playback finishes (not on loop) |
+| `'progress'` | `{ offset, total }` | During `save()`/`encode()` — both in seconds |
+
+**`.dispose()`** – release all resources. (same as `a[Symbol.dispose]`)
 
 ```js
 a.dispose()                               // free pages, stop playback
+
+{
+  using a = await audio('big.flac')       // auto-dispose on block exit
+  await a.save('out.mp3')
+}                                         // a.dispose() called automatically
 ```
 
 **`.undo(n?)`** – undo last edit (or last n). Returns the edit — pass to `.run()` for redo.
@@ -588,10 +695,22 @@ a.undo()                                  // undo last op
 a.undo(3)                                 // undo last 3
 ```
 
-**`.run(...edits)`** – replay raw edit objects.
+**`.run(...edits)`** – apply edit objects. Edits are plain `{ type, args, at?, duration?, channel? }`.
 
 ```js
 let edit = a.undo(); a.run(edit)          // redo
+
+a.run({ type: 'gain', args: [-3] })      // same as a.gain(-3)
+a.run(                                    // batch apply
+  { type: 'trim', args: [-30] },
+  { type: 'normalize', args: ['podcast'] },
+  { type: 'fade', args: [0.3, 0.5] }
+)
+
+// replay same processing onto another file
+let b = await audio('other.wav')
+b.run(...a.edits)
+await b.save('other-processed.wav')
 ```
 
 **`JSON.stringify(a)`** / **`audio(json)`** – serialize / restore.
@@ -632,7 +751,7 @@ lowshelf    highshelf   normalize
 ```
 
 
-`-o` output · `-p` play · `-i` info · `-f` force · `--format` · `--verbose` · `+` concat
+`-o` output · `-p` play · `-f` force · `--format` · `--verbose` · `+` concat
 
 ### Playback
 
@@ -646,44 +765,35 @@ npx audio kirtan.mp3
 ```
 <kbd>␣</kbd> pause · <kbd>←</kbd>/<kbd>→</kbd> seek ±10s · <kbd>⇧←</kbd>/<kbd>⇧→</kbd> seek ±60s · <kbd>↑</kbd>/<kbd>↓</kbd> volume ±3dB · <kbd>l</kbd> loop · <kbd>q</kbd> quit
 
-### Clean up a recording
+### Edit
 
 ```sh
+# clean up
 npx audio raw-take.wav trim -30db normalize podcast fade 0.3s -0.5s -o clean.wav
-```
-
-### Edit with ranges
-
-```sh
-npx audio in.mp3 gain -3db trim normalize -o out.wav
+# ranges
 npx audio in.wav gain -3db 1s..10s -o out.wav
+# filter chain
 npx audio in.mp3 highpass 80hz lowshelf 200hz -3db -o out.wav
-```
-
-### Join
-
-```sh
-npx audio intro.mp3 + content.wav + outro.mp3 trim normalize fade 0.5s -2s -o episode.mp3
-```
-
-### Voiceover on music
-
-```sh
+# join
+npx audio intro.mp3 + content.wav + outro.mp3 trim normalize fade 0.5s -2s -o ep.mp3
+# voiceover
 npx audio bg.mp3 gain -12db mix narration.wav 2s -o mixed.wav
-```
-
-### Split a long file
-
-```sh
+# split
 npx audio audiobook.mp3 split 30m 60m -o 'chapter-{i}.mp3'
 ```
 
 ### Analysis
 
 ```sh
-npx audio speech.wav stat cepstrum --bins 13
-npx audio speech.wav stat spectrum --bins 128
+# all default stats (db, rms, loudness, clip, dc)
+npx audio speech.wav stat
+# specific stats
 npx audio speech.wav stat loudness rms
+# spectrum / cepstrum with bin count
+npx audio speech.wav stat spectrum 128
+npx audio speech.wav stat cepstrum 13
+# stat after transforms
+npx audio speech.wav gain -3db stat db
 ```
 
 ### Batch

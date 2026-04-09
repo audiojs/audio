@@ -765,6 +765,35 @@ test('remix — stereo to mono', async t => {
   t.ok(Math.abs(pcm[0][0] - 0.5) < 0.01, 'mono = average of L+R')
 })
 
+test('remix — array map swap L/R', async t => {
+  let L = new Float32Array(100).fill(0.3), R = new Float32Array(100).fill(0.7)
+  let a = audio.from([L, R])
+  a.remix([1, 0])
+  let pcm = await a.read()
+  t.is(pcm.length, 2, '2ch')
+  t.ok(Math.abs(pcm[0][0] - 0.7) < 0.01, 'left = old right')
+  t.ok(Math.abs(pcm[1][0] - 0.3) < 0.01, 'right = old left')
+})
+
+test('remix — array map with null (silence)', async t => {
+  let a = audio.from([new Float32Array(100).fill(0.5), new Float32Array(100).fill(0.8)])
+  a.remix([0, null, 1])
+  let pcm = await a.read()
+  t.is(pcm.length, 3, '3ch output')
+  t.ok(Math.abs(pcm[0][0] - 0.5) < 0.01, 'ch0 from left')
+  t.ok(pcm[1][0] === 0, 'ch1 silent')
+  t.ok(Math.abs(pcm[2][0] - 0.8) < 0.01, 'ch2 from right')
+})
+
+test('remix — array map duplicate channel', async t => {
+  let a = audio.from([new Float32Array(100).fill(0.6)])
+  a.remix([0, 0])
+  let pcm = await a.read()
+  t.is(pcm.length, 2, '2ch from mono')
+  t.ok(Math.abs(pcm[0][0] - 0.6) < 0.01, 'ch0')
+  t.ok(Math.abs(pcm[1][0] - 0.6) < 0.01, 'ch1 = ch0')
+})
+
 test('read — format via pcm-convert', async t => {
   let a = audio.from([new Float32Array(100).fill(0.5)])
   let int16 = await a.read({ format: 'int16' })

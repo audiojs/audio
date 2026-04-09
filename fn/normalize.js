@@ -4,25 +4,31 @@ import audio from '../core.js'
 const PRESETS = { streaming: -14, podcast: -16, broadcast: -23 }
 
 
-/** DC removal op — subtracts per-channel offset. */
-audio.op('dc', (chs, ctx) => {
-  let offsets = ctx.args[0]  // number or number[]
-  if (typeof offsets === 'number') offsets = [offsets]
-  for (let c = 0; c < chs.length; c++) {
-    let d = offsets[c % offsets.length] || 0
-    if (Math.abs(d) < 1e-10) continue
-    for (let i = 0; i < chs[c].length; i++) chs[c][i] -= d
+/** DC removal — subtracts per-channel offset. Internal to normalize. */
+audio.op('dc', {
+  hidden: true,
+  process: (chs, ctx) => {
+    let offsets = ctx.args[0]
+    if (typeof offsets === 'number') offsets = [offsets]
+    for (let c = 0; c < chs.length; c++) {
+      let d = offsets[c % offsets.length] || 0
+      if (Math.abs(d) < 1e-10) continue
+      for (let i = 0; i < chs[c].length; i++) chs[c][i] -= d
+    }
+    return chs
   }
-  return chs
 })
 
-/** Hard-clip samples to ±limit (linear). Used by ceiling normalization. */
-audio.op('clip', (chs, ctx) => {
-  let limit = ctx.args[0]
-  for (let c = 0; c < chs.length; c++)
-    for (let i = 0; i < chs[c].length; i++)
-      chs[c][i] = Math.max(-limit, Math.min(limit, chs[c][i]))
-  return chs
+/** Hard-clip samples to ±limit (linear). Internal to normalize. */
+audio.op('clip', {
+  hidden: true,
+  process: (chs, ctx) => {
+    let limit = ctx.args[0]
+    for (let c = 0; c < chs.length; c++)
+      for (let i = 0; i < chs[c].length; i++)
+        chs[c][i] = Math.max(-limit, Math.min(limit, chs[c][i]))
+    return chs
+  }
 })
 
 audio.op('normalize', {

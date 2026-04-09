@@ -57,7 +57,7 @@ audio.op = function(name, arg1, arg2, arg3) {
     if (opts) Object.assign(desc, opts)
   }
 
-  if (!fn[name]) {
+  if (!fn[name] && !desc.hidden) {
     let stdMethod = function(...a) {
       let edit = { type: name, args: a }, last = a[a.length - 1]
       if (a.length && isOpts(last)) {

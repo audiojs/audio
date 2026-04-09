@@ -158,21 +158,40 @@ test('parseRange — minutes', t => {
   t.is(range.duration, 300, '10m - 5m = 300s')
 })
 
-test('parseArgs — explicit -i flag', t => {
-  let result = parseArgs(['-i', 'in.wav', 'gain', '-3', '-o', 'out.wav'])
-  t.is(result.input, 'in.wav', 'explicit -i sets input')
-  t.is(result.ops[0].name, 'gain', 'ops follow')
-})
-
-test('parseArgs — --info flag', t => {
-  let result = parseArgs(['in.wav', '--info'])
+test('parseArgs — stat op with names', t => {
+  let result = parseArgs(['in.wav', 'stat', 'loudness', 'rms'])
   t.is(result.input, 'in.wav', 'input parsed')
-  t.ok(result.info, '--info flag sets info')
+  t.is(result.ops[0].name, 'stat', 'stat recognized as op')
+  t.is(result.ops[0].args[0], 'loudness', 'first stat name')
+  t.is(result.ops[0].args[1], 'rms', 'second stat name')
 })
 
-test('parseArgs — -i flag', t => {
-  let result = parseArgs(['in.wav', '-i'])
-  t.ok(result.info, '-i sets info')
+test('parseArgs — stat op with bins', t => {
+  let result = parseArgs(['in.wav', 'stat', 'spectrum', '128'])
+  t.is(result.ops[0].name, 'stat')
+  t.is(result.ops[0].args[0], 'spectrum')
+  t.is(result.ops[0].args[1], 128, 'bins parsed as number')
+})
+
+test('parseArgs — stat op bare defaults', t => {
+  let result = parseArgs(['in.wav', 'stat'])
+  t.is(result.ops[0].name, 'stat')
+  t.is(result.ops[0].args.length, 0, 'no args = default stats')
+})
+
+test('parseArgs — stat with op-name overlap (dc, clip)', t => {
+  let result = parseArgs(['in.wav', 'stat', 'dc', 'clip', 'rms'])
+  t.is(result.ops.length, 1, 'single stat op')
+  t.is(result.ops[0].name, 'stat')
+  t.same(result.ops[0].args, ['dc', 'clip', 'rms'], 'dc/clip parsed as stat args, not ops')
+})
+
+test('parseArgs — stat after transform preserves op boundary', t => {
+  let result = parseArgs(['in.wav', 'gain', '-3', 'stat', 'dc'])
+  t.is(result.ops.length, 2, 'two ops')
+  t.is(result.ops[0].name, 'gain')
+  t.is(result.ops[1].name, 'stat')
+  t.same(result.ops[1].args, ['dc'], 'dc is stat arg')
 })
 
 // ── Op Discovery ─────────────────────────────────────────────────────────

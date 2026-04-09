@@ -28,6 +28,10 @@ function parseValue(str) {
   if (m) return Number(m[1])
   // bare number
   if (/^-?[\d.]+$/.test(str)) return Number(str)
+  // comma-separated channel map: 0,1 or 1,0,null
+  if (/^[\d,_]+$/.test(str) && str.includes(',')) {
+    return str.split(',').map(s => s === '_' ? null : Number(s))
+  }
   // duration — supports compound expressions (1m30s, 2h20m, 500ms, etc.)
   let d = parseDuration(str, 's')
   if (d != null && isFinite(d)) return d
@@ -51,7 +55,8 @@ function isFlag(s) {
 }
 
 function isOpName(s) {
-  return audio.op(s) || s === 'split' || s === 'stat'
+  let op = audio.op(s)
+  return (op && !op.hidden) || s === 'split' || s === 'stat'
 }
 
 // ── Per-op Help ──────────────────────────────────────────────────────────
@@ -69,7 +74,7 @@ const HELP = {
   speed:     { usage: 'speed RATE', desc: 'Change speed — 2 = double, 0.5 = half, -1 = reverse', examples: ['speed 2', 'speed 0.5', 'speed -1'] },
   insert:    { usage: 'insert SRC [OFF]', desc: 'Insert audio at position', examples: ['insert other.wav 3s'] },
   mix:       { usage: 'mix SRC [OFF]', desc: 'Mix in another audio file', examples: ['mix bg.wav 0s'] },
-  remix:     { usage: 'remix CH', desc: 'Change channel count', examples: ['remix 1', 'remix 2'] },
+  remix:     { usage: 'remix CH|MAP', desc: 'Change channel count or remap', examples: ['remix 1', 'remix 2', 'remix 1,0'] },
   pan:       { usage: 'pan VALUE [RANGE]', desc: 'Stereo balance: -1 left, 0 center, 1 right', examples: ['pan -0.5', 'pan 1 2s..5s'] },
   filter:    { usage: 'filter TYPE ...ARGS', desc: 'Generic filter dispatch', examples: ['filter highpass 80hz'] },
   highpass:  { usage: 'highpass FC [ORDER]', desc: 'High-pass filter', examples: ['highpass 80hz', 'highpass 120hz 4'] },
@@ -93,7 +98,7 @@ function showOpHelp(name) {
 function parseArgs(args) {
   let input = null, ops_ = [], output = null, format = null
   let verbose = false, showHelp = false, play = false, force = false
-  let macro = null, helpOp = null, info = false
+  let macro = null, helpOp = null
   let i = 0
 
   // First positional arg as input if it looks like a file
@@ -117,9 +122,6 @@ function parseArgs(args) {
     } else if (arg === '--format') {
       format = args[++i]
       i++
-    } else if (arg === '-i' || arg === '--info') {
-      info = true
-      i++
     } else if (arg === '--play' || arg === '-p') {
       play = true
       i++
@@ -142,7 +144,9 @@ function parseArgs(args) {
       i++
 
       // Collect args until next op or flag
-      while (i < args.length && !isOpName(args[i]) && !isFlag(args[i])) {
+      // For stat op, stat names (dc, clip, etc.) are args, not op boundaries
+      while (i < args.length && !isFlag(args[i])) {
+        if (isOpName(args[i]) && !(name === 'stat' && audio.stat(args[i]))) break
         opArgs.push(parseValue(args[i]))
         i++
       }
@@ -192,7 +196,7 @@ function parseArgs(args) {
   }
   ops_ = expanded
 
-  return { input, ops: ops_, output, format, verbose, showHelp, play, force, macro, helpOp, info }
+  return { input, ops: ops_, output, format, verbose, showHelp, play, force, macro, helpOp }
 }
 
 // ── I/O ──────────────────────────────────────────────────────────────────
@@ -216,6 +220,28 @@ function fmtTime(s, full) {
   s = Math.max(0, s)
   let h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = Math.floor(s % 60)
   return full || h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`
+}
+
+const STAT_UNITS = { db: 'dBFS', loudness: 'LUFS' }
+
+function fmtStat(name, result) {
+  if (result instanceof Float32Array || Array.isArray(result)) {
+    if (!result.length) { console.log(`  ${name.padEnd(12)} none`); return }
+    // Array result (spectrum, cepstrum, silence, clip, binned)
+    if (result[0]?.at != null) {
+      // Object array (silence regions)
+      console.log(`  ${name}:`)
+      for (let r of result) console.log(`    ${r.at.toFixed(3)}s  ${r.duration.toFixed(3)}s`)
+    } else {
+      console.log(`  ${name}:`)
+      let pad = String(result.length - 1).length
+      for (let i = 0; i < result.length; i++) console.log(`    ${String(i).padStart(pad)}  ${Number(result[i]).toFixed(4)}`)
+    }
+  } else {
+    let unit = STAT_UNITS[name] || ''
+    let val = typeof result === 'number' ? (Number.isFinite(result) ? result.toFixed(4) : '-Inf') : String(result)
+    console.log(`  ${name.padEnd(12)} ${val}${unit ? ' ' + unit : ''}`)
+  }
 }
 
 function spinner(lbl) {
@@ -558,7 +584,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     await discoverPlugins()
     let prev = args[1] || '', cur = args[2] || ''
     let ops = Object.keys(HELP).concat('split', 'stat')
-    let flags = ['--play', '--info', '--force', '--verbose', '--format', '--macro', '--help', '--version', '-o', '-p', '-i', '-f']
+    let flags = ['--play', '--force', '--verbose', '--format', '--macro', '--help', '--version', '-o', '-p', '-f']
 
     // Context-aware completions
     let out = []
@@ -694,7 +720,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
 
     // Streaming player — file source, no ops, no output (default mode)
     // -p = autoplay, otherwise starts paused
-    if (!allOps.length && !opts.output && !opts.info && typeof source === 'string') {
+    if (!allOps.length && !opts.output && typeof source === 'string') {
       if (opts.verbose) console.error(`Opening: ${source}`)
       let spin = !opts.verbose ? spinner('decoding') : null
       let a = audio(source)
@@ -719,8 +745,12 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     let loadTime = spin?.stop()
     if (opts.verbose) console.error('\n')
 
-    // Show info: -i flag, or stdin with no ops/output
-    if (opts.info || (!allOps.length && !opts.output && !opts.play)) {
+    // Separate stat ops from transform ops
+    let statOps = allOps.filter(op => op.name === 'stat')
+    let transformOps = allOps.filter(op => op.name !== 'stat')
+
+    // No ops, no output, no play → show info and exit
+    if (!allOps.length && !opts.output && !opts.play) {
       let [peak, , l, clips, dcOff] = await a.stat(['db', 'rms', 'loudness', 'clip', 'dc'])
       console.log(`  Duration:   ${fmtTime(a.duration)}`)
       console.log(`  Channels:   ${a.channels}`)
@@ -731,7 +761,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       console.log(`  Clipping:   ${clips.length || 'none'}`)
       console.log(`  DC offset:  ${Math.abs(dcOff) > 0.0001 ? dcOff.toFixed(4) : 'none'}`)
       if (loadTime) console.log(`  Loaded in:  ${loadTime}s`)
-      if (!allOps.length && !opts.output) process.exit(0)
+      process.exit(0)
     }
 
     // Split — special handling for multi-output
@@ -777,10 +807,10 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       process.exit(0)
     }
 
-    // Apply operations
-    if (allOps.length) {
-      if (opts.verbose) console.error(`Applying ${allOps.length} operation(s)...`)
-      for (let op of allOps) {
+    // Apply transform operations
+    if (transformOps.length) {
+      if (opts.verbose) console.error(`Applying ${transformOps.length} operation(s)...`)
+      for (let op of transformOps) {
         let { name, args, offset, duration, curve } = op
         let fullArgs = args.slice()
         let rangeOpts = {}
@@ -794,8 +824,27 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       }
     }
 
+    // Execute stat queries
+    if (statOps.length) {
+      for (let op of statOps) {
+        let names = op.args.filter(a => typeof a === 'string')
+        if (!names.length) names = ['db', 'rms', 'loudness', 'clip', 'dc']
+        for (let name of names) {
+          let idx = op.args.indexOf(name)
+          let bins = idx >= 0 && idx + 1 < op.args.length && typeof op.args[idx + 1] === 'number' ? op.args[idx + 1] : undefined
+          let statOpts = {}
+          if (bins != null) statOpts.bins = bins
+          if (op.offset != null) statOpts.at = op.offset
+          if (op.duration != null) statOpts.duration = op.duration
+          let result = await a.stat(name, Object.keys(statOpts).length ? statOpts : undefined)
+          fmtStat(name, result)
+        }
+      }
+      if (!transformOps.length && !opts.output && !opts.play) process.exit(0)
+    }
+
     // Play the result: -p flag, or ops without -o (default to player)
-    if (opts.play || (allOps.length && !opts.output)) {
+    if (opts.play || (transformOps.length && !opts.output)) {
       await playback(a.play(), () => a.duration, () => a.duration, a, typeof source === 'string' ? source : null)
       if (!opts.output) process.exit(0)
     }
@@ -872,7 +921,6 @@ Units:
   Hz: 440hz, 2khz
 
 Options:
-  --info, -i    Show file information (duration, peak, loudness, etc.)
   --play, -p    Autoplay (default opens player paused)
   --force, -f   Overwrite output file if it exists
   --macro FILE  Apply edits from JSON file
@@ -888,7 +936,8 @@ Batch:
 Examples:
   audio in.mp3                              Open player
   audio in.mp3 -p                           Autoplay
-  audio in.mp3 -i                           Show file info
+  audio in.mp3 stat                         Show file stats
+  audio in.mp3 stat loudness rms            Specific stats
   audio in.mp3 gain -3db trim -o out.wav    Edit and save
   audio in.mp3 normalize streaming -o out.wav
   audio in.mp3 highpass 80hz eq 300hz -2db lowshelf 200hz -3db -o out.wav

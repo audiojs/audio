@@ -98,7 +98,7 @@ export interface AudioInstance {
   reverse(opts?: { at?: Time, duration?: Time }): this
   mix(other: AudioSource, opts?: { at?: Time, duration?: Time }): this
   write(data: Float32Array[] | Float32Array, opts?: { at?: Time }): this
-  remix(channels: number): this
+  remix(channels: number | (number | null)[]): this
   pan(value: number | ((t: number) => number), opts?: { at?: Time, duration?: Time, channel?: number | number[] }): this
 
   // ── Filters ──────────────────────────────────────────────────
