@@ -256,17 +256,15 @@ await a.save('sonification.wav')
 
 **`audio(source, opts?)`** – decode from file, URL, or bytes. Returns instantly — decodes in background.
 
-Instances are **thenable**: `await audio('file.mp3')` waits for decode to finish. But you almost never need to — edits, playback, and chaining all work before decode completes. I/O methods (`save`, `read`, `stat`, `encode`, `for await`) internally wait for decode, so `await` on construction is only needed when you must read decoded properties directly (`.duration`, `.channels`, `.length`).
-
 ```js
-let a = audio('voice.mp3')                // instant — decodes in background
+let a = audio('voice.mp3')                // file path
 let b = audio('https://cdn.ex/track.mp3') // URL
 let c = audio(inputEl.files[0])           // Blob, File, Response, ArrayBuffer
 let d = audio()                           // empty, ready for .push() or .record()
 let e = audio([intro, body, outro])       // concat (virtual, no copy)
 // opts: { sampleRate, channels, storage: 'memory' | 'persistent' | 'auto' }
 
-await a                                   // wait for decode — rarely needed
+await a                                   // await for decode — if you need .duration, full stats etc
 ```
 
 
