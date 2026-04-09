@@ -115,6 +115,17 @@ let b = await audio(JSON.parse(json))    // re-decode + replay edits
 
 ## CLI
 
+```
+npx audio song.mp3
+▶ 0:14:00 ━━━━━━━━━━━━━━━━━─────────────────────────────────── -0:29:06   ▁▂▃▄▅__
+          ▅▇▇▇▇▇▇███▇▆▇▇▇▆▆▆▅▄▄▄▅▅▅▄▄▄▄▄▄▃▅▅ ▁▁▁▁▁
+          50     500  1k     2k         5k        10k      20k
+
+          48k   2ch   43:07   -0.8dBFS   -30.8LUFS
+```
+
+Space pause, arrows seek/volume, `l` loop, `q` quit.
+
 ```sh
 # Basics
 npx audio in.mp3                                 # open player
@@ -194,14 +205,12 @@ a.currentTime  a.playing  a.paused  a.recording  a.volume  a.loop  a.block
 a.crop({at, duration})  a.remove({at, duration})  a.insert(src, {at})
 a.repeat(n)  a.pad(before, after?)  a.speed(rate)  a.reverse({at?, duration?})
 a.split(t1, t2, ...)  a.view({at, duration})  a.concat(b, c)
+a.trim()  a.trim(-30)
 
 // Sample ops — all accept {at, duration, channel}
 a.gain(-3)  a.gain(t => -3 * t)  a.gain(0.5, {unit: 'linear'})
 a.fade(0.5, 1)  a.fade(-1, 'exp')
 a.mix(other, {at})  a.write(data, {at})  a.remix(channels)  a.pan(value)
-
-// Smart ops
-a.trim()  a.trim(-30)
 a.normalize()  a.normalize('podcast')  a.normalize('streaming')  a.normalize('broadcast')
 a.normalize({mode: 'lufs', target: -14})  a.normalize({mode: 'rms', target: -18})
 
@@ -246,12 +255,10 @@ a.transform((chs, ctx) => chs)  // inline op
 
 ## Docs
 
-| | |
-|-|-|
-| [Reference](docs/reference.md) | Full API — create, properties, edit ops, I/O, analysis, events, CLI, browser setup |
-| [Architecture](docs/architecture.md) | Stream-first design, pages & blocks, non-destructive editing, plan compilation |
-| [Recipes](docs/recipes.md) | All examples with JS + CLI pairs — montage, waveform, ML, glitch, streaming, etc. |
-| [Plugins](docs/plugins.md) | Custom ops, stats, descriptors (process, plan, resolve, call), persistent ctx |
+* [Reference](docs/reference.md) – full API: create, properties, edit ops, I/O, analysis, events, CLI, browser
+* [Architecture](docs/architecture.md) – stream-first design, pages & blocks, non-destructive editing, plan compilation
+* [Recipes](docs/recipes.md) – all examples with JS + CLI pairs: montage, waveform, ML, glitch, streaming
+* [Plugins](docs/plugins.md) – custom ops, stats, descriptors (process, plan, resolve, call), persistent ctx
 
 ## Browser
 
@@ -311,13 +318,11 @@ Only mapped codecs are fetched — `audio-decode` calls `import('mpg123-decoder'
 
 ## Ecosystem
 
-| Package | Purpose |
-|---------|---------|
-| [audio-decode](https://github.com/audiojs/audio-decode) | Codec decoding (13+ formats) |
-| [encode-audio](https://github.com/audiojs/audio-encode) | Codec encoding |
-| [audio-filter](https://github.com/audiojs/audio-filter) | Filters (weighting, EQ, auditory) |
-| [audio-speaker](https://github.com/audiojs/audio-speaker) | Audio output (Node) |
-| [audio-type](https://github.com/nickolanack/audio-type) | Format detection |
-| [pcm-convert](https://github.com/nickolanack/pcm-convert) | PCM format conversion |
+* [audio-decode](https://github.com/audiojs/audio-decode) – codec decoding (13+ formats)
+* [encode-audio](https://github.com/audiojs/audio-encode) – codec encoding
+* [audio-filter](https://github.com/audiojs/audio-filter) – filters (weighting, EQ, auditory)
+* [audio-speaker](https://github.com/audiojs/audio-speaker) – audio output (Node)
+* [audio-type](https://github.com/nickolanack/audio-type) – format detection
+* [pcm-convert](https://github.com/nickolanack/pcm-convert) – PCM format conversion
 
 <p align="center"><a href="./license.md">MIT</a> · <a href="https://github.com/krishnized/license">ॐ</a></p>
