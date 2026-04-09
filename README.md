@@ -27,6 +27,9 @@ let a = await audio('raw-take.wav')
 a.trim(-30).normalize('podcast').fade(0.3, 0.5)
 await a.save('clean.wav')
 ```
+```sh
+npx audio raw-take.wav trim -30db normalize podcast fade 0.3s -0.5s -o clean.wav
+```
 
 ### Render a waveform
 
@@ -80,6 +83,9 @@ let voice = await audio('narration.wav')
 music.gain(-12).mix(voice, { at: 2 })
 await music.save('mixed.wav')
 ```
+```sh
+npx audio bg.mp3 gain -12db mix narration.wav 2s -o mixed.wav
+```
 
 ### Split a long file
 
@@ -89,12 +95,18 @@ let [ch1, ch2, ch3] = a.split(1800, 3600)
 for (let [i, ch] of [ch1, ch2, ch3].entries())
   await ch.save(`chapter-${i + 1}.mp3`)
 ```
+```sh
+npx audio audiobook.mp3 split 30m 60m -o 'chapter-{i}.mp3'
+```
 
 ### Generate a tone
 
 ```js
 let a = audio.from(t => Math.sin(440 * Math.PI * 2 * t), { duration: 2 })
 await a.save('440hz.wav')
+```
+```sh
+npx audio --tone 440hz 2s -o 440hz.wav
 ```
 
 ### Extract features for ML
@@ -104,6 +116,11 @@ let a = await audio('speech.wav')
 let mfcc = await a.stat('cepstrum', { bins: 13 })
 let spec = await a.stat('spectrum', { bins: 128 })
 let [loud, rms] = await a.stat(['loudness', 'rms'])
+```
+```sh
+npx audio speech.wav stat cepstrum --bins 13
+npx audio speech.wav stat spectrum --bins 128
+npx audio speech.wav stat loudness rms
 ```
 
 ### Batch normalize
@@ -262,14 +279,30 @@ Quick start — single script, no build step:
 </script>
 ```
 
-Production — slim bundle + import map. Only mapped codecs get downloaded, on first use:
+Production — slim bundle + import map.
 
 ```html
 <script type="importmap">
 {
   "imports": {
     "@audio/decode-wav": "https://esm.sh/@audio/decode-wav",
-    "mpg123-decoder":    "https://esm.sh/mpg123-decoder"
+    "@audio/decode-aac": "https://esm.sh/@audio/decode-aac",
+    "@audio/decode-aiff": "https://esm.sh/@audio/decode-aiff",
+    "@audio/decode-caf": "https://esm.sh/@audio/decode-caf",
+    "@audio/decode-webm": "https://esm.sh/@audio/decode-webm",
+    "@audio/decode-amr": "https://esm.sh/@audio/decode-amr",
+    "@audio/decode-wma": "https://esm.sh/@audio/decode-wma",
+    "mpg123-decoder": "https://esm.sh/mpg123-decoder",
+    "@wasm-audio-decoders/flac": "https://esm.sh/@wasm-audio-decoders/flac",
+    "ogg-opus-decoder": "https://esm.sh/ogg-opus-decoder",
+    "@wasm-audio-decoders/ogg-vorbis": "https://esm.sh/@wasm-audio-decoders/ogg-vorbis",
+    "qoa-format": "https://esm.sh/qoa-format",
+    "@audio/encode-wav": "https://esm.sh/@audio/encode-wav",
+    "@audio/encode-mp3": "https://esm.sh/@audio/encode-mp3",
+    "@audio/encode-flac": "https://esm.sh/@audio/encode-flac",
+    "@audio/encode-opus": "https://esm.sh/@audio/encode-opus",
+    "@audio/encode-ogg": "https://esm.sh/@audio/encode-ogg",
+    "@audio/encode-aiff": "https://esm.sh/@audio/encode-aiff"
   }
 }
 </script>
@@ -279,50 +312,8 @@ Production — slim bundle + import map. Only mapped codecs get downloaded, on f
 </script>
 ```
 
-<details><summary>All codec packages</summary>
+Only mapped codecs are fetched — `audio-decode` calls `import('mpg123-decoder')` on first MP3 open. Remove lines you don't need.
 
-```html
-<script type="importmap">
-{
-  "imports": {
-    "mpg123-decoder": "https://esm.sh/mpg123-decoder",
-    "@wasm-audio-decoders/flac": "https://esm.sh/@wasm-audio-decoders/flac",
-    "ogg-opus-decoder": "https://esm.sh/ogg-opus-decoder",
-    "@wasm-audio-decoders/ogg-vorbis": "https://esm.sh/@wasm-audio-decoders/ogg-vorbis"
-  }
-}
-</script>
-```
-
-**Decoders** (used by `audio-decode`):
-
-| Format | Package |
-|--------|---------|
-| WAV | `@audio/decode-wav` |
-| MP3 | `mpg123-decoder` |
-| FLAC | `@wasm-audio-decoders/flac` |
-| Opus | `ogg-opus-decoder` |
-| Vorbis | `@wasm-audio-decoders/ogg-vorbis` |
-| AAC/M4A | `@audio/decode-aac` |
-| AIFF | `@audio/decode-aiff` |
-| CAF | `@audio/decode-caf` |
-| WebM | `@audio/decode-webm` |
-| AMR | `@audio/decode-amr` |
-| WMA | `@audio/decode-wma` |
-| QOA | `qoa-format` |
-
-**Encoders** (used by `encode-audio`):
-
-| Format | Package |
-|--------|---------|
-| WAV | `@audio/encode-wav` |
-| MP3 | `@audio/encode-mp3` |
-| FLAC | `@audio/encode-flac` |
-| Opus | `@audio/encode-opus` |
-| OGG | `@audio/encode-ogg` |
-| AIFF | `@audio/encode-aiff` |
-
-</details>
 
 ## Ecosystem
 
