@@ -1,65 +1,73 @@
 {
   "name": "audio",
   "version": "2.0.0",
-  "description": "Class for high-level audio manipulations",
-  "repository": "audiojs/audio",
-  "main": "index.js",
+  "description": "Audio loading, editing, and rendering for JavaScript",
+  "type": "module",
+  "main": "audio.js",
+  "exports": {
+    ".": {
+      "browser": "./dist/audio.js",
+      "default": "./audio.js"
+    },
+    "./core": "./core.js",
+    "./core.js": "./core.js",
+    "./plan.js": "./plan.js",
+    "./fn/*": "./fn/*"
+  },
+  "types": "./audio.d.ts",
+  "bin": "./bin/cli.js",
   "license": "MIT",
-  "browser": {},
-  "scripts": {
-    "lint": "eslint *.js */*.js --ignore-pattern test*",
-    "test": "node test",
-    "test:browser": "budo test"
-  },
-  "devDependencies": {
-    "audio-generator": "^2.1.2",
-    "audio-lena": "^2.0.0",
-    "audio-oscillator": "^2.0.0",
-    "audio-source": "^1.1.1",
-    "eases": "^1.0.8",
-    "flac.js": "^0.2.1",
-    "is-browser": "^2.0.1",
-    "ogg.js": "^0.1.0",
-    "opus.js": "^0.1.1",
-    "periodic-function": "^1.1.4",
-    "tape": "^4.6.0",
-    "vorbis.js": "^0.1.1"
-  },
+  "repository": "audiojs/audio",
+  "files": [
+    "core.js",
+    "audio.js",
+    "audio.d.ts",
+    "plan.js",
+    "stats.js",
+    "cache.js",
+    "fn/",
+    "bin/",
+    "dist/"
+  ],
   "keywords": [
     "audiojs",
     "audio",
     "dsp",
-    "javascript",
-    "pcm",
-    "lpcm",
-    "audiobuffer"
+    "pcm"
   ],
-  "engines": {
-    "node": ">=0.11"
+  "scripts": {
+    "build": "node .esbuild.js",
+    "test": "node test/index.js",
+    "test:cli": "TST_PARALLEL=3 node test/cli.js",
+    "test:browser": "node test/browser.js",
+    "test:all": "CI=1 npm test && CI=1 npm run test:cli && npm run test:browser",
+    "version": "node -p \"var s=require('fs'),v=require('./package.json').version;s.writeFileSync('core.js',s.readFileSync('core.js','utf8').replace(/audio\\.version = '[^']+'/,'audio.version = \\''+v+'\\''));''\" && git add core.js",
+    "prepublishOnly": "npm run version && npm run test:all",
+    "serve": "node test/serve.js"
   },
   "dependencies": {
-    "audio-buffer": "^4.0.1",
-    "audio-buffer-from": "^1.1.1",
-    "audio-buffer-list": "^5.0.0",
-    "audio-buffer-remix": "^1.0.3",
-    "audio-buffer-utils": "^5.0.1",
-    "audio-context": "^1.0.1",
-    "audio-decode": "^1.4.0",
-    "audio-format": "^2.2.1",
-    "audio-loader": "^1.0.3",
-    "audio-play": "^2.2.0",
-    "audiobuffer-to-wav": "^1.0.0",
-    "callsites": "^2.0.0",
-    "clamp": "^1.0.1",
-    "compute-qmean": "^1.0.0",
-    "decibels": "^2.0.0",
-    "fourier-transform": "^1.0.2",
-    "is-audio-buffer": "^1.1.0",
-    "is-promise": "^2.1.0",
-    "is-relative": "^1.0.0",
-    "is-url": "^1.2.2",
-    "negative-index": "^1.0.2",
-    "pcm-convert": "^1.5.3",
-    "save-file": "^1.1.3"
+    "@audio/decode-aiff": "^1.1.0",
+    "@audio/decode-caf": "^1.1.0",
+    "@audio/decode-wav": "^1.1.0",
+    "@audio/encode-mp3": "^1.0.1",
+    "a-weighting": "^2.0.1",
+    "audio-decode": "^3.8.1",
+    "audio-filter": "^2.2.2",
+    "audio-speaker": "^2.1.1",
+    "audio-type": "^2.4.1",
+    "encode-audio": "^1.2.2",
+    "fourier-transform": "^2.2.0",
+    "parse-duration": "^2.1.6",
+    "pcm-convert": "^3.1.1",
+    "window-function": "^3.0.1"
+  },
+  "optionalDependencies": {
+    "audio-mic": "^1.0.0"
+  },
+  "devDependencies": {
+    "audio-lena": "^3.0.0",
+    "esbuild": "^0.28.0",
+    "playwright": "^1.59.1",
+    "tst": "^9.4.0"
   }
 }
