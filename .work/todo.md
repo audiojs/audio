@@ -2,14 +2,14 @@
 
 * [ ] Wavearea integration
 * [ ] playback speed
+* [ ] Audio ponyfill — HTMLAudioElement for node, smooth currentTime, normalized loading (#68)
+* [ ] Minimal duration guard on save — some players can't reproduce 1-sample wav (#27)
+* [ ] Crossfade / transitions convenience — `a.crossfade(b, duration)` or similar (#63)
+* [ ] Playground — drag-n-drop files + code editor, probe audiotool-style (#53, #58)
 * [ ] BPM detection — autocorrelation on energy envelope, `audio.stat('bpm')` + `a.bpm()` query
 * [ ] Pitch detection — spectral centroid or YIN, `audio.stat('pitch')` + `a.pitch()` query
 * [ ] Show BPM/pitch in CLI info line (when detected)
 * [ ] Common processing scripts (vocal warmup etc)
-* [ ] Minimal duration guard on save — some players can't reproduce 1-sample wav (#27)
-* [ ] Crossfade / transitions convenience — `a.crossfade(b, duration)` or similar (#63)
-* [ ] Playground — drag-n-drop files + code editor, probe audiotool-style (#53, #58)
-* [ ] Audio ponyfill — HTMLAudioElement for node, smooth currentTime, normalized loading (#68)
 
 ## Tier 2
 

@@ -133,7 +133,6 @@ export interface AudioInstance {
   encode(format?: string, opts?: { at?: Time, duration?: Time, meta?: Record<string, any> }): Promise<Uint8Array>
   encode(opts?: { at?: Time, duration?: Time, meta?: Record<string, any> }): Promise<Uint8Array>
   clone(): AudioInstance
-  concat(...sources: AudioSource[]): AudioInstance
 }
 
 export interface AudioStats {

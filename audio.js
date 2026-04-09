@@ -24,7 +24,6 @@ import './fn/view.js'
 import './fn/split.js'
 import './fn/play.js'
 import './fn/save.js'
-import './fn/concat.js'
 
 // ── Ops ─────────────────────────────────────────────────────────────────
 

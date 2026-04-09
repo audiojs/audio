@@ -1767,12 +1767,12 @@ test('normalize — per-channel via chained calls', async t => {
   t.ok(Math.abs(peakR - 1) < 0.05, `right peak ~1 (got ${peakR.toFixed(3)})`)
 })
 
-test('concat — joins sources', async t => {
+test('insert — joins sources (append)', async t => {
   let a = audio.from([new Float32Array(44100).fill(0.3)], { sampleRate: 44100 })
   let b = audio.from([new Float32Array(44100).fill(0.7)], { sampleRate: 44100 })
-  let c = a.concat(b)
-  t.ok(Math.abs(c.duration - 2) < 0.01, 'concat: 1s + 1s = 2s')
-  let pcm = await c.read()
+  a.insert(b)
+  t.ok(Math.abs(a.duration - 2) < 0.01, 'insert: 1s + 1s = 2s')
+  let pcm = await a.read()
   t.ok(Math.abs(pcm[0][0] - 0.3) < 0.01, 'first source at start')
   t.ok(Math.abs(pcm[0][44100] - 0.7) < 0.01, 'second source at 1s')
 })

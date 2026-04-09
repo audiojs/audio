@@ -27,21 +27,23 @@ audio('raw-take.wav')
 
 ## Quick Start
 
+### Node
+
 **`npm i audio`**
 
 ```js
-// node
 import audio from 'audio'
-let a = await audio('voice.mp3')
+let a = audio('voice.mp3')
 a.trim().normalize('podcast').fade(0.3, 0.5)
 await a.save('clean.mp3')
 ```
 
+### Browser
+
 ```html
-<!-- browser -->
 <script type="module">
   import audio from './dist/audio.min.js'
-  let a = await audio('./song.mp3')
+  let a = audio('./song.mp3')
   a.play()
 </script>
 ```
@@ -84,20 +86,20 @@ Codecs load on demand via `import()` — map them with an import map or your bun
 
 ## Recipes
 
-#### Clean up a recording
+### Clean up a recording
 
 ```js
-let a = await audio('raw-take.wav')
+let a = audio('raw-take.wav')
 a.trim(-30).normalize('podcast').fade(0.3, 0.5)
 await a.save('clean.wav')
 ```
 
-#### Podcast montage
+### Podcast montage
 
 ```js
-let intro = await audio('intro.mp3')
-let body  = await audio('interview.wav')
-let outro = await audio('outro.mp3')
+let intro = audio('intro.mp3')
+let body  = audio('interview.wav')
+let outro = audio('outro.mp3')
 
 body.trim().normalize('podcast')
 let ep = audio([intro, body, outro])
@@ -105,16 +107,16 @@ ep.fade(0.5, 2)
 await ep.save('episode.mp3')
 ```
 
-#### Render a waveform
+### Render a waveform
 
 ```js
-let a = await audio('track.mp3')
+let a = audio('track.mp3')
 let [mins, peaks] = await a.stat(['min', 'max'], { bins: canvas.width })
 for (let i = 0; i < peaks.length; i++)
   ctx.fillRect(i, h/2 - peaks[i] * h/2, 1, (peaks[i] - mins[i]) * h/2)
 ```
 
-#### Render as it decodes
+### Render as it decodes
 
 ```js
 let a = audio('long.flac')
@@ -122,25 +124,25 @@ a.on('data', ({ delta }) => appendBars(delta.max[0], delta.min[0]))
 await a
 ```
 
-#### Voiceover on music
+### Voiceover on music
 
 ```js
-let music = await audio('bg.mp3')
-let voice = await audio('narration.wav')
+let music = audio('bg.mp3')
+let voice = audio('narration.wav')
 music.gain(-12).mix(voice, { at: 2 })
 await music.save('mixed.wav')
 ```
 
-#### Split a long file
+### Split a long file
 
 ```js
-let a = await audio('audiobook.mp3')
+let a = audio('audiobook.mp3')
 let [ch1, ch2, ch3] = a.split(1800, 3600)
 for (let [i, ch] of [ch1, ch2, ch3].entries())
   await ch.save(`chapter-${i + 1}.mp3`)
 ```
 
-#### Record from mic
+### Record from mic
 
 ```js
 let a = audio()
@@ -151,23 +153,23 @@ a.trim().normalize()
 await a.save('recording.wav')
 ```
 
-#### Extract features for ML
+### Extract features for ML
 
 ```js
-let a = await audio('speech.wav')
+let a = audio('speech.wav')
 let mfcc = await a.stat('cepstrum', { bins: 13 })
 let spec = await a.stat('spectrum', { bins: 128 })
 let [loud, rms] = await a.stat(['loudness', 'rms'])
 ```
 
-#### Generate a tone
+### Generate a tone
 
 ```js
 let a = audio.from(t => Math.sin(440 * Math.PI * 2 * t), { duration: 2 })
 await a.save('440hz.wav')
 ```
 
-#### Custom op
+### Custom op
 
 ```js
 audio.op('crush', (chs, ctx) => {
@@ -178,65 +180,65 @@ audio.op('crush', (chs, ctx) => {
 a.crush(4)
 ```
 
-#### Serialize and restore
+### Serialize and restore
 
 ```js
 let json = JSON.stringify(a)             // { source, edits, ... }
-let b = await audio(JSON.parse(json))    // re-decode + replay edits
+let b = audio(JSON.parse(json))           // re-decode + replay edits
 ```
 
-#### Remove a section
+### Remove a section
 
 ```js
-let a = await audio('interview.wav')
+let a = audio('interview.wav')
 a.remove({ at: 120, duration: 15 })     // cut 2:00–2:15
 a.fade(0.1, { at: 120 })                // smooth the splice
 await a.save('edited.wav')
 ```
 
-#### Ringtone from any song
+### Ringtone from any song
 
 ```js
-let a = await audio('song.mp3')
+let a = audio('song.mp3')
 a.crop({ at: 45, duration: 30 }).fade(0.5, 2).normalize()
 await a.save('ringtone.mp3')
 ```
 
-#### Detect clipping
+### Detect clipping
 
 ```js
-let a = await audio('master.wav')
+let a = audio('master.wav')
 let clips = await a.stat('clip')
 if (clips.length) console.warn(`${clips.length} clipped blocks`)
 ```
 
-#### Stream to network
+### Stream to network
 
 ```js
-let a = await audio('2hour-mix.flac')
+let a = audio('2hour-mix.flac')
 a.highpass(40).normalize('broadcast')
 for await (let chunk of a) socket.send(chunk[0].buffer)
 ```
 
-#### Glitch: stutter + reverse
+### Glitch: stutter + reverse
 
 ```js
-let a = await audio('beat.wav')
+let a = audio('beat.wav')
 let v = a.view({ at: 1, duration: 0.25 })
 let glitch = audio([v, v, v, v])
 glitch.reverse({ at: 0.25, duration: 0.25 })
 await glitch.save('glitch.wav')
 ```
 
-#### Tremolo / sidechain
+### Tremolo / sidechain
 
 ```js
-let a = await audio('pad.wav')
+let a = audio('pad.wav')
 a.gain(t => -12 * (0.5 + 0.5 * Math.cos(t * Math.PI * 4)))  // 2Hz tremolo in dB
 await a.save('tremolo.wav')
 ```
 
-#### Sonify data
+### Sonify data
 
 ```js
 let prices = [100, 102, 98, 105, 110, 95, 88, 92, 101, 107]
@@ -252,15 +254,19 @@ await a.save('sonification.wav')
 
 ### Create
 
-**`audio(source, opts?)`** – decode from file, URL, or bytes. Returns instantly — can edit before decode. Thenable.
+**`audio(source, opts?)`** – decode from file, URL, or bytes. Returns instantly — decodes in background.
+
+Instances are **thenable**: `await audio('file.mp3')` waits for decode to finish. But you almost never need to — edits, playback, and chaining all work before decode completes. I/O methods (`save`, `read`, `stat`, `encode`, `for await`) internally wait for decode, so `await` on construction is only needed when you must read decoded properties directly (`.duration`, `.channels`, `.length`).
 
 ```js
-let a = await audio('voice.mp3')          // file path
+let a = audio('voice.mp3')                // instant — decodes in background
 let b = audio('https://cdn.ex/track.mp3') // URL
 let c = audio(inputEl.files[0])           // Blob, File, Response, ArrayBuffer
 let d = audio()                           // empty, ready for .push() or .record()
 let e = audio([intro, body, outro])       // concat (virtual, no copy)
 // opts: { sampleRate, channels, storage: 'memory' | 'persistent' | 'auto' }
+
+await a                                   // wait for decode — rarely needed
 ```
 
 
@@ -372,12 +378,6 @@ a.trim(-30)                               // custom -30dB
 
 ```js
 let chorus = a.view({ at: 60, duration: 30 })  // zero-copy slice
-```
-
-**`.concat(...sources)`** – append sources in order.
-
-```js
-a.concat(outro)                           // append outro
 ```
 
 **`.remix(channels)`** – change channel count. Accepts a number or array map.
@@ -682,7 +682,7 @@ Events:
 a.dispose()                               // free pages, stop playback
 
 {
-  using a = await audio('big.flac')       // auto-dispose on block exit
+  using a = audio('big.flac')             // auto-dispose on block exit
   await a.save('out.mp3')
 }                                         // a.dispose() called automatically
 ```
@@ -707,7 +707,7 @@ a.run(                                    // batch apply
 )
 
 // replay same processing onto another file
-let b = await audio('other.wav')
+let b = audio('other.wav')
 b.run(...a.edits)
 await b.save('other-processed.wav')
 ```
@@ -716,7 +716,7 @@ await b.save('other-processed.wav')
 
 ```js
 let json = JSON.stringify(a)
-let b = await audio(JSON.parse(json))     // re-decode + replay edits
+let b = audio(JSON.parse(json))            // re-decode + replay edits
 ```
 
 **`audio.op(name, fn)`** – register custom op — all instances gain the method.
