@@ -1,7 +1,5 @@
 ## Next
 
-* [x] There's an issue with player spectrum. When we pause playback, it keeps animating as if there's inertia. Can we please freeze spectrum or maybe just 1 frame if we hit stop? Also it keeps animating if we seek in paused mode.
-* [ ] Figure out .stream contract across packages: either we can call it stream, or have a factory.
 * [ ] Wavearea integration
 * [ ] playback speed
 * [ ] BPM detection — autocorrelation on energy envelope, `audio.stat('bpm')` + `a.bpm()` query
@@ -11,6 +9,7 @@
 * [ ] Minimal duration guard on save — some players can't reproduce 1-sample wav (#27)
 * [ ] Crossfade / transitions convenience — `a.crossfade(b, duration)` or similar (#63)
 * [ ] Playground — drag-n-drop files + code editor, probe audiotool-style (#53, #58)
+* [ ] Audio ponyfill — HTMLAudioElement for node, smooth currentTime, normalized loading (#68)
 
 ## Tier 2
 
@@ -23,7 +22,6 @@
 * [ ] declick
 * [ ] denoise
 * [ ] shrink-silence
-* [ ] Audio ponyfill — HTMLAudioElement for node, smooth currentTime, normalized loading (#68)
 
 ### Tier 3: Delighting
 
@@ -34,15 +32,17 @@
 
 * [ ] Benchmarks
 
+
+## Archive
+
+* [x] There's an issue with player spectrum. When we pause playback, it keeps animating as if there's inertia. Can we please freeze spectrum or maybe just 1 frame if we hit stop? Also it keeps animating if we seek in paused mode.
+* [x] Figure out .stream contract across packages: either we can call it stream, or have a factory.
+
 ## Issues to close (resolved by v2.0–2.3)
 
-Close with comment "Resolved in v2.0": #22, #42, #43, #44, #45, #48, #50, #52, #55, #56, #62, #64, #66, #67
-Close as not-applicable: #69 (wrong repo — Zoom complaint)
+* [x] Close with comment "Resolved in v2.0": #22, #42, #43, #44, #45, #48, #50, #52, #55, #56, #62, #64, #66, #67
+* [x] Close as not-applicable: #69 (wrong repo — Zoom complaint)
 Remaining open after triage: #27, #53, #57, #58, #63, #68
-
-## Done (v2.0–v2.3)
-
-<details><summary>Completed work</summary>
 
 ### v2.3 Engine redo — streams-first
 
@@ -111,5 +111,3 @@ Per-page execution for all ops. Instant playback/editing/analysis regardless of 
 * [x] Removed `--stat` flag (stats shown when no ops/output/play)
 * [x] Loop indicator on transport line (↻ / space)
 * [x] Clipping + DC warnings in info line
-
-</details>

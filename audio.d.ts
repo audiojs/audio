@@ -63,8 +63,8 @@ export interface AudioInstance {
   seek(t: number): this
   /** Read audio data. Channel option returns single Float32Array. */
   read(opts?: { at?: Time, duration?: Time, channel?: number, format?: string, meta?: Record<string, any> }): Promise<Float32Array[] | Float32Array | Int16Array[] | Uint8Array[] | Uint8Array>
-  /** Async iterator over materialized blocks */
-  stream(opts?: { at?: Time, duration?: Time }): AsyncGenerator<Float32Array[], void, unknown>
+  /** Async-iterable over materialized blocks. `for await (let block of a)` */
+  [Symbol.asyncIterator](): AsyncGenerator<Float32Array[], void, unknown>
   /** Ensure stats are fresh, return stats + block range */
   stat(name: 'db' | 'rms' | 'loudness', opts?: { at?: Time, duration?: Time }): Promise<number>
   stat(name: 'clip', opts?: { at?: Time, duration?: Time }): Promise<Float32Array>

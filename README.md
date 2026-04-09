@@ -217,7 +217,7 @@ if (clips.length) console.warn(`${clips.length} clipped blocks`)
 ```js
 let a = await audio('2hour-mix.flac')
 a.highpass(40).normalize('broadcast')
-for await (let chunk of a.stream()) socket.send(chunk[0].buffer)
+for await (let chunk of a) socket.send(chunk[0].buffer)
 ```
 
 ### Glitch: stutter + reverse
@@ -507,10 +507,11 @@ await a.save('clip.wav', { at: 10, duration: 5 })
 let bytes = await a.encode('mp3')         // Uint8Array
 ```
 
-**`for await (let block of .stream())`** – async iterator over materialized blocks.
+**`for await (let block of a)`** – async-iterable over materialized blocks.
 
 ```js
-for await (let block of a.stream()) send(block)  // stream blocks
+for await (let block of a) send(block)            // all blocks
+for await (let block of a.view({ at: 10, duration: 5 })) send(block)
 ```
 
 **`.clone()`** – deep copy with independent edit history (pages shared).
@@ -841,7 +842,7 @@ audio --completions fish | source       # fish
 <dd>Audio is stored in fixed-size pages. In the browser, cold pages can evict to OPFS when memory exceeds budget. Stats stay resident (~7 MB for 2h stereo).</dd>
 
 <dt>Are edits destructive?</dt>
-<dd>No. <code>a.gain(-3).trim()</code> pushes entries to an edit list — source pages aren't touched. Edits replay on <code>read()</code>/<code>save()</code>/<code>stream()</code>.</dd>
+<dd>No. <code>a.gain(-3).trim()</code> pushes entries to an edit list — source pages aren't touched. Edits replay on <code>read()</code> / <code>save()</code> / <code>for await</code>.</dd>
 
 <dt>Can I use it in the browser?</dt>
 <dd>Yes, same API. See <a href="#browser">Browser</a> for bundle options and import maps.</dd>
