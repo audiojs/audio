@@ -3,7 +3,7 @@
  * pad(1) = 1s both sides. pad(1, 2) = 1s before, 2s after.
  */
 
-import { seg } from '../history.js'
+import { seg } from '../plan.js'
 
 const padPlan = (segs, ctx) => {
   let { total, sampleRate: sr, args } = ctx
@@ -16,4 +16,4 @@ const padPlan = (segs, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('pad', null, padPlan)
+audio.op('pad', { plan: padPlan })

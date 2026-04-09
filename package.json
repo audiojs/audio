@@ -11,7 +11,7 @@
     },
     "./core": "./core.js",
     "./core.js": "./core.js",
-    "./history.js": "./history.js",
+    "./plan.js": "./plan.js",
     "./fn/*": "./fn/*"
   },
   "types": "./audio.d.ts",
@@ -22,7 +22,7 @@
     "core.js",
     "audio.js",
     "audio.d.ts",
-    "history.js",
+    "plan.js",
     "stats.js",
     "cache.js",
     "fn/",
@@ -40,7 +40,7 @@
     "test": "node test/index.js",
     "test:cli": "TST_PARALLEL=3 node test/cli.js",
     "test:browser": "node test/browser.js",
-    "test:all": "npm test && npm run test:cli && npm run test:browser",
+    "test:all": "CI=1 npm test && CI=1 npm run test:cli && npm run test:browser",
     "version": "node -p \"var s=require('fs'),v=require('./package.json').version;s.writeFileSync('core.js',s.readFileSync('core.js','utf8').replace(/audio\\.version = '[^']+'/,'audio.version = \\''+v+'\\''));''\" && git add core.js",
     "prepublishOnly": "npm run version && npm run test:all",
     "serve": "node test/serve.js"

@@ -365,8 +365,6 @@ export function* streamPlan(a, plan, offset, duration) {
       at: at != null && at < 0 ? totalDur + at : at,
       dur: duration,
       channel,
-      overlap: m?.overlap || 0,
-      tail: null,
       ctx: { ...extra, args: args || [], duration, sampleRate: sr, totalDuration: totalDur, render }
     }
   })
@@ -413,31 +411,12 @@ export function* streamPlan(a, plan, offset, duration) {
 
     let blockOff = outOff / sr
     for (let proc of procs) {
-      let { op, at, channel, overlap, ctx } = proc
+      let { op, at, channel, ctx } = proc
       if (!op) continue
       ctx.at = at != null ? at - blockOff : undefined
       ctx.blockOffset = blockOff
 
-      // Windowed op: prepend prior tail, process, trim overlap
-      if (overlap > 0) {
-        let src = channel != null ? (typeof channel === 'number' ? [channel] : channel).map(c => chunk[c]) : chunk
-        let extended = proc.tail
-          ? src.map((ch, i) => { let x = new Float32Array(proc.tail[i].length + ch.length); x.set(proc.tail[i]); x.set(ch, proc.tail[i].length); return x })
-          : src
-        ctx.overlap = proc.tail ? proc.tail[0].length : 0
-        let result = op(extended, ctx)
-        if (result && result !== false) {
-          let skip = ctx.overlap
-          if (channel != null) {
-            let chs = typeof channel === 'number' ? [channel] : channel
-            for (let i = 0; i < chs.length; i++) chunk[chs[i]] = result[i].subarray(skip, skip + chunk[0].length)
-          } else {
-            chunk = result.map(ch => ch.subarray(skip, skip + chunk[0].length))
-          }
-        }
-        // Store tail for next page
-        proc.tail = src.map(ch => ch.subarray(Math.max(0, ch.length - overlap)))
-      } else if (channel != null) {
+      if (channel != null) {
         let chs = typeof channel === 'number' ? [channel] : channel
         let sub = chs.map(c => chunk[c])
         let result = op(sub, ctx)

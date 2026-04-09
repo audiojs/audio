@@ -44,12 +44,14 @@ const filter = (chs, ctx) => {
 // ── Register ────────────────────────────────────────────────────────────
 
 import audio from '../core.js'
-audio.op('filter', filter, {
+audio.op('filter', {
+  process: filter,
   call(std, type, ...args) {
     if (typeof type === 'function') return this.run({ type: 'filter', args: [type, args[0] || {}] })
     return std.call(this, type, ...args)
   }
 })
+
 for (let name in types) {
-  audio.op(name, (chs, ctx) => types[name](chs, ctx, ctx.args))
+  audio.op(name, { process: (chs, ctx) => types[name](chs, ctx, ctx.args) })
 }

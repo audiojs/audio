@@ -36,7 +36,7 @@ let e = audio([a, b])                     // concat from array
 
 // progressive decode — subscribe before decode starts
 let f = audio('long.flac')
-f.on('progress', ({ delta, offset }) => {
+f.on('data', ({ delta, offset }) => {
   appendWaveform(delta.min, delta.max)
 })
 await f
@@ -301,17 +301,17 @@ let [peak, loud] = await a.stat(['db', 'loudness'])
 
 ```js
 a.on('change', () => {})                  // edit list changed (op, undo)
-a.on('progress', ({ delta, offset }) => {}) // decode progress (per page)
+a.on('data', ({ delta, offset }) => {})    // new stat blocks (decode/record)
 a.on('timeupdate', (t) => {})             // playback position changed (seconds)
 a.on('ended', () => {})                   // playback finished
 a.off('change', fn)                        // remove listener
 ```
 
-`progress` fires per page during decode. Subscribe before awaiting:
+`data` fires per decoder chunk with new stat blocks. Subscribe before awaiting:
 
 ```js
 let a = audio('long.flac')
-a.on('progress', ({ delta, offset }) => {
+a.on('data', ({ delta, offset }) => {
   appendWaveform(delta.min, delta.max)
 })
 await a
@@ -419,7 +419,7 @@ for (let i = 0; i < peaks.length; i++) {
 
 ```js
 let a = audio('long.flac')
-a.on('progress', ({ delta }) => {
+a.on('data', ({ delta }) => {
   appendBars(delta.max[0], delta.min[0])
 })
 await a
@@ -820,14 +820,14 @@ a.connect(audioContext.destination)         // monitor output
 | **`core.js`** | Engine — decode, paginate, plugin registry (`audio.stat`, `audio.fn`), instance factory, page I/O. The only required file. |
 | **`stats.js`** | Block-level stat engine — computes min/max/energy/clip/dc per `BLOCK_SIZE`-sample block during decode. Powers waveform display, loudness measurement, and stat queries without touching PCM. |
 | **`cache.js`** | Page cache — LRU eviction to OPFS and on-demand restore. Keeps large files playable without exhausting RAM. |
-| **`history.js`** | Edit pipeline — non-destructive edit list, plan builder, stream renderer. Turns `a.gain(-3).trim()` into a declarative plan that materializes on read. |
-| **`audio.js`** | Full bundle — imports core + stats + cache + history + all plugins, calls `audio.use()`. The default import. |
+| **`plan.js`** | Edit pipeline — non-destructive edit list, plan builder, stream renderer. Turns `a.gain(-3).trim()` into a declarative plan that materializes on read. |
+| **`audio.js`** | Full bundle — imports core + stats + cache + plan + all plugins, calls `audio.use()`. The default import. |
 | **`fn/*.js`** | Plugins — each file exports one op, stat, or method. Self-contained, independently importable. |
 | **`bin/cli.js`** | CLI — parses args, auto-discovers plugins, runs ops, handles batch/glob/macro/playback. |
 
 ### Concepts
 
-**Stream-first** means no operation touches the full PCM at once. Audio is stored in pages. Decode streams pages progressively. Every output — `read()`, `stream()`, `play()`, `save()`, `stat()` — walks pages one chunk at a time through the edit pipeline. A 2-hour file never needs 2 hours of float arrays in memory.
+**Stream-first** means no operation touches the full PCM at once. Audio is stored in pages. Decode streams pages progressively. Every output — `stream()`, `play()`, `save()`, `stat()` — walks pages one chunk at a time through the edit pipeline. `read()` materializes the result into memory, but still processes through the same chunk pipeline internally. A 2-hour file never needs 2 hours of float arrays in memory unless you `read()` the whole thing.
 
 **Non-destructive editing** means ops don't mutate source pages. `a.gain(-3).crop({at: 1, duration: 5})` pushes two entries to `a.edits`. Source data stays immutable. The edit list replays on demand — and can be undone, serialized, or reapplied.
 
@@ -846,7 +846,7 @@ source pages ──→ segment map ──→ sample pipeline ──→ output bl
 
 Audio is fragmented at two levels — **pages** for storage, **blocks** for processing:
 
-| | `PAGE_SIZE` (default 65536) | `BLOCK_SIZE` (default 1024) |
+| | `PAGE_SIZE` (default 1024 × BLOCK_SIZE) | `BLOCK_SIZE` (default 1024) |
 |-|---|---|
 | **What** | Samples per storage chunk | Samples per processing unit |
 | **Stores** | Float32Array[] per channel | min, max, energy, clip, dc per block |
@@ -855,15 +855,15 @@ Audio is fragmented at two levels — **pages** for storage, **blocks** for proc
 
 **Pages** set the streaming granularity. The edit pipeline materializes one block at a time: read source samples → apply structural ops (segment map) → run sample transforms (gain, fade, filter) → yield output block. This bounds peak memory to one block per channel, regardless of file length. Cache eviction works at page granularity: cold pages offload to OPFS, hot pages near the playhead (via `seek()`) stay resident.
 
-Ops and stats both process in `BLOCK_SIZE` chunks — same unit, same granularity. This matches Web Audio API design (128-sample render quantum). Stateful ops like filters carry state sample-to-sample within and across blocks. Keep `PAGE_SIZE` large (minutes of audio) as the memory/storage unit; `BLOCK_SIZE` small (1024 default) as the processing unit.
+Ops and stats both process in `BLOCK_SIZE` chunks — same unit, same granularity. This matches Web Audio API design (128-sample render quantum). Stateful ops like filters carry state sample-to-sample within and across blocks. Keep `PAGE_SIZE` large as the memory/storage unit; `BLOCK_SIZE` small (1024 default) as the processing unit. `PAGE_SIZE` defaults to `1024 * BLOCK_SIZE` — always a multiple.
 
 **Blocks** are the stat unit. During decode, each page is subdivided into block-sized windows. Per block: min/max/energy/clip/dc are computed and stored. These power instant waveform rendering, loudness measurement (LUFS), and stat-conditioned ops (trim, normalize) — all without touching PCM.
 
 Both are configurable — set before creating any instances:
 
 ```js
-audio.PAGE_SIZE = 131072  // 128K samples — larger pages, fewer allocs
 audio.BLOCK_SIZE = 256    // finer stat resolution — smoother waveforms
+audio.PAGE_SIZE = 2048 * audio.BLOCK_SIZE  // custom multiple
 ```
 
 Each instance's stats record `stats.blockSize` — the block size used at its decode time.

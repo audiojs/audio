@@ -3,7 +3,7 @@
  * speed(0.5) = half speed (double duration), speed(-1) = reverse.
  */
 
-import { seg } from '../history.js'
+import { seg } from '../plan.js'
 
 const speedPlan = (segs, ctx) => {
   let rate = ctx.args[0]
@@ -20,4 +20,4 @@ const speedPlan = (segs, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('speed', null, speedPlan)
+audio.op('speed', { plan: speedPlan })

@@ -47,7 +47,8 @@ export interface AudioInstance {
   // ── Events ──────────────────────────────────────────────────────
   /** Subscribe to instance event */
   on(event: 'change', fn: () => void): this
-  on(event: 'progress', fn: (event: { delta: ProgressDelta, offset: number, sampleRate: number, channels: number }) => void): this
+  on(event: 'data', fn: (event: { delta: ProgressDelta, offset: number, sampleRate: number, channels: number }) => void): this
+  on(event: 'progress', fn: (event: { offset: number, total: number }) => void): this
   on(event: 'timeupdate', fn: (time: number) => void): this
   on(event: 'ended', fn: () => void): this
   on(event: string, fn: (...args: any[]) => void): this
@@ -184,7 +185,7 @@ declare function audio(source: string | URL | ArrayBuffer | Uint8Array | AudioBu
 declare namespace audio {
   /** Package version */
   const version: string
-  /** Samples per PCM page chunk (default 65536). Set before creating instances. */
+  /** Samples per PCM page chunk (default 1024 * BLOCK_SIZE). Set before creating instances. */
   let PAGE_SIZE: number
   /** Samples per stat block (default 1024). Set before creating instances. */
   let BLOCK_SIZE: number
@@ -201,9 +202,9 @@ declare namespace audio {
   function from(fn: (t: number, i: number) => number | number[], opts: AudioOpts & { duration: number }): AudioInstance
   function from(source: Int16Array | Int8Array | Uint8Array | Uint16Array, opts: AudioOpts & { format: string }): AudioInstance
   /** Op registration and query */
-  function op(name: string): { process: Function, plan?: Function, resolve?: Function, ch?: Function, overlap?: number, help?: { usage: string, desc: string, examples: string[] } } | undefined
-  function op(name: string, process: Function, plan?: Function, opts?: { resolve?: Function, ch?: Function, overlap?: number, help?: { usage: string, desc: string, examples: string[] } }): void
-  function op(name: string, process: Function, opts?: { resolve?: Function, ch?: Function, overlap?: number, help?: { usage: string, desc: string, examples: string[] } }): void
+  function op(name: string): { process: Function, plan?: Function, resolve?: Function, ch?: Function } | undefined
+  function op(name: string, process: Function, plan?: Function, opts?: { resolve?: Function, ch?: Function }): void
+  function op(name: string, process: Function, opts?: { resolve?: Function, ch?: Function }): void
   /** Register lifecycle callback */
   function on(event: 'create', fn: (instance: AudioInstance) => void): void
   /** Register custom stat */

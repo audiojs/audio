@@ -1,5 +1,5 @@
 import test from 'tst'
-import { parseValue, parseRange, parseArgs, showOpHelp, OP_HELP } from '../bin/cli.js'
+import { parseValue, parseRange, parseArgs, showOpHelp, HELP } from '../bin/cli.js'
 import audio from '../audio.js'
 import { spawn } from 'child_process'
 import { fileURLToPath } from 'url'
@@ -425,13 +425,13 @@ test('parseArgs — per-op help: highpass -h', t => {
   t.is(result.helpOp, 'highpass', 'helpOp for highpass')
 })
 
-test('OP_HELP — all built-in ops have help', t => {
+test('op help — all built-in ops have help', t => {
   let expected = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'remove',
     'insert', 'repeat', 'mix', 'remix', 'highpass', 'lowpass', 'eq', 'lowshelf',
     'highshelf', 'notch', 'bandpass', 'filter', 'pan', 'pad', 'speed']
-  for (let op of expected) t.ok(OP_HELP[op], `${op} has help`)
-  // Reverse check: every OP_HELP key is in expected list
-  for (let op of Object.keys(OP_HELP)) t.ok(expected.includes(op), `${op} in expected list`)
+  for (let op of expected) t.ok(HELP[op], `${op} has help`)
+  // Reverse check: every op with help is in expected list
+  for (let name in HELP) t.ok(expected.includes(name), `${name} in expected list`)
 })
 
 test('CLI — per-op help output', async t => {
@@ -440,11 +440,11 @@ test('CLI — per-op help output', async t => {
   t.ok(output.includes('dB'), 'shows description')
 })
 
-test('CLI — showUsage mentions every OP_HELP op', async t => {
+test('CLI — showUsage mentions every op with help', async t => {
   let output = await runCliCapture(['--help'])
-  for (let op of Object.keys(OP_HELP)) {
-    if (op === 'filter') continue  // generic dispatch, not listed separately
-    t.ok(output.includes(op), `help text includes ${op}`)
+  for (let [name, h] of Object.entries(HELP)) {
+    if (name === 'filter') continue  // generic dispatch, not listed separately
+    t.ok(output.includes(name), `help text includes ${name}`)
   }
 })
 
@@ -510,11 +510,11 @@ test('parseArgs — pad op', t => {
   t.is(r.ops[0].args[1], 2, 'after')
 })
 
-test('OP_HELP — pan and pad have help', t => {
-  t.ok(OP_HELP.pan, 'pan help exists')
-  t.ok(OP_HELP.pad, 'pad help exists')
-  t.ok(OP_HELP.pan.desc, 'pan has description')
-  t.ok(OP_HELP.pad.desc, 'pad has description')
+test('op help — pan and pad have help', t => {
+  t.ok(HELP.pan, 'pan help exists')
+  t.ok(HELP.pad, 'pad help exists')
+  t.ok(HELP.pan.desc, 'pan has description')
+  t.ok(HELP.pad.desc, 'pad has description')
 })
 
 test('CLI — pad adds silence', async t => {
@@ -693,7 +693,7 @@ function cleanup(path) {
 
 // ── Heavy (forked — runs in worker, last so parallel output streams first) ──
 
-test('API — filter + mp3 encode (large, >28min stereo 48kHz)', { fork: true, timeout: 300000 }, async t => {
+test('API — filter + mp3 encode (large, >28min stereo 48kHz)', { fork: true, timeout: 300000, skip: !process.env.CI }, async t => {
   // Reproduces encode error -2: when buildPlan returns null (filter before trim),
   // save.js falls back to whole-file encode which hits WASM memory limit.
   let { default: audio } = await import('./audio.js')

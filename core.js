@@ -46,7 +46,7 @@ export default function audio(source, opts = {}) {
     let a = create([], sr, ch, 0, opts, null)
     a.decoded = false
     a.recording = false
-    a._.acc = pageAccumulator({ pages: a.pages, notify, onprogress: (...args) => emit(a, 'progress', ...args) })
+    a._.acc = pageAccumulator({ pages: a.pages, notify, ondata: (...args) => emit(a, 'data', ...args) })
     a._.waiters = waiters
     return a
   }
@@ -104,7 +104,7 @@ export default function audio(source, opts = {}) {
         a.cache = opts.cache
         a.budget = opts.budget
       }
-      let result = await decodeSource(source, { pages, notify, onprogress: (...args) => emit(a, 'progress', ...args) })
+      let result = await decodeSource(source, { pages, notify, ondata: (...args) => emit(a, 'data', ...args) })
       a.sampleRate = result.sampleRate
       a._.ch = result.channels
       a._.chV = -1  // invalidate cached channels
@@ -184,8 +184,8 @@ const fn = {}
 audio.fn = fn                    // instance prototype (like $.fn)
 audio.stat = {}                  // block-level stats, pre-indexed during decode (min, max, energy)
 
-audio.PAGE_SIZE = 65536
 audio.BLOCK_SIZE = 1024
+audio.PAGE_SIZE = 1024 * audio.BLOCK_SIZE
 
 /** Internal protocol symbols for plugin overrides. */
 export const LOAD = Symbol('load')
@@ -256,6 +256,9 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
   // Playback
   a.playing = false; a.paused = false
   a.volume = 0; a.loop = false; a.block = null
+
+  // Cache
+  a._.lru = new Set()
 
   return a
 }
@@ -487,12 +490,11 @@ async function detectSource(source) {
 /** Universal page accumulator — push(chData, sampleRate) interface.
  *  Used by decodeSource and audio() push instances. This IS the universal source adapter. */
 function pageAccumulator(opts = {}) {
-  let { pages = [], notify, onprogress } = opts
+  let { pages = [], notify, ondata } = opts
   let sr = 0, ch = 0, totalLen = 0, pagePos = 0
   let pageBuf = null, session
 
   function emit(page) {
-    session?.page(page)
     pages.push(page)
     totalLen += page[0].length
     notify?.()
@@ -509,6 +511,7 @@ function pageAccumulator(opts = {}) {
         pageBuf = Array.from({ length: ch }, () => new Float32Array(audio.PAGE_SIZE))
         session = audio.statSession?.(sr)
       }
+      session?.page(chData)
       let srcPos = 0, chunkLen = chData[0].length
       while (srcPos < chunkLen) {
         let n = Math.min(chunkLen - srcPos, audio.PAGE_SIZE - pagePos)
@@ -516,32 +519,29 @@ function pageAccumulator(opts = {}) {
         srcPos += n; pagePos += n
         if (pagePos === audio.PAGE_SIZE) {
           emit(pageBuf)
-          if (onprogress) {
-            let delta = session?.delta()
-            if (delta) onprogress({ delta, offset: totalLen / sr, sampleRate: sr, channels: ch, pages })
-          }
           pageBuf = Array.from({ length: ch }, () => new Float32Array(audio.PAGE_SIZE))
           pagePos = 0
         }
+      }
+      if (ondata) {
+        let delta = session?.delta()
+        if (delta) ondata({ delta, offset: (totalLen + pagePos) / sr, sampleRate: sr, channels: ch, pages })
       }
     },
     /** Flush partial page into pages array. Non-destructive — accumulator stays open. */
     drain() {
       if (pagePos > 0) {
         emit(pageBuf.map(c => c.slice(0, pagePos)))
-        if (onprogress) {
-          let delta = session?.delta()
-          if (delta) onprogress({ delta, offset: totalLen / sr, sampleRate: sr, channels: ch, pages })
-        }
         pageBuf = Array.from({ length: ch }, () => new Float32Array(audio.PAGE_SIZE))
         pagePos = 0
       }
     },
     done() {
       if (pagePos > 0) emit(pageBuf.map(c => c.slice(0, pagePos)))
-      if (onprogress && session) {
+      session?.flush()
+      if (ondata && session) {
         let delta = session.delta()
-        if (delta) onprogress({ delta, offset: totalLen / sr, sampleRate: sr, channels: ch, pages })
+        if (delta) ondata({ delta, offset: totalLen / sr, sampleRate: sr, channels: ch, pages })
       }
       return { stats: session?.done(), length: totalLen }
     }
@@ -570,7 +570,7 @@ async function decodeSource(source, opts = {}) {
   let origNotify = opts.notify
   let acc = pageAccumulator({
     pages: opts.pages,
-    onprogress: opts.onprogress,
+    ondata: opts.ondata,
     notify: () => { origNotify?.(); if (firstResolve) { firstResolve(); firstResolve = null } }
   })
 

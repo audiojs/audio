@@ -1,5 +1,5 @@
 
-import { seg, planOffset } from '../history.js'
+import { seg, planOffset } from '../plan.js'
 
 function insertSegs(segs, at, len, ref) {
   let r = []
@@ -44,9 +44,9 @@ const insertPlan = (segs, ctx) => {
   // Normalize raw sources to audio instances for plan segment refs
   if (typeof source !== 'number' && !source?.pages) source = audio.from(source, { sampleRate: sr })
   let iLen = typeof source === 'number' ? Math.round(source * sr) : source.length
-  if (ctx.span != null) iLen = Math.min(iLen, ctx.span)
+  if (ctx.length != null) iLen = Math.min(iLen, ctx.length)
   return insertSegs(segs, off, iLen, typeof source === 'number' ? null : source)
 }
 
 import audio from '../core.js'
-audio.op('insert', insert, insertPlan)
+audio.op('insert', { process: insert, plan: insertPlan })

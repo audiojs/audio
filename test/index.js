@@ -378,12 +378,12 @@ test('custom sizes — trim respects block resolution', async t => {
 
 // ── Phase 2: Streaming decode ────────────────────────────────────────────
 
-test('on(progress) — fires during decode', async t => {
+test('on(data) — fires during decode', async t => {
   let deltas = []
   let a = audio(lenaPath)
-  a.on('progress', ({ delta, offset }) => deltas.push({ delta, offset }))
+  a.on('data', ({ delta, offset }) => deltas.push({ delta, offset }))
   await a
-  t.ok(deltas.length > 0, `on(progress) fired ${deltas.length} times`)
+  t.ok(deltas.length > 0, `on(data) fired ${deltas.length} times`)
   t.ok(deltas[deltas.length - 1].offset > 0, 'offset progresses')
 
   // Verify delta shape
@@ -394,10 +394,10 @@ test('on(progress) — fires during decode', async t => {
   t.ok(Array.isArray(d.max) && Array.isArray(d.energy), 'delta has max and energy')
 })
 
-test('on(progress) — delta covers full index', async t => {
+test('on(data) — delta covers full index', async t => {
   let totalBlocks = 0
   let a = audio(lenaPath)
-  a.on('progress', ({ delta }) => { totalBlocks += delta.min[0].length })
+  a.on('data', ({ delta }) => { totalBlocks += delta.min[0].length })
   await a
   t.is(totalBlocks, a.stats.min[0].length, 'deltas cover all index blocks')
 })
@@ -857,8 +857,8 @@ test('custom op — with range', async t => {
   t.ok(pcm[0][Math.round(0.75 * 44100)] === 0, 'in range: muted')
 })
 
-test('core without history — direct page read', { skip: !isNode }, async t => {
-  // Import core directly, no history plugin
+test('core without plan — direct page read', { skip: !isNode }, async t => {
+  // Import core directly, no plan plugin
   let { default: bareAudio } = await import('../core.js')
   let a = bareAudio.from([new Float32Array([0.1, 0.2, 0.3, 0.4])])
   t.is(a.duration, 4 / 44100, 'source duration')
@@ -1366,16 +1366,16 @@ test('encode wav — read with format after edits', async t => {
   t.ok(Math.abs(pcm[0][0]) < 0.01, 'fade in preserved after encode')
 })
 
-test('on(progress) — fires incrementally for mp3', async t => {
+test('on(data) — fires incrementally for mp3', async t => {
   let deltas = [], prevOffset = 0
   let a = audio(lenaMp3)
-  a.on('progress', ({ delta, offset }) => {
+  a.on('data', ({ delta, offset }) => {
     t.ok(offset >= prevOffset, `offset monotonic: ${offset} >= ${prevOffset}`)
     prevOffset = offset
     deltas.push(delta)
   })
   await a
-  t.ok(deltas.length > 1, `on(progress) fired ${deltas.length} times (chunked decode)`)
+  t.ok(deltas.length > 1, `on(data) fired ${deltas.length} times (chunked decode)`)
   // Verify deltas cover full index
   let totalBlocks = deltas.reduce((n, d) => n + d.min[0].length, 0)
   t.is(totalBlocks, a.stats.min[0].length, 'deltas cover all index blocks')
@@ -2230,41 +2230,6 @@ test('toJSON — omits automation and transform edits', async t => {
 })
 
 
-// ── Windowed ops ──────────────────────────────────────────────────────
-
-test('windowed op — overlap carries tail across pages', async t => {
-  let sr = 44100, len = PAGE_SIZE * 3
-  let ch = new Float32Array(len)
-  for (let i = 0; i < len; i++) ch[i] = 1
-  let a = audio.from([ch], { sampleRate: sr })
-
-  // Register a windowed op that sums current + overlap samples
-  let overlap = 128
-  let windowedAvg = (chs, ctx) => {
-    return chs.map(ch => {
-      let o = new Float32Array(ch.length)
-      for (let i = 0; i < ch.length; i++) {
-        let lookback = i - overlap
-        o[i] = lookback >= 0 ? (ch[i] + ch[lookback]) / 2 : ch[i]
-      }
-      return o
-    })
-  }
-  windowedAvg.overlap = overlap
-  audio.op('_testWindowed', windowedAvg)
-
-  a.run({ type: '_testWindowed' })
-  let pcm = await a.read()
-
-  // At page boundaries, without overlap the lookback would see zeros
-  // With overlap, it should see the tail from the prior page → avg of (1+1)/2 = 1
-  let boundary = PAGE_SIZE + overlap + 10
-  t.ok(Math.abs(pcm[0][boundary] - 1) < 0.01, `cross-page lookback works (got ${pcm[0][boundary].toFixed(3)})`)
-
-  // Clean up
-  delete audio.fn._testWindowed
-})
-
 
 // ── Op options: at, duration, channel ────────────────────────────────
 
@@ -2794,7 +2759,7 @@ test('boundary — evicted pages restored during streaming', async t => {
 
 if (isNode) {
 
-const { parseValue, parseRange, parseArgs, showOpHelp, OP_HELP } = await import('../bin/cli.js')
+const { parseValue, parseRange, parseArgs, showOpHelp, HELP } = await import('../bin/cli.js')
 
 test('cli parseArgs — simple: input ops output', t => {
   let result = parseArgs(['in.wav', 'gain', '-3db', '-o', 'out.wav'])
@@ -2822,10 +2787,10 @@ test('cli parseRange — 1s..10s', t => {
   t.is(r.duration, 9, 'duration')
 })
 
-test('cli OP_HELP — all built-in ops have help', t => {
+test('cli op help — all built-in ops have help', t => {
   let ops = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'remove', 'repeat', 'remix', 'pan', 'pad',
     'highpass', 'lowpass', 'eq', 'lowshelf', 'highshelf', 'notch', 'bandpass']
-  for (let op of ops) t.ok(OP_HELP[op], `${op} has help`)
+  for (let op of ops) t.ok(HELP[op], `${op} has help`)
 })
 
 test('cli ops registry — all built-ins available', t => {

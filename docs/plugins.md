@@ -12,7 +12,9 @@ const myOp = (chs, ctx) => {
   return chs
 }
 
-audio.op('myOp', myOp)
+audio.op('myOp', myOp)                       // shorthand for { process: myOp }
+// or explicitly:
+audio.op('myOp', { process: myOp })
 ```
 
 ```js
@@ -23,7 +25,7 @@ import 'my-plugin.js'   // registers op + wires a.myOp()
 
 A reducer: `(chs, ctx) => chs | false`.
 
-`chs` is `Float32Array[]` per channel, page-length (65536 samples, last page may be shorter). `ctx` persists across chunks — set any property for stateful computation. Fixed fields update per chunk: `args`, `at`, `duration`, `sampleRate`, `blockOffset`, `totalDuration`, plus any extras from the edit object.
+`chs` is `Float32Array[]` per channel, `BLOCK_SIZE` samples (1024 default, last block may be shorter). `ctx` persists across chunks — set any property for stateful computation. Fixed fields update per chunk: `args`, `at`, `duration`, `sampleRate`, `blockOffset`, `totalDuration`, plus any extras from the edit object.
 
 - `at`/`duration` — op time range (seconds), chunk-relative
 - `totalDuration` — full audio duration (seconds)
@@ -54,10 +56,10 @@ a.fade(1, { curve: 'exp' })
 
 ### Custom wrappers
 
-For sugar beyond what the default method handles, pass a `call` function in the options object. It receives the default method as its first argument, followed by the user's arguments:
+For sugar beyond what the default method handles, pass a `call` function in the descriptor. It receives the default method as its first argument, followed by the user's arguments:
 
 ```js
-audio.op('normalize', process, {
+audio.op('normalize', {
   resolve: (args, ctx) => { /* ... */ },
   call(op, arg) {
     // string preset: normalize('streaming') → op('streaming')
@@ -85,43 +87,46 @@ audio.fn.transform = function(f) { return this.run({ type: '_transform', args: [
 
 ```js
 audio.op('gain')  // → descriptor { process, ... } or undefined
+audio.op()        // → all ops: { gain: {...}, crop: {...}, ... }
 ```
 
-## Hooks
+## Descriptor
 
-Every op has a processor. Plan is the second positional arg. Other hooks go in opts:
+Each op is a descriptor object with stage handlers and options. Pass a function for the shorthand process-only form, or an object for the full form:
 
 ```js
-audio.op('myOp', process, plan, {
-  resolve: (args, ctx) => edit,      // pre-render: replace with simpler edit(s)
-  overlap: 128,                      // extra samples across chunk boundaries
-  call(op, ...args) { ... },         // define call signature, desugar before delegating to op
+audio.op('myOp', myProcess)                          // shorthand for { process: myProcess }
+audio.op('myOp', { process, plan, resolve, ... })    // full descriptor
+```
+
+Stage handlers (each op defines one or more):
+
+```js
+audio.op('myOp', {
+  process: (chs, ctx) => chs,          // per-block PCM transform
+  plan: (segs, ctx) => segs,           // structural segment rewrite
+  resolve: (args, ctx) => edit,        // pre-render: replace with simpler edit(s) using stats
+  call(op, ...args) { ... },           // define call signature, desugar before delegating to op
 })
-```
-
-Ops without a plan hook pass opts directly:
-
-```js
-audio.op('myFilter', process, { overlap: 128 })
 ```
 
 ### plan
 
 Rewrite the segment map without touching PCM. For ops that change timeline geometry.
 
-`ctx` has `total`, `sampleRate`, `args`, `offset`, `span`. The `offset`/`span` are `at`/`duration` pre-converted to samples (`null` if unset).
+`ctx` has `total`, `sampleRate`, `args`, `offset`, `length`. The `offset`/`length` are `at`/`duration` pre-converted to samples (`null` if unset).
 
 ```js
-import { seg } from 'audio/history.js'
+import { seg } from 'audio/plan.js'
 
-audio.op('myRepeat', process, (segs, ctx) => {
+audio.op('myRepeat', { plan(segs, ctx) {
   // segs: current segment map (copy instructions for the whole timeline)
   // ctx.total: current output length in samples
   let r = [...segs]  // keep original segments as-is
   // append a shifted copy — each segment replayed after the current end
   for (let s of segs) { let n = s.slice(); n[2] = s[2] + ctx.total; r.push(n) }
   return r  // new segment map: original + one full repeat
-})
+} })
 ```
 
 **Segments** — a flat list of copy instructions: `[src, count, dst, rate?, ref?]`.
@@ -169,7 +174,8 @@ After `reverse()` — same positions, read backwards:
 Pre-render replacement using decoded stats.
 
 ```js
-audio.op('trim', process, {
+audio.op('trim', {
+  process: trim,
   resolve: (args, ctx) => {
     let { stats, sampleRate, totalDuration } = ctx
     if (!stats?.min) return null  // no stats — fall back to per-page
@@ -186,9 +192,9 @@ audio.op('trim', process, {
 
 Wrappers run at call time before edits are recorded. `resolve` runs at render time with decoded audio stats. Wrappers canonicalize input; `resolve` replaces abstract ops with concrete ones.
 
-### overlap / persistent ctx
+### Persistent ctx
 
-For ops that need context across streaming chunk boundaries.
+`ctx` is the same object across all chunks — any property you set persists. Fixed fields (`at`, `blockOffset`) update each chunk; everything else stays. This handles algorithmic state like IIR filter memory:
 
 ```js
 const filter = (chs, ctx) => {
@@ -196,10 +202,10 @@ const filter = (chs, ctx) => {
   // ...use ctx.z for filter memory
 }
 
-audio.op('filter', filter, { overlap: 128 })
+audio.op('filter', { process: filter })
 ```
 
-`ctx` is the same object across all chunks — any property you set persists. Fixed fields (`at`, `blockOffset`) update each chunk; everything else stays.
+When seeking mid-stream, the engine silently renders 8 prior blocks to warm up stateful ops before producing output.
 
 ## Stats
 
