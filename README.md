@@ -17,14 +17,14 @@ audio('raw-take.wav')
 ```
 
 * **Any format** — WASM codecs, lazy-loaded, no ffmpeg.
-* **Streaming** — instant playback and edits during decode finishes.
-* **Immutable** — virtual edits, instant ops, undo, redo, serialize.
-* **Page cache** — no 2Gb memory limit, evictable to OPFS for large files.
-* **Analysis** — peak, RMS, LUFS, spectrum, MFCCs, silence detection. Waveform in one call.
-* **CLI** — player/recorder, unix pipelines, batch glob, tab completion.
-* **Isomorphic** — same API in Node and browser.
-* **Modular** – pluggable ops, stats, autodiscovery.
-* **Domain-first** – audio units and terminology: dB, Hz, LUFS, not samples/indices.
+* **Streaming** — instant playback/edits not waiting for decode.
+* **Immutable** — safe virtual edits, instant ops, undo/redo, serialize.
+* **Paged** — opens huge files, no 2Gb memory limit, OPFS page cache.
+* **Analysis** — feature extraction, peak/RMS/LUFS/spectrum/clip/silence.
+* **Modular** – pluggable ops/stats, autodiscovery, tree-shake.
+* **CLI** — player, unix pipelines, batch glob, tab completion.
+* **Isomorphic** — cross-platform API, node/browser.
+* **Audio terminology** – dB, Hz, LUFS, not samples/indices/arrays.
 
 <!--
 * [Reference](docs/reference.md) – full API: create, properties, edit ops, I/O, analysis, events, CLI, browser
@@ -44,6 +44,19 @@ a.trim(-30).normalize('podcast').fade(0.3, 0.5)
 await a.save('clean.wav')
 ```
 
+### Podcast montage
+
+```js
+let intro = await audio('intro.mp3')
+let body  = await audio('interview.wav')
+let outro = await audio('outro.mp3')
+
+body.trim().normalize('podcast')
+let ep = audio([intro, body, outro])
+ep.fade(0.5, 2)
+await ep.save('episode.mp3')
+```
+
 ### Render a waveform
 
 ```js
@@ -59,30 +72,6 @@ for (let i = 0; i < peaks.length; i++)
 let a = audio('long.flac')
 a.on('data', ({ delta }) => appendBars(delta.max[0], delta.min[0]))
 await a
-```
-
-### Record from mic
-
-```js
-let a = audio()
-a.record()
-await new Promise(r => setTimeout(r, 5000))
-a.stop()
-a.trim().normalize()
-await a.save('recording.wav')
-```
-
-### Podcast montage
-
-```js
-let intro = await audio('intro.mp3')
-let body  = await audio('interview.wav')
-let outro = await audio('outro.mp3')
-
-body.trim().normalize('podcast')
-let ep = audio([intro, body, outro])
-ep.fade(0.5, 2)
-await ep.save('episode.mp3')
 ```
 
 ### Voiceover on music
@@ -103,11 +92,15 @@ for (let [i, ch] of [ch1, ch2, ch3].entries())
   await ch.save(`chapter-${i + 1}.mp3`)
 ```
 
-### Generate a tone
+### Record from mic
 
 ```js
-let a = audio.from(t => Math.sin(440 * Math.PI * 2 * t), { duration: 2 })
-await a.save('440hz.wav')
+let a = audio()
+a.record()
+await new Promise(r => setTimeout(r, 5000))
+a.stop()
+a.trim().normalize()
+await a.save('recording.wav')
 ```
 
 ### Extract features for ML
@@ -117,6 +110,13 @@ let a = await audio('speech.wav')
 let mfcc = await a.stat('cepstrum', { bins: 13 })
 let spec = await a.stat('spectrum', { bins: 128 })
 let [loud, rms] = await a.stat(['loudness', 'rms'])
+```
+
+### Generate a tone
+
+```js
+let a = audio.from(t => Math.sin(440 * Math.PI * 2 * t), { duration: 2 })
+await a.save('440hz.wav')
 ```
 
 ### Custom op
@@ -314,6 +314,32 @@ Production — slim bundle + import map.
 ```
 
 Only mapped codecs are fetched — `audio-decode` calls `import('mpg123-decoder')` on first MP3 open. Remove lines you don't need.
+
+
+## FAQ
+
+<dl>
+<dt>How is this different from Web Audio API?</dt>
+<dd>Web Audio API is a real-time graph for playback and synthesis. This is a file-oriented tool for loading, editing, analyzing, and saving audio. They complement — use Web Audio for live DSP, this for everything around it.</dd>
+
+<dt>What formats are supported?</dt>
+<dd>WAV, MP3, FLAC, OGG Vorbis, Opus, AAC, AIFF, CAF, WebM, AMR, WMA, QOA. Codecs are WASM-based, lazy-loaded on first use. Encoding: WAV, MP3, FLAC, Opus, OGG, AIFF.</dd>
+
+<dt>Does it need ffmpeg or native addons?</dt>
+<dd>No. Pure JS + WASM. <code>npm i audio</code> and go.</dd>
+
+<dt>How big is the bundle?</dt>
+<dd>65K core. Codecs load on demand — only the formats you open get fetched.</dd>
+
+<dt>How does it handle large files?</dt>
+<dd>Audio is stored in pages. Cold pages evict to OPFS (browser) when memory exceeds budget. A 2-hour file never needs 2 hours of float arrays in RAM.</dd>
+
+<dt>Are edits destructive?</dt>
+<dd>No. Ops push to an edit list — source pages stay immutable. Undo, serialize, restore at any point.</dd>
+
+<dt>Can I use it in the browser?</dt>
+<dd>Yes. Same API. See <a href="#browser">Browser</a> for bundle options and import maps.</dd>
+</dl>
 
 
 ## Ecosystem
