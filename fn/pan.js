@@ -6,7 +6,7 @@
 import { opRange } from '../plan.js'
 
 const pan = (chs, ctx) => {
-  let val = ctx.args[0] // -1..1 or t => value
+  let val = ctx.args[0] ?? 0 // -1..1 or t => value
   if (chs.length < 2) return false // mono: no-op
   let auto = typeof val === 'function'
   let [s, end] = opRange(ctx, chs[0].length)

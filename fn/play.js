@@ -94,12 +94,9 @@ audio.fn.play = function(opts) {
         if (seeked) continue
         if (!a.playing) break
         if (a.loop) { from = 0; a.currentTime = 0; emit(a, 'timeupdate', 0); continue }
-        a.paused = true
+        a.playing = false
         emit(a, 'timeupdate', a.currentTime)
-        await wait()
-        if (!a.playing) break
-        if (a._._seekTo != null) { from = a._._seekTo; a._._seekTo = null; a.currentTime = from; continue }
-        from = 0; a.currentTime = 0; continue
+        break
       }
       a.playing = false; emit(a, 'ended')
     } catch (err) {
