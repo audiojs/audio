@@ -253,9 +253,7 @@ await a.save('sonification.wav')
 
 ### Create
 
-#### `audio(source, opts?)`
-
-Decode from file, URL, or bytes. Returns instantly — edits chain before decode completes. Thenable.
+**`audio(source, opts?)`** – Decode from file, URL, or bytes. Returns instantly — edits chain before decode completes. Thenable.
 
 ```js
 let a = await audio('voice.mp3')
@@ -297,7 +295,7 @@ a.source  a.pages  a.stats  a.edits  a.version    // internal state
 
 ### Structure
 
-#### `△.crop({at, duration})`
+#### `.crop({at, duration})`
 
 Keep only this range, discard the rest.
 
@@ -305,7 +303,7 @@ Keep only this range, discard the rest.
 a.crop({ at: 10, duration: 30 })
 ```
 
-#### `△.remove({at, duration})`
+#### `.remove({at, duration})`
 
 Cut a range and close the gap.
 
@@ -313,7 +311,7 @@ Cut a range and close the gap.
 a.remove({ at: 10, duration: 2 })
 ```
 
-#### `△.insert(source, {at})`
+#### `.insert(source, {at})`
 
 Insert audio or silence at position.
 
@@ -322,11 +320,11 @@ a.insert(intro, { at: 0 })               // prepend
 a.insert(3)                               // append 3s silence
 ```
 
-#### `△.repeat(n)`
+#### `.repeat(n)`
 
 Repeat n times.
 
-#### `△.pad(before, after?)`
+#### `.pad(before, after?)`
 
 Pad silence at edges (seconds).
 
@@ -334,7 +332,7 @@ Pad silence at edges (seconds).
 a.pad(0.5, 2)                            // 0.5s before, 2s after
 ```
 
-#### `△.speed(rate)`
+#### `.speed(rate)`
 
 Change playback speed — affects pitch and duration.
 
@@ -342,11 +340,11 @@ Change playback speed — affects pitch and duration.
 a.speed(2)                                // double speed, half duration
 ```
 
-#### `△.reverse({at?, duration?})`
+#### `.reverse({at?, duration?})`
 
 Reverse audio or a range.
 
-#### `△.split(...offsets)`
+#### `.split(...offsets)`
 
 Split into views at timestamps (zero-copy).
 
@@ -354,7 +352,7 @@ Split into views at timestamps (zero-copy).
 let [ch1, ch2, ch3] = a.split(1800, 3600)
 ```
 
-#### `△.trim(threshold?)`
+#### `.trim(threshold?)`
 
 Remove leading/trailing silence.
 
@@ -363,18 +361,18 @@ a.trim()                                  // auto threshold
 a.trim(-30)                               // custom -30dB
 ```
 
-#### `△.view({at, duration})`
+#### `.view({at, duration})`
 
 Non-destructive view of a range (zero-copy).
 
-#### `△.concat(...sources)`
+#### `.concat(...sources)`
 
 Append sources in order.
 
 
 ### Samples
 
-#### `△.gain(dB, {at?, duration?, channel?, unit?})`
+#### `.gain(dB, {at?, duration?, channel?, unit?})`
 
 Volume in dB (or linear with `{unit: 'linear'}`). Accepts function for automation.
 
@@ -384,7 +382,7 @@ a.gain(6, { at: 10, duration: 5 })       // boost range
 a.gain(t => -3 * t)                      // automate over time
 ```
 
-#### `△.fade(in, out?, curve?)`
+#### `.fade(in, out?, curve?)`
 
 Fade in/out. Positive = from start, negative = from end. Curves: `'linear'`, `'exp'`, `'log'`, `'cos'`.
 
@@ -392,7 +390,7 @@ Fade in/out. Positive = from start, negative = from end. Curves: `'linear'`, `'e
 a.fade(0.5, -2)                           // 0.5s in, 2s out from end
 ```
 
-#### `△.mix(other, {at?, duration?})`
+#### `.mix(other, {at?, duration?})`
 
 Overlay another source (additive).
 
@@ -400,15 +398,15 @@ Overlay another source (additive).
 a.mix(voice, { at: 2 })
 ```
 
-#### `△.write(data, {at?})`
+#### `.write(data, {at?})`
 
 Overwrite samples at position with raw PCM.
 
-#### `△.remix(channels)`
+#### `.remix(channels)`
 
 Change channel count. `a.remix(1)` stereo→mono, `a.remix(2)` mono→stereo.
 
-#### `△.pan(value, {at?, duration?})`
+#### `.pan(value, {at?, duration?})`
 
 Stereo balance (−1 left, 0 center, 1 right). Accepts function.
 
@@ -417,7 +415,7 @@ a.pan(-0.5)                               // shift left
 a.pan(t => Math.sin(t * 2))              // oscillating
 ```
 
-#### `△.normalize(target?)`
+#### `.normalize(target?)`
 
 Loudness normalize. Presets: `'podcast'` (-16 LUFS), `'streaming'` (-14 LUFS), `'broadcast'` (-23 LUFS).
 
@@ -426,7 +424,7 @@ a.normalize()                             // peak 0dBFS
 a.normalize('podcast')                    // -16 LUFS, -1 dBTP
 ```
 
-#### `△.transform(fn)`
+#### `.transform(fn)`
 
 Inline processor — not registered, not serialized. `fn(channels, ctx)` where ctx has `{ sampleRate, blockSize, at, duration }`.
 
@@ -437,7 +435,7 @@ a.transform((chs, ctx) => chs.map(ch => ch.map(s => s * 0.5)))
 
 ### Filter
 
-#### `△.highpass(freq)` · `.lowpass(freq)`
+#### `.highpass(freq)` · `.lowpass(freq)`
 
 High/low-pass filter.
 
@@ -445,7 +443,7 @@ High/low-pass filter.
 a.highpass(80)                            // remove rumble
 ```
 
-#### `△.bandpass(freq, Q?)` · `.notch(freq, Q?)`
+#### `.bandpass(freq, Q?)` · `.notch(freq, Q?)`
 
 Band-pass / notch filter.
 
@@ -453,7 +451,7 @@ Band-pass / notch filter.
 a.notch(60)                               // remove 60Hz hum
 ```
 
-#### `△.lowshelf(freq, dB)` · `.highshelf(freq, dB)`
+#### `.lowshelf(freq, dB)` · `.highshelf(freq, dB)`
 
 Shelf EQ.
 
@@ -461,7 +459,7 @@ Shelf EQ.
 a.lowshelf(200, -3).highshelf(8000, 2)   // voice cleanup
 ```
 
-#### `△.eq(freq, gain, Q?)`
+#### `.eq(freq, gain, Q?)`
 
 Parametric EQ.
 
@@ -469,7 +467,7 @@ Parametric EQ.
 a.eq(1000, -6, 2)                        // surgical cut at 1kHz
 ```
 
-#### `△.filter(type, ...params)`
+#### `.filter(type, ...params)`
 
 Generic filter dispatch.
 
@@ -507,14 +505,14 @@ Encode to Uint8Array without saving.
 
 Async iterator over materialized blocks.
 
-#### `△.clone()`
+#### `.clone()`
 
 Deep copy with independent edit history (pages shared).
 
 
 ### Playback
 
-#### `△.play(opts?)`
+#### `.play(opts?)`
 
 Start playback.
 
@@ -523,21 +521,21 @@ a.play()
 a.play({ at: 30, duration: 10, loop: true })
 ```
 
-#### `△.pause()` · `.resume()` · `.stop()` · `.seek(t)`
+#### `.pause()` · `.resume()` · `.stop()` · `.seek(t)`
 
 Playback control.
 
 ### Recording
 
-#### `△.record()`
+#### `.record()`
 
 Start mic recording.
 
-#### `△.push(data, format?)`
+#### `.push(data, format?)`
 
 Feed PCM into pushable instance.
 
-#### `△.stop()`
+#### `.stop()`
 
 Stop playback or recording.
 
@@ -559,7 +557,7 @@ Stats: `'db'` `'rms'` `'loudness'` `'clip'` `'dc'` `'silence'` `'max'` `'min'` `
 
 ### Util
 
-#### `△.on(event, fn)` · `.off(event, fn)`
+#### `.on(event, fn)` · `.off(event, fn)`
 
 Events: `'change'`, `'data'`, `'metadata'`, `'timeupdate'`, `'ended'`, `'progress'`.
 
@@ -567,16 +565,16 @@ Events: `'change'`, `'data'`, `'metadata'`, `'timeupdate'`, `'ended'`, `'progres
 a.on('data', ({ delta }) => drawWaveform(delta))
 ```
 
-#### `△.dispose()`
+#### `.dispose()`
 
 Release all resources. Also `a[Symbol.dispose]()`.
 
 
-#### `△.undo(n?)`
+#### `.undo(n?)`
 
 Undo last edit (or last n). Returns the edit — pass to `.run()` for redo.
 
-#### `△.run(...edits)`
+#### `.run(...edits)`
 
 Replay raw edit objects.
 
