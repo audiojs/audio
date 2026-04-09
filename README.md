@@ -29,9 +29,6 @@ audio('raw-take.wav')
 * [Plugins](docs/plugins.md) – custom ops, stats, descriptors (process, plan, resolve, call), persistent ctx
 -->
 
-
-## Quick reference
-
 ### Create
 
 * `audio(source, opts?)` – decode from file, URL, or bytes (async, thenable, paged)
@@ -39,11 +36,22 @@ audio('raw-take.wav')
 * `audio()` – pushable instance for `.push()`, `.record()`, `.stop()`
 * `audio([a, b, ...])` – concat from array
 
+```js
+let a = await audio('voice.mp3')              // file / URL / bytes
+let b = audio.from(pcm, {sampleRate: 44100})  // wrap existing PCM
+let c = audio.from(t => Math.sin(440*TAU*t), {duration: 2}) // synthesize
+```
+
 ### Properties
 
 * `.duration` `.channels` `.sampleRate` `.length` – audio dimensions (reflect edits)
 * `.currentTime` `.playing` `.paused` `.volume` `.loop` – playback state
 * `.source` `.pages` `.stats` `.edits` `.version` – internal state
+
+```js
+console.log(a.duration, a.channels, a.sampleRate)
+a.volume = 0.5; a.loop = true
+```
 
 ### Structural
 
@@ -58,6 +66,12 @@ audio('raw-take.wav')
 * `.view({at, duration})` – non-destructive view of a range
 * `.concat(b, c, ...)` – concatenate sources
 
+```js
+a.crop({at: 10, duration: 30})                 // keep 30s from 10s
+let [ch1, ch2] = a.split(1800)                // split at 30min
+a.insert(audio.from({duration: 2}), {at: 5})  // insert 2s silence at 5s
+```
+
 ### Sample
 
 * `.gain(dB, {at?, duration?, channel?})` – volume in dB, accepts function for automation
@@ -67,10 +81,21 @@ audio('raw-take.wav')
 * `.remix(channels)` – change channel count
 * `.pan(value, {at?, duration?})` – stereo balance (−1..1), accepts function
 
+```js
+a.gain(-3)                                     // lower 3dB
+a.fade(0.5, -2)                                // 0.5s in, 2s out from end
+a.gain(t => -20 + t * 10, {channel: 0})       // automate left channel
+```
+
 ### Smart
 
 * `.trim(threshold?)` – remove silence from edges
 * `.normalize(target?)` – loudness normalize, presets: `'podcast'`, `'streaming'`, `'broadcast'`
+
+```js
+a.trim().normalize()                           // clean up recording
+a.normalize('podcast')                         // -16 LUFS, -1 dBTP
+```
 
 ### Filter
 
@@ -79,6 +104,12 @@ audio('raw-take.wav')
 * `.lowshelf(hz, dB)` `.highshelf(hz, dB)` – shelf EQ
 * `.eq(freq, gain, Q)` – parametric EQ
 
+```js
+a.highpass(80)                                 // remove rumble
+a.lowshelf(200, -3).highshelf(8000, 2)        // voice cleanup
+a.eq(1000, -6, 2)                             // surgical cut at 1kHz
+```
+
 ### I/O
 
 * `await .read({at?, duration?, channel?, format?})` – read PCM or encode to bytes
@@ -86,10 +117,21 @@ audio('raw-take.wav')
 * `await .encode(format?, {at?, duration?})` – encode to Uint8Array
 * `for await (let block of .stream())` – async iterator over blocks
 
+```js
+await a.save('out.mp3')                        // save to file
+let pcm = await a.read({format: 'f32'})       // extract raw Float32
+for await (let blk of a.stream()) send(blk)   // stream blocks
+```
+
 ### Playback
 
 * `.play({at?, duration?, volume?, loop?})` – start playback
 * `.pause()` `.resume()` `.stop()` `.seek(t)` – playback control
+
+```js
+a.play()                                       // play from start
+a.play({at: 30, duration: 10, loop: true})    // loop a 10s region
+```
 
 ### Recording
 
@@ -97,16 +139,32 @@ audio('raw-take.wav')
 * `.push(data, format?)` – feed PCM into pushable
 * `.stop()` – stop playback or recording
 
+```js
+let a = audio(); a.record(); /*…*/ a.stop()   // record from mic
+a.push(chunk); a.push(chunk); a.stop()        // feed from stream
+```
+
 ### Analysis
 
 * `await .stat(name, {at?, duration?, bins?, channel?})` – query a stat
 * Stats: `'db'` `'rms'` `'loudness'` `'clip'` `'dc'` `'silence'` `'max'` `'spectrum'` `'cepstrum'`
 * `await .stat([...names], opts)` – multiple stats at once
 
+```js
+let loud = await a.stat('loudness')            // integrated LUFS
+let [db, clip] = await a.stat(['db', 'clip']) // batch query
+let spec = await a.stat('spectrum', {bins: 128}) // frequency bins
+```
+
 ### Events
 
 * `.on(event, fn)` `.off(event, fn)` – `'change'`, `'data'`, `'timeupdate'`, `'ended'`, `'progress'`
 * `.dispose()` – release all resources
+
+```js
+a.on('change', () => render(a))               // re-render on edit
+a.on('data', ({delta}) => draw(delta))        // visualize during decode
+```
 
 ### History
 
@@ -114,11 +172,23 @@ audio('raw-take.wav')
 * `.run(edit1, ...)` – replay edits
 * `JSON.stringify(a)` / `audio(json)` – serialize / restore
 
+```js
+a.gain(-3).trim(); a.undo()                   // undo last edit
+let json = JSON.stringify(a)                   // serialize
+let b = await audio(JSON.parse(json))         // restore from snapshot
+```
+
 ### Custom
 
 * `audio.op(name, fn)` – register custom op
 * `audio.stat(name, descriptor)` – register custom stat
 * `.transform(fn)` – inline processor
+
+```js
+audio.op('lo-fi', (chs, ctx) => chs.map(ch => // register op
+  ch.map(s => Math.round(s * 2**ctx.args[0]) / 2**ctx.args[0])))
+a.transform(chs => chs.map(ch => ch.reverse())) // inline per-channel
+```
 
 
 ## Recipes
