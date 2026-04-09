@@ -254,7 +254,8 @@ await a.save('sonification.wav')
 
 ### Create
 
-**`audio(source, opts?)`** – decode from file, URL, or bytes. Returns instantly — edits chain before decode completes. Thenable.
+**`audio(source, opts?)`** – decode from file, URL, or bytes.<br>
+Returns instantly — edits chain before decode completes. Thenable.<br>
 
 ```js
 let a = await audio('voice.mp3')
@@ -263,9 +264,9 @@ b.gain(-3).trim()
 await b.save('out.wav')
 ```
 
-`source`: file path, URL, Blob, Response, ArrayBuffer, typed array, JSON (restore).
+_source_: file path, URL, Blob, Response, ArrayBuffer, typed array, JSON (restore).
+_opts_: _sampleRate_, _channels_, _storage_  — either _'memory'_ (default), _'persistent'_ (OPFS), or _'auto'_.
 
-`opts`: `{ sampleRate, channels, storage }` — storage is `'memory'` (default), `'persistent'` (OPFS), or `'auto'`.
 
 **`audio.from(source, opts?)`** – wrap existing PCM, AudioBuffer, silence, or function. Sync, no I/O.
 
@@ -277,7 +278,7 @@ let d = audio.from(audioBuffer)                   // Web Audio AudioBuffer
 let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 ```
 
-`source`: Float32Array[], number (silence duration), function (generator), AudioBuffer, typed array + `{ format }`.
+_source_: _Float32Array[]_, _number_ (silence duration), _function_ (generator), _AudioBuffer_, _typed array_ + `{ format }`.
 
 **`audio()`** – pushable instance for `.push()`, `.record()`, `.stop()`.
 
