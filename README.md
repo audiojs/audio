@@ -50,7 +50,148 @@ await a.save('clean.mp3')
 </script>
 ```
 
-`audio.min.js` is ~20K gzipped. Codecs load on demand via `import()` — map them with an import map or your bundler. See [import map example](#import-map) below.
+`audio.min.js` is ~20K gzipped. Codecs load on demand via `import()` — map them with an import map or your bundler.
+<details>
+<summary>Import map example</summary>
+
+
+```html
+<script type="importmap">
+{
+  "imports": {
+    "@audio/decode-wav": "https://esm.sh/@audio/decode-wav",
+    "@audio/decode-aac": "https://esm.sh/@audio/decode-aac",
+    "@audio/decode-aiff": "https://esm.sh/@audio/decode-aiff",
+    "@audio/decode-caf": "https://esm.sh/@audio/decode-caf",
+    "@audio/decode-webm": "https://esm.sh/@audio/decode-webm",
+    "@audio/decode-amr": "https://esm.sh/@audio/decode-amr",
+    "@audio/decode-wma": "https://esm.sh/@audio/decode-wma",
+    "mpg123-decoder": "https://esm.sh/mpg123-decoder",
+    "@wasm-audio-decoders/flac": "https://esm.sh/@wasm-audio-decoders/flac",
+    "ogg-opus-decoder": "https://esm.sh/ogg-opus-decoder",
+    "@wasm-audio-decoders/ogg-vorbis": "https://esm.sh/@wasm-audio-decoders/ogg-vorbis",
+    "qoa-format": "https://esm.sh/qoa-format",
+    "@audio/encode-wav": "https://esm.sh/@audio/encode-wav",
+    "@audio/encode-mp3": "https://esm.sh/@audio/encode-mp3",
+    "@audio/encode-flac": "https://esm.sh/@audio/encode-flac",
+    "@audio/encode-opus": "https://esm.sh/@audio/encode-opus",
+    "@audio/encode-ogg": "https://esm.sh/@audio/encode-ogg",
+    "@audio/encode-aiff": "https://esm.sh/@audio/encode-aiff"
+  }
+}
+</script>
+```
+
+Only mapped codecs are fetched — `audio-decode` calls `import('mpg123-decoder')` on first MP3 open. Remove lines you don't need.
+
+</details>
+
+
+## Recipes
+
+### Clean up a recording
+
+```js
+let a = await audio('raw-take.wav')
+a.trim(-30).normalize('podcast').fade(0.3, 0.5)
+await a.save('clean.wav')
+```
+
+### Podcast montage
+
+```js
+let intro = await audio('intro.mp3')
+let body  = await audio('interview.wav')
+let outro = await audio('outro.mp3')
+
+body.trim().normalize('podcast')
+let ep = audio([intro, body, outro])
+ep.fade(0.5, 2)
+await ep.save('episode.mp3')
+```
+
+### Render a waveform
+
+```js
+let a = await audio('track.mp3')
+let [mins, peaks] = await a.stat(['min', 'max'], { bins: canvas.width })
+for (let i = 0; i < peaks.length; i++)
+  ctx.fillRect(i, h/2 - peaks[i] * h/2, 1, (peaks[i] - mins[i]) * h/2)
+```
+
+### Render as it decodes
+
+```js
+let a = audio('long.flac')
+a.on('data', ({ delta }) => appendBars(delta.max[0], delta.min[0]))
+await a
+```
+
+### Voiceover on music
+
+```js
+let music = await audio('bg.mp3')
+let voice = await audio('narration.wav')
+music.gain(-12).mix(voice, { at: 2 })
+await music.save('mixed.wav')
+```
+
+### Split a long file
+
+```js
+let a = await audio('audiobook.mp3')
+let [ch1, ch2, ch3] = a.split(1800, 3600)
+for (let [i, ch] of [ch1, ch2, ch3].entries())
+  await ch.save(`chapter-${i + 1}.mp3`)
+```
+
+### Record from mic
+
+```js
+let a = audio()
+a.record()
+await new Promise(r => setTimeout(r, 5000))
+a.stop()
+a.trim().normalize()
+await a.save('recording.wav')
+```
+
+### Extract features for ML
+
+```js
+let a = await audio('speech.wav')
+let mfcc = await a.stat('cepstrum', { bins: 13 })
+let spec = await a.stat('spectrum', { bins: 128 })
+let [loud, rms] = await a.stat(['loudness', 'rms'])
+```
+
+### Generate a tone
+
+```js
+let a = audio.from(t => Math.sin(440 * Math.PI * 2 * t), { duration: 2 })
+await a.save('440hz.wav')
+```
+
+### Custom op
+
+```js
+audio.op('crush', (chs, ctx) => {
+  let steps = 2 ** (ctx.args[0] ?? 8)
+  return chs.map(ch => ch.map(s => Math.round(s * steps) / steps))
+})
+
+a.crush(4)
+```
+
+### Serialize and restore
+
+```js
+let json = JSON.stringify(a)             // { source, edits, ... }
+let b = await audio(JSON.parse(json))    // re-decode + replay edits
+```
+
+[More recipes →](docs/recipes.md) — sonification, sidechain, glitch, ringtone, playback, custom ops, stdin/stdout piping, and more.
+
 
 ## API
 
@@ -216,111 +357,6 @@ a.transform(chs => chs.map(ch => ch.reverse())) // inline per-channel
 * `.transform(fn)` – inline processor
 
 
-## Recipes
-
-### Clean up a recording
-
-```js
-let a = await audio('raw-take.wav')
-a.trim(-30).normalize('podcast').fade(0.3, 0.5)
-await a.save('clean.wav')
-```
-
-### Podcast montage
-
-```js
-let intro = await audio('intro.mp3')
-let body  = await audio('interview.wav')
-let outro = await audio('outro.mp3')
-
-body.trim().normalize('podcast')
-let ep = audio([intro, body, outro])
-ep.fade(0.5, 2)
-await ep.save('episode.mp3')
-```
-
-### Render a waveform
-
-```js
-let a = await audio('track.mp3')
-let [mins, peaks] = await a.stat(['min', 'max'], { bins: canvas.width })
-for (let i = 0; i < peaks.length; i++)
-  ctx.fillRect(i, h/2 - peaks[i] * h/2, 1, (peaks[i] - mins[i]) * h/2)
-```
-
-### Render as it decodes
-
-```js
-let a = audio('long.flac')
-a.on('data', ({ delta }) => appendBars(delta.max[0], delta.min[0]))
-await a
-```
-
-### Voiceover on music
-
-```js
-let music = await audio('bg.mp3')
-let voice = await audio('narration.wav')
-music.gain(-12).mix(voice, { at: 2 })
-await music.save('mixed.wav')
-```
-
-### Split a long file
-
-```js
-let a = await audio('audiobook.mp3')
-let [ch1, ch2, ch3] = a.split(1800, 3600)
-for (let [i, ch] of [ch1, ch2, ch3].entries())
-  await ch.save(`chapter-${i + 1}.mp3`)
-```
-
-### Record from mic
-
-```js
-let a = audio()
-a.record()
-await new Promise(r => setTimeout(r, 5000))
-a.stop()
-a.trim().normalize()
-await a.save('recording.wav')
-```
-
-### Extract features for ML
-
-```js
-let a = await audio('speech.wav')
-let mfcc = await a.stat('cepstrum', { bins: 13 })
-let spec = await a.stat('spectrum', { bins: 128 })
-let [loud, rms] = await a.stat(['loudness', 'rms'])
-```
-
-### Generate a tone
-
-```js
-let a = audio.from(t => Math.sin(440 * Math.PI * 2 * t), { duration: 2 })
-await a.save('440hz.wav')
-```
-
-### Custom op
-
-```js
-audio.op('crush', (chs, ctx) => {
-  let steps = 2 ** (ctx.args[0] ?? 8)
-  return chs.map(ch => ch.map(s => Math.round(s * steps) / steps))
-})
-
-a.crush(4)
-```
-
-### Serialize and restore
-
-```js
-let json = JSON.stringify(a)             // { source, edits, ... }
-let b = await audio(JSON.parse(json))    // re-decode + replay edits
-```
-
-[More recipes →](docs/recipes.md) — sonification, sidechain, glitch, ringtone, playback, custom ops, stdin/stdout piping, and more.
-
 ## CLI
 
 ```sh
@@ -414,42 +450,6 @@ audio --completions fish | source       # fish
 ```
 
 
-## Import Map
-
-For browsers without a bundler, map codec packages to a CDN:
-
-```html
-<script type="importmap">
-{
-  "imports": {
-    "@audio/decode-wav": "https://esm.sh/@audio/decode-wav",
-    "@audio/decode-aac": "https://esm.sh/@audio/decode-aac",
-    "@audio/decode-aiff": "https://esm.sh/@audio/decode-aiff",
-    "@audio/decode-caf": "https://esm.sh/@audio/decode-caf",
-    "@audio/decode-webm": "https://esm.sh/@audio/decode-webm",
-    "@audio/decode-amr": "https://esm.sh/@audio/decode-amr",
-    "@audio/decode-wma": "https://esm.sh/@audio/decode-wma",
-    "mpg123-decoder": "https://esm.sh/mpg123-decoder",
-    "@wasm-audio-decoders/flac": "https://esm.sh/@wasm-audio-decoders/flac",
-    "ogg-opus-decoder": "https://esm.sh/ogg-opus-decoder",
-    "@wasm-audio-decoders/ogg-vorbis": "https://esm.sh/@wasm-audio-decoders/ogg-vorbis",
-    "qoa-format": "https://esm.sh/qoa-format",
-    "@audio/encode-wav": "https://esm.sh/@audio/encode-wav",
-    "@audio/encode-mp3": "https://esm.sh/@audio/encode-mp3",
-    "@audio/encode-flac": "https://esm.sh/@audio/encode-flac",
-    "@audio/encode-opus": "https://esm.sh/@audio/encode-opus",
-    "@audio/encode-ogg": "https://esm.sh/@audio/encode-ogg",
-    "@audio/encode-aiff": "https://esm.sh/@audio/encode-aiff"
-  }
-}
-</script>
-<script type="module">
-  import audio from './dist/audio.min.js'
-  let a = await audio('./voice.wav')
-</script>
-```
-
-Only mapped codecs are fetched — `audio-decode` calls `import('mpg123-decoder')` on first MP3 open. Remove lines you don't need.
 
 
 ## FAQ
