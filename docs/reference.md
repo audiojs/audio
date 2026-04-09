@@ -10,21 +10,18 @@ See also: [Architecture](architecture.md) · [Recipes](recipes.md) · [Plugins](
 **[Properties](#properties)**
 
 **[Structural](#structural)**<br>
-<sub>[crop](#acropat-duration) · [remove](#aremoveat-duration) · [insert](#ainsertsource-at) · [repeat](#arepeatn-at-duration) · [pad](#apadbefore-after) · [speed](#aspeedrate) · [reverse](#areverseat-duration) · [split](#asplitoffsets) · [view](#aviewat-duration) · [concat](#aconcatsources)</sub>
+<sub>[crop](#acropat-duration) · [remove](#aremoveat-duration) · [insert](#ainsertsource-at) · [repeat](#arepeatn-at-duration) · [pad](#apadbefore-after) · [speed](#aspeedrate) · [reverse](#areverseat-duration) · [split](#asplitoffsets) · [view](#aviewat-duration)[concat](#aconcatsources) ·  [trim](#atrimthreshold)</sub>
 
 **[Sample](#sample)**<br>
-<sub>[gain](#againvalue-at-duration-channel-unit) · [fade](#afadein-out-curve) · [mix](#amixother-at-duration) · [write](#awritedata-at) · [remix](#aremixchannels) · [pan](#apanvalue-at-duration-channel)</sub>
-
-**[Smart](#smart)**<br>
-<sub>[trim](#atrimthreshold) · [normalize](#anormalizetarget)</sub>
+<sub>[gain](#againvalue-at-duration-channel-unit) · [fade](#afadein-out-curve) · [mix](#amixother-at-duration) · [write](#awritedata-at) · [remix](#aremixchannels) · [pan](#apanvalue-at-duration-channel) · [normalize](#anormalizetarget)</sub>
 
 **[Filter](#filter)**<br>
 <sub>[highpass](#ahighpassfreq) · [lowpass](#alowpassfreq) · [bandpass](#abandpassfreq-q) · [notch](#anotchfreq-q) · [lowshelf](#alowshelffreq-gain-q) · [highshelf](#ahighshelffreq-gain-q) · [eq](#aeqfreq-gain-q) · [filter](#afiltertype-params)</sub>
 
-</td><td valign="top">
-
 **[I/O](#io)**<br>
 <sub>[read](#areadopts) · [encode](#aencodeformat-opts) · [save](#asavetarget-opts) · [stream](#astreamopts) · [clone](#aclone)</sub>
+
+</td><td valign="top">
 
 **[Playback](#playback)**<br>
 <sub>[play](#aplayopts) · [pause](#apause) · [resume](#aresume) · [stop](#astop) · [seek](#aseekt)</sub>
@@ -221,6 +218,15 @@ Concatenate other audio sources onto this instance.
 a.concat(b, c, d)                       // append b, c, d in order
 ```
 
+### a.trim(threshold?)
+
+Remove leading and trailing silence.
+
+```js
+a.trim()                                 // auto threshold
+a.trim(-30)                              // custom -30dB threshold
+```
+
 ## Sample
 
 ### a.gain(value, {at?, duration?, channel?, unit?})
@@ -282,19 +288,6 @@ Stereo balance (−1 left, 0 center, 1 right). Pass a function for automation.
 a.pan(-0.5)                              // shift left
 a.pan(1)                                 // full right
 a.pan(t => Math.sin(t * 2))             // oscillating pan
-```
-
-## Smart
-
-Smart ops analyze the audio first (scan stats), then queue a basic op — `trim` becomes `crop`, `normalize` becomes `gain`.
-
-### a.trim(threshold?)
-
-Remove leading and trailing silence.
-
-```js
-a.trim()                                 // auto threshold
-a.trim(-30)                              // custom -30dB threshold
 ```
 
 ### a.normalize(target?)
