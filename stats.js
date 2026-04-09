@@ -126,6 +126,7 @@ function remapStats(srcStats, plan, sr) {
     let rate = s[3] || 1, ref = s[4]
     if (ref !== undefined && ref !== null) return null  // external ref
     if (Math.abs(rate) !== 1) return null               // resampled
+    if (s[0] % bs !== 0 || s[2] % bs !== 0) return null // unaligned — force recompute
   }
   let outBlocks = Math.ceil(totalLen / bs)
   let fields = Object.keys(srcStats).filter(k => k !== 'blockSize' && Array.isArray(srcStats[k]))
