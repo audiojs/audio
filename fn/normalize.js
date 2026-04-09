@@ -61,16 +61,13 @@ audio.op('normalize', () => false, {
     }
 
     return edits.length === 1 ? edits[0] : edits
+  },
+  call(std, arg) {
+    if (typeof arg === 'string' || typeof arg === 'number') return std.call(this, arg)
+    if (arg != null && typeof arg === 'object') {
+      let { target, mode, at, duration, channel, ...extra } = arg
+      return std.call(this, target, { mode, at, duration, channel, ...extra })
+    }
+    return std.call(this)
   }
 })
-
-// wrap to desugar normalize args (string preset, number target, options object)
-let _normalize = audio.fn.normalize
-audio.fn.normalize = function(arg) {
-  if (typeof arg === 'string' || typeof arg === 'number') return _normalize.call(this, arg)
-  if (arg != null && typeof arg === 'object') {
-    let { target, mode, at, duration, channel, ...extra } = arg
-    return _normalize.call(this, target, { mode, at, duration, channel, ...extra })
-  }
-  return _normalize.call(this)
-}

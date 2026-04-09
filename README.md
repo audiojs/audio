@@ -817,7 +817,7 @@ a.connect(audioContext.destination)         // monitor output
 
 | File | Role |
 |------|------|
-| **`core.js`** | Engine — decode, paginate, plugin registry (`audio.stat`, `audio.fn`, `audio.on`), instance factory, page I/O. The only required file. |
+| **`core.js`** | Engine — decode, paginate, plugin registry (`audio.stat`, `audio.fn`), instance factory, page I/O. The only required file. |
 | **`stats.js`** | Block-level stat engine — computes min/max/energy/clip/dc per `BLOCK_SIZE`-sample block during decode. Powers waveform display, loudness measurement, and stat queries without touching PCM. |
 | **`cache.js`** | Page cache — LRU eviction to OPFS and on-demand restore. Keeps large files playable without exhausting RAM. |
 | **`history.js`** | Edit pipeline — non-destructive edit list, plan builder, stream renderer. Turns `a.gain(-3).trim()` into a declarative plan that materializes on read. |

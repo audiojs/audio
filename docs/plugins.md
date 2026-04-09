@@ -54,20 +54,32 @@ a.fade(1, { curve: 'exp' })
 
 ### Custom wrappers
 
-For sugar beyond what the default method handles, wrap `audio.fn.myOp` after registration:
+For sugar beyond what the default method handles, pass a `call` function in the options object. It receives the default method as its first argument, followed by the user's arguments:
 
 ```js
-audio.op('myOp', myOp)
-
-let _myOp = audio.fn.myOp
-audio.fn.myOp = function(arg) {
-  // desugar, then delegate to the registered default
-  if (typeof arg === 'string') return _myOp.call(this, PRESETS[arg])
-  return _myOp.call(this, arg)
-}
+audio.op('normalize', process, {
+  resolve: (args, ctx) => { /* ... */ },
+  call(op, arg) {
+    // string preset: normalize('streaming') → op('streaming')
+    if (typeof arg === 'string' || typeof arg === 'number') return op.call(this, arg)
+    // options object: normalize({target: -3, mode: 'rms'}) → op(-3, {mode: 'rms'})
+    if (arg != null && typeof arg === 'object') {
+      let { target, mode, at, duration, channel, ...extra } = arg
+      return op.call(this, target, { mode, at, duration, channel, ...extra })
+    }
+    return op.call(this)
+  }
+})
 ```
 
-Wrappers desugar user-facing API into canonical calls. The default method handles edit creation.
+`op` is the standard method that `audio.op` generates — it parses `{at, duration, channel}` from the last arg and calls `this.run(edit)`. The `call` function defines the exact call signature and desugars user-facing argument patterns before delegating to it.
+
+If the op uses a different public name than its internal name (e.g. `transform` → `_transform`), set `audio.fn.name` directly instead:
+
+```js
+audio.op('_transform', process)
+audio.fn.transform = function(f) { return this.run({ type: '_transform', args: [f] }) }
+```
 
 ### Querying ops
 
@@ -83,6 +95,7 @@ Every op has a processor. Plan is the second positional arg. Other hooks go in o
 audio.op('myOp', process, plan, {
   resolve: (args, ctx) => edit,      // pre-render: replace with simpler edit(s)
   overlap: 128,                      // extra samples across chunk boundaries
+  call(op, ...args) { ... },         // define call signature, desugar before delegating to op
 })
 ```
 

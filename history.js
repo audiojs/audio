@@ -16,6 +16,22 @@ export function seg(src, count, dst, rate, ref) {
   return s
 }
 
+// ── Range Helpers ────────────────────────────────────────────────
+
+/** Normalize an offset in samples: negative = from-end, clamp to [0, total]. dflt used when offset is null. */
+export function planOffset(offset, total, dflt = 0) {
+  let s = offset ?? dflt
+  if (s < 0) s = total + s
+  return Math.min(Math.max(0, s), total)
+}
+
+/** Compute [start, end] sample range from a process ctx (at/duration) over a buffer of given len. */
+export function opRange(ctx, len) {
+  let sr = ctx.sampleRate
+  let s = ctx.at != null ? Math.round(ctx.at * sr) : 0
+  return [s, ctx.duration != null ? s + Math.round(ctx.duration * sr) : len]
+}
+
 // ── Op Registration ─────────────────────────────────────────────
 
 function isOpts(v) {
@@ -25,8 +41,11 @@ function isOpts(v) {
 /** Register/query op: audio.op(name, process?, plan?, opts?) */
 audio.op = function(name, process, arg3, arg4) {
   if (arguments.length === 1) return ops[name]
+  let plan, opts
+  if (typeof arg3 === 'function') { plan = arg3; opts = arg4 }
+  else opts = arg3
   if (!fn[name]) {
-    fn[name] = function(...a) {
+    let stdMethod = function(...a) {
       let edit = { type: name, args: a }, last = a[a.length - 1]
       if (a.length && isOpts(last)) {
         let { at, duration, channel, offset, length, ...extra } = last
@@ -40,10 +59,10 @@ audio.op = function(name, process, arg3, arg4) {
       }
       return this.run(edit)
     }
+    fn[name] = opts?.call
+      ? function(...a) { return opts.call.call(this, stdMethod, ...a) }
+      : stdMethod
   }
-  let plan, opts
-  if (typeof arg3 === 'function') { plan = arg3; opts = arg4 }
-  else opts = arg3
   let o = ops[name] = { process }
   if (plan) o.plan = plan
   for (let k of ['resolve', 'ch', 'overlap', 'help']) if (opts?.[k] !== undefined) o[k] = opts[k]
@@ -51,16 +70,6 @@ audio.op = function(name, process, arg3, arg4) {
 
 
 // ── Edit Tracking ───────────────────────────────────────────────
-
-audio.on('create', (a) => {
-  a.edits = []
-  a.version = 0
-  a._.pcm = null; a._.pcmV = -1   // render cache
-  a._.plan = null; a._.planV = -1  // plan cache
-  a._.statsV = -1                   // stats cache version
-  a._.lenC = a._.len; a._.lenV = 0  // virtual length cache
-  a._.chC = a._.ch; a._.chV = 0    // virtual channels cache
-})
 
 /** Push an edit, bump version, notify. */
 export function pushEdit(a, edit) {
@@ -98,13 +107,34 @@ Object.defineProperties(fn, {
 
 // ── Read ───────────────────────────────────────────────────────────────
 
-let prevRead = fn[READ]
+/** Ensure cache pages for the source ranges a plan will access. */
+export async function ensurePlan(a, plan, offset, duration) {
+  if (!audio.ensurePages) return
+  let { segs, sr } = plan
+  let s = Math.round((offset || 0) * sr)
+  let e = duration != null ? s + Math.round(duration * sr) : plan.totalLen
+  for (let sg of segs) {
+    let iStart = Math.max(s, sg[2]), iEnd = Math.min(e, sg[2] + sg[1])
+    if (iStart >= iEnd) continue
+    let absR = Math.abs(sg[3] || 1)
+    let srcStart = sg[0] + (iStart - sg[2]) * absR
+    let srcLen = (iEnd - iStart) * absR + 1
+    let target = sg[4] === null ? null : sg[4] || a
+    if (target) await audio.ensurePages(target, srcStart / sr, srcLen / sr)
+  }
+}
+
 fn[READ] = async function(offset, duration) {
-  if (!this.edits.length) return prevRead.call(this, offset, duration)
+  if (!this.edits.length) {
+    if (audio.ensurePages) await audio.ensurePages(this, offset, duration)
+    return readPages(this, offset, duration)
+  }
   await this[LOAD]()
   for (let { args } of this.edits) if (args?.[0]?.pages) await args[0][LOAD]()
 
-  return readPlan(this, buildPlan(this), offset, duration)
+  let plan = buildPlan(this)
+  await ensurePlan(this, plan, offset, duration)
+  return readPlan(this, plan, offset, duration)
 }
 
 
@@ -141,6 +171,7 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
   let plan = buildPlan(this)
   let seen = new Set()
   for (let s of plan.segs) if (s[4] && s[4] !== null && !seen.has(s[4])) { seen.add(s[4]); await s[4][LOAD]() }
+  await ensurePlan(this, plan, offset, duration)
   for (let chunk of streamPlan(this, plan, offset, duration)) yield chunk
 }
 

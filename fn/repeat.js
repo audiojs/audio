@@ -25,28 +25,6 @@ function repeatSegs(segs, times, total, off, dur) {
   return r
 }
 
-const repeat = (chs, ctx) => {
-  let times = ctx.args[0] ?? 1, sr = ctx.sampleRate
-  let at = ctx.at, dur = ctx.duration
-  if (at == null) {
-    return chs.map(ch => {
-      let o = new Float32Array(ch.length * (times + 1))
-      for (let i = 0; i <= times; i++) o.set(ch, i * ch.length)
-      return o
-    })
-  }
-  let s = Math.max(0, Math.round(at * sr))
-  let e = dur != null ? s + Math.round(dur * sr) : chs[0].length
-  let segLen = e - s
-  return chs.map(ch => {
-    let o = new Float32Array(ch.length + segLen * times)
-    o.set(ch.subarray(0, s))
-    for (let i = 0; i <= times; i++) o.set(ch.subarray(s, e), s + i * segLen)
-    o.set(ch.subarray(e), s + (times + 1) * segLen)
-    return o
-  })
-}
-
 const repeatPlan = (segs, ctx) => {
   let { total, args, offset, span } = ctx
   let off = offset != null ? (offset < 0 ? total + offset : offset) : null
@@ -54,4 +32,4 @@ const repeatPlan = (segs, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('repeat', repeat, repeatPlan)
+audio.op('repeat', null, repeatPlan)

@@ -109,17 +109,6 @@ audio.fn.play = function(opts) {
   return this
 }
 
-audio.on('create', (a) => {
-  a.playing = false; a.paused = false; a.currentTime = 0
-  a.volume = 0; a.loop = false; a.block = null
-})
-
 let proto = audio.fn
 proto.pause = function() { this.paused = true }
 proto.resume = function() { this.paused = false; if (this._._wake) this._._wake() }
-let prevStop = proto.stop
-proto.stop = function() {
-  this.playing = false; this.paused = false
-  if (this._._wake) this._._wake()
-  return prevStop.call(this)
-}

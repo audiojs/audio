@@ -1,6 +1,6 @@
 /**
- * Page cache — LRU eviction to OPFS and restore.
- * Self-registers on import — overrides [LOAD], exposes opfsCache/evict on audio.
+ * Page cache — LRU eviction to OPFS and lazy restore.
+ * Self-registers on import — overrides [LOAD], exposes opfsCache/evict/ensurePages on audio.
  */
 
 import audio, { LOAD } from './core.js'
@@ -27,11 +27,15 @@ async function evict(a) {
   }
 }
 
-/** Restore all evicted pages from cache backend. */
-async function restorePages() {
-  if (!this.cache) return
-  for (let i = 0; i < this.pages.length; i++)
-    if (this.pages[i] === null && await this.cache.has(i)) this.pages[i] = await this.cache.read(i)
+/** Restore evicted pages covering a sample range from cache. */
+async function ensurePages(a, offset, duration) {
+  if (!a.cache) return
+  let PS = audio.PAGE_SIZE, sr = a.sampleRate
+  let s = offset != null ? Math.max(0, Math.round(offset * sr)) : 0
+  let len = duration != null ? Math.round(duration * sr) : a._.len - s
+  let p0 = Math.floor(s / PS), pEnd = Math.min(Math.ceil((s + len) / PS), a.pages.length)
+  for (let i = p0; i < pEnd; i++)
+    if (a.pages[i] === null && await a.cache.has(i)) a.pages[i] = await a.cache.read(i)
 }
 
 /** Create an OPFS-backed cache backend. Browser only. */
@@ -78,12 +82,13 @@ async function opfsCache(dirName = 'audio-cache') {
 
 // ── Self-register ────────────────────────────────────────────────
 
-let prevLoad = audio.fn[LOAD]
+let origLoad = audio.fn[LOAD]
 audio.fn[LOAD] = async function() {
+  await origLoad.call(this)
   if (!this._.lru) this._.lru = new Set()
-  await prevLoad.call(this)
-  await restorePages.call(this)
 }
+
 audio.opfsCache = opfsCache
 audio.evict = evict
+audio.ensurePages = ensurePages
 audio.DEFAULT_BUDGET = DEFAULT_BUDGET
