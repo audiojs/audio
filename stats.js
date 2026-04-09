@@ -95,7 +95,7 @@ function statSession(sr) {
     done() {
       this.flush()
       let out = { blockSize: audio.BLOCK_SIZE }
-      for (let name in acc) out[name] = acc[name].map(a => new Float32Array(a))
+      if (acc) for (let name in acc) out[name] = acc[name].map(a => new Float32Array(a))
       return out
     }
   }
@@ -104,7 +104,7 @@ function statSession(sr) {
 // ── Bin reduction ────────────────────────────────────────────────
 
 function binReduce(src, from, to, bins, reduce) {
-  if (bins <= 0 || to <= from) return new Float32Array(bins || 0)
+  if (bins <= 0 || to <= from) return new Float32Array(Math.max(0, bins))
   from = Math.max(0, from); to = Math.min(to, src.length)
   if (to <= from) return new Float32Array(bins)
   let out = new Float32Array(bins), bpp = (to - from) / bins

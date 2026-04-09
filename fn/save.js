@@ -1,4 +1,4 @@
-import audio, { emit } from '../core.js'
+import audio, { emit, parseTime } from '../core.js'
 import encode from 'encode-audio'
 
 const FMT_ALIAS = { aif: 'aiff', oga: 'ogg' }
@@ -14,7 +14,7 @@ async function encodeStream(inst, fmt, opts, sink) {
     if (buf.length) await sink(buf)
     written += chunk[0].length
     if (++tick % 2 === 0) await new Promise(r => setTimeout(r, 0))
-    emit(inst, 'progress', { offset: written / inst.sampleRate, total: opts.duration ?? inst.duration })
+    emit(inst, 'progress', { offset: written / inst.sampleRate, total: (opts.duration != null ? parseTime(opts.duration) : null) ?? inst.duration })
   }
   let final = await enc()
   if (final.length) await sink(final)
