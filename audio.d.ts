@@ -163,6 +163,14 @@ export interface ProgressDelta {
   energy: Float32Array[]
 }
 
+export interface OpDescriptor {
+  process?: (chs: Float32Array[], ctx: Record<string, any>) => Float32Array[] | false | null
+  plan?: (segs: any[], ctx: Record<string, any>) => any[]
+  resolve?: (args: any[], ctx: Record<string, any>) => EditOp | EditOp[] | false | null
+  call?: (std: Function, ...args: any[]) => any
+  ch?: Function
+}
+
 /** Serialized audio instance (from toJSON) */
 export interface AudioDocument {
   source: string | null
@@ -202,13 +210,21 @@ declare namespace audio {
   function from(fn: (t: number, i: number) => number | number[], opts: AudioOpts & { duration: number }): AudioInstance
   function from(source: Int16Array | Int8Array | Uint8Array | Uint16Array, opts: AudioOpts & { format: string }): AudioInstance
   /** Op registration and query */
-  function op(name: string): { process: Function, plan?: Function, resolve?: Function, ch?: Function } | undefined
-  function op(name: string, process: Function, plan?: Function, opts?: { resolve?: Function, ch?: Function }): void
-  function op(name: string, process: Function, opts?: { resolve?: Function, ch?: Function }): void
-  /** Register lifecycle callback */
-  function on(event: 'create', fn: (instance: AudioInstance) => void): void
-  /** Register custom stat */
-  const stat: Record<string, (chs: Float32Array[], ctx: { sampleRate: number, state: Record<string, unknown> }) => number | number[]>
+  function op(): Record<string, OpDescriptor>
+  function op(name: string): OpDescriptor | undefined
+  function op(name: string, descriptor: OpDescriptor | Function): void
+  /** Stat registration and query */
+  interface StatDescriptor {
+    /** Per-block computation during decode */
+    block?: (chs: Float32Array[], ctx: { sampleRate: number, [k: string]: unknown }) => number | number[]
+    /** Reducer for scalar/binned queries: (src, from, to) → number */
+    reduce?: (src: Float32Array, from: number, to: number) => number
+    /** Derived aggregation from block stats */
+    query?: (stats: AudioStats, chs: number[], from: number, to: number, sr: number) => any
+  }
+  function stat(): Record<string, StatDescriptor>
+  function stat(name: string): StatDescriptor | undefined
+  function stat(name: string, descriptor: StatDescriptor | ((chs: Float32Array[], ctx: { sampleRate: number, [k: string]: unknown }) => number | number[])): void
   /** Audio instance prototype — extensible (like $.fn) */
   const fn: Record<string, any>
 }

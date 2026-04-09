@@ -1,5 +1,5 @@
 /**
- * History — non-destructive edit pipeline.
+ * Plan — non-destructive edit pipeline.
  * Intercepts create/run/read/stream to track and materialize edits.
  */
 
@@ -135,13 +135,17 @@ export async function ensurePlan(a, plan, offset, duration) {
   }
 }
 
+async function loadRefs(a) {
+  for (let { args } of a.edits) if (args?.[0]?.pages) await args[0][LOAD]()
+}
+
 fn[READ] = async function(offset, duration) {
   if (!this.edits.length) {
     if (audio.ensurePages) await audio.ensurePages(this, offset, duration)
     return readPages(this, offset, duration)
   }
   await this[LOAD]()
-  for (let { args } of this.edits) if (args?.[0]?.pages) await args[0][LOAD]()
+  await loadRefs(this)
 
   let plan = buildPlan(this)
   await ensurePlan(this, plan, offset, duration)
@@ -178,7 +182,7 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
   // Edit-aware streaming (plan-based)
   await this.ready
   await this[LOAD]()
-  for (let { args } of this.edits) if (args?.[0]?.pages) await args[0][LOAD]()
+  await loadRefs(this)
   let plan = buildPlan(this)
   let seen = new Set()
   for (let s of plan.segs) if (s[4] && s[4] !== null && !seen.has(s[4])) { seen.add(s[4]); await s[4][LOAD]() }

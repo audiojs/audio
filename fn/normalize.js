@@ -1,4 +1,4 @@
-import { dcOffsets, peakDb, rmsDb, lufsDb } from '../stats.js'
+import { dcOffsets, peakDb, rmsDb, lufsDb } from './stat.js'
 import audio from '../core.js'
 
 const PRESETS = { streaming: -14, podcast: -16, broadcast: -23 }

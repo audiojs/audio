@@ -1,37 +1,31 @@
 ## Next
 
 * [ ] Wavearea integration
+* [ ] playback speed
 * [ ] BPM detection — autocorrelation on energy envelope, `audio.stat('bpm')` + `a.bpm()` query
 * [ ] Pitch detection — spectral centroid or YIN, `audio.stat('pitch')` + `a.pitch()` query
 * [ ] Show BPM/pitch in CLI info line (when detected)
-* [ ] playback speed
 * [ ] Common processing scripts (vocal warmup etc)
 
-* [ ] reduce-silences
+## Tier 2
+
 * [ ] pitch
 * [ ] stretch
-* [ ] sidechain? (amp mod)
-
-### Tier 2: Competitive
-
-| Package | Type | Notes |
-|---------|------|-------|
-| `audio-stretch` | Structural op | Pitch/time stretch, independent, preserves formants |
-| `audio-gate` | Sample op | Noise gate, threshold-based |
-| `audio-compress` | Sample op | Dynamic range compression (threshold/ratio/attack/release) |
-| `audio-reverb` | Sample op | Convolution or algorithmic reverb |
-| `audio-delay` | Sample op | Convolution or algorithmic delay |
-| `audio-declick` | Sample op | Click/pop removal |
-| `audio-denoise` | Sample op | Noise reduction (spectral subtraction or adaptive) |
+* [ ] gate
+* [ ] compress
+* [ ] reverb
+* [ ] delay
+* [ ] declick
+* [ ] denoise
+* [ ] shrink-silence
 
 ### Tier 3: Delighting
 
-| Package | Type | Notes |
-|---------|------|-------|
-| `audio-spectral-edit` | Structural op | Frequency-domain selection and edit |
-| `audio-stem-separate` | Structural op | Vocal/instrumental separation (ML) |
-| `audio-pitch-correct` | Sample op | Auto-tune |
-| `audio-transient-shaper` | Sample op | Transient enhancement/suppression |
+* [ ] spectral-edit
+* [ ] stem-separate
+* [ ] pitch-correct
+* [ ] audio-transient-shaper
+
 
 * [ ] Benchmarks
 

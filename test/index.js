@@ -226,11 +226,11 @@ test('audio.from(AudioBuffer-like) — from object with getChannelData', async t
 
 test('audio.stat — custom field', async t => {
   // Per-channel metric — return array
-  audio.stat.blockRms = (chs) => chs.map(ch => {
+  audio.stat('blockRms', (chs) => chs.map(ch => {
     let sum = 0
     for (let i = 0; i < ch.length; i++) sum += ch[i] * ch[i]
     return Math.sqrt(sum / ch.length)
-  })
+  }))
   let ch = new Float32Array(BLOCK_SIZE * 2).fill(0.5)
   let a = audio.from([ch])
   t.ok(a.stats.blockRms, 'custom stat field exists')
@@ -238,12 +238,12 @@ test('audio.stat — custom field', async t => {
   t.ok(Math.abs(a.stats.blockRms[0][0] - 0.5) < 0.01, `blockRms ≈ 0.5 (got ${a.stats.blockRms[0][0].toFixed(3)})`)
 
   // Cross-channel metric — return number (broadcast to all channels)
-  audio.stat.correlation = (chs) => {
+  audio.stat('correlation', (chs) => {
     if (chs.length < 2) return 1
     let L = chs[0], R = chs[1], sum = 0
     for (let i = 0; i < L.length; i++) sum += L[i] * R[i]
     return sum / L.length
-  }
+  })
   let stereo = audio.from([new Float32Array(BLOCK_SIZE).fill(0.5), new Float32Array(BLOCK_SIZE).fill(0.5)])
   t.ok(stereo.stats.correlation, 'cross-channel field exists')
   t.ok(stereo.stats.correlation[0][0] > 0.2, `correlated (${stereo.stats.correlation[0][0].toFixed(3)})`)

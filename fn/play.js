@@ -1,6 +1,17 @@
 import audio, { emit } from '../core.js'
 import Speaker from 'audio-speaker'
 
+/** Apply fade ramp to interleaved buffer. fadeIn=true ramps 0→1, fadeIn=false ramps 1→0 at end. */
+function ramp(buf, ch, len, fadeIn, RAMP) {
+  let n = Math.min(RAMP, len)
+  if (fadeIn) {
+    for (let i = 0; i < n; i++) { let t = i / n; for (let c = 0; c < ch; c++) buf[i * ch + c] *= t }
+  } else {
+    let s = len - n
+    for (let i = 0; i < n; i++) { let t = 1 - i / n; for (let c = 0; c < ch; c++) buf[(s + i) * ch + c] *= t }
+  }
+}
+
 /** Playback via audio-speaker (cross-platform: Node + browser). */
 audio.fn.play = function(opts) {
   let offset = opts?.at ?? 0, duration = opts?.duration
@@ -14,14 +25,13 @@ audio.fn.play = function(opts) {
     try {
       let ch = a.channels, sr = a.sampleRate
       a.playing = true
+      let wait = async () => { while (a.paused && a.playing && a._._seekTo == null) await new Promise(r => { a._._wake = r }); a._._wake = null }
 
       let from = offset, RAMP = 256 // ~6ms anti-click ramp
       while (a.playing) {
         // If paused before playback starts (e.g. open without autoplay), wait silently
         if (a.paused) {
-          while (a.paused && a.playing && a._._seekTo == null)
-            await new Promise(r => { a._._wake = r })
-          a._._wake = null
+          await wait()
           if (!a.playing) break
           if (a._._seekTo != null) { from = a._._seekTo; a._._seekTo = null; a.currentTime = from }
         }
@@ -47,22 +57,16 @@ audio.fn.play = function(opts) {
             let buf = new Float32Array(len * ch)
             for (let i = 0; i < len; i++) for (let c = 0; c < ch; c++)
               buf[i * ch + c] = (chunk[c] || chunk[0])[bOff + i] * g
-            if (fadeIn) {
-              let n = Math.min(RAMP, len)
-              for (let i = 0; i < n; i++) { let t = i / n; for (let c = 0; c < ch; c++) buf[i * ch + c] *= t }
-              fadeIn = false
-            }
+            let send = () => new Promise(r => write(new Uint8Array(buf.buffer), r))
+            if (fadeIn) { ramp(buf, ch, len, true, RAMP); fadeIn = false }
 
             if (a.paused) {
-              let n = Math.min(RAMP, len), s = len - n
-              for (let i = 0; i < n; i++) { let t = 1 - i / n; for (let c = 0; c < ch; c++) buf[(s + i) * ch + c] *= t }
-              await new Promise(r => write(new Uint8Array(buf.buffer), r))
+              ramp(buf, ch, len, false, RAMP)
+              await send()
               await flush()
               played += len
               a.currentTime = from + played / sr
-              while (a.paused && a.playing && a._._seekTo == null)
-                await new Promise(r => { a._._wake = r })
-              a._._wake = null
+              await wait()
               if (a._._seekTo != null) continue
               if (!a.playing) break
               fadeIn = true
@@ -70,13 +74,12 @@ audio.fn.play = function(opts) {
             }
 
             if (!a.playing) {
-              let n = Math.min(RAMP, len), s = len - n
-              for (let i = 0; i < n; i++) { let t = 1 - i / n; for (let c = 0; c < ch; c++) buf[(s + i) * ch + c] *= t }
-              await new Promise(r => write(new Uint8Array(buf.buffer), r))
+              ramp(buf, ch, len, false, RAMP)
+              await send()
               break
             }
 
-            await new Promise(r => write(new Uint8Array(buf.buffer), r))
+            await send()
             played += len
             if (a._._seekTo == null) {
               a.currentTime = from + played / sr
@@ -93,9 +96,7 @@ audio.fn.play = function(opts) {
         if (a.loop) { from = 0; a.currentTime = 0; emit(a, 'timeupdate', 0); continue }
         a.paused = true
         emit(a, 'timeupdate', a.currentTime)
-        while (a.paused && a.playing && a._._seekTo == null)
-          await new Promise(r => { a._._wake = r })
-        a._._wake = null
+        await wait()
         if (!a.playing) break
         if (a._._seekTo != null) { from = a._._seekTo; a._._seekTo = null; a.currentTime = from; continue }
         from = 0; a.currentTime = 0; continue

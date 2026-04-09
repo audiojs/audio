@@ -1,4 +1,5 @@
 import audio, { parseTime } from '../core.js'
+import './crop.js'
 
 /** Create a shared-page view, optionally scoped to a range. Preserves edits. */
 audio.fn.view = function(opts) {

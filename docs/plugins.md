@@ -76,13 +76,6 @@ audio.op('normalize', {
 
 `op` is the standard method that `audio.op` generates — it parses `{at, duration, channel}` from the last arg and calls `this.run(edit)`. The `call` function defines the exact call signature and desugars user-facing argument patterns before delegating to it.
 
-If the op uses a different public name than its internal name (e.g. `transform` → `_transform`), set `audio.fn.name` directly instead:
-
-```js
-audio.op('_transform', process)
-audio.fn.transform = function(f) { return this.run({ type: '_transform', args: [f] }) }
-```
-
 ### Querying ops
 
 ```js
@@ -209,12 +202,25 @@ When seeking mid-stream, the engine silently renders 8 prior blocks to warm up s
 
 ## Stats
 
-A per-block reducer:
+Register a stat descriptor:
 
 ```js
-audio.stat.mystat = (chs, ctx) => chs.map(ch => /* number */)
+audio.stat('mystat', {
+  block: (chs, ctx) => chs.map(ch => /* number */),
+  reduce: (src, from, to) => { let v = 0; for (let i = from; i < to; i++) v += src[i]; return v },
+})
 ```
 
-Called per 1024-sample block during decode. Return number (all channels) or array (per-channel). Stored in `a.stats.mystat` as `Float32Array[]`.
+Or shorthand (block-only, no scalar/binned query):
+
+```js
+audio.stat('mystat', (chs, ctx) => chs.map(ch => /* number */))
+```
+
+`block` is called per 1024-sample block during decode. Return number (all channels) or array (per-channel). Stored in `a.stats.mystat` as `Float32Array[]`.
+
+`reduce` is `(src, from, to) → number` — enables `a.stat('mystat')` scalar and `a.stat('mystat', {bins})` binned queries.
+
+`query` adds a derived aggregation: `query(stats, chs, from, to, sr) → value`. Used for stats that derive from other block data (e.g. `db` derives from `min`/`max`).
 
 `ctx` has `sampleRate` and persists across blocks within one decode session — set any property for stateful computation.

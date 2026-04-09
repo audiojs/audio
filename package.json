@@ -36,7 +36,7 @@
     "pcm"
   ],
   "scripts": {
-    "build": "node build.js",
+    "build": "node .esbuild.js",
     "test": "node test/index.js",
     "test:cli": "TST_PARALLEL=3 node test/cli.js",
     "test:browser": "node test/browser.js",

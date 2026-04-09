@@ -2,7 +2,7 @@
  * audio core — paged audio container with plugin architecture.
  *
  * audio.fn       — instance prototype (like $.fn)
- * audio.stat     — block-level stat functions (indexed during decode)
+ * audio.stat     — stat descriptor registration/query (block, reduce, query)
  * audio.use      — plugin registration
  */
 
@@ -182,7 +182,6 @@ audio.from = function(source, opts = {}) {
 const fn = {}
 
 audio.fn = fn                    // instance prototype (like $.fn)
-audio.stat = {}                  // block-level stats, pre-indexed during decode (min, max, energy)
 
 audio.BLOCK_SIZE = 1024
 audio.PAGE_SIZE = 1024 * audio.BLOCK_SIZE

@@ -8,6 +8,23 @@ export function autoThreshold(energies) {
   return Math.max(-80, Math.min(-20, 10 * Math.log10(floor) + 12))
 }
 
+/** Resolve dB threshold to linear. Auto-detects from energy stats when db is null. */
+export function resolveThreshold(stats, ch, from, to, db) {
+  if (db == null) {
+    let energies = []
+    for (let c = 0; c < ch; c++) for (let i = from; i < to; i++) energies.push(stats.energy[c][i])
+    db = autoThreshold(energies)
+  }
+  return 10 ** (db / 20)
+}
+
+/** Check if block i is loud (any channel exceeds thresh). */
+export let isLoud = (stats, i, ch, thresh) => {
+  for (let c = 0; c < ch; c++)
+    if (Math.max(Math.abs(stats.min[c][i]), Math.abs(stats.max[c][i])) > thresh) return true
+  return false
+}
+
 const trim = (chs, ctx) => {
   let threshold = ctx.args[0]
   if (threshold == null) {
@@ -33,30 +50,12 @@ const trim = (chs, ctx) => {
 const trimResolve = (args, { stats, sampleRate, totalDuration }) => {
   if (!stats?.min) return null
   let ch = stats.min.length, blocks = stats.min[0].length
-  let threshold = args[0]
   let total = Math.round(totalDuration * sampleRate)
-
-  if (threshold == null) {
-    let energies = []
-    for (let c = 0; c < ch; c++)
-      for (let i = 0; i < stats.energy[c].length; i++) energies.push(stats.energy[c][i])
-    threshold = autoThreshold(energies)
-  }
-  let thresh = 10 ** (threshold / 20)
+  let thresh = resolveThreshold(stats, ch, 0, stats.energy[0].length, args[0])
 
   let s = 0, e = blocks - 1
-  for (; s < blocks; s++) {
-    let loud = false
-    for (let c = 0; c < ch; c++)
-      if (Math.max(Math.abs(stats.min[c][s]), Math.abs(stats.max[c][s])) > thresh) { loud = true; break }
-    if (loud) break
-  }
-  for (; e >= s; e--) {
-    let loud = false
-    for (let c = 0; c < ch; c++)
-      if (Math.max(Math.abs(stats.min[c][e]), Math.abs(stats.max[c][e])) > thresh) { loud = true; break }
-    if (loud) break
-  }
+  for (; s < blocks; s++) if (isLoud(stats, s, ch, thresh)) break
+  for (; e >= s; e--) if (isLoud(stats, e, ch, thresh)) break
   e++
 
   if (s === 0 && e === blocks) return false

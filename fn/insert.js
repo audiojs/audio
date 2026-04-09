@@ -17,27 +17,6 @@ function insertSegs(segs, at, len, ref) {
   return r
 }
 
-const insert = (chs, ctx) => {
-  let source = ctx.args[0], sr = ctx.sampleRate
-  let at = ctx.at, duration = ctx.duration
-  let src = typeof source === 'number'
-    ? Array.from({ length: chs.length }, () => new Float32Array(Math.round(source * sr)))
-    : ctx.render(source)
-  if (duration != null) {
-    let n = Math.round(duration * sr)
-    src = src.map(ch => ch.slice(0, n))
-  }
-  let p = Math.round((at ?? chs[0].length / sr) * sr)
-  return chs.map((ch, c) => {
-    let ins = src[c] || new Float32Array(src[0].length)
-    let o = new Float32Array(ch.length + ins.length)
-    o.set(ch.subarray(0, p))
-    o.set(ins, p)
-    o.set(ch.subarray(p), p + ins.length)
-    return o
-  })
-}
-
 const insertPlan = (segs, ctx) => {
   let { total, sampleRate: sr, args } = ctx
   let source = args[0], off = planOffset(ctx.offset, total, total)
@@ -49,4 +28,4 @@ const insertPlan = (segs, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('insert', { process: insert, plan: insertPlan })
+audio.op('insert', { plan: insertPlan })
