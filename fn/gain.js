@@ -1,7 +1,7 @@
 import { opRange } from '../plan.js'
 
 const gain = (chs, ctx) => {
-  let val = ctx.args[0], lin = ctx.unit === 'linear'
+  let lin = ctx.unit === 'linear', val = ctx.args[0] ?? (lin ? 1 : 0)
   let [s, end] = opRange(ctx, chs[0].length)
   let auto = typeof val === 'function', f = auto ? 0 : lin ? val : 10 ** (val / 20)
   let off = (ctx.blockOffset || 0) * ctx.sampleRate
