@@ -29,7 +29,8 @@ const fade = (chs, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('fade', fade, {
+audio.op('fade', {
+  process: fade,
   call(std, ...a) {
     let last = a[a.length - 1]
     let opts = typeof last === 'object' ? a.pop()

@@ -10,13 +10,13 @@
 import audio from './core.js'
 export { default } from './core.js'
 export { parseTime } from './core.js'
-export { render } from './history.js'
+export { render } from './plan.js'
 
 // ── Infrastructure (self-register on import) ────────────────────────────
 
 import './cache.js'
 import './stats.js'
-import './history.js'
+import './plan.js'
 
 // ── Methods ─────────────────────────────────────────────────────────────
 

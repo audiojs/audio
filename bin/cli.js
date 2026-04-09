@@ -56,19 +56,22 @@ function isOpName(s) {
 
 // ── Per-op Help ──────────────────────────────────────────────────────────
 
-// Attach CLI help metadata to registered ops (single source of truth with audio.op registry)
 const HELP = {
   gain:      { usage: 'gain DB [RANGE]', desc: 'Amplify in dB', examples: ['gain -3db', 'gain 6 1s..5s'] },
   fade:      { usage: 'fade [IN] [-OUT] [CURVE]', desc: 'Fade in/out (bare = 0.5s both)', examples: ['fade', 'fade 1s', 'fade .2s -1s cos'] },
   trim:      { usage: 'trim [THR]', desc: 'Auto-trim silence (threshold in dB)', examples: ['trim', 'trim -40'] },
   normalize: { usage: 'normalize [DB] [MODE]', desc: 'Normalize peak/loudness', examples: ['normalize', 'normalize -3', 'normalize streaming'] },
-  reverse:   { usage: 'reverse [RANGE]', desc: 'Reverse audio', examples: ['reverse', 'reverse 1s..5s'] },
   crop:      { usage: 'crop OFF DUR', desc: 'Crop to time range', examples: ['crop 1s..10s', 'crop 0 5s'] },
   remove:    { usage: 'remove OFF DUR', desc: 'Delete time range', examples: ['remove 2s..4s'] },
-  insert:    { usage: 'insert SRC [OFF]', desc: 'Insert audio at position', examples: ['insert other.wav 3s'] },
+  reverse:   { usage: 'reverse [RANGE]', desc: 'Reverse audio', examples: ['reverse', 'reverse 1s..5s'] },
   repeat:    { usage: 'repeat N', desc: 'Repeat N times', examples: ['repeat 3'] },
+  pad:       { usage: 'pad [BEFORE] [AFTER]', desc: 'Add silence to start/end (single arg = both)', examples: ['pad 1s', 'pad 0.5s 2s'] },
+  speed:     { usage: 'speed RATE', desc: 'Change speed — 2 = double, 0.5 = half, -1 = reverse', examples: ['speed 2', 'speed 0.5', 'speed -1'] },
+  insert:    { usage: 'insert SRC [OFF]', desc: 'Insert audio at position', examples: ['insert other.wav 3s'] },
   mix:       { usage: 'mix SRC [OFF]', desc: 'Mix in another audio file', examples: ['mix bg.wav 0s'] },
   remix:     { usage: 'remix CH', desc: 'Change channel count', examples: ['remix 1', 'remix 2'] },
+  pan:       { usage: 'pan VALUE [RANGE]', desc: 'Stereo balance: -1 left, 0 center, 1 right', examples: ['pan -0.5', 'pan 1 2s..5s'] },
+  filter:    { usage: 'filter TYPE ...ARGS', desc: 'Generic filter dispatch', examples: ['filter highpass 80hz'] },
   highpass:  { usage: 'highpass FC [ORDER]', desc: 'High-pass filter', examples: ['highpass 80hz', 'highpass 120hz 4'] },
   lowpass:   { usage: 'lowpass FC [ORDER]', desc: 'Low-pass filter', examples: ['lowpass 8khz', 'lowpass 4khz 4'] },
   eq:        { usage: 'eq FC GAIN [Q]', desc: 'Parametric EQ', examples: ['eq 1khz -3db', 'eq 300hz 2 0.5'] },
@@ -76,15 +79,10 @@ const HELP = {
   highshelf: { usage: 'highshelf FC GAIN [Q]', desc: 'High shelf filter', examples: ['highshelf 8khz 2db'] },
   notch:     { usage: 'notch FC [Q]', desc: 'Notch (band-reject) filter', examples: ['notch 60hz', 'notch 50hz 50'] },
   bandpass:  { usage: 'bandpass FC [Q]', desc: 'Band-pass filter', examples: ['bandpass 1khz', 'bandpass 440hz 10'] },
-  filter:    { usage: 'filter TYPE ...ARGS', desc: 'Generic filter dispatch', examples: ['filter highpass 80hz'] },
-  pan:       { usage: 'pan VALUE [RANGE]', desc: 'Stereo balance: -1 left, 0 center, 1 right', examples: ['pan -0.5', 'pan 1 2s..5s'] },
-  pad:       { usage: 'pad [BEFORE] [AFTER]', desc: 'Add silence to start/end (single arg = both)', examples: ['pad 1s', 'pad 0.5s 2s'] },
-  speed:     { usage: 'speed RATE', desc: 'Change speed — 2 = double, 0.5 = half, -1 = reverse', examples: ['speed 2', 'speed 0.5', 'speed -1'] },
 }
-for (let name in HELP) { let op = audio.op(name); if (op) op.help = HELP[name] }
 
 function showOpHelp(name) {
-  let h = audio.op(name)?.help
+  let h = HELP[name]
   if (!h) { console.error(`No help for: ${name}`); return }
   console.log(`\n  ${h.usage}\n\n  ${h.desc}\n`)
   if (h.examples.length) console.log('  Examples:')
@@ -699,7 +697,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       if (!opts.play) a.pause()
       await playback(p,
         () => a.decoded ? a.duration : 0,
-        () => a.pages.length * 65536 / a.sampleRate,
+        () => a.pages.length * audio.PAGE_SIZE / a.sampleRate,
         a, source
       )
       process.exit(0)
@@ -709,7 +707,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     if (opts.verbose) console.error(`Loading: ${typeof source === 'string' ? source : '(stdin)'}`)
     let spin = !opts.verbose ? spinner('decoding') : null
     let a = audio(source)
-    if (opts.verbose) a.on('progress', ({ offset }) => process.stderr.write(`\rDecoding... ${fmtTime(offset)}`))
+    if (opts.verbose) a.on('data', ({ offset }) => process.stderr.write(`\rDecoding... ${fmtTime(offset)}`))
     await a
     let loadTime = spin?.stop()
     if (opts.verbose) console.error('\n')
@@ -903,7 +901,7 @@ For more info: https://github.com/audiojs/audio
 }
 
 // Exports for testing
-export { parseValue, parseRange, parseArgs, showOpHelp, HELP as OP_HELP }
+export { parseValue, parseRange, parseArgs, showOpHelp, HELP }
 
 // Run CLI if invoked directly (not imported)
 let argv1 = process.argv[1]

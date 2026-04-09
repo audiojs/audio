@@ -1,4 +1,4 @@
-import { seg, planOffset } from '../history.js'
+import { seg, planOffset } from '../plan.js'
 
 export function cropSegs(segs, off, len) {
   let r = [], end = off + len
@@ -10,10 +10,10 @@ export function cropSegs(segs, off, len) {
 }
 
 const cropPlan = (segs, ctx) => {
-  let { total, span } = ctx
+  let { total, length } = ctx
   let s = planOffset(ctx.offset, total)
-  return cropSegs(segs, s, Math.max(0, Math.min(span ?? total - s, total - s)))
+  return cropSegs(segs, s, Math.max(0, Math.min(length ?? total - s, total - s)))
 }
 
 import audio from '../core.js'
-audio.op('crop', null, cropPlan)
+audio.op('crop', { plan: cropPlan })

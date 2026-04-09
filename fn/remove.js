@@ -1,4 +1,4 @@
-import { seg, planOffset } from '../history.js'
+import { seg, planOffset } from '../plan.js'
 
 function removeSegs(segs, off, dur) {
   let r = [], end = off + dur
@@ -18,8 +18,8 @@ function removeSegs(segs, off, dur) {
 const removePlan = (segs, ctx) => {
   let { total } = ctx
   let s = planOffset(ctx.offset, total)
-  return removeSegs(segs, s, Math.min(ctx.span || 0, total - s))
+  return removeSegs(segs, s, Math.min(ctx.length || 0, total - s))
 }
 
 import audio from '../core.js'
-audio.op('remove', null, removePlan)
+audio.op('remove', { plan: removePlan })

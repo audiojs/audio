@@ -71,6 +71,27 @@ export function melSpectrumDb(samples, sr, opts = {}) {
   return mag
 }
 
+// ── Block analysis helper ───────────────────────────────────────
+
+/** Stream ch0, buffer remainder, call fn(block, acc) per N-sample block. Returns {acc, cnt}. */
+export async function analyzeBlocks(inst, opts, N, bins, fn) {
+  let acc = new Float64Array(bins), cnt = 0, rem = new Float32Array(0)
+  for await (let pcm of inst.stream({ at: opts?.at, duration: opts?.duration })) {
+    let ch0 = pcm[0]
+    if (!ch0 || !ch0.length) continue
+    let input = ch0
+    if (rem.length) {
+      input = new Float32Array(rem.length + ch0.length)
+      input.set(rem, 0)
+      input.set(ch0, rem.length)
+    }
+    let limit = input.length - (input.length % N)
+    for (let off = 0; off < limit; off += N) { fn(input.subarray(off, off + N), acc); cnt++ }
+    rem = limit < input.length ? input.slice(limit) : new Float32Array(0)
+  }
+  return { acc, cnt }
+}
+
 // ── Stat registration ───────────────────────────────────────────
 
 import audio from '../core.js'
@@ -80,32 +101,11 @@ audio.fn.spectrum = async function(opts) {
   let bins = opts?.bins ?? 128
   let spectOpts = { bins, fMin: opts?.fMin, fMax: opts?.fMax, weight: opts?.weight }
   let sr = this.sampleRate
-  let N = 1024  // FFT size
 
-  let acc = new Float64Array(bins), cnt = 0
-  let rem = new Float32Array(0)
-
-  for await (let pcm of this.stream({ at: opts?.at, duration: opts?.duration })) {
-    let ch0 = pcm[0]
-    if (!ch0 || !ch0.length) continue
-
-    let input = ch0
-    if (rem.length) {
-      input = new Float32Array(rem.length + ch0.length)
-      input.set(rem, 0)
-      input.set(ch0, rem.length)
-    }
-
-    let limit = input.length - (input.length % N)
-    for (let off = 0; off < limit; off += N) {
-      let block = input.subarray(off, off + N)
-      let mag = melSpectrum(block, sr, spectOpts)
-      for (let b = 0; b < bins; b++) acc[b] += mag[b] ** 2
-      cnt++
-    }
-
-    rem = limit < input.length ? input.slice(limit) : new Float32Array(0)
-  }
+  let { acc, cnt } = await analyzeBlocks(this, opts, 1024, bins, (block, acc) => {
+    let mag = melSpectrum(block, sr, spectOpts)
+    for (let b = 0; b < bins; b++) acc[b] += mag[b] ** 2
+  })
 
   if (cnt === 0) return new Float32Array(bins)
   let out = new Float32Array(bins)

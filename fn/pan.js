@@ -3,7 +3,7 @@
  * Linear attenuation — never boosts, only attenuates one channel.
  */
 
-import { opRange } from '../history.js'
+import { opRange } from '../plan.js'
 
 const pan = (chs, ctx) => {
   let val = ctx.args[0] // -1..1 or t => value
@@ -32,4 +32,4 @@ const pan = (chs, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('pan', pan)
+audio.op('pan', { process: pan })

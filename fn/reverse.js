@@ -1,4 +1,4 @@
-import { seg } from '../history.js'
+import { seg, planOffset } from '../plan.js'
 
 function reverseSegs(segs, off, end) {
   let r = []
@@ -16,10 +16,10 @@ function reverseSegs(segs, off, end) {
 }
 
 const reversePlan = (segs, ctx) => {
-  let { total, offset, span } = ctx
-  let s = offset != null ? (offset < 0 ? total + offset : offset) : 0
-  return reverseSegs(segs, s, s + (span ?? total - s))
+  let { total, length } = ctx
+  let s = planOffset(ctx.offset, total)
+  return reverseSegs(segs, s, s + (length ?? total - s))
 }
 
 import audio from '../core.js'
-audio.op('reverse', null, reversePlan)
+audio.op('reverse', { plan: reversePlan })

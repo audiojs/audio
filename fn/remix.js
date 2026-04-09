@@ -16,4 +16,4 @@ const remix = (chs, ctx) => {
 const remixCh = (_, args) => args[0]
 
 import audio from '../core.js'
-audio.op('remix', remix, { ch: remixCh })
+audio.op('remix', { process: remix, ch: remixCh })

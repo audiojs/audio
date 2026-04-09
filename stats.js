@@ -4,11 +4,11 @@
  */
 
 import audio, { parseTime, LOAD } from './core.js'
-import { buildPlan, streamPlan, ensurePlan } from './history.js'
+import { buildPlan, streamPlan, ensurePlan } from './plan.js'
 
 /** Create a stat computation session. ch inferred from first .page() call. */
 function statSession(sr) {
-  let fns, acc, ch, last = 0
+  let fns, acc, ch, last = 0, rem = null, remLen = 0
 
   function init(c) {
     ch = c
@@ -17,21 +17,58 @@ function statSession(sr) {
     for (let { name } of fns) acc[name] = Array.from({ length: ch }, () => [])
   }
 
+  function processBlock(block) {
+    for (let { name, fn, ctx } of fns) {
+      let v = fn(block, ctx)
+      if (typeof v === 'number') for (let c = 0; c < ch; c++) acc[name][c].push(v)
+      else for (let c = 0; c < ch; c++) acc[name][c].push(v[c])
+    }
+  }
+
   return {
     page(page) {
       if (!acc) init(page.length)
-      for (let off = 0; off < page[0].length; off += audio.BLOCK_SIZE) {
-        let end = Math.min(off + audio.BLOCK_SIZE, page[0].length)
-        let block = Array.from({ length: ch }, (_, c) => page[c].subarray(off, end))
-        for (let { name, fn, ctx } of fns) {
-          let v = fn(block, ctx)
-          if (typeof v === 'number') for (let c = 0; c < ch; c++) acc[name][c].push(v)
-          else for (let c = 0; c < ch; c++) acc[name][c].push(v[c])
+      let BS = audio.BLOCK_SIZE, off = 0, len = page[0].length
+
+      // Complete partial remainder from previous push
+      if (remLen > 0) {
+        let need = BS - remLen
+        if (len >= need) {
+          for (let c = 0; c < ch; c++) rem[c].set(page[c].subarray(0, need), remLen)
+          processBlock(rem)
+          off = need
+          remLen = 0
+        } else {
+          for (let c = 0; c < ch; c++) rem[c].set(page[c].subarray(0, len), remLen)
+          remLen += len
+          return this
         }
       }
+
+      // Process full blocks
+      while (off + BS <= len) {
+        processBlock(Array.from({ length: ch }, (_, c) => page[c].subarray(off, off + BS)))
+        off += BS
+      }
+
+      // Buffer remainder
+      if (off < len) {
+        if (!rem) rem = Array.from({ length: ch }, () => new Float32Array(BS))
+        for (let c = 0; c < ch; c++) rem[c].set(page[c].subarray(off))
+        remLen = len - off
+      }
+
       return this
     },
+    /** Flush any buffered partial block as a short final block. */
+    flush() {
+      if (remLen > 0) {
+        processBlock(Array.from({ length: ch }, (_, c) => rem[c].subarray(0, remLen)))
+        remLen = 0
+      }
+    },
     delta() {
+      if (!acc) return
       let firstKey = Object.keys(acc)[0]
       if (!firstKey) return
       let cur = acc[firstKey][0].length
@@ -42,6 +79,7 @@ function statSession(sr) {
       return d
     },
     done() {
+      this.flush()
       let out = { blockSize: audio.BLOCK_SIZE }
       for (let name in acc) out[name] = acc[name].map(a => new Float32Array(a))
       return out

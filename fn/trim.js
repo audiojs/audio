@@ -66,4 +66,4 @@ const trimResolve = (args, { stats, sampleRate, totalDuration }) => {
   return { type: 'crop', args: [], at: startSample / sampleRate, duration: (endSample - startSample) / sampleRate }
 }
 
-audio.op('trim', trim, { resolve: trimResolve })
+audio.op('trim', { process: trim, resolve: trimResolve })

@@ -1,5 +1,5 @@
 import { cropSegs } from './crop.js'
-import { seg } from '../history.js'
+import { seg, planOffset } from '../plan.js'
 
 function repeatSegs(segs, times, total, off, dur) {
   if (off == null) {
@@ -26,10 +26,10 @@ function repeatSegs(segs, times, total, off, dur) {
 }
 
 const repeatPlan = (segs, ctx) => {
-  let { total, args, offset, span } = ctx
-  let off = offset != null ? (offset < 0 ? total + offset : offset) : null
-  return repeatSegs(segs, args[0] ?? 1, total, off, span)
+  let { total, args, length } = ctx
+  let off = ctx.offset != null ? planOffset(ctx.offset, total) : null
+  return repeatSegs(segs, args[0] ?? 1, total, off, length)
 }
 
 import audio from '../core.js'
-audio.op('repeat', null, repeatPlan)
+audio.op('repeat', { plan: repeatPlan })

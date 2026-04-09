@@ -1,4 +1,4 @@
-import { opRange } from '../history.js'
+import { opRange } from '../plan.js'
 
 const gain = (chs, ctx) => {
   let val = ctx.args[0], lin = ctx.unit === 'linear'
@@ -13,4 +13,4 @@ const gain = (chs, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('gain', gain)
+audio.op('gain', { process: gain })

@@ -1,9 +1,11 @@
+import { opRange } from '../plan.js'
+
 const mix = (chs, ctx) => {
   let source = ctx.args[0], sr = ctx.sampleRate, chLen = chs[0].length
   if (typeof source === 'number') throw new TypeError('mix: expected audio instance or Float32Array[], not a number')
   let sLen = Array.isArray(source) ? source[0].length : source.length
-  let p = ctx.at != null ? Math.round(ctx.at * sr) : 0
-  let srcOff = Math.max(0, -p), dstOff = Math.max(0, p)
+  let [s] = opRange(ctx, chLen)
+  let srcOff = Math.max(0, -s), dstOff = Math.max(0, s)
   let n = Math.min(sLen - srcOff, chLen - dstOff)
   if (ctx.duration != null) n = Math.min(n, Math.round(ctx.duration * sr) - srcOff)
   if (n <= 0) return chs
@@ -16,4 +18,4 @@ const mix = (chs, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('mix', mix)
+audio.op('mix', { process: mix })

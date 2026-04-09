@@ -25,7 +25,8 @@ audio.op('clip', (chs, ctx) => {
   return chs
 })
 
-audio.op('normalize', () => false, {
+audio.op('normalize', {
+  process: () => false,
   resolve: (args, ctx) => {
     let { stats, sampleRate } = ctx
     if (!stats?.min) return null

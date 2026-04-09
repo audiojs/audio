@@ -1,9 +1,9 @@
 /**
  * Page cache — LRU eviction to OPFS and lazy restore.
- * Self-registers on import — overrides [LOAD], exposes opfsCache/evict/ensurePages on audio.
+ * Self-registers on import — exposes opfsCache/evict/ensurePages on audio.
  */
 
-import audio, { LOAD } from './core.js'
+import audio from './core.js'
 
 const DEFAULT_BUDGET = 500 * 1024 * 1024  // 500MB
 
@@ -82,11 +82,6 @@ async function opfsCache(dirName = 'audio-cache') {
 
 // ── Self-register ────────────────────────────────────────────────
 
-let origLoad = audio.fn[LOAD]
-audio.fn[LOAD] = async function() {
-  await origLoad.call(this)
-  if (!this._.lru) this._.lru = new Set()
-}
 
 audio.opfsCache = opfsCache
 audio.evict = evict
