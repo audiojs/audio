@@ -349,13 +349,22 @@ a.invert({at: 2, duration: 1})         // range: 2s for 1s
 ### Custom stats
 
 ```js
-audio.stat.rms = (chs) => chs.map(ch => {
-  let sum = 0
-  for (let i = 0; i < ch.length; i++) sum += ch[i] * ch[i]
-  return Math.sqrt(sum / ch.length)
+audio.stat('rms', {
+  block: (chs) => chs.map(ch => {
+    let sum = 0
+    for (let i = 0; i < ch.length; i++) sum += ch[i] * ch[i]
+    return sum / ch.length
+  }),
+  reduce: (src, from, to) => {
+    let n = to - from; if (!n) return 0
+    let v = 0; for (let i = from; i < to; i++) v += src[i]
+    return Math.sqrt(v / n)
+  }
 })
 
 a.stats.rms                    // [Float32Array, ...] per-channel
+await a.stat('rms')             // scalar query
+await a.stat('rms', {bins: 50}) // binned query
 ```
 
 

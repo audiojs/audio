@@ -37,8 +37,7 @@ function hannWin(n) {
  * @returns {Float32Array} magnitude per mel bin (linear scale)
  */
 export function melSpectrum(samples, sr, opts = {}) {
-  let { bins = 128, fMin = 30, fMax = Math.min(sr / 2, 20000), weight = true, kWeight } = opts
-  if (kWeight != null) weight = kWeight // back-compat
+  let { bins = 128, fMin = 30, fMax = Math.min(sr / 2, 20000), weight = true } = opts
   let N = samples.length, win = hannWin(N)
   let buf = new Float32Array(N)
   for (let i = 0; i < N; i++) buf[i] = samples[i] * win[i]
@@ -61,15 +60,6 @@ export function melSpectrum(samples, sr, opts = {}) {
   return out
 }
 
-/**
- * Compute mel-binned spectrum in dB from a block of samples.
- * @returns {Float32Array} dB per mel bin
- */
-export function melSpectrumDb(samples, sr, opts = {}) {
-  let mag = melSpectrum(samples, sr, opts)
-  for (let i = 0; i < mag.length; i++) mag[i] = 20 * Math.log10(mag[i] + 1e-10)
-  return mag
-}
 
 // ── Block analysis helper ───────────────────────────────────────
 
