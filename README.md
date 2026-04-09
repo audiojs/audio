@@ -1,4 +1,4 @@
-# ▷ audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/audio)](https://npmjs.org/package/audio)
+# ▷ audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/audio?color=white)](https://npmjs.org/package/audio)
 
 Audio in JavaScript: load, edit, play, analyze, save, batch-process.
 
@@ -48,7 +48,8 @@ await a.save('clean.mp3')
 </script>
 ```
 
-`audio.min.js` is ~20K gzipped. Codecs load on demand via `import()` — map them with an import map or your bundler.
+`audio.min.js` is ~20K gzipped.<br>
+Codecs load on demand via `import()` — map them with an import map or your bundler.
 <details>
 <summary><strong>Import map example</strong></summary>
 
@@ -262,7 +263,9 @@ b.gain(-3).trim()
 await b.save('out.wav')
 ```
 
-Opts: `{ sampleRate, channels, storage: 'memory' | 'persistent' | 'auto' }`.
+`source`: file path, URL, Blob, Response, ArrayBuffer, typed array, JSON (restore).
+
+`opts`: `{ sampleRate, channels, storage }` — storage is `'memory'` (default), `'persistent'` (OPFS), or `'auto'`.
 
 **`audio.from(source, opts?)`** – wrap existing PCM, AudioBuffer, silence, or function. Sync, no I/O.
 
@@ -274,17 +277,43 @@ let d = audio.from(audioBuffer)                   // Web Audio AudioBuffer
 let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 ```
 
+`source`: Float32Array[], number (silence duration), function (generator), AudioBuffer, typed array + `{ format }`.
+
 **`audio()`** – pushable instance for `.push()`, `.record()`, `.stop()`.
 
+```js
+let a = audio()                           // empty, ready for .push() or .record()
+```
+
 **`audio([a, b, ...])`** – concat from array of sources.
+
+```js
+let ep = audio([intro, body, outro])      // virtual concat, no copy
+```
 
 ### Properties
 
 ```js
-a.duration  a.channels  a.sampleRate  a.length    // dimensions (reflect edits)
-a.currentTime  a.playing  a.paused  a.volume  a.loop  // playback state
-a.recording  a.ready  a.block                     // recording, decode promise, current block
-a.source  a.pages  a.stats  a.edits  a.version    // internal state
+a.duration                // total seconds (reflects edits)
+a.channels                // channel count
+a.sampleRate              // sample rate in Hz
+a.length                  // total samples per channel
+
+a.currentTime             // playback position in seconds
+a.playing                 // true during playback
+a.paused                  // true when paused
+a.volume                  // playback volume in dB
+a.loop                    // loop playback on/off
+
+a.recording               // true during mic recording
+a.ready                   // promise — resolves when decode completes
+a.block                   // current block index during decode
+
+a.source                  // original source reference
+a.pages                   // page store (Float32Array blocks)
+a.stats                   // per-block stats (peak, rms, etc.)
+a.edits                   // edit list (non-destructive ops)
+a.version                 // increments on each edit
 ```
 
 ### Structure
@@ -292,13 +321,13 @@ a.source  a.pages  a.stats  a.edits  a.version    // internal state
 **`.crop({at, duration})`** – keep only this range, discard the rest.
 
 ```js
-a.crop({ at: 10, duration: 30 })
+a.crop({ at: 10, duration: 30 })          // keep 10s–40s
 ```
 
 **`.remove({at, duration})`** – cut a range and close the gap.
 
 ```js
-a.remove({ at: 10, duration: 2 })
+a.remove({ at: 10, duration: 2 })          // cut 10s–12s, close gap
 ```
 
 **`.insert(source, {at})`** – insert audio or silence at position.
@@ -309,6 +338,10 @@ a.insert(3)                               // append 3s silence
 ```
 
 **`.repeat(n)`** – repeat n times.
+
+```js
+a.repeat(4)                               // loop 4×
+```
 
 **`.pad(before, after?)`** – pad silence at edges (seconds).
 
@@ -324,10 +357,15 @@ a.speed(2)                                // double speed, half duration
 
 **`.reverse({at?, duration?})`** – reverse audio or a range.
 
+```js
+a.reverse()                               // reverse entire audio
+a.reverse({ at: 5, duration: 2 })        // reverse 5s–7s only
+```
+
 **`.split(...offsets)`** – split into views at timestamps (zero-copy).
 
 ```js
-let [ch1, ch2, ch3] = a.split(1800, 3600)
+let [ch1, ch2, ch3] = a.split(1800, 3600) // split at 30m, 60m
 ```
 
 **`.trim(threshold?)`** – remove leading/trailing silence.
@@ -339,7 +377,15 @@ a.trim(-30)                               // custom -30dB
 
 **`.view({at, duration})`** – non-destructive view of a range (zero-copy).
 
+```js
+let chorus = a.view({ at: 60, duration: 30 })  // zero-copy slice
+```
+
 **`.concat(...sources)`** – append sources in order.
+
+```js
+a.concat(outro)                           // append outro
+```
 
 
 ### Samples
@@ -366,7 +412,15 @@ a.mix(voice, { at: 2 })
 
 **`.write(data, {at?})`** – overwrite samples at position with raw PCM.
 
+```js
+a.write(float32arr, { at: 10 })           // overwrite at 10s
+```
+
 **`.remix(channels)`** – change channel count. `a.remix(1)` stereo→mono, `a.remix(2)` mono→stereo.
+
+```js
+a.remix(1)                                // stereo → mono
+```
 
 **`.pan(value, {at?, duration?})`** – stereo balance (−1 left, 0 center, 1 right). Accepts function.
 
@@ -441,9 +495,21 @@ await a.save('clip.wav', { at: 10, duration: 5 })
 
 **`await .encode(format?, opts?)`** – encode to Uint8Array without saving.
 
+```js
+let bytes = await a.encode('mp3')         // Uint8Array
+```
+
 **`for await (let block of .stream())`** – async iterator over materialized blocks.
 
+```js
+for await (let block of a.stream()) send(block)  // stream blocks
+```
+
 **`.clone()`** – deep copy with independent edit history (pages shared).
+
+```js
+let b = a.clone()                         // independent copy, shared pages
+```
 
 
 ### Playback
@@ -457,13 +523,29 @@ a.play({ at: 30, duration: 10, loop: true })
 
 **`.pause()`** · **`.resume()`** · **`.stop()`** · **`.seek(t)`** – playback control.
 
+```js
+a.pause(); a.seek(30); a.resume()         // jump to 30s and continue
+```
+
 ### Recording
 
 **`.record()`** – start mic recording.
 
+```js
+a.record()                                // start mic capture
+```
+
 **`.push(data, format?)`** – feed PCM into pushable instance.
 
+```js
+a.push(float32chunk)                      // feed raw PCM
+```
+
 **`.stop()`** – stop playback or recording.
+
+```js
+a.stop()                                  // end recording or playback
+```
 
 
 ### Analysis
@@ -489,8 +571,16 @@ a.on('data', ({ delta }) => drawWaveform(delta))
 
 **`.dispose()`** – release all resources. Also `a[Symbol.dispose]()`.
 
+```js
+a.dispose()                               // free pages, stop playback
+```
 
 **`.undo(n?)`** – undo last edit (or last n). Returns the edit — pass to `.run()` for redo.
+
+```js
+a.undo()                                  // undo last op
+a.undo(3)                                 // undo last 3
+```
 
 **`.run(...edits)`** – replay raw edit objects.
 
@@ -517,21 +607,24 @@ a.crush(4)                                // chainable, undoable
 
 **`audio.stat(name, descriptor)`** – register custom stat computed during decode.
 
+```js
+audio.stat('zcr', { block: ch => /* zero-crossing rate */ })
+```
+
 
 ## CLI
 
 ```sh
 npx audio [file] [ops...] [-o output] [options]
+
+# ops
+eq          mix         pad         pan       crop
+fade        gain        stat        trim      notch
+remix       speed       split       insert    remove
+repeat      bandpass    highpass    lowpass   reverse
+lowshelf    highshelf   normalize
 ```
 
-| | | | |
-|---|---|---|---|
-| `gain` | `fade` | `trim` | `normalize` |
-| `crop` | `remove` | `reverse` | `repeat` |
-| `pad` | `speed` | `insert` | `mix` |
-| `remix` | `pan` | `highpass` | `lowpass` |
-| `eq` | `lowshelf` | `highshelf` | `notch` |
-| `bandpass` | `split` | `stat` | |
 
 `-o` output · `-p` play · `-i` info · `-f` force · `--format` · `--verbose` · `+` concat
 
