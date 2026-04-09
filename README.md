@@ -1,6 +1,18 @@
 # audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/audio)](https://npmjs.org/package/audio)
 
-Audio in JavaScript.<br>
+Audio in JavaScript: load, edit, play, analyze, save, batch-process.
+
+```
+npm i audio
+```
+
+```js
+import audio from 'audio'
+
+audio('raw-take.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
+```
+
+## Principles
 
 * **Any format** — WASM codecs, lazy-loaded, no ffmpeg.
 * **Streaming** — instant playback and edits during decode finishes.
@@ -12,18 +24,15 @@ Audio in JavaScript.<br>
 * **Modular** – pluggable ops, stats, autodiscovery.
 * **Domain-first** – audio units and terminology: dB, Hz, LUFS, not samples/indices.
 
+<!--
 * [Reference](docs/reference.md) – full API: create, properties, edit ops, I/O, analysis, events, CLI, browser
 * [Architecture](docs/architecture.md) – stream-first design, pages & blocks, non-destructive editing, plan compilation
 * [Recipes](docs/recipes.md) – all examples with JS + CLI pairs: montage, waveform, ML, glitch, streaming
 * [Plugins](docs/plugins.md) – custom ops, stats, descriptors (process, plan, resolve, call), persistent ctx
+-->
 
-```
-npm i audio
-```
 
-```js
-import audio from 'audio'
-```
+## Recipes
 
 ### Clean up a recording
 
@@ -42,7 +51,7 @@ for (let i = 0; i < peaks.length; i++)
   ctx.fillRect(i, h/2 - peaks[i] * h/2, 1, (peaks[i] - mins[i]) * h/2)
 ```
 
-### Progressive waveform (stream as it decodes)
+### Render as it decodes
 
 ```js
 let a = audio('long.flac')
