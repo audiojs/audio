@@ -1,6 +1,6 @@
 # Plugins
 
-See also: [Reference](reference.md) · [Architecture](architecture.md) · [Recipes](recipes.md)
+See also: [Architecture](architecture.md)
 
 A plugin registers ops, stats, or methods on `audio`.
 

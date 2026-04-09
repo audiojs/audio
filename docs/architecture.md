@@ -1,6 +1,6 @@
 # Architecture
 
-See also: [Reference](reference.md) · [Recipes](recipes.md) · [Plugins](plugins.md)
+See also: [Plugins](plugins.md)
 
 ## Files
 
