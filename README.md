@@ -117,41 +117,18 @@ let b = await audio(JSON.parse(json))    // re-decode + replay edits
 
 ```sh
 npx audio [file] [ops...] [-o output] [options]
-```
+# `-i` info, `-p` autoplay, `-h` help, `-o` output, `-v` version.
 
-Flags: `-i` info, `-p` autoplay, `-h` help, `-o` output, `-v` version.
-
-### Playback
-
-```sh
+# Playback
 npx audio kirtan.mp3
 ▶ 0:06:37 ━━━━━━━━────────────────────────────────────────── -0:36:30   ▁▂▃▄▅__
           ▂▅▇▇██▇▆▇▇▇██▆▇▇▇▆▆▅▅▆▅▆▆▅▅▆▅▅▅▃▂▂▂▂▁_____________
           50    500  1k     2k         5k       10k      20k
 
           48k   2ch   43:07   -0.8dBFS   -30.8LUFS
-```
+#   ␣ pause, ←/→ seek ±10s, ⇧←/⇧→ seek ±60s, ↑/↓ volume ±3dB, l loop, q quit
 
-<kbd>Space</kbd> pause · <kbd>←</kbd><kbd>→</kbd> seek ±10s · <kbd>⇧←</kbd><kbd>⇧→</kbd> seek ±60s · <kbd>↑</kbd><kbd>↓</kbd> volume ±3dB · <kbd>l</kbd> loop · <kbd>q</kbd> quit
-
-### Info
-
-```sh
-npx audio in.mp3 -i
-  Duration:   43:07
-  Channels:   2
-  SampleRate: 48000 Hz
-  Samples:    124204032
-  Peak:       -0.8 dBFS
-  Loudness:   -30.8 LUFS
-  Clipping:   none
-  DC offset:  none
-  Loaded in:  5.6s
-```
-
-### Edit
-
-```sh
+# Edit / Save
 npx audio in.mp3 gain -3db trim normalize -o out.wav
 npx audio in.wav gain -3db 1s..10s -o out.wav    # range
 npx audio in.mp3 highpass 80hz lowshelf 200hz -3db -o out.wav
@@ -182,12 +159,8 @@ npx audio in.wav --macro recipe.json -o out.wav
 cat in.wav | audio gain -3db > out.wav
 curl -s https://example.com/speech.mp3 | npx audio normalize -o clean.wav
 ffmpeg -i video.mp4 -f wav - | npx audio trim normalize podcast > voice.wav
-```
 
-
-### Tab completion
-
-```sh
+# tab completion
 eval "$(audio --completions zsh)"       # add to ~/.zshrc
 eval "$(audio --completions bash)"      # add to ~/.bashrc
 audio --completions fish | source       # fish
