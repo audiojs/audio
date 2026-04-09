@@ -3,8 +3,6 @@
 Audio in JavaScript: load, edit, play, analyze, save, batch-process.
 
 ```js
-import audio from 'audio'
-
 audio('raw-take.wav')
   .trim(-30)
   .normalize('podcast')
@@ -33,6 +31,8 @@ audio('raw-take.wav')
 
 ### Node
 
+**`npm i audio`**
+
 ```js
 import audio from 'audio'
 let a = await audio('voice.mp3')
@@ -52,7 +52,7 @@ await a.save('clean.mp3')
 
 `audio.min.js` is ~20K gzipped. Codecs load on demand via `import()` — map them with an import map or your bundler.
 <details>
-<summary>Import map example</summary>
+<summary><strong>Import map example</strong></summary>
 
 
 ```html
@@ -81,8 +81,6 @@ await a.save('clean.mp3')
 }
 </script>
 ```
-
-Only mapped codecs are fetched — `audio-decode` calls `import('mpg123-decoder')` on first MP3 open. Remove lines you don't need.
 
 </details>
 
@@ -195,166 +193,342 @@ let b = await audio(JSON.parse(json))    // re-decode + replay edits
 
 ## API
 
-### Create
+### `audio(source, opts?)`
+
+Decode from file, URL, or bytes. Returns instantly — edits chain before decode completes. Thenable.
 
 ```js
-let a = await audio('voice.mp3')              // file / URL / bytes
-let b = audio.from(pcm, {sampleRate: 44100})  // wrap existing PCM
-let c = audio.from(t => Math.sin(440*TAU*t), {duration: 2}) // synthesize
+let a = await audio('voice.mp3')
+let b = audio('https://example.com/track.flac')  // URL
+let c = await audio(uint8array)                   // encoded bytes
 ```
 
-* `audio(source, opts?)` – decode from file, URL, or bytes (async, thenable, paged)
-* `audio.from(source, opts?)` – wrap PCM, AudioBuffer, silence, or function (sync, resident)
-* `audio()` – pushable instance for `.push()`, `.record()`, `.stop()`
-* `audio([a, b, ...])` – concat from array
+### `audio.from(source, opts?)`
+
+Wrap existing PCM, silence, or function. Sync, no I/O.
+
+```js
+let a = audio.from([left, right])                 // Float32Array[] channels
+let b = audio.from(3, { channels: 2 })           // 3s silence
+let c = audio.from(t => Math.sin(440*TAU*t), { duration: 2 })
+```
+
+### `audio()`
+
+Pushable instance for `.push()`, `.record()`, `.stop()`.
+
+### `audio([a, b, ...])`
+
+Concat from array of sources.
 
 ### Properties
 
 ```js
-console.log(a.duration, a.channels, a.sampleRate)
-a.volume = 0.5; a.loop = true
+a.duration  a.channels  a.sampleRate  a.length    // dimensions (reflect edits)
+a.currentTime  a.playing  a.paused  a.volume  a.loop  // playback state
+a.source  a.pages  a.stats  a.edits  a.version    // internal state
 ```
 
-* `.duration` `.channels` `.sampleRate` `.length` – audio dimensions (reflect edits)
-* `.currentTime` `.playing` `.paused` `.volume` `.loop` – playback state
-* `.source` `.pages` `.stats` `.edits` `.version` – internal state
+---
 
-### Structural
+### `.crop({at, duration})`
+
+Keep only this range, discard the rest.
 
 ```js
-a.crop({at: 10, duration: 30})                 // keep 30s from 10s
-let [ch1, ch2] = a.split(1800)                // split at 30min
-a.insert(audio.from({duration: 2}), {at: 5})  // insert 2s silence at 5s
+a.crop({ at: 10, duration: 30 })
 ```
 
-* `.crop({at, duration})` – keep only this range
-* `.remove({at, duration})` – delete a range
-* `.insert(source, {at})` – insert audio or silence at position
-* `.repeat(n)` – repeat n times
-* `.pad(before, after?)` – pad silence at edges (seconds)
-* `.speed(rate)` – change playback speed
-* `.reverse({at?, duration?})` – reverse audio or range
-* `.split(t1, t2, ...)` – split into views at timestamps
-* `.view({at, duration})` – non-destructive view of a range
-* `.concat(b, c, ...)` – concatenate sources
+### `.remove({at, duration})`
 
-### Sample
+Cut a range and close the gap.
 
 ```js
-a.gain(-3)                                     // lower 3dB
-a.fade(0.5, -2)                                // 0.5s in, 2s out from end
-a.gain(t => -20 + t * 10, {channel: 0})       // automate left channel
+a.remove({ at: 10, duration: 2 })
 ```
 
-* `.gain(dB, {at?, duration?, channel?})` – volume in dB, accepts function for automation
-* `.fade(in, out?, curve?)` – fade in/out, positive = from start, negative = from end
-* `.mix(other, {at?, duration?})` – overlay another audio
-* `.write(data, {at?})` – overwrite samples at position
-* `.remix(channels)` – change channel count
-* `.pan(value, {at?, duration?})` – stereo balance (−1..1), accepts function
+### `.insert(source, {at})`
 
-### Smart
+Insert audio or silence at position.
 
 ```js
-a.trim().normalize()                           // clean up recording
-a.normalize('podcast')                         // -16 LUFS, -1 dBTP
+a.insert(intro, { at: 0 })               // prepend
+a.insert(3)                               // append 3s silence
 ```
 
-* `.trim(threshold?)` – remove silence from edges
-* `.normalize(target?)` – loudness normalize, presets: `'podcast'`, `'streaming'`, `'broadcast'`
+### `.repeat(n)`
 
-### Filter
+Repeat n times.
+
+### `.pad(before, after?)`
+
+Pad silence at edges (seconds).
 
 ```js
-a.highpass(80)                                 // remove rumble
-a.lowshelf(200, -3).highshelf(8000, 2)        // voice cleanup
-a.eq(1000, -6, 2)                             // surgical cut at 1kHz
+a.pad(0.5, 2)                            // 0.5s before, 2s after
 ```
 
-* `.highpass(hz)` `.lowpass(hz)` – high/low-pass filter
-* `.bandpass(freq, Q)` `.notch(freq, Q)` – band-pass / notch filter
-* `.lowshelf(hz, dB)` `.highshelf(hz, dB)` – shelf EQ
-* `.eq(freq, gain, Q)` – parametric EQ
+### `.speed(rate)`
 
-### I/O
+Change playback speed — affects pitch and duration.
 
 ```js
-await a.save('out.mp3')                        // save to file
-let pcm = await a.read({format: 'f32'})       // extract raw Float32
-for await (let blk of a.stream()) send(blk)   // stream blocks
+a.speed(2)                                // double speed, half duration
 ```
 
-* `await .read({at?, duration?, channel?, format?})` – read PCM or encode to bytes
-* `await .save(path, {format?, at?, duration?})` – save to file
-* `await .encode(format?, {at?, duration?})` – encode to Uint8Array
-* `for await (let block of .stream())` – async iterator over blocks
+### `.reverse({at?, duration?})`
 
-### Playback
+Reverse audio or a range.
+
+### `.split(...offsets)`
+
+Split into views at timestamps (zero-copy).
 
 ```js
-a.play()                                       // play from start
-a.play({at: 30, duration: 10, loop: true})    // loop a 10s region
+let [ch1, ch2, ch3] = a.split(1800, 3600)
 ```
 
-* `.play({at?, duration?, volume?, loop?})` – start playback
-* `.pause()` `.resume()` `.stop()` `.seek(t)` – playback control
+### `.view({at, duration})`
 
-### Recording
+Non-destructive view of a range (zero-copy).
+
+### `.concat(...sources)`
+
+Append sources in order.
+
+---
+
+### `.gain(dB, {at?, duration?, channel?})`
+
+Volume in dB. Accepts function for automation.
 
 ```js
-let a = audio(); a.record(); /*…*/ a.stop()   // record from mic
-a.push(chunk); a.push(chunk); a.stop()        // feed from stream
+a.gain(-3)                                // reduce 3dB
+a.gain(6, { at: 10, duration: 5 })       // boost range
+a.gain(t => -3 * t)                      // automate over time
 ```
 
-* `.record()` – start mic recording
-* `.push(data, format?)` – feed PCM into pushable
-* `.stop()` – stop playback or recording
+### `.fade(in, out?, curve?)`
 
-### Analysis
+Fade in/out. Positive = from start, negative = from end. Curves: `'linear'`, `'exp'`, `'log'`, `'cos'`.
 
 ```js
-let loud = await a.stat('loudness')            // integrated LUFS
-let [db, clip] = await a.stat(['db', 'clip']) // batch query
-let spec = await a.stat('spectrum', {bins: 128}) // frequency bins
+a.fade(0.5, -2)                           // 0.5s in, 2s out from end
 ```
 
-* `await .stat(name, {at?, duration?, bins?, channel?})` – query a stat
-* Stats: `'db'` `'rms'` `'loudness'` `'clip'` `'dc'` `'silence'` `'max'` `'spectrum'` `'cepstrum'`
-* `await .stat([...names], opts)` – multiple stats at once
+### `.mix(other, {at?, duration?})`
 
-### Events
+Overlay another source (additive).
 
 ```js
-a.on('change', () => render(a))               // re-render on edit
-a.on('data', ({delta}) => draw(delta))        // visualize during decode
+a.mix(voice, { at: 2 })
 ```
 
-* `.on(event, fn)` `.off(event, fn)` – `'change'`, `'data'`, `'timeupdate'`, `'ended'`, `'progress'`
-* `.dispose()` – release all resources
+### `.write(data, {at?})`
 
-### History
+Overwrite samples at position with raw PCM.
+
+### `.remix(channels)`
+
+Change channel count. `a.remix(1)` stereo→mono, `a.remix(2)` mono→stereo.
+
+### `.pan(value, {at?, duration?})`
+
+Stereo balance (−1 left, 0 center, 1 right). Accepts function.
 
 ```js
-a.gain(-3).trim(); a.undo()                   // undo last edit
-let json = JSON.stringify(a)                   // serialize
-let b = await audio(JSON.parse(json))         // restore from snapshot
+a.pan(-0.5)                               // shift left
+a.pan(t => Math.sin(t * 2))              // oscillating
 ```
 
-* `.undo()` – undo last edit
-* `.run(edit1, ...)` – replay edits
-* `JSON.stringify(a)` / `audio(json)` – serialize / restore
+---
 
-### Custom
+### `.trim(threshold?)`
+
+Remove leading/trailing silence.
 
 ```js
-audio.op('lo-fi', (chs, ctx) => chs.map(ch => // register op
-  ch.map(s => Math.round(s * 2**ctx.args[0]) / 2**ctx.args[0])))
-a.transform(chs => chs.map(ch => ch.reverse())) // inline per-channel
+a.trim()                                  // auto threshold
+a.trim(-30)                               // custom -30dB
 ```
 
-* `audio.op(name, fn)` – register custom op
-* `audio.stat(name, descriptor)` – register custom stat
-* `.transform(fn)` – inline processor
+### `.normalize(target?)`
+
+Loudness normalize. Presets: `'podcast'` (-16 LUFS), `'streaming'` (-14 LUFS), `'broadcast'` (-23 LUFS).
+
+```js
+a.normalize()                             // peak 0dBFS
+a.normalize('podcast')                    // -16 LUFS, -1 dBTP
+```
+
+---
+
+### `.highpass(freq)` · `.lowpass(freq)`
+
+High/low-pass filter.
+
+```js
+a.highpass(80)                            // remove rumble
+```
+
+### `.bandpass(freq, Q?)` · `.notch(freq, Q?)`
+
+Band-pass / notch filter.
+
+```js
+a.notch(60)                               // remove 60Hz hum
+```
+
+### `.lowshelf(freq, dB)` · `.highshelf(freq, dB)`
+
+Shelf EQ.
+
+```js
+a.lowshelf(200, -3).highshelf(8000, 2)   // voice cleanup
+```
+
+### `.eq(freq, gain, Q?)`
+
+Parametric EQ.
+
+```js
+a.eq(1000, -6, 2)                        // surgical cut at 1kHz
+```
+
+---
+
+### `await .read(opts?)`
+
+Read rendered PCM or encode to bytes.
+
+```js
+let pcm = await a.read()                  // Float32Array[]
+let raw = await a.read({ format: 'int16', channel: 0 })
+```
+
+### `await .save(path, opts?)`
+
+Encode and write to file. Format from extension.
+
+```js
+await a.save('out.mp3')
+await a.save('clip.wav', { at: 10, duration: 5 })
+```
+
+### `await .encode(format?, opts?)`
+
+Encode to Uint8Array without saving.
+
+### `for await (let block of .stream())`
+
+Async iterator over materialized blocks.
+
+### `.clone()`
+
+Deep copy with independent edit history (pages shared).
+
+---
+
+### `.play(opts?)`
+
+Start playback.
+
+```js
+a.play()
+a.play({ at: 30, duration: 10, loop: true })
+```
+
+### `.pause()` · `.resume()` · `.stop()` · `.seek(t)`
+
+Playback control.
+
+---
+
+### `.record()`
+
+Start mic recording.
+
+### `.push(data, format?)`
+
+Feed PCM into pushable instance.
+
+### `.stop()`
+
+Stop playback or recording.
+
+---
+
+### `await .stat(name, opts?)`
+
+Query a stat. `{at, duration}` for sub-ranges, `{bins}` for waveforms.
+
+```js
+let loud = await a.stat('loudness')
+let [db, clip] = await a.stat(['db', 'clip'])
+let spec = await a.stat('spectrum', { bins: 128 })
+let peaks = await a.stat('max', { bins: 800 })   // waveform
+```
+
+Stats: `'db'` `'rms'` `'loudness'` `'clip'` `'dc'` `'silence'` `'max'` `'min'` `'spectrum'` `'cepstrum'`
+
+---
+
+### `.on(event, fn)` · `.off(event, fn)`
+
+Events: `'change'`, `'data'`, `'metadata'`, `'timeupdate'`, `'ended'`, `'progress'`.
+
+```js
+a.on('data', ({ delta }) => drawWaveform(delta))
+```
+
+### `.dispose()`
+
+Release all resources.
+
+---
+
+### `.undo(n?)`
+
+Undo last edit (or last n).
+
+### `.run(...edits)`
+
+Replay raw edit objects.
+
+### `JSON.stringify(a)` / `audio(json)`
+
+Serialize / restore.
+
+```js
+let json = JSON.stringify(a)
+let b = await audio(JSON.parse(json))     // re-decode + replay edits
+```
+
+---
+
+### `audio.op(name, fn)`
+
+Register custom op — all instances gain the method.
+
+```js
+audio.op('crush', (chs, ctx) => {
+  let steps = 2 ** (ctx.args[0] ?? 8)
+  return chs.map(ch => ch.map(s => Math.round(s * steps) / steps))
+})
+a.crush(4)                                // chainable, undoable
+```
+
+### `audio.stat(name, descriptor)`
+
+Register custom stat computed during decode.
+
+### `.transform(fn)`
+
+Inline processor — not registered, not serialized.
+
+```js
+a.transform(chs => chs.map(ch => ch.reverse()))
+```
 
 
 ## CLI
