@@ -8,17 +8,7 @@ npm i audio
 
 ```js
 import audio from 'audio'
-
-let a = await audio('voice.mp3')
-a.trim().normalize('podcast').fade(0.3, 0.5)
-await a.save('clean.wav')
 ```
-
-```sh
-npx audio voice.mp3 trim normalize podcast fade 0.3s -0.5s -o clean.wav
-```
-
-## Examples
 
 ### Clean up a recording
 
@@ -26,9 +16,6 @@ npx audio voice.mp3 trim normalize podcast fade 0.3s -0.5s -o clean.wav
 let a = await audio('raw-take.wav')
 a.trim(-30).normalize('podcast').fade(0.3, 0.5)
 await a.save('clean.wav')
-```
-```sh
-npx audio raw-take.wav trim -30db normalize podcast fade 0.3s -0.5s -o clean.wav
 ```
 
 ### Render a waveform
@@ -71,9 +58,6 @@ let ep = audio([intro, body, outro])
 ep.fade(0.5, 2)
 await ep.save('episode.mp3')
 ```
-```sh
-npx audio intro.mp3 + interview.wav + outro.mp3 trim normalize podcast fade 0.5s -2s -o episode.mp3
-```
 
 ### Voiceover on music
 
@@ -82,9 +66,6 @@ let music = await audio('bg.mp3')
 let voice = await audio('narration.wav')
 music.gain(-12).mix(voice, { at: 2 })
 await music.save('mixed.wav')
-```
-```sh
-npx audio bg.mp3 gain -12db mix narration.wav 2s -o mixed.wav
 ```
 
 ### Split a long file
@@ -95,18 +76,12 @@ let [ch1, ch2, ch3] = a.split(1800, 3600)
 for (let [i, ch] of [ch1, ch2, ch3].entries())
   await ch.save(`chapter-${i + 1}.mp3`)
 ```
-```sh
-npx audio audiobook.mp3 split 30m 60m -o 'chapter-{i}.mp3'
-```
 
 ### Generate a tone
 
 ```js
 let a = audio.from(t => Math.sin(440 * Math.PI * 2 * t), { duration: 2 })
 await a.save('440hz.wav')
-```
-```sh
-npx audio --tone 440hz 2s -o 440hz.wav
 ```
 
 ### Extract features for ML
@@ -116,17 +91,6 @@ let a = await audio('speech.wav')
 let mfcc = await a.stat('cepstrum', { bins: 13 })
 let spec = await a.stat('spectrum', { bins: 128 })
 let [loud, rms] = await a.stat(['loudness', 'rms'])
-```
-```sh
-npx audio speech.wav stat cepstrum --bins 13
-npx audio speech.wav stat spectrum --bins 128
-npx audio speech.wav stat loudness rms
-```
-
-### Batch normalize
-
-```sh
-npx audio '*.wav' trim normalize podcast -o '{name}.clean.{ext}'
 ```
 
 ### Custom op
@@ -152,16 +116,46 @@ let b = await audio(JSON.parse(json))    // re-decode + replay edits
 ## CLI
 
 ```sh
+# Basics
 npx audio in.mp3                                 # open player
 npx audio in.mp3 -p                              # autoplay
 npx audio in.mp3 -i                              # file info
+npx audio gain --help                            # per-op help
+
+# Edit + save
 npx audio in.mp3 gain -3db trim normalize -o out.wav
 npx audio in.wav gain -3db 1s..10s -o out.wav    # range
 npx audio in.mp3 highpass 80hz lowshelf 200hz -3db -o out.wav
-npx audio '*.wav' gain -3db -o '{name}.out.{ext}'  # batch
+
+# Clean up a recording
+npx audio raw-take.wav trim -30db normalize podcast fade 0.3s -0.5s -o clean.wav
+
+# Podcast montage
+npx audio intro.mp3 + interview.wav + outro.mp3 trim normalize podcast fade 0.5s -2s -o episode.mp3
+
+# Voiceover on music
+npx audio bg.mp3 gain -12db mix narration.wav 2s -o mixed.wav
+
+# Split a long file
+npx audio audiobook.mp3 split 30m 60m -o 'chapter-{i}.mp3'
+
+# Generate a tone
+npx audio --tone 440hz 2s -o 440hz.wav
+
+# Analysis
+npx audio speech.wav stat cepstrum --bins 13
+npx audio speech.wav stat spectrum --bins 128
+npx audio speech.wav stat loudness rms
+
+# Batch
+npx audio '*.wav' trim normalize podcast -o '{name}.clean.{ext}'
+npx audio '*.wav' gain -3db -o '{name}.out.{ext}'
 npx audio in.wav --macro recipe.json -o out.wav
-npx audio gain --help                            # per-op help
-cat in.wav | audio gain -3db > out.wav           # stdin/stdout
+
+# Stdin/stdout
+cat in.wav | audio gain -3db > out.wav
+curl -s https://example.com/speech.mp3 | npx audio normalize -o clean.wav
+ffmpeg -i video.mp4 -f wav - | npx audio trim normalize podcast > voice.wav
 ```
 
 Ranges: `1s..10s`, `30s..1m`, `-1s..`. Units: `s`, `ms`, `m`, `h`, `db`, `hz`, `khz`.
