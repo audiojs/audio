@@ -251,20 +251,22 @@ await a.save('sonification.wav')
 
 ## API
 
-### `audio(source, opts?)`
+### Create
+
+#### `audio(source, opts?)`
 
 Decode from file, URL, or bytes. Returns instantly — edits chain before decode completes. Thenable.
 
 ```js
 let a = await audio('voice.mp3')
-let b = audio('track.flac')                      // no await — edits queue, consuming ops wait
+let b = audio('track.flac')  // no await — edits queue, consuming ops wait
 b.gain(-3).trim()
 await b.save('out.wav')
 ```
 
 Opts: `{ sampleRate, channels, storage: 'memory' | 'persistent' | 'auto' }`.
 
-### `audio.from(source, opts?)`
+#### `audio.from(source, opts?)`
 
 Wrap existing PCM, AudioBuffer, silence, or function. Sync, no I/O.
 
@@ -276,11 +278,11 @@ let d = audio.from(audioBuffer)                   // Web Audio AudioBuffer
 let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 ```
 
-### `audio()`
+#### `audio()`
 
 Pushable instance for `.push()`, `.record()`, `.stop()`.
 
-### `audio([a, b, ...])`
+#### `audio([a, b, ...])`
 
 Concat from array of sources.
 
@@ -293,7 +295,7 @@ a.recording  a.ready  a.block                     // recording, decode promise, 
 a.source  a.pages  a.stats  a.edits  a.version    // internal state
 ```
 
-## Structure
+### Structure
 
 #### `△.crop({at, duration})`
 
