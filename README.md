@@ -254,14 +254,14 @@ await a.save('sonification.wav')
 
 ### Create
 
-**`audio(source, opts?)`** – decode from file, URL, or bytes.<br>
-Returns instantly — edits chain before decode completes. Thenable.<br>
+**`audio(source, opts?)`** – decode from file, URL, or bytes. Returns instantly — can edit before decode. Thenable.
 
 ```js
-let a = await audio('voice.mp3')          // file path, URL, Blob, Response,
-let b = audio('track.flac')               //   ArrayBuffer, typed array, JSON
-b.gain(-3).trim()
-await b.save('out.wav')
+let a = await audio('voice.mp3')          // file path
+let b = audio('https://cdn.ex/track.mp3') // URL
+let c = audio(inputEl.files[0])           // Blob, File, Response, ArrayBuffer
+let d = audio()                           // empty, ready for .push() or .record()
+let e = audio([intro, body, outro])       // concat (virtual, no copy)
 // opts: { sampleRate, channels, storage: 'memory' | 'persistent' | 'auto' }
 ```
 
@@ -276,31 +276,19 @@ let d = audio.from(audioBuffer)                   // Web Audio AudioBuffer
 let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 ```
 
-**`audio()`** – pushable instance for `.push()`, `.record()`, `.stop()`.
-
-```js
-let a = audio()                           // empty, ready for .push() or .record()
-```
-
-**`audio([a, b, ...])`** – concat from array of sources.
-
-```js
-let ep = audio([intro, body, outro])      // virtual concat, no copy
-```
-
 ### Properties
 
 ```js
 a.duration                // total seconds (reflects edits)
 a.channels                // channel count
-a.sampleRate              // sample rate in Hz
+a.sampleRate              // sample rate per second
 a.length                  // total samples per channel
 
 a.currentTime             // playback position in seconds
 a.playing                 // true during playback
 a.paused                  // true when paused
-a.volume                  // playback volume in dB
-a.loop                    // loop playback on/off
+a.volume = -3             // playback volume in dB (settable)
+a.loop = true             // loop playback on/off (settable)
 
 a.recording               // true during mic recording
 a.ready                   // promise — resolves when decode completes
@@ -387,18 +375,21 @@ a.concat(outro)                           // append outro
 
 ### Samples
 
-**`.gain(dB, {at?, duration?, channel?, unit?})`** – volume in dB (or linear with `{unit: 'linear'}`). Accepts function for automation.
+**`.gain(dB, {at?, duration?, channel?, unit?})`** – volume in dB. Accepts function for automation.
 
 ```js
 a.gain(-3)                                // reduce 3dB
 a.gain(6, { at: 10, duration: 5 })       // boost range
+a.gain(0.5, { unit: 'linear' })          // linear multiplier
 a.gain(t => -3 * t)                      // automate over time
 ```
 
-**`.fade(in, out?, curve?)`** – fade in/out. Positive = from start, negative = from end. Curves: `'linear'`, `'exp'`, `'log'`, `'cos'`.
+**`.fade(in, out?, curve?)`** – fade in/out.
 
 ```js
+a.fade(0.5)                               // 0.5s fade-in from start
 a.fade(0.5, -2)                           // 0.5s in, 2s out from end
+a.fade(1, 1, 'exp')                       // curves: 'linear' 'exp' 'log' 'cos'
 ```
 
 **`.mix(other, {at?, duration?})`** – overlay another source (additive).
@@ -413,30 +404,37 @@ a.mix(voice, { at: 2 })
 a.write(float32arr, { at: 10 })           // overwrite at 10s
 ```
 
-**`.remix(channels)`** – change channel count. `a.remix(1)` stereo→mono, `a.remix(2)` mono→stereo.
+**`.remix(channels)`** – change channel count.
 
 ```js
 a.remix(1)                                // stereo → mono
+a.remix(2)                                // mono → stereo
 ```
 
-**`.pan(value, {at?, duration?})`** – stereo balance (−1 left, 0 center, 1 right). Accepts function.
+**`.pan(value, {at?, duration?})`** – stereo balance. Accepts function.
 
 ```js
-a.pan(-0.5)                               // shift left
+a.pan(-1)                                 // full left
+a.pan(0)                                  // center
+a.pan(0.5)                                // half right
 a.pan(t => Math.sin(t * 2))              // oscillating
 ```
 
-**`.normalize(target?)`** – loudness normalize. Presets: `'podcast'` (-16 LUFS), `'streaming'` (-14 LUFS), `'broadcast'` (-23 LUFS).
+**`.normalize(target?)`** – loudness normalize.
 
 ```js
 a.normalize()                             // peak 0dBFS
 a.normalize('podcast')                    // -16 LUFS, -1 dBTP
+a.normalize('streaming')                  // -14 LUFS
+a.normalize('broadcast')                  // -23 LUFS
 ```
 
-**`.transform(fn)`** – inline processor — not registered, not serialized. `fn(channels, ctx)` where ctx has `{ sampleRate, blockSize, at, duration }`.
+**`.transform(fn)`** – inline processor — not registered, not serialized.
 
 ```js
-a.transform((chs, ctx) => chs.map(ch => ch.map(s => s * 0.5)))
+a.transform((chs, ctx) => {               // ctx: { sampleRate, blockSize, at, duration }
+  return chs.map(ch => ch.map(s => s * 0.5))
+})
 ```
 
 
@@ -560,10 +558,11 @@ Stats: `'db'` `'rms'` `'loudness'` `'clip'` `'dc'` `'silence'` `'max'` `'min'` `
 
 ### Util
 
-**`.on(event, fn)`**, **`.off(event, fn)`** – events: `'change'`, `'data'`, `'metadata'`, `'timeupdate'`, `'ended'`, `'progress'`.
+**`.on(event, fn)`**, **`.off(event, fn)`** – subscribe to events.
 
 ```js
 a.on('data', ({ delta }) => drawWaveform(delta))
+a.on('change', () => {})                  // also: 'metadata' 'timeupdate' 'ended' 'progress'
 ```
 
 **`.dispose()`** – release all resources. Also `a[Symbol.dispose]()`.
