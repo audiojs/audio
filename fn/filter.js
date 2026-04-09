@@ -44,13 +44,12 @@ const filter = (chs, ctx) => {
 // ── Register ────────────────────────────────────────────────────────────
 
 import audio from '../core.js'
-audio.op('filter', filter)
-// Custom wrapper: when first arg is fn, keep opts as arg (don't auto-destructure)
-let _filter = audio.fn.filter
-audio.fn.filter = function(type, ...args) {
-  if (typeof type === 'function') return this.run({ type: 'filter', args: [type, args[0] || {}] })
-  return _filter.call(this, type, ...args)
-}
+audio.op('filter', filter, {
+  call(std, type, ...args) {
+    if (typeof type === 'function') return this.run({ type: 'filter', args: [type, args[0] || {}] })
+    return std.call(this, type, ...args)
+  }
+})
 for (let name in types) {
   audio.op(name, (chs, ctx) => types[name](chs, ctx, ctx.args))
 }

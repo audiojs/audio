@@ -15,15 +15,6 @@ function reverseSegs(segs, off, end) {
   return r
 }
 
-const reverse = (chs, ctx) => {
-  let sr = ctx.sampleRate
-  let s = ctx.at != null ? Math.round(ctx.at * sr) : 0
-  let end = ctx.duration != null ? s + Math.round(ctx.duration * sr) : chs[0].length
-  s = Math.max(0, s)
-  for (let ch of chs) ch.subarray(s, Math.min(end, ch.length)).reverse()
-  return chs
-}
-
 const reversePlan = (segs, ctx) => {
   let { total, offset, span } = ctx
   let s = offset != null ? (offset < 0 ? total + offset : offset) : 0
@@ -31,4 +22,4 @@ const reversePlan = (segs, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('reverse', reverse, reversePlan)
+audio.op('reverse', null, reversePlan)

@@ -1,4 +1,4 @@
-import { seg } from '../history.js'
+import { seg, planOffset } from '../history.js'
 
 function removeSegs(segs, off, dur) {
   let r = [], end = off + dur
@@ -15,24 +15,11 @@ function removeSegs(segs, off, dur) {
   return r
 }
 
-const remove = (chs, ctx) => {
-  let sr = ctx.sampleRate
-  let s = ctx.at != null ? Math.round(ctx.at * sr) : 0
-  let d = ctx.duration != null ? Math.round(ctx.duration * sr) : 0
-  s = Math.max(0, s)
-  return chs.map(ch => {
-    let o = new Float32Array(ch.length - d)
-    o.set(ch.subarray(0, s))
-    o.set(ch.subarray(s + d), s)
-    return o
-  })
-}
-
 const removePlan = (segs, ctx) => {
-  let { total, offset, span } = ctx
-  let s = offset != null ? Math.min(Math.max(0, offset < 0 ? total + offset : offset), total) : 0
-  return removeSegs(segs, s, Math.min(span || 0, total - s))
+  let { total } = ctx
+  let s = planOffset(ctx.offset, total)
+  return removeSegs(segs, s, Math.min(ctx.span || 0, total - s))
 }
 
 import audio from '../core.js'
-audio.op('remove', remove, removePlan)
+audio.op('remove', null, removePlan)

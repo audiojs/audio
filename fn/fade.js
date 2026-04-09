@@ -29,20 +29,18 @@ const fade = (chs, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('fade', fade)
+audio.op('fade', fade, {
+  call(std, ...a) {
+    let last = a[a.length - 1]
+    let opts = typeof last === 'object' ? a.pop()
+      : typeof last === 'string' ? { curve: a.pop() } : null
+    if (typeof a[a.length - 1] === 'string') opts = { ...opts, curve: a.pop() }
+    let [inDur, outDur] = a
 
-// wrap to desugar: string curve, two-arg in/out shorthand
-let _fade = audio.fn.fade
-audio.fn.fade = function(...a) {
-  let last = a[a.length - 1]
-  let opts = typeof last === 'object' ? a.pop()
-    : typeof last === 'string' ? { curve: a.pop() } : null
-  if (typeof a[a.length - 1] === 'string') opts = { ...opts, curve: a.pop() }
-  let [inDur, outDur] = a
-
-  if (outDur != null) {
-    _fade.call(this, Math.abs(inDur), opts || {})
-    return _fade.call(this, -Math.abs(outDur), opts || {})
+    if (outDur != null) {
+      std.call(this, Math.abs(inDur), opts || {})
+      return std.call(this, -Math.abs(outDur), opts || {})
+    }
+    return opts ? std.call(this, inDur, opts) : std.call(this, inDur)
   }
-  return opts ? _fade.call(this, inDur, opts) : _fade.call(this, inDur)
-}
+})

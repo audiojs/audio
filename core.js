@@ -3,7 +3,6 @@
  *
  * audio.fn       — instance prototype (like $.fn)
  * audio.stat     — block-level stat functions (indexed during decode)
- * audio.on       — lifecycle callbacks (e.g. audio.on('create', fn))
  * audio.use      — plugin registration
  */
 
@@ -184,8 +183,7 @@ const fn = {}
 
 audio.fn = fn                    // instance prototype (like $.fn)
 audio.stat = {}                  // block-level stats, pre-indexed during decode (min, max, energy)
-let hooks = { create: [] }
-audio.on = (event, fn) => { (hooks[event] ??= []).push(fn) }
+
 audio.PAGE_SIZE = 65536
 audio.BLOCK_SIZE = 1024
 
@@ -245,7 +243,20 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
     ev: {},        // instance event listeners
   }
   a.currentTime = 0
-  for (let cb of hooks.create) cb(a)
+
+  // History (edit pipeline)
+  a.edits = []
+  a.version = 0
+  a._.pcm = null; a._.pcmV = -1
+  a._.plan = null; a._.planV = -1
+  a._.statsV = -1
+  a._.lenC = a._.len; a._.lenV = 0
+  a._.chC = a._.ch; a._.chV = 0
+
+  // Playback
+  a.playing = false; a.paused = false
+  a.volume = 0; a.loop = false; a.block = null
+
   return a
 }
 
@@ -280,7 +291,9 @@ Object.defineProperties(fn, {
 
 })
 
-fn[LOAD] = async function() { if (this._.ready) await this._.ready; this._.acc?.drain() }
+fn[LOAD] = async function() {
+  if (this._.ready) await this._.ready; this._.acc?.drain()
+}
 fn[READ] = function(offset, duration) { return readPages(this, offset, duration) }
 
 /** Push PCM data into a pushable instance. Accepts Float32Array[], Float32Array, or typed array with format. */
@@ -313,6 +326,8 @@ fn.push = function(data, fmt) {
 
 /** Stop recording and/or finalize pushable stream. Drain partial page, signal EOF to waiting streams. No-op on non-pushable. */
 fn.stop = function() {
+  this.playing = false; this.paused = false
+  if (this._._wake) this._._wake()
   if (this.recording) {
     this.recording = false
     if (this._._mic) { this._._mic(null); this._._mic = null }

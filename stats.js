@@ -4,7 +4,7 @@
  */
 
 import audio, { parseTime, LOAD } from './core.js'
-import { buildPlan, streamPlan } from './history.js'
+import { buildPlan, streamPlan, ensurePlan } from './history.js'
 
 /** Create a stat computation session. ch inferred from first .page() call. */
 function statSession(sr) {
@@ -233,6 +233,7 @@ export async function queryRange(inst, opts) {
     // Range query on dirty edits — compute stats for just the requested range
     if (hasRange) {
       let plan = buildPlan(inst)
+      await ensurePlan(inst, plan, at || 0, dur)
       let s = statSession(inst.sampleRate)
       for (let chunk of streamPlan(inst, plan, at || 0, dur)) s.page(chunk)
       let stats = s.done()
@@ -247,12 +248,12 @@ export async function queryRange(inst, opts) {
       let remapped = remapStats(inst._.srcStats, plan, inst.sampleRate)
       if (remapped) { inst.stats = remapped; inst._.statsV = inst.version }
       else {
-        let s = statSession(inst.sampleRate); for (let chunk of streamPlan(inst, plan)) s.page(chunk); inst.stats = s.done()
+        let s = statSession(inst.sampleRate); await ensurePlan(inst, plan); for (let chunk of streamPlan(inst, plan)) s.page(chunk); inst.stats = s.done()
         inst._.statsV = inst.version
       }
     } else {
       // Full recompute — has sample-level ops
-      let s = statSession(inst.sampleRate); for (let chunk of streamPlan(inst, plan)) s.page(chunk); inst.stats = s.done()
+      let s = statSession(inst.sampleRate); await ensurePlan(inst, plan); for (let chunk of streamPlan(inst, plan)) s.page(chunk); inst.stats = s.done()
       inst._.statsV = inst.version
     }
   }

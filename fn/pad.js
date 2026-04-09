@@ -3,20 +3,6 @@
  * pad(1) = 1s both sides. pad(1, 2) = 1s before, 2s after.
  */
 
-
-const pad = (chs, ctx) => {
-  let before = ctx.args[0] ?? 0
-  let after = ctx.args.length > 1 ? ctx.args[1] : before
-  let sr = ctx.sampleRate
-  let bN = Math.round(before * sr), aN = Math.round(after * sr)
-  if (bN === 0 && aN === 0) return false
-  return chs.map(ch => {
-    let o = new Float32Array(ch.length + bN + aN)
-    o.set(ch, bN)
-    return o
-  })
-}
-
 import { seg } from '../history.js'
 
 const padPlan = (segs, ctx) => {
@@ -30,4 +16,4 @@ const padPlan = (segs, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('pad', pad, padPlan)
+audio.op('pad', null, padPlan)

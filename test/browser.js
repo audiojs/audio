@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url'
 import { execSync } from 'child_process'
 import { chromium } from 'playwright'
 
-let root = fileURLToPath(new URL('..', import.meta.url))
+let root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/+$/, '')
 
 // Build browser bundle
 console.log('Building browser bundle...')
@@ -20,7 +20,7 @@ let types = { '.html': 'text/html', '.js': 'text/javascript', '.wav': 'audio/wav
 let server = createServer(async (req, res) => {
   let rel = normalize(req.url === '/' ? 'test/test.html' : req.url.split('?')[0]).replace(/^\//, '')
   let path = resolve(root, rel)
-  if (!path.startsWith(root + sep) && path !== root) { res.writeHead(403); res.end('403'); return }
+  if (!path.startsWith(root + sep)) { res.writeHead(403); res.end('403'); return }
   try {
     res.writeHead(200, {
       'content-type': types[extname(path)] || 'application/octet-stream',

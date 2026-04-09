@@ -2792,7 +2792,9 @@ test('boundary — evicted pages restored during streaming', async t => {
 
 // ── CLI Parsing (fast, no file I/O) ────────────────────────────────────
 
-import { parseValue, parseRange, parseArgs, showOpHelp, OP_HELP } from '../bin/cli.js'
+if (isNode) {
+
+const { parseValue, parseRange, parseArgs, showOpHelp, OP_HELP } = await import('../bin/cli.js')
 
 test('cli parseArgs — simple: input ops output', t => {
   let result = parseArgs(['in.wav', 'gain', '-3db', '-o', 'out.wav'])
@@ -2833,3 +2835,5 @@ test('cli ops registry — all built-ins available', t => {
   t.ok(audio.op('normalize'), 'normalize')
   t.ok(audio.op('remix'), 'remix')
 })
+
+} // end isNode guard for CLI tests
