@@ -292,7 +292,7 @@ async function playback(p, totalSec, decodedSec, a, src) {
   let specMax = -60
 
   let spec = (block, sr, w, paused) => {
-    if (!fft) return ' '.repeat(w)
+    if (!fft) return DIM + '_'.repeat(w) + RST
     let fMin = 30, fMax = Math.min(sr / 2, 20000)
     if (block && block.length >= N) {
       let mag = melSpectrum(block.subarray(0, N), sr, { bins: w, fMin, fMax })
@@ -301,7 +301,7 @@ async function playback(p, totalSec, decodedSec, a, src) {
     } else if (prev && !paused) {
       for (let b = 0; b < prev.length; b++) prev[b] *= 0.85
     }
-    if (!prev) return ' '.repeat(w)
+    if (!prev) return DIM + '_'.repeat(w) + RST
     // Auto-scale: find current max dB, decay peak slowly
     let curMax = -100
     let specDb = new Float32Array(w)
@@ -311,11 +311,16 @@ async function playback(p, totalSec, decodedSec, a, src) {
     }
     specMax = paused ? curMax : Math.max(curMax, specMax - 0.3)
     let floor = specMax - 48  // 48dB dynamic range, 6dB per level
-    let out = ''
-    for (let b = 0; b < w; b++) {
-      let level = Math.round((specDb[b] - floor) / 6)
-      out += SBARS[Math.max(0, Math.min(8, level))]
-    }
+    let levels = new Int8Array(w)
+    for (let b = 0; b < w; b++) levels[b] = Math.round((specDb[b] - floor) / 6)
+    // find active range (first..last bin with signal)
+    let lo = 0, hi = w - 1
+    while (lo < w && levels[lo] <= 0) lo++
+    while (hi > lo && levels[hi] <= 0) hi--
+    let out = lo > 0 ? DIM + '_'.repeat(lo) + RST : ''
+    for (let b = lo; b <= hi; b++) out += SBARS[Math.max(1, Math.min(8, levels[b]))]
+    let tail = w - 1 - hi
+    if (tail > 0) out += DIM + '_'.repeat(tail) + RST
     return out
   }
 
@@ -347,7 +352,8 @@ async function playback(p, totalSec, decodedSec, a, src) {
   let volBar = db => {
     let n = Math.round((db + 12) / 3) + 1
     n = Math.max(1, Math.min(7, n))
-    return VOL.slice(0, n) + '_'.repeat(7 - n)
+    let tail = 7 - n
+    return VOL.slice(0, n) + (tail ? DIM + '_'.repeat(tail) + RST : '')
   }
 
   // File info (computed eagerly after decode, refreshed after ops)
@@ -380,7 +386,7 @@ async function playback(p, totalSec, decodedSec, a, src) {
     let vb = volBar(p.volume)
     let barStart = ct.length + 3  // icon + space + time + space
     let lpad = ' '.repeat(barStart)
-    let pad = barStart + tt.length + vb.length + 5  // +1 loop +1 space
+    let pad = barStart + tt.length + 7 + 5  // 7 = vol visual width, +1 loop +1 space
     let barW = Math.max(10, w - pad)
     let bar = progressBar(t, ds, ts, barW)
 
