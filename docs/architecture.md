@@ -1,5 +1,7 @@
 # Architecture
 
+See also: [Reference](reference.md) · [Recipes](recipes.md) · [Plugins](plugins.md)
+
 ## Files
 
 | File | Role |

@@ -1,5 +1,7 @@
 # Reference
 
+See also: [Architecture](architecture.md) · [Recipes](recipes.md) · [Plugins](plugins.md)
+
 ## Create
 
 **`audio(source, opts?)`** — returns instance immediately. Thenable — `await` waits for full decode. Edits chain before decode.
