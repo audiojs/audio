@@ -2,10 +2,6 @@
 
 Audio in JavaScript: load, edit, play, analyze, save, batch-process.
 
-```
-npm i audio
-```
-
 ```js
 import audio from 'audio'
 
@@ -32,6 +28,97 @@ audio('raw-take.wav')
 * [Recipes](docs/recipes.md) – all examples with JS + CLI pairs: montage, waveform, ML, glitch, streaming
 * [Plugins](docs/plugins.md) – custom ops, stats, descriptors (process, plan, resolve, call), persistent ctx
 -->
+
+
+## Quick reference
+
+### Create
+
+* `audio(source, opts?)` – decode from file, URL, or bytes (async, thenable, paged)
+* `audio.from(source, opts?)` – wrap PCM, AudioBuffer, silence, or function (sync, resident)
+* `audio()` – pushable instance for `.push()`, `.record()`, `.stop()`
+* `audio([a, b, ...])` – concat from array
+
+### Properties
+
+* `.duration` `.channels` `.sampleRate` `.length` – audio dimensions (reflect edits)
+* `.currentTime` `.playing` `.paused` `.volume` `.loop` – playback state
+* `.source` `.pages` `.stats` `.edits` `.version` – internal state
+
+### Structural
+
+* `.crop({at, duration})` – keep only this range
+* `.remove({at, duration})` – delete a range
+* `.insert(source, {at})` – insert audio or silence at position
+* `.repeat(n)` – repeat n times
+* `.pad(before, after?)` – pad silence at edges (seconds)
+* `.speed(rate)` – change playback speed
+* `.reverse({at?, duration?})` – reverse audio or range
+* `.split(t1, t2, ...)` – split into views at timestamps
+* `.view({at, duration})` – non-destructive view of a range
+* `.concat(b, c, ...)` – concatenate sources
+
+### Sample
+
+* `.gain(dB, {at?, duration?, channel?})` – volume in dB, accepts function for automation
+* `.fade(in, out?, curve?)` – fade in/out, positive = from start, negative = from end
+* `.mix(other, {at?, duration?})` – overlay another audio
+* `.write(data, {at?})` – overwrite samples at position
+* `.remix(channels)` – change channel count
+* `.pan(value, {at?, duration?})` – stereo balance (−1..1), accepts function
+
+### Smart
+
+* `.trim(threshold?)` – remove silence from edges
+* `.normalize(target?)` – loudness normalize, presets: `'podcast'`, `'streaming'`, `'broadcast'`
+
+### Filter
+
+* `.highpass(hz)` `.lowpass(hz)` – high/low-pass filter
+* `.bandpass(freq, Q)` `.notch(freq, Q)` – band-pass / notch filter
+* `.lowshelf(hz, dB)` `.highshelf(hz, dB)` – shelf EQ
+* `.eq(freq, gain, Q)` – parametric EQ
+
+### I/O
+
+* `await .read({at?, duration?, channel?, format?})` – read PCM or encode to bytes
+* `await .save(path, {format?, at?, duration?})` – save to file
+* `await .encode(format?, {at?, duration?})` – encode to Uint8Array
+* `for await (let block of .stream())` – async iterator over blocks
+
+### Playback
+
+* `.play({at?, duration?, volume?, loop?})` – start playback
+* `.pause()` `.resume()` `.stop()` `.seek(t)` – playback control
+
+### Recording
+
+* `.record()` – start mic recording
+* `.push(data, format?)` – feed PCM into pushable
+* `.stop()` – stop playback or recording
+
+### Analysis
+
+* `await .stat(name, {at?, duration?, bins?, channel?})` – query a stat
+* Stats: `'db'` `'rms'` `'loudness'` `'clip'` `'dc'` `'silence'` `'max'` `'spectrum'` `'cepstrum'`
+* `await .stat([...names], opts)` – multiple stats at once
+
+### Events
+
+* `.on(event, fn)` `.off(event, fn)` – `'change'`, `'data'`, `'timeupdate'`, `'ended'`, `'progress'`
+* `.dispose()` – release all resources
+
+### History
+
+* `.undo()` – undo last edit
+* `.run(edit1, ...)` – replay edits
+* `JSON.stringify(a)` / `audio(json)` – serialize / restore
+
+### Custom
+
+* `audio.op(name, fn)` – register custom op
+* `audio.stat(name, descriptor)` – register custom stat
+* `.transform(fn)` – inline processor
 
 
 ## Recipes
@@ -145,6 +232,8 @@ let b = await audio(JSON.parse(json))    // re-decode + replay edits
 npx audio [file] [ops...] [-o output] [options]
 ```
 
+<!-- FIXME: add a line with short keys descriptors and 4-col list of ops like you'd get by pressing tab -->
+
 ### Playback
 
 ```sh
@@ -154,8 +243,8 @@ npx audio kirtan.mp3
           50    500  1k     2k         5k       10k      20k
 
           48k   2ch   43:07   -0.8dBFS   -30.8LUFS
-# ␣ pause, ←/→ seek ±10s, ⇧←/⇧→ seek ±60s, ↑/↓ volume ±3dB, l loop, q quit
 ```
+<kbd>␣</kbd> pause · <kbd>←</kbd>/<kbd>→</kbd> seek ±10s · <kbd>⇧←</kbd>/<kbd>⇧→</kbd> seek ±60s · <kbd>↑</kbd>/<kbd>↓</kbd> volume ±3dB · <kbd>l</kbd> loop · <kbd>q</kbd> quit
 
 ### Clean up a recording
 
@@ -219,96 +308,6 @@ eval "$(audio --completions zsh)"       # add to ~/.zshrc
 eval "$(audio --completions bash)"      # add to ~/.bashrc
 audio --completions fish | source       # fish
 ```
-
-## Quick reference
-
-### Create
-
-* `audio(source, opts?)` – decode from file, URL, or bytes (async, thenable, paged)
-* `audio.from(source, opts?)` – wrap PCM, AudioBuffer, silence, or function (sync, resident)
-* `audio()` – pushable instance for `.push()`, `.record()`, `.stop()`
-* `audio([a, b, ...])` – concat from array
-
-### Properties
-
-* `.duration` `.channels` `.sampleRate` `.length` – audio dimensions (reflect edits)
-* `.currentTime` `.playing` `.paused` `.volume` `.loop` – playback state
-* `.source` `.pages` `.stats` `.edits` `.version` – internal state
-
-### Structural
-
-* `.crop({at, duration})` – keep only this range
-* `.remove({at, duration})` – delete a range
-* `.insert(source, {at})` – insert audio or silence at position
-* `.repeat(n)` – repeat n times
-* `.pad(before, after?)` – pad silence at edges (seconds)
-* `.speed(rate)` – change playback speed
-* `.reverse({at?, duration?})` – reverse audio or range
-* `.split(t1, t2, ...)` – split into views at timestamps
-* `.view({at, duration})` – non-destructive view of a range
-* `.concat(b, c, ...)` – concatenate sources
-
-### Sample
-
-* `.gain(dB, {at?, duration?, channel?})` – volume in dB, accepts function for automation
-* `.fade(in, out?, curve?)` – fade in/out, positive = from start, negative = from end
-* `.mix(other, {at?, duration?})` – overlay another audio
-* `.write(data, {at?})` – overwrite samples at position
-* `.remix(channels)` – change channel count
-* `.pan(value, {at?, duration?})` – stereo balance (−1..1), accepts function
-
-### Smart
-
-* `.trim(threshold?)` – remove silence from edges
-* `.normalize(target?)` – loudness normalize, presets: `'podcast'`, `'streaming'`, `'broadcast'`
-
-### Filter
-
-* `.highpass(hz)` `.lowpass(hz)` – high/low-pass filter
-* `.bandpass(freq, Q)` `.notch(freq, Q)` – band-pass / notch filter
-* `.lowshelf(hz, dB)` `.highshelf(hz, dB)` – shelf EQ
-* `.eq(freq, gain, Q)` – parametric EQ
-
-### I/O
-
-* `await .read({at?, duration?, channel?, format?})` – read PCM or encode to bytes
-* `await .save(path, {format?, at?, duration?})` – save to file
-* `await .encode(format?, {at?, duration?})` – encode to Uint8Array
-* `for await (let block of .stream())` – async iterator over blocks
-
-### Playback
-
-* `.play({at?, duration?, volume?, loop?})` – start playback
-* `.pause()` `.resume()` `.stop()` `.seek(t)` – playback control
-
-### Recording
-
-* `.record()` – start mic recording
-* `.push(data, format?)` – feed PCM into pushable
-* `.stop()` – stop playback or recording
-
-### Analysis
-
-* `await .stat(name, {at?, duration?, bins?, channel?})` – query a stat
-* Stats: `'db'` `'rms'` `'loudness'` `'clip'` `'dc'` `'silence'` `'max'` `'spectrum'` `'cepstrum'`
-* `await .stat([...names], opts)` – multiple stats at once
-
-### Events
-
-* `.on(event, fn)` `.off(event, fn)` – `'change'`, `'data'`, `'timeupdate'`, `'ended'`, `'progress'`
-* `.dispose()` – release all resources
-
-### History
-
-* `.undo()` – undo last edit
-* `.run(edit1, ...)` – replay edits
-* `JSON.stringify(a)` / `audio(json)` – serialize / restore
-
-### Custom
-
-* `audio.op(name, fn)` – register custom op
-* `audio.stat(name, descriptor)` – register custom stat
-* `.transform(fn)` – inline processor
 
 
 ## Browser
