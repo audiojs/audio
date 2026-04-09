@@ -48,7 +48,7 @@ const trim = (chs, ctx) => {
 }
 
 const trimResolve = (args, { stats, sampleRate, totalDuration }) => {
-  if (!stats?.min) return null
+  if (!stats?.min || !stats?.energy) return null
   let ch = stats.min.length, blocks = stats.min[0].length
   let total = Math.round(totalDuration * sampleRate)
   let thresh = resolveThreshold(stats, ch, 0, stats.energy[0].length, args[0])

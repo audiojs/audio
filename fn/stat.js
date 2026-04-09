@@ -75,5 +75,3 @@ audio.stat('rms', {
     return n ? Math.sqrt(sum / n) : 0
   }
 })
-
-

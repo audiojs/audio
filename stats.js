@@ -232,7 +232,7 @@ audio.fn.stat = async function(name, opts) {
 
   // Binned mode
   if (bins != null) {
-    let n = bins || (to - from)
+    let n = bins ?? (to - from)
     let reduce1 = (c) => binReduce(src[c], from, to, n, reduce)
     if (perCh) return chs.map(reduce1)
     if (chs.length === 1) return reduce1(chs[0])
