@@ -47,7 +47,17 @@ import audio from '../core.js'
 audio.op('filter', {
   process: filter,
   call(std, type, ...args) {
-    if (typeof type === 'function') return this.run({ type: 'filter', args: [type, args[0] || {}] })
+    if (typeof type === 'function') {
+      let opts = args[0] || {}
+      let { at, duration, channel, offset, length, ...rest } = opts
+      let edit = { type: 'filter', args: [type, rest] }
+      if (at != null) edit.at = at
+      if (duration != null) edit.duration = duration
+      if (channel != null) edit.channel = channel
+      if (offset != null) edit.offset = offset
+      if (length != null) edit.length = length
+      return this.run(edit)
+    }
     return std.call(this, type, ...args)
   }
 })
