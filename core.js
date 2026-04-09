@@ -108,6 +108,8 @@ export default function audio(source, opts = {}) {
       a.sampleRate = result.sampleRate
       a._.ch = result.channels
       a._.chV = -1  // invalidate cached channels
+      if (result.acc) a._.acc = result.acc
+      emit(a, 'metadata', { sampleRate: result.sampleRate, channels: result.channels })
       readyResolve()
 
       let final = await result.decoding
@@ -136,14 +138,6 @@ function makeThenable(a) {
     return a.ready.then(() => { delete a.then; delete a.catch; return a }).then(resolve, reject)
   }
   a.catch = function(reject) { return a.then(null, reject) }
-}
-
-/** Open source for streaming — returns instance once metadata (sampleRate, channels) is available.
- *  Decode continues in background. For immediate playback before full decode. */
-audio.open = async function(source, opts) {
-  let a = audio(source, opts)
-  if (a._.ready) await a._.ready
-  return a
 }
 
 /** Sync creation from PCM data, AudioBuffer, audio instance, function, or seconds of silence. */
@@ -504,6 +498,8 @@ function pageAccumulator(opts = {}) {
     get sampleRate() { return sr },
     get channels() { return ch },
     get length() { return totalLen + pagePos },
+    get partial() { return pagePos > 0 ? pageBuf.map(c => c.subarray(0, pagePos)) : null },
+    get partialLen() { return pagePos },
     push(chData, sampleRate) {
       if (!pageBuf) {
         sr = sampleRate; ch = chData.length
@@ -526,6 +522,7 @@ function pageAccumulator(opts = {}) {
         let delta = session?.delta()
         if (delta) ondata({ delta, offset: (totalLen + pagePos) / sr, sampleRate: sr, channels: ch, pages })
       }
+      notify?.()
     },
     /** Flush partial page into pages array. Non-destructive — accumulator stays open. */
     drain() {
@@ -567,10 +564,11 @@ async function decodeSource(source, opts = {}) {
   let yieldLoop = () => new Promise(r => setTimeout(r, 0))
   let firstResolve
   let origNotify = opts.notify
+  let firstReady = new Promise(r => { firstResolve = r })
   let acc = pageAccumulator({
     pages: opts.pages,
     ondata: opts.ondata,
-    notify: () => { origNotify?.(); if (firstResolve) { firstResolve(); firstResolve = null } }
+    notify: () => { origNotify?.(); if (firstResolve) { let f = firstResolve; firstResolve = null; f() } }
   })
 
   let decoding = (async () => {
@@ -594,11 +592,11 @@ async function decodeSource(source, opts = {}) {
       if (flushed.channelData.length) acc.push(flushed.channelData, flushed.sampleRate)
       let final = acc.done()
       return final
-    } catch (e) { if (firstResolve) firstResolve(); throw e }
+    } catch (e) { if (firstResolve) { let f = firstResolve; firstResolve = null; f() }; throw e }
   })()
 
-  if (!acc.pages.length) await new Promise(r => { firstResolve = r })
+  await firstReady
   if (!acc.sampleRate) throw new Error('audio: decoded no audio data')
 
-  return { pages: acc.pages, sampleRate: acc.sampleRate, channels: acc.channels, decoding }
+  return { pages: acc.pages, sampleRate: acc.sampleRate, channels: acc.channels, decoding, acc }
 }

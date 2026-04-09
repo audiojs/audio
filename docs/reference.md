@@ -37,7 +37,15 @@ a.push(buf, { format: 'int16', channels: 2 })
 a.stop()                                  // drain + finalize
 ```
 
-**`audio.open(source, opts?)`** — async. Returns once metadata (sampleRate, channels) ready. Decode continues in background.
+**Streaming access** — subscribe to `metadata` event for early access before full decode:
+
+```js
+let a = audio('large.mp3')
+a.on('metadata', ({ sampleRate, channels }) => {
+  a.play()                                // sampleRate/channels available
+  for await (let block of a.stream()) {}  // streams as it decodes
+})
+```
 
 ## Properties
 

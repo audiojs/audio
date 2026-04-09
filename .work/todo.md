@@ -1,5 +1,7 @@
 ## Next
 
+* [ ] There's an issue with player spectrum. When we pause playback, it keeps animating. Can we please freeze spectrum if we hit stop? Also it keeps animating if we seek in paused mode.
+* [ ] Figure out .stream contract across packages: either we can call it stream, or have a factory.
 * [ ] Wavearea integration
 * [ ] playback speed
 * [ ] BPM detection — autocorrelation on energy envelope, `audio.stat('bpm')` + `a.bpm()` query

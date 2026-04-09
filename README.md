@@ -194,7 +194,6 @@ let a = audio.from([left, right])        // wrap Float32Array[] — no decode
 let a = audio.from(3, { channels: 2 })  // silence
 let a = audio.from(t => Math.sin(440 * TAU * t), { duration: 1 })
 let a = audio()                          // pushable — .push(), .record(), .stop()
-let a = await audio.open('file.mp3')     // async — resolves on metadata, decode continues
 
 // Properties
 a.sampleRate  a.channels  a.duration  a.length  a.source

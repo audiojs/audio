@@ -47,6 +47,7 @@ export interface AudioInstance {
   // ── Events ──────────────────────────────────────────────────────
   /** Subscribe to instance event */
   on(event: 'change', fn: () => void): this
+  on(event: 'metadata', fn: (event: { sampleRate: number, channels: number }) => void): this
   on(event: 'data', fn: (event: { delta: ProgressDelta, offset: number, sampleRate: number, channels: number }) => void): this
   on(event: 'progress', fn: (event: { offset: number, total: number }) => void): this
   on(event: 'timeupdate', fn: (time: number) => void): this

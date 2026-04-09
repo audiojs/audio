@@ -158,23 +158,30 @@ fn[READ] = async function(offset, duration) {
 fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
   let offset = parseTime(opts?.at), duration = parseTime(opts?.duration)
   // Live decode streaming (no edits, still decoding)
+  // Position-based: reads from full pages (zero-copy) or partial buffer (copied).
+  // Granularity = decoder chunk size, NOT page size. Pages are for memory, not streaming.
   if (this._.waiters && !this.decoded && !this.edits.length) {
-    let sr = this.sampleRate
+    let sr = this.sampleRate, acc = this._.acc, PS = audio.PAGE_SIZE
     let startSample = offset ? Math.round(offset * sr) : 0
     let endSample = duration != null ? startSample + Math.round(duration * sr) : Infinity
-    let pos = 0
-    for (let i = 0; ; i++) {
-      while (i >= this.pages.length && !this.decoded) await new Promise(r => this._.waiters.push(r))
-      if (i >= this.pages.length) break
-      let page = this.pages[i], pLen = page[0].length
-      let pEnd = pos + pLen
-      if (pEnd > startSample && pos < endSample) {
-        let s = Math.max(startSample - pos, 0), e = Math.min(endSample - pos, pLen)
-        if (s === 0 && e === pLen) yield page
-        else yield page.map(ch => ch.subarray(s, e))
+    let pos = startSample
+    while (pos < endSample) {
+      let available = acc ? this.pages.length * PS + acc.partialLen : this._.len
+      while (pos >= available && !this.decoded) {
+        await new Promise(r => this._.waiters.push(r))
+        available = acc ? this.pages.length * PS + acc.partialLen : this._.len
       }
-      pos = pEnd
-      if (pos >= endSample) break
+      if (pos >= available) break
+      let end = Math.min(endSample, available)
+      let pi = Math.floor(pos / PS), po = pos % PS
+      if (pi < this.pages.length) {
+        let page = this.pages[pi], e = Math.min(page[0].length - po, end - pos)
+        yield page.map(ch => ch.subarray(po, po + e))
+        pos += e
+      } else if (acc) {
+        let e = Math.min(acc.partialLen - po, end - pos)
+        if (e > 0) { yield acc.partial.map(ch => ch.subarray(po, po + e).slice()); pos += e }
+      }
     }
     return
   }

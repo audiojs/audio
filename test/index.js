@@ -1210,6 +1210,58 @@ test('seek — preloads nearby pages only', async t => {
   t.ok(a.currentTime === 1.5, 'currentTime position set')
 })
 
+test('metadata event — fires before full decode with sampleRate/channels', async t => {
+  let a = audio(lenaMp3)
+  let meta = await new Promise(r => a.on('metadata', r))
+  t.ok(meta.sampleRate > 0, `sampleRate in event (${meta.sampleRate})`)
+  t.ok(meta.channels >= 1, `channels in event (${meta.channels})`)
+  t.ok(a.sampleRate > 0, `instance sampleRate set (${a.sampleRate})`)
+  t.ok(!a.decoded, 'not yet fully decoded')
+  // Edits still chain
+  a.gain(-3)
+  t.is(a.edits.length, 1, 'edits chain during decode')
+  // Stream available immediately
+  let got = 0
+  for await (let chunk of a.stream()) got += chunk[0].length
+  t.ok(got > 0, `stream yielded ${got} samples`)
+  // await a still works for full decode
+  let b = await a
+  t.ok(b === a, 'await a resolves to same instance')
+  t.ok(a.decoded, 'fully decoded after await')
+})
+
+test('stream — live decode yields before full page', async t => {
+  let PUSH = 4096
+  let a = audio()
+  // Push one small chunk — well below PAGE_SIZE
+  let data = new Float32Array(PUSH).fill(0.25)
+  a.push(data)
+  let firstLen = null, firstVal = null
+  // Start stream, collect first chunk, then stop
+  let timeout = setTimeout(() => { a.stop() }, 200)
+  for await (let chunk of a.stream()) {
+    if (firstLen === null) {
+      firstLen = chunk[0].length
+      firstVal = chunk[0][0]
+      a.stop()
+      break
+    }
+  }
+  clearTimeout(timeout)
+  t.ok(firstLen > 0, `first chunk has data (${firstLen})`)
+  t.ok(firstLen <= PUSH, `first chunk ${firstLen} <= ${PUSH} (not PAGE_SIZE ${PAGE_SIZE})`)
+  t.ok(Math.abs(firstVal - 0.25) < 0.01, 'data correct')
+})
+
+test('stream — live decode total samples correct', async t => {
+  let a = audio()
+  let total = 0, pushes = 5, each = 8192
+  for (let i = 0; i < pushes; i++) a.push(new Float32Array(each).fill(0.1 * (i + 1)))
+  a.stop()
+  for await (let chunk of a.stream()) total += chunk[0].length
+  t.is(total, pushes * each, `all ${pushes * each} samples streamed`)
+})
+
 // ── Phase 10: Page Cache + Eviction ──────────────────────────────────────
 
 // Mock cache backend (in-memory, simulates OPFS interface)

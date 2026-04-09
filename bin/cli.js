@@ -691,7 +691,8 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     if (!allOps.length && !opts.output && !opts.info && typeof source === 'string') {
       if (opts.verbose) console.error(`Opening: ${source}`)
       let spin = !opts.verbose ? spinner('decoding') : null
-      let a = await audio.open(source)
+      let a = audio(source)
+      await new Promise(r => a.on('metadata', r))
       spin?.stop()
       let p = a.play()
       if (!opts.play) a.pause()
