@@ -183,74 +183,70 @@ audio --completions fish | source       # fish
 
 ## Quick reference
 
-```js
-// Create
-let a = audio('file.mp3')                // sync — thenable, edits chain before decode
-let a = await audio('file.mp3')          // wait for full decode
-let a = await audio(url)                 // URL string or URL object
-let a = await audio(uint8array)          // encoded bytes
-let a = audio([a, b])                    // concat
-let a = audio.from([left, right])        // wrap Float32Array[] — no decode
-let a = audio.from(3, { channels: 2 })  // silence
-let a = audio.from(t => Math.sin(440 * TAU * t), { duration: 1 })
-let a = audio()                          // pushable — .push(), .record(), .stop()
-
-// Properties
-a.sampleRate  a.channels  a.duration  a.length  a.source
-a.pages  a.stats  a.edits  a.ready  a.version
-a.currentTime  a.playing  a.paused  a.recording  a.volume  a.loop  a.block
-
-// Structural ops
-a.crop({at, duration})  a.remove({at, duration})  a.insert(src, {at})
-a.repeat(n)  a.pad(before, after?)  a.speed(rate)  a.reverse({at?, duration?})
-a.split(t1, t2, ...)  a.view({at, duration})  a.concat(b, c)
-a.trim()  a.trim(-30)
-
-// Sample ops — all accept {at, duration, channel}
-a.gain(-3)  a.gain(t => -3 * t)  a.gain(0.5, {unit: 'linear'})
-a.fade(0.5, 1)  a.fade(-1, 'exp')
-a.mix(other, {at})  a.write(data, {at})  a.remix(channels)  a.pan(value)
-a.normalize()  a.normalize('podcast')  a.normalize('streaming')  a.normalize('broadcast')
-a.normalize({mode: 'lufs', target: -14})  a.normalize({mode: 'rms', target: -18})
-
-// Filters
-a.highpass(80)  a.lowpass(8000)  a.bandpass(1000, 2000)  a.notch(60)
-a.lowshelf(200, -3)  a.highshelf(8000, 2)  a.eq(1000, 3, 2)
-
-// I/O
-await a.read()  await a.read({at, duration, channel, format})
-await a.save('out.mp3')
-for await (let block of a.stream()) { ... }
-
-// Playback
-a.play()  a.play({at, duration, volume, loop})
-a.pause()  a.resume()  a.stop()  a.seek(30)
-
-// Recording
-a.record()  a.stop()
-a.push(float32)  a.push(int16arr, 'int16')
-
-// Analysis
-await a.stat('db')  await a.stat('rms')  await a.stat('loudness')
-await a.stat('clip')  await a.stat('dc')  await a.stat('silence')
-await a.stat('max', {bins: 800})  await a.stat('spectrum', {bins: 128})
-await a.stat('cepstrum', {bins: 13})
-let [mn, mx] = await a.stat(['min', 'max'], {bins: 800})
-
-// Events
-a.on('change', fn)  a.on('data', fn)  a.on('timeupdate', fn)
-a.on('ended', fn)  a.on('progress', fn)  a.off(name, fn)  a.dispose()
-
-// History
-a.undo()  a.run(edit1, edit2)
-JSON.stringify(a)  // serialize
-await audio(JSON.parse(json))  // restore
-
-// Custom
-audio.op('name', processFn)  // register op
-audio.stat('name', { block, reduce })  // register stat
-a.transform((chs, ctx) => chs)  // inline op
-```
+| Method | Description |
+|--------|-------------|
+| `audio(source, opts?)` | Decode from file/URL/bytes (async, thenable, paged) |
+| `audio.from(source, opts?)` | Wrap PCM/AudioBuffer/silence/function (sync, resident) |
+| `audio()` | Pushable instance — `.push()`, `.record()`, `.stop()` |
+| `audio([a, b, ...])` | Concat from array |
+| **Properties** | |
+| `.duration` `.channels` `.sampleRate` `.length` | Audio dimensions (reflect edits) |
+| `.currentTime` `.playing` `.paused` `.volume` `.loop` | Playback state |
+| `.source` `.pages` `.stats` `.edits` `.version` | Internal state |
+| **Structural** | |
+| `.crop({at, duration})` | Keep only this range |
+| `.remove({at, duration})` | Delete a range |
+| `.insert(source, {at})` | Insert audio or silence at position |
+| `.repeat(n)` | Repeat n times |
+| `.pad(before, after?)` | Pad silence at edges (seconds) |
+| `.speed(rate)` | Change playback speed |
+| `.reverse({at?, duration?})` | Reverse audio or range |
+| `.split(t1, t2, ...)` | Split into views at timestamps |
+| `.view({at, duration})` | Non-destructive view of a range |
+| `.concat(b, c, ...)` | Concatenate sources |
+| **Sample** | |
+| `.gain(dB, {at?, duration?, channel?})` | Volume in dB. Accepts function for automation |
+| `.fade(in, out?, curve?)` | Fade in/out. Positive = from start, negative = from end |
+| `.mix(other, {at?, duration?})` | Overlay another audio |
+| `.write(data, {at?})` | Overwrite samples at position |
+| `.remix(channels)` | Change channel count |
+| `.pan(value, {at?, duration?})` | Stereo balance (−1..1). Accepts function |
+| **Smart** | |
+| `.trim(threshold?)` | Remove silence from edges |
+| `.normalize(target?)` | Loudness normalize. Presets: `'podcast'`, `'streaming'`, `'broadcast'` |
+| **Filter** | |
+| `.highpass(hz)` `.lowpass(hz)` | High/low-pass filter |
+| `.bandpass(freq, Q)` `.notch(freq, Q)` | Band-pass / notch filter |
+| `.lowshelf(hz, dB)` `.highshelf(hz, dB)` | Shelf EQ |
+| `.eq(freq, gain, Q)` | Parametric EQ |
+| **I/O** | |
+| `await .read({at?, duration?, channel?, format?})` | Read PCM or encode to bytes |
+| `await .save(path, {format?, at?, duration?})` | Save to file |
+| `await .encode(format?, {at?, duration?})` | Encode to Uint8Array |
+| `for await (let block of .stream())` | Async iterator over blocks |
+| **Playback** | |
+| `.play({at?, duration?, volume?, loop?})` | Start playback |
+| `.pause()` `.resume()` `.stop()` `.seek(t)` | Playback control |
+| **Recording** | |
+| `.record()` | Start mic recording |
+| `.push(data, format?)` | Feed PCM into pushable |
+| `.stop()` | Stop playback or recording |
+| **Analysis** | |
+| `await .stat(name, {at?, duration?, bins?, channel?})` | Query stat: `'db'`, `'rms'`, `'loudness'`, `'clip'`, `'dc'`, `'silence'` |
+| `await .stat('max', {bins})` | Downsampled waveform |
+| `await .stat('spectrum', {bins})` | Mel spectrum |
+| `await .stat('cepstrum', {bins})` | MFCCs |
+| `await .stat([...names], opts)` | Multiple stats at once |
+| **Events** | |
+| `.on(event, fn)` `.off(event, fn)` | `'change'`, `'data'`, `'timeupdate'`, `'ended'`, `'progress'` |
+| `.dispose()` | Release all resources |
+| **History** | |
+| `.undo()` `.run(edit1, ...)` | Undo / replay edits |
+| `JSON.stringify(a)` / `audio(json)` | Serialize / restore |
+| **Custom** | |
+| `audio.op(name, fn)` | Register custom op |
+| `audio.stat(name, descriptor)` | Register custom stat |
+| `.transform(fn)` | Inline processor |
 
 ## Docs
 

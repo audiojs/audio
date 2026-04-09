@@ -309,7 +309,7 @@ async function playback(p, totalSec, decodedSec, a, src) {
       specDb[b] = 20 * Math.log10(prev[b] + 1e-10)
       if (specDb[b] > curMax) curMax = specDb[b]
     }
-    specMax = Math.max(curMax, specMax - 0.3)
+    specMax = paused ? curMax : Math.max(curMax, specMax - 0.3)
     let floor = specMax - 48  // 48dB dynamic range, 6dB per level
     let out = ''
     for (let b = 0; b < w; b++) {
