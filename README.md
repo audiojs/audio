@@ -377,12 +377,9 @@ a.notch(50)                               // remove hum
 a.filter(customFn, { cutoff: 2000 })     // custom filter function
 ```
 
-* **`.highpass(freq)`**,
-* **`.lowpass(freq)`** – pass filter.
-* **`.bandpass(freq, Q?)`**,
-* **`.notch(freq, Q?)`** – band-pass / notch.
-* **`.lowshelf(freq, dB)`**,
-* **`.highshelf(freq, dB)`** – shelf EQ.
+* **`.highpass(freq)`**, **`.lowpass(freq)`** – pass filter.
+* **`.bandpass(freq, Q?)`**, **`.notch(freq, Q?)`** – band-pass / notch.
+* **`.lowshelf(freq, dB)`**, **`.highshelf(freq, dB)`** – shelf EQ.
 * **`.eq(freq, gain, Q?)`** – parametric EQ.
 * **`.filter(type, ...params)`** – generic dispatch.
 
@@ -483,7 +480,7 @@ JSON.stringify(a); audio(json)            // serialize / restore
 
 ### Plugins
 
-Extend with custom ops and stats. Registered ops become chainable, undoable, serializable methods on all instances. Stats collect per-block data during decode.
+Extend with custom ops and stats. See [Plugin Tutorial](docs/plugins.md).
 
 ```js
 // op: process function receives (channels[], ctx) per 1024-sample block
@@ -506,8 +503,6 @@ a.stat('peak', { bins: 100 }) // → binned array
 * **`audio.op(name, fn)`** – register op. Shorthand for `{ process: fn }`. Full descriptor: `{ process, plan, resolve, call }`.
 * **`audio.op(name)`** – query descriptor. **`audio.op()`** – all ops.
 * **`audio.stat(name, descriptor)`** – register stat. Shorthand `(chs, ctx) => [...]` or `{ block, reduce, query }`.
-
-See [Plugin Tutorial](docs/plugins.md) for descriptor stages, segment maps, persistent ctx, and advanced patterns.
 
 
 ## CLI
