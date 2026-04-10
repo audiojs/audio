@@ -366,7 +366,13 @@ a.pan(-0.3, { at: 10, duration: 5 })      // pan left for range
 
 **`.fade(in, out?, curve?)`** – fade in/out. Curves: `'linear'` `'exp'` `'log'` `'cos'`.
 
-**`.normalize(target?)`** – remove DC offset, clamp, and normalize loudness. Target: `'podcast'` (-16 LUFS), `'streaming'` (-14), `'broadcast'` (-23), `'dc'` (DC removal only), or peak 0dBFS (default).
+**`.normalize(target?)`** – remove DC offset, clamp, and normalize loudness.
+
+* `'podcast'` – -16 LUFS, -1 dBTP.
+* `'streaming'` – -14 LUFS.
+* `'broadcast'` – -23 LUFS.
+* `'dc'` – DC removal only.
+* no arg – peak 0dBFS.
 
 **`.mix(source, opts?)`** – overlay another audio (additive).
 
@@ -497,12 +503,12 @@ a.crush(4)                                // chainable, undoable, serializable
 
 **`.on(event, fn)`** / **`.off(event?, fn?)`** – subscribe / unsubscribe.
 
-* **`'data'`** – pages decoded/pushed. Payload: `{ delta, offset, sampleRate, channels }`.
-* **`'change'`** – any edit or undo.
-* **`'metadata'`** – stream header decoded. Payload: `{ sampleRate, channels }`.
-* **`'timeupdate'`** – playback position. Payload: `currentTime`.
-* **`'ended'`** – playback finished (not on loop).
-* **`'progress'`** – during save/encode. Payload: `{ offset, total }` in seconds.
+* `'data'` – pages decoded/pushed. Payload: `{ delta, offset, sampleRate, channels }`.
+* `'change'` – any edit or undo.
+* `'metadata'` – stream header decoded. Payload: `{ sampleRate, channels }`.
+* `'timeupdate'` – playback position. Payload: `currentTime`.
+* `'ended'` – playback finished (not on loop).
+* `'progress'` – during save/encode. Payload: `{ offset, total }` in seconds.
 
 **`.dispose()`** – release resources. Supports `using` for auto-dispose.
 
