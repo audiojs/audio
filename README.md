@@ -10,15 +10,15 @@ audio('raw-take.wav')
   .save('clean.mp3')
 ```
 
-* **Any format** — WASM codecs, lazy-loaded, no ffmpeg.
-* **Streaming** — instant playback/edits not waiting for decode.
-* **Immutable** — safe virtual edits, instant ops, undo/redo, serialize.
-* **Paged** — opens huge files, no 2Gb memory limit, OPFS page cache.
-* **Analysis** — feature extraction, peak/RMS/LUFS/spectrum/clip/silence.
-* **Modular** – pluggable ops/stats, autodiscovery, tree-shake.
-* **CLI** — player, unix pipelines, batch glob, tab completion.
-* **Isomorphic** — cross-platform API, node/browser.
-* **Audio terminology** – dB, Hz, LUFS, not samples/indices/arrays.
+* **Universal Format Support** — fast [WASM codecs](https://github.com/audio-decode), no ffmpeg.
+* **Streaming** — instant playback not waiting for decode.
+* **Immutable** — instant edits, safe undo/redo, serializing.
+* **Virtual Page cache** — open 10Gb+ files, no 2Gb RAM ceiling.
+* **Analysis** — peak, RMS, LUFS, spectrum, clip detection, feature extraction.
+* **Modular** – pluggable ops/stats, autodiscovery, tree-shakable.
+* **CLI** — builtin player, unix pipelines, globs, tab completion.
+* **Isomorphic** — cross-platform: node, browser, electron, deno, bun.
+* **Audio-first** – talk dB, Hz, LUFS, not samples, indices or byte arrays.
 
 <!--
 * [Architecture](docs/architecture.md) – stream-first design, pages & blocks, non-destructive editing, plan compilation
