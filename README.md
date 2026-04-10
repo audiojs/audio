@@ -1,6 +1,6 @@
 # <img src="logo.svg" width="20" height="20" alt="audio"> audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/audio?color=white)](https://npmjs.org/package/audio)
 
-> Audio in JavaScript: load, edit, play, analyze, save, batch-process.
+_Audio in JavaScript_
 
 ```js
 audio('raw-take.wav')
@@ -12,15 +12,15 @@ audio('raw-take.wav')
 
 <!-- <img src="preview.svg?v=1" alt="Audiojs demo" width="540"> -->
 
-* **Any Format** — fast WASM codecs, no ffmpeg.
-* **Streaming** — instant playback not waiting for decode.
-* **Immutable** — safe edits, infinite undo/redo, serializing.
-* **Page Cache** — open 10Gb+ files, no 2Gb RAM ceiling.
-* **Analysis** — peak, RMS, LUFS, spectrum, clip detection, feature extraction.
-* **Modular** – pluggable ops/stats, autodiscovery, tree-shakable.
-* **CLI** — builtin player, unix pipelines, globs, tab completion.
-* **Isomorphic** — cross-platform: node, browser, electron, deno, bun.
-* **Audio-first** – talk dB, Hz, LUFS, not samples, indices or byte arrays.
+* **Any Format** — fast wasm codecs, no ffmpeg.
+* **Streaming** — playback during decode.
+* **Immutable** — safe edits, infinite undo/redo.
+* **Page Cache** — open 10Gb+ files.
+* **Analysis** — loudness, spectrum, and more.
+* **Modular** – pluggable ops, tree-shakable.
+* **CLI** — playback, unix pipes, tab completion.
+* **Isomorphic** — node / browser.
+* **Audio-first** – dB, Hz, LUFS, not bytes and indices.
 
 <!--
 * [Architecture](docs/architecture.md) – stream-first design, pages & blocks, non-destructive editing, plan compilation
@@ -29,7 +29,7 @@ audio('raw-take.wav')
 
 <div align="center">
 
-#### [Quick Start](#quick-start) ǀ [Recipes](#recipes) ǀ [API](#api) ǀ [CLI](#cli) ǀ [Plugins](docs/plugins.md) ǀ [Architecture](docs/architecture.md) ǀ [FAQ](#faq) ǀ [Ecosystem](#ecosystem)
+#### [Quick Start](#quick-start)&nbsp;&nbsp;&nbsp;[Recipes](#recipes)&nbsp;&nbsp;&nbsp;[API](#api)&nbsp;&nbsp;&nbsp;[CLI](#cli)&nbsp;&nbsp;&nbsp;[Plugins](docs/plugins.md)&nbsp;&nbsp;&nbsp;[Architecture](docs/architecture.md)&nbsp;&nbsp;&nbsp;[FAQ](#faq)&nbsp;&nbsp;&nbsp;[Ecosystem](#ecosystem)
 
 </div>
 
