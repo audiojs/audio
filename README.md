@@ -14,7 +14,7 @@ audio('raw-take.wav')
 
 * **Any Format** — fast WASM codecs, no ffmpeg.
 * **Streaming** — instant playback not waiting for decode.
-* **Immutable** — instant edits, safe undo/redo, serializing.
+* **Immutable** — safe edits, infinite undo/redo, serializing.
 * **Virtual Page Cache** — open 10Gb+ files, no 2Gb RAM ceiling.
 * **Analysis** — peak, RMS, LUFS, spectrum, clip detection, feature extraction.
 * **Modular** – pluggable ops/stats, autodiscovery, tree-shakable.
