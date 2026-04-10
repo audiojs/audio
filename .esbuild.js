@@ -4,10 +4,7 @@ const NODE_BUILTINS = ['fs', 'fs/promises', 'url']
 
 // WASM codec packages — loaded on demand by audio-decode / encode-audio
 const CODECS = [
-  'mpg123-decoder', 'ogg-opus-decoder', 'qoa-format',
-  '@wasm-audio-decoders/*', '@audio/decode-*', '@audio/encode-*',
-  'codec-parser', '@eshaz/*', 'simple-yenc',
-  'wasm-media-encoders', 'opusscript', 'libflacjs',
+  '@audio/decode-*', '@audio/encode-*',
 ]
 
 const base = {

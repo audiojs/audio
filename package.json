@@ -49,7 +49,7 @@
   },
   "dependencies": {
     "a-weighting": "^2.0.1",
-    "audio-decode": "^3.8.1",
+    "audio-decode": "^3.9.0",
     "audio-filter": "^2.2.2",
     "audio-speaker": "^2.1.1",
     "audio-type": "^2.4.1",

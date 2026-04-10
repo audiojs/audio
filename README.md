@@ -66,18 +66,18 @@ Codecs load on demand via `import()` — map them with an import map or your bun
 <script type="importmap">
 {
   "imports": {
+    "@audio/decode-mp3": "https://esm.sh/@audio/decode-mp3",
     "@audio/decode-wav": "https://esm.sh/@audio/decode-wav",
+    "@audio/decode-flac": "https://esm.sh/@audio/decode-flac",
+    "@audio/decode-opus": "https://esm.sh/@audio/decode-opus",
+    "@audio/decode-vorbis": "https://esm.sh/@audio/decode-vorbis",
     "@audio/decode-aac": "https://esm.sh/@audio/decode-aac",
+    "@audio/decode-qoa": "https://esm.sh/@audio/decode-qoa",
     "@audio/decode-aiff": "https://esm.sh/@audio/decode-aiff",
     "@audio/decode-caf": "https://esm.sh/@audio/decode-caf",
     "@audio/decode-webm": "https://esm.sh/@audio/decode-webm",
     "@audio/decode-amr": "https://esm.sh/@audio/decode-amr",
     "@audio/decode-wma": "https://esm.sh/@audio/decode-wma",
-    "mpg123-decoder": "https://esm.sh/mpg123-decoder",
-    "@wasm-audio-decoders/flac": "https://esm.sh/@wasm-audio-decoders/flac",
-    "ogg-opus-decoder": "https://esm.sh/ogg-opus-decoder",
-    "@wasm-audio-decoders/ogg-vorbis": "https://esm.sh/@wasm-audio-decoders/ogg-vorbis",
-    "qoa-format": "https://esm.sh/qoa-format",
     "@audio/encode-wav": "https://esm.sh/@audio/encode-wav",
     "@audio/encode-mp3": "https://esm.sh/@audio/encode-mp3",
     "@audio/encode-flac": "https://esm.sh/@audio/encode-flac",
