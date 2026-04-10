@@ -275,9 +275,10 @@ test('CLI — help flag', async t => {
 })
 
 test('CLI — version flag', async t => {
+  let { version } = JSON.parse(await import('fs').then(f => f.promises.readFile(new URL('../package.json', import.meta.url), 'utf8')))
   let output = await runCliCapture(['--version'])
   t.ok(output.includes('audio'), 'shows version')
-  t.ok(output.includes('2.0.0'), 'shows 2.0.0')
+  t.ok(output.includes(version), `shows ${version}`)
 })
 
 // ── Edge Cases ───────────────────────────────────────────────────────────

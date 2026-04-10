@@ -32,11 +32,4 @@ await build({
   minify: true,
 })
 
-// dist/audio.all.js — everything bundled (for zero-config / testing)
-await build({
-  ...base,
-  outfile: 'dist/audio.all.js',
-  external: NODE_BUILTINS,
-})
-
 console.log('done')
