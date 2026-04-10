@@ -371,8 +371,11 @@ a.pan(-0.3, { at: 10, duration: 5 })      // pan left for range
 * `'podcast'` – -16 LUFS, -1 dBTP.
 * `'streaming'` – -14 LUFS.
 * `'broadcast'` – -23 LUFS.
-* `'dc'` – DC removal only.
+* `-3` – custom dB target (peak mode).
 * no arg – peak 0dBFS.
+* `{ mode: 'rms' }` – RMS normalization. Also `'peak'`, `'lufs'`.
+* `{ ceiling: -1 }` – true peak limiter in dB.
+* `{ dc: false }` – skip DC removal.
 
 **`.mix(source, opts?)`** – overlay another audio (additive).
 
@@ -484,7 +487,7 @@ let gaps = await a.stat('silence', { threshold: -40 })    // [{at, duration}, ..
 
 ### Utility
 
-Events, lifecycle, undo/redo, serialization, extensibility.
+Events, lifecycle, undo/redo, serialization.
 
 ```js
 a.on('data', ({ delta }) => draw(delta))  // decode progress
@@ -493,12 +496,6 @@ a.on('timeupdate', t => ui.update(t))     // playback position
 a.undo()                                  // undo last edit
 b.run(...a.edits)                         // replay onto another file
 JSON.stringify(a); audio(json)            // serialize / restore
-
-audio.op('crush', (chs, ctx) => {         // register custom op
-  let steps = 2 ** (ctx.args[0] ?? 8)
-  return chs.map(ch => ch.map(s => Math.round(s * steps) / steps))
-})
-a.crush(4)                                // chainable, undoable, serializable
 ```
 
 **`.on(event, fn)`** / **`.off(event?, fn?)`** – subscribe / unsubscribe.
@@ -516,9 +513,35 @@ a.crush(4)                                // chainable, undoable, serializable
 
 **`.run(...edits)`** – apply edit objects `{ type, args, at?, duration? }`. Batch or replay.
 
-**`audio.op(name, fn)`** – register custom op. All instances gain the method.
+### Plugins
 
-**`audio.stat(name, descriptor)`** – register custom stat.
+Extend with custom ops and stats. Registered ops become chainable, undoable, serializable methods on all instances. Stats collect per-block data during decode.
+
+```js
+// op: process function receives (channels[], ctx) per 1024-sample block
+audio.op('crush', (chs, ctx) => {
+  let steps = 2 ** (ctx.args[0] ?? 8)
+  return chs.map(ch => ch.map(s => Math.round(s * steps) / steps))
+})
+
+// stat: block function collects per-block, reduce enables scalar queries
+audio.stat('peak', {
+  block: (chs) => chs.map(ch => { let m = 0; for (let s of ch) m = Math.max(m, Math.abs(s)); return m }),
+  reduce: (src, from, to) => { let m = 0; for (let i = from; i < to; i++) m = Math.max(m, src[i]); return m },
+})
+
+a.crush(4)                    // chainable like built-in ops
+a.stat('peak')                // → scalar from reduce
+a.stat('peak', { bins: 100 }) // → binned array
+```
+
+**`audio.op(name, fn)`** – register op. Shorthand for `{ process: fn }`. Full descriptor: `{ process, plan, resolve, call }`.
+
+**`audio.op(name)`** – query descriptor. **`audio.op()`** – all ops.
+
+**`audio.stat(name, descriptor)`** – register stat. Shorthand `(chs, ctx) => [...]` or `{ block, reduce, query }`.
+
+See [Plugin Tutorial](docs/plugins.md) for descriptor stages, segment maps, persistent ctx, and advanced patterns.
 
 
 ## CLI
