@@ -18,7 +18,7 @@ audio('raw-take.wav')
 * **Page Cache** — open 10Gb+ files.
 * **Analysis** — loudness, spectrum, and more.
 * **Modular** – pluggable ops, tree-shakable.
-* **CLI** — playback, unix pipelines, globs, tab completion.
+* **CLI** — playback, unix pipes, tab completion.
 * **Isomorphic** — node, browser, electron, deno, bun.
 * **Audio-first** – talk dB, Hz, LUFS, not bytes and arrays.
 
