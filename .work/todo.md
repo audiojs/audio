@@ -1,8 +1,7 @@
 ## Next
 
-* [ ] Uniform codec wrappers — `@audio/decode-mp3`, `decode-flac`, `decode-opus`, `decode-vorbis`, `decode-qoa`
-* [ ] Wavearea integration
 * [ ] playback speed
+* [ ] Wavearea integration
 * [ ] Audio ponyfill — separate `audio-ponyfill` package (#68)
 * [ ] Minimal duration guard on save — some players can't reproduce 1-sample wav (#27)
 * [ ] Crossfade / transitions convenience — `a.crossfade(b, duration)` or similar (#63)
@@ -36,6 +35,7 @@
 
 ## Archive
 
+* [x] Uniform codec wrappers — `@audio/decode-mp3`, `decode-flac`, `decode-opus`, `decode-vorbis`, `decode-qoa`
 * [x] There's an issue with player spectrum. When we pause playback, it keeps animating as if there's inertia. Can we please freeze spectrum or maybe just 1 frame if we hit stop? Also it keeps animating if we seek in paused mode.
 * [x] Figure out .stream contract across packages: either we can call it stream, or have a factory.
 
