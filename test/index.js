@@ -1592,21 +1592,21 @@ test('trim — all-silence produces empty output', async t => {
   t.is(pcm[0].length, 0, 'zero-length output for silence')
 })
 
-test('view — shares pages reference', async t => {
+test('clip — shares pages reference', async t => {
   let a = audio.from([new Float32Array(44100).fill(0.5)], { sampleRate: 44100 })
-  let v = a.view()
-  t.is(v.pages, a.pages, 'view shares pages')
-  t.is(v.stats, a.stats, 'view shares stats')
+  let v = a.clip()
+  t.is(v.pages, a.pages, 'clip shares pages')
+  t.is(v.stats, a.stats, 'clip shares stats')
 })
 
-test('view(offset, dur) — reads correct sub-range PCM', async t => {
+test('clip(offset, dur) — reads correct sub-range PCM', async t => {
   let ch = new Float32Array(44100).fill(0)
   for (let i = 22050; i < 33075; i++) ch[i] = 0.7
   let a = audio.from([ch], { sampleRate: 44100 })
-  let v = a.view({at: 0.5, duration: 0.25})
+  let v = a.clip({at: 0.5, duration: 0.25})
   let pcm = await v.read()
   t.is(pcm[0].length, 11025, '0.25s at 44100 Hz = 11025 samples')
-  t.ok(Math.abs(pcm[0][0] - 0.7) < 0.01, 'view reads correct window')
+  t.ok(Math.abs(pcm[0][0] - 0.7) < 0.01, 'clip reads correct window')
 })
 
 test('split — correct count and durations', async t => {
@@ -2220,13 +2220,13 @@ test('stat(silence) — with range opts', async t => {
   t.is(segs.length, 0, 'no silence in ranged query')
 })
 
-test('stat(clip) — returns timestamps of clipping blocks', async t => {
+test('stat(clipping) — returns timestamps of clipping blocks', async t => {
   let sr = 44100, bs = 1024
   // 1s audio: first half clean, second half clipping
   let ch = new Float32Array(sr)
   for (let i = 0; i < sr; i++) ch[i] = i < sr / 2 ? 0.5 : 1.5
   let a = audio.from([ch], { sampleRate: sr })
-  let clips = await a.stat('clip')
+  let clips = await a.stat('clipping')
   t.ok(clips instanceof Float32Array, 'returns Float32Array')
   t.ok(clips.length > 0, 'has clipping blocks')
   // All timestamps should be >= 0.5s (second half)
@@ -2236,21 +2236,21 @@ test('stat(clip) — returns timestamps of clipping blocks', async t => {
   t.is(clips.length, clips.length, 'count === length')
 })
 
-test('stat(clip) — clean audio returns empty', async t => {
+test('stat(clipping) — clean audio returns empty', async t => {
   let sr = 44100
   let ch = new Float32Array(sr).fill(0.5)
   let a = audio.from([ch], { sampleRate: sr })
-  let clips = await a.stat('clip')
+  let clips = await a.stat('clipping')
   t.ok(clips instanceof Float32Array, 'returns Float32Array')
   t.is(clips.length, 0, 'no clips in clean audio')
 })
 
-test('stat(clip) — bins mode returns per-bin counts', async t => {
+test('stat(clipping) — bins mode returns per-bin counts', async t => {
   let sr = 44100
   // All clipping
   let ch = new Float32Array(sr).fill(1.5)
   let a = audio.from([ch], { sampleRate: sr })
-  let bins = await a.stat('clip', { bins: 10 })
+  let bins = await a.stat('clipping', { bins: 10 })
   t.ok(bins instanceof Float32Array, 'returns Float32Array')
   t.is(bins.length, 10, '10 bins')
   for (let i = 0; i < 10; i++)

@@ -19,8 +19,8 @@ audio.op('dc', {
   }
 })
 
-/** Hard-clip samples to ±limit (linear). Internal to normalize. */
-audio.op('clip', {
+/** Clamp samples to ±limit (linear). Internal to normalize. */
+audio.op('clamp', {
   hidden: true,
   process: (chs, ctx) => {
     let limit = ctx.args[0]
@@ -62,7 +62,7 @@ audio.op('normalize', {
       let peakLevel = peakDb(stats, chs, dcOff)
       if (peakLevel == null) return false
       edits.push({ type: 'gain', args: [targetDb - peakLevel] })
-      edits.push({ type: 'clip', args: [10 ** (ctx.ceiling / 20)] })
+      edits.push({ type: 'clamp', args: [10 ** (ctx.ceiling / 20)] })
     } else {
       edits.push({ type: 'gain', args: [targetDb - levelDb] })
     }

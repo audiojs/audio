@@ -43,7 +43,7 @@ audio.stat('dc', {
   reduce: rMean
 })
 
-audio.stat('clip', {
+audio.stat('clipping', {
   block: (chs) => chs.map(ch => {
     let n = 0
     for (let i = 0; i < ch.length; i++) if (ch[i] >= 1 || ch[i] <= -1) n++
@@ -54,7 +54,7 @@ audio.stat('clip', {
     let bs = stats.blockSize, times = []
     for (let i = from; i < to; i++) {
       let n = 0
-      for (let c of chs) n += stats.clip[c][i] || 0
+      for (let c of chs) n += stats.clipping[c][i] || 0
       if (n > 0) times.push(i * bs / sr)
     }
     return new Float32Array(times)

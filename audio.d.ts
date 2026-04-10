@@ -67,8 +67,8 @@ export interface AudioInstance {
   [Symbol.asyncIterator](): AsyncGenerator<Float32Array[], void, unknown>
   /** Ensure stats are fresh, return stats + block range */
   stat(name: 'db' | 'rms' | 'loudness', opts?: { at?: Time, duration?: Time }): Promise<number>
-  stat(name: 'clip', opts?: { at?: Time, duration?: Time }): Promise<Float32Array>
-  stat(name: 'clip', opts: { bins: number, at?: Time, duration?: Time }): Promise<Float32Array>
+  stat(name: 'clipping', opts?: { at?: Time, duration?: Time }): Promise<Float32Array>
+  stat(name: 'clipping', opts: { bins: number, at?: Time, duration?: Time }): Promise<Float32Array>
   stat(name: 'dc', opts?: { at?: Time, duration?: Time }): Promise<number>
   stat(name: 'min' | 'max', opts?: { at?: Time, duration?: Time }): Promise<number>
   stat(name: 'min' | 'max', opts: { bins: number, at?: Time, duration?: Time, channel?: number }): Promise<Float32Array>
@@ -120,7 +120,7 @@ export interface AudioInstance {
   normalize(opts: { target?: number, mode?: 'peak' | 'lufs' | 'rms', at?: Time, duration?: Time, channel?: number | number[], dc?: boolean, ceiling?: number }): this
 
   // ── Fns (registered via audio.fn) ───────────────────────────
-  view(opts?: { at?: Time, duration?: Time }): AudioInstance
+  clip(opts?: { at?: Time, duration?: Time }): AudioInstance
   split(...offsets: Time[]): AudioInstance[]
   undo(n?: number): EditOp | EditOp[] | null
   run(...edits: EditOp[]): this

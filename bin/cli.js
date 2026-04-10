@@ -389,7 +389,7 @@ async function playback(p, totalSec, decodedSec, a, src) {
   let refreshInfo = async () => {
     if (!a?.decoded) return
     try {
-      let [peak, , l, clips, dcOff] = await a.stat(['db', 'rms', 'loudness', 'clip', 'dc'])
+      let [peak, , l, clips, dcOff] = await a.stat(['db', 'rms', 'loudness', 'clipping', 'dc'])
       let warn = ''
       if (clips.length) warn += `   ${clips.length} clip${clips.length > 1 ? 's' : ''}`
       if (Math.abs(dcOff) > 0.001) warn += `   dc:${dcOff.toFixed(4)}`
@@ -600,7 +600,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     } else if (prev === 'remix') {
       out = ['1', '2']
     } else if (prev === 'stat') {
-      out = ['db', 'rms', 'loudness', 'clip', 'dc', 'silence', 'spectrum', 'cepstrum']
+      out = ['db', 'rms', 'loudness', 'clipping', 'dc', 'silence', 'spectrum', 'cepstrum']
     } else if (prev === 'gain') {
       out = ['-3db', '-6db', '-12db', '3db', '6db']
     } else if (prev === 'highpass') {
@@ -750,7 +750,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
 
     // No ops, no output, no play → show info and exit
     if (!allOps.length && !opts.output && !opts.play) {
-      let [peak, , l, clips, dcOff] = await a.stat(['db', 'rms', 'loudness', 'clip', 'dc'])
+      let [peak, , l, clips, dcOff] = await a.stat(['db', 'rms', 'loudness', 'clipping', 'dc'])
       console.log(`  Duration:   ${fmtTime(a.duration)}`)
       console.log(`  Channels:   ${a.channels}`)
       console.log(`  SampleRate: ${a.sampleRate} Hz`)
@@ -827,7 +827,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     if (statOps.length) {
       for (let op of statOps) {
         let names = op.args.filter(a => typeof a === 'string')
-        if (!names.length) names = ['db', 'rms', 'loudness', 'clip', 'dc']
+        if (!names.length) names = ['db', 'rms', 'loudness', 'clipping', 'dc']
         for (let name of names) {
           let idx = op.args.indexOf(name)
           let bins = idx >= 0 && idx + 1 < op.args.length && typeof op.args[idx + 1] === 'number' ? op.args[idx + 1] : undefined

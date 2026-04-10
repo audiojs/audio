@@ -20,7 +20,7 @@ import './plan.js'
 
 // ── Methods ─────────────────────────────────────────────────────────────
 
-import './fn/view.js'
+import './fn/clip.js'
 import './fn/split.js'
 import './fn/play.js'
 import './fn/save.js'

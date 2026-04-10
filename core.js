@@ -60,7 +60,7 @@ export default function audio(source, opts = {}) {
   // Concat from array of sources
   if (Array.isArray(source) && source.length && !(source[0] instanceof Float32Array)) {
     let instances = source.map(s => s?.pages ? s : audio(s, opts))
-    let first = instances[0].view ? instances[0].view() : audio.from(instances[0])
+    let first = instances[0].clip ? instances[0].clip() : audio.from(instances[0])
     if (!first.insert) throw new Error('audio([...]): concat requires insert plugin — import "audio" instead of "audio/core.js"')
     for (let i = 1; i < instances.length; i++) first.insert(instances[i])
     let loading = instances.filter(s => !s.decoded)

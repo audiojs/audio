@@ -1,6 +1,5 @@
 ## Next
 
-* [ ] Polish the quality of presentation
 * [ ] Wavearea integration
 * [ ] playback speed
 * [ ] Audio ponyfill — HTMLAudioElement for node, smooth currentTime, normalized loading (#68)

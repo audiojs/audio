@@ -50,7 +50,7 @@ await a.save('clean.mp3')
   import audio from './dist/audio.min.js'
   let a = audio('./song.mp3')
   a.trim().normalize().fade(0.5, 2)
-  a.play()
+  a.clip({ at: 60, duration: 30 }).play()   // play the chorus
 </script>
 ```
 
@@ -219,7 +219,7 @@ await a.save('ringtone.mp3')
 
 ```js
 let a = audio('master.wav')
-let clips = await a.stat('clip')
+let clips = await a.stat('clipping')
 if (clips.length) console.warn(`${clips.length} clipped blocks`)
 ```
 
@@ -235,7 +235,7 @@ for await (let chunk of a) socket.send(chunk[0].buffer)
 
 ```js
 let a = audio('beat.wav')
-let v = a.view({ at: 1, duration: 0.25 })
+let v = a.clip({ at: 1, duration: 0.25 })
 let glitch = audio([v, v, v, v])
 glitch.reverse({ at: 0.25, duration: 0.25 })
 await glitch.save('glitch.wav')
@@ -327,47 +327,19 @@ a.gain(-3, { channel: [0, 2] })          // channels 0 and 2
 ### Structure
 
 **`.crop({at, duration})`** – keep only this range, discard the rest.
-
-```js
-a.crop({ at: 10, duration: 30 })          // keep 10s–40s
-```
-
 **`.remove({at, duration})`** – cut a range and close the gap.
-
-```js
-a.remove({ at: 10, duration: 2 })          // cut 10s–12s, close gap
-```
+**`.repeat(n)`** – repeat n times.
+**`.pad(before, after?)`** – pad silence at edges (seconds).
+**`.speed(rate)`** – change playback speed — affects pitch and duration.
+**`.reverse({at?, duration?})`** – reverse audio or a range.
+**`.trim(threshold?)`** – remove leading/trailing silence. Threshold in dB (default auto).
+**`.clip({at, duration})`** – non-destructive clip of a range (zero-copy).
 
 **`.insert(source, {at})`** – insert audio or silence at position.
 
 ```js
-a.insert(intro, { at: 0 })               // prepend
+a.insert(intro, { at: 0 })               // prepend audio
 a.insert(3)                               // append 3s silence
-```
-
-**`.repeat(n)`** – repeat n times.
-
-```js
-a.repeat(4)                               // loop 4×
-```
-
-**`.pad(before, after?)`** – pad silence at edges (seconds).
-
-```js
-a.pad(0.5, 2)                            // 0.5s before, 2s after
-```
-
-**`.speed(rate)`** – change playback speed — affects pitch and duration.
-
-```js
-a.speed(2)                                // double speed, half duration
-```
-
-**`.reverse({at?, duration?})`** – reverse audio or a range.
-
-```js
-a.reverse()                               // reverse entire audio
-a.reverse({ at: 5, duration: 2 })        // reverse 5s–7s only
 ```
 
 **`.split(...offsets)`** – split into views at timestamps (zero-copy).
@@ -376,26 +348,11 @@ a.reverse({ at: 5, duration: 2 })        // reverse 5s–7s only
 let [ch1, ch2, ch3] = a.split(1800, 3600) // split at 30m, 60m
 ```
 
-**`.trim(threshold?)`** – remove leading/trailing silence.
-
-```js
-a.trim()                                  // auto threshold
-a.trim(-30)                               // custom -30dB
-```
-
-**`.view({at, duration})`** – non-destructive view of a range (zero-copy).
-
-```js
-let chorus = a.view({ at: 60, duration: 30 })  // zero-copy slice
-```
-
 **`.remix(channels)`** – change channel count. Accepts a number or array map.
 
 ```js
 a.remix(1)                                // stereo → mono
-a.remix(2)                                // mono → stereo
 a.remix([1, 0])                           // swap L/R
-a.remix([0, 0])                           // both from left
 a.remix([0, null, 1])                     // L, silence, R → 3ch
 ```
 
@@ -411,34 +368,17 @@ a.gain(0.5, { unit: 'linear' })          // linear multiplier
 a.gain(t => -3 * t)                      // automate over time
 ```
 
-**`.fade(in, out?, curve?)`** – fade in/out.
+**`.fade(in, out?, curve?)`** – fade in/out. Curves: `'linear'` `'exp'` `'log'` `'cos'`.
 
 ```js
 a.fade(0.5)                               // 0.5s fade-in from start
 a.fade(0.5, -2)                           // 0.5s in, 2s out from end
-a.fade(1, 1, 'exp')                       // curves: 'linear' 'exp' 'log' 'cos'
 ```
 
 **`.mix(other, {at?, duration?})`** – overlay another source (additive).
-
-```js
-a.mix(voice, { at: 2 })
-```
-
 **`.write(data, {at?})`** – overwrite samples at position with raw PCM.
 
-```js
-a.write(float32arr, { at: 10 })           // overwrite at 10s
-```
-
-**`.pan(value, {at?, duration?})`** – stereo balance. Accepts function.
-
-```js
-a.pan(-1)                                 // full left
-a.pan(0)                                  // center
-a.pan(0.5)                                // half right
-a.pan(t => Math.sin(t * 2))              // oscillating
-```
+**`.pan(value, {at?, duration?})`** – stereo balance (−1 left, 0 center, 1 right). Accepts function.
 
 **`.normalize(target?)`** – loudness normalize.
 
@@ -461,28 +401,9 @@ a.transform((chs, ctx) => {               // ctx: { sampleRate, blockSize, at, d
 ### Filter
 
 **`.highpass(freq)`**, **`.lowpass(freq)`** – high/low-pass filter.
-
-```js
-a.highpass(80)                            // remove rumble
-```
-
 **`.bandpass(freq, Q?)`**, **`.notch(freq, Q?)`** – band-pass / notch filter.
-
-```js
-a.notch(60)                               // remove 60Hz hum
-```
-
 **`.lowshelf(freq, dB)`**, **`.highshelf(freq, dB)`** – shelf EQ.
-
-```js
-a.lowshelf(200, -3).highshelf(8000, 2)   // voice cleanup
-```
-
 **`.eq(freq, gain, Q?)`** – parametric EQ.
-
-```js
-a.eq(1000, -6, 2)                        // surgical cut at 1kHz
-```
 
 **`.filter(type, ...params)`** – generic filter dispatch.
 
@@ -518,7 +439,7 @@ let bytes = await a.encode('mp3')         // Uint8Array
 
 ```js
 for await (let block of a) send(block)            // all blocks
-for await (let block of a.view({ at: 10, duration: 5 })) send(block)
+for await (let block of a.clip({ at: 10, duration: 5 })) send(block)
 ```
 
 **`.clone()`** – deep copy with independent edit history (pages shared).
@@ -577,7 +498,7 @@ a.stop()                                  // end recording or playback
 
 ```js
 let loud = await a.stat('loudness')
-let [db, clip] = await a.stat(['db', 'clip'])
+let [db, clipping] = await a.stat(['db', 'clipping'])
 let spec = await a.stat('spectrum', { bins: 128 })
 let peaks = await a.stat('max', { bins: 800 })   // waveform
 ```
@@ -595,39 +516,15 @@ await a.stat('max', { channel: 0, bins: 800 })     // left waveform → Float32A
 
 #### Level
 
-**`'db'`** – peak amplitude in dBFS.
-
-```js
-await a.stat('db')                        // -0.8
-await a.stat('db', { at: 10, duration: 5 })
-```
-
-**`'rms'`** – RMS amplitude (linear).
-
-```js
-await a.stat('rms')                       // 0.12
-await a.stat('rms', { bins: 400 })        // RMS envelope
-```
-
-**`'loudness'`** – integrated loudness in LUFS (ITU-R BS.1770).
-
-```js
-await a.stat('loudness')                  // -14.2
-```
-
-**`'dc'`** – DC offset (mean sample value).
-
-```js
-await a.stat('dc')                        // 0.002
-```
+**`'db'`** – peak amplitude in dBFS. **`'rms'`** – RMS amplitude (linear). **`'loudness'`** – integrated loudness in LUFS (ITU-R BS.1770). **`'dc'`** – DC offset (mean sample value).
 
 #### Detection
 
-**`'clip'`** – clipped samples. Scalar returns timestamps (seconds), binned returns counts.
+**`'clipping'`** – clipped samples. Scalar returns timestamps (seconds), binned returns counts.
 
 ```js
-let clips = await a.stat('clip')          // [2.1, 5.8, ...] seconds
-let counts = await a.stat('clip', { bins: 100 })  // clip count per bin
+let clips = await a.stat('clipping')          // [2.1, 5.8, ...] seconds
+let counts = await a.stat('clipping', { bins: 100 })  // clip count per bin
 ```
 
 **`'silence'`** – silent segments as `{at, duration}` ranges.
@@ -649,30 +546,11 @@ for (let i = 0; i < maxs.length; i++)
 
 #### Frequency
 
-**`'spectrum'`** – mel-frequency spectrum in dB (A-weighted).
-
-```js
-await a.stat('spectrum')                              // 128 bins default
-await a.stat('spectrum', { bins: 64, at: 10, duration: 5 })
-```
-
-**`'cepstrum'`** – MFCCs (mel-frequency cepstral coefficients).
-
-```js
-await a.stat('cepstrum')                              // 13 coefficients default
-await a.stat('cepstrum', { bins: 20 })
-```
+**`'spectrum'`** – mel-frequency spectrum in dB (A-weighted). **`'cepstrum'`** – MFCCs (mel-frequency cepstral coefficients).
 
 ### Utility
 
 **`.on(event, fn)`** – subscribe to an event. **`.off(event?, fn?)`** – unsubscribe.
-
-```js
-a.on('data', ({ delta }) => drawWaveform(delta))
-a.off('data', drawWaveform)               // remove one listener
-a.off('data')                             // remove all 'data' listeners
-a.off()                                   // remove all listeners on all events
-```
 
 Events:
 
@@ -685,23 +563,16 @@ Events:
 | `'ended'` | — | Playback finishes (not on loop) |
 | `'progress'` | `{ offset, total }` | During `save()`/`encode()` — both in seconds |
 
-**`.dispose()`** – release all resources. (same as `a[Symbol.dispose]`)
+**`.dispose()`** – release all resources. Supports `using` for auto-dispose.
 
 ```js
-a.dispose()                               // free pages, stop playback
-
 {
   using a = audio('big.flac')             // auto-dispose on block exit
   await a.save('out.mp3')
-}                                         // a.dispose() called automatically
+}
 ```
 
 **`.undo(n?)`** – undo last edit (or last n). Returns the edit — pass to `.run()` for redo.
-
-```js
-a.undo()                                  // undo last op
-a.undo(3)                                 // undo last 3
-```
 
 **`.run(...edits)`** – apply edit objects. Edits are plain `{ type, args, at?, duration?, channel? }`.
 
@@ -723,11 +594,6 @@ await b.save('other-processed.wav')
 
 **`JSON.stringify(a)`** / **`audio(json)`** – serialize / restore.
 
-```js
-let json = JSON.stringify(a)
-let b = audio(JSON.parse(json))            // re-decode + replay edits
-```
-
 **`audio.op(name, fn)`** – register custom op — all instances gain the method.
 
 ```js
@@ -740,12 +606,9 @@ a.crush(4)                                // chainable, undoable
 
 **`audio.stat(name, descriptor)`** – register custom stat computed during decode.
 
-```js
-audio.stat('zcr', { block: ch => /* zero-crossing rate */ })
-```
-
 
 ## CLI
+
 
 ```sh
 npx audio [file] [ops...] [-o output] [options]
@@ -764,7 +627,7 @@ lowshelf    highshelf   normalize
 ### Playback
 
 
-<img src="demo.gif" alt="Audiojs demo" width="624">
+<img src="player.gif" alt="Audiojs demo" width="624">
 
 <!-- ```sh
 npx audio kirtan.mp3
@@ -777,19 +640,26 @@ npx audio kirtan.mp3
 
 <kbd>␣</kbd> pause · <kbd>←</kbd>/<kbd>→</kbd> seek ±10s · <kbd>⇧←</kbd>/<kbd>⇧→</kbd> seek ±60s · <kbd>↑</kbd>/<kbd>↓</kbd> volume ±3dB · <kbd>l</kbd> loop · <kbd>q</kbd> quit
 
+
+
 ### Edit
 
 ```sh
 # clean up
 npx audio raw-take.wav trim -30db normalize podcast fade 0.3s -0.5s -o clean.wav
+
 # ranges
 npx audio in.wav gain -3db 1s..10s -o out.wav
+
 # filter chain
 npx audio in.mp3 highpass 80hz lowshelf 200hz -3db -o out.wav
+
 # join
 npx audio intro.mp3 + content.wav + outro.mp3 trim normalize fade 0.5s -2s -o ep.mp3
+
 # voiceover
 npx audio bg.mp3 gain -12db mix narration.wav 2s -o mixed.wav
+
 # split
 npx audio audiobook.mp3 split 30m 60m -o 'chapter-{i}.mp3'
 ```
@@ -797,13 +667,16 @@ npx audio audiobook.mp3 split 30m 60m -o 'chapter-{i}.mp3'
 ### Analysis
 
 ```sh
-# all default stats (db, rms, loudness, clip, dc)
+# all default stats (db, rms, loudness, clipping, dc)
 npx audio speech.wav stat
+
 # specific stats
 npx audio speech.wav stat loudness rms
+
 # spectrum / cepstrum with bin count
 npx audio speech.wav stat spectrum 128
 npx audio speech.wav stat cepstrum 13
+
 # stat after transforms
 npx audio speech.wav gain -3db stat db
 ```

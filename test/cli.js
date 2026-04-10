@@ -179,11 +179,11 @@ test('parseArgs — stat op bare defaults', t => {
   t.is(result.ops[0].args.length, 0, 'no args = default stats')
 })
 
-test('parseArgs — stat with op-name overlap (dc, clip)', t => {
-  let result = parseArgs(['in.wav', 'stat', 'dc', 'clip', 'rms'])
+test('parseArgs — stat with op-name overlap (dc, clipping)', t => {
+  let result = parseArgs(['in.wav', 'stat', 'dc', 'clipping', 'rms'])
   t.is(result.ops.length, 1, 'single stat op')
   t.is(result.ops[0].name, 'stat')
-  t.same(result.ops[0].args, ['dc', 'clip', 'rms'], 'dc/clip parsed as stat args, not ops')
+  t.same(result.ops[0].args, ['dc', 'clipping', 'rms'], 'dc/clipping parsed as stat args, not ops')
 })
 
 test('parseArgs — stat after transform preserves op boundary', t => {
