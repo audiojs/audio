@@ -610,7 +610,7 @@ audio --completions fish | source       # fish
 
 <dl>
 <dt>How is this different from Web Audio API?</dt>
-<dd>Web Audio API is a real-time graph for playback and synthesis. This is for loading, editing, analyzing, and saving audio files. They work well together. For Web Audio API in Node, see <a href="https://github.com/audiojs/web-audio-api">web-audio-api</a>.</dd>
+<dd>Web Audio API is a real-time audio graph for playback and synthesis. This is for work on audio files specifically. For Web Audio API in Node, see <a href="https://github.com/audiojs/web-audio-api">web-audio-api</a>.</dd>
 
 <dt>What formats are supported?</dt>
 <dd>Decode: WAV, MP3, FLAC, OGG Vorbis, Opus, AAC, AIFF, CAF, WebM, AMR, WMA, QOA via <a href="https://github.com/audiojs/audio-decode">audio-decode</a>. Encode: WAV, MP3, FLAC, Opus, OGG, AIFF via <a href="https://github.com/audiojs/audio-encode">audio-encode</a>. Codecs are WASM-based, lazy-loaded on first use.</dd>
@@ -643,7 +643,8 @@ audio --completions fish | source       # fish
 * [audio-decode](https://github.com/audiojs/audio-decode) – codec decoding (13+ formats)
 * [encode-audio](https://github.com/audiojs/audio-encode) – codec encoding
 * [audio-filter](https://github.com/audiojs/audio-filter) – filters (weighting, EQ, auditory)
-* [audio-speaker](https://github.com/audiojs/audio-speaker) – audio output (Node)
+* [audio-speaker](https://github.com/audiojs/audio-speaker) – audio output
+* [audio-mic](https://github.com/audiojs/audio-mic) – audio input
 * [audio-type](https://github.com/nickolanack/audio-type) – format detection
 * [pcm-convert](https://github.com/nickolanack/pcm-convert) – PCM format conversion
 
