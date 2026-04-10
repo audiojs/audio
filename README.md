@@ -1,16 +1,16 @@
 # <img src="logo.svg" width="20" height="20" alt="audio"> audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/audio?color=white)](https://npmjs.org/package/audio)
 
 Audio in JavaScript: load, edit, play, analyze, save, batch-process.
-<!--
+
 ```js
 audio('raw-take.wav')
   .trim(-30)
   .normalize('podcast')
   .fade(0.3, 0.5)
   .save('clean.mp3')
-``` -->
+```
 
-<img src="preview.svg?v=1" alt="Audiojs demo">
+<!-- <img src="preview.svg?v=1" alt="Audiojs demo" width="540"> -->
 
 * **Universal Format Support** — fast [WASM codecs](https://github.com/audio-decode), no ffmpeg.
 * **Streaming** — instant playback not waiting for decode.
@@ -27,7 +27,7 @@ audio('raw-take.wav')
 * [Plugins](docs/plugins.md) – custom ops, stats, descriptors (process, plan, resolve, call), persistent ctx
 -->
 
-##### [Quick Start](#quick-start) · [Recipes](#recipes) · [API](#api) · [CLI](#cli) · [FAQ](#faq) · [Ecosystem](#ecosystem)
+#### [Quick Start](#quick-start) · [Recipes](#recipes) · [API](#api) · [CLI](#cli) · [FAQ](#faq) · [Ecosystem](#ecosystem)
 
 
 ## Quick Start
