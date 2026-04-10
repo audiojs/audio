@@ -1,4 +1,4 @@
-# <img src="logo.svg" width="25" height="27" alt="audio"> audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/audio?color=white)](https://npmjs.org/package/audio)
+# <img src="logo.svg" width="20" height="20" alt="audio"> audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/audio?color=white)](https://npmjs.org/package/audio)
 
 Audio in JavaScript: load, edit, play, analyze, save, batch-process.
 
