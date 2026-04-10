@@ -3,11 +3,7 @@
 _Audio in JavaScript_
 
 ```js
-audio('raw-take.wav')
-  .trim(-30)
-  .normalize('podcast')
-  .fade(0.3, 0.5)
-  .save('clean.mp3')
+audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 ```
 
 <!-- <img src="preview.svg?v=1" alt="Audiojs demo" width="540"> -->
