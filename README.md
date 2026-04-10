@@ -19,8 +19,8 @@ audio('raw-take.wav')
 * **Analysis** — loudness, spectrum, and more.
 * **Modular** – pluggable ops, tree-shakable.
 * **CLI** — playback, unix pipes, tab completion.
-* **Isomorphic** — node, browser, electron, deno, bun.
-* **Audio-first** – talk dB, Hz, LUFS, not bytes and arrays.
+* **Isomorphic** — node / browser.
+* **Audio-first** – dB, Hz, LUFS, not bytes and arrays.
 
 <!--
 * [Architecture](docs/architecture.md) – stream-first design, pages & blocks, non-destructive editing, plan compilation
