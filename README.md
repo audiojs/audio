@@ -10,7 +10,7 @@ audio('raw-take.wav')
   .save('clean.mp3')
 ``` -->
 
-<img src="preview.svg" alt="Audiojs demo" width="624">
+<img src="preview.svg?v=1" alt="Audiojs demo">
 
 * **Universal Format Support** — fast [WASM codecs](https://github.com/audio-decode), no ffmpeg.
 * **Streaming** — instant playback not waiting for decode.
