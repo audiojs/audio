@@ -12,7 +12,7 @@ audio('raw-take.wav')
 
 <!-- <img src="preview.svg?v=1" alt="Audiojs demo" width="540"> -->
 
-* **Universal Format Support** — fast [WASM codecs](https://github.com/audio-decode), no ffmpeg.
+* **Universal Format Support** — fast WASM codecs, no ffmpeg.
 * **Streaming** — instant playback not waiting for decode.
 * **Immutable** — instant edits, safe undo/redo, serializing.
 * **Virtual Page cache** — open 10Gb+ files, no 2Gb RAM ceiling.
