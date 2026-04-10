@@ -10,7 +10,7 @@ audio('raw-take.wav')
   .save('clean.mp3')
 ``` -->
 
-<img src="preview.png" alt="Audiojs demo" width="624">
+<img src="preview.svg" alt="Audiojs demo" width="624">
 
 * **Universal Format Support** — fast [WASM codecs](https://github.com/audio-decode), no ffmpeg.
 * **Streaming** — instant playback not waiting for decode.
@@ -761,7 +761,7 @@ lowshelf    highshelf   normalize
 ### Playback
 
 
-<img src="preview.png" alt="Audiojs demo" width="624">
+<img src="demo.gif" alt="Audiojs demo" width="624">
 
 <!-- ```sh
 npx audio kirtan.mp3
