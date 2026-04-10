@@ -1,5 +1,6 @@
 ## Next
 
+* [ ] Uniform codec wrappers — `@audio/decode-mp3`, `decode-flac`, `decode-opus`, `decode-vorbis`, `decode-qoa`
 * [ ] Wavearea integration
 * [ ] playback speed
 * [ ] Audio ponyfill — separate `audio-ponyfill` package (#68)
