@@ -18,7 +18,7 @@ function removeSegs(segs, off, dur) {
 const removePlan = (segs, ctx) => {
   let { total } = ctx
   let s = planOffset(ctx.offset, total)
-  return removeSegs(segs, s, Math.min(ctx.length || 0, total - s))
+  return removeSegs(segs, s, Math.min(ctx.length ?? (total - s), total - s))
 }
 
 import audio from '../core.js'

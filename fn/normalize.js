@@ -52,7 +52,7 @@ audio.op('normalize', {
     else if (mode === 'rms') levelDb = rmsDb(stats, chs, dcOff)
     else levelDb = peakDb(stats, chs, dcOff)
 
-    if (levelDb == null) return mode === 'rms' ? null : false
+    if (levelDb == null) return false
 
     let edits = []
     if (hasDc) edits.push({ type: 'dc', args: [chs.map(c => dcOff[c])] })

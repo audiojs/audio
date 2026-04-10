@@ -98,7 +98,7 @@ function showOpHelp(name) {
 function parseArgs(args) {
   let input = null, ops_ = [], output = null, format = null
   let verbose = false, showHelp = false, play = false, force = false
-  let macro = null, helpOp = null
+  let macro = null, helpOp = null, concatFiles = []
   let i = 0
 
   // First positional arg as input if it looks like a file
@@ -131,6 +131,15 @@ function parseArgs(args) {
     } else if (arg === '--macro') {
       macro = args[++i]
       i++
+    } else if (arg === '+') {
+      // Concat: `audio a.mp3 + b.wav + c.mp3 ...`
+      i++
+      if (i < args.length && !isFlag(args[i]) && !isOpName(args[i])) {
+        concatFiles.push(args[i])
+        i++
+      } else {
+        throw new Error('Expected file after +')
+      }
     } else if (isFlag(arg)) {
       throw new Error(`Unknown flag: ${arg}`)
     } else if (!input && !isOpName(arg)) {
@@ -196,7 +205,7 @@ function parseArgs(args) {
   }
   ops_ = expanded
 
-  return { input, ops: ops_, output, format, verbose, showHelp, play, force, macro, helpOp }
+  return { input, ops: ops_, output, format, verbose, showHelp, play, force, macro, helpOp, concatFiles }
 }
 
 // ── I/O ──────────────────────────────────────────────────────────────────
@@ -716,6 +725,11 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       process.stderr.write('Reading from stdin...\n')
       let buf = await getStdinBuffer()
       source = buf
+    }
+
+    // Concat mode: `audio a.mp3 + b.wav + c.mp3`
+    if (opts.concatFiles.length && typeof source === 'string') {
+      source = [source, ...opts.concatFiles]
     }
 
     // Streaming player — file source, no ops, no output (default mode)

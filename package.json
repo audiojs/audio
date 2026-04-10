@@ -10,8 +10,9 @@
       "default": "./audio.js"
     },
     "./core": "./core.js",
-    "./core.js": "./core.js",
-    "./plan.js": "./plan.js",
+    "./plan": "./plan.js",
+    "./stats": "./stats.js",
+    "./cache": "./cache.js",
     "./fn/*": "./fn/*"
   },
   "types": "./audio.d.ts",

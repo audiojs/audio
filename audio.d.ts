@@ -230,6 +230,3 @@ declare namespace audio {
 }
 
 export default audio
-
-/** Audio instance prototype — extensible */
-export const fn: Record<string, any>

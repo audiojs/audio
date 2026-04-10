@@ -3,7 +3,7 @@ const remix = (chs, ctx) => {
   // array map: [0, 1, null, ...] — number = source ch, null = silence
   if (Array.isArray(arg)) {
     return arg.map(src =>
-      src == null ? new Float32Array(len) : new Float32Array(chs[src % chs.length])
+      src == null ? new Float32Array(len) : new Float32Array(chs[((src % chs.length) + chs.length) % chs.length])
     )
   }
   let n = chs.length, m = arg
