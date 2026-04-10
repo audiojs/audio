@@ -12,15 +12,15 @@ audio('raw-take.wav')
 
 <!-- <img src="preview.svg?v=1" alt="Audiojs demo" width="540"> -->
 
-* **Any Format** — fast WASM codecs, no ffmpeg.
-* **Streaming** — instant playback not waiting for decode.
-* **Immutable** — safe edits, infinite undo/redo, serializing.
-* **Page Cache** — open 10Gb+ files, no 2Gb RAM ceiling.
-* **Analysis** — peak, RMS, LUFS, spectrum, clip detection, feature extraction.
-* **Modular** – pluggable ops/stats, autodiscovery, tree-shakable.
-* **CLI** — builtin player, unix pipelines, globs, tab completion.
-* **Isomorphic** — cross-platform: node, browser, electron, deno, bun.
-* **Audio-first** – talk dB, Hz, LUFS, not samples, indices or byte arrays.
+* **Any Format** — fast wasm codecs, no ffmpeg.
+* **Streaming** — instant playback during decode.
+* **Immutable** — safe edits, infinite undo/redo.
+* **Page Cache** — open 10Gb+ files.
+* **Analysis** — peak, RMS, LUFS, spectrum and more.
+* **Modular** – pluggable ops, tree-shakable.
+* **CLI** — playback, unix pipelines, globs, tab completion.
+* **Isomorphic** — node, browser, electron, deno, bun.
+* **Audio-first** – talk dB, Hz, LUFS, not bytes and arrays.
 
 <!--
 * [Architecture](docs/architecture.md) – stream-first design, pages & blocks, non-destructive editing, plan compilation
