@@ -20,7 +20,7 @@ audio('raw-take.wav')
 * **Modular** – pluggable ops, tree-shakable.
 * **CLI** — playback, unix pipes, tab completion.
 * **Isomorphic** — node / browser.
-* **Audio-first** – dB, Hz, LUFS, not bytes and arrays.
+* **Audio-first** – dB, Hz, LUFS, not bytes and indices.
 
 <!--
 * [Architecture](docs/architecture.md) – stream-first design, pages & blocks, non-destructive editing, plan compilation
