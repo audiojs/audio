@@ -265,10 +265,6 @@ await a.save('sonification.wav')
 
 ### Create
 
-**`audio(source, opts?)`** – decode from file, URL, or bytes. Returns instantly — decodes in background.
-
-**`audio.from(source, opts?)`** – wrap existing PCM, AudioBuffer, silence, or function. Sync, no I/O.
-
 ```js
 let a = audio('voice.mp3')                // file path
 let b = audio('https://cdn.ex/track.mp3') // URL
@@ -285,6 +281,10 @@ let c = audio.from(t => Math.sin(440*TAU*t), { duration: 2 })  // generator
 let d = audio.from(audioBuffer)                   // Web Audio AudioBuffer
 let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 ```
+
+**`audio(source, opts?)`** – decode from file, URL, or bytes. Returns instantly — decodes in background.
+
+**`audio.from(source, opts?)`** – wrap existing PCM, AudioBuffer, silence, or function. Sync, no I/O.
 
 ### Properties
 
@@ -366,9 +366,9 @@ a.pan(-0.3, { at: 10, duration: 5 })      // pan left for range
 
 **`.fade(in, out?, curve?)`** – fade in/out. Curves: `'linear'` `'exp'` `'log'` `'cos'`.
 
-**`.normalize(target?)`** – loudness: `'podcast'` (-16 LUFS), `'streaming'` (-14), `'broadcast'` (-23), or peak 0dBFS.
+**`.normalize(target?)`** – remove DC offset, clamp, and normalize loudness. Target: `'podcast'` (-16 LUFS), `'streaming'` (-14), `'broadcast'` (-23), `'dc'` (DC removal only), or peak 0dBFS (default).
 
-**`.mix(source, opts?)`** – overlay (additive).
+**`.mix(source, opts?)`** – overlay another audio (additive).
 
 **`.pan(value, opts?)`** – stereo balance (−1 left, 0 center, 1 right). Accepts function.
 
@@ -465,15 +465,15 @@ await a.stat('rms', { channel: [0, 1] })                  // per-channel → [n,
 let gaps = await a.stat('silence', { threshold: -40 })    // [{at, duration}, ...]
 ```
 
-**`'db'`** – peak amplitude in dBFS.
-**`'rms'`** – RMS amplitude (linear).
-**`'loudness'`** – integrated LUFS (ITU-R BS.1770).
-**`'dc'`** – DC offset.
-**`'clipping'`** – clipped samples (scalar: timestamps, binned: counts).
-**`'silence'`** – silent ranges as `{at, duration}`.
-**`'max'`**, **`'min'`** – peak envelope (use together for waveform rendering).
-**`'spectrum'`** – mel-frequency spectrum in dB (A-weighted).
-**`'cepstrum'`** – MFCCs.
+* **`'db'`** – peak amplitude in dBFS.
+* **`'rms'`** – RMS amplitude (linear).
+* **`'loudness'`** – integrated LUFS (ITU-R BS.1770).
+* **`'dc'`** – DC offset.
+* **`'clipping'`** – clipped samples (scalar: timestamps, binned: counts).
+* **`'silence'`** – silent ranges as `{at, duration}`.
+* **`'max'`**, **`'min'`** – peak envelope (use together for waveform rendering).
+* **`'spectrum'`** – mel-frequency spectrum in dB (A-weighted).
+* **`'cepstrum'`** – MFCCs.
 
 
 ### Utility
@@ -497,12 +497,12 @@ a.crush(4)                                // chainable, undoable, serializable
 
 **`.on(event, fn)`** / **`.off(event?, fn?)`** – subscribe / unsubscribe.
 
-**`'data'`** – pages decoded/pushed. Payload: `{ delta, offset, sampleRate, channels }`.
-**`'change'`** – any edit or undo.
-**`'metadata'`** – stream header decoded. Payload: `{ sampleRate, channels }`.
-**`'timeupdate'`** – playback position. Payload: `currentTime`.
-**`'ended'`** – playback finished (not on loop).
-**`'progress'`** – during save/encode. Payload: `{ offset, total }` in seconds.
+* **`'data'`** – pages decoded/pushed. Payload: `{ delta, offset, sampleRate, channels }`.
+* **`'change'`** – any edit or undo.
+* **`'metadata'`** – stream header decoded. Payload: `{ sampleRate, channels }`.
+* **`'timeupdate'`** – playback position. Payload: `currentTime`.
+* **`'ended'`** – playback finished (not on loop).
+* **`'progress'`** – during save/encode. Payload: `{ offset, total }` in seconds.
 
 **`.dispose()`** – release resources. Supports `using` for auto-dispose.
 
