@@ -265,6 +265,9 @@ await a.save('sonification.wav')
 
 ### Create
 
+* **`audio(source, opts?)`** – decode from file, URL, or bytes. Returns instantly — decodes in background.
+* **`audio.from(source, opts?)`** – wrap existing PCM, AudioBuffer, silence, or function. Sync, no I/O.
+
 ```js
 let a = audio('voice.mp3')                // file path
 let b = audio('https://cdn.ex/track.mp3') // URL
@@ -282,8 +285,6 @@ let d = audio.from(audioBuffer)                   // Web Audio AudioBuffer
 let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 ```
 
-* **`audio(source, opts?)`** – decode from file, URL, or bytes. Returns instantly — decodes in background.
-* **`audio.from(source, opts?)`** – wrap existing PCM, AudioBuffer, silence, or function. Sync, no I/O.
 
 ### Properties
 
@@ -315,14 +316,6 @@ a.version                 // increments on each edit
 
 Non-destructive time/channel rearrangement. All support `{at, duration, channel}`.
 
-```js
-a.trim(-30)                               // strip silence below -30dB
-a.remove({ at: '2m', duration: 15 })      // cut 2:00–2:15, close gap
-a.insert(intro, { at: 0 })               // prepend; .insert(3) appends 3s silence
-let [pt1, pt2] = a.split('30m')          // zero-copy views
-let hook = a.clip({ at: 60, duration: 30 })  // zero-copy excerpt
-a.remix([0, 0])                           // L→both; .remix(1) for mono
-```
 * **`.trim(threshold?)`** – strip leading/trailing silence (dB, default auto).
 * **`.crop({at, duration})`** – keep range, discard rest.
 * **`.remove({at, duration})`** – cut range, close gap.
@@ -335,20 +328,19 @@ a.remix([0, 0])                           // L→both; .remix(1) for mono
 * **`.speed(rate)`** – playback speed (affects pitch and duration).
 * **`.remix(channels)`** – channel count: number or array map (`[1, 0]` swaps L/R).
 
+```js
+a.trim(-30)                               // strip silence below -30dB
+a.remove({ at: '2m', duration: 15 })      // cut 2:00–2:15, close gap
+a.insert(intro, { at: 0 })               // prepend; .insert(3) appends 3s silence
+let [pt1, pt2] = a.split('30m')          // zero-copy views
+let hook = a.clip({ at: 60, duration: 30 })  // zero-copy excerpt
+a.remix([0, 0])                           // L→both; .remix(1) for mono
+```
 
 ### Process
 
 Amplitude, mixing, normalization. All support `{at, duration, channel}` ranges.
 
-```js
-a.gain(-3)                                // reduce 3dB
-a.gain(6, { at: 10, duration: 5 })       // boost range
-a.gain(t => -12 * Math.cos(t * TAU))     // automate over time
-a.fade(0.5, -2, 'exp')                    // 0.5s in, 2s exp fade-out
-a.normalize('podcast')                    // -16 LUFS; also 'streaming', 'broadcast'
-a.mix(voice, { at: 2 })                  // overlay at 2s
-a.pan(-0.3, { at: 10, duration: 5 })      // pan left for range
-```
 * **`.gain(dB, opts?)`** – volume. Number, range, or `t => dB` function. `{ unit: 'linear' }` for multiplier.
 * **`.fade(in, out?, curve?)`** – fade in/out. Curves: `'linear'` `'exp'` `'log'` `'cos'`.
 * **`.normalize(target?)`** – remove DC offset, clamp, and normalize loudness.
@@ -365,10 +357,25 @@ a.pan(-0.3, { at: 10, duration: 5 })      // pan left for range
 * **`.write(data, {at?})`** – overwrite samples with raw PCM.
 * **`.transform(fn)`** – inline processor: `(chs, ctx) => chs`. Not serialized.
 
+```js
+a.gain(-3)                                // reduce 3dB
+a.gain(6, { at: 10, duration: 5 })       // boost range
+a.gain(t => -12 * Math.cos(t * TAU))     // automate over time
+a.fade(0.5, -2, 'exp')                    // 0.5s in, 2s exp fade-out
+a.normalize('podcast')                    // -16 LUFS; also 'streaming', 'broadcast'
+a.mix(voice, { at: 2 })                  // overlay at 2s
+a.pan(-0.3, { at: 10, duration: 5 })      // pan left for range
+```
 
 ### Filter
 
 Biquad filters, chainable. All support `{at, duration}` ranges.
+
+* **`.highpass(freq)`**, **`.lowpass(freq)`** – pass filter.
+* **`.bandpass(freq, Q?)`**, **`.notch(freq, Q?)`** – band-pass / notch.
+* **`.lowshelf(freq, dB)`**, **`.highshelf(freq, dB)`** – shelf EQ.
+* **`.eq(freq, gain, Q?)`** – parametric EQ.
+* **`.filter(type, ...params)`** – generic dispatch.
 
 ```js
 a.highpass(80).lowshelf(200, -3)          // rumble + mud
@@ -377,16 +384,16 @@ a.notch(50)                               // remove hum
 a.filter(customFn, { cutoff: 2000 })     // custom filter function
 ```
 
-* **`.highpass(freq)`**, **`.lowpass(freq)`** – pass filter.
-* **`.bandpass(freq, Q?)`**, **`.notch(freq, Q?)`** – band-pass / notch.
-* **`.lowshelf(freq, dB)`**, **`.highshelf(freq, dB)`** – shelf EQ.
-* **`.eq(freq, gain, Q?)`** – parametric EQ.
-* **`.filter(type, ...params)`** – generic dispatch.
-
-
 ### I/O
 
 Read PCM, encode, stream, push. Format inferred from extension.
+
+* **`await .read(opts?)`** – rendered PCM. `{ format, channel }` to convert.
+* **`await .save(path, opts?)`** – encode + write. `{ at, duration }` for sub-range.
+* **`await .encode(format?, opts?)`** – encode to `Uint8Array`.
+* **`for await (let block of a)`** – async-iterable over blocks.
+* **`.clone()`** – deep copy, independent edits, shared pages.
+* **`.push(data, format?)`** – feed PCM into pushable instance. `.stop()` to finalize.
 
 ```js
 let pcm = await a.read()                  // Float32Array[]
@@ -401,17 +408,13 @@ src.push(buf, 'int16')                    // feed PCM
 src.stop()                                // finalize
 ```
 
-* **`await .read(opts?)`** – rendered PCM. `{ format, channel }` to convert.
-* **`await .save(path, opts?)`** – encode + write. `{ at, duration }` for sub-range.
-* **`await .encode(format?, opts?)`** – encode to `Uint8Array`.
-* **`for await (let block of a)`** – async-iterable over blocks.
-* **`.clone()`** – deep copy, independent edits, shared pages.
-* **`.push(data, format?)`** – feed PCM into pushable instance. `.stop()` to finalize.
-
-
 ### Playback / Recording
 
 Live playback with dB volume, seeking, looping. Mic recording via `audio-mic`.
+
+* **`.play(opts?)`** – start playback. `{ at, duration, volume, loop }`.
+* **`.pause()`**, **`.resume()`**, **`.seek(t)`**, **`.stop()`** – playback control.
+* **`.record(opts?)`** – mic recording. `{ deviceId, sampleRate, channels }`.
 
 ```js
 a.play({ at: 30, duration: 10 })          // play 30s–40s
@@ -424,24 +427,10 @@ mic.record({ sampleRate: 16000, channels: 1 })
 mic.stop()
 ```
 
-* **`.play(opts?)`** – start playback. `{ at, duration, volume, loop }`.
-* **`.pause()`**, **`.resume()`**, **`.seek(t)`**, **`.stop()`** – playback control.
-* **`.record(opts?)`** – mic recording. `{ deviceId, sampleRate, channels }`.
-
 
 ### Analysis
 
 `await .stat(name, opts?)` — without `bins` returns scalar, with `bins` returns `Float32Array`. Array of names returns array of results. Sub-ranges via `{at, duration}`, per-channel via `{channel}`.
-
-```js
-let loud = await a.stat('loudness')                       // LUFS
-let [db, clips] = await a.stat(['db', 'clipping'])        // multiple at once
-let spec = await a.stat('spectrum', { bins: 128 })        // frequency bins
-let peaks = await a.stat('max', { bins: 800 })            // waveform data
-await a.stat('rms', { channel: 0 })                       // left only → number
-await a.stat('rms', { channel: [0, 1] })                  // per-channel → [n, n]
-let gaps = await a.stat('silence', { threshold: -40 })    // [{at, duration}, ...]
-```
 
 * **`'db'`** – peak amplitude in dBFS.
 * **`'rms'`** – RMS amplitude (linear).
@@ -453,19 +442,20 @@ let gaps = await a.stat('silence', { threshold: -40 })    // [{at, duration}, ..
 * **`'spectrum'`** – mel-frequency spectrum in dB (A-weighted).
 * **`'cepstrum'`** – MFCCs.
 
+```js
+let loud = await a.stat('loudness')                       // LUFS
+let [db, clips] = await a.stat(['db', 'clipping'])        // multiple at once
+let spec = await a.stat('spectrum', { bins: 128 })        // frequency bins
+let peaks = await a.stat('max', { bins: 800 })            // waveform data
+await a.stat('rms', { channel: 0 })                       // left only → number
+await a.stat('rms', { channel: [0, 1] })                  // per-channel → [n, n]
+let gaps = await a.stat('silence', { threshold: -40 })    // [{at, duration}, ...]
+```
+
 
 ### Utility
 
 Events, lifecycle, undo/redo, serialization.
-
-```js
-a.on('data', ({ delta }) => draw(delta))  // decode progress
-a.on('timeupdate', t => ui.update(t))     // playback position
-
-a.undo()                                  // undo last edit
-b.run(...a.edits)                         // replay onto another file
-JSON.stringify(a); audio(json)            // serialize / restore
-```
 
 * **`.on(event, fn)`** / **`.off(event?, fn?)`** – subscribe / unsubscribe.
   * `'data'` – pages decoded/pushed. Payload: `{ delta, offset, sampleRate, channels }`.
@@ -478,9 +468,22 @@ JSON.stringify(a); audio(json)            // serialize / restore
 * **`.undo(n?)`** – undo last edit(s). Returns edit for redo via `.run()`.
 * **`.run(...edits)`** – apply edit objects `{ type, args, at?, duration? }`. Batch or replay.
 
+```js
+a.on('data', ({ delta }) => draw(delta))  // decode progress
+a.on('timeupdate', t => ui.update(t))     // playback position
+
+a.undo()                                  // undo last edit
+b.run(...a.edits)                         // replay onto another file
+JSON.stringify(a); audio(json)            // serialize / restore
+```
+
 ### Plugins
 
 Extend with custom ops and stats. See [Plugin Tutorial](docs/plugins.md).
+
+* **`audio.op(name, fn)`** – register op. Shorthand for `{ process: fn }`. Full descriptor: `{ process, plan, resolve, call }`.
+* **`audio.op(name)`** – query descriptor. **`audio.op()`** – all ops.
+* **`audio.stat(name, descriptor)`** – register stat. Shorthand `(chs, ctx) => [...]` or `{ block, reduce, query }`.
 
 ```js
 // op: process function receives (channels[], ctx) per 1024-sample block
@@ -499,11 +502,6 @@ a.crush(4)                    // chainable like built-in ops
 a.stat('peak')                // → scalar from reduce
 a.stat('peak', { bins: 100 }) // → binned array
 ```
-
-* **`audio.op(name, fn)`** – register op. Shorthand for `{ process: fn }`. Full descriptor: `{ process, plan, resolve, call }`.
-* **`audio.op(name)`** – query descriptor. **`audio.op()`** – all ops.
-* **`audio.stat(name, descriptor)`** – register stat. Shorthand `(chs, ctx) => [...]` or `{ block, reduce, query }`.
-
 
 ## CLI
 
