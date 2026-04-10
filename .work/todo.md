@@ -2,7 +2,7 @@
 
 * [ ] Wavearea integration
 * [ ] playback speed
-* [ ] Audio ponyfill — HTMLAudioElement for node, smooth currentTime, normalized loading (#68)
+* [ ] Audio ponyfill — separate `audio-ponyfill` package (#68)
 * [ ] Minimal duration guard on save — some players can't reproduce 1-sample wav (#27)
 * [ ] Crossfade / transitions convenience — `a.crossfade(b, duration)` or similar (#63)
 * [ ] Playground — drag-n-drop files + code editor, probe audiotool-style (#53, #58)

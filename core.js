@@ -234,8 +234,9 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
     len: length,   // source sample length
     waiters: null, // decode notify queue (null when not streaming)
     ev: {},        // instance event listeners
+    ct: 0, ctStamp: 0,    // currentTime wall-clock interpolation
+    vol: 1, muted: false, // volume 0..1 linear with change events
   }
-  a.currentTime = 0
 
   // History (edit pipeline)
   a.edits = []
@@ -246,9 +247,34 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
   a._.lenC = a._.len; a._.lenV = 0
   a._.chC = a._.ch; a._.chV = 0
 
-  // Playback
+  // Playback (getter/setter for interpolation & events)
+  Object.defineProperties(a, {
+    currentTime: {
+      get() {
+        if (this.playing && !this.paused) {
+          let t = this._.ct + (performance.now() - this._.ctStamp) / 1000
+          let d = this.duration
+          return d > 0 ? Math.min(t, d) : t
+        }
+        return this._.ct
+      },
+      set(v) { this._.ct = v; this._.ctStamp = performance.now() },
+      enumerable: true, configurable: true
+    },
+    volume: {
+      get() { return this._.vol },
+      set(v) { v = Math.max(0, Math.min(1, +v || 0)); if (this._.vol !== v) { this._.vol = v; emit(this, 'volumechange') } },
+      enumerable: true, configurable: true
+    },
+    muted: {
+      get() { return this._.muted },
+      set(v) { v = !!v; if (this._.muted !== v) { this._.muted = v; emit(this, 'volumechange') } },
+      enumerable: true, configurable: true
+    },
+  })
   a.playing = false; a.paused = false
-  a.volume = 0; a.loop = false; a.block = null
+  a.ended = false; a.seeking = false
+  a.loop = false; a.block = null
 
   // Cache
   a._.lru = new Set()
@@ -322,7 +348,7 @@ fn.push = function(data, fmt) {
 
 /** Stop recording and/or finalize pushable stream. Drain partial page, signal EOF to waiting streams. No-op on non-pushable. */
 fn.stop = function() {
-  this.playing = false; this.paused = false
+  this.playing = false; this.paused = false; this.seeking = false
   if (this._._wake) this._._wake()
   if (this.recording) {
     this.recording = false
@@ -366,6 +392,7 @@ fn.record = function(opts = {}) {
 
 fn.seek = function(t) {
   t = Math.max(0, t)
+  this.seeking = true
   this.currentTime = t
   if (this.cache) {
     let page = Math.floor(t * this.sampleRate / audio.PAGE_SIZE)
@@ -375,6 +402,7 @@ fn.seek = function(t) {
     })()
   }
   if (this.playing) { this._._seekTo = t; if (this._._wake) this._._wake() }
+  else this.seeking = false
   return this
 }
 

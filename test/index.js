@@ -1111,7 +1111,7 @@ test('play — returns controller', async t => {
   t.ok('playing' in p, 'has playing')
   t.ok('volume' in p, 'has volume')
   t.ok('loop' in p, 'has loop')
-  t.is(p.volume, 0, 'volume defaults to 0')
+  t.is(p.volume, 1, 'volume defaults to 1')
   t.is(p.loop, false, 'loop defaults to false')
   p.stop()
 })
@@ -1119,8 +1119,8 @@ test('play — returns controller', async t => {
 test('play — volume and loop settable', async t => {
   let a = audio.from([new Float32Array(4410)], { sampleRate: 44100 })
   let p = a.play()
-  p.volume = -6
-  t.is(p.volume, -6, 'volume is settable')
+  p.volume = 0.5
+  t.is(p.volume, 0.5, 'volume is settable')
   p.loop = true
   t.is(p.loop, true, 'loop is settable')
   p.stop()
@@ -1130,6 +1130,108 @@ test('play — returns instance', async t => {
   let a = audio.from([new Float32Array(4410)], { sampleRate: 44100 })
   let p = a.play({at: 0})
   t.ok(p === a, 'play returns this')
+  a.stop()
+})
+
+test('muted — boolean gate, emits volumechange', async t => {
+  let a = audio.from([new Float32Array(4410)], { sampleRate: 44100 })
+  t.is(a.muted, false, 'muted defaults to false')
+  let events = []
+  a.on('volumechange', () => events.push('vc'))
+  a.muted = true
+  t.is(a.muted, true, 'muted settable')
+  t.is(events.length, 1, 'volumechange on mute')
+  a.muted = true  // no-op
+  t.is(events.length, 1, 'no event on redundant set')
+  a.muted = false
+  t.is(events.length, 2, 'volumechange on unmute')
+})
+
+test('volume — emits volumechange', async t => {
+  let a = audio.from([new Float32Array(4410)], { sampleRate: 44100 })
+  let events = []
+  a.on('volumechange', () => events.push('vc'))
+  a.volume = 0.5
+  t.is(a.volume, 0.5, 'volume settable')
+  t.is(events.length, 1, 'event on change')
+  a.volume = 0.5  // same value
+  t.is(events.length, 1, 'no event on same value')
+  a.volume = 1
+  t.is(events.length, 2, 'event on restore')
+  // clamping
+  a.volume = 2
+  t.is(a.volume, 1, 'clamped above 1')
+  a.volume = -1
+  t.is(a.volume, 0, 'clamped below 0')
+})
+
+test('ended — true on natural end', async t => {
+  let a = audio.from([new Float32Array(4410)], { sampleRate: 44100 })
+  t.is(a.ended, false, 'ended defaults to false')
+  a.play()
+  t.is(a.ended, false, 'ended false during play')
+  a.stop()
+  // ended stays false for stop (not natural end)
+  t.is(a.ended, false, 'ended false after stop')
+})
+
+test('seeking — true during seek', async t => {
+  let a = audio.from([new Float32Array(44100)], { sampleRate: 44100 })
+  t.is(a.seeking, false, 'seeking defaults to false')
+  a.seek(0.5)
+  // not playing, so seeking resolves immediately
+  t.is(a.seeking, false, 'seeking false when not playing')
+})
+
+test('currentTime — smooth interpolation', async t => {
+  let a = audio.from([new Float32Array(44100 * 10)], { sampleRate: 44100 })
+  a.playing = true; a.paused = false
+  a.currentTime = 5.0
+  // getter interpolates wall-clock time
+  await new Promise(r => setTimeout(r, 50))
+  let ct = a.currentTime
+  t.ok(ct > 5.0, `interpolated forward: ${ct.toFixed(3)}`)
+  t.ok(ct < 5.2, `not too far: ${ct.toFixed(3)}`)
+  // paused — no interpolation
+  a.paused = true
+  let ct2 = a.currentTime
+  await new Promise(r => setTimeout(r, 50))
+  let ct3 = a.currentTime
+  t.ok(Math.abs(ct3 - ct2) < 0.001, 'paused: no interpolation')
+  a.playing = false
+  // clamped to duration
+  a.playing = true; a.paused = false
+  a.currentTime = a.duration - 0.001
+  await new Promise(r => setTimeout(r, 50))
+  t.ok(a.currentTime <= a.duration, `clamped to duration: ${a.currentTime.toFixed(3)} <= ${a.duration.toFixed(3)}`)
+  a.playing = false
+})
+
+test('played — promise property', async t => {
+  let a = audio.from([new Float32Array(4410)], { sampleRate: 44100 })
+  a.play()
+  t.ok(a.played instanceof Promise, 'played is a Promise')
+  a.stop()
+})
+
+test('play/pause events', async t => {
+  let a = audio.from([new Float32Array(4410)], { sampleRate: 44100 })
+  let events = []
+  a.on('play', () => events.push('play'))
+  a.on('pause', () => events.push('pause'))
+  a.play()
+  t.ok(events.includes('play'), 'play event fired on start')
+  a.pause()
+  t.ok(events.includes('pause'), 'pause event fired')
+  // resume emits 'play' again
+  let countBefore = events.filter(e => e === 'play').length
+  a.resume()
+  t.is(events.filter(e => e === 'play').length, countBefore + 1, 'play event fired on resume')
+  // pause when already paused — no double event
+  a.pause()
+  let pauseCount = events.filter(e => e === 'pause').length
+  a.pause()
+  t.is(events.filter(e => e === 'pause').length, pauseCount, 'no double pause event')
   a.stop()
 })
 

@@ -384,9 +384,8 @@ async function playback(p, totalSec, decodedSec, a, src) {
   }
 
   const VOL = '▁▂▃▄▅▆▇'
-  let volBar = db => {
-    let n = Math.round((db + 12) / 3) + 1
-    n = Math.max(1, Math.min(7, n))
+  let volBar = v => {
+    let n = Math.max(1, Math.min(7, Math.round(v * 7)))
     let tail = 7 - n
     return VOL.slice(0, n) + (tail ? DIM + '▁'.repeat(tail) + RST : '')
   }
@@ -484,8 +483,8 @@ async function playback(p, totalSec, decodedSec, a, src) {
       else if (k === '\x1b[1;2D' || k === '\x1b[1;5D' || k === '\x1bb') { let t = Math.max(0, p.currentTime - 60); p.seek(t); render(t) }
       else if (k === '\x1b[C') { let t = Math.max(0, p.currentTime + 10); p.seek(t); render(t) }
       else if (k === '\x1b[D') { let t = Math.max(0, p.currentTime - 10); p.seek(t); render(t) }
-      else if (k === '\x1b[A') { p.volume = Math.min(p.volume + 3, 6); render(p.currentTime) }
-      else if (k === '\x1b[B') { p.volume = Math.max(p.volume - 3, -12); render(p.currentTime) }
+      else if (k === '\x1b[A') { p.volume = Math.min(p.volume + 0.1, 1); render(p.currentTime) }
+      else if (k === '\x1b[B') { p.volume = Math.max(p.volume - 0.1, 0); render(p.currentTime) }
       else if (k === 'l') { p.loop = !p.loop; render(p.currentTime) }
       else if (k === 'q' || k === '\x03') p.stop()
     })
@@ -961,7 +960,7 @@ Player controls:
   space     Pause / resume
   ←/→       Seek ±10s
   ⇧←/⇧→    Seek ±60s
-  ↑/↓       Volume ±3dB
+  ↑/↓       Volume ±10%
   l         Toggle loop
   q         Quit
 

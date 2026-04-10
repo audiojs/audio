@@ -37,10 +37,18 @@ export interface AudioInstance {
   playing: boolean
   /** True when paused */
   paused: boolean
-  /** Playback volume in dB (0 = unity) */
+  /** Playback volume, 0 (silent) to 1 (full). Clamped. */
   volume: number
+  /** Whether playback is muted (independent of volume) */
+  muted: boolean
   /** Whether playback loops */
   loop: boolean
+  /** True when playback ended naturally (not via stop) */
+  ended: boolean
+  /** True during a seek operation */
+  seeking: boolean
+  /** Promise — resolves when playback actually starts (speaker opens), rejects on failure */
+  played: Promise<void>
   /** Current playback block for visualization */
   block: Float32Array | null
 
@@ -52,6 +60,10 @@ export interface AudioInstance {
   on(event: 'progress', fn: (event: { offset: number, total: number }) => void): this
   on(event: 'timeupdate', fn: (time: number) => void): this
   on(event: 'ended', fn: () => void): this
+  on(event: 'play', fn: () => void): this
+  on(event: 'pause', fn: () => void): this
+  on(event: 'volumechange', fn: () => void): this
+  on(event: 'error', fn: (err: Error) => void): this
   on(event: string, fn: (...args: any[]) => void): this
   /** Unsubscribe from instance event */
   off(event: string, fn: (...args: any[]) => void): this

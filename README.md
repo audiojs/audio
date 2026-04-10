@@ -299,11 +299,15 @@ a.sampleRate              // sample rate
 a.length                  // total samples per channel
 
 // playback
-a.currentTime             // position in seconds
+a.currentTime             // position in seconds (smooth interpolation during playback)
 a.playing                 // true during playback
 a.paused                  // true when paused
-a.volume = -3             // dB (settable)
+a.volume = 0.5             // 0..1 linear (settable)
+a.muted = true            // mute gate (independent of volume)
 a.loop = true             // on/off (settable)
+a.ended                   // true when playback ended naturally (not via stop)
+a.seeking                 // true during a seek operation
+a.played                  // promise, resolves when playback starts
 a.recording               // true during mic recording
 
 // state
@@ -415,13 +419,15 @@ src.stop()                                // finalize
 
 Live playback with dB volume, seeking, looping. Mic recording via `audio-mic`.
 
-* **`.play(opts?)`** – start playback. `{ at, duration, volume, loop }`.
+* **`.play(opts?)`** – start playback. `{ at, duration, volume, loop }`. `.played` promise resolves when output starts.
 * **`.pause()`**, **`.resume()`**, **`.seek(t)`**, **`.stop()`** – playback control.
 * **`.record(opts?)`** – mic recording. `{ deviceId, sampleRate, channels }`.
 
 ```js
 a.play({ at: 30, duration: 10 })          // play 30s–40s
-a.volume = -6; a.loop = true              // live adjustments
+await a.played                             // wait for output to start
+a.volume = 0.5; a.loop = true             // live adjustments
+a.muted = true                             // mute without changing volume
 a.pause(); a.seek(60); a.resume()         // jump to 1:00
 a.stop()                                  // end playback or recording
 
@@ -465,6 +471,9 @@ Events, lifecycle, undo/redo, serialization.
   * `'change'` – any edit or undo.
   * `'metadata'` – stream header decoded. Payload: `{ sampleRate, channels }`.
   * `'timeupdate'` – playback position. Payload: `currentTime`.
+  * `'play'` – playback started or resumed.
+  * `'pause'` – playback paused.
+  * `'volumechange'` – volume or muted changed.
   * `'ended'` – playback finished (not on loop).
   * `'progress'` – during save/encode. Payload: `{ offset, total }` in seconds.
 * **`.dispose()`** – release resources. Supports `using` for auto-dispose.

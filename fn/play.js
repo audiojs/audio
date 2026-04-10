@@ -18,13 +18,21 @@ audio.fn.play = function(opts) {
   let a = this, BLOCK = audio.BLOCK_SIZE
   if (a.playing) { a.playing = false; a.paused = false; if (a._._wake) a._._wake() }
   a.playing = false; a.paused = opts?.paused ?? false; a.currentTime = offset
-  a.volume = opts?.volume ?? 0; a.loop = opts?.loop ?? false
+  if (opts?.volume != null) a.volume = opts.volume
+  a.loop = opts?.loop ?? false
   a.block = null; a._._wake = null; a._._seekTo = null
+  a.ended = false
+
+  let startResolve, startReject
+  a.played = new Promise((r, j) => { startResolve = r; startReject = j })
+  a.played.catch(() => {})
 
   ;(async () => {
     try {
       let ch = a.channels, sr = a.sampleRate
       a.playing = true
+      if (!a.paused) emit(a, 'play')
+      let resolved = false
       let wait = async () => { while (a.paused && a.playing && a._._seekTo == null) await new Promise(r => { a._._wake = r }); a._._wake = null }
 
       let from = offset, RAMP = 256 // ~6ms anti-click ramp
@@ -33,7 +41,7 @@ audio.fn.play = function(opts) {
         if (a.paused) {
           await wait()
           if (!a.playing) break
-          if (a._._seekTo != null) { from = a._._seekTo; a._._seekTo = null; a.currentTime = from }
+          if (a._._seekTo != null) { from = a._._seekTo; a._._seekTo = null; a.currentTime = from; a.seeking = false }
         }
         let write = Speaker({ sampleRate: sr, channels: ch, bitDepth: 32 })
         let seeked = false, played = 0, fadeIn = true
@@ -48,12 +56,12 @@ audio.fn.play = function(opts) {
           for (let bOff = 0; bOff < cLen; bOff += BLOCK) {
             if (a._._seekTo != null) {
               from = a._._seekTo; a._._seekTo = null
-              a.currentTime = from; seeked = true; break
+              a.currentTime = from; a.seeking = false; seeked = true; break
             }
             let end = Math.min(bOff + BLOCK, cLen), len = end - bOff
             a.block = chunk[0].subarray(bOff, end)
 
-            let g = 10 ** (a.volume / 20)
+            let g = a.muted ? 0 : a.volume
             let buf = new Float32Array(len * ch)
             for (let i = 0; i < len; i++) for (let c = 0; c < ch; c++)
               buf[i * ch + c] = (chunk[c] || chunk[0])[bOff + i] * g
@@ -80,6 +88,7 @@ audio.fn.play = function(opts) {
             }
 
             await send()
+            if (!resolved) { resolved = true; startResolve() }
             played += len
             if (a._._seekTo == null) {
               a.currentTime = from + played / sr
@@ -94,19 +103,21 @@ audio.fn.play = function(opts) {
         if (seeked) continue
         if (!a.playing) break
         if (a.loop) { from = 0; a.currentTime = 0; emit(a, 'timeupdate', 0); continue }
-        a.playing = false
+        a.playing = false; a.ended = true
         emit(a, 'timeupdate', a.currentTime)
         break
       }
       a.playing = false; emit(a, 'ended')
+      if (!resolved) startResolve()
     } catch (err) {
       console.error('Playback error:', err)
       a.playing = false
+      if (!resolved) startReject(err); else emit(a, 'error', err)
     }
   })()
   return this
 }
 
 let proto = audio.fn
-proto.pause = function() { this.paused = true }
-proto.resume = function() { this.paused = false; if (this._._wake) this._._wake() }
+proto.pause = function() { if (!this.paused && this.playing) { this.paused = true; emit(this, 'pause') } }
+proto.resume = function() { if (this.paused) { this._.ctStamp = performance.now(); this.paused = false; emit(this, 'play'); if (this._._wake) this._._wake() } }
