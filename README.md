@@ -27,7 +27,7 @@ audio('raw-take.wav')
 * [Plugins](docs/plugins.md) – custom ops, stats, descriptors (process, plan, resolve, call), persistent ctx
 -->
 
-#### [Quick Start](#quick-start) | [Recipes](#recipes) | [API](#api) | [CLI](#cli) | [Plugins](docs/plugins.md) | [Architecture](docs/architecture.md) | [FAQ](#faq) | [Ecosystem](#ecosystem)
+#### [Quick Start](#quick-start) ǀ [Recipes](#recipes) ǀ [API](#api) ǀ [CLI](#cli) ǀ [Plugins](docs/plugins.md) ǀ [Architecture](docs/architecture.md) ǀ [FAQ](#faq) ǀ [Ecosystem](#ecosystem)
 
 
 ## Quick Start
