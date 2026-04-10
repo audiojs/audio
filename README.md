@@ -16,7 +16,7 @@ audio('raw-take.wav')
 * **Streaming** — instant playback before decode completes.
 * **Immutable** — safe edits, infinite undo/redo.
 * **Page Cache** — open 10Gb+ files.
-* **Analysis** — peak, RMS, LUFS, spectrum and more.
+* **Analysis** — loudness, spectrum, and more.
 * **Modular** – pluggable ops, tree-shakable.
 * **CLI** — playback, unix pipelines, globs, tab completion.
 * **Isomorphic** — node, browser, electron, deno, bun.
