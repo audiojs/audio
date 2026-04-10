@@ -1,14 +1,16 @@
-# <img src="logo.svg" width="20" height="20" alt="audio"> audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/audio?color=white)](https://npmjs.org/package/audio)
+# <img src="logo.svg" width="20" height="20" alt="audio"> audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/audio?color=white)](https://npmjs.org/package/audio) [![npm downloads](https://img.shields.io/npm/dm/audio?color=white)](https://npmjs.org/package/audio) [![bundle](https://img.shields.io/bundlephobia/minzip/audio?color=white&label=size)](https://bundlephobia.com/package/audio) [![types](https://img.shields.io/badge/types-included-white)](audio.d.ts)
 
 Audio in JavaScript: load, edit, play, analyze, save, batch-process.
-
+<!--
 ```js
 audio('raw-take.wav')
   .trim(-30)
   .normalize('podcast')
   .fade(0.3, 0.5)
   .save('clean.mp3')
-```
+``` -->
+
+<img src="preview.png" alt="Audiojs demo" width="624">
 
 * **Universal Format Support** — fast [WASM codecs](https://github.com/audio-decode), no ffmpeg.
 * **Streaming** — instant playback not waiting for decode.
@@ -24,6 +26,12 @@ audio('raw-take.wav')
 * [Architecture](docs/architecture.md) – stream-first design, pages & blocks, non-destructive editing, plan compilation
 * [Plugins](docs/plugins.md) – custom ops, stats, descriptors (process, plan, resolve, call), persistent ctx
 -->
+
+---
+
+[Quick Start](#quick-start) · [Recipes](#recipes) · [API](#api) · [CLI](#cli) · [FAQ](#faq) · [Ecosystem](#ecosystem)
+
+---
 
 ## Quick Start
 
@@ -752,14 +760,18 @@ lowshelf    highshelf   normalize
 
 ### Playback
 
-```sh
+
+<img src="preview.png" alt="Audiojs demo" width="624">
+
+<!-- ```sh
 npx audio kirtan.mp3
 ▶ 0:06:37 ━━━━━━━━────────────────────────────────────────── -0:36:30   ▁▂▃▄▅__
           ▂▅▇▇██▇▆▇▇▇██▆▇▇▇▆▆▅▅▆▅▆▆▅▅▆▅▅▅▃▂▂▂▂▁_____________
           50    500  1k     2k         5k       10k      20k
 
           48k   2ch   43:07   -0.8dBFS   -30.8LUFS
-```
+``` -->
+
 <kbd>␣</kbd> pause · <kbd>←</kbd>/<kbd>→</kbd> seek ±10s · <kbd>⇧←</kbd>/<kbd>⇧→</kbd> seek ±60s · <kbd>↑</kbd>/<kbd>↓</kbd> volume ±3dB · <kbd>l</kbd> loop · <kbd>q</kbd> quit
 
 ### Edit

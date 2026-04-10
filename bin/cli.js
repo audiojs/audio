@@ -318,7 +318,7 @@ async function playback(p, totalSec, decodedSec, a, src) {
   let specMax = -60
 
   let spec = (block, sr, w, paused) => {
-    if (!fft) return DIM + '_'.repeat(w) + RST
+    if (!fft) return DIM + '▁'.repeat(w) + RST
     let fMin = 30, fMax = Math.min(sr / 2, 20000)
     if (block && block.length >= N) {
       let mag = melSpectrum(block.subarray(0, N), sr, { bins: w, fMin, fMax })
@@ -327,7 +327,7 @@ async function playback(p, totalSec, decodedSec, a, src) {
     } else if (prev && !paused) {
       for (let b = 0; b < prev.length; b++) prev[b] *= 0.85
     }
-    if (!prev) return DIM + '_'.repeat(w) + RST
+    if (!prev) return DIM + '▁'.repeat(w) + RST
     // Auto-scale: find current max dB, decay peak slowly
     let curMax = -100
     let specDb = new Float32Array(w)
@@ -343,10 +343,10 @@ async function playback(p, totalSec, decodedSec, a, src) {
     let lo = 0, hi = w - 1
     while (lo < w && levels[lo] <= 0) lo++
     while (hi > lo && levels[hi] <= 0) hi--
-    let out = lo > 0 ? DIM + '_'.repeat(lo) + RST : ''
+    let out = lo > 0 ? DIM + '▁'.repeat(lo) + RST : ''
     for (let b = lo; b <= hi; b++) out += SBARS[Math.max(1, Math.min(8, levels[b]))]
     let tail = w - 1 - hi
-    if (tail > 0) out += DIM + '_'.repeat(tail) + RST
+    if (tail > 0) out += DIM + '▁'.repeat(tail) + RST
     return out
   }
 
@@ -379,7 +379,7 @@ async function playback(p, totalSec, decodedSec, a, src) {
     let n = Math.round((db + 12) / 3) + 1
     n = Math.max(1, Math.min(7, n))
     let tail = 7 - n
-    return VOL.slice(0, n) + (tail ? DIM + '_'.repeat(tail) + RST : '')
+    return VOL.slice(0, n) + (tail ? DIM + '▁'.repeat(tail) + RST : '')
   }
 
   // File info (computed eagerly after decode, refreshed after ops)
@@ -391,7 +391,7 @@ async function playback(p, totalSec, decodedSec, a, src) {
     try {
       let [peak, , l, clips, dcOff] = await a.stat(['db', 'rms', 'loudness', 'clip', 'dc'])
       let warn = ''
-      if (clips.length) warn += `   clip:${clips.length}`
+      if (clips.length) warn += `   ${clips.length} clip${clips.length > 1 ? 's' : ''}`
       if (Math.abs(dcOff) > 0.001) warn += `   dc:${dcOff.toFixed(4)}`
       fileInfo = `${fmtRate(a.sampleRate)}   ${a.channels}ch   ${fmtTime(a.duration)}   ${peak.toFixed(1)}dBFS   ${l.toFixed(1)}LUFS${warn}`
     } catch { fileInfo = '(info unavailable)' }
@@ -445,7 +445,7 @@ async function playback(p, totalSec, decodedSec, a, src) {
     }
     let infoStr = msg || (fileInfo ? fileInfo + decoding : (a ? `${fmtRate(a.sampleRate)}   ${a.channels}ch${decoding}` : ''))
     out += '\n\x1b[K'; newLines++
-    if (infoStr) { out += `\n\x1b[K${lpad}${DIM}${infoStr}${RST}`; newLines++ }
+    if (infoStr) { out += `\n\x1b[K  ${DIM}${infoStr}${RST}`; newLines++ }
 
     for (let i = newLines; i < nLines; i++) out += '\n\x1b[K'
     let up = Math.max(newLines, nLines) - 1
@@ -726,8 +726,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       let a = audio(source)
       await new Promise(r => a.on('metadata', r))
       spin?.stop()
-      let p = a.play()
-      if (!opts.play) a.pause()
+      let p = a.play({ paused: !opts.play })
       await playback(p,
         () => a.decoded ? a.duration : 0,
         () => a.pages.length * audio.PAGE_SIZE / a.sampleRate,

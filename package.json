@@ -43,7 +43,8 @@
     "test:all": "CI=1 npm test && CI=1 npm run test:cli && npm run test:browser",
     "version": "node -p \"var s=require('fs'),v=require('./package.json').version;s.writeFileSync('core.js',s.readFileSync('core.js','utf8').replace(/audio\\.version = '[^']+'/,'audio.version = \\''+v+'\\''));''\" && git add core.js",
     "prepublishOnly": "npm run version && npm run test:all",
-    "serve": "node test/serve.js"
+    "serve": "node test/serve.js",
+    "demo": "vhs demo.tape"
   },
   "dependencies": {
     "@audio/decode-aiff": "^1.1.0",

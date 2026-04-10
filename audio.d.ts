@@ -125,7 +125,7 @@ export interface AudioInstance {
   undo(n?: number): EditOp | EditOp[] | null
   run(...edits: EditOp[]): this
   transform(fn: (channels: Float32Array[], ctx: any) => Float32Array[] | false | null): this
-  play(opts?: { at?: Time, duration?: Time, volume?: number, loop?: boolean }): this
+  play(opts?: { at?: Time, duration?: Time, volume?: number, loop?: boolean, paused?: boolean }): this
   pause(): void
   resume(): void
   stop(): this

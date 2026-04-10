@@ -17,7 +17,7 @@ audio.fn.play = function(opts) {
   let offset = opts?.at ?? 0, duration = opts?.duration
   let a = this, BLOCK = audio.BLOCK_SIZE
   if (a.playing) { a.playing = false; a.paused = false; if (a._._wake) a._._wake() }
-  a.playing = false; a.paused = false; a.currentTime = offset
+  a.playing = false; a.paused = opts?.paused ?? false; a.currentTime = offset
   a.volume = opts?.volume ?? 0; a.loop = opts?.loop ?? false
   a.block = null; a._._wake = null; a._._seekTo = null
 
