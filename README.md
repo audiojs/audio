@@ -12,10 +12,10 @@ audio('raw-take.wav')
 
 <!-- <img src="preview.svg?v=1" alt="Audiojs demo" width="540"> -->
 
-* **Universal Format Support** — fast WASM codecs, no ffmpeg.
+* **Any Format** — fast WASM codecs, no ffmpeg.
 * **Streaming** — instant playback not waiting for decode.
 * **Immutable** — instant edits, safe undo/redo, serializing.
-* **Virtual Page cache** — open 10Gb+ files, no 2Gb RAM ceiling.
+* **Virtual Page Cache** — open 10Gb+ files, no 2Gb RAM ceiling.
 * **Analysis** — peak, RMS, LUFS, spectrum, clip detection, feature extraction.
 * **Modular** – pluggable ops/stats, autodiscovery, tree-shakable.
 * **CLI** — builtin player, unix pipelines, globs, tab completion.
@@ -27,7 +27,7 @@ audio('raw-take.wav')
 * [Plugins](docs/plugins.md) – custom ops, stats, descriptors (process, plan, resolve, call), persistent ctx
 -->
 
-#### [Quick Start](#quick-start) ǀ [Recipes](#recipes) ǀ [API](#api) ǀ [CLI](#cli) ǀ [Plugins](docs/plugins.md) ǀ [Architecture](docs/architecture.md) ǀ [FAQ](#faq) ǀ [Ecosystem](#ecosystem)
+#### [Quick Start](#quick-start) · [Recipes](#recipes) · [API](#api) · [CLI](#cli) · [FAQ](#faq) · [Ecosystem](#ecosystem)
 
 
 ## Quick Start
