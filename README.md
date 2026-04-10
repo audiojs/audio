@@ -13,7 +13,7 @@ audio('raw-take.wav')
 <!-- <img src="preview.svg?v=1" alt="Audiojs demo" width="540"> -->
 
 * **Any Format** — fast wasm codecs, no ffmpeg.
-* **Streaming** — instant playback before decode completes.
+* **Streaming** — playback during decode.
 * **Immutable** — safe edits, infinite undo/redo.
 * **Page Cache** — open 10Gb+ files.
 * **Analysis** — loudness, spectrum, and more.
