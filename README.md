@@ -267,6 +267,8 @@ await a.save('sonification.wav')
 
 **`audio(source, opts?)`** – decode from file, URL, or bytes. Returns instantly — decodes in background.
 
+**`audio.from(source, opts?)`** – wrap existing PCM, AudioBuffer, silence, or function. Sync, no I/O.
+
 ```js
 let a = audio('voice.mp3')                // file path
 let b = audio('https://cdn.ex/track.mp3') // URL
@@ -276,12 +278,7 @@ let e = audio([intro, body, outro])       // concat (virtual, no copy)
 // opts: { sampleRate, channels, storage: 'memory' | 'persistent' | 'auto' }
 
 await a    // await for decode — if you need .duration, full stats etc
-```
 
-
-**`audio.from(source, opts?)`** – wrap existing PCM, AudioBuffer, silence, or function. Sync, no I/O.
-
-```js
 let a = audio.from([left, right])                 // Float32Array[] channels
 let b = audio.from(3, { channels: 2 })           // 3s silence
 let c = audio.from(t => Math.sin(440*TAU*t), { duration: 2 })  // generator
@@ -292,319 +289,230 @@ let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 ### Properties
 
 ```js
+// format
 a.duration                // total seconds (reflects edits)
 a.channels                // channel count
-a.sampleRate              // sample rate per second
+a.sampleRate              // sample rate
 a.length                  // total samples per channel
 
-a.currentTime             // playback position in seconds
+// playback
+a.currentTime             // position in seconds
 a.playing                 // true during playback
 a.paused                  // true when paused
-a.volume = -3             // playback volume in dB (settable)
-a.loop = true             // loop playback on/off (settable)
-
+a.volume = -3             // dB (settable)
+a.loop = true             // on/off (settable)
 a.recording               // true during mic recording
-a.ready                   // promise — resolves when decode completes
-a.block                   // current block index during decode
 
+// state
+a.ready                   // promise, resolves when fully decoded
 a.source                  // original source reference
-a.pages                   // page store (Float32Array blocks)
+a.pages                   // Float32Array page store
 a.stats                   // per-block stats (peak, rms, etc.)
 a.edits                   // edit list (non-destructive ops)
 a.version                 // increments on each edit
 ```
 
-Most ops take a last options argument with `at`, `duration`, `channel`. Time values accept numbers (seconds) or strings with units:
-
-```js
-a.gain(-3, { at: 10, duration: 5 })       // seconds
-a.gain(-3, { at: '1:30', duration: '30s' })  // timecode, duration string
-a.gain(-3, { at: '2m', duration: '500ms' })  // also: '1.5h', '90s', '2m30s'
-a.gain(-3, { channel: 0 })               // left channel only
-a.gain(-3, { channel: [0, 2] })          // channels 0 and 2
-```
-
 ### Structure
 
-**`.crop({at, duration})`** – keep only this range, discard the rest.
-**`.remove({at, duration})`** – cut a range and close the gap.
+Non-destructive time/channel rearrangement. All support `{at, duration, channel}`.
+
+```js
+a.trim(-30)                               // strip silence below -30dB
+a.remove({ at: '2m', duration: 15 })      // cut 2:00–2:15, close gap
+a.insert(intro, { at: 0 })               // prepend; .insert(3) appends 3s silence
+let [pt1, pt2] = a.split('30m')          // zero-copy views
+let hook = a.clip({ at: 60, duration: 30 })  // zero-copy excerpt
+a.remix([0, 0])                           // L→both; .remix(1) for mono
+```
+
+**`.trim(threshold?)`** – strip leading/trailing silence (dB, default auto).
+
+**`.crop({at, duration})`** – keep range, discard rest.
+
+**`.remove({at, duration})`** – cut range, close gap.
+
+**`.insert(source, {at})`** – insert audio or silence (number of seconds) at position.
+
+**`.clip({at, duration})`** – zero-copy range reference.
+
+**`.split(...offsets)`** – zero-copy split at timestamps.
+
+**`.pad(before, after?)`** – silence at edges (seconds).
+
 **`.repeat(n)`** – repeat n times.
-**`.pad(before, after?)`** – pad silence at edges (seconds).
-**`.speed(rate)`** – change playback speed — affects pitch and duration.
-**`.reverse({at?, duration?})`** – reverse audio or a range.
-**`.trim(threshold?)`** – remove leading/trailing silence. Threshold in dB (default auto).
-**`.clip({at, duration})`** – non-destructive clip of a range (zero-copy).
 
-**`.insert(source, {at})`** – insert audio or silence at position.
+**`.reverse({at?, duration?})`** – reverse audio or range.
 
-```js
-a.insert(intro, { at: 0 })               // prepend audio
-a.insert(3)                               // append 3s silence
-```
+**`.speed(rate)`** – playback speed (affects pitch and duration).
 
-**`.split(...offsets)`** – split into views at timestamps (zero-copy).
-
-```js
-let [ch1, ch2, ch3] = a.split(1800, 3600) // split at 30m, 60m
-```
-
-**`.remix(channels)`** – change channel count. Accepts a number or array map.
-
-```js
-a.remix(1)                                // stereo → mono
-a.remix([1, 0])                           // swap L/R
-a.remix([0, null, 1])                     // L, silence, R → 3ch
-```
+**`.remix(channels)`** – channel count: number or array map (`[1, 0]` swaps L/R).
 
 
 ### Process
 
-**`.gain(dB, {at?, duration?, channel?, unit?})`** – volume in dB. Accepts function for automation.
+Amplitude, mixing, normalization. All support `{at, duration, channel}` ranges.
 
 ```js
 a.gain(-3)                                // reduce 3dB
 a.gain(6, { at: 10, duration: 5 })       // boost range
-a.gain(0.5, { unit: 'linear' })          // linear multiplier
-a.gain(t => -3 * t)                      // automate over time
+a.gain(t => -12 * Math.cos(t * TAU))     // automate over time
+a.fade(0.5, -2, 'exp')                    // 0.5s in, 2s exp fade-out
+a.normalize('podcast')                    // -16 LUFS; also 'streaming', 'broadcast'
+a.mix(voice, { at: 2 })                  // overlay at 2s
+a.pan(-0.3, { at: 10, duration: 5 })      // pan left for range
 ```
+
+**`.gain(dB, opts?)`** – volume. Number, range, or `t => dB` function. `{ unit: 'linear' }` for multiplier.
 
 **`.fade(in, out?, curve?)`** – fade in/out. Curves: `'linear'` `'exp'` `'log'` `'cos'`.
 
-```js
-a.fade(0.5)                               // 0.5s fade-in from start
-a.fade(0.5, -2)                           // 0.5s in, 2s out from end
-```
+**`.normalize(target?)`** – loudness: `'podcast'` (-16 LUFS), `'streaming'` (-14), `'broadcast'` (-23), or peak 0dBFS.
 
-**`.mix(other, {at?, duration?})`** – overlay another source (additive).
-**`.write(data, {at?})`** – overwrite samples at position with raw PCM.
+**`.mix(source, opts?)`** – overlay (additive).
 
-**`.pan(value, {at?, duration?})`** – stereo balance (−1 left, 0 center, 1 right). Accepts function.
+**`.pan(value, opts?)`** – stereo balance (−1 left, 0 center, 1 right). Accepts function.
 
-**`.normalize(target?)`** – loudness normalize.
+**`.write(data, {at?})`** – overwrite samples with raw PCM.
 
-```js
-a.normalize()                             // peak 0dBFS
-a.normalize('podcast')                    // -16 LUFS, -1 dBTP
-a.normalize('streaming')                  // -14 LUFS
-a.normalize('broadcast')                  // -23 LUFS
-```
-
-**`.transform(fn)`** – inline processor — not registered, not serialized.
-
-```js
-a.transform((chs, ctx) => {               // ctx: { sampleRate, blockSize, at, duration }
-  return chs.map(ch => ch.map(s => s * 0.5))
-})
-```
+**`.transform(fn)`** – inline processor: `(chs, ctx) => chs`. Not serialized.
 
 
 ### Filter
 
-**`.highpass(freq)`**, **`.lowpass(freq)`** – high/low-pass filter.
-**`.bandpass(freq, Q?)`**, **`.notch(freq, Q?)`** – band-pass / notch filter.
-**`.lowshelf(freq, dB)`**, **`.highshelf(freq, dB)`** – shelf EQ.
-**`.eq(freq, gain, Q?)`** – parametric EQ.
-
-**`.filter(type, ...params)`** – generic filter dispatch.
+Biquad filters, chainable. All support `{at, duration}` ranges.
 
 ```js
-a.filter('highpass', 80)
+a.highpass(80).lowshelf(200, -3)          // rumble + mud
+a.eq(3000, 2, 1.5).highshelf(8000, 3)    // presence + air
+a.notch(50)                               // remove hum
 a.filter(customFn, { cutoff: 2000 })     // custom filter function
 ```
+
+**`.highpass(freq)`**, **`.lowpass(freq)`** – pass filter.
+
+**`.bandpass(freq, Q?)`**, **`.notch(freq, Q?)`** – band-pass / notch.
+
+**`.lowshelf(freq, dB)`**, **`.highshelf(freq, dB)`** – shelf EQ.
+
+**`.eq(freq, gain, Q?)`** – parametric EQ.
+
+**`.filter(type, ...params)`** – generic dispatch.
 
 
 ### I/O
 
-**`await .read(opts?)`** – read rendered PCM or encode to bytes.
+Read PCM, encode, stream, push. Format inferred from extension.
 
 ```js
 let pcm = await a.read()                  // Float32Array[]
 let raw = await a.read({ format: 'int16', channel: 0 })
-```
-
-**`await .save(path, opts?)`** – encode and write to file. Format from extension.
-
-```js
-await a.save('out.mp3')
-await a.save('clip.wav', { at: 10, duration: 5 })
-```
-
-**`await .encode(format?, opts?)`** – encode to Uint8Array without saving.
-
-```js
-let bytes = await a.encode('mp3')         // Uint8Array
-```
-
-**`for await (let block of a)`** – async-iterable over materialized blocks.
-
-```js
-for await (let block of a) send(block)            // all blocks
-for await (let block of a.clip({ at: 10, duration: 5 })) send(block)
-```
-
-**`.clone()`** – deep copy with independent edit history (pages shared).
-
-```js
+await a.save('out.mp3')                   // format from extension
+let bytes = await a.encode('flac')        // Uint8Array
+for await (let block of a) send(block)    // stream blocks
 let b = a.clone()                         // independent copy, shared pages
+
+let src = audio()                         // pushable source
+src.push(buf, 'int16')                    // feed PCM
+src.stop()                                // finalize
 ```
 
-**`.push(data, format?)`** – feed PCM into a pushable instance. Independent of recording.
+**`await .read(opts?)`** – rendered PCM. `{ format, channel }` to convert.
 
-```js
-let a = audio()
-a.push(new Float32Array(44100))           // mono float32
-a.push(int16buf, 'int16')                 // typed array + format
-a.push(interleaved, { format: 'int16', channels: 2 })
-a.stop()                                  // finalize
-```
+**`await .save(path, opts?)`** – encode + write. `{ at, duration }` for sub-range.
+
+**`await .encode(format?, opts?)`** – encode to `Uint8Array`.
+
+**`for await (let block of a)`** – async-iterable over blocks.
+
+**`.clone()`** – deep copy, independent edits, shared pages.
+
+**`.push(data, format?)`** – feed PCM into pushable instance. `.stop()` to finalize.
 
 
 ### Playback / Recording
 
-**`.play(opts?)`** – start playback. Re-invocation restarts.
+Live playback with dB volume, seeking, looping. Mic recording via `audio-mic`.
 
 ```js
-a.play()
 a.play({ at: 30, duration: 10 })          // play 30s–40s
-a.play({ volume: -6, loop: true })        // quiet, looping
+a.volume = -6; a.loop = true              // live adjustments
+a.pause(); a.seek(60); a.resume()         // jump to 1:00
+a.stop()                                  // end playback or recording
+
+let mic = audio()
+mic.record({ sampleRate: 16000, channels: 1 })
+mic.stop()
 ```
 
-**`.pause()`**, **`.resume()`**, **`.stop()`**, **`.seek(t)`** – playback control.
+**`.play(opts?)`** – start playback. `{ at, duration, volume, loop }`.
 
-```js
-a.pause(); a.seek(30); a.resume()         // jump to 30s and continue
-a.volume = -3                             // live volume in dB
-a.loop = true                             // live loop toggle
-```
+**`.pause()`**, **`.resume()`**, **`.seek(t)`**, **`.stop()`** – playback control.
 
-**`.record(opts?)`** – start mic recording. Options pass through to `audio-mic`.
-
-```js
-a.record()                                // default mic
-a.record({ deviceId: 'abc123' })          // specific device
-a.record({ sampleRate: 16000, channels: 1 })
-```
-
-**`.stop()`** – stop playback or recording.
-
-```js
-a.stop()                                  // end recording or playback
-```
+**`.record(opts?)`** – mic recording. `{ deviceId, sampleRate, channels }`.
 
 
 ### Analysis
 
-**`await .stat(name, opts?)`** – query a stat. Accepts `{at, duration}` for sub-ranges, `{channel}` for per-channel, `{bins}` for array output.
+`await .stat(name, opts?)` — without `bins` returns scalar, with `bins` returns `Float32Array`. Array of names returns array of results. Sub-ranges via `{at, duration}`, per-channel via `{channel}`.
 
 ```js
-let loud = await a.stat('loudness')
-let [db, clipping] = await a.stat(['db', 'clipping'])
-let spec = await a.stat('spectrum', { bins: 128 })
-let peaks = await a.stat('max', { bins: 800 })   // waveform
+let loud = await a.stat('loudness')                       // LUFS
+let [db, clips] = await a.stat(['db', 'clipping'])        // multiple at once
+let spec = await a.stat('spectrum', { bins: 128 })        // frequency bins
+let peaks = await a.stat('max', { bins: 800 })            // waveform data
+await a.stat('rms', { channel: 0 })                       // left only → number
+await a.stat('rms', { channel: [0, 1] })                  // per-channel → [n, n]
+let gaps = await a.stat('silence', { threshold: -40 })    // [{at, duration}, ...]
 ```
 
-Without `bins` — returns scalar. With `bins` — returns `Float32Array` downsampled to that many points. Set `bins` to block count for raw per-block values:
+**`'db'`** – peak amplitude in dBFS.
+**`'rms'`** – RMS amplitude (linear).
+**`'loudness'`** – integrated LUFS (ITU-R BS.1770).
+**`'dc'`** – DC offset.
+**`'clipping'`** – clipped samples (scalar: timestamps, binned: counts).
+**`'silence'`** – silent ranges as `{at, duration}`.
+**`'max'`**, **`'min'`** – peak envelope (use together for waveform rendering).
+**`'spectrum'`** – mel-frequency spectrum in dB (A-weighted).
+**`'cepstrum'`** – MFCCs.
 
-```js
-let blocks = Math.ceil(a.length / 1024)
-let raw = await a.stat('max', { bins: blocks })   // one value per block
-
-await a.stat('rms', { channel: 0 })               // left only → number
-await a.stat('rms', { channel: [0, 1] })           // per-channel → [number, number]
-await a.stat('max', { channel: 0, bins: 800 })     // left waveform → Float32Array
-```
-
-#### Level
-
-**`'db'`** – peak amplitude in dBFS. **`'rms'`** – RMS amplitude (linear). **`'loudness'`** – integrated loudness in LUFS (ITU-R BS.1770). **`'dc'`** – DC offset (mean sample value).
-
-#### Detection
-
-**`'clipping'`** – clipped samples. Scalar returns timestamps (seconds), binned returns counts.
-
-```js
-let clips = await a.stat('clipping')          // [2.1, 5.8, ...] seconds
-let counts = await a.stat('clipping', { bins: 100 })  // clip count per bin
-```
-
-**`'silence'`** – silent segments as `{at, duration}` ranges.
-
-```js
-let gaps = await a.stat('silence')                        // auto threshold
-let gaps = await a.stat('silence', { threshold: -40 })    // custom
-```
-
-#### Waveform
-
-**`'max'`**, **`'min'`** – peak envelope. Use together for waveform rendering.
-
-```js
-let [mins, maxs] = await a.stat(['min', 'max'], { bins: canvas.width })
-for (let i = 0; i < maxs.length; i++)
-  ctx.fillRect(i, h/2 - maxs[i]*h/2, 1, (maxs[i] - mins[i])*h/2)
-```
-
-#### Frequency
-
-**`'spectrum'`** – mel-frequency spectrum in dB (A-weighted). **`'cepstrum'`** – MFCCs (mel-frequency cepstral coefficients).
 
 ### Utility
 
-**`.on(event, fn)`** – subscribe to an event. **`.off(event?, fn?)`** – unsubscribe.
-
-Events:
-
-| Event | Payload | When |
-|---|---|---|
-| `'data'` | `{ delta, offset, sampleRate, channels }` | PCM pages decoded/pushed — `delta` has per-block stats (`min`, `max`, `energy`, `clip`, `dc`) |
-| `'change'` | — | Any edit or undo |
-| `'metadata'` | `{ sampleRate, channels }` | Stream header decoded |
-| `'timeupdate'` | `currentTime` | Playback position advances |
-| `'ended'` | — | Playback finishes (not on loop) |
-| `'progress'` | `{ offset, total }` | During `save()`/`encode()` — both in seconds |
-
-**`.dispose()`** – release all resources. Supports `using` for auto-dispose.
+Events, lifecycle, undo/redo, serialization, extensibility.
 
 ```js
-{
-  using a = audio('big.flac')             // auto-dispose on block exit
-  await a.save('out.mp3')
-}
-```
+a.on('data', ({ delta }) => draw(delta))  // decode progress
+a.on('timeupdate', t => ui.update(t))     // playback position
 
-**`.undo(n?)`** – undo last edit (or last n). Returns the edit — pass to `.run()` for redo.
+a.undo()                                  // undo last edit
+b.run(...a.edits)                         // replay onto another file
+JSON.stringify(a); audio(json)            // serialize / restore
 
-**`.run(...edits)`** – apply edit objects. Edits are plain `{ type, args, at?, duration?, channel? }`.
-
-```js
-let edit = a.undo(); a.run(edit)          // redo
-
-a.run({ type: 'gain', args: [-3] })      // same as a.gain(-3)
-a.run(                                    // batch apply
-  { type: 'trim', args: [-30] },
-  { type: 'normalize', args: ['podcast'] },
-  { type: 'fade', args: [0.3, 0.5] }
-)
-
-// replay same processing onto another file
-let b = audio('other.wav')
-b.run(...a.edits)
-await b.save('other-processed.wav')
-```
-
-**`JSON.stringify(a)`** / **`audio(json)`** – serialize / restore.
-
-**`audio.op(name, fn)`** – register custom op — all instances gain the method.
-
-```js
-audio.op('crush', (chs, ctx) => {
+audio.op('crush', (chs, ctx) => {         // register custom op
   let steps = 2 ** (ctx.args[0] ?? 8)
   return chs.map(ch => ch.map(s => Math.round(s * steps) / steps))
 })
-a.crush(4)                                // chainable, undoable
+a.crush(4)                                // chainable, undoable, serializable
 ```
 
-**`audio.stat(name, descriptor)`** – register custom stat computed during decode.
+**`.on(event, fn)`** / **`.off(event?, fn?)`** – subscribe / unsubscribe.
+
+**`'data'`** – pages decoded/pushed. Payload: `{ delta, offset, sampleRate, channels }`.
+**`'change'`** – any edit or undo.
+**`'metadata'`** – stream header decoded. Payload: `{ sampleRate, channels }`.
+**`'timeupdate'`** – playback position. Payload: `currentTime`.
+**`'ended'`** – playback finished (not on loop).
+**`'progress'`** – during save/encode. Payload: `{ offset, total }` in seconds.
+
+**`.dispose()`** – release resources. Supports `using` for auto-dispose.
+
+**`.undo(n?)`** – undo last edit(s). Returns edit for redo via `.run()`.
+
+**`.run(...edits)`** – apply edit objects `{ type, args, at?, duration? }`. Batch or replay.
+
+**`audio.op(name, fn)`** – register custom op. All instances gain the method.
+
+**`audio.stat(name, descriptor)`** – register custom stat.
 
 
 ## CLI
