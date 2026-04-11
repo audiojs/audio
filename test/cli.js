@@ -1,5 +1,5 @@
 import test from 'tst'
-import { parseValue, parseRange, parseArgs, showOpHelp, HELP } from '../bin/cli.js'
+import { parseValue, parseRange, parseArgs, showOpHelp, HELP, progressBar, fmtTime } from '../bin/cli.js'
 import audio from '../audio.js'
 import { spawn } from 'child_process'
 import { fileURLToPath } from 'url'
@@ -192,6 +192,57 @@ test('parseArgs — bare range with ops', t => {
   t.is(r.range.offset, 1)
   t.is(r.range.duration, 4)
   t.is(r.ops.length, 2, 'two fade ops (in + out)')
+})
+
+// ── Player View ─────────────────────────────────────────────────────────
+
+/** Strip ANSI escape sequences, return visible chars only. */
+function stripAnsi(s) { return s.replace(/\x1b\[[0-9;]*m/g, '') }
+
+test('progressBar — empty player (0/0/0)', t => {
+  let bar = progressBar(0, 0, 0, 40)
+  let vis = stripAnsi(bar)
+  t.is(vis.length, 40, `visible width = 40 (got ${vis.length})`)
+  // All dim track when nothing decoded
+  t.is((vis.match(/─/g) || []).length, 40, 'all track chars')
+})
+
+test('progressBar — during decode (played < decoded, total unknown)', t => {
+  // 5s played, 10s decoded, total unknown
+  let bar = progressBar(5, 10, 0, 40)
+  let vis = stripAnsi(bar)
+  t.is(vis.length, 40, `visible width = 40 (got ${vis.length})`)
+  let solid = (vis.match(/━/g) || []).length
+  t.ok(solid > 0, `has played region (${solid} chars)`)
+  // Bar must contain ANSI dim sequence — meaning dim track is present
+  t.ok(bar.includes('\x1b[2m'), 'has dim track for unknown remaining')
+})
+
+test('progressBar — fully decoded (total known)', t => {
+  let bar = progressBar(30, 120, 120, 40)
+  let vis = stripAnsi(bar)
+  t.is(vis.length, 40, `visible width = 40 (got ${vis.length})`)
+  let solid = (vis.match(/━/g) || []).length
+  let track = (vis.match(/─/g) || []).length
+  t.is(solid, 10, 'played = 30/120 * 40 = 10')
+  t.is(track, 30, 'rest is decoded-ahead')
+  // No dim track when total is known (all decoded)
+  t.ok(!bar.includes('\x1b[2m'), 'no dim track when fully decoded')
+})
+
+test('progressBar — full-width in all states', t => {
+  let w = 50
+  t.is(stripAnsi(progressBar(0, 0, 0, w)).length, w, 'empty')
+  t.is(stripAnsi(progressBar(5, 10, 0, w)).length, w, 'during decode')
+  t.is(stripAnsi(progressBar(5, 60, 60, w)).length, w, 'after decode')
+  t.is(stripAnsi(progressBar(60, 60, 60, w)).length, w, 'at end')
+})
+
+test('fmtTime — formats correctly', t => {
+  t.is(fmtTime(0), '0:00')
+  t.is(fmtTime(65), '1:05')
+  t.is(fmtTime(3661, true), '1:01:01')
+  t.is(fmtTime(0, true), '0:00:00')
 })
 
 test('parseArgs — stat op with names', t => {

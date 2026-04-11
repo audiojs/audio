@@ -109,7 +109,8 @@ export default function audio(source, opts = {}) {
       a._.ch = result.channels
       a._.chV = -1  // invalidate cached channels
       if (result.acc) a._.acc = result.acc
-      emit(a, 'metadata', { sampleRate: result.sampleRate, channels: result.channels })
+      if (result.estDuration) a._.estDur = result.estDuration
+      emit(a, 'metadata', { sampleRate: result.sampleRate, channels: result.channels, estDuration: result.estDuration })
       readyResolve()
 
       let final = await result.decoding
@@ -500,14 +501,15 @@ async function detectSource(source) {
   if (typeof source === 'string' && !/^(https?|data|blob):/.test(source) && typeof window === 'undefined') {
     let path = source
     if (source.startsWith('file:')) { let { fileURLToPath } = await import('url'); path = fileURLToPath(source) }
-    let { open } = await import('fs/promises')
+    let { open, stat } = await import('fs/promises')
     let fh = await open(path, 'r')
     let hdr = new Uint8Array(12)
     await fh.read(hdr, 0, 12, 0)
     await fh.close()
     let format = getType(new Uint8Array(hdr))
+    let fileSize = (await stat(path)).size
     let { createReadStream } = await import('fs')
-    return { format, reader: createReadStream(path) }
+    return { format, reader: createReadStream(path), fileSize }
   }
   let buf = await resolveSource(source)
   let bytes = new Uint8Array(buf)
@@ -578,9 +580,19 @@ function pageAccumulator(opts = {}) {
   }
 }
 
+/** Estimate duration from file size, format, sampleRate, channels. */
+function estimateDuration(fileSize, format, sampleRate, channels) {
+  if (!fileSize || !sampleRate || !channels) return null
+  if (format === 'wav') return Math.max(0, (fileSize - 44) / (sampleRate * channels * 2))  // 16-bit PCM
+  if (format === 'flac') return fileSize / (sampleRate * channels * 0.7)  // ~56% compression typical
+  if (format === 'mp3') return fileSize / (128000 / 8)  // assume 128kbps
+  if (format === 'ogg' || format === 'opus') return fileSize / (96000 / 8)  // assume 96kbps
+  return null
+}
+
 /** Decode any source into pages + stats. Pages fill progressively. */
 async function decodeSource(source, opts = {}) {
-  let { format, bytes, reader } = await detectSource(source)
+  let { format, bytes, reader, fileSize } = await detectSource(source)
 
   // Non-streaming fallback
   if (!format || !decode[format]) {
@@ -632,5 +644,6 @@ async function decodeSource(source, opts = {}) {
   await firstReady
   if (!acc.sampleRate) throw new Error('audio: decoded no audio data')
 
-  return { pages: acc.pages, sampleRate: acc.sampleRate, channels: acc.channels, decoding, acc }
+  let estDuration = estimateDuration(fileSize || bytes?.length, format, acc.sampleRate, acc.channels)
+  return { pages: acc.pages, sampleRate: acc.sampleRate, channels: acc.channels, decoding, acc, estDuration }
 }

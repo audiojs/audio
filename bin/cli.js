@@ -294,13 +294,15 @@ function spinner(lbl) {
 const DIM = '\x1b[2m', RST = '\x1b[0m'
 
 function progressBar(played, decoded, total, width) {
-  let ref = total > 0 ? total : decoded > 0 ? decoded : 1
+  // When total unknown, add headroom so decoded doesn't fill to the end
+  let ref = total > 0 ? total : decoded > 0 ? decoded + Math.max(decoded * 0.2, 2) : 1
   let pFill = Math.round(played / ref * width)
   let dFill = Math.round(decoded / ref * width)
   pFill = Math.max(0, Math.min(width, pFill))
   dFill = Math.max(pFill, Math.min(width, dFill))
   let empty = width - dFill
-  return '━'.repeat(pFill) + '─'.repeat(dFill - pFill) + ' '.repeat(empty)
+  // Dim track for unknown remaining — keeps bar visually full-width
+  return '━'.repeat(pFill) + '─'.repeat(dFill - pFill) + (empty > 0 ? DIM + '─'.repeat(empty) + RST : '')
 }
 
 async function playback(p, totalSec, decodedSec, a, src, opts) {
@@ -454,16 +456,16 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
     let bar = progressBar(t, ds, ts, barW)
 
     // Cursor at playback position in progress bar
-    // When total unknown (still decoding), t ≈ decoded → cursor would jump to end.
-    // Fix: use total when known, otherwise stay at left edge until we know the full duration.
-    let pFill = ts > 0 ? Math.round(Math.min(t / ts, 1) * barW) : 0
+    // Cursor position — same ref as progressBar so cursor stays within the bar's played region
+    let cRef = ts > 0 ? ts : ds > 0 ? ds + Math.max(ds * 0.2, 2) : 1
+    let pFill = Math.round(Math.min(t / cRef, 1) * barW)
     let cursorCol = barStart + pFill
 
     let out = `\r\x1b[K${icon} ${ct} ${bar} ${tt} ${loop} ${vb}`
     let newLines = 1
 
     if (fft) {
-      let sw = Math.min(barW, Math.max(4, w - barStart - 2))
+      let sw = barW
       let sr = p.sampleRate || 44100
       let s = spec(getBlock(), sr, sw, p.paused)
       out += `\n\x1b[K${lpad}${s}`
@@ -778,7 +780,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       if (opts.range) { playOpts.at = opts.range.offset; playOpts.duration = opts.range.duration }
       let p = a.play(playOpts)
       await playback(p,
-        () => a.decoded ? a.duration : 0,
+        () => a.decoded ? a.duration : a._.estDur || 0,
         () => a.pages.length * audio.PAGE_SIZE / a.sampleRate,
         a, source, {}
       )
@@ -814,7 +816,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       if (opts.range) { playOpts.at = opts.range.offset; playOpts.duration = opts.range.duration }
       let p = a.play(playOpts)
       await playback(p,
-        () => a.decoded ? a.duration : 0,
+        () => a.decoded ? a.duration : a._.estDur || 0,
         () => a.pages.length * audio.PAGE_SIZE / a.sampleRate,
         a, source, { hasEdits: true }
       )
@@ -852,7 +854,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
         if (opts.play) p.resume()
       })()
       await playback(p,
-        () => a.decoded ? a.duration : 0,
+        () => a.decoded ? a.duration : a._.estDur || 0,
         () => a.pages.length * audio.PAGE_SIZE / a.sampleRate,
         a, source, { hasEdits: !!transformOps.length }
       )
@@ -1088,7 +1090,7 @@ For more info: https://github.com/audiojs/audio
 }
 
 // Exports for testing
-export { parseValue, parseRange, parseArgs, showOpHelp, HELP }
+export { parseValue, parseRange, parseArgs, showOpHelp, HELP, progressBar, fmtTime }
 
 // Run CLI if invoked directly (not imported)
 let argv1 = process.argv[1]
