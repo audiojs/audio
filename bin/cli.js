@@ -14,6 +14,8 @@ import audio from '../audio.js'
 import { melSpectrum, toMel, fromMel } from '../fn/spectrum.js'
 import parseDuration from 'parse-duration'
 
+// FIXME: why do we have so many dynamic imports here? They can be static, no?
+
 // ── Unit Parsing ─────────────────────────────────────────────────────────
 
 function parseValue(str) {
@@ -67,11 +69,14 @@ const HELP = {
   trim:      { usage: 'trim [THR]', desc: 'Auto-trim silence (threshold in dB)', examples: ['trim', 'trim -40'] },
   normalize: { usage: 'normalize [DB] [MODE]', desc: 'Normalize peak/loudness', examples: ['normalize', 'normalize -3', 'normalize streaming'] },
   crop:      { usage: 'crop OFF DUR', desc: 'Crop to time range', examples: ['crop 1s..10s', 'crop 0 5s'] },
+  clip:      { usage: 'clip OFF DUR', desc: 'Create a shared-page clip', examples: ['clip 1s..10s', 'clip 0 5s'] },
   remove:    { usage: 'remove OFF DUR', desc: 'Delete time range', examples: ['remove 2s..4s'] },
   reverse:   { usage: 'reverse [RANGE]', desc: 'Reverse audio', examples: ['reverse', 'reverse 1s..5s'] },
   repeat:    { usage: 'repeat N', desc: 'Repeat N times', examples: ['repeat 3'] },
   pad:       { usage: 'pad [BEFORE] [AFTER]', desc: 'Add silence to start/end (single arg = both)', examples: ['pad 1s', 'pad 0.5s 2s'] },
   speed:     { usage: 'speed RATE', desc: 'Change speed — 2 = double, 0.5 = half, -1 = reverse', examples: ['speed 2', 'speed 0.5', 'speed -1'] },
+  stretch:   { usage: 'stretch FACTOR', desc: 'Time-stretch (same pitch) — 2 = 2× slower, 0.5 = 2× faster', examples: ['stretch 2', 'stretch 0.5', 'stretch 1.25'] },
+  pitch:     { usage: 'pitch SEMI', desc: 'Pitch-shift in semitones (same duration)', examples: ['pitch 7', 'pitch -12', 'pitch 5'] },
   insert:    { usage: 'insert SRC [OFF]', desc: 'Insert audio at position', examples: ['insert other.wav 3s'] },
   mix:       { usage: 'mix SRC [OFF]', desc: 'Mix in another audio file', examples: ['mix bg.wav 0s'] },
   remix:     { usage: 'remix CH|MAP', desc: 'Change channel count or remap', examples: ['remix 1', 'remix 2', 'remix 1,0'] },
@@ -275,9 +280,10 @@ function progressBar(played, decoded, total, width) {
   return '━'.repeat(pFill) + '─'.repeat(dFill - pFill) + ' '.repeat(empty)
 }
 
-async function playback(p, totalSec, decodedSec, a, src) {
+async function playback(p, totalSec, decodedSec, a, src, opts) {
   let fft
   try { fft = (await import('fourier-transform')).default } catch {}
+  let hasEdits = opts?.hasEdits ?? false
 
   let cols = () => process.stderr.columns || 80
   let nLines = 1
@@ -392,6 +398,8 @@ async function playback(p, totalSec, decodedSec, a, src) {
 
   // File info (computed eagerly after decode, refreshed after ops)
   let fileInfo = null, msg = '', msgTimer = null
+  // For edited audio that's already decoded, show basic info immediately
+  if (hasEdits && a?.decoded) fileInfo = `${a.sampleRate >= 1000 ? Math.round(a.sampleRate / 1000) + 'k' : a.sampleRate}   ${a.channels}ch   ${fmtTime(a.duration)}`
   let flash = m => { msg = m; clearTimeout(msgTimer); msgTimer = setTimeout(() => { msg = ''; render(p.currentTime) }, 1500) }
   let fmtRate = sr => { let k = sr / 1000; return (k % 1 ? k.toFixed(1) : k) + 'k' }
   let refreshInfo = async () => {
@@ -450,6 +458,8 @@ async function playback(p, totalSec, decodedSec, a, src) {
       updatePagePeaks()
       let peakDb = peakMax > 1e-10 ? (20 * Math.log10(peakMax)).toFixed(1) + ' dBFS' : ''
       decoding = `   ${peakDb ? peakDb + '   ' : ''}${SPIN[spinIdx++ % 10]} decoding`
+    } else if (hasEdits && !p.block && !p.ended) {
+      decoding = `   ${SPIN[spinIdx++ % 10]} processing`
     }
     let infoStr = msg || (fileInfo ? fileInfo + decoding : (a ? `${fmtRate(a.sampleRate)}   ${a.channels}ch${decoding}` : ''))
     out += '\n\x1b[K'; newLines++
@@ -605,6 +615,10 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       out = ['linear', 'exp', 'log', 'cos']
     } else if (prev === 'speed') {
       out = ['0.5', '2', '-1', '0.25', '1.5']
+    } else if (prev === 'stretch') {
+      out = ['0.5', '0.75', '1.25', '1.5', '2']
+    } else if (prev === 'pitch') {
+      out = ['-12', '-7', '-5', '5', '7', '12']
     } else if (prev === 'remix') {
       out = ['1', '2']
     } else if (prev === 'stat') {
@@ -743,7 +757,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       await playback(p,
         () => a.decoded ? a.duration : 0,
         () => a.pages.length * audio.PAGE_SIZE / a.sampleRate,
-        a, source
+        a, source, {}
       )
       process.exit(0)
     }
@@ -830,9 +844,15 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
         if (duration != null) rangeOpts.duration = duration
         if (curve) rangeOpts.curve = curve
         if (Object.keys(rangeOpts).length) fullArgs.push(rangeOpts)
-        if (typeof a[name] !== 'function') throw new Error(`Unknown operation: ${name}`)
-        try { a[name](...fullArgs) }
-        catch (e) { throw new Error(`${name}: ${formatError(e)}`) }
+        // clip returns a new audio instance, so we gotta update `a`
+        if (name === 'clip') {
+          if (typeof a[name] !== 'function') throw new Error(`Unknown operation: ${name}`)
+          a = a[name](...fullArgs)
+        } else {
+          if (typeof a[name] !== 'function') throw new Error(`Unknown operation: ${name}`)
+          try { a[name](...fullArgs) }
+          catch (e) { throw new Error(`${name}: ${formatError(e)}`) }
+        }
       }
     }
 
@@ -857,7 +877,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
 
     // Play the result: -p flag, or ops without -o (default to player)
     if (opts.play || (transformOps.length && !opts.output)) {
-      await playback(a.play(), () => a.duration, () => a.duration, a, typeof source === 'string' ? source : null)
+      await playback(a.play(), () => a.duration, () => a.duration, a, typeof source === 'string' ? source : null, { hasEdits: !!transformOps.length })
       if (!opts.output) process.exit(0)
     }
 

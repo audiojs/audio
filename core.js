@@ -236,6 +236,7 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
     ev: {},        // instance event listeners
     ct: 0, ctStamp: 0,    // currentTime wall-clock interpolation
     vol: 1, muted: false, // volume 0..1 linear with change events
+    rate: 1, // playbackRate
   }
 
   // History (edit pipeline)
@@ -252,7 +253,7 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
     currentTime: {
       get() {
         if (this.playing && !this.paused) {
-          let t = this._.ct + (performance.now() - this._.ctStamp) / 1000
+          let t = this._.ct + (performance.now() - this._.ctStamp) / 1000 * (this._.rate || 1)
           let d = this.duration
           return d > 0 ? Math.min(t, d) : t
         }
@@ -269,6 +270,11 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
     muted: {
       get() { return this._.muted },
       set(v) { v = !!v; if (this._.muted !== v) { this._.muted = v; emit(this, 'volumechange') } },
+      enumerable: true, configurable: true
+    },
+    playbackRate: {
+      get() { return this._.rate },
+      set(v) { v = Math.max(0.0625, Math.min(16, +v || 1)); if (this._.rate !== v) { this._.rate = v; emit(this, 'ratechange') } },
       enumerable: true, configurable: true
     },
   })

@@ -1393,6 +1393,82 @@ test('stream — live decode total samples correct', async t => {
   t.is(total, pushes * each, `all ${pushes * each} samples streamed`)
 })
 
+test('stream — live decode with process edits streams immediately', async t => {
+  let a = audio()
+  a.gain(-6)
+  let firstChunk = null
+  let PUSH = 4096
+  a.push(new Float32Array(PUSH).fill(1.0))
+  // Start stream — should yield first chunk before decode completes
+  let timeout = setTimeout(() => a.stop(), 200)
+  for await (let chunk of a.stream()) {
+    if (!firstChunk) {
+      firstChunk = chunk
+      a.stop()
+      break
+    }
+  }
+  clearTimeout(timeout)
+  t.ok(firstChunk, 'got a chunk during decode')
+  t.ok(firstChunk[0].length > 0, `chunk has data (${firstChunk[0].length})`)
+  let expected = Math.pow(10, -6 / 20)
+  t.ok(Math.abs(firstChunk[0][0] - expected) < 0.01, `gain applied: ${firstChunk[0][0].toFixed(4)} ≈ ${expected.toFixed(4)}`)
+})
+
+test('stream — live decode with process edits matches full render', async t => {
+  let a = audio()
+  a.gain(-6)
+  let each = 8192, pushes = 5
+  for (let i = 0; i < pushes; i++) a.push(new Float32Array(each).fill(0.5))
+  a.stop()
+  let streamed = [], total = 0
+  for await (let chunk of a.stream()) { streamed.push(chunk[0].slice()); total += chunk[0].length }
+
+  // Compare with fully-decoded version
+  let b = audio.from([new Float32Array(each * pushes).fill(0.5)])
+  b.gain(-6)
+  let full = await b.read()
+
+  t.is(total, full[0].length, `same total samples (${total})`)
+  let expected = 0.5 * Math.pow(10, -6 / 20)
+  t.ok(Math.abs(streamed[0][0] - expected) < 0.01, `first sample correct: ${streamed[0][0].toFixed(4)} ≈ ${expected.toFixed(4)}`)
+})
+
+test('stream — live decode with filter applies statefully across chunks', async t => {
+  let a = audio()
+  a.highpass(80)
+  let each = 2048
+  // Push DC signal — highpass should remove it over time
+  for (let i = 0; i < 10; i++) a.push(new Float32Array(each).fill(0.5))
+  a.stop()
+  let first = null, last = null
+  for await (let chunk of a.stream()) {
+    if (!first) first = chunk[0].slice()
+    last = chunk[0].slice()
+  }
+  // Highpass filter on DC: later chunks should be closer to 0 than first
+  t.ok(first, 'got first chunk')
+  t.ok(last, 'got last chunk')
+  let firstMag = Math.abs(first[first.length - 1])
+  let lastMag = Math.abs(last[last.length - 1])
+  t.ok(lastMag < firstMag || lastMag < 0.1, `highpass attenuated DC: first=${firstMag.toFixed(4)} last=${lastMag.toFixed(4)}`)
+})
+
+test('stream — live decode with plan edit waits for full decode', async t => {
+  // Plan-based edits (crop) should NOT use live streaming — they need full layout
+  let a = audio()
+  a.crop({ at: 0, duration: 0.05 })
+  let each = 4096
+  a.push(new Float32Array(each).fill(0.5))
+  a.push(new Float32Array(each).fill(0.5))
+  a.stop()
+  // This should work (waits for decode, then streams via plan)
+  let total = 0
+  for await (let chunk of a.stream()) total += chunk[0].length
+  let expected = Math.round(0.05 * 44100)
+  t.is(total, expected, `crop respected: ${total} samples (expected ${expected})`)
+})
+
 // ── Phase 10: Page Cache + Eviction ──────────────────────────────────────
 
 // Mock cache backend (in-memory, simulates OPFS interface)
@@ -2748,6 +2824,113 @@ test('speed — streaming matches flat render', async t => {
 })
 
 
+// ── stretch ───────────────────────────────────────────────────
+
+test('stretch(2) — double duration, same pitch', async t => {
+  let ch = new Float32Array(44100)
+  for (let i = 0; i < ch.length; i++) ch[i] = Math.sin(2 * Math.PI * 440 * i / 44100)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.stretch(2)
+  t.is(a.duration, 2, `duration ${a.duration}`)
+  let pcm = await a.read()
+  t.is(pcm[0].length, 88200, `sample count ${pcm[0].length}`)
+})
+
+test('stretch(0.5) — half duration', async t => {
+  let ch = new Float32Array(44100)
+  for (let i = 0; i < ch.length; i++) ch[i] = Math.sin(2 * Math.PI * 440 * i / 44100)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.stretch(0.5)
+  t.is(a.duration, 0.5, `duration ${a.duration}`)
+  let pcm = await a.read()
+  t.is(pcm[0].length, 22050, `sample count ${pcm[0].length}`)
+})
+
+test('stretch(1) — no-op', async t => {
+  let ch = new Float32Array(44100).fill(0.5)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.stretch(1)
+  t.is(a.duration, 1, 'duration unchanged')
+  let pcm = await a.read()
+  t.ok(Math.abs(pcm[0][0] - 0.5) < 0.01, 'values preserved')
+})
+
+test('stretch — negative factor throws', async t => {
+  let a = audio.from([new Float32Array(100)], { sampleRate: 44100 })
+  a.stretch(-1)
+  let threw = false
+  try { await a.read() } catch (e) { threw = true }
+  t.ok(threw, 'throws on negative factor')
+})
+
+test('stretch — streaming matches flat render', async t => {
+  let ch = new Float32Array(44100)
+  for (let i = 0; i < ch.length; i++) ch[i] = Math.sin(2 * Math.PI * 440 * i / 44100)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.stretch(1.5)
+  let flat = await a.read()
+  let streamed = []
+  for await (let chunk of a.stream()) streamed.push(chunk[0])
+  let total = streamed.reduce((n, c) => n + c.length, 0)
+  t.is(total, flat[0].length, `stream length matches flat (${total})`)
+})
+
+
+// ── pitch ───────────────────────────────────────────────────
+
+test('pitch(12) — octave up, same duration', async t => {
+  let ch = new Float32Array(44100)
+  for (let i = 0; i < ch.length; i++) ch[i] = Math.sin(2 * Math.PI * 440 * i / 44100)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.pitch(12)
+  t.is(a.duration, 1, `duration preserved ${a.duration}`)
+  let pcm = await a.read()
+  t.is(pcm[0].length, 44100, `sample count preserved ${pcm[0].length}`)
+})
+
+test('pitch(-12) — octave down, same duration', async t => {
+  let ch = new Float32Array(44100)
+  for (let i = 0; i < ch.length; i++) ch[i] = Math.sin(2 * Math.PI * 440 * i / 44100)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.pitch(-12)
+  t.is(a.duration, 1, `duration preserved ${a.duration}`)
+  let pcm = await a.read()
+  t.is(pcm[0].length, 44100, `sample count preserved`)
+})
+
+test('pitch(0) — no-op', async t => {
+  let ch = new Float32Array(100).fill(0.5)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.pitch(0)
+  let pcm = await a.read()
+  t.ok(Math.abs(pcm[0][0] - 0.5) < 0.01, 'values unchanged')
+})
+
+
+// ── playbackRate ────────────────────────────────────────────
+
+test('playbackRate — defaults to 1', t => {
+  let a = audio.from([new Float32Array(100)], { sampleRate: 44100 })
+  t.is(a.playbackRate, 1, 'default')
+})
+
+test('playbackRate — clamped to [0.0625, 16]', t => {
+  let a = audio.from([new Float32Array(100)], { sampleRate: 44100 })
+  a.playbackRate = 0.01
+  t.is(a.playbackRate, 0.0625, 'min clamp')
+  a.playbackRate = 100
+  t.is(a.playbackRate, 16, 'max clamp')
+})
+
+test('playbackRate — emits ratechange', t => {
+  let a = audio.from([new Float32Array(100)], { sampleRate: 44100 })
+  let fired = false
+  a.on('ratechange', () => { fired = true })
+  a.playbackRate = 2
+  t.ok(fired, 'ratechange event')
+})
+
+
 // ── Phase 16: Block/page boundary stress ────────────────────────────────
 
 test('boundary — stream reads across page boundaries', async t => {
@@ -2972,7 +3155,7 @@ test('cli parseRange — 1s..10s', t => {
 })
 
 test('cli op help — all built-in ops have help', t => {
-  let ops = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'remove', 'repeat', 'remix', 'pan', 'pad',
+  let ops = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'remove', 'repeat', 'remix', 'pan', 'pad', 'stretch', 'pitch',
     'highpass', 'lowpass', 'eq', 'lowshelf', 'highshelf', 'notch', 'bandpass']
   for (let op of ops) t.ok(HELP[op], `${op} has help`)
 })

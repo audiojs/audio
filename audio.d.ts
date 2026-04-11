@@ -41,6 +41,8 @@ export interface AudioInstance {
   volume: number
   /** Whether playback is muted (independent of volume) */
   muted: boolean
+  /** Playback speed ratio: 1 = normal, 2 = double speed, 0.5 = half. Clamped 0.0625–16. */
+  playbackRate: number
   /** Whether playback loops */
   loop: boolean
   /** True when playback ended naturally (not via stop) */
@@ -63,6 +65,7 @@ export interface AudioInstance {
   on(event: 'play', fn: () => void): this
   on(event: 'pause', fn: () => void): this
   on(event: 'volumechange', fn: () => void): this
+  on(event: 'ratechange', fn: () => void): this
   on(event: 'error', fn: (err: Error) => void): this
   on(event: string, fn: (...args: any[]) => void): this
   /** Unsubscribe from instance event */
@@ -103,6 +106,8 @@ export interface AudioInstance {
   repeat(times: number, opts?: { at?: Time, duration?: Time }): this
   pad(before: number, after?: number): this
   speed(rate: number): this
+  stretch(factor: number): this
+  pitch(semitones: number): this
 
   // ── Sample ops ──────────────────────────────────────────────
   gain(value: number | ((t: number) => number), opts?: { at?: Time, duration?: Time, channel?: number | number[], unit?: 'db' | 'linear' }): this
@@ -137,7 +142,7 @@ export interface AudioInstance {
   undo(n?: number): EditOp | EditOp[] | null
   run(...edits: EditOp[]): this
   transform(fn: (channels: Float32Array[], ctx: any) => Float32Array[] | false | null): this
-  play(opts?: { at?: Time, duration?: Time, volume?: number, loop?: boolean, paused?: boolean }): this
+  play(opts?: { at?: Time, duration?: Time, volume?: number, rate?: number, loop?: boolean, paused?: boolean }): this
   pause(): void
   resume(): void
   stop(): this

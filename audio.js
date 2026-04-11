@@ -43,6 +43,8 @@ import './fn/filter.js'
 import './fn/pan.js'
 import './fn/pad.js'
 import './fn/speed.js'
+import './fn/stretch.js'
+import './fn/pitch.js'
 import './fn/transform.js'
 
 // ── Stats ───────────────────────────────────────────────────────────────

@@ -19,6 +19,7 @@ audio.fn.play = function(opts) {
   if (a.playing) { a.playing = false; a.paused = false; if (a._._wake) a._._wake() }
   a.playing = false; a.paused = opts?.paused ?? false; a.currentTime = offset
   if (opts?.volume != null) a.volume = opts.volume
+  if (opts?.rate != null) a.playbackRate = opts.rate
   a.loop = opts?.loop ?? false
   a.block = null; a._._wake = null; a._._seekTo = null
   a.ended = false
@@ -43,7 +44,7 @@ audio.fn.play = function(opts) {
           if (!a.playing) break
           if (a._._seekTo != null) { from = a._._seekTo; a._._seekTo = null; a.currentTime = from; a.seeking = false }
         }
-        let write = Speaker({ sampleRate: sr, channels: ch, bitDepth: 32 })
+        let write = Speaker({ sampleRate: sr * (a.playbackRate || 1), channels: ch, bitDepth: 32 })
         let seeked = false, played = 0, fadeIn = true
         const flush = async () => {
           let pad = new Uint8Array(BLOCK * ch * 4)

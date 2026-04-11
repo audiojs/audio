@@ -513,9 +513,10 @@ a.stat('peak', { bins: 100 }) // → binned array
 
 ## CLI
 
+**`npm i -g audio`**
 
 ```sh
-npx audio [file] [ops...] [-o output] [options]
+audio [file] [ops...] [-o output] [options]
 
 # ops
 eq          mix         pad         pan       crop
@@ -534,7 +535,7 @@ lowshelf    highshelf   normalize
 <img src="player.gif" alt="Audiojs demo" width="624">
 
 <!-- ```sh
-npx audio kirtan.mp3
+audio kirtan.mp3
 ▶ 0:06:37 ━━━━━━━━────────────────────────────────────────── -0:36:30   ▁▂▃▄▅__
           ▂▅▇▇██▇▆▇▇▇██▆▇▇▇▆▆▅▅▆▅▆▆▅▅▆▅▅▅▃▂▂▂▂▁_____________
           50    500  1k     2k         5k       10k      20k
@@ -544,60 +545,65 @@ npx audio kirtan.mp3
 
 <kbd>␣</kbd> pause · <kbd>←</kbd>/<kbd>→</kbd> seek ±10s · <kbd>⇧←</kbd>/<kbd>⇧→</kbd> seek ±60s · <kbd>↑</kbd>/<kbd>↓</kbd> volume ±3dB · <kbd>l</kbd> loop · <kbd>q</kbd> quit
 
+```sh
+# Play part of the song
+audio song.mp3 clip 10s..20s -p
 
+# Normalize before
+```
 
 ### Edit
 
 ```sh
 # clean up
-npx audio raw-take.wav trim -30db normalize podcast fade 0.3s -0.5s -o clean.wav
+audio raw-take.wav trim -30db normalize podcast fade 0.3s -0.5s -o clean.wav
 
 # ranges
-npx audio in.wav gain -3db 1s..10s -o out.wav
+audio in.wav gain -3db 1s..10s -o out.wav
 
 # filter chain
-npx audio in.mp3 highpass 80hz lowshelf 200hz -3db -o out.wav
+audio in.mp3 highpass 80hz lowshelf 200hz -3db -o out.wav
 
 # join
-npx audio intro.mp3 + content.wav + outro.mp3 trim normalize fade 0.5s -2s -o ep.mp3
+audio intro.mp3 + content.wav + outro.mp3 trim normalize fade 0.5s -2s -o ep.mp3
 
 # voiceover
-npx audio bg.mp3 gain -12db mix narration.wav 2s -o mixed.wav
+audio bg.mp3 gain -12db mix narration.wav 2s -o mixed.wav
 
 # split
-npx audio audiobook.mp3 split 30m 60m -o 'chapter-{i}.mp3'
+audio audiobook.mp3 split 30m 60m -o 'chapter-{i}.mp3'
 ```
 
 ### Analysis
 
 ```sh
 # all default stats (db, rms, loudness, clipping, dc)
-npx audio speech.wav stat
+audio speech.wav stat
 
 # specific stats
-npx audio speech.wav stat loudness rms
+audio speech.wav stat loudness rms
 
 # spectrum / cepstrum with bin count
-npx audio speech.wav stat spectrum 128
-npx audio speech.wav stat cepstrum 13
+audio speech.wav stat spectrum 128
+audio speech.wav stat cepstrum 13
 
 # stat after transforms
-npx audio speech.wav gain -3db stat db
+audio speech.wav gain -3db stat db
 ```
 
 ### Batch
 
 ```sh
-npx audio '*.wav' trim normalize podcast -o '{name}.clean.{ext}'
-npx audio '*.wav' gain -3db -o '{name}.out.{ext}'
+audio '*.wav' trim normalize podcast -o '{name}.clean.{ext}'
+audio '*.wav' gain -3db -o '{name}.out.{ext}'
 ```
 
 ### Stdin/stdout
 
 ```sh
 cat in.wav | audio gain -3db > out.wav
-curl -s https://example.com/speech.mp3 | npx audio normalize -o clean.wav
-ffmpeg -i video.mp4 -f wav - | npx audio trim normalize podcast > voice.wav
+curl -s https://example.com/speech.mp3 | audio normalize -o clean.wav
+ffmpeg -i video.mp4 -f wav - | audio trim normalize podcast > voice.wav
 ```
 
 ### Tab completion

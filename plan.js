@@ -166,10 +166,10 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
     let endSample = duration != null ? startSample + Math.round(duration * sr) : Infinity
     let pos = startSample
     while (pos < endSample) {
-      let available = acc ? this.pages.length * PS + acc.partialLen : this._.len
+      let available = this.decoded ? this._.len : acc ? this.pages.length * PS + acc.partialLen : this._.len
       while (pos >= available && !this.decoded) {
         await new Promise(r => this._.waiters.push(r))
-        available = acc ? this.pages.length * PS + acc.partialLen : this._.len
+        available = this.decoded ? this._.len : acc ? this.pages.length * PS + acc.partialLen : this._.len
       }
       if (pos >= available) break
       let end = Math.min(endSample, available)
@@ -184,6 +184,75 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
       }
     }
     return
+  }
+
+  // Live decode streaming with process-only edits (no structural plan ops).
+  // Applies transforms per-block as decoded chunks arrive — no wait for full decode.
+  if (this._.waiters && !this.decoded && this.edits.length) {
+    let allProcess = true
+    for (let edit of this.edits) {
+      let op = ops[edit.type]
+      if (!op || op.plan || op.resolve) { allProcess = false; break }
+    }
+    if (allProcess) {
+      if (this._.ready) await this._.ready  // wait for metadata (sampleRate, channels) — not full decode
+      let sr = this.sampleRate, acc = this._.acc, PS = audio.PAGE_SIZE, BS = audio.BLOCK_SIZE
+      let startSample = offset ? Math.round(offset * sr) : 0
+      let endSample = duration != null ? startSample + Math.round(duration * sr) : Infinity
+      let pos = startSample
+
+      let procs = this.edits.map(ed => {
+        let { type, args, at, duration: dur, channel, ...extra } = ed
+        return {
+          op: ops[type].process,
+          at: at != null && at < 0 ? Infinity : at,  // negative at deferred until totalDuration known
+          channel,
+          ctx: { ...extra, args: args || [], duration: dur, sampleRate: sr, totalDuration: Infinity, render }
+        }
+      })
+
+      while (pos < endSample) {
+        let available = this.decoded ? this._.len : acc ? this.pages.length * PS + acc.partialLen : this._.len
+        while (pos >= available && !this.decoded) {
+          await new Promise(r => this._.waiters.push(r))
+          available = this.decoded ? this._.len : acc ? this.pages.length * PS + acc.partialLen : this._.len
+        }
+        if (pos >= available) break
+        let end = Math.min(endSample, available)
+        let pi = Math.floor(pos / PS), po = pos % PS
+        let chunk, len
+        if (pi < this.pages.length) {
+          let page = this.pages[pi], e = Math.min(page[0].length - po, end - pos, BS)
+          chunk = page.map(ch => ch.subarray(po, po + e).slice())
+          len = e
+        } else if (acc) {
+          let e = Math.min(acc.partialLen - po, end - pos, BS)
+          if (e > 0) { chunk = acc.partial.map(ch => ch.subarray(po, po + e).slice()); len = e }
+          else break
+        } else break
+
+        let blockOff = pos / sr
+        for (let proc of procs) {
+          let { op, at, channel, ctx } = proc
+          if (!op) continue
+          ctx.at = at != null ? at - blockOff : undefined
+          ctx.blockOffset = blockOff
+          if (channel != null) {
+            let chs = typeof channel === 'number' ? [channel] : channel
+            let sub = chs.map(c => chunk[c])
+            let result = op(sub, ctx)
+            if (result && result !== false) for (let i = 0; i < chs.length; i++) chunk[chs[i]] = result[i]
+          } else {
+            let result = op(chunk, ctx)
+            if (result === false || result === null) continue
+            if (result) chunk = result
+          }
+        }
+        yield chunk
+        pos += len
+      }
+      return
+    }
   }
 
   // Edit-aware streaming (plan-based)
