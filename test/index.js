@@ -2,6 +2,13 @@ import test from 'tst'
 import audio from '../audio.js'
 const { PAGE_SIZE, BLOCK_SIZE } = audio
 
+/** Sine tone buffer — clean audio for tests (no DC clicks/pops). */
+function tone(freq, dur, sr = 44100) {
+  let n = Math.round(dur * sr), ch = new Float32Array(n)
+  for (let i = 0; i < n; i++) ch[i] = Math.sin(2 * Math.PI * freq * i / sr)
+  return ch
+}
+
 const isNode = typeof process !== 'undefined' && process.versions?.node
 
 // Isomorphic fixture loading: file paths in Node, HTTP URLs in browser
@@ -1102,7 +1109,7 @@ test('stat — array of names', async t => {
 // ── Phase 8: Playback ────────────────────────────────────────────────────
 
 test('play — returns controller', async t => {
-  let a = audio.from([new Float32Array(4410)], { sampleRate: 44100 })
+  let a = audio.from([tone(440, 0.1)], { sampleRate: 44100 })
   let p = a.play()
   t.ok(p, 'controller returned')
   t.ok('pause' in p, 'has pause')
@@ -1117,7 +1124,7 @@ test('play — returns controller', async t => {
 })
 
 test('play — volume and loop settable', async t => {
-  let a = audio.from([new Float32Array(4410)], { sampleRate: 44100 })
+  let a = audio.from([tone(440, 0.1)], { sampleRate: 44100 })
   let p = a.play()
   p.volume = 0.5
   t.is(p.volume, 0.5, 'volume is settable')
@@ -1126,15 +1133,29 @@ test('play — volume and loop settable', async t => {
   p.stop()
 })
 
+test('play — loop with offset restarts at offset', async t => {
+  let sr = 44100, dur = 0.5
+  let a = audio.from([tone(440, dur, sr)], { sampleRate: sr })
+  // Play from 0.3s with loop — on loop restart, currentTime should go back to 0.3, not 0
+  let p = a.play({ at: 0.3, loop: true })
+  // Wait for the first loop cycle to complete (0.3→0.5 = 0.2s)
+  await new Promise(r => setTimeout(r, 350))
+  // After 350ms, at least one loop restart should have happened
+  // currentTime should be >= 0.3 (looped back to offset), never < 0.3
+  let ct = p.currentTime
+  t.ok(ct >= 0.3, `currentTime after loop (${ct.toFixed(3)}) >= 0.3 (offset)`)
+  p.stop()
+})
+
 test('play — returns instance', async t => {
-  let a = audio.from([new Float32Array(4410)], { sampleRate: 44100 })
+  let a = audio.from([tone(440, 0.1)], { sampleRate: 44100 })
   let p = a.play({at: 0})
   t.ok(p === a, 'play returns this')
   a.stop()
 })
 
 test('muted — boolean gate, emits volumechange', async t => {
-  let a = audio.from([new Float32Array(4410)], { sampleRate: 44100 })
+  let a = audio.from([tone(440, 0.1)], { sampleRate: 44100 })
   t.is(a.muted, false, 'muted defaults to false')
   let events = []
   a.on('volumechange', () => events.push('vc'))
@@ -1148,7 +1169,7 @@ test('muted — boolean gate, emits volumechange', async t => {
 })
 
 test('volume — emits volumechange', async t => {
-  let a = audio.from([new Float32Array(4410)], { sampleRate: 44100 })
+  let a = audio.from([tone(440, 0.1)], { sampleRate: 44100 })
   let events = []
   a.on('volumechange', () => events.push('vc'))
   a.volume = 0.5
@@ -1166,7 +1187,7 @@ test('volume — emits volumechange', async t => {
 })
 
 test('ended — true on natural end', async t => {
-  let a = audio.from([new Float32Array(4410)], { sampleRate: 44100 })
+  let a = audio.from([tone(440, 0.1)], { sampleRate: 44100 })
   t.is(a.ended, false, 'ended defaults to false')
   a.play()
   t.is(a.ended, false, 'ended false during play')
@@ -1176,7 +1197,7 @@ test('ended — true on natural end', async t => {
 })
 
 test('seeking — true during seek', async t => {
-  let a = audio.from([new Float32Array(44100)], { sampleRate: 44100 })
+  let a = audio.from([tone(440, 1)], { sampleRate: 44100 })
   t.is(a.seeking, false, 'seeking defaults to false')
   a.seek(0.5)
   // not playing, so seeking resolves immediately
@@ -1184,7 +1205,7 @@ test('seeking — true during seek', async t => {
 })
 
 test('currentTime — smooth interpolation', async t => {
-  let a = audio.from([new Float32Array(44100 * 10)], { sampleRate: 44100 })
+  let a = audio.from([tone(440, 10)], { sampleRate: 44100 })
   a.playing = true; a.paused = false
   a.currentTime = 5.0
   // getter interpolates wall-clock time
@@ -1208,14 +1229,14 @@ test('currentTime — smooth interpolation', async t => {
 })
 
 test('played — promise property', async t => {
-  let a = audio.from([new Float32Array(4410)], { sampleRate: 44100 })
+  let a = audio.from([tone(440, 0.1)], { sampleRate: 44100 })
   a.play()
   t.ok(a.played instanceof Promise, 'played is a Promise')
   a.stop()
 })
 
 test('play/pause events', async t => {
-  let a = audio.from([new Float32Array(4410)], { sampleRate: 44100 })
+  let a = audio.from([tone(440, 0.1)], { sampleRate: 44100 })
   let events = []
   a.on('play', () => events.push('play'))
   a.on('pause', () => events.push('pause'))
@@ -1985,12 +2006,6 @@ test('resolve — normalize uses index when clean', async t => {
 // ── Phase 13: Filters ──────────────────────────────────────────────────
 
 // Helper: generate a tone at a given frequency
-function tone(freq, dur, sr = 44100) {
-  let n = Math.round(dur * sr), ch = new Float32Array(n)
-  for (let i = 0; i < n; i++) ch[i] = Math.sin(2 * Math.PI * freq * i / sr)
-  return ch
-}
-
 // Helper: measure RMS energy in a buffer
 function rms(buf) {
   let sum = 0

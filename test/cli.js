@@ -158,6 +158,42 @@ test('parseRange — minutes', t => {
   t.is(range.duration, 300, '10m - 5m = 300s')
 })
 
+test('parseRange — inverted range clamps to 0', t => {
+  let range = parseRange('10s..2s')
+  t.is(range.offset, 10, 'offset preserved')
+  t.is(range.duration, 0, 'negative duration clamped to 0')
+})
+
+test('parseArgs — bare time as range', t => {
+  let r = parseArgs(['song.mp3', '1s', '-p'])
+  t.ok(r.range, 'range parsed')
+  t.is(r.range.offset, 1, 'offset = 1s')
+  t.is(r.range.duration, undefined, 'open-ended')
+  t.is(r.ops.length, 0, 'no ops')
+})
+
+test('parseArgs — bare time 500ms', t => {
+  let r = parseArgs(['song.mp3', '500ms', '-p'])
+  t.ok(r.range, 'range parsed')
+  t.is(r.range.offset, 0.5, 'offset = 500ms')
+})
+
+test('parseArgs — bare range with loop', t => {
+  let r = parseArgs(['song.mp3', '1s..3s', '-p', '-l'])
+  t.ok(r.range, 'range parsed')
+  t.is(r.range.offset, 1, 'offset')
+  t.is(r.range.duration, 2, 'duration')
+  t.ok(r.loop, 'loop enabled')
+})
+
+test('parseArgs — bare range with ops', t => {
+  let r = parseArgs(['song.mp3', '1s..5s', 'fade', '0.5', '-0.5', '-p'])
+  t.ok(r.range, 'range parsed')
+  t.is(r.range.offset, 1)
+  t.is(r.range.duration, 4)
+  t.is(r.ops.length, 2, 'two fade ops (in + out)')
+})
+
 test('parseArgs — stat op with names', t => {
   let result = parseArgs(['in.wav', 'stat', 'loudness', 'rms'])
   t.is(result.input, 'in.wav', 'input parsed')

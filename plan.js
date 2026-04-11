@@ -205,14 +205,26 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
         let { type, args, at, duration: dur, channel, ...extra } = ed
         return {
           op: ops[type].process,
-          at: at != null && at < 0 ? Infinity : at,  // negative at deferred until totalDuration known
+          origAt: at,  // preserve for resolving negative at once totalDuration known
+          at: at != null && at < 0 ? Infinity : at,
           channel,
           ctx: { ...extra, args: args || [], duration: dur, sampleRate: sr, totalDuration: Infinity, render }
         }
       })
+      let resolved = false
 
       while (pos < endSample) {
         let available = this.decoded ? this._.len : acc ? this.pages.length * PS + acc.partialLen : this._.len
+        // Once decode completes, resolve totalDuration and negative at values (e.g. fade-out from end)
+        if (this.decoded && !resolved) {
+          resolved = true
+          let td = this._.len / sr
+          for (let proc of procs) {
+            proc.ctx.totalDuration = td
+            if (proc.origAt != null && proc.origAt < 0) proc.at = td + proc.origAt
+          }
+          if (endSample === Infinity) endSample = this._.len
+        }
         while (pos >= available && !this.decoded) {
           await new Promise(r => this._.waiters.push(r))
           available = this.decoded ? this._.len : acc ? this.pages.length * PS + acc.partialLen : this._.len

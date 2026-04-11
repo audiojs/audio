@@ -1,5 +1,6 @@
 ## Next
 
+* [ ] structural ops streaming
 * [ ] playback speed
 * [ ] Wavearea integration
 * [ ] Audio ponyfill — separate `audio-ponyfill` package (#68)

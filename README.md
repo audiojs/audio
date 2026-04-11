@@ -524,10 +524,10 @@ fade        gain        stat        trim      notch
 remix       speed       split       insert    remove
 repeat      bandpass    highpass    lowpass   reverse
 lowshelf    highshelf   normalize
+
+# options
+-p play     -l loop     -o output   -f force  --format
 ```
-
-
-`-o` output · `-p` play · `-f` force · `--format` · `--verbose` · `+` concat
 
 ### Playback
 
@@ -546,8 +546,11 @@ audio kirtan.mp3
 <kbd>␣</kbd> pause · <kbd>←</kbd>/<kbd>→</kbd> seek ±10s · <kbd>⇧←</kbd>/<kbd>⇧→</kbd> seek ±60s · <kbd>↑</kbd>/<kbd>↓</kbd> volume ±3dB · <kbd>l</kbd> loop · <kbd>q</kbd> quit
 
 ```sh
-# Play part of the song
-audio song.mp3 clip 10s..20s -p
+# Play fragment of the song
+audio song.mp3 10s..15s -p
+
+# Play clip (not full song)
+audio song.mp3 clip 10s..20s -p -l
 
 # Normalize before
 ```

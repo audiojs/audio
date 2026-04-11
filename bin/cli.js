@@ -13,6 +13,7 @@
 import audio from '../audio.js'
 import { melSpectrum, toMel, fromMel } from '../fn/spectrum.js'
 import parseDuration from 'parse-duration'
+import fft from 'fourier-transform'
 
 // FIXME: why do we have so many dynamic imports here? They can be static, no?
 
@@ -44,7 +45,18 @@ function parseRange(str) {
   let [start, end] = str.split('..')
   let s = start ? parseValue(start) : 0
   let e = end ? parseValue(end) : undefined
-  return { offset: s, duration: e != null ? e - s : undefined }
+  let dur = e != null ? Math.max(0, e - s) : undefined
+  return { offset: s, duration: dur }
+}
+
+/** Check if a string is a bare time value (e.g. "1s", "500ms", "2.5", "1:30") — not an op name. */
+function isTime(s) {
+  if (typeof s !== 'string') return false
+  if (s.includes('..')) return true  // range
+  if (/^-?[\d.]+$/.test(s)) return false  // bare number — ambiguous, don't treat as time
+  if (/^(\d+):(\d{1,2})(?::(\d{1,2}))?(?:\.(\d+))?$/.test(s)) return true  // timecode
+  let d = parseDuration(s, 's')
+  return d != null && isFinite(d)
 }
 
 // ── Argument Parsing ─────────────────────────────────────────────────────
@@ -102,8 +114,8 @@ function showOpHelp(name) {
 
 function parseArgs(args) {
   let input = null, ops_ = [], output = null, format = null
-  let verbose = false, showHelp = false, play = false, force = false
-  let macro = null, helpOp = null, concatFiles = []
+  let verbose = false, showHelp = false, play = false, force = false, loop = false
+  let macro = null, helpOp = null, concatFiles = [], range = null
   let i = 0
 
   // First positional arg as input if it looks like a file
@@ -133,6 +145,9 @@ function parseArgs(args) {
     } else if (arg === '--force' || arg === '-f') {
       force = true
       i++
+    } else if (arg === '--loop' || arg === '-l') {
+      loop = true
+      i++
     } else if (arg === '--macro') {
       macro = args[++i]
       i++
@@ -147,6 +162,14 @@ function parseArgs(args) {
       }
     } else if (isFlag(arg)) {
       throw new Error(`Unknown flag: ${arg}`)
+    } else if (typeof arg === 'string' && arg.includes('..') && !isOpName(arg)) {
+      // Bare range: `audio song.mp3 10s..20s -p`
+      range = parseRange(arg)
+      i++
+    } else if (input && !isOpName(arg) && isTime(arg)) {
+      // Bare time: `audio song.mp3 1s -p` = start at 1s
+      range = { offset: parseValue(arg), duration: undefined }
+      i++
     } else if (!input && !isOpName(arg)) {
       // Positional input file (even after flags)
       input = arg
@@ -210,7 +233,7 @@ function parseArgs(args) {
   }
   ops_ = expanded
 
-  return { input, ops: ops_, output, format, verbose, showHelp, play, force, macro, helpOp, concatFiles }
+  return { input, ops: ops_, output, format, verbose, showHelp, play, force, loop, macro, helpOp, concatFiles, range }
 }
 
 // ── I/O ──────────────────────────────────────────────────────────────────
@@ -281,8 +304,6 @@ function progressBar(played, decoded, total, width) {
 }
 
 async function playback(p, totalSec, decodedSec, a, src, opts) {
-  let fft
-  try { fft = (await import('fourier-transform')).default } catch {}
   let hasEdits = opts?.hasEdits ?? false
 
   let cols = () => process.stderr.columns || 80
@@ -433,8 +454,9 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
     let bar = progressBar(t, ds, ts, barW)
 
     // Cursor at playback position in progress bar
-    let ref = ts > 0 ? ts : ds > 0 ? ds : 1
-    let pFill = Math.round(Math.min(t / ref, 1) * barW)
+    // When total unknown (still decoding), t ≈ decoded → cursor would jump to end.
+    // Fix: use total when known, otherwise stay at left edge until we know the full duration.
+    let pFill = ts > 0 ? Math.round(Math.min(t / ts, 1) * barW) : 0
     let cursorCol = barStart + pFill
 
     let out = `\r\x1b[K${icon} ${ct} ${bar} ${tt} ${loop} ${vb}`
@@ -747,13 +769,14 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
 
     // Streaming player — file source, no ops, no output (default mode)
     // -p = autoplay, otherwise starts paused
+    // Bare range: `audio song.mp3 10s..20s` scopes playback (seek + stop), not clip
     if (!allOps.length && !opts.output && typeof source === 'string') {
       if (opts.verbose) console.error(`Opening: ${source}`)
-      let spin = !opts.verbose ? spinner('decoding') : null
       let a = audio(source)
       await new Promise(r => a.on('metadata', r))
-      spin?.stop()
-      let p = a.play({ paused: !opts.play })
+      let playOpts = { paused: !opts.play, loop: opts.loop }
+      if (opts.range) { playOpts.at = opts.range.offset; playOpts.duration = opts.range.duration }
+      let p = a.play(playOpts)
       await playback(p,
         () => a.decoded ? a.duration : 0,
         () => a.pages.length * audio.PAGE_SIZE / a.sampleRate,
@@ -762,7 +785,81 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       process.exit(0)
     }
 
-    // Load audio (full decode)
+    // Check if all ops are process-only (can stream during decode)
+    let canStream = allOps.length > 0 && !opts.output
+    if (canStream) for (let op of allOps) {
+      if (op.name === 'stat' || op.name === 'split') { canStream = false; break }
+      let desc = audio.op(op.name)
+      if (!desc || desc.plan || desc.resolve) { canStream = false; break }
+    }
+
+    // Streaming player with process ops — show player immediately, start playback during decode
+    if (canStream && typeof source === 'string') {
+      if (opts.verbose) console.error(`Opening: ${source}`)
+      let a = audio(source)
+      await new Promise(r => a.on('metadata', r))
+      // Apply ops (just pushes edits — sync, no computation)
+      for (let op of allOps) {
+        let { name, args, offset: off, duration: dur, curve } = op
+        let fullArgs = args.slice()
+        let rangeOpts = {}
+        if (off != null) rangeOpts.at = off
+        if (dur != null) rangeOpts.duration = dur
+        if (curve) rangeOpts.curve = curve
+        if (Object.keys(rangeOpts).length) fullArgs.push(rangeOpts)
+        if (name === 'clip') a = a[name](...fullArgs)
+        else a[name](...fullArgs)
+      }
+      let playOpts = { paused: !opts.play, loop: opts.loop }
+      if (opts.range) { playOpts.at = opts.range.offset; playOpts.duration = opts.range.duration }
+      let p = a.play(playOpts)
+      await playback(p,
+        () => a.decoded ? a.duration : 0,
+        () => a.pages.length * audio.PAGE_SIZE / a.sampleRate,
+        a, source, { hasEdits: true }
+      )
+      process.exit(0)
+    }
+
+    // Separate stat ops from transform ops
+    let statOps = allOps.filter(op => op.name === 'stat')
+    let transformOps = allOps.filter(op => op.name !== 'stat')
+
+    // Full-decode playback: show player immediately, decode + apply ops in background
+    // Only when: play-only (no save), no stat, no clip (clip creates new instance), file source
+    let wantsPlay = !opts.output && (opts.play || transformOps.length)
+    let hasClip = transformOps.some(o => o.name === 'clip')
+    if (wantsPlay && !statOps.length && !hasClip && typeof source === 'string') {
+      let a = audio(source)
+      await new Promise(r => a.on('metadata', r))
+      let playOpts = { paused: true, loop: opts.loop }
+      if (opts.range) { playOpts.at = opts.range.offset; playOpts.duration = opts.range.duration }
+      let p = a.play(playOpts)
+      // Decode + apply ops in background, then resume
+      ;(async () => {
+        await a  // full decode
+        for (let op of transformOps) {
+          let { name, args, offset, duration, curve } = op
+          let fullArgs = args.slice()
+          let rangeOpts = {}
+          if (offset != null) rangeOpts.at = offset
+          if (duration != null) rangeOpts.duration = duration
+          if (curve) rangeOpts.curve = curve
+          if (Object.keys(rangeOpts).length) fullArgs.push(rangeOpts)
+          if (name === 'clip') a = a[name](...fullArgs)
+          else a[name](...fullArgs)
+        }
+        if (opts.play) p.resume()
+      })()
+      await playback(p,
+        () => a.decoded ? a.duration : 0,
+        () => a.pages.length * audio.PAGE_SIZE / a.sampleRate,
+        a, source, { hasEdits: !!transformOps.length }
+      )
+      process.exit(0)
+    }
+
+    // Load audio (full decode) — needed for stat, save, non-play paths
     if (opts.verbose) console.error(`Loading: ${typeof source === 'string' ? source : '(stdin)'}`)
     let spin = !opts.verbose ? spinner('decoding') : null
     let a = audio(source)
@@ -770,10 +867,6 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     await a
     let loadTime = spin?.stop()
     if (opts.verbose) console.error('\n')
-
-    // Separate stat ops from transform ops
-    let statOps = allOps.filter(op => op.name === 'stat')
-    let transformOps = allOps.filter(op => op.name !== 'stat')
 
     // No ops, no output, no play → show info and exit
     if (!allOps.length && !opts.output && !opts.play) {
@@ -877,7 +970,9 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
 
     // Play the result: -p flag, or ops without -o (default to player)
     if (opts.play || (transformOps.length && !opts.output)) {
-      await playback(a.play(), () => a.duration, () => a.duration, a, typeof source === 'string' ? source : null, { hasEdits: !!transformOps.length })
+      let playOpts = { loop: opts.loop }
+      if (opts.range) { playOpts.at = opts.range.offset; playOpts.duration = opts.range.duration }
+      await playback(a.play(playOpts), () => a.duration, () => a.duration, a, typeof source === 'string' ? source : null, { hasEdits: !!transformOps.length })
       if (!opts.output) process.exit(0)
     }
 
@@ -929,10 +1024,11 @@ function showUsage() {
 audio ${audio.version} — load, edit, save, play, analyze
 
 Usage:
-  audio [input] [ops...] [-o output] [options]
+  audio [input] [range] [ops...] [-o output] [options]
 
 Input:
   input         File path, URL, or omit for stdin
+  range         Bare range scopes playback: audio song.mp3 10s..20s
   -o, --output  Output file or '-' for stdout (default: out.wav)
 
 Operations (positional):
@@ -954,6 +1050,7 @@ Units:
 
 Options:
   --play, -p    Autoplay (default opens player paused)
+  --loop, -l    Loop playback (or loop within range)
   --force, -f   Overwrite output file if it exists
   --macro FILE  Apply edits from JSON file
   --verbose     Show progress and debug info
@@ -968,6 +1065,8 @@ Batch:
 Examples:
   audio in.mp3                              Open player
   audio in.mp3 -p                           Autoplay
+  audio in.mp3 10s..20s                     Play range
+  audio in.mp3 10s..20s fade 1s 1s -p       Play range with effects
   audio in.mp3 stat                         Show file stats
   audio in.mp3 stat loudness rms            Specific stats
   audio in.mp3 gain -3db trim -o out.wav    Edit and save

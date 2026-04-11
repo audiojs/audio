@@ -103,7 +103,7 @@ audio.fn.play = function(opts) {
         write(null)
         if (seeked) continue
         if (!a.playing) break
-        if (a.loop) { from = 0; a.currentTime = 0; emit(a, 'timeupdate', 0); continue }
+        if (a.loop) { from = offset; a.currentTime = offset; emit(a, 'timeupdate', offset); continue }
         a.playing = false; a.ended = true
         emit(a, 'timeupdate', a.currentTime)
         break
