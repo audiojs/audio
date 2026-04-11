@@ -1,7 +1,7 @@
 
 import { seg, planOffset } from '../plan.js'
 
-function insertSegs(segs, at, len, ref) {
+export function insertSegs(segs, at, len, ref) {
   let r = []
   for (let s of segs) {
     if (s[2] + s[1] <= at) r.push(s)

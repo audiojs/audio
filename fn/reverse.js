@@ -1,6 +1,6 @@
 import { seg, planOffset } from '../plan.js'
 
-function reverseSegs(segs, off, end) {
+export function reverseSegs(segs, off, end) {
   let r = []
   for (let s of segs) {
     let se = s[2] + s[1]

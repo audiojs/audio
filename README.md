@@ -1,6 +1,6 @@
 # 🎧 audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/audio?color=white)](https://npmjs.org/package/audio)
 
-_Audio in JavaScript_
+_High-level audio manipulations_
 
 ```js
 audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
@@ -10,9 +10,9 @@ audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 
 * **Any Format** — fast wasm codecs, no ffmpeg.
 * **Streaming** — playback during decode.
-* **Immutable** — safe edits, infinite undo/redo.
-* **Page Cache** — open 10Gb+ files.
-* **Analysis** — loudness, spectrum, and more.
+* **Non-destructive** — virtual edits, instant undo.
+* **Page cache** — open 10Gb+ files.
+* **Analysis** — loudness, spectrum, peaks, and more.
 * **Modular** – pluggable ops, tree-shakable.
 * **CLI** — playback, unix pipes, tab completion.
 * **Isomorphic** — node / browser.
@@ -474,7 +474,7 @@ Events, lifecycle, undo/redo, serialization.
   * `'progress'` – during save/encode. Payload: `{ offset, total }` in seconds.
 * **`.dispose()`** – release resources. Supports `using` for auto-dispose.
 * **`.undo(n?)`** – undo last edit(s). Returns edit for redo via `.run()`.
-* **`.run(...edits)`** – apply edit objects `{ type, args, at?, duration? }`. Batch or replay.
+* **`.run(...edits)`** – apply edits as arrays `['type', ...args, opts?]`. Batch or replay.
 
 ```js
 a.on('data', ({ delta }) => draw(delta))  // decode progress

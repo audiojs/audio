@@ -92,8 +92,8 @@ audio.op('stretch', {
     if (!f || f === 1) return false
     if (f <= 0) throw new RangeError('stretch: factor must be positive')
     return [
-      { type: '_stretch_seg', args },
-      { type: '_stretch_dsp', args }
+      ['_stretch_seg', ...args],
+      ['_stretch_dsp', ...args]
     ]
   }
 })

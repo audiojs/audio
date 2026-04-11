@@ -1,6 +1,6 @@
 import { seg, planOffset } from '../plan.js'
 
-function removeSegs(segs, off, dur) {
+export function removeSegs(segs, off, dur) {
   let r = [], end = off + dur
   for (let s of segs) {
     let se = s[2] + s[1]

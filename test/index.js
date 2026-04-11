@@ -416,7 +416,7 @@ test('crop — keeps range in place', async t => {
   let a = audio.from([new Float32Array(44100 * 10)], { sampleRate: 44100 })
   a.crop({at: 2, duration: 3})
   t.is(a.edits.length, 1, 'one edit')
-  t.is(a.edits[0].type, 'crop')
+  t.is(a.edits[0][0], 'crop')
   let pcm = await a.read()
   t.is(pcm[0].length, Math.round(3 * 44100), 'cropped to 3 seconds')
 })
@@ -425,16 +425,16 @@ test('remove + insert — chain', async t => {
   let a = audio.from([new Float32Array(44100)])
   a.remove({at: 0.2, duration: 0.1}).insert(0.5).insert(audio.from(0.1), {at: 0})
   t.is(a.edits.length, 3, '3 edits')
-  t.is(a.edits[0].type, 'remove')
-  t.is(a.edits[1].type, 'insert')
-  t.is(a.edits[2].type, 'insert')
+  t.is(a.edits[0][0], 'remove')
+  t.is(a.edits[1][0], 'insert')
+  t.is(a.edits[2][0], 'insert')
 })
 
 test('repeat', async t => {
   let a = audio.from([new Float32Array(1000)])
   a.repeat(2)
-  t.is(a.edits[0].type, 'repeat')
-  t.is(a.edits[0].args[0], 2)
+  t.is(a.edits[0][0], 'repeat')
+  t.is(a.edits[0][1], 2)
 })
 
 test('crop — materialized correctly', async t => {
@@ -549,7 +549,7 @@ test('undo — returns edit', async t => {
   t.is(a.edits.length, 0, 'undone')
   t.is(a.version, v0 + 2, 'version incremented again')
   t.ok(edit, 'undo returns the edit')
-  t.is(edit.type, 'gain', 'returned edit is gain')
+  t.is(edit[0], 'gain', 'returned edit is gain')
 
   t.is(a.undo(), null, 'undo on empty returns null')
 })
@@ -561,17 +561,17 @@ test('run — re-apply undone edit', async t => {
   t.is(a.edits.length, 0, 'undone')
   a.run(edit)
   t.is(a.edits.length, 1, 're-applied')
-  t.is(a.edits[0].type, 'gain', 'same edit type')
+  t.is(a.edits[0][0], 'gain', 'same edit type')
   let pcm = await a.read()
   let expected = Math.pow(10, -6 / 20)
   t.ok(Math.abs(pcm[0][0] - expected) < 0.01, 'effect re-applied correctly')
 })
 
-test('run — variadic edit objects', async t => {
+test('run — variadic edit arrays', async t => {
   let a = audio.from([new Float32Array(100).fill(1)])
   a.run(
-    { type: 'gain', args: [-6] },
-    { type: 'gain', args: [-6] }
+    ['gain', -6],
+    ['gain', -6]
   )
   t.is(a.edits.length, 2, 'two edits from one run() call')
   let pcm = await a.read()
@@ -722,8 +722,8 @@ test('fade in/out — two-arg shorthand', async t => {
   t.ok(Math.abs(pcm[0][22050] - 1) < 0.01, 'middle is full')
   t.ok(pcm[0][44099] < 0.01, 'end is silent (fade out)')
   t.is(a.edits.length, 2, 'expands to two edits')
-  t.is(a.edits[0].args[0], 0.5, 'first edit is fade in')
-  t.is(a.edits[1].args[0], -0.5, 'second edit is fade out')
+  t.is(a.edits[0][1], 0.5, 'first edit is fade in')
+  t.is(a.edits[1][1], -0.5, 'second edit is fade out')
 })
 
 test('fade in/out — two-arg with curve', async t => {
@@ -731,9 +731,9 @@ test('fade in/out — two-arg with curve', async t => {
   let a = audio.from([ch], { sampleRate: 44100 })
   a.fade(0.5, 0.5, 'exp')
   t.is(a.edits.length, 2, 'expands to two edits')
-  t.is(a.edits[0].curve, 'exp', 'first edit has curve')
-  t.is(a.edits[1].curve, 'exp', 'second edit has curve')
-  t.is(a.edits[0].args.length, 1, 'curve not in args')
+  t.is(a.edits[0][2].curve, 'exp', 'first edit has curve')
+  t.is(a.edits[1][2].curve, 'exp', 'second edit has curve')
+  t.is(a.edits[0].length, 3, 'curve in opts, not args')
 })
 
 test('reverse', async t => {
@@ -919,8 +919,8 @@ test('toJSON — serializable with source', async t => {
   let json = a.toJSON()
   t.is(json.source, lenaPath, 'source preserved')
   t.is(json.edits.length, 2, '2 edits')
-  t.is(json.edits[0].type, 'gain', 'first is gain')
-  t.is(json.edits[1].type, 'reverse', 'second is reverse')
+  t.is(json.edits[0][0], 'gain', 'first is gain')
+  t.is(json.edits[1][0], 'reverse', 'second is reverse')
   t.is(json.sampleRate, a.sampleRate, 'sampleRate')
   t.is(json.channels, a.channels, 'channels')
   t.ok(json.duration > 0, 'duration')
@@ -1342,7 +1342,7 @@ test('stream — plan-based insert matches full render', async t => {
 
 test('stream — sample-level op via run()', async t => {
   let a = audio.from([new Float32Array(44100).fill(1)], { sampleRate: 44100 })
-  a.run({ type: 'gain', args: [-6] })
+  a.run(['gain', -6])
 
   let streamed = []
   for await (let block of a.stream()) streamed.push(block[0])
@@ -1759,7 +1759,7 @@ test('undo() — backward compatible, pops 1', async t => {
   let a = audio.from([new Float32Array(44100)], { sampleRate: 44100 })
   a.gain(-3).gain(-6)
   let edit = a.undo()
-  t.ok(edit && edit.type === 'gain', 'returns single edit')
+  t.ok(edit && edit[0] === 'gain', 'returns single edit')
   t.is(a.edits.length, 1, '1 edit remains')
 })
 
@@ -2501,7 +2501,7 @@ test('toJSON — omits automation and transform edits', async t => {
   a.transform(chs => chs)
   let json = JSON.parse(JSON.stringify(a))
   t.is(json.edits.length, 1, 'function edits omitted')
-  t.is(json.edits[0].type, 'gain', 'static edit preserved')
+  t.is(json.edits[0][0], 'gain', 'static edit preserved')
 })
 
 

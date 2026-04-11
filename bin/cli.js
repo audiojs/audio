@@ -11,6 +11,7 @@
  */
 
 import audio from '../audio.js'
+import { eType, eArgs } from '../plan.js'
 import { melSpectrum, toMel, fromMel } from '../fn/spectrum.js'
 import parseDuration from 'parse-duration'
 import fft from 'fourier-transform'
@@ -698,7 +699,11 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       let raw = JSON.parse(readFileSync(opts.macro, 'utf-8'))
       let edits = Array.isArray(raw) ? raw : raw.edits || raw.ops
       if (!Array.isArray(edits)) throw new Error('Macro file must contain an array of edits')
-      macroOps = edits.map(e => ({ name: e.type || e.name, args: e.args || [], offset: e.at ?? null, duration: e.duration ?? null }))
+      macroOps = edits.map(e => {
+        let hasOpts = e.length > 1 && typeof e.at(-1) === 'object' && !Array.isArray(e.at(-1))
+        let o = hasOpts ? e.at(-1) : {}
+        return { name: e[0], args: hasOpts ? e.slice(1, -1) : e.slice(1), offset: o.at ?? null, duration: o.duration ?? null }
+      })
     }
     let allOps = [...opts.ops, ...macroOps]
 

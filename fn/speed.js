@@ -5,8 +5,7 @@
 
 import { seg } from '../plan.js'
 
-const speedPlan = (segs, ctx) => {
-  let rate = ctx.args[0]
+export function speedSegs(segs, rate) {
   if (rate === 0) throw new RangeError('speed: rate cannot be 0')
   if (!rate || rate === 1) return segs
   let absR = Math.abs(rate)
@@ -18,6 +17,8 @@ const speedPlan = (segs, ctx) => {
   }
   return r
 }
+
+const speedPlan = (segs, ctx) => speedSegs(segs, ctx.args[0])
 
 import audio from '../core.js'
 audio.op('speed', { plan: speedPlan })

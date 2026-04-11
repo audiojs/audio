@@ -59,10 +59,10 @@ const trimResolve = (args, { stats, sampleRate, totalDuration }) => {
   e++
 
   if (s === 0 && e === blocks) return false
-  if (s >= e) return { type: 'crop', args: [], at: 0, duration: 0 }
+  if (s >= e) return ['crop', { at: 0, duration: 0 }]
   let startSample = s * audio.BLOCK_SIZE
   let endSample = Math.min(e * audio.BLOCK_SIZE, total)
-  return { type: 'crop', args: [], at: startSample / sampleRate, duration: (endSample - startSample) / sampleRate }
+  return ['crop', { at: startSample / sampleRate, duration: (endSample - startSample) / sampleRate }]
 }
 
 audio.op('trim', { process: trim, resolve: trimResolve })

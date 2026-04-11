@@ -34,13 +34,16 @@ Ops don't mutate source pages. `a.gain(-3).crop({at: 1, duration: 5})` pushes tw
 
 ## Plan
 
-`buildPlan(a)` compiles the edit list into:
+`buildPlan(a)` compiles `a.edits` into two things, cached until the next edit (version-keyed):
 
-- **Segment map** — which source ranges map to which output positions (structural ops: crop, remove, insert, repeat, pad). A virtual timeline of pointers.
-- **Sample pipeline** — transforms applied per block in order (gain, fade, filter, pan). Each op receives one `BLOCK_SIZE` chunk. Stateful ops (filters) carry state across blocks.
-- **Stat-conditioned resolution** — ops like `trim` and `normalize` inspect pre-computed stats at plan time to emit concrete ops (crop, gain). No extra decode pass.
+- **Segment map** — copy instructions: which source ranges map to which output positions. Structural ops (crop, remove, insert, repeat, pad, reverse, speed) rewrite segments. Each segment is `[from, count, to, rate?, ref?]` — "read `count` samples from `from`, write at `to`."
+- **Sample pipeline** — per-block transforms applied in order (gain, fade, filter, pan). Each op receives one `BLOCK_SIZE` chunk. Stateful ops carry state across blocks.
+
+Compilation happens once per version. Streaming walks the pre-built plan — no recompilation per block.
 
 ```
+a.edits ──→ buildPlan() ──→ { segments, pipeline }    (compiled once, cached)
+                                    ↓
 source pages ──→ segment map ──→ sample pipeline ──→ output blocks
 (Float32)        (structural)    (per-block ops)    (stream or flat)
 ```

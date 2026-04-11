@@ -50,13 +50,13 @@ audio.op('filter', {
     if (typeof type === 'function') {
       let opts = args[0] || {}
       let { at, duration, channel, offset, length, ...rest } = opts
-      let edit = { type: 'filter', args: [type, rest] }
-      if (at != null) edit.at = at
-      if (duration != null) edit.duration = duration
-      if (channel != null) edit.channel = channel
-      if (offset != null) edit.offset = offset
-      if (length != null) edit.length = length
-      return this.run(edit)
+      let o = {}
+      if (at != null) o.at = at
+      if (duration != null) o.duration = duration
+      if (channel != null) o.channel = channel
+      if (offset != null) o.offset = offset
+      if (length != null) o.length = length
+      return this.run(['filter', type, rest, o])
     }
     return std.call(this, type, ...args)
   }

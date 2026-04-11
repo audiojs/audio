@@ -46,14 +46,35 @@ Return `false` to skip (no change).
 
 ### Options
 
-By default, `a.myOp(arg, {at, duration, channel})` maps to `{ type: 'myOp', args: [arg], at, duration, channel }`.
+By default, `a.myOp(arg, {at, duration, channel})` maps to `['myOp', arg, {at, duration, channel}]`.
 
-Any plain object as the last argument is treated as options. Known keys (`at`, `duration`, `channel`) are extracted to the edit; sample-based aliases `offset`/`length` convert to `at`/`duration`. **All other keys** flow through as extras on the edit and arrive in `ctx`:
+Any plain object as the last argument is treated as options. Known keys (`at`, `duration`, `channel`) are extracted; sample-based aliases `offset`/`length` convert to `at`/`duration`. **All other keys** flow through as extras and arrive in `ctx`:
 
 ```js
 a.fade(1, { curve: 'exp' })
-// → edit: { type: 'fade', args: [1], curve: 'exp' }
+// → edit: ['fade', 1, { curve: 'exp' }]
 // → ctx.curve === 'exp'
+```
+
+### Edit format
+
+Edits are arrays — same convention as method calls (`[type, ...args, opts?]`), trailing plain object = options:
+
+```js
+a.run(
+  ['gain', -3, { at: 10, duration: 5 }],
+  ['crop', { at: 1, duration: 2 }],
+  ['fade', 1, { curve: 'exp' }],
+  ['insert', ref, { at: 2 }],
+  ['gain', -3],                            // no opts needed
+)
+```
+
+Useful for serialization — edits roundtrip as JSON arrays:
+
+```js
+let saved = JSON.stringify([['gain', -3], ['crop', { at: 1, duration: 2 }]])
+a.run(...JSON.parse(saved))
 ```
 
 ### Custom wrappers
@@ -107,7 +128,9 @@ audio.op('myOp', {
 
 ### plan
 
-Rewrite the segment map without touching PCM. For ops that change timeline geometry.
+Rewrite the segment map without touching PCM. For ops that change timeline geometry (crop, insert, remove, repeat, pad, reverse, speed).
+
+`buildPlan()` compiles `a.edits` into a segment map + sample pipeline, cached per version. Edits are the source of truth; segments are the compiled form — like bytecode from source, or DOM patches from VDOM. Segments are never maintained manually — they rebuild on any edit change.
 
 `ctx` has `total`, `sampleRate`, `args`, `offset`, `length`. The `offset`/`length` are `at`/`duration` pre-converted to samples (`null` if unset).
 
@@ -115,53 +138,64 @@ Rewrite the segment map without touching PCM. For ops that change timeline geome
 import { seg } from 'audio/plan.js'
 
 audio.op('myRepeat', { plan(segs, ctx) {
-  // segs: current segment map (copy instructions for the whole timeline)
-  // ctx.total: current output length in samples
-  let r = [...segs]  // keep original segments as-is
-  // append a shifted copy — each segment replayed after the current end
+  let r = [...segs]
   for (let s of segs) { let n = s.slice(); n[2] = s[2] + ctx.total; r.push(n) }
-  return r  // new segment map: original + one full repeat
+  return r
 } })
 ```
 
-**Segments** — a flat list of copy instructions: `[src, count, dst, rate?, ref?]`.
+Most structural ops already have reusable segment transforms you can import instead of writing raw segment math:
 
-Each segment says: "copy `count` samples from `src` in source to `dst` in output."
+```js
+import { cropSegs } from 'audio/fn/crop.js'       // cropSegs(segs, offset, length)
+import { insertSegs } from 'audio/fn/insert.js'   // insertSegs(segs, at, length, ref)
+import { removeSegs } from 'audio/fn/remove.js'   // removeSegs(segs, offset, duration)
+import { reverseSegs } from 'audio/fn/reverse.js' // reverseSegs(segs, offset, end)
+import { speedSegs } from 'audio/fn/speed.js'     // speedSegs(segs, rate)
+```
+
+#### Segment format
+
+A segment is a copy instruction: `[from, count, to, rate?, ref?]`.
+
+Read `count` samples from source at `from`, write to output at `to`. All offsets are absolute — segments are independent, not linked. You can process them in any order, binary search by output position, or skip segments for partial renders.
 
 | Index | Field | Description |
 |-------|-------|-------------|
-| `0` | src | Read offset in source (samples) |
-| `1` | count | How many samples to copy |
-| `2` | dst | Write offset in output (samples) |
-| `3` | rate | Playback rate: omit or `1` = forward, `-1` = reverse. Future: `2` = double speed |
-| `4` | ref | Which source: `undefined` = self, `null` = zero-fill, audio instance = external |
+| `0` | from | Read offset in source (samples) |
+| `1` | count | Number of samples to copy |
+| `2` | to | Write offset in output (samples) |
+| `3` | rate | Source read rate. Omit or `1` = forward. `-1` = reverse (used by `reverse()`). `2` = read 2× faster, halving duration (used by `speed()`). `0.5` = half speed, doubling duration. The `speed` op multiplies existing rates and adjusts `count` — `speed(2)` on a 10s segment produces `count/2` at `rate*2`. The renderer uses linear interpolation to resample at non-unit rates. |
+| `4` | ref | Source: `undefined` = self, `null` = zero-fill (silence), audio instance = external |
 
-`seg(src, count, dst, rate?, ref?)` creates a segment array.
+`seg(from, count, to, rate?, ref?)` creates a segment.
 
-Example — 10s audio at 44100Hz starts as one segment:
+#### Examples
 
-```
-[[0, 441000, 0]]
-```
-
-After `crop({at: 2, duration: 3})` — read 3s from the 2s mark, write at start:
+10s audio at 44100 Hz starts as one segment — the whole source maps 1:1 to output:
 
 ```
-[[88200, 132300, 0]]
+[0, 441000, 0]       →  read all 441000 samples from 0, write at 0
+```
+
+After `crop({at: 2, duration: 3})` — keep only 3s starting at the 2s mark:
+
+```
+[88200, 132300, 0]   →  read 132300 samples from 88200, write at 0
 ```
 
 After `insert(silence, {at: 1})` — split at 1s, insert 1s silence, shift the rest:
 
 ```
-[[0, 44100, 0],
- [0, 44100, 44100, , null],
- [44100, 396900, 88200]]
+[0, 44100, 0]              →  first 1s unchanged
+[0, 44100, 44100, , null]  →  1s silence (ref=null means zero-fill)
+[44100, 396900, 88200]     →  remainder shifted right by 1s
 ```
 
-After `reverse()` — same positions, read backwards:
+After `reverse()` — same range, negative rate:
 
 ```
-[[0, 441000, 0, -1]]
+[0, 441000, 0, -1]  →  read backwards
 ```
 
 ### resolve
@@ -175,7 +209,7 @@ audio.op('trim', {
     let { stats, sampleRate, totalDuration } = ctx
     if (!stats?.min) return null  // no stats — fall back to per-page
     // ...analyze stats to find silence boundaries...
-    return { type: 'crop', args: [], at: start / sampleRate, duration: (end - start) / sampleRate }
+    return ['crop', { at: start / sampleRate, duration: (end - start) / sampleRate }]
   }
 })
 ```

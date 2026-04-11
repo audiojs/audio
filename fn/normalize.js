@@ -55,16 +55,16 @@ audio.op('normalize', {
     if (levelDb == null) return false
 
     let edits = []
-    if (hasDc) edits.push({ type: 'dc', args: [chs.map(c => dcOff[c])] })
+    if (hasDc) edits.push(['dc', chs.map(c => dcOff[c])])
 
     // Ceiling mode: normalize peak then clip at ceiling level
     if (ctx.ceiling != null) {
       let peakLevel = peakDb(stats, chs, dcOff)
       if (peakLevel == null) return false
-      edits.push({ type: 'gain', args: [targetDb - peakLevel] })
-      edits.push({ type: 'clamp', args: [10 ** (ctx.ceiling / 20)] })
+      edits.push(['gain', targetDb - peakLevel])
+      edits.push(['clamp', 10 ** (ctx.ceiling / 20)])
     } else {
-      edits.push({ type: 'gain', args: [targetDb - levelDb] })
+      edits.push(['gain', targetDb - levelDb])
     }
 
     return edits.length === 1 ? edits[0] : edits
