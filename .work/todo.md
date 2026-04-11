@@ -2,6 +2,7 @@
 
 * [ ] structural ops streaming
 * [ ] playback speed
+
 * [ ] Wavearea integration
 * [ ] Audio ponyfill — separate `audio-ponyfill` package (#68)
 * [ ] Minimal duration guard on save — some players can't reproduce 1-sample wav (#27)
@@ -11,6 +12,22 @@
 * [ ] Pitch detection — spectral centroid or YIN, `audio.stat('pitch')` + `a.pitch()` query
 * [ ] Show BPM/pitch in CLI info line (when detected)
 * [ ] Common processing scripts (vocal warmup etc)
+
+## Sox parity
+
+- [ ] **compressor** — dynamic range compression / expansion / limiting (SoX `compand`)
+- [ ] **reverb** — freeverb reverberation
+- [ ] **noise** — noise reduction via spectral profiling (SoX `noisered`)
+- [ ] **echo** — echo / delay effect
+- [ ] **resample** — explicit sample rate conversion
+- [ ] **dither** — dithering for bit-depth reduction
+- [ ] **chorus** — chorus modulation
+- [ ] **flanger** — flanging
+- [ ] **phaser** — phaser effect
+- [ ] **vocals** — vocal isolation / removal (SoX `oops`, out-of-phase stereo)
+- [ ] **allpass** — all-pass filter
+- [ ] **earwax** — headphone crossfeed
+
 
 ## Tier 2
 

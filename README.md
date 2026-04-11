@@ -25,7 +25,7 @@ audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 
 <div align="center">
 
-#### [Quick Start](#quick-start)&nbsp;&nbsp;&nbsp;[Recipes](#recipes)&nbsp;&nbsp;&nbsp;[API](#api)&nbsp;&nbsp;&nbsp;[CLI](#cli)&nbsp;&nbsp;&nbsp;[FAQ](#faq)&nbsp;&nbsp;&nbsp;<br>[Ecosystem](#ecosystem)&nbsp;&nbsp;&nbsp;[Plugins](docs/plugins.md)&nbsp;&nbsp;&nbsp;[Architecture](docs/architecture.md)&nbsp;&nbsp;&nbsp;
+#### [Quick Start](#quick-start)&nbsp;&nbsp;&nbsp;[Recipes](#recipes)&nbsp;&nbsp;&nbsp;[API](#api)&nbsp;&nbsp;&nbsp;[CLI](#cli)&nbsp;&nbsp;&nbsp;[FAQ](#faq)&nbsp;&nbsp;&nbsp;<br>[Ecosystem](#ecosystem)&nbsp;&nbsp;&nbsp;[Todo](#todo)&nbsp;&nbsp;&nbsp;[Plugins](docs/plugins.md)&nbsp;&nbsp;&nbsp;[Architecture](docs/architecture.md)&nbsp;&nbsp;&nbsp;
 
 </div>
 
@@ -623,9 +623,6 @@ audio --completions fish | source       # fish
 ## FAQ
 
 <dl>
-<dt>How is this different from Web Audio API?</dt>
-<dd>Web Audio API is a real-time audio graph for playback and synthesis. This is for work on audio files specifically. For Web Audio API in Node, see <a href="https://github.com/audiojs/web-audio-api">web-audio-api</a>.</dd>
-
 <dt>What formats are supported?</dt>
 <dd>Decode: WAV, MP3, FLAC, OGG Vorbis, Opus, AAC, AIFF, CAF, WebM, AMR, WMA, QOA via <a href="https://github.com/audiojs/audio-decode">audio-decode</a>. Encode: WAV, MP3, FLAC, Opus, OGG, AIFF via <a href="https://github.com/audiojs/audio-encode">audio-encode</a>. Codecs are WASM-based, lazy-loaded on first use.</dd>
 
@@ -649,7 +646,40 @@ audio --completions fish | source       # fish
 
 <dt>TypeScript?</dt>
 <dd>Yes, ships with <code>audio.d.ts</code>.</dd>
+
+<dt>How is this different from SoX?</dt>
+<dd>SoX is a C command-line tool — powerful but native-only, no browser, no programmatic API, no streaming edits, no undo. <code>audio</code> runs in Node and the browser with the same API, edits are non-destructive and lazy (nothing is rendered until you read/save), and it streams during decode. SoX has more effects (reverb, compressor, noise reduction, chorus, flanger, phaser) — these are on the <a href="#todo">roadmap</a>.</dd>
+
+<dt>How is this different from Audacity?</dt>
+<dd>Audacity is a GUI desktop app. <code>audio</code> is a library and CLI — designed for scripting, automation, pipelines, and embedding in apps. Audacity is destructive (edits mutate samples); <code>audio</code> is non-destructive (edits are a plan replayed on read). Audacity can't run in the browser or be <code>npm install</code>ed into your project.</dd>
+
+<dt>How is this different from ffmpeg?</dt>
+<dd>ffmpeg is a video-first tool that also handles audio. It's a C binary — no JS API, no browser, no streaming edits. <code>audio</code> is audio-first: dB, Hz, LUFS are native units. Edits are non-destructive, playback streams during decode, and the whole thing is ~20K gzipped with codecs loading on demand.</dd>
+
+<dt>How is this different from Web Audio API?</dt>
+<dd>Web Audio API is a real-time audio graph for playback and synthesis — not for editing files. No undo, no save-to-file, no CLI, no Node (without polyfills). <code>audio</code> is for working on audio files: load, edit, analyze, save. For Web Audio API in Node, see <a href="https://github.com/audiojs/web-audio-api">web-audio-api</a>.</dd>
+
+<dt>How is this different from Tone.js / Howler.js?</dt>
+<dd>Tone.js is a Web Audio synthesis framework — great for making music in real-time, not for editing files. Howler.js is a playback library — load and play, no editing or analysis. <code>audio</code> is a complete audio workstation: decode, edit, analyze, encode, play, record, CLI.</dd>
 </dl>
+
+
+## Todo
+
+Effects from SoX and elsewhere not yet available. Contributions welcome.
+
+- [ ] **compressor** — dynamic range compression / expansion / limiting (SoX `compand`)
+- [ ] **reverb** — freeverb reverberation
+- [ ] **noise** — noise reduction via spectral profiling (SoX `noisered`)
+- [ ] **echo** — echo / delay effect
+- [ ] **resample** — explicit sample rate conversion
+- [ ] **dither** — dithering for bit-depth reduction
+- [ ] **chorus** — chorus modulation
+- [ ] **flanger** — flanging
+- [ ] **phaser** — phaser effect
+- [ ] **vocals** — vocal isolation / removal (SoX `oops`, out-of-phase stereo)
+- [ ] **allpass** — all-pass filter
+- [ ] **earwax** — headphone crossfeed
 
 
 ## Ecosystem
