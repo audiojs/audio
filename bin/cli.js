@@ -11,7 +11,6 @@
  */
 
 import audio from '../audio.js'
-import { eType, eArgs } from '../plan.js'
 import { melSpectrum, toMel, fromMel } from '../fn/spectrum.js'
 import parseDuration from 'parse-duration'
 import fft from 'fourier-transform'

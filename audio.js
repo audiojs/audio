@@ -7,7 +7,6 @@
  * await a.save('out.wav')
  */
 
-import audio from './core.js'
 export { default } from './core.js'
 export { parseTime } from './core.js'
 export { render } from './plan.js'

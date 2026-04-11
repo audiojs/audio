@@ -11,6 +11,7 @@ import getType from 'audio-type'
 import encode from 'encode-audio'
 import convert, { parse as parseFmt } from 'pcm-convert'
 import parseDuration from 'parse-duration'
+import mic from 'audio-mic'
 
 audio.version = '2.2.0'
 
@@ -377,21 +378,13 @@ fn.record = function(opts = {}) {
   this.decoded = false
   let self = this, sr = this.sampleRate, ch = this._.ch
   let _rec = (async () => {
-    try {
-      let { default: mic } = await import('audio-mic')
-      let read = mic({ sampleRate: sr, channels: ch, bitDepth: 16, ...opts })
-      self._._mic = read
-      read((err, buf) => {
-        if (!self.recording) return
-        if (err || !buf) return
-        self.push(new Int16Array(buf.buffer, buf.byteOffset, buf.byteLength / 2), 'int16')
-      })
-    } catch (e) {
-      self.recording = false
-      self.decoded = true
-      if (self._.waiters) for (let w of self._.waiters.splice(0)) w()
-      throw e.code === 'ERR_MODULE_NOT_FOUND' ? new Error('record: audio-mic not installed — npm i audio-mic') : e
-    }
+    let read = mic({ sampleRate: sr, channels: ch, bitDepth: 16, ...opts })
+    self._._mic = read
+    read((err, buf) => {
+      if (!self.recording) return
+      if (err || !buf) return
+      self.push(new Int16Array(buf.buffer, buf.byteOffset, buf.byteLength / 2), 'int16')
+    })
   })()
   _rec.catch(() => {})  // suppress unhandled rejection; surfaces through .ready/.stop
   return this

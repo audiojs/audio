@@ -18,14 +18,14 @@ const base = {
 await build({
   ...base,
   outfile: 'dist/audio.js',
-  external: [...NODE_BUILTINS, 'audio-speaker', ...CODECS],
+  external: [...NODE_BUILTINS, ...CODECS],
 })
 
 // dist/audio.min.js — same, minified
 await build({
   ...base,
   outfile: 'dist/audio.min.js',
-  external: [...NODE_BUILTINS, 'audio-speaker', ...CODECS],
+  external: [...NODE_BUILTINS, ...CODECS],
   minify: true,
 })
 

@@ -413,7 +413,7 @@ src.stop()                                // finalize
 
 ### Playback / Recording
 
-Live playback with dB volume, seeking, looping. Mic recording via `audio-mic`.
+Live playback with dB volume, seeking, looping.
 
 * **`.play(opts?)`** – start playback. `{ at, duration, volume, loop }`. `.played` promise resolves when output starts.
 * **`.pause()`**, **`.resume()`**, **`.seek(t)`**, **`.stop()`** – playback control.

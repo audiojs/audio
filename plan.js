@@ -18,14 +18,7 @@ export function seg(from, count, to, rate, ref) {
 
 // ── Edit array: ['type', ...args, {}] ────────────────────────────
 // Normalized shape: trailing opts {} always present.
-export let eType = e => e[0]
-export let eArgs = e => e.slice(1, -1)
-
-/** Spread extra opts (beyond at/duration/channel) into ctx. */
-function eCtx(e, base) {
-  let { at, duration, channel, ...extra } = e.at(-1)
-  return Object.keys(extra).length ? { ...base, ...extra } : base
-}
+// e[0] = type, e.slice(1,-1) = args, e.at(-1) = opts
 
 // ── Range Helpers ────────────────────────────────────────────────
 
@@ -109,7 +102,7 @@ Object.defineProperties(fn, {
   channels: { get() {
     if (this._.chV === this.version) return this._.chC
     let ch = this._.ch
-    for (let edit of this.edits) { let op = ops[eType(edit)]; if (op?.ch) ch = op.ch(ch, eArgs(edit)) }
+    for (let edit of this.edits) { let op = ops[edit[0]]; if (op?.ch) ch = op.ch(ch, edit.slice(1, -1)) }
     this._.chC = ch; this._.chV = this.version
     return ch
   }, configurable: true },
@@ -136,7 +129,7 @@ export async function ensurePlan(a, plan, offset, duration) {
 }
 
 async function loadRefs(a) {
-  for (let edit of a.edits) { let a0 = eArgs(edit)[0]; if (a0?.pages) await a0[LOAD]() }
+  for (let edit of a.edits) { let a0 = edit[1]; if (a0?.pages) await a0[LOAD]() }
 }
 
 fn[READ] = async function(offset, duration) {
@@ -191,7 +184,7 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
   if (this._.waiters && !this.decoded && this.edits.length) {
     let allProcess = true
     for (let edit of this.edits) {
-      let op = ops[eType(edit)]
+      let op = ops[edit[0]]
       if (!op || op.plan || op.resolve) { allProcess = false; break }
     }
     if (allProcess) {
@@ -202,13 +195,13 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
       let pos = startSample
 
       let procs = this.edits.map(ed => {
-        let o = ed.at(-1), at = o.at, dur = o.duration
+        let { at, duration: dur, channel, ...extra } = ed.at(-1)
         return {
           op: ops[ed[0]].process,
           origAt: at,
           at: at != null && at < 0 ? Infinity : at,
-          channel: o.channel,
-          ctx: { ...eCtx(ed, { args: eArgs(ed), duration: dur, sampleRate: sr, totalDuration: Infinity, render }) }
+          channel,
+          ctx: { args: ed.slice(1, -1), duration: dur, sampleRate: sr, totalDuration: Infinity, render, ...extra }
         }
       })
       let resolved = false
@@ -310,7 +303,7 @@ fn.run = function(...edits) {
 }
 
 fn.toJSON = function() {
-  let edits = this.edits.filter(e => !eArgs(e).some(a => typeof a === 'function'))
+  let edits = this.edits.filter(e => !e.slice(1, -1).some(a => typeof a === 'function'))
   return { source: this.source, edits, sampleRate: this.sampleRate, channels: this.channels, duration: this.duration }
 }
 
@@ -361,14 +354,13 @@ export function buildPlan(a) {
   let segs = [[0, a._.len, 0]], pipeline = []
 
   for (let edit of a.edits) {
-    let type = edit[0], args = eArgs(edit), o = edit.at(-1)
-    let at = o.at, duration = o.duration, channel = o.channel
+    let type = edit[0], args = edit.slice(1, -1), { at, duration, channel, ...extra } = edit.at(-1)
     let op = ops[type]
     if (!op) throw new Error(`Unknown op: ${type}`)
 
     // resolve: try stats-aware replacement first
     if (op.resolve) {
-      let ctx = eCtx(edit, { stats: a._.srcStats || a.stats, sampleRate: sr, channelCount: ch, channel, at, duration, totalDuration: planLen(segs) / sr })
+      let ctx = { stats: a._.srcStats || a.stats, sampleRate: sr, channelCount: ch, channel, at, duration, totalDuration: planLen(segs) / sr, ...extra }
       let resolved = op.resolve(args, ctx)
       if (resolved === false) continue
       if (resolved) {
@@ -459,13 +451,13 @@ export function* streamPlan(a, plan, offset, duration) {
 
   let totalDur = totalLen / sr
   let procs = pipeline.map(ed => {
-    let o = ed.at(-1), at = o.at, dur = o.duration
+    let { at, duration: dur, channel, ...extra } = ed.at(-1)
     return {
       op: ops[ed[0]].process,
       at: at != null && at < 0 ? totalDur + at : at,
       dur,
-      channel: o.channel,
-      ctx: eCtx(ed, { args: eArgs(ed), duration: dur, sampleRate: sr, totalDuration: totalDur, render })
+      channel,
+      ctx: { args: ed.slice(1, -1), duration: dur, sampleRate: sr, totalDuration: totalDur, render, ...extra }
     }
   })
 
