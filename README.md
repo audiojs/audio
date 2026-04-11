@@ -15,7 +15,7 @@ audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 * **Analysis** — loudness, spectrum, peaks, and more.
 * **Modular** – pluggable ops, tree-shakable.
 * **CLI** — playback, unix pipes, tab completion.
-* **Isomorphic** — node / browser.
+* **Cross-platform** — browsers, node, deno, bun.
 * **Audio-first** – dB, Hz, LUFS, not bytes and indices.
 
 <!--
