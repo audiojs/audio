@@ -150,125 +150,67 @@ fn[READ] = async function(offset, duration) {
 
 fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
   let offset = parseTime(opts?.at), duration = parseTime(opts?.duration)
-  // Live decode streaming (no edits, still decoding)
-  // Position-based: reads from full pages (zero-copy) or partial buffer (copied).
-  // Granularity = decoder chunk size, NOT page size. Pages are for memory, not streaming.
-  if (this._.waiters && !this.decoded && !this.edits.length) {
-    let sr = this.sampleRate, acc = this._.acc, PS = audio.PAGE_SIZE
-    let startSample = offset ? Math.round(offset * sr) : 0
-    let endSample = duration != null ? startSample + Math.round(duration * sr) : Infinity
-    let pos = startSample
-    while (pos < endSample) {
-      let available = this.decoded ? this._.len : acc ? this.pages.length * PS + acc.partialLen : this._.len
-      while (pos >= available && !this.decoded) {
-        await new Promise(r => this._.waiters.push(r))
-        available = this.decoded ? this._.len : acc ? this.pages.length * PS + acc.partialLen : this._.len
-      }
-      if (pos >= available) break
-      let end = Math.min(endSample, available)
-      let pi = Math.floor(pos / PS), po = pos % PS
-      if (pi < this.pages.length) {
-        let page = this.pages[pi], e = Math.min(page[0].length - po, end - pos)
-        yield page.map(ch => ch.subarray(po, po + e))
-        pos += e
-      } else if (acc) {
-        let e = Math.min(acc.partialLen - po, end - pos)
-        if (e > 0) { yield acc.partial.map(ch => ch.subarray(po, po + e).slice()); pos += e }
-      }
-    }
-    return
-  }
 
-  // Live decode streaming with process-only edits (no structural plan ops).
-  // Applies transforms per-block as decoded chunks arrive — no wait for full decode.
-  if (this._.waiters && !this.decoded && this.edits.length) {
-    let allProcess = true
-    for (let edit of this.edits) {
-      let op = ops[edit[0]]
-      if (!op || op.plan || op.resolve) { allProcess = false; break }
-    }
-    if (allProcess) {
-      if (this._.ready) await this._.ready  // wait for metadata (sampleRate, channels) — not full decode
-      let sr = this.sampleRate, acc = this._.acc, PS = audio.PAGE_SIZE, BS = audio.BLOCK_SIZE
-      let startSample = offset ? Math.round(offset * sr) : 0
-      let endSample = duration != null ? startSample + Math.round(duration * sr) : Infinity
-      let pos = startSample
-
-      let procs = this.edits.map(ed => {
-        let { at, duration: dur, channel, ...extra } = ed.at(-1)
-        return {
-          op: ops[ed[0]].process,
-          origAt: at,
-          at: at != null && at < 0 ? Infinity : at,
-          channel,
-          ctx: { args: ed.slice(1, -1), duration: dur, sampleRate: sr, totalDuration: Infinity, render, ...extra }
-        }
-      })
-      let resolved = false
-
-      while (pos < endSample) {
-        let available = this.decoded ? this._.len : acc ? this.pages.length * PS + acc.partialLen : this._.len
-        // Once decode completes, resolve totalDuration and negative at values (e.g. fade-out from end)
-        if (this.decoded && !resolved) {
-          resolved = true
-          let td = this._.len / sr
-          for (let proc of procs) {
-            proc.ctx.totalDuration = td
-            if (proc.origAt != null && proc.origAt < 0) proc.at = td + proc.origAt
-          }
-          if (endSample === Infinity) endSample = this._.len
-        }
-        while (pos >= available && !this.decoded) {
-          await new Promise(r => this._.waiters.push(r))
-          available = this.decoded ? this._.len : acc ? this.pages.length * PS + acc.partialLen : this._.len
-        }
-        if (pos >= available) break
-        let end = Math.min(endSample, available)
-        let pi = Math.floor(pos / PS), po = pos % PS
-        let chunk, len
-        if (pi < this.pages.length) {
-          let page = this.pages[pi], e = Math.min(page[0].length - po, end - pos, BS)
-          chunk = page.map(ch => ch.subarray(po, po + e).slice())
-          len = e
-        } else if (acc) {
-          let e = Math.min(acc.partialLen - po, end - pos, BS)
-          if (e > 0) { chunk = acc.partial.map(ch => ch.subarray(po, po + e).slice()); len = e }
-          else break
-        } else break
-
-        let blockOff = pos / sr
-        for (let proc of procs) {
-          let { op, at, channel, ctx } = proc
-          if (!op) continue
-          ctx.at = at != null ? at - blockOff : undefined
-          ctx.blockOffset = blockOff
-          if (channel != null) {
-            let chs = typeof channel === 'number' ? [channel] : channel
-            let sub = chs.map(c => chunk[c])
-            let result = op(sub, ctx)
-            if (result && result !== false) for (let i = 0; i < chs.length; i++) chunk[chs[i]] = result[i]
-          } else {
-            let result = op(chunk, ctx)
-            if (result === false || result === null) continue
-            if (result) chunk = result
-          }
-        }
-        yield chunk
-        pos += len
-      }
-      return
-    }
-  }
-
-  // Edit-aware streaming (plan-based)
-  await this.ready
-  await this[LOAD]()
+  if (this._.ready) await this._.ready
   await loadRefs(this)
-  let plan = buildPlan(this)
-  let seen = new Set()
-  for (let s of plan.segs) if (s[4] && s[4] !== null && !seen.has(s[4])) { seen.add(s[4]); await s[4][LOAD]() }
-  await ensurePlan(this, plan, offset, duration)
-  for (let chunk of streamPlan(this, plan, offset, duration)) yield chunk
+
+  let a = this, sr = a.sampleRate, BS = audio.BLOCK_SIZE
+  let live = !!a._.waiters && !a.decoded
+  if (!live) await a[LOAD]()
+
+  let startSample = offset ? Math.round(offset * sr) : 0
+  let endSample = duration != null ? startSample + Math.round(duration * sr) : Infinity
+  let builtLen = 0, plan = null, procs = null, outPos = startSample, ensured = false
+
+  while (outPos < endSample) {
+    let acc = a._.acc
+    if (acc && !a.decoded) acc.drain()
+    let avail = a.decoded ? a._.len : acc ? acc.length : a._.len
+
+    if (avail > builtLen || (a.decoded && !ensured)) {
+      builtLen = Math.max(builtLen, avail)
+      plan = compilePlan(a, builtLen, a.decoded)
+      if (!procs) {
+        procs = initProcs(plan.pipeline, plan.totalLen / sr, sr)
+        if (startSample > 0 && procs.length)
+          outPos = Math.max(0, startSample - BS * 8)
+      }
+      if (a.decoded && !ensured) {
+        ensured = true
+        if (endSample === Infinity) endSample = plan.totalLen
+        let td = plan.totalLen / sr
+        for (let p of procs) {
+          p.ctx.totalDuration = td
+          if (p.origAt != null && p.origAt < 0) p.at = td + p.origAt
+        }
+        await ensurePlan(a, plan, offset, duration)
+        let seen = new Set()
+        for (let s of plan.segs) if (s[4] && s[4] !== null && !seen.has(s[4])) { seen.add(s[4]); await s[4][LOAD]() }
+      }
+    }
+
+    if (!plan || outPos >= plan.totalLen) {
+      if (a.decoded) break
+      await new Promise(r => a._.waiters.push(r))
+      continue
+    }
+
+    let blockEnd = outPos < startSample ? startSample : Math.min(endSample, plan.totalLen, plan.limit)
+    let len = Math.min(BS, blockEnd - outPos)
+    if (len <= 0) { if (a.decoded) break; await new Promise(r => a._.waiters.push(r)); continue }
+
+    let needed = maxSrcSample(plan.segs, outPos, outPos + len)
+    if (needed > builtLen && !a.decoded) {
+      await new Promise(r => a._.waiters.push(r))
+      continue
+    }
+
+    let chunk = renderBlock(a, plan.segs, outPos, len)
+    chunk = applyProcs(chunk, procs, outPos, sr)
+
+    if (outPos >= startSample) yield chunk
+    outPos += len
+  }
 }
 
 
@@ -347,51 +289,85 @@ export function render(a, offset, count) {
 
 function planLen(segs) { let m = 0; for (let s of segs) m = Math.max(m, s[2] + s[1]); return m }
 
-/** Build a read plan from edit list. Always succeeds — every op is plannable. */
-export function buildPlan(a) {
-  if (a._.plan && a._.planV === a.version) return a._.plan
+/** How a plan op transforms the safe output boundary during incremental decode. */
+function adjustLimit(limit, type, args, offset, length, sr) {
+  if (limit <= 0) return 0
+  if (type === 'speed') return Math.round(limit / Math.abs(args[0] || 1))
+  if (type === 'crop') {
+    let at = offset ?? 0, dur = length ?? limit - at
+    return Math.max(0, Math.min(dur, limit - at))
+  }
+  if (type === 'remove') {
+    let at = offset ?? 0, dur = length ?? limit - at
+    return at < limit ? limit - Math.min(dur, limit - at) : limit
+  }
+  if (type === 'insert') {
+    if (offset != null && offset <= limit) {
+      let iLen = typeof args[0] === 'number' ? Math.round(args[0] * sr) : (args[0]?.length ?? 0)
+      if (length != null) iLen = Math.min(iLen, length)
+      return limit + iLen
+    }
+    return limit
+  }
+  if (type === 'pad') return limit + Math.round((args[0] ?? 0) * sr)
+  if (type === 'reverse') return length == null ? Math.min(limit, offset ?? 0) : limit
+  return limit
+}
+
+/** Compile edit list into plan segments + pipeline for a given source length.
+ *  final=true when source is fully decoded — all positions are determined. */
+function compilePlan(a, len, final) {
   let sr = a.sampleRate, ch = a._.ch
-  let segs = [[0, a._.len, 0]], pipeline = []
+  let segs = [[0, len, 0]], pipeline = [], limit = len
 
   for (let edit of a.edits) {
     let type = edit[0], args = edit.slice(1, -1), { at, duration, channel, ...extra } = edit.at(-1)
     let op = ops[type]
     if (!op) throw new Error(`Unknown op: ${type}`)
 
-    // resolve: try stats-aware replacement first
+    if (!final && at != null && at < 0) limit = 0
+
     if (op.resolve) {
-      let ctx = { stats: a._.srcStats || a.stats, sampleRate: sr, channelCount: ch, channel, at, duration, totalDuration: planLen(segs) / sr, ...extra }
+      let stats = a._.srcStats || a.stats || a._.acc?.stats
+      let ctx = { stats, sampleRate: sr, channelCount: ch, channel, at, duration, totalDuration: planLen(segs) / sr, ...extra }
       let resolved = op.resolve(args, ctx)
       if (resolved === false) continue
       if (resolved) {
         let edits = Array.isArray(resolved) && typeof resolved[0] !== 'string' ? resolved : [resolved]
         for (let re of edits) {
-          // Normalize resolved edit + inherit parent opts
           if (!isOpts(re.at(-1))) re = [...re, {}]
           let o = re.at(-1)
           o.at ??= at; o.duration ??= duration; o.channel ??= channel
           let rOp = ops[re[0]]
           if (rOp?.plan && typeof rOp.plan === 'function') {
-            let t = planLen(segs), rOffset = o.at != null ? Math.round(o.at * sr) : null, rLength = o.duration != null ? Math.round(o.duration * sr) : null
-            segs = rOp.plan(segs, { total: t, sampleRate: sr, args: re.slice(1, -1), offset: rOffset, length: rLength })
+            let t = planLen(segs), rOff = o.at != null ? Math.round(o.at * sr) : null, rLen = o.duration != null ? Math.round(o.duration * sr) : null
+            segs = rOp.plan(segs, { total: t, sampleRate: sr, args: re.slice(1, -1), offset: rOff, length: rLen })
+            if (!final) limit = adjustLimit(limit, re[0], re.slice(1, -1), rOff, rLen, sr)
           } else {
             pipeline.push(re)
           }
         }
         continue
       }
-      // resolved null — fall through to plan or per-page
     }
 
-    // plan: structural segment rewrite
     if (op.plan) {
       let t = planLen(segs), offset = at != null ? Math.round(at * sr) : null, length = duration != null ? Math.round(duration * sr) : null
       segs = op.plan(segs, { total: t, sampleRate: sr, args, offset, length })
+      if (!final) limit = adjustLimit(limit, type, args, offset, length, sr)
     } else {
       pipeline.push(edit)
     }
   }
-  let plan = { segs, pipeline, totalLen: planLen(segs), sr }
+  let totalLen = planLen(segs)
+  if (final) limit = totalLen
+  return { segs, pipeline, totalLen, sr, limit: Math.max(0, limit) }
+}
+
+/** Build a read plan from edit list. Always succeeds — every op is plannable. */
+export function buildPlan(a) {
+  if (a._.plan && a._.planV === a.version) return a._.plan
+  let plan = compilePlan(a, a._.len, true)
   a._.plan = plan; a._.planV = a.version
   return plan
 }
@@ -444,22 +420,100 @@ function readRange(a, srcStart, n) {
   return readPlan(a, plan, srcStart / sr, n / sr)
 }
 
-/** Stream chunks from a read plan. */
-export function* streamPlan(a, plan, offset, duration) {
-  let { segs, pipeline, totalLen, sr } = plan
-  let s = Math.round((offset || 0) * sr), e = duration != null ? s + Math.round(duration * sr) : totalLen
+/** Render one output block from plan segments. */
+function renderBlock(a, segs, outOff, len) {
+  let chunk = Array.from({ length: a._.ch }, () => new Float32Array(len))
+  for (let sg of segs) {
+    let iStart = Math.max(outOff, sg[2]), iEnd = Math.min(outOff + len, sg[2] + sg[1])
+    if (iStart >= iEnd) continue
+    let rate = sg[3] || 1, ref = sg[4], absR = Math.abs(rate)
+    let n = iEnd - iStart, dstOff = iStart - outOff
+    let srcStart = rate < 0
+      ? sg[0] + (sg[1] - (iStart - sg[2]) - n) * absR
+      : sg[0] + (iStart - sg[2]) * absR
+    if (ref === null) {
+      // zero-filled by default
+    } else if (ref) {
+      if (ref.edits.length === 0) {
+        for (let c = 0; c < a._.ch; c++)
+          readSource(ref, c % ref._.ch, srcStart, n, chunk[c], dstOff, rate)
+      } else {
+        let srcN = Math.ceil(n * absR) + 1
+        let srcPcm = readRange(ref, srcStart, srcN)
+        for (let c = 0; c < a._.ch; c++) {
+          let src = srcPcm[c % srcPcm.length]
+          if (absR === 1) {
+            if (rate < 0) { for (let i = 0; i < n; i++) chunk[c][dstOff + i] = src[n - 1 - i] }
+            else chunk[c].set(src.subarray(0, n), dstOff)
+          } else resample(src, chunk[c], dstOff, n, rate)
+        }
+      }
+    } else {
+      for (let c = 0; c < a._.ch; c++) readSource(a, c, srcStart, n, chunk[c], dstOff, rate)
+    }
+  }
+  return chunk
+}
 
-  let totalDur = totalLen / sr
-  let procs = pipeline.map(ed => {
+/** Apply process pipeline to a chunk. Returns (possibly replaced) chunk. */
+function applyProcs(chunk, procs, outOff, sr) {
+  let blockOff = outOff / sr
+  for (let proc of procs) {
+    let { op, at, channel, ctx } = proc
+    if (!op) continue
+    ctx.at = at != null ? at - blockOff : undefined
+    ctx.blockOffset = blockOff
+    if (channel != null) {
+      let chs = typeof channel === 'number' ? [channel] : channel
+      let sub = chs.map(c => chunk[c])
+      let result = op(sub, ctx)
+      if (result && result !== false) for (let i = 0; i < chs.length; i++) chunk[chs[i]] = result[i]
+    } else {
+      let result = op(chunk, ctx)
+      if (result === false || result === null) continue
+      if (result) chunk = result
+    }
+  }
+  return chunk
+}
+
+/** Initialize process pipeline contexts from plan. */
+function initProcs(pipeline, totalDur, sr) {
+  return pipeline.map(ed => {
     let { at, duration: dur, channel, ...extra } = ed.at(-1)
     return {
       op: ops[ed[0]].process,
+      origAt: at,
       at: at != null && at < 0 ? totalDur + at : at,
       dur,
       channel,
       ctx: { args: ed.slice(1, -1), duration: dur, sampleRate: sr, totalDuration: totalDur, render, ...extra }
     }
   })
+}
+
+/** Maximum source sample needed by self-referencing segments for output range [start, end). */
+function maxSrcSample(segs, start, end) {
+  let max = 0
+  for (let sg of segs) {
+    let iStart = Math.max(start, sg[2]), iEnd = Math.min(end, sg[2] + sg[1])
+    if (iStart >= iEnd) continue
+    if (sg[4] === null || sg[4]) continue  // silence or external ref
+    let rate = sg[3] || 1, absR = Math.abs(rate)
+    let n = iEnd - iStart
+    let srcStart = rate < 0
+      ? sg[0] + (sg[1] - (iStart - sg[2]) - n) * absR
+      : sg[0] + (iStart - sg[2]) * absR
+    max = Math.max(max, Math.ceil(srcStart + n * absR) + 1)
+  }
+  return max
+}
+
+/** Stream chunks from a read plan. */
+export function* streamPlan(a, plan, offset, duration) {
+  let { segs, pipeline, totalLen, sr } = plan
+  let s = Math.round((offset || 0) * sr), e = duration != null ? s + Math.round(duration * sr) : totalLen
+  let procs = initProcs(pipeline, totalLen / sr, sr)
 
   // Warm up stateful ops (filters) when seeking — render prior blocks silently to settle IIR state
   let WARMUP = 8  // ~185ms at 44.1kHz — enough for most IIR filters to settle
@@ -468,58 +522,8 @@ export function* streamPlan(a, plan, offset, duration) {
   for (let outOff = ws; outOff < e; outOff += audio.BLOCK_SIZE) {
     let blockEnd = outOff < s ? s : e
     let len = Math.min(audio.BLOCK_SIZE, blockEnd - outOff)
-    let chunk = Array.from({ length: a._.ch }, () => new Float32Array(len))
-
-    for (let sg of segs) {
-      let iStart = Math.max(outOff, sg[2]), iEnd = Math.min(outOff + len, sg[2] + sg[1])
-      if (iStart >= iEnd) continue
-      let rate = sg[3] || 1, ref = sg[4], absR = Math.abs(rate)
-      let n = iEnd - iStart, dstOff = iStart - outOff
-      // For negative rate, read from the far end of the source range so reversal is globally correct across blocks
-      let srcStart = rate < 0
-        ? sg[0] + (sg[1] - (iStart - sg[2]) - n) * absR
-        : sg[0] + (iStart - sg[2]) * absR
-      if (ref === null) {
-        // zero-filled by default
-      } else if (ref) {
-        if (ref.edits.length === 0) {
-          for (let c = 0; c < a._.ch; c++)
-            readSource(ref, c % ref._.ch, srcStart, n, chunk[c], dstOff, rate)
-        } else {
-          let srcN = Math.ceil(n * absR) + 1
-          let srcPcm = readRange(ref, srcStart, srcN)
-          for (let c = 0; c < a._.ch; c++) {
-            let src = srcPcm[c % srcPcm.length]
-            if (absR === 1) {
-              if (rate < 0) { for (let i = 0; i < n; i++) chunk[c][dstOff + i] = src[n - 1 - i] }
-              else chunk[c].set(src.subarray(0, n), dstOff)
-            } else resample(src, chunk[c], dstOff, n, rate)
-          }
-        }
-      } else {
-        for (let c = 0; c < a._.ch; c++) readSource(a, c, srcStart, n, chunk[c], dstOff, rate)
-      }
-    }
-
-    let blockOff = outOff / sr
-    for (let proc of procs) {
-      let { op, at, channel, ctx } = proc
-      if (!op) continue
-      ctx.at = at != null ? at - blockOff : undefined
-      ctx.blockOffset = blockOff
-
-      if (channel != null) {
-        let chs = typeof channel === 'number' ? [channel] : channel
-        let sub = chs.map(c => chunk[c])
-        let result = op(sub, ctx)
-        if (result && result !== false) for (let i = 0; i < chs.length; i++) chunk[chs[i]] = result[i]
-      } else {
-        let result = op(chunk, ctx)
-        if (result === false || result === null) continue
-        if (result) chunk = result
-      }
-    }
-
+    let chunk = renderBlock(a, segs, outOff, len)
+    chunk = applyProcs(chunk, procs, outOff, sr)
     if (outOff >= s) yield chunk
   }
 }

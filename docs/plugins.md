@@ -56,27 +56,6 @@ a.fade(1, { curve: 'exp' })
 // → ctx.curve === 'exp'
 ```
 
-### Edit format
-
-Edits are arrays — same convention as method calls (`[type, ...args, opts?]`), trailing plain object = options:
-
-```js
-a.run(
-  ['gain', -3, { at: 10, duration: 5 }],
-  ['crop', { at: 1, duration: 2 }],
-  ['fade', 1, { curve: 'exp' }],
-  ['insert', ref, { at: 2 }],
-  ['gain', -3],                            // no opts needed
-)
-```
-
-Useful for serialization — edits roundtrip as JSON arrays:
-
-```js
-let saved = JSON.stringify([['gain', -3], ['crop', { at: 1, duration: 2 }]])
-a.run(...JSON.parse(saved))
-```
-
 ### Custom wrappers
 
 For sugar beyond what the default method handles, pass a `call` function in the descriptor. It receives the default method as its first argument, followed by the user's arguments:
@@ -130,7 +109,9 @@ audio.op('myOp', {
 
 Rewrite the segment map without touching PCM. For ops that change timeline geometry (crop, insert, remove, repeat, pad, reverse, speed).
 
-`buildPlan()` compiles `a.edits` into a segment map + sample pipeline, cached per version. Edits are the source of truth; segments are the compiled form — like bytecode from source, or DOM patches from VDOM. Segments are never maintained manually — they rebuild on any edit change.
+`compilePlan(a, len, final)` compiles `a.edits` into a segment map + sample pipeline + limit. Edits are the source of truth; segments are the compiled form — like bytecode from source, or DOM patches from VDOM. Segments are never maintained manually — they rebuild on any edit change.
+
+During streaming (`final=false`), compilePlan is called repeatedly as more source data arrives. Each call recompiles all edits from scratch and tracks a `limit` — the safe output boundary given current source length. `adjustLimit(limit, type, args, offset, length, sr)` transforms the limit per op. When `final=true` (fully decoded), limit equals `totalLen`.
 
 `ctx` has `total`, `sampleRate`, `args`, `offset`, `length`. The `offset`/`length` are `at`/`duration` pre-converted to samples (`null` if unset).
 
@@ -200,7 +181,7 @@ After `reverse()` — same range, negative rate:
 
 ### resolve
 
-Pre-render replacement using decoded stats.
+Pre-render replacement using decoded stats. During incremental streaming, `ctx.stats` may come from `stats.snapshot()` with `partial: true` — resolve can return partial results that refine as more data decodes (e.g. trim detects head silence early, normalize applies gain from available peaks).
 
 ```js
 audio.op('trim', {

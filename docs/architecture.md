@@ -34,19 +34,40 @@ Ops don't mutate source pages. `a.gain(-3).crop({at: 1, duration: 5})` pushes tw
 
 ## Plan
 
-`buildPlan(a)` compiles `a.edits` into two things, cached until the next edit (version-keyed):
+`compilePlan(a, len, final)` compiles `a.edits` into a plan object:
 
 - **Segment map** — copy instructions: which source ranges map to which output positions. Structural ops (crop, remove, insert, repeat, pad, reverse, speed) rewrite segments. Each segment is `[from, count, to, rate?, ref?]` — "read `count` samples from `from`, write at `to`."
 - **Sample pipeline** — per-block transforms applied in order (gain, fade, filter, pan). Each op receives one `BLOCK_SIZE` chunk. Stateful ops carry state across blocks.
+- **Limit** — the safe output boundary. During incremental streaming (`final=false`), `adjustLimit` tracks how far output is deterministic given partial source data.
 
-Compilation happens once per version. Streaming walks the pre-built plan — no recompilation per block.
+`buildPlan(a)` is the cached wrapper for fully-decoded audio — calls `compilePlan(a, len, true)` once per version.
+
+During streaming, `compilePlan` is called repeatedly as more data arrives (`final=false`). Each call recomputes the segment map and limit from scratch — stateless, pure, cheap. The limit tells the stream loop how far it can safely render without waiting for more source data.
 
 ```
-a.edits ──→ buildPlan() ──→ { segments, pipeline }    (compiled once, cached)
-                                    ↓
+a.edits ──→ compilePlan(a, len, final) ──→ { segs, pipeline, totalLen, sr, limit }
+                                                    ↓
 source pages ──→ segment map ──→ sample pipeline ──→ output blocks
 (Float32)        (structural)    (per-block ops)    (stream or flat)
 ```
+
+### Incremental streaming
+
+Structural ops (crop, repeat, pad, reverse, etc.) stream incrementally — output begins before decode completes. `adjustLimit(limit, type, args, offset, length, sr)` is a pure function that transforms the safe output boundary per op type during compilation:
+
+- **crop**: limit clamps to cropped range
+- **insert**: limit extends by inserted length (when insertion point is reachable)
+- **remove**: limit shrinks by removed portion
+- **pad**: limit extends by pad amount
+- **reverse**: limit collapses to 0 for open-end reverse (needs total), passes through for ranged
+- **speed**: limit scales by rate
+- **negative `at`**: limit drops to 0 (position depends on total)
+
+The stream loop waits when `outPos >= plan.limit`, resumes when new source data arrives and recompilation extends the limit.
+
+### Progressive resolve
+
+Ops with `resolve` (trim, normalize) can work with partial stats during incremental streaming. `stats.snapshot()` returns whatever block stats are available so far (marked `partial: true`). The resolved result refines as more data decodes — e.g. trim can determine head silence early, normalize can apply gain from available peaks.
 
 ## Pages and blocks
 

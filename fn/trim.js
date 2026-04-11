@@ -47,11 +47,21 @@ const trim = (chs, ctx) => {
   return s === 0 && e === len ? false : chs.map(ch => ch.slice(s, e))
 }
 
-const trimResolve = (args, { stats, sampleRate, totalDuration }) => {
+const trimResolve = (args, ctx) => {
+  let { stats, sampleRate, totalDuration } = ctx
   if (!stats?.min || !stats?.energy) return null
   let ch = stats.min.length, blocks = stats.min[0].length
   let total = Math.round(totalDuration * sampleRate)
   let thresh = resolveThreshold(stats, ch, 0, stats.energy[0].length, args[0])
+
+  // Progressive: trim head immediately, tail after decode
+  if (stats.partial) {
+    let s = 0
+    for (; s < blocks; s++) if (isLoud(stats, s, ch, thresh)) break
+    if (s === 0) return false  // no head silence yet
+    if (s >= blocks) return ['crop', { at: 0, duration: 0 }]  // all silence so far
+    return ['crop', { at: (s * audio.BLOCK_SIZE) / sampleRate }]  // head only, open duration
+  }
 
   let s = 0, e = blocks - 1
   for (; s < blocks; s++) if (isLoud(stats, s, ch, thresh)) break

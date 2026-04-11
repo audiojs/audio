@@ -1,6 +1,9 @@
 ## Next
 
-* [ ] structural ops streaming
+* [x] structural ops streaming
+* [ ] processor plugin contract more conventional
+* [ ] network? like live stream or something? or text overlays/labels/metadata?
+* [ ] webworker mode - any meaning, no?
 * [ ] playback speed
 
 * [ ] Wavearea integration

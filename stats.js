@@ -97,6 +97,13 @@ function statSession(sr) {
       let out = { blockSize: audio.BLOCK_SIZE }
       if (acc) for (let name in acc) out[name] = acc[name].map(a => new Float32Array(a))
       return out
+    },
+    /** Return current accumulated stats without flushing remainder. */
+    snapshot() {
+      if (!acc) return null
+      let out = { blockSize: audio.BLOCK_SIZE, partial: true }
+      for (let name in acc) out[name] = acc[name].map(a => new Float32Array(a))
+      return out
     }
   }
 }

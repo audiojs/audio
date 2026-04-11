@@ -1476,18 +1476,698 @@ test('stream — live decode with filter applies statefully across chunks', asyn
 })
 
 test('stream — live decode with plan edit waits for full decode', async t => {
-  // Plan-based edits (crop) should NOT use live streaming — they need full layout
+  // Post-stop: decoded=true, streams via unified plan loop
   let a = audio()
   a.crop({ at: 0, duration: 0.05 })
   let each = 4096
   a.push(new Float32Array(each).fill(0.5))
   a.push(new Float32Array(each).fill(0.5))
   a.stop()
-  // This should work (waits for decode, then streams via plan)
   let total = 0
   for await (let chunk of a.stream()) total += chunk[0].length
   let expected = Math.round(0.05 * 44100)
   t.is(total, expected, `crop respected: ${total} samples (expected ${expected})`)
+})
+
+test('stream — incremental structural: crop streams before decode completes', async t => {
+  let a = audio()
+  a.crop({ at: 0, duration: 0.05 })
+  let PUSH = PAGE_SIZE + 4096  // more than one page so drain commits data
+  a.push(new Float32Array(PUSH).fill(0.5))
+  // Start streaming before stop — should use incremental path
+  let firstChunk = null
+  let timeout = setTimeout(() => a.stop(), 200)
+  for await (let chunk of a.stream()) {
+    if (!firstChunk) {
+      firstChunk = chunk
+      a.stop()
+      break
+    }
+  }
+  clearTimeout(timeout)
+  t.ok(firstChunk, 'got chunk during live decode with crop')
+  t.ok(firstChunk[0].length > 0, `chunk has data (${firstChunk[0].length})`)
+  t.ok(Math.abs(firstChunk[0][0] - 0.5) < 0.01, 'data correct')
+})
+
+test('stream — incremental structural: crop matches full render', async t => {
+  let each = PAGE_SIZE, pushes = 3
+  let a = audio()
+  a.crop({ at: 0, duration: 0.05 })
+  for (let i = 0; i < pushes; i++) a.push(new Float32Array(each).fill(0.5))
+  a.stop()
+  let streamed = [], total = 0
+  for await (let chunk of a.stream()) { streamed.push(chunk[0].slice()); total += chunk[0].length }
+
+  let b = audio.from([new Float32Array(each * pushes).fill(0.5)])
+  b.crop({ at: 0, duration: 0.05 })
+  let full = await b.read()
+
+  t.is(total, full[0].length, `same total samples (${total})`)
+  t.ok(Math.abs(streamed[0][0] - full[0][0]) < 0.001, 'first sample matches')
+})
+
+test('stream — incremental structural: remove matches full render', async t => {
+  let each = PAGE_SIZE, pushes = 3
+  let a = audio()
+  a.remove({ at: 0.1, duration: 0.1 })
+  for (let i = 0; i < pushes; i++) a.push(new Float32Array(each).fill(0.5))
+  a.stop()
+  let streamed = [], total = 0
+  for await (let chunk of a.stream()) { streamed.push(chunk[0].slice()); total += chunk[0].length }
+
+  let b = audio.from([new Float32Array(each * pushes).fill(0.5)])
+  b.remove({ at: 0.1, duration: 0.1 })
+  let full = await b.read()
+
+  t.is(total, full[0].length, `same total: ${total} vs ${full[0].length}`)
+})
+
+test('stream — incremental structural: crop + gain matches full render', async t => {
+  let each = PAGE_SIZE, pushes = 2, val = 0.8
+  let a = audio()
+  a.crop({ at: 0, duration: 0.1 }).gain(-6)
+  for (let i = 0; i < pushes; i++) a.push(new Float32Array(each).fill(val))
+  a.stop()
+  let streamed = [], total = 0
+  for await (let chunk of a.stream()) { streamed.push(chunk[0].slice()); total += chunk[0].length }
+
+  let b = audio.from([new Float32Array(each * pushes).fill(val)])
+  b.crop({ at: 0, duration: 0.1 }).gain(-6)
+  let full = await b.read()
+
+  t.is(total, full[0].length, `same total: ${total}`)
+  let expected = val * Math.pow(10, -6 / 20)
+  t.ok(Math.abs(streamed[0][0] - expected) < 0.01, `first sample: ${streamed[0][0].toFixed(4)} ≈ ${expected.toFixed(4)}`)
+})
+
+test('stream — incremental structural: speed matches full render', async t => {
+  let each = PAGE_SIZE, pushes = 2
+  let ramp = new Float32Array(each * pushes)
+  for (let i = 0; i < ramp.length; i++) ramp[i] = i / ramp.length
+  let a = audio()
+  a.speed(2)
+  a.push(ramp)
+  a.stop()
+  let streamed = [], total = 0
+  for await (let chunk of a.stream()) { streamed.push(chunk[0].slice()); total += chunk[0].length }
+
+  let b = audio.from([ramp.slice()])
+  b.speed(2)
+  let full = await b.read()
+
+  t.is(total, full[0].length, `same total: ${total}`)
+  let flat = new Float32Array(total), pos = 0
+  for (let s of streamed) { flat.set(s, pos); pos += s.length }
+  // Compare first and last samples
+  t.ok(Math.abs(flat[0] - full[0][0]) < 0.01, 'first sample matches')
+  t.ok(Math.abs(flat[total - 1] - full[0][total - 1]) < 0.01, 'last sample matches')
+})
+
+test('stream — incremental structural: non-incremental ops fall back to full plan', async t => {
+  // reverse() without range is not incrementally streamable — should still work via full plan
+  let a = audio()
+  a.reverse()
+  let each = 4096
+  a.push(new Float32Array(each).fill(0.5))
+  a.stop()
+  let total = 0
+  for await (let chunk of a.stream()) total += chunk[0].length
+  t.is(total, each, `reverse streamed all ${each} samples`)
+})
+
+test('stream — incremental repeat: first pass streams, rest after decode', async t => {
+  let each = PAGE_SIZE, pushes = 2
+  let a = audio()
+  a.repeat(2)  // 3x total (original + 2 repeats)
+  for (let i = 0; i < pushes; i++) a.push(new Float32Array(each).fill(0.5))
+  a.stop()
+  let streamed = [], total = 0
+  for await (let chunk of a.stream()) { streamed.push(chunk[0].slice()); total += chunk[0].length }
+
+  let b = audio.from([new Float32Array(each * pushes).fill(0.5)])
+  b.repeat(2)
+  let full = await b.read()
+
+  t.is(total, full[0].length, `same total: ${total} vs ${full[0].length}`)
+})
+
+test('stream — incremental repeat: streams before decode completes', async t => {
+  let a = audio()
+  a.repeat(3)
+  let PUSH = PAGE_SIZE + 4096
+  a.push(new Float32Array(PUSH).fill(0.25))
+  // Start streaming before stop — should yield first-pass data
+  let firstChunk = null
+  let timeout = setTimeout(() => a.stop(), 200)
+  for await (let chunk of a.stream()) {
+    if (!firstChunk) {
+      firstChunk = chunk
+      a.stop()
+      break
+    }
+  }
+  clearTimeout(timeout)
+  t.ok(firstChunk, 'got chunk during live decode with repeat')
+  t.ok(firstChunk[0].length > 0, `chunk has data (${firstChunk[0].length})`)
+  t.ok(Math.abs(firstChunk[0][0] - 0.25) < 0.01, 'data correct')
+})
+
+test('stream — incremental repeat + gain matches full render', async t => {
+  let each = PAGE_SIZE, pushes = 2, val = 0.8
+  let a = audio()
+  a.repeat(1).gain(-6)  // 2x total (original + 1 repeat)
+  for (let i = 0; i < pushes; i++) a.push(new Float32Array(each).fill(val))
+  a.stop()
+  let streamed = [], total = 0
+  for await (let chunk of a.stream()) { streamed.push(chunk[0].slice()); total += chunk[0].length }
+
+  let b = audio.from([new Float32Array(each * pushes).fill(val)])
+  b.repeat(1).gain(-6)
+  let full = await b.read()
+
+  t.is(total, full[0].length, `same total: ${total}`)
+  let expected = val * Math.pow(10, -6 / 20)
+  t.ok(Math.abs(streamed[0][0] - expected) < 0.01, `first sample: ${streamed[0][0].toFixed(4)} ≈ ${expected.toFixed(4)}`)
+})
+
+test('stream — incremental pad-after matches full render', async t => {
+  let each = PAGE_SIZE, pushes = 2
+  let a = audio()
+  a.pad(0, 0.5)  // 0.5s silence after
+  for (let i = 0; i < pushes; i++) a.push(new Float32Array(each).fill(0.3))
+  a.stop()
+  let streamed = [], total = 0
+  for await (let chunk of a.stream()) { streamed.push(chunk[0].slice()); total += chunk[0].length }
+
+  let b = audio.from([new Float32Array(each * pushes).fill(0.3)])
+  b.pad(0, 0.5)
+  let full = await b.read()
+
+  t.is(total, full[0].length, `same total: ${total} vs ${full[0].length}`)
+  // First sample should be content
+  t.ok(Math.abs(streamed[0][0] - 0.3) < 0.01, 'content at start')
+})
+
+test('stream — incremental speed + repeat matches full render', async t => {
+  let each = PAGE_SIZE, pushes = 2
+  let ramp = new Float32Array(each * pushes)
+  for (let i = 0; i < ramp.length; i++) ramp[i] = i / ramp.length
+  let a = audio()
+  a.speed(2).repeat(1)  // speed-up then repeat
+  a.push(ramp)
+  a.stop()
+  let streamed = [], total = 0
+  for await (let chunk of a.stream()) { streamed.push(chunk[0].slice()); total += chunk[0].length }
+
+  let b = audio.from([ramp.slice()])
+  b.speed(2).repeat(1)
+  let full = await b.read()
+
+  t.is(total, full[0].length, `same total: ${total}`)
+  let flat = new Float32Array(total), pos = 0
+  for (let s of streamed) { flat.set(s, pos); pos += s.length }
+  t.ok(Math.abs(flat[0] - full[0][0]) < 0.01, 'first sample matches')
+  t.ok(Math.abs(flat[total - 1] - full[0][total - 1]) < 0.01, 'last sample matches')
+})
+
+// ── Streaming: Combinations ─────────────────────────────────────────────
+
+test('stream — pad-after + repeat matches full render', async t => {
+  let each = PAGE_SIZE, pushes = 2
+  let a = audio()
+  a.pad(0, 0.2).repeat(1)
+  for (let i = 0; i < pushes; i++) a.push(new Float32Array(each).fill(0.4))
+  a.stop()
+  let streamed = [], total = 0
+  for await (let chunk of a.stream()) { streamed.push(chunk[0].slice()); total += chunk[0].length }
+  let b = audio.from([new Float32Array(each * pushes).fill(0.4)])
+  b.pad(0, 0.2).repeat(1)
+  let full = await b.read()
+  t.is(total, full[0].length, `same total: ${total} vs ${full[0].length}`)
+})
+
+test('stream — pad-after + reverse matches full render', async t => {
+  let each = PAGE_SIZE, pushes = 2
+  let ramp = new Float32Array(each * pushes)
+  for (let i = 0; i < ramp.length; i++) ramp[i] = i / ramp.length
+  let a = audio()
+  a.pad(0, 0.1).reverse()
+  a.push(ramp)
+  a.stop()
+  let streamed = [], total = 0
+  for await (let chunk of a.stream()) { streamed.push(chunk[0].slice()); total += chunk[0].length }
+  let b = audio.from([ramp.slice()])
+  b.pad(0, 0.1).reverse()
+  let full = await b.read()
+  t.is(total, full[0].length, `same total: ${total} vs ${full[0].length}`)
+  let flat = new Float32Array(total), pos = 0
+  for (let s of streamed) { flat.set(s, pos); pos += s.length }
+  t.ok(Math.abs(flat[0] - full[0][0]) < 0.01, 'first sample matches')
+})
+
+test('stream — pad-after + trim matches full render', async t => {
+  // 0.5s silence, 1s signal, 0.5s silence → trim should remove silence, pad adds after
+  let sr = 44100, ch = new Float32Array(sr * 2)
+  for (let i = sr / 2; i < sr * 1.5; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  a.pad(0, 0.3).trim(-20)
+  let full = await a.read()
+  let b = audio.from([ch.slice()], { sampleRate: sr })
+  b.pad(0, 0.3).trim(-20)
+  let full2 = await b.read()
+  t.is(full[0].length, full2[0].length, `consistent: ${full[0].length}`)
+  t.ok(full[0].length < ch.length, `trimmed: ${full[0].length} < ${ch.length}`)
+})
+
+test('stream — clip + repeat applies only to clip range', async t => {
+  let ramp = new Float32Array(44100)
+  for (let i = 0; i < ramp.length; i++) ramp[i] = i / ramp.length
+  let a = audio.from([ramp])
+  let clipped = a.clip({ at: 0.1, duration: 0.2 })
+  clipped.repeat(2)
+  let pcm = await clipped.read()
+  let expected = Math.round(0.2 * 44100 * 3)  // 0.2s * 3 passes
+  t.ok(Math.abs(pcm[0].length - expected) < 3, `clip+repeat length: ${pcm[0].length} ≈ ${expected}`)
+})
+
+test('stream — clip + reverse applies only to clip range', async t => {
+  let ramp = new Float32Array(44100)
+  for (let i = 0; i < ramp.length; i++) ramp[i] = i / ramp.length
+  let a = audio.from([ramp])
+  let clipped = a.clip({ at: 0.2, duration: 0.3 })
+  clipped.reverse()
+  let pcm = await clipped.read()
+  let expected = Math.round(0.3 * 44100)
+  t.ok(Math.abs(pcm[0].length - expected) < 2, `clip+reverse length: ${pcm[0].length} ≈ ${expected}`)
+  // First sample of reversed clip should be near the end of the original clip range
+  let origEnd = ramp[Math.round(0.5 * 44100) - 1]
+  t.ok(Math.abs(pcm[0][0] - origEnd) < 0.01, `first sample reversed: ${pcm[0][0].toFixed(4)} ≈ ${origEnd.toFixed(4)}`)
+})
+
+test('stream — clip + trim applies only to clip range', async t => {
+  let sr = 44100, ch = new Float32Array(sr * 3)
+  // Silence + signal + silence in the middle
+  for (let i = sr; i < sr * 2; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  let clipped = a.clip({ at: 0.5, duration: 2 })
+  clipped.trim(-20)
+  let pcm = await clipped.read()
+  t.ok(pcm[0].length < sr * 2, `clip+trim shorter: ${pcm[0].length} < ${sr * 2}`)
+  t.ok(pcm[0].length > sr * 0.5, `clip+trim has content: ${pcm[0].length} > ${sr * 0.5}`)
+})
+
+test('stream — clip + normalize applies only to clip range', async t => {
+  let ramp = new Float32Array(44100)
+  for (let i = 0; i < ramp.length; i++) ramp[i] = 0.1 * Math.sin(2 * Math.PI * 440 * i / 44100)
+  let a = audio.from([ramp])
+  let clipped = a.clip({ at: 0.1, duration: 0.3 })
+  clipped.normalize(0)
+  let pcm = await clipped.read()
+  let peak = 0
+  for (let s of pcm[0]) { let v = Math.abs(s); if (v > peak) peak = v }
+  t.ok(Math.abs(peak - 1) < 0.02, `clip+normalize peak ~1 (got ${peak.toFixed(3)})`)
+  let expected = Math.round(0.3 * 44100)
+  t.ok(Math.abs(pcm[0].length - expected) < 2, `length preserved: ${pcm[0].length} ≈ ${expected}`)
+})
+
+// ── Streaming: Open Ranges ──────────────────────────────────────────────
+
+test('stream — crop open-left (..2s) matches full render', async t => {
+  let ramp = new Float32Array(44100 * 4)
+  for (let i = 0; i < ramp.length; i++) ramp[i] = i / ramp.length
+  let a = audio.from([ramp], { sampleRate: 44100 })
+  a.crop({ duration: 2 })  // ..2s: from start to 2s
+  let pcm = await a.read()
+  t.is(pcm[0].length, 88200, `open-left crop: ${pcm[0].length}`)
+  t.ok(Math.abs(pcm[0][0] - 0) < 0.001, 'starts at 0')
+})
+
+test('stream — crop open-right (2s..) matches full render', async t => {
+  let ramp = new Float32Array(44100 * 4)
+  for (let i = 0; i < ramp.length; i++) ramp[i] = i / ramp.length
+  let a = audio.from([ramp], { sampleRate: 44100 })
+  a.crop({ at: 2 })  // 2s..: from 2s to end
+  let pcm = await a.read()
+  t.is(pcm[0].length, 88200, `open-right crop: ${pcm[0].length}`)
+  t.ok(pcm[0][0] > 0.49, `starts at ~0.5: ${pcm[0][0].toFixed(4)}`)
+})
+
+test('stream — remove open-left (..1s)', async t => {
+  let ch = new Float32Array(44100 * 3).fill(0.5)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.remove({ duration: 1 })  // remove first 1s
+  let pcm = await a.read()
+  t.is(pcm[0].length, 44100 * 2, `removed 1s: ${pcm[0].length}`)
+})
+
+test('stream — remove open-right (1s..)', async t => {
+  let ch = new Float32Array(44100 * 3).fill(0.5)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.remove({ at: 1 })  // remove from 1s to end
+  let pcm = await a.read()
+  t.is(pcm[0].length, 44100, `kept first 1s: ${pcm[0].length}`)
+})
+
+test('stream — reverse open-left (..2s) reverses only head', async t => {
+  let ramp = new Float32Array(44100 * 4)
+  for (let i = 0; i < ramp.length; i++) ramp[i] = i / ramp.length
+  let a = audio.from([ramp], { sampleRate: 44100 })
+  a.reverse({ duration: 2 })  // ..2s: reverse first 2s
+  let pcm = await a.read()
+  t.is(pcm[0].length, ramp.length, 'length preserved')
+  // First sample should be near the value at 2s (reversed)
+  t.ok(pcm[0][0] > 0.4, `first sample ~0.5 (reversed head): ${pcm[0][0].toFixed(4)}`)
+  // Sample at 2s+ should be normal (unreversed)
+  let at3s = pcm[0][44100 * 3]
+  t.ok(at3s > 0.7, `sample at 3s normal: ${at3s.toFixed(4)}`)
+})
+
+test('stream — reverse open-right (1s..) reverses from 1s to end', async t => {
+  let ramp = new Float32Array(44100 * 4)
+  for (let i = 0; i < ramp.length; i++) ramp[i] = i / ramp.length
+  let a = audio.from([ramp], { sampleRate: 44100 })
+  a.reverse({ at: 1 })  // 1s..: reverse from 1s to end
+  let pcm = await a.read()
+  t.is(pcm[0].length, ramp.length, 'length preserved')
+  // First 1s should be normal
+  t.ok(Math.abs(pcm[0][0] - 0) < 0.001, 'first sample normal')
+  // Sample at 1s should be near the end (reversed)
+  let at1s = pcm[0][44100]
+  t.ok(at1s > 0.9, `sample at 1s (start of reversed region) near end: ${at1s.toFixed(4)}`)
+})
+
+test('stream — reverse rangeless = reverse(0..end)', async t => {
+  let ramp = new Float32Array(44100)
+  for (let i = 0; i < ramp.length; i++) ramp[i] = i / ramp.length
+  let a = audio.from([ramp])
+  a.reverse()
+  let pcm = await a.read()
+  t.is(pcm[0].length, ramp.length, 'length preserved')
+  t.ok(pcm[0][0] > 0.99, `first sample is last (reversed): ${pcm[0][0].toFixed(4)}`)
+  t.ok(pcm[0][pcm[0].length - 1] < 0.001, 'last sample is first')
+})
+
+test('stream — reverse open-right incremental: pre-reverse data streams', async t => {
+  let a = audio()
+  a.reverse({ at: 0.1 })  // 0.1s.. — first 0.1s should stream immediately
+  let PUSH = PAGE_SIZE + 4096
+  a.push(new Float32Array(PUSH).fill(0.5))
+  let firstChunk = null
+  let timeout = setTimeout(() => a.stop(), 200)
+  for await (let chunk of a.stream()) {
+    if (!firstChunk) {
+      firstChunk = chunk
+      a.stop()
+      break
+    }
+  }
+  clearTimeout(timeout)
+  t.ok(firstChunk, 'got chunk before decode completes')
+  t.ok(firstChunk[0].length > 0, `chunk has data: ${firstChunk[0].length}`)
+  t.ok(Math.abs(firstChunk[0][0] - 0.5) < 0.01, 'data correct (unreversed region)')
+})
+
+test('stream — reverse rangeless blocks until decode, then streams', async t => {
+  let a = audio()
+  a.reverse()  // = 0..end — stableLimit = 0, must wait
+  let each = 4096
+  a.push(new Float32Array(each).fill(0.5))
+  a.stop()
+  let total = 0
+  for await (let chunk of a.stream()) total += chunk[0].length
+  t.is(total, each, `reverse streamed all ${each} samples after decode`)
+})
+
+test('stream — pad open-left (before)', async t => {
+  let ch = new Float32Array(44100).fill(0.5)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.pad(1)  // 1s before + 1s after
+  let pcm = await a.read()
+  t.is(pcm[0].length, 44100 * 3, `padded: ${pcm[0].length}`)
+  t.is(pcm[0][0], 0, 'starts with silence')
+  t.ok(Math.abs(pcm[0][44100] - 0.5) < 0.01, 'content at 1s')
+})
+
+test('stream — repeat open-right (2s..)', async t => {
+  let sr = 44100, ramp = new Float32Array(sr * 4)
+  for (let i = 0; i < ramp.length; i++) ramp[i] = i / ramp.length
+  let a = audio.from([ramp], { sampleRate: sr })
+  a.repeat(1, { at: 2 })  // repeat from 2s to end once
+  let pcm = await a.read()
+  let expected = sr * 4 + sr * 2  // original 4s + repeated 2s..4s = 6s
+  t.ok(Math.abs(pcm[0].length - expected) < 3, `repeat 2s..: ${pcm[0].length} ≈ ${expected}`)
+})
+
+test('stream — repeat open-left (..2s)', async t => {
+  let sr = 44100, ramp = new Float32Array(sr * 4)
+  for (let i = 0; i < ramp.length; i++) ramp[i] = i / ramp.length
+  let a = audio.from([ramp], { sampleRate: sr })
+  a.repeat(1, { at: 0, duration: 2 })  // repeat first 2s once
+  let pcm = await a.read()
+  let expected = sr * 4 + sr * 2  // original 4s + repeated 0..2s = 6s
+  t.ok(Math.abs(pcm[0].length - expected) < 3, `repeat ..2s: ${pcm[0].length} ≈ ${expected}`)
+})
+
+test('stream — speed open-right (2s..)', async t => {
+  let sr = 44100, ch = new Float32Array(sr * 4).fill(0.5)
+  let a = audio.from([ch], { sampleRate: sr })
+  a.speed(2)  // doubles speed of entire audio
+  let pcm = await a.read()
+  let expected = Math.round(sr * 4 / 2)
+  t.ok(Math.abs(pcm[0].length - expected) < 3, `speed 2x: ${pcm[0].length} ≈ ${expected}`)
+})
+
+test('stream — insert open-right (at end) matches full render', async t => {
+  let sr = 44100
+  let ch1 = new Float32Array(sr * 2).fill(0.3)
+  let ch2 = new Float32Array(sr).fill(0.7)
+  let a = audio.from([ch1], { sampleRate: sr })
+  a.insert(audio.from([ch2], { sampleRate: sr }))  // insert at end (no at)
+  let pcm = await a.read()
+  t.is(pcm[0].length, sr * 3, `total: ${pcm[0].length}`)
+  t.ok(Math.abs(pcm[0][0] - 0.3) < 0.01, 'original at start')
+  t.ok(Math.abs(pcm[0][sr * 2] - 0.7) < 0.01, 'inserted at end')
+})
+
+test('stream — insert at position matches full render', async t => {
+  let sr = 44100
+  let ch1 = new Float32Array(sr * 2).fill(0.3)
+  let ch2 = new Float32Array(sr).fill(0.7)
+  let a = audio.from([ch1], { sampleRate: sr })
+  a.insert(audio.from([ch2], { sampleRate: sr }), { at: 1 })  // insert at 1s
+  let pcm = await a.read()
+  t.is(pcm[0].length, sr * 3, `total: ${pcm[0].length}`)
+  t.ok(Math.abs(pcm[0][0] - 0.3) < 0.01, 'original at start')
+  t.ok(Math.abs(pcm[0][sr] - 0.7) < 0.01, 'inserted at 1s')
+  t.ok(Math.abs(pcm[0][sr * 2] - 0.3) < 0.01, 'original resumes after insert')
+})
+
+// ── Streaming: Progressive resolve (trim/normalize) ────────────────────
+
+test('stream — trim progressive: head silence removed during live decode', async t => {
+  let sr = 44100, BS = BLOCK_SIZE
+  // Silence blocks + loud blocks
+  let silentBlocks = 4, loudBlocks = 8
+  let silentLen = silentBlocks * BS, loudLen = loudBlocks * BS
+  let ch = new Float32Array(silentLen + loudLen)
+  for (let i = silentLen; i < ch.length; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  a.trim(-20)
+  let pcm = await a.read()
+  t.ok(pcm[0].length < ch.length, `trimmed head: ${pcm[0].length} < ${ch.length}`)
+  t.ok(pcm[0].length >= loudLen - BS, `kept loud content: ${pcm[0].length} >= ${loudLen - BS}`)
+})
+
+test('stream — normalize progressive: gain applied from partial stats', async t => {
+  let sr = 44100
+  let ch = new Float32Array(sr)
+  for (let i = 0; i < ch.length; i++) ch[i] = 0.25 * Math.sin(2 * Math.PI * 440 * i / sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  a.normalize(0)
+  let pcm = await a.read()
+  let peak = 0
+  for (let s of pcm[0]) { let v = Math.abs(s); if (v > peak) peak = v }
+  t.ok(Math.abs(peak - 1) < 0.02, `normalized peak ~1 (got ${peak.toFixed(3)})`)
+})
+
+// ── Streaming: Edge Cases ───────────────────────────────────────────────
+
+test('stream — negative at blocks until decode, then works', async t => {
+  let a = audio()
+  a.crop({ at: -0.05 })  // last 50ms — needs total
+  let PUSH = PAGE_SIZE + 4096
+  a.push(new Float32Array(PUSH).fill(0.5))
+  a.stop()
+  let streamed = [], total = 0
+  for await (let chunk of a.stream()) { streamed.push(chunk[0].slice()); total += chunk[0].length }
+  let expected = Math.round(0.05 * 44100)
+  t.ok(Math.abs(total - expected) < 3, `negative at crop: ${total} ≈ ${expected}`)
+  t.ok(Math.abs(streamed[0][0] - 0.5) < 0.01, 'data correct')
+})
+
+test('stream — negative at on live source waits for decode', async t => {
+  let a = audio()
+  a.crop({ at: -0.02 })
+  let PUSH = PAGE_SIZE + 4096
+  a.push(new Float32Array(PUSH).fill(0.3))
+  // Stream before stop — should not yield until decode
+  let gotChunk = false
+  let timeout = setTimeout(() => { a.stop() }, 100)
+  for await (let chunk of a.stream()) {
+    gotChunk = true
+    break
+  }
+  clearTimeout(timeout)
+  t.ok(gotChunk, 'got data after decode completed')
+})
+
+test('stream — chained structural ops: crop + speed + gain', async t => {
+  let each = PAGE_SIZE, pushes = 3
+  let ramp = new Float32Array(each * pushes)
+  for (let i = 0; i < ramp.length; i++) ramp[i] = i / ramp.length
+  let a = audio()
+  a.crop({ at: 0.1, duration: 0.3 }).speed(2).gain(-6)
+  a.push(ramp)
+  a.stop()
+  let streamed = [], total = 0
+  for await (let chunk of a.stream()) { streamed.push(chunk[0].slice()); total += chunk[0].length }
+  let b = audio.from([ramp.slice()])
+  b.crop({ at: 0.1, duration: 0.3 }).speed(2).gain(-6)
+  let full = await b.read()
+  t.is(total, full[0].length, `chained ops same length: ${total}`)
+  let flat = new Float32Array(total), pos = 0
+  for (let s of streamed) { flat.set(s, pos); pos += s.length }
+  t.ok(Math.abs(flat[0] - full[0][0]) < 0.01, 'first sample matches')
+  t.ok(Math.abs(flat[total - 1] - full[0][total - 1]) < 0.01, 'last sample matches')
+})
+
+test('stream — chained: remove + speed matches full render', async t => {
+  let each = PAGE_SIZE, pushes = 2
+  let ch = new Float32Array(each * pushes).fill(0.5)
+  let a = audio()
+  a.remove({ at: 0.05, duration: 0.1 }).speed(0.5)
+  a.push(ch)
+  a.stop()
+  let streamed = [], total = 0
+  for await (let chunk of a.stream()) { streamed.push(chunk[0].slice()); total += chunk[0].length }
+  let b = audio.from([ch.slice()])
+  b.remove({ at: 0.05, duration: 0.1 }).speed(0.5)
+  let full = await b.read()
+  t.is(total, full[0].length, `remove+speed: ${total} vs ${full[0].length}`)
+})
+
+test('stream — insert at end blocks then matches full render', async t => {
+  let sr = 44100
+  let ch1 = new Float32Array(sr).fill(0.3)
+  let ch2 = new Float32Array(Math.round(sr * 0.5)).fill(0.7)
+  let a = audio()
+  a.insert(audio.from([ch2], { sampleRate: sr }))  // at=null → insert at end
+  a.push(ch1)
+  a.stop()
+  let streamed = [], total = 0
+  for await (let chunk of a.stream()) { streamed.push(chunk[0].slice()); total += chunk[0].length }
+  let b = audio.from([ch1.slice()], { sampleRate: sr })
+  b.insert(audio.from([ch2.slice()], { sampleRate: sr }))
+  let full = await b.read()
+  t.is(total, full[0].length, `insert-at-end: ${total} vs ${full[0].length}`)
+})
+
+test('stream — very short audio (< BLOCK_SIZE) with crop', async t => {
+  let short = new Float32Array(100).fill(0.8)
+  let a = audio.from([short])
+  a.crop({ at: 0, duration: 50 / 44100 })
+  let total = 0
+  for await (let chunk of a.stream()) total += chunk[0].length
+  t.is(total, 50, `short audio cropped: ${total}`)
+})
+
+test('stream — very short audio (< BLOCK_SIZE) with speed', async t => {
+  let short = new Float32Array(200).fill(0.5)
+  let a = audio.from([short])
+  a.speed(2)
+  let total = 0
+  for await (let chunk of a.stream()) total += chunk[0].length
+  t.is(total, 100, `short audio sped up: ${total}`)
+})
+
+test('stream — trim + normalize chained on live source', async t => {
+  let sr = 44100, BS = BLOCK_SIZE
+  let silentLen = 4 * BS, loudLen = 10 * BS
+  let ch = new Float32Array(silentLen + loudLen)
+  for (let i = silentLen; i < ch.length; i++) ch[i] = 0.25 * Math.sin(2 * Math.PI * 440 * i / sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  a.trim(-20).normalize(0)
+  let pcm = await a.read()
+  t.ok(pcm[0].length < ch.length, `trimmed: ${pcm[0].length} < ${ch.length}`)
+  let peak = 0
+  for (let s of pcm[0]) { let v = Math.abs(s); if (v > peak) peak = v }
+  t.ok(Math.abs(peak - 1) < 0.05, `normalized peak ~1 (got ${peak.toFixed(3)})`)
+})
+
+test('stream — reverse ranged streams non-reversed region', async t => {
+  let ramp = new Float32Array(44100)
+  for (let i = 0; i < ramp.length; i++) ramp[i] = i / ramp.length
+  let a = audio()
+  a.reverse({ at: 0.5, duration: 0.2 })  // reverse 0.5s..0.7s only
+  let PUSH = PAGE_SIZE + 4096
+  a.push(ramp.subarray(0, PUSH))
+  // Stream before stop — non-reversed region [0, 0.5) should stream
+  let firstChunk = null
+  let timeout = setTimeout(() => a.stop(), 200)
+  for await (let chunk of a.stream()) {
+    if (!firstChunk) { firstChunk = chunk; a.stop(); break }
+  }
+  clearTimeout(timeout)
+  t.ok(firstChunk, 'got chunk from non-reversed region')
+  t.ok(Math.abs(firstChunk[0][0] - ramp[0]) < 0.01, 'data matches source start')
+})
+
+test('stream — empty result after remove-all', async t => {
+  let ch = new Float32Array(4410).fill(0.5)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.remove({ at: 0 })  // remove everything
+  let total = 0
+  for await (let chunk of a.stream()) total += chunk[0].length
+  t.is(total, 0, 'remove-all produces empty stream')
+})
+
+test('stream — crop + remove + pad chained matches full render', async t => {
+  let sr = 44100
+  let ch = new Float32Array(sr * 2).fill(0.5)
+  let a = audio.from([ch], { sampleRate: sr })
+  a.crop({ at: 0.2, duration: 1 }).remove({ at: 0.1, duration: 0.2 }).pad(0.1, 0.1)
+  let streamed = [], total = 0
+  for await (let chunk of a.stream()) { streamed.push(chunk[0].slice()); total += chunk[0].length }
+  let b = audio.from([ch.slice()], { sampleRate: sr })
+  b.crop({ at: 0.2, duration: 1 }).remove({ at: 0.1, duration: 0.2 }).pad(0.1, 0.1)
+  let full = await b.read()
+  t.is(total, full[0].length, `triple chain: ${total} vs ${full[0].length}`)
+  let flat = new Float32Array(total), pos = 0
+  for (let s of streamed) { flat.set(s, pos); pos += s.length }
+  let maxDiff = 0
+  for (let i = 0; i < total; i++) maxDiff = Math.max(maxDiff, Math.abs(flat[i] - full[0][i]))
+  t.ok(maxDiff < 0.001, `samples match (maxDiff ${maxDiff.toFixed(6)})`)
+})
+
+test('stream — resolve op (trim) limit tracks through crop', async t => {
+  // trim resolves to crop, which should correctly update the limit
+  let sr = 44100, BS = BLOCK_SIZE
+  let silentLen = 4 * BS, loudLen = 20 * BS
+  let ch = new Float32Array(silentLen + loudLen)
+  for (let i = silentLen; i < ch.length; i++) ch[i] = 0.5
+  let a = audio()
+  a.trim(-20)
+  for (let i = 0; i < ch.length; i += PAGE_SIZE) {
+    a.push(ch.subarray(i, Math.min(i + PAGE_SIZE, ch.length)))
+  }
+  a.stop()
+  let streamed = [], total = 0
+  for await (let chunk of a.stream()) { streamed.push(chunk[0].slice()); total += chunk[0].length }
+  let b = audio.from([ch.slice()], { sampleRate: sr })
+  b.trim(-20)
+  let full = await b.read()
+  t.ok(Math.abs(total - full[0].length) < BS, `trim limit converges: ${total} ≈ ${full[0].length}`)
 })
 
 // ── Phase 10: Page Cache + Eviction ──────────────────────────────────────

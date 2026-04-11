@@ -529,6 +529,7 @@ function pageAccumulator(opts = {}) {
     get length() { return totalLen + pagePos },
     get partial() { return pagePos > 0 ? pageBuf.map(c => c.subarray(0, pagePos)) : null },
     get partialLen() { return pagePos },
+    get stats() { return session?.snapshot?.() ?? null },
     push(chData, sampleRate) {
       if (!pageBuf) {
         sr = sampleRate; ch = chData.length

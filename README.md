@@ -476,6 +476,21 @@ Events, lifecycle, undo/redo, serialization.
 * **`.undo(n?)`** – undo last edit(s). Returns edit for redo via `.run()`.
 * **`.run(...edits)`** – apply edits as arrays `['type', ...args, opts?]`. Batch or replay.
 
+Edits use the same shape as method calls: `[type, ...args, opts?]`, with a trailing plain object treated as options. This is handy for batching, replaying, and JSON serialization.
+
+```js
+a.run(
+  ['gain', -3, { at: 10, duration: 5 }],
+  ['crop', { at: 1, duration: 2 }],
+  ['fade', 1, { curve: 'exp' }],
+  ['insert', ref, { at: 2 }],
+  ['gain', -3],
+)
+
+let saved = JSON.stringify([['gain', -3], ['crop', { at: 1, duration: 2 }]])
+a.run(...JSON.parse(saved))
+```
+
 ```js
 a.on('data', ({ delta }) => draw(delta))  // decode progress
 a.on('timeupdate', t => ui.update(t))     // playback position
@@ -642,7 +657,7 @@ audio --completions fish | source       # fish
 <dd>Yes, same API. See <a href="#browser">Browser</a> for bundle options and import maps.</dd>
 
 <dt>Does it need the full file before I can work with it?</dt>
-<dd>No, playback and edits work during decode. The <code>'data'</code> event fires as pages arrive.</dd>
+<dd>No. Playback, edits, and structural ops (crop, repeat, pad, insert, etc.) all stream incrementally during decode — output begins before the file finishes loading. The edit plan recompiles as data arrives, tracking a safe output boundary per op. Only ops that depend on total length (open-end reverse, negative <code>at</code>) wait for full decode.</dd>
 
 <dt>TypeScript?</dt>
 <dd>Yes, ships with <code>audio.d.ts</code>.</dd>
