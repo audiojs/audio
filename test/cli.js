@@ -533,7 +533,7 @@ test('parseArgs — per-op help: highpass -h', t => {
 })
 
 test('op help — all built-in ops have help', t => {
-  let expected = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'remove',
+  let expected = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'clip', 'remove',
     'insert', 'repeat', 'mix', 'remix', 'highpass', 'lowpass', 'eq', 'lowshelf',
     'highshelf', 'notch', 'bandpass', 'filter', 'pan', 'pad', 'speed', 'stretch', 'pitch']
   for (let op of expected) t.ok(HELP[op], `${op} has help`)
