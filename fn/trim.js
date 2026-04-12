@@ -25,34 +25,17 @@ export let isLoud = (stats, i, ch, thresh) => {
   return false
 }
 
-const trim = (chs, ctx) => {
-  let threshold = ctx.args[0]
-  if (threshold == null) {
-    let energies = []
-    for (let c = 0; c < chs.length; c++)
-      for (let off = 0; off < chs[c].length; off += audio.BLOCK_SIZE) {
-        let end = Math.min(off + audio.BLOCK_SIZE, chs[c].length), sum = 0
-        for (let i = off; i < end; i++) sum += chs[c][i] * chs[c][i]
-        energies.push(sum / (end - off))
-      }
-    threshold = autoThreshold(energies)
-  }
-  let thresh = 10 ** (threshold / 20)
-
-  let len = chs[0].length, s = 0, e = len - 1
-  for (; s < len; s++) { let loud = false; for (let c = 0; c < chs.length; c++) if (Math.abs(chs[c][s]) > thresh) { loud = true; break }; if (loud) break }
-  for (; e >= s; e--) { let loud = false; for (let c = 0; c < chs.length; c++) if (Math.abs(chs[c][e]) > thresh) { loud = true; break }; if (loud) break }
-  e++
-
-  return s === 0 && e === len ? false : chs.map(ch => ch.slice(s, e))
+const trim = (input, output, ctx) => {
+  // Resolve handles trim via crop (structural). Process fallback: passthrough.
+  for (let c = 0; c < input.length; c++) output[c].set(input[c])
 }
 
-const trimResolve = (args, ctx) => {
-  let { stats, sampleRate, totalDuration } = ctx
+const trimResolve = (ctx) => {
+  let { stats, sampleRate, totalDuration, threshold } = ctx
   if (!stats?.min || !stats?.energy) return null
   let ch = stats.min.length, blocks = stats.min[0].length
   let total = Math.round(totalDuration * sampleRate)
-  let thresh = resolveThreshold(stats, ch, 0, stats.energy[0].length, args[0])
+  let thresh = resolveThreshold(stats, ch, 0, stats.energy[0].length, threshold)
 
   // Progressive: trim head immediately, tail after decode
   if (stats.partial) {
@@ -75,4 +58,4 @@ const trimResolve = (args, ctx) => {
   return ['crop', { at: startSample / sampleRate, duration: (endSample - startSample) / sampleRate }]
 }
 
-audio.op('trim', { process: trim, resolve: trimResolve })
+audio.op('trim', { params: ['threshold'], process: trim, resolve: trimResolve })

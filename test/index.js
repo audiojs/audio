@@ -434,7 +434,8 @@ test('repeat', async t => {
   let a = audio.from([new Float32Array(1000)])
   a.repeat(2)
   t.is(a.edits[0][0], 'repeat')
-  t.is(a.edits[0][1], 2)
+  t.is(a.edits[0].length, 2, 'compact edit tuple [type, opts]')
+  t.is(a.edits[0][1].times, 2)
 })
 
 test('crop — materialized correctly', async t => {
@@ -570,10 +571,12 @@ test('run — re-apply undone edit', async t => {
 test('run — variadic edit arrays', async t => {
   let a = audio.from([new Float32Array(100).fill(1)])
   a.run(
-    ['gain', -6],
-    ['gain', -6]
+    ['gain', { value: -6 }],
+    ['gain', { value: -6 }]
   )
   t.is(a.edits.length, 2, 'two edits from one run() call')
+  t.is(a.edits[0].length, 2, 'stored as [type, opts]')
+  t.is(a.edits[0][1].value, -6, 'param mapped into opts')
   let pcm = await a.read()
   let expected = Math.pow(10, -6 / 20) ** 2
   t.ok(Math.abs(pcm[0][0] - expected) < 0.01, `double gain: ${pcm[0][0].toFixed(3)} ≈ ${expected.toFixed(3)}`)
@@ -581,17 +584,17 @@ test('run — variadic edit arrays', async t => {
 
 test('transform — inline function', async t => {
   let a = audio.from([new Float32Array(100).fill(1)])
-  a.transform((chs) => chs.map(ch => { let o = new Float32Array(ch); for (let i = 0; i < o.length; i++) o[i] *= 0.5; return o }))
+  a.transform((input, output, ctx) => { for (let c = 0; c < input.length; c++) for (let i = 0; i < input[c].length; i++) output[c][i] = input[c][i] * 0.5 })
   let pcm = await a.read()
   t.ok(Math.abs(pcm[0][0] - 0.5) < 0.01, 'transform applied: 1 * 0.5 = 0.5')
 })
 
-test('transform — false skips', async t => {
+test('transform — passthrough copies input', async t => {
   let a = audio.from([new Float32Array(100).fill(1)])
-  a.transform(() => false)
-  a.transform((chs) => chs.map(ch => { let o = new Float32Array(ch); o.fill(0.5); return o }))
+  a.transform((input, output) => { for (let c = 0; c < input.length; c++) output[c].set(input[c]) })
+  a.transform((input, output) => { for (let c = 0; c < input.length; c++) for (let i = 0; i < input[c].length; i++) output[c][i] = 0.5 })
   let pcm = await a.read()
-  t.ok(pcm[0][0] === 0.5, 'false skips, next transform applies')
+  t.ok(pcm[0][0] === 0.5, 'passthrough + next transform applies')
 })
 
 test('on(change) — fires', async t => {
@@ -721,19 +724,17 @@ test('fade in/out — two-arg shorthand', async t => {
   t.ok(pcm[0][0] < 0.01, 'start is silent (fade in)')
   t.ok(Math.abs(pcm[0][22050] - 1) < 0.01, 'middle is full')
   t.ok(pcm[0][44099] < 0.01, 'end is silent (fade out)')
-  t.is(a.edits.length, 2, 'expands to two edits')
-  t.is(a.edits[0][1], 0.5, 'first edit is fade in')
-  t.is(a.edits[1][1], -0.5, 'second edit is fade out')
+  t.is(a.edits.length, 1, 'one edit (resolve splits at compile)')
 })
 
 test('fade in/out — two-arg with curve', async t => {
   let ch = new Float32Array(44100).fill(1)
   let a = audio.from([ch], { sampleRate: 44100 })
-  a.fade(0.5, 0.5, 'exp')
-  t.is(a.edits.length, 2, 'expands to two edits')
-  t.is(a.edits[0][2].curve, 'exp', 'first edit has curve')
-  t.is(a.edits[1][2].curve, 'exp', 'second edit has curve')
-  t.is(a.edits[0].length, 3, 'curve in opts, not args')
+  a.fade(0.5, 0.5, {curve: 'exp'})
+  t.is(a.edits.length, 1, 'one edit (resolve splits at compile)')
+  let pcm = await a.read()
+  t.ok(pcm[0][0] < 0.01, 'fade-in applied')
+  t.ok(pcm[0][44099] < 0.01, 'fade-out applied')
 })
 
 test('reverse', async t => {
@@ -858,9 +859,8 @@ test('two-tier stats — source stats preserved after edit', async t => {
 })
 
 test('custom op', async t => {
-  audio.op('double', (block) => {
-    for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] *= 2
-    return block
+  audio.op('double', (input, output, ctx) => {
+    for (let c = 0; c < input.length; c++) for (let i = 0; i < input[c].length; i++) output[c][i] = input[c][i] * 2
   })
   let a = audio.from([new Float32Array(100).fill(0.25)])
   a.double()
@@ -869,11 +869,10 @@ test('custom op', async t => {
 })
 
 test('custom op — with arg', async t => {
-  audio.op('amplify', (block, ctx) => {
-    let factor = ctx.args[0]
-    for (let ch of block) for (let i = 0; i < ch.length; i++) ch[i] *= factor
-    return block
-  })
+  audio.op('amplify', { params: ['factor'], process: (input, output, ctx) => {
+    let factor = ctx.factor
+    for (let c = 0; c < input.length; c++) for (let i = 0; i < input[c].length; i++) output[c][i] = input[c][i] * factor
+  }})
   let a = audio.from([new Float32Array(100).fill(0.1)])
   a.amplify(3)
   let pcm = await a.read()
@@ -881,11 +880,14 @@ test('custom op — with arg', async t => {
 })
 
 test('custom op — with range', async t => {
-  audio.op('mute', (chs, ctx) => {
+  audio.op('mute', (input, output, ctx) => {
     let sr = ctx.sampleRate
     let s = ctx.at != null ? Math.round(ctx.at * sr) : 0
-    let e = ctx.duration != null ? s + Math.round(ctx.duration * sr) : chs[0].length
-    return chs.map(ch => { let o = new Float32Array(ch); for (let i = Math.max(0, s); i < Math.min(e, o.length); i++) o[i] = 0; return o })
+    let e = ctx.duration != null ? s + Math.round(ctx.duration * sr) : input[0].length
+    for (let c = 0; c < input.length; c++) {
+      output[c].set(input[c])
+      for (let i = Math.max(0, s); i < Math.min(e, output[c].length); i++) output[c][i] = 0
+    }
   })
   let a = audio.from([new Float32Array(44100).fill(1)], { sampleRate: 44100 })
   a.mute({at: 0.5, duration: 0.5})  // mute from 0.5s for 0.5s
@@ -905,7 +907,9 @@ test('core without plan — direct page read', { skip: !isNode }, async t => {
 })
 
 test('runtime op registration — audio.op', async t => {
-  audio.op('invert', (chs) => chs.map(ch => { let o = new Float32Array(ch); for (let i = 0; i < o.length; i++) o[i] = -o[i]; return o }))
+  audio.op('invert', (input, output, ctx) => {
+    for (let c = 0; c < input.length; c++) for (let i = 0; i < input[c].length; i++) output[c][i] = -input[c][i]
+  })
   let a = audio.from([new Float32Array([0.5, -0.3])])
   a.invert()
   let pcm = await a.read()
@@ -1342,7 +1346,7 @@ test('stream — plan-based insert matches full render', async t => {
 
 test('stream — sample-level op via run()', async t => {
   let a = audio.from([new Float32Array(44100).fill(1)], { sampleRate: 44100 })
-  a.run(['gain', -6])
+  a.run(['gain', { value: -6 }])
 
   let streamed = []
   for await (let block of a.stream()) streamed.push(block[0])
@@ -2817,7 +2821,7 @@ test('filter(fn) — custom filter function', { skip: !isNode }, async t => {
   let ch = tone(200, 0.5)
   let a = audio.from([ch], { sampleRate: 44100 })
   let { default: hp } = await import('audio-filter/effect/highpass.js')
-  a.filter(hp, { fc: 1000 })
+  a.filter({type: hp, freq: { fc: 1000 }})
   let pcm = await a.read()
   t.ok(rms(pcm[0]) < 0.15, `custom hp attenuated 200Hz: ${rms(pcm[0]).toFixed(3)}`)
 })
@@ -3790,6 +3794,51 @@ test('boundary — crop+gain across page boundary stream vs flat', async t => {
     for (let i = 0; i < streamBuf.length; i++) maxDiff = Math.max(maxDiff, Math.abs(streamBuf[i] - flat[0][i]))
     t.ok(maxDiff < 0.001, `crop+gain stream matches flat (max diff ${maxDiff.toFixed(6)})`)
   } finally { audio.PAGE_SIZE = origP; audio.BLOCK_SIZE = origB }
+})
+
+test('boundary — concurrent decode + stream across page boundary', async t => {
+  // Regression: drain() during streaming created short pages, walkPages p0 formula skipped data at PAGE_SIZE boundary
+  let sr = 48000, totalLen = Math.ceil(sr * 25)  // 25s at 48kHz — crosses PAGE_SIZE at ~21.8s
+  let ramp = new Float32Array(totalLen)
+  for (let i = 0; i < totalLen; i++) ramp[i] = i
+
+  let a = audio()
+  a.sampleRate = sr
+  a._.ch = 1
+  a._.waiters = []
+  a.decoded = false
+
+  // Background decode: push chunks, then finalize
+  let pos = 0, CHUNK = 4096
+  let timer = setInterval(() => {
+    if (pos >= totalLen) {
+      clearInterval(timer)
+      a._.acc.drain()
+      a.decoded = true
+      a._.len = a._.acc.length
+      for (let w of a._.waiters.splice(0)) w()
+      return
+    }
+    let n = Math.min(CHUNK, totalLen - pos)
+    a.push([ramp.subarray(pos, pos + n)], { sampleRate: sr })
+    pos += n
+    for (let w of a._.waiters.splice(0)) w()
+  }, 0)
+
+  let blockIdx = 0, err = null
+  for await (let block of a.stream()) {
+    let data = block[0], base = blockIdx * BLOCK_SIZE
+    for (let i = 0; i < data.length; i++) {
+      if (data[i] !== base + i) {
+        err = { block: blockIdx, i, got: data[i], expected: base + i, t: ((base + i) / sr).toFixed(2) }
+        break
+      }
+    }
+    if (err) break
+    blockIdx++
+  }
+  if (!timer._destroyed) clearInterval(timer)
+  t.ok(!err, err ? `glitch at block ${err.block} sample ${err.i} (t=${err.t}s): got ${err.got}, expected ${err.expected}` : 'all samples correct across page boundary')
 })
 
 test('boundary — evicted pages restored during streaming', async t => {

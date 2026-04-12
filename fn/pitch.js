@@ -7,23 +7,25 @@
 import { phaseLock } from 'time-stretch'
 import audio from '../core.js'
 
-const pitchProc = (chs, ctx) => {
-  let semi = ctx.args[0]
-  if (!semi) return chs
-  let ratio = Math.pow(2, semi / 12)
-  // phaseLock at factor=ratio stretches duration → pitch stays same.
-  // Then resample output back to original length → pitch shifts, duration restores.
-  if (!ctx._pl) {
-    ctx._pl = chs.map(() => phaseLock({ factor: ratio }))
-    ctx._buf = chs.map(() => [])
-    ctx._pos = chs.map(() => 0)
+const pitchProc = (input, output, ctx) => {
+  let semi = ctx.semitones
+  if (!semi) {
+    for (let c = 0; c < input.length; c++) output[c].set(input[c])
+    return
   }
-  let len = chs[0].length
-  return chs.map((ch, c) => {
-    let chunk = ctx._pl[c](ch)
+  let ratio = Math.pow(2, semi / 12)
+  if (!ctx._pl) {
+    ctx._pl = input.map(() => phaseLock({ factor: ratio }))
+    ctx._buf = input.map(() => [])
+    ctx._pos = input.map(() => 0)
+  }
+  let len = input[0].length
+  for (let c = 0; c < input.length; c++) {
+    let chunk = ctx._pl[c](input[c])
     if (chunk.length) ctx._buf[c].push(chunk)
-    return drain(ctx._buf[c], ctx._pos, c, len)
-  })
+    let drained = drain(ctx._buf[c], ctx._pos, c, len)
+    output[c].set(drained)
+  }
 }
 
 function drain(bufs, posArr, c, len) {
@@ -46,4 +48,4 @@ function drain(bufs, posArr, c, len) {
   return out
 }
 
-audio.op('pitch', { process: pitchProc })
+audio.op('pitch', { params: ['semitones'], process: pitchProc })

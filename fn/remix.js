@@ -1,25 +1,31 @@
-const remix = (chs, ctx) => {
-  let arg = ctx.args[0], len = chs[0].length
-  // array map: [0, 1, null, ...] — number = source ch, null = silence
+const remix = (input, output, ctx) => {
+  let arg = ctx.layout, len = input[0].length
   if (Array.isArray(arg)) {
-    return arg.map(src =>
-      src == null ? new Float32Array(len) : new Float32Array(chs[((src % chs.length) + chs.length) % chs.length])
-    )
+    for (let c = 0; c < output.length; c++) {
+      let src = arg[c]
+      if (src == null) output[c].fill(0)
+      else output[c].set(input[((src % input.length) + input.length) % input.length])
+    }
+    return
   }
-  let n = chs.length, m = arg
-  if (n === m) return false
+  let n = input.length, m = arg
+  if (n === m) { for (let c = 0; c < n; c++) output[c].set(input[c]); return }
   if (m < n) {
-    let out = new Float32Array(len)
+    output[0].fill(0)
     for (let c = 0; c < n; c++)
-      for (let i = 0; i < len; i++) out[i] += chs[c][i]
+      for (let i = 0; i < len; i++) output[0][i] += input[c][i]
     let inv = 1 / n
-    for (let i = 0; i < len; i++) out[i] *= inv
-    return Array.from({ length: m }, () => new Float32Array(out))
+    for (let i = 0; i < len; i++) output[0][i] *= inv
+    for (let c = 1; c < m; c++) output[c].set(output[0])
+    return
   }
-  return Array.from({ length: m }, (_, c) => new Float32Array(chs[c % n]))
+  for (let c = 0; c < m; c++) output[c].set(input[c % n])
 }
 
-const remixCh = (_, args) => Array.isArray(args[0]) ? args[0].length : args[0]
+const remixCh = (curCh, ctx) => {
+  let m = Array.isArray(ctx.layout) ? ctx.layout.length : ctx.layout
+  return m === curCh ? 0 : m
+}
 
 import audio from '../core.js'
-audio.op('remix', { process: remix, ch: remixCh })
+audio.op('remix', { params: ['layout'], process: remix, ch: remixCh })

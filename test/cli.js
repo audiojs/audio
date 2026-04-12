@@ -569,7 +569,7 @@ test('CLI — macro applies edits from JSON', async t => {
   let outPath = join(__dirname, 'tmp-macro-out.wav')
   try {
     writeFileSync(macroPath, JSON.stringify([
-      { type: 'gain', args: [-6] }
+      ['gain', { value: -6 }]
     ]))
     await runCli([lenaPath, '--macro', macroPath, '-o', outPath])
     let result = await audio(outPath)

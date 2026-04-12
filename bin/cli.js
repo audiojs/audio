@@ -236,6 +236,16 @@ function parseArgs(args) {
   return { input, ops: ops_, output, format, verbose, showHelp, play, force, loop, macro, helpOp, concatFiles, range }
 }
 
+function opCallArgs(op) {
+  let args = (op.args || []).slice()
+  let callOpts = op.opts ? { ...op.opts } : {}
+  if (op.offset != null) callOpts.at = op.offset
+  if (op.duration != null) callOpts.duration = op.duration
+  if (op.curve) callOpts.curve = op.curve
+  if (Object.keys(callOpts).length) args.push(callOpts)
+  return args
+}
+
 // ── I/O ──────────────────────────────────────────────────────────────────
 
 async function getStdinBuffer() {
@@ -425,8 +435,11 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
   if (hasEdits && a?.decoded) fileInfo = `${a.sampleRate >= 1000 ? Math.round(a.sampleRate / 1000) + 'k' : a.sampleRate}   ${a.channels}ch   ${fmtTime(a.duration)}`
   let flash = m => { msg = m; clearTimeout(msgTimer); msgTimer = setTimeout(() => { msg = ''; render(p.currentTime) }, 1500) }
   let fmtRate = sr => { let k = sr / 1000; return (k % 1 ? k.toFixed(1) : k) + 'k' }
+  let refreshing = false
   let refreshInfo = async () => {
     if (!a?.decoded) return
+    refreshing = true
+    render(p.currentTime)
     try {
       let [peak, , l, clips, dcOff] = await a.stat(['db', 'rms', 'loudness', 'clipping', 'dc'])
       let warn = ''
@@ -434,6 +447,7 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
       if (Math.abs(dcOff) > 0.001) warn += `   dc:${dcOff.toFixed(4)}`
       fileInfo = `${fmtRate(a.sampleRate)}   ${a.channels}ch   ${fmtTime(a.duration)}   ${peak.toFixed(1)}dBFS   ${l.toFixed(1)}LUFS${warn}`
     } catch { fileInfo = '(info unavailable)' }
+    refreshing = false
     render(p.currentTime)
   }
   ;(async () => {
@@ -481,8 +495,8 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
     if (a && !a.decoded) {
       updatePagePeaks()
       let peakDb = peakMax > 1e-10 ? (20 * Math.log10(peakMax)).toFixed(1) + ' dBFS' : ''
-      decoding = `   ${peakDb ? peakDb + '   ' : ''}${SPIN[spinIdx++ % 10]} decoding`
-    } else if (hasEdits && !p.block && !p.ended) {
+      decoding = `   ${peakDb ? peakDb + '   ' : ''}${SPIN[spinIdx++ % 10]} ${hasEdits ? 'processing' : 'decoding'}`
+    } else if (refreshing || (hasEdits && !p.block && !p.ended)) {
       decoding = `   ${SPIN[spinIdx++ % 10]} processing`
     }
     let infoStr = msg || (fileInfo ? fileInfo + decoding : (a ? `${fmtRate(a.sampleRate)}   ${a.channels}ch${decoding}` : ''))
@@ -699,9 +713,18 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       let edits = Array.isArray(raw) ? raw : raw.edits || raw.ops
       if (!Array.isArray(edits)) throw new Error('Macro file must contain an array of edits')
       macroOps = edits.map(e => {
+        // Support both array edits ['gain', opts] and object edits { type: 'gain', args: [-6] }
+        if (!Array.isArray(e)) {
+          let name = e.type || e.name || e.op
+          let args = Array.isArray(e.args) ? [...e.args] : []
+          let o = { ...e }
+          delete o.type; delete o.name; delete o.op; delete o.args
+          return { name, args, opts: o, offset: o.at ?? o.offset ?? null, duration: o.duration ?? null }
+        }
         let hasOpts = e.length > 1 && typeof e.at(-1) === 'object' && !Array.isArray(e.at(-1))
-        let o = hasOpts ? e.at(-1) : {}
-        return { name: e[0], args: hasOpts ? e.slice(1, -1) : e.slice(1), offset: o.at ?? null, duration: o.duration ?? null }
+        let o = hasOpts ? { ...e.at(-1) } : {}
+        let args = hasOpts ? e.slice(1, -1) : e.slice(1)
+        return { name: e[0], args, opts: o, offset: o.at ?? null, duration: o.duration ?? null }
       })
     }
     let allOps = [...opts.ops, ...macroOps]
@@ -743,12 +766,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
         process.stderr.write(`Processing: ${file}\n`)
         let a = await audio(file)
         for (let op of allOps) {
-          let fullArgs = op.args.slice()
-          let rangeOpts = {}
-          if (op.offset != null) rangeOpts.at = op.offset
-          if (op.duration != null) rangeOpts.duration = op.duration
-          if (op.curve) rangeOpts.curve = op.curve
-          if (Object.keys(rangeOpts).length) fullArgs.push(rangeOpts)
+          let fullArgs = opCallArgs(op)
           if (typeof a[op.name] !== 'function') throw new Error(`Unknown operation: ${op.name}`)
           a[op.name](...fullArgs)
         }
@@ -796,7 +814,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     if (canStream) for (let op of allOps) {
       if (op.name === 'stat' || op.name === 'split') { canStream = false; break }
       let desc = audio.op(op.name)
-      if (!desc || desc.plan || desc.resolve) { canStream = false; break }
+      if (!desc || desc.plan || (desc.resolve && !desc.streamable)) { canStream = false; break }
     }
 
     // Streaming player with process ops — show player immediately, start playback during decode
@@ -806,13 +824,8 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       await new Promise(r => a.on('metadata', r))
       // Apply ops (just pushes edits — sync, no computation)
       for (let op of allOps) {
-        let { name, args, offset: off, duration: dur, curve } = op
-        let fullArgs = args.slice()
-        let rangeOpts = {}
-        if (off != null) rangeOpts.at = off
-        if (dur != null) rangeOpts.duration = dur
-        if (curve) rangeOpts.curve = curve
-        if (Object.keys(rangeOpts).length) fullArgs.push(rangeOpts)
+        let { name } = op
+        let fullArgs = opCallArgs(op)
         if (name === 'clip') a = a[name](...fullArgs)
         else a[name](...fullArgs)
       }
@@ -845,13 +858,8 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       ;(async () => {
         await a  // full decode
         for (let op of transformOps) {
-          let { name, args, offset, duration, curve } = op
-          let fullArgs = args.slice()
-          let rangeOpts = {}
-          if (offset != null) rangeOpts.at = offset
-          if (duration != null) rangeOpts.duration = duration
-          if (curve) rangeOpts.curve = curve
-          if (Object.keys(rangeOpts).length) fullArgs.push(rangeOpts)
+          let { name } = op
+          let fullArgs = opCallArgs(op)
           if (name === 'clip') a = a[name](...fullArgs)
           else a[name](...fullArgs)
         }
@@ -895,24 +903,14 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       let preOps = allOps.slice(0, allOps.indexOf(splitOp))
       let postOps = allOps.slice(allOps.indexOf(splitOp) + 1)
       for (let op of preOps) {
-        let fullArgs = op.args.slice()
-        let rangeOpts = {}
-        if (op.offset != null) rangeOpts.at = op.offset
-        if (op.duration != null) rangeOpts.duration = op.duration
-        if (op.curve) rangeOpts.curve = op.curve
-        if (Object.keys(rangeOpts).length) fullArgs.push(rangeOpts)
+        let fullArgs = opCallArgs(op)
         a[op.name](...fullArgs)
       }
 
       let parts = a.split(...splitOp.args)
       for (let op of postOps)
         for (let part of parts) {
-          let fullArgs = op.args.slice()
-          let rangeOpts = {}
-          if (op.offset != null) rangeOpts.at = op.offset
-          if (op.duration != null) rangeOpts.duration = op.duration
-          if (op.curve) rangeOpts.curve = op.curve
-          if (Object.keys(rangeOpts).length) fullArgs.push(rangeOpts)
+          let fullArgs = opCallArgs(op)
           part[op.name](...fullArgs)
         }
 
@@ -936,13 +934,8 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     if (transformOps.length) {
       if (opts.verbose) console.error(`Applying ${transformOps.length} operation(s)...`)
       for (let op of transformOps) {
-        let { name, args, offset, duration, curve } = op
-        let fullArgs = args.slice()
-        let rangeOpts = {}
-        if (offset != null) rangeOpts.at = offset
-        if (duration != null) rangeOpts.duration = duration
-        if (curve) rangeOpts.curve = curve
-        if (Object.keys(rangeOpts).length) fullArgs.push(rangeOpts)
+        let { name } = op
+        let fullArgs = opCallArgs(op)
         // clip returns a new audio instance, so we gotta update `a`
         if (name === 'clip') {
           if (typeof a[name] !== 'function') throw new Error(`Unknown operation: ${name}`)

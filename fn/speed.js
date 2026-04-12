@@ -18,7 +18,7 @@ export function speedSegs(segs, rate) {
   return r
 }
 
-const speedPlan = (segs, ctx) => speedSegs(segs, ctx.args[0])
+const speedPlan = (segs, ctx) => speedSegs(segs, ctx.rate)
 
 import audio from '../core.js'
-audio.op('speed', { plan: speedPlan })
+audio.op('speed', { params: ['rate'], plan: speedPlan })

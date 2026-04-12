@@ -26,10 +26,10 @@ function repeatSegs(segs, times, total, off, dur) {
 }
 
 const repeatPlan = (segs, ctx) => {
-  let { total, args, length } = ctx
+  let { total, length } = ctx
   let off = ctx.offset != null ? planOffset(ctx.offset, total) : null
-  return repeatSegs(segs, args[0] ?? 1, total, off, length)
+  return repeatSegs(segs, ctx.times ?? 1, total, off, length)
 }
 
 import audio from '../core.js'
-audio.op('repeat', { plan: repeatPlan })
+audio.op('repeat', { params: ['times'], plan: repeatPlan })

@@ -13,7 +13,7 @@ import audio from '../core.js'
 
 // Plan: adjust segment durations — same math as speed(1/factor)
 const stretchPlan = (segs, ctx) => {
-  let factor = ctx.args[0]
+  let factor = ctx.factor
   if (!factor || factor === 1) return segs
   let rate = 1 / factor
   let r = [], dst = 0
@@ -29,24 +29,24 @@ const stretchPlan = (segs, ctx) => {
 // Plan resampled at rate=1/factor → pitch shifted by 1/factor.
 // phaseLock with factor=1/factor shrinks audio, then resample restores block length.
 // Net result: same-length block with original pitch.
-const stretchDsp = (chs, ctx) => {
-  let factor = ctx.args[0]
-  if (!factor || factor === 1) return chs
-  // Init per-channel phaseLock writers (compress by 1/factor to undo pitch)
-  if (!ctx._pl) {
-    ctx._pl = chs.map(() => phaseLock({ factor: 1 / factor }))
-    ctx._buf = chs.map(() => [])  // accumulate output chunks
-    ctx._pos = chs.map(() => 0)   // consumed position
+const stretchDsp = (input, output, ctx) => {
+  let factor = ctx.factor
+  if (!factor || factor === 1) {
+    for (let c = 0; c < input.length; c++) output[c].set(input[c])
+    return
   }
-  let len = chs[0].length
-  let out = chs.map((ch, c) => {
-    // Feed block into phaseLock
-    let chunk = ctx._pl[c](ch)
+  if (!ctx._pl) {
+    ctx._pl = input.map(() => phaseLock({ factor: 1 / factor }))
+    ctx._buf = input.map(() => [])
+    ctx._pos = input.map(() => 0)
+  }
+  let len = input[0].length
+  for (let c = 0; c < input.length; c++) {
+    let chunk = ctx._pl[c](input[c])
     if (chunk.length) ctx._buf[c].push(chunk)
-    // Try to collect len samples from buffer
-    return drainBuf(ctx._buf[c], ctx._pos, c, len)
-  })
-  return out
+    let drained = drainBuf(ctx._buf[c], ctx._pos, c, len)
+    output[c].set(drained)
+  }
 }
 
 // Drain len samples from accumulated buffer chunks
@@ -84,16 +84,17 @@ function drainBuf(bufs, posArr, c, len) {
   return out
 }
 
-audio.op('_stretch_seg', { plan: stretchPlan, hidden: true })
-audio.op('_stretch_dsp', { process: stretchDsp, hidden: true })
+audio.op('_stretch_seg', { params: ['factor'], plan: stretchPlan, hidden: true })
+audio.op('_stretch_dsp', { params: ['factor'], process: stretchDsp, hidden: true })
 audio.op('stretch', {
-  resolve: (args) => {
-    let f = args[0]
+  params: ['factor'],
+  resolve: (ctx) => {
+    let f = ctx.factor
     if (!f || f === 1) return false
     if (f <= 0) throw new RangeError('stretch: factor must be positive')
     return [
-      ['_stretch_seg', ...args],
-      ['_stretch_dsp', ...args]
+      ['_stretch_seg', { factor: f }],
+      ['_stretch_dsp', { factor: f }]
     ]
   }
 })

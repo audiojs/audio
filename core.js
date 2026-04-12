@@ -431,15 +431,25 @@ function paginate(channelData) {
 
 /** Walk pages of instance a, calling visitor(page, channel, start, end) for each overlapping page. */
 export function walkPages(a, c, srcOff, len, visitor) {
-  let p0 = Math.floor(srcOff / audio.PAGE_SIZE), pos = p0 * audio.PAGE_SIZE
-  for (let p = p0; p < a.pages.length && pos < srcOff + len; p++) {
-    let pg = a.pages[p], pLen = pg ? pg[0].length : audio.PAGE_SIZE
+  let pages = a.pages, PS = audio.PAGE_SIZE
+  let p0 = Math.floor(srcOff / PS), pos = p0 * PS
+  for (let p = p0; p < pages.length && pos < srcOff + len; p++) {
+    let pg = pages[p], pLen = pg ? pg[0].length : PS
     if (pos + pLen > srcOff && pg) {
       let s = Math.max(srcOff - pos, 0), e = Math.min(srcOff + len - pos, pLen)
       if (a._.lru) { a._.lru.delete(p); a._.lru.add(p) }
       visitor(pg, c, s, e, Math.max(pos - srcOff, 0))
     }
     pos += pLen
+  }
+  // Read from accumulator partial buffer if it extends beyond emitted pages
+  let acc = a._.acc
+  if (acc && pos < srcOff + len) {
+    let partial = acc.partial
+    if (partial) {
+      let s = Math.max(srcOff - pos, 0), e = Math.min(srcOff + len - pos, partial[0].length)
+      if (e > s) visitor(partial, c, s, e, Math.max(pos - srcOff, 0))
+    }
   }
 }
 

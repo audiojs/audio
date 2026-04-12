@@ -164,6 +164,49 @@ function remapStats(srcStats, plan, sr) {
 
 audio.statSession = statSession
 
+/** Stream plan blocks into stat session, yielding event loop periodically to avoid blocking. */
+async function streamStats(s, inst, plan, offset, duration) {
+  let t = performance.now()
+  for (let chunk of streamPlan(inst, plan, offset, duration)) {
+    s.page(chunk)
+    let now = performance.now()
+    if (now - t > 8) { await new Promise(r => setTimeout(r, 0)); t = performance.now() }
+  }
+}
+
+/** Clone block-level stats (deep copy of all Float32Arrays). */
+function cloneStats(src) {
+  let out = { blockSize: src.blockSize }
+  for (let k in src) {
+    if (k === 'blockSize' || !Array.isArray(src[k])) continue
+    out[k] = src[k].map(a => new Float32Array(a))
+  }
+  return out
+}
+
+/** Check if plan's pipeline stats can be derived algebraically from source stats. */
+function canDeriveStats(plan) {
+  let { segs, pipeline } = plan
+  if (!pipeline.length) return false
+  // Segments must be identity (no layout changes from plan ops)
+  if (segs.length !== 1 || segs[0][0] !== 0 || segs[0][2] !== 0
+    || (segs[0][3] && segs[0][3] !== 1) || segs[0][4] != null) return false
+  for (let [type, opts] of pipeline) {
+    if (opts?.at != null || opts?.duration != null || opts?.channel != null) return false
+    if (!audio.op(type)?.deriveStats) return false
+  }
+  return true
+}
+
+/** Derive post-pipeline stats from source stats via algebraic transforms. */
+function tryDeriveStats(srcStats, pipeline) {
+  let stats = cloneStats(srcStats)
+  for (let [type, opts] of pipeline) {
+    if (audio.op(type).deriveStats(stats, opts || {}) === false) return null
+  }
+  return stats
+}
+
 /** Resolve block range from opts. Recomputes stats if edits are dirty. */
 export async function queryRange(inst, opts) {
   await inst[LOAD]()
@@ -178,7 +221,7 @@ export async function queryRange(inst, opts) {
       let plan = buildPlan(inst)
       await ensurePlan(inst, plan, at || 0, dur)
       let s = statSession(inst.sampleRate)
-      for (let chunk of streamPlan(inst, plan, at || 0, dur)) s.page(chunk)
+      await streamStats(s, inst, plan, at || 0, dur)
       let stats = s.done()
       let first = Object.values(stats).find(v => v?.[0]?.length)
       let blocks = first?.[0]?.length || 0
@@ -191,12 +234,20 @@ export async function queryRange(inst, opts) {
       let remapped = remapStats(inst._.srcStats, plan, inst.sampleRate)
       if (remapped) { inst.stats = remapped; inst._.statsV = inst.version }
       else {
-        let s = statSession(inst.sampleRate); await ensurePlan(inst, plan); for (let chunk of streamPlan(inst, plan)) s.page(chunk); inst.stats = s.done()
+        let s = statSession(inst.sampleRate); await ensurePlan(inst, plan); await streamStats(s, inst, plan); inst.stats = s.done()
+        inst._.statsV = inst.version
+      }
+    } else if (inst._.srcStats?.blockSize && canDeriveStats(plan)) {
+      // Algebraic derivation — derive post-pipeline stats from source stats (dc, gain, etc.)
+      let derived = tryDeriveStats(inst._.srcStats, plan.pipeline)
+      if (derived) { inst.stats = derived; inst._.statsV = inst.version }
+      else {
+        let s = statSession(inst.sampleRate); await ensurePlan(inst, plan); await streamStats(s, inst, plan); inst.stats = s.done()
         inst._.statsV = inst.version
       }
     } else {
       // Full recompute — has sample-level ops
-      let s = statSession(inst.sampleRate); await ensurePlan(inst, plan); for (let chunk of streamPlan(inst, plan)) s.page(chunk); inst.stats = s.done()
+      let s = statSession(inst.sampleRate); await ensurePlan(inst, plan); await streamStats(s, inst, plan); inst.stats = s.done()
       inst._.statsV = inst.version
     }
   }

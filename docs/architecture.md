@@ -37,7 +37,7 @@ Ops don't mutate source pages. `a.gain(-3).crop({at: 1, duration: 5})` pushes tw
 `compilePlan(a, len, final)` compiles `a.edits` into a plan object:
 
 - **Segment map** — copy instructions: which source ranges map to which output positions. Structural ops (crop, remove, insert, repeat, pad, reverse, speed) rewrite segments. Each segment is `[from, count, to, rate?, ref?]` — "read `count` samples from `from`, write at `to`."
-- **Sample pipeline** — per-block transforms applied in order (gain, fade, filter, pan). Each op receives one `BLOCK_SIZE` chunk. Stateful ops carry state across blocks.
+- **Sample pipeline** — per-block transforms applied in order (gain, fade, filter, pan). Each op receives separate `input` and `output` buffers (`Float32Array[]` per channel, `BLOCK_SIZE` samples). The engine pre-allocates two buffer sets and rotates them per op — previous output becomes next input, zero allocation in the hot path. Ops read from input, write to output (never alias). Stateful ops carry state across blocks via `ctx`.
 - **Limit** — the safe output boundary. During incremental streaming (`final=false`), `adjustLimit` tracks how far output is deterministic given partial source data.
 
 `buildPlan(a)` is the cached wrapper for fully-decoded audio — calls `compilePlan(a, len, true)` once per version.
@@ -53,7 +53,7 @@ source pages ──→ segment map ──→ sample pipeline ──→ output bl
 
 ### Incremental streaming
 
-Structural ops (crop, repeat, pad, reverse, etc.) stream incrementally — output begins before decode completes. `adjustLimit(limit, type, args, offset, length, sr)` is a pure function that transforms the safe output boundary per op type during compilation:
+Structural ops (crop, repeat, pad, reverse, etc.) stream incrementally — output begins before decode completes. `adjustLimit(limit, type, ctx)` is a pure function that transforms the safe output boundary per op type during compilation:
 
 - **crop**: limit clamps to cropped range
 - **insert**: limit extends by inserted length (when insertion point is reachable)
@@ -80,7 +80,7 @@ Audio is fragmented at two levels — **pages** for storage, **blocks** for proc
 | **Purpose** | Memory management, cache eviction, decode streaming | Op processing, stat computation, waveform resolution |
 | **Memory** | PCM data — evictable to OPFS | Stats — always resident (~7 MB for 2h stereo) |
 
-The edit pipeline materializes one block at a time: read source → apply structural ops (segment map) → run sample transforms → yield output block. Peak memory is one block per channel regardless of file length.
+The edit pipeline materializes one block at a time: read source → apply structural ops (segment map) → run sample transforms (rotating pre-allocated input/output buffers) → yield output block. Peak memory is two blocks per channel regardless of file length or op chain depth.
 
 Cache eviction works at page granularity: cold pages offload to OPFS, hot pages near the playhead stay resident.
 

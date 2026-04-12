@@ -16,9 +16,9 @@ export function seg(from, count, to, rate, ref) {
   return s
 }
 
-// ── Edit array: ['type', ...args, {}] ────────────────────────────
-// Normalized shape: trailing opts {} always present.
-// e[0] = type, e.slice(1,-1) = args, e.at(-1) = opts
+// ── Edit array: ['type', opts] ─────────────────────────────────────
+// Normalized shape: compact tuple with options object only.
+// e[0] = type, e[1] = opts (named params + range opts + extras)
 
 // ── Range Helpers ────────────────────────────────────────────────
 
@@ -42,6 +42,39 @@ function isOpts(v) {
   return v != null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v) && !v.pages && !v.getChannelData
 }
 
+/** Map positional args to named params on ctx. */
+function mapParams(params, args, ctx) {
+  if (params) for (let i = 0; i < params.length && i < args.length; i++) ctx[params[i]] = args[i]
+}
+
+/** Normalize edit options: parse time fields and sample aliases. */
+function normalizeOpts(opts, sr) {
+  let o = isOpts(opts) ? { ...opts } : {}
+  if (o.at != null) o.at = parseTime(o.at)
+  if (o.duration != null) o.duration = parseTime(o.duration)
+  if (o.offset != null) { o.at = o.offset / sr; delete o.offset }
+  if (o.length != null) { o.duration = o.length / sr; delete o.length }
+  return o
+}
+
+/** Normalize an edit to compact ['type', opts] storage form. Accepts ['type'] or ['type', opts]. */
+function normalizeEdit(edit, sr) {
+  if (!Array.isArray(edit) || typeof edit[0] !== 'string') throw new TypeError('audio.run: edit must be [type, opts?]')
+  let [type, opts] = edit
+  return [type, normalizeOpts(opts || {}, sr)]
+}
+
+/** Detect functions deeply so non-serializable edits can be omitted from JSON. */
+function hasFunction(v, seen = new Set()) {
+  if (typeof v === 'function') return true
+  if (!v || typeof v !== 'object') return false
+  if (seen.has(v)) return false
+  seen.add(v)
+  if (Array.isArray(v)) return v.some(x => hasFunction(x, seen))
+  for (let k in v) if (hasFunction(v[k], seen)) return true
+  return false
+}
+
 /** Register/query op: audio.op(name, descriptor|process) */
 audio.op = function(name, arg1, arg2, arg3) {
   if (!arguments.length) return ops
@@ -52,7 +85,6 @@ audio.op = function(name, arg1, arg2, arg3) {
   if (typeof arg1 !== 'function') {
     desc = arg1
   } else {
-    // Legacy positional: audio.op(name, process, plan?, opts?)
     let plan, opts
     if (typeof arg2 === 'function') { plan = arg2; opts = arg3 }
     else opts = arg2
@@ -62,12 +94,14 @@ audio.op = function(name, arg1, arg2, arg3) {
   }
 
   if (!fn[name] && !desc.hidden) {
-    let stdMethod = function(...a) {
-      return this.run(a.length ? [name, ...a] : [name])
+    fn[name] = function(...a) {
+      let hasOpts = a.length && isOpts(a.at(-1))
+      let o = hasOpts ? { ...a.pop() } : {}
+      let d = ops[name]
+      if (d?.params) mapParams(d.params, a, o)
+      else if (a.length) o.args = a
+      return this.run([name, o])
     }
-    fn[name] = desc.call
-      ? function(...a) { return desc.call.call(this, stdMethod, ...a) }
-      : stdMethod
   }
   ops[name] = desc
 }
@@ -94,15 +128,22 @@ export function popEdit(a) {
 
 Object.defineProperties(fn, {
   length: { get() {
-    if (this._.lenV === this.version) return this._.lenC
+    if (this._.lenV === this.version && this._.lenL === this._.len) return this._.lenC
     let len = this.edits.length ? buildPlan(this).totalLen : this._.len
-    this._.lenC = len; this._.lenV = this.version
+    this._.lenC = len; this._.lenV = this.version; this._.lenL = this._.len
     return len
   }, configurable: true },
   channels: { get() {
     if (this._.chV === this.version) return this._.chC
     let ch = this._.ch
-    for (let edit of this.edits) { let op = ops[edit[0]]; if (op?.ch) ch = op.ch(ch, edit.slice(1, -1)) }
+    for (let edit of this.edits) {
+      let [type, o = {}] = edit
+      let desc = ops[type]
+      if (desc?.ch) {
+        let { at, duration, channel, ...extra } = o
+        ch = desc.ch(ch, extra) || ch
+      }
+    }
     this._.chC = ch; this._.chV = this.version
     return ch
   }, configurable: true },
@@ -161,19 +202,32 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
   let startSample = offset ? Math.round(offset * sr) : 0
   let endSample = duration != null ? startSample + Math.round(duration * sr) : Infinity
   let builtLen = 0, plan = null, procs = null, outPos = startSample, ensured = false
+  let nch = a._.ch
+  let bufA = Array.from({ length: nch }, () => new Float32Array(BS))
+  let bufB = Array.from({ length: nch }, () => new Float32Array(BS))
+  let xfadeRamp = 0, prevPipe = ''  // crossfade state + pipeline signature for change detection
 
   while (outPos < endSample) {
     let acc = a._.acc
-    if (acc && !a.decoded) acc.drain()
     let avail = a.decoded ? a._.len : acc ? acc.length : a._.len
 
     if (avail > builtLen || (a.decoded && !ensured)) {
       builtLen = Math.max(builtLen, avail)
       plan = compilePlan(a, builtLen, a.decoded)
+      let curPipe = pipelineSig(plan.pipeline)
       if (!procs) {
-        procs = initProcs(plan.pipeline, plan.totalLen / sr, sr)
+        procs = initProcs(plan.pipeline, plan.totalLen / sr, sr, nch)
+        prevPipe = curPipe
         if (startSample > 0 && procs.length)
           outPos = Math.max(0, startSample - BS * 8)
+      } else if (curPipe !== prevPipe) {
+        // Structural pipeline change (ops added/removed) — full reinit with crossfade
+        procs = initProcs(plan.pipeline, plan.totalLen / sr, sr, nch)
+        prevPipe = curPipe
+        xfadeRamp = Math.min(2048, Math.round(sr * 0.02))  // ~20ms crossfade to avoid click
+      } else if (procs.length) {
+        // Same structure, values refined — patch ctx in place (processes ramp internally)
+        patchProcs(procs, plan.pipeline)
       }
       if (a.decoded && !ensured) {
         ensured = true
@@ -205,10 +259,22 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
       continue
     }
 
-    let chunk = renderBlock(a, plan.segs, outPos, len)
-    chunk = applyProcs(chunk, procs, outPos, sr)
+    for (let b of bufA) b.fill(0, 0, len)
+    renderBlock(a, plan.segs, outPos, len, bufA)
+    let out
+    if (xfadeRamp > 0 && procs.length) {
+      // Crossfade from dry (pre-proc) to wet (post-proc) to avoid click at pipeline transition
+      let dry = bufA.map(b => b.slice(0, len))
+      out = applyProcs(bufA, bufB, procs, outPos, sr)
+      let n = Math.min(xfadeRamp, len)
+      for (let c = 0; c < out.length; c++)
+        for (let i = 0; i < n; i++) { let t = (xfadeRamp - n + i + 1) / xfadeRamp; out[c][i] = dry[c][i] * (1 - t) + out[c][i] * t }
+      xfadeRamp -= n
+    } else {
+      out = procs.length ? applyProcs(bufA, bufB, procs, outPos, sr) : bufA
+    }
 
-    if (outPos >= startSample) yield chunk
+    if (outPos >= startSample) yield out.map(b => b.slice(0, len))
     outPos += len
   }
 }
@@ -226,32 +292,19 @@ fn.undo = function(n = 1) {
 fn.run = function(...edits) {
   let sr = this.sampleRate
   for (let e of edits) {
-    if (!Array.isArray(e)) throw new TypeError('audio.run: edit must be array')
-    if (typeof e[0] !== 'string') throw new TypeError('audio.run: edit must have type')
-    // Normalize: always trailing opts {}
-    if (isOpts(e.at(-1))) {
-      let o = { ...e.at(-1) }
-      if (o.at != null) o.at = parseTime(o.at)
-      if (o.duration != null) o.duration = parseTime(o.duration)
-      if (o.offset != null) { o.at = o.offset / sr; delete o.offset }
-      if (o.length != null) { o.duration = o.length / sr; delete o.length }
-      e = [...e.slice(0, -1), o]
-    } else {
-      e = [...e, {}]
-    }
-    pushEdit(this, e)
+    pushEdit(this, normalizeEdit(e, sr))
   }
   return this
 }
 
 fn.toJSON = function() {
-  let edits = this.edits.filter(e => !e.slice(1, -1).some(a => typeof a === 'function'))
+  let edits = this.edits.filter(e => !hasFunction(e[1]))
   return { source: this.source, edits, sampleRate: this.sampleRate, channels: this.channels, duration: this.duration }
 }
 
 fn.clone = function() {
   let b = audio.from(this)
-  for (let e of this.edits) pushEdit(b, [...e])
+  for (let [type, opts] of this.edits) pushEdit(b, [type, opts ? { ...opts } : {}])
   return b
 }
 
@@ -290,9 +343,10 @@ export function render(a, offset, count) {
 function planLen(segs) { let m = 0; for (let s of segs) m = Math.max(m, s[2] + s[1]); return m }
 
 /** How a plan op transforms the safe output boundary during incremental decode. */
-function adjustLimit(limit, type, args, offset, length, sr) {
+function adjustLimit(limit, type, ctx) {
   if (limit <= 0) return 0
-  if (type === 'speed') return Math.round(limit / Math.abs(args[0] || 1))
+  let { offset, length, sampleRate: sr } = ctx
+  if (type === 'speed') return Math.round(limit / Math.abs(ctx.rate || 1))
   if (type === 'crop') {
     let at = offset ?? 0, dur = length ?? limit - at
     return Math.max(0, Math.min(dur, limit - at))
@@ -303,15 +357,20 @@ function adjustLimit(limit, type, args, offset, length, sr) {
   }
   if (type === 'insert') {
     if (offset != null && offset <= limit) {
-      let iLen = typeof args[0] === 'number' ? Math.round(args[0] * sr) : (args[0]?.length ?? 0)
+      let iLen = typeof ctx.source === 'number' ? Math.round(ctx.source * sr) : (ctx.source?.length ?? 0)
       if (length != null) iLen = Math.min(iLen, length)
       return limit + iLen
     }
     return limit
   }
-  if (type === 'pad') return limit + Math.round((args[0] ?? 0) * sr)
+  if (type === 'pad') return limit + Math.round((ctx.before ?? 0) * sr)
   if (type === 'reverse') return length == null ? Math.min(limit, offset ?? 0) : limit
   return limit
+}
+
+/** Build plan ctx for a plan hook or adjustLimit. */
+function mkPlanCtx(total, sr, offset, length, extra) {
+  return { total, sampleRate: sr, offset, length, ...extra }
 }
 
 /** Compile edit list into plan segments + pipeline for a given source length.
@@ -321,7 +380,8 @@ function compilePlan(a, len, final) {
   let segs = [[0, len, 0]], pipeline = [], limit = len
 
   for (let edit of a.edits) {
-    let type = edit[0], args = edit.slice(1, -1), { at, duration, channel, ...extra } = edit.at(-1)
+    let [type, o = {}] = edit
+    let { at, duration, channel, ...extra } = o
     let op = ops[type]
     if (!op) throw new Error(`Unknown op: ${type}`)
 
@@ -329,20 +389,24 @@ function compilePlan(a, len, final) {
 
     if (op.resolve) {
       let stats = a._.srcStats || a.stats || a._.acc?.stats
-      let ctx = { stats, sampleRate: sr, channelCount: ch, channel, at, duration, totalDuration: planLen(segs) / sr, ...extra }
-      let resolved = op.resolve(args, ctx)
+      let ctx = { stats, sampleRate: sr, channelCount: ch, channel, at, duration, totalDuration: planLen(segs) / sr, final, ...extra }
+      let resolved = op.resolve(ctx)
       if (resolved === false) continue
       if (resolved) {
         let edits = Array.isArray(resolved) && typeof resolved[0] !== 'string' ? resolved : [resolved]
         for (let re of edits) {
-          if (!isOpts(re.at(-1))) re = [...re, {}]
-          let o = re.at(-1)
+          re = normalizeEdit(re, sr)
+          let [rType, rOpts = {}] = re
+          let o = { ...rOpts }
           o.at ??= at; o.duration ??= duration; o.channel ??= channel
-          let rOp = ops[re[0]]
+          re = [rType, o]
+          let rOp = ops[rType]
           if (rOp?.plan && typeof rOp.plan === 'function') {
-            let t = planLen(segs), rOff = o.at != null ? Math.round(o.at * sr) : null, rLen = o.duration != null ? Math.round(o.duration * sr) : null
-            segs = rOp.plan(segs, { total: t, sampleRate: sr, args: re.slice(1, -1), offset: rOff, length: rLen })
-            if (!final) limit = adjustLimit(limit, re[0], re.slice(1, -1), rOff, rLen, sr)
+            let { at: rAt, duration: rDur, channel: rCh, ...rExtra } = o
+            let t = planLen(segs), rOff = rAt != null ? Math.round(rAt * sr) : null, rLen = rDur != null ? Math.round(rDur * sr) : null
+            let rpctx = mkPlanCtx(t, sr, rOff, rLen, rExtra)
+            segs = rOp.plan(segs, rpctx)
+            if (!final) limit = adjustLimit(limit, rType, rpctx)
           } else {
             pipeline.push(re)
           }
@@ -353,8 +417,9 @@ function compilePlan(a, len, final) {
 
     if (op.plan) {
       let t = planLen(segs), offset = at != null ? Math.round(at * sr) : null, length = duration != null ? Math.round(duration * sr) : null
-      segs = op.plan(segs, { total: t, sampleRate: sr, args, offset, length })
-      if (!final) limit = adjustLimit(limit, type, args, offset, length, sr)
+      let pctx = mkPlanCtx(t, sr, offset, length, extra)
+      segs = op.plan(segs, pctx)
+      if (!final) limit = adjustLimit(limit, type, pctx)
     } else {
       pipeline.push(edit)
     }
@@ -366,9 +431,9 @@ function compilePlan(a, len, final) {
 
 /** Build a read plan from edit list. Always succeeds — every op is plannable. */
 export function buildPlan(a) {
-  if (a._.plan && a._.planV === a.version) return a._.plan
+  if (a._.plan && a._.planV === a.version && a._.planL === a._.len) return a._.plan
   let plan = compilePlan(a, a._.len, true)
-  a._.plan = plan; a._.planV = a.version
+  a._.plan = plan; a._.planV = a.version; a._.planL = a._.len
   return plan
 }
 
@@ -420,9 +485,8 @@ function readRange(a, srcStart, n) {
   return readPlan(a, plan, srcStart / sr, n / sr)
 }
 
-/** Render one output block from plan segments. */
-function renderBlock(a, segs, outOff, len) {
-  let chunk = Array.from({ length: a._.ch }, () => new Float32Array(len))
+/** Render one output block from plan segments into pre-allocated chunk. */
+function renderBlock(a, segs, outOff, len, chunk) {
   for (let sg of segs) {
     let iStart = Math.max(outOff, sg[2]), iEnd = Math.min(outOff + len, sg[2] + sg[1])
     if (iStart >= iEnd) continue
@@ -452,42 +516,66 @@ function renderBlock(a, segs, outOff, len) {
       for (let c = 0; c < a._.ch; c++) readSource(a, c, srcStart, n, chunk[c], dstOff, rate)
     }
   }
-  return chunk
 }
 
-/** Apply process pipeline to a chunk. Returns (possibly replaced) chunk. */
-function applyProcs(chunk, procs, outOff, sr) {
+/** Apply process pipeline to a block, rotating between two pre-allocated buffers. */
+function applyProcs(bufA, bufB, procs, outOff, sr) {
   let blockOff = outOff / sr
+  let cur = bufA, next = bufB
   for (let proc of procs) {
-    let { op, at, channel, ctx } = proc
+    let { op, at, channel, ctx, outCh } = proc
     if (!op) continue
     ctx.at = at != null ? at - blockOff : undefined
     ctx.blockOffset = blockOff
     if (channel != null) {
       let chs = typeof channel === 'number' ? [channel] : channel
-      let sub = chs.map(c => chunk[c])
-      let result = op(sub, ctx)
-      if (result && result !== false) for (let i = 0; i < chs.length; i++) chunk[chs[i]] = result[i]
+      // Copy non-scoped channels from cur→next
+      for (let c = 0; c < cur.length; c++) if (!chs.includes(c)) next[c].set(cur[c])
+      let sub_in = chs.map(c => cur[c])
+      let sub_out = chs.map(c => next[c])
+      op(sub_in, sub_out, ctx)
     } else {
-      let result = op(chunk, ctx)
-      if (result === false || result === null) continue
-      if (result) chunk = result
+      if (outCh) next = Array.from({ length: outCh }, () => new Float32Array(cur[0].length))
+      op(cur, next, ctx)
     }
+    let tmp = cur; cur = next; next = tmp
   }
-  return chunk
+  return cur
+}
+
+/** Structural signature — op types only. Value changes patched in place. */
+function pipelineSig(pipeline) {
+  return pipeline.map(ed => ed[0]).join('|')
+}
+
+/** Patch proc contexts with updated parameter values (no reinit). */
+function patchProcs(procs, pipeline) {
+  for (let i = 0; i < procs.length && i < pipeline.length; i++) {
+    let o = pipeline[i][1] || {}
+    let { at, duration, channel, ...extra } = o
+    Object.assign(procs[i].ctx, extra)
+  }
 }
 
 /** Initialize process pipeline contexts from plan. */
-function initProcs(pipeline, totalDur, sr) {
+function initProcs(pipeline, totalDur, sr, nch) {
+  let curCh = nch
   return pipeline.map(ed => {
-    let { at, duration: dur, channel, ...extra } = ed.at(-1)
+    let desc = ops[ed[0]]
+    let o = ed[1] || {}
+    let { at, duration: dur, channel, ...extra } = o
+    let ctx = { duration: dur, sampleRate: sr, totalDuration: totalDur, render, ...extra }
+    let outCh = desc.ch ? desc.ch(curCh, ctx) : 0
+    if (outCh) curCh = outCh
     return {
-      op: ops[ed[0]].process,
+      op: desc.process,
+      desc,
       origAt: at,
       at: at != null && at < 0 ? totalDur + at : at,
       dur,
       channel,
-      ctx: { args: ed.slice(1, -1), duration: dur, sampleRate: sr, totalDuration: totalDur, render, ...extra }
+      outCh,
+      ctx
     }
   })
 }
@@ -513,29 +601,36 @@ function maxSrcSample(segs, start, end) {
 export function* streamPlan(a, plan, offset, duration) {
   let { segs, pipeline, totalLen, sr } = plan
   let s = Math.round((offset || 0) * sr), e = duration != null ? s + Math.round(duration * sr) : totalLen
-  let procs = initProcs(pipeline, totalLen / sr, sr)
+  let procs = initProcs(pipeline, totalLen / sr, sr, a._.ch)
 
-  // Warm up stateful ops (filters) when seeking — render prior blocks silently to settle IIR state
-  let WARMUP = 8  // ~185ms at 44.1kHz — enough for most IIR filters to settle
+  let WARMUP = 8
   let ws = (s > 0 && procs.length) ? Math.max(0, s - audio.BLOCK_SIZE * WARMUP) : s
+  let BS = audio.BLOCK_SIZE, nch = a._.ch
+  let bufA = Array.from({ length: nch }, () => new Float32Array(BS))
+  let bufB = Array.from({ length: nch }, () => new Float32Array(BS))
 
-  for (let outOff = ws; outOff < e; outOff += audio.BLOCK_SIZE) {
+  for (let outOff = ws; outOff < e; outOff += BS) {
     let blockEnd = outOff < s ? s : e
-    let len = Math.min(audio.BLOCK_SIZE, blockEnd - outOff)
-    let chunk = renderBlock(a, segs, outOff, len)
-    chunk = applyProcs(chunk, procs, outOff, sr)
-    if (outOff >= s) yield chunk
+    let len = Math.min(BS, blockEnd - outOff)
+    for (let b of bufA) b.fill(0, 0, len)
+    renderBlock(a, segs, outOff, len, bufA)
+    let out = procs.length ? applyProcs(bufA, bufB, procs, outOff, sr) : bufA
+    if (outOff >= s) yield out.map(b => b.subarray(0, len))
   }
 }
 
 function readPlan(a, plan, offset, duration) {
-  let chunks = []
-  for (let chunk of streamPlan(a, plan, offset, duration)) chunks.push(chunk)
-  if (!chunks.length) return Array.from({ length: a.channels }, () => new Float32Array(0))
-  let ch = chunks[0].length, totalLen = chunks.reduce((n, c) => n + c[0].length, 0)
-  return Array.from({ length: ch }, (_, c) => {
-    let out = new Float32Array(totalLen), pos = 0
-    for (let chunk of chunks) { out.set(chunk[c], pos); pos += chunk[0].length }
-    return out
-  })
+  let { sr } = plan, out = null, nch = 0, pos = 0
+  for (let chunk of streamPlan(a, plan, offset, duration)) {
+    if (!out) {
+      nch = chunk.length
+      let s = Math.round((offset || 0) * sr), e = duration != null ? s + Math.round(duration * sr) : plan.totalLen
+      out = Array.from({ length: nch }, () => new Float32Array(e - s))
+    }
+    let n = chunk[0].length
+    for (let c = 0; c < nch; c++) out[c].set(chunk[c], pos)
+    pos += n
+  }
+  if (!out) return Array.from({ length: a.channels }, () => new Float32Array(0))
+  return pos < out[0].length ? out.map(ch => ch.subarray(0, pos)) : out
 }

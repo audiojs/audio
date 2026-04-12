@@ -141,7 +141,7 @@ export interface AudioInstance {
   split(...offsets: Time[]): AudioInstance[]
   undo(n?: number): EditOp | EditOp[] | null
   run(...edits: EditOp[]): this
-  transform(fn: (channels: Float32Array[], ctx: any) => Float32Array[] | false | null): this
+  transform(fn: (input: Float32Array[], output: Float32Array[], ctx: any) => void): this
   play(opts?: { at?: Time, duration?: Time, volume?: number, rate?: number, loop?: boolean, paused?: boolean }): this
   pause(): void
   resume(): void
@@ -160,10 +160,7 @@ export interface AudioStats {
   [field: string]: number | Float32Array[]
 }
 
-export interface EditOp {
-  type: string
-  [key: string]: any
-}
+export type EditOp = [type: string, opts?: Record<string, any>]
 
 
 export interface AudioOpts {
@@ -181,11 +178,12 @@ export interface ProgressDelta {
 }
 
 export interface OpDescriptor {
-  process?: (chs: Float32Array[], ctx: Record<string, any>) => Float32Array[] | false | null
+  params?: string[]
+  process?: (input: Float32Array[], output: Float32Array[], ctx: Record<string, any>) => void
   plan?: (segs: any[], ctx: Record<string, any>) => any[]
-  resolve?: (args: any[], ctx: Record<string, any>) => EditOp | EditOp[] | false | null
-  call?: (std: Function, ...args: any[]) => any
-  ch?: Function
+  resolve?: (ctx: Record<string, any>) => EditOp | EditOp[] | false | null
+  ch?: (channels: number, ctx: Record<string, any>) => number
+  hidden?: boolean
 }
 
 /** Serialized audio instance (from toJSON) */

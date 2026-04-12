@@ -18,8 +18,8 @@ export function insertSegs(segs, at, len, ref) {
 }
 
 const insertPlan = (segs, ctx) => {
-  let { total, sampleRate: sr, args } = ctx
-  let source = args[0], off = planOffset(ctx.offset, total, total)
+  let { total, sampleRate: sr } = ctx
+  let source = ctx.source, off = planOffset(ctx.offset, total, total)
   // Normalize raw sources to audio instances for plan segment refs
   if (typeof source !== 'number' && !source?.pages) source = audio.from(source, { sampleRate: sr })
   let iLen = typeof source === 'number' ? Math.round(source * sr) : source.length
@@ -28,4 +28,4 @@ const insertPlan = (segs, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('insert', { plan: insertPlan })
+audio.op('insert', { params: ['source'], plan: insertPlan })

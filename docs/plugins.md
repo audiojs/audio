@@ -8,10 +8,10 @@ A plugin registers ops, stats, or methods on `audio`.
 // my-plugin.js
 import audio from 'audio'
 
-const myOp = (chs, ctx) => {
-  for (let ch of chs)
-    for (let i = 0; i < ch.length; i++) ch[i] = -ch[i]
-  return chs
+const myOp = (input, output, ctx) => {
+  for (let c = 0; c < input.length; c++)
+    for (let i = 0; i < input[c].length; i++)
+      output[c][i] = -input[c][i]
 }
 
 audio.op('myOp', myOp)                       // shorthand for { process: myOp }
@@ -25,9 +25,13 @@ import 'my-plugin.js'   // registers op + wires a.myOp()
 
 ## Ops
 
-A reducer: `(chs, ctx) => chs | false`.
+A block processor: `(input, output, ctx) => void`.
 
-`chs` is `Float32Array[]` per channel, `BLOCK_SIZE` samples (1024 default, last block may be shorter). `ctx` persists across chunks — set any property for stateful computation. Fixed fields update per chunk: `args`, `at`, `duration`, `sampleRate`, `blockOffset`, `totalDuration`, plus any extras from the edit object.
+`input` and `output` are separate `Float32Array[]` per channel, `BLOCK_SIZE` samples (1024 default, last block may be shorter). Read from `input`, write to `output` — never assume they alias. The engine pre-allocates two buffer sets and rotates them per op in the pipeline chain (previous output becomes next input). Zero allocation in the hot path.
+
+`ctx` persists across chunks — set any property for stateful computation. Fixed fields update per chunk: `at`, `duration`, `sampleRate`, `blockOffset`, `totalDuration`, plus named params and any extras from the edit object.
+
+When an op declares `params`, positional arguments are mapped to named properties on `ctx`. Prefer `params` so processors read explicit names (`ctx.value`, `ctx.freq`, etc.) rather than positional arrays.
 
 - `at`/`duration` — op time range (seconds), chunk-relative
 - `totalDuration` — full audio duration (seconds)
@@ -39,44 +43,34 @@ Convert to samples:
 ```js
 let sr = ctx.sampleRate
 let start = ctx.at != null ? Math.round(ctx.at * sr) : 0
-let end = ctx.duration != null ? start + Math.round(ctx.duration * sr) : chs[0].length
+let end = ctx.duration != null ? start + Math.round(ctx.duration * sr) : input[0].length
 ```
 
-Return `false` to skip (no change).
+For passthrough (no-op), copy input to output:
+
+```js
+for (let c = 0; c < input.length; c++) output[c].set(input[c])
+```
 
 ### Options
 
-By default, `a.myOp(arg, {at, duration, channel})` maps to `['myOp', arg, {at, duration, channel}]`.
+By default, edits are stored as `['myOp', opts]`.
 
 Any plain object as the last argument is treated as options. Known keys (`at`, `duration`, `channel`) are extracted; sample-based aliases `offset`/`length` convert to `at`/`duration`. **All other keys** flow through as extras and arrive in `ctx`:
 
 ```js
 a.fade(1, { curve: 'exp' })
-// → edit: ['fade', 1, { curve: 'exp' }]
+// → edit: ['fade', { in: 1, curve: 'exp' }]
 // → ctx.curve === 'exp'
 ```
 
-### Custom wrappers
-
-For sugar beyond what the default method handles, pass a `call` function in the descriptor. It receives the default method as its first argument, followed by the user's arguments:
+With `params`, named params can live in the options object too — no positional args needed:
 
 ```js
-audio.op('normalize', {
-  resolve: (args, ctx) => { /* ... */ },
-  call(op, arg) {
-    // string preset: normalize('streaming') → op('streaming')
-    if (typeof arg === 'string' || typeof arg === 'number') return op.call(this, arg)
-    // options object: normalize({target: -3, mode: 'rms'}) → op(-3, {mode: 'rms'})
-    if (arg != null && typeof arg === 'object') {
-      let { target, mode, at, duration, channel, ...extra } = arg
-      return op.call(this, target, { mode, at, duration, channel, ...extra })
-    }
-    return op.call(this)
-  }
-})
+a.gain({value: -6, at: 0.5})
+// → edit: ['gain', { value: -6, at: 0.5 }]
+// → ctx.value === -6, ctx.at === 0.5
 ```
-
-`op` is the standard method that `audio.op` generates — it parses `{at, duration, channel}` from the last arg and calls `this.run(edit)`. The `call` function defines the exact call signature and desugars user-facing argument patterns before delegating to it.
 
 ### Querying ops
 
@@ -98,12 +92,37 @@ Stage handlers (each op defines one or more):
 
 ```js
 audio.op('myOp', {
-  process: (chs, ctx) => chs,          // per-block PCM transform
-  plan: (segs, ctx) => segs,           // structural segment rewrite
-  resolve: (args, ctx) => edit,        // pre-render: replace with simpler edit(s) using stats
-  call(op, ...args) { ... },           // define call signature, desugar before delegating to op
+  params: ['arg1', 'arg2'],               // named positional arguments → ctx.arg1, ctx.arg2
+  process: (input, output, ctx) => { },   // per-block PCM transform (read input, write output)
+  plan: (segs, ctx) => segs,              // structural segment rewrite
+  resolve: (ctx) => edit,                 // pre-render: replace with simpler edit(s) using stats
 })
 ```
+
+### params
+
+Declare named positional arguments. The first positional arg maps to `ctx[params[0]]`, the second to `ctx[params[1]]`, etc. This applies to all stages: `process`, `plan`, and `resolve`.
+
+```js
+audio.op('gain', {
+  params: ['value'],
+  process: (input, output, ctx) => {
+    let g = 10 ** (ctx.value / 20)
+    for (let c = 0; c < input.length; c++)
+      for (let i = 0; i < input[c].length; i++)
+        output[c][i] = input[c][i] * g
+  }
+})
+```
+
+With `params`, calling with a single options object works naturally — named params and range opts coexist:
+
+```js
+a.gain({value: -6, at: 0.5})  // named param + range opt → ctx.value = -6
+a.eq({freq: 1000, q: 2})      // multiple named params
+```
+
+Positional args override opts for the same param. If both `a.gain(-6, {value: -3})` are present, the positional `-6` wins.
 
 ### plan
 
@@ -111,9 +130,9 @@ Rewrite the segment map without touching PCM. For ops that change timeline geome
 
 `compilePlan(a, len, final)` compiles `a.edits` into a segment map + sample pipeline + limit. Edits are the source of truth; segments are the compiled form — like bytecode from source, or DOM patches from VDOM. Segments are never maintained manually — they rebuild on any edit change.
 
-During streaming (`final=false`), compilePlan is called repeatedly as more source data arrives. Each call recompiles all edits from scratch and tracks a `limit` — the safe output boundary given current source length. `adjustLimit(limit, type, args, offset, length, sr)` transforms the limit per op. When `final=true` (fully decoded), limit equals `totalLen`.
+During streaming (`final=false`), compilePlan is called repeatedly as more source data arrives. Each call recompiles all edits from scratch and tracks a `limit` — the safe output boundary given current source length. `adjustLimit(limit, type, ctx)` transforms the limit per op. When `final=true` (fully decoded), limit equals `totalLen`.
 
-`ctx` has `total`, `sampleRate`, `args`, `offset`, `length`. The `offset`/`length` are `at`/`duration` pre-converted to samples (`null` if unset).
+`ctx` has `total`, `sampleRate`, `offset`, `length`, plus named params from `params`. The `offset`/`length` are `at`/`duration` pre-converted to samples (`null` if unset).
 
 ```js
 import { seg } from 'audio/plan.js'
@@ -185,9 +204,10 @@ Pre-render replacement using decoded stats. During incremental streaming, `ctx.s
 
 ```js
 audio.op('trim', {
+  params: ['threshold'],
   process: trim,
-  resolve: (args, ctx) => {
-    let { stats, sampleRate, totalDuration } = ctx
+  resolve: (ctx) => {
+    let { stats, sampleRate, totalDuration, threshold } = ctx
     if (!stats?.min) return null  // no stats — fall back to per-page
     // ...analyze stats to find silence boundaries...
     return ['crop', { at: start / sampleRate, duration: (end - start) / sampleRate }]
@@ -195,21 +215,24 @@ audio.op('trim', {
 })
 ```
 
-`ctx` has `stats`, `sampleRate`, `channelCount`, `channel`, `at`, `duration`, `totalDuration`, plus edit extras. Return:
+`ctx` has `stats`, `sampleRate`, `channelCount`, `channel`, `at`, `duration`, `totalDuration`, plus named params and edit extras. Return:
 - **edit(s)** — replace this op with simpler op(s)
 - **`false`** — skip (no change needed)
 - **`null`** — fall back to per-page processing
 
-Wrappers run at call time before edits are recorded. `resolve` runs at render time with decoded audio stats. Wrappers canonicalize input; `resolve` replaces abstract ops with concrete ones.
+`resolve` runs at render time with decoded audio stats and replaces abstract ops with concrete ones.
 
 ### Persistent ctx
 
 `ctx` is the same object across all chunks — any property you set persists. Fixed fields (`at`, `blockOffset`) update each chunk; everything else stays. This handles algorithmic state like IIR filter memory:
 
 ```js
-const filter = (chs, ctx) => {
-  if (!ctx.z) ctx.z = chs.map(() => 0)  // init once, persists across chunks
-  // ...use ctx.z for filter memory
+const filter = (input, output, ctx) => {
+  if (!ctx.z) ctx.z = input.map(() => 0)  // init once, persists across chunks
+  for (let c = 0; c < input.length; c++) {
+    output[c].set(input[c])
+    // ...use ctx.z[c] for filter memory, mutate output[c] in-place
+  }
 }
 
 audio.op('filter', { process: filter })

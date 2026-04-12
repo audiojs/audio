@@ -10,58 +10,52 @@ import parametricEq from 'audio-filter/eq/parametric-eq.js'
 // Each channel gets its own params object (holds coefs + state).
 // Persists across streaming chunks via ctx (persistent object).
 
-function apply(chs, ctx, key, fn, makeParams) {
-  if (!ctx[key]) ctx[key] = chs.map(() => makeParams(ctx.sampleRate))
+function apply(input, output, ctx, key, fn, makeParams) {
+  if (!ctx[key]) ctx[key] = input.map(() => makeParams(ctx.sampleRate))
   let st = ctx[key]
-  for (let c = 0; c < chs.length; c++) fn(chs[c], st[c])
-  return chs
+  for (let c = 0; c < input.length; c++) {
+    output[c].set(input[c])
+    fn(output[c], st[c])
+  }
 }
 
 // ── Filter dispatch ─────────────────────────────────────────────────────
 
 const types = {
-  highpass:  (chs, ctx, args) => apply(chs, ctx, '_hp', hpFilter, fs => ({ fc: args[0], fs })),
-  lowpass:   (chs, ctx, args) => apply(chs, ctx, '_lp', lpFilter, fs => ({ fc: args[0], fs })),
-  eq:        (chs, ctx, args) => apply(chs, ctx, '_eq', parametricEq, fs => ({ bands: [{ fc: args[0], Q: args[2] ?? 1, gain: args[1] ?? 0, type: 'peak' }], fs })),
-  lowshelf:  (chs, ctx, args) => apply(chs, ctx, '_ls', lsFilter, fs => ({ fc: args[0], gain: args[1] ?? 0, Q: args[2] ?? 0.707, fs })),
-  highshelf: (chs, ctx, args) => apply(chs, ctx, '_hs', hsFilter, fs => ({ fc: args[0], gain: args[1] ?? 0, Q: args[2] ?? 0.707, fs })),
-  notch:     (chs, ctx, args) => apply(chs, ctx, '_notch', notchFilter, fs => ({ fc: args[0], Q: args[1] ?? 30, fs })),
-  bandpass:  (chs, ctx, args) => apply(chs, ctx, '_bp', bpFilter, fs => ({ fc: args[0], Q: args[1] ?? 0.707, fs })),
+  highpass:  (input, output, ctx) => apply(input, output, ctx, '_hp', hpFilter, fs => ({ fc: ctx.freq, fs })),
+  lowpass:   (input, output, ctx) => apply(input, output, ctx, '_lp', lpFilter, fs => ({ fc: ctx.freq, fs })),
+  eq:        (input, output, ctx) => apply(input, output, ctx, '_eq', parametricEq, fs => ({ bands: [{ fc: ctx.freq, Q: ctx.q ?? 1, gain: ctx.gain ?? 0, type: 'peak' }], fs })),
+  lowshelf:  (input, output, ctx) => apply(input, output, ctx, '_ls', lsFilter, fs => ({ fc: ctx.freq, gain: ctx.gain ?? 0, Q: ctx.q ?? 0.707, fs })),
+  highshelf: (input, output, ctx) => apply(input, output, ctx, '_hs', hsFilter, fs => ({ fc: ctx.freq, gain: ctx.gain ?? 0, Q: ctx.q ?? 0.707, fs })),
+  notch:     (input, output, ctx) => apply(input, output, ctx, '_notch', notchFilter, fs => ({ fc: ctx.freq, Q: ctx.q ?? 30, fs })),
+  bandpass:  (input, output, ctx) => apply(input, output, ctx, '_bp', bpFilter, fs => ({ fc: ctx.freq, Q: ctx.q ?? 0.707, fs })),
+}
+
+const filterParams = {
+  highpass: ['freq'], lowpass: ['freq'], eq: ['freq', 'gain', 'q'],
+  lowshelf: ['freq', 'gain', 'q'], highshelf: ['freq', 'gain', 'q'],
+  notch: ['freq', 'q'], bandpass: ['freq', 'q'],
 }
 
 /** Unified filter: a.filter('highpass', 80) or a.filter(fn, {fc, ...}) */
-const filter = (chs, ctx) => {
-  let [type, ...args] = ctx.args
+const filter = (input, output, ctx) => {
+  let type = ctx.type
   if (typeof type === 'function') {
-    let opts = args[0] || {}
-    return apply(chs, ctx, '_custom', type, fs => ({ ...opts, fs }))
+    return apply(input, output, ctx, '_custom', type, fs => ({ ...ctx.freq, fs }))
   }
   let fn = types[type]
   if (!fn) throw new Error(`Unknown filter type: ${type}`)
-  return fn(chs, ctx, args)
+  fn(input, output, ctx)
 }
 
 // ── Register ────────────────────────────────────────────────────────────
 
 import audio from '../core.js'
 audio.op('filter', {
-  process: filter,
-  call(std, type, ...args) {
-    if (typeof type === 'function') {
-      let opts = args[0] || {}
-      let { at, duration, channel, offset, length, ...rest } = opts
-      let o = {}
-      if (at != null) o.at = at
-      if (duration != null) o.duration = duration
-      if (channel != null) o.channel = channel
-      if (offset != null) o.offset = offset
-      if (length != null) o.length = length
-      return this.run(['filter', type, rest, o])
-    }
-    return std.call(this, type, ...args)
-  }
+  params: ['type', 'freq', 'gain', 'q'],
+  process: filter
 })
 
 for (let name in types) {
-  audio.op(name, { process: (chs, ctx) => types[name](chs, ctx, ctx.args) })
+  audio.op(name, { params: filterParams[name], process: types[name] })
 }

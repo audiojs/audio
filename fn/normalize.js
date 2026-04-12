@@ -7,39 +7,75 @@ const PRESETS = { streaming: -14, podcast: -16, broadcast: -23 }
 /** DC removal — subtracts per-channel offset. Internal to normalize. */
 audio.op('dc', {
   hidden: true,
-  process: (chs, ctx) => {
-    let offsets = ctx.args[0]
-    if (typeof offsets === 'number') offsets = [offsets]
-    for (let c = 0; c < chs.length; c++) {
-      let d = offsets[c % offsets.length] || 0
-      if (Math.abs(d) < 1e-10) continue
-      for (let i = 0; i < chs[c].length; i++) chs[c][i] -= d
+  params: ['shift'],
+  process: (input, output, ctx) => {
+    let shift = ctx.shift
+    if (typeof shift === 'number') shift = [shift]
+    let prev = ctx._pd
+    ctx._pd = shift.slice ? shift.slice() : shift
+    for (let c = 0; c < input.length; c++) {
+      let d = shift[c % shift.length] || 0
+      let pd = prev ? (prev[c % prev.length] || 0) : d
+      let inp = input[c], out = output[c], len = inp.length
+      if (Math.abs(d) < 1e-10 && Math.abs(pd) < 1e-10) { out.set(inp); continue }
+      if (pd !== d) {
+        for (let i = 0; i < len; i++) out[i] = inp[i] - (pd + (d - pd) * i / len)
+      } else {
+        for (let i = 0; i < len; i++) out[i] = inp[i] - d
+      }
     }
-    return chs
+  },
+  deriveStats: (stats, opts) => {
+    let shift = opts.shift
+    if (typeof shift === 'number') shift = [shift]
+    let ch = stats.min.length
+    for (let c = 0; c < ch; c++) {
+      let d = shift[c % shift.length] || 0
+      if (Math.abs(d) < 1e-10) continue
+      let n = stats.min[c].length
+      for (let i = 0; i < n; i++) {
+        // E[(x-d)²] = E[x²] - 2d·E[x] + d²
+        if (stats.rms) stats.rms[c][i] = stats.rms[c][i] - 2 * d * stats.dc[c][i] + d * d
+        stats.min[c][i] -= d
+        stats.max[c][i] -= d
+        if (stats.dc) stats.dc[c][i] -= d
+      }
+      if (stats.clipping) for (let i = 0; i < n; i++)
+        stats.clipping[c][i] = (stats.min[c][i] <= -1 || stats.max[c][i] >= 1) ? Math.max(1, stats.clipping[c][i]) : 0
+    }
+    // energy: k-weighting high-passes, DC offset has no effect
   }
 })
 
 /** Clamp samples to ±limit (linear). Internal to normalize. */
 audio.op('clamp', {
   hidden: true,
-  process: (chs, ctx) => {
-    let limit = ctx.args[0]
-    for (let c = 0; c < chs.length; c++)
-      for (let i = 0; i < chs[c].length; i++)
-        chs[c][i] = Math.max(-limit, Math.min(limit, chs[c][i]))
-    return chs
+  params: ['limit'],
+  process: (input, output, ctx) => {
+    let limit = ctx.limit
+    for (let c = 0; c < input.length; c++)
+      for (let i = 0; i < input[c].length; i++)
+        output[c][i] = Math.max(-limit, Math.min(limit, input[c][i]))
   }
 })
 
 audio.op('normalize', {
-  process: () => false,
-  resolve: (args, ctx) => {
+  params: ['target'],
+  streamable: true,
+  process: (input, output) => { for (let c = 0; c < input.length; c++) output[c].set(input[c]) },
+  resolve: (ctx) => {
     let { stats, sampleRate } = ctx
     if (!stats?.min) return null
+    // During streaming (partial stats), need minimum ~0.8s of blocks for stable LUFS gating
+    if (!ctx.final) {
+      let blocks = stats.min[0]?.length || 0
+      let minBlocks = Math.ceil(0.8 * sampleRate / (stats.blockSize || 1024))
+      if (blocks < minBlocks) return null
+    }
 
-    let arg = args[0]
-    let mode = typeof arg === 'string' ? 'lufs' : ctx.mode || 'peak'
-    let targetDb = PRESETS[arg] ?? (typeof arg === 'number' ? arg : ctx.target ?? 0)
+    let target = ctx.target
+    let mode = typeof target === 'string' ? 'lufs' : ctx.mode || 'peak'
+    let targetDb = PRESETS[target] ?? (typeof target === 'number' ? target : 0)
     let totalCh = stats.min.length
     let chs = ctx.channel != null ? (Array.isArray(ctx.channel) ? ctx.channel : [ctx.channel]) : Array.from({ length: totalCh }, (_, i) => i)
 
@@ -55,26 +91,18 @@ audio.op('normalize', {
     if (levelDb == null) return false
 
     let edits = []
-    if (hasDc) edits.push(['dc', chs.map(c => dcOff[c])])
+    if (hasDc) edits.push(['dc', { shift: chs.map(c => dcOff[c]) }])
 
     // Ceiling mode: normalize peak then clip at ceiling level
     if (ctx.ceiling != null) {
       let peakLevel = peakDb(stats, chs, dcOff)
       if (peakLevel == null) return false
-      edits.push(['gain', targetDb - peakLevel])
-      edits.push(['clamp', 10 ** (ctx.ceiling / 20)])
+      edits.push(['gain', { value: targetDb - peakLevel }])
+      edits.push(['clamp', { limit: 10 ** (ctx.ceiling / 20) }])
     } else {
-      edits.push(['gain', targetDb - levelDb])
+      edits.push(['gain', { value: targetDb - levelDb }])
     }
 
     return edits.length === 1 ? edits[0] : edits
-  },
-  call(std, arg) {
-    if (typeof arg === 'string' || typeof arg === 'number') return std.call(this, arg)
-    if (arg != null && typeof arg === 'object') {
-      let { target, mode, at, duration, channel, ...extra } = arg
-      return std.call(this, target, { mode, at, duration, channel, ...extra })
-    }
-    return std.call(this)
   }
 })

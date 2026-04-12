@@ -182,12 +182,15 @@ await a.save('440hz.wav')
 ### Custom op
 
 ```js
-audio.op('crush', (chs, ctx) => {
-  let steps = 2 ** (ctx.args[0] ?? 8)
-  return chs.map(ch => ch.map(s => Math.round(s * steps) / steps))
-})
+audio.op('crush', { params: ['bits'], process: (input, output, ctx) => {
+  let steps = 2 ** (ctx.bits ?? 8)
+  for (let c = 0; c < input.length; c++)
+    for (let i = 0; i < input[c].length; i++)
+      output[c][i] = Math.round(input[c][i] * steps) / steps
+}})
 
 a.crush(4)
+a.crush({bits: 4, at: 1, duration: 2})
 ```
 
 ### Serialize and restore
@@ -358,7 +361,7 @@ Amplitude, mixing, normalization. All support `{at, duration, channel}` ranges.
 * **`.mix(source, opts?)`** – overlay another audio (additive).
 * **`.pan(value, opts?)`** – stereo balance (−1 left, 0 center, 1 right). Accepts function.
 * **`.write(data, {at?})`** – overwrite samples with raw PCM.
-* **`.transform(fn)`** – inline processor: `(chs, ctx) => chs`. Not serialized.
+* **`.transform(fn)`** – inline processor: `(input, output, ctx) => void`. Not serialized.
 
 ```js
 a.gain(-3)                                // reduce 3dB
@@ -474,20 +477,23 @@ Events, lifecycle, undo/redo, serialization.
   * `'progress'` – during save/encode. Payload: `{ offset, total }` in seconds.
 * **`.dispose()`** – release resources. Supports `using` for auto-dispose.
 * **`.undo(n?)`** – undo last edit(s). Returns edit for redo via `.run()`.
-* **`.run(...edits)`** – apply edits as arrays `['type', ...args, opts?]`. Batch or replay.
+* **`.run(...edits)`** – apply edits as arrays `['type', opts?]`. Batch or replay.
 
-Edits use the same shape as method calls: `[type, ...args, opts?]`, with a trailing plain object treated as options. This is handy for batching, replaying, and JSON serialization.
+Edits use `[type, opts]` shape, where `opts` is params (`value`, `freq`, etc.) plus range keys (`at`, `duration`, `channel`).
 
 ```js
 a.run(
-  ['gain', -3, { at: 10, duration: 5 }],
+  ['gain', { value: -3, at: 10, duration: 5 }],
   ['crop', { at: 1, duration: 2 }],
-  ['fade', 1, { curve: 'exp' }],
-  ['insert', ref, { at: 2 }],
-  ['gain', -3],
+  ['fade', { in: 1, curve: 'exp' }],
+  ['insert', { source: ref, at: 2 }],
+  ['gain', { value: -3 }],
 )
 
-let saved = JSON.stringify([['gain', -3], ['crop', { at: 1, duration: 2 }]])
+let saved = JSON.stringify([
+  ['gain', { value: -3 }],
+  ['crop', { at: 1, duration: 2 }],
+])
 a.run(...JSON.parse(saved))
 ```
 
@@ -504,16 +510,18 @@ JSON.stringify(a); audio(json)            // serialize / restore
 
 Extend with custom ops and stats. See [Plugin Tutorial](docs/plugins.md).
 
-* **`audio.op(name, fn)`** – register op. Shorthand for `{ process: fn }`. Full descriptor: `{ process, plan, resolve, call }`.
+* **`audio.op(name, fn)`** – register op. Shorthand for `{ process: fn }`. Full descriptor: `{ params, process, plan, resolve }`.
 * **`audio.op(name)`** – query descriptor. **`audio.op()`** – all ops.
 * **`audio.stat(name, descriptor)`** – register stat. Shorthand `(chs, ctx) => [...]` or `{ block, reduce, query }`.
 
 ```js
-// op: process function receives (channels[], ctx) per 1024-sample block
-audio.op('crush', (chs, ctx) => {
-  let steps = 2 ** (ctx.args[0] ?? 8)
-  return chs.map(ch => ch.map(s => Math.round(s * steps) / steps))
-})
+// op: params declares named args → ctx.bits; process receives (input, output, ctx) per 1024-sample block
+audio.op('crush', { params: ['bits'], process: (input, output, ctx) => {
+  let steps = 2 ** (ctx.bits ?? 8)
+  for (let c = 0; c < input.length; c++)
+    for (let i = 0; i < input[c].length; i++)
+      output[c][i] = Math.round(input[c][i] * steps) / steps
+}})
 
 // stat: block function collects per-block, reduce enables scalar queries
 audio.stat('peak', {
