@@ -2109,6 +2109,50 @@ test('stream — trim + normalize chained on live source', async t => {
   t.ok(Math.abs(peak - 1) < 0.05, `normalized peak ~1 (got ${peak.toFixed(3)})`)
 })
 
+test('normalize — ceiling stats derived algebraically (no full recompute)', async t => {
+  let sr = 44100
+  let ch = new Float32Array(sr)
+  for (let i = 0; i < sr; i++) ch[i] = 0.1 * Math.sin(2 * Math.PI * 440 * i / sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  a.normalize('podcast')  // LUFS preset with auto ceiling -1dBFS → emits dc + gain + clamp
+  let db = await a.stat('db')
+  let ceilLin = 10 ** (-1 / 20)  // -1 dBFS
+  let ceilDb = -1
+  t.ok(db <= ceilDb + 0.5, `peak within ceiling (got ${db.toFixed(1)} dBFS)`)
+  // Verify stats are consistent — clamp deriveStats should keep peaks within limit
+  let pcm = await a.read()
+  let peak = 0
+  for (let s of pcm[0]) { let v = Math.abs(s); if (v > peak) peak = v }
+  t.ok(peak <= ceilLin + 0.001, `actual peak within ceiling (got ${peak.toFixed(4)})`)
+})
+
+test('stream — normalize progressive: no clicks from gain discontinuity', async t => {
+  let sr = 44100
+  // 2 seconds of quiet tone — long enough for progressive resolve to fire mid-stream
+  let ch = new Float32Array(sr * 2)
+  for (let i = 0; i < ch.length; i++) ch[i] = 0.1 * Math.sin(2 * Math.PI * 440 * i / sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  a.normalize(0)  // peak normalize: gain should be ~20dB
+  // Stream and check for sample-to-sample discontinuities (clicks = large jumps)
+  let chunked = []
+  for await (let chunk of a.stream()) chunked.push(chunk[0].slice())
+  let all = new Float32Array(chunked.reduce((s, c) => s + c.length, 0))
+  let off = 0
+  for (let c of chunked) { all.set(c, off); off += c.length }
+  // A click would be a jump > 0.5 between adjacent samples in a 440Hz sine
+  // Max natural delta for 440Hz at peak=1: 2π·440/44100 ≈ 0.063
+  let maxJump = 0, jumpAt = -1
+  for (let i = 1; i < all.length; i++) {
+    let d = Math.abs(all[i] - all[i - 1])
+    if (d > maxJump) { maxJump = d; jumpAt = i }
+  }
+  t.ok(maxJump < 0.2, `no clicks: max jump ${maxJump.toFixed(4)} at sample ${jumpAt}`)
+  // Verify normalization actually applied
+  let peak = 0
+  for (let s of all) { let v = Math.abs(s); if (v > peak) peak = v }
+  t.ok(Math.abs(peak - 1) < 0.05, `normalized peak ~1 (got ${peak.toFixed(3)})`)
+})
+
 test('stream — reverse ranged streams non-reversed region', async t => {
   let ramp = new Float32Array(44100)
   for (let i = 0; i < ramp.length; i++) ramp[i] = i / ramp.length

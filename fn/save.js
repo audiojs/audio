@@ -8,12 +8,13 @@ function resolveFormat(fmt) { return FMT_ALIAS[fmt] || fmt || 'wav' }
 /** Stream-encode audio: calls sink(buf) per chunk, returns sink(null) at end. */
 async function encodeStream(inst, fmt, opts, sink) {
   let enc = await encode[fmt]({ sampleRate: inst.sampleRate, channels: inst.channels, ...opts.meta })
-  let written = 0, tick = 0
+  let written = 0, t = performance.now()
   for await (let chunk of inst.stream({ at: opts.at, duration: opts.duration })) {
     let buf = await enc(chunk)
     if (buf.length) await sink(buf)
     written += chunk[0].length
-    if (++tick % 2 === 0) await new Promise(r => setTimeout(r, 0))
+    let now = performance.now()
+    if (now - t > 8) { await new Promise(r => setTimeout(r, 0)); t = performance.now() }
     emit(inst, 'progress', { offset: written / inst.sampleRate, total: (opts.duration != null ? parseTime(opts.duration) : null) ?? inst.duration })
   }
   let final = await enc()

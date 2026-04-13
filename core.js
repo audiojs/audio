@@ -611,7 +611,11 @@ async function decodeSource(source, opts = {}) {
 
   // Streaming decode
   let dec = await decode[format]()
-  let yieldLoop = () => new Promise(r => setTimeout(r, 0))
+  let t = performance.now()
+  let yieldLoop = () => {
+    let now = performance.now()
+    if (now - t > 8) { t = now; return new Promise(r => setTimeout(r, 0)) }
+  }
   let firstResolve
   let origNotify = opts.notify
   let firstReady = new Promise(r => { firstResolve = r })

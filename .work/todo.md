@@ -1,3 +1,9 @@
+## Backlog
+
+* [x] CLI: `audio mar/hare-krishna-1.mp3 normalize podcast -p` displays "processing" instead of normalizing
+* [x] CLI: `audio mar/hare-krishna-1.mp3 normalize podcast -p` sound clicks at the beginning (during decoding), decoding shows "processing" instead of decoding, then sound clicks after decode during processing
+
+
 ## Next
 
 * [x] structural ops streaming

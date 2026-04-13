@@ -68,7 +68,7 @@ export function lufsDb(stats, chs, sampleRate) {
 
 // ── Stats ────────────────────────────────────────────────────────
 
-let rMean = (src, from, to) => { let n = to - from; if (!n) return 0; let v = 0; for (let i = from; i < to; i++) v += src[i]; return v / n }
+let rMean = (values, from, to) => { let n = to - from; if (!n) return 0; let v = 0; for (let i = from; i < to; i++) v += values[i]; return v / n }
 
 audio.stat('energy', {
   block: (chs, ctx) => {

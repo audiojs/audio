@@ -50,6 +50,7 @@ audio.op('dc', {
 /** Clamp samples to ±limit (linear). Internal to normalize. */
 audio.op('clamp', {
   hidden: true,
+  pointwise: true,
   params: ['limit'],
   process: (input, output, ctx) => {
     let limit = ctx.limit
@@ -66,16 +67,21 @@ audio.op('normalize', {
   resolve: (ctx) => {
     let { stats, sampleRate } = ctx
     if (!stats?.min) return null
-    // During streaming (partial stats), need minimum ~0.8s of blocks for stable LUFS gating
+    // Need minimum ~0.4s of blocks for stable LUFS gating
     if (!ctx.final) {
       let blocks = stats.min[0]?.length || 0
-      let minBlocks = Math.ceil(0.8 * sampleRate / (stats.blockSize || 1024))
+      let minBlocks = Math.ceil(0.4 * sampleRate / (stats.blockSize || 1024))
       if (blocks < minBlocks) return null
     }
 
     let target = ctx.target
     let mode = typeof target === 'string' ? 'lufs' : ctx.mode || 'peak'
     let targetDb = PRESETS[target] ?? (typeof target === 'number' ? target : 0)
+    
+    // For LUFS target profiles, default to -1dBFS ceiling to prevent massive clipping
+    let ceiling = ctx.ceiling
+    if (ceiling == null && typeof target === 'string') ceiling = -1
+
     let totalCh = stats.min.length
     let chs = ctx.channel != null ? (Array.isArray(ctx.channel) ? ctx.channel : [ctx.channel]) : Array.from({ length: totalCh }, (_, i) => i)
 
@@ -94,11 +100,11 @@ audio.op('normalize', {
     if (hasDc) edits.push(['dc', { shift: chs.map(c => dcOff[c]) }])
 
     // Ceiling mode: normalize peak then clip at ceiling level
-    if (ctx.ceiling != null) {
+    if (ceiling != null) {
       let peakLevel = peakDb(stats, chs, dcOff)
       if (peakLevel == null) return false
-      edits.push(['gain', { value: targetDb - peakLevel }])
-      edits.push(['clamp', { limit: 10 ** (ctx.ceiling / 20) }])
+      edits.push(['gain', { value: targetDb - levelDb }])
+      edits.push(['clamp', { limit: 10 ** (ceiling / 20) }])
     } else {
       edits.push(['gain', { value: targetDb - levelDb }])
     }

@@ -222,6 +222,29 @@ audio.op('trim', {
 
 `resolve` runs at render time with decoded audio stats and replaces abstract ops with concrete ones.
 
+### pointwise
+
+Mark an op as a pure per-sample transform — output depends only on input value, not position or history.
+
+```js
+audio.op('clamp', {
+  pointwise: true,
+  params: ['limit'],
+  process: (input, output, ctx) => {
+    let limit = ctx.limit
+    for (let c = 0; c < input.length; c++)
+      for (let i = 0; i < input[c].length; i++)
+        output[c][i] = Math.max(-limit, Math.min(limit, input[c][i]))
+  }
+})
+```
+
+The engine auto-derives min/max/clipping stats by probing `process` with edge values — no full stream recompute needed after edits. `a.stat('db')` resolves instantly.
+
+Don't use for stateful ops (filters) or position-dependent ops (fades, automation).
+
+For advanced cases where rms/dc/energy need algebraic precision, use `deriveStats: (stats, opts) => {}` instead — see `gain` and `dc` ops for examples.
+
 ### Persistent ctx
 
 `ctx` is the same object across all chunks — any property you set persists. Fixed fields (`at`, `blockOffset`) update each chunk; everything else stays. This handles algorithmic state like IIR filter memory:
@@ -247,7 +270,7 @@ Register a stat descriptor:
 ```js
 audio.stat('mystat', {
   block: (chs, ctx) => chs.map(ch => /* number */),
-  reduce: (src, from, to) => { let v = 0; for (let i = from; i < to; i++) v += src[i]; return v },
+  reduce: (blockValues, from, to) => { let v = 0; for (let i = from; i < to; i++) v += blockValues[i]; return v },
 })
 ```
 
@@ -259,7 +282,7 @@ audio.stat('mystat', (chs, ctx) => chs.map(ch => /* number */))
 
 `block` is called per 1024-sample block during decode. Return number (all channels) or array (per-channel). Stored in `a.stats.mystat` as `Float32Array[]`.
 
-`reduce` is `(src, from, to) → number` — enables `a.stat('mystat')` scalar and `a.stat('mystat', {bins})` binned queries.
+`reduce` is `(blockValues, from, to) → number` — it combines the values returned by `block`, enabling `a.stat('mystat')` scalar and `a.stat('mystat', {bins})` binned queries.
 
 `query` adds a derived aggregation: `query(stats, chs, from, to, sr) → value`. Used for stats that derive from other block data (e.g. `db` derives from `min`/`max`).
 

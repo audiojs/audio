@@ -102,7 +102,8 @@ function statSession(sr) {
     snapshot() {
       if (!acc) return null
       let out = { blockSize: audio.BLOCK_SIZE, partial: true }
-      for (let name in acc) out[name] = acc[name].map(a => new Float32Array(a))
+      // Expose raw arrays to avoid O(N) allocation per chunk during progressive streaming
+      for (let name in acc) out[name] = acc[name]
       return out
     }
   }
@@ -110,15 +111,15 @@ function statSession(sr) {
 
 // ── Bin reduction ────────────────────────────────────────────────
 
-function binReduce(src, from, to, bins, reduce) {
+function binReduce(values, from, to, bins, reduce) {
   if (bins <= 0 || to <= from) return new Float32Array(Math.max(0, bins))
-  from = Math.max(0, from); to = Math.min(to, src.length)
+  from = Math.max(0, from); to = Math.min(to, values.length)
   if (to <= from) return new Float32Array(bins)
   let out = new Float32Array(bins), bpp = (to - from) / bins
   for (let i = 0; i < bins; i++) {
     let a = from + Math.floor(i * bpp), b = Math.min(from + Math.floor((i + 1) * bpp), to)
     if (b <= a) b = a + 1
-    out[i] = reduce(src, a, b)
+    out[i] = reduce(values, a, b)
   }
   return out
 }
@@ -193,7 +194,8 @@ function canDeriveStats(plan) {
     || (segs[0][3] && segs[0][3] !== 1) || segs[0][4] != null) return false
   for (let [type, opts] of pipeline) {
     if (opts?.at != null || opts?.duration != null || opts?.channel != null) return false
-    if (!audio.op(type)?.deriveStats) return false
+    let desc = audio.op(type)
+    if (!desc?.deriveStats && !desc?.pointwise) return false
   }
   return true
 }
@@ -202,9 +204,34 @@ function canDeriveStats(plan) {
 function tryDeriveStats(srcStats, pipeline) {
   let stats = cloneStats(srcStats)
   for (let [type, opts] of pipeline) {
-    if (audio.op(type).deriveStats(stats, opts || {}) === false) return null
+    let desc = audio.op(type)
+    if (desc.deriveStats) {
+      if (desc.deriveStats(stats, opts || {}) === false) return null
+    } else if (desc.pointwise) {
+      derivePointwise(desc, stats, opts)
+    } else return null
   }
   return stats
+}
+
+/** Auto-derive min/max/clipping for pointwise ops by probing process with edge values. */
+function derivePointwise(desc, stats, opts) {
+  let ch = stats.min.length, n = stats.min[0]?.length || 0
+  if (!n) return
+  let { at, duration, channel, ...extra } = opts || {}
+  let ctx = { ...extra }
+  let outA = Array.from({ length: ch }, () => new Float32Array(n))
+  let outB = Array.from({ length: ch }, () => new Float32Array(n))
+  desc.process(stats.min.map(c => c.slice()), outA, ctx)
+  desc.process(stats.max.map(c => c.slice()), outB, ctx)
+  for (let c = 0; c < ch; c++) {
+    for (let i = 0; i < n; i++) {
+      stats.min[c][i] = Math.min(outA[c][i], outB[c][i])
+      stats.max[c][i] = Math.max(outA[c][i], outB[c][i])
+    }
+    if (stats.clipping) for (let i = 0; i < n; i++)
+      stats.clipping[c][i] = (stats.min[c][i] <= -1 || stats.max[c][i] >= 1) ? Math.max(1, stats.clipping[c][i]) : 0
+  }
 }
 
 /** Resolve block range from opts. Recomputes stats if edits are dirty. */
@@ -284,14 +311,14 @@ audio.fn.stat = async function(name, opts) {
   if (desc?.query && bins == null) return desc.query(stats, chs, from, to, sr)
 
   // Raw block stats
-  let src = stats[name], reduce = desc?.reduce
-  if (!src) throw new Error(`Unknown stat: '${name}'`)
+  let blockStats = stats[name], reduce = desc?.reduce
+  if (!blockStats) throw new Error(`Unknown stat: '${name}'`)
   if (!reduce) throw new Error(`No reducer for stat: '${name}'`)
 
   // Binned mode
   if (bins != null) {
     let n = bins ?? (to - from)
-    let reduce1 = (c) => binReduce(src[c], from, to, n, reduce)
+    let reduce1 = (c) => binReduce(blockStats[c], from, to, n, reduce)
     if (perCh) return chs.map(reduce1)
     if (chs.length === 1) return reduce1(chs[0])
     let out = new Float32Array(n), bpp = (to - from) / n
@@ -299,15 +326,15 @@ audio.fn.stat = async function(name, opts) {
       let a = from + Math.floor(i * bpp), b = Math.min(from + Math.floor((i + 1) * bpp), to)
       if (b <= a) b = a + 1
       let sum = 0
-      for (let c of chs) sum += reduce(src[c], a, b)
+      for (let c of chs) sum += reduce(blockStats[c], a, b)
       out[i] = sum / chs.length
     }
     return out
   }
 
   // Scalar mode
-  if (perCh) return chs.map(c => reduce(src[c], from, to))
-  if (chs.length === 1) return reduce(src[chs[0]], from, to)
-  let vals = chs.map(c => reduce(src[c], from, to))
+  if (perCh) return chs.map(c => reduce(blockStats[c], from, to))
+  if (chs.length === 1) return reduce(blockStats[chs[0]], from, to)
+  let vals = chs.map(c => reduce(blockStats[c], from, to))
   return vals.reduce((a, b) => a + b, 0) / vals.length
 }

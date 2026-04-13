@@ -232,8 +232,8 @@ declare namespace audio {
   interface StatDescriptor {
     /** Per-block computation during decode */
     block?: (chs: Float32Array[], ctx: { sampleRate: number, [k: string]: unknown }) => number | number[]
-    /** Reducer for scalar/binned queries: (src, from, to) → number */
-    reduce?: (src: Float32Array, from: number, to: number) => number
+    /** Reducer for scalar/binned queries: (blockValues, from, to) → number */
+    reduce?: (blockValues: Float32Array, from: number, to: number) => number
     /** Derived aggregation from block stats */
     query?: (stats: AudioStats, chs: number[], from: number, to: number, sr: number) => any
   }

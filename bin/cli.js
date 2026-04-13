@@ -301,6 +301,30 @@ function spinner(lbl) {
   }
 }
 
+function spinnerBar(lbl) {
+  let i = 0, pct = 0, speed = 0, info = '', t0 = Date.now(), spin = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+  let cols = () => process.stderr.columns || 80
+  let id = setInterval(() => {
+    let spd = speed > 0 ? `  · ${speed.toFixed(1)}×` : ''
+    let w = Math.max(8, Math.min(16, cols() - lbl.length - info.length - spd.length - 15))
+    let fill = Math.round(pct / 100 * w)
+    let bar = '━'.repeat(fill) + DIM + '─'.repeat(w - fill) + RST
+    process.stderr.write(`\r\x1b[K${spin[i++ % 10]} ${lbl} ${bar} ${pct}%${spd}${info}`)
+  }, 80)
+  return {
+    label(l) { lbl = l },
+    set(s) { info = s },
+    progress(p, audioSec) {
+      pct = Math.max(0, Math.min(100, Math.round(p * 100)))
+      if (audioSec) {
+        let dt = (Date.now() - t0) / 1000
+        if (dt > 0.1) speed = audioSec / dt
+      }
+    },
+    stop() { clearInterval(id); process.stderr.write('\r\x1b[K'); return ((Date.now() - t0) / 1000).toFixed(1) }
+  }
+}
+
 const DIM = '\x1b[2m', RST = '\x1b[0m'
 
 function progressBar(played, decoded, total, width) {
@@ -315,8 +339,14 @@ function progressBar(played, decoded, total, width) {
   return '━'.repeat(pFill) + '─'.repeat(dFill - pFill) + (empty > 0 ? DIM + '─'.repeat(empty) + RST : '')
 }
 
+const GERUNDS = { gain: 'Applying gain', fade: 'Fading', trim: 'Trimming', normalize: 'Normalizing', crop: 'Cropping', clip: 'Clipping', remove: 'Removing', reverse: 'Reversing', repeat: 'Repeating', pad: 'Padding', speed: 'Changing speed', stretch: 'Stretching', pitch: 'Pitch shifting', insert: 'Inserting', mix: 'Mixing', remix: 'Remixing', pan: 'Panning', eq: 'Filtering', filter: 'Filtering', highpass: 'Filtering', lowpass: 'Filtering', notch: 'Filtering', bandpass: 'Filtering', lowshelf: 'Filtering', highshelf: 'Filtering' }
+function opsLabel(ops) {
+  return [...new Set(ops.map(o => GERUNDS[o.name] || (o.name[0].toUpperCase() + o.name.slice(1) + 'ing')))]
+}
+
 async function playback(p, totalSec, decodedSec, a, src, opts) {
   let hasEdits = opts?.hasEdits ?? false
+  let editLabel = opts?.editLabel || ''
 
   let cols = () => process.stderr.columns || 80
   let nLines = 1
@@ -495,9 +525,9 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
     if (a && !a.decoded) {
       updatePagePeaks()
       let peakDb = peakMax > 1e-10 ? (20 * Math.log10(peakMax)).toFixed(1) + ' dBFS' : ''
-      decoding = `   ${peakDb ? peakDb + '   ' : ''}${SPIN[spinIdx++ % 10]} ${hasEdits ? 'processing' : 'decoding'}`
+      decoding = `   ${peakDb ? peakDb + '   ' : ''}${SPIN[spinIdx++ % 10]} decoding`
     } else if (refreshing || (hasEdits && !p.block && !p.ended)) {
-      decoding = `   ${SPIN[spinIdx++ % 10]} processing`
+      decoding = `   ${SPIN[spinIdx++ % 10]} ${editLabel || 'processing'}`
     }
     let infoStr = msg || (fileInfo ? fileInfo + decoding : (a ? `${fmtRate(a.sampleRate)}   ${a.channels}ch${decoding}` : ''))
     out += '\n\x1b[K'; newLines++
@@ -835,7 +865,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       await playback(p,
         () => a.decoded ? a.duration : a._.estDur || 0,
         () => a.pages.length * audio.PAGE_SIZE / a.sampleRate,
-        a, source, { hasEdits: true }
+        a, source, { hasEdits: true, editLabel: opsLabel(allOps).join(', ').toLowerCase() }
       )
       process.exit(0)
     }
@@ -868,15 +898,16 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       await playback(p,
         () => a.decoded ? a.duration : a._.estDur || 0,
         () => a.pages.length * audio.PAGE_SIZE / a.sampleRate,
-        a, source, { hasEdits: !!transformOps.length }
+        a, source, { hasEdits: !!transformOps.length, editLabel: opsLabel(transformOps).join(', ').toLowerCase() }
       )
       process.exit(0)
     }
 
     // Load audio (full decode) — needed for stat, save, non-play paths
     if (opts.verbose) console.error(`Loading: ${typeof source === 'string' ? source : '(stdin)'}`)
-    let spin = !opts.verbose ? spinner('decoding') : null
+    let spin = !opts.verbose ? spinnerBar('Decoding') : null
     let a = audio(source)
+    if (spin) a.on('data', ({ offset }) => { if (a._.estDur) spin.progress(offset / a._.estDur, offset) })
     if (opts.verbose) a.on('data', ({ offset }) => process.stderr.write(`\rDecoding... ${fmtTime(offset)}`))
     await a
     let loadTime = spin?.stop()
@@ -971,7 +1002,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     if (opts.play || (transformOps.length && !opts.output)) {
       let playOpts = { loop: opts.loop }
       if (opts.range) { playOpts.at = opts.range.offset; playOpts.duration = opts.range.duration }
-      await playback(a.play(playOpts), () => a.duration, () => a.duration, a, typeof source === 'string' ? source : null, { hasEdits: !!transformOps.length })
+      await playback(a.play(playOpts), () => a.duration, () => a.duration, a, typeof source === 'string' ? source : null, { hasEdits: !!transformOps.length, editLabel: opsLabel(transformOps).join(', ').toLowerCase() })
       if (!opts.output) process.exit(0)
     }
 
@@ -991,13 +1022,26 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       let fmt = opts.format || (typeof output === 'string' ? output.split('.').pop() : 'wav')
 
       try {
+        // Saving a static file requires full decode to apply uniform global edits (e.g. normalize)
+        if (!a.decoded) {
+          let spin2 = !opts.verbose ? spinnerBar('Decoding') : null
+          if (spin2 && a._.estDur) a.on('data', ({ offset }) => spin2.progress(offset / a._.estDur, offset))
+          await a.ready
+          spin2?.stop()
+        }
+
         if (output === '-') {
           let bytes = await a.read({ format: fmt })
           process.stdout.write(Buffer.from(bytes))
         } else {
-          let spin = !opts.verbose ? spinner(allOps.length ? 'Processing' : 'Saving') : null
+          let lbl = 'Saving'
+          if (allOps.length) {
+            let names = opsLabel(allOps)
+            lbl = names.length === 1 ? `${names[0]} + saving` : 'Applying edits + saving'
+          }
+          let spin = !opts.verbose ? spinnerBar(lbl) : null
           await new Promise(r => setTimeout(r, 100))  // let spinner render before blocking render()
-          if (spin) a.on('progress', ({ offset, total }) => spin.set(' ' + Math.round(offset / total * 100) + '%'))
+          if (spin) a.on('progress', ({ offset, total }) => spin.progress(offset / total, offset))
           await a.save(output, { format: fmt })
           let elapsed = spin?.stop()
           if (opts.verbose) console.error(`Saved: ${output}`)

@@ -523,10 +523,10 @@ audio.op('crush', { params: ['bits'], process: (input, output, ctx) => {
       output[c][i] = Math.round(input[c][i] * steps) / steps
 }})
 
-// stat: block function collects per-block, reduce enables scalar queries
+// stat: block function collects per-block, reduce enables scalar queries across blocks
 audio.stat('peak', {
   block: (chs) => chs.map(ch => { let m = 0; for (let s of ch) m = Math.max(m, Math.abs(s)); return m }),
-  reduce: (src, from, to) => { let m = 0; for (let i = from; i < to; i++) m = Math.max(m, src[i]); return m },
+  reduce: (blockValues, from, to) => { let m = 0; for (let i = from; i < to; i++) m = Math.max(m, blockValues[i]); return m },
 })
 
 a.crush(4)                    // chainable like built-in ops

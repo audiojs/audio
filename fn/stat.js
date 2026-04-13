@@ -1,10 +1,10 @@
 import audio from '../core.js'
 
-let rMin = (src, from, to) => { let v = Infinity; for (let i = from; i < to; i++) if (src[i] < v) v = src[i]; return v === Infinity ? 0 : v }
-let rMax = (src, from, to) => { let v = -Infinity; for (let i = from; i < to; i++) if (src[i] > v) v = src[i]; return v === -Infinity ? 0 : v }
-let rSum = (src, from, to) => { let v = 0; for (let i = from; i < to; i++) v += src[i]; return v }
-let rMean = (src, from, to) => { let n = to - from; if (!n) return 0; let v = 0; for (let i = from; i < to; i++) v += src[i]; return v / n }
-let rRms = (src, from, to) => { let n = to - from; if (!n) return 0; let v = 0; for (let i = from; i < to; i++) v += src[i]; return Math.sqrt(v / n) }
+let rMin = (values, from, to) => { let v = Infinity; for (let i = from; i < to; i++) if (values[i] < v) v = values[i]; return v === Infinity ? 0 : v }
+let rMax = (values, from, to) => { let v = -Infinity; for (let i = from; i < to; i++) if (values[i] > v) v = values[i]; return v === -Infinity ? 0 : v }
+let rSum = (values, from, to) => { let v = 0; for (let i = from; i < to; i++) v += values[i]; return v }
+let rMean = (values, from, to) => { let n = to - from; if (!n) return 0; let v = 0; for (let i = from; i < to; i++) v += values[i]; return v / n }
+let rRms = (values, from, to) => { let n = to - from; if (!n) return 0; let v = 0; for (let i = from; i < to; i++) v += values[i]; return Math.sqrt(v / n) }
 
 audio.stat('min', {
   block: (chs) => chs.map(ch => {
