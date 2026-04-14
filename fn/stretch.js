@@ -1,17 +1,79 @@
 /**
  * Stretch — time-stretch by factor, preserving pitch.
  * factor > 1 = slower (longer), factor < 1 = faster (shorter).
- * Uses phase-locked vocoder via `time-stretch` package.
  *
- * Implementation: plan hook changes segment count + rate (same as speed),
- * then process layer corrects pitch via streaming phaseLock + resample.
+ * Two-stage pipeline:
+ *   1. Plan: set segment rate = 1/factor, count *= factor — linear resample
+ *      gives the target duration but pitch-shifted by 1/factor.
+ *   2. Process: pitch-shift streaming blocks by `factor` (phase-lock + drain)
+ *      to restore the original pitch. Net result: same pitch, new duration.
+ *
+ * Streaming pitch-shift primitive (initPhaseLockStream / phaseLockBlock) is
+ * exported for reuse by pitch.js — same phase-lock + resample, different
+ * ratio source (semitones → ratio instead of factor).
  */
 
 import { seg } from '../plan.js'
-import { phaseLock } from 'time-stretch'
 import audio from '../core.js'
+import { phaseLock } from 'time-stretch'
 
-// Plan: adjust segment durations — same math as speed(1/factor)
+// phaseLock(factor=r) stretches time by r (keeps pitch). A persistent
+// fractional cursor then resamples the stretched stream at rate r — one
+// advance of `r` per output sample — pitch-shifting by r at fixed block size
+// with stable pitch across block boundaries.
+// Warm-up: while phaseLock has yet to emit anything the cursor stalls so no
+// samples are skipped; emission resumes once the ring catches up.
+export function initPhaseLockStream(nch, ratio) {
+  return Array.from({ length: nch }, () => ({
+    write: phaseLock({ factor: ratio }),
+    ring: new Float32Array(4096),
+    ringLen: 0,
+    ringStart: 0,
+    readPos: 0,
+    ratio
+  }))
+}
+
+export function phaseLockBlock(state, input, output) {
+  for (let c = 0; c < input.length; c++) processChannel(state[c], input[c], output[c])
+}
+
+function processChannel(s, input, output) {
+  let chunk = s.write(input)
+  if (chunk.length) appendRing(s, chunk)
+
+  let len = output.length, r = s.ratio
+  for (let i = 0; i < len; i++) {
+    let p = s.readPos
+    let idx = Math.floor(p) - s.ringStart
+    let frac = p - Math.floor(p)
+    if (idx >= 0 && idx + 1 < s.ringLen) {
+      output[i] = s.ring[idx] + (s.ring[idx + 1] - s.ring[idx]) * frac
+      s.readPos += r
+    } else {
+      output[i] = 0
+    }
+  }
+
+  let drop = Math.floor(s.readPos) - 1 - s.ringStart
+  if (drop > 0 && drop < s.ringLen) {
+    s.ring.copyWithin(0, drop, s.ringLen)
+    s.ringLen -= drop
+    s.ringStart += drop
+  }
+}
+
+function appendRing(s, chunk) {
+  let need = s.ringLen + chunk.length
+  if (need > s.ring.length) {
+    let nb = new Float32Array(Math.max(need, s.ring.length * 2))
+    nb.set(s.ring.subarray(0, s.ringLen))
+    s.ring = nb
+  }
+  s.ring.set(chunk, s.ringLen)
+  s.ringLen += chunk.length
+}
+
 const stretchPlan = (segs, ctx) => {
   let factor = ctx.factor
   if (!factor || factor === 1) return segs
@@ -25,63 +87,14 @@ const stretchPlan = (segs, ctx) => {
   return r
 }
 
-// Process: correct pitch via streaming phaseLock.
-// Plan resampled at rate=1/factor → pitch shifted by 1/factor.
-// phaseLock with factor=1/factor shrinks audio, then resample restores block length.
-// Net result: same-length block with original pitch.
 const stretchDsp = (input, output, ctx) => {
   let factor = ctx.factor
   if (!factor || factor === 1) {
     for (let c = 0; c < input.length; c++) output[c].set(input[c])
     return
   }
-  if (!ctx._pl) {
-    ctx._pl = input.map(() => phaseLock({ factor: 1 / factor }))
-    ctx._buf = input.map(() => [])
-    ctx._pos = input.map(() => 0)
-  }
-  let len = input[0].length
-  for (let c = 0; c < input.length; c++) {
-    let chunk = ctx._pl[c](input[c])
-    if (chunk.length) ctx._buf[c].push(chunk)
-    let drained = drainBuf(ctx._buf[c], ctx._pos, c, len)
-    output[c].set(drained)
-  }
-}
-
-// Drain len samples from accumulated buffer chunks
-function drainBuf(bufs, posArr, c, len) {
-  let total = bufs.reduce((n, b) => n + b.length, 0) - posArr[c]
-  // Resample available output to exactly len samples
-  let available = Math.max(0, total)
-  if (available === 0) return new Float32Array(len)
-  // Collect all available samples
-  let src = new Float32Array(available), pos = 0, skip = posArr[c]
-  for (let b of bufs) {
-    let start = Math.max(0, skip)
-    let end = b.length
-    skip -= b.length
-    if (start < end) {
-      let n = end - start
-      src.set(b.subarray(start, end), pos)
-      pos += n
-    }
-  }
-  posArr[c] += available
-  // Compact buffer
-  while (bufs.length > 1 && posArr[c] >= bufs[0].length) {
-    posArr[c] -= bufs[0].length
-    bufs.shift()
-  }
-  // Resample to len
-  if (available === len) return src
-  let out = new Float32Array(len)
-  let ratio = available / len
-  for (let i = 0; i < len; i++) {
-    let p = i * ratio, idx = p | 0, frac = p - idx
-    out[i] = idx + 1 < available ? src[idx] + (src[idx + 1] - src[idx]) * frac : (src[idx] || 0)
-  }
-  return out
+  if (!ctx._state) ctx._state = initPhaseLockStream(input.length, factor)
+  phaseLockBlock(ctx._state, input, output)
 }
 
 audio.op('_stretch_seg', { params: ['factor'], plan: stretchPlan, hidden: true })

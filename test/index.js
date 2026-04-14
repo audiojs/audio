@@ -9,6 +9,20 @@ function tone(freq, dur, sr = 44100) {
   return ch
 }
 
+/** Goertzel magnitude at `f` Hz over a sample buffer — robust pitch probe. */
+function energyAt(buf, f, sr = 44100) {
+  let n = buf.length, w = 2 * Math.PI * f / sr
+  let coeff = 2 * Math.cos(w), s1 = 0, s2 = 0
+  for (let i = 0; i < n; i++) { let s = buf[i] + coeff * s1 - s2; s2 = s1; s1 = s }
+  return Math.sqrt(s1 * s1 + s2 * s2 - coeff * s1 * s2) / n
+}
+
+/** Trim `edge` seconds from both ends to skip phase-vocoder warm-up/flush artifacts. */
+function mid(buf, edge = 0.1, sr = 44100) {
+  let n = Math.min(sr * edge | 0, (buf.length / 4) | 0)
+  return buf.subarray(n, buf.length - n)
+}
+
 const isNode = typeof process !== 'undefined' && process.versions?.node
 
 // Isomorphic fixture loading: file paths in Node, HTTP URLs in browser
@@ -3141,6 +3155,130 @@ test('stat(silence) — with range opts', async t => {
   t.is(segs.length, 0, 'no silence in ranged query')
 })
 
+// ── Beat / BPM stat ───────────────────────────────────────────────────────
+
+/** Click track: short Hann-windowed sine bursts at each beat position. */
+function clickTrack(bpm, dur, sr = 44100) {
+  let n = Math.round(dur * sr), buf = new Float32Array(n)
+  let beatSamples = Math.round(sr * 60 / bpm)
+  let clickLen = 2048
+  for (let pos = 0; pos < n; pos += beatSamples) {
+    for (let i = 0; i < clickLen && pos + i < n; i++) {
+      let w = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / clickLen)  // Hann
+      buf[pos + i] += w * Math.sin(2 * Math.PI * 440 * i / sr)
+    }
+  }
+  return buf
+}
+
+test('stat(bpm) — detects BPM from click track', async t => {
+  let sr = 44100, bpm = 120
+  let ch = clickTrack(bpm, 8, sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  let detected = await a.stat('bpm')
+  t.ok(typeof detected === 'number', `returns number (got ${detected})`)
+  t.ok(detected > 0, 'positive BPM')
+  // Allow ±10% tolerance — octave errors (60/240) are outside this range
+  let err = Math.abs(detected - bpm) / bpm
+  t.ok(err < 0.1, `BPM within 10%: expected ${bpm}, got ${detected.toFixed(1)}`)
+})
+
+test('stat(bpm) — a.bpm() shorthand works', async t => {
+  let sr = 44100
+  let ch = clickTrack(120, 8, sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  let bpm = await a.bpm()
+  t.ok(typeof bpm === 'number', 'returns number')
+  t.ok(bpm > 60 && bpm < 200, `BPM in range (got ${bpm.toFixed(1)})`)
+})
+
+test('stat(beats) — returns Float64Array of timestamps', async t => {
+  let sr = 44100, bpm = 120, dur = 8
+  let ch = clickTrack(bpm, dur, sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  let beats = await a.stat('beats')
+  t.ok(beats instanceof Float64Array, 'returns Float64Array')
+  // 120 BPM × 8s = ~16 beats
+  t.ok(beats.length >= 10 && beats.length <= 20, `~16 beats (got ${beats.length})`)
+  // Timestamps should be in [0, dur]
+  for (let i = 0; i < beats.length; i++)
+    t.ok(beats[i] >= 0 && beats[i] <= dur, `beat[${i}] in range: ${beats[i].toFixed(3)}`)
+  // Beats should be ascending
+  for (let i = 1; i < beats.length; i++)
+    t.ok(beats[i] > beats[i - 1], `beats ascending at ${i}`)
+})
+
+test('stat(onsets) — returns Float64Array of onset timestamps', async t => {
+  let sr = 44100, bpm = 120, dur = 8
+  let ch = clickTrack(bpm, dur, sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  let onsets = await a.stat('onsets')
+  t.ok(onsets instanceof Float64Array, 'returns Float64Array')
+  // Should detect most of the 16 clicks as onsets
+  t.ok(onsets.length >= 8, `enough onsets detected (got ${onsets.length})`)
+  for (let i = 0; i < onsets.length; i++)
+    t.ok(onsets[i] >= 0 && onsets[i] <= dur, `onset[${i}] in range`)
+})
+
+test('detect() — full result with all fields', async t => {
+  let sr = 44100
+  let ch = clickTrack(120, 8, sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  let result = await a.detect()
+  t.ok(typeof result.bpm === 'number', 'bpm is number')
+  t.ok(typeof result.confidence === 'number', 'confidence is number')
+  t.ok(result.beats instanceof Float64Array, 'beats is Float64Array')
+  t.ok(result.onsets instanceof Float64Array, 'onsets is Float64Array')
+  t.ok(result.confidence >= 0, 'confidence non-negative')
+})
+
+test('stat(bpm) — with range opts', async t => {
+  let sr = 44100
+  // First 4s: 120 BPM, last 4s: same but we just query the first 4s
+  let ch = clickTrack(120, 8, sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  let bpm = await a.stat('bpm', { at: 0, duration: 4 })
+  t.ok(typeof bpm === 'number', 'returns number')
+  let err = Math.abs(bpm - 120) / 120
+  t.ok(err < 0.15, `BPM within 15% on 4s range: got ${bpm.toFixed(1)}`)
+})
+
+test('stat(bpm) — minBpm/maxBpm opts narrow search range', async t => {
+  let sr = 44100
+  let ch = clickTrack(120, 8, sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  // Narrow to 100-140 BPM — should still find 120
+  let bpm = await a.stat('bpm', { minBpm: 100, maxBpm: 140 })
+  t.ok(bpm > 100 && bpm < 140, `BPM in constrained range (got ${bpm.toFixed(1)})`)
+})
+
+test('stat(bpm) — silence returns 0', async t => {
+  let sr = 44100
+  let ch = new Float32Array(sr * 4)  // 4s silence
+  let a = audio.from([ch], { sampleRate: sr })
+  let bpm = await a.stat('bpm')
+  t.is(bpm, 0, 'silence → 0 BPM')
+})
+
+test('stat(onsets) — silence returns empty array', async t => {
+  let sr = 44100
+  let ch = new Float32Array(sr * 2)
+  let a = audio.from([ch], { sampleRate: sr })
+  let onsets = await a.stat('onsets')
+  t.is(onsets.length, 0, 'no onsets in silence')
+})
+
+test('stat(beats) — silence returns empty array', async t => {
+  let sr = 44100
+  let ch = new Float32Array(sr * 2)
+  let a = audio.from([ch], { sampleRate: sr })
+  let beats = await a.stat('beats')
+  t.is(beats.length, 0, 'no beats in silence')
+})
+
+
+// ── Clipping stat ─────────────────────────────────────────────────────────
+
 test('stat(clipping) — returns timestamps of clipping blocks', async t => {
   let sr = 44100, bs = 1024
   // 1s audio: first half clean, second half clipping
@@ -3569,24 +3707,57 @@ test('speed — streaming matches flat render', async t => {
 
 // ── stretch ───────────────────────────────────────────────────
 
-test('stretch(2) — double duration, same pitch', async t => {
-  let ch = new Float32Array(44100)
-  for (let i = 0; i < ch.length; i++) ch[i] = Math.sin(2 * Math.PI * 440 * i / 44100)
-  let a = audio.from([ch], { sampleRate: 44100 })
+// Helper: assert stretched signal has dominant energy at `f`, not its octaves.
+function assertPitch(t, buf, f, label) {
+  let m = mid(buf)
+  let e = energyAt(m, f), down = energyAt(m, f / 2), up = energyAt(m, f * 2)
+  t.ok(e > 0.05, `${label}: energy at ${f}Hz = ${e.toFixed(3)}`)
+  t.ok(e > down * 3 && e > up * 3, `${label}: no octave leakage (down=${down.toFixed(3)} up=${up.toFixed(3)})`)
+}
+
+test('stretch(2) — doubles duration, preserves pitch', async t => {
+  let a = audio.from([tone(440, 2)], { sampleRate: 44100 })
   a.stretch(2)
-  t.is(a.duration, 2, `duration ${a.duration}`)
+  t.is(a.duration, 4, `duration ${a.duration}`)
   let pcm = await a.read()
-  t.is(pcm[0].length, 88200, `sample count ${pcm[0].length}`)
+  t.is(pcm[0].length, 176400, `sample count`)
+  assertPitch(t, pcm[0], 440, 'stretch(2)')
 })
 
-test('stretch(0.5) — half duration', async t => {
-  let ch = new Float32Array(44100)
-  for (let i = 0; i < ch.length; i++) ch[i] = Math.sin(2 * Math.PI * 440 * i / 44100)
-  let a = audio.from([ch], { sampleRate: 44100 })
+test('stretch(0.5) — halves duration, preserves pitch', async t => {
+  let a = audio.from([tone(440, 2)], { sampleRate: 44100 })
   a.stretch(0.5)
-  t.is(a.duration, 0.5, `duration ${a.duration}`)
+  t.is(a.duration, 1, `duration ${a.duration}`)
   let pcm = await a.read()
-  t.is(pcm[0].length, 22050, `sample count ${pcm[0].length}`)
+  t.is(pcm[0].length, 44100, `sample count`)
+  assertPitch(t, pcm[0], 440, 'stretch(0.5)')
+})
+
+test('stretch(1.5) — preserves pitch at fractional factor', async t => {
+  let a = audio.from([tone(440, 2)], { sampleRate: 44100 })
+  a.stretch(1.5)
+  t.is(a.length, 132300, 'length 1.5×')
+  let pcm = await a.read()
+  assertPitch(t, pcm[0], 440, 'stretch(1.5)')
+})
+
+// Pitch must stay stable across block boundaries for every factor, not just
+// ones where phaseLock's emission schedule happens to line up. Probes multiple
+// windows across the stretched output and asserts each one carries energy.
+test('stretch — pitch stable across blocks for varied factors', async t => {
+  for (let f of [0.75, 0.9, 1.25, 1.7, 2.5]) {
+    let a = audio.from([tone(440, 3)], { sampleRate: 44100 })
+    a.stretch(f)
+    let pcm = await a.read()
+    let buf = pcm[0], sr = 44100
+    let edge = sr * 0.4 | 0, win = sr * 0.15 | 0, step = win / 2 | 0
+    let minE = Infinity
+    for (let p = edge; p + win < buf.length - edge; p += step) {
+      let e = energyAt(buf.subarray(p, p + win), 440)
+      if (e < minE) minE = e
+    }
+    t.ok(minE > 0.3, `factor=${f}: min window energy ${minE.toFixed(3)} > 0.3`)
+  }
 })
 
 test('stretch(1) — no-op', async t => {
@@ -3607,15 +3778,129 @@ test('stretch — negative factor throws', async t => {
 })
 
 test('stretch — streaming matches flat render', async t => {
-  let ch = new Float32Array(44100)
-  for (let i = 0; i < ch.length; i++) ch[i] = Math.sin(2 * Math.PI * 440 * i / 44100)
-  let a = audio.from([ch], { sampleRate: 44100 })
+  let a = audio.from([tone(440, 2)], { sampleRate: 44100 })
   a.stretch(1.5)
   let flat = await a.read()
   let streamed = []
   for await (let chunk of a.stream()) streamed.push(chunk[0])
   let total = streamed.reduce((n, c) => n + c.length, 0)
   t.is(total, flat[0].length, `stream length matches flat (${total})`)
+  let buf = new Float32Array(total), pos = 0
+  for (let c of streamed) { buf.set(c, pos); pos += c.length }
+  assertPitch(t, buf, 440, 'streamed')
+})
+
+test('stretch stereo — preserves both channels with same pitch', async t => {
+  let a = audio.from([tone(440, 1), tone(660, 1)], { sampleRate: 44100 })
+  a.stretch(2)
+  let pcm = await a.read()
+  t.is(pcm.length, 2, '2 channels')
+  t.is(pcm[0].length, 88200, 'length doubled')
+  assertPitch(t, pcm[0], 440, 'ch0')
+  assertPitch(t, pcm[1], 660, 'ch1')
+})
+
+// ── stretch combinations ─────────────────────────────────────
+
+test('stretch then crop — pitch preserved in crop window', async t => {
+  let a = audio.from([tone(440, 2)], { sampleRate: 44100 })
+  a.stretch(2)                          // → 4s
+  a.crop({ at: 0.5, duration: 2 })      // keep middle 2s
+  t.is(a.length, 88200, '2s @ 44100')
+  let pcm = await a.read()
+  assertPitch(t, pcm[0], 440, 'stretch+crop')
+})
+
+test('crop then stretch — operates on cropped region', async t => {
+  let a = audio.from([tone(440, 2)], { sampleRate: 44100 })
+  a.crop({ at: 0.5, duration: 1 })      // 1s
+  a.stretch(2)                           // → 2s
+  t.is(a.length, 88200, '2s')
+  let pcm = await a.read()
+  assertPitch(t, pcm[0], 440, 'crop+stretch')
+})
+
+test('stretch then reverse — reversed output, same pitch', async t => {
+  let a = audio.from([tone(440, 2)], { sampleRate: 44100 })
+  a.stretch(2).reverse()
+  t.is(a.length, 176400, 'length preserved')
+  let pcm = await a.read()
+  assertPitch(t, pcm[0], 440, 'stretch+reverse')
+})
+
+test('reverse then stretch — stretched reversed audio', async t => {
+  let a = audio.from([tone(440, 2)], { sampleRate: 44100 })
+  a.reverse().stretch(2)
+  t.is(a.length, 176400, 'length 2×')
+  let pcm = await a.read()
+  assertPitch(t, pcm[0], 440, 'reverse+stretch')
+})
+
+test('stretch then speed — composable', async t => {
+  // stretch(2) → 4s @ 440Hz, speed(2) → 2s @ 880Hz (speed changes pitch)
+  let a = audio.from([tone(440, 2)], { sampleRate: 44100 })
+  a.stretch(2).speed(2)
+  t.is(a.length, 88200, '2s')
+  let pcm = await a.read()
+  assertPitch(t, pcm[0], 880, 'stretch+speed')
+})
+
+test('stretch then pitch — stacked pitch-preserving ops', async t => {
+  // stretch(2) → 2s at 440Hz, pitch(+12) → 2s at 880Hz, same length
+  let a = audio.from([tone(440, 1)], { sampleRate: 44100 })
+  a.stretch(2).pitch(12)
+  t.is(a.length, 88200, 'length doubled by stretch, preserved by pitch')
+  let pcm = await a.read()
+  assertPitch(t, pcm[0], 880, 'stretch+pitch')
+})
+
+test('stretch then gain — amplitude correctly scaled, pitch preserved', async t => {
+  let a = audio.from([tone(440, 1)], { sampleRate: 44100 })
+  a.stretch(2).gain(-6)
+  let pcm = await a.read()
+  let m = mid(pcm[0])
+  let e = energyAt(m, 440)
+  // -6dB ≈ halving → unit sine energy ≈ 0.5, after -6dB ≈ 0.25
+  t.ok(e > 0.2 && e < 0.3, `gain applied (energy ${e.toFixed(3)})`)
+  assertPitch(t, pcm[0], 440, 'stretch+gain')
+})
+
+test('stretch then trim — silence-trimmed stretched output keeps pitch', async t => {
+  let src = new Float32Array(88200)
+  // 0.5s silence + 1s tone + 0.5s silence
+  for (let i = 22050; i < 66150; i++) src[i] = Math.sin(2 * Math.PI * 440 * (i - 22050) / 44100)
+  let a = audio.from([src], { sampleRate: 44100 })
+  a.stretch(2).trim()
+  let pcm = await a.read()
+  t.ok(pcm[0].length > 0, 'trim kept tone region')
+  t.ok(pcm[0].length < 176400, 'trim removed silence')
+  assertPitch(t, pcm[0], 440, 'stretch+trim')
+})
+
+test('stretch chain — stretch(2).stretch(0.5) cancels to original length', async t => {
+  let a = audio.from([tone(440, 1)], { sampleRate: 44100 })
+  a.stretch(2).stretch(0.5)
+  t.is(a.length, 44100, 'length restored')
+  let pcm = await a.read()
+  assertPitch(t, pcm[0], 440, 'stretch chain')
+})
+
+test('stretch on fixture file — real audio maintains pitch', async t => {
+  let a = await audio(lenaPath)
+  let origDur = a.duration
+  a.stretch(2)
+  t.ok(Math.abs(a.duration - origDur * 2) < 0.01, `duration doubled (${a.duration.toFixed(2)}s)`)
+  let pcm = await a.read()
+  t.is(pcm[0].length, Math.round(origDur * 2 * 44100), 'sample count doubled')
+  // Lena is speech; can't test exact freq, but verify non-silence + no NaNs
+  let peak = 0, nan = false
+  for (let i = 0; i < pcm[0].length; i++) {
+    let v = pcm[0][i]
+    if (!Number.isFinite(v)) { nan = true; break }
+    if (Math.abs(v) > peak) peak = Math.abs(v)
+  }
+  t.ok(!nan, 'no NaN/Inf')
+  t.ok(peak > 0.01, `audible (peak ${peak.toFixed(3)})`)
 })
 
 

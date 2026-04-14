@@ -1,6 +1,6 @@
 # 🎧 audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/audio?color=white)](https://npmjs.org/package/audio)
 
-_High-level audio manipulations_
+_High-level audio workflow: playback, analysis and editing_
 
 ```js
 audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
@@ -449,6 +449,11 @@ mic.stop()
 * **`'max'`**, **`'min'`** – peak envelope (use together for waveform rendering).
 * **`'spectrum'`** – mel-frequency spectrum in dB (A-weighted).
 * **`'cepstrum'`** – MFCCs.
+* **`'bpm'`** – tempo in BPM.
+* **`'beats'`** – beat timestamps as `Float64Array` (seconds).
+* **`'onsets'`** – onset timestamps as `Float64Array` (seconds).
+
+For BPM/beats/onsets, opts: `{ minBpm, maxBpm, delta, frameSize, hopSize }`. Use `a.detect(opts)` to get `{ bpm, confidence, beats, onsets }` in one pass.
 
 ```js
 let loud = await a.stat('loudness')                       // LUFS
@@ -458,6 +463,9 @@ let peaks = await a.stat('max', { bins: 800 })            // waveform data
 await a.stat('rms', { channel: 0 })                       // left only → number
 await a.stat('rms', { channel: [0, 1] })                  // per-channel → [n, n]
 let gaps = await a.stat('silence', { threshold: -40 })    // [{at, duration}, ...]
+let bpm = await a.stat('bpm')                             // 120.5
+let beats = await a.stat('beats')                         // Float64Array [0, 0.5, 1, ...]
+let { bpm, confidence, beats, onsets } = await a.detect() // full pipeline, one pass
 ```
 
 
@@ -608,6 +616,10 @@ audio speech.wav stat
 
 # specific stats
 audio speech.wav stat loudness rms
+
+# tempo / beat grid / onsets
+audio track.mp3 stat bpm
+audio track.mp3 stat beats onsets
 
 # spectrum / cepstrum with bin count
 audio speech.wav stat spectrum 128

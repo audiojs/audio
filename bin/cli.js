@@ -269,17 +269,21 @@ function fmtTime(s, full) {
   return full || h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`
 }
 
-const STAT_UNITS = { db: 'dBFS', loudness: 'LUFS' }
+const STAT_UNITS = { db: 'dBFS', loudness: 'LUFS', bpm: 'BPM' }
 
 function fmtStat(name, result) {
-  if (result instanceof Float32Array || Array.isArray(result)) {
+  if (result instanceof Float32Array || result instanceof Float64Array || Array.isArray(result)) {
     if (!result.length) { console.log(`  ${name.padEnd(12)} none`); return }
-    // Array result (spectrum, cepstrum, silence, clip, binned)
+    // Object array (silence regions)
     if (result[0]?.at != null) {
-      // Object array (silence regions)
       console.log(`  ${name}:`)
       for (let r of result) console.log(`    ${r.at.toFixed(3)}s  ${r.duration.toFixed(3)}s`)
+    } else if (result instanceof Float64Array) {
+      // Timestamp array (beats, onsets) — display as seconds
+      console.log(`  ${name.padEnd(12)} ${result.length} events`)
+      for (let i = 0; i < result.length; i++) console.log(`    ${result[i].toFixed(3)}s`)
     } else {
+      // Indexed array (spectrum, cepstrum, binned stats)
       console.log(`  ${name}:`)
       let pad = String(result.length - 1).length
       for (let i = 0; i < result.length; i++) console.log(`    ${String(i).padStart(pad)}  ${Number(result[i]).toFixed(4)}`)
@@ -690,7 +694,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     } else if (prev === 'remix') {
       out = ['1', '2']
     } else if (prev === 'stat') {
-      out = ['db', 'rms', 'loudness', 'clipping', 'dc', 'silence', 'spectrum', 'cepstrum']
+      out = ['db', 'rms', 'loudness', 'clipping', 'dc', 'silence', 'spectrum', 'cepstrum', 'bpm', 'beats', 'onsets']
     } else if (prev === 'gain') {
       out = ['-3db', '-6db', '-12db', '3db', '6db']
     } else if (prev === 'highpass') {

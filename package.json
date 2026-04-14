@@ -1,7 +1,7 @@
 {
   "name": "audio",
   "version": "2.2.0",
-  "description": "Audio loading, editing, and rendering for JavaScript",
+  "description": "Audio loading, playback, analysis and editing",
   "type": "module",
   "main": "audio.js",
   "exports": {
@@ -53,11 +53,12 @@
     "audio-filter": "^2.2.2",
     "audio-speaker": "^2.3.0",
     "audio-type": "^2.4.1",
+    "beat-detection": "^1.0.0",
     "encode-audio": "^1.2.2",
     "fourier-transform": "^2.2.0",
     "parse-duration": "^2.1.6",
     "pcm-convert": "^3.1.1",
-    "time-stretch": "^1.0.0",
+    "time-stretch": "^1.1.0",
     "window-function": "^3.0.1"
   },
   "optionalDependencies": {
