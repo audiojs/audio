@@ -53,7 +53,7 @@
     "audio-filter": "^2.2.2",
     "audio-speaker": "^2.3.0",
     "audio-type": "^2.4.1",
-    "beat-detection": "^1.0.0",
+    "beat-detection": "^1.1.0",
     "encode-audio": "^1.2.2",
     "fourier-transform": "^2.2.0",
     "parse-duration": "^2.1.6",

@@ -13,7 +13,7 @@
  * no second stream. detect() streams raw audio through spectral flux for higher precision.
  */
 
-import { combTempo, peakPick, detect } from 'beat-detection'
+import { combTempo, peakPick, detect, ODF } from 'beat-detection'
 import audio from '../core.js'
 
 // ── Energy ODF from block stats ──────────────────────────────────
@@ -67,7 +67,7 @@ audio.stat('bpm', {
     let odfData = energyOdf(stats, from, to, sr)
     if (!odfData) return 0
     let minConf = opts?.minConfidence ?? 0.05
-    let { bpm, confidence } = combTempo(null, { _odf: odfData, fs: sr, ...opts })
+    let { bpm, confidence } = combTempo(null, { [ODF]: odfData, fs: sr, ...opts })
     return confidence >= minConf ? bpm : 0
   }
 })
@@ -77,7 +77,7 @@ audio.stat('beats', {
     let odfData = energyOdf(stats, from, to, sr)
     if (!odfData) return new Float64Array(0)
     let onsets = peakPick(odfData.odf, { hopSize: stats.blockSize, fs: sr, ...opts })
-    let { bpm } = combTempo(null, { _odf: odfData, fs: sr, ...opts })
+    let { bpm } = combTempo(null, { [ODF]: odfData, fs: sr, ...opts })
     if (bpm <= 0 || !onsets.length) return new Float64Array(0)
     return beatGrid(bpm, onsets, to - from, stats.blockSize, sr)
   }
