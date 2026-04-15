@@ -15,17 +15,18 @@
 
 import { seg } from '../plan.js'
 import audio from '../core.js'
-import { phaseLock } from 'time-stretch'
+import { vocoder } from 'time-stretch'
 
-// phaseLock(factor=r) stretches time by r (keeps pitch). A persistent
-// fractional cursor then resamples the stretched stream at rate r — one
-// advance of `r` per output sample — pitch-shifting by r at fixed block size
-// with stable pitch across block boundaries.
-// Warm-up: while phaseLock has yet to emit anything the cursor stalls so no
+// vocoder({ factor: r, lock: true }) stretches time by r (keeps pitch) using
+// a phase-locked vocoder. A persistent fractional cursor then resamples the
+// stretched stream at rate r — one advance of `r` per output sample —
+// pitch-shifting by r at fixed block size with stable pitch across block
+// boundaries.
+// Warm-up: while the vocoder has yet to emit anything the cursor stalls so no
 // samples are skipped; emission resumes once the ring catches up.
 export function initPhaseLockStream(nch, ratio) {
   return Array.from({ length: nch }, () => ({
-    write: phaseLock({ factor: ratio }),
+    write: vocoder({ factor: ratio, lock: true, frameSize: 1024 }),
     ring: new Float32Array(4096),
     ringLen: 0,
     ringStart: 0,

@@ -77,7 +77,7 @@ audio.op('normalize', {
     let target = ctx.target
     let mode = typeof target === 'string' ? 'lufs' : ctx.mode || 'peak'
     let targetDb = PRESETS[target] ?? (typeof target === 'number' ? target : 0)
-    
+
     // For LUFS target profiles, default to -1dBFS ceiling to prevent massive clipping
     let ceiling = ctx.ceiling
     if (ceiling == null && typeof target === 'string') ceiling = -1
