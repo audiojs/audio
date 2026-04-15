@@ -1070,7 +1070,6 @@ test('waveform', async t => {
 
 test('waveform — per-channel', async t => {
   let a = audio.from([new Float32Array(44100).fill(0.5), new Float32Array(44100).fill(-0.3)])
-  let mn0 = await a.stat('min', { bins: 10, channel: 0 })
   let mn1 = await a.stat('min', { bins: 10, channel: 1 })
   let mx0 = await a.stat('max', { bins: 10, channel: 0 })
   t.ok(mx0[0] > 0.4, 'ch0 positive')

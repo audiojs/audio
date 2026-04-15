@@ -12,6 +12,7 @@
 
 import audio from '../audio.js'
 import { melSpectrum, toMel, fromMel } from '../fn/spectrum.js'
+import { lufsFromEnergy } from '../fn/loudness.js'
 import parseDuration from 'parse-duration'
 import fft from 'fourier-transform'
 
@@ -355,7 +356,7 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
   let cols = () => process.stderr.columns || 80
   let nLines = 1
   const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-  let spinIdx = 0
+  let spinIdx = 0, smoothLufs = null
 
   // Waveform peak cache (one peak per page, computed incrementally)
   // Braille centered bars: expand from middle of 2×4 dot grid
@@ -475,19 +476,51 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
     refreshing = true
     render(p.currentTime)
     try {
-      let [peak, , l, clips, dcOff] = await a.stat(['db', 'rms', 'loudness', 'clipping', 'dc'])
+      let [clips, dcOff] = await a.stat(['clipping', 'dc'])
       let warn = ''
       if (clips.length) warn += `   ${clips.length} clip${clips.length > 1 ? 's' : ''}`
       if (Math.abs(dcOff) > 0.001) warn += `   dc:${dcOff.toFixed(4)}`
-      fileInfo = `${fmtRate(a.sampleRate)}   ${a.channels}ch   ${fmtTime(a.duration)}   ${peak.toFixed(1)}dBFS   ${l.toFixed(1)}LUFS${warn}`
+      fileInfo = `${fmtRate(a.sampleRate)}   ${a.channels}ch   ${fmtTime(a.duration)}${warn}`
     } catch { fileInfo = '(info unavailable)' }
     refreshing = false
     render(p.currentTime)
   }
+
+  // Live BPM — 8s sliding window around current position, updated every 2s.
+  // Cheap: reads from energy blocks already in memory, no second stream.
+  let liveBpmStr = '   … BPM'  // placeholder until first detection completes
+  let bpmHistory = [], lastBpmVal = 0
+  let updateLiveBpm = async () => {
+    if (!a?.decoded) return
+    let t = p.currentTime, dur = a.duration, win = Math.min(8, dur)
+    let at = Math.max(0, Math.min(t - win / 2, dur - win))
+    // Energy ODF from cached blocks — instant, no streaming, no event-loop blocking.
+    let reading = await a.stat('bpm', { at, duration: win, minConfidence: 0.04 })
+    reading = reading > 0 ? Math.round(reading) : 0
+    bpmHistory = [...bpmHistory.slice(-3), reading]
+    let valid = bpmHistory.filter(b => b > 0)
+    if (valid.length >= 1) {
+      let sorted = [...valid].sort((a, b) => a - b)
+      let median = sorted[Math.floor(sorted.length / 2)]
+      let relSpread = (sorted[sorted.length - 1] - sorted[0]) / median
+      lastBpmVal = median
+      // Too variable (>25% spread): rhythm real but tempo unclear — show marker only
+      // Somewhat variable (10-25%): show approximate value with ~
+      // Stable (<10%): show clean value
+      liveBpmStr = relSpread > 0.25 ? `   ~ BPM` : relSpread > 0.10 ? `   ~${median} BPM` : `   ${median} BPM`
+    } else if (lastBpmVal > 0) {
+      liveBpmStr = `   ~ BPM`
+    } else {
+      liveBpmStr = ''
+    }
+    render(p.currentTime)
+  }
+
   ;(async () => {
     if (!a) return
     if (!a.decoded) await new Promise(r => { let id = setInterval(() => { if (a.decoded) { clearInterval(id); r() } }, 200) })
     await refreshInfo()
+    await updateLiveBpm()
   })()
 
   let render = t => {
@@ -528,12 +561,42 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
     let decoding = ''
     if (a && !a.decoded) {
       updatePagePeaks()
-      let peakDb = peakMax > 1e-10 ? (20 * Math.log10(peakMax)).toFixed(1) + ' dBFS' : ''
-      decoding = `   ${peakDb ? peakDb + '   ' : ''}${SPIN[spinIdx++ % 10]} decoding`
+      decoding = `   ${SPIN[spinIdx++ % 10]} decoding`
     } else if (refreshing || (hasEdits && !p.block && !p.ended)) {
       decoding = `   ${SPIN[spinIdx++ % 10]} ${editLabel || 'processing'}`
     }
-    let infoStr = msg || (fileInfo ? fileInfo + decoding : (a ? `${fmtRate(a.sampleRate)}   ${a.channels}ch${decoding}` : ''))
+
+    // Rolling dBFS — peak of stats.max blocks over last 3s; real-time, seek-safe
+    let localDbStr = ''
+    if (a?.stats?.max?.[0]?.length) {
+      let bs = a.stats.blockSize, sr = a.sampleRate
+      let toB = Math.min(Math.floor(t * sr / bs) + 1, a.stats.max[0].length)
+      let fromB = Math.max(0, toB - Math.ceil(3 * sr / bs))
+      if (toB > fromB) {
+        let peak = 0
+        for (let c = 0; c < a.channels; c++)
+          for (let i = fromB; i < toB; i++) if (a.stats.max[c][i] > peak) peak = a.stats.max[c][i]
+        if (peak > 1e-6) localDbStr = `   ${(20 * Math.log10(peak)).toFixed(1)} dBFS`
+      }
+    }
+
+    // Rolling LUFS — K-weighted energy over last 3s; real-time, seek-safe
+    let localLufsStr = ''
+    if (a?.stats?.energy?.[0]?.length) {
+      let bs = a.stats.blockSize, sr = a.sampleRate
+      let toB = Math.min(Math.floor(t * sr / bs) + 1, a.stats.energy[0].length)
+      let fromB = Math.max(0, toB - Math.ceil(3 * sr / bs))
+      if (toB > fromB) {
+        let chs = Array.from({ length: a.channels }, (_, i) => i)
+        let lufs = lufsFromEnergy(a.stats.energy, chs, sr, bs, fromB, toB)
+        if (lufs !== null) {
+          smoothLufs = smoothLufs == null ? lufs : 0.05 * lufs + 0.95 * smoothLufs
+          localLufsStr = `   ${smoothLufs.toFixed(1)} LUFS`
+        }
+      }
+    }
+
+    let infoStr = msg || (fileInfo ? fileInfo + localDbStr + localLufsStr + liveBpmStr + decoding : (a ? `${fmtRate(a.sampleRate)}   ${a.channels}ch${decoding}` : ''))
     out += '\n\x1b[K'; newLines++
     if (infoStr) { out += `\n\x1b[K  ${DIM}${infoStr}${RST}`; newLines++ }
 
@@ -554,6 +617,7 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
 
   render(0)
   let tick = setInterval(() => render(p.currentTime), 40)
+  let bpmTick = setInterval(updateLiveBpm, 2000)
 
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(true)
@@ -574,6 +638,7 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
 
   await new Promise(r => { p.on('ended', r) })
   clearInterval(tick)
+  clearInterval(bpmTick)
 
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(false)
@@ -920,12 +985,25 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     // No ops, no output, no play → show info and exit
     if (!allOps.length && !opts.output && !opts.play) {
       let [peak, , l, clips, dcOff] = await a.stat(['db', 'rms', 'loudness', 'clipping', 'dc'])
+      let bpmStr = await (async () => {
+        let dur = a.duration, win = Math.min(8, dur)
+        if (dur < 4) { let b = await a.stat('bpm'); return b > 0 ? `${Math.round(b)} BPM` : 'n/a' }
+        let n = Math.min(4, Math.floor(dur / win)), step = dur / (n + 1)
+        let bpms = (await Promise.all(Array.from({ length: n }, (_, i) => {
+          let at = Math.max(0, step * (i + 1) - win / 2)
+          return a.stat('bpm', { at, duration: win })
+        }))).filter(b => b > 0)
+        if (!bpms.length) return 'n/a'
+        let mn = Math.min(...bpms), mx = Math.max(...bpms)
+        return mx - mn < 10 ? `${Math.round((mn + mx) / 2)} BPM` : `${Math.round(mn)}–${Math.round(mx)} BPM`
+      })()
       console.log(`  Duration:   ${fmtTime(a.duration)}`)
       console.log(`  Channels:   ${a.channels}`)
       console.log(`  SampleRate: ${a.sampleRate} Hz`)
       console.log(`  Samples:    ${a.length}`)
       console.log(`  Peak:       ${peak.toFixed(1)} dBFS`)
       console.log(`  Loudness:   ${l.toFixed(1)} LUFS`)
+      console.log(`  BPM:        ${bpmStr}`)
       console.log(`  Clipping:   ${clips.length || 'none'}`)
       console.log(`  DC offset:  ${Math.abs(dcOff) > 0.0001 ? dcOff.toFixed(4) : 'none'}`)
       if (loadTime) console.log(`  Loaded in:  ${loadTime}s`)

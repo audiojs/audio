@@ -446,7 +446,7 @@ mic.stop()
 * **`'dc'`** – DC offset.
 * **`'clipping'`** – clipped samples (scalar: timestamps, binned: counts).
 * **`'silence'`** – silent ranges as `{at, duration}`.
-* **`'max'`**, **`'min'`** – peak envelope (use together for waveform rendering).
+* **`'max'`**, **`'min'`** – peak envelope per bin — use together for waveform rendering.
 * **`'spectrum'`** – mel-frequency spectrum in dB (A-weighted).
 * **`'cepstrum'`** – MFCCs.
 * **`'bpm'`** – tempo in BPM.
@@ -459,7 +459,7 @@ For BPM/beats/onsets, opts: `{ minBpm, maxBpm, delta, frameSize, hopSize }`. Use
 let loud = await a.stat('loudness')                       // LUFS
 let [db, clips] = await a.stat(['db', 'clipping'])        // multiple at once
 let spec = await a.stat('spectrum', { bins: 128 })        // frequency bins
-let peaks = await a.stat('max', { bins: 800 })            // waveform data
+let [min, max] = await a.stat(['min', 'max'], { bins: 800 }) // peak envelope for canvas rendering
 await a.stat('rms', { channel: 0 })                       // left only → number
 await a.stat('rms', { channel: [0, 1] })                  // per-channel → [n, n]
 let gaps = await a.stat('silence', { threshold: -40 })    // [{at, duration}, ...]

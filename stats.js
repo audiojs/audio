@@ -308,7 +308,7 @@ audio.fn.stat = async function(name, opts) {
   let desc = audio.stat(name)
 
   // Derived stats — custom query (skip if bins requested on block stat)
-  if (desc?.query && bins == null) return desc.query(stats, chs, from, to, sr)
+  if (desc?.query && bins == null) return desc.query(stats, chs, from, to, sr, opts)
 
   // Raw block stats
   let blockStats = stats[name], reduce = desc?.reduce
