@@ -127,6 +127,17 @@ export function popEdit(a) {
 // ── Virtual Length/Channels ─────────────────────────────────────
 
 Object.defineProperties(fn, {
+  sampleRate: { get() {
+    if (!this.edits?.length) return this._.sr
+    if (this._.srV === this.version) return this._.srC
+    let sr = this._.sr
+    for (let edit of this.edits) {
+      let desc = ops[edit[0]]
+      if (desc?.sr) sr = desc.sr(sr, edit[1] || {}) || sr
+    }
+    this._.srC = sr; this._.srV = this.version
+    return sr
+  }, set(v) { this._.sr = v }, enumerable: true, configurable: true },
   length: { get() {
     if (this._.lenV === this.version && this._.lenL === this._.len) return this._.lenC
     let len = this.edits.length ? buildPlan(this).totalLen : this._.len
@@ -363,8 +374,14 @@ function adjustLimit(limit, type, ctx) {
     }
     return limit
   }
+  if (type === 'repeat') {
+    let at = offset ?? 0, dur = length ?? limit - at
+    if (at < limit) return limit + dur * (ctx.times ?? 1)
+    return limit
+  }
   if (type === 'pad') return limit + Math.round((ctx.before ?? 0) * sr)
   if (type === 'reverse') return length == null ? Math.min(limit, offset ?? 0) : limit
+  if (type === '_resample_seg') return Math.round(limit * (ctx.rate || sr) / sr)
   return limit
 }
 
@@ -376,7 +393,7 @@ function mkPlanCtx(total, sr, offset, length, extra) {
 /** Compile edit list into plan segments + pipeline for a given source length.
  *  final=true when source is fully decoded — all positions are determined. */
 function compilePlan(a, len, final) {
-  let sr = a.sampleRate, ch = a._.ch
+  let sr = a._.sr, ch = a._.ch
   let segs = [[0, len, 0]], pipeline = [], limit = len
 
   for (let edit of a.edits) {
@@ -391,7 +408,7 @@ function compilePlan(a, len, final) {
       let stats = a._.srcStats || a.stats || a._.acc?.stats
       let ctx = { stats, sampleRate: sr, channelCount: ch, channel, at, duration, totalDuration: planLen(segs) / sr, final, ...extra }
       let resolved = op.resolve(ctx)
-      if (resolved === false) continue
+      if (resolved === false) { if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }; continue }
       if (resolved) {
         let edits = Array.isArray(resolved) && typeof resolved[0] !== 'string' ? resolved : [resolved]
         for (let re of edits) {
@@ -410,7 +427,9 @@ function compilePlan(a, len, final) {
           } else {
             pipeline.push(re)
           }
+          if (rOp?.sr) { let ns = rOp.sr(sr, o); if (ns) sr = ns }
         }
+        if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }
         continue
       }
     }
@@ -423,17 +442,26 @@ function compilePlan(a, len, final) {
     } else {
       pipeline.push(edit)
     }
+    if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }
   }
   let totalLen = planLen(segs)
   if (final) limit = totalLen
   return { segs, pipeline, totalLen, sr, limit: Math.max(0, limit) }
 }
 
+/** Sum ref versions to detect external mutations. */
+function refVersion(a) {
+  let v = 0
+  for (let edit of a.edits) { let r = edit[1]; if (r?.pages && r.version) v += r.version }
+  return v
+}
+
 /** Build a read plan from edit list. Always succeeds — every op is plannable. */
 export function buildPlan(a) {
-  if (a._.plan && a._.planV === a.version && a._.planL === a._.len) return a._.plan
+  let rv = refVersion(a)
+  if (a._.plan && a._.planV === a.version && a._.planL === a._.len && a._.planR === rv) return a._.plan
   let plan = compilePlan(a, a._.len, true)
-  a._.plan = plan; a._.planV = a.version; a._.planL = a._.len
+  a._.plan = plan; a._.planV = a.version; a._.planL = a._.len; a._.planR = rv
   return plan
 }
 
@@ -461,7 +489,7 @@ function readSource(a, c, srcOff, n, target, tOff, rate) {
 }
 
 /** Linear interpolation resample: src buffer → n output samples at given rate. */
-function resample(src, target, tOff, n, rate) {
+export function resample(src, target, tOff, n, rate) {
   let absR = Math.abs(rate), rev = rate < 0
   for (let i = 0; i < n; i++) {
     let pos = (rev ? n - 1 - i : i) * absR

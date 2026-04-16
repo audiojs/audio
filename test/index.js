@@ -232,7 +232,7 @@ test('audio.from(audio) — structural copy', async t => {
   let b = audio.from(a)
   t.ok(b !== a, 'different instance')
   t.is(b.edits.length, 0, 'copy has no edits (independent edit list)')
-  t.is(b.pages, a.pages, 'copy shares pages')
+  t.ok(b.pages !== a.pages && b.pages[0] === a.pages[0], 'copy shares page contents, independent array')
   let pcm = await b.read()
   t.ok(Math.abs(pcm[0][0] - 0.7) < 0.01, 'copy reads original source PCM unaffected by source edits')
 })
@@ -766,6 +766,139 @@ test('mix', async t => {
   a.mix(b)
   let pcm = await a.read()
   t.ok(Math.abs(pcm[0][0] - 0.8) < 0.001, 'mixed: 0.5 + 0.3 = 0.8')
+})
+
+test('crossfade — overlap with complementary fades', async t => {
+  let sr = 44100
+  let a = audio.from([new Float32Array(sr).fill(1)], { sampleRate: sr })
+  let b = audio.from([new Float32Array(sr).fill(1)], { sampleRate: sr })
+  a.crossfade(b, 0.5)
+  let pcm = await a.read()
+
+  t.ok(Math.abs(pcm[0].length / sr - 1.5) < 0.01, `duration: ${(pcm[0].length / sr).toFixed(3)}s ≈ 1.5s`)
+  t.ok(Math.abs(pcm[0][Math.round(0.1 * sr)] - 1) < 0.01, 'before overlap: 1.0')
+  let mid = pcm[0][Math.round(0.75 * sr)]
+  t.ok(mid > 0.8 && mid < 1.2, `mid-overlap: ${mid.toFixed(3)} ≈ 1.0 (equal-power)`)
+  t.ok(Math.abs(pcm[0][Math.round(1.25 * sr)] - 1) < 0.01, 'after overlap: 1.0')
+})
+
+test('crossfade — different amplitudes', async t => {
+  let sr = 44100
+  let a = audio.from([new Float32Array(sr).fill(0.8)], { sampleRate: sr })
+  let b = audio.from([new Float32Array(sr).fill(0.3)], { sampleRate: sr })
+  a.crossfade(b, 0.5)
+  let pcm = await a.read()
+
+  t.ok(Math.abs(pcm[0][Math.round(0.1 * sr)] - 0.8) < 0.01, 'before: 0.8')
+  let mid = pcm[0][Math.round(0.75 * sr)]
+  t.ok(mid > 0.4 && mid < 0.7, `mid-overlap: ${mid.toFixed(3)} blends 0.8→0.3`)
+  t.ok(Math.abs(pcm[0][Math.round(1.25 * sr)] - 0.3) < 0.01, 'after: 0.3')
+})
+
+test('crossfade — linear curve', async t => {
+  let sr = 44100
+  let a = audio.from([new Float32Array(sr).fill(1)], { sampleRate: sr })
+  let b = audio.from([new Float32Array(sr).fill(0)], { sampleRate: sr })
+  a.crossfade(b, 0.5, 'linear')
+  let pcm = await a.read()
+
+  let mid = pcm[0][Math.round(0.75 * sr)]
+  t.ok(Math.abs(mid - 0.5) < 0.01, `linear midpoint: ${mid.toFixed(3)} ≈ 0.5`)
+  t.ok(Math.abs(pcm[0][pcm[0].length - 1]) < 0.01, 'last sample: 0.0')
+})
+
+test('crossfade — default duration', async t => {
+  let sr = 44100
+  let a = audio.from([new Float32Array(sr).fill(0.5)], { sampleRate: sr })
+  let b = audio.from([new Float32Array(sr).fill(0.7)], { sampleRate: sr })
+  a.crossfade(b)
+  let pcm = await a.read()
+  t.ok(Math.abs(pcm[0].length / sr - 1.5) < 0.01, 'default 0.5s overlap → 1.5s total')
+  t.ok(Math.abs(pcm[0][Math.round(1.25 * sr)] - 0.7) < 0.01, 'after overlap: 0.7')
+})
+
+test('crossfade — stereo', async t => {
+  let sr = 44100
+  let a = audio.from([new Float32Array(sr).fill(0.8), new Float32Array(sr).fill(0.4)], { sampleRate: sr })
+  let b = audio.from([new Float32Array(sr).fill(0.3), new Float32Array(sr).fill(0.9)], { sampleRate: sr })
+  a.crossfade(b, 0.5)
+  let pcm = await a.read()
+
+  t.is(pcm.length, 2, 'stereo output')
+  t.ok(Math.abs(pcm[0][Math.round(0.1 * sr)] - 0.8) < 0.01, 'L before: 0.8')
+  t.ok(Math.abs(pcm[1][Math.round(0.1 * sr)] - 0.4) < 0.01, 'R before: 0.4')
+  t.ok(Math.abs(pcm[0][Math.round(1.25 * sr)] - 0.3) < 0.01, 'L after: 0.3')
+  t.ok(Math.abs(pcm[1][Math.round(1.25 * sr)] - 0.9) < 0.01, 'R after: 0.9')
+})
+
+test('crossfade — asymmetric source lengths', async t => {
+  let sr = 44100
+  let a = audio.from([new Float32Array(sr).fill(0.5)], { sampleRate: sr })       // 1s
+  let b = audio.from([new Float32Array(sr * 2).fill(0.9)], { sampleRate: sr })   // 2s
+  a.crossfade(b, 0.5)
+  let pcm = await a.read()
+  t.ok(Math.abs(pcm[0].length / sr - 2.5) < 0.01, `1s + 2s - 0.5s = 2.5s (got ${(pcm[0].length / sr).toFixed(3)})`)
+  t.ok(Math.abs(pcm[0][Math.round(2.0 * sr)] - 0.9) < 0.01, 'b plays through to end')
+})
+
+test('crossfade — stream matches read', async t => {
+  let sr = 44100
+  let a = audio.from([new Float32Array(sr).fill(0.8)], { sampleRate: sr })
+  let b = audio.from([new Float32Array(sr).fill(0.3)], { sampleRate: sr })
+  a.crossfade(b, 0.5)
+
+  let full = await a.read()
+  let chunks = []
+  for await (let chunk of a) chunks.push(chunk[0].slice())
+  let flat = new Float32Array(chunks.reduce((s, c) => s + c.length, 0))
+  let pos = 0
+  for (let c of chunks) { flat.set(c, pos); pos += c.length }
+
+  t.is(flat.length, full[0].length, 'same length')
+  let maxDiff = 0
+  for (let i = 0; i < flat.length; i++) maxDiff = Math.max(maxDiff, Math.abs(flat[i] - full[0][i]))
+  t.ok(maxDiff < 0.001, `stream≈read (maxDiff: ${maxDiff.toFixed(6)})`)
+})
+
+test('crossfade — no NaN', async t => {
+  let sr = 44100
+  let a = audio.from([new Float32Array(sr).fill(0.5)], { sampleRate: sr })
+  let b = audio.from([new Float32Array(sr).fill(0.3)], { sampleRate: sr })
+  a.crossfade(b, 0.5, 'linear')
+  let pcm = await a.read()
+  let hasNan = false
+  for (let i = 0; i < pcm[0].length; i++) if (isNaN(pcm[0][i])) { hasNan = true; break }
+  t.ok(!hasNan, 'no NaN in output')
+})
+
+test('crossfade — concat sugar', async t => {
+  let sr = 44100
+  let a = audio.from([new Float32Array(sr).fill(0.5)], { sampleRate: sr })
+  let b = audio.from([new Float32Array(sr).fill(0.9)], { sampleRate: sr })
+  let c = audio.from([new Float32Array(sr).fill(0.3)], { sampleRate: sr })
+  let result = audio([a, b, c], { crossfade: 0.5 })
+  let pcm = await result.read()
+
+  t.ok(Math.abs(pcm[0].length / sr - 2.0) < 0.01, '3×1s - 2×0.5s = 2.0s')
+  t.ok(Math.abs(pcm[0][0] - 0.5) < 0.01, 'starts at a')
+  t.ok(Math.abs(pcm[0][Math.round(1.0 * sr)] - 0.9) < 0.01, 'b region')
+})
+
+test('crossfade — concat per-transition durations', async t => {
+  let sr = 44100
+  let a = audio.from([new Float32Array(sr).fill(0.5)], { sampleRate: sr })
+  let b = audio.from([new Float32Array(sr).fill(0.9)], { sampleRate: sr })
+  let c = audio.from([new Float32Array(sr).fill(0.3)], { sampleRate: sr })
+  let result = audio([a, b, c], { crossfade: [0.2, 0.3] })
+  let pcm = await result.read()
+  t.ok(Math.abs(pcm[0].length / sr - 2.5) < 0.01, '3s - 0.2 - 0.3 = 2.5s')
+})
+
+test('crossfade — edits array', async t => {
+  let a = audio.from([new Float32Array(44100).fill(0.5)])
+  let b = audio.from([new Float32Array(44100).fill(0.5)])
+  a.crossfade(b, 0.3)
+  t.is(a.edits[0][0], 'crossfade', 'crossfade edit registered')
 })
 
 test('remix — mono to stereo', async t => {
@@ -2535,7 +2668,7 @@ test('trim — all-silence produces empty output', async t => {
 test('clip — shares pages reference', async t => {
   let a = audio.from([new Float32Array(44100).fill(0.5)], { sampleRate: 44100 })
   let v = a.clip()
-  t.is(v.pages, a.pages, 'clip shares pages')
+  t.ok(v.pages !== a.pages && v.pages[0] === a.pages[0], 'clip shares page contents, independent array')
   t.is(v.stats, a.stats, 'clip shares stats')
 })
 
@@ -2561,7 +2694,7 @@ test('split — correct count and durations', async t => {
 test('audio.from(instance) — structural copy: shares pages, independent edit list', async t => {
   let a = audio.from([new Float32Array(44100).fill(0.5)], { sampleRate: 44100 })
   let c = audio.from(a)
-  t.is(c.pages, a.pages, 'copy shares pages')
+  t.ok(c.pages !== a.pages && c.pages[0] === a.pages[0], 'copy shares page contents, independent array')
   t.ok(c.edits !== a.edits, 'copy has independent edit list')
   c.gain(-3)
   t.is(a.edits.length, 0, 'original unaffected by copy\'s edit')
@@ -4074,6 +4207,230 @@ test('playbackRate — emits ratechange', t => {
 })
 
 
+// ── New ops: allpass, vocals, dither, earwax, resample ──────────────────
+
+test('allpass — unity magnitude, phase shift only', async t => {
+  let ch = tone(1000, 0.5)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.allpass(1000)
+  let pcm = await a.read()
+  // Allpass preserves energy — output RMS should be within 5% of input
+  let inR = rms(ch), outR = rms(pcm[0])
+  t.ok(Math.abs(outR - inR) / inR < 0.05, `energy preserved: in ${inR.toFixed(3)} out ${outR.toFixed(3)}`)
+  // But samples should differ (phase shifted)
+  let diff = 0
+  for (let i = 0; i < ch.length; i++) diff += Math.abs(pcm[0][i] - ch[i])
+  t.ok(diff / ch.length > 0.01, 'samples differ (phase shifted)')
+})
+
+test('allpass — stereo independent channels', async t => {
+  let lo = tone(200, 0.3), hi = tone(5000, 0.3)
+  let a = audio.from([lo, hi], { sampleRate: 44100 })
+  a.allpass(1000)
+  let pcm = await a.read()
+  t.ok(Math.abs(rms(pcm[0]) - rms(lo)) / rms(lo) < 0.05, 'left energy preserved')
+  t.ok(Math.abs(rms(pcm[1]) - rms(hi)) / rms(hi) < 0.05, 'right energy preserved')
+})
+
+test('vocals — isolate center (default)', async t => {
+  // Center-panned signal: same on L and R
+  let center = tone(440, 0.5)
+  let side = tone(2000, 0.5)
+  let L = new Float32Array(center.length)
+  let R = new Float32Array(center.length)
+  for (let i = 0; i < center.length; i++) {
+    L[i] = center[i] + side[i]
+    R[i] = center[i] - side[i]
+  }
+  let a = audio.from([L, R], { sampleRate: 44100 })
+  a.vocals()  // isolate = keep mid
+  let pcm = await a.read()
+  // Mid = (L+R)/2 = center, so output should match center signal
+  let maxDiff = 0
+  for (let i = 0; i < center.length; i++) maxDiff = Math.max(maxDiff, Math.abs(pcm[0][i] - center[i]))
+  t.ok(maxDiff < 1e-5, `isolate extracts center: maxDiff ${maxDiff.toFixed(6)}`)
+  // L and R should be identical (mono center)
+  let lrDiff = 0
+  for (let i = 0; i < pcm[0].length; i++) lrDiff = Math.max(lrDiff, Math.abs(pcm[0][i] - pcm[1][i]))
+  t.ok(lrDiff < 1e-5, `L=R after isolate: ${lrDiff.toFixed(6)}`)
+})
+
+test('vocals — remove center', async t => {
+  let center = tone(440, 0.5)
+  let side = tone(2000, 0.5)
+  let L = new Float32Array(center.length)
+  let R = new Float32Array(center.length)
+  for (let i = 0; i < center.length; i++) {
+    L[i] = center[i] + side[i]
+    R[i] = center[i] - side[i]
+  }
+  let a = audio.from([L, R], { sampleRate: 44100 })
+  a.vocals('remove')  // keep side
+  let pcm = await a.read()
+  // Side = (L-R)/2 = side, so output L should match side signal
+  let maxDiff = 0
+  for (let i = 0; i < side.length; i++) maxDiff = Math.max(maxDiff, Math.abs(pcm[0][i] - side[i]))
+  t.ok(maxDiff < 1e-5, `remove extracts side: maxDiff ${maxDiff.toFixed(6)}`)
+})
+
+test('vocals — mono passthrough', async t => {
+  let ch = tone(440, 0.2)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.vocals()
+  let pcm = await a.read()
+  let maxDiff = 0
+  for (let i = 0; i < ch.length; i++) maxDiff = Math.max(maxDiff, Math.abs(pcm[0][i] - ch[i]))
+  t.ok(maxDiff < 1e-6, `mono unchanged: maxDiff ${maxDiff.toFixed(6)}`)
+})
+
+test('dither — quantizes to target bit depth', async t => {
+  // Smooth ramp from -1 to 1
+  let n = 4096
+  let ch = new Float32Array(n)
+  for (let i = 0; i < n; i++) ch[i] = (i / (n - 1)) * 2 - 1
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.dither(8)
+  let pcm = await a.read()
+  // 8-bit: 127 levels, step = 1/127 ≈ 0.00787
+  let step = 1 / 127
+  let quantized = true
+  for (let i = 0; i < n; i++) {
+    let rem = Math.abs(pcm[0][i] * 127 - Math.round(pcm[0][i] * 127))
+    if (rem > 0.01) { quantized = false; break }
+  }
+  t.ok(quantized, 'output quantized to 8-bit levels')
+  // TPDF noise should make output differ from naive quantization
+  let naiveDiffs = 0
+  for (let i = 0; i < n; i++) {
+    let naive = Math.round(ch[i] * 127) / 127
+    if (Math.abs(pcm[0][i] - naive) > step * 0.5) naiveDiffs++
+  }
+  t.ok(naiveDiffs > 0, `TPDF noise differs from naive: ${naiveDiffs} samples`)
+})
+
+test('dither — 16-bit preserves signal integrity', async t => {
+  let ch = tone(440, 0.5)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.dither(16)
+  let pcm = await a.read()
+  // 16-bit dither should barely change a full-scale sine
+  let maxDiff = 0
+  for (let i = 0; i < ch.length; i++) maxDiff = Math.max(maxDiff, Math.abs(pcm[0][i] - ch[i]))
+  // 16-bit step ≈ 3e-5, dither adds ±1 LSB noise + quantization
+  t.ok(maxDiff < 0.001, `16-bit dither maxDiff ${maxDiff.toFixed(6)}`)
+})
+
+test('earwax — crossfeed mixes channels', async t => {
+  // Hard-panned: L=tone, R=silence
+  let ch = tone(440, 0.5)
+  let silent = new Float32Array(ch.length)
+  let a = audio.from([ch, silent], { sampleRate: 44100 })
+  a.earwax()
+  let pcm = await a.read()
+  // R should now have some content from L crossfeed
+  t.ok(rms(pcm[1]) > 0.01, `R gets crossfeed: rms ${rms(pcm[1]).toFixed(4)}`)
+  // L should lose some energy (mixed away)
+  t.ok(rms(pcm[0]) < rms(ch), `L slightly reduced: ${rms(pcm[0]).toFixed(4)} < ${rms(ch).toFixed(4)}`)
+})
+
+test('earwax — mono passthrough', async t => {
+  let ch = tone(440, 0.2)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.earwax()
+  let pcm = await a.read()
+  let maxDiff = 0
+  for (let i = 0; i < ch.length; i++) maxDiff = Math.max(maxDiff, Math.abs(pcm[0][i] - ch[i]))
+  t.ok(maxDiff < 1e-6, `mono unchanged: maxDiff ${maxDiff.toFixed(6)}`)
+})
+
+test('earwax — custom cutoff and level', async t => {
+  let ch = tone(200, 0.3)
+  let silent = new Float32Array(ch.length)
+  let a1 = audio.from([ch.slice(), silent.slice()], { sampleRate: 44100 })
+  a1.earwax(500, 0.1)  // low level
+  let pcm1 = await a1.read()
+  let a2 = audio.from([ch.slice(), silent.slice()], { sampleRate: 44100 })
+  a2.earwax(500, 0.5)  // high level
+  let pcm2 = await a2.read()
+  // Higher level → more crossfeed to R
+  t.ok(rms(pcm2[1]) > rms(pcm1[1]), `more crossfeed at higher level: ${rms(pcm2[1]).toFixed(4)} > ${rms(pcm1[1]).toFixed(4)}`)
+})
+
+test('resample — 44100→22050 halves length, preserves duration', async t => {
+  let ch = tone(440, 1)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.resample(22050)
+  t.is(a.sampleRate, 22050, 'target sample rate')
+  t.is(a.length, 22050, 'half the samples')
+  t.ok(Math.abs(a.duration - 1) < 0.01, `duration preserved: ${a.duration.toFixed(3)}`)
+})
+
+test('resample — 22050→44100 doubles length', async t => {
+  let n = 22050
+  let ch = new Float32Array(n)
+  for (let i = 0; i < n; i++) ch[i] = Math.sin(2 * Math.PI * 440 * i / 22050)
+  let a = audio.from([ch], { sampleRate: 22050 })
+  a.resample(44100)
+  t.is(a.sampleRate, 44100, 'target sample rate')
+  t.is(a.length, 44100, 'double the samples')
+})
+
+test('resample — returns this (chainable)', async t => {
+  let a = audio.from([tone(440, 0.5)], { sampleRate: 44100 })
+  let b = a.resample(22050)
+  t.ok(a === b, 'same instance (chainable)')
+  t.is(a.sampleRate, 22050, 'rate updated')
+})
+
+test('resample — same rate is no-op', async t => {
+  let a = audio.from([tone(440, 0.2)], { sampleRate: 44100 })
+  a.resample(44100)
+  t.is(a.sampleRate, 44100, 'rate unchanged')
+  t.is(a.length, Math.round(0.2 * 44100), 'length unchanged')
+  let pcm = await a.read()
+  t.ok(Math.abs(rms(pcm[0]) - rms(tone(440, 0.2))) < 0.001, 'audio unchanged')
+})
+
+test('resample — preserves pitch', async t => {
+  let ch = tone(440, 1)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.resample(48000)
+  let pcm = await a.read()
+  let e = energyAt(pcm[0], 440, 48000)
+  t.ok(e > 0.3, `440Hz preserved at 48k: energy ${e.toFixed(3)}`)
+})
+
+test('resample — stereo', async t => {
+  let L = tone(440, 0.3), R = tone(880, 0.3)
+  let a = audio.from([L, R], { sampleRate: 44100 })
+  a.resample(22050)
+  t.is(a.channels, 2, 'stereo preserved')
+  t.is(a.sampleRate, 22050, 'target rate')
+})
+
+test('resample — non-destructive (undoable)', async t => {
+  let a = audio.from([tone(440, 0.5)], { sampleRate: 44100 })
+  a.resample(22050)
+  t.is(a.sampleRate, 22050, 'resampled')
+  t.is(a.edits.length, 1, 'one edit')
+  a.undo()
+  t.is(a.sampleRate, 44100, 'undo restores original rate')
+  t.is(a.edits.length, 0, 'edit removed')
+})
+
+test('resample — chainable with other ops', async t => {
+  let ch = tone(440, 1)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.resample(48000).gain(-6)
+  t.is(a.sampleRate, 48000, 'resampled rate')
+  t.is(a.edits.length, 2, 'two edits')
+  let pcm = await a.read()
+  t.is(pcm[0].length, 48000, 'output at new rate')
+  let e = energyAt(pcm[0], 440, 48000)
+  t.ok(e > 0.1, `440Hz survives resample+gain: ${e.toFixed(3)}`)
+})
+
+
 // ── Phase 16: Block/page boundary stress ────────────────────────────────
 
 test('boundary — stream reads across page boundaries', async t => {
@@ -4310,6 +4667,302 @@ test('boundary — evicted pages restored during streaming', async t => {
 })
 
 
+// ── Phase 17: Signal accuracy — canonical thresholds ────────────────────
+
+/** Signal-to-Noise Ratio in dB between original and processed. */
+function snr(signal, processed) {
+  let noise = 0, sig = 0
+  for (let i = 0; i < signal.length; i++) {
+    sig += signal[i] * signal[i]
+    let d = processed[i] - signal[i]
+    noise += d * d
+  }
+  return noise === 0 ? Infinity : 10 * Math.log10(sig / noise)
+}
+
+/** Assert stream() output matches read() for a prepared audio instance. */
+async function assertStreamRead(t, a, label) {
+  let full = await a.read()
+  let chunks = []
+  for await (let chunk of a.stream()) chunks.push(chunk.map(c => c.slice()))
+  for (let c = 0; c < full.length; c++) {
+    let parts = chunks.map(ch => ch[c])
+    let flat = new Float32Array(parts.reduce((n, p) => n + p.length, 0))
+    let pos = 0
+    for (let p of parts) { flat.set(p, pos); pos += p.length }
+    t.is(flat.length, full[c].length, `${label} ch${c}: length`)
+    let maxDiff = 0
+    for (let i = 0; i < flat.length; i++) maxDiff = Math.max(maxDiff, Math.abs(flat[i] - full[c][i]))
+    t.ok(maxDiff < 0.001, `${label} ch${c}: stream≈read (maxDiff: ${maxDiff.toFixed(6)})`)
+  }
+}
+
+// ── Dither SNR (ref: 6 dB/bit rule, TPDF adds ±1 LSB) ─────────────────
+
+test('dither — 16-bit SNR > 80 dB for full-scale sine', async t => {
+  let ch = tone(1000, 1)
+  let a = audio.from([ch.slice()], { sampleRate: 44100 })
+  a.dither(16)
+  let pcm = await a.read()
+  let s = snr(ch, pcm[0])
+  t.ok(s > 80, `16-bit SNR: ${s.toFixed(1)} dB > 80 dB`)
+})
+
+test('dither — 8-bit SNR > 35 dB for full-scale sine', async t => {
+  let ch = tone(1000, 1)
+  let a = audio.from([ch.slice()], { sampleRate: 44100 })
+  a.dither(8)
+  let pcm = await a.read()
+  let s = snr(ch, pcm[0])
+  t.ok(s > 35, `8-bit SNR: ${s.toFixed(1)} dB > 35 dB`)
+})
+
+test('dither — TPDF noise floor uniform (not correlated with signal)', async t => {
+  let ch = new Float32Array(44100)  // silence
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.dither(8)
+  let pcm = await a.read()
+  // Split into 4 quarters, RMS should be similar across all
+  let q = 4, qLen = Math.floor(pcm[0].length / q)
+  let rmsVals = []
+  for (let i = 0; i < q; i++) rmsVals.push(rms(pcm[0].subarray(i * qLen, (i + 1) * qLen)))
+  let avg = rmsVals.reduce((a, b) => a + b) / q
+  let maxDev = Math.max(...rmsVals.map(r => Math.abs(r - avg) / avg))
+  t.ok(maxDev < 0.3, `noise floor uniform: max deviation ${(maxDev * 100).toFixed(1)}% < 30%`)
+})
+
+// ── Resample accuracy (ref: SoX < 0.5 dB residual, librosa atol 1e-2) ──
+
+test('resample — round-trip 44100→48000→44100 preserves energy', async t => {
+  let ch = tone(440, 1)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.resample(48000).resample(44100)
+  let pcm = await a.read()
+  let inE = rms(ch), outE = rms(pcm[0])
+  let err = Math.abs(outE - inE) / inE
+  t.ok(err < 0.05, `energy preserved: ${inE.toFixed(4)} → ${outE.toFixed(4)} (${(err * 100).toFixed(1)}% < 5%)`)
+})
+
+test('resample — round-trip preserves pitch at 440 Hz', async t => {
+  let ch = tone(440, 1)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  a.resample(48000).resample(44100)
+  let pcm = await a.read()
+  let e440 = energyAt(mid(pcm[0]), 440)
+  let e880 = energyAt(mid(pcm[0]), 880)
+  t.ok(e440 > e880 * 3, `440Hz dominant after round-trip: ${e440.toFixed(3)} vs harmonic ${e880.toFixed(3)}`)
+})
+
+test('resample — downsampling attenuates above new Nyquist', async t => {
+  let lo = tone(5000, 0.5), hi = tone(15000, 0.5)
+  let aLo = audio.from([lo], { sampleRate: 44100 }); aLo.resample(22050)
+  let aHi = audio.from([hi], { sampleRate: 44100 }); aHi.resample(22050)
+  let rLo = rms((await aLo.read())[0]), rHi = rms((await aHi.read())[0])
+  t.ok(rLo > 0.3, `5kHz survives: rms ${rLo.toFixed(3)}`)
+  // Anti-alias lowpass attenuates above-Nyquist content (linear interp + lowpass)
+  t.ok(rHi < rLo, `15kHz attenuated vs 5kHz: ${rHi.toFixed(3)} < ${rLo.toFixed(3)}`)
+})
+
+// ── Filter frequency response (ref: SoX sinusoid-fitting, < 0.5 dB) ────
+
+test('allpass — flat magnitude across frequencies (< ±1 dB)', async t => {
+  for (let f of [100, 500, 1000, 5000, 10000]) {
+    let ch = tone(f, 0.3)
+    let a = audio.from([ch], { sampleRate: 44100 })
+    a.allpass(2000)
+    let pcm = await a.read()
+    let dB = 20 * Math.log10(rms(pcm[0]) / rms(ch))
+    t.ok(Math.abs(dB) < 1, `allpass ${f}Hz: ${dB.toFixed(2)} dB`)
+  }
+})
+
+test('highpass — frequency response: attenuates below cutoff, passes above', async t => {
+  let cutoff = 1000, sr = 44100
+  let gains = []
+  for (let f of [100, 500, 2000, 5000]) {
+    let ch = tone(f, 0.5, sr)
+    let a = audio.from([ch], { sampleRate: sr })
+    a.highpass(cutoff)
+    let pcm = await a.read()
+    gains.push({ f, dB: 20 * Math.log10(rms(mid(pcm[0], 0.1, sr)) / rms(mid(ch, 0.1, sr))) })
+  }
+  t.ok(gains[0].dB < -10, `100Hz: ${gains[0].dB.toFixed(1)} dB (< -10)`)
+  t.ok(gains[1].dB < -3, `500Hz: ${gains[1].dB.toFixed(1)} dB (< -3)`)
+  t.ok(gains[2].dB > -3, `2kHz: ${gains[2].dB.toFixed(1)} dB (> -3)`)
+  t.ok(gains[3].dB > -1, `5kHz: ${gains[3].dB.toFixed(1)} dB (> -1)`)
+})
+
+test('lowpass — frequency response: passes below cutoff, attenuates above', async t => {
+  let cutoff = 1000, sr = 44100
+  let gains = []
+  for (let f of [100, 500, 2000, 5000]) {
+    let ch = tone(f, 0.5, sr)
+    let a = audio.from([ch], { sampleRate: sr })
+    a.lowpass(cutoff)
+    let pcm = await a.read()
+    gains.push({ f, dB: 20 * Math.log10(rms(mid(pcm[0], 0.1, sr)) / rms(mid(ch, 0.1, sr))) })
+  }
+  t.ok(gains[0].dB > -1, `100Hz: ${gains[0].dB.toFixed(1)} dB (> -1)`)
+  t.ok(gains[1].dB > -3, `500Hz: ${gains[1].dB.toFixed(1)} dB (> -3)`)
+  t.ok(gains[2].dB < -3, `2kHz: ${gains[2].dB.toFixed(1)} dB (< -3)`)
+  t.ok(gains[3].dB < -10, `5kHz: ${gains[3].dB.toFixed(1)} dB (< -10)`)
+})
+
+test('crossfade — equal-power: RMS constant ±1 dB through transition', async t => {
+  let sr = 44100
+  let a = audio.from([new Float32Array(sr).fill(0.8)], { sampleRate: sr })
+  let b = audio.from([new Float32Array(sr).fill(0.8)], { sampleRate: sr })
+  a.crossfade(b, 0.5)
+  let pcm = await a.read()
+  let winSize = Math.round(0.1 * sr)
+  let before = rms(pcm[0].subarray(0, winSize))
+  let during = rms(pcm[0].subarray(Math.round(0.75 * sr), Math.round(0.75 * sr) + winSize))
+  let after = rms(pcm[0].subarray(Math.round(1.2 * sr), Math.round(1.2 * sr) + winSize))
+  let dB1 = 20 * Math.log10(during / before), dB2 = 20 * Math.log10(after / before)
+  t.ok(Math.abs(dB1) < 1, `mid-transition: ${dB1.toFixed(2)} dB (< ±1)`)
+  t.ok(Math.abs(dB2) < 0.5, `post-transition: ${dB2.toFixed(2)} dB (< ±0.5)`)
+})
+
+
+// ── Phase 18: Stream ≡ read guarantee ───────────────────────────────────
+
+test('stream≡read — earwax', async t => {
+  let a = audio.from([tone(440, 0.5), tone(880, 0.5)], { sampleRate: 44100 })
+  a.earwax()
+  await assertStreamRead(t, a, 'earwax')
+})
+
+test('stream≡read — vocals isolate', async t => {
+  let a = audio.from([tone(440, 0.5), tone(440, 0.5)], { sampleRate: 44100 })
+  a.vocals()
+  await assertStreamRead(t, a, 'vocals')
+})
+
+test('stream≡read — vocals remove', async t => {
+  let c = tone(440, 0.5), s = tone(2000, 0.5)
+  let L = new Float32Array(c.length), R = new Float32Array(c.length)
+  for (let i = 0; i < c.length; i++) { L[i] = c[i] + s[i]; R[i] = c[i] - s[i] }
+  let a = audio.from([L, R], { sampleRate: 44100 })
+  a.vocals('remove')
+  await assertStreamRead(t, a, 'vocals-remove')
+})
+
+test('stream≡read — pan', async t => {
+  let a = audio.from([new Float32Array(44100).fill(0.8), new Float32Array(44100).fill(0.6)], { sampleRate: 44100 })
+  a.pan(0.7)
+  await assertStreamRead(t, a, 'pan')
+})
+
+test('stream≡read — pan with range', async t => {
+  let a = audio.from([new Float32Array(44100).fill(1), new Float32Array(44100).fill(1)], { sampleRate: 44100 })
+  a.pan(-0.5, { at: 0.2, duration: 0.3 })
+  await assertStreamRead(t, a, 'pan-range')
+})
+
+test('stream≡read — speed 2x', async t => {
+  let ramp = new Float32Array(44100)
+  for (let i = 0; i < ramp.length; i++) ramp[i] = i / ramp.length
+  let a = audio.from([ramp], { sampleRate: 44100 })
+  a.speed(2)
+  await assertStreamRead(t, a, 'speed-2x')
+})
+
+test('stream≡read — speed 0.5x', async t => {
+  let a = audio.from([tone(440, 0.5)], { sampleRate: 44100 })
+  a.speed(0.5)
+  await assertStreamRead(t, a, 'speed-0.5x')
+})
+
+
+// ── Phase 19: Op composition — chained ops stream ≡ read ────────────────
+
+test('stream≡read — highpass + gain + trim', async t => {
+  let sr = 44100, ch = new Float32Array(sr * 2)
+  for (let i = sr / 2 | 0; i < sr * 1.5 | 0; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  a.highpass(200).gain(-3).trim()
+  await assertStreamRead(t, a, 'hp+gain+trim')
+})
+
+test('stream≡read — vocals + lowpass + normalize', async t => {
+  let c = tone(440, 0.5), s = tone(2000, 0.5)
+  let L = new Float32Array(c.length), R = new Float32Array(c.length)
+  for (let i = 0; i < c.length; i++) { L[i] = c[i] + s[i]; R[i] = c[i] - s[i] }
+  let a = audio.from([L, R], { sampleRate: 44100 })
+  a.vocals().lowpass(2000).normalize(0)
+  await assertStreamRead(t, a, 'vocals+lp+norm')
+})
+
+test('stream≡read — reverse + gain + fade', async t => {
+  let a = audio.from([tone(440, 1)], { sampleRate: 44100 })
+  a.reverse().gain(-6).fade(0.2, 0.2)
+  await assertStreamRead(t, a, 'rev+gain+fade')
+})
+
+test('stream≡read — crop + speed + pan (stereo)', async t => {
+  let a = audio.from([tone(440, 2), tone(880, 2)], { sampleRate: 44100 })
+  a.crop({ at: 0.5, duration: 1 }).speed(1.5).pan(0.3)
+  await assertStreamRead(t, a, 'crop+speed+pan')
+})
+
+test('stream≡read — earwax + highpass + gain', async t => {
+  let a = audio.from([tone(200, 0.5), tone(5000, 0.5)], { sampleRate: 44100 })
+  a.earwax().highpass(300).gain(-3)
+  await assertStreamRead(t, a, 'earwax+hp+gain')
+})
+
+test('stream≡read — pad + repeat + gain', async t => {
+  let a = audio.from([tone(440, 0.3)], { sampleRate: 44100 })
+  a.pad(0.1, 0.1).repeat(1).gain(-6)
+  await assertStreamRead(t, a, 'pad+repeat+gain')
+})
+
+
+// ── Phase 20: Speed op ──────────────────────────────────────────────────
+
+test('speed(2) — halves duration, shifts pitch up', async t => {
+  let a = audio.from([tone(440, 1)], { sampleRate: 44100 })
+  a.speed(2)
+  t.is(a.duration, 0.5, 'duration halved')
+  t.is(a.length, 22050, 'sample count halved')
+  let pcm = await a.read()
+  let e880 = energyAt(pcm[0], 880), e440 = energyAt(pcm[0], 440)
+  t.ok(e880 > e440 * 2, `880Hz dominant: ${e880.toFixed(3)} vs ${e440.toFixed(3)}`)
+})
+
+test('speed(0.5) — doubles duration', async t => {
+  let a = audio.from([tone(440, 1)], { sampleRate: 44100 })
+  a.speed(0.5)
+  t.is(a.duration, 2, 'duration doubled')
+  t.is(a.length, 88200, 'sample count doubled')
+})
+
+test('speed(-1) — reverses audio', async t => {
+  let ramp = new Float32Array(1000)
+  for (let i = 0; i < 1000; i++) ramp[i] = i / 1000
+  let a = audio.from([ramp])
+  a.speed(-1)
+  let pcm = await a.read()
+  t.ok(pcm[0][0] > 0.99, `first ≈ 1 (got ${pcm[0][0].toFixed(3)})`)
+  t.ok(pcm[0][999] < 0.01, `last ≈ 0 (got ${pcm[0][999].toFixed(3)})`)
+})
+
+test('speed(0) — throws RangeError on read', async t => {
+  let a = audio.from([new Float32Array(100)])
+  a.speed(0)
+  try { await a.read(); t.fail('should throw') }
+  catch (e) { t.ok(e instanceof RangeError, 'RangeError on speed(0)') }
+})
+
+test('speed — stereo preserves channel count', async t => {
+  let a = audio.from([tone(440, 0.3), tone(880, 0.3)], { sampleRate: 44100 })
+  a.speed(2)
+  let pcm = await a.read()
+  t.is(pcm.length, 2, 'stereo preserved')
+  t.is(pcm[0].length, pcm[1].length, 'channels same length')
+})
+
+
 // ── CLI Parsing (fast, no file I/O) ────────────────────────────────────
 
 if (isNode) {
@@ -4344,7 +4997,7 @@ test('cli parseRange — 1s..10s', t => {
 
 test('cli op help — all built-in ops have help', t => {
   let ops = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'remove', 'repeat', 'remix', 'pan', 'pad', 'stretch', 'pitch',
-    'highpass', 'lowpass', 'eq', 'lowshelf', 'highshelf', 'notch', 'bandpass']
+    'highpass', 'lowpass', 'eq', 'lowshelf', 'highshelf', 'notch', 'bandpass', 'allpass', 'vocals', 'dither', 'earwax']
   for (let op of ops) t.ok(HELP[op], `${op} has help`)
 })
 
@@ -4354,6 +5007,11 @@ test('cli ops registry — all built-ins available', t => {
   t.ok(audio.op('trim'), 'trim')
   t.ok(audio.op('normalize'), 'normalize')
   t.ok(audio.op('remix'), 'remix')
+  t.ok(audio.op('allpass'), 'allpass')
+  t.ok(audio.op('vocals'), 'vocals')
+  t.ok(audio.op('dither'), 'dither')
+  t.ok(audio.op('earwax'), 'earwax')
+  t.ok(typeof audio.fn.resample === 'function', 'resample')
 })
 
 } // end isNode guard for CLI tests

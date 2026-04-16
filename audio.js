@@ -45,6 +45,11 @@ import './fn/speed.js'
 import './fn/stretch.js'
 import './fn/pitch.js'
 import './fn/transform.js'
+import './fn/crossfade.js'
+import './fn/vocals.js'
+import './fn/dither.js'
+import './fn/earwax.js'
+import './fn/resample.js'
 
 // ── Stats ───────────────────────────────────────────────────────────────
 

@@ -51,12 +51,12 @@ export function peakDb(stats, chs, dcOff) {
 
 /** RMS level in dB after DC removal. Returns null if silent/missing. */
 export function rmsDb(stats, chs, dcOff) {
-  if (!stats.rms) return null
+  if (!stats.ms) return null
   let totalE = 0, n = 0
   for (let c of chs) {
     let d = dcOff?.[c] || 0
     // E[x²] = E[(x-dc)²] + dc²  →  E[(x-dc)²] = E[x²] - dc²
-    for (let i = 0; i < stats.rms[c].length; i++) { totalE += stats.rms[c][i] - d * d; n++ }
+    for (let i = 0; i < stats.ms[c].length; i++) { totalE += stats.ms[c][i] - d * d; n++ }
   }
   return n && totalE > 0 ? 10 * Math.log10(totalE / n) : null
 }
@@ -68,7 +68,7 @@ export function lufsDb(stats, chs, sampleRate) {
 
 // ── Stats ────────────────────────────────────────────────────────
 
-let rMean = (values, from, to) => { let n = to - from; if (!n) return 0; let v = 0; for (let i = from; i < to; i++) v += values[i]; return v / n }
+export let rMean = (values, from, to) => { let n = to - from; if (!n) return 0; let v = 0; for (let i = from; i < to; i++) v += values[i]; return v / n }
 
 audio.stat('energy', {
   block: (chs, ctx) => {

@@ -1,10 +1,9 @@
 import audio from '../core.js'
+import { rMean } from './loudness.js'
 
 let rMin = (values, from, to) => { let v = Infinity; for (let i = from; i < to; i++) if (values[i] < v) v = values[i]; return v === Infinity ? 0 : v }
 let rMax = (values, from, to) => { let v = -Infinity; for (let i = from; i < to; i++) if (values[i] > v) v = values[i]; return v === -Infinity ? 0 : v }
 let rSum = (values, from, to) => { let v = 0; for (let i = from; i < to; i++) v += values[i]; return v }
-let rMean = (values, from, to) => { let n = to - from; if (!n) return 0; let v = 0; for (let i = from; i < to; i++) v += values[i]; return v / n }
-let rRms = (values, from, to) => { let n = to - from; if (!n) return 0; let v = 0; for (let i = from; i < to; i++) v += values[i]; return Math.sqrt(v / n) }
 
 audio.stat('min', {
   block: (chs) => chs.map(ch => {
@@ -61,17 +60,21 @@ audio.stat('clipping', {
   }
 })
 
-audio.stat('rms', {
+audio.stat('ms', {
   block: (chs) => chs.map(ch => {
     let sum = 0
     for (let i = 0; i < ch.length; i++) sum += ch[i] * ch[i]
     return sum / ch.length
   }),
-  reduce: rRms,
+  reduce: rMean,
+})
+
+audio.stat('rms', {
   query: (stats, chs, from, to) => {
+    if (!stats.ms) return 0
     let sum = 0, n = 0
     for (let c of chs)
-      for (let i = from; i < Math.min(to, stats.rms[c].length); i++) { sum += stats.rms[c][i]; n++ }
+      for (let i = from; i < Math.min(to, stats.ms[c].length); i++) { sum += stats.ms[c][i]; n++ }
     return n ? Math.sqrt(sum / n) : 0
   }
 })

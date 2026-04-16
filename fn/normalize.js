@@ -35,7 +35,7 @@ audio.op('dc', {
       let n = stats.min[c].length
       for (let i = 0; i < n; i++) {
         // E[(x-d)²] = E[x²] - 2d·E[x] + d²
-        if (stats.rms) stats.rms[c][i] = stats.rms[c][i] - 2 * d * stats.dc[c][i] + d * d
+        if (stats.ms) stats.ms[c][i] = stats.ms[c][i] - 2 * d * stats.dc[c][i] + d * d
         stats.min[c][i] -= d
         stats.max[c][i] -= d
         if (stats.dc) stats.dc[c][i] -= d

@@ -2,6 +2,7 @@ import hpFilter from 'audio-filter/effect/highpass.js'
 import lpFilter from 'audio-filter/effect/lowpass.js'
 import bpFilter from 'audio-filter/effect/bandpass.js'
 import notchFilter from 'audio-filter/effect/notch.js'
+import { second as apFilter } from 'audio-filter/effect/allpass.js'
 import lsFilter from 'audio-filter/eq/lowshelf.js'
 import hsFilter from 'audio-filter/eq/highshelf.js'
 import parametricEq from 'audio-filter/eq/parametric-eq.js'
@@ -29,12 +30,13 @@ const types = {
   highshelf: (input, output, ctx) => apply(input, output, ctx, '_hs', hsFilter, fs => ({ fc: ctx.freq, gain: ctx.gain ?? 0, Q: ctx.q ?? 0.707, fs })),
   notch:     (input, output, ctx) => apply(input, output, ctx, '_notch', notchFilter, fs => ({ fc: ctx.freq, Q: ctx.q ?? 30, fs })),
   bandpass:  (input, output, ctx) => apply(input, output, ctx, '_bp', bpFilter, fs => ({ fc: ctx.freq, Q: ctx.q ?? 0.707, fs })),
+  allpass:   (input, output, ctx) => apply(input, output, ctx, '_ap', apFilter, fs => ({ fc: ctx.freq, Q: ctx.q ?? 0.707, fs })),
 }
 
 const filterParams = {
   highpass: ['freq'], lowpass: ['freq'], eq: ['freq', 'gain', 'q'],
   lowshelf: ['freq', 'gain', 'q'], highshelf: ['freq', 'gain', 'q'],
-  notch: ['freq', 'q'], bandpass: ['freq', 'q'],
+  notch: ['freq', 'q'], bandpass: ['freq', 'q'], allpass: ['freq', 'q'],
 }
 
 /** Unified filter: a.filter('highpass', 80) or a.filter(fn, {fc, ...}) */

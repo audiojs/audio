@@ -1,4 +1,4 @@
-const CURVES = {
+export const CURVES = {
   linear: t => t,
   exp: t => t * t,
   log: t => Math.sqrt(t),

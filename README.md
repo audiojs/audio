@@ -290,7 +290,8 @@ let b = audio('https://cdn.ex/track.mp3') // URL
 let c = audio(inputEl.files[0])           // Blob, File, Response, ArrayBuffer
 let d = audio()                           // empty, ready for .push() or .record()
 let e = audio([intro, body, outro])       // concat (virtual, no copy)
-// opts: { sampleRate, channels, storage: 'memory' | 'persistent' | 'auto' }
+let f = audio([a, b, c], { crossfade: 2 })  // concat with 2s crossfade
+// opts: { sampleRate, channels, crossfade, curve, storage: 'memory' | 'persistent' | 'auto' }
 
 await a    // await for decode — if you need .duration, full stats etc
 
@@ -373,6 +374,7 @@ Amplitude, mixing, normalization. All support `{at, duration, channel}` ranges.
   * `{ ceiling: -1 }` – true peak limiter in dB.
   * `{ dc: false }` – skip DC removal.
 * **`.mix(source, opts?)`** – overlay another audio (additive).
+* **`.crossfade(source, duration?, curve?)`** – crossfade into another audio. Overlap with complementary fade curves. Default 0.5s, `'cos'` curve.
 * **`.pan(value, opts?)`** – stereo balance (−1 left, 0 center, 1 right). Accepts function.
 * **`.write(data, {at?})`** – overwrite samples with raw PCM.
 * **`.transform(fn)`** – inline processor: `(input, output, ctx) => void`. Not serialized.
@@ -384,6 +386,8 @@ a.gain(t => -12 * Math.cos(t * TAU))     // automate over time
 a.fade(0.5, -2, 'exp')                    // 0.5s in, 2s exp fade-out
 a.normalize('podcast')                    // -16 LUFS; also 'streaming', 'broadcast'
 a.mix(voice, { at: 2 })                  // overlay at 2s
+a.crossfade(next, 2)                      // 2s crossfade into next
+a.crossfade(next, 0.5, 'linear')          // linear crossfade
 a.pan(-0.3, { at: 10, duration: 5 })      // pan left for range
 ```
 
@@ -393,6 +397,7 @@ Biquad filters, chainable. All support `{at, duration}` ranges.
 
 * **`.highpass(freq)`**, **`.lowpass(freq)`** – pass filter.
 * **`.bandpass(freq, Q?)`**, **`.notch(freq, Q?)`** – band-pass / notch.
+* **`.allpass(freq, Q?)`** – all-pass (phase shift, unity magnitude).
 * **`.lowshelf(freq, dB)`**, **`.highshelf(freq, dB)`** – shelf EQ.
 * **`.eq(freq, gain, Q?)`** – parametric EQ.
 * **`.filter(type, ...params)`** – generic dispatch.
@@ -401,7 +406,26 @@ Biquad filters, chainable. All support `{at, duration}` ranges.
 a.highpass(80).lowshelf(200, -3)          // rumble + mud
 a.eq(3000, 2, 1.5).highshelf(8000, 3)    // presence + air
 a.notch(50)                               // remove hum
+a.allpass(1000)                           // phase shift at 1kHz
 a.filter(customFn, { cutoff: 2000 })     // custom filter function
+```
+
+### Effect
+
+Audio effects and transformations.
+
+* **`.vocals(mode?)`** – stereo vocal isolation/removal. `'isolate'` (default) keeps center, `'remove'` keeps sides. SoX `oops` equivalent.
+* **`.dither(bits?)`** – TPDF dithering for bit-depth reduction (default 16-bit).
+* **`.earwax(freq?, level?)`** – headphone crossfeed for improved imaging. Default: 700 Hz cutoff, 0.3 level.
+* **`.resample(rate)`** – sample rate conversion. Non-destructive, chainable, undoable. Downsampling auto-inserts anti-alias lowpass.
+
+```js
+a.vocals()                                // isolate center-panned vocals
+a.vocals('remove')                        // remove vocals (karaoke)
+a.dither(16)                              // TPDF dither to 16-bit
+a.earwax()                                // headphone crossfeed
+a.resample(48000)                         // resample to 48kHz
+a.resample(22050).gain(-3).save('lo.wav') // chain with other ops
 ```
 
 ### I/O
@@ -575,7 +599,8 @@ eq          mix         pad         pan       crop
 fade        gain        stat        trim      notch
 remix       speed       split       insert    remove
 repeat      bandpass    highpass    lowpass   reverse
-lowshelf    highshelf   normalize
+lowshelf    highshelf   normalize   allpass   vocals
+dither      earwax
 
 # options
 -p play     -l loop     -o output   -f force  --format
@@ -621,6 +646,9 @@ audio in.mp3 highpass 80hz lowshelf 200hz -3db -o out.wav
 
 # join
 audio intro.mp3 + content.wav + outro.mp3 trim normalize fade 0.5s -2s -o ep.mp3
+
+# crossfade into next track
+audio track1.mp3 crossfade track2.mp3 2s -o mixed.wav
 
 # voiceover
 audio bg.mp3 gain -12db mix narration.wav 2s -o mixed.wav
@@ -709,7 +737,7 @@ audio --completions fish | source       # fish
 <dd>Yes, ships with <code>audio.d.ts</code>.</dd>
 
 <dt>How is this different from SoX?</dt>
-<dd>SoX is a C command-line tool — powerful but native-only, no browser, no programmatic API, no streaming edits, no undo. <code>audio</code> runs in Node and the browser with the same API, edits are non-destructive and lazy (nothing is rendered until you read/save), and it streams during decode. SoX has more effects (reverb, compressor, noise reduction, chorus, flanger, phaser) — these are on the <a href="#todo">roadmap</a>.</dd>
+<dd>SoX is a C command-line tool — powerful but native-only, no browser, no programmatic API, no streaming edits, no undo. <code>audio</code> runs in Node and the browser with the same API, edits are non-destructive and lazy (nothing is rendered until you read/save), and it streams during decode. Several SoX effects are implemented (allpass, dither, earwax, vocals/oops, resample). Remaining effects (reverb, compressor, noise reduction, chorus, flanger, phaser) are on the <a href="#todo">roadmap</a>.</dd>
 
 <dt>How is this different from Audacity?</dt>
 <dd>Audacity is a GUI desktop app. <code>audio</code> is a library and CLI — designed for scripting, automation, pipelines, and embedding in apps. Audacity is destructive (edits mutate samples); <code>audio</code> is non-destructive (edits are a plan replayed on read). Audacity can't run in the browser or be <code>npm install</code>ed into your project.</dd>
@@ -729,18 +757,18 @@ audio --completions fish | source       # fish
 
 Effects from SoX and elsewhere not yet available. Contributions welcome.
 
+- [x] **resample** — non-destructive sample rate conversion (plan-based, chainable, undoable)
+- [x] **dither** — TPDF dithering for bit-depth reduction
+- [x] **vocals** — vocal isolation / removal (SoX `oops`, out-of-phase stereo)
+- [x] **allpass** — all-pass filter
+- [x] **earwax** — headphone crossfeed
 - [ ] **compressor** — dynamic range compression / expansion / limiting (SoX `compand`)
 - [ ] **reverb** — freeverb reverberation
 - [ ] **noise** — noise reduction via spectral profiling (SoX `noisered`)
 - [ ] **echo** — echo / delay effect
-- [ ] **resample** — explicit sample rate conversion
-- [ ] **dither** — dithering for bit-depth reduction
 - [ ] **chorus** — chorus modulation
 - [ ] **flanger** — flanging
 - [ ] **phaser** — phaser effect
-- [ ] **vocals** — vocal isolation / removal (SoX `oops`, out-of-phase stereo)
-- [ ] **allpass** — all-pass filter
-- [ ] **earwax** — headphone crossfeed
 
 
 ## Ecosystem

@@ -42,7 +42,7 @@ audio.op('gain', {
         stats.min[c][i] = Math.min(lo, hi)
         stats.max[c][i] = Math.max(lo, hi)
         if (stats.dc) stats.dc[c][i] *= g
-        if (stats.rms) stats.rms[c][i] *= g2
+        if (stats.ms) stats.ms[c][i] *= g2
         if (stats.energy) stats.energy[c][i] *= g2
       }
       if (stats.clipping) for (let i = 0; i < n; i++)

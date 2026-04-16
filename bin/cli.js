@@ -102,6 +102,11 @@ const HELP = {
   highshelf: { usage: 'highshelf FC GAIN [Q]', desc: 'High shelf filter', examples: ['highshelf 8khz 2db'] },
   notch:     { usage: 'notch FC [Q]', desc: 'Notch (band-reject) filter', examples: ['notch 60hz', 'notch 50hz 50'] },
   bandpass:  { usage: 'bandpass FC [Q]', desc: 'Band-pass filter', examples: ['bandpass 1khz', 'bandpass 440hz 10'] },
+  allpass:   { usage: 'allpass FC [Q]', desc: 'All-pass filter (phase shift)', examples: ['allpass 1khz', 'allpass 440hz 10'] },
+  vocals:    { usage: 'vocals [MODE]', desc: 'Vocal isolation (default) or removal', examples: ['vocals', 'vocals remove'] },
+  dither:    { usage: 'dither [BITS]', desc: 'TPDF dither to target bit depth (default: 16)', examples: ['dither', 'dither 8'] },
+  earwax:    { usage: 'earwax [FC] [LEVEL]', desc: 'Headphone crossfeed for improved imaging', examples: ['earwax', 'earwax 500hz 0.4'] },
+  crossfade: { usage: 'crossfade SRC [DUR] [CURVE]', desc: 'Crossfade into another audio file', examples: ['crossfade next.wav 2s', 'crossfade next.wav 0.5s cos'] },
 }
 
 function showOpHelp(name) {
@@ -237,6 +242,17 @@ function parseArgs(args) {
   return { input, ops: ops_, output, format, verbose, showHelp, play, force, loop, macro, helpOp, concatFiles, range }
 }
 
+const SOURCE_OPS = new Set(['mix', 'insert', 'crossfade'])
+
+async function resolveSourceArgs(op) {
+  if (!SOURCE_OPS.has(op.name)) return
+  for (let i = 0; i < op.args.length; i++) {
+    if (typeof op.args[i] === 'string' && !op.args[i].startsWith('-')) {
+      op.args[i] = await audio(op.args[i])
+    }
+  }
+}
+
 function opCallArgs(op) {
   let args = (op.args || []).slice()
   let callOpts = op.opts ? { ...op.opts } : {}
@@ -344,7 +360,7 @@ function progressBar(played, decoded, total, width) {
   return '━'.repeat(pFill) + '─'.repeat(dFill - pFill) + (empty > 0 ? DIM + '─'.repeat(empty) + RST : '')
 }
 
-const GERUNDS = { gain: 'Applying gain', fade: 'Fading', trim: 'Trimming', normalize: 'Normalizing', crop: 'Cropping', clip: 'Clipping', remove: 'Removing', reverse: 'Reversing', repeat: 'Repeating', pad: 'Padding', speed: 'Changing speed', stretch: 'Stretching', pitch: 'Pitch shifting', insert: 'Inserting', mix: 'Mixing', remix: 'Remixing', pan: 'Panning', eq: 'Filtering', filter: 'Filtering', highpass: 'Filtering', lowpass: 'Filtering', notch: 'Filtering', bandpass: 'Filtering', lowshelf: 'Filtering', highshelf: 'Filtering' }
+const GERUNDS = { gain: 'Applying gain', fade: 'Fading', trim: 'Trimming', normalize: 'Normalizing', crop: 'Cropping', clip: 'Clipping', remove: 'Removing', reverse: 'Reversing', repeat: 'Repeating', pad: 'Padding', speed: 'Changing speed', stretch: 'Stretching', pitch: 'Pitch shifting', insert: 'Inserting', mix: 'Mixing', crossfade: 'Crossfading', remix: 'Remixing', pan: 'Panning', eq: 'Filtering', filter: 'Filtering', highpass: 'Filtering', lowpass: 'Filtering', notch: 'Filtering', bandpass: 'Filtering', lowshelf: 'Filtering', highshelf: 'Filtering', allpass: 'Filtering', vocals: 'Processing vocals', dither: 'Dithering', earwax: 'Applying crossfeed' }
 function opsLabel(ops) {
   return [...new Set(ops.map(o => GERUNDS[o.name] || (o.name[0].toUpperCase() + o.name.slice(1) + 'ing')))]
 }
@@ -759,7 +775,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     } else if (prev === 'remix') {
       out = ['1', '2']
     } else if (prev === 'stat') {
-      out = ['db', 'rms', 'loudness', 'clipping', 'dc', 'silence', 'spectrum', 'cepstrum', 'bpm', 'beats', 'onsets']
+      out = ['db', 'rms', 'loudness', 'clipping', 'dc', 'silence', 'spectrum', 'cepstrum', 'bpm', 'beats', 'onsets', 'key', 'notes', 'chords']
     } else if (prev === 'gain') {
       out = ['-3db', '-6db', '-12db', '3db', '6db']
     } else if (prev === 'highpass') {
@@ -778,6 +794,14 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       out = ['-1', '-0.5', '0', '0.5', '1']
     } else if (prev === 'trim') {
       out = ['-20db', '-30db', '-40db', '-50db']
+    } else if (prev === 'allpass') {
+      out = ['100hz', '440hz', '1khz', '4khz']
+    } else if (prev === 'vocals') {
+      out = ['isolate', 'remove']
+    } else if (prev === 'dither') {
+      out = ['8', '16', '24']
+    } else if (prev === 'earwax') {
+      out = ['500hz', '700hz', '1khz']
     } else if (prev === '--format') {
       out = ['wav', 'mp3', 'flac', 'ogg', 'opus', 'aiff']
     } else if (cur.startsWith('-')) {
@@ -865,6 +889,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
         process.stderr.write(`Processing: ${file}\n`)
         let a = await audio(file)
         for (let op of allOps) {
+          await resolveSourceArgs(op)
           let fullArgs = opCallArgs(op)
           if (typeof a[op.name] !== 'function') throw new Error(`Unknown operation: ${op.name}`)
           a[op.name](...fullArgs)
@@ -957,6 +982,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       ;(async () => {
         await a  // full decode
         for (let op of transformOps) {
+          await resolveSourceArgs(op)
           let { name } = op
           let fullArgs = opCallArgs(op)
           if (name === 'clip') a = a[name](...fullArgs)
@@ -997,6 +1023,12 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
         let mn = Math.min(...bpms), mx = Math.max(...bpms)
         return mx - mn < 10 ? `${Math.round((mn + mx) / 2)} BPM` : `${Math.round(mn)}–${Math.round(mx)} BPM`
       })()
+      let keyStr = await (async () => {
+        try {
+          let k = await a.key()
+          return k && k.confidence > 0.3 ? k.label : 'n/a'
+        } catch { return 'n/a' }
+      })()
       console.log(`  Duration:   ${fmtTime(a.duration)}`)
       console.log(`  Channels:   ${a.channels}`)
       console.log(`  SampleRate: ${a.sampleRate} Hz`)
@@ -1004,6 +1036,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       console.log(`  Peak:       ${peak.toFixed(1)} dBFS`)
       console.log(`  Loudness:   ${l.toFixed(1)} LUFS`)
       console.log(`  BPM:        ${bpmStr}`)
+      console.log(`  Key:        ${keyStr}`)
       console.log(`  Clipping:   ${clips.length || 'none'}`)
       console.log(`  DC offset:  ${Math.abs(dcOff) > 0.0001 ? dcOff.toFixed(4) : 'none'}`)
       if (loadTime) console.log(`  Loaded in:  ${loadTime}s`)
@@ -1047,6 +1080,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     if (transformOps.length) {
       if (opts.verbose) console.error(`Applying ${transformOps.length} operation(s)...`)
       for (let op of transformOps) {
+        await resolveSourceArgs(op)
         let { name } = op
         let fullArgs = opCallArgs(op)
         // clip returns a new audio instance, so we gotta update `a`
@@ -1073,7 +1107,21 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
           if (bins != null) statOpts.bins = bins
           if (op.offset != null) statOpts.at = op.offset
           if (op.duration != null) statOpts.duration = op.duration
-          let result = await a.stat(name, Object.keys(statOpts).length ? statOpts : undefined)
+          let result
+          if (name === 'key') {
+            let k = await a.key(Object.keys(statOpts).length ? statOpts : undefined)
+            result = k?.label || 'N'
+          } else if (name === 'notes') {
+            result = await a.notes(Object.keys(statOpts).length ? statOpts : undefined)
+            for (let n of result) console.log(`  ${n.time.toFixed(3)}s  ${n.note.padEnd(4)} ${n.freq.toFixed(1)}Hz  ${n.duration.toFixed(3)}s  clarity:${n.clarity.toFixed(2)}`)
+            continue
+          } else if (name === 'chords') {
+            result = await a.chords(Object.keys(statOpts).length ? statOpts : undefined)
+            for (let c of result) console.log(`  ${c.time.toFixed(3)}s  ${c.label.padEnd(6)} ${c.duration.toFixed(3)}s  conf:${c.confidence.toFixed(2)}`)
+            continue
+          } else {
+            result = await a.stat(name, Object.keys(statOpts).length ? statOpts : undefined)
+          }
           fmtStat(name, result)
         }
       }
@@ -1137,7 +1185,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
   }
 }
 
-const FILTERS = new Set(['highpass', 'lowpass', 'eq', 'lowshelf', 'highshelf', 'notch', 'bandpass', 'filter'])
+const FILTERS = new Set(['highpass', 'lowpass', 'eq', 'lowshelf', 'highshelf', 'notch', 'bandpass', 'allpass', 'filter'])
 
 function showUsage() {
   let ops = [], filters = []

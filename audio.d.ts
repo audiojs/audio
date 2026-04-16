@@ -6,7 +6,7 @@
 type Time = number | string
 
 type AudioSource = AudioInstance | AudioBuffer | Float32Array[] | number
-type FilterType = 'highpass' | 'lowpass' | 'bandpass' | 'notch' | 'eq' | 'lowshelf' | 'highshelf'
+type FilterType = 'highpass' | 'lowpass' | 'bandpass' | 'notch' | 'eq' | 'lowshelf' | 'highshelf' | 'allpass'
 
 export interface AudioInstance {
   /** Decoded PCM pages */
@@ -114,6 +114,7 @@ export interface AudioInstance {
   fade(duration: Time, curve?: 'linear' | 'exp' | 'log' | 'cos', opts?: { at?: Time }): this
   reverse(opts?: { at?: Time, duration?: Time }): this
   mix(other: AudioSource, opts?: { at?: Time, duration?: Time }): this
+  crossfade(other: AudioSource, duration?: Time, curve?: 'linear' | 'exp' | 'log' | 'cos'): this
   write(data: Float32Array[] | Float32Array, opts?: { at?: Time }): this
   remix(channels: number | (number | null)[]): this
   pan(value: number | ((t: number) => number), opts?: { at?: Time, duration?: Time, channel?: number | number[] }): this
@@ -128,6 +129,13 @@ export interface AudioInstance {
   eq(freq: number, gain?: number, Q?: number): this
   lowshelf(freq: number, gain?: number, Q?: number): this
   highshelf(freq: number, gain?: number, Q?: number): this
+  allpass(freq: number, Q?: number): this
+
+  // ── Effects ─────────────────────────────────────────────────
+  vocals(mode?: 'isolate' | 'remove'): this
+  dither(bits?: number): this
+  earwax(freq?: number, level?: number): this
+  resample(targetRate: number): this
 
   // ── Smart ops ───────────────────────────────────────────────
   trim(threshold?: number): this
@@ -156,6 +164,7 @@ export interface AudioStats {
   blockSize: number
   min: Float32Array[]
   max: Float32Array[]
+  ms: Float32Array[]
   energy: Float32Array[]
   [field: string]: number | Float32Array[]
 }

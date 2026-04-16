@@ -63,7 +63,12 @@ export default function audio(source, opts = {}) {
     let instances = source.map(s => s?.pages ? s : audio(s, opts))
     let first = instances[0].clip ? instances[0].clip() : audio.from(instances[0])
     if (!first.insert) throw new Error('audio([...]): concat requires insert plugin — import "audio" instead of "audio/core.js"')
-    for (let i = 1; i < instances.length; i++) first.insert(instances[i])
+    let xf = opts?.crossfade
+    for (let i = 1; i < instances.length; i++) {
+      let d = Array.isArray(xf) ? xf[i - 1] : xf
+      if (d && first.crossfade) first.crossfade(instances[i], d, opts?.curve)
+      else first.insert(instances[i])
+    }
     let loading = instances.filter(s => !s.decoded)
     if (loading.length) {
       first.ready = Promise.all(loading.map(s => s.ready)).then(() => { delete first.then; delete first.catch; return true })
@@ -125,6 +130,7 @@ export default function audio(source, opts = {}) {
       return true
     } catch (e) {
       readyReject(e)
+      emit(a, 'error', e)
       throw e
     }
   })()
@@ -148,7 +154,7 @@ audio.from = function(source, opts = {}) {
   if (typeof source === 'number') return fromSilence(source, opts)
   if (typeof source === 'function') return fromFunction(source, opts)
   if (source?.pages) {
-    return create(source.pages, opts.sampleRate ?? source.sampleRate,
+    return create([...source.pages], opts.sampleRate ?? source.sampleRate,
       opts.channels ?? source._.ch, source._.len,
       { source: source.source, storage: source.storage, cache: source.cache, budget: opts.budget ?? source.budget }, source.stats)
   }
@@ -222,7 +228,6 @@ audio.use = function(...plugins) {
 function create(pages, sampleRate, ch, length, opts = {}, stats) {
   let a = Object.create(fn)
   a.pages = pages
-  a.sampleRate = sampleRate
   a.source = opts.source ?? null
   a.storage = opts.storage || 'memory'
   a.cache = opts.cache || null
@@ -232,6 +237,7 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
   a.ready = Promise.resolve(true)
 
   a._ = {
+    sr: sampleRate, // source sample rate
     ch,            // source channel count
     len: length,   // source sample length
     waiters: null, // decode notify queue (null when not streaming)
@@ -249,6 +255,7 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
   a._.statsV = -1
   a._.lenC = a._.len; a._.lenV = 0
   a._.chC = a._.ch; a._.chV = 0
+  a._.srC = a._.sr; a._.srV = 0
 
   // Playback (getter/setter for interpolation & events)
   Object.defineProperties(a, {
@@ -315,10 +322,10 @@ function fromFunction(fn, opts = {}) {
 }
 
 Object.defineProperties(fn, {
+  sampleRate: { get() { return this._.sr }, set(v) { this._.sr = v }, enumerable: true, configurable: true },
   length: { get() { return this._.len }, configurable: true },
   duration: { get() { return this.length / this.sampleRate }, configurable: true },
   channels: { get() { return this._.ch }, configurable: true },
-
 })
 
 fn[LOAD] = async function() {
@@ -399,7 +406,7 @@ fn.seek = function(t) {
     ;(async () => {
       for (let i = Math.max(0, page - 1); i <= Math.min(page + 2, this.pages.length - 1); i++)
         if (this.pages[i] === null && await this.cache.has(i)) this.pages[i] = await this.cache.read(i)
-    })()
+    })().catch(() => {})
   }
   if (this.playing) { this._._seekTo = t; if (this._._wake) this._._wake() }
   else this.seeking = false
@@ -431,13 +438,13 @@ function paginate(channelData) {
 
 /** Walk pages of instance a, calling visitor(page, channel, start, end) for each overlapping page. */
 export function walkPages(a, c, srcOff, len, visitor) {
-  let pages = a.pages, PS = audio.PAGE_SIZE
+  let pages = a.pages, PS = audio.PAGE_SIZE, lru = a._.lru
   let p0 = Math.floor(srcOff / PS), pos = p0 * PS
   for (let p = p0; p < pages.length && pos < srcOff + len; p++) {
     let pg = pages[p], pLen = pg ? pg[0].length : PS
     if (pos + pLen > srcOff && pg) {
       let s = Math.max(srcOff - pos, 0), e = Math.min(srcOff + len - pos, pLen)
-      if (a._.lru) { a._.lru.delete(p); a._.lru.add(p) }
+      if (lru && lru._last !== p) { lru.delete(p); lru.add(p); lru._last = p }
       visitor(pg, c, s, e, Math.max(pos - srcOff, 0))
     }
     pos += pLen

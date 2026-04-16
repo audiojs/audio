@@ -82,7 +82,7 @@ const stretchPlan = (segs, ctx) => {
   let r = [], dst = 0
   for (let s of segs) {
     let count = Math.round(s[1] * factor)
-    r.push(seg(s[0], count, dst, s[4] === null ? s[3] : (s[3] || 1) * rate, s[4]))
+    r.push(seg(s[0], count, dst, s[4] === null ? undefined : (s[3] || 1) * rate, s[4]))
     dst += count
   }
   return r
