@@ -3316,6 +3316,122 @@ test('stat(clipping) — bins mode returns per-bin counts', async t => {
 })
 
 
+// ── Pitch / Chords / Key stat ─────────────────────────────────────────────
+
+/** Sum of sine waves at given frequencies, with optional harmonics. */
+function multiTone(freqs, dur, sr = 44100, harmonics = 1) {
+  let n = Math.round(dur * sr), ch = new Float32Array(n), amp = 0.5 / freqs.length
+  for (let f of freqs)
+    for (let h = 1; h <= harmonics; h++)
+      for (let i = 0; i < n; i++) ch[i] += (amp / h) * Math.sin(2 * Math.PI * f * h * i / sr)
+  return ch
+}
+
+test('stat(notes) — detects A4 from 440Hz sine', async t => {
+  let sr = 44100
+  let ch = tone(440, 1, sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  let notes = await a.stat('notes')
+  t.ok(Array.isArray(notes), 'returns array')
+  t.ok(notes.length >= 1, `has notes (got ${notes.length})`)
+  let n = notes[0]
+  t.is(n.note, 'A4', `note name is A4 (got ${n.note})`)
+  t.is(n.midi, 69, `midi 69 (got ${n.midi})`)
+  t.ok(Math.abs(n.freq - 440) < 5, `freq ~440Hz (got ${n.freq.toFixed(1)})`)
+  t.ok(n.clarity > 0.5, `clarity > 0.5 (got ${n.clarity.toFixed(2)})`)
+  t.ok(n.duration > 0.5, `duration > 0.5s (got ${n.duration.toFixed(2)})`)
+})
+
+test('stat(notes) — detects tone sequence', async t => {
+  let sr = 44100
+  // 1s of A4 (440Hz), then 1s of C5 (523.25Hz)
+  let a4 = tone(440, 1, sr), c5 = tone(523.25, 1, sr)
+  let ch = new Float32Array(a4.length + c5.length)
+  ch.set(a4, 0); ch.set(c5, a4.length)
+  let a = audio.from([ch], { sampleRate: sr })
+  let notes = await a.stat('notes')
+  t.ok(notes.length >= 2, `at least 2 notes (got ${notes.length})`)
+  // First note should be A4, second C5
+  let first = notes[0], second = notes.find(n => n.time >= 0.8)
+  t.ok(first, 'first note exists')
+  t.is(first.note, 'A4', `first note A4 (got ${first.note})`)
+  t.ok(second, 'second note exists')
+  t.is(second.note, 'C5', `second note C5 (got ${second.note})`)
+  t.ok(second.time > first.time, 'second note after first')
+})
+
+test('stat(notes) — silence returns empty', async t => {
+  let a = audio.from([new Float32Array(44100)], { sampleRate: 44100 })
+  let notes = await a.stat('notes')
+  t.ok(Array.isArray(notes), 'returns array')
+  t.is(notes.length, 0, 'no notes in silence')
+})
+
+test('stat(chords) — detects C major triad', async t => {
+  let sr = 44100
+  // C major: C4 (261.63) + E4 (329.63) + G4 (392.00)
+  let ch = multiTone([261.63, 329.63, 392.00], 2, sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  let chords = await a.stat('chords')
+  t.ok(Array.isArray(chords), 'returns array')
+  t.ok(chords.length >= 1, `has chords (got ${chords.length})`)
+  t.is(chords[0].label, 'C', `label is C (got ${chords[0].label})`)
+  t.is(chords[0].quality, 'maj', `quality is maj (got ${chords[0].quality})`)
+  t.ok(chords[0].confidence > 0.3, `confidence > 0.3 (got ${chords[0].confidence.toFixed(2)})`)
+})
+
+test('stat(chords) — detects chord change', async t => {
+  let sr = 44100
+  // 2s C major, then 2s A minor
+  let cmaj = multiTone([261.63, 329.63, 392.00], 2, sr)
+  let amin = multiTone([220.00, 261.63, 329.63], 2, sr)
+  let ch = new Float32Array(cmaj.length + amin.length)
+  ch.set(cmaj, 0); ch.set(amin, cmaj.length)
+  let a = audio.from([ch], { sampleRate: sr })
+  let chords = await a.stat('chords')
+  t.ok(chords.length >= 2, `at least 2 chords (got ${chords.length})`)
+  // First segment should be C, second should be Am
+  let labels = chords.map(c => c.label)
+  t.ok(labels.includes('C'), `has C (got ${labels})`)
+  t.ok(labels.includes('Am'), `has Am (got ${labels})`)
+  // Time order
+  t.ok(chords[chords.length - 1].time > chords[0].time, 'chords in time order')
+})
+
+test('stat(chords) — silence returns empty', async t => {
+  let a = audio.from([new Float32Array(44100 * 2)], { sampleRate: 44100 })
+  let chords = await a.stat('chords')
+  t.ok(Array.isArray(chords), 'returns array')
+  t.is(chords.length, 0, 'no chords in silence')
+})
+
+test('stat(key) — detects C major from I-IV-V-I progression', async t => {
+  let sr = 44100
+  // C major (I), F major (IV), G major (V), C major (I) — 1.5s each, with 3 harmonics
+  let I  = multiTone([261.63, 329.63, 392.00], 1.5, sr, 3)
+  let IV = multiTone([174.61, 220.00, 261.63], 1.5, sr, 3)
+  let V  = multiTone([196.00, 246.94, 293.66], 1.5, sr, 3)
+  let ch = new Float32Array(I.length * 3 + IV.length)
+  ch.set(I, 0)
+  ch.set(IV, I.length)
+  ch.set(V, I.length + IV.length)
+  ch.set(I, I.length + IV.length + V.length)
+  let a = audio.from([ch], { sampleRate: sr })
+  let k = await a.stat('key', { method: 'pcp' })
+  t.ok(k.label, 'has label')
+  t.ok(k.confidence > 0, `confidence > 0 (got ${k.confidence.toFixed(2)})`)
+  // C major and A minor are relative keys (same pitch classes) — accept either
+  t.ok(k.label === 'C' || k.label === 'Am', `key is C or Am (got ${k.label})`)
+})
+
+test('stat(key) — silence returns N', async t => {
+  let a = audio.from([new Float32Array(44100 * 2)], { sampleRate: 44100 })
+  let k = await a.stat('key')
+  t.is(k.label, 'N', 'silence → N')
+  t.is(k.confidence, 0, 'zero confidence')
+})
+
+
 // ── Automation ────────────────────────────────────────────────────────────
 
 test('gain — automation function', async t => {

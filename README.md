@@ -12,7 +12,7 @@ audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 * **Streaming** — playback during decode.
 * **Non-destructive** — virtual edits, instant undo.
 * **Page cache** — open 10Gb+ files.
-* **Analysis** — loudness, spectrum, peaks, and more.
+* **Analysis** — loudness, spectrum, beats, pitch, chords, key.
 * **Modular** – pluggable ops, tree-shakable.
 * **CLI** — playback, unix pipes, tab completion.
 * **Cross-platform** — browsers, node, deno, bun.
@@ -170,6 +170,20 @@ let a = audio('speech.wav')
 let mfcc = await a.stat('cepstrum', { bins: 13 })
 let spec = await a.stat('spectrum', { bins: 128 })
 let [loud, rms] = await a.stat(['loudness', 'rms'])
+```
+
+### Detect notes, chords, and key
+
+```js
+let a = audio('melody.wav')
+let notes = await a.stat('notes')         // [{time, duration, freq, midi, note, clarity}]
+// → [{time: 0, duration: 0.5, freq: 440, midi: 69, note: 'A4', clarity: 0.95}, ...]
+
+let chords = await a.stat('chords')       // [{time, duration, label, root, quality, confidence}]
+// → [{time: 0, duration: 2.1, label: 'C', quality: 'maj', confidence: 0.87}, ...]
+
+let k = await a.stat('key')              // {tonic, mode, label, confidence}
+// → {tonic: 0, mode: 'major', label: 'C', confidence: 0.91}
 ```
 
 ### Generate a tone
@@ -452,8 +466,12 @@ mic.stop()
 * **`'bpm'`** – tempo in BPM.
 * **`'beats'`** – beat timestamps as `Float64Array` (seconds).
 * **`'onsets'`** – onset timestamps as `Float64Array` (seconds).
+* **`'notes'`** – pitch events: `[{time, duration, freq, midi, note, clarity}]` (YIN).
+* **`'chords'`** – chord sequence: `[{time, duration, label, root, quality, confidence}]` (NNLS chroma + Viterbi).
+* **`'key'`** – musical key: `{tonic, mode, label, confidence}` (Krumhansl-Schmuckler).
 
 For BPM/beats/onsets, opts: `{ minBpm, maxBpm, delta, frameSize, hopSize }`. Use `a.detect(opts)` to get `{ bpm, confidence, beats, onsets }` in one pass.
+For notes, opts: `{ frameSize, hopSize, threshold, minClarity }`. For chords/key, opts: `{ frameSize, hopSize, method }` (`'nnls'` or `'pcp'`).
 
 ```js
 let loud = await a.stat('loudness')                       // LUFS
@@ -466,6 +484,9 @@ let gaps = await a.stat('silence', { threshold: -40 })    // [{at, duration}, ..
 let bpm = await a.stat('bpm')                             // 120.5
 let beats = await a.stat('beats')                         // Float64Array [0, 0.5, 1, ...]
 let { bpm, confidence, beats, onsets } = await a.detect() // full pipeline, one pass
+let notes = await a.stat('notes')                         // [{time, duration, freq, midi, note: 'A4', clarity}]
+let chords = await a.stat('chords')                       // [{time, duration, label: 'Am', confidence}]
+let k = await a.stat('key')                               // {label: 'C', mode: 'major', confidence}
 ```
 
 
@@ -621,6 +642,11 @@ audio speech.wav stat loudness rms
 audio track.mp3 stat bpm
 audio track.mp3 stat beats onsets
 
+# pitch / chords / key
+audio song.mp3 stat notes
+audio song.mp3 stat chords
+audio song.mp3 stat key
+
 # spectrum / cepstrum with bin count
 audio speech.wav stat spectrum 128
 audio speech.wav stat cepstrum 13
@@ -724,6 +750,7 @@ Effects from SoX and elsewhere not yet available. Contributions welcome.
 * [audio-filter](https://github.com/audiojs/audio-filter) – filters (weighting, EQ, auditory)
 * [audio-speaker](https://github.com/audiojs/audio-speaker) – audio output
 * [audio-mic](https://github.com/audiojs/audio-mic) – audio input
+* [pitch-detection](https://github.com/nickolanack/pitch-detection) – pitch, chord, key analysis
 * [audio-type](https://github.com/nickolanack/audio-type) – format detection
 * [pcm-convert](https://github.com/nickolanack/pcm-convert) – PCM format conversion
 
