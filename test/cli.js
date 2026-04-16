@@ -756,6 +756,167 @@ test('CLI — glob no matches throws', async t => {
   }
 })
 
+// ── CLI Execution — Remaining Ops (actual file processing) ──────────────
+
+test('CLI — stretch 0.75x shortens duration', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let outPath = join(__dirname, 'tmp-cli-stretch.wav')
+  try {
+    let orig = await audio(lenaPath)
+    await runCli([lenaPath, 'stretch', '0.75', '-o', outPath, '--force'])
+    let result = await audio(outPath)
+    let ratio = result.duration / orig.duration
+    t.ok(Math.abs(ratio - 0.75) < 0.1, `stretch 0.75: dur ratio ${ratio.toFixed(2)} ≈ 0.75`)
+  } finally { cleanup(outPath) }
+})
+
+test('CLI — pitch shift +5 semitones', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let outPath = join(__dirname, 'tmp-cli-pitch.wav')
+  try {
+    await runCli([lenaPath, 'pitch', '5', '-o', outPath, '--force'])
+    let result = await audio(outPath)
+    t.ok(result.duration > 0, 'pitch-shifted file produced')
+  } finally { cleanup(outPath) }
+})
+
+test('CLI — dither to 16-bit', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let outPath = join(__dirname, 'tmp-cli-dither.wav')
+  try {
+    await runCli([lenaPath, 'dither', '16', '-o', outPath, '--force'])
+    let result = await audio(outPath)
+    t.ok(result.duration > 0, 'dithered file produced')
+  } finally { cleanup(outPath) }
+})
+
+test('CLI — earwax crossfeed', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let srcPath = join(__dirname, 'tmp-cli-earwax-src.wav')
+  let outPath = join(__dirname, 'tmp-cli-earwax.wav')
+  try {
+    let sr = 44100, n = sr * 2
+    let L = new Float32Array(n), R = new Float32Array(n)
+    for (let i = 0; i < n; i++) { L[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr); R[i] = 0 }
+    await audio.from([L, R], { sampleRate: sr }).save(srcPath)
+    await runCli([srcPath, 'earwax', '-o', outPath, '--force'])
+    let result = await audio(outPath)
+    t.ok(result.duration > 0, 'earwax processed')
+    t.is(result.channels, 2, 'stereo preserved')
+  } finally { cleanup(srcPath); cleanup(outPath) }
+})
+
+test('CLI — vocals isolate', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let srcPath = join(__dirname, 'tmp-cli-vocals-src.wav')
+  let outPath = join(__dirname, 'tmp-cli-vocals.wav')
+  try {
+    let sr = 44100, n = sr * 2
+    let c = new Float32Array(n), s = new Float32Array(n)
+    for (let i = 0; i < n; i++) { c[i] = 0.4 * Math.sin(2 * Math.PI * 440 * i / sr); s[i] = 0.2 * Math.sin(2 * Math.PI * 2000 * i / sr) }
+    let L = new Float32Array(n), R = new Float32Array(n)
+    for (let i = 0; i < n; i++) { L[i] = c[i] + s[i]; R[i] = c[i] - s[i] }
+    await audio.from([L, R], { sampleRate: sr }).save(srcPath)
+    await runCli([srcPath, 'vocals', '-o', outPath, '--force'])
+    let result = await audio(outPath)
+    t.ok(result.duration > 0, 'vocals isolate processed')
+  } finally { cleanup(srcPath); cleanup(outPath) }
+})
+
+test('CLI — allpass filter', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let outPath = join(__dirname, 'tmp-cli-allpass.wav')
+  try {
+    await runCli([lenaPath, 'allpass', '1khz', '-o', outPath, '--force'])
+    let result = await audio(outPath)
+    t.ok(result.duration > 0, 'allpass processed')
+  } finally { cleanup(outPath) }
+})
+
+test('CLI — speed 2x', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let outPath = join(__dirname, 'tmp-cli-speed.wav')
+  try {
+    let orig = await audio(lenaPath)
+    await runCli([lenaPath, 'speed', '2', '-o', outPath, '--force'])
+    let result = await audio(outPath)
+    t.ok(Math.abs(result.duration - orig.duration / 2) < 0.1, `speed 2x halves duration: ${result.duration.toFixed(2)} ≈ ${(orig.duration / 2).toFixed(2)}`)
+  } finally { cleanup(outPath) }
+})
+
+test('CLI — pan full-left', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let srcPath = join(__dirname, 'tmp-cli-pan-src.wav')
+  let outPath = join(__dirname, 'tmp-cli-pan.wav')
+  try {
+    let sr = 44100, n = sr * 2, L = new Float32Array(n), R = new Float32Array(n)
+    // Use different frequencies L/R so WAV save preserves stereo
+    for (let i = 0; i < n; i++) { L[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr); R[i] = 0.5 * Math.sin(2 * Math.PI * 660 * i / sr) }
+    await audio.from([L, R], { sampleRate: sr }).save(srcPath)
+    await runCli([srcPath, 'pan', '-1', '-o', outPath, '--force'])
+    let result = await audio(outPath)
+    t.is(result.channels, 2, 'stereo')
+    let pcm = await result.read()
+    // Left remains audible, right silenced by pan -1
+    let rPeak = 0
+    for (let i = 0; i < pcm[1].length; i++) rPeak = Math.max(rPeak, Math.abs(pcm[1][i]))
+    t.ok(rPeak < 0.1, `right silenced: peak ${rPeak.toFixed(3)}`)
+  } finally { cleanup(srcPath); cleanup(outPath) }
+})
+
+test('CLI — lowpass filter', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let outPath = join(__dirname, 'tmp-cli-lp.wav')
+  try {
+    await runCli([lenaPath, 'lowpass', '1khz', '-o', outPath, '--force'])
+    let result = await audio(outPath)
+    t.ok(result.duration > 0, 'lowpass processed')
+  } finally { cleanup(outPath) }
+})
+
+test('CLI — eq peak boost', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let outPath = join(__dirname, 'tmp-cli-eq.wav')
+  try {
+    await runCli([lenaPath, 'eq', '1khz', '6', '-o', outPath, '--force'])
+    let result = await audio(outPath)
+    t.ok(result.duration > 0, 'eq processed')
+  } finally { cleanup(outPath) }
+})
+
+test('CLI — crop subrange', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let outPath = join(__dirname, 'tmp-cli-crop.wav')
+  try {
+    await runCli([lenaPath, 'crop', '2s..5s', '-o', outPath, '--force'])
+    let result = await audio(outPath)
+    t.ok(Math.abs(result.duration - 3) < 0.1, `cropped to 3s (got ${result.duration.toFixed(2)})`)
+  } finally { cleanup(outPath) }
+})
+
+test('CLI — remove subrange', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let outPath = join(__dirname, 'tmp-cli-remove.wav')
+  try {
+    let orig = await audio(lenaPath)
+    await runCli([lenaPath, 'remove', '2s..5s', '-o', outPath, '--force'])
+    let result = await audio(outPath)
+    t.ok(Math.abs(result.duration - (orig.duration - 3)) < 0.1, `removed 3s: ${result.duration.toFixed(2)} ≈ ${(orig.duration - 3).toFixed(2)}`)
+  } finally { cleanup(outPath) }
+})
+
+test('CLI — repeat doubles duration', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let outPath = join(__dirname, 'tmp-cli-repeat.wav')
+  try {
+    let orig = await audio(lenaPath)
+    await runCli([lenaPath, 'repeat', '1', '-o', outPath, '--force'])
+    let result = await audio(outPath)
+    t.ok(Math.abs(result.duration - orig.duration * 2) < 0.1, `repeat 1 doubles: ${result.duration.toFixed(2)} ≈ ${(orig.duration * 2).toFixed(2)}`)
+  } finally { cleanup(outPath) }
+})
+
+
 // ── Helper Functions ─────────────────────────────────────────────────────
 
 function runCli(args) {

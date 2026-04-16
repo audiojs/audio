@@ -4963,6 +4963,466 @@ test('speed — stereo preserves channel count', async t => {
 })
 
 
+// ── Phase 21: Stream ≡ read — biquad filters, mix, remix, clip ──────────
+
+test('stream≡read — bandpass', async t => {
+  let a = audio.from([tone(1000, 0.5)], { sampleRate: 44100 })
+  a.bandpass(1000, 2)
+  await assertStreamRead(t, a, 'bandpass')
+})
+
+test('stream≡read — notch', async t => {
+  let a = audio.from([tone(440, 0.5)], { sampleRate: 44100 })
+  a.notch(1000, 10)
+  await assertStreamRead(t, a, 'notch')
+})
+
+test('stream≡read — eq (peak)', async t => {
+  let a = audio.from([tone(1000, 0.5)], { sampleRate: 44100 })
+  a.eq(1000, 6, 1)
+  await assertStreamRead(t, a, 'eq')
+})
+
+test('stream≡read — lowshelf', async t => {
+  let a = audio.from([tone(500, 0.5)], { sampleRate: 44100 })
+  a.lowshelf(500, 6)
+  await assertStreamRead(t, a, 'lowshelf')
+})
+
+test('stream≡read — highshelf', async t => {
+  let a = audio.from([tone(3000, 0.5)], { sampleRate: 44100 })
+  a.highshelf(2000, 6)
+  await assertStreamRead(t, a, 'highshelf')
+})
+
+test('stream≡read — allpass', async t => {
+  let a = audio.from([tone(1000, 0.5)], { sampleRate: 44100 })
+  a.allpass(1000, 0.707)
+  await assertStreamRead(t, a, 'allpass')
+})
+
+test('stream≡read — mix with audio source', async t => {
+  let a = audio.from([new Float32Array(44100).fill(0.3)], { sampleRate: 44100 })
+  let b = audio.from([new Float32Array(44100).fill(0.2)], { sampleRate: 44100 })
+  a.mix(b)
+  await assertStreamRead(t, a, 'mix')
+})
+
+test('stream≡read — remix mono→stereo', async t => {
+  let a = audio.from([tone(440, 0.3)], { sampleRate: 44100 })
+  a.remix(2)
+  await assertStreamRead(t, a, 'remix-2')
+})
+
+test('stream≡read — remix stereo swap', async t => {
+  let a = audio.from([tone(440, 0.3), tone(880, 0.3)], { sampleRate: 44100 })
+  a.remix([1, 0])
+  await assertStreamRead(t, a, 'remix-swap')
+})
+
+test('stream≡read — remix stereo→mono', async t => {
+  let a = audio.from([tone(440, 0.3), tone(880, 0.3)], { sampleRate: 44100 })
+  a.remix(1)
+  await assertStreamRead(t, a, 'remix-mono')
+})
+
+test('stream≡read — clip with gain', async t => {
+  let a = audio.from([tone(440, 1)], { sampleRate: 44100 })
+  let c = a.clip({ at: 0.2, duration: 0.5 })
+  c.gain(-6)
+  await assertStreamRead(t, c, 'clip+gain')
+})
+
+
+// ── Phase 22: Filter frequency response — dB curves ─────────────────────
+
+test('bandpass — passes center, rejects flanks', async t => {
+  let center = 1000, sr = 44100
+  let gains = []
+  for (let f of [100, 1000, 10000]) {
+    let ch = tone(f, 0.3, sr)
+    let a = audio.from([ch], { sampleRate: sr })
+    a.bandpass(center, 1)
+    let pcm = await a.read()
+    gains.push({ f, dB: 20 * Math.log10(rms(mid(pcm[0], 0.1, sr)) / rms(mid(ch, 0.1, sr))) })
+  }
+  t.ok(gains[0].dB < -10, `100Hz flank: ${gains[0].dB.toFixed(1)} dB (< -10)`)
+  t.ok(gains[1].dB > -3, `center 1kHz passes: ${gains[1].dB.toFixed(1)} dB (> -3)`)
+  t.ok(gains[2].dB < -10, `10kHz flank: ${gains[2].dB.toFixed(1)} dB (< -10)`)
+})
+
+test('notch — rejects center, passes flanks', async t => {
+  let center = 1000, sr = 44100
+  let gains = []
+  for (let f of [200, 1000, 5000]) {
+    let ch = tone(f, 0.3, sr)
+    let a = audio.from([ch], { sampleRate: sr })
+    a.notch(center, 30)
+    let pcm = await a.read()
+    gains.push({ f, dB: 20 * Math.log10(rms(mid(pcm[0], 0.1, sr)) / rms(mid(ch, 0.1, sr))) })
+  }
+  t.ok(Math.abs(gains[0].dB) < 2, `200Hz flank: ${gains[0].dB.toFixed(1)} dB (±2)`)
+  t.ok(gains[1].dB < -10, `center 1kHz: ${gains[1].dB.toFixed(1)} dB (< -10)`)
+  t.ok(Math.abs(gains[2].dB) < 2, `5kHz flank: ${gains[2].dB.toFixed(1)} dB (±2)`)
+})
+
+test('eq — peak boost at center, flat elsewhere', async t => {
+  let center = 1000, boost = 12, sr = 44100
+  let gains = []
+  for (let f of [100, 1000, 10000]) {
+    let ch = tone(f, 0.3, sr)
+    let a = audio.from([ch], { sampleRate: sr })
+    a.eq(center, boost, 1)
+    let pcm = await a.read()
+    gains.push({ f, dB: 20 * Math.log10(rms(mid(pcm[0], 0.1, sr)) / rms(mid(ch, 0.1, sr))) })
+  }
+  t.ok(Math.abs(gains[0].dB) < 2, `100Hz flat: ${gains[0].dB.toFixed(1)} dB (±2)`)
+  t.ok(Math.abs(gains[1].dB - boost) < 2, `1kHz boost: ${gains[1].dB.toFixed(1)} dB (≈ +${boost})`)
+  t.ok(Math.abs(gains[2].dB) < 2, `10kHz flat: ${gains[2].dB.toFixed(1)} dB (±2)`)
+})
+
+test('lowshelf — boost below, flat above', async t => {
+  let fc = 500, boost = 12, sr = 44100
+  let gains = []
+  for (let f of [100, 5000]) {
+    let ch = tone(f, 0.3, sr)
+    let a = audio.from([ch], { sampleRate: sr })
+    a.lowshelf(fc, boost)
+    let pcm = await a.read()
+    gains.push({ f, dB: 20 * Math.log10(rms(mid(pcm[0], 0.1, sr)) / rms(mid(ch, 0.1, sr))) })
+  }
+  t.ok(gains[0].dB > boost - 3, `100Hz boosted: ${gains[0].dB.toFixed(1)} dB (> ${boost - 3})`)
+  t.ok(Math.abs(gains[1].dB) < 2, `5kHz flat: ${gains[1].dB.toFixed(1)} dB (±2)`)
+})
+
+test('highshelf — boost above, flat below', async t => {
+  let fc = 2000, boost = 12, sr = 44100
+  let gains = []
+  for (let f of [200, 8000]) {
+    let ch = tone(f, 0.3, sr)
+    let a = audio.from([ch], { sampleRate: sr })
+    a.highshelf(fc, boost)
+    let pcm = await a.read()
+    gains.push({ f, dB: 20 * Math.log10(rms(mid(pcm[0], 0.1, sr)) / rms(mid(ch, 0.1, sr))) })
+  }
+  t.ok(Math.abs(gains[0].dB) < 2, `200Hz flat: ${gains[0].dB.toFixed(1)} dB (±2)`)
+  t.ok(gains[1].dB > boost - 3, `8kHz boosted: ${gains[1].dB.toFixed(1)} dB (> ${boost - 3})`)
+})
+
+
+// ── Phase 23: Live-decode — push-based sources with process ops ─────────
+
+test('live-decode — earwax streams on push source', async t => {
+  let sr = 44100, each = 4096, pushes = 4
+  let a = audio(null, { sampleRate: sr, channels: 2 })
+  a.earwax()
+  for (let i = 0; i < pushes; i++) {
+    let L = new Float32Array(each), R = new Float32Array(each)
+    for (let j = 0; j < each; j++) { L[j] = Math.sin(2 * Math.PI * 440 * (i * each + j) / sr); R[j] = 0 }
+    a.push([L, R], { sampleRate: sr })
+  }
+  a.stop()
+  let total = 0
+  for await (let block of a.stream()) total += block[0].length
+  t.is(total, each * pushes, `all ${each * pushes} samples streamed through earwax`)
+})
+
+test('live-decode — vocals streams on push source', async t => {
+  let sr = 44100, each = 4096
+  let a = audio(null, { sampleRate: sr, channels: 2 })
+  a.vocals()
+  for (let i = 0; i < 4; i++) {
+    let c = new Float32Array(each).fill(0.5)
+    a.push([c, c.slice()], { sampleRate: sr })
+  }
+  a.stop()
+  let last = null
+  for await (let block of a.stream()) last = block
+  t.ok(last, 'vocals streamed some blocks')
+  t.is(last.length, 2, 'stereo preserved')
+})
+
+test('live-decode — pan streams on push source', async t => {
+  let sr = 44100, each = 4096
+  let a = audio(null, { sampleRate: sr, channels: 2 })
+  a.pan(1)  // full right
+  for (let i = 0; i < 3; i++) {
+    let c = new Float32Array(each).fill(0.5)
+    a.push([c, c.slice()], { sampleRate: sr })
+  }
+  a.stop()
+  let peaks = [0, 0]
+  for await (let block of a.stream()) {
+    for (let c = 0; c < block.length; c++)
+      for (let i = 0; i < block[c].length; i++) peaks[c] = Math.max(peaks[c], Math.abs(block[c][i]))
+  }
+  t.ok(peaks[1] > peaks[0], `right louder after pan(1): L=${peaks[0].toFixed(3)} R=${peaks[1].toFixed(3)}`)
+})
+
+test('live-decode — fade streams on push source', async t => {
+  let a = audio()
+  let sr = 44100, each = 4096, pushes = 4
+  for (let i = 0; i < pushes; i++) a.push(new Float32Array(each).fill(1), { sampleRate: sr })
+  a.stop()
+  a.fade(0.1)
+  let first = null
+  for await (let block of a.stream()) { if (!first) first = block[0].slice() }
+  t.ok(first && first[0] < 0.1, `fade starts near 0 (got ${first?.[0]?.toFixed(3)})`)
+})
+
+test('live-decode — gain chain streams on push source', async t => {
+  let a = audio()
+  a.gain(-6).fade(0.01, 0.01)
+  let sr = 44100, each = 4096, pushes = 4
+  for (let i = 0; i < pushes; i++) a.push(new Float32Array(each).fill(0.5), { sampleRate: sr })
+  a.stop()
+  let total = 0, peak = 0
+  for await (let block of a.stream()) {
+    total += block[0].length
+    for (let i = 0; i < block[0].length; i++) peak = Math.max(peak, Math.abs(block[0][i]))
+  }
+  t.is(total, each * pushes, `all samples streamed`)
+  let expected = 0.5 * Math.pow(10, -6 / 20)
+  t.ok(Math.abs(peak - expected) < 0.05, `gain+fade applied, peak ${peak.toFixed(3)} ≈ ${expected.toFixed(3)}`)
+})
+
+test('live-decode — remix mono→stereo on push source', async t => {
+  let a = audio()
+  let sr = 44100, each = 4096
+  for (let i = 0; i < 3; i++) a.push(new Float32Array(each).fill(0.5), { sampleRate: sr })
+  a.stop()
+  a.remix(2)
+  let last = null
+  for await (let block of a.stream()) last = block
+  t.ok(last && last.length === 2, `remixed to stereo (got ${last?.length} channels)`)
+})
+
+
+// ── Phase 24: Page-boundary stress — newer ops across small pages ───────
+
+test('boundary — earwax streaming matches flat render', async t => {
+  let origP = audio.PAGE_SIZE, origB = audio.BLOCK_SIZE
+  audio.PAGE_SIZE = 128
+  audio.BLOCK_SIZE = 32
+  try {
+    let samples = 512
+    let L = new Float32Array(samples), R = new Float32Array(samples)
+    for (let i = 0; i < samples; i++) { L[i] = Math.sin(2 * Math.PI * 440 * i / 44100); R[i] = 0 }
+    let a = audio.from([L, R], { sampleRate: 44100 })
+    a.earwax()
+    await assertStreamRead(t, a, 'earwax page-boundary')
+  } finally { audio.PAGE_SIZE = origP; audio.BLOCK_SIZE = origB }
+})
+
+test('boundary — vocals streaming matches flat render', async t => {
+  let origP = audio.PAGE_SIZE, origB = audio.BLOCK_SIZE
+  audio.PAGE_SIZE = 128
+  audio.BLOCK_SIZE = 32
+  try {
+    let samples = 512
+    let c = new Float32Array(samples), s = new Float32Array(samples)
+    for (let i = 0; i < samples; i++) { c[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / 44100); s[i] = 0.2 * Math.sin(2 * Math.PI * 2000 * i / 44100) }
+    let L = new Float32Array(samples), R = new Float32Array(samples)
+    for (let i = 0; i < samples; i++) { L[i] = c[i] + s[i]; R[i] = c[i] - s[i] }
+    let a = audio.from([L, R], { sampleRate: 44100 })
+    a.vocals()
+    await assertStreamRead(t, a, 'vocals page-boundary')
+  } finally { audio.PAGE_SIZE = origP; audio.BLOCK_SIZE = origB }
+})
+
+test('boundary — pan streaming matches flat render', async t => {
+  let origP = audio.PAGE_SIZE, origB = audio.BLOCK_SIZE
+  audio.PAGE_SIZE = 128
+  audio.BLOCK_SIZE = 32
+  try {
+    let samples = 512
+    let L = new Float32Array(samples).fill(0.6), R = new Float32Array(samples).fill(0.6)
+    let a = audio.from([L, R], { sampleRate: 44100 })
+    a.pan(0.5)
+    await assertStreamRead(t, a, 'pan page-boundary')
+  } finally { audio.PAGE_SIZE = origP; audio.BLOCK_SIZE = origB }
+})
+
+test('boundary — mix streaming matches flat render', async t => {
+  let origP = audio.PAGE_SIZE, origB = audio.BLOCK_SIZE
+  audio.PAGE_SIZE = 128
+  audio.BLOCK_SIZE = 32
+  try {
+    let samples = 512
+    let a = audio.from([new Float32Array(samples).fill(0.3)], { sampleRate: 44100 })
+    let b = audio.from([new Float32Array(samples).fill(0.2)], { sampleRate: 44100 })
+    a.mix(b)
+    await assertStreamRead(t, a, 'mix page-boundary')
+  } finally { audio.PAGE_SIZE = origP; audio.BLOCK_SIZE = origB }
+})
+
+test('boundary — remix streaming matches flat render', async t => {
+  let origP = audio.PAGE_SIZE, origB = audio.BLOCK_SIZE
+  audio.PAGE_SIZE = 128
+  audio.BLOCK_SIZE = 32
+  try {
+    let samples = 512
+    let a = audio.from([new Float32Array(samples).fill(0.3)], { sampleRate: 44100 })
+    a.remix(2)
+    await assertStreamRead(t, a, 'remix page-boundary')
+  } finally { audio.PAGE_SIZE = origP; audio.BLOCK_SIZE = origB }
+})
+
+
+// ── Phase 25: Analysis precision — MIREX canonical thresholds ───────────
+
+test('analysis — BPM at 60', async t => {
+  let sr = 44100
+  let ch = clickTrack(60, 12, sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  let bpm = await a.stat('bpm', { minBpm: 40, maxBpm: 100 })
+  let err = Math.abs(bpm - 60) / 60
+  t.ok(err < 0.08, `60 BPM MIREX ±8%: got ${bpm.toFixed(1)}, err ${(err * 100).toFixed(1)}%`)
+})
+
+test('analysis — BPM at 80', async t => {
+  let sr = 44100
+  let ch = clickTrack(80, 10, sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  let bpm = await a.stat('bpm', { minBpm: 60, maxBpm: 120 })
+  let err = Math.abs(bpm - 80) / 80
+  t.ok(err < 0.08, `80 BPM MIREX ±8%: got ${bpm.toFixed(1)}, err ${(err * 100).toFixed(1)}%`)
+})
+
+test('analysis — BPM at 140', async t => {
+  let sr = 44100
+  let ch = clickTrack(140, 8, sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  let bpm = await a.stat('bpm', { minBpm: 100, maxBpm: 180 })
+  let err = Math.abs(bpm - 140) / 140
+  t.ok(err < 0.08, `140 BPM MIREX ±8%: got ${bpm.toFixed(1)}, err ${(err * 100).toFixed(1)}%`)
+})
+
+test('analysis — BPM at 180', async t => {
+  let sr = 44100
+  let ch = clickTrack(180, 6, sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  let bpm = await a.stat('bpm', { minBpm: 120, maxBpm: 220 })
+  let err = Math.abs(bpm - 180) / 180
+  t.ok(err < 0.08, `180 BPM MIREX ±8%: got ${bpm.toFixed(1)}, err ${(err * 100).toFixed(1)}%`)
+})
+
+test('analysis — beats within 70ms of click positions (MIREX)', async t => {
+  let sr = 44100, bpm = 120, dur = 8
+  let ch = clickTrack(bpm, dur, sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  let beats = await a.stat('beats')
+  let beatInterval = 60 / bpm
+  let gt = []
+  for (let t = 0; t < dur; t += beatInterval) gt.push(t)
+  // Match each detected beat to closest ground-truth beat
+  let matches = 0
+  for (let i = 0; i < beats.length; i++) {
+    let d = Infinity
+    for (let g of gt) d = Math.min(d, Math.abs(beats[i] - g))
+    if (d < 0.07) matches++  // 70ms MIREX window
+  }
+  let ratio = matches / beats.length
+  t.ok(ratio > 0.5, `${matches}/${beats.length} beats within 70ms (${(ratio * 100).toFixed(0)}%)`)
+})
+
+test('analysis — onsets within 50ms of click positions', async t => {
+  let sr = 44100, bpm = 120, dur = 6
+  let ch = clickTrack(bpm, dur, sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  let onsets = await a.stat('onsets')
+  let beatInterval = 60 / bpm
+  let gt = []
+  for (let t = 0; t < dur; t += beatInterval) gt.push(t)
+  let matches = 0
+  for (let i = 0; i < onsets.length; i++) {
+    let d = Infinity
+    for (let g of gt) d = Math.min(d, Math.abs(onsets[i] - g))
+    if (d < 0.05) matches++  // 50ms onset window
+  }
+  let ratio = matches / Math.max(1, onsets.length)
+  t.ok(ratio > 0.5, `${matches}/${onsets.length} onsets within 50ms (${(ratio * 100).toFixed(0)}%)`)
+})
+
+
+// ── Phase 26: Composition chains — full mastering pipelines ─────────────
+
+test('stream≡read — mix + normalize + fade', async t => {
+  let sr = 44100
+  let a = audio.from([new Float32Array(sr).fill(0.3)], { sampleRate: sr })
+  let b = audio.from([new Float32Array(sr).fill(0.2)], { sampleRate: sr })
+  a.mix(b).normalize(0).fade(0.05, 0.05)
+  await assertStreamRead(t, a, 'mix+norm+fade')
+})
+
+test('composition — filter + gain + dither (mastering chain produces audio)', async t => {
+  let sr = 44100
+  let a = audio.from([tone(440, 0.5, sr)], { sampleRate: sr })
+  a.lowpass(5000).gain(-3).dither(16)
+  let pcm = await a.read()
+  t.is(pcm.length, 1, 'mono preserved')
+  t.ok(pcm[0].length > 0, 'has samples')
+  t.ok(rms(pcm[0]) > 0.1, `audible output: rms ${rms(pcm[0]).toFixed(3)}`)
+})
+
+
+// ── Phase 27: Filter re-application — independent state per op ──────────
+
+test('filter — sequential filters build cumulative response', async t => {
+  // Two lowpasses at same cutoff → steeper rolloff at cutoff+octave
+  let sr = 44100, ch1 = tone(4000, 0.3, sr), ch2 = tone(4000, 0.3, sr)
+  let a1 = audio.from([ch1], { sampleRate: sr }); a1.lowpass(1000)
+  let a2 = audio.from([ch2], { sampleRate: sr }); a2.lowpass(1000).lowpass(1000)
+  let r1 = rms(mid((await a1.read())[0], 0.1, sr))
+  let r2 = rms(mid((await a2.read())[0], 0.1, sr))
+  t.ok(r2 < r1, `cascaded lowpass attenuates more: 1x=${r1.toFixed(4)} > 2x=${r2.toFixed(4)}`)
+})
+
+
+// ── Phase 28: Encode round-trip — MP3/OGG SNR ───────────────────────────
+
+if (isNode) {
+
+test('encode round-trip — WAV preserves signal (near-lossless)', async t => {
+  let { unlinkSync } = await import('fs')
+  let { join } = await import('path')
+  let tmpPath = join('/tmp', `audio-rt-wav-${Date.now()}.wav`)
+  try {
+    let sr = 44100, ch = tone(440, 1, sr)
+    let a = audio.from([ch.slice()], { sampleRate: sr })
+    await a.save(tmpPath)
+    let b = await audio(tmpPath)
+    let pcm = await b.read()
+    let s = snr(ch, pcm[0].subarray(0, ch.length))
+    t.ok(s > 60, `WAV round-trip SNR: ${s.toFixed(1)} dB > 60 dB`)
+  } finally { try { unlinkSync(tmpPath) } catch {} }
+})
+
+test('encode round-trip — MP3 preserves signal at acceptable SNR', async t => {
+  let { unlinkSync } = await import('fs')
+  let { join } = await import('path')
+  let tmpPath = join('/tmp', `audio-rt-mp3-${Date.now()}.mp3`)
+  try {
+    let sr = 44100, ch = tone(1000, 1, sr)
+    let a = audio.from([ch.slice()], { sampleRate: sr })
+    await a.save(tmpPath)
+    let b = await audio(tmpPath)
+    let pcm = await b.read()
+    // MP3 is lossy; 1 kHz sine should survive but with delay/phase offset.
+    // Verify energy preserved (not bit-for-bit).
+    let inE = rms(ch), outE = rms(pcm[0])
+    let err = Math.abs(outE - inE) / inE
+    t.ok(err < 0.15, `MP3 energy preserved: ${inE.toFixed(3)} → ${outE.toFixed(3)} (${(err * 100).toFixed(1)}%)`)
+    // 1 kHz peak should still dominate
+    let e1k = energyAt(mid(pcm[0], 0.2, sr), 1000, sr)
+    let e500 = energyAt(mid(pcm[0], 0.2, sr), 500, sr)
+    t.ok(e1k > e500 * 2, `1kHz dominant after MP3: ${e1k.toFixed(3)} > ${e500.toFixed(3)}`)
+  } finally { try { unlinkSync(tmpPath) } catch {} }
+})
+
+}  // end isNode guard
+
+
 // ── CLI Parsing (fast, no file I/O) ────────────────────────────────────
 
 if (isNode) {

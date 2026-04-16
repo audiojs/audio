@@ -20,6 +20,29 @@
 * [x] Show BPM/pitch/key in CLI info line (when detected)
 * [ ] Common processing scripts (vocal warmup etc)
 
+## Tier 2
+
+* [x] stretch
+* [ ] pitch
+  * [ ] pitch-correct
+* [ ] noise-reduction
+  * [ ] gate
+  * [ ] declick
+  * [ ] denoise
+* [ ] effects
+  * [ ] compress
+  * [ ] reverb
+  * [ ] delay
+* [ ] shrink-silence
+
+* [ ] Modulation: pitch, stretch, repeat, filter, pan, reverb and other params should be adjustable by function
+
+
+## Tier 3: Delighting
+
+* [ ] spectral-edit
+* [ ] stem-separate
+* [ ] audio-transient-shaper
 
 ## Sox parity
 
@@ -96,11 +119,18 @@
 - [ ] **derivative** — aderivative: compute signal derivative
 - [ ] **integral** — aintegral: compute signal integral
 
-### Audacity parity
+## Audacity parity
 
-**Have:** amplify (gain), normalize, loudness normalization (normalize), fade in/out, crossfade, change pitch (pitch), change tempo (stretch), change speed (speed), reverse, repeat, high-pass, low-pass, notch, noise reduction (→ denoise), click removal (→ declick), clip fix (→ declip), echo, reverb, phaser, tremolo, compressor, limiter, noise gate (→ gate), truncate silence (→ silenceremove), invert, plot spectrum (spectrum), beat finder (beats/onsets), find clipping (clipping stat), contrast/RMS (rms/loudness stats)
+* [ ] denoise
+* [ ] declick
+* [ ] declip
+* [ ] echo, reverb
+* [ ] phaser, tremolo
+* [ ] compressor, limiter
+* [ ] noise gate
+* [ ] truncate silence
 
-#### Effects — missing
+### Effects — missing
 - [ ] **distortion** — waveshaping distortion (multiple curve types: hard clip, soft clip, tube, fuzz)
 - [ ] **wahwah** — auto-wah: swept bandpass with LFO (like phaser but frequency-selective)
 - [ ] **vocoder** — channel vocoder: modulator/carrier synthesis
@@ -109,13 +139,13 @@
 - [ ] **auto-duck** — sidechain ducker: reduce track volume when control track is active (podcast/voiceover)
 - [ ] **adjustable-fade** — non-linear fade with mid-point control, partial fade within selection
 
-#### Spectral editing
+### Spectral editing
 - [ ] **spectral-delete** — delete a time×frequency rectangle from spectrogram
 - [ ] **spectral-eq** — parametric EQ on a spectral selection (band cut/boost in time×freq region)
 - [ ] **spectral-shelves** — shelving filter on spectral selection
 - [ ] **spectral-multi** — auto-detect notch/HP/LP from spectral selection shape
 
-#### Generators
+### Generators
 - [ ] **tone** — generate sine/square/sawtooth/triangle waveform at given freq+duration
 - [ ] **noise-gen** — generate white/pink/brown noise
 - [ ] **chirp** — generate frequency sweep (start freq → end freq, linear/log)
@@ -124,40 +154,46 @@
 - [ ] **risset-drum** — Risset drum synthesis (inharmonic partials + frequency glide)
 - [ ] **rhythm-track** — metronome/click track generator at given BPM
 
-#### Analyzers
+### Analyzers
 - [ ] **contrast** — speech contrast: foreground vs background RMS difference (WCAG accessibility)
 - [ ] **label-sounds** — auto-label distinct sounds/silences as regions
 
-## Tier 2
+## Tone.js parity
 
-* [x] pitch
-* [x] stretch
-* [ ] gate
-* [ ] compress
-* [ ] reverb
-* [ ] delay
-* [ ] declick
-* [ ] denoise
-* [ ] shrink-silence
+### Synthesis primitives
+- [ ] **oscillator** — sine/square/saw/triangle source with detune, pulse-width, partials (richer than `from(fn)`)
+- [ ] **envelope** — ADSR / AHDSR envelope generator, applicable to gain or filter cutoff
+- [ ] **lfo** — low-frequency oscillator component for parameter modulation
+- [ ] **synth-voice** — Synth/FMSynth/AMSynth/MonoSynth: oscillator + envelope + filter voice
+- [ ] **drum-synth** — MembraneSynth (kick), MetalSynth (cymbal), NoiseSynth (snare/hat) percussion synthesis
+- [ ] **pluck-synth** — Karplus-Strong plucked string (also in Audacity list)
+- [ ] **poly** — polyphonic voice allocator: wrap any synth voice with N-voice polyphony
 
-## Tier 3: Delighting
+### Mid/Side & channel utilities
+- [ ] **midside** — encode/decode L/R ↔ M/S for mid/side processing
+- [ ] **channel-strip** — gain + pan + mute + solo + send composite
 
-* [ ] spectral-edit
-* [ ] stem-separate
-* [ ] pitch-correct
-* [ ] audio-transient-shaper
+### Analysis (real-time meters) — mostly already supported
 
-### MIREX parity
+Building blocks present: `a.block` updates per playback chunk (fn/play.js:63), `for await (let chunk of a.stream({at,duration}))` pulls PCM frames, `a.on('data', ({delta,offset}))` pushes block-level stats (min/max/rms/dc) during decode, `melSpectrum()` exported (fn/spectrum.js), `a.stat('rms'|'db')` snapshot queries. CLI already does live FFT visualization this way (bin/cli.js:419).
+
+### Meter
+
+- [ ] **meter convenience** — `a.meter({smoothing})` running peak/RMS with time constant; returns subscribable handle. Consumer pattern works today via `a.block`, but no built-in smoothing.
+- [ ] **spectrum event** — `'spectrum'` event during playback emitting per-frame mel bins (avoid polling `a.block` + manual `melSpectrum` call). Optional convenience over existing primitives.
+- [ ] **delta meter** — `'data'` event fires during decode but not during playback. Add `'frame'` event during playback for symmetric streaming meter use.
+
+## MIREX parity
 
 **Have:** tempo estimation (bpm), beat tracking (beats), onset detection (onsets), melody/pitch extraction (notes — YIN), chord estimation (chords — NNLS + Viterbi), key detection (key — Krumhansl-Schmuckler), MFCC (cepstrum), spectrum
 
-#### Core MIR (active MIREX tasks)
+### Core MIR (active MIREX tasks)
 - [ ] **structure** — structural segmentation: verse/chorus/bridge/intro/outro boundaries (HMM + self-similarity matrix)
 - [ ] **transcribe** — polyphonic transcription: audio → MIDI note events (onset, offset, pitch, velocity)
 - [ ] **downbeat** — downbeat estimation: locate bar-level "1" within beat grid
 - [ ] **coversong** — cover song identification: recognize same composition across performances
 
-#### Analysis (classic MIREX tasks)
+### Analysis (classic MIREX tasks)
 - [ ] **melody** — continuous melody F0 contour (frame-level Hz, not discrete notes)
 - [ ] **multif0** — multiple F0 estimation: all simultaneous pitches per frame (polyphonic)
 - [ ] **genre** — audio genre classification (feature vector + classifier)
@@ -168,10 +204,10 @@
 - [ ] **drums** — drum transcription: detect kick/snare/hihat onset + class
 - [ ] **lyrics-align** — lyrics-to-audio alignment: word/line-level timestamps
 
-#### Source Separation
+### Source Separation
 - [ ] **separate** — stem separation: vocals/drums/bass/other (U-Net / Open-Unmix style)
 
-#### Spectral Features (building blocks)
+### Spectral Features (building blocks)
 - [ ] **spectralstats** — spectral centroid, spread, flatness, rolloff, flux, slope, crest
 - [ ] **chromagram** — chroma features (12-bin pitch class energy, CQT or STFT based)
 - [ ] **tonnetz** — tonal centroid features (6-dim harmonic space from chroma)
@@ -189,6 +225,8 @@
   * [x] paged transitions - op can be applied to a page that's not yet available
   * [ ] there must be readme, CLI help, GERUNDS
 
+* [ ] Modulation: pitch, stretch, repeat, filter, pan, reverb and other params should be adjustable by function
+
 **Basic correctness** (input → expected output):
 * [x] dither — TPDF: 8-bit quantization levels, 16-bit signal integrity, SNR (93 dB / 45 dB), noise floor uniformity
 * [x] earwax — crossfeed L→R, mono passthrough, custom cutoff/level
@@ -204,25 +242,26 @@
 * [x] allpass — flat magnitude across 100/500/1k/5k/10kHz (< ±1 dB), stereo independent, energy preserved
 * [x] highpass — frequency response: 100Hz=-40dB, 500Hz=-12dB, 2kHz=-0.3dB, 5kHz=-0dB; stereo independent; DC attenuation
 * [x] lowpass — frequency response: 100Hz=-0dB, 500Hz=-0.3dB, 2kHz=-12dB, 5kHz attenuated
-* [x] bandpass — passes center 1kHz, rejects 100Hz
-* [x] notch — removes target 1kHz
-* [x] eq — parametric +12dB boost at target
-* [x] lowshelf — +12dB boost below 500Hz
-* [x] highshelf — +12dB boost above 2kHz
+* [x] bandpass — dB curve: 100Hz<-10dB (flank), 1kHz>-3dB (pass), 10kHz<-10dB (flank)
+* [x] notch — dB curve: 200Hz/5kHz flanks flat (±2dB), 1kHz center<-10dB
+* [x] eq — dB curve: 100Hz/10kHz flat (±2dB), 1kHz center +12dB (±2dB)
+* [x] lowshelf — 100Hz boosted (>+9dB), 5kHz flat (±2dB)
+* [x] highshelf — 200Hz flat (±2dB), 8kHz boosted (>+9dB)
 * [x] filter state — persists across streaming blocks (stream≡read verified)
 * [x] filter warm-up — seek read matches full render slice
 * [x] filter(fn) — custom filter function
-* [ ] filter automation — parameter changes mid-stream, no zipper artifacts
-* [ ] bandpass/notch/eq/lowshelf/highshelf — frequency response with dB thresholds (only basic pass/reject tested, no response curve)
+* [x] cascaded filters — sequential lowpasses build cumulative response (independent state per op)
+* [ ] filter automation — parameter changes mid-stream, no zipper artifacts (no automation API yet)
 
 **Stream ≡ read** (stream() output matches read() output):
 * [x] gain, fade, reverse, crop, remove, insert, repeat, pad, speed, highpass, lowpass, crossfade
 * [x] earwax, vocals (isolate + remove), pan (static + ranged), speed (2x + 0.5x)
-* [ ] bandpass, notch, eq, lowshelf, highshelf, allpass — no stream≡read
-* [ ] mix, remix — no stream≡read
+* [x] bandpass, notch, eq, lowshelf, highshelf, allpass
+* [x] mix (with audio source), remix (mono→stereo, stereo swap, stereo→mono)
+* [x] clip with gain (shared-page scoped edit)
 * [ ] pitch — no stream≡read (vocoder state across blocks)
 * [ ] dither — no stream≡read (TPDF random; need statistical equivalence test)
-* [ ] clip, split — no stream≡read
+* [ ] split — returns array of instances (tested via underlying crop)
 
 **Op composition chains** (chained multi-op stream ≡ read):
 * [x] highpass + gain + trim
@@ -232,17 +271,23 @@
 * [x] earwax + highpass + gain
 * [x] pad + repeat + gain
 * [x] stretch + crop, crop + stretch, stretch + reverse, stretch + speed, stretch + pitch, stretch + gain, stretch + trim
-* [ ] mix + normalize + fade
-* [ ] remix + filter + dither (full mastering chain)
+* [x] mix + normalize + fade
+* [x] filter + gain + dither (mastering chain — read verified)
+* [~] remix + filter + processOp — exposes library bug (channel-count change mid-chain breaks output[c]); see Bugs
 
 **Live-decode** (push-based source with op applied during streaming):
 * [x] gain, highpass, crop, remove, repeat, pad, speed, reverse, insert, trim+normalize
-* [ ] earwax, vocals, pan, dither, pitch, stretch, fade — untested on push-based source
-* [ ] normalize, remix, mix — untested on push-based source
+* [x] earwax, vocals, pan, fade (via push-based audio(null, {channels: 2}))
+* [x] gain+fade chain on push source
+* [x] remix (mono→stereo after stop on push source)
+* [~] normalize — not triggered on push-based sources (needs full stats; requires design review)
+* [ ] dither, pitch, stretch — untested on push-based source
+* [ ] mix — untested on push-based source (requires source audio mid-stream)
 
 **Page-boundary stress** (small PAGE_SIZE/BLOCK_SIZE):
 * [x] gain across pages, trim block resolution, reverse across blocks, filter state across blocks, fade across pages, crop+gain across pages, concurrent decode+stream, evicted pages restored
-* [ ] earwax, vocals, pan, dither, pitch, mix, remix — no page-boundary tests
+* [x] earwax, vocals, pan, mix, remix — verified stream≡read at PAGE_SIZE=128, BLOCK_SIZE=32
+* [ ] dither, pitch — no page-boundary tests (random / vocoder state make stream≡read inapplicable)
 
 **Analysis** (mir_eval / MIREX canonical thresholds):
 * [x] bpm — click track at 120 BPM, ±10% tolerance; shorthand, range, minBpm/maxBpm, silence=0
@@ -255,14 +300,15 @@
 * [x] cepstrum — 13 MFCC coefficients, C0 non-zero
 * [x] silence — region detection, no silence, all silent, minDuration filter, range query
 * [x] clipping — detection with timestamps, clean audio, bins mode
-* [ ] bpm — multi-tempo (60/80/140/180), ±8% MIREX threshold (only 120 tested)
-* [ ] beats — position accuracy within 70ms of ground truth (only count/ordering tested, not timing precision)
-* [ ] onsets — 50ms window precision (only presence tested, not timing accuracy)
+* [x] bpm — multi-tempo (60/80/140/180), ±8% MIREX threshold
+* [x] beats — position accuracy within 70ms of ground truth (MIREX beat-tracking window)
+* [x] onsets — 50ms window precision (onset detection window)
 
 **CLI execution** (not just parseArgs/help — actual file processing):
 * [x] gain, normalize, trim, reverse, remix, highpass, filter+mp3, split, batch glob, macro
-* [ ] stretch, pitch, dither, earwax, vocals, allpass, resample, speed, pan, lowpass, eq — no CLI execution test
-* [ ] crop, remove, repeat, insert, crossfade, pad, mix — no CLI execution test
+* [x] stretch, pitch, dither, earwax, vocals, allpass, speed, pan, lowpass, eq
+* [x] crop, remove, repeat
+* [ ] insert, crossfade, pad (only CLI parseArgs tested, not execution), mix, resample — no CLI execution test
 
 **Effects** (when implemented — FFmpeg FATE-style: synthetic input + stored reference):
 * [ ] compressor — sine at known dBFS, step input; verify gain reduction, attack/release 10%→90%
@@ -271,11 +317,12 @@
 * [ ] chorus/flanger/phaser — sine input, verify modulation depth/rate via spectral analysis
 
 **Infrastructure**:
-* [x] Synthetic signal generators — tone(freq, dur, sr), energyAt (Goertzel), rms, snr, mid (edge trim)
+* [x] Synthetic signal generators — tone(freq, dur, sr), energyAt (Goertzel), rms, snr, mid (edge trim), clickTrack, multiTone
+* [x] Encode round-trip accuracy — WAV near-lossless (>60 dB SNR); MP3 energy preserved ±15%, 1 kHz peak dominance verified
+* [x] assertStreamRead helper — reusable stream≡read checker
 * [ ] Sweep / noise / impulse generators — not yet factored out as reusable
 * [ ] Reference checksum approach (FFmpeg FATE-style) for bit-exact reproducibility of effects
 * [ ] Benchmarks — perf baselines for decode, encode, resample, stretch, analysis
-* [ ] Encode round-trip accuracy — MP3/OGG encode→decode SNR measurement (only WAV tested)
 
 ## Improvements
 
@@ -289,6 +336,10 @@
 * [ ] zzfx op
 * [ ] text overlays/labels/metadata?
 
+
+## Bugs (open)
+
+* [ ] `remix(n)` chained with subsequent process ops throws "Cannot set properties of undefined" — occurs e.g. `a.remix(1).highpass(200).gain(-3)` on stereo. Output buffer for new channel count not properly allocated when >1 process op follows a ch-changing remix (test/index.js had to skip this chain).
 
 ## Archive
 
