@@ -4359,7 +4359,7 @@ test('playbackRate — emits ratechange', t => {
 })
 
 
-// ── New ops: allpass, vocals, dither, earwax, resample ──────────────────
+// ── New ops: allpass, vocals, dither, crossfeed, resample ──────────────
 
 test('allpass — unity magnitude, phase shift only', async t => {
   let ch = tone(1000, 0.5)
@@ -4472,12 +4472,12 @@ test('dither — 16-bit preserves signal integrity', async t => {
   t.ok(maxDiff < 0.001, `16-bit dither maxDiff ${maxDiff.toFixed(6)}`)
 })
 
-test('earwax — crossfeed mixes channels', async t => {
+test('crossfeed — mixes channels', async t => {
   // Hard-panned: L=tone, R=silence
   let ch = tone(440, 0.5)
   let silent = new Float32Array(ch.length)
   let a = audio.from([ch, silent], { sampleRate: 44100 })
-  a.earwax()
+  a.crossfeed()
   let pcm = await a.read()
   // R should now have some content from L crossfeed
   t.ok(rms(pcm[1]) > 0.01, `R gets crossfeed: rms ${rms(pcm[1]).toFixed(4)}`)
@@ -4485,24 +4485,24 @@ test('earwax — crossfeed mixes channels', async t => {
   t.ok(rms(pcm[0]) < rms(ch), `L slightly reduced: ${rms(pcm[0]).toFixed(4)} < ${rms(ch).toFixed(4)}`)
 })
 
-test('earwax — mono passthrough', async t => {
+test('crossfeed — mono passthrough', async t => {
   let ch = tone(440, 0.2)
   let a = audio.from([ch], { sampleRate: 44100 })
-  a.earwax()
+  a.crossfeed()
   let pcm = await a.read()
   let maxDiff = 0
   for (let i = 0; i < ch.length; i++) maxDiff = Math.max(maxDiff, Math.abs(pcm[0][i] - ch[i]))
   t.ok(maxDiff < 1e-6, `mono unchanged: maxDiff ${maxDiff.toFixed(6)}`)
 })
 
-test('earwax — custom cutoff and level', async t => {
+test('crossfeed — custom cutoff and level', async t => {
   let ch = tone(200, 0.3)
   let silent = new Float32Array(ch.length)
   let a1 = audio.from([ch.slice(), silent.slice()], { sampleRate: 44100 })
-  a1.earwax(500, 0.1)  // low level
+  a1.crossfeed(500, 0.1)  // low level
   let pcm1 = await a1.read()
   let a2 = audio.from([ch.slice(), silent.slice()], { sampleRate: 44100 })
-  a2.earwax(500, 0.5)  // high level
+  a2.crossfeed(500, 0.5)  // high level
   let pcm2 = await a2.read()
   // Higher level → more crossfeed to R
   t.ok(rms(pcm2[1]) > rms(pcm1[1]), `more crossfeed at higher level: ${rms(pcm2[1]).toFixed(4)} > ${rms(pcm1[1]).toFixed(4)}`)
@@ -4978,10 +4978,10 @@ test('crossfade — equal-power: RMS constant ±1 dB through transition', async 
 
 // ── Phase 18: Stream ≡ read guarantee ───────────────────────────────────
 
-test('stream≡read — earwax', async t => {
+test('stream≡read — crossfeed', async t => {
   let a = audio.from([tone(440, 0.5), tone(880, 0.5)], { sampleRate: 44100 })
-  a.earwax()
-  await assertStreamRead(t, a, 'earwax')
+  a.crossfeed()
+  await assertStreamRead(t, a, 'crossfeed')
 })
 
 test('stream≡read — vocals isolate', async t => {
@@ -5057,10 +5057,10 @@ test('stream≡read — crop + speed + pan (stereo)', async t => {
   await assertStreamRead(t, a, 'crop+speed+pan')
 })
 
-test('stream≡read — earwax + highpass + gain', async t => {
+test('stream≡read — crossfeed + highpass + gain', async t => {
   let a = audio.from([tone(200, 0.5), tone(5000, 0.5)], { sampleRate: 44100 })
-  a.earwax().highpass(300).gain(-3)
-  await assertStreamRead(t, a, 'earwax+hp+gain')
+  a.crossfeed().highpass(300).gain(-3)
+  await assertStreamRead(t, a, 'crossfeed+hp+gain')
 })
 
 test('stream≡read — pad + repeat + gain', async t => {
@@ -5264,10 +5264,10 @@ test('highshelf — boost above, flat below', async t => {
 
 // ── Phase 23: Live-decode — push-based sources with process ops ─────────
 
-test('live-decode — earwax streams on push source', async t => {
+test('live-decode — crossfeed streams on push source', async t => {
   let sr = 44100, each = 4096, pushes = 4
   let a = audio(null, { sampleRate: sr, channels: 2 })
-  a.earwax()
+  a.crossfeed()
   for (let i = 0; i < pushes; i++) {
     let L = new Float32Array(each), R = new Float32Array(each)
     for (let j = 0; j < each; j++) { L[j] = Math.sin(2 * Math.PI * 440 * (i * each + j) / sr); R[j] = 0 }
@@ -5276,7 +5276,7 @@ test('live-decode — earwax streams on push source', async t => {
   a.stop()
   let total = 0
   for await (let block of a.stream()) total += block[0].length
-  t.is(total, each * pushes, `all ${each * pushes} samples streamed through earwax`)
+  t.is(total, each * pushes, `all ${each * pushes} samples streamed through crossfeed`)
 })
 
 test('live-decode — vocals streams on push source', async t => {
@@ -5352,7 +5352,7 @@ test('live-decode — remix mono→stereo on push source', async t => {
 
 // ── Phase 24: Page-boundary stress — newer ops across small pages ───────
 
-test('boundary — earwax streaming matches flat render', async t => {
+test('boundary — crossfeed streaming matches flat render', async t => {
   let origP = audio.PAGE_SIZE, origB = audio.BLOCK_SIZE
   audio.PAGE_SIZE = 128
   audio.BLOCK_SIZE = 32
@@ -5361,8 +5361,8 @@ test('boundary — earwax streaming matches flat render', async t => {
     let L = new Float32Array(samples), R = new Float32Array(samples)
     for (let i = 0; i < samples; i++) { L[i] = Math.sin(2 * Math.PI * 440 * i / 44100); R[i] = 0 }
     let a = audio.from([L, R], { sampleRate: 44100 })
-    a.earwax()
-    await assertStreamRead(t, a, 'earwax page-boundary')
+    a.crossfeed()
+    await assertStreamRead(t, a, 'crossfeed page-boundary')
   } finally { audio.PAGE_SIZE = origP; audio.BLOCK_SIZE = origB }
 })
 
@@ -5609,7 +5609,7 @@ test('cli parseRange — 1s..10s', t => {
 
 test('cli op help — all built-in ops have help', t => {
   let ops = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'remove', 'repeat', 'remix', 'pan', 'pad', 'stretch', 'pitch',
-    'highpass', 'lowpass', 'eq', 'lowshelf', 'highshelf', 'notch', 'bandpass', 'allpass', 'vocals', 'dither', 'earwax']
+    'highpass', 'lowpass', 'eq', 'lowshelf', 'highshelf', 'notch', 'bandpass', 'allpass', 'vocals', 'dither', 'crossfeed']
   for (let op of ops) t.ok(HELP[op], `${op} has help`)
 })
 
@@ -5622,7 +5622,7 @@ test('cli ops registry — all built-ins available', t => {
   t.ok(audio.op('allpass'), 'allpass')
   t.ok(audio.op('vocals'), 'vocals')
   t.ok(audio.op('dither'), 'dither')
-  t.ok(audio.op('earwax'), 'earwax')
+  t.ok(audio.op('crossfeed'), 'crossfeed')
   t.ok(typeof audio.fn.resample === 'function', 'resample')
 })
 

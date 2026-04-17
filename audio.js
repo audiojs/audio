@@ -48,7 +48,7 @@ import './fn/transform.js'
 import './fn/crossfade.js'
 import './fn/vocals.js'
 import './fn/dither.js'
-import './fn/earwax.js'
+import './fn/crossfeed.js'
 import './fn/resample.js'
 
 // ── Stats ───────────────────────────────────────────────────────────────

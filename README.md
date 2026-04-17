@@ -115,12 +115,12 @@ audio voice.wav trim normalize podcast fade 0.3s -0.5s -o clean.mp3
 <sub>[highpass](#filter) · [lowpass](#filter) · [bandpass](#filter) · [notch](#filter) · [allpass](#filter) · [lowshelf](#filter) · [highshelf](#filter) · [eq](#filter) · [filter](#filter)</sub>
 
 **[Effect](#effect)**<br>
-<sub>[vocals](#effect) · [dither](#effect) · [earwax](#effect) · [resample](#effect)</sub>
+<sub>[vocals](#effect) · [dither](#effect) · [crossfeed](#effect) · [resample](#effect)</sub>
 
 </td><td valign="top" width="50%">
 
 **[I/O](#io)**<br>
-<sub>[read](#io) · [save](#io) · [encode](#io) · [clone](#io) · [push](#io) · [`for await`](#io)</sub>
+<sub>[read](#io) · [stream](#io) · [save](#io) · [encode](#io) · [clone](#io) · [push](#io)</sub>
 
 **[Playback](#playback--recording)**<br>
 <sub>[play](#playback--recording) · [pause](#playback--recording) · [resume](#playback--recording) · [seek](#playback--recording) · [stop](#playback--recording) · [record](#playback--recording)</sub>
@@ -138,8 +138,6 @@ audio voice.wav trim normalize podcast fade 0.3s -0.5s -o clean.mp3
 <sub>[audio.op](#plugins) · [audio.stat](#plugins)</sub>
 
 </td></tr></table>
-
-<sub>**Familiar names from other tools:** `vocals` (SoX `oops`) · `earwax` (SoX `earwax`, FFmpeg `crossfeed`/`bs2b`) · `normalize('broadcast')` (FFmpeg `loudnorm`, EBU R128) · `crossfade` (FFmpeg `acrossfade`, SoX `splice`) · `resample` (SoX `rate`, FFmpeg `aresample`) · `eq` (FFmpeg/SoX `equalizer`) · `mix` (FFmpeg `amix`, pydub `overlay`) · `notch` (FFmpeg `bandreject`) · `lowshelf`/`highshelf` (SoX/FFmpeg `bass`/`treble`) · `remix` (SoX `remix`) · `trim` (SoX/FFmpeg `atrim`) · `repeat` (SoX `repeat`, FFmpeg `aloop`) · `pad` (SoX `pad`, FFmpeg `apad`). &nbsp;Full map → [docs/comparison.md](docs/comparison.md).</sub>
 
 ## Recipes
 
@@ -411,7 +409,7 @@ Amplitude, mixing, normalization. All support `{at, duration, channel}` ranges.
 
 * **`.gain(dB, opts?)`** – volume. Number, range, or `t => dB` function. `{ unit: 'linear' }` for multiplier.
 * **`.fade(in, out?, curve?)`** – fade in/out. Curves: `'linear'` `'exp'` `'log'` `'cos'`.
-* **`.normalize(target?)`** – remove DC offset, clamp, and normalize loudness.
+* **`.normalize(target?)`** – remove DC offset, clamp, and normalize loudness. LUFS presets follow EBU R128 / ITU-R BS.1770-4 (equivalent to FFmpeg `loudnorm`).
   * `'podcast'` – -16 LUFS, -1 dBTP.
   * `'streaming'` – -14 LUFS.
   * `'broadcast'` – -23 LUFS.
@@ -421,7 +419,7 @@ Amplitude, mixing, normalization. All support `{at, duration, channel}` ranges.
   * `{ ceiling: -1 }` – true peak limiter in dB.
   * `{ dc: false }` – skip DC removal.
 * **`.mix(source, opts?)`** – overlay another audio (additive).
-* **`.crossfade(source, duration?, curve?)`** – crossfade into another audio. Overlap with complementary fade curves. Default 0.5s, `'cos'` curve.
+* **`.crossfade(source, duration?, curve?)`** – crossfade into another audio, complementary fade curves. Default 0.5s `'cos'`. &nbsp;<sub>≡ FFmpeg `acrossfade`</sub>
 * **`.pan(value, opts?)`** – stereo balance (−1 left, 0 center, 1 right). Accepts function.
 * **`.write(data, {at?})`** – overwrite samples with raw PCM.
 * **`.transform(fn)`** – inline processor: `(input, output, ctx) => void`. Not serialized.
@@ -461,16 +459,16 @@ a.filter(customFn, { cutoff: 2000 })     // custom filter function
 
 Audio effects and transformations.
 
-* **`.vocals(mode?)`** – stereo vocal isolation/removal. `'isolate'` (default) keeps center, `'remove'` keeps sides. SoX `oops` equivalent.
+* **`.vocals(mode?)`** – stereo vocal isolation/removal via mid/side cancellation. `'isolate'` (default) keeps center, `'remove'` keeps sides. &nbsp;<sub>≡ SoX `oops`</sub>
 * **`.dither(bits?)`** – TPDF dithering for bit-depth reduction (default 16-bit).
-* **`.earwax(freq?, level?)`** – headphone crossfeed for improved imaging. Default: 700 Hz cutoff, 0.3 level.
+* **`.crossfeed(freq?, level?)`** – headphone crossfeed for improved stereo imaging. Default: 700 Hz cutoff, 0.3 level. &nbsp;<sub>≡ SoX `earwax`, bs2b</sub>
 * **`.resample(rate)`** – sample rate conversion. Non-destructive, chainable, undoable. Downsampling auto-inserts anti-alias lowpass.
 
 ```js
 a.vocals()                                // isolate center-panned vocals
 a.vocals('remove')                        // remove vocals (karaoke)
 a.dither(16)                              // TPDF dither to 16-bit
-a.earwax()                                // headphone crossfeed
+a.crossfeed()                             // headphone crossfeed
 a.resample(48000)                         // resample to 48kHz
 a.resample(22050).gain(-3).save('lo.wav') // chain with other ops
 ```
@@ -480,23 +478,24 @@ a.resample(22050).gain(-3).save('lo.wav') // chain with other ops
 Read PCM, encode, stream, push. Format inferred from extension.
 
 * **`await .read(opts?)`** – rendered PCM. `{ format, channel }` to convert.
+* **`.stream(opts?)`** – async-iterable over blocks. `{ at, duration }` for sub-range. `for await (block of a)` uses default range.
 * **`await .save(path, opts?)`** – encode + write. `{ at, duration }` for sub-range.
 * **`await .encode(format?, opts?)`** – encode to `Uint8Array`.
-* **`for await (let block of a)`** – async-iterable over blocks.
 * **`.clone()`** – deep copy, independent edits, shared pages.
 * **`.push(data, format?)`** – feed PCM into pushable instance. `.stop()` to finalize.
 
 ```js
-let pcm = await a.read()                  // Float32Array[]
+let pcm = await a.read()                              // Float32Array[]
 let raw = await a.read({ format: 'int16', channel: 0 })
-await a.save('out.mp3')                   // format from extension
-let bytes = await a.encode('flac')        // Uint8Array
-for await (let block of a) send(block)    // stream blocks
-let b = a.clone()                         // independent copy, shared pages
+for await (let block of a) send(block)                 // stream blocks (default range)
+for await (let block of a.stream({ at: 10, duration: 30 })) send(block)
+await a.save('out.mp3')                                // format from extension
+let bytes = await a.encode('flac')                     // Uint8Array
+let b = a.clone()                                      // independent copy, shared pages
 
-let src = audio()                         // pushable source
-src.push(buf, 'int16')                    // feed PCM
-src.stop()                                // finalize
+let src = audio()                                      // pushable source
+src.push(buf, 'int16')                                 // feed PCM
+src.stop()                                             // finalize
 ```
 
 ### Playback / Recording
@@ -673,7 +672,7 @@ fade        gain        stat        trim      notch
 remix       speed       split       insert    remove
 repeat      bandpass    highpass    lowpass   reverse
 lowshelf    highshelf   normalize   allpass   vocals
-dither      earwax
+dither      crossfeed
 
 # options
 -p play     -l loop     -o output   -f force  --format
@@ -810,7 +809,7 @@ audio --completions fish | source       # fish
 <dd>Yes, ships with <code>audio.d.ts</code>.</dd>
 
 <dt>How is this different from SoX?</dt>
-<dd>SoX is a C command-line tool — powerful but native-only, no browser, no programmatic API, no streaming edits, no undo. <code>audio</code> runs in Node and the browser with the same API, edits are non-destructive and lazy (nothing is rendered until you read/save), and it streams during decode. Several SoX effects are implemented (allpass, dither, earwax, vocals/oops, resample). Remaining effects (reverb, compressor, noise reduction, chorus, flanger, phaser) are on the <a href="#todo">roadmap</a>.</dd>
+<dd>SoX is a C command-line tool — powerful but native-only, no browser, no programmatic API, no streaming edits, no undo. <code>audio</code> runs in Node and the browser with the same API, edits are non-destructive and lazy (nothing is rendered until you read/save), and it streams during decode. Several SoX effects are implemented (allpass, dither, crossfeed/earwax, vocals/oops, resample). Remaining effects (reverb, compressor, noise reduction, chorus, flanger, phaser) are on the <a href="#todo">roadmap</a>.</dd>
 
 <dt>How is this different from Audacity?</dt>
 <dd>Audacity is a GUI desktop app. <code>audio</code> is a library and CLI — designed for scripting, automation, pipelines, and embedding in apps. Audacity is destructive (edits mutate samples); <code>audio</code> is non-destructive (edits are a plan replayed on read). Audacity can't run in the browser or be <code>npm install</code>ed into your project.</dd>
@@ -834,7 +833,7 @@ Effects from SoX and elsewhere not yet available. Contributions welcome.
 - [x] **dither** — TPDF dithering for bit-depth reduction
 - [x] **vocals** — vocal isolation / removal (SoX `oops`, out-of-phase stereo)
 - [x] **allpass** — all-pass filter
-- [x] **earwax** — headphone crossfeed
+- [x] **crossfeed** — headphone crossfeed (SoX `earwax`)
 - [ ] **compressor** — dynamic range compression / expansion / limiting (SoX `compand`)
 - [ ] **reverb** — freeverb reverberation
 - [ ] **noise** — noise reduction via spectral profiling (SoX `noisered`)

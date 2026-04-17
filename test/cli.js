@@ -536,7 +536,7 @@ test('op help — all built-in ops have help', t => {
   let expected = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'clip', 'remove',
     'insert', 'repeat', 'mix', 'crossfade', 'remix', 'highpass', 'lowpass', 'eq', 'lowshelf',
     'highshelf', 'notch', 'bandpass', 'allpass', 'filter', 'pan', 'pad', 'speed', 'stretch',
-    'pitch', 'vocals', 'dither', 'earwax']
+    'pitch', 'vocals', 'dither', 'crossfeed']
   for (let op of expected) t.ok(HELP[op], `${op} has help`)
   // Reverse check: every op with help is in expected list
   for (let name in HELP) t.ok(expected.includes(name), `${name} in expected list`)
@@ -790,18 +790,18 @@ test('CLI — dither to 16-bit', async t => {
   } finally { cleanup(outPath) }
 })
 
-test('CLI — earwax crossfeed', async t => {
+test('CLI — crossfeed', async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
-  let srcPath = join(__dirname, 'tmp-cli-earwax-src.wav')
-  let outPath = join(__dirname, 'tmp-cli-earwax.wav')
+  let srcPath = join(__dirname, 'tmp-cli-crossfeed-src.wav')
+  let outPath = join(__dirname, 'tmp-cli-crossfeed.wav')
   try {
     let sr = 44100, n = sr * 2
     let L = new Float32Array(n), R = new Float32Array(n)
     for (let i = 0; i < n; i++) { L[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr); R[i] = 0 }
     await audio.from([L, R], { sampleRate: sr }).save(srcPath)
-    await runCli([srcPath, 'earwax', '-o', outPath, '--force'])
+    await runCli([srcPath, 'crossfeed', '-o', outPath, '--force'])
     let result = await audio(outPath)
-    t.ok(result.duration > 0, 'earwax processed')
+    t.ok(result.duration > 0, 'crossfeed processed')
     t.is(result.channels, 2, 'stereo preserved')
   } finally { cleanup(srcPath); cleanup(outPath) }
 })

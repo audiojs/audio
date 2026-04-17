@@ -76,7 +76,7 @@ Cells contain method/op names where supported, `—` if absent, `(plan)` if plan
 | Phaser | (plan) | — | — | — | — | `Phaser` | `phaser` | `aphaser` | Phaser | — |
 | Tremolo | (plan) | — | — | — | — | — | `tremolo` | `tremolo` | Tremolo | — |
 | Vibrato | (plan) | — | — | — | — | — | (via `bend`) | `vibrato` | — | — |
-| Stereo widen / image | `vocals`, `earwax` | — | — | — | — | — | `oops`, `earwax` | `stereotools`, `stereowiden`, `crossfeed`, `bs2b` | (plugin) | `crossoverFilter` |
+| Stereo widen / image | `vocals`, `crossfeed` | — | — | — | — | — | `oops`, `earwax` | `stereotools`, `stereowiden`, `crossfeed`, `bs2b` | (plugin) | `crossoverFilter` |
 | HRTF / binaural | (plan) | — | — | — | — | — | — | `sofalizer`, `headphone` | (plugin) | `interpolateHRTF` |
 | **Restoration** | | | | | | | | | | |
 | Denoise | (plan) | — | — | — | — | — | `noisered`, `noiseprof` | `afftdn`, `arnndn`, `anlmdn` | Noise Reduction | `wdenoise` |

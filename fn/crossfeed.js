@@ -1,8 +1,8 @@
 /**
- * Earwax — headphone crossfeed for improved stereo imaging.
+ * Crossfeed — headphone crossfeed for improved stereo imaging.
  *
- * a.earwax()           → default crossfeed (700 Hz, 0.3 level)
- * a.earwax(500, 0.4)   → custom cutoff and level
+ * a.crossfeed()           → default (700 Hz, 0.3 level)
+ * a.crossfeed(500, 0.4)   → custom cutoff and level
  *
  * Mixes L→R and R→L through a lowpass filter to simulate speaker crosstalk,
  * reducing the exaggerated separation of headphone listening.
@@ -11,14 +11,13 @@
 
 import crossfeed from 'audio-filter/eq/crossfeed.js'
 
-const earwax = (input, output, ctx) => {
+const process = (input, output, ctx) => {
   if (input.length < 2) {
     for (let c = 0; c < input.length; c++) output[c].set(input[c])
     return
   }
   let len = input[0].length
   if (!ctx._p) ctx._p = { fc: ctx.freq || 700, level: ctx.level ?? 0.3, fs: ctx.sampleRate }
-  // Reuse Float64 buffers across blocks
   if (!ctx._L || ctx._L.length < len) { ctx._L = new Float64Array(len); ctx._R = new Float64Array(len) }
   let L = ctx._L, R = ctx._R
   for (let i = 0; i < len; i++) { L[i] = input[0][i]; R[i] = input[1][i] }
@@ -28,4 +27,4 @@ const earwax = (input, output, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('earwax', { params: ['freq', 'level'], process: earwax })
+audio.op('crossfeed', { params: ['freq', 'level'], process })

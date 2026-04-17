@@ -80,8 +80,10 @@ export interface AudioInstance {
   seek(t: number): this
   /** Read audio data. Channel option returns single Float32Array. */
   read(opts?: { at?: Time, duration?: Time, channel?: number, format?: string, meta?: Record<string, any> }): Promise<Float32Array[] | Float32Array | Int16Array[] | Uint8Array[] | Uint8Array>
-  /** Async-iterable over materialized blocks. `for await (let block of a)` */
+  /** Async-iterable over materialized blocks. `for await (let block of a)` uses default range. */
   [Symbol.asyncIterator](): AsyncGenerator<Float32Array[], void, unknown>
+  /** Stream blocks with optional sub-range. `for await (let block of a.stream({at, duration}))` */
+  stream(opts?: { at?: Time, duration?: Time }): AsyncGenerator<Float32Array[], void, unknown>
   /** Ensure stats are fresh, return stats + block range */
   stat(name: 'db' | 'rms' | 'loudness' | 'peak', opts?: { at?: Time, duration?: Time, channel?: number | number[] }): Promise<number | number[]>
   stat(name: 'clipping', opts?: { at?: Time, duration?: Time }): Promise<Float32Array>
@@ -136,7 +138,7 @@ export interface AudioInstance {
   // ── Effects ─────────────────────────────────────────────────
   vocals(mode?: 'isolate' | 'remove'): this
   dither(bits?: number): this
-  earwax(freq?: number, level?: number): this
+  crossfeed(freq?: number, level?: number): this
   resample(targetRate: number): this
 
   // ── Smart ops ───────────────────────────────────────────────
