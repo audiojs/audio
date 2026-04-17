@@ -28,19 +28,52 @@ audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 #### [Quick Start](#quick-start)&nbsp;&nbsp;&nbsp;[Recipes](#recipes)&nbsp;&nbsp;&nbsp;[Reference](#reference)&nbsp;&nbsp;&nbsp;[CLI](#cli)&nbsp;&nbsp;&nbsp;[FAQ](#faq)&nbsp;&nbsp;&nbsp;[Comparison](#comparison)&nbsp;&nbsp;&nbsp;[Ecosystem](#ecosystem)&nbsp;&nbsp;&nbsp;[Plugins](docs/plugins.md)&nbsp;&nbsp;&nbsp;[Architecture](docs/architecture.md)&nbsp;&nbsp;&nbsp;
 
 
-<table><tr><td valign="top" width="50%">
+<table>
+<tr><td valign="top" width="50%">
 
 **[Create](#create)**<br>
 <sub>[`audio()`](#create) · [`audio.from()`](#create)</sub>
 
+</td><td valign="top" width="50%">
+
+**[Properties](#properties)**<br>
+<sub>[`duration`](#properties) · [`channels`](#properties) · [`sampleRate`](#properties) · [`length`](#properties) · [`currentTime`](#properties) · [`volume`](#properties) · [`muted`](#properties) · [`loop`](#properties) · [`playing`](#properties) · [`ready`](#properties) · [`edits`](#properties)</sub>
+
+</td></tr>
+<tr><td valign="top" width="50%">
+
 **[Structure](#structure)**<br>
 <sub>[`trim`](#structure) · [`crop`](#structure) · [`remove`](#structure) · [`insert`](#structure) · [`clip`](#structure) · [`split`](#structure) · [`pad`](#structure) · [`repeat`](#structure) · [`reverse`](#structure) · [`speed`](#structure) · [`stretch`](#structure) · [`pitch`](#structure) · [`remix`](#structure)</sub>
+
+</td><td valign="top" width="50%">
+
+**[I/O](#io)**<br>
+<sub>[`read`](#io) · [`save`](#io) · [`encode`](#io) · [`clone`](#io) · [`push`](#io)</sub>
+
+</td></tr>
+<tr><td valign="top" width="50%">
 
 **[Process](#process)**<br>
 <sub>[`gain`](#process) · [`fade`](#process) · [`normalize`](#process) · [`mix`](#process) · [`crossfade`](#process) · [`pan`](#process) · [`write`](#process) · [`transform`](#process)</sub>
 
+</td><td valign="top" width="50%">
+
+**[Playback](#playback--recording)**<br>
+<sub>[`play`](#playback--recording) · [`pause`](#playback--recording) · [`resume`](#playback--recording) · [`seek`](#playback--recording) · [`stop`](#playback--recording) · [`meter`](#playback--recording) · [`record`](#playback--recording)</sub>
+
+</td></tr>
+<tr><td valign="top" width="50%">
+
 **[Filter](#filter)**<br>
 <sub>[`highpass`](#filter) · [`lowpass`](#filter) · [`bandpass`](#filter) · [`notch`](#filter) · [`allpass`](#filter) · [`lowshelf`](#filter) · [`highshelf`](#filter) · [`eq`](#filter) · [`filter`](#filter)</sub>
+
+</td><td valign="top" width="50%">
+
+**[Analysis](#analysis)**<br>
+<sub>[`db`](#analysis) · [`rms`](#analysis) · [`peak`](#analysis) · [`loudness`](#analysis) · [`dc`](#analysis) · [`clipping`](#analysis) · [`silence`](#analysis) · [`crest`](#analysis) · [`centroid`](#analysis) · [`flatness`](#analysis) · [`correlation`](#analysis) · [`spectrum`](#analysis) · [`cepstrum`](#analysis) · [`bpm`](#analysis) · [`beats`](#analysis) · [`onsets`](#analysis) · [`notes`](#analysis) · [`chords`](#analysis) · [`key`](#analysis) · [`detect()`](#analysis)</sub>
+
+</td></tr>
+<tr><td valign="top" width="50%">
 
 **[Effect](#effect)**<br>
 <sub>[`vocals`](#effect) · [`dither`](#effect) · [`crossfeed`](#effect) · [`resample`](#effect)</sub><br>
@@ -48,25 +81,19 @@ audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 
 </td><td valign="top" width="50%">
 
-**[Properties](#properties)**<br>
-<sub>[`duration`](#properties) · [`channels`](#properties) · [`sampleRate`](#properties) · [`length`](#properties) · [`currentTime`](#properties) · [`volume`](#properties) · [`muted`](#properties) · [`loop`](#properties) · [`playing`](#properties) · [`ready`](#properties) · [`edits`](#properties)</sub>
-
-**[I/O](#io)**<br>
-<sub>[`read`](#io) · [`save`](#io) · [`encode`](#io) · [`clone`](#io) · [`push`](#io)</sub>
-
-**[Playback](#playback--recording)**<br>
-<sub>[`play`](#playback--recording) · [`pause`](#playback--recording) · [`resume`](#playback--recording) · [`seek`](#playback--recording) · [`stop`](#playback--recording) · [`meter`](#playback--recording) · [`record`](#playback--recording)</sub>
-
-**[Analysis](#analysis)**<br>
-<sub>[`db`](#analysis) · [`rms`](#analysis) · [`peak`](#analysis) · [`loudness`](#analysis) · [`dc`](#analysis) · [`clipping`](#analysis) · [`silence`](#analysis) · [`spectrum`](#analysis) · [`cepstrum`](#analysis) · [`bpm`](#analysis) · [`beats`](#analysis) · [`onsets`](#analysis) · [`notes`](#analysis) · [`chords`](#analysis) · [`key`](#analysis) · [`detect()`](#analysis)</sub>
-
 **[Utility](#utility)**<br>
 <sub>[`on`](#utility) · [`off`](#utility) · [`undo`](#utility) · [`run`](#utility) · [`dispose`](#utility)</sub>
+
+</td></tr>
+<tr><td valign="top" width="50%">
+
+</td><td valign="top" width="50%">
 
 **[Plugins](#plugins)**<br>
 <sub>[`audio.op`](#plugins) · [`audio.stat`](#plugins)</sub>
 
-</td></tr></table>
+</td></tr>
+</table>
 
 </div>
 
@@ -548,6 +575,10 @@ Opts: **`type`** (stat name, array, or omit for all), **`channel`** (`n`, `[n, m
 * **`'dc'`** – DC offset.
 * **`'clipping'`** – clipped samples (scalar: timestamps, binned: counts).
 * **`'silence'`** – silent ranges as `{at, duration}`.
+* **`'crest'`** – crest factor in dB (peak/RMS ratio). Sine ≈ 3dB, square ≈ 0dB.
+* **`'centroid'`** – spectral centroid in Hz (brightness). Higher = brighter.
+* **`'flatness'`** – spectral flatness 0–1. 0 = tonal, 1 = noise.
+* **`'correlation'`** – inter-channel (L/R) phase correlation, −1 to +1. Mono returns 1.
 * **`'max'`**, **`'min'`** – peak envelope per bin — use together for waveform rendering.
 * **`'spectrum'`** – mel-frequency spectrum in dB (A-weighted).
 * **`'cepstrum'`** – MFCCs.

@@ -102,3 +102,30 @@ audio.fn.spectrum = async function(opts) {
   for (let b = 0; b < bins; b++) out[b] = 20 * Math.log10(Math.sqrt(acc[b] / cnt) + 1e-10)
   return out
 }
+
+/** a.stat('centroid') → spectral centroid in Hz (brightness) */
+audio.fn.centroid = async function(opts) {
+  let sr = this.sampleRate, N = 1024, win = hannWin(N), buf = new Float32Array(N), binHz = sr / N
+  let { acc, cnt } = await analyzeBlocks(this, opts, N, 1, (block, acc) => {
+    for (let i = 0; i < N; i++) buf[i] = block[i] * win[i]
+    let mag = fft(buf)
+    let num = 0, den = 0
+    for (let k = 1; k < mag.length; k++) { num += k * binHz * mag[k]; den += mag[k] }
+    acc[0] += den > 0 ? num / den : 0
+  })
+  return cnt > 0 ? acc[0] / cnt : 0
+}
+
+/** a.stat('flatness') → spectral flatness 0..1 (0=tonal, 1=noise) */
+audio.fn.flatness = async function(opts) {
+  let N = 1024, win = hannWin(N), buf = new Float32Array(N)
+  let { acc, cnt } = await analyzeBlocks(this, opts, N, 1, (block, acc) => {
+    for (let i = 0; i < N; i++) buf[i] = block[i] * win[i]
+    let mag = fft(buf), n = mag.length - 1
+    let logSum = 0, linSum = 0
+    for (let k = 1; k < mag.length; k++) { logSum += Math.log(mag[k] + 1e-20); linSum += mag[k] }
+    let gm = Math.exp(logSum / n), am = linSum / n
+    acc[0] += am > 0 ? gm / am : 0
+  })
+  return cnt > 0 ? acc[0] / cnt : 0
+}

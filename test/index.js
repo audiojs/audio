@@ -259,16 +259,16 @@ test('audio.stat — custom field', async t => {
   t.ok(Math.abs(a.stats.blockRms[0][0] - 0.5) < 0.01, `blockRms ≈ 0.5 (got ${a.stats.blockRms[0][0].toFixed(3)})`)
 
   // Cross-channel metric — return number (broadcast to all channels)
-  audio.stat('correlation', (chs) => {
+  audio.stat('_testCorr', (chs) => {
     if (chs.length < 2) return 1
     let L = chs[0], R = chs[1], sum = 0
     for (let i = 0; i < L.length; i++) sum += L[i] * R[i]
     return sum / L.length
   })
   let stereo = audio.from([new Float32Array(BLOCK_SIZE).fill(0.5), new Float32Array(BLOCK_SIZE).fill(0.5)])
-  t.ok(stereo.stats.correlation, 'cross-channel field exists')
-  t.ok(stereo.stats.correlation[0][0] > 0.2, `correlated (${stereo.stats.correlation[0][0].toFixed(3)})`)
-  t.is(stereo.stats.correlation[0][0], stereo.stats.correlation[1][0], 'same value both channels')
+  t.ok(stereo.stats._testCorr, 'cross-channel field exists')
+  t.ok(stereo.stats._testCorr[0][0] > 0.2, `correlated (${stereo.stats._testCorr[0][0].toFixed(3)})`)
+  t.is(stereo.stats._testCorr[0][0], stereo.stats._testCorr[1][0], 'same value both channels')
 })
 
 test('index — block structure', async t => {
@@ -3293,6 +3293,109 @@ test('pad — plan-based (stream)', async t => {
   t.ok(streamed[0] === 0, `start is silent`)
   t.ok(streamed[22050] === 0.5, `original data at correct offset`)
   t.ok(streamed[streamed.length - 1] === 0, `end is silent`)
+})
+
+
+// ── Crest stat ──────────────────────────────────────────────────────────
+
+test('stat(crest) — dynamic range of sine wave', async t => {
+  let sr = 44100
+  let ch = tone(440, 1, sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  let crest = await a.stat('crest')
+  // Sine wave crest factor ≈ 3.01 dB (peak/RMS = √2)
+  t.ok(crest > 2 && crest < 4, `sine crest ~3dB (got ${crest.toFixed(2)})`)
+})
+
+test('stat(crest) — square wave has ~0dB crest', async t => {
+  let sr = 44100, ch = new Float32Array(sr)
+  for (let i = 0; i < sr; i++) ch[i] = i % 100 < 50 ? 0.8 : -0.8
+  let a = audio.from([ch], { sampleRate: sr })
+  let crest = await a.stat('crest')
+  t.ok(crest < 1, `square crest ~0dB (got ${crest.toFixed(2)})`)
+})
+
+test('stat(crest) — silence returns 0', async t => {
+  let a = audio.from([new Float32Array(44100)], { sampleRate: 44100 })
+  let crest = await a.stat('crest')
+  t.is(crest, 0, 'silent = 0')
+})
+
+
+// ── Centroid stat ───────────────────────────────────────────────────────
+
+test('stat(centroid) — 440Hz tone has low centroid', async t => {
+  let sr = 44100
+  let ch = tone(440, 1, sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  let c = await a.stat('centroid')
+  // Centroid of pure 440Hz should be near 440Hz
+  t.ok(c > 300 && c < 600, `centroid near 440Hz (got ${c.toFixed(0)}Hz)`)
+})
+
+test('stat(centroid) — higher tone has higher centroid', async t => {
+  let sr = 44100
+  let lo = audio.from([tone(440, 1, sr)], { sampleRate: sr })
+  let hi = audio.from([tone(4000, 1, sr)], { sampleRate: sr })
+  let cLo = await lo.stat('centroid')
+  let cHi = await hi.stat('centroid')
+  t.ok(cHi > cLo, `4kHz centroid (${cHi.toFixed(0)}) > 440Hz centroid (${cLo.toFixed(0)})`)
+})
+
+
+// ── Flatness stat ───────────────────────────────────────────────────────
+
+test('stat(flatness) — sine wave is tonal (low flatness)', async t => {
+  let sr = 44100
+  let ch = tone(440, 1, sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  let f = await a.stat('flatness')
+  t.ok(f < 0.1, `sine flatness near 0 (got ${f.toFixed(4)})`)
+})
+
+test('stat(flatness) — noise has higher flatness than tone', async t => {
+  let sr = 44100, ch = new Float32Array(sr)
+  for (let i = 0; i < sr; i++) ch[i] = Math.random() * 2 - 1
+  let noise = audio.from([ch], { sampleRate: sr })
+  let sine = audio.from([tone(440, 1, sr)], { sampleRate: sr })
+  let fNoise = await noise.stat('flatness')
+  let fSine = await sine.stat('flatness')
+  t.ok(fNoise > fSine, `noise flatness (${fNoise.toFixed(3)}) > sine flatness (${fSine.toFixed(3)})`)
+})
+
+
+// ── Correlation stat ────────────────────────────────────────────────────
+
+test('stat(correlation) — identical L/R = +1', async t => {
+  let sr = 44100, ch = tone(440, 1, sr)
+  let a = audio.from([ch, ch.slice()], { sampleRate: sr })
+  let corr = await a.stat('correlation')
+  t.ok(corr > 0.99, `identical channels ~1 (got ${corr.toFixed(4)})`)
+})
+
+test('stat(correlation) — inverted L/R = -1', async t => {
+  let sr = 44100, ch = tone(440, 1, sr)
+  let inv = new Float32Array(ch.length)
+  for (let i = 0; i < ch.length; i++) inv[i] = -ch[i]
+  let a = audio.from([ch, inv], { sampleRate: sr })
+  let corr = await a.stat('correlation')
+  t.ok(corr < -0.99, `inverted channels ~-1 (got ${corr.toFixed(4)})`)
+})
+
+test('stat(correlation) — uncorrelated channels ~0', async t => {
+  let sr = 44100, n = sr * 2
+  let L = new Float32Array(n), R = new Float32Array(n)
+  for (let i = 0; i < n; i++) { L[i] = Math.sin(2 * Math.PI * 440 * i / sr); R[i] = Math.sin(2 * Math.PI * 1000 * i / sr) }
+  let a = audio.from([L, R], { sampleRate: sr })
+  let corr = await a.stat('correlation')
+  t.ok(Math.abs(corr) < 0.2, `uncorrelated ~0 (got ${corr.toFixed(4)})`)
+})
+
+test('stat(correlation) — mono returns 1', async t => {
+  let sr = 44100
+  let a = audio.from([tone(440, 1, sr)], { sampleRate: sr })
+  let corr = await a.stat('correlation')
+  t.is(corr, 1, 'mono = 1')
 })
 
 

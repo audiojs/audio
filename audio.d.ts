@@ -81,21 +81,26 @@ export interface AudioInstance {
   /** Async-iterable over materialized blocks. `for await (let block of a)` uses default range. */
   [Symbol.asyncIterator](): AsyncGenerator<Float32Array[], void, unknown>
   /** Ensure stats are fresh, return stats + block range */
-  stat(name: 'db' | 'rms' | 'loudness' | 'peak', opts?: { at?: Time, duration?: Time, channel?: number | number[] }): Promise<number | number[]>
+  stat(name: 'db' | 'rms' | 'loudness' | 'peak' | 'crest', opts?: { at?: Time, duration?: Time, channel?: number | number[] }): Promise<number | number[]>
   stat(name: 'clipping', opts?: { at?: Time, duration?: Time }): Promise<Float32Array>
   stat(name: 'clipping', opts: { bins: number, at?: Time, duration?: Time }): Promise<Float32Array>
   stat(name: 'dc', opts?: { at?: Time, duration?: Time }): Promise<number>
+  stat(name: 'correlation', opts?: { at?: Time, duration?: Time }): Promise<number>
   stat(name: 'min' | 'max', opts?: { at?: Time, duration?: Time }): Promise<number>
   stat(name: 'min' | 'max', opts: { bins: number, at?: Time, duration?: Time, channel?: number }): Promise<Float32Array>
   stat(name: 'min' | 'max', opts: { bins: number, at?: Time, duration?: Time, channel: number[] }): Promise<Float32Array[]>
   stat(name: 'spectrum', opts?: { bins?: number, at?: Time, duration?: Time, fMin?: number, fMax?: number, weight?: boolean }): Promise<Float32Array>
   stat(name: 'cepstrum', opts?: { bins?: number, at?: Time, duration?: Time }): Promise<Float32Array>
   stat(name: 'silence', opts?: { threshold?: number, minDuration?: number, at?: Time, duration?: Time }): Promise<{ at: number, duration: number }[]>
+  stat(name: 'centroid', opts?: { at?: Time, duration?: Time }): Promise<number>
+  stat(name: 'flatness', opts?: { at?: Time, duration?: Time }): Promise<number>
   stat<T extends string[]>(name: T, opts?: { at?: Time, duration?: Time, bins?: number, channel?: number | number[] }): Promise<{ [K in keyof T]: number | Float32Array | Float32Array[] }>
   stat(name: string, opts?: { at?: Time, duration?: Time, bins?: number, channel?: number | number[] }): Promise<number | Float32Array | Float32Array[]>
   spectrum(opts?: { bins?: number, at?: Time, duration?: Time, fMin?: number, fMax?: number, weight?: boolean }): Promise<Float32Array>
   cepstrum(opts?: { bins?: number, at?: Time, duration?: Time }): Promise<Float32Array>
   silence(opts?: { threshold?: number, minDuration?: number, at?: Time, duration?: Time }): Promise<{ at: number, duration: number }[]>
+  centroid(opts?: { at?: Time, duration?: Time }): Promise<number>
+  flatness(opts?: { at?: Time, duration?: Time }): Promise<number>
   /** Serialize to JSON */
   toJSON(): { source: string | null, edits: EditOp[], sampleRate: number, channels: number, duration: number }
 

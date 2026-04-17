@@ -44,6 +44,26 @@
 * [ ] stem-separate
 * [ ] audio-transient-shaper
 
+## AI integrations
+
+_Full release after core ops (compressor, denoise, gate, reverb) are implemented — the more ops exist, the more powerful AI integration becomes. See [.work/mcp.md](mcp.md) for full exploration._
+
+### Stats (prerequisites)
+* [x] `crest` stat — dynamic range (peak/RMS ratio in dB), query-only from existing peak+ms stats
+* [x] `centroid` stat — spectral brightness (Hz), weighted avg of FFT bins, PCM computed
+* [x] `flatness` stat — spectral flatness 0..1 (0=tonal, 1=noise), geometric/arithmetic mean of FFT
+* [x] `correlation` stat — inter-channel stereo correlation -1..+1, block-level L*R, Pearson query
+
+### MCP server
+* [ ] MCP server (`bin/mcp.js`) — tools: load, info, analyze, edit, save, undo, read, play
+* [ ] Stateful session (hold audio instances by id)
+* [ ] JSON-RPC over stdio, `@modelcontextprotocol/sdk`
+
+### Skills (AI judgment layer — .md knowledge files)
+* [ ] `audio-master` skill — mastering decision tree by target (podcast/broadcast/music/voice/youtube/audiobook)
+* [ ] `audio-clean` skill — detect + fix: silence, DC, clipping, hum, noise
+* [ ] `audio-analyze` skill — human-readable reports from metrics, file comparison
+
 ## Sox parity
 
 - [ ] **compressor** — dynamic range compression / expansion / limiting (SoX `compand`)
