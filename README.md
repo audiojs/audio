@@ -23,52 +23,16 @@ audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 * [Plugins](docs/plugins.md) – custom ops, stats, descriptors (process, plan, resolve, call), persistent ctx
 -->
 
-<div align="center">
+---
+<div align=center>
 
-#### [Quick Start](#quick-start)&nbsp;&nbsp;&nbsp;[Recipes](#recipes)&nbsp;&nbsp;&nbsp;[Reference](#reference)&nbsp;&nbsp;&nbsp;[CLI](#cli)&nbsp;&nbsp;&nbsp;[FAQ](#faq)&nbsp;&nbsp;&nbsp;[Comparison](#comparison)&nbsp;&nbsp;&nbsp;[Ecosystem](#ecosystem)&nbsp;&nbsp;&nbsp;[Plugins](docs/plugins.md)&nbsp;&nbsp;&nbsp;[Architecture](docs/architecture.md)&nbsp;&nbsp;&nbsp;
-
-
-<table>
-<tr>
-<td valign="top" width="50%"><strong><a href="#create">Create</a></strong></td>
-<td valign="top" width="50%"><strong><a href="#properties">Properties</a></strong></td>
-</tr><tr>
-<td valign="top"><sub><a href="#create"><code>audio()</code></a> · <a href="#create"><code>audio.from()</code></a></sub></td>
-<td valign="top"><sub><a href="#properties"><code>duration</code></a> · <a href="#properties"><code>channels</code></a> · <a href="#properties"><code>sampleRate</code></a> · <a href="#properties"><code>length</code></a> · <a href="#properties"><code>currentTime</code></a> · <a href="#properties"><code>volume</code></a> · <a href="#properties"><code>muted</code></a> · <a href="#properties"><code>loop</code></a> · <a href="#properties"><code>playing</code></a> · <a href="#properties"><code>ready</code></a> · <a href="#properties"><code>edits</code></a></sub></td>
-</tr>
-<tr>
-<td valign="top"><strong><a href="#structure">Structure</a></strong></td>
-<td valign="top"><strong><a href="#io">I/O</a></strong></td>
-</tr><tr>
-<td valign="top"><sub><a href="#structure"><code>trim</code></a> · <a href="#structure"><code>crop</code></a> · <a href="#structure"><code>remove</code></a> · <a href="#structure"><code>insert</code></a> · <a href="#structure"><code>clip</code></a> · <a href="#structure"><code>split</code></a> · <a href="#structure"><code>pad</code></a> · <a href="#structure"><code>repeat</code></a> · <a href="#structure"><code>reverse</code></a> · <a href="#structure"><code>speed</code></a> · <a href="#structure"><code>stretch</code></a> · <a href="#structure"><code>pitch</code></a> · <a href="#structure"><code>remix</code></a></sub></td>
-<td valign="top"><sub><a href="#io"><code>read</code></a> · <a href="#io"><code>save</code></a> · <a href="#io"><code>encode</code></a> · <a href="#io"><code>clone</code></a> · <a href="#io"><code>push</code></a></sub></td>
-</tr>
-<tr>
-<td valign="top"><strong><a href="#process">Process</a></strong></td>
-<td valign="top"><strong><a href="#playback--recording">Playback</a></strong></td>
-</tr><tr>
-<td valign="top"><sub><a href="#process"><code>gain</code></a> · <a href="#process"><code>fade</code></a> · <a href="#process"><code>normalize</code></a> · <a href="#process"><code>mix</code></a> · <a href="#process"><code>crossfade</code></a> · <a href="#process"><code>pan</code></a> · <a href="#process"><code>write</code></a> · <a href="#process"><code>transform</code></a></sub></td>
-<td valign="top"><sub><a href="#playback--recording"><code>play</code></a> · <a href="#playback--recording"><code>pause</code></a> · <a href="#playback--recording"><code>resume</code></a> · <a href="#playback--recording"><code>seek</code></a> · <a href="#playback--recording"><code>stop</code></a> · <a href="#playback--recording"><code>meter</code></a> · <a href="#playback--recording"><code>record</code></a></sub></td>
-</tr>
-<tr>
-<td valign="top"><strong><a href="#filter">Filter</a></strong></td>
-<td valign="top"><strong><a href="#analysis">Analysis</a></strong></td>
-</tr><tr>
-<td valign="top"><sub><a href="#filter"><code>highpass</code></a> · <a href="#filter"><code>lowpass</code></a> · <a href="#filter"><code>bandpass</code></a> · <a href="#filter"><code>notch</code></a> · <a href="#filter"><code>allpass</code></a> · <a href="#filter"><code>lowshelf</code></a> · <a href="#filter"><code>highshelf</code></a> · <a href="#filter"><code>eq</code></a> · <a href="#filter"><code>filter</code></a></sub></td>
-<td valign="top"><sub><a href="#analysis"><code>db</code></a> · <a href="#analysis"><code>rms</code></a> · <a href="#analysis"><code>peak</code></a> · <a href="#analysis"><code>loudness</code></a> · <a href="#analysis"><code>dc</code></a> · <a href="#analysis"><code>clipping</code></a> · <a href="#analysis"><code>silence</code></a> · <a href="#analysis"><code>crest</code></a> · <a href="#analysis"><code>centroid</code></a> · <a href="#analysis"><code>flatness</code></a> · <a href="#analysis"><code>correlation</code></a> · <a href="#analysis"><code>spectrum</code></a> · <a href="#analysis"><code>cepstrum</code></a> · <a href="#analysis"><code>bpm</code></a> · <a href="#analysis"><code>beats</code></a> · <a href="#analysis"><code>onsets</code></a> · <a href="#analysis"><code>notes</code></a> · <a href="#analysis"><code>chords</code></a> · <a href="#analysis"><code>key</code></a> · <a href="#analysis"><code>detect()</code></a></sub></td>
-</tr>
-<tr>
-<td valign="top"><strong><a href="#effect">Effect</a></strong></td>
-<td valign="top"><strong><a href="#utility">Utility</a></strong></td>
-</tr><tr>
-<td valign="top"><sub><a href="#effect"><code>vocals</code></a> · <a href="#effect"><code>dither</code></a> · <a href="#effect"><code>crossfeed</code></a> · <a href="#effect"><code>resample</code></a></sub><br><sub><em>planned:</em> <code>compressor</code> · <code>reverb</code> · <code>echo</code> · <code>chorus</code> · <code>flanger</code> · <code>phaser</code> · <code>denoise</code></sub></td>
-<td valign="top"><sub><a href="#utility"><code>on</code></a> · <a href="#utility"><code>off</code></a> · <a href="#utility"><code>undo</code></a> · <a href="#utility"><code>run</code></a> · <a href="#utility"><code>dispose</code></a> · <a href="#plugins"><code>audio.op</code></a> · <a href="#plugins"><code>audio.stat</code></a></sub></td>
-</tr>
-</table>
+#### [Start](#start)&nbsp;&nbsp;&nbsp;[Recipes](#recipes)&nbsp;&nbsp;&nbsp;[API](#api)&nbsp;&nbsp;&nbsp;[CLI](#cli)&nbsp;&nbsp;&nbsp;[FAQ](#faq)&nbsp;&nbsp;&nbsp;[Plugins](docs/plugins.md)&nbsp;&nbsp;&nbsp;[Architecture](docs/architecture.md)
 
 </div>
 
-## Quick Start
+---
+
+## Start
 
 ### Node
 
@@ -318,7 +282,7 @@ await a.save('sonification.wav')
 ```
 
 
-## Reference
+## API
 
 ### Create
 
@@ -772,9 +736,6 @@ eval "$(audio --completions bash)"      # add to ~/.bashrc
 audio --completions fish | source       # fish
 ```
 
-
-
-
 ## FAQ
 
 <dl>
@@ -817,25 +778,6 @@ audio --completions fish | source       # fish
 <dt>How is this different from Tone.js / Howler.js?</dt>
 <dd>Tone.js is a Web Audio synthesis framework — great for making music in real-time, not for editing files. Howler.js is a playback library — load and play, no editing or analysis. <code>audio</code> is a complete audio workstation: decode, edit, analyze, encode, play, record, CLI.</dd>
 </dl>
-
-
-## Comparison
-
-`audio` is part of the [audiojs](https://github.com/audiojs) ecosystem. Together with `audio-decode`, `encode-audio`, `audio-speaker`, `audio-mic`, `audio-filter`, `pcm-convert`, `pitch-detection`, and `wavearea`, it covers most JS audio needs without leaving the runtime.
-
-| Need                                                  | Recommended                                                |
-|-------------------------------------------------------|------------------------------------------------------------|
-| Edit, decode, encode, play, record, analyze in JS     | **`audio`** ← you are here                                 |
-| Batch-process from the command line                   | **`audio`** CLI — or SoX / FFmpeg for max native throughput|
-| Spectrum / MFCC / RMS / LUFS in JS                    | **`audio`** `stat(...)` — or Meyda for streaming Web Audio |
-| BPM, beats, onsets, chords, key                       | **`audio`** `stat(...)` — or librosa+madmom for research    |
-| Visualize a waveform on a webpage                     | Wavesurfer.js, or Wavearea for editing UI                  |
-| Synthesize music live (transport, scheduling, voices) | Tone.js                                                    |
-| GUI editing for end users                             | Audacity, Reaper, Adobe Audition                           |
-| Host VST3 / AU plugins                                | Pedalboard (Python), JUCE (C++)                            |
-| Real-time DSP with hard latency guarantees            | JUCE, Faust, Csound (native)                               |
-
-Full landscape with API styles, method-naming reference, strengths/weaknesses, and selection guide: **[docs/comparison.md](docs/comparison.md)**.
 
 ## Ecosystem
 
