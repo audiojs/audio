@@ -29,70 +29,41 @@ audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 
 
 <table>
-<tr><td valign="top" width="50%">
-
-**[Create](#create)**<br>
-<sub>[`audio()`](#create) · [`audio.from()`](#create)</sub>
-
-</td><td valign="top" width="50%">
-
-**[Properties](#properties)**<br>
-<sub>[`duration`](#properties) · [`channels`](#properties) · [`sampleRate`](#properties) · [`length`](#properties) · [`currentTime`](#properties) · [`volume`](#properties) · [`muted`](#properties) · [`loop`](#properties) · [`playing`](#properties) · [`ready`](#properties) · [`edits`](#properties)</sub>
-
-</td></tr>
-<tr><td valign="top" width="50%">
-
-**[Structure](#structure)**<br>
-<sub>[`trim`](#structure) · [`crop`](#structure) · [`remove`](#structure) · [`insert`](#structure) · [`clip`](#structure) · [`split`](#structure) · [`pad`](#structure) · [`repeat`](#structure) · [`reverse`](#structure) · [`speed`](#structure) · [`stretch`](#structure) · [`pitch`](#structure) · [`remix`](#structure)</sub>
-
-</td><td valign="top" width="50%">
-
-**[I/O](#io)**<br>
-<sub>[`read`](#io) · [`save`](#io) · [`encode`](#io) · [`clone`](#io) · [`push`](#io)</sub>
-
-</td></tr>
-<tr><td valign="top" width="50%">
-
-**[Process](#process)**<br>
-<sub>[`gain`](#process) · [`fade`](#process) · [`normalize`](#process) · [`mix`](#process) · [`crossfade`](#process) · [`pan`](#process) · [`write`](#process) · [`transform`](#process)</sub>
-
-</td><td valign="top" width="50%">
-
-**[Playback](#playback--recording)**<br>
-<sub>[`play`](#playback--recording) · [`pause`](#playback--recording) · [`resume`](#playback--recording) · [`seek`](#playback--recording) · [`stop`](#playback--recording) · [`meter`](#playback--recording) · [`record`](#playback--recording)</sub>
-
-</td></tr>
-<tr><td valign="top" width="50%">
-
-**[Filter](#filter)**<br>
-<sub>[`highpass`](#filter) · [`lowpass`](#filter) · [`bandpass`](#filter) · [`notch`](#filter) · [`allpass`](#filter) · [`lowshelf`](#filter) · [`highshelf`](#filter) · [`eq`](#filter) · [`filter`](#filter)</sub>
-
-</td><td valign="top" width="50%">
-
-**[Analysis](#analysis)**<br>
-<sub>[`db`](#analysis) · [`rms`](#analysis) · [`peak`](#analysis) · [`loudness`](#analysis) · [`dc`](#analysis) · [`clipping`](#analysis) · [`silence`](#analysis) · [`crest`](#analysis) · [`centroid`](#analysis) · [`flatness`](#analysis) · [`correlation`](#analysis) · [`spectrum`](#analysis) · [`cepstrum`](#analysis) · [`bpm`](#analysis) · [`beats`](#analysis) · [`onsets`](#analysis) · [`notes`](#analysis) · [`chords`](#analysis) · [`key`](#analysis) · [`detect()`](#analysis)</sub>
-
-</td></tr>
-<tr><td valign="top" width="50%">
-
-**[Effect](#effect)**<br>
-<sub>[`vocals`](#effect) · [`dither`](#effect) · [`crossfeed`](#effect) · [`resample`](#effect)</sub><br>
-<sub>*planned:* `compressor` · `reverb` · `echo` · `chorus` · `flanger` · `phaser` · `denoise`</sub>
-
-</td><td valign="top" width="50%">
-
-**[Utility](#utility)**<br>
-<sub>[`on`](#utility) · [`off`](#utility) · [`undo`](#utility) · [`run`](#utility) · [`dispose`](#utility)</sub>
-
-</td></tr>
-<tr><td valign="top" width="50%">
-
-</td><td valign="top" width="50%">
-
-**[Plugins](#plugins)**<br>
-<sub>[`audio.op`](#plugins) · [`audio.stat`](#plugins)</sub>
-
-</td></tr>
+<tr>
+<td valign="top" width="50%"><strong><a href="#create">Create</a></strong></td>
+<td valign="top" width="50%"><strong><a href="#properties">Properties</a></strong></td>
+</tr><tr>
+<td valign="top"><sub><a href="#create"><code>audio()</code></a> · <a href="#create"><code>audio.from()</code></a></sub></td>
+<td valign="top"><sub><a href="#properties"><code>duration</code></a> · <a href="#properties"><code>channels</code></a> · <a href="#properties"><code>sampleRate</code></a> · <a href="#properties"><code>length</code></a> · <a href="#properties"><code>currentTime</code></a> · <a href="#properties"><code>volume</code></a> · <a href="#properties"><code>muted</code></a> · <a href="#properties"><code>loop</code></a> · <a href="#properties"><code>playing</code></a> · <a href="#properties"><code>ready</code></a> · <a href="#properties"><code>edits</code></a></sub></td>
+</tr>
+<tr>
+<td valign="top"><strong><a href="#structure">Structure</a></strong></td>
+<td valign="top"><strong><a href="#io">I/O</a></strong></td>
+</tr><tr>
+<td valign="top"><sub><a href="#structure"><code>trim</code></a> · <a href="#structure"><code>crop</code></a> · <a href="#structure"><code>remove</code></a> · <a href="#structure"><code>insert</code></a> · <a href="#structure"><code>clip</code></a> · <a href="#structure"><code>split</code></a> · <a href="#structure"><code>pad</code></a> · <a href="#structure"><code>repeat</code></a> · <a href="#structure"><code>reverse</code></a> · <a href="#structure"><code>speed</code></a> · <a href="#structure"><code>stretch</code></a> · <a href="#structure"><code>pitch</code></a> · <a href="#structure"><code>remix</code></a></sub></td>
+<td valign="top"><sub><a href="#io"><code>read</code></a> · <a href="#io"><code>save</code></a> · <a href="#io"><code>encode</code></a> · <a href="#io"><code>clone</code></a> · <a href="#io"><code>push</code></a></sub></td>
+</tr>
+<tr>
+<td valign="top"><strong><a href="#process">Process</a></strong></td>
+<td valign="top"><strong><a href="#playback--recording">Playback</a></strong></td>
+</tr><tr>
+<td valign="top"><sub><a href="#process"><code>gain</code></a> · <a href="#process"><code>fade</code></a> · <a href="#process"><code>normalize</code></a> · <a href="#process"><code>mix</code></a> · <a href="#process"><code>crossfade</code></a> · <a href="#process"><code>pan</code></a> · <a href="#process"><code>write</code></a> · <a href="#process"><code>transform</code></a></sub></td>
+<td valign="top"><sub><a href="#playback--recording"><code>play</code></a> · <a href="#playback--recording"><code>pause</code></a> · <a href="#playback--recording"><code>resume</code></a> · <a href="#playback--recording"><code>seek</code></a> · <a href="#playback--recording"><code>stop</code></a> · <a href="#playback--recording"><code>meter</code></a> · <a href="#playback--recording"><code>record</code></a></sub></td>
+</tr>
+<tr>
+<td valign="top"><strong><a href="#filter">Filter</a></strong></td>
+<td valign="top"><strong><a href="#analysis">Analysis</a></strong></td>
+</tr><tr>
+<td valign="top"><sub><a href="#filter"><code>highpass</code></a> · <a href="#filter"><code>lowpass</code></a> · <a href="#filter"><code>bandpass</code></a> · <a href="#filter"><code>notch</code></a> · <a href="#filter"><code>allpass</code></a> · <a href="#filter"><code>lowshelf</code></a> · <a href="#filter"><code>highshelf</code></a> · <a href="#filter"><code>eq</code></a> · <a href="#filter"><code>filter</code></a></sub></td>
+<td valign="top"><sub><a href="#analysis"><code>db</code></a> · <a href="#analysis"><code>rms</code></a> · <a href="#analysis"><code>peak</code></a> · <a href="#analysis"><code>loudness</code></a> · <a href="#analysis"><code>dc</code></a> · <a href="#analysis"><code>clipping</code></a> · <a href="#analysis"><code>silence</code></a> · <a href="#analysis"><code>crest</code></a> · <a href="#analysis"><code>centroid</code></a> · <a href="#analysis"><code>flatness</code></a> · <a href="#analysis"><code>correlation</code></a> · <a href="#analysis"><code>spectrum</code></a> · <a href="#analysis"><code>cepstrum</code></a> · <a href="#analysis"><code>bpm</code></a> · <a href="#analysis"><code>beats</code></a> · <a href="#analysis"><code>onsets</code></a> · <a href="#analysis"><code>notes</code></a> · <a href="#analysis"><code>chords</code></a> · <a href="#analysis"><code>key</code></a> · <a href="#analysis"><code>detect()</code></a></sub></td>
+</tr>
+<tr>
+<td valign="top"><strong><a href="#effect">Effect</a></strong></td>
+<td valign="top"><strong><a href="#utility">Utility</a></strong></td>
+</tr><tr>
+<td valign="top"><sub><a href="#effect"><code>vocals</code></a> · <a href="#effect"><code>dither</code></a> · <a href="#effect"><code>crossfeed</code></a> · <a href="#effect"><code>resample</code></a></sub><br><sub><em>planned:</em> <code>compressor</code> · <code>reverb</code> · <code>echo</code> · <code>chorus</code> · <code>flanger</code> · <code>phaser</code> · <code>denoise</code></sub></td>
+<td valign="top"><sub><a href="#utility"><code>on</code></a> · <a href="#utility"><code>off</code></a> · <a href="#utility"><code>undo</code></a> · <a href="#utility"><code>run</code></a> · <a href="#utility"><code>dispose</code></a> · <a href="#plugins"><code>audio.op</code></a> · <a href="#plugins"><code>audio.stat</code></a></sub></td>
+</tr>
 </table>
 
 </div>
