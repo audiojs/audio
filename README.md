@@ -25,7 +25,7 @@ audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 
 <div align="center">
 
-#### [Quick Start](#quick-start)&nbsp;&nbsp;&nbsp;[Recipes](#recipes)&nbsp;&nbsp;&nbsp;[API](#api)&nbsp;&nbsp;&nbsp;[CLI](#cli)&nbsp;&nbsp;&nbsp;[FAQ](#faq)&nbsp;&nbsp;&nbsp;[Ecosystem](#ecosystem)&nbsp;&nbsp;&nbsp;[Todo](#todo)&nbsp;&nbsp;&nbsp;[Plugins](docs/plugins.md)&nbsp;&nbsp;&nbsp;[Architecture](docs/architecture.md)&nbsp;&nbsp;&nbsp;
+#### [Quick Start](#quick-start)&nbsp;&nbsp;&nbsp;[API](#api)&nbsp;&nbsp;&nbsp;[Recipes](#recipes)&nbsp;&nbsp;&nbsp;[Reference](#reference)&nbsp;&nbsp;&nbsp;[CLI](#cli)&nbsp;&nbsp;&nbsp;[FAQ](#faq)&nbsp;&nbsp;&nbsp;[Comparison](#comparison)&nbsp;&nbsp;&nbsp;[Ecosystem](#ecosystem)&nbsp;&nbsp;&nbsp;[Plugins](docs/plugins.md)&nbsp;&nbsp;&nbsp;[Architecture](docs/architecture.md)&nbsp;&nbsp;&nbsp;
 
 </div>
 
@@ -54,6 +54,7 @@ await a.save('clean.mp3')
 ```
 
 Codecs load on demand via `import()` — map them with an import map or your bundler.
+
 <details>
 <summary><strong>Import map example</strong></summary>
 
@@ -93,6 +94,52 @@ Codecs load on demand via `import()` — map them with an import map or your bun
 npm i -g audio
 audio voice.wav trim normalize podcast fade 0.3s -0.5s -o clean.mp3
 ```
+
+## API
+
+<table><tr><td valign="top" width="50%">
+
+**[Create](#create)**<br>
+<sub>[`audio()`](#create) · [`audio.from()`](#create)</sub>
+
+**[Properties](#properties)**<br>
+<sub>[duration](#properties) · [channels](#properties) · [sampleRate](#properties) · [length](#properties) · [currentTime](#properties) · [volume](#properties) · [muted](#properties) · [loop](#properties) · [playing](#properties) · [ready](#properties) · [edits](#properties)</sub>
+
+**[Structure](#structure)**<br>
+<sub>[trim](#structure) · [crop](#structure) · [remove](#structure) · [insert](#structure) · [clip](#structure) · [split](#structure) · [pad](#structure) · [repeat](#structure) · [reverse](#structure) · [speed](#structure) · [remix](#structure)</sub>
+
+**[Process](#process)**<br>
+<sub>[gain](#process) · [fade](#process) · [normalize](#process) · [mix](#process) · [crossfade](#process) · [pan](#process) · [write](#process) · [transform](#process)</sub>
+
+**[Filter](#filter)**<br>
+<sub>[highpass](#filter) · [lowpass](#filter) · [bandpass](#filter) · [notch](#filter) · [allpass](#filter) · [lowshelf](#filter) · [highshelf](#filter) · [eq](#filter) · [filter](#filter)</sub>
+
+**[Effect](#effect)**<br>
+<sub>[vocals](#effect) · [dither](#effect) · [earwax](#effect) · [resample](#effect)</sub>
+
+</td><td valign="top" width="50%">
+
+**[I/O](#io)**<br>
+<sub>[read](#io) · [save](#io) · [encode](#io) · [clone](#io) · [push](#io) · [`for await`](#io)</sub>
+
+**[Playback](#playback--recording)**<br>
+<sub>[play](#playback--recording) · [pause](#playback--recording) · [resume](#playback--recording) · [seek](#playback--recording) · [stop](#playback--recording) · [record](#playback--recording)</sub>
+
+**[Analysis](#analysis)**<br>
+<sub>[db](#analysis) · [rms](#analysis) · [peak](#analysis) · [loudness](#analysis) · [dc](#analysis) · [clipping](#analysis) · [silence](#analysis) · [spectrum](#analysis) · [cepstrum](#analysis) · [bpm](#analysis) · [beats](#analysis) · [onsets](#analysis) · [notes](#analysis) · [chords](#analysis) · [key](#analysis)</sub>
+
+**[Meter](#meter)**<br>
+<sub>[on('meter')](#meter)</sub>
+
+**[Utility](#utility)**<br>
+<sub>[on](#utility) · [off](#utility) · [undo](#utility) · [run](#utility) · [dispose](#utility)</sub>
+
+**[Plugins](#plugins)**<br>
+<sub>[audio.op](#plugins) · [audio.stat](#plugins)</sub>
+
+</td></tr></table>
+
+<sub>**Familiar names from other tools:** `vocals` (SoX `oops`) · `earwax` (SoX `earwax`, FFmpeg `crossfeed`/`bs2b`) · `normalize('broadcast')` (FFmpeg `loudnorm`, EBU R128) · `crossfade` (FFmpeg `acrossfade`, SoX `splice`) · `resample` (SoX `rate`, FFmpeg `aresample`) · `eq` (FFmpeg/SoX `equalizer`) · `mix` (FFmpeg `amix`, pydub `overlay`) · `notch` (FFmpeg `bandreject`) · `lowshelf`/`highshelf` (SoX/FFmpeg `bass`/`treble`) · `remix` (SoX `remix`) · `trim` (SoX/FFmpeg `atrim`) · `repeat` (SoX `repeat`, FFmpeg `aloop`) · `pad` (SoX `pad`, FFmpeg `apad`). &nbsp;Full map → [docs/comparison.md](docs/comparison.md).</sub>
 
 ## Recipes
 
@@ -277,7 +324,7 @@ await a.save('sonification.wav')
 ```
 
 
-## API
+## Reference
 
 ### Create
 
