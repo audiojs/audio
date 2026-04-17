@@ -33,9 +33,6 @@ audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 **[Create](#create)**<br>
 <sub>[`audio()`](#create) · [`audio.from()`](#create)</sub>
 
-**[Properties](#properties)**<br>
-<sub>[`duration`](#properties) · [`channels`](#properties) · [`sampleRate`](#properties) · [`length`](#properties) · [`currentTime`](#properties) · [`volume`](#properties) · [`muted`](#properties) · [`loop`](#properties) · [`playing`](#properties) · [`ready`](#properties) · [`edits`](#properties)</sub>
-
 **[Structure](#structure)**<br>
 <sub>[`trim`](#structure) · [`crop`](#structure) · [`remove`](#structure) · [`insert`](#structure) · [`clip`](#structure) · [`split`](#structure) · [`pad`](#structure) · [`repeat`](#structure) · [`reverse`](#structure) · [`speed`](#structure) · [`remix`](#structure)</sub>
 
@@ -49,6 +46,9 @@ audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 <sub>[`vocals`](#effect) · [`dither`](#effect) · [`crossfeed`](#effect) · [`resample`](#effect)</sub>
 
 </td><td valign="top" width="50%">
+
+**[Properties](#properties)**<br>
+<sub>[`duration`](#properties) · [`channels`](#properties) · [`sampleRate`](#properties) · [`length`](#properties) · [`currentTime`](#properties) · [`volume`](#properties) · [`muted`](#properties) · [`loop`](#properties) · [`playing`](#properties) · [`ready`](#properties) · [`edits`](#properties)</sub>
 
 **[I/O](#io)**<br>
 <sub>[`read`](#io) · [`stream`](#io) · [`save`](#io) · [`encode`](#io) · [`clone`](#io) · [`push`](#io)</sub>
