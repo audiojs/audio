@@ -36,7 +36,7 @@ let server = createServer(async (req, res) => {
 await new Promise(r => server.listen(0, r))
 let port = server.address().port
 
-let browser = await chromium.launch()
+let browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] })
 let page = await browser.newPage()
 
 let lines = [], failed = false
