@@ -62,7 +62,7 @@ audio.fn.play = function(opts) {
             }
             let end = Math.min(bOff + BLOCK, cLen), len = end - bOff
             a.block = chunk[0].subarray(bOff, end)
-            if (a._.ev.meter?.length) {
+            if (a._.meters?.length) {
               let blockChs = chunk.map(c => c.subarray(bOff, end))
               emitMeter(a, blockChs, from + played / sr)
             }

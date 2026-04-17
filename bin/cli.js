@@ -409,10 +409,10 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
     return pStr + DIM + dStr + RST + eStr
   }
 
-  // FFT spectrum — via meter event (listener-gated, peak-hold via meter opts)
+  // FFT spectrum — via meter probe (listener-gated, peak-hold via meter opts)
   const SBARS = ' ▁▂▃▄▅▆▇█', SPEC_BINS = 128
   let liveSpec = null  // latest per-frame mel magnitudes, length SPEC_BINS
-  if (fft) a?.on('meter', bins => { liveSpec = bins }, { type: 'spectrum', bins: SPEC_BINS, hold: 0.5 })
+  if (fft) a?.meter({ type: 'spectrum', bins: SPEC_BINS, hold: 0.5 }, bins => { liveSpec = bins })
 
   // Auto-scaling: track running peak dB for spectrum
   let specMax = -60

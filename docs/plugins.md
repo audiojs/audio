@@ -288,4 +288,4 @@ audio.stat('mystat', (chs, ctx) => chs.map(ch => /* number */))
 
 `ctx` has `sampleRate` and persists across blocks within one decode session — set any property for stateful computation.
 
-Registered stats auto-participate in the playback `'meter'` event — `a.on('meter', cb, 'mystat')` streams per-block values during playback. Block-defined stats emit the raw block value; `query`-defined stats are evaluated against a single-block pseudo-stats window.
+Registered stats auto-participate in the playback meter — `a.meter('mystat', cb)` streams per-block values during playback. Block-defined stats emit the raw block value; `query`-defined stats are evaluated against a single-block pseudo-stats window.

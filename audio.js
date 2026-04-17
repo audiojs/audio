@@ -22,6 +22,7 @@ import './plan.js'
 import './fn/clip.js'
 import './fn/split.js'
 import './fn/play.js'
+import './fn/meter.js'
 import './fn/save.js'
 
 // ── Ops ─────────────────────────────────────────────────────────────────

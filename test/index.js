@@ -1407,12 +1407,12 @@ test('play/pause events', async t => {
 })
 
 
-// ── Meter event (playback-time streaming stats) ──────────────────────────
+// ── Meter (playback-time streaming stats) ──────────────────────────
 
 test('meter — fires during playback', async t => {
   let a = audio.from([tone(440, 0.3)], { sampleRate: 44100 })
   let values = []
-  a.on('meter', v => values.push(v), 'rms')
+  a.meter('rms', v => values.push(v))
   a.play()
   await new Promise(r => a.on('ended', r))
   t.ok(values.length > 0, `meter fired ${values.length} times`)
@@ -1424,20 +1424,19 @@ test('meter — fires during playback', async t => {
 test('meter — zero listeners = no dispatch', async t => {
   let a = audio.from([tone(440, 0.1)], { sampleRate: 44100 })
   let called = false
-  let cb = () => { called = true }
-  // Only register then remove — no listeners during play
-  a.on('meter', cb, 'rms')
-  a.off('meter', cb)
+  // Register then stop — no listeners during play
+  let probe = a.meter('rms', () => { called = true })
+  probe.stop()
   a.play()
   await new Promise(r => a.on('ended', r))
-  t.is(called, false, 'removed listener not called')
-  t.is(a._.ev.meter?.length ?? 0, 0, 'no meter subscribers')
+  t.is(called, false, 'stopped probe not called')
+  t.is(a._.meters?.length ?? 0, 0, 'no meter subscribers')
 })
 
 test('meter — no type arg emits {delta, offset} like decode data', async t => {
   let a = audio.from([tone(440, 0.2)], { sampleRate: 44100 })
   let got
-  a.on('meter', ev => { got ??= ev })
+  a.meter({}, ev => { got ??= ev })
   a.play()
   await new Promise(r => a.on('ended', r))
   t.ok(got, 'meter fired')
@@ -1450,7 +1449,7 @@ test('meter — no type arg emits {delta, offset} like decode data', async t => 
 test('meter — array type returns keyed object', async t => {
   let a = audio.from([tone(440, 0.2)], { sampleRate: 44100 })
   let last
-  a.on('meter', v => { last = v }, ['rms', 'peak'])
+  a.meter(['rms', 'peak'], v => { last = v })
   a.play()
   await new Promise(r => a.on('ended', r))
   t.ok(last && typeof last === 'object', 'got object payload')
@@ -1462,7 +1461,7 @@ test('meter — channel:[0,1] returns per-channel array', async t => {
   let L = tone(440, 0.2), R = new Float32Array(L.length).fill(0)  // silent right
   let a = audio.from([L, R], { sampleRate: 44100 })
   let last
-  a.on('meter', v => { last = v }, { type: 'rms', channel: [0, 1] })
+  a.meter({ type: 'rms', channel: [0, 1] }, v => { last = v })
   a.play()
   await new Promise(r => a.on('ended', r))
   t.ok(Array.isArray(last), 'per-channel array')
@@ -1474,7 +1473,7 @@ test('meter — channel:[0,1] returns per-channel array', async t => {
 test('meter — spectrum type returns Float32Array of bins', async t => {
   let a = audio.from([tone(440, 0.3)], { sampleRate: 44100 })
   let last
-  a.on('meter', v => { last = v }, { type: 'spectrum', bins: 32 })
+  a.meter({ type: 'spectrum', bins: 32 }, v => { last = v })
   a.play()
   await new Promise(r => a.on('ended', r))
   t.ok(last instanceof Float32Array, 'Float32Array')
@@ -1490,37 +1489,45 @@ test('meter — smoothing attenuates step response', async t => {
   for (let i = ch.length / 2 | 0; i < ch.length; i++) ch[i] = 0.8
   let a = audio.from([ch], { sampleRate: 44100 })
   let raw = [], smoothed = []
-  a.on('meter', v => raw.push(v), 'rms')
-  a.on('meter', v => smoothed.push(v), { type: 'rms', smoothing: 0.1 })
+  a.meter('rms', v => raw.push(v))
+  a.meter({ type: 'rms', smoothing: 0.1 }, v => smoothed.push(v))
   a.play()
   await new Promise(r => a.on('ended', r))
-  t.ok(raw.length === smoothed.length, 'same block count for both listeners')
+  t.ok(raw.length === smoothed.length, 'same block count for both probes')
   // Max jump (block-to-block delta) should be smaller for smoothed
   let maxDelta = arr => { let m = 0; for (let i = 1; i < arr.length; i++) m = Math.max(m, Math.abs(arr[i] - arr[i-1])); return m }
   let rawJump = maxDelta(raw), smoothJump = maxDelta(smoothed)
   t.ok(smoothJump < rawJump, `smoothed jump (${smoothJump.toFixed(3)}) < raw jump (${rawJump.toFixed(3)})`)
 })
 
-test('meter — off removes subscription', async t => {
+test('meter — probe.stop() removes subscription', async t => {
   let a = audio.from([tone(440, 0.3)], { sampleRate: 44100 })
   let count = 0
-  let cb = () => count++
-  a.on('meter', cb, 'rms')
+  let probe = a.meter('rms', () => count++)
   a.play()
   await new Promise(r => setTimeout(r, 100))  // accumulate some
   let before = count
-  a.off('meter', cb)
+  probe.stop()
   await new Promise(r => a.on('ended', r))
-  t.ok(before > 0, `got ${before} values before off`)
-  t.is(count, before, 'no more values after off')
+  t.ok(before > 0, `got ${before} values before stop`)
+  t.is(count, before, 'no more values after stop')
 })
 
 test('meter — does NOT fire during decode', async t => {
   let count = 0
   let a = audio(lenaPath)
-  a.on('meter', () => count++, 'rms')
+  a.meter('rms', () => count++)
   await a  // decode completes
   t.is(count, 0, 'meter is playback-only, not decode-time')
+})
+
+test('meter — probe.value exposes last computed value (pull form)', async t => {
+  let a = audio.from([tone(440, 0.3)], { sampleRate: 44100 })
+  let probe = a.meter({ type: 'rms' })
+  a.play()
+  await new Promise(r => a.on('ended', r))
+  t.ok(typeof probe.value === 'number', 'probe.value is scalar')
+  t.ok(probe.value > 0.5 && probe.value < 0.9, `rms ≈ 0.707 (got ${probe.value.toFixed(3)})`)
 })
 
 

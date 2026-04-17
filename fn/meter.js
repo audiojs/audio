@@ -1,13 +1,11 @@
 /**
- * Meter — playback-time streaming stat emission.
+ * Meter — streaming stats during playback.
  * Listener-gated (zero cost when nothing subscribes).
- * Subscribers via a.on('meter', cb, opts). See README "Meter" section.
+ * Public API: a.meter(what, cb?). See README "Playback → meter".
  */
 
 import audio from '../core.js'
 import { melSpectrum } from './spectrum.js'
-
-let rAbsMax = (a, b) => Math.max(Math.abs(a), Math.abs(b))
 
 /** Resolve channel selector (opts.channel) → indices. Mirrors stat.js semantics. */
 function resolveChs(channel, ch) {
@@ -22,7 +20,7 @@ function frameValue(name, raw, blockChs, sr, opts) {
   let { chs, perCh } = resolveChs(opts?.channel, ch)
 
   if (name === 'spectrum') {
-    let N = opts?.N ?? 1024  // FFT size (must be pow2)
+    let N = opts?.N ?? 1024
     let src = blockChs[0], input
     if (src.length >= N) input = src.subarray(0, N)
     else { input = new Float32Array(N); input.set(src) }
@@ -36,7 +34,6 @@ function frameValue(name, raw, blockChs, sr, opts) {
   let desc = audio.stat(name)
   if (!desc) throw new Error(`Unknown meter stat: '${name}'`)
 
-  // Pseudo-stats: wrap each raw block value as single-element Float32Array so existing query fns work
   let pseudo = { blockSize: blockChs[0].length }
   for (let n in raw) pseudo[n] = raw[n].map(v => Float32Array.of(v))
 
@@ -53,7 +50,6 @@ function frameValue(name, raw, blockChs, sr, opts) {
   throw new Error(`No frame computation for stat: '${name}'`)
 }
 
-/** In-place one-pole EMA: prev += α · (cur − prev). Supports number, array, TypedArray. */
 function smooth(cur, prev, alpha) {
   if (typeof cur === 'number') return prev + alpha * (cur - prev)
   let out = cur.constructor === Array ? cur.slice() : new cur.constructor(cur.length)
@@ -61,7 +57,6 @@ function smooth(cur, prev, alpha) {
   return out
 }
 
-/** Peak-hold decay: max(cur, prev · (1−α)). */
 function holdDecay(cur, prev, alpha) {
   if (typeof cur === 'number') return Math.max(cur, prev * (1 - alpha))
   let out = cur.constructor === Array ? cur.slice() : new cur.constructor(cur.length)
@@ -69,7 +64,7 @@ function holdDecay(cur, prev, alpha) {
   return out
 }
 
-/** Compute all block-level stat values once per frame. Returns { [name]: perChannelArray }. */
+/** Compute all block-level stat values once per frame. */
 function computeRawBlock(blockChs, sr) {
   let raw = {}, ch = blockChs.length
   for (let [name, desc] of Object.entries(audio.stat())) {
@@ -80,56 +75,73 @@ function computeRawBlock(blockChs, sr) {
   return raw
 }
 
-/** Dispatch meter event for one playback block. Called from playback loop. */
+/** Dispatch meter to all probes for one playback block. Called from fn/play.js. */
 export function emitMeter(a, blockChs, offset) {
-  let subs = a._.ev.meter
-  if (!subs?.length) return
+  let probes = a._.meters
+  if (!probes?.length) return
 
   let sr = a.sampleRate, blockLen = blockChs[0].length, blockDur = blockLen / sr
   let raw = null
 
-  for (let sub of subs) {
-    let opts = sub._opts
-    if (!opts) {
-      // Generic listener — emit {delta, offset} shaped like decode's 'data' event
+  for (let p of probes) {
+    let opts = p.opts
+    if (opts.type == null) {
       if (!raw) raw = computeRawBlock(blockChs, sr)
       let delta = { fromBlock: 0 }
       for (let n in raw) delta[n] = raw[n].map(v => Float32Array.of(v))
-      sub({ delta, offset })
+      let ev = { delta, offset }
+      p.value = ev
+      if (p.cb) p.cb(ev)
       continue
     }
 
-    let { type, smoothing, hold } = opts
-    let types = Array.isArray(type) ? type : [type]
-
-    // Lazy: only compute raw block stats if any non-spectrum type is requested
+    let types = Array.isArray(opts.type) ? opts.type : [opts.type]
     if (types.some(t => t !== 'spectrum') && !raw) raw = computeRawBlock(blockChs, sr)
 
     let values = {}
     for (let t of types) values[t] = frameValue(t, raw, blockChs, sr, opts)
 
-    // Per-listener smoothing state (one-pole EMA, τ in seconds)
-    if (smoothing) {
-      let alpha = 1 - Math.exp(-blockDur / smoothing)
-      sub._smooth ??= {}
+    if (opts.smoothing) {
+      let alpha = 1 - Math.exp(-blockDur / opts.smoothing)
+      p._smooth ??= {}
       for (let t of types) {
-        let prev = sub._smooth[t]
-        if (prev == null) sub._smooth[t] = values[t]
-        else sub._smooth[t] = values[t] = smooth(values[t], prev, alpha)
+        let prev = p._smooth[t]
+        if (prev == null) p._smooth[t] = values[t]
+        else p._smooth[t] = values[t] = smooth(values[t], prev, alpha)
       }
     }
-    // Peak-hold decay (τ = time for held peak to decay by 1/e)
-    if (hold) {
-      let alpha = 1 - Math.exp(-blockDur / hold)
-      sub._hold ??= {}
+    if (opts.hold) {
+      let alpha = 1 - Math.exp(-blockDur / opts.hold)
+      p._hold ??= {}
       for (let t of types) {
-        let prev = sub._hold[t]
-        if (prev == null) sub._hold[t] = values[t]
-        else sub._hold[t] = values[t] = holdDecay(values[t], prev, alpha)
+        let prev = p._hold[t]
+        if (prev == null) p._hold[t] = values[t]
+        else p._hold[t] = values[t] = holdDecay(values[t], prev, alpha)
       }
     }
 
-    // Emit: string type → value directly, array type → object keyed by name
-    sub(typeof type === 'string' ? values[type] : values)
+    let out = typeof opts.type === 'string' ? values[opts.type] : values
+    p.value = out
+    if (p.cb) p.cb(out)
   }
+}
+
+/**
+ * a.meter(what, cb?)
+ *   what: 'rms' | ['rms','peak'] | { type?, channel?, smoothing?, hold?, bins?, fMin?, fMax?, db?, N? }
+ *   cb?:  (value) => void — if omitted, returns probe { value, stop() }
+ *   return: probe { value, stop() }  (stop() also works as bare function via probe.stop.bind(probe))
+ */
+audio.fn.meter = function(what, cb) {
+  let opts = (typeof what === 'string' || Array.isArray(what)) ? { type: what }
+           : what == null ? {} : what
+  let probe = { opts, cb, value: undefined, stop: null }
+  probe.stop = () => {
+    let arr = this._.meters
+    if (!arr) return
+    let i = arr.indexOf(probe)
+    if (i >= 0) arr.splice(i, 1)
+  }
+  ;(this._.meters ??= []).push(probe)
+  return probe
 }

@@ -59,8 +59,6 @@ export interface AudioInstance {
   on(event: 'change', fn: () => void): this
   on(event: 'metadata', fn: (event: { sampleRate: number, channels: number }) => void): this
   on(event: 'data', fn: (event: { delta: ProgressDelta, offset: number, sampleRate: number, channels: number }) => void): this
-  on(event: 'meter', fn: (event: { delta: ProgressDelta, offset: number }) => void): this
-  on(event: 'meter', fn: (value: any) => void, opts: string | string[] | MeterOpts): this
   on(event: 'progress', fn: (event: { offset: number, total: number }) => void): this
   on(event: 'timeupdate', fn: (time: number) => void): this
   on(event: 'ended', fn: () => void): this
@@ -82,8 +80,6 @@ export interface AudioInstance {
   read(opts?: { at?: Time, duration?: Time, channel?: number, format?: string, meta?: Record<string, any> }): Promise<Float32Array[] | Float32Array | Int16Array[] | Uint8Array[] | Uint8Array>
   /** Async-iterable over materialized blocks. `for await (let block of a)` uses default range. */
   [Symbol.asyncIterator](): AsyncGenerator<Float32Array[], void, unknown>
-  /** Stream blocks with optional sub-range. `for await (let block of a.stream({at, duration}))` */
-  stream(opts?: { at?: Time, duration?: Time }): AsyncGenerator<Float32Array[], void, unknown>
   /** Ensure stats are fresh, return stats + block range */
   stat(name: 'db' | 'rms' | 'loudness' | 'peak', opts?: { at?: Time, duration?: Time, channel?: number | number[] }): Promise<number | number[]>
   stat(name: 'clipping', opts?: { at?: Time, duration?: Time }): Promise<Float32Array>
@@ -158,6 +154,8 @@ export interface AudioInstance {
   pause(): void
   resume(): void
   stop(): this
+  /** Live stats during playback. Listener-gated (zero cost when nothing subscribes). Omit cb for pull-style via probe.value. */
+  meter(what: string | string[] | MeterOpts, cb?: (value: any) => void): MeterProbe
   save(target: string | FileSystemWritableFileStream, opts?: { format?: string, at?: Time, duration?: Time, meta?: Record<string, any> }): Promise<void>
   encode(format?: string, opts?: { at?: Time, duration?: Time, meta?: Record<string, any> }): Promise<Uint8Array>
   encode(opts?: { at?: Time, duration?: Time, meta?: Record<string, any> }): Promise<Uint8Array>
@@ -188,6 +186,13 @@ export interface ProgressDelta {
   min: Float32Array[]
   max: Float32Array[]
   energy: Float32Array[]
+}
+
+export interface MeterProbe {
+  /** Last computed value; undefined until first playback block fires. */
+  value: any
+  /** Unsubscribe. Safe to call multiple times. */
+  stop(): void
 }
 
 export interface MeterOpts {

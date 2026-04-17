@@ -52,16 +52,13 @@ audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 <sub>[`duration`](#properties) · [`channels`](#properties) · [`sampleRate`](#properties) · [`length`](#properties) · [`currentTime`](#properties) · [`volume`](#properties) · [`muted`](#properties) · [`loop`](#properties) · [`playing`](#properties) · [`ready`](#properties) · [`edits`](#properties)</sub>
 
 **[I/O](#io)**<br>
-<sub>[`read`](#io) · [`stream`](#io) · [`save`](#io) · [`encode`](#io) · [`clone`](#io) · [`push`](#io)</sub>
+<sub>[`read`](#io) · [`save`](#io) · [`encode`](#io) · [`clone`](#io) · [`push`](#io)</sub>
 
 **[Playback](#playback--recording)**<br>
-<sub>[`play`](#playback--recording) · [`pause`](#playback--recording) · [`resume`](#playback--recording) · [`seek`](#playback--recording) · [`stop`](#playback--recording) · [`record`](#playback--recording)</sub>
+<sub>[`play`](#playback--recording) · [`pause`](#playback--recording) · [`resume`](#playback--recording) · [`seek`](#playback--recording) · [`stop`](#playback--recording) · [`meter`](#playback--recording) · [`record`](#playback--recording)</sub>
 
 **[Analysis](#analysis)**<br>
 <sub>[`db`](#analysis) · [`rms`](#analysis) · [`peak`](#analysis) · [`loudness`](#analysis) · [`dc`](#analysis) · [`clipping`](#analysis) · [`silence`](#analysis) · [`spectrum`](#analysis) · [`cepstrum`](#analysis) · [`bpm`](#analysis) · [`beats`](#analysis) · [`onsets`](#analysis) · [`notes`](#analysis) · [`chords`](#analysis) · [`key`](#analysis) · [`detect()`](#analysis)</sub>
-
-**[Meter](#meter)**<br>
-<sub>[`on('meter')`](#meter)</sub>
 
 **[Utility](#utility)**<br>
 <sub>[`on`](#utility) · [`off`](#utility) · [`undo`](#utility) · [`run`](#utility) · [`dispose`](#utility)</sub>
@@ -480,10 +477,9 @@ a.resample(22050).gain(-3).save('lo.wav') // chain with other ops
 
 ### I/O
 
-Read PCM, encode, stream, push. Format inferred from extension.
+Read PCM, encode, push. Format inferred from extension.
 
 * **`await .read(opts?)`** – rendered PCM. `{ format, channel }` to convert.
-* **`.stream(opts?)`** – async-iterable over blocks. `{ at, duration }` for sub-range. `for await (block of a)` uses default range.
 * **`await .save(path, opts?)`** – encode + write. `{ at, duration }` for sub-range.
 * **`await .encode(format?, opts?)`** – encode to `Uint8Array`.
 * **`.clone()`** – deep copy, independent edits, shared pages.
@@ -492,8 +488,7 @@ Read PCM, encode, stream, push. Format inferred from extension.
 ```js
 let pcm = await a.read()                              // Float32Array[]
 let raw = await a.read({ format: 'int16', channel: 0 })
-for await (let block of a) send(block)                 // stream blocks (default range)
-for await (let block of a.stream({ at: 10, duration: 30 })) send(block)
+for await (let block of a) send(block)                 // async-iterable over blocks
 await a.save('out.mp3')                                // format from extension
 let bytes = await a.encode('flac')                     // Uint8Array
 let b = a.clone()                                      // independent copy, shared pages
@@ -505,10 +500,11 @@ src.stop()                                             // finalize
 
 ### Playback / Recording
 
-Live playback with dB volume, seeking, looping.
+Live playback with dB volume, seeking, looping, live meter.
 
 * **`.play(opts?)`** – start playback. `{ at, duration, volume, loop }`. `.played` promise resolves when output starts.
 * **`.pause()`**, **`.resume()`**, **`.seek(t)`**, **`.stop()`** – playback control.
+* **`.meter(what, cb?)`** – live stats during playback. `what` is a stat name, array of names, or opts. Returns a probe `{ value, stop() }`. Listener-gated (zero cost when nothing subscribes).
 * **`.record(opts?)`** – mic recording. `{ deviceId, sampleRate, channels }`.
 
 ```js
@@ -523,6 +519,22 @@ let mic = audio()
 mic.record({ sampleRate: 16000, channels: 1 })
 mic.stop()
 ```
+
+`.meter(what, cb?)` — polymorphic first arg: string → single stat, array → keyed object, opts object → full config. Channel semantics mirror `a.stat()`: omitted → scalar avg, `channel: n` → that channel, `channel: [0, 1]` → per-channel array. Omit `cb` for pull-style access via `probe.value`.
+
+```js
+a.meter('rms', v => draw(v))                                       // scalar avg across channels
+a.meter(['rms', 'peak'], v => draw(v))                             // { rms, peak }
+a.meter({ type: 'rms', channel: [0, 1] }, v => draw(v))            // [L, R]
+a.meter({ type: 'spectrum', bins: 64, smoothing: 0.15 }, drawFFT)  // Float32Array of mel bins
+a.meter({}, ({ delta, offset }) => draw(delta))                    // no type → all block stats
+
+let m = a.meter({ type: 'rms' })                                   // pull form
+requestAnimationFrame(function tick() { draw(m.value); requestAnimationFrame(tick) })
+m.stop()                                                           // release
+```
+
+Opts: **`type`** (stat name, array, or omit for all), **`channel`** (`n`, `[n, m]`, or omit), **`smoothing`** (one-pole EMA τ in seconds), **`hold`** (peak-hold decay τ in seconds), **`bins`** / **`fMin`** / **`fMax`** (when `type: 'spectrum'`). Any registered stat works (`rms`, `peak`, `ms`, `min`, `max`, `dc`, `clipping`, `spectrum`, or user-registered via `audio.stat(...)`).
 
 
 ### Analysis
@@ -566,37 +578,12 @@ let k = await a.stat('key')                               // {label: 'C', mode: 
 ```
 
 
-### Meter
-
-`a.on('meter', cb, opts?)` – live stats during playback. Symmetric with decode's `'data'` event but fires per playback block. Subscribe with what you want measured; zero cost when nothing subscribes.
-
-```js
-a.on('meter', v => draw(v), 'rms')                    // scalar avg across channels
-a.on('meter', v => draw(v), ['rms', 'peak'])          // { rms, peak }
-a.on('meter', v => draw(v), { type: 'rms', channel: [0, 1] })  // [L, R]
-a.on('meter', bins => drawFFT(bins),
-  { type: 'spectrum', bins: 64, smoothing: 0.15 })    // Float32Array of mel bins
-a.on('meter', ({ delta, offset }) => draw(delta))     // no type → all block stats, same shape as 'data'
-```
-
-Polymorphic 3rd arg: string → single stat, array → keyed object, object → full config. Channel semantics mirror `a.stat()`: omitted → scalar avg, `channel: n` → that channel, `channel: [0, 1]` → per-channel array.
-
-* **`type`** – stat name, array of names, or omit for all block stats.
-* **`channel`** – `n`, `[n, m]`, or omit.
-* **`smoothing`** – one-pole EMA time constant τ in seconds (per-listener state).
-* **`hold`** – peak-hold decay τ in seconds (classic analyzer look).
-* **`bins`**, **`fMin`**, **`fMax`** – when `type: 'spectrum'`.
-
-Any registered stat works (`rms`, `peak`, `ms`, `min`, `max`, `dc`, `clipping`, `spectrum`, or user-registered via `audio.stat(...)`).
-
-
 ### Utility
 
 Events, lifecycle, undo/redo, serialization.
 
 * **`.on(event, fn, opts?)`** / **`.off(event?, fn?)`** – subscribe / unsubscribe.
   * `'data'` – pages decoded/pushed. Payload: `{ delta, offset, sampleRate, channels }`.
-  * `'meter'` – per-block streaming stats during playback. Listener-gated (zero cost when no subscribers). `opts` selects what's measured — see [Meter](#meter).
   * `'change'` – any edit or undo.
   * `'metadata'` – stream header decoded. Payload: `{ sampleRate, channels }`.
   * `'timeupdate'` – playback position. Payload: `currentTime`.

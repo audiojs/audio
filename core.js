@@ -215,6 +215,7 @@ fn.off = function(event, cb) {
 fn.dispose = function() {
   this.stop()
   this._.ev = {}
+  this._.meters = null
   this._.pcm = null
   this._.plan = null
   this.pages.length = 0

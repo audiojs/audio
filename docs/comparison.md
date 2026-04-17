@@ -113,7 +113,7 @@ Cells contain method/op names where supported, `—` if absent, `(plan)` if plan
 | Volume / loop / rate | `a.volume`, `a.loop`, `a.playbackRate` | — | — | — | — | — | — | — | GUI | limited |
 | Recording (mic) | `a.record({deviceId, sampleRate, channels})` | pyaudio | — | source from mic | streaming source | — | (`rec`) | (avfoundation/dshow) | GUI Record | `audioDeviceReader`, `audiorecorder` |
 | Events | `'data'`, `'timeupdate'`, `'play'`, `'ended'`, `'progress'`, ... | — | — | — | — | — | — | — | GUI | listeners on System objects |
-| Streaming meter | `a.block` + `melSpectrum`; `'data'` | — | — | per-frame source | streaming network outputs | — | — | — | GUI meters | `dsp.SpectrumAnalyzer`, `timescope` |
+| Streaming meter | `a.meter({type, smoothing, hold})` | — | — | per-frame source | streaming network outputs | — | — | — | GUI meters | `dsp.SpectrumAnalyzer`, `timescope` |
 | **Synthesis** | | | | | | | | | | |
 | Generators | `audio.from(fn, {duration})` | tone generator | manual | — | — | — | `synth` | `aevalsrc`, `sine`, `anoisesrc` | Tone, Noise, Chirp, DTMF, Pluck, Risset Drum, Rhythm Track | `audioOscillator`, `dsp.SineWave` |
 | Synth voices | — | — | — | — | — | — | — | — | — | — |
