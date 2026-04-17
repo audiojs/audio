@@ -34,7 +34,7 @@ audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 <sub>[`audio()`](#create) · [`audio.from()`](#create)</sub>
 
 **[Structure](#structure)**<br>
-<sub>[`trim`](#structure) · [`crop`](#structure) · [`remove`](#structure) · [`insert`](#structure) · [`clip`](#structure) · [`split`](#structure) · [`pad`](#structure) · [`repeat`](#structure) · [`reverse`](#structure) · [`speed`](#structure) · [`remix`](#structure)</sub>
+<sub>[`trim`](#structure) · [`crop`](#structure) · [`remove`](#structure) · [`insert`](#structure) · [`clip`](#structure) · [`split`](#structure) · [`pad`](#structure) · [`repeat`](#structure) · [`reverse`](#structure) · [`speed`](#structure) · [`stretch`](#structure) · [`pitch`](#structure) · [`remix`](#structure)</sub>
 
 **[Process](#process)**<br>
 <sub>[`gain`](#process) · [`fade`](#process) · [`normalize`](#process) · [`mix`](#process) · [`crossfade`](#process) · [`pan`](#process) · [`write`](#process) · [`transform`](#process)</sub>
@@ -43,7 +43,8 @@ audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 <sub>[`highpass`](#filter) · [`lowpass`](#filter) · [`bandpass`](#filter) · [`notch`](#filter) · [`allpass`](#filter) · [`lowshelf`](#filter) · [`highshelf`](#filter) · [`eq`](#filter) · [`filter`](#filter)</sub>
 
 **[Effect](#effect)**<br>
-<sub>[`vocals`](#effect) · [`dither`](#effect) · [`crossfeed`](#effect) · [`resample`](#effect)</sub>
+<sub>[`vocals`](#effect) · [`dither`](#effect) · [`crossfeed`](#effect) · [`resample`](#effect)</sub><br>
+<sub>*planned:* `compressor` · `reverb` · `echo` · `chorus` · `flanger` · `phaser` · `denoise`</sub>
 
 </td><td valign="top" width="50%">
 
@@ -57,7 +58,7 @@ audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 <sub>[`play`](#playback--recording) · [`pause`](#playback--recording) · [`resume`](#playback--recording) · [`seek`](#playback--recording) · [`stop`](#playback--recording) · [`record`](#playback--recording)</sub>
 
 **[Analysis](#analysis)**<br>
-<sub>[`db`](#analysis) · [`rms`](#analysis) · [`peak`](#analysis) · [`loudness`](#analysis) · [`dc`](#analysis) · [`clipping`](#analysis) · [`silence`](#analysis) · [`spectrum`](#analysis) · [`cepstrum`](#analysis) · [`bpm`](#analysis) · [`beats`](#analysis) · [`onsets`](#analysis) · [`notes`](#analysis) · [`chords`](#analysis) · [`key`](#analysis)</sub>
+<sub>[`db`](#analysis) · [`rms`](#analysis) · [`peak`](#analysis) · [`loudness`](#analysis) · [`dc`](#analysis) · [`clipping`](#analysis) · [`silence`](#analysis) · [`spectrum`](#analysis) · [`cepstrum`](#analysis) · [`bpm`](#analysis) · [`beats`](#analysis) · [`onsets`](#analysis) · [`notes`](#analysis) · [`chords`](#analysis) · [`key`](#analysis) · [`detect()`](#analysis)</sub>
 
 **[Meter](#meter)**<br>
 <sub>[`on('meter')`](#meter)</sub>
@@ -391,7 +392,9 @@ Non-destructive time/channel rearrangement. All support `{at, duration, channel}
 * **`.pad(before, after?)`** – silence at edges (seconds).
 * **`.repeat(n)`** – repeat n times.
 * **`.reverse({at?, duration?})`** – reverse audio or range.
-* **`.speed(rate)`** – playback speed (affects pitch and duration).
+* **`.speed(rate)`** – playback speed (affects both pitch and duration).
+* **`.stretch(factor)`** – time stretch, preserves pitch. Phase-locked vocoder.
+* **`.pitch(semitones)`** – pitch shift, preserves duration. Positive = higher.
 * **`.remix(channels)`** – channel count: number or array map (`[1, 0]` swaps L/R).
 
 ```js
@@ -400,6 +403,8 @@ a.remove({ at: '2m', duration: 15 })      // cut 2:00–2:15, close gap
 a.insert(intro, { at: 0 })               // prepend; .insert(3) appends 3s silence
 let [pt1, pt2] = a.split('30m')          // zero-copy views
 let hook = a.clip({ at: 60, duration: 30 })  // zero-copy excerpt
+a.stretch(0.9)                            // slow 10%, preserve pitch
+a.pitch(-2)                               // down 2 semitones, preserve tempo
 a.remix([0, 0])                           // L→both; .remix(1) for mono
 ```
 
@@ -809,7 +814,7 @@ audio --completions fish | source       # fish
 <dd>Yes, ships with <code>audio.d.ts</code>.</dd>
 
 <dt>How is this different from SoX?</dt>
-<dd>SoX is a C command-line tool — powerful but native-only, no browser, no programmatic API, no streaming edits, no undo. <code>audio</code> runs in Node and the browser with the same API, edits are non-destructive and lazy (nothing is rendered until you read/save), and it streams during decode. Several SoX effects are implemented (allpass, dither, crossfeed/earwax, vocals/oops, resample). Remaining effects (reverb, compressor, noise reduction, chorus, flanger, phaser) are on the <a href="#todo">roadmap</a>.</dd>
+<dd>SoX is a C command-line tool — powerful but native-only, no browser, no programmatic API, no streaming edits, no undo. <code>audio</code> runs in Node and the browser with the same API, edits are non-destructive and lazy (nothing is rendered until you read/save), and it streams during decode. Several SoX effects are implemented (allpass, dither, crossfeed/earwax, vocals/oops, resample). Remaining effects (reverb, compressor, noise reduction, chorus, flanger, phaser) are planned.</dd>
 
 <dt>How is this different from Audacity?</dt>
 <dd>Audacity is a GUI desktop app. <code>audio</code> is a library and CLI — designed for scripting, automation, pipelines, and embedding in apps. Audacity is destructive (edits mutate samples); <code>audio</code> is non-destructive (edits are a plan replayed on read). Audacity can't run in the browser or be <code>npm install</code>ed into your project.</dd>
@@ -824,23 +829,6 @@ audio --completions fish | source       # fish
 <dd>Tone.js is a Web Audio synthesis framework — great for making music in real-time, not for editing files. Howler.js is a playback library — load and play, no editing or analysis. <code>audio</code> is a complete audio workstation: decode, edit, analyze, encode, play, record, CLI.</dd>
 </dl>
 
-
-## Todo
-
-Effects from SoX and elsewhere not yet available. Contributions welcome.
-
-- [x] **resample** — non-destructive sample rate conversion (plan-based, chainable, undoable)
-- [x] **dither** — TPDF dithering for bit-depth reduction
-- [x] **vocals** — vocal isolation / removal (SoX `oops`, out-of-phase stereo)
-- [x] **allpass** — all-pass filter
-- [x] **crossfeed** — headphone crossfeed (SoX `earwax`)
-- [ ] **compressor** — dynamic range compression / expansion / limiting (SoX `compand`)
-- [ ] **reverb** — freeverb reverberation
-- [ ] **noise** — noise reduction via spectral profiling (SoX `noisered`)
-- [ ] **echo** — echo / delay effect
-- [ ] **chorus** — chorus modulation
-- [ ] **flanger** — flanging
-- [ ] **phaser** — phaser effect
 
 ## Comparison
 
