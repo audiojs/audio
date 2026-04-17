@@ -197,12 +197,19 @@ export function emit(a, event, ...args) {
   let arr = a._.ev[event]
   if (arr) for (let cb of arr) cb(...args)
 }
-fn.on = function(event, cb) { (this._.ev[event] ??= []).push(cb); return this }
+fn.on = function(event, cb, opts) {
+  if (opts == null) { (this._.ev[event] ??= []).push(cb); return this }
+  let o = typeof opts === 'string' || Array.isArray(opts) ? { type: opts } : opts
+  let wrap = (...args) => cb(...args)
+  wrap._cb = cb; wrap._opts = o
+  ;(this._.ev[event] ??= []).push(wrap)
+  return this
+}
 fn.off = function(event, cb) {
   if (!event) { this._.ev = {}; return this }
   if (!cb) { delete this._.ev[event]; return this }
   let arr = this._.ev[event]
-  if (arr) { let i = arr.indexOf(cb); if (i >= 0) arr.splice(i, 1) }
+  if (arr) { let i = arr.findIndex(e => e === cb || e._cb === cb); if (i >= 0) arr.splice(i, 1) }
   return this
 }
 fn.dispose = function() {

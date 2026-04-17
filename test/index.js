@@ -1407,6 +1407,123 @@ test('play/pause events', async t => {
 })
 
 
+// ── Meter event (playback-time streaming stats) ──────────────────────────
+
+test('meter — fires during playback', async t => {
+  let a = audio.from([tone(440, 0.3)], { sampleRate: 44100 })
+  let values = []
+  a.on('meter', v => values.push(v), 'rms')
+  a.play()
+  await new Promise(r => a.on('ended', r))
+  t.ok(values.length > 0, `meter fired ${values.length} times`)
+  // 440Hz sine full-amplitude → rms ≈ 0.707
+  let mean = values.reduce((s, v) => s + v, 0) / values.length
+  t.ok(mean > 0.5 && mean < 0.9, `rms ≈ 0.707 (got ${mean.toFixed(3)})`)
+})
+
+test('meter — zero listeners = no dispatch', async t => {
+  let a = audio.from([tone(440, 0.1)], { sampleRate: 44100 })
+  let called = false
+  let cb = () => { called = true }
+  // Only register then remove — no listeners during play
+  a.on('meter', cb, 'rms')
+  a.off('meter', cb)
+  a.play()
+  await new Promise(r => a.on('ended', r))
+  t.is(called, false, 'removed listener not called')
+  t.is(a._.ev.meter?.length ?? 0, 0, 'no meter subscribers')
+})
+
+test('meter — no type arg emits {delta, offset} like decode data', async t => {
+  let a = audio.from([tone(440, 0.2)], { sampleRate: 44100 })
+  let got
+  a.on('meter', ev => { got ??= ev })
+  a.play()
+  await new Promise(r => a.on('ended', r))
+  t.ok(got, 'meter fired')
+  t.ok('delta' in got, 'has delta')
+  t.ok('offset' in got, 'has offset')
+  t.ok(Array.isArray(got.delta.min), 'delta.min is per-channel array')
+  t.ok(got.delta.max[0] instanceof Float32Array, 'typed array per channel')
+})
+
+test('meter — array type returns keyed object', async t => {
+  let a = audio.from([tone(440, 0.2)], { sampleRate: 44100 })
+  let last
+  a.on('meter', v => { last = v }, ['rms', 'peak'])
+  a.play()
+  await new Promise(r => a.on('ended', r))
+  t.ok(last && typeof last === 'object', 'got object payload')
+  t.ok('rms' in last && 'peak' in last, 'has rms and peak keys')
+  t.ok(last.peak >= last.rms - 1e-6, `peak (${last.peak.toFixed(3)}) >= rms (${last.rms.toFixed(3)})`)
+})
+
+test('meter — channel:[0,1] returns per-channel array', async t => {
+  let L = tone(440, 0.2), R = new Float32Array(L.length).fill(0)  // silent right
+  let a = audio.from([L, R], { sampleRate: 44100 })
+  let last
+  a.on('meter', v => { last = v }, { type: 'rms', channel: [0, 1] })
+  a.play()
+  await new Promise(r => a.on('ended', r))
+  t.ok(Array.isArray(last), 'per-channel array')
+  t.is(last.length, 2, 'two channels')
+  t.ok(last[0] > 0.5, `L has signal (${last[0].toFixed(3)})`)
+  t.ok(last[1] < 0.01, `R is silent (${last[1].toFixed(3)})`)
+})
+
+test('meter — spectrum type returns Float32Array of bins', async t => {
+  let a = audio.from([tone(440, 0.3)], { sampleRate: 44100 })
+  let last
+  a.on('meter', v => { last = v }, { type: 'spectrum', bins: 32 })
+  a.play()
+  await new Promise(r => a.on('ended', r))
+  t.ok(last instanceof Float32Array, 'Float32Array')
+  t.is(last.length, 32, '32 bins')
+  let max = last.reduce((m, v) => Math.max(m, v), 0)
+  t.ok(max > 0, `non-zero spectrum (max ${max.toFixed(4)})`)
+})
+
+test('meter — smoothing attenuates step response', async t => {
+  // Compare raw vs smoothed: smoothed should show less variance block-to-block
+  let ch = new Float32Array(44100 * 0.4)
+  // Step signal: first half silent, second half loud — meter should ramp up smoothly with smoothing
+  for (let i = ch.length / 2 | 0; i < ch.length; i++) ch[i] = 0.8
+  let a = audio.from([ch], { sampleRate: 44100 })
+  let raw = [], smoothed = []
+  a.on('meter', v => raw.push(v), 'rms')
+  a.on('meter', v => smoothed.push(v), { type: 'rms', smoothing: 0.1 })
+  a.play()
+  await new Promise(r => a.on('ended', r))
+  t.ok(raw.length === smoothed.length, 'same block count for both listeners')
+  // Max jump (block-to-block delta) should be smaller for smoothed
+  let maxDelta = arr => { let m = 0; for (let i = 1; i < arr.length; i++) m = Math.max(m, Math.abs(arr[i] - arr[i-1])); return m }
+  let rawJump = maxDelta(raw), smoothJump = maxDelta(smoothed)
+  t.ok(smoothJump < rawJump, `smoothed jump (${smoothJump.toFixed(3)}) < raw jump (${rawJump.toFixed(3)})`)
+})
+
+test('meter — off removes subscription', async t => {
+  let a = audio.from([tone(440, 0.3)], { sampleRate: 44100 })
+  let count = 0
+  let cb = () => count++
+  a.on('meter', cb, 'rms')
+  a.play()
+  await new Promise(r => setTimeout(r, 100))  // accumulate some
+  let before = count
+  a.off('meter', cb)
+  await new Promise(r => a.on('ended', r))
+  t.ok(before > 0, `got ${before} values before off`)
+  t.is(count, before, 'no more values after off')
+})
+
+test('meter — does NOT fire during decode', async t => {
+  let count = 0
+  let a = audio(lenaPath)
+  a.on('meter', () => count++, 'rms')
+  await a  // decode completes
+  t.is(count, 0, 'meter is playback-only, not decode-time')
+})
+
+
 // ── Phase 9: Streaming ──────────────────────────────────────────────────
 
 test('stream — yields blocks', async t => {
@@ -3812,6 +3929,41 @@ test('stat(rms) — channel-scoped', async t => {
   let rms0 = await a.stat('rms', { channel: 0 })
   let rms1 = await a.stat('rms', { channel: 1 })
   t.ok(rms0 > rms1, `loud ch rms (${rms0.toFixed(3)}) > quiet ch (${rms1.toFixed(3)})`)
+})
+
+test('stat(peak) — max absolute amplitude', async t => {
+  // Asymmetric signal: min = -0.8, max = +0.3 → peak = 0.8 (not 1.1 peak-to-peak)
+  let ch = new Float32Array(44100)
+  for (let i = 0; i < ch.length; i++) ch[i] = i % 2 ? -0.8 : 0.3
+  let a = audio.from([ch], { sampleRate: 44100 })
+  let peak = await a.stat('peak')
+  t.ok(Math.abs(peak - 0.8) < 0.01, `peak = max(|min|,|max|) = 0.8 (got ${peak.toFixed(3)})`)
+})
+
+test('stat(peak) — positive-dominant signal', async t => {
+  let ch = new Float32Array(44100)
+  for (let i = 0; i < ch.length; i++) ch[i] = i % 2 ? -0.1 : 0.7
+  let a = audio.from([ch], { sampleRate: 44100 })
+  let peak = await a.stat('peak')
+  t.ok(Math.abs(peak - 0.7) < 0.01, `peak = 0.7 (got ${peak.toFixed(3)})`)
+})
+
+test('stat(peak) — channel-scoped', async t => {
+  let loud = new Float32Array(44100).fill(0.9)
+  let quiet = new Float32Array(44100).fill(0.1)
+  let a = audio.from([loud, quiet], { sampleRate: 44100 })
+  let p0 = await a.stat('peak', { channel: 0 })
+  let p1 = await a.stat('peak', { channel: 1 })
+  t.ok(Math.abs(p0 - 0.9) < 0.01, `ch0 peak 0.9 (got ${p0.toFixed(3)})`)
+  t.ok(Math.abs(p1 - 0.1) < 0.01, `ch1 peak 0.1 (got ${p1.toFixed(3)})`)
+})
+
+test('stat(peak) — per-channel array', async t => {
+  let a = audio.from([new Float32Array(44100).fill(0.5), new Float32Array(44100).fill(0.2)], { sampleRate: 44100 })
+  let v = await a.stat('peak', { channel: [0, 1] })
+  t.ok(Array.isArray(v), 'array')
+  t.is(v.length, 2, 'two channels')
+  t.ok(Math.abs(v[0] - 0.5) < 0.01 && Math.abs(v[1] - 0.2) < 0.01, `[0.5, 0.2] (got [${v[0].toFixed(2)}, ${v[1].toFixed(2)}])`)
 })
 
 test('normalize — channel array does not crash', async t => {

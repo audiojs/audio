@@ -78,3 +78,19 @@ audio.stat('rms', {
     return n ? Math.sqrt(sum / n) : 0
   }
 })
+
+audio.stat('peak', {
+  query: (stats, chs, from, to) => {
+    if (!stats.min || !stats.max) return 0
+    let v = 0
+    for (let c of chs) {
+      let mn = stats.min[c], mx = stats.max[c], end = Math.min(to, mn.length)
+      for (let i = from; i < end; i++) {
+        let a = mn[i] < 0 ? -mn[i] : mn[i], b = mx[i] < 0 ? -mx[i] : mx[i]
+        if (a > v) v = a
+        if (b > v) v = b
+      }
+    }
+    return v
+  }
+})

@@ -480,6 +480,7 @@ mic.stop()
 
 * **`'db'`** – peak amplitude in dBFS.
 * **`'rms'`** – RMS amplitude (linear).
+* **`'peak'`** – max absolute amplitude, `max(|min|, |max|)` (linear, dBFS via `20·log10`).
 * **`'loudness'`** – integrated LUFS (ITU-R BS.1770).
 * **`'dc'`** – DC offset.
 * **`'clipping'`** – clipped samples (scalar: timestamps, binned: counts).
@@ -514,12 +515,37 @@ let k = await a.stat('key')                               // {label: 'C', mode: 
 ```
 
 
+### Meter
+
+`a.on('meter', cb, opts?)` – live stats during playback. Symmetric with decode's `'data'` event but fires per playback block. Subscribe with what you want measured; zero cost when nothing subscribes.
+
+```js
+a.on('meter', v => draw(v), 'rms')                    // scalar avg across channels
+a.on('meter', v => draw(v), ['rms', 'peak'])          // { rms, peak }
+a.on('meter', v => draw(v), { type: 'rms', channel: [0, 1] })  // [L, R]
+a.on('meter', bins => drawFFT(bins),
+  { type: 'spectrum', bins: 64, smoothing: 0.15 })    // Float32Array of mel bins
+a.on('meter', ({ delta, offset }) => draw(delta))     // no type → all block stats, same shape as 'data'
+```
+
+Polymorphic 3rd arg: string → single stat, array → keyed object, object → full config. Channel semantics mirror `a.stat()`: omitted → scalar avg, `channel: n` → that channel, `channel: [0, 1]` → per-channel array.
+
+* **`type`** – stat name, array of names, or omit for all block stats.
+* **`channel`** – `n`, `[n, m]`, or omit.
+* **`smoothing`** – one-pole EMA time constant τ in seconds (per-listener state).
+* **`hold`** – peak-hold decay τ in seconds (classic analyzer look).
+* **`bins`**, **`fMin`**, **`fMax`** – when `type: 'spectrum'`.
+
+Any registered stat works (`rms`, `peak`, `ms`, `min`, `max`, `dc`, `clipping`, `spectrum`, or user-registered via `audio.stat(...)`).
+
+
 ### Utility
 
 Events, lifecycle, undo/redo, serialization.
 
-* **`.on(event, fn)`** / **`.off(event?, fn?)`** – subscribe / unsubscribe.
+* **`.on(event, fn, opts?)`** / **`.off(event?, fn?)`** – subscribe / unsubscribe.
   * `'data'` – pages decoded/pushed. Payload: `{ delta, offset, sampleRate, channels }`.
+  * `'meter'` – per-block streaming stats during playback. Listener-gated (zero cost when no subscribers). `opts` selects what's measured — see [Meter](#meter).
   * `'change'` – any edit or undo.
   * `'metadata'` – stream header decoded. Payload: `{ sampleRate, channels }`.
   * `'timeupdate'` – playback position. Payload: `currentTime`.
@@ -770,6 +796,23 @@ Effects from SoX and elsewhere not yet available. Contributions welcome.
 - [ ] **flanger** — flanging
 - [ ] **phaser** — phaser effect
 
+## Comparison
+
+`audio` is part of the [audiojs](https://github.com/audiojs) ecosystem. Together with `audio-decode`, `encode-audio`, `audio-speaker`, `audio-mic`, `audio-filter`, `pcm-convert`, `pitch-detection`, and `wavearea`, it covers most JS audio needs without leaving the runtime.
+
+| Need                                                  | Recommended                                                |
+|-------------------------------------------------------|------------------------------------------------------------|
+| Edit, decode, encode, play, record, analyze in JS     | **`audio`** ← you are here                                 |
+| Batch-process from the command line                   | **`audio`** CLI — or SoX / FFmpeg for max native throughput|
+| Spectrum / MFCC / RMS / LUFS in JS                    | **`audio`** `stat(...)` — or Meyda for streaming Web Audio |
+| BPM, beats, onsets, chords, key                       | **`audio`** `stat(...)` — or librosa+madmom for research    |
+| Visualize a waveform on a webpage                     | Wavesurfer.js, or Wavearea for editing UI                  |
+| Synthesize music live (transport, scheduling, voices) | Tone.js                                                    |
+| GUI editing for end users                             | Audacity, Reaper, Adobe Audition                           |
+| Host VST3 / AU plugins                                | Pedalboard (Python), JUCE (C++)                            |
+| Real-time DSP with hard latency guarantees            | JUCE, Faust, Csound (native)                               |
+
+Full landscape with API styles, method-naming reference, strengths/weaknesses, and selection guide: **[docs/comparison.md](docs/comparison.md)**.
 
 ## Ecosystem
 

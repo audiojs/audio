@@ -177,12 +177,6 @@
 
 Building blocks present: `a.block` updates per playback chunk (fn/play.js:63), `for await (let chunk of a.stream({at,duration}))` pulls PCM frames, `a.on('data', ({delta,offset}))` pushes block-level stats (min/max/rms/dc) during decode, `melSpectrum()` exported (fn/spectrum.js), `a.stat('rms'|'db')` snapshot queries. CLI already does live FFT visualization this way (bin/cli.js:419).
 
-### Meter
-
-- [ ] **meter convenience** — `a.meter({smoothing})` running peak/RMS with time constant; returns subscribable handle. Consumer pattern works today via `a.block`, but no built-in smoothing.
-- [ ] **spectrum event** — `'spectrum'` event during playback emitting per-frame mel bins (avoid polling `a.block` + manual `melSpectrum` call). Optional convenience over existing primitives.
-- [ ] **delta meter** — `'data'` event fires during decode but not during playback. Add `'frame'` event during playback for symmetric streaming meter use.
-
 ## MIREX parity
 
 **Have:** tempo estimation (bpm), beat tracking (beats), onset detection (onsets), melody/pitch extraction (notes — YIN), chord estimation (chords — NNLS + Viterbi), key detection (key — Krumhansl-Schmuckler), MFCC (cepstrum), spectrum
@@ -215,6 +209,9 @@ Building blocks present: `a.block` updates per playback chunk (fn/play.js:63), `
 
 
 ## [ ] Benchmarks
+
+- [x] Comparison table — `docs/comparison.md` (top 7 in-depth + methods naming reference + ~30 alternatives)
+- [ ] Performance benchmarks — fill in perf numbers in `docs/comparison.md` (decode MB/s, normalize, FFT, resample, stretch — vs FFmpeg/SoX/librosa/Pedalboard on the same input)
 
 ## [ ] Testing – test and fix anything not working
 
@@ -341,7 +338,21 @@ Building blocks present: `a.block` updates per playback chunk (fn/play.js:63), `
 
 * [ ] `remix(n)` chained with subsequent process ops throws "Cannot set properties of undefined" — occurs e.g. `a.remix(1).highpass(200).gain(-3)` on stereo. Output buffer for new channel count not properly allocated when >1 process op follows a ch-changing remix (test/index.js had to skip this chain).
 
+
 ## Archive
+
+### Meter
+
+- [x] **peak stat** — `a.stat('peak')` → `max(|min|, |max|)`, derived via query from existing min/max block arrays. Audio-convention level (dBFS, clipping), not peak-to-peak.
+- [x] **'meter' event** during playback — listener-gated, zero cost when no subscribers. Symmetric with decode's `'data'` event but distinct name (avoids overloading "data").
+- [x] **polymorphic 3rd arg** to `on()` — `a.on('meter', cb, arg)`:
+  - omitted → `{delta, offset}`, all block stats (same shape as decode 'data')
+  - string → single stat, scalar avg: `a.on('meter', cb, 'rms')`
+  - array → object keyed by name: `a.on('meter', cb, ['rms','peak'])`
+  - object → full config: `{type, channel, bins, smoothing, hold}`
+- [x] **streaming opts** — `smoothing` (τ seconds, one-pole EMA) and `hold` (τ seconds, peak-hold decay). State per-listener, coefficient computed once per block.
+- [x] **channel semantics** — mirror `a.stat()`: omitted = scalar avg across channels, `channel:n` = scalar for that channel, `channel:[0,1]` = per-channel array.
+- [x] **CLI rework** — replace manual `melSpectrum` + `prev[b]*0.85` decay at bin/cli.js:419 with `a.on('meter', cb, {type:'spectrum', bins, smoothing})`.
 
 **Bugs**
 * [x] `adjustLimit` missing `repeat` — streaming decode miscalculates safe boundary for repeat ops (plan.js:346)

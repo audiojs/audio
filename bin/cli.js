@@ -11,7 +11,7 @@
  */
 
 import audio from '../audio.js'
-import { melSpectrum, toMel, fromMel } from '../fn/spectrum.js'
+import { toMel } from '../fn/spectrum.js'
 import { lufsFromEnergy } from '../fn/loudness.js'
 import parseDuration from 'parse-duration'
 import fft from 'fourier-transform'
@@ -409,36 +409,35 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
     return pStr + DIM + dStr + RST + eStr
   }
 
-  // FFT spectrum state
-  const N = 1024, SBARS = ' ▁▂▃▄▅▆▇█'
-  let prev = null
+  // FFT spectrum — via meter event (listener-gated, peak-hold via meter opts)
+  const SBARS = ' ▁▂▃▄▅▆▇█', SPEC_BINS = 128
+  let liveSpec = null  // latest per-frame mel magnitudes, length SPEC_BINS
+  if (fft) a?.on('meter', bins => { liveSpec = bins }, { type: 'spectrum', bins: SPEC_BINS, hold: 0.5 })
 
   // Auto-scaling: track running peak dB for spectrum
   let specMax = -60
 
-  let spec = (block, sr, w, paused) => {
-    if (!fft) return DIM + '▁'.repeat(w) + RST
-    let fMin = 30, fMax = Math.min(sr / 2, 20000)
-    if (block && block.length >= N) {
-      let mag = melSpectrum(block.subarray(0, N), sr, { bins: w, fMin, fMax })
-      if (!prev || prev.length !== w) prev = new Float32Array(w)
-      for (let b = 0; b < w; b++) prev[b] = paused ? mag[b] : Math.max(mag[b], prev[b] * 0.85)
-    } else if (prev && !paused) {
-      for (let b = 0; b < prev.length; b++) prev[b] *= 0.85
+  let spec = (sr, w, paused) => {
+    if (!fft || !liveSpec) return DIM + '▁'.repeat(w) + RST
+    // Downsample/upsample SPEC_BINS → w using area-weighted averaging
+    let src = liveSpec, sn = src.length
+    let resized = new Float32Array(w)
+    for (let i = 0; i < w; i++) {
+      let a0 = i / w * sn, a1 = (i + 1) / w * sn
+      let lo = Math.floor(a0), hi = Math.min(sn - 1, Math.ceil(a1) - 1), n = 0, s = 0
+      for (let k = lo; k <= hi; k++) { s += src[k]; n++ }
+      resized[i] = n ? s / n : 0
     }
-    if (!prev) return DIM + '▁'.repeat(w) + RST
     // Auto-scale: find current max dB, decay peak slowly
-    let curMax = -100
-    let specDb = new Float32Array(w)
+    let curMax = -100, specDb = new Float32Array(w)
     for (let b = 0; b < w; b++) {
-      specDb[b] = 20 * Math.log10(prev[b] + 1e-10)
+      specDb[b] = 20 * Math.log10(resized[b] + 1e-10)
       if (specDb[b] > curMax) curMax = specDb[b]
     }
     specMax = paused ? curMax : Math.max(curMax, specMax - 0.3)
     let floor = specMax - 48  // 48dB dynamic range, 6dB per level
     let levels = new Int8Array(w)
     for (let b = 0; b < w; b++) levels[b] = Math.round((specDb[b] - floor) / 6)
-    // find active range (first..last bin with signal)
     let lo = 0, hi = w - 1
     while (lo < w && levels[lo] <= 0) lo++
     while (hi > lo && levels[hi] <= 0) hi--
@@ -564,7 +563,7 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
     if (fft) {
       let sw = barW
       let sr = p.sampleRate || 44100
-      let s = spec(getBlock(), sr, sw, p.paused)
+      let s = spec(sr, sw, p.paused)
       out += `\n\x1b[K${lpad}${s}`
       newLines++
       let fl = freqLabels(sr, sw)
@@ -623,12 +622,6 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
 
     nLines = newLines
     process.stderr.write(out)
-  }
-
-  let getBlock = () => {
-    if (p.block) return p.block
-    if (a?.pages?.[0]?.[0]) return a.pages[0][0].subarray(0, Math.min(1024, a.pages[0][0].length))
-    return null
   }
 
   render(0)

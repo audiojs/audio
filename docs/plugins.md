@@ -284,6 +284,8 @@ audio.stat('mystat', (chs, ctx) => chs.map(ch => /* number */))
 
 `reduce` is `(blockValues, from, to) → number` — it combines the values returned by `block`, enabling `a.stat('mystat')` scalar and `a.stat('mystat', {bins})` binned queries.
 
-`query` adds a derived aggregation: `query(stats, chs, from, to, sr) → value`. Used for stats that derive from other block data (e.g. `db` derives from `min`/`max`).
+`query` adds a derived aggregation: `query(stats, chs, from, to, sr) → value`. Used for stats that derive from other block data (e.g. `db` derives from `min`/`max`, `peak` from `min`/`max`, `rms` from `ms`).
 
 `ctx` has `sampleRate` and persists across blocks within one decode session — set any property for stateful computation.
+
+Registered stats auto-participate in the playback `'meter'` event — `a.on('meter', cb, 'mystat')` streams per-block values during playback. Block-defined stats emit the raw block value; `query`-defined stats are evaluated against a single-block pseudo-stats window.

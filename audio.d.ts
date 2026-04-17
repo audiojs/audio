@@ -59,6 +59,8 @@ export interface AudioInstance {
   on(event: 'change', fn: () => void): this
   on(event: 'metadata', fn: (event: { sampleRate: number, channels: number }) => void): this
   on(event: 'data', fn: (event: { delta: ProgressDelta, offset: number, sampleRate: number, channels: number }) => void): this
+  on(event: 'meter', fn: (event: { delta: ProgressDelta, offset: number }) => void): this
+  on(event: 'meter', fn: (value: any) => void, opts: string | string[] | MeterOpts): this
   on(event: 'progress', fn: (event: { offset: number, total: number }) => void): this
   on(event: 'timeupdate', fn: (time: number) => void): this
   on(event: 'ended', fn: () => void): this
@@ -81,7 +83,7 @@ export interface AudioInstance {
   /** Async-iterable over materialized blocks. `for await (let block of a)` */
   [Symbol.asyncIterator](): AsyncGenerator<Float32Array[], void, unknown>
   /** Ensure stats are fresh, return stats + block range */
-  stat(name: 'db' | 'rms' | 'loudness', opts?: { at?: Time, duration?: Time }): Promise<number>
+  stat(name: 'db' | 'rms' | 'loudness' | 'peak', opts?: { at?: Time, duration?: Time, channel?: number | number[] }): Promise<number | number[]>
   stat(name: 'clipping', opts?: { at?: Time, duration?: Time }): Promise<Float32Array>
   stat(name: 'clipping', opts: { bins: number, at?: Time, duration?: Time }): Promise<Float32Array>
   stat(name: 'dc', opts?: { at?: Time, duration?: Time }): Promise<number>
@@ -184,6 +186,29 @@ export interface ProgressDelta {
   min: Float32Array[]
   max: Float32Array[]
   energy: Float32Array[]
+}
+
+export interface MeterOpts {
+  /** Stat name(s) — any registered stat, or 'spectrum' for FFT bins. Omit for all block stats. */
+  type?: string | string[]
+  /** Channel selector — omit = avg, number = that channel, array = per-channel. */
+  channel?: number | number[]
+  /** One-pole EMA time constant τ in seconds (per-listener smoothing state). */
+  smoothing?: number
+  /** Peak-hold decay time constant τ in seconds (classic analyzer look). */
+  hold?: number
+  /** Spectrum: mel bin count. */
+  bins?: number
+  /** Spectrum: min frequency (Hz). */
+  fMin?: number
+  /** Spectrum: max frequency (Hz). */
+  fMax?: number
+  /** Spectrum: apply A-weighting. */
+  weight?: boolean
+  /** Spectrum: return dB instead of linear magnitude. */
+  db?: boolean
+  /** Spectrum: FFT size (power of 2, default 1024). */
+  N?: number
 }
 
 export interface OpDescriptor {
