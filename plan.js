@@ -405,7 +405,7 @@ function compilePlan(a, len, final) {
     if (!final && at != null && at < 0) limit = 0
 
     if (op.resolve) {
-      let stats = a._.srcStats || a.stats || a._.acc?.stats
+      let stats = a.srcStats
       let ctx = { stats, sampleRate: sr, channelCount: ch, channel, at, duration, totalDuration: planLen(segs) / sr, final, ...extra }
       let resolved = op.resolve(ctx)
       if (resolved === false) { if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }; continue }

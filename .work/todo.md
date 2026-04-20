@@ -19,6 +19,38 @@
 * [x] Pitch detection — YIN notes, NNLS chroma chords, Krumhansl-Schmuckler key (`stat('notes'/'chords'/'key')`)
 * [x] Show BPM/pitch/key in CLI info line (when detected)
 * [ ] Common processing scripts (vocal warmup etc)
+* [ ] CLI `audio split --cue album.cue` — split lossless by cue sheet into N tracks (stolen from mcxiaoke/audio-cli.js)
+
+## Architecture
+
+### Plugin auto-import (`audio.use(...names)`)
+- [ ] Built-in registry maps names → subpath imports (mirrors `audio-decode` codec pattern)
+- [ ] `audio.use('reverb', 'bpm', 'stretch.wsola')` → dynamic `import()` + register
+- [ ] `audio.use(await import('@audio/pitch-yin'))` — bring-your-own still works
+- [ ] Core always-bundled set: gain, trim, crop, filter, normalize, fade, mix, reverse, pan, repeat, remix
+- [ ] CLI auto-resolves unknown op name → `audio.use(name)` before dispatch
+- [ ] Three plugin flavors formalized: **op** (`a.foo()`), **stat** (`a.stat('foo')`), **codec** (decode/encode)
+- [ ] MIR → ship as plugins under `@audio/stat-*`, not core
+
+### `audio-module` — unified module convention
+- [ ] Problem: 3 sibling conventions today — `audio-effect` (`fn(data, params)` + param-obj state), `pitch-shift` (`makePitchShift(batch, stream)` factory), `dynamics-processor` (polymorphic `fn(data, opts)` + `{write, flush}` stream). None drop into AudioWorklet/VST/`audio` plan without ad-hoc glue.
+- [ ] Define contract in `audio-module`: `{name, channels, latency, tail, params:{name:{min,max,default,unit,smoothing}}, create(sr, ch, init) → {process(in,out,n), set(k,v,smooth), reset(), serialize?(), restore?()}}` — mirrors `AudioWorkletProcessor` (narrowest target; others are wider)
+- [ ] Ship adapters: `toBatch`, `toStream`, `toWorklet`, `toAudioNode`, `toOp` (for `audio` plan system) — hosts don't care what the module author wrote
+- [ ] Flagship pilot module: compressor or delay (simple, stateful, common) — verify runs as batch + stream + AudioWorklet + `audio` op with zero per-host glue
+- [ ] Migrate siblings one-by-one: `audio-effect`, `pitch-shift`, `time-stretch`, `dynamics-processor`, `audio-filter`, `noise-reduction` — keep old exports as back-compat shims during transition
+- [ ] `audio.use(module)` accepts raw audio-module instances — no name registry needed for BYO plugins
+- [ ] Introspectable params → auto CLI help, automation API, UI generation — all free
+- [ ] Uniform test harness: feed PCM, assert output, across all libs
+- [ ] Native targets (VST3/AU/CLAP/LV2) — separate roadmap; contract must *allow* WASM+iPlug/JUCE wrapper but don't build until one flagship plugin justifies it
+- [ ] Risk: 3 existing conventions each evolved for a reason (zero-alloc, ergonomics, overlap-add). Contract must cover all three ergonomics via adapters or migration stalls.
+
+### `@audio/*` namespace migration
+- [ ] Scope owned on npm; `@audio/decode-*` already live — extend pattern to ops/algos
+- [ ] Meta-package pattern (babel/radix/tanstack): keep `pitch-shift`/`time-stretch`/`audio-effect` as thin meta-packages that reexport `@audio/pitch-*` / `@audio/stretch-*` / `@audio/fx-*`
+- [ ] Shared primitives deduped: `@audio/stft`, `@audio/window`, `@audio/biquad`
+- [ ] `peerDependencies: {audio: "^2"}` on all subpackages to prevent duplicate cores
+- [ ] Pilot with one sibling lib before mass conversion (candidate: `pitch-shift` → `@audio/pitch-yin` + `@audio/pitch-wsola`)
+- [ ] Registry in `audio` README — without it, subpackages are invisible
 
 ## Tier 2
 
@@ -29,14 +61,36 @@
   * [ ] gate
   * [ ] declick
   * [ ] denoise
-* [ ] effects
-  * [ ] compress
-  * [ ] reverb
-  * [ ] delay
 * [ ] shrink-silence
+  * [ ] compress
 
 * [ ] Modulation: pitch, stretch, repeat, filter, pan, reverb and other params should be adjustable by function
 
+
+### Effects
+
+Wire `audio-effect` into `audio` as ops (one op per effect, shared param-object streaming style):
+
+- [ ] **reverb** — Schroeder comb + allpass
+- [ ] **delay** / **echo** — feedback delay line
+- [ ] **multitap**, **ping-pong** — stereo delay variants
+- [ ] **chorus**, **flanger**, **phaser**
+- [ ] **tremolo**, **vibrato**
+- [ ] **wahwah**, **auto-wah**
+- [ ] **ring-mod**, **frequency-shifter** — SSB shift via Hilbert
+- [ ] **distortion** (soft/hard/tanh/foldback), **exciter**, **bitcrusher**
+- [ ] **stereo-widener**, **haas**, **panner**, **auto-panner**
+- [ ] **transient-shaper**, **slew-limiter**, **noise-shaping**
+
+Cross-package ops (pull from sibling libs, not audio-effect):
+- [ ] **compressor**, **limiter**, **gate**, **expander**, **deesser**, **ducker** (auto-duck), **compand**, **softclip** → `dynamics-processor`
+- [ ] **pitch-shift**, **vocoder**, **formant-shift** → `pitch-shift`
+- [ ] **paulstretch**, **sliding-stretch** (continuous tempo+pitch envelope over selection) → `time-stretch` (sliding-stretch needs new API)
+- [ ] **adjustable-fade** (non-linear, mid-point, partial selection) — `audio` utility, not an effect
+
+Gaps vs sox/audacity/ffmpeg/tone.js after audit:
+- Missing from `audio-effect` — **none** (exciter, freq-shifter, auto-panner added 2026-04)
+- Not planned (noise reduction, click/declip) → handled in `~/projects/noise-reduction`
 
 ## Tier 3: Delighting
 
@@ -66,15 +120,10 @@ _Full release after core ops (compressor, denoise, gate, reverb) are implemented
 
 ## Sox parity
 
-- [ ] **compressor** — dynamic range compression / expansion / limiting (SoX `compand`)
-- [ ] **reverb** — freeverb reverberation
 - [ ] **noise** — noise reduction via spectral profiling (SoX `noisered`)
-- [ ] **echo** — echo / delay effect
+- [ ] **compressor** — dynamic range compression / expansion / limiting (SoX `compand`)
 - [x] **resample** — explicit sample rate conversion
 - [x] **dither** — dithering for bit-depth reduction
-- [ ] **chorus** — chorus modulation
-- [ ] **flanger** — flanging
-- [ ] **phaser** — phaser effect
 - [x] **vocals** — vocal isolation / removal (SoX `oops`, out-of-phase stereo)
 - [x] **allpass** — all-pass filter
 - [x] **earwax** — headphone crossfeed
@@ -89,16 +138,6 @@ _Full release after core ops (compressor, denoise, gate, reverb) are implemented
 - [ ] **dynaudnorm** — dynaudnorm: frame-by-frame dynamic normalization
 - [ ] **softclip** — asoftclip: tanh/atan/cubic waveshaping
 
-### Effects
-- [ ] **echo** — aecho: configurable delay lines with decay
-- [ ] **reverb** — freeverb: Schroeder reverb (comb + allpass cascade)
-- [ ] **chorus** — chorus: multiple modulated delay lines
-- [ ] **flanger** — flanger: short modulated delay with feedback
-- [ ] **phaser** — aphaser: cascaded allpass with LFO modulation
-- [ ] **tremolo** — tremolo: periodic amplitude modulation (LFO)
-- [ ] **vibrato** — vibrato: periodic pitch modulation (LFO)
-- [ ] **exciter** — aexciter: harmonic synthesis for presence/air
-- [ ] **crusher** — acrusher: bit-depth + sample-rate reduction (lo-fi)
 
 ### Spatial
 - [ ] **stereotools** — stereotools: width, mid/side balance, phase flip, swap L/R
@@ -141,23 +180,8 @@ _Full release after core ops (compressor, denoise, gate, reverb) are implemented
 
 ## Audacity parity
 
-* [ ] denoise
-* [ ] declick
-* [ ] declip
-* [ ] echo, reverb
-* [ ] phaser, tremolo
-* [ ] compressor, limiter
 * [ ] noise gate
 * [ ] truncate silence
-
-### Effects — missing
-- [ ] **distortion** — waveshaping distortion (multiple curve types: hard clip, soft clip, tube, fuzz)
-- [ ] **wahwah** — auto-wah: swept bandpass with LFO (like phaser but frequency-selective)
-- [ ] **vocoder** — channel vocoder: modulator/carrier synthesis
-- [ ] **paulstretch** — extreme time-stretch (10x–1000x) for ambient/drone textures
-- [ ] **sliding-stretch** — continuous tempo+pitch change over selection (start→end rate/semitones)
-- [ ] **auto-duck** — sidechain ducker: reduce track volume when control track is active (podcast/voiceover)
-- [ ] **adjustable-fade** — non-linear fade with mid-point control, partial fade within selection
 
 ### Spectral editing
 - [ ] **spectral-delete** — delete a time×frequency rectangle from spectrogram
@@ -361,6 +385,24 @@ Building blocks present: `a.block` updates per playback chunk (fn/play.js:63), `
 
 ## Archive
 
+### Move codec meta to audio-decode / audio-encode
+- [x] Problem: `audio/fn/meta.js` holds WAV/MP3/FLAC parsers + writers (~650 lines of codec-specific byte layout). Belongs next to the format readers/writers, not in the engine.
+- [x] Parsers → `audio-decode/packages/decode-{wav,mp3,flac}/meta.js` exporting `parseMeta(bytes)` → `{meta, sampleRate, markers, regions}`. Re-exported from `audio-decode/meta` umbrella.
+- [x] Writers → `audio-encode/packages/encode-{wav,mp3,flac}/meta.js` exporting `writeMeta(bytes, {meta, markers, regions})`. Re-exported from `encode-audio/meta` umbrella.
+- [x] Constants (INFO_MAP, ID3_MAP, VORBIS_MAP) live with their codec — no cross-package shared mapping.
+- [x] `audio/fn/meta.js` slimmed to ~150 lines: `pic()` URL helper, `ensureMeta` lazy-parse hook, `Object.defineProperties(audio.fn, {meta, markers, regions})`, projection functions.
+- [x] Post-move: `audio/fn/save.js` no longer buffers-then-splices for meta formats — meta-embedding moved into `encode-audio` umbrella (single code path in save). Sub-encoders stay pure PCM→bytes; umbrella's `reg()` intercepts `meta`/`markers`/`regions` opts and applies `writeMeta` on flush.
+- [x] Coordinated release: audio-decode (minor, additive), audio-encode (minor, additive), audio (patch, internal refactor).
+
+### Metadata & markers
+- [x] `a.meta` — normalized tags read on decode: `{title, artist, album, year, bpm, key, comment, pictures, ...}`
+- [x] `a.meta.raw` — format-specific untouched (ID3v2 frames, Vorbis comments, iXML, bext, MP4 atoms)
+- [x] `a.markers` — `[{time, label}]`, structural (crop shifts, reverse flips); WAV cue, MP3 CHAP, FLAC CUESHEET
+- [x] `a.regions` — `[{at, duration, label}]`; WAV cue+playlist, MP3 CHAP ranges
+- [x] Encode round-trip preserves meta+markers where target format supports it
+- [x] Scope v1: WAV (bext/iXML/cue) + MP3 (ID3v2) + FLAC (Vorbis+CUESHEET); defer M4A/Opus
+- [x] Do NOT overload `stat()` — meta is provenance-tagged container data, stats are derived measurements
+
 ### Meter
 
 - [x] **peak stat** — `a.stat('peak')` → `max(|min|, |max|)`, derived via query from existing min/max block arrays. Audio-convention level (dBFS, clipping), not peak-to-peak.
@@ -401,6 +443,14 @@ Building blocks present: `a.block` updates per playback chunk (fn/play.js:63), `
 * [x] Uniform codec wrappers — `@audio/decode-mp3`, `decode-flac`, `decode-opus`, `decode-vorbis`, `decode-qoa`
 * [x] There's an issue with player spectrum. When we pause playback, it keeps animating as if there's inertia. Can we please freeze spectrum or maybe just 1 frame if we hit stop? Also it keeps animating if we seek in paused mode.
 * [x] Figure out .stream contract across packages: either we can call it stream, or have a factory.
+
+**Consistency audit fixes**
+* [x] Custom filter contract — forward all ctx params (`at`, `duration`, `channel`) to custom fn; flatten object-type `freq`
+* [x] Unify analysis surface — `fn.stat()` requires registry registration; method-backed stats (spectrum, cepstrum, silence, notes, chords, key) self-register via `audio.stat(name, {})`
+* [x] Resolve-stage private state — `srcStats` getter on instance (`a.srcStats`) replaces direct `a._.srcStats` access in plan.js
+* [x] Lazy mic import — `core.js` dynamically imports `audio-mic` inside `fn.record()` instead of static top-level import
+* [x] CLI registry-driven help — `showUsage`/`showOpHelp` read from `audio.op()` descriptors; HELP metadata injected into registry; fallback for non-op methods (clip)
+* [x] Freeze internal state bag — `a._` created via `Object.defineProperty` with `writable:false, enumerable:false, configurable:false`
 
 ## Issues to close (resolved by v2.0–2.3)
 

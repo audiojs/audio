@@ -32,3 +32,6 @@ audio.fn.silence = async function(opts) {
 
   return segs
 }
+
+audio.stat('silence', {})
+audio.stat('silence', { query: null })

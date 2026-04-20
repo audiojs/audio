@@ -86,6 +86,10 @@ export async function analyzeBlocks(inst, opts, N, bins, fn) {
 
 import audio from '../core.js'
 
+audio.stat('spectrum', {})
+audio.stat('centroid', {})
+audio.stat('flatness', {})
+
 /** a.stat('spectrum', {bins}) → average mel spectrum in dB over range */
 audio.fn.spectrum = async function(opts) {
   let bins = opts?.bins ?? 128

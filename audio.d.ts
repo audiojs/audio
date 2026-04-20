@@ -53,6 +53,12 @@ export interface AudioInstance {
   played: Promise<void>
   /** Current playback block for visualization */
   block: Float32Array | null
+  /** Container tags: title/artist/album/year/pictures/... + raw format-specific blocks. Writable; persists through save. */
+  meta: Meta
+  /** Structural markers in output seconds, projected through the edit plan. Writable. */
+  markers: Marker[]
+  /** Structural regions in output seconds, projected through the edit plan. Writable. */
+  regions: Region[]
 
   // ── Events ──────────────────────────────────────────────────────
   /** Subscribe to instance event */
@@ -161,9 +167,9 @@ export interface AudioInstance {
   stop(): this
   /** Live stats during playback. Listener-gated (zero cost when nothing subscribes). Omit cb for pull-style via probe.value. */
   meter(what: string | string[] | MeterOpts, cb?: (value: any) => void): MeterProbe
-  save(target: string | FileSystemWritableFileStream, opts?: { format?: string, at?: Time, duration?: Time, meta?: Record<string, any> }): Promise<void>
-  encode(format?: string, opts?: { at?: Time, duration?: Time, meta?: Record<string, any> }): Promise<Uint8Array>
-  encode(opts?: { at?: Time, duration?: Time, meta?: Record<string, any> }): Promise<Uint8Array>
+  save(target: string | FileSystemWritableFileStream, opts?: { format?: string, at?: Time, duration?: Time, meta?: Meta | false, markers?: Marker[], regions?: Region[] }): Promise<void>
+  encode(format?: string, opts?: { at?: Time, duration?: Time, meta?: Meta | false, markers?: Marker[], regions?: Region[] }): Promise<Uint8Array>
+  encode(opts?: { at?: Time, duration?: Time, meta?: Meta | false, markers?: Marker[], regions?: Region[] }): Promise<Uint8Array>
   clone(): AudioInstance
 }
 
@@ -177,6 +183,55 @@ export interface AudioStats {
 }
 
 export type EditOp = [type: string, opts?: Record<string, any>]
+
+/** Normalized container tags. Unknown fields kept under `.raw`. Pass `meta: false` to save() to strip. */
+export interface Meta {
+  title?: string
+  artist?: string
+  album?: string
+  albumartist?: string
+  composer?: string
+  genre?: string
+  year?: string
+  track?: string
+  disc?: string
+  bpm?: string
+  key?: string
+  comment?: string
+  copyright?: string
+  isrc?: string
+  publisher?: string
+  software?: string
+  lyrics?: string
+  pictures?: Picture[]
+  /** Format-specific untouched blocks (WAV bext/iXML, ID3v2 frames, FLAC blocks) */
+  raw?: Record<string, any>
+  [key: string]: any
+}
+
+/** Cover art / picture. `data` is raw image bytes; `.url` lazy-creates a Blob URL (browser) or data URL (Node). */
+export interface Picture {
+  mime: string
+  /** ID3 picture type (3 = cover, 4 = back, ...). Default 3. */
+  type?: number
+  description?: string
+  data: Uint8Array
+  /** Lazy getter — Blob URL in browser, data URL in Node. */
+  readonly url: string
+}
+
+/** Point marker, in output seconds. */
+export interface Marker {
+  time: number
+  label?: string
+}
+
+/** Time-span region, in output seconds. */
+export interface Region {
+  at: number
+  duration: number
+  label?: string
+}
 
 
 export interface AudioOpts {

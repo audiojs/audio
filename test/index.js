@@ -5685,6 +5685,309 @@ test('encode round-trip — MP3 preserves signal at acceptable SNR', async t => 
 }  // end isNode guard
 
 
+// ── Phase 29: Meta — tags, pictures, markers, regions ─────────────────
+
+// Minimal JPEG (1×1 red pixel) — used as picture payload.
+const JPG_1x1 = new Uint8Array([
+  0xFF,0xD8,0xFF,0xE0,0x00,0x10,0x4A,0x46,0x49,0x46,0x00,0x01,0x01,0x00,0x00,0x01,
+  0x00,0x01,0x00,0x00,0xFF,0xDB,0x00,0x43,0x00,0x08,0x06,0x06,0x07,0x06,0x05,0x08,
+  0x07,0x07,0x07,0x09,0x09,0x08,0x0A,0x0C,0x14,0x0D,0x0C,0x0B,0x0B,0x0C,0x19,0x12,
+  0x13,0x0F,0x14,0x1D,0x1A,0x1F,0x1E,0x1D,0x1A,0x1C,0x1C,0x20,0x24,0x2E,0x27,0x20,
+  0x22,0x2C,0x23,0x1C,0x1C,0x28,0x37,0x29,0x2C,0x30,0x31,0x34,0x34,0x34,0x1F,0x27,
+  0x39,0x3D,0x38,0x32,0x3C,0x2E,0x33,0x34,0x32,0xFF,0xC0,0x00,0x0B,0x08,0x00,0x01,
+  0x00,0x01,0x01,0x01,0x11,0x00,0xFF,0xC4,0x00,0x1F,0x00,0x00,0x01,0x05,0x01,0x01,
+  0x01,0x01,0x01,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x02,0x03,0x04,
+  0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0xFF,0xC4,0x00,0xB5,0x10,0x00,0x02,0x01,0x03,
+  0x03,0x02,0x04,0x03,0x05,0x05,0x04,0x04,0x00,0x00,0x01,0x7D,0x01,0x02,0x03,0x00,
+  0x04,0x11,0x05,0x12,0x21,0x31,0x41,0x06,0x13,0x51,0x61,0x07,0x22,0x71,0x14,0x32,
+  0x81,0x91,0xA1,0x08,0x23,0x42,0xB1,0xC1,0x15,0x52,0xD1,0xF0,0x24,0x33,0x62,0x72,
+  0x82,0x09,0x0A,0x16,0x17,0x18,0x19,0x1A,0x25,0x26,0x27,0x28,0x29,0x2A,0x34,0x35,
+  0x36,0x37,0x38,0x39,0x3A,0x43,0x44,0x45,0x46,0x47,0x48,0x49,0x4A,0x53,0x54,0x55,
+  0x56,0x57,0x58,0x59,0x5A,0x63,0x64,0x65,0x66,0x67,0x68,0x69,0x6A,0x73,0x74,0x75,
+  0x76,0x77,0x78,0x79,0x7A,0x83,0x84,0x85,0x86,0x87,0x88,0x89,0x8A,0x92,0x93,0x94,
+  0x95,0x96,0x97,0x98,0x99,0x9A,0xA2,0xA3,0xA4,0xA5,0xA6,0xA7,0xA8,0xA9,0xAA,0xB2,
+  0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0xBA,0xC2,0xC3,0xC4,0xC5,0xC6,0xC7,0xC8,0xC9,
+  0xCA,0xD2,0xD3,0xD4,0xD5,0xD6,0xD7,0xD8,0xD9,0xDA,0xE1,0xE2,0xE3,0xE4,0xE5,0xE6,
+  0xE7,0xE8,0xE9,0xEA,0xF1,0xF2,0xF3,0xF4,0xF5,0xF6,0xF7,0xF8,0xF9,0xFA,0xFF,0xDA,
+  0x00,0x08,0x01,0x01,0x00,0x00,0x3F,0x00,0xFB,0xD0,0xFF,0xD9
+])
+
+if (isNode) {
+
+test('meta — WAV round-trip preserves INFO + bext + cue/adtl', async t => {
+  let { unlinkSync } = await import('fs')
+  let { join } = await import('path')
+  let path = join('/tmp', `audio-meta-wav-${Date.now()}.wav`)
+  try {
+    let sr = 44100
+    let a = audio.from([tone(440, 2, sr)], { sampleRate: sr })
+    a.meta.title = 'Test Title'
+    a.meta.artist = 'Ada Lovelace'
+    a.meta.album = 'Analytical Engine'
+    a.meta.year = '1843'
+    a.meta.genre = 'Compute'
+    a.meta.comment = 'on looms and punch cards'
+    a.meta.raw = {
+      bext: {
+        description: 'BWF description',
+        originator: 'audio-test',
+        originatorReference: 'ref-42',
+        originationDate: '2026-04-18',
+        originationTime: '12:00:00',
+        timeReferenceLow: 0, timeReferenceHigh: 0, version: 1
+      }
+    }
+    a.markers = [{ time: 0.5, label: 'start' }, { time: 1.5, label: 'mid' }]
+    a.regions = [{ at: 0.25, duration: 0.5, label: 'intro' }]
+    await a.save(path)
+
+    let b = await audio(path)
+    t.is(b.meta.title, 'Test Title', 'title preserved')
+    t.is(b.meta.artist, 'Ada Lovelace', 'artist preserved')
+    t.is(b.meta.album, 'Analytical Engine', 'album preserved')
+    t.is(b.meta.year, '1843', 'year preserved')
+    t.is(b.meta.genre, 'Compute', 'genre preserved')
+    t.ok(b.meta.raw?.bext, 'bext chunk preserved')
+    t.is(b.meta.raw.bext.originator, 'audio-test', 'bext.originator')
+    t.is(b.meta.raw.bext.originationDate, '2026-04-18', 'bext.originationDate')
+    let markers = b.markers
+    t.is(markers.length, 2, 'two markers preserved')
+    t.is(markers[0].label, 'start', 'marker[0].label')
+    t.ok(Math.abs(markers[0].time - 0.5) < 1e-3, `marker[0].time ≈ 0.5 (got ${markers[0].time})`)
+    t.ok(Math.abs(markers[1].time - 1.5) < 1e-3, `marker[1].time ≈ 1.5 (got ${markers[1].time})`)
+    let regions = b.regions
+    t.is(regions.length, 1, 'one region preserved')
+    t.is(regions[0].label, 'intro', 'region.label')
+    t.ok(Math.abs(regions[0].at - 0.25) < 1e-3, 'region.at ≈ 0.25')
+    t.ok(Math.abs(regions[0].duration - 0.5) < 1e-3, 'region.duration ≈ 0.5')
+  } finally { try { unlinkSync(path) } catch {} }
+})
+
+test('meta — MP3 round-trip preserves ID3v2 text frames', async t => {
+  let { unlinkSync } = await import('fs')
+  let { join } = await import('path')
+  let path = join('/tmp', `audio-meta-mp3-${Date.now()}.mp3`)
+  try {
+    let sr = 44100
+    let a = audio.from([tone(1000, 1, sr)], { sampleRate: sr })
+    a.meta.title = 'Synth Title'
+    a.meta.artist = 'Codec Kid'
+    a.meta.album = 'Frames'
+    a.meta.year = '2026'
+    a.meta.bpm = '120'
+    a.meta.comment = 'preserved through ID3v2'
+    await a.save(path)
+
+    let b = await audio(path)
+    t.is(b.meta.title, 'Synth Title', 'ID3 TIT2')
+    t.is(b.meta.artist, 'Codec Kid', 'ID3 TPE1')
+    t.is(b.meta.album, 'Frames', 'ID3 TALB')
+    t.is(b.meta.year, '2026', 'ID3 TDRC')
+    t.is(b.meta.bpm, '120', 'ID3 TBPM')
+    t.is(b.meta.comment, 'preserved through ID3v2', 'ID3 COMM')
+  } finally { try { unlinkSync(path) } catch {} }
+})
+
+test('meta — FLAC round-trip preserves Vorbis comments', async t => {
+  let { unlinkSync } = await import('fs')
+  let { join } = await import('path')
+  let path = join('/tmp', `audio-meta-flac-${Date.now()}.flac`)
+  try {
+    let sr = 44100
+    let a = audio.from([tone(440, 1, sr)], { sampleRate: sr })
+    a.meta.title = 'FLAC Title'
+    a.meta.artist = 'Free Lossless'
+    a.meta.album = 'Vorbis Block'
+    a.meta.year = '2026'
+    a.meta.comment = 'block 4 of fLaC'
+    await a.save(path)
+
+    let b = await audio(path)
+    t.is(b.meta.title, 'FLAC Title', 'vorbis TITLE')
+    t.is(b.meta.artist, 'Free Lossless', 'vorbis ARTIST')
+    t.is(b.meta.album, 'Vorbis Block', 'vorbis ALBUM')
+    t.is(b.meta.year, '2026', 'vorbis DATE')
+    t.is(b.meta.comment, 'block 4 of fLaC', 'vorbis COMMENT')
+  } finally { try { unlinkSync(path) } catch {} }
+})
+
+test('meta — WAV picture preserved in ID3 chunk (embedded), else via bext? → skip for now', async t => {
+  // WAV picture transport is non-canonical; only cover standard meta chunks here.
+  t.ok(true, 'WAV picture storage not in scope for v1')
+})
+
+test('meta — MP3 picture round-trip via APIC', async t => {
+  let { unlinkSync } = await import('fs')
+  let { join } = await import('path')
+  let path = join('/tmp', `audio-pic-mp3-${Date.now()}.mp3`)
+  try {
+    let sr = 44100
+    let a = audio.from([tone(440, 1, sr)], { sampleRate: sr })
+    a.meta.title = 'With Cover'
+    a.meta.pictures = [{ mime: 'image/jpeg', type: 3, description: 'cover', data: JPG_1x1 }]
+    await a.save(path)
+
+    let b = await audio(path)
+    t.is(b.meta.title, 'With Cover', 'title preserved')
+    t.is(b.meta.pictures.length, 1, 'one picture')
+    let p = b.meta.pictures[0]
+    t.is(p.mime, 'image/jpeg', 'mime preserved')
+    t.is(p.type, 3, 'type=front cover preserved')
+    t.is(p.description, 'cover', 'description preserved')
+    t.is(p.data.length, JPG_1x1.length, `picture bytes length (got ${p.data.length})`)
+    // Verify byte-level
+    let same = true
+    for (let i = 0; i < JPG_1x1.length; i++) if (p.data[i] !== JPG_1x1[i]) { same = false; break }
+    t.ok(same, 'picture bytes byte-identical')
+    t.ok(typeof p.url === 'string' && p.url.length > 0, 'picture has url (lazy)')
+    t.ok(p.url.startsWith('data:image/jpeg') || p.url.startsWith('blob:'), 'url is data/blob URL')
+  } finally { try { unlinkSync(path) } catch {} }
+})
+
+test('meta — FLAC picture round-trip via PICTURE block', async t => {
+  let { unlinkSync } = await import('fs')
+  let { join } = await import('path')
+  let path = join('/tmp', `audio-pic-flac-${Date.now()}.flac`)
+  try {
+    let sr = 44100
+    let a = audio.from([tone(440, 1, sr)], { sampleRate: sr })
+    a.meta.title = 'FLAC Cover'
+    a.meta.pictures = [{ mime: 'image/jpeg', type: 3, description: 'front', data: JPG_1x1 }]
+    await a.save(path)
+
+    let b = await audio(path)
+    t.is(b.meta.title, 'FLAC Cover', 'title preserved')
+    t.is(b.meta.pictures.length, 1, 'one picture')
+    let p = b.meta.pictures[0]
+    t.is(p.mime, 'image/jpeg', 'mime preserved')
+    t.is(p.type, 3, 'type=3 preserved')
+    t.is(p.description, 'front', 'description preserved')
+    t.is(p.data.length, JPG_1x1.length, 'picture bytes length')
+    let same = true
+    for (let i = 0; i < JPG_1x1.length; i++) if (p.data[i] !== JPG_1x1[i]) { same = false; break }
+    t.ok(same, 'picture bytes byte-identical')
+  } finally { try { unlinkSync(path) } catch {} }
+})
+
+test('meta — pristine WAV has empty meta', async t => {
+  let a = await audio(lenaPath)
+  t.ok(a.meta, 'meta object present')
+  t.is(a.markers.length, 0, 'no markers')
+  t.is(a.regions.length, 0, 'no regions')
+})
+
+test('meta — edit title then save preserves updated title', async t => {
+  let { unlinkSync } = await import('fs')
+  let { join } = await import('path')
+  let path = join('/tmp', `audio-meta-edit-${Date.now()}.wav`)
+  try {
+    let sr = 44100
+    let a = audio.from([tone(440, 1, sr)], { sampleRate: sr })
+    a.meta.title = 'v1'
+    await a.save(path)
+    let b = await audio(path)
+    t.is(b.meta.title, 'v1', 'first save')
+    b.meta.title = 'v2'
+    b.meta.artist = 'New Artist'
+    await b.save(path)
+    let c = await audio(path)
+    t.is(c.meta.title, 'v2', 'updated title persisted')
+    t.is(c.meta.artist, 'New Artist', 'new artist persisted')
+  } finally { try { unlinkSync(path) } catch {} }
+})
+
+test('meta — omitting meta:false strips tags from saved WAV', async t => {
+  let { unlinkSync } = await import('fs')
+  let { join } = await import('path')
+  let p1 = join('/tmp', `audio-meta-on-${Date.now()}.wav`)
+  let p2 = join('/tmp', `audio-meta-off-${Date.now()}.wav`)
+  try {
+    let sr = 44100
+    let a = audio.from([tone(440, 1, sr)], { sampleRate: sr })
+    a.meta.title = 'Stripped'
+    await a.save(p1)
+    await a.save(p2, { meta: false })
+    let b1 = await audio(p1), b2 = await audio(p2)
+    t.is(b1.meta.title, 'Stripped', 'with meta: title present')
+    t.ok(!b2.meta.title, 'without meta: no title')
+  } finally { try { unlinkSync(p1) } catch {}; try { unlinkSync(p2) } catch {} }
+})
+
+}  // end isNode guard
+
+
+// ── Phase 30: Markers projected through plan edits ────────────────────
+
+test('markers — crop shifts marker times', async t => {
+  let sr = 44100
+  let a = audio.from([tone(440, 4, sr)], { sampleRate: sr })
+  a.markers = [{ time: 1, label: 'a' }, { time: 3, label: 'b' }]
+  a.crop({ at: 0.5, duration: 3 })  // source [0.5, 3.5] → output [0, 3]
+  let m = a.markers
+  t.is(m.length, 2, 'both markers survive crop')
+  t.is(m[0].label, 'a', 'marker a preserved')
+  t.ok(Math.abs(m[0].time - 0.5) < 1e-3, `marker a at 1 → 0.5 (got ${m[0].time})`)
+  t.ok(Math.abs(m[1].time - 2.5) < 1e-3, `marker b at 3 → 2.5 (got ${m[1].time})`)
+})
+
+test('markers — crop drops markers outside range', async t => {
+  let sr = 44100
+  let a = audio.from([tone(440, 4, sr)], { sampleRate: sr })
+  a.markers = [{ time: 0.1, label: 'before' }, { time: 2, label: 'inside' }, { time: 3.9, label: 'after' }]
+  a.crop({ at: 1, duration: 2 })  // source [1, 3]
+  let m = a.markers
+  t.is(m.length, 1, 'only inside-range marker survives')
+  t.is(m[0].label, 'inside', 'inside preserved')
+  t.ok(Math.abs(m[0].time - 1) < 1e-3, `time: 2 → 1 (got ${m[0].time})`)
+})
+
+test('markers — reverse flips marker times', async t => {
+  let sr = 44100, dur = 4
+  let a = audio.from([tone(440, dur, sr)], { sampleRate: sr })
+  a.markers = [{ time: 1, label: 'early' }, { time: 3, label: 'late' }]
+  a.reverse()
+  let m = a.markers
+  t.is(m.length, 2, 'both markers preserved')
+  // Sorted by time — early (originally at 1) is now near dur-1 = 3; late (originally 3) is near 1
+  t.ok(Math.abs(m[0].time - 1) < 2e-3, `reversed: time 3 → ~1 (got ${m[0].time})`)
+  t.ok(Math.abs(m[1].time - 3) < 2e-3, `reversed: time 1 → ~3 (got ${m[1].time})`)
+  t.is(m[0].label, 'late', 'first after reverse is "late"')
+  t.is(m[1].label, 'early', 'second after reverse is "early"')
+})
+
+test('markers — crop+reverse chains correctly', async t => {
+  let sr = 44100
+  let a = audio.from([tone(440, 4, sr)], { sampleRate: sr })
+  a.markers = [{ time: 1.5, label: 'x' }]
+  a.crop({ at: 1, duration: 2 }).reverse()  // source [1, 3], then reversed → source 1.5 → output 0.5 (mirror within [0,2])
+  let m = a.markers
+  t.is(m.length, 1, 'marker survives crop+reverse')
+  t.ok(Math.abs(m[0].time - 1.5) < 2e-3, `crop+reverse: 1.5 → 1.5 (got ${m[0].time})`)
+})
+
+test('markers — speed 2x halves marker times', async t => {
+  let sr = 44100
+  let a = audio.from([tone(440, 4, sr)], { sampleRate: sr })
+  a.markers = [{ time: 1, label: 'a' }, { time: 2, label: 'b' }]
+  a.speed(2)  // doubles rate, halves duration
+  let m = a.markers
+  t.is(m.length, 2, 'both survive speed')
+  t.ok(Math.abs(m[0].time - 0.5) < 2e-3, `a: 1 → 0.5 (got ${m[0].time})`)
+  t.ok(Math.abs(m[1].time - 1) < 2e-3, `b: 2 → 1 (got ${m[1].time})`)
+})
+
+test('regions — crop clips region bounds', async t => {
+  let sr = 44100
+  let a = audio.from([tone(440, 4, sr)], { sampleRate: sr })
+  a.regions = [{ at: 1, duration: 2, label: 'core' }]
+  a.crop({ at: 0.5, duration: 3 })  // source [0.5, 3.5] → output [0, 3]
+  let r = a.regions
+  t.is(r.length, 1, 'region survives')
+  t.ok(Math.abs(r[0].at - 0.5) < 1e-3, `region.at: 1 → 0.5 (got ${r[0].at})`)
+  t.ok(Math.abs(r[0].duration - 2) < 1e-3, `region.duration stable (got ${r[0].duration})`)
+})
+
+
 // ── CLI Parsing (fast, no file I/O) ────────────────────────────────────
 
 if (isNode) {

@@ -43,7 +43,15 @@ const filterParams = {
 const filter = (input, output, ctx) => {
   let type = ctx.type
   if (typeof type === 'function') {
-    return apply(input, output, ctx, '_custom', type, fs => ({ ...ctx.freq, fs }))
+    return apply(input, output, ctx, '_custom', type, fs => {
+      let { type: _, sampleRate: _sr, at: _a, duration: _d, channel: _ch, _custom, ...params } = ctx
+      // If freq is an object, flatten it (audio-filter convention: { fc, Q, gain })
+      if (params.freq && typeof params.freq === 'object') {
+        let { freq, ...rest } = params
+        return { ...freq, ...rest, fs }
+      }
+      return { ...params, fs }
+    })
   }
   let fn = types[type]
   if (!fn) throw new Error(`Unknown filter type: ${type}`)

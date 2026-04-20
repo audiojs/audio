@@ -38,6 +38,8 @@ export function mfcc(samples, sr, opts = {}) {
 
 import audio from '../core.js'
 
+audio.stat('cepstrum', {})
+
 /** a.stat('cepstrum', {bins}) → average MFCCs over range */
 audio.fn.cepstrum = async function(opts) {
   let bins = opts?.bins ?? 13

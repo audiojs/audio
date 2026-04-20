@@ -294,8 +294,11 @@ audio.fn.stat = async function(name, opts) {
   // Array of stat names — parallel query, positional result
   if (Array.isArray(name)) return Promise.all(name.map(n => this.stat(n, opts)))
 
-  // Instance methods (spectrum, cepstrum, etc.)
-  if (typeof this[name] === 'function' && !audio.stat(name)) return this[name](opts)
+  let desc = audio.stat(name)
+  if (!desc) throw new Error(`Unknown stat: '${name}'`)
+
+  // Registered stat with instance method (streaming analysis: spectrum, cepstrum, silence, etc.)
+  if (desc && !desc.query && !desc.reduce && !desc.block && typeof this[name] === 'function') return this[name](opts)
 
   let { stats, ch, sr, from, to } = await queryRange(this, opts)
   let bins = opts?.bins
@@ -305,8 +308,6 @@ audio.fn.stat = async function(name, opts) {
   let perCh = Array.isArray(chSel)
   let chs = chSel != null ? (perCh ? chSel : [chSel]) : Array.from({ length: ch }, (_, i) => i)
 
-  let desc = audio.stat(name)
-
   // Derived stats — custom query (skip if bins requested on block stat)
   if (desc?.query && bins == null) {
     if (perCh) return chs.map(c => desc.query(stats, [c], from, to, sr, opts))
@@ -315,8 +316,7 @@ audio.fn.stat = async function(name, opts) {
 
   // Raw block stats
   let blockStats = stats[name], reduce = desc?.reduce
-  if (!blockStats) throw new Error(`Unknown stat: '${name}'`)
-  if (!reduce) throw new Error(`No reducer for stat: '${name}'`)
+  if (!blockStats || !reduce) throw new Error(`No block stat: '${name}'`)
 
   // Binned mode
   if (bins != null) {

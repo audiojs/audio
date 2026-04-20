@@ -74,7 +74,7 @@ function isOpName(s) {
   return (op && !op.hidden) || s === 'split' || s === 'stat'
 }
 
-// ── Per-op Help ──────────────────────────────────────────────────────────
+// ── Per-op Help (injected into op descriptors for registry-driven CLI) ───
 
 const HELP = {
   gain:      { usage: 'gain DB [RANGE]', desc: 'Amplify in dB', examples: ['gain -3db', 'gain 6 1s..5s'] },
@@ -109,8 +109,14 @@ const HELP = {
   crossfade: { usage: 'crossfade SRC [DUR] [CURVE]', desc: 'Crossfade into another audio file', examples: ['crossfade next.wav 2s', 'crossfade next.wav 0.5s cos'] },
 }
 
+// Inject help into op descriptors so registry is the source of truth
+for (let [name, h] of Object.entries(HELP)) {
+  let op = audio.op(name)
+  if (op) op.help = h
+}
+
 function showOpHelp(name) {
-  let h = HELP[name]
+  let h = audio.op(name)?.help || HELP[name]
   if (!h) { console.error(`No help for: ${name}`); return }
   console.log(`\n  ${h.usage}\n\n  ${h.desc}\n`)
   if (h.examples.length) console.log('  Examples:')
@@ -187,7 +193,7 @@ function parseArgs(args) {
       i++
 
       // Collect args until next op or flag
-      // For stat op, stat names (dc, clip, etc.) are args, not op boundaries
+      // For stat op, stat names (bpm, dc, etc.) are args, not op boundaries
       while (i < args.length && !isFlag(args[i])) {
         if (isOpName(args[i]) && !(name === 'stat' && audio.stat(args[i]))) break
         opArgs.push(parseValue(args[i]))
@@ -1181,8 +1187,17 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
 const FILTERS = new Set(['highpass', 'lowpass', 'eq', 'lowshelf', 'highshelf', 'notch', 'bandpass', 'allpass', 'filter'])
 
 function showUsage() {
-  let ops = [], filters = []
+  let ops = [], filters = [], seen = new Set()
+  for (let [name, desc] of Object.entries(audio.op())) {
+    let h = desc.help
+    if (!h || desc.hidden) continue
+    seen.add(name)
+    let line = `  ${h.usage.padEnd(28)} ${h.desc}`
+    ;(FILTERS.has(name) ? filters : ops).push(line)
+  }
+  // Include HELP entries for methods not registered as ops (e.g. clip)
   for (let [name, h] of Object.entries(HELP)) {
+    if (seen.has(name)) continue
     let line = `  ${h.usage.padEnd(28)} ${h.desc}`
     ;(FILTERS.has(name) ? filters : ops).push(line)
   }

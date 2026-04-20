@@ -11,7 +11,6 @@ import getType from 'audio-type'
 import encode from 'encode-audio'
 import convert, { parse as parseFmt } from 'pcm-convert'
 import parseDuration from 'parse-duration'
-import mic from 'audio-mic'
 
 audio.version = '2.2.0'
 
@@ -116,6 +115,7 @@ export default function audio(source, opts = {}) {
       a._.chV = -1  // invalidate cached channels
       if (result.acc) a._.acc = result.acc
       if (result.estDuration) a._.estDur = result.estDuration
+      if (result.header) { a._.header = result.header; a._.format = result.format }
       emit(a, 'metadata', { sampleRate: result.sampleRate, channels: result.channels, estDuration: result.estDuration })
       readyResolve()
 
@@ -123,6 +123,7 @@ export default function audio(source, opts = {}) {
       a._.len = final.length
       a._.lenV = -1
       a.stats = final.stats
+      if (final.header) { a._.header = final.header; a._.metaDone = false }
       a.decoded = true
       notify()
       audio.evict?.(a)
@@ -244,16 +245,19 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
   a.decoded = true
   a.ready = Promise.resolve(true)
 
-  a._ = {
-    sr: sampleRate, // source sample rate
-    ch,            // source channel count
-    len: length,   // source sample length
-    waiters: null, // decode notify queue (null when not streaming)
-    ev: {},        // instance event listeners
-    ct: 0, ctStamp: 0,    // currentTime wall-clock interpolation
-    vol: 1, muted: false, // volume 0..1 linear with change events
-    rate: 1, // playbackRate
-  }
+  Object.defineProperty(a, '_', {
+    value: {
+      sr: sampleRate, // source sample rate
+      ch,            // source channel count
+      len: length,   // source sample length
+      waiters: null, // decode notify queue (null when not streaming)
+      ev: {},        // instance event listeners
+      ct: 0, ctStamp: 0,    // currentTime wall-clock interpolation
+      vol: 1, muted: false, // volume 0..1 linear with change events
+      rate: 1, // playbackRate
+    },
+    writable: false, enumerable: false, configurable: false
+  })
 
   // History (edit pipeline)
   a.edits = []
@@ -334,6 +338,8 @@ Object.defineProperties(fn, {
   length: { get() { return this._.len }, configurable: true },
   duration: { get() { return this.length / this.sampleRate }, configurable: true },
   channels: { get() { return this._.ch }, configurable: true },
+  /** Source stats (pre-edit snapshot) — used by resolve-stage ops like normalize/trim. */
+  srcStats: { get() { return this._.srcStats || this.stats || this._.acc?.stats }, configurable: true },
 })
 
 fn[LOAD] = async function() {
@@ -393,6 +399,7 @@ fn.record = function(opts = {}) {
   this.decoded = false
   let self = this, sr = this.sampleRate, ch = this._.ch
   let _rec = (async () => {
+    let { default: mic } = await import('audio-mic')
     let read = mic({ sampleRate: sr, channels: ch, bitDepth: 16, ...opts })
     self._._mic = read
     read((err, buf) => {
@@ -621,7 +628,8 @@ async function decodeSource(source, opts = {}) {
     let ps = paginate(channelData)
     for (let p of ps) { pages.push(p); opts.notify?.() }
     let stats = audio.statSession?.(sampleRate)?.page(channelData)?.done() ?? null
-    return { pages, sampleRate, channels: channelData.length, decoding: Promise.resolve({ stats, length: channelData[0].length }) }
+    let header = bytes.subarray(0, Math.min(bytes.length, 256 * 1024))
+    return { pages, sampleRate, channels: channelData.length, header, format, decoding: Promise.resolve({ stats, length: channelData[0].length }) }
   }
 
   // Streaming decode
@@ -640,16 +648,36 @@ async function decodeSource(source, opts = {}) {
     notify: () => { origNotify?.(); if (firstResolve) { let f = firstResolve; firstResolve = null; f() } }
   })
 
+  // Accumulate first ~256KB for meta parsing (ID3v2, FLAC blocks, WAV chunks before `data`).
+  let HEADER_CAP = 256 * 1024, headerChunks = [], headerLen = 0, headerDone = false, headerBytes = null
+  let addHeader = buf => {
+    if (headerDone || !headerChunks) return
+    headerChunks.push(buf)
+    headerLen += buf.length
+    if (headerLen >= HEADER_CAP) headerDone = true
+  }
+  let flushHeader = () => {
+    if (headerBytes) return headerBytes
+    if (!headerChunks) return new Uint8Array(0)
+    headerBytes = new Uint8Array(headerLen)
+    let pos = 0
+    for (let c of headerChunks) { headerBytes.set(c, pos); pos += c.length }
+    headerChunks = null
+    return headerBytes
+  }
+
   let decoding = (async () => {
     try {
       if (reader) {
         for await (let chunk of reader) {
           let buf = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk)
+          addHeader(buf)
           let r = await dec(buf)
           if (r.channelData.length) acc.push(r.channelData, r.sampleRate)
           await yieldLoop()
         }
       } else {
+        addHeader(bytes)
         let FEED = 64 * 1024
         for (let off = 0; off < bytes.length; off += FEED) {
           let r = await dec(bytes.subarray(off, Math.min(off + FEED, bytes.length)))
@@ -660,6 +688,7 @@ async function decodeSource(source, opts = {}) {
       let flushed = await dec()
       if (flushed.channelData.length) acc.push(flushed.channelData, flushed.sampleRate)
       let final = acc.done()
+      final.header = flushHeader()
       return final
     } catch (e) { if (firstResolve) { let f = firstResolve; firstResolve = null; f() }; throw e }
   })()
@@ -668,5 +697,5 @@ async function decodeSource(source, opts = {}) {
   if (!acc.sampleRate) throw new Error('audio: decoded no audio data')
 
   let estDuration = estimateDuration(fileSize || bytes?.length, format, acc.sampleRate, acc.channels)
-  return { pages: acc.pages, sampleRate: acc.sampleRate, channels: acc.channels, decoding, acc, estDuration }
+  return { pages: acc.pages, sampleRate: acc.sampleRate, channels: acc.channels, header: flushHeader(), format, decoding, acc, estDuration }
 }

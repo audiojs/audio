@@ -46,6 +46,10 @@ async function streamFrames(inst, opts, N, hop, fn) {
 
 // ── Notes — monophonic pitch events ─────────────────────────────
 
+audio.stat('notes', {})
+audio.stat('chords', {})
+audio.stat('key', {})
+
 audio.fn.notes = async function(opts) {
   let sr = this.sampleRate
   let N = opts?.frameSize ?? 2048

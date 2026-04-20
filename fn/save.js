@@ -5,9 +5,23 @@ const FMT_ALIAS = { aif: 'aiff', oga: 'ogg' }
 
 function resolveFormat(fmt) { return FMT_ALIAS[fmt] || fmt || 'wav' }
 
+/** Snapshot meta/markers/regions for the encoder, in output-sample positions. */
+function gatherMeta(inst, opts) {
+  if (opts.meta === false) return null
+  let meta = opts.meta && typeof opts.meta === 'object' ? opts.meta : inst.meta
+  let sr = inst.sampleRate
+  let markers = (opts.markers ?? inst.markers ?? []).map(m => ({ sample: Math.round(m.time * sr), label: m.label || '' }))
+  let regions = (opts.regions ?? inst.regions ?? []).map(r => ({ sample: Math.round(r.at * sr), length: Math.round(r.duration * sr), label: r.label || '' }))
+  let hasAny = (meta && Object.keys(meta).some(k => k !== 'raw' && k !== 'pictures' && meta[k] != null && meta[k] !== '')) ||
+    meta?.pictures?.length || markers.length || regions.length
+  if (!hasAny) return null
+  return { meta: meta || {}, markers, regions }
+}
+
 /** Stream-encode audio: calls sink(buf) per chunk, returns sink(null) at end. */
 async function encodeStream(inst, fmt, opts, sink) {
-  let enc = await encode[fmt]({ sampleRate: inst.sampleRate, channels: inst.channels, ...opts.meta })
+  let m = gatherMeta(inst, opts)
+  let enc = await encode[fmt]({ sampleRate: inst.sampleRate, channels: inst.channels, ...(m || {}) })
   let written = 0, t = performance.now()
   for await (let chunk of inst.stream({ at: opts.at, duration: opts.duration })) {
     let buf = await enc(chunk)
@@ -29,7 +43,7 @@ audio.fn.encode = async function(fmt, opts = {}) {
   if (!encode[fmt]) throw new Error('Unknown format: ' + fmt)
   let parts = []
   await encodeStream(this, fmt, opts, buf => { if (buf) parts.push(buf) })
-  let total = parts.reduce((n, p) => n + p.length, 0)
+  let total = 0; for (let p of parts) total += p.length
   let out = new Uint8Array(total), pos = 0
   for (let p of parts) { out.set(p, pos); pos += p.length }
   return out

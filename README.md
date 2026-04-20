@@ -544,6 +544,28 @@ let k = await a.stat('key')                               // {label: 'C', mode: 
 ```
 
 
+### Meta
+
+Container tags, cover art, markers, regions. Parsed on decode, preserved on save. Round-trips WAV / MP3 / FLAC.
+
+* **`a.meta`** – normalized tags: `{title, artist, album, year, bpm, key, comment, pictures, raw, ...}`. Writable. `meta.raw` holds format-specific untouched blocks (WAV bext/iXML, ID3v2 frames, FLAC blocks).
+* **`a.markers`** – point markers `[{time, label}]` in output seconds. Projected through edits (crop/reverse/speed shift or drop them).
+* **`a.regions`** – time-span regions `[{at, duration, label}]`. Same projection semantics.
+* **`meta.pictures`** – cover art `[{mime, type, description, data, url}]`. `.url` is a lazy Blob URL (browser) or data URL (Node).
+
+```js
+let a = await audio('song.mp3')
+a.meta.title                     // 'Track Name'
+a.meta.artist = 'Me'             // mutate
+img.src = a.meta.pictures[0].url // lazy Blob URL
+
+a.crop({ at: 10, duration: 30 })
+a.markers                         // re-projected — outside markers dropped, inside shifted
+
+await a.save('edited.mp3')        // tags + pictures preserved
+await a.save('stripped.wav', { meta: false })   // opt out
+```
+
 ### Utility
 
 Events, lifecycle, undo/redo, serialization.

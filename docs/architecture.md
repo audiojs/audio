@@ -104,3 +104,19 @@ Each instance's stats record `stats.blockSize` — the block size used at decode
 - **Zoomed in** (fewer samples than one block per pixel): read PCM from pages for sample-accurate waveform. Page cache makes this fast for the visible region.
 
 Changing `BLOCK_SIZE` cannot retroactively refine existing stats. For finer resolution in a zoomed region, read the PCM.
+
+## Meta, markers, regions
+
+Container tags (`a.meta`), point markers (`a.markers`), and time-span regions (`a.regions`) live alongside PCM but follow a different path.
+
+**On decode**, the streaming loop buffers the first 256 KB of the encoded source (enough for ID3v2 tags, WAV chunks before `data`, and FLAC metadata blocks) and hands them to `fn/meta.js` for parsing. The parser returns normalized keys (`title`, `artist`, ...) plus unknown blocks preserved under `.raw`. Pictures arrive as raw `Uint8Array` with a lazy `.url` getter — a CD of 20 tracks with 500 KB covers doesn't eagerly create 10 MB of Blob URLs.
+
+**Markers and regions** are stored in **source-sample coordinates** on `a._.markers` / `a._.regions`. The instance getters project through the edit plan on read:
+
+```
+source markers ──→ buildPlan(a).segs ──→ remapSample(sample, segs) ──→ output markers
+```
+
+`remapSample` walks plan segments `[from, count, to, rate, ref]` and emits one output position per segment that covers the source sample. This makes crop shift, remove drop, reverse flip, and speed/stretch scale — uniformly, without per-op plumbing.
+
+**On save**, WAV/MP3/FLAC buffer the whole encoded output and splice meta back in; other formats stream. Pass `meta: false` to strip.
