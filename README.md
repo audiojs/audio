@@ -13,15 +13,14 @@ audio raw.wav trim ..-30s normalize podcast fade 0.3s -0.5s -o clean.mp3
 
 <!-- <img src="preview.svg?v=1" alt="Audiojs demo" width="540"> -->
 
-* **Any Format** — fast wasm codecs, no ffmpeg.
-* **Streaming** — playback during decode.
-* **Non-destructive** — virtual edits, instant undo.
-* **Page cache** — open 10Gb+ files.
+* **Any Format** — fast [wasm codecs](https://github.com/audiojs/audio-decode), no ffmpeg.
+* **Non-destructive** — virtual edits, infinite undo, instant clone.
+* **Stream-first** — playback/encode during decode, realtime editing.
+* **Paged** — no 2Gb memory limit, open 10Gb+ files.
 * **Analysis** — loudness, spectrum, beats, pitch, chords, key.
 * **Modular** – pluggable ops, tree-shakable.
-* **CLI** — playback, unix pipes, tab completion.
+* **CLI** — playback, batch processing, scripting, unix pipes, tab completion.
 * **Cross-platform** — browsers, node, deno, bun.
-* **Audio-first** – dB, Hz, LUFS, not bytes and indices.
 
 <!--
 * [Architecture](docs/architecture.md) – stream-first design, pages & blocks, non-destructive editing, plan compilation
