@@ -290,6 +290,26 @@ async function getStdinBuffer() {
   })
 }
 
+/** Prompt to overwrite if TTY, silently allow if piped/scripted. */
+async function confirmOverwrite(path) {
+  let { existsSync } = await import('fs')
+  if (!existsSync(path)) return
+  if (!process.stderr.isTTY) return  // piped/scripted — silent overwrite (sox/cp behaviour)
+  process.stderr.write(`audio: ${path} already exists. Overwrite? [Y/n] `)
+  await new Promise(resolve => {
+    process.stdin.setRawMode(true)
+    process.stdin.setEncoding('utf8')
+    process.stdin.once('data', d => {
+      process.stdin.setRawMode(false)
+      process.stdin.pause()
+      process.stderr.write('\n')
+      if (d.toLowerCase() === 'n') { process.stderr.write('Aborted.\n'); process.exit(1) }
+      resolve()
+    })
+    process.stdin.resume()
+  })
+}
+
 function formatError(err) {
   return typeof err === 'string' ? err : err.message || String(err)
 }
@@ -883,16 +903,12 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     // Batch mode: multiple inputs
     if (inputs.length > 1) {
       let { basename, extname, dirname, join } = await import('path')
-      let { existsSync } = await import('fs')
       for (let file of inputs) {
         let ext = extname(file), name = basename(file, ext)
         let outFile = opts.output
           ? opts.output.replace('{name}', name).replace('{ext}', ext.slice(1))
           : join(dirname(file), name + '.out' + ext)
-        if (!opts.force && existsSync(outFile)) {
-          process.stderr.write(`audio: ${outFile} already exists (use --force to overwrite)\n`)
-          process.exit(1)
-        }
+        if (!opts.force) await confirmOverwrite(outFile)
         process.stderr.write(`Processing: ${file}\n`)
         let a = await audio(file)
         for (let op of allOps) {
@@ -1005,6 +1021,9 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       )
       process.exit(0)
     }
+
+    // Check output overwrite before paying the decode tax
+    if (opts.output && opts.output !== '-' && !opts.force) await confirmOverwrite(opts.output)
 
     // Load audio (full decode) — needed for stat, save, non-play paths
     if (opts.verbose) console.error(`Loading: ${typeof source === 'string' ? source : '(stdin)'}`)
@@ -1147,15 +1166,6 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     // Save output
     if (opts.output) {
       let output = opts.output || 'out.wav'
-
-      // Check for overwrite
-      if (!opts.force && output !== '-') {
-        let { existsSync } = await import('fs')
-        if (existsSync(output)) {
-          process.stderr.write(`audio: ${output} already exists (use --force to overwrite)\n`)
-          process.exit(1)
-        }
-      }
 
       let fmt = opts.format || (typeof output === 'string' ? output.split('.').pop() : 'wav')
 
