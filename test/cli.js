@@ -116,6 +116,59 @@ test('parseValue — filename passthrough', t => {
   t.is(parseValue('normalize'), 'normalize', 'word passes through')
 })
 
+test('parseValue — timecode MM:SS', t => {
+  t.is(parseValue('1:30'), 90, '1:30 = 90s')
+  t.is(parseValue('0:30'), 30, '0:30 = 30s')
+  t.is(parseValue('15:30'), 930, '15:30 = 930s')
+  t.is(parseValue('2:00'), 120, '2:00 = 120s')
+})
+
+test('parseValue — timecode HH:MM:SS', t => {
+  t.is(parseValue('1:00:00'), 3600, '1:00:00 = 3600s')
+  t.is(parseValue('1:01:01'), 3661, '1:01:01 = 3661s')
+  t.is(parseValue('0:01:30'), 90, '0:01:30 = 90s')
+})
+
+test('parseValue — timecode with fractional seconds', t => {
+  t.is(parseValue('1:30.5'), 90.5, '1:30.5 = 90.5s')
+  t.is(parseValue('0:00.250'), 0.25, '0:00.250 = 0.25s')
+})
+
+test('parseRange — timecode in range', t => {
+  let r = parseRange('0..15:30')
+  t.is(r.offset, 0, 'offset = 0')
+  t.is(r.duration, 930, '15:30 = 930s')
+})
+
+test('parseRange — timecode both ends', t => {
+  let r = parseRange('1:00..1:30')
+  t.is(r.offset, 60, '1:00 = 60s')
+  t.is(r.duration, 30, '1:30 - 1:00 = 30s')
+})
+
+test('parseArgs — clip op recognized', t => {
+  let r = parseArgs(['in.wav', 'clip', '0..10s', '-o', 'out.wav'])
+  t.is(r.ops.length, 1, '1 op')
+  t.is(r.ops[0].name, 'clip', 'clip is an op')
+  t.is(r.ops[0].offset, 0, 'offset = 0')
+  t.is(r.ops[0].duration, 10, 'duration = 10s')
+})
+
+test('parseArgs — clip with timecode range', t => {
+  let r = parseArgs(['in.wav', 'clip', '0..15:30'])
+  t.is(r.ops[0].name, 'clip')
+  t.is(r.ops[0].offset, 0, 'offset = 0')
+  t.is(r.ops[0].duration, 930, '15:30 = 930s')
+})
+
+test('parseArgs — bare range is playback hint, not crop', t => {
+  let r = parseArgs(['in.wav', '0..10s', '-o', 'out.wav'])
+  t.ok(r.range, 'range set')
+  t.is(r.range.offset, 0)
+  t.is(r.range.duration, 10)
+  t.is(r.ops.length, 0, 'no crop op — bare range is play cursor only')
+})
+
 test('parseRange — 1s..10s', t => {
   let range = parseRange('1s..10s')
   t.is(range.offset, 1)

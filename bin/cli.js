@@ -36,6 +36,14 @@ function parseValue(str) {
   if (/^[\d,_]+$/.test(str) && str.includes(',')) {
     return str.split(',').map(s => s === '_' ? null : Number(s))
   }
+  // timecode: MM:SS or HH:MM:SS[.mmm]
+  let tc = str.match(/^(\d+):(\d{1,2})(?::(\d{1,2}))?(?:\.(\d+))?$/)
+  if (tc) {
+    let [, a, b, c, frac] = tc
+    let s = c != null ? +a * 3600 + +b * 60 + +c : +a * 60 + +b
+    if (frac) s += +('0.' + frac)
+    return s
+  }
   // duration — supports compound expressions (1m30s, 2h20m, 500ms, etc.)
   let d = parseDuration(str, 's')
   if (d != null && isFinite(d)) return d
@@ -71,7 +79,7 @@ function isFlag(s) {
 
 function isOpName(s) {
   let op = audio.op(s)
-  return (op && !op.hidden) || s === 'split' || s === 'stat'
+  return (op && !op.hidden) || s === 'split' || s === 'stat' || s === 'clip'
 }
 
 // ── Per-op Help (injected into op descriptors for registry-driven CLI) ───
@@ -853,7 +861,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
 
     // Validate ops early — before any decode
     for (let op of allOps) {
-      if (op.name !== 'split' && op.name !== 'stat' && !audio.op(op.name))
+      if (op.name !== 'split' && op.name !== 'stat' && op.name !== 'clip' && !audio.op(op.name))
         throw new Error(`Unknown operation: ${op.name}`)
     }
 
@@ -891,7 +899,8 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
           await resolveSourceArgs(op)
           let fullArgs = opCallArgs(op)
           if (typeof a[op.name] !== 'function') throw new Error(`Unknown operation: ${op.name}`)
-          a[op.name](...fullArgs)
+          if (op.name === 'clip') a = a[op.name](...fullArgs)
+          else a[op.name](...fullArgs)
         }
         await a.save(outFile)
         process.stderr.write(`  → ${outFile}\n`)
