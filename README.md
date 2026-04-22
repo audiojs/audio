@@ -1,6 +1,6 @@
 # 🎧 audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/audio?color=white)](https://npmjs.org/package/audio)
 
-_High-level audio workflow: playback, analysis and editing_
+_Audio playback, editing and analysys_
 
 ```js
 // js
@@ -29,13 +29,13 @@ audio raw.wav trim ..-30s normalize podcast fade 0.3s -0.5s -o clean.mp3
 -->
 
 ---
+
 <div align=center>
 
 #### [Start](#start)&nbsp;&nbsp;&nbsp;[Recipes](#recipes)&nbsp;&nbsp;&nbsp;[API](#api)&nbsp;&nbsp;&nbsp;[CLI](#cli)&nbsp;&nbsp;&nbsp;[FAQ](#faq)&nbsp;&nbsp;&nbsp;[Plugins](docs/plugins.md)&nbsp;&nbsp;&nbsp;[Architecture](docs/architecture.md)
 
 </div>
 
----
 
 ## Start
 
