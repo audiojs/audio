@@ -5,6 +5,9 @@ _High-level audio workflow: playback, analysis and editing_
 ```js
 audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 ```
+```sh
+audio raw.wav trim ..-30s normalize podcast fade 0.3s -0.5s -o clean.mp3
+```
 
 <!-- <img src="preview.svg?v=1" alt="Audiojs demo" width="540"> -->
 
