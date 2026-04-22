@@ -3,9 +3,11 @@
 _High-level audio workflow: playback, analysis and editing_
 
 ```js
+// js
 audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 ```
 ```sh
+# cli
 audio raw.wav trim ..-30s normalize podcast fade 0.3s -0.5s -o clean.mp3
 ```
 
