@@ -144,9 +144,9 @@ export interface AudioInstance {
 
   // ── Effects ─────────────────────────────────────────────────
   vocals(mode?: 'isolate' | 'remove'): this
-  dither(bits?: number): this
+  dither(bits?: number, opts?: { shape?: boolean }): this
   crossfeed(freq?: number, level?: number): this
-  resample(targetRate: number): this
+  resample(targetRate: number, opts?: { type?: 'linear' | 'sinc' }): this
 
   // ── Smart ops ───────────────────────────────────────────────
   trim(threshold?: number): this

@@ -4993,6 +4993,45 @@ test('dither — TPDF noise floor uniform (not correlated with signal)', async t
   t.ok(maxDev < 0.3, `noise floor uniform: max deviation ${(maxDev * 100).toFixed(1)}% < 30%`)
 })
 
+test('dither — noise-shape pushes noise above ~Nyquist/2 (8-bit silence)', async t => {
+  let n = 16384
+  let plain = audio.from([new Float32Array(n)], { sampleRate: 44100 }); plain.dither(8)
+  let shaped = audio.from([new Float32Array(n)], { sampleRate: 44100 }); shaped.dither(8, { shape: true })
+  let p = (await plain.read())[0], s = (await shaped.read())[0]
+  // NTF = (1−z⁻¹)² gives ~0 dB gain at Nyquist/2, big attenuation at low freq.
+  let pLo = energyAt(p, 100) + energyAt(p, 500) + energyAt(p, 1000)
+  let sLo = energyAt(s, 100) + energyAt(s, 500) + energyAt(s, 1000)
+  t.ok(sLo < pLo * 0.1, `shaped low-freq noise ≥10× quieter: ${sLo.toExponential(2)} < ${pLo.toExponential(2)} × 0.1`)
+  let pHi = energyAt(p, 18000) + energyAt(p, 20000)
+  let sHi = energyAt(s, 18000) + energyAt(s, 20000)
+  t.ok(sHi > pHi, `shaped high-freq noise boosted: ${sHi.toExponential(2)} > ${pHi.toExponential(2)}`)
+})
+
+test('dither — noise-shape preserves signal (440Hz sine, 16-bit)', async t => {
+  let ch = tone(440, 1)
+  let a = audio.from([ch], { sampleRate: 44100 }); a.dither(16, { shape: true })
+  let pcm = await a.read()
+  let maxDiff = 0
+  for (let i = 0; i < ch.length; i++) maxDiff = Math.max(maxDiff, Math.abs(ch[i] - pcm[0][i]))
+  // 16-bit shaped quant error stays bounded (a few LSBs after feedback)
+  t.ok(maxDiff < 0.001, `shaped 16-bit signal preserved: maxDiff ${maxDiff.toFixed(6)} < 0.001`)
+})
+
+test('dither — noise-shape state persists across stream blocks (no boundary clicks)', async t => {
+  let ch = tone(440, 1)
+  let a = audio.from([ch], { sampleRate: 44100 }).dither(16, { shape: true })
+  let blocks = []
+  for await (let b of a.stream()) blocks.push(b[0].slice())
+  t.ok(blocks.length > 1, `multi-block stream: ${blocks.length} blocks`)
+  let stitched = new Float32Array(blocks.reduce((s, b) => s + b.length, 0)), o = 0
+  for (let b of blocks) { stitched.set(b, o); o += b.length }
+  // RMS of streamed must match RMS of single-read (state continuity)
+  let a2 = audio.from([ch], { sampleRate: 44100 }).dither(16, { shape: true })
+  let single = (await a2.read())[0]
+  let rmsS = rms(stitched), rmsR = rms(single)
+  t.ok(Math.abs(rmsS - rmsR) / rmsR < 0.01, `stream≈read RMS: ${rmsS.toFixed(4)} vs ${rmsR.toFixed(4)}`)
+})
+
 // ── Resample accuracy (ref: SoX < 0.5 dB residual, librosa atol 1e-2) ──
 
 test('resample — round-trip 44100→48000→44100 preserves energy', async t => {
@@ -5023,6 +5062,50 @@ test('resample — downsampling attenuates above new Nyquist', async t => {
   t.ok(rLo > 0.3, `5kHz survives: rms ${rLo.toFixed(3)}`)
   // Anti-alias lowpass attenuates above-Nyquist content (linear interp + lowpass)
   t.ok(rHi < rLo, `15kHz attenuated vs 5kHz: ${rHi.toFixed(3)} < ${rLo.toFixed(3)}`)
+})
+
+test('resample — sinc preserves length and 1kHz amplitude (44100→22050)', async t => {
+  let ch = tone(1000, 1)
+  let a = audio.from([ch], { sampleRate: 44100 }).resample(22050, { type: 'sinc' })
+  let pcm = await a.read()
+  t.is(pcm[0].length, 22050, 'output length')
+  let amp = energyAt(mid(pcm[0]), 1000, 22050)
+  t.ok(Math.abs(amp - 0.5) < 0.05, `1kHz amplitude ≈ 0.5 (got ${amp.toFixed(3)})`)
+})
+
+test('resample — sinc upsample 44100→48000 preserves pitch', async t => {
+  let ch = tone(1000, 1)
+  let a = audio.from([ch], { sampleRate: 44100 }).resample(48000, { type: 'sinc' })
+  let pcm = await a.read()
+  t.is(pcm[0].length, 48000, 'output length')
+  let e1k = energyAt(mid(pcm[0]), 1000, 48000)
+  let e2k = energyAt(mid(pcm[0]), 2000, 48000)
+  t.ok(e1k > e2k * 10, `1kHz dominant: ${e1k.toFixed(3)} >> ${e2k.toFixed(3)}`)
+})
+
+test('resample — sinc 1kHz round-trip 44100↔96000 preserves signal', async t => {
+  let ch = tone(1000, 1)
+  let a = audio.from([ch], { sampleRate: 44100 })
+    .resample(96000, { type: 'sinc' })
+    .resample(44100, { type: 'sinc' })
+  let pcm = await a.read()
+  let amp = energyAt(mid(pcm[0]), 1000)
+  t.ok(Math.abs(amp - 0.5) < 0.05, `1kHz round-trip ≈ 0.5 (got ${amp.toFixed(3)})`)
+})
+
+test('resample — sinc stream≡read (state-free, deterministic)', async t => {
+  let ch = tone(1000, 1)
+  let a = audio.from([ch], { sampleRate: 44100 }).resample(48000, { type: 'sinc' })
+  let blocks = []
+  for await (let b of a.stream()) blocks.push(b[0].slice())
+  let stitched = new Float32Array(blocks.reduce((s, b) => s + b.length, 0)), o = 0
+  for (let b of blocks) { stitched.set(b, o); o += b.length }
+  let a2 = audio.from([ch], { sampleRate: 44100 }).resample(48000, { type: 'sinc' })
+  let single = (await a2.read())[0]
+  t.is(stitched.length, single.length, 'lengths match')
+  let maxDiff = 0
+  for (let i = 0; i < single.length; i++) maxDiff = Math.max(maxDiff, Math.abs(stitched[i] - single[i]))
+  t.ok(maxDiff < 1e-5, `stream≡read max diff ${maxDiff.toExponential(2)}`)
 })
 
 // ── Filter frequency response (ref: SoX sinusoid-fitting, < 0.5 dB) ────

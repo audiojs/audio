@@ -426,16 +426,18 @@ a.filter(customFn, { cutoff: 2000 })     // custom filter function
 Audio effects and transformations.
 
 * **`.vocals(mode?)`** – stereo vocal isolation/removal via mid/side cancellation. `'isolate'` (default) keeps center, `'remove'` keeps sides. &nbsp;<sub>≡ SoX `oops`</sub>
-* **`.dither(bits?)`** – TPDF dithering for bit-depth reduction (default 16-bit).
+* **`.dither(bits?, {shape?})`** – TPDF dithering for bit-depth reduction (default 16-bit). `shape:true` enables 2nd-order noise shaping — pushes quantization noise above ~Nyquist/2 (audibly quieter at given bit depth).
 * **`.crossfeed(freq?, level?)`** – headphone crossfeed for improved stereo imaging. Default: 700 Hz cutoff, 0.3 level. &nbsp;<sub>≡ SoX `earwax`, bs2b</sub>
-* **`.resample(rate)`** – sample rate conversion. Non-destructive, chainable, undoable. Downsampling auto-inserts anti-alias lowpass.
+* **`.resample(rate, {type?})`** – sample rate conversion. Non-destructive, chainable, undoable. `type:'linear'` (default, fast) or `type:'sinc'` (32-tap windowed sinc, higher quality). Linear downsampling auto-inserts an anti-alias lowpass; sinc has built-in anti-aliasing.
 
 ```js
 a.vocals()                                // isolate center-panned vocals
 a.vocals('remove')                        // remove vocals (karaoke)
 a.dither(16)                              // TPDF dither to 16-bit
+a.dither(16, {shape: true})               // noise-shaped (audibly quieter)
 a.crossfeed()                             // headphone crossfeed
-a.resample(48000)                         // resample to 48kHz
+a.resample(48000)                         // resample to 48kHz (linear)
+a.resample(96000, {type: 'sinc'})         // high-quality windowed-sinc
 a.resample(22050).gain(-3).save('lo.wav') // chain with other ops
 ```
 

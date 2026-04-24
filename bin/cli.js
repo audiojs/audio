@@ -112,7 +112,7 @@ const HELP = {
   bandpass:  { usage: 'bandpass FC [Q]', desc: 'Band-pass filter', examples: ['bandpass 1khz', 'bandpass 440hz 10'] },
   allpass:   { usage: 'allpass FC [Q]', desc: 'All-pass filter (phase shift)', examples: ['allpass 1khz', 'allpass 440hz 10'] },
   vocals:    { usage: 'vocals [MODE]', desc: 'Vocal isolation (default) or removal', examples: ['vocals', 'vocals remove'] },
-  dither:    { usage: 'dither [BITS]', desc: 'TPDF dither to target bit depth (default: 16)', examples: ['dither', 'dither 8'] },
+  dither:    { usage: 'dither [BITS] [shape:true]', desc: 'TPDF dither to target bit depth (default: 16). shape:true enables 2nd-order noise shaping.', examples: ['dither', 'dither 8', 'dither 16 shape:true'] },
   crossfeed: { usage: 'crossfeed [FC] [LEVEL]', desc: 'Headphone crossfeed for improved imaging', examples: ['crossfeed', 'crossfeed 500hz 0.4'] },
   crossfade: { usage: 'crossfade SRC [DUR] [CURVE]', desc: 'Crossfade into another audio file', examples: ['crossfade next.wav 2s', 'crossfade next.wav 0.5s cos'] },
 }
