@@ -156,7 +156,7 @@ import { speedSegs } from 'audio/fn/speed.js'     // speedSegs(segs, rate)
 
 #### Segment format
 
-A segment is a copy instruction: `[from, count, to, rate?, ref?]`.
+A segment is a copy instruction: `[from, count, to, rate?, ref?, interp?]`.
 
 Read `count` samples from source at `from`, write to output at `to`. All offsets are absolute — segments are independent, not linked. You can process them in any order, binary search by output position, or skip segments for partial renders.
 
@@ -165,10 +165,11 @@ Read `count` samples from source at `from`, write to output at `to`. All offsets
 | `0` | from | Read offset in source (samples) |
 | `1` | count | Number of samples to copy |
 | `2` | to | Write offset in output (samples) |
-| `3` | rate | Source read rate. Omit or `1` = forward. `-1` = reverse (used by `reverse()`). `2` = read 2× faster, halving duration (used by `speed()`). `0.5` = half speed, doubling duration. The `speed` op multiplies existing rates and adjusts `count` — `speed(2)` on a 10s segment produces `count/2` at `rate*2`. The renderer uses linear interpolation to resample at non-unit rates. |
+| `3` | rate | Source read rate. Omit or `1` = forward. `-1` = reverse (used by `reverse()`). `2` = read 2× faster, halving duration (used by `speed()`). `0.5` = half speed, doubling duration. The `speed` op multiplies existing rates and adjusts `count` — `speed(2)` on a 10s segment produces `count/2` at `rate*2`. The renderer uses linear interpolation for non-unit rates unless `interp` is set. |
 | `4` | ref | Source: `undefined` = self, `null` = zero-fill (silence), audio instance = external |
+| `5` | interp | Optional interpolation function for non-unit `rate` reads. It receives `(src, target, tOff, n, rate, phase)` and may expose `.margin` for source context. |
 
-`seg(from, count, to, rate?, ref?)` creates a segment.
+`seg(from, count, to, rate?, ref?, interp?)` creates a segment.
 
 #### Examples
 

@@ -2838,6 +2838,34 @@ test('save — format option overrides extension', { skip: !isNode }, async t =>
   t.ok(buf.length > 1000, 'save produced bytes')
 })
 
+test('save — format extension is case-insensitive', { skip: !isNode }, async t => {
+  let { tmpdir } = await import('os')
+  let { join } = await import('path')
+  let { unlink } = await import('fs/promises')
+  let a = audio.from([new Float32Array(4410).fill(0.1)], { sampleRate: 44100 })
+  // Uppercase extension in path — must not throw "Unknown format: WAV"
+  let p1 = join(tmpdir(), `test-case-${Date.now()}.WAV`)
+  await a.save(p1)
+  let r1 = await audio(p1)
+  t.ok(r1.duration > 0, 'uppercase .WAV extension saves and decodes')
+  await unlink(p1).catch(() => {})
+
+  // Mixed-case format option
+  let p2 = join(tmpdir(), `test-case-fmt-${Date.now()}.bin`)
+  await a.save(p2, { format: 'Wav' })
+  let r2 = await audio(p2, { type: 'wav' })
+  t.ok(r2.duration > 0, 'mixed-case format option resolves')
+  await unlink(p2).catch(() => {})
+})
+
+test('encode — format is case-insensitive', async t => {
+  let a = audio.from([new Float32Array(4410).fill(0.1)], { sampleRate: 44100 })
+  let bytes = await a.encode('WAV')
+  t.ok(bytes.length > 100, 'WAV (uppercase) encodes')
+  let bytes2 = await a.encode('Mp3')
+  t.ok(bytes2.length > 100, 'Mp3 (mixed-case) encodes')
+})
+
 test('save — progress event fires during encode', { skip: !isNode }, async t => {
   let a = audio.from([new Float32Array(44100 * 3).fill(0.5)], { sampleRate: 44100 })
   let { tmpdir } = await import('os')
@@ -4692,6 +4720,20 @@ test('resample — chainable with other ops', async t => {
   t.ok(e > 0.1, `440Hz survives resample+gain: ${e.toFixed(3)}`)
 })
 
+test('resample — invalid rate/type throw', async t => {
+  for (let rate of [0, -1, Infinity, NaN, '48000']) {
+    let a = audio.from([new Float32Array(100)], { sampleRate: 44100 })
+    a.resample(rate)
+    try { a.length; t.fail(`should throw for rate ${String(rate)}`) }
+    catch (e) { t.ok(e instanceof RangeError, `RangeError for rate ${String(rate)}`) }
+  }
+
+  let a = audio.from([new Float32Array(100)], { sampleRate: 44100 })
+  a.resample(22050, { type: 'nearest' })
+  try { await a.read(); t.fail('should throw for unknown type') }
+  catch (e) { t.ok(e instanceof RangeError, 'RangeError for unknown type') }
+})
+
 
 // ── Phase 16: Block/page boundary stress ────────────────────────────────
 
@@ -5060,8 +5102,7 @@ test('resample — downsampling attenuates above new Nyquist', async t => {
   let aHi = audio.from([hi], { sampleRate: 44100 }); aHi.resample(22050)
   let rLo = rms((await aLo.read())[0]), rHi = rms((await aHi.read())[0])
   t.ok(rLo > 0.3, `5kHz survives: rms ${rLo.toFixed(3)}`)
-  // Anti-alias lowpass attenuates above-Nyquist content (linear interp + lowpass)
-  t.ok(rHi < rLo, `15kHz attenuated vs 5kHz: ${rHi.toFixed(3)} < ${rLo.toFixed(3)}`)
+  t.ok(rHi < rLo * 0.1, `15kHz attenuated vs 5kHz: ${rHi.toFixed(3)} < ${rLo.toFixed(3)} × 0.1`)
 })
 
 test('resample — sinc preserves length and 1kHz amplitude (44100→22050)', async t => {
@@ -5106,6 +5147,15 @@ test('resample — sinc stream≡read (state-free, deterministic)', async t => {
   let maxDiff = 0
   for (let i = 0; i < single.length; i++) maxDiff = Math.max(maxDiff, Math.abs(stitched[i] - single[i]))
   t.ok(maxDiff < 1e-5, `stream≡read max diff ${maxDiff.toExponential(2)}`)
+})
+
+test('resample — sinc anti-aliasing survives structural composition', async t => {
+  let hi = tone(15000, 0.5)
+  let a = audio.from([hi], { sampleRate: 44100 }).resample(22050, { type: 'sinc' }).crop({ at: 0.1, duration: 0.2 })
+  let b = audio.from([hi], { sampleRate: 44100 }).reverse().resample(22050, { type: 'sinc' })
+  let rA = rms((await a.read())[0]), rB = rms((await b.read())[0])
+  t.ok(rA < 0.1, `sinc survives crop: rms ${rA.toFixed(3)}`)
+  t.ok(rB < 0.1, `sinc survives reverse: rms ${rB.toFixed(3)}`)
 })
 
 // ── Filter frequency response (ref: SoX sinusoid-fitting, < 0.5 dB) ────
@@ -6077,17 +6127,18 @@ if (isNode) {
 
 const { parseValue, parseRange, parseArgs, showOpHelp, HELP } = await import('../bin/cli.js')
 
-test('cli parseArgs — simple: input ops output', t => {
-  let result = parseArgs(['in.wav', 'gain', '-3db', '-o', 'out.wav'])
-  t.is(result.input, 'in.wav', 'input')
-  t.is(result.output, 'out.wav', 'output')
-  t.ok(result.ops.length === 1, '1 op')
-  t.is(result.ops[0].name, 'gain', 'op name')
+test('cli parseArgs — simple: source transforms sink', t => {
+  let r = parseArgs(['in.wav', 'gain', '-3db', 'save', 'out.wav'])
+  t.is(r.source, 'in.wav', 'source')
+  t.is(r.sink.name, 'save', 'save sink')
+  t.is(r.sink.args[0], 'out.wav', 'sink path')
+  t.ok(r.transforms.length === 1, '1 transform')
+  t.is(r.transforms[0].name, 'gain', 'transform name')
 })
 
-test('cli parseArgs — multiple ops', t => {
-  let result = parseArgs(['in.wav', 'gain', '-3', 'trim', 'normalize', '-o', 'out.wav'])
-  t.is(result.ops.length, 3, '3 ops')
+test('cli parseArgs — multiple transforms', t => {
+  let r = parseArgs(['in.wav', 'gain', '-3', 'trim', 'normalize', 'save', 'out.wav'])
+  t.is(r.transforms.length, 3, '3 transforms')
 })
 
 test('cli parseValue — dB, Hz, duration', t => {
@@ -6105,7 +6156,7 @@ test('cli parseRange — 1s..10s', t => {
 
 test('cli op help — all built-in ops have help', t => {
   let ops = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'remove', 'repeat', 'remix', 'pan', 'pad', 'stretch', 'pitch',
-    'highpass', 'lowpass', 'eq', 'lowshelf', 'highshelf', 'notch', 'bandpass', 'allpass', 'vocals', 'dither', 'crossfeed']
+    'highpass', 'lowpass', 'eq', 'lowshelf', 'highshelf', 'notch', 'bandpass', 'allpass', 'vocals', 'dither', 'crossfeed', 'resample']
   for (let op of ops) t.ok(HELP[op], `${op} has help`)
 })
 

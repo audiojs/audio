@@ -8,8 +8,8 @@ export function insertSegs(segs, at, len, ref) {
     else if (s[2] >= at) { let n = s.slice(); n[2] = s[2] + len; r.push(n) }
     else {
       let f = at - s[2], absR = Math.abs(s[3] || 1)
-      r.push(seg(s[0], f, s[2], s[3], s[4]))
-      r.push(seg(s[0] + f * absR, s[1] - f, at + len, s[3], s[4]))
+      r.push(seg(s[0], f, s[2], s[3], s[4], s[5]))
+      r.push(seg(s[0] + f * absR, s[1] - f, at + len, s[3], s[4], s[5]))
     }
   }
   r.push(seg(0, len, at, undefined, ref ?? null))

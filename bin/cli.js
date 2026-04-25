@@ -44,9 +44,12 @@ function parseValue(str) {
     if (frac) s += +('0.' + frac)
     return s
   }
-  // duration — supports compound expressions (1m30s, 2h20m, 500ms, etc.)
-  let d = parseDuration(str, 's')
-  if (d != null && isFinite(d)) return d
+  // duration — only parse if string is purely time tokens (digits + time units),
+  // never on path-like input (e.g. tmp-1.wav must not become 1)
+  if (/^[\d.]+(ms|[smhdwy])([\d.]+(ms|[smhdwy]))*$/i.test(str)) {
+    let d = parseDuration(str, 's')
+    if (d != null && isFinite(d)) return d
+  }
   return str  // pass as-is (e.g. filename, op name)
 }
 
@@ -58,19 +61,19 @@ function parseRange(str) {
   return { offset: s, duration: dur }
 }
 
-/** Check if a string is a bare time value (e.g. "1s", "500ms", "2.5", "1:30") — not an op name. */
+/** Check if a string is a bare time value (e.g. "1s", "500ms", "1:30", "0..10s") — not an op name or path. */
 function isTime(s) {
   if (typeof s !== 'string') return false
   if (s.includes('..')) return true  // range
   if (/^-?[\d.]+$/.test(s)) return false  // bare number — ambiguous, don't treat as time
   if (/^(\d+):(\d{1,2})(?::(\d{1,2}))?(?:\.(\d+))?$/.test(s)) return true  // timecode
-  let d = parseDuration(s, 's')
-  return d != null && isFinite(d)
+  return /^[\d.]+(ms|[smhdwy])([\d.]+(ms|[smhdwy]))*$/i.test(s)  // strict: digits + time units, no path-like input
 }
 
 // ── Argument Parsing ─────────────────────────────────────────────────────
 
 function isFlag(s) {
+  if (s === '-') return false  // stdin/stdout marker
   if (s.startsWith('--')) return true
   if (!s.startsWith('-')) return false
   let match = s.match(/^-[\d.]+(db|hz|khz|s|ms)?$/i)
@@ -79,8 +82,15 @@ function isFlag(s) {
 
 function isOpName(s) {
   let op = audio.op(s)
-  return (op && !op.hidden) || s === 'split' || s === 'stat' || s === 'clip'
+  return (op && !op.hidden) || s === 'split' || s === 'clip'
 }
+
+// Verb taxonomy — sources produce audio, sinks terminate the chain
+const SOURCE_VERBS = new Set(['record'])
+const SINK_VERBS = new Set(['play', 'stat', 'save'])
+const STAT_AGG = new Set(['key', 'notes', 'chords'])  // stat names handled via dedicated methods
+function isVerb(s) { return SOURCE_VERBS.has(s) || SINK_VERBS.has(s) }
+function isStatName(s) { return audio.stat(s) != null || STAT_AGG.has(s) }
 
 // ── Per-op Help (injected into op descriptors for registry-driven CLI) ───
 
@@ -114,7 +124,14 @@ const HELP = {
   vocals:    { usage: 'vocals [MODE]', desc: 'Vocal isolation (default) or removal', examples: ['vocals', 'vocals remove'] },
   dither:    { usage: 'dither [BITS] [shape:true]', desc: 'TPDF dither to target bit depth (default: 16). shape:true enables 2nd-order noise shaping.', examples: ['dither', 'dither 8', 'dither 16 shape:true'] },
   crossfeed: { usage: 'crossfeed [FC] [LEVEL]', desc: 'Headphone crossfeed for improved imaging', examples: ['crossfeed', 'crossfeed 500hz 0.4'] },
+  resample:  { usage: 'resample RATE', desc: 'Change sample rate with anti-aliased downsampling', examples: ['resample 48000', 'resample 22050'] },
   crossfade: { usage: 'crossfade SRC [DUR] [CURVE]', desc: 'Crossfade into another audio file', examples: ['crossfade next.wav 2s', 'crossfade next.wav 0.5s cos'] },
+  // ── sinks (terminate chain) ─────────────────────────────────────────────
+  play:   { usage: 'play [loop]', desc: 'Open player UI (autoplay)', examples: ['play', 'play loop', '1s..10s play loop', 'normalize play'], kind: 'sink' },
+  stat:   { usage: 'stat [NAMES...]', desc: 'Print analysis (default: overview)', examples: ['stat', 'stat loudness rms', 'stat spectrum 128'], kind: 'sink' },
+  save:   { usage: 'save PATH', desc: 'Encode and write to file (or - for stdout)', examples: ['save out.wav', 'normalize save out.flac', 'save -'], kind: 'sink' },
+  // ── sources (provide input) ─────────────────────────────────────────────
+  record: { usage: 'record [DUR]', desc: 'Capture from microphone', examples: ['record save out.wav', 'record 30s save out.wav', 'record gain -3 play'], kind: 'source' },
 }
 
 // Inject help into op descriptors so registry is the source of truth
@@ -132,128 +149,116 @@ function showOpHelp(name) {
   console.log()
 }
 
+/**
+ * Parse audio CLI args as a pipeline:
+ *   audio [source] [transforms...] [sink] [options]
+ *
+ * Source: file path | 'record' | null (stdin)
+ * Transforms: positional ops from audio.op() registry (gain, eq, fade, …)
+ * Sink: 'play' | 'stat [NAMES...]' | 'save PATH'  (default: 'stat')
+ */
 function parseArgs(args) {
-  let input = null, ops_ = [], output = null, format = null
-  let verbose = false, showHelp = false, play = false, force = false, loop = false
-  let macro = null, helpOp = null, concatFiles = [], range = null
+  let source = null, transforms = [], sink = null, range = null
+  let format = null, verbose = false, showHelp = false, force = false
+  let macro = null, helpOp = null, concatFiles = []
   let i = 0
 
-  // First positional arg as input if it looks like a file
-  if (args.length && !isFlag(args[0]) && !isOpName(args[0])) {
-    input = args[i++]
+  // First positional: source — `record` verb or file path (skip ranges/times/ops/sinks → those keep source = stdin)
+  if (args.length && !isFlag(args[0])) {
+    let a0 = args[0]
+    if (SOURCE_VERBS.has(a0)) source = args[i++]
+    else if (!isOpName(a0) && !SINK_VERBS.has(a0) && !a0.includes('..') && !isTime(a0)) source = args[i++]
   }
 
-  // Process remaining args
   while (i < args.length) {
     let arg = args[i]
 
-    if (arg === '--help' || arg === '-h') {
-      showHelp = true
+    if (arg === '--help' || arg === '-h') { showHelp = true; i++; continue }
+    if (arg === '--verbose') { verbose = true; i++; continue }
+    if (arg === '--format') { format = args[++i]; i++; continue }
+    if (arg === '--force' || arg === '-f') { force = true; i++; continue }
+    if (arg === '--macro') { macro = args[++i]; i++; continue }
+    // Compat shortcuts: -p ⇔ play, -o PATH ⇔ save PATH, -l ⇔ play loop
+    if (arg === '--play' || arg === '-p') { sink = sink || { name: 'play', args: [] }; i++; continue }
+    if (arg === '--output' || arg === '-o') { sink = { name: 'save', args: [args[++i]] }; i++; continue }
+    if (arg === '--loop' || arg === '-l') { sink = sink || { name: 'play', args: [] }; if (!sink.args.includes('loop')) sink.args.push('loop'); i++; continue }
+
+    if (arg === '+') {
       i++
-    } else if (arg === '--verbose') {
-      verbose = true
-      i++
-    } else if (arg === '--output' || arg === '-o') {
-      output = args[++i]
-      i++
-    } else if (arg === '--format') {
-      format = args[++i]
-      i++
-    } else if (arg === '--play' || arg === '-p') {
-      play = true
-      i++
-    } else if (arg === '--force' || arg === '-f') {
-      force = true
-      i++
-    } else if (arg === '--loop' || arg === '-l') {
-      loop = true
-      i++
-    } else if (arg === '--macro') {
-      macro = args[++i]
-      i++
-    } else if (arg === '+') {
-      // Concat: `audio a.mp3 + b.wav + c.mp3 ...`
-      i++
-      if (i < args.length && !isFlag(args[i]) && !isOpName(args[i])) {
-        concatFiles.push(args[i])
-        i++
-      } else {
-        throw new Error('Expected file after +')
-      }
-    } else if (isFlag(arg)) {
-      throw new Error(`Unknown flag: ${arg}`)
-    } else if (typeof arg === 'string' && arg.includes('..') && !isOpName(arg)) {
-      // Bare range: `audio song.mp3 10s..20s -p`
-      range = parseRange(arg)
-      i++
-    } else if (input && !isOpName(arg) && isTime(arg)) {
-      // Bare time: `audio song.mp3 1s -p` = start at 1s
+      if (i < args.length && !isFlag(args[i]) && !isOpName(args[i]) && !isVerb(args[i])) {
+        concatFiles.push(args[i++])
+      } else throw new Error('Expected file after +')
+      continue
+    }
+
+    if (isFlag(arg)) throw new Error(`Unknown flag: ${arg}`)
+
+    // Bare range: `song.mp3 10s..20s play` — scopes the entire chain
+    if (typeof arg === 'string' && arg.includes('..') && !isOpName(arg)) {
+      range = parseRange(arg); i++; continue
+    }
+    // Bare time: `audio 1s play` / `audio song.mp3 1s play` — start offset, open-ended
+    if (!isOpName(arg) && !SINK_VERBS.has(arg) && isTime(arg)) {
       range = { offset: parseValue(arg), duration: undefined }
-      i++
-    } else if (!input && !isOpName(arg)) {
-      // Positional input file (even after flags)
-      input = arg
-      i++
-    } else {
-      // Parse operation
-      let name = arg
-      let opArgs = []
-      i++
+      i++; continue
+    }
 
-      // Collect args until next op or flag
-      // For stat op, stat names (bpm, dc, etc.) are args, not op boundaries
+    // Sink — terminates the chain; collect remaining positional args (ranges hoisted to top-level)
+    if (SINK_VERBS.has(arg)) {
+      let name = arg; i++
+      let sinkArgs = []
       while (i < args.length && !isFlag(args[i])) {
-        if (isOpName(args[i]) && !(name === 'stat' && audio.stat(args[i]))) break
-        opArgs.push(parseValue(args[i]))
-        i++
+        let a = args[i++]
+        if (typeof a === 'string' && a.includes('..')) range = parseRange(a)
+        else sinkArgs.push(parseValue(a))
       }
-
-      // Check for range syntax at end of args
-      let offset = null, duration = null
-      if (opArgs.length > 0 && typeof opArgs[opArgs.length - 1] === 'string' && opArgs[opArgs.length - 1].includes('..')) {
-        let range = parseRange(opArgs.pop())
-        offset = range.offset
-        duration = range.duration
-      }
-
-      // Per-op help: `gain --help`
-      if (opArgs.length === 0 && i < args.length && (args[i] === '--help' || args[i] === '-h')) {
+      if (sinkArgs.length === 0 && i < args.length && (args[i] === '--help' || args[i] === '-h')) {
         helpOp = name; i++; continue
       }
-
-      ops_.push({ name, args: opArgs, offset, duration })
+      sink = { name, args: sinkArgs }
+      continue
     }
+
+    // Transform op
+    let name = arg, opArgs = []
+    i++
+    while (i < args.length && !isFlag(args[i])) {
+      if (isOpName(args[i]) || isVerb(args[i])) break
+      opArgs.push(parseValue(args[i]))
+      i++
+    }
+    let offset = null, duration = null
+    if (opArgs.length > 0 && typeof opArgs[opArgs.length - 1] === 'string' && opArgs[opArgs.length - 1].includes('..')) {
+      let r = parseRange(opArgs.pop())
+      offset = r.offset; duration = r.duration
+    }
+    if (opArgs.length === 0 && i < args.length && (args[i] === '--help' || args[i] === '-h')) {
+      helpOp = name; i++; continue
+    }
+    transforms.push({ name, args: opArgs, offset, duration })
   }
 
   // Expand fade shorthand: bare `fade` or `fade IN -OUT` → two fade ops
-  let expanded = []
-  for (let op of ops_) {
-    if (op.name === 'fade') {
-      let nums = op.args.filter(a => typeof a === 'number')
-      let curve = op.args.find(a => typeof a === 'string')
+  transforms = transforms.flatMap(op => {
+    if (op.name !== 'fade') return [op]
+    let nums = op.args.filter(a => typeof a === 'number')
+    let curve = op.args.find(a => typeof a === 'string')
+    if (nums.length === 0)
+      return [{ name: 'fade', args: [0.5], curve, offset: null, duration: null },
+              { name: 'fade', args: [-0.5], curve, offset: null, duration: null }]
+    if (nums.length === 1 && nums[0] > 0)
+      return [{ name: 'fade', args: [nums[0]], curve, offset: null, duration: null },
+              { name: 'fade', args: [-nums[0]], curve, offset: null, duration: null }]
+    if (nums.length === 2 && nums[0] > 0 && nums[1] < 0)
+      return [{ name: 'fade', args: [nums[0]], curve, offset: null, duration: null },
+              { name: 'fade', args: [nums[1]], curve, offset: null, duration: null }]
+    return [op]
+  })
 
-      if (nums.length === 0) {
-        // bare `fade` → 0.5s in + 0.5s out
-        expanded.push({ name: 'fade', args: [0.5], curve, offset: null, duration: null })
-        expanded.push({ name: 'fade', args: [-0.5], curve, offset: null, duration: null })
-      } else if (nums.length === 1 && nums[0] > 0) {
-        // `fade 0.3` → both at 0.3s
-        expanded.push({ name: 'fade', args: [nums[0]], curve, offset: null, duration: null })
-        expanded.push({ name: 'fade', args: [-nums[0]], curve, offset: null, duration: null })
-      } else if (nums.length === 2 && nums[0] > 0 && nums[1] < 0) {
-        // `fade 0.2 -1` → in 0.2s, out 1s
-        expanded.push({ name: 'fade', args: [nums[0]], curve, offset: null, duration: null })
-        expanded.push({ name: 'fade', args: [nums[1]], curve, offset: null, duration: null })
-      } else {
-        expanded.push(op)
-      }
-    } else {
-      expanded.push(op)
-    }
-  }
-  ops_ = expanded
+  // Default sink: `stat` (overview) — when no explicit sink and audio is finite
+  if (!sink && !showHelp && !helpOp) sink = { name: 'stat', args: [] }
 
-  return { input, ops: ops_, output, format, verbose, showHelp, play, force, loop, macro, helpOp, concatFiles, range }
+  return { source, transforms, sink, range, format, verbose, showHelp, force, macro, helpOp, concatFiles }
 }
 
 const SOURCE_OPS = new Set(['mix', 'insert', 'crossfade'])
@@ -288,6 +293,71 @@ async function getStdinBuffer() {
     stdin.on('end', () => resolve(Buffer.concat(chunks)))
     stdin.on('error', reject)
   })
+}
+
+/** Single-line prompt with optional default. Returns trimmed input, or null if cancelled.
+ *  Preserves any existing 'data' listeners so callers (like the player UI) keep working after.
+ *  io params are injectable for tests (default: process.stdin/stderr). */
+async function prompt(label, defVal = '', { stdin = process.stdin, stderr = process.stderr } = {}) {
+  if (!stdin.isTTY) return null
+  let wasRaw = stdin.isRaw
+  let saved = stdin.listeners('data')
+  for (let l of saved) stdin.removeListener('data', l)
+  stdin.setRawMode(false)
+  stderr.write(`\r\x1b[K${label}${defVal ? `[${defVal}] ` : ''}`)
+  stdin.resume()
+  stdin.setEncoding('utf8')
+  let line = await new Promise(resolve => {
+    let buf = ''
+    let onData = chunk => {
+      for (let ch of chunk.toString()) {
+        if (ch === '\r' || ch === '\n') { stdin.removeListener('data', onData); stderr.write('\n'); return resolve(buf) }
+        if (ch === '\x03') { stdin.removeListener('data', onData); return resolve(null) }
+        if (ch === '\x7f' || ch === '\b') buf = buf.slice(0, -1)
+        else buf += ch
+      }
+    }
+    stdin.on('data', onData)
+  })
+  if (wasRaw) stdin.setRawMode(true)
+  for (let l of saved) stdin.on('data', l)
+  return (line ?? '').trim() || defVal || null
+}
+
+/** Default save path for an audio source — writes next to it (e.g. "a/b.mp3" → "a/b.out.mp3"). */
+function defaultSavePath(src) {
+  if (typeof src !== 'string' || !src) return 'out.wav'
+  return src.replace(/(\.[^.]+)?$/, '.out$1')
+}
+
+/** Player 'save as' flow — prompt for path, confirm overwrite, encode + write.
+ *  Returns { path, msg, cancelled, failed }. Pure-ish: I/O is injectable for tests. */
+async function playerSave(a, src, opts = {}, io = {}) {
+  let path = await prompt('Save as: ', defaultSavePath(src), io)
+  if (!path) return { cancelled: true, msg: '' }
+  if (!opts.force) {
+    let { existsSync } = await import('fs')
+    if (existsSync(path)) {
+      let yn = await prompt(`${path} exists. Overwrite? [y/N] `, '', io)
+      if (yn?.toLowerCase() !== 'y') return { cancelled: true, msg: 'Save cancelled.' }
+    }
+  }
+  // Start the spinner BEFORE awaits — `await a.ready` and the encoder warm-up
+  // can take seconds for big/streaming sources, and progress events only fire
+  // once chunks start encoding. Without this, the UI looks frozen.
+  let { onProgress, onStart } = opts
+  if (onStart) onStart(path)
+  if (!a.decoded) await a.ready
+  let fmt = opts.format || path.split('.').pop()
+  if (onProgress) a.on('progress', onProgress)
+  try {
+    await a.save(path, { format: fmt })
+    return { path, msg: `Saved → ${path}` }
+  } catch (e) {
+    return { failed: true, path, msg: `Save failed: ${formatError(e)}` }
+  } finally {
+    if (onProgress) a.off?.('progress', onProgress)
+  }
 }
 
 /** Prompt to overwrite if TTY, silently allow if piped/scripted. */
@@ -394,7 +464,7 @@ function progressBar(played, decoded, total, width) {
   return '━'.repeat(pFill) + '─'.repeat(dFill - pFill) + (empty > 0 ? DIM + '─'.repeat(empty) + RST : '')
 }
 
-const GERUNDS = { gain: 'Applying gain', fade: 'Fading', trim: 'Trimming', normalize: 'Normalizing', crop: 'Cropping', clip: 'Clipping', remove: 'Removing', reverse: 'Reversing', repeat: 'Repeating', pad: 'Padding', speed: 'Changing speed', stretch: 'Stretching', pitch: 'Pitch shifting', insert: 'Inserting', mix: 'Mixing', crossfade: 'Crossfading', remix: 'Remixing', pan: 'Panning', eq: 'Filtering', filter: 'Filtering', highpass: 'Filtering', lowpass: 'Filtering', notch: 'Filtering', bandpass: 'Filtering', lowshelf: 'Filtering', highshelf: 'Filtering', allpass: 'Filtering', vocals: 'Processing vocals', dither: 'Dithering', crossfeed: 'Applying crossfeed' }
+const GERUNDS = { gain: 'Applying gain', fade: 'Fading', trim: 'Trimming', normalize: 'Normalizing', crop: 'Cropping', clip: 'Clipping', remove: 'Removing', reverse: 'Reversing', repeat: 'Repeating', pad: 'Padding', speed: 'Changing speed', stretch: 'Stretching', pitch: 'Pitch shifting', insert: 'Inserting', mix: 'Mixing', crossfade: 'Crossfading', remix: 'Remixing', pan: 'Panning', eq: 'Filtering', filter: 'Filtering', highpass: 'Filtering', lowpass: 'Filtering', notch: 'Filtering', bandpass: 'Filtering', lowshelf: 'Filtering', highshelf: 'Filtering', allpass: 'Filtering', vocals: 'Processing vocals', dither: 'Dithering', crossfeed: 'Applying crossfeed', resample: 'Resampling' }
 function opsLabel(ops) {
   return [...new Set(ops.map(o => GERUNDS[o.name] || (o.name[0].toUpperCase() + o.name.slice(1) + 'ing')))]
 }
@@ -572,7 +642,18 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
     await updateLiveBpm()
   })()
 
+  let prompting = false
+  // Clear all player UI lines so a prompt has unobstructed space.
+  let clearUI = () => {
+    let out = '\r\x1b[K'
+    for (let i = 1; i < nLines; i++) out += '\n\x1b[K'
+    if (nLines > 1) out += `\x1b[${nLines - 1}A`
+    process.stderr.write(out)
+    nLines = 1
+  }
+
   let render = t => {
+    if (prompting) return  // suspend during 'Save as:' / overwrite prompts
     let w = cols()
     let ts = totalSec?.() || 0, ds = decodedSec?.() ?? ts
     let icon = p.paused ? '▶' : '⏸'
@@ -675,6 +756,32 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
       else if (k === '\x1b[A') { p.volume = Math.min(p.volume + 0.1, 1); render(p.currentTime) }
       else if (k === '\x1b[B') { p.volume = Math.max(p.volume - 0.1, 0); render(p.currentTime) }
       else if (k === 'l') { p.loop = !p.loop; render(p.currentTime) }
+      else if (k === 's' && a) {
+        let wasPaused = p.paused
+        if (!wasPaused) p.pause()
+        prompting = true
+        clearUI()  // wipe player UI so prompt isn't overwritten by tick renders
+        let sp = null
+        let result
+        try {
+          result = await playerSave(a, src, {
+            force: opts.force,
+            format: opts.format,
+            onStart: path => { sp = spinnerBar(`Saving → ${path}`) },
+            onProgress: ({ offset, total }) => { if (sp && total) sp.progress(offset / total, offset) }
+          })
+        } finally {
+          let elapsed = sp ? sp.stop() : null
+          prompting = false
+          if (!wasPaused) p.resume()
+          let msg = result?.cancelled ? result.msg
+            : result?.failed ? result.msg
+            : result?.path ? `Saved → ${result.path}${elapsed ? ` (${elapsed}s)` : ''}`
+            : ''
+          if (msg) flash(msg)
+          else render(p.currentTime)
+        }
+      }
       else if (k === 'q' || k === '\x03') p.stop()
     })
   }
@@ -688,10 +795,7 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
     process.stdin.removeAllListeners('data')
   }
 
-  let out = '\r\x1b[K'
-  for (let i = 1; i < nLines; i++) out += '\n\x1b[K'
-  if (nLines > 1) out += `\x1b[${nLines - 1}A`
-  process.stderr.write(out)
+  clearUI()
 }
 
 // ── Plugin Auto-Discovery ────────────────────────────────────────────────
@@ -781,14 +885,16 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
   if (args[0] === '--completions-list') {
     await discoverPlugins()
     let prev = args[1] || '', cur = args[2] || ''
-    let ops = Object.keys(HELP).concat('split', 'stat')
-    let flags = ['--play', '--force', '--verbose', '--format', '--macro', '--help', '--version', '-o', '-p', '-f']
+    let ops = Object.keys(HELP).concat('split')
+    let flags = ['--force', '--verbose', '--format', '--macro', '--help', '--version', '-f']
 
     // Context-aware completions
     let out = []
-    if (prev === '-o' || prev === '--output') {
+    if (prev === 'save') {
       // Need filename — return empty, shell falls back to file completion
       process.exit(0)
+    } else if (prev === 'stat') {
+      out = ['db', 'rms', 'loudness', 'clipping', 'dc', 'silence', 'spectrum', 'cepstrum', 'bpm', 'beats', 'onsets', 'key', 'notes', 'chords']
     } else if (prev === 'normalize') {
       out = ['streaming', 'podcast', 'broadcast', '-1', '-3', '-6']
     } else if (prev === 'fade') {
@@ -801,8 +907,6 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       out = ['-12', '-7', '-5', '5', '7', '12']
     } else if (prev === 'remix') {
       out = ['1', '2']
-    } else if (prev === 'stat') {
-      out = ['db', 'rms', 'loudness', 'clipping', 'dc', 'silence', 'spectrum', 'cepstrum', 'bpm', 'beats', 'onsets', 'key', 'notes', 'chords']
     } else if (prev === 'gain') {
       out = ['-3db', '-6db', '-12db', '3db', '6db']
     } else if (prev === 'highpass') {
@@ -855,7 +959,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       process.exit(0)
     }
 
-    // Load macro edits
+    // Macro edits — folded into the transform list
     let macroOps = []
     if (opts.macro) {
       let { readFileSync } = await import('fs')
@@ -863,7 +967,6 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       let edits = Array.isArray(raw) ? raw : raw.edits || raw.ops
       if (!Array.isArray(edits)) throw new Error('Macro file must contain an array of edits')
       macroOps = edits.map(e => {
-        // Support both array edits ['gain', opts] and object edits { type: 'gain', args: [-6] }
         if (!Array.isArray(e)) {
           let name = e.type || e.name || e.op
           let args = Array.isArray(e.args) ? [...e.args] : []
@@ -877,326 +980,97 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
         return { name: e[0], args, opts: o, offset: o.at ?? null, duration: o.duration ?? null }
       })
     }
-    let allOps = [...opts.ops, ...macroOps]
+    let transforms = [...opts.transforms, ...macroOps]
+    let { source, sink, range } = opts
 
-    // Validate ops early — before any decode
-    for (let op of allOps) {
-      if (op.name !== 'split' && op.name !== 'stat' && op.name !== 'clip' && !audio.op(op.name))
+    // Validate transform names
+    for (let op of transforms) {
+      if (op.name !== 'split' && op.name !== 'clip' && !audio.op(op.name))
         throw new Error(`Unknown operation: ${op.name}`)
     }
 
-    // Resolve input(s) — support glob for batch processing
-    let inputs = []
-    if (opts.input) {
-      if (opts.input.includes('*') || opts.input.includes('?')) {
-        let { readdirSync } = await import('fs')
-        let { dirname, basename, join } = await import('path')
-        let dir = dirname(opts.input), pat = basename(opts.input)
-        let re = new RegExp('^' + pat.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$')
-        inputs = readdirSync(dir).filter(f => re.test(f)).map(f => join(dir, f)).sort()
-        if (!inputs.length) throw new Error(`No files matching: ${opts.input}`)
-      } else {
-        inputs.push(opts.input)
-      }
-    }
+    // ── source: record ──────────────────────────────────────────────────
+    if (source === 'record') return runRecord(transforms, sink, range, opts)
 
-    // Batch mode: multiple inputs
-    if (inputs.length > 1) {
-      let { basename, extname, dirname, join } = await import('path')
-      for (let file of inputs) {
-        let ext = extname(file), name = basename(file, ext)
-        let outFile = opts.output
-          ? opts.output.replace('{name}', name).replace('{ext}', ext.slice(1))
-          : join(dirname(file), name + '.out' + ext)
-        if (!opts.force) await confirmOverwrite(outFile)
-        process.stderr.write(`Processing: ${file}\n`)
-        let a = await audio(file)
-        for (let op of allOps) {
-          await resolveSourceArgs(op)
-          let fullArgs = opCallArgs(op)
-          if (typeof a[op.name] !== 'function') throw new Error(`Unknown operation: ${op.name}`)
-          if (op.name === 'clip') a = a[op.name](...fullArgs)
-          else a[op.name](...fullArgs)
-        }
-        await a.save(outFile)
-        process.stderr.write(`  → ${outFile}\n`)
-      }
-      process.exit(0)
-    }
+    // ── source: glob → batch ────────────────────────────────────────────
+    if (typeof source === 'string' && (source.includes('*') || source.includes('?')))
+      return runBatch(source, transforms, sink, range, opts)
 
-    // Determine input source
-    let source
-    if (inputs.length) {
-      source = inputs[0]
-    } else {
+    // ── source: file/stdin ──────────────────────────────────────────────
+    let actualSource = source
+    if (!actualSource) {
       process.stderr.write('Reading from stdin...\n')
-      let buf = await getStdinBuffer()
-      source = buf
+      actualSource = await getStdinBuffer()
+    } else if (opts.concatFiles.length) {
+      actualSource = [actualSource, ...opts.concatFiles]
     }
 
-    // Concat mode: `audio a.mp3 + b.wav + c.mp3`
-    if (opts.concatFiles.length && typeof source === 'string') {
-      source = [source, ...opts.concatFiles]
-    }
-
-    // Streaming player — file source, no ops, no output (default mode)
-    // -p = autoplay, otherwise starts paused
-    // Bare range: `audio song.mp3 10s..20s` scopes playback (seek + stop), not clip
-    if (!allOps.length && !opts.output && typeof source === 'string') {
-      if (opts.verbose) console.error(`Opening: ${source}`)
-      let a = audio(source)
+    // ── sink: play ──────────────────────────────────────────────────────
+    if (sink.name === 'play') {
+      let canStream = transforms.every(op => {
+        let desc = audio.op(op.name)
+        return desc && !desc.plan && !(desc.resolve && !desc.streamable) && op.name !== 'clip' && op.name !== 'split'
+      })
+      let isFile = typeof actualSource === 'string' || Array.isArray(actualSource)
+      let a = audio(actualSource)
       await new Promise(r => a.on('metadata', r))
-      let playOpts = { paused: !opts.play, loop: opts.loop }
-      if (opts.range) { playOpts.at = opts.range.offset; playOpts.duration = opts.range.duration }
-      let p = a.play(playOpts)
-      await playback(p,
-        () => a.decoded ? a.duration : a._.estDur || 0,
-        () => a.pages.length * audio.PAGE_SIZE / a.sampleRate,
-        a, source, {}
-      )
-      process.exit(0)
-    }
 
-    // Check if all ops are process-only (can stream during decode)
-    let canStream = allOps.length > 0 && !opts.output
-    if (canStream) for (let op of allOps) {
-      if (op.name === 'stat' || op.name === 'split') { canStream = false; break }
-      let desc = audio.op(op.name)
-      if (!desc || desc.plan || (desc.resolve && !desc.streamable)) { canStream = false; break }
-    }
+      let loop = sink.args.includes('loop')
+      let playOpts = { paused: !canStream || !isFile, loop }
+      if (range) { playOpts.at = range.offset; playOpts.duration = range.duration }
 
-    // Streaming player with process ops — show player immediately, start playback during decode
-    if (canStream && typeof source === 'string') {
-      if (opts.verbose) console.error(`Opening: ${source}`)
-      let a = audio(source)
-      await new Promise(r => a.on('metadata', r))
-      // Apply ops (just pushes edits — sync, no computation)
-      for (let op of allOps) {
-        let { name } = op
-        let fullArgs = opCallArgs(op)
-        if (name === 'clip') a = a[name](...fullArgs)
-        else a[name](...fullArgs)
-      }
-      let playOpts = { paused: !opts.play, loop: opts.loop }
-      if (opts.range) { playOpts.at = opts.range.offset; playOpts.duration = opts.range.duration }
-      let p = a.play(playOpts)
-      await playback(p,
-        () => a.decoded ? a.duration : a._.estDur || 0,
-        () => a.pages.length * audio.PAGE_SIZE / a.sampleRate,
-        a, source, { hasEdits: true, editLabel: opsLabel(allOps).join(', ').toLowerCase() }
-      )
-      process.exit(0)
-    }
-
-    // Separate stat ops from transform ops
-    let statOps = allOps.filter(op => op.name === 'stat')
-    let transformOps = allOps.filter(op => op.name !== 'stat')
-
-    // Full-decode playback: show player immediately, decode + apply ops in background
-    // Only when: play-only (no save), no stat, no clip (clip creates new instance), file source
-    let wantsPlay = !opts.output && (opts.play || transformOps.length)
-    let hasClip = transformOps.some(o => o.name === 'clip')
-    if (wantsPlay && !statOps.length && !hasClip && typeof source === 'string') {
-      let a = audio(source)
-      await new Promise(r => a.on('metadata', r))
-      let playOpts = { paused: true, loop: opts.loop }
-      if (opts.range) { playOpts.at = opts.range.offset; playOpts.duration = opts.range.duration }
-      let p = a.play(playOpts)
-      // Decode + apply ops in background, then resume
-      ;(async () => {
-        await a  // full decode
-        for (let op of transformOps) {
-          await resolveSourceArgs(op)
-          let { name } = op
-          let fullArgs = opCallArgs(op)
-          if (name === 'clip') a = a[name](...fullArgs)
-          else a[name](...fullArgs)
+      if (canStream && isFile) {
+        for (let op of transforms) {
+          let args = opCallArgs(op)
+          if (op.name === 'clip') a = a.clip(...args)
+          else a[op.name](...args)
         }
-        if (opts.play) p.resume()
-      })()
+      } else {
+        ;(async () => {
+          await a
+          for (let op of transforms) {
+            await resolveSourceArgs(op)
+            let args = opCallArgs(op)
+            if (op.name === 'clip') a = a.clip(...args)
+            else a[op.name](...args)
+          }
+          p.resume()
+        })()
+      }
+      var p = a.play(playOpts)
       await playback(p,
         () => a.decoded ? a.duration : a._.estDur || 0,
         () => a.pages.length * audio.PAGE_SIZE / a.sampleRate,
-        a, source, { hasEdits: !!transformOps.length, editLabel: opsLabel(transformOps).join(', ').toLowerCase() }
+        a, actualSource, { hasEdits: !!transforms.length, editLabel: opsLabel(transforms).join(', ').toLowerCase(), range, transforms, format: opts.format, force: opts.force }
       )
       process.exit(0)
     }
 
-    // Check output overwrite before paying the decode tax
-    if (opts.output && opts.output !== '-' && !opts.force) await confirmOverwrite(opts.output)
-
-    // Load audio (full decode) — needed for stat, save, non-play paths
-    if (opts.verbose) console.error(`Loading: ${typeof source === 'string' ? source : '(stdin)'}`)
+    // ── sink: stat / save  (full decode) ────────────────────────────────
+    if (opts.verbose) console.error(`Loading: ${typeof actualSource === 'string' ? actualSource : '(stdin)'}`)
     let spin = !opts.verbose ? spinnerBar('Decoding') : null
-    let a = audio(source)
+    let a = audio(actualSource)
     if (spin) a.on('data', ({ offset }) => { if (a._.estDur) spin.progress(offset / a._.estDur, offset) })
     if (opts.verbose) a.on('data', ({ offset }) => process.stderr.write(`\rDecoding... ${fmtTime(offset)}`))
     await a
     let loadTime = spin?.stop()
     if (opts.verbose) console.error('\n')
 
-    // No ops, no output, no play → show info and exit
-    if (!allOps.length && !opts.output && !opts.play) {
-      let [peak, , l, clips, dcOff] = await a.stat(['db', 'rms', 'loudness', 'clipping', 'dc'])
-      let bpmStr = await (async () => {
-        let dur = a.duration, win = Math.min(8, dur)
-        if (dur < 4) { let b = await a.stat('bpm'); return b > 0 ? `${Math.round(b)} BPM` : 'n/a' }
-        let n = Math.min(4, Math.floor(dur / win)), step = dur / (n + 1)
-        let bpms = (await Promise.all(Array.from({ length: n }, (_, i) => {
-          let at = Math.max(0, step * (i + 1) - win / 2)
-          return a.stat('bpm', { at, duration: win })
-        }))).filter(b => b > 0)
-        if (!bpms.length) return 'n/a'
-        let mn = Math.min(...bpms), mx = Math.max(...bpms)
-        return mx - mn < 10 ? `${Math.round((mn + mx) / 2)} BPM` : `${Math.round(mn)}–${Math.round(mx)} BPM`
-      })()
-      let keyStr = await (async () => {
-        try {
-          let k = await a.key()
-          return k && k.confidence > 0.3 ? k.label : 'n/a'
-        } catch { return 'n/a' }
-      })()
-      console.log(`  Duration:   ${fmtTime(a.duration)}`)
-      console.log(`  Channels:   ${a.channels}`)
-      console.log(`  SampleRate: ${a.sampleRate} Hz`)
-      console.log(`  Samples:    ${a.length}`)
-      console.log(`  Peak:       ${peak.toFixed(1)} dBFS`)
-      console.log(`  Loudness:   ${l.toFixed(1)} LUFS`)
-      console.log(`  BPM:        ${bpmStr}`)
-      console.log(`  Key:        ${keyStr}`)
-      console.log(`  Clipping:   ${clips.length || 'none'}`)
-      console.log(`  DC offset:  ${Math.abs(dcOff) > 0.0001 ? dcOff.toFixed(4) : 'none'}`)
-      if (loadTime) console.log(`  Loaded in:  ${loadTime}s`)
-      process.exit(0)
+    // ── sink: save ──────────────────────────────────────────────────────
+    if (sink.name === 'save') return runSave(a, transforms, sink.args, range, opts, actualSource, loadTime)
+
+    // ── sink: stat ──────────────────────────────────────────────────────
+    // Apply transforms (clip rebinds a)
+    for (let op of transforms) {
+      await resolveSourceArgs(op)
+      let args = opCallArgs(op)
+      if (op.name === 'clip') a = a.clip(...args)
+      else { try { a[op.name](...args) } catch (e) { throw new Error(`${op.name}: ${formatError(e)}`) } }
     }
 
-    // Split — special handling for multi-output
-    let splitOp = allOps.find(op => op.name === 'split')
-    if (splitOp) {
-      let preOps = allOps.slice(0, allOps.indexOf(splitOp))
-      let postOps = allOps.slice(allOps.indexOf(splitOp) + 1)
-      for (let op of preOps) {
-        let fullArgs = opCallArgs(op)
-        a[op.name](...fullArgs)
-      }
-
-      let parts = a.split(...splitOp.args)
-      for (let op of postOps)
-        for (let part of parts) {
-          let fullArgs = opCallArgs(op)
-          part[op.name](...fullArgs)
-        }
-
-      let { basename, extname } = await import('path')
-      let output = opts.output || `split-{i}.wav`
-      let srcExt = typeof source === 'string' ? extname(source) : '.wav'
-      let srcName = typeof source === 'string' ? basename(source, srcExt) : 'audio'
-      for (let [i, part] of parts.entries()) {
-        let outFile = output
-          .replace('{i}', String(i + 1))
-          .replace('{name}', srcName)
-          .replace('{ext}', srcExt.slice(1))
-        let fmt = opts.format || outFile.split('.').pop()
-        await part.save(outFile, { format: fmt })
-        process.stderr.write(`  → ${outFile}\n`)
-      }
-      process.exit(0)
-    }
-
-    // Apply transform operations
-    if (transformOps.length) {
-      if (opts.verbose) console.error(`Applying ${transformOps.length} operation(s)...`)
-      for (let op of transformOps) {
-        await resolveSourceArgs(op)
-        let { name } = op
-        let fullArgs = opCallArgs(op)
-        // clip returns a new audio instance, so we gotta update `a`
-        if (name === 'clip') {
-          if (typeof a[name] !== 'function') throw new Error(`Unknown operation: ${name}`)
-          a = a[name](...fullArgs)
-        } else {
-          if (typeof a[name] !== 'function') throw new Error(`Unknown operation: ${name}`)
-          try { a[name](...fullArgs) }
-          catch (e) { throw new Error(`${name}: ${formatError(e)}`) }
-        }
-      }
-    }
-
-    // Execute stat queries
-    if (statOps.length) {
-      for (let op of statOps) {
-        let names = op.args.filter(a => typeof a === 'string')
-        if (!names.length) names = ['db', 'rms', 'loudness', 'clipping', 'dc']
-        for (let name of names) {
-          let idx = op.args.indexOf(name)
-          let bins = idx >= 0 && idx + 1 < op.args.length && typeof op.args[idx + 1] === 'number' ? op.args[idx + 1] : undefined
-          let statOpts = {}
-          if (bins != null) statOpts.bins = bins
-          if (op.offset != null) statOpts.at = op.offset
-          if (op.duration != null) statOpts.duration = op.duration
-          let result
-          if (name === 'key') {
-            let k = await a.key(Object.keys(statOpts).length ? statOpts : undefined)
-            result = k?.label || 'N'
-          } else if (name === 'notes') {
-            result = await a.notes(Object.keys(statOpts).length ? statOpts : undefined)
-            for (let n of result) console.log(`  ${n.time.toFixed(3)}s  ${n.note.padEnd(4)} ${n.freq.toFixed(1)}Hz  ${n.duration.toFixed(3)}s  clarity:${n.clarity.toFixed(2)}`)
-            continue
-          } else if (name === 'chords') {
-            result = await a.chords(Object.keys(statOpts).length ? statOpts : undefined)
-            for (let c of result) console.log(`  ${c.time.toFixed(3)}s  ${c.label.padEnd(6)} ${c.duration.toFixed(3)}s  conf:${c.confidence.toFixed(2)}`)
-            continue
-          } else {
-            result = await a.stat(name, Object.keys(statOpts).length ? statOpts : undefined)
-          }
-          fmtStat(name, result)
-        }
-      }
-      if (!transformOps.length && !opts.output && !opts.play) process.exit(0)
-    }
-
-    // Play the result: -p flag, or ops without -o (default to player)
-    if (opts.play || (transformOps.length && !opts.output)) {
-      let playOpts = { loop: opts.loop }
-      if (opts.range) { playOpts.at = opts.range.offset; playOpts.duration = opts.range.duration }
-      await playback(a.play(playOpts), () => a.duration, () => a.duration, a, typeof source === 'string' ? source : null, { hasEdits: !!transformOps.length, editLabel: opsLabel(transformOps).join(', ').toLowerCase() })
-      if (!opts.output) process.exit(0)
-    }
-
-    // Save output
-    if (opts.output) {
-      let output = opts.output || 'out.wav'
-
-      let fmt = opts.format || (typeof output === 'string' ? output.split('.').pop() : 'wav')
-
-      try {
-        // Saving a static file requires full decode to apply uniform global edits (e.g. normalize)
-        if (!a.decoded) {
-          let spin2 = !opts.verbose ? spinnerBar('Decoding') : null
-          if (spin2 && a._.estDur) a.on('data', ({ offset }) => spin2.progress(offset / a._.estDur, offset))
-          await a.ready
-          spin2?.stop()
-        }
-
-        if (output === '-') {
-          let bytes = await a.read({ format: fmt })
-          process.stdout.write(Buffer.from(bytes))
-        } else {
-          let lbl = 'Saving'
-          if (allOps.length) {
-            let names = opsLabel(allOps)
-            lbl = names.length === 1 ? `${names[0]} + saving` : 'Applying edits + saving'
-          }
-          let spin = !opts.verbose ? spinnerBar(lbl) : null
-          await new Promise(r => setTimeout(r, 100))  // let spinner render before blocking render()
-          if (spin) a.on('progress', ({ offset, total }) => spin.progress(offset / total, offset))
-          await a.save(output, { format: fmt })
-          let elapsed = spin?.stop()
-          if (opts.verbose) console.error(`Saved: ${output}`)
-          else if (elapsed) console.error(`Saved ${output} in ${elapsed}s`)
-        }
-      } catch (e) { throw new Error(`save ${output}: ${formatError(e)}`) }
-    }
+    let statNames = sink.args.filter(v => typeof v === 'string')
+    if (!statNames.length) return printOverview(a, range, loadTime)
+    return printStats(a, sink.args, statNames, range)
   } catch (err) {
     console.error(`audio: ${formatError(err)}`)
     process.exit(1)
@@ -1206,51 +1080,60 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
 const FILTERS = new Set(['highpass', 'lowpass', 'eq', 'lowshelf', 'highshelf', 'notch', 'bandpass', 'allpass', 'filter'])
 
 function showUsage() {
-  let ops = [], filters = [], seen = new Set()
+  let sources = [], sinks = [], ops = [], filters = [], seen = new Set()
   for (let [name, desc] of Object.entries(audio.op())) {
     let h = desc.help
     if (!h || desc.hidden) continue
     seen.add(name)
     let line = `  ${h.usage.padEnd(28)} ${h.desc}`
-    ;(FILTERS.has(name) ? filters : ops).push(line)
+    if (h.kind === 'source') sources.push(line)
+    else if (h.kind === 'sink') sinks.push(line)
+    else if (FILTERS.has(name)) filters.push(line)
+    else ops.push(line)
   }
-  // Include HELP entries for methods not registered as ops (e.g. clip)
   for (let [name, h] of Object.entries(HELP)) {
     if (seen.has(name)) continue
     let line = `  ${h.usage.padEnd(28)} ${h.desc}`
-    ;(FILTERS.has(name) ? filters : ops).push(line)
+    if (h.kind === 'source') sources.push(line)
+    else if (h.kind === 'sink') sinks.push(line)
+    else if (FILTERS.has(name)) filters.push(line)
+    else ops.push(line)
   }
   console.log(`
 audio ${audio.version} — load, edit, save, play, analyze
 
 Usage:
-  audio [input] [range] [ops...] [-o output] [options]
+  audio [source] [transforms...] [sink] [options]
 
-Input:
-  input         File path, URL, or omit for stdin
-  range         Bare range scopes playback: audio song.mp3 10s..20s
-  -o, --output  Output file or '-' for stdout (default: out.wav)
+A pipeline: a source produces audio, transforms reshape it, a sink consumes it.
+The default sink is 'stat' — printing an overview.
 
-Operations (positional):
+Source:
+  FILE          Path, URL, or glob ('*.wav' for batch)
+  -             Read from stdin (or omit when piping in)
+${sources.join('\n')}
+
+Transforms (chained left-to-right):
 ${ops.join('\n')}
 
 Filters (ORDER = steepness: 2 = -12dB/oct, 4 = -24dB/oct, default: 2):
 ${filters.join('\n')}
 
-Range syntax (for offset+duration):
+Sinks (terminate the chain — at most one):
+${sinks.join('\n')}
+
+Range syntax (scopes the chain — applies to sink):
   1s..10s       From 1s to 10s
   0..0.5s       First half second
   -1s..         Last second to end
   5s            Just offset (no duration)
 
 Units:
-  Seconds: 1.5s, 500ms, 1.5 (default)
+  Seconds: 1.5s, 500ms, 1.5, 1:30 (default seconds)
   dB: -3db, 0, 6db
   Hz: 440hz, 2khz
 
 Options:
-  --play, -p    Autoplay (default opens player paused)
-  --loop, -l    Loop playback (or loop within range)
   --force, -f   Overwrite output file if it exists
   --macro FILE  Apply edits from JSON file
   --verbose     Show progress and debug info
@@ -1260,20 +1143,21 @@ Options:
   --completions SHELL  Print tab-completion script (zsh, bash, fish)
 
 Batch:
-  audio '*.wav' gain -3db -o '{name}.out.{ext}'  Process multiple files
+  audio '*.wav' gain -3db save '{name}.out.{ext}'
 
 Examples:
-  audio in.mp3                              Open player
-  audio in.mp3 -p                           Autoplay
-  audio in.mp3 10s..20s                     Play range
-  audio in.mp3 10s..20s fade 1s 1s -p       Play range with effects
-  audio in.mp3 stat                         Show file stats
+  audio in.mp3                              Show overview (default sink)
+  audio in.mp3 play                         Open player
+  audio 10s..20s stat                       Range from stdin
+  audio in.mp3 10s..20s play loop           Play range, loop
+  audio in.mp3 10s..20s fade 1s 1s play     Play range with effects
   audio in.mp3 stat loudness rms            Specific stats
-  audio in.mp3 gain -3db trim -o out.wav    Edit and save
-  audio in.mp3 normalize streaming -o out.wav
-  audio in.mp3 highpass 80hz eq 300hz -2db lowshelf 200hz -3db -o out.wav
-  audio in.mp3 gain -3db -p -o out.wav      Edit, play, and save
-  cat in.wav | audio gain -3db > out.wav    Pipe mode
+  audio in.mp3 gain -3db trim save out.wav  Edit and save
+  audio in.mp3 normalize save out.wav
+  audio in.mp3 highpass 80hz eq 300hz -2db save out.wav
+  audio record 30s save voice.wav           Capture mic
+  audio in.mp3 + b.mp3 + c.mp3 save out.wav Concat sources
+  cat in.wav | audio gain -3db save -       Pipe mode (stdin → stdout)
 
 Player controls:
   space     Pause / resume
@@ -1281,14 +1165,278 @@ Player controls:
   ⇧←/⇧→    Seek ±60s
   ↑/↓       Volume ±10%
   l         Toggle loop
+  s         Save as…
   q         Quit
 
 For more info: https://github.com/audiojs/audio
 `)
 }
 
+// ── Sink/Source Implementations ─────────────────────────────────────────
+
+async function applyTransforms(a, transforms) {
+  for (let op of transforms) {
+    await resolveSourceArgs(op)
+    let args = opCallArgs(op)
+    if (op.name === 'clip') a = a.clip(...args)
+    else { try { a[op.name](...args) } catch (e) { throw new Error(`${op.name}: ${formatError(e)}`) } }
+  }
+  return a
+}
+
+async function runSave(a, transforms, sinkArgs, range, opts, source, loadTime) {
+  let output = sinkArgs.find(v => typeof v === 'string')
+  if (!output) throw new Error('save: missing output path (use - for stdout)')
+
+  // Split: pre-ops apply to whole, split fans out, post-ops apply per-part, save per-part
+  let splitIdx = transforms.findIndex(o => o.name === 'split')
+  if (splitIdx >= 0) {
+    let pre = transforms.slice(0, splitIdx), splitOp = transforms[splitIdx], post = transforms.slice(splitIdx + 1)
+    a = await applyTransforms(a, pre)
+    let parts = a.split(...splitOp.args)
+    for (let op of post) for (let part of parts) part[op.name](...opCallArgs(op))
+    let { basename, extname } = await import('path')
+    let srcExt = typeof source === 'string' ? extname(source) : '.wav'
+    let srcName = typeof source === 'string' ? basename(source, srcExt) : 'audio'
+    for (let [i, part] of parts.entries()) {
+      let outFile = output
+        .replace('{i}', String(i + 1))
+        .replace('{name}', srcName)
+        .replace('{ext}', srcExt.slice(1))
+      let fmt = opts.format || outFile.split('.').pop()
+      await part.save(outFile, { format: fmt })
+      process.stderr.write(`  → ${outFile}\n`)
+    }
+    process.exit(0)
+  }
+
+  if (output !== '-' && !opts.force) await confirmOverwrite(output)
+
+  a = await applyTransforms(a, transforms)
+  if (!a.decoded) {
+    let sp = !opts.verbose ? spinnerBar('Decoding') : null
+    if (sp && a._.estDur) a.on('data', ({ offset }) => sp.progress(offset / a._.estDur, offset))
+    await a.ready
+    sp?.stop()
+  }
+
+  let fmt = opts.format || (output === '-' ? 'wav' : output.split('.').pop())
+  let saveOpts = { format: fmt }
+  if (range) { saveOpts.at = range.offset; saveOpts.duration = range.duration }
+
+  try {
+    if (output === '-') {
+      let bytes = await a.encode(fmt, saveOpts)
+      process.stdout.write(Buffer.from(bytes))
+    } else {
+      let lbl = transforms.length
+        ? (() => { let n = opsLabel(transforms); return n.length === 1 ? `${n[0]} + saving` : 'Applying edits + saving' })()
+        : 'Saving'
+      let sp = !opts.verbose ? spinnerBar(lbl) : null
+      await new Promise(r => setTimeout(r, 100))
+      if (sp) a.on('progress', ({ offset, total }) => sp.progress(offset / total, offset))
+      await a.save(output, saveOpts)
+      let elapsed = sp?.stop()
+      if (opts.verbose) console.error(`Saved: ${output}`)
+      else if (elapsed) console.error(`Saved ${output} in ${elapsed}s`)
+    }
+  } catch (e) { throw new Error(`save ${output}: ${formatError(e)}`) }
+  process.exit(0)
+}
+
+async function printOverview(a, range, loadTime) {
+  let statOpts = range ? { at: range.offset, duration: range.duration } : undefined
+  let [peak, , l, clips, dcOff] = await a.stat(['db', 'rms', 'loudness', 'clipping', 'dc'], statOpts)
+  let dur = range?.duration ?? a.duration
+  let bpmStr = await (async () => {
+    let win = Math.min(8, dur)
+    if (dur < 4) { let b = await a.stat('bpm', statOpts); return b > 0 ? `${Math.round(b)} BPM` : 'n/a' }
+    let off = range?.offset || 0, n = Math.min(4, Math.floor(dur / win)), step = dur / (n + 1)
+    let bpms = (await Promise.all(Array.from({ length: n }, (_, i) => {
+      let at = Math.max(0, off + step * (i + 1) - win / 2)
+      return a.stat('bpm', { at, duration: win })
+    }))).filter(b => b > 0)
+    if (!bpms.length) return 'n/a'
+    let mn = Math.min(...bpms), mx = Math.max(...bpms)
+    return mx - mn < 10 ? `${Math.round((mn + mx) / 2)} BPM` : `${Math.round(mn)}–${Math.round(mx)} BPM`
+  })()
+  let keyStr = await (async () => {
+    // Sample a 30s window from the middle for long inputs — chroma analysis is per-frame and dominates wall time
+    let win = Math.min(30, dur), off = (range?.offset || 0) + Math.max(0, (dur - win) / 2)
+    let kOpts = win < dur ? { at: off, duration: win } : statOpts
+    try { let k = await a.key(kOpts); return k && k.confidence > 0.3 ? k.label : 'n/a' } catch { return 'n/a' }
+  })()
+  console.log(`  Duration:   ${fmtTime(dur)}`)
+  console.log(`  Channels:   ${a.channels}`)
+  console.log(`  SampleRate: ${a.sampleRate} Hz`)
+  console.log(`  Samples:    ${a.length}`)
+  console.log(`  Peak:       ${peak.toFixed(1)} dBFS`)
+  console.log(`  Loudness:   ${l.toFixed(1)} LUFS`)
+  console.log(`  BPM:        ${bpmStr}`)
+  console.log(`  Key:        ${keyStr}`)
+  console.log(`  Clipping:   ${clips.length || 'none'}`)
+  console.log(`  DC offset:  ${Math.abs(dcOff) > 0.0001 ? dcOff.toFixed(4) : 'none'}`)
+  if (loadTime) console.log(`  Loaded in:  ${loadTime}s`)
+  process.exit(0)
+}
+
+async function printStats(a, sinkArgs, names, range) {
+  for (let name of names) {
+    let idx = sinkArgs.indexOf(name)
+    let bins = idx >= 0 && idx + 1 < sinkArgs.length && typeof sinkArgs[idx + 1] === 'number' ? sinkArgs[idx + 1] : undefined
+    let statOpts = {}
+    if (bins != null) statOpts.bins = bins
+    if (range) { statOpts.at = range.offset; statOpts.duration = range.duration }
+    let result
+    if (name === 'key') {
+      let k = await a.key(Object.keys(statOpts).length ? statOpts : undefined)
+      result = k?.label || 'N'
+    } else if (name === 'notes') {
+      result = await a.notes(Object.keys(statOpts).length ? statOpts : undefined)
+      for (let n of result) console.log(`  ${n.time.toFixed(3)}s  ${n.note.padEnd(4)} ${n.freq.toFixed(1)}Hz  ${n.duration.toFixed(3)}s  clarity:${n.clarity.toFixed(2)}`)
+      continue
+    } else if (name === 'chords') {
+      result = await a.chords(Object.keys(statOpts).length ? statOpts : undefined)
+      for (let c of result) console.log(`  ${c.time.toFixed(3)}s  ${c.label.padEnd(6)} ${c.duration.toFixed(3)}s  conf:${c.confidence.toFixed(2)}`)
+      continue
+    } else {
+      result = await a.stat(name, Object.keys(statOpts).length ? statOpts : undefined)
+    }
+    fmtStat(name, result)
+  }
+  process.exit(0)
+}
+
+async function runBatch(globPattern, transforms, sink, range, opts) {
+  let { readdirSync } = await import('fs')
+  let { dirname, basename, extname, join } = await import('path')
+  let dir = dirname(globPattern), pat = basename(globPattern)
+  let re = new RegExp('^' + pat.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$')
+  let files = readdirSync(dir).filter(f => re.test(f)).map(f => join(dir, f)).sort()
+  if (!files.length) throw new Error(`No files matching: ${globPattern}`)
+
+  if (sink.name !== 'save') throw new Error(`batch mode requires 'save' sink, got '${sink.name}'`)
+  let pattern = sink.args.find(v => typeof v === 'string')
+
+  for (let file of files) {
+    let ext = extname(file), name = basename(file, ext)
+    let outFile = pattern
+      ? pattern.replace('{name}', name).replace('{ext}', ext.slice(1))
+      : join(dirname(file), name + '.out' + ext)
+    if (!opts.force) await confirmOverwrite(outFile)
+    process.stderr.write(`Processing: ${file}\n`)
+    let a = await audio(file)
+    a = await applyTransforms(a, transforms)
+    let saveOpts = {}
+    if (range) { saveOpts.at = range.offset; saveOpts.duration = range.duration }
+    if (opts.format) saveOpts.format = opts.format
+    await a.save(outFile, saveOpts)
+    process.stderr.write(`  → ${outFile}\n`)
+  }
+  process.exit(0)
+}
+
+function makeLevelBar(level, w) {
+  let n = Math.max(0, Math.min(w, Math.round(level * w)))
+  let red = Math.round(0.85 * w)
+  let bar = ''
+  for (let i = 0; i < w; i++) {
+    if (i < n) bar += i >= red ? '\x1b[31m█\x1b[0m' : '\x1b[32m█\x1b[0m'
+    else bar += DIM + '─' + RST
+  }
+  return bar
+}
+
+async function recordingUI(a, durationSec) {
+  let cols = () => process.stderr.columns || 80
+  let t0 = Date.now()
+  let stopped = false, stop = () => { if (!stopped) { stopped = true; a.stop() } }
+  let curLevel = 0
+  a.on('data', () => {
+    let last = a.pages[a.pages.length - 1]
+    if (!last) return
+    let max = 0
+    for (let ch of last) for (let i = 0; i < ch.length; i++) { let v = Math.abs(ch[i]); if (v > max) max = v }
+    curLevel = max
+  })
+
+  let SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏', sp = 0
+  let render = () => {
+    let elapsed = (Date.now() - t0) / 1000
+    let icon = SPIN[sp++ % 10]
+    let timeStr = fmtTime(elapsed, true)
+    let durStr = durationSec ? ' / ' + fmtTime(durationSec, true) : ''
+    let prefix = `\x1b[31m●\x1b[0m REC ${icon}  ${timeStr}${durStr}  `
+    let suffix = `  ${(20 * Math.log10(curLevel + 1e-9)).toFixed(1)} dBFS`
+    let w = Math.max(10, cols() - prefix.length - suffix.length - 2 + 18)  // +18 for ANSI codes
+    process.stderr.write(`\r\x1b[K${prefix}${makeLevelBar(curLevel, Math.max(8, cols() - 50))}${suffix}`)
+  }
+  render()
+  let tick = setInterval(render, 80)
+
+  let durTimer = durationSec ? setTimeout(stop, durationSec * 1000) : null
+
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(true)
+    process.stdin.resume()
+    process.stdin.on('data', key => {
+      let k = key.toString()
+      if (k === ' ' || k === 'q' || k === '\r' || k === '\x03') stop()
+    })
+  } else {
+    process.on('SIGINT', stop)
+  }
+
+  await new Promise(r => {
+    let id = setInterval(() => { if (stopped) { clearInterval(id); r() } }, 50)
+  })
+  clearInterval(tick)
+  if (durTimer) clearTimeout(durTimer)
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(false)
+    process.stdin.removeAllListeners('data')
+    process.stdin.pause()
+  }
+  process.stderr.write('\r\x1b[K')
+  // Drain pending mic data — push() is async via dynamic import
+  await new Promise(r => setTimeout(r, 100))
+}
+
+async function runRecord(transforms, sink, range, opts) {
+  let durationSec = null
+  // record can take an optional duration arg as parsed from sink-walk; but sink is mandatory here
+  // record [DUR] sink [...] — duration was consumed by parseArgs as transform? No — record is just source verb.
+  // We rely on the user putting `record 30s save x.wav` — '30s' parses as a transform op which doesn't exist.
+  // Simpler: support --duration flag, or accept first transform arg as time if it's a bare time and op is not registered.
+  // Heuristic: if first transform looks like a bare time (no args, name is parseable as duration), use it.
+  if (transforms.length && !audio.op(transforms[0].name) && transforms[0].name !== 'split' && transforms[0].name !== 'clip') {
+    let t = parseValue(transforms[0].name)
+    if (typeof t === 'number' && transforms[0].args.length === 0) {
+      durationSec = t
+      transforms = transforms.slice(1)
+    }
+  }
+  if (!sink) sink = { name: 'save', args: ['recording.wav'] }
+  if (sink.name === 'play') throw new Error("record: 'play' sink not supported (live monitoring is its own beast). Try: record save out.wav")
+
+  let a = audio({ sampleRate: 44100, channels: 1 })
+  process.stderr.write(`Recording — press space/q to stop${durationSec ? ` (max ${fmtTime(durationSec)})` : ''}\n`)
+  a.record()
+  await recordingUI(a, durationSec)
+
+  // Wait for recording to finalize
+  await a
+
+  if (sink.name === 'save') return runSave(a, transforms, sink.args, range, opts, '(mic)', null)
+  // stat
+  a = await applyTransforms(a, transforms)
+  let names = sink.args.filter(v => typeof v === 'string')
+  if (!names.length) return printOverview(a, range, null)
+  return printStats(a, sink.args, names, range)
+}
+
 // Exports for testing
-export { parseValue, parseRange, parseArgs, showOpHelp, HELP, progressBar, fmtTime }
+export { parseValue, parseRange, parseArgs, showOpHelp, HELP, progressBar, fmtTime, isOpName, isVerb, isStatName, SOURCE_VERBS, SINK_VERBS, prompt, playerSave, defaultSavePath }
 
 // Run CLI if invoked directly (not imported)
 let argv1 = process.argv[1]

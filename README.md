@@ -8,7 +8,7 @@ audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 ```
 ```sh
 # cli
-audio raw.wav trim ..-30s normalize podcast fade 0.3s -0.5s -o clean.mp3
+audio raw.wav trim -30db normalize podcast fade 0.3s -0.5s save clean.mp3
 ```
 
 <!-- <img src="preview.svg?v=1" alt="Audiojs demo" width="540"> -->
@@ -97,7 +97,7 @@ Codecs load on demand via `import()` — map them with an import map or your bun
 
 ```sh
 npm i -g audio
-audio voice.wav trim normalize podcast fade 0.3s -0.5s -o clean.mp3
+audio voice.wav trim normalize podcast fade 0.3s -0.5s save clean.mp3
 ```
 
 
@@ -428,7 +428,7 @@ Audio effects and transformations.
 * **`.vocals(mode?)`** – stereo vocal isolation/removal via mid/side cancellation. `'isolate'` (default) keeps center, `'remove'` keeps sides. &nbsp;<sub>≡ SoX `oops`</sub>
 * **`.dither(bits?, {shape?})`** – TPDF dithering for bit-depth reduction (default 16-bit). `shape:true` enables 2nd-order noise shaping — pushes quantization noise above ~Nyquist/2 (audibly quieter at given bit depth).
 * **`.crossfeed(freq?, level?)`** – headphone crossfeed for improved stereo imaging. Default: 700 Hz cutoff, 0.3 level. &nbsp;<sub>≡ SoX `earwax`, bs2b</sub>
-* **`.resample(rate, {type?})`** – sample rate conversion. Non-destructive, chainable, undoable. `type:'linear'` (default, fast) or `type:'sinc'` (32-tap windowed sinc, higher quality). Linear downsampling auto-inserts an anti-alias lowpass; sinc has built-in anti-aliasing.
+* **`.resample(rate, {type?})`** – sample rate conversion. Non-destructive, chainable, undoable. Upsampling defaults to fast linear interpolation; downsampling defaults to an anti-aliased 32-tap windowed sinc. Use `type:'sinc'` to force sinc quality, or `type:'linear'` to force the fastest interpolation.
 
 ```js
 a.vocals()                                // isolate center-panned vocals
@@ -648,18 +648,40 @@ a.stat('peak', { bins: 100 }) // → binned array
 **`npm i -g audio`**
 
 ```sh
-audio [file] [ops...] [-o output] [options]
+audio [source] [transforms...] [sink] [options]
+```
 
-# ops
-eq          mix         pad         pan       crop
-fade        gain        stat        trim      notch
-remix       speed       split       insert    remove
-repeat      bandpass    highpass    lowpass   reverse
-lowshelf    highshelf   normalize   allpass   vocals
-dither      crossfeed
+A pipeline: a **source** produces audio, **transforms** reshape it, a **sink** consumes it. The default sink is `stat` — printing an overview.
+
+```sh
+# sources
+FILE         path, URL, or glob  ('*.wav' for batch)
+-            stdin (or omit when piping)
+record       capture from microphone
+
+# transforms (chained left-to-right)
+gain         fade        trim        normalize   crop
+clip         remove      reverse     repeat      pad
+speed        stretch     pitch       insert      mix
+crossfade    remix       pan         split       resample
+highpass     lowpass     eq          lowshelf    highshelf
+notch        bandpass    allpass     vocals      dither
+crossfeed
+
+# sinks (terminate the chain — at most one)
+stat [NAMES...]    print analysis (default)
+play [loop]        open player UI
+save PATH          encode and write (or `-` for stdout)
 
 # options
--p play     -l loop     -o output   -f force  --format
+-f --force         overwrite existing output
+--format FMT       override output format
+--macro FILE       apply edits from JSON
+--verbose          show progress
+--help, -h         help (or per-op: `audio gain --help`)
+
+# compatibility shortcuts
+-p ⇔ play     -l ⇔ play loop     -o PATH ⇔ save PATH
 ```
 
 ### Playback
@@ -676,48 +698,61 @@ audio kirtan.mp3
           48k   2ch   43:07   -0.8dBFS   -30.8LUFS
 ``` -->
 
-<kbd>␣</kbd> pause · <kbd>←</kbd>/<kbd>→</kbd> seek ±10s · <kbd>⇧←</kbd>/<kbd>⇧→</kbd> seek ±60s · <kbd>↑</kbd>/<kbd>↓</kbd> volume ±3dB · <kbd>l</kbd> loop · <kbd>q</kbd> quit
+<kbd>␣</kbd> pause · <kbd>←</kbd>/<kbd>→</kbd> seek ±10s · <kbd>⇧←</kbd>/<kbd>⇧→</kbd> seek ±60s · <kbd>↑</kbd>/<kbd>↓</kbd> volume · <kbd>l</kbd> loop · <kbd>s</kbd> save as · <kbd>q</kbd> quit
 
 ```sh
-# Play fragment of the song
-audio song.mp3 10s..15s -p
+# play full song
+audio song.mp3 play
 
-# Play clip (not full song)
-audio song.mp3 clip 10s..20s -p -l
+# play fragment
+audio song.mp3 10s..15s play
 
-# Normalize before
+# play and loop a hook
+audio song.mp3 30s..45s play loop
+
+# play with effects applied live (streamable ops)
+audio song.mp3 normalize broadcast highpass 80hz play
 ```
 
 ### Edit
 
 ```sh
 # clean up
-audio raw-take.wav trim -30db normalize podcast fade 0.3s -0.5s -o clean.wav
+audio raw-take.wav trim -30db normalize podcast fade 0.3s -0.5s save clean.wav
 
-# ranges
-audio in.wav gain -3db 1s..10s -o out.wav
+# scope a range (applies to whole chain)
+audio in.wav 1s..10s gain -3db save out.wav
+
+# range on a single op
+audio in.wav gain -3db 1s..10s save out.wav
 
 # filter chain
-audio in.mp3 highpass 80hz lowshelf 200hz -3db -o out.wav
+audio in.mp3 highpass 80hz lowshelf 200hz -3db save out.wav
 
-# join
-audio intro.mp3 + content.wav + outro.mp3 trim normalize fade 0.5s -2s -o ep.mp3
+# concat
+audio intro.mp3 + content.wav + outro.mp3 trim normalize fade 0.5s -2s save ep.mp3
 
-# crossfade into next track
-audio track1.mp3 crossfade track2.mp3 2s -o mixed.wav
+# crossfade into next
+audio track1.mp3 crossfade track2.mp3 2s save mixed.wav
 
 # voiceover
-audio bg.mp3 gain -12db mix narration.wav 2s -o mixed.wav
+audio bg.mp3 gain -12db mix narration.wav 2s save mixed.wav
 
 # split
-audio audiobook.mp3 split 30m 60m -o 'chapter-{i}.mp3'
+audio audiobook.mp3 split 30m 60m save 'chapter-{i}.mp3'
+
+# record
+audio record 30s save voice.wav
 ```
 
 ### Analysis
 
 ```sh
-# all default stats (db, rms, loudness, clipping, dc)
-audio speech.wav stat
+# overview (default sink)
+audio speech.wav
+
+# range overview — `audio FILE 0..10s` ⇔ `audio FILE stat 0..10s`
+audio speech.wav 0..10s
 
 # specific stats
 audio speech.wav stat loudness rms
@@ -735,23 +770,23 @@ audio song.mp3 stat key
 audio speech.wav stat spectrum 128
 audio speech.wav stat cepstrum 13
 
-# stat after transforms
+# stat after transforms (transforms apply, then stat)
 audio speech.wav gain -3db stat db
 ```
 
 ### Batch
 
 ```sh
-audio '*.wav' trim normalize podcast -o '{name}.clean.{ext}'
-audio '*.wav' gain -3db -o '{name}.out.{ext}'
+audio '*.wav' trim normalize podcast save '{name}.clean.{ext}'
+audio '*.wav' gain -3db save '{name}.out.{ext}'
 ```
 
 ### Stdin/stdout
 
 ```sh
-cat in.wav | audio gain -3db > out.wav
-curl -s https://example.com/speech.mp3 | audio normalize -o clean.wav
-ffmpeg -i video.mp4 -f wav - | audio trim normalize podcast > voice.wav
+cat in.wav | audio gain -3db save -      > out.wav
+curl -s https://ex.com/speech.mp3 | audio normalize save clean.wav
+ffmpeg -i video.mp4 -f wav - | audio trim normalize podcast save - > voice.wav
 ```
 
 ### Tab completion

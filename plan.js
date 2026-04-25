@@ -9,7 +9,7 @@ let fn = audio.fn
 let ops = {}
 
 // ── Segments: [from, count, to, rate?, ref?, interp?] ────────────
-// interp: optional `(src, target, tOff, n, rate, margin) => void` for custom
+// interp: optional `(src, target, tOff, n, rate, phase) => void` for custom
 //   interpolation. May expose `.margin` (samples of context needed each side).
 //   Falls back to built-in linear when omitted.
 export function seg(from, count, to, rate, ref, interp) {
@@ -176,11 +176,14 @@ export async function ensurePlan(a, plan, offset, duration) {
   for (let sg of segs) {
     let iStart = Math.max(s, sg[2]), iEnd = Math.min(e, sg[2] + sg[1])
     if (iStart >= iEnd) continue
-    let absR = Math.abs(sg[3] || 1)
-    let srcStart = sg[0] + (iStart - sg[2]) * absR
-    let srcLen = (iEnd - iStart) * absR + 1
+    let rate = sg[3] || 1, absR = Math.abs(rate), n = iEnd - iStart
+    let margin = (sg[5] && sg[5].margin) || 0
+    let srcStart = rate < 0
+      ? sg[0] + (sg[1] - (iStart - sg[2]) - n) * absR
+      : sg[0] + (iStart - sg[2]) * absR
+    let srcLen = n * absR + 1 + 2 * margin
     let target = sg[4] === null ? null : sg[4] || a
-    if (target) await audio.ensurePages(target, srcStart / sr, srcLen / sr)
+    if (target) await audio.ensurePages(target, Math.max(0, srcStart - margin) / sr, srcLen / sr)
   }
 }
 
@@ -479,29 +482,31 @@ let _rsBuf = null, _rsLen = 0
 function readSource(a, c, srcOff, n, target, tOff, rate, interp) {
   let r = rate || 1, absR = Math.abs(r)
   if (absR === 1) {
-    if (r > 0) return copyPages(a, c, srcOff, n, target, tOff)
-    return walkPages(a, c, srcOff, n, (pg, ch, s, e, off) => {
+    let base = Math.floor(srcOff)
+    if (r > 0) return copyPages(a, c, base, n, target, tOff)
+    return walkPages(a, c, base, n, (pg, ch, s, e, off) => {
       for (let i = s; i < e; i++) target[tOff + (n - 1 - (off + i - s))] = pg[ch][i]
     })
   }
-  let margin = (interp && r > 0 && interp.margin) || 0
-  let srcN = Math.ceil(n * absR) + 1 + 2 * margin
+  let margin = (interp && interp.margin) || 0
+  let base = Math.floor(srcOff), frac = srcOff - base
+  let srcN = Math.ceil(frac + n * absR) + 1 + 2 * margin
   if (srcN > _rsLen) { _rsLen = srcN; _rsBuf = new Float32Array(srcN) }
   let buf = _rsBuf.subarray(0, srcN)
   buf.fill(0)
-  let bufStart = srcOff - margin
+  let bufStart = base - margin
   let copyOff = bufStart < 0 ? -bufStart : 0
   let copyStart = Math.max(0, bufStart)
   let copyLen = srcN - copyOff
   if (copyLen > 0) copyPages(a, c, copyStart, copyLen, buf, copyOff)
-  ;(interp || resample)(buf, target, tOff, n, r, margin)
+  ;(interp || resample)(buf, target, tOff, n, r, margin + frac)
 }
 
 /** Linear interpolation resample: src buffer → n output samples at given rate. */
-export function resample(src, target, tOff, n, rate) {
+export function resample(src, target, tOff, n, rate, phase = 0) {
   let absR = Math.abs(rate), rev = rate < 0
   for (let i = 0; i < n; i++) {
-    let pos = (rev ? n - 1 - i : i) * absR
+    let pos = (rev ? n - 1 - i : i) * absR + phase
     let idx = pos | 0, frac = pos - idx
     target[tOff + i] = idx + 1 < src.length
       ? src[idx] + (src[idx + 1] - src[idx]) * frac
@@ -539,14 +544,24 @@ function renderBlock(a, segs, outOff, len, chunk) {
         for (let c = 0; c < a._.ch; c++)
           readSource(ref, c % ref._.ch, srcStart, n, chunk[c], dstOff, rate, interp)
       } else {
-        let srcN = Math.ceil(n * absR) + 1
-        let srcPcm = readRange(ref, srcStart, srcN)
+        let margin = (interp && interp.margin) || 0
+        let base = Math.floor(srcStart), frac = srcStart - base
+        let srcN = Math.ceil(frac + n * absR) + 1 + 2 * margin
+        let bufStart = base - margin
+        let copyOff = bufStart < 0 ? -bufStart : 0
+        let copyStart = Math.max(0, bufStart)
+        let srcPcm = readRange(ref, copyStart, srcN - copyOff)
         for (let c = 0; c < a._.ch; c++) {
           let src = srcPcm[c % srcPcm.length]
+          if (copyOff || src.length < srcN) {
+            let buf = new Float32Array(srcN)
+            buf.set(src.subarray(0, srcN - copyOff), copyOff)
+            src = buf
+          }
           if (absR === 1) {
             if (rate < 0) { for (let i = 0; i < n; i++) chunk[c][dstOff + i] = src[n - 1 - i] }
             else chunk[c].set(src.subarray(0, n), dstOff)
-          } else (interp || resample)(src, chunk[c], dstOff, n, rate)
+          } else (interp || resample)(src, chunk[c], dstOff, n, rate, margin + frac)
         }
       }
     } else {
@@ -624,12 +639,12 @@ function maxSrcSample(segs, start, end) {
     let iStart = Math.max(start, sg[2]), iEnd = Math.min(end, sg[2] + sg[1])
     if (iStart >= iEnd) continue
     if (sg[4] === null || sg[4]) continue  // silence or external ref
-    let rate = sg[3] || 1, absR = Math.abs(rate)
+    let rate = sg[3] || 1, absR = Math.abs(rate), margin = (sg[5] && sg[5].margin) || 0
     let n = iEnd - iStart
     let srcStart = rate < 0
       ? sg[0] + (sg[1] - (iStart - sg[2]) - n) * absR
       : sg[0] + (iStart - sg[2]) * absR
-    max = Math.max(max, Math.ceil(srcStart + n * absR) + 1)
+    max = Math.max(max, Math.ceil(srcStart + n * absR) + 1 + margin)
   }
   return max
 }

@@ -15,8 +15,8 @@ function repeatSegs(segs, times, total, off, dur) {
     else if (s[2] >= off + segLen) { let n = s.slice(); n[2] = s[2] + segLen * times; r.push(n) }
     else {
       let absR = Math.abs(s[3] || 1), split = off + segLen - s[2]
-      r.push(seg(s[0], split, s[2], s[3], s[4]))
-      r.push(seg(s[0] + split * absR, se - off - segLen, off + segLen * (times + 1), s[3], s[4]))
+      r.push(seg(s[0], split, s[2], s[3], s[4], s[5]))
+      r.push(seg(s[0] + split * absR, se - off - segLen, off + segLen * (times + 1), s[3], s[4], s[5]))
     }
   }
   for (let t = 1; t <= times; t++)

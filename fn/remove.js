@@ -8,8 +8,8 @@ export function removeSegs(segs, off, dur) {
     else if (s[2] >= end) { let n = s.slice(); n[2] = s[2] - dur; r.push(n) }
     else {
       let absR = Math.abs(s[3] || 1)
-      if (s[2] < off) r.push(seg(s[0], off - s[2], s[2], s[3], s[4]))
-      if (se > end) r.push(seg(s[0] + (end - s[2]) * absR, se - end, off, s[3], s[4]))
+      if (s[2] < off) r.push(seg(s[0], off - s[2], s[2], s[3], s[4], s[5]))
+      if (se > end) r.push(seg(s[0] + (end - s[2]) * absR, se - end, off, s[3], s[4], s[5]))
     }
   }
   return r

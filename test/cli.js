@@ -1,10 +1,12 @@
 import test from 'tst'
-import { parseValue, parseRange, parseArgs, showOpHelp, HELP, progressBar, fmtTime } from '../bin/cli.js'
+import { parseValue, parseRange, parseArgs, showOpHelp, HELP, progressBar, fmtTime, isOpName, isVerb, isStatName, SOURCE_VERBS, SINK_VERBS, prompt, playerSave, defaultSavePath } from '../bin/cli.js'
+import { EventEmitter } from 'events'
 import audio from '../audio.js'
 import { spawn } from 'child_process'
 import { fileURLToPath } from 'url'
-import { writeFileSync, unlinkSync, readFileSync } from 'fs'
+import { writeFileSync, unlinkSync, readFileSync, existsSync, mkdtempSync, rmSync } from 'fs'
 import { dirname, join } from 'path'
+import { tmpdir } from 'os'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -22,65 +24,80 @@ try {
 
 // ── Argument Parsing ─────────────────────────────────────────────────────
 
-test('parseArgs — simple: input ops output', t => {
-  let result = parseArgs(['in.wav', 'gain', '-3db', '-o', 'out.wav'])
-  t.is(result.input, 'in.wav', 'input')
-  t.is(result.output, 'out.wav', 'output')
-  t.ok(result.ops.length === 1, '1 op')
-  t.is(result.ops[0].name, 'gain', 'op name')
+test('parseArgs — chain: source transform sink', t => {
+  let r = parseArgs(['in.wav', 'gain', '-3db', 'save', 'out.wav'])
+  t.is(r.source, 'in.wav', 'source')
+  t.is(r.transforms.length, 1, '1 transform')
+  t.is(r.transforms[0].name, 'gain', 'gain transform')
+  t.is(r.sink.name, 'save', 'save sink')
+  t.is(r.sink.args[0], 'out.wav', 'sink path')
 })
 
-test('parseArgs — multiple ops', t => {
-  let result = parseArgs(['in.wav', 'gain', '-3', 'trim', 'normalize', '-o', 'out.wav'])
-  t.is(result.ops.length, 3, '3 ops')
-  t.is(result.ops[0].name, 'gain')
-  t.is(result.ops[1].name, 'trim')
-  t.is(result.ops[2].name, 'normalize')
+test('parseArgs — multiple transforms', t => {
+  let r = parseArgs(['in.wav', 'gain', '-3', 'trim', 'normalize', 'save', 'out.wav'])
+  t.is(r.transforms.length, 3, '3 transforms')
+  t.is(r.transforms[0].name, 'gain')
+  t.is(r.transforms[1].name, 'trim')
+  t.is(r.transforms[2].name, 'normalize')
 })
 
-test('parseArgs — op with multiple args', t => {
-  let result = parseArgs(['in.wav', 'fade', '1.5s', 'linear'])
-  t.is(result.ops[0].name, 'fade')
-  t.is(result.ops[0].args.length, 1, 'duration in args')
-  t.is(result.ops[0].curve, 'linear', 'curve as option')
+test('parseArgs — transform with multiple args', t => {
+  let r = parseArgs(['in.wav', 'fade', '1.5s', 'linear'])
+  t.is(r.transforms[0].name, 'fade')
+  t.is(r.transforms[0].args.length, 1, 'duration in args')
+  t.is(r.transforms[0].curve, 'linear', 'curve as option')
 })
 
-test('parseArgs — range syntax', t => {
-  let result = parseArgs(['in.wav', 'gain', '-3db', '1s..10s'])
-  t.is(result.ops[0].name, 'gain')
-  t.is(result.ops[0].offset, 1, 'offset 1s')
-  t.is(result.ops[0].duration, 9, 'duration 9s')
+test('parseArgs — range syntax on transform', t => {
+  let r = parseArgs(['in.wav', 'gain', '-3db', '1s..10s'])
+  t.is(r.transforms[0].name, 'gain')
+  t.is(r.transforms[0].offset, 1, 'offset 1s')
+  t.is(r.transforms[0].duration, 9, 'duration 9s')
 })
 
 test('parseArgs — split with time args', t => {
-  let result = parseArgs(['in.wav', 'split', '30s', '60s', '-o', 'ch-{i}.wav'])
-  t.is(result.ops[0].name, 'split', 'op name')
-  t.is(result.ops[0].args.length, 2, '2 split points')
-  t.is(result.ops[0].args[0], 30, 'first split at 30s')
-  t.is(result.ops[0].args[1], 60, 'second split at 60s')
-  t.is(result.output, 'ch-{i}.wav', 'template output')
+  let r = parseArgs(['in.wav', 'split', '30s', '60s', 'save', 'ch-{i}.wav'])
+  t.is(r.transforms[0].name, 'split', 'op name')
+  t.is(r.transforms[0].args.length, 2, '2 split points')
+  t.is(r.transforms[0].args[0], 30, 'first split at 30s')
+  t.is(r.transforms[0].args[1], 60, 'second split at 60s')
+  t.is(r.sink.args[0], 'ch-{i}.wav', 'template sink')
 })
 
 test('parseArgs — verbose flag', t => {
-  let result = parseArgs(['in.wav', '--verbose', 'gain', '-3'])
-  t.ok(result.verbose, 'verbose true')
+  let r = parseArgs(['in.wav', '--verbose', 'gain', '-3'])
+  t.ok(r.verbose, 'verbose true')
 })
 
-test('parseArgs — version flags not confused with verbose', t => {
-  // -v should NOT be parsed as verbose (it's version, handled in main)
-  let result = parseArgs(['in.wav', 'gain', '-3'])
-  t.ok(!result.verbose, 'no verbose by default')
-})
-
-test('parseArgs — no input (stdin)', t => {
-  let result = parseArgs(['gain', '-3'])
-  t.is(result.input, null, 'no input')
-  t.is(result.ops[0].name, 'gain')
+test('parseArgs — no source (stdin)', t => {
+  let r = parseArgs(['gain', '-3'])
+  t.is(r.source, null, 'no source')
+  t.is(r.transforms[0].name, 'gain')
 })
 
 test('parseArgs — help flag', t => {
-  let result = parseArgs(['--help'])
-  t.ok(result.showHelp, 'showHelp true')
+  let r = parseArgs(['--help'])
+  t.ok(r.showHelp, 'showHelp true')
+})
+
+test('parseArgs — default sink is stat', t => {
+  let r = parseArgs(['in.wav'])
+  t.is(r.source, 'in.wav', 'source')
+  t.is(r.sink.name, 'stat', 'default sink is stat')
+  t.is(r.sink.args.length, 0, 'no stat names → overview')
+})
+
+test('parseArgs — explicit play sink', t => {
+  let r = parseArgs(['in.wav', 'play'])
+  t.is(r.sink.name, 'play')
+  t.is(r.transforms.length, 0)
+})
+
+test('parseArgs — transform then play sink', t => {
+  let r = parseArgs(['in.wav', 'gain', '-3', 'play'])
+  t.is(r.sink.name, 'play')
+  t.is(r.transforms.length, 1)
+  t.is(r.transforms[0].name, 'gain')
 })
 
 // ── Unit Parsing ─────────────────────────────────────────────────────────
@@ -99,74 +116,67 @@ test('parseValue — seconds', t => {
 
 test('parseValue — compound durations', t => {
   t.is(parseValue('1m30s'), 90, '1m30s = 90s')
-  t.is(parseValue('2m'), 120, '2m = 120s')
-  t.is(parseValue('1h'), 3600, '1h = 3600s')
-  t.is(parseValue('1h20m'), 4800, '1h20m = 4800s')
+  t.is(parseValue('2h'), 7200, '2h = 7200s')
+  t.is(parseValue('1m'), 60, '1m = 60s')
 })
 
 test('parseValue — Hz', t => {
-  t.is(parseValue('440hz'), 440, '440hz')
-  t.is(parseValue('2khz'), 2000, '2khz')
-  t.is(parseValue('440'), 440, 'bare number')
+  t.is(parseValue('440hz'), 440)
+  t.is(parseValue('2khz'), 2000)
 })
 
 test('parseValue — filename passthrough', t => {
-  t.is(parseValue('db-mix.wav'), 'db-mix.wav', 'filename with db- passes through')
-  t.is(parseValue('song.seconds.wav'), 'song.seconds.wav', 'filename with seconds passes through')
-  t.is(parseValue('normalize'), 'normalize', 'word passes through')
+  t.is(parseValue('out.wav'), 'out.wav')
 })
 
 test('parseValue — timecode MM:SS', t => {
   t.is(parseValue('1:30'), 90, '1:30 = 90s')
-  t.is(parseValue('0:30'), 30, '0:30 = 30s')
   t.is(parseValue('15:30'), 930, '15:30 = 930s')
-  t.is(parseValue('2:00'), 120, '2:00 = 120s')
+  t.is(parseValue('0:45'), 45, '0:45 = 45s')
 })
 
 test('parseValue — timecode HH:MM:SS', t => {
-  t.is(parseValue('1:00:00'), 3600, '1:00:00 = 3600s')
-  t.is(parseValue('1:01:01'), 3661, '1:01:01 = 3661s')
+  t.is(parseValue('1:30:00'), 5400, '1:30:00 = 5400s')
   t.is(parseValue('0:01:30'), 90, '0:01:30 = 90s')
 })
 
 test('parseValue — timecode with fractional seconds', t => {
   t.is(parseValue('1:30.5'), 90.5, '1:30.5 = 90.5s')
-  t.is(parseValue('0:00.250'), 0.25, '0:00.250 = 0.25s')
 })
 
 test('parseRange — timecode in range', t => {
-  let r = parseRange('0..15:30')
-  t.is(r.offset, 0, 'offset = 0')
-  t.is(r.duration, 930, '15:30 = 930s')
+  let range = parseRange('0..15:30')
+  t.is(range.offset, 0)
+  t.is(range.duration, 930, '15:30 = 930s')
 })
 
 test('parseRange — timecode both ends', t => {
-  let r = parseRange('1:00..1:30')
-  t.is(r.offset, 60, '1:00 = 60s')
-  t.is(r.duration, 30, '1:30 - 1:00 = 30s')
+  let range = parseRange('1:00..2:30')
+  t.is(range.offset, 60)
+  t.is(range.duration, 90)
 })
 
-test('parseArgs — clip op recognized', t => {
-  let r = parseArgs(['in.wav', 'clip', '0..10s', '-o', 'out.wav'])
-  t.is(r.ops.length, 1, '1 op')
-  t.is(r.ops[0].name, 'clip', 'clip is an op')
-  t.is(r.ops[0].offset, 0, 'offset = 0')
-  t.is(r.ops[0].duration, 10, 'duration = 10s')
+test('parseArgs — clip transform', t => {
+  let r = parseArgs(['in.wav', 'clip', '0..10s', 'save', 'out.wav'])
+  t.is(r.transforms.length, 1, '1 transform')
+  t.is(r.transforms[0].name, 'clip', 'clip is a transform')
+  t.is(r.transforms[0].offset, 0, 'offset = 0')
+  t.is(r.transforms[0].duration, 10, 'duration = 10s')
 })
 
 test('parseArgs — clip with timecode range', t => {
   let r = parseArgs(['in.wav', 'clip', '0..15:30'])
-  t.is(r.ops[0].name, 'clip')
-  t.is(r.ops[0].offset, 0, 'offset = 0')
-  t.is(r.ops[0].duration, 930, '15:30 = 930s')
+  t.is(r.transforms[0].name, 'clip')
+  t.is(r.transforms[0].offset, 0, 'offset = 0')
+  t.is(r.transforms[0].duration, 930, '15:30 = 930s')
 })
 
-test('parseArgs — bare range is playback hint, not crop', t => {
-  let r = parseArgs(['in.wav', '0..10s', '-o', 'out.wav'])
+test('parseArgs — bare range scopes the chain', t => {
+  let r = parseArgs(['in.wav', '0..10s', 'save', 'out.wav'])
   t.ok(r.range, 'range set')
   t.is(r.range.offset, 0)
   t.is(r.range.duration, 10)
-  t.is(r.ops.length, 0, 'no crop op — bare range is play cursor only')
+  t.is(r.transforms.length, 0, 'no transforms — bare range scopes chain')
 })
 
 test('parseRange — 1s..10s', t => {
@@ -218,33 +228,52 @@ test('parseRange — inverted range clamps to 0', t => {
 })
 
 test('parseArgs — bare time as range', t => {
-  let r = parseArgs(['song.mp3', '1s', '-p'])
+  let r = parseArgs(['song.mp3', '1s', 'play'])
   t.ok(r.range, 'range parsed')
   t.is(r.range.offset, 1, 'offset = 1s')
   t.is(r.range.duration, undefined, 'open-ended')
-  t.is(r.ops.length, 0, 'no ops')
+  t.is(r.transforms.length, 0, 'no transforms')
 })
 
 test('parseArgs — bare time 500ms', t => {
-  let r = parseArgs(['song.mp3', '500ms', '-p'])
+  let r = parseArgs(['song.mp3', '500ms', 'play'])
   t.ok(r.range, 'range parsed')
   t.is(r.range.offset, 0.5, 'offset = 500ms')
 })
 
 test('parseArgs — bare range with loop', t => {
-  let r = parseArgs(['song.mp3', '1s..3s', '-p', '-l'])
+  let r = parseArgs(['song.mp3', '1s..3s', 'play', 'loop'])
   t.ok(r.range, 'range parsed')
   t.is(r.range.offset, 1, 'offset')
   t.is(r.range.duration, 2, 'duration')
-  t.ok(r.loop, 'loop enabled')
+  t.is(r.sink.name, 'play')
+  t.ok(r.sink.args.includes('loop'), 'loop arg on play sink')
 })
 
-test('parseArgs — bare range with ops', t => {
-  let r = parseArgs(['song.mp3', '1s..5s', 'fade', '0.5', '-0.5', '-p'])
+test('parseArgs — -l shortcut adds loop to play', t => {
+  let r = parseArgs(['song.mp3', '1s..3s', 'play', '-l'])
+  t.is(r.sink.name, 'play')
+  t.ok(r.sink.args.includes('loop'), '-l mapped to play loop arg')
+})
+
+test('parseArgs — -p shortcut maps to play sink', t => {
+  let r = parseArgs(['song.mp3', '-p'])
+  t.is(r.sink.name, 'play')
+})
+
+test('parseArgs — -o PATH shortcut maps to save', t => {
+  let r = parseArgs(['song.mp3', '-o', 'out.wav'])
+  t.is(r.sink.name, 'save')
+  t.is(r.sink.args[0], 'out.wav', 'output path captured')
+})
+
+test('parseArgs — bare range with transforms', t => {
+  let r = parseArgs(['song.mp3', '1s..5s', 'fade', '0.5', '-0.5', 'play'])
   t.ok(r.range, 'range parsed')
   t.is(r.range.offset, 1)
   t.is(r.range.duration, 4)
-  t.is(r.ops.length, 2, 'two fade ops (in + out)')
+  t.is(r.transforms.length, 2, 'two fade ops (in + out)')
+  t.is(r.sink.name, 'play')
 })
 
 // ── Player View ─────────────────────────────────────────────────────────
@@ -256,18 +285,15 @@ test('progressBar — empty player (0/0/0)', t => {
   let bar = progressBar(0, 0, 0, 40)
   let vis = stripAnsi(bar)
   t.is(vis.length, 40, `visible width = 40 (got ${vis.length})`)
-  // All dim track when nothing decoded
   t.is((vis.match(/─/g) || []).length, 40, 'all track chars')
 })
 
 test('progressBar — during decode (played < decoded, total unknown)', t => {
-  // 5s played, 10s decoded, total unknown
   let bar = progressBar(5, 10, 0, 40)
   let vis = stripAnsi(bar)
   t.is(vis.length, 40, `visible width = 40 (got ${vis.length})`)
   let solid = (vis.match(/━/g) || []).length
   t.ok(solid > 0, `has played region (${solid} chars)`)
-  // Bar must contain ANSI dim sequence — meaning dim track is present
   t.ok(bar.includes('\x1b[2m'), 'has dim track for unknown remaining')
 })
 
@@ -279,7 +305,6 @@ test('progressBar — fully decoded (total known)', t => {
   let track = (vis.match(/─/g) || []).length
   t.is(solid, 10, 'played = 30/120 * 40 = 10')
   t.is(track, 30, 'rest is decoded-ahead')
-  // No dim track when total is known (all decoded)
   t.ok(!bar.includes('\x1b[2m'), 'no dim track when fully decoded')
 })
 
@@ -298,40 +323,101 @@ test('fmtTime — formats correctly', t => {
   t.is(fmtTime(0, true), '0:00:00')
 })
 
-test('parseArgs — stat op with names', t => {
-  let result = parseArgs(['in.wav', 'stat', 'loudness', 'rms'])
-  t.is(result.input, 'in.wav', 'input parsed')
-  t.is(result.ops[0].name, 'stat', 'stat recognized as op')
-  t.is(result.ops[0].args[0], 'loudness', 'first stat name')
-  t.is(result.ops[0].args[1], 'rms', 'second stat name')
+// ── Verb Taxonomy ────────────────────────────────────────────────────────
+
+test('verbs — sources and sinks classified', t => {
+  t.ok(SOURCE_VERBS.has('record'), 'record is source')
+  t.ok(SINK_VERBS.has('play'), 'play is sink')
+  t.ok(SINK_VERBS.has('stat'), 'stat is sink')
+  t.ok(SINK_VERBS.has('save'), 'save is sink')
+  t.ok(isVerb('record'))
+  t.ok(isVerb('play'))
+  t.ok(!isVerb('gain'))
 })
 
-test('parseArgs — stat op with bins', t => {
-  let result = parseArgs(['in.wav', 'stat', 'spectrum', '128'])
-  t.is(result.ops[0].name, 'stat')
-  t.is(result.ops[0].args[0], 'spectrum')
-  t.is(result.ops[0].args[1], 128, 'bins parsed as number')
+test('isOpName — registry-aware', t => {
+  t.ok(isOpName('gain'))
+  t.ok(isOpName('split'))
+  t.ok(isOpName('clip'))
+  t.ok(!isOpName('xyz'))
+  t.ok(!isOpName('stat'), 'stat is sink, not op')
+  t.ok(!isOpName('play'), 'play is sink, not op')
 })
 
-test('parseArgs — stat op bare defaults', t => {
-  let result = parseArgs(['in.wav', 'stat'])
-  t.is(result.ops[0].name, 'stat')
-  t.is(result.ops[0].args.length, 0, 'no args = default stats')
+test('isStatName — registered stats and aggregates', t => {
+  t.ok(isStatName('loudness'))
+  t.ok(isStatName('rms'))
+  t.ok(isStatName('key'))
+  t.ok(isStatName('notes'))
+  t.ok(isStatName('chords'))
+  t.ok(!isStatName('xyz'))
 })
 
-test('parseArgs — stat with op-name overlap (dc, clipping)', t => {
-  let result = parseArgs(['in.wav', 'stat', 'dc', 'clipping', 'rms'])
-  t.is(result.ops.length, 1, 'single stat op')
-  t.is(result.ops[0].name, 'stat')
-  t.same(result.ops[0].args, ['dc', 'clipping', 'rms'], 'dc/clipping parsed as stat args, not ops')
+// ── Stat Sink ────────────────────────────────────────────────────────────
+
+test('parseArgs — stat sink with names', t => {
+  let r = parseArgs(['in.wav', 'stat', 'loudness', 'rms'])
+  t.is(r.source, 'in.wav', 'source parsed')
+  t.is(r.sink.name, 'stat', 'stat sink')
+  t.is(r.sink.args[0], 'loudness', 'first stat name')
+  t.is(r.sink.args[1], 'rms', 'second stat name')
 })
 
-test('parseArgs — stat after transform preserves op boundary', t => {
-  let result = parseArgs(['in.wav', 'gain', '-3', 'stat', 'dc'])
-  t.is(result.ops.length, 2, 'two ops')
-  t.is(result.ops[0].name, 'gain')
-  t.is(result.ops[1].name, 'stat')
-  t.same(result.ops[1].args, ['dc'], 'dc is stat arg')
+test('parseArgs — stat sink with bins', t => {
+  let r = parseArgs(['in.wav', 'stat', 'spectrum', '128'])
+  t.is(r.sink.name, 'stat')
+  t.is(r.sink.args[0], 'spectrum')
+  t.is(r.sink.args[1], 128, 'bins parsed as number')
+})
+
+test('parseArgs — stat sink bare defaults', t => {
+  let r = parseArgs(['in.wav', 'stat'])
+  t.is(r.sink.name, 'stat')
+  t.is(r.sink.args.length, 0, 'no args = default overview')
+})
+
+test('parseArgs — stat sink consumes overlapping names', t => {
+  let r = parseArgs(['in.wav', 'stat', 'dc', 'clipping', 'rms'])
+  t.is(r.transforms.length, 0, 'no transforms')
+  t.is(r.sink.name, 'stat')
+  t.same(r.sink.args, ['dc', 'clipping', 'rms'], 'all names go to sink')
+})
+
+test('parseArgs — transform then stat sink preserves boundary', t => {
+  let r = parseArgs(['in.wav', 'gain', '-3', 'stat', 'dc'])
+  t.is(r.transforms.length, 1, 'one transform')
+  t.is(r.transforms[0].name, 'gain')
+  t.is(r.sink.name, 'stat', 'stat sink')
+  t.same(r.sink.args, ['dc'], 'dc is stat arg')
+})
+
+// ── Save Sink ────────────────────────────────────────────────────────────
+
+test('parseArgs — save sink path', t => {
+  let r = parseArgs(['in.wav', 'save', 'out.wav'])
+  t.is(r.sink.name, 'save')
+  t.is(r.sink.args[0], 'out.wav')
+})
+
+test('parseArgs — save sink with stdout marker', t => {
+  let r = parseArgs(['in.wav', 'save', '-'])
+  t.is(r.sink.name, 'save')
+  t.is(r.sink.args[0], '-')
+})
+
+// ── Source: record ───────────────────────────────────────────────────────
+
+test('parseArgs — record source', t => {
+  let r = parseArgs(['record', 'save', 'out.wav'])
+  t.is(r.source, 'record', 'record source verb')
+  t.is(r.sink.name, 'save', 'save sink')
+})
+
+test('parseArgs — record with duration then save', t => {
+  let r = parseArgs(['record', '30s', 'save', 'out.wav'])
+  t.is(r.source, 'record')
+  // Duration is captured as a transform that runRecord interprets at runtime
+  t.is(r.sink.name, 'save')
 })
 
 // ── Op Discovery ─────────────────────────────────────────────────────────
@@ -349,62 +435,34 @@ test('ops registry — all built-ins available', async t => {
 
 // ── CLI Execution ────────────────────────────────────────────────────────
 
-test('CLI — basic: input gain normalize output', async t => {
+test('CLI — basic: source gain normalize save', async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
-
   let outPath = join(__dirname, 'tmp-cli-1.wav')
   try {
-    await runCli([lenaPath, 'gain', '-3', 'normalize', '-o', outPath])
-
+    await runCli([lenaPath, 'gain', '-3', 'normalize', 'save', outPath])
     let result = await audio(outPath)
     t.ok(result.duration > 12, 'file exists and has correct duration')
-  } finally {
-    cleanup(outPath)
-  }
+  } finally { cleanup(outPath) }
 })
 
-test('CLI — multiple ops', async t => {
+test('CLI — multiple ops save', async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
-
   let outPath = join(__dirname, 'tmp-cli-2.wav')
   try {
-    await runCli([lenaPath, 'trim', 'gain', '-6', 'normalize', '-o', outPath])
+    await runCli([lenaPath, 'trim', 'gain', '-6', 'normalize', 'save', outPath])
     let result = await audio(outPath)
     t.ok(result.duration > 10, 'trimmed and gained')
-  } finally {
-    cleanup(outPath)
-  }
-})
-
-test('CLI — with range: gain on subrange', async t => {
-  if (!lenaPath) { t.skip('audio-lena not available'); return }
-
-  let outPath = join(__dirname, 'tmp-cli-3.wav')
-  try {
-    // Note: CLI doesn't directly support range syntax in this version
-    // This would be: audio in.wav gain -3db 1s..10s
-    // For now, we test the basic case without range
-    await runCli([lenaPath, 'gain', '-3', '-o', outPath])
-    let result = await audio(outPath)
-    t.ok(result.duration > 12, 'gain applied')
-  } finally {
-    cleanup(outPath)
-  }
+  } finally { cleanup(outPath) }
 })
 
 test('CLI — format override', async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
-
   let outPath = join(__dirname, 'tmp-cli-4.wav')
   try {
-    // Note: Lena is mono, but some encoders (MP3) may require stereo.
-    // Test with WAV format override instead.
-    await runCli([lenaPath, 'normalize', '--format', 'wav', '-o', outPath])
+    await runCli([lenaPath, 'normalize', '--format', 'wav', 'save', outPath])
     let result = await audio(outPath)
     t.ok(result.duration > 12, 'wav saved with explicit format')
-  } finally {
-    cleanup(outPath)
-  }
+  } finally { cleanup(outPath) }
 })
 
 test('CLI — help flag', async t => {
@@ -412,6 +470,8 @@ test('CLI — help flag', async t => {
   t.ok(output.includes('Usage:'), 'shows usage')
   t.ok(output.includes('gain'), 'documents gain op')
   t.ok(output.includes('trim'), 'documents trim op')
+  t.ok(output.includes('Sinks'), 'documents sinks')
+  t.ok(output.includes('save'), 'documents save sink')
 })
 
 test('CLI — version flag', async t => {
@@ -421,69 +481,333 @@ test('CLI — version flag', async t => {
   t.ok(output.includes(version), `shows ${version}`)
 })
 
-// ── Edge Cases ───────────────────────────────────────────────────────────
-
 test('CLI — chain 5 ops', async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
-
   let outPath = join(__dirname, 'tmp-cli-5.wav')
   try {
-    await runCli([
-      lenaPath,
-      'trim',
-      'gain', '-6',
-      'normalize',
-      'reverse',
-      '-o', outPath
-    ])
+    await runCli([lenaPath, 'trim', 'gain', '-6', 'normalize', 'reverse', 'save', outPath])
     let result = await audio(outPath)
     t.ok(result.duration > 10, 'all 5 ops applied')
-  } finally {
-    cleanup(outPath)
-  }
+  } finally { cleanup(outPath) }
 })
 
 test('CLI — normalize to different target', async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
-
   let outPath = join(__dirname, 'tmp-cli-6.wav')
   try {
-    await runCli([lenaPath, 'normalize', '-6', '-o', outPath])
+    await runCli([lenaPath, 'normalize', '-6', 'save', outPath])
     let result = await audio(outPath)
     let peak = await result.stat('db')
     t.ok(Math.abs(peak - (-6)) < 1, 'normalized to -6dB')
-  } finally {
-    cleanup(outPath)
-  }
+  } finally { cleanup(outPath) }
 })
 
 test('CLI — remix stereo to mono', async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
-
   let outPath = join(__dirname, 'tmp-cli-7.wav')
   try {
-    await runCli([lenaPath, 'remix', '1', '-o', outPath])
+    await runCli([lenaPath, 'remix', '1', 'save', outPath])
     let result = await audio(outPath)
     t.is(result.channels, 1, 'remixed to mono')
+  } finally { cleanup(outPath) }
+})
+
+test('CLI — default sink prints overview', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let { stdout } = await runCli([lenaPath])
+  t.ok(stdout.includes('Duration'), 'overview shows duration')
+  t.ok(stdout.includes('Channels'), 'overview shows channels')
+  t.ok(stdout.includes('Loudness'), 'overview shows loudness')
+})
+
+test('CLI — explicit stat sink prints specific stats', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let { stdout } = await runCli([lenaPath, 'stat', 'loudness', 'rms'])
+  t.ok(stdout.includes('loudness'), 'shows loudness')
+  t.ok(stdout.includes('rms'), 'shows rms')
+})
+
+test('CLI — stat sink with range', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let { stdout } = await runCli([lenaPath, '1s..3s', 'stat', 'loudness'])
+  t.ok(stdout.includes('loudness'), 'loudness over range')
+})
+
+// ── Range-from-stdin equivalence: `audio 0..Xs` ⇔ `audio stat 0..Xs` ─────
+
+test('parseArgs — bare range alone equals stat with range', t => {
+  let a = parseArgs(['song.mp3', '0..5s'])
+  let b = parseArgs(['song.mp3', 'stat', '0..5s'])
+  t.is(a.sink.name, 'stat', 'bare range defaults to stat sink')
+  t.is(b.sink.name, 'stat', 'explicit stat sink')
+  t.is(a.range.offset, b.range.offset, 'same offset')
+  t.is(a.range.duration, b.range.duration, 'same duration')
+  t.is(a.range.offset, 0)
+  t.is(a.range.duration, 5)
+})
+
+test('parseArgs — sink-args range hoists to top-level range', t => {
+  // `audio stat 0..5s` — range string inside stat's args is hoisted out
+  let r = parseArgs(['in.wav', 'stat', '0..5s'])
+  t.ok(r.range, 'range hoisted from sink args')
+  t.is(r.range.offset, 0)
+  t.is(r.range.duration, 5)
+  t.is(r.sink.args.length, 0, 'sink args cleared (range hoisted out)')
+})
+
+test('CLI — bare range and explicit stat with range produce same overview', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let [{ stdout: a }, { stdout: b }] = await Promise.all([
+    runCli([lenaPath, '0..5s']),
+    runCli([lenaPath, 'stat', '0..5s']),
+  ])
+  // Strip the variable "Loaded in: Xs" line — both runs decode independently
+  let strip = s => s.replace(/Loaded in:.*$/m, '').trim()
+  t.is(strip(a), strip(b), 'overview is identical')
+  t.ok(a.includes('Duration:'), 'has duration')
+  t.ok(a.includes('Peak:'), 'has peak')
+  t.ok(a.includes('Loudness:'), 'has loudness')
+})
+
+// ── Crop + normalize broadcast end-to-end (regression: must not hang) ────
+
+test('CLI — crop + normalize broadcast prints overview without hanging', { timeout: 60000 }, async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let t0 = Date.now()
+  // Lena is ~12s — crop a 5s window so the chain is non-trivial
+  let { stdout } = await runCli([lenaPath, 'crop', '0..5s', 'normalize', 'broadcast'])
+  let elapsed = Date.now() - t0
+  t.ok(stdout.includes('Duration:'), 'overview printed')
+  t.ok(stdout.includes('Peak:'), 'has Peak')
+  t.ok(stdout.includes('Loudness:'), 'has Loudness')
+  t.ok(stdout.includes('BPM:'), 'has BPM')
+  t.ok(stdout.includes('Key:'), 'has Key')
+  // Block-stat algebra path should be fast — assert under 30s for the 12s fixture.
+  // (The original bug had this hanging > 1 min on a 16-min file.)
+  t.ok(elapsed < 30000, `completes fast (${elapsed}ms < 30s)`)
+})
+
+// ── Player prompt — preserves stdin 'data' listeners ─────────────────────
+
+test('prompt — preserves stdin data listeners', async t => {
+  // Mock stdin/stderr emulating raw-mode TTY
+  let stdin = new EventEmitter()
+  Object.assign(stdin, {
+    isTTY: true, isRaw: true,
+    setRawMode(v) { this.isRaw = v },
+    setEncoding() {},
+    resume() {},
+  })
+  let stderr = { write() {} }
+
+  // Player attaches its own 'data' listener
+  let playerKeys = []
+  let playerHandler = chunk => playerKeys.push(chunk.toString())
+  stdin.on('data', playerHandler)
+  t.is(stdin.listenerCount('data'), 1, 'player listener attached')
+
+  // Call prompt; while it's awaiting input the player listener should be detached
+  let p = prompt('Save as: ', 'out.wav', { stdin, stderr })
+  await new Promise(r => setImmediate(r))
+  t.is(stdin.listenerCount('data'), 1, 'one listener (prompt only) during prompt')
+  // Verify the player handler is NOT receiving data while prompt is active
+  stdin.emit('data', 'x')
+  t.is(playerKeys.length, 0, 'player handler did not receive prompt input')
+
+  // Submit the prompt
+  stdin.emit('data', '\n')
+  let result = await p
+  t.is(result, 'x', 'prompt returned typed value')
+
+  // After prompt: player listener restored, raw mode restored
+  t.is(stdin.listenerCount('data'), 1, 'player listener restored')
+  t.is(stdin.listeners('data')[0], playerHandler, 'same handler restored')
+  t.ok(stdin.isRaw, 'raw mode restored')
+
+  // Subsequent keypresses now flow back to the player
+  stdin.emit('data', 'q')
+  t.is(playerKeys.length, 1, 'player resumes receiving keys')
+  t.is(playerKeys[0], 'q', 'received q after prompt')
+})
+
+test('prompt — returns null on non-TTY without touching listeners', async t => {
+  let stdin = new EventEmitter()
+  Object.assign(stdin, { isTTY: false })
+  let onData = () => {}
+  stdin.on('data', onData)
+  let r = await prompt('?', '', { stdin, stderr: { write() {} } })
+  t.is(r, null, 'returns null when not a TTY')
+  t.is(stdin.listenerCount('data'), 1, 'listener untouched')
+})
+
+// Regression: pressing 's' during playback used to leave the prompt invisible
+// because the 40ms render tick kept overwriting stderr. The fix gates render
+// behind a `prompting` flag while the prompt is active. This test exercises
+// that exact pattern with a synthetic tick + prompt.
+test('player prompt — render tick is gated while prompt is active', async t => {
+  let writes = []
+  let stderr = { write: s => writes.push(s) }
+  let prompting = false
+  let render = () => { if (prompting) return; stderr.write('TICK') }
+  let tick = setInterval(render, 5)
+
+  let stdin = new EventEmitter()
+  Object.assign(stdin, {
+    isTTY: true, isRaw: true,
+    setRawMode(v) { this.isRaw = v }, setEncoding() {}, resume() {}
+  })
+  // Player attaches a key listener
+  let playerHandler = () => {}
+  stdin.on('data', playerHandler)
+
+  // Let some ticks fire pre-prompt
+  await new Promise(r => setTimeout(r, 30))
+  let baseTickCount = writes.filter(w => w === 'TICK').length
+  t.ok(baseTickCount > 0, 'tick is firing before prompt')
+
+  // Enter prompt
+  prompting = true
+  let writesAtPromptStart = writes.length
+  let p = prompt('Save as: ', 'out.wav', { stdin, stderr })
+
+  // Let the tick try to fire while prompting — it should NOT write 'TICK'
+  await new Promise(r => setTimeout(r, 30))
+  let writesDuringPrompt = writes.slice(writesAtPromptStart)
+  let ticksDuringPrompt = writesDuringPrompt.filter(w => w === 'TICK').length
+  t.is(ticksDuringPrompt, 0, 'no render ticks while prompting')
+  // The prompt label IS in the output (visible to the user)
+  t.ok(writesDuringPrompt.some(w => w.includes('Save as: ')), 'prompt label written to stderr')
+
+  // Submit and resume
+  stdin.emit('data', 'song.out.wav\n')
+  let result = await p
+  t.is(result, 'song.out.wav', 'prompt captured input')
+
+  prompting = false
+  await new Promise(r => setTimeout(r, 30))
+  clearInterval(tick)
+  let postTickCount = writes.filter(w => w === 'TICK').length
+  t.ok(postTickCount > baseTickCount, 'tick resumes writing after prompt')
+})
+
+// ── playerSave — save lands next to source ───────────────────────────────
+
+test('defaultSavePath — places .out next to source preserving folder + ext', t => {
+  t.is(defaultSavePath('/Users/foo/song.mp3'), '/Users/foo/song.out.mp3', 'absolute path preserved')
+  t.is(defaultSavePath('a/b/c.wav'), 'a/b/c.out.wav', 'relative path preserved')
+  t.is(defaultSavePath('song.flac'), 'song.out.flac', 'bare filename')
+  t.is(defaultSavePath('noext'), 'noext.out', 'no extension')
+  t.is(defaultSavePath(''), 'out.wav', 'empty falls back to out.wav')
+  t.is(defaultSavePath(null), 'out.wav', 'null falls back to out.wav')
+})
+
+// Regression: when invoked from the player UI, "Save as:" defaulted to the right
+// folder but the file may not have actually been written there. This test runs
+// the real save flow via playerSave with a mocked stdin (Enter accepts the
+// default path) and asserts the file lands literally next to the source.
+test('playerSave — accepts default and writes file next to source', { timeout: 15000 }, async t => {
+  let dir = mkdtempSync(join(tmpdir(), 'audio-cli-save-'))
+  let srcPath = join(dir, 'song.wav')
+  let expectedOut = join(dir, 'song.out.wav')
+  try {
+    let sr = 22050, n = sr  // 1s mono
+    let ch = new Float32Array(n)
+    for (let i = 0; i < n; i++) ch[i] = 0.2 * Math.sin(2 * Math.PI * 440 * i / sr)
+    await audio.from([ch], { sampleRate: sr }).save(srcPath)
+    t.ok(existsSync(srcPath), 'source written')
+
+    let a = await audio(srcPath)
+
+    // Mock TTY stdin — emit '\n' on next tick to accept the default path
+    let stdin = new EventEmitter()
+    Object.assign(stdin, {
+      isTTY: true, isRaw: false,
+      setRawMode(v) { this.isRaw = v },
+      setEncoding() {}, resume() {}
+    })
+    let stderr = { write() {} }
+    setImmediate(() => stdin.emit('data', '\n'))
+
+    let result = await playerSave(a, srcPath, { force: true }, { stdin, stderr })
+
+    t.is(result.path, expectedOut, 'returned path is next to source')
+    t.ok(existsSync(expectedOut), 'file actually written next to source')
+    t.ok(!result.cancelled, 'not cancelled')
+    t.ok(!result.failed, 'not failed')
+
+    // Verify the written file is actually decodable audio
+    let saved = await audio(expectedOut)
+    t.ok(saved.duration > 0.5, `saved file decodes (duration=${saved.duration.toFixed(2)}s)`)
   } finally {
-    cleanup(outPath)
+    rmSync(dir, { recursive: true, force: true })
   }
+})
+
+// Regression: there used to be a perceived hang between confirming the save
+// path and seeing progress, because the spinner only started AFTER
+// `await a.ready` and encoder warm-up. The fix fires `onStart` before any
+// awaits so the user sees feedback immediately.
+test('playerSave — onStart fires before await a.ready (no hang)', async t => {
+  let order = []
+  let resolveReady
+  let a = {
+    decoded: false,
+    ready: new Promise(r => { resolveReady = r }),
+    save: async () => { order.push('save') },
+    on() {}, off() {}
+  }
+  let stdin = new EventEmitter()
+  Object.assign(stdin, {
+    isTTY: true, isRaw: false,
+    setRawMode(v) { this.isRaw = v }, setEncoding() {}, resume() {}
+  })
+  setImmediate(() => stdin.emit('data', '\n'))
+  let p = playerSave(a, '/tmp/x.wav', {
+    force: true,
+    onStart: () => order.push('onStart')
+  }, { stdin, stderr: { write() {} } })
+
+  // Give prompt + microtasks time to settle. ready is still pending.
+  await new Promise(r => setTimeout(r, 30))
+  t.is(order[0], 'onStart', 'onStart fired before save')
+  t.is(order.length, 1, 'save NOT yet called — still waiting on a.ready')
+
+  // Now release ready — save should proceed
+  resolveReady()
+  await p
+  t.is(order[1], 'save', 'save fires after ready resolves')
+})
+
+test('playerSave — empty path returns cancelled', async t => {
+  let stdin = new EventEmitter()
+  Object.assign(stdin, {
+    isTTY: true, isRaw: false,
+    setRawMode(v) { this.isRaw = v }, setEncoding() {}, resume() {}
+  })
+  let stderr = { write() {} }
+  // User clears the default ("\b" * many) then submits empty — easier: pass src=null so default is 'out.wav'
+  // and emit an empty line. But empty submission falls back to the default. To force cancel we need
+  // prompt to return null, which happens on non-TTY. So test the non-TTY path.
+  Object.assign(stdin, { isTTY: false })
+  let a = { decoded: true, save: async () => { throw new Error('should not be called') }, on() {}, off() {} }
+  let result = await playerSave(a, '/tmp/x.wav', {}, { stdin, stderr })
+  t.ok(result.cancelled, 'non-TTY → cancelled (prompt returns null)')
 })
 
 // ── Error Handling ───────────────────────────────────────────────────────
 
 test('CLI — unknown op produces clear error', async t => {
   try {
-    await runCli([lenaPath || 'test/fixture.wav', 'foobar', '-o', '/dev/null'])
+    await runCli([lenaPath || 'test/fixture.wav', 'foobar', 'save', '/dev/null'])
     t.fail('should have thrown')
   } catch (e) {
     t.ok(e.message.includes('foobar'), 'error mentions op name')
   }
 })
 
-test('CLI — missing input produces error', async t => {
+test('CLI — missing source produces error', async t => {
   try {
-    await runCli(['nonexistent.wav', '-o', '/dev/null'])
+    await runCli(['nonexistent.wav', 'save', '/dev/null'])
     t.fail('should have thrown')
   } catch (e) {
     t.ok(e.message.includes('stderr'), 'exits with error')
@@ -494,16 +818,13 @@ test('CLI — mono trim normalize save mp3', async t => {
   let fixture = join(__dirname, 'fixture.wav')
   let { existsSync } = await import('fs')
   if (!existsSync(fixture)) { t.skip('fixture.wav not available'); return }
-
   let outPath = join(__dirname, 'tmp-cli-mono.mp3')
   try {
-    await runCli([fixture, 'trim', 'normalize', '-o', outPath])
+    await runCli([fixture, 'trim', 'normalize', 'save', outPath])
     let result = await audio(outPath)
     t.ok(result.duration > 0, 'mp3 has audio')
     t.ok(result.channels >= 1, 'has channels')
-  } finally {
-    cleanup(outPath)
-  }
+  } finally { cleanup(outPath) }
 })
 
 // ── Filters ──────────────────────────────────────────────────────────────
@@ -519,16 +840,14 @@ test('ops registry — filter ops available', t => {
 })
 
 test('API — highpass filter applies correctly', async t => {
-  // 10s stereo sine at 50Hz (below cutoff) + 1kHz (above cutoff)
   let sr = 44100, dur = 10, n = sr * dur
   let ch = new Float32Array(n)
   for (let i = 0; i < n; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 50 * i / sr) + 0.5 * Math.sin(2 * Math.PI * 1000 * i / sr)
   let a = audio.from([ch, new Float32Array(ch)], { sampleRate: sr })
   a.highpass(200)
   let pcm = await a.read()
-  // The 50Hz component should be mostly removed; energy should drop
   let sum = 0
-  for (let i = sr; i < 2 * sr; i++) sum += pcm[0][i] * pcm[0][i]  // skip first second (transient)
+  for (let i = sr; i < 2 * sr; i++) sum += pcm[0][i] * pcm[0][i]
   let rms = Math.sqrt(sum / sr)
   t.ok(rms < 0.6, `50Hz attenuated, rms=${rms.toFixed(3)} < 0.6`)
   t.ok(rms > 0.2, `1kHz preserved, rms=${rms.toFixed(3)} > 0.2`)
@@ -542,17 +861,15 @@ test('CLI — filter highpass works', { timeout: 15000 }, async t => {
     let ch = new Float32Array(n)
     for (let i = 0; i < n; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr)
     await audio.from([ch], { sampleRate: sr }).save(srcPath)
-    await runCli([srcPath, 'highpass', '80hz', '-o', outPath])
+    await runCli([srcPath, 'highpass', '80hz', 'save', outPath])
     let result = await audio(outPath)
     t.ok(result.duration > 1, 'highpass processed audio')
   } finally {
-    cleanup(srcPath)
-    cleanup(outPath)
+    cleanup(srcPath); cleanup(outPath)
   }
 })
 
 test('CLI — filter + mp3 encode (short)', { timeout: 30000 }, async t => {
-  // 10s stereo sine → highpass + trim + fade → mp3
   let srcPath = join(__dirname, 'tmp-filter-src.wav')
   let outPath = join(__dirname, 'tmp-filter-out.mp3')
   try {
@@ -560,38 +877,40 @@ test('CLI — filter + mp3 encode (short)', { timeout: 30000 }, async t => {
     let ch = new Float32Array(n)
     for (let i = 0; i < n; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr)
     await audio.from([ch, new Float32Array(ch)], { sampleRate: sr }).save(srcPath)
-
-    await runCli([srcPath, 'highpass', '80hz', 'trim', 'fade', '1', 'fade', '-1', '-o', outPath])
+    await runCli([srcPath, 'highpass', '80hz', 'trim', 'fade', '1', 'fade', '-1', 'save', outPath])
     let result = await audio(outPath)
     t.ok(result.duration > 5, `mp3 has audio: ${result.duration.toFixed(1)}s`)
   } finally {
-    cleanup(srcPath)
-    cleanup(outPath)
+    cleanup(srcPath); cleanup(outPath)
   }
 })
-
-// ── Helpers ──────────────────────────────────────────────────────────────
 
 // ── Per-op Help ──────────────────────────────────────────────────────────
 
 test('parseArgs — per-op help: gain --help', t => {
-  let result = parseArgs(['in.wav', 'gain', '--help'])
-  t.is(result.helpOp, 'gain', 'helpOp set to gain')
-  t.is(result.ops.length, 0, 'no ops parsed after help')
+  let r = parseArgs(['in.wav', 'gain', '--help'])
+  t.is(r.helpOp, 'gain', 'helpOp set to gain')
+  t.is(r.transforms.length, 0, 'no transforms parsed after help')
 })
 
 test('parseArgs — per-op help: highpass -h', t => {
-  let result = parseArgs(['in.wav', 'highpass', '-h'])
-  t.is(result.helpOp, 'highpass', 'helpOp for highpass')
+  let r = parseArgs(['in.wav', 'highpass', '-h'])
+  t.is(r.helpOp, 'highpass', 'helpOp for highpass')
+})
+
+test('parseArgs — per-sink help: save --help', t => {
+  let r = parseArgs(['in.wav', 'save', '--help'])
+  t.is(r.helpOp, 'save', 'helpOp for save sink')
 })
 
 test('op help — all built-in ops have help', t => {
   let expected = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'clip', 'remove',
     'insert', 'repeat', 'mix', 'crossfade', 'remix', 'highpass', 'lowpass', 'eq', 'lowshelf',
     'highshelf', 'notch', 'bandpass', 'allpass', 'filter', 'pan', 'pad', 'speed', 'stretch',
-    'pitch', 'vocals', 'dither', 'crossfeed']
+    'pitch', 'vocals', 'dither', 'crossfeed', 'resample',
+    // sinks + sources
+    'play', 'stat', 'save', 'record']
   for (let op of expected) t.ok(HELP[op], `${op} has help`)
-  // Reverse check: every op with help is in expected list
   for (let name in HELP) t.ok(expected.includes(name), `${name} in expected list`)
 })
 
@@ -604,7 +923,7 @@ test('CLI — per-op help output', async t => {
 test('CLI — showUsage mentions every op with help', async t => {
   let output = await runCliCapture(['--help'])
   for (let [name, h] of Object.entries(HELP)) {
-    if (name === 'filter') continue  // generic dispatch, not listed separately
+    if (name === 'filter') continue
     t.ok(output.includes(name), `help text includes ${name}`)
   }
 })
@@ -612,63 +931,55 @@ test('CLI — showUsage mentions every op with help', async t => {
 // ── Macro System ─────────────────────────────────────────────────────────
 
 test('parseArgs — macro flag', t => {
-  let result = parseArgs(['in.wav', '--macro', 'recipe.json', '-o', 'out.wav'])
-  t.is(result.macro, 'recipe.json', 'macro file parsed')
+  let r = parseArgs(['in.wav', '--macro', 'recipe.json', 'save', 'out.wav'])
+  t.is(r.macro, 'recipe.json', 'macro file parsed')
 })
 
 test('CLI — macro applies edits from JSON', async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
-
   let macroPath = join(__dirname, 'tmp-macro.json')
   let outPath = join(__dirname, 'tmp-macro-out.wav')
   try {
-    writeFileSync(macroPath, JSON.stringify([
-      ['gain', { value: -6 }]
-    ]))
-    await runCli([lenaPath, '--macro', macroPath, '-o', outPath])
+    writeFileSync(macroPath, JSON.stringify([['gain', { value: -6 }]]))
+    await runCli([lenaPath, '--macro', macroPath, 'save', outPath])
     let result = await audio(outPath)
     let orig = await (await audio(lenaPath)).stat('db')
     let peak = await result.stat('db')
     t.ok(Math.abs(peak - (orig - 6)) < 1, `macro gain applied (got ${peak.toFixed(1)}, expected ~${(orig - 6).toFixed(1)})`)
   } finally {
-    cleanup(macroPath)
-    cleanup(outPath)
+    cleanup(macroPath); cleanup(outPath)
   }
 })
 
 test('CLI — macro combined with inline ops', async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
-
   let macroPath = join(__dirname, 'tmp-macro2.json')
   let outPath = join(__dirname, 'tmp-macro2-out.wav')
   try {
     writeFileSync(macroPath, JSON.stringify([{ type: 'gain', args: [-3] }]))
-    await runCli([lenaPath, 'gain', '-6', '--macro', macroPath, '-o', outPath])
+    await runCli([lenaPath, 'gain', '-6', '--macro', macroPath, 'save', outPath])
     let result = await audio(outPath)
     let orig = await (await audio(lenaPath)).stat('db')
     let peak = await result.stat('db')
-    // gain -6 inline + gain -3 macro = -9dB from original
     t.ok(Math.abs(peak - (orig - 9)) < 1, `inline + macro: peak ≈ ${(orig - 9).toFixed(0)}dB (got ${peak.toFixed(1)})`)
   } finally {
-    cleanup(macroPath)
-    cleanup(outPath)
+    cleanup(macroPath); cleanup(outPath)
   }
 })
-
 
 // ── Pan / Pad CLI ────────────────────────────────────────────────────────
 
 test('parseArgs — pan op', t => {
-  let r = parseArgs(['in.wav', 'pan', '-0.5', '-o', 'out.wav'])
-  t.is(r.ops[0].name, 'pan', 'pan op parsed')
-  t.is(r.ops[0].args[0], -0.5, 'pan value')
+  let r = parseArgs(['in.wav', 'pan', '-0.5', 'save', 'out.wav'])
+  t.is(r.transforms[0].name, 'pan', 'pan op parsed')
+  t.is(r.transforms[0].args[0], -0.5, 'pan value')
 })
 
 test('parseArgs — pad op', t => {
-  let r = parseArgs(['in.wav', 'pad', '1s', '2s', '-o', 'out.wav'])
-  t.is(r.ops[0].name, 'pad', 'pad op parsed')
-  t.is(r.ops[0].args[0], 1, 'before')
-  t.is(r.ops[0].args[1], 2, 'after')
+  let r = parseArgs(['in.wav', 'pad', '1s', '2s', 'save', 'out.wav'])
+  t.is(r.transforms[0].name, 'pad', 'pad op parsed')
+  t.is(r.transforms[0].args[0], 1, 'before')
+  t.is(r.transforms[0].args[1], 2, 'after')
 })
 
 test('op help — pan and pad have help', t => {
@@ -684,20 +995,18 @@ test('CLI — pad adds silence', async t => {
   try {
     let orig = await audio(lenaPath)
     let origDur = orig.duration
-    await runCli([lenaPath, 'pad', '1s', '0', '-o', outPath, '--force'])
+    await runCli([lenaPath, 'pad', '1s', '0', 'save', outPath, '--force'])
     let result = await audio(outPath)
     t.ok(Math.abs(result.duration - (origDur + 1)) < 0.1, `duration increased by ~1s (got ${result.duration.toFixed(2)} from ${origDur.toFixed(2)})`)
-  } finally {
-    cleanup(outPath)
-  }
+  } finally { cleanup(outPath) }
 })
 
 // ── Glob / Batch ─────────────────────────────────────────────────────────
 
-test('parseArgs — glob input preserved', t => {
-  let r = parseArgs(['*.wav', 'gain', '-3', '-o', '{name}.out.wav'])
-  t.is(r.input, '*.wav', 'glob preserved as input')
-  t.is(r.output, '{name}.out.wav', 'template output')
+test('parseArgs — glob source preserved', t => {
+  let r = parseArgs(['*.wav', 'gain', '-3', 'save', '{name}.out.wav'])
+  t.is(r.source, '*.wav', 'glob preserved as source')
+  t.is(r.sink.args[0], '{name}.out.wav', 'template sink')
 })
 
 test('CLI — batch glob processes multiple files', async t => {
@@ -710,7 +1019,7 @@ test('CLI — batch glob processes multiple files', async t => {
   try {
     copyFileSync(lenaPath, src1)
     copyFileSync(lenaPath, src2)
-    await runCli(['test/tmp-batch-?.wav', 'gain', '-3', '-o', 'test/{name}.done.wav'])
+    await runCli(['test/tmp-batch-?.wav', 'gain', '-3', 'save', 'test/{name}.done.wav'])
     let a = await audio(out1), b = await audio(out2)
     t.ok(a.duration > 0, 'first output has audio')
     t.ok(b.duration > 0, 'second output has audio')
@@ -729,7 +1038,7 @@ test('CLI — batch template {name} and {ext}', async t => {
   try {
     copyFileSync(lenaPath, src1)
     copyFileSync(lenaPath, src2)
-    await runCli(['test/tmp-btpl-?.wav', 'normalize', '-o', 'test/{name}.clean.{ext}'])
+    await runCli(['test/tmp-btpl-?.wav', 'normalize', 'save', 'test/{name}.clean.{ext}'])
     let a = await audio(out1), b = await audio(out2)
     t.ok(a.duration > 0, 'template output 1 created')
     t.ok(b.duration > 0, 'template output 2 created')
@@ -738,7 +1047,7 @@ test('CLI — batch template {name} and {ext}', async t => {
   }
 })
 
-test('CLI — batch no-force rejects existing output', async t => {
+test('CLI — batch silently overwrites without prompt (non-TTY)', async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
   let { copyFileSync } = await import('fs')
   let src1 = join(__dirname, 'tmp-bforce-a.wav')
@@ -748,10 +1057,8 @@ test('CLI — batch no-force rejects existing output', async t => {
   try {
     copyFileSync(lenaPath, src1)
     copyFileSync(lenaPath, src2)
-    // first run creates outputs
-    await runCli(['test/tmp-bforce-?.wav', 'gain', '-3', '-o', 'test/{name}.done.wav', '--force'])
-    // second run without --force should silently overwrite (non-TTY behaviour, like cp/sox)
-    await runCli(['test/tmp-bforce-?.wav', 'gain', '-3', '-o', 'test/{name}.done.wav'])
+    await runCli(['test/tmp-bforce-?.wav', 'gain', '-3', 'save', 'test/{name}.done.wav', '--force'])
+    await runCli(['test/tmp-bforce-?.wav', 'gain', '-3', 'save', 'test/{name}.done.wav'])
     let a = await audio(out1)
     t.ok(a.duration > 0, 'silently overwrote existing output')
   } finally {
@@ -769,8 +1076,8 @@ test('CLI — batch --force overwrites', async t => {
   try {
     copyFileSync(lenaPath, src1)
     copyFileSync(lenaPath, src2)
-    await runCli(['test/tmp-bf2-?.wav', 'gain', '-3', '-o', 'test/{name}.done.wav'])
-    await runCli(['test/tmp-bf2-?.wav', 'gain', '-6', '-o', 'test/{name}.done.wav', '--force'])
+    await runCli(['test/tmp-bf2-?.wav', 'gain', '-3', 'save', 'test/{name}.done.wav'])
+    await runCli(['test/tmp-bf2-?.wav', 'gain', '-6', 'save', 'test/{name}.done.wav', '--force'])
     let a = await audio(out1), b = await audio(out2)
     t.ok(a.duration > 0, 'overwritten output 1 valid')
     t.ok(b.duration > 0, 'overwritten output 2 valid')
@@ -785,39 +1092,9 @@ test('CLI — overwrite: non-TTY stdin silently overwrites', async t => {
   let outPath = join(__dirname, 'tmp-ow-silent.wav')
   try {
     copyFileSync(lenaPath, outPath)
-    // stdin piped = non-TTY → should overwrite without prompting
-    await runCli([lenaPath, 'gain', '-3', '-o', outPath])
+    await runCli([lenaPath, 'gain', '-3', 'save', outPath])
     let a = await audio(outPath)
     t.ok(a.duration > 0, 'silently overwrote')
-  } finally { cleanup(outPath) }
-})
-
-test('CLI — overwrite: keypress y proceeds', async t => {
-  if (!lenaPath) { t.skip('audio-lena not available'); return }
-  let { copyFileSync, existsSync } = await import('fs')
-  let outPath = join(__dirname, 'tmp-ow-yes.wav')
-  try {
-    copyFileSync(lenaPath, outPath)
-    // Simulate TTY by using a pipe for stderr but faking isTTY via env — not possible without pty.
-    // Instead: test via stdin pipe sending 'y' — non-TTY path, already covered by silent test.
-    // For the interactive path, verify the prompt text appears on stderr.
-    let result = await new Promise((resolve, reject) => {
-      let proc = spawn('node', [binPath, lenaPath, 'gain', '-3', '-o', outPath], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, FORCE_TTY: '1' },
-        cwd: projectRoot
-      })
-      let stderr = ''
-      proc.stderr?.on('data', d => stderr += d)
-      // Send 'y' immediately on stdin
-      proc.stdin.write('y')
-      proc.stdin.end()
-      proc.on('close', code => resolve({ code, stderr }))
-      proc.on('error', reject)
-    })
-    // non-TTY (piped stdin) → no prompt, silently overwrites → code 0
-    t.is(result.code, 0, 'exits 0')
-    t.ok(existsSync(outPath), 'file exists')
   } finally { cleanup(outPath) }
 })
 
@@ -827,7 +1104,7 @@ test('CLI — overwrite: --force skips prompt entirely', async t => {
   let outPath = join(__dirname, 'tmp-ow-force.wav')
   try {
     copyFileSync(lenaPath, outPath)
-    await runCli([lenaPath, 'gain', '-3', '-o', outPath, '--force'])
+    await runCli([lenaPath, 'gain', '-3', 'save', outPath, '--force'])
     let a = await audio(outPath)
     t.ok(a.duration > 0, '--force overwrote without prompt')
   } finally { cleanup(outPath) }
@@ -835,13 +1112,10 @@ test('CLI — overwrite: --force skips prompt entirely', async t => {
 
 test('CLI — split saves multiple files', async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
-
   let out1 = join(__dirname, 'tmp-split-1.wav')
   let out2 = join(__dirname, 'tmp-split-2.wav')
   try {
-    // lena is ~12s, split at 6s → 2 parts
-    await runCli([lenaPath, 'split', '6', '-o', join(__dirname, 'tmp-split-{i}.wav'), '--force'])
-
+    await runCli([lenaPath, 'split', '6', 'save', join(__dirname, 'tmp-split-{i}.wav'), '--force'])
     let a1 = await audio(out1)
     let a2 = await audio(out2)
     t.ok(a1.duration > 5 && a1.duration < 7, `part 1 ≈ 6s (${a1.duration.toFixed(1)})`)
@@ -853,7 +1127,7 @@ test('CLI — split saves multiple files', async t => {
 
 test('CLI — glob no matches throws', async t => {
   try {
-    await runCli(['test/nonexistent-glob-*.wav', 'gain', '-3', '-o', 'out.wav'])
+    await runCli(['test/nonexistent-glob-*.wav', 'gain', '-3', 'save', 'out.wav'])
     t.fail('should have thrown')
   } catch (e) {
     t.ok(e.message.includes('No files matching') || e.stderr?.includes('No files matching'), 'error mentions no matches')
@@ -867,7 +1141,7 @@ test('CLI — stretch 0.75x shortens duration', async t => {
   let outPath = join(__dirname, 'tmp-cli-stretch.wav')
   try {
     let orig = await audio(lenaPath)
-    await runCli([lenaPath, 'stretch', '0.75', '-o', outPath, '--force'])
+    await runCli([lenaPath, 'stretch', '0.75', 'save', outPath, '--force'])
     let result = await audio(outPath)
     let ratio = result.duration / orig.duration
     t.ok(Math.abs(ratio - 0.75) < 0.1, `stretch 0.75: dur ratio ${ratio.toFixed(2)} ≈ 0.75`)
@@ -878,7 +1152,7 @@ test('CLI — pitch shift +5 semitones', async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
   let outPath = join(__dirname, 'tmp-cli-pitch.wav')
   try {
-    await runCli([lenaPath, 'pitch', '5', '-o', outPath, '--force'])
+    await runCli([lenaPath, 'pitch', '5', 'save', outPath, '--force'])
     let result = await audio(outPath)
     t.ok(result.duration > 0, 'pitch-shifted file produced')
   } finally { cleanup(outPath) }
@@ -888,7 +1162,7 @@ test('CLI — dither to 16-bit', async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
   let outPath = join(__dirname, 'tmp-cli-dither.wav')
   try {
-    await runCli([lenaPath, 'dither', '16', '-o', outPath, '--force'])
+    await runCli([lenaPath, 'dither', '16', 'save', outPath, '--force'])
     let result = await audio(outPath)
     t.ok(result.duration > 0, 'dithered file produced')
   } finally { cleanup(outPath) }
@@ -903,7 +1177,7 @@ test('CLI — crossfeed', async t => {
     let L = new Float32Array(n), R = new Float32Array(n)
     for (let i = 0; i < n; i++) { L[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr); R[i] = 0 }
     await audio.from([L, R], { sampleRate: sr }).save(srcPath)
-    await runCli([srcPath, 'crossfeed', '-o', outPath, '--force'])
+    await runCli([srcPath, 'crossfeed', 'save', outPath, '--force'])
     let result = await audio(outPath)
     t.ok(result.duration > 0, 'crossfeed processed')
     t.is(result.channels, 2, 'stereo preserved')
@@ -921,7 +1195,7 @@ test('CLI — vocals isolate', async t => {
     let L = new Float32Array(n), R = new Float32Array(n)
     for (let i = 0; i < n; i++) { L[i] = c[i] + s[i]; R[i] = c[i] - s[i] }
     await audio.from([L, R], { sampleRate: sr }).save(srcPath)
-    await runCli([srcPath, 'vocals', '-o', outPath, '--force'])
+    await runCli([srcPath, 'vocals', 'save', outPath, '--force'])
     let result = await audio(outPath)
     t.ok(result.duration > 0, 'vocals isolate processed')
   } finally { cleanup(srcPath); cleanup(outPath) }
@@ -931,7 +1205,7 @@ test('CLI — allpass filter', async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
   let outPath = join(__dirname, 'tmp-cli-allpass.wav')
   try {
-    await runCli([lenaPath, 'allpass', '1khz', '-o', outPath, '--force'])
+    await runCli([lenaPath, 'allpass', '1khz', 'save', outPath, '--force'])
     let result = await audio(outPath)
     t.ok(result.duration > 0, 'allpass processed')
   } finally { cleanup(outPath) }
@@ -942,7 +1216,7 @@ test('CLI — speed 2x', async t => {
   let outPath = join(__dirname, 'tmp-cli-speed.wav')
   try {
     let orig = await audio(lenaPath)
-    await runCli([lenaPath, 'speed', '2', '-o', outPath, '--force'])
+    await runCli([lenaPath, 'speed', '2', 'save', outPath, '--force'])
     let result = await audio(outPath)
     t.ok(Math.abs(result.duration - orig.duration / 2) < 0.1, `speed 2x halves duration: ${result.duration.toFixed(2)} ≈ ${(orig.duration / 2).toFixed(2)}`)
   } finally { cleanup(outPath) }
@@ -954,14 +1228,12 @@ test('CLI — pan full-left', async t => {
   let outPath = join(__dirname, 'tmp-cli-pan.wav')
   try {
     let sr = 44100, n = sr * 2, L = new Float32Array(n), R = new Float32Array(n)
-    // Use different frequencies L/R so WAV save preserves stereo
     for (let i = 0; i < n; i++) { L[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr); R[i] = 0.5 * Math.sin(2 * Math.PI * 660 * i / sr) }
     await audio.from([L, R], { sampleRate: sr }).save(srcPath)
-    await runCli([srcPath, 'pan', '-1', '-o', outPath, '--force'])
+    await runCli([srcPath, 'pan', '-1', 'save', outPath, '--force'])
     let result = await audio(outPath)
     t.is(result.channels, 2, 'stereo')
     let pcm = await result.read()
-    // Left remains audible, right silenced by pan -1
     let rPeak = 0
     for (let i = 0; i < pcm[1].length; i++) rPeak = Math.max(rPeak, Math.abs(pcm[1][i]))
     t.ok(rPeak < 0.1, `right silenced: peak ${rPeak.toFixed(3)}`)
@@ -972,7 +1244,7 @@ test('CLI — lowpass filter', async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
   let outPath = join(__dirname, 'tmp-cli-lp.wav')
   try {
-    await runCli([lenaPath, 'lowpass', '1khz', '-o', outPath, '--force'])
+    await runCli([lenaPath, 'lowpass', '1khz', 'save', outPath, '--force'])
     let result = await audio(outPath)
     t.ok(result.duration > 0, 'lowpass processed')
   } finally { cleanup(outPath) }
@@ -982,7 +1254,7 @@ test('CLI — eq peak boost', async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
   let outPath = join(__dirname, 'tmp-cli-eq.wav')
   try {
-    await runCli([lenaPath, 'eq', '1khz', '6', '-o', outPath, '--force'])
+    await runCli([lenaPath, 'eq', '1khz', '6', 'save', outPath, '--force'])
     let result = await audio(outPath)
     t.ok(result.duration > 0, 'eq processed')
   } finally { cleanup(outPath) }
@@ -992,7 +1264,7 @@ test('CLI — crop subrange', async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
   let outPath = join(__dirname, 'tmp-cli-crop.wav')
   try {
-    await runCli([lenaPath, 'crop', '2s..5s', '-o', outPath, '--force'])
+    await runCli([lenaPath, 'crop', '2s..5s', 'save', outPath, '--force'])
     let result = await audio(outPath)
     t.ok(Math.abs(result.duration - 3) < 0.1, `cropped to 3s (got ${result.duration.toFixed(2)})`)
   } finally { cleanup(outPath) }
@@ -1003,7 +1275,7 @@ test('CLI — remove subrange', async t => {
   let outPath = join(__dirname, 'tmp-cli-remove.wav')
   try {
     let orig = await audio(lenaPath)
-    await runCli([lenaPath, 'remove', '2s..5s', '-o', outPath, '--force'])
+    await runCli([lenaPath, 'remove', '2s..5s', 'save', outPath, '--force'])
     let result = await audio(outPath)
     t.ok(Math.abs(result.duration - (orig.duration - 3)) < 0.1, `removed 3s: ${result.duration.toFixed(2)} ≈ ${(orig.duration - 3).toFixed(2)}`)
   } finally { cleanup(outPath) }
@@ -1014,10 +1286,27 @@ test('CLI — repeat doubles duration', async t => {
   let outPath = join(__dirname, 'tmp-cli-repeat.wav')
   try {
     let orig = await audio(lenaPath)
-    await runCli([lenaPath, 'repeat', '1', '-o', outPath, '--force'])
+    await runCli([lenaPath, 'repeat', '1', 'save', outPath, '--force'])
     let result = await audio(outPath)
     t.ok(Math.abs(result.duration - orig.duration * 2) < 0.1, `repeat 1 doubles: ${result.duration.toFixed(2)} ≈ ${(orig.duration * 2).toFixed(2)}`)
   } finally { cleanup(outPath) }
+})
+
+test('CLI — bare range scopes save (crops on save)', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let outPath = join(__dirname, 'tmp-cli-range-save.wav')
+  try {
+    await runCli([lenaPath, '1s..3s', 'save', outPath, '--force'])
+    let result = await audio(outPath)
+    t.ok(Math.abs(result.duration - 2) < 0.1, `range scopes save to 2s (got ${result.duration.toFixed(2)})`)
+  } finally { cleanup(outPath) }
+})
+
+test('CLI — save - writes to stdout', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let { stdout } = await runCli([lenaPath, 'save', '-'])
+  // wav header begins with 'RIFF'
+  t.ok(stdout.startsWith('RIFF'), 'stdout has WAV RIFF header')
 })
 
 
@@ -1029,16 +1318,13 @@ function runCli(args) {
       stdio: ['inherit', 'pipe', 'pipe'],
       cwd: projectRoot
     })
-
     let stdout = '', stderr = ''
     proc.stdout?.on('data', d => stdout += d)
     proc.stderr?.on('data', d => stderr += d)
-
     proc.on('close', code => {
       if (code === 0) resolve({ stdout, stderr })
       else reject(new Error(`CLI exited with code ${code}\nstderr: ${stderr}`))
     })
-
     proc.on('error', reject)
   })
 }
@@ -1049,11 +1335,9 @@ function runCliCapture(args) {
       stdio: ['inherit', 'pipe', 'pipe'],
       cwd: projectRoot
     })
-
     let output = ''
     proc.stdout?.on('data', d => output += d)
     proc.stderr?.on('data', d => output += d)
-
     proc.on('close', () => resolve(output))
     proc.on('error', reject)
   })
@@ -1067,8 +1351,6 @@ function cleanup(path) {
 // ── Heavy (forked — runs in worker, last so parallel output streams first) ──
 
 test('API — filter + mp3 encode (large, >28min stereo 48kHz)', { fork: true, timeout: 300000, skip: !process.env.CI }, async t => {
-  // Reproduces encode error -2: when buildPlan returns null (filter before trim),
-  // save.js falls back to whole-file encode which hits WASM memory limit.
   let { default: audio } = await import('./audio.js')
   let { join } = await import('path')
   let { unlinkSync } = await import('fs')

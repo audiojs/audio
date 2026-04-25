@@ -185,13 +185,8 @@ function cloneStats(src) {
   return out
 }
 
-/** Check if plan's pipeline stats can be derived algebraically from source stats. */
-function canDeriveStats(plan) {
-  let { segs, pipeline } = plan
-  if (!pipeline.length) return false
-  // Segments must be identity (no layout changes from plan ops)
-  if (segs.length !== 1 || segs[0][0] !== 0 || segs[0][2] !== 0
-    || (segs[0][3] && segs[0][3] !== 1) || segs[0][4] != null) return false
+/** Check if pipeline ops can be derived algebraically from block stats. */
+function canDerivePipeline(pipeline) {
   for (let [type, opts] of pipeline) {
     if (opts?.at != null || opts?.duration != null || opts?.channel != null) return false
     let desc = audio.op(type)
@@ -242,38 +237,19 @@ export async function queryRange(inst, opts) {
 
   if (inst.edits?.length && inst._.statsV !== inst.version) {
     if (!inst._.srcStats) inst._.srcStats = inst.stats
-
-    // Range query on dirty edits — compute stats for just the requested range
-    if (hasRange) {
-      let plan = buildPlan(inst)
-      await ensurePlan(inst, plan, at || 0, dur)
+    let plan = buildPlan(inst), src = inst._.srcStats
+    // Fast path: remap by plan segs + derive pipeline algebraically (e.g. crop + gain + clamp)
+    let derived = src?.blockSize && canDerivePipeline(plan.pipeline) && remapStats(src, plan, inst.sampleRate)
+    if (derived && plan.pipeline.length) derived = tryDeriveStats(derived, plan.pipeline)
+    if (derived) { inst.stats = derived; inst._.statsV = inst.version }
+    else if (hasRange) {
+      // Slow path scoped to range — avoid streaming whole timeline
       let s = statSession(inst.sampleRate)
+      await ensurePlan(inst, plan, at || 0, dur)
       await streamStats(s, inst, plan, at || 0, dur)
-      let stats = s.done()
-      let first = Object.values(stats).find(v => v?.[0]?.length)
-      let blocks = first?.[0]?.length || 0
-      return { stats, ch: inst.channels, sr: inst.sampleRate, from: 0, to: blocks }
-    }
-
-    // Plan-only edits (no sample pipeline) — remap source stats by segments
-    let plan = buildPlan(inst)
-    if (!plan.pipeline.length && inst._.srcStats?.blockSize) {
-      let remapped = remapStats(inst._.srcStats, plan, inst.sampleRate)
-      if (remapped) { inst.stats = remapped; inst._.statsV = inst.version }
-      else {
-        let s = statSession(inst.sampleRate); await ensurePlan(inst, plan); await streamStats(s, inst, plan); inst.stats = s.done()
-        inst._.statsV = inst.version
-      }
-    } else if (inst._.srcStats?.blockSize && canDeriveStats(plan)) {
-      // Algebraic derivation — derive post-pipeline stats from source stats (dc, gain, etc.)
-      let derived = tryDeriveStats(inst._.srcStats, plan.pipeline)
-      if (derived) { inst.stats = derived; inst._.statsV = inst.version }
-      else {
-        let s = statSession(inst.sampleRate); await ensurePlan(inst, plan); await streamStats(s, inst, plan); inst.stats = s.done()
-        inst._.statsV = inst.version
-      }
+      let stats = s.done(), first = Object.values(stats).find(v => v?.[0]?.length)
+      return { stats, ch: inst.channels, sr: inst.sampleRate, from: 0, to: first?.[0]?.length || 0 }
     } else {
-      // Full recompute — has sample-level ops
       let s = statSession(inst.sampleRate); await ensurePlan(inst, plan); await streamStats(s, inst, plan); inst.stats = s.done()
       inst._.statsV = inst.version
     }

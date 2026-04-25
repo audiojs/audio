@@ -4,7 +4,7 @@ export function cropSegs(segs, off, len) {
   let r = [], end = off + len
   for (let s of segs) {
     let a = Math.max(s[2], off), b = Math.min(s[2] + s[1], end)
-    if (a < b) r.push(seg(s[0] + (a - s[2]) * Math.abs(s[3] || 1), b - a, a - off, s[3], s[4]))
+    if (a < b) r.push(seg(s[0] + (a - s[2]) * Math.abs(s[3] || 1), b - a, a - off, s[3], s[4], s[5]))
   }
   return r
 }

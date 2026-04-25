@@ -12,7 +12,7 @@ export function speedSegs(segs, rate) {
   let r = [], dst = 0
   for (let s of segs) {
     let count = Math.round(s[1] / absR)
-    r.push(seg(s[0], count, dst, s[4] === null ? undefined : (s[3] || 1) * rate, s[4]))
+    r.push(seg(s[0], count, dst, s[4] === null ? undefined : (s[3] || 1) * rate, s[4], s[5]))
     dst += count
   }
   return r

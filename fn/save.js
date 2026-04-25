@@ -3,7 +3,10 @@ import encode from 'encode-audio'
 
 const FMT_ALIAS = { aif: 'aiff', oga: 'ogg' }
 
-function resolveFormat(fmt) { return FMT_ALIAS[fmt] || fmt || 'wav' }
+function resolveFormat(fmt) {
+  if (typeof fmt === 'string') fmt = fmt.toLowerCase()
+  return FMT_ALIAS[fmt] || fmt || 'wav'
+}
 
 /** Snapshot meta/markers/regions for the encoder, in output-sample positions. */
 function gatherMeta(inst, opts) {

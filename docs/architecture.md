@@ -36,7 +36,7 @@ Ops don't mutate source pages. `a.gain(-3).crop({at: 1, duration: 5})` pushes tw
 
 `compilePlan(a, len, final)` compiles `a.edits` into a plan object:
 
-- **Segment map** — copy instructions: which source ranges map to which output positions. Structural ops (crop, remove, insert, repeat, pad, reverse, speed) rewrite segments. Each segment is `[from, count, to, rate?, ref?]` — "read `count` samples from `from`, write at `to`."
+- **Segment map** — copy instructions: which source ranges map to which output positions. Structural ops (crop, remove, insert, repeat, pad, reverse, speed) rewrite segments. Each segment is `[from, count, to, rate?, ref?, interp?]` — "read `count` samples from `from`, write at `to`."
 - **Sample pipeline** — per-block transforms applied in order (gain, fade, filter, pan). Each op receives separate `input` and `output` buffers (`Float32Array[]` per channel, `BLOCK_SIZE` samples). The engine pre-allocates two buffer sets and rotates them per op — previous output becomes next input, zero allocation in the hot path. Ops read from input, write to output (never alias). Stateful ops carry state across blocks via `ctx`.
 - **Limit** — the safe output boundary. During incremental streaming (`final=false`), `adjustLimit` tracks how far output is deterministic given partial source data.
 
