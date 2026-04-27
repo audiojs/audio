@@ -14,7 +14,7 @@ let root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/+$/, '')
 console.log('Building browser bundle...')
 execSync('npm run build', { cwd: root, stdio: 'inherit' })
 
-let types = { '.html': 'text/html', '.js': 'text/javascript', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.wasm': 'application/wasm' }
+let types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.wasm': 'application/wasm' }
 
 // Start server
 let server = createServer(async (req, res) => {
