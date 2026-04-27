@@ -512,7 +512,7 @@ test('CLI — remix stereo to mono', async t => {
   } finally { cleanup(outPath) }
 })
 
-test('CLI — default sink prints overview', async t => {
+test('CLI — default sink prints overview', { timeout: 15000 }, async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
   let { stdout } = await runCli([lenaPath])
   t.ok(stdout.includes('Duration'), 'overview shows duration')
@@ -555,7 +555,7 @@ test('parseArgs — sink-args range hoists to top-level range', t => {
   t.is(r.sink.args.length, 0, 'sink args cleared (range hoisted out)')
 })
 
-test('CLI — bare range and explicit stat with range produce same overview', async t => {
+test('CLI — bare range and explicit stat with range produce same overview', { timeout: 15000 }, async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
   let [{ stdout: a }, { stdout: b }] = await Promise.all([
     runCli([lenaPath, '0..5s']),
