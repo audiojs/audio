@@ -361,7 +361,7 @@ Non-destructive time/channel rearrangement. All support `{at, duration, channel}
 * **`.speed(rate)`** – playback speed (affects both pitch and duration).
 * **`.stretch(factor)`** – time stretch, preserves pitch. Phase-locked vocoder.
 * **`.pitch(semitones)`** – pitch shift, preserves duration. Positive = higher.
-* **`.remix(channels)`** – channel count: number or array map (`[1, 0]` swaps L/R).
+* **`.remix(channels)`** – channel count: number or array map (`[1, 0]` swaps L/R). No `{at, duration}` — channel count can't change mid-timeline.
 
 ```js
 a.trim(-30)                               // strip silence below -30dB
