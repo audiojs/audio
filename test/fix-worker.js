@@ -132,6 +132,31 @@ test('worker: errors surface', async t => {
   t.ok(/NaN/.test(err3?.message), 'pending op error rejects next call')
 })
 
+test('worker: Blob/File source survives the boundary (file input path)', async t => {
+  let { readFile } = await import('fs/promises')
+  let buf = await readFile('test/fixture.wav')
+  let bytes = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
+  let l = await audio(bytes.slice(0))
+  let w = await audioWorker(new File([bytes], 'fixture.wav', { type: 'audio/wav' }))
+  t.is(w.length, l.length, 'File decodes through the worker')
+  t.ok(eq((await w.read())[0], (await l.read())[0]), 'PCM bit-exact')
+})
+
+test('worker: data events forward stat deltas without PCM', async t => {
+  let w = audioWorker('test/fixture.wav')
+  let deltas = []
+  w.on('data', d => deltas.push(d))
+  await w.ready
+  t.ok(deltas.length > 0, `data events cross the boundary (${deltas.length})`)
+  let blocks = 0
+  for (let d of deltas) {
+    t.ok(d.delta.min[0] instanceof Float32Array, 'delta stats arrive')
+    t.is(d.pages, undefined, 'payload is {delta, offset, sampleRate, channels} — no pages (README contract)')
+    blocks += d.delta.min[0].length
+  }
+  t.is(blocks, Math.ceil(w.length / audio.BLOCK_SIZE), 'deltas cover all blocks')
+})
+
 test('worker: change events forward', async t => {
   let w = await audioWorker('test/fixture.wav')
   let changes = 0

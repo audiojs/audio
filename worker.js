@@ -103,6 +103,7 @@ function encodeArg(v, chan) {
     return { __ref: v._inst }
   }
   if (ArrayBuffer.isView(v) || v instanceof ArrayBuffer) return v
+  if (typeof Blob !== 'undefined' && v instanceof Blob) return v  // File/Blob clone natively — deep copy would strip prototype props
   if (Array.isArray(v)) return v.map(x => encodeArg(x, chan))
   let o = {}
   for (let k of Object.keys(v)) o[k] = encodeArg(v[k], chan)

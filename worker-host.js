@@ -60,6 +60,7 @@ function decodeArgs(v) {
   }
   if (Array.isArray(v)) return v.map(decodeArgs)
   if (ArrayBuffer.isView(v) || v instanceof ArrayBuffer) return v
+  if (typeof Blob !== 'undefined' && v instanceof Blob) return v  // File/Blob arrive cloned — pass through untouched
   let o = {}
   for (let k of Object.keys(v)) o[k] = decodeArgs(v[k])
   return o

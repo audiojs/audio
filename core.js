@@ -551,6 +551,8 @@ async function resolveSource(source) {
   if (source instanceof ArrayBuffer) return source
   if (source instanceof Uint8Array) return source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength)
   if (source instanceof URL) return resolveSource(source.href)
+  if (typeof Blob !== 'undefined' && source instanceof Blob) return source.arrayBuffer()
+  if (typeof Response !== 'undefined' && source instanceof Response) return source.arrayBuffer()
   if (typeof source === 'string') {
     if (/^(https?|data|blob):/.test(source) || typeof window !== 'undefined')
       return (await fetch(source)).arrayBuffer()
@@ -584,9 +586,26 @@ async function detectSource(source) {
     let { createReadStream } = await import('fs')
     return { format, reader: createReadStream(path), fileSize }
   }
+  // Blob/File — sniff format from a header slice, stream the body (file input path)
+  if (typeof Blob !== 'undefined' && source instanceof Blob) {
+    let hdr = new Uint8Array(await source.slice(0, 12).arrayBuffer())
+    return { format: getType(hdr), reader: iterateStream(source.stream()), fileSize: source.size }
+  }
   let buf = await resolveSource(source)
   let bytes = new Uint8Array(buf)
   return { format: getType(bytes), bytes }
+}
+
+/** Async-iterate a web ReadableStream (Safari has no native async iteration). */
+async function* iterateStream(stream) {
+  let reader = stream.getReader()
+  try {
+    while (true) {
+      let { done, value } = await reader.read()
+      if (done) return
+      yield value
+    }
+  } finally { reader.releaseLock() }
 }
 
 /** Universal page accumulator — push(chData, sampleRate) interface.
@@ -630,7 +649,7 @@ function pageAccumulator(opts = {}) {
       }
       if (ondata) {
         let delta = session?.delta()
-        if (delta) ondata({ delta, offset: (totalLen + pagePos) / sr, sampleRate: sr, channels: ch, pages })
+        if (delta) ondata({ delta, offset: (totalLen + pagePos) / sr, sampleRate: sr, channels: ch })
       }
       notify?.()
     },
@@ -647,7 +666,7 @@ function pageAccumulator(opts = {}) {
       session?.flush()
       if (ondata && session) {
         let delta = session.delta()
-        if (delta) ondata({ delta, offset: totalLen / sr, sampleRate: sr, channels: ch, pages })
+        if (delta) ondata({ delta, offset: totalLen / sr, sampleRate: sr, channels: ch })
       }
       return { stats: session?.done(), length: totalLen }
     }

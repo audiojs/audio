@@ -209,3 +209,28 @@ test('fix core.js:348 — core+cache (no plan.js) read restores evicted pages in
   t.is(len, audio.PAGE_SIZE * 3, 'full length read back')
   t.is(nonZero, len, 'all samples non-zero — evicted pages were restored, not read back as silence')
 })
+
+test('fix core.js:552 — Blob/File/Response sources decode (README contract)', async t => {
+  let { readFile } = await import('fs/promises')
+  let buf = await readFile(fixtureWav)
+  let bytes = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
+  let ref = await audio(bytes.slice(0))
+
+  let blob = await audio(new Blob([bytes]))
+  t.is(blob.length, ref.length, 'Blob decodes to same length')
+  let refPcm = (await ref.read())[0], blobPcm = (await blob.read())[0]
+  t.ok(blobPcm.every((v, i) => v === refPcm[i]), 'Blob PCM bit-exact vs ArrayBuffer source')
+
+  let file = await audio(new File([bytes], 'fixture.wav', { type: 'audio/wav' }))
+  t.is(file.length, ref.length, 'File decodes to same length')
+
+  let resp = await audio(new Response(bytes.slice(0)))
+  t.is(resp.length, ref.length, 'Response decodes to same length')
+
+  // Blob path streams — data events fire with deltas
+  let deltas = 0
+  let b2 = audio(new Blob([bytes]))
+  b2.on('data', () => deltas++)
+  await b2
+  t.ok(deltas > 0, `Blob decode is streaming (${deltas} data events)`)
+})
