@@ -1,0 +1,146 @@
+/**
+ * audio/worker P1 — facade over a worker-side engine.
+ * Oracle: facade results ≡ local instance results, bit-exact (same engine, same edits).
+ * Runs the real worker path via node worker_threads.
+ */
+import test from 'tst'
+import audio from '../audio.js'
+import audioWorker, { close } from '../worker.js'
+
+const tone = (freq, dur, sr = 44100, amp = 0.5) => {
+  let n = Math.round(dur * sr), ch = new Float32Array(n)
+  for (let i = 0; i < n; i++) ch[i] = amp * Math.sin(2 * Math.PI * freq * i / sr)
+  return ch
+}
+const eq = (a, b) => a.length === b.length && a.every((v, i) => v === b[i])
+
+test('worker: open file, props mirror local instance', async t => {
+  let w = await audioWorker('test/fixture.wav')
+  let l = await audio('test/fixture.wav')
+  t.is(w.sampleRate, l.sampleRate)
+  t.is(w.channels, l.channels)
+  t.is(w.length, l.length)
+  t.ok(w.decoded, 'thenable resolves after decode')
+})
+
+test('worker: read ≡ local read, bit-exact, transferred', async t => {
+  let w = await audioWorker('test/fixture.wav')
+  let l = await audio('test/fixture.wav')
+  let [wr, lr] = [await w.read(), await l.read()]
+  t.is(wr.length, lr.length, 'channel count')
+  t.ok(eq(wr[0], lr[0]), 'PCM bit-exact across the boundary')
+})
+
+test('worker: chained ops replay through the real engine', async t => {
+  let w = await audioWorker('test/fixture.wav')
+  let l = await audio('test/fixture.wav')
+  w.gain(-3).crop({ at: 0.5, duration: 1 }).fade(0.1)
+  l.gain(-3).crop({ at: 0.5, duration: 1 }).fade(0.1)
+  let [wr, lr] = [await w.read(), await l.read()]
+  t.ok(eq(wr[0], lr[0]), 'edited PCM bit-exact')
+  t.is(w.edits.length, 3, 'edits mirrored')
+  t.is(w.duration, l.duration, 'props synced after edits')
+})
+
+test('worker: stat + undo', async t => {
+  let w = await audioWorker('test/fixture.wav')
+  let l = await audio('test/fixture.wav')
+  t.is(await w.stat('rms'), await l.stat('rms'), 'stat crosses the boundary')
+  let [mins, maxs] = await w.stat(['min', 'max'], { bins: 64 })
+  t.is(mins.length, 64, 'binned waveform query (wavearea path)')
+  t.is(maxs.length, 64)
+  w.gain(-6)
+  await w.flush()
+  t.is(w.edits.length, 1)
+  await w.undo()
+  t.is(w.edits.length, 0, 'undo synced')
+})
+
+test('worker: facades reference each other (mix by ref)', async t => {
+  let a = await audioWorker('test/fixture.wav')
+  let b = await audioWorker('test/fixture.wav')
+  b.gain(-6)
+  a.mix(b)
+  let wr = await a.read()
+  let la = await audio('test/fixture.wav')
+  let lb = await audio('test/fixture.wav')
+  lb.gain(-6)
+  la.mix(lb)
+  let lr = await la.read()
+  t.ok(eq(wr[0], lr[0]), 'cross-facade ref resolved worker-side, bit-exact')
+})
+
+test('worker: clip returns a linked sub-facade', async t => {
+  let w = await audioWorker('test/fixture.wav')
+  let c = await w.clip({ at: 0.5, duration: 0.5 })
+  t.ok(Math.abs(c.duration - 0.5) < 0.01, `sub-facade duration (${c.duration})`)
+  let pcm = await c.read()
+  let l = await audio('test/fixture.wav')
+  let lc = l.clip({ at: 0.5, duration: 0.5 })
+  t.ok(eq(pcm[0], (await lc.read())[0]), 'sub-facade read bit-exact')
+})
+
+test('worker: stream ≡ read across the boundary', async t => {
+  let w = await audioWorker('test/fixture.wav')
+  w.gain(-3)
+  let read = await w.read()
+  let total = 0, chunks = []
+  for await (let c of w.stream()) { chunks.push(c[0]); total += c[0].length }
+  t.is(total, read[0].length, 'stream length')
+  let flat = new Float32Array(total), p = 0
+  for (let c of chunks) { flat.set(c, p); p += c.length }
+  let maxDiff = 0
+  for (let i = 0; i < total; i++) maxDiff = Math.max(maxDiff, Math.abs(flat[i] - read[0][i]))
+  t.ok(maxDiff < 1e-3, `stream≡read (maxDiff ${maxDiff})`)
+})
+
+test('worker: pushable instance', async t => {
+  let w = audioWorker(null, { sampleRate: 44100, channels: 1 })
+  await w.push(tone(440, 0.2))
+  await w.stop()
+  t.is(w.length, Math.round(0.2 * 44100), 'pushed samples accounted')
+  let pcm = await w.read()
+  t.ok(pcm[0].some(v => v !== 0), 'pushed PCM readable')
+})
+
+test('worker: encode + toJSON', async t => {
+  let w = await audioWorker('test/fixture.wav')
+  let bytes = await w.encode('wav')
+  t.ok(bytes.byteLength > 1000, `encoded ${bytes.byteLength} bytes`)
+  w.gain(-3)
+  let doc = await w.toJSON()
+  t.is(doc.edits.length, 1, 'serialized document crosses back')
+})
+
+test('worker: errors surface', async t => {
+  let w = await audioWorker('test/fixture.wav')
+  let err = null
+  try { await w.run(['nosuchop', {}]) } catch (e) { err = e }
+  t.ok(/nosuchop|Unknown/i.test(err?.message), `run() rejects (${err?.message})`)
+
+  let err2 = null
+  try { w.gain(t2 => t2) } catch (e) { err2 = e }
+  t.ok(/function/.test(err2?.message), 'function params rejected at the call site')
+
+  // fire-and-forget op error → 'error' event; once known, the next call rejects
+  let errEvt = new Promise(r => w.on('error', r))
+  w.gain(NaN)
+  let e3 = await errEvt
+  t.ok(/NaN/.test(e3?.message), 'op error emits error event')
+  let err3 = null
+  try { await w.read() } catch (e) { err3 = e }
+  t.ok(/NaN/.test(err3?.message), 'pending op error rejects next call')
+})
+
+test('worker: change events forward', async t => {
+  let w = await audioWorker('test/fixture.wav')
+  let changes = 0
+  w.on('change', () => changes++)
+  await w.run(['gain', { value: -3 }])
+  t.ok(changes >= 1, `change event forwarded (${changes})`)
+})
+
+test('worker: close terminates shared worker', async t => {
+  await close()
+  t.ok(true, 'closed without hanging')
+})

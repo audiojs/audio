@@ -314,6 +314,41 @@ let d = audio.from(audioBuffer)                   // Web Audio AudioBuffer
 let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 ```
 
+### Worker engine
+
+Run the whole engine off the main thread — decode, edits, stats, encode happen in a
+Worker; the main bundle holds only a few-KB facade with the same call shape:
+
+```js
+import audioWorker from 'audio/worker'
+
+let a = audioWorker('track.mp3')
+a.gain(-3).fade(0.5)                               // ops proxy the worker registry
+let [mins, maxs] = await a.stat(['min','max'], { bins: 640 })  // waveform, transferred
+let pcm = await a.read({ at: 1, duration: 2 })     // zero-copy Float32Arrays
+await a.save('out.wav')
+
+let b = audioWorker('other.mp3')
+a.mix(b)                                           // facades reference each other by id
+```
+
+Custom codecs/plugins run worker-side — make your own entry and pass it:
+
+```js
+// engine-worker.js
+import '@audio/aac-decode'
+import 'audio/worker-host'
+```
+```js
+audioWorker('a.m4a', { worker: new Worker(new URL('./engine-worker.js', import.meta.url), { type: 'module' }) })
+```
+
+Boundary notes: `clip()`/`split()`/`clone()` return promises of facades; chained ops are
+fire-and-forget (errors on the `'error'` event; `await a.run([type, opts])` for strict
+per-op errors); function params don't cross (breakpoint curves planned); `.play()` across
+the boundary is on the roadmap — render with `read()`/`stream()` meanwhile. Node works via
+worker_threads with the same API.
+
 
 ### Properties
 

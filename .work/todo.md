@@ -10,7 +10,7 @@
 * [x] processor plugin contract more conventional
 * [ ] playback speed
 
-* [ ] Wavearea integration
+* [ ] Wavearea integration — unblocked: `audio/worker` P1 replaces wavearea's hand-rolled src/worker.js (decode, waveform via stat(['min','max'],{bins}), edits, undo, save); custom entry adds its aac/webm codecs; playback needs P3 (port→AudioWorklet)
 * [ ] Audio ponyfill — separate `audio-ponyfill` package (#68)
 * [ ] Minimal duration guard on save — some players can't reproduce 1-sample wav (#27)
 * [x] Crossfade / transitions convenience — `a.crossfade(b, duration)` or similar (#63)

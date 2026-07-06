@@ -13,6 +13,11 @@
     "./plan": "./plan.js",
     "./stats": "./stats.js",
     "./cache": "./cache.js",
+    "./worker": {
+      "types": "./worker.d.ts",
+      "default": "./worker.js"
+    },
+    "./worker-host": "./worker-host.js",
     "./fn/*": "./fn/*"
   },
   "types": "./audio.d.ts",
@@ -26,6 +31,9 @@
     "plan.js",
     "stats.js",
     "cache.js",
+    "worker.js",
+    "worker-host.js",
+    "worker.d.ts",
     "fn/",
     "bin/",
     "dist/"
@@ -40,7 +48,7 @@
     "build": "node .esbuild.js",
     "test": "node test/index.js",
     "test:cli": "TST_PARALLEL=3 node test/cli.js",
-    "test:fixes": "node test/fix-plan.js && node test/fix-core.js && node test/fix-meta.js",
+    "test:fixes": "node test/fix-plan.js && node test/fix-core.js && node test/fix-meta.js && node test/fix-worker.js",
     "test:browser": "node test/browser.js",
     "test:all": "CI=1 npm test && CI=1 npm run test:fixes && CI=1 npm run test:cli && npm run test:browser",
     "version": "node -p \"var s=require('fs'),v=require('./package.json').version;s.writeFileSync('core.js',s.readFileSync('core.js','utf8').replace(/audio\\.version = '[^']+'/,'audio.version = \\''+v+'\\''));''\" && git add core.js",

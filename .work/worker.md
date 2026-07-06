@@ -1,6 +1,8 @@
 # Worker engine — off-main-thread render (design)
 
-Status: designed 2026-07 · not started · answers todo.md "webworker mode - any meaning, no?" → yes
+Status: **P1 shipped 2026-07** (`audio/worker` + `audio/worker-host`, test/fix-worker.js — facade≡local bit-exact oracle, cross-facade refs, streams, pushables) · P2 curves + P3 playback pending · answers todo.md "webworker mode - any meaning, no?" → yes
+
+P1 deltas from the sketch below: op methods proxied against the worker's live registry (no facade op list at all); ops are fire-and-forget chainable with `'error'` event + strict `run()`; the facade/thenable must never be the resolution value of internal promises (thenable adoption deadlocks on never-decoding pushables — see worker.js comments).
 
 ## Why
 

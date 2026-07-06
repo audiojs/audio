@@ -22,6 +22,18 @@ import audio from 'audio/core.js'    // bare engine — no ops, no cache
 import gain from 'audio/fn/gain.js'  // individual plugin
 ```
 
+## Worker engine
+
+`audio/worker` runs the whole library inside a Worker; the main thread holds a thin
+facade (imports none of the engine). The edit list is the wire protocol — ops post
+`[type, opts]` tuples, the worker replays them through the real engine, so undo,
+serialization and stream≡read carry across the boundary unchanged. Op methods are
+proxied against the worker's live registry (plugins registered worker-side appear
+automatically); `read`/`encode` results transfer zero-copy; facades sharing a worker
+reference each other by instance id (`a.mix(b)`). Custom worker entry = your plugin
+imports + `import 'audio/worker-host'`. Playback across the boundary is P2
+(see .work/worker.md).
+
 ## Stream-first
 
 No operation touches full PCM at once. Audio is stored in pages. Decode streams pages progressively. Every output — `stream()`, `play()`, `save()`, `stat()` — walks pages one chunk at a time through the edit pipeline. `read()` materializes into memory but still processes through the same chunk pipeline internally.
