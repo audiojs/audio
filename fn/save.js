@@ -62,8 +62,17 @@ audio.fn.save = async function(target, opts = {}) {
   if (typeof target === 'string') {
     let { createWriteStream } = await import('fs')
     let ws = createWriteStream(target)
-    write = buf => { if (!ws.write(Buffer.from(buf))) return new Promise(r => ws.once('drain', r)) }
-    finish = () => new Promise((res, rej) => { ws.on('finish', res); ws.on('error', rej); ws.end() })
+    let err = null
+    // Attached at creation, not inside finish() — an 'error' event with no listener crashes the process
+    ws.on('error', e => { err = e })
+    write = buf => {
+      if (err) throw err  // abort the encode loop on the next write instead of writing to a dead stream
+      if (!ws.write(Buffer.from(buf))) return new Promise((res, rej) => { ws.once('drain', res); ws.once('error', rej) })
+    }
+    finish = () => new Promise((res, rej) => {
+      if (err) return rej(err)
+      ws.on('finish', res); ws.on('error', rej); ws.end()
+    })
   } else if (target?.write) {
     write = buf => target.write(buf)
     finish = () => target.close?.()

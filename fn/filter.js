@@ -10,11 +10,15 @@ import parametricEq from 'audio-filter/eq/parametric-eq.js'
 // ── Filter state helper ─────────────────────────────────────────────────
 // Each channel gets its own params object (holds coefs + state).
 // Persists across streaming chunks via ctx (persistent object).
+// sync() copies current ctx params into the state object before each call —
+// audio-filter recomputes coefficients on param change, so automation
+// (engine-resolved fn params) reshapes the filter mid-stream.
 
-function apply(input, output, ctx, key, fn, makeParams) {
+function apply(input, output, ctx, key, fn, makeParams, sync) {
   if (!ctx[key]) ctx[key] = input.map(() => makeParams(ctx.sampleRate))
   let st = ctx[key]
   for (let c = 0; c < input.length; c++) {
+    if (sync) sync(st[c], ctx)
     output[c].set(input[c])
     fn(output[c], st[c])
   }
@@ -22,15 +26,26 @@ function apply(input, output, ctx, key, fn, makeParams) {
 
 // ── Filter dispatch ─────────────────────────────────────────────────────
 
+const syncFc = (p, ctx) => { p.fc = ctx.freq }
+const syncFcQ = (p, ctx) => { p.fc = ctx.freq; if (ctx.q != null) p.Q = ctx.q }
+const syncShelf = (p, ctx) => { p.fc = ctx.freq; p.gain = ctx.gain ?? 0; if (ctx.q != null) p.Q = ctx.q }
+const syncEq = (p, ctx) => {
+  let b = p.bands[0]
+  if (b.fc !== ctx.freq || b.Q !== (ctx.q ?? 1) || b.gain !== (ctx.gain ?? 0)) {
+    b.fc = ctx.freq; b.Q = ctx.q ?? 1; b.gain = ctx.gain ?? 0
+    p._dirty = true
+  }
+}
+
 const types = {
-  highpass:  (input, output, ctx) => apply(input, output, ctx, '_hp', hpFilter, fs => ({ fc: ctx.freq, fs })),
-  lowpass:   (input, output, ctx) => apply(input, output, ctx, '_lp', lpFilter, fs => ({ fc: ctx.freq, fs })),
-  eq:        (input, output, ctx) => apply(input, output, ctx, '_eq', parametricEq, fs => ({ bands: [{ fc: ctx.freq, Q: ctx.q ?? 1, gain: ctx.gain ?? 0, type: 'peak' }], fs })),
-  lowshelf:  (input, output, ctx) => apply(input, output, ctx, '_ls', lsFilter, fs => ({ fc: ctx.freq, gain: ctx.gain ?? 0, Q: ctx.q ?? 0.707, fs })),
-  highshelf: (input, output, ctx) => apply(input, output, ctx, '_hs', hsFilter, fs => ({ fc: ctx.freq, gain: ctx.gain ?? 0, Q: ctx.q ?? 0.707, fs })),
-  notch:     (input, output, ctx) => apply(input, output, ctx, '_notch', notchFilter, fs => ({ fc: ctx.freq, Q: ctx.q ?? 30, fs })),
-  bandpass:  (input, output, ctx) => apply(input, output, ctx, '_bp', bpFilter, fs => ({ fc: ctx.freq, Q: ctx.q ?? 0.707, fs })),
-  allpass:   (input, output, ctx) => apply(input, output, ctx, '_ap', apFilter, fs => ({ fc: ctx.freq, Q: ctx.q ?? 0.707, fs })),
+  highpass:  (input, output, ctx) => apply(input, output, ctx, '_hp', hpFilter, fs => ({ fc: ctx.freq, fs }), syncFc),
+  lowpass:   (input, output, ctx) => apply(input, output, ctx, '_lp', lpFilter, fs => ({ fc: ctx.freq, fs }), syncFc),
+  eq:        (input, output, ctx) => apply(input, output, ctx, '_eq', parametricEq, fs => ({ bands: [{ fc: ctx.freq, Q: ctx.q ?? 1, gain: ctx.gain ?? 0, type: 'peak' }], fs }), syncEq),
+  lowshelf:  (input, output, ctx) => apply(input, output, ctx, '_ls', lsFilter, fs => ({ fc: ctx.freq, gain: ctx.gain ?? 0, Q: ctx.q ?? 0.707, fs }), syncShelf),
+  highshelf: (input, output, ctx) => apply(input, output, ctx, '_hs', hsFilter, fs => ({ fc: ctx.freq, gain: ctx.gain ?? 0, Q: ctx.q ?? 0.707, fs }), syncShelf),
+  notch:     (input, output, ctx) => apply(input, output, ctx, '_notch', notchFilter, fs => ({ fc: ctx.freq, Q: ctx.q ?? 30, fs }), syncFcQ),
+  bandpass:  (input, output, ctx) => apply(input, output, ctx, '_bp', bpFilter, fs => ({ fc: ctx.freq, Q: ctx.q ?? 0.707, fs }), syncFcQ),
+  allpass:   (input, output, ctx) => apply(input, output, ctx, '_ap', apFilter, fs => ({ fc: ctx.freq, Q: ctx.q ?? 0.707, fs }), syncFcQ),
 }
 
 const filterParams = {
@@ -54,7 +69,7 @@ const filter = (input, output, ctx) => {
     })
   }
   let fn = types[type]
-  if (!fn) throw new Error(`Unknown filter type: ${type}`)
+  if (!fn) throw new Error(`filter: unknown type '${type}'`)
   fn(input, output, ctx)
 }
 
@@ -63,6 +78,7 @@ const filter = (input, output, ctx) => {
 import audio from '../core.js'
 audio.op('filter', {
   params: ['type', 'freq', 'gain', 'q'],
+  fnArgs: ['type'],
   process: filter
 })
 

@@ -3,27 +3,29 @@
  * Self-registers on import — exposes opfsCache/evict/ensurePages on audio.
  */
 
-import audio from './core.js'
+import audio, { touchLru } from './core.js'
 
 const DEFAULT_BUDGET = 500 * 1024 * 1024  // 500MB
 
-/** Evict pages to cache until resident bytes fit within budget. True LRU. */
+/** Evict pages to cache until resident bytes fit within budget. True LRU, with a FIFO fallback
+ *  for pages that were never read through walkPages (so `a._.lru` cannot see them) — otherwise
+ *  those pages would be permanently unevictable the moment any other page becomes LRU-tracked. */
 async function evict(a) {
   if (!a.cache || a.budget === Infinity) return
   let bytes = p => p ? p.reduce((s, ch) => s + ch.byteLength, 0) : 0
   let current = a.pages.reduce((sum, p) => sum + bytes(p), 0)
   if (current <= a.budget) return
-  // Build eviction order: LRU (oldest first) if tracked, else FIFO fallback
-  let order = a._.lru && a._.lru.size
-    ? [...a._.lru]
-    : a.pages.map((_, i) => i)
+  let lru = a._.lru
+  // Coldest first: untracked resident pages (never accessed, FIFO) before LRU-tracked pages (oldest→newest)
+  let untracked = a.pages.reduce((acc, p, i) => { if (p && !lru?.has(i)) acc.push(i); return acc }, [])
+  let order = [...untracked, ...(lru ? [...lru] : [])]
   for (let i of order) {
     if (current <= a.budget) break
     if (!a.pages[i]) continue
     await a.cache.write(i, a.pages[i])
     current -= bytes(a.pages[i])
     a.pages[i] = null
-    if (a._.lru) a._.lru.delete(i)
+    lru?.delete(i)
   }
 }
 
@@ -35,7 +37,7 @@ async function ensurePages(a, offset, duration) {
   let len = duration != null ? Math.round(duration * sr) : a._.len - s
   let p0 = Math.floor(s / PS), pEnd = Math.min(Math.ceil((s + len) / PS), a.pages.length)
   for (let i = p0; i < pEnd; i++)
-    if (a.pages[i] === null && await a.cache.has(i)) a.pages[i] = await a.cache.read(i)
+    if (a.pages[i] === null && await a.cache.has(i)) { a.pages[i] = await a.cache.read(i); touchLru(a, i) }
 }
 
 /** Create an OPFS-backed cache backend. Browser only. */

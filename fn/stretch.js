@@ -13,7 +13,7 @@
  * ratio source (semitones → ratio instead of factor).
  */
 
-import { seg } from '../plan.js'
+import { seg, spliceSegs, planOffset } from '../plan.js'
 import audio from '../core.js'
 import { vocoder } from 'time-stretch'
 
@@ -25,8 +25,11 @@ import { vocoder } from 'time-stretch'
 // Warm-up: while the vocoder has yet to emit anything the cursor stalls so no
 // samples are skipped; emission resumes once the ring catches up.
 export function initPhaseLockStream(nch, ratio) {
+  // vocoder(data, opts) reads lock/transients from its 2nd param even in streaming
+  // form — pass the options object as both args or phase-locking silently stays off
+  let opts = { factor: ratio, lock: true, frameSize: 1024 }
   return Array.from({ length: nch }, () => ({
-    write: vocoder({ factor: ratio, lock: true, frameSize: 1024 }),
+    write: vocoder(opts, opts),
     ring: new Float32Array(4096),
     ringLen: 0,
     ringStart: 0,
@@ -75,9 +78,7 @@ function appendRing(s, chunk) {
   s.ringLen += chunk.length
 }
 
-const stretchPlan = (segs, ctx) => {
-  let factor = ctx.factor
-  if (!factor || factor === 1) return segs
+function stretchSegs(segs, factor) {
   let rate = 1 / factor
   let r = [], dst = 0
   for (let s of segs) {
@@ -86,6 +87,15 @@ const stretchPlan = (segs, ctx) => {
     dst += count
   }
   return r
+}
+
+const stretchPlan = (segs, ctx) => {
+  let factor = ctx.factor
+  if (!factor || factor === 1) return segs
+  let { offset, length, total } = ctx
+  if (offset == null && length == null) return stretchSegs(segs, factor)
+  let at = planOffset(offset, total)
+  return spliceSegs(segs, at, length ?? total - at, sub => stretchSegs(sub, factor))
 }
 
 const stretchDsp = (input, output, ctx) => {
@@ -106,9 +116,13 @@ audio.op('stretch', {
     let f = ctx.factor
     if (!f || f === 1) return false
     if (f <= 0) throw new RangeError('stretch: factor must be positive')
+    // _stretch_seg inherits {at, duration} in pre-stretch coords (segment splice);
+    // _stretch_dsp works post-stretch: same at, duration scaled by the factor
+    let dsp = { factor: f }
+    if (ctx.duration != null) dsp.duration = ctx.duration * f
     return [
       ['_stretch_seg', { factor: f }],
-      ['_stretch_dsp', { factor: f }]
+      ['_stretch_dsp', dsp]
     ]
   }
 })

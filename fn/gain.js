@@ -4,22 +4,16 @@ const gain = (input, output, ctx) => {
   let lin = ctx.unit === 'linear', val = ctx.value ?? (lin ? 1 : 0)
   let len = input[0].length
   let [s, end] = opRange(ctx, len)
-  let auto = typeof val === 'function', f = auto ? 0 : lin ? val : 10 ** (val / 20)
+  let auto = typeof val === 'function'
+  let f = auto ? 0 : lin ? +val : 10 ** (+val / 20)
+  if (!auto && Number.isNaN(f)) throw new TypeError(`gain: invalid value '${ctx.value}'`)
   let off = (ctx.blockOffset || 0) * ctx.sampleRate
   let toMul = lin ? v => v : v => 10 ** (v / 20)
   s = Math.max(0, Math.min(s, len)); end = Math.max(s, Math.min(end, len))
-  // Smooth gain change across block when value is patched (progressive normalize)
-  let pf = ctx._pg, ramp = !auto && pf != null && pf !== f
-  ctx._pg = f
   for (let c = 0; c < input.length; c++) {
     let inp = input[c], out = output[c]
     if (s > 0) out.set(inp.subarray(0, s))
-    if (ramp) {
-      let n = end - s
-      for (let i = s; i < end; i++) out[i] = inp[i] * (pf + (f - pf) * (i - s) / n)
-    } else {
-      for (let i = s; i < end; i++) out[i] = inp[i] * (auto ? toMul(val((off + i) / ctx.sampleRate)) : f)
-    }
+    for (let i = s; i < end; i++) out[i] = inp[i] * (auto ? toMul(val((off + i) / ctx.sampleRate)) : f)
     if (end < len) out.set(inp.subarray(end), end)
   }
 }
@@ -27,6 +21,8 @@ const gain = (input, output, ctx) => {
 import audio from '../core.js'
 audio.op('gain', {
   params: ['value'],
+  ranged: true,
+  auto: 'sample',
   process: gain,
   deriveStats: (stats, opts) => {
     let val = opts.value ?? 0

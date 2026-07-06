@@ -60,6 +60,8 @@ await a.save('clean.mp3')
 
 Codecs load on demand via `import()` — map them with an import map or your bundler.
 
+Only the root `audio` import ships a prebuilt browser bundle (`dist/audio.js`/`dist/audio.min.js`). Subpath imports (`audio/core.js`, `audio/fn/gain.js`, ...) resolve to source ES modules — fine for Node or bundled browser builds, but a bundler is required to use them directly in a browser.
+
 <details>
 <summary><strong>Import map example</strong></summary>
 
@@ -266,9 +268,12 @@ await glitch.save('glitch.wav')
 
 ### Tremolo / sidechain
 
+Any numeric op param accepts a `t => value` function — the engine samples it during render (sample-accurate for `gain`/`pan`, ~3ms steps elsewhere).
+
 ```js
 let a = audio('pad.wav')
 a.gain(t => -12 * (0.5 + 0.5 * Math.cos(t * Math.PI * 4)))  // 2Hz tremolo in dB
+a.lowpass(t => 400 + 4000 * t)                              // filter sweep
 await a.save('tremolo.wav')
 ```
 
@@ -385,7 +390,7 @@ Amplitude, mixing, normalization. All support `{at, duration, channel}` ranges.
   * `{ ceiling: -1 }` – true peak limiter in dB.
   * `{ dc: false }` – skip DC removal.
 * **`.mix(source, opts?)`** – overlay another audio (additive).
-* **`.crossfade(source, duration?, curve?)`** – crossfade into another audio, complementary fade curves. Default 0.5s `'cos'`. &nbsp;<sub>≡ FFmpeg `acrossfade`</sub>
+* **`.crossfade(source, duration?, curve?)`** – crossfade into another audio. Default 0.5s `'cos'` (complementary amplitude, best for similar material); `'equal'` for the equal-power law (constant loudness across unrelated material, e.g. two songs). &nbsp;<sub>≡ FFmpeg `acrossfade`</sub>
 * **`.pan(value, opts?)`** – stereo balance (−1 left, 0 center, 1 right). Accepts function.
 * **`.write(data, {at?})`** – overwrite samples with raw PCM.
 * **`.transform(fn)`** – inline processor: `(input, output, ctx) => void`. Not serialized.
@@ -574,7 +579,7 @@ await a.save('stripped.wav', { meta: false })   // opt out
 
 Events, lifecycle, undo/redo, serialization.
 
-* **`.on(event, fn, opts?)`** / **`.off(event?, fn?)`** – subscribe / unsubscribe.
+* **`.on(event, fn)`** / **`.off(event?, fn?)`** – subscribe / unsubscribe.
   * `'data'` – pages decoded/pushed. Payload: `{ delta, offset, sampleRate, channels }`.
   * `'change'` – any edit or undo.
   * `'metadata'` – stream header decoded. Payload: `{ sampleRate, channels }`.

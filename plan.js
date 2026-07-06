@@ -20,6 +20,39 @@ export function seg(from, count, to, rate, ref, interp) {
   return s
 }
 
+/** Source start sample for the sub-range [iStart, iStart+n) of segment sg (output coords).
+ *  Reversed segments (rate < 0) read tail-first, so the sub-range anchors at the far end. */
+export function segSrcStart(sg, iStart, n) {
+  let rate = sg[3] || 1, absR = Math.abs(rate)
+  return rate < 0
+    ? sg[0] + (sg[1] - (iStart - sg[2]) - n) * absR
+    : sg[0] + (iStart - sg[2]) * absR
+}
+
+/** Slice segments to the output range [off, off+len), rebased to 0. Rate-sign correct. */
+export function sliceSegs(segs, off, len) {
+  let r = [], end = off + len
+  for (let s of segs) {
+    let a = Math.max(s[2], off), b = Math.min(s[2] + s[1], end)
+    if (a < b) r.push(seg(segSrcStart(s, a, b - a), b - a, a - off, s[3], s[4], s[5]))
+  }
+  return r
+}
+
+/** Rewrite the [at, at+len) output range of segs through fn(subSegs), shifting the tail. */
+export function spliceSegs(segs, at, len, fn) {
+  let total = planLen(segs)
+  at = Math.max(0, Math.min(at, total))
+  len = Math.max(0, Math.min(len ?? total - at, total - at))
+  if (!len) return segs
+  let mid = fn(sliceSegs(segs, at, len))
+  let midLen = planLen(mid)
+  let r = sliceSegs(segs, 0, at)
+  for (let s of mid) { let n = s.slice(); n[2] += at; r.push(n) }
+  for (let s of sliceSegs(segs, at + len, total - at - len)) { let n = s.slice(); n[2] += at + midLen; r.push(n) }
+  return r
+}
+
 // ── Edit array: ['type', opts] ─────────────────────────────────────
 // Normalized shape: compact tuple with options object only.
 // e[0] = type, e[1] = opts (named params + range opts + extras)
@@ -68,14 +101,16 @@ function normalizeEdit(edit, sr) {
   return [type, normalizeOpts(opts || {}, sr)]
 }
 
-/** Detect functions deeply so non-serializable edits can be omitted from JSON. */
+/** Detect functions deeply so non-serializable edits can be omitted from JSON.
+ *  Own keys only; audio-instance refs serialize via their own toJSON, typed arrays as data. */
 function hasFunction(v, seen = new Set()) {
   if (typeof v === 'function') return true
   if (!v || typeof v !== 'object') return false
+  if (v.pages || ArrayBuffer.isView(v)) return false
   if (seen.has(v)) return false
   seen.add(v)
   if (Array.isArray(v)) return v.some(x => hasFunction(x, seen))
-  for (let k in v) if (hasFunction(v[k], seen)) return true
+  for (let k of Object.keys(v)) if (hasFunction(v[k], seen)) return true
   return false
 }
 
@@ -104,6 +139,8 @@ audio.op = function(name, arg1, arg2, arg3) {
       let d = ops[name]
       if (d?.params) mapParams(d.params, a, o)
       else if (a.length) o.args = a
+      for (let k in o) if (typeof o[k] === 'number' && Number.isNaN(o[k])) throw new RangeError(`${name}: ${k} is NaN`)
+      if (d?.ch && (o.at != null || o.duration != null)) throw new TypeError(`${name}: range options not supported for channel-changing ops`)
       return this.run([name, o])
     }
   }
@@ -178,17 +215,28 @@ export async function ensurePlan(a, plan, offset, duration) {
     if (iStart >= iEnd) continue
     let rate = sg[3] || 1, absR = Math.abs(rate), n = iEnd - iStart
     let margin = (sg[5] && sg[5].margin) || 0
-    let srcStart = rate < 0
-      ? sg[0] + (sg[1] - (iStart - sg[2]) - n) * absR
-      : sg[0] + (iStart - sg[2]) * absR
+    let srcStart = segSrcStart(sg, iStart, n)
     let srcLen = n * absR + 1 + 2 * margin
     let target = sg[4] === null ? null : sg[4] || a
     if (target) await audio.ensurePages(target, Math.max(0, srcStart - margin) / sr, srcLen / sr)
   }
 }
 
+/** Visit every audio instance referenced by edit opts (insert/mix/crossfade sources). */
+function eachRef(a, cb) {
+  for (let edit of a.edits) {
+    let o = edit[1]
+    if (!o) continue
+    for (let k in o) if (o[k]?.pages) cb(o[k])
+  }
+}
+
+/** Await full decode of every referenced source — a ref's length/PCM must be
+ *  settled before its plan segment or ctx.render pull reads from it. */
 async function loadRefs(a) {
-  for (let edit of a.edits) { let a0 = edit[1]; if (a0?.pages) await a0[LOAD]() }
+  let refs = []
+  eachRef(a, r => refs.push(r))
+  for (let r of refs) { if (r.ready) await r.ready; await r[LOAD]() }
 }
 
 fn[READ] = async function(offset, duration) {
@@ -200,6 +248,9 @@ fn[READ] = async function(offset, duration) {
   await loadRefs(this)
 
   let plan = buildPlan(this)
+  let s = Math.round((offset || 0) * plan.sr)
+  let e = duration != null ? s + Math.round(duration * plan.sr) : plan.totalLen
+  if (e - s > MAX_FLAT_SIZE) throw new Error(`Audio too large for flat read (${((e - s) / 1e6).toFixed(0)}M samples). Use streaming.`)
   await ensurePlan(this, plan, offset, duration)
   return readPlan(this, plan, offset, duration)
 }
@@ -219,17 +270,22 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
 
   let startSample = offset ? Math.round(offset * sr) : 0
   let endSample = duration != null ? startSample + Math.round(duration * sr) : Infinity
+  let durExplicit = duration != null
   let builtLen = 0, plan = null, procs = null, outPos = startSample, ensured = false
+  let lastVer = a.version
   let nch = a._.ch
   let bufA = Array.from({ length: nch }, () => new Float32Array(BS))
-  let bufB = Array.from({ length: nch }, () => new Float32Array(BS))
   let xfadeRamp = 0, prevPipe = ''  // crossfade state + pipeline signature for change detection
 
   while (outPos < endSample) {
     let acc = a._.acc
     let avail = a.decoded ? a._.len : acc ? acc.length : a._.len
 
-    if (avail > builtLen || (a.decoded && !ensured)) {
+    // Rebuild the plan when new source data arrives, on the one-time post-decode pass,
+    // or when edits were pushed mid-stream (live parameter/op changes during playback)
+    if (avail > builtLen || (a.decoded && !ensured) || a.version !== lastVer) {
+      let verChanged = plan != null && a.version !== lastVer
+      lastVer = a.version
       builtLen = Math.max(builtLen, avail)
       plan = compilePlan(a, builtLen, a.decoded)
       let curPipe = pipelineSig(plan.pipeline)
@@ -237,19 +293,19 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
         procs = initProcs(plan.pipeline, plan.totalLen / sr, sr, nch)
         prevPipe = curPipe
         if (startSample > 0 && procs.length)
-          outPos = Math.max(0, startSample - BS * 8)
+          outPos = Math.max(0, startSample - BS * WARMUP)
       } else if (curPipe !== prevPipe) {
         // Structural pipeline change (ops added/removed) — full reinit with crossfade
         procs = initProcs(plan.pipeline, plan.totalLen / sr, sr, nch)
         prevPipe = curPipe
         xfadeRamp = Math.min(2048, Math.round(sr * 0.02))  // ~20ms crossfade to avoid click
       } else if (procs.length) {
-        // Same structure, values refined — patch ctx in place (processes ramp internally)
+        // Same structure, values refined — patch ctx in place (ramped in applyProcs)
         patchProcs(procs, plan.pipeline)
       }
-      if (a.decoded && !ensured) {
+      if (a.decoded && (!ensured || verChanged)) {
         ensured = true
-        if (endSample === Infinity) endSample = plan.totalLen
+        if (endSample === Infinity || (verChanged && !durExplicit)) endSample = plan.totalLen
         let td = plan.totalLen / sr
         for (let p of procs) {
           p.ctx.totalDuration = td
@@ -283,13 +339,13 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
     if (xfadeRamp > 0 && procs.length) {
       // Crossfade from dry (pre-proc) to wet (post-proc) to avoid click at pipeline transition
       let dry = bufA.map(b => b.slice(0, len))
-      out = applyProcs(bufA, bufB, procs, outPos, sr)
-      let n = Math.min(xfadeRamp, len)
-      for (let c = 0; c < out.length; c++)
+      out = applyProcs(bufA, procs, outPos, sr)
+      let n = Math.min(xfadeRamp, len), nc = Math.min(dry.length, out.length)
+      for (let c = 0; c < nc; c++)
         for (let i = 0; i < n; i++) { let t = (xfadeRamp - n + i + 1) / xfadeRamp; out[c][i] = dry[c][i] * (1 - t) + out[c][i] * t }
       xfadeRamp -= n
     } else {
-      out = procs.length ? applyProcs(bufA, bufB, procs, outPos, sr) : bufA
+      out = procs.length ? applyProcs(bufA, procs, outPos, sr) : bufA
     }
 
     if (outPos >= startSample) yield out.map(b => b.slice(0, len))
@@ -330,10 +386,29 @@ fn.clone = function() {
 // ── Render Engine ──────────────────────────────────────────────
 
 const MAX_FLAT_SIZE = 2 ** 29
+// Blocks rendered before a seek point to warm up stateful ops (filters, vocoders)
+const WARMUP = 8
 
 /** Get sample length from any source type. */
 export function srcLen(s) {
   return Array.isArray(s) ? s[0].length : s?.getChannelData ? s.length : s._.len
+}
+
+/** Source length expressed in target-rate samples. */
+export function refLen(source, sr) {
+  let len = Array.isArray(source) ? source[0].length : source.length
+  let ssr = source?.sampleRate
+  return ssr && ssr !== sr ? Math.round(len * sr / ssr) : len
+}
+
+/** Render n target-rate samples at srcOff (target coords) from a source,
+ *  resampling when the source's sample rate differs. */
+export function renderAt(render, source, srcOff, n, sr) {
+  let ssr = source?.sampleRate
+  let ratio = ssr && ssr !== sr ? ssr / sr : 1
+  if (ratio === 1) return render(source, srcOff, n)
+  let src = render(source, Math.floor(srcOff * ratio), Math.ceil(n * ratio) + 1)
+  return src.map(ch => { let o = new Float32Array(n); resample(ch, o, 0, n, ratio, srcOff * ratio % 1); return o })
 }
 
 /** Render all edits into flat PCM, or read a slice. For ctx.render in PCM ops. */
@@ -375,7 +450,10 @@ function adjustLimit(limit, type, ctx) {
   }
   if (type === 'insert') {
     if (offset != null && offset <= limit) {
-      let iLen = typeof ctx.source === 'number' ? Math.round(ctx.source * sr) : (ctx.source?.length ?? 0)
+      let s = ctx.source
+      let iLen = typeof s === 'number' ? Math.round(s * sr)
+        : s?.sampleRate && s.sampleRate !== sr ? Math.round((s.length ?? 0) * sr / s.sampleRate)
+        : (s?.length ?? 0)
       if (length != null) iLen = Math.min(iLen, length)
       return limit + iLen
     }
@@ -389,12 +467,34 @@ function adjustLimit(limit, type, ctx) {
   if (type === 'pad') return limit + Math.round((ctx.before ?? 0) * sr)
   if (type === 'reverse') return length == null ? Math.min(limit, offset ?? 0) : limit
   if (type === '_resample_seg') return Math.round(limit * (ctx.rate || sr) / sr)
+  if (type === '_stretch_seg') return Math.round(limit * (ctx.factor || 1))
   return limit
 }
 
 /** Build plan ctx for a plan hook or adjustLimit. */
 function mkPlanCtx(total, sr, offset, length, extra) {
   return { total, sampleRate: sr, offset, length, ...extra }
+}
+
+/** Stats a resolve-stage op sees: source stats remapped through the structural segs
+ *  + pipeline accumulated so far, so trim/normalize measure output space, not source
+ *  space. Algebraic remap when possible; full synchronous stat pass at final when not;
+ *  null during streaming when infeasible (op defers until final). */
+function resolveCtxStats(a, segs, pipeline, sr, final) {
+  let src = a.srcStats
+  if (!src) return src
+  if (!pipeline.length && segs.length === 1 && segs[0][0] === 0 && segs[0][2] === 0 && !segs[0][3] && segs[0][4] === undefined) return src
+  let plan = { segs, pipeline, totalLen: planLen(segs), sr }
+  let adapted = audio.adaptStats?.(src, plan, sr)
+  if (adapted) return adapted
+  if (!final || !audio.statSession) return null
+  let key = a.version + ':' + plan.totalLen + ':' + segs.length + ':' + pipeline.length
+  if (a._.rsc?.key === key) return a._.rsc.stats
+  let s = audio.statSession(sr)
+  for (let chunk of streamPlan(a, plan)) s.page(chunk)
+  let stats = s.done()
+  a._.rsc = { key, stats }
+  return stats
 }
 
 /** Compile edit list into plan segments + pipeline for a given source length.
@@ -412,7 +512,7 @@ function compilePlan(a, len, final) {
     if (!final && at != null && at < 0) limit = 0
 
     if (op.resolve) {
-      let stats = a.srcStats
+      let stats = resolveCtxStats(a, segs, pipeline, sr, final)
       let ctx = { stats, sampleRate: sr, channelCount: ch, channel, at, duration, totalDuration: planLen(segs) / sr, final, ...extra }
       let resolved = op.resolve(ctx)
       if (resolved === false) { if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }; continue }
@@ -456,20 +556,27 @@ function compilePlan(a, len, final) {
   return { segs, pipeline, totalLen, sr, limit: Math.max(0, limit) }
 }
 
-/** Sum ref versions to detect external mutations. */
+/** Sum ref versions + lengths to detect external mutations (edits or decode growth). */
 function refVersion(a) {
   let v = 0
-  for (let edit of a.edits) { let r = edit[1]; if (r?.pages && r.version) v += r.version }
+  eachRef(a, r => v += r.version + r._.len)
   return v
 }
+
+// Instances mid-compile — a self-ref (a.insert(a)) re-enters via the length getter
+const compileStack = new Set()
 
 /** Build a read plan from edit list. Always succeeds — every op is plannable. */
 export function buildPlan(a) {
   let rv = refVersion(a)
   if (a._.plan && a._.planV === a.version && a._.planL === a._.len && a._.planR === rv) return a._.plan
-  let plan = compilePlan(a, a._.len, true)
-  a._.plan = plan; a._.planV = a.version; a._.planL = a._.len; a._.planR = rv
-  return plan
+  if (compileStack.has(a)) throw new Error('audio: circular source reference')
+  compileStack.add(a)
+  try {
+    let plan = compilePlan(a, a._.len, true)
+    a._.plan = plan; a._.planV = a.version; a._.planL = a._.len; a._.planR = rv
+    return plan
+  } finally { compileStack.delete(a) }
 }
 
 
@@ -514,6 +621,9 @@ export function resample(src, target, tOff, n, rate, phase = 0) {
   }
 }
 
+// Instances currently being rendered as refs — a self/mutual ref would recurse forever
+const refStack = new Set()
+
 /** Read a sample range from an audio instance (handles edits via plan). */
 function readRange(a, srcStart, n) {
   if (!a.edits.length) {
@@ -523,8 +633,12 @@ function readRange(a, srcStart, n) {
       return out
     })
   }
-  let plan = buildPlan(a), sr = plan.sr
-  return readPlan(a, plan, srcStart / sr, n / sr)
+  if (refStack.has(a)) throw new Error('audio: circular source reference')
+  refStack.add(a)
+  try {
+    let plan = buildPlan(a), sr = plan.sr
+    return readPlan(a, plan, srcStart / sr, n / sr)
+  } finally { refStack.delete(a) }
 }
 
 /** Render one output block from plan segments into pre-allocated chunk. */
@@ -534,9 +648,7 @@ function renderBlock(a, segs, outOff, len, chunk) {
     if (iStart >= iEnd) continue
     let rate = sg[3] || 1, ref = sg[4], interp = sg[5], absR = Math.abs(rate)
     let n = iEnd - iStart, dstOff = iStart - outOff
-    let srcStart = rate < 0
-      ? sg[0] + (sg[1] - (iStart - sg[2]) - n) * absR
-      : sg[0] + (iStart - sg[2]) * absR
+    let srcStart = segSrcStart(sg, iStart, n)
     if (ref === null) {
       // zero-filled by default
     } else if (ref) {
@@ -570,27 +682,57 @@ function renderBlock(a, segs, outOff, len, chunk) {
   }
 }
 
-/** Apply process pipeline to a block, rotating between two pre-allocated buffers. */
-function applyProcs(bufA, bufB, procs, outOff, sr) {
-  let blockOff = outOff / sr
-  let cur = bufA, next = bufB
+// Sub-block size for engine-resolved param changes (automation fns, patch ramps) —
+// ~3ms at 44.1kHz: fine enough to avoid zipper noise without per-sample dispatch.
+const SUB = 128
+
+/** Apply process pipeline to a block. Each proc owns output buffers sized to its
+ *  stage's channel width (set in initProcs) — channel-count changes are a per-stage
+ *  property, not a special case, and the hot path stays allocation-free. */
+function applyProcs(bufA, procs, outOff, sr) {
+  let cur = bufA
   for (let proc of procs) {
-    let { op, at, channel, ctx, outCh } = proc
+    let { op, at, dur, channel, ctx, out } = proc
     if (!op) continue
-    ctx.at = at != null ? at - blockOff : undefined
-    ctx.blockOffset = blockOff
-    if (channel != null) {
-      let chs = typeof channel === 'number' ? [channel] : channel
-      // Copy non-scoped channels from cur→next
-      for (let c = 0; c < cur.length; c++) if (!chs.includes(c)) next[c].set(cur[c])
-      let sub_in = chs.map(c => cur[c])
-      let sub_out = chs.map(c => next[c])
-      op(sub_in, sub_out, ctx)
-    } else {
-      if (outCh) next = Array.from({ length: outCh }, () => new Float32Array(cur[0].length))
-      op(cur, next, ctx)
+    let BS = cur[0].length
+
+    let run = (i0, i1) => {
+      ctx.blockOffset = (outOff + i0) / sr
+      ctx.at = at != null ? at - ctx.blockOffset : undefined
+      let full = i0 === 0 && i1 === BS
+      let inV = full ? cur : cur.map(ch => ch.subarray(i0, i1))
+      let outV = full ? out : out.map(ch => ch.subarray(i0, i1))
+      if (channel != null) {
+        let chs = typeof channel === 'number' ? [channel] : channel
+        for (let c = 0; c < inV.length; c++) if (!chs.includes(c)) outV[c].set(inV[c])
+        op(chs.map(c => inV[c]), chs.map(c => outV[c]), ctx)
+      } else op(inV, outV, ctx)
     }
-    let tmp = cur; cur = next; next = tmp
+
+    // Engine-level range scoping for ops without native {at, duration} handling
+    let s = 0, e = BS
+    if (!proc.ranged && (at != null || dur != null)) {
+      let a0 = at != null ? Math.round(at * sr) : 0
+      let a1 = dur != null ? a0 + Math.round(dur * sr) : Infinity
+      s = Math.max(0, Math.min(a0 - outOff, BS))
+      e = Math.max(s, Math.min(a1 - outOff, BS))
+      if (s > 0 || e < BS) for (let c = 0; c < out.length; c++) out[c].set(cur[c % cur.length])
+      if (e <= s) { cur = out; continue }
+    }
+
+    let { autos, ramp } = proc
+    if (autos || ramp) {
+      // Sub-block param resolution: automation fns sampled at sub-block midpoints,
+      // patched values ramped linearly across this block (click-free updates)
+      for (let i = s; i < e; i += SUB) {
+        let j = Math.min(i + SUB, e)
+        if (autos) for (let k of autos) ctx[k] = proc.fns[k]((outOff + (i + j) / 2) / sr)
+        if (ramp) { let p = (j - s) / (e - s); for (let k in ramp) ctx[k] = ramp[k][0] + (ramp[k][1] - ramp[k][0]) * p }
+        run(i, j)
+      }
+      proc.ramp = ramp = null
+    } else run(s, e)
+    cur = out
   }
   return cur
 }
@@ -600,25 +742,44 @@ function pipelineSig(pipeline) {
   return pipeline.map(ed => ed[0]).join('|')
 }
 
-/** Patch proc contexts with updated parameter values (no reinit). */
+/** Patch proc contexts with updated parameter values (no reinit). Numeric changes
+ *  ramp across the next block (applyProcs sub-block loop); function values re-captured. */
 function patchProcs(procs, pipeline) {
   for (let i = 0; i < procs.length && i < pipeline.length; i++) {
-    let o = pipeline[i][1] || {}
+    let p = procs[i], o = pipeline[i][1] || {}
     let { at, duration, channel, ...extra } = o
-    Object.assign(procs[i].ctx, extra)
+    let ramp = null
+    for (let k in extra) {
+      let v = extra[k]
+      if (typeof v === 'function' && p.fns?.[k]) { p.fns[k] = v; continue }
+      if (typeof v === 'number' && typeof p.ctx[k] === 'number' && p.ctx[k] !== v) (ramp ??= {})[k] = [p.ctx[k], v]
+      p.ctx[k] = v
+    }
+    if (ramp) p.ramp = ramp
   }
 }
 
-/** Initialize process pipeline contexts from plan. */
+/** Initialize process pipeline contexts from plan. Each proc gets its own output
+ *  buffers sized to its stage's channel width — zero allocation in the block loop. */
 function initProcs(pipeline, totalDur, sr, nch) {
-  let curCh = nch
+  let curCh = nch, BS = audio.BLOCK_SIZE
   return pipeline.map(ed => {
     let desc = ops[ed[0]]
     let o = ed[1] || {}
     let { at, duration: dur, channel, ...extra } = o
     let ctx = { duration: dur, sampleRate: sr, totalDuration: totalDur, render, ...extra }
     let outCh = desc.ch ? desc.ch(curCh, ctx) : 0
+    let w = outCh || curCh
     if (outCh) curCh = outCh
+    // Function-valued params become engine automation unless the op samples them
+    // itself (auto: 'sample') or declares them as genuine function args (fnArgs)
+    let fns = null, autos = null
+    for (let k in extra) {
+      if (typeof extra[k] === 'function' && desc.auto !== 'sample' && !desc.fnArgs?.includes(k)) {
+        (fns ??= {})[k] = extra[k]; (autos ??= []).push(k)
+        ctx[k] = extra[k](0)
+      }
+    }
     return {
       op: desc.process,
       desc,
@@ -627,6 +788,9 @@ function initProcs(pipeline, totalDur, sr, nch) {
       dur,
       channel,
       outCh,
+      ranged: !!desc.ranged,
+      out: Array.from({ length: w }, () => new Float32Array(BS)),
+      fns, autos, ramp: null,
       ctx
     }
   })
@@ -641,10 +805,7 @@ function maxSrcSample(segs, start, end) {
     if (sg[4] === null || sg[4]) continue  // silence or external ref
     let rate = sg[3] || 1, absR = Math.abs(rate), margin = (sg[5] && sg[5].margin) || 0
     let n = iEnd - iStart
-    let srcStart = rate < 0
-      ? sg[0] + (sg[1] - (iStart - sg[2]) - n) * absR
-      : sg[0] + (iStart - sg[2]) * absR
-    max = Math.max(max, Math.ceil(srcStart + n * absR) + 1 + margin)
+    max = Math.max(max, Math.ceil(segSrcStart(sg, iStart, n) + n * absR) + 1 + margin)
   }
   return max
 }
@@ -655,18 +816,16 @@ export function* streamPlan(a, plan, offset, duration) {
   let s = Math.round((offset || 0) * sr), e = duration != null ? s + Math.round(duration * sr) : totalLen
   let procs = initProcs(pipeline, totalLen / sr, sr, a._.ch)
 
-  let WARMUP = 8
   let ws = (s > 0 && procs.length) ? Math.max(0, s - audio.BLOCK_SIZE * WARMUP) : s
   let BS = audio.BLOCK_SIZE, nch = a._.ch
   let bufA = Array.from({ length: nch }, () => new Float32Array(BS))
-  let bufB = Array.from({ length: nch }, () => new Float32Array(BS))
 
   for (let outOff = ws; outOff < e; outOff += BS) {
     let blockEnd = outOff < s ? s : e
     let len = Math.min(BS, blockEnd - outOff)
     for (let b of bufA) b.fill(0, 0, len)
     renderBlock(a, segs, outOff, len, bufA)
-    let out = procs.length ? applyProcs(bufA, bufB, procs, outOff, sr) : bufA
+    let out = procs.length ? applyProcs(bufA, procs, outOff, sr) : bufA
     if (outOff >= s) yield out.map(b => b.subarray(0, len))
   }
 }

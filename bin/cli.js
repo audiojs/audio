@@ -20,18 +20,21 @@ import fft from 'fourier-transform'
 
 // ── Unit Parsing ─────────────────────────────────────────────────────────
 
+// Strict numeric literal: digits, or digits.digits, or .digits — never "1.2.3" (rejects extra dots).
+const NUM = '(?:\\d+(?:\\.\\d+)?|\\.\\d+)'
+
 function parseValue(str) {
   if (str.includes('..')) return str  // range syntax — handled separately
   // dB
-  let m = str.match(/^(-?[\d.]+)(db)$/i)
+  let m = str.match(new RegExp(`^(-?${NUM})(db)$`, 'i'))
   if (m) return Number(m[1])
   // Hz / kHz
-  m = str.match(/^(-?[\d.]+)(khz)$/i)
+  m = str.match(new RegExp(`^(-?${NUM})(khz)$`, 'i'))
   if (m) return Number(m[1]) * 1000
-  m = str.match(/^(-?[\d.]+)(hz)$/i)
+  m = str.match(new RegExp(`^(-?${NUM})(hz)$`, 'i'))
   if (m) return Number(m[1])
   // bare number
-  if (/^-?[\d.]+$/.test(str)) return Number(str)
+  if (new RegExp(`^-?${NUM}$`).test(str)) return Number(str)
   // comma-separated channel map: 0,1 or 1,0,null
   if (/^[\d,_]+$/.test(str) && str.includes(',')) {
     return str.split(',').map(s => s === '_' ? null : Number(s))
@@ -45,11 +48,16 @@ function parseValue(str) {
     return s
   }
   // duration — only parse if string is purely time tokens (digits + time units),
-  // never on path-like input (e.g. tmp-1.wav must not become 1)
-  if (/^[\d.]+(ms|[smhdwy])([\d.]+(ms|[smhdwy]))*$/i.test(str)) {
+  // never on path-like input (e.g. tmp-1.wav must not become 1). Leading `-?` supports
+  // the fade-out shorthand (`fade .2s -1s cos`).
+  if (new RegExp(`^-?${NUM}(ms|[smhdwy])(${NUM}(ms|[smhdwy]))*$`, 'i').test(str)) {
     let d = parseDuration(str, 's')
     if (d != null && isFinite(d)) return d
   }
+  // Malformed numeric/unit value (e.g. extra decimal points, "1.2.3db") — reject rather
+  // than silently NaN-poisoning downstream math or passing it through as a bogus string.
+  if (/^-?[\d.]+(db|khz|hz)$/i.test(str) || /^-?[\d.]+(ms|[smhdwy])([\d.]+(ms|[smhdwy]))*$/i.test(str) || /^-?[\d.]+$/.test(str))
+    throw new Error(`invalid value '${str}'`)
   return str  // pass as-is (e.g. filename, op name)
 }
 
@@ -61,13 +69,22 @@ function parseRange(str) {
   return { offset: s, duration: dur }
 }
 
+/** Resolve a range offset against a known total duration — negative means "from the end"
+ *  (sox-style: `-1s..` = last second), mirroring plan.js's own `planOffset` convention for
+ *  per-op range params. The top-level save/stat/play `at` option is a plain absolute time and
+ *  doesn't do this resolution itself, so the CLI (owner of the human-friendly range syntax)
+ *  does it once here before handing off an absolute position. */
+function resolveOffset(offset, total) {
+  return offset < 0 ? Math.max(0, (total || 0) + offset) : offset
+}
+
 /** Check if a string is a bare time value (e.g. "1s", "500ms", "1:30", "0..10s") — not an op name or path. */
 function isTime(s) {
   if (typeof s !== 'string') return false
   if (s.includes('..')) return true  // range
   if (/^-?[\d.]+$/.test(s)) return false  // bare number — ambiguous, don't treat as time
   if (/^(\d+):(\d{1,2})(?::(\d{1,2}))?(?:\.(\d+))?$/.test(s)) return true  // timecode
-  return /^[\d.]+(ms|[smhdwy])([\d.]+(ms|[smhdwy]))*$/i.test(s)  // strict: digits + time units, no path-like input
+  return /^-?[\d.]+(ms|[smhdwy])([\d.]+(ms|[smhdwy]))*$/i.test(s)  // strict: digits + time units, no path-like input
 }
 
 // ── Argument Parsing ─────────────────────────────────────────────────────
@@ -76,7 +93,8 @@ function isFlag(s) {
   if (s === '-') return false  // stdin/stdout marker
   if (s.startsWith('--')) return true
   if (!s.startsWith('-')) return false
-  let match = s.match(/^-[\d.]+(db|hz|khz|s|ms)?$/i)
+  // negative number/duration, optionally a range: -3db, -1s, -1s.., -5s..-1s
+  let match = s.match(/^-[\d.]+(db|hz|khz|s|ms)?(\.\.(-?[\d.]+(db|hz|khz|s|ms)?)?)?$/i)
   return !match
 }
 
@@ -126,6 +144,8 @@ const HELP = {
   crossfeed: { usage: 'crossfeed [FC] [LEVEL]', desc: 'Headphone crossfeed for improved imaging', examples: ['crossfeed', 'crossfeed 500hz 0.4'] },
   resample:  { usage: 'resample RATE', desc: 'Change sample rate with anti-aliased downsampling', examples: ['resample 48000', 'resample 22050'] },
   crossfade: { usage: 'crossfade SRC [DUR] [CURVE]', desc: 'Crossfade into another audio file', examples: ['crossfade next.wav 2s', 'crossfade next.wav 0.5s cos'] },
+  write:     { usage: 'write DATA [RANGE]', desc: 'Write raw sample values at a position (via --macro)', examples: ['write [0,0] 1s..1.1s'] },
+  transform: { usage: 'transform FN', desc: 'Apply a custom per-block function (plugin/library API)', examples: ['transform myFn'] },
   // ── sinks (terminate chain) ─────────────────────────────────────────────
   play:   { usage: 'play [loop]', desc: 'Open player UI (autoplay)', examples: ['play', 'play loop', '1s..10s play loop', 'normalize play'], kind: 'sink' },
   stat:   { usage: 'stat [NAMES...]', desc: 'Print analysis (default: overview)', examples: ['stat', 'stat loudness rms', 'stat spectrum 128'], kind: 'sink' },
@@ -360,11 +380,13 @@ async function playerSave(a, src, opts = {}, io = {}) {
   }
 }
 
-/** Prompt to overwrite if TTY, silently allow if piped/scripted. */
+/** Prompt to overwrite if stdin is interactive; otherwise fail clearly rather than
+ *  silently clobbering the file or crashing on setRawMode (stdin.isTTY, not stderr's —
+ *  raw-mode reading needs stdin itself to be a TTY). */
 async function confirmOverwrite(path) {
   let { existsSync } = await import('fs')
   if (!existsSync(path)) return
-  if (!process.stderr.isTTY) return  // piped/scripted — silent overwrite (sox/cp behaviour)
+  if (!process.stdin.isTTY) throw new Error(`${path} already exists, use --force to overwrite`)
   process.stderr.write(`audio: ${path} already exists. Overwrite? [Y/n] `)
   await new Promise(resolve => {
     process.stdin.setRawMode(true)
@@ -464,9 +486,15 @@ function progressBar(played, decoded, total, width) {
   return '━'.repeat(pFill) + '─'.repeat(dFill - pFill) + (empty > 0 ? DIM + '─'.repeat(empty) + RST : '')
 }
 
-const GERUNDS = { gain: 'Applying gain', fade: 'Fading', trim: 'Trimming', normalize: 'Normalizing', crop: 'Cropping', clip: 'Clipping', remove: 'Removing', reverse: 'Reversing', repeat: 'Repeating', pad: 'Padding', speed: 'Changing speed', stretch: 'Stretching', pitch: 'Pitch shifting', insert: 'Inserting', mix: 'Mixing', crossfade: 'Crossfading', remix: 'Remixing', pan: 'Panning', eq: 'Filtering', filter: 'Filtering', highpass: 'Filtering', lowpass: 'Filtering', notch: 'Filtering', bandpass: 'Filtering', lowshelf: 'Filtering', highshelf: 'Filtering', allpass: 'Filtering', vocals: 'Processing vocals', dither: 'Dithering', crossfeed: 'Applying crossfeed', resample: 'Resampling' }
+const GERUNDS = { gain: 'Applying gain', fade: 'Fading', trim: 'Trimming', normalize: 'Normalizing', crop: 'Cropping', clip: 'Clipping', remove: 'Removing', reverse: 'Reversing', repeat: 'Repeating', pad: 'Padding', speed: 'Changing speed', stretch: 'Stretching', pitch: 'Pitch shifting', insert: 'Inserting', mix: 'Mixing', crossfade: 'Crossfading', remix: 'Remixing', pan: 'Panning', eq: 'Filtering', filter: 'Filtering', highpass: 'Filtering', lowpass: 'Filtering', notch: 'Filtering', bandpass: 'Filtering', lowshelf: 'Filtering', highshelf: 'Filtering', allpass: 'Filtering', vocals: 'Processing vocals', dither: 'Dithering', crossfeed: 'Applying crossfeed', resample: 'Resampling', write: 'Writing', transform: 'Transforming' }
+/** Present-participle for an op name — explicit GERUNDS entry, or derived (dropping a silent trailing "e": write → Writing). */
+function gerund(name) {
+  if (GERUNDS[name]) return GERUNDS[name]
+  let cap = name[0].toUpperCase() + name.slice(1)
+  return /[^e]e$/.test(cap) ? cap.slice(0, -1) + 'ing' : cap + 'ing'
+}
 function opsLabel(ops) {
-  return [...new Set(ops.map(o => GERUNDS[o.name] || (o.name[0].toUpperCase() + o.name.slice(1) + 'ing')))]
+  return [...new Set(ops.map(o => gerund(o.name)))]
 }
 
 async function playback(p, totalSec, decodedSec, a, src, opts) {
@@ -637,9 +665,11 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
 
   ;(async () => {
     if (!a) return
-    if (!a.decoded) await new Promise(r => { let id = setInterval(() => { if (a.decoded) { clearInterval(id); r() } }, 200) })
-    await refreshInfo()
-    await updateLiveBpm()
+    try {
+      if (!a.decoded) await new Promise(r => { let id = setInterval(() => { if (a.decoded) { clearInterval(id); r() } }, 200) })
+      await refreshInfo()
+      await updateLiveBpm()
+    } catch (e) { fail(e) }
   })()
 
   let prompting = false
@@ -741,7 +771,17 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
 
   render(0)
   let tick = setInterval(() => render(p.currentTime), 40)
-  let bpmTick = setInterval(updateLiveBpm, 2000)
+  let bpmTick = setInterval(() => { updateLiveBpm().catch(fail) }, 2000)
+
+  // Shared failure path for the async bits above (info/BPM bootstrap, live-BPM tick) and for
+  // op-application errors signalled in from main() via opts.onError — formats+propagates the
+  // error instead of an unhandled rejection/raw stack trace, and always restores the terminal.
+  let fail = err => {
+    clearInterval(tick); clearInterval(bpmTick)
+    if (process.stdin.isTTY) { process.stdin.setRawMode(false); process.stdin.removeAllListeners('data') }
+    clearUI()
+    opts?.onError?.(err)
+  }
 
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(true)
@@ -1013,36 +1053,40 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       })
       let isFile = typeof actualSource === 'string' || Array.isArray(actualSource)
       let a = audio(actualSource)
-      await new Promise(r => a.on('metadata', r))
+      // Race metadata against decode failure — a bad source must error, not hang/exit silently.
+      await new Promise((resolve, reject) => {
+        a.on('metadata', resolve)
+        a.ready.catch(reject)
+      })
 
       let loop = sink.args.includes('loop')
       let playOpts = { paused: !canStream || !isFile, loop }
-      if (range) { playOpts.at = range.offset; playOpts.duration = range.duration }
+      if (range) { playOpts.at = resolveOffset(range.offset, a.decoded ? a.duration : a._.estDur); playOpts.duration = range.duration }
+
+      // Any op-application failure (sync or during the async post-decode path) routes through
+      // `failPlay`: it stops playback so playback()'s own terminal/interval cleanup runs, and
+      // records the error so we can exit(1) with a formatted message after playback() returns.
+      let playErr = null, p
+      let failPlay = err => { if (!playErr) playErr = err; p?.stop() }
 
       if (canStream && isFile) {
-        for (let op of transforms) {
-          let args = opCallArgs(op)
-          if (op.name === 'clip') a = a.clip(...args)
-          else a[op.name](...args)
-        }
+        a = await applyTransforms(a, transforms)
       } else {
         ;(async () => {
-          await a
-          for (let op of transforms) {
-            await resolveSourceArgs(op)
-            let args = opCallArgs(op)
-            if (op.name === 'clip') a = a.clip(...args)
-            else a[op.name](...args)
-          }
-          p.resume()
+          try {
+            await a
+            a = await applyTransforms(a, transforms)
+            p.resume()
+          } catch (e) { failPlay(e) }
         })()
       }
-      var p = a.play(playOpts)
+      p = a.play(playOpts)
       await playback(p,
         () => a.decoded ? a.duration : a._.estDur || 0,
         () => a.pages.length * audio.PAGE_SIZE / a.sampleRate,
-        a, actualSource, { hasEdits: !!transforms.length, editLabel: opsLabel(transforms).join(', ').toLowerCase(), range, transforms, format: opts.format, force: opts.force }
+        a, actualSource, { hasEdits: !!transforms.length, editLabel: opsLabel(transforms).join(', ').toLowerCase(), range, transforms, format: opts.format, force: opts.force, onError: failPlay }
       )
+      if (playErr) throw playErr
       process.exit(0)
     }
 
@@ -1060,13 +1104,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     if (sink.name === 'save') return runSave(a, transforms, sink.args, range, opts, actualSource, loadTime)
 
     // ── sink: stat ──────────────────────────────────────────────────────
-    // Apply transforms (clip rebinds a)
-    for (let op of transforms) {
-      await resolveSourceArgs(op)
-      let args = opCallArgs(op)
-      if (op.name === 'clip') a = a.clip(...args)
-      else { try { a[op.name](...args) } catch (e) { throw new Error(`${op.name}: ${formatError(e)}`) } }
-    }
+    a = await applyTransforms(a, transforms)  // clip rebinds a
 
     let statNames = sink.args.filter(v => typeof v === 'string')
     if (!statNames.length) return printOverview(a, range, loadTime)
@@ -1222,7 +1260,7 @@ async function runSave(a, transforms, sinkArgs, range, opts, source, loadTime) {
 
   let fmt = opts.format || (output === '-' ? 'wav' : output.split('.').pop())
   let saveOpts = { format: fmt }
-  if (range) { saveOpts.at = range.offset; saveOpts.duration = range.duration }
+  if (range) { saveOpts.at = resolveOffset(range.offset, a.duration); saveOpts.duration = range.duration }
 
   try {
     if (output === '-') {
@@ -1245,15 +1283,16 @@ async function runSave(a, transforms, sinkArgs, range, opts, source, loadTime) {
 }
 
 async function printOverview(a, range, loadTime) {
-  let statOpts = range ? { at: range.offset, duration: range.duration } : undefined
+  let off0 = range ? resolveOffset(range.offset, a.duration) : 0
+  let statOpts = range ? { at: off0, duration: range.duration } : undefined
   let [peak, , l, clips, dcOff] = await a.stat(['db', 'rms', 'loudness', 'clipping', 'dc'], statOpts)
   let dur = range?.duration ?? a.duration
   let bpmStr = await (async () => {
     let win = Math.min(8, dur)
     if (dur < 4) { let b = await a.stat('bpm', statOpts); return b > 0 ? `${Math.round(b)} BPM` : 'n/a' }
-    let off = range?.offset || 0, n = Math.min(4, Math.floor(dur / win)), step = dur / (n + 1)
+    let n = Math.min(4, Math.floor(dur / win)), step = dur / (n + 1)
     let bpms = (await Promise.all(Array.from({ length: n }, (_, i) => {
-      let at = Math.max(0, off + step * (i + 1) - win / 2)
+      let at = Math.max(0, off0 + step * (i + 1) - win / 2)
       return a.stat('bpm', { at, duration: win })
     }))).filter(b => b > 0)
     if (!bpms.length) return 'n/a'
@@ -1262,7 +1301,7 @@ async function printOverview(a, range, loadTime) {
   })()
   let keyStr = await (async () => {
     // Sample a 30s window from the middle for long inputs — chroma analysis is per-frame and dominates wall time
-    let win = Math.min(30, dur), off = (range?.offset || 0) + Math.max(0, (dur - win) / 2)
+    let win = Math.min(30, dur), off = off0 + Math.max(0, (dur - win) / 2)
     let kOpts = win < dur ? { at: off, duration: win } : statOpts
     try { let k = await a.key(kOpts); return k && k.confidence > 0.3 ? k.label : 'n/a' } catch { return 'n/a' }
   })()
@@ -1286,7 +1325,7 @@ async function printStats(a, sinkArgs, names, range) {
     let bins = idx >= 0 && idx + 1 < sinkArgs.length && typeof sinkArgs[idx + 1] === 'number' ? sinkArgs[idx + 1] : undefined
     let statOpts = {}
     if (bins != null) statOpts.bins = bins
-    if (range) { statOpts.at = range.offset; statOpts.duration = range.duration }
+    if (range) { statOpts.at = resolveOffset(range.offset, a.duration); statOpts.duration = range.duration }
     let result
     if (name === 'key') {
       let k = await a.key(Object.keys(statOpts).length ? statOpts : undefined)
@@ -1317,6 +1356,10 @@ async function runBatch(globPattern, transforms, sink, range, opts) {
 
   if (sink.name !== 'save') throw new Error(`batch mode requires 'save' sink, got '${sink.name}'`)
   let pattern = sink.args.find(v => typeof v === 'string')
+  // A literal pattern with no {name}/{ext} placeholder resolves to the same path for every
+  // matched file — each iteration would silently overwrite the previous one's output.
+  if (pattern && files.length > 1 && !pattern.includes('{name}') && !pattern.includes('{ext}'))
+    throw new Error('batch output pattern needs {name}')
 
   for (let file of files) {
     let ext = extname(file), name = basename(file, ext)
@@ -1328,7 +1371,7 @@ async function runBatch(globPattern, transforms, sink, range, opts) {
     let a = await audio(file)
     a = await applyTransforms(a, transforms)
     let saveOpts = {}
-    if (range) { saveOpts.at = range.offset; saveOpts.duration = range.duration }
+    if (range) { saveOpts.at = resolveOffset(range.offset, a.duration); saveOpts.duration = range.duration }
     if (opts.format) saveOpts.format = opts.format
     await a.save(outFile, saveOpts)
     process.stderr.write(`  → ${outFile}\n`)
@@ -1436,7 +1479,7 @@ async function runRecord(transforms, sink, range, opts) {
 }
 
 // Exports for testing
-export { parseValue, parseRange, parseArgs, showOpHelp, HELP, progressBar, fmtTime, isOpName, isVerb, isStatName, SOURCE_VERBS, SINK_VERBS, prompt, playerSave, defaultSavePath }
+export { parseValue, parseRange, parseArgs, showOpHelp, HELP, progressBar, fmtTime, isOpName, isVerb, isStatName, SOURCE_VERBS, SINK_VERBS, prompt, playerSave, defaultSavePath, opsLabel }
 
 // Run CLI if invoked directly (not imported)
 let argv1 = process.argv[1]

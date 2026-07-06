@@ -100,6 +100,11 @@ export interface AudioInstance {
   stat(name: 'silence', opts?: { threshold?: number, minDuration?: number, at?: Time, duration?: Time }): Promise<{ at: number, duration: number }[]>
   stat(name: 'centroid', opts?: { at?: Time, duration?: Time }): Promise<number>
   stat(name: 'flatness', opts?: { at?: Time, duration?: Time }): Promise<number>
+  stat(name: 'bpm', opts?: { at?: Time, duration?: Time, minBpm?: number, maxBpm?: number, delta?: number, minConfidence?: number, channel?: number | number[] }): Promise<number>
+  stat(name: 'beats' | 'onsets', opts?: { at?: Time, duration?: Time, minBpm?: number, maxBpm?: number, delta?: number, channel?: number | number[] }): Promise<Float64Array>
+  stat(name: 'notes', opts?: { at?: Time, duration?: Time, frameSize?: number, hopSize?: number, threshold?: number, minClarity?: number }): Promise<{ time: number, duration: number, freq: number, midi: number, note: string, clarity: number }[]>
+  stat(name: 'chords', opts?: { at?: Time, duration?: Time, frameSize?: number, hopSize?: number, method?: string, selfProb?: number }): Promise<{ time: number, duration: number, root: number, quality: 'maj' | 'min' | 'N', label: string, confidence: number }[]>
+  stat(name: 'key', opts?: { at?: Time, duration?: Time, frameSize?: number, method?: string }): Promise<{ tonic: number, mode: 'major' | 'minor', label: string, confidence: number, scores?: { label: string, score: number }[] }>
   stat<T extends string[]>(name: T, opts?: { at?: Time, duration?: Time, bins?: number, channel?: number | number[] }): Promise<{ [K in keyof T]: number | Float32Array | Float32Array[] }>
   stat(name: string, opts?: { at?: Time, duration?: Time, bins?: number, channel?: number | number[] }): Promise<number | Float32Array | Float32Array[]>
   spectrum(opts?: { bins?: number, at?: Time, duration?: Time, fMin?: number, fMax?: number, weight?: boolean }): Promise<Float32Array>
@@ -107,6 +112,8 @@ export interface AudioInstance {
   silence(opts?: { threshold?: number, minDuration?: number, at?: Time, duration?: Time }): Promise<{ at: number, duration: number }[]>
   centroid(opts?: { at?: Time, duration?: Time }): Promise<number>
   flatness(opts?: { at?: Time, duration?: Time }): Promise<number>
+  /** High-fidelity beat/tempo detection via spectral flux (single streaming pass). More precise than stat('bpm'). */
+  detect(opts?: { at?: Time, duration?: Time, frameSize?: number, hopSize?: number, minBpm?: number, maxBpm?: number, delta?: number }): Promise<{ bpm: number, confidence: number, beats: Float64Array, onsets: Float64Array }>
   /** Serialize to JSON */
   toJSON(): { source: string | null, edits: EditOp[], sampleRate: number, channels: number, duration: number }
 
@@ -132,7 +139,7 @@ export interface AudioInstance {
 
   // ── Filters ──────────────────────────────────────────────────
   filter(type: FilterType, ...params: number[]): this
-  filter(fn: (data: Float32Array, params: Record<string, unknown>) => Float32Array, opts?: Record<string, unknown>): this
+  filter(fn: (data: Float32Array, params: Record<string, unknown>) => void, opts?: Record<string, unknown>): this
   highpass(freq: number): this
   lowpass(freq: number): this
   bandpass(freq: number, Q?: number): this
@@ -284,6 +291,12 @@ export interface OpDescriptor {
   plan?: (segs: any[], ctx: Record<string, any>) => any[]
   resolve?: (ctx: Record<string, any>) => EditOp | EditOp[] | false | null
   ch?: (channels: number, ctx: Record<string, any>) => number
+  /** Sample-rate transform (e.g. resample). Return the new rate, or falsy to leave it unchanged. */
+  sr?: (sampleRate: number, ctx: Record<string, any>) => number | undefined
+  /** Pure per-sample transform (output depends only on input value) — engine auto-derives min/max/clipping stats by probing `process` with edge values. */
+  pointwise?: boolean
+  /** Algebraic stats update for advanced cases pointwise can't cover (e.g. rms/dc/energy) — mutate `stats` in place, or return `false` to bail to a full recompute. */
+  deriveStats?: (stats: AudioStats, opts: Record<string, any>) => void | false
   hidden?: boolean
 }
 

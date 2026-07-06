@@ -96,8 +96,15 @@ audio.op('myOp', {
   process: (input, output, ctx) => { },   // per-block PCM transform (read input, write output)
   plan: (segs, ctx) => segs,              // structural segment rewrite
   resolve: (ctx) => edit,                 // pre-render: replace with simpler edit(s) using stats
+  ranged: true,                           // op handles {at, duration} itself — engine skips its range scoping
+  auto: 'sample',                         // op samples function params itself (default: engine, 128-sample steps)
+  fnArgs: ['arg1'],                       // params that are genuine functions, not automation (e.g. transform's fn)
 })
 ```
+
+`process` ops get `{at, duration}` range scoping, function-param automation, and click-free
+value ramps from the engine automatically — declare `ranged`/`auto`/`fnArgs` only to opt out
+or take over.
 
 ### params
 

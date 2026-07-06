@@ -3,17 +3,29 @@ import kWeighting from 'audio-filter/weighting/k-weighting.js'
 
 // ── LUFS measurement ─────────────────────────────────────────
 
-const GATE_WINDOW = 0.4, ABS_GATE = -70, REL_GATE = -10, LUFS_OFFSET = -0.691
+const GATE_WINDOW = 0.4, GATE_HOP = 0.1, ABS_GATE = -70, REL_GATE = -10, LUFS_OFFSET = -0.691
 
-/** Compute LUFS from block-level energy. Returns null if audio is silent. */
+/**
+ * Compute LUFS from block-level energy. Returns null if audio is silent.
+ * ITU-R BS.1770-4 §2 eq.2: L_K = -0.691 + 10·log10(Σ_c G_c·z̄_c) — a SUM (not average) of
+ * per-channel mean-square power. G_c=1.0 for L/R/C (no speaker-layout metadata reaches this fn;
+ * BS.1770-4 Table 1 gives G=1.41 for Ls/Rs surrounds — unmodeled here, plain channels only).
+ * §3: gating blocks are 400ms with 75% overlap (100ms hop), built over BLOCK_SIZE energy blocks.
+ */
 export function lufsFromEnergy(energy, chs, sampleRate, blockSize, from = 0, to) {
   if (to == null) to = energy[0].length
   if (typeof chs === 'number') chs = Array.from({ length: chs }, (_, i) => i)
-  let winBlocks = Math.ceil(GATE_WINDOW * sampleRate / blockSize), gates = []
-  for (let i = from; i < to; i += winBlocks) {
-    let we = Math.min(i + winBlocks, to), sum = 0, n = 0
-    for (let c of chs) for (let j = i; j < we; j++) { sum += energy[c][j]; n++ }
-    if (n > 0) gates.push(sum / n)
+  let winBlocks = Math.round(GATE_WINDOW * sampleRate / blockSize)
+  let hopBlocks = Math.max(1, Math.round(GATE_HOP * sampleRate / blockSize))
+  let gates = []
+  for (let i = from; i + winBlocks <= to; i += hopBlocks) {
+    let we = i + winBlocks, sum = 0
+    for (let c of chs) {
+      let z = 0
+      for (let j = i; j < we; j++) z += energy[c][j]
+      sum += z / winBlocks  // z̄_c: per-channel mean square over this 400ms block
+    }
+    gates.push(sum)  // Σ_c G_c·z̄_c, G_c=1.0
   }
   let absT = 10 ** (ABS_GATE / 10), gated = gates.filter(g => g > absT)
   if (!gated.length) return null

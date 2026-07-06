@@ -1,9 +1,10 @@
 /**
  * Speed — change playback rate. speed(2) = double speed (half duration),
  * speed(0.5) = half speed (double duration), speed(-1) = reverse.
+ * {at, duration} scope the rate change to a range.
  */
 
-import { seg } from '../plan.js'
+import { seg, spliceSegs, planOffset } from '../plan.js'
 
 export function speedSegs(segs, rate) {
   if (rate === 0) throw new RangeError('speed: rate cannot be 0')
@@ -18,7 +19,12 @@ export function speedSegs(segs, rate) {
   return r
 }
 
-const speedPlan = (segs, ctx) => speedSegs(segs, ctx.rate)
+const speedPlan = (segs, ctx) => {
+  let { total, offset, length } = ctx
+  if (offset == null && length == null) return speedSegs(segs, ctx.rate)
+  let at = planOffset(offset, total)
+  return spliceSegs(segs, at, length ?? total - at, sub => speedSegs(sub, ctx.rate))
+}
 
 import audio from '../core.js'
 audio.op('speed', { params: ['rate'], plan: speedPlan })

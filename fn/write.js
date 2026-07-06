@@ -12,4 +12,4 @@ const write = (input, output, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('write', { params: ['data'], process: write })
+audio.op('write', { params: ['data'], ranged: true, process: write })

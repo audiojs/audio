@@ -1167,6 +1167,18 @@ test('save — write to file', { skip: !isNode }, async t => {
   t.ok(Math.abs(b.duration - 1) < 0.02, 'saved and reloaded')
 })
 
+test('save — bad path rejects instead of crashing process', { skip: !isNode }, async t => {
+  // write-stream 'error' (e.g. ENOENT dir) must reject save(), not throw an unhandled
+  // EventEmitter 'error' with no listener (which crashes the Node process)
+  let a = audio.from([new Float32Array(44100).fill(0.5)], { sampleRate: 44100 })
+  try {
+    await a.save('/nonexistent-dir-xyz-123/out.wav')
+    t.fail('should reject')
+  } catch (e) {
+    t.ok(e.code === 'ENOENT' || /ENOENT/.test(e.message), `rejects cleanly (${e.message})`)
+  }
+})
+
 
 // ── Phase 7: Analysis ────────────────────────────────────────────────────
 
@@ -1217,6 +1229,28 @@ test('loudness — K-weighted LUFS', async t => {
   t.ok(typeof l === 'number', 'returns number')
   t.ok(l < 0, `LUFS is negative (got ${l.toFixed(1)})`)
   t.ok(l > -30, `LUFS > -30 (got ${l.toFixed(1)})`)
+})
+
+test('loudness — dual-mono stereo reads +3.01 dB vs mono (ITU-R BS.1770-4 §2)', async t => {
+  // L_K = -0.691 + 10·log10(Σ_c G_c·z̄_c): doubling coherent per-channel power (identical
+  // dual-mono) must add 10·log10(2) = 3.01 dB — a SUM over channels, not an average.
+  let sr = 44100, ch = new Float32Array(sr)
+  for (let i = 0; i < sr; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 1000 * i / sr)
+  let mono = audio.from([ch], { sampleRate: sr })
+  let stereo = audio.from([ch.slice(), ch.slice()], { sampleRate: sr })
+  let lMono = await mono.stat('loudness'), lStereo = await stereo.stat('loudness')
+  t.ok(Math.abs((lStereo - lMono) - 3.01) < 0.05, `dual-mono +3.01dB (got ${(lStereo - lMono).toFixed(3)})`)
+})
+
+test('loudness — -20 dBFS 997Hz sine matches ITU-R BS.1770-4 §2 eq.2 prediction', async t => {
+  // BS.1770-4's -0.691 offset exactly cancels the K-filter's +0.691dB gain at 997Hz,
+  // so a 997Hz sine's LUFS equals its RMS level (EBU Tech 3341 case 1 convention):
+  // amplitude 0.1 → mean-square 0.005 → 10·log10(0.005) ≈ -23.01 LUFS.
+  let sr = 44100, amp = 10 ** (-20 / 20), ch = new Float32Array(sr * 3)
+  for (let i = 0; i < ch.length; i++) ch[i] = amp * Math.sin(2 * Math.PI * 997 * i / sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  let l = await a.stat('loudness')
+  t.ok(Math.abs(l - (-23.01)) < 0.1, `≈ -23.01 LUFS (got ${l.toFixed(2)})`)
 })
 
 test('loudness + db — lena real audio', async t => {
@@ -3373,6 +3407,9 @@ test('stat(centroid) — higher tone has higher centroid', async t => {
 
 // ── Flatness stat ───────────────────────────────────────────────────────
 
+// Flatness = geometric/arithmetic mean of the POWER spectrum (mag², Peeters 2004 §6.6;
+// librosa.feature.spectral_flatness power=2.0 default).
+
 test('stat(flatness) — sine wave is tonal (low flatness)', async t => {
   let sr = 44100
   let ch = tone(440, 1, sr)
@@ -3389,6 +3426,17 @@ test('stat(flatness) — noise has higher flatness than tone', async t => {
   let fNoise = await noise.stat('flatness')
   let fSine = await sine.stat('flatness')
   t.ok(fNoise > fSine, `noise flatness (${fNoise.toFixed(3)}) > sine flatness (${fSine.toFixed(3)})`)
+})
+
+test('stat(flatness) — white noise ≈ exp(-γ)≈0.5614 (Wiener entropy of an exponential power spectrum)', async t => {
+  // Each FFT power-spectrum bin of white Gaussian noise is i.i.d. exponentially distributed;
+  // for an exponential RV, GM/AM = exp(-γ) (γ = Euler–Mascheroni ≈ 0.5772), the textbook
+  // spectral-flatness value for white noise (Peeters 2004 §6.6; Dubnov 2004).
+  let sr = 44100, ch = new Float32Array(sr)
+  for (let i = 0; i < sr; i++) ch[i] = Math.random() * 2 - 1
+  let a = audio.from([ch], { sampleRate: sr })
+  let f = await a.stat('flatness')
+  t.ok(Math.abs(f - 0.5614) < 0.05, `≈0.5614 (got ${f.toFixed(4)})`)
 })
 
 
@@ -3428,6 +3476,9 @@ test('stat(correlation) — mono returns 1', async t => {
 
 
 // ── Spectrum stat ────────────────────────────────────────────────────────
+
+// Mel filterbank: triangular, overlapping (Davis & Mermelstein 1980; HTK/librosa convention),
+// not the earlier rectangular non-overlapping bins.
 
 test('stat(spectrum) — returns mel-binned spectrum', async t => {
   // 440Hz sine wave — should show peak around that frequency
@@ -3476,6 +3527,10 @@ test('stat(cepstrum) — returns MFCC coefficients', async t => {
   t.is(c.length, 13, '13 coefficients')
   // C0 is log energy — should be non-zero for non-silent audio
   t.ok(Math.abs(c[0]) > 0.1, `C0 non-zero (got ${c[0].toFixed(2)})`)
+  // C0 (DCT-II k=0, the mean log-mel-energy term) dominates for a stationary tone —
+  // still holds after the mel filterbank became triangular/overlapping (Davis & Mermelstein 1980)
+  let maxRest = Math.max(...Array.from(c.slice(1)).map(Math.abs))
+  t.ok(Math.abs(c[0]) > maxRest, `C0 dominant: |${c[0].toFixed(1)}| > max|rest|=${maxRest.toFixed(1)}`)
 })
 
 
@@ -4646,6 +4701,18 @@ test('crossfeed — custom cutoff and level', async t => {
   t.ok(rms(pcm2[1]) > rms(pcm1[1]), `more crossfeed at higher level: ${rms(pcm2[1]).toFixed(4)} > ${rms(pcm1[1]).toFixed(4)}`)
 })
 
+test('crossfeed — unity-sum: dual-mono tone keeps input RMS (Chu Moy / bs2b Bauer crossfeed)', async t => {
+  // Direct+cross gain must sum to 1 — a mono/centered signal (L=R) below the cutoff should
+  // come out at its original level, unlike a (1-level/2)+level mix which boosts it (+1.1dB
+  // at defaults). 100Hz is well under the 700Hz default cutoff.
+  let ch = tone(100, 1)
+  let a = audio.from([ch.slice(), ch.slice()], { sampleRate: 44100 })
+  a.crossfeed()
+  let pcm = await a.read()
+  let dB = 20 * Math.log10(rms(pcm[0]) / rms(ch))
+  t.ok(Math.abs(dB) < 0.05, `dual-mono 100Hz within ±0.05dB of input (got ${dB.toFixed(4)}dB)`)
+})
+
 test('resample — 44100→22050 halves length, preserves duration', async t => {
   let ch = tone(440, 1)
   let a = audio.from([ch], { sampleRate: 44100 })
@@ -4723,8 +4790,8 @@ test('resample — chainable with other ops', async t => {
 test('resample — invalid rate/type throw', async t => {
   for (let rate of [0, -1, Infinity, NaN, '48000']) {
     let a = audio.from([new Float32Array(100)], { sampleRate: 44100 })
-    a.resample(rate)
-    try { a.length; t.fail(`should throw for rate ${String(rate)}`) }
+    // NaN rejected eagerly at the call (engine param guard); others at plan build
+    try { a.resample(rate); a.length; t.fail(`should throw for rate ${String(rate)}`) }
     catch (e) { t.ok(e instanceof RangeError, `RangeError for rate ${String(rate)}`) }
   }
 

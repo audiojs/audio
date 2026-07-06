@@ -42,10 +42,11 @@ export default function audio(source, opts = {}) {
   if (source == null) {
     let sr = opts.sampleRate || 44100, ch = opts.channels || 1
     let waiters = []
-    let notify = () => { for (let w of waiters.splice(0)) w() }
+    let notify = () => { for (let w of waiters.splice(0)) w(); scheduleEvict(a) }
     let a = create([], sr, ch, 0, opts, null)
     a.decoded = false
     a.recording = false
+    a._.push = true  // marks this instance as pushable — only these finalize on stop()
     a._.acc = pageAccumulator({ pages: a.pages, notify, ondata: (...args) => emit(a, 'data', ...args) })
     a._.waiters = waiters
     return a
@@ -71,7 +72,7 @@ export default function audio(source, opts = {}) {
     let loading = instances.filter(s => !s.decoded)
     if (loading.length) {
       first.ready = Promise.all(loading.map(s => s.ready)).then(() => { delete first.then; delete first.catch; return true })
-      first.ready.catch(() => {})
+      first.ready.catch(e => emit(first, 'error', e))
       makeThenable(first)
     }
     return first
@@ -83,7 +84,7 @@ export default function audio(source, opts = {}) {
     let a = audio.from(source, opts)
     if (audio.evict && a.cache && a.budget !== Infinity) {
       a.ready = audio.evict(a).then(() => { delete a.then; delete a.catch; return true })
-      a.ready.catch(() => {})
+      a.ready.catch(e => emit(a, 'error', e))
       makeThenable(a)
     }
     return a
@@ -91,7 +92,10 @@ export default function audio(source, opts = {}) {
   // From encoded source (file, URL, buffer)
   let ref = typeof source === 'string' ? source : source instanceof URL ? source.href : null
   let pages = [], waiters = []
-  let notify = () => { for (let w of waiters.splice(0)) w() }
+  let notify = () => { for (let w of waiters.splice(0)) w(); scheduleEvict(a) }
+  // 'data' must not be observable before 'metadata' — queue until metadata fires, then flush in order.
+  let dataQueue = [], metaEmitted = false
+  let emitData = (...args) => metaEmitted ? emit(a, 'data', ...args) : dataQueue.push(args)
   let a = create(pages, 0, 0, 0, { ...opts, source: ref }, null)
   a._.waiters = waiters
   a.decoded = false
@@ -106,10 +110,12 @@ export default function audio(source, opts = {}) {
         if (!audio.opfsCache) throw new Error('Persistent storage requires cache module (import "./cache.js")')
         try { opts = { ...opts, cache: await audio.opfsCache(), budget: opts.budget ?? audio.DEFAULT_BUDGET ?? Infinity } }
         catch { throw new Error('OPFS not available (required by storage: "persistent")') }
+        if (a._.disposed) return true
         a.cache = opts.cache
         a.budget = opts.budget
       }
-      let result = await decodeSource(source, { pages, notify, ondata: (...args) => emit(a, 'data', ...args) })
+      let result = await decodeSource(source, { pages, notify, ondata: emitData, disposed: () => a._.disposed })
+      if (a._.disposed) return true
       a.sampleRate = result.sampleRate
       a._.ch = result.channels
       a._.chV = -1  // invalidate cached channels
@@ -117,9 +123,12 @@ export default function audio(source, opts = {}) {
       if (result.estDuration) a._.estDur = result.estDuration
       if (result.header) { a._.header = result.header; a._.format = result.format }
       emit(a, 'metadata', { sampleRate: result.sampleRate, channels: result.channels, estDuration: result.estDuration })
+      metaEmitted = true
+      for (let args of dataQueue.splice(0)) emit(a, 'data', ...args)
       readyResolve()
 
       let final = await result.decoding
+      if (a._.disposed) return true
       a._.len = final.length
       a._.lenV = -1
       a.stats = final.stats
@@ -130,6 +139,7 @@ export default function audio(source, opts = {}) {
       delete a.then; delete a.catch  // clear thenable before resolve to prevent unwrap loop
       return true
     } catch (e) {
+      if (a._.disposed) return true
       readyReject(e)
       emit(a, 'error', e)
       throw e
@@ -193,27 +203,25 @@ audio.PAGE_SIZE = 1024 * audio.BLOCK_SIZE
 export const LOAD = Symbol('load')
 export const READ = Symbol('read')
 
-/** Emit event on instance. */
+/** Emit event on instance. Snapshots listeners so a handler that (un)subscribes mid-emit
+ *  cannot skip/duplicate others in this dispatch. */
 export function emit(a, event, ...args) {
   let arr = a._.ev[event]
-  if (arr) for (let cb of arr) cb(...args)
+  if (arr) for (let cb of arr.slice()) cb(...args)
 }
-fn.on = function(event, cb, opts) {
-  if (opts == null) { (this._.ev[event] ??= []).push(cb); return this }
-  let o = typeof opts === 'string' || Array.isArray(opts) ? { type: opts } : opts
-  let wrap = (...args) => cb(...args)
-  wrap._cb = cb; wrap._opts = o
-  ;(this._.ev[event] ??= []).push(wrap)
+fn.on = function(event, cb) {
+  (this._.ev[event] ??= []).push(cb)
   return this
 }
 fn.off = function(event, cb) {
   if (!event) { this._.ev = {}; return this }
   if (!cb) { delete this._.ev[event]; return this }
   let arr = this._.ev[event]
-  if (arr) { let i = arr.findIndex(e => e === cb || e._cb === cb); if (i >= 0) arr.splice(i, 1) }
+  if (arr) { let i = arr.indexOf(cb); if (i >= 0) arr.splice(i, 1) }
   return this
 }
 fn.dispose = function() {
+  this._.disposed = true  // checked by in-flight decode/seek continuations to abort without mutating this instance
   this.stop()
   this._.ev = {}
   this._.meters = null
@@ -255,6 +263,9 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
       ct: 0, ctStamp: 0,    // currentTime wall-clock interpolation
       vol: 1, muted: false, // volume 0..1 linear with change events
       rate: 1, // playbackRate
+      push: false,     // true only for pushable (audio(null)) instances — gates fn.stop()'s finalize branch
+      disposed: false, // set by fn.dispose() — in-flight async continuations check this to abort
+      evicting: false, // non-reentrant guard for scheduleEvict
     },
     writable: false, enumerable: false, configurable: false
   })
@@ -345,7 +356,11 @@ Object.defineProperties(fn, {
 fn[LOAD] = async function() {
   if (this._.ready) await this._.ready; this._.acc?.drain()
 }
-fn[READ] = function(offset, duration) { return readPages(this, offset, duration) }
+/** Default read — restores any evicted pages first (no-op if cache.js isn't loaded or a has no cache). */
+fn[READ] = async function(offset, duration) {
+  if (audio.ensurePages) await audio.ensurePages(this, offset, duration)
+  return readPages(this, offset, duration)
+}
 
 /** Push PCM data into a pushable instance. Accepts Float32Array[], Float32Array, or typed array with format. */
 fn.push = function(data, fmt) {
@@ -372,10 +387,13 @@ fn.push = function(data, fmt) {
   acc.push(chData, (fmt && fmt.sampleRate) || sr)
   this._.len = acc.length
   this._.lenV = -1
+  scheduleEvict(this)
   return this
 }
 
-/** Stop recording and/or finalize pushable stream. Drain partial page, signal EOF to waiting streams. No-op on non-pushable. */
+/** Stop recording and/or finalize pushable stream. Drain partial page, signal EOF to waiting streams.
+ *  No-op on non-pushable — an ordinary file/URL decode also populates `_.acc` (streaming codec buffer)
+ *  while mid-decode, and must not be finalized by a transport-level stop(). */
 fn.stop = function() {
   this.playing = false; this.paused = false; this.seeking = false
   if (this._._wake) this._._wake()
@@ -383,7 +401,7 @@ fn.stop = function() {
     this.recording = false
     if (this._._mic) { this._._mic(null); this._._mic = null }
   }
-  if (this._.acc && !this.decoded) {
+  if (this._.push && this._.acc && !this.decoded) {
     this._.acc.drain()
     this.decoded = true
     if (this._.waiters) for (let w of this._.waiters.splice(0)) w()
@@ -419,8 +437,14 @@ fn.seek = function(t) {
   if (this.cache) {
     let page = Math.floor(t * this.sampleRate / audio.PAGE_SIZE)
     ;(async () => {
-      for (let i = Math.max(0, page - 1); i <= Math.min(page + 2, this.pages.length - 1); i++)
-        if (this.pages[i] === null && await this.cache.has(i)) this.pages[i] = await this.cache.read(i)
+      for (let i = Math.max(0, page - 1); i <= Math.min(page + 2, this.pages.length - 1); i++) {
+        if (this._.disposed) return
+        if (this.pages[i] === null && await this.cache.has(i)) {
+          if (this._.disposed) return
+          this.pages[i] = await this.cache.read(i)
+          touchLru(this, i)  // restoring counts as access — keeps it eligible for normal LRU aging
+        }
+      }
     })().catch(() => {})
   }
   if (this.playing) { this._._seekTo = t; if (this._._wake) this._._wake() }
@@ -451,15 +475,30 @@ function paginate(channelData) {
   return pages
 }
 
+/** Mark page i as most-recently-used (LRU eviction order = insertion order of this Set). */
+export function touchLru(a, i) {
+  let lru = a._.lru
+  if (lru && lru._last !== i) { lru.delete(i); lru.add(i); lru._last = i }
+}
+
+/** Non-reentrant, budget-guarded eviction trigger — called from progressive decode/push
+ *  page-emit paths so a growing instance never holds more than `budget` resident regardless
+ *  of whether/when its full decode (or push stream) ever completes. No-op without cache.js. */
+function scheduleEvict(a) {
+  if (!a.cache || !audio.evict || a._.evicting) return
+  a._.evicting = true
+  audio.evict(a).catch(() => {}).then(() => { a._.evicting = false })
+}
+
 /** Walk pages of instance a, calling visitor(page, channel, start, end) for each overlapping page. */
 export function walkPages(a, c, srcOff, len, visitor) {
-  let pages = a.pages, PS = audio.PAGE_SIZE, lru = a._.lru
+  let pages = a.pages, PS = audio.PAGE_SIZE
   let p0 = Math.floor(srcOff / PS), pos = p0 * PS
   for (let p = p0; p < pages.length && pos < srcOff + len; p++) {
     let pg = pages[p], pLen = pg ? pg[0].length : PS
     if (pos + pLen > srcOff && pg) {
       let s = Math.max(srcOff - pos, 0), e = Math.min(srcOff + len - pos, pLen)
-      if (lru && lru._last !== p) { lru.delete(p); lru.add(p); lru._last = p }
+      touchLru(a, p)
       visitor(pg, c, s, e, Math.max(pos - srcOff, 0))
     }
     pos += pLen
@@ -494,6 +533,13 @@ export function readPages(a, offset, duration) {
 
 // ── Decode ───────────────────────────────────────────────────────────────
 
+/** Convert a file: URL string to a filesystem path; other strings pass through. */
+async function toPath(source) {
+  if (!source.startsWith('file:')) return source
+  let { fileURLToPath } = await import('url')
+  return fileURLToPath(source)
+}
+
 /** Resolve source to ArrayBuffer. */
 async function resolveSource(source) {
   if (source instanceof ArrayBuffer) return source
@@ -502,10 +548,7 @@ async function resolveSource(source) {
   if (typeof source === 'string') {
     if (/^(https?|data|blob):/.test(source) || typeof window !== 'undefined')
       return (await fetch(source)).arrayBuffer()
-    if (source.startsWith('file:')) {
-      let { fileURLToPath } = await import('url')
-      source = fileURLToPath(source)
-    }
+    source = await toPath(source)
     let { readFile } = await import('fs/promises')
     let buf = await readFile(source)
     return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
@@ -524,8 +567,7 @@ async function detectSource(source) {
     return { format: getType(bytes), bytes }
   }
   if (typeof source === 'string' && !/^(https?|data|blob):/.test(source) && typeof window === 'undefined') {
-    let path = source
-    if (source.startsWith('file:')) { let { fileURLToPath } = await import('url'); path = fileURLToPath(source) }
+    let path = await toPath(source)
     let { open, stat } = await import('fs/promises')
     let fh = await open(path, 'r')
     let hdr = new Uint8Array(12)
@@ -606,7 +648,8 @@ function pageAccumulator(opts = {}) {
   }
 }
 
-/** Estimate duration from file size, format, sampleRate, channels. */
+/** Estimate duration from file size, format, sampleRate, channels.
+ *  Display-only placeholder heuristics (assumed VBR/bitrate) — feeds CLI progress only, never decode/render. */
 function estimateDuration(fileSize, format, sampleRate, channels) {
   if (!fileSize || !sampleRate || !channels) return null
   if (format === 'wav') return Math.max(0, (fileSize - 44) / (sampleRate * channels * 2))  // 16-bit PCM
@@ -625,8 +668,7 @@ async function decodeSource(source, opts = {}) {
     if (!bytes) bytes = new Uint8Array(await resolveSource(source))
     let { channelData, sampleRate } = await decode(bytes.buffer || bytes)
     let pages = opts.pages || []
-    let ps = paginate(channelData)
-    for (let p of ps) { pages.push(p); opts.notify?.() }
+    if (!opts.disposed?.()) for (let p of paginate(channelData)) { pages.push(p); opts.notify?.() }
     let stats = audio.statSession?.(sampleRate)?.page(channelData)?.done() ?? null
     let header = bytes.subarray(0, Math.min(bytes.length, 256 * 1024))
     return { pages, sampleRate, channels: channelData.length, header, format, decoding: Promise.resolve({ stats, length: channelData[0].length }) }
@@ -641,11 +683,13 @@ async function decodeSource(source, opts = {}) {
   }
   let firstResolve
   let origNotify = opts.notify
+  let disposed = opts.disposed || (() => false)
   let firstReady = new Promise(r => { firstResolve = r })
+  let resolveFirst = () => { if (firstResolve) { let f = firstResolve; firstResolve = null; f() } }
   let acc = pageAccumulator({
     pages: opts.pages,
     ondata: opts.ondata,
-    notify: () => { origNotify?.(); if (firstResolve) { let f = firstResolve; firstResolve = null; f() } }
+    notify: () => { origNotify?.(); resolveFirst() }
   })
 
   // Accumulate first ~256KB for meta parsing (ID3v2, FLAC blocks, WAV chunks before `data`).
@@ -670,9 +714,11 @@ async function decodeSource(source, opts = {}) {
     try {
       if (reader) {
         for await (let chunk of reader) {
+          if (disposed()) return { stats: null, length: acc.length }
           let buf = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk)
           addHeader(buf)
           let r = await dec(buf)
+          if (disposed()) return { stats: null, length: acc.length }
           if (r.channelData.length) acc.push(r.channelData, r.sampleRate)
           await yieldLoop()
         }
@@ -680,17 +726,25 @@ async function decodeSource(source, opts = {}) {
         addHeader(bytes)
         let FEED = 64 * 1024
         for (let off = 0; off < bytes.length; off += FEED) {
+          if (disposed()) return { stats: null, length: acc.length }
           let r = await dec(bytes.subarray(off, Math.min(off + FEED, bytes.length)))
+          if (disposed()) return { stats: null, length: acc.length }
           if (r.channelData.length) acc.push(r.channelData, r.sampleRate)
           await yieldLoop()
         }
       }
+      if (disposed()) return { stats: null, length: acc.length }
       let flushed = await dec()
+      if (disposed()) return { stats: null, length: acc.length }
       if (flushed.channelData.length) acc.push(flushed.channelData, flushed.sampleRate)
       let final = acc.done()
       final.header = flushHeader()
       return final
-    } catch (e) { if (firstResolve) { let f = firstResolve; firstResolve = null; f() }; throw e }
+    } finally {
+      // Guarantees firstReady settles even on a clean decode that pushed zero samples (empty/truncated
+      // input) — otherwise `await firstReady` below hangs forever with no reject/error either.
+      resolveFirst()
+    }
   })()
 
   await firstReady

@@ -40,4 +40,4 @@ const pan = (input, output, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('pan', { params: ['value'], process: pan })
+audio.op('pan', { params: ['value'], ranged: true, auto: 'sample', process: pan })

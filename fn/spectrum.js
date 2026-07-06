@@ -27,6 +27,10 @@ function hannWin(n) {
 
 /**
  * Compute mel-binned magnitude spectrum from a block of samples.
+ * Triangular overlapping mel filterbank — Davis & Mermelstein (1980), HTK/librosa convention:
+ * bins+2 mel-spaced points define `bins` filters, each a triangle spanning points [b, b+2] and
+ * peaking (weight 1) at point b+1; per-filter output is the weighted-mean power, sqrt'd back to
+ * a magnitude (HTK-style unnormalized weights, not slaney area-normalized).
  * @param {Float32Array} samples — mono PCM block (length should be power of 2)
  * @param {number} sr — sample rate
  * @param {object} [opts]
@@ -46,15 +50,22 @@ export function melSpectrum(samples, sr, opts = {}) {
   let mMin = toMel(fMin), mMax = toMel(fMax), binHz = sr / N
   let out = new Float32Array(bins)
 
+  let hz = new Float32Array(bins + 2)
+  for (let i = 0; i < hz.length; i++) hz[i] = fromMel(mMin + (mMax - mMin) * i / (bins + 1))
+
   for (let b = 0; b < bins; b++) {
-    let f0 = fromMel(mMin + (mMax - mMin) * b / bins)
-    let f1 = fromMel(mMin + (mMax - mMin) * (b + 1) / bins)
-    let k0 = Math.max(1, Math.floor(f0 / binHz))
-    let k1 = Math.min(mag.length - 1, Math.ceil(f1 / binHz))
-    let sum = 0, cnt = 0
-    for (let k = k0; k <= k1; k++) { sum += mag[k] ** 2; cnt++ }
-    let rms = cnt > 0 ? Math.sqrt(sum / cnt) : 0
-    if (weight) rms *= aWeight((f0 + f1) / 2, sr)
+    let fLo = hz[b], fMid = hz[b + 1], fHi = hz[b + 2]
+    let kLo = Math.max(1, Math.floor(fLo / binHz)), kHi = Math.min(mag.length - 1, Math.ceil(fHi / binHz))
+    let sum = 0, wsum = 0
+    for (let k = kLo; k <= kHi; k++) {
+      let f = k * binHz
+      let w = f <= fMid ? (f - fLo) / (fMid - fLo || 1) : (fHi - f) / (fHi - fMid || 1)
+      if (w <= 0) continue
+      sum += w * mag[k] ** 2
+      wsum += w
+    }
+    let rms = wsum > 0 ? Math.sqrt(sum / wsum) : 0
+    if (weight) rms *= aWeight(fMid, sr)
     out[b] = rms
   }
   return out
@@ -120,14 +131,18 @@ audio.fn.centroid = async function(opts) {
   return cnt > 0 ? acc[0] / cnt : 0
 }
 
-/** a.stat('flatness') → spectral flatness 0..1 (0=tonal, 1=noise) */
+/**
+ * a.stat('flatness') → spectral flatness 0..1 (0=tonal, 1=noise)
+ * Computed over the POWER spectrum (mag², not mag) — Peeters 2004 §6.6 "Spectral Flatness";
+ * matches librosa.feature.spectral_flatness's default power=2.0 convention.
+ */
 audio.fn.flatness = async function(opts) {
   let N = 1024, win = hannWin(N), buf = new Float32Array(N)
   let { acc, cnt } = await analyzeBlocks(this, opts, N, 1, (block, acc) => {
     for (let i = 0; i < N; i++) buf[i] = block[i] * win[i]
     let mag = fft(buf), n = mag.length - 1
     let logSum = 0, linSum = 0
-    for (let k = 1; k < mag.length; k++) { logSum += Math.log(mag[k] + 1e-20); linSum += mag[k] }
+    for (let k = 1; k < mag.length; k++) { let p = mag[k] ** 2; logSum += Math.log(p + 1e-20); linSum += p }
     let gm = Math.exp(logSum / n), am = linSum / n
     acc[0] += am > 0 ? gm / am : 0
   })

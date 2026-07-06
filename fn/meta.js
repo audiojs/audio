@@ -70,12 +70,12 @@ Object.defineProperties(audio.fn, {
   },
   markers: {
     get() { ensureMeta(this); return projectMarkers(this, this._.markers || []) },
-    set(v) { this._.metaDone = true; this._.markers = (v || []).map(m => toSrcMarker(this, m)); this._.markersV = this.version },
+    set(v) { this._.metaDone = true; this._.markers = (v || []).map(m => toSrcMarker(this, m)) },
     enumerable: true, configurable: true
   },
   regions: {
     get() { ensureMeta(this); return projectRegions(this, this._.regions || []) },
-    set(v) { this._.metaDone = true; this._.regions = (v || []).map(r => toSrcRegion(this, r)); this._.regionsV = this.version },
+    set(v) { this._.metaDone = true; this._.regions = (v || []).map(r => toSrcRegion(this, r)) },
     enumerable: true, configurable: true
   }
 })
@@ -124,6 +124,34 @@ function projectMarkers(a, markers) {
   return out
 }
 
+/**
+ * Project a source [a,b) region through every plan segment independently (not paired by
+ * index — a structural op like repeat() can duplicate one endpoint's segment but not the
+ * other's, so start/end must each be mapped per-segment then merged, never zipped).
+ */
+function projectRegionRange(a0, b0, segs) {
+  let ivs = []
+  for (let sg of segs) {
+    let from = sg[0], count = sg[1], to = sg[2], rate = sg[3] || 1, ref = sg[4]
+    if (ref !== undefined) continue  // skip silence (ref=null) and ref segments
+    let absR = Math.abs(rate)
+    let lo = Math.max(a0, from), hi = Math.min(b0, from + count * absR)
+    if (hi <= lo) continue
+    let p0 = rate < 0 ? to + count - (lo - from) / absR : to + (lo - from) / absR
+    let p1 = rate < 0 ? to + count - (hi - from) / absR : to + (hi - from) / absR
+    ivs.push(p0 < p1 ? [p0, p1] : [p1, p0])
+  }
+  if (!ivs.length) return []
+  ivs.sort((x, y) => x[0] - y[0])
+  let merged = [ivs[0]]
+  for (let i = 1; i < ivs.length; i++) {
+    let last = merged[merged.length - 1], [s, e] = ivs[i]
+    if (s <= last[1] + 1e-9) last[1] = Math.max(last[1], e)
+    else merged.push([s, e])
+  }
+  return merged
+}
+
 function projectRegions(a, regions) {
   if (!regions.length) return []
   let plan = a.edits?.length ? buildPlan(a) : null
@@ -131,15 +159,8 @@ function projectRegions(a, regions) {
   let sr = plan ? plan.sr : a._.sr
   let out = []
   for (let r of regions) {
-    let starts = remapSample(r.sample, segs)
-    let ends = remapSample(r.sample + r.length, segs)
-    for (let i = 0; i < Math.max(starts.length, ends.length); i++) {
-      let s = starts[i] ?? ends[i], e = ends[i] ?? starts[i]
-      if (s == null || e == null) continue
-      let lo = Math.min(s, e), hi = Math.max(s, e)
-      if (hi <= lo) continue
+    for (let [lo, hi] of projectRegionRange(r.sample, r.sample + r.length, segs))
       out.push({ at: lo / sr, duration: (hi - lo) / sr, label: r.label })
-    }
   }
   out.sort((a, b) => a.at - b.at)
   return out

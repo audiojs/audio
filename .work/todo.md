@@ -64,7 +64,7 @@
 * [ ] shrink-silence
   * [ ] compress
 
-* [ ] Modulation: pitch, stretch, repeat, filter, pan, reverb and other params should be adjustable by function
+* [ ] Modulation: pitch, stretch, repeat, filter, pan, reverb and other params should be adjustable by function — process-op params (gain/pan/filter/dither/…) done via engine automation; state-bound params (stretch/pitch factor — vocoder init) and structural params (repeat times) still open
 
 
 ### Effects
@@ -266,7 +266,7 @@ Building blocks present: `a.block` updates per playback chunk (fn/play.js:63), `
   * [x] paged transitions - op can be applied to a page that's not yet available
   * [ ] there must be readme, CLI help, GERUNDS
 
-* [ ] Modulation: pitch, stretch, repeat, filter, pan, reverb and other params should be adjustable by function
+* [ ] Modulation: pitch, stretch, repeat, filter, pan, reverb and other params should be adjustable by function — process-op params (gain/pan/filter/dither/…) done via engine automation; state-bound params (stretch/pitch factor — vocoder init) and structural params (repeat times) still open
 
 **Basic correctness** (input → expected output):
 * [x] dither — TPDF: 8-bit quantization levels, 16-bit signal integrity, SNR (93 dB / 45 dB), noise floor uniformity
@@ -292,7 +292,7 @@ Building blocks present: `a.block` updates per playback chunk (fn/play.js:63), `
 * [x] filter warm-up — seek read matches full render slice
 * [x] filter(fn) — custom filter function
 * [x] cascaded filters — sequential lowpasses build cumulative response (independent state per op)
-* [ ] filter automation — parameter changes mid-stream, no zipper artifacts (no automation API yet)
+* [x] filter automation — parameter changes mid-stream, no zipper artifacts (engine automation: fn params sampled in 128-sample sub-blocks, patch ramps; test/fix-plan.js sweep test)
 
 **Stream ≡ read** (stream() output matches read() output):
 * [x] gain, fade, reverse, crop, remove, insert, repeat, pad, speed, highpass, lowpass, crossfade
@@ -376,11 +376,49 @@ Building blocks present: `a.block` updates per playback chunk (fn/play.js:63), `
 * [ ] webworker mode - any meaning, no?
 * [ ] zzfx op
 * [ ] text overlays/labels/metadata?
+* [ ] collection of sound producing hacks - from instagrams, youtubes etc (like whispering voice in bg etc)
+* [ ] https://github.com/counterpoint-studio/audio-file-mcp-app - alternative
 
+## Applications
+
+* [ ] Sound level meter (calibrated)
+* [ ]
 
 ## Bugs (open)
 
-* [ ] `remix(n)` chained with subsequent process ops throws "Cannot set properties of undefined" — occurs e.g. `a.remix(1).highpass(200).gain(-3)` on stereo. Output buffer for new channel count not properly allocated when >1 process op follows a ch-changing remix (test/index.js had to skip this chain).
+* [x] `remix(n)` chained with subsequent process ops throws "Cannot set properties of undefined" — fixed conceptually: each pipeline stage owns output buffers sized to its channel width (plan.js initProcs/applyProcs); channel count is a per-stage property, not a ping-pong special case. Regression class covered in test/fix-plan.js.
+
+### Fixed by 2026-07 audit sweep (see test/fix-plan.js, test/fix-core.js, test/fix-meta.js + test/index.js additions)
+
+* [x] Reversed-segment offset math — crop/remove/insert/repeat/reverse used forward-only source-offset formula on rate<0 segments; unified on `segSrcStart`/`sliceSegs`/`spliceSegs` primitives (plan.js)
+* [x] resolve-stage ops (trim/normalize) read un-remapped source stats — `crop().trim()` lost all data, `crop().normalize()` mis-targeted; stats now remapped/derived through the partial plan (or recomputed exactly at final)
+* [x] loadRefs/refVersion checked `edit[1].pages` instead of opts values — insert/mix/crossfade refs never awaited, plan cache never invalidated by ref mutations
+* [x] insert/mix/crossfade ignored sample-rate mismatch — segments now carry srcSR/dstSR rate; ctx.render pulls resample via renderAt
+* [x] Circular source refs (`a.insert(a)`) — stack overflow → clear error (buildPlan/readRange guards)
+* [x] speed/stretch ignored `{at, duration}` — spliceSegs-based ranged plans
+* [x] Engine-level range scoping — filter family/dither/vocals/pitch/crossfeed no longer silently ignore `{at, duration}`
+* [x] Engine-level automation — any numeric param accepts `t => v` (128-sample sub-blocks + patch ramps); filter automation works (coefficients re-derived on param change)
+* [x] Mid-stream edits on decoded sources were frozen for in-flight stream()/play() — plan now recompiles on a.version change with ~20ms crossfade
+* [x] toJSON dropped edits with instance sources (hasFunction walked prototype via for..in)
+* [x] MAX_FLAT guard applied to public read() path (was render()-only)
+* [x] NaN op params rejected at call time (RangeError)
+* [x] stretch/pitch phase-lock silently off — time-stretch vocoder read `lock` from 2nd arg; call site fixed
+* [x] LUFS per ITU-R BS.1770-4 — channel SUM (dual-mono +3.01dB) + 400ms/75%-overlap gating blocks
+* [x] crossfeed unity-sum (was +1.1dB boost on centered content)
+* [x] crossfade `'equal'` curve added — true equal-power law for uncorrelated material
+* [x] flatness on power spectrum (Peeters 2004); mel filterbank triangular/overlapping (Davis & Mermelstein)
+* [x] save() rejected instead of crashing process on write-stream error
+* [x] stat() on un-awaited instance null-derefed (README recipes) — awaits full decode
+* [x] stop() mid-decode corrupted state (decoded=true, len=0) — pushable-only finalize
+* [x] dispose() resurrected by in-flight decode/seek continuations — disposal flag
+* [x] emit() skipped listeners on self-unsubscribe — snapshot iteration
+* [x] zero-sample decode hung .ready forever — always settles, rejects with error event
+* [x] 'data' before 'metadata' event order — queued until metadata
+* [x] eviction: seek-restored pages permanently unevictable; no evict during decode or push/record — LRU-touch on restore, untracked-first order, scheduled evict
+* [x] core+cache without plan read evicted pages as silence — default READ restores
+* [x] projectRegions positional zip broke under repeat — per-segment interval projection + merge
+* [x] CLI: `1.2.3db`→NaN silent zeroed output, negative durations unparsed (documented `fade .2s -1s cos` broken), `-1s..` rejected as flag, play-sink exit 0 on failure, batch overwrite without `{name}`, setRawMode crash on piped stdin
+* [x] audio.d.ts: filter callback inverted (in-place void), detect() missing, OpDescriptor missing pointwise/deriveStats/sr, stat() overloads
 
 
 ## Archive

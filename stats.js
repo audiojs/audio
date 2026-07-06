@@ -165,6 +165,16 @@ function remapStats(srcStats, plan, sr) {
 
 audio.statSession = statSession
 
+/** Adapt source stats to a partial plan (segs + pipeline) for resolve-stage ops —
+ *  algebraic remap + derive only; null when infeasible (caller decides fallback). */
+audio.adaptStats = (src, plan, sr) => {
+  if (!src.blockSize) return null
+  let out = canDerivePipeline(plan.pipeline) && remapStats(src, plan, sr)
+  if (out && plan.pipeline.length) out = tryDeriveStats(out, plan.pipeline)
+  if (out && src.partial) out.partial = true
+  return out || null
+}
+
 /** Stream plan blocks into stat session, yielding event loop periodically to avoid blocking. */
 async function streamStats(s, inst, plan, offset, duration) {
   let t = performance.now()
@@ -232,6 +242,8 @@ function derivePointwise(desc, stats, opts) {
 /** Resolve block range from opts. Recomputes stats if edits are dirty. */
 export async function queryRange(inst, opts) {
   await inst[LOAD]()
+  // Block stats land only after full decode — LOAD alone resolves at metadata
+  if (!inst.decoded && inst.ready) await inst.ready
   let at = parseTime(opts?.at), dur = parseTime(opts?.duration)
   let hasRange = at != null || dur != null
 

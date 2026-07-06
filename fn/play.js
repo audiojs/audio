@@ -1,5 +1,4 @@
 import audio, { emit } from '../core.js'
-import Speaker from 'audio-speaker'
 import { emitMeter } from './meter.js'
 
 /** Apply fade ramp to interleaved buffer. fadeIn=true ramps 0→1, fadeIn=false ramps 1→0 at end. */
@@ -35,6 +34,7 @@ audio.fn.play = function(opts) {
       let ch = a.channels, sr = a.sampleRate
       a.playing = true
       if (!a.paused) emit(a, 'play')
+      let { default: Speaker } = await import('audio-speaker')
       let wait = async () => { while (a.paused && a.playing && a._._seekTo == null) await new Promise(r => { a._._wake = r }); a._._wake = null }
 
       let from = offset, RAMP = 256 // ~6ms anti-click ramp

@@ -1,5 +1,5 @@
 import test from 'tst'
-import { parseValue, parseRange, parseArgs, showOpHelp, HELP, progressBar, fmtTime, isOpName, isVerb, isStatName, SOURCE_VERBS, SINK_VERBS, prompt, playerSave, defaultSavePath } from '../bin/cli.js'
+import { parseValue, parseRange, parseArgs, showOpHelp, HELP, progressBar, fmtTime, isOpName, isVerb, isStatName, SOURCE_VERBS, SINK_VERBS, prompt, playerSave, defaultSavePath, opsLabel } from '../bin/cli.js'
 import { EventEmitter } from 'events'
 import audio from '../audio.js'
 import { spawn } from 'child_process'
@@ -907,7 +907,7 @@ test('op help — all built-in ops have help', t => {
   let expected = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'clip', 'remove',
     'insert', 'repeat', 'mix', 'crossfade', 'remix', 'highpass', 'lowpass', 'eq', 'lowshelf',
     'highshelf', 'notch', 'bandpass', 'allpass', 'filter', 'pan', 'pad', 'speed', 'stretch',
-    'pitch', 'vocals', 'dither', 'crossfeed', 'resample',
+    'pitch', 'vocals', 'dither', 'crossfeed', 'resample', 'write', 'transform',
     // sinks + sources
     'play', 'stat', 'save', 'record']
   for (let op of expected) t.ok(HELP[op], `${op} has help`)
@@ -1047,7 +1047,7 @@ test('CLI — batch template {name} and {ext}', async t => {
   }
 })
 
-test('CLI — batch silently overwrites without prompt (non-TTY)', async t => {
+test('CLI — batch errors on existing output without --force (non-TTY)', async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
   let { copyFileSync } = await import('fs')
   let src1 = join(__dirname, 'tmp-bforce-a.wav')
@@ -1058,9 +1058,12 @@ test('CLI — batch silently overwrites without prompt (non-TTY)', async t => {
     copyFileSync(lenaPath, src1)
     copyFileSync(lenaPath, src2)
     await runCli(['test/tmp-bforce-?.wav', 'gain', '-3', 'save', 'test/{name}.done.wav', '--force'])
-    await runCli(['test/tmp-bforce-?.wav', 'gain', '-3', 'save', 'test/{name}.done.wav'])
-    let a = await audio(out1)
-    t.ok(a.duration > 0, 'silently overwrote existing output')
+    try {
+      await runCli(['test/tmp-bforce-?.wav', 'gain', '-3', 'save', 'test/{name}.done.wav'])
+      t.fail('should have thrown — output already exists and stdin is non-TTY')
+    } catch (e) {
+      t.ok(e.message.includes('--force'), 'error tells the user to use --force')
+    }
   } finally {
     cleanup(src1); cleanup(src2); cleanup(out1); cleanup(out2)
   }
@@ -1086,15 +1089,18 @@ test('CLI — batch --force overwrites', async t => {
   }
 })
 
-test('CLI — overwrite: non-TTY stdin silently overwrites', async t => {
+test('CLI — overwrite: non-TTY stdin errors without --force', async t => {
   if (!lenaPath) { t.skip('audio-lena not available'); return }
   let { copyFileSync } = await import('fs')
   let outPath = join(__dirname, 'tmp-ow-silent.wav')
   try {
     copyFileSync(lenaPath, outPath)
-    await runCli([lenaPath, 'gain', '-3', 'save', outPath])
-    let a = await audio(outPath)
-    t.ok(a.duration > 0, 'silently overwrote')
+    try {
+      await runCli([lenaPath, 'gain', '-3', 'save', outPath])
+      t.fail('should have thrown — output already exists and stdin is non-TTY')
+    } catch (e) {
+      t.ok(e.message.includes('--force'), 'error tells the user to use --force')
+    }
   } finally { cleanup(outPath) }
 })
 
@@ -1307,6 +1313,140 @@ test('CLI — save - writes to stdout', async t => {
   let { stdout } = await runCli([lenaPath, 'save', '-'])
   // wav header begins with 'RIFF'
   t.ok(stdout.startsWith('RIFF'), 'stdout has WAV RIFF header')
+})
+
+
+// ── Bug-fix regression tests (audit: strict value parsing, negative durations/ranges, ──
+// ── play-sink error handling, batch pattern guard) ──────────────────────────────────
+
+test('parseValue — rejects malformed numeric value instead of silently NaN-ing', t => {
+  t.throws(() => parseValue('1.2.3db'), /invalid value '1\.2\.3db'/, `1.2.3db rejected`)
+  t.throws(() => parseValue('1.2.3hz'), /invalid value/, `1.2.3hz rejected`)
+  t.throws(() => parseValue('1.2.3khz'), /invalid value/, `1.2.3khz rejected`)
+  t.throws(() => parseValue('1.2.3s'), /invalid value/, `1.2.3s rejected`)
+  t.throws(() => parseValue('1.2.3'), /invalid value/, `bare 1.2.3 rejected`)
+})
+
+test('parseValue — negative durations parse (fade-out shorthand)', t => {
+  t.is(parseValue('-1s'), -1, '-1s')
+  t.is(parseValue('-0.5s'), -0.5, '-0.5s')
+  t.is(parseValue('-500ms'), -0.5, '-500ms')
+  t.is(parseValue('-1.5s'), -1.5, '-1.5s')
+})
+
+test('parseValue — leading-dot decimals still parse (unaffected by strict-number fix)', t => {
+  t.is(parseValue('.2s'), 0.2, '.2s')
+  t.is(parseValue('.5'), 0.5, 'bare .5')
+})
+
+test('parseArgs — "fade .2s -1s cos" (documented HELP.fade example) parses correctly', t => {
+  let r = parseArgs(['in.wav', 'fade', '.2s', '-1s', 'cos', 'save', 'out.wav'])
+  t.is(r.transforms.length, 2, 'expands to fade-in + fade-out')
+  t.is(r.transforms[0].name, 'fade')
+  t.is(r.transforms[0].args[0], 0.2, 'fade-in duration 0.2s')
+  t.is(r.transforms[0].curve, 'cos', 'fade-in curve cos (not swallowed by the -1s bug)')
+  t.is(r.transforms[1].args[0], -1, 'fade-out duration -1s (not left as the string "-1s")')
+  t.is(r.transforms[1].curve, 'cos', 'fade-out curve cos')
+})
+
+test('parseArgs — negative-anchored range "-1s.." is not misclassified as a flag', t => {
+  let r = parseArgs(['in.wav', '-1s..', 'save', 'out.wav'])
+  t.ok(r.range, 'range parsed (not "Unknown flag: -1s..")')
+  t.is(r.range.offset, -1, 'offset -1 (resolved from-end later, against known duration)')
+  t.is(r.range.duration, undefined, 'open-ended')
+})
+
+test('parseArgs — negative-anchored range "-5s..-1s"', t => {
+  let r = parseArgs(['in.wav', '-5s..-1s', 'save', 'out.wav'])
+  t.ok(r.range, 'range parsed')
+  t.is(r.range.offset, -5)
+  t.is(r.range.duration, 4)
+})
+
+test('opsLabel — silent-e verbs gerund correctly (write → Writing, not Writeing)', t => {
+  t.same(opsLabel([{ name: 'write' }]), ['Writing'])
+  t.same(opsLabel([{ name: 'transform' }]), ['Transforming'])
+  t.same(opsLabel([{ name: 'gain' }]), ['Applying gain'], 'explicit GERUNDS entry still wins')
+})
+
+test('CLI — end-to-end: -1s.. saves the last second (resolves from-end against real duration)', async t => {
+  let fixture = join(__dirname, 'fixture.wav')
+  let { existsSync } = await import('fs')
+  if (!existsSync(fixture)) { t.skip('fixture.wav not available'); return }
+  let outPath = join(__dirname, 'tmp-cli-neg-range.wav')
+  try {
+    await runCli([fixture, '-1s..', 'save', outPath, '--force'])
+    let result = await audio(outPath)
+    t.ok(Math.abs(result.duration - 1) < 0.1, `~1s saved from a 2s fixture (got ${result.duration.toFixed(2)}s)`)
+  } finally { cleanup(outPath) }
+})
+
+test('CLI — gain with a malformed value errors instead of writing a zeroed file', async t => {
+  let fixture = join(__dirname, 'fixture.wav')
+  let { existsSync } = await import('fs')
+  if (!existsSync(fixture)) { t.skip('fixture.wav not available'); return }
+  let outPath = join(__dirname, 'tmp-cli-gain-garbage.wav')
+  cleanup(outPath)
+  try {
+    await runCli([fixture, 'gain', '1.2.3db', 'save', outPath, '--force'])
+    t.fail('should have thrown')
+  } catch (e) {
+    t.ok(e.message.includes("invalid value"), 'error mentions the invalid value, not a silent NaN')
+  }
+  t.ok(!existsSync(outPath), 'output file was never written (no zeroed-out corruption)')
+})
+
+test('CLI — play with a missing source exits nonzero with a formatted error (not silent exit 0)', async t => {
+  try {
+    await runCli(['/nonexistent-play-source-xyz.wav', 'play'])
+    t.fail('should have thrown')
+  } catch (e) {
+    t.ok(e.message.includes('audio:'), 'stderr carries the formatted "audio: <message>" error')
+    t.ok(e.message.includes('ENOENT'), 'error mentions the underlying decode failure')
+  }
+})
+
+test('CLI — play: op-application failure during playback errors instead of crashing', async t => {
+  let fixture = join(__dirname, 'fixture.wav')
+  let { existsSync } = await import('fs')
+  if (!existsSync(fixture)) { t.skip('fixture.wav not available'); return }
+  try {
+    await runCli([fixture, 'mix', '/nonexistent-mix-source.wav', 'play'])
+    t.fail('should have thrown')
+  } catch (e) {
+    t.ok(e.message.includes('audio:'), 'formatted error, not a raw uncaught stack trace')
+    t.ok(!e.message.includes('\n    at '), 'no Node stack trace lines in the child\'s stderr')
+  }
+})
+
+test('CLI — batch without {name}/{ext} in the save pattern errors (would otherwise clobber)', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let { copyFileSync, existsSync } = await import('fs')
+  let src1 = join(__dirname, 'tmp-bnoname-a.wav')
+  let src2 = join(__dirname, 'tmp-bnoname-b.wav')
+  let out = join(__dirname, 'tmp-bnoname-out.wav')
+  try {
+    copyFileSync(lenaPath, src1)
+    copyFileSync(lenaPath, src2)
+    try {
+      await runCli(['test/tmp-bnoname-?.wav', 'gain', '-3', 'save', 'test/tmp-bnoname-out.wav', '--force'])
+      t.fail('should have thrown — literal pattern with 2 matched files')
+    } catch (e) {
+      t.ok(e.message.includes('{name}'), 'error names the missing {name} placeholder')
+    }
+  } finally { cleanup(src1); cleanup(src2); cleanup(out) }
+})
+
+test('CLI — batch with a literal pattern is fine for a single matched file', async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let { copyFileSync, existsSync } = await import('fs')
+  let src1 = join(__dirname, 'tmp-bsingle-a.wav')
+  let out = join(__dirname, 'tmp-bsingle-out.wav')
+  try {
+    copyFileSync(lenaPath, src1)
+    await runCli(['test/tmp-bsingle-a.wav', 'gain', '-3', 'save', 'test/tmp-bsingle-out.wav', '--force'])
+    t.ok(existsSync(out), 'single-file batch with a literal pattern still writes its output')
+  } finally { cleanup(src1); cleanup(out) }
 })
 
 

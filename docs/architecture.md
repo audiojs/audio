@@ -37,7 +37,13 @@ Ops don't mutate source pages. `a.gain(-3).crop({at: 1, duration: 5})` pushes tw
 `compilePlan(a, len, final)` compiles `a.edits` into a plan object:
 
 - **Segment map** — copy instructions: which source ranges map to which output positions. Structural ops (crop, remove, insert, repeat, pad, reverse, speed) rewrite segments. Each segment is `[from, count, to, rate?, ref?, interp?]` — "read `count` samples from `from`, write at `to`."
-- **Sample pipeline** — per-block transforms applied in order (gain, fade, filter, pan). Each op receives separate `input` and `output` buffers (`Float32Array[]` per channel, `BLOCK_SIZE` samples). The engine pre-allocates two buffer sets and rotates them per op — previous output becomes next input, zero allocation in the hot path. Ops read from input, write to output (never alias). Stateful ops carry state across blocks via `ctx`.
+- **Sample pipeline** — per-block transforms applied in order (gain, fade, filter, pan). Each op receives separate `input` and `output` buffers (`Float32Array[]` per channel, `BLOCK_SIZE` samples). Each pipeline stage owns its output buffer set, sized to that stage's channel width (channel-changing ops like `remix` are a per-stage property, not a special case) — previous stage's output is the next stage's input, zero allocation in the hot path. Ops read from input, write to output (never alias). Stateful ops carry state across blocks via `ctx`.
+
+  The engine also resolves cross-cutting concerns once, for every op:
+  - **Range scoping** — `{at, duration}` on an op without native range handling is applied by the engine: input copied through outside the range, the op invoked only on the in-range sub-block.
+  - **Automation** — function-valued numeric params are sampled by the engine in 128-sample sub-blocks (`gain`/`pan` opt into per-sample via `auto: 'sample'`; ops with genuine function args like `filter(fn)`/`transform(fn)` exclude them via `fnArgs`).
+  - **Click-free patching** — when a streamed plan's values refine (progressive normalize, live edits), numeric changes ramp linearly across one block instead of stepping.
+  - **Mid-stream edits** — `stream()`/`play()` watch `a.version`; edits pushed while streaming recompile the plan and crossfade (~20ms) into the new pipeline.
 - **Limit** — the safe output boundary. During incremental streaming (`final=false`), `adjustLimit` tracks how far output is deterministic given partial source data.
 
 `buildPlan(a)` is the cached wrapper for fully-decoded audio — calls `compilePlan(a, len, true)` once per version.

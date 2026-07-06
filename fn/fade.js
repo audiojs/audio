@@ -32,6 +32,7 @@ const fade = (input, output, ctx) => {
 import audio from '../core.js'
 audio.op('fade', {
   params: ['in', 'out'],
+  ranged: true,
   process: fade,
   resolve: (ctx) => {
     if (typeof ctx.out !== 'number') return null
