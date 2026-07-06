@@ -4,15 +4,8 @@
  * Public API: a.meter(what, cb?). See README "Playback → meter".
  */
 
-import audio from '../core.js'
+import audio, { resolveChannels as resolveChs } from '../core.js'
 import { melSpectrum } from './spectrum.js'
-
-/** Resolve channel selector (opts.channel) → indices. Mirrors stat.js semantics. */
-function resolveChs(channel, ch) {
-  if (channel == null) return { chs: Array.from({ length: ch }, (_, i) => i), perCh: false }
-  if (Array.isArray(channel)) return { chs: channel, perCh: true }
-  return { chs: [channel], perCh: false }
-}
 
 /** Compute per-block value of a named stat from raw block stats, honoring channel semantics. */
 function frameValue(name, raw, blockChs, sr, opts) {

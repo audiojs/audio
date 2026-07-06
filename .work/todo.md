@@ -21,6 +21,10 @@
 * [ ] Common processing scripts (vocal warmup etc)
 * [ ] CLI `audio split --cue album.cue` — split lossless by cue sheet into N tracks (stolen from mcxiaoke/audio-cli.js)
 
+## v3 naming candidates (breaking — collect, don't drip)
+
+* [ ] `clip()` vs `stat('clipping')` — same root, unrelated meanings (excerpt vs distortion). Candidate: rename method to `excerpt()`/`view()` in v3; README disambiguates for now.
+
 ## Architecture
 
 ### Plugin auto-import (`audio.use(...names)`)
@@ -33,6 +37,7 @@
 - [ ] MIR → ship as plugins under `@audio/stat-*`, not core
 
 ### `audio-module` — unified module convention
+- [x] Contract designed — [.work/audio-module.md](audio-module.md): jz-subset process discipline (same source runs as JS, compiles to WASM, differential CI), adapters toOp/toBatch/toStream/toWorklet, compressor pilot, migration order
 - [ ] Problem: 3 sibling conventions today — `audio-effect` (`fn(data, params)` + param-obj state), `pitch-shift` (`makePitchShift(batch, stream)` factory), `dynamics-processor` (polymorphic `fn(data, opts)` + `{write, flush}` stream). None drop into AudioWorklet/VST/`audio` plan without ad-hoc glue.
 - [ ] Define contract in `audio-module`: `{name, channels, latency, tail, params:{name:{min,max,default,unit,smoothing}}, create(sr, ch, init) → {process(in,out,n), set(k,v,smooth), reset(), serialize?(), restore?()}}` — mirrors `AudioWorkletProcessor` (narrowest target; others are wider)
 - [ ] Ship adapters: `toBatch`, `toStream`, `toWorklet`, `toAudioNode`, `toOp` (for `audio` plan system) — hosts don't care what the module author wrote
@@ -367,13 +372,13 @@ Building blocks present: `a.block` updates per playback chunk (fn/play.js:63), `
 
 ## Improvements
 
-* [ ] No worker thread for CPU-heavy DSP — stretch, pitch, spectrum all run main thread with cooperative yield. Large files produce jank
+* [ ] No worker thread for CPU-heavy DSP — stretch, pitch, spectrum all run main thread with cooperative yield. Large files produce jank. Design done — [.work/worker.md](worker.md): edit list as the RPC protocol, SAB ring + AudioWorklet playback, sync-OPFS bonus, 4 phases
 * [ ] No OfflineAudioContext fallback for browser decode — relies entirely on audio-decode, limiting codec support in browsers
 
 
 ## Ideas
 
-* [ ] webworker mode - any meaning, no?
+* [x] webworker mode - any meaning, no? → yes, designed: [.work/worker.md](worker.md)
 * [ ] zzfx op
 * [ ] text overlays/labels/metadata?
 * [ ] collection of sound producing hacks - from instagrams, youtubes etc (like whispering voice in bg etc)

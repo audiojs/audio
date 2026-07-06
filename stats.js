@@ -3,7 +3,7 @@
  * Self-registers on import — exposes statSession on audio, adds fn.stat.
  */
 
-import audio, { parseTime, LOAD } from './core.js'
+import audio, { parseTime, LOAD, resolveChannels } from './core.js'
 import { buildPlan, streamPlan, ensurePlan } from './plan.js'
 
 // ── Stat descriptor registry ────────────────────────────────────
@@ -292,9 +292,7 @@ audio.fn.stat = async function(name, opts) {
   let bins = opts?.bins
 
   // Resolve channel selection once
-  let chSel = opts?.channel
-  let perCh = Array.isArray(chSel)
-  let chs = chSel != null ? (perCh ? chSel : [chSel]) : Array.from({ length: ch }, (_, i) => i)
+  let { chs, perCh } = resolveChannels(opts?.channel, ch)
 
   // Derived stats — custom query (skip if bins requested on block stat)
   if (desc?.query && bins == null) {

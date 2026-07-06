@@ -167,38 +167,37 @@ export function popEdit(a) {
 
 // ── Virtual Length/Channels ─────────────────────────────────────
 
+/** Effective output format after all edits — the single home for folding the
+ *  edit list through op `.sr`/`.ch` hooks (lightweight: no segments, no resolve). */
+function deriveFormat(a) {
+  if (a._.fmtV === a.version) return a._.fmt
+  let sr = a._.sr, ch = a._.ch
+  for (let [type, o = {}] of a.edits) {
+    let desc = ops[type]
+    if (!desc) continue
+    if (desc.sr) sr = desc.sr(sr, o) || sr
+    if (desc.ch) { let { at, duration, channel, ...extra } = o; ch = desc.ch(ch, extra) || ch }
+  }
+  a._.fmt = { sr, ch }; a._.fmtV = a.version
+  return a._.fmt
+}
+
 Object.defineProperties(fn, {
-  sampleRate: { get() {
-    if (!this.edits?.length) return this._.sr
-    if (this._.srV === this.version) return this._.srC
-    let sr = this._.sr
-    for (let edit of this.edits) {
-      let desc = ops[edit[0]]
-      if (desc?.sr) sr = desc.sr(sr, edit[1] || {}) || sr
-    }
-    this._.srC = sr; this._.srV = this.version
-    return sr
-  }, set(v) { this._.sr = v }, enumerable: true, configurable: true },
+  sampleRate: {
+    get() { return this.edits?.length ? deriveFormat(this).sr : this._.sr },
+    set(v) { this._.sr = v; this._.fmtV = -1 },
+    enumerable: true, configurable: true
+  },
   length: { get() {
     if (this._.lenV === this.version && this._.lenL === this._.len) return this._.lenC
     let len = this.edits.length ? buildPlan(this).totalLen : this._.len
     this._.lenC = len; this._.lenV = this.version; this._.lenL = this._.len
     return len
   }, configurable: true },
-  channels: { get() {
-    if (this._.chV === this.version) return this._.chC
-    let ch = this._.ch
-    for (let edit of this.edits) {
-      let [type, o = {}] = edit
-      let desc = ops[type]
-      if (desc?.ch) {
-        let { at, duration, channel, ...extra } = o
-        ch = desc.ch(ch, extra) || ch
-      }
-    }
-    this._.chC = ch; this._.chV = this.version
-    return ch
-  }, configurable: true },
+  channels: {
+    get() { return this.edits?.length ? deriveFormat(this).ch : this._.ch },
+    configurable: true
+  },
 })
 
 
@@ -210,6 +209,13 @@ export async function ensurePlan(a, plan, offset, duration) {
   let { segs, sr } = plan
   let s = Math.round((offset || 0) * sr)
   let e = duration != null ? s + Math.round(duration * sr) : plan.totalLen
+  // Prime ctx.render pull sources (mix/crossfade) — seconds are rate-invariant,
+  // so the overlap maps directly to the ref's own timebase
+  if (plan.pulls) for (let p of plan.pulls) {
+    let S = s / sr, E = e / sr
+    let o1 = Math.max(S, p.at), o2 = Math.min(E, p.at + p.ref.duration)
+    if (o2 > o1) await audio.ensurePages(p.ref, o1 - p.at, o2 - o1)
+  }
   for (let sg of segs) {
     let iStart = Math.max(s, sg[2]), iEnd = Math.min(e, sg[2] + sg[1])
     if (iStart >= iEnd) continue
@@ -501,7 +507,39 @@ function resolveCtxStats(a, segs, pipeline, sr, final) {
  *  final=true when source is fully decoded — all positions are determined. */
 function compilePlan(a, len, final) {
   let sr = a._.sr, ch = a._.ch
-  let segs = [[0, len, 0]], pipeline = [], limit = len
+  let segs = [[0, len, 0]], pipeline = [], limit = len, pulls = []
+
+  // Pipeline push that also registers ctx.render pull sources (mix/crossfade)
+  // so ensurePlan can prime their pages alongside segment refs.
+  let pushProc = ed => {
+    pipeline.push(ed)
+    let o = ed[1]
+    if (o) for (let k in o) if (o[k]?.pages) pulls.push({ ref: o[k], at: o.at ?? 0 })
+  }
+
+  // Apply edits emitted by an expand/resolve hook: structural → segment rewrite,
+  // otherwise pipeline. Inherits the parent edit's range unless overridden.
+  let applyEmitted = (emitted, at, duration, channel) => {
+    let edits = Array.isArray(emitted) && typeof emitted[0] !== 'string' ? emitted : [emitted]
+    for (let re of edits) {
+      re = normalizeEdit(re, sr)
+      let [rType, rOpts = {}] = re
+      let o = { ...rOpts }
+      o.at ??= at; o.duration ??= duration; o.channel ??= channel
+      re = [rType, o]
+      let rOp = ops[rType]
+      if (rOp?.plan && typeof rOp.plan === 'function') {
+        let { at: rAt, duration: rDur, channel: rCh, ...rExtra } = o
+        let t = planLen(segs), rOff = rAt != null ? Math.round(rAt * sr) : null, rLen = rDur != null ? Math.round(rDur * sr) : null
+        let rpctx = mkPlanCtx(t, sr, rOff, rLen, rExtra)
+        segs = rOp.plan(segs, rpctx)
+        if (!final) limit = adjustLimit(limit, rType, rpctx)
+      } else {
+        pushProc(re)
+      }
+      if (rOp?.sr) { let ns = rOp.sr(sr, o); if (ns) sr = ns }
+    }
+  }
 
   for (let edit of a.edits) {
     let [type, o = {}] = edit
@@ -511,31 +549,25 @@ function compilePlan(a, len, final) {
 
     if (!final && at != null && at < 0) limit = 0
 
+    // Macro expansion — pure rewrite into simpler edits, never needs stats
+    if (op.expand) {
+      let ctx = { sampleRate: sr, channelCount: ch, channel, at, duration, totalDuration: planLen(segs) / sr, final, ...extra }
+      let expanded = op.expand(ctx)
+      if (expanded !== null && expanded !== undefined) {
+        if (expanded !== false) applyEmitted(expanded, at, duration, channel)
+        if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }
+        continue
+      }
+    }
+
+    // Stat-conditioned resolve — decides from (remapped) stats, may defer until final
     if (op.resolve) {
       let stats = resolveCtxStats(a, segs, pipeline, sr, final)
       let ctx = { stats, sampleRate: sr, channelCount: ch, channel, at, duration, totalDuration: planLen(segs) / sr, final, ...extra }
       let resolved = op.resolve(ctx)
       if (resolved === false) { if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }; continue }
       if (resolved) {
-        let edits = Array.isArray(resolved) && typeof resolved[0] !== 'string' ? resolved : [resolved]
-        for (let re of edits) {
-          re = normalizeEdit(re, sr)
-          let [rType, rOpts = {}] = re
-          let o = { ...rOpts }
-          o.at ??= at; o.duration ??= duration; o.channel ??= channel
-          re = [rType, o]
-          let rOp = ops[rType]
-          if (rOp?.plan && typeof rOp.plan === 'function') {
-            let { at: rAt, duration: rDur, channel: rCh, ...rExtra } = o
-            let t = planLen(segs), rOff = rAt != null ? Math.round(rAt * sr) : null, rLen = rDur != null ? Math.round(rDur * sr) : null
-            let rpctx = mkPlanCtx(t, sr, rOff, rLen, rExtra)
-            segs = rOp.plan(segs, rpctx)
-            if (!final) limit = adjustLimit(limit, rType, rpctx)
-          } else {
-            pipeline.push(re)
-          }
-          if (rOp?.sr) { let ns = rOp.sr(sr, o); if (ns) sr = ns }
-        }
+        applyEmitted(resolved, at, duration, channel)
         if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }
         continue
       }
@@ -547,13 +579,13 @@ function compilePlan(a, len, final) {
       segs = op.plan(segs, pctx)
       if (!final) limit = adjustLimit(limit, type, pctx)
     } else {
-      pipeline.push(edit)
+      pushProc(edit)
     }
     if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }
   }
   let totalLen = planLen(segs)
   if (final) limit = totalLen
-  return { segs, pipeline, totalLen, sr, limit: Math.max(0, limit) }
+  return { segs, pipeline, totalLen, sr, limit: Math.max(0, limit), pulls }
 }
 
 /** Sum ref versions + lengths to detect external mutations (edits or decode growth). */

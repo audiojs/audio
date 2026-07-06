@@ -95,7 +95,8 @@ audio.op('myOp', {
   params: ['arg1', 'arg2'],               // named positional arguments → ctx.arg1, ctx.arg2
   process: (input, output, ctx) => { },   // per-block PCM transform (read input, write output)
   plan: (segs, ctx) => segs,              // structural segment rewrite
-  resolve: (ctx) => edit,                 // pre-render: replace with simpler edit(s) using stats
+  expand: (ctx) => edit,                  // macro: rewrite into simpler edit(s), no stats
+  resolve: (ctx) => edit,                 // stat-conditioned: replace using decoded stats
   ranged: true,                           // op handles {at, duration} itself — engine skips its range scoping
   auto: 'sample',                         // op samples function params itself (default: engine, 128-sample steps)
   fnArgs: ['arg1'],                       // params that are genuine functions, not automation (e.g. transform's fn)
@@ -206,9 +207,32 @@ After `reverse()` — same range, negative rate:
 [0, 441000, 0, -1]  →  read backwards
 ```
 
+### expand
+
+Pure macro expansion — rewrite this op into simpler edits, no stats needed. Same return
+contract as `resolve` below, same ctx minus `stats`. Use it whenever the rewrite depends
+only on parameters (fade in+out → two fades, stretch → segment rate + DSP stage,
+resample → `_resample_seg`, crossfade → pad + blend). Reading `expand` vs `resolve` in a
+descriptor tells you at a glance whether an op needs decoded audio before it can plan.
+
+```js
+audio.op('fade', {
+  params: ['in', 'out'],
+  process: fade,
+  expand: (ctx) => typeof ctx.out === 'number'
+    ? [['fade', { in: ctx.in }], ['fade', { in: -Math.abs(ctx.out) }]]
+    : null  // single-sided — fall through to own process
+})
+```
+
 ### resolve
 
-Pre-render replacement using decoded stats. During incremental streaming, `ctx.stats` may come from `stats.snapshot()` with `partial: true` — resolve can return partial results that refine as more data decodes (e.g. trim detects head silence early, normalize applies gain from available peaks).
+Pre-render replacement using decoded stats (stat-conditioned — trim, normalize). The engine
+remaps stats through any structural edits already in the chain, so `ctx.stats` is always in
+this op's own output space. During incremental streaming, `ctx.stats` may come from
+`stats.snapshot()` with `partial: true` — resolve can return partial results that refine as
+more data decodes (e.g. trim detects head silence early, normalize applies gain from
+available peaks).
 
 ```js
 audio.op('trim', {

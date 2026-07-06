@@ -43,7 +43,7 @@ const crossfade = (input, output, ctx) => {
 audio.op('crossfade', {
   params: ['source', 'duration', 'curve'],
   ranged: true,
-  resolve: (ctx) => {
+  expand: (ctx) => {
     let dur = ctx.duration || 0.5
     let curve = ctx.curve || 'cos'
     let source = ctx.source

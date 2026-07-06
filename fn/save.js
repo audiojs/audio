@@ -43,7 +43,7 @@ async function encodeStream(inst, fmt, opts, sink) {
 audio.fn.encode = async function(fmt, opts = {}) {
   if (typeof fmt === 'object') { opts = fmt; fmt = undefined }
   fmt = resolveFormat(fmt)
-  if (!encode[fmt]) throw new Error('Unknown format: ' + fmt)
+  if (!encode[fmt]) throw new Error(`encode: unknown format '${fmt}'`)
   let parts = []
   await encodeStream(this, fmt, opts, buf => { if (buf) parts.push(buf) })
   let total = 0; for (let p of parts) total += p.length
@@ -56,7 +56,7 @@ audio.fn.encode = async function(fmt, opts = {}) {
 audio.fn.save = async function(target, opts = {}) {
   let fmt = opts.format ?? (typeof target === 'string' ? target.split('.').pop() : 'wav')
   fmt = resolveFormat(fmt)
-  if (!encode[fmt]) throw new Error('Unknown format: ' + fmt)
+  if (!encode[fmt]) throw new Error(`save: unknown format '${fmt}'`)
 
   let write, finish
   if (typeof target === 'string') {

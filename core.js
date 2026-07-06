@@ -118,7 +118,7 @@ export default function audio(source, opts = {}) {
       if (a._.disposed) return true
       a.sampleRate = result.sampleRate
       a._.ch = result.channels
-      a._.chV = -1  // invalidate cached channels
+      a._.fmtV = -1  // invalidate cached format
       if (result.acc) a._.acc = result.acc
       if (result.estDuration) a._.estDur = result.estDuration
       if (result.header) { a._.header = result.header; a._.format = result.format }
@@ -203,6 +203,13 @@ audio.PAGE_SIZE = 1024 * audio.BLOCK_SIZE
 export const LOAD = Symbol('load')
 export const READ = Symbol('read')
 
+/** Resolve a channel option to concrete indices: null → all, n → [n], [..] → per-channel. */
+export function resolveChannels(channel, total) {
+  let perCh = Array.isArray(channel)
+  let chs = channel != null ? (perCh ? channel : [channel]) : Array.from({ length: total }, (_, i) => i)
+  return { chs, perCh }
+}
+
 /** Emit event on instance. Snapshots listeners so a handler that (un)subscribes mid-emit
  *  cannot skip/duplicate others in this dispatch. */
 export function emit(a, event, ...args) {
@@ -277,8 +284,7 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
   a._.plan = null; a._.planV = -1
   a._.statsV = -1
   a._.lenC = a._.len; a._.lenV = 0
-  a._.chC = a._.ch; a._.chV = 0
-  a._.srC = a._.sr; a._.srV = 0
+  a._.fmt = null; a._.fmtV = -1  // effective sr/ch after edits (plan.js deriveFormat)
 
   // Playback (getter/setter for interpolation & events)
   Object.defineProperties(a, {
@@ -382,7 +388,7 @@ fn.push = function(data, fmt) {
   }
   else throw new TypeError('push: expected Float32Array[], Float32Array, or typed array')
   // Sync channel count on first push, validate on subsequent
-  if (!this._.ch) { this._.ch = chData.length; this._.chV = -1 }
+  if (!this._.ch) { this._.ch = chData.length; this._.fmtV = -1 }
   else if (chData.length !== this._.ch) throw new TypeError(`push: expected ${this._.ch} channels, got ${chData.length}`)
   acc.push(chData, (fmt && fmt.sampleRate) || sr)
   this._.len = acc.length

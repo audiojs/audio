@@ -303,3 +303,47 @@ test('range options rejected on channel-changing ops', t => {
   try { a.remix(1, { at: 0.05 }) } catch (e) { err = e }
   t.ok(/range/.test(err?.message), `remix with {at} throws (${err?.message})`)
 })
+
+test('expand hook: macro ops rewrite without stats', async t => {
+  // Plugin-facing contract: expand receives no stats and rewrites into simpler edits
+  let seen = null
+  audio.op('_test_double', {
+    params: ['times'],
+    hidden: false,
+    expand: ctx => { seen = ctx; return ['repeat', { times: ctx.times }] }
+  })
+  let a = audio.from([tone(440, 0.1)], { sampleRate: 44100 })
+  a._test_double(1)
+  t.is(a.length, 2 * Math.round(0.1 * 44100), 'expansion applied structurally')
+  t.ok(!('stats' in seen), 'expand ctx carries no stats (pure macro)')
+  // built-in macros migrated: descriptor tells the story
+  t.ok(audio.op('fade').expand && audio.op('stretch').expand && audio.op('resample').expand && audio.op('crossfade').expand, 'macro ops declare expand')
+  t.ok(audio.op('trim').resolve && audio.op('normalize').resolve, 'stat-conditioned ops keep resolve')
+})
+
+test('ensurePlan primes evicted pages of mix pull sources', async t => {
+  let sr = 44100
+  let src = audio.from([tone(440, 1, sr, 0.5)], { sampleRate: sr })
+  // mock page cache + zero budget → all pages evicted
+  let store = new Map()
+  src.cache = {
+    read: async i => store.get(i), write: async (i, d) => { store.set(i, d) },
+    has: async i => store.has(i), evict: async () => {}, clear: async () => {}
+  }
+  src.budget = 0
+  await audio.evict(src)
+  t.ok(src.pages.every(p => p === null), 'source pages evicted')
+  let target = audio.from([new Float32Array(sr)], { sampleRate: sr })
+  target.mix(src)
+  let out = (await target.read())[0]
+  t.ok(rms(out) > 0.2, `mixed content restored from cache, not silence (rms ${rms(out).toFixed(3)})`)
+})
+
+test('effective format derives through edits (single home)', t => {
+  let a = audio.from([tone(440, 0.1), tone(220, 0.1)], { sampleRate: 44100 })
+  a.remix(1)
+  t.is(a.channels, 1)
+  a.resample(22050)
+  t.is(a.sampleRate, 22050)
+  t.is(a.channels, 1, 'both hooks fold through one derivation')
+})

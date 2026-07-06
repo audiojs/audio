@@ -86,7 +86,7 @@ audio.op('_resample_seg', { hidden: true, plan: resamplePlan, sr: (curSr, ctx) =
 audio.op('resample', {
   params: ['rate'],
   sr: (curSr, ctx) => readRate(ctx.rate),
-  resolve: (ctx) => {
+  expand: (ctx) => {
     let targetRate = readRate(ctx.rate)
     let type = readType(ctx.type)
     if (targetRate === ctx.sampleRate) return false

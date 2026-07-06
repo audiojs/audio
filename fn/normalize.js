@@ -1,5 +1,5 @@
 import { dcOffsets, peakDb, rmsDb, lufsDb } from './loudness.js'
-import audio from '../core.js'
+import audio, { resolveChannels } from '../core.js'
 
 const PRESETS = { streaming: -14, podcast: -16, broadcast: -23 }
 
@@ -83,7 +83,7 @@ audio.op('normalize', {
     if (ceiling == null && typeof target === 'string') ceiling = -1
 
     let totalCh = stats.min.length
-    let chs = ctx.channel != null ? (Array.isArray(ctx.channel) ? ctx.channel : [ctx.channel]) : Array.from({ length: totalCh }, (_, i) => i)
+    let { chs } = resolveChannels(ctx.channel, totalCh)
 
     let dcOff = new Float64Array(totalCh)
     if (ctx.dc !== false && stats.dc) dcOff = dcOffsets(stats, chs)

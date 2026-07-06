@@ -353,7 +353,7 @@ Non-destructive time/channel rearrangement. All support `{at, duration, channel}
 * **`.crop({at, duration})`** – keep range, discard rest.
 * **`.remove({at, duration})`** – cut range, close gap.
 * **`.insert(source, {at})`** – insert audio or silence (number of seconds) at position.
-* **`.clip({at, duration})`** – zero-copy range reference.
+* **`.clip({at, duration})`** – zero-copy range reference (an excerpt — unrelated to `stat('clipping')`, which detects over-0dBFS distortion).
 * **`.split(...offsets)`** – zero-copy split at timestamps.
 * **`.pad(before, after?)`** – silence at edges (seconds).
 * **`.repeat(n)`** – repeat n times.

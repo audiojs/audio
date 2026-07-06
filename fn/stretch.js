@@ -112,7 +112,7 @@ audio.op('_stretch_seg', { params: ['factor'], plan: stretchPlan, hidden: true }
 audio.op('_stretch_dsp', { params: ['factor'], process: stretchDsp, hidden: true })
 audio.op('stretch', {
   params: ['factor'],
-  resolve: (ctx) => {
+  expand: (ctx) => {
     let f = ctx.factor
     if (!f || f === 1) return false
     if (f <= 0) throw new RangeError('stretch: factor must be positive')

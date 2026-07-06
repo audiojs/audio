@@ -34,7 +34,7 @@ audio.op('fade', {
   params: ['in', 'out'],
   ranged: true,
   process: fade,
-  resolve: (ctx) => {
+  expand: (ctx) => {
     if (typeof ctx.out !== 'number') return null
     let base = ctx.curve ? { curve: ctx.curve } : {}
     let edits = []
