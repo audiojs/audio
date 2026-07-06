@@ -1,6 +1,15 @@
 # audio-module — unified processor contract (design)
 
-Status: designed 2026-07 · pilot pending · owner of todo.md "audio-module" section
+Status: superseded 2026-07 — the contract landed in `audio-plugin` (repo dir `~/projects/audio-module`); **its CONTRACT.md is the source of truth**. This file remains as design history. Deltas from the sketch below:
+
+- Shape: named-export **factory function** `(ctx) => process` with metadata as properties — not a default-export object with `create`. State lives in closure.
+- `set()` dropped — live params arrive as the `params` argument each block; dezipping via `params.*.smoothing` (seconds, adapter/compiler-applied linear ramp).
+- `reset()` / `serialize()` / `restore()` dropped — reconfigure and seek = new instance (factory re-runs). Open question: plan-engine seek pays factory realloc; revisit if profiling shows it matters.
+- `tail` in **seconds** (RT60 convention), not samples. `latency` stays samples.
+- Params are typed (`number` / `enum` / `bool`), not numeric-only. Enum runtime value is a string; the compiler interns declared values to int tags to stay jz-clean.
+- `channels` covers multi-bus / sidechain / generators in core; roles and speaker layouts live in the Adapter layer.
+- `events.in/out` + `ctx.emit` cover the analyzer ops (meter, pitch, loudness).
+- Pilot inverted: `toWam` shipped first (JS-runtime AudioWorklet, tested in Node via web-audio-api and in Chromium); `toOp` / `toBatch` / `toStream` and native targets follow the WASM compiler.
 
 ## Problem
 
