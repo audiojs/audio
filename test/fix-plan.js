@@ -347,3 +347,26 @@ test('effective format derives through edits (single home)', t => {
   t.is(a.sampleRate, 22050)
   t.is(a.channels, 1, 'both hooks fold through one derivation')
 })
+
+test('breakpoint curves: serializable automation ≡ function automation', async t => {
+  let sr = 44100, src = tone(440, 1, sr, 0.8)
+  let fn = t2 => -24 * Math.min(1, t2)                    // linear dive to -24dB
+  let cv = { t: [0, 1], v: [0, -24] }                     // same shape as breakpoints
+  let a = audio.from([src.slice()], { sampleRate: sr }); a.gain(fn)
+  let b = audio.from([src.slice()], { sampleRate: sr }); b.gain(cv)
+  let [ra, rb] = [(await a.read())[0], (await b.read())[0]]
+  let maxDiff = 0
+  for (let i = 0; i < ra.length; i++) maxDiff = Math.max(maxDiff, Math.abs(ra[i] - rb[i]))
+  t.ok(maxDiff < 1e-6, `curve ≡ fn (maxDiff ${maxDiff})`)
+
+  t.is(a.toJSON().edits.length, 0, 'fn edit omitted from JSON (not serializable)')
+  t.is(b.toJSON().edits.length, 1, 'curve edit survives JSON')
+
+  // engine-level: curves work on any op param (filter sweep)
+  let c = audio.from([tone(4000, 1, sr, 0.5)], { sampleRate: sr })
+  c.lowpass({ t: [0, 1], v: [10000, 100] })
+  let out = (await c.read())[0]
+  let head = rms(out.subarray(0, Math.round(0.2 * sr)))
+  let tail = rms(out.subarray(Math.round(0.8 * sr)))
+  t.ok(tail < head * 0.2, `curve sweeps filter cutoff (head ${head.toFixed(3)} → tail ${tail.toFixed(4)})`)
+})

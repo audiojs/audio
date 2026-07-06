@@ -1,6 +1,6 @@
 # Worker engine — off-main-thread render (design)
 
-Status: **P1 shipped 2026-07** (`audio/worker` + `audio/worker-host`, test/fix-worker.js — facade≡local bit-exact oracle, cross-facade refs, streams, pushables) · P2 curves + P3 playback pending · answers todo.md "webworker mode - any meaning, no?" → yes
+Status: **P1+P2+P3 shipped 2026-07** — `audio/worker` (facade) + `audio/worker-host` (engine) + `audio/worker-worklet` (playback sink). P2 breakpoint curves `{t, v}` are engine-level (plan.js curveFn — work locally too, survive toJSON, cross the boundary). P3 playback: facade pumps worker-rendered blocks into the AudioWorklet sink over its port (browser, SAB-free) or audio-speaker (node); play/pause/seek/stop/volume/loop/currentTime/timeupdate/ended. test/fix-worker.js covers the bit-exact oracle, refs, streams, pushables, curves, and real node playback. P4 (worker-as-default for heavy chains) pending — needs wavearea mileage first.
 
 P1 deltas from the sketch below: op methods proxied against the worker's live registry (no facade op list at all); ops are fire-and-forget chainable with `'error'` event + strict `run()`; the facade/thenable must never be the resolution value of internal promises (thenable adoption deadlocks on never-decoding pushables — see worker.js comments).
 

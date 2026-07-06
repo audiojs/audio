@@ -76,7 +76,8 @@ export function opRange(ctx, len) {
 // ── Op Registration ─────────────────────────────────────────────
 
 function isOpts(v) {
-  return v != null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v) && !v.pages && !v.getChannelData
+  // a breakpoint curve {t, v} is a positional param value, not an options bag
+  return v != null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v) && !v.pages && !v.getChannelData && !isCurve(v)
 }
 
 /** Map positional args to named params on ctx. */
@@ -718,6 +719,24 @@ function renderBlock(a, segs, outOff, len, chunk) {
 // ~3ms at 44.1kHz: fine enough to avoid zipper noise without per-sample dispatch.
 const SUB = 128
 
+/** Breakpoint curve {t, v} (seconds → value) — the serializable stand-in for `t => v`
+ *  automation; survives toJSON and the worker boundary. */
+export const isCurve = x => x != null && typeof x === 'object' && x.t?.length > 0 && x.v?.length === x.t.length && typeof x.t[0] === 'number'
+
+/** Curve → sampled function. Linear interpolation, clamped ends, t ascending. */
+export function curveFn(c) {
+  let { t, v } = c
+  return time => {
+    let n = t.length
+    if (time <= t[0]) return v[0]
+    if (time >= t[n - 1]) return v[n - 1]
+    let i = 1
+    while (t[i] < time) i++
+    let f = (time - t[i - 1]) / (t[i] - t[i - 1])
+    return v[i - 1] + (v[i] - v[i - 1]) * f
+  }
+}
+
 /** Apply process pipeline to a block. Each proc owns output buffers sized to its
  *  stage's channel width (set in initProcs) — channel-count changes are a per-stage
  *  property, not a special case, and the hot path stays allocation-free. */
@@ -783,7 +802,12 @@ function patchProcs(procs, pipeline) {
     let ramp = null
     for (let k in extra) {
       let v = extra[k]
-      if (typeof v === 'function' && p.fns?.[k]) { p.fns[k] = v; continue }
+      if (isCurve(v)) v = curveFn(v)
+      if (typeof v === 'function') {
+        if (p.fns?.[k]) p.fns[k] = v
+        else if (p.desc.auto === 'sample') p.ctx[k] = v
+        continue
+      }
       if (typeof v === 'number' && typeof p.ctx[k] === 'number' && p.ctx[k] !== v) (ramp ??= {})[k] = [p.ctx[k], v]
       p.ctx[k] = v
     }
@@ -803,14 +827,16 @@ function initProcs(pipeline, totalDur, sr, nch) {
     let outCh = desc.ch ? desc.ch(curCh, ctx) : 0
     let w = outCh || curCh
     if (outCh) curCh = outCh
-    // Function-valued params become engine automation unless the op samples them
-    // itself (auto: 'sample') or declares them as genuine function args (fnArgs)
+    // Function-valued (or breakpoint-curve) params become engine automation unless the
+    // op samples them itself (auto: 'sample') or declares genuine function args (fnArgs)
     let fns = null, autos = null
     for (let k in extra) {
-      if (typeof extra[k] === 'function' && desc.auto !== 'sample' && !desc.fnArgs?.includes(k)) {
-        (fns ??= {})[k] = extra[k]; (autos ??= []).push(k)
-        ctx[k] = extra[k](0)
-      }
+      let val = extra[k]
+      if (isCurve(val)) val = curveFn(val)
+      if (typeof val !== 'function' || desc.fnArgs?.includes(k)) continue
+      if (desc.auto === 'sample') { ctx[k] = val; continue }
+      ;(fns ??= {})[k] = val; (autos ??= []).push(k)
+      ctx[k] = val(0)
     }
     return {
       op: desc.process,

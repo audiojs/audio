@@ -53,7 +53,7 @@ Ops don't mutate source pages. `a.gain(-3).crop({at: 1, duration: 5})` pushes tw
 
   The engine also resolves cross-cutting concerns once, for every op:
   - **Range scoping** — `{at, duration}` on an op without native range handling is applied by the engine: input copied through outside the range, the op invoked only on the in-range sub-block.
-  - **Automation** — function-valued numeric params are sampled by the engine in 128-sample sub-blocks (`gain`/`pan` opt into per-sample via `auto: 'sample'`; ops with genuine function args like `filter(fn)`/`transform(fn)` exclude them via `fnArgs`).
+  - **Automation** — function-valued numeric params are sampled by the engine in 128-sample sub-blocks (`gain`/`pan` opt into per-sample via `auto: 'sample'`; ops with genuine function args like `filter(fn)`/`transform(fn)` exclude them via `fnArgs`). Breakpoint curves `{t, v}` are the serializable equivalent — same sampling, but they survive `toJSON()` and the worker boundary.
   - **Click-free patching** — when a streamed plan's values refine (progressive normalize, live edits), numeric changes ramp linearly across one block instead of stepping.
   - **Mid-stream edits** — `stream()`/`play()` watch `a.version`; edits pushed while streaming recompile the plan and crossfade (~20ms) into the new pipeline.
 - **Limit** — the safe output boundary. During incremental streaming (`final=false`), `adjustLimit` tracks how far output is deterministic given partial source data.

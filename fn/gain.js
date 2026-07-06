@@ -26,7 +26,7 @@ audio.op('gain', {
   process: gain,
   deriveStats: (stats, opts) => {
     let val = opts.value ?? 0
-    if (typeof val === 'function') return false
+    if (typeof val === 'function' || typeof val === 'object') return false  // automation fn or curve
     let lin = opts.unit === 'linear'
     let g = lin ? val : 10 ** (val / 20)
     let g2 = g * g

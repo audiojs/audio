@@ -23,7 +23,10 @@
  *  - clip()/split()/clone() return Promise<facade>
  *  - op errors surface on the 'error' event and reject the next awaited call;
  *    use `await a.run([type, opts])` for strict per-op errors
- *  - function-valued params don't cross (P3: breakpoint curves); playback lands in P2
+ *  - function-valued params don't cross — use breakpoint curves {t, v} (serializable
+ *    automation, sampled by the engine like functions)
+ *  - play() pumps worker-rendered blocks into an AudioWorklet over its message port
+ *    (browser — no SharedArrayBuffer/COOP-COEP needed) or audio-speaker (node)
  */
 
 const HOST_URL = new URL('./worker-host.js', import.meta.url)
@@ -93,7 +96,7 @@ const WRAPPED = ['clip', 'clone', 'split']  // return new instance(s) → sub-fa
 /** Deep-encode outgoing values: sibling facades → {__ref}, functions rejected
  *  (can't cross the boundary — P3 breakpoint curves), containers copied. */
 function encodeArg(v, chan) {
-  if (typeof v === 'function') throw new TypeError('audio/worker: function params cannot cross the worker boundary')
+  if (typeof v === 'function') throw new TypeError('audio/worker: function params cannot cross the worker boundary — use a breakpoint curve { t: [...], v: [...] }')
   if (!v || typeof v !== 'object') return v
   if (v.__isAudioWorker) {
     if (v._chan !== chan) throw new TypeError('audio/worker: facades must share a worker to reference each other')
@@ -130,8 +133,8 @@ function facade(chan, opened) {
 
     on(name, cb) {
       ;(ev[name] ??= []).push(cb)
-      // lifecycle events arrive unconditionally; anything else needs a worker-side sub
-      if (!['change', 'error'].includes(name) && !ev[name]._sub) {
+      // lifecycle + transport events are emitted facade-side; anything else needs a worker-side sub
+      if (!['change', 'error', 'play', 'pause', 'ended', 'timeupdate'].includes(name) && !ev[name]._sub) {
         ev[name]._sub = true
         target._ready.then(() => chan.send({ type: 'sub', inst: target._inst, event: name })).catch(() => {})
       }
@@ -160,7 +163,49 @@ function facade(chan, opened) {
       } finally { target._call('_streamEnd', [sid]).catch(() => {}) }
     },
 
+    // ── Transport — playback pumps worker-rendered blocks into a sink:
+    // AudioWorklet over a message port (browser, no SAB/COOP-COEP needed)
+    // or audio-speaker (node). The worker only renders; the sink only plays.
+    playing: false, paused: false, ended: false, currentTime: 0, volume: 1, loop: false,
+
+    play(opts = {}) {
+      if (target.playing && target.paused) {
+        target.paused = false
+        wake?.()
+        sink?.playState(true)
+        target._emit('play')
+        return Promise.resolve()
+      }
+      if (target.playing) return Promise.resolve()
+      if (opts.loop != null) target.loop = opts.loop
+      return new Promise((res, rej) => runPump(opts.at ?? target.currentTime ?? 0, res, rej))
+    },
+    pause() {
+      if (!target.playing || target.paused) return proxy
+      target.paused = true
+      sink?.playState(false)
+      target._emit('pause')
+      return proxy
+    },
+    seek(t) {
+      target.currentTime = Math.max(0, t)
+      if (target.playing) {
+        let resume = !target.paused
+        killPump()
+        if (resume) runPump(target.currentTime, () => {}, e => target._emit('error', e))
+        else target.playing = false
+      }
+      return target._call('seek', [t])
+    },
+    stop() {
+      killPump()
+      target.playing = false; target.paused = false
+      return target._call('stop', [])
+    },
+
     dispose() {
+      killPump()
+      target.playing = false
       return target._ready.then(() => {
         let done = chan.send({ type: 'dispose', inst: target._inst }).catch(() => {})
         chan.unroute(target._inst)
@@ -171,6 +216,103 @@ function facade(chan, opened) {
 
   for (let m of ASYNC) target[m] ??= (...args) => target._call(m, args)
   for (let m of WRAPPED) target[m] = (...args) => target._call(m, args)
+
+  // ── Playback pump ────────────────────────────────────────────────────
+  let sink = null, pumpGen = 0, wake = null
+
+  let killPump = () => { pumpGen++; wake?.(); sink?.flush() }
+
+  async function runPump(at, onStart, onErr) {
+    let gen = ++pumpGen
+    target.playing = true; target.paused = false; target.ended = false
+    let sr = target.sampleRate, started = false
+    try {
+      sink ??= typeof AudioContext !== 'undefined'
+        ? await workletSink(target, () => gen === pumpGen)
+        : await speakerSink(target)
+      sink.reset(at)
+      sink.playState(true)
+      target._emit('play')
+      for await (let chunk of target.stream({ at })) {
+        if (gen !== pumpGen || !target.playing) break
+        while (target.paused && gen === pumpGen && target.playing) await new Promise(r => wake = r)
+        if (gen !== pumpGen || !target.playing) break
+        await sink.write(chunk, target.volume)
+        if (!started) { started = true; onStart() }
+      }
+      if (gen === pumpGen && target.playing && !target.paused) {
+        await sink.drain()
+        if (gen === pumpGen && target.playing) {
+          if (target.loop) { runPump(0, () => {}, onErr); return }
+          target.playing = false; target.ended = true
+          target._emit('timeupdate', target.currentTime)
+          target._emit('ended')
+        }
+      }
+    } catch (e) {
+      if (gen === pumpGen) { target.playing = false; target._emit('error', e); if (!started) onErr(e) }
+    } finally {
+      if (!started) onStart()
+    }
+  }
+
+  // Browser sink: persistent AudioWorkletNode fed over its port; consumption
+  // reports drive backpressure and currentTime
+  async function workletSink(t, live) {
+    let actx = new AudioContext({ sampleRate: t.sampleRate })
+    await actx.audioWorklet.addModule(new URL('./worker-worklet.js', import.meta.url))
+    let node = new AudioWorkletNode(actx, 'audio-worker-sink', { outputChannelCount: [Math.max(1, t.channels)] })
+    node.connect(actx.destination)
+    let sent = 0, consumed = 0, base = 0, baseConsumed = 0, onDrain = null, lastVol = 1
+    const AHEAD = 8192  // ~185ms of buffered audio ahead of the playhead
+    node.port.onmessage = e => {
+      consumed = e.data.consumed
+      if (live()) {
+        t.currentTime = base + (consumed - baseConsumed) / t.sampleRate
+        t._emit('timeupdate', t.currentTime)
+      }
+      onDrain?.()
+    }
+    return {
+      reset(at) { node.port.postMessage({ type: 'flush' }); base = at; baseConsumed = consumed; sent = consumed },
+      playState(on) { node.port.postMessage({ type: on ? 'play' : 'pause' }) },
+      async write(chunk, volume) {
+        if (volume !== lastVol) { lastVol = volume; node.port.postMessage({ volume }) }
+        node.port.postMessage({ chunk }, chunk.map(c => c.buffer))
+        sent += chunk[0].length
+        while (sent - consumed > AHEAD && live() && t.playing) {
+          await new Promise(r => onDrain = r)
+          onDrain = null
+        }
+      },
+      async drain() { while (consumed < sent && live() && t.playing) { await new Promise(r => onDrain = r); onDrain = null } },
+      flush() { node.port.postMessage({ type: 'flush' }) },
+    }
+  }
+
+  // Node sink: audio-speaker, inherently backpressured per write
+  async function speakerSink(t) {
+    let { default: Speaker } = await import('audio-speaker')
+    let ch = Math.max(1, t.channels)
+    let write = null, base = 0, played = 0
+    return {
+      reset(at) { write?.(null); write = Speaker({ sampleRate: t.sampleRate, channels: ch, bitDepth: 32 }); base = at; played = 0 },
+      playState() {},
+      write(chunk, volume) {
+        let len = chunk[0].length, buf = new Float32Array(len * ch)
+        for (let i = 0; i < len; i++) for (let c = 0; c < ch; c++)
+          buf[i * ch + c] = (chunk[c] || chunk[0])[i] * volume
+        return new Promise(r => write(new Uint8Array(buf.buffer), () => {
+          played += len
+          t.currentTime = base + played / t.sampleRate
+          t._emit('timeupdate', t.currentTime)
+          r()
+        }))
+      },
+      async drain() {},
+      flush() { write?.(null); write = null },
+    }
+  }
 
   // NB: never resolve a call promise with the proxy — it's a thenable gated on
   // `decoded`, so promise adoption would block chainable-method awaits on a source

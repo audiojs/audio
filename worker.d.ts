@@ -1,5 +1,8 @@
 /** audio/worker — main-thread facade over an audio engine running in a Worker. */
 
+/** Serializable automation: value sampled by linear interpolation over breakpoints. */
+export interface Curve { t: number[] | Float32Array, v: number[] | Float32Array }
+
 export interface WorkerFacade extends PromiseLike<WorkerFacade> {
   readonly sampleRate: number
   readonly channels: number
@@ -9,6 +12,16 @@ export interface WorkerFacade extends PromiseLike<WorkerFacade> {
   readonly decoded: boolean
   readonly edits: [string, Record<string, unknown>][]
   readonly ready: Promise<true>
+
+  // transport (playback pumps worker-rendered blocks into an AudioWorklet or audio-speaker)
+  readonly playing: boolean
+  readonly paused: boolean
+  readonly ended: boolean
+  readonly currentTime: number
+  volume: number
+  loop: boolean
+  play(opts?: { at?: number, loop?: boolean }): Promise<void>
+  pause(): WorkerFacade
 
   /** PCM read — Float32Array per channel, transferred (zero-copy). */
   read(opts?: { at?: number | string, duration?: number | string, channel?: number, format?: string }): Promise<Float32Array[] | Float32Array>

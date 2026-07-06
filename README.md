@@ -268,12 +268,13 @@ await glitch.save('glitch.wav')
 
 ### Tremolo / sidechain
 
-Any numeric op param accepts a `t => value` function — the engine samples it during render (sample-accurate for `gain`/`pan`, ~3ms steps elsewhere).
+Any numeric op param accepts a `t => value` function — the engine samples it during render (sample-accurate for `gain`/`pan`, ~3ms steps elsewhere). A breakpoint curve `{t, v}` does the same and stays serializable (survives `toJSON()` and the worker boundary):
 
 ```js
 let a = audio('pad.wav')
 a.gain(t => -12 * (0.5 + 0.5 * Math.cos(t * Math.PI * 4)))  // 2Hz tremolo in dB
 a.lowpass(t => 400 + 4000 * t)                              // filter sweep
+a.pan({ t: [0, 2, 4], v: [-1, 1, -1] })                     // curve: L→R→L over 4s
 await a.save('tremolo.wav')
 ```
 
@@ -343,11 +344,19 @@ import 'audio/worker-host'
 audioWorker('a.m4a', { worker: new Worker(new URL('./engine-worker.js', import.meta.url), { type: 'module' }) })
 ```
 
+Playback pumps worker-rendered blocks into an `AudioWorklet` over its message port (no
+SharedArrayBuffer, so no COOP/COEP headers needed — works on GitHub Pages) or into
+audio-speaker in Node:
+
+```js
+a.play()                     // play / pause / seek / stop, volume, loop, timeupdate
+a.on('ended', () => next())
+```
+
 Boundary notes: `clip()`/`split()`/`clone()` return promises of facades; chained ops are
 fire-and-forget (errors on the `'error'` event; `await a.run([type, opts])` for strict
-per-op errors); function params don't cross (breakpoint curves planned); `.play()` across
-the boundary is on the roadmap — render with `read()`/`stream()` meanwhile. Node works via
-worker_threads with the same API.
+per-op errors); function params don't cross — use breakpoint curves `{t, v}`. Node works
+via worker_threads with the same API.
 
 
 ### Properties

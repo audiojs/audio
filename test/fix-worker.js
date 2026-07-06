@@ -144,3 +144,47 @@ test('worker: close terminates shared worker', async t => {
   await close()
   t.ok(true, 'closed without hanging')
 })
+
+test('worker: breakpoint curves cross the boundary', async t => {
+  let cv = { t: [0, 2], v: [0, -24] }
+  let w = await audioWorker('test/fixture.wav')
+  w.gain(cv)
+  let l = await audio('test/fixture.wav')
+  l.gain(cv)
+  t.ok(eq((await w.read())[0], (await l.read())[0]), 'curve automation bit-exact across boundary')
+  t.is((await w.toJSON()).edits.length, 1, 'curve edit serializes')
+})
+
+test('worker: playback pumps through the node sink', async t => {
+  let w = await audioWorker('test/fixture.wav')
+  let c = await w.clip({ at: 0, duration: 0.3 })
+  let events = [], times = []
+  c.on('play', () => events.push('play'))
+  c.on('timeupdate', t2 => times.push(t2))
+  c.on('ended', () => events.push('ended'))
+  await new Promise((res, rej) => {
+    c.on('ended', res)
+    c.on('error', rej)
+    c.play()
+    setTimeout(() => rej(new Error('playback timeout')), 8000)
+  })
+  t.ok(events.includes('play') && events.includes('ended'), `transport events (${events.join(',')})`)
+  t.ok(times.length > 0 && Math.abs(c.currentTime - 0.3) < 0.1, `currentTime tracked (${c.currentTime.toFixed(2)}s of 0.3s)`)
+  t.ok(c.ended && !c.playing, 'final state')
+})
+
+test('worker: pause/resume/stop', async t => {
+  let w = await audioWorker('test/fixture.wav')
+  let c = await w.clip({ at: 0, duration: 1 })
+  c.play()
+  await new Promise(r => setTimeout(r, 150))
+  c.pause()
+  t.ok(c.playing && c.paused && !c.ended, 'paused mid-play')
+  let tPause = c.currentTime
+  await new Promise(r => setTimeout(r, 120))
+  t.ok(Math.abs(c.currentTime - tPause) < 0.05, 'time holds while paused')
+  c.play()
+  await new Promise(r => setTimeout(r, 120))
+  await c.stop()
+  t.ok(!c.playing, 'stopped')
+})
