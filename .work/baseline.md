@@ -9,7 +9,7 @@ Legend:
 **✗** uncovered
 **~** partial.
 
-Test evidence: suite name = repo root `test.js` (counts as of 2026-07 wave 2: pitch 46, mir 19, beat 70, dynamics 32, denoise 42, effect 36, reverb 13, filter 98, eq 30, weighting 30, auditory 28, spatial 11, synth 2, resample 8, vocals 4, spectral 12, loudness 10, note 4, tune 4, saturate 5, decode 67, encode 23, shift 50, stretch 152, module 16 — 812 total, all green).
+Test evidence: suite name = repo root `test.js` (counts as of 2026-07 wave 2: pitch 46, mir 21, beat 70, dynamics 32, denoise 42, effect 36, reverb 14, filter 98, eq 30, weighting 30, auditory 28, spatial 11, synth 5, resample 8, vocals 4, spectral 12, loudness 10, note 4, tune 4, saturate 5, measure 5, amp 3, decode 67, encode 23, shift 50, stretch 152, module 16 — 826 total, all green).
 
 ## Pedalboard (Spotify)
 
@@ -131,9 +131,8 @@ Deferred (ML-tier): genre, mood, tags, stem separation.
 
 ## Next moves (ordered)
 
-Wave 2 shipped 2026-07: reverb family complete (fdn/spring/shimmer + partitioned convolution), saturate family (sinc-oversampled tape/tube/transistor/waveshaper/multiband), loudness complete (truepeak/lra/replaygain/dr), dynamics character models (opto/fet/vca/varimu) + leveler, eq-dynamic, tune-snap. Remaining:
+Waves 1–3 shipped 2026-07. Wave 3 added: @audio/amp (tube stage + cabinet), measure family (Farina ESS IR capture — 3-tap system recovered ±0.03, sample-exact latency/align, analytic response), mir-structure (Foote) + mir-fingerprint (Wang landmarks), synth generators (noise colors slope-verified, chirp, osc), FDN upgraded to canonical Jot T60 (Schroeder-EDC-verified). Remaining:
 
-1. `@audio/amp` — tube stage (compose saturate-tube + tone stack) + cabinet (reverb-convolution IR wrapper); pairs with `measure-ir` (Farina ESS) for capture-your-own.
-2. MIR heavy tail — structure (Foote novelty), fingerprint (peak constellation), downbeat, multif0, similarity, transcribe, drums, coversong.
-3. Frontier stubs by demand — measure-{ir, response, latency, align}, voice-{tract, voder, glottis}, midi-{parse, write, soundfont}, spectral-{freeze, contrast, harmonics, cqt}, effect-{sbr, stutter, graindelay, subbass, lofi}, spatial-{midside, surround, channelsplit, delay, microshift}, synth generators, denoise-repair, speech-world, tune-midi, sinusoidal, primitives, neural lane.
-4. Publish prep: swap local `file:` atom links to semver (loudness→weighting-k/resample-sinc, saturate→resample-sinc/eq-crossover, dynamics-multiband→eq-crossover, mir→pitch-yin/beat-core, tune→pitch-yin/note-scale/shift-psola).
+1. MIR research tail — downbeat, multif0, transcribe, drums, coversong, similarity (mir-fingerprint covers exact-match; similarity = MFCC/chroma distance).
+2. Frontier stubs by demand — voice (tract/voder/glottis), midi (parse/write/soundfont), spectral (freeze/contrast/harmonics/cqt), spatial (midside/surround/channelsplit/delay/microshift), effect (sbr/stutter/graindelay/subbass/lofi), denoise-repair, speech-world, tune-midi, sinusoidal, synth (dtmf/pluck/risset/rhythm/envelope/lfo/sfx/wavetable/voice/drum/poly), primitives (@audio/stft/window/biquad extraction), neural lane, defeedback MVP.
+3. Publish prep: swap local `file:` atom links to semver; per-repo READMEs; GH repos for new umbrellas.
