@@ -2,8 +2,14 @@
 
 Goal: `audio` (+ the `@audio/*` atoms it wires) covers the practical baseline of FFmpeg audio filters, SoX effects, librosa, Pedalboard and MIREX — then extensions go through `@audio/host` (native plugins) / `@audio/module` (cross-target contract).
 
-Legend: **✔** implemented + tested · **●** in `audio` core (tested in its suite) · **◌** stub scaffolded (`private` package.json + README, at `~/projects/@audio/`) · **✗** uncovered · **~** partial.
-Test evidence: suite name = repo root `test.js` (counts as of 2026-07: pitch 46, mir 16, beat 70, dynamics 25, denoise 42, effect 39, filter 98, eq 25, weighting 30, auditory 28, spatial 11, synth 2, decode 67, encode 23, shift 50, stretch 152, module 16 — all green).
+Legend:
+**✔** implemented + tested
+**●** in `audio` core (tested in its suite)
+**◌** stub scaffolded (`private` package.json + README, at `~/projects/@audio/`)
+**✗** uncovered
+**~** partial.
+
+Test evidence: suite name = repo root `test.js` (counts as of 2026-07 post-implementation wave: pitch 46, mir 19, beat 70, dynamics 27, denoise 42, effect 36, reverb 9, filter 98, eq 29, weighting 30, auditory 28, spatial 11, synth 2, resample 8, vocals 4, spectral 12, loudness 6, decode 67, encode 23, shift 50, stretch 152, module 16 — 785 total, all green).
 
 ## Pedalboard (Spotify)
 
@@ -13,7 +19,7 @@ Test evidence: suite name = repo root `test.js` (counts as of 2026-07: pitch 46,
 | Chorus | ✔ | `@audio/effect-chorus` (effect) |
 | Clipping | ✔ | `@audio/dynamics-softclip` (dynamics) |
 | Compressor | ✔ | `@audio/dynamics-compressor` (dynamics) |
-| Convolution | ◌ | `@audio/effect-convolver` |
+| Convolution | ✔ | `@audio/reverb-convolution` (reverb 9✓) |
 | Delay | ✔ | `@audio/effect-delay` (effect) |
 | Distortion | ✔ | `@audio/effect-distortion` (effect) |
 | Gain | ✔● | `@audio/effect-gain`; audio core op |
@@ -26,8 +32,8 @@ Test evidence: suite name = repo root `test.js` (counts as of 2026-07: pitch 46,
 | PeakFilter | ✔ | `@audio/eq-parametric` (eq) |
 | Phaser | ✔ | `@audio/effect-phaser` (effect) |
 | PitchShift | ✔ | `@audio/shift-*` 16 algorithms (shift) |
-| Resample | ●◌ | audio core (sinc+linear, anti-alias tested); atoms `@audio/resample-*` scaffolded |
-| Reverb | ✔◌ | `@audio/effect-reverb` (Schroeder); freeverb/dattorro stubs |
+| Resample | ✔● | `@audio/resample-sinc`/`-linear` (resample 8✓: pitch preservation, round-trip energy, anti-alias); audio core |
+| Reverb | ✔ | `@audio/reverb-*` — schroeder, freeverb, dattorro plate, convolution (reverb 9✓); fdn/spring/shimmer ◌ |
 | GSMFullRate/MP3Compressor | ~ | codec-sim → decode/encode round-trip (encode 23✓) — not a dedicated effect |
 
 ## SoX effects
@@ -38,25 +44,25 @@ Test evidence: suite name = repo root `test.js` (counts as of 2026-07: pitch 46,
 | bass, treble | ✔ | `@audio/eq-lowshelf`/`-highshelf`, `@audio/eq-baxandall` (eq) |
 | equalizer | ✔● | `@audio/eq-parametric`; audio core `eq` |
 | chorus, flanger, phaser, tremolo | ✔ | `@audio/effect-*` (effect) |
-| compand, mcompand | ✔◌ | `@audio/dynamics-compand`; multiband stub `dynamics-multiband` |
+| compand, mcompand | ✔ | `@audio/dynamics-compand` + `@audio/dynamics-multiband` (dynamics 27✓: flat-sum + band-selective) |
 | contrast | ✗ | enhancement distortion — low value, skip for now |
 | dcshift | ✔● | `@audio/filter-dcblocker`; audio core DC stat |
 | deemph | ✔ | `@audio/filter-preemphasis` (emphasis/deemphasis) |
 | delay, echo, echos | ✔ | `@audio/effect-delay`/`-multitap`/`-pingpong` |
 | dither | ● | audio core (TPDF: quantization levels, SNR 93/45 dB tested) |
 | divide, ladspa | ✗ | esoteric / plugin-host duplicate — skip |
-| downsample, upsample, rate | ●◌ | audio core resample; `@audio/resample-*` atoms scaffolded |
+| downsample, upsample, rate | ✔● | `@audio/resample-*` (8✓); audio core |
 | earwax | ✔● | `@audio/spatial-crossfeed`; audio core `earwax` op |
 | fade, pad, trim, repeat, reverse, splice, speed, vol, gain, norm | ● | audio core ops (stream≡read + page-boundary tested) |
-| fir, sinc | ◌ | `@audio/eq-fir` stub; generic FIR design in `digital-filter` (scijs) |
+| fir, sinc | ✔ | `@audio/eq-fir` (eq 29✓: exact identity, shape, linear phase); generic FIR design in `digital-filter` (scijs) |
 | hilbert | ~ | inside `@audio/effect-freqshift` (SSB via Hilbert); standalone atom not planned |
-| loudness | ✔● | `@audio/weighting-*` (30✓) + audio core LUFS (BS.1770-4 tested); meters ◌ `@audio/loudness-*` |
+| loudness | ✔● | `@audio/weighting-*` (30✓) + `@audio/loudness-lufs` (EBU Tech 3341 cases 1–3 ±0.1); audio core LUFS |
 | noiseprof, noisered | ✔ | `@audio/denoise-spectral`/`-wiener`/`-omlsa` + `denoise-core` noise estimation (denoise 42✓) |
-| oops | ●◌ | audio core `vocals` (tested); atoms `@audio/vocals-*` scaffolded |
+| oops | ✔● | `@audio/vocals-isolate`/`-remove` (4✓); audio core op |
 | overdrive | ✔ | `@audio/effect-distortion` |
 | pitch | ✔● | `@audio/shift-*` (50✓); audio core `pitch` op |
 | remix, channels, swap | ●◌ | audio core remix; `@audio/spatial-channelsplit` stub |
-| reverb | ✔◌ | `@audio/effect-reverb`; freeverb/dattorro/convolver stubs |
+| reverb | ✔ | `@audio/reverb-*` family (9✓) |
 | riaa | ✔ | `@audio/weighting-riaa` |
 | silence, vad | ✔● | audio core silence stat; `@audio/denoise-core` VAD |
 | spectrogram | ● | audio core spectrum stat + CLI live FFT |
@@ -70,22 +76,22 @@ Test evidence: suite name = repo root `test.js` (counts as of 2026-07: pitch 46,
 | Filter | Status | Where |
 |---|---|---|
 | acompressor, alimiter, agate, compand, asoftclip | ✔ | `@audio/dynamics-*` (25✓) |
-| dynaudnorm | ✗ | frame-wise dynamic normalization — candidate `dynamics` atom |
+| dynaudnorm | ◌ | `@audio/dynamics-leveler` stub (Vocal Rider class) |
 | stereotools, stereowiden, extrastereo | ✔~ | `@audio/spatial-widener`/`-haas`/`-panner` (11✓); exact FFmpeg knobs not mirrored |
 | bs2b | ✔ | `@audio/spatial-crossfeed` |
 | surround | ◌ | `@audio/spatial-surround` |
 | afftdn, adeclick, adeclip, deesser | ✔ | `@audio/denoise-*` (42✓) |
-| firequalizer | ◌ | `@audio/eq-fir` |
+| firequalizer | ✔ | `@audio/eq-fir` (eq 29✓) |
 | acrossover | ✔ | `@audio/eq-crossover` (flat-sum verified) |
 | tiltshelf | ✔ | `@audio/eq-tilt` |
 | superequalizer | ✔~ | `@audio/eq-graphic` (10-band ISO 266; 18-band variant = params) |
-| aspectralstats | ◌● | `@audio/spectral-*` stubs; centroid/flatness/crest shipped in audio core stats |
-| drmeter, replaygain, ebur128/loudnorm | ◌● | `@audio/loudness-*` stubs; audio core LUFS tested |
+| aspectralstats | ✔● | `@audio/spectral-*` — all seven + mfcc + ltas (spectral 12✓); audio core stats |
+| drmeter, replaygain, ebur128/loudnorm | ✔◌● | `@audio/loudness-lufs` (EBU 3341-verified); truepeak/lra/replaygain/dr ◌; audio core LUFS |
 | channelsplit, adelay | ◌● | `@audio/spatial-channelsplit`/`-delay` stubs; audio core remix |
 | amultiply | ✔ | `@audio/effect-ringmod` |
 | aloop, silenceremove, afade, apad, areverse, atempo, aresample, volume | ● | audio core ops |
 | afreqshift | ✔ | `@audio/effect-freqshift` |
-| afftfilt | ◌ | `@audio/spectral-edit` (class coverage) |
+| afftfilt | ✔ | `@audio/spectral-edit` (COLA STFT region gains; reconstruction + band-kill tested) |
 | aderivative, aintegral | ✗ | trivial math — core candidates, low priority |
 
 ## librosa
@@ -100,9 +106,9 @@ Test evidence: suite name = repo root `test.js` (counts as of 2026-07: pitch 46,
 | effects.trim / split | ● | audio core (silence-based) |
 | feature.chroma_stft/cqt | ✔~ | `@audio/mir-chroma` (PCP + NNLS; CQT variant ✗) |
 | feature.melspectrogram | ✔● | `@audio/auditory-mel` (28✓); audio spectrum (mel-binned, tested) |
-| feature.mfcc | ◌● | `@audio/spectral-mfcc` stub; audio cepstrum stat (13 MFCCs tested) |
-| feature.spectral_{centroid,bandwidth,flatness,rolloff,contrast} | ◌● | `@audio/spectral-*` stubs; centroid/flatness in audio stats |
-| feature.tonnetz, tempogram | ◌ | `@audio/mir-tonnetz`/`-tempogram` |
+| feature.mfcc | ✔● | `@audio/spectral-mfcc` (gain-invariance + timbre-separation verified); audio cepstrum stat |
+| feature.spectral_{centroid,bandwidth,flatness,rolloff,contrast} | ✔● | `@audio/spectral-*` (12✓, analytic identities); audio core stats |
+| feature.tonnetz, tempogram | ✔ | `@audio/mir-tonnetz`/`-tempogram` (mir 19✓) |
 | feature.zero_crossing_rate, rms | ● | audio core stats |
 | filters.mel / get_window | ✔ | auditory-mel; `window-function` (scijs) |
 | decompose.hpss | ✔ | shift-hpss |
@@ -112,8 +118,8 @@ Test evidence: suite name = repo root `test.js` (counts as of 2026-07: pitch 46,
 
 ## MIREX
 
-Have (tested): tempo (bpm), beat tracking, onset detection, melody notes (YIN), chords (NNLS + Viterbi), key (Krumhansl-Schmuckler), MFCC, spectrum.
-Scaffolded ◌: structure, transcribe, downbeat, coversong, melody contour, multif0, fingerprint, similarity, drums, tempogram, tonnetz (`@audio/mir-*`).
+Have (tested): tempo (bpm), beat tracking, onset detection, melody notes (YIN), **melody contour** (`mir-melody`), chords (NNLS + Viterbi), key (Krumhansl-Schmuckler), MFCC, spectrum, **tempogram**, **tonnetz** (mir 19✓).
+Scaffolded ◌: structure, transcribe, downbeat, coversong, multif0, fingerprint, similarity, drums (`@audio/mir-*`).
 Deferred (ML-tier): genre, mood, tags, stem separation.
 
 ## Deliberate exclusions
@@ -125,9 +131,12 @@ Deferred (ML-tier): genre, mood, tags, stem separation.
 
 ## Next moves (ordered)
 
-1. Extract-don't-rewrite the ●◌ pairs where audio core already passes tests: resample → `@audio/resample-*`, vocals → `@audio/vocals-*`, spectral stats → `@audio/spectral-*`, LUFS → `@audio/loudness-lufs`.
-2. `dynamics-multiband` (unblocks Music Enhancer + SoX mcompand parity) — crossover ✔ + compressor ✔ exist, composition work.
-3. `eq-fir` (unblocks Matchering match-EQ + firequalizer).
-4. Reverb family (freeverb → dattorro → convolver).
-5. MIR tail per MIREX table; `spectral-edit` for the Audacity class.
-6. `dynaudnorm` decision (add atom or skip).
+Items 1–5 of the previous list shipped 2026-07 (resample, vocals, spectral, LUFS, multiband, FIR EQ, reverb family, tonnetz/melody/tempogram). Next:
+
+1. Reverb tail kinds — `reverb-fdn`, `reverb-spring`, `reverb-shimmer` (uses @audio/shift); partitioned FFT convolution for long IRs.
+2. Saturation family (`@audio/saturate-*`) with proper oversampling — then `@audio/amp` (tube stage + cabinet IR).
+3. Loudness meters tail — `loudness-truepeak` (BS.1770-4 Annex 2 4×), `-lra` (EBU 3342), `-replaygain`, `-dr`.
+4. Dynamics character models — opto/fet/vca/varimu + `dynamics-leveler` (dynaudnorm); `eq-dynamic` (Pro-Q3/soothe class).
+5. `@audio/tune` (pitch-correct, Tier-2 in todo) — pitch-yin → scale snap → shift-psola/formant.
+6. MIR heavy tail — structure, downbeat, multif0, fingerprint, similarity, transcribe, drums, coversong.
+7. Publish prep: swap local `file:` atom links to semver (loudness-lufs→weighting-k, dynamics-multiband→eq-crossover, mir-melody→pitch-yin, mir-tempogram→beat-core).
