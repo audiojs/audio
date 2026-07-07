@@ -123,6 +123,10 @@ _Full release after core ops (compressor, denoise, gate, reverb) are implemented
 * [ ] `audio-clean` skill — detect + fix: silence, DC, clipping, hum, noise
 * [ ] `audio-analyze` skill — human-readable reports from metrics, file comparison
 
+## Parity baseline
+
+Coverage matrix across FFmpeg / SoX / librosa / Pedalboard / MIREX with test evidence: [.work/baseline.md](baseline.md) — drive parity work from it. Per-target checklists below feed it.
+
 ## Sox parity
 
 - [ ] **noise** — noise reduction via spectral profiling (SoX `noisered`)
