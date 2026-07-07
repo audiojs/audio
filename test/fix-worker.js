@@ -157,6 +157,33 @@ test('worker: data events forward stat deltas without PCM', async t => {
   t.is(blocks, Math.ceil(w.length / audio.BLOCK_SIZE), 'deltas cover all blocks')
 })
 
+test('worker: custom worker shared across calls — one channel, refs work', async t => {
+  let { Worker: NodeWorker } = await import('node:worker_threads')
+  let w = new NodeWorker(new URL('../worker-host.js', import.meta.url))
+  let a = await audioWorker('test/fixture.wav', { worker: w })
+  let b = await audioWorker('test/fixture.wav', { worker: w })
+  t.is(a.length, b.length, 'both facades opened without id cross-talk')
+  a.mix(b)  // throws 'must share a worker' if each call made its own channel
+  let pcm = await a.read()
+  t.ok(pcm[0].length > 0, 'mix by ref across the same custom worker')
+  await w.terminate()
+})
+
+test('worker: undo of a ref edit returns sanitized edit, not DataCloneError', async t => {
+  let { Worker: NodeWorker } = await import('node:worker_threads')
+  let w = new NodeWorker(new URL('../worker-host.js', import.meta.url))
+  let a = await audioWorker('test/fixture.wav', { worker: w })
+  let b = await audioWorker('test/fixture.wav', { worker: w })
+  let base = a.length
+  await a.run(['insert', { source: b, at: 0 }])
+  t.ok(a.length > base, 'ref insert applied')
+  let edit = await a.undo()
+  t.is(edit[0], 'insert', 'popped edit returned')
+  t.ok(edit[1].source?.__audio, 'live instance replaced with marker')
+  t.is(a.length, base, 'undo restored length')
+  await w.terminate()
+})
+
 test('worker: change events forward', async t => {
   let w = await audioWorker('test/fixture.wav')
   let changes = 0

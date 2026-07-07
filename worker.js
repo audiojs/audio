@@ -79,6 +79,15 @@ async function spawn(url) {
 let shared = null
 const sharedChannel = () => shared ??= channel(spawn(HOST_URL))
 
+// one channel per custom worker — a second channel on the same worker would
+// double-consume messages and collide call ids; same-channel facades can ref each other
+const workerChans = new WeakMap()
+const workerChannel = w => {
+  let chan = workerChans.get(w)
+  if (!chan) workerChans.set(w, chan = channel(w))
+  return chan
+}
+
 /** Terminate the shared worker (all default-channel facades die with it). */
 export async function close() {
   if (!shared) return
@@ -380,7 +389,7 @@ function facade(chan, opened) {
  *  pass opts.worker to use your own worker (custom codecs/plugins). */
 export default function audioWorker(source, opts = {}) {
   let { worker, ...rest } = opts
-  let chan = worker ? channel(worker) : sharedChannel()
+  let chan = worker ? workerChannel(worker) : sharedChannel()
   if (Array.isArray(source) && source.some(s => s?.__isAudioWorker))
     throw new TypeError('audio/worker: open plain sources, then combine with insert()/mix()/crossfade()')
   return facade(chan, chan.send({ type: 'open', source, opts: rest }))

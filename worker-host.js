@@ -124,7 +124,11 @@ listen(async msg => {
         result = a[method](...decodeArgs(args))
         if (result?.then) result = await result
         // JSON path serializes nested instance sources properly; clone would choke on them
-        result = method === 'toJSON' ? JSON.parse(JSON.stringify(result)) : encodeResult(result, a, method, transfer)
+        if (method === 'toJSON') result = JSON.parse(JSON.stringify(result))
+        // popped edits may hold live instances in opts (insert/mix source) — sanitize like snapshots
+        else if (method === 'undo' && result != null)
+          result = Array.isArray(result[0]) ? safeEdits(result) : safeEdits([result])[0]
+        else result = encodeResult(result, a, method, transfer)
       }
       send({ id, result, snapshot: snap(a) }, transfer)
       return
