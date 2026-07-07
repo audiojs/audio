@@ -131,8 +131,8 @@ Deferred (ML-tier): genre, mood, tags, stem separation.
 
 ## Next moves (ordered)
 
-Waves 1–3 shipped 2026-07. Wave 3 added: @audio/amp (tube stage + cabinet), measure family (Farina ESS IR capture — 3-tap system recovered ±0.03, sample-exact latency/align, analytic response), mir-structure (Foote) + mir-fingerprint (Wang landmarks), synth generators (noise colors slope-verified, chirp, osc), FDN upgraded to canonical Jot T60 (Schroeder-EDC-verified). Remaining:
+Waves 1–4 shipped 2026-07. Wave 4: sinusoidal (MQ/SMS), defeedback MVP (closed-loop verified, zero-latency), spatial complete, synth near-complete, spectral complete, consistency audit (platform-binary mains are CI-built — by design). Remaining:
 
-1. MIR research tail — downbeat, multif0, transcribe, drums, coversong, similarity (mir-fingerprint covers exact-match; similarity = MFCC/chroma distance).
-2. Frontier stubs by demand — voice (tract/voder/glottis), midi (parse/write/soundfont), spectral (freeze/contrast/harmonics/cqt), spatial (midside/surround/channelsplit/delay/microshift), effect (sbr/stutter/graindelay/subbass/lofi), denoise-repair, speech-world, tune-midi, sinusoidal, synth (dtmf/pluck/risset/rhythm/envelope/lfo/sfx/wavetable/voice/drum/poly), primitives (@audio/stft/window/biquad extraction), neural lane, defeedback MVP.
-3. Publish prep: swap local `file:` atom links to semver; per-repo READMEs; GH repos for new umbrellas.
+1. MIR research tail — downbeat, multif0, transcribe, drums, coversong, similarity.
+2. Last stubs — voice (tract/voder/glottis), midi (parse/write/soundfont), speech-world, denoise-repair, tune-midi, synth-{sfx, poly}, effect-{sbr, stutter, graindelay, subbass, lofi}, primitives extraction, neural lane.
+3. Publish prep: file:→semver swaps, per-repo READMEs, GH repos.
