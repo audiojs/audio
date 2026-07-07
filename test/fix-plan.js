@@ -370,3 +370,18 @@ test('breakpoint curves: serializable automation ≡ function automation', async
   let tail = rms(out.subarray(Math.round(0.8 * sr)))
   t.ok(tail < head * 0.2, `curve sweeps filter cutoff (head ${head.toFixed(3)} → tail ${tail.toFixed(4)})`)
 })
+
+test('stat after undo restores source stats (wavearea undo/redo path)', async t => {
+  let ch = new Float32Array(44100)
+  ch.fill(0.9, 0, 22050); ch.fill(0.1, 22050)
+  let a = audio.from([ch], { sampleRate: 44100 })
+  let before = await a.stat('max')
+  a.remove({ at: 0, duration: 0.5 })
+  t.ok(Math.abs(await a.stat('max') - 0.1) < 1e-3, 'edited stats reflect remove')
+  a.undo()
+  t.is(await a.stat('max'), before, 'undo to zero edits restores source stats')
+  let bins = await a.stat('max', { bins: Math.ceil(a.length / 1024) })
+  t.ok(Math.abs(bins[0] - 0.9) < 1e-3, 'binned waveform restored')
+  a.remove({ at: 0, duration: 0.5 })  // redo-equivalent: re-apply after undo
+  t.ok(Math.abs(await a.stat('max') - 0.1) < 1e-3, 're-applied edit derives fresh stats')
+})

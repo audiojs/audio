@@ -247,6 +247,11 @@ export async function queryRange(inst, opts) {
   let at = parseTime(opts?.at), dur = parseTime(opts?.duration)
   let hasRange = at != null || dur != null
 
+  if (!inst.edits?.length && inst._.statsV !== inst.version && inst._.srcStats) {
+    // back to pristine (undo to zero edits) — restore the pre-edit snapshot
+    inst.stats = inst._.srcStats
+    inst._.statsV = inst.version
+  }
   if (inst.edits?.length && inst._.statsV !== inst.version) {
     if (!inst._.srcStats) inst._.srcStats = inst.stats
     let plan = buildPlan(inst), src = inst._.srcStats
