@@ -9,7 +9,7 @@ Legend:
 **✗** uncovered
 **~** partial.
 
-Test evidence: suite name = repo root `test.js` (counts as of 2026-07 post-implementation wave: pitch 46, mir 19, beat 70, dynamics 27, denoise 42, effect 36, reverb 9, filter 98, eq 29, weighting 30, auditory 28, spatial 11, synth 2, resample 8, vocals 4, spectral 12, loudness 6, decode 67, encode 23, shift 50, stretch 152, module 16 — 785 total, all green).
+Test evidence: suite name = repo root `test.js` (counts as of 2026-07 wave 2: pitch 46, mir 19, beat 70, dynamics 32, denoise 42, effect 36, reverb 13, filter 98, eq 30, weighting 30, auditory 28, spatial 11, synth 2, resample 8, vocals 4, spectral 12, loudness 10, note 4, tune 4, saturate 5, decode 67, encode 23, shift 50, stretch 152, module 16 — 812 total, all green).
 
 ## Pedalboard (Spotify)
 
@@ -33,7 +33,7 @@ Test evidence: suite name = repo root `test.js` (counts as of 2026-07 post-imple
 | Phaser | ✔ | `@audio/effect-phaser` (effect) |
 | PitchShift | ✔ | `@audio/shift-*` 16 algorithms (shift) |
 | Resample | ✔● | `@audio/resample-sinc`/`-linear` (resample 8✓: pitch preservation, round-trip energy, anti-alias); audio core |
-| Reverb | ✔ | `@audio/reverb-*` — schroeder, freeverb, dattorro plate, convolution (reverb 9✓); fdn/spring/shimmer ◌ |
+| Reverb | ✔ | `@audio/reverb-*` — schroeder, freeverb, dattorro plate, convolution (direct + partitioned FFT), fdn, spring, shimmer (reverb 13✓) — family complete |
 | GSMFullRate/MP3Compressor | ~ | codec-sim → decode/encode round-trip (encode 23✓) — not a dedicated effect |
 
 ## SoX effects
@@ -62,7 +62,7 @@ Test evidence: suite name = repo root `test.js` (counts as of 2026-07 post-imple
 | overdrive | ✔ | `@audio/effect-distortion` |
 | pitch | ✔● | `@audio/shift-*` (50✓); audio core `pitch` op |
 | remix, channels, swap | ●◌ | audio core remix; `@audio/spatial-channelsplit` stub |
-| reverb | ✔ | `@audio/reverb-*` family (9✓) |
+| reverb | ✔ | `@audio/reverb-*` family complete (13✓) |
 | riaa | ✔ | `@audio/weighting-riaa` |
 | silence, vad | ✔● | audio core silence stat; `@audio/denoise-core` VAD |
 | spectrogram | ● | audio core spectrum stat + CLI live FFT |
@@ -76,7 +76,7 @@ Test evidence: suite name = repo root `test.js` (counts as of 2026-07 post-imple
 | Filter | Status | Where |
 |---|---|---|
 | acompressor, alimiter, agate, compand, asoftclip | ✔ | `@audio/dynamics-*` (25✓) |
-| dynaudnorm | ◌ | `@audio/dynamics-leveler` stub (Vocal Rider class) |
+| dynaudnorm | ✔ | `@audio/dynamics-leveler` (framewise smoothed riding, peak-guarded; dynamics 32✓) |
 | stereotools, stereowiden, extrastereo | ✔~ | `@audio/spatial-widener`/`-haas`/`-panner` (11✓); exact FFmpeg knobs not mirrored |
 | bs2b | ✔ | `@audio/spatial-crossfeed` |
 | surround | ◌ | `@audio/spatial-surround` |
@@ -86,7 +86,7 @@ Test evidence: suite name = repo root `test.js` (counts as of 2026-07 post-imple
 | tiltshelf | ✔ | `@audio/eq-tilt` |
 | superequalizer | ✔~ | `@audio/eq-graphic` (10-band ISO 266; 18-band variant = params) |
 | aspectralstats | ✔● | `@audio/spectral-*` — all seven + mfcc + ltas (spectral 12✓); audio core stats |
-| drmeter, replaygain, ebur128/loudnorm | ✔◌● | `@audio/loudness-lufs` (EBU 3341-verified); truepeak/lra/replaygain/dr ◌; audio core LUFS |
+| drmeter, replaygain, ebur128/loudnorm | ✔● | `@audio/loudness-*` complete — lufs (EBU 3341), truepeak (inter-sample, BS.1770 Annex 2), lra (EBU 3342 10 LU case), replaygain (RG2), dr (TT method); audio core LUFS |
 | channelsplit, adelay | ◌● | `@audio/spatial-channelsplit`/`-delay` stubs; audio core remix |
 | amultiply | ✔ | `@audio/effect-ringmod` |
 | aloop, silenceremove, afade, apad, areverse, atempo, aresample, volume | ● | audio core ops |
@@ -131,12 +131,9 @@ Deferred (ML-tier): genre, mood, tags, stem separation.
 
 ## Next moves (ordered)
 
-Items 1–5 of the previous list shipped 2026-07 (resample, vocals, spectral, LUFS, multiband, FIR EQ, reverb family, tonnetz/melody/tempogram). Next:
+Wave 2 shipped 2026-07: reverb family complete (fdn/spring/shimmer + partitioned convolution), saturate family (sinc-oversampled tape/tube/transistor/waveshaper/multiband), loudness complete (truepeak/lra/replaygain/dr), dynamics character models (opto/fet/vca/varimu) + leveler, eq-dynamic, tune-snap. Remaining:
 
-1. Reverb tail kinds — `reverb-fdn`, `reverb-spring`, `reverb-shimmer` (uses @audio/shift); partitioned FFT convolution for long IRs.
-2. Saturation family (`@audio/saturate-*`) with proper oversampling — then `@audio/amp` (tube stage + cabinet IR).
-3. Loudness meters tail — `loudness-truepeak` (BS.1770-4 Annex 2 4×), `-lra` (EBU 3342), `-replaygain`, `-dr`.
-4. Dynamics character models — opto/fet/vca/varimu + `dynamics-leveler` (dynaudnorm); `eq-dynamic` (Pro-Q3/soothe class).
-5. `@audio/tune` (pitch-correct, Tier-2 in todo) — pitch-yin → scale snap → shift-psola/formant.
-6. MIR heavy tail — structure, downbeat, multif0, fingerprint, similarity, transcribe, drums, coversong.
-7. Publish prep: swap local `file:` atom links to semver (loudness-lufs→weighting-k, dynamics-multiband→eq-crossover, mir-melody→pitch-yin, mir-tempogram→beat-core).
+1. `@audio/amp` — tube stage (compose saturate-tube + tone stack) + cabinet (reverb-convolution IR wrapper); pairs with `measure-ir` (Farina ESS) for capture-your-own.
+2. MIR heavy tail — structure (Foote novelty), fingerprint (peak constellation), downbeat, multif0, similarity, transcribe, drums, coversong.
+3. Frontier stubs by demand — measure-{ir, response, latency, align}, voice-{tract, voder, glottis}, midi-{parse, write, soundfont}, spectral-{freeze, contrast, harmonics, cqt}, effect-{sbr, stutter, graindelay, subbass, lofi}, spatial-{midside, surround, channelsplit, delay, microshift}, synth generators, denoise-repair, speech-world, tune-midi, sinusoidal, primitives, neural lane.
+4. Publish prep: swap local `file:` atom links to semver (loudness→weighting-k/resample-sinc, saturate→resample-sinc/eq-crossover, dynamics-multiband→eq-crossover, mir→pitch-yin/beat-core, tune→pitch-yin/note-scale/shift-psola).
