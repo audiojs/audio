@@ -40,11 +40,11 @@
 - [x] Contract designed — [.work/audio-module.md](audio-module.md): jz-subset process discipline (same source runs as JS, compiles to WASM, differential CI), adapters toOp/toBatch/toStream/toWorklet, compressor pilot, migration order
 - [ ] Problem: 3 sibling conventions today — `audio-effect` (`fn(data, params)` + param-obj state), `pitch-shift` (`makePitchShift(batch, stream)` factory), `dynamics-processor` (polymorphic `fn(data, opts)` + `{write, flush}` stream). None drop into AudioWorklet/VST/`audio` plan without ad-hoc glue.
 - [ ] Define contract in `audio-module`: `{name, channels, latency, tail, params:{name:{min,max,default,unit,smoothing}}, create(sr, ch, init) → {process(in,out,n), set(k,v,smooth), reset(), serialize?(), restore?()}}` — mirrors `AudioWorkletProcessor` (narrowest target; others are wider)
-- [ ] Ship adapters: `toBatch`, `toStream`, `toWorklet`, `toAudioNode`, `toOp` (for `audio` plan system) — hosts don't care what the module author wrote
-- [ ] Flagship pilot module: compressor or delay (simple, stateful, common) — verify runs as batch + stream + AudioWorklet + `audio` op with zero per-host glue
+- [~] Ship adapters: `toBatch` ✔, `toStream` ✔, `toOp` ✔ (2026-07 — integration-verified in test/module-ops.js), `toWam` ✔; `toWorklet`/`toAudioNode` remain — hosts don't care what the module author wrote
+- [x] Flagship pilot: compressor verified as batch + stream + WAM + `audio` op with zero per-host glue (+7 more manifests across conventions; differential vs native <1e-6) — 2026-07
 - [ ] Migrate siblings one-by-one: `audio-effect`, `pitch-shift`, `time-stretch`, `dynamics-processor`, `audio-filter`, `noise-reduction` — keep old exports as back-compat shims during transition
-- [ ] `audio.use(module)` accepts raw audio-module instances — no name registry needed for BYO plugins
-- [ ] Introspectable params → auto CLI help, automation API, UI generation — all free
+- [x] `audio.use(module)` accepts raw contract modules (own-`params` detection → toOp; declared tail composes trailing pad) — 2026-07
+- [~] Introspectable params: `audio.op(name).module.params` carries full metadata (2026-07); wire into CLI help next
 - [ ] Uniform test harness: feed PCM, assert output, across all libs
 - [ ] Native targets (VST3/AU/CLAP/LV2) — separate roadmap; contract must *allow* WASM+iPlug/JUCE wrapper but don't build until one flagship plugin justifies it
 - [ ] Risk: 3 existing conventions each evolved for a reason (zero-alloc, ergonomics, overlap-add). Contract must cover all three ergonomics via adapters or migration stalls.

@@ -11,6 +11,7 @@ import getType from 'audio-type'
 import encode from 'encode-audio'
 import convert, { parse as parseFmt } from 'pcm-convert'
 import parseDuration from 'parse-duration'
+import { toOp } from '@audio/module'
 
 audio.version = '2.2.0'
 
@@ -241,9 +242,23 @@ fn.dispose = function() {
 }
 if (Symbol.dispose) fn[Symbol.dispose] = fn.dispose
 
-/** Register plugins. Each receives audio. */
+/** Register plugins. Each receives audio. A contract audio-module (a factory function
+ *  with an own `params` object — see @audio/module CONTRACT.md) registers as an op via
+ *  toOp; its declared `tail` composes a trailing pad so decays are not truncated. */
 audio.use = function(...plugins) {
-  for (let p of plugins) p(audio)
+  for (let p of plugins) {
+    if (typeof p === 'function' && Object.hasOwn(p, 'params') && typeof p.params === 'object') useModule(p)
+    else p(audio)
+  }
+}
+
+function useModule(m) {
+  let desc = toOp(m)
+  audio.op(desc.id, desc)
+  if (desc.tail > 0) {
+    let base = fn[desc.id]
+    fn[desc.id] = function(...a) { return base.apply(this.pad(0, desc.tail), a) }
+  }
 }
 
 

@@ -6241,3 +6241,5 @@ test('cli ops registry — all built-ins available', t => {
 })
 
 } // end isNode guard for CLI tests
+
+import './module-ops.js'
