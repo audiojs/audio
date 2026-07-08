@@ -28,7 +28,7 @@ audio.modules = {
   yin: '@audio/pitch-yin/audio-module',
   tube: '@audio/saturate-tube/audio-module',
   osc: '@audio/synth-osc/audio-module',
-  isolate: '@audio/vocals-isolate/audio-module',
+  isolate: '@audio/vocals/audio-module',
 }
 
 // ── Infrastructure (self-register on import) ────────────────────────────
