@@ -6245,3 +6245,5 @@ test('cli ops registry — all built-ins available', t => {
 // Contract-module integration — node-only for now: the browser page would need
 // import-map entries for every @audio module atom + its transitive kernels
 if (isNode) await import('./module-ops.js')
+if (isNode) await import('./module-effects.js')
+if (isNode) await import('./module-denoise.js')

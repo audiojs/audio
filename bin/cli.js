@@ -170,7 +170,7 @@ function moduleHelp(name, desc) {
     if (sp.type === 'bool') return `    ${k}  true|false (default ${sp.default})`
     return `    ${k}  ${sp.min}..${sp.max}${sp.unit ? ' ' + sp.unit : ''} (default ${sp.default})`
   }).join('\n')
-  return { usage: `${name} [${args}]`, desc: `Contract audio-module${desc.tail ? ` (tail ${desc.tail}s)` : ''}`, examples: [], params }
+  return { usage: `${name} [${args}]`, desc: `Contract audio-module${typeof desc.tail === 'number' && desc.tail ? ` (tail ${desc.tail}s)` : desc.tail ? ' (tail: param-dependent)' : ''}`, examples: [], params }
 }
 
 function showOpHelp(name) {

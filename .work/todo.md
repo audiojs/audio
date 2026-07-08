@@ -1,23 +1,21 @@
-## Backlog
+## Release (v2.3 — ecosystem edition)
 
-* [x] CLI: `audio mar/hare-krishna-1.mp3 normalize podcast -p` displays "processing" instead of normalizing
-* [x] CLI: `audio mar/hare-krishna-1.mp3 normalize podcast -p` sound clicks at the beginning (during decoding), decoding shows "processing" instead of decoding, then sound clicks after decode during processing
+Ship state: engine hosts @audio contract modules natively (params/automation, tail incl.
+param-dependent, latency compensation, streaming:false whole-render, sidechain key bus);
+`audio.modules` registry ~40 named modules; scope adopted wholesale (9 legacy deps gone).
 
+* [ ] version bump + release notes (terse one-liners per convention)
+* [ ] publish wave: @audio/denoise + @audio/effect manifest releases so the registry resolves fully
+* [ ] README registry section (see Architecture item)
+* [ ] CI green on GitHub (module tests need published packages — no sibling checkout there)
 
 ## Next
 
-* [x] structural ops streaming
-* [x] processor plugin contract more conventional
 * [ ] playback speed
-
-* [ ] Wavearea integration — unblocked: `audio/worker` P1 replaces wavearea's hand-rolled src/worker.js (decode, waveform via stat(['min','max'],{bins}), edits, undo, save); custom entry adds its aac/webm codecs; playback needs P3 (port→AudioWorklet)
+* [ ] Wavearea integration — audio/worker P1–P3 shipped; wavearea already migrated (engine-per-file, waveform via stat, edits/undo, own player); remaining: adopt facade.play() P3 path or keep own player
 * [ ] Audio ponyfill — separate `audio-ponyfill` package (#68)
 * [ ] Minimal duration guard on save — some players can't reproduce 1-sample wav (#27)
-* [x] Crossfade / transitions convenience — `a.crossfade(b, duration)` or similar (#63)
 * [ ] Playground — drag-n-drop files + code editor, probe audiotool-style (#53, #58)
-* [x] BPM detection — autocorrelation on energy envelope, `audio.stat('bpm')` + `a.bpm()` query
-* [x] Pitch detection — YIN notes, NNLS chroma chords, Krumhansl-Schmuckler key (`stat('notes'/'chords'/'key')`)
-* [x] Show BPM/pitch/key in CLI info line (when detected)
 * [ ] Common processing scripts (vocal warmup etc)
 * [ ] CLI `audio split --cue album.cue` — split lossless by cue sheet into N tracks (stolen from mcxiaoke/audio-cli.js)
 
@@ -61,11 +59,8 @@
 
 * [x] stretch
 * [ ] pitch
-  * [ ] pitch-correct
-* [ ] noise-reduction
-  * [ ] gate
-  * [ ] declick
-  * [ ] denoise
+  * [ ] pitch-correct — `@audio/tune` kernels published; op wiring pending
+* [x] noise-reduction — 11 `@audio/denoise-*` registry modules (specsub/wiener/omlsa auto-profile with measured STFT latency; declick/declip/decrackle/debreath via whole-render; gate/dehum/deplosive/dewind/dereverb causal) — 2026-07. `repair` needs region args (not scalarizable); denoise-gate direct-import only (name collision with dynamics gate)
 * [ ] shrink-silence
   * [ ] compress
 
@@ -74,28 +69,13 @@
 
 ### Effects
 
-Wire `audio-effect` into `audio` as ops (one op per effect, shared param-object streaming style):
-
-- [ ] **reverb** — Schroeder comb + allpass
-- [ ] **delay** / **echo** — feedback delay line
-- [ ] **multitap**, **ping-pong** — stereo delay variants
-- [ ] **chorus**, **flanger**, **phaser**
-- [ ] **tremolo**, **vibrato**
-- [ ] **wahwah**, **auto-wah**
-- [ ] **ring-mod**, **frequency-shifter** — SSB shift via Hilbert
-- [ ] **distortion** (soft/hard/tanh/foldback), **exciter**, **bitcrusher**
-- [ ] **stereo-widener**, **haas**, **panner**, **auto-panner**
-- [ ] **transient-shaper**, **slew-limiter**, **noise-shaping**
-
-Cross-package ops (pull from sibling libs, not audio-effect):
-- [x] **compressor**, **limiter**, **gate**, **expander**, **deesser**, **ducker**, **compand**, **softclip** → `@audio/dynamics-*` contract modules in the `audio.modules` registry (published 0.1.1; leveler=dynaudnorm too) — 2026-07. Caveats: leveler is `streaming: false` (engine hosts per-block until whole-render hosting lands); ducker self-keys until multi-bus feeding
-- [ ] **pitch-shift**, **vocoder**, **formant-shift** → `pitch-shift`
-- [ ] **paulstretch**, **sliding-stretch** (continuous tempo+pitch envelope over selection) → `time-stretch` (sliding-stretch needs new API)
+- [x] **@audio/effect family — 21 registry modules** (chorus, flanger, phaser, tremolo, vibrato, autowah, wah, bitcrusher, distortion, exciter, ringmod, freqshift, multitap, pingpong, slew, noiseshaper, lofi, graindelay, stutter, subbass, sbr) + delay pilot + reverb (freeverb). Feedback delays declare param-dependent tails (RT60 from live feedback); freqshift declares Hilbert latency — 2026-07
+- [x] **dynamics family — 10 registry modules** (compressor, limiter, gate, expander, deesser, ducker w/ sidechain key, compand, softclip, leveler=dynaudnorm via whole-render, transient-shaper) — 2026-07
+- [ ] **stereo-widener**, **haas**, **panner**, **auto-panner** → `@audio/spatial-*` kernels published; manifests pending
+- [ ] **pitch-shift**, **vocoder**, **formant-shift** → `@audio/shift-*` kernels published (psola, pvoc, formant, granular, hpss…); manifests pending
+- [ ] **paulstretch** → `@audio/stretch-paulstretch` kernel published (streaming:false hosting now exists); **sliding-stretch** (continuous tempo+pitch envelope) still needs API
 - [ ] **adjustable-fade** (non-linear, mid-point, partial selection) — `audio` utility, not an effect
-
-Gaps vs sox/audacity/ffmpeg/tone.js after audit:
-- Missing from `audio-effect` — **none** (exciter, freq-shifter, auto-panner added 2026-04)
-- Not planned (noise reduction, click/declip) → handled in `~/projects/noise-reduction`
+- Kernel defects flagged by manifest verification (upstream fixes pending): chorus/phaser live-resize NaN (mitigated via restart flags), freqshift dry/wet comb at mix<1, multitap per-call allocation
 
 ## Tier 3: Delighting
 
@@ -105,7 +85,7 @@ Gaps vs sox/audacity/ffmpeg/tone.js after audit:
 
 ## AI integrations
 
-_Full release after core ops (compressor, denoise, gate, reverb) are implemented — the more ops exist, the more powerful AI integration becomes. See [.work/mcp.md](mcp.md) for full exploration._
+_Gate met 2026-07 — compressor, denoise, gate, reverb (and ~40 more) ship as registry modules. MCP server is unblocked. See [.work/mcp.md](mcp.md) for full exploration._
 
 ### Stats (prerequisites)
 * [x] `crest` stat — dynamic range (peak/RMS ratio in dB), query-only from existing peak+ms stats
@@ -129,8 +109,8 @@ Coverage matrix across FFmpeg / SoX / librosa / Pedalboard / MIREX with test evi
 
 ## Sox parity
 
-- [ ] **noise** — noise reduction via spectral profiling (SoX `noisered`)
-- [ ] **compressor** — dynamic range compression / expansion / limiting (SoX `compand`)
+- [x] **noise** — spectral noise reduction: `specsub`/`wiener`/`omlsa` registry modules (auto-profiling) — 2026-07
+- [x] **compressor** — compression / expansion / limiting: `compressor`/`expander`/`limiter`/`compand` registry modules — 2026-07
 - [x] **resample** — explicit sample rate conversion
 - [x] **dither** — dithering for bit-depth reduction
 - [x] **vocals** — vocal isolation / removal (SoX `oops`, out-of-phase stereo)
@@ -155,11 +135,12 @@ Coverage matrix across FFmpeg / SoX / librosa / Pedalboard / MIREX with test evi
 - [ ] **bs2b** — bs2b: Bauer stereo-to-binaural crossfeed
 - [ ] **surround** — surround: upmix stereo to 5.1
 
-### Noise / Restoration
-- [ ] **denoise** — afftdn: FFT spectral noise reduction (profile + suppress)
-- [ ] **declick** — adeclick: click/crackle removal via interpolation
-- [ ] **declip** — adeclip: reconstruct clipped samples (autoregressive)
-- [ ] **deesser** — deesser: sibilance reduction (frequency-triggered compression)
+### Noise / Restoration — all via @audio/denoise registry modules, 2026-07
+- [x] **denoise** — afftdn-class: `specsub`/`wiener`/`omlsa` (auto-profile, declared STFT latency)
+- [x] **declick** — AR interpolation (whole-render)
+- [x] **declip** — autoregressive reconstruction (whole-render)
+- [x] **deesser** — sibilance-keyed broadband compression
+- beyond parity: dehum, dereverb, deplosive, dewind, decrackle, debreath
 
 ### EQ / Filtering
 - [ ] **firequalizer** — firequalizer: FIR convolution EQ with arbitrary response curve
