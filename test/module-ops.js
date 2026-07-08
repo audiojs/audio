@@ -1,12 +1,11 @@
 // Contract audio-modules as audio ops — audio.use(module) hosts the contract natively.
 // Pilots: @audio/dynamics-compressor (dynamics kernel, live/automated params) and
 // @audio/reverb-freeverb (declared tail → composed trailing pad, decay preserved).
-// Manifests imported by path (unpublished scope); their deps resolve via their own repos.
 
 import test, { ok, almost, is } from 'tst'
 import audio from '../audio.js'
-import { compressor } from '../../@audio/dynamics/packages/dynamics-compressor/audio-module.js'
-import { freeverb } from '../../@audio/reverb/packages/reverb-freeverb/audio-module.js'
+import { compressor } from '@audio/dynamics-compressor/audio-module'
+import { freeverb } from '@audio/reverb-freeverb/audio-module'
 
 audio.use(compressor, freeverb)
 
@@ -75,7 +74,7 @@ test('tail op is undo-atomic and serializes as one edit', async () => {
 
 test('audio.use(name) resolves through the registry (dynamic import)', async () => {
   audio.modules ??= {}
-  audio.modules.tube = new URL('../../@audio/saturate/packages/saturate-tube/audio-module.js', import.meta.url).href
+  audio.modules.tube = '@audio/saturate-tube/audio-module'
   await audio.use('tube')
   ok(typeof audio.fn.tube === 'function', 'registry-resolved module registered')
   let out = (await audio.from([tone(440, 0.2)], { sampleRate: SR }).tube({ drive: 8 }).read())[0]
@@ -87,8 +86,8 @@ test('audio.use(name) resolves through the registry (dynamic import)', async () 
 
 // ── Wave B: dynamics-gate + denoise-dehum ─────────────────────────────
 
-import { gate } from '../../@audio/dynamics/packages/dynamics-gate/audio-module.js'
-import { dehum } from '../../@audio/denoise/packages/denoise-dehum/audio-module.js'
+import { gate } from '@audio/dynamics-gate/audio-module'
+import { dehum } from '@audio/denoise-dehum/audio-module'
 audio.use(gate, dehum)
 
 /** Goertzel magnitude at f Hz. */
@@ -166,9 +165,9 @@ test('declared latency compensates to identity', async () => {
 
 // ── Wave B continued: limiter (declared latency), deesser, softclip ───
 
-import { limiter } from '../../@audio/dynamics/packages/dynamics-limiter/audio-module.js'
-import { deesser } from '../../@audio/dynamics/packages/dynamics-deesser/audio-module.js'
-import { softclip } from '../../@audio/dynamics/packages/dynamics-softclip/audio-module.js'
+import { limiter } from '@audio/dynamics-limiter/audio-module'
+import { deesser } from '@audio/dynamics-deesser/audio-module'
+import { softclip } from '@audio/dynamics-softclip/audio-module'
 audio.use(limiter, deesser, softclip)
 
 test('limiter: brickwall under ceiling, latency-compensated onset', async () => {

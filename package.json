@@ -84,6 +84,8 @@
     "audio-lena": "^3.0.0",
     "esbuild": "^0.28.0",
     "playwright": "^1.59.1",
-    "tst": "^9.4.0"
+    "tst": "^9.4.0",
+    "@audio/dynamics-compressor": "^0.1.0",
+    "@audio/reverb-freeverb": "^1.0.0"
   }
 }
