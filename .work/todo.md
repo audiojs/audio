@@ -28,12 +28,12 @@
 ## Architecture
 
 ### Plugin auto-import (`audio.use(...names)`)
-- [ ] Built-in registry maps names → subpath imports (mirrors `audio-decode` codec pattern)
-- [ ] `audio.use('reverb', 'bpm', 'stretch.wsola')` → dynamic `import()` + register
-- [ ] `audio.use(await import('@audio/pitch-yin'))` — bring-your-own still works
-- [ ] Core always-bundled set: gain, trim, crop, filter, normalize, fade, mix, reverse, pan, repeat, remix
-- [ ] CLI auto-resolves unknown op name → `audio.use(name)` before dispatch
-- [ ] Three plugin flavors formalized: **op** (`a.foo()`), **stat** (`a.stat('foo')`), **codec** (decode/encode)
+- [x] Built-in registry — `audio.modules` maps name → `@audio/<pkg>/audio-module` specifier (audio.js); grows with the published set — 2026-07
+- [x] `audio.use('freeverb')` → dynamic `import()` + registers every module-shaped export; returns promise for string loads, sync for direct — 2026-07
+- [x] `audio.use(module)` — bring-your-own contract factory still works (own-`params` detection)
+- [x] Core always-bundled set unchanged: gain, trim, crop, filter, normalize, fade, mix, reverse, pan, repeat, remix
+- [x] CLI auto-resolves registry op names before parse; uninstalled → `npm i @audio/…` guidance — 2026-07
+- [ ] Three plugin flavors formalized: **op** (`a.foo()`), **stat** (`a.stat('foo')`), **codec** (decode/encode) — op done via contract; stat/codec conventions next
 - [ ] MIR → ship as plugins under `@audio/stat-*`, not core
 
 ### `audio-module` — unified module convention
@@ -44,7 +44,7 @@
 - [x] Flagship pilot: compressor verified as batch + stream + WAM + `audio` op with zero per-host glue (+7 more manifests across conventions; differential vs native <1e-6) — 2026-07
 - [ ] Migrate siblings one-by-one: `audio-effect`, `pitch-shift`, `time-stretch`, `dynamics-processor`, `audio-filter`, `noise-reduction` — keep old exports as back-compat shims during transition
 - [x] `audio.use(module)` accepts raw contract modules (own-`params` detection → toOp; declared tail composes trailing pad) — 2026-07
-- [~] Introspectable params: `audio.op(name).module.params` carries full metadata (2026-07); wire into CLI help next
+- [x] Introspectable params: `audio.op(name).module.params` carries full metadata; CLI `<op> --help` synthesizes usage + param table (min..max unit, defaults) from it — 2026-07
 - [ ] Uniform test harness: feed PCM, assert output, across all libs
 - [ ] Native targets (VST3/AU/CLAP/LV2) — separate roadmap; contract must *allow* WASM+iPlug/JUCE wrapper but don't build until one flagship plugin justifies it
 - [ ] Risk: 3 existing conventions each evolved for a reason (zero-alloc, ergonomics, overlap-add). Contract must cover all three ergonomics via adapters or migration stalls.

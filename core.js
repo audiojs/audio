@@ -241,14 +241,27 @@ fn.dispose = function() {
 }
 if (Symbol.dispose) fn[Symbol.dispose] = fn.dispose
 
+const isModule = p => typeof p === 'function' && Object.hasOwn(p, 'params') && typeof p.params === 'object'
+
 /** Register plugins. Each receives audio. A contract audio-module (a factory function
  *  with an own `params` object — see @audio/module CONTRACT.md) is hosted natively as
- *  an op; its declared `tail` composes a trailing pad so decays are not truncated. */
+ *  an op; its declared `tail` composes a trailing pad so decays are not truncated.
+ *  A string resolves through the audio.modules registry (dynamic import — returns a
+ *  promise); every module-shaped export of the target registers. */
 audio.use = function(...plugins) {
+  let loads = null
   for (let p of plugins) {
-    if (typeof p === 'function' && Object.hasOwn(p, 'params') && typeof p.params === 'object') useModule(p)
+    if (typeof p === 'string') {
+      let spec = audio.modules?.[p]
+      if (!spec) throw new Error(`audio.use: unknown module '${p}' — not in audio.modules registry`)
+      ;(loads ??= []).push(import(spec).then(ns => {
+        for (let k of Object.keys(ns)) if (isModule(ns[k])) useModule(ns[k])
+      }, e => { throw new Error(`audio.use('${p}'): install ${spec.split('/audio-module')[0]} — ${e.message}`) }))
+    }
+    else if (isModule(p)) useModule(p)
     else p(audio)
   }
+  return loads ? Promise.all(loads).then(() => audio) : audio
 }
 
 /** Map a contract module to an op descriptor. The contract is a convention, not a
@@ -256,6 +269,7 @@ audio.use = function(...plugins) {
  *  state on the proc ctx, smoothing left to engine sub-block automation (it already
  *  ramps patched values click-free), currentTime from blockOffset. */
 function useModule(m) {
+  if (!audio.op) throw new Error('audio.use(module): op registry required — import "audio", not "audio/core.js"')
   let specs = m.params || {}
   let names = Object.keys(specs)
   let id = m.id || (m.name || 'module').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
@@ -268,44 +282,47 @@ function useModule(m) {
       snapshot[name] = sp.type === 'number' ? new Float32Array([v]) : v
     }
     let mctx = {
-      sampleRate: ctx.sampleRate, maxBlockSize: 2 ** 21, maxChannels: 32,
-      render: 'offline', duration: undefined, currentTime: 0,
+      sampleRate: ctx.sampleRate, maxBlockSize: audio.BLOCK_SIZE, maxChannels: 32,
+      render: 'offline', duration: ctx.totalDuration, currentTime: 0,
       params: snapshot, layouts: undefined, events: undefined,
-      emit(name, ...args) {
-        if (!(name in (m.events?.out || {}))) throw new Error(`emit: "${name}" not declared in events.out`)
-        if (st.events.length < 4096) st.events.push({ name, args, time: mctx.currentTime })
-      }
+      // events.out declaration validated; host routing of emissions is future work
+      emit(name) { if (!(name in (m.events?.out || {}))) throw new Error(`emit: "${name}" not declared in events.out`) }
     }
-    let st = { mctx, live: {}, bufs: {}, events: [] }
+    let st = { mctx, live: {}, bufs: {} }
     for (let name of names) if (specs[name].type === 'number') st.bufs[name] = new Float32Array(1)
     st.process = m(mctx)
     return st
   }
 
+  let process = (input, output, ctx) => {
+    let st = ctx._am ??= init(ctx)
+    st.mctx.currentTime = ctx.blockOffset || 0
+    for (let name of names) {
+      let sp = specs[name]
+      let v = ctx[name] ?? sp.default
+      if (sp.type === 'number') {
+        if (v < sp.min) v = sp.min
+        else if (v > sp.max) v = sp.max
+        st.bufs[name][0] = v
+        st.live[name] = st.bufs[name]
+      } else st.live[name] = sp.type === 'enum' && !sp.values.includes(v) ? sp.default : v
+    }
+    st.process([input], [output], st.live)
+  }
+
+  if (!tail) return audio.op(id, { params: names, module: m, process })
+
+  // Declared tail: expand into pad + hidden proc at compile time — the user edit stays
+  // one atomic entry (undo/serialize whole), the decay renders into the pad
+  audio.op('_' + id, { params: names, hidden: true, module: m, process })
   audio.op(id, {
-    params: names,
-    tail,
-    module: m, // param metadata for CLI help / introspection
-    process(input, output, ctx) {
-      let st = ctx._am ??= init(ctx)
-      st.mctx.currentTime = ctx.blockOffset || 0
-      for (let name of names) {
-        let sp = specs[name]
-        let v = ctx[name] ?? sp.default
-        if (sp.type === 'number') {
-          if (v < sp.min) v = sp.min
-          else if (v > sp.max) v = sp.max
-          st.bufs[name][0] = v
-          st.live[name] = st.bufs[name]
-        } else st.live[name] = v
-      }
-      st.process([input], [output], st.live)
+    params: names, tail, module: m,
+    expand: (ctx) => {
+      let o = {}
+      for (let k of names) if (ctx[k] !== undefined) o[k] = ctx[k]
+      return [['pad', { before: 0, after: tail }], ['_' + id, o]]
     }
   })
-  if (tail > 0) {
-    let base = fn[id]
-    fn[id] = function(...a) { return base.apply(this.pad(0, tail), a) }
-  }
 }
 
 

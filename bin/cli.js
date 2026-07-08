@@ -161,10 +161,24 @@ for (let [name, h] of Object.entries(HELP)) {
   if (op) op.help ??= h
 }
 
+/** Synthesize help from a contract module's param metadata (introspectable params). */
+function moduleHelp(name, desc) {
+  let m = desc.module, specs = m.params || {}
+  let args = Object.keys(specs).map(k => k.toUpperCase()).join(' ')
+  let params = Object.entries(specs).map(([k, sp]) => {
+    if (sp.type === 'enum') return `    ${k}  ${sp.values.join('|')} (default ${sp.default})`
+    if (sp.type === 'bool') return `    ${k}  true|false (default ${sp.default})`
+    return `    ${k}  ${sp.min}..${sp.max}${sp.unit ? ' ' + sp.unit : ''} (default ${sp.default})`
+  }).join('\n')
+  return { usage: `${name} [${args}]`, desc: `Contract audio-module${desc.tail ? ` (tail ${desc.tail}s)` : ''}`, examples: [], params }
+}
+
 function showOpHelp(name) {
-  let h = audio.op(name)?.help || HELP[name]
+  let desc = audio.op(name)
+  let h = desc?.help || HELP[name] || (desc?.module && moduleHelp(name, desc))
   if (!h) { console.error(`No help for: ${name}`); return }
   console.log(`\n  ${h.usage}\n\n  ${h.desc}\n`)
+  if (h.params) console.log('  Params:\n' + h.params + '\n')
   if (h.examples.length) console.log('  Examples:')
   for (let ex of h.examples) console.log(`    audio in.wav ${ex} -o out.wav`)
   console.log()
@@ -867,6 +881,12 @@ async function discoverPlugins() {
 
 async function main() {
   let args = process.argv.slice(2)
+
+  // Auto-resolve registry modules named in args (dynamic import registers the op)
+  for (let t of args) if (!audio.op(t) && audio.modules?.[t]) {
+    try { await audio.use(t) }
+    catch (e) { throw new Error(`op '${t}' needs its module installed: npm i ${audio.modules[t].split('/audio-module')[0]}`) }
+  }
 
   if (!args.length || args[0] === '--help' || args[0] === '-h') {
     showUsage()

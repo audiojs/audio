@@ -11,6 +11,21 @@ export { default } from './core.js'
 export { parseTime } from './core.js'
 export { render } from './plan.js'
 
+import audio from './core.js'
+
+// ── Module registry — audio.use('name') resolves through here (dynamic import).
+// Contract audio-modules from the @audio scope; grows with the published set.
+audio.modules = {
+  compressor: '@audio/dynamics-compressor/audio-module',
+  freeverb: '@audio/reverb-freeverb/audio-module',
+  delay: '@audio/effect-delay/audio-module',
+  biquad: '@audio/filter-biquad/audio-module',
+  yin: '@audio/pitch-yin/audio-module',
+  tube: '@audio/saturate-tube/audio-module',
+  osc: '@audio/synth-osc/audio-module',
+  isolate: '@audio/vocals-isolate/audio-module',
+}
+
 // ── Infrastructure (self-register on import) ────────────────────────────
 
 import './cache.js'

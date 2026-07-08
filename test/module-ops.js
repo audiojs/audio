@@ -62,3 +62,25 @@ test('op introspection carries module param metadata (CLI help substrate)', () =
   ok(d.params.includes('ratio'))
   is(audio.op('freeverb').tail, 6)
 })
+
+test('tail op is undo-atomic and serializes as one edit', async () => {
+  let a = audio.from([tone(440, 0.5)], { sampleRate: SR })
+  let dur0 = a.duration
+  a.freeverb({ room: 0.8 })
+  is(a.edits.length, 1, 'one edit recorded (pad composed at compile)')
+  is(a.toJSON().edits.length, 1)
+  a.undo()
+  is(a.duration, dur0, 'undo removes reverb AND its tail pad')
+})
+
+test('audio.use(name) resolves through the registry (dynamic import)', async () => {
+  audio.modules ??= {}
+  audio.modules.tube = new URL('../../@audio/saturate/packages/saturate-tube/audio-module.js', import.meta.url).href
+  await audio.use('tube')
+  ok(typeof audio.fn.tube === 'function', 'registry-resolved module registered')
+  let out = (await audio.from([tone(440, 0.2)], { sampleRate: SR }).tube({ drive: 8 }).read())[0]
+  ok(out.every(isFinite))
+  let err = null
+  try { audio.use('nosuchmodule') } catch (e) { err = e }
+  ok(/unknown module/.test(err?.message), 'unknown name throws')
+})
