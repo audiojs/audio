@@ -84,3 +84,40 @@ test('audio.use(name) resolves through the registry (dynamic import)', async () 
   try { audio.use('nosuchmodule') } catch (e) { err = e }
   ok(/unknown module/.test(err?.message), 'unknown name throws')
 })
+
+// ── Wave B: dynamics-gate + denoise-dehum ─────────────────────────────
+
+import { gate } from '../../@audio/dynamics/packages/dynamics-gate/audio-module.js'
+import { dehum } from '../../@audio/denoise/packages/denoise-dehum/audio-module.js'
+audio.use(gate, dehum)
+
+/** Goertzel magnitude at f Hz. */
+function energyAt(buf, f, sr = SR) {
+  let n = buf.length, w = 2 * Math.PI * f / sr
+  let coeff = 2 * Math.cos(w), s1 = 0, s2 = 0
+  for (let i = 0; i < n; i++) { let s = buf[i] + coeff * s1 - s2; s2 = s1; s1 = s }
+  return Math.sqrt(s1 * s1 + s2 * s2 - coeff * s1 * s2) / n
+}
+
+test('gate: passes signal, silences the floor', async () => {
+  // 0.5s tone at -6dB, then 0.5s floor at -50dB
+  let n = SR, ch = new Float32Array(n)
+  for (let i = 0; i < n / 2; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / SR)
+  for (let i = n / 2; i < n; i++) ch[i] = 0.003 * Math.sin(2 * Math.PI * 440 * i / SR)
+  let out = (await audio.from([ch], { sampleRate: SR }).gate({ threshold: -40, range: -90 }).read())[0]
+  ok(rms(out, SR * 0.1, SR * 0.4) > 0.3, 'signal above threshold passes')
+  ok(rms(out, SR * 0.8) < 0.0005, `floor gated (${rms(out, SR * 0.8).toExponential(1)})`)
+})
+
+test('dehum: notches mains fundamental + harmonics, preserves program', async () => {
+  let n = SR, ch = new Float32Array(n)
+  for (let i = 0; i < n; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / SR)
+    + 0.2 * Math.sin(2 * Math.PI * 50 * i / SR) + 0.1 * Math.sin(2 * Math.PI * 150 * i / SR)
+  let a = audio.from([ch], { sampleRate: SR })
+  let out = (await a.dehum({ freq: 50, harmonics: 4 }).read())[0]
+  let mid = out.subarray(SR / 4, (3 * SR) / 4)  // skip filter settle
+  let dry = ch.subarray(SR / 4, (3 * SR) / 4)
+  ok(energyAt(mid, 50) < energyAt(dry, 50) * 0.1, `50Hz hum removed (${(energyAt(mid, 50) / energyAt(dry, 50)).toFixed(3)}×)`)
+  ok(energyAt(mid, 150) < energyAt(dry, 150) * 0.1, '3rd harmonic removed')
+  ok(energyAt(mid, 440) > energyAt(dry, 440) * 0.9, 'program at 440Hz preserved')
+})

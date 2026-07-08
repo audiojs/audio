@@ -17,6 +17,8 @@ import audio from './core.js'
 // Contract audio-modules from the @audio scope; grows with the published set.
 audio.modules = {
   compressor: '@audio/dynamics-compressor/audio-module',
+  gate: '@audio/dynamics-gate/audio-module',
+  dehum: '@audio/denoise-dehum/audio-module',
   freeverb: '@audio/reverb-freeverb/audio-module',
   delay: '@audio/effect-delay/audio-module',
   biquad: '@audio/filter-biquad/audio-module',
