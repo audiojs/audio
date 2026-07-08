@@ -11,7 +11,6 @@ import getType from 'audio-type'
 import encode from 'encode-audio'
 import convert, { parse as parseFmt } from 'pcm-convert'
 import parseDuration from 'parse-duration'
-import { toOp } from '@audio/module'
 
 audio.version = '2.2.0'
 
@@ -252,12 +251,60 @@ audio.use = function(...plugins) {
   }
 }
 
+/** Map a contract module to an op descriptor. The contract is a convention, not a
+ *  library — audio consumes it natively: params read off the factory, per-instance
+ *  state on the proc ctx, smoothing left to engine sub-block automation (it already
+ *  ramps patched values click-free), currentTime from blockOffset. */
 function useModule(m) {
-  let desc = toOp(m)
-  audio.op(desc.id, desc)
-  if (desc.tail > 0) {
-    let base = fn[desc.id]
-    fn[desc.id] = function(...a) { return base.apply(this.pad(0, desc.tail), a) }
+  let specs = m.params || {}
+  let names = Object.keys(specs)
+  let id = m.id || (m.name || 'module').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
+  let tail = m.tail || 0
+
+  let init = (ctx) => {
+    let snapshot = {}
+    for (let name of names) {
+      let sp = specs[name], v = ctx[name] ?? sp.default
+      snapshot[name] = sp.type === 'number' ? new Float32Array([v]) : v
+    }
+    let mctx = {
+      sampleRate: ctx.sampleRate, maxBlockSize: 2 ** 21, maxChannels: 32,
+      render: 'offline', duration: undefined, currentTime: 0,
+      params: snapshot, layouts: undefined, events: undefined,
+      emit(name, ...args) {
+        if (!(name in (m.events?.out || {}))) throw new Error(`emit: "${name}" not declared in events.out`)
+        if (st.events.length < 4096) st.events.push({ name, args, time: mctx.currentTime })
+      }
+    }
+    let st = { mctx, live: {}, bufs: {}, events: [] }
+    for (let name of names) if (specs[name].type === 'number') st.bufs[name] = new Float32Array(1)
+    st.process = m(mctx)
+    return st
+  }
+
+  audio.op(id, {
+    params: names,
+    tail,
+    module: m, // param metadata for CLI help / introspection
+    process(input, output, ctx) {
+      let st = ctx._am ??= init(ctx)
+      st.mctx.currentTime = ctx.blockOffset || 0
+      for (let name of names) {
+        let sp = specs[name]
+        let v = ctx[name] ?? sp.default
+        if (sp.type === 'number') {
+          if (v < sp.min) v = sp.min
+          else if (v > sp.max) v = sp.max
+          st.bufs[name][0] = v
+          st.live[name] = st.bufs[name]
+        } else st.live[name] = v
+      }
+      st.process([input], [output], st.live)
+    }
+  })
+  if (tail > 0) {
+    let base = fn[id]
+    fn[id] = function(...a) { return base.apply(this.pad(0, tail), a) }
   }
 }
 
