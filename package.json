@@ -76,32 +76,32 @@
     "@audio/pitch": "^2.0.0",
     "@audio/speaker": "^2.3.1",
     "@audio/stretch": "^2.0.0",
-    "@audio/vocals": "^1.0.0",
+    "@audio/vocals": "^1.0.1",
     "@audio/weighting": "^1.0.0",
+    "@audio/window": "^1.0.0",
     "a-weighting": "^2.0.1",
     "audio-type": "^2.4.1",
     "fourier-transform": "^2.2.0",
     "parse-duration": "^2.1.6",
-    "pcm-convert": "^3.1.1",
-    "window-function": "^3.0.1"
+    "pcm-convert": "^3.1.1"
   },
   "devDependencies": {
     "@audio/denoise-dehum": "^0.1.0",
+    "@audio/dynamics-compand": "^0.1.1",
     "@audio/dynamics-compressor": "^0.1.0",
     "@audio/dynamics-deesser": "^0.1.0",
+    "@audio/dynamics-ducker": "^0.1.1",
+    "@audio/dynamics-expander": "^0.1.1",
     "@audio/dynamics-gate": "^0.1.0",
+    "@audio/dynamics-leveler": "^0.1.1",
     "@audio/dynamics-limiter": "^0.1.0",
     "@audio/dynamics-softclip": "^0.1.0",
+    "@audio/dynamics-transient-shaper": "^0.1.1",
     "@audio/reverb-freeverb": "^1.0.0",
     "@audio/saturate-tube": "^1.0.0",
     "audio-lena": "^3.0.0",
     "esbuild": "^0.28.0",
     "playwright": "^1.59.1",
     "tst": "^9.4.0"
-  },
-  "overrides": {
-    "@audio/vocals": {
-      "@audio/spatial-midside": "^1.0.0"
-    }
   }
 }

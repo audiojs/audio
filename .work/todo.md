@@ -50,11 +50,11 @@
 - [ ] Risk: 3 existing conventions each evolved for a reason (zero-alloc, ergonomics, overlap-add). Contract must cover all three ergonomics via adapters or migration stalls.
 
 ### `@audio/*` namespace migration
-- [ ] Scope owned on npm; `@audio/decode-*` already live — extend pattern to ops/algos
-- [ ] Meta-package pattern (babel/radix/tanstack): keep `pitch-shift`/`time-stretch`/`audio-effect` as thin meta-packages that reexport `@audio/pitch-*` / `@audio/stretch-*` / `@audio/fx-*`
-- [ ] Shared primitives deduped: `@audio/stft`, `@audio/window`, `@audio/biquad`
+- [x] Scope owned on npm — ~274 packages published across 36 umbrellas — 2026-07
+- [x] `audio` adopted the scope wholesale (14304f1): decode/encode/mic/speaker, filter+eq, weighting, stretch (pvocLock first-class), beat, pitch/mir/note, vocals, window; 9 legacy deps dropped. Kept local with reasons: spectrum a-weighting (needs magnitude-response fn upstream), resample sinc (plug-in interpolator needs random access `(src, tOff, n, rate, phase)` — polyphase's forward-only rate-pair stream doesn't fit), crossfeed mix (spatial-crossfeed hardcodes Q=0.5)
+- [x] Shared primitives deduped: `@audio/stft`, `@audio/window`, `@audio/biquad` published — 2026-07
 - [ ] `peerDependencies: {audio: "^2"}` on all subpackages to prevent duplicate cores
-- [ ] Pilot with one sibling lib before mass conversion (candidate: `pitch-shift` → `@audio/pitch-yin` + `@audio/pitch-wsola`)
+- [x] Publish hygiene: driver hard-fails `file:`/`link:` specs (vocals 1.0.1 leak class)
 - [ ] Registry in `audio` README — without it, subpackages are invisible
 
 ## Tier 2
@@ -88,7 +88,7 @@ Wire `audio-effect` into `audio` as ops (one op per effect, shared param-object 
 - [ ] **transient-shaper**, **slew-limiter**, **noise-shaping**
 
 Cross-package ops (pull from sibling libs, not audio-effect):
-- [ ] **compressor**, **limiter**, **gate**, **expander**, **deesser**, **ducker** (auto-duck), **compand**, **softclip** → `dynamics-processor`
+- [x] **compressor**, **limiter**, **gate**, **expander**, **deesser**, **ducker**, **compand**, **softclip** → `@audio/dynamics-*` contract modules in the `audio.modules` registry (published 0.1.1; leveler=dynaudnorm too) — 2026-07. Caveats: leveler is `streaming: false` (engine hosts per-block until whole-render hosting lands); ducker self-keys until multi-bus feeding
 - [ ] **pitch-shift**, **vocoder**, **formant-shift** → `pitch-shift`
 - [ ] **paulstretch**, **sliding-stretch** (continuous tempo+pitch envelope over selection) → `time-stretch` (sliding-stretch needs new API)
 - [ ] **adjustable-fade** (non-linear, mid-point, partial selection) — `audio` utility, not an effect
@@ -139,13 +139,13 @@ Coverage matrix across FFmpeg / SoX / librosa / Pedalboard / MIREX with test evi
 
 ## FFmpeg parity
 
-### Dynamics
-- [ ] **compressor** — acompressor: threshold, ratio, knee, attack, release, makeup gain
-- [ ] **limiter** — alimiter: lookahead brickwall limiter, true-peak ceiling
-- [ ] **gate** — agate: noise gate, threshold, hold, attack, release
-- [ ] **compand** — compand: multi-point transfer curve compressor/expander
-- [ ] **dynaudnorm** — dynaudnorm: frame-by-frame dynamic normalization
-- [ ] **softclip** — asoftclip: tanh/atan/cubic waveshaping
+### Dynamics — all via @audio/dynamics registry modules, 2026-07
+- [x] **compressor** — acompressor: threshold, ratio, knee, attack, release, makeup gain
+- [x] **limiter** — alimiter: lookahead brickwall (declared latency → engine delay compensation)
+- [x] **gate** — agate: noise gate, threshold, hold, attack, release
+- [x] **compand** — compand: transfer curve (output levels as params; input breakpoints fixed)
+- [x] **dynaudnorm** — `leveler` (streaming:false — engine whole-render hosting pending)
+- [x] **softclip** — asoftclip: tanh/atan/cubic/sin/hard waveshaping
 
 
 ### Spatial

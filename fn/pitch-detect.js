@@ -13,7 +13,7 @@
 import { yin } from '@audio/pitch'
 import { chroma, chord, smoothChords, key } from '@audio/mir'
 import { hzToMidi, name as midiToName } from '@audio/note'
-import hann from 'window-function/hann'
+import { hann } from '@audio/window'
 import { analyzeBlocks } from './spectrum.js'
 import audio from '../core.js'
 

@@ -25,12 +25,8 @@ import { pvocLock } from '@audio/stretch'
 // block size with stable pitch across block boundaries.
 // Warm-up: while the vocoder has yet to emit anything the cursor stalls so no
 // samples are skipped; emission resumes once the ring catches up.
-// anaHop is rounded explicitly: fourier-transform's streaming STFT indexes its
-// ring buffer at the raw (unrounded) analysis position, so a fractional
-// hopSize/ratio (any non-integer-dividing ratio, e.g. 1.5) reads a non-integer
-// index and silently returns undefined → NaN throughout the block. Passing an
-// integer anaHop sidesteps the bug; the outer fractional-cursor resample below
-// still hits the exact requested ratio regardless of the vocoder's internal hop.
+// explicit integer anaHop guards stretch-core <1.0.1 (NaN on fractional hops); the outer
+// fractional-cursor resample still hits the exact ratio regardless of internal hop.
 export function initPhaseLockStream(nch, ratio) {
   let frameSize = 1024, hopSize = frameSize >> 2
   let opts = { factor: ratio, frameSize, hopSize, anaHop: Math.round(hopSize / ratio) }

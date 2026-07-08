@@ -207,11 +207,11 @@ test('softclip: bounded by ceiling, enum curve validated', async () => {
 // ── Dynamics wave: expander, compand, leveler, transient-shaper, ducker ───
 // Not yet published to npm — import via the sibling @audio/dynamics checkout;
 // switch to '@audio/dynamics-<atom>/audio-module' after next publish.
-import { expander } from '../../@audio/dynamics/packages/dynamics-expander/audio-module.js'
-import { compand } from '../../@audio/dynamics/packages/dynamics-compand/audio-module.js'
-import { leveler } from '../../@audio/dynamics/packages/dynamics-leveler/audio-module.js'
-import { transientShaper } from '../../@audio/dynamics/packages/dynamics-transient-shaper/audio-module.js'
-import { ducker } from '../../@audio/dynamics/packages/dynamics-ducker/audio-module.js'
+import { expander } from '@audio/dynamics-expander/audio-module'
+import { compand } from '@audio/dynamics-compand/audio-module'
+import { leveler } from '@audio/dynamics-leveler/audio-module'
+import { transientShaper } from '@audio/dynamics-transient-shaper/audio-module'
+import { ducker } from '@audio/dynamics-ducker/audio-module'
 audio.use(expander, compand, leveler, transientShaper, ducker)
 
 const db = (lin) => 20 * Math.log10(Math.max(lin, 1e-12))
