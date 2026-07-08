@@ -290,3 +290,46 @@ test('ducker: self-keyed fallback engages when the host feeds only the main bus'
   let settle = Math.round(0.1 * SR)
   ok(db(rms(out, settle)) < db(rms(main, settle)) - 3, `self-keyed reduction engages (${db(rms(out, settle)).toFixed(1)} dB)`)
 })
+
+// ── Engine hosting: streaming:false (whole-render) + sidechain key bus ──
+// (leveler/ducker imported + registered in the wave-2 block above)
+
+test('whole-render hosting: leveler converges time-varying levels (streaming:false)', async () => {
+  // loud 1s then quiet 1s — exactly what per-block hosting could not level
+  let n = 2 * SR, ch = new Float32Array(n)
+  for (let i = 0; i < SR; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 330 * i / SR)
+  for (let i = SR; i < n; i++) ch[i] = 0.02 * Math.sin(2 * Math.PI * 330 * i / SR)
+  let a = audio.from([ch.slice()], { sampleRate: SR })
+  let out = (await a.leveler({ maxGain: 30, frame: 0.1, smooth: 2 }).read())[0]
+  is(out.length, n, 'length preserved')
+  let gap0 = 20 * Math.log10(rms(ch, SR * 0.2, SR * 0.8) / rms(ch, SR * 1.2, SR * 1.8))
+  let gap1 = 20 * Math.log10(rms(out, SR * 0.2, SR * 0.8) / rms(out, SR * 1.2, SR * 1.8))
+  ok(gap1 < gap0 - 10, `level gap narrowed ${gap0.toFixed(1)}dB → ${gap1.toFixed(1)}dB`)
+  ok(out.every(isFinite))
+
+  // whole-render composes: ops after it apply to the materialized result
+  let b = audio.from([ch.slice()], { sampleRate: SR })
+  b.leveler({ maxGain: 30, frame: 0.1, smooth: 2 }).gain(-6)
+  let out2 = (await b.read())[0]
+  almost(rms(out2, SR * 0.2, SR * 0.8), rms(out, SR * 0.2, SR * 0.8) * 10 ** (-6 / 20), 1e-3, 'post-op applies to materialized output')
+  b.undo(); b.undo()
+  is(b.duration, 2, 'undo unwinds whole-render edit')
+})
+
+test('sidechain key bus: ducker ducks under the key, recovers after', async () => {
+  let n = Math.round(1.5 * SR)
+  let main = new Float32Array(n)
+  for (let i = 0; i < n; i++) main[i] = 0.4 * Math.sin(2 * Math.PI * 440 * i / SR)
+  let key = new Float32Array(n)
+  for (let i = Math.round(0.5 * SR); i < SR; i++) key[i] = 0.8 * Math.sin(2 * Math.PI * 220 * i / SR)
+
+  let a = audio.from([main.slice(), main.slice()], { sampleRate: SR })
+  let k = audio.from([key, key], { sampleRate: SR })
+  a.ducker({ key: k, threshold: -30, ratio: 8, range: -40, attack: 5, release: 50 })
+  let out = (await a.read())[0]
+  let before = rms(out, SR * 0.1, SR * 0.4)
+  let during = rms(out, SR * 0.6, SR * 0.9)
+  let after = rms(out, Math.round(1.25 * SR), Math.round(1.45 * SR))
+  ok(during < before * 0.25, `ducked under key (${(20 * Math.log10(during / before)).toFixed(1)}dB)`)
+  ok(after > before * 0.7, `recovers after key (${(20 * Math.log10(after / before)).toFixed(1)}dB)`)
+})

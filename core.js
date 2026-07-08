@@ -288,10 +288,10 @@ function useModule(m) {
     ? (o, sr) => m.latency({ sampleRate: sr, params: snapParams(n => o?.[n]) }) | 0
     : m.latency | 0
 
-  let init = (ctx) => {
+  let init = (ctx, maxBlock = audio.BLOCK_SIZE) => {
     let snapshot = snapParams(name => ctx[name])
     let mctx = {
-      sampleRate: ctx.sampleRate, maxBlockSize: audio.BLOCK_SIZE, maxChannels: 32,
+      sampleRate: ctx.sampleRate, maxBlockSize: maxBlock, maxChannels: 32,
       render: 'offline', duration: ctx.totalDuration, currentTime: 0,
       params: snapshot, layouts: undefined, events: undefined,
       // events.out declaration validated; host routing of emissions is future work
@@ -303,9 +303,7 @@ function useModule(m) {
     return st
   }
 
-  let process = (input, output, ctx) => {
-    let st = ctx._am ??= init(ctx)
-    st.mctx.currentTime = ctx.blockOffset || 0
+  let fill = (st, ctx) => {
     for (let name of names) {
       let sp = specs[name]
       let v = ctx[name] ?? sp.default
@@ -316,7 +314,34 @@ function useModule(m) {
         st.live[name] = st.bufs[name]
       } else st.live[name] = sp.type === 'enum' && !sp.values.includes(v) ? sp.default : v
     }
-    st.process([input], [output], st.live)
+  }
+
+  // Declared extra input buses (contract §channels) — bus 1 fed from ctx.key
+  // (an audio instance / Float32Array[]), rendered per block, rate-reconciled
+  let keyed = Array.isArray(m.channels?.inputs) && m.channels.inputs.length > 1
+
+  let process = (input, output, ctx) => {
+    let st = ctx._am ??= init(ctx)
+    st.mctx.currentTime = ctx.blockOffset || 0
+    fill(st, ctx)
+    if (keyed && ctx.key != null && audio.renderAt) {
+      let n = input[0].length
+      let off = Math.round((ctx.blockOffset || 0) * ctx.sampleRate)
+      st.process([input, audio.renderAt(ctx.render, ctx.key, off, n, ctx.sampleRate)], [output], st.live)
+    } else st.process(keyed ? [input, undefined] : [input], [output], st.live)
+  }
+
+  // streaming: false — the module needs the entire signal in one call; the plan
+  // engine materializes the timeline and hosts it as a whole-render op
+  if (m.streaming === false) {
+    return audio.op(id, {
+      params: names, module: m,
+      whole(input, output, ctx) {
+        let st = init(ctx, input[0].length)
+        fill(st, ctx)
+        st.process([input], [output], st.live)
+      }
+    })
   }
 
   if (!tail) return audio.op(id, { params: names, module: m, latency, process })

@@ -123,6 +123,15 @@ Each instance's stats record `stats.blockSize` — the block size used at decode
 
 Changing `BLOCK_SIZE` cannot retroactively refine existing stats. For finer resolution in a zoomed region, read the PCM.
 
+## Contract modules
+
+`audio.use(module)` hosts [@audio/module CONTRACT](https://github.com/audiojs/module) factories natively:
+params map to op params (engine automation/curves/ramps apply), declared `tail` composes
+a trailing pad, declared `latency` gets plan-level delay compensation, `streaming: false`
+modules run as whole-render ops (materialize → one call → continue from the result), and
+multi-bus modules read their sidechain from the `key` option. `audio.modules` maps names
+to published packages for `audio.use('name')` and CLI auto-resolution.
+
 ## Meta, markers, regions
 
 Container tags (`a.meta`), point markers (`a.markers`), and time-span regions (`a.regions`) live alongside PCM but follow a different path.

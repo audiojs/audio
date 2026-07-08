@@ -421,6 +421,8 @@ export function refLen(source, sr) {
 
 /** Render n target-rate samples at srcOff (target coords) from a source,
  *  resampling when the source's sample rate differs. */
+audio.renderAt = renderAt  // sidechain bus reads in core's useModule (no core→plan import)
+
 export function renderAt(render, source, srcOff, n, sr) {
   let ssr = source?.sampleRate
   let ratio = ssr && ssr !== sr ? ssr / sr : 1
@@ -549,6 +551,7 @@ function compilePlan(a, len, final) {
       o.at ??= at; o.duration ??= duration; o.channel ??= channel
       re = [rType, o]
       let rOp = ops[rType]
+      if (rOp?.whole) throw new Error(`audio: whole-render op '${rType}' cannot be emitted by expand/resolve`)
       if (rOp?.plan && typeof rOp.plan === 'function') {
         let { at: rAt, duration: rDur, channel: rCh, ...rExtra } = o
         let t = planLen(segs), rOff = rAt != null ? Math.round(rAt * sr) : null, rLen = rDur != null ? Math.round(rDur * sr) : null
@@ -592,6 +595,29 @@ function compilePlan(a, len, final) {
         if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }
         continue
       }
+    }
+
+    // Whole-render op (streaming: false modules) — needs the entire signal in one call.
+    // At final: materialize the plan so far, process once, continue from the result as
+    // a ref segment. During decode the output is indeterminate — limit stays 0.
+    if (op.whole) {
+      if (!final) { limit = 0; continue }
+      let t = planLen(segs)
+      if (t > MAX_FLAT_SIZE) throw new Error(`Audio too large for whole-render op '${type}' (${(t / 1e6).toFixed(0)}M samples)`)
+      if (a._.wrc?.v !== a.version) a._.wrc = { v: a.version, m: new Map() }
+      let key = a.edits.indexOf(edit) + ':' + a._.len + ':' + t
+      let ref = a._.wrc.m.get(key)
+      if (!ref) {
+        let input = readPlan(a, { segs, pipeline, totalLen: t, sr, latency, pulls })
+        let output = input.map(chn => new Float32Array(chn.length))
+        let wctx = { sampleRate: sr, channelCount: input.length, totalDuration: t / sr, at, duration, channel, render, ...extra }
+        op.whole(input, output, wctx)
+        a._.wrc.m.set(key, ref = audio.from(output, { sampleRate: sr }))
+      }
+      segs = [seg(0, ref._.len, 0, undefined, ref)]
+      pipeline = []; latency = 0; pulls = []
+      if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }
+      continue
     }
 
     if (op.plan) {

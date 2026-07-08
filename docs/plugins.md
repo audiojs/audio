@@ -225,6 +225,28 @@ audio.op('fade', {
 })
 ```
 
+### whole
+
+Whole-render processing — same `(input, output, ctx)` signature as `process`, called
+**once** with the entire signal (`streaming: false` contract modules register this way
+via `audio.use`). At compile the engine materializes the plan so far, runs the hook,
+and continues from the result as a reference segment — downstream ops apply to the
+processed output, undo unwinds the single edit, and the materialization is cached per
+version. During a live decode the safe limit stays 0 (the whole signal isn't known
+yet); output begins once decode completes. Bounded by the flat-render guard (2³⁰
+samples). Cannot be emitted by `expand`/`resolve`.
+
+### sidechain key
+
+A contract module declaring more than one input bus (`channels: { inputs: [2, 2] }`)
+receives bus 1 from the op's `key` option — an audio instance or `Float32Array[]`,
+rendered per block at the op's timeline position, sample-rate-reconciled, page-primed
+and awaited like any ref:
+
+```js
+music.ducker({ key: voice, threshold: -30 })
+```
+
 ### latency
 
 Declared lookahead in samples — a number, or `(opts, sampleRate) => samples` for
