@@ -275,12 +275,21 @@ function useModule(m) {
   let id = m.id || (m.name || 'module').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
   let tail = m.tail || 0
 
-  let init = (ctx) => {
-    let snapshot = {}
+  let snapParams = get => {
+    let s = {}
     for (let name of names) {
-      let sp = specs[name], v = ctx[name] ?? sp.default
-      snapshot[name] = sp.type === 'number' ? new Float32Array([v]) : v
+      let sp = specs[name], v = get(name) ?? sp.default
+      s[name] = sp.type === 'number' ? new Float32Array([v]) : v
     }
+    return s
+  }
+  // Declared latency → plan-level plugin delay compensation (fn form: once per instance)
+  let latency = typeof m.latency === 'function'
+    ? (o, sr) => m.latency({ sampleRate: sr, params: snapParams(n => o?.[n]) }) | 0
+    : m.latency | 0
+
+  let init = (ctx) => {
+    let snapshot = snapParams(name => ctx[name])
     let mctx = {
       sampleRate: ctx.sampleRate, maxBlockSize: audio.BLOCK_SIZE, maxChannels: 32,
       render: 'offline', duration: ctx.totalDuration, currentTime: 0,
@@ -310,11 +319,11 @@ function useModule(m) {
     st.process([input], [output], st.live)
   }
 
-  if (!tail) return audio.op(id, { params: names, module: m, process })
+  if (!tail) return audio.op(id, { params: names, module: m, latency, process })
 
   // Declared tail: expand into pad + hidden proc at compile time — the user edit stays
   // one atomic entry (undo/serialize whole), the decay renders into the pad
-  audio.op('_' + id, { params: names, hidden: true, module: m, process })
+  audio.op('_' + id, { params: names, hidden: true, module: m, latency, process })
   audio.op(id, {
     params: names, tail, module: m,
     expand: (ctx) => {

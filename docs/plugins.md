@@ -225,6 +225,15 @@ audio.op('fade', {
 })
 ```
 
+### latency
+
+Declared lookahead in samples — a number, or `(opts, sampleRate) => samples` for
+param-dependent delay lines. The engine compensates at the plan level (plugin delay
+compensation): render cursors run the pipeline's total latency ahead of the requested
+timeline, so delayed output lands aligned and the final samples flush through
+past-the-end silence. Contract audio-modules declare `latency` per CONTRACT.md and
+get this automatically.
+
 ### resolve
 
 Pre-render replacement using decoded stats (stat-conditioned — trim, normalize). The engine

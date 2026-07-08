@@ -210,6 +210,7 @@ export async function ensurePlan(a, plan, offset, duration) {
   let { segs, sr } = plan
   let s = Math.round((offset || 0) * sr)
   let e = duration != null ? s + Math.round(duration * sr) : plan.totalLen
+  e = Math.min(e + (plan.latency || 0), plan.totalLen)  // latency cursors read ahead
   // Prime ctx.render pull sources (mix/crossfade) — seconds are rate-invariant,
   // so the overlap maps directly to the ref's own timebase
   if (plan.pulls) for (let p of plan.pulls) {
@@ -280,11 +281,12 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
   let durExplicit = duration != null
   let builtLen = 0, plan = null, procs = null, outPos = startSample, ensured = false
   let lastVer = a.version
+  let T = 0  // pipeline latency — outPos runs in cursor space, T ahead of the timeline
   let nch = a._.ch
   let bufA = Array.from({ length: nch }, () => new Float32Array(BS))
   let xfadeRamp = 0, prevPipe = ''  // crossfade state + pipeline signature for change detection
 
-  while (outPos < endSample) {
+  while (outPos < endSample + T) {
     let acc = a._.acc
     let avail = a.decoded ? a._.len : acc ? acc.length : a._.len
 
@@ -297,11 +299,16 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
       plan = compilePlan(a, builtLen, a.decoded)
       let curPipe = pipelineSig(plan.pipeline)
       if (!procs) {
+        T = plan.latency
         procs = initProcs(plan.pipeline, plan.totalLen / sr, sr, nch)
         prevPipe = curPipe
-        if (startSample > 0 && procs.length)
-          outPos = Math.max(0, startSample - BS * WARMUP)
-      } else if (curPipe !== prevPipe) {
+        if ((startSample > 0 || T > 0) && procs.length)
+          outPos = Math.max(0, startSample + T - BS * WARMUP)
+      } else if (plan.latency !== T) {
+        // Mid-stream latency change — keep content continuity: cursor c ↦ c + ΔT
+        outPos += plan.latency - T; T = plan.latency
+      }
+      if (procs && curPipe !== prevPipe) {
         // Structural pipeline change (ops added/removed) — full reinit with crossfade
         procs = initProcs(plan.pipeline, plan.totalLen / sr, sr, nch)
         prevPipe = curPipe
@@ -324,13 +331,16 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
       }
     }
 
-    if (!plan || outPos >= plan.totalLen) {
+    if (!plan || outPos >= plan.totalLen + T) {
       if (a.decoded) break
       await new Promise(r => a._.waiters.push(r))
       continue
     }
 
-    let blockEnd = outPos < startSample ? startSample : Math.min(endSample, plan.totalLen, plan.limit)
+    // Cursor bounds: pre-decode the limit gates determinism; post-decode cursors may
+    // run T past totalLen to flush lookahead delay lines (renders as silence)
+    let bound = a.decoded ? plan.totalLen + T : Math.min(plan.limit, plan.totalLen)
+    let blockEnd = outPos < startSample + T ? startSample + T : Math.min(endSample + T, bound)
     let len = Math.min(BS, blockEnd - outPos)
     if (len <= 0) { if (a.decoded) break; await new Promise(r => a._.waiters.push(r)); continue }
 
@@ -342,20 +352,21 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
 
     for (let b of bufA) b.fill(0, 0, len)
     renderBlock(a, plan.segs, outPos, len, bufA)
+    let src = len < BS ? bufA.map(b => b.subarray(0, len)) : bufA
     let out
     if (xfadeRamp > 0 && procs.length) {
       // Crossfade from dry (pre-proc) to wet (post-proc) to avoid click at pipeline transition
       let dry = bufA.map(b => b.slice(0, len))
-      out = applyProcs(bufA, procs, outPos, sr)
+      out = applyProcs(src, procs, outPos, sr)
       let n = Math.min(xfadeRamp, len), nc = Math.min(dry.length, out.length)
       for (let c = 0; c < nc; c++)
         for (let i = 0; i < n; i++) { let t = (xfadeRamp - n + i + 1) / xfadeRamp; out[c][i] = dry[c][i] * (1 - t) + out[c][i] * t }
       xfadeRamp -= n
     } else {
-      out = procs.length ? applyProcs(bufA, procs, outPos, sr) : bufA
+      out = procs.length ? applyProcs(src, procs, outPos, sr) : src
     }
 
-    if (outPos >= startSample) yield out.map(b => b.slice(0, len))
+    if (outPos >= startSample + T) yield out.map(b => b.slice(0, len))
     outPos += len
   }
 }
@@ -483,6 +494,14 @@ function mkPlanCtx(total, sr, offset, length, extra) {
   return { total, sampleRate: sr, offset, length, ...extra }
 }
 
+/** Declared latency of a pipeline op in samples — number, or fn(opts, sr) for
+ *  param-dependent lookahead. The render loop runs cursors this far ahead of the
+ *  requested timeline so delayed output lands aligned (plugin delay compensation). */
+function procLatency(desc, o, sr) {
+  let l = desc?.latency
+  return (typeof l === 'function' ? Math.round(l(o || {}, sr)) : l) || 0
+}
+
 /** Stats a resolve-stage op sees: source stats remapped through the structural segs
  *  + pipeline accumulated so far, so trim/normalize measure output space, not source
  *  space. Algebraic remap when possible; full synchronous stat pass at final when not;
@@ -508,12 +527,13 @@ function resolveCtxStats(a, segs, pipeline, sr, final) {
  *  final=true when source is fully decoded — all positions are determined. */
 function compilePlan(a, len, final) {
   let sr = a._.sr, ch = a._.ch
-  let segs = [[0, len, 0]], pipeline = [], limit = len, pulls = []
+  let segs = [[0, len, 0]], pipeline = [], limit = len, pulls = [], latency = 0
 
   // Pipeline push that also registers ctx.render pull sources (mix/crossfade)
   // so ensurePlan can prime their pages alongside segment refs.
   let pushProc = ed => {
     pipeline.push(ed)
+    latency += procLatency(ops[ed[0]], ed[1], sr)
     let o = ed[1]
     if (o) for (let k in o) if (o[k]?.pages) pulls.push({ ref: o[k], at: o.at ?? 0 })
   }
@@ -586,7 +606,7 @@ function compilePlan(a, len, final) {
   }
   let totalLen = planLen(segs)
   if (final) limit = totalLen
-  return { segs, pipeline, totalLen, sr, limit: Math.max(0, limit), pulls }
+  return { segs, pipeline, totalLen, sr, limit: Math.max(0, limit), pulls, latency }
 }
 
 /** Sum ref versions + lengths to detect external mutations (edits or decode growth). */
@@ -743,12 +763,17 @@ export function curveFn(c) {
 function applyProcs(bufA, procs, outOff, sr) {
   let cur = bufA
   for (let proc of procs) {
-    let { op, at, dur, channel, ctx, out } = proc
+    let { op, at, dur, channel, ctx } = proc
     if (!op) continue
     let BS = cur[0].length
+    // Stage buffers are BLOCK_SIZE; short blocks (boundaries, latency flush) narrow the view
+    let out = proc.out[0].length === BS ? proc.out : proc.out.map(ch => ch.subarray(0, BS))
+    // This stage's input content sits preLat cursor samples later than its timeline —
+    // all time semantics (blockOffset, ranges, automation) shift back accordingly
+    let tOff = outOff - proc.preLat
 
     let run = (i0, i1) => {
-      ctx.blockOffset = (outOff + i0) / sr
+      ctx.blockOffset = (tOff + i0) / sr
       ctx.at = at != null ? at - ctx.blockOffset : undefined
       let full = i0 === 0 && i1 === BS
       let inV = full ? cur : cur.map(ch => ch.subarray(i0, i1))
@@ -765,8 +790,8 @@ function applyProcs(bufA, procs, outOff, sr) {
     if (!proc.ranged && (at != null || dur != null)) {
       let a0 = at != null ? Math.round(at * sr) : 0
       let a1 = dur != null ? a0 + Math.round(dur * sr) : Infinity
-      s = Math.max(0, Math.min(a0 - outOff, BS))
-      e = Math.max(s, Math.min(a1 - outOff, BS))
+      s = Math.max(0, Math.min(a0 - tOff, BS))
+      e = Math.max(s, Math.min(a1 - tOff, BS))
       if (s > 0 || e < BS) for (let c = 0; c < out.length; c++) out[c].set(cur[c % cur.length])
       if (e <= s) { cur = out; continue }
     }
@@ -777,7 +802,7 @@ function applyProcs(bufA, procs, outOff, sr) {
       // patched values ramped linearly across this block (click-free updates)
       for (let i = s; i < e; i += SUB) {
         let j = Math.min(i + SUB, e)
-        if (autos) for (let k of autos) ctx[k] = proc.fns[k]((outOff + (i + j) / 2) / sr)
+        if (autos) for (let k of autos) ctx[k] = proc.fns[k]((tOff + (i + j) / 2) / sr)
         if (ramp) { let p = (j - s) / (e - s); for (let k in ramp) ctx[k] = ramp[k][0] + (ramp[k][1] - ramp[k][0]) * p }
         run(i, j)
       }
@@ -818,7 +843,7 @@ function patchProcs(procs, pipeline) {
 /** Initialize process pipeline contexts from plan. Each proc gets its own output
  *  buffers sized to its stage's channel width — zero allocation in the block loop. */
 function initProcs(pipeline, totalDur, sr, nch) {
-  let curCh = nch, BS = audio.BLOCK_SIZE
+  let curCh = nch, BS = audio.BLOCK_SIZE, preLat = 0
   return pipeline.map(ed => {
     let desc = ops[ed[0]]
     let o = ed[1] || {}
@@ -827,6 +852,10 @@ function initProcs(pipeline, totalDur, sr, nch) {
     let outCh = desc.ch ? desc.ch(curCh, ctx) : 0
     let w = outCh || curCh
     if (outCh) curCh = outCh
+    // Cumulative latency of prior stages — this stage's input content sits preLat
+    // cursor samples later than its timeline position
+    let myPre = preLat
+    preLat += procLatency(desc, o, sr)
     // Function-valued (or breakpoint-curve) params become engine automation unless the
     // op samples them itself (auto: 'sample') or declares genuine function args (fnArgs)
     let fns = null, autos = null
@@ -847,6 +876,7 @@ function initProcs(pipeline, totalDur, sr, nch) {
       channel,
       outCh,
       ranged: !!desc.ranged,
+      preLat: myPre,
       out: Array.from({ length: w }, () => new Float32Array(BS)),
       fns, autos, ramp: null,
       ctx
@@ -868,23 +898,28 @@ function maxSrcSample(segs, start, end) {
   return max
 }
 
-/** Stream chunks from a read plan. */
+/** Stream chunks from a read plan. Cursors run plan.latency ahead of the requested
+ *  timeline (plugin delay compensation) — past-the-end cursors render silence, which
+ *  flushes lookahead delay lines so the tail lands aligned. */
 export function* streamPlan(a, plan, offset, duration) {
-  let { segs, pipeline, totalLen, sr } = plan
+  let { segs, pipeline, totalLen, sr, latency: T = 0 } = plan
   let s = Math.round((offset || 0) * sr), e = duration != null ? s + Math.round(duration * sr) : totalLen
   let procs = initProcs(pipeline, totalLen / sr, sr, a._.ch)
 
-  let ws = (s > 0 && procs.length) ? Math.max(0, s - audio.BLOCK_SIZE * WARMUP) : s
+  let sc = s + T, ec = e + T
+  let ws = (sc > 0 && procs.length) ? Math.max(0, sc - audio.BLOCK_SIZE * WARMUP) : sc
   let BS = audio.BLOCK_SIZE, nch = a._.ch
   let bufA = Array.from({ length: nch }, () => new Float32Array(BS))
 
-  for (let outOff = ws; outOff < e; outOff += BS) {
-    let blockEnd = outOff < s ? s : e
+  for (let outOff = ws; outOff < ec;) {
+    let blockEnd = outOff < sc ? sc : ec
     let len = Math.min(BS, blockEnd - outOff)
     for (let b of bufA) b.fill(0, 0, len)
     renderBlock(a, segs, outOff, len, bufA)
-    let out = procs.length ? applyProcs(bufA, procs, outOff, sr) : bufA
-    if (outOff >= s) yield out.map(b => b.subarray(0, len))
+    let src = len < BS ? bufA.map(b => b.subarray(0, len)) : bufA
+    let out = procs.length ? applyProcs(src, procs, outOff, sr) : src
+    if (outOff >= sc) yield out.map(b => b.subarray(0, len))
+    outOff += len
   }
 }
 
