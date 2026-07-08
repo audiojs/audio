@@ -13,7 +13,7 @@ audio raw.wav trim -30db normalize podcast fade 0.3s -0.5s save clean.mp3
 
 <!-- <img src="preview.svg?v=1" alt="Audiojs demo" width="540"> -->
 
-* **Any Format** — fast [wasm codecs](https://github.com/audiojs/audio-decode), no ffmpeg.
+* **Any Format** — fast [wasm codecs](https://github.com/audiojs/decode), no ffmpeg.
 * **Non-destructive** — virtual edits, infinite undo, instant clone.
 * **Stream-first** — playback/encode during decode, realtime editing.
 * **Paged** — no 2Gb memory limit, open 10Gb+ files.
@@ -850,7 +850,7 @@ audio --completions fish | source       # fish
 
 <dl>
 <dt>What formats are supported?</dt>
-<dd>Decode: WAV, MP3, FLAC, OGG Vorbis, Opus, AAC, AIFF, CAF, WebM, AMR, WMA, QOA via <a href="https://github.com/audiojs/audio-decode">audio-decode</a>. Encode: WAV, MP3, FLAC, Opus, OGG, AIFF via <a href="https://github.com/audiojs/audio-encode">audio-encode</a>. Codecs are WASM-based, lazy-loaded on first use.</dd>
+<dd>Decode: WAV, MP3, FLAC, OGG Vorbis, Opus, AAC, AIFF, CAF, WebM, AMR, WMA, QOA via <a href="https://github.com/audiojs/decode">decode</a>. Encode: WAV, MP3, FLAC, Opus, OGG, AIFF via <a href="https://github.com/audiojs/encode">encode</a>. Codecs are WASM-based, lazy-loaded on first use.</dd>
 
 <dt>Does it need ffmpeg or native addons?</dt>
 <dd>No, pure JS + WASM. For CLI, you can install globally: <code>npm i -g audio</code>.</dd>
@@ -891,13 +891,13 @@ audio --completions fish | source       # fish
 
 ## Ecosystem
 
-* [audio-decode](https://github.com/audiojs/audio-decode) – codec decoding (13+ formats)
-* [encode-audio](https://github.com/audiojs/audio-encode) – codec encoding
-* [audio-filter](https://github.com/audiojs/audio-filter) – filters (weighting, EQ, auditory)
-* [audio-speaker](https://github.com/audiojs/audio-speaker) – audio output
-* [audio-mic](https://github.com/audiojs/audio-mic) – audio input
-* [pitch-detection](https://github.com/nickolanack/pitch-detection) – pitch, chord, key analysis
-* [audio-type](https://github.com/nickolanack/audio-type) – format detection
-* [pcm-convert](https://github.com/nickolanack/pcm-convert) – PCM format conversion
+* [decode](https://github.com/audiojs/decode) – codec decoding (13+ formats)
+* [encode](https://github.com/audiojs/encode) – codec encoding
+* [filter](https://github.com/audiojs/filter) – filters (weighting, EQ, auditory)
+* [speaker](https://github.com/audiojs/speaker) – audio output
+* [mic](https://github.com/audiojs/mic) – audio input
+* [pitch](https://github.com/audiojs/pitch) – pitch, chord, key analysis
+* [audio-type](https://github.com/audiojs/audio-type) – format detection
+* [pcm-convert](https://github.com/audiojs/pcm-convert) – PCM format conversion
 
 <p align="center"><a href="./license.md">MIT</a> · <a href="https://github.com/krishnized/license">ॐ</a></p>
