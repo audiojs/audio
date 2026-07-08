@@ -214,3 +214,10 @@ test('sbr: regenerates content above the cutoff, keeps the program band', async 
 	let aboveWet = goertzel(out, 6000, SR), progWet = goertzel(out, 3000, SR), progDry = goertzel(d, 3000, SR)
 	ok(aboveWet > above * 5 + 1e-6 && progWet > progDry * 0.85, `6kHz ${above.toFixed(2)}->${aboveWet.toFixed(1)}, program 3kHz preserved ${(progWet / progDry).toFixed(2)}x`)
 })
+
+test('param-dependent tail: pad scales with live feedback, not declared max', async () => {
+  let short = audio.from([tone(440, 0.5)], { sampleRate: SR }).pingpong({ time: 0.25, feedback: 0.3 })
+  let long = audio.from([tone(440, 0.5)], { sampleRate: SR }).pingpong({ time: 0.25, feedback: 0.8 })
+  ok(long.duration > short.duration, `higher feedback → longer tail (${short.duration.toFixed(1)}s < ${long.duration.toFixed(1)}s)`)
+  ok(long.duration < 30, `far below the 140s worst-case pad (${long.duration.toFixed(1)}s)`)
+})
