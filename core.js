@@ -242,8 +242,8 @@ fn.dispose = function() {
 if (Symbol.dispose) fn[Symbol.dispose] = fn.dispose
 
 /** Register plugins. Each receives audio. A contract audio-module (a factory function
- *  with an own `params` object — see @audio/module CONTRACT.md) registers as an op via
- *  toOp; its declared `tail` composes a trailing pad so decays are not truncated. */
+ *  with an own `params` object — see @audio/module CONTRACT.md) is hosted natively as
+ *  an op; its declared `tail` composes a trailing pad so decays are not truncated. */
 audio.use = function(...plugins) {
   for (let p of plugins) {
     if (typeof p === 'function' && Object.hasOwn(p, 'params') && typeof p.params === 'object') useModule(p)

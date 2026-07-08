@@ -1,4 +1,4 @@
-// Contract audio-modules as audio ops — audio.use(module) → toOp integration.
+// Contract audio-modules as audio ops — audio.use(module) hosts the contract natively.
 // Pilots: @audio/dynamics-compressor (dynamics kernel, live/automated params) and
 // @audio/reverb-freeverb (declared tail → composed trailing pad, decay preserved).
 // Manifests imported by path (unpublished scope); their deps resolve via their own repos.
