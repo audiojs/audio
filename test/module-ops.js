@@ -203,3 +203,90 @@ test('softclip: bounded by ceiling, enum curve validated', async () => {
   let out2 = (await audio.from([tone(440, 0.2, 1.0)], { sampleRate: SR }).softclip({ curve: 'nope' }).read())[0]
   ok(out2.every(v => Math.abs(v) <= 1 + 1e-6) && out2.every(isFinite), 'unknown enum falls back to default')
 })
+
+// ── Dynamics wave: expander, compand, leveler, transient-shaper, ducker ───
+// Not yet published to npm — import via the sibling @audio/dynamics checkout;
+// switch to '@audio/dynamics-<atom>/audio-module' after next publish.
+import { expander } from '../../@audio/dynamics/packages/dynamics-expander/audio-module.js'
+import { compand } from '../../@audio/dynamics/packages/dynamics-compand/audio-module.js'
+import { leveler } from '../../@audio/dynamics/packages/dynamics-leveler/audio-module.js'
+import { transientShaper } from '../../@audio/dynamics/packages/dynamics-transient-shaper/audio-module.js'
+import { ducker } from '../../@audio/dynamics/packages/dynamics-ducker/audio-module.js'
+audio.use(expander, compand, leveler, transientShaper, ducker)
+
+const db = (lin) => 20 * Math.log10(Math.max(lin, 1e-12))
+
+test('expander: attenuates below threshold, passes material above it', async () => {
+  let loud = tone(440, 0.6, 0.5), quiet = tone(440, 0.6, 0.003)
+  let combined = new Float32Array([...loud, ...quiet])
+  let out = (await audio.from([combined], { sampleRate: SR }).expander({ threshold: -30, ratio: 2, range: -40 }).read())[0]
+  ok(out.every(isFinite))
+  let settle = Math.round(0.3 * SR)
+  let loudDrop = db(rms(loud, settle)) - db(rms(out, settle, loud.length))
+  let quietDrop = db(rms(quiet, settle)) - db(rms(out, loud.length + settle))
+  ok(quietDrop > loudDrop + 6, `quiet parts attenuated well past loud (${quietDrop.toFixed(1)} dB vs ${loudDrop.toFixed(1)} dB)`)
+})
+
+test('compand: transfer curve pulls loud material down, leaves quiet identity segment untouched', async () => {
+  let loud = tone(1000, 1.5, 0.9), quiet = tone(1000, 1.5, 0.03)
+  let combined = new Float32Array([...loud, ...quiet])
+  let out = (await audio.from([combined], { sampleRate: SR }).compand({ out0: -90, out1: -60, out2: -20, out3: -8, attack: 5, release: 200 }).read())[0]
+  ok(out.every(isFinite))
+  let settle = Math.round(1.0 * SR)
+  let loudDelta = db(rms(out, settle, loud.length)) - db(rms(loud, settle))
+  let quietDelta = db(rms(out, loud.length + settle)) - db(rms(quiet, settle))
+  ok(loudDelta < -3, `loud (near 0dB, above the -20dB knee) pulled toward -8dB (delta ${loudDelta.toFixed(2)} dB)`)
+  ok(Math.abs(quietDelta) < 1, `quiet (below -20dB) identity segment unchanged (delta ${quietDelta.toFixed(2)} dB)`)
+})
+
+test('leveler: loud/quiet sections converge in RMS toward target loudness', async () => {
+  // NOTE: this host's op engine (core.js useModule) calls process() per 1024-sample
+  // block and has no `streaming: false` batch dispatch — the leveler kernel is
+  // designed around seeing the whole signal in one call (CONTRACT's promised shape
+  // for streaming: false). It still converges here because each ~23ms block's own
+  // RMS happens to match its section's RMS for this steady-tone signal, but the
+  // kernel's cross-frame gaussian smoothing genuinely needs the whole-signal call
+  // this host doesn't provide yet — see audio-module.js's header comment.
+  let loud = tone(440, 10, 0.5), quiet = tone(440, 10, 0.006)
+  let combined = new Float32Array([...loud, ...quiet])
+  let out = (await audio.from([combined], { sampleRate: SR }).leveler({ target: -20, frame: 0.5, maxGain: 12, smooth: 5 }).read())[0]
+  ok(out.every(isFinite))
+  let margin = Math.round(3 * SR)
+  let gapBefore = Math.abs(db(rms(loud, 0, loud.length - margin)) - db(rms(quiet, margin)))
+  let gapAfter = Math.abs(db(rms(out, 0, loud.length - margin)) - db(rms(out, loud.length + margin)))
+  ok(gapAfter < gapBefore * 0.5, `RMS gap narrows toward target loudness (${gapBefore.toFixed(1)} -> ${gapAfter.toFixed(1)} dB)`)
+})
+
+test('transient-shaper: attackGain raises crest factor (attack emphasis)', async () => {
+  let hitLen = Math.round(0.05 * SR), nHits = 20
+  let burst = new Float32Array(hitLen * nHits)
+  for (let h = 0; h < nHits; h++) {
+    let base = h * hitLen, tLen = Math.round(0.002 * SR)
+    for (let i = 0; i < hitLen; i++) burst[base + i] = (i < tLen ? 1.0 : 0.25) * Math.sin(2 * Math.PI * 1000 * i / SR)
+  }
+  // prime with 300ms of steady tone: the kernel's transient = envFast/envSlow-derived
+  // ratio is unbounded and spikes hugely from a true cold start (both envelopes at 0);
+  // priming keeps the measurement in the kernel's normal operating regime — see
+  // audio-module.js's header comment for the underlying kernel defect.
+  let prime = tone(1000, 0.3, 0.25)
+  let full = new Float32Array([...prime, ...burst])
+  let out0 = (await audio.from([full.slice()], { sampleRate: SR })['transient-shaper']({ attackGain: 0, sustainGain: 0 }).read())[0]
+  let out1 = (await audio.from([full.slice()], { sampleRate: SR })['transient-shaper']({ attackGain: 2, sustainGain: 0 }).read())[0]
+  ok(out0.every(isFinite) && out1.every(isFinite))
+  let crest = d => { let p = 0, s = 0; for (let i = 0; i < d.length; i++) { let a = Math.abs(d[i]); if (a > p) p = a; s += d[i] * d[i] }; return p / Math.sqrt(s / d.length) }
+  let c0 = crest(out0.subarray(prime.length)), c1 = crest(out1.subarray(prime.length))
+  ok(c1 > c0, `attack emphasis raises crest factor (${c0.toFixed(2)} -> ${c1.toFixed(2)})`)
+})
+
+test('ducker: self-keyed fallback engages when the host feeds only the main bus', async () => {
+  // The manifest declares a real two-bus sidechain ({ inputs: [2,2], outputs: [2] })
+  // per CONTRACT §channels, but this host's op engine (core.js useModule) wraps a
+  // single input bus only (`st.process([input], [output], ...)`) — no sidechain
+  // routing exists yet. This exercises the documented fallback: keys off the main
+  // signal itself instead of crashing on the missing bus.
+  let main = tone(220, 0.5, 0.9)
+  let out = (await audio.from([main], { sampleRate: SR }).ducker({ threshold: -30, ratio: 4 }).read())[0]
+  ok(out.every(isFinite))
+  let settle = Math.round(0.1 * SR)
+  ok(db(rms(out, settle)) < db(rms(main, settle)) - 3, `self-keyed reduction engages (${db(rms(out, settle)).toFixed(1)} dB)`)
+})
