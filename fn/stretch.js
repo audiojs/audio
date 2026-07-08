@@ -15,21 +15,27 @@
 
 import { seg, spliceSegs, planOffset } from '../plan.js'
 import audio from '../core.js'
-import { vocoder } from 'time-stretch'
+import { pvocLock } from '@audio/stretch'
 
-// vocoder({ factor: r, lock: true }) stretches time by r (keeps pitch) using
-// a phase-locked vocoder. A persistent fractional cursor then resamples the
-// stretched stream at rate r — one advance of `r` per output sample —
-// pitch-shifting by r at fixed block size with stable pitch across block
-// boundaries.
+// pvocLock({ factor: r }) stretches time by r (keeps pitch) using a dedicated
+// phase-locked vocoder (Laroche & Dolson 1999, @audio/stretch-pvoc-lock) —
+// locking is the atom's whole job, not an opt-in flag on a generic vocoder.
+// A persistent fractional cursor then resamples the stretched stream at rate
+// r — one advance of `r` per output sample — pitch-shifting by r at fixed
+// block size with stable pitch across block boundaries.
 // Warm-up: while the vocoder has yet to emit anything the cursor stalls so no
 // samples are skipped; emission resumes once the ring catches up.
+// anaHop is rounded explicitly: fourier-transform's streaming STFT indexes its
+// ring buffer at the raw (unrounded) analysis position, so a fractional
+// hopSize/ratio (any non-integer-dividing ratio, e.g. 1.5) reads a non-integer
+// index and silently returns undefined → NaN throughout the block. Passing an
+// integer anaHop sidesteps the bug; the outer fractional-cursor resample below
+// still hits the exact requested ratio regardless of the vocoder's internal hop.
 export function initPhaseLockStream(nch, ratio) {
-  // vocoder(data, opts) reads lock/transients from its 2nd param even in streaming
-  // form — pass the options object as both args or phase-locking silently stays off
-  let opts = { factor: ratio, lock: true, frameSize: 1024 }
+  let frameSize = 1024, hopSize = frameSize >> 2
+  let opts = { factor: ratio, frameSize, hopSize, anaHop: Math.round(hopSize / ratio) }
   return Array.from({ length: nch }, () => ({
-    write: vocoder(opts, opts),
+    write: pvocLock(opts),
     ring: new Float32Array(4096),
     ringLen: 0,
     ringStart: 0,

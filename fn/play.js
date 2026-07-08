@@ -12,7 +12,7 @@ function ramp(buf, ch, len, fadeIn, RAMP) {
   }
 }
 
-/** Playback via audio-speaker (cross-platform: Node + browser). */
+/** Playback via @audio/speaker (cross-platform: Node + browser). */
 audio.fn.play = function(opts) {
   let offset = opts?.at ?? 0, duration = opts?.duration
   let a = this, BLOCK = audio.BLOCK_SIZE
@@ -34,7 +34,7 @@ audio.fn.play = function(opts) {
       let ch = a.channels, sr = a.sampleRate
       a.playing = true
       if (!a.paused) emit(a, 'play')
-      let { default: Speaker } = await import('audio-speaker')
+      let { default: Speaker } = await import('@audio/speaker')
       let wait = async () => { while (a.paused && a.playing && a._._seekTo == null) await new Promise(r => { a._._wake = r }); a._._wake = null }
 
       let from = offset, RAMP = 256 // ~6ms anti-click ramp

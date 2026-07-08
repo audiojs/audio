@@ -4,7 +4,7 @@ A landscape of audio tools across the web, Python, CLI, and desktop. The goal: h
 
 `audio` occupies a specific niche: **a non-destructive audio workstation library for JavaScript runtimes (Node, Deno, Bun, browsers)**. Decode, edit, analyze, encode, play, record — chainable API + CLI, no native binaries, ~20 KiB gzipped core.
 
-`audio` is part of the [audiojs](https://github.com/audiojs) ecosystem — a constellation of small focused packages (`audio-decode`, `encode-audio`, `audio-speaker`, `audio-mic`, `audio-filter`, `pcm-convert`, `pitch-detection`, `wavearea`, ...) that together cover most JS audio needs. `audio` itself composes many of them into a unified workstation.
+`audio` is part of the [audiojs](https://github.com/audiojs) ecosystem — a constellation of small focused packages (`@audio/decode`, `@audio/encode`, `@audio/speaker`, `@audio/mic`, `@audio/filter`, `@audio/dynamics`, `@audio/denoise`, `wavearea`, ...) that together cover most JS audio needs. `audio` itself composes many of them into a unified workstation.
 
 
 ## Comparison matrix
@@ -166,7 +166,7 @@ Compact one-liners for tools not in the matrix.
 | Essentia.js | WASM port of Essentia; full MIR (key, BPM, danceability) | <https://mtg.github.io/essentia.js> |
 | Wavearea | DOM-native editable waveform component | <https://github.com/dy/wavearea> |
 | Magenta.js | TensorFlow.js music ML (generation, transcription) | <https://magenta.tensorflow.org/js> |
-| audiojs ecosystem | `audio-decode`, `encode-audio`, `audio-speaker`, `audio-mic`, `audio-filter`, `pcm-convert`, `pitch-detection` | <https://github.com/audiojs> |
+| audiojs ecosystem | `@audio/decode`, `@audio/encode`, `@audio/speaker`, `@audio/mic`, `@audio/filter`, `@audio/stretch`, `@audio/mir` | <https://github.com/audiojs> |
 
 ### Python
 

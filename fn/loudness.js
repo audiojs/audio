@@ -1,5 +1,5 @@
 import audio from '../core.js'
-import kWeighting from 'audio-filter/weighting/k-weighting.js'
+import { kWeighting } from '@audio/weighting'
 
 // ── LUFS measurement ─────────────────────────────────────────
 

@@ -3196,7 +3196,7 @@ test('filter — state persists across streaming blocks', async t => {
 test('filter(fn) — custom filter function', { skip: !isNode }, async t => {
   let ch = tone(200, 0.5)
   let a = audio.from([ch], { sampleRate: 44100 })
-  let { default: hp } = await import('audio-filter/effect/highpass.js')
+  let { highpass: hp } = await import('@audio/filter')
   a.filter({type: hp, freq: { fc: 1000 }})
   let pcm = await a.read()
   t.ok(rms(pcm[0]) < 0.15, `custom hp attenuated 200Hz: ${rms(pcm[0]).toFixed(3)}`)

@@ -1,17 +1,12 @@
-import hpFilter from 'audio-filter/effect/highpass.js'
-import lpFilter from 'audio-filter/effect/lowpass.js'
-import bpFilter from 'audio-filter/effect/bandpass.js'
-import notchFilter from 'audio-filter/effect/notch.js'
-import { second as apFilter } from 'audio-filter/effect/allpass.js'
-import lsFilter from 'audio-filter/eq/lowshelf.js'
-import hsFilter from 'audio-filter/eq/highshelf.js'
-import parametricEq from 'audio-filter/eq/parametric-eq.js'
+import { highpass as hpFilter, lowpass as lpFilter, bandpass as bpFilter, notch as notchFilter, allpass } from '@audio/filter'
+import { lowShelf as lsFilter, highShelf as hsFilter, parametricEq } from '@audio/eq'
+const apFilter = allpass.second
 
 // ── Filter state helper ─────────────────────────────────────────────────
 // Each channel gets its own params object (holds coefs + state).
 // Persists across streaming chunks via ctx (persistent object).
 // sync() copies current ctx params into the state object before each call —
-// audio-filter recomputes coefficients on param change, so automation
+// @audio/filter recomputes coefficients on param change, so automation
 // (engine-resolved fn params) reshapes the filter mid-stream.
 
 function apply(input, output, ctx, key, fn, makeParams, sync) {
@@ -60,7 +55,7 @@ const filter = (input, output, ctx) => {
   if (typeof type === 'function') {
     return apply(input, output, ctx, '_custom', type, fs => {
       let { type: _, sampleRate: _sr, at: _a, duration: _d, channel: _ch, _custom, ...params } = ctx
-      // If freq is an object, flatten it (audio-filter convention: { fc, Q, gain })
+      // If freq is an object, flatten it (@audio/filter convention: { fc, Q, gain })
       if (params.freq && typeof params.freq === 'object') {
         let { freq, ...rest } = params
         return { ...freq, ...rest, fs }

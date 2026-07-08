@@ -13,7 +13,7 @@ export interface WorkerFacade extends PromiseLike<WorkerFacade> {
   readonly edits: [string, Record<string, unknown>][]
   readonly ready: Promise<true>
 
-  // transport (playback pumps worker-rendered blocks into an AudioWorklet or audio-speaker)
+  // transport (playback pumps worker-rendered blocks into an AudioWorklet or @audio/speaker)
   readonly playing: boolean
   readonly paused: boolean
   readonly ended: boolean

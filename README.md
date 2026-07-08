@@ -346,7 +346,7 @@ audioWorker('a.m4a', { worker: new Worker(new URL('./engine-worker.js', import.m
 
 Playback pumps worker-rendered blocks into an `AudioWorklet` over its message port (no
 SharedArrayBuffer, so no COOP/COEP headers needed — works on GitHub Pages) or into
-audio-speaker in Node:
+@audio/speaker in Node:
 
 ```js
 a.play()                     // play / pause / seek / stop, volume, loop, timeupdate

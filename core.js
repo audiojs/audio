@@ -6,9 +6,9 @@
  * audio.use      — plugin registration
  */
 
-import decode from 'audio-decode'
+import decode from '@audio/decode'
 import getType from 'audio-type'
-import encode from 'encode-audio'
+import encode from '@audio/encode'
 import convert, { parse as parseFmt } from 'pcm-convert'
 import parseDuration from 'parse-duration'
 
@@ -503,7 +503,7 @@ fn.stop = function() {
   return this
 }
 
-/** Start recording from mic. Pushes PCM chunks until .stop(). Requires audio-mic (npm i audio-mic). */
+/** Start recording from mic. Pushes PCM chunks until .stop(). Requires @audio/mic (npm i @audio/mic). */
 fn.record = function(opts = {}) {
   if (!this._.acc) throw new Error('record: instance is not pushable — create with audio()')
   if (this.recording) return this
@@ -511,7 +511,7 @@ fn.record = function(opts = {}) {
   this.decoded = false
   let self = this, sr = this.sampleRate, ch = this._.ch
   let _rec = (async () => {
-    let { default: mic } = await import('audio-mic')
+    let { default: mic } = await import('@audio/mic')
     let read = mic({ sampleRate: sr, channels: ch, bitDepth: 16, ...opts })
     self._._mic = read
     read((err, buf) => {

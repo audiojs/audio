@@ -26,7 +26,7 @@
  *  - function-valued params don't cross — use breakpoint curves {t, v} (serializable
  *    automation, sampled by the engine like functions)
  *  - play() pumps worker-rendered blocks into an AudioWorklet over its message port
- *    (browser — no SharedArrayBuffer/COOP-COEP needed) or audio-speaker (node)
+ *    (browser — no SharedArrayBuffer/COOP-COEP needed) or @audio/speaker (node)
  */
 
 const HOST_URL = new URL('./worker-host.js', import.meta.url)
@@ -175,7 +175,7 @@ function facade(chan, opened) {
 
     // ── Transport — playback pumps worker-rendered blocks into a sink:
     // AudioWorklet over a message port (browser, no SAB/COOP-COEP needed)
-    // or audio-speaker (node). The worker only renders; the sink only plays.
+    // or @audio/speaker (node). The worker only renders; the sink only plays.
     playing: false, paused: false, ended: false, currentTime: 0, volume: 1, loop: false,
 
     play(opts = {}) {
@@ -300,9 +300,9 @@ function facade(chan, opened) {
     }
   }
 
-  // Node sink: audio-speaker, inherently backpressured per write
+  // Node sink: @audio/speaker, inherently backpressured per write
   async function speakerSink(t) {
-    let { default: Speaker } = await import('audio-speaker')
+    let { default: Speaker } = await import('@audio/speaker')
     let ch = Math.max(1, t.channels)
     let write = null, base = 0, played = 0
     return {

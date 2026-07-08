@@ -1,5 +1,5 @@
 import audio, { emit, parseTime } from '../core.js'
-import encode from 'encode-audio'
+import encode from '@audio/encode'
 
 const FMT_ALIAS = { aif: 'aiff', oga: 'ogg' }
 

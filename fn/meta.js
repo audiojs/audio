@@ -1,9 +1,9 @@
 /**
  * Meta — instance API for container tags, pictures, markers, regions.
  *
- * Codec-specific byte parsers/writers live in audio-decode/meta and encode-audio/meta.
+ * Codec-specific byte parsers/writers live in @audio/decode/meta and @audio/encode/meta.
  * This file wires parsers into Audio instances: lazy parse on first access, plan-projected
- * markers/regions, picture URL helper. Encoders embed meta directly via encode-audio.
+ * markers/regions, picture URL helper. Encoders embed meta directly via @audio/encode.
  *
  *   a.meta                 → {title, artist, album, year, bpm, key, comment, pictures, raw, ...}
  *   a.meta.title = 'foo'   → mutation persists through save
@@ -13,7 +13,7 @@
 
 import audio from '../core.js'
 import { buildPlan } from '../plan.js'
-import * as parsers from 'audio-decode/meta'
+import * as parsers from '@audio/decode/meta'
 
 
 // ── Picture helper ──────────────────────────────────────────────────────

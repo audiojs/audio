@@ -13,7 +13,7 @@
  * no second stream. detect() streams raw audio through spectral flux for higher precision.
  */
 
-import { combTempo, peakPick, detect, ODF } from 'beat-detection'
+import { combTempo, peakPick, detect, ODF } from '@audio/beat'
 import audio from '../core.js'
 
 // ── Energy ODF from block stats ──────────────────────────────────

@@ -10,14 +10,12 @@
  * key opts: { at, duration, frameSize=4096, method='nnls' }
  */
 
-import { yin, chroma, chord, smoothChords, key } from 'pitch-detection'
+import { yin } from '@audio/pitch'
+import { chroma, chord, smoothChords, key } from '@audio/mir'
+import { hzToMidi, name as midiToName } from '@audio/note'
 import hann from 'window-function/hann'
 import { analyzeBlocks } from './spectrum.js'
 import audio from '../core.js'
-
-const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-const toMidi = f => 69 + 12 * Math.log2(f / 440)
-const toNote = midi => NOTES[((midi % 12) + 12) % 12] + ((midi / 12 | 0) - 1)
 
 let wins = {}
 let hannWin = n => wins[n] || (wins[n] = Float32Array.from({ length: n }, (_, i) => hann(i, n)))
@@ -70,12 +68,12 @@ audio.fn.notes = async function(opts) {
   await streamFrames(this, opts, N, hop, (frame, time) => {
     let r = yin(frame, { fs: sr, threshold })
     if (r && r.clarity >= minClarity) {
-      let midi = Math.round(toMidi(r.freq))
+      let midi = Math.round(hzToMidi(r.freq))
       if (cur && cur.midi === midi) {
         cur.end = time + hopSec; cur.fs += r.freq; cur.cs += r.clarity; cur.n++
       } else {
         push()
-        cur = { time, end: time + hopSec, midi, note: toNote(midi), fs: r.freq, cs: r.clarity, n: 1 }
+        cur = { time, end: time + hopSec, midi, note: midiToName(midi), fs: r.freq, cs: r.clarity, n: 1 }
       }
     } else { push(); cur = null }
   })

@@ -19,7 +19,7 @@
  * toward the direct-only gain (1-g) — the intended effect, not a defect.
  */
 
-import lowpass from 'audio-filter/effect/lowpass.js'
+import { lowpass } from '@audio/filter'
 
 const process = (input, output, ctx) => {
   if (input.length < 2) {
