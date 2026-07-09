@@ -40,7 +40,7 @@ the timeline). Tests: atom-{reverb,dynamics,filter,eq,color,synth,stats}.js (58 
 * [x] Wave B — 11 generators: osc (finally devDep'd + tested), noise, chirp, pluck, risset, rhythm, sfx, kick/cymbal/snare, adsr — closes Audacity Generators + most Tone.js synthesis rows — 2026-07
 * [x] Wave C — stat-atom convention + 20 stat atoms: loudness ×4 (truepeak/lra/replaygain/dr), spectral ×6 (rolloff/spread/slope/flux/contrast/ltas), mir ×10 (structure/tempogram/melody/downbeat/fingerprint/drums/multif0/transcribe/similarity/coversong) — closes MIREX Analysis + FFmpeg Analysis/Metering at the audio level — 2026-07
 * [x] Wave D — direct-import families documented (README "Beyond the registry"): convolution IR, eq-fir curves, eq-crossover designer, tune-midi, denoise-repair, synth-dtmf/wavetable, voice/poly (await event hosting), measure/sinusoidal/voice substrates — 2026-07
-* [ ] publish wave: ~59 bumped packages across 12 family repos + audio devDeps swap (symlinks → artifacts) — see .work/publish-wave.sh
+* [x] publish wave: 59 packages published across 11 family repos; audio devDeps swapped to artifacts, suite re-verified against published tarballs (engine 621) — 2026-07
 * [ ] audio release (minor: registry 123, stat flavor, whole-tail + generator hosting)
 
 ## Perf — save/encode streaming JIT fix (2026-07)
