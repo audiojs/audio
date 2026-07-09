@@ -1,5 +1,6 @@
 import test from 'tst'
 import audio from '../audio.js'  // full bundle (matches test/index.js) — concat test needs .insert(), metadata test needs stats.js wired for 'data'
+import { File } from 'node:buffer'  // global only since Node 20; node:buffer.File (≡ the global, File extends Blob) works on 18.13+ too
 import { emit } from '../core.js'
 import { execFileSync } from 'child_process'
 import { fileURLToPath } from 'url'

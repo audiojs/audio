@@ -4,6 +4,7 @@
  * Runs the real worker path via node worker_threads.
  */
 import test from 'tst'
+import { File } from 'node:buffer'  // global only since Node 20; node:buffer.File (≡ the global, File extends Blob) works on 18.13+ too
 import audio from '../audio.js'
 import audioWorker, { close } from '../worker.js'
 
