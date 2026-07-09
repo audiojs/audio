@@ -161,9 +161,9 @@ for (let [name, h] of Object.entries(HELP)) {
   if (op) op.help ??= h
 }
 
-/** Synthesize help from a contract module's param metadata (introspectable params). */
-function moduleHelp(name, desc) {
-  let m = desc.module, specs = m.params || {}
+/** Synthesize help from a contract atom's param metadata (introspectable params). */
+function atomHelp(name, desc) {
+  let m = desc.atom, specs = m.params || {}
   let args = Object.keys(specs).map(k => k.toUpperCase()).join(' ')
   let params = Object.entries(specs).map(([k, sp]) => {
     if (sp.type === 'enum') return `    ${k}  ${sp.values.join('|')} (default ${sp.default})`
@@ -175,7 +175,7 @@ function moduleHelp(name, desc) {
 
 function showOpHelp(name) {
   let desc = audio.op(name)
-  let h = desc?.help || HELP[name] || (desc?.module && moduleHelp(name, desc))
+  let h = desc?.help || HELP[name] || (desc?.module && atomHelp(name, desc))
   if (!h) { console.error(`No help for: ${name}`); return }
   console.log(`\n  ${h.usage}\n\n  ${h.desc}\n`)
   if (h.params) console.log('  Params:\n' + h.params + '\n')
@@ -883,9 +883,9 @@ async function main() {
   let args = process.argv.slice(2)
 
   // Auto-resolve registry modules named in args (dynamic import registers the op)
-  for (let t of args) if (!audio.op(t) && audio.modules?.[t]) {
+  for (let t of args) if (!audio.op(t) && audio.atoms?.[t]) {
     try { await audio.use(t) }
-    catch (e) { throw new Error(`op '${t}' needs its module installed: npm i ${audio.modules[t].split('/atom')[0]}`) }
+    catch (e) { throw new Error(`op '${t}' needs its atom installed: npm i ${audio.atoms[t].split('/atom')[0]}`) }
   }
 
   if (!args.length || args[0] === '--help' || args[0] === '-h') {

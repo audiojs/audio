@@ -202,9 +202,9 @@ let a = audio.from(t => Math.sin(440 * Math.PI * 2 * t), { duration: 2 })
 await a.save('440hz.wav')
 ```
 
-### Ecosystem modules
+### Ecosystem atoms
 
-Any [@audio contract module](https://github.com/audiojs/module) plugs in as an op —
+Any [@audio contract atom](https://github.com/audiojs/atom) plugs in as an op —
 `audio.use` a factory directly, or a registry name (`npm i` the package it points at).
 Params get engine automation, curves and click-free ramps; declared `tail`, `latency`
 and `streaming: false` are handled by the engine; the CLI picks registry ops up by
@@ -217,10 +217,10 @@ await audio.use('freeverb', 'declick')      // or by registry name
 
 a.gate(-45).dehum().deesser().compressor({ threshold: -18 }).limiter({ ceiling: -1 })
 music.ducker({ key: voice })                // sidechain via the key option
-a.declick()                                 // batch modules run whole-render
+a.declick()                                 // batch atoms run whole-render
 ```
 
-Registry (`audio.modules`, name → package):
+Registry (`audio.atoms`, name → package):
 **dynamics** compressor · limiter · gate · expander · deesser · ducker · compand · softclip · leveler · transient-shaper —
 **denoise** dehum · specsub · wiener · omlsa · dereverb · deplosive · dewind · declick · declip · decrackle · debreath —
 **effects** delay · chorus · flanger · phaser · tremolo · vibrato · autowah · wah · bitcrusher · distortion · exciter · ringmod · freqshift · multitap · pingpong · slew · noiseshaper · lofi · graindelay · stutter · subbass · sbr —

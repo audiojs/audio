@@ -56,8 +56,8 @@ test('declared tail composes a trailing pad — freeverb decay is not truncated'
 
 test('op introspection carries module param metadata (CLI help substrate)', () => {
   let d = audio.op('compressor')
-  is(d.module.params.threshold.min, -60)
-  is(d.module.params.threshold.unit, 'dB')
+  is(d.atom.params.threshold.min, -60)
+  is(d.atom.params.threshold.unit, 'dB')
   ok(d.params.includes('ratio'))
   is(audio.op('freeverb').tail, 6)
 })
@@ -73,15 +73,15 @@ test('tail op is undo-atomic and serializes as one edit', async () => {
 })
 
 test('audio.use(name) resolves through the registry (dynamic import)', async () => {
-  audio.modules ??= {}
-  audio.modules.tube = '@audio/saturate-tube/atom'
+  audio.atoms ??= {}
+  audio.atoms.tube = '@audio/saturate-tube/atom'
   await audio.use('tube')
   ok(typeof audio.fn.tube === 'function', 'registry-resolved module registered')
   let out = (await audio.from([tone(440, 0.2)], { sampleRate: SR }).tube({ drive: 8 }).read())[0]
   ok(out.every(isFinite))
   let err = null
   try { audio.use('nosuchmodule') } catch (e) { err = e }
-  ok(/unknown module/.test(err?.message), 'unknown name throws')
+  ok(/unknown atom/.test(err?.message), 'unknown name throws')
 })
 
 // ── Wave B: dynamics-gate + denoise-dehum ─────────────────────────────
@@ -240,7 +240,7 @@ test('compand: transfer curve pulls loud material down, leaves quiet identity se
 })
 
 test('leveler: loud/quiet sections converge in RMS toward target loudness', async () => {
-  // NOTE: this host's op engine (core.js useModule) calls process() per 1024-sample
+  // NOTE: this host's op engine (core.js useAtom) calls process() per 1024-sample
   // block and has no `streaming: false` batch dispatch — the leveler kernel is
   // designed around seeing the whole signal in one call (CONTRACT's promised shape
   // for streaming: false). It still converges here because each ~23ms block's own
@@ -280,7 +280,7 @@ test('transient-shaper: attackGain raises crest factor (attack emphasis)', async
 
 test('ducker: self-keyed fallback engages when the host feeds only the main bus', async () => {
   // The manifest declares a real two-bus sidechain ({ inputs: [2,2], outputs: [2] })
-  // per CONTRACT §channels, but this host's op engine (core.js useModule) wraps a
+  // per CONTRACT §channels, but this host's op engine (core.js useAtom) wraps a
   // single input bus only (`st.process([input], [output], ...)`) — no sidechain
   // routing exists yet. This exercises the documented fallback: keys off the main
   // signal itself instead of crashing on the missing bus.

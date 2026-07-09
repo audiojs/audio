@@ -421,7 +421,7 @@ export function refLen(source, sr) {
 
 /** Render n target-rate samples at srcOff (target coords) from a source,
  *  resampling when the source's sample rate differs. */
-audio.renderAt = renderAt  // sidechain bus reads in core's useModule (no core→plan import)
+audio.renderAt = renderAt  // sidechain bus reads in core's useAtom (no core→plan import)
 
 export function renderAt(render, source, srcOff, n, sr) {
   let ssr = source?.sampleRate

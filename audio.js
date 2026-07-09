@@ -13,9 +13,9 @@ export { render } from './plan.js'
 
 import audio from './core.js'
 
-// ── Module registry — audio.use('name') resolves through here (dynamic import).
+// ── Atom registry — audio.use('name') resolves through here (dynamic import).
 // Contract atoms from the @audio scope; grows with the published set.
-audio.modules = {
+audio.atoms = {
   compressor: '@audio/dynamics-compressor/atom',
   limiter: '@audio/dynamics-limiter/atom',
   gate: '@audio/dynamics-gate/atom',

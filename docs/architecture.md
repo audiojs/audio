@@ -123,13 +123,13 @@ Each instance's stats record `stats.blockSize` — the block size used at decode
 
 Changing `BLOCK_SIZE` cannot retroactively refine existing stats. For finer resolution in a zoomed region, read the PCM.
 
-## Contract modules
+## contract atoms
 
-`audio.use(module)` hosts [@audio/atom CONTRACT](https://github.com/audiojs/module) factories natively:
+`audio.use(module)` hosts [@audio/atom CONTRACT](https://github.com/audiojs/atom) factories natively:
 params map to op params (engine automation/curves/ramps apply), declared `tail` composes
 a trailing pad, declared `latency` gets plan-level delay compensation, `streaming: false`
 modules run as whole-render ops (materialize → one call → continue from the result), and
-multi-bus modules read their sidechain from the `key` option. `audio.modules` maps names
+multi-bus atoms read their sidechain from the `key` option. `audio.atoms` maps names
 to published packages for `audio.use('name')` and CLI auto-resolution.
 
 ## Meta, markers, regions

@@ -2,14 +2,13 @@
 
 Pre-release checklist (see todo.md ## Release):
 - publish @audio/effect + @audio/denoise manifest releases, then switch
-  test/module-effects.js + test/module-denoise.js relative imports to published
-  specifiers (module-ops pattern) and add them as devDeps — CI has no sibling checkout
+  test files import published /atom artifacts (done);   devDeps in place — CI has no sibling checkout (done)
 - npm version minor (prepublishOnly runs build + version sync + full tests)
 
 ## Notes
 
-- `@audio` contract modules host natively: `audio.use(factory)` or `audio.use('name')` — ~40-module registry (dynamics, denoise, effects)
-- Whole-render hosting — `streaming: false` modules (declick, declip, leveler…) materialize the timeline and process it in one pass
+- `@audio` contract atoms host natively: `audio.use(factory)` or `audio.use('name')` — ~40-atom registry (dynamics, denoise, effects)
+- Whole-render hosting — `streaming: false` atoms (declick, declip, leveler…) materialize the timeline and process it in one pass
 - Plugin delay compensation — declared `latency` (lookahead limiters, STFT denoisers) lands aligned to the timeline
 - Param-dependent tails — feedback delays pad by RT60 from live feedback, undo-atomic
 - Sidechain — `music.ducker({ key: voice })`

@@ -241,38 +241,40 @@ fn.dispose = function() {
 }
 if (Symbol.dispose) fn[Symbol.dispose] = fn.dispose
 
-const isModule = p => typeof p === 'function' && Object.hasOwn(p, 'params') && typeof p.params === 'object'
+const isAtom = p => typeof p === 'function' && Object.hasOwn(p, 'params') && typeof p.params === 'object'
 
-/** Register plugins. Each receives audio. A contract audio-module (a factory function
- *  with an own `params` object — see @audio/module CONTRACT.md) is hosted natively as
+/** Register plugins. Each receives audio. A contract atom (a factory function
+ *  with an own `params` object — see @audio/atom CONTRACT.md) is hosted natively as
  *  an op; its declared `tail` composes a trailing pad so decays are not truncated.
- *  A string resolves through the audio.modules registry (dynamic import — returns a
+ *  A string resolves through the audio.atoms registry (dynamic import — returns a
  *  promise); every module-shaped export of the target registers. */
 audio.use = function(...plugins) {
   let loads = null
   for (let p of plugins) {
     if (typeof p === 'string') {
-      let spec = audio.modules?.[p]
-      if (!spec) throw new Error(`audio.use: unknown module '${p}' — not in audio.modules registry`)
+      let spec = audio.atoms?.[p]
+      if (!spec) throw new Error(`audio.use: unknown atom '${p}' — not in audio.atoms registry`)
       ;(loads ??= []).push(import(spec).then(ns => {
-        for (let k of Object.keys(ns)) if (isModule(ns[k])) useModule(ns[k])
-      }, e => { throw new Error(`audio.use('${p}'): install ${spec.split('/audio-module')[0]} — ${e.message}`) }))
+        for (let k of Object.keys(ns)) if (isAtom(ns[k])) useAtom(ns[k])
+      }, e => { throw new Error(`audio.use('${p}'): install ${spec.split('/atom')[0]} — ${e.message}`) }))
     }
-    else if (isModule(p)) useModule(p)
+    else if (isAtom(p)) useAtom(p)
     else p(audio)
   }
   return loads ? Promise.all(loads).then(() => audio) : audio
 }
 
-/** Map a contract module to an op descriptor. The contract is a convention, not a
+/** Map a contract atom to an op descriptor. The contract is a convention, not a
  *  library — audio consumes it natively: params read off the factory, per-instance
  *  state on the proc ctx, smoothing left to engine sub-block automation (it already
  *  ramps patched values click-free), currentTime from blockOffset. */
-function useModule(m) {
+function useAtom(m) {
   if (!audio.op) throw new Error('audio.use(module): op registry required — import "audio", not "audio/core.js"')
   let specs = m.params || {}
   let names = Object.keys(specs)
   let id = m.id || (m.name || 'module').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
+  // tail: seconds, or fn(ctx) of the actual params (mirrors latency's fn form) — a
+  // feedback delay's decay depends on its feedback setting, not the declared maximum
   let tail = m.tail || 0
 
   let snapParams = get => {
@@ -335,7 +337,7 @@ function useModule(m) {
   // engine materializes the timeline and hosts it as a whole-render op
   if (m.streaming === false) {
     return audio.op(id, {
-      params: names, module: m,
+      params: names, atom: m,
       whole(input, output, ctx) {
         let st = init(ctx, input[0].length)
         fill(st, ctx)
@@ -344,17 +346,20 @@ function useModule(m) {
     })
   }
 
-  if (!tail) return audio.op(id, { params: names, module: m, latency, process })
+  if (!tail) return audio.op(id, { params: names, atom: m, latency, process })
 
   // Declared tail: expand into pad + hidden proc at compile time — the user edit stays
   // one atomic entry (undo/serialize whole), the decay renders into the pad
-  audio.op('_' + id, { params: names, hidden: true, module: m, latency, process })
+  audio.op('_' + id, { params: names, hidden: true, atom: m, latency, process })
   audio.op(id, {
-    params: names, tail, module: m,
+    params: names, tail, atom: m,
     expand: (ctx) => {
       let o = {}
       for (let k of names) if (ctx[k] !== undefined) o[k] = ctx[k]
-      return [['pad', { before: 0, after: tail }], ['_' + id, o]]
+      let t = typeof tail === 'function'
+        ? tail({ sampleRate: ctx.sampleRate, params: snapParams(n => o[n]) })
+        : tail
+      return [['pad', { before: 0, after: t }], ['_' + id, o]]
     }
   })
 }

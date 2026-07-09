@@ -157,7 +157,7 @@ test('dewind: cuts LF rumble >=3x, adaptive high-pass', async () => {
 // Each needs the entire signal in one process() call (AR reconstruction using both
 // left AND right context, or a global VAD floor over the full buffer) — see each
 // package's atom.js header for the specific reason. The host's whole-render
-// hosting (core.js useModule's `m.streaming === false` branch + plan.js's `op.whole`
+// hosting (core.js useAtom's `m.streaming === false` branch + plan.js's `op.whole`
 // materialize-then-process-once path) is the engine capability this integration
 // exercises; it was built concurrently with this task and might not have existed yet.
 //

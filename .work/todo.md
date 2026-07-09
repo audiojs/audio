@@ -1,13 +1,15 @@
 ## Release (v2.3 — ecosystem edition)
 
-Ship state: engine hosts @audio contract modules natively (params/automation, tail incl.
+Ship state: engine hosts @audio contract atoms natively (params/automation, tail incl.
 param-dependent, latency compensation, streaming:false whole-render, sidechain key bus);
-`audio.modules` registry ~40 named modules; scope adopted wholesale (9 legacy deps gone).
+`audio.atoms` registry 49 names; scope adopted wholesale (9 legacy deps gone);
+atom terminology throughout (audio-module → atom rename absorbed).
 
-* [ ] version bump + release notes (terse one-liners per convention)
-* [ ] publish wave: @audio/denoise + @audio/effect manifest releases so the registry resolves fully
-* [ ] README registry section (see Architecture item)
-* [ ] CI green on GitHub (module tests need published packages — no sibling checkout there)
+* [x] publish wave: 21 @audio/effect (1.1.0) + 11 @audio/denoise (0.1.1) atom releases — registry resolves fully — 2026-07
+* [x] README registry section (Ecosystem atoms) — 2026-07
+* [x] CI green: suites import published /atom artifacts as devDeps; skip cleanly where unresolvable — 2026-07
+* [x] release notes drafted — [.work/release-2.3.md](release-2.3.md)
+* [ ] `npm version minor && npm publish` (+ `git push --tags`) — GO when ready
 
 ## Next
 
