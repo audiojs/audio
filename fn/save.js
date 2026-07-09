@@ -1,4 +1,5 @@
-import audio, { emit, parseTime } from '../core.js'
+import audio, { emit, parseTime, LOAD } from '../core.js'
+import { buildPlan, streamPlan, ensurePlan, loadRefs } from '../plan.js'
 import encode from '@audio/encode'
 
 const FMT_ALIAS = { aif: 'aiff', oga: 'ogg' }
@@ -21,19 +22,56 @@ function gatherMeta(inst, opts) {
   return { meta: meta || {}, markers, regions }
 }
 
+// Samples of DSP rendered synchronously between I/O awaits (~24s stereo ≈ 8 MB).
+// Large enough that V8 tiers up the DSP hot loop within the first burst; without it,
+// a per-block `await` keeps the FFT-heavy ops (pitch/stretch/denoise) in baseline JIT
+// for the whole file — ~10× slower on a one-shot encode.
+const ENCODE_BATCH = 1 << 20
+
 /** Stream-encode audio: calls sink(buf) per chunk, returns sink(null) at end. */
 async function encodeStream(inst, fmt, opts, sink) {
   let m = gatherMeta(inst, opts)
   let enc = await encode[fmt]({ sampleRate: inst.sampleRate, channels: inst.channels, ...(m || {}) })
-  let written = 0, t = performance.now()
-  for await (let chunk of inst.stream({ at: opts.at, duration: opts.duration })) {
-    let buf = await enc(chunk)
-    if (buf.length) await sink(buf)
-    written += chunk[0].length
-    let now = performance.now()
-    if (now - t > 8) { await new Promise(r => setTimeout(r, 0)); t = performance.now() }
-    emit(inst, 'progress', { offset: written / inst.sampleRate, total: (opts.duration != null ? parseTime(opts.duration) : null) ?? inst.duration })
+  let total = (opts.duration != null ? parseTime(opts.duration) : null) ?? inst.duration
+
+  // Live (pushable, still receiving) sources can't be planned ahead — stream per block.
+  let live = !!inst._.waiters && !inst.decoded
+  if (live) {
+    let written = 0, t = performance.now()
+    for await (let chunk of inst.stream({ at: opts.at, duration: opts.duration })) {
+      let buf = await enc(chunk)
+      if (buf.length) await sink(buf)
+      written += chunk[0].length
+      let now = performance.now()
+      if (now - t > 8) { await new Promise(r => setTimeout(r, 0)); t = performance.now() }
+      emit(inst, 'progress', { offset: written / inst.sampleRate, total })
+    }
+  } else {
+    // Decoded source: drive the DSP through the synchronous plan generator in bursts,
+    // crossing an `await` only for I/O between bursts. Identical output to read() (one
+    // continuous pass, no seam re-warm), but the hot loop stays hot enough to optimize.
+    await inst[LOAD]()
+    await loadRefs(inst)
+    let offset = parseTime(opts.at), duration = parseTime(opts.duration)
+    let plan = buildPlan(inst)
+    await ensurePlan(inst, plan, offset, duration)
+    let sr = inst.sampleRate, written = 0, batch = [], batchLen = 0
+    let drain = async () => {
+      for (let chunk of batch) {
+        let buf = await enc(chunk)
+        if (buf.length) await sink(buf)
+        written += chunk[0].length
+        emit(inst, 'progress', { offset: written / sr, total })
+      }
+      batch = []; batchLen = 0
+    }
+    for (let chunk of streamPlan(inst, plan, offset, duration)) {
+      batch.push(chunk.map(c => c.slice())); batchLen += chunk[0].length  // copy: streamPlan reuses buffers
+      if (batchLen >= ENCODE_BATCH) await drain()
+    }
+    if (batchLen) await drain()
   }
+
   let final = await enc()
   if (final.length) await sink(final)
   return sink(null)

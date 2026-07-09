@@ -5,3 +5,4 @@ dist
 .tst-fork-*
 /.claude
 /.playwright-mcp
+bench/.cache

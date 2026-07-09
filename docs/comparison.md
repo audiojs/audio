@@ -126,7 +126,7 @@ Cells contain method/op names where supported, `—` if absent, `(plan)` if plan
 | Custom processors | `audio.op(name, descriptor)` | Python function | Python function | C/Python plugin | C++ algorithm | Python `Plugin` subclass | — | C filter | Nyquist | System object subclass |
 | Macros / batch | CLI macro | scripts | scripts | shell + scripts | scripts + extractor profiles | Python scripts | shell scripts | filter graph | Audacity Macros | scripts / Live Editor |
 | **Misc** | | | | | | | | | | |
-| Performance (stub) | TBD | TBD | TBD | TBD (native fast) | TBD (native fast) | TBD | TBD (native fast) | TBD (native fast) | n/a | TBD |
+| Performance | measured — [§ Performance](#performance) | slow (shells out to ffmpeg) | numpy-fast | native | native | native | native | native | n/a | native |
 | Bundle size | ~20 KiB gz core | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 | Last release | active | active | active | active | active | active | 2015 | active | active | active |
 | Integrations | Wavearea, audiojs ecosystem | FFmpeg | scikit-learn, torchaudio, numpy | PureData, MaxMSP, Python, JS | TensorFlow, Gaia, essentia.js | TensorFlow, PyTorch, JUCE plugins | shell, FFmpeg | LADSPA/LV2, ffmpeg.wasm | VST/AU/LV2 plugins | Simulink, Deep Learning Toolbox |
@@ -211,25 +211,33 @@ Compact one-liners for tools not in the matrix.
 
 ## Performance
 
-> **Stub.** Numbers TBD. See [todo.md](../.work/todo.md).
+Measured 2026-07: 10-minute 44.1 kHz stereo fixture (105 MB WAV / 192 kbps MP3, mixed tones + shaped noise + 120 BPM pulse), one op per cell, **end-to-end from the input file** — decode for decode rows, decode + analyze for analysis rows, decode + op + encode-to-file for transform rows. Best of 3 warm runs. CLI tools (`audio`, SoX, FFmpeg) run as a fresh subprocess per rep, so their cells include process startup and full decode (~100 ms of every `audio` cell is Node boot + import). librosa/Pedalboard are libraries and run in-process — their cells *exclude* interpreter startup, which flatters them slightly. Apple M4 Max, macOS 26.5, Node 25.9, FFmpeg 8.0.1, SoX 14.4.2, librosa 0.11, Pedalboard 0.9.24. Reproduce: `npm run bench` ([bench/bench.js](../bench/bench.js)).
 
-Method: 10-minute 44.1kHz stereo WAV input, single op, wall-clock on M-series Mac, warm cache.
+| Operation | `audio` (Node) | librosa | Pedalboard | SoX | FFmpeg |
+|---|---|---|---|---|---|
+| WAV decode | 967 ms | 84 ms | 35 ms | 51 ms | 73 ms |
+| MP3 decode | 1.57 s | 274 ms | 432 ms | — | 487 ms |
+| Peak normalize | 1.89 s | — | — | 462 ms | — |
+| LUFS measurement | 973 ms | — | — | — | 337 ms |
+| Resample 44.1k→48k | 2.00 s | 581 ms | 6.24 s | 1.02 s | 270 ms |
+| Time stretch 0.8× | 8.74 s | 6.98 s | — | 5.54 s | 640 ms |
+| Pitch shift +2 st | 15.2 s | 6.62 s | 9.29 s | 5.74 s | 794 ms |
+| FFT spectrum (1024-pt) | 1.22 s | 452 ms | — | — | — |
+| MFCC (13 coeff) | 1.29 s | 610 ms | — | — | — |
+| Beat tracking | 1.11 s | 1.16 s | — | — | — |
 
-| Operation                       | `audio` (Node) | pydub | librosa | aubio | essentia | Pedalboard | SoX | FFmpeg | MATLAB |
-|---------------------------------|----------------|-------|---------|-------|----------|------------|-----|--------|--------|
-| WAV decode                      | TBD            | TBD   | TBD     | TBD   | TBD      | TBD        | TBD | TBD    | TBD    |
-| MP3 decode                      | TBD            | TBD   | TBD     | TBD   | TBD      | TBD        | TBD | TBD    | TBD    |
-| Peak normalize                  | TBD            | TBD   | TBD     | —     | TBD      | —          | TBD | TBD    | TBD    |
-| LUFS measurement                | TBD            | —     | —       | —     | TBD      | —          | —   | TBD    | TBD    |
-| Resample 44.1k→48k              | TBD            | TBD   | TBD     | —     | TBD      | TBD        | TBD | TBD    | TBD    |
-| Time stretch 0.8×               | TBD            | —     | TBD     | —     | —        | —          | TBD | TBD    | TBD    |
-| Pitch shift +2 semitones        | TBD            | —     | TBD     | —     | —        | TBD        | TBD | TBD    | TBD    |
-| FFT spectrum (1024-pt)          | TBD            | —     | TBD     | TBD   | TBD      | —          | —   | —      | TBD    |
-| MFCC (20 coeffs)                | TBD            | —     | TBD     | TBD   | TBD      | —          | —   | —      | TBD    |
-| Beat tracking                   | TBD            | —     | TBD     | TBD   | TBD      | —          | —   | —      | TBD    |
+Reading the numbers honestly:
 
-`audio` does not aim to beat native FFmpeg/SoX on raw throughput. It trades ergonomics + portability + non-destructive editing for a small constant-factor cost. Where it competes:
+- **Analysis is `audio`'s strong lane.** Stats ride the decode pass (the always-resident index), so LUFS/FFT/MFCC/beat cells are ≈ decode cost + 0–0.3 s. Beat tracking matches librosa wall-to-wall — *including* Node startup that librosa's cell doesn't pay. Ten stats on one file cost one decode, not ten passes.
+- **Decode is ~10–15× native.** Pure-JS codecs. The gap is real; it buys zero native dependencies on every platform.
+- **Stretch/pitch is ~1.5–2.6× SoX/librosa** — a pure-JS phase vocoder at ~40–70× realtime. Within reach of the native tools, an order of magnitude behind FFmpeg's `asetrate`+`aresample` (which is the cheap resample trick, not a duration-preserving vocoder like the others — not like-for-like). Earlier drafts of this table read ~15× slower here; that was a streaming-encode defect (per-block `await` kept V8 from tiering up the FFT), fixed 2026-07 — see the note below.
+- **Resample beats Pedalboard, trails the rest.** `normalize` includes writing 105 MB of output; the LUFS row shows the measure-only cost.
+
+> **Why the CLI transform numbers moved 6–9×.** Until 2026-07, `save`/`encode` drove the DSP through a per-1024-sample-block async loop, which prevented V8 from tiering up the FFT-heavy ops for the whole file (baseline JIT, ~10× slower on a one-shot process). The fix renders the plan through the synchronous generator in large synchronous bursts, crossing an `await` only for I/O between bursts — bit-identical output, JIT-friendly. `read()` was always on the fast path. The remaining gap to native is a genuine constant factor, addressable via the atom contract's WASM lane (jz) for the streaming/realtime case that can't batch.
+
+`audio` does not aim to beat native FFmpeg/SoX on raw throughput. It trades ergonomics + portability + non-destructive editing for a constant-factor cost. Where it competes structurally:
 
 - **Time-to-first-sample** — `audio` plays during decode; native CLIs render then play
+- **Amortized analysis** — the index makes the 2nd..Nth stat/waveform query ~free; CLI tools re-decode per query
 - **Bundle size** — `audio` core ~20 KiB gz vs ffmpeg.wasm ~25 MiB
 - **Cold-start in browser** — no install, no native binary, no subprocess
