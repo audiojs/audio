@@ -549,6 +549,8 @@ Registry (`audio.atoms`, name → package):
 **dynamics** compressor · limiter · gate · expander · deesser · ducker · compand · softclip · leveler · transient-shaper —
 **denoise** dehum · specsub · wiener · omlsa · dereverb · deplosive · dewind · declick · declip · decrackle · debreath —
 **effects** delay · chorus · flanger · phaser · tremolo · vibrato · autowah · wah · bitcrusher · distortion · exciter · ringmod · freqshift · multitap · pingpong · slew · noiseshaper · lofi · graindelay · stutter · subbass · sbr —
+**spatial** widener · haas · panner · autopan · midside · microshift · surround —
+**shift** pitch-shift · vocoder · formant-shift · paulstretch —
 **more** freeverb · biquad · yin · tube · osc · isolate
 
 ### Worker

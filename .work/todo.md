@@ -14,6 +14,28 @@ atom terminology throughout (audio-module → atom rename absorbed).
 * [x] README: Ecosystem-modules + Worker-engine sections relocated out of Recipes/Create flow into condensed API › Atoms/Worker (before Plugins); 17 recipes collapsed into 6 thematic blocks (Clean up/Compose/Analyze/Record & generate/Automate/Stream & persist) matching CLI section density — 2026-07
 * [x] released: npm audio@2.3.1 + GitHub release — https://github.com/audiojs/audio/releases/tag/v2.3.1 — 2026-07
 
+## Release (v2.4 — registry completion)
+
+Ship state: `audio.atoms` 49 → 60 names (spatial ×7, shift ×4); engine hosts
+channel-changing atoms (contract §channels {inputs, outputs} → op `ch` hook,
+plan-level width plumbing through streamPlan/renderBlock — surround 2→5.1 verified
+incl. 6ch WAV save via CLI); CLI atom `--help` fixed (module→atom rename leftover
+read `desc.module`, broke help synthesis for every atom).
+
+* [x] spatial manifests ×7 + shift manifests ×4 — atoms + package exports + 1.1.0 bumps, family suites green (spatial 4, shift 50) — 2026-07
+* [x] audio: registry entries, devDeps ^1.1.0, test/atom-spatial.js (7) + test/atom-shift.js (8) wired into index.js loader — full run green: engine 563, fixes, CLI 137, browser 468 — 2026-07
+* [x] publish wave: 7 @audio/spatial-* + @audio/shift{,-pvoc,-formant,-paulstretch} @ 1.1.0 — published, symlinks swapped for npm artifacts (`npm i`), atom suites re-verified against published tarballs (spatial 8, shift 8) — 2026-07
+* [ ] audio release (minor — new registry names + ch-changing hosting): version bump + GitHub release + npm publish `audio`
+
+## Perf — save/encode streaming JIT fix (2026-07)
+
+Root cause found while benchmarking: `save()`/`encode()` drove the DSP through a per-1024-sample-block async loop (`for await a.stream()` + `await enc()` + `setTimeout` throttle). The fine-grained async suspension kept V8 from tiering up the FFT hot loop (pitch/stretch/denoise) — baseline JIT for the whole file, ~10× slower on a one-shot CLI. `read()` was always fast (sync `streamPlan` generator).
+
+* [x] Fix: `encodeStream` decoded-source fast path — drive the synchronous `streamPlan` generator in `ENCODE_BATCH` (1<<20 sample) bursts, cross an `await` only for I/O between bursts. Continuous state (one pass, no seam re-warm) → output bit-identical to `read()` (verified maxdiff 3.99e-5 = 16-bit LSB). Live/pushable sources keep the per-block path. `loadRefs` exported from plan.js. — [fn/save.js](../fn/save.js)
+* [x] Result: cold save 240s pitch 34.75s → 4.01s (8.7×); CLI 10-min pitch 95s → 15.2s (6×), stretch 73s → 8.7s (8×). Now ~1.5–2.6× SoX/librosa (was ~15×). Regression test added (test/index.js: encode ≡ read full + ranged, pins no-seam-rewarm). Full suite green (engine 566, fixes 19, CLI 138).
+* [x] Re-benched + rewrote docs/comparison.md § Performance with corrected numbers + the "why it moved 6–9×" note
+* [ ] jz/WASM lane (Tier 2, deferred) — for the streaming/realtime/worklet case Tier 1 can't help (can't batch): compile hot kernels (FFT/`fourier-transform`, biquad, phase vocoder) to WASM via `@audio/atom` build → per-atom `dist/*.wasm` + `./wasm` export, host prefers it in `useAtom`. jz compiles `fourier-transform` as-is (40KB, 563ms; beats native clang on jz's fft bench). ~1.4× over warm JS — secondary to Tier 1 for batch, primary for realtime.
+
 ## Next
 
 * [ ] playback speed
@@ -45,7 +67,7 @@ atom terminology throughout (audio-module → atom rename absorbed).
 - [ ] Define contract in `atom`: `{name, channels, latency, tail, params:{name:{min,max,default,unit,smoothing}}, create(sr, ch, init) → {process(in,out,n), set(k,v,smooth), reset(), serialize?(), restore?()}}` — mirrors `AudioWorkletProcessor` (narrowest target; others are wider)
 - [~] Ship adapters: `toBatch` ✔, `toStream` ✔, `toWam` ✔; `toWorklet`/`toAudioNode` remain. No `toOp` by design — `audio` hosts contract modules natively in core.js `useAtom` (integration-verified in test/atom-ops.js); the contract is a convention, adapters are only for targets needing machinery
 - [x] Flagship pilot: compressor verified as batch + stream + WAM + `audio` op with zero per-host glue (+7 more manifests across conventions; differential vs native <1e-6) — 2026-07
-- [ ] Migrate siblings one-by-one: `audio-effect`, `pitch-shift`, `time-stretch`, `dynamics-processor`, `audio-filter`, `noise-reduction` — keep old exports as back-compat shims during transition
+- [~] Sibling migration superseded by the `@audio/*` rewrite: audio-effect/time-stretch/audio-filter deprecated pointing at scope equivalents; remaining: deprecate `dynamics-processor`, `noise-reduction` (+ `pitch-shift` deprecation message is empty) → `@audio/dynamics`, `@audio/denoise`, `@audio/shift`
 - [x] `audio.use(module)` accepts raw contract modules (own-`params` detection → toOp; declared tail composes trailing pad) — 2026-07
 - [x] Introspectable params: `audio.op(name).atom.params` carries full metadata; CLI `<op> --help` synthesizes usage + param table (min..max unit, defaults) from it — 2026-07
 - [ ] Uniform test harness: feed PCM, assert output, across all libs
@@ -56,7 +78,7 @@ atom terminology throughout (audio-module → atom rename absorbed).
 - [x] Scope owned on npm — ~274 packages published across 36 umbrellas — 2026-07
 - [x] `audio` adopted the scope wholesale (14304f1): decode/encode/mic/speaker, filter+eq, weighting, stretch (pvocLock first-class), beat, pitch/mir/note, vocals, window; 9 legacy deps dropped. Kept local with reasons: spectrum a-weighting (needs magnitude-response fn upstream), resample sinc (plug-in interpolator needs random access `(src, tOff, n, rate, phase)` — polyphase's forward-only rate-pair stream doesn't fit), crossfeed mix (spatial-crossfeed hardcodes Q=0.5)
 - [x] Shared primitives deduped: `@audio/stft`, `@audio/window`, `@audio/biquad` published — 2026-07
-- [ ] `peerDependencies: {audio: "^2"}` on all subpackages to prevent duplicate cores
+- [x] ~~`peerDependencies: {audio: "^2"}` on all subpackages to prevent duplicate cores~~ — stale: predates the atom pivot; no `@audio/*` package imports `audio` (verified across all package.json 2026-07), import direction is engine→atom only, so no duplicate-core risk exists. Family cores (shift-core etc.) dedupe via normal semver.
 - [x] Publish hygiene: driver hard-fails `file:`/`link:` specs (vocals 1.0.1 leak class)
 - [x] Registry in `audio` README — Ecosystem atoms section — 2026-07
 
@@ -76,9 +98,9 @@ atom terminology throughout (audio-module → atom rename absorbed).
 
 - [x] **@audio/effect family — 21 registry modules** (chorus, flanger, phaser, tremolo, vibrato, autowah, wah, bitcrusher, distortion, exciter, ringmod, freqshift, multitap, pingpong, slew, noiseshaper, lofi, graindelay, stutter, subbass, sbr) + delay pilot + reverb (freeverb). Feedback delays declare param-dependent tails (RT60 from live feedback); freqshift declares Hilbert latency — 2026-07
 - [x] **dynamics family — 10 registry modules** (compressor, limiter, gate, expander, deesser, ducker w/ sidechain key, compand, softclip, leveler=dynaudnorm via whole-render, transient-shaper) — 2026-07
-- [ ] **stereo-widener**, **haas**, **panner**, **auto-panner** → `@audio/spatial-*` kernels published; manifests pending
-- [ ] **pitch-shift**, **vocoder**, **formant-shift** → `@audio/shift-*` kernels published (psola, pvoc, formant, granular, hpss…); manifests pending
-- [ ] **paulstretch** → `@audio/stretch-paulstretch` kernel published (streaming:false hosting now exists); **sliding-stretch** (continuous tempo+pitch envelope) still needs API
+- [x] **spatial atoms — 7 registry modules** (widener, haas, panner, autopan, midside, microshift, surround) — microshift kernel refactored to export persistent `shifter` heads; surround declares 2→6 via CONTRACT §channels, hosted through new engine ch-plumbing (useAtom `ch` hook, plan.ch, renderBlock width) — 2026-07
+- [x] **shift atoms — 4 registry modules** (pitch-shift umbrella w/ method enum + auto-select, vocoder, formant-shift, paulstretch) — vocoder/formant-shift stream via FIFO with measured latency 2048 = 1×frame (tone-burst envelope xcorr, blocks 128–4096, + sample-count deficit); pitch-shift/paulstretch whole-render (streaming:false); semitones live via fn-ratio (defeats identity shortcut, engine automation works) — 2026-07
+- [ ] **paulstretch time-stretch** — `@audio/stretch-paulstretch` (length-changing) stays batch API per CONTRACT (equal frames in/out); pitch-domain paulstretch shipped as atom above; **sliding-stretch** (continuous tempo+pitch envelope) still needs API
 - [ ] **adjustable-fade** (non-linear, mid-point, partial selection) — `audio` utility, not an effect
 - Kernel defects flagged by manifest verification (upstream fixes pending): chorus/phaser live-resize NaN (mitigated via restart flags), freqshift dry/wet comb at mix<1, multitap per-call allocation
 
@@ -250,7 +272,7 @@ Building blocks present: `a.block` updates per playback chunk (fn/play.js:63), `
 ## [ ] Benchmarks
 
 - [x] Comparison table — `docs/comparison.md` (top 7 in-depth + methods naming reference + ~30 alternatives)
-- [ ] Performance benchmarks — fill in perf numbers in `docs/comparison.md` (decode MB/s, normalize, FFT, resample, stretch — vs FFmpeg/SoX/librosa/Pedalboard on the same input)
+- [x] Performance benchmarks — `bench/` harness (`npm run bench`): 10 ops × 5 tools (audio/librosa/Pedalboard/SoX/FFmpeg), end-to-end from file, best-of-3 subprocess reps; numbers + honest reading in `docs/comparison.md` § Performance. Headline: beat tracking ≡ librosa, analysis ≈ decode cost; slow lane = JS phase vocoder (stretch/pitch ~6–8× realtime) → jz/WASM lane motivation. Found + worked around Node 25 shutdown deadlock (nodejs/node#54918) in subprocess reps — 2026-07
 
 ## [ ] Testing – test and fix anything not working
 

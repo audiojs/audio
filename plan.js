@@ -241,7 +241,7 @@ function eachRef(a, cb) {
 
 /** Await full decode of every referenced source — a ref's length/PCM must be
  *  settled before its plan segment or ctx.render pull reads from it. */
-async function loadRefs(a) {
+export async function loadRefs(a) {
   let refs = []
   eachRef(a, r => refs.push(r))
   for (let r of refs) { if (r.ready) await r.ready; await r[LOAD]() }
@@ -297,6 +297,12 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
       lastVer = a.version
       builtLen = Math.max(builtLen, avail)
       plan = compilePlan(a, builtLen, a.decoded)
+      // Whole-op ref may rewrite the pipeline input width (e.g. 2→5.1 upmix)
+      if ((plan.ch ?? nch) !== nch) {
+        nch = plan.ch
+        bufA = Array.from({ length: nch }, () => new Float32Array(BS))
+        procs = null
+      }
       let curPipe = pipelineSig(plan.pipeline)
       if (!procs) {
         T = plan.latency
@@ -608,13 +614,16 @@ function compilePlan(a, len, final) {
       let key = a.edits.indexOf(edit) + ':' + a._.len + ':' + t
       let ref = a._.wrc.m.get(key)
       if (!ref) {
-        let input = readPlan(a, { segs, pipeline, totalLen: t, sr, latency, pulls })
-        let output = input.map(chn => new Float32Array(chn.length))
+        let input = readPlan(a, { segs, pipeline, totalLen: t, sr, ch, latency, pulls })
+        // channel-changing whole op (e.g. 2→5.1 upmix) — output owns its declared width
+        let outCh = (op.ch && op.ch(input.length, extra)) || input.length
+        let output = Array.from({ length: outCh }, () => new Float32Array(input[0].length))
         let wctx = { sampleRate: sr, channelCount: input.length, totalDuration: t / sr, at, duration, channel, render, ...extra }
         op.whole(input, output, wctx)
         a._.wrc.m.set(key, ref = audio.from(output, { sampleRate: sr }))
       }
       segs = [seg(0, ref._.len, 0, undefined, ref)]
+      ch = ref._.ch
       pipeline = []; latency = 0; pulls = []
       if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }
       continue
@@ -632,7 +641,9 @@ function compilePlan(a, len, final) {
   }
   let totalLen = planLen(segs)
   if (final) limit = totalLen
-  return { segs, pipeline, totalLen, sr, limit: Math.max(0, limit), pulls, latency }
+  // ch = pipeline input width — a._.ch unless a whole op rewrote the timeline to a
+  // wider/narrower ref (pipeline stages fold their own widths via desc.ch in initProcs)
+  return { segs, pipeline, totalLen, sr, ch, limit: Math.max(0, limit), pulls, latency }
 }
 
 /** Sum ref versions + lengths to detect external mutations (edits or decode growth). */
@@ -720,7 +731,9 @@ function readRange(a, srcStart, n) {
   } finally { refStack.delete(a) }
 }
 
-/** Render one output block from plan segments into pre-allocated chunk. */
+/** Render one output block from plan segments into pre-allocated chunk.
+ *  chunk width = plan width (may differ from a._.ch after a channel-changing
+ *  whole op) — ref channels wrap, self segs can't exceed the source width. */
 function renderBlock(a, segs, outOff, len, chunk) {
   for (let sg of segs) {
     let iStart = Math.max(outOff, sg[2]), iEnd = Math.min(outOff + len, sg[2] + sg[1])
@@ -732,7 +745,7 @@ function renderBlock(a, segs, outOff, len, chunk) {
       // zero-filled by default
     } else if (ref) {
       if (ref.edits.length === 0) {
-        for (let c = 0; c < a._.ch; c++)
+        for (let c = 0; c < chunk.length; c++)
           readSource(ref, c % ref._.ch, srcStart, n, chunk[c], dstOff, rate, interp)
       } else {
         let margin = (interp && interp.margin) || 0
@@ -742,7 +755,7 @@ function renderBlock(a, segs, outOff, len, chunk) {
         let copyOff = bufStart < 0 ? -bufStart : 0
         let copyStart = Math.max(0, bufStart)
         let srcPcm = readRange(ref, copyStart, srcN - copyOff)
-        for (let c = 0; c < a._.ch; c++) {
+        for (let c = 0; c < chunk.length; c++) {
           let src = srcPcm[c % srcPcm.length]
           if (copyOff || src.length < srcN) {
             let buf = new Float32Array(srcN)
@@ -756,7 +769,7 @@ function renderBlock(a, segs, outOff, len, chunk) {
         }
       }
     } else {
-      for (let c = 0; c < a._.ch; c++) readSource(a, c, srcStart, n, chunk[c], dstOff, rate, interp)
+      for (let c = 0, N = Math.min(chunk.length, a._.ch); c < N; c++) readSource(a, c, srcStart, n, chunk[c], dstOff, rate, interp)
     }
   }
 }
@@ -928,13 +941,13 @@ function maxSrcSample(segs, start, end) {
  *  timeline (plugin delay compensation) — past-the-end cursors render silence, which
  *  flushes lookahead delay lines so the tail lands aligned. */
 export function* streamPlan(a, plan, offset, duration) {
-  let { segs, pipeline, totalLen, sr, latency: T = 0 } = plan
+  let { segs, pipeline, totalLen, sr, ch = a._.ch, latency: T = 0 } = plan
   let s = Math.round((offset || 0) * sr), e = duration != null ? s + Math.round(duration * sr) : totalLen
-  let procs = initProcs(pipeline, totalLen / sr, sr, a._.ch)
+  let procs = initProcs(pipeline, totalLen / sr, sr, ch)
 
   let sc = s + T, ec = e + T
   let ws = (sc > 0 && procs.length) ? Math.max(0, sc - audio.BLOCK_SIZE * WARMUP) : sc
-  let BS = audio.BLOCK_SIZE, nch = a._.ch
+  let BS = audio.BLOCK_SIZE, nch = ch
   let bufA = Array.from({ length: nch }, () => new Float32Array(BS))
 
   for (let outOff = ws; outOff < ec;) {

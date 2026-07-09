@@ -66,6 +66,17 @@ audio.atoms = {
   tube: '@audio/saturate-tube/atom',
   osc: '@audio/synth-osc/atom',
   isolate: '@audio/vocals/atom',
+  widener: '@audio/spatial-widener/atom',
+  haas: '@audio/spatial-haas/atom',
+  panner: '@audio/spatial-panner/atom',
+  autopan: '@audio/spatial-autopan/atom',
+  midside: '@audio/spatial-midside/atom',
+  microshift: '@audio/spatial-microshift/atom',
+  surround: '@audio/spatial-surround/atom',
+  vocoder: '@audio/shift-pvoc/atom',
+  'formant-shift': '@audio/shift-formant/atom',
+  paulstretch: '@audio/shift-paulstretch/atom',
+  'pitch-shift': '@audio/shift/atom',
 }
 
 // ── Infrastructure (self-register on import) ────────────────────────────

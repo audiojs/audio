@@ -322,6 +322,13 @@ function useAtom(m) {
   // (an audio instance / Float32Array[]), rendered per block, rate-reconciled
   let keyed = Array.isArray(m.channels?.inputs) && m.channels.inputs.length > 1
 
+  // Declared fixed output count ≠ input (contract §channels, e.g. 2→5.1 upmix) →
+  // op-level `ch` hook; the plan pipeline sizes that stage's buffers to it
+  let busN = side => typeof side === 'number' ? side
+    : Array.isArray(side) && typeof side[0] === 'number' ? side[0] : null
+  let outN = busN(m.channels?.outputs)
+  let ch = outN != null && outN !== busN(m.channels?.inputs) ? () => outN : undefined
+
   let process = (input, output, ctx) => {
     let st = ctx._am ??= init(ctx)
     st.mctx.currentTime = ctx.blockOffset || 0
@@ -337,7 +344,7 @@ function useAtom(m) {
   // engine materializes the timeline and hosts it as a whole-render op
   if (m.streaming === false) {
     return audio.op(id, {
-      params: names, atom: m,
+      params: names, atom: m, ch,
       whole(input, output, ctx) {
         let st = init(ctx, input[0].length)
         fill(st, ctx)
@@ -346,13 +353,13 @@ function useAtom(m) {
     })
   }
 
-  if (!tail) return audio.op(id, { params: names, atom: m, latency, process })
+  if (!tail) return audio.op(id, { params: names, atom: m, latency, process, ch })
 
   // Declared tail: expand into pad + hidden proc at compile time — the user edit stays
   // one atomic entry (undo/serialize whole), the decay renders into the pad
-  audio.op('_' + id, { params: names, hidden: true, atom: m, latency, process })
+  audio.op('_' + id, { params: names, hidden: true, atom: m, latency, process, ch })
   audio.op(id, {
-    params: names, tail, atom: m,
+    params: names, tail, atom: m, ch,
     expand: (ctx) => {
       let o = {}
       for (let k of names) if (ctx[k] !== undefined) o[k] = ctx[k]

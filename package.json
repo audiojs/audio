@@ -53,7 +53,8 @@
     "version": "node -p \"var s=require('fs'),v=require('./package.json').version;s.writeFileSync('core.js',s.readFileSync('core.js','utf8').replace(/audio\\.version = '[^']+'/,'audio.version = \\''+v+'\\''));''\" && git add core.js",
     "prepublishOnly": "npm run version && npm run build && npm run test:all",
     "serve": "node test/serve.js",
-    "demo": "vhs player.tape"
+    "demo": "vhs player.tape",
+    "bench": "node bench/bench.js"
   },
   "dependencies": {
     "@audio/beat": "^2.0.0",
@@ -128,6 +129,17 @@
     "@audio/effect-wah": "^1.1.0",
     "@audio/reverb-freeverb": "^1.0.0",
     "@audio/saturate-tube": "^1.0.0",
+    "@audio/shift": "^1.1.0",
+    "@audio/shift-formant": "^1.1.0",
+    "@audio/shift-paulstretch": "^1.1.0",
+    "@audio/shift-pvoc": "^1.1.0",
+    "@audio/spatial-autopan": "^1.1.0",
+    "@audio/spatial-haas": "^1.1.0",
+    "@audio/spatial-microshift": "^1.1.0",
+    "@audio/spatial-midside": "^1.1.0",
+    "@audio/spatial-panner": "^1.1.0",
+    "@audio/spatial-surround": "^1.1.0",
+    "@audio/spatial-widener": "^1.1.0",
     "audio-lena": "^3.0.0",
     "esbuild": "^0.28.0",
     "playwright": "^1.59.1",

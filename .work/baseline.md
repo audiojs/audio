@@ -77,9 +77,9 @@ Test evidence: suite name = repo root `test.js` (counts as of 2026-07-09, fully 
 |---|---|---|
 | acompressor, alimiter, agate, compand, asoftclip | ✔ | `@audio/dynamics-*` (25✓) |
 | dynaudnorm | ✔ | `@audio/dynamics-leveler` (framewise smoothed riding, peak-guarded; dynamics 32✓) |
-| stereotools, stereowiden, extrastereo | ✔~ | `@audio/spatial-widener`/`-haas`/`-panner` (11✓); exact FFmpeg knobs not mirrored |
+| stereotools, stereowiden, extrastereo | ✔~ | `@audio/spatial-widener`/`-haas`/`-panner` (+ autopan/midside/microshift) — registry atoms, engine-hosted (audio atom-spatial 7✓); exact FFmpeg knobs not mirrored |
 | bs2b | ✔ | `@audio/spatial-crossfeed` |
-| surround | ✔ | `@audio/spatial-surround` (spatial 4✓, family complete) |
+| surround | ✔ | `@audio/spatial-surround` (spatial 4✓, family complete) — registry atom, 2→5.1 hosted natively via contract §channels ch-plumbing |
 | afftdn, adeclick, adeclip, deesser | ✔ | `@audio/denoise-*` (42✓) |
 | firequalizer | ✔ | `@audio/eq-fir` (eq 29✓) |
 | acrossover | ✔ | `@audio/eq-crossover` (flat-sum verified) |
@@ -132,10 +132,11 @@ Deferred (ML-tier only): genre, mood, tags, stem separation — needs hosted wei
 
 Waves 1–4 + the 22-package stub wave + the `@audio/module`→`@audio/atom` rename all shipped 2026-07-08/09. ~330 packages published, 10/11 unscoped names deprecated, `audio@2.3.0` live consuming the scope natively. Remaining:
 
-1. **CI**: `audio`'s `test/fix-core.js` "Blob/File/Response sources" test uses the global `File` constructor — not defined in Node 18 (CI matrix runs 18/20/22; the 20/22 jobs cancel via fail-fast behind the Node-18 failure, not independent bugs). Needs a `typeof File !== 'undefined'` guard (matches this file's own existing pattern for Node's missing OPFS) or a matrix/engines.node decision.
+1. ~~**CI**: Node-18 `File` global~~ — fixed: imported from `node:buffer` (audio a22fa18).
 2. **Family-core swap**: `denoise-core/stft` → `@audio/stft`, `dynamics-core/biquad` → `@audio/biquad`, behind differential tests — published, not yet swapped in.
 3. **Merge near-dupes**: `dynamics-gate`/`denoise-gate`, `dynamics-deesser`/`denoise-deesser` — deliberately qualified as different variants, migration deferred to the atom pass.
 4. **Docs**: per-atom `.d.ts` + individual READMEs (currently umbrella-level only, ~280 atoms — content-authorship decision, not mechanical).
-5. **Engine-side atom hosting**: `streaming: false` whole-signal hosting (leveler et al. run per-block today — wrong for time-varying material) and true multi-bus sidechain feeding (ducker self-keys as a fallback).
-6. **Still deferred, reasons on record**: speech-world (faithful WORLD port or WASM, not a namesake), midi-soundfont (asset-strategy decision — SF2 engine vs ~100 MB pre-rendered banks), neural lane (runtime adapter + policy).
-7. **a-weighting**: absorbed for A/B/C/ITU-468 (`.response()` on the atoms); its own npm deprecation held pending — D/Z-weighting have no atom equivalent yet.
+5. ~~**Engine-side atom hosting**~~ — shipped in audio v2.3 (whole-render `streaming:false` + sidechain key bus, test/atom-ops.js) and extended 2026-07-09 with channel-changing hosting (contract §channels → op `ch` hook; surround 2→5.1).
+6. **Registry completion wave** (2026-07-09): spatial ×7 + shift ×4 manifests written, tested through the engine (atom-spatial 7✓, atom-shift 8✓), versions bumped to 1.1.0 — npm publish pending go-ahead; `audio.atoms` 49 → 60 names.
+7. **Still deferred, reasons on record**: speech-world (faithful WORLD port or WASM, not a namesake), midi-soundfont (asset-strategy decision — SF2 engine vs ~100 MB pre-rendered banks), neural lane (runtime adapter + policy).
+8. **a-weighting**: absorbed for A/B/C/ITU-468 (`.response()` on the atoms); its own npm deprecation held pending — D/Z-weighting have no atom equivalent yet.

@@ -354,6 +354,10 @@ declare namespace audio {
   function stat(): Record<string, StatDescriptor>
   function stat(name: string): StatDescriptor | undefined
   function stat(name: string, descriptor: StatDescriptor | ((chs: Float32Array[], ctx: { sampleRate: number, [k: string]: unknown }) => number | number[])): void
+  /** Atom registry — name → package specifier (e.g. 'freeverb' → '@audio/reverb-freeverb/atom'), resolved by use(name) via dynamic import */
+  const atoms: Record<string, string>
+  /** Register plugins: contract atoms (factory functions with own `params`), `(audio) => {}` plugin functions, or registry names. String names dynamic-import — returns a promise; direct values register synchronously. */
+  function use(...plugins: (string | Function)[]): typeof audio & Promise<typeof audio>
   /** Audio instance prototype — extensible (like $.fn) */
   const fn: Record<string, any>
 }

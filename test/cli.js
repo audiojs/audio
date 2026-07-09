@@ -920,6 +920,15 @@ test('CLI — per-op help output', async t => {
   t.ok(output.includes('dB'), 'shows description')
 })
 
+test('CLI — atom op help synthesized from param metadata', async t => {
+  // regression: showOpHelp gated atomHelp on stale `desc.module` (atom rename) —
+  // every registry atom printed "No help". Pin the `desc.atom` path.
+  let output = await runCliCapture(['compressor', '--help'])
+  t.ok(output.includes('Contract atom'), 'atom help synthesized')
+  t.ok(output.includes('threshold'), 'param table lists threshold')
+  t.ok(output.includes('-60..0 dB'), 'param range + unit from metadata')
+})
+
 test('CLI — showUsage mentions every op with help', async t => {
   let output = await runCliCapture(['--help'])
   for (let [name, h] of Object.entries(HELP)) {

@@ -175,7 +175,7 @@ function atomHelp(name, desc) {
 
 function showOpHelp(name) {
   let desc = audio.op(name)
-  let h = desc?.help || HELP[name] || (desc?.module && atomHelp(name, desc))
+  let h = desc?.help || HELP[name] || (desc?.atom && atomHelp(name, desc))
   if (!h) { console.error(`No help for: ${name}`); return }
   console.log(`\n  ${h.usage}\n\n  ${h.desc}\n`)
   if (h.params) console.log('  Params:\n' + h.params + '\n')

@@ -1167,6 +1167,24 @@ test('save — write to file', { skip: !isNode }, async t => {
   t.ok(Math.abs(b.duration - 1) < 0.02, 'saved and reloaded')
 })
 
+test('encode ≡ read for a stateful windowed op (batched fast path, no seam re-warm)', async t => {
+  // encodeStream's decoded-source path drives streamPlan in ENCODE_BATCH bursts for
+  // JIT tier-up; it must match read() sample-for-sample (continuous vocoder state),
+  // full and ranged. pitch fails stream≡read across seams, so a batched *ranged*
+  // render would diverge — this pins that the fast path stays one continuous pass.
+  let n = 44100 * 3, ch0 = new Float32Array(n), ch1 = new Float32Array(n)
+  for (let i = 0; i < n; i++) { ch0[i] = 0.5 * Math.sin(2 * Math.PI * 220 * i / 44100); ch1[i] = 0.4 * Math.sin(2 * Math.PI * 330 * i / 44100) }
+  let cmp = (a, b, label) => {
+    t.is(a[0].length, b[0].length, `${label} length`)
+    let d = 0, m = Math.min(a[0].length, b[0].length)
+    for (let c = 0; c < a.length; c++) for (let i = 0; i < m; i++) d = Math.max(d, Math.abs(a[c][i] - b[c][i]))
+    t.ok(d < 6e-5, `${label} ≡ read within 16-bit LSB (${d.toExponential(1)})`)
+  }
+  let mk = () => audio.from([ch0.slice(), ch1.slice()], { sampleRate: 44100 }).pitch(3)
+  cmp(await (await audio(await mk().encode('wav'))).read(), await mk().read(), 'full encode')
+  cmp(await (await audio(await mk().encode('wav', { at: 0.7, duration: 1.5 }))).read(), await mk().read({ at: 0.7, duration: 1.5 }), 'ranged encode')
+})
+
 test('save — bad path rejects instead of crashing process', { skip: !isNode }, async t => {
   // write-stream 'error' (e.g. ENOENT dir) must reject save(), not throw an unhandled
   // EventEmitter 'error' with no listener (which crashes the Node process)
@@ -6247,7 +6265,7 @@ test('cli ops registry — all built-ins available', t => {
 // Effects/denoise suites resolve manifests from the sibling @audio checkout until
 // their npm releases land — skip cleanly where neither is present (e.g. bare CI).
 if (isNode) await import('./atom-ops.js')
-if (isNode) for (let f of ['./atom-effects.js', './atom-denoise.js']) {
+if (isNode) for (let f of ['./atom-effects.js', './atom-denoise.js', './atom-spatial.js', './atom-shift.js']) {
   try { await import(f) }
   catch (e) {
     if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e
