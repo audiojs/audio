@@ -74,8 +74,8 @@ Root cause found while benchmarking: `save()`/`encode()` drove the DSP through a
 - [x] `audio.use(module)` — bring-your-own contract factory still works (own-`params` detection)
 - [x] Core always-bundled set unchanged: gain, trim, crop, filter, normalize, fade, mix, reverse, pan, repeat, remix
 - [x] CLI auto-resolves registry op names before parse; uninstalled → `npm i @audio/…` guidance — 2026-07
-- [ ] Three plugin flavors formalized: **op** (`a.foo()`), **stat** (`a.stat('foo')`), **codec** (decode/encode) — op done via contract; stat/codec conventions next
-- [ ] MIR → ship as plugins under `@audio/stat-*`, not core
+- [~] Three plugin flavors formalized: **op** ✔ (contract atoms), **stat** ✔ ({ stat, compute } atoms, 2026-07 — 20 shipped), **codec** (decode/encode) convention still open
+- [x] MIR → shipped as stat atoms under `@audio/mir-*` /stat exports (not core, not a new namespace) — 2026-07
 
 ### `atom` — unified module convention
 - [x] Contract designed — [.work/atom.md](atom.md): jz-subset process discipline (same source runs as JS, compiles to WASM, differential CI), adapters toOp/toBatch/toStream/toWorklet, compressor pilot, migration order
