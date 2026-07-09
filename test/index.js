@@ -6246,8 +6246,8 @@ test('cli ops registry — all built-ins available', t => {
 // import-map entries for every @audio module atom + its transitive kernels.
 // Effects/denoise suites resolve manifests from the sibling @audio checkout until
 // their npm releases land — skip cleanly where neither is present (e.g. bare CI).
-if (isNode) await import('./module-ops.js')
-if (isNode) for (let f of ['./module-effects.js', './module-denoise.js']) {
+if (isNode) await import('./atom-ops.js')
+if (isNode) for (let f of ['./atom-effects.js', './atom-denoise.js']) {
   try { await import(f) }
   catch (e) {
     if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e

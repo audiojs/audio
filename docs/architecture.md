@@ -125,7 +125,7 @@ Changing `BLOCK_SIZE` cannot retroactively refine existing stats. For finer reso
 
 ## Contract modules
 
-`audio.use(module)` hosts [@audio/module CONTRACT](https://github.com/audiojs/module) factories natively:
+`audio.use(module)` hosts [@audio/atom CONTRACT](https://github.com/audiojs/module) factories natively:
 params map to op params (engine automation/curves/ramps apply), declared `tail` composes
 a trailing pad, declared `latency` gets plan-level delay compensation, `streaming: false`
 modules run as whole-render ops (materialize → one call → continue from the result), and

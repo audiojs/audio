@@ -1,11 +1,11 @@
-// Contract audio-modules as audio ops — audio.use(module) hosts the contract natively.
+// Contract atoms as audio ops — audio.use(module) hosts the contract natively.
 // Pilots: @audio/dynamics-compressor (dynamics kernel, live/automated params) and
 // @audio/reverb-freeverb (declared tail → composed trailing pad, decay preserved).
 
 import test, { ok, almost, is } from 'tst'
 import audio from '../audio.js'
-import { compressor } from '@audio/dynamics-compressor/audio-module'
-import { freeverb } from '@audio/reverb-freeverb/audio-module'
+import { compressor } from '@audio/dynamics-compressor/atom'
+import { freeverb } from '@audio/reverb-freeverb/atom'
 
 audio.use(compressor, freeverb)
 
@@ -74,7 +74,7 @@ test('tail op is undo-atomic and serializes as one edit', async () => {
 
 test('audio.use(name) resolves through the registry (dynamic import)', async () => {
   audio.modules ??= {}
-  audio.modules.tube = '@audio/saturate-tube/audio-module'
+  audio.modules.tube = '@audio/saturate-tube/atom'
   await audio.use('tube')
   ok(typeof audio.fn.tube === 'function', 'registry-resolved module registered')
   let out = (await audio.from([tone(440, 0.2)], { sampleRate: SR }).tube({ drive: 8 }).read())[0]
@@ -86,8 +86,8 @@ test('audio.use(name) resolves through the registry (dynamic import)', async () 
 
 // ── Wave B: dynamics-gate + denoise-dehum ─────────────────────────────
 
-import { gate } from '@audio/dynamics-gate/audio-module'
-import { dehum } from '@audio/denoise-dehum/audio-module'
+import { gate } from '@audio/dynamics-gate/atom'
+import { dehum } from '@audio/denoise-dehum/atom'
 audio.use(gate, dehum)
 
 /** Goertzel magnitude at f Hz. */
@@ -165,9 +165,9 @@ test('declared latency compensates to identity', async () => {
 
 // ── Wave B continued: limiter (declared latency), deesser, softclip ───
 
-import { limiter } from '@audio/dynamics-limiter/audio-module'
-import { deesser } from '@audio/dynamics-deesser/audio-module'
-import { softclip } from '@audio/dynamics-softclip/audio-module'
+import { limiter } from '@audio/dynamics-limiter/atom'
+import { deesser } from '@audio/dynamics-deesser/atom'
+import { softclip } from '@audio/dynamics-softclip/atom'
 audio.use(limiter, deesser, softclip)
 
 test('limiter: brickwall under ceiling, latency-compensated onset', async () => {
@@ -206,12 +206,12 @@ test('softclip: bounded by ceiling, enum curve validated', async () => {
 
 // ── Dynamics wave: expander, compand, leveler, transient-shaper, ducker ───
 // Not yet published to npm — import via the sibling @audio/dynamics checkout;
-// switch to '@audio/dynamics-<atom>/audio-module' after next publish.
-import { expander } from '@audio/dynamics-expander/audio-module'
-import { compand } from '@audio/dynamics-compand/audio-module'
-import { leveler } from '@audio/dynamics-leveler/audio-module'
-import { transientShaper } from '@audio/dynamics-transient-shaper/audio-module'
-import { ducker } from '@audio/dynamics-ducker/audio-module'
+// switch to '@audio/dynamics-<atom>/atom' after next publish.
+import { expander } from '@audio/dynamics-expander/atom'
+import { compand } from '@audio/dynamics-compand/atom'
+import { leveler } from '@audio/dynamics-leveler/atom'
+import { transientShaper } from '@audio/dynamics-transient-shaper/atom'
+import { ducker } from '@audio/dynamics-ducker/atom'
 audio.use(expander, compand, leveler, transientShaper, ducker)
 
 const db = (lin) => 20 * Math.log10(Math.max(lin, 1e-12))
@@ -246,7 +246,7 @@ test('leveler: loud/quiet sections converge in RMS toward target loudness', asyn
   // for streaming: false). It still converges here because each ~23ms block's own
   // RMS happens to match its section's RMS for this steady-tone signal, but the
   // kernel's cross-frame gaussian smoothing genuinely needs the whole-signal call
-  // this host doesn't provide yet — see audio-module.js's header comment.
+  // this host doesn't provide yet — see atom.js's header comment.
   let loud = tone(440, 10, 0.5), quiet = tone(440, 10, 0.006)
   let combined = new Float32Array([...loud, ...quiet])
   let out = (await audio.from([combined], { sampleRate: SR }).leveler({ target: -20, frame: 0.5, maxGain: 12, smooth: 5 }).read())[0]
@@ -267,7 +267,7 @@ test('transient-shaper: attackGain raises crest factor (attack emphasis)', async
   // prime with 300ms of steady tone: the kernel's transient = envFast/envSlow-derived
   // ratio is unbounded and spikes hugely from a true cold start (both envelopes at 0);
   // priming keeps the measurement in the kernel's normal operating regime — see
-  // audio-module.js's header comment for the underlying kernel defect.
+  // atom.js's header comment for the underlying kernel defect.
   let prime = tone(1000, 0.3, 0.25)
   let full = new Float32Array([...prime, ...burst])
   let out0 = (await audio.from([full.slice()], { sampleRate: SR })['transient-shaper']({ attackGain: 0, sustainGain: 0 }).read())[0]

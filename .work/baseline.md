@@ -1,6 +1,6 @@
 # Baseline coverage — audio vs FFmpeg / SoX / librosa / Pedalboard / MIREX
 
-Goal: `audio` (+ the `@audio/*` atoms it wires) covers the practical baseline of FFmpeg audio filters, SoX effects, librosa, Pedalboard and MIREX — then extensions go through `@audio/host` (native plugins) / `@audio/module` (cross-target contract).
+Goal: `audio` (+ the `@audio/*` atoms it wires) covers the practical baseline of FFmpeg audio filters, SoX effects, librosa, Pedalboard and MIREX — then extensions go through `@audio/host` (native plugins) / `@audio/atom` (cross-target contract).
 
 Legend:
 **✔** implemented + tested
@@ -124,7 +124,7 @@ Deferred (ML-tier): genre, mood, tags, stem separation.
 
 ## Deliberate exclusions
 
-- **ladspa / plugin formats** — that's `@audio/host` (VST3/CLAP hosts, platform binaries) + `@audio/module` (JS→Worklet/WAM/CLAP/VST3 contract, 16✓), not effects.
+- **ladspa / plugin formats** — that's `@audio/host` (VST3/CLAP hosts, platform binaries) + `@audio/atom` (JS→Worklet/WAM/CLAP/VST3 contract, 16✓), not effects.
 - **SoX contrast, divide; FFmpeg aderivative/aintegral** — trivial or low-value; revisit on demand.
 - **Codec-sim effects (MP3Compressor)** — expressed as decode/encode round-trip, not a filter.
 - **ML denoise/separation** — classical-DSP stance; see site strategy.

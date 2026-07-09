@@ -170,7 +170,7 @@ function moduleHelp(name, desc) {
     if (sp.type === 'bool') return `    ${k}  true|false (default ${sp.default})`
     return `    ${k}  ${sp.min}..${sp.max}${sp.unit ? ' ' + sp.unit : ''} (default ${sp.default})`
   }).join('\n')
-  return { usage: `${name} [${args}]`, desc: `Contract audio-module${typeof desc.tail === 'number' && desc.tail ? ` (tail ${desc.tail}s)` : desc.tail ? ' (tail: param-dependent)' : ''}`, examples: [], params }
+  return { usage: `${name} [${args}]`, desc: `Contract atom${typeof desc.tail === 'number' && desc.tail ? ` (tail ${desc.tail}s)` : desc.tail ? ' (tail: param-dependent)' : ''}`, examples: [], params }
 }
 
 function showOpHelp(name) {
@@ -885,7 +885,7 @@ async function main() {
   // Auto-resolve registry modules named in args (dynamic import registers the op)
   for (let t of args) if (!audio.op(t) && audio.modules?.[t]) {
     try { await audio.use(t) }
-    catch (e) { throw new Error(`op '${t}' needs its module installed: npm i ${audio.modules[t].split('/audio-module')[0]}`) }
+    catch (e) { throw new Error(`op '${t}' needs its module installed: npm i ${audio.modules[t].split('/atom')[0]}`) }
   }
 
   if (!args.length || args[0] === '--help' || args[0] === '-h') {

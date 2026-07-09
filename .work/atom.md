@@ -1,6 +1,6 @@
-# audio-module — unified processor contract (design)
+# atom — unified processor contract (design)
 
-Status: superseded 2026-07 — the contract landed in `audio-plugin` (repo dir `~/projects/audio-module`); **its CONTRACT.md is the source of truth**. This file remains as design history. Deltas from the sketch below:
+Status: superseded 2026-07 — the contract landed in `audio-plugin` (repo dir `~/projects/atom`); **its CONTRACT.md is the source of truth**. This file remains as design history. Deltas from the sketch below:
 
 - Shape: named-export **factory function** `(ctx) => process` with metadata as properties — not a default-export object with `create`. State lives in closure.
 - `set()` dropped — live params arrive as the `params` argument each block; dezipping via `params.*.smoothing` (seconds, adapter/compiler-applied linear ramp).
@@ -71,7 +71,7 @@ Rules that make a module jz-clean (enforced by a lint in the module template):
 state in `Float32Array`/`Float64Array`/scalars closed over by `create` — no Maps, no
 string keys in `process`, no allocation after `create`, params numeric only.
 
-## Adapters (ship with `audio-module`, hosts import one)
+## Adapters (ship with `atom`, hosts import one)
 
 - `toOp(module)` → `audio.op` descriptor. Engine already supplies range scoping,
   automation (fn params → `set` per sub-block), click-free ramps — the adapter maps

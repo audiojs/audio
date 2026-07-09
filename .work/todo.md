@@ -26,7 +26,7 @@ param-dependent, latency compensation, streaming:false whole-render, sidechain k
 ## Architecture
 
 ### Plugin auto-import (`audio.use(...names)`)
-- [x] Built-in registry — `audio.modules` maps name → `@audio/<pkg>/audio-module` specifier (audio.js); grows with the published set — 2026-07
+- [x] Built-in registry — `audio.modules` maps name → `@audio/<pkg>/atom` specifier (audio.js); grows with the published set — 2026-07
 - [x] `audio.use('freeverb')` → dynamic `import()` + registers every module-shaped export; returns promise for string loads, sync for direct — 2026-07
 - [x] `audio.use(module)` — bring-your-own contract factory still works (own-`params` detection)
 - [x] Core always-bundled set unchanged: gain, trim, crop, filter, normalize, fade, mix, reverse, pan, repeat, remix
@@ -34,10 +34,10 @@ param-dependent, latency compensation, streaming:false whole-render, sidechain k
 - [ ] Three plugin flavors formalized: **op** (`a.foo()`), **stat** (`a.stat('foo')`), **codec** (decode/encode) — op done via contract; stat/codec conventions next
 - [ ] MIR → ship as plugins under `@audio/stat-*`, not core
 
-### `audio-module` — unified module convention
-- [x] Contract designed — [.work/audio-module.md](audio-module.md): jz-subset process discipline (same source runs as JS, compiles to WASM, differential CI), adapters toOp/toBatch/toStream/toWorklet, compressor pilot, migration order
+### `atom` — unified module convention
+- [x] Contract designed — [.work/atom.md](atom.md): jz-subset process discipline (same source runs as JS, compiles to WASM, differential CI), adapters toOp/toBatch/toStream/toWorklet, compressor pilot, migration order
 - [ ] Problem: 3 sibling conventions today — `audio-effect` (`fn(data, params)` + param-obj state), `pitch-shift` (`makePitchShift(batch, stream)` factory), `dynamics-processor` (polymorphic `fn(data, opts)` + `{write, flush}` stream). None drop into AudioWorklet/VST/`audio` plan without ad-hoc glue.
-- [ ] Define contract in `audio-module`: `{name, channels, latency, tail, params:{name:{min,max,default,unit,smoothing}}, create(sr, ch, init) → {process(in,out,n), set(k,v,smooth), reset(), serialize?(), restore?()}}` — mirrors `AudioWorkletProcessor` (narrowest target; others are wider)
+- [ ] Define contract in `atom`: `{name, channels, latency, tail, params:{name:{min,max,default,unit,smoothing}}, create(sr, ch, init) → {process(in,out,n), set(k,v,smooth), reset(), serialize?(), restore?()}}` — mirrors `AudioWorkletProcessor` (narrowest target; others are wider)
 - [~] Ship adapters: `toBatch` ✔, `toStream` ✔, `toWam` ✔; `toWorklet`/`toAudioNode` remain. No `toOp` by design — `audio` hosts contract modules natively in core.js `useModule` (integration-verified in test/module-ops.js); the contract is a convention, adapters are only for targets needing machinery
 - [x] Flagship pilot: compressor verified as batch + stream + WAM + `audio` op with zero per-host glue (+7 more manifests across conventions; differential vs native <1e-6) — 2026-07
 - [ ] Migrate siblings one-by-one: `audio-effect`, `pitch-shift`, `time-stretch`, `dynamics-processor`, `audio-filter`, `noise-reduction` — keep old exports as back-compat shims during transition

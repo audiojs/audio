@@ -211,7 +211,7 @@ and `streaming: false` are handled by the engine; the CLI picks registry ops up 
 name and synthesizes `--help` from param metadata.
 
 ```js
-import { compressor } from '@audio/dynamics-compressor/audio-module'
+import { compressor } from '@audio/dynamics-compressor/atom'
 audio.use(compressor)                       // bring-your-own factory
 await audio.use('freeverb', 'declick')      // or by registry name
 

@@ -222,10 +222,10 @@ Structural ops reshape the segment map. Sample ops transform values per-page. St
 - Plugin system for extending ops + stats
 
 ### Flesh (is NOT)
-- Audio module compiler (→ `audio-module`)
+- Audio module compiler (→ `atom`)
 - DAW framework (consumer builds that on top)
 - Real-time DSP engine (→ Web Audio API / AudioWorklet)
-- Plugin format wrapper (CLAP/VST/WAM → `audio-module`)
+- Plugin format wrapper (CLAP/VST/WAM → `atom`)
 
 
 ## Key Result Areas
@@ -280,7 +280,7 @@ Structural ops reshape the segment map. Sample ops transform values per-page. St
 
 ### What audio Should NOT Be
 ✗ A DAW (leave mixing/arrangement to DAWs built on top)
-✗ A VST/AU host (use audio-module bridge for plugin compilation)
+✗ A VST/AU host (use atom bridge for plugin compilation)
 ✗ A real-time DSP engine (too heavy; use Web Audio API)
 ✗ Slower than sox/ffmpeg (streaming render v2.1 must be fast)
 
