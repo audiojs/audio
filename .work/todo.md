@@ -8,8 +8,8 @@ atom terminology throughout (audio-module → atom rename absorbed).
 * [x] publish wave: 21 @audio/effect (1.1.0) + 11 @audio/denoise (0.1.1) atom releases — registry resolves fully — 2026-07
 * [x] README registry section (Ecosystem atoms) — 2026-07
 * [x] CI green: suites import published /atom artifacts as devDeps; skip cleanly where unresolvable — 2026-07
-* [x] release notes drafted — [.work/release-2.3.md](release-2.3.md)
-* [ ] `npm version minor && npm publish` (+ `git push --tags`) — GO when ready
+* [x] release notes — https://github.com/audiojs/audio/releases/tag/v2.3.0
+* [x] released: npm audio@2.3.0 + GitHub release — 2026-07
 
 ## Next
 
