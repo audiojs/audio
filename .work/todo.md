@@ -28,8 +28,8 @@ atom terminology throughout (audio-module → atom rename absorbed).
 ## Architecture
 
 ### Plugin auto-import (`audio.use(...names)`)
-- [x] Built-in registry — `audio.modules` maps name → `@audio/<pkg>/atom` specifier (audio.js); grows with the published set — 2026-07
-- [x] `audio.use('freeverb')` → dynamic `import()` + registers every module-shaped export; returns promise for string loads, sync for direct — 2026-07
+- [x] Built-in registry — `audio.atoms` maps name → `@audio/<pkg>/atom` specifier (audio.js); grows with the published set — 2026-07
+- [x] `audio.use('freeverb')` → dynamic `import()` + registers every atom-shaped export; returns promise for string loads, sync for direct — 2026-07
 - [x] `audio.use(module)` — bring-your-own contract factory still works (own-`params` detection)
 - [x] Core always-bundled set unchanged: gain, trim, crop, filter, normalize, fade, mix, reverse, pan, repeat, remix
 - [x] CLI auto-resolves registry op names before parse; uninstalled → `npm i @audio/…` guidance — 2026-07
@@ -40,11 +40,11 @@ atom terminology throughout (audio-module → atom rename absorbed).
 - [x] Contract designed — [.work/atom.md](atom.md): jz-subset process discipline (same source runs as JS, compiles to WASM, differential CI), adapters toOp/toBatch/toStream/toWorklet, compressor pilot, migration order
 - [ ] Problem: 3 sibling conventions today — `audio-effect` (`fn(data, params)` + param-obj state), `pitch-shift` (`makePitchShift(batch, stream)` factory), `dynamics-processor` (polymorphic `fn(data, opts)` + `{write, flush}` stream). None drop into AudioWorklet/VST/`audio` plan without ad-hoc glue.
 - [ ] Define contract in `atom`: `{name, channels, latency, tail, params:{name:{min,max,default,unit,smoothing}}, create(sr, ch, init) → {process(in,out,n), set(k,v,smooth), reset(), serialize?(), restore?()}}` — mirrors `AudioWorkletProcessor` (narrowest target; others are wider)
-- [~] Ship adapters: `toBatch` ✔, `toStream` ✔, `toWam` ✔; `toWorklet`/`toAudioNode` remain. No `toOp` by design — `audio` hosts contract modules natively in core.js `useModule` (integration-verified in test/module-ops.js); the contract is a convention, adapters are only for targets needing machinery
+- [~] Ship adapters: `toBatch` ✔, `toStream` ✔, `toWam` ✔; `toWorklet`/`toAudioNode` remain. No `toOp` by design — `audio` hosts contract modules natively in core.js `useAtom` (integration-verified in test/atom-ops.js); the contract is a convention, adapters are only for targets needing machinery
 - [x] Flagship pilot: compressor verified as batch + stream + WAM + `audio` op with zero per-host glue (+7 more manifests across conventions; differential vs native <1e-6) — 2026-07
 - [ ] Migrate siblings one-by-one: `audio-effect`, `pitch-shift`, `time-stretch`, `dynamics-processor`, `audio-filter`, `noise-reduction` — keep old exports as back-compat shims during transition
 - [x] `audio.use(module)` accepts raw contract modules (own-`params` detection → toOp; declared tail composes trailing pad) — 2026-07
-- [x] Introspectable params: `audio.op(name).module.params` carries full metadata; CLI `<op> --help` synthesizes usage + param table (min..max unit, defaults) from it — 2026-07
+- [x] Introspectable params: `audio.op(name).atom.params` carries full metadata; CLI `<op> --help` synthesizes usage + param table (min..max unit, defaults) from it — 2026-07
 - [ ] Uniform test harness: feed PCM, assert output, across all libs
 - [ ] Native targets (VST3/AU/CLAP/LV2) — separate roadmap; contract must *allow* WASM+iPlug/JUCE wrapper but don't build until one flagship plugin justifies it
 - [ ] Risk: 3 existing conventions each evolved for a reason (zero-alloc, ergonomics, overlap-add). Contract must cover all three ergonomics via adapters or migration stalls.
@@ -55,7 +55,7 @@ atom terminology throughout (audio-module → atom rename absorbed).
 - [x] Shared primitives deduped: `@audio/stft`, `@audio/window`, `@audio/biquad` published — 2026-07
 - [ ] `peerDependencies: {audio: "^2"}` on all subpackages to prevent duplicate cores
 - [x] Publish hygiene: driver hard-fails `file:`/`link:` specs (vocals 1.0.1 leak class)
-- [ ] Registry in `audio` README — without it, subpackages are invisible
+- [x] Registry in `audio` README — Ecosystem atoms section — 2026-07
 
 ## Tier 2
 
