@@ -10,6 +10,9 @@ atom terminology throughout (audio-module → atom rename absorbed).
 * [x] CI green: suites import published /atom artifacts as devDeps; skip cleanly where unresolvable — 2026-07
 * [x] release notes — https://github.com/audiojs/audio/releases/tag/v2.3.0
 * [x] released: npm audio@2.3.0 + GitHub release — 2026-07
+* [x] worker packaging: 3 files (worker/worker-host/worker-worklet) → 1 self-hosting `worker.js` (scope-detects, dynamic engine import, worklet inlined as blob); `./worker-host` kept as compat alias — 2026-07
+* [x] README: Ecosystem-modules + Worker-engine sections relocated out of Recipes/Create flow into condensed API › Atoms/Worker (before Plugins); 17 recipes collapsed into 6 thematic blocks (Clean up/Compose/Analyze/Record & generate/Automate/Stream & persist) matching CLI section density — 2026-07
+* [x] released: npm audio@2.3.1 + GitHub release — https://github.com/audiojs/audio/releases/tag/v2.3.1 — 2026-07
 
 ## Next
 
@@ -359,7 +362,7 @@ Building blocks present: `a.block` updates per playback chunk (fn/play.js:63), `
 
 ## Improvements
 
-* [ ] No worker thread for CPU-heavy DSP — stretch, pitch, spectrum all run main thread with cooperative yield. Large files produce jank. Design done — [.work/worker.md](worker.md): edit list as the RPC protocol, SAB ring + AudioWorklet playback, sync-OPFS bonus, 4 phases
+* [x] No worker thread for CPU-heavy DSP — `audio/worker` ships P1–P3 ([.work/worker.md](worker.md)): edit-list RPC facade, breakpoint curves, SAB-free AudioWorklet/worker_threads playback; one self-hosting file — 2026-07. P4 (`audio(src, {worker:true})` opt-in unifying it with the default entrypoint) still open
 * [ ] No OfflineAudioContext fallback for browser decode — relies entirely on audio-decode, limiting codec support in browsers
 
 
