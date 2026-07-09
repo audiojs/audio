@@ -9,7 +9,7 @@ Legend:
 **✗** uncovered
 **~** partial.
 
-Test evidence: suite name = repo root `test.js` (counts as of 2026-07 wave 2: pitch 46, mir 21, beat 70, dynamics 32, denoise 42, effect 36, reverb 14, filter 98, eq 30, weighting 30, auditory 28, spatial 11, synth 5, resample 8, vocals 4, spectral 12, loudness 10, note 4, tune 4, saturate 5, measure 5, amp 3, decode 67, encode 23, shift 50, stretch 152, module 16 — 826 total, all green).
+Test evidence: suite name = repo root `test.js` (counts as of 2026-07-09, fully published: pitch 46, mir 27, beat 70, dynamics 32, denoise 46, effect 44, reverb 14, filter 98, eq 30, weighting 34, auditory 28, spatial 4, synth 17, resample 12, vocals 4, spectral 16, loudness 10, note 4, tune 6, saturate 5, measure 5, amp 3, decode 67, encode 23, shift 50, stretch 153, atom 26, voice 5, midi 3, defeedback 3, sinusoidal 4, primitives 8, mic 18, speaker 27 — ~942 atom tests, all green, + `audio` engine's own 548).
 
 ## Pedalboard (Spotify)
 
@@ -61,14 +61,14 @@ Test evidence: suite name = repo root `test.js` (counts as of 2026-07 wave 2: pi
 | oops | ✔● | `@audio/vocals-isolate`/`-remove` (4✓); audio core op |
 | overdrive | ✔ | `@audio/effect-distortion` |
 | pitch | ✔● | `@audio/shift-*` (50✓); audio core `pitch` op |
-| remix, channels, swap | ●◌ | audio core remix; `@audio/spatial-channelsplit` stub |
+| remix, channels, swap | ✔● | audio core remix; `@audio/spatial-channelsplit` (spatial 4✓) |
 | reverb | ✔ | `@audio/reverb-*` family complete (13✓) |
 | riaa | ✔ | `@audio/weighting-riaa` |
 | silence, vad | ✔● | audio core silence stat; `@audio/denoise-core` VAD |
 | spectrogram | ● | audio core spectrum stat + CLI live FFT |
 | stat, stats | ● | audio core stats (peak/rms/dc/crest/…) |
 | stretch, tempo | ✔● | `@audio/stretch-*` 10 algorithms (152✓); audio core `stretch` |
-| synth | ✔◌ | `@audio/synth-noise` (pink ✔); tone/chirp/dtmf/pluck stubs |
+| synth | ✔ | `@audio/synth-*` family complete — noise/chirp/osc/dtmf/pluck/risset/rhythm/adsr/lfo/wavetable/drum/voice/poly/sfx (17✓) |
 | bend | ~ | shift + engine automation (state-bound params open — see todo Modulation) |
 
 ## FFmpeg audio filters (curated baseline)
@@ -79,7 +79,7 @@ Test evidence: suite name = repo root `test.js` (counts as of 2026-07 wave 2: pi
 | dynaudnorm | ✔ | `@audio/dynamics-leveler` (framewise smoothed riding, peak-guarded; dynamics 32✓) |
 | stereotools, stereowiden, extrastereo | ✔~ | `@audio/spatial-widener`/`-haas`/`-panner` (11✓); exact FFmpeg knobs not mirrored |
 | bs2b | ✔ | `@audio/spatial-crossfeed` |
-| surround | ◌ | `@audio/spatial-surround` |
+| surround | ✔ | `@audio/spatial-surround` (spatial 4✓, family complete) |
 | afftdn, adeclick, adeclip, deesser | ✔ | `@audio/denoise-*` (42✓) |
 | firequalizer | ✔ | `@audio/eq-fir` (eq 29✓) |
 | acrossover | ✔ | `@audio/eq-crossover` (flat-sum verified) |
@@ -87,7 +87,7 @@ Test evidence: suite name = repo root `test.js` (counts as of 2026-07 wave 2: pi
 | superequalizer | ✔~ | `@audio/eq-graphic` (10-band ISO 266; 18-band variant = params) |
 | aspectralstats | ✔● | `@audio/spectral-*` — all seven + mfcc + ltas (spectral 12✓); audio core stats |
 | drmeter, replaygain, ebur128/loudnorm | ✔● | `@audio/loudness-*` complete — lufs (EBU 3341), truepeak (inter-sample, BS.1770 Annex 2), lra (EBU 3342 10 LU case), replaygain (RG2), dr (TT method); audio core LUFS |
-| channelsplit, adelay | ◌● | `@audio/spatial-channelsplit`/`-delay` stubs; audio core remix |
+| channelsplit, adelay | ✔● | `@audio/spatial-channelsplit`/`-delay` (spatial 4✓); audio core remix |
 | amultiply | ✔ | `@audio/effect-ringmod` |
 | aloop, silenceremove, afade, apad, areverse, atempo, aresample, volume | ● | audio core ops |
 | afreqshift | ✔ | `@audio/effect-freqshift` |
@@ -113,26 +113,29 @@ Test evidence: suite name = repo root `test.js` (counts as of 2026-07 wave 2: pi
 | filters.mel / get_window | ✔ | auditory-mel; `window-function` (scijs) |
 | decompose.hpss | ✔ | shift-hpss |
 | sequence.viterbi | ✔ | inside `@audio/mir-chord` (smoothing, tested) |
-| segment (structure) | ◌ | `@audio/mir-structure` |
+| segment (structure) | ✔ | `@audio/mir-structure` (mir 27✓, family complete) |
 | griffinlim | ~ | `@audio/stretch-pghi` (phase-gradient heap integration — same phase-reconstruction family) |
 
 ## MIREX
 
-Have (tested): tempo (bpm), beat tracking, onset detection, melody notes (YIN), **melody contour** (`mir-melody`), chords (NNLS + Viterbi), key (Krumhansl-Schmuckler), MFCC, spectrum, **tempogram**, **tonnetz** (mir 19✓).
-Scaffolded ◌: structure, transcribe, downbeat, coversong, multif0, fingerprint, similarity, drums (`@audio/mir-*`).
-Deferred (ML-tier): genre, mood, tags, stem separation.
+Have (tested), family complete (mir 27✓): tempo (bpm), beat tracking, onset detection, melody notes (YIN), **melody contour** (`mir-melody`), chords (NNLS + Viterbi), key (Krumhansl-Schmuckler), MFCC, spectrum, **tempogram**, **tonnetz**, structure (Foote novelty), fingerprint (Wang landmark), transcribe, downbeat, coversong, multif0 (Klapuri), similarity, drums.
+Deferred (ML-tier only): genre, mood, tags, stem separation — needs hosted weights, conflicts with no-ML-in-hot-path.
 
 ## Deliberate exclusions
 
-- **ladspa / plugin formats** — that's `@audio/host` (VST3/CLAP hosts, platform binaries) + `@audio/atom` (JS→Worklet/WAM/CLAP/VST3 contract, 16✓), not effects.
+- **ladspa / plugin formats** — that's `@audio/host` (VST3/CLAP hosts, platform binaries) + `@audio/atom` (JS→Worklet/WAM/CLAP/VST3 contract, 26✓, natively hosted by `audio` since v2.3.0), not effects.
 - **SoX contrast, divide; FFmpeg aderivative/aintegral** — trivial or low-value; revisit on demand.
 - **Codec-sim effects (MP3Compressor)** — expressed as decode/encode round-trip, not a filter.
 - **ML denoise/separation** — classical-DSP stance; see site strategy.
 
 ## Next moves (ordered)
 
-Waves 1–4 shipped 2026-07. Wave 4: sinusoidal (MQ/SMS), defeedback MVP (closed-loop verified, zero-latency), spatial complete, synth near-complete, spectral complete, consistency audit (platform-binary mains are CI-built — by design). Remaining:
+Waves 1–4 + the 22-package stub wave + the `@audio/module`→`@audio/atom` rename all shipped 2026-07-08/09. ~330 packages published, 10/11 unscoped names deprecated, `audio@2.3.0` live consuming the scope natively. Remaining:
 
-1. MIR research tail — downbeat, multif0, transcribe, drums, coversong, similarity.
-2. Last stubs — voice (tract/voder/glottis), midi (parse/write/soundfont), speech-world, denoise-repair, tune-midi, synth-{sfx, poly}, effect-{sbr, stutter, graindelay, subbass, lofi}, primitives extraction, neural lane.
-3. Publish prep: file:→semver swaps, per-repo READMEs, GH repos.
+1. **CI**: `audio`'s `test/fix-core.js` "Blob/File/Response sources" test uses the global `File` constructor — not defined in Node 18 (CI matrix runs 18/20/22; the 20/22 jobs cancel via fail-fast behind the Node-18 failure, not independent bugs). Needs a `typeof File !== 'undefined'` guard (matches this file's own existing pattern for Node's missing OPFS) or a matrix/engines.node decision.
+2. **Family-core swap**: `denoise-core/stft` → `@audio/stft`, `dynamics-core/biquad` → `@audio/biquad`, behind differential tests — published, not yet swapped in.
+3. **Merge near-dupes**: `dynamics-gate`/`denoise-gate`, `dynamics-deesser`/`denoise-deesser` — deliberately qualified as different variants, migration deferred to the atom pass.
+4. **Docs**: per-atom `.d.ts` + individual READMEs (currently umbrella-level only, ~280 atoms — content-authorship decision, not mechanical).
+5. **Engine-side atom hosting**: `streaming: false` whole-signal hosting (leveler et al. run per-block today — wrong for time-varying material) and true multi-bus sidechain feeding (ducker self-keys as a fallback).
+6. **Still deferred, reasons on record**: speech-world (faithful WORLD port or WASM, not a namesake), midi-soundfont (asset-strategy decision — SF2 engine vs ~100 MB pre-rendered banks), neural lane (runtime adapter + policy).
+7. **a-weighting**: absorbed for A/B/C/ITU-468 (`.response()` on the atoms); its own npm deprecation held pending — D/Z-weighting have no atom equivalent yet.
