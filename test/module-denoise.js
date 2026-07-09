@@ -54,10 +54,10 @@ function convolve(x, h) {
 // the un-shifted reference at the same sample index (verified: cross-correlation of
 // output against the dry reference peaks at zero shift, not at the raw kernel latency).
 
-import { specsub } from '../../@audio/denoise/packages/denoise-spectral/audio-module.js'
-import { wiener } from '../../@audio/denoise/packages/denoise-wiener/audio-module.js'
-import { omlsa } from '../../@audio/denoise/packages/denoise-omlsa/audio-module.js'
-import { dereverb } from '../../@audio/denoise/packages/denoise-dereverb/audio-module.js'
+import { specsub } from '@audio/denoise-spectral/audio-module'
+import { wiener } from '@audio/denoise-wiener/audio-module'
+import { omlsa } from '@audio/denoise-omlsa/audio-module'
+import { dereverb } from '@audio/denoise-dereverb/audio-module'
 audio.use(specsub, wiener, omlsa, dereverb)
 
 test('specsub: raises segSNR of noisy speech, latency-compensated by the engine', async () => {
@@ -110,9 +110,9 @@ test('dereverb: reduces late-tail energy, never boosts it', async () => {
 // state-per-channel pattern as @audio/denoise-dehum) — zero or fixed lookahead latency,
 // no STFT buffering involved.
 
-import { gate } from '../../@audio/denoise/packages/denoise-gate/audio-module.js'
-import { deplosive } from '../../@audio/denoise/packages/denoise-deplosive/audio-module.js'
-import { dewind } from '../../@audio/denoise/packages/denoise-dewind/audio-module.js'
+import { gate } from '@audio/denoise-gate/audio-module'
+import { deplosive } from '@audio/denoise-deplosive/audio-module'
+import { dewind } from '@audio/denoise-dewind/audio-module'
 audio.use(gate, deplosive, dewind)
 
 test('gate: passes signal, silences the floor (look-ahead hysteresis)', async () => {
@@ -168,10 +168,10 @@ test('dewind: cuts LF rumble >=3x, adaptive high-pass', async () => {
 // property assertions, not tolerant placeholders — nothing here is pending.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { declick } from '../../@audio/denoise/packages/denoise-declick/audio-module.js'
-import { declip } from '../../@audio/denoise/packages/denoise-declip/audio-module.js'
-import { decrackle } from '../../@audio/denoise/packages/denoise-decrackle/audio-module.js'
-import { debreath } from '../../@audio/denoise/packages/denoise-debreath/audio-module.js'
+import { declick } from '@audio/denoise-declick/audio-module'
+import { declip } from '@audio/denoise-declip/audio-module'
+import { decrackle } from '@audio/denoise-decrackle/audio-module'
+import { debreath } from '@audio/denoise-debreath/audio-module'
 audio.use(declick, declip, decrackle, debreath)
 
 test('declick (streaming:false): removes an inserted click, leaves clean speech alone', async () => {
