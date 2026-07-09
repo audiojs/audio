@@ -97,7 +97,7 @@
     "@audio/denoise-wiener": "^0.1.1",
     "@audio/dynamics-compand": "^0.1.1",
     "@audio/dynamics-compressor": "^0.1.0",
-    "@audio/dynamics-deesser": "^0.1.0",
+    "@audio/dynamics-deesser": "^0.2.0",
     "@audio/dynamics-ducker": "^0.1.1",
     "@audio/dynamics-expander": "^0.1.1",
     "@audio/dynamics-gate": "^0.1.0",
