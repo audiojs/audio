@@ -25,11 +25,11 @@ import { pvocLock } from '@audio/stretch'
 // block size with stable pitch across block boundaries.
 // Warm-up: while the vocoder has yet to emit anything the cursor stalls so no
 // samples are skipped; emission resumes once the ring catches up.
-// explicit integer anaHop guards stretch-core <1.0.1 (NaN on fractional hops); the outer
+// pvoc-lock rounds its hops internally (achieved factor = synHop/anaHop); the outer
 // fractional-cursor resample still hits the exact ratio regardless of internal hop.
 export function initPhaseLockStream(nch, ratio) {
   let frameSize = 1024, hopSize = frameSize >> 2
-  let opts = { factor: ratio, frameSize, hopSize, anaHop: Math.round(hopSize / ratio) }
+  let opts = { factor: ratio, frameSize, hopSize }
   return Array.from({ length: nch }, () => ({
     write: pvocLock(opts),
     ring: new Float32Array(4096),

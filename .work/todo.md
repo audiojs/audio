@@ -84,14 +84,14 @@ Root cause found while benchmarking: `save()`/`encode()` drove the DSP through a
 
 ## Tier 2
 
-* [x] stretch
-* [ ] pitch
-  * [ ] pitch-correct — `@audio/tune` kernels published; op wiring pending
+* [x] stretch — 2.0.1 adopted: stretch-core dissolved upstream (phase locking → `@audio/spectral-pvoc`), fractional-anaHop NaN fix internal — fn/stretch.js explicit-round workaround dropped — 2026-07
+* [x] pitch
+  * [x] pitch-correct — `tune` registry atom (`@audio/tune-snap/atom` 1.1.0, streaming:false whole-render): scale enum ×11 + root/a4/tolerance/strength, per-channel YIN→segment→snap→PSOLA; test/atom-tune.js (4); `@audio/tune-midi` direct-import only (guide-note list isn't a scalar param) — 2026-07
 * [x] noise-reduction — 11 `@audio/denoise-*` registry modules (specsub/wiener/omlsa auto-profile with measured STFT latency; declick/declip/decrackle/debreath via whole-render; gate/dehum/deplosive/dewind/dereverb causal) — 2026-07. `repair` needs region args (not scalarizable); denoise-gate direct-import only (name collision with dynamics gate)
 * [ ] shrink-silence
   * [ ] compress
 
-* [ ] Modulation: pitch, stretch, repeat, filter, pan, reverb and other params should be adjustable by function — process-op params (gain/pan/filter/dither/…) done via engine automation; state-bound params (stretch/pitch factor — vocoder init) and structural params (repeat times) still open
+* [ ] Modulation: pitch, stretch, repeat, filter, pan, reverb and other params should be adjustable by function — process-op params (gain/pan/filter/dither/…) done via engine automation; state-bound params (stretch/pitch factor — vocoder init) and structural params (repeat times) still open. Checked 2026-07 vs stretch 2.0.1: pvoc-lock `factor` is still scalar upstream (hops derived once at construction) — no ratioFn to adopt; shift-side ratioFn exists and is already live in the vocoder/formant atoms.
 
 
 ### Effects

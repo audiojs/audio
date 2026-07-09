@@ -77,6 +77,8 @@ audio.atoms = {
   'formant-shift': '@audio/shift-formant/atom',
   paulstretch: '@audio/shift-paulstretch/atom',
   'pitch-shift': '@audio/shift/atom',
+  tune: '@audio/tune-snap/atom',
+  // @audio/tune-midi exists too — direct-import only (guide-note list isn't a scalar param)
 }
 
 // ── Infrastructure (self-register on import) ────────────────────────────

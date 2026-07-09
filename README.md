@@ -551,7 +551,7 @@ Registry (`audio.atoms`, name → package):
 **effects** delay · chorus · flanger · phaser · tremolo · vibrato · autowah · wah · bitcrusher · distortion · exciter · ringmod · freqshift · multitap · pingpong · slew · noiseshaper · lofi · graindelay · stutter · subbass · sbr —
 **spatial** widener · haas · panner · autopan · midside · microshift · surround —
 **shift** pitch-shift · vocoder · formant-shift · paulstretch —
-**more** freeverb · biquad · yin · tube · osc · isolate
+**more** freeverb · biquad · yin · tube · osc · isolate · tune
 
 ### Worker
 
