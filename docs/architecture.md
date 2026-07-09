@@ -31,8 +31,10 @@ serialization and stream≡read carry across the boundary unchanged. Op methods 
 proxied against the worker's live registry (plugins registered worker-side appear
 automatically); `read`/`encode` results transfer zero-copy; facades sharing a worker
 reference each other by instance id (`a.mix(b)`). Custom worker entry = your plugin
-imports + `import 'audio/worker'` (the file self-hosts in worker scope). Playback across the boundary is P2
-(see .work/worker.md).
+imports + `import 'audio/worker'` (the file self-hosts in worker scope). Playback crosses
+the boundary too — `a.play()` streams to an AudioWorklet (browser, no SharedArrayBuffer)
+or the `@audio/speaker` sink (Node); breakpoint curves `{t, v}` replace function params,
+which can't serialize (see .work/worker.md).
 
 ## Stream-first
 
@@ -125,10 +127,10 @@ Changing `BLOCK_SIZE` cannot retroactively refine existing stats. For finer reso
 
 ## contract atoms
 
-`audio.use(module)` hosts [@audio/atom CONTRACT](https://github.com/audiojs/atom) factories natively:
+`audio.use(atom)` hosts [@audio/atom CONTRACT](https://github.com/audiojs/atom) factories natively:
 params map to op params (engine automation/curves/ramps apply), declared `tail` composes
 a trailing pad, declared `latency` gets plan-level delay compensation, `streaming: false`
-modules run as whole-render ops (materialize → one call → continue from the result), and
+atoms run as whole-render ops (materialize → one call → continue from the result), and
 multi-bus atoms read their sidechain from the `key` option. `audio.atoms` maps names
 to published packages for `audio.use('name')` and CLI auto-resolution.
 
