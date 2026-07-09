@@ -27,6 +27,22 @@ read `desc.module`, broke help synthesis for every atom).
 * [x] publish wave: 7 @audio/spatial-* + @audio/shift{,-pvoc,-formant,-paulstretch} @ 1.1.0 — published, symlinks swapped for npm artifacts (`npm i`), atom suites re-verified against published tarballs (spatial 8, shift 8) — 2026-07
 * [ ] audio release (minor — new registry names + ch-changing hosting): version bump + GitHub release + npm publish `audio`
 
+## Release (v2.5 — registry waves A–D)
+
+Ship state: `audio.atoms` 62 → **123 names** (61 new: 31 effect-class + 10 generators/adsr + 20 stat atoms);
+**stat-atom flavor shipped** — `{ stat: name, compute(channels, {sampleRate, ...opts}) }` registers via the same
+`use()`/registry, host reads (ranged) PCM and hands it over, instance-valued options (similarity `ref`) pre-render;
+engine hosts **whole-render tails** (streaming:false atoms declare `tail` → plan pads the materialized input so
+reverbs ring out) and **generator atoms** (`inputs: []`, host-negotiated outputs — `audio(5).noise()` renders over
+the timeline). Tests: atom-{reverb,dynamics,filter,eq,color,synth,stats}.js (58 new) — engine 621, fixes 19, CLI 138.
+
+* [x] Wave A — 31 effect-class atoms: reverb ×5, dynamics ×5 (incl. fet/opto/varimu/vca color comps), filter ×11, eq ×4, saturate ×4, amp ×2, defeedback — 2026-07
+* [x] Wave B — 11 generators: osc (finally devDep'd + tested), noise, chirp, pluck, risset, rhythm, sfx, kick/cymbal/snare, adsr — closes Audacity Generators + most Tone.js synthesis rows — 2026-07
+* [x] Wave C — stat-atom convention + 20 stat atoms: loudness ×4 (truepeak/lra/replaygain/dr), spectral ×6 (rolloff/spread/slope/flux/contrast/ltas), mir ×10 (structure/tempogram/melody/downbeat/fingerprint/drums/multif0/transcribe/similarity/coversong) — closes MIREX Analysis + FFmpeg Analysis/Metering at the audio level — 2026-07
+* [x] Wave D — direct-import families documented (README "Beyond the registry"): convolution IR, eq-fir curves, eq-crossover designer, tune-midi, denoise-repair, synth-dtmf/wavetable, voice/poly (await event hosting), measure/sinusoidal/voice substrates — 2026-07
+* [ ] publish wave: ~59 bumped packages across 12 family repos + audio devDeps swap (symlinks → artifacts) — see .work/publish-wave.sh
+* [ ] audio release (minor: registry 123, stat flavor, whole-tail + generator hosting)
+
 ## Perf — save/encode streaming JIT fix (2026-07)
 
 Root cause found while benchmarking: `save()`/`encode()` drove the DSP through a per-1024-sample-block async loop (`for await a.stream()` + `await enc()` + `setTimeout` throttle). The fine-grained async suspension kept V8 from tiering up the FFT hot loop (pitch/stretch/denoise) — baseline JIT for the whole file, ~10× slower on a one-shot CLI. `read()` was always fast (sync `streamPlan` generator).
@@ -100,6 +116,7 @@ Root cause found while benchmarking: `save()`/`encode()` drove the DSP through a
 - [x] **dynamics family — 10 registry modules** (compressor, limiter, gate, expander, deesser, ducker w/ sidechain key, compand, softclip, leveler=dynaudnorm via whole-render, transient-shaper) — 2026-07
 - [x] **spatial atoms — 7 registry modules** (widener, haas, panner, autopan, midside, microshift, surround) — microshift kernel refactored to export persistent `shifter` heads; surround declares 2→6 via CONTRACT §channels, hosted through new engine ch-plumbing (useAtom `ch` hook, plan.ch, renderBlock width) — 2026-07
 - [x] **shift atoms — 4 registry modules** (pitch-shift umbrella w/ method enum + auto-select, vocoder, formant-shift, paulstretch) — vocoder/formant-shift stream via FIFO with measured latency 2048 = 1×frame (tone-burst envelope xcorr, blocks 128–4096, + sample-count deficit); pitch-shift/paulstretch whole-render (streaming:false); semitones live via fn-ratio (defeats identity shortcut, engine automation works) — 2026-07
+- [x] **Wave A — 31 registry atoms across 7 families** (2026-07): reverb ×5 (schroeder, plate/dattorro, fdn, spring, shimmer — whole-render ones ring out via new engine tail-pad for streaming:false ops), dynamics ×5 (fet/opto/varimu/vca color comps + multiband=mcompand), filter ×11 (moog, korg35, diode, oberheim, resonator, spectral-tilt, variable, comb, dcblocker, emphasis+deemphasis), eq ×4 (geq 10-band ISO, tilt, baxandall, dyneq), saturate ×4 (tape, transistor, waveshaper, multisat), amp ×2 (amp, cabinet), defeedback ×1. Registry 61→92. Direct-import-only (array args): reverb-convolution (IR), eq-fir (curve), eq-crossover (SOS designer), per-band multiband/dyneq/multisat forms. Tests: atom-{reverb,dynamics,filter,eq,color}.js (32) — engine 602 green.
 - [ ] **paulstretch time-stretch** — `@audio/stretch-paulstretch` (length-changing) stays batch API per CONTRACT (equal frames in/out); pitch-domain paulstretch shipped as atom above; **sliding-stretch** (continuous tempo+pitch envelope) still needs API
 - [ ] **adjustable-fade** (non-linear, mid-point, partial selection) — `audio` utility, not an effect
 - Kernel defects flagged by manifest verification (upstream fixes pending): chorus/phaser live-resize NaN (mitigated via restart flags), freqshift dry/wet comb at mix<1, multitap per-call allocation
@@ -170,15 +187,15 @@ Coverage matrix across FFmpeg / SoX / librosa / Pedalboard / MIREX with test evi
 - beyond parity: dehum, dereverb, deplosive, dewind, decrackle, debreath
 
 ### EQ / Filtering
-- [ ] **firequalizer** — firequalizer: FIR convolution EQ with arbitrary response curve
-- [ ] **crossover** — acrossover: Linkwitz-Riley multiband split
-- [ ] **tiltshelf** — tiltshelf: tilt EQ (boost low / cut high or vice versa)
-- [ ] **superequalizer** — superequalizer: 18-band graphic EQ
+- [~] **firequalizer** — `@audio/eq-fir` kernel; direct-import only (arbitrary response curve isn't a scalar param)
+- [~] **crossover** — `@audio/eq-crossover` is an SOS designer (feeds multiband/multisat); a band-splitting op needs "N× input channels" which neither contract nor op `ch` hook expresses — deferred
+- [x] **tiltshelf** — `tilt` registry atom (`@audio/eq-tilt`) — 2026-07
+- [x] **superequalizer** — `geq` registry atom (`@audio/eq-graphic`, 10-band ISO 266) — 2026-07
 
 ### Analysis / Metering
-- [ ] **spectralstats** — aspectralstats: centroid, spread, flatness, rolloff, flux, slope, crest
-- [ ] **drmeter** — drmeter: dynamic range (crest factor DR value)
-- [ ] **replaygain** — replaygain: compute ReplayGain values
+- [x] **spectralstats** — centroid/flatness core stats + `rolloff`/`spread`/`flux`/`slope`/`contrast`/`ltas` stat atoms (frame-averaged via own STFT) — 2026-07
+- [x] **drmeter** — `dr` stat atom (`@audio/loudness-dr`) — 2026-07
+- [x] **replaygain** — `replaygain` stat atom (`@audio/loudness-replaygain`, RG2 {gain, lufs}) — 2026-07
 
 ### Mixing / Routing
 - [ ] **channelsplit** — channelsplit: split multi-channel to separate mono outputs
@@ -206,14 +223,14 @@ Coverage matrix across FFmpeg / SoX / librosa / Pedalboard / MIREX with test evi
 - [ ] **spectral-shelves** — shelving filter on spectral selection
 - [ ] **spectral-multi** — auto-detect notch/HP/LP from spectral selection shape
 
-### Generators
-- [ ] **tone** — generate sine/square/sawtooth/triangle waveform at given freq+duration
-- [ ] **noise-gen** — generate white/pink/brown noise
-- [ ] **chirp** — generate frequency sweep (start freq → end freq, linear/log)
-- [ ] **dtmf** — generate DTMF telephone tones from digit sequence
-- [ ] **pluck** — Karplus-Strong plucked string synthesis
-- [ ] **risset-drum** — Risset drum synthesis (inharmonic partials + frequency glide)
-- [ ] **rhythm-track** — metronome/click track generator at given BPM
+### Generators — registry atoms (audio(dur).gen() renders over the timeline) — 2026-07
+- [x] **tone** — `osc` atom (sine/square/sawtooth/triangle, detune, gain)
+- [x] **noise-gen** — `noise` atom (white/pink/brown/blue/violet, seeded, per-channel independent)
+- [x] **chirp** — `chirp` atom (exp/linear sweep over the take)
+- [~] **dtmf** — `@audio/synth-dtmf` direct-import only (digit string isn't a scalar param)
+- [x] **pluck** — `pluck` atom (Karplus-Strong)
+- [x] **risset-drum** — `risset` atom
+- [x] **rhythm-track** — `rhythm` atom (bars derived from timeline duration)
 
 ### Analyzers
 - [ ] **contrast** — speech contrast: foreground vs background RMS difference (WCAG accessibility)
@@ -222,13 +239,13 @@ Coverage matrix across FFmpeg / SoX / librosa / Pedalboard / MIREX with test evi
 ## Tone.js parity
 
 ### Synthesis primitives
-- [ ] **oscillator** — sine/square/saw/triangle source with detune, pulse-width, partials (richer than `from(fn)`)
-- [ ] **envelope** — ADSR / AHDSR envelope generator, applicable to gain or filter cutoff
-- [ ] **lfo** — low-frequency oscillator component for parameter modulation
-- [ ] **synth-voice** — Synth/FMSynth/AMSynth/MonoSynth: oscillator + envelope + filter voice
-- [ ] **drum-synth** — MembraneSynth (kick), MetalSynth (cymbal), NoiseSynth (snare/hat) percussion synthesis
-- [ ] **pluck-synth** — Karplus-Strong plucked string (also in Audacity list)
-- [ ] **poly** — polyphonic voice allocator: wrap any synth voice with N-voice polyphony
+- [x] **oscillator** — `osc` registry atom (sine/square/saw/triangle, detune) — 2026-07
+- [x] **envelope** — `adsr` registry atom applied as gain envelope (release placed to end at the take's end) — 2026-07
+- [~] **lfo** — parameter modulation is engine automation (`t => v`); audible LFO effects = tremolo/vibrato/autopan atoms — no separate atom needed
+- [ ] **synth-voice** — `@audio/synth-voice` published; needs note-event hosting (contract `events` routing) — direct-import meanwhile
+- [x] **drum-synth** — `kick`/`cymbal`/`snare` atoms (Membrane/Metal/Noise class) — 2026-07
+- [x] **pluck-synth** — `pluck` atom — 2026-07
+- [ ] **poly** — `@audio/synth-poly` published; needs note-event hosting — direct-import meanwhile
 
 ### Mid/Side & channel utilities
 - [ ] **midside** — encode/decode L/R ↔ M/S for mid/side processing
@@ -242,31 +259,31 @@ Building blocks present: `a.block` updates per playback chunk (fn/play.js:63), `
 
 **Have:** tempo estimation (bpm), beat tracking (beats), onset detection (onsets), melody/pitch extraction (notes — YIN), chord estimation (chords — NNLS + Viterbi), key detection (key — Krumhansl-Schmuckler), MFCC (cepstrum), spectrum
 
-### Core MIR (active MIREX tasks)
-- [ ] **structure** — structural segmentation: verse/chorus/bridge/intro/outro boundaries (HMM + self-similarity matrix)
-- [ ] **transcribe** — polyphonic transcription: audio → MIDI note events (onset, offset, pitch, velocity)
-- [ ] **downbeat** — downbeat estimation: locate bar-level "1" within beat grid
-- [ ] **coversong** — cover song identification: recognize same composition across performances
+### Core MIR (active MIREX tasks) — all exposed as stat atoms 2026-07 (`a.stat(name)`)
+- [x] **structure** — `structure` stat atom → { boundaries, novelty }
+- [x] **transcribe** — `transcribe` stat atom → note events
+- [x] **downbeat** — `downbeat` stat atom
+- [x] **coversong** — `coversong` stat atom ({ ref } two-signal form, instance pre-rendered)
 
 ### Analysis (classic MIREX tasks)
-- [ ] **melody** — continuous melody F0 contour (frame-level Hz, not discrete notes)
-- [ ] **multif0** — multiple F0 estimation: all simultaneous pitches per frame (polyphonic)
-- [ ] **genre** — audio genre classification (feature vector + classifier)
-- [ ] **mood** — mood/emotion classification (valence-arousal or categorical)
-- [ ] **tags** — semantic audio tagging (multi-label: genre, instrument, mood descriptors)
-- [ ] **fingerprint** — audio fingerprinting: compact hash for exact-match identification
-- [ ] **similarity** — audio similarity: distance metric between recordings
-- [ ] **drums** — drum transcription: detect kick/snare/hihat onset + class
-- [ ] **lyrics-align** — lyrics-to-audio alignment: word/line-level timestamps
+- [x] **melody** — `melody` stat atom → { times, freqs } contour — 2026-07
+- [x] **multif0** — `multif0` stat atom — 2026-07
+- [ ] **genre** — ML-tier, deferred (no-ML-in-hot-path stance)
+- [ ] **mood** — ML-tier, deferred
+- [ ] **tags** — ML-tier, deferred
+- [x] **fingerprint** — `fingerprint` stat atom (Wang landmark) — 2026-07
+- [x] **similarity** — `similarity` stat atom → { score, timbre, harmony } ({ ref } form) — 2026-07
+- [x] **drums** — `drums` stat atom — 2026-07
+- [ ] **lyrics-align** — ML-tier, deferred
 
 ### Source Separation
 - [ ] **separate** — stem separation: vocals/drums/bass/other (U-Net / Open-Unmix style)
 
 ### Spectral Features (building blocks)
-- [ ] **spectralstats** — spectral centroid, spread, flatness, rolloff, flux, slope, crest
-- [ ] **chromagram** — chroma features (12-bin pitch class energy, CQT or STFT based)
-- [ ] **tonnetz** — tonal centroid features (6-dim harmonic space from chroma)
-- [ ] **tempogram** — tempo over time (local tempo estimation via autocorrelation)
+- [x] **spectralstats** — rolloff/spread/flux/slope/contrast/ltas stat atoms + core centroid/flatness — 2026-07
+- [~] **chromagram** — `@audio/mir-chroma` frame-level building block (feeds chords); no whole-signal stat form yet
+- [~] **tonnetz** — `@audio/mir-tonnetz` frame-level building block; no whole-signal stat form yet
+- [x] **tempogram** — `tempogram` stat atom — 2026-07
 
 
 ## [ ] Benchmarks

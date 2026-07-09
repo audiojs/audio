@@ -546,12 +546,30 @@ music.ducker({ key: voice })                // sidechain via the key option
 ```
 
 Registry (`audio.atoms`, name → package):
-**dynamics** compressor · limiter · gate · expander · deesser · ducker · compand · softclip · leveler · transient-shaper —
+**dynamics** compressor · limiter · gate · expander · deesser · ducker · compand · softclip · leveler · transient-shaper · multiband · fet · opto · varimu · vca —
 **denoise** dehum · specsub · wiener · omlsa · dereverb · deplosive · dewind · declick · declip · decrackle · debreath —
 **effects** delay · chorus · flanger · phaser · tremolo · vibrato · autowah · wah · bitcrusher · distortion · exciter · ringmod · freqshift · multitap · pingpong · slew · noiseshaper · lofi · graindelay · stutter · subbass · sbr —
+**reverb** freeverb · schroeder · plate · fdn · spring · shimmer —
+**filter** biquad · moog · korg35 · diode · oberheim · resonator · spectral-tilt · variable · comb · dcblocker · emphasis · deemphasis —
+**eq** geq · tilt · baxandall · dyneq —
 **spatial** widener · haas · panner · autopan · midside · microshift · surround —
 **shift** pitch-shift · vocoder · formant-shift · paulstretch —
-**more** freeverb · biquad · yin · tube · osc · isolate · tune
+**color** tape · transistor · waveshaper · multisat · amp · cabinet · defeedback —
+**generate** osc · noise · chirp · pluck · risset · rhythm · sfx · kick · cymbal · snare · adsr —
+**more** yin · tube · isolate · tune
+
+Stat atoms register the same way and land on `a.stat(name)` — the registry carries both flavors:
+**loudness** truepeak · lra · replaygain · dr —
+**spectral** rolloff · spread · slope · flux · contrast · ltas —
+**mir** structure · tempogram · melody · downbeat · fingerprint · drums · multif0 · transcribe · similarity · coversong
+
+```js
+await audio.use('truepeak', 'structure')
+await a.stat('truepeak')                    // −0.4 dBTP (inter-sample, BS.1770)
+await a.stat('similarity', { ref: b })      // instance options pre-render to PCM
+```
+
+Beyond the registry: kernels whose inputs aren't scalar params ship as plain packages for direct import — `@audio/reverb-convolution` (impulse response), `@audio/eq-fir` (response curve), `@audio/eq-crossover` (SOS designer), `@audio/tune-midi` (guide notes), `@audio/denoise-repair` (regions), `@audio/synth-dtmf` (digit string), `@audio/synth-wavetable` (tables), per-band forms of multiband/dyneq/multisat, and the `@audio/measure`, `@audio/sinusoidal`, `@audio/voice` tool/substrate families.
 
 ### Worker
 

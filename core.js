@@ -242,12 +242,14 @@ fn.dispose = function() {
 if (Symbol.dispose) fn[Symbol.dispose] = fn.dispose
 
 const isAtom = p => typeof p === 'function' && Object.hasOwn(p, 'params') && typeof p.params === 'object'
+const isStat = p => p != null && typeof p === 'object' && typeof p.stat === 'string' && typeof p.compute === 'function'
 
 /** Register plugins. Each receives audio. A contract atom (a factory function
  *  with an own `params` object — see @audio/atom CONTRACT.md) is hosted natively as
  *  an op; its declared `tail` composes a trailing pad so decays are not truncated.
+ *  A stat atom ({ stat: name, compute(channels, opts) }) registers as a.stat(name).
  *  A string resolves through the audio.atoms registry (dynamic import — returns a
- *  promise); every module-shaped export of the target registers. */
+ *  promise); every atom- or stat-shaped export of the target registers. */
 audio.use = function(...plugins) {
   let loads = null
   for (let p of plugins) {
@@ -255,13 +257,30 @@ audio.use = function(...plugins) {
       let spec = audio.atoms?.[p]
       if (!spec) throw new Error(`audio.use: unknown atom '${p}' — not in audio.atoms registry`)
       ;(loads ??= []).push(import(spec).then(ns => {
-        for (let k of Object.keys(ns)) if (isAtom(ns[k])) useAtom(ns[k])
-      }, e => { throw new Error(`audio.use('${p}'): install ${spec.split('/atom')[0]} — ${e.message}`) }))
+        for (let k of Object.keys(ns)) { if (isAtom(ns[k])) useAtom(ns[k]); else if (isStat(ns[k])) useStat(ns[k]) }
+      }, e => { throw new Error(`audio.use('${p}'): install ${spec.split('/atom')[0].split('/stat')[0]} — ${e.message}`) }))
     }
     else if (isAtom(p)) useAtom(p)
+    else if (isStat(p)) useStat(p)
     else p(audio)
   }
   return loads ? Promise.all(loads).then(() => audio) : audio
+}
+
+/** Register a stat atom: whole-signal analysis `compute(channels, { sampleRate, ...opts })`.
+ *  The host reads the (ranged) PCM and hands it over — the batch shape every analysis
+ *  kernel already is. Option values that are audio instances (e.g. similarity's `ref`)
+ *  are pre-rendered to channel data. */
+function useStat(m) {
+  if (!audio.stat) throw new Error('audio.use(stat): stat registry required — import "audio", not "audio/core.js"')
+  let name = m.stat
+  audio.stat(name, {})  // name registered; fn.stat dispatches to the instance method below
+  audio.fn[name] = async function(opts) {
+    let { at, duration, ...rest } = opts || {}
+    for (let k in rest) if (rest[k]?.pages && rest[k].read) rest[k] = await rest[k].read()
+    let pcm = await this.read(at != null || duration != null ? { at, duration } : undefined)
+    return m.compute(pcm, { sampleRate: this.sampleRate, ...rest })
+  }
 }
 
 /** Map a contract atom to an op descriptor. The contract is a convention, not a
@@ -343,8 +362,14 @@ function useAtom(m) {
   // streaming: false — the module needs the entire signal in one call; the plan
   // engine materializes the timeline and hosts it as a whole-render op
   if (m.streaming === false) {
+    // Declared tail on a whole-render atom → plan pads the materialized input with
+    // that many seconds of silence so the decay renders instead of truncating (the
+    // atom still sees equal frames in/out — both sides extended).
+    let wholeTail = typeof m.tail === 'function'
+      ? (o, sr) => m.tail({ sampleRate: sr, params: snapParams(n => o?.[n]) })
+      : m.tail || 0
     return audio.op(id, {
-      params: names, atom: m, ch,
+      params: names, atom: m, ch, tail: wholeTail,
       whole(input, output, ctx) {
         let st = init(ctx, input[0].length)
         fill(st, ctx)

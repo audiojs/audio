@@ -615,10 +615,13 @@ function compilePlan(a, len, final) {
       let ref = a._.wrc.m.get(key)
       if (!ref) {
         let input = readPlan(a, { segs, pipeline, totalLen: t, sr, ch, latency, pulls })
+        // declared tail → extend input with silence so the decay renders (equal frames in/out)
+        let tailN = Math.round((typeof op.tail === 'function' ? op.tail(extra, sr) : op.tail || 0) * sr)
+        if (tailN > 0) input = input.map(chn => { let e = new Float32Array(chn.length + tailN); e.set(chn); return e })
         // channel-changing whole op (e.g. 2→5.1 upmix) — output owns its declared width
         let outCh = (op.ch && op.ch(input.length, extra)) || input.length
         let output = Array.from({ length: outCh }, () => new Float32Array(input[0].length))
-        let wctx = { sampleRate: sr, channelCount: input.length, totalDuration: t / sr, at, duration, channel, render, ...extra }
+        let wctx = { sampleRate: sr, channelCount: input.length, totalDuration: input[0].length / sr, at, duration, channel, render, ...extra }
         op.whole(input, output, wctx)
         a._.wrc.m.set(key, ref = audio.from(output, { sampleRate: sr }))
       }

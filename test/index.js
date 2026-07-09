@@ -6265,7 +6265,8 @@ test('cli ops registry — all built-ins available', t => {
 // Effects/denoise suites resolve manifests from the sibling @audio checkout until
 // their npm releases land — skip cleanly where neither is present (e.g. bare CI).
 if (isNode) await import('./atom-ops.js')
-if (isNode) for (let f of ['./atom-effects.js', './atom-denoise.js', './atom-spatial.js', './atom-shift.js', './atom-tune.js']) {
+if (isNode) for (let f of ['./atom-effects.js', './atom-denoise.js', './atom-spatial.js', './atom-shift.js', './atom-tune.js',
+  './atom-reverb.js', './atom-dynamics.js', './atom-filter.js', './atom-eq.js', './atom-color.js', './atom-synth.js', './atom-stats.js']) {
   try { await import(f) }
   catch (e) {
     if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e
