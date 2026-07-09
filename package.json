@@ -17,8 +17,7 @@
       "types": "./worker.d.ts",
       "default": "./worker.js"
     },
-    "./worker-host": "./worker-host.js",
-    "./worker-worklet": "./worker-worklet.js",
+    "./worker-host": "./worker.js",
     "./fn/*": "./fn/*"
   },
   "types": "./audio.d.ts",
@@ -33,8 +32,6 @@
     "stats.js",
     "cache.js",
     "worker.js",
-    "worker-host.js",
-    "worker-worklet.js",
     "worker.d.ts",
     "fn/",
     "bin/",

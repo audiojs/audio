@@ -1,7 +1,10 @@
 /**
- * audio/worker — main-thread facade over an audio engine running in a Worker.
- * The whole library (decode, pages, plan, stats, cache) lives worker-side;
- * this file imports none of it, so the main bundle stays a few KB.
+ * audio/worker — the whole engine in a Worker, one file, two faces:
+ *
+ * On the MAIN thread it exports the facade — imports none of the engine, stays a
+ * few KB. Inside a WORKER it self-hosts: loads the engine via dynamic import and
+ * speaks the protocol (open/call/sub/stream) over postMessage. The default spawn
+ * runs this same file as the worker entry.
  *
  *   import audioWorker from 'audio/worker'
  *   let a = audioWorker('track.mp3')
@@ -15,9 +18,10 @@
  * come along for free. Facades sharing one worker can reference each other
  * (`a.mix(b)`), resolved worker-side by instance id.
  *
- * Custom worker (extra codecs, plugins): make an entry that imports them plus
- * 'audio/worker-host', and pass it via opts:
- *   audioWorker('a.m4a', { worker: new Worker(new URL('./my-worker.js', import.meta.url), { type: 'module' }) })
+ * Custom worker (extra codecs, plugins): an entry that imports them, then this file:
+ *   import '@audio/decode-aac'
+ *   import 'audio/worker'      // self-hosts; codecs registered first
+ * and pass it: audioWorker('a.m4a', { worker: new Worker(new URL('./my-worker.js', import.meta.url), { type: 'module' }) })
  *
  * Boundary deviations from the local API (all async by nature):
  *  - clip()/split()/clone() return Promise<facade>
@@ -29,7 +33,10 @@
  *    (browser — no SharedArrayBuffer/COOP-COEP needed) or @audio/speaker (node)
  */
 
-const HOST_URL = new URL('./worker-host.js', import.meta.url)
+// ── Self-host: imported inside a Worker, this module becomes the engine host ──
+const nodeWT = typeof process !== 'undefined' && process.versions?.node
+  ? await import('node:worker_threads').catch(() => null) : null
+if ((typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope) || (nodeWT && !nodeWT.isMainThread)) host(nodeWT?.parentPort)
 
 // ── Channel: one worker, many instances ─────────────────────────────────
 
@@ -77,7 +84,7 @@ async function spawn(url) {
 }
 
 let shared = null
-const sharedChannel = () => shared ??= channel(spawn(HOST_URL))
+const sharedChannel = () => shared ??= channel(spawn(new URL(import.meta.url)))
 
 // one channel per custom worker — a second channel on the same worker would
 // double-consume messages and collide call ids; same-channel facades can ref each other
@@ -270,7 +277,7 @@ function facade(chan, opened) {
   // reports drive backpressure and currentTime
   async function workletSink(t, live) {
     let actx = new AudioContext({ sampleRate: t.sampleRate })
-    await actx.audioWorklet.addModule(new URL('./worker-worklet.js', import.meta.url))
+    await actx.audioWorklet.addModule(workletURL())
     let node = new AudioWorkletNode(actx, 'audio-worker-sink', { outputChannelCount: [Math.max(1, t.channels)] })
     node.connect(actx.destination)
     let sent = 0, consumed = 0, base = 0, baseConsumed = 0, onDrain = null, lastVol = 1
@@ -393,4 +400,201 @@ export default function audioWorker(source, opts = {}) {
   if (Array.isArray(source) && source.some(s => s?.__isAudioWorker))
     throw new TypeError('audio/worker: open plain sources, then combine with insert()/mix()/crossfade()')
   return facade(chan, chan.send({ type: 'open', source, opts: rest }))
+}
+
+// ── Playback sink worklet — inlined so the whole worker bridge is one file.
+// AudioWorkletProcessor fed rendered blocks over its port (no SharedArrayBuffer,
+// works without COOP/COEP); posts throttled consumption reports for backpressure.
+
+const WORKLET_SRC = `
+class AudioWorkerSink extends AudioWorkletProcessor {
+  constructor() {
+    super()
+    this.chunks = []
+    this.offset = 0
+    this.playing = false
+    this.volume = 1
+    this.consumed = 0
+    this.reported = 0
+    this.port.onmessage = e => {
+      let m = e.data
+      if (m.chunk) this.chunks.push(m.chunk)
+      else if (m.type === 'play') this.playing = true
+      else if (m.type === 'pause') this.playing = false
+      else if (m.type === 'flush') { this.chunks = []; this.offset = 0 }
+      if (m.volume != null) this.volume = m.volume
+    }
+  }
+  process(inputs, outputs) {
+    let out = outputs[0]
+    if (!this.playing || !out[0]) return true
+    let need = out[0].length, filled = 0
+    while (filled < need && this.chunks.length) {
+      let c = this.chunks[0]
+      let n = Math.min(need - filled, c[0].length - this.offset)
+      for (let ch = 0; ch < out.length; ch++) {
+        let src = c[Math.min(ch, c.length - 1)]
+        for (let i = 0; i < n; i++) out[ch][filled + i] = src[this.offset + i] * this.volume
+      }
+      this.offset += n
+      filled += n
+      if (this.offset >= c[0].length) { this.chunks.shift(); this.offset = 0 }
+    }
+    this.consumed += filled
+    if (this.consumed - this.reported >= 2048 || (filled < need && this.consumed > this.reported)) {
+      this.reported = this.consumed
+      this.port.postMessage({ consumed: this.consumed })
+    }
+    return true
+  }
+}
+registerProcessor('audio-worker-sink', AudioWorkerSink)
+`
+let _workletURL = null
+const workletURL = () => _workletURL ??= URL.createObjectURL(new Blob([WORKLET_SRC], { type: 'text/javascript' }))
+
+// ── Engine host — runs when this module is imported inside a Worker ──────
+// Listener attaches synchronously (messages buffer while the engine loads via
+// dynamic import, so nothing posted during startup is lost); the engine chunk
+// never loads on the main thread.
+function host(nodePort) {
+  const port = nodePort || self
+  const send = (msg, transfer) => port.postMessage(msg, transfer || [])
+  const pending = []
+  let handle = msg => pending.push(msg)
+  port.on ? port.on('message', m => handle(m)) : port.addEventListener('message', e => handle(e.data))
+
+  import('./audio.js').then(({ default: audio }) => {
+    const instances = new Map()   // id → audio instance
+    const streams = new Map()     // sid → async iterator
+    let nextInst = 1, nextStream = 1
+
+    // Methods whose fresh result buffers are safe to transfer (never views of live state)
+    const TRANSFER = new Set(['read', 'encode'])
+
+    // Live instances in edit opts (mix/insert sources) aren't structured-cloneable —
+    // replace with a marker; the facade's edits mirror is informational (undo depth, UI)
+    const safeEdits = edits => edits.map(([t, o]) => [t, o && Object.fromEntries(
+      Object.entries(o).map(([k, v]) => [k, v?.pages ? { __audio: true } : v]))])
+
+    const snap = a => ({
+      version: a.version, length: a.length, duration: a.duration,
+      sampleRate: a.sampleRate, channels: a.channels, decoded: a.decoded,
+      edits: safeEdits(a.edits),
+    })
+
+    const errObj = e => ({ message: e?.message ?? String(e), stack: e?.stack })
+
+    function register(a) {
+      let id = nextInst++
+      instances.set(id, a)
+      let state = () => { try { send({ event: '_state', inst: id, snapshot: snap(a) }) } catch {} }
+      a.on('change', state)
+      a.on('metadata', state)
+      a.on('error', e => send({ event: 'error', inst: id, args: [errObj(e)] }))
+      a.ready?.then(state, () => {})  // decoded=true snapshot; rejection already emitted as 'error'
+      return id
+    }
+
+    /** Decode wire args: {__ref: id} → live instance; recurse into plain containers. */
+    function decodeArgs(v) {
+      if (!v || typeof v !== 'object') return v
+      if (v.__ref) {
+        let a = instances.get(v.__ref)
+        if (!a) throw new Error(`audio/worker: unknown instance ref ${v.__ref}`)
+        return a
+      }
+      if (Array.isArray(v)) return v.map(decodeArgs)
+      if (ArrayBuffer.isView(v) || v instanceof ArrayBuffer) return v
+      if (typeof Blob !== 'undefined' && v instanceof Blob) return v  // File/Blob arrive cloned — pass through untouched
+      let o = {}
+      for (let k of Object.keys(v)) o[k] = decodeArgs(v[k])
+      return o
+    }
+
+    /** Encode a call result: instances → refs, collect transferables for allowed methods. */
+    function encodeResult(r, a, method, transfer) {
+      if (r === a) return { __self: true }
+      if (r?.pages) return { __inst: register(r), snapshot: snap(r) }
+      if (Array.isArray(r) && r[0]?.pages) return r.map(x => encodeResult(x, a, method, transfer))
+      if (TRANSFER.has(method)) {
+        if (ArrayBuffer.isView(r)) transfer.push(r.buffer)
+        else if (Array.isArray(r)) for (let ch of r) if (ArrayBuffer.isView(ch)) transfer.push(ch.buffer)
+      }
+      return r
+    }
+
+    handle = async msg => {
+      let { id, inst, type } = msg
+      try {
+        if (type === 'open') {
+          let a = audio(decodeArgs(msg.source), msg.opts || {})
+          let ops = Object.entries(audio.op()).filter(([, d]) => !d.hidden).map(([n]) => n)
+          send({ id, result: { inst: register(a), ops, snapshot: snap(a) } })
+          return
+        }
+        if (type === 'close') {
+          for (let a of instances.values()) { try { a.dispose() } catch {} }
+          instances.clear()
+          send({ id, result: true })
+          // Let the environment reap the worker after the reply flushes
+          setTimeout(() => (globalThis.close?.(), globalThis.process?.exit(0)), 0)
+          return
+        }
+
+        let a = instances.get(inst)
+        if (!a) throw new Error(`audio/worker: unknown instance ${inst}`)
+
+        if (type === 'call') {
+          let { method, args } = msg
+          let transfer = []
+          let result
+          if (method === '_streamOpen') {
+            let sid = nextStream++
+            streams.set(sid, a.stream(...decodeArgs(args))[Symbol.asyncIterator]())
+            result = sid
+          } else if (method === '_streamNext') {
+            let it = streams.get(args[0])
+            let { value, done } = await it.next()
+            if (done) { streams.delete(args[0]); result = null }
+            else {
+              result = value.map(ch => ch.slice())  // chunks are views of the live block buffer
+              for (let ch of result) transfer.push(ch.buffer)
+            }
+          } else if (method === '_streamEnd') {
+            streams.get(args[0])?.return?.()
+            streams.delete(args[0])
+            result = true
+          } else {
+            if (typeof a[method] !== 'function') throw new TypeError(`audio/worker: no method '${method}'`)
+            result = a[method](...decodeArgs(args))
+            if (result?.then) result = await result
+            // JSON path serializes nested instance sources properly; clone would choke on them
+            if (method === 'toJSON') result = JSON.parse(JSON.stringify(result))
+            // popped edits may hold live instances in opts (insert/mix source) — sanitize like snapshots
+            else if (method === 'undo' && result != null)
+              result = Array.isArray(result[0]) ? safeEdits(result) : safeEdits([result])[0]
+            else result = encodeResult(result, a, method, transfer)
+          }
+          send({ id, result, snapshot: snap(a) }, transfer)
+          return
+        }
+        if (type === 'sub') {
+          a.on(msg.event, (...args) => { try { send({ event: msg.event, inst, args }) } catch {} })
+          send({ id, result: true })
+          return
+        }
+        if (type === 'dispose') {
+          try { a.dispose() } catch {}
+          instances.delete(inst)
+          send({ id, result: true })
+          return
+        }
+        throw new Error(`audio/worker: unknown message type '${type}'`)
+      } catch (e) {
+        send({ id, error: errObj(e) })
+      }
+    }
+    for (let m of pending.splice(0)) handle(m)
+  })
 }

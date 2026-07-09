@@ -31,7 +31,7 @@ serialization and stream≡read carry across the boundary unchanged. Op methods 
 proxied against the worker's live registry (plugins registered worker-side appear
 automatically); `read`/`encode` results transfer zero-copy; facades sharing a worker
 reference each other by instance id (`a.mix(b)`). Custom worker entry = your plugin
-imports + `import 'audio/worker-host'`. Playback across the boundary is P2
+imports + `import 'audio/worker'` (the file self-hosts in worker scope). Playback across the boundary is P2
 (see .work/worker.md).
 
 ## Stream-first

@@ -105,212 +105,99 @@ audio voice.wav trim normalize podcast fade 0.3s -0.5s save clean.mp3
 
 ## Recipes
 
-### Clean up a recording
+### Clean up
 
 ```js
+// master a raw take
 let a = audio('raw-take.wav')
 a.trim(-30).normalize('podcast').fade(0.3, 0.5)
 await a.save('clean.wav')
+
+// full restoration chain via ecosystem atoms (see API › Atoms)
+a.gate(-45).dehum().deesser().compressor({ threshold: -18 }).limiter({ ceiling: -1 })
+
+// cut 2:00–2:15, smooth the splice
+a.remove({ at: 120, duration: 15 }).fade(0.1, { at: 120 })
+
+// find clipped blocks
+let clips = await a.stat('clipping')
 ```
 
-### Podcast montage
+### Compose
 
 ```js
-let intro = audio('intro.mp3')
-let body  = audio('interview.wav')
-let outro = audio('outro.mp3')
-
-body.trim().normalize('podcast')
-let ep = audio([intro, body, outro])
-ep.fade(0.5, 2)
+// podcast montage
+let ep = audio([intro, interview.trim().normalize('podcast'), outro], { crossfade: 0.5 })
 await ep.save('episode.mp3')
-```
 
-### Render a waveform
-
-```js
-let a = audio('track.mp3')
-let [mins, peaks] = await a.stat(['min', 'max'], { bins: canvas.width })
-for (let i = 0; i < peaks.length; i++)
-  ctx.fillRect(i, h/2 - peaks[i] * h/2, 1, (peaks[i] - mins[i]) * h/2)
-```
-
-### Render as it decodes
-
-```js
-let a = audio('long.flac')
-a.on('data', ({ delta }) => appendBars(delta.max[0], delta.min[0]))
-await a
-```
-
-### Voiceover on music
-
-```js
-let music = audio('bg.mp3')
-let voice = audio('narration.wav')
+// voiceover over music
 music.gain(-12).mix(voice, { at: 2 })
-await music.save('mixed.wav')
+
+// ringtone: the chorus + fades
+audio('song.mp3').crop({ at: 45, duration: 30 }).fade(0.5, 2).normalize().save('ringtone.mp3')
+
+// split an audiobook into chapters
+let [ch1, ch2, ch3] = audio('audiobook.mp3').split(1800, 3600)
+
+// glitch: stutter + reverse
+let v = a.clip({ at: 1, duration: 0.25 })
+audio([v, v, v, v]).reverse({ at: 0.25, duration: 0.25 })
 ```
 
-### Split a long file
+### Analyze
 
 ```js
-let a = audio('audiobook.mp3')
-let [ch1, ch2, ch3] = a.split(1800, 3600)
-for (let [i, ch] of [ch1, ch2, ch3].entries())
-  await ch.save(`chapter-${i + 1}.mp3`)
+// waveform bars — and progressively, as it decodes
+let [mins, peaks] = await a.stat(['min', 'max'], { bins: canvas.width })
+a.on('data', ({ delta }) => appendBars(delta.max[0], delta.min[0]))
+
+// features for ML
+let mfcc = await a.stat('cepstrum', { bins: 13 })
+let [loud, rms] = await a.stat(['loudness', 'rms'])
+
+// notes, chords, key
+let notes = await a.stat('notes')    // [{time, duration, freq, midi, note, clarity}]
+let chords = await a.stat('chords')  // [{time, duration, label, root, quality, confidence}]
+let key = await a.stat('key')        // {tonic, mode, label, confidence}
 ```
 
-### Record from mic
+### Record & generate
 
 ```js
+// mic take
 let a = audio()
 a.record()
-await new Promise(r => setTimeout(r, 5000))
+// …later
 a.stop()
 a.trim().normalize()
-await a.save('recording.wav')
+
+// tone — any t => sample function
+let tone = audio.from(t => Math.sin(440 * Math.PI * 2 * t), { duration: 2 })
+
+// sonify data
+let s = audio.from(t => Math.sin((200 + data[t / 0.2 | 0]) * Math.PI * 2 * t) * 0.5, { duration: data.length * 0.2 })
 ```
 
-### Extract features for ML
-
-```js
-let a = audio('speech.wav')
-let mfcc = await a.stat('cepstrum', { bins: 13 })
-let spec = await a.stat('spectrum', { bins: 128 })
-let [loud, rms] = await a.stat(['loudness', 'rms'])
-```
-
-### Detect notes, chords, and key
-
-```js
-let a = audio('melody.wav')
-let notes = await a.stat('notes')         // [{time, duration, freq, midi, note, clarity}]
-// → [{time: 0, duration: 0.5, freq: 440, midi: 69, note: 'A4', clarity: 0.95}, ...]
-
-let chords = await a.stat('chords')       // [{time, duration, label, root, quality, confidence}]
-// → [{time: 0, duration: 2.1, label: 'C', quality: 'maj', confidence: 0.87}, ...]
-
-let k = await a.stat('key')              // {tonic, mode, label, confidence}
-// → {tonic: 0, mode: 'major', label: 'C', confidence: 0.91}
-```
-
-### Generate a tone
-
-```js
-let a = audio.from(t => Math.sin(440 * Math.PI * 2 * t), { duration: 2 })
-await a.save('440hz.wav')
-```
-
-### Ecosystem atoms
-
-Any [@audio contract atom](https://github.com/audiojs/atom) plugs in as an op —
-`audio.use` a factory directly, or a registry name (`npm i` the package it points at).
-Params get engine automation, curves and click-free ramps; declared `tail`, `latency`
-and `streaming: false` are handled by the engine; the CLI picks registry ops up by
-name and synthesizes `--help` from param metadata.
-
-```js
-import { compressor } from '@audio/dynamics-compressor/atom'
-audio.use(compressor)                       // bring-your-own factory
-await audio.use('freeverb', 'declick')      // or by registry name
-
-a.gate(-45).dehum().deesser().compressor({ threshold: -18 }).limiter({ ceiling: -1 })
-music.ducker({ key: voice })                // sidechain via the key option
-a.declick()                                 // batch atoms run whole-render
-```
-
-Registry (`audio.atoms`, name → package):
-**dynamics** compressor · limiter · gate · expander · deesser · ducker · compand · softclip · leveler · transient-shaper —
-**denoise** dehum · specsub · wiener · omlsa · dereverb · deplosive · dewind · declick · declip · decrackle · debreath —
-**effects** delay · chorus · flanger · phaser · tremolo · vibrato · autowah · wah · bitcrusher · distortion · exciter · ringmod · freqshift · multitap · pingpong · slew · noiseshaper · lofi · graindelay · stutter · subbass · sbr —
-**more** freeverb · biquad · yin · tube · osc · isolate
-
-### Custom op
-
-```js
-audio.op('crush', { params: ['bits'], process: (input, output, ctx) => {
-  let steps = 2 ** (ctx.bits ?? 8)
-  for (let c = 0; c < input.length; c++)
-    for (let i = 0; i < input[c].length; i++)
-      output[c][i] = Math.round(input[c][i] * steps) / steps
-}})
-
-a.crush(4)
-a.crush({bits: 4, at: 1, duration: 2})
-```
-
-### Serialize and restore
-
-```js
-let json = JSON.stringify(a)             // { source, edits, ... }
-let b = audio(JSON.parse(json))           // re-decode + replay edits
-```
-
-### Remove a section
-
-```js
-let a = audio('interview.wav')
-a.remove({ at: 120, duration: 15 })     // cut 2:00–2:15
-a.fade(0.1, { at: 120 })                // smooth the splice
-await a.save('edited.wav')
-```
-
-### Ringtone from any song
-
-```js
-let a = audio('song.mp3')
-a.crop({ at: 45, duration: 30 }).fade(0.5, 2).normalize()
-await a.save('ringtone.mp3')
-```
-
-### Detect clipping
-
-```js
-let a = audio('master.wav')
-let clips = await a.stat('clipping')
-if (clips.length) console.warn(`${clips.length} clipped blocks`)
-```
-
-### Stream to network
-
-```js
-let a = audio('2hour-mix.flac')
-a.highpass(40).normalize('broadcast')
-for await (let chunk of a) socket.send(chunk[0].buffer)
-```
-
-### Glitch: stutter + reverse
-
-```js
-let a = audio('beat.wav')
-let v = a.clip({ at: 1, duration: 0.25 })
-let glitch = audio([v, v, v, v])
-glitch.reverse({ at: 0.25, duration: 0.25 })
-await glitch.save('glitch.wav')
-```
-
-### Tremolo / sidechain
+### Automate
 
 Any numeric op param accepts a `t => value` function — the engine samples it during render (sample-accurate for `gain`/`pan`, ~3ms steps elsewhere). A breakpoint curve `{t, v}` does the same and stays serializable (survives `toJSON()` and the worker boundary):
 
 ```js
-let a = audio('pad.wav')
 a.gain(t => -12 * (0.5 + 0.5 * Math.cos(t * Math.PI * 4)))  // 2Hz tremolo in dB
 a.lowpass(t => 400 + 4000 * t)                              // filter sweep
 a.pan({ t: [0, 2, 4], v: [-1, 1, -1] })                     // curve: L→R→L over 4s
-await a.save('tremolo.wav')
+music.ducker({ key: voice })                                // sidechain (atom)
 ```
 
-### Sonify data
+### Stream & persist
 
 ```js
-let prices = [100, 102, 98, 105, 110, 95, 88, 92, 101, 107]
-let a = audio.from(t => {
-  let freq = 200 + (prices[Math.min(Math.floor(t / 0.2), prices.length - 1)] - 80) * 10
-  return Math.sin(freq * Math.PI * 2 * t) * 0.5
-}, { duration: prices.length * 0.2 })
-await a.save('sonification.wav')
+// stream to network — encode/playback during decode
+for await (let chunk of audio('2hour-mix.flac').highpass(40)) socket.send(chunk[0].buffer)
+
+// serialize edits, restore later
+let json = JSON.stringify(a)     // { source, edits, ... }
+let b = audio(JSON.parse(json))  // re-decode + replay edits
 ```
 
 
@@ -338,50 +225,6 @@ let c = audio.from(t => Math.sin(440*TAU*t), { duration: 2 })  // generator
 let d = audio.from(audioBuffer)                   // Web Audio AudioBuffer
 let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 ```
-
-### Worker engine
-
-Run the whole engine off the main thread — decode, edits, stats, encode happen in a
-Worker; the main bundle holds only a few-KB facade with the same call shape:
-
-```js
-import audioWorker from 'audio/worker'
-
-let a = audioWorker('track.mp3')
-a.gain(-3).fade(0.5)                               // ops proxy the worker registry
-let [mins, maxs] = await a.stat(['min','max'], { bins: 640 })  // waveform, transferred
-let pcm = await a.read({ at: 1, duration: 2 })     // zero-copy Float32Arrays
-await a.save('out.wav')
-
-let b = audioWorker('other.mp3')
-a.mix(b)                                           // facades reference each other by id
-```
-
-Custom codecs/plugins run worker-side — make your own entry and pass it:
-
-```js
-// engine-worker.js
-import '@audio/aac-decode'
-import 'audio/worker-host'
-```
-```js
-audioWorker('a.m4a', { worker: new Worker(new URL('./engine-worker.js', import.meta.url), { type: 'module' }) })
-```
-
-Playback pumps worker-rendered blocks into an `AudioWorklet` over its message port (no
-SharedArrayBuffer, so no COOP/COEP headers needed — works on GitHub Pages) or into
-@audio/speaker in Node:
-
-```js
-a.play()                     // play / pause / seek / stop, volume, loop, timeupdate
-a.on('ended', () => next())
-```
-
-Boundary notes: `clip()`/`split()`/`clone()` return promises of facades; chained ops are
-fire-and-forget (errors on the `'error'` event; `await a.run([type, opts])` for strict
-per-op errors); function params don't cross — use breakpoint curves `{t, v}`. Node works
-via worker_threads with the same API.
-
 
 ### Properties
 
@@ -687,6 +530,40 @@ a.undo()                                  // undo last edit
 b.run(...a.edits)                         // replay onto another file
 JSON.stringify(a); audio(json)            // serialize / restore
 ```
+
+### Atoms
+
+Any [@audio contract atom](https://github.com/audiojs/atom) plugs in as an op — `audio.use` a factory, or a registry name (`npm i` the package it points at). Params get engine automation, curves and click-free ramps; declared `tail`, `latency`, `streaming: false` and sidechain buses are handled by the engine; the CLI resolves registry names and synthesizes `--help` from param metadata.
+
+```js
+import { compressor } from '@audio/dynamics-compressor/atom'
+audio.use(compressor)                       // bring-your-own factory
+await audio.use('freeverb', 'declick')      // or by registry name
+
+a.freeverb({ room: 0.8 })                   // tail composes automatically
+a.declick()                                 // batch atoms run whole-render
+music.ducker({ key: voice })                // sidechain via the key option
+```
+
+Registry (`audio.atoms`, name → package):
+**dynamics** compressor · limiter · gate · expander · deesser · ducker · compand · softclip · leveler · transient-shaper —
+**denoise** dehum · specsub · wiener · omlsa · dereverb · deplosive · dewind · declick · declip · decrackle · debreath —
+**effects** delay · chorus · flanger · phaser · tremolo · vibrato · autowah · wah · bitcrusher · distortion · exciter · ringmod · freqshift · multitap · pingpong · slew · noiseshaper · lofi · graindelay · stutter · subbass · sbr —
+**more** freeverb · biquad · yin · tube · osc · isolate
+
+### Worker
+
+The whole engine off the main thread — one import, same call shape; the main bundle holds a few-KB facade. See [architecture](docs/architecture.md#worker-engine).
+
+```js
+import audioWorker from 'audio/worker'
+let a = audioWorker('track.mp3')            // decode/edits/stats/encode in a Worker
+a.gain(-3).fade(0.5)
+let [mins, maxs] = await a.stat(['min','max'], { bins: 640 })  // transferred, zero-copy
+a.play()                                    // AudioWorklet (no SharedArrayBuffer) / @audio/speaker
+```
+
+Custom worker entry (extra codecs, plugins): `import '@audio/decode-aac'; import 'audio/worker'` — the file self-hosts in worker scope; pass it via `{ worker }`. Boundary notes: `clip()`/`split()`/`clone()` return promises of facades; op errors surface on `'error'` (or `await a.run([type, opts])`); function params don't cross — use curves `{t, v}`.
 
 ### Plugins
 

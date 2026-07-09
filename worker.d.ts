@@ -56,7 +56,7 @@ export interface WorkerFacade extends PromiseLike<WorkerFacade> {
 }
 
 export interface WorkerOptions extends Record<string, unknown> {
-  /** Bring your own worker (custom codecs/plugins entry importing 'audio/worker-host'). */
+  /** Bring your own worker (custom codecs/plugins entry importing 'audio/worker' (self-hosts in worker scope)). */
   worker?: Worker | { postMessage(msg: unknown, transfer?: unknown[]): void }
 }
 

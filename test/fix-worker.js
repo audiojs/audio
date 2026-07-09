@@ -159,7 +159,7 @@ test('worker: data events forward stat deltas without PCM', async t => {
 
 test('worker: custom worker shared across calls — one channel, refs work', async t => {
   let { Worker: NodeWorker } = await import('node:worker_threads')
-  let w = new NodeWorker(new URL('../worker-host.js', import.meta.url))
+  let w = new NodeWorker(new URL('../worker.js', import.meta.url))
   let a = await audioWorker('test/fixture.wav', { worker: w })
   let b = await audioWorker('test/fixture.wav', { worker: w })
   t.is(a.length, b.length, 'both facades opened without id cross-talk')
@@ -171,7 +171,7 @@ test('worker: custom worker shared across calls — one channel, refs work', asy
 
 test('worker: undo of a ref edit returns sanitized edit, not DataCloneError', async t => {
   let { Worker: NodeWorker } = await import('node:worker_threads')
-  let w = new NodeWorker(new URL('../worker-host.js', import.meta.url))
+  let w = new NodeWorker(new URL('../worker.js', import.meta.url))
   let a = await audioWorker('test/fixture.wav', { worker: w })
   let b = await audioWorker('test/fixture.wav', { worker: w })
   let base = a.length
