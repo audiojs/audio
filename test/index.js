@@ -6243,7 +6243,14 @@ test('cli ops registry — all built-ins available', t => {
 } // end isNode guard for CLI tests
 
 // Contract-module integration — node-only for now: the browser page would need
-// import-map entries for every @audio module atom + its transitive kernels
+// import-map entries for every @audio module atom + its transitive kernels.
+// Effects/denoise suites resolve manifests from the sibling @audio checkout until
+// their npm releases land — skip cleanly where neither is present (e.g. bare CI).
 if (isNode) await import('./module-ops.js')
-if (isNode) await import('./module-effects.js')
-if (isNode) await import('./module-denoise.js')
+if (isNode) for (let f of ['./module-effects.js', './module-denoise.js']) {
+  try { await import(f) }
+  catch (e) {
+    if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e
+    console.warn(`skip ${f} — manifest packages not resolvable (${e.message.split("'")[1] || ''})`)
+  }
+}
