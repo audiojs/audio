@@ -446,6 +446,16 @@ function fmtStat(name, result) {
       let pad = String(result.length - 1).length
       for (let i = 0; i < result.length; i++) console.log(`    ${String(i).padStart(pad)}  ${Number(result[i]).toFixed(4)}`)
     }
+  } else if (result != null && typeof result === 'object') {
+    // Object-shaped stat (replaygain {gain,lufs}, melody {times,freqs}, structure
+    // {boundaries,novelty}, similarity {score,…}) — one line per scalar field,
+    // arrays summarized as counts
+    console.log(`  ${name}:`)
+    for (let [k, v] of Object.entries(result)) {
+      if (typeof v === 'number') console.log(`    ${k.padEnd(12)} ${Number.isFinite(v) ? v.toFixed(4) : String(v)}`)
+      else if (v?.length != null) console.log(`    ${k.padEnd(12)} ${v.length} values`)
+      else console.log(`    ${k.padEnd(12)} ${String(v)}`)
+    }
   } else {
     let unit = STAT_UNITS[name] || ''
     let val = typeof result === 'number' ? (Number.isFinite(result) ? result.toFixed(4) : '-Inf') : String(result)
