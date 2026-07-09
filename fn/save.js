@@ -22,11 +22,13 @@ function gatherMeta(inst, opts) {
   return { meta: meta || {}, markers, regions }
 }
 
-// Samples of DSP rendered synchronously between I/O awaits (~24s stereo ≈ 8 MB).
-// Large enough that V8 tiers up the DSP hot loop within the first burst; without it,
-// a per-block `await` keeps the FFT-heavy ops (pitch/stretch/denoise) in baseline JIT
-// for the whole file — ~10× slower on a one-shot encode.
-const ENCODE_BATCH = 1 << 20
+// Samples of DSP rendered synchronously between I/O awaits (~3s stereo ≈ 1 MB).
+// Enough sustained sync work that V8 tiers up the DSP hot loop; without it, a
+// per-block `await` keeps the FFT-heavy ops (pitch/stretch/denoise) in baseline JIT
+// for the whole file — ~10× slower on a one-shot encode. Measured knee: full speed
+// from 1<<14 (16 blocks), 10× slow at 1<<13; 1<<17 is 8× above the knee while
+// keeping the worst event-loop stall ~60 ms (heaviest op burst) — no spinner/UI freeze.
+const ENCODE_BATCH = 1 << 17
 
 /** Stream-encode audio: calls sink(buf) per chunk, returns sink(null) at end. */
 async function encodeStream(inst, fmt, opts, sink) {
