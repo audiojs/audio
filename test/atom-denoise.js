@@ -136,7 +136,8 @@ test('deplosive: ducks an LF burst, leaves surrounding speech alone', async () =
 	ok(out.every(isFinite))
 	let burstBefore = rms(dirty, bstart, bstart + blen), burstAfter = rms(out, bstart, bstart + blen)
 	let quietBefore = rms(dirty, 0, bstart), quietAfter = rms(out, 0, bstart)
-	ok(burstAfter < burstBefore * 0.7, `defining property: LF burst ducked (${burstBefore.toFixed(4)} -> ${burstAfter.toFixed(4)})`)
+	// 0.75: the exact-complement deplosive (>=0.1.3) ducks less deeply than the old crossover but adds no coloration
+	ok(burstAfter < burstBefore * 0.75, `defining property: LF burst ducked (${burstBefore.toFixed(4)} -> ${burstAfter.toFixed(4)})`)
 	ok(Math.abs(quietAfter - quietBefore) < quietBefore * 0.15, 'speech well outside the burst left mostly alone')
 })
 
