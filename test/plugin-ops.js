@@ -214,10 +214,11 @@ audio.use(expander, compand, leveler, transientShaper, ducker)
 
 const db = (lin) => 20 * Math.log10(Math.max(lin, 1e-12))
 
+// 0.2.x expander: range is a magnitude (≥0), sign applied by mode — was signed in 0.1.x
 test('expander: attenuates below threshold, passes material above it', async () => {
   let loud = tone(440, 0.6, 0.5), quiet = tone(440, 0.6, 0.003)
   let combined = new Float32Array([...loud, ...quiet])
-  let out = (await audio.from([combined], { sampleRate: SR }).expander({ threshold: -30, ratio: 2, range: -40 }).read())[0]
+  let out = (await audio.from([combined], { sampleRate: SR }).expander({ threshold: -30, ratio: 2, range: 40 }).read())[0]
   ok(out.every(isFinite))
   let settle = Math.round(0.3 * SR)
   let loudDrop = db(rms(loud, settle)) - db(rms(out, settle, loud.length))

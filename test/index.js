@@ -2674,8 +2674,8 @@ test('detectBudget — derives budget from storage.estimate()', { skip: !isNode 
     value: { storage: { estimate: async () => ({ quota, usage: 0 }) } }, configurable: true
   })
   try {
-    mock(8 * 1024 * 1024 * 1024)  // 8GB quota → quota/4 = 2GB cap
-    t.is(await audio.detectBudget(), 2 * 1024 * 1024 * 1024, 'quota/4, capped at 2GB')
+    mock(8 * 1024 * 1024 * 1024)  // 8GB quota → quota/4 hits the 512MB residency cap
+    t.is(await audio.detectBudget(), 512 * 1024 * 1024, 'quota/4, capped at 512MB')
     mock(100 * 1024 * 1024)  // tiny quota → 64MB floor
     t.is(await audio.detectBudget(), 64 * 1024 * 1024, 'floored at 64MB')
     mock(1024 * 1024 * 1024)  // 1GB → 256MB
