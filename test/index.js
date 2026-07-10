@@ -6574,7 +6574,7 @@ test('cli ops registry — all built-ins available', t => {
 // their npm releases land — skip cleanly where neither is present (e.g. bare CI).
 if (isNode) await import('./plugin-ops.js')
 if (isNode) for (let f of ['./plugin-effects.js', './plugin-denoise.js', './plugin-spatial.js', './plugin-shift.js', './plugin-tune.js',
-  './plugin-reverb.js', './plugin-dynamics.js', './plugin-filter.js', './plugin-eq.js', './plugin-color.js', './plugin-synth.js', './plugin-stats.js', './plugin-notes.js']) {
+  './plugin-reverb.js', './plugin-dynamics.js', './plugin-filter.js', './plugin-eq.js', './plugin-color.js', './plugin-synth.js', './plugin-stats.js', './plugin-notes.js', './plugin-stretch.js']) {
   try { await import(f) }
   catch (e) {
     if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e

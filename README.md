@@ -821,7 +821,7 @@ Op plugins (`audio.plugins` registry, name → package — `npm i` it, then `awa
 **denoise** dehum · specsub · wiener · omlsa · dereverb · deplosive · dewind · declick · declip · decrackle · debreath —
 **effects** delay · chorus · flanger · phaser · tremolo · vibrato · autowah · wah · bitcrusher · distortion · exciter · ringmod · freqshift · multitap · pingpong · slew · noiseshaper · lofi · graindelay · stutter · subbass · sbr —
 **reverb** freeverb · schroeder · plate · fdn · spring · shimmer —
-**filter** biquad · moog · korg35 · diode · oberheim · resonator · spectral-tilt · variable · comb · dcblocker · emphasis · deemphasis —
+**filter** biquad · moog · korg35 · diode · oberheim · resonator · spectral-tilt · variable · comb · dcblocker · emphasis · deemphasis · derivative · integral —
 **eq** geq · tilt · baxandall · dyneq —
 **spatial** widener · haas · panner · autopan · midside · microshift · surround —
 **shift** pitch-shift · vocoder · formant-shift · paulstretch —
@@ -831,9 +831,9 @@ Op plugins (`audio.plugins` registry, name → package — `npm i` it, then `awa
 
 Stat plugins (land on `a.stat(name)`):
 
-**loudness** truepeak · lra · replaygain · dr —
-**spectral** rolloff · spread · slope · flux · contrast · ltas —
-**mir** structure · tempogram · melody · downbeat · fingerprint · drums · multif0 · transcribe · similarity · coversong
+**loudness** truepeak · lra · replaygain · dr · speech-contrast · sounds —
+**spectral** rolloff · spread · slope · flux · contrast · ltas · zcr —
+**mir** structure · tempogram · melody · downbeat · fingerprint · drums · multif0 · transcribe · similarity · coversong · chroma · tonnetz
 
 Beyond the registry — kernels whose inputs aren't scalar params ship as plain packages for direct import: `@audio/reverb-convolution` (impulse response), `@audio/eq-fir` (response curve), `@audio/eq-crossover` (SOS designer), `@audio/tune-midi` (guide notes), `@audio/denoise-repair` (regions), `@audio/synth-dtmf` (digit string), `@audio/synth-wavetable` (tables), per-band forms of multiband/dyneq/multisat, and the `@audio/measure`, `@audio/sinusoidal`, `@audio/voice` tool/substrate families.
 

@@ -121,3 +121,30 @@ test('ranged stat: {at, duration} scopes the analysis', async () => {
 	let r2 = await a.stat('rolloff', { at: 1, duration: 1 })
 	ok(r2 > r1 * 3, `range scoping works (${r1.toFixed(0)} vs ${r2.toFixed(0)} Hz)`)
 })
+
+test('chroma: chord tones dominate the mean chromagram', async () => {
+	await audio.use('chroma')
+	let n = SR * 2, d = new Float32Array(n)
+	for (let m of [60, 64, 67]) { let f = 440 * 2 ** ((m - 69) / 12); for (let i = 0; i < n; i++) d[i] += 0.2 * Math.sin(2 * Math.PI * f * i / SR) }
+	let a = audio.from([d], { sampleRate: SR })
+	let res = await a.stat('chroma')
+	is(res.mean.length, 12)
+	ok(res.frames.length > 5, `${res.frames.length} frames`)
+	let top3 = [...res.mean].map((v, i) => [i, v]).sort((x, y) => y[1] - x[1]).slice(0, 3).map(x => x[0]).sort((x, y) => x - y)
+	is(top3.join(','), '0,4,7', 'C major tones dominate')
+})
+
+test('tonnetz: 6-D trajectory, distinct keys separate', async () => {
+	await audio.use('tonnetz')
+	let mk = notes => {
+		let n = SR, d = new Float32Array(n)
+		for (let m of notes) { let f = 440 * 2 ** ((m - 69) / 12); for (let i = 0; i < n; i++) d[i] += 0.2 * Math.sin(2 * Math.PI * f * i / SR) }
+		return audio.from([d], { sampleRate: SR })
+	}
+	let c = await mk([60, 64, 67]).stat('tonnetz')
+	let fs = await mk([66, 70, 73]).stat('tonnetz')
+	is(c.mean.length, 6)
+	let dist = 0
+	for (let k = 0; k < 6; k++) dist += (c.mean[k] - fs.mean[k]) ** 2
+	ok(Math.sqrt(dist) > 0.3, `tritone-apart keys separate (${Math.sqrt(dist).toFixed(2)})`)
+})

@@ -9,7 +9,7 @@ A landscape of audio tools across the web, Python, CLI, and desktop. The goal: h
 
 ## Comparison matrix
 
-Cells contain method/op names where supported, `—` if absent, `(plan)` if planned for `audio`. Comma-separated lists are not exhaustive.
+Cells contain method/op names where supported, `—` if absent. For `audio`, plain names are built-ins; the rest are `@audio/*` registry atoms (`npm i` the package, then `audio.use('name')` — same chainable API). Comma-separated lists are not exhaustive.
 
 | | **audio** | **pydub** | **librosa** | **aubio** | **essentia** | **Pedalboard** | **SoX** | **FFmpeg** | **Audacity** | **MATLAB Audio Toolbox** |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -54,11 +54,11 @@ Cells contain method/op names where supported, `—` if absent, `(plan)` if plan
 | Peak normalize | `normalize()` | `effects.normalize` | `util.normalize` | — | `Normalize` | — | `norm` | `volume=normalize` | Normalize | manual |
 | LUFS normalize | `normalize('podcast')` | — | custom | — | `LoudnessEBUR128` (measure) | — | — | `loudnorm` | Loudness Normalization | `integratedLoudness` |
 | DC removal | `normalize({dc:true})` | — | custom | — | `DCRemoval` | — | `dcshift` | `dcshift` | DC | highpass at low f |
-| Compressor | (plan) | `compress_dynamic_range()` | custom | — | — | `Compressor(thr, ratio)` | `compand` | `acompressor` | Compressor | `compressor` |
-| Limiter | (plan) | — | — | — | — | `Limiter` | (`compand` ∞) | `alimiter` | Limiter | `limiter` |
-| Gate | (plan) | — | — | — | — | — | `compand` neg | `agate` | Noise Gate | `noisegate` |
-| Distortion / clip | (plan) | — | — | — | — | `Distortion`, `Clipping` | `overdrive` | `asoftclip` | Distortion | custom |
-| Bit crush | (plan) | — | — | — | — | `Bitcrush` | — | `acrusher` | (plugin) | custom |
+| Compressor | `compressor()`, `compand()`, `leveler()` | `compress_dynamic_range()` | custom | — | — | `Compressor(thr, ratio)` | `compand` | `acompressor` | Compressor | `compressor` |
+| Limiter | `limiter()` | — | — | — | — | `Limiter` | (`compand` ∞) | `alimiter` | Limiter | `limiter` |
+| Gate | `gate()` | — | — | — | — | — | `compand` neg | `agate` | Noise Gate | `noisegate` |
+| Distortion / clip | `softclip()`, `distortion()`, `waveshaper()` | — | — | — | — | `Distortion`, `Clipping` | `overdrive` | `asoftclip` | Distortion | custom |
+| Bit crush | `bitcrusher()`, `lofi()` | — | — | — | — | `Bitcrush` | — | `acrusher` | (plugin) | custom |
 | **Filters** | | | | | | | | | | |
 | Highpass | `highpass(f)` | `high_pass_filter()` | `scipy.signal.butter` | `digital_filter` | `HighPass` | `HighpassFilter` | `highpass` | `highpass` | High-Pass Filter | `designfilt`, `highpass` |
 | Lowpass | `lowpass(f)` | `low_pass_filter()` | `scipy.signal.butter` | filter | `LowPass` | `LowpassFilter` | `lowpass` | `lowpass` | Low-Pass Filter | `lowpass` |
@@ -67,22 +67,23 @@ Cells contain method/op names where supported, `—` if absent, `(plan)` if plan
 | Allpass | `allpass(f, Q?)` | — | custom | filter | `AllPass` | — | `allpass` | `allpass` | — | `designfilt` |
 | Low/high shelf | `lowshelf/highshelf(f, dB, Q?)` | — | custom | filter | `LowShelf`, `HighShelf` | — | `bass`/`treble` | `bass`/`treble` | Bass and Treble | `designShelvingEQ` |
 | Parametric EQ | `eq(f, dB, Q?)` | — | custom | — | — | — | `equalizer` | `equalizer`, `anequalizer` | Filter Curve EQ, Graphic EQ | `multibandParametricEQ`, `graphicEQ` |
-| FIR / convolution | (plan) | — | `scipy.signal.fftconvolve` | — | FFT-based | `Convolution` | — | `afir`, `firequalizer` | (plugin) | `dsp.FIRFilter`, `dsp.Convolver` |
-| Ladder filter | — | — | — | — | — | `LadderFilter` | — | — | — | — |
+| FIR / convolution | `@audio/eq-fir`, `@audio/reverb-convolution` (import) | — | `scipy.signal.fftconvolve` | — | FFT-based | `Convolution` | — | `afir`, `firequalizer` | (plugin) | `dsp.FIRFilter`, `dsp.Convolver` |
+| Ladder filter | `moog()`, `diode()`, `korg35()`, `oberheim()` | — | — | — | — | `LadderFilter` | — | — | — | — |
+| Derivative / integral | `derivative()`, `integral()` | — | `np.diff` / `np.cumsum` | — | `Derivative` | — | — | `aderivative`, `aintegral` | — | `diff`, `cumsum` |
 | **Spatial effects** | | | | | | | | | | |
-| Reverb | (plan) | — | — | — | — | `Reverb`, `Convolution` | `reverb` | `afir` | Reverb | `reverberator` |
-| Echo / delay | (plan) | — | — | — | — | `Delay` | `echo`, `echos`, `delay` | `aecho`, `adelay` | Echo, Delay | examples |
-| Chorus | (plan) | — | — | — | — | `Chorus` | `chorus` | `chorus` | (VST) | examples |
-| Flanger | (plan) | — | — | — | — | — | `flanger` | `flanger` | — | — |
-| Phaser | (plan) | — | — | — | — | `Phaser` | `phaser` | `aphaser` | Phaser | — |
-| Tremolo | (plan) | — | — | — | — | — | `tremolo` | `tremolo` | Tremolo | — |
-| Vibrato | (plan) | — | — | — | — | — | (via `bend`) | `vibrato` | — | — |
-| Stereo widen / image | `vocals`, `crossfeed` | — | — | — | — | — | `oops`, `earwax` | `stereotools`, `stereowiden`, `crossfeed`, `bs2b` | (plugin) | `crossoverFilter` |
-| HRTF / binaural | (plan) | — | — | — | — | — | — | `sofalizer`, `headphone` | (plugin) | `interpolateHRTF` |
+| Reverb | `freeverb()`, `plate()`, `fdn()`, `spring()`, `shimmer()` | — | — | — | — | `Reverb`, `Convolution` | `reverb` | `afir` | Reverb | `reverberator` |
+| Echo / delay | `delay()`, `multitap()`, `pingpong()` | — | — | — | — | `Delay` | `echo`, `echos`, `delay` | `aecho`, `adelay` | Echo, Delay | examples |
+| Chorus | `chorus()` | — | — | — | — | `Chorus` | `chorus` | `chorus` | (VST) | examples |
+| Flanger | `flanger()` | — | — | — | — | — | `flanger` | `flanger` | — | — |
+| Phaser | `phaser()` | — | — | — | — | `Phaser` | `phaser` | `aphaser` | Phaser | — |
+| Tremolo | `tremolo()` | — | — | — | — | — | `tremolo` | `tremolo` | Tremolo | — |
+| Vibrato | `vibrato()` | — | — | — | — | — | (via `bend`) | `vibrato` | — | — |
+| Stereo widen / image | `widener()`, `haas()`, `midside()`, `surround()`, `crossfeed()` | — | — | — | — | — | `oops`, `earwax` | `stereotools`, `stereowiden`, `crossfeed`, `bs2b` | (plugin) | `crossoverFilter` |
+| HRTF / binaural | — | — | — | — | — | — | — | `sofalizer`, `headphone` | (plugin) | `interpolateHRTF` |
 | **Restoration** | | | | | | | | | | |
-| Denoise | (plan) | — | — | — | — | — | `noisered`, `noiseprof` | `afftdn`, `arnndn`, `anlmdn` | Noise Reduction | `wdenoise` |
-| Declick | (plan) | — | — | — | `ClickDetector` | — | — | `adeclick` | Click Removal | manual |
-| Declip | (plan) | — | — | — | — | — | — | `adeclip` | Clip Fix | manual |
+| Denoise | `specsub()`, `wiener()`, `omlsa()`, `dehum()`, `dereverb()` | — | — | — | — | — | `noisered`, `noiseprof` | `afftdn`, `arnndn`, `anlmdn` | Noise Reduction | `wdenoise` |
+| Declick | `declick()`, `decrackle()` | — | — | — | `ClickDetector` | — | — | `adeclick` | Click Removal | manual |
+| Declip | `declip()` | — | — | — | — | — | — | `adeclip` | Clip Fix | manual |
 | Dither | `dither(bits?)` | — | — | — | — | — | `dither` | (sample fmt) | (project export) | `dither` |
 | **Analysis (volume)** | | | | | | | | | | |
 | Peak (dB) | `stat('db')` | `seg.max_dBFS` | `np.max(np.abs)` | `aubioquiet` | `MaxMagnitude` | — | `stat` | `astats`, `volumedetect` | Plot Spectrum | `max(abs)` |
@@ -90,15 +91,16 @@ Cells contain method/op names where supported, `—` if absent, `(plan)` if plan
 | LUFS loudness | `stat('loudness')` | — | custom | — | `LoudnessEBUR128`, `Loudness` | — | — | `ebur128`, `loudnorm` | Loudness Normalization | `integratedLoudness`, `loudnessMeter` |
 | Clipping | `stat('clipping')` | — | manual | — | `ClickDetector` | — | `stat` | `astats` | Find Clipping | manual |
 | DC offset | `stat('dc')` | — | `np.mean` | — | `DCRemoval` (measure) | — | `stat` | `astats` | DC stat | `mean` |
-| Silence | `stat('silence')`, `shrink()` | `split_on_silence`, `detect_silence` | `effects.split` | `aubioquiet` | `SilenceRate`, `StartStopSilence` | — | `silence` | `silencedetect`, `silenceremove` | Truncate Silence, Label Sounds | `voiceActivityDetector` |
+| Silence | `stat('silence')`, `stat('sounds')`, `shrink()` | `split_on_silence`, `detect_silence` | `effects.split` | `aubioquiet` | `SilenceRate`, `StartStopSilence` | — | `silence` | `silencedetect`, `silenceremove` | Truncate Silence, Label Sounds | `voiceActivityDetector` |
+| Speech contrast (WCAG) | `stat('speech-contrast')` | — | — | — | — | — | — | — | Contrast | — |
 | **Analysis (spectral)** | | | | | | | | | | |
 | FFT spectrum | `stat('spectrum')` | — | `librosa.stft` | `pvoc`, `fft` | `FFT`, `Spectrum` | — | `spectrogram` | `showspectrum` | Plot Spectrum | `fft`, `stft`, `pspectrum` |
 | MFCC | `stat('cepstrum')` | — | `feature.mfcc` | `aubiomfcc`, `mfcc` | `MFCC`, `BFCC`, `GFCC` | — | — | — | (plugin) | `mfcc` |
 | Mel spectrogram | (in `cepstrum`) | — | `feature.melspectrogram` | `filterbank` | `MelBands`, `BarkBands`, `ERBBands` | — | — | — | — | `melSpectrogram` |
-| Chromagram | (plan) | — | `feature.chroma_stft/cqt/cens` | — | `HPCP`, `Chromagram` | — | — | — | — | manual |
-| Tonnetz | (plan) | — | `feature.tonnetz` | — | `Tonnetz`, `TonalExtractor` | — | — | — | — | — |
-| Spectral centroid/bw/flatness/rolloff | (plan) | — | `feature.spectral_*` | `specdesc` | `Centroid`, `SpectralCentroidTime`, `Flatness`, `RollOff` | — | — | `aspectralstats` | — | `spectralCentroid`, `spectralFlatness`, `spectralRolloff` |
-| Zero-crossing rate | (plan) | — | `feature.zero_crossing_rate` | `zero_crossing_rate` | `ZeroCrossingRate` | — | — | — | — | `zerocrossrate` |
+| Chromagram | `stat('chroma')` | — | `feature.chroma_stft/cqt/cens` | — | `HPCP`, `Chromagram` | — | — | — | — | manual |
+| Tonnetz | `stat('tonnetz')` | — | `feature.tonnetz` | — | `Tonnetz`, `TonalExtractor` | — | — | — | — | — |
+| Spectral centroid/bw/flatness/rolloff | `stat('centroid'/'spread'/'flatness'/'rolloff')` | — | `feature.spectral_*` | `specdesc` | `Centroid`, `SpectralCentroidTime`, `Flatness`, `RollOff` | — | — | `aspectralstats` | — | `spectralCentroid`, `spectralFlatness`, `spectralRolloff` |
+| Zero-crossing rate | `stat('zcr')` | — | `feature.zero_crossing_rate` | `zero_crossing_rate` | `ZeroCrossingRate` | — | — | — | — | `zerocrossrate` |
 | **Analysis (rhythm/melody)** | | | | | | | | | | |
 | Tempo / BPM | `stat('bpm')` | — | `beat.tempo`, `beat.beat_track` | `aubiotempo` | `RhythmExtractor`, `PercivalBpmEstimator` | — | — | — | Beat Finder | `tempo` |
 | Beat tracking | `stat('beats')` | — | `beat.beat_track` | `aubiotrack` | `BeatTrackerMultiFeature`, `BeatsLoudness` | — | — | — | Beat Finder | `beat` |
@@ -106,8 +108,8 @@ Cells contain method/op names where supported, `—` if absent, `(plan)` if plan
 | Pitch (notes, F0) | `stat('notes')` | — | `pyin`, `piptrack` | `aubiopitch`, `aubionotes` | `PitchYin`, `PitchYinFFT`, `PredominantPitchMelodia` | — | — | — | (plugin) | `pitch` |
 | Chord recognition | `stat('chords')` | — | (3rd-party) | — | `ChordsDetection`, `ChordsDetectionBeats` | — | — | — | — | — |
 | Key detection | `stat('key')` | — | (3rd-party) | — | `KeyExtractor`, `Key` | — | — | — | — | — |
-| Downbeat | (plan) | — | (madmom) | — | `BeatTrackerMultiFeature` | — | — | — | — | — |
-| Stem separation | (plan) | — | `effects.hpss` | — | `HarmonicMask`, HPSS | — | — | — | (OpenVINO plugin) | `separateSpeakers` |
+| Downbeat | `stat('downbeat')` | — | (madmom) | — | `BeatTrackerMultiFeature` | — | — | — | — | — |
+| Stem separation | `@audio/neural-separate` (import) | — | `effects.hpss` | — | `HarmonicMask`, HPSS | — | — | — | (OpenVINO plugin) | `separateSpeakers` |
 | **Playback / record** | | | | | | | | | | |
 | Playback | `a.play({at, duration, rate, loop})` | `play(seg)` (simpleaudio) | — | — | — | — | `play` (utility) | `ffplay` (separate) | GUI transport | `audioplayer`, `sound` |
 | Pause / seek | `a.pause()`, `a.seek(t)` | — | — | — | — | — | — | — | GUI | `pause`, `resume` |
@@ -117,11 +119,11 @@ Cells contain method/op names where supported, `—` if absent, `(plan)` if plan
 | Streaming meter | `a.meter({type, smoothing, hold})` | — | — | per-frame source | streaming network outputs | — | — | — | GUI meters | `dsp.SpectrumAnalyzer`, `timescope` |
 | **Synthesis** | | | | | | | | | | |
 | Generators | `audio.from(fn, {duration})` | tone generator | manual | — | — | — | `synth` | `aevalsrc`, `sine`, `anoisesrc` | Tone, Noise, Chirp, DTMF, Pluck, Risset Drum, Rhythm Track | `audioOscillator`, `dsp.SineWave` |
-| Synth voices | — | — | — | — | — | — | — | — | — | — |
-| Envelopes (ADSR) | (gain automation) | — | — | — | — | — | — | — | Envelope tool | examples |
-| LFO | (function-arg automation) | — | — | — | — | — | — | — | — | `audioOscillator` |
+| Synth voices | `voice()`, `poly()` (note events) | — | — | — | — | — | — | — | — | — |
+| Envelopes (ADSR) | `adsr()`, gain automation | — | — | — | — | — | — | — | Envelope tool | examples |
+| LFO | function-arg automation, `tremolo()`, `autopan()` | — | — | — | — | — | — | — | — | `audioOscillator` |
 | Transport / scheduling | — | — | — | — | — | — | — | — | — | — |
-| MIDI | — | — | — | — | — | — | — | — | MIDI import | `midiread`, `midiwrite` |
+| MIDI | note events (`voice`/`poly`), `@audio/tune-midi` (import) | — | — | — | — | — | — | — | MIDI import | `midiread`, `midiwrite` |
 | **Plugin hosting** | | | | | | | | | | |
 | VST3 / AU | — | — | — | — | — | VST3, AU | — | LADSPA, LV2 | VST/AU/LV2/Nyquist | `validateAudioPlugin` (export) |
 | Custom processors | `audio.op(name, descriptor)` | Python function | Python function | C/Python plugin | C++ algorithm | Python `Plugin` subclass | — | C filter | Nyquist | System object subclass |

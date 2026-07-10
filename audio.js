@@ -102,6 +102,8 @@ audio.plugins = {
   dcblocker: '@audio/filter-dcblocker/audio',
   emphasis: '@audio/filter-preemphasis/audio',
   deemphasis: '@audio/filter-preemphasis/audio',
+  derivative: '@audio/filter-derivative/audio',
+  integral: '@audio/filter-derivative/audio',
   geq: '@audio/eq-graphic/audio',
   tilt: '@audio/eq-tilt/audio',
   baxandall: '@audio/eq-baxandall/audio',
@@ -126,6 +128,16 @@ audio.plugins = {
   adsr: '@audio/synth-envelope/audio',
   voice: '@audio/synth-voice/audio',
   poly: '@audio/synth-poly/audio',
+  // ── Time-stretch (whole-render + frames hook — structural output length) ──
+  'stretch-pvoc-lock': '@audio/stretch-pvoc-lock/audio',
+  'stretch-pvoc': '@audio/stretch-pvoc/audio',
+  'stretch-pghi': '@audio/stretch-pghi/audio',
+  'stretch-wsola': '@audio/stretch-wsola/audio',
+  'stretch-psola': '@audio/stretch-psola/audio',
+  'stretch-sms': '@audio/stretch-sms/audio',
+  'stretch-transient': '@audio/stretch-transient/audio',
+  'stretch-hybrid': '@audio/stretch-hybrid/audio',
+  'stretch-paul': '@audio/stretch-paulstretch/audio',
   // ↑ note-event instruments: pass notes — a.voice({ notes: [{ time, midi|freq, duration, velocity }] })
   // @audio/synth-dtmf (digit string) / synth-wavetable (table arrays) — direct-import only
   // Codec plugins ({ codec, test?, decode?, encode? }) register the same way — none published yet
@@ -135,12 +147,15 @@ audio.plugins = {
   lra: '@audio/loudness-lra/audio',
   replaygain: '@audio/loudness-replaygain/audio',
   dr: '@audio/loudness-dr/audio',
+  'speech-contrast': '@audio/loudness-contrast/audio',
+  sounds: '@audio/loudness-sounds/audio',
   rolloff: '@audio/spectral-rolloff/audio',
   spread: '@audio/spectral-spread/audio',
   slope: '@audio/spectral-slope/audio',
   flux: '@audio/spectral-flux/audio',
   contrast: '@audio/spectral-contrast/audio',
   ltas: '@audio/spectral-ltas/audio',
+  zcr: '@audio/spectral-zcr/audio',
   structure: '@audio/mir-structure/audio',
   tempogram: '@audio/mir-tempogram/audio',
   melody: '@audio/mir-melody/audio',
@@ -151,6 +166,8 @@ audio.plugins = {
   transcribe: '@audio/mir-transcribe/audio',
   similarity: '@audio/mir-similarity/audio',
   coversong: '@audio/mir-coversong/audio',
+  chroma: '@audio/mir-chroma/audio',
+  tonnetz: '@audio/mir-tonnetz/audio',
 }
 audio.atoms = audio.plugins  // deprecated ≤2.5 name — same object, mutations visible through both
 
