@@ -357,7 +357,13 @@ declare namespace audio {
   /** Atom registry — name → package specifier (e.g. 'freeverb' → '@audio/reverb-freeverb/audio'), resolved by use(name) via dynamic import */
   const atoms: Record<string, string>
   /** Register plugins: contract atoms (factory functions with own `params`), `(audio) => {}` plugin functions, or registry names. String names dynamic-import — returns a promise; direct values register synchronously. */
-  function use(...plugins: (string | Function)[]): typeof audio & Promise<typeof audio>
+  /** Stat atom — whole-signal analyzer registered as a.stat(name) */
+  interface StatAtom { stat: string, compute(channels: Float32Array[], opts: { sampleRate: number, [k: string]: unknown }): unknown }
+  /** Codec atom — extends audio()'s openable formats and save()/encode() targets */
+  interface CodecAtom { codec: string, test?(bytes: Uint8Array): boolean, decode?(bytes: Uint8Array): { channelData: Float32Array[], sampleRate: number } | Promise<{ channelData: Float32Array[], sampleRate: number }>, encode?(opts: { sampleRate: number, channels: number }): ((chunk?: Float32Array[]) => Uint8Array) | Promise<(chunk?: Float32Array[]) => Uint8Array> }
+  /** Registered codec atoms by format name */
+  const codecs: Record<string, CodecAtom>
+  function use(...plugins: (string | Function | StatAtom | CodecAtom)[]): typeof audio & Promise<typeof audio>
   /** Audio instance prototype — extensible (like $.fn) */
   const fn: Record<string, any>
 }

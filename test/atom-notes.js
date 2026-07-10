@@ -117,6 +117,29 @@ test('codec atom: encode → sniff → decode round-trip', async () => {
 	ok(d < 2 / 0x7fff + 1e-6, `s16 round-trip within quantization (${d.toExponential(1)})`)
 })
 
+test('codec atom: notes without duration ring to the end', async () => {
+	let out = (await silent(0.6).voice({ notes: [{ time: 0.1, midi: 69 }] }).read())[0]
+	// no off event — the instrument sustains the note to the take's end
+	ok(rms(out, Math.round(0.45 * SR), Math.round(0.58 * SR)) > 0.02, 'still sounding near the end')
+	ok(out.every(isFinite))
+})
+
+test('codec atom: file-path open sniffs the header (node fs branch)', async () => {
+	let { tmpdir } = await import('os')
+	let { join } = await import('path')
+	let { writeFileSync, rmSync } = await import('fs')
+	let n = SR >> 2, ch = new Float32Array(n)
+	for (let i = 0; i < n; i++) ch[i] = 0.4 * Math.sin(2 * Math.PI * 440 * i / SR)
+	let bytes = await audio.from([ch], { sampleRate: SR }).encode('raw16')
+	let path = join(tmpdir(), `audio-raw16-${Date.now()}.r16`)
+	writeFileSync(path, bytes)
+	try {
+		let b = await audio(path)   // 12-byte header sniff → registered test() claims it
+		is(b.channels, 1)
+		ok(Math.abs(b.duration - 0.25) < 0.01, 'file decoded via codec atom')
+	} finally { rmSync(path, { force: true }) }
+})
+
 test('codec atom: save/encode format guard accepts registered codecs', async () => {
 	let a = audio.from([new Float32Array(1000).fill(0.1)], { sampleRate: SR })
 	let bytes = await a.encode('raw16')

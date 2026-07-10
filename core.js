@@ -874,21 +874,11 @@ function estimateDuration(fileSize, format, sampleRate, channels) {
 async function decodeSource(source, opts = {}) {
   let { format, bytes, reader, fileSize } = await detectSource(source)
 
-  // Non-streaming fallback (registered codec atoms decode whole-buffer here)
-  if (!format || (!decode[format] && !audio.codecs?.[format]?.decode)) {
+  // Non-streaming fallback — registered codec atoms decode whole-buffer here too
+  if (!format || !decode[format]) {
     if (!bytes) bytes = new Uint8Array(await resolveSource(source))
-    let { channelData, sampleRate } = await decode(bytes.buffer || bytes)
-    let pages = opts.pages || []
-    if (!opts.disposed?.()) for (let p of paginate(channelData)) { pages.push(p); opts.notify?.() }
-    let stats = audio.statSession?.(sampleRate)?.page(channelData)?.done() ?? null
-    let header = bytes.subarray(0, Math.min(bytes.length, 256 * 1024))
-    return { pages, sampleRate, channels: channelData.length, header, format, decoding: Promise.resolve({ stats, length: channelData[0].length }) }
-  }
-
-  // Registered codec atom — whole-buffer decode (streaming codec atoms are a later step)
-  if (!decode[format] && audio.codecs?.[format]?.decode) {
-    if (!bytes) bytes = new Uint8Array(await resolveSource(source))
-    let { channelData, sampleRate } = await audio.codecs[format].decode(bytes)
+    let dec = format && audio.codecs?.[format]?.decode
+    let { channelData, sampleRate } = await (dec ? dec(bytes) : decode(bytes.buffer || bytes))
     let pages = opts.pages || []
     if (!opts.disposed?.()) for (let p of paginate(channelData)) { pages.push(p); opts.notify?.() }
     let stats = audio.statSession?.(sampleRate)?.page(channelData)?.done() ?? null
