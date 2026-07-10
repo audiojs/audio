@@ -2683,7 +2683,9 @@ test('detectBudget — derives budget from storage.estimate()', { skip: !isNode 
     mock(0)  // no quota reported
     t.is(await audio.detectBudget(), null, 'null on zero quota')
   } finally {
-    Object.defineProperty(globalThis, 'navigator', orig)
+    // node < 21 has no navigator global — nothing to restore, delete the mock
+    if (orig) Object.defineProperty(globalThis, 'navigator', orig)
+    else delete globalThis.navigator
   }
 })
 
