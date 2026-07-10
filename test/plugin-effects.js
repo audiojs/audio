@@ -63,7 +63,7 @@ test('chorus: smears the fundamental relative to depth=0 (detuned voices beat)',
 })
 
 test('flanger: comb notch sweeps — a fixed tone rises and falls in level over time', async () => {
-	let out = (await audio.from([tone(1200, 3, 0.7)], { sampleRate: SR }).flanger({ rate: 1, depth: 0.9, delay: 3, feedback: 0.6 }).read())[0]
+	let out = (await audio.from([tone(1200, 3, 0.7)], { sampleRate: SR }).flanger({ rate: 1, depth: 0.9, delay: 0.003, feedback: 0.6 }).read())[0]
 	let [min, max] = envelopeSpread(out.subarray(0, 3 * SR))
 	ok(max > min * 1.5, `1.2kHz level swings as the comb sweeps: min ${min.toFixed(3)} .. max ${max.toFixed(3)} (${(max / min).toFixed(2)}x)`)
 })
@@ -82,8 +82,8 @@ test('tremolo: amplitude envelope periodicity matches the set rate', async () =>
 })
 
 test('vibrato: smears the fundamental relative to a near-zero-depth baseline', async () => {
-	let flat = (await audio.from([tone(440, 1.5)], { sampleRate: SR }).vibrato({ depth: 0.0005 }).read())[0]
-	let wet = (await audio.from([tone(440, 1.5)], { sampleRate: SR }).vibrato({ depth: 0.015 }).read())[0]
+	let flat = (await audio.from([tone(440, 1.5)], { sampleRate: SR }).vibrato({ depth: 0.04 }).read())[0]
+	let wet = (await audio.from([tone(440, 1.5)], { sampleRate: SR }).vibrato({ depth: 1 }).read())[0]
 	let eFlat = goertzel(flat, 440, SR, 4000, 66150), eWet = goertzel(wet, 440, SR, 4000, 66150)
 	ok(eWet < eFlat * 0.85, `440Hz energy depth=0.5ms ${eFlat.toFixed(1)} -> depth=15ms ${eWet.toFixed(1)}`)
 })
