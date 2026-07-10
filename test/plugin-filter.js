@@ -15,8 +15,9 @@ import { variable } from '@audio/filter-variable/audio'
 import { comb } from '@audio/filter-comb/audio'
 import { dcblocker } from '@audio/filter-dcblocker/audio'
 import { emphasis, deemphasis } from '@audio/filter-preemphasis/audio'
+import { derivative, integral } from '@audio/filter-derivative/audio'
 
-audio.use(moog, korg35, diode, oberheim, resonator, spectralTilt, variable, comb, dcblocker, emphasis, deemphasis)
+audio.use(moog, korg35, diode, oberheim, resonator, spectralTilt, variable, comb, dcblocker, emphasis, deemphasis, derivative, integral)
 
 const SR = 44100
 
@@ -101,4 +102,19 @@ test('emphasis boosts highs; deemphasis round-trip ≈ identity', async () => {
 	let d = 0
 	for (let i = Math.round(0.1 * SR); i < dry.length; i++) d = Math.max(d, Math.abs(rt[i] - dry[i]))
 	ok(d < 0.05, `emphasis→deemphasis ≈ identity (${d.toFixed(3)})`)
+})
+
+test('derivative/integral: FFmpeg aderivative/aintegral pair', async () => {
+	// ramp k·i → first difference = k after sample 0 (af_aderivative.c: dst[n] = src[n] − prv)
+	let n = 4096, k = 1 / n, ramp = new Float32Array(n)
+	for (let i = 0; i < n; i++) ramp[i] = k * i
+	let d = (await audio.from([ramp.slice()], { sampleRate: SR }).derivative().read())[0]
+	ok(d.subarray(1).every(v => Math.abs(v - k) < 1e-6), 'derivative of ramp = slope, continuous across engine blocks')
+	// integral∘integral⁻¹: running sum of first differences telescopes back to the input
+	let sig = tone(440, 0.2)
+	let rt = (await audio.from([sig.slice()], { sampleRate: SR }).derivative().integral().read())[0]
+	let err = 0
+	for (let i = 0; i < sig.length; i++) err = Math.max(err, Math.abs(rt[i] - sig[i]))
+	ok(err < 1e-5, `derivative→integral round-trip ≈ identity (${err.toExponential(1)})`)
+	ok(rt.every(isFinite), 'finite')
 })

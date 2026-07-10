@@ -1,6 +1,6 @@
 # audio — todo
 
-Registry: **136 names** (ops + stats; codec halves ship in every decode-*/encode-*). Flavors complete: op ✔ stat ✔ codec ✔.
+Registry: **141 names** (ops + stats; codec halves ship in every decode-*/encode-*). Flavors complete: op ✔ stat ✔ codec ✔.
 Parity evidence: [.work/baseline.md](baseline.md). Perf: [docs/comparison.md § Performance](../docs/comparison.md).
 
 ## Next
@@ -28,10 +28,8 @@ Parity evidence: [.work/baseline.md](baseline.md). Perf: [docs/comparison.md § 
 - Direct-import only (inputs aren't scalar params — documented in README "Beyond the registry"): reverb-convolution (IR), eq-fir (curve), tune-midi (guide notes), denoise-repair (regions), synth-dtmf (digit string), synth-wavetable (tables), spatial-delay (per-channel array), per-band multiband/dyneq/multisat, spectral-edit + Audacity spectral-selection ops (time×freq regions), measure/sinusoidal/voice substrate families
 
 ### Parity remainders
-- FFmpeg: channelsplit (core `split()`/remix cover most; per-channel mono outputs = CLI recipe), aderivative/aintegral (trivial, low value — on demand)
-- Audacity: speech **contrast** analyzer (foreground/background RMS, WCAG — distinct from spectral-contrast stat), **label-sounds** (auto-label regions — silence stat + segmentation compose)
-- Tone.js: channel-strip composite (gain+pan+mute+solo — recipe, likely not an op)
 - ML-tier (deferred per no-ML stance until neural-lane policy): genre, mood, tags, lyrics-align, stem-separate
+- Everything else closed 2026-07-10 (see Unreleased): aderivative/aintegral, contrast, label-sounds, zcr shipped as atoms; channelsplit (`split()`/remix) + channel-strip (gain+pan+automation) are recipes, not ops
 
 ### Testing gaps
 - [x] ~~CLI execution tests~~ insert/mix/crossfade/resample e2e added (pad already had one) — and the mix content check caught the opRange tiling bug (see Unreleased)
@@ -53,6 +51,8 @@ Parity evidence: [.work/baseline.md](baseline.md). Perf: [docs/comparison.md § 
 # Archive
 
 ## Unreleased (2026-07)
+
+**Parity remainders closed (2026-07-10)** — registry += derivative/integral (`@audio/filter-derivative` — FFmpeg aderivative/aintegral; differential-verified vs ffmpeg 8.0.1: derivative bit-exact chunked, integral float32-accumulator-exact with a strictly-more-accurate double acc; `leak<1` anti-drift extension), speech-contrast (`@audio/loudness-contrast` — Audacity Contrast / WCAG 2.0 SC 1.4.7 ≥20 dB pass; explicit `fg`/`bg` [at,dur] slices = Audacity's two-selection workflow, auto threshold-pooled 10 ms frames as extension), sounds (`@audio/loudness-sounds` — Audacity Label Sounds: 10 ms chunks, peak/avg/rms measurement, minSilence gap-close + minSound forward-fold, per-side sound-bounded padding, 10k cap), zcr (`@audio/spectral-zcr` — librosa-exact: signbit diff incl −0, frames 2048/512, mean over frame length). Registry 136 → 141; umbrellas filter 3.1.0 / loudness 1.1.0 / spectral 1.2.0; family suites filter 109✓ loudness 21✓ spectral 23✓. Adversarial review caught two real bugs pre-publish: padding claimed gaps sequentially (manual: labels may overlap *labels*, never sounds — now per-side against raw sound boundaries) and contrast auto-pool scanning inside the caller's explicit fg (now excluded). channelsplit closed as `split()`/remix recipe, Tone.js channel-strip as gain+pan recipe. comparison.md refreshed: all stale `(plan)` cells → shipped registry names, new Derivative/integral + Speech contrast rows, Silence row += `stat('sounds')`, honest cells for FIR (direct-import), stem-separation (`@audio/neural-separate` import), HRTF (—).
 
 **Worker P4 closed** — `audio(src, {worker: true})` dispatches to the worker facade once `audio/worker` is imported (global-symbol slot — no engine↔facade import in either direction, no double-hosting in worker scope); + live `playbackRate` parity: varispeed extracted to fn/varispeed.js (shared, engine-free), worker pump runs it, sinks map output consumption → source time (worklet: per-block span queue with interpolation; speaker: per-chunk srcEnd) — fix-worker 21✓. **Contract `frames` hook** (structural custom ops, whole-render form) — `streaming: false` plugins declare output length as fn of input (`frames: (n, {params}) => round(n·factor)`); plan sizes output buffers by it, timeline/duration/serialization follow (CONTRACT.md §frames; engine test pinned). **Stretch manifests ×9** ride on it — published 1.1.0, registry += stretch-{pvoc-lock,pvoc,pghi,wsola,psola,sms,transient,hybrid,paul} (plugin-stretch suite). **Published 2026-07-10**: mir-chroma/tonnetz 1.1.0 (registry += chroma/tonnetz, plugin-stats tests), effect ×6 1.1.3 (kernel fixes), decode 3.11.1 (dual-mono fix — audio deps refreshed); registry 125 → 136. Stragglers item dropped (referent packages don't exist — verified npm/GitHub; real near-dupe deprecations happened in the denoise merge). **atom → plugin rename in code** — test/atom-*.js → plugin-*.js, `useAtom/isAtom` → `useOp/isOp`, descriptor `atom` field → `plugin` (`atom` kept as deprecated alias one cycle), `atomHelp` → `pluginHelp`, CLI prints "Plugin", d.ts StatAtom/CodecAtom → StatPlugin/CodecPlugin (deprecated aliases). **Dither noise-shape test de-flaked** (5-probe/64k statistic vs 2-probe/16k coin-flip).
 
@@ -87,10 +87,10 @@ Registry-completion follow-up (shipped in 2.4.0): spatial ×7 (widener, haas, pa
 **FFmpeg spatial**: stereotools/stereowiden/extrastereo (widener/haas/midside class), bs2b (crossfeed), surround (2→5.1) ✔
 **FFmpeg restoration**: afftdn, adeclick, adeclip, deesser (+ dehum/dereverb/deplosive/dewind/decrackle/debreath beyond parity) ✔
 **FFmpeg EQ**: tiltshelf (tilt), superequalizer (geq), acrossover (crossover op — built-in, LR4 band-split via `ch` hook) ✔; firequalizer — direct-import (response curve)
-**FFmpeg analysis**: aspectralstats (centroid/flatness core + rolloff/spread/flux/slope/contrast/ltas stats), drmeter (dr), replaygain ✔
-**FFmpeg misc**: amultiply (ringmod), afreqshift (freqshift), aloop (repeat), adelay (spatial-delay, direct-import), afftfilt (spectral-edit kernel, direct-import), silenceremove — ends (trim) + throughout (shrink) ✔
-**Audacity**: noise gate (gate), Generators — tone (osc), noise-gen, chirp, pluck, risset-drum, rhythm-track ✔ (dtmf direct-import); truncate-silence (shrink) + adjustable-fade (fade start/end/mid) ✔; spectral-selection ops → Open
-**Tone.js**: oscillator, envelope (adsr), drum-synth (kick/cymbal/snare), pluck-synth, synth-voice (voice), poly ✔; lfo = engine automation + tremolo/vibrato/autopan; midside ✔
+**FFmpeg analysis**: aspectralstats (centroid/flatness core + rolloff/spread/flux/slope/contrast/ltas/zcr stats), drmeter (dr), replaygain ✔
+**FFmpeg misc**: amultiply (ringmod), afreqshift (freqshift), aloop (repeat), aderivative/aintegral (derivative/integral — bit-exact differential vs 8.0.1) ✔, adelay (spatial-delay, direct-import), afftfilt (spectral-edit kernel, direct-import), silenceremove — ends (trim) + throughout (shrink) ✔; channelsplit = `split()`/remix recipe
+**Audacity**: noise gate (gate), Generators — tone (osc), noise-gen, chirp, pluck, risset-drum, rhythm-track ✔ (dtmf direct-import); truncate-silence (shrink) + adjustable-fade (fade start/end/mid) ✔; Contrast (speech-contrast stat, WCAG 2.0 SC 1.4.7) + Label Sounds (sounds stat) ✔; spectral-selection ops — direct-import (spectral-edit)
+**Tone.js**: oscillator, envelope (adsr), drum-synth (kick/cymbal/snare), pluck-synth, synth-voice (voice), poly ✔; lfo = engine automation + tremolo/vibrato/autopan; midside ✔; channel-strip = gain+pan recipe (not an op)
 **MIREX**: bpm, beats, onsets, notes, chords, key, cepstrum, spectrum (core) + structure, transcribe, downbeat, coversong, melody, multif0, fingerprint, similarity, drums, tempogram (stat atoms) ✔; ML-tier → Open
 **Stats prerequisites (AI gate)**: crest, centroid, flatness, correlation ✔ — MCP unblocked
 

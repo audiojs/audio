@@ -21,9 +21,12 @@ import { structure } from '@audio/mir-structure/audio'
 import { melody } from '@audio/mir-melody/audio'
 import { fingerprint } from '@audio/mir-fingerprint/audio'
 import { similarity } from '@audio/mir-similarity/audio'
+import { speechContrast } from '@audio/loudness-contrast/audio'
+import { sounds } from '@audio/loudness-sounds/audio'
+import { zcr } from '@audio/spectral-zcr/audio'
 
 audio.use(truepeak, lra, replaygain, dr, rolloff, spread, slope, flux, contrast, ltas,
-	structure, melody, fingerprint, similarity)
+	structure, melody, fingerprint, similarity, speechContrast, sounds, zcr)
 
 const SR = 44100
 
@@ -147,4 +150,33 @@ test('tonnetz: 6-D trajectory, distinct keys separate', async () => {
 	let dist = 0
 	for (let k = 0; k < 6; k++) dist += (c.mean[k] - fs.mean[k]) ** 2
 	ok(Math.sqrt(dist) > 0.3, `tritone-apart keys separate (${Math.sqrt(dist).toFixed(2)})`)
+})
+
+test('speech-contrast: fg/bg RMS difference, WCAG 20 dB pass (Audacity Contrast)', async () => {
+	// 1 s −6 dBFS tone (RMS −9.01 dB) + 1 s −36 dBFS tone (RMS −39.01 dB) → contrast 30 dB
+	let loud = tone(997, 1, 10 ** (-6 / 20)), quiet = tone(997, 1, 10 ** (-36 / 20))
+	let a = audio.from([new Float32Array([...loud, ...quiet])], { sampleRate: SR })
+	let r = await a.stat('speech-contrast', { fg: [0, 1], bg: [1, 1] })  // Audacity two-selection mode
+	almost(r.foreground, -9.01, 0.1, `fg ${r.foreground.toFixed(2)} dB`)
+	almost(r.background, -39.01, 0.1, `bg ${r.background.toFixed(2)} dB`)
+	ok(r.pass === true, '30 dB ≥ 20 dB → WCAG 2.0 SC 1.4.7 pass')
+	let auto = await a.stat('speech-contrast')  // auto mode pools by threshold
+	almost(auto.contrast, 30, 0.5, `auto contrast ${auto.contrast.toFixed(1)} dB`)
+})
+
+test('sounds: labels tone bursts with silence between (Audacity Label Sounds)', async () => {
+	// 0.5 s bursts at 0.5 s and 3 s — gaps ≥ default minSilence 1 s → two labeled regions
+	let n = 5 * SR, ch = new Float32Array(n)
+	ch.set(tone(997, 0.5, 0.5), Math.round(0.5 * SR))
+	ch.set(tone(997, 0.5, 0.5), 3 * SR)
+	let regions = await audio.from([ch], { sampleRate: SR }).stat('sounds', { minSound: 0.4 })
+	is(regions.length, 2)
+	almost(regions[0].at, 0.5, 0.02, 'first at 0.5 s (±one 10 ms chunk)')
+	almost(regions[1].at, 3, 0.02, 'second at 3 s')
+	is(regions[0].label, 'Sound 1')
+})
+
+test('zcr: sine rate = 2f/sr, noise ≈ 0.5 (librosa zero_crossing_rate)', async () => {
+	let z = await audio.from([tone(440, 1, 0.5)], { sampleRate: SR }).stat('zcr')
+	almost(z, 2 * 440 / SR, 0.001, `440 Hz → ${z.toFixed(4)} (2f/sr = ${(880 / SR).toFixed(4)})`)
 })
