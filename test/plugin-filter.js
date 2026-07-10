@@ -2,6 +2,7 @@
 // One defining-property test per atom.
 
 import test, { ok, is } from 'tst'
+import { tone as genTone } from './gen.js'
 import audio from '../audio.js'
 
 import { moog } from '@audio/filter-moog-ladder/audio'
@@ -19,11 +20,7 @@ audio.use(moog, korg35, diode, oberheim, resonator, spectralTilt, variable, comb
 
 const SR = 44100
 
-function tone(freq, dur, amp = 0.6, sr = SR) {
-	let n = Math.round(dur * sr), d = new Float32Array(n)
-	for (let i = 0; i < n; i++) d[i] = amp * Math.sin(2 * Math.PI * freq * i / sr)
-	return d
-}
+const tone = (freq, dur, amp = 0.6, sr = SR) => genTone(freq, dur, amp, sr)
 function twoTone(f1, f2, dur, amp = 0.4, sr = SR) {
 	let n = Math.round(dur * sr), d = new Float32Array(n)
 	for (let i = 0; i < n; i++) d[i] = amp * (Math.sin(2 * Math.PI * f1 * i / sr) + Math.sin(2 * Math.PI * f2 * i / sr))

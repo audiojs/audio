@@ -3,6 +3,7 @@
 // sustained howl-like tone gets progressively notched.
 
 import test, { ok } from 'tst'
+import { tone as genTone } from './gen.js'
 import audio from '../audio.js'
 
 import { tape } from '@audio/saturate-tape/audio'
@@ -17,11 +18,7 @@ audio.use(tape, transistor, waveshaper, multisat, amp, cabinet, defeedback)
 
 const SR = 44100
 
-function tone(freq, dur, amp2 = 0.7, sr = SR) {
-	let n = Math.round(dur * sr), d = new Float32Array(n)
-	for (let i = 0; i < n; i++) d[i] = amp2 * Math.sin(2 * Math.PI * freq * i / sr)
-	return d
-}
+const tone = (freq, dur, amp = 0.7, sr = SR) => genTone(freq, dur, amp, sr)
 function g(buf, f, sr = SR, from = Math.round(0.1 * SR), to = buf.length - Math.round(0.05 * SR)) {
 	let w = 2 * Math.PI * f / sr, coeff = 2 * Math.cos(w), s1 = 0, s2 = 0
 	for (let i = from; i < to; i++) { let s = buf[i] + coeff * s1 - s2; s2 = s1; s1 = s }

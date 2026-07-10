@@ -5,6 +5,7 @@
 // yet); switch to '@audio/effect-<atom>/audio' once it is.
 
 import test, { ok } from 'tst'
+import { tone as genTone, impulse } from './gen.js'
 import audio from '../audio.js'
 
 import { chorus } from '@audio/effect-chorus/audio'
@@ -35,12 +36,7 @@ audio.use(chorus, flanger, phaser, tremolo, vibrato, autowah, wah, bitcrusher, d
 
 const SR = 44100
 
-function tone(freq, dur, amp = 0.7, sr = SR) {
-	let n = Math.round(dur * sr), d = new Float32Array(n)
-	for (let i = 0; i < n; i++) d[i] = amp * Math.sin(2 * Math.PI * freq * i / sr)
-	return d
-}
-function impulse(n, amp = 1) { let d = new Float32Array(n); d[0] = amp; return d }
+const tone = (freq, dur, amp = 0.7, sr = SR) => genTone(freq, dur, amp, sr)
 function rms(d, from = 0, to = d.length) { let s = 0; for (let i = from; i < to; i++) s += d[i] * d[i]; return Math.sqrt(s / (to - from)) }
 /** Goertzel magnitude at f Hz. */
 function goertzel(buf, f, sr = SR, from = 0, to = buf.length) {

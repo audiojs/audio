@@ -4,6 +4,7 @@
 // (mono-fold; similarity/coversong take a `ref` instance, pre-rendered by the host).
 
 import test, { ok, is, almost } from 'tst'
+import { tone as genTone } from './gen.js'
 import audio from '../audio.js'
 
 import { truepeak } from '@audio/loudness-truepeak/audio'
@@ -26,11 +27,7 @@ audio.use(truepeak, lra, replaygain, dr, rolloff, spread, slope, flux, contrast,
 
 const SR = 44100
 
-function tone(freq, dur, amp = 0.5, sr = SR) {
-	let n = Math.round(dur * sr), d = new Float32Array(n)
-	for (let i = 0; i < n; i++) d[i] = amp * Math.sin(2 * Math.PI * freq * i / sr)
-	return d
-}
+const tone = (freq, dur, amp = 0.5, sr = SR) => genTone(freq, dur, amp, sr)
 
 test('truepeak: sine at −6 dBFS reads ≈ −6 dBTP', async () => {
 	let a = audio.from([tone(997, 1, 0.5)], { sampleRate: SR })

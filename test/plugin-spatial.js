@@ -3,6 +3,7 @@
 // (see @audio/spatial/packages/spatial-<atom>/audio.js).
 
 import test, { ok, is, almost } from 'tst'
+import { tone as genTone } from './gen.js'
 import audio from '../audio.js'
 
 import { widener } from '@audio/spatial-widener/audio'
@@ -17,11 +18,7 @@ audio.use(widener, haas, panner, autopan, midside, microshift, surround)
 
 const SR = 44100
 
-function tone(freq, dur, amp = 0.7, sr = SR) {
-	let n = Math.round(dur * sr), d = new Float32Array(n)
-	for (let i = 0; i < n; i++) d[i] = amp * Math.sin(2 * Math.PI * freq * i / sr)
-	return d
-}
+const tone = (freq, dur, amp = 0.7, sr = SR) => genTone(freq, dur, amp, sr)
 function rms(d, from = 0, to = d.length) { let s = 0; for (let i = from; i < to; i++) s += d[i] * d[i]; return Math.sqrt(s / (to - from)) }
 /** Goertzel magnitude at f Hz. */
 function goertzel(buf, f, sr = SR, from = 0, to = buf.length) {

@@ -228,7 +228,7 @@ audio.op('fade', {
 ### whole
 
 Whole-render processing — same `(input, output, ctx)` signature as `process`, called
-**once** with the entire signal (`streaming: false` contract atoms register this way
+**once** with the entire signal (`streaming: false` contract plugins register this way
 via `audio.use`). At compile the engine materializes the plan so far, runs the hook,
 and continues from the result as a reference segment — downstream ops apply to the
 processed output, undo unwinds the single edit, and the materialization is cached per
@@ -238,7 +238,7 @@ samples). Cannot be emitted by `expand`/`resolve`.
 
 ### sidechain key
 
-A contract atom declaring more than one input bus (`channels: { inputs: [2, 2] }`)
+A contract plugin declaring more than one input bus (`channels: { inputs: [2, 2] }`)
 receives bus 1 from the op's `key` option — an audio instance or `Float32Array[]`,
 rendered per block at the op's timeline position, sample-rate-reconciled, page-primed
 and awaited like any ref:
@@ -253,7 +253,7 @@ Declared lookahead in samples — a number, or `(opts, sampleRate) => samples` f
 param-dependent delay lines. The engine compensates at the plan level (plugin delay
 compensation): render cursors run the pipeline's total latency ahead of the requested
 timeline, so delayed output lands aligned and the final samples flush through
-past-the-end silence. Contract atoms declare `latency` per CONTRACT.md and
+past-the-end silence. Contract plugins declare `latency` per CONTRACT.md and
 get this automatically.
 
 ### resolve

@@ -3,6 +3,7 @@
 // multiband, only the band over threshold is touched.
 
 import test, { ok, is } from 'tst'
+import { tone as genTone } from './gen.js'
 import audio from '../audio.js'
 
 import { fet } from '@audio/dynamics-fet/audio'
@@ -15,11 +16,7 @@ audio.use(fet, opto, varimu, vca, multiband)
 
 const SR = 44100
 
-function tone(freq, dur, amp = 0.8, sr = SR) {
-	let n = Math.round(dur * sr), d = new Float32Array(n)
-	for (let i = 0; i < n; i++) d[i] = amp * Math.sin(2 * Math.PI * freq * i / sr)
-	return d
-}
+const tone = (freq, dur, amp = 0.8, sr = SR) => genTone(freq, dur, amp, sr)
 function rms(d, from = 0, to = d.length) { let s = 0; for (let i = from; i < to; i++) s += d[i] * d[i]; return Math.sqrt(s / (to - from)) }
 /** Goertzel magnitude at f Hz. */
 function goertzel(buf, f, sr = SR, from = 0, to = buf.length) {

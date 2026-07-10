@@ -58,7 +58,7 @@ test('note-event ops serialize (notes survive toJSON)', async () => {
 	ok(JSON.stringify(doc).includes('"midi":69'), 'notes serialized in the edit')
 })
 
-// ── codec atoms ─────────────────────────────────────────────────────────────
+// ── codec plugins ─────────────────────────────────────────────────────────────
 
 // raw16 — a minimal real codec: 'RA16' magic, u32 sampleRate, u16 channels,
 // interleaved s16le frames. Enough to exercise sniff → decode and encode → save.
@@ -103,7 +103,7 @@ const raw16 = {
 audio.use({ codec: 'raw16', test: raw16.test, decode: raw16.decode })
 audio.use({ codec: 'raw16', encode: raw16.encode })
 
-test('codec atom: encode → sniff → decode round-trip', async () => {
+test('codec plugin: encode → sniff → decode round-trip', async () => {
 	let n = SR >> 1, ch = new Float32Array(n)
 	for (let i = 0; i < n; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / SR)
 	let bytes = await audio.from([ch, ch], { sampleRate: SR }).encode('raw16')
@@ -119,14 +119,14 @@ test('codec atom: encode → sniff → decode round-trip', async () => {
 	ok(d < 2 / 0x7fff + 1e-6, `s16 round-trip within quantization (${d.toExponential(1)})`)
 })
 
-test('codec atom: notes without duration ring to the end', async () => {
+test('codec plugin: notes without duration ring to the end', async () => {
 	let out = (await silent(0.6).voice({ notes: [{ time: 0.1, midi: 69 }] }).read())[0]
 	// no off event — the instrument sustains the note to the take's end
 	ok(rms(out, Math.round(0.45 * SR), Math.round(0.58 * SR)) > 0.02, 'still sounding near the end')
 	ok(out.every(isFinite))
 })
 
-test('codec atom: file-path open sniffs the header (node fs branch)', async () => {
+test('codec plugin: file-path open sniffs the header (node fs branch)', async () => {
 	let { tmpdir } = await import('os')
 	let { join } = await import('path')
 	let { writeFileSync, rmSync } = await import('fs')
@@ -138,11 +138,11 @@ test('codec atom: file-path open sniffs the header (node fs branch)', async () =
 	try {
 		let b = await audio(path)   // 12-byte header sniff → registered test() claims it
 		is(b.channels, 1)
-		ok(Math.abs(b.duration - 0.25) < 0.01, 'file decoded via codec atom')
+		ok(Math.abs(b.duration - 0.25) < 0.01, 'file decoded via codec plugin')
 	} finally { rmSync(path, { force: true }) }
 })
 
-test('codec atom: save/encode format guard accepts registered codecs', async () => {
+test('codec plugin: save/encode format guard accepts registered codecs', async () => {
 	let a = audio.from([new Float32Array(1000).fill(0.1)], { sampleRate: SR })
 	let bytes = await a.encode('raw16')
 	ok(bytes.length === 10 + 1000 * 2, 'exact byte count (header + s16 frames)')

@@ -7,6 +7,7 @@
 // switch to '@audio/denoise-<atom>/audio' after next publish.
 
 import test, { ok, almost, is } from 'tst'
+import { noise } from './gen.js'
 import audio from '../audio.js'
 import raw from 'audio-lena/raw'
 
@@ -16,7 +17,6 @@ let lena = new Float32Array(raw)                          // 12.27s mono speech
 // --- generators / metrics (mirrors module-ops.js + @audio/denoise's own test.js) ---
 function rms(d, from = 0, to = d.length) { let s = 0; for (let i = from; i < to; i++) s += d[i] * d[i]; return Math.sqrt(s / (to - from)) }
 function peak(d, from = 0, to = d.length) { let p = 0; for (let i = from; i < to; i++) { let a = Math.abs(d[i]); if (a > p) p = a } return p }
-function noise(n, amp = 1) { let d = new Float32Array(n); for (let i = 0; i < n; i++) d[i] = amp * (Math.random() * 2 - 1); return d }
 function mix(speech, noiseArr, snrDb) {
 	let target = rms(speech) / 10 ** (snrDb / 20), scale = target / Math.max(rms(noiseArr), 1e-30)
 	let d = new Float32Array(speech.length)

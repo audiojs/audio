@@ -3,6 +3,7 @@
 // PSOLA retune. See @audio/tune-snap/audio.js.
 
 import test, { ok, is } from 'tst'
+import { tone as genTone } from './gen.js'
 import audio from '../audio.js'
 
 import { tune } from '@audio/tune-snap/audio'
@@ -11,11 +12,7 @@ audio.use(tune)
 
 const SR = 44100
 
-function tone(freq, dur, amp = 0.6, sr = SR) {
-	let n = Math.round(dur * sr), d = new Float32Array(n)
-	for (let i = 0; i < n; i++) d[i] = amp * Math.sin(2 * Math.PI * freq * i / sr)
-	return d
-}
+const tone = (freq, dur, amp = 0.6, sr = SR) => genTone(freq, dur, amp, sr)
 /** Goertzel magnitude at f Hz. */
 function goertzel(buf, f, sr = SR, from = 0, to = buf.length) {
 	let w = 2 * Math.PI * f / sr, coeff = 2 * Math.cos(w), s1 = 0, s2 = 0
@@ -53,8 +50,8 @@ test('tune: scale snap targets the scale degree, stereo corrects both channels',
 
 test('op introspection carries tune param metadata', () => {
 	let d = audio.op('tune')
-	is(d.atom.streaming, false)
-	ok(d.atom.params.scale.values.includes('major'))
-	is(d.atom.params.tolerance.unit, 'cents')
-	is(d.atom.params.root.max, 11)
+	is(d.plugin.streaming, false)
+	ok(d.plugin.params.scale.values.includes('major'))
+	is(d.plugin.params.tolerance.unit, 'cents')
+	is(d.plugin.params.root.max, 11)
 })

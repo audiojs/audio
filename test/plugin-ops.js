@@ -3,6 +3,7 @@
 // @audio/reverb-freeverb (declared tail → composed trailing pad, decay preserved).
 
 import test, { ok, almost, is } from 'tst'
+import { tone as genTone } from './gen.js'
 import audio from '../audio.js'
 import { compressor } from '@audio/dynamics-compressor/audio'
 import { freeverb } from '@audio/reverb-freeverb/audio'
@@ -11,11 +12,7 @@ audio.use(compressor, freeverb)
 
 const SR = 44100
 
-function tone(freq, dur, amp = 0.8, sr = SR) {
-  let n = Math.round(dur * sr), ch = new Float32Array(n)
-  for (let i = 0; i < n; i++) ch[i] = amp * Math.sin(2 * Math.PI * freq * i / sr)
-  return ch
-}
+const tone = (freq, dur, amp = 0.8, sr = SR) => genTone(freq, dur, amp, sr)
 function rms(d, from = 0, to = d.length) {
   let s = 0
   for (let i = from; i < to; i++) s += d[i] * d[i]
@@ -56,8 +53,8 @@ test('declared tail composes a trailing pad — freeverb decay is not truncated'
 
 test('op introspection carries module param metadata (CLI help substrate)', () => {
   let d = audio.op('compressor')
-  is(d.atom.params.threshold.min, -60)
-  is(d.atom.params.threshold.unit, 'dB')
+  is(d.plugin.params.threshold.min, -60)
+  is(d.plugin.params.threshold.unit, 'dB')
   ok(d.params.includes('ratio'))
   is(audio.op('freeverb').tail, 6)
 })
@@ -73,15 +70,16 @@ test('tail op is undo-atomic and serializes as one edit', async () => {
 })
 
 test('audio.use(name) resolves through the registry (dynamic import)', async () => {
-  audio.atoms ??= {}
-  audio.atoms.tube = '@audio/saturate-tube/audio'
+  is(audio.atoms, audio.plugins, 'audio.atoms is a deprecated alias of audio.plugins')
+  audio.plugins ??= {}
+  audio.plugins.tube = '@audio/saturate-tube/audio'
   await audio.use('tube')
   ok(typeof audio.fn.tube === 'function', 'registry-resolved module registered')
   let out = (await audio.from([tone(440, 0.2)], { sampleRate: SR }).tube({ drive: 8 }).read())[0]
   ok(out.every(isFinite))
   let err = null
   try { audio.use('nosuchmodule') } catch (e) { err = e }
-  ok(/unknown atom/.test(err?.message), 'unknown name throws')
+  ok(/unknown plugin/.test(err?.message), 'unknown name throws')
 })
 
 // ── Wave B: dynamics-gate + denoise-dehum ─────────────────────────────

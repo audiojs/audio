@@ -4,6 +4,7 @@
 // (streaming: false). See each manifest's header for the measurement method.
 
 import test, { ok, is } from 'tst'
+import { tone as genTone } from './gen.js'
 import audio from '../audio.js'
 
 import { vocoder } from '@audio/shift-pvoc/audio'
@@ -15,11 +16,7 @@ audio.use(vocoder, formantShift, paulstretch, pitchShift)
 
 const SR = 44100
 
-function tone(freq, dur, amp = 0.7, sr = SR) {
-	let n = Math.round(dur * sr), d = new Float32Array(n)
-	for (let i = 0; i < n; i++) d[i] = amp * Math.sin(2 * Math.PI * freq * i / sr)
-	return d
-}
+const tone = (freq, dur, amp = 0.7, sr = SR) => genTone(freq, dur, amp, sr)
 function rms(d, from = 0, to = d.length) { let s = 0; for (let i = from; i < to; i++) s += d[i] * d[i]; return Math.sqrt(s / (to - from)) }
 /** Goertzel magnitude at f Hz. */
 function goertzel(buf, f, sr = SR, from = 0, to = buf.length) {
@@ -95,8 +92,8 @@ test('pitch-shift: formant flag conflicts with explicit method — fails loudly'
 })
 
 test('op introspection carries shift param metadata', () => {
-	is(audio.op('vocoder').atom.latency, 2048)
-	is(audio.op('vocoder').atom.params.semitones.min, -24)
-	ok(audio.op('pitch-shift').atom.params.method.values.includes('psola'))
-	is(audio.op('paulstretch').atom.streaming, false)
+	is(audio.op('vocoder').plugin.latency, 2048)
+	is(audio.op('vocoder').plugin.params.semitones.min, -24)
+	ok(audio.op('pitch-shift').plugin.params.method.values.includes('psola'))
+	is(audio.op('paulstretch').plugin.streaming, false)
 })
