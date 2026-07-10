@@ -105,12 +105,13 @@ test('dereverb: reduces late-tail energy, never boosts it', async () => {
 	ok(rmsOut < rmsRev * 0.98, `defining property: tail energy reduced (${rmsRev.toFixed(4)} -> ${rmsOut.toFixed(4)})`)
 })
 
-// ── Wave: causal state-machine kernels (gate, deplosive, dewind) ────────────
-// Per-sample/per-block state persisted on a plain object across process() calls (same
-// state-per-channel pattern as @audio/denoise-dehum) — zero or fixed lookahead latency,
-// no STFT buffering involved.
+// ── Wave: causal kernels (gate, deplosive, dewind) ──────────────────────────
+// deplosive/dewind persist per-sample/per-block state on a plain object across
+// process() calls (same state-per-channel pattern as @audio/denoise-dehum); gate is
+// the dynamics stream kernel (denoise-gate merged into @audio/dynamics-gate 2026-07)
+// hosted with its function-form `latency` (lookahead ms → samples) compensated.
 
-import { gate } from '@audio/denoise-gate/audio'
+import { gate } from '@audio/dynamics-gate/audio'
 import { deplosive } from '@audio/denoise-deplosive/audio'
 import { dewind } from '@audio/denoise-dewind/audio'
 audio.use(gate, deplosive, dewind)
@@ -119,8 +120,8 @@ test('gate: passes signal, silences the floor (look-ahead hysteresis)', async ()
 	let n = SR, ch = new Float32Array(n)
 	for (let i = 0; i < n / 2; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / SR)
 	for (let i = n / 2; i < n; i++) ch[i] = 0.003 * Math.sin(2 * Math.PI * 440 * i / SR)
-	let out = (await audio.from([ch], { sampleRate: SR }).gate({ threshold: -40, range: -90 }).read())[0]
-	is(out.length, n, 'length preserved')
+	let out = (await audio.from([ch], { sampleRate: SR }).gate({ threshold: -40, range: -90, lookahead: 5 }).read())[0]
+	is(out.length, n, 'length preserved (function-form latency compensated)')
 	ok(rms(out, SR * 0.1, SR * 0.4) > 0.3, 'signal above threshold passes')
 	ok(rms(out, SR * 0.8) < 0.0005, `defining property: floor silenced (${rms(out, SR * 0.8).toExponential(1)})`)
 })
