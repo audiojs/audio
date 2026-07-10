@@ -555,7 +555,7 @@ Registry (`audio.atoms`, name → package):
 **spatial** widener · haas · panner · autopan · midside · microshift · surround —
 **shift** pitch-shift · vocoder · formant-shift · paulstretch —
 **color** tape · transistor · waveshaper · multisat · amp · cabinet · defeedback —
-**generate** osc · noise · chirp · pluck · risset · rhythm · sfx · kick · cymbal · snare · adsr —
+**generate** osc · noise · chirp · pluck · risset · rhythm · sfx · kick · cymbal · snare · adsr · voice · poly —
 **more** yin · tube · isolate · tune
 
 Stat atoms register the same way and land on `a.stat(name)` — the registry carries both flavors:
@@ -576,6 +576,15 @@ import { toBatch, toStream } from 'audio/batch'
 const compress = toBatch(compressor, { sampleRate: 44100 })
 const out = compress(samples, { params: { threshold: -24 } })
 ```
+
+Note-event instruments (`voice`, `poly`) take a `notes` list — the host compiles it to contract §events slots:
+
+```js
+await audio.use('poly')
+audio(4).poly({ notes: [{ time: 0, midi: 60, duration: 1 }, { time: 0, midi: 64, duration: 1 }] })
+```
+
+Codec atoms — `{ codec: fmt, test?(bytes), decode?(bytes), encode?(opts) }` — register the same way and extend what `audio()` can open (header sniffed via `test` where magic-byte detection draws a blank) and what `save()`/`encode()` can write.
 
 Beyond the registry: kernels whose inputs aren't scalar params ship as plain packages for direct import — `@audio/reverb-convolution` (impulse response), `@audio/eq-fir` (response curve), `@audio/eq-crossover` (SOS designer), `@audio/tune-midi` (guide notes), `@audio/denoise-repair` (regions), `@audio/synth-dtmf` (digit string), `@audio/synth-wavetable` (tables), per-band forms of multiband/dyneq/multisat, and the `@audio/measure`, `@audio/sinusoidal`, `@audio/voice` tool/substrate families.
 

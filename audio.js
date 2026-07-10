@@ -123,8 +123,11 @@ audio.atoms = {
   cymbal: '@audio/synth-drum/audio',
   snare: '@audio/synth-drum/audio',
   adsr: '@audio/synth-envelope/audio',
-  // @audio/synth-dtmf (digit string) / synth-wavetable (table arrays) / synth-voice+poly
-  // (note events) — direct-import only until string/array params or event hosting exist
+  voice: '@audio/synth-voice/audio',
+  poly: '@audio/synth-poly/audio',
+  // ↑ note-event instruments: pass notes — a.voice({ notes: [{ time, midi|freq, duration, velocity }] })
+  // @audio/synth-dtmf (digit string) / synth-wavetable (table arrays) — direct-import only
+  // Codec atoms ({ codec, test?, decode?, encode? }) register the same way — none published yet
 
   // ── Stat atoms ({ stat, compute } — register as a.stat(name)) ────────────
   truepeak: '@audio/loudness-truepeak/audio',

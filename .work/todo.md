@@ -41,7 +41,22 @@ the timeline). Tests: atom-{reverb,dynamics,filter,eq,color,synth,stats}.js (58 
 * [x] Wave C — stat-atom convention + 20 stat atoms: loudness ×4 (truepeak/lra/replaygain/dr), spectral ×6 (rolloff/spread/slope/flux/contrast/ltas), mir ×10 (structure/tempogram/melody/downbeat/fingerprint/drums/multif0/transcribe/similarity/coversong) — closes MIREX Analysis + FFmpeg Analysis/Metering at the audio level — 2026-07
 * [x] Wave D — direct-import families documented (README "Beyond the registry"): convolution IR, eq-fir curves, eq-crossover designer, tune-midi, denoise-repair, synth-dtmf/wavetable, voice/poly (await event hosting), measure/sinusoidal/voice substrates — 2026-07
 * [x] publish wave: 59 packages published across 11 family repos; audio devDeps swapped to artifacts, suite re-verified against published tarballs (engine 621) — 2026-07
-* [ ] audio release (minor: registry 123, stat flavor, whole-tail + generator hosting)
+* [x] audio release: shipped as 2.4.0 (registry 123, stat flavor, whole-tail + generator hosting) — 2026-07
+
+## Release (v2.5 — flavors complete)
+
+Ship state: contract split absorbed (@audio/atom → @audio/compile, manifests atom.js/stat.js → audio.js,
+subpath /atom → /audio — ecosystem republished 1.1.1, toBatch/toStream landed as `audio/batch`);
+**codec flavor shipped** — `{ codec, test?, decode?, encode? }` atoms register via the same use()/registry,
+extend what `audio()` can open (`test()` sniffs headers where audio-type draws a blank) and what
+`save()`/`encode()` can write (raw16 round-trip pinned in test/atom-notes.js); **note-event hosting
+shipped** — a `notes` option compiles to contract §events slots (on/off paired by id) for whole-render
+instruments; `voice` + `poly` manifests → registry 125. Engine 627 green.
+
+* [x] codec flavor — third of three plugin flavors (op ✔ stat ✔ codec ✔); no published codec atoms yet (ecosystem side: pair decode-X/encode-X kernels behind one manifest) — 2026-07
+* [x] note-event hosting + `voice`/`poly` registry instruments (a.voice({ notes: [{time, midi|freq, duration, velocity}] })); per-block event feed for *streaming* instruments deferred until one exists — 2026-07
+* [x] genre/mood/tags — checked 2026-07: no classical kernels published, @audio/neural = amp/denoise/separate/runtime only — stays deferred per no-ML stance
+* [ ] release: audio 2.5.0 (minor — codec flavor, events hosting, voice/poly)
 
 ## Perf — save/encode streaming JIT fix (2026-07)
 

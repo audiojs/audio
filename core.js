@@ -243,13 +243,16 @@ if (Symbol.dispose) fn[Symbol.dispose] = fn.dispose
 
 const isAtom = p => typeof p === 'function' && Object.hasOwn(p, 'params') && typeof p.params === 'object'
 const isStat = p => p != null && typeof p === 'object' && typeof p.stat === 'string' && typeof p.compute === 'function'
+const isCodec = p => p != null && typeof p === 'object' && typeof p.codec === 'string' && (typeof p.decode === 'function' || typeof p.encode === 'function')
 
 /** Register plugins. Each receives audio. A contract atom (a factory function
  *  with an own `params` object — see audiojs/compile CONTRACT.md) is hosted natively as
  *  an op; its declared `tail` composes a trailing pad so decays are not truncated.
  *  A stat atom ({ stat: name, compute(channels, opts) }) registers as a.stat(name).
- *  A string resolves through the audio.atoms registry (dynamic import — returns a
- *  promise); every atom- or stat-shaped export of the target registers. */
+ *  A codec atom ({ codec: fmt, test?, decode?, encode? }) extends what audio() can
+ *  open and what save()/encode() can write. A string resolves through the
+ *  audio.atoms registry (dynamic import — returns a promise); every atom-, stat- or
+ *  codec-shaped export of the target registers. */
 audio.use = function(...plugins) {
   let loads = null
   for (let p of plugins) {
@@ -257,15 +260,26 @@ audio.use = function(...plugins) {
       let spec = audio.atoms?.[p]
       if (!spec) throw new Error(`audio.use: unknown atom '${p}' — not in audio.atoms registry`)
       ;(loads ??= []).push(import(spec).then(ns => {
-        for (let k of Object.keys(ns)) { if (isAtom(ns[k])) useAtom(ns[k]); else if (isStat(ns[k])) useStat(ns[k]) }
+        for (let k of Object.keys(ns)) { if (isAtom(ns[k])) useAtom(ns[k]); else if (isStat(ns[k])) useStat(ns[k]); else if (isCodec(ns[k])) useCodec(ns[k]) }
       }, e => { throw new Error(`audio.use('${p}'): install ${spec.split('/').slice(0, 2).join('/')} — ${e.message}`) }))
     }
     else if (isAtom(p)) useAtom(p)
     else if (isStat(p)) useStat(p)
+    else if (isCodec(p)) useCodec(p)
     else p(audio)
   }
   return loads ? Promise.all(loads).then(() => audio) : audio
 }
+
+/** Register a codec atom: { codec: fmt, test?(bytes) → bool, decode?(bytes) →
+ *  { channelData, sampleRate } | Promise, encode?(opts) → enc } — the same
+ *  per-format shapes the @audio/decode / @audio/encode umbrellas hold (enc(chunk)
+ *  → bytes, enc() → flush). test() sniffs headers where magic-byte detection
+ *  draws a blank. */
+function useCodec(m) {
+  (audio.codecs ??= {})[m.codec] = m
+}
+
 
 /** Register a stat atom: whole-signal analysis `compute(channels, { sampleRate, ...opts })`.
  *  The host reads the (ranged) PCM and hands it over — the batch shape every analysis
@@ -359,6 +373,24 @@ function useAtom(m) {
     } else st.process(keyed ? [input, undefined] : [input], [output], st.live)
   }
 
+  // Declared note input (contract §events) — the offline host's event source is a
+  // `notes` option: [{ time, midi | freq, duration?, velocity? }] compiled to the
+  // contract's pooled slots ({ time: sample, type: 'note', kind: 'on'|'off', pitch,
+  // velocity, channel, id }), sorted, on/off paired by id.
+  let noteIn = m.events?.in?.includes('note')
+  let noteSlots = (notes, sr) => {
+    let evs = []
+    for (let i = 0; i < notes.length; i++) {
+      let n = notes[i]
+      let pitch = n.midi ?? (n.freq != null ? 69 + 12 * Math.log2(n.freq / 440) : 69)
+      let on = Math.round((n.time ?? 0) * sr)
+      let velocity = n.velocity ?? 1
+      evs.push({ time: on, type: 'note', kind: 'on', pitch, velocity, channel: 0, id: i })
+      if (n.duration != null) evs.push({ time: on + Math.round(n.duration * sr), type: 'note', kind: 'off', pitch, velocity: 0, channel: 0, id: i })
+    }
+    return evs.sort((a, b) => a.time - b.time)
+  }
+
   // streaming: false — the module needs the entire signal in one call; the plan
   // engine materializes the timeline and hosts it as a whole-render op
   if (m.streaming === false) {
@@ -372,6 +404,7 @@ function useAtom(m) {
       params: names, atom: m, ch, tail: wholeTail,
       whole(input, output, ctx) {
         let st = init(ctx, input[0].length)
+        if (noteIn && ctx.notes) st.mctx.events = noteSlots(ctx.notes, ctx.sampleRate)
         fill(st, ctx)
         st.process([input], [output], st.live)
       }
@@ -715,6 +748,9 @@ async function resolveSource(source) {
 }
 
 /** Detect format + prepare source. */
+const detectType = bytes => getType(bytes) || sniffCodecLocal(bytes)
+const sniffCodecLocal = bytes => { for (let k in audio.codecs || {}) if (audio.codecs[k].test?.(bytes)) return k }
+
 async function detectSource(source) {
   if (source instanceof ArrayBuffer || source instanceof Uint8Array) {
     let bytes = source instanceof ArrayBuffer
@@ -722,7 +758,7 @@ async function detectSource(source) {
       : source.byteOffset || source.byteLength !== source.buffer.byteLength
         ? new Uint8Array(source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength))
         : new Uint8Array(source.buffer)
-    return { format: getType(bytes), bytes }
+    return { format: detectType(bytes), bytes }
   }
   if (typeof source === 'string' && !/^(https?|data|blob):/.test(source) && typeof window === 'undefined') {
     let path = await toPath(source)
@@ -731,7 +767,7 @@ async function detectSource(source) {
     let hdr = new Uint8Array(12)
     await fh.read(hdr, 0, 12, 0)
     await fh.close()
-    let format = getType(new Uint8Array(hdr))
+    let format = detectType(new Uint8Array(hdr))
     let fileSize = (await stat(path)).size
     let { createReadStream } = await import('fs')
     return { format, reader: createReadStream(path), fileSize }
@@ -739,11 +775,11 @@ async function detectSource(source) {
   // Blob/File — sniff format from a header slice, stream the body (file input path)
   if (typeof Blob !== 'undefined' && source instanceof Blob) {
     let hdr = new Uint8Array(await source.slice(0, 12).arrayBuffer())
-    return { format: getType(hdr), reader: iterateStream(source.stream()), fileSize: source.size }
+    return { format: detectType(hdr), reader: iterateStream(source.stream()), fileSize: source.size }
   }
   let buf = await resolveSource(source)
   let bytes = new Uint8Array(buf)
-  return { format: getType(bytes), bytes }
+  return { format: detectType(bytes), bytes }
 }
 
 /** Async-iterate a web ReadableStream (Safari has no native async iteration). */
@@ -838,10 +874,21 @@ function estimateDuration(fileSize, format, sampleRate, channels) {
 async function decodeSource(source, opts = {}) {
   let { format, bytes, reader, fileSize } = await detectSource(source)
 
-  // Non-streaming fallback
-  if (!format || !decode[format]) {
+  // Non-streaming fallback (registered codec atoms decode whole-buffer here)
+  if (!format || (!decode[format] && !audio.codecs?.[format]?.decode)) {
     if (!bytes) bytes = new Uint8Array(await resolveSource(source))
     let { channelData, sampleRate } = await decode(bytes.buffer || bytes)
+    let pages = opts.pages || []
+    if (!opts.disposed?.()) for (let p of paginate(channelData)) { pages.push(p); opts.notify?.() }
+    let stats = audio.statSession?.(sampleRate)?.page(channelData)?.done() ?? null
+    let header = bytes.subarray(0, Math.min(bytes.length, 256 * 1024))
+    return { pages, sampleRate, channels: channelData.length, header, format, decoding: Promise.resolve({ stats, length: channelData[0].length }) }
+  }
+
+  // Registered codec atom — whole-buffer decode (streaming codec atoms are a later step)
+  if (!decode[format] && audio.codecs?.[format]?.decode) {
+    if (!bytes) bytes = new Uint8Array(await resolveSource(source))
+    let { channelData, sampleRate } = await audio.codecs[format].decode(bytes)
     let pages = opts.pages || []
     if (!opts.disposed?.()) for (let p of paginate(channelData)) { pages.push(p); opts.notify?.() }
     let stats = audio.statSession?.(sampleRate)?.page(channelData)?.done() ?? null
