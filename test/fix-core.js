@@ -235,3 +235,19 @@ test('fix core.js:552 — Blob/File/Response sources decode (README contract)', 
   await b2
   t.ok(deltas > 0, `Blob decode is streaming (${deltas} data events)`)
 })
+
+test('fix cache.js — detectBudget caps residency near DEFAULT_BUDGET, not GBs', async t => {
+  let desc = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+  // huge quota (1TB disk) must not translate into a multi-GB resident budget —
+  // instances share RAM across tabs/tests (2GB/instance ballooned real usage)
+  let mock = q => Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { storage: { estimate: async () => ({ quota: q }) } } })
+  mock(1024 * 2 ** 30)
+  try {
+    let b = await audio.detectBudget()
+    t.ok(b <= 512 * 1024 * 1024, `budget capped (${(b / 2 ** 20) | 0}MB)`)
+    t.ok(b >= 64 * 1024 * 1024, 'floor keeps paging useful')
+
+    mock(256 * 2 ** 20)
+    t.is(await audio.detectBudget(), 64 * 1024 * 1024, 'small quota clamps to the floor')
+  } finally { Object.defineProperty(globalThis, 'navigator', desc) }
+})

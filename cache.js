@@ -42,13 +42,14 @@ async function ensurePages(a, offset, duration) {
 
 /** Derive a page budget from the platform quota (Chrome: ~60% of disk — tracks device
  *  class). Quarter of quota, bounded to sane resident-RAM limits: floor keeps paging
- *  useful under tiny quotas, cap keeps desktops from ballooning residency.
+ *  useful under tiny quotas, cap keeps residency near DEFAULT_BUDGET — instances
+ *  share RAM (multiple tabs/tests), so a quota-scaled 2GB cap ballooned real usage.
  *  Null when estimate() is unavailable (Node, older browsers) — caller falls back. */
 async function detectBudget() {
   try {
     let { quota } = await navigator.storage.estimate()
     if (!quota) return null
-    return Math.max(64 * 1024 * 1024, Math.min(2 * 1024 * 1024 * 1024, Math.floor(quota / 4)))
+    return Math.max(64 * 1024 * 1024, Math.min(512 * 1024 * 1024, Math.floor(quota / 4)))
   } catch { return null }
 }
 
