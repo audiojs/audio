@@ -6,11 +6,11 @@
 import test, { ok, is } from 'tst'
 import audio from '../audio.js'
 
-import { schroeder } from '@audio/reverb-schroeder/atom'
-import { plate } from '@audio/reverb-dattorro/atom'
-import { fdn } from '@audio/reverb-fdn/atom'
-import { spring } from '@audio/reverb-spring/atom'
-import { shimmer } from '@audio/reverb-shimmer/atom'
+import { schroeder } from '@audio/reverb-schroeder/audio'
+import { plate } from '@audio/reverb-dattorro/audio'
+import { fdn } from '@audio/reverb-fdn/audio'
+import { spring } from '@audio/reverb-spring/audio'
+import { shimmer } from '@audio/reverb-shimmer/audio'
 
 audio.use(schroeder, plate, fdn, spring, shimmer)
 

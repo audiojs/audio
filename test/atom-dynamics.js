@@ -5,11 +5,11 @@
 import test, { ok, is } from 'tst'
 import audio from '../audio.js'
 
-import { fet } from '@audio/dynamics-fet/atom'
-import { opto } from '@audio/dynamics-opto/atom'
-import { varimu } from '@audio/dynamics-varimu/atom'
-import { vca } from '@audio/dynamics-vca/atom'
-import { multiband } from '@audio/dynamics-multiband/atom'
+import { fet } from '@audio/dynamics-fet/audio'
+import { opto } from '@audio/dynamics-opto/audio'
+import { varimu } from '@audio/dynamics-varimu/audio'
+import { vca } from '@audio/dynamics-vca/audio'
+import { multiband } from '@audio/dynamics-multiband/audio'
 
 audio.use(fet, opto, varimu, vca, multiband)
 

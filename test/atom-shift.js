@@ -6,10 +6,10 @@
 import test, { ok, is } from 'tst'
 import audio from '../audio.js'
 
-import { vocoder } from '@audio/shift-pvoc/atom'
-import { formantShift } from '@audio/shift-formant/atom'
-import { paulstretch } from '@audio/shift-paulstretch/atom'
-import { pitchShift } from '@audio/shift/atom'
+import { vocoder } from '@audio/shift-pvoc/audio'
+import { formantShift } from '@audio/shift-formant/audio'
+import { paulstretch } from '@audio/shift-paulstretch/audio'
+import { pitchShift } from '@audio/shift/audio'
 
 audio.use(vocoder, formantShift, paulstretch, pitchShift)
 

@@ -3,10 +3,10 @@
 import test, { ok } from 'tst'
 import audio from '../audio.js'
 
-import { geq } from '@audio/eq-graphic/atom'
-import { tilt } from '@audio/eq-tilt/atom'
-import { baxandall } from '@audio/eq-baxandall/atom'
-import { dyneq } from '@audio/eq-dynamic/atom'
+import { geq } from '@audio/eq-graphic/audio'
+import { tilt } from '@audio/eq-tilt/audio'
+import { baxandall } from '@audio/eq-baxandall/audio'
+import { dyneq } from '@audio/eq-dynamic/audio'
 
 audio.use(geq, tilt, baxandall, dyneq)
 

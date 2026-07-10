@@ -1,33 +1,33 @@
 // Effect-family atoms exercised through the real engine (audio.use + .read()).
 // One defining-property test per atom — mirrors each atom's own standalone verification
-// (see @audio/effect/packages/effect-<atom>/atom.js). Imports are relative-path
+// (see @audio/effect/packages/effect-<atom>/audio.js). Imports are relative-path
 // into the sibling checkout (the effect family isn't published/linked into node_modules
-// yet); switch to '@audio/effect-<atom>/atom' once it is.
+// yet); switch to '@audio/effect-<atom>/audio' once it is.
 
 import test, { ok } from 'tst'
 import audio from '../audio.js'
 
-import { chorus } from '@audio/effect-chorus/atom'
-import { flanger } from '@audio/effect-flanger/atom'
-import { phaser } from '@audio/effect-phaser/atom'
-import { tremolo } from '@audio/effect-tremolo/atom'
-import { vibrato } from '@audio/effect-vibrato/atom'
-import { autowah } from '@audio/effect-autowah/atom'
-import { wah } from '@audio/effect-wah/atom'
-import { bitcrusher } from '@audio/effect-bitcrusher/atom'
-import { distortion } from '@audio/effect-distortion/atom'
-import { exciter } from '@audio/effect-exciter/atom'
-import { ringmod } from '@audio/effect-ringmod/atom'
-import { freqshift } from '@audio/effect-freqshift/atom'
-import { multitap } from '@audio/effect-multitap/atom'
-import { pingpong } from '@audio/effect-pingpong/atom'
-import { slew } from '@audio/effect-slew/atom'
-import { noiseshaper } from '@audio/effect-noiseshaper/atom'
-import { lofi } from '@audio/effect-lofi/atom'
-import { graindelay } from '@audio/effect-graindelay/atom'
-import { stutter } from '@audio/effect-stutter/atom'
-import { subbass } from '@audio/effect-subbass/atom'
-import { sbr } from '@audio/effect-sbr/atom'
+import { chorus } from '@audio/effect-chorus/audio'
+import { flanger } from '@audio/effect-flanger/audio'
+import { phaser } from '@audio/effect-phaser/audio'
+import { tremolo } from '@audio/effect-tremolo/audio'
+import { vibrato } from '@audio/effect-vibrato/audio'
+import { autowah } from '@audio/effect-autowah/audio'
+import { wah } from '@audio/effect-wah/audio'
+import { bitcrusher } from '@audio/effect-bitcrusher/audio'
+import { distortion } from '@audio/effect-distortion/audio'
+import { exciter } from '@audio/effect-exciter/audio'
+import { ringmod } from '@audio/effect-ringmod/audio'
+import { freqshift } from '@audio/effect-freqshift/audio'
+import { multitap } from '@audio/effect-multitap/audio'
+import { pingpong } from '@audio/effect-pingpong/audio'
+import { slew } from '@audio/effect-slew/audio'
+import { noiseshaper } from '@audio/effect-noiseshaper/audio'
+import { lofi } from '@audio/effect-lofi/audio'
+import { graindelay } from '@audio/effect-graindelay/audio'
+import { stutter } from '@audio/effect-stutter/audio'
+import { subbass } from '@audio/effect-subbass/audio'
+import { sbr } from '@audio/effect-sbr/audio'
 
 audio.use(chorus, flanger, phaser, tremolo, vibrato, autowah, wah, bitcrusher, distortion,
 	exciter, ringmod, freqshift, multitap, pingpong, slew, noiseshaper, lofi, graindelay,

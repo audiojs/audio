@@ -533,10 +533,10 @@ JSON.stringify(a); audio(json)            // serialize / restore
 
 ### Atoms
 
-Any [@audio contract atom](https://github.com/audiojs/atom) plugs in as an op — `audio.use` a factory, or a registry name (`npm i` the package it points at). Params get engine automation, curves and click-free ramps; declared `tail`, `latency`, `streaming: false` and sidechain buses are handled by the engine; the CLI resolves registry names and synthesizes `--help` from param metadata.
+Any [@audio contract atom](https://github.com/audiojs/compile/blob/main/CONTRACT.md) plugs in as an op — `audio.use` a factory, or a registry name (`npm i` the package it points at). Params get engine automation, curves and click-free ramps; declared `tail`, `latency`, `streaming: false` and sidechain buses are handled by the engine; the CLI resolves registry names and synthesizes `--help` from param metadata.
 
 ```js
-import { compressor } from '@audio/dynamics-compressor/atom'
+import { compressor } from '@audio/dynamics-compressor/audio'
 audio.use(compressor)                       // bring-your-own factory
 await audio.use('freeverb', 'declick')      // or by registry name
 
@@ -567,6 +567,14 @@ Stat atoms register the same way and land on `a.stat(name)` — the registry car
 await audio.use('truepeak', 'structure')
 await a.stat('truepeak')                    // −0.4 dBTP (inter-sample, BS.1770)
 await a.stat('similarity', { ref: b })      // instance options pre-render to PCM
+```
+
+Atoms also run without the engine: `audio/batch` hosts one over a whole signal, `audio/stream` over live chunks — same param semantics (defaults, automation functions, smoothing), no plan or context.
+
+```js
+import { toBatch, toStream } from 'audio/batch'
+const compress = toBatch(compressor, { sampleRate: 44100 })
+const out = compress(samples, { params: { threshold: -24 } })
 ```
 
 Beyond the registry: kernels whose inputs aren't scalar params ship as plain packages for direct import — `@audio/reverb-convolution` (impulse response), `@audio/eq-fir` (response curve), `@audio/eq-crossover` (SOS designer), `@audio/tune-midi` (guide notes), `@audio/denoise-repair` (regions), `@audio/synth-dtmf` (digit string), `@audio/synth-wavetable` (tables), per-band forms of multiband/dyneq/multisat, and the `@audio/measure`, `@audio/sinusoidal`, `@audio/voice` tool/substrate families.

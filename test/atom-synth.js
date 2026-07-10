@@ -5,15 +5,15 @@
 import test, { ok, is } from 'tst'
 import audio from '../audio.js'
 
-import { osc } from '@audio/synth-osc/atom'
-import { noise } from '@audio/synth-noise/atom'
-import { chirp } from '@audio/synth-chirp/atom'
-import { pluck } from '@audio/synth-pluck/atom'
-import { risset } from '@audio/synth-risset/atom'
-import { rhythm } from '@audio/synth-rhythm/atom'
-import { sfx } from '@audio/synth-sfx/atom'
-import { kick, cymbal, snare } from '@audio/synth-drum/atom'
-import { adsr } from '@audio/synth-envelope/atom'
+import { osc } from '@audio/synth-osc/audio'
+import { noise } from '@audio/synth-noise/audio'
+import { chirp } from '@audio/synth-chirp/audio'
+import { pluck } from '@audio/synth-pluck/audio'
+import { risset } from '@audio/synth-risset/audio'
+import { rhythm } from '@audio/synth-rhythm/audio'
+import { sfx } from '@audio/synth-sfx/audio'
+import { kick, cymbal, snare } from '@audio/synth-drum/audio'
+import { adsr } from '@audio/synth-envelope/audio'
 
 audio.use(osc, noise, chirp, pluck, risset, rhythm, sfx, kick, cymbal, snare, adsr)
 

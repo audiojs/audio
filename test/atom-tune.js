@@ -1,11 +1,11 @@
 // Tune atom exercised through the real engine (audio.use + .read()).
 // Whole-render (streaming: false): YIN F0 track → note segments → scale snap →
-// PSOLA retune. See @audio/tune-snap/atom.js.
+// PSOLA retune. See @audio/tune-snap/audio.js.
 
 import test, { ok, is } from 'tst'
 import audio from '../audio.js'
 
-import { tune } from '@audio/tune-snap/atom'
+import { tune } from '@audio/tune-snap/audio'
 
 audio.use(tune)
 

@@ -1,17 +1,17 @@
 // Spatial-family atoms exercised through the real engine (audio.use + .read()).
 // One defining-property test per atom — mirrors each manifest's own header
-// (see @audio/spatial/packages/spatial-<atom>/atom.js).
+// (see @audio/spatial/packages/spatial-<atom>/audio.js).
 
 import test, { ok, is, almost } from 'tst'
 import audio from '../audio.js'
 
-import { widener } from '@audio/spatial-widener/atom'
-import { haas } from '@audio/spatial-haas/atom'
-import { panner } from '@audio/spatial-panner/atom'
-import { autopan } from '@audio/spatial-autopan/atom'
-import { midside } from '@audio/spatial-midside/atom'
-import { microshift } from '@audio/spatial-microshift/atom'
-import { surround } from '@audio/spatial-surround/atom'
+import { widener } from '@audio/spatial-widener/audio'
+import { haas } from '@audio/spatial-haas/audio'
+import { panner } from '@audio/spatial-panner/audio'
+import { autopan } from '@audio/spatial-autopan/audio'
+import { midside } from '@audio/spatial-midside/audio'
+import { microshift } from '@audio/spatial-microshift/audio'
+import { surround } from '@audio/spatial-surround/audio'
 
 audio.use(widener, haas, panner, autopan, midside, microshift, surround)
 

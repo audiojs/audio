@@ -127,7 +127,7 @@ Changing `BLOCK_SIZE` cannot retroactively refine existing stats. For finer reso
 
 ## contract atoms
 
-`audio.use(atom)` hosts [@audio/atom CONTRACT](https://github.com/audiojs/atom) factories natively:
+`audio.use(atom)` hosts [contract](https://github.com/audiojs/compile/blob/main/CONTRACT.md) audio.js factories natively:
 params map to op params (engine automation/curves/ramps apply), declared `tail` composes
 a trailing pad, declared `latency` gets plan-level delay compensation, `streaming: false`
 atoms run as whole-render ops (materialize → one call → continue from the result), and

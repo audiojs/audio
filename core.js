@@ -245,7 +245,7 @@ const isAtom = p => typeof p === 'function' && Object.hasOwn(p, 'params') && typ
 const isStat = p => p != null && typeof p === 'object' && typeof p.stat === 'string' && typeof p.compute === 'function'
 
 /** Register plugins. Each receives audio. A contract atom (a factory function
- *  with an own `params` object — see @audio/atom CONTRACT.md) is hosted natively as
+ *  with an own `params` object — see audiojs/compile CONTRACT.md) is hosted natively as
  *  an op; its declared `tail` composes a trailing pad so decays are not truncated.
  *  A stat atom ({ stat: name, compute(channels, opts) }) registers as a.stat(name).
  *  A string resolves through the audio.atoms registry (dynamic import — returns a
@@ -258,7 +258,7 @@ audio.use = function(...plugins) {
       if (!spec) throw new Error(`audio.use: unknown atom '${p}' — not in audio.atoms registry`)
       ;(loads ??= []).push(import(spec).then(ns => {
         for (let k of Object.keys(ns)) { if (isAtom(ns[k])) useAtom(ns[k]); else if (isStat(ns[k])) useStat(ns[k]) }
-      }, e => { throw new Error(`audio.use('${p}'): install ${spec.split('/atom')[0].split('/stat')[0]} — ${e.message}`) }))
+      }, e => { throw new Error(`audio.use('${p}'): install ${spec.split('/').slice(0, 2).join('/')} — ${e.message}`) }))
     }
     else if (isAtom(p)) useAtom(p)
     else if (isStat(p)) useStat(p)

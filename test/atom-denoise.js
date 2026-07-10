@@ -4,7 +4,7 @@
 // per-block params for causal kernels, whole-render for streaming:false kernels.
 //
 // Not yet published to npm — import via the sibling @audio/denoise checkout;
-// switch to '@audio/denoise-<atom>/atom' after next publish.
+// switch to '@audio/denoise-<atom>/audio' after next publish.
 
 import test, { ok, almost, is } from 'tst'
 import audio from '../audio.js'
@@ -48,16 +48,16 @@ function convolve(x, h) {
 
 // ── Wave: STFT statistical denoisers (specsub, wiener, omlsa, dereverb) ──────
 // All four are causal/streaming: noise PSD (or, for dereverb, the late-tail model) is
-// tracked online, no manual profile argument needed — see each package's atom.js
+// tracked online, no manual profile argument needed — see each package's audio.js
 // header for why. All declare a fixed latency (STFT analysis/synthesis buffering); .read()
 // applies plugin-delay-compensation transparently, so output compares directly against
 // the un-shifted reference at the same sample index (verified: cross-correlation of
 // output against the dry reference peaks at zero shift, not at the raw kernel latency).
 
-import { specsub } from '@audio/denoise-spectral/atom'
-import { wiener } from '@audio/denoise-wiener/atom'
-import { omlsa } from '@audio/denoise-omlsa/atom'
-import { dereverb } from '@audio/denoise-dereverb/atom'
+import { specsub } from '@audio/denoise-spectral/audio'
+import { wiener } from '@audio/denoise-wiener/audio'
+import { omlsa } from '@audio/denoise-omlsa/audio'
+import { dereverb } from '@audio/denoise-dereverb/audio'
 audio.use(specsub, wiener, omlsa, dereverb)
 
 test('specsub: raises segSNR of noisy speech, latency-compensated by the engine', async () => {
@@ -110,9 +110,9 @@ test('dereverb: reduces late-tail energy, never boosts it', async () => {
 // state-per-channel pattern as @audio/denoise-dehum) — zero or fixed lookahead latency,
 // no STFT buffering involved.
 
-import { gate } from '@audio/denoise-gate/atom'
-import { deplosive } from '@audio/denoise-deplosive/atom'
-import { dewind } from '@audio/denoise-dewind/atom'
+import { gate } from '@audio/denoise-gate/audio'
+import { deplosive } from '@audio/denoise-deplosive/audio'
+import { dewind } from '@audio/denoise-dewind/audio'
 audio.use(gate, deplosive, dewind)
 
 test('gate: passes signal, silences the floor (look-ahead hysteresis)', async () => {
@@ -156,7 +156,7 @@ test('dewind: cuts LF rumble >=3x, adaptive high-pass', async () => {
 // Whole-render (streaming: false) modules — declick, declip, decrackle, debreath.
 // Each needs the entire signal in one process() call (AR reconstruction using both
 // left AND right context, or a global VAD floor over the full buffer) — see each
-// package's atom.js header for the specific reason. The host's whole-render
+// package's audio.js header for the specific reason. The host's whole-render
 // hosting (core.js useAtom's `m.streaming === false` branch + plan.js's `op.whole`
 // materialize-then-process-once path) is the engine capability this integration
 // exercises; it was built concurrently with this task and might not have existed yet.
@@ -168,10 +168,10 @@ test('dewind: cuts LF rumble >=3x, adaptive high-pass', async () => {
 // property assertions, not tolerant placeholders — nothing here is pending.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { declick } from '@audio/denoise-declick/atom'
-import { declip } from '@audio/denoise-declip/atom'
-import { decrackle } from '@audio/denoise-decrackle/atom'
-import { debreath } from '@audio/denoise-debreath/atom'
+import { declick } from '@audio/denoise-declick/audio'
+import { declip } from '@audio/denoise-declip/audio'
+import { decrackle } from '@audio/denoise-decrackle/audio'
+import { debreath } from '@audio/denoise-debreath/audio'
 audio.use(declick, declip, decrackle, debreath)
 
 test('declick (streaming:false): removes an inserted click, leaves clean speech alone', async () => {

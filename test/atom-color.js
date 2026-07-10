@@ -5,13 +5,13 @@
 import test, { ok } from 'tst'
 import audio from '../audio.js'
 
-import { tape } from '@audio/saturate-tape/atom'
-import { transistor } from '@audio/saturate-transistor/atom'
-import { waveshaper } from '@audio/saturate-waveshaper/atom'
-import { multisat } from '@audio/saturate-multiband/atom'
-import { amp } from '@audio/amp-tube/atom'
-import { cabinet } from '@audio/amp-cabinet/atom'
-import { defeedback } from '@audio/defeedback/atom'
+import { tape } from '@audio/saturate-tape/audio'
+import { transistor } from '@audio/saturate-transistor/audio'
+import { waveshaper } from '@audio/saturate-waveshaper/audio'
+import { multisat } from '@audio/saturate-multiband/audio'
+import { amp } from '@audio/amp-tube/audio'
+import { cabinet } from '@audio/amp-cabinet/audio'
+import { defeedback } from '@audio/defeedback/audio'
 
 audio.use(tape, transistor, waveshaper, multisat, amp, cabinet, defeedback)
 

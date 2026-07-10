@@ -895,7 +895,7 @@ async function main() {
   // Auto-resolve registry modules named in args (dynamic import registers the op)
   for (let t of args) if (!audio.op(t) && audio.atoms?.[t]) {
     try { await audio.use(t) }
-    catch (e) { throw new Error(`op '${t}' needs its atom installed: npm i ${audio.atoms[t].split('/atom')[0]}`) }
+    catch (e) { throw new Error(`op '${t}' needs its atom installed: npm i ${audio.atoms[t].split('/').slice(0, 2).join('/')}`) }
   }
 
   if (!args.length || args[0] === '--help' || args[0] === '-h') {

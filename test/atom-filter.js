@@ -4,16 +4,16 @@
 import test, { ok, is } from 'tst'
 import audio from '../audio.js'
 
-import { moog } from '@audio/filter-moog-ladder/atom'
-import { korg35 } from '@audio/filter-korg35/atom'
-import { diode } from '@audio/filter-diode-ladder/atom'
-import { oberheim } from '@audio/filter-oberheim/atom'
-import { resonator } from '@audio/filter-resonator/atom'
-import { spectralTilt } from '@audio/filter-spectral-tilt/atom'
-import { variable } from '@audio/filter-variable/atom'
-import { comb } from '@audio/filter-comb/atom'
-import { dcblocker } from '@audio/filter-dcblocker/atom'
-import { emphasis, deemphasis } from '@audio/filter-preemphasis/atom'
+import { moog } from '@audio/filter-moog-ladder/audio'
+import { korg35 } from '@audio/filter-korg35/audio'
+import { diode } from '@audio/filter-diode-ladder/audio'
+import { oberheim } from '@audio/filter-oberheim/audio'
+import { resonator } from '@audio/filter-resonator/audio'
+import { spectralTilt } from '@audio/filter-spectral-tilt/audio'
+import { variable } from '@audio/filter-variable/audio'
+import { comb } from '@audio/filter-comb/audio'
+import { dcblocker } from '@audio/filter-dcblocker/audio'
+import { emphasis, deemphasis } from '@audio/filter-preemphasis/audio'
 
 audio.use(moog, korg35, diode, oberheim, resonator, spectralTilt, variable, comb, dcblocker, emphasis, deemphasis)
 
