@@ -240,13 +240,11 @@ test('compand: transfer curve pulls loud material down, leaves quiet identity se
 })
 
 test('leveler: loud/quiet sections converge in RMS toward target loudness', async () => {
-  // NOTE: this host's op engine (core.js useAtom) calls process() per 1024-sample
-  // block and has no `streaming: false` batch dispatch — the leveler kernel is
-  // designed around seeing the whole signal in one call (CONTRACT's promised shape
-  // for streaming: false). It still converges here because each ~23ms block's own
-  // RMS happens to match its section's RMS for this steady-tone signal, but the
-  // kernel's cross-frame gaussian smoothing genuinely needs the whole-signal call
-  // this host doesn't provide yet — see audio.js's header comment.
+  // Hosted whole-render: the manifest declares `streaming: false`, so the engine
+  // materializes the timeline and calls process() once with the full signal
+  // (core.js whole() dispatch) — the shape the kernel's cross-frame gaussian
+  // smoothing needs. Steady-tone convergence here; the time-varying case that
+  // per-block hosting could not level is covered in the engine-hosting block below.
   let loud = tone(440, 10, 0.5), quiet = tone(440, 10, 0.006)
   let combined = new Float32Array([...loud, ...quiet])
   let out = (await audio.from([combined], { sampleRate: SR }).leveler({ target: -20, frame: 0.5, maxGain: 12, smooth: 5 }).read())[0]
@@ -280,10 +278,10 @@ test('transient-shaper: attackGain raises crest factor (attack emphasis)', async
 
 test('ducker: self-keyed fallback engages when the host feeds only the main bus', async () => {
   // The manifest declares a real two-bus sidechain ({ inputs: [2,2], outputs: [2] })
-  // per CONTRACT §channels, but this host's op engine (core.js useAtom) wraps a
-  // single input bus only (`st.process([input], [output], ...)`) — no sidechain
-  // routing exists yet. This exercises the documented fallback: keys off the main
-  // signal itself instead of crashing on the missing bus.
+  // per CONTRACT §channels. When the chain passes no `key`, the host feeds bus 1
+  // as undefined (core.js: `st.process([input, undefined], ...)`) — this exercises
+  // the documented fallback: keys off the main signal itself instead of crashing.
+  // True key-bus routing is covered in the engine-hosting block below.
   let main = tone(220, 0.5, 0.9)
   let out = (await audio.from([main], { sampleRate: SR }).ducker({ threshold: -30, ratio: 4 }).read())[0]
   ok(out.every(isFinite))
