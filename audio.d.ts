@@ -124,7 +124,8 @@ export interface AudioInstance {
   repeat(times: number, opts?: { at?: Time, duration?: Time }): this
   pad(before: number, after?: number): this
   speed(rate: number): this
-  stretch(factor: number): this
+  /** Time-stretch preserving pitch. Factor may be a fn or curve of source-time seconds — sliding stretch (continuous tempo envelope), duration = ∫factor dt */
+  stretch(factor: number | ((t: number) => number) | { t: number[], v: number[] }, opts?: { at?: Time, duration?: Time }): this
   pitch(semitones: number): this
 
   // ── Sample ops ──────────────────────────────────────────────

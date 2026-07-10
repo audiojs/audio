@@ -496,7 +496,16 @@ function adjustLimit(limit, type, ctx) {
   if (type === 'pad') return limit + Math.round((ctx.before ?? 0) * sr)
   if (type === 'reverse') return length == null ? Math.min(limit, offset ?? 0) : limit
   if (type === '_resample_seg') return Math.round(limit * (ctx.rate || sr) / sr)
-  if (type === '_stretch_seg') return Math.round(limit * (ctx.factor || 1))
+  if (type === '_stretch_seg') {
+    // Sliding stretch: piecewise factors — integrate output samples over available input
+    if (ctx.fv) {
+      let q = ctx.q || 2048, out = 0
+      for (let k = 0; k * q < limit; k++)
+        out += Math.round(Math.min(q, limit - k * q) * (ctx.fv[Math.min(k, ctx.fv.length - 1)] || 1))
+      return out
+    }
+    return Math.round(limit * (ctx.factor || 1))
+  }
   return limit
 }
 
@@ -743,10 +752,33 @@ function readRange(a, srcStart, n) {
 /** Render one output block from plan segments into pre-allocated chunk.
  *  chunk width = plan width (may differ from a._.ch after a channel-changing
  *  whole op) — ref channels wrap, self segs can't exceed the source width. */
+/** Iterate segments overlapping output range [from, to). Sorted tilings (the
+ *  common case — verified once per array) binary-search the window instead of
+ *  scanning: piecewise plans (sliding stretch) produce thousands of segments. */
+function eachSeg(segs, from, to, cb) {
+  let n = segs.length, lo = 0
+  if (n > 64) {
+    if (segs._sorted === undefined) {
+      let ok = true
+      for (let i = 1; i < n; i++) if (segs[i][2] < segs[i - 1][2]) { ok = false; break }
+      Object.defineProperty(segs, '_sorted', { value: ok })
+    }
+    if (segs._sorted) {
+      let a0 = 0, b0 = n
+      while (a0 < b0) { let m = (a0 + b0) >> 1; if (segs[m][2] <= from) a0 = m + 1; else b0 = m }
+      lo = a0
+      while (lo > 0 && segs[lo - 1][2] + segs[lo - 1][1] > from) lo--
+      for (let i = lo; i < n && segs[i][2] < to; i++) cb(segs[i])
+      return
+    }
+  }
+  for (let i = 0; i < n; i++) cb(segs[i])
+}
+
 function renderBlock(a, segs, outOff, len, chunk) {
-  for (let sg of segs) {
+  eachSeg(segs, outOff, outOff + len, sg => {
     let iStart = Math.max(outOff, sg[2]), iEnd = Math.min(outOff + len, sg[2] + sg[1])
-    if (iStart >= iEnd) continue
+    if (iStart >= iEnd) return
     let rate = sg[3] || 1, ref = sg[4], interp = sg[5], absR = Math.abs(rate)
     let n = iEnd - iStart, dstOff = iStart - outOff
     let srcStart = segSrcStart(sg, iStart, n)
@@ -780,7 +812,7 @@ function renderBlock(a, segs, outOff, len, chunk) {
     } else {
       for (let c = 0, N = Math.min(chunk.length, a._.ch); c < N; c++) readSource(a, c, srcStart, n, chunk[c], dstOff, rate, interp)
     }
-  }
+  })
 }
 
 // Sub-block size for engine-resolved param changes (automation fns, patch ramps) —
@@ -935,14 +967,14 @@ function initProcs(pipeline, totalDur, sr, nch) {
 /** Maximum source sample needed by self-referencing segments for output range [start, end). */
 function maxSrcSample(segs, start, end) {
   let max = 0
-  for (let sg of segs) {
+  eachSeg(segs, start, end, sg => {
     let iStart = Math.max(start, sg[2]), iEnd = Math.min(end, sg[2] + sg[1])
-    if (iStart >= iEnd) continue
-    if (sg[4] === null || sg[4]) continue  // silence or external ref
+    if (iStart >= iEnd) return
+    if (sg[4] === null || sg[4]) return  // silence or external ref
     let rate = sg[3] || 1, absR = Math.abs(rate), margin = (sg[5] && sg[5].margin) || 0
     let n = iEnd - iStart
     max = Math.max(max, Math.ceil(segSrcStart(sg, iStart, n) + n * absR) + 1 + margin)
-  }
+  })
   return max
 }
 

@@ -267,7 +267,7 @@ Non-destructive time/channel rearrangement. All support `{at, duration, channel}
 * **`.repeat(n)`** – repeat n times.
 * **`.reverse({at?, duration?})`** – reverse audio or range.
 * **`.speed(rate)`** – playback speed (affects both pitch and duration).
-* **`.stretch(factor)`** – time stretch, preserves pitch. Phase-locked vocoder.
+* **`.stretch(factor)`** – time stretch, preserves pitch. Phase-locked vocoder. Factor accepts a `t => f` function or `{t, v}` curve over source time — **sliding stretch** (continuous tempo envelope): duration becomes ∫factor dt, pitch stays put. Ranged via `{at, duration}`.
 * **`.pitch(semitones)`** – pitch shift, preserves duration. Positive = higher.
 * **`.remix(channels)`** – channel count: number or array map (`[1, 0]` swaps L/R). No `{at, duration}` — channel count can't change mid-timeline.
 

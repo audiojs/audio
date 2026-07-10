@@ -3760,6 +3760,100 @@ test('crossover — no freqs is passthrough, Nyquist guarded, stream width match
   for await (let chunk of c.stream()) { t.is(chunk.length, 4, 'stream yields band-split width'); break }
 })
 
+// ── per-block note feed — streaming instruments (contract §events) ────────
+
+test('streaming instrument — per-block note events, block-relative times', async t => {
+  function blockSine(ctx) {
+    let sr = ctx.sampleRate, voices = new Map()
+    return (inputs, outputs) => {
+      let out = outputs[0], n = out[0].length
+      for (let c = 0; c < out.length; c++) out[c].fill(0)
+      let evs = ctx.events || [], cursor = 0
+      for (let e of evs) if (e.time < 0 || e.time >= n) throw new Error('event time not block-relative: ' + e.time)
+      for (let i = 0; i < n; i++) {
+        while (cursor < evs.length && evs[cursor].time === i) {
+          let e = evs[cursor++]
+          if (e.kind === 'on') voices.set(e.id, { f: 440 * 2 ** ((e.pitch - 69) / 12), ph: 0, v: e.velocity })
+          else voices.delete(e.id)
+        }
+        let s = 0
+        for (let v of voices.values()) { s += 0.3 * v.v * Math.sin(v.ph); v.ph += 2 * Math.PI * v.f / sr }
+        for (let c = 0; c < out.length; c++) out[c][i] = s
+      }
+    }
+  }
+  blockSine.channels = 'any'
+  blockSine.events = { in: ['note'] }
+  blockSine.params = {}
+  audio.use(blockSine)
+
+  let sr = 44100
+  let a = audio.from(2, { sampleRate: sr })
+  a['block-sine']({ notes: [{ time: 0.25, midi: 69, duration: 0.5 }, { time: 1.0, midi: 81, duration: 0.5 }] })
+  let pcm = await a.read()
+  let zc = (d, f, e) => { let c = 0; for (let i = f + 1; i < e; i++) if ((d[i - 1] < 0) !== (d[i] < 0)) c++; return c / 2 / ((e - f) / sr) }
+  let rms = (d, f, e) => { let s = 0; for (let i = f; i < e; i++) s += d[i] ** 2; return Math.sqrt(s / (e - f)) }
+  t.ok(rms(pcm[0], 0, sr * 0.2) < 1e-6, 'silent before first note')
+  t.ok(Math.abs(zc(pcm[0], sr * 0.3, sr * 0.7) - 440) < 5, 'note 1 pitch — voice persists across blocks')
+  t.ok(rms(pcm[0], sr * 0.8, sr * 0.95) < 1e-6, 'silent in the gap (off event delivered)')
+  t.ok(Math.abs(zc(pcm[0], sr * 1.05, sr * 1.45) - 880) < 8, 'note 2 on lands mid-timeline')
+  t.ok(rms(pcm[0], sr * 1.6, sr * 2) < 1e-6, 'silent after')
+
+  let flat = [], total = 0
+  for await (let ch of a.stream()) { flat.push(ch[0].slice()); total += ch[0].length }
+  let joined = new Float32Array(total), pos = 0
+  for (let f of flat) { joined.set(f, pos); pos += f.length }
+  t.ok(joined.every((v, i) => Math.abs(v - pcm[0][i]) < 1e-6), 'stream ≡ read')
+})
+
+// ── sliding stretch — factor as fn/curve of source time ───────────────────
+
+test('stretch(fn) — sliding factor: duration integrates, pitch preserved throughout', async t => {
+  let sr = 44100, n = sr * 2, d = new Float32Array(n)
+  for (let i = 0; i < n; i++) d[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr)
+  let zc = (arr, lo, hi) => { let c = 0; for (let i = lo + 1; i < hi; i++) if ((arr[i - 1] < 0) !== (arr[i] < 0)) c++; return c / 2 / ((hi - lo) / sr) }
+
+  let a = audio.from([d.slice()], { sampleRate: sr })
+  a.stretch(t => 1 + Math.min(1, Math.max(0, t / 2)))  // 1 → 2 over the 2s source
+  t.ok(Math.abs(a.duration - 3) < 0.01, `duration = ∫factor dt (${a.duration.toFixed(3)} ≈ 3)`)
+  let pcm = await a.read()
+  t.ok(pcm[0].every(Number.isFinite), 'finite')
+  for (let [at, label] of [[0.3, 'slow region'], [1.5, 'mid ramp'], [2.6, '2× region']])
+    t.ok(Math.abs(zc(pcm[0], sr * at | 0, sr * (at + 0.2) | 0) - 440) < 5, `pitch preserved in ${label}`)
+  // amplitude continuity across quantum seams
+  let win = 2048, minR = Infinity
+  for (let off = sr >> 1; off + win < pcm[0].length - (sr >> 1); off += win) {
+    let s = 0; for (let i = 0; i < win; i++) s += pcm[0][off + i] ** 2
+    minR = Math.min(minR, Math.sqrt(s / win))
+  }
+  t.ok(minR > 0.3, `no seams/pumping (min window rms ${minR.toFixed(3)})`)
+
+  // stream ≡ read, bit-exact
+  let flat = [], total = 0
+  for await (let ch of a.stream()) { flat.push(ch[0].slice()); total += ch[0].length }
+  t.is(total, pcm[0].length, 'stream length matches')
+  let joined = new Float32Array(total), pos = 0
+  for (let f of flat) { joined.set(f, pos); pos += f.length }
+  t.ok(joined.every((v, i) => v === pcm[0][i]), 'stream ≡ read')
+})
+
+test('stretch(curve) — serializable sliding stretch + ranged form', async t => {
+  let sr = 44100, n = sr * 2, d = new Float32Array(n)
+  for (let i = 0; i < n; i++) d[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr)
+
+  let a = audio.from([d.slice()], { sampleRate: sr })
+  a.stretch({ t: [0, 2], v: [1, 2] })
+  t.ok(Math.abs(a.duration - 3) < 0.01, 'curve factor integrates')
+  t.ok(JSON.stringify(a.edits).includes('stretch'), 'curve form serializes')
+
+  // ranged: stretch only [0.5, 1.5) with factor ramping 1→2 → +0.5s
+  let b = audio.from([d.slice()], { sampleRate: sr })
+  b.stretch(t => 1 + Math.max(0, Math.min(1, t - 0.5)), { at: 0.5, duration: 1 })
+  t.ok(Math.abs(b.duration - 2.5) < 0.01, `ranged sliding stretch (${b.duration.toFixed(3)} ≈ 2.5)`)
+  let q = await b.read()
+  t.ok(q[0].subarray(0, sr >> 1).every((v, i) => Math.abs(v - d[i]) < 1e-6), 'pre-range untouched')
+})
+
 // ── frames hook — variable-length whole-render ops (time-stretch class) ───
 
 test('whole op frames hook — structural output length', async t => {

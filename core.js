@@ -373,12 +373,37 @@ function useOp(m) {
   let process = (input, output, ctx) => {
     let st = ctx._am ??= init(ctx)
     st.mctx.currentTime = ctx.blockOffset || 0
+    if (noteIn) feedEvents(st, ctx, input[0].length)
     fill(st, ctx)
     if (keyed && ctx.key != null && audio.renderAt) {
       let n = input[0].length
       let off = Math.round((ctx.blockOffset || 0) * ctx.sampleRate)
       st.process([input, audio.renderAt(ctx.render, ctx.key, off, n, ctx.sampleRate)], [output], st.live)
     } else st.process(keyed ? [input, undefined] : [input], [output], st.live)
+  }
+
+  // Per-block note feed for streaming instruments (contract §events): slice the
+  // compiled slots to [blockStart, blockEnd), times rebased block-relative. Slot
+  // objects are pooled per contract; binary search each block — streams can
+  // restart or seek, so no monotonic cursor.
+  let feedEvents = (st, ctx, frames) => {
+    if (ctx.notes && st.slots?.src !== ctx.notes)
+      st.slots = { src: ctx.notes, evs: noteSlots(ctx.notes, ctx.sampleRate), pool: [], view: [] }
+    if (!st.slots) { st.mctx.events = ctx.notes === undefined ? st.mctx.events : undefined; return }
+    let { evs, pool, view } = st.slots
+    let b0 = Math.round((ctx.blockOffset || 0) * ctx.sampleRate), b1 = b0 + frames
+    let lo = 0, hi = evs.length
+    while (lo < hi) { let mid = (lo + hi) >> 1; if (evs[mid].time < b0) lo = mid + 1; else hi = mid }
+    let n = 0
+    for (let i = lo; i < evs.length && evs[i].time < b1; i++, n++) {
+      let s = pool[n] ??= {}
+      let e = evs[i]
+      s.time = e.time - b0; s.type = e.type; s.kind = e.kind
+      s.pitch = e.pitch; s.velocity = e.velocity; s.channel = e.channel; s.id = e.id
+      view[n] = s
+    }
+    view.length = n
+    st.mctx.events = view
   }
 
   // Declared note input (contract §events) — the offline host's event source is a
