@@ -82,7 +82,7 @@
     "@audio/window": "^1.0.0",
     "a-weighting": "^2.0.1",
     "audio-type": "^2.4.1",
-    "fourier-transform": "^2.2.0",
+    "fourier-transform": "^2.4.0",
     "parse-duration": "^2.1.6",
     "pcm-convert": "^3.1.1"
   },
@@ -206,7 +206,7 @@
     "@audio/stretch-pghi": "^1.1.0",
     "@audio/stretch-psola": "^1.1.0",
     "@audio/stretch-pvoc": "^1.1.0",
-    "@audio/stretch-pvoc-lock": "^1.1.0",
+    "@audio/stretch-pvoc-lock": "^1.2.0",
     "@audio/stretch-sms": "^1.1.0",
     "@audio/stretch-transient": "^1.1.0",
     "@audio/stretch-wsola": "^1.1.0",
