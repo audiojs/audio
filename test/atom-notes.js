@@ -99,7 +99,9 @@ const raw16 = {
 	},
 }
 
-audio.use(raw16)
+// register as two halves (decode-X / encode-X package pattern) — host merges by name
+audio.use({ codec: 'raw16', test: raw16.test, decode: raw16.decode })
+audio.use({ codec: 'raw16', encode: raw16.encode })
 
 test('codec atom: encode → sniff → decode round-trip', async () => {
 	let n = SR >> 1, ch = new Float32Array(n)

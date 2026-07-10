@@ -272,12 +272,14 @@ audio.use = function(...plugins) {
 }
 
 /** Register a codec atom: { codec: fmt, test?(bytes) → bool, decode?(bytes) →
- *  { channelData, sampleRate } | Promise, encode?(opts) → enc } — the same
- *  per-format shapes the @audio/decode / @audio/encode umbrellas hold (enc(chunk)
- *  → bytes, enc() → flush). test() sniffs headers where magic-byte detection
- *  draws a blank. */
+ *  { channelData, sampleRate } | Promise, encode?(opts) → enc } (enc(chunk) →
+ *  bytes, enc() → flush). test() sniffs headers where magic-byte detection draws
+ *  a blank. A package may carry one half (decode-X / encode-X manifests) —
+ *  registrations merge by format name. Codec atoms *extend*: bundled umbrella
+ *  codecs win for formats they already serve (streaming decode stays streaming). */
 function useCodec(m) {
-  (audio.codecs ??= {})[m.codec] = m
+  let reg = (audio.codecs ??= {})
+  reg[m.codec] = { ...reg[m.codec], ...m }
 }
 
 

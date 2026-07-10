@@ -4,9 +4,10 @@ import encode from '@audio/encode'
 
 const FMT_ALIAS = { aif: 'aiff', oga: 'ogg' }
 
-/** Encoder factory for a format — registered codec atoms take precedence. */
+/** Encoder factory for a format — codec atoms extend the bundled set (built-ins
+ *  win for formats they already serve, mirroring the decode side's precedence). */
 function encoderFor(fmt) {
-  return audio.codecs?.[fmt]?.encode || encode[fmt]
+  return encode[fmt] || audio.codecs?.[fmt]?.encode
 }
 
 function resolveFormat(fmt) {
