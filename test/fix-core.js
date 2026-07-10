@@ -249,5 +249,5 @@ test('fix cache.js — detectBudget caps residency near DEFAULT_BUDGET, not GBs'
 
     mock(256 * 2 ** 20)
     t.is(await audio.detectBudget(), 64 * 1024 * 1024, 'small quota clamps to the floor')
-  } finally { Object.defineProperty(globalThis, 'navigator', desc) }
+  } finally { desc ? Object.defineProperty(globalThis, 'navigator', desc) : delete globalThis.navigator }  // node <21: no navigator global to restore
 })
