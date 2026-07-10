@@ -12,7 +12,7 @@ import encode from '@audio/encode'
 import convert, { parse as parseFmt } from 'pcm-convert'
 import parseDuration from 'parse-duration'
 
-audio.version = '2.4.0'
+audio.version = '2.5.0'
 
 /** Parse time value: number passthrough, string via parse-duration or timecode. */
 export function parseTime(v) {
