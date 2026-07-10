@@ -531,71 +531,38 @@ JSON.stringify(a); audio(json)            // serialize / restore
 
 ### Plugins
 
-One mechanism extends everything — ops, stats, codecs. Built-ins register through the same interface. `audio.use` a package, or define your own with `audio.op` / `audio.stat`. See [Plugin Tutorial](docs/plugins.md).
+One mechanism extends everything — ops, stats, codecs; built-ins register through the same interface. See [Plugin Tutorial](docs/plugins.md).
 
-* **`audio.use(...plugins)`** – register plugins: a factory following the [@audio contract](https://github.com/audiojs/compile/blob/main/CONTRACT.md), a stat `{ stat, compute }`, a codec `{ codec, test?, decode?, encode? }`, a function receiving `audio`, or a registry name (dynamic import, returns a promise — `npm i` the package it points at; catalog in [Ecosystem](#ecosystem)).
+* **`audio.use(...plugins)`** – register plugins: a factory following the [@audio contract](https://github.com/audiojs/compile/blob/main/CONTRACT.md), a stat `{ stat, compute }`, a codec `{ codec, test?, decode?, encode? }`, a function receiving `audio`, or a registry name (dynamic import — `npm i` the package; catalog in [docs/plugins.md#registry](docs/plugins.md#registry)).
 * **`audio.op(name, fn)`** – register op. Shorthand for `{ process: fn }`. Full descriptor: `{ params, process, plan, resolve }`.
 * **`audio.op(name)`** – query descriptor. **`audio.op()`** – all ops.
 * **`audio.stat(name, descriptor)`** – register stat. Shorthand `(chs, ctx) => [...]` or `{ block, reduce, query }`.
 
-Contract factories plug in as ops: params get engine automation, curves and click-free ramps; declared `tail`, `latency`, `streaming: false` and sidechain buses are handled by the engine; the CLI resolves registry names and synthesizes `--help` from param metadata.
+Contract factories plug in as full ops — automation, click-free ramps, tails, latency, sidechain and CLI `--help` handled by the engine:
 
 ```js
 import { compressor } from '@audio/dynamics-compressor/audio'
 audio.use(compressor)                       // bring-your-own factory
-await audio.use('freeverb', 'declick')      // or by registry name
+await audio.use('freeverb', 'truepeak')     // or by registry name
 
 a.freeverb({ room: 0.8 })                   // tail composes automatically
-a.declick()                                 // batch plugins run whole-render
 music.ducker({ key: voice })                // sidechain via the key option
+await a.stat('truepeak')                    // stat plugins land on a.stat()
 ```
-
-Stat plugins land on `a.stat(name)`; option values that are audio instances (e.g. `similarity`'s `ref`) pre-render to PCM:
-
-```js
-await audio.use('truepeak', 'structure')
-await a.stat('truepeak')                    // −0.4 dBTP (inter-sample, BS.1770)
-await a.stat('similarity', { ref: b })
-```
-
-Codec plugins — `{ codec: fmt, test?(bytes), decode?(bytes), encode?(opts) }` — extend what `audio()` can open (header sniffed via `test` where magic-byte detection draws a blank) and what `save()`/`encode()` can write. Every `@audio/decode-*` / `@audio/encode-*` package ships its half as an `audio.js` manifest — halves merge by format name; the bundled umbrellas keep precedence for formats they already serve (streaming decode stays streaming), so codec plugins matter for standalone hosts and formats beyond the bundled set.
 
 Custom ops and stats are plain descriptors — chainable and queryable like built-ins:
 
 ```js
-// op: params declares named args → ctx.bits; process receives (input, output, ctx) per 1024-sample block
 audio.op('crush', { params: ['bits'], process: (input, output, ctx) => {
   let steps = 2 ** (ctx.bits ?? 8)
   for (let c = 0; c < input.length; c++)
     for (let i = 0; i < input[c].length; i++)
       output[c][i] = Math.round(input[c][i] * steps) / steps
 }})
-
-// stat: block function collects per-block, reduce enables scalar queries across blocks
-audio.stat('peak', {
-  block: (chs) => chs.map(ch => { let m = 0; for (let s of ch) m = Math.max(m, Math.abs(s)); return m }),
-  reduce: (blockValues, from, to) => { let m = 0; for (let i = from; i < to; i++) m = Math.max(m, blockValues[i]); return m },
-})
-
-a.crush(4)                    // chainable like built-in ops
-a.stat('peak')                // → scalar from reduce
-a.stat('peak', { bins: 100 }) // → binned array
+a.crush(4)
 ```
 
-Plugins also run without the engine: `audio/batch` hosts one over a whole signal, `audio/stream` over live chunks — same param semantics (defaults, automation functions, smoothing), no plan or context.
-
-```js
-import { toBatch, toStream } from 'audio/batch'
-const compress = toBatch(compressor, { sampleRate: 44100 })
-const out = compress(samples, { params: { threshold: -24 } })
-```
-
-Note-event instruments (`voice`, `poly`) take a `notes` list — the host compiles it to contract §events slots:
-
-```js
-await audio.use('poly')
-audio(4).poly({ notes: [{ time: 0, midi: 60, duration: 1 }, { time: 0, midi: 64, duration: 1 }] })
-```
+Codec plugins extend what `audio()` can open and `save()`/`encode()` can write; plugins also run engine-less — `audio/batch` over a whole signal, `audio/stream` over live chunks. Details in the [tutorial](docs/plugins.md).
 
 ### Worker
 
@@ -607,12 +574,9 @@ let a = audioWorker('track.mp3')            // decode/edits/stats/encode in a Wo
 a.gain(-3).fade(0.5)
 let [mins, maxs] = await a.stat(['min','max'], { bins: 640 })  // transferred, zero-copy
 a.play()                                    // AudioWorklet (no SharedArrayBuffer) / @audio/speaker
-a.playbackRate = 1.5                        // live, smooth-ramped — parity with the local player
 ```
 
-Once `audio/worker` is imported, the main entry dispatches too: `audio('track.mp3', { worker: true })` — same call shape, worker-hosted.
-
-Custom worker entry (extra codecs, plugins): `import '@audio/decode-aac'; import 'audio/worker'` — the file self-hosts in worker scope; pass it via `{ worker }`. Boundary notes: `clip()`/`split()`/`clone()` return promises of facades; op errors surface on `'error'` (or `await a.run([type, opts])`); function params don't cross — use curves `{t, v}`.
+Once imported, the main entry dispatches too: `audio('track.mp3', { worker: true })`. Custom worker entry (extra codecs, plugins): `import '@audio/decode-aac'; import 'audio/worker'` — pass the file via `{ worker }`. Boundary: `clip()`/`split()`/`clone()` return promises of facades; op errors surface on `'error'`; function params don't cross — use curves `{t, v}`.
 
 ## CLI
 
@@ -813,31 +777,7 @@ audio --completions fish | source       # fish
 <dd>Tone.js is a Web Audio synthesis framework — great for making music in real-time, not for editing files. Howler.js is a playback library — load and play, no editing or analysis. <code>audio</code> is a complete audio workstation: decode, edit, analyze, encode, play, record, CLI.</dd>
 </dl>
 
-## Ecosystem
-
-Op plugins (`audio.plugins` registry, name → package — `npm i` it, then `await audio.use('name')`):
-
-**dynamics** compressor · limiter · gate · expander · deesser · ducker · compand · softclip · leveler · transient-shaper · multiband · fet · opto · varimu · vca —
-**denoise** dehum · specsub · wiener · omlsa · dereverb · deplosive · dewind · declick · declip · decrackle · debreath —
-**effects** delay · chorus · flanger · phaser · tremolo · vibrato · autowah · wah · bitcrusher · distortion · exciter · ringmod · freqshift · multitap · pingpong · slew · noiseshaper · lofi · graindelay · stutter · subbass · sbr · rotary · tapestop —
-**reverb** freeverb · schroeder · plate · fdn · spring · shimmer —
-**filter** biquad · moog · korg35 · diode · oberheim · resonator · spectral-tilt · variable · comb · dcblocker · emphasis · deemphasis · derivative · integral —
-**eq** geq · tilt · baxandall · dyneq —
-**spatial** widener · haas · panner · autopan · midside · microshift · surround —
-**shift** pitch-shift · vocoder · formant-shift · paulstretch —
-**color** tape · transistor · waveshaper · multisat · amp · cabinet · defeedback —
-**generate** osc · noise · chirp · pluck · risset · rhythm · sfx · kick · cymbal · snare · adsr · voice · poly · fm · bell · epiano · modal —
-**more** yin · tube · isolate · tune
-
-Stat plugins (land on `a.stat(name)`):
-
-**loudness** truepeak · lra · replaygain · dr · speech-contrast · sounds —
-**spectral** rolloff · spread · slope · flux · contrast · ltas · zcr —
-**mir** structure · tempogram · melody · downbeat · fingerprint · drums · multif0 · transcribe · similarity · coversong · chroma · tonnetz
-
-Beyond the registry — kernels whose inputs aren't scalar params ship as plain packages for direct import: `@audio/reverb-convolution` (impulse response), `@audio/eq-fir` (response curve), `@audio/eq-crossover` (SOS designer), `@audio/tune-midi` (guide notes), `@audio/denoise-repair` (regions), `@audio/synth-dtmf` (digit string), `@audio/synth-wavetable` (tables), per-band forms of multiband/dyneq/multisat, and the `@audio/measure`, `@audio/sinusoidal`, `@audio/voice` tool/substrate families.
-
-Foundations:
+## Built with
 
 * [decode](https://github.com/audiojs/decode) – codec decoding (13+ formats)
 * [encode](https://github.com/audiojs/encode) – codec encoding
