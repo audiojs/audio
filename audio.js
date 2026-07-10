@@ -13,9 +13,9 @@ export { render } from './plan.js'
 
 import audio from './core.js'
 
-// ── Atom registry — audio.use('name') resolves through here (dynamic import).
+// ── Plugin registry — audio.use('name') resolves through here (dynamic import).
 // Contract atoms from the @audio scope; grows with the published set.
-audio.atoms = {
+audio.plugins = {
   compressor: '@audio/dynamics-compressor/audio',
   limiter: '@audio/dynamics-limiter/audio',
   gate: '@audio/dynamics-gate/audio',
@@ -37,7 +37,8 @@ audio.atoms = {
   declip: '@audio/denoise-declip/audio',
   decrackle: '@audio/denoise-decrackle/audio',
   debreath: '@audio/denoise-debreath/audio',
-  // @audio/denoise-gate exists too — direct-import only ('gate' names the dynamics gate)
+  // denoise-gate/-deesser merged into the dynamics atoms above (2026-07 near-dupe merge:
+  // gate gained hysteresis + look-ahead; deesser gained mode 'band' dynamic peaking EQ)
   freeverb: '@audio/reverb-freeverb/audio',
   delay: '@audio/effect-delay/audio',
   chorus: '@audio/effect-chorus/audio',
@@ -127,9 +128,9 @@ audio.atoms = {
   poly: '@audio/synth-poly/audio',
   // ↑ note-event instruments: pass notes — a.voice({ notes: [{ time, midi|freq, duration, velocity }] })
   // @audio/synth-dtmf (digit string) / synth-wavetable (table arrays) — direct-import only
-  // Codec atoms ({ codec, test?, decode?, encode? }) register the same way — none published yet
+  // Codec plugins ({ codec, test?, decode?, encode? }) register the same way — none published yet
 
-  // ── Stat atoms ({ stat, compute } — register as a.stat(name)) ────────────
+  // ── Stat plugins ({ stat, compute } — register as a.stat(name)) ──────────
   truepeak: '@audio/loudness-truepeak/audio',
   lra: '@audio/loudness-lra/audio',
   replaygain: '@audio/loudness-replaygain/audio',
@@ -151,6 +152,7 @@ audio.atoms = {
   similarity: '@audio/mir-similarity/audio',
   coversong: '@audio/mir-coversong/audio',
 }
+audio.atoms = audio.plugins  // deprecated ≤2.5 name — same object, mutations visible through both
 
 // ── Infrastructure (self-register on import) ────────────────────────────
 
@@ -180,6 +182,7 @@ import './fn/mix.js'
 import './fn/write.js'
 import './fn/remix.js'
 import './fn/trim.js'
+import './fn/shrink.js'
 import './fn/normalize.js'
 import './fn/filter.js'
 import './fn/pan.js'
