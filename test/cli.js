@@ -1665,3 +1665,14 @@ test('API — filter + mp3 encode (large, >28min stereo 48kHz)', { fork: true, t
     try { unlinkSync(outPath) } catch {}
   }
 })
+
+test('docs coverage — every public op has help, a gerund label, and a README mention', t => {
+  let readme = readFileSync(join(projectRoot, 'README.md'), 'utf8')
+  for (let [name, desc] of Object.entries(audio.op())) {
+    if (desc.hidden) continue
+    let h = desc.help || HELP[name]
+    t.ok(h, `${name}: CLI help present`)
+    if (h && h.kind !== 'sink' && h.kind !== 'source') t.ok(h.label, `${name}: gerund label`)
+    t.ok(readme.includes('.' + name + '(') || readme.includes('`' + name), `${name}: README documents it`)
+  }
+})

@@ -3760,6 +3760,117 @@ test('crossover — no freqs is passthrough, Nyquist guarded, stream width match
   for await (let chunk of c.stream()) { t.is(chunk.length, 4, 'stream yields band-split width'); break }
 })
 
+// ── stream/read equivalence for stateful + randomized ops ─────────────────
+
+test('pitch — ranged read matches full-read slice (vocoder warm-up across seams)', async t => {
+  // The vocoder carries phase state, so a ranged read that warms up mid-stream
+  // cannot be bit-equal to the full render — but pitch, level, and continuity must
+  // agree. Pins that seek/ranged reads re-warm rather than reset. Frequency is
+  // measured spectrally (Goertzel): zero crossings overcount on phasy vocoder
+  // output at non-octave ratios.
+  let sr = 44100, n = sr * 3, ch = new Float32Array(n)
+  for (let i = 0; i < n; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 220 * i / sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  a.pitch(5)
+  let full = (await a.read())[0]
+  let ranged = (await a.read({ at: 1, duration: 1 }))[0]
+  t.is(ranged.length, sr, 'ranged length exact')
+  let goertzel = (d, f, from, len) => {
+    let w = 2 * Math.PI * f / sr, cw = 2 * Math.cos(w), s0 = 0, s1 = 0, s2 = 0
+    for (let i = 0; i < len; i++) { s0 = d[from + i] + cw * s1 - s2; s2 = s1; s1 = s0 }
+    return s1 * s1 + s2 * s2 - cw * s1 * s2
+  }
+  let rms = (d, f = 0, e = d.length) => { let s = 0; for (let i = f; i < e; i++) s += d[i] ** 2; return Math.sqrt(s / (e - f)) }
+  let want = 220 * 2 ** (5 / 12)
+  for (let [buf, from, label] of [[full, sr, 'full'], [ranged, 0, 'ranged']]) {
+    let exact = goertzel(buf, want, from, sr)
+    t.ok(exact > 100 * goertzel(buf, want / 2 ** (1 / 12), from, sr), `${label}: target dominates −1 semitone`)
+    t.ok(exact > 100 * goertzel(buf, want * 2 ** (1 / 12), from, sr), `${label}: target dominates +1 semitone`)
+  }
+  t.ok(Math.abs(rms(ranged) - rms(full, sr, 2 * sr)) < 0.02, 'ranged level matches full render')
+  t.ok(ranged.every(Number.isFinite), 'finite (no cold-state NaN)')
+})
+
+test('dither — stream ≡ read statistically (independent TPDF draws)', async t => {
+  // Dither is deliberately random per pass: two renders differ, but only within
+  // the dither amplitude. Bound the pass-to-pass divergence instead of bit-equality.
+  let sr = 44100, n = sr, ch = new Float32Array(n)
+  for (let i = 0; i < n; i++) ch[i] = 0.4 * Math.sin(2 * Math.PI * 440 * i / sr)
+  let a = audio.from([ch], { sampleRate: sr })
+  a.dither(16)
+  let read1 = (await a.read())[0]
+  let flat = [], total = 0
+  for await (let c of a.stream()) { flat.push(c[0].slice()); total += c[0].length }
+  let read2 = new Float32Array(total), pos = 0
+  for (let f of flat) { read2.set(f, pos); pos += f.length }
+  t.is(read2.length, read1.length, 'lengths equal')
+  let lsb = 2 / 65535, maxD = 0, sum = 0
+  for (let i = 0; i < n; i++) { let d = read1[i] - read2[i]; maxD = Math.max(maxD, Math.abs(d)); sum += d }
+  t.ok(maxD <= 2.5 * lsb, `pass divergence ≤ 2.5 LSB (${(maxD / lsb).toFixed(2)})`)
+  t.ok(Math.abs(sum / n) < 0.25 * lsb, `no bias between passes (${(sum / n / lsb).toFixed(3)} LSB)`)
+  let dev = 0
+  for (let i = 0; i < n; i++) dev = Math.max(dev, Math.abs(read1[i] - ch[i]))
+  t.ok(dev <= 2 * lsb + 1e-6, `pass within TPDF bound of source (${(dev / lsb).toFixed(2)} LSB)`)
+})
+
+// ── push-source op coverage ────────────────────────────────────────────────
+
+test('push source — dither/pitch/stretch/mix apply over pushed audio', async t => {
+  let sr = 44100
+  let mkTone = (f, dur) => { let n = Math.round(sr * dur), d = new Float32Array(n); for (let i = 0; i < n; i++) d[i] = 0.4 * Math.sin(2 * Math.PI * f * i / sr); return d }
+  let mkPush = async () => {
+    let p = audio(null, { sampleRate: sr, channels: 1 })
+    await p.push([mkTone(220, 0.5)])
+    await p.push([mkTone(220, 0.5)])
+    await p.stop()
+    return p
+  }
+  let zc = d => { let c = 0, f = d.length >> 2, e = d.length - (d.length >> 2); for (let i = f + 1; i < e; i++) if ((d[i - 1] < 0) !== (d[i] < 0)) c++; return c / 2 / ((e - f) / sr) }
+
+  let a = await mkPush()
+  a.dither(16)
+  let pa = (await a.read())[0]
+  t.is(pa.length, sr, 'dither: pushed length preserved')
+  t.ok(pa.every(Number.isFinite), 'dither: finite')
+
+  let b = await mkPush()
+  b.pitch(12)
+  let pb = (await b.read())[0]
+  t.ok(Math.abs(zc(pb) - 440) < 6, `pitch on push source: ${zc(pb).toFixed(0)}Hz (440)`)
+
+  let c = await mkPush()
+  c.stretch(2)
+  t.ok(Math.abs(c.duration - 2) < 0.01, `stretch on push source: ${c.duration.toFixed(2)}s`)
+  let pc = (await c.read())[0]
+  t.ok(Math.abs(zc(pc) - 220) < 4, 'stretch preserves pitch on push source')
+
+  let d = await mkPush()
+  d.mix(audio.from([mkTone(660, 1)], { sampleRate: sr }))
+  let pd = (await d.read())[0]
+  let rms = x => { let s = 0; for (let v of x) s += v * v; return Math.sqrt(s / x.length) }
+  t.ok(rms(pd) > rms(pa) * 1.2, 'mix adds energy over pushed audio')
+})
+
+test('push source — dither applies while stream runs live', async t => {
+  let sr = 44100
+  let tone = n => { let d = new Float32Array(n); for (let i = 0; i < n; i++) d[i] = 0.4 * Math.sin(2 * Math.PI * 220 * i / sr); return d }
+  let p = audio(null, { sampleRate: sr, channels: 1 })
+  p.dither(16)
+  let collected = 0, firstFinite = null
+  let consumer = (async () => {
+    for await (let c of p.stream()) {
+      if (firstFinite === null) firstFinite = c[0].every(Number.isFinite)
+      collected += c[0].length
+    }
+  })()
+  await p.push([tone(sr >> 1)])
+  await p.push([tone(sr >> 1)])
+  await p.stop()
+  await consumer
+  t.ok(firstFinite, 'live chunks finite')
+  t.is(collected, sr, 'live stream drained the full pushed length through the op')
+})
+
 // ── per-block note feed — streaming instruments (contract §events) ────────
 
 test('streaming instrument — per-block note events, block-relative times', async t => {
@@ -6668,7 +6779,7 @@ test('cli ops registry — all built-ins available', t => {
 // their npm releases land — skip cleanly where neither is present (e.g. bare CI).
 if (isNode) await import('./plugin-ops.js')
 if (isNode) for (let f of ['./plugin-effects.js', './plugin-denoise.js', './plugin-spatial.js', './plugin-shift.js', './plugin-tune.js',
-  './plugin-reverb.js', './plugin-dynamics.js', './plugin-filter.js', './plugin-eq.js', './plugin-color.js', './plugin-synth.js', './plugin-stats.js', './plugin-notes.js', './plugin-stretch.js']) {
+  './plugin-reverb.js', './plugin-dynamics.js', './plugin-filter.js', './plugin-eq.js', './plugin-color.js', './plugin-synth.js', './plugin-stats.js', './plugin-notes.js', './plugin-stretch.js', './plugin-fate.js']) {
   try { await import(f) }
   catch (e) {
     if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e

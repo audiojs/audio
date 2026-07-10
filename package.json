@@ -121,6 +121,7 @@
     "@audio/effect-autowah": "^1.1.0",
     "@audio/effect-bitcrusher": "^1.1.0",
     "@audio/effect-chorus": "^1.1.0",
+    "@audio/effect-delay": "^1.0.2",
     "@audio/effect-distortion": "^1.1.0",
     "@audio/effect-exciter": "^1.1.0",
     "@audio/effect-flanger": "^1.1.0",
