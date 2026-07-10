@@ -131,8 +131,9 @@ Changing `BLOCK_SIZE` cannot retroactively refine existing stats. For finer reso
 params map to op params (engine automation/curves/ramps apply), declared `tail` composes
 a trailing pad, declared `latency` gets plan-level delay compensation, `streaming: false`
 atoms run as whole-render ops (materialize → one call → continue from the result), and
-multi-bus atoms read their sidechain from the `key` option. `audio.atoms` maps names
-to published packages for `audio.use('name')` and CLI auto-resolution.
+multi-bus atoms read their sidechain from the `key` option. `audio.plugins` maps names
+to published packages for `audio.use('name')` and CLI auto-resolution (`audio.atoms`
+remains as a deprecated alias).
 
 ## Meta, markers, regions
 

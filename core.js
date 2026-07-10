@@ -38,6 +38,12 @@ export function parseTime(v) {
  *  Thenable: `await audio('file.mp3')` waits for full decode.
  *  Edits can be chained before decode completes. */
 export default function audio(source, opts = {}) {
+  // Worker-hosted engine — same call shape, runs in a Worker (import 'audio/worker' enables it)
+  if (opts.worker) {
+    let aw = globalThis[Symbol.for('audio.worker')]
+    if (!aw) throw new Error('audio: { worker } requires `import "audio/worker"` first — the worker facade stays out of the main bundle')
+    return aw(source, opts)
+  }
   // No source → pushable instance (tape recorder — push, record, stop)
   if (source == null) {
     let sr = opts.sampleRate || 44100, ch = opts.channels || 1
@@ -108,7 +114,7 @@ export default function audio(source, opts = {}) {
     try {
       if (opts.storage === 'persistent') {
         if (!audio.opfsCache) throw new Error('Persistent storage requires cache module (import "./cache.js")')
-        try { opts = { ...opts, cache: await audio.opfsCache(), budget: opts.budget ?? audio.DEFAULT_BUDGET ?? Infinity } }
+        try { opts = { ...opts, cache: await audio.opfsCache(), budget: opts.budget ?? await audio.detectBudget?.() ?? audio.DEFAULT_BUDGET ?? Infinity } }
         catch { throw new Error('OPFS not available (required by storage: "persistent")') }
         if (a._.disposed) return true
         a.cache = opts.cache
@@ -241,29 +247,29 @@ fn.dispose = function() {
 }
 if (Symbol.dispose) fn[Symbol.dispose] = fn.dispose
 
-const isAtom = p => typeof p === 'function' && Object.hasOwn(p, 'params') && typeof p.params === 'object'
+const isOp = p => typeof p === 'function' && Object.hasOwn(p, 'params') && typeof p.params === 'object'
 const isStat = p => p != null && typeof p === 'object' && typeof p.stat === 'string' && typeof p.compute === 'function'
 const isCodec = p => p != null && typeof p === 'object' && typeof p.codec === 'string' && (typeof p.decode === 'function' || typeof p.encode === 'function')
 
-/** Register plugins. Each receives audio. A contract atom (a factory function
+/** Register plugins. Each receives audio. A contract plugin (a factory function
  *  with an own `params` object — see audiojs/compile CONTRACT.md) is hosted natively as
  *  an op; its declared `tail` composes a trailing pad so decays are not truncated.
- *  A stat atom ({ stat: name, compute(channels, opts) }) registers as a.stat(name).
- *  A codec atom ({ codec: fmt, test?, decode?, encode? }) extends what audio() can
+ *  A stat plugin ({ stat: name, compute(channels, opts) }) registers as a.stat(name).
+ *  A codec plugin ({ codec: fmt, test?, decode?, encode? }) extends what audio() can
  *  open and what save()/encode() can write. A string resolves through the
- *  audio.atoms registry (dynamic import — returns a promise); every atom-, stat- or
+ *  audio.plugins registry (dynamic import — returns a promise); every atom-, stat- or
  *  codec-shaped export of the target registers. */
 audio.use = function(...plugins) {
   let loads = null
   for (let p of plugins) {
     if (typeof p === 'string') {
-      let spec = audio.atoms?.[p]
-      if (!spec) throw new Error(`audio.use: unknown atom '${p}' — not in audio.atoms registry`)
+      let spec = audio.plugins?.[p] ?? audio.atoms?.[p]  // .atoms — deprecated ≤2.5 name
+      if (!spec) throw new Error(`audio.use: unknown plugin '${p}' — not in audio.plugins registry`)
       ;(loads ??= []).push(import(spec).then(ns => {
-        for (let k of Object.keys(ns)) { if (isAtom(ns[k])) useAtom(ns[k]); else if (isStat(ns[k])) useStat(ns[k]); else if (isCodec(ns[k])) useCodec(ns[k]) }
+        for (let k of Object.keys(ns)) { if (isOp(ns[k])) useOp(ns[k]); else if (isStat(ns[k])) useStat(ns[k]); else if (isCodec(ns[k])) useCodec(ns[k]) }
       }, e => { throw new Error(`audio.use('${p}'): install ${spec.split('/').slice(0, 2).join('/')} — ${e.message}`) }))
     }
-    else if (isAtom(p)) useAtom(p)
+    else if (isOp(p)) useOp(p)
     else if (isStat(p)) useStat(p)
     else if (isCodec(p)) useCodec(p)
     else p(audio)
@@ -271,7 +277,7 @@ audio.use = function(...plugins) {
   return loads ? Promise.all(loads).then(() => audio) : audio
 }
 
-/** Register a codec atom: { codec: fmt, test?(bytes) → bool, decode?(bytes) →
+/** Register a codec plugin: { codec: fmt, test?(bytes) → bool, decode?(bytes) →
  *  { channelData, sampleRate } | Promise, encode?(opts) → enc } (enc(chunk) →
  *  bytes, enc() → flush). test() sniffs headers where magic-byte detection draws
  *  a blank. A package may carry one half (decode-X / encode-X manifests) —
@@ -283,7 +289,7 @@ function useCodec(m) {
 }
 
 
-/** Register a stat atom: whole-signal analysis `compute(channels, { sampleRate, ...opts })`.
+/** Register a stat plugin: whole-signal analysis `compute(channels, { sampleRate, ...opts })`.
  *  The host reads the (ranged) PCM and hands it over — the batch shape every analysis
  *  kernel already is. Option values that are audio instances (e.g. similarity's `ref`)
  *  are pre-rendered to channel data. */
@@ -299,11 +305,11 @@ function useStat(m) {
   }
 }
 
-/** Map a contract atom to an op descriptor. The contract is a convention, not a
+/** Map a contract plugin (audio.js manifest factory) to an op descriptor. The contract is a convention, not a
  *  library — audio consumes it natively: params read off the factory, per-instance
  *  state on the proc ctx, smoothing left to engine sub-block automation (it already
  *  ramps patched values click-free), currentTime from blockOffset. */
-function useAtom(m) {
+function useOp(m) {
   if (!audio.op) throw new Error('audio.use(module): op registry required — import "audio", not "audio/core.js"')
   let specs = m.params || {}
   let names = Object.keys(specs)
@@ -396,14 +402,19 @@ function useAtom(m) {
   // streaming: false — the module needs the entire signal in one call; the plan
   // engine materializes the timeline and hosts it as a whole-render op
   if (m.streaming === false) {
-    // Declared tail on a whole-render atom → plan pads the materialized input with
+    // Declared tail on a whole-render plugin → plan pads the materialized input with
     // that many seconds of silence so the decay renders instead of truncating (the
-    // atom still sees equal frames in/out — both sides extended).
+    // plugin still sees equal frames in/out — both sides extended).
     let wholeTail = typeof m.tail === 'function'
       ? (o, sr) => m.tail({ sampleRate: sr, params: snapParams(n => o?.[n]) })
       : m.tail || 0
+    // Declared frames hook → structural output length (time-stretch class): the plan
+    // sizes the output buffers by it and continues from the result's actual length.
+    let frames = m.frames
+      ? (n, o, sr) => m.frames(n, { sampleRate: sr, params: snapParams(k => o?.[k]) })
+      : undefined
     return audio.op(id, {
-      params: names, atom: m, ch, tail: wholeTail,
+      params: names, plugin: m, atom: m, ch, tail: wholeTail, frames,
       whole(input, output, ctx) {
         let st = init(ctx, input[0].length)
         if (noteIn && ctx.notes) st.mctx.events = noteSlots(ctx.notes, ctx.sampleRate)
@@ -413,13 +424,13 @@ function useAtom(m) {
     })
   }
 
-  if (!tail) return audio.op(id, { params: names, atom: m, latency, process, ch })
+  if (!tail) return audio.op(id, { params: names, plugin: m, atom: m, latency, process, ch })
 
   // Declared tail: expand into pad + hidden proc at compile time — the user edit stays
   // one atomic entry (undo/serialize whole), the decay renders into the pad
-  audio.op('_' + id, { params: names, hidden: true, atom: m, latency, process, ch })
+  audio.op('_' + id, { params: names, hidden: true, plugin: m, atom: m, latency, process, ch })
   audio.op(id, {
-    params: names, tail, atom: m, ch,
+    params: names, tail, plugin: m, atom: m, ch,
     expand: (ctx) => {
       let o = {}
       for (let k of names) if (ctx[k] !== undefined) o[k] = ctx[k]
@@ -873,6 +884,20 @@ function estimateDuration(fileSize, format, sampleRate, channels) {
 }
 
 /** Decode any source into pages + stats. Pages fill progressively. */
+/** Browser fallback — decode via WebAudio (OfflineAudioContext) for codecs beyond
+ *  the bundled set (platform-provided aac/m4a/…). Null when unavailable/undecodable. */
+async function waDecode(bytes) {
+  let OAC = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext
+  if (!OAC) return null
+  try {
+    // decodeAudioData detaches the buffer — hand it a copy
+    let ab = await new OAC(1, 1, 44100).decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength))
+    let channelData = []
+    for (let c = 0; c < ab.numberOfChannels; c++) channelData.push(ab.getChannelData(c))
+    return { channelData, sampleRate: ab.sampleRate }
+  } catch { return null }
+}
+
 async function decodeSource(source, opts = {}) {
   let { format, bytes, reader, fileSize } = await detectSource(source)
 
@@ -880,7 +905,11 @@ async function decodeSource(source, opts = {}) {
   if (!format || !decode[format]) {
     if (!bytes) bytes = new Uint8Array(await resolveSource(source))
     let dec = format && audio.codecs?.[format]?.decode
-    let { channelData, sampleRate } = await (dec ? dec(bytes) : decode(bytes.buffer || bytes))
+    let decoded
+    if (dec) decoded = await dec(bytes)
+    else try { decoded = await decode(bytes.buffer || bytes) }
+    catch (e) { decoded = await waDecode(bytes); if (!decoded) throw e }
+    let { channelData, sampleRate } = decoded
     let pages = opts.pages || []
     if (!opts.disposed?.()) for (let p of paginate(channelData)) { pages.push(p); opts.notify?.() }
     let stats = audio.statSession?.(sampleRate)?.page(channelData)?.done() ?? null

@@ -5,14 +5,11 @@
  * mid-stream edits, serialization, guards.
  */
 import test from 'tst'
+import { tone as genTone } from './gen.js'
 import audio from '../audio.js'
 
 const ramp = n => { let ch = new Float32Array(n); for (let i = 0; i < n; i++) ch[i] = i; return ch }
-const tone = (freq, dur, sr = 44100, amp = 1) => {
-  let n = Math.round(dur * sr), ch = new Float32Array(n)
-  for (let i = 0; i < n; i++) ch[i] = amp * Math.sin(2 * Math.PI * freq * i / sr)
-  return ch
-}
+const tone = (freq, dur, sr = 44100, amp = 1) => genTone(freq, dur, amp, sr)
 const rms = buf => { let s = 0; for (let v of buf) s += v * v; return Math.sqrt(s / buf.length) }
 const arrEq = (a, b) => a.length === b.length && [...a].every((v, i) => v === b[i])
 
@@ -384,4 +381,33 @@ test('stat after undo restores source stats (wavearea undo/redo path)', async t 
   t.ok(Math.abs(bins[0] - 0.9) < 1e-3, 'binned waveform restored')
   a.remove({ at: 0, duration: 0.5 })  // redo-equivalent: re-apply after undo
   t.ok(Math.abs(await a.stat('max') - 0.1) < 1e-3, 're-applied edit derives fresh stats')
+})
+
+test('mix/write past the first block — unranged position ops anchor at absolute 0', async t => {
+  // opRange defaulted `at` to 0 per block, so mix/write restarted at every block
+  // boundary: mix tiled the source's first BLOCK_SIZE samples across the whole file.
+  // Fixed: unset `at` resolves to −blockOffset (absolute 0 in block-relative terms).
+  let sr = 44100
+  let ramp = new Float32Array(sr / 2)
+  for (let i = 0; i < ramp.length; i++) ramp[i] = i / sr
+
+  let a = audio.from([new Float32Array(sr)], { sampleRate: sr })
+  a.mix(audio.from([ramp], { sampleRate: sr }))
+  let pcm = (await a.read())[0]
+  t.ok(Math.abs(pcm[5000] - 5000 / sr) < 1e-6, `mix source offset advances across blocks (${pcm[5000].toFixed(5)})`)
+  t.ok(Math.abs(pcm[20000] - 20000 / sr) < 1e-6, 'deep into the source, still aligned')
+  t.is(pcm[30000], 0, 'no source energy past its end (was tiled)')
+
+  let b = audio.from([new Float32Array(sr).fill(0.5)], { sampleRate: sr })
+  b.write(new Float32Array(3000).fill(-0.9))  // spans 3 blocks, default position
+  let q = (await b.read())[0]
+  t.ok(Math.abs(q[2000] + 0.9) < 1e-6, 'write covers its full span')
+  t.is(q[3500], 0.5, 'untouched after data ends')
+
+  // ranged behavior unchanged
+  let c = audio.from([new Float32Array(sr).fill(0.5)], { sampleRate: sr })
+  c.mix(audio.from([new Float32Array(sr).fill(0.3)], { sampleRate: sr }), { at: 0.2, duration: 0.3 })
+  let r = (await c.read())[0]
+  t.ok(Math.abs(r[Math.round(sr * 0.3)] - 0.8) < 0.01, 'ranged mix adds inside range')
+  t.ok(Math.abs(r[Math.round(sr * 0.6)] - 0.5) < 0.01, 'ranged mix silent outside range')
 })

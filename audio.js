@@ -14,7 +14,7 @@ export { render } from './plan.js'
 import audio from './core.js'
 
 // ── Plugin registry — audio.use('name') resolves through here (dynamic import).
-// Contract atoms from the @audio scope; grows with the published set.
+// Contract plugins from the @audio scope; grows with the published set.
 audio.plugins = {
   compressor: '@audio/dynamics-compressor/audio',
   limiter: '@audio/dynamics-limiter/audio',
@@ -192,6 +192,7 @@ import './fn/stretch.js'
 import './fn/pitch.js'
 import './fn/transform.js'
 import './fn/crossfade.js'
+import './fn/crossover.js'
 import './fn/vocals.js'
 import './fn/dither.js'
 import './fn/crossfeed.js'

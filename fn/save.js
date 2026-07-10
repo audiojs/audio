@@ -28,6 +28,17 @@ function gatherMeta(inst, opts) {
   return { meta: meta || {}, markers, regions }
 }
 
+/** #27 — a zero-length range would silently produce a header-only file. Fails
+ *  before the sink opens, so an existing target file isn't truncated first. */
+async function assertFrames(inst, opts, verb) {
+  if (inst._.waiters && !inst.decoded) return  // live source: length unknown until it ends
+  await inst[LOAD]()
+  let at = parseTime(opts.at) ?? 0
+  let dur = parseTime(opts.duration) ?? inst.duration - at
+  if (Math.round(Math.min(dur, inst.duration - at) * inst.sampleRate) < 1)
+    throw new Error(`${verb}: nothing to ${verb} — empty range (audio is ${(inst.duration || 0).toFixed(3)}s)`)
+}
+
 // Samples of DSP rendered synchronously between I/O awaits (~3s stereo ≈ 1 MB).
 // Enough sustained sync work that V8 tiers up the DSP hot loop; without it, a
 // per-block `await` keeps the FFT-heavy ops (pitch/stretch/denoise) in baseline JIT
@@ -54,6 +65,7 @@ async function encodeStream(inst, fmt, opts, sink) {
       if (now - t > 8) { await new Promise(r => setTimeout(r, 0)); t = performance.now() }
       emit(inst, 'progress', { offset: written / inst.sampleRate, total })
     }
+    if (!written) throw new Error('encode: nothing to encode — source ended empty')
   } else {
     // Decoded source: drive the DSP through the synchronous plan generator in bursts,
     // crossing an `await` only for I/O between bursts. Identical output to read() (one
@@ -90,6 +102,7 @@ audio.fn.encode = async function(fmt, opts = {}) {
   if (typeof fmt === 'object') { opts = fmt; fmt = undefined }
   fmt = resolveFormat(fmt)
   if (!encoderFor(fmt)) throw new Error(`encode: unknown format '${fmt}'`)
+  await assertFrames(this, opts, 'encode')
   let parts = []
   await encodeStream(this, fmt, opts, buf => { if (buf) parts.push(buf) })
   let total = 0; for (let p of parts) total += p.length
@@ -103,6 +116,7 @@ audio.fn.save = async function(target, opts = {}) {
   let fmt = opts.format ?? (typeof target === 'string' ? target.split('.').pop() : 'wav')
   fmt = resolveFormat(fmt)
   if (!encoderFor(fmt)) throw new Error(`save: unknown format '${fmt}'`)
+  await assertFrames(this, opts, 'save')
 
   let write, finish
   if (typeof target === 'string') {

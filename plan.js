@@ -69,7 +69,10 @@ export function planOffset(offset, total, dflt = 0) {
 /** Compute [start, end] sample range from a process ctx (at/duration) over a buffer of given len. */
 export function opRange(ctx, len) {
   let sr = ctx.sampleRate
-  let s = ctx.at != null ? Math.round(ctx.at * sr) : 0
+  // ctx.at is block-relative (the engine passes at − blockOffset). When unset, the op
+  // anchors at absolute 0 — i.e. blockOffset samples before this block — otherwise a
+  // position-dependent op (mix/write/crossfade source offset) restarts every block.
+  let s = ctx.at != null ? Math.round(ctx.at * sr) : -Math.round((ctx.blockOffset || 0) * sr)
   return [s, ctx.duration != null ? s + Math.round(ctx.duration * sr) : len]
 }
 
@@ -427,7 +430,7 @@ export function refLen(source, sr) {
 
 /** Render n target-rate samples at srcOff (target coords) from a source,
  *  resampling when the source's sample rate differs. */
-audio.renderAt = renderAt  // sidechain bus reads in core's useAtom (no core→plan import)
+audio.renderAt = renderAt  // sidechain bus reads in core's useOp (no core→plan import)
 
 export function renderAt(render, source, srcOff, n, sr) {
   let ssr = source?.sampleRate
@@ -620,7 +623,10 @@ function compilePlan(a, len, final) {
         if (tailN > 0) input = input.map(chn => { let e = new Float32Array(chn.length + tailN); e.set(chn); return e })
         // channel-changing whole op (e.g. 2→5.1 upmix) — output owns its declared width
         let outCh = (op.ch && op.ch(input.length, extra)) || input.length
-        let output = Array.from({ length: outCh }, () => new Float32Array(input[0].length))
+        // structural whole op (e.g. time-stretch) — declared frames hook sets output length
+        let outLen = op.frames ? Math.max(0, Math.round(op.frames(input[0].length, extra, sr))) : input[0].length
+        if (outLen > MAX_FLAT_SIZE) throw new Error(`Audio too large for whole-render op '${type}' (${(outLen / 1e6).toFixed(0)}M samples out)`)
+        let output = Array.from({ length: outCh }, () => new Float32Array(outLen))
         let wctx = { sampleRate: sr, channelCount: input.length, totalDuration: input[0].length / sr, at, duration, channel, render, ...extra }
         op.whole(input, output, wctx)
         a._.wrc.m.set(key, ref = audio.from(output, { sampleRate: sr }))

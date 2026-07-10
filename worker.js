@@ -33,6 +33,8 @@
  *    (browser — no SharedArrayBuffer/COOP-COEP needed) or @audio/speaker (node)
  */
 
+import varispeed from './fn/varispeed.js'  // shared live-rate stage (no engine deps)
+
 // ── Self-host: imported inside a Worker, this module becomes the engine host ──
 const nodeWT = typeof process !== 'undefined' && process.versions?.node
   ? await import('node:worker_threads').catch(() => null) : null
@@ -185,6 +187,14 @@ function facade(chan, opened) {
     // or @audio/speaker (node). The worker only renders; the sink only plays.
     playing: false, paused: false, ended: false, currentTime: 0, volume: 1, loop: false,
 
+    // Live playback speed — parity with the local engine: the pump runs a varispeed
+    // stage, so setting this mid-playback ramps smoothly (~50ms, tape-style).
+    get playbackRate() { return rate },
+    set playbackRate(v) {
+      v = Math.max(0.0625, Math.min(16, +v || 1))
+      if (rate !== v) { rate = v; target._emit('ratechange') }
+    },
+
     play(opts = {}) {
       if (target.playing && target.paused) {
         target.paused = false
@@ -195,6 +205,7 @@ function facade(chan, opened) {
       }
       if (target.playing) return Promise.resolve()
       if (opts.loop != null) target.loop = opts.loop
+      if (opts.rate != null) target.playbackRate = opts.rate
       return new Promise((res, rej) => runPump(opts.at ?? target.currentTime ?? 0, res, rej))
     },
     pause() {
@@ -235,7 +246,7 @@ function facade(chan, opened) {
   for (let m of WRAPPED) target[m] = (...args) => target._call(m, args)
 
   // ── Playback pump ────────────────────────────────────────────────────
-  let sink = null, pumpGen = 0, wake = null
+  let sink = null, pumpGen = 0, wake = null, rate = 1
 
   let killPump = () => { pumpGen++; wake?.(); sink?.flush() }
 
@@ -250,14 +261,28 @@ function facade(chan, opened) {
       sink.reset(at)
       sink.playState(true)
       target._emit('play')
+      // Varispeed between the worker stream and the sink; each written block carries
+      // its source end-position so sinks map output consumption → source time.
+      let vs = varispeed(Math.max(1, target.channels), sr, () => rate)
+      let put = async block => {
+        await sink.write(block, target.volume, at + vs.pos / sr)
+        if (!started) { started = true; onStart() }
+      }
+      streaming:
       for await (let chunk of target.stream({ at })) {
         if (gen !== pumpGen || !target.playing) break
         while (target.paused && gen === pumpGen && target.playing) await new Promise(r => wake = r)
         if (gen !== pumpGen || !target.playing) break
-        await sink.write(chunk, target.volume)
-        if (!started) { started = true; onStart() }
+        vs.push(chunk)
+        let block
+        while (block = vs.pull(false)) {
+          await put(block)
+          if (gen !== pumpGen || !target.playing) break streaming
+        }
       }
       if (gen === pumpGen && target.playing && !target.paused) {
+        let block
+        while ((block = vs.pull(true)) && gen === pumpGen && target.playing) await put(block)
         await sink.drain()
         if (gen === pumpGen && target.playing) {
           if (target.loop) { runPump(0, () => {}, onErr); return }
@@ -280,22 +305,29 @@ function facade(chan, opened) {
     await actx.audioWorklet.addModule(workletURL())
     let node = new AudioWorkletNode(actx, 'audio-worker-sink', { outputChannelCount: [Math.max(1, t.channels)] })
     node.connect(actx.destination)
-    let sent = 0, consumed = 0, base = 0, baseConsumed = 0, onDrain = null, lastVol = 1
+    let sent = 0, consumed = 0, onDrain = null, lastVol = 1
+    // Output-frame → source-time map: one span per written block (varispeed makes
+    // the mapping non-uniform, so consumption reports interpolate within their span)
+    let segs = [], lastSrc = 0
     const AHEAD = 8192  // ~185ms of buffered audio ahead of the playhead
     node.port.onmessage = e => {
       consumed = e.data.consumed
       if (live()) {
-        t.currentTime = base + (consumed - baseConsumed) / t.sampleRate
+        while (segs.length > 1 && segs[0].s1 <= consumed) segs.shift()
+        let g = segs[0]
+        if (g) t.currentTime = consumed >= g.s1 ? g.t1 : g.t0 + (consumed - g.s0) / (g.s1 - g.s0) * (g.t1 - g.t0)
         t._emit('timeupdate', t.currentTime)
       }
       onDrain?.()
     }
     return {
-      reset(at) { node.port.postMessage({ type: 'flush' }); base = at; baseConsumed = consumed; sent = consumed },
+      reset(at) { node.port.postMessage({ type: 'flush' }); sent = consumed; segs = []; lastSrc = at },
       playState(on) { node.port.postMessage({ type: on ? 'play' : 'pause' }) },
-      async write(chunk, volume) {
+      async write(chunk, volume, srcEnd = lastSrc + chunk[0].length / t.sampleRate) {
         if (volume !== lastVol) { lastVol = volume; node.port.postMessage({ volume }) }
         node.port.postMessage({ chunk }, chunk.map(c => c.buffer))
+        segs.push({ s0: sent, s1: sent + chunk[0].length, t0: lastSrc, t1: srcEnd })
+        lastSrc = srcEnd
         sent += chunk[0].length
         while (sent - consumed > AHEAD && live() && t.playing) {
           await new Promise(r => onDrain = r)
@@ -311,17 +343,17 @@ function facade(chan, opened) {
   async function speakerSink(t) {
     let { default: Speaker } = await import('@audio/speaker')
     let ch = Math.max(1, t.channels)
-    let write = null, base = 0, played = 0
+    let write = null, lastSrc = 0
     return {
-      reset(at) { write?.(null); write = Speaker({ sampleRate: t.sampleRate, channels: ch, bitDepth: 32 }); base = at; played = 0 },
+      reset(at) { write?.(null); write = Speaker({ sampleRate: t.sampleRate, channels: ch, bitDepth: 32 }); lastSrc = at },
       playState() {},
-      write(chunk, volume) {
+      write(chunk, volume, srcEnd = lastSrc + chunk[0].length / t.sampleRate) {
         let len = chunk[0].length, buf = new Float32Array(len * ch)
         for (let i = 0; i < len; i++) for (let c = 0; c < ch; c++)
           buf[i * ch + c] = (chunk[c] || chunk[0])[i] * volume
+        lastSrc = srcEnd
         return new Promise(r => write(new Uint8Array(buf.buffer), () => {
-          played += len
-          t.currentTime = base + played / t.sampleRate
+          t.currentTime = srcEnd
           t._emit('timeupdate', t.currentTime)
           r()
         }))
@@ -396,11 +428,16 @@ function facade(chan, opened) {
  *  pass opts.worker to use your own worker (custom codecs/plugins). */
 export default function audioWorker(source, opts = {}) {
   let { worker, ...rest } = opts
-  let chan = worker ? workerChannel(worker) : sharedChannel()
+  let chan = worker && worker !== true ? workerChannel(worker) : sharedChannel()
   if (Array.isArray(source) && source.some(s => s?.__isAudioWorker))
     throw new TypeError('audio/worker: open plain sources, then combine with insert()/mix()/crossfade()')
   return facade(chan, chan.send({ type: 'open', source, opts: rest }))
 }
+
+// P4 — `audio(src, { worker: true })` dispatches here once this module is imported.
+// A global slot (not an engine import) keeps this facade out of the engine's graph
+// and the engine out of this file — either can load without dragging in the other.
+globalThis[Symbol.for('audio.worker')] = audioWorker
 
 // ── Playback sink worklet — inlined so the whole worker bridge is one file.
 // AudioWorkletProcessor fed rendered blocks over its port (no SharedArrayBuffer,

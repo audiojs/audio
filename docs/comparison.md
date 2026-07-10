@@ -47,6 +47,7 @@ Cells contain method/op names where supported, `—` if absent, `(plan)` if plan
 | Time stretch | `stretch(factor)` | — | `effects.time_stretch` | — | — | — | `tempo`, `stretch` | `atempo`, `rubberband` | Change Tempo, Paulstretch | `stretchAudio` |
 | Pitch shift | `pitch(semitones)` | — | `effects.pitch_shift` | — | — | `PitchShift(semitones)` | `pitch` | `rubberband=pitch` | Change Pitch | `shiftPitch` |
 | Resample | `resample(sr, opts?)` | `set_frame_rate()` | `librosa.resample` | — | `Resample` | `Resample(target_sr)` | `rate` | `aresample` | Project rate | `resample` |
+| Band split (crossover) | `crossover(...freqs)` | — | manual | — | — | `MultibandSplit` | — | `acrossover` | — | `crossoverFilter` |
 | **Volume / dynamics** | | | | | | | | | | |
 | Gain (dB) | `gain(dB \| t=>dB)` | `seg + dB` | `y * gain` | — | `Multiplier` | `Gain(db)` | `gain`, `vol` | `volume` | Amplify | scalar multiply |
 | Fade in/out | `fade(in, out?, curve?)` | `fade_in/fade_out` | manual | — | — | — | `fade` | `afade` | Fade In/Out, Adjustable Fade | `fade` |
@@ -89,7 +90,7 @@ Cells contain method/op names where supported, `—` if absent, `(plan)` if plan
 | LUFS loudness | `stat('loudness')` | — | custom | — | `LoudnessEBUR128`, `Loudness` | — | — | `ebur128`, `loudnorm` | Loudness Normalization | `integratedLoudness`, `loudnessMeter` |
 | Clipping | `stat('clipping')` | — | manual | — | `ClickDetector` | — | `stat` | `astats` | Find Clipping | manual |
 | DC offset | `stat('dc')` | — | `np.mean` | — | `DCRemoval` (measure) | — | `stat` | `astats` | DC stat | `mean` |
-| Silence | `stat('silence')` | `split_on_silence`, `detect_silence` | `effects.split` | `aubioquiet` | `SilenceRate`, `StartStopSilence` | — | `silence` | `silencedetect`, `silenceremove` | Truncate Silence, Label Sounds | `voiceActivityDetector` |
+| Silence | `stat('silence')`, `shrink()` | `split_on_silence`, `detect_silence` | `effects.split` | `aubioquiet` | `SilenceRate`, `StartStopSilence` | — | `silence` | `silencedetect`, `silenceremove` | Truncate Silence, Label Sounds | `voiceActivityDetector` |
 | **Analysis (spectral)** | | | | | | | | | | |
 | FFT spectrum | `stat('spectrum')` | — | `librosa.stft` | `pvoc`, `fft` | `FFT`, `Spectrum` | — | `spectrogram` | `showspectrum` | Plot Spectrum | `fft`, `stft`, `pspectrum` |
 | MFCC | `stat('cepstrum')` | — | `feature.mfcc` | `aubiomfcc`, `mfcc` | `MFCC`, `BFCC`, `GFCC` | — | — | — | (plugin) | `mfcc` |

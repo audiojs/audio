@@ -116,6 +116,7 @@ const HELP = {
   gain:      { usage: 'gain DB [RANGE]', desc: 'Amplify in dB', examples: ['gain -3db', 'gain 6 1s..5s'], label: 'Applying gain' },
   fade:      { usage: 'fade [IN] [-OUT] [CURVE]', desc: 'Fade in/out (bare = 0.5s both)', examples: ['fade', 'fade 1s', 'fade .2s -1s cos'], label: 'Fading' },
   trim:      { usage: 'trim [THR]', desc: 'Auto-trim silence (threshold in dB)', examples: ['trim', 'trim -40'], label: 'Trimming' },
+  shrink:    { usage: 'shrink [GAP] [THR]', desc: 'Compress silent pauses to a target gap (default 0.3s)', examples: ['shrink', 'shrink 0.5s', 'shrink 0.2s -40'], label: 'Shrinking silence' },
   normalize: { usage: 'normalize [DB] [MODE]', desc: 'Normalize peak/loudness', examples: ['normalize', 'normalize -3', 'normalize streaming'], label: 'Normalizing' },
   crop:      { usage: 'crop OFF DUR', desc: 'Crop to time range', examples: ['crop 1s..10s', 'crop 0 5s'], label: 'Cropping' },
   clip:      { usage: 'clip OFF DUR', desc: 'Create a shared-page clip', examples: ['clip 1s..10s', 'clip 0 5s'], label: 'Clipping' },
@@ -144,7 +145,9 @@ const HELP = {
   crossfeed: { usage: 'crossfeed [FC] [LEVEL]', desc: 'Headphone crossfeed for improved imaging', examples: ['crossfeed', 'crossfeed 500hz 0.4'], label: 'Applying crossfeed' },
   resample:  { usage: 'resample RATE', desc: 'Change sample rate with anti-aliased downsampling', examples: ['resample 48000', 'resample 22050'], label: 'Resampling' },
   crossfade: { usage: 'crossfade SRC [DUR] [CURVE]', desc: 'Crossfade into another audio file', examples: ['crossfade next.wav 2s', 'crossfade next.wav 0.5s cos'], label: 'Crossfading' },
+  crossover: { usage: 'crossover FREQS...', desc: 'Split into frequency bands — N freqs → N+1 bands × channels (LR4)', examples: ['crossover 200hz', 'crossover 300hz 3khz save bands.wav'], label: 'Splitting bands' },
   write:     { usage: 'write DATA [RANGE]', desc: 'Write raw sample values at a position (via --macro)', examples: ['write [0,0] 1s..1.1s'], label: 'Writing' },
+  split:     { usage: 'split TIMES... | split --cue FILE', desc: 'Split into parts at times or cue-sheet tracks ({i}/{title}/{name} in output)', examples: ['split 30s 60s save part-{i}.wav', 'split --cue album.cue save "{i} - {title}.mp3"'], label: 'Splitting' },
   transform: { usage: 'transform FN', desc: 'Apply a custom per-block function (plugin/library API)', examples: ['transform myFn'], label: 'Transforming' },
   // ── sinks (terminate chain) ─────────────────────────────────────────────
   play:   { usage: 'play [loop]', desc: 'Open player UI (autoplay)', examples: ['play', 'play loop', '1s..10s play loop', 'normalize play'], kind: 'sink' },
@@ -161,21 +164,21 @@ for (let [name, h] of Object.entries(HELP)) {
   if (op) op.help ??= h
 }
 
-/** Synthesize help from a contract atom's param metadata (introspectable params). */
-function atomHelp(name, desc) {
-  let m = desc.atom, specs = m.params || {}
+/** Synthesize help from a contract plugin's param metadata (introspectable params). */
+function pluginHelp(name, desc) {
+  let m = desc.plugin, specs = m.params || {}
   let args = Object.keys(specs).map(k => k.toUpperCase()).join(' ')
   let params = Object.entries(specs).map(([k, sp]) => {
     if (sp.type === 'enum') return `    ${k}  ${sp.values.join('|')} (default ${sp.default})`
     if (sp.type === 'bool') return `    ${k}  true|false (default ${sp.default})`
     return `    ${k}  ${sp.min}..${sp.max}${sp.unit ? ' ' + sp.unit : ''} (default ${sp.default})`
   }).join('\n')
-  return { usage: `${name} [${args}]`, desc: `Contract atom${typeof desc.tail === 'number' && desc.tail ? ` (tail ${desc.tail}s)` : desc.tail ? ' (tail: param-dependent)' : ''}`, examples: [], params }
+  return { usage: `${name} [${args}]`, desc: `Plugin${typeof desc.tail === 'number' && desc.tail ? ` (tail ${desc.tail}s)` : desc.tail ? ' (tail: param-dependent)' : ''}`, examples: [], params }
 }
 
 function showOpHelp(name) {
   let desc = audio.op(name)
-  let h = desc?.help || HELP[name] || (desc?.atom && atomHelp(name, desc))
+  let h = desc?.help || HELP[name] || (desc?.plugin && pluginHelp(name, desc))
   if (!h) { console.error(`No help for: ${name}`); return }
   console.log(`\n  ${h.usage}\n\n  ${h.desc}\n`)
   if (h.params) console.log('  Params:\n' + h.params + '\n')
@@ -195,7 +198,7 @@ function showOpHelp(name) {
 function parseArgs(args) {
   let source = null, transforms = [], sink = null, range = null
   let format = null, verbose = false, showHelp = false, force = false
-  let macro = null, helpOp = null, concatFiles = []
+  let macro = null, helpOp = null, concatFiles = [], cue = null
   let i = 0
 
   // First positional: source — `record` verb or file path (skip ranges/times/ops/sinks → those keep source = stdin)
@@ -213,6 +216,7 @@ function parseArgs(args) {
     if (arg === '--format') { format = args[++i]; i++; continue }
     if (arg === '--force' || arg === '-f') { force = true; i++; continue }
     if (arg === '--macro') { macro = args[++i]; i++; continue }
+    if (arg === '--cue') { cue = args[++i]; i++; continue }
     // Compat shortcuts: -p ⇔ play, -o PATH ⇔ save PATH, -l ⇔ play loop
     if (arg === '--play' || arg === '-p') { sink = sink || { name: 'play', args: [] }; i++; continue }
     if (arg === '--output' || arg === '-o') { sink = { name: 'save', args: [args[++i]] }; i++; continue }
@@ -293,7 +297,21 @@ function parseArgs(args) {
   // Default sink: `stat` (overview) — when no explicit sink and audio is finite
   if (!sink && !showHelp && !helpOp) sink = { name: 'stat', args: [] }
 
-  return { source, transforms, sink, range, format, verbose, showHelp, force, macro, helpOp, concatFiles }
+  return { source, transforms, sink, range, format, verbose, showHelp, force, macro, helpOp, concatFiles, cue }
+}
+
+/** Parse a cue sheet into { title, performer, tracks: [{ n, title, performer, at }] }.
+ *  INDEX 01 marks track starts as mm:ss:ff (75 frames per second). */
+export function parseCue(text) {
+  let disc = { title: null, performer: null, tracks: [] }, cur = null, m
+  for (let line of text.split(/\r?\n/)) {
+    if (m = line.match(/^\s*TRACK\s+(\d+)/i)) disc.tracks.push(cur = { n: +m[1], title: null, performer: null, at: null })
+    else if (m = line.match(/^\s*TITLE\s+"?([^"]*)"?/i)) (cur || disc).title = m[1]
+    else if (m = line.match(/^\s*PERFORMER\s+"?([^"]*)"?/i)) (cur || disc).performer = m[1]
+    else if (m = line.match(/^\s*INDEX\s+01\s+(\d+):(\d{2}):(\d{2})/i)) { if (cur) cur.at = +m[1] * 60 + +m[2] + +m[3] / 75 }
+  }
+  disc.tracks = disc.tracks.filter(t => t.at != null)
+  return disc
 }
 
 const SOURCE_OPS = new Set(['mix', 'insert', 'crossfade'])
@@ -716,9 +734,10 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
     let ct = fmtTime(t, true), tt = ts > 0 ? '-' + fmtTime(ts - t, true) : '-0:00:00'
     let loop = p.loop ? '↻' : ' '
     let vb = volBar(p.volume)
+    let rate = p.playbackRate !== 1 ? ` ${p.playbackRate}×` : ''
     let barStart = ct.length + 3  // icon + space + time + space
     let lpad = ' '.repeat(barStart)
-    let pad = barStart + tt.length + 7 + 5  // 7 = vol visual width, +1 loop +1 space
+    let pad = barStart + tt.length + 7 + 5 + rate.length  // 7 = vol visual width, +1 loop +1 space
     let barW = Math.max(10, w - pad)
     let bar = progressBar(t, ds, ts, barW)
 
@@ -728,7 +747,7 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
     let pFill = Math.round(Math.min(t / cRef, 1) * barW)
     let cursorCol = barStart + pFill
 
-    let out = `\r\x1b[K${icon} ${ct} ${bar} ${tt} ${loop} ${vb}`
+    let out = `\r\x1b[K${icon} ${ct} ${bar} ${tt} ${loop} ${vb}${rate}`
     let newLines = 1
 
     if (fft) {
@@ -822,6 +841,9 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
       else if (k === '\x1b[A') { p.volume = Math.min(p.volume + 0.1, 1); render(p.currentTime) }
       else if (k === '\x1b[B') { p.volume = Math.max(p.volume - 0.1, 0); render(p.currentTime) }
       else if (k === 'l') { p.loop = !p.loop; render(p.currentTime) }
+      else if (k === '[') { p.playbackRate = Math.max(0.25, Math.round((p.playbackRate - 0.25) * 4) / 4); render(p.currentTime) }
+      else if (k === ']') { p.playbackRate = Math.min(4, Math.round((p.playbackRate + 0.25) * 4) / 4); render(p.currentTime) }
+      else if (k === '=') { p.playbackRate = 1; render(p.currentTime) }
       else if (k === 's' && a) {
         let wasPaused = p.paused
         if (!wasPaused) p.pause()
@@ -893,9 +915,9 @@ async function main() {
   let args = process.argv.slice(2)
 
   // Auto-resolve registry modules named in args (dynamic import registers the op)
-  for (let t of args) if (!audio.op(t) && audio.atoms?.[t]) {
+  for (let t of args) if (!audio.op(t) && audio.plugins?.[t]) {
     try { await audio.use(t) }
-    catch (e) { throw new Error(`op '${t}' needs its atom installed: npm i ${audio.atoms[t].split('/').slice(0, 2).join('/')}`) }
+    catch (e) { throw new Error(`op '${t}' needs its plugin installed: npm i ${audio.plugins[t].split('/').slice(0, 2).join('/')}`) }
   }
 
   if (!args.length || args[0] === '--help' || args[0] === '-h') {
@@ -957,8 +979,8 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
   if (args[0] === '--completions-list') {
     await discoverPlugins()
     let prev = args[1] || '', cur = args[2] || ''
-    let ops = Object.keys(HELP).concat('split')
-    let flags = ['--force', '--verbose', '--format', '--macro', '--help', '--version', '-f']
+    let ops = Object.keys(HELP)
+    let flags = ['--force', '--verbose', '--format', '--macro', '--cue', '--help', '--version', '-f']
 
     // Context-aware completions
     let out = []
@@ -997,6 +1019,8 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       out = ['-1', '-0.5', '0', '0.5', '1']
     } else if (prev === 'trim') {
       out = ['-20db', '-30db', '-40db', '-50db']
+    } else if (prev === 'shrink') {
+      out = ['0.2s', '0.3s', '0.5s', '1s']
     } else if (prev === 'allpass') {
       out = ['100hz', '440hz', '1khz', '4khz']
     } else if (prev === 'vocals') {
@@ -1060,6 +1084,8 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       if (op.name !== 'split' && op.name !== 'clip' && !audio.op(op.name))
         throw new Error(`Unknown operation: ${op.name}`)
     }
+    if (opts.cue && !transforms.some(o => o.name === 'split'))
+      throw new Error('--cue requires the split op (audio album.wav split --cue album.cue save "{i} - {title}.mp3")')
 
     // ── source: record ──────────────────────────────────────────────────
     if (source === 'record') return runRecord(transforms, sink, range, opts)
@@ -1206,6 +1232,7 @@ Units:
 Options:
   --force, -f   Overwrite output file if it exists
   --macro FILE  Apply edits from JSON file
+  --cue FILE    Split at cue-sheet tracks (with the split op)
   --verbose     Show progress and debug info
   --format FMT  Override output format (default: from extension)
   --help, -h    Show this help (or after an op: audio gain --help)
@@ -1235,6 +1262,7 @@ Player controls:
   ⇧←/⇧→    Seek ±60s
   ↑/↓       Volume ±10%
   l         Toggle loop
+  [/]       Playback speed ∓0.25× (= resets)
   s         Save as…
   q         Quit
 
@@ -1263,16 +1291,34 @@ async function runSave(a, transforms, sinkArgs, range, opts, source, loadTime) {
   if (splitIdx >= 0) {
     let pre = transforms.slice(0, splitIdx), splitOp = transforms[splitIdx], post = transforms.slice(splitIdx + 1)
     a = await applyTransforms(a, pre)
+    let cue = null
+    if (opts.cue) {
+      let { readFileSync } = await import('fs')
+      cue = parseCue(readFileSync(opts.cue, 'utf8'))
+      if (!cue.tracks.length) throw new Error(`split: no tracks in cue sheet ${opts.cue}`)
+      let t0 = cue.tracks[0].at
+      if (t0 > 0) a.crop({ at: t0 })  // drop hidden pregap before track 1
+      splitOp = { ...splitOp, args: cue.tracks.slice(1).map(t => t.at - t0) }
+    }
     let parts = a.split(...splitOp.args)
     for (let op of post) for (let part of parts) part[op.name](...opCallArgs(op))
     let { basename, extname } = await import('path')
     let srcExt = typeof source === 'string' ? extname(source) : '.wav'
     let srcName = typeof source === 'string' ? basename(source, srcExt) : 'audio'
+    let safe = s => s?.replace(/[/\\:*?"<>|]/g, '_').trim()
     for (let [i, part] of parts.entries()) {
+      let track = cue?.tracks[i]
+      if (track) part.meta = {
+        ...part.meta,
+        ...(track.title && { title: track.title }),
+        ...((track.performer ?? cue.performer) && { artist: track.performer ?? cue.performer }),
+        ...(cue.title && { album: cue.title }),
+      }
       let outFile = output
-        .replace('{i}', String(i + 1))
-        .replace('{name}', srcName)
-        .replace('{ext}', srcExt.slice(1))
+        .replace('{i}', () => String(i + 1))
+        .replace('{name}', () => srcName)
+        .replace('{ext}', () => srcExt.slice(1))
+        .replace('{title}', () => safe(track?.title) || String(i + 1))
       let fmt = opts.format || outFile.split('.').pop()
       await part.save(outFile, { format: fmt })
       process.stderr.write(`  → ${outFile}\n`)

@@ -4,15 +4,12 @@
  * Runs the real worker path via node worker_threads.
  */
 import test from 'tst'
+import { tone as genTone } from './gen.js'
 import { File } from 'node:buffer'  // global only since Node 20; node:buffer.File (≡ the global, File extends Blob) works on 18.13+ too
 import audio from '../audio.js'
 import audioWorker, { close } from '../worker.js'
 
-const tone = (freq, dur, sr = 44100, amp = 0.5) => {
-  let n = Math.round(dur * sr), ch = new Float32Array(n)
-  for (let i = 0; i < n; i++) ch[i] = amp * Math.sin(2 * Math.PI * freq * i / sr)
-  return ch
-}
+const tone = (freq, dur, sr = 44100, amp = 0.5) => genTone(freq, dur, amp, sr)
 const eq = (a, b) => a.length === b.length && a.every((v, i) => v === b[i])
 
 test('worker: open file, props mirror local instance', async t => {
@@ -240,4 +237,44 @@ test('worker: pause/resume/stop', async t => {
   await new Promise(r => setTimeout(r, 120))
   await c.stop()
   t.ok(!c.playing, 'stopped')
+})
+
+test('worker: live playbackRate — varispeed pump, source-time currentTime', async t => {
+  let w = audioWorker(null, { sampleRate: 44100, channels: 1 })
+  let sr = 44100
+  await w.push([genTone(440, 1, 0.2, sr)])
+  await w.stop()
+  t.is(w.playbackRate, 1, 'default rate')
+  let rc = false
+  w.on('ratechange', () => { rc = true })
+  w.volume = 0
+
+  let t0 = performance.now()
+  await w.play({ rate: 4 })
+  await new Promise(r => w.on('ended', r))
+  let wall = (performance.now() - t0) / 1000
+  t.ok(wall < 0.6, `rate 4: 1s source in ${wall.toFixed(2)}s wall`)
+  t.ok(rc, 'ratechange emitted')
+  t.ok(Math.abs(w.currentTime - 1) < 0.05, `currentTime in source seconds (${w.currentTime.toFixed(2)})`)
+
+  w.playbackRate = 1
+  t0 = performance.now()
+  await w.play({ at: 0 })
+  setTimeout(() => { w.playbackRate = 4 }, 200)
+  await new Promise(r => w.on('ended', r))
+  wall = (performance.now() - t0) / 1000
+  t.ok(wall < 0.75, `live ramp 1→4 mid-play: ${wall.toFixed(2)}s wall (expect ≈0.4)`)
+  await w.dispose()
+})
+
+test('worker: P4 — audio(src, {worker: true}) dispatches to the worker facade', async t => {
+  let { default: audio } = await import('../audio.js')
+  let a = audio(null, { worker: true, sampleRate: 44100, channels: 1 })
+  t.is(a.__isAudioWorker, true, 'returns worker facade')
+  await a.push([genTone(440, 0.1, 0.3, 44100)])
+  await a.stop()
+  a.gain(-6)
+  let pcm = await a.read()
+  t.ok(Math.abs(pcm[0][100] / genTone(440, 0.1, 0.3, 44100)[100] - 0.501) < 0.01, 'ops replay through the worker engine')
+  await a.dispose()
 })

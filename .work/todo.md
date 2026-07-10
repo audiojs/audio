@@ -8,30 +8,22 @@ Parity evidence: [.work/baseline.md](baseline.md). Perf: [docs/comparison.md § 
 1. [ ] **MCP server + skills** — gate long met, ~40+ registry ops + full stat surface ready ([.work/mcp.md](mcp.md)): `bin/mcp.js` (load/info/analyze/edit/save/undo/read/play, stateful sessions, `@modelcontextprotocol/sdk` over stdio) + `audio-master`/`audio-clean`/`audio-analyze` skills. Watch: counterpoint-studio/audio-file-mcp-app (competitor).
 2. [ ] **Playground** — drag-n-drop + code editor, audiotool-style probe (#53, #58); worker engine (SAB-free playback) removed the hard part
 3. [ ] **jz/WASM lane** — for streaming/realtime/worklet where batch JIT can't help: compile hot kernels (fourier-transform, biquad, pvoc) via `@audio/compile` → per-atom `dist/*.wasm` + `./wasm` export, host prefers in `useAtom`. Blocked on jz typed-array provenance fix (bench/fftplan + bench/provenance repro cases landed in jz; ~6× gap). ~1.4× over warm JS once fixed — realtime-lane priority, not batch.
-4. [ ] **playback speed** — live rate control (Tape.js smooth ramping as reference)
-5. [ ] **shrink-silence** (+ compress pauses to target gap) — covers FFmpeg `silenceremove` (throughout) + Audacity truncate-silence; silence stat + remove op exist, needs a stat-conditioned resolve like trim
-6. [ ] Small: minimal duration guard on save (#27) · CLI `audio split --cue album.cue` · Wavearea: adopt facade.play() P3 or keep own player · `audio-ponyfill` package (#68) · common processing scripts (vocal warmup etc)
+4. [ ] Small: Wavearea: adopt facade.play() P3 or keep own player · `audio-ponyfill` package (#68) · common processing scripts (vocal warmup etc)
 
 ## Open
 
 ### Engine / API
-- [ ] Modulation of state-bound + structural params (stretch/pitch factor — vocoder init; repeat times) — process-op params done via engine automation. Checked vs stretch 2.0.1: pvoc-lock `factor` still scalar upstream; shift-side ratioFn already live in vocoder/formant atoms.
-- [ ] sliding-stretch (continuous tempo+pitch envelope) — needs API; `@audio/stretch-paulstretch` (length-changing) stays batch per contract (equal frames in/out)
+- [ ] Modulation of state-bound + structural params / **sliding-stretch** — surveyed 2026-07, one project in three layers: (1) `fourier-transform` stftStream bakes `anaHop`/`synHop` as consts (engine construction + `nextSynPos += synHop` + closed-form emit positions) → needs per-frame hop resolver + running accumulators (`ctx.anaHop/synHop` are informational snapshots today, mutating them moves nothing); (2) `stretch-pvoc-lock` threads a `factorFn` à la shift's `makeFrameRatio` (shift's ratioFn works only because anaHop≡synHop there — hop cadence never varies); (3) audio host un-freezes `fn/stretch.js` state (`ctx._state`/`s.ratio` init-once) via the mutable-cell pattern (shift-pvoc/audio.js precedent). The segment-planned `stretch` op stays fixed-factor (integer segment counts at plan time) — sliding-stretch is a separate streaming-only op on top of (1)-(3). Batch forms stay fixed-hop.
 - [ ] Per-block note-event feed for *streaming* instruments — whole-render feed shipped (voice/poly); deferred until a streaming instrument exists
-- [ ] eq-crossover as band-splitting op — needs "N× input channels", which neither contract §channels nor the op `ch` hook expresses
-- [ ] adjustable-fade (non-linear, mid-point, partial selection) — `audio` utility
-- [ ] Worker P4 — `audio(src, {worker: true})` opt-in unifying worker engine with the default entrypoint ([.work/worker.md](worker.md))
-- [ ] OfflineAudioContext fallback for browser decode (codec support beyond audio-decode)
-- [ ] Structural custom ops — variable-length output blocks (open since research.md)
-- [ ] OPFS budget auto-detect via `navigator.storage.estimate()` (fixed 500MB default today)
+- [ ] Structural custom ops, streaming form — variable-length output *blocks* for `streaming: true` ops (realtime-unhosteable in general; open since research.md). Whole-render form shipped: contract `frames` hook (see Unreleased).
 
 ### Ecosystem (kernels exist, wiring/decision pending)
-- [ ] Chromagram/tonnetz whole-signal stat forms (`@audio/mir-chroma`/`-tonnetz` are frame-level building blocks)
+- [ ] Publish wave pending (implemented 2026-07, in family repos): `@audio/mir-chroma`/`-tonnetz` 1.1.0 stat forms (`/audio` manifests: chromagram/tonnetz-trajectory `{times, frames, mean}` — mir suite 29✓); effect 1.1.3 kernel fixes (below); `@audio/decode` 3.11.1 — mono-upmix dedupe scoped to flagged lossy codecs (mp3 verified; aac/wma conservative) + sticky per stream: dual-mono wav/flac keep declared width, no mid-stream channel flicker (suite 68✓); **stretch ×9 1.1.0** — audio.js manifests for every `@audio/stretch-*` (whole-render + `frames` hook, ids `stretch-*`, factor 0.25..4; paulstretch + frame; kernels verified: length exact, pitch preserved, edges finite — suite 154✓). After publish: add `chroma`/`tonnetz` + stretch names to `audio.plugins` + plugin-stats tests.
 - [ ] Neural lane policy — `@audio/neural-{amp,denoise,separate,runtime}` exist; runtime adapter + no-ML-in-hot-path policy decision gates stem-separate, genre/mood/tags, lyrics-align
-- [ ] Upstream kernel defects (flagged by manifest verification): chorus/phaser live-resize NaN (mitigated via restart flags), freqshift dry/wet comb at mix<1, multitap per-call allocation
-- [ ] Deprecate legacy stragglers: `dynamics-processor`, `noise-reduction` (+ `pitch-shift` deprecation message empty) → `@audio/dynamics`, `@audio/denoise`, `@audio/shift`
-- [ ] Merge near-dupes: dynamics-gate/denoise-gate, dynamics-deesser/denoise-deesser (deliberately-qualified variants today)
-- [ ] Family-core swap: denoise-core/stft → `@audio/stft`, dynamics-core/biquad → `@audio/biquad` (published, not swapped in)
+- [x] ~~Upstream kernel defects~~ fixed in effect repo (1.1.3, suite 50✓): chorus/phaser/flanger/vibrato live-resize NaN (total ring wrap, state-resize guards, integer param floors — restart flags now liftable if live ramping is wanted), freqshift dry/wet comb (blend against the group-delay-aligned dry — constant latency at every mix), multitap per-call tap-table allocation (+ zero-length ring guard)
+- [ ] Deprecate legacy stragglers: `dynamics-processor`, `noise-reduction` (+ `pitch-shift` deprecation message empty) → `@audio/dynamics`, `@audio/denoise`, `@audio/shift` — checked 2026-07: no such names on npm (bare or audio-/@audiojs-prefixed) or in audiojs/dy GitHub; npm `pitch-shift` is mikolalysenko's (not ours to deprecate) — needs the actual registry names, else drop
+- [x] ~~Merge near-dupes~~ done (denoise 14107f0): impls live in `@audio/dynamics-{gate,deesser}` (hysteresis+look-ahead gate, deesser mode 'band'); denoise family keeps its seconds-based API via thin adapters; denoise-gate/-deesser removed + deprecated on npm
+- [x] ~~Family-core swap~~ done: denoise on `@audio/stft` (8 pkgs, no local fft left), dynamics-core dissolved (ebb279f — dB/time-constant helpers inlined per atom, biquad from `@audio/biquad`); suites: denoise 54✓, dynamics 35✓
 - [ ] Per-atom `.d.ts` + individual READMEs (~280 atoms — content authorship, not mechanical)
 - [ ] Uniform test harness: feed PCM, assert output, across all family libs
 - [ ] Native targets (VST3/AU/CLAP/LV2) via `@audio/compile` — gated on one flagship plugin justifying it
@@ -44,12 +36,12 @@ Parity evidence: [.work/baseline.md](baseline.md). Perf: [docs/comparison.md § 
 - ML-tier (deferred per no-ML stance until neural-lane policy): genre, mood, tags, lyrics-align, stem-separate
 
 ### Testing gaps
-- [ ] CLI execution tests: insert, crossfade, pad, mix, resample (parseArgs-only today)
+- [x] ~~CLI execution tests~~ insert/mix/crossfade/resample e2e added (pad already had one) — and the mix content check caught the opRange tiling bug (see Unreleased)
 - [ ] stream≡read for pitch (vocoder state) + dither (needs statistical equivalence, TPDF random)
 - [ ] Live-decode/push-source coverage: dither, pitch, stretch, mix; normalize on push sources needs design review (full stats unavailable)
-- [ ] Page-boundary tests for dither/pitch
+- [x] ~~Page-boundary tests for dither/pitch~~ boundary suite: dither ≤ TPDF bound across page seams; pitch continuity (window-rms scan) + zero-crossing frequency check
 - [ ] FATE-style stored-reference tests for effects (impulse→RT60, delay/decay ratios, modulation depth via spectral analysis) + reference-checksum approach for bit-exact reproducibility
-- [ ] Reusable sweep/noise/impulse test generators (factored out)
+- [x] ~~Reusable sweep/noise/impulse test generators~~ test/gen.js (tone, Farina ESS sweep, seeded noise, impulse, clickTrack, silence, rms) — 13 duplicate definitions collapsed to aliases across index/cli/fix-*/atom-* suites; atom-denoise now on seeded noise (reproducible)
 - [ ] README/CLI-help/gerund coverage for every op
 
 ### Ideas / someday
@@ -61,6 +53,14 @@ Parity evidence: [.work/baseline.md](baseline.md). Perf: [docs/comparison.md § 
 ---
 
 # Archive
+
+## Unreleased (2026-07)
+
+**Worker P4 closed** — `audio(src, {worker: true})` dispatches to the worker facade once `audio/worker` is imported (global-symbol slot — no engine↔facade import in either direction, no double-hosting in worker scope); + live `playbackRate` parity: varispeed extracted to fn/varispeed.js (shared, engine-free), worker pump runs it, sinks map output consumption → source time (worklet: per-block span queue with interpolation; speaker: per-chunk srcEnd) — fix-worker 21✓. **Contract `frames` hook** (structural custom ops, whole-render form) — `streaming: false` plugins declare output length as fn of input (`frames: (n, {params}) => round(n·factor)`); plan sizes output buffers by it, timeline/duration/serialization follow (CONTRACT.md §frames; engine test pinned). **Stretch manifests ×9** ride on it (see publish wave). **atom → plugin rename in code** — test/atom-*.js → plugin-*.js, `useAtom/isAtom` → `useOp/isOp`, descriptor `atom` field → `plugin` (`atom` kept as deprecated alias one cycle), `atomHelp` → `pluginHelp`, CLI prints "Plugin", d.ts StatAtom/CodecAtom → StatPlugin/CodecPlugin (deprecated aliases). **Dither noise-shape test de-flaked** (5-probe/64k statistic vs 2-probe/16k coin-flip).
+
+**mix/write tiling fix** — unranged position-dependent process ops restarted at every block: `opRange` defaulted `at` to 0 while the engine passes *block-relative* at, so `mix(b)` tiled b's first 1024 samples across the whole file (`write(data)` same class; ranged calls were fine, which is why constant-fill tests never saw it). Fixed at the root: unset `at` → −blockOffset (absolute 0); gain/pan clamp unaffected, crossfade-direct also healed. Caught by the new CLI mix e2e content check; pinned in fix-plan.js. **Testing infra**: test/gen.js shared generators (Farina sweep, seeded noise — 13 dup tone defs collapsed), CLI e2e for insert/mix/crossfade/resample, page-boundary dither/pitch tests.
+
+**Live playback speed** — `a.playbackRate` takes effect mid-playback: fn/play.js varispeed (device at native sr; fractional tape cursor, linear interp, one-pole ~50ms rate smoothing — Tape.js-style, click-free, no device reopen; bit-exact copy path at unit rate). CLI player: `[`/`]` ∓0.25×, `=` reset, rate shown in transport. **shrink op** (shrink-silence) — compress pauses to target gap via stat-conditioned resolve emitting shift-adjusted removes (trim pattern); ranged; `shrink(0)` = full silenceremove; covers FFmpeg `silenceremove` + Audacity truncate-silence. **Adjustable fade** — `fade(dur, {start, end, mid, at})`: arbitrary gain levels + half-amplitude-point skew; classic fades bit-identical (Audacity adjustable-fade). **save/encode empty-range guard** (#27) — throws before the sink opens (no truncated/header-only files); live sources error on ended-empty. **CLI `split --cue`** — cue-sheet parsing (INDEX 01 mm:ss:ff), `{title}` output token, title/artist/album tagged onto parts, hidden-pregap crop. **OPFS budget auto-detect** — `navigator.storage.estimate()` quota/4 clamped 64MB..2GB (`audio.detectBudget`), explicit `{budget}` still wins, 500MB fallback. **OfflineAudioContext decode fallback** — browser-native decode for formats beyond bundled codecs; original error preserved when unavailable. **crossover op** — LR4 band-splitting (N freqs → N+1 bands × channels, band-major = FFmpeg `acrossover`), allpass-aligned flat sum; the op `ch` hook already expressed N× width (`desc.ch(ch, extra)` is a function — the eq-crossover blocker note was stale; `@audio/eq-crossover` designer stays direct-import). Engine 646 green, CLI 143.
 
 ## Release 2.5.0 / 2.5.1 — flavors complete (2026-07)
 
@@ -88,17 +88,17 @@ Registry-completion follow-up (shipped in 2.4.0): spatial ×7 (widener, haas, pa
 **FFmpeg dynamics**: acompressor, alimiter, agate, compand, dynaudnorm (leveler), asoftclip ✔
 **FFmpeg spatial**: stereotools/stereowiden/extrastereo (widener/haas/midside class), bs2b (crossfeed), surround (2→5.1) ✔
 **FFmpeg restoration**: afftdn, adeclick, adeclip, deesser (+ dehum/dereverb/deplosive/dewind/decrackle/debreath beyond parity) ✔
-**FFmpeg EQ**: tiltshelf (tilt), superequalizer (geq) ✔; firequalizer/crossover — direct-import/designer (see Open)
+**FFmpeg EQ**: tiltshelf (tilt), superequalizer (geq), acrossover (crossover op — built-in, LR4 band-split via `ch` hook) ✔; firequalizer — direct-import (response curve)
 **FFmpeg analysis**: aspectralstats (centroid/flatness core + rolloff/spread/flux/slope/contrast/ltas stats), drmeter (dr), replaygain ✔
-**FFmpeg misc**: amultiply (ringmod), afreqshift (freqshift), aloop (repeat), adelay (spatial-delay, direct-import), afftfilt (spectral-edit kernel, direct-import), silenceremove ends (trim) ✔/[~]
-**Audacity**: noise gate (gate), Generators — tone (osc), noise-gen, chirp, pluck, risset-drum, rhythm-track ✔ (dtmf direct-import); truncate-silence + spectral-selection ops → Open
+**FFmpeg misc**: amultiply (ringmod), afreqshift (freqshift), aloop (repeat), adelay (spatial-delay, direct-import), afftfilt (spectral-edit kernel, direct-import), silenceremove — ends (trim) + throughout (shrink) ✔
+**Audacity**: noise gate (gate), Generators — tone (osc), noise-gen, chirp, pluck, risset-drum, rhythm-track ✔ (dtmf direct-import); truncate-silence (shrink) + adjustable-fade (fade start/end/mid) ✔; spectral-selection ops → Open
 **Tone.js**: oscillator, envelope (adsr), drum-synth (kick/cymbal/snare), pluck-synth, synth-voice (voice), poly ✔; lfo = engine automation + tremolo/vibrato/autopan; midside ✔
 **MIREX**: bpm, beats, onsets, notes, chords, key, cepstrum, spectrum (core) + structure, transcribe, downbeat, coversong, melody, multif0, fingerprint, similarity, drums, tempogram (stat atoms) ✔; ML-tier → Open
 **Stats prerequisites (AI gate)**: crest, centroid, flatness, correlation ✔ — MCP unblocked
 
 ## Architecture (settled)
 
-- Plugin flavors: **op** (contract factory + params), **stat** (`{stat, compute}`), **codec** (`{codec, test?, decode?, encode?}`) — all register via `audio.use()` / `audio.atoms`; CLI auto-resolves names, `--help` synthesized from param metadata
+- Plugin flavors: **op** (contract factory + params), **stat** (`{stat, compute}`), **codec** (`{codec, test?, decode?, encode?}`) — all register via `audio.use()` / `audio.plugins` (`audio.atoms` = deprecated ≤2.5 alias); CLI auto-resolves names, `--help` synthesized from param metadata
 - Contract = audio.js manifest (audiojs/compile CONTRACT.md); *atom* = informal name for the unit/package; engine hosts natively (no toOp) incl. whole-render + tails, generators, ch-changing atoms, sidechain key bus, note events, plugin-delay compensation
 - `@audio/*` scope: ~330+ packages, 36+ umbrellas; shared primitives deduped (@audio/stft, window, biquad); publish hygiene (no file:/link: specs)
 - Sibling conventions superseded by the scope rewrite (audio-effect/time-stretch/audio-filter deprecated → scope equivalents)
@@ -113,4 +113,4 @@ remix+proc channel-width class (per-stage output buffers) · reversed-segment of
 - **v2.3 engine redo** — streams-first: 4 op types, buildPlan always succeeds, filter warm-up on seek, two-tier stats, options-only ranges, unified stat query, read/write pair, plugin auto-discovery, macros, automation
 - **v2.2** plugin architecture · **v2.1** refactoring · **v2.0** core (decode/pages/index/render/playback, tier-1 ops, CLI, non-destructive editing, OPFS paging)
 - **CLI polish** (spinner, time format, transport indicators, clipping/DC warnings)
-- **Issues closed by v2.0–2.3**: #22 #42 #43 #44 #45 #48 #50 #52 #55 #56 #62 #64 #66 #67 (+#69 n/a). Open after triage: #27, #53, #57, #58, #63, #68.
+- **Issues closed by v2.0–2.3**: #22 #42 #43 #44 #45 #48 #50 #52 #55 #56 #62 #64 #66 #67 (+#69 n/a). Open after triage: #53, #57, #58, #63, #68 (#27 closed by the save guard, 2026-07).

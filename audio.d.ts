@@ -129,7 +129,8 @@ export interface AudioInstance {
 
   // ── Sample ops ──────────────────────────────────────────────
   gain(value: number | ((t: number) => number), opts?: { at?: Time, duration?: Time, channel?: number | number[], unit?: 'db' | 'linear' }): this
-  fade(duration: Time, curve?: 'linear' | 'exp' | 'log' | 'cos', opts?: { at?: Time }): this
+  /** Fade in (positive) / out (negative). Adjustable: start/end gain levels (0..1) and mid — position of the half-amplitude point within the fade */
+  fade(duration: Time, curve?: 'linear' | 'exp' | 'log' | 'cos', opts?: { at?: Time, start?: number, end?: number, mid?: number }): this
   reverse(opts?: { at?: Time, duration?: Time }): this
   mix(other: AudioSource, opts?: { at?: Time, duration?: Time }): this
   crossfade(other: AudioSource, duration?: Time, curve?: 'linear' | 'exp' | 'log' | 'cos'): this
@@ -153,10 +154,15 @@ export interface AudioInstance {
   vocals(mode?: 'isolate' | 'remove'): this
   dither(bits?: number, opts?: { shape?: boolean }): this
   crossfeed(freq?: number, level?: number): this
+  /** Band-splitting crossover (LR4, allpass-aligned flat sum) — N split freqs → N+1 bands × channels, band-major */
+  crossover(...freqs: (number | number[])[]): this
   resample(targetRate: number, opts?: { type?: 'linear' | 'sinc' }): this
 
   // ── Smart ops ───────────────────────────────────────────────
   trim(threshold?: number): this
+  /** Compress silent pauses to a target gap (seconds, default 0.3) throughout, or within {at, duration} */
+  shrink(gap?: number, threshold?: number): this
+  shrink(opts: { gap?: number, threshold?: number, at?: Time, duration?: Time }): this
   normalize(): this
   normalize(preset: 'streaming' | 'podcast' | 'broadcast'): this
   normalize(targetDb: number, opts?: 'lufs' | { mode?: 'peak' | 'lufs' | 'rms', at?: Time, duration?: Time, channel?: number | number[] }): this
@@ -246,6 +252,8 @@ export interface AudioOpts {
   channels?: number
   storage?: 'memory' | 'persistent' | 'auto'
   decode?: 'worker' | 'main'
+  /** Host the engine in a Worker (requires `import 'audio/worker'`); pass a Worker instance for a custom entry */
+  worker?: boolean | Worker
 }
 
 export interface ProgressDelta {
@@ -293,6 +301,10 @@ export interface OpDescriptor {
   ch?: (channels: number, ctx: Record<string, any>) => number
   /** Sample-rate transform (e.g. resample). Return the new rate, or falsy to leave it unchanged. */
   sr?: (sampleRate: number, ctx: Record<string, any>) => number | undefined
+  /** Structural output length for whole-render ops (time-stretch class): input frames → output frames */
+  frames?: (frames: number, ctx: Record<string, any>, sampleRate: number) => number
+  /** Hosted contract plugin (audio.js manifest factory), when this op wraps one */
+  plugin?: Function
   /** Pure per-sample transform (output depends only on input value) — engine auto-derives min/max/clipping stats by probing `process` with edge values. */
   pointwise?: boolean
   /** Algebraic stats update for advanced cases pointwise can't cover (e.g. rms/dc/energy) — mutate `stats` in place, or return `false` to bail to a full recompute. */
@@ -326,6 +338,8 @@ declare namespace audio {
   let PAGE_SIZE: number
   /** Samples per stat block (default 1024). Set before creating instances. */
   let BLOCK_SIZE: number
+  /** Page budget from navigator.storage.estimate() — quota/4 clamped 64MB..2GB; null when unavailable */
+  function detectBudget(): Promise<number | null>
   /** OPFS-backed cache backend for large files (browser only) */
   function opfsCache(dirName?: string): Promise<{
     read(i: number): Promise<Float32Array[]>
@@ -354,16 +368,22 @@ declare namespace audio {
   function stat(): Record<string, StatDescriptor>
   function stat(name: string): StatDescriptor | undefined
   function stat(name: string, descriptor: StatDescriptor | ((chs: Float32Array[], ctx: { sampleRate: number, [k: string]: unknown }) => number | number[])): void
-  /** Atom registry — name → package specifier (e.g. 'freeverb' → '@audio/reverb-freeverb/audio'), resolved by use(name) via dynamic import */
+  /** Plugin registry — name → package specifier (e.g. 'freeverb' → '@audio/reverb-freeverb/audio'), resolved by use(name) via dynamic import */
+  const plugins: Record<string, string>
+  /** @deprecated ≤2.5 name — alias of `plugins` (same object) */
   const atoms: Record<string, string>
-  /** Register plugins: contract atoms (factory functions with own `params`), `(audio) => {}` plugin functions, or registry names. String names dynamic-import — returns a promise; direct values register synchronously. */
-  /** Stat atom — whole-signal analyzer registered as a.stat(name) */
-  interface StatAtom { stat: string, compute(channels: Float32Array[], opts: { sampleRate: number, [k: string]: unknown }): unknown }
-  /** Codec atom — extends audio()'s openable formats and save()/encode() targets */
-  interface CodecAtom { codec: string, test?(bytes: Uint8Array): boolean, decode?(bytes: Uint8Array): { channelData: Float32Array[], sampleRate: number } | Promise<{ channelData: Float32Array[], sampleRate: number }>, encode?(opts: { sampleRate: number, channels: number }): ((chunk?: Float32Array[]) => Uint8Array) | Promise<(chunk?: Float32Array[]) => Uint8Array> }
-  /** Registered codec atoms by format name */
-  const codecs: Record<string, CodecAtom>
-  function use(...plugins: (string | Function | StatAtom | CodecAtom)[]): typeof audio & Promise<typeof audio>
+  /** Register plugins: contract factories (audio.js manifests with own `params`), `(audio) => {}` plugin functions, or registry names. String names dynamic-import — returns a promise; direct values register synchronously. */
+  /** Stat plugin — whole-signal analyzer registered as a.stat(name) */
+  interface StatPlugin { stat: string, compute(channels: Float32Array[], opts: { sampleRate: number, [k: string]: unknown }): unknown }
+  /** @deprecated ≤2.5 name — alias of StatPlugin */
+  type StatAtom = StatPlugin
+  /** Codec plugin — extends audio()'s openable formats and save()/encode() targets */
+  interface CodecPlugin { codec: string, test?(bytes: Uint8Array): boolean, decode?(bytes: Uint8Array): { channelData: Float32Array[], sampleRate: number } | Promise<{ channelData: Float32Array[], sampleRate: number }>, encode?(opts: { sampleRate: number, channels: number }): ((chunk?: Float32Array[]) => Uint8Array) | Promise<(chunk?: Float32Array[]) => Uint8Array> }
+  /** @deprecated ≤2.5 name — alias of CodecPlugin */
+  type CodecAtom = CodecPlugin
+  /** Registered codec plugins by format name */
+  const codecs: Record<string, CodecPlugin>
+  function use(...plugins: (string | Function | StatPlugin | CodecPlugin)[]): typeof audio & Promise<typeof audio>
   /** Audio instance prototype — extensible (like $.fn) */
   const fn: Record<string, any>
 }

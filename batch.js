@@ -140,7 +140,7 @@ export function toBatch (factory, baseOpts = {}) {
  */
 export function toStream (factory, baseOpts = {}) {
 	let opts = { ...DEFAULTS, ...baseOpts }
-	if (factory.streaming === false) throw new Error('toStream: atom declares streaming: false — use toBatch')
+	if (factory.streaming === false) throw new Error('toStream: plugin declares streaming: false — use toBatch')
 	let specs = factory.params || {}
 	let state = paramState(specs, opts.params || {})
 	let events = []

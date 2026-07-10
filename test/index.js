@@ -2,12 +2,8 @@ import test from 'tst'
 import audio from '../audio.js'
 const { PAGE_SIZE, BLOCK_SIZE } = audio
 
-/** Sine tone buffer — clean audio for tests (no DC clicks/pops). */
-function tone(freq, dur, sr = 44100) {
-  let n = Math.round(dur * sr), ch = new Float32Array(n)
-  for (let i = 0; i < n; i++) ch[i] = Math.sin(2 * Math.PI * freq * i / sr)
-  return ch
-}
+import { tone as genTone, clickTrack } from './gen.js'
+const tone = (freq, dur, sr = 44100) => genTone(freq, dur, 1, sr)
 
 /** Goertzel magnitude at `f` Hz over a sample buffer — robust pitch probe. */
 function energyAt(buf, f, sr = 44100) {
@@ -83,6 +79,30 @@ test('audio(pcm) — wraps Float32Array[]', async t => {
   let a = await audio(ch)
   t.is(a.duration, 1, '1 second')
   t.is(a.channels, 1, 'mono')
+})
+
+test('decode — WebAudio (OfflineAudioContext) fallback for unbundled codecs', async t => {
+  // Unknown bytes + a decodeAudioData-capable context → decodes; without it → original error
+  class MockOAC {
+    constructor() {}
+    async decodeAudioData(buf) {
+      if (buf.byteLength < 4) throw new Error('bad')
+      return { numberOfChannels: 2, sampleRate: 48000, getChannelData: c => new Float32Array(4800).fill(0.1 * (c + 1)) }
+    }
+  }
+  let orig = globalThis.OfflineAudioContext
+  globalThis.OfflineAudioContext = MockOAC
+  try {
+    let a = await audio(new Uint8Array(1024).fill(77))
+    t.is(a.sampleRate, 48000, 'fallback sample rate')
+    t.is(a.channels, 2, 'fallback channels')
+    t.ok(Math.abs(a.duration - 0.1) < 0.001, 'fallback duration')
+  } finally {
+    if (orig === undefined) delete globalThis.OfflineAudioContext
+    else globalThis.OfflineAudioContext = orig
+  }
+  try { await audio(new Uint8Array(1024).fill(77)); t.ok(!isNode, 'browser may decode natively') }
+  catch (e) { t.ok(e.message, `original decode error preserved: ${e.message.slice(0, 40)}`) }
 })
 
 test('audio.from(pcm) — sync', async t => {
@@ -749,6 +769,34 @@ test('fade in/out — two-arg with curve', async t => {
   let pcm = await a.read()
   t.ok(pcm[0][0] < 0.01, 'fade-in applied')
   t.ok(pcm[0][44099] < 0.01, 'fade-out applied')
+})
+
+test('fade — adjustable: start/end gain levels', async t => {
+  let sr = 44100, ch = new Float32Array(sr).fill(1)
+  let a = audio.from([ch], { sampleRate: sr })
+  a.fade(0.5, { start: 0.2, end: 0.8 })
+  let pcm = await a.read()
+  t.ok(Math.abs(pcm[0][0] - 0.2) < 0.01, `starts at 0.2 (${pcm[0][0].toFixed(3)})`)
+  t.ok(Math.abs(pcm[0][Math.round(sr * 0.25)] - 0.5) < 0.01, 'halfway at 0.5')
+  t.ok(Math.abs(pcm[0][Math.round(sr * 0.6)] - 1) < 0.001, 'past fade: passthrough')
+})
+
+test('fade — adjustable: mid-point skew', async t => {
+  let sr = 44100, ch = new Float32Array(sr).fill(1)
+  let a = audio.from([ch], { sampleRate: sr })
+  a.fade(0.5, { mid: 0.25 })  // half-amplitude at 25% of the fade
+  let pcm = await a.read()
+  t.ok(Math.abs(pcm[0][Math.round(sr * 0.125)] - 0.5) < 0.01, `0.5 at quarter-fade (${pcm[0][Math.round(sr * 0.125)].toFixed(3)})`)
+  t.ok(Math.abs(pcm[0][sr - 1] - 1) < 0.001, 'ends at 1')
+})
+
+test('fade — adjustable: partial-selection level duck', async t => {
+  let sr = 44100, ch = new Float32Array(sr).fill(1)
+  let a = audio.from([ch], { sampleRate: sr })
+  a.fade(0.2, { at: 0.5, start: 1, end: 0.3 })  // ramp 1→0.3 over [0.5, 0.7]
+  let pcm = await a.read()
+  t.ok(Math.abs(pcm[0][Math.round(sr * 0.4)] - 1) < 0.001, 'before: unity')
+  t.ok(Math.abs(pcm[0][Math.round(sr * 0.69)] - 0.335) < 0.02, `end of ramp ≈0.33 (${pcm[0][Math.round(sr * 0.69)].toFixed(3)})`)
 })
 
 test('reverse', async t => {
@@ -2618,6 +2666,27 @@ test('storage: persistent — throws in Node (no OPFS)', { skip: !isNode }, asyn
   }
 })
 
+test('detectBudget — derives budget from storage.estimate()', { skip: !isNode }, async t => {
+  t.is(await audio.detectBudget(), null, 'null when estimate unavailable (Node)')
+
+  let orig = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+  let mock = quota => Object.defineProperty(globalThis, 'navigator', {
+    value: { storage: { estimate: async () => ({ quota, usage: 0 }) } }, configurable: true
+  })
+  try {
+    mock(8 * 1024 * 1024 * 1024)  // 8GB quota → quota/4 = 2GB cap
+    t.is(await audio.detectBudget(), 2 * 1024 * 1024 * 1024, 'quota/4, capped at 2GB')
+    mock(100 * 1024 * 1024)  // tiny quota → 64MB floor
+    t.is(await audio.detectBudget(), 64 * 1024 * 1024, 'floored at 64MB')
+    mock(1024 * 1024 * 1024)  // 1GB → 256MB
+    t.is(await audio.detectBudget(), 256 * 1024 * 1024, 'quota/4 in range')
+    mock(0)  // no quota reported
+    t.is(await audio.detectBudget(), null, 'null on zero quota')
+  } finally {
+    Object.defineProperty(globalThis, 'navigator', orig)
+  }
+})
+
 test('storage: memory — bypasses OPFS even for large files', async t => {
   // small file with storage: memory should work fine
   let a = await audio(lenaPath, { storage: 'memory' })
@@ -2930,6 +2999,33 @@ test('save — progress event fires during encode', { skip: !isNode }, async t =
   t.ok(calls.length > 0, `progress fired ${calls.length} times`)
   t.ok(calls[calls.length - 1].offset > 2, `final offset: ${calls[calls.length - 1].offset.toFixed(1)}s`)
   t.ok(calls[calls.length - 1].total > 2, 'total provided')
+})
+
+test('save/encode — empty range guarded (#27)', { skip: !isNode }, async t => {
+  let { tmpdir } = await import('os')
+  let { join } = await import('path')
+  let { existsSync } = await import('fs')
+  let path = join(tmpdir(), `test-empty-${Date.now()}.wav`)
+
+  // zero-length instance (e.g. trim() removed everything)
+  let empty = audio.from([new Float32Array(0)], { sampleRate: 44100 })
+  try { await empty.save(path); t.ok(false, 'empty save should throw') }
+  catch (e) { t.ok(e.message.includes('nothing to save'), `empty save throws: ${e.message}`) }
+  t.ok(!existsSync(path), 'no file created for empty save')
+  try { await empty.encode('wav'); t.ok(false, 'empty encode should throw') }
+  catch (e) { t.ok(e.message.includes('nothing to encode'), 'empty encode throws') }
+
+  // zero/beyond-end range on real audio
+  let a = audio.from([new Float32Array(44100).fill(0.5)], { sampleRate: 44100 })
+  try { await a.save(path, { duration: 0 }); t.ok(false, 'zero-duration save should throw') }
+  catch (e) { t.ok(e.message.includes('nothing to save'), 'zero-duration range throws') }
+  try { await a.save(path, { at: 10 }); t.ok(false, 'beyond-end save should throw') }
+  catch (e) { t.ok(e.message.includes('nothing to save'), 'beyond-end range throws') }
+
+  // tiny but nonzero range still saves
+  await a.save(path, { duration: 0.005 })
+  t.ok(existsSync(path), 'tiny nonzero range saves')
+  await import('fs').then(fs => fs.promises.unlink(path).catch(() => {}))
 })
 
 test('save — with non-plannable edits (filter + trim)', { skip: !isNode }, async t => {
@@ -3615,21 +3711,164 @@ test('stat(silence) — with range opts', async t => {
   t.is(segs.length, 0, 'no silence in ranged query')
 })
 
-// ── Beat / BPM stat ───────────────────────────────────────────────────────
+// ── crossover — band-splitting op ─────────────────────────────────────────
 
-/** Click track: short Hann-windowed sine bursts at each beat position. */
-function clickTrack(bpm, dur, sr = 44100) {
-  let n = Math.round(dur * sr), buf = new Float32Array(n)
-  let beatSamples = Math.round(sr * 60 / bpm)
-  let clickLen = 2048
-  for (let pos = 0; pos < n; pos += beatSamples) {
-    for (let i = 0; i < clickLen && pos + i < n; i++) {
-      let w = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / clickLen)  // Hann
-      buf[pos + i] += w * Math.sin(2 * Math.PI * 440 * i / sr)
+test('crossover — splits into bands, band-major channel order', async t => {
+  let sr = 44100, n = sr
+  let lo = new Float32Array(n), hi = new Float32Array(n), mixd = new Float32Array(n)
+  for (let i = 0; i < n; i++) {
+    lo[i] = 0.4 * Math.sin(2 * Math.PI * 100 * i / sr)
+    hi[i] = 0.4 * Math.sin(2 * Math.PI * 5000 * i / sr)
+    mixd[i] = lo[i] + hi[i]
+  }
+  let rms = a => Math.sqrt(a.reduce((s, x) => s + x * x, 0) / a.length)
+  let a = audio.from([mixd, mixd.slice()], { sampleRate: sr })
+  a.crossover(1000)
+  t.is(a.channels, 4, 'stereo × 2 bands = 4 channels')
+  let pcm = await a.read()
+  t.ok(Math.abs(rms(pcm[0]) - rms(lo)) < 0.02, `band0 ≈ low tone (${rms(pcm[0]).toFixed(3)})`)
+  t.ok(Math.abs(rms(pcm[2]) - rms(hi)) < 0.02, `band1 ≈ high tone (${rms(pcm[2]).toFixed(3)})`)
+  t.ok(rms(pcm[0]) > 10 * 0.4 * 10 ** (-24 / 20), 'low band keeps energy')
+})
+
+test('crossover — 3 bands sum allpass-flat', async t => {
+  let sr = 44100, n = sr, ch = new Float32Array(n)
+  for (let i = 0; i < n; i++) ch[i] = 0.4 * Math.sin(2 * Math.PI * 100 * i / sr) + 0.4 * Math.sin(2 * Math.PI * 5000 * i / sr)
+  let rms = a => Math.sqrt(a.reduce((s, x) => s + x * x, 0) / a.length)
+  let a = audio.from([ch], { sampleRate: sr })
+  a.crossover([300, 3000])
+  t.is(a.channels, 3, '3 bands')
+  let pcm = await a.read()
+  let sum = new Float32Array(n)
+  for (let i = 0; i < n; i++) sum[i] = pcm[0][i] + pcm[1][i] + pcm[2][i]
+  t.ok(Math.abs(rms(sum) - rms(ch)) < 0.005, `bands sum to input energy (${rms(sum).toFixed(4)} vs ${rms(ch).toFixed(4)})`)
+})
+
+test('crossover — no freqs is passthrough, Nyquist guarded, stream width matches', async t => {
+  let sr = 44100, ch = new Float32Array(sr).fill(0.1)
+  let a = audio.from([ch], { sampleRate: sr })
+  a.crossover()
+  t.is(a.channels, 1, 'no split points → unchanged')
+
+  let b = audio.from([ch.slice()], { sampleRate: sr })
+  b.crossover(30000)
+  try { await b.read(); t.ok(false, 'should throw') }
+  catch (e) { t.ok(e.message.includes('Nyquist'), 'freq ≥ Nyquist rejected') }
+
+  let c = audio.from([ch.slice(), ch.slice()], { sampleRate: sr })
+  c.crossover(1000)
+  for await (let chunk of c.stream()) { t.is(chunk.length, 4, 'stream yields band-split width'); break }
+})
+
+// ── frames hook — variable-length whole-render ops (time-stretch class) ───
+
+test('whole op frames hook — structural output length', async t => {
+  function dup(ctx) {
+    return (inputs, outputs) => {
+      let inp = inputs[0], out = outputs[0]
+      for (let c = 0; c < inp.length; c++) { out[c].set(inp[c]); out[c].set(inp[c], inp[c].length) }
     }
   }
-  return buf
+  dup.channels = 'any'
+  dup.streaming = false
+  dup.frames = n => n * 2
+  dup.params = {}
+  audio.use(dup)
+
+  let sr = 44100, ramp = new Float32Array(1000)
+  for (let i = 0; i < 1000; i++) ramp[i] = i / 1000
+  let a = audio.from([ramp], { sampleRate: sr })
+  a.dup()
+  t.is(a.duration, 2000 / sr, 'plan length follows frames hook')
+  let pcm = await a.read()
+  t.is(pcm[0].length, 2000, 'output doubled')
+  t.is(pcm[0][1500], ramp[500], 'second half is the repeat')
+  a.gain(-6)
+  let q = await a.read()
+  t.ok(Math.abs(q[0][1500] - ramp[500] * 0.501) < 0.01, 'downstream ops run over the extended timeline')
+})
+
+// ── shrink — compress silent pauses to a target gap ──────────────────────
+
+/** 0.5s head silence + 0.3s tone + 0.8s pause + 0.3s tone + 0.6s tail silence */
+function pausedTones(sr = 44100) {
+  let ch = new Float32Array(Math.round(sr * 2.5))
+  for (let i = 0; i < sr * 0.3; i++) {
+    ch[Math.round(sr * 0.5) + i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr)
+    ch[Math.round(sr * 1.6) + i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr)
+  }
+  return ch
 }
+
+test('shrink — compresses all pauses to target gap', async t => {
+  let sr = 44100
+  let a = audio.from([pausedTones(sr)], { sampleRate: sr })
+  a.shrink(0.2)
+  let pcm = await a.read()
+  let dur = pcm[0].length / sr
+  // 0.2 + 0.3 + 0.2 + 0.3 + 0.2 = 1.2, block-aligned tolerance
+  t.ok(Math.abs(dur - 1.2) < 0.1, `pauses → 0.2s: ${dur.toFixed(3)}s (expect ≈1.2)`)
+})
+
+test('shrink — pauses shorter than gap untouched', async t => {
+  let sr = 44100
+  let a = audio.from([pausedTones(sr)], { sampleRate: sr })
+  a.shrink(1.5)
+  let pcm = await a.read()
+  t.is(pcm[0].length, Math.round(sr * 2.5), 'unchanged')
+})
+
+test('shrink(0) — removes silence entirely (silenceremove)', async t => {
+  let sr = 44100
+  let a = audio.from([pausedTones(sr)], { sampleRate: sr })
+  a.shrink(0)
+  let pcm = await a.read()
+  let dur = pcm[0].length / sr
+  t.ok(Math.abs(dur - 0.6) < 0.1, `only signal remains: ${dur.toFixed(3)}s (expect ≈0.6)`)
+})
+
+test('shrink — ranged compresses only pauses in range', async t => {
+  let sr = 44100
+  let a = audio.from([pausedTones(sr)], { sampleRate: sr })
+  // range covers the middle pause from 0.9s; keeps 0.2 after 0.9, cuts 0.9+0.2..1.5
+  a.shrink(0.2, { at: 0.9, duration: 0.6 })
+  let pcm = await a.read()
+  let dur = pcm[0].length / sr
+  t.ok(Math.abs(dur - 2.1) < 0.1, `only ranged pause cut: ${dur.toFixed(3)}s (expect ≈2.1)`)
+})
+
+test('shrink — after gain (stats remapped), stream ≡ read', async t => {
+  let sr = 44100
+  let a = audio.from([pausedTones(sr)], { sampleRate: sr })
+  a.gain(-6).shrink(0.2)
+  let pcm = await a.read()
+  let dur = pcm[0].length / sr
+  t.ok(Math.abs(dur - 1.2) < 0.1, `post-gain shrink: ${dur.toFixed(3)}s`)
+  let streamed = 0
+  for await (let c of a.stream()) streamed += c[0].length
+  t.is(streamed, pcm[0].length, 'stream length matches read')
+})
+
+test('shrink — negative gap clamps to 0 (never eats signal)', async t => {
+  let sr = 44100
+  let a = audio.from([pausedTones(sr)], { sampleRate: sr })
+  a.shrink(-5)
+  let pcm = await a.read()
+  let dur = pcm[0].length / sr
+  t.ok(Math.abs(dur - 0.6) < 0.1, `clamped to shrink(0): ${dur.toFixed(3)}s (expect ≈0.6)`)
+})
+
+test('shrink — composes with trim', async t => {
+  let sr = 44100
+  let a = audio.from([pausedTones(sr)], { sampleRate: sr })
+  a.shrink(0.2).trim()
+  let pcm = await a.read()
+  let dur = pcm[0].length / sr
+  t.ok(Math.abs(dur - 0.8) < 0.1, `shrink+trim: ${dur.toFixed(3)}s (expect ≈0.8)`)
+})
+
+// ── Beat / BPM stat ───────────────────────────────────────────────────────
+
 
 test('stat(bpm) — detects BPM from click track', async t => {
   let sr = 44100, bpm = 120
@@ -4569,6 +4808,30 @@ test('playbackRate — emits ratechange', t => {
   t.ok(fired, 'ratechange event')
 })
 
+test('playbackRate — live change speeds playback (varispeed ramp)', { skip: !isNode }, async t => {
+  let sr = 44100, ch = new Float32Array(sr)  // 1s silence, volume 0 — inaudible timing test
+  let a = audio.from([ch], { sampleRate: sr })
+
+  // baseline: rate 4 from start → ~0.25s wall
+  let t0 = performance.now()
+  a.play({ volume: 0, rate: 4 })
+  await new Promise(r => a.on('ended', r))
+  let fast = (performance.now() - t0) / 1000
+  t.ok(fast < 0.6, `rate 4 from start: ${fast.toFixed(2)}s wall for 1s audio`)
+
+  // live: start at 1, ramp to 4 after ~150ms → well under realtime, slower than pure 4×
+  a.playbackRate = 1
+  t0 = performance.now()
+  a.play({ volume: 0 })
+  await a.played
+  setTimeout(() => { a.playbackRate = 4 }, 150)
+  await new Promise(r => a.on('ended', r))
+  let ramped = (performance.now() - t0) / 1000
+  t.ok(ramped < 0.85, `live ramp 1→4: ${ramped.toFixed(2)}s wall (expect ≈0.36)`)
+  t.ok(a.ended, 'ended naturally')
+  a.playbackRate = 1
+})
+
 
 // ── New ops: allpass, vocals, dither, crossfeed, resample ──────────────
 
@@ -4849,6 +5112,49 @@ test('boundary — stream reads across page boundaries', async t => {
   } finally { audio.PAGE_SIZE = origP; audio.BLOCK_SIZE = origB }
 })
 
+test('boundary — dither stays within 1 LSB across page boundaries', async t => {
+  let origP = audio.PAGE_SIZE
+  audio.PAGE_SIZE = 1024  // many pages over a short signal
+  try {
+    let samples = 1024 * 3 + 512
+    let ch = new Float32Array(samples).fill(0.25)
+    let a = audio.from([ch], { sampleRate: 44100 })
+    a.dither(16)
+    let pcm = await a.read()
+    t.is(pcm[0].length, samples, 'length preserved')
+    let lsb = 2 / 65535, maxDev = 0
+    for (let i = 0; i < samples; i++) maxDev = Math.max(maxDev, Math.abs(pcm[0][i] - 0.25))
+    t.ok(maxDev <= 2 * lsb + 1e-6, `every sample within TPDF bound incl. page boundaries (max dev ${(maxDev / lsb).toFixed(2)} LSB)`)
+  } finally { audio.PAGE_SIZE = origP }
+})
+
+test('boundary — pitch shift continuous across page boundaries', async t => {
+  let origP = audio.PAGE_SIZE
+  audio.PAGE_SIZE = 8192  // ~0.19s pages — a 2s tone spans ~11 pages
+  try {
+    let sr = 44100, samples = sr * 2
+    let ch = new Float32Array(samples)
+    for (let i = 0; i < samples; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr)
+    let a = audio.from([ch], { sampleRate: sr })
+    a.pitch(12)  // one octave up → ~880Hz
+    let pcm = await a.read()
+    t.is(pcm[0].length, samples, 'duration preserved')
+    // continuity: no dropout window anywhere (page seams included)
+    let win = 1024, minRms = Infinity
+    for (let off = sr >> 2; off + win < samples - (sr >> 2); off += win) {
+      let s = 0
+      for (let i = 0; i < win; i++) s += pcm[0][off + i] ** 2
+      minRms = Math.min(minRms, Math.sqrt(s / win))
+    }
+    t.ok(minRms > 0.1, `no dropouts at page seams (min window rms ${minRms.toFixed(3)})`)
+    // frequency doubled: zero-crossing rate ≈ 2×880 per second over the steady middle
+    let zc = 0, from = sr >> 1, to = samples - (sr >> 1)
+    for (let i = from + 1; i < to; i++) if ((pcm[0][i - 1] < 0) !== (pcm[0][i] < 0)) zc++
+    let hz = zc / 2 / ((to - from) / sr)
+    t.ok(Math.abs(hz - 880) < 40, `pitch shifted to ≈880Hz (${hz.toFixed(0)})`)
+  } finally { audio.PAGE_SIZE = origP }
+})
+
 test('boundary — block size does not divide page size evenly', async t => {
   let origP = audio.PAGE_SIZE, origB = audio.BLOCK_SIZE
   audio.PAGE_SIZE = 100
@@ -5121,7 +5427,9 @@ test('dither — TPDF noise floor uniform (not correlated with signal)', async t
 })
 
 test('dither — noise-shape pushes noise above ~Nyquist/2 (8-bit silence)', async t => {
-  let n = 16384
+  // Both signals are independent TPDF processes — probe enough bins with enough
+  // samples that the NTF gap (~4× at 18–21kHz) dominates the estimator variance.
+  let n = 65536
   let plain = audio.from([new Float32Array(n)], { sampleRate: 44100 }); plain.dither(8)
   let shaped = audio.from([new Float32Array(n)], { sampleRate: 44100 }); shaped.dither(8, { shape: true })
   let p = (await plain.read())[0], s = (await shaped.read())[0]
@@ -5129,9 +5437,9 @@ test('dither — noise-shape pushes noise above ~Nyquist/2 (8-bit silence)', asy
   let pLo = energyAt(p, 100) + energyAt(p, 500) + energyAt(p, 1000)
   let sLo = energyAt(s, 100) + energyAt(s, 500) + energyAt(s, 1000)
   t.ok(sLo < pLo * 0.1, `shaped low-freq noise ≥10× quieter: ${sLo.toExponential(2)} < ${pLo.toExponential(2)} × 0.1`)
-  let pHi = energyAt(p, 18000) + energyAt(p, 20000)
-  let sHi = energyAt(s, 18000) + energyAt(s, 20000)
-  t.ok(sHi > pHi, `shaped high-freq noise boosted: ${sHi.toExponential(2)} > ${pHi.toExponential(2)}`)
+  let pHi = 0, sHi = 0
+  for (let f of [17000, 18000, 19000, 20000, 21000]) { pHi += energyAt(p, f); sHi += energyAt(s, f) }
+  t.ok(sHi > pHi * 1.5, `shaped high-freq noise boosted: ${sHi.toExponential(2)} > ${pHi.toExponential(2)} × 1.5`)
 })
 
 test('dither — noise-shape preserves signal (440Hz sine, 16-bit)', async t => {
@@ -6264,9 +6572,9 @@ test('cli ops registry — all built-ins available', t => {
 // import-map entries for every @audio module atom + its transitive kernels.
 // Effects/denoise suites resolve manifests from the sibling @audio checkout until
 // their npm releases land — skip cleanly where neither is present (e.g. bare CI).
-if (isNode) await import('./atom-ops.js')
-if (isNode) for (let f of ['./atom-effects.js', './atom-denoise.js', './atom-spatial.js', './atom-shift.js', './atom-tune.js',
-  './atom-reverb.js', './atom-dynamics.js', './atom-filter.js', './atom-eq.js', './atom-color.js', './atom-synth.js', './atom-stats.js', './atom-notes.js']) {
+if (isNode) await import('./plugin-ops.js')
+if (isNode) for (let f of ['./plugin-effects.js', './plugin-denoise.js', './plugin-spatial.js', './plugin-shift.js', './plugin-tune.js',
+  './plugin-reverb.js', './plugin-dynamics.js', './plugin-filter.js', './plugin-eq.js', './plugin-color.js', './plugin-synth.js', './plugin-stats.js', './plugin-notes.js']) {
   try { await import(f) }
   catch (e) {
     if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e

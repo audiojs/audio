@@ -40,6 +40,18 @@ async function ensurePages(a, offset, duration) {
     if (a.pages[i] === null && await a.cache.has(i)) { a.pages[i] = await a.cache.read(i); touchLru(a, i) }
 }
 
+/** Derive a page budget from the platform quota (Chrome: ~60% of disk — tracks device
+ *  class). Quarter of quota, bounded to sane resident-RAM limits: floor keeps paging
+ *  useful under tiny quotas, cap keeps desktops from ballooning residency.
+ *  Null when estimate() is unavailable (Node, older browsers) — caller falls back. */
+async function detectBudget() {
+  try {
+    let { quota } = await navigator.storage.estimate()
+    if (!quota) return null
+    return Math.max(64 * 1024 * 1024, Math.min(2 * 1024 * 1024 * 1024, Math.floor(quota / 4)))
+  } catch { return null }
+}
+
 /** Create an OPFS-backed cache backend. Browser only. */
 async function opfsCache(dirName = 'audio-cache') {
   if (typeof navigator === 'undefined' || !navigator.storage?.getDirectory)
@@ -88,4 +100,5 @@ async function opfsCache(dirName = 'audio-cache') {
 audio.opfsCache = opfsCache
 audio.evict = evict
 audio.ensurePages = ensurePages
+audio.detectBudget = detectBudget
 audio.DEFAULT_BUDGET = DEFAULT_BUDGET

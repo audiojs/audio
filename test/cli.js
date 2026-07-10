@@ -1,5 +1,6 @@
 import test from 'tst'
-import { parseValue, parseRange, parseArgs, showOpHelp, HELP, progressBar, fmtTime, isOpName, isVerb, isStatName, SOURCE_VERBS, SINK_VERBS, prompt, playerSave, defaultSavePath, opsLabel } from '../bin/cli.js'
+import { parseValue, parseRange, parseArgs, parseCue, showOpHelp, HELP, progressBar, fmtTime, isOpName, isVerb, isStatName, SOURCE_VERBS, SINK_VERBS, prompt, playerSave, defaultSavePath, opsLabel } from '../bin/cli.js'
+import { tone } from './gen.js'
 import { EventEmitter } from 'events'
 import audio from '../audio.js'
 import { spawn } from 'child_process'
@@ -62,6 +63,108 @@ test('parseArgs — split with time args', t => {
   t.is(r.transforms[0].args[0], 30, 'first split at 30s')
   t.is(r.transforms[0].args[1], 60, 'second split at 60s')
   t.is(r.sink.args[0], 'ch-{i}.wav', 'template sink')
+})
+
+test('parseArgs — split --cue flag', t => {
+  let r = parseArgs(['album.wav', 'split', '--cue', 'album.cue', 'save', '{i} - {title}.mp3'])
+  t.is(r.transforms[0].name, 'split', 'op name')
+  t.is(r.transforms[0].args.length, 0, 'no positional split points')
+  t.is(r.cue, 'album.cue', 'cue file captured')
+  t.is(r.sink.args[0], '{i} - {title}.mp3', 'template sink')
+})
+
+test('parseCue — tracks, titles, INDEX 01 frame math', t => {
+  let cue = parseCue(`REM GENRE Rock
+PERFORMER "The Band"
+TITLE "The Album"
+FILE "album.wav" WAVE
+  TRACK 01 AUDIO
+    TITLE "First Song"
+    INDEX 00 00:00:00
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE "Second/Song"
+    PERFORMER "Guest"
+    INDEX 01 04:30:45
+  TRACK 03 AUDIO
+    TITLE "Third Song"
+    INDEX 01 102:02:30
+`)
+  t.is(cue.title, 'The Album', 'disc title')
+  t.is(cue.performer, 'The Band', 'disc performer')
+  t.is(cue.tracks.length, 3, '3 tracks')
+  t.is(cue.tracks[0].at, 0, 'track 1 at 0')
+  t.is(cue.tracks[1].at, 4 * 60 + 30 + 45 / 75, 'mm:ss:ff → seconds (75 fps)')
+  t.is(cue.tracks[1].performer, 'Guest', 'track performer overrides disc')
+  t.is(cue.tracks[2].at, 102 * 60 + 2 + 30 / 75, 'mm > 99 supported')
+})
+
+test('CLI — split --cue end-to-end', async t => {
+  let dir = mkdtempSync(join(tmpdir(), 'audio-cue-'))
+  try {
+    // 3s of tone at 8kHz — tracks at 0s, 1s, 2s
+    let sr = 8000, n = sr * 3, ch = new Float32Array(n)
+    for (let i = 0; i < n; i++) ch[i] = 0.3 * Math.sin(2 * Math.PI * 440 * i / sr)
+    let src = join(dir, 'album.wav')
+    await audio.from([ch], { sampleRate: sr }).save(src)
+    let cuePath = join(dir, 'album.cue')
+    writeFileSync(cuePath, `TITLE "Album"
+PERFORMER "Artist"
+FILE "album.wav" WAVE
+  TRACK 01 AUDIO
+    TITLE "One"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE "Two"
+    INDEX 01 00:01:00
+  TRACK 03 AUDIO
+    TITLE "Three"
+    INDEX 01 00:02:00
+`)
+    let { stderr } = await runCli([src, 'split', '--cue', cuePath, '--force', 'save', join(dir, '{i} - {title}.wav')])
+    for (let f of ['1 - One.wav', '2 - Two.wav', '3 - Three.wav']) {
+      t.ok(existsSync(join(dir, f)), `${f} written`)
+      let part = await audio(join(dir, f))
+      t.ok(Math.abs(part.duration - 1) < 0.01, `${f} ≈ 1s (${part.duration.toFixed(3)})`)
+    }
+    let two = await audio(join(dir, '2 - Two.wav'))
+    t.is(two.meta.title, 'Two', 'track title tagged')
+    t.is(two.meta.artist, 'Artist', 'performer tagged')
+    t.is(two.meta.album, 'Album', 'album tagged')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('CLI — split --cue hidden pregap cropped', async t => {
+  let dir = mkdtempSync(join(tmpdir(), 'audio-pregap-'))
+  try {
+    let sr = 8000, n = sr * 4, ch = new Float32Array(n)
+    for (let i = 0; i < n; i++) ch[i] = 0.3 * Math.sin(2 * Math.PI * 440 * i / sr)
+    let src = join(dir, 'album.wav')
+    await audio.from([ch], { sampleRate: sr }).save(src)
+    writeFileSync(join(dir, 'album.cue'), `TITLE "Album"
+FILE "album.wav" WAVE
+  TRACK 01 AUDIO
+    TITLE "One"
+    INDEX 01 00:01:00
+  TRACK 02 AUDIO
+    TITLE "Two"
+    INDEX 01 00:02:37
+`)
+    await runCli([src, 'split', '--cue', join(dir, 'album.cue'), '--force', 'save', join(dir, 't{i}.wav')])
+    let t1 = await audio(join(dir, 't1.wav')), t2 = await audio(join(dir, 't2.wav'))
+    let idx1 = 1, idx2 = 2 + 37 / 75  // INDEX 01 mm:ss:ff, 75 frames/s
+    t.ok(Math.abs(t1.duration - (idx2 - idx1)) < 0.01, `pregap dropped, t1 from INDEX 01: ${t1.duration.toFixed(3)}s`)
+    t.ok(Math.abs(t2.duration - (4 - idx2)) < 0.01, `t2 to end: ${t2.duration.toFixed(3)}s`)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('CLI — --cue without split errors', async t => {
+  let out = await runCliCapture(['nonexistent.wav', 'gain', '-3', '--cue', 'x.cue', 'save', 'out.wav'])
+  t.ok(out.includes('--cue requires the split op'), 'clear error')
 })
 
 test('parseArgs — verbose flag', t => {
@@ -907,7 +1010,7 @@ test('op help — all built-in ops have help', t => {
   let expected = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'clip', 'remove',
     'insert', 'repeat', 'mix', 'crossfade', 'remix', 'highpass', 'lowpass', 'eq', 'lowshelf',
     'highshelf', 'notch', 'bandpass', 'allpass', 'filter', 'pan', 'pad', 'speed', 'stretch',
-    'pitch', 'vocals', 'dither', 'crossfeed', 'resample', 'write', 'transform',
+    'pitch', 'vocals', 'dither', 'crossfeed', 'resample', 'write', 'transform', 'split', 'shrink', 'crossover',
     // sinks + sources
     'play', 'stat', 'save', 'record']
   for (let op of expected) t.ok(HELP[op], `${op} has help`)
@@ -920,11 +1023,11 @@ test('CLI — per-op help output', async t => {
   t.ok(output.includes('dB'), 'shows description')
 })
 
-test('CLI — atom op help synthesized from param metadata', async t => {
-  // regression: showOpHelp gated atomHelp on stale `desc.module` (atom rename) —
-  // every registry atom printed "No help". Pin the `desc.atom` path.
+test('CLI — plugin op help synthesized from param metadata', async t => {
+  // regression: showOpHelp gated pluginHelp on stale `desc.module` (rename) —
+  // every registry plugin printed "No help". Pin the `desc.plugin` path.
   let output = await runCliCapture(['compressor', '--help'])
-  t.ok(output.includes('Contract atom'), 'atom help synthesized')
+  t.ok(output.includes('Plugin'), 'plugin help synthesized')
   t.ok(output.includes('threshold'), 'param table lists threshold')
   t.ok(output.includes('-60..0 dB'), 'param range + unit from metadata')
 })
@@ -1008,6 +1111,48 @@ test('CLI — pad adds silence', async t => {
     let result = await audio(outPath)
     t.ok(Math.abs(result.duration - (origDur + 1)) < 0.1, `duration increased by ~1s (got ${result.duration.toFixed(2)} from ${origDur.toFixed(2)})`)
   } finally { cleanup(outPath) }
+})
+
+test('CLI — insert/mix/crossfade/resample execute end-to-end', { timeout: 60000 }, async t => {
+  let dir = mkdtempSync(join(tmpdir(), 'audio-cli-ops-'))
+  let sr = 44100
+  let rms = a => Math.sqrt(a.reduce((s, x) => s + x * x, 0) / a.length)
+  try {
+    let aPath = join(dir, 'a.wav'), bPath = join(dir, 'b.wav')
+    await audio.from([tone(440, 1, 0.4)], { sampleRate: sr }).save(aPath)
+    await audio.from([tone(880, 0.5, 0.4)], { sampleRate: sr }).save(bPath)
+
+    // insert — b spliced into a at 0.5s, length grows
+    let insOut = join(dir, 'ins.wav')
+    await runCli([aPath, 'insert', bPath, '0.5s', '--force', 'save', insOut])
+    let ins = await audio(insOut)
+    t.ok(Math.abs(ins.duration - 1.5) < 0.01, `insert: 1s + 0.5s = ${ins.duration.toFixed(3)}s`)
+
+    // mix — overlay, length stays max(a, b)
+    let mixOut = join(dir, 'mix.wav')
+    await runCli([aPath, 'mix', bPath, '--force', 'save', mixOut])
+    let mixed = await audio(mixOut)
+    t.ok(Math.abs(mixed.duration - 1) < 0.01, `mix: duration stays 1s (${mixed.duration.toFixed(3)})`)
+    let pcm = await mixed.read()
+    let firstHalf = rms(pcm[0].subarray(0, Math.round(sr * 0.45)))
+    let secondHalf = rms(pcm[0].subarray(Math.round(sr * 0.55)))
+    t.ok(firstHalf > secondHalf * 1.2, `overlap region louder (${firstHalf.toFixed(3)} vs ${secondHalf.toFixed(3)})`)
+
+    // crossfade — a into b with 0.2s overlap
+    let xfOut = join(dir, 'xf.wav')
+    await runCli([aPath, 'crossfade', bPath, '0.2s', '--force', 'save', xfOut])
+    let xf = await audio(xfOut)
+    t.ok(Math.abs(xf.duration - 1.3) < 0.02, `crossfade: 1 + 0.5 − 0.2 = ${xf.duration.toFixed(3)}s`)
+
+    // resample — sample rate conversion, duration preserved
+    let rsOut = join(dir, 'rs.wav')
+    await runCli([aPath, 'resample', '22050', '--force', 'save', rsOut])
+    let rs = await audio(rsOut)
+    t.is(rs.sampleRate, 22050, 'resampled rate')
+    t.ok(Math.abs(rs.duration - 1) < 0.01, `duration preserved (${rs.duration.toFixed(3)}s)`)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 // ── Glob / Batch ─────────────────────────────────────────────────────────
