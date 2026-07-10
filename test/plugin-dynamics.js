@@ -50,3 +50,19 @@ test('multiband: hot low band compressed, quiet high band untouched', async () =
 	ok(highKeep > 0.7 && highKeep < 1.4, `quiet 6kHz band ~untouched (${(20 * Math.log10(highKeep)).toFixed(1)} dB)`)
 	ok(out.every(isFinite))
 })
+
+// --- audit: upward-compression params shipped 2026-07-10, engine-hosted coverage ---
+
+const { compressor: compressorAtom } = await import('@audio/dynamics-compressor/audio')
+audio.use(compressorAtom)
+
+test('compressor: upward half lifts quiet passages (OTT up)', async () => {
+	let n = 2 * SR, ch = new Float32Array(n)
+	for (let i = 0; i < n; i++) ch[i] = 0.02 * Math.sin(2 * Math.PI * 1000 * i / SR)  // ~−34 dBFS
+	let base = (await audio.from([ch.slice()], { sampleRate: SR }).compressor({ threshold: -20 }).read())[0]
+	let up = (await audio.from([ch.slice()], { sampleRate: SR }).compressor({ threshold: -20, upThreshold: -20, upRatio: 4, upRange: 18 }).read())[0]
+	let from = SR, to = Math.round(1.8 * SR)
+	let lift = goertzel(up, 1000, SR, from, to) / goertzel(base, 1000, SR, from, to)
+	ok(lift > 1.4, `quiet tone lifted ${(20 * Math.log10(lift)).toFixed(1)} dB by upward half`)
+	ok(up.every(isFinite), 'finite')
+})

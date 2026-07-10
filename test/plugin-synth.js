@@ -99,3 +99,24 @@ test('adsr: envelope shapes a steady tone (quiet attack, sustain plateau, releas
 	ok(rms(out, 0, Math.round(0.02 * SR)) < rms(out, SR >> 1, Math.round(0.7 * SR)) * 0.5, 'attack ramps in')
 	ok(rms(out, Math.round(0.98 * SR)) < rms(out, SR >> 1, Math.round(0.7 * SR)) * 0.3, 'release ramps out')
 })
+
+// --- registry follow-through (audit): fm/modal registered 2026-07-10, now dependency-backed + tested ---
+
+import { fm, bell, epiano } from '@audio/synth-fm/audio'
+import { modal } from '@audio/synth-modal/audio'
+audio.use(fm, bell, epiano, modal)
+
+test('fm: carrier + Chowning sidebands at freq ± k·ratio·freq', async () => {
+	let out = (await silent(0.5).fm({ freq: 440, ratio: 2, index: 3 }).read())[0]
+	ok(g(out, 440) > 0.5, 'carrier present')
+	ok(g(out, 440 + 880) > g(out, 555) * 2, 'first upper sideband ≫ off-grid bin')
+	let b = (await silent(1).bell({ freq: 220 }).read())[0]
+	let e = (await silent(1).epiano({ freq: 220 }).read())[0]
+	ok(rms(b) > 0.02 && rms(e) > 0.02, 'presets render')
+})
+
+test('modal: string model rings harmonics and decays', async () => {
+	let out = (await silent(1).modal({ freq: 440, model: 'string', nmodes: 4, t60: 0.4, strike: 0.29 }).read())[0]
+	ok(g(out, 880, SR) > g(out, 660, SR) * 3, 'mode 2 at 880 ≫ off-mode 660')
+	ok(rms(out, Math.round(0.85 * SR), SR) < rms(out, 0, Math.round(0.15 * SR)) * 0.5, 'ring-down decays')
+})

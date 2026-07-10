@@ -1,6 +1,6 @@
 # audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/audio?color=white)](https://npmjs.org/package/audio)
 
-_Audio playback, editing and analysys_
+_Audio playback, editing and analysis_
 
 ```js
 // js
@@ -804,7 +804,7 @@ audio --completions fish | source       # fish
 <dd>Audacity is a GUI desktop app. <code>audio</code> is a library and CLI — designed for scripting, automation, pipelines, and embedding in apps. Audacity is destructive (edits mutate samples); <code>audio</code> is non-destructive (edits are a plan replayed on read). Audacity can't run in the browser or be <code>npm install</code>ed into your project.</dd>
 
 <dt>How is this different from ffmpeg?</dt>
-<dd>ffmpeg is a video-first tool that also handles audio. It's a C binary — no JS API, no browser, no streaming edits. <code>audio</code> is audio-first: dB, Hz, LUFS are native units. Edits are non-destructive, playback streams during decode, and the whole thing is ~20K gzipped with codecs loading on demand.</dd>
+<dd>ffmpeg is a video-first tool that also handles audio. It's a C binary — no JS API, no browser, no streaming edits. <code>audio</code> is audio-first: dB, Hz, LUFS are native units. Edits are non-destructive, playback streams during decode, and the core is ~20K gzipped (full bundle ~49K) with codecs loading on demand.</dd>
 
 <dt>How is this different from Web Audio API?</dt>
 <dd>Web Audio API is a real-time audio graph for playback and synthesis — not for editing files. No undo, no save-to-file, no CLI, no Node (without polyfills). <code>audio</code> is for working on audio files: load, edit, analyze, save. For Web Audio API in Node, see <a href="https://github.com/audiojs/web-audio-api">web-audio-api</a>.</dd>
@@ -819,14 +819,14 @@ Op plugins (`audio.plugins` registry, name → package — `npm i` it, then `awa
 
 **dynamics** compressor · limiter · gate · expander · deesser · ducker · compand · softclip · leveler · transient-shaper · multiband · fet · opto · varimu · vca —
 **denoise** dehum · specsub · wiener · omlsa · dereverb · deplosive · dewind · declick · declip · decrackle · debreath —
-**effects** delay · chorus · flanger · phaser · tremolo · vibrato · autowah · wah · bitcrusher · distortion · exciter · ringmod · freqshift · multitap · pingpong · slew · noiseshaper · lofi · graindelay · stutter · subbass · sbr —
+**effects** delay · chorus · flanger · phaser · tremolo · vibrato · autowah · wah · bitcrusher · distortion · exciter · ringmod · freqshift · multitap · pingpong · slew · noiseshaper · lofi · graindelay · stutter · subbass · sbr · rotary · tapestop —
 **reverb** freeverb · schroeder · plate · fdn · spring · shimmer —
 **filter** biquad · moog · korg35 · diode · oberheim · resonator · spectral-tilt · variable · comb · dcblocker · emphasis · deemphasis · derivative · integral —
 **eq** geq · tilt · baxandall · dyneq —
 **spatial** widener · haas · panner · autopan · midside · microshift · surround —
 **shift** pitch-shift · vocoder · formant-shift · paulstretch —
 **color** tape · transistor · waveshaper · multisat · amp · cabinet · defeedback —
-**generate** osc · noise · chirp · pluck · risset · rhythm · sfx · kick · cymbal · snare · adsr · voice · poly —
+**generate** osc · noise · chirp · pluck · risset · rhythm · sfx · kick · cymbal · snare · adsr · voice · poly · fm · bell · epiano · modal —
 **more** yin · tube · isolate · tune
 
 Stat plugins (land on `a.stat(name)`):

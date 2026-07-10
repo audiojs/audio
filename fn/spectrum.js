@@ -6,7 +6,7 @@
 
 import fft from 'fourier-transform'
 import { hann } from '@audio/window'
-import { a as aWeight } from 'a-weighting'
+import aWeighting from '@audio/weighting-a'
 
 // ── Mel scale ───────────────────────────────────────────────────
 
@@ -65,7 +65,7 @@ export function melSpectrum(samples, sr, opts = {}) {
       wsum += w
     }
     let rms = wsum > 0 ? Math.sqrt(sum / wsum) : 0
-    if (weight) rms *= aWeight(fMid, sr)
+    if (weight) rms *= aWeighting.response(fMid, sr)  // digital response at actual rate (a-weighting ignored its sr arg)
     out[b] = rms
   }
   return out

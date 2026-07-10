@@ -217,3 +217,35 @@ test('param-dependent tail: pad scales with live feedback, not declared max', as
   ok(long.duration > short.duration, `higher feedback → longer tail (${short.duration.toFixed(1)}s < ${long.duration.toFixed(1)}s)`)
   ok(long.duration < 30, `far below the 140s worst-case pad (${long.duration.toFixed(1)}s)`)
 })
+
+// --- registry follow-through (audit): rotary/tapestop registered 2026-07-10, now dependency-backed + tested ---
+
+import { rotary } from '@audio/effect-rotary/audio'
+import { tapestop } from '@audio/effect-tapestop/audio'
+audio.use(rotary, tapestop)
+
+test('rotary: tremolo-speed rotor imposes envelope modulation', async () => {
+	const SR2 = 44100, n = 2 * SR2
+	let ch = new Float32Array(n)
+	for (let i = 0; i < n; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 1000 * i / SR2)
+	const modDepth = (d) => {
+		let fl = Math.round(0.02 * SR2), m = [], from = Math.round(0.5 * SR2)
+		for (let a = from; a + fl < d.length; a += fl) { let s = 0; for (let i = a; i < a + fl; i++) s += d[i] * d[i]; m.push(Math.sqrt(s / fl)) }
+		let mean = m.reduce((a, b) => a + b) / m.length
+		let sd = Math.sqrt(m.reduce((a, b) => a + (b - mean) ** 2, 0) / m.length)
+		return sd / mean
+	}
+	let out = (await audio.from([ch.slice()], { sampleRate: SR2 }).rotary({ hornSpeed: 6.7, drumSpeed: 5.9 }).read())[0]
+	ok(modDepth(out) > modDepth(ch) * 3 && modDepth(out) > 0.05, 'rotor AM present (' + modDepth(out).toFixed(3) + ')')
+	ok(out.every(isFinite), 'finite')
+})
+
+test('tapestop: spin-down silences the tail, leaves the head', async () => {
+	const SR2 = 44100, n = 2 * SR2
+	let ch = new Float32Array(n)
+	for (let i = 0; i < n; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / SR2)
+	let out = (await audio.from([ch.slice()], { sampleRate: SR2 }).tapestop({ at: 0.5, time: 0.5 }).read())[0]
+	const seg = (d, a, b) => { let s = 0; const A = Math.round(a * SR2), B = Math.round(b * SR2); for (let i = A; i < B; i++) s += d[i] * d[i]; return Math.sqrt(s / (B - A)) }
+	ok(seg(out, 0.1, 0.4) > 0.25, 'head intact (' + seg(out, 0.1, 0.4).toFixed(3) + ')')
+	ok(seg(out, 1.3, 1.9) < 0.03, 'tail silent after stop (' + seg(out, 1.3, 1.9).toFixed(4) + ')')
+})
