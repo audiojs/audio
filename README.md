@@ -584,7 +584,7 @@ await audio.use('poly')
 audio(4).poly({ notes: [{ time: 0, midi: 60, duration: 1 }, { time: 0, midi: 64, duration: 1 }] })
 ```
 
-Codec atoms — `{ codec: fmt, test?(bytes), decode?(bytes), encode?(opts) }` — register the same way and extend what `audio()` can open (header sniffed via `test` where magic-byte detection draws a blank) and what `save()`/`encode()` can write.
+Codec atoms — `{ codec: fmt, test?(bytes), decode?(bytes), encode?(opts) }` — register the same way and extend what `audio()` can open (header sniffed via `test` where magic-byte detection draws a blank) and what `save()`/`encode()` can write. Every `@audio/decode-*` / `@audio/encode-*` package ships its half as an `audio.js` manifest — halves merge by format name; the bundled umbrellas keep precedence for formats they already serve (streaming decode stays streaming), so codec atoms matter for standalone hosts and formats beyond the bundled set.
 
 Beyond the registry: kernels whose inputs aren't scalar params ship as plain packages for direct import — `@audio/reverb-convolution` (impulse response), `@audio/eq-fir` (response curve), `@audio/eq-crossover` (SOS designer), `@audio/tune-midi` (guide notes), `@audio/denoise-repair` (regions), `@audio/synth-dtmf` (digit string), `@audio/synth-wavetable` (tables), per-band forms of multiband/dyneq/multisat, and the `@audio/measure`, `@audio/sinusoidal`, `@audio/voice` tool/substrate families.
 

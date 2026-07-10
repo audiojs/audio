@@ -53,7 +53,8 @@ extend what `audio()` can open (`test()` sniffs headers where audio-type draws a
 shipped** — a `notes` option compiles to contract §events slots (on/off paired by id) for whole-render
 instruments; `voice` + `poly` manifests → registry 125. Engine 627 green.
 
-* [x] codec flavor — third of three plugin flavors (op ✔ stat ✔ codec ✔); no published codec atoms yet (ecosystem side: pair decode-X/encode-X kernels behind one manifest) — 2026-07
+* [x] codec flavor — third of three plugin flavors (op ✔ stat ✔ codec ✔) — 2026-07
+* [x] codec manifests published: decode ×12 + encode ×10 audio.js halves (each package carries its direction; host merges by format name — useCodec merge shipped as 2.5.1, required for split halves); precedence unified: bundled umbrellas win both sides (streaming decode stays streaming), codec atoms extend. Contract doc sentence added in @audio/compile (plain objects — compilers ignore them by construction, the processor marker is a function with own params; bytes↔PCM has no worklet/plugin target) — 2026-07
 * [x] note-event hosting + `voice`/`poly` registry instruments (a.voice({ notes: [{time, midi|freq, duration, velocity}] })); per-block event feed for *streaming* instruments deferred until one exists — 2026-07
 * [x] genre/mood/tags — checked 2026-07: no classical kernels published, @audio/neural = amp/denoise/separate/runtime only — stays deferred per no-ML stance
 * [ ] release: audio 2.5.0 (minor — codec flavor, events hosting, voice/poly)
