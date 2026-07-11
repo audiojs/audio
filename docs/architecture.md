@@ -34,7 +34,14 @@ reference each other by instance id (`a.mix(b)`). Custom worker entry = your plu
 imports + `import 'audio/worker'` (the file self-hosts in worker scope). Playback crosses
 the boundary too — `a.play()` streams to an AudioWorklet (browser, no SharedArrayBuffer)
 or the `@audio/speaker` sink (Node); breakpoint curves `{t, v}` replace function params,
-which can't serialize (see .work/worker.md).
+which can't serialize.
+
+Motivation: DSP on the calling thread competes with the ~23ms/block playback budget, so
+heavy chains (compressor, denoise, declick) jank the UI. The worker moves render
+off-thread while the facade keeps the media-element API; live `playbackRate` runs
+`fn/varispeed.js` (shared with the local player) for parity. Main-thread stays the
+zero-setup default — the worker is the recommended path for editor UIs. Validated against
+[wavearea](https://github.com/dy/wavearea), which runs its editor on `audio/worker`.
 
 ## Stream-first
 

@@ -22,7 +22,7 @@ _Audio playback, editing and analysis_
 <br>
 <a href="https://www.npmjs.com/package/audio"><img src="https://raw.githubusercontent.com/audiojs/.github/main/profile/terminal.svg" alt="npm install audio"></a>
 
-#### [Start](#start)&nbsp;&nbsp;&nbsp;[Recipes](#recipes)&nbsp;&nbsp;&nbsp;[API](#api)&nbsp;&nbsp;&nbsp;[CLI](#cli)&nbsp;&nbsp;&nbsp;[FAQ](#faq)&nbsp;&nbsp;&nbsp;[Plugins](docs/plugins.md)&nbsp;&nbsp;&nbsp;[Architecture](docs/architecture.md)
+#### [Start](#start)&nbsp;&nbsp;&nbsp;[Recipes](#recipes)&nbsp;&nbsp;&nbsp;[API](#api)&nbsp;&nbsp;&nbsp;[CLI](#cli)&nbsp;&nbsp;&nbsp;[FAQ](#faq)&nbsp;&nbsp;&nbsp;[Plugins](docs/plugins.md)&nbsp;&nbsp;&nbsp;[Architecture](docs/architecture.md)&nbsp;&nbsp;&nbsp;[Comparison](docs/comparison.md)
 
 </div>
 
@@ -40,50 +40,30 @@ audio('voice.mp3').trim().normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 
 ### Browser
 
+Audio loads codecs and plugins lazily on first use via `import('@audio/decode-mp3')` / `import('freeverb')`. So a browser needs *some* way to resolve those bare specifiers:
+
+**CDN, zero-config** — esm.sh rewrites the lazy imports for you, nothing else to set up:
+
 ```html
 <script type="module">
-  import audio from './dist/audio.min.js' 
+  import audio from 'https://esm.sh/audio'
   audio('./song.mp3').trim().normalize().fade(0.5, 2).clip({ at: 60, duration: 30 }).play()
 </script>
 ```
-<!--
-<details>
-<summary><strong>Lazy load</strong></summary>
 
-FIXME: we need to make sure how do we load plugins;
-Codecs lazy-load on demand via `import()` — map them with an import map or your bundler.
+**Bundler** (Vite / esbuild / webpack) — `import audio from 'audio'`; codecs and plugins become code-split chunks, fetched on demand. Subpath imports (`audio/core`, `audio/fn/gain`) are source ESM and need a bundler.
 
-Only the root `audio` import ships a prebuilt browser bundle (`dist/audio.js`/`dist/audio.min.js`). Subpath imports (`audio/core.js`, `audio/fn/gain.js`, ...) resolve to source ES modules — fine for Node or bundled browser builds, but a bundler is required to use them directly in a browser.
+**Local bundle + import map** — serve `dist/audio.min.js` yourself and map the bare specifiers to a CDN (or local copies):
 
 ```html
 <script type="importmap">
-{
-  "imports": {
-    "@audio/decode-mp3": "https://esm.sh/@audio/decode-mp3",
-    "@audio/decode-wav": "https://esm.sh/@audio/decode-wav",
-    "@audio/decode-flac": "https://esm.sh/@audio/decode-flac",
-    "@audio/decode-opus": "https://esm.sh/@audio/decode-opus",
-    "@audio/decode-vorbis": "https://esm.sh/@audio/decode-vorbis",
-    "@audio/decode-aac": "https://esm.sh/@audio/decode-aac",
-    "@audio/decode-qoa": "https://esm.sh/@audio/decode-qoa",
-    "@audio/decode-aiff": "https://esm.sh/@audio/decode-aiff",
-    "@audio/decode-caf": "https://esm.sh/@audio/decode-caf",
-    "@audio/decode-webm": "https://esm.sh/@audio/decode-webm",
-    "@audio/decode-amr": "https://esm.sh/@audio/decode-amr",
-    "@audio/decode-wma": "https://esm.sh/@audio/decode-wma",
-    "@audio/encode-wav": "https://esm.sh/@audio/encode-wav",
-    "@audio/encode-mp3": "https://esm.sh/@audio/encode-mp3",
-    "@audio/encode-flac": "https://esm.sh/@audio/encode-flac",
-    "@audio/encode-opus": "https://esm.sh/@audio/encode-opus",
-    "@audio/encode-ogg": "https://esm.sh/@audio/encode-ogg",
-    "@audio/encode-aiff": "https://esm.sh/@audio/encode-aiff"
-  }
-}
+{ "imports": { "@audio/": "https://esm.sh/@audio/", "audio": "./dist/audio.min.js" } }
+</script>
+<script type="module">
+  import audio from 'audio'
+  audio('./song.mp3').normalize().play()   // @audio/decode-mp3 resolves via the map, on demand
 </script>
 ```
-
-</details>
--->
 
 
 ### CLI
@@ -371,11 +351,10 @@ src.stop()                                             // finalize
 
 ### Playback / Recording
 
-Live playback with dB volume, seeking, looping, live meter.
+Live playback with dB volume, seeking, looping; mic recording.
 
 * **`.play(opts?)`** – start playback. `{ at, duration, volume, rate, loop }`. `.played` promise resolves when output starts. `a.playbackRate` is live — set it mid-playback for smooth tape-style speed ramping.
 * **`.pause()`**, **`.resume()`**, **`.seek(t)`**, **`.stop()`** – playback control.
-* **`.meter(what, cb?)`** – live stats during playback. `what` is a stat name, array of names, or opts. Returns a probe `{ value, stop() }`. Listener-gated (zero cost when nothing subscribes).
 * **`.record(opts?)`** – mic recording. `{ deviceId, sampleRate, channels }`.
 
 ```js
@@ -391,7 +370,16 @@ mic.record({ sampleRate: 16000, channels: 1 })
 mic.stop()
 ```
 
-`.meter(what, cb?)` — polymorphic first arg: string → single stat, array → keyed object, opts object → full config. Channel semantics mirror `a.stat()`: omitted → scalar avg, `channel: n` → that channel, `channel: [0, 1]` → per-channel array. Omit `cb` for pull-style access via `probe.value`.
+### Metering
+
+Live stats streamed per block during playback — same names as [Analysis](#analysis). Listener-gated: zero cost when nothing subscribes.
+
+* **`.meter(what, cb?)`** – subscribe to live stats. `what` is a stat name, array of names, or an opts object; omit `cb` for pull-style access via the returned probe's `.value`. Returns `{ value, stop() }`.
+  * `type` – stat name, array of names, or omit for all block stats.
+  * `channel` – `n` for one channel, `[n, m]` per-channel, or omit for scalar avg (mirrors `a.stat()`).
+  * `smoothing` – one-pole EMA time constant τ, in seconds.
+  * `hold` – peak-hold decay τ, in seconds.
+  * `bins` / `fMin` / `fMax` – spectrum resolution and range (when `type: 'spectrum'`).
 
 ```js
 a.meter('rms', v => draw(v))                                       // scalar avg across channels
@@ -405,7 +393,7 @@ requestAnimationFrame(function tick() { draw(m.value); requestAnimationFrame(tic
 m.stop()                                                           // release
 ```
 
-Opts: **`type`** (stat name, array, or omit for all), **`channel`** (`n`, `[n, m]`, or omit), **`smoothing`** (one-pole EMA τ in seconds), **`hold`** (peak-hold decay τ in seconds), **`bins`** / **`fMin`** / **`fMax`** (when `type: 'spectrum'`). Any registered stat works (`rms`, `peak`, `ms`, `min`, `max`, `dc`, `clipping`, `spectrum`, or user-registered via `audio.stat(...)`).
+Any registered stat works — `rms`, `peak`, `ms`, `min`, `max`, `dc`, `clipping`, `spectrum`, or your own via `audio.stat(...)`.
 
 
 ### Analysis
@@ -752,20 +740,11 @@ audio --completions fish | source       # fish
 <dt>TypeScript?</dt>
 <dd>Yes, ships with <code>audio.d.ts</code>.</dd>
 
-<dt>How is this different from SoX?</dt>
-<dd>SoX is a C command-line tool — powerful but native-only, no browser, no programmatic API, no streaming edits, no undo. <code>audio</code> runs in Node and the browser with the same API, edits are non-destructive and lazy (nothing is rendered until you read/save), and it streams during decode. Several SoX effects are implemented (allpass, dither, crossfeed/earwax, vocals/oops, resample). Remaining effects (reverb, compressor, noise reduction, chorus, flanger, phaser) are planned.</dd>
+<dt>Does it have feature parity with FFmpeg / SoX / librosa?</dt>
+<dd>Yes — the <a href="https://github.com/audiojs">audiojs</a> ecosystem covers the practical baseline of FFmpeg filters, SoX effects, librosa analysis, Pedalboard and MIREX, all as <code>@audio/*</code> plugins <code>audio</code> wires through one API (the few uncovered items are esoteric or deliberately skipped). Every effect, filter, generator and analyzer lives in the <a href="docs/plugins.md#registry">registry</a> — <code>audio.use('name')</code> to pull one. Coverage matrix: <a href="docs/comparison.md">docs/comparison.md</a>.</dd>
 
-<dt>How is this different from Audacity?</dt>
-<dd>Audacity is a GUI desktop app. <code>audio</code> is a library and CLI — designed for scripting, automation, pipelines, and embedding in apps. Audacity is destructive (edits mutate samples); <code>audio</code> is non-destructive (edits are a plan replayed on read). Audacity can't run in the browser or be <code>npm install</code>ed into your project.</dd>
-
-<dt>How is this different from ffmpeg?</dt>
-<dd>ffmpeg is a video-first tool that also handles audio. It's a C binary — no JS API, no browser, no streaming edits. <code>audio</code> is audio-first: dB, Hz, LUFS are native units. Edits are non-destructive, playback streams during decode, and the core is ~20K gzipped (full bundle ~49K) with codecs loading on demand.</dd>
-
-<dt>How is this different from Web Audio API?</dt>
-<dd>Web Audio API is a real-time audio graph for playback and synthesis — not for editing files. No undo, no save-to-file, no CLI, no Node (without polyfills). <code>audio</code> is for working on audio files: load, edit, analyze, save. For Web Audio API in Node, see <a href="https://github.com/audiojs/web-audio-api">web-audio-api</a>.</dd>
-
-<dt>How is this different from Tone.js / Howler.js?</dt>
-<dd>Tone.js is a Web Audio synthesis framework — great for making music in real-time, not for editing files. Howler.js is a playback library — load and play, no editing or analysis. <code>audio</code> is a complete audio workstation: decode, edit, analyze, encode, play, record, CLI.</dd>
+<dt>How is this different from SoX / FFmpeg / Audacity / librosa / Web Audio / Tone.js?</dt>
+<dd>In one line: <code>audio</code> is the only one that runs the same API in Node and the browser, with non-destructive lazy edits that stream during decode. The native tools (SoX, FFmpeg) are faster on raw throughput but have no JS API, browser, or undo; the browser libs (Web Audio, Tone.js, Howler) are real-time graphs, not file editors. Full feature and <a href="docs/comparison.md#performance">performance</a> matrices vs pydub, librosa, aubio, essentia, Pedalboard, SoX, FFmpeg, Audacity and MATLAB are in <a href="docs/comparison.md">docs/comparison.md</a>.</dd>
 </dl>
 
 ## Built with
