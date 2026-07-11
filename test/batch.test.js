@@ -20,8 +20,8 @@ import nativeFreeverb from '@audio/reverb-freeverb'
 import { isolate as amIsolate } from '@audio/vocals/audio'
 import { osc as amOsc } from '@audio/synth-osc/audio'
 import { pitch as amPitch } from '@audio/pitch-yin/audio'
-import { tube as amTube } from '../../@audio/saturate/packages/saturate-tube/audio.js'
-import nativeTube from '../../@audio/saturate/packages/saturate-tube/tube.js'
+import { tube as amTube } from '@audio/saturate-tube/audio'
+import nativeTube from '@audio/saturate-tube'
 
 const SR = 44100
 
