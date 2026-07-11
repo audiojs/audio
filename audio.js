@@ -26,6 +26,7 @@ audio.plugins = {
   leveler: '@audio/dynamics-leveler/audio',
   'transient-shaper': '@audio/dynamics-transient-shaper/audio',
   unlimit: '@audio/dynamics-unlimit/audio',
+  auto: '@audio/chain/audio',
   ducker: '@audio/dynamics-ducker/audio',
   dehum: '@audio/denoise-dehum/audio',
   specsub: '@audio/denoise-spectral/audio',
