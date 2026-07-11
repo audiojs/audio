@@ -145,10 +145,12 @@ test('worker: data events forward stat deltas without PCM', async t => {
   let deltas = []
   w.on('data', d => deltas.push(d))
   await w.ready
-  // trailing delta messages can land after ready on slow runners — settle briefly
+  // ready = metadata; deltas keep streaming while decode continues (slow runners
+  // decode well past ready) — await full decode, then drain in-flight messages
+  await w
   let expected = Math.ceil(w.length / audio.BLOCK_SIZE)
   let counted = () => deltas.reduce((n, d) => n + d.delta.min[0].length, 0)
-  for (let i = 0; i < 40 && counted() < expected; i++) await new Promise(r => setTimeout(r, 5))
+  for (let i = 0; i < 50 && counted() < expected; i++) await new Promise(r => setTimeout(r, 10))
   t.ok(deltas.length > 0, `data events cross the boundary (${deltas.length})`)
   let blocks = 0
   for (let d of deltas) {
