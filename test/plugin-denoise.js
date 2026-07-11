@@ -233,3 +233,12 @@ test('debreath (streaming:false): attenuates the VAD-inactive region, preserves 
 	ok(speechAfter > speechBefore * 0.85, 'active speech region largely preserved')
 	ok(breathAfter < breathBefore * 0.6, `defining property: inactive/breath region attenuated (${breathBefore.toFixed(4)} -> ${breathAfter.toFixed(4)})`)
 })
+
+test('whole-render op on a file source waits decode out (was: 0 samples / save crash)', async () => {
+	let out = (await audio('test/fixture.wav').declick().read())
+	ok(out[0].length > 40000, `read renders the full timeline (${out[0].length})`)
+	let a = audio('test/fixture.wav')
+	a.wiener().declick()
+	let bytes = await a.read({ format: 'wav' })
+	ok(bytes.length > 40000, `streaming→whole chain renders through save/encode path (${bytes.length}B)`)
+})

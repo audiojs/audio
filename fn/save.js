@@ -51,11 +51,14 @@ const ENCODE_BATCH = 1 << 17
 async function encodeStream(inst, fmt, opts, sink) {
   let m = gatherMeta(inst, opts)
   let enc = await encoderFor(fmt)({ sampleRate: inst.sampleRate, channels: inst.channels, ...(m || {}) })
-  let total = (opts.duration != null ? parseTime(opts.duration) : null) ?? inst.duration
+  let total = opts.duration != null ? parseTime(opts.duration) : null  // inst.duration builds the plan — defer past LOAD/live
 
   // Live (pushable, still receiving) sources can't be planned ahead — stream per block.
-  let live = !!inst._.waiters && !inst.decoded
+  // A chain carrying a whole-render op can't stream either way: fall through to the
+  // planned path, whose LOAD waits decode out (crashed on undefined bus before).
+  let live = !!inst._.waiters && !inst.decoded && !inst.edits?.some(e => audio.op?.(e[0])?.whole)
   if (live) {
+    total ??= inst.duration
     let written = 0, t = performance.now()
     for await (let chunk of inst.stream({ at: opts.at, duration: opts.duration })) {
       let buf = await enc(chunk)
@@ -72,6 +75,7 @@ async function encodeStream(inst, fmt, opts, sink) {
     // continuous pass, no seam re-warm), but the hot loop stays hot enough to optimize.
     await inst[LOAD]()
     await loadRefs(inst)
+    total ??= inst.duration
     let offset = parseTime(opts.at), duration = parseTime(opts.duration)
     let plan = buildPlan(inst)
     await ensurePlan(inst, plan, offset, duration)

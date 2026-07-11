@@ -12,7 +12,7 @@ import encode from '@audio/encode'
 import convert, { parse as parseFmt } from 'pcm-convert'
 import parseDuration from 'parse-duration'
 
-audio.version = '2.6.6'
+audio.version = '2.6.7'
 
 /** Parse time value: number passthrough, string via parse-duration or timecode. */
 export function parseTime(v) {
@@ -581,7 +581,12 @@ Object.defineProperties(fn, {
 })
 
 fn[LOAD] = async function() {
-  if (this._.ready) await this._.ready; this._.acc?.drain()
+  if (this._.ready) await this._.ready
+  // Whole-render ops (streaming: false atoms) need the entire timeline — rendering
+  // mid-decode processes a partial (or empty) signal: read() returned 0 samples and
+  // save() crashed on a file source that hadn't finished decoding. Wait decode out.
+  if (!this.decoded && this.ready && this.edits?.some(e => audio.op?.(e[0])?.whole)) await this.ready
+  this._.acc?.drain()
 }
 /** Default read — restores any evicted pages first (no-op if cache.js isn't loaded or a has no cache). */
 fn[READ] = async function(offset, duration) {

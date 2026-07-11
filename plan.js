@@ -627,6 +627,8 @@ function compilePlan(a, len, final) {
       let ref = a._.wrc.m.get(key)
       if (!ref) {
         let input = readPlan(a, { segs, pipeline, totalLen: t, sr, ch, latency, pulls })
+        // mid-decode the materialized timeline can be empty — keep channel shape, zero frames
+        if (!input.length) input = Array.from({ length: ch || 1 }, () => new Float32Array(0))
         // declared tail → extend input with silence so the decay renders (equal frames in/out)
         let tailN = Math.round((typeof op.tail === 'function' ? op.tail(extra, sr) : op.tail || 0) * sr)
         if (tailN > 0) input = input.map(chn => { let e = new Float32Array(chn.length + tailN); e.set(chn); return e })
