@@ -504,6 +504,7 @@ function host(nodePort) {
   import('./audio.js').then(({ default: audio }) => {
     const instances = new Map()   // id → audio instance
     const streams = new Map()     // sid → async iterator
+    const dataSubs = new Map()    // id → flush fn (replays 'data' buffered before the sub landed)
     let nextInst = 1, nextStream = 1
 
     // Methods whose fresh result buffers are safe to transfer (never views of live state)
@@ -530,6 +531,14 @@ function host(nodePort) {
       a.on('metadata', state)
       a.on('error', e => send({ event: 'error', inst: id, args: [errObj(e)] }))
       a.ready?.then(state, () => {})  // decoded=true snapshot; rejection already emitted as 'error'
+      // 'data' streams during decode, which starts at open — before the facade's 'sub' round-trip
+      // lands. Attach the forwarder now and buffer until the sub arrives, else early deltas drop.
+      let q = [], live = false
+      a.on('data', (...args) => {
+        if (live) { try { send({ event: 'data', inst: id, args }) } catch {} }
+        else q.push(args)
+      })
+      dataSubs.set(id, () => { live = true; for (let args of q.splice(0)) { try { send({ event: 'data', inst: id, args }) } catch {} } })
       return id
     }
 
@@ -573,6 +582,7 @@ function host(nodePort) {
         if (type === 'close') {
           for (let a of instances.values()) { try { a.dispose() } catch {} }
           instances.clear()
+          dataSubs.clear()
           send({ id, result: true })
           // Let the environment reap the worker after the reply flushes
           setTimeout(() => (globalThis.close?.(), globalThis.process?.exit(0)), 0)
@@ -617,13 +627,16 @@ function host(nodePort) {
           return
         }
         if (type === 'sub') {
-          a.on(msg.event, (...args) => { try { send({ event: msg.event, inst, args }) } catch {} })
+          // 'data' is pre-attached at register — flush the buffer and go live instead of double-subscribing.
+          if (msg.event === 'data') dataSubs.get(inst)?.()
+          else a.on(msg.event, (...args) => { try { send({ event: msg.event, inst, args }) } catch {} })
           send({ id, result: true })
           return
         }
         if (type === 'dispose') {
           try { a.dispose() } catch {}
           instances.delete(inst)
+          dataSubs.delete(inst)
           send({ id, result: true })
           return
         }
