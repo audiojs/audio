@@ -197,3 +197,11 @@ test('silence stat — still detects silent regions correctly', async t => {
   let viaShorthand = await a.silence({ threshold: -20 })
   t.is(viaShorthand.length, 2, 'a.silence() shorthand matches a.stat("silence")')
 })
+
+test('fix save.js — encoder construction waits for metadata (mono file → mp3 defaulted to stereo and threw)', async t => {
+  let d = new Float32Array(44100).map((_, i) => Math.sin(2 * Math.PI * 440 * i / 44100) * 0.4)
+  await audio.from([d], { sampleRate: 44100 }).save('/tmp/fix-mono.wav')
+  await audio('/tmp/fix-mono.wav').save('/tmp/fix-mono.mp3')
+  let size = (await import('fs')).statSync('/tmp/fix-mono.mp3').size
+  t.ok(size > 1000, `mono file encodes to mp3 straight off the source (${size}B)`)
+})

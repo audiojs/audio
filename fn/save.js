@@ -49,6 +49,9 @@ const ENCODE_BATCH = 1 << 17
 
 /** Stream-encode audio: calls sink(buf) per chunk, returns sink(null) at end. */
 async function encodeStream(inst, fmt, opts, sink) {
+  // sampleRate/channels are metadata — constructing the encoder before decode reported
+  // them baked in undefined (mp3 defaulted to stereo and threw on mono files)
+  if (inst._.ready) await inst._.ready
   let m = gatherMeta(inst, opts)
   let enc = await encoderFor(fmt)({ sampleRate: inst.sampleRate, channels: inst.channels, ...(m || {}) })
   let total = opts.duration != null ? parseTime(opts.duration) : null  // inst.duration builds the plan — defer past LOAD/live
