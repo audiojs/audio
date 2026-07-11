@@ -2,6 +2,8 @@
 
 _Audio playback, editing and analysis_
 
+<a href="https://www.npmjs.com/package/audio"><img src="https://raw.githubusercontent.com/audiojs/.github/main/profile/terminal.svg" alt="npm install audio"></a>
+
 ```js
 // js
 audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
