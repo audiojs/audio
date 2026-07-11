@@ -1,6 +1,6 @@
 {
   "name": "audio",
-  "version": "2.6.5",
+  "version": "2.6.6",
   "description": "Audio loading, playback, analysis and editing",
   "type": "module",
   "main": "audio.js",
@@ -230,5 +230,6 @@
     "@audio/synth-modal": "^0.2.0",
     "@audio/effect-rotary": "^0.1.0",
     "@audio/effect-tapestop": "^0.1.0"
-  }
+  },
+  "funding": "https://github.com/sponsors/audiojs"
 }
