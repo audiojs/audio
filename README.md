@@ -2,20 +2,9 @@
 
 _Audio playback, editing and analysis_
 
-<a href="https://www.npmjs.com/package/audio"><img src="https://raw.githubusercontent.com/audiojs/.github/main/profile/terminal.svg" alt="npm install audio"></a>
-
-```js
-// js
-audio('raw.wav').trim(-30).normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
-```
-```sh
-# cli
-audio raw.wav trim -30db normalize podcast fade 0.3s -0.5s save clean.mp3
-```
-
 <!-- <img src="preview.svg?v=1" alt="Audiojs demo" width="540"> -->
 
-* **Any Format** — fast [wasm codecs](https://github.com/audiojs/decode), no ffmpeg. In browsers, formats beyond the bundled set fall back to native WebAudio decode.
+* **Any Format** — fast [wasm codecs](https://github.com/audiojs/decode), no ffmpeg.
 * **Non-destructive** — virtual edits, infinite undo, instant clone.
 * **Stream-first** — playback/encode during decode, realtime editing.
 * **Paged** — no 2Gb memory limit, open 10Gb+ files.
@@ -28,8 +17,10 @@ audio raw.wav trim -30db normalize podcast fade 0.3s -0.5s save clean.mp3
 * [Architecture](docs/architecture.md) – stream-first design, pages & blocks, non-destructive editing, plan compilation
 * [Plugins](docs/plugins.md) – custom ops, stats, descriptors (process, plan, resolve, call), persistent ctx
 -->
-<br>
 <div align=center>
+
+<br>
+<a href="https://www.npmjs.com/package/audio"><img src="https://raw.githubusercontent.com/audiojs/.github/main/profile/terminal.svg" alt="npm install audio"></a>
 
 #### [Start](#start)&nbsp;&nbsp;&nbsp;[Recipes](#recipes)&nbsp;&nbsp;&nbsp;[API](#api)&nbsp;&nbsp;&nbsp;[CLI](#cli)&nbsp;&nbsp;&nbsp;[FAQ](#faq)&nbsp;&nbsp;&nbsp;[Plugins](docs/plugins.md)&nbsp;&nbsp;&nbsp;[Architecture](docs/architecture.md)
 
@@ -44,29 +35,25 @@ audio raw.wav trim -30db normalize podcast fade 0.3s -0.5s save clean.mp3
 
 ```js
 import audio from 'audio'
-let a = audio('voice.mp3')
-a.trim().normalize('podcast').fade(0.3, 0.5)
-await a.save('clean.mp3')
+audio('voice.mp3').trim().normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 ```
 
 ### Browser
 
 ```html
 <script type="module">
-  import audio from './dist/audio.min.js'
-  let a = audio('./song.mp3')
-  a.trim().normalize().fade(0.5, 2)
-  a.clip({ at: 60, duration: 30 }).play()   // play the chorus
+  import audio from './dist/audio.min.js' 
+  audio('./song.mp3').trim().normalize().fade(0.5, 2).clip({ at: 60, duration: 30 }).play()
 </script>
 ```
+<!--
+<details>
+<summary><strong>Lazy load</strong></summary>
 
-Codecs load on demand via `import()` — map them with an import map or your bundler.
+FIXME: we need to make sure how do we load plugins;
+Codecs lazy-load on demand via `import()` — map them with an import map or your bundler.
 
 Only the root `audio` import ships a prebuilt browser bundle (`dist/audio.js`/`dist/audio.min.js`). Subpath imports (`audio/core.js`, `audio/fn/gain.js`, ...) resolve to source ES modules — fine for Node or bundled browser builds, but a bundler is required to use them directly in a browser.
-
-<details>
-<summary><strong>Import map example</strong></summary>
-
 
 ```html
 <script type="importmap">
@@ -96,6 +83,8 @@ Only the root `audio` import ships a prebuilt browser bundle (`dist/audio.js`/`d
 ```
 
 </details>
+-->
+
 
 ### CLI
 
