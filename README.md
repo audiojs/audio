@@ -73,6 +73,26 @@ npm i -g audio
 audio voice.wav trim normalize podcast fade 0.3s -0.5s save clean.mp3
 ```
 
+### AI
+
+Agents run the [CLI](#cli): measure, edit, save to a new file, measure again. One page teaches them the grammar and loudness targets: [skills/audio/SKILL.md](skills/audio/SKILL.md).
+
+Coding agents with a shell (Claude Code, Codex) take it as a skill:
+
+```sh
+npx skills add audiojs/audio
+```
+
+Chat apps (Claude Desktop, Cursor, VS Code) get it as an MCP server, one tool that takes CLI arguments:
+
+```json
+{ "mcpServers": { "audio": { "command": "npx", "args": ["-y", "audio", "--mcp"] } } }
+```
+
+Claude Code: `claude mcp add audio -- npx -y audio --mcp`. Plugins resolve next to `audio`: `npm i -g audio @audio/dynamics-compressor`, then use `"command": "audio"`.
+
+Then ask: *"make ~/Desktop/interview.m4a podcast-ready and tell me the loudness before and after"*.
+
 
 ## Recipes
 
@@ -594,6 +614,7 @@ save PATH          encode and write (or `-` for stdout)
 --cue FILE         split at cue-sheet tracks (with split)
 --verbose          show progress
 --help, -h         help (or per-op: `audio gain --help`)
+--mcp              serve the CLI to AI agents as an MCP tool (stdio)
 
 # compatibility shortcuts
 -p ⇔ play     -l ⇔ play loop     -o PATH ⇔ save PATH

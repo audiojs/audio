@@ -151,10 +151,10 @@ const HELP = {
   transform: { usage: 'transform FN', desc: 'Apply a custom per-block function (plugin/library API)', examples: ['transform myFn'], label: 'Transforming' },
   // ── sinks (terminate chain) ─────────────────────────────────────────────
   play:   { usage: 'play [loop]', desc: 'Open player UI (autoplay)', examples: ['play', 'play loop', '1s..10s play loop', 'normalize play'], kind: 'sink' },
-  stat:   { usage: 'stat [NAMES...]', desc: 'Print analysis (default: overview)', examples: ['stat', 'stat loudness rms', 'stat spectrum 128'], kind: 'sink' },
+  stat:   { usage: 'stat [NAMES...]', desc: 'Print analysis (default: overview)', examples: ['stat', 'stat loudness rms', 'stat spectrum 128'], kind: 'sink', params: () => wrapWords(Object.keys(audio.stat())) },
   save:   { usage: 'save PATH', desc: 'Encode and write to file (or - for stdout)', examples: ['save out.wav', 'normalize save out.flac', 'save -'], kind: 'sink' },
   // ── sources (provide input) ─────────────────────────────────────────────
-  record: { usage: 'record [DUR]', desc: 'Capture from microphone', examples: ['record save out.wav', 'record 30s save out.wav', 'record gain -3 play'], kind: 'source' },
+  record: { usage: 'record [DUR]', desc: 'Capture from microphone', examples: ['record save out.wav', 'record 30s normalize save out.wav'], kind: 'source' },
 }
 
 // Inject help into op descriptors so registry is the source of truth.
@@ -176,14 +176,25 @@ function pluginHelp(name, desc) {
   return { usage: `${name} [${args}]`, desc: `Plugin${typeof desc.tail === 'number' && desc.tail ? ` (tail ${desc.tail}s)` : desc.tail ? ' (tail: param-dependent)' : ''}`, examples: [], params }
 }
 
+/** Word-wrap names into indented help lines. */
+function wrapWords(words, width = 78) {
+  let lines = [], line = '  '
+  for (let w of words) {
+    if (line.length > 2 && line.length + w.length + 1 > width) { lines.push(line); line = '  ' }
+    line += (line.length > 2 ? ' ' : '') + w
+  }
+  return [...lines, line].join('\n')
+}
+
 function showOpHelp(name) {
   let desc = audio.op(name)
   let h = desc?.help || HELP[name] || (desc?.plugin && pluginHelp(name, desc))
   if (!h) { console.error(`No help for: ${name}`); return }
   console.log(`\n  ${h.usage}\n\n  ${h.desc}\n`)
-  if (h.params) console.log('  Params:\n' + h.params + '\n')
+  let params = typeof h.params === 'function' ? h.params() : h.params
+  if (params) console.log('  Params:\n' + params + '\n')
   if (h.examples.length) console.log('  Examples:')
-  for (let ex of h.examples) console.log(`    audio in.wav ${ex} -o out.wav`)
+  for (let ex of h.examples) console.log(`    ${h.kind === 'source' ? `audio ${ex}` : h.kind === 'sink' ? `audio in.wav ${ex}` : `audio in.wav ${ex} -o out.wav`}`)
   console.log()
 }
 
@@ -277,20 +288,20 @@ function parseArgs(args) {
     transforms.push({ name, args: opArgs, offset, duration })
   }
 
-  // Expand fade shorthand: bare `fade` or `fade IN -OUT` → two fade ops
+  // Expand fade shorthand: bare `fade` or `fade IN -OUT` → two fade ops, both keeping the op's range
   transforms = transforms.flatMap(op => {
     if (op.name !== 'fade') return [op]
     let nums = op.args.filter(a => typeof a === 'number')
     let curve = op.args.find(a => typeof a === 'string')
     if (nums.length === 0)
-      return [{ name: 'fade', args: [0.5], curve, offset: null, duration: null },
-              { name: 'fade', args: [-0.5], curve, offset: null, duration: null }]
+      return [{ name: 'fade', args: [0.5], curve, offset: op.offset, duration: op.duration },
+              { name: 'fade', args: [-0.5], curve, offset: op.offset, duration: op.duration }]
     if (nums.length === 1 && nums[0] > 0)
-      return [{ name: 'fade', args: [nums[0]], curve, offset: null, duration: null },
-              { name: 'fade', args: [-nums[0]], curve, offset: null, duration: null }]
+      return [{ name: 'fade', args: [nums[0]], curve, offset: op.offset, duration: op.duration },
+              { name: 'fade', args: [-nums[0]], curve, offset: op.offset, duration: op.duration }]
     if (nums.length === 2 && nums[0] > 0 && nums[1] < 0)
-      return [{ name: 'fade', args: [nums[0]], curve, offset: null, duration: null },
-              { name: 'fade', args: [nums[1]], curve, offset: null, duration: null }]
+      return [{ name: 'fade', args: [nums[0]], curve, offset: op.offset, duration: op.duration },
+              { name: 'fade', args: [nums[1]], curve, offset: op.offset, duration: op.duration }]
     return [op]
   })
 
@@ -481,15 +492,8 @@ function fmtStat(name, result) {
   }
 }
 
-function spinner(lbl) {
-  let i = 0, info = '', t0 = Date.now(), spin = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-  let id = setInterval(() => process.stderr.write(`\r\x1b[K${spin[i++ % 10]} ${lbl}${info}`), 80)
-  return {
-    label(l) { lbl = l },
-    set(s) { info = s },
-    stop() { clearInterval(id); process.stderr.write('\r\x1b[K'); return ((Date.now() - t0) / 1000).toFixed(1) }
-  }
-}
+/** Animated UI (spinner, player, meter) paints only on a terminal; piped stderr keeps plain messages. */
+const paint = s => process.stderr.isTTY && process.stderr.write(s)
 
 function spinnerBar(lbl) {
   let i = 0, pct = 0, speed = 0, info = '', t0 = Date.now(), spin = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
@@ -499,7 +503,7 @@ function spinnerBar(lbl) {
     let w = Math.max(8, Math.min(16, cols() - lbl.length - info.length - spd.length - 15))
     let fill = Math.round(pct / 100 * w)
     let bar = '━'.repeat(fill) + DIM + '─'.repeat(w - fill) + RST
-    process.stderr.write(`\r\x1b[K${spin[i++ % 10]} ${lbl} ${bar} ${pct}%${spd}${info}`)
+    paint(`\r\x1b[K${spin[i++ % 10]} ${lbl} ${bar} ${pct}%${spd}${info}`)
   }, 80)
   return {
     label(l) { lbl = l },
@@ -511,7 +515,7 @@ function spinnerBar(lbl) {
         if (dt > 0.1) speed = audioSec / dt
       }
     },
-    stop() { clearInterval(id); process.stderr.write('\r\x1b[K'); return ((Date.now() - t0) / 1000).toFixed(1) }
+    stop() { clearInterval(id); paint('\r\x1b[K'); return ((Date.now() - t0) / 1000).toFixed(1) }
   }
 }
 
@@ -722,7 +726,7 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
     let out = '\r\x1b[K'
     for (let i = 1; i < nLines; i++) out += '\n\x1b[K'
     if (nLines > 1) out += `\x1b[${nLines - 1}A`
-    process.stderr.write(out)
+    paint(out)
     nLines = 1
   }
 
@@ -811,7 +815,7 @@ async function playback(p, totalSec, decodedSec, a, src, opts) {
     out += `\x1b[${cursorCol + 1}G`
 
     nLines = newLines
-    process.stderr.write(out)
+    paint(out)
   }
 
   render(0)
@@ -929,6 +933,8 @@ async function main() {
     console.log(`audio ${audio.version}`)
     process.exit(0)
   }
+
+  if (args[0] === '--mcp') return (await import('./mcp.js')).default()
 
   // ── Shell Completions ──────────────────────────────────────────────────
   if (args[0] === '--completions') {
@@ -1097,8 +1103,9 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     // ── source: file/stdin ──────────────────────────────────────────────
     let actualSource = source
     if (!actualSource) {
-      process.stderr.write('Reading from stdin...\n')
+      if (process.stdin.isTTY) throw new Error('no input: pass a file, or pipe audio in')
       actualSource = await getStdinBuffer()
+      if (!actualSource.length) throw new Error('no input: pass a file, or pipe audio in')
     } else if (opts.concatFiles.length) {
       actualSource = [actualSource, ...opts.concatFiles]
     }
@@ -1153,7 +1160,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     let spin = !opts.verbose ? spinnerBar('Decoding') : null
     let a = audio(actualSource)
     if (spin) a.on('data', ({ offset }) => { if (a._.estDur) spin.progress(offset / a._.estDur, offset) })
-    if (opts.verbose) a.on('data', ({ offset }) => process.stderr.write(`\rDecoding... ${fmtTime(offset)}`))
+    if (opts.verbose) a.on('data', ({ offset }) => paint(`\rDecoding... ${fmtTime(offset)}`))
     await a
     let loadTime = spin?.stop()
     if (opts.verbose) console.error('\n')
@@ -1218,6 +1225,12 @@ ${filters.join('\n')}
 Sinks (terminate the chain — at most one):
 ${sinks.join('\n')}
 
+Stats (stat NAMES; spectrum and cepstrum take a bin count):
+${wrapWords(Object.keys(audio.stat()))}
+
+Plugins (if one is missing, the error names the package to npm i):
+${wrapWords(Object.keys(audio.plugins))}
+
 Range syntax (scopes the chain — applies to sink):
   1s..10s       From 1s to 10s
   0..0.5s       First half second
@@ -1238,6 +1251,7 @@ Options:
   --help, -h    Show this help (or after an op: audio gain --help)
   --version, -v Show version
   --completions SHELL  Print tab-completion script (zsh, bash, fish)
+  --mcp         Serve this CLI to AI agents as an MCP tool (stdio)
 
 Batch:
   audio '*.wav' gain -3db save '{name}.out.{ext}'
@@ -1490,7 +1504,7 @@ async function recordingUI(a, durationSec) {
     let prefix = `\x1b[31m●\x1b[0m REC ${icon}  ${timeStr}${durStr}  `
     let suffix = `  ${(20 * Math.log10(curLevel + 1e-9)).toFixed(1)} dBFS`
     let w = Math.max(10, cols() - prefix.length - suffix.length - 2 + 18)  // +18 for ANSI codes
-    process.stderr.write(`\r\x1b[K${prefix}${makeLevelBar(curLevel, Math.max(8, cols() - 50))}${suffix}`)
+    paint(`\r\x1b[K${prefix}${makeLevelBar(curLevel, Math.max(8, cols() - 50))}${suffix}`)
   }
   render()
   let tick = setInterval(render, 80)
@@ -1518,7 +1532,7 @@ async function recordingUI(a, durationSec) {
     process.stdin.removeAllListeners('data')
     process.stdin.pause()
   }
-  process.stderr.write('\r\x1b[K')
+  paint('\r\x1b[K')
   // Drain pending mic data — push() is async via dynamic import
   await new Promise(r => setTimeout(r, 100))
 }

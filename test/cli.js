@@ -379,6 +379,17 @@ test('parseArgs — bare range with transforms', t => {
   t.is(r.sink.name, 'play')
 })
 
+test('parseArgs — fade shorthand keeps its own range on both expanded ops', t => {
+  for (let args of [['fade', '0.2', '-0.3', '1s..3s'], ['fade', '0.2', '1s..3s'], ['fade', '1s..3s']]) {
+    let r = parseArgs(['in.wav', ...args, 'save', 'out.wav'])
+    t.is(r.transforms.length, 2, args.join(' '))
+    for (let op of r.transforms) {
+      t.is(op.offset, 1, args.join(' ') + ': offset')
+      t.is(op.duration, 2, args.join(' ') + ': duration')
+    }
+  }
+})
+
 // ── Player View ─────────────────────────────────────────────────────────
 
 /** Strip ANSI escape sequences, return visible chars only. */
@@ -670,6 +681,33 @@ test('CLI — bare range and explicit stat with range produce same overview', { 
   t.ok(a.includes('Duration:'), 'has duration')
   t.ok(a.includes('Peak:'), 'has peak')
   t.ok(a.includes('Loudness:'), 'has loudness')
+})
+
+// ── Piped I/O: stdin input, plain stderr ─────────────────────────────────
+
+test('CLI — stdin: piped WAV measures like the file; zero bytes and garbage error without hanging', { timeout: 30000 }, async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let file = (await runCli([lenaPath, 'stat', 'loudness'])).stdout
+  let piped = await runPiped(['stat', 'loudness'], readFileSync(lenaPath))
+  t.is(piped.code, 0, 'piped WAV decodes')
+  t.is(piped.stdout, file, 'same loudness as reading the file')
+  for (let [label, bytes] of [['zero bytes', Buffer.alloc(0)], ['garbage', Buffer.from('not audio')]]) {
+    let r = await runPiped(['stat', 'loudness'], bytes)
+    t.is(r.code, 1, `${label}: exits 1`)
+    t.ok(r.stderr.startsWith('audio: '), `${label}: formatted error (${r.stderr.trim()})`)
+    if (!bytes.length) t.ok(r.stderr.includes('no input'), 'zero bytes names the problem')
+  }
+})
+
+test('CLI — piped stderr carries messages only, no terminal animation', { timeout: 30000 }, async t => {
+  if (!lenaPath) { t.skip('audio-lena not available'); return }
+  let dir = mkdtempSync(join(tmpdir(), 'audio-cli-')), out = join(dir, 'out.wav')
+  try {
+    let { stderr } = await runCli([lenaPath, 'gain', '-3db', 'save', out])
+    t.ok(/^Saved .*out\.wav in [\d.]+s\n$/.test(stderr), `one plain line: ${JSON.stringify(stderr)}`)
+    let v = await runCli([lenaPath, 'save', out, '--force', '--verbose'])
+    t.ok(!/[\x1b\r]/.test(v.stderr), `--verbose: no escapes or carriage returns: ${JSON.stringify(v.stderr)}`)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
 // ── Crop + normalize broadcast end-to-end (regression: must not hang) ────
@@ -1620,6 +1658,19 @@ function runCli(args) {
       else reject(new Error(`CLI exited with code ${code}\nstderr: ${stderr}`))
     })
     proc.on('error', reject)
+  })
+}
+
+/** Run the CLI with `input` piped into stdin; resolves regardless of exit code. */
+function runPiped(args, input) {
+  return new Promise((resolve, reject) => {
+    let proc = spawn('node', [binPath, ...args], { stdio: ['pipe', 'pipe', 'pipe'], cwd: projectRoot })
+    let stdout = '', stderr = ''
+    proc.stdout.on('data', d => stdout += d)
+    proc.stderr.on('data', d => stderr += d)
+    proc.on('close', code => resolve({ code, stdout, stderr }))
+    proc.on('error', reject)
+    proc.stdin.end(input)
   })
 }
 
