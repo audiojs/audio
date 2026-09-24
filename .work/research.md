@@ -362,6 +362,11 @@ Unique to audio (no alternative covers): CLI, undo/redo, streaming/progressive d
 | **BPM detection** | pjsaudio (BeatDetektor) | Core stat | Already planned as `a.stat('bpm')`. pjsaudio's autocorrelation is a reference impl. |
 | **Playback rate** | Tape.js, Howler, Wad | Core | Parked in v2.3. Tape.js has smooth speed ramping (no artifacts) — reference for unparking. |
 
+### Bookmarks/hoard
+
+https://github.com/WyattBlue/auto-editor
+https://sessionloops.com/pitchnet
+
 ### Out of scope
 
 | Feature | Libs | Why skip |
