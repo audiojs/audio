@@ -123,12 +123,12 @@ export const samples = {
     return finish(hall(out, { room: .6, damp: .5, wet: .15 }), .32, 4.2, .3)
   } },
 
-  // A jazz pianist's ballad turn on an electric piano, in A minor: Fmaj9♯11, Bm7♭5, E7♭9♭13, Am(maj9), and the G♯
-  // sinking to G. Rootless voicings over the bass, each voice moving by a step, the top one sighing from C to B. FM keys
-  // (a sine modulated at its own frequency, the index falling as the note sounds, and a tine's ping), the suitcase's
-  // stereo tremolo and a tape's slow wobble. [bass, upper voices] per chord, rolled from the bass up.
-  rhodes: { description: 'Electric piano, a jazz ballad’s turn', make: () => {
-    const out = stereo(7.2), wobble = t => 1 + .0012 * sine(.45 * t)
+  // The Just the Two of Us chords on an electric piano: Dbmaj9, C7♭9♭13, Fm9, Ebm9 and Ab13, home to Dbmaj9, the
+  // bass walking Db C F Eb Ab Db and every voice above stepping down. Comped as a player would: each long chord struck,
+  // then struck again softly just after the second beat. FM keys (a sine modulated at its own frequency, the index
+  // falling as the note sounds, and a tine's ping), the suitcase's stereo tremolo and a tape's slow wobble.
+  rhodes: { description: 'Electric piano, the Just the Two of Us chords', make: () => {
+    const out = stereo(9), wobble = t => 1 + .0012 * sine(.45 * t)
     const key = (at, seconds, note, level) => {
       const f = mtof(note), fades = [decay(.6), decay(.2), decay(.015), decay(2.4 * Math.sqrt(262 / f)), decay(.12)]
       let p = 0, index = 1, ping = 1, strike = 1, sound = 1, release = 1
@@ -142,14 +142,19 @@ export const samples = {
         left[from + i] += x * (1 - pan); right[from + i] += x * (1 + pan)
       }
     }
-    const chords = [[41, [57, 64, 67, 71]], [35, [57, 62, 65, 71]], [40, [56, 62, 65, 72]], [33, [56, 60, 64, 71]]]
-    chords.forEach(([bass, voices], c) => {
-      const at = .35 + c * 1.3, held = c < 3 ? 1 : 2.4, accent = c === 2 ? 1.15 : c === 3 ? .9 : 1
-      key(at, held, bass, .1 * accent)
-      voices.forEach((note, n) => key(at + .03 + n * .025, c === 3 && n === 0 ? 1.3 : held, note, (n === 3 ? .085 : .065) * accent))
-    })
-    key(.35 + 3 * 1.3 + 1.33, 1.1, 55, .055)
-    return finish(hall(out, { room: .78, damp: .4, wet: .18 }), 1.5, 6.9, 1.2)
+    // [bass, voices above, seconds]
+    const chords = [[37, [60, 63, 65, 68], 1.5], [36, [58, 61, 64, 68], 1.5], [41, [56, 60, 63, 67], 1.5], [39, [54, 58, 61, 65], .75], [44, [54, 58, 60, 65], .75], [37, [53, 56, 60, 63], 2.2]]
+    let at = .35
+    for (const [bass, voices, seconds] of chords) {
+      key(at, seconds * (seconds < 2 ? .78 : .95), bass, .1)
+      const again = seconds > 1 && seconds < 2 ? .56 : 0
+      voices.forEach((note, n) => {
+        key(at + .02 + n * .018, again ? again - .08 : seconds * (seconds < 2 ? .72 : .92), note, n === 3 ? .08 : .065)
+        if (again) key(at + again + n * .012, (seconds - again) * .62, note, n === 3 ? .06 : .048)
+      })
+      at += seconds
+    }
+    return finish(hall(out, { room: .78, damp: .4, wet: .18 }), 1.48, 8.7, 1.2)
   } },
 
   // A patient monitor keeping time with a heart at 72 beats a minute: each beat a short tone near 1 kHz, as the pulse
