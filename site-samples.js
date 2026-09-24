@@ -78,41 +78,57 @@ export const samples = {
     return finish(hall(out, { room: .86, damp: .15, wet: .35 }), .72, 7.7, 1.2)
   } },
 
-  // A handpan in D Kurd, a slow phrase under the fingers. Each note field is tuned in three: the note, its octave and
-  // the fifth above that, each ringing as a slightly split pair that shimmers; a finger's soft strike, the shell's
-  // low hum, and the center ding ringing along with the notes that share its pitch.
+  // A handpan in D Kurd, a slow phrase under the fingers. Each note field is tuned in three, the note, its octave and
+  // the fifth above that, each ringing as a slightly split pair that shimmers, with the steel's untuned modes above
+  // them; a finger's quick strike and its tick, the shell's low hum, and the center ding ringing along with the notes
+  // that share its pitch.
   handpan: { description: 'Handpan, a slow phrase in D minor', make: () => {
-    const out = stereo(6.4)
+    const out = stereo(6.4), noise = random(4)
     const strike = (at, note, level, pan) => {
       const f = mtof(note)
-      for (const [k, a, t60, split] of [[1, 1, 2.8, .4], [2, .45, 1.8, .7], [3, .22, 1, 1.1]]) {
-        ring(out, at, f * k, level * a, t60, pan, .004); ring(out, at, f * k + split, level * a * .6, t60, pan, .004)
+      for (const [k, a, t60, split] of [[1, 1, 2.8, .4], [2, .45, 1.8, .7], [3, .24, 1, 1.1], [4.03, .1, .6, 1.5], [5.07, .065, .45, 1.9], [6.12, .05, .35, 2.3], [8.2, .03, .22, 3]]) {
+        ring(out, at, f * k, level * a, t60, pan, .0025); ring(out, at, f * k + split, level * a * .6, t60, pan, .0025)
       }
+      for (const [shimmer, a] of [[2870, .025], [4130, .02], [5710, .014]]) ring(out, at, shimmer * (1 + .03 * (note % 5)), level * a, .18, -pan, .001)
       ring(out, at, 145, level * .12, .35, 0, .003)
       if (note % 12 === 2) ring(out, at, mtof(50) * 2, level * .06, 3, -pan, .02)
+      let last = 0
+      play(out, at, .012, t => { const x = noise(), y = x - last; last = x; return level * .12 * y * Math.exp(-t / .002) }, pan)
     }
     const phrase = [[.3, 50, .5, 0], [.85, 57, .32, -.35], [1.3, 62, .3, .35], [1.75, 65, .3, -.3], [2.3, 64, .3, .3], [2.75, 60, .28, -.25], [3.25, 62, .3, .3], [3.9, 50, .4, 0], [3.9, 69, .28, -.35]]
     for (const [at, note, level, pan] of phrase) strike(at, note, level, pan)
     return finish(hall(out, { room: .8, damp: .3, wet: .2 }), .7, 6.1, 1.4)
   } },
 
-  // A Himalayan singing bowl struck once with a felt mallet: its modes at 1, 2.74, 5.13, 8.21 and 11.9 times the note,
-  // each a pair a few hertz apart, so the tone swells and fades as it rings; a soft knock of the mallet.
-  bowl: { description: 'Singing bowl, struck once', make: () => {
-    const out = stereo(6.5), noise = random(5), f = 196
-    for (const [k, a, t60, beat] of [[1, 1, 16, .9], [2.74, .55, 9, 2.1], [5.13, .32, 5, 3.4], [8.21, .16, 2.6, 4.6], [11.9, .08, 1.3, 6]]) {
-      ring(out, .3, f * k, .3 * a, t60, -.15, .003); ring(out, .3, f * k + beat, .3 * a * .8, t60, .15, .003)
+  // A songbird at dawn: two phrases of fluty whistles, gliding and warbling between 1.9 and 2.9 kHz, each ending in a
+  // quick twitter of chirps falling from 7 kHz. A whistle is a sine with a little of its octave and of breath, gliding
+  // from one pitch to the next; a warble trembles 30 times a second. [start, seconds, from Hz, to Hz, warble Hz, level]
+  birdsong: { description: 'Birdsong at dawn', make: () => {
+    const out = stereo(4.5), noise = random(11)
+    const whistle = (at, seconds, from, to, warble, level, pan = .2) => {
+      let phase = 0, breath = 0
+      play(out, at, seconds, t => {
+        const u = t / seconds, f = from * (to / from) ** u + warble * 6 * Math.sin(2 * Math.PI * warble * t)
+        phase += f / RATE; breath += .3 * (noise() - breath)
+        return level * Math.sin(Math.PI * Math.min(1, u * 6, (1 - u) * 5) / 2) * (sine(phase) + .12 * sine(2 * phase) + .05 * breath)
+      }, pan)
     }
-    let low = 0
-    play(out, .3, .03, t => { const x = noise(); low += .2 * (x - low); return .08 * low * Math.exp(-t / .006) })
-    return finish(hall(out, { room: .8, damp: .3, wet: .22 }), 1.08, 6.2, 2)
+    const song = [
+      [.35, .16, 2100, 2500, 0, .8], [.53, .12, 2500, 2050, 0, .7], [.7, .22, 2300, 2300, 30, .75], [.97, .26, 2750, 1900, 0, .8],
+      ...[0, 1, 2, 3, 4, 5].map(k => [1.33 + k * .055, .035, 6800, 4300, 0, .35]),
+      [2.4, .14, 1900, 2400, 0, .75], [2.56, .2, 2400, 2400, 30, .7], [2.8, .18, 2600, 2100, 0, .75], [3.02, .3, 2200, 2900, 0, .8],
+      ...[0, 1, 2, 3, 4].map(k => [3.42 + k * .06, .035, 7000, 5000, 0, .32]),
+    ]
+    for (const [at, seconds, from, to, warble, level] of song) whistle(at, seconds, from, to, warble, level)
+    return finish(hall(out, { room: .6, damp: .5, wet: .15 }), .32, 4.2, .3)
   } },
 
-  // Three chords on an electric piano, the way lo-fi records play them: Dm9, G13, Cmaj9, each rolled from the bass up.
-  // FM keys (a sine modulated at its own frequency, the index falling as the note sounds, and a tine's ping), the
-  // suitcase's stereo tremolo, and a tape's slow wobble.
-  rhodes: { description: 'Electric piano, three lo-fi chords', make: () => {
-    const out = stereo(5.8), wobble = t => 1 + .0015 * sine(.45 * t)
+  // A jazz pianist's ballad turn on an electric piano, in A minor: Fmaj9♯11, Bm7♭5, E7♭9♭13, Am(maj9), and the G♯
+  // sinking to G. Rootless voicings over the bass, each voice moving by a step, the top one sighing from C to B. FM keys
+  // (a sine modulated at its own frequency, the index falling as the note sounds, and a tine's ping), the suitcase's
+  // stereo tremolo and a tape's slow wobble. [bass, upper voices] per chord, rolled from the bass up.
+  rhodes: { description: 'Electric piano, a jazz ballad’s turn', make: () => {
+    const out = stereo(7.2), wobble = t => 1 + .0012 * sine(.45 * t)
     const key = (at, seconds, note, level) => {
       const f = mtof(note), fades = [decay(.6), decay(.2), decay(.015), decay(2.4 * Math.sqrt(262 / f)), decay(.12)]
       let p = 0, index = 1, ping = 1, strike = 1, sound = 1, release = 1
@@ -122,28 +138,28 @@ export const samples = {
         p += f * wobble(t) / RATE; index *= fades[0]; ping *= fades[1]; strike *= fades[2]; sound *= fades[3]
         if (s > seconds) release *= fades[4]
         const body = sine(p + (.8 * index + .1) * sine(p) / (2 * Math.PI)), tine = .2 * ping * sine(p + 1.5 * strike * sine(14 * p) / (2 * Math.PI))
-        const x = level * (s < .002 ? s / .002 : 1) * sound * release * (body + tine), pan = .35 * sine(4.5 * t)
+        const x = level * (s < .002 ? s / .002 : 1) * sound * release * (body + tine), pan = .25 * sine(4.5 * t)
         left[from + i] += x * (1 - pan); right[from + i] += x * (1 + pan)
       }
     }
-    const chords = [[50, 65, 69, 72, 76], [43, 65, 71, 76], [48, 64, 67, 71, 74]]
-    chords.forEach((chord, c) => chord.forEach((note, n) => key(.35 + c * 1.4 + n * .018, c < 2 ? .8 : 1.6, note, n ? .07 : .09)))
-    return finish(hall(out, { room: .75, damp: .4, wet: .18 }), 1.6, 5.5, 1.2)
+    const chords = [[41, [57, 64, 67, 71]], [35, [57, 62, 65, 71]], [40, [56, 62, 65, 72]], [33, [56, 60, 64, 71]]]
+    chords.forEach(([bass, voices], c) => {
+      const at = .35 + c * 1.3, held = c < 3 ? 1 : 2.4, accent = c === 2 ? 1.15 : c === 3 ? .9 : 1
+      key(at, held, bass, .1 * accent)
+      voices.forEach((note, n) => key(at + .03 + n * .025, c === 3 && n === 0 ? 1.3 : held, note, (n === 3 ? .085 : .065) * accent))
+    })
+    key(.35 + 3 * 1.3 + 1.33, 1.1, 55, .055)
+    return finish(hall(out, { room: .78, damp: .4, wet: .18 }), 1.5, 6.9, 1.2)
   } },
 
-  // A resting heart, 66 beats a minute: each beat a lub and a dub, low thumps falling in pitch, their octave, and the
-  // valves' short knock above, which small speakers can play.
-  heartbeat: { description: 'Heartbeat at rest', make: () => {
-    const out = stereo(4.9)
-    const thump = (at, high, low, knock, seconds, level) => {
-      let phase = 0
-      play(out, at, seconds * 7, t => {
-        phase += (low + (high - low) * Math.exp(-t / .03)) / RATE
-        const body = Math.sin(2 * Math.PI * phase) + .6 * Math.sin(4 * Math.PI * phase)
-        return level * (t < .005 ? t / .005 : 1) * (Math.exp(-t / seconds) * body + .5 * Math.exp(-t / .022) * Math.sin(2 * Math.PI * knock * t))
-      })
-    }
-    for (let beat = 0; beat < 5; beat++) { const at = .35 + beat * 60 / 66; thump(at, 75, 45, 180, .09, .5); thump(at + .28, 95, 60, 240, .06, .4) }
-    return finish(out, 1.9, 4.6, .3)
+  // A patient monitor keeping time with a heart at 72 beats a minute: each beat a short tone near 1 kHz, as the pulse
+  // is heard in an operating room.
+  monitor: { description: 'Heart monitor beeping', make: () => {
+    const out = stereo(5)
+    for (let beat = 0; beat < 6; beat++) play(out, .35 + beat * 60 / 72, .11, t => {
+      const edge = Math.min(1, t / .004, (.11 - t) / .01)
+      return .52 * edge * (sine(950 * t) + .12 * sine(3 * 950 * t))
+    })
+    return finish(hall(out, { room: .5, damp: .6, wet: .08 }), 1, 4.7, .3)
   } },
 }
