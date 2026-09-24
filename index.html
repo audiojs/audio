@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Load, edit, analyze and export audio in JavaScript. A library for browsers, Node.js, the command line and AI agents (MCP).">
+  <meta name="theme-color" content="#ebebeb">
+  <title>audio — edit audio in JavaScript</title>
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
+  <link rel="preload" href="assets/geist.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/wavefont.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="site.css">
+  <script type="importmap">{"imports":{"@audio/encode-wav":"./assets/wav.js","@audio/encode-mp3":"./assets/mp3.js"}}</script>
+  <script type="module" src="site.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <div id="site">
+    <header class="header wrap">
+      <a class="wordmark" href="#" aria-label="audio home"><svg class="logo" aria-hidden="true" viewBox="34.3 0 443.4 512"><path fill="currentColor" fill-rule="evenodd" d="M256 0 477.7 128v256L256 512 34.3 384V128ZM141 256l40-115h33l42 115Zm115 0h115l-40 115h-33Z"/></svg>audio<span class="version" :text="'v' + version">v2.6.9</span></a>
+      <a class="text-link" href="https://github.com/audiojs/audio">GitHub <span aria-hidden="true">↗</span></a>
+    </header>
+
+    <main id="main">
+      <section class="hero wrap" aria-labelledby="title">
+        <div class="intro">
+          <h1 id="title">Edit audio.<br><span>In JavaScript.</span></h1>
+          <div class="intro-actions">
+            <button class="install" :onclick="copy('npm i audio', 'install')" aria-label="Copy npm install command"><span class="prompt" aria-hidden="true">$</span><code>npm i audio</code><span class="copy-mark" :text="copied === 'install' ? '✓' : '⧉'" aria-hidden="true">⧉</span></button>
+            <a class="text-link" href="https://github.com/audiojs/audio#start">Read the docs <span aria-hidden="true">↗</span></a>
+          </div>        </div>
+
+        <div class="demo" id="try" :aria-busy="busy || editPending ? 'true' : 'false'">
+          <div class="audio-row" :class="{ active: preview === 'original', dim: !originalReady }">
+            <div class="wave-label"><span class="track-name">Original</span><span class="duration" :text="originalDuration">0:08.0</span></div>
+            <div class="wave-player">
+              <button class="play" :class="{ dim: !originalReady }" :onclick="play('original')" disabled :disabled="(busy && !saving) || editPending || !originalReady" :aria-label="(playing || pending) && preview === 'original' ? 'Pause original audio' : 'Play original audio'"><span class="play-icon" :class="{ paused: (playing || pending) && preview === 'original' }" aria-hidden="true"></span></button>
+              <div id="original-wave" class="wave-track" :onpointerdown="event => beginSelection('original', event)" :onpointermove="moveSelection" :onpointerup="finishSelection" :onpointercancel="cancelSelection" :onlostpointercapture="cancelSelection">
+                <span class="wave-glyphs" aria-hidden="true"></span><span class="wave-glyphs wave-played" aria-hidden="true"></span>
+                <span class="wave-selection" aria-hidden="true"><span class="wave-glyphs"></span></span>
+                <input class="wave-seek" type="range" min="0" max="1000" step="1" value="0" aria-label="Seek original audio" aria-description="Drag to select. Shift with arrow keys, Home or End selects a range. Escape clears it." disabled :disabled="(busy && !saving) || editPending || !originalReady" :oninput="event => seek('original', event.target.value / 1000)" :onkeydown="event => selectionKey('original', event)">
+              </div>
+            </div>
+          </div>
+          <div class="audio-row edited-row" :class="{ active: preview === 'edited', dim: !ready && !busy && !editPending }">
+            <div class="wave-label"><span class="track-name" :text="editCount ? 'Edited' : 'Unchanged'">Edited</span><span class="duration" :text="editedDuration">0:05.2</span></div>
+            <div class="wave-player">
+              <button class="play" :class="{ dim: !ready && !busy && !editPending }" :onclick="play('edited')" disabled :disabled="(busy && !saving) || editPending || !ready" :aria-label="(playing || pending) && preview === 'edited' ? 'Pause edited audio' : 'Play edited audio'"><span class="play-icon" :class="{ paused: (playing || pending) && preview === 'edited' }" aria-hidden="true"></span></button>
+              <div id="edited-wave" class="wave-track" :onpointerdown="event => beginSelection('edited', event)" :onpointermove="moveSelection" :onpointerup="finishSelection" :onpointercancel="cancelSelection" :onlostpointercapture="cancelSelection">
+                <span class="wave-glyphs" aria-hidden="true"></span><span class="wave-glyphs wave-played" aria-hidden="true"></span>
+                <span class="wave-selection" aria-hidden="true"><span class="wave-glyphs"></span></span>
+                <input class="wave-seek" type="range" min="0" max="1000" step="1" value="0" aria-label="Seek edited audio" aria-description="Drag to select. Shift with arrow keys, Home or End selects a range. Escape clears it." disabled :disabled="(busy && !saving) || editPending || !ready" :oninput="event => seek('edited', event.target.value / 1000)" :onkeydown="event => selectionKey('edited', event)">
+              </div>
+            </div>
+          </div>
+          <div class="readout">
+            <div class="readout-slot">
+              <p class="timecode" :hidden="!!(selected || notice)"><output :text="timecode">0:00.0</output><span class="meters" :text="preview === 'original' ? originalMeters : editedMeters"></span></p>
+              <p class="timecode range" :if="selected && !error"><output :text="selectionLabel"></output><span class="meters" :text="selectionMeters"></span></p>
+              <p id="demo-status" class="demo-message" role="status" :text="notice"></p>
+            </div>
+            <button class="tool undo" :class="{ dim: !undoCount && !chainError && !editPending }" aria-label="Undo" title="Undo" :onclick="undo" :disabled="busy || (!undoCount && !chainError && !editPending)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+            <button class="tool add" popovertarget="add-menu" aria-label="Add a method" title="Add a method" :disabled="busy || !originalReady" :onkeydown="openMenu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+          </div>
+          <input id="audio-file" type="file" accept="audio/*" aria-label="Open file" :disabled="busy" :onchange="event => openFile(event)">
+          <div class="program" :class="{ saving }" role="group" aria-label="Example program">
+            <div class="program-code">
+              <pre class="program-highlight" aria-hidden="true"><code :html="highlightProgram(draft, options, hoverAt, listing) + '\n'"></code></pre>
+              <textarea class="program-editor" rows="5" aria-label="Audio program" aria-description="Edits apply as you type. Type a dot for methods; select a number to adjust it. The name in audio(…) lists the samples and opens a file; the name in .save('…') lists the formats, and choosing one downloads the file." aria-describedby="demo-status" :aria-invalid="chainError ? 'true' : 'false'" aria-autocomplete="list" aria-controls="method-menu" :aria-activedescendant="suggestions.length ? suggestions[suggestionIndex].id : null" spellcheck="false" autocapitalize="off" autocomplete="off" :value="draft" :disabled="saving || !originalReady" :oninput="inputCode" :onkeydown="editKey" :onkeyup="event => { if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) inspectCaret() }" :onclick="clickCode" :onselect="inspectCaret" :onblur="editorBlur" :oncompositionstart="composition" :oncompositionend="composition" :onpointermove="hoverCode" :onpointerleave="leaveCode" :onscroll="event => { event.target.previousElementSibling.scrollTop = event.target.scrollTop }"></textarea>
+            </div>
+          </div>
+          <div id="method-menu" class="demo-menu method-menu" :class="assist" popover="manual" role="listbox" :aria-label="{ method: 'Audio methods', sample: 'Samples', format: 'Download' }[assist]">
+            <button :each="item, index in suggestions" :id="item.id" class="method-option" role="option" :title="item.text" :aria-selected="index === suggestionIndex ? 'true' : 'false'" :disabled="assist === 'format' && !saveable(item.value)" tabindex="-1" :onpointermove="suggestionIndex = index" :onpointerdown="event => event.preventDefault()" :onclick="accept(item)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="item.icon"/></svg><span><code :text="item.code"></code><span :text="item.text"></span></span></button>
+          </div>
+          <div id="parameter-menu" class="demo-menu parameter-menu" popover="manual" :onfocusout="editorBlur" :onkeydown="event => { if (event.key === 'Escape') { event.preventDefault(); document.querySelector('.program-editor').focus(); closeParameter() } }">
+            <label :each="field, index in options ? options.fields : []"><span class="parameter-label"><span :text="field.label"></span><output :text="field.value + (field.unit ? ' ' + field.unit : '')"></output></span><input class="parameter-slider" type="range" :aria-label="field.unit ? field.label + ' (' + field.unit + ')' : field.label" :min="field.min" :max="field.max" :step="field.step" :value="field.value" :onpointerdown="() => startParameter(index)" :onkeydown="() => startParameter(index)" :oninput="event => adjustParameter(event, index)"></label>
+          </div>
+          <div id="add-menu" class="demo-menu add-menu" popover aria-label="Methods" :onkeydown="menuKey" :onbeforetoggle="event => event.newState === 'open' && placeMenu()">
+            <p class="menu-scope" :hidden="selected !== 'edited'" :text="'Apply to ' + selectionLabel"></p>
+            <button class="method-option" :each="method, name in methods" :aria-label="'Add ' + name" :title="method.description" :disabled="busy || !originalReady || (selected === 'edited' && method.whole) || (selected === 'original' && name === 'remove')" :onclick="addMethod(name)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="method.icon"/></svg><span><code :text="name + '()'"></code><span :text="method.description"></span></span></button>
+          </div>
+        </div>
+      </section>
+
+      <section class="code-section wrap" aria-labelledby="code-title">
+        <div class="code-example" :style="'--code-lines: ' + codeLines(examples)">
+          <div class="code-top">
+            <div class="code-tabs" role="group" aria-label="Example environment">
+              <button :aria-pressed="tab === 'node' ? 'true' : 'false'" :onclick="event => { tab = 'node'; moveTab(event.currentTarget) }">Node.js</button>
+              <button :aria-pressed="tab === 'browser' ? 'true' : 'false'" :onclick="event => { tab = 'browser'; moveTab(event.currentTarget) }">Browser</button>
+              <button :aria-pressed="tab === 'cli' ? 'true' : 'false'" :onclick="event => { tab = 'cli'; moveTab(event.currentTarget) }">CLI</button>
+              <button :aria-pressed="tab === 'mcp' ? 'true' : 'false'" :onclick="event => { tab = 'mcp'; moveTab(event.currentTarget) }">MCP</button>
+            </div>
+          </div>
+          <pre tabindex="0" aria-label="Audio editing code example"><code :html="highlight(examples[tab])">import audio from 'audio'
+
+await audio('recording.wav')
+  .trim()
+  .normalize(-1)
+  .fade(0.02, 0.1)
+  .save('edited.wav')</code></pre>
+          <a class="code-foot" href="https://github.com/audiojs/audio#api">Explore the API <span aria-hidden="true">↗</span></a>
+        </div>
+        <div class="code-description">
+          <h2 id="code-title">One chain.<br>From input to output.</h2>
+          <dl class="principles">
+            <div><dt>Edit without losing the original.</dt><dd>Changes live in an edit list. Undo them, copy them, or apply them to another recording.</dd></div>
+            <div><dt>Add only what you need.</dt><dd>Extend your chain with effects, analysis, and codecs from the <code>@audio</code> packages.</dd></div>
+            <div><dt>Let an agent run it.</dt><dd>AI agents drive the same chain through the CLI. Add <code>npx -y audio --mcp</code> as an MCP server, or give coding agents the skill: <code>npx skills add audiojs/audio</code>.</dd></div>
+          </dl>
+        </div>
+      </section>
+
+      <section class="ecosystem wrap" aria-labelledby="ecosystem-title">
+        <div class="ecosystem-intro"><h2 id="ecosystem-title">Find the right<br>audio tool.</h2><p>Use them together, or on their own.</p><a class="text-link" href="https://audiojs.dev/">Explore audiojs <span aria-hidden="true">↗</span></a></div>
+        <div class="package-list">
+          <a href="https://github.com/audiojs/decode"><div><h3>audio-decode</h3><p>Audio files in. PCM samples out.</p></div><span aria-hidden="true">↗</span></a>
+          <a href="https://github.com/audiojs/web-audio-api"><div><h3>web-audio-api</h3><p>Web Audio graphs in Node.js and CI.</p></div><span aria-hidden="true">↗</span></a>
+          <a href="https://github.com/audiojs/audio/blob/master/docs/plugins.md"><div><h3>@audio/*</h3><p>Effects, analysis, synthesis, and codecs.</p></div><span aria-hidden="true">↗</span></a>
+        </div>
+      </section>
+    </main>
+    <footer class="footer wrap"><a class="wordmark" href="#">audio</a><div><a href="https://github.com/audiojs/audio#api">Docs</a><a href="https://www.npmjs.com/package/audio">npm</a><a href="https://github.com/audiojs/audio/issues">Issues</a></div></footer>
+    <p class="sr-only" role="status" :text="copyMessage"></p>
+    <noscript><p class="wrap">Enable JavaScript to try the audio example.</p></noscript>
+  </div>
+</body>
+</html>

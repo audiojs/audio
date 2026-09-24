@@ -1,0 +1,238 @@
+/* Hallmark · macrostructure: Split Studio · genre: modern-minimal · theme: Quiet · nav: N9 · footer: Ft2 · tone: technical · enrichment: live waveform instrument
+ * Finalize 2026-09-24 · direction: minimal black devices with a cast, long logarithmic shadow. Scanlined slabs, each on a rectangle of dot-grid paper; 88px Wavefont bars on one linear scale; both tracks drawn in full, each keeping its caret, the active one's label and caret white, a press activating its track at once; one readout for the position with the active track's dBFS peak, the selected range on one line, start–end, its peak on the same baseline, or an error, with Undo and + at its right; a program that is plain editable code, audio(sample) to .save('file'), its names listing the samples (last, Open a file…) and the downloads, one per format, names and numbers lit under the pointer; an add menu of sixteen methods, appended or applied to the selection; an options panel for the call at the caret; animated menus; dark code slab with sliding tabs; no flicker or height change on interaction
+ * Pre-emit critique: Philosophy 5 · Hierarchy 4 · Execution 4 · Specificity 5 · Restraint 4 · Variety 4
+ * Verified: contrast, keyboard focus, playback lifecycle, 320 / 375 / 414 / 768 / 1024 / 1440 / 1920 px */
+@import './tokens.css';
+@font-face { font-family: 'Geist'; src: url('./assets/geist.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: 'Wavefont'; src: url('./assets/wavefont.woff2') format('woff2'); font-weight: 4 1000; font-display: block; }
+* { box-sizing: border-box; }
+html { overflow-x: clip; scroll-behavior: smooth; }
+body { margin: 0; overflow-x: clip; background: var(--color-paper); color: var(--color-ink); font: 400 var(--text-md)/1.6 var(--font-body); -webkit-font-smoothing: antialiased; }
+button, input, textarea { font: inherit; }
+button, a { -webkit-tap-highlight-color: var(--color-transparent); }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .4; }
+button:active:not(:disabled), a:active { opacity: .7; }
+button, a { touch-action: manipulation; }
+a { color: inherit; text-decoration: none; }
+button { color: inherit; }
+button:focus, a:focus, pre:focus, input:focus, textarea:focus { outline: none; }
+button:focus-visible, a:focus-visible { text-decoration: underline; text-underline-offset: 4px; }
+button:focus-visible:not(.install, .demo button, .code-example button) { background: var(--color-hover); }
+h1, h2, h3, p, dl { margin: 0; }
+h1, h2, h3 { font-family: var(--font-display); min-width: 0; overflow-wrap: anywhere; }
+code, pre { font-family: var(--font-mono); }
+button, .text-link, .footer a { white-space: nowrap; }
+.wrap { width: min(1184px, calc(100% - 40px)); margin-inline: auto; }
+.sr-only, #audio-file { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.skip { position: absolute; top: -80px; left: 20px; padding: 12px 20px; background: var(--color-ink); color: var(--color-paper); z-index: var(--z-focus); }
+.skip:focus { top: 12px; }
+.header { min-height: 96px; display: flex; justify-content: space-between; align-items: center; }
+.wordmark { display: inline-flex; align-items: center; gap: 10px; font-size: 27px; font-weight: 650; letter-spacing: -.055em; }
+.wordmark .logo { width: 21px; height: 24px; flex-shrink: 0; }
+.version { align-self: center; margin-left: 6px; color: var(--color-muted); font: 400 11px var(--font-mono); letter-spacing: 0; }
+.text-link { min-height: 44px; display: inline-flex; gap: 16px; align-items: center; font-size: 14px; }
+.text-link:hover { text-decoration: underline; text-underline-offset: 5px; }
+.text-link span { color: var(--color-muted); }
+.hero { display: grid; gap: 48px; padding-block: 48px 64px; align-items: center; }
+h1 { font-size: var(--text-title); line-height: 1.035; letter-spacing: -.064em; font-weight: 520; }
+h1 span { color: var(--color-muted); }
+.intro-actions { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; margin-top: 32px; }
+.install { display: inline-flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 188px; min-height: 52px; padding: 12px 18px; border: 1px solid var(--color-ink); border-radius: 6px; background: var(--color-accent); color: var(--color-accent-ink); font-size: 14px; }
+.install .prompt { opacity: .6; }
+.copy-mark { margin-left: 12px; font-size: 18px; line-height: 1; }
+.install:active, .play:active { transform: translateY(1px); }
+.install:hover { opacity: .82; }
+
+/* Both blocks are black slabs with a long logarithmic shadow. Their height never changes on interaction; only code edits grow them. */
+.demo, .code-example { position: relative; min-width: 0; margin-bottom: 12px; border-radius: var(--radius-slab); background: repeating-linear-gradient(var(--color-scanline) 0 1px, var(--color-transparent) 1px 3px), linear-gradient(var(--color-screen), var(--color-screen-low)); color: var(--color-screen-soft); box-shadow: var(--shadow-slab); }
+/* Each device sits on a rectangle of dot-grid paper, a clear band around it. */
+.demo::before, .code-example::before { --mat: 40px; content: ''; position: absolute; inset: calc(-1 * var(--mat)); z-index: -1; pointer-events: none; background: radial-gradient(circle, var(--color-grid) 1px, var(--color-transparent) 1px) 0 0 / 16px 16px; }
+.demo { padding: 16px 16px 14px; }
+/* Controls fade only when unavailable, never while a render is in flight: a slider drag keeps everything steady. */
+.demo button:disabled { opacity: 1; }
+.demo button.dim, .demo .audio-row.dim .wave-track { opacity: .4; }
+.demo [hidden] { display: none; }
+
+.tool { display: grid; flex: none; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 8px; background: var(--color-transparent); color: var(--color-screen-muted); }
+.tool, .play { transition: color var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out); }
+.tool svg { width: 18px; height: 18px; }
+.demo:has(.add-menu:popover-open) .tool.add { color: var(--color-screen-bright); }
+
+/* Tracks: the name and the duration. Both waveforms stay drawn in full with their carets; the label says which
+   track is active, and the pointer over a track lights its label. Nothing fades. */
+.wave-label { display: flex; align-items: center; gap: 10px; min-height: 24px; font: 11px/1.5 var(--font-mono); color: var(--color-screen-muted); font-variant-numeric: tabular-nums; }
+.audio-row.active .wave-label { color: var(--color-screen-bright); }
+@media (hover: hover) { .audio-row:not(.dim):hover .wave-label { color: var(--color-screen-bright); } }
+.track-name { text-transform: uppercase; letter-spacing: .08em; }
+.duration { margin-left: auto; }
+/* A label's tool is as small as its text and takes the label's color; its hit area still reaches 40px. */
+.wave-label .tool { position: relative; width: 24px; height: 24px; margin-left: -5px; border-radius: 6px; color: inherit; }
+.wave-label .tool svg { width: 14px; height: 14px; }
+.wave-label .tool::before { content: ''; position: absolute; inset: -8px; }
+.audio-row + .audio-row { margin-top: 16px; }
+.wave-player { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.play { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 44px; height: 44px; margin-left: -12px; border: 0; border-radius: 50%; background: var(--color-transparent); color: var(--color-screen-bright); }
+.play-icon { display: block; width: 0; height: 0; margin-left: 2px; border-top: 7px solid var(--color-transparent); border-bottom: 7px solid var(--color-transparent); border-left: 11px solid currentColor; }
+.play-icon.paused { width: 11px; height: 14px; margin-left: 0; border: 0; border-inline: 3px solid currentColor; }
+/* Wavefont bars: advance is 0.025em per 100 wght, so wght 91 at 88px draws 2px bars; 3px spacing gives the 5px pitch that site.js draws. */
+.wave-track { --progress: 0%; --selection-start: 0%; --selection-end: 0%; --cursor-opacity: 0; position: relative; flex: 1; min-width: 0; height: 88px; touch-action: pan-y; }
+.wave-glyphs { position: absolute; inset: 0; overflow: clip; color: var(--color-screen-bright); opacity: .5; font: 100 88px/1 var(--font-wave); font-variation-settings: 'wght' 91, 'ROND' 100, 'YELA' 0; letter-spacing: 3px; white-space: nowrap; text-align: center; user-select: none; pointer-events: none; }
+.wave-played { opacity: 1; clip-path: inset(0 calc(100% - var(--progress)) 0 0); }
+.wave-selection { position: absolute; inset: 0; border-radius: 2px; background: var(--color-screen-select); clip-path: inset(0 calc(100% - var(--selection-end)) 0 var(--selection-start)); pointer-events: none; }
+.wave-selection .wave-glyphs { color: var(--color-screen-bright); opacity: 1; }
+/* Each track keeps its caret where it was left; the active one is white. */
+.wave-track::after { content: ''; position: absolute; top: 0; bottom: 0; left: min(var(--progress), calc(100% - 1px)); width: 1px; background: var(--color-screen-muted); opacity: var(--cursor-opacity); pointer-events: none; }
+.audio-row.active .wave-track::after { background: var(--color-screen-bright); }
+.wave-seek { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.wave-seek:disabled { cursor: not-allowed; }
+.wave-track:has(.wave-seek:focus-visible) { outline: 1px solid var(--color-screen-muted); outline-offset: 4px; }
+.demo:has(.program-editor:focus, .parameter-slider:focus) .wave-track::after { opacity: 0; }
+
+/* Readout: one slot shows a chain error while typing, else the selected range with its peak, else a message, else
+   the position with the active track's levels. Undo and + stay at its right. */
+.readout { display: flex; align-items: center; gap: 2px; height: 60px; margin: 8px -11px 0 0; }
+.readout-slot { display: grid; flex: 1; align-items: center; min-width: 0; height: 100%; margin-right: 10px; container: slot / inline-size; }
+.readout-slot > * { grid-area: 1 / 1; min-width: 0; }
+/* Switching what the slot shows fades the newcomer in. */
+.readout-slot > * { transition: opacity var(--dur-short) var(--ease-out); }
+@starting-style { .readout-slot > * { opacity: 0; } }
+.timecode { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 16px; }
+.timecode output { font: 300 40px/1 var(--font-display); letter-spacing: -.02em; color: var(--color-screen-ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The position gives way to the levels beside it on narrow screens. */
+@container slot (max-width: 250px) { .timecode output { font-size: 32px; } }
+@container slot (max-width: 190px) { .timecode output { font-size: 26px; } }
+/* The range reads on one line, start–end (6.1em), its peak (up to 66px, after the 16px gap) on the same baseline: it
+   shrinks to keep them together, and only below 24px lets the peak wrap under it. */
+.range output { font-size: clamp(24px, calc((100cqi - 82px) / 6.1), 40px); }
+.meters { font: 10px/1.6 var(--font-mono); color: var(--color-screen-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.demo-message { font: 12px/1.5 var(--font-body); color: var(--color-screen-error); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+/* The program: one piece of plain, editable code. A textarea with transparent text lies over its highlighted copy,
+   whose names and numbers are choices: under the pointer they light up like a selection. */
+.program { margin-top: 6px; padding-top: 14px; border-top: 1px solid var(--color-screen-rule); font: 12px/1.8 var(--font-mono); color: var(--color-screen-soft); }
+.program-code { display: grid; min-width: 0; }
+.program-highlight, .program-editor { grid-area: 1 / 1; width: 100%; min-width: 0; max-height: 240px; margin: 0; padding: 0; border: 0; border-radius: 0; font: 12px/1.8 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; }
+.program-highlight { pointer-events: none; overflow: hidden; color: var(--color-screen-soft); background: var(--color-transparent); }
+/* Choices are hit-testable under the textarea, so the pointer finds them without taking the caret away. Padding
+   and negative margin cancel: the chip grows past the text without moving it. */
+.program-highlight .choice { pointer-events: auto; margin: 0 -2px; padding: 0 2px; border-radius: 3px; }
+.program-highlight .lit { background: var(--color-screen-select); }
+.demo .program-highlight :is(.lit, mark), .demo .program-highlight :is(.lit, mark) * { color: var(--color-screen-bright); }
+/* The adjusted value reads as selected text: the selection's gray under white, over the syntax colors. */
+.program-highlight mark { background: var(--color-screen-select); }
+.program-editor { field-sizing: content; resize: none; overflow: auto; background: var(--color-transparent); color: var(--color-transparent); caret-color: var(--color-screen-bright); }
+.program-editor::selection { color: var(--color-screen-bright); background: var(--color-screen-select); }
+.program-editor:disabled { cursor: not-allowed; }
+/* While exporting, the name being saved breathes. */
+.program.saving [data-choice="save"] { animation: breathe 800ms var(--ease-in-out) infinite; }
+@keyframes breathe { 50% { opacity: .45; } }
+:is(.demo, .code-example) .syntax-keyword { color: var(--color-screen-bright); }
+:is(.demo, .code-example) .syntax-call { color: var(--color-screen-ink); }
+:is(.demo, .code-example) :is(.syntax-string, .syntax-number) { color: var(--color-screen-muted); }
+:is(.demo, .code-example) .syntax-comment { color: var(--color-screen-dim); }
+:is(.demo, .code-example) :is(button, a):focus-visible { outline: 2px solid var(--color-screen-bright); outline-offset: 2px; text-decoration: none; }
+/* Scrollbars: a thin thumb on a transparent track. */
+:is(.demo, .code-example) * { scrollbar-width: thin; scrollbar-color: var(--color-screen-rule) var(--color-transparent); }
+:is(.demo, .code-example) ::-webkit-scrollbar { width: 8px; height: 8px; background: var(--color-transparent); }
+:is(.demo, .code-example) ::-webkit-scrollbar-thumb { border-radius: 4px; background: var(--color-screen-rule); }
+
+/* Menus keep the device's material; they grow out of their trigger and fade away. */
+.demo-menu { --menu-from: -6px; position: fixed; inset: auto; margin: 0; width: min(240px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 6px; border: 0; border-radius: 12px; background: var(--color-screen-raised); color: var(--color-screen-ink); box-shadow: var(--shadow-menu); transition: opacity var(--dur-short) var(--ease-out), transform var(--dur-short) var(--ease-out), overlay var(--dur-short) allow-discrete, display var(--dur-short) allow-discrete; }
+.demo-menu[data-side="above"] { --menu-from: 6px; }
+.demo-menu:not(:popover-open) { opacity: 0; transform: translateY(var(--menu-from)) scale(.97); transition-duration: var(--dur-micro); }
+@starting-style { .demo-menu:popover-open { opacity: 0; transform: translateY(var(--menu-from)) scale(.97); } }
+.demo-menu button { display: block; width: 100%; min-height: 44px; padding: 8px 12px; border: 0; border-radius: 6px; text-align: left; background: var(--color-transparent); color: inherit; font-size: 12px; }
+/* Completion and the add menu list methods alike: icon, call, description. */
+.demo-menu.method-menu, .demo-menu.add-menu { grid-template-columns: repeat(auto-fit, minmax(172px, 1fr)); gap: 2px; width: min(372px, calc(100vw - 32px)); }
+/* Samples and formats are short lists: one column, each choice with its line of description. */
+.demo-menu.method-menu:is(.sample, .format) { grid-template-columns: minmax(0, 1fr); width: min(280px, calc(100vw - 32px)); }
+/* Only an open menu lays out as a grid: a display on a closed popover would keep it rendered. */
+.demo-menu:is(.method-menu, .add-menu):popover-open { display: grid; }
+.demo-menu .method-option { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 10px; }
+.demo-menu .method-option:disabled { opacity: .4; }
+/* Narrow screens keep two columns of icon and call; the description moves to the tooltip. */
+@media (max-width: 26rem) {
+  .demo-menu:is(.method-menu, .add-menu) { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  .method-option span > span { display: none; }
+}
+/* With a range of the edit selected, the add menu says where methods apply. */
+.menu-scope { grid-column: 1 / -1; padding: 6px 10px 8px; font: 11px/1.5 var(--font-mono); color: var(--color-screen-muted); font-variant-numeric: tabular-nums; }
+.method-option > svg { width: 20px; height: 20px; flex-shrink: 0; color: var(--color-screen-muted); }
+.method-option > span { display: grid; gap: 2px; min-width: 0; }
+.method-option code { font-size: 12px; overflow-wrap: anywhere; }
+.method-option span > span { font-size: 11px; color: var(--color-screen-muted); }
+.method-option[aria-selected="true"] { background: var(--color-screen-hover); }
+.demo-menu.parameter-menu { width: min(260px, calc(100vw - 32px)); }
+.parameter-menu label { display: grid; gap: 8px; padding: 8px 10px; }
+.parameter-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; }
+.parameter-label output { font: 11px var(--font-mono); color: var(--color-screen-muted); }
+.parameter-slider { width: 100%; height: 28px; margin: 0; accent-color: var(--color-screen-ink); cursor: ew-resize; }
+@media (hover: hover) {
+  .play:hover:not(:disabled), .tool:hover:not(:disabled) { color: var(--color-screen-bright); background: var(--color-screen-raised); }
+  .demo-menu button:hover { background: var(--color-screen-hover); }
+  .method-menu .method-option:hover:not([aria-selected="true"]) { background: var(--color-transparent); }
+}
+@media (pointer: coarse) {
+  .tool { min-height: 44px; min-width: 44px; }
+}
+
+.code-section { display: grid; gap: 40px; padding-block: 48px 72px; }
+/* The code block: plain tabs, the listing, a link. */
+.code-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-inline: 20px; border-bottom: 1px solid var(--color-screen-rule); }
+/* One underline slides to the chosen tab (site.js measures it). */
+.code-tabs { position: relative; display: flex; gap: 20px; }
+.code-tabs::after { content: ''; position: absolute; left: 0; bottom: 0; width: var(--tab-w, 0); height: 1px; background: var(--color-screen-bright); transform: translateX(var(--tab-x, 0)); transition: transform var(--dur-short) var(--ease-out), width var(--dur-short) var(--ease-out); pointer-events: none; }
+.code-tabs button { min-height: 48px; padding: 0; border: 0; background: var(--color-transparent); color: var(--color-screen-muted); font: 500 12px var(--font-body); transition: color var(--dur-short) var(--ease-out); }
+.code-tabs button[aria-pressed="true"] { color: var(--color-screen-bright); }
+@media (hover: hover) { .code-tabs button:hover { color: var(--color-screen-bright); } }
+/* Every tab reserves the tallest example's lines, so switching never changes the height. */
+.code-example pre { min-height: calc(var(--code-lines, 12) * 1lh + 48px); padding: 24px 20px; margin: 0; overflow-x: auto; font-size: 12px; line-height: 1.9; tab-size: 2; }
+.code-example pre:focus-visible { box-shadow: inset 0 0 0 1px var(--color-screen-muted); }
+.syntax-keyword, .syntax-call { color: var(--color-code-keyword); }
+.syntax-keyword { font-weight: 600; }
+.syntax-string { color: var(--color-code-string); }
+.syntax-number { color: var(--color-code-number); }
+.syntax-comment { color: var(--color-code-comment); }
+.code-foot { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding-inline: 20px; border-top: 1px solid var(--color-screen-rule); font-size: 12px; color: var(--color-screen-soft); }
+.code-foot:hover { color: var(--color-screen-bright); }
+.code-foot span { color: var(--color-screen-muted); }
+h2 { font-size: var(--text-heading); line-height: 1.15; letter-spacing: -.045em; font-weight: 500; }
+.principles { margin-top: 28px; display: grid; gap: 20px; }
+.principles dt { font-size: 14px; font-weight: 550; }
+.principles dd { margin: 4px 0 0; max-width: 410px; font-size: 13px; line-height: 1.65; color: var(--color-muted); }
+.principles code { font-size: 12px; white-space: nowrap; }
+.ecosystem { display: grid; gap: 32px; padding-block: 40px 80px; }
+.ecosystem-intro p { max-width: 330px; color: var(--color-muted); margin-top: 20px; font-size: 14px; }
+.ecosystem-intro .text-link { margin-top: 20px; }
+.package-list a { display: flex; gap: 16px; justify-content: space-between; align-items: center; padding-block: 22px; border-bottom: 1px solid var(--color-rule); }
+.package-list a:first-child { border-top: 1px solid var(--color-rule); }
+.package-list h3 { font: 500 14px var(--font-mono); }
+.package-list p { margin-top: 6px; font-size: 13px; color: var(--color-muted); }
+.package-list a:hover h3 { text-decoration: underline; text-underline-offset: 5px; }
+.footer { border-top: 1px solid var(--color-rule); padding-block: 24px 36px; display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px; }
+.footer .wordmark { font-size: 22px; }
+.footer > div { display: flex; gap: 24px; margin-left: auto; }
+.footer > div a { display: inline-flex; min-height: 44px; align-items: center; font-size: 12px; color: var(--color-muted); }
+.footer > div a:hover { color: var(--color-ink); }
+@media (min-width: 40rem) {
+  .wrap { width: min(1184px, calc(100% - 80px)); }
+  .hero { padding-top: 64px; }
+  .demo { padding: 20px 24px 16px; }
+}
+@media (min-width: 60rem) {
+  .header { min-height: 112px; }
+  .hero { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 56px; padding-block: 68px 112px; }
+  .demo { margin-top: 8px; }
+  .code-section { grid-template-columns: minmax(0, 1fr) minmax(0, .85fr); align-items: center; gap: 100px; padding-block: 24px 112px; }
+  .code-description { padding-block: 12px; }
+  .code-example pre { padding: 28px; min-height: calc(var(--code-lines, 12) * 1lh + 56px); font-size: 13px; }
+  .code-top, .code-foot { padding-inline: 28px; }
+  .ecosystem { grid-template-columns: minmax(0, .95fr) minmax(0, 1fr); gap: 48px; padding-block: 24px 112px; }
+  .package-list a { padding-block: 24px; }
+  .package-list a:first-child { border-top: 0; padding-top: 6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .demo-menu:not(:popover-open) { transform: none; }
+}

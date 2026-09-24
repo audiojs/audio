@@ -1,0 +1,72 @@
+:root {
+  --color-paper: oklch(94% 0 0);
+  --color-grid: oklch(19% 0 0 / .14);
+  --color-hover: oklch(90% 0 0);
+  --color-rule: oklch(85% 0 0);
+  --color-muted: oklch(49% 0 0);
+  --color-ink: oklch(19% 0 0);
+  --color-soft-ink: oklch(36% 0 0);
+  --color-accent: var(--color-ink);
+  --color-accent-ink: var(--color-paper);
+  --color-wave: oklch(28% 0 0);
+  --color-code-keyword: var(--color-ink);
+  --color-code-string: var(--color-soft-ink);
+  --color-code-number: var(--color-muted);
+  --color-code-comment: var(--color-muted);
+  --color-wave-muted: oklch(65% 0 0);
+  --color-error: oklch(43% 0.15 28);
+  --color-transparent: transparent;
+  /* Devices: black slabs with scanlines and a long shadow. */
+  --color-screen: oklch(21% 0 0);
+  --color-screen-low: oklch(15.5% 0 0);
+  --color-bezel: oklch(8% 0 0);
+  --color-scanline: oklch(100% 0 0 / .035);
+  --color-screen-raised: oklch(26% 0 0);
+  --color-screen-hover: oklch(31% 0 0);
+  --color-screen-rule: oklch(100% 0 0 / .1);
+  --color-screen-select: oklch(100% 0 0 / .16);
+  --color-screen-bright: oklch(100% 0 0);
+  --color-screen-ink: oklch(94% 0 0);
+  --color-screen-soft: oklch(80% 0 0);
+  --color-screen-muted: oklch(68% 0 0);
+  --color-screen-dim: oklch(62% 0 0);
+  --color-screen-error: oklch(74% 0.14 28);
+  /* A cast shadow: a soft band just below the slab, then layers doubling offset and blur into a long, faint tail. */
+  --shadow-long:
+    0 2px 2px oklch(0% 0 0 / .06),
+    0 12px 6px oklch(0% 0 0 / .09),
+    0 16px 12px oklch(0% 0 0 / .08),
+    0 24px 24px oklch(0% 0 0 / .07),
+    0 40px 40px oklch(0% 0 0 / .06),
+    0 72px 72px oklch(0% 0 0 / .055),
+    0 136px 136px oklch(0% 0 0 / .05),
+    0 264px 264px oklch(0% 0 0 / .04);
+  --shadow-slab: inset 0 1px 0 var(--color-screen-rule), 0 0 0 1px var(--color-bezel), var(--shadow-long);
+  --shadow-menu: inset 0 1px 0 var(--color-screen-rule), 0 0 0 1px var(--color-bezel), 0 2px 6px oklch(0% 0 0 / .2), 0 16px 36px oklch(0% 0 0 / .24);
+  --font-display: 'Geist', ui-sans-serif, system-ui, sans-serif;
+  --font-body: var(--font-display);
+  --font-mono: ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, monospace;
+  --font-wave: 'Wavefont';
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
+  --space-4xl: 96px;
+  --text-sm: .8125rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-title: clamp(2.9rem, 6.4vw, 5.5rem);
+  --text-heading: clamp(2rem, 3vw, 2.75rem);
+  --radius-sm: 4px;
+  --radius-slab: 14px;
+  --radius-pill: 100px;
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --ease-in: cubic-bezier(.7, 0, .84, 0);
+  --ease-in-out: cubic-bezier(.65, 0, .35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 240ms;
+  --z-focus: 10;
+}
