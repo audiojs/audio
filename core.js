@@ -318,10 +318,13 @@ function useOp(m) {
   // feedback delay's decay depends on its feedback setting, not the declared maximum
   let tail = m.tail || 0
 
+  // a param's `alias` is its former name: hosts still accept it (contract §Parameter metadata)
+  let given = (get, name) => get(name) ?? (specs[name].alias != null ? get(specs[name].alias) : undefined)
+
   let snapParams = get => {
     let s = {}
     for (let name of names) {
-      let sp = specs[name], v = get(name) ?? sp.default
+      let sp = specs[name], v = given(get, name) ?? sp.default
       s[name] = sp.type === 'number' ? new Float32Array([v]) : v
     }
     return s
@@ -349,7 +352,7 @@ function useOp(m) {
   let fill = (st, ctx) => {
     for (let name of names) {
       let sp = specs[name]
-      let v = ctx[name] ?? sp.default
+      let v = given(n => ctx[n], name) ?? sp.default
       if (sp.type === 'number') {
         if (v < sp.min) v = sp.min
         else if (v > sp.max) v = sp.max

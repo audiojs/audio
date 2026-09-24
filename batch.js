@@ -11,10 +11,11 @@ function paramState (specs, init = {}) {
 	let state = {}
 	for (let name in specs) {
 		let s = specs[name]
-		let v = init[name] !== undefined && typeof init[name] !== 'function' ? init[name] : s.default
+		let given = init[name] !== undefined ? init[name] : s.alias != null ? init[s.alias] : undefined   // alias: the param's former name
+		let v = given !== undefined && typeof given !== 'function' ? given : s.default
 		state[name] = {
 			spec: s,
-			fn: typeof init[name] === 'function' ? init[name] : null,
+			fn: typeof given === 'function' ? given : null,
 			buf: s.type === 'number' ? new Float32Array([v]) : null,
 			value: v,        // enum string / bool / number target
 			current: v,      // smoothed value (number only)

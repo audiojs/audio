@@ -127,7 +127,7 @@ With `params`, calling with a single options object works naturally — named pa
 
 ```js
 a.gain({value: -6, at: 0.5})  // named param + range opt → ctx.value = -6
-a.eq({freq: 1000, q: 2})      // multiple named params
+a.eq({freq: 1000, Q: 2})      // multiple named params
 ```
 
 Positional args override opts for the same param. If both `a.gain(-6, {value: -3})` are present, the positional `-6` wins.

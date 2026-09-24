@@ -330,3 +330,50 @@ test('sidechain key bus: ducker ducks under the key, recovers after', async () =
   ok(during < before * 0.25, `ducked under key (${(20 * Math.log10(during / before)).toFixed(1)}dB)`)
   ok(after > before * 0.7, `recovers after key (${(20 * Math.log10(after / before)).toFixed(1)}dB)`)
 })
+
+// Renamed params (contract §Parameter metadata `alias`): the new name drives the op, and
+// the former name, kept as `alias`, still does, identically, through the host.
+import { defeedback } from '@audio/defeedback/audio'
+import { exciter as exciterAtom } from '@audio/effect-exciter/audio'
+import { subbass as subbassAtom } from '@audio/effect-subbass/audio'
+import { sbr as sbrAtom } from '@audio/effect-sbr/audio'
+import { toBatch } from '../batch.js'
+
+audio.use(defeedback, exciterAtom, subbassAtom, sbrAtom)
+
+test('renamed params: new names work, former names (alias) give identical output', async () => {
+  let src = () => { let d = tone(220, 0.5, 0.4); for (let i = 0; i < d.length; i++) d[i] += 0.3 * Math.sin(2 * Math.PI * 6800 * i / SR); return d }
+  let run = async (op, opts) => (await audio.from([src()], { sampleRate: SR })[op](opts).read())[0]
+  let same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i])
+  for (let [op, now, was, dflt] of [
+    ['deesser', { fc: 6800, Q: 3, threshold: -40 }, { freq: 6800, q: 3, threshold: -40 }, { threshold: -40 }],
+    ['exciter', { fc: 1200, amount: 0.8 }, { freq: 1200, amount: 0.8 }, { amount: 0.8 }],
+    ['subbass', { fc: 150, amount: 0.8 }, { freq: 150, amount: 0.8 }, { amount: 0.8 }],
+    ['sbr', { fc: 4000, amount: 0.8 }, { cutoff: 4000, amount: 0.8 }, { amount: 0.8 }],
+    ['defeedback', { Q: 60 }, { q: 60 }, {}],
+  ]) {
+    let a = await run(op, now), b = await run(op, was), c = await run(op, dflt)
+    ok(same(a, b), `${op}: ${Object.keys(was)[0]} ≡ ${Object.keys(now)[0]}`)
+    if (op !== 'defeedback') ok(!same(a, c), `${op}: ${Object.keys(now)[0]} changes the sound`)
+  }
+  // engine-free host too
+  let x = src()
+  let viaNew = toBatch(deesser)(x, { params: { fc: 6800, Q: 3, threshold: -40 }, sampleRate: SR })
+  let viaOld = toBatch(deesser)(x, { params: { freq: 6800, q: 3, threshold: -40 }, sampleRate: SR })
+  ok(same(viaNew, viaOld), 'toBatch: freq/q ≡ fc/Q')
+})
+
+test('filter ops: Q, and the former q still read', async () => {
+  let x = tone(1000, 0.3, 0.5)
+  for (let op of ['eq', 'bandpass', 'notch', 'lowshelf']) {
+    let args = op === 'eq' || op === 'lowshelf' ? { freq: 1000, gain: -6 } : { freq: 1000 }
+    let a = (await audio.from([x.slice()], { sampleRate: SR })[op]({ ...args, Q: 4 }).read())[0]
+    let b = (await audio.from([x.slice()], { sampleRate: SR })[op]({ ...args, q: 4 }).read())[0]
+    let c = (await audio.from([x.slice()], { sampleRate: SR })[op](args).read())[0]
+    ok(a.every((v, i) => v === b[i]), `${op}: q ≡ Q`)
+    ok(a.some((v, i) => Math.abs(v - c[i]) > 1e-6), `${op}: Q shapes the filter`)
+  }
+  let pos = (await audio.from([x.slice()], { sampleRate: SR }).bandpass(1000, 4).read())[0]
+  let named = (await audio.from([x.slice()], { sampleRate: SR }).bandpass({ freq: 1000, Q: 4 }).read())[0]
+  ok(pos.every((v, i) => v === named[i]), 'positional (freq, Q) ≡ named')
+})

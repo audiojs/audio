@@ -74,14 +74,15 @@ test('delay am ≡ native (params-object state convention)', () => {
 test('highpass am ≡ native + live parameter re-derivation mid-stream', () => {
 	let x = sine(100, SR, 0.5)
 	for (let i = 0; i < x.length; i++) x[i] += 0.5 * Math.sin(2 * Math.PI * 5000 * i / SR)
-	let am = toBatch(amHighpass)(x, { params: { freq: 1000, q: 0.707 } })
+	let am = toBatch(amHighpass)(x, { params: { fc: 1000, Q: 0.707 } })
 	let native = nativeHighpass(Float32Array.from(x), { fc: 1000, Q: 0.707, fs: SR })
 	assert.ok(maxDiff(am, native) < 1e-6, 'static differential')
 
+	// the manifest's params follow the kernel's names since filter-biquad 2: fc and Q
 	// automation: cutoff jumps 300 → 8000 at t = 0.5s — probe 1 kHz, three octaves below
 	// the late cutoff (2nd-order HP ≈ −36 dB there; early cutoff 300 passes it clean)
 	let y = sine(1000, SR, 0.5)
-	let auto = toBatch(amHighpass)(y, { params: { freq: t => t < 0.5 ? 300 : 8000, q: 0.707 } })
+	let auto = toBatch(amHighpass)(y, { params: { fc: t => t < 0.5 ? 300 : 8000, Q: 0.707 } })
 	let early = goertzel(auto, 1000, 4096, SR / 2 - 4096)
 	let late = goertzel(auto, 1000, SR / 2 + 4096, SR - 4096)
 	assert.ok(late < early * 0.05, `automation engaged (1 kHz ${(20 * Math.log10(late / early)).toFixed(1)} dB late)`)
