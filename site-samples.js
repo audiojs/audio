@@ -1,5 +1,5 @@
 // Built-in samples, generated here: no downloads, no recordings. Stereo at 44.1 kHz, about -16 LUFS, with quiet edges
-// so trim has something to do: a chime and four classical pieces, each on an instrument synthesis does well.
+// so trim has something to do. Each is a few seconds of sparse, distinct strikes that read in the waveform.
 export const RATE = 44100
 const mtof = note => 440 * 2 ** ((note - 69) / 12)
 const random = seed => () => (seed = (seed * 16807) % 2147483647) / 2147483647 * 2 - 1
@@ -8,14 +8,6 @@ const stereo = seconds => [0, 1].map(() => new Float32Array(Math.round(seconds *
 // Sine of a phase in cycles, from a table.
 const TABLE = Float32Array.from({ length: 4097 }, (_, i) => Math.sin(2 * Math.PI * i / 4096))
 const sine = phase => { const x = (phase - Math.floor(phase)) * 4096, i = x | 0; return TABLE[i] + (x - i) * (TABLE[i + 1] - TABLE[i]) }
-// Band-limited saw and pulse: the naive waves with each jump smoothed by a polynomial step (PolyBLEP), the pulse
-// centered on zero. t is the phase in cycles, dt the phase step per sample.
-const blep = (t, dt) => t < dt ? (t /= dt, 2 * t - t * t - 1) : t > 1 - dt ? (t = (t - 1) / dt, t * t + 2 * t + 1) : 0
-const saw = (t, dt) => 2 * t - 1 - blep(t, dt)
-const pulse = (t, dt, width) => (t < width ? 1 : -1) + 1 - 2 * width + blep(t, dt) - blep((t + 1 - width) % 1, dt)
-// Two-pole lowpass for one voice; a is the coefficient for a cutoff.
-const lowpass = () => { let y = 0, z = 0; return (x, a) => (y += a * (x - y), z += a * (y - z)) }
-const cutoff = f => 1 - Math.exp(-2 * Math.PI * f / RATE)
 // The factor that, applied once a sample, falls by e over `seconds`.
 const decay = seconds => Math.exp(-1 / (seconds * RATE))
 
@@ -86,134 +78,72 @@ export const samples = {
     return finish(hall(out, { room: .86, damp: .15, wet: .35 }), .72, 7.7, 1.2)
   } },
 
-  // Pachelbel, Canon in D (c. 1680): the ground bass on a cello, the first violin's two opening lines, and the second
-  // violin entering two bars later with the first line: a canon. Bowed strings: three saws a few cents apart through a
-  // lowpass, bowed in, with vibrato once the note is held. [MIDI notes] one per beat.
-  canon: { description: 'Pachelbel’s Canon on strings', make: () => {
-    const out = stereo(14.4), beat = .66, start = .4
-    const bow = (at, seconds, note, level, bright, pan) => {
-      const dt = mtof(note) / RATE, lp = lowpass(), a = cutoff(bright), fall = decay(.09)
-      let p = 0, q = .33, r = .67, release = 1
-      play(out, at, seconds + .35, s => {
-        const vibrato = 1 + .0035 * sine(5.5 * s) * (s < .15 ? 0 : s < .45 ? (s - .15) / .3 : 1), d = dt * vibrato
-        if ((p += d) >= 1) p--
-        if ((q += d * 1.0023) >= 1) q--
-        if ((r += d * .9977) >= 1) r--
-        if (s > seconds) release *= fall
-        return level * (s < .09 ? s / .09 : 1) * release * lp(saw(p, d) + saw(q, d) + saw(r, d), a)
-      }, pan)
-    }
-    const bass = [50, 45, 47, 42, 43, 38, 43, 45], first = [78, 76, 74, 73, 71, 69, 71, 73], second = [74, 73, 71, 69, 67, 66, 67, 64]
-    ;[...bass, ...bass].forEach((note, n) => bow(start + n * beat, beat, note, .2, 900, -.3))
-    ;[...first, ...second].forEach((note, n) => bow(start + n * beat, beat, note, .09, 3800, .4))
-    first.forEach((note, n) => bow(start + (n + 8) * beat, beat, note, .09, 3800, -.1))
-    // The cadence: D major, the violins resolving to F♯4 and D5 over D2 and D3.
-    const end = start + 16 * beat
-    for (const [note, level, bright, pan] of [[38, .16, 700, -.3], [50, .12, 900, -.3], [66, .09, 3800, .4], [74, .09, 3800, -.1]]) bow(end, 2.2, note, level, bright, pan)
-    return finish(hall(out, { room: .88, damp: .25, wet: .45 }), .98, 14.1, 1.2)
-  } },
-
-  // Bach, Prelude in C major, BWV 846 (1722), bars 1–4 and a closing chord, on an FM electric piano: a sine modulated
-  // at its own frequency, the index falling as the note sounds, and a tine's ping, a modulator 14 times the note, in its
-  // first milliseconds. Each bar's five notes, as Bach broke them: 1 2 3 4 5 3 4 5, twice.
-  prelude: { description: 'Bach’s Prelude in C, electric piano', make: () => {
-    const out = stereo(11.4), step = .14, start = .4
-    const key = (at, seconds, note, level) => {
-      const dt = mtof(note) / RATE, fades = [decay(.45), decay(.25), decay(.02), decay(1.4 * Math.sqrt(262 / mtof(note))), decay(.07)]
-      let p = 0, index = 1, ping = 1, strike = 1, sound = 1, release = 1
-      play(out, at, seconds + .3, s => {
-        p += dt; index *= fades[0]; ping *= fades[1]; strike *= fades[2]; sound *= fades[3]
-        if (s > seconds) release *= fades[4]
-        const body = sine(p + (1.1 * index + .12) * sine(p) / (2 * Math.PI)), tine = .3 * ping * sine(p + 2 * strike * sine(14 * p) / (2 * Math.PI))
-        return level * (s < .0015 ? s / .0015 : 1) * sound * release * (body + tine)
-      }, (note - 66) / 18)
-    }
-    const bars = [[60, 64, 67, 72, 76], [60, 62, 69, 74, 77], [59, 62, 67, 74, 77], [60, 64, 67, 72, 76]]
-    bars.forEach((chord, b) => [0, 1].forEach(half => [0, 1, 2, 3, 4, 2, 3, 4].forEach((v, k) => {
-      const at = start + (b * 16 + half * 8 + k) * step
-      // The lowest two are held through the half bar; the rest sound as sixteenths, a little legato.
-      key(at, v < 2 ? (8 - k) * step : step * 1.3, chord[v], v < 2 ? .16 : .13)
-    })))
-    const end = start + 64 * step
-    for (const note of [36, 48, 64, 67, 72]) key(end, 1.8, note, .15)
-    return finish(hall(out, { room: .82, damp: .3, wet: .28 }), 1.19, 11.1, 1)
-  } },
-
-  // Bach, Toccata in D minor, BWV 565: the opening call and its answer an octave down, then the pedal's low D under a
-  // diminished seventh built up note by note, resolving to D minor. A pipe organ in a church: each pipe a stack of
-  // harmonics, the ranks tuned a little apart so they beat, each note speaking with a breathy chiff.
-  toccata: { description: 'Bach’s Toccata in D minor, organ', make: () => {
-    const out = stereo(13), noise = random(3)
-    // The full chorus as [harmonic of the 8' pitch, level, detune]: 16', 8', 4', 2 2/3', 2' and a mixture.
-    const ranks = [[.5, .35, 1], [1, 1, 1], [2, .7, 1.0007], [3, .38, .9995], [4, .45, 1.0004], [5, .12, 1], [6, .2, .9996], [8, .22, 1.0006], [10, .06, 1], [12, .1, .9997], [16, .06, 1.0005]]
-    const pipe = (at, seconds, note, level, pan = 0) => {
-      const f = mtof(note), sounding = ranks.filter(([h, , d]) => f * h * d < RATE / 2)
-      const steps = sounding.map(([h, , d]) => f * h * d / RATE), levels = sounding.map(([, a]) => a), phases = sounding.map(() => .5 + .5 * noise())
-      const quiet = decay(.02), fall = decay(.05)
-      let last = 0, chiff = .3, release = 1
-      play(out, at, seconds + .12, s => {
-        let x = 0
-        for (let k = 0; k < steps.length; k++) x += levels[k] * sine(phases[k] += steps[k])
-        const n = noise(), breath = (n - last) * (chiff *= quiet); last = n
-        if (s > seconds) release *= fall
-        return level * ((s < .035 ? s / .035 : 1) * release * x + breath)
-      }, pan)
-    }
-    // The call: A with a mordent, a run down to C♯ and home to D, in octaves; then the same an octave down.
-    const call = (at, octave) => {
-      const notes = [[0, 69, .07], [.07, 67, .07], [.14, 69, 1]], run = [67, 65, 64, 62, 61]
-      run.forEach((note, n) => notes.push([1.3 + n * .11, note, .11]))
-      notes.push([1.3 + 5 * .11, 62, 1.25])
-      for (const [t, note, seconds] of notes) { pipe(at + t, seconds, note + octave, .05, .2); pipe(at + t, seconds, note + octave - 12, .05, -.2) }
-    }
-    call(.3, 0); call(3.4, -12)
-    // The pedal's D, then C♯ E G B♭ C♯ E stacked over it, resolving to D minor.
-    pipe(6.5, 4.4, 38, .07)
-    ;[49, 52, 55, 58, 61, 64].forEach((note, n) => pipe(6.6 + n * .09, 1.9 - n * .09, note, .035, n % 2 ? .3 : -.3))
-    ;[50, 53, 57, 62, 65, 69].forEach((note, n) => pipe(8.6, 2.3, note, .035, n % 2 ? .3 : -.3))
-    return finish(hall(out, { room: .9, damp: .3, wet: .5 }), 1.95, 12.7, 1.4)
-  } },
-
-  // Grieg, In the Hall of the Mountain King (1875), bars 1–4 on an 8-bit console's voices: a 25% pulse for the tune,
-  // a triangle for the bass, noise for the drums. Played twice, the second time an octave up with drums, speeding up
-  // all the way; a crash on the last chord. [MIDI note, eighths] per bar.
-  mountainking: { description: 'Grieg’s Mountain King, 8-bit', make: () => {
-    const out = stereo(12.4), noise = random(7)
-    const theme = [[59, 1], [61, 1], [62, 1], [64, 1], [66, 1], [62, 1], [66, 2], [65, 1], [61, 1], [65, 2], [64, 1], [60, 1], [64, 2],
-      [59, 1], [61, 1], [62, 1], [64, 1], [66, 1], [62, 1], [66, 1], [71, 1], [69, 1], [66, 1], [62, 1], [66, 1], [69, 4]]
-    // Eighth k starts at when(k): each eighth a little shorter than the last, .2 s down to .12 s.
-    const when = k => .35 + .2 * k - .08 * k * k / 128
-    const lead = (at, seconds, note, level, pan = .15) => {
-      const f = mtof(note), dt = f / RATE
-      let t = 0
-      // A held note gains a 6 Hz vibrato, as chiptunes do.
-      play(out, at, seconds + .02, s => { t = (t + dt * (1 + .006 * Math.sin(2 * Math.PI * 6 * s) * Math.min(1, s / .15))) % 1; return level * pulse(t, dt, .25) * Math.min(1, s / .003, (seconds + .02 - s) / .02) }, pan)
-    }
-    const bass = (at, seconds, note) => {
+  // A handpan in D Kurd, a slow phrase under the fingers. Each note field is tuned in three: the note, its octave and
+  // the fifth above that, each ringing as a slightly split pair that shimmers; a finger's soft strike, the shell's
+  // low hum, and the center ding ringing along with the notes that share its pitch.
+  handpan: { description: 'Handpan, a slow phrase in D minor', make: () => {
+    const out = stereo(6.4)
+    const strike = (at, note, level, pan) => {
       const f = mtof(note)
-      play(out, at, seconds, s => .3 * (2 * Math.abs(2 * ((f * s) % 1) - 1) - 1) * Math.min(1, s / .002, (seconds - s) / .01))
-    }
-    const kick = at => { let phase = 0; play(out, at, .18, s => (phase += (45 + 110 * Math.exp(-s / .03)) / RATE, .45 * Math.sin(2 * Math.PI * phase) * Math.exp(-s / .07))) }
-    const snare = at => { let low = 0; play(out, at, .15, s => { const x = noise(); low += .15 * (x - low); return (.16 * (x - low) + .1 * Math.sin(2 * Math.PI * 190 * s) * Math.exp(-s / .03)) * Math.exp(-s / .05) }) }
-    const hat = (at, level = .05) => { let last = 0; play(out, at, .05, s => { const x = noise(), y = x - last; last = x; return level * y * Math.exp(-s / .012) }, -.3) }
-    for (const pass of [0, 1]) {
-      let k = pass * 32
-      for (const [note, eighths] of theme) {
-        const at = when(k), seconds = (when(k + eighths) - at) * (eighths > 1 ? .75 : .55)
-        lead(at, seconds, note + 12 * pass, pass ? .13 : .16)
-        k += eighths
+      for (const [k, a, t60, split] of [[1, 1, 2.8, .4], [2, .45, 1.8, .7], [3, .22, 1, 1.1]]) {
+        ring(out, at, f * k, level * a, t60, pan, .004); ring(out, at, f * k + split, level * a * .6, t60, pan, .004)
       }
-      for (let beat = 0; beat < 16; beat++) {
-        const k = pass * 32 + beat * 2, at = when(k), low = beat >= 12 ? 54 : 59
-        bass(at, (when(k + 1) - at) * .7, low - 12); bass(when(k + 1), (when(k + 2) - when(k + 1)) * .7, low)
-        if (pass) { if (beat % 2) snare(at); else kick(at); hat(at); hat(when(k + 1), .03) }
+      ring(out, at, 145, level * .12, .35, 0, .003)
+      if (note % 12 === 2) ring(out, at, mtof(50) * 2, level * .06, 3, -pan, .02)
+    }
+    const phrase = [[.3, 50, .5, 0], [.85, 57, .32, -.35], [1.3, 62, .3, .35], [1.75, 65, .3, -.3], [2.3, 64, .3, .3], [2.75, 60, .28, -.25], [3.25, 62, .3, .3], [3.9, 50, .4, 0], [3.9, 69, .28, -.35]]
+    for (const [at, note, level, pan] of phrase) strike(at, note, level, pan)
+    return finish(hall(out, { room: .8, damp: .3, wet: .2 }), .7, 6.1, 1.4)
+  } },
+
+  // A Himalayan singing bowl struck once with a felt mallet: its modes at 1, 2.74, 5.13, 8.21 and 11.9 times the note,
+  // each a pair a few hertz apart, so the tone swells and fades as it rings; a soft knock of the mallet.
+  bowl: { description: 'Singing bowl, struck once', make: () => {
+    const out = stereo(6.5), noise = random(5), f = 196
+    for (const [k, a, t60, beat] of [[1, 1, 16, .9], [2.74, .55, 9, 2.1], [5.13, .32, 5, 3.4], [8.21, .16, 2.6, 4.6], [11.9, .08, 1.3, 6]]) {
+      ring(out, .3, f * k, .3 * a, t60, -.15, .003); ring(out, .3, f * k + beat, .3 * a * .8, t60, .15, .003)
+    }
+    let low = 0
+    play(out, .3, .03, t => { const x = noise(); low += .2 * (x - low); return .08 * low * Math.exp(-t / .006) })
+    return finish(hall(out, { room: .8, damp: .3, wet: .22 }), 1.08, 6.2, 2)
+  } },
+
+  // Three chords on an electric piano, the way lo-fi records play them: Dm9, G13, Cmaj9, each rolled from the bass up.
+  // FM keys (a sine modulated at its own frequency, the index falling as the note sounds, and a tine's ping), the
+  // suitcase's stereo tremolo, and a tape's slow wobble.
+  rhodes: { description: 'Electric piano, three lo-fi chords', make: () => {
+    const out = stereo(5.8), wobble = t => 1 + .0015 * sine(.45 * t)
+    const key = (at, seconds, note, level) => {
+      const f = mtof(note), fades = [decay(.6), decay(.2), decay(.015), decay(2.4 * Math.sqrt(262 / f)), decay(.12)]
+      let p = 0, index = 1, ping = 1, strike = 1, sound = 1, release = 1
+      const [left, right] = out, from = Math.round(at * RATE), n = Math.min(Math.round((seconds + .5) * RATE), left.length - from)
+      for (let i = 0; i < n; i++) {
+        const s = i / RATE, t = at + s
+        p += f * wobble(t) / RATE; index *= fades[0]; ping *= fades[1]; strike *= fades[2]; sound *= fades[3]
+        if (s > seconds) release *= fades[4]
+        const body = sine(p + (.8 * index + .1) * sine(p) / (2 * Math.PI)), tine = .2 * ping * sine(p + 1.5 * strike * sine(14 * p) / (2 * Math.PI))
+        const x = level * (s < .002 ? s / .002 : 1) * sound * release * (body + tine), pan = .35 * sine(4.5 * t)
+        left[from + i] += x * (1 - pan); right[from + i] += x * (1 + pan)
       }
     }
-    // The last chord: B minor over the bass, with a crash.
-    const end = when(64)
-    bass(end, .6, 47); lead(end, .5, 71, .1); lead(end, .5, 74, .07, -.2); lead(end, .5, 78, .07, .4); kick(end)
-    let last = 0
-    play(out, end, 1.4, s => { const x = noise(), y = x - last; last = x; return .09 * y * Math.exp(-s / .35) }, .2)
-    return finish(hall(out, { room: .7, damp: .3, wet: .12 }), .94, 12.1, .4)
+    const chords = [[50, 65, 69, 72, 76], [43, 65, 71, 76], [48, 64, 67, 71, 74]]
+    chords.forEach((chord, c) => chord.forEach((note, n) => key(.35 + c * 1.4 + n * .018, c < 2 ? .8 : 1.6, note, n ? .07 : .09)))
+    return finish(hall(out, { room: .75, damp: .4, wet: .18 }), 1.6, 5.5, 1.2)
+  } },
+
+  // A resting heart, 66 beats a minute: each beat a lub and a dub, low thumps falling in pitch, their octave, and the
+  // valves' short knock above, which small speakers can play.
+  heartbeat: { description: 'Heartbeat at rest', make: () => {
+    const out = stereo(4.9)
+    const thump = (at, high, low, knock, seconds, level) => {
+      let phase = 0
+      play(out, at, seconds * 7, t => {
+        phase += (low + (high - low) * Math.exp(-t / .03)) / RATE
+        const body = Math.sin(2 * Math.PI * phase) + .6 * Math.sin(4 * Math.PI * phase)
+        return level * (t < .005 ? t / .005 : 1) * (Math.exp(-t / seconds) * body + .5 * Math.exp(-t / .022) * Math.sin(2 * Math.PI * knock * t))
+      })
+    }
+    for (let beat = 0; beat < 5; beat++) { const at = .35 + beat * 60 / 66; thump(at, 75, 45, 180, .09, .5); thump(at + .28, 95, 60, 240, .06, .4) }
+    return finish(out, 1.9, 4.6, .3)
   } },
 }
