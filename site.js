@@ -1,5 +1,6 @@
 import sprae, { batch } from './assets/sprae.js'
 import audio from './assets/audio.js'
+import { samples, RATE } from './site-samples.js'
 
 // The demo accepts method calls with literal numbers, not arbitrary JavaScript. Crop and remove take a time range,
 // { at, duration }; every other method but pad takes one as an optional last argument, to apply to that range only.
@@ -214,7 +215,7 @@ const position = { original: 0, edited: 0 }
 const buffers = { original: null, edited: null }
 const waves = { original: document.querySelector('#original-wave'), edited: document.querySelector('#edited-wave') }
 const clock = seconds => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`
-// Tenths, floored once rounded to the millisecond: 202,860 samples at 22,050 Hz read 9.2 s, not floating point's 9.1999….
+// Tenths, floored once rounded to the millisecond: 441,600 frames at 48 kHz read 9.2 s, not floating point's 9.1999….
 const duration = seconds => { const tenths = Math.floor(Math.round(seconds * 1000) / 100); return `${clock(tenths / 10)}.${tenths % 10}` }
 
 function context() { return ctx ||= new AudioContext() }
@@ -225,109 +226,6 @@ function range(name) {
   return selection?.name === name
     ? [Math.min(selection.a, selection.b) * length(name), Math.max(selection.a, selection.b) * length(name)]
     : [0, length(name)]
-}
-
-// Built-in samples, generated here: no downloads, no third-party recordings. Each is mono at 22,050 Hz with quiet
-// edges, so trim has something to do. audio(chime) names one; a string names an opened file.
-const RATE = 22050
-function seeded(seed) { return () => (seed = (seed * 16807) % 2147483647) / 2147483647 * 2 - 1 }
-const silence = seconds => new Float32Array(Math.round(seconds * RATE))
-function voices(seconds, notes) {
-  const pcm = silence(seconds)
-  for (const [at, length, voice] of notes) {
-    const from = Math.round(at * RATE)
-    for (let i = 0; i < length * RATE && from + i < pcm.length; i++) pcm[from + i] += voice(i / RATE, i)
-  }
-  return pcm
-}
-// A struck mode: a sine from `at` seconds that falls 60 dB in t60 seconds, rising over the strike's millisecond of
-// contact so it starts without a click. A rotating phasor, so no Math.sin per sample.
-function ring(pcm, at, f, level, t60, contact = .001) {
-  if (f >= RATE / 2) return
-  const w = 2 * Math.PI * f / RATE, r = 10 ** (-3 / (t60 * RATE)), c = r * Math.cos(w), s = r * Math.sin(w), rise = Math.exp(-1 / (contact * RATE))
-  let x = level, y = 0, gap = 1
-  for (let i = Math.round(at * RATE); i < pcm.length && x * x + y * y > 1e-12; i++) {
-    pcm[i] += y * (1 - gap)
-    const next = x * c - y * s; y = x * s + y * c; x = next; gap *= rise
-  }
-}
-// Fades out over the `seconds` before `end`; silence from there on.
-function fadeOut(pcm, end, seconds) {
-  const to = Math.round(end * RATE), from = to - Math.round(seconds * RATE)
-  for (let i = from; i < pcm.length; i++) pcm[i] *= i >= to ? 0 : .5 + .5 * Math.cos(Math.PI * (i - from) / (to - from))
-  return pcm
-}
-const mtof = note => 440 * 2 ** ((note - 69) / 12)
-// Each sample sits at -23 LUFS (EBU R128), the chime near it.
-const samples = {
-  // An airport chime pair: C4 E4 G4 C5 rising, a pause, then falling.
-  chime: { description: 'Airport chime, rising and falling', make: () => voices(8, [261.63, 329.63, 392, 523.25, 523.25, 392, 329.63, 261.63].map((f, n) => [.8 + n * .66 + (n > 3 ? 1 : 0), 1.1, t => {
-    const phase = 2 * Math.PI * f * t, envelope = Math.min(1, t * 180) * Math.exp(-t * 5) * Math.min(1, (1.1 - t) * 30)
-    return .24 * envelope * (Math.sin(phase) + .25 * Math.sin(phase * 2) + .08 * Math.sin(phase * 3))
-  }])) },
-  // The Westminster Quarters' last two changes, a doorbell's eight notes, on G♯4 F♯4 E4 B3; then Big Ben, E3, strikes
-  // the hour. Church-bell partials of each strike note, [ratio, level, seconds to fade 60 dB]: hum, prime, minor-third
-  // tierce, quint, nominal and up. Each rings as a slightly split pair, beating like a cast bell.
-  bigben: { description: 'Westminster chimes, then the hour', make: () => {
-    const pcm = silence(12.5)
-    const partials = [[.5, .45, 12], [1, .35, 8], [1.2, .45, 6], [1.5, .12, 3.5], [2, .6, 4.5], [2.5, .1, 2], [3, .25, 1.8], [4, .12, 1], [5.4, .06, .4], [6.7, .04, .25]]
-    const bell = (at, f, level, long = 1) => {
-      for (const [k, a, t60] of partials) { ring(pcm, at, f * k, level * a, t60 * long); ring(pcm, at, f * k * 1.0019, level * a * .55, t60 * long) }
-    }
-    ;[68, 64, 66, 59, 59, 66, 68, 64].forEach((note, n) => bell(.4 + n * .8 + (n > 3 ? .8 : 0), mtof(note), .125))
-    bell(8.4, mtof(52), .17, 1.5)
-    return fadeOut(pcm, 12.2, 2.5)
-  } },
-  // Für Elise, bars 1–8, an octave up on the tines of a music box comb: a clamped bar's modes at 1, 6.27 and 17.55
-  // times the note, the upper two gone within a beat, lower tines ringing longer. [sixteenth, MIDI note] from the pickup.
-  musicbox: { description: 'Music box playing Für Elise', make: () => {
-    const pcm = silence(9.2), jitter = seeded(5)
-    const tine = (at, f, level) => {
-      const long = Math.min(2.2, 1.4 * Math.sqrt(1000 / f))
-      ring(pcm, at, f, level, long); ring(pcm, at, f * 1.0023, level * .3, long)
-      ring(pcm, at, f * 6.27, level * .1, .22); ring(pcm, at, f * 17.55, level * .025, .06)
-    }
-    const melody = [[0, 76], [1, 75], [2, 76], [3, 75], [4, 76], [5, 71], [6, 74], [7, 72], [8, 69], [11, 60], [12, 64], [13, 69], [14, 71], [17, 64], [18, 68], [19, 71], [20, 72], [23, 64], [24, 76], [25, 75],
-      [26, 76], [27, 75], [28, 76], [29, 71], [30, 74], [31, 72], [32, 69], [35, 60], [36, 64], [37, 69], [38, 71], [41, 64], [42, 72], [43, 71], [44, 69]]
-    const bass = [[8, 45], [9, 52], [10, 57], [14, 40], [15, 52], [16, 56], [20, 45], [21, 52], [22, 57], [32, 45], [33, 52], [34, 57], [38, 40], [39, 52], [40, 56], [44, 45], [45, 52], [46, 57]]
-    for (const [step, note] of melody) tine(.4 + step * .135 + .004 * jitter(), mtof(note + 12), .11 + .011 * jitter())
-    for (const [step, note] of bass) tine(.4 + step * .135 + .004 * jitter(), mtof(note + 12), .05 + .0055 * jitter())
-    return fadeOut(pcm, 8.9, 1.2)
-  } },
-  // An old telephone: a clapper swings between two gongs twenty times a second, two seconds on, a pause, and again.
-  // Every hit adds its gong's modes, [ratio, level, seconds to fade 60 dB]; a little play in the timing keeps it a rattle.
-  phone: { description: 'Old telephone ringing twice', make: () => {
-    const pcm = silence(8), jitter = seeded(9), modes = [[1, 1, 1.1], [2.64, .45, .55], [4.53, .25, .35], [6.8, .12, .2]]
-    for (const start of [.4, 4.4]) for (let hit = 0; hit < 72; hit++) {
-      const at = start + hit * .025 + .0008 * jitter(), force = Math.min(1, (hit + 1) / 4) * (.9 + .1 * jitter())
-      for (const [k, a, t60] of modes) ring(pcm, at, (hit % 2 ? 1397 : 1163) * k, .06 * force * a, t60, .0006)
-    }
-    return fadeOut(pcm, 7.7, .8)
-  } },
-  // Surf: each wave comes in as a rising roar, breaks in a bright crash and washes out in fizzing foam, [break, level]:
-  // noise through lowpass filters that open with the break, over the sea's steady murmur.
-  waves: { description: 'Ocean waves on a beach', make: () => {
-    const pcm = silence(11), white = seeded(13), unit = () => .5 + .5 * white(), surf = [[2.2, 1], [7.3, .75]]
-    const sum = (t, shape) => surf.reduce((total, [peak, level]) => total + level * shape(t - peak), 0)
-    const roar = d => d < 0 ? Math.max(0, 1 + d / 1.6) ** 2 : Math.exp(-d / .9)
-    const crash = d => d < 0 ? Math.max(0, 1 + d / .25) : Math.exp(-d / 1.6)
-    const foam = d => d < 0 ? 0 : Math.exp(-d / 1.6) - Math.exp(-d / .25)
-    const lowpass = () => { let y = 0, z = 0, at, a; return (x, f) => { if (f !== at) a = 1 - Math.exp(-2 * Math.PI * (at = f) / RATE); y += a * (x - y); return z += a * (y - z) } }
-    const low = lowpass(), bright = lowpass(), murmur = lowpass(), hiss = lowpass()
-    let fade, roared, crashed, foamed
-    for (let i = 0; i < pcm.length; i++) {
-      // The envelopes move slowly: worked out every 32 samples.
-      if (i % 32 === 0) { const t = i / RATE; fade = Math.min(1, Math.max(0, t - .3) / .8); roared = sum(t, roar); crashed = sum(t, crash); foamed = sum(t - .3, foam) }
-      const x = white()
-      pcm[i] = .42 * roared * low(x, 500) + .34 * crashed * bright(x, 900 + 4500 * crashed) + .13 * fade * murmur(x, 700) + .067 * foamed * (x - hiss(x, 2500))
-    }
-    // Bubbles popping in the foam: brief rings from 1.5 to 5 kHz, thinning out as it drains.
-    for (const [peak, level] of surf) for (let n = 0; n < 900 * level; n++) {
-      const at = peak + .1 + 3 * unit() ** 1.8
-      ring(pcm, at, 1500 + 3500 * unit() ** 2, .017 * level * Math.exp(-(at - peak) / 1.8), .008 + .02 * unit(), .0003)
-    }
-    return fadeOut(pcm, 10.7, 1.2)
-  } }
 }
 
 function peaks(channels) {
@@ -423,7 +321,7 @@ async function load(pcm, sampleRate, name, sample = '', steps = null) {
   state.steps = steps
   return render()
 }
-const useSample = (name, steps = state.steps) => load([samples[name].make()], RATE, name, name, steps)
+const useSample = (name, steps = state.steps) => load(samples[name].make(), RATE, name, name, steps)
 
 async function render(sync = true) {
   if (sync) cancelEdit()
@@ -1027,7 +925,7 @@ state = sprae(document.querySelector('#site'), {
   play, seek, inputCode, composition, editKey, inspectCaret, editorBlur, closeParameter: closeAssist, completeMethod, adjustParameter, startParameter, addMethod, clickCode, placeMenu, openMenu, menuKey, highlight, highlightProgram, hoverCode, leaveCode, accept, saveable, codeLines, moveTab, beginSelection, moveSelection, finishSelection, cancelSelection, selectionKey, clearSelection, editSelection,
   undo, openFile, copy
 })
-await load([samples.chime.make()], RATE, 'chime', 'chime')
+await load(samples.chime.make(), RATE, 'chime', 'chime')
 new ResizeObserver(drawWaves).observe(waves.original)
 window.addEventListener('resize', () => { placeMenu(); moveTab() })
 document.fonts.ready.then(() => moveTab())

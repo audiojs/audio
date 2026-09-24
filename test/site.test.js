@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import wav from '@audio/encode-wav'
 import audio from '../audio.js'
+import { samples as built, RATE } from '../site-samples.js'
 import '../.site-build.js'
 
 const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '')
@@ -54,6 +55,12 @@ beforeEach(async () => {
 afterEach(async () => { await page?.close(); assert.deepEqual(errors, []) })
 
 const button = name => page.getByRole('button', { name, exact: true })
+// A sample's length as the page shows it, m:ss.t with tenths floored at the millisecond, from site-samples.js itself:
+// the tests hold for whichever samples it makes.
+const shown = name => {
+  const tenths = Math.floor(Math.round(built[name].make()[0].length / RATE * 1000) / 100)
+  return `${Math.floor(tenths / 600)}:${String(Math.floor(tenths / 10) % 60).padStart(2, '0')}.${tenths % 10}`
+}
 const idle = () => page.locator('.demo[aria-busy="false"]').waitFor()
 const message = () => page.locator('.demo-message').innerText()
 const editor = () => page.getByRole('textbox', { name: 'Audio program' })
@@ -128,14 +135,22 @@ async function exported(format = 'WAV') {
 }
 async function output() { return decode((await exported()).bytes) }
 async function decode(bytes) {
-  // Decode the actual downloaded file, independently of the engine's PCM caches.
-  return page.evaluate(async bytes => {
+  // Decode the actual downloaded file, independently of the engine's PCM caches. Bytes cross to the page and back as
+  // base64: a JSON number per byte or sample costs seconds on a few seconds of stereo.
+  const { rate, channels } = await page.evaluate(async base64 => {
     const ctx = new AudioContext({ sampleRate: 48000 })
     try {
-      const decoded = await ctx.decodeAudioData(new Uint8Array(bytes).buffer)
-      return { rate: decoded.sampleRate, channels: Array.from({ length: decoded.numberOfChannels }, (_, c) => [...decoded.getChannelData(c)]) }
+      const decoded = await ctx.decodeAudioData(Uint8Array.from(atob(base64), c => c.charCodeAt(0)).buffer)
+      const encode = data => {
+        const view = new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+        let text = ''
+        for (let i = 0; i < view.length; i += 32768) text += String.fromCharCode(...view.subarray(i, i + 32768))
+        return btoa(text)
+      }
+      return { rate: decoded.sampleRate, channels: Array.from({ length: decoded.numberOfChannels }, (_, c) => encode(decoded.getChannelData(c))) }
     } finally { await ctx.close() }
-  }, [...bytes])
+  }, Buffer.from(bytes).toString('base64'))
+  return { rate, channels: channels.map(text => { const b = Buffer.from(text, 'base64'); return Array.from(new Float32Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength))) }) }
 }
 
 test('site: static bundle hydrates offline and exports finite, trimmed PCM', async () => {
@@ -147,7 +162,7 @@ test('site: static bundle hydrates offline and exports finite, trimmed PCM', asy
   assert([...glyphs].every(char => char.charCodeAt(0) >= 0x101 && char.charCodeAt(0) <= 0x164))
   assert(new Set(glyphs).size > 1)
   const result = await output()
-  assert.equal(result.channels.length, 1)
+  assert.equal(result.channels.length, built.chime.make().length)
   assert(result.channels[0].length < 8 * result.rate)
   assert(result.channels[0].every(Number.isFinite))
   assert(result.channels[0].some(value => Math.abs(value) > .5))
@@ -1218,21 +1233,23 @@ test('site: names and numbers light under the pointer; a name lists its choices:
   assert.deepEqual(await lit(), [])
   // The program is only code: no buttons ride its lines.
   assert.equal(await page.locator('.program button').count(), 0)
-  // audio(…) lists the samples; one keeps the edits and names the download after itself.
+  // audio(…) lists the samples; one keeps the edits and names the download after itself. The second is chosen from
+  // the list, the third typed.
+  const [, second, third] = Object.keys(built)
   await clickName('source')
-  assert.deepEqual((await page.getByRole('option').allTextContents()).map(text => text.match(/^[a-z]+|^Open a file…/)[0]), ['chime', 'bigben', 'musicbox', 'phone', 'waves', 'Open a file…'])
-  await page.getByRole('option', { name: /^bigben/ }).click(); await idle()
-  assert.equal(await editor().inputValue(), programOf(defaultChain, 'bigben', 'bigben.wav'))
+  assert.deepEqual((await page.getByRole('option').allTextContents()).map(text => text.match(/^[a-z]+|^Open a file…/)[0]), [...Object.keys(built), 'Open a file…'])
+  await page.getByRole('option', { name: new RegExp(`^${second}\\b`) }).click(); await idle()
+  assert.equal(await editor().inputValue(), programOf(defaultChain, second, `${second}.wav`))
   await page.getByRole('listbox').waitFor({ state: 'hidden' })
-  assert.equal(await page.locator('.audio-row .duration').first().textContent(), '0:12.5')
+  assert.equal(await page.locator('.audio-row .duration').first().textContent(), shown(second))
   // .save('…') lists the formats, each the download named as it arrives; one writes its extension and downloads.
   await clickName('save')
   assert.equal(await page.getByRole('listbox').getAttribute('aria-label'), 'Download')
-  assert.deepEqual((await page.getByRole('option').allTextContents()).map(text => /^\S+\.(wav|mp3)/.exec(text)[0]), ['bigben.wav', 'bigben.mp3'])
+  assert.deepEqual((await page.getByRole('option').allTextContents()).map(text => /^\S+\.(wav|mp3)/.exec(text)[0]), [`${second}.wav`, `${second}.mp3`])
   const downloaded = page.waitForEvent('download')
-  await page.getByRole('option', { name: /^bigben\.mp3/ }).click()
-  assert.equal((await downloaded).suggestedFilename(), 'bigben.mp3'); await idle()
-  assert.equal(await editor().inputValue(), programOf(defaultChain, 'bigben', 'bigben.mp3'))
+  await page.getByRole('option', { name: new RegExp(`^${second}\\.mp3`) }).click()
+  assert.equal((await downloaded).suggestedFilename(), `${second}.mp3`); await idle()
+  assert.equal(await editor().inputValue(), programOf(defaultChain, second, `${second}.mp3`))
   // Only Enter or a click downloads: Tab leaves the list.
   let downloads = 0
   page.on('download', () => downloads++)
@@ -1241,13 +1258,14 @@ test('site: names and numbers light under the pointer; a name lists its choices:
   await page.getByRole('listbox').waitFor({ state: 'hidden' })
   assert.equal(downloads, 0)
   // Typing a sample's name switches to it; an unknown name, or a file name while a sample plays, is refused.
-  await editor().fill(programOf(defaultChain, 'musicbox', 'bigben.mp3')); await idle()
-  assert.equal(await sourceName(), 'musicbox')
-  assert.equal(await page.locator('.audio-row .duration').first().textContent(), '0:09.2')
-  await editor().fill(programOf(defaultChain, 'drums', 'bigben.mp3')); await idle()
+  await editor().fill(programOf(defaultChain, third, `${second}.mp3`)); await idle()
+  assert.equal(await sourceName(), third)
+  assert.equal(await page.locator('.audio-row .duration').first().textContent(), shown(third))
+  assert(!Object.hasOwn(built, 'drums'))
+  await editor().fill(programOf(defaultChain, 'drums', `${second}.mp3`)); await idle()
   assert.match(await message(), /no sample named drums/)
   await editor().press('Escape')
-  await editor().fill(programOf(defaultChain, 'take.wav', 'bigben.mp3')); await idle()
+  await editor().fill(programOf(defaultChain, 'take.wav', `${second}.mp3`)); await idle()
   assert.match(await message(), /Open a file from the list in audio/)
   await editor().press('Escape')
   // "Open a file…", the list's last item, opens the picker.
@@ -1257,19 +1275,31 @@ test('site: names and numbers light under the pointer; a name lists its choices:
   await chooser
 })
 
-test('site: every sample is generated sound: finite, silent at both edges, its length, and near -23 LUFS', async () => {
-  // Lengths from site.js. Loudness targets EBU R128's -23 LUFS, which the library measures per ITU-R BS.1770; the
-  // chime, older, sits just below.
-  const lengths = { chime: '0:08.0', bigben: '0:12.5', musicbox: '0:09.2', phone: '0:08.0', waves: '0:11.0' }
-  for (const [name, length] of Object.entries(lengths)) {
+test('site: every sample is generated sound: stereo, finite, silent at both edges, its length, and near -16 LUFS', async () => {
+  // Generated, not random: making a sample twice gives the same samples.
+  for (const [name, { make }] of Object.entries(built)) assert.deepEqual(make(), make(), name)
+  // Loudness targets -16 LUFS, which the library measures per ITU-R BS.1770.
+  for (const name of Object.keys(built)) {
     await editor().fill(programOf('', name, name + '.wav')); await idle()
-    assert.equal(await page.locator('.audio-row .duration').first().textContent(), length)
-    const clip = audio(new Uint8Array((await exported()).bytes).buffer), [pcm] = await clip.read(), edge = Math.round(.3 * clip.sampleRate)
-    assert(pcm.every(Number.isFinite), name)
-    assert(pcm.subarray(0, edge).every(v => Math.abs(v) < 1e-3) && pcm.subarray(-edge).every(v => Math.abs(v) < 1e-3), `${name}: edges below -60 dBFS`)
+    assert.equal(await page.locator('.audio-row .duration').first().textContent(), shown(name))
+    const clip = audio(new Uint8Array((await exported()).bytes).buffer), channels = await clip.read(), edge = Math.round(.3 * clip.sampleRate)
+    assert.equal(channels.length, 2, name)
+    for (const pcm of channels) {
+      assert(pcm.every(Number.isFinite), name)
+      assert(pcm.subarray(0, edge).every(v => Math.abs(v) < 1e-3) && pcm.subarray(-edge).every(v => Math.abs(v) < 1e-3), `${name}: edges below -60 dBFS`)
+    }
     const lufs = await clip.stat('loudness')
-    assert(Math.abs(lufs + 23) < 1.5, `${name}: ${lufs.toFixed(1)} LUFS`)
+    assert(Math.abs(lufs + 16) < 1.5, `${name}: ${lufs.toFixed(1)} LUFS`)
   }
+})
+
+test('site: a length reads its tenths exactly: 441,600 frames at 48 kHz show 0:09.2, a millisecond less 0:09.1', async () => {
+  // 441,600 / 48,000 is the double just below 9.2: flooring its tenths directly read 0:09.1. Tenths floor at the
+  // millisecond: 441,552 frames, 9.199 s, still read 0:09.1.
+  await upload(await file('tenths.wav', [tone(441600)]))
+  assert.equal(await page.locator('.audio-row .duration').first().textContent(), '0:09.2')
+  await upload(await file('tenths-less.wav', [tone(441552)]))
+  assert.equal(await page.locator('.audio-row .duration').first().textContent(), '0:09.1')
 })
 
 test('site: the extension in .save(\'…\') picks the format: a real MP3 lazily, WAV again preserves PCM, others are refused', async () => {
