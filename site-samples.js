@@ -124,11 +124,12 @@ export const samples = {
   } },
 
   // The Just the Two of Us chords on an electric piano: Dbmaj9, C7♭9♭13, Fm9, Ebm9 and Ab13, home to Dbmaj9, the
-  // bass walking Db C F Eb Ab Db and every voice above stepping down. Comped as a player would: each long chord struck,
-  // then struck again softly just after the second beat. FM keys (a sine modulated at its own frequency, the index
-  // falling as the note sounds, and a tine's ping), the suitcase's stereo tremolo and a tape's slow wobble.
+  // bass walking Db C F Eb Ab Db and every voice above stepping down. Comped as a player would: the hands landing
+  // together, each long chord struck, then again softly just after the second beat. FM keys (a sine modulated at its
+  // own frequency, the index falling as the note sounds, and a tine's ping), the suitcase's stereo tremolo and a tape's
+  // slow wobble.
   rhodes: { description: 'Electric piano, the Just the Two of Us chords', make: () => {
-    const out = stereo(9), wobble = t => 1 + .0012 * sine(.45 * t)
+    const out = stereo(9), wobble = t => 1 + .0012 * sine(.45 * t), hands = random(12)
     const key = (at, seconds, note, level) => {
       const f = mtof(note), fades = [decay(.6), decay(.2), decay(.015), decay(2.4 * Math.sqrt(262 / f)), decay(.12)]
       let p = 0, index = 1, ping = 1, strike = 1, sound = 1, release = 1
@@ -149,8 +150,8 @@ export const samples = {
       key(at, seconds * (seconds < 2 ? .78 : .95), bass, .1)
       const again = seconds > 1 && seconds < 2 ? .56 : 0
       voices.forEach((note, n) => {
-        key(at + .02 + n * .018, again ? again - .08 : seconds * (seconds < 2 ? .72 : .92), note, n === 3 ? .08 : .065)
-        if (again) key(at + again + n * .012, (seconds - again) * .62, note, n === 3 ? .06 : .048)
+        key(at + .004 * hands(), again ? again - .08 : seconds * (seconds < 2 ? .72 : .92), note, n === 3 ? .08 : .065)
+        if (again) key(at + again + .004 * hands(), (seconds - again) * .62, note, n === 3 ? .06 : .048)
       })
       at += seconds
     }
