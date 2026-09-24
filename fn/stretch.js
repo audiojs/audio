@@ -22,58 +22,104 @@ import { seg, segSrcStart, spliceSegs, planOffset, isCurve, curveFn } from '../p
 import audio from '../core.js'
 import { pvocLock } from '@audio/stretch'
 
-// pvocLock({ factor: r }) stretches time by r (keeps pitch) using a dedicated
-// phase-locked vocoder (Laroche & Dolson 1999, @audio/stretch-pvoc-lock) —
-// locking is the atom's whole job, not an opt-in flag on a generic vocoder.
-// A persistent fractional cursor then resamples the stretched stream at rate
-// r — one advance of `r` per output sample — pitch-shifting by r at fixed
-// block size with stable pitch across block boundaries.
-// Warm-up: while the vocoder has yet to emit anything the cursor stalls so no
-// samples are skipped; emission resumes once the ring catches up.
-// pvoc-lock rounds its hops internally (achieved factor = synHop/anaHop); the outer
-// fractional-cursor resample still hits the exact ratio regardless of internal hop.
-// `ratio` may be a function `(t seconds of this stage's feed) => r` — sliding stretch.
-export function initPhaseLockStream(nch, ratio, sampleRate = 44100) {
-  let frameSize = 1024, hopSize = frameSize >> 2
-  let opts = { factor: ratio, frameSize, hopSize, sampleRate, fs: sampleRate }
-  let r0 = typeof ratio === 'function' ? ratio(0) : ratio
+// pvocLock stretches time by r and keeps pitch, with a phase-locked vocoder (Laroche & Dolson 1999,
+// @audio/stretch-pvoc-lock); a fractional cursor then resamples that stream at rate r — one advance of r per
+// output sample — pitch-shifting by r at a fixed block size.
+// Both hops stay within a quarter frame, so phase advances measure frequency unambiguously: compression
+// shortens the synthesis hop instead of lengthening the analysis hop, which past a frame skipped input and
+// broke the frame buffer. The analysis hop is fractional, so the vocoder's average ratio is exactly r and the
+// cursor consumes exactly what it produces, without drift.
+// The vocoder emits a frame late. The cursor runs a fixed latency behind rather than stalling on an empty
+// ring (a stall left a silent gap, then a click); the ops declare that latency and the engine reads ahead to
+// compensate it. They handle their own range, so dry and processed audio share the one latency.
+// The vocoder's first frame smears its onset across the frame (pre-echo), so processed audio would start and
+// end mid-waveform; 5 ms raised-cosine ramps cross from dry to processed at both edges of the span.
+// `ratio` may be a function `(t seconds of this stage's feed) => r` — sliding stretch; `rmin` is its floor.
+// Frames last about 23 ms at any rate (1024 samples at 44.1 kHz): a longer frame smears attacks further.
+const frameOf = (sampleRate = 44100) => 2 ** Math.round(Math.log2(sampleRate * 1024 / 44100))
+const synHopOf = (r, frame) => Math.max(1, Math.min(frame >> 2, Math.round((frame >> 2) * r)))
+
+/** Output samples the stage runs behind its input, for ratios down to rmin: the vocoder's frame fill plus the
+ *  synthesis frame it holds back. Covers every block size for r in [0.05, 20] (measured). */
+export const phaseLockLatency = (rmin, sampleRate) => {
+  let frame = frameOf(sampleRate)
+  return frame + Math.ceil((frame + synHopOf(rmin, frame)) / rmin)
+}
+
+export function initPhaseLockStream(nch, ratio, sampleRate = 44100, rmin = typeof ratio === 'function' ? ratio(0) : ratio) {
+  let rate = typeof ratio === 'function' ? ratio : () => ratio, r0 = rate(0), frame = frameOf(sampleRate)
+  let synHop = synHopOf(rmin, frame), lat = phaseLockLatency(rmin, sampleRate)
+  let anaHop = fs => synHop / Math.max(1e-6, rate(Math.max(0, fs) / sampleRate))
+  let opts = { frameSize: frame, hopSize: frame >> 2, synHop, anaHop, sampleRate, fs: sampleRate }
   return Array.from({ length: nch }, () => ({
     write: pvocLock(opts),
     ring: new Float32Array(4096),
     ringLen: 0,
     ringStart: 0,
-    readPos: 0,
-    ratio: r0
+    // Pre-roll: the cursor reaches the vocoder's first sample `lat` output samples after the feed starts.
+    readPos: -lat * r0,
+    ratio: r0,
+    lat,
+    // Out of range, input leaves through a delay line of the same length.
+    delay: new Float32Array(lat),
+    dp: 0,
+    fed: 0,
+    fade: Math.max(1, Math.round(.005 * sampleRate))
   }))
 }
 
-export function phaseLockBlock(state, input, output) {
-  for (let c = 0; c < input.length; c++) processChannel(state[c], input[c], output[c])
+/** ctx carries the stage's range: `at` in seconds relative to this block, `duration` in seconds. */
+export function phaseLockBlock(state, input, output, ctx) {
+  let sr = ctx?.sampleRate || 44100
+  let a0 = ctx?.at != null ? Math.round(ctx.at * sr) : -Infinity
+  let a1 = ctx?.duration != null ? (ctx.at != null ? a0 : -Math.round((ctx.blockOffset || 0) * sr)) + Math.round(ctx.duration * sr) : Infinity
+  for (let c = 0; c < input.length; c++) processChannel(state[c], input[c], output[c], a0, a1)
 }
 
-function processChannel(s, input, output) {
-  let chunk = s.write(input)
-  if (chunk.length) appendRing(s, chunk)
+function processChannel(s, input, output, a0, a1) {
+  let len = input.length, lat = s.lat, whole = a0 === -Infinity && a1 === Infinity
+  // The vocoder takes the in-range input, then one latency of silence past the range so its tail drains.
+  let f0 = Math.max(0, Math.min(len, a0)), f1 = Math.max(f0, Math.min(len, a1 + lat))
+  if (f1 > f0) {
+    let feed = input.subarray(f0, f1)
+    if (a1 < f1) { feed = feed.slice(); feed.fill(0, Math.max(0, a1 - f0)) }
+    let chunk = s.write(feed)
+    if (chunk.length) appendRing(s, chunk)
+  }
 
   // Sliding stretch (s.map): the drain rate must match the factor that stretched
   // the CONTENT under the cursor — the ring lags the writer, so keying by wall
   // time would detune by f′·lag. The map converts ring position (vocoder-output
   // samples) → quantum, replaying exactly the spans the segments produced.
-  let map = s.map, len = output.length, r = s.ratio
+  let map = s.map, r = s.ratio, fade = s.fade
   for (let i = 0; i < len; i++) {
-    let p = s.readPos
-    if (map) {
-      while (s.j + 1 < map.sv.length && p >= map.sv[s.j + 1]) s.j++
-      r = map.kf[s.j]
-    }
-    let idx = Math.floor(p) - s.ringStart
-    let frac = p - Math.floor(p)
-    if (idx >= 0 && idx + 1 < s.ringLen) {
-      output[i] = s.ring[idx] + (s.ring[idx + 1] - s.ring[idx]) * frac
+    let wet = 0
+    if (i >= f0 && i < f1) {
+      let p = s.readPos
+      if (map) {
+        while (s.j + 1 < map.sv.length && p >= map.sv[s.j + 1]) s.j++
+        r = map.kf[s.j]
+      }
+      // 4-point cubic (Catmull-Rom): the cursor upsamples by 1/r, and linear interpolation's corners image there.
+      let idx = Math.floor(p) - s.ringStart, ring = s.ring
+      if (idx >= 0 && idx + 1 < s.ringLen) {
+        let x0 = ring[idx], x1 = ring[idx + 1], xm = idx > 0 ? ring[idx - 1] : x0, x2 = idx + 2 < s.ringLen ? ring[idx + 2] : x1, f = p - Math.floor(p)
+        wet = x0 + .5 * f * (x1 - xm + f * (2 * xm - 5 * x0 + 4 * x1 - x2 + f * (3 * (x0 - x1) + x2 - xm)))
+      }
       s.readPos += r
-    } else {
-      output[i] = 0
+      s.fed++
     }
+    let dry = 0
+    if (!whole) {
+      dry = s.delay[s.dp]
+      s.delay[s.dp] = input[i]
+      s.dp = s.dp + 1 === lat ? 0 : s.dp + 1
+    }
+    // The sample leaving now entered `lat` samples ago (position q): from the range, it is the vocoder's,
+    // ramped in over its first `fade` samples and out over its last.
+    let q = i - lat, w = 0
+    if (q >= a0 && q < a1) w = Math.max(0, Math.min(1, (s.fed - lat) / fade, (a1 - q) / fade))
+    output[i] = w === 1 ? wet : w === 0 ? dry : dry + (wet - dry) * (.5 - .5 * Math.cos(Math.PI * w))
   }
 
   let drop = Math.floor(s.readPos) - 1 - s.ringStart
@@ -157,7 +203,7 @@ const stretchDsp = (input, output, ctx) => {
     if (!st) {
       let base = ctx.blockOffset || 0, sr = ctx.sampleRate
       let fn = t => lookupAt(ctx.ot, ctx.fv, base + t)
-      st = ctx._state = initPhaseLockStream(input.length, fn, sr)
+      st = ctx._state = initPhaseLockStream(input.length, fn, sr, Math.min(...ctx.fv))
       // vocoder-output sample breakpoints since feed start, one factor per span
       let ot = ctx.ot, fv = ctx.fv
       let k0 = 0
@@ -171,7 +217,7 @@ const stretchDsp = (input, output, ctx) => {
       let map = { sv, kf }
       for (let s of st) { s.map = map; s.j = 0 }
     }
-    phaseLockBlock(st, input, output)
+    phaseLockBlock(st, input, output, ctx)
     return
   }
   let factor = ctx.factor
@@ -180,11 +226,12 @@ const stretchDsp = (input, output, ctx) => {
     return
   }
   if (!ctx._state) ctx._state = initPhaseLockStream(input.length, factor, ctx.sampleRate)
-  phaseLockBlock(ctx._state, input, output)
+  phaseLockBlock(ctx._state, input, output, ctx)
 }
 
 audio.op('_stretch_seg', { params: ['factor'], plan: stretchPlan, hidden: true })
-audio.op('_stretch_dsp', { params: ['factor'], process: stretchDsp, hidden: true })
+const stretchLatency = (o, sr) => o.fv ? phaseLockLatency(Math.min(...o.fv), sr) : typeof o.factor === 'number' && o.factor > 0 && o.factor !== 1 ? phaseLockLatency(o.factor, sr) : 0
+audio.op('_stretch_dsp', { params: ['factor'], process: stretchDsp, hidden: true, ranged: true, latency: stretchLatency })
 audio.op('stretch', {
   params: ['factor'],
   streamable: true,

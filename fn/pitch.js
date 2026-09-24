@@ -5,7 +5,7 @@
  */
 
 import audio from '../core.js'
-import { initPhaseLockStream, phaseLockBlock } from './stretch.js'
+import { initPhaseLockStream, phaseLockBlock, phaseLockLatency } from './stretch.js'
 
 const pitchProc = (input, output, ctx) => {
   let semi = ctx.semitones
@@ -14,8 +14,10 @@ const pitchProc = (input, output, ctx) => {
     return
   }
   let ratio = Math.pow(2, semi / 12)
-  if (!ctx._state) ctx._state = initPhaseLockStream(input.length, ratio)
-  phaseLockBlock(ctx._state, input, output)
+  if (!ctx._state) ctx._state = initPhaseLockStream(input.length, ratio, ctx.sampleRate)
+  phaseLockBlock(ctx._state, input, output, ctx)
 }
 
-audio.op('pitch', { params: ['semitones'], process: pitchProc })
+// The phase-lock stream runs a fixed latency behind and handles its own range (see stretch.js).
+const pitchLatency = (o, sr) => typeof o.semitones === 'number' && o.semitones ? phaseLockLatency(2 ** (o.semitones / 12), sr) : 0
+audio.op('pitch', { params: ['semitones'], process: pitchProc, ranged: true, latency: pitchLatency })

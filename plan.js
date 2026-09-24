@@ -311,8 +311,10 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
         T = plan.latency
         procs = initProcs(plan.pipeline, plan.totalLen / sr, sr, nch)
         prevPipe = curPipe
+        // Warm up before the latency-delayed start, never after the requested one: a stage delayed by T must
+        // see input from startSample, or a latency past the warm-up loses the first T − warm-up samples
         if ((startSample > 0 || T > 0) && procs.length)
-          outPos = Math.max(0, startSample + T - BS * WARMUP)
+          outPos = Math.max(0, startSample + Math.min(0, T - BS * WARMUP))
       } else if (plan.latency !== T) {
         // Mid-stream latency change — keep content continuity: cursor c ↦ c + ΔT
         outPos += plan.latency - T; T = plan.latency
@@ -989,7 +991,8 @@ export function* streamPlan(a, plan, offset, duration) {
   let procs = initProcs(pipeline, totalLen / sr, sr, ch)
 
   let sc = s + T, ec = e + T
-  let ws = (sc > 0 && procs.length) ? Math.max(0, sc - audio.BLOCK_SIZE * WARMUP) : sc
+  // Same warm-up bound as the async reader: never past the requested start s
+  let ws = (sc > 0 && procs.length) ? Math.max(0, Math.min(s, sc - audio.BLOCK_SIZE * WARMUP)) : sc
   let BS = audio.BLOCK_SIZE, nch = ch
   let bufA = Array.from({ length: nch }, () => new Float32Array(BS))
 

@@ -891,7 +891,8 @@ function pageAccumulator(opts = {}) {
       }
     },
     done() {
-      if (pagePos > 0) emit(pageBuf.map(c => c.slice(0, pagePos)))
+      // Emitted pages leave the partial buffer: past-the-end reads and `length` must not see them twice
+      if (pagePos > 0) { emit(pageBuf.map(c => c.slice(0, pagePos))); pagePos = 0 }
       session?.flush()
       if (ondata && session) {
         let delta = session.delta()

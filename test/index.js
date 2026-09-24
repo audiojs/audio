@@ -4847,6 +4847,63 @@ test('stretch — streaming matches flat render', async t => {
   assertPitch(t, buf, 440, 'streamed')
 })
 
+test('stretch, pitch — continuous from the first sample: no stall, gap or step at any factor', async t => {
+  // The phase-lock stream once stalled on an empty ring: a late onset, then a silent gap and a click.
+  // The tone eases in and out over 50 ms, so any spike is the op's, not an abrupt edge smeared by the vocoder.
+  let sr = 44100, n = sr * 2, edge = sr * .05
+  let x = Float32Array.from({ length: n }, (_, i) => .5 * Math.sin(2 * Math.PI * 440 * i / sr) * Math.sin(Math.PI / 2 * Math.min(1, i / edge, (n - 1 - i) / edge)) ** 2)
+  // Peak curvature (second difference) of a clean sine at f: a gap or a step spikes far above it.
+  let curve = f => .5 * (2 * Math.PI * f / sr) ** 2
+  let cases = [...[.05, .3, .5, .8, 1.5, 3].map(f => [`stretch(${f})`, a => a.stretch(f), 440]), ...[-12, 7].map(s => [`pitch(${s})`, a => a.pitch(s), 440 * 2 ** (s / 12)])]
+  for (let [label, edit, f] of cases) {
+    let a = audio.from([x], { sampleRate: sr })
+    edit(a)
+    let out = (await a.read())[0], d2 = 0, gap = 0, run = 0
+    for (let i = 2; i < out.length; i++) {
+      d2 = Math.max(d2, Math.abs(out[i] - 2 * out[i - 1] + out[i - 2]))
+      run = out[i] === 0 ? run + 1 : 0
+      gap = Math.max(gap, run)
+    }
+    t.ok(gap < 4, `${label}: no gap (longest run of zeros ${gap})`)
+    t.ok(d2 < 1.5 * curve(f), `${label}: no step (peak curvature ${(d2 / curve(f)).toFixed(2)}× the sine's)`)
+    t.ok(Math.abs(out[0]) < 1e-3 && Math.abs(out[1]) < 1e-2, `${label}: starts from silence`)
+  }
+})
+
+test('pitch, stretch — a range splices in place: outside it the input, untouched', async t => {
+  let sr = 44100, x = Float32Array.from({ length: sr * 2 }, (_, i) => .5 * Math.sin(2 * Math.PI * 440 * i / sr))
+  let a = audio.from([x], { sampleRate: sr })
+  a.pitch(7, { at: .5, duration: .5 })
+  let out = (await a.read())[0], before = 0, after = 0
+  for (let i = 0; i < sr * .5; i++) before = Math.max(before, Math.abs(out[i] - x[i]))
+  for (let i = sr; i < out.length; i++) after = Math.max(after, Math.abs(out[i] - x[i]))
+  t.ok(before < 1e-6 && after < 1e-6, `pitch: the input before (${before}) and after (${after}) the range`)
+  assertPitch(t, out.subarray(sr * .55, sr * .95), 440 * 2 ** (7 / 12), 'pitch in range')
+  let b = audio.from([x], { sampleRate: sr })
+  b.stretch(2, { at: .5, duration: .5 })
+  let stretched = (await b.read())[0]
+  t.is(stretched.length, sr * 2.5, 'stretch: the range doubles')
+  before = after = 0
+  for (let i = 0; i < sr * .5; i++) before = Math.max(before, Math.abs(stretched[i] - x[i]))
+  for (let i = sr * 1.5; i < stretched.length; i++) after = Math.max(after, Math.abs(stretched[i] - x[i - sr / 2]))
+  t.ok(before < 1e-6 && after < 1e-6, `stretch: the input before (${before}) and after (${after}) the range`)
+  assertPitch(t, stretched.subarray(sr * .6, sr * 1.4), 440, 'stretch in range')
+})
+
+test('decoded source — reads past the end are silent, so a lookahead op matches the same PCM in memory', async t => {
+  // The page accumulator's done() emitted its last partial page but kept it as `partial`: a read past the end
+  // (an interpolating resample, a latency flush) saw that page again.
+  let x = Float32Array.from({ length: 4800 }, (_, i) => .2 + .05 * Math.sin(i / 20))
+  let file = await audio(await audio.from([x], { sampleRate: 48000 }).encode('wav'))
+  let mem = audio.from(await file.read(), { sampleRate: 48000 })
+  file.stretch(1.5)
+  mem.stretch(1.5)
+  let a = (await file.read())[0], b = (await mem.read())[0], diff = 0
+  for (let i = 0; i < a.length; i++) diff = Math.max(diff, Math.abs(a[i] - b[i]))
+  t.is(a.length, b.length, `same length (${a.length})`)
+  t.ok(diff === 0, `same samples to the last (max diff ${diff})`)
+})
+
 test('stretch stereo — preserves both channels with same pitch', async t => {
   let a = audio.from([tone(440, 1), tone(660, 1)], { sampleRate: 44100 })
   a.stretch(2)
