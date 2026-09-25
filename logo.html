@@ -8,38 +8,6 @@
   <link rel="preload" href="assets/geist.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="logo.css">
-  <style>
-    html { height: 100%; }
-    body { display: grid; grid-template-rows: minmax(min(360px, 60svh), 1fr) auto; min-height: 100%; }
-    .stage { position: relative; min-height: 0; }
-    /* Dragging sideways turns the phase; vertical swipes still scroll the page */
-    canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: pan-y; }
-    canvas.turning { cursor: grabbing; }
-    .fail { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding-inline: var(--space-md); color: var(--figure); text-align: center; }
-    .fail[hidden] { display: none; }
-
-    /* The controls are a band of the screen: its tint and divider fade out toward the sides */
-    .bar { position: relative; isolation: isolate; padding: 22px var(--space-md) 24px; }
-    .bar::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      z-index: -1;
-      border-top: 1px solid var(--panel-rule);
-      background: var(--panel);
-      mask-image: linear-gradient(to right, transparent, #000 min(25%, 320px), #000 calc(100% - min(25%, 320px)), transparent);
-    }
-    /* Two rows of four: the waveform, then how it is filled and printed. Each column lines up across both. */
-    .grid { display: grid; grid-template-columns: repeat(4, max-content max-content); justify-content: center; align-items: center; gap: 16px 12px; }
-    .grid > label { justify-self: end; margin-left: 24px; color: var(--panel-muted); cursor: pointer; }
-    .grid > label:nth-child(8n + 1) { margin-left: 0; }
-    .grid select { width: 100%; min-width: 10.5rem; }
-    .slider { display: flex; align-items: center; gap: 10px; }
-    @media (max-width: 800px) {
-      .grid { grid-template-columns: max-content minmax(0, 1fr); justify-content: stretch; }
-      .grid > label { margin-left: 0; }
-    }
-  </style>
 </head>
 <body>
   <div class="stage">

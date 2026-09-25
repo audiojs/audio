@@ -26,7 +26,39 @@
   --panel-dim: var(--color-muted);
   --panel-knob: var(--color-ink);
 }
-body { margin: 0; background: var(--ground); color: var(--panel-ink); font: 400 var(--text-sm)/1 var(--font-body); }
+body { display: grid; grid-template-rows: minmax(min(360px, 60svh), 1fr) auto; min-height: 100%; margin: 0; background: var(--ground); color: var(--panel-ink); font: 400 var(--text-sm)/1 var(--font-body); }
+
+/* A page is one stage: the drawing, with its controls in a band beneath */
+html { height: 100%; }
+.stage { position: relative; min-height: 0; }
+/* Dragging sideways turns the phase; vertical swipes still scroll the page */
+canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: pan-y; }
+canvas.turning { cursor: grabbing; }
+canvas:focus-visible { outline: 2px solid var(--panel-knob); outline-offset: -4px; }
+.fail { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding-inline: var(--space-md); color: var(--figure); text-align: center; }
+.fail[hidden] { display: none; }
+
+/* The controls are a band of the screen: its tint and divider fade out toward the sides */
+.bar { position: relative; isolation: isolate; padding: 22px var(--space-md) 24px; }
+.bar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-top: 1px solid var(--panel-rule);
+  background: var(--panel);
+  mask-image: linear-gradient(to right, transparent, #000 min(25%, 320px), #000 calc(100% - min(25%, 320px)), transparent);
+}
+/* Rows of four label and control pairs, each column lined up across the rows */
+.grid { display: grid; grid-template-columns: repeat(4, max-content max-content); justify-content: center; align-items: center; gap: 16px 12px; }
+.grid > label { justify-self: end; margin-left: 24px; color: var(--panel-muted); cursor: pointer; }
+.grid > label:nth-child(8n + 1) { margin-left: 0; }
+.grid select { width: 100%; min-width: 10.5rem; }
+.slider { display: flex; align-items: center; gap: 10px; }
+@media (max-width: 800px) {
+  .grid { grid-template-columns: max-content minmax(0, 1fr); justify-content: stretch; }
+  .grid > label { margin-left: 0; }
+}
 
 /* Lab and Motion top left; the page's own settings, Invert among them, top right */
 .pages, .corner { position: absolute; top: calc(var(--space-md) + env(safe-area-inset-top, 0px)); z-index: 1; display: flex; align-items: center; gap: 18px; height: 28px; }

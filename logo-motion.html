@@ -8,192 +8,66 @@
   <link rel="preload" href="assets/geist.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="logo.css">
-  <style>
-    body { padding: calc(var(--space-4xl) + env(safe-area-inset-top, 0px)) var(--space-md) var(--space-3xl); }
-    .corner select { min-width: 10.5rem; }
-    .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--space-2xl) var(--space-xl); max-width: 1100px; margin: 0 auto; }
-    /* A variant: the logo on the ground, to grab; how it answers, beneath */
-    .tile { display: grid; align-content: start; gap: 14px; margin: 0; cursor: grab; user-select: none; touch-action: pan-y; }
-    .tile.dragging { cursor: grabbing; }
-    .tile:focus-visible { outline: 2px solid var(--panel-knob); outline-offset: 6px; border-radius: 4px; }
-    .tile canvas { display: block; width: 100%; aspect-ratio: 4 / 3; }
-    figcaption { display: grid; gap: 10px; }
-    figcaption strong { font-weight: 500; font-size: var(--text-md); }
-    dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; line-height: 1.35; }
-    dt { color: var(--panel-dim); }
-    dd { margin: 0; color: var(--panel-muted); }
-  </style>
 </head>
 <body>
-  <nav class="pages"><a href="logo.html">Lab</a><a href="logo-motion.html" aria-current="page">Motion</a></nav>
-  <div class="corner">
-    <label for="print">Print</label>
-    <select id="print"><button><selectedcontent></selectedcontent></button></select>
-    <button type="button" class="toggle" id="invert" aria-pressed="false" aria-label="Invert" title="Invert"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"/></svg></button>
+  <div class="stage">
+    <nav class="pages"><a href="logo.html">Lab</a><a href="logo-motion.html" aria-current="page">Motion</a></nav>
+    <div class="corner">
+      <label for="print">Print</label>
+      <select id="print" name="print"><button><selectedcontent></selectedcontent></button></select>
+      <button type="button" class="toggle" id="invert" aria-pressed="false" aria-label="Invert" title="Invert"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"/></svg></button>
+    </div>
+    <canvas tabindex="0" aria-label="The logo. Drag it sideways to turn it, let go to fling it; tap it, or press Space, for the next waveform; the arrows nudge it."></canvas>
+    <p class="fail" id="fail" hidden>This page needs WebGL 2.</p>
   </div>
-  <main class="tiles" aria-label="Ways for the logo to answer the hand. Drag one sideways to turn it; with a key, the arrows nudge it and Space holds it."></main>
+
+  <form class="bar" id="controls">
+    <div class="grid">
+      <label for="rest">Rest</label>
+      <select id="rest" name="rest"><button><selectedcontent></selectedcontent></button></select>
+      <label for="hover">Hover</label>
+      <select id="hover" name="hover"><button><selectedcontent></selectedcontent></button></select>
+      <label for="lift">Lift</label>
+      <select id="lift" name="lift"><button><selectedcontent></selectedcontent></button></select>
+      <label for="sound">Sound</label>
+      <select id="sound" name="sound"><button><selectedcontent></selectedcontent></button></select>
+    </div>
+  </form>
 
   <script type="module">
   import { logo, DITHERS, SCREENS, label } from './logo.js'
+  import { motion, RESTS, HOVERS, LIFTS, SOUNDS } from './logo-motion.js'
 
-  const DRAG = 4 // px a press moves before it is a drag
-  const restless = !matchMedia('(prefers-reduced-motion: reduce)').matches
-  const SHAPES = ['sine', 'triangle', 'square', 'sawtooth', 'clausen', 'noise']
+  const $ = s => document.querySelector(s)
+  const root = document.documentElement, canvas = $('canvas'), form = $('#controls'), invert = $('#invert'), print = $('#print')
+  const view = logo(canvas)
+  if (!view) $('#fail').hidden = false
 
-  // Every variant turns under a drag, as the lab does, and spins on when let go; friction slows it, and with no
-  // motor driving it a slow spin catches in its rest turn, the logo. What differs is the rest, each given the tile's
-  // state: hovered, pressed, dragging, lift (px dragged up), velocity (turns a second), wound (how long held), taps.
-  // motor: turns a second it runs at on its own; friction: seconds for a spin to fall to the motor's speed;
-  // cycles, amplitude, signal: what they are to be now; wobble: how springy cycles and amplitude come back, 1 not at all.
-  const VARIANTS = [
-    { name: 'Fling', does: { Rest: 'Still', Hover: 'Lifts a little', Drag: 'Turns under your hand', Release: 'Spins on, slows, settles into the logo' },
-      amplitude: s => s.hovered ? 1.05 : 1 },
-    { name: 'Turntable', does: { Rest: 'Turns steadily, like a record', Drag: 'Stops under your hand', Release: 'A fling spins it faster or backwards; its motor brings it back' },
-      motor: () => .4 * restless, friction: 1.5 },
-    { name: 'Scratch', does: { Rest: 'Still, silent', Drag: 'Sounds as you scrub it: the logo\'s own tone, sin x + ½ sin 2x, pitched by your hand', Release: 'Spins on, sounding, silent as it settles' },
-      sound: true },
-    { name: 'Tension', does: { Rest: 'Still', Drag: 'Sideways turns it; up tightens it, down loosens it', Release: 'Springs back to one cycle, wobbling' },
-      cycles: s => s.dragging ? Math.min(6, Math.max(.5, 1 + s.lift / 40)) : 1, wobble: .15 },
-    { name: 'Stretch', does: { Rest: 'Still', Drag: 'Sideways turns it; up pulls it taller, down presses it flat', Release: 'Jiggles back' },
-      amplitude: s => s.dragging ? Math.min(1.8, Math.max(.1, 1 + s.lift / 60)) : 1, wobble: .12 },
-    { name: 'Wind-up', does: { Rest: 'Still', Hold: 'Winds up: faster and tighter the longer you hold', Release: 'Runs down and settles', Drag: 'Turns under your hand' },
-      motor: s => s.wound, cycles: s => 1 + .25 * Math.min(4, Math.abs(s.velocity)) },
-    { name: 'Excite', does: { Rest: 'Drifts, slowly', Hover: 'Stirs: two cycles, richer in harmonics, quicker', Drag: 'Turns under your hand, tighter the faster it goes' },
-      motor: s => s.hovered ? .8 : .05 * restless, signal: s => s.hovered || s.dragging ? 'clausen' : 'sine',
-      cycles: s => s.hovered || s.dragging ? 2 + .5 * Math.min(4, Math.abs(s.velocity)) : 1 },
-    { name: 'Rough', does: { Rest: 'A sine', Drag: 'The faster it turns, the rougher: a sawtooth, then noise', Release: 'Smooths out as it slows' },
-      signal: s => Math.abs(s.velocity) > 2.5 ? 'noise' : Math.abs(s.velocity) > .8 ? 'sawtooth' : 'sine' },
-    { name: 'Shapes', does: { Rest: 'Still', Tap: 'Changes its signal: sine, triangle, square, sawtooth, Clausen, noise', Drag: 'Turns under your hand' },
-      signal: s => SHAPES[s.taps % SHAPES.length] },
-  ]
-
-  // A spring toward a target, stepped finely enough to stay stable: damping 1 comes to rest without overshoot, less wobbles
-  function spring(x, velocity, target, dt, stiffness, damping) {
-    for (let t = 0; t < dt; t += 1 / 240) {
-      const h = Math.min(1 / 240, dt - t)
-      velocity += (-stiffness * (x - target) - 2 * damping * Math.sqrt(stiffness) * velocity) * h
-      x += velocity * h
+  const offer = (select, names, chosen, draw) => {
+    for (const name of names) {
+      if (!name) { select.append(document.createElement('hr')); continue }
+      const option = new Option('', name)
+      option.innerHTML = `${draw?.(name) ?? ''}<span>${label(name)}</span>`
+      select.append(option)
     }
-    return [x, velocity]
+    select.value = chosen
   }
+  offer(form.elements.rest, Object.keys(RESTS), 'drift')
+  offer(form.elements.hover, Object.keys(HOVERS), 'stir')
+  offer(form.elements.lift, LIFTS, 'none')
+  offer(form.elements.sound, SOUNDS, 'ticks')
+  offer(print, [...DITHERS, null, ...SCREENS], 'bayer4', view && (name => `<span class="icon mask" style="mask-image: url('${view.icon(name)}')"></span>`))
 
-  // Scratch's voice: the logo's own tone, sin x + ½ sin 2x, its pitch and loudness following the spin
-  let audio
-  function voice() {
-    audio ??= new AudioContext()
-    audio.resume()
-    const tone = audio.createOscillator(), level = audio.createGain()
-    tone.setPeriodicWave(audio.createPeriodicWave(new Float32Array(3), new Float32Array([0, 1, .5])))
-    level.gain.value = 0
-    tone.connect(level).connect(audio.destination)
-    tone.start()
-    return { tone, level }
-  }
-  document.addEventListener('visibilitychange', () => audio?.[document.hidden ? 'suspend' : 'resume']())
-
-  const main = document.querySelector('main'), printPicker = document.getElementById('print'), invert = document.getElementById('invert')
-
-  const tiles = VARIANTS.map(variant => {
-    const tile = document.createElement('figure'), canvas = document.createElement('canvas')
-    tile.className = 'tile'
-    tile.tabIndex = 0
-    tile.innerHTML = `<figcaption><strong>${variant.name}</strong><dl>${Object.entries(variant.does).map(([when, what]) => `<dt>${when}</dt><dd>${what}</dd>`).join('')}</dl></figcaption>`
-    canvas.setAttribute('aria-label', `The logo, answering as ${variant.name}`)
-    tile.prepend(canvas)
-    main.append(tile)
-    const view = logo(canvas)
-    const s = { hovered: false, pressed: false, dragging: false, lift: 0, taps: 0, wound: 0, phase: 0, velocity: 0, cycles: 1, cyclesVelocity: 0, amplitude: 1, amplitudeVelocity: 0, grab: null, voice: null }
-
-    const press = () => {
-      s.pressed = true
-      if (variant.sound) s.voice ??= voice()
-    }
-    // Let go: a drag flings with its last speed, unless the hand had stopped; a press that never moved is a tap
-    const release = e => {
-      if (!s.pressed) return
-      if (s.dragging && e && e.timeStamp - s.grab.at > 80) s.velocity = 0
-      if (!s.dragging) s.taps++
-      Object.assign(s, { pressed: false, dragging: false, grab: null, lift: 0 })
-      tile.classList.remove('dragging')
-    }
-    tile.addEventListener('pointerdown', e => {
-      tile.setPointerCapture(e.pointerId)
-      s.grab = { x: e.clientX, y: e.clientY, lastX: e.clientX, at: e.timeStamp }
-      press()
-    })
-    tile.addEventListener('pointermove', e => {
-      if (!s.grab || !view) return
-      if (!s.dragging && Math.hypot(e.clientX - s.grab.x, e.clientY - s.grab.y) < DRAG) return
-      s.dragging = true
-      tile.classList.add('dragging')
-      // The signal follows the pointer under its window, as in the lab; its speed is the hand's
-      const turned = s.cycles * (e.clientX - s.grab.lastX) * canvas.width / canvas.clientWidth / view.scale() / 2, dt = Math.max(1, e.timeStamp - s.grab.at) / 1000
-      s.phase += turned
-      s.velocity = .6 * s.velocity + .4 * turned / dt
-      s.lift = s.grab.y - e.clientY
-      Object.assign(s.grab, { lastX: e.clientX, at: e.timeStamp })
-    })
-    tile.addEventListener('pointerup', release)
-    tile.addEventListener('pointercancel', release)
-    tile.addEventListener('pointerenter', () => s.hovered = true)
-    tile.addEventListener('pointerleave', () => s.hovered = false)
-    tile.addEventListener('focus', () => s.hovered = true)
-    tile.addEventListener('blur', () => { s.hovered = false; release() })
-    // Keys: the arrows nudge it as a small fling would; Space or Enter holds it and, let go, taps it
-    tile.addEventListener('keydown', e => {
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); s.velocity += e.key === 'ArrowRight' ? 1 : -1 }
-      else if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); press() }
-    })
-    tile.addEventListener('keyup', e => { if (e.key === ' ' || e.key === 'Enter') release() })
-    return { variant, s, view }
-  })
-
-  // One print for every tile, drawn in the picker by the first tile's shader
-  const first = tiles[0].view
-  for (const name of [...DITHERS, null, ...SCREENS]) {
-    if (!name) { printPicker.append(document.createElement('hr')); continue }
-    const option = new Option('', name)
-    option.innerHTML = `${first ? `<span class="icon mask" style="mask-image: url('${first.icon(name)}')"></span>` : ''}<span>${label(name)}</span>`
-    printPicker.append(option)
-  }
-  printPicker.value = 'bayer4'
+  const answer = view && motion(view, canvas, Object.fromEntries(new FormData(form)))
   const paint = () => {
-    document.documentElement.classList.toggle('invert', invert.ariaPressed === 'true')
-    const css = getComputedStyle(document.documentElement)
-    for (const { view } of tiles) view?.set({ print: printPicker.value, size: 2, ground: css.getPropertyValue('--ground'), figure: css.getPropertyValue('--figure') })
+    root.classList.toggle('invert', invert.ariaPressed === 'true')
+    const css = getComputedStyle(root)
+    view?.set({ print: print.value, ground: css.getPropertyValue('--ground'), figure: css.getPropertyValue('--figure') })
   }
-  printPicker.addEventListener('input', paint)
+  form.addEventListener('input', () => answer?.set(Object.fromEntries(new FormData(form))))
+  print.addEventListener('input', paint)
   invert.addEventListener('click', () => { invert.ariaPressed = String(invert.ariaPressed !== 'true'); paint() })
   paint()
-
-  let last = performance.now()
-  function frame(now) {
-    const dt = Math.min(.1, Math.max(0, now - last) / 1000)
-    last = now
-    for (const { variant: v, s, view } of tiles) {
-      if (!view) continue
-      // Held still, it winds up; let go, it runs down
-      s.wound = s.pressed && !s.dragging ? Math.min(4, s.wound + 2 * dt) : s.wound * Math.exp(-dt / 1.2)
-      if (!s.dragging) {
-        const motor = v.motor?.(s) ?? 0
-        s.velocity = motor + (s.velocity - motor) * Math.exp(-dt / (v.friction ?? 1))
-        if (Math.abs(motor) < 1e-3 && Math.abs(s.velocity) < .3 && !s.pressed)
-          [s.phase, s.velocity] = spring(s.phase, s.velocity, Math.round(s.phase), dt, 40, 1)
-        else s.phase += s.velocity * dt
-      }
-      ;[s.cycles, s.cyclesVelocity] = spring(s.cycles, s.cyclesVelocity, v.cycles?.(s) ?? 1, dt, 120, v.wobble ?? 1)
-      ;[s.amplitude, s.amplitudeVelocity] = spring(s.amplitude, s.amplitudeVelocity, v.amplitude?.(s) ?? 1, dt, 120, v.wobble ?? 1)
-      view.set({ phase: s.phase, cycles: s.cycles, amplitude: s.amplitude, signal: v.signal?.(s) ?? 'sine' })
-      view.render(now)
-      if (s.voice) {
-        const speed = Math.min(8, Math.abs(s.velocity)), at = audio.currentTime
-        s.voice.tone.frequency.setTargetAtTime(55 + 110 * speed, at, .015)
-        s.voice.level.gain.setTargetAtTime(.2 * Math.min(1, speed / 1.5), at, .03)
-      }
-    }
-    requestAnimationFrame(frame)
-  }
-  requestAnimationFrame(frame)
   </script>
 </body>
 </html>

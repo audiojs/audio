@@ -3074,6 +3074,12 @@ async function logoStill() {
   }
   assert.fail('the logo never came to rest')
 }
+// How far a drawing is from landing on itself after half a turn about its centre, in gray levels a pixel: the logo is odd
+function asymmetry({ w, h, at }) {
+  let off = 0
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) off += Math.abs(at(x, y) - at(w - 1 - x, h - 1 - y))
+  return off / (w * h)
+}
 
 test('logo: a signal through a window, filled by half a window as its gradient, turned by hand or moving, printed in two tones', async () => {
   // Reduced motion opens it at rest
@@ -3103,12 +3109,7 @@ test('logo: a signal through a window, filled by half a window as its gradient, 
     return lit
   }
   // At rest a sine cycle through Hann is the logo, odd: half a turn about the centre lands it on itself
-  const unturned = shot => {
-    let off = 0
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) off += Math.abs(shot.at(x, y) - shot.at(w - 1 - x, h - 1 - y))
-    return off / (w * h)
-  }
-  assert(unturned(rest) < 1, `the rest pose differs from its half turn by ${unturned(rest)} a pixel`)
+  assert(asymmetry(rest) < 1, `the rest pose differs from its half turn by ${asymmetry(rest)} a pixel`)
   // Half of Bartlett is a straight fall: up the tallest column paper fades to ink, never brightening
   let peak = 0
   for (let x = 0; x < w / 2; x++) if (column(rest, x).length > column(rest, peak).length) peak = x
@@ -3127,10 +3128,10 @@ test('logo: a signal through a window, filled by half a window as its gradient, 
   await page.mouse.move(box.x + box.width / 2, y)
   await page.mouse.down()
   await page.mouse.move(box.x + box.width / 2 + 60, y, { steps: 6 })
-  assert(unturned(await logoStill()) > 5, 'a drag turns the signal under its window')
+  assert(asymmetry(await logoStill()) > 5, 'a drag turns the signal under its window')
   await page.mouse.move(box.x + box.width / 2 + 1, y, { steps: 6 })
   await page.mouse.up()
-  assert(unturned(await logoStill()) < 1, 'back near where it started, the drag lands on the rest pose')
+  assert(asymmetry(await logoStill()) < 1, 'back near where it started, the drag lands on the rest pose')
   // At speed it moves; a press stops it
   await page.locator('#speed').fill('0.5')
   const moving = await logoShot()
@@ -3176,69 +3177,69 @@ test('logo: a signal through a window, filled by half a window as its gradient, 
   for (let y = 0; y < axis; y++) assert(Math.abs(haar.at(a, y) - haar.at(b, y)) <= 1, `row ${y}: ${haar.at(a, y)} ≠ ${haar.at(b, y)}`)
 })
 
-test('logo motion: nine variants, each drawn, turned by a drag and flung on; Fling settles into the logo, a tap changes Shapes', async () => {
-  await page.setViewportSize({ width: 1280, height: 1000 })
+test('logo motion: the logo at rest stirs when hovered, turns under a drag and spins on, settles, and takes the next waveform at a tap', async () => {
+  // Reduced motion keeps it still at rest
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.setViewportSize({ width: 800, height: 760 })
   await page.goto(origin + '/logo-motion.html', { waitUntil: 'networkidle' })
-  const tiles = page.locator('.tile')
-  assert.equal(await tiles.count(), 9)
-  const apart = (a, b) => { let sum = 0; for (let i = 0; i < a.gray.length; i++) sum += Math.abs(a.gray.charCodeAt(i) - b.gray.charCodeAt(i)); return sum / a.gray.length }
-  const centre = async canvas => { const box = await canvas.boundingBox(); return [box.x + box.width / 2, box.y + box.height / 2] }
-  const settled = async canvas => {
-    let last = await logoShot(canvas)
-    for (let i = 0; i < 40; i++) {
-      await page.waitForTimeout(100)
-      const next = await logoShot(canvas)
-      if (next.gray === last.gray) return next
-      last = next
-    }
-    assert.fail('it never came to rest')
-  }
-  for (let i = 0; i < 9; i++) {
-    const tile = tiles.nth(i), canvas = tile.locator('canvas'), name = await tile.locator('strong').textContent()
-    await tile.scrollIntoViewIfNeeded()
-    await page.mouse.move(0, 0)
-    await page.waitForTimeout(500)
-    const rest = await logoShot(canvas)
-    assert(rest.lit, `${name} draws the logo`)
-    // A drag, then a pause before letting go, so it lands without a fling
-    const [x, y] = await centre(canvas)
-    await page.mouse.move(x, y)
-    await page.mouse.down()
-    await page.mouse.move(x + 60, y, { steps: 6 })
-    await page.waitForTimeout(200)
-    const turned = await logoShot(canvas)
-    await page.mouse.up()
-    assert(apart(rest, turned) > .5, `${name} turns under a drag`)
-  }
-
-  // Flung, Fling spins on, then settles into the logo: point-symmetric, half a turn landing it on itself. Smooth,
-  // as a dither's pattern holds to the screen's pixels, not to the drawing's centre.
   await page.selectOption('#print', 'smooth')
-  const fling = tiles.nth(0).locator('canvas')
-  await tiles.nth(0).scrollIntoViewIfNeeded()
-  const [x, y] = await centre(fling)
+  await page.addStyleTag({ content: '.pages, .corner { display: none }' })
+  const canvas = page.locator('canvas'), box = await canvas.boundingBox(), x = box.x + box.width / 2, y = box.y + box.height / 2
+  const away = () => page.mouse.move(x, box.y + box.height + 30)
+  const apart = (a, b) => { let sum = 0; for (let i = 0; i < a.gray.length; i++) sum += Math.abs(a.gray.charCodeAt(i) - b.gray.charCodeAt(i)); return sum / a.gray.length }
+  const top = shot => { for (let row = 0; row < shot.h; row++) for (let col = 0; col < shot.w; col++) if (shot.at(col, row) > 60) return row }
+
+  const rest = await logoStill()
+  assert(asymmetry(rest) < 1, 'at rest it is the logo')
   await page.mouse.move(x, y)
+  await page.waitForTimeout(600)
+  assert(apart(rest, await logoShot()) > .5, 'hovered, it stirs')
+  // Flung mid-drag, it spins on; left alone, it settles into the logo again
   await page.mouse.down()
   await page.mouse.move(x + 90, y, { steps: 3 })
   await page.mouse.up()
-  const early = await logoShot(fling)
+  const early = await logoShot()
   await page.waitForTimeout(150)
-  assert(apart(early, await logoShot(fling)) > .5, 'let go mid-drag, it spins on')
-  const rest = await settled(fling)
-  let off = 0
-  for (let j = 0; j < rest.h; j++) for (let k = 0; k < rest.w; k++) off += Math.abs(rest.at(k, j) - rest.at(rest.w - 1 - k, rest.h - 1 - j))
-  assert(off / (rest.w * rest.h) < 1, `it settles into the logo, off by ${off / (rest.w * rest.h)} a pixel`)
+  assert(apart(early, await logoShot()) > .5, 'flung, it spins on')
+  await away()
+  assert(asymmetry(await logoStill()) < 1, 'it settles into the logo')
 
-  // A tap, a press that never moves, gives Shapes its next signal
-  const shapes = tiles.nth(8).locator('canvas')
-  await tiles.nth(8).scrollIntoViewIfNeeded()
-  const before = await settled(shapes)
-  await shapes.click()
-  await page.mouse.move(0, 0)
-  const tapped = await settled(shapes)
-  assert(apart(before, tapped) > .5, 'a tap changes the signal')
-  // So does Space, for a hand on the keyboard
-  await tiles.nth(8).focus()
+  // A tap, a press that never moves, gives the next waveform; so does Space
+  const sine = await logoStill()
+  await canvas.click()
+  await away()
+  const triangle = await logoStill()
+  assert(apart(sine, triangle) > .5, 'a tap changes the waveform')
+  await canvas.focus()
   await page.keyboard.press('Space')
-  assert(apart(tapped, await settled(shapes)) > .5, 'Space taps too')
+  await canvas.blur()
+  assert(apart(triangle, await logoStill()) > .5, 'Space changes it too')
+
+  // Lifting does nothing by default; set to amplitude, a drag upward pulls it taller
+  const lifted = async () => {
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    await page.mouse.move(x, y - 80, { steps: 8 })
+    await page.waitForTimeout(700)
+    const shot = await logoShot()
+    await page.mouse.up()
+    await away()
+    return shot
+  }
+  const still = await logoStill(), plain = await lifted()
+  await logoStill()
+  await page.selectOption('#lift', 'amplitude')
+  const tall = await lifted()
+  assert(top(tall) < top(plain) - 10 && Math.abs(top(plain) - top(still)) < 30, JSON.stringify({ still: top(still), plain: top(plain), tall: top(tall) }))
+
+  // Both sounds play under the hand
+  for (const sound of ['tone', 'ticks']) {
+    await page.selectOption('#sound', sound)
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    await page.mouse.move(x + 60, y, { steps: 4 })
+    await page.mouse.up()
+    await away()
+  }
+  await logoStill()
 })
