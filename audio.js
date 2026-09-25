@@ -8,14 +8,16 @@
  */
 
 export { default } from './core.js'
-export { parseTime } from './core.js'
+export { parseTime, bitDepth } from './core.js'
 export { render } from './plan.js'
 
-import audio from './core.js'
+import audio, { LOAD, loadOps } from './core.js'
+import { opMethod } from './plan.js'
 
-// ── Plugin registry — audio.use('name') resolves through here (dynamic import).
+// ── Plugin registry: name → package, loaded by dynamic import on first use (autowired:
+// a.compressor() works without audio.use; the atom loads at the first render).
 // Contract plugins from the @audio scope; grows with the published set.
-audio.plugins = {
+const OPS = {
   compressor: '@audio/dynamics-compressor/audio',
   limiter: '@audio/dynamics-limiter/audio',
   gate: '@audio/dynamics-gate/audio',
@@ -148,8 +150,10 @@ audio.plugins = {
   // ↑ note-event instruments: pass notes — a.voice({ notes: [{ time, midi|freq, duration, velocity }] })
   // @audio/synth-dtmf (digit string) / synth-wavetable (table arrays) — direct-import only
   // Codec plugins ({ codec, test?, decode?, encode? }) register the same way — none published yet
+}
 
-  // ── Stat plugins ({ stat, compute } — register as a.stat(name)) ──────────
+// ── Stat plugins ({ stat, compute }, registered as a.stat(name)) ──────────
+const STATS = {
   truepeak: '@audio/loudness-truepeak/audio',
   lra: '@audio/loudness-lra/audio',
   replaygain: '@audio/loudness-replaygain/audio',
@@ -176,7 +180,32 @@ audio.plugins = {
   chroma: '@audio/mir-chroma/audio',
   tonnetz: '@audio/mir-tonnetz/audio',
 }
+audio.plugins = { ...OPS, ...STATS }
 audio.atoms = audio.plugins  // deprecated ≤2.5 name — same object, mutations visible through both
+
+// Registry ops are methods from the start; positional args wait as `args` until the op loads
+for (let name in OPS) audio.fn[name] ??= opMethod(name)
+
+/** Load every registry op an instance's edits name (dynamic import), then map the
+ *  positional args recorded before it loaded onto its params. Refs load through their own LOAD. */
+async function autowire(a) {
+  for (let e of a.edits) {
+    let [type, o] = e, d = audio.op(type)
+    if (!d && audio.plugins[type]) { await audio.use(type); d = audio.op(type) }
+    if (!o?.args || !d?.params) continue
+    let { args, ...rest } = o
+    if (args.length > d.params.length) throw new TypeError(`${type}: expected at most ${d.params.length} arguments (${d.params.join(', ')}), got ${args.length}`)
+    d.params.forEach((p, i) => { if (i < args.length) rest[p] = args[i] })
+    e[1] = rest
+  }
+}
+let load = audio.fn[LOAD], stream = audio.fn.stream
+audio.fn[LOAD] = async function() { if (this.edits?.length) await autowire(this); return load.call(this) }
+// a live (still decoding) stream skips LOAD: wire before its first plan too
+audio.fn.stream = audio.fn[Symbol.asyncIterator] = async function*(opts) {
+  if (this.edits?.length) { await autowire(this); await loadOps(this) }
+  yield* stream.call(this, opts)
+}
 
 // ── Infrastructure (self-register on import) ────────────────────────────
 
@@ -198,6 +227,9 @@ import './fn/save.js'
 import './fn/crop.js'
 import './fn/remove.js'
 import './fn/insert.js'
+import './fn/copy.js'
+import './fn/cut.js'
+import './fn/paste.js'
 import './fn/repeat.js'
 import './fn/gain.js'
 import './fn/fade.js'
@@ -217,6 +249,8 @@ import './fn/pitch.js'
 import './fn/transform.js'
 import './fn/crossfade.js'
 import './fn/crossover.js'
+import './fn/match.js'
+import './fn/spectral.js'
 import './fn/vocals.js'
 import './fn/dither.js'
 import './fn/crossfeed.js'

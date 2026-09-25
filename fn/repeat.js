@@ -1,4 +1,4 @@
-import { seg, segSrcStart, sliceSegs, planOffset } from '../plan.js'
+import { subSeg, sliceSegs, planOffset } from '../plan.js'
 
 function repeatSegs(segs, times, total, off, dur) {
   if (off == null) {
@@ -14,8 +14,8 @@ function repeatSegs(segs, times, total, off, dur) {
     else if (s[2] >= off + segLen) { let n = s.slice(); n[2] = s[2] + segLen * times; r.push(n) }
     else {
       let split = off + segLen - s[2]
-      r.push(seg(segSrcStart(s, s[2], split), split, s[2], s[3], s[4], s[5]))
-      r.push(seg(segSrcStart(s, off + segLen, se - off - segLen), se - off - segLen, off + segLen * (times + 1), s[3], s[4], s[5]))
+      r.push(subSeg(s, s[2], split, s[2]))
+      r.push(subSeg(s, off + segLen, se - off - segLen, off + segLen * (times + 1)))
     }
   }
   for (let t = 1; t <= times; t++)

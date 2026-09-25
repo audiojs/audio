@@ -2,7 +2,7 @@ import audio, { emit, parseTime, LOAD } from '../core.js'
 import { buildPlan, streamPlan, ensurePlan, loadRefs } from '../plan.js'
 import encode from '@audio/encode'
 
-const FMT_ALIAS = { aif: 'aiff', oga: 'ogg' }
+const FMT_ALIAS = { aif: 'aiff', oga: 'ogg', mov: 'mp4', m4v: 'mp4' }
 
 /** Encoder factory for a format — codec atoms extend the bundled set (built-ins
  *  win for formats they already serve, mirroring the decode side's precedence). */
@@ -26,6 +26,50 @@ function gatherMeta(inst, opts) {
     meta?.pictures?.length || markers.length || regions.length
   if (!hasAny) return null
   return { meta: meta || {}, markers, regions }
+}
+
+// Integer/float depths each lossless encoder writes (32 = float where the format stores it)
+const DEPTHS = { wav: [16, 24, 32], aiff: [16, 24], caf: [16, 32], flac: [16, 24], wv: [16, 24, 32], m4a: [16, 24, 32], mp4: [16, 24, 32] }
+// Encoder options save() forwards: bitDepth, bitrate (kbps), quality (VBR / codec
+// quality), codec (m4a/mp4 track), compression (flac level)
+const ENCODE_OPTS = ['bitDepth', 'bitrate', 'quality', 'codec', 'compression']
+
+/** Encoder settings from save opts. Lossless output keeps the source's stored depth
+ *  (smallest depth the format writes that holds it): a 24-bit master stays 24-bit.
+ *  m4a/mp4 carry markers and region starts as chapters. */
+function encodeOpts(inst, fmt, opts, m) {
+  let o = {}
+  for (let k of ENCODE_OPTS) if (opts[k] != null) o[k] = opts[k]
+  let depths = DEPTHS[fmt], src = inst.bitDepth
+  if (o.bitDepth == null && depths && src > 16) o.bitDepth = depths.find(d => d >= src) ?? depths.at(-1)
+  if ((fmt === 'm4a' || fmt === 'mp4') && m) {
+    let sr = inst.sampleRate
+    let ch = [...m.markers.map(x => ({ time: x.sample / sr, title: x.label })), ...m.regions.map(x => ({ time: x.sample / sr, title: x.label }))]
+    if (ch.length) o.chapters = ch.sort((a, b) => a.time - b.time)
+  }
+  return o
+}
+
+/** True when ISO-BMFF bytes carry a video track (an `hdlr` box with handler type `vide`). */
+function hasVideo(b) {
+  for (let i = 4; i + 16 <= b.length; i++)
+    if (b[i] === 104 && b[i + 1] === 100 && b[i + 2] === 108 && b[i + 3] === 114   // 'hdlr'
+      && b[i + 12] === 118 && b[i + 13] === 105 && b[i + 14] === 100 && b[i + 15] === 101) return true  // 'vide'
+  return false
+}
+
+/** Container bytes of an MP4/MOV source with a video track. Saving it to .mp4/.mov/.m4v
+ *  swaps only the audio track (@audio/encode-mp4 remux), picture copied untouched. */
+async function videoSource(inst, fmt, opts) {
+  if (fmt !== 'mp4' || opts.video === false) return null
+  let src = inst.source
+  if (typeof src === 'string') {
+    if (/^\w+:\/\//.test(src)) return null
+    try { src = new Uint8Array(await (await import('fs/promises')).readFile(src)) } catch { return null }
+  }
+  else if (src instanceof ArrayBuffer) src = new Uint8Array(src)
+  else if (ArrayBuffer.isView(src)) src = new Uint8Array(src.buffer, src.byteOffset, src.byteLength)
+  return src instanceof Uint8Array && hasVideo(src) ? src : null
 }
 
 /** #27 — a zero-length range would silently produce a header-only file. Fails
@@ -53,7 +97,7 @@ async function encodeStream(inst, fmt, opts, sink) {
   // them baked in undefined (mp3 defaulted to stereo and threw on mono files)
   if (inst._.ready) await inst._.ready
   let m = gatherMeta(inst, opts)
-  let enc = await encoderFor(fmt)({ sampleRate: inst.sampleRate, channels: inst.channels, ...(m || {}) })
+  let enc = await encoderFor(fmt)({ sampleRate: inst.sampleRate, channels: inst.channels, ...(m || {}), ...encodeOpts(inst, fmt, opts, m) })
   let total = opts.duration != null ? parseTime(opts.duration) : null  // inst.duration builds the plan — defer past LOAD/live
 
   // Live (pushable, still receiving) sources can't be planned ahead — stream per block.
@@ -145,5 +189,11 @@ audio.fn.save = async function(target, opts = {}) {
     finish = () => target.close?.()
   } else throw new Error('Invalid save target')
 
+  let video = await videoSource(this, fmt, opts)
+  if (video) {
+    let { remux } = await import('@audio/encode-mp4/remux')
+    await write(remux(video, await this.encode(fmt, opts)))
+    return finish?.()
+  }
   await encodeStream(this, fmt, opts, buf => buf ? write(buf) : finish?.())
 }

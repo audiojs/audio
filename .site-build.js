@@ -16,10 +16,12 @@ await build({
   platform: 'browser',
   external: ['fs', 'fs/promises', 'url'],
   plugins: [{
-    name: 'lazy-codecs',
+    name: 'lazy-atoms',
     setup(build) {
-      build.onResolve({ filter: /^@audio\/(decode|encode)-/ }, args => {
-        if (args.kind === 'dynamic-import') return { path: args.path, external: true }
+      // codecs and on-demand atoms (match, spectral, repair, dialog) load when used, not with the page;
+      // the device backends (speaker, mic) stay bundled for play()/record()
+      build.onResolve({ filter: /^@audio\// }, args => {
+        if (args.kind === 'dynamic-import' && !/^@audio\/(speaker|mic)\b/.test(args.path)) return { path: args.path, external: true }
       })
     }
   }],

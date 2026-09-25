@@ -23,7 +23,39 @@ import fft from 'fourier-transform'
 // Strict numeric literal: digits, or digits.digits, or .digits — never "1.2.3" (rejects extra dots).
 const NUM = '(?:\\d+(?:\\.\\d+)?|\\.\\d+)'
 
+// A time token: bare number, number with time units (1.5s, 500ms, 1m30s), or timecode
+const TIME_TOK = new RegExp(`^-?${NUM}(ms|[smhdwy])?(${NUM}(ms|[smhdwy]))*$|^\\d+:\\d{1,2}(:\\d{1,2})?(\\.\\d+)?$`, 'i')
+const FREQ_TOK = new RegExp(`^${NUM}k?hz$`, 'i')
+
+/** Split `A..B` at its first `..` → [A, B], either side may be empty; null without one. */
+function ends(s) {
+  let i = typeof s === 'string' ? s.indexOf('..') : -1
+  return i < 0 ? null : [s.slice(0, i), s.slice(i + 2)]
+}
+
+/** Time range `1s..5s`, `-5s..`, `..10s`; never a path such as ../in.wav. */
+function isRange(s) {
+  let e = ends(s)
+  return !!e && (e[0] || e[1]) !== '' && e.every(t => t === '' || TIME_TOK.test(t))
+}
+
+/** Frequency band `1khz..4khz` (units required on at least one end, like any Hz value). */
+function isBand(s) {
+  let e = ends(s)
+  return !!e && e[1] !== '' && e.some(t => FREQ_TOK.test(t)) && e.every(t => t === '' || FREQ_TOK.test(t) || /^\d+(\.\d+)?$/.test(t))
+}
+
+/** `name:value`: a named op/sink option (ceiling:-2, key:voice.wav, crossfade:10ms).
+ *  Two-letter minimum keeps drive letters (C:\) out; URLs (http://…) stay positional. */
+function namedOpt(tok) {
+  let m = typeof tok === 'string' && tok.match(/^([a-zA-Z][\w-]+):(.+)$/)
+  if (!m || m[2].startsWith('//')) return null
+  let v = m[2]
+  return [m[1], v === 'true' ? true : v === 'false' ? false : parseValue(v)]
+}
+
 function parseValue(str) {
+  if (isBand(str)) { let [a, b] = ends(str); return [a ? parseValue(a) : 0, parseValue(b)] }
   if (str.includes('..')) return str  // range syntax — handled separately
   // dB
   let m = str.match(new RegExp(`^(-?${NUM})(db)$`, 'i'))
@@ -81,7 +113,7 @@ function resolveOffset(offset, total) {
 /** Check if a string is a bare time value (e.g. "1s", "500ms", "1:30", "0..10s") — not an op name or path. */
 function isTime(s) {
   if (typeof s !== 'string') return false
-  if (s.includes('..')) return true  // range
+  if (s.includes('..')) return isRange(s)
   if (/^-?[\d.]+$/.test(s)) return false  // bare number — ambiguous, don't treat as time
   if (/^(\d+):(\d{1,2})(?::(\d{1,2}))?(?:\.(\d+))?$/.test(s)) return true  // timecode
   return /^-?[\d.]+(ms|[smhdwy])([\d.]+(ms|[smhdwy]))*$/i.test(s)  // strict: digits + time units, no path-like input
@@ -117,18 +149,21 @@ const HELP = {
   fade:      { usage: 'fade [IN] [-OUT] [CURVE]', desc: 'Fade in/out (bare = 0.5s both)', examples: ['fade', 'fade 1s', 'fade .2s -1s cos'], label: 'Fading' },
   trim:      { usage: 'trim [THR]', desc: 'Auto-trim silence (threshold in dB)', examples: ['trim', 'trim -40'], label: 'Trimming' },
   shrink:    { usage: 'shrink [GAP] [THR]', desc: 'Compress silent pauses to a target gap (default 0.3s)', examples: ['shrink', 'shrink 0.5s', 'shrink 0.2s -40'], label: 'Shrinking silence' },
-  normalize: { usage: 'normalize [DB] [MODE]', desc: 'Normalize peak/loudness', examples: ['normalize', 'normalize -3', 'normalize streaming'], label: 'Normalizing' },
+  normalize: { usage: 'normalize [TARGET] [MODE]', desc: 'Normalize peak (dBFS), loudness (lufs) or rms; loudness holds a -1 dBTP ceiling', examples: ['normalize', 'normalize -3', 'normalize streaming', 'normalize -18 lufs', 'normalize -27 lufs ceiling:-2'], label: 'Normalizing' },
   crop:      { usage: 'crop OFF DUR', desc: 'Crop to time range', examples: ['crop 1s..10s', 'crop 0 5s'], label: 'Cropping' },
   clip:      { usage: 'clip OFF DUR', desc: 'Create a shared-page clip', examples: ['clip 1s..10s', 'clip 0 5s'], label: 'Clipping' },
-  remove:    { usage: 'remove OFF DUR', desc: 'Delete time range', examples: ['remove 2s..4s'], label: 'Removing' },
+  copy:      { usage: 'copy [OFF DUR | RANGE]', desc: 'Copy a range to the audio clipboard', examples: ['copy 1s..3s', 'copy'], label: 'Copying' },
+  cut:       { usage: 'cut [OFF DUR | RANGE] [XFADE]', desc: 'Copy a range to the clipboard and delete it; XFADE crossfades the splice', examples: ['cut 1s..3s', 'cut 1s..3s 10ms', 'cut'], label: 'Cutting' },
+  paste:     { usage: 'paste [OFF] [XFADE]', desc: 'Insert copied audio (default: append); XFADE crossfades both seams', examples: ['paste 5s', 'paste 5s 10ms', 'paste'], label: 'Pasting' },
+  remove:    { usage: 'remove OFF DUR | RANGE [XFADE]', desc: 'Delete time range; XFADE is an equal-power crossfade centered on the splice', examples: ['remove 2s..4s', 'remove 2s..4s 10ms', 'remove 2s 2s'], label: 'Removing' },
   reverse:   { usage: 'reverse [RANGE]', desc: 'Reverse audio', examples: ['reverse', 'reverse 1s..5s'], label: 'Reversing' },
   repeat:    { usage: 'repeat N', desc: 'Repeat N times', examples: ['repeat 3'], label: 'Repeating' },
   pad:       { usage: 'pad [BEFORE] [AFTER]', desc: 'Add silence to start/end (single arg = both)', examples: ['pad 1s', 'pad 0.5s 2s'], label: 'Padding' },
   speed:     { usage: 'speed RATE', desc: 'Change speed — 2 = double, 0.5 = half, -1 = reverse', examples: ['speed 2', 'speed 0.5', 'speed -1'], label: 'Changing speed' },
   stretch:   { usage: 'stretch FACTOR', desc: 'Time-stretch (same pitch) — 2 = 2× slower, 0.5 = 2× faster', examples: ['stretch 2', 'stretch 0.5', 'stretch 1.25'], label: 'Stretching' },
   pitch:     { usage: 'pitch SEMI', desc: 'Pitch-shift in semitones (same duration)', examples: ['pitch 7', 'pitch -12', 'pitch 5'], label: 'Pitch shifting' },
-  insert:    { usage: 'insert SRC [OFF]', desc: 'Insert audio at position', examples: ['insert other.wav 3s'], label: 'Inserting' },
-  mix:       { usage: 'mix SRC [OFF]', desc: 'Mix in another audio file', examples: ['mix bg.wav 0s'], label: 'Mixing' },
+  insert:    { usage: 'insert SRC [OFF] [XFADE]', desc: 'Insert audio at position (default: append); XFADE crossfades both seams', examples: ['insert other.wav 3s', 'insert other.wav 3s 10ms'], label: 'Inserting' },
+  mix:       { usage: 'mix SRC [OFF] [GAIN]', desc: 'Mix in another audio file, at an offset and level', examples: ['mix bg.wav 0s', 'mix bed.mp3 0s -18db'], label: 'Mixing' },
   remix:     { usage: 'remix CH|MAP', desc: 'Change channel count or remap', examples: ['remix 1', 'remix 2', 'remix 1,0'], label: 'Remixing' },
   pan:       { usage: 'pan VALUE [RANGE]', desc: 'Stereo balance: -1 left, 0 center, 1 right', examples: ['pan -0.5', 'pan 1 2s..5s'], label: 'Panning' },
   filter:    { usage: 'filter TYPE ...ARGS', desc: 'Generic filter dispatch', examples: ['filter highpass 80hz'], label: 'Filtering', kind: 'filter' },
@@ -145,6 +180,9 @@ const HELP = {
   crossfeed: { usage: 'crossfeed [FC] [LEVEL]', desc: 'Headphone crossfeed for improved imaging', examples: ['crossfeed', 'crossfeed 500hz 0.4'], label: 'Applying crossfeed' },
   resample:  { usage: 'resample RATE', desc: 'Change sample rate with anti-aliased downsampling', examples: ['resample 48000', 'resample 22050'], label: 'Resampling' },
   crossfade: { usage: 'crossfade SRC [DUR] [CURVE]', desc: 'Crossfade into another audio file', examples: ['crossfade next.wav 2s', 'crossfade next.wav 0.5s cos'], label: 'Crossfading' },
+  match:     { usage: 'match REF [AMOUNT]', desc: 'Match EQ: fit parametric bands so the tone follows a reference (amount 0..1)', examples: ['match reference.wav', 'match reference.wav 0.7'], label: 'Matching' },
+  spectral:  { usage: 'spectral [BAND] [DB] [RANGE]', desc: 'Gain on a time × frequency region; default removes it', examples: ['spectral 1khz..4khz -30db 2.1s..2.4s', 'spectral 6khz..9khz 5s..5.2s'], label: 'Editing spectrum' },
+  repair:    { usage: 'repair [BAND] RANGE', desc: 'Rebuild a damaged range from its surroundings', examples: ['repair 1.2s..1.25s', 'repair 0..3khz 1.2s..1.25s'], label: 'Repairing' },
   crossover: { usage: 'crossover FREQS...', desc: 'Split into frequency bands — N freqs → N+1 bands × channels (LR4)', examples: ['crossover 200hz', 'crossover 300hz 3khz save bands.wav'], label: 'Splitting bands' },
   write:     { usage: 'write DATA [RANGE]', desc: 'Write raw sample values at a position (via --macro)', examples: ['write [0,0] 1s..1.1s'], label: 'Writing' },
   split:     { usage: 'split TIMES... | split --cue FILE', desc: 'Split into parts at times or cue-sheet tracks ({i}/{title}/{name} in output)', examples: ['split 30s 60s save part-{i}.wav', 'split --cue album.cue save "{i} - {title}.mp3"'], label: 'Splitting' },
@@ -152,7 +190,7 @@ const HELP = {
   // ── sinks (terminate chain) ─────────────────────────────────────────────
   play:   { usage: 'play [loop]', desc: 'Open player UI (autoplay)', examples: ['play', 'play loop', '1s..10s play loop', 'normalize play'], kind: 'sink' },
   stat:   { usage: 'stat [NAMES...]', desc: 'Print analysis (default: overview)', examples: ['stat', 'stat loudness rms', 'stat spectrum 128'], kind: 'sink', params: () => wrapWords(Object.keys(audio.stat())) },
-  save:   { usage: 'save PATH', desc: 'Encode and write to file (or - for stdout)', examples: ['save out.wav', 'normalize save out.flac', 'save -'], kind: 'sink' },
+  save:   { usage: 'save PATH [BITRATE] [DEPTH]', desc: 'Encode and write to file (or - for stdout); lossless keeps the source depth', examples: ['save out.wav', 'save out.mp3 192k', 'save out.wav 24bit', 'save out.m4a codec:alac', 'save -'], kind: 'sink' },
   // ── sources (provide input) ─────────────────────────────────────────────
   record: { usage: 'record [DUR]', desc: 'Capture from microphone', examples: ['record save out.wav', 'record 30s normalize save out.wav'], kind: 'source' },
 }
@@ -173,6 +211,8 @@ function pluginHelp(name, desc) {
     if (sp.type === 'bool') return `    ${k}  true|false (default ${sp.default})`
     return `    ${k}  ${sp.min}..${sp.max}${sp.unit ? ' ' + sp.unit : ''} (default ${sp.default})`
   }).join('\n')
+  // a second input bus reads its signal from key:FILE (sidechain)
+  if (Array.isArray(m.channels?.inputs) && m.channels.inputs.length > 1) params += `\n    key  FILE, sidechain input (${name} key:voice.wav)`
   return { usage: `${name} [${args}]`, desc: `Plugin${typeof desc.tail === 'number' && desc.tail ? ` (tail ${desc.tail}s)` : desc.tail ? ' (tail: param-dependent)' : ''}`, examples: [], params }
 }
 
@@ -194,7 +234,8 @@ function showOpHelp(name) {
   let params = typeof h.params === 'function' ? h.params() : h.params
   if (params) console.log('  Params:\n' + params + '\n')
   if (h.examples.length) console.log('  Examples:')
-  for (let ex of h.examples) console.log(`    ${h.kind === 'source' ? `audio ${ex}` : h.kind === 'sink' ? `audio in.wav ${ex}` : `audio in.wav ${ex} -o out.wav`}`)
+  let sinkless = ex => !/(^|\s)(save|play|stat)(\s|$)/.test(ex)
+  for (let ex of h.examples) console.log(`    ${h.kind === 'source' ? `audio ${ex}` : h.kind === 'sink' ? `audio in.wav ${ex}` : `audio in.wav ${ex}${sinkless(ex) ? ' save out.wav' : ''}`}`)
   console.log()
 }
 
@@ -216,7 +257,7 @@ function parseArgs(args) {
   if (args.length && !isFlag(args[0])) {
     let a0 = args[0]
     if (SOURCE_VERBS.has(a0)) source = args[i++]
-    else if (!isOpName(a0) && !SINK_VERBS.has(a0) && !a0.includes('..') && !isTime(a0)) source = args[i++]
+    else if (!isOpName(a0) && !SINK_VERBS.has(a0) && !isRange(a0) && !isTime(a0)) source = args[i++]
   }
 
   while (i < args.length) {
@@ -244,7 +285,7 @@ function parseArgs(args) {
     if (isFlag(arg)) throw new Error(`Unknown flag: ${arg}`)
 
     // Bare range: `song.mp3 10s..20s play` — scopes the entire chain
-    if (typeof arg === 'string' && arg.includes('..') && !isOpName(arg)) {
+    if (isRange(arg) && !isOpName(arg)) {
       range = parseRange(arg); i++; continue
     }
     // Bare time: `audio 1s play` / `audio song.mp3 1s play` — start offset, open-ended
@@ -256,36 +297,38 @@ function parseArgs(args) {
     // Sink — terminates the chain; collect remaining positional args (ranges hoisted to top-level)
     if (SINK_VERBS.has(arg)) {
       let name = arg; i++
-      let sinkArgs = []
+      let sinkArgs = [], sinkOpts = {}, kv, m
       while (i < args.length && !isFlag(args[i])) {
         let a = args[i++]
-        if (typeof a === 'string' && a.includes('..')) range = parseRange(a)
+        if (isRange(a)) range = parseRange(a)
+        else if (kv = namedOpt(a)) sinkOpts[kv[0]] = kv[1]
+        // encoder shorthands after the path: 192k = bitrate (kbps), 24bit = sample depth
+        else if (name === 'save' && sinkArgs.length && (m = a.match(/^(\d+)k(?:bps)?$/i))) sinkOpts.bitrate = +m[1]
+        else if (name === 'save' && sinkArgs.length && (m = a.match(/^(\d+)-?bits?$/i))) sinkOpts.bitDepth = +m[1]
         else sinkArgs.push(parseValue(a))
       }
       if (sinkArgs.length === 0 && i < args.length && (args[i] === '--help' || args[i] === '-h')) {
         helpOp = name; i++; continue
       }
-      sink = { name, args: sinkArgs }
+      sink = { name, args: sinkArgs, opts: sinkOpts }
       continue
     }
 
-    // Transform op
-    let name = arg, opArgs = []
+    // Transform op: positional args, `name:value` options, and one time range anywhere
+    let name = arg, opArgs = [], opOpts = null, kv
+    let offset = null, duration = null
     i++
     while (i < args.length && !isFlag(args[i])) {
       if (isOpName(args[i]) || isVerb(args[i])) break
-      opArgs.push(parseValue(args[i]))
-      i++
+      let tok = args[i++]
+      if (kv = namedOpt(tok)) (opOpts ??= {})[kv[0]] = kv[1]
+      else if (isRange(tok)) ({ offset, duration } = parseRange(tok))
+      else opArgs.push(parseValue(tok))
     }
-    let offset = null, duration = null
-    if (opArgs.length > 0 && typeof opArgs[opArgs.length - 1] === 'string' && opArgs[opArgs.length - 1].includes('..')) {
-      let r = parseRange(opArgs.pop())
-      offset = r.offset; duration = r.duration
-    }
-    if (opArgs.length === 0 && i < args.length && (args[i] === '--help' || args[i] === '-h')) {
+    if (opArgs.length === 0 && !opOpts && offset == null && i < args.length && (args[i] === '--help' || args[i] === '-h')) {
       helpOp = name; i++; continue
     }
-    transforms.push({ name, args: opArgs, offset, duration })
+    transforms.push({ name, args: opArgs, offset, duration, ...(opOpts && { opts: opOpts }) })
   }
 
   // Expand fade shorthand: bare `fade` or `fade IN -OUT` → two fade ops, both keeping the op's range
@@ -294,14 +337,14 @@ function parseArgs(args) {
     let nums = op.args.filter(a => typeof a === 'number')
     let curve = op.args.find(a => typeof a === 'string')
     if (nums.length === 0)
-      return [{ name: 'fade', args: [0.5], curve, offset: op.offset, duration: op.duration },
-              { name: 'fade', args: [-0.5], curve, offset: op.offset, duration: op.duration }]
+      return [{ name: 'fade', args: [0.5], curve, offset: op.offset, duration: op.duration, opts: op.opts },
+              { name: 'fade', args: [-0.5], curve, offset: op.offset, duration: op.duration, opts: op.opts }]
     if (nums.length === 1 && nums[0] > 0)
-      return [{ name: 'fade', args: [nums[0]], curve, offset: op.offset, duration: op.duration },
-              { name: 'fade', args: [-nums[0]], curve, offset: op.offset, duration: op.duration }]
+      return [{ name: 'fade', args: [nums[0]], curve, offset: op.offset, duration: op.duration, opts: op.opts },
+              { name: 'fade', args: [-nums[0]], curve, offset: op.offset, duration: op.duration, opts: op.opts }]
     if (nums.length === 2 && nums[0] > 0 && nums[1] < 0)
-      return [{ name: 'fade', args: [nums[0]], curve, offset: op.offset, duration: op.duration },
-              { name: 'fade', args: [nums[1]], curve, offset: op.offset, duration: op.duration }]
+      return [{ name: 'fade', args: [nums[0]], curve, offset: op.offset, duration: op.duration, opts: op.opts },
+              { name: 'fade', args: [nums[1]], curve, offset: op.offset, duration: op.duration, opts: op.opts }]
     return [op]
   })
 
@@ -325,9 +368,11 @@ export function parseCue(text) {
   return disc
 }
 
-const SOURCE_OPS = new Set(['mix', 'insert', 'crossfade'])
+const SOURCE_OPS = new Set(['mix', 'insert', 'crossfade', 'match'])
 
 async function resolveSourceArgs(op) {
+  // key:FILE: sidechain / reference input of keyed ops (ducker, match, …)
+  if (typeof op.opts?.key === 'string') op.opts.key = await audio(op.opts.key)
   if (!SOURCE_OPS.has(op.name)) return
   for (let i = 0; i < op.args.length; i++) {
     if (typeof op.args[i] === 'string' && !op.args[i].startsWith('-')) {
@@ -339,8 +384,13 @@ async function resolveSourceArgs(op) {
 function opCallArgs(op) {
   let args = (op.args || []).slice()
   let callOpts = op.opts ? { ...op.opts } : {}
-  if (op.offset != null) callOpts.at = op.offset
-  if (op.duration != null) callOpts.duration = op.duration
+  // A range fills leading at/duration params (remove 2s..4s 10ms → at, duration, crossfade)
+  let p = audio.op(op.name)?.params
+  if (op.offset != null && p?.[0] === 'at' && p[1] === 'duration') args.unshift(op.offset, op.duration)
+  else {
+    if (op.offset != null) callOpts.at = op.offset
+    if (op.duration != null) callOpts.duration = op.duration
+  }
   if (op.curve) callOpts.curve = op.curve
   if (Object.keys(callOpts).length) args.push(callOpts)
   return args
@@ -456,7 +506,7 @@ function fmtTime(s, full) {
   return full || h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`
 }
 
-const STAT_UNITS = { db: 'dBFS', loudness: 'LUFS', bpm: 'BPM' }
+const STAT_UNITS = { db: 'dBFS', loudness: 'LUFS', dialog: 'LUFS', momentary: 'LUFS', shortterm: 'LUFS', truepeak: 'dBTP', lra: 'LU', bpm: 'BPM' }
 
 function fmtStat(name, result) {
   if (result instanceof Float32Array || result instanceof Float64Array || Array.isArray(result)) {
@@ -1173,7 +1223,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
 
     let statNames = sink.args.filter(v => typeof v === 'string')
     if (!statNames.length) return printOverview(a, range, loadTime)
-    return printStats(a, sink.args, statNames, range)
+    return printStats(a, sink.args, statNames, range, sink.opts)
   } catch (err) {
     console.error(`audio: ${formatError(err)}`)
     process.exit(1)
@@ -1240,7 +1290,11 @@ Range syntax (scopes the chain — applies to sink):
 Units:
   Seconds: 1.5s, 500ms, 1.5, 1:30 (default seconds)
   dB: -3db, 0, 6db
-  Hz: 440hz, 2khz
+  Hz: 440hz, 2khz, band 1khz..4khz
+  save: 192k (bitrate kbps), 24bit (sample depth)
+
+Named options (after an op or sink): name:value
+  normalize -27 lufs ceiling:-2    ducker key:voice.wav    save out.mp3 quality:2
 
 Options:
   --force, -f   Overwrite output file if it exists
@@ -1334,7 +1388,7 @@ async function runSave(a, transforms, sinkArgs, range, opts, source, loadTime) {
         .replace('{ext}', () => srcExt.slice(1))
         .replace('{title}', () => safe(track?.title) || String(i + 1))
       let fmt = opts.format || outFile.split('.').pop()
-      await part.save(outFile, { format: fmt })
+      await part.save(outFile, { ...opts.sink?.opts, format: fmt })
       process.stderr.write(`  → ${outFile}\n`)
     }
     process.exit(0)
@@ -1351,7 +1405,7 @@ async function runSave(a, transforms, sinkArgs, range, opts, source, loadTime) {
   }
 
   let fmt = opts.format || (output === '-' ? 'wav' : output.split('.').pop())
-  let saveOpts = { format: fmt }
+  let saveOpts = { ...opts.sink?.opts, format: fmt }
   if (range) { saveOpts.at = resolveOffset(range.offset, a.duration); saveOpts.duration = range.duration }
 
   try {
@@ -1411,11 +1465,11 @@ async function printOverview(a, range, loadTime) {
   process.exit(0)
 }
 
-async function printStats(a, sinkArgs, names, range) {
+async function printStats(a, sinkArgs, names, range, extra) {
   for (let name of names) {
     let idx = sinkArgs.indexOf(name)
     let bins = idx >= 0 && idx + 1 < sinkArgs.length && typeof sinkArgs[idx + 1] === 'number' ? sinkArgs[idx + 1] : undefined
-    let statOpts = {}
+    let statOpts = { ...extra }
     if (bins != null) statOpts.bins = bins
     if (range) { statOpts.at = resolveOffset(range.offset, a.duration); statOpts.duration = range.duration }
     let result
@@ -1462,7 +1516,7 @@ async function runBatch(globPattern, transforms, sink, range, opts) {
     process.stderr.write(`Processing: ${file}\n`)
     let a = await audio(file)
     a = await applyTransforms(a, transforms)
-    let saveOpts = {}
+    let saveOpts = { ...sink.opts }
     if (range) { saveOpts.at = resolveOffset(range.offset, a.duration); saveOpts.duration = range.duration }
     if (opts.format) saveOpts.format = opts.format
     await a.save(outFile, saveOpts)

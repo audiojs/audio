@@ -1046,9 +1046,10 @@ test('parseArgs — per-sink help: save --help', t => {
 
 test('op help — all built-in ops have help', t => {
   let expected = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'clip', 'remove',
-    'insert', 'repeat', 'mix', 'crossfade', 'remix', 'highpass', 'lowpass', 'eq', 'lowshelf',
+    'insert', 'copy', 'cut', 'paste', 'repeat', 'mix', 'crossfade', 'remix', 'highpass', 'lowpass', 'eq', 'lowshelf',
     'highshelf', 'notch', 'bandpass', 'allpass', 'filter', 'pan', 'pad', 'speed', 'stretch',
     'pitch', 'vocals', 'dither', 'crossfeed', 'resample', 'write', 'transform', 'split', 'shrink', 'crossover',
+    'match', 'spectral', 'repair',
     // sinks + sources
     'play', 'stat', 'save', 'record']
   for (let op of expected) t.ok(HELP[op], `${op} has help`)
@@ -1079,6 +1080,28 @@ test('CLI — showUsage mentions every op with help', async t => {
 })
 
 // ── Macro System ─────────────────────────────────────────────────────────
+
+test('CLI — copy range, paste at a position, then append the same clipboard', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'audio-clipboard-cli-'))
+  const input = join(dir, 'in.wav'), output = join(dir, 'out.wav')
+  try {
+    const sr = 8000, pcm = Float32Array.from({ length: sr }, (_, i) => (i % 11 - 5) / 16)
+    await audio.from([pcm], { sampleRate: sr }).save(input)
+    await runCli([input, 'copy', '0.125s..0.375s', 'paste', '0.5s', 'paste', 'save', output])
+    const original = (await (await audio(input)).read())[0], pasted = original.slice(1000, 3000)
+    const expected = [...original.slice(0, 4000), ...pasted, ...original.slice(4000), ...pasted]
+    const actual = (await (await audio(output)).read())[0]
+    t.is(actual.length, expected.length)
+    t.ok(actual.every((v, i) => Math.abs(v - expected[i]) < 1 / 32767), 'saved samples match both paste positions')
+    const cutOutput = join(dir, 'cut.wav')
+    await runCli([input, 'cut', '0.125s..0.375s', 'paste', '0s', 'save', cutOutput])
+    const moved = (await (await audio(cutOutput)).read())[0]
+    const cut = [...pasted, ...original.slice(0, 1000), ...original.slice(3000)]
+    t.is(moved.length, cut.length)
+    t.ok(moved.every((v, i) => Math.abs(v - cut[i]) < 1 / 32767), 'Cut and Paste move the range without losing samples')
+    await t.rejects(() => runCli([input, 'paste', 'save', join(dir, 'invalid.wav')]), /clipboard/)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
 
 test('parseArgs — macro flag', t => {
   let r = parseArgs(['in.wav', '--macro', 'recipe.json', 'save', 'out.wav'])

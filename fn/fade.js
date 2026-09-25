@@ -43,10 +43,12 @@ const fade = (input, output, ctx) => {
 
 import audio from '../core.js'
 audio.op('fade', {
-  params: ['in', 'out'],
+  params: ['in', 'out', 'curve'],
   ranged: true,
   process: fade,
   expand: (ctx) => {
+    // fade(in, curve): a curve name in the `out` slot
+    if (typeof ctx.out === 'string') return [['fade', { in: ctx.in, curve: ctx.out, ...(ctx.mid != null && { mid: ctx.mid }) }]]
     if (typeof ctx.out !== 'number') return null
     let base = { ...(ctx.curve && { curve: ctx.curve }), ...(ctx.mid != null && { mid: ctx.mid }) }
     let edits = []

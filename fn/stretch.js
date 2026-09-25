@@ -18,7 +18,7 @@
  * ratio source (semitones → ratio instead of factor).
  */
 
-import { seg, segSrcStart, spliceSegs, planOffset, isCurve, curveFn } from '../plan.js'
+import { seg, subSeg, spliceSegs, planOffset, isCurve, curveFn } from '../plan.js'
 import audio from '../core.js'
 import { pvocLock } from '@audio/stretch'
 
@@ -143,30 +143,31 @@ function appendRing(s, chunk) {
 
 function stretchSegs(segs, factor) {
   let rate = 1 / factor
-  let r = [], dst = 0
-  for (let s of segs) {
-    let count = Math.round(s[1] * factor)
-    r.push(seg(s[0], count, dst, s[4] === null ? undefined : (s[3] || 1) * rate, s[4], s[5]))
-    dst += count
-  }
-  return r
+  // placed by position, not accumulated count, so overlapping (crossfade) pairs stay aligned
+  return segs.map(s => {
+    let a = Math.round(s[2] * factor), b = Math.round((s[2] + s[1]) * factor)
+    return seg(s[0], b - a, a, s[4] === null ? undefined : (s[3] || 1) * rate, s[4], s[5], s[6])
+  })
 }
 
 // Sliding: one segment per source quantum, each with its own constant rate —
 // the piecewise-constant decomposition of a continuous factor envelope.
 // `fv[k]` covers source samples [k·q, (k+1)·q) of the spliced sub-range.
 function slidingSegs(segs, fv, q) {
-  let r = [], dst = 0
+  // output position of pre-stretch position x: whole quanta at their rounded length (as
+  // adjustLimit counts them), then the part inside quantum k
+  let cum = [0]
+  for (let k = 0; k < fv.length; k++) cum.push(cum[k] + Math.round(q * fv[k]))
+  let F = x => { let k = Math.min(Math.floor(x / q), fv.length - 1); return cum[k] + Math.round((x - k * q) * fv[k]) }
+  let r = []
   for (let s of segs) {
     let done = 0
     while (done < s[1]) {
       let srcPos = s[2] + done  // pre-stretch output coords of the sub-range
       let k = Math.min(Math.floor(srcPos / q), fv.length - 1)
       let take = Math.min(s[1] - done, (k + 1) * q - srcPos)
-      let f = fv[k]
-      let count = Math.round(take * f)
-      if (count > 0) r.push(seg(segSrcStart(s, srcPos, take), count, dst, s[4] === null ? undefined : (s[3] || 1) / f, s[4], s[5]))
-      dst += count
+      let a = F(srcPos), b = F(srcPos + take)
+      if (b > a) r.push(subSeg(s, srcPos, take, a, b - a, s[4] === null ? undefined : (s[3] || 1) / fv[k]))
       done += take
     }
   }

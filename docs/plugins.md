@@ -176,8 +176,9 @@ Read `count` samples from source at `from`, write to output at `to`. All offsets
 | `3` | rate | Source read rate. Omit or `1` = forward. `-1` = reverse (used by `reverse()`). `2` = read 2× faster, halving duration (used by `speed()`). `0.5` = half speed, doubling duration. The `speed` op multiplies existing rates and adjusts `count` — `speed(2)` on a 10s segment produces `count/2` at `rate*2`. The renderer uses linear interpolation for non-unit rates unless `interp` is set. |
 | `4` | ref | Source: `undefined` = self, `null` = zero-fill (silence), audio instance = external |
 | `5` | interp | Optional interpolation function for non-unit `rate` reads. It receives `(src, target, tOff, n, rate, phase)` and may expose `.margin` for source context. |
+| `6` | env | Optional fade envelope: flat pairs `[p0, p1, …]` of fade phase at the segment's start and end, linear between; gain Π sin(p·π/2). Envelope segments are summed, not written, so a fade-out and fade-in over the same span form an equal-power crossfade (`remove`/`insert` with `crossfade`). |
 
-`seg(from, count, to, rate?, ref?, interp?)` creates a segment.
+`seg(from, count, to, rate?, ref?, interp?, env?)` creates a segment; `subSeg(s, at, n, to)` cuts one to a sub-range (envelope included); derive segments through it rather than by hand.
 
 #### Examples
 
@@ -247,6 +248,19 @@ and awaited like any ref:
 music.ducker({ key: voice, threshold: -30 })
 ```
 
+### load
+
+A lazy module for the op, resolved before any plan compiles. The atom stays out of the bundle
+until an edit uses it; `process`/`whole` read it from `desc.mod`:
+
+```js
+audio.op('repair', {
+  params: ['band'],
+  load: () => import('@audio/denoise-repair'),
+  whole: (input, output, ctx) => { let repair = audio.op('repair').mod.default /* … */ }
+})
+```
+
 ### latency
 
 Declared lookahead in samples — a number, or `(opts, sampleRate) => samples` for
@@ -285,9 +299,13 @@ audio.op('trim', {
 
 `resolve` runs at render time with decoded audio stats and replaces abstract ops with concrete ones.
 
+Once the whole signal is known (`ctx.final`), `ctx.measure(edits)` renders the plan so far plus
+candidate pipeline edits and returns their block stats: a what-if pass for decisions that stats
+alone can't make. `normalize` uses it to make loudness back up after its true-peak limiter.
+
 ### pointwise
 
-Mark an op as a pure per-sample transform — output depends only on input value, not position or history.
+Mark an op as a pure, monotonic per-sample transform: output depends only on input value, not position or history.
 
 ```js
 audio.op('clamp', {
@@ -302,7 +320,7 @@ audio.op('clamp', {
 })
 ```
 
-The engine auto-derives min/max/clipping stats by probing `process` with edge values — no full stream recompute needed after edits. `a.stat('db')` resolves instantly.
+The engine auto-derives min/max/clipping stats by probing `process` with edge values — no full stream recompute needed after edits. `a.stat('db')` resolves instantly. Energy, mean square and DC of a nonlinear map aren't functions of block extremes, so queries that need them (`loudness`, `rms`, `dc`) render instead.
 
 Don't use for stateful ops (filters) or position-dependent ops (fades, automation).
 
@@ -386,7 +404,7 @@ audio(4).poly({ notes: [{ time: 0, midi: 60, duration: 1 }, { time: 0, midi: 64,
 
 ## Registry
 
-`audio.plugins` maps name → package — `npm i` it, then `await audio.use('name')`.
+`audio.plugins` maps name → package; the packages install with `audio`. Registry ops are instance methods from the start: `a.compressor(-30, 8)` records the edit and the package loads (dynamic import) at the first render, mapping the positional args onto its params. Registry stats load inside `a.stat(name)`. The CLI resolves names the same way; a sidechain file is `key:FILE` (`ducker key:voice.wav`).
 
 Op plugins:
 

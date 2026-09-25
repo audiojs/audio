@@ -11,11 +11,12 @@ const mix = (input, output, ctx) => {
   let n = Math.min(sLen - srcOff, chLen - dstOff, end - dstOff)
   if (n <= 0) return
   let src = renderAt(ctx.render, source, srcOff, n, sr)
+  let k = ctx.gain ? 10 ** (ctx.gain / 20) : 1  // source level in dB (FFmpeg amix weights)
   for (let c = 0; c < output.length; c++) {
     let m = src[c % src.length]
-    for (let i = 0; i < n; i++) output[c][dstOff + i] += m[i]
+    for (let i = 0; i < n; i++) output[c][dstOff + i] += m[i] * k
   }
 }
 
 import audio from '../core.js'
-audio.op('mix', { params: ['source'], ranged: true, process: mix })
+audio.op('mix', { params: ['source', 'at', 'gain'], ranged: true, process: mix })

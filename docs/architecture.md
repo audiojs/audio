@@ -65,9 +65,12 @@ Ops don't mutate source pages. `a.gain(-3).crop({at: 1, duration: 5})` pushes tw
   - **Automation** — function-valued numeric params are sampled by the engine in 128-sample sub-blocks (`gain`/`pan` opt into per-sample via `auto: 'sample'`; ops with genuine function args like `filter(fn)`/`transform(fn)` exclude them via `fnArgs`). Breakpoint curves `{t, v}` are the serializable equivalent — same sampling, but they survive `toJSON()` and the worker boundary.
   - **Click-free patching** — when a streamed plan's values refine (progressive normalize, live edits), numeric changes ramp linearly across one block instead of stepping.
   - **Mid-stream edits** — `stream()`/`play()` watch `a.version`; edits pushed while streaming recompile the plan and crossfade (~20ms) into the new pipeline.
+- **Stages** — edits apply in order: a structural op works on the audio as processed so far. When one follows pipeline ops, the pending pipeline bakes into a stage (a nested plan the new segment map reads as its source) and a fresh pipeline starts. So `a.gain(-6).insert(b)` leaves `b` untouched, and a fade, range or automation issued before a splice keeps its time coordinates. A stage streams through a persistent cursor: contiguous reads continue its processor state exactly, a jump re-seeks with the same warm-up as seeking. Edited instances read as sources (insert, paste, mix) stream the same way.
 - **Limit** — the safe output boundary. During incremental streaming (`final=false`), `adjustLimit` tracks how far output is deterministic given partial source data.
 
 `buildPlan(a)` is the cached wrapper for fully-decoded audio — calls `compilePlan(a, len, true)` once per version.
+
+**Clipboard edits** (`copy`, `cut`, `paste`) stay in the edit list. During compilation, Copy and Cut capture a shared-page reference to the compiled prefix and crop that reference; Cut removes the range in the same edit, while Paste inserts the clipboard using the normal insertion plan. Removal and insertion bake the processed prefix like any structural op, so earlier effects keep their time coordinates and do not process pasted samples. The clipboard is local to each plan replay: Undo, clone, worker calls and serialization all use the same history. Clipboard chains defer incremental output until decode completes.
 
 During streaming, `compilePlan` is called repeatedly as more data arrives (`final=false`). Each call recomputes the segment map and limit from scratch — stateless, pure, cheap. The limit tells the stream loop how far it can safely render without waiting for more source data.
 
@@ -139,7 +142,9 @@ params map to op params (engine automation/curves/ramps apply), declared `tail` 
 a trailing pad, declared `latency` gets plan-level delay compensation, `streaming: false`
 atoms run as whole-render ops (materialize → one call → continue from the result), and
 multi-bus atoms read their sidechain from the `key` option. `audio.plugins` maps names
-to published packages for `audio.use('name')` and CLI auto-resolution (`audio.atoms`
+to published packages, installed with `audio` and autowired: registry ops are methods
+from the start and their package loads by dynamic import at LOAD, the async gate every
+render passes; ops with a `load` hook resolve their module the same way (`audio.atoms`
 remains as a deprecated alias).
 
 ## Meta, markers, regions

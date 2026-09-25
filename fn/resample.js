@@ -61,15 +61,13 @@ function readType(type) {
 // ── Plan op ────────────────────────────────────────────────────────────
 
 function resampleSegs(segs, factor, interp) {
-  let r = [], dst = 0
-  for (let s of segs) {
-    let count = Math.round(s[1] * factor)
+  // placed by position, not accumulated count, so overlapping (crossfade) pairs stay aligned
+  return segs.map(s => {
+    let a = Math.round(s[2] * factor), b = Math.round((s[2] + s[1]) * factor)
     let rate = s[4] === null ? undefined : (s[3] || 1) / factor
     let nextInterp = interp === null ? undefined : interp || s[5]
-    r.push(seg(s[0], count, dst, rate, s[4], s[4] === null ? undefined : nextInterp))
-    dst += count
-  }
-  return r
+    return seg(s[0], b - a, a, rate, s[4], s[4] === null ? undefined : nextInterp, s[6])
+  })
 }
 
 const resamplePlan = (segs, ctx) => {

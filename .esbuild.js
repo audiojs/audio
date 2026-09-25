@@ -7,11 +7,21 @@ const CODECS = [
   '@audio/decode-*', '@audio/encode-*',
 ]
 
+// Atoms an op loads on demand (`import('@audio/…')`) stay out of the bundle: fetched on first use.
+// The device backends (speaker, mic) are I/O, not DSP: play()/record() need them in the page.
+const lazyAtoms = {
+  name: 'lazy-atoms',
+  setup(build) {
+    build.onResolve({ filter: /^@audio\// }, args => args.kind === 'dynamic-import' && !/^@audio\/(speaker|mic)\b/.test(args.path) ? { path: args.path, external: true } : undefined)
+  }
+}
+
 const base = {
   entryPoints: ['audio.js'],
   bundle: true,
   format: 'esm',
   platform: 'browser',
+  plugins: [lazyAtoms],
 }
 
 // dist/audio.js — core + dispatch, codecs load on demand via import()

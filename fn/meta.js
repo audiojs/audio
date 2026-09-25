@@ -12,7 +12,7 @@
  */
 
 import audio from '../core.js'
-import { buildPlan } from '../plan.js'
+import { buildPlan, dominant } from '../plan.js'
 import * as parsers from '@audio/decode/meta'
 
 
@@ -102,7 +102,10 @@ function toSrcRegion(a, r) {
 export function remapSample(m, segs) {
   let out = []
   for (let sg of segs) {
+    if (sg[6] && !(sg = dominant(sg))) continue  // crossfade side: only where it's what's heard
     let from = sg[0], count = sg[1], to = sg[2], rate = sg[3] || 1, ref = sg[4]
+    // a stage (baked prefix) holds the source timeline: project through it, then this segment
+    if (ref?.segs) { for (let p of remapSample(m, ref.segs)) out.push(...remapSample(p, [[from, count, to, rate]])); continue }
     if (ref !== undefined) continue  // skip silence (ref=null) and ref segments
     let absR = Math.abs(rate)
     let off = m - from
@@ -135,7 +138,9 @@ function projectMarkers(a, markers) {
 function projectRegionRange(a0, b0, segs) {
   let ivs = []
   for (let sg of segs) {
+    if (sg[6] && !(sg = dominant(sg))) continue  // crossfade side: only where it's what's heard
     let from = sg[0], count = sg[1], to = sg[2], rate = sg[3] || 1, ref = sg[4]
+    if (ref?.segs) { for (let [p0, p1] of projectRegionRange(a0, b0, ref.segs)) ivs.push(...projectRegionRange(p0, p1, [[from, count, to, rate]])); continue }
     if (ref !== undefined) continue  // skip silence (ref=null) and ref segments
     let absR = Math.abs(rate)
     let lo = Math.max(a0, from), hi = Math.min(b0, from + count * absR)

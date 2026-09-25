@@ -70,6 +70,7 @@ audio.stat('ms', {
 })
 
 audio.stat('rms', {
+  fields: ['ms'],
   query: (stats, chs, from, to) => {
     if (!stats.ms) return 0
     let sum = 0, n = 0
@@ -80,6 +81,7 @@ audio.stat('rms', {
 })
 
 audio.stat('peak', {
+  fields: ['min', 'max'],
   query: (stats, chs, from, to) => {
     if (!stats.min || !stats.max) return 0
     let v = 0
@@ -96,6 +98,7 @@ audio.stat('peak', {
 })
 
 audio.stat('crest', {
+  fields: ['min', 'max', 'ms'],
   query: (stats, chs, from, to) => {
     if (!stats.min || !stats.max || !stats.ms) return 0
     let peak = 0
@@ -116,6 +119,7 @@ audio.stat('crest', {
 })
 
 audio.stat('correlation', {
+  fields: ['correlation', 'ms'],
   block: (chs) => {
     if (chs.length < 2) return 0
     let sum = 0, n = chs[0].length

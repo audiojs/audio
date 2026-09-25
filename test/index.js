@@ -1,5 +1,6 @@
 import test from 'tst'
 import audio from '../audio.js'
+import './clipboard.js'
 const { PAGE_SIZE, BLOCK_SIZE } = audio
 
 import { tone as genTone, clickTrack } from './gen.js'
@@ -20,6 +21,8 @@ function mid(buf, edge = 0.1, sr = 44100) {
 }
 
 const isNode = typeof process !== 'undefined' && process.versions?.node
+// delivery-grade suite: files, CLI, video, bare atom imports (Node only)
+if (isNode) await import('./pro.js')
 
 // Isomorphic fixture loading: file paths in Node, HTTP URLs in browser
 let lenaPath, lenaMp3, readFileSync
@@ -2479,17 +2482,17 @@ test('stream — trim + normalize chained on live source', async t => {
   t.ok(Math.abs(peak - 1) < 0.05, `normalized peak ~1 (got ${peak.toFixed(3)})`)
 })
 
-test('normalize — ceiling stats derived algebraically (no full recompute)', async t => {
+test('normalize: LUFS preset keeps peaks under the ceiling (stats match the render)', async t => {
   let sr = 44100
   let ch = new Float32Array(sr)
   for (let i = 0; i < sr; i++) ch[i] = 0.1 * Math.sin(2 * Math.PI * 440 * i / sr)
   let a = audio.from([ch], { sampleRate: sr })
-  a.normalize('podcast')  // LUFS preset with auto ceiling -1dBFS → emits dc + gain + clamp
+  a.normalize('podcast')  // LUFS preset with auto ceiling -1 dBTP → emits dc + gain + true-peak limiter
   let db = await a.stat('db')
   let ceilLin = 10 ** (-1 / 20)  // -1 dBFS
   let ceilDb = -1
   t.ok(db <= ceilDb + 0.5, `peak within ceiling (got ${db.toFixed(1)} dBFS)`)
-  // Verify stats are consistent — clamp deriveStats should keep peaks within limit
+  // Stats render through the limiter (not derivable); the rendered peak agrees
   let pcm = await a.read()
   let peak = 0
   for (let s of pcm[0]) { let v = Math.abs(s); if (v > peak) peak = v }

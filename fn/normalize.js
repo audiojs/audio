@@ -1,7 +1,9 @@
 import { dcOffsets, peakDb, rmsDb, lufsDb } from './loudness.js'
 import audio, { resolveChannels } from '../core.js'
 
+// Integrated-loudness presets (LUFS): Spotify/YouTube, Apple Podcasts, EBU R 128
 const PRESETS = { streaming: -14, podcast: -16, broadcast: -23 }
+const MODES = ['peak', 'lufs', 'rms']
 
 
 /** DC removal — subtracts per-channel offset. Internal to normalize. */
@@ -47,21 +49,108 @@ audio.op('dc', {
   }
 })
 
-/** Clamp samples to ±limit (linear). Internal to normalize. */
-audio.op('clamp', {
-  hidden: true,
-  pointwise: true,
-  params: ['limit'],
-  process: (input, output, ctx) => {
-    let limit = ctx.limit
-    for (let c = 0; c < input.length; c++)
-      for (let i = 0; i < input[c].length; i++)
-        output[c][i] = Math.max(-limit, Math.min(limit, input[c][i]))
+// ── True-peak ceiling ────────────────────────────────────────────────────
+// 4× reconstruction per ITU-R BS.1770-4 Annex 2. The Annex's 48-tap example filter
+// under-reads content near Nyquist (−0.9 dB on full-band noise, worse at 44.1 kHz where
+// its passband scales down), so the detector uses the 32-tap Lanczos kernel of
+// @audio/loudness-truepeak at the same 4× points: the ceiling holds what `stat truepeak`
+// reads. With the newest input at n, phases ¼ ½ ¾ land inside the interval (n−16, n−15).
+const HALF = 16, TAPS = 2 * HALF, MID = HALF, LOOK = 0.005, RELEASE = 0.1
+const sinc = x => x === 0 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x)
+const TPF = [0.25, 0.5, 0.75].map(f => {
+  let h = new Float64Array(TAPS), w = 0            // h[j] weighs x[n − j]
+  for (let j = 0; j < TAPS; j++) { let x = HALF - j - f; w += h[j] = sinc(x) * sinc(x / HALF) }
+  return h.map(v => v / w)
+})
+// |y_p| ≤ S·max|x| over the taps: below lim/S no phase can exceed lim, so the FIR is skipped
+const S = Math.max(...TPF.map(h => h.reduce((s, v) => s + Math.abs(v), 0)))
+
+/** Channel-linked lookahead limiter holding the reconstructed (true) peak at `limit` dBTP.
+ *  Required gain g[m] covers the samples and 4× interpolants on both sides of m; a sliding
+ *  minimum over the lookahead window, then its moving average, gives a smooth gain that
+ *  provably stays ≤ g at every output sample (each averaged minimum spans that sample);
+ *  release only ever pulls the gain further down. Output is delayed MID + lookahead. */
+function ceiling(input, output, ctx) {
+  let nch = input.length, len = input[0].length, sr = ctx.sampleRate
+  let st = ctx._tp
+  if (!st) {
+    let L = Math.round(LOOK * sr), W = L + 1, D = MID + L
+    st = ctx._tp = {
+      L, W, D, n: 0, hot: -1, rPrev: 1, env: 1, sum: W, ai: 0, qh: 0, qt: 0, di: 0,
+      avg: new Float64Array(W).fill(1), qv: new Float64Array(W), qn: new Float64Array(W),
+      ext: Array.from({ length: nch }, () => new Float32Array(TAPS - 1 + len)),
+      dl: Array.from({ length: nch }, () => new Float32Array(D)),
+      rel: 1 - Math.exp(-1 / (RELEASE * sr)),
+    }
   }
+  let { L, W, D, avg, qv, qn, dl, rel } = st
+  if (st.ext[0].length < TAPS - 1 + len) st.ext = st.ext.map(e => { let b = new Float32Array(TAPS - 1 + len); b.set(e.subarray(0, TAPS - 1)); return b })
+  let ext = st.ext
+  for (let c = 0; c < nch; c++) ext[c].set(input[c], TAPS - 1)
+  let lim = 10 ** ((ctx.limit ?? -1) / 20), cold = lim / S
+  // range gating in absolute input samples (ranged op: ctx.at is block-relative)
+  let base = Math.round((ctx.blockOffset || 0) * sr)
+  let r0 = ctx.at != null ? base + Math.round(ctx.at * sr) : -Infinity
+  let r1 = ctx.duration != null ? r0 + Math.round(ctx.duration * sr) : Infinity
+
+  for (let i = 0; i < len; i++) {
+    let n = st.n, m = n - MID, pk = 0
+    for (let c = 0; c < nch; c++) {
+      let e = ext[c], x = e[i + TAPS - 1]
+      if ((x < 0 ? -x : x) > cold) st.hot = n + TAPS
+      let a = e[i + TAPS - 1 - MID], b = e[i + TAPS - MID]   // x[n − MID], x[n − MID + 1]
+      a = a < 0 ? -a : a; b = b < 0 ? -b : b
+      if (a > pk) pk = a
+      if (b > pk) pk = b
+      if (n <= st.hot) for (let p = 0; p < TPF.length; p++) {
+        let h = TPF[p], y = 0
+        for (let k = 0; k < TAPS; k++) y += h[k] * e[i + TAPS - 1 - k]
+        if (y < 0) y = -y
+        if (y > pk) pk = y
+      }
+    }
+    let r = pk > lim && m >= r0 && m < r1 ? lim / pk : 1
+    let g = r < st.rPrev ? r : st.rPrev
+    st.rPrev = r
+    // sliding minimum of g over [m − L, m] (monotonic deque, capacity W)
+    while (st.qt > st.qh && qv[(st.qt - 1) % W] >= g) st.qt--
+    qv[st.qt % W] = g; qn[st.qt % W] = m; st.qt++
+    if (qn[st.qh % W] < m - L) st.qh++
+    let mn = qv[st.qh % W]
+    // its moving average over the same span → the gain for output sample m − L
+    st.sum += mn - avg[st.ai]; avg[st.ai] = mn; st.ai = (st.ai + 1) % W
+    let G = st.sum / W
+    st.env = G < st.env ? G : st.env + (G - st.env) * rel
+    let gain = st.env, di = st.di
+    for (let c = 0; c < nch; c++) { let d = dl[c]; output[c][i] = d[di] * gain; d[di] = ext[c][i + TAPS - 1] }
+    st.di = (di + 1) % D
+    st.n++
+  }
+  for (let c = 0; c < nch; c++) ext[c].copyWithin(0, len, len + TAPS - 1)
+}
+
+/** True-peak ceiling (dBTP), internal to normalize. */
+audio.op('ceiling', {
+  hidden: true,
+  ranged: true,
+  params: ['limit'],
+  latency: (o, sr) => MID + Math.round(LOOK * sr),
+  process: ceiling,
 })
 
+/** Target → { targetDb, mode }. Presets are integrated loudness; numbers take `mode`. */
+function parseTarget(target, mode) {
+  if (typeof target === 'string') {
+    if (!(target in PRESETS)) throw new RangeError(`normalize: unknown preset '${target}' (${Object.keys(PRESETS).join(', ')}), or a number with mode peak|lufs|rms`)
+    if (mode != null && mode !== 'lufs') throw new RangeError(`normalize: preset '${target}' is loudness (lufs), not ${mode}`)
+    return { targetDb: PRESETS[target], mode: 'lufs' }
+  }
+  if (mode != null && !MODES.includes(mode)) throw new RangeError(`normalize: unknown mode '${mode}' (${MODES.join(', ')})`)
+  return { targetDb: typeof target === 'number' ? target : 0, mode: mode || 'peak' }
+}
+
 audio.op('normalize', {
-  params: ['target'],
+  params: ['target', 'mode'],
   streamable: true,
   process: (input, output) => { for (let c = 0; c < input.length; c++) output[c].set(input[c]) },
   resolve: (ctx) => {
@@ -74,13 +163,10 @@ audio.op('normalize', {
       if (blocks < minBlocks) return null
     }
 
-    let target = ctx.target
-    let mode = typeof target === 'string' ? 'lufs' : ctx.mode || 'peak'
-    let targetDb = PRESETS[target] ?? (typeof target === 'number' ? target : 0)
-
-    // For LUFS target profiles, default to -1dBFS ceiling to prevent massive clipping
-    let ceiling = ctx.ceiling
-    if (ceiling == null && typeof target === 'string') ceiling = -1
+    let { targetDb, mode } = parseTarget(ctx.target, ctx.mode)
+    // Loudness targets hold a -1 dBTP true-peak ceiling by default (Apple Podcasts, Spotify,
+    // EBU R 128, AES TD1008); `ceiling: false` turns it off, a number moves it
+    let ceiling = ctx.ceiling === false ? null : ctx.ceiling ?? (mode === 'lufs' ? -1 : null)
 
     let totalCh = stats.min.length
     let { chs } = resolveChannels(ctx.channel, totalCh)
@@ -96,19 +182,32 @@ audio.op('normalize', {
 
     if (levelDb == null) return false
 
-    let edits = []
+    let edits = [], gain = ['gain', { value: targetDb - levelDb }]
     if (hasDc) edits.push(['dc', { shift: chs.map(c => dcOff[c]) }])
+    edits.push(gain)
+    if (ceiling == null) return edits.length === 1 ? edits[0] : edits
 
-    // Ceiling mode: normalize peak then clip at ceiling level
-    if (ceiling != null) {
-      let peakLevel = peakDb(stats, chs, dcOff)
-      if (peakLevel == null) return false
-      edits.push(['gain', { value: targetDb - levelDb }])
-      edits.push(['clamp', { limit: 10 ** (ceiling / 20) }])
-    } else {
-      edits.push(['gain', { value: targetDb - levelDb }])
+    // True-peak limiting, never clipping (AES TD1008 §5A: "When upward normalization would
+    // cause clipping, peak limiting is required")
+    edits.push(['ceiling', { limit: ceiling }])
+    // Limiting takes loudness off the peaks; once the whole signal is known, measure the
+    // limited render and make the difference up (secant steps: loudness rises slower than
+    // gain while the limiter works). Inter-sample overs stay within ~3 dB of sample peaks.
+    let peak = peakDb(stats, chs, dcOff)
+    if (mode === 'lufs' && ctx.measure && peak != null && peak + gain[1].value > ceiling - 3) {
+      let g0 = gain[1].value, slope = 1
+      for (let k = 0, prev = null; k < 6; k++) {
+        let got = lufsDb(ctx.measure(edits), chs, sampleRate)
+        if (got == null) break
+        let err = targetDb - got
+        if (Math.abs(err) < 0.02) break
+        if (prev) slope = Math.min(1, Math.max(0.1, (got - prev.got) / (gain[1].value - prev.gain)))
+        prev = { got, gain: gain[1].value }
+        let next = Math.min(g0 + 12, gain[1].value + err / slope)
+        if (next === gain[1].value) break
+        gain[1].value = next
+      }
     }
-
-    return edits.length === 1 ? edits[0] : edits
+    return edits
   }
 })

@@ -40,6 +40,14 @@ export interface WorkerFacade extends PromiseLike<WorkerFacade> {
   clone(): Promise<WorkerFacade>
   split(...at: (number | string)[]): Promise<WorkerFacade[]>
 
+  /** Clipboard edits are chainable and execute inside the worker. */
+  copy(opts?: { at?: number | string, duration?: number | string }): this
+  copy(at: number | string, duration?: number | string): this
+  cut(opts?: { at?: number | string, duration?: number | string }): this
+  cut(at: number | string, duration?: number | string): this
+  paste(opts?: { at?: number | string }): this
+  paste(at: number | string): this
+
   /** Strict single edit — rejects on op error (chained ops are fire-and-forget). */
   run(edit: [string, Record<string, unknown>?]): Promise<void>
   /** Resolves after all previously posted ops settled. */

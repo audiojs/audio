@@ -129,16 +129,23 @@ function binReduce(values, from, to, bins, reduce) {
  *  Falls back to null if segments are too complex to remap cheaply. */
 function remapStats(srcStats, plan, sr) {
   let bs = srcStats.blockSize, segs = plan.segs, totalLen = plan.totalLen
-  // Check feasibility: only self-ref (undefined) and silence (null), rate ±1
+  let fields = Object.keys(srcStats).filter(k => k !== 'blockSize' && Array.isArray(srcStats[k]))
+  let ch = srcStats[fields[0]]?.length || 1
+  // Block stats a segment reads: the source's, or a stage's (baked prefix) derived from them
+  const from = ref => {
+    if (ref === undefined) return srcStats
+    if (ref._stats?.src !== srcStats) ref._stats = { src: srcStats, stats: audio.adaptStats(srcStats, ref, sr) }
+    return ref._stats.stats
+  }
+  // Check feasibility: self-ref (undefined), silence (null) or a derivable stage, rate ±1
   for (let s of segs) {
     let rate = s[3] || 1, ref = s[4]
-    if (ref !== undefined && ref !== null) return null  // external ref
+    if (s[6]) return null                               // envelope (crossfade): overlapping sums
+    if (ref !== undefined && ref !== null && !(ref.segs && from(ref)?.[fields[0]]?.length === ch)) return null  // external ref
     if (Math.abs(rate) !== 1) return null               // resampled
     if (s[0] % bs !== 0 || s[2] % bs !== 0) return null // unaligned — force recompute
   }
   let outBlocks = Math.ceil(totalLen / bs)
-  let fields = Object.keys(srcStats).filter(k => k !== 'blockSize' && Array.isArray(srcStats[k]))
-  let ch = srcStats[fields[0]]?.length || 1
   let out = { blockSize: bs }
   for (let f of fields) out[f] = Array.from({ length: ch }, () => new Float32Array(outBlocks))
 
@@ -148,13 +155,13 @@ function remapStats(srcStats, plan, sr) {
     let dstBlockEnd = Math.ceil((dstOff + count) / bs)
     if (ref === null) continue // silence — Float32Array already zeroed
 
-    let srcBlockStart = Math.floor(srcOff / bs)
-    let srcBlocks = srcStats[fields[0]][0].length
+    let src = from(ref), srcBlockStart = Math.floor(srcOff / bs)
+    let srcBlocks = src[fields[0]][0].length
     let rev = rate < 0
     for (let i = dstBlockStart; i < dstBlockEnd && i < outBlocks; i++) {
       let si = rev ? srcBlockStart + (dstBlockEnd - 1 - i) : srcBlockStart + (i - dstBlockStart)
       if (si < 0 || si >= srcBlocks) continue
-      for (let f of fields) for (let c = 0; c < ch; c++) out[f][c][i] = srcStats[f][c][si]
+      for (let f of fields) for (let c = 0; c < ch; c++) out[f][c][i] = src[f][c][si]
     }
   }
   return out
@@ -171,6 +178,8 @@ audio.adaptStats = (src, plan, sr) => {
   if (!src.blockSize) return null
   let out = canDerivePipeline(plan.pipeline) && remapStats(src, plan, sr)
   if (out && plan.pipeline.length) out = tryDeriveStats(out, plan.pipeline)
+  // resolve ops read any field: a derivation that dropped some can't stand in
+  if (out) for (let k in src) if (Array.isArray(src[k]) && !out[k]) return null
   if (out && src.partial) out.partial = true
   return out || null
 }
@@ -219,8 +228,15 @@ function tryDeriveStats(srcStats, pipeline) {
   return stats
 }
 
-/** Auto-derive min/max/clipping for pointwise ops by probing process with edge values. */
+// Fields a pointwise probe recomputes exactly (monotonic f: block extremes map to extremes).
+const PROBED = new Set(['blockSize', 'partial', 'min', 'max', 'clipping'])
+
+/** Auto-derive min/max/clipping for pointwise ops by probing process with edge values.
+ *  Energy, mean square and DC of a nonlinear map aren't functions of block extremes:
+ *  those fields are dropped, so a query that needs them renders instead of reading
+ *  pre-op values (a clamp left loudness at its pre-clamp level). */
 function derivePointwise(desc, stats, opts) {
+  for (let k in stats) if (!PROBED.has(k)) delete stats[k]
   let ch = stats.min.length, n = stats.min[0]?.length || 0
   if (!n) return
   let { at, duration, channel, ...extra } = opts || {}
@@ -239,26 +255,28 @@ function derivePointwise(desc, stats, opts) {
   }
 }
 
-/** Resolve block range from opts. Recomputes stats if edits are dirty. */
-export async function queryRange(inst, opts) {
+/** Resolve block range from opts. Recomputes stats if edits are dirty, or if the
+ *  cached (derived) stats lack a block field the query needs (`need`). */
+export async function queryRange(inst, opts, need) {
   await inst[LOAD]()
   // Block stats land only after full decode — LOAD alone resolves at metadata
   if (!inst.decoded && inst.ready) await inst.ready
   let at = parseTime(opts?.at), dur = parseTime(opts?.duration)
   let hasRange = at != null || dur != null
+  let lacks = s => need?.some(f => !s?.[f])
 
   if (!inst.edits?.length && inst._.statsV !== inst.version && inst._.srcStats) {
     // back to pristine (undo to zero edits) — restore the pre-edit snapshot
     inst.stats = inst._.srcStats
     inst._.statsV = inst.version
   }
-  if (inst.edits?.length && inst._.statsV !== inst.version) {
+  if (inst.edits?.length && (inst._.statsV !== inst.version || lacks(inst.stats))) {
     if (!inst._.srcStats) inst._.srcStats = inst.stats
     let plan = buildPlan(inst), src = inst._.srcStats
     // Fast path: remap by plan segs + derive pipeline algebraically (e.g. crop + gain + clamp)
     let derived = src?.blockSize && canDerivePipeline(plan.pipeline) && remapStats(src, plan, inst.sampleRate)
     if (derived && plan.pipeline.length) derived = tryDeriveStats(derived, plan.pipeline)
-    if (derived) { inst.stats = derived; inst._.statsV = inst.version }
+    if (derived && !lacks(derived)) { inst.stats = derived; inst._.statsV = inst.version }
     else if (hasRange) {
       // Slow path scoped to range — avoid streaming whole timeline
       let s = statSession(inst.sampleRate)
@@ -288,12 +306,14 @@ audio.fn.stat = async function(name, opts) {
   if (Array.isArray(name)) return Promise.all(name.map(n => this.stat(n, opts)))
 
   let desc = audio.stat(name)
+  // registry stat plugins (truepeak, lra, …) load on first use
+  if (!desc && audio.plugins?.[name]) { await audio.use(name); desc = audio.stat(name) }
   if (!desc) throw new Error(`Unknown stat: '${name}'`)
 
   // Registered stat with instance method (streaming analysis: spectrum, cepstrum, silence, etc.)
   if (desc && !desc.query && !desc.reduce && !desc.block && typeof this[name] === 'function') return this[name](opts)
 
-  let { stats, ch, sr, from, to } = await queryRange(this, opts)
+  let { stats, ch, sr, from, to } = await queryRange(this, opts, desc.fields ?? (desc.block ? [name] : null))
   let bins = opts?.bins
 
   // Resolve channel selection once

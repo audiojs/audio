@@ -63,6 +63,7 @@ function beatGrid(bpm, onsets, blockCount, blockSize, sr) {
 // ── Stat descriptors (instant — read from existing energy blocks) ─
 
 audio.stat('bpm', {
+  fields: ['energy'],
   query: (stats, chs, from, to, sr, opts) => {
     let odfData = energyOdf(stats, from, to, sr)
     if (!odfData) return 0
@@ -73,6 +74,7 @@ audio.stat('bpm', {
 })
 
 audio.stat('beats', {
+  fields: ['energy'],
   query: (stats, chs, from, to, sr, opts) => {
     let odfData = energyOdf(stats, from, to, sr)
     if (!odfData) return new Float64Array(0)
@@ -84,6 +86,7 @@ audio.stat('beats', {
 })
 
 audio.stat('onsets', {
+  fields: ['energy'],
   query: (stats, chs, from, to, sr, opts) => {
     let odfData = energyOdf(stats, from, to, sr)
     if (!odfData) return new Float64Array(0)

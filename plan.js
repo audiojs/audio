@@ -8,16 +8,63 @@ import audio, { readPages, copyPages, walkPages, parseTime, LOAD, READ, emit } f
 let fn = audio.fn
 let ops = {}
 
-// ── Segments: [from, count, to, rate?, ref?, interp?] ────────────
+// ── Segments: [from, count, to, rate?, ref?, interp?, env?] ──────
 // interp: optional `(src, target, tOff, n, rate, phase) => void` for custom
 //   interpolation. May expose `.margin` (samples of context needed each side).
 //   Falls back to built-in linear when omitted.
-export function seg(from, count, to, rate, ref, interp) {
+// env: fade envelope, flat pairs [p0, p1, …] of fade phase at the segment's start and
+//   end, linear in between; gain Π sin(p·π/2). An envelope segment is summed into the
+//   output instead of written: a fade-out and a fade-in over the same span are an
+//   equal-power crossfade (cos² + sin² = 1), the DAW clip-fade model.
+export function seg(from, count, to, rate, ref, interp, env) {
   let s = [from, count, to]
   if (rate != null && rate !== 1) s[3] = rate
   if (ref !== undefined) s[4] = ref
   if (interp) s[5] = interp
+  if (env) s[6] = env
   return s
+}
+
+/** The sub-range [at, at + n) (output coords) of segment s, written at `to`: same source,
+ *  ref and interpolation, envelope cut to the sub-range. Time-scaling ops pass the new
+ *  `count` and `rate`; `flip` reverses the read (rate sign and envelope direction). */
+export function subSeg(s, at, n, to, count = n, rate = s[3], flip = false) {
+  let e = s[6], env
+  if (e) {
+    let u = (at - s[2]) / s[1], v = (at + n - s[2]) / s[1]
+    env = []
+    for (let k = 0; k < e.length; k += 2) {
+      let a = e[k] + (e[k + 1] - e[k]) * u, b = e[k] + (e[k + 1] - e[k]) * v
+      env.push(flip ? b : a, flip ? a : b)
+    }
+  }
+  return seg(segSrcStart(s, at, n), count, to, flip ? -(rate || 1) : rate, s[4], s[5], env)
+}
+
+/** An envelope segment cut to where it dominates (gain ≥ √½, the equal-power midpoint),
+ *  as a plain segment (null if never): the span where its source, not its crossfade
+ *  partner's, is what's heard. Marker/region projection maps through this. */
+export function dominant(s) {
+  let e = s[6], N = 64, i0 = -1, i1 = -1
+  if (!e) return s
+  for (let i = 0; i < N; i++) {
+    let u = (i + 0.5) / N, g = 1
+    for (let k = 0; k < e.length; k += 2) g *= Math.sin((e[k] + (e[k + 1] - e[k]) * u) * Math.PI / 2)
+    if (g >= Math.SQRT1_2 - 1e-9) { if (i0 < 0) i0 = i; i1 = i + 1 }
+  }
+  if (i0 < 0) return null
+  let a = s[2] + Math.round(i0 / N * s[1]), b = s[2] + Math.round(i1 / N * s[1])
+  return b > a ? subSeg(s, a, b - a, a).slice(0, 6) : null
+}
+
+/** Fade a rebased span of segments (output [0, len)) from phase p0 to p1: 1 → 0 fades
+ *  out, 0 → 1 fades in; composes with any envelope already there. */
+export function fadeSegs(segs, len, p0, p1) {
+  return segs.map(s => {
+    let n = s.slice(), u = s[2] / len, v = (s[2] + s[1]) / len
+    n[6] = [...(s[6] || []), p0 + (p1 - p0) * u, p0 + (p1 - p0) * v]
+    return n
+  })
 }
 
 /** Source start sample for the sub-range [iStart, iStart+n) of segment sg (output coords).
@@ -34,7 +81,7 @@ export function sliceSegs(segs, off, len) {
   let r = [], end = off + len
   for (let s of segs) {
     let a = Math.max(s[2], off), b = Math.min(s[2] + s[1], end)
-    if (a < b) r.push(seg(segSrcStart(s, a, b - a), b - a, a - off, s[3], s[4], s[5]))
+    if (a < b) r.push(subSeg(s, a, b - a, a - off))
   }
   return r
 }
@@ -136,19 +183,27 @@ audio.op = function(name, arg1, arg2, arg3) {
     if (opts) Object.assign(desc, opts)
   }
 
-  if (!fn[name] && !desc.hidden) {
-    fn[name] = function(...a) {
-      let hasOpts = a.length && isOpts(a.at(-1))
-      let o = hasOpts ? { ...a.pop() } : {}
-      let d = ops[name]
-      if (d?.params) mapParams(d.params, a, o)
-      else if (a.length) o.args = a
-      for (let k in o) if (typeof o[k] === 'number' && Number.isNaN(o[k])) throw new RangeError(`${name}: ${k} is NaN`)
-      if (d?.ch && (o.at != null || o.duration != null)) throw new TypeError(`${name}: range options not supported for channel-changing ops`)
-      return this.run([name, o])
-    }
-  }
+  if (!fn[name] && !desc.hidden) fn[name] = opMethod(name)
   ops[name] = desc
+}
+
+/** Instance method for op `name`. Positional args map to the op's params at call time;
+ *  an op not registered yet (a registry plugin still to load) keeps them as `args`,
+ *  mapped once it loads. More positional args than params is an error, not a silent drop. */
+export function opMethod(name) {
+  return function(...a) {
+    let hasOpts = a.length && isOpts(a.at(-1))
+    let o = hasOpts ? { ...a.pop() } : {}
+    let d = ops[name]
+    if (d?.params) {
+      if (a.length > d.params.length) throw new TypeError(`${name}: expected at most ${d.params.length} argument${d.params.length === 1 ? '' : 's'} (${d.params.join(', ')}), got ${a.length}`)
+      mapParams(d.params, a, o)
+    }
+    else if (a.length) o.args = a
+    for (let k in o) if (typeof o[k] === 'number' && Number.isNaN(o[k])) throw new RangeError(`${name}: ${k} is NaN`)
+    if (d?.ch && (o.at != null || o.duration != null)) throw new TypeError(`${name}: range options not supported for channel-changing ops`)
+    return this.run([name, o])
+  }
 }
 
 
@@ -208,29 +263,45 @@ Object.defineProperties(fn, {
 // ── Read ───────────────────────────────────────────────────────────────
 
 /** Ensure cache pages for the source ranges a plan will access. */
-export async function ensurePlan(a, plan, offset, duration) {
-  if (!audio.ensurePages) return
-  let { segs, sr } = plan
-  let s = Math.round((offset || 0) * sr)
-  let e = duration != null ? s + Math.round(duration * sr) : plan.totalLen
-  e = Math.min(e + (plan.latency || 0), plan.totalLen)  // latency cursors read ahead
-  // Prime ctx.render pull sources (mix/crossfade) — seconds are rate-invariant,
-  // so the overlap maps directly to the ref's own timebase
-  if (plan.pulls) for (let p of plan.pulls) {
-    let S = s / sr, E = e / sr
-    let o1 = Math.max(S, p.at), o2 = Math.min(E, p.at + p.ref.duration)
-    if (o2 > o1) await audio.ensurePages(p.ref, o1 - p.at, o2 - o1)
+export async function ensurePlan(a, plan, offset, duration, visiting = new Set()) {
+  if (!audio.ensurePages || duration === 0) return
+  if (visiting.has(a)) throw new Error('audio: circular source reference')
+  visiting.add(a)
+  const restore = (ref, at, duration) => ref.edits.length
+    ? ensurePlan(ref, buildPlan(ref), at, duration, visiting)
+    : audio.ensurePages(ref, at, duration)
+  // A stage (baked prefix) is a plan over the same instance — recurse without re-entering a
+  const prime = async (plan, offset, duration) => {
+    let { segs, sr, latency = 0 } = plan
+    let s = Math.round((offset || 0) * sr)
+    let e = duration != null ? s + Math.round(duration * sr) : plan.totalLen
+    e = Math.min(e + latency, plan.totalLen)  // latency cursors read ahead
+    // Match streamPlan's warm-up, including pages before the requested range.
+    if (plan.pipeline.length) s = Math.max(0, Math.min(s, s + latency - audio.BLOCK_SIZE * WARMUP))
+    // Pull sources (mix/crossfade) use seconds; segment refs use source samples.
+    if (plan.pulls) for (let p of plan.pulls) {
+      let S = s / sr, E = e / sr
+      let o1 = Math.max(S, p.at), o2 = Math.min(E, p.at + p.ref.duration)
+      if (o2 > o1) await restore(p.ref, o1 - p.at, o2 - o1)
+    }
+    for (let sg of segs) {
+      let iStart = Math.max(s, sg[2]), iEnd = Math.min(e, sg[2] + sg[1])
+      if (iStart >= iEnd) continue
+      let rate = sg[3] || 1, absR = Math.abs(rate), n = iEnd - iStart
+      let margin = (sg[5] && sg[5].margin) || 0
+      let srcStart = segSrcStart(sg, iStart, n)
+      let srcLen = n * absR + 1 + 2 * margin
+      let target = sg[4] === null ? null : sg[4] || a
+      if (target?.segs) await prime(target, Math.max(0, srcStart - margin) / target.sr, srcLen / target.sr)
+      else if (target) {
+        let rate = target.sampleRate
+        let at = Math.max(0, srcStart - margin) / rate, duration = srcLen / rate
+        if (target === a) await audio.ensurePages(target, at, duration)
+        else await restore(target, at, duration)
+      }
+    }
   }
-  for (let sg of segs) {
-    let iStart = Math.max(s, sg[2]), iEnd = Math.min(e, sg[2] + sg[1])
-    if (iStart >= iEnd) continue
-    let rate = sg[3] || 1, absR = Math.abs(rate), n = iEnd - iStart
-    let margin = (sg[5] && sg[5].margin) || 0
-    let srcStart = segSrcStart(sg, iStart, n)
-    let srcLen = n * absR + 1 + 2 * margin
-    let target = sg[4] === null ? null : sg[4] || a
-    if (target) await audio.ensurePages(target, Math.max(0, srcStart - margin) / sr, srcLen / sr)
-  }
+  try { await prime(plan, offset, duration) } finally { visiting.delete(a) }
 }
 
 /** Visit every audio instance referenced by edit opts (insert/mix/crossfade sources). */
@@ -256,6 +327,8 @@ fn[READ] = async function(offset, duration) {
     return readPages(this, offset, duration)
   }
   await this[LOAD]()
+  // A clipboard snapshot must include the complete input, even before decode settles.
+  if (!this.decoded && this.edits.some(e => e[0] === 'copy' || e[0] === 'cut')) await this.ready
   await loadRefs(this)
 
   let plan = buildPlan(this)
@@ -340,7 +413,7 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
         }
         await ensurePlan(a, plan, offset, duration)
         let seen = new Set()
-        for (let s of plan.segs) if (s[4] && s[4] !== null && !seen.has(s[4])) { seen.add(s[4]); await s[4][LOAD]() }
+        for (let s of plan.segs) if (s[4]?.pages && !seen.has(s[4])) { seen.add(s[4]); await s[4][LOAD]() }
       }
     }
 
@@ -398,6 +471,7 @@ fn.undo = function(n = 1) {
 fn.run = function(...edits) {
   let sr = this.sampleRate
   for (let e of edits) {
+    if (e[0] === 'paste' && !this.edits.some(e => e[0] === 'copy' || e[0] === 'cut')) throw new Error('paste: clipboard is empty; call copy() or cut() first')
     pushEdit(this, normalizeEdit(e, sr))
   }
   return this
@@ -409,7 +483,7 @@ fn.toJSON = function() {
 }
 
 fn.clone = function() {
-  let b = audio.from(this)
+  let b = audio.from(this, { sampleRate: this._.sr })
   for (let [type, opts] of this.edits) pushEdit(b, [type, opts ? { ...opts } : {}])
   return b
 }
@@ -467,7 +541,7 @@ export function render(a, offset, count) {
   return r
 }
 
-function planLen(segs) { let m = 0; for (let s of segs) m = Math.max(m, s[2] + s[1]); return m }
+export function planLen(segs) { let m = 0; for (let s of segs) m = Math.max(m, s[2] + s[1]); return m }
 
 /** How a plan op transforms the safe output boundary during incremental decode. */
 function adjustLimit(limit, type, ctx) {
@@ -480,9 +554,14 @@ function adjustLimit(limit, type, ctx) {
   }
   if (type === 'remove') {
     let at = offset ?? 0, dur = length ?? limit - at
+    // a crossfade reads h past the cut: the splice is final only once that source is in
+    let h = Math.round((parseTime(ctx.crossfade) || 0) * sr / 2)
+    if (h && limit < at + dur + h) return Math.max(0, Math.min(limit, at - h))
     return at < limit ? limit - Math.min(dur, limit - at) : limit
   }
   if (type === 'insert') {
+    // entry-seam crossfade reads the source on past the insertion point
+    if (ctx.crossfade && offset != null && limit < offset + Math.round(parseTime(ctx.crossfade) * sr)) return Math.min(limit, offset)
     if (offset != null && offset <= limit) {
       let s = ctx.source
       let iLen = typeof s === 'number' ? Math.round(s * sr)
@@ -552,7 +631,16 @@ function resolveCtxStats(a, segs, pipeline, sr, final) {
  *  final=true when source is fully decoded — all positions are determined. */
 function compilePlan(a, len, final) {
   let sr = a._.sr, ch = a._.ch
-  let segs = [[0, len, 0]], pipeline = [], limit = len, pulls = [], latency = 0
+  let segs = [[0, len, 0]], pipeline = [], limit = len, pulls = [], latency = 0, clipboard
+
+  // Share pages, never a full PCM copy; the edit prefix replays the processed audio
+  // and preserves format derivation and ordinary ref/cache behavior.
+  const snapshot = index => {
+    let ref = audio.from(a, { sampleRate: a._.sr })
+    ref.edits = a.edits.slice(0, index)
+    ref.version = ref.edits.length
+    return ref
+  }
 
   // Pipeline push that also registers ctx.render pull sources (mix/crossfade)
   // so ensurePlan can prime their pages alongside segment refs.
@@ -561,6 +649,20 @@ function compilePlan(a, len, final) {
     latency += procLatency(ops[ed[0]], ed[1], sr)
     let o = ed[1]
     if (o) for (let k in o) if (o[k]?.pages) pulls.push({ ref: o[k], at: o.at ?? 0 })
+  }
+
+  // A structural op works on the audio as processed so far: pending pipeline ops bake
+  // into a stage — a nested plan the timeline reads as its source — so later splices
+  // neither pass through them nor shift their ranges, fades and automation time.
+  let index = 0, bakes = 0
+  let bake = () => {
+    if (!pipeline.length) return
+    let st = { segs, pipeline, totalLen: planLen(segs), sr, ch, latency, pulls, limit }
+    st.outCh = stageWidth(pipeline, ch, st.totalLen / sr, sr)
+    st.cur = stageCursor(a, index, bakes++)
+    segs = [seg(0, st.totalLen, 0, undefined, st)]
+    ch = st.outCh
+    pipeline = []; pulls = []; latency = 0
   }
 
   // Apply edits emitted by an expand/resolve hook: structural → segment rewrite,
@@ -576,6 +678,7 @@ function compilePlan(a, len, final) {
       let rOp = ops[rType]
       if (rOp?.whole) throw new Error(`audio: whole-render op '${rType}' cannot be emitted by expand/resolve`)
       if (rOp?.plan && typeof rOp.plan === 'function') {
+        bake()
         let { at: rAt, duration: rDur, channel: rCh, ...rExtra } = o
         let t = planLen(segs), rOff = rAt != null ? Math.round(rAt * sr) : null, rLen = rDur != null ? Math.round(rDur * sr) : null
         let rpctx = mkPlanCtx(t, sr, rOff, rLen, rExtra)
@@ -588,11 +691,24 @@ function compilePlan(a, len, final) {
     }
   }
 
-  for (let edit of a.edits) {
+  for (let [i, edit] of a.edits.entries()) {
+    index = i; bakes = 0
     let [type, o = {}] = edit
     let { at, duration, channel, ...extra } = o
     let op = ops[type]
     if (!op) throw new Error(`Unknown op: ${type}`)
+
+    if (type === 'copy' || type === 'cut') {
+      if (!final) { limit = 0; continue }
+      // The crop bakes the processed prefix, so fades/filters keep their time coordinates
+      clipboard = snapshot(index).crop(o)
+      if (type === 'copy') continue
+    }
+    if (type === 'paste' || type === 'cut') {
+      if (!final) { limit = 0; continue }
+      if (!clipboard) throw new Error('paste: clipboard is empty; call copy() or cut() first')
+      if (type === 'paste') extra.source = clipboard
+    }
 
     if (!final && at != null && at < 0) limit = 0
 
@@ -611,6 +727,20 @@ function compilePlan(a, len, final) {
     if (op.resolve) {
       let stats = resolveCtxStats(a, segs, pipeline, sr, final)
       let ctx = { stats, sampleRate: sr, channelCount: ch, channel, at, duration, totalDuration: planLen(segs) / sr, final, ...extra }
+      // What-if render: block stats of the plan so far + candidate pipeline edits. Only
+      // once the whole signal is known: the candidate must hold for the full output.
+      if (final && audio.statSession) ctx.measure = emitted => {
+        let pl = pipeline.slice(), lat = latency
+        for (let re of Array.isArray(emitted[0]) ? emitted : [emitted]) {
+          let [t, o] = normalizeEdit(re, sr)
+          if (ops[t]?.plan || ops[t]?.whole) throw new Error(`measure: '${t}' is structural; pipeline ops only`)
+          o.at ??= at; o.duration ??= duration; o.channel ??= channel
+          pl.push([t, o]); lat += procLatency(ops[t], o, sr)
+        }
+        let s = audio.statSession(sr)
+        for (let chunk of streamPlan(a, { segs, pipeline: pl, totalLen: planLen(segs), sr, ch, latency: lat, pulls })) s.page(chunk)
+        return s.done()
+      }
       let resolved = op.resolve(ctx)
       if (resolved === false) { if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }; continue }
       if (resolved) {
@@ -655,6 +785,7 @@ function compilePlan(a, len, final) {
     }
 
     if (op.plan) {
+      bake()
       let t = planLen(segs), offset = at != null ? Math.round(at * sr) : null, length = duration != null ? Math.round(duration * sr) : null
       let pctx = mkPlanCtx(t, sr, offset, length, extra)
       segs = op.plan(segs, pctx)
@@ -751,14 +882,15 @@ function readRange(a, srcStart, n) {
   if (refStack.has(a)) throw new Error('audio: circular source reference')
   refStack.add(a)
   try {
-    let plan = buildPlan(a), sr = plan.sr
-    return readPlan(a, plan, srcStart / sr, n / sr)
+    // An edited source (insert/paste/mix) is read block by block — stream it like a
+    // stage, so its processor state carries across blocks instead of re-warming each one
+    let plan = buildPlan(a)
+    plan.cur ??= a._.cursor ??= { pos: 0, hl: 0 }
+    plan.outCh ??= stageWidth(plan.pipeline, plan.ch, plan.totalLen / plan.sr, plan.sr)
+    return readStage(a, plan, srcStart, n)
   } finally { refStack.delete(a) }
 }
 
-/** Render one output block from plan segments into pre-allocated chunk.
- *  chunk width = plan width (may differ from a._.ch after a channel-changing
- *  whole op) — ref channels wrap, self segs can't exceed the source width. */
 /** Iterate segments overlapping output range [from, to). Sorted tilings (the
  *  common case — verified once per array) binary-search the window instead of
  *  scanning: piecewise plans (sliding stretch) produce thousands of segments. */
@@ -782,44 +914,167 @@ function eachSeg(segs, from, to, cb) {
   for (let i = 0; i < n; i++) cb(segs[i])
 }
 
+/** Render one output block from plan segments into pre-allocated chunk.
+ *  chunk width = plan width (may differ from a._.ch after a channel-changing
+ *  whole op) — ref channels wrap, self segs can't exceed the source width. */
 function renderBlock(a, segs, outOff, len, chunk) {
   eachSeg(segs, outOff, outOff + len, sg => {
     let iStart = Math.max(outOff, sg[2]), iEnd = Math.min(outOff + len, sg[2] + sg[1])
     if (iStart >= iEnd) return
-    let rate = sg[3] || 1, ref = sg[4], interp = sg[5], absR = Math.abs(rate)
-    let n = iEnd - iStart, dstOff = iStart - outOff
-    let srcStart = segSrcStart(sg, iStart, n)
-    if (ref === null) {
-      // zero-filled by default
-    } else if (ref) {
-      if (ref.edits.length === 0) {
-        for (let c = 0; c < chunk.length; c++)
-          readSource(ref, c % ref._.ch, srcStart, n, chunk[c], dstOff, rate, interp)
-      } else {
-        let margin = (interp && interp.margin) || 0
-        let base = Math.floor(srcStart), frac = srcStart - base
-        let srcN = Math.ceil(frac + n * absR) + 1 + 2 * margin
-        let bufStart = base - margin
-        let copyOff = bufStart < 0 ? -bufStart : 0
-        let copyStart = Math.max(0, bufStart)
-        let srcPcm = readRange(ref, copyStart, srcN - copyOff)
-        for (let c = 0; c < chunk.length; c++) {
-          let src = srcPcm[c % srcPcm.length]
-          if (copyOff || src.length < srcN) {
-            let buf = new Float32Array(srcN)
-            buf.set(src.subarray(0, srcN - copyOff), copyOff)
-            src = buf
-          }
-          if (absR === 1) {
-            if (rate < 0) { for (let i = 0; i < n; i++) chunk[c][dstOff + i] = src[n - 1 - i] }
-            else chunk[c].set(src.subarray(0, n), dstOff)
-          } else (interp || resample)(src, chunk[c], dstOff, n, rate, margin + frac)
-        }
-      }
-    } else {
-      for (let c = 0, N = Math.min(chunk.length, a._.ch); c < N; c++) readSource(a, c, srcStart, n, chunk[c], dstOff, rate, interp)
-    }
+    if (sg[6]) renderEnvSeg(a, sg, chunk, iStart - outOff, iEnd - iStart, iStart)
+    else renderSeg(a, sg, chunk, iStart - outOff, iEnd - iStart, iStart)
   })
+}
+
+// Scratch for envelope segments, one set per nesting depth (a stage read inside an
+// envelope segment can render envelope segments of its own)
+let _envPool = [], _envDepth = 0
+
+/** Render an envelope segment into scratch and add it to chunk: gain Π sin(p·π/2), p linear
+ *  along the segment at sample centers, so a crossfade pair sums to constant power. */
+function renderEnvSeg(a, sg, chunk, dstOff, n, at) {
+  let pool = _envPool[_envDepth] ??= []
+  let tmp = Array.from({ length: chunk.length }, (_, c) => {
+    if (!(pool[c]?.length >= n)) pool[c] = new Float32Array(Math.max(n, audio.BLOCK_SIZE))
+    return pool[c].fill(0, 0, n)
+  })
+  _envDepth++
+  try { renderSeg(a, sg, tmp, 0, n, at) } finally { _envDepth-- }
+  let e = sg[6], L = sg[1], h = Math.PI / 2
+  for (let i = 0; i < n; i++) {
+    let u = (at + i - sg[2] + 0.5) / L, g = 1
+    for (let k = 0; k < e.length; k += 2) g *= Math.sin((e[k] + (e[k + 1] - e[k]) * u) * h)
+    for (let c = 0; c < chunk.length; c++) chunk[c][dstOff + i] += tmp[c][i] * g
+  }
+}
+
+/** Render n output samples of one segment, starting at output position `at`, into
+ *  chunk at dstOff. Sources: silence (null), a's pages (undefined), an instance, or a
+ *  stage — the processed prefix a structural op baked (read through its cursor). */
+function renderSeg(a, sg, chunk, dstOff, n, at) {
+  let rate = sg[3] || 1, ref = sg[4], interp = sg[5], absR = Math.abs(rate)
+  let srcStart = segSrcStart(sg, at, n)
+  if (ref === null) return  // zero-filled by default
+  if (ref === undefined) {
+    for (let c = 0, N = Math.min(chunk.length, a._.ch); c < N; c++) readSource(a, c, srcStart, n, chunk[c], dstOff, rate, interp)
+    return
+  }
+  if (!ref.segs && !ref.edits.length) {
+    for (let c = 0; c < chunk.length; c++) readSource(ref, c % ref._.ch, srcStart, n, chunk[c], dstOff, rate, interp)
+    return
+  }
+  let margin = (interp && interp.margin) || 0
+  let base = Math.floor(srcStart), frac = srcStart - base
+  let srcN = Math.ceil(frac + n * absR) + 1 + 2 * margin
+  let bufStart = base - margin
+  let copyOff = bufStart < 0 ? -bufStart : 0
+  let copyStart = Math.max(0, bufStart)
+  let srcPcm = ref.segs ? readStage(a, ref, copyStart, srcN - copyOff) : readRange(ref, copyStart, srcN - copyOff)
+  for (let c = 0; c < chunk.length; c++) {
+    let src = srcPcm[c % srcPcm.length]
+    if (copyOff || src.length < srcN) {
+      let buf = new Float32Array(srcN)
+      buf.set(src.subarray(0, srcN - copyOff), copyOff)
+      src = buf
+    }
+    if (absR === 1) {
+      if (rate < 0) { for (let i = 0; i < n; i++) chunk[c][dstOff + i] = src[n - 1 - i] }
+      else chunk[c].set(src.subarray(0, n), dstOff)
+    } else (interp || resample)(src, chunk[c], dstOff, n, rate, margin + frac)
+  }
+}
+
+// ── Stages ─────────────────────────────────────────────────────
+
+/** Output width of a pipeline — channel-changing stages fold like initProcs. */
+function stageWidth(pipeline, ch, totalDur, sr) {
+  for (let [type, o = {}] of pipeline) {
+    let desc = ops[type]
+    if (!desc?.ch) continue
+    let { at, duration, channel, ...extra } = o
+    ch = desc.ch(ch, { duration, sampleRate: sr, totalDuration: totalDur, render, ...extra }) || ch
+  }
+  return ch
+}
+
+/** Cursor for the stage baked at edit `index` (the n-th bake there). It outlives
+ *  recompiles — decode growth, edits appended later — while the edits before it stay
+ *  the same objects and no referenced source changed, so live playback continues the
+ *  stage's processor state instead of re-warming each recompile. */
+function stageCursor(a, index, n) {
+  let edit = a.edits[index], stages = a._.stages ??= new WeakMap()
+  let list = stages.get(edit)
+  if (!list) stages.set(edit, list = [])
+  let c = list[n], rv = refVersion(a)
+  if (!c || c.rv !== rv || c.prefix.length !== index || c.prefix.some((e, i) => e !== a.edits[i]))
+    list[n] = c = { prefix: a.edits.slice(0, index), rv, pos: 0, hl: 0 }
+  return c
+}
+
+/** Same timeline, up to decode growth of the last segment — produced output stays valid. */
+function sameTimeline(x, y) {
+  if (x.length !== y.length) return false
+  for (let i = 0; i < x.length; i++) {
+    let s = x[i], t = y[i]
+    if (s[0] !== t[0] || s[2] !== t[2] || s[3] !== t[3] || s[5] !== t[5]) return false
+    if (s[6] !== t[6] && String(s[6]) !== String(t[6])) return false  // envelope values, not identity
+    if (s[4] !== t[4] && !(s[4]?.cur && s[4].cur === t[4]?.cur)) return false
+    if (s[1] !== t[1] && !(i === x.length - 1 && t[1] > s[1])) return false
+  }
+  return true
+}
+
+/** Move a cursor onto a recompiled stage: keep processor state when the timeline and
+ *  pipeline structure hold (values patch in place, ramped), else drop it. */
+function carryStage(c, st) {
+  let old = c.st
+  c.st = st
+  if (!c.procs) return
+  if (!old || old.sr !== st.sr || old.ch !== st.ch || old.latency !== st.latency ||
+      pipelineSig(st.pipeline) !== c.sig || !sameTimeline(old.segs, st.segs)) { c.procs = null; return }
+  let td = st.totalLen / st.sr
+  for (let p of c.procs) p.ctx.totalDuration = td
+  patchProcs(c.procs, st.pipeline)
+}
+
+/** Start a stage cursor at timeline sample s, warmed up like streamPlan: up to WARMUP
+ *  blocks before the latency-shifted cursor, never past s. */
+function seekStage(st, c, s) {
+  let BS = audio.BLOCK_SIZE, T = st.latency, sc = s + T
+  c.procs = initProcs(st.pipeline, st.totalLen / st.sr, st.sr, st.ch)
+  c.sig = pipelineSig(st.pipeline)
+  c.buf = Array.from({ length: st.ch }, () => new Float32Array(BS))
+  c.hist = Array.from({ length: st.outCh }, () => new Float32Array(BS))
+  c.hl = 0
+  c.pos = (sc > 0 ? Math.max(0, Math.min(s, sc - BS * WARMUP)) : sc) - T
+}
+
+/** Read timeline samples [s, s + n) of a stage. Contiguous reads continue its cursor, so
+ *  processor state stays exact; overlaps come from a one-block history; a jump back or
+ *  far ahead re-seeks with warm-up — the approximation seeking already makes. */
+function readStage(a, st, s, n) {
+  let c = st.cur, BS = audio.BLOCK_SIZE, T = st.latency
+  if (c.st !== st) carryStage(c, st)
+  if (!c.procs || s < c.pos - c.hl || s > c.pos + BS * WARMUP) seekStage(st, c, s)
+  let out = Array.from({ length: st.outCh }, () => new Float32Array(n))
+  let k = Math.min(c.pos, s + n) - s
+  if (k > 0) for (let ch = 0; ch < out.length; ch++) out[ch].set(c.hist[ch].subarray(BS - (c.pos - s), BS - (c.pos - s) + k))
+  while (c.pos < s + n) {
+    let len = Math.min(BS, (c.pos < s ? s : s + n) - c.pos)
+    for (let b of c.buf) b.fill(0, 0, len)
+    renderBlock(a, st.segs, c.pos + T, len, c.buf)
+    let src = len < BS ? c.buf.map(b => b.subarray(0, len)) : c.buf
+    let blk = applyProcs(src, c.procs, c.pos + T, st.sr)
+    for (let ch = 0; ch < out.length; ch++) {
+      let b = blk[ch % blk.length].subarray(0, len), h = c.hist[ch]
+      if (c.pos >= s) out[ch].set(b, c.pos - s)
+      if (len >= BS) h.set(b.subarray(len - BS))
+      else { h.copyWithin(0, len); h.set(b, BS - len) }
+    }
+    c.hl = Math.min(BS, c.hl + len)
+    c.pos += len
+  }
+  return out
 }
 
 // Sub-block size for engine-resolved param changes (automation fns, patch ramps) —
@@ -867,7 +1122,15 @@ function applyProcs(bufA, procs, outOff, sr) {
       let outV = full ? out : out.map(ch => ch.subarray(i0, i1))
       if (channel != null) {
         let chs = typeof channel === 'number' ? [channel] : channel
-        for (let c = 0; c < inV.length; c++) if (!chs.includes(c)) outV[c].set(inV[c])
+        // Channels outside the scope pass through, delayed by the stage's latency, so they
+        // stay aligned with the processed ones once the engine compensates the whole stage
+        for (let c = 0; c < inV.length; c++) if (!chs.includes(c)) {
+          if (!proc.lat) { outV[c].set(inV[c]); continue }
+          let d = (proc.dl ??= [])[c] ??= new Float32Array(proc.lat), x = inV[c], y = outV[c]
+          let j = (proc.di ??= [])[c] ?? 0
+          for (let i = 0; i < x.length; i++) { y[i] = d[j]; d[j] = x[i]; if (++j === d.length) j = 0 }
+          proc.di[c] = j
+        }
         op(chs.map(c => inV[c]), chs.map(c => outV[c]), ctx)
       } else op(inV, outV, ctx)
     }
@@ -945,8 +1208,8 @@ function initProcs(pipeline, totalDur, sr, nch) {
     if (outCh) curCh = outCh
     // Cumulative latency of prior stages — this stage's input content sits preLat
     // cursor samples later than its timeline position
-    let myPre = preLat
-    preLat += procLatency(desc, o, sr)
+    let myPre = preLat, lat = procLatency(desc, o, sr)
+    preLat += lat
     // Function-valued (or breakpoint-curve) params become engine automation unless the
     // op samples them itself (auto: 'sample') or declares genuine function args (fnArgs)
     let fns = null, autos = null
@@ -967,7 +1230,7 @@ function initProcs(pipeline, totalDur, sr, nch) {
       channel,
       outCh,
       ranged: !!desc.ranged,
-      preLat: myPre,
+      preLat: myPre, lat,
       out: Array.from({ length: w }, () => new Float32Array(BS)),
       fns, autos, ramp: null,
       ctx
@@ -981,10 +1244,12 @@ function maxSrcSample(segs, start, end) {
   eachSeg(segs, start, end, sg => {
     let iStart = Math.max(start, sg[2]), iEnd = Math.min(end, sg[2] + sg[1])
     if (iStart >= iEnd) return
-    if (sg[4] === null || sg[4]) return  // silence or external ref
+    let ref = sg[4]
+    if (ref === null || ref?.pages) return  // silence or external ref
     let rate = sg[3] || 1, absR = Math.abs(rate), margin = (sg[5] && sg[5].margin) || 0
-    let n = iEnd - iStart
-    max = Math.max(max, Math.ceil(segSrcStart(sg, iStart, n) + n * absR) + 1 + margin)
+    let n = iEnd - iStart, top = Math.ceil(segSrcStart(sg, iStart, n) + n * absR) + 1 + margin
+    // a stage reads its own segments, its cursor running latency ahead
+    max = Math.max(max, ref ? maxSrcSample(ref.segs, 0, top + ref.latency) : top)
   })
   return max
 }

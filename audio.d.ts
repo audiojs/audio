@@ -21,6 +21,8 @@ export interface AudioInstance {
   readonly length: number
   /** Effective duration in seconds */
   readonly duration: number
+  /** Stored sample depth of the source (16, 24, 32 = float); null for lossy or generated audio. Lossless save() keeps it. */
+  readonly bitDepth: number | null
   /** Original source reference (URL/path string, or null for PCM-backed) */
   source: string | null
   /** Storage mode */
@@ -87,7 +89,8 @@ export interface AudioInstance {
   /** Async-iterable over materialized blocks. `for await (let block of a)` uses default range. */
   [Symbol.asyncIterator](): AsyncGenerator<Float32Array[], void, unknown>
   /** Ensure stats are fresh, return stats + block range */
-  stat(name: 'db' | 'rms' | 'loudness' | 'peak' | 'crest', opts?: { at?: Time, duration?: Time, channel?: number | number[] }): Promise<number | number[]>
+  /** loudness: integrated LUFS (BS.1770-4, surround weighted) · momentary/shortterm: max 400 ms / 3 s LUFS (EBU Tech 3341) · dialog: speech-gated LUFS (AES TD1008) */
+  stat(name: 'db' | 'rms' | 'loudness' | 'momentary' | 'shortterm' | 'dialog' | 'peak' | 'crest', opts?: { at?: Time, duration?: Time, channel?: number | number[] }): Promise<number | number[]>
   stat(name: 'clipping', opts?: { at?: Time, duration?: Time }): Promise<Float32Array>
   stat(name: 'clipping', opts: { bins: number, at?: Time, duration?: Time }): Promise<Float32Array>
   stat(name: 'dc', opts?: { at?: Time, duration?: Time }): Promise<number>
@@ -119,8 +122,20 @@ export interface AudioInstance {
 
   // ── Structural ops ───────────────────────────────────────────
   crop(opts?: { at?: Time, duration?: Time }): this
-  insert(other: AudioSource, opts?: { at?: Time }): this
-  remove(opts?: { at?: Time, duration?: Time }): this
+  /** crossfade: seconds or '10ms', equal-power fades at both seams */
+  insert(other: AudioSource, at?: Time | { at?: Time, crossfade?: Time }, crossfade?: Time): this
+  /** Copy a range to this instance's clipboard without changing its audio. Undoable. */
+  copy(opts?: { at?: Time, duration?: Time }): this
+  copy(at: Time, duration?: Time): this
+  /** Copy a range to the clipboard and remove it in one undoable edit. */
+  cut(opts?: { at?: Time, duration?: Time }): this
+  cut(at: Time, duration?: Time): this
+  /** Insert the latest copied or cut range; defaults to append. Keeps the clipboard. */
+  paste(opts?: { at?: Time }): this
+  paste(at: Time): this
+  /** crossfade: seconds or '10ms', an equal-power crossfade centered on the splice; length unchanged */
+  remove(opts?: { at?: Time, duration?: Time, crossfade?: Time }): this
+  remove(at: Time, duration?: Time, crossfade?: Time): this
   repeat(times: number, opts?: { at?: Time, duration?: Time }): this
   pad(before: number, after?: number): this
   speed(rate: number): this
@@ -132,8 +147,11 @@ export interface AudioInstance {
   gain(value: number | ((t: number) => number), opts?: { at?: Time, duration?: Time, channel?: number | number[], unit?: 'db' | 'linear' }): this
   /** Fade in (positive) / out (negative). Adjustable: start/end gain levels (0..1) and mid — position of the half-amplitude point within the fade */
   fade(duration: Time, curve?: 'linear' | 'exp' | 'log' | 'cos', opts?: { at?: Time, start?: number, end?: number, mid?: number }): this
+  fade(fadeIn: Time, fadeOut: Time, curve?: 'linear' | 'exp' | 'log' | 'cos'): this
   reverse(opts?: { at?: Time, duration?: Time }): this
-  mix(other: AudioSource, opts?: { at?: Time, duration?: Time }): this
+  /** Mix another source in at `at`, `gain` dB (FFmpeg amix weights) */
+  mix(other: AudioSource, opts?: { at?: Time, duration?: Time, gain?: number }): this
+  mix(other: AudioSource, at?: Time, gain?: number, opts?: { duration?: Time }): this
   crossfade(other: AudioSource, duration?: Time, curve?: 'linear' | 'exp' | 'log' | 'cos'): this
   write(data: Float32Array[] | Float32Array, opts?: { at?: Time }): this
   remix(channels: number | (number | null)[]): this
@@ -142,8 +160,9 @@ export interface AudioInstance {
   // ── Filters ──────────────────────────────────────────────────
   filter(type: FilterType, ...params: number[]): this
   filter(fn: (data: Float32Array, params: Record<string, unknown>) => void, opts?: Record<string, unknown>): this
-  highpass(freq: number): this
-  lowpass(freq: number): this
+  /** order: even Butterworth order: 2 (12 dB/oct, default), 4 (24), 6, 8 */
+  highpass(freq: number, order?: number): this
+  lowpass(freq: number, order?: number): this
   bandpass(freq: number, Q?: number): this
   notch(freq: number, Q?: number): this
   eq(freq: number, gain?: number, Q?: number): this
@@ -157,6 +176,12 @@ export interface AudioInstance {
   crossfeed(freq?: number, level?: number): this
   /** Band-splitting crossover (LR4, allpass-aligned flat sum) — N split freqs → N+1 bands × channels, band-major */
   crossover(...freqs: (number | number[])[]): this
+  /** Match EQ: fit up to `bands` (8) parametric bands so this source's tonal balance follows `reference`; `amount` 0..1 */
+  match(reference: AudioSource, amount?: number, opts?: { bands?: number }): this
+  /** Spectral edit: gain (dB, default: remove) on `band` [low, high] Hz over the time range */
+  spectral(band?: [number, number], gain?: number, opts?: { at?: Time, duration?: Time }): this
+  /** Spectral repair: rebuild a damaged time range (optionally one band) from its surroundings */
+  repair(band?: [number, number] | { at: Time, duration: Time }, opts?: { at: Time, duration: Time }): this
   resample(targetRate: number, opts?: { type?: 'linear' | 'sinc' }): this
 
   // ── Smart ops ───────────────────────────────────────────────
@@ -164,10 +189,13 @@ export interface AudioInstance {
   /** Compress silent pauses to a target gap (seconds, default 0.3) throughout, or within {at, duration} */
   shrink(gap?: number, threshold?: number): this
   shrink(opts: { gap?: number, threshold?: number, at?: Time, duration?: Time }): this
+  /** Loudness targets (presets, mode 'lufs') hold a true-peak ceiling, -1 dBTP by default: a lookahead
+   *  limiter, then loudness made up to the target. `ceiling`: dBTP, or false for none. */
   normalize(): this
-  normalize(preset: 'streaming' | 'podcast' | 'broadcast'): this
-  normalize(targetDb: number, opts?: 'lufs' | { mode?: 'peak' | 'lufs' | 'rms', at?: Time, duration?: Time, channel?: number | number[] }): this
-  normalize(opts: { target?: number, mode?: 'peak' | 'lufs' | 'rms', at?: Time, duration?: Time, channel?: number | number[], dc?: boolean, ceiling?: number }): this
+  normalize(preset: 'streaming' | 'podcast' | 'broadcast', opts?: NormalizeOpts): this
+  normalize(target: number, mode?: 'peak' | 'lufs' | 'rms', opts?: NormalizeOpts): this
+  normalize(target: number, opts?: NormalizeOpts): this
+  normalize(opts: NormalizeOpts & { target?: number | 'streaming' | 'podcast' | 'broadcast' }): this
 
   // ── Fns (registered via audio.fn) ───────────────────────────
   clip(opts?: { at?: Time, duration?: Time }): AudioInstance
@@ -181,9 +209,10 @@ export interface AudioInstance {
   stop(): this
   /** Live stats during playback. Listener-gated (zero cost when nothing subscribes). Omit cb for pull-style via probe.value. */
   meter(what: string | string[] | MeterOpts, cb?: (value: any) => void): MeterProbe
-  save(target: string | FileSystemWritableFileStream, opts?: { format?: string, at?: Time, duration?: Time, meta?: Meta | false, markers?: Marker[], regions?: Region[] }): Promise<void>
-  encode(format?: string, opts?: { at?: Time, duration?: Time, meta?: Meta | false, markers?: Marker[], regions?: Region[] }): Promise<Uint8Array>
-  encode(opts?: { at?: Time, duration?: Time, meta?: Meta | false, markers?: Marker[], regions?: Region[] }): Promise<Uint8Array>
+  /** Encode and write. An MP4/MOV source saved to .mp4/.mov/.m4v keeps its video (audio track swapped). */
+  save(target: string | FileSystemWritableFileStream, opts?: EncodeOpts & { format?: string, video?: boolean }): Promise<void>
+  encode(format?: string, opts?: EncodeOpts): Promise<Uint8Array>
+  encode(opts?: EncodeOpts): Promise<Uint8Array>
   clone(): AudioInstance
 }
 
@@ -247,6 +276,35 @@ export interface Region {
   label?: string
 }
 
+export interface NormalizeOpts {
+  mode?: 'peak' | 'lufs' | 'rms'
+  /** True-peak ceiling, dBTP (loudness targets default to -1); false disables it */
+  ceiling?: number | false
+  /** Remove DC offset first (default true) */
+  dc?: boolean
+  at?: Time
+  duration?: Time
+  channel?: number | number[]
+}
+
+export interface EncodeOpts {
+  at?: Time
+  duration?: Time
+  meta?: Meta | false
+  markers?: Marker[]
+  regions?: Region[]
+  /** Sample depth for lossless formats; default: the source's (16 when unknown) */
+  bitDepth?: 16 | 24 | 32
+  /** kbps: mp3 (CBR), opus, aac, m4a */
+  bitrate?: number
+  /** VBR quality: mp3 0–9 (LAME -V), ogg 0–10 */
+  quality?: number
+  /** m4a/mp4 track codec: 'aac' (browser), 'alac', 'flac' (Node default), 'opus', 'mp3', 'pcm' */
+  codec?: string
+  /** FLAC compression level 0–8 */
+  compression?: number
+}
+
 
 export interface AudioOpts {
   sampleRate?: number
@@ -306,8 +364,13 @@ export interface OpDescriptor {
   frames?: (frames: number, ctx: Record<string, any>, sampleRate: number) => number
   /** Hosted contract plugin (audio.js manifest factory), when this op wraps one */
   plugin?: Function
-  /** Pure per-sample transform (output depends only on input value) — engine auto-derives min/max/clipping stats by probing `process` with edge values. */
+  /** Pure, monotonic per-sample transform: the engine derives min/max/clipping by probing `process` with block extremes; energy/ms/dc queries re-render. */
   pointwise?: boolean
+  /** Lazy module for the op (e.g. `() => import('@audio/x')`), resolved at LOAD onto `mod` before plans compile */
+  load?: () => Promise<any>
+  mod?: any
+  /** Whole-render processing, once over the entire signal (materialized plan so far) */
+  whole?: (input: Float32Array[], output: Float32Array[], ctx: Record<string, any>) => void
   /** Algebraic stats update for advanced cases pointwise can't cover (e.g. rms/dc/energy) — mutate `stats` in place, or return `false` to bail to a full recompute. */
   deriveStats?: (stats: AudioStats, opts: Record<string, any>) => void | false
   hidden?: boolean
@@ -365,6 +428,8 @@ declare namespace audio {
     reduce?: (blockValues: Float32Array, from: number, to: number) => number
     /** Derived aggregation from block stats */
     query?: (stats: AudioStats, chs: number[], from: number, to: number, sr: number) => any
+    /** Block fields the query reads; derived stats lacking one re-render instead */
+    fields?: string[]
   }
   function stat(): Record<string, StatDescriptor>
   function stat(name: string): StatDescriptor | undefined

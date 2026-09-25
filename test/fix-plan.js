@@ -458,3 +458,174 @@ test('mix/write past the first block — unranged position ops anchor at absolut
   t.ok(Math.abs(r[Math.round(sr * 0.3)] - 0.8) < 0.01, 'ranged mix adds inside range')
   t.ok(Math.abs(r[Math.round(sr * 0.6)] - 0.5) < 0.01, 'ranged mix silent outside range')
 })
+
+// ── Sequential semantics: a structural op works on the processed audio before it ──
+// Reference: render the processed audio, then apply the structural edit to plain arrays.
+
+const sr0 = 8000
+const dc = (v, n = sr0) => audio.from([new Float32Array(n).fill(v)], { sampleRate: sr0 })
+const maxDiff = (a, b) => { let m = a.length === b.length ? 0 : Infinity; for (let i = 0; i < a.length; i++) m = Math.max(m, Math.abs(a[i] - b[i])); return m }
+
+test('gain then insert: inserted audio stays unprocessed', async t => {
+  let pcm = (await dc(0.5).gain(-6).insert(dc(0.5), { at: 0.5 }).read())[0]
+  t.ok(Math.abs(pcm[100] - 0.5 * 10 ** (-6 / 20)) < 1e-6, `before splice: gained (${pcm[100]})`)
+  t.is(pcm[sr0 / 2 + 100], 0.5, 'inserted: untouched')
+  t.ok(Math.abs(pcm[sr0 + sr0 / 2 + 100] - 0.5 * 10 ** (-6 / 20)) < 1e-6, 'after splice: gained')
+})
+
+test('ranged gain then insert before it: the range follows its samples', async t => {
+  let pcm = (await dc(0.5).gain(-60, { at: 0.5, duration: 0.25 }).insert(dc(0.5, sr0 / 4), { at: 0 }).read())[0]
+  t.is(pcm[sr0 / 2 + 100], 0.5, 'old range position now holds unprocessed audio')
+  t.ok(pcm[sr0 * 0.75 + 100] < 0.001, `range moved by the insert (${pcm[sr0 * 0.75 + 100]})`)
+})
+
+test('fade-out then pad: the fade stays on the original end', async t => {
+  let pcm = (await dc(0.5).fade(0, 0.5).pad(0, 0.5).read())[0]
+  t.ok(pcm[sr0 - 10] < 0.01, `original end faded (${pcm[sr0 - 10]})`)
+  t.is(pcm[sr0 + 100], 0, 'padding is silence')
+})
+
+test('automation then remove: time follows the original samples', async t => {
+  let pcm = (await dc(1).gain(t => t < 0.5 ? 0 : -60).remove({ at: 0, duration: 0.25 }).read())[0]
+  t.ok(Math.abs(pcm[sr0 / 4 + 100]) < 0.01, `sample from 0.5s keeps its -60dB (${pcm[sr0 / 4 + 100]})`)
+  t.ok(Math.abs(pcm[100] - 1) < 1e-6, 'sample from 0.25s keeps 0dB')
+})
+
+// Unbounded memory: any state restart shows, however long the warm-up
+audio.op('runsum', { process: (input, output, ctx) => {
+  for (let c = 0; c < input.length; c++) {
+    let acc = (ctx.acc ??= [])[c] ?? 0
+    for (let i = 0; i < input[c].length; i++) output[c][i] = acc += input[c][i]
+    ctx.acc[c] = acc
+  }
+}})
+
+test('stateful op then insert: contiguous stage reads keep state exact', async t => {
+  let src = () => dc(1e-4, sr0 * 3)
+  let summed = (await src().runsum().read())[0]
+  let out = (await src().runsum().insert(0.25, { at: 2 }).read())[0]
+  let expect = new Float32Array(summed.length + sr0 / 4)
+  expect.set(summed.subarray(0, sr0 * 2)); expect.set(summed.subarray(sr0 * 2), sr0 * 2 + sr0 / 4)
+  t.is(maxDiff(out, expect), 0, 'bit-exact vs render-then-splice, past the warm-up horizon')
+})
+
+test('filter then crop / reverse match render-then-edit', async t => {
+  let src = () => audio.from([tone(440, 1, sr0)], { sampleRate: sr0 })
+  let filtered = (await src().lowpass(1000).read())[0]
+  let crop = (await src().lowpass(1000).crop({ at: 0.5, duration: 0.25 }).read())[0]
+  t.ok(maxDiff(crop, filtered.subarray(sr0 / 2, sr0 * 0.75)) < 1e-4, `crop within warm-up tolerance (${maxDiff(crop, filtered.subarray(sr0 / 2, sr0 * 0.75))})`)
+  let rev = (await src().lowpass(1000).reverse().read())[0]
+  t.ok(maxDiff(rev, filtered.slice().reverse()) < 1e-4, `reverse within warm-up tolerance (${maxDiff(rev, filtered.slice().reverse())})`)
+})
+
+test('stream equals read across a baked prefix', async t => {
+  let mk = () => audio.from([tone(440, 1, sr0)], { sampleRate: sr0 }).highpass(200).gain(-3).insert(dc(0.1, sr0 / 3), { at: 0.3 }).fade(0.1, 0.1)
+  let flat = (await mk().read())[0], parts = []
+  for await (let b of mk()) parts.push(b[0])
+  let streamed = new Float32Array(parts.reduce((n, p) => n + p.length, 0)), o = 0
+  for (let p of parts) { streamed.set(p, o); o += p.length }
+  t.is(maxDiff(streamed, flat), 0, 'streamed output identical')
+})
+
+test('gain then trim: resolve-emitted crop bakes the prefix too', async t => {
+  let x = new Float32Array(sr0).fill(0.5); x.fill(0, 0, sr0 / 4)
+  let plain = audio.from([x], { sampleRate: sr0 }).trim(-40)
+  let a = audio.from([x], { sampleRate: sr0 }).gain(-6).trim(-40)
+  let pcm = (await a.read())[0]
+  await plain.read()
+  t.ok(a.duration < 1 && a.duration === plain.duration, `trims like the ungained source (${a.duration} vs ${plain.duration})`)
+  t.ok(Math.abs(pcm[pcm.length - 100] - 0.5 * 10 ** (-6 / 20)) < 1e-6, 'gain applied')
+})
+
+test('stats after a baked prefix stay on the fast path and correct', async t => {
+  let a = dc(0.5).gain(-6).crop({ at: 0.25, duration: 0.5 })
+  let db = await a.stat('db')
+  t.ok(Math.abs(db - 20 * Math.log10(0.5 * 10 ** (-6 / 20))) < 0.01, `db (${db})`)
+})
+
+test('markers and regions project through a baked prefix', async t => {
+  let a = dc(0.5, sr0 * 2)
+  a.markers = [{ time: 1, label: 'm' }]
+  a.regions = [{ at: 1, duration: 0.5, label: 'r' }]
+  a.gain(-6).insert(dc(0.5, sr0 / 2), { at: 0 })
+  t.is(a.markers.map(m => m.time).join(), '1.5', 'marker shifted by the insert')
+  t.is(a.regions.map(r => [r.at, r.duration].join('/')).join(), '1.5/0.5', 'region shifted by the insert')
+})
+
+test('an edited source inserted elsewhere streams with continuous state', async t => {
+  let b = dc(1e-4, sr0 * 3).runsum()
+  let own = (await b.read())[0]
+  let out = (await dc(0, sr0 / 2).insert(b, { at: 0.25 }).read())[0]
+  t.is(maxDiff(out.subarray(sr0 / 4, sr0 / 4 + own.length), own), 0, 'bit-exact vs its own render (no per-block re-warm)')
+})
+
+// ── Bake edge cases ──
+
+const g6 = 0.5 * 10 ** (-6 / 20)
+const cat = parts => { let o = new Float32Array(parts.reduce((n, p) => n + p.length, 0)), i = 0; for (let p of parts) { o.set(p, i); i += p.length }; return o }
+
+test('bake: empty source, and splices at the start and at the very end', async t => {
+  let empty = await audio.from([new Float32Array(0)], { sampleRate: sr0 }).gain(-6).insert(dc(0.5, 100), { at: 0 }).read()
+  t.is(empty[0].length, 100, 'empty processed prefix + insert → only the insert')
+  t.ok(empty[0].every(v => v === 0.5), 'inserted samples untouched')
+  let a = (await dc(0.5, 1000).gain(-6).insert(dc(0.5, 10), { at: 0 }).insert(dc(0.5, 10), { at: 1010 / sr0 }).read())[0]
+  t.is(a.length, 1020, 'lengths add')
+  t.ok(a.subarray(0, 10).every(v => v === 0.5) && a.subarray(1010).every(v => v === 0.5), 'head and tail inserts untouched')
+  t.ok(a.subarray(10, 1010).every(v => Math.abs(v - g6) < 1e-6), 'processed body in between')
+})
+
+test('bake: A → A — the same instance reads and streams identically twice', async t => {
+  let a = dc(1e-4, sr0 * 3).runsum().insert(0.1, { at: 1 })
+  let r1 = (await a.read())[0], r2 = (await a.read())[0]
+  t.is(maxDiff(r1, r2), 0, 'two reads match')
+  let s1 = [], s2 = []
+  for await (let b of a) s1.push(b[0])
+  for await (let b of a) s2.push(b[0])
+  t.is(maxDiff(cat(s1), r1), 0, 'first stream matches read')
+  t.is(maxDiff(cat(s2), r1), 0, 'second stream matches read')
+})
+
+test('bake: one edited source inserted twice reads exactly both times', async t => {
+  let b = dc(1e-4, sr0 * 3).runsum()
+  let own = (await b.read())[0]
+  let out = (await dc(0, 10).insert(b, { at: 0 }).insert(b, { at: 3 }).read())[0]
+  t.is(maxDiff(out.subarray(0, own.length), own), 0, 'first copy exact')
+  t.is(maxDiff(out.subarray(sr0 * 3, sr0 * 3 + own.length), own), 0, 'second copy exact (cursor re-seeks to 0)')
+})
+
+test('bake: channel-changing, latency and resampling prefixes', async t => {
+  let st = (await dc(0.5, 1000).remix(2).gain(-6).insert(audio.from([new Float32Array(10).fill(0.5), new Float32Array(10).fill(0.5)], { sampleRate: sr0 }), { at: 0 }).read())
+  t.is(st.length, 2, 'stage keeps the widened channel count')
+  t.ok(st.every(c => c.subarray(0, 10).every(v => v === 0.5) && Math.abs(c[500] - g6) < 1e-6), 'both channels: insert untouched, body processed')
+
+  let mk = () => audio.from([tone(440, 1, sr0)], { sampleRate: sr0 }).pitch(2).insert(dc(0.25, sr0 / 4), { at: 0.5 })
+  let flat = (await mk().read())[0], parts = []
+  for await (let b of mk()) parts.push(b[0])
+  t.is(maxDiff(cat(parts), flat), 0, 'latency stage (pitch): stream ≡ read')
+  t.ok(flat.subarray(sr0 / 2, sr0 * 0.75).every(v => v === 0.25), 'insert after a latency stage lands aligned and untouched')
+
+  let rs = (await dc(0.5).gain(-6).resample(16000).read())[0]
+  t.is(rs.length, 16000, 'resampled prefix length')
+  t.ok(rs.subarray(4, -4).every(v => Math.abs(v - g6) < 1e-5), 'resampled stage reads contiguous overlaps without re-seeking artifacts')
+})
+
+test('bake: streaming a still-decoding source equals reading it decoded', async t => {
+  let done = await audio('test/fixture.wav'), sr = done.sampleRate
+  let ins = () => audio.from(Array.from({ length: done.channels }, () => new Float32Array(sr / 10).fill(0.25)), { sampleRate: sr })
+  let flat = await done.clone().highpass(200).gain(-6).insert(ins(), { at: 0.05 }).read()
+  let live = audio('test/fixture.wav').highpass(200).gain(-6).insert(ins(), { at: 0.05 }), parts = []
+  for await (let b of live) parts.push(b[0])
+  t.is(maxDiff(cat(parts), flat[0]), 0, 'recompiles during decode carry the stage cursor without seams')
+})
+
+test('bake: replacing the edits mid-stream (A → B) keeps streaming the new chain', async t => {
+  let a = dc(0.5, sr0 * 4).gain(-6).insert(dc(0.1, sr0 / 4), { at: 1 }), parts = [], n = 0
+  for await (let b of a) {
+    parts.push(b[0])
+    if (++n === 2) { a.undo(a.edits.length); a.run(['gain', { value: -12 }], ['insert', { source: dc(0.2, sr0 / 4), at: 3 }]) }
+  }
+  let out = cat(parts)
+  t.is(out.length, sr0 * 4 + sr0 / 4, 'length follows the new chain')
+  t.ok(Math.abs(out[sr0 * 2] - 0.5 * 10 ** (-12 / 20)) < 1e-6, `new gain after the switch (${out[sr0 * 2]})`)
+  t.ok(out.subarray(sr0 * 3, sr0 * 3.25).every(v => v === Math.fround(0.2)), 'new insert untouched')
+})

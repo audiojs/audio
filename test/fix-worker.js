@@ -78,6 +78,52 @@ test('worker: clip returns a linked sub-facade', async t => {
   t.ok(eq(pcm[0], (await lc.read())[0]), 'sub-facade read bit-exact')
 })
 
+test('worker: clipboard chain, Undo, clone and JSON replay match local samples', async t => {
+  const pcm = [Float32Array.of(.125, .25, .375, .5), Float32Array.of(-.125, -.25, -.375, -.5)]
+  const w = await audioWorker(pcm, { sampleRate: 4 })
+  const local = audio.from(pcm, { sampleRate: 4 })
+  const edit = a => a.copy({ at: .25, duration: .5 }).remove({ at: .25, duration: .5 }).paste(0).paste()
+  t.is(edit(w), w, 'chainable facade')
+  edit(local)
+  t.is(await w.read(), await local.read())
+  t.is(w.edits.map(e => e[0]), ['copy', 'remove', 'paste', 'paste'])
+  const undone = await w.undo(); local.undo()
+  t.is(undone, ['paste', {}])
+  const clone = await w.clone()
+  clone.copy({ duration: .25 }).paste()
+  w.paste(); local.paste()
+  t.is(await w.read(), await local.read(), 'clone clipboard does not replace original clipboard')
+  t.is((await clone.read())[0], Float32Array.of(.25, .375, .125, .5, .25))
+  const doc = await w.toJSON(), replay = await audioWorker(pcm, { sampleRate: 4 })
+  for (const e of doc.edits) await replay.run(e)
+  t.is(await replay.read(), await w.read(), 'serialized edits replay without embedded PCM')
+  const blocks = []
+  for await (const block of w.stream()) blocks.push(...block[0])
+  t.is(blocks, [...(await local.read())[0]], 'worker stream agrees')
+  await Promise.all([w.dispose(), clone.dispose(), replay.dispose()])
+})
+
+test('worker: Paste without Copy reports an error and recovers with Copy', async t => {
+  const w = await audioWorker([Float32Array.of(.25)], { sampleRate: 48000 })
+  await t.rejects(() => w.run(['paste']), /clipboard/)
+  t.is(w.edits.length, 0)
+  w.copy().paste()
+  t.is((await w.read())[0], Float32Array.of(.25, .25))
+  await w.dispose()
+})
+
+test('worker: Cut is one edit and Undo restores the previous clipboard', async t => {
+  const w = await audioWorker([Float32Array.of(.125, .25, .375, .5)], { sampleRate: 4 })
+  try {
+    w.copy(0, .25).cut(.25, .5).paste()
+    t.is((await w.read())[0], Float32Array.of(.125, .5, .25, .375))
+    t.is(await w.undo(), ['paste', {}])
+    t.is(await w.undo(), ['cut', { at: .25, duration: .5 }])
+    w.paste()
+    t.is((await w.read())[0], Float32Array.of(.125, .25, .375, .5, .125))
+  } finally { await w.dispose() }
+})
+
 test('worker: stream ≡ read across the boundary', async t => {
   let w = await audioWorker('test/fixture.wav')
   w.gain(-3)

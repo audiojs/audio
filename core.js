@@ -129,7 +129,7 @@ export default function audio(source, opts = {}) {
       a._.fmtV = -1  // invalidate cached format
       if (result.acc) a._.acc = result.acc
       if (result.estDuration) a._.estDur = result.estDuration
-      if (result.header) { a._.header = result.header; a._.format = result.format }
+      if (result.header) { a._.header = result.header; a._.format = result.format; a._.bits = headerBits(result.format, result.header) }
       emit(a, 'metadata', { sampleRate: result.sampleRate, channels: result.channels, estDuration: result.estDuration })
       metaEmitted = true
       for (let args of dataQueue.splice(0)) emit(a, 'data', ...args)
@@ -179,7 +179,7 @@ audio.from = function(source, opts = {}) {
   if (source?.pages) {
     return create([...source.pages], opts.sampleRate ?? source.sampleRate,
       opts.channels ?? source._.ch, source._.len,
-      { source: source.source, storage: source.storage, cache: source.cache, budget: opts.budget ?? source.budget }, source.stats)
+      { source: source.source, storage: source.storage, cache: source.cache, budget: opts.budget ?? source.budget, bitDepth: opts.bitDepth ?? source._.bits }, source.stats)
   }
   if (source?.getChannelData) {
     let chs = Array.from({ length: source.numberOfChannels }, (_, i) => new Float32Array(source.getChannelData(i)))
@@ -200,6 +200,33 @@ audio.from = function(source, opts = {}) {
   throw new TypeError('audio.from: expected Float32Array[], AudioBuffer, audio instance, function, or number')
 }
 
+
+
+/** Stored sample depth of encoded audio bytes (their header): what `a.bitDepth` reports for a
+ *  file source; for hosts that decode elsewhere (e.g. decodeAudioData) and build with audio.from. */
+export const bitDepth = bytes => { let h = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes); return headerBits(detectType(h), h) }
+
+/** Stored sample depth from a PCM container header: WAV `fmt ` bitsPerSample, AIFF `COMM`
+ *  sampleSize (AIFC fl32/fl64 → 32/64), FLAC STREAMINFO bits-per-sample. Null otherwise. */
+function headerBits(format, h) {
+  if (!h?.length) return null
+  let dv = new DataView(h.buffer, h.byteOffset, h.byteLength), id = o => String.fromCharCode(h[o], h[o + 1], h[o + 2], h[o + 3])
+  try {
+    if (format === 'flac') return id(0) === 'fLaC' ? ((h[20] & 1) << 4 | h[21] >> 4) + 1 : null
+    let le = format === 'wav', want = le ? 'fmt ' : format === 'aiff' ? 'COMM' : null
+    if (!want) return null
+    for (let o = 12; o + 8 <= h.length;) {
+      let size = dv.getUint32(o + 4, le)
+      if (id(o) === want) {
+        if (le) return dv.getUint16(o + 22, true)
+        let fl = size >= 22 ? id(o + 26).toLowerCase() : ''
+        return fl === 'fl32' ? 32 : fl === 'fl64' ? 64 : dv.getUint16(o + 14)
+      }
+      o += 8 + size + (size & 1)
+    }
+  } catch {}
+  return null
+}
 
 
 // ── Plugin Architecture ─────────────────────────────────────────────────
@@ -521,6 +548,7 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
       push: false,     // true only for pushable (audio(null)) instances — gates fn.stop()'s finalize branch
       disposed: false, // set by fn.dispose() — in-flight async continuations check this to abort
       evicting: false, // non-reentrant guard for scheduleEvict
+      bits: opts.bitDepth ?? null, // stored sample depth of a PCM source (header), null when lossy/unknown
     },
     writable: false, enumerable: false, configurable: false
   })
@@ -603,11 +631,21 @@ Object.defineProperties(fn, {
   length: { get() { return this._.len }, configurable: true },
   duration: { get() { return this.length / this.sampleRate }, configurable: true },
   channels: { get() { return this._.ch }, configurable: true },
+  /** Stored sample depth of the source (16, 24, 32 = float); null for lossy or generated audio. */
+  bitDepth: { get() { return this._.bits }, configurable: true },
   /** Source stats (pre-edit snapshot) — used by resolve-stage ops like normalize/trim. */
   srcStats: { get() { return this._.srcStats || this.stats || this._.acc?.stats }, configurable: true },
 })
 
+/** Resolve lazily loaded op modules (a descriptor's `load: () => import(...)` hook) for
+ *  the ops an instance's edits name, so sync plan compilation finds them on `desc.mod`.
+ *  Keeps atoms out of the bundle until an edit uses them. */
+export async function loadOps(a) {
+  for (let [type] of a.edits ?? []) { let d = audio.op?.(type); if (d?.load && !d.mod) d.mod = await (d.loading ??= d.load()) }
+}
+
 fn[LOAD] = async function() {
+  await loadOps(this)
   if (this._.ready) await this._.ready
   // Whole-render ops (streaming: false atoms) need the entire timeline — rendering
   // mid-decode processes a partial (or empty) signal: read() returned 0 samples and

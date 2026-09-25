@@ -81,7 +81,7 @@ Chat apps (Claude Desktop, Cursor, VS Code) get it as an MCP server, one tool th
 { "mcpServers": { "audio": { "command": "npx", "args": ["-y", "audio", "--mcp"] } } }
 ```
 
-Claude Code: `claude mcp add audio -- npx -y audio --mcp`. Plugins resolve next to `audio`: `npm i -g audio @audio/dynamics-compressor`, then use `"command": "audio"`.
+Claude Code: `claude mcp add audio -- npx -y audio --mcp`. Plugins (compressor, declick, ducker…) install with `audio` and load on first use.
 
 Then ask: *"make ~/Desktop/interview.m4a podcast-ready and tell me the loudness before and after"*.
 
@@ -230,6 +230,7 @@ let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 | `.recording` | true during mic recording. |
 | `.ready` | promise, resolves when fully decoded. |
 | `.source` | original source. |
+| `.bitDepth` | stored sample depth of the source: 16, 24, 32 (float); null for lossy or generated audio. Lossless `save` keeps it. |
 | `.pages` | `Float32Array` page store. |
 | `.stats` | per-block stats (peak, rms, etc.). |
 | `.edits` | edit list. |
@@ -242,11 +243,11 @@ let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 | `.trim(threshold?)` | strip leading/trailing silence (dB, default auto). |
 | `.shrink(gap?, threshold?)` | shorten silent pauses to `gap` seconds (default 0.3); `0` removes them.<br><sub>≡ FFmpeg `silenceremove`, Audacity truncate-silence</sub> |
 | `.crop({at, duration})` | keep range, discard rest. |
-| `.remove({at, duration})` | delete range, close gap. |
-| `.insert(source, {at})` | insert audio, or a number of seconds of silence. |
+| `.remove(at, duration, crossfade?)` | delete range, close gap. `crossfade` (`'10ms'`) makes the splice an equal-power crossfade centered on the cut; the length stays the same. |
+| `.insert(source, at?, crossfade?)` | insert audio (default: at end), or a number of seconds of silence; `crossfade` fades both seams. |
 | `.copy({at?, duration?})` | copy range (default: all) to this instance's clipboard. |
-| `.cut({at?, duration?})` | copy, then remove. |
-| `.paste({at?})` | insert the clipboard (default: at end). |
+| `.cut({at?, duration?, crossfade?})` | copy, then remove. |
+| `.paste({at?, crossfade?})` | insert the clipboard (default: at end). |
 | `.clip({at, duration})` | zero-copy excerpt as a new instance. |
 | `.split(...offsets)` | zero-copy excerpts between timestamps. |
 | `.pad(before, after?)` | silence at edges (seconds). |
@@ -262,6 +263,7 @@ Every op takes a trailing `{at, duration, channel}` range, except channel-changi
 ```js
 a.trim(-30)                               // strip silence below -30dB
 a.remove({ at: '2m', duration: 15 })      // delete 2:00–2:15, close gap
+a.remove(12.3, 0.4, '10ms')               // cut a breath, crossfaded: no click
 a.insert(intro, { at: 0 })                // prepend; .insert(3) appends 3s silence
 a.copy(60, 30).paste(120)                 // duplicate the chorus at 2:00
 a.cut(2, 1).paste(5)                      // move 2s–3s to 5s of the shortened timeline
@@ -278,8 +280,8 @@ a.remix([0, 0])                           // L→both; .remix(1) for mono
 |:--|:--|
 | `.gain(dB, opts?)` | `{ unit: 'linear' }` takes a multiplier. |
 | `.fade(in, out?, curve?)` | curves `'linear'` `'exp'` `'log'` `'cos'`. `{start, end}` levels 0..1 fade between any levels (a duck); `{mid}` skews the half-amplitude point.<br><sub>≡ Audacity adjustable-fade</sub> |
-| `.normalize(target?)` | remove DC, clamp, normalize. Presets per EBU R128 / ITU-R BS.1770-4 (≡ FFmpeg `loudnorm`):<br>`'podcast'` -16 LUFS, -1 dBTP<br>`'streaming'` -14 LUFS<br>`'broadcast'` -23 LUFS<br>`-3` peak dB; no arg: peak 0 dBFS<br>`{ mode }` `'peak'` `'rms'` `'lufs'`<br>`{ ceiling: -1 }` true-peak limit, dB<br>`{ dc: false }` keep DC |
-| `.mix(source, opts?)` | overlay, additive. |
+| `.normalize(target?, mode?)` | remove DC, normalize. Loudness targets hold a true-peak ceiling, -1 dBTP by default: a lookahead limiter, then the loudness it took made back up. Presets per Apple Podcasts, Spotify, EBU R 128 (ITU-R BS.1770-4):<br>`'podcast'` -16 LUFS<br>`'streaming'` -14 LUFS<br>`'broadcast'` -23 LUFS<br>`-18, 'lufs'` any loudness; `-3` peak dB; no arg: peak 0 dBFS; `'rms'` mode<br>`{ ceiling: -2 }` dBTP, `false` off<br>`{ dc: false }` keep DC<br><sub>≡ FFmpeg `loudnorm`</sub> |
+| `.mix(source, at?, gain?)` | overlay at `at` seconds, source level `gain` dB.<br><sub>≡ FFmpeg `amix` weights</sub> |
 | `.crossfade(source, duration?, curve?)` | append with overlap, default 0.5s. `'cos'` (default) suits similar material; `'equal'` (equal-power) keeps loudness across unrelated tracks.<br><sub>≡ FFmpeg `acrossfade`</sub> |
 | `.pan(value, opts?)` | −1 left, 0 center, 1 right. |
 | `.write(data, {at?})` | overwrite samples with raw PCM. |
@@ -291,7 +293,9 @@ a.gain(6, { at: 10, duration: 5 })        // boost range
 a.gain(t => -12 * Math.cos(t * TAU))      // automate over time
 a.fade(0.5, -2, 'exp')                    // 0.5s in, 2s exp fade-out
 a.normalize('podcast')                    // -16 LUFS, -1 dBTP
+a.normalize(-27, 'lufs', { ceiling: -2 }) // Netflix
 a.mix(voice, { at: 2 })                   // overlay at 2s
+a.mix(bed, 0, -18)                        // music bed, 18 dB under
 a.crossfade(next, 2)                      // 2s crossfade into next
 a.crossfade(song2, 4, 'equal')            // equal-power, for unrelated tracks
 a.pan(-0.3, { at: 10, duration: 5 })      // pan left for range
@@ -301,7 +305,7 @@ a.pan(-0.3, { at: 10, duration: 5 })      // pan left for range
 
 | Method                         | Description                                                                                                                         |
 |:--|:--|
-| `.highpass(freq)`, `.lowpass(freq)` | pass filter. |
+| `.highpass(freq, order?)`, `.lowpass(freq, order?)` | Butterworth pass filter; order 2 (12 dB/oct, default), 4 (24), 6, 8. |
 | `.bandpass(freq, Q?)`, `.notch(freq, Q?)` | band-pass / notch. |
 | `.allpass(freq, Q?)` | phase shift, unity magnitude. |
 | `.lowshelf(freq, dB)`, `.highshelf(freq, dB)` | shelf EQ. |
@@ -327,6 +331,9 @@ a.filter(customFn, { cutoff: 2000 })      // custom filter function
 | `.crossfeed(freq?, level?)` | headphone crossfeed, default 700 Hz, 0.3.<br><sub>≡ SoX `earwax`, bs2b</sub> |
 | `.resample(rate, {type?})` | upsampling defaults to linear, downsampling to anti-aliased 32-tap windowed sinc. `type: 'sinc'` or `'linear'` forces one. |
 | `.crossover(...freqs)` | N split frequencies → N+1 bands × channels, band-major. Linkwitz-Riley 4th order; bands sum back flat.<br><sub>≡ FFmpeg `acrossover`</sub> |
+| `.match(ref, amount?)` | match EQ: up to 8 parametric bands fit to the reference/source spectrum ratio. Tone only; loudness stays with `normalize`.<br><sub>≡ iZotope Ozone Match EQ</sub> |
+| `.spectral(band?, gain?, {at, duration})` | gain on a time × frequency region, `band` = `[lo, hi]` Hz; default removes it.<br><sub>≡ Audacity spectral edit, FFmpeg `afftfilt`</sub> |
+| `.repair(band?, {at, duration})` | rebuild a damaged range (dropout, beep, click burst) from its surroundings.<br><sub>≡ iZotope RX Spectral Repair</sub> |
 
 ```js
 a.vocals()                                // isolate center-panned vocals
@@ -336,6 +343,9 @@ a.dither(16, { shape: true })             // noise-shaped
 a.crossfeed()                             // headphone crossfeed
 a.resample(48000)                         // resample to 48kHz (linear)
 a.resample(96000, { type: 'sinc' })       // high-quality windowed-sinc
+a.match(reference, 0.7)                   // 70% of the way to its tone
+a.spectral([1000, 4000], -30, { at: 2.1, duration: 0.3 })  // a cough
+a.repair({ at: 1.2, duration: 0.05 })     // a dropout
 ```
 
 ### I/O
@@ -343,7 +353,7 @@ a.resample(96000, { type: 'sinc' })       // high-quality windowed-sinc
 | Method                         | Description                                                                                                                         |
 |:--|:--|
 | `await .read(opts?)` | rendered PCM. `{ format, channel }` to convert. |
-| `await .save(path, opts?)` | encode + write, format from extension. |
+| `await .save(path, opts?)` | encode + write, format from extension. Lossless keeps the source depth; `{ bitDepth, bitrate, quality, codec }` set the encoder; m4a writes markers as chapters. A video source saved to `.mp4`/`.mov` keeps its picture: only the audio track changes. |
 | `await .encode(format?, opts?)` | encode to `Uint8Array`. |
 | `.clone()` | independent edits, shared pages. |
 | `.push(data, format?)` | feed PCM into a pushable instance; `.stop()` finalizes. |
@@ -353,6 +363,9 @@ let pcm = await a.read()                              // Float32Array[]
 let raw = await a.read({ format: 'int16', channel: 0 })
 for await (let block of a) send(block)                 // async-iterable over blocks
 await a.save('out.mp3')                                // format from extension
+await a.save('book.mp3', { bitrate: 192 })             // ACX: 192 kbps CBR
+await a.save('master.wav', { bitDepth: 24 })           // 24-bit
+await a.save('talk.mp4')                               // video in, video out
 let bytes = await a.encode('flac')                     // Uint8Array
 let b = a.clone()                                      // independent copy, shared pages
 
@@ -421,7 +434,9 @@ m.stop()                                                           // release
 | `'db'` | peak amplitude in dBFS. |
 | `'rms'` | RMS amplitude, linear. |
 | `'peak'` | `max(\|min\|, \|max\|)`, linear. |
-| `'loudness'` | integrated LUFS (ITU-R BS.1770). |
+| `'loudness'` | integrated LUFS (ITU-R BS.1770-4; surround channels weighted, LFE excluded). |
+| `'momentary'`, `'shortterm'` | maximum 400 ms / 3 s loudness, LUFS (EBU Tech 3341). |
+| `'dialog'` | loudness of the speech only, LUFS: speech found automatically (AES TD1008 dialog loudness). |
 | `'dc'` | DC offset. |
 | `'clipping'` | clipped samples (scalar: timestamps, binned: counts). |
 | `'silence'` | silent ranges as `{at, duration}`. |
@@ -520,7 +535,7 @@ JSON.stringify(a); audio(json)            // serialize / restore
 
 | Method                         | Description                                                                                                                         |
 |:--|:--|
-| `audio.use(...plugins)` | register an [@audio contract](https://github.com/audiojs/compile/blob/main/CONTRACT.md) factory, a stat `{ stat, compute }`, a codec `{ codec, test?, decode?, encode? }`, a function receiving `audio`, or a [registry](docs/plugins.md#registry) name (`npm i` the package). |
+| `audio.use(...plugins)` | register an [@audio contract](https://github.com/audiojs/compile/blob/main/CONTRACT.md) factory, a stat `{ stat, compute }`, a codec `{ codec, test?, decode?, encode? }`, a function receiving `audio`, or a [registry](docs/plugins.md#registry) name. Registry plugins need no `use`: `a.compressor()` and `a.stat('truepeak')` load them on first use. |
 | `audio.op(name, descriptor)` | register an op: a `process` function or `{ params, process, plan, resolve }`. |
 | `audio.op(name?)` | one descriptor, or all ops. |
 | `audio.stat(name, descriptor)` | register a stat: `(chs, ctx) => [...]` or `{ block, reduce, query }`. |
@@ -530,9 +545,8 @@ Plugins also run without the engine: `audio/batch` over a whole signal, `audio/s
 ```js
 import { compressor } from '@audio/dynamics-compressor/audio'
 audio.use(compressor)                       // bring-your-own factory
-await audio.use('freeverb', 'truepeak')     // or by registry name
 
-a.freeverb({ room: 0.8 })                   // tail composes automatically
+a.freeverb({ room: 0.8 })                   // registry plugin: loads on first render; tail composes
 music.ducker({ key: voice })                // sidechain via the key option
 await a.stat('truepeak')                    // stat plugins land on a.stat()
 
@@ -587,12 +601,13 @@ speed        stretch     pitch       insert      mix
 crossfade    remix       pan         split       resample
 highpass     lowpass     eq          lowshelf    highshelf
 notch        bandpass    allpass     vocals      dither
-crossfeed    shrink      crossover
+crossfeed    shrink      crossover   match       spectral
+repair       copy        cut         paste
 
 # sinks (terminate the chain — at most one)
 stat [NAMES...]    print analysis (default)
 play [loop]        open player UI
-save PATH          encode and write (or `-` for stdout)
+save PATH          encode and write (or `-` for stdout); `192k` bitrate, `24bit` depth
 
 # options
 -f --force         overwrite existing output
@@ -602,6 +617,9 @@ save PATH          encode and write (or `-` for stdout)
 --verbose          show progress
 --help, -h         help (or per-op: `audio gain --help`)
 --mcp              serve the CLI to AI agents as an MCP tool (stdio)
+
+# named options, after an op or sink: name:value
+normalize -27 lufs ceiling:-2     ducker key:voice.wav     save out.m4a codec:alac
 
 # compatibility shortcuts
 -p ⇔ play     -l ⇔ play loop     -o PATH ⇔ save PATH
@@ -661,6 +679,15 @@ audio track1.mp3 crossfade track2.mp3 2s save mixed.wav
 # voiceover
 audio bg.mp3 gain -12db mix narration.wav 2s save mixed.wav
 
+# music bed ducked under the voice (sidechain)
+audio bed.mp3 ducker key:voice.wav mix voice.wav save episode.wav
+
+# loudness to any target, true peak held; delivery settings
+audio book.wav normalize -20 lufs save book.mp3 192k
+
+# fix a video's sound, keep the picture
+audio talk.mp4 highpass 80hz 4 normalize podcast save talk.clean.mp4
+
 # split
 audio audiobook.mp3 split 30m 60m save 'chapter-{i}.mp3'
 audio album.wav split --cue album.cue save '{i} - {title}.mp3'   # cue-sheet tracks, tagged
@@ -684,6 +711,9 @@ audio speech.wav stat loudness rms
 # tempo / beat grid / onsets
 audio track.mp3 stat bpm
 audio track.mp3 stat beats onsets
+
+# loudness to spec: integrated, max momentary / short-term, speech only, true peak
+audio mix.wav stat loudness momentary shortterm dialog truepeak
 
 # pitch / chords / key
 audio song.mp3 stat notes
@@ -710,7 +740,6 @@ audio '*.wav' gain -3db save '{name}.out.{ext}'
 ```sh
 cat in.wav | audio gain -3db save -      > out.wav
 curl -s https://ex.com/speech.mp3 | audio normalize save clean.wav
-ffmpeg -i video.mp4 -f wav - | audio trim normalize podcast save - > voice.wav
 ```
 
 ### Tab completion
@@ -749,7 +778,7 @@ audio --completions fish | source       # fish
 <dd>Yes, ships with <code>audio.d.ts</code>.</dd>
 
 <dt>Does it have feature parity with FFmpeg / SoX / librosa?</dt>
-<dd>Yes — the <a href="https://github.com/audiojs">audiojs</a> ecosystem covers the practical baseline of FFmpeg filters, SoX effects, librosa analysis, Pedalboard and MIREX, all as <code>@audio/*</code> plugins <code>audio</code> wires through one API (the few uncovered items are esoteric or deliberately skipped). Every effect, filter, generator and analyzer lives in the <a href="docs/plugins.md#registry">registry</a> — <code>audio.use('name')</code> to pull one. Coverage matrix: <a href="docs/comparison.md">docs/comparison.md</a>.</dd>
+<dd>Yes — the <a href="https://github.com/audiojs">audiojs</a> ecosystem covers the practical baseline of FFmpeg filters, SoX effects, librosa analysis, Pedalboard and MIREX, all as <code>@audio/*</code> plugins <code>audio</code> wires through one API (the few uncovered items are esoteric or deliberately skipped). Every effect, filter, generator and analyzer lives in the <a href="docs/plugins.md#registry">registry</a> — call one by name and it loads on first use. Coverage matrix: <a href="docs/comparison.md">docs/comparison.md</a>.</dd>
 
 <dt>How is this different from SoX / FFmpeg / Audacity / librosa / Web Audio / Tone.js?</dt>
 <dd>In one line: <code>audio</code> is the only one that runs the same API in Node and the browser, with non-destructive lazy edits that stream during decode. The native tools (SoX, FFmpeg) are faster on raw throughput but have no JS API, browser, or undo; the browser libs (Web Audio, Tone.js, Howler) are real-time graphs, not file editors. Full feature and <a href="docs/comparison.md#performance">performance</a> matrices vs pydub, librosa, aubio, essentia, Pedalboard, SoX, FFmpeg, Audacity and MATLAB are in <a href="docs/comparison.md">docs/comparison.md</a>.</dd>

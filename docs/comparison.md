@@ -24,8 +24,8 @@ Cells contain method/op names where supported, `—` if absent. For `audio`, pla
 | CLI | `audio in.wav ...` | — | — | aubiopitch/onset/tempo/notes/mfcc/quiet/track | `essentia_streaming_extractor_music` | — | yes | yes | macros only | — |
 | Link | <https://github.com/audiojs/audio> | <https://github.com/jiaaro/pydub> | <https://librosa.org> | <https://aubio.org> | <https://essentia.upf.edu> | <https://github.com/spotify/pedalboard> | <https://sox.sourceforge.net> | <https://ffmpeg.org> | <https://audacityteam.org> | <https://mathworks.com/products/audio.html> |
 | **I/O** | | | | | | | | | | |
-| Decode formats | wav, mp3, flac, ogg, opus, aac, aiff, caf, webm, amr, wma, qoa | anything FFmpeg supports | wav, mp3, flac, ogg (audioread) | wav, aiff, flac, ogg, mp3 (libsndfile/ffmpeg) | wav, mp3, flac, ogg, m4a (FFmpeg) | wav, aiff, flac, mp3, ogg (+ AAC/AC3/WMA per platform) | wav, aiff, mp3, flac, ogg, au | virtually every codec | wav, mp3, flac, ogg, opus, m4a, ... | wav, flac, mp3, ogg, mp4, m4a |
-| Encode formats | wav, mp3, flac, opus, ogg, aiff | export via FFmpeg | wav (via soundfile) | wav | wav | same as decode | same as decode | same as decode | wav, mp3, flac, ogg, opus | wav, flac, ogg, m4a, mp4 |
+| Decode formats | wav, mp3, flac, ogg, opus, aac, aiff, caf, webm, amr, wma, qoa; the audio of mp4/mov video | anything FFmpeg supports | wav, mp3, flac, ogg (audioread) | wav, aiff, flac, ogg, mp3 (libsndfile/ffmpeg) | wav, mp3, flac, ogg, m4a (FFmpeg) | wav, aiff, flac, mp3, ogg (+ AAC/AC3/WMA per platform) | wav, aiff, mp3, flac, ogg, au | virtually every codec | wav, mp3, flac, ogg, opus, m4a, ... | wav, flac, mp3, ogg, mp4, m4a |
+| Encode formats | wav, mp3, flac, opus, ogg, aiff, caf, wv, qoa, m4a (alac, flac, opus; aac in browsers); source bit depth kept, bitrate/quality settable; audio track of mp4/mov video replaced | export via FFmpeg | wav (via soundfile) | wav | wav | same as decode | same as decode | same as decode | wav, mp3, flac, ogg, opus | wav, flac, ogg, m4a, mp4 |
 | Streaming | yes (page-based, OPFS) | no | eager (NumPy) | yes (frame-by-frame source) | yes (streaming network) | yes (chunked O(1)-mem) | no | no | no | `dsp.AudioFileReader` |
 | Async iterator | `for await (chunk of a.stream())` | — | — | source iteration | streaming network | `while f.tell() < f.frames` | — | — | — | block-by-block read |
 | **Editing** | | | | | | | | | | |
@@ -41,7 +41,7 @@ Cells contain method/op names where supported, `—` if absent. For `audio`, pla
 | Concat / crossfade | `crossfade(b, dur, curve?)` | `+`, `append(crossfade=)` | manual | — | — | — | `splice` | `acrossfade` | Crossfade Tracks | `crossfade` |
 | Reverse | `reverse({at,duration})` | `reverse()` | `y[::-1]` | — | — | — | `reverse` | `areverse` | Reverse | `flip` |
 | Pan | `pan(value, {at, duration})` | `pan()` | manual | — | — | — | (via remix matrix) | `pan` | Stereo→Mono only | `audioPanner` |
-| Remix channels | `remix(layout)` | `set_channels()` | manual | — | `MonoMixer`, `StereoMuxer` | — | `remix` | `channelmap`, `pan` | Stereo to Mono | matrix multiply |
+| Remix channels | `remix(layout)`, surround downmix per ITU-R BS.775 | `set_channels()` | manual | — | `MonoMixer`, `StereoMuxer` | — | `remix` | `channelmap`, `pan` | Stereo to Mono | matrix multiply |
 | **Time / pitch** | | | | | | | | | | |
 | Speed (pitch+tempo) | `speed(rate)` | `speedup()` | resample | — | — | — | `speed` | `asetrate` | Change Speed | resample-based |
 | Time stretch | `stretch(factor)` | — | `effects.time_stretch` | — | — | — | `tempo`, `stretch` | `atempo`, `rubberband` | Change Tempo, Paulstretch | `stretchAudio` |
@@ -52,7 +52,7 @@ Cells contain method/op names where supported, `—` if absent. For `audio`, pla
 | Gain (dB) | `gain(dB \| t=>dB)` | `seg + dB` | `y * gain` | — | `Multiplier` | `Gain(db)` | `gain`, `vol` | `volume` | Amplify | scalar multiply |
 | Fade in/out | `fade(in, out?, curve?)` | `fade_in/fade_out` | manual | — | — | — | `fade` | `afade` | Fade In/Out, Adjustable Fade | `fade` |
 | Peak normalize | `normalize()` | `effects.normalize` | `util.normalize` | — | `Normalize` | — | `norm` | `volume=normalize` | Normalize | manual |
-| LUFS normalize | `normalize('podcast')` | — | custom | — | `LoudnessEBUR128` (measure) | — | — | `loudnorm` | Loudness Normalization | `integratedLoudness` |
+| LUFS normalize | `normalize('podcast')`, `normalize(-18, 'lufs')`: true-peak limited, loudness made up | — | custom | — | `LoudnessEBUR128` (measure) | — | — | `loudnorm` | Loudness Normalization | `integratedLoudness` |
 | DC removal | `normalize({dc:true})` | — | custom | — | `DCRemoval` | — | `dcshift` | `dcshift` | DC | highpass at low f |
 | Compressor | `compressor()`, `compand()`, `leveler()` | `compress_dynamic_range()` | custom | — | — | `Compressor(thr, ratio)` | `compand` | `acompressor` | Compressor | `compressor` |
 | Limiter | `limiter()` | — | — | — | — | `Limiter` | (`compand` ∞) | `alimiter` | Limiter | `limiter` |
@@ -88,7 +88,7 @@ Cells contain method/op names where supported, `—` if absent. For `audio`, pla
 | **Analysis (volume)** | | | | | | | | | | |
 | Peak (dB) | `stat('db')` | `seg.max_dBFS` | `np.max(np.abs)` | `aubioquiet` | `MaxMagnitude` | — | `stat` | `astats`, `volumedetect` | Plot Spectrum | `max(abs)` |
 | RMS | `stat('rms')` | `seg.rms`, `dBFS` | `feature.rms` | `aubioquiet` | `RMS`, `Energy` | — | `stat` | `astats` | Measure RMS | `rms` |
-| LUFS loudness | `stat('loudness')` | — | custom | — | `LoudnessEBUR128`, `Loudness` | — | — | `ebur128`, `loudnorm` | Loudness Normalization | `integratedLoudness`, `loudnessMeter` |
+| LUFS loudness | `stat('loudness' \| 'momentary' \| 'shortterm' \| 'dialog')` | — | custom | — | `LoudnessEBUR128`, `Loudness` | — | — | `ebur128`, `loudnorm` | Loudness Normalization | `integratedLoudness`, `loudnessMeter` |
 | Clipping | `stat('clipping')` | — | manual | — | `ClickDetector` | — | `stat` | `astats` | Find Clipping | manual |
 | DC offset | `stat('dc')` | — | `np.mean` | — | `DCRemoval` (measure) | — | `stat` | `astats` | DC stat | `mean` |
 | Silence | `stat('silence')`, `stat('sounds')`, `shrink()` | `split_on_silence`, `detect_silence` | `effects.split` | `aubioquiet` | `SilenceRate`, `StartStopSilence` | — | `silence` | `silencedetect`, `silenceremove` | Truncate Silence, Label Sounds | `voiceActivityDetector` |
