@@ -17,9 +17,9 @@ export const SIGNALS = {
   noise: t => periodic.noise(t),
 }
 
-// Ways to print the tone in two inks: dithers, per dot, and engravings, per line or mark
+// Ways to print the tone: smooth or dithered, per dot, or engraved, in lines, bars and marks
 export const DITHERS = ['smooth', 'bayer2', 'bayer4', 'bayer8', 'blue', 'white', 'floyd', 'atkinson']
-export const SCREENS = ['halftone', 'lines', 'spikes', 'contours', 'traces', 'mesh', 'guilloche', 'stipple']
+export const SCREENS = ['halftone', 'lines', 'spikes', 'bars', 'contours', 'traces', 'mesh', 'guilloche', 'stipple']
 const MODES = [...DITHERS, ...SCREENS]
 const TONE = MODES.length // internal pass: raw tone, one texel per cell, read back for error diffusion
 
@@ -152,6 +152,15 @@ float stipple(vec2 f) {
   return paper;
 }
 
+// Bars, the waveform's usual display: each the waveform's height at its centre, a mark wide and a gap apart,
+// standing on the axis and filled with the gradient
+float bars(vec2 c) {
+  float at = round(c.x / uPitch) * uPitch, h = wave(at / uScale), y = c.y / uScale * sign(h), top = abs(h), aa = 1. / uScale;
+  float across = clamp(uWidth / 2. - abs(c.x - at) + .5, 0., 1.);
+  float along = clamp(y / aa + .5, 0., 1.) + clamp((top - y) / aa + .5, 0., 1.) - 1.;
+  return across * max(along, 0.) * profile(clamp(y / max(top, 1e-6), 0., 1.));
+}
+
 void main() {
   vec2 cell = floor(gl_FragCoord.xy / uGrid), c = gl_FragCoord.xy - uCentre;
   vec3 m = morph(((cell + .5) * uCell - uCentre) / uScale, uCell / uScale);
@@ -176,6 +185,7 @@ void main() {
     // Paper lines as wide as the tone: rows of equal amplitude, upright columns, the rectangle's rows bent
     case LINES: paper = screen(mark, tri(c.y / uPitch)); break;
     case SPIKES: paper = columns; break;
+    case BARS: paper = bars(c); break;
     case CONTOURS: paper = rows; break;
     // The bent rows at one width: the waveform traced at every level down to the axis
     case TRACES: paper = max(inside * row, outline); break;

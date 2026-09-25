@@ -3149,7 +3149,7 @@ test('logo: a signal through a window, filled by half a window as its gradient, 
     assert.equal(new Set((await logoShot()).gray).size, 2, `${mode} dithers to ink and paper only`)
   }
   // Engravings print paper inside the shape and leave the ground bare
-  for (const mode of ['halftone', 'lines', 'spikes', 'contours', 'traces', 'mesh', 'guilloche', 'stipple']) {
+  for (const mode of ['halftone', 'lines', 'spikes', 'bars', 'contours', 'traces', 'mesh', 'guilloche', 'stipple']) {
     await pick('print', mode)
     const { lit, at } = await logoStill()
     assert(lit && at(0, 0) === ground && at(w - 1, h - 1) === ground, mode)
@@ -3164,6 +3164,18 @@ test('logo: a signal through a window, filled by half a window as its gradient, 
   await pick('print', 'mesh')
   const mesh = paper(await logoStill())
   assert(close > apart && mesh > apart, JSON.stringify({ close, apart, mesh }))
+  // Bars stand a size wide and a gap apart: along the row above the axis, lit runs and dark gaps alternate at those widths
+  await pick('print', 'bars')
+  await page.locator('#size').fill('4')
+  await page.locator('#gap').fill('4')
+  const bars = await logoStill(), runs = { true: [], false: [] }
+  for (let x = 1, run = 1; x < w; x++, run++) {
+    const lit = bars.at(x, axis - 2) > ground + 40
+    if (lit !== bars.at(x - 1, axis - 2) > ground + 40) runs[!lit].push(run), run = 0
+  }
+  const [widths, gaps] = [runs.true, runs.false.slice(1, -1)]
+  assert(widths.length > 8 && [...widths, ...gaps].every(run => run >= 3 && run <= 5), JSON.stringify({ widths, gaps }))
+  await page.locator('#size').fill('2')
   await pick('print', 'bayer4')
   assert(await page.locator('#gap').isDisabled(), 'dithers have no gap')
 
