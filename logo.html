@@ -11,44 +11,46 @@
 </head>
 <body>
   <div class="stage">
-    <nav class="pages"><a href="logo.html" aria-current="page">Lab</a><a href="logo-motion.html">Motion</a></nav>
-    <div class="corner"><button type="button" class="toggle" id="invert" aria-pressed="false" aria-label="Invert" title="Invert"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"/></svg></button></div>
-    <canvas aria-label="A signal through a window, filled with a gradient from the axis to the waveform's edge. Drag sideways to turn its phase."></canvas>
+    <canvas tabindex="0" aria-label="A signal through a window, filled with a gradient from the axis to the waveform's edge. Drag it sideways to turn it, let go to fling it; tap it, or press Space, for the next signal; the arrows nudge it."></canvas>
     <p class="fail" id="fail" hidden>This page needs WebGL 2.</p>
   </div>
 
   <form class="bar" id="controls">
     <div class="grid">
-      <label for="signal">Signal</label>
-      <select id="signal" name="signal"><button><selectedcontent></selectedcontent></button></select>
-      <label for="window">Window</label>
-      <select id="window" name="window"><button><selectedcontent></selectedcontent></button></select>
-      <label for="cycles">Cycles</label>
-      <span class="slider"><input type="range" id="cycles" name="cycles" min="0.5" max="8" step="0.5" value="1"><output id="cycles-out">1</output></span>
-      <label for="speed">Speed</label>
-      <span class="slider"><input type="range" id="speed" name="speed" min="-2" max="2" step="0.05" value="0.25"><output id="speed-out">0.25 Hz</output></span>
-      <label for="gradient">Gradient</label>
-      <select id="gradient" name="gradient"><button><selectedcontent></selectedcontent></button></select>
-      <label for="print">Print</label>
-      <select id="print" name="print"><button><selectedcontent></selectedcontent></button></select>
-      <label for="size">Size</label>
-      <span class="slider"><input type="range" id="size" name="size" min="0.5" max="8" step="0.5" value="2"><output id="size-out">2 px</output></span>
-      <label for="gap">Gap</label>
-      <span class="slider"><input type="range" id="gap" name="gap" min="0" max="24" step="0.5" value="6"><output id="gap-out">6 px</output></span>
+      <div class="group" role="group" aria-label="Visual">
+        <div class="pairs">
+          <div class="pair"><label for="signal">Signal</label><select id="signal" name="signal"><button><selectedcontent></selectedcontent></button></select></div>
+          <div class="pair"><label for="window">Window</label><select id="window" name="window"><button><selectedcontent></selectedcontent></button></select></div>
+          <div class="pair"><label for="cycles">Cycles</label><span class="slider"><input type="range" id="cycles" name="cycles" min="0.5" max="8" step="0.5" value="1"><output id="cycles-out">1</output></span></div>
+          <div class="pair"><label for="gradient">Gradient</label><select id="gradient" name="gradient"><button><selectedcontent></selectedcontent></button></select></div>
+          <div class="pair"><label for="print">Print</label><select id="print" name="print"><button><selectedcontent></selectedcontent></button></select></div>
+          <div class="pair"><label for="size">Size</label><span class="slider"><input type="range" id="size" name="size" min="0.5" max="8" step="0.5" value="2"><output id="size-out">2 px</output></span></div>
+          <div class="pair"><label for="gap">Gap</label><span class="slider"><input type="range" id="gap" name="gap" min="0" max="24" step="0.5" value="6"><output id="gap-out">6 px</output></span></div>
+          <div class="pair"><label for="invert">Invert</label><span class="slider"><button type="button" class="toggle" id="invert" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"/></svg></button></span></div>
+        </div>
+      </div>
+      <div class="group" role="group" aria-label="Motion">
+        <div class="pairs">
+          <div class="pair"><label for="speed">Speed</label><span class="slider"><input type="range" id="speed" name="speed" min="-2" max="2" step="0.05" value="0.25"><output id="speed-out">0.25 Hz</output></span></div>
+          <div class="pair"><label for="hover">Hover</label><select id="hover" name="hover"><button><selectedcontent></selectedcontent></button></select></div>
+          <div class="pair"><label for="lift">Lift</label><select id="lift" name="lift"><button><selectedcontent></selectedcontent></button></select></div>
+          <div class="pair"><label for="sound">Sound</label><select id="sound" name="sound"><button><selectedcontent></selectedcontent></button></select></div>
+        </div>
+      </div>
     </div>
   </form>
 
   <script type="module">
   import { logo, WINDOWS, SIGNALS, DITHERS, SCREENS, label, drawing } from './logo.js'
+  import { motion, HOVERS, LIFTS, SOUNDS } from './logo-motion.js'
 
-  const DETENT = .02 // a drag within this many turns of the rest phase lands on it
   const $ = s => document.querySelector(s)
   const root = document.documentElement, canvas = $('canvas'), form = $('#controls'), tab = $('link[rel=icon]'), invert = $('#invert')
-  const { signal, window: win, gradient, print, cycles, speed, size, gap } = form.elements
-  const view = logo(canvas, { onresize: wake })
+  const { signal, window: win, gradient, print, cycles, speed, size, gap, hover, lift, sound } = form.elements
+  const view = logo(canvas, { onresize: () => answer?.set({}) })
 
-  // Every picker shows each choice drawn; print styles are drawn by the logo's own shader
-  const offer = (select, names, draw, chosen) => {
+  // Every picker shows each choice, drawn where it has a shape; print styles are drawn by the logo's own shader
+  const offer = (select, names, chosen, draw) => {
     for (const name of names) {
       if (!name) { select.append(document.createElement('hr')); continue }
       const option = new Option('', name)
@@ -57,34 +59,30 @@
     }
     select.value = chosen
   }
-  offer(signal, Object.keys(SIGNALS), drawing.signal, 'sine')
-  offer(win, WINDOWS, drawing.window, 'hann')
-  offer(gradient, WINDOWS, drawing.gradient, 'bartlett')
-  offer(print, [...DITHERS, null, ...SCREENS], view && (name => `<span class="icon mask" style="mask-image: url('${view.icon(name)}')"></span>`), 'bayer4')
+  offer(signal, Object.keys(SIGNALS), 'sine', drawing.signal)
+  offer(win, WINDOWS, 'hann', drawing.window)
+  offer(gradient, WINDOWS, 'bartlett', drawing.gradient)
+  offer(print, [...DITHERS, null, ...SCREENS], 'smooth', view && (name => `<span class="icon mask" style="mask-image: url('${view.icon(name)}')"></span>`))
+  offer(hover, Object.keys(HOVERS), 'stir')
+  offer(lift, LIFTS, 'none')
+  offer(sound, SOUNDS, 'ticks')
   if (!view) $('#fail').hidden = false
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) speed.value = 0
 
-  let phase = 0, last = 0, awake = false, turning = null, shown = -Infinity
-
-  function frame(now) {
-    const dt = Math.min(.1, Math.max(0, now - last) / 1000), hz = +speed.value
-    last = now
-    phase += hz * dt
-    view.set({ phase })
-    const morphing = view.render(now)
-    // The tab's icon follows the waveform, a few times a second
-    if (now - shown > 125 || !(hz || morphing)) {
-      tab.href = view.favicon(matchMedia('(prefers-color-scheme: dark)').matches ? '#F2F4F8' : '#141414')
-      shown = now
-    }
-    awake = !!hz || morphing
-    if (awake) requestAnimationFrame(frame)
+  // The tab's icon follows the waveform, a few times a second and once more when it comes to rest
+  let shown = -Infinity, trailing
+  const favicon = () => {
+    tab.href = view.favicon(matchMedia('(prefers-color-scheme: dark)').matches ? '#F2F4F8' : '#141414')
+    shown = performance.now()
   }
-  function wake() {
-    if (awake || !view) return
-    awake = true
-    last = performance.now()
-    requestAnimationFrame(frame)
-  }
+  const answer = view && motion(view, canvas, {
+    ontap: name => { signal.value = name; sync() },
+    onframe: now => {
+      clearTimeout(trailing)
+      if (now - shown > 125) favicon()
+      else trailing = setTimeout(favicon, 125)
+    },
+  })
 
   function sync() {
     root.classList.toggle('invert', invert.ariaPressed === 'true')
@@ -97,10 +95,8 @@
     $('#gap-out').value = `${gap.value} px`
     for (const range of form.querySelectorAll('input[type=range]')) fill(range)
     const css = getComputedStyle(root)
-    view?.set({
-      signal: signal.value, window: win.value, gradient: gradient.value, print: print.value, cycles: +cycles.value, size: +size.value, gap: +gap.value,
-      ground: css.getPropertyValue('--ground'), figure: css.getPropertyValue('--figure'),
-    })
+    view?.set({ window: win.value, gradient: gradient.value, print: print.value, size: +size.value, gap: +gap.value, ground: css.getPropertyValue('--ground'), figure: css.getPropertyValue('--figure') })
+    answer?.set({ signal: signal.value, speed: +speed.value, cycles: +cycles.value, hover: hover.value, lift: lift.value, sound: sound.value })
   }
   // A slider's fill runs from zero, or from the low end when zero is off the scale, to the value
   function fill(range) {
@@ -109,33 +105,10 @@
     range.style.setProperty('--from', `${Math.min(zero, value)}%`)
     range.style.setProperty('--to', `${Math.max(zero, value)}%`)
   }
-  form.addEventListener('input', () => { sync(); wake() })
-  invert.addEventListener('click', () => { invert.ariaPressed = String(invert.ariaPressed !== 'true'); sync(); wake() })
+  form.addEventListener('input', sync)
   form.addEventListener('submit', e => e.preventDefault())
-
-  // Dragging the waveform stops it and turns its phase by hand: the signal follows the pointer under the window,
-  // and lands on its rest phase, the logo for sine through Hann, when brought within DETENT of it
-  canvas.addEventListener('pointerdown', e => {
-    turning = { x: e.clientX, turn: phase }
-    canvas.setPointerCapture(e.pointerId)
-    canvas.classList.add('turning')
-    speed.value = 0
-    sync()
-  })
-  canvas.addEventListener('pointermove', e => {
-    if (!turning) return
-    const moved = (e.clientX - turning.x) * canvas.width / canvas.clientWidth / view.scale()
-    const turn = turning.turn + cycles.value * moved / 2, rest = Math.round(turn)
-    phase = Math.abs(turn - rest) < DETENT ? rest : turn
-    wake()
-  })
-  const release = () => { turning = null; canvas.classList.remove('turning') }
-  canvas.addEventListener('pointerup', release)
-  canvas.addEventListener('pointercancel', release)
-
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) speed.value = 0
+  invert.addEventListener('click', () => { invert.ariaPressed = String(invert.ariaPressed !== 'true'); sync() })
   sync()
-  wake()
   </script>
 </body>
 </html>

@@ -3087,9 +3087,9 @@ test('logo: a signal through a window, filled by half a window as its gradient, 
   await page.setViewportSize({ width: 800, height: 760 })
   await page.goto(origin + '/logo.html', { waitUntil: 'networkidle' })
   assert.equal(await page.locator('#fail').isVisible(), false)
-  // The drawing alone: the page links and Invert sit over its corners
-  await page.addStyleTag({ content: '.pages, .corner { display: none }' })
+  // No hover, so a pointer over the drawing changes nothing
   const pick = (name, value) => page.selectOption(`select[name="${name}"]`, value)
+  await pick('hover', 'none')
   const offered = name => page.locator(`select[name="${name}"] option`).evaluateAll(options => options.map(option => option.value))
   // The waveform and the gradient offer the same windows, the whole collection, rectangular first
   const windows = await offered('window')
@@ -3132,16 +3132,12 @@ test('logo: a signal through a window, filled by half a window as its gradient, 
   await page.mouse.move(box.x + box.width / 2 + 1, y, { steps: 6 })
   await page.mouse.up()
   assert(asymmetry(await logoStill()) < 1, 'back near where it started, the drag lands on the rest pose')
-  // At speed it moves; a press stops it
+  // At speed it moves on its own
   await page.locator('#speed').fill('0.5')
   const moving = await logoShot()
   await page.waitForTimeout(150)
   assert.notEqual((await logoShot()).gray, moving.gray, 'the signal moves at speed')
-  await page.mouse.move(box.x + box.width / 2, y)
-  await page.mouse.down()
-  await page.mouse.up()
-  assert.equal(await page.locator('#speed').inputValue(), '0')
-  assert.equal(await page.locator('#speed-out').textContent(), '0 Hz')
+  await page.locator('#speed').fill('0')
 
   for (const mode of ['bayer2', 'bayer4', 'bayer8', 'blue', 'white', 'floyd', 'atkinson']) {
     await pick('print', mode)
@@ -3189,13 +3185,12 @@ test('logo: a signal through a window, filled by half a window as its gradient, 
   for (let y = 0; y < axis; y++) assert(Math.abs(haar.at(a, y) - haar.at(b, y)) <= 1, `row ${y}: ${haar.at(a, y)} ≠ ${haar.at(b, y)}`)
 })
 
-test('logo motion: the logo at rest stirs when hovered, turns under a drag and spins on, settles, and takes the next waveform at a tap', async () => {
-  // Reduced motion keeps it still at rest
+test('logo motion: at rest it is the logo; near its middle it stirs; flung it spins on and settles; a tap or Space gives the next signal; a lift can stretch it', async () => {
+  // Reduced motion gives it no speed of its own
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.setViewportSize({ width: 800, height: 760 })
-  await page.goto(origin + '/logo-motion.html', { waitUntil: 'networkidle' })
+  await page.goto(origin + '/logo.html', { waitUntil: 'networkidle' })
   await page.selectOption('#print', 'smooth')
-  await page.addStyleTag({ content: '.pages, .corner { display: none }' })
   const canvas = page.locator('canvas'), box = await canvas.boundingBox(), x = box.x + box.width / 2, y = box.y + box.height / 2
   const away = () => page.mouse.move(x, box.y + box.height + 30)
   const apart = (a, b) => { let sum = 0; for (let i = 0; i < a.gray.length; i++) sum += Math.abs(a.gray.charCodeAt(i) - b.gray.charCodeAt(i)); return sum / a.gray.length }
@@ -3203,9 +3198,12 @@ test('logo motion: the logo at rest stirs when hovered, turns under a drag and s
 
   const rest = await logoStill()
   assert(asymmetry(rest) < 1, 'at rest it is the logo')
+  // Hover counts near its middle only: at the stage's edge it rests; over its centre it stirs
+  await page.mouse.move(box.x + 30, y)
+  assert(apart(rest, await logoStill()) < .05, 'at the edge of the stage it rests')
   await page.mouse.move(x, y)
   await page.waitForTimeout(600)
-  assert(apart(rest, await logoShot()) > .5, 'hovered, it stirs')
+  assert(apart(rest, await logoShot()) > .5, 'near its middle, it stirs')
   // Flung mid-drag, it spins on; left alone, it settles into the logo again
   await page.mouse.down()
   await page.mouse.move(x + 90, y, { steps: 3 })
@@ -3216,23 +3214,23 @@ test('logo motion: the logo at rest stirs when hovered, turns under a drag and s
   await away()
   assert(asymmetry(await logoStill()) < 1, 'it settles into the logo')
 
-  // A tap, a press that never moves, gives the next waveform; so does Space
+  // A tap, a press that never moves, gives the next signal, and the picker follows; so does Space
   const sine = await logoStill()
   await canvas.click()
   await away()
   const triangle = await logoStill()
-  assert(apart(sine, triangle) > .5, 'a tap changes the waveform')
+  assert(apart(sine, triangle) > .5 && await page.locator('#signal').inputValue() === 'triangle', 'a tap changes the signal')
   await canvas.focus()
   await page.keyboard.press('Space')
   await canvas.blur()
-  assert(apart(triangle, await logoStill()) > .5, 'Space changes it too')
+  assert(apart(triangle, await logoStill()) > .5 && await page.locator('#signal').inputValue() === 'square', 'Space changes it too')
 
-  // Lifting does nothing by default; set to amplitude, a drag upward pulls it taller
+  // Lifting does nothing by default; set to amplitude, a drag upward pulls it taller at once
   const lifted = async () => {
     await page.mouse.move(x, y)
     await page.mouse.down()
     await page.mouse.move(x, y - 80, { steps: 8 })
-    await page.waitForTimeout(700)
+    await page.waitForTimeout(300)
     const shot = await logoShot()
     await page.mouse.up()
     await away()
@@ -3244,6 +3242,8 @@ test('logo motion: the logo at rest stirs when hovered, turns under a drag and s
   const tall = await lifted()
   assert(top(tall) < top(plain) - 10 && Math.abs(top(plain) - top(still)) < 30, JSON.stringify({ still: top(still), plain: top(plain), tall: top(tall) }))
 
+  // A tick for each peak through the middle, crest and trough: two a turn, none at the rest turn itself
+  assert.deepEqual(await page.evaluate(async () => { const { peak } = await import('/logo-motion.js'); return [-.26, 0, .24, .26, .74, .76, 1, 1.26].map(peak) }), [-2, -1, -1, 0, 0, 1, 1, 2])
   // Both sounds play under the hand
   for (const sound of ['tone', 'ticks']) {
     await page.selectOption('#sound', sound)

@@ -1,4 +1,4 @@
-/* The logo pages: the lab and the motion page. Dark as the site's devices; inverted, the site's paper. */
+/* The logo page, the lab. Dark as the site's devices; inverted, the site's paper. */
 @font-face { font-family: 'Geist'; src: url('./assets/geist.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
 :root {
   color-scheme: dark;
@@ -49,30 +49,31 @@ canvas:focus-visible { outline: 2px solid var(--panel-knob); outline-offset: -4p
   background: var(--panel);
   mask-image: linear-gradient(to right, transparent, #000 min(25%, 320px), #000 calc(100% - min(25%, 320px)), transparent);
 }
-/* Rows of four label and control pairs, each column lined up across the rows */
-.grid { display: grid; grid-template-columns: repeat(4, max-content max-content); justify-content: center; align-items: center; gap: 16px 12px; }
-.grid > label { justify-self: end; margin-left: 24px; color: var(--panel-muted); cursor: pointer; }
-.grid > label:nth-child(8n + 1) { margin-left: 0; }
+/* Groups side by side, a divider between: pairs of label and control, running down in columns of four */
+.grid { display: flex; justify-content: center; align-items: start; gap: 40px; }
+.group + .group { padding-left: 40px; border-left: 1px solid var(--panel-rule); }
+/* Every row a slider's height, so the rows of both groups line up */
+.pairs { display: grid; grid-auto-flow: column; grid-template-rows: repeat(4, 28px); grid-auto-columns: max-content; align-items: center; gap: 16px 12px; }
+.pair { display: grid; grid-column: span 2; grid-template-columns: subgrid; align-items: center; }
+.pair > label { justify-self: end; padding-left: 12px; color: var(--panel-muted); cursor: pointer; }
 .grid select { width: 100%; min-width: 10.5rem; }
 .slider { display: flex; align-items: center; gap: 10px; }
 @media (max-width: 800px) {
-  .grid { grid-template-columns: max-content minmax(0, 1fr); justify-content: stretch; }
-  .grid > label { margin-left: 0; }
+  .grid { flex-direction: column; align-items: stretch; gap: 16px; }
+  .group + .group { padding: 16px 0 0; border-left: 0; border-top: 1px solid var(--panel-rule); }
+  .pairs { grid-auto-flow: row; grid-template-rows: none; grid-auto-rows: 28px; grid-template-columns: 4.5rem minmax(0, 1fr); }
+  .pair { grid-column: 1 / -1; }
+  .pair > label { padding-left: 0; }
 }
 
-/* Lab and Motion top left; the page's own settings, Invert among them, top right */
-.pages, .corner { position: absolute; top: calc(var(--space-md) + env(safe-area-inset-top, 0px)); z-index: 1; display: flex; align-items: center; gap: 18px; height: 28px; }
-.pages { left: var(--space-md); }
-.corner { right: var(--space-md); color: var(--panel-muted); }
-.toggle { display: grid; place-items: center; margin: 0; padding: 4px; border: 0; border-radius: 50%; background: none; cursor: pointer; }
+/* A toggle: the Invert disc. Pressed, it turns over, its light half swapping sides as the page's tones do */
+.toggle { display: grid; place-items: center; margin: 0; padding: 4px; border: 0; border-radius: 50%; background: none; color: var(--panel-dim); cursor: pointer; }
 .toggle svg { width: 18px; height: 18px; }
-/* Pressed, the disc turns over: the light half swaps sides, as the page's tones do */
+.toggle:hover, .toggle[aria-pressed=true] { color: var(--panel-ink); }
 .toggle[aria-pressed=true] svg { transform: scaleX(-1); }
-.pages a, .toggle { color: var(--panel-dim); text-decoration: none; }
-.pages a:hover, .pages a[aria-current], .toggle:hover, .toggle[aria-pressed=true] { color: var(--panel-ink); }
 
 output { min-width: 7ch; color: var(--panel-ink); font-variant-numeric: tabular-nums; }
-:is(input, select, a, button):focus-visible { outline: 2px solid var(--panel-knob); outline-offset: 2px; }
+:is(input, select, button):focus-visible { outline: 2px solid var(--panel-knob); outline-offset: 2px; }
 :disabled { opacity: .4; cursor: default; }
 
 /* A picker is a pill outlined like the site's; where the browser allows, its list shows each choice drawn */

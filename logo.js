@@ -337,15 +337,15 @@ function diffuse(rgba, w, h, kernel) {
 
 /**
  * Draws the logo into a canvas, sized to it. Returns null without WebGL 2.
- * set({ signal, window, gradient, print, cycles, phase, amplitude, size, gap, ground, figure }) changes what's drawn:
- * signal, window and gradient morph over MORPH ms; phase is in turns; size, a mark's, and gap, between marks, in
- * CSS px; colors any CSS color.
+ * set({ signal, window, gradient, print, cycles, phase, amplitude, size, gap, ground, figure }, now) changes what's
+ * drawn: signal, window and gradient morph over MORPH ms from now, on render's clock; phase is in turns; size, a
+ * mark's, and gap, between marks, in CSS px; colors any CSS color.
  * render(now) draws a frame and tells whether a morph is still under way.
  */
 export function logo(canvas, { onresize } = {}) {
   const gl = canvas.getContext('webgl2', { antialias: false, alpha: false })
   if (!gl) return null
-  const state = { signal: 'sine', window: 'hann', gradient: 'bartlett', print: 'bayer4', cycles: 1, phase: 0, amplitude: 1, size: 2, gap: 6, ground: '#000', figure: '#fff' }
+  const state = { signal: 'sine', window: 'hann', gradient: 'bartlett', print: 'smooth', cycles: 1, phase: 0, amplitude: 1, size: 2, gap: 6, ground: '#000', figure: '#fff' }
   const wave = morpher(`${state.signal} ${state.window}`), fill = morpher(state.gradient)
 
   const prog = program(gl), U = {}
@@ -415,8 +415,7 @@ export function logo(canvas, { onresize } = {}) {
   // Device px per unit, framed so the window's full height fits
   const scale = () => Math.min(canvas.width / 2.5, canvas.height / (2.1 * HEIGHT))
 
-  function set(changes) {
-    const now = performance.now()
+  function set(changes, now = performance.now()) {
     Object.assign(state, changes)
     wave.to(`${state.signal} ${state.window}`, now)
     fill.to(state.gradient, now)
