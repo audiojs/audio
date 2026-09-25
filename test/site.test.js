@@ -2023,8 +2023,12 @@ test('site: quick actions recover from an empty result and render failure with U
   assert.deepEqual(await output(), before)
 })
 
+// Coordinate-based drags must start after the previous crumb's return/swap animation.
+const settled = locator => locator.evaluate(el => Promise.allSettled(el.getAnimations({ subtree: true }).map(animation => animation.finished)))
+
 async function dragStep(from, to, release = true) {
   await closeMenu()
+  await settled(page.locator('.chain'))
   const a = await pill(from).boundingBox(), b = await pill(to).boundingBox()
   await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2)
   await page.mouse.down()
@@ -2034,6 +2038,7 @@ async function dragStep(from, to, release = true) {
 
 async function dragToTrash(index, release = true) {
   await closeMenu()
+  await settled(page.locator('.chain'))
   await pill(index).scrollIntoViewIfNeeded()
   const box = await pill(index).boundingBox(), x = box.x + box.width / 2, y = box.y + box.height / 2
   await page.mouse.move(x, y); await page.mouse.down()
@@ -2097,6 +2102,7 @@ test('site: cancelled trash drops restore Add without editing; touch can delete 
     assert(!(await page.locator('#add-menu').isVisible()), cancel)
   }
   await page.setViewportSize({ width: 320, height: 900 })
+  await settled(page.locator('.chain'))
   await pill(2).scrollIntoViewIfNeeded()
   const box = await pill(2).boundingBox(), x = box.x + box.width / 2, y = box.y + box.height / 2
   const cdp = await page.context().newCDPSession(page)
@@ -2782,4 +2788,147 @@ test('site: utility icons share the content edge and loop colors stay stable thr
   assert.equal(await pill('save').locator('svg').count(), 1)
   assert.deepEqual(await menu().locator('.format-icon').allTextContents(), ['WAV', 'MP3', 'FLAC', 'AIFF', 'OGG'])
   assert.equal(await menu().locator('.method-option > svg:not(.format-icon)').count(), 0)
+})
+
+async function workshop() {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.goto(origin + '/workshop.html', { waitUntil: 'networkidle' })
+  for (const element of await page.locator('iframe').all()) {
+    await element.scrollIntoViewIfNeeded()
+    const frame = await element.contentFrame()
+    await frame.locator('.demo[aria-busy="false"]').waitFor()
+  }
+  await page.waitForFunction(() => document.querySelectorAll('iframe[data-ready]').length === 6)
+}
+
+test('workshop: all six live layouts preserve the original and fit desktop, narrow and mobile widths', async () => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  const appearance = demo => {
+    const css = getComputedStyle(demo), pill = getComputedStyle(demo.querySelector('.pill'))
+    return [css.padding, pill.borderColor, pill.backgroundColor, getComputedStyle(demo.querySelector('.timecode')).fontSize]
+  }
+  const original = await page.locator('.demo').evaluate(appearance)
+  await workshop()
+  assert.deepEqual(await page.frameLocator('#round-bottom iframe').locator('.demo').evaluate(appearance), original)
+  for (const element of await page.locator('iframe').all()) {
+    const frame = await element.contentFrame()
+    assert.equal((await frame.locator('.chain .pill').evaluateAll(pills => pills.map(p => p.title))).join('\n'), defaultChain)
+    const layout = await frame.locator('.demo').evaluate(demo => {
+      const box = selector => demo.querySelector(selector).getBoundingClientRect()
+      return { middle: !!demo.querySelector('.pipeline'), first: box('.audio-row'), edited: box('.edited-row'), chain: box('.chain'), pills: [...demo.querySelectorAll('.chain .pill')].map(p => p.getBoundingClientRect().top) }
+    })
+    assert(layout.middle ? layout.chain.top >= layout.first.bottom && layout.chain.bottom <= layout.edited.top : layout.chain.top >= layout.edited.bottom)
+    assert(layout.pills.every(top => top === layout.pills[0]), 'the default three crumbs fit one row')
+  }
+  for (const width of [320, 512]) {
+    await page.getByLabel(`${width} px`, { exact: true }).check()
+    await page.waitForFunction(width => [...document.querySelectorAll('iframe')].every(f => f.contentDocument.querySelector('.demo').offsetWidth === width), width)
+  }
+  for (const width of [320, 375, 414, 768, 1920]) {
+    await page.setViewportSize({ width, height: 1000 })
+    const failures = await page.evaluate(() => {
+      const failures = []
+      if (document.documentElement.scrollWidth > innerWidth) failures.push('page overflow')
+      for (const frame of document.querySelectorAll('iframe')) {
+        const doc = frame.contentDocument, chain = doc.querySelector('.chain').getBoundingClientRect()
+        const pills = [...doc.querySelectorAll('.chain .pill')].map(p => p.getBoundingClientRect())
+        const add = doc.querySelector('.add').getBoundingClientRect(), last = pills.at(-1)
+        if (doc.documentElement.scrollWidth > frame.clientWidth || pills.some(p => p.left < chain.left || p.right > chain.right + 1)) failures.push(frame.title + ': overflow')
+        if (Math.abs(add.top + add.height / 2 - last.top - last.height / 2) > 1 || last.right > add.left) failures.push(frame.title + ': plus placement')
+      }
+      return failures
+    })
+    assert.deepEqual(failures, [], `${width}px`)
+  }
+})
+
+test('workshop: pointed pills keep opaque token outlines, connected menus and live parameter editing', async () => {
+  await workshop()
+  for (const shape of ['soft', 'chevron']) {
+    const frame = page.frameLocator(`#${shape}-middle iframe`), fade = frame.locator('.pill[data-key="2"]')
+    const paint = () => fade.evaluate(pill => {
+      const path = getComputedStyle(pill.querySelector('path')), source = getComputedStyle(document.querySelector('.track-file'))
+      return { fill: path.fill, stroke: path.stroke, rule: source.borderColor, background: source.backgroundColor }
+    })
+    await page.mouse.move(0, 0)
+    const rest = await paint()
+    assert.equal(rest.fill, rest.background)
+    assert.equal(rest.stroke, rest.rule)
+    await fade.hover()
+    assert.equal((await paint()).stroke, rest.stroke)
+    await frame.getByRole('button', { name: 'Loop playback' }).click()
+    await frame.getByRole('button', { name: 'Play edited audio' }).click()
+    await fade.click()
+    const control = frame.getByRole('slider', { name: 'Fade out (s)', exact: true })
+    await control.dispatchEvent('pointerdown')
+    await control.evaluate(el => { el.value = '1.25'; el.dispatchEvent(new Event('input', { bubbles: true })) })
+    await control.dispatchEvent('pointerup')
+    await frame.locator('.demo[aria-busy="false"]').waitFor()
+    assert.equal(await fade.getAttribute('title'), '.fade(0.02, 1.25)')
+    assert(await frame.getByRole('button', { name: 'Pause edited audio' }).isEnabled())
+    await page.waitForFunction(id => {
+      const doc = document.querySelector(`#${id} iframe`).contentDocument, pill = doc.querySelector('.pill[data-key="2"]')
+      const p = pill.getBoundingClientRect(), tab = doc.querySelector('.pill-tab').getBoundingClientRect(), panel = doc.querySelector('.pill-body').getBoundingClientRect()
+      return pill.querySelector('svg').viewBox.baseVal.width === pill.offsetWidth && Math.abs(tab.left - p.left) < 1 && Math.abs(tab.top - p.top) < 1 && Math.abs(panel.top - p.bottom + 1) < 1
+    }, `${shape}-middle`)
+    await page.keyboard.press('Escape')
+    await frame.getByRole('button', { name: 'Pause edited audio' }).click()
+    await frame.locator('.pill[data-key="1"]').focus(); await page.keyboard.press('Tab')
+    assert.notEqual(await fade.evaluate(el => getComputedStyle(el).outlineStyle), 'none')
+  }
+  assert.equal(await page.frameLocator('#round-bottom iframe').locator('.pill[data-key="2"]').getAttribute('title'), '.fade(0.02, 0.1)', 'edits stay in their own preview')
+})
+
+test('workshop: menus fit, and the middle pipeline supports reordering, trash, Undo and an empty chain', async () => {
+  await workshop()
+  for (const id of ['soft-bottom', 'chevron-middle']) {
+    const element = page.locator(`#${id} iframe`), frame = element.contentFrame()
+    const initialHeight = await element.evaluate(el => el.offsetHeight)
+    for (const keys of [[0, 2], ['source'], ['save'], ['add']]) {
+      for (const key of keys) {
+        const trigger = key === 'add' ? frame.getByRole('button', { name: 'Add a method', exact: true }) : frame.locator(`.pill[data-key="${key}"]`)
+        await trigger.click()
+        await page.waitForFunction(id => {
+          const doc = document.querySelector(`#${id} iframe`).contentDocument, menu = doc.querySelector('[popover]:popover-open')
+          if (!menu) return false
+          const panel = menu.querySelector('.pill-body, .add-body'), rect = panel.getBoundingClientRect()
+          return rect.bottom <= doc.defaultView.innerHeight - 16 && panel.scrollHeight <= panel.clientHeight + 1
+        }, id)
+      }
+      await page.keyboard.press('Escape')
+      await page.waitForFunction(({ id, height }) => document.querySelector(`#${id} iframe`).offsetHeight === height, { id, height: initialHeight })
+    }
+    await frame.locator('.pill[data-key="0"]').scrollIntoViewIfNeeded()
+    const first = await frame.locator('.pill[data-key="0"]').boundingBox(), last = await frame.locator('.pill[data-key="2"]').boundingBox()
+    await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2); await page.mouse.down()
+    await page.mouse.move(last.x + last.width / 2, last.y + last.height / 2, { steps: 12 }); await page.mouse.up()
+    await frame.locator('.demo[aria-busy="false"]').waitFor()
+    assert.deepEqual(await frame.locator('.chain .pill').evaluateAll(pills => pills.map(p => p.title)), ['.normalize(-1)', '.fade(0.02, 0.1)', '.trim()'])
+    await frame.getByRole('button', { name: 'Undo', exact: true }).click()
+    await frame.locator('.demo[aria-busy="false"]').waitFor()
+    await settled(frame.locator('.chain'))
+    await frame.locator('.pill[data-key="0"]').scrollIntoViewIfNeeded()
+    const start = await frame.locator('.pill[data-key="0"]').boundingBox()
+    await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2)
+    await page.mouse.down(); await page.mouse.move(start.x + start.width / 2 + 8, start.y + start.height / 2)
+    await frame.getByRole('button', { name: 'Remove effect', exact: true }).waitFor()
+    const target = await frame.locator('.add').boundingBox()
+    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 8 })
+    assert.equal(await frame.locator('.add.drop-target').count(), 1)
+    await page.mouse.up(); await frame.locator('.demo[aria-busy="false"]').waitFor()
+    assert.deepEqual(await frame.locator('.chain .pill').evaluateAll(pills => pills.map(p => p.title)), ['.normalize(-1)', '.fade(0.02, 0.1)'])
+    await frame.getByRole('button', { name: 'Undo', exact: true }).click()
+    await frame.locator('.demo[aria-busy="false"]').waitFor()
+    assert.equal(await frame.locator('.chain .pill').count(), 3)
+    for (let i = 0; i < 3; i++) {
+      await frame.locator('.pill[data-key="0"]').focus(); await page.keyboard.press('Delete')
+      await frame.locator('.demo[aria-busy="false"]').waitFor()
+    }
+    assert.equal(await frame.locator('.chain .pill').count(), 0)
+    await frame.getByRole('button', { name: 'Add a method', exact: true }).click()
+    await frame.getByRole('button', { name: 'Add gain', exact: true }).click()
+    await frame.locator('.demo[aria-busy="false"]').waitFor()
+    assert.equal(await frame.locator('.chain .pill').getAttribute('title'), '.gain(-6)')
+    await frame.locator('.chain .crumb-outline').waitFor()
+  }
 })

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>audio — layout workshop</title>
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="workshop.css">
+  <script type="module" src="workshop.js"></script>
+</head>
+<body class="workshop">
+  <header class="workshop-head">
+    <a class="wordmark" href="index.html"><img src="logo.svg" class="logo" alt="">audio</a>
+    <a class="text-link" href="index.html">Original page <span aria-hidden="true">↗</span></a>
+  </header>
+  <main class="workshop-main">
+    <div class="workshop-intro">
+      <h1>Layout workshop</h1>
+      <fieldset class="preview-width">
+        <legend>Player width</legend>
+        <label><input type="radio" name="width" value="wide" checked>512 px</label>
+        <label><input type="radio" name="width" value="narrow">320 px</label>
+      </fieldset>
+    </div>
+    <div class="workshop-grid" id="variants" aria-busy="true"></div>
+    <p id="workshop-status" role="status">Loading players…</p>
+  </main>
+</body>
+</html>

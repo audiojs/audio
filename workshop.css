@@ -1,0 +1,62 @@
+/* Hallmark · component: processing crumbs · genre: modern-minimal · theme: existing Quiet tokens
+ * Existing player supplies playback, focus, disabled, loading, error and recovery states.
+ * Pre-emit critique: Philosophy 5 · Hierarchy 4 · Execution 4 · Specificity 5 · Restraint 5 · Variety 4
+ * Verified: existing contrast tokens, keyboard focus, responsive wrapping, connected menus, live edits and drag lifecycle. */
+.workshop-head, .workshop-main { max-width: 1216px; margin-inline: auto; padding-inline: 24px; }
+.workshop-head { min-height: 96px; display: flex; justify-content: space-between; align-items: center; }
+.workshop-head > a, .workshop-intro { background: var(--color-paper); box-shadow: 0 0 0 8px var(--color-paper); }
+.workshop-main { padding-bottom: 64px; }
+.workshop-intro { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-block: 40px 32px; }
+.workshop-intro h1 { font-size: clamp(30px, 4vw, 44px); line-height: 1.1; letter-spacing: -.045em; }
+.preview-width { display: flex; gap: 16px; flex: none; margin: 0; padding: 0; border: 0; font: 12px var(--font-mono); }
+.preview-width legend { padding: 0; margin-bottom: 6px; color: var(--color-muted); }
+.preview-width label { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; cursor: pointer; white-space: nowrap; }
+.preview-width input { accent-color: var(--color-ink); }
+.preview-width input:focus-visible { outline: 2px solid var(--color-ink); outline-offset: 4px; }
+.workshop-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 40px 16px; align-items: start; }
+.variant { min-width: 0; }
+.variant-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 14px 24px 0; border-top: 1px solid var(--color-rule); background: var(--color-paper); }
+.variant-heading h2 { font: 500 15px var(--font-body); letter-spacing: -.015em; }
+.variant-heading span { color: var(--color-muted); font: 11px var(--font-mono); white-space: nowrap; }
+.variant-player { position: relative; width: min(560px, 100%); margin-inline: auto; }
+/* Cast the original shadow outside the iframe so its viewport cannot crop it. */
+.variant-player::before { content: ''; position: absolute; inset: 24px 24px auto; height: var(--player-height, 0px); border-radius: var(--radius-slab); box-shadow: var(--shadow-long); pointer-events: none; }
+.variant iframe { position: relative; display: block; width: 100%; height: 500px; border: 0; color-scheme: light; }
+.workshop[data-width="narrow"] .variant-player { width: min(368px, 100%); }
+#workshop-status { margin: 24px; color: var(--color-muted); }
+#workshop-status:empty { display: none; }
+@media (max-width: 760px) {
+  .workshop-head, .workshop-main { padding-inline: 16px; }
+  .workshop-intro { align-items: start; flex-direction: column; gap: 20px; margin-top: 24px; }
+  .workshop-grid { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .variant-heading { padding-inline: 16px; }
+}
+
+/* These overrides apply only inside the workshop's isolated copies of index.html. */
+html.workshop-preview { overflow: clip; }
+.workshop-preview body { min-height: 0; padding: 24px 24px 56px; overflow: clip; background: var(--color-transparent); }
+.workshop-preview :is(.skip, .header, .intro, .code-section, .ecosystem, .footer) { display: none; }
+.workshop-preview .hero { display: block; width: 100%; margin: 0; padding: 0; }
+.workshop-preview .demo { width: 100%; margin: 0; translate: none; box-shadow: inset 0 1px 0 var(--color-screen-rule), 0 0 0 1px var(--color-bezel); }
+.workshop-preview .pipeline { position: relative; margin-block: 16px; }
+.workshop-preview .pipeline .chain { margin: 0; padding: 0; min-height: 30px; border: 0; }
+.workshop-preview .pipeline > .add { position: absolute; right: calc((var(--tool-icon) - var(--tool-size)) / 2); bottom: calc((30px - var(--tool-size)) / 2); }
+@media (min-width: 500px) {
+  .workshop-preview .demo { --demo-x: 24px; --demo-bottom: 16px; padding-top: 20px; }
+}
+
+/* SVG outlines keep the actual divider token and an opaque fill, including at the points. */
+.workshop-preview:not([data-shape="round"]) .chain { column-gap: 6px; }
+.workshop-preview:not([data-shape="round"]) .chain .joint { display: none; }
+.workshop-preview:not([data-shape="round"]) :is(.chain .pill, .pill.dragged) { isolation: isolate; border: 0; border-radius: 0; background: none; padding: 0 21px 0 13px; gap: 10px; --crumb-fill: var(--color-screen-pill); }
+.workshop-preview[data-shape="chevron"] :is(.chain .pill, .pill.dragged) { padding-left: 23px; }
+.workshop-preview .pill > .crumb-outline { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.workshop-preview .crumb-outline path { fill: var(--crumb-fill); stroke: var(--color-screen-rule); stroke-width: 1; vector-effect: non-scaling-stroke; transition: fill var(--dur-micro) var(--ease-out); }
+.workshop-preview:not([data-shape="round"]) :is(.chain .pill.open, .chain .pill:active) { --crumb-fill: var(--color-screen-raised); }
+.workshop-preview:not([data-shape="round"]) .pill.dragged { --crumb-fill: var(--color-screen-pill-active); box-shadow: none; filter: var(--filter-menu); }
+@media (hover: hover) {
+  .workshop-preview:not([data-shape="round"]) .chain .pill:hover:not(:disabled, .open) { --crumb-fill: var(--color-screen-pill-hover); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workshop-preview .crumb-outline path { transition: none; }
+}
