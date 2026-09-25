@@ -40,9 +40,7 @@ audio('voice.mp3').trim().normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 
 ### Browser
 
-Audio loads codecs and plugins lazily on first use via `import('@audio/decode-mp3')` / `import('freeverb')`. So a browser needs *some* way to resolve those bare specifiers:
-
-**CDN, zero-config** — esm.sh rewrites the lazy imports for you, nothing else to set up:
+<details><summary>CDN</summary>
 
 ```html
 <script type="module">
@@ -51,19 +49,13 @@ Audio loads codecs and plugins lazily on first use via `import('@audio/decode-mp
 </script>
 ```
 
-**Bundler** (Vite / esbuild / webpack) — `import audio from 'audio'`; codecs and plugins become code-split chunks, fetched on demand. Subpath imports (`audio/core`, `audio/fn/gain`) are source ESM and need a bundler.
+</details>
 
-**Local bundle + import map** — serve `dist/audio.min.js` yourself and map the bare specifiers to a CDN (or local copies):
+<details><summary>Bundler</summary>
 
-```html
-<script type="importmap">
-{ "imports": { "@audio/": "https://esm.sh/@audio/", "audio": "./dist/audio.min.js" } }
-</script>
-<script type="module">
-  import audio from 'audio'
-  audio('./song.mp3').normalize().play()   // @audio/decode-mp3 resolves via the map, on demand
-</script>
-```
+`import audio from 'audio'` in Vite, esbuild or webpack; codecs and plugins become code-split chunks, fetched on demand. Subpath imports (`audio/core`, `audio/fn/gain`) are source ESM and need a bundler.
+
+</details>
 
 
 ### CLI
@@ -171,12 +163,10 @@ let s = audio.from(t => Math.sin((200 + data[t / 0.2 | 0]) * Math.PI * 2 * t) * 
 
 ### Automate
 
-Any numeric op param accepts a `t => value` function — the engine samples it during render (sample-accurate for `gain`/`pan`, ~3ms steps elsewhere). A breakpoint curve `{t, v}` does the same and stays serializable (survives `toJSON()` and the worker boundary):
-
 ```js
 a.gain(t => -12 * (0.5 + 0.5 * Math.cos(t * Math.PI * 4)))  // 2Hz tremolo in dB
 a.lowpass(t => 400 + 4000 * t)                              // filter sweep
-a.pan({ t: [0, 2, 4], v: [-1, 1, -1] })                     // curve: L→R→L over 4s
+a.pan({ t: [0, 2, 4], v: [-1, 1, -1] })                     // curve L→R→L over 4s, serializable
 music.ducker({ key: voice })                                // sidechain (plugin)
 ```
 
@@ -196,8 +186,10 @@ let b = audio(JSON.parse(json))  // re-decode + replay edits
 
 ### Create
 
-* **`audio(source, opts?)`** – decode from file, URL, or bytes. Returns instantly — decodes in background.
-* **`audio.from(source, opts?)`** – wrap existing PCM, AudioBuffer, silence, or function. Sync, no I/O.
+| Method                         | Description                                                                                                                         |
+|:--|:--|
+| `audio(source, opts?)` | decode from file, URL, or bytes. Returns instantly — decodes in background. |
+| `audio.from(source, opts?)` | wrap existing PCM, AudioBuffer, silence, or function. Sync, no I/O. |
 
 ```js
 let a = audio('voice.mp3')                // file path
@@ -219,142 +211,142 @@ let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 
 ### Properties
 
-Format, playback and state — media-element semantics where they apply.
-
-* **`.duration`** – total seconds (reflects edits).
-* **`.channels`** – channel count.
-* **`.sampleRate`** – sample rate.
-* **`.length`** – total samples per channel.
-* **`.currentTime`** – playback position in seconds (smooth interpolation during playback).
-* **`.playing`** – true during playback.
-* **`.paused`** – true when paused.
-* **`.volume`** – playback volume, 0..1 linear. Settable.
-* **`.muted`** – mute gate, independent of volume. Settable.
-* **`.loop`** – loop playback on/off. Settable.
-* **`.playbackRate`** – live playback speed, 0.0625..16. Settable during playback — ramps smoothly (tape-style varispeed, ~50ms), no clicks. Playback-only; use `.speed()` to bake.
-* **`.ended`** – true when playback ended naturally (not via stop).
-* **`.seeking`** – true during a seek operation.
-* **`.played`** – promise, resolves when playback starts.
-* **`.recording`** – true during mic recording.
-* **`.ready`** – promise, resolves when fully decoded.
-* **`.source`** – original source reference.
-* **`.pages`** – `Float32Array` page store.
-* **`.stats`** – per-block stats (peak, rms, etc.).
-* **`.edits`** – edit list (non-destructive ops).
-* **`.version`** – increments on each edit.
+| Property                         | Description                                                                                                                         |
+|:--|:--|
+| `.duration` | total seconds, after edits. |
+| `.channels` | channel count. |
+| `.sampleRate` | sample rate. |
+| `.length` | samples per channel. |
+| `.currentTime` | playback position in seconds, smooth during playback. |
+| `.playing` | true during playback. |
+| `.paused` | true when paused. |
+| `.volume` | 0..1 linear. Settable. |
+| `.muted` | mute, independent of volume. Settable. |
+| `.loop` | settable. |
+| `.playbackRate` | 0.0625..16, settable mid-playback; ramps click-free (~50ms varispeed). `.speed()` bakes it. |
+| `.ended` | true when playback reached the end, not after `stop()`. |
+| `.seeking` | true during a seek. |
+| `.played` | promise, resolves when playback starts. |
+| `.recording` | true during mic recording. |
+| `.ready` | promise, resolves when fully decoded. |
+| `.source` | original source. |
+| `.pages` | `Float32Array` page store. |
+| `.stats` | per-block stats (peak, rms, etc.). |
+| `.edits` | edit list. |
+| `.version` | increments on each edit. |
 
 ### Structure
 
-Non-destructive time/channel rearrangement. All support `{at, duration, channel}`.
+| Method                         | Description                                                                                                                         |
+|:--|:--|
+| `.trim(threshold?)` | strip leading/trailing silence (dB, default auto). |
+| `.shrink(gap?, threshold?)` | shorten silent pauses to `gap` seconds (default 0.3); `0` removes them.<br><sub>≡ FFmpeg `silenceremove`, Audacity truncate-silence</sub> |
+| `.crop({at, duration})` | keep range, discard rest. |
+| `.remove({at, duration})` | delete range, close gap. |
+| `.insert(source, {at})` | insert audio, or a number of seconds of silence. |
+| `.copy({at?, duration?})` | copy range (default: all) to this instance's clipboard. |
+| `.cut({at?, duration?})` | copy, then remove. |
+| `.paste({at?})` | insert the clipboard (default: at end). |
+| `.clip({at, duration})` | zero-copy excerpt as a new instance. |
+| `.split(...offsets)` | zero-copy excerpts between timestamps. |
+| `.pad(before, after?)` | silence at edges (seconds). |
+| `.repeat(n)` | repeat n times. |
+| `.reverse({at?, duration?})` | reverse audio or range. |
+| `.speed(rate)` | changes pitch and duration together. |
+| `.stretch(factor)` | changes duration, keeps pitch (phase-locked vocoder). A `t => f` or `{t, v}` factor slides the tempo; duration becomes ∫factor dt. |
+| `.pitch(semitones)` | changes pitch, keeps duration. |
+| `.remix(channels)` | channel count, or a map: `[1, 0]` swaps L/R. |
 
-* **`.trim(threshold?)`** – strip leading/trailing silence (dB, default auto).
-* **`.shrink(gap?, threshold?)`** – compress silent pauses to a target gap (seconds, default 0.3) throughout, or within `{at, duration}`. `shrink(0)` removes silence entirely. &nbsp;<sub>≡ FFmpeg `silenceremove`, Audacity truncate-silence</sub>
-* **`.crop({at, duration})`** – keep range, discard rest.
-* **`.remove({at, duration})`** – cut range, close gap.
-* **`.insert(source, {at})`** – insert audio or silence (number of seconds) at position.
-* **`.clip({at, duration})`** – zero-copy range reference (an excerpt — unrelated to `stat('clipping')`, which detects over-0dBFS distortion).
-* **`.split(...offsets)`** – zero-copy split at timestamps.
-* **`.pad(before, after?)`** – silence at edges (seconds).
-* **`.repeat(n)`** – repeat n times.
-* **`.reverse({at?, duration?})`** – reverse audio or range.
-* **`.speed(rate)`** – playback speed (affects both pitch and duration).
-* **`.stretch(factor)`** – time stretch, preserves pitch. Phase-locked vocoder. Factor accepts a `t => f` function or `{t, v}` curve over source time — **sliding stretch** (continuous tempo envelope): duration becomes ∫factor dt, pitch stays put. Ranged via `{at, duration}`.
-* **`.pitch(semitones)`** – pitch shift, preserves duration. Positive = higher.
-* **`.remix(channels)`** – channel count: number or array map (`[1, 0]` swaps L/R). No `{at, duration}` — channel count can't change mid-timeline.
+Every op takes a trailing `{at, duration, channel}` range, except channel-changing `remix` and `crossover`. Times are seconds or strings (`'1:30'`, `'2m'`); negative counts from the end.
 
 ```js
 a.trim(-30)                               // strip silence below -30dB
-a.remove({ at: '2m', duration: 15 })      // cut 2:00–2:15, close gap
-a.insert(intro, { at: 0 })               // prepend; .insert(3) appends 3s silence
-let [pt1, pt2] = a.split('30m')          // zero-copy views
+a.remove({ at: '2m', duration: 15 })      // delete 2:00–2:15, close gap
+a.insert(intro, { at: 0 })                // prepend; .insert(3) appends 3s silence
+a.copy(60, 30).paste(120)                 // duplicate the chorus at 2:00
+a.cut(2, 1).paste(5)                      // move 2s–3s to 5s of the shortened timeline
+let [pt1, pt2] = a.split('30m')           // zero-copy parts
 let hook = a.clip({ at: 60, duration: 30 })  // zero-copy excerpt
-a.stretch(0.9)                            // slow 10%, preserve pitch
-a.pitch(-2)                               // down 2 semitones, preserve tempo
+a.stretch(1.1)                            // 10% longer, same pitch
+a.pitch(-2)                               // 2 semitones down, same tempo
 a.remix([0, 0])                           // L→both; .remix(1) for mono
 ```
 
 ### Process
 
-Amplitude, mixing, normalization. All support `{at, duration, channel}` ranges.
-
-* **`.gain(dB, opts?)`** – volume. Number, range, or `t => dB` function. `{ unit: 'linear' }` for multiplier.
-* **`.fade(in, out?, curve?)`** – fade in/out. Curves: `'linear'` `'exp'` `'log'` `'cos'`. Adjustable via opts: `{start, end}` gain levels (0..1 — fade between arbitrary levels, e.g. a duck), `{mid}` — position of the half-amplitude point within the fade (skews the curve), `{at}` — anywhere in the timeline. &nbsp;<sub>≡ Audacity adjustable-fade</sub>
-* **`.normalize(target?)`** – remove DC offset, clamp, and normalize loudness. LUFS presets follow EBU R128 / ITU-R BS.1770-4 (equivalent to FFmpeg `loudnorm`).
-  * `'podcast'` – -16 LUFS, -1 dBTP.
-  * `'streaming'` – -14 LUFS.
-  * `'broadcast'` – -23 LUFS.
-  * `-3` – custom dB target (peak mode).
-  * no arg – peak 0dBFS.
-  * `{ mode: 'rms' }` – RMS normalization. Also `'peak'`, `'lufs'`.
-  * `{ ceiling: -1 }` – true peak limiter in dB.
-  * `{ dc: false }` – skip DC removal.
-* **`.mix(source, opts?)`** – overlay another audio (additive).
-* **`.crossfade(source, duration?, curve?)`** – crossfade into another audio. Default 0.5s `'cos'` (complementary amplitude, best for similar material); `'equal'` for the equal-power law (constant loudness across unrelated material, e.g. two songs). &nbsp;<sub>≡ FFmpeg `acrossfade`</sub>
-* **`.pan(value, opts?)`** – stereo balance (−1 left, 0 center, 1 right). Accepts function.
-* **`.write(data, {at?})`** – overwrite samples with raw PCM.
-* **`.transform(fn)`** – inline processor: `(input, output, ctx) => void`. Not serialized.
+| Method                         | Description                                                                                                                         |
+|:--|:--|
+| `.gain(dB, opts?)` | `{ unit: 'linear' }` takes a multiplier. |
+| `.fade(in, out?, curve?)` | curves `'linear'` `'exp'` `'log'` `'cos'`. `{start, end}` levels 0..1 fade between any levels (a duck); `{mid}` skews the half-amplitude point.<br><sub>≡ Audacity adjustable-fade</sub> |
+| `.normalize(target?)` | remove DC, clamp, normalize. Presets per EBU R128 / ITU-R BS.1770-4 (≡ FFmpeg `loudnorm`):<br>`'podcast'` -16 LUFS, -1 dBTP<br>`'streaming'` -14 LUFS<br>`'broadcast'` -23 LUFS<br>`-3` peak dB; no arg: peak 0 dBFS<br>`{ mode }` `'peak'` `'rms'` `'lufs'`<br>`{ ceiling: -1 }` true-peak limit, dB<br>`{ dc: false }` keep DC |
+| `.mix(source, opts?)` | overlay, additive. |
+| `.crossfade(source, duration?, curve?)` | append with overlap, default 0.5s. `'cos'` (default) suits similar material; `'equal'` (equal-power) keeps loudness across unrelated tracks.<br><sub>≡ FFmpeg `acrossfade`</sub> |
+| `.pan(value, opts?)` | −1 left, 0 center, 1 right. |
+| `.write(data, {at?})` | overwrite samples with raw PCM. |
+| `.transform(fn)` | inline `(input, output, ctx) => void`. Not serialized. |
 
 ```js
 a.gain(-3)                                // reduce 3dB
-a.gain(6, { at: 10, duration: 5 })       // boost range
-a.gain(t => -12 * Math.cos(t * TAU))     // automate over time
+a.gain(6, { at: 10, duration: 5 })        // boost range
+a.gain(t => -12 * Math.cos(t * TAU))      // automate over time
 a.fade(0.5, -2, 'exp')                    // 0.5s in, 2s exp fade-out
-a.normalize('podcast')                    // -16 LUFS; also 'streaming', 'broadcast'
-a.mix(voice, { at: 2 })                  // overlay at 2s
+a.normalize('podcast')                    // -16 LUFS, -1 dBTP
+a.mix(voice, { at: 2 })                   // overlay at 2s
 a.crossfade(next, 2)                      // 2s crossfade into next
-a.crossfade(next, 0.5, 'linear')          // linear crossfade
+a.crossfade(song2, 4, 'equal')            // equal-power, for unrelated tracks
 a.pan(-0.3, { at: 10, duration: 5 })      // pan left for range
 ```
 
 ### Filter
 
-Biquad filters, chainable. All support `{at, duration}` ranges.
+| Method                         | Description                                                                                                                         |
+|:--|:--|
+| `.highpass(freq)`, `.lowpass(freq)` | pass filter. |
+| `.bandpass(freq, Q?)`, `.notch(freq, Q?)` | band-pass / notch. |
+| `.allpass(freq, Q?)` | phase shift, unity magnitude. |
+| `.lowshelf(freq, dB)`, `.highshelf(freq, dB)` | shelf EQ. |
+| `.eq(freq, gain, Q?)` | parametric EQ. |
+| `.filter(type, ...params)` | by type name, or a custom filter function. |
 
-* **`.highpass(freq)`**, **`.lowpass(freq)`** – pass filter.
-* **`.bandpass(freq, Q?)`**, **`.notch(freq, Q?)`** – band-pass / notch.
-* **`.allpass(freq, Q?)`** – all-pass (phase shift, unity magnitude).
-* **`.lowshelf(freq, dB)`**, **`.highshelf(freq, dB)`** – shelf EQ.
-* **`.eq(freq, gain, Q?)`** – parametric EQ.
-* **`.filter(type, ...params)`** – generic dispatch.
+All biquads.
 
 ```js
 a.highpass(80).lowshelf(200, -3)          // rumble + mud
-a.eq(3000, 2, 1.5).highshelf(8000, 3)    // presence + air
+a.eq(3000, 2, 1.5).highshelf(8000, 3)     // presence + air
 a.notch(50)                               // remove hum
 a.allpass(1000)                           // phase shift at 1kHz
-a.filter(customFn, { cutoff: 2000 })     // custom filter function
+a.filter(customFn, { cutoff: 2000 })      // custom filter function
 ```
 
 ### Effect
 
-Audio effects and transformations.
-
-* **`.vocals(mode?)`** – stereo vocal isolation/removal via mid/side cancellation. `'isolate'` (default) keeps center, `'remove'` keeps sides. &nbsp;<sub>≡ SoX `oops`</sub>
-* **`.dither(bits?, {shape?})`** – TPDF dithering for bit-depth reduction (default 16-bit). `shape:true` enables 2nd-order noise shaping — pushes quantization noise above ~Nyquist/2 (audibly quieter at given bit depth).
-* **`.crossfeed(freq?, level?)`** – headphone crossfeed for improved stereo imaging. Default: 700 Hz cutoff, 0.3 level. &nbsp;<sub>≡ SoX `earwax`, bs2b</sub>
-* **`.resample(rate, {type?})`** – sample rate conversion. Non-destructive, chainable, undoable. Upsampling defaults to fast linear interpolation; downsampling defaults to an anti-aliased 32-tap windowed sinc. Use `type:'sinc'` to force sinc quality, or `type:'linear'` to force the fastest interpolation.
-* **`.crossover(...freqs)`** – band-splitting crossover: N split points → N+1 bands × channels, band-major order. Linkwitz-Riley 4th order, allpass-aligned — summing bands reconstructs the input flat. &nbsp;<sub>≡ FFmpeg `acrossover`</sub>
+| Method                         | Description                                                                                                                         |
+|:--|:--|
+| `.vocals(mode?)` | mid/side: `'isolate'` (default) keeps center, `'remove'` keeps sides.<br><sub>≡ SoX `oops`</sub> |
+| `.dither(bits?, {shape?})` | TPDF, default 16-bit. `shape: true` adds 2nd-order noise shaping: quantization noise moves above ~Nyquist/2, audibly quieter. |
+| `.crossfeed(freq?, level?)` | headphone crossfeed, default 700 Hz, 0.3.<br><sub>≡ SoX `earwax`, bs2b</sub> |
+| `.resample(rate, {type?})` | upsampling defaults to linear, downsampling to anti-aliased 32-tap windowed sinc. `type: 'sinc'` or `'linear'` forces one. |
+| `.crossover(...freqs)` | N split frequencies → N+1 bands × channels, band-major. Linkwitz-Riley 4th order; bands sum back flat.<br><sub>≡ FFmpeg `acrossover`</sub> |
 
 ```js
 a.vocals()                                // isolate center-panned vocals
 a.vocals('remove')                        // remove vocals (karaoke)
 a.dither(16)                              // TPDF dither to 16-bit
-a.dither(16, {shape: true})               // noise-shaped (audibly quieter)
+a.dither(16, { shape: true })             // noise-shaped
 a.crossfeed()                             // headphone crossfeed
 a.resample(48000)                         // resample to 48kHz (linear)
-a.resample(96000, {type: 'sinc'})         // high-quality windowed-sinc
-a.resample(22050).gain(-3).save('lo.wav') // chain with other ops
+a.resample(96000, { type: 'sinc' })       // high-quality windowed-sinc
 ```
 
 ### I/O
 
-Read PCM, encode, push. Format inferred from extension.
-
-* **`await .read(opts?)`** – rendered PCM. `{ format, channel }` to convert.
-* **`await .save(path, opts?)`** – encode + write. `{ at, duration }` for sub-range.
-* **`await .encode(format?, opts?)`** – encode to `Uint8Array`.
-* **`.clone()`** – deep copy, independent edits, shared pages.
-* **`.push(data, format?)`** – feed PCM into pushable instance. `.stop()` to finalize.
+| Method                         | Description                                                                                                                         |
+|:--|:--|
+| `await .read(opts?)` | rendered PCM. `{ format, channel }` to convert. |
+| `await .save(path, opts?)` | encode + write, format from extension. |
+| `await .encode(format?, opts?)` | encode to `Uint8Array`. |
+| `.clone()` | independent edits, shared pages. |
+| `.push(data, format?)` | feed PCM into a pushable instance; `.stop()` finalizes. |
 
 ```js
 let pcm = await a.read()                              // Float32Array[]
@@ -371,17 +363,18 @@ src.stop()                                             // finalize
 
 ### Playback / Recording
 
-Live playback with dB volume, seeking, looping; mic recording.
-
-* **`.play(opts?)`** – start playback. `{ at, duration, volume, rate, loop }`. `.played` promise resolves when output starts. `a.playbackRate` is live — set it mid-playback for smooth tape-style speed ramping.
-* **`.pause()`**, **`.resume()`**, **`.seek(t)`**, **`.stop()`** – playback control.
-* **`.record(opts?)`** – mic recording. `{ deviceId, sampleRate, channels }`.
+| Method                         | Description                                                                                                                         |
+|:--|:--|
+| `.play(opts?)` | `{ at, duration, volume, rate, loop }`. |
+| `.pause()`, `.resume()`, `.seek(t)`, `.stop()` | `stop()` also ends recording. |
+| `.record(opts?)` | mic. `{ deviceId, sampleRate, channels }`. |
 
 ```js
 a.play({ at: 30, duration: 10 })          // play 30s–40s
-await a.played                             // wait for output to start
+await a.played                            // wait for output to start
 a.volume = 0.5; a.loop = true             // live adjustments
-a.muted = true                             // mute without changing volume
+a.muted = true                            // mute without changing volume
+a.playbackRate = 1.5                      // tape-style speed ramp
 a.pause(); a.seek(60); a.resume()         // jump to 1:00
 a.stop()                                  // end playback or recording
 
@@ -392,14 +385,17 @@ mic.stop()
 
 ### Metering
 
-Live stats streamed per block during playback — same names as [Analysis](#analysis). Listener-gated: zero cost when nothing subscribes.
+| Method                         | Description                                                                                                                         |
+|:--|:--|
+| `.meter(what, cb?)` | live per-block stats during playback: `rms`, `peak`, `ms`, `min`, `max`, `dc`, `clipping`, `spectrum`, or your own. Without `cb`, read `.value`. Returns `{ value, stop() }`. |
 
-* **`.meter(what, cb?)`** – subscribe to live stats. `what` is a stat name, array of names, or an opts object; omit `cb` for pull-style access via the returned probe's `.value`. Returns `{ value, stop() }`.
-  * `type` – stat name, array of names, or omit for all block stats.
-  * `channel` – `n` for one channel, `[n, m]` per-channel, or omit for scalar avg (mirrors `a.stat()`).
-  * `smoothing` – one-pole EMA time constant τ, in seconds.
-  * `hold` – peak-hold decay τ, in seconds.
-  * `bins` / `fMin` / `fMax` – spectrum resolution and range (when `type: 'spectrum'`).
+| Option                         | Description                                                                                                                         |
+|:--|:--|
+| `type` | stat name, array of names, or omit for all block stats. |
+| `channel` | `n` for one channel, `[n, m]` per-channel, or omit for scalar avg (mirrors `a.stat()`). |
+| `smoothing` | one-pole EMA time constant τ, in seconds. |
+| `hold` | peak-hold decay τ, in seconds. |
+| `bins`, `fMin`, `fMax` | spectrum resolution and range (when `type: 'spectrum'`). |
 
 ```js
 a.meter('rms', v => draw(v))                                       // scalar avg across channels
@@ -413,36 +409,36 @@ requestAnimationFrame(function tick() { draw(m.value); requestAnimationFrame(tic
 m.stop()                                                           // release
 ```
 
-Any registered stat works — `rms`, `peak`, `ms`, `min`, `max`, `dc`, `clipping`, `spectrum`, or your own via `audio.stat(...)`.
-
-
 ### Analysis
 
-`await .stat(name, opts?)` — without `bins` returns scalar, with `bins` returns `Float32Array`. Array of names returns array of results. Sub-ranges via `{at, duration}`, per-channel via `{channel}`.
+| Method                         | Description                                                                                                                         |
+|:--|:--|
+| `await .stat(name, opts?)` | one value; with `{ bins }` a `Float32Array`; an array of names gives an array. `{ channel: n }` one channel, `[n, m]` per channel; `{at, duration}` sub-range. |
+| `await .detect(opts?)` | `{ bpm, confidence, beats, onsets }` in one pass. |
 
-* **`'db'`** – peak amplitude in dBFS.
-* **`'rms'`** – RMS amplitude (linear).
-* **`'peak'`** – max absolute amplitude, `max(|min|, |max|)` (linear, dBFS via `20·log10`).
-* **`'loudness'`** – integrated LUFS (ITU-R BS.1770).
-* **`'dc'`** – DC offset.
-* **`'clipping'`** – clipped samples (scalar: timestamps, binned: counts).
-* **`'silence'`** – silent ranges as `{at, duration}`.
-* **`'crest'`** – crest factor in dB (peak/RMS ratio). Sine ≈ 3dB, square ≈ 0dB.
-* **`'centroid'`** – spectral centroid in Hz (brightness). Higher = brighter.
-* **`'flatness'`** – spectral flatness 0–1. 0 = tonal, 1 = noise.
-* **`'correlation'`** – inter-channel (L/R) phase correlation, −1 to +1. Mono returns 1.
-* **`'max'`**, **`'min'`** – peak envelope per bin — use together for waveform rendering.
-* **`'spectrum'`** – mel-frequency spectrum in dB (A-weighted).
-* **`'cepstrum'`** – MFCCs.
-* **`'bpm'`** – tempo in BPM.
-* **`'beats'`** – beat timestamps as `Float64Array` (seconds).
-* **`'onsets'`** – onset timestamps as `Float64Array` (seconds).
-* **`'notes'`** – pitch events: `[{time, duration, freq, midi, note, clarity}]` (YIN).
-* **`'chords'`** – chord sequence: `[{time, duration, label, root, quality, confidence}]` (NNLS chroma + Viterbi).
-* **`'key'`** – musical key: `{tonic, mode, label, confidence}` (Krumhansl-Schmuckler).
+| Stat                         | Description                                                                                                                         |
+|:--|:--|
+| `'db'` | peak amplitude in dBFS. |
+| `'rms'` | RMS amplitude, linear. |
+| `'peak'` | `max(\|min\|, \|max\|)`, linear. |
+| `'loudness'` | integrated LUFS (ITU-R BS.1770). |
+| `'dc'` | DC offset. |
+| `'clipping'` | clipped samples (scalar: timestamps, binned: counts). |
+| `'silence'` | silent ranges as `{at, duration}`. |
+| `'crest'` | peak/RMS in dB. Sine ≈ 3dB, square ≈ 0dB. |
+| `'centroid'` | spectral centroid in Hz (brightness). |
+| `'flatness'` | spectral flatness: 0 tonal, 1 noise. |
+| `'correlation'` | L/R phase correlation, −1 to +1. Mono returns 1. |
+| `'max'`, `'min'` | peak envelope per bin, for waveforms. |
+| `'spectrum'` | mel spectrum in dB (A-weighted). |
+| `'cepstrum'` | MFCCs. |
+| `'bpm'` | tempo. |
+| `'beats'`, `'onsets'` | timestamps as `Float64Array` (seconds). |
+| `'notes'` | `[{time, duration, freq, midi, note, clarity}]` (YIN). |
+| `'chords'` | `[{time, duration, label, root, quality, confidence}]` (NNLS chroma + Viterbi). |
+| `'key'` | `{tonic, mode, label, confidence}` (Krumhansl-Schmuckler). |
 
-For BPM/beats/onsets, opts: `{ minBpm, maxBpm, delta, frameSize, hopSize }`. Use `a.detect(opts)` to get `{ bpm, confidence, beats, onsets }` in one pass.
-For notes, opts: `{ frameSize, hopSize, threshold, minClarity }`. For chords/key, opts: `{ frameSize, hopSize, method }` (`'nnls'` or `'pcp'`).
+Opts: `bpm`, `beats`, `onsets` take `{ minBpm, maxBpm, delta, frameSize, hopSize }`; `notes` takes `{ frameSize, hopSize, threshold, minClarity }`; `chords`, `key` take `{ frameSize, hopSize, method: 'nnls' | 'pcp' }`.
 
 ```js
 let loud = await a.stat('loudness')                       // LUFS
@@ -460,15 +456,16 @@ let chords = await a.stat('chords')                       // [{time, duration, l
 let k = await a.stat('key')                               // {label: 'C', mode: 'major', confidence}
 ```
 
-
 ### Meta
 
-Container tags, cover art, markers, regions. Parsed on decode, preserved on save. Round-trips WAV / MP3 / FLAC.
+| Property                         | Description                                                                                                                         |
+|:--|:--|
+| `.meta` | tags: `{title, artist, album, year, bpm, key, comment, pictures, raw, ...}`. Writable. `meta.raw` holds format-specific blocks untouched (WAV bext/iXML, ID3v2 frames, FLAC blocks). |
+| `.meta.pictures` | cover art `[{mime, type, description, data, url}]`. `.url` is a lazy Blob URL (browser) or data URL (Node). |
+| `.markers` | `[{time, label}]` in output seconds; edits shift or drop them. |
+| `.regions` | `[{at, duration, label}]`; edits shift or drop them. |
 
-* **`a.meta`** – normalized tags: `{title, artist, album, year, bpm, key, comment, pictures, raw, ...}`. Writable. `meta.raw` holds format-specific untouched blocks (WAV bext/iXML, ID3v2 frames, FLAC blocks).
-* **`a.markers`** – point markers `[{time, label}]` in output seconds. Projected through edits (crop/reverse/speed shift or drop them).
-* **`a.regions`** – time-span regions `[{at, duration, label}]`. Same projection semantics.
-* **`meta.pictures`** – cover art `[{mime, type, description, data, url}]`. `.url` is a lazy Blob URL (browser) or data URL (Node).
+Parsed on decode, written on save; round-trips WAV, MP3, FLAC.
 
 ```js
 let a = await audio('song.mp3')
@@ -485,44 +482,35 @@ await a.save('stripped.wav', { meta: false })   // opt out
 
 ### Utility
 
-Events, lifecycle, undo/redo, serialization.
+| Method                         | Description                                                                                                                         |
+|:--|:--|
+| `.on(event, fn)`, `.off(event?, fn?)` | subscribe / unsubscribe. |
+| `.undo(n?)` | returns the undone edit, for redo via `.run()`. |
+| `.run(...edits)` | apply `['type', opts]` edits: op params (`value`, `freq`, …) plus range keys. |
+| `.dispose()` | release resources. Supports `using`. |
 
-* **`.on(event, fn)`** / **`.off(event?, fn?)`** – subscribe / unsubscribe.
-  * `'data'` – pages decoded/pushed. Payload: `{ delta, offset, sampleRate, channels }`.
-  * `'change'` – any edit or undo.
-  * `'metadata'` – stream header decoded. Payload: `{ sampleRate, channels }`.
-  * `'timeupdate'` – playback position. Payload: `currentTime`.
-  * `'play'` – playback started or resumed.
-  * `'pause'` – playback paused.
-  * `'volumechange'` – volume or muted changed.
-  * `'ended'` – playback finished (not on loop).
-  * `'progress'` – during save/encode. Payload: `{ offset, total }` in seconds.
-* **`.dispose()`** – release resources. Supports `using` for auto-dispose.
-* **`.undo(n?)`** – undo last edit(s). Returns edit for redo via `.run()`.
-* **`.run(...edits)`** – apply edits as arrays `['type', opts?]`. Batch or replay.
-
-Edits use `[type, opts]` shape, where `opts` is params (`value`, `freq`, etc.) plus range keys (`at`, `duration`, `channel`).
-
-```js
-a.run(
-  ['gain', { value: -3, at: 10, duration: 5 }],
-  ['crop', { at: 1, duration: 2 }],
-  ['fade', { in: 1, curve: 'exp' }],
-  ['insert', { source: ref, at: 2 }],
-  ['gain', { value: -3 }],
-)
-
-let saved = JSON.stringify([
-  ['gain', { value: -3 }],
-  ['crop', { at: 1, duration: 2 }],
-])
-a.run(...JSON.parse(saved))
-```
+| Event                         | Description                                                                                                                         |
+|:--|:--|
+| `'data'` | pages decoded/pushed. Payload: `{ delta, offset, sampleRate, channels }`. |
+| `'change'` | any edit or undo. |
+| `'metadata'` | stream header decoded. Payload: `{ sampleRate, channels }`. |
+| `'timeupdate'` | playback position. Payload: `currentTime`. |
+| `'play'` | playback started or resumed. |
+| `'pause'` | playback paused. |
+| `'volumechange'` | volume or muted changed. |
+| `'ended'` | playback finished (not on loop). |
+| `'progress'` | during save/encode. Payload: `{ offset, total }` in seconds. |
 
 ```js
 a.on('data', ({ delta }) => draw(delta))  // decode progress
 a.on('timeupdate', t => ui.update(t))     // playback position
 
+a.run(
+  ['gain', { value: -3, at: 10, duration: 5 }],
+  ['crop', { at: 1, duration: 2 }],
+  ['fade', { in: 1, curve: 'exp' }],
+  ['insert', { source: ref, at: 2 }],
+)
 a.undo()                                  // undo last edit
 b.run(...a.edits)                         // replay onto another file
 JSON.stringify(a); audio(json)            // serialize / restore
@@ -530,14 +518,14 @@ JSON.stringify(a); audio(json)            // serialize / restore
 
 ### Plugins
 
-One mechanism extends everything — ops, stats, codecs; built-ins register through the same interface. See [Plugin Tutorial](docs/plugins.md).
+| Method                         | Description                                                                                                                         |
+|:--|:--|
+| `audio.use(...plugins)` | register an [@audio contract](https://github.com/audiojs/compile/blob/main/CONTRACT.md) factory, a stat `{ stat, compute }`, a codec `{ codec, test?, decode?, encode? }`, a function receiving `audio`, or a [registry](docs/plugins.md#registry) name (`npm i` the package). |
+| `audio.op(name, descriptor)` | register an op: a `process` function or `{ params, process, plan, resolve }`. |
+| `audio.op(name?)` | one descriptor, or all ops. |
+| `audio.stat(name, descriptor)` | register a stat: `(chs, ctx) => [...]` or `{ block, reduce, query }`. |
 
-* **`audio.use(...plugins)`** – register plugins: a factory following the [@audio contract](https://github.com/audiojs/compile/blob/main/CONTRACT.md), a stat `{ stat, compute }`, a codec `{ codec, test?, decode?, encode? }`, a function receiving `audio`, or a registry name (dynamic import — `npm i` the package; catalog in [docs/plugins.md#registry](docs/plugins.md#registry)).
-* **`audio.op(name, fn)`** – register op. Shorthand for `{ process: fn }`. Full descriptor: `{ params, process, plan, resolve }`.
-* **`audio.op(name)`** – query descriptor. **`audio.op()`** – all ops.
-* **`audio.stat(name, descriptor)`** – register stat. Shorthand `(chs, ctx) => [...]` or `{ block, reduce, query }`.
-
-Contract factories plug in as full ops — automation, click-free ramps, tails, latency, sidechain and CLI `--help` handled by the engine:
+Plugins also run without the engine: `audio/batch` over a whole signal, `audio/stream` over live chunks. [Plugin tutorial](docs/plugins.md).
 
 ```js
 import { compressor } from '@audio/dynamics-compressor/audio'
@@ -547,25 +535,25 @@ await audio.use('freeverb', 'truepeak')     // or by registry name
 a.freeverb({ room: 0.8 })                   // tail composes automatically
 music.ducker({ key: voice })                // sidechain via the key option
 await a.stat('truepeak')                    // stat plugins land on a.stat()
-```
 
-Custom ops and stats are plain descriptors — chainable and queryable like built-ins:
-
-```js
 audio.op('crush', { params: ['bits'], process: (input, output, ctx) => {
   let steps = 2 ** (ctx.bits ?? 8)
   for (let c = 0; c < input.length; c++)
     for (let i = 0; i < input[c].length; i++)
       output[c][i] = Math.round(input[c][i] * steps) / steps
 }})
-a.crush(4)
+a.crush(4)                                  // custom op, chainable like built-ins
 ```
-
-Codec plugins extend what `audio()` can open and `save()`/`encode()` can write; plugins also run engine-less — `audio/batch` over a whole signal, `audio/stream` over live chunks. Details in the [tutorial](docs/plugins.md).
 
 ### Worker
 
-The whole engine off the main thread — one import, same call shape; the main bundle holds a few-KB facade. See [architecture](docs/architecture.md#worker-engine).
+| Call                         | Description                                                                                                                         |
+|:--|:--|
+| `audioWorker(source, opts?)` | same API, engine in a Worker; the main thread keeps a few-KB facade. |
+| `audio(source, { worker: true })` | same, once `audio/worker` is imported. |
+| `{ worker: new Worker(url) }` | your own worker entry: import extra codecs or plugins, then `audio/worker`. |
+
+Across the boundary `clip()`, `split()`, `clone()` return promises; op errors emit `'error'`; functions don't cross, use `{t, v}` curves. [Architecture](docs/architecture.md#worker-engine).
 
 ```js
 import audioWorker from 'audio/worker'
@@ -575,7 +563,6 @@ let [mins, maxs] = await a.stat(['min','max'], { bins: 640 })  // transferred, z
 a.play()                                    // AudioWorklet (no SharedArrayBuffer) / @audio/speaker
 ```
 
-Once imported, the main entry dispatches too: `audio('track.mp3', { worker: true })`. Custom worker entry (extra codecs, plugins): `import '@audio/decode-aac'; import 'audio/worker'` — pass the file via `{ worker }`. Boundary: `clip()`/`split()`/`clone()` return promises of facades; op errors surface on `'error'`; function params don't cross — use curves `{t, v}`.
 
 ## CLI
 
