@@ -11,9 +11,10 @@
   <style>
     body { padding: calc(var(--space-4xl) + env(safe-area-inset-top, 0px)) var(--space-md) var(--space-3xl); }
     .corner select { min-width: 10.5rem; }
-    .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: var(--space-2xl) var(--space-lg); max-width: 1200px; margin: 0 auto; }
-    /* A variant: the logo on the ground, how it behaves beneath */
-    .tile { display: grid; align-content: start; gap: 14px; margin: 0; cursor: pointer; user-select: none; touch-action: pan-y; }
+    .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--space-2xl) var(--space-xl); max-width: 1100px; margin: 0 auto; }
+    /* A variant: the logo on the ground, to grab; how it answers, beneath */
+    .tile { display: grid; align-content: start; gap: 14px; margin: 0; cursor: grab; user-select: none; touch-action: pan-y; }
+    .tile.dragging { cursor: grabbing; }
     .tile:focus-visible { outline: 2px solid var(--panel-knob); outline-offset: 6px; border-radius: 4px; }
     .tile canvas { display: block; width: 100%; aspect-ratio: 4 / 3; }
     figcaption { display: grid; gap: 10px; }
@@ -30,100 +31,121 @@
     <select id="print"><button><selectedcontent></selectedcontent></button></select>
     <button type="button" class="toggle" id="invert" aria-pressed="false" aria-label="Invert" title="Invert"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"/></svg></button>
   </div>
-  <main class="tiles" aria-label="Ways for the logo to behave at rest, hovered and pressed"></main>
+  <main class="tiles" aria-label="Ways for the logo to answer the hand. Drag one sideways to turn it; with a key, the arrows nudge it and Space holds it."></main>
 
   <script type="module">
   import { logo, DITHERS, SCREENS, label } from './logo.js'
 
-  const TAU = 2 * Math.PI, EASE = .25 // s, how fast speed, cycles and amplitude follow their targets
+  const DRAG = 4 // px a press moves before it is a drag
   const restless = !matchMedia('(prefers-reduced-motion: reduce)').matches
-  const SIGNAL_STEPS = ['sine', 'triangle', 'square', 'sawtooth', 'clausen']
-  const WINDOW_STEPS = ['hann', 'gaussian', 'tukey', 'blackmanHarris', 'kaiser', 'welch']
+  const SHAPES = ['sine', 'triangle', 'square', 'sawtooth', 'clausen', 'noise']
 
-  // The logo's own sound: a fundamental and its octave at half amplitude, sin x + ½ sin 2x, under a Hann envelope
-  let audio
-  function sound(seconds) {
-    audio ??= new AudioContext()
-    const t = audio.currentTime + .02, tone = audio.createOscillator(), level = audio.createGain()
-    tone.setPeriodicWave(audio.createPeriodicWave(new Float32Array(3), new Float32Array([0, 1, .5])))
-    tone.frequency.value = 220
-    level.gain.setValueCurveAtTime(Float32Array.from({ length: 64 }, (_, i) => .2 * (1 - Math.cos(TAU * i / 63)) / 2), t, seconds)
-    tone.connect(level).connect(audio.destination)
-    tone.start(t)
-    tone.stop(t + seconds)
-  }
-  const hann = x => x > 0 && x < 1 ? (1 - Math.cos(TAU * x)) / 2 : 0
-
-  // Each variant sets targets from the tile's state: hovered, pressed, presses so far, how long since the last (s),
-  // the pointer across the tile (-1…1), where a drag has turned the phase to, and the time (s). Speed is in turns a
-  // second; settle eases the phase to its rest turn; phase, when given, is where the signal stands outright.
+  // Every variant turns under a drag, as the lab does, and spins on when let go; friction slows it, and with no
+  // motor driving it a slow spin catches in its rest turn, the logo. What differs is the rest, each given the tile's
+  // state: hovered, pressed, dragging, lift (px dragged up), velocity (turns a second), wound (how long held), taps.
+  // motor: turns a second it runs at on its own; friction: seconds for a spin to fall to the motor's speed;
+  // cycles, amplitude, signal: what they are to be now; wobble: how springy cycles and amplitude come back, 1 not at all.
   const VARIANTS = [
-    { name: 'Excite', rest: 'Drifts, slowly', hover: 'Stirs: two cycles, richer in harmonics, quicker', press: 'Holds; drag to turn it by hand',
-      step: s => s.pressed ? { phase: s.dragged, cycles: 2, signal: 'clausen' }
-        : s.hovered ? { speed: .8, cycles: 2, signal: 'clausen' } : { speed: .05 * restless } },
-    { name: 'Drift', rest: 'Drifts, slowly', hover: 'Quickens', press: 'Settles into the logo',
-      step: s => ({ speed: s.pressed ? 0 : s.hovered ? .6 : .08 * restless, settle: s.pressed }) },
-    { name: 'Breathe', rest: 'Swells and eases, a breath every five seconds', hover: 'Holds its breath', press: 'Flattens to the axis, springs back on release',
-      step: s => ({ amplitude: s.pressed ? .12 : s.hovered ? 1 : 1 - .1 * restless * (1 - Math.cos(TAU * .2 * s.time)) / 2, settle: true }) },
-    { name: 'Pluck', rest: 'Still', hover: 'Trembles', press: 'Rings like a plucked string, then settles',
-      step: s => ({ phase: s.round + .03 * s.hovered * Math.sin(TAU * 1.5 * s.time) + (s.since < 4 ? .22 * Math.exp(-s.since / .5) * Math.sin(TAU * 2.5 * s.since) : 0) }) },
-    { name: 'Tighten', rest: 'Still', hover: 'Tightens to three cycles, drifting', press: 'Tightens to six',
-      step: s => ({ cycles: s.pressed ? 6 : s.hovered ? 3 : 1, speed: s.hovered ? .15 : 0, settle: !s.hovered }) },
-    { name: 'Unveil', rest: 'Still', hover: 'The window opens: the bare sine cycle', press: 'The cycle squares: the gradient rectangle itself',
-      step: s => ({ window: s.hovered || s.pressed ? 'rectangular' : 'hann', signal: s.pressed ? 'square' : 'sine', settle: true }) },
-    { name: 'Harmonics', rest: 'Still', hover: 'Gains its harmonics: a sawtooth', press: 'Turns to noise, a grain of sound',
-      step: s => ({ signal: s.pressed ? 'noise' : s.hovered ? 'sawtooth' : 'sine', speed: s.pressed ? .5 : 0, settle: !s.pressed }) },
-    { name: 'Signals', rest: 'Still', hover: 'Drifts', press: 'Changes its signal: sine, triangle, square, sawtooth, Clausen',
-      step: s => ({ signal: SIGNAL_STEPS[s.presses % SIGNAL_STEPS.length], speed: s.hovered ? .15 : 0, settle: !s.hovered }) },
-    { name: 'Windows', rest: 'Still', hover: 'Drifts', press: 'Changes its window: Hann, Gaussian, Tukey, Blackman–Harris, Kaiser, Welch',
-      step: s => ({ window: WINDOW_STEPS[s.presses % WINDOW_STEPS.length], speed: s.hovered ? .15 : 0, settle: !s.hovered }) },
-    { name: 'Scope', rest: 'Runs like an oscilloscope trace', hover: 'Holds still', press: 'Turns back the other way',
-      step: s => ({ speed: s.hovered ? 0 : s.direction * .5 * restless }) },
-    { name: 'Scrub', rest: 'Still', hover: 'Follows the pointer', press: 'Snaps back to the logo',
-      step: s => s.hovered && !s.pressed ? { phase: s.round + .5 * s.pointer } : { settle: true } },
-    { name: 'Sound', rest: 'Still', hover: 'Leans in', press: 'Plays itself, sin x + ½ sin 2x at 220 Hz, and moves with the sound',
-      step: s => {
-        const envelope = hann(s.since / 1.2)
-        return { amplitude: 1 + .05 * s.hovered + .4 * envelope, speed: 1.5 * envelope, settle: envelope === 0 }
-      } },
+    { name: 'Fling', does: { Rest: 'Still', Hover: 'Lifts a little', Drag: 'Turns under your hand', Release: 'Spins on, slows, settles into the logo' },
+      amplitude: s => s.hovered ? 1.05 : 1 },
+    { name: 'Turntable', does: { Rest: 'Turns steadily, like a record', Drag: 'Stops under your hand', Release: 'A fling spins it faster or backwards; its motor brings it back' },
+      motor: () => .4 * restless, friction: 1.5 },
+    { name: 'Scratch', does: { Rest: 'Still, silent', Drag: 'Sounds as you scrub it: the logo\'s own tone, sin x + ½ sin 2x, pitched by your hand', Release: 'Spins on, sounding, silent as it settles' },
+      sound: true },
+    { name: 'Tension', does: { Rest: 'Still', Drag: 'Sideways turns it; up tightens it, down loosens it', Release: 'Springs back to one cycle, wobbling' },
+      cycles: s => s.dragging ? Math.min(6, Math.max(.5, 1 + s.lift / 40)) : 1, wobble: .15 },
+    { name: 'Stretch', does: { Rest: 'Still', Drag: 'Sideways turns it; up pulls it taller, down presses it flat', Release: 'Jiggles back' },
+      amplitude: s => s.dragging ? Math.min(1.8, Math.max(.1, 1 + s.lift / 60)) : 1, wobble: .12 },
+    { name: 'Wind-up', does: { Rest: 'Still', Hold: 'Winds up: faster and tighter the longer you hold', Release: 'Runs down and settles', Drag: 'Turns under your hand' },
+      motor: s => s.wound, cycles: s => 1 + .25 * Math.min(4, Math.abs(s.velocity)) },
+    { name: 'Excite', does: { Rest: 'Drifts, slowly', Hover: 'Stirs: two cycles, richer in harmonics, quicker', Drag: 'Turns under your hand, tighter the faster it goes' },
+      motor: s => s.hovered ? .8 : .05 * restless, signal: s => s.hovered || s.dragging ? 'clausen' : 'sine',
+      cycles: s => s.hovered || s.dragging ? 2 + .5 * Math.min(4, Math.abs(s.velocity)) : 1 },
+    { name: 'Rough', does: { Rest: 'A sine', Drag: 'The faster it turns, the rougher: a sawtooth, then noise', Release: 'Smooths out as it slows' },
+      signal: s => Math.abs(s.velocity) > 2.5 ? 'noise' : Math.abs(s.velocity) > .8 ? 'sawtooth' : 'sine' },
+    { name: 'Shapes', does: { Rest: 'Still', Tap: 'Changes its signal: sine, triangle, square, sawtooth, Clausen, noise', Drag: 'Turns under your hand' },
+      signal: s => SHAPES[s.taps % SHAPES.length] },
   ]
 
+  // A spring toward a target, stepped finely enough to stay stable: damping 1 comes to rest without overshoot, less wobbles
+  function spring(x, velocity, target, dt, stiffness, damping) {
+    for (let t = 0; t < dt; t += 1 / 240) {
+      const h = Math.min(1 / 240, dt - t)
+      velocity += (-stiffness * (x - target) - 2 * damping * Math.sqrt(stiffness) * velocity) * h
+      x += velocity * h
+    }
+    return [x, velocity]
+  }
+
+  // Scratch's voice: the logo's own tone, sin x + ½ sin 2x, its pitch and loudness following the spin
+  let audio
+  function voice() {
+    audio ??= new AudioContext()
+    audio.resume()
+    const tone = audio.createOscillator(), level = audio.createGain()
+    tone.setPeriodicWave(audio.createPeriodicWave(new Float32Array(3), new Float32Array([0, 1, .5])))
+    level.gain.value = 0
+    tone.connect(level).connect(audio.destination)
+    tone.start()
+    return { tone, level }
+  }
+  document.addEventListener('visibilitychange', () => audio?.[document.hidden ? 'suspend' : 'resume']())
+
   const main = document.querySelector('main'), printPicker = document.getElementById('print'), invert = document.getElementById('invert')
-  const approach = (value, target, dt) => target + (value - target) * Math.exp(-dt / EASE)
 
   const tiles = VARIANTS.map(variant => {
     const tile = document.createElement('figure'), canvas = document.createElement('canvas')
     tile.className = 'tile'
     tile.tabIndex = 0
-    tile.innerHTML = `<figcaption><strong>${variant.name}</strong><dl><dt>Rest</dt><dd>${variant.rest}</dd><dt>Hover</dt><dd>${variant.hover}</dd><dt>Press</dt><dd>${variant.press}</dd></dl></figcaption>`
-    canvas.setAttribute('aria-label', `The logo, behaving as ${variant.name}`)
+    tile.innerHTML = `<figcaption><strong>${variant.name}</strong><dl>${Object.entries(variant.does).map(([when, what]) => `<dt>${when}</dt><dd>${what}</dd>`).join('')}</dl></figcaption>`
+    canvas.setAttribute('aria-label', `The logo, answering as ${variant.name}`)
     tile.prepend(canvas)
     main.append(tile)
     const view = logo(canvas)
-    const state = { hovered: false, pressed: false, presses: 0, since: Infinity, pointer: 0, direction: 1, phase: 0, dragged: 0, grab: null, speed: 0, cycles: 1, amplitude: 1 }
-    // A pointer press can drag; a key press only holds
-    const down = e => {
-      if (state.pressed) return
-      Object.assign(state, { pressed: true, presses: state.presses + 1, since: 0, direction: -state.direction, dragged: state.phase, grab: e ? { x: e.clientX, phase: state.phase } : null })
-      if (e) tile.setPointerCapture(e.pointerId)
-      if (variant.name === 'Sound') sound(1.2)
+    const s = { hovered: false, pressed: false, dragging: false, lift: 0, taps: 0, wound: 0, phase: 0, velocity: 0, cycles: 1, cyclesVelocity: 0, amplitude: 1, amplitudeVelocity: 0, grab: null, voice: null }
+
+    const press = () => {
+      s.pressed = true
+      if (variant.sound) s.voice ??= voice()
     }
-    const up = () => Object.assign(state, { pressed: false, grab: null })
-    tile.addEventListener('pointerenter', () => state.hovered = true)
-    tile.addEventListener('pointerleave', () => Object.assign(state, { hovered: false, pressed: false, grab: null }))
-    tile.addEventListener('pointermove', e => {
-      const box = canvas.getBoundingClientRect()
-      state.pointer = Math.max(-1, Math.min(1, (e.clientX - box.left) / box.width * 2 - 1))
-      // A drag turns the phase as in the lab: the signal follows the pointer under its window
-      if (state.grab && view) state.dragged = state.grab.phase + state.cycles * (e.clientX - state.grab.x) * canvas.width / canvas.clientWidth / view.scale() / 2
+    // Let go: a drag flings with its last speed, unless the hand had stopped; a press that never moved is a tap
+    const release = e => {
+      if (!s.pressed) return
+      if (s.dragging && e && e.timeStamp - s.grab.at > 80) s.velocity = 0
+      if (!s.dragging) s.taps++
+      Object.assign(s, { pressed: false, dragging: false, grab: null, lift: 0 })
+      tile.classList.remove('dragging')
+    }
+    tile.addEventListener('pointerdown', e => {
+      tile.setPointerCapture(e.pointerId)
+      s.grab = { x: e.clientX, y: e.clientY, lastX: e.clientX, at: e.timeStamp }
+      press()
     })
-    tile.addEventListener('pointerdown', down)
-    tile.addEventListener('pointerup', up)
-    tile.addEventListener('focus', () => state.hovered = true)
-    tile.addEventListener('blur', () => Object.assign(state, { hovered: false, pressed: false }))
-    tile.addEventListener('keydown', e => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); down() } })
-    tile.addEventListener('keyup', e => { if (e.key === ' ' || e.key === 'Enter') up() })
-    return { variant, state, view }
+    tile.addEventListener('pointermove', e => {
+      if (!s.grab || !view) return
+      if (!s.dragging && Math.hypot(e.clientX - s.grab.x, e.clientY - s.grab.y) < DRAG) return
+      s.dragging = true
+      tile.classList.add('dragging')
+      // The signal follows the pointer under its window, as in the lab; its speed is the hand's
+      const turned = s.cycles * (e.clientX - s.grab.lastX) * canvas.width / canvas.clientWidth / view.scale() / 2, dt = Math.max(1, e.timeStamp - s.grab.at) / 1000
+      s.phase += turned
+      s.velocity = .6 * s.velocity + .4 * turned / dt
+      s.lift = s.grab.y - e.clientY
+      Object.assign(s.grab, { lastX: e.clientX, at: e.timeStamp })
+    })
+    tile.addEventListener('pointerup', release)
+    tile.addEventListener('pointercancel', release)
+    tile.addEventListener('pointerenter', () => s.hovered = true)
+    tile.addEventListener('pointerleave', () => s.hovered = false)
+    tile.addEventListener('focus', () => s.hovered = true)
+    tile.addEventListener('blur', () => { s.hovered = false; release() })
+    // Keys: the arrows nudge it as a small fling would; Space or Enter holds it and, let go, taps it
+    tile.addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); s.velocity += e.key === 'ArrowRight' ? 1 : -1 }
+      else if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); press() }
+    })
+    tile.addEventListener('keyup', e => { if (e.key === ' ' || e.key === 'Enter') release() })
+    return { variant, s, view }
   })
 
   // One print for every tile, drawn in the picker by the first tile's shader
@@ -148,20 +170,26 @@
   function frame(now) {
     const dt = Math.min(.1, Math.max(0, now - last) / 1000)
     last = now
-    for (const { variant, state: s, view } of tiles) {
+    for (const { variant: v, s, view } of tiles) {
       if (!view) continue
-      s.since += dt
-      s.time = now / 1000
-      s.round = Math.round(s.phase)
-      const target = { speed: 0, cycles: 1, amplitude: 1, signal: 'sine', window: 'hann', ...variant.step(s) }
-      s.speed = approach(s.speed, target.speed, dt)
-      s.cycles = approach(s.cycles, target.cycles, dt)
-      s.amplitude = approach(s.amplitude, target.amplitude, dt)
-      if (target.phase !== undefined) s.phase = approach(s.phase, target.phase, 4 * dt)
-      else if (target.settle && Math.abs(target.speed) < 1e-3) s.phase = approach(s.phase, s.round, dt)
-      else s.phase += s.speed * dt
-      view.set({ phase: s.phase, cycles: s.cycles, amplitude: s.amplitude, signal: target.signal, window: target.window })
+      // Held still, it winds up; let go, it runs down
+      s.wound = s.pressed && !s.dragging ? Math.min(4, s.wound + 2 * dt) : s.wound * Math.exp(-dt / 1.2)
+      if (!s.dragging) {
+        const motor = v.motor?.(s) ?? 0
+        s.velocity = motor + (s.velocity - motor) * Math.exp(-dt / (v.friction ?? 1))
+        if (Math.abs(motor) < 1e-3 && Math.abs(s.velocity) < .3 && !s.pressed)
+          [s.phase, s.velocity] = spring(s.phase, s.velocity, Math.round(s.phase), dt, 40, 1)
+        else s.phase += s.velocity * dt
+      }
+      ;[s.cycles, s.cyclesVelocity] = spring(s.cycles, s.cyclesVelocity, v.cycles?.(s) ?? 1, dt, 120, v.wobble ?? 1)
+      ;[s.amplitude, s.amplitudeVelocity] = spring(s.amplitude, s.amplitudeVelocity, v.amplitude?.(s) ?? 1, dt, 120, v.wobble ?? 1)
+      view.set({ phase: s.phase, cycles: s.cycles, amplitude: s.amplitude, signal: v.signal?.(s) ?? 'sine' })
       view.render(now)
+      if (s.voice) {
+        const speed = Math.min(8, Math.abs(s.velocity)), at = audio.currentTime
+        s.voice.tone.frequency.setTargetAtTime(55 + 110 * speed, at, .015)
+        s.voice.level.gain.setTargetAtTime(.2 * Math.min(1, speed / 1.5), at, .03)
+      }
     }
     requestAnimationFrame(frame)
   }

@@ -3176,42 +3176,69 @@ test('logo: a signal through a window, filled by half a window as its gradient, 
   for (let y = 0; y < axis; y++) assert(Math.abs(haar.at(a, y) - haar.at(b, y)) <= 1, `row ${y}: ${haar.at(a, y)} ≠ ${haar.at(b, y)}`)
 })
 
-test('logo motion: twelve variants, each drawn and each answering the pointer; Excite turns under a drag', async () => {
+test('logo motion: nine variants, each drawn, turned by a drag and flung on; Fling settles into the logo, a tap changes Shapes', async () => {
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto(origin + '/logo-motion.html', { waitUntil: 'networkidle' })
   const tiles = page.locator('.tile')
-  assert.equal(await tiles.count(), 12)
-  for (let i = 0; i < 12; i++) {
+  assert.equal(await tiles.count(), 9)
+  const apart = (a, b) => { let sum = 0; for (let i = 0; i < a.gray.length; i++) sum += Math.abs(a.gray.charCodeAt(i) - b.gray.charCodeAt(i)); return sum / a.gray.length }
+  const centre = async canvas => { const box = await canvas.boundingBox(); return [box.x + box.width / 2, box.y + box.height / 2] }
+  const settled = async canvas => {
+    let last = await logoShot(canvas)
+    for (let i = 0; i < 40; i++) {
+      await page.waitForTimeout(100)
+      const next = await logoShot(canvas)
+      if (next.gray === last.gray) return next
+      last = next
+    }
+    assert.fail('it never came to rest')
+  }
+  for (let i = 0; i < 9; i++) {
     const tile = tiles.nth(i), canvas = tile.locator('canvas'), name = await tile.locator('strong').textContent()
     await tile.scrollIntoViewIfNeeded()
     await page.mouse.move(0, 0)
-    await page.waitForTimeout(700)
+    await page.waitForTimeout(500)
     const rest = await logoShot(canvas)
     assert(rest.lit, `${name} draws the logo`)
-    // Off centre, so a pointer-following variant has somewhere to follow
-    await tile.hover({ position: { x: 60, y: 60 } })
-    await page.waitForTimeout(700)
-    const hovered = await logoShot(canvas)
+    // A drag, then a pause before letting go, so it lands without a fling
+    const [x, y] = await centre(canvas)
+    await page.mouse.move(x, y)
     await page.mouse.down()
-    await page.waitForTimeout(500)
-    const pressed = await logoShot(canvas)
+    await page.mouse.move(x + 60, y, { steps: 6 })
+    await page.waitForTimeout(200)
+    const turned = await logoShot(canvas)
     await page.mouse.up()
-    assert(new Set([rest.gray, hovered.gray, pressed.gray]).size > 1, `${name} answers the pointer`)
+    assert(apart(rest, turned) > .5, `${name} turns under a drag`)
   }
-  // Excite, pressed, holds its phase; dragged, the phase follows the pointer
-  const excite = tiles.nth(0), canvas = excite.locator('canvas')
-  await excite.scrollIntoViewIfNeeded()
-  const box = await canvas.boundingBox(), x = box.x + box.width / 2, y = box.y + box.height / 2
-  const apart = (a, b) => { let sum = 0; for (let i = 0; i < a.gray.length; i++) sum += Math.abs(a.gray.charCodeAt(i) - b.gray.charCodeAt(i)); return sum / a.gray.length }
+
+  // Flung, Fling spins on, then settles into the logo: point-symmetric, half a turn landing it on itself. Smooth,
+  // as a dither's pattern holds to the screen's pixels, not to the drawing's centre.
+  await page.selectOption('#print', 'smooth')
+  const fling = tiles.nth(0).locator('canvas')
+  await tiles.nth(0).scrollIntoViewIfNeeded()
+  const [x, y] = await centre(fling)
   await page.mouse.move(x, y)
   await page.mouse.down()
-  await page.waitForTimeout(1200)
-  const held = await logoShot(canvas)
-  await page.waitForTimeout(300)
-  const still = await logoShot(canvas)
-  await page.mouse.move(x + 50, y, { steps: 5 })
-  await page.waitForTimeout(600)
-  const dragged = await logoShot(canvas)
+  await page.mouse.move(x + 90, y, { steps: 3 })
   await page.mouse.up()
-  assert(apart(held, dragged) > 4 * apart(held, still), JSON.stringify({ held: apart(held, still), dragged: apart(held, dragged) }))
+  const early = await logoShot(fling)
+  await page.waitForTimeout(150)
+  assert(apart(early, await logoShot(fling)) > .5, 'let go mid-drag, it spins on')
+  const rest = await settled(fling)
+  let off = 0
+  for (let j = 0; j < rest.h; j++) for (let k = 0; k < rest.w; k++) off += Math.abs(rest.at(k, j) - rest.at(rest.w - 1 - k, rest.h - 1 - j))
+  assert(off / (rest.w * rest.h) < 1, `it settles into the logo, off by ${off / (rest.w * rest.h)} a pixel`)
+
+  // A tap, a press that never moves, gives Shapes its next signal
+  const shapes = tiles.nth(8).locator('canvas')
+  await tiles.nth(8).scrollIntoViewIfNeeded()
+  const before = await settled(shapes)
+  await shapes.click()
+  await page.mouse.move(0, 0)
+  const tapped = await settled(shapes)
+  assert(apart(before, tapped) > .5, 'a tap changes the signal')
+  // So does Space, for a hand on the keyboard
+  await tiles.nth(8).focus()
+  await page.keyboard.press('Space')
+  assert(apart(tapped, await settled(shapes)) > .5, 'Space taps too')
 })

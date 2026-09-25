@@ -14,8 +14,7 @@ export const SIGNALS = {
   square: t => periodic.square(t),
   sawtooth: t => periodic.sawtooth(t),
   clausen: t => periodic.clausen(t),
-  // At full scale noise overpowers the drawing, whatever the window
-  noise: t => .35 * periodic.noise(t),
+  noise: t => periodic.noise(t),
 }
 
 // Ways to print the tone in two inks: dithers, per dot, and engravings, per line or mark
