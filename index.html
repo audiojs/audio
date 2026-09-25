@@ -10,14 +10,14 @@
   <link rel="preload" href="assets/geist.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/wavefont.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="site.css">
-  <script type="importmap">{"imports":{"@audio/encode-wav":"./assets/wav.js","@audio/encode-mp3":"./assets/mp3.js"}}</script>
+  <script type="importmap">{"imports":{"@audio/encode-wav":"./assets/wav.js","@audio/encode-mp3":"./assets/mp3.js","@audio/encode-flac":"./assets/flac.js","@audio/encode-aiff":"./assets/aiff.js","@audio/encode-ogg":"./assets/ogg.js"}}</script>
   <script type="module" src="site.js"></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
   <div id="site">
     <header class="header wrap">
-      <a class="wordmark" href="#" aria-label="audio home"><svg class="logo" aria-hidden="true" viewBox="34.3 0 443.4 512"><path fill="currentColor" fill-rule="evenodd" d="M256 0 477.7 128v256L256 512 34.3 384V128ZM141 256l40-115h33l42 115Zm115 0h115l-40 115h-33Z"/></svg>audio<span class="version" :text="'v' + version">v2.6.10</span></a>
+      <a class="wordmark" href="#" aria-label="audio home"><svg class="logo" aria-hidden="true" width="96" height="101" viewBox="0 0 96 101" fill="currentColor" stroke="currentColor" stroke-width="4.5"><path d="M0 50.4159C5.08842 50.4159 8.70378 49.9251 17.0681 24.9808C27.8621 -7.20948 35.9058 -10.5986 47.7771 50.4159H0Z"/><path d="M95.5543 50.416C90.4658 50.416 86.8505 50.9067 78.4862 75.8511C67.6922 108.041 59.6484 111.43 47.7771 50.416H95.5543Z"/></svg>audio<span class="version" :text="'v' + version">v2.6.10</span></a>
       <a class="text-link" href="https://github.com/audiojs/audio">GitHub <span aria-hidden="true">↗</span></a>
     </header>
 
@@ -28,62 +28,79 @@
           <div class="intro-actions">
             <button class="install" :onclick="copy('npm i audio', 'install')" aria-label="Copy npm install command"><span class="prompt" aria-hidden="true">$</span><code>npm i audio</code><span class="copy-mark" :text="copied === 'install' ? '✓' : '⧉'" aria-hidden="true">⧉</span></button>
             <a class="text-link" href="https://github.com/audiojs/audio#start">Read the docs <span aria-hidden="true">↗</span></a>
-          </div>        </div>
+          </div>
+        </div>
 
-        <div class="demo" id="try" :aria-busy="busy || editPending ? 'true' : 'false'">
-          <div class="audio-row" :class="{ active: preview === 'original', dim: !originalReady }">
-            <div class="wave-label"><span class="track-name">Original</span><span class="duration" :text="originalDuration">0:08.0</span></div>
+        <div class="demo" id="try" :aria-busy="busy || editPending ? 'true' : 'false'" :onkeydown="demoKey">
+          <div class="audio-row" :class="{ active: preview === 'original', dim: !originalReady, recording }">
+            <div class="wave-label"><span class="track-name">Original</span><button class="pill track-file" data-key="source" :title="'audio(' + (sample || 'file') + ')'" :class="{ open: open === 'source' }" :aria-expanded="open === 'source' ? 'true' : 'false'" aria-haspopup="true" :disabled="saving || recording || micPending" :onclick="() => openPill('source')" :onkeydown="event => pillKey(event, 'source')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path :d="icons.sample"/></svg><span class="pill-name" :text="sample || filename"></span></button><span class="duration" :text="originalDuration">0:08.0</span></div>
             <div class="wave-player">
-              <button class="play" :class="{ dim: !originalReady }" :onclick="play('original')" disabled :disabled="(busy && !saving) || editPending || !originalReady" :aria-label="(playing || pending) && preview === 'original' ? 'Pause original audio' : 'Play original audio'"><span class="play-icon" :class="{ paused: (playing || pending) && preview === 'original' }" aria-hidden="true"></span></button>
+              <button class="play" :class="{ dim: !originalReady }" :onclick="recording || micPending ? stopRecording() : play('original')" disabled :disabled="!recording && !micPending && (transportBusy || !originalReady)" :aria-label="micPending ? 'Cancel recording' : recording ? 'Stop recording' : (playing || pending) && preview === 'original' ? 'Pause original audio' : 'Play original audio'"><span class="play-icon" :class="{ paused: (playing || pending) && preview === 'original', stopped: recording || micPending }" aria-hidden="true"></span></button>
               <div id="original-wave" class="wave-track" :onpointerdown="event => beginSelection('original', event)" :onpointermove="moveSelection" :onpointerup="finishSelection" :onpointercancel="cancelSelection" :onlostpointercapture="cancelSelection">
                 <span class="wave-glyphs" aria-hidden="true"></span><span class="wave-glyphs wave-played" aria-hidden="true"></span>
                 <span class="wave-selection" aria-hidden="true"><span class="wave-glyphs"></span></span>
-                <input class="wave-seek" type="range" min="0" max="1000" step="1" value="0" aria-label="Seek original audio" aria-description="Drag to select. Shift with arrow keys, Home or End selects a range. Escape clears it." disabled :disabled="(busy && !saving) || editPending || !originalReady" :oninput="event => seek('original', event.target.value / 1000)" :onkeydown="event => selectionKey('original', event)">
+                <input class="wave-seek" type="range" min="0" max="1000" step="1" value="0" aria-label="Seek original audio" aria-description="Drag to select. Shift with arrow keys, Home or End selects a range. Escape clears it." disabled :disabled="transportBusy || !originalReady" :oninput="event => seek('original', event.target.value / 1000)" :onkeydown="event => selectionKey('original', event)">
               </div>
             </div>
           </div>
           <div class="audio-row edited-row" :class="{ active: preview === 'edited', dim: !ready && !busy && !editPending }">
-            <div class="wave-label"><span class="track-name" :text="editCount ? 'Edited' : 'Unchanged'">Edited</span><span class="duration" :text="editedDuration">0:05.2</span></div>
+            <div class="wave-label"><span class="track-name" :text="editCount ? 'Edited' : 'Unchanged'">Edited</span><button class="pill track-file" data-key="save" :title="'.save(\'' + saveName + '.' + format + '\')'" :class="{ saving, open: open === 'save' }" :aria-expanded="open === 'save' ? 'true' : 'false'" aria-haspopup="true" :disabled="saving || recording || micPending" :onclick="() => openPill('save')" :onkeydown="event => pillKey(event, 'save')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path :d="icons.download"/></svg><span class="pill-name" :text="saveName"></span></button><span class="duration" :text="editedDuration">0:05.2</span></div>
             <div class="wave-player">
-              <button class="play" :class="{ dim: !ready && !busy && !editPending }" :onclick="play('edited')" disabled :disabled="(busy && !saving) || editPending || !ready" :aria-label="(playing || pending) && preview === 'edited' ? 'Pause edited audio' : 'Play edited audio'"><span class="play-icon" :class="{ paused: (playing || pending) && preview === 'edited' }" aria-hidden="true"></span></button>
+              <button class="play" :class="{ dim: !ready && !busy && !editPending }" :onclick="play('edited')" disabled :disabled="transportBusy || !ready" :aria-label="(playing || pending) && preview === 'edited' ? 'Pause edited audio' : 'Play edited audio'"><span class="play-icon" :class="{ paused: (playing || pending) && preview === 'edited' }" aria-hidden="true"></span></button>
               <div id="edited-wave" class="wave-track" :onpointerdown="event => beginSelection('edited', event)" :onpointermove="moveSelection" :onpointerup="finishSelection" :onpointercancel="cancelSelection" :onlostpointercapture="cancelSelection">
                 <span class="wave-glyphs" aria-hidden="true"></span><span class="wave-glyphs wave-played" aria-hidden="true"></span>
                 <span class="wave-selection" aria-hidden="true"><span class="wave-glyphs"></span></span>
-                <input class="wave-seek" type="range" min="0" max="1000" step="1" value="0" aria-label="Seek edited audio" aria-description="Drag to select. Shift with arrow keys, Home or End selects a range. Escape clears it." disabled :disabled="(busy && !saving) || editPending || !ready" :oninput="event => seek('edited', event.target.value / 1000)" :onkeydown="event => selectionKey('edited', event)">
+                <input class="wave-seek" type="range" min="0" max="1000" step="1" value="0" aria-label="Seek edited audio" aria-description="Drag to select. Shift with arrow keys, Home or End selects a range. Escape clears it." disabled :disabled="transportBusy || !ready" :oninput="event => seek('edited', event.target.value / 1000)" :onkeydown="event => selectionKey('edited', event)">
               </div>
             </div>
           </div>
           <div class="readout">
             <div class="readout-slot">
-              <p class="timecode" :hidden="!!(selected || notice)"><output :text="timecode">0:00.0</output><span class="meters" :text="preview === 'original' ? originalMeters : editedMeters"></span></p>
-              <p class="timecode range" :if="selected && !error"><output :text="selectionLabel"></output><span class="meters" :text="selectionMeters"></span></p>
+              <p class="timecode" :class="{ range: selected }" :hidden="!!(notice || recording || micPending)"><output :text="selected ? selectionLabel : timecode">0:00.0</output><span class="time-details"><span class="meters" :text="selected ? selectionMeters : cursorMeters"></span><button class="loop" :disabled="recording || micPending" aria-label="Loop playback" title="Loop playback" :aria-pressed="loop ? 'true' : 'false'" :onclick="toggleLoop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path d="M3 11V6h17m-4-4 4 4-4 4M21 13v5H4m4-4-4 4 4 4"/></svg></button></span></p>
+              <p class="recording-status" :if="recording || micPending"><span :text="micPending ? 'Waiting for microphone…' : 'Recording'"></span><output :text="recording ? recordingTime : ''"></output></p>
               <p id="demo-status" class="demo-message" role="status" :text="notice"></p>
+              <div class="readout-actions"><div class="action-buttons">
+                <button class="tool undo" :hidden="selected || !undoCount" aria-label="Undo" title="Undo" :onclick="undo" :disabled="busy || !undoCount"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+                <button class="tool" :hidden="!selected" aria-label="Crop selection" title="Crop selection" :disabled="busy" :onclick="() => editSelection('crop')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path :d="methods.crop.icon"/></svg></button>
+                <button class="tool" :hidden="!selected" aria-label="Remove selection" title="Remove selection" :disabled="busy" :onclick="() => editSelection('remove')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path :d="methods.remove.icon"/></svg></button>
+              </div></div>
             </div>
-            <button class="tool undo" :class="{ dim: !undoCount && !chainError && !editPending }" aria-label="Undo" title="Undo" :onclick="undo" :disabled="busy || (!undoCount && !chainError && !editPending)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
-            <button class="tool add" popovertarget="add-menu" aria-label="Add a method" title="Add a method" :disabled="busy || !originalReady" :onkeydown="openMenu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+
           </div>
           <input id="audio-file" type="file" accept="audio/*" aria-label="Open file" :disabled="busy" :onchange="event => openFile(event)">
-          <div class="program" :class="{ saving }" role="group" aria-label="Example program">
-            <div class="program-code">
-              <pre class="program-highlight" aria-hidden="true"><code :html="highlightProgram(draft, options, hoverAt, listing) + '\n'"></code></pre>
-              <textarea class="program-editor" rows="5" aria-label="Audio program" aria-description="Edits apply as you type. Type a dot for methods; select a number to adjust it. The name in audio(…) lists the samples and opens a file; the name in .save('…') lists the formats, and choosing one downloads the file." aria-describedby="demo-status" :aria-invalid="chainError ? 'true' : 'false'" aria-autocomplete="list" aria-controls="method-menu" :aria-activedescendant="suggestions.length ? suggestions[suggestionIndex].id : null" spellcheck="false" autocapitalize="off" autocomplete="off" :value="draft" :disabled="saving || !originalReady" :oninput="inputCode" :onkeydown="editKey" :onkeyup="event => { if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) inspectCaret() }" :onclick="clickCode" :onselect="inspectCaret" :onblur="editorBlur" :oncompositionstart="composition" :oncompositionend="composition" :onpointermove="hoverCode" :onpointerleave="leaveCode" :onscroll="event => { event.target.previousElementSibling.scrollTop = event.target.scrollTop }"></textarea>
+          <div class="chain" role="group" aria-label="Edits" :onpointerdown="beginReorder">
+            <span class="link" :each="step, index in steps"><button class="pill" :data-key="index" :title="'.' + notation(step).js" :class="{ open: open === index }" :aria-expanded="open === index ? 'true' : 'false'" :aria-haspopup="(methods[step.type].params.length || step.args.length) ? 'dialog' : null" aria-description="Drag to reorder or onto the trash to remove. Alt and arrows move; Delete removes." :disabled="saving || recording || micPending" :onclick="() => openPill(index)" :onkeydown="event => pillKey(event, index)"><span :text="step.type"></span><span class="pill-value" :text="summary(step)"></span></button><svg class="joint" viewBox="0 0 8 10" aria-hidden="true"><path d="M2.5 1.5 6 5 2.5 8.5"/></svg></span>
+          </div>
+          <button class="tool add" :class="{ trash: draggingStep }" :popovertarget="draggingStep ? null : 'add-menu'" :aria-label="draggingStep ? 'Remove effect' : 'Add a method'" :title="draggingStep ? 'Remove effect' : 'Add a method'" :disabled="busy || !originalReady" :onkeydown="openMenu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path :d="draggingStep ? icons.trash : 'M12 3v18M3 12h18'"/></svg></button>
+          <p class="sr-only" role="status" :text="reorderMessage"></p>
+          <div id="pill-menu" class="demo-menu pill-menu" popover="manual" role="dialog" :aria-label="menuLabel" :onkeydown="pillMenuKey">
+            <div class="pill-tab" aria-hidden="true"><svg :if="open === 'source' || open === 'save'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square" stroke-linejoin="miter"><path :d="open === 'source' ? icons.sample : icons.download"/></svg><span class="pill-name" :text="pillTab.name"></span><span class="pill-value" :text="pillTab.value"></span></div>
+            <div class="pill-body">
+              <div class="menu-entry" :each="item in items">
+                <hr class="menu-divider" :if="item.separator">
+                <button class="method-option" :aria-current="item.current ? 'true' : null" :disabled="item.disabled" :onclick="() => choose(item)">
+                  <svg :if="!item.format" viewBox="0 0 24 24" :fill="item.solid ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true"><path :d="item.icon"/></svg>
+                  <span class="format-icon" :if="item.format" aria-hidden="true" :text="item.format"></span>
+                  <span><code :text="item.code"></code><span :if="item.text" :text="item.text"></span></span>
+                </button>
+              </div>
+              <div class="step-options" :if="stepOpen">
+                <div class="parameter" :each="field, index in fields"><span class="parameter-label"><label :for="'parameter-' + index" :text="field.label"></label><button class="parameter-auto" :if="field.optional" :aria-pressed="field.auto ? 'true' : 'false'" :onclick="event => { event.preventDefault(); autoThreshold(index) }">Auto</button><output :text="field.auto ? '' : figure(field.value, field.unit)"></output></span><input class="parameter-slider" :id="'parameter-' + index" type="range" :aria-label="field.unit ? field.label + ' (' + field.unit + ')' : field.label" :min="field.min" :max="field.max" :step="field.step" :value="field.value" :style="'--fill: ' + (field.value - field.min) / (field.max - field.min || 1) * 100 + '%'" :onpointerdown="startParameter" :onkeydown="startParameter" :oninput="event => adjust(event, index)"></div>
+              </div>
             </div>
           </div>
-          <div id="method-menu" class="demo-menu method-menu" :class="assist" popover="manual" role="listbox" :aria-label="{ method: 'Audio methods', sample: 'Samples', format: 'Download' }[assist]">
-            <button :each="item, index in suggestions" :id="item.id" class="method-option" role="option" :title="item.text" :aria-selected="index === suggestionIndex ? 'true' : 'false'" :disabled="assist === 'format' && !saveable(item.value)" tabindex="-1" :onpointermove="suggestionIndex = index" :onpointerdown="event => event.preventDefault()" :onclick="accept(item)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="item.icon"/></svg><span><code :text="item.code"></code><span :text="item.text"></span></span></button>
-          </div>
-          <div id="parameter-menu" class="demo-menu parameter-menu" popover="manual" :onfocusout="editorBlur" :onkeydown="event => { if (event.key === 'Escape') { event.preventDefault(); document.querySelector('.program-editor').focus(); closeParameter() } }">
-            <label :each="field, index in options ? options.fields : []"><span class="parameter-label"><span :text="field.label"></span><output :text="field.value + (field.unit ? ' ' + field.unit : '')"></output></span><input class="parameter-slider" type="range" :aria-label="field.unit ? field.label + ' (' + field.unit + ')' : field.label" :min="field.min" :max="field.max" :step="field.step" :value="field.value" :onpointerdown="() => startParameter(index)" :onkeydown="() => startParameter(index)" :oninput="event => adjustParameter(event, index)"></label>
-          </div>
-          <div id="add-menu" class="demo-menu add-menu" popover aria-label="Methods" :onkeydown="menuKey" :onbeforetoggle="event => event.newState === 'open' && placeMenu()">
-            <p class="menu-scope" :hidden="selected !== 'edited'" :text="'Apply to ' + selectionLabel"></p>
-            <button class="method-option" :each="method, name in methods" :aria-label="'Add ' + name" :title="method.description" :disabled="busy || !originalReady || (selected === 'edited' && method.whole) || (selected === 'original' && name === 'remove')" :onclick="addMethod(name)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="method.icon"/></svg><span><code :text="name + '()'"></code><span :text="method.description"></span></span></button>
+          <div id="add-menu" class="demo-menu add-menu" popover aria-label="Methods" :onkeydown="menuKey" :onbeforetoggle="event => event.newState === 'open' && placeMenu(true)">
+            <div class="add-tab" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter"><path d="M12 3v18M3 12h18"/></svg></div>
+            <div class="add-body">
+              <p class="menu-scope" :hidden="selected !== 'edited'" :text="'Apply to ' + selectionLabel"></p>
+              <button class="method-option" :each="method, name in methods" :aria-label="'Add ' + name" :title="method.description" :disabled="busy || !originalReady || (selected === 'edited' && method.whole)" :onclick="addMethod(name)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="method.icon"/></svg><span><code :text="name + '()'"></code><span :text="method.description"></span></span></button>
+            </div>
           </div>
         </div>
       </section>
 
       <section class="code-section wrap" aria-labelledby="code-title">
-        <div class="code-example" :style="'--code-lines: ' + codeLines(examples)">
+        <div class="code-example" :style="{ '--code-lines': codeLines(examples) }">
           <div class="code-top">
             <div class="code-tabs" role="group" aria-label="Example environment">
               <button :aria-pressed="tab === 'node' ? 'true' : 'false'" :onclick="event => { tab = 'node'; moveTab(event.currentTarget) }">Node.js</button>

@@ -22,15 +22,22 @@
   --color-bezel: oklch(8% 0 0);
   --color-scanline: oklch(100% 0 0 / .035);
   --color-screen-raised: oklch(26% 0 0);
+  /* Pills are drawn on the display: flat and outlined in the rule's tint at rest, plainly lighter under the pointer. */
+  --color-screen-pill: var(--color-screen);
+  --color-screen-pill-hover: var(--color-screen-raised);
+  --color-screen-pill-active: oklch(34% 0 0);
   --color-screen-hover: oklch(31% 0 0);
-  --color-screen-rule: oklch(100% 0 0 / .1);
+  --color-screen-rule: oklch(30% 0 0);
   --color-screen-select: oklch(100% 0 0 / .16);
+  /* A hairline on the raised panel: the rule's tint would land on the panel's own tone there, so one step lighter. */
+  --color-screen-edge: oklch(100% 0 0 / .16);
   --color-screen-bright: oklch(100% 0 0);
   --color-screen-ink: oklch(94% 0 0);
   --color-screen-soft: oklch(80% 0 0);
   --color-screen-muted: oklch(68% 0 0);
   --color-screen-dim: oklch(62% 0 0);
   --color-screen-error: oklch(74% 0.14 28);
+  --color-screen-record: oklch(68% .2 28);
   /* A cast shadow: a soft band just below the slab, then layers doubling offset and blur into a long, faint tail. */
   --shadow-long:
     0 2px 2px oklch(0% 0 0 / .06),
@@ -43,6 +50,8 @@
     0 264px 264px oklch(0% 0 0 / .04);
   --shadow-slab: inset 0 1px 0 var(--color-screen-rule), 0 0 0 1px var(--color-bezel), var(--shadow-long);
   --shadow-menu: inset 0 1px 0 var(--color-screen-rule), 0 0 0 1px var(--color-bezel), 0 2px 6px oklch(0% 0 0 / .2), 0 16px 36px oklch(0% 0 0 / .24);
+  --filter-menu: drop-shadow(0 0 1px var(--color-bezel)) drop-shadow(0 2px 6px oklch(0% 0 0 / .2)) drop-shadow(0 16px 36px oklch(0% 0 0 / .24));
+  --shadow-pill: inset 0 0 0 1px var(--color-screen-edge), 0 3px 4px oklch(0% 0 0 / .3), 0 8px 16px oklch(0% 0 0 / .25);
   --font-display: 'Geist', ui-sans-serif, system-ui, sans-serif;
   --font-body: var(--font-display);
   --font-mono: ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, monospace;
@@ -55,6 +64,8 @@
   --space-2xl: 48px;
   --space-3xl: 64px;
   --space-4xl: 96px;
+  --dot: 16px;
+  --page-gutter: 20px;
   --text-sm: .8125rem;
   --text-md: 1rem;
   --text-lg: 1.125rem;
@@ -69,4 +80,5 @@
   --dur-micro: 120ms;
   --dur-short: 240ms;
   --z-focus: 10;
+  --z-drag: 20;
 }

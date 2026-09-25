@@ -1,5 +1,5 @@
 /* Hallmark · macrostructure: Split Studio · genre: modern-minimal · theme: Quiet · nav: N9 · footer: Ft2 · tone: technical · enrichment: live waveform instrument
- * Finalize 2026-09-24 · direction: minimal black devices with a cast, long logarithmic shadow. Scanlined slabs, each on a rectangle of dot-grid paper; 88px Wavefont bars on one linear scale; both tracks drawn in full, each keeping its caret, the active one's label and caret white, a press activating its track at once; one readout for the position with the active track's dBFS peak, the selected range on one line, start–end, its peak on the same baseline, or an error, with Undo and + at its right; a program that is plain editable code, audio(sample) to .save('file'), its names listing the samples (last, Open a file…) and the downloads, one per format, names and numbers lit under the pointer; an add menu of sixteen methods, appended or applied to the selection; an options panel for the call at the caret; animated menus; dark code slab with sliding tabs; no flicker or height change on interaction
+ * Finalize 2026-09-24 · dot-grid paper from the top edge, header and footer rules and both device origins on the same grid. Source and download beside their tracks. Edit crumbs with + in the bottom corner; flat active crumbs, animated reordering, compact connected slider menus, drag-to-trash removal. Compact ranges in a fixed readout, keyboard Undo, full waveforms, dark code slab, reduced-motion support.
  * Pre-emit critique: Philosophy 5 · Hierarchy 4 · Execution 4 · Specificity 5 · Restraint 4 · Variety 4
  * Verified: contrast, keyboard focus, playback lifecycle, 320 / 375 / 414 / 768 / 1024 / 1440 / 1920 px */
 @import './tokens.css';
@@ -7,12 +7,13 @@
 @font-face { font-family: 'Wavefont'; src: url('./assets/wavefont.woff2') format('woff2'); font-weight: 4 1000; font-display: block; }
 * { box-sizing: border-box; }
 html { overflow-x: clip; scroll-behavior: smooth; }
-body { margin: 0; overflow-x: clip; background: var(--color-paper); color: var(--color-ink); font: 400 var(--text-md)/1.6 var(--font-body); -webkit-font-smoothing: antialiased; }
+/* The page is dot-grid paper, edge to edge. */
+body { margin: 0; overflow-x: clip; background: radial-gradient(circle, var(--color-grid) 1px, var(--color-transparent) 1px) 50% calc(var(--dot) / -2) / var(--dot) var(--dot), var(--color-paper); color: var(--color-ink); font: 400 var(--text-md)/1.6 var(--font-body); -webkit-font-smoothing: antialiased; }
 button, input, textarea { font: inherit; }
 button, a { -webkit-tap-highlight-color: var(--color-transparent); }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .4; }
-button:active:not(:disabled), a:active { opacity: .7; }
+button:active:not(:disabled, .loop), a:active { opacity: .7; }
 button, a { touch-action: manipulation; }
 a { color: inherit; text-decoration: none; }
 button { color: inherit; }
@@ -23,18 +24,25 @@ h1, h2, h3, p, dl { margin: 0; }
 h1, h2, h3 { font-family: var(--font-display); min-width: 0; overflow-wrap: anywhere; }
 code, pre { font-family: var(--font-mono); }
 button, .text-link, .footer a { white-space: nowrap; }
-.wrap { width: min(1184px, calc(100% - 40px)); margin-inline: auto; }
+.wrap { width: round(down, min(1184px, calc(100% - 2 * var(--page-gutter))), calc(2 * var(--dot))); margin-inline: auto; }
 .sr-only, #audio-file { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .skip { position: absolute; top: -80px; left: 20px; padding: 12px 20px; background: var(--color-ink); color: var(--color-paper); z-index: var(--z-focus); }
 .skip:focus { top: 12px; }
-.header { min-height: 96px; display: flex; justify-content: space-between; align-items: center; }
+.header { min-height: 96px; display: flex; justify-content: space-between; align-items: center; position: relative; }
+.header::after, .footer::before { content: ''; position: absolute; inset-inline: 0; height: 1px; background: var(--color-rule); }
+.header::after { bottom: -.5px; }
+.footer::before { top: -.5px; }
+.header > a, .footer > a, .footer > div { background: var(--color-paper); box-shadow: 0 0 0 var(--space-sm) var(--color-paper); }
 .wordmark { display: inline-flex; align-items: center; gap: 10px; font-size: 27px; font-weight: 650; letter-spacing: -.055em; }
-.wordmark .logo { width: 21px; height: 24px; flex-shrink: 0; }
+.wordmark .logo { width: 24px; height: auto; flex-shrink: 0; }
 .version { align-self: center; margin-left: 6px; color: var(--color-muted); font: 400 11px var(--font-mono); letter-spacing: 0; }
 .text-link { min-height: 44px; display: inline-flex; gap: 16px; align-items: center; font-size: 14px; }
 .text-link:hover { text-decoration: underline; text-underline-offset: 5px; }
 .text-link span { color: var(--color-muted); }
-.hero { display: grid; gap: 48px; padding-block: 48px 64px; align-items: center; }
+.hero { display: grid; gap: calc(4 * var(--dot)); padding-block: 48px 64px; align-items: center; }
+/* Text sits on plain paper, never on dots: each block of text on one rectangle, spread a dot past it as a shadow so
+   it moves nothing. */
+.intro, .code-description, .ecosystem-intro, .package-list { background: var(--color-paper); box-shadow: 0 0 0 var(--dot) var(--color-paper); }
 h1 { font-size: var(--text-title); line-height: 1.035; letter-spacing: -.064em; font-weight: 520; }
 h1 span { color: var(--color-muted); }
 .intro-actions { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; margin-top: 32px; }
@@ -44,37 +52,40 @@ h1 span { color: var(--color-muted); }
 .install:active, .play:active { transform: translateY(1px); }
 .install:hover { opacity: .82; }
 
-/* Both blocks are black slabs with a long logarithmic shadow. Their height never changes on interaction; only code edits grow them. */
-.demo, .code-example { position: relative; min-width: 0; margin-bottom: 12px; border-radius: var(--radius-slab); background: repeating-linear-gradient(var(--color-scanline) 0 1px, var(--color-transparent) 1px 3px), linear-gradient(var(--color-screen), var(--color-screen-low)); color: var(--color-screen-soft); box-shadow: var(--shadow-slab); }
-/* Each device sits on a rectangle of dot-grid paper, a clear band around it. */
-.demo::before, .code-example::before { --mat: 40px; content: ''; position: absolute; inset: calc(-1 * var(--mat)); z-index: -1; pointer-events: none; background: radial-gradient(circle, var(--color-grid) 1px, var(--color-transparent) 1px) 0 0 / 16px 16px; }
-.demo { padding: 16px 16px 14px; }
+/* Both blocks are black slabs with a long logarithmic shadow. Their height never changes on interaction; only changes to the edit chain grow them. */
+.demo, .code-example { translate: 0 var(--grid-offset, 0px); position: relative; min-width: 0; margin-bottom: 12px; border-radius: var(--radius-slab); background: repeating-linear-gradient(var(--color-scanline) 0 1px, var(--color-transparent) 1px 3px), linear-gradient(var(--color-screen), var(--color-screen-low)); color: var(--color-screen-soft); box-shadow: var(--shadow-slab); }
+.demo { --demo-x: 16px; --demo-bottom: 14px; --tool-size: 40px; --tool-icon: 18px; padding: 16px var(--demo-x) var(--demo-bottom); }
 /* Controls fade only when unavailable, never while a render is in flight: a slider drag keeps everything steady. */
 .demo button:disabled { opacity: 1; }
 .demo button.dim, .demo .audio-row.dim .wave-track { opacity: .4; }
 .demo [hidden] { display: none; }
 
-.tool { display: grid; flex: none; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 8px; background: var(--color-transparent); color: var(--color-screen-muted); }
+.tool { display: grid; flex: none; place-items: center; width: var(--tool-size); height: var(--tool-size); padding: 0; border: 0; border-radius: 8px; background: var(--color-transparent); color: var(--color-screen-muted); }
 .tool, .play { transition: color var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out); }
-.tool svg { width: 18px; height: 18px; }
+.tool svg { width: var(--tool-icon); height: var(--tool-icon); }
 .demo:has(.add-menu:popover-open) .tool.add { color: var(--color-screen-bright); }
 
 /* Tracks: the name and the duration. Both waveforms stay drawn in full with their carets; the label says which
    track is active, and the pointer over a track lights its label. Nothing fades. */
-.wave-label { display: flex; align-items: center; gap: 10px; min-height: 24px; font: 11px/1.5 var(--font-mono); color: var(--color-screen-muted); font-variant-numeric: tabular-nums; }
+.wave-label { display: flex; align-items: center; gap: 8px; min-height: 30px; font: 11px/1.5 var(--font-mono); color: var(--color-screen-muted); font-variant-numeric: tabular-nums; }
 .audio-row.active .wave-label { color: var(--color-screen-bright); }
-@media (hover: hover) { .audio-row:not(.dim):hover .wave-label { color: var(--color-screen-bright); } }
+/* Hover lights the track label and caret without fading either waveform. */
+@media (hover: hover) {
+  .audio-row:not(.dim, .recording):hover .wave-track::after { background: var(--color-screen-bright); }
+  .audio-row:not(.dim):hover .wave-label { color: var(--color-screen-bright); }
+}
 .track-name { text-transform: uppercase; letter-spacing: .08em; }
-.duration { margin-left: auto; }
-/* A label's tool is as small as its text and takes the label's color; its hit area still reaches 40px. */
-.wave-label .tool { position: relative; width: 24px; height: 24px; margin-left: -5px; border-radius: 6px; color: inherit; }
-.wave-label .tool svg { width: 14px; height: 14px; }
-.wave-label .tool::before { content: ''; position: absolute; inset: -8px; }
+.duration { margin-left: auto; flex: none; }
+/* Files stay beside their tracks; long names yield to the label and duration. */
+.wave-label .track-name, .wave-label .duration { flex: none; }
+.wave-label .track-file { flex: 0 1 auto; min-width: 0; }
 .audio-row + .audio-row { margin-top: 16px; }
 .wave-player { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .play { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 44px; height: 44px; margin-left: -12px; border: 0; border-radius: 50%; background: var(--color-transparent); color: var(--color-screen-bright); }
 .play-icon { display: block; width: 0; height: 0; margin-left: 2px; border-top: 7px solid var(--color-transparent); border-bottom: 7px solid var(--color-transparent); border-left: 11px solid currentColor; }
 .play-icon.paused { width: 11px; height: 14px; margin-left: 0; border: 0; border-inline: 3px solid currentColor; }
+.play-icon.stopped { width: 12px; height: 12px; margin-left: 0; border: 0; background: currentColor; }
+.audio-row.recording .play { color: var(--color-screen-record); }
 /* Wavefont bars: advance is 0.025em per 100 wght, so wght 91 at 88px draws 2px bars; 3px spacing gives the 5px pitch that site.js draws. */
 .wave-track { --progress: 0%; --selection-start: 0%; --selection-end: 0%; --cursor-opacity: 0; position: relative; flex: 1; min-width: 0; height: 88px; touch-action: pan-y; }
 .wave-glyphs { position: absolute; inset: 0; overflow: clip; color: var(--color-screen-bright); opacity: .5; font: 100 88px/1 var(--font-wave); font-variation-settings: 'wght' 91, 'ROND' 100, 'YELA' 0; letter-spacing: 3px; white-space: nowrap; text-align: center; user-select: none; pointer-events: none; }
@@ -84,47 +95,78 @@ h1 span { color: var(--color-muted); }
 /* Each track keeps its caret where it was left; the active one is white. */
 .wave-track::after { content: ''; position: absolute; top: 0; bottom: 0; left: min(var(--progress), calc(100% - 1px)); width: 1px; background: var(--color-screen-muted); opacity: var(--cursor-opacity); pointer-events: none; }
 .audio-row.active .wave-track::after { background: var(--color-screen-bright); }
+.audio-row.recording .wave-track::after { background: var(--color-screen-record); }
+.audio-row.recording .wave-glyphs { clip-path: inset(0 calc(100% - var(--progress)) 0 0); }
 .wave-seek { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .wave-seek:disabled { cursor: not-allowed; }
 .wave-track:has(.wave-seek:focus-visible) { outline: 1px solid var(--color-screen-muted); outline-offset: 4px; }
-.demo:has(.program-editor:focus, .parameter-slider:focus) .wave-track::after { opacity: 0; }
 
-/* Readout: one slot shows a chain error while typing, else the selected range with its peak, else a message, else
-   the position with the active track's levels. Undo and + stay at its right. */
-.readout { display: flex; align-items: center; gap: 2px; height: 60px; margin: 8px -11px 0 0; }
-.readout-slot { display: grid; flex: 1; align-items: center; min-width: 0; height: 100%; margin-right: 10px; container: slot / inline-size; }
+/* One fixed slot for the range and its peak, a message, or the position and track levels. */
+.readout { display: flex; align-items: center; gap: 2px; height: 60px; margin-top: 8px; }
+.readout-slot { display: grid; flex: 1; align-items: center; min-width: 0; height: 100%; container: slot / inline-size; }
 .readout-slot > * { grid-area: 1 / 1; min-width: 0; }
 /* Switching what the slot shows fades the newcomer in. */
 .readout-slot > * { transition: opacity var(--dur-short) var(--ease-out); }
 @starting-style { .readout-slot > * { opacity: 0; } }
-.timecode { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 16px; }
-.timecode output { font: 300 40px/1 var(--font-display); letter-spacing: -.02em; color: var(--color-screen-ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
-/* The position gives way to the levels beside it on narrow screens. */
-@container slot (max-width: 250px) { .timecode output { font-size: 32px; } }
-@container slot (max-width: 190px) { .timecode output { font-size: 26px; } }
-/* The range reads on one line, start–end (6.1em), its peak (up to 66px, after the 16px gap) on the same baseline: it
-   shrinks to keep them together, and only below 24px lets the peak wrap under it. */
-.range output { font-size: clamp(24px, calc((100cqi - 82px) / 6.1), 40px); }
-.meters { font: 10px/1.6 var(--font-mono); color: var(--color-screen-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The invisible full-size line fixes the baseline even when the range uses smaller digits. */
+.timecode, .readout-actions { --time-size: 40px; display: grid; grid-template-columns: max-content minmax(0, 1fr) 62px; grid-template-rows: max(32px, var(--time-size)); align-content: center; align-items: baseline; column-gap: 16px; height: 100%; }
+.timecode::before, .readout-actions::before, .timecode output { grid-area: 1 / 1; font: 300 var(--time-size)/1 var(--font-display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.timecode::before, .readout-actions::before { content: '\00a0'; font-size: max(32px, var(--time-size)); visibility: hidden; }
+.timecode output { color: var(--color-screen-ink); }
+.time-details { display: inline-flex; align-items: baseline; gap: 10px; white-space: nowrap; }
+.readout-actions { pointer-events: none; }
+.action-buttons { grid-area: 1 / 3; display: flex; justify-content: flex-end; align-items: baseline; gap: 26px; }
+.action-buttons .tool { position: relative; width: 18px; height: 18px; pointer-events: auto; }
+.action-buttons .tool::before { content: ''; position: absolute; inset: -13px; }
+.readout-slot > :is(.recording-status, .demo-message) { max-width: calc(100% - 78px); }
+.range output { font-size: clamp(24px, calc((100cqi - 189px) / 6.1), 32px); }
+/* Both modes use the same second line on narrow screens, so selecting never shifts the levels. */
+@container slot (max-width: 390px) {
+  .timecode, .readout-actions { grid-template-columns: minmax(0, 1fr) 62px; grid-template-rows: max(32px, var(--time-size)) 18px; gap: 2px 16px; }
+  .time-details { grid-area: 2 / 1; }
+  .action-buttons { grid-area: 1 / 2; }
+  .range output { font-size: clamp(24px, calc((100cqi - 78px) / 6.1), 32px); }
+}
+@container slot (max-width: 250px) { .timecode, .readout-actions { --time-size: 32px; } }
+@container slot (max-width: 190px) { .timecode, .readout-actions { --time-size: 26px; } }
+.meters { font: 11px/1.5 var(--font-mono); color: var(--color-screen-ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .demo-message { font: 12px/1.5 var(--font-body); color: var(--color-screen-error); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
-/* The program: one piece of plain, editable code. A textarea with transparent text lies over its highlighted copy,
-   whose names and numbers are choices: under the pointer they light up like a selection. */
-.program { margin-top: 6px; padding-top: 14px; border-top: 1px solid var(--color-screen-rule); font: 12px/1.8 var(--font-mono); color: var(--color-screen-soft); }
-.program-code { display: grid; min-width: 0; }
-.program-highlight, .program-editor { grid-area: 1 / 1; width: 100%; min-width: 0; max-height: 240px; margin: 0; padding: 0; border: 0; border-radius: 0; font: 12px/1.8 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; }
-.program-highlight { pointer-events: none; overflow: hidden; color: var(--color-screen-soft); background: var(--color-transparent); }
-/* Choices are hit-testable under the textarea, so the pointer finds them without taking the caret away. Padding
-   and negative margin cancel: the chip grows past the text without moving it. */
-.program-highlight .choice { pointer-events: auto; margin: 0 -2px; padding: 0 2px; border-radius: 3px; }
-.program-highlight .lit { background: var(--color-screen-select); }
-.demo .program-highlight :is(.lit, mark), .demo .program-highlight :is(.lit, mark) * { color: var(--color-screen-bright); }
-/* The adjusted value reads as selected text: the selection's gray under white, over the syntax colors. */
-.program-highlight mark { background: var(--color-screen-select); }
-.program-editor { field-sizing: content; resize: none; overflow: auto; background: var(--color-transparent); color: var(--color-transparent); caret-color: var(--color-screen-bright); }
-.program-editor::selection { color: var(--color-screen-bright); background: var(--color-screen-select); }
-.program-editor:disabled { cursor: not-allowed; }
-/* While exporting, the name being saved breathes. */
-.program.saving [data-choice="save"] { animation: breathe 800ms var(--ease-in-out) infinite; }
+/* Each chevron stays with its edit. The final edit reserves room for +, so + cannot wrap alone. */
+.chain { display: flex; flex-wrap: wrap; align-items: center; row-gap: 14px; margin-top: 6px; padding-top: 16px; min-height: 47px; border-top: 1px solid var(--color-screen-rule); }
+.link { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; }
+.link:last-child, .chain.reordering .link.last { margin-right: 40px; max-width: calc(100% - 40px); }
+.chain.reordering .link:not(.last) { margin-right: 0; max-width: 100%; }
+.joint { width: 16px; height: 10px; flex: none; fill: none; stroke: var(--color-screen-dim); stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+.link:last-child .joint, .chain.reordering .link.last .joint { width: 0; visibility: hidden; }
+.chain.reordering .link:not(.last) .joint { width: 16px; visibility: visible; }
+.demo > .add { position: absolute; right: calc(var(--demo-x) - (var(--tool-size) - var(--tool-icon)) / 2); bottom: calc(var(--demo-bottom) + (30px - var(--tool-size)) / 2); }
+.loop[aria-pressed="true"] { color: var(--color-screen-bright); }
+.loop { position: relative; display: inline-flex; align-self: baseline; padding: 0; border: 0; background: var(--color-transparent); color: var(--color-screen-muted); transition: none; }
+.loop::before { content: ''; position: absolute; inset: -16px; }
+.loop svg { width: 12px; height: 12px; transform: translateY(1px); }
+.add.trash { color: var(--color-screen-soft); }
+.add.drop-target { color: var(--color-screen-bright); background: var(--color-screen-raised); outline: 1px solid var(--color-screen-rule); }
+.recording-status { display: flex; align-items: baseline; gap: 12px; font: 12px/1.5 var(--font-mono); color: var(--color-screen-bright); }
+.chain .pill { cursor: grab; touch-action: none; user-select: none; }
+.pill { position: relative; display: inline-flex; align-items: center; gap: 10px; min-width: 0; height: 30px; padding: 0 12px; border: 1px solid var(--color-screen-rule); border-radius: var(--radius-pill); background: var(--color-screen-pill); background-clip: padding-box; color: var(--color-screen-ink); font: 12px/1 var(--font-mono); white-space: nowrap; transition: background-color var(--dur-micro) var(--ease-out), color var(--dur-micro) var(--ease-out); }
+/* The press reaches 44px tall without moving anything. */
+.pill::before { content: ''; position: absolute; inset: -7px -2px; }
+.pill svg { width: 12px; height: 12px; flex: none; color: var(--color-screen-muted); }
+.pill:has(> svg), .pill-tab:has(> svg) { gap: 6px; }
+.pill-value { color: var(--color-screen-muted); }
+/* A step without values has no value to show, nor the gap before it: pill and tab keep one width. */
+.pill-value:empty { display: none; }
+.pill-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pill.open, .pill:active:not(:disabled) { background-color: var(--color-screen-raised); color: var(--color-screen-bright); opacity: 1; }
+.pill.open { z-index: 1; }
+.pill.dragged { background-color: var(--color-screen-pill-active); color: var(--color-screen-bright); box-shadow: var(--shadow-pill); position: fixed; top: 0; left: 0; margin: 0; z-index: var(--z-drag); pointer-events: none; transition: none; }
+.link.drag-source .pill { visibility: hidden; }
+.chain.reordering, .chain.reordering .pill { cursor: grabbing; }
+:is(.pill.open, .pill.dragged, .pill:active) :is(.pill-value, svg) { color: var(--color-screen-soft); }
+/* Pills keep the divider's outline; under the pointer they lighten. */
+@media (hover: hover) { .pill:hover:not(:disabled, .open) { background-color: var(--color-screen-pill-hover); } }
+/* While exporting, the download breathes. */
+.pill.saving { animation: breathe 800ms var(--ease-in-out) infinite; }
 @keyframes breathe { 50% { opacity: .45; } }
 :is(.demo, .code-example) .syntax-keyword { color: var(--color-screen-bright); }
 :is(.demo, .code-example) .syntax-call { color: var(--color-screen-ink); }
@@ -138,22 +180,36 @@ h1 span { color: var(--color-muted); }
 
 /* Menus keep the device's material; they grow out of their trigger and fade away. */
 .demo-menu { --menu-from: -6px; position: fixed; inset: auto; margin: 0; width: min(240px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 6px; border: 0; border-radius: 12px; background: var(--color-screen-raised); color: var(--color-screen-ink); box-shadow: var(--shadow-menu); transition: opacity var(--dur-short) var(--ease-out), transform var(--dur-short) var(--ease-out), overlay var(--dur-short) allow-discrete, display var(--dur-short) allow-discrete; }
-.demo-menu[data-side="above"] { --menu-from: 6px; }
 .demo-menu:not(:popover-open) { opacity: 0; transform: translateY(var(--menu-from)) scale(.97); transition-duration: var(--dur-micro); }
 @starting-style { .demo-menu:popover-open { opacity: 0; transform: translateY(var(--menu-from)) scale(.97); } }
 .demo-menu button { display: block; width: 100%; min-height: 44px; padding: 8px 12px; border: 0; border-radius: 6px; text-align: left; background: var(--color-transparent); color: inherit; font-size: 12px; }
 /* Completion and the add menu list methods alike: icon, call, description. */
-.demo-menu.method-menu, .demo-menu.add-menu { grid-template-columns: repeat(auto-fit, minmax(172px, 1fr)); gap: 2px; width: min(372px, calc(100vw - 32px)); }
+.demo-menu.add-menu { width: min(372px, calc(100vw - 32px)); }
+.add-body { grid-template-columns: repeat(auto-fit, minmax(172px, 1fr)); }
 /* Samples and formats are short lists: one column, each choice with its line of description. */
-.demo-menu.method-menu:is(.sample, .format) { grid-template-columns: minmax(0, 1fr); width: min(280px, calc(100vw - 32px)); }
-/* Only an open menu lays out as a grid: a display on a closed popover would keep it rendered. */
-.demo-menu:is(.method-menu, .add-menu):popover-open { display: grid; }
+/* A matching tab joins the panel to the real pill. Pointer events pass through the tab to keep
+   the pill itself clickable and draggable, even while its menu is open. */
+.demo-menu:is(.pill-menu, .add-menu) { display: none; flex-direction: column; align-items: flex-start; padding: 0; border-radius: 0; overflow: visible; background: var(--color-transparent); box-shadow: none; pointer-events: none; filter: var(--filter-menu); }
+.demo-menu:is(.pill-menu, .add-menu):not(:popover-open) { transform: none; }
+@starting-style { .demo-menu:is(.pill-menu, .add-menu):popover-open { transform: none; } }
+.pill-tab { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 10px; width: var(--tab-width); height: 30px; flex: none; margin: 0 0 -1px var(--tab-x, 0px); padding: 0 12px; border: 1px solid var(--color-screen-rule); border-bottom-color: var(--color-screen-raised); border-radius: 15px 15px 0 0; background: var(--color-screen-raised); color: var(--color-screen-bright); font: 12px/1 var(--font-mono); white-space: nowrap; overflow: hidden; }
+.pill-tab svg { width: 12px; height: 12px; flex: none; color: var(--color-screen-soft); }
+.pill-tab .pill-value { color: var(--color-screen-soft); }
+.add-tab { position: relative; z-index: 1; display: grid; place-items: center; width: var(--tab-width); height: var(--tool-size); flex: none; margin: 0 0 -1px var(--tab-x, 0px); border: 1px solid var(--color-screen-rule); border-bottom-color: var(--color-screen-raised); border-radius: 8px 8px 0 0; background: var(--color-screen-raised); color: var(--color-screen-bright); }
+.add-tab svg { width: var(--tool-icon); height: var(--tool-icon); }
+.pill-body, .add-body { display: grid; align-self: stretch; gap: 2px; padding: 6px; border: 1px solid var(--color-screen-rule); border-radius: 12px; background: var(--color-screen-raised); overflow: auto; pointer-events: auto; }
+.demo-menu[data-join="left"] :is(.pill-body, .add-body) { border-top-left-radius: 0; }
+.demo-menu[data-join="right"] :is(.pill-body, .add-body) { border-top-right-radius: 0; }
+.demo-menu:is(.pill-menu, .add-menu):popover-open { display: flex; }
+/* Compact viewports can still scroll the methods, without visible scrollbar chrome. */
+.add-body, .pill-body { scrollbar-width: none; }
+.add-body::-webkit-scrollbar, .pill-body::-webkit-scrollbar { display: none; }
 .demo-menu .method-option { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 10px; }
 .demo-menu .method-option:disabled { opacity: .4; }
 /* Narrow screens keep two columns of icon and call; the description moves to the tooltip. */
 @media (max-width: 26rem) {
-  .demo-menu:is(.method-menu, .add-menu) { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
-  .method-option span > span { display: none; }
+  .add-body { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  .add-menu .method-option span > span { display: none; }
 }
 /* With a range of the edit selected, the add menu says where methods apply. */
 .menu-scope { grid-column: 1 / -1; padding: 6px 10px 8px; font: 11px/1.5 var(--font-mono); color: var(--color-screen-muted); font-variant-numeric: tabular-nums; }
@@ -161,22 +217,31 @@ h1 span { color: var(--color-muted); }
 .method-option > span { display: grid; gap: 2px; min-width: 0; }
 .method-option code { font-size: 12px; overflow-wrap: anywhere; }
 .method-option span > span { font-size: 11px; color: var(--color-screen-muted); }
-.method-option[aria-selected="true"] { background: var(--color-screen-hover); }
-.demo-menu.parameter-menu { width: min(260px, calc(100vw - 32px)); }
-.parameter-menu label { display: grid; gap: 8px; padding: 8px 10px; }
+.menu-divider { margin: 8px 10px; border: 0; border-top: 1px solid var(--color-screen-rule); }
+.method-option > .format-icon { display: block; width: 4ch; flex: none; color: var(--color-screen-muted); font: 11px/1 var(--font-mono); }
+.method-option[aria-current="true"] { background: var(--color-screen-hover); }
+/* Labels sit close to their slider; the menu contains only parameters. */
+.step-options .parameter { display: grid; gap: 2px; padding: 4px 10px; }
 .parameter-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; }
 .parameter-label output { font: 11px var(--font-mono); color: var(--color-screen-muted); }
-.parameter-slider { width: 100%; height: 28px; margin: 0; accent-color: var(--color-screen-ink); cursor: ew-resize; }
+/* A slider drawn like the display: a dark track outlined lighter than the panel, a quieter fill up to its value, a white knob. */
+.parameter-slider { --track: 6px; --knob: 14px; width: 100%; height: 28px; margin: 0; appearance: none; background: var(--color-transparent); cursor: ew-resize; }
+.parameter-slider::-webkit-slider-runnable-track { height: var(--track); border-radius: calc(var(--track) / 2); background: linear-gradient(var(--color-screen-muted) 0 0) 0 / var(--fill, 0%) 100% no-repeat, var(--color-screen-low); box-shadow: inset 0 0 0 1px var(--color-screen-edge); }
+.parameter-slider::-moz-range-track { height: var(--track); border-radius: calc(var(--track) / 2); background: var(--color-screen-low); box-shadow: inset 0 0 0 1px var(--color-screen-edge); }
+.parameter-slider::-moz-range-progress { height: var(--track); border-radius: calc(var(--track) / 2); background: var(--color-screen-muted); }
+.parameter-slider::-webkit-slider-thumb { appearance: none; width: var(--knob); height: var(--knob); margin-top: calc((var(--track) - var(--knob)) / 2); border: 0; border-radius: 50%; background: var(--color-screen-bright); }
+.parameter-slider::-moz-range-thumb { width: var(--knob); height: var(--knob); border: 0; border-radius: 50%; background: var(--color-screen-bright); }
+.parameter-slider:focus-visible { outline: 2px solid var(--color-screen-bright); outline-offset: 2px; border-radius: 4px; }
 @media (hover: hover) {
-  .play:hover:not(:disabled), .tool:hover:not(:disabled) { color: var(--color-screen-bright); background: var(--color-screen-raised); }
+  .play:hover:not(:disabled) { color: var(--color-screen-bright); background: var(--color-screen-raised); }
+  .tool:hover:not(:disabled, .loop) { color: var(--color-screen-bright); }
   .demo-menu button:hover { background: var(--color-screen-hover); }
-  .method-menu .method-option:hover:not([aria-selected="true"]) { background: var(--color-transparent); }
 }
 @media (pointer: coarse) {
-  .tool { min-height: 44px; min-width: 44px; }
+  .demo { --tool-size: 44px; }
 }
 
-.code-section { display: grid; gap: 40px; padding-block: 48px 72px; }
+.code-section { display: grid; gap: calc(4 * var(--dot)); padding-block: 48px 72px; }
 /* The code block: plain tabs, the listing, a link. */
 .code-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-inline: 20px; border-bottom: 1px solid var(--color-screen-rule); }
 /* One underline slides to the chosen tab (site.js measures it). */
@@ -209,21 +274,21 @@ h2 { font-size: var(--text-heading); line-height: 1.15; letter-spacing: -.045em;
 .package-list h3 { font: 500 14px var(--font-mono); }
 .package-list p { margin-top: 6px; font-size: 13px; color: var(--color-muted); }
 .package-list a:hover h3 { text-decoration: underline; text-underline-offset: 5px; }
-.footer { border-top: 1px solid var(--color-rule); padding-block: 24px 36px; display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px; }
+.footer { position: relative; min-height: calc(6 * var(--dot)); padding-block: var(--space-lg); display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px; }
 .footer .wordmark { font-size: 22px; }
 .footer > div { display: flex; gap: 24px; margin-left: auto; }
 .footer > div a { display: inline-flex; min-height: 44px; align-items: center; font-size: 12px; color: var(--color-muted); }
 .footer > div a:hover { color: var(--color-ink); }
 @media (min-width: 40rem) {
-  .wrap { width: min(1184px, calc(100% - 80px)); }
+  :root { --page-gutter: 40px; }
   .hero { padding-top: 64px; }
-  .demo { padding: 20px 24px 16px; }
+  .demo { --demo-x: 24px; --demo-bottom: 16px; padding-top: 20px; }
 }
 @media (min-width: 60rem) {
   .header { min-height: 112px; }
-  .hero { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 56px; padding-block: 68px 112px; }
+  .hero { grid-template-columns: minmax(0, 1fr) minmax(calc(29 * var(--dot)), round(down, calc((100% - 4 * var(--dot)) / 2.15), var(--dot))); gap: calc(4 * var(--dot)); padding-block: 68px 112px; }
   .demo { margin-top: 8px; }
-  .code-section { grid-template-columns: minmax(0, 1fr) minmax(0, .85fr); align-items: center; gap: 100px; padding-block: 24px 112px; }
+  .code-section { grid-template-columns: round(down, calc((100% - 6 * var(--dot)) / 1.85), var(--dot)) minmax(0, 1fr); align-items: center; gap: calc(6 * var(--dot)); padding-block: 24px 112px; }
   .code-description { padding-block: 12px; }
   .code-example pre { padding: 28px; min-height: calc(var(--code-lines, 12) * 1lh + 56px); font-size: 13px; }
   .code-top, .code-foot { padding-inline: 28px; }
@@ -236,3 +301,7 @@ h2 { font-size: var(--text-heading); line-height: 1.15; letter-spacing: -.045em;
   *, *::before, *::after { animation: none !important; transition: none !important; }
   .demo-menu:not(:popover-open) { transform: none; }
 }
+
+.demo-menu .parameter-auto { width: auto; min-height: 24px; padding: 2px 6px; margin-left: auto; font: inherit; color: var(--color-screen-dim); }
+.demo-menu .parameter-auto[aria-pressed="true"] { color: var(--color-screen-bright); }
+.pill-menu[data-kind="source"] .method-option span > span, .pill-menu[data-kind="save"] .method-option span > span { white-space: normal; overflow-wrap: anywhere; }

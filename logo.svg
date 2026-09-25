@@ -1,1 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="34.3 0 443.4 512"><path fill-rule="evenodd" d="M256 0 477.7 128v256L256 512 34.3 384V128ZM141 256l40-115h33l42 115Zm115 0h115l-40 115h-33Z"/></svg>
+<svg width="96" height="101" viewBox="0 0 96 101" fill="currentColor" stroke="currentColor" stroke-width="4.5" xmlns="http://www.w3.org/2000/svg">
+  <style>:root { color: #141414; } @media (prefers-color-scheme: dark) { :root { color: #F2F4F8; } }</style>
+  <path d="M0 50.4159C5.08842 50.4159 8.70378 49.9251 17.0681 24.9808C27.8621 -7.20948 35.9058 -10.5986 47.7771 50.4159H0Z"/>
+  <path d="M95.5543 50.416C90.4658 50.416 86.8505 50.9067 78.4862 75.8511C67.6922 108.041 59.6484 111.43 47.7771 50.416H95.5543Z"/>
+</svg>

@@ -6,3 +6,4 @@ dist
 /.claude
 /.playwright-mcp
 bench/.cache
+/.hallmark

@@ -2,7 +2,7 @@
 import { build } from 'esbuild'
 
 await build({
-  entryPoints: { audio: 'audio.js', wav: 'node_modules/@audio/encode-wav/wav-encode.js', mp3: 'node_modules/@audio/encode-mp3/mp3-encode.js' },
+  entryPoints: { audio: 'audio.js', ...Object.fromEntries(['wav', 'mp3', 'flac', 'aiff', 'ogg'].map(format => [format, `node_modules/@audio/encode-${format}/${format}-encode.js`])) },
   outdir: 'assets',
   bundle: true,
   minify: true,

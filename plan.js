@@ -908,6 +908,10 @@ function patchProcs(procs, pipeline) {
   for (let i = 0; i < procs.length && i < pipeline.length; i++) {
     let p = procs[i], o = pipeline[i][1] || {}
     let { at, duration, channel, ...extra } = o
+    p.origAt = at
+    p.at = at != null && at < 0 ? p.ctx.totalDuration + at : at
+    p.dur = p.ctx.duration = duration
+    p.channel = channel
     let ramp = null
     for (let k in extra) {
       let v = extra[k]

@@ -25,7 +25,13 @@ const methods = {
   eq: { arity: [2, 3], args: [1000, 6], icon: 'M3 17c4 0 5-10 9-10s5 10 9 10', description: 'Boost or cut a band', params: [hz('Frequency'), { label: 'Gain', min: -24, max: 24, step: .5, unit: 'dB' }, { label: 'Q', min: .1, max: 10, step: .1, unit: '' }] }
 }
 const ranged = type => methods[type].params === span
-const formats = { wav: { label: 'WAV', mime: 'audio/wav', description: 'Uncompressed, exact samples' }, mp3: { label: 'MP3', mime: 'audio/mpeg', description: 'Compressed, a tenth of the size' } }
+const formats = {
+  wav: { mime: 'audio/wav', description: 'Uncompressed PCM' },
+  mp3: { mime: 'audio/mpeg', description: 'Compressed audio' },
+  flac: { mime: 'audio/flac', description: 'Lossless compression' },
+  aiff: { mime: 'audio/aiff', description: 'Uncompressed PCM' },
+  ogg: { mime: 'audio/ogg', description: 'Vorbis compression' }
+}
 const step = (type, ...args) => ({ type, args })
 const defaults = () => [step('trim'), step('normalize', -1), step('fade', .02, .1)]
 
@@ -42,80 +48,47 @@ function notation({ type, args }) {
     cli: [type, ...(ranged(type) ? [] : values.map(decimal)), ...(scope ? [cli] : [])].join(' ')
   }
 }
-// The program is all editable text: audio(…) names its source, a built-in sample or an opened file in quotes; one
-// edit per line follows; .save('…') names the file to download, its extension picking the format.
-const quote = text => `'${String(text).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
-const unquote = literal => literal.slice(1, -1).replace(/\\(.)/g, '$1')
-const program = (steps, from = state.sample || quote(state.filename), to = state.saveName) =>
-  [`audio(${from})`, ...steps.map(edit => '  .' + notation(edit).js), `  .save(${quote(to)})`].join('\n')
-const literal = String.raw`'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"`
-const opening = new RegExp(String.raw`^\s*audio\s*\(\s*(${literal}|[A-Za-z_$][\w$]*)\s*\)`)
-const closing = new RegExp(String.raw`\.\s*save\s*\(\s*(${literal})\s*\)\s*;?\s*$`)
-// Where the program's two names sit: the literal between the quotes included.
-function names(code) {
-  const open = opening.exec(code), close = closing.exec(code), place = (match, at) => ({ from: at, to: at + match[1].length })
-  return {
-    source: open && place(open, open.index + open[0].indexOf(open[1])),
-    save: close && close.index >= (open?.[0].length ?? 0) ? place(close, close.index + close[0].indexOf(close[1])) : null,
-    body: [open ? open[0].length : 0, close ? close.index : code.length]
-  }
+// A step as its pill reads it: the call's name, then its values, each unit joined to its number, a range as
+// start–end seconds.
+function figure(value, unit = '') {
+  const sign = value < 0 ? '−' : value > 0 && (unit === 'dB' || unit === 'st') ? '+' : ''
+  return sign + decimal(+Math.abs(value).toPrecision(6)) + unit
 }
+const summary = ({ type, args }) => args.map((value, i) => typeof value === 'object'
+  ? `${figure(value.at)}–${figure(value.at + value.duration, 's')}`
+  : figure(value, methods[type].params[i]?.unit)).join(', ')
 
-function parseProgram(code) {
-  if (code.length > 8192) throw Error('Use at most 4,096 characters of edits.')
-  const open = opening.exec(code), close = closing.exec(code)
-  if (!open) throw Error("Start with audio('file.wav').")
-  if (!close || close.index < open[0].length) throw Error("End with .save('file.wav').")
-  const name = unquote(close[1]), format = /\.(\w+)$/.exec(name)?.[1].toLowerCase()
-  if (!/[^/\\]\.\w+$/.test(name)) throw Error("Name the file with its format, as in .save('edited.wav').")
-  if (!Object.hasOwn(formats, format)) throw Error(`Save as .wav or .mp3, not .${format}.`)
-  const quoted = /^['"]/.test(open[1]), sample = quoted ? '' : open[1]
-  if (sample && !Object.hasOwn(samples, sample)) throw Error(`There is no sample named ${sample}: try ${Object.keys(samples).join(', ')}.`)
-  if (quoted && state.sample) throw Error('Open a file from the list in audio(…) to use it.')
-  return { sample, source: quoted ? unquote(open[1]) : sample, steps: parseChain(code.slice(open[0].length, close.index)), save: name, format }
+// A step as a person would ask an agent for it; a range on the timeline follows as from–to seconds.
+const inSeconds = value => figure(value, 's')
+const phrases = {
+  trim: db => 'trim the silence' + (db == null ? '' : ` below ${figure(db, 'dB')}`),
+  crop: ({ at, duration }) => `keep ${inSeconds(at)} to ${inSeconds(at + duration)}`,
+  remove: ({ at, duration }) => `cut ${inSeconds(at)} to ${inSeconds(at + duration)}`,
+  pad: (before, after = before) => `pad ${inSeconds(before)} of silence before and ${inSeconds(after)} after`,
+  shrink: (gap = .3) => `shorten pauses to ${inSeconds(gap)}`,
+  repeat: times => `repeat it ${figure(times)} times`,
+  reverse: () => 'reverse it',
+  gain: db => `change the volume by ${figure(db, 'dB')}`,
+  normalize: db => db == null ? 'normalize the peak' : `normalize the peak to ${figure(db, 'dB')}`,
+  fade: (fadeIn, fadeOut = 0) => 'fade ' + ([fadeIn && `in ${inSeconds(fadeIn)}`, fadeOut && `out ${inSeconds(fadeOut)}`].filter(Boolean).join(' and ') || `in ${inSeconds(0)}`),
+  speed: rate => `play it at ${figure(rate, '×')} speed`,
+  stretch: factor => `stretch it to ${figure(factor, '×')} the length, keeping the pitch`,
+  pitch: semitones => `shift the pitch ${figure(semitones, 'st')}`,
+  lowpass: hz => `cut above ${figure(hz, 'Hz')}`,
+  highpass: hz => `cut below ${figure(hz, 'Hz')}`,
+  eq: (hz, db, q) => `${db < 0 ? 'cut' : 'boost'} ${figure(Math.abs(db))}dB around ${figure(hz, 'Hz')}${q ? ` with a Q of ${figure(q)}` : ''}`
 }
-
-function parseChain(code) {
-  // The edits' own text counts, not the line breaks around them.
-  if (code.replace(/^\n|\n[^\S\n]*$/g, '').length > 4096) throw Error('Use at most 4,096 characters of edits.')
-  let rest = code.trim(), steps = []
-  const number = value => {
-    if (!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(value) || !Number.isFinite(+value))
-      throw Error('Use finite numbers for edit arguments.')
-    return +value
-  }
-  while (rest) {
-    const call = /^\.\s*(\w+)\s*\(([^()]*)\)/.exec(rest)
-    if (!call) throw Error('Use a chain such as .trim().gain(-6).')
-    const [, type, raw] = call
-    if (!Object.hasOwn(methods, type)) throw Error(`Unknown edit: ${type}(). Type a dot to see the methods.`)
-    // A trailing { at, duration } scopes the call to a time range; crop and remove take nothing else.
-    const scope = /(?:^|,)\s*(\{[^{}]*\})\s*$/.exec(raw), numbers = scope ? raw.slice(0, scope.index) : raw
-    if (ranged(type) && (!scope || numbers.trim())) throw Error(`Use .${type}({ at: 0, duration: 1 }).`)
-    if (scope && methods[type].whole) throw Error(`${type}() applies to the whole audio.`)
-    const args = numbers.trim() ? numbers.split(',').map(value => number(value.trim())) : []
-    if (!ranged(type)) {
-      const [min, max] = methods[type].arity
-      if (args.length < min || args.length > max) throw Error(`${type}() takes ${min === max ? min : `${min}–${max}`} numeric argument${max === 1 ? '' : 's'}.`)
-      if (type === 'speed' && args[0] === 0) throw Error('Speed must be nonzero.')
-    }
-    if (scope) {
-      const options = {}
-      for (const field of scope[1].trim().slice(1, -1).split(',')) {
-        const pair = /^\s*(at|duration)\s*:\s*(.*?)\s*$/.exec(field)
-        if (!pair || Object.hasOwn(options, pair[1])) throw Error('A range accepts at and duration once each.')
-        options[pair[1]] = number(pair[2])
-      }
-      if (options.duration == null || options.duration < 0 || (options.at ?? 0) < 0)
-        throw Error('A range needs a nonnegative start and duration in seconds.')
-      args.push({ at: options.at ?? 0, duration: options.duration })
-    }
-    steps.push({ type, args })
-    if (steps.length > 64) throw Error('Use up to 64 edits in this demo.')
-    rest = rest.slice(call[0].length).trim()
-  }
-  return steps
+function prompt(steps, format) {
+  const clauses = steps.map(({ type, args }) => {
+    const scope = args.find(value => typeof value === 'object'), numbers = args.filter(value => typeof value === 'number')
+    if (ranged(type)) return phrases[type](scope)
+    return phrases[type](...numbers) + (scope ? ` from ${inSeconds(scope.at)} to ${inSeconds(scope.at + scope.duration)}` : '')
+  })
+  return clauses.length ? `In recording.wav, ${clauses.join(', ')}, then save it as edited.${format}.` : `Save recording.wav as edited.${format}.`
 }
+// Words wrapped to lines of at most `width` characters.
+const wrap = (text, width = 60) => text.split(' ').reduce((lines, word) =>
+  (lines.at(-1) + ' ' + word).length > width ? [...lines, word] : [...lines.slice(0, -1), (lines.at(-1) + ' ' + word).trim()], ['']).join('\n')
 
 function examples(steps, format) {
   const selected = steps.map(notation)
@@ -144,15 +117,19 @@ ${selected.map(edit => '  ' + edit.cli + ' \\\n').join('')}\
 
 # Run the same chain over a folder
 audio '*.wav' ${selected.map(edit => edit.cli + ' ').join('')}save '{name}.out.{ext}'`,
-    mcp: `# Claude Desktop, Cursor, VS Code
+    // The agent is asked in words, and calls the audio tool with the CLI's arguments.
+    mcp: `# Once, in Claude Code
+claude mcp add audio -- npx -y audio --mcp
+
+# Or Claude Desktop, Cursor, VS Code
 { "mcpServers": { "audio": {
   "command": "npx", "args": ["-y", "audio", "--mcp"]
 } } }
 
-# Claude Code
-claude mcp add audio -- npx -y audio --mcp
+# Ask your agent
+${wrap(prompt(steps, format))}
 
-# The agent calls the audio tool with CLI arguments
+# It calls the audio tool
 recording.wav ${selected.map(edit => edit.cli + ' ').join('')}save edited.${format}`
   }
 }
@@ -167,25 +144,9 @@ function moveTab(tab = document.querySelector('.code-tabs [aria-pressed="true"]'
   tab.parentElement.style.setProperty('--tab-w', tab.offsetWidth + 'px')
 }
 
-// The program as highlighted code. Its two names and its numbers are choices, lit under the pointer (a name also
-// while its list is open); the value being adjusted stays marked.
-function highlightProgram(code, options, hoverAt = -1, open = '') {
-  const at = names(code), marked = options?.fields[options.active], choices = []
-  for (const kind of ['source', 'save']) if (at[kind]) choices.push({ kind, ...at[kind] })
-  for (const number of code.slice(...at.body).matchAll(/[+-]?(?:\b\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?(?![\w$])/g))
-    choices.push({ kind: 'param', from: at.body[0] + number.index, to: at.body[0] + number.index + number[0].length })
-  let html = '', offset = 0
-  for (const choice of choices.sort((a, b) => a.from - b.from)) {
-    const lit = choice.from === hoverAt || choice.kind === open, tag = marked?.from === choice.from ? 'mark' : 'span'
-    html += highlight(code.slice(offset, choice.from)) + `<${tag} class="choice${lit ? ' lit' : ''}" data-choice="${choice.kind}" data-from="${choice.from}">${highlight(code.slice(choice.from, choice.to))}</${tag}>`
-    offset = choice.to
-  }
-  return html + highlight(code.slice(offset))
-}
-
 function highlight(source) {
   const escape = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const tokens = /(\/\/[^\n]*|#[^\n]*)|('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")|\b(import|from|const|await|new)\b|([+-]?(?:\b\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(?![\w$])|\b([\w$]+)(?=\()/g
+  const tokens = /(\/\/[^\n]*|#[^\n]*)|('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")|\b(import|from|const|await|new)\b|([+-]?(?:\b\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(?![\w$]|\.\w)|\b([\w$]+)(?=\()/g
   let html = '', offset = 0
   for (const match of source.matchAll(tokens)) {
     const kind = ['comment', 'string', 'keyword', 'number', 'call'][match.slice(1).findIndex(value => value != null)]
@@ -195,12 +156,10 @@ function highlight(source) {
   return html + escape(source.slice(offset))
 }
 
-// The level reading is the sample peak in dBFS (decibels re digital full scale, the unit DAW peak meters
-// show), from the library itself: stat('db') of the same samples. A new reading replaces the last one when
-// it arrives, never a blank in between.
+// Selection summaries use the library's sample peak in dBFS.
 const signed = value => (value < 0 ? '−' : value > 0 ? '+' : '') + Math.abs(value).toFixed(1)
 const dbfs = db => `${Number.isFinite(db) ? signed(db) : '−∞'} dBFS`
-// Each track's samples as a plain clip, measured whole for the track and by range for a selection.
+// Each track's samples as a plain clip for measuring a selection.
 const measure = { original: null, edited: null }
 function measured(name, pcm, sampleRate) {
   measure[name]?.dispose()
@@ -209,10 +168,9 @@ function measured(name, pcm, sampleRate) {
 
 let state, original, edited, originalPCM, editedPCM, originalPeaks, editedPeaks
 let ctx, player, startTime = 0, frame, menuFrame, copyTimer, editTimer, playback = 0, history = [], selection = null, drag = null
-// quiet: the draft on which Escape dismissed method suggestions; they stay closed until the text changes.
-let composing = false, pendingGroup = 0, lastGroup = 0, parameterGroup = 0, assistRange = null, quiet = null
+let lastGroup = 0, parameterGroup = 0, recording
 const position = { original: 0, edited: 0 }
-const buffers = { original: null, edited: null }
+const buffers = { original: null }
 const waves = { original: document.querySelector('#original-wave'), edited: document.querySelector('#edited-wave') }
 const clock = seconds => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`
 // Tenths, floored once rounded to the millisecond: 441,600 frames at 48 kHz read 9.2 s, not floating point's 9.1999….
@@ -220,7 +178,7 @@ const duration = seconds => { const tenths = Math.floor(Math.round(seconds * 100
 
 function context() { return ctx ||= new AudioContext() }
 const length = name => (name === 'original' ? original : edited)?.duration || 0
-const available = name => !state.editPending && !(state.busy && !state.saving) && (name === 'original' ? state.originalReady : state.ready)
+const available = name => !state.transportBusy && (name === 'original' ? state.originalReady : state.ready)
 
 function range(name) {
   return selection?.name === name
@@ -256,27 +214,39 @@ function draw(track, values) {
 }
 
 function drawWaves() {
-  draw(waves.original, originalPeaks)
+  if (state.recording) drawRecording()
+  else draw(waves.original, originalPeaks)
   draw(waves.edited, editedPeaks)
 }
 
+const playhead = name => state.playing && state.preview === name ? player?.position?.() ?? ctx.currentTime - startTime : position[name]
+// A 10 ms window at the cursor gives a stable local peak without scanning the track each frame.
+function cursorLevel(name, elapsed) {
+  const pcm = name === 'original' ? originalPCM : editedPCM, clip = name === 'original' ? original : edited
+  if (!pcm?.[0].length || (name === 'edited' && !state.ready)) return '–'
+  const from = Math.min(pcm[0].length - 1, Math.floor(elapsed * clip.sampleRate))
+  const to = Math.min(pcm[0].length, from + Math.ceil(clip.sampleRate * .01))
+  let peak = 0
+  for (const channel of pcm) for (let i = from; i < to; i++) peak = Math.max(peak, Math.abs(channel[i]))
+  return dbfs(20 * Math.log10(peak))
+}
 function paint() {
   for (const [name, track] of Object.entries(waves)) {
     const total = length(name)
-    const elapsed = Math.min(total, state.playing && state.preview === name ? ctx.currentTime - startTime : position[name])
+    const elapsed = Math.max(0, Math.min(total, playhead(name)))
     const progress = total ? elapsed / total : 0
     track.style.setProperty('--progress', progress * 100 + '%')
     track.style.setProperty('--cursor-opacity', total > 0 ? 1 : 0)
     const input = track.querySelector('input')
     input.value = progress * 1000
     input.setAttribute('aria-valuetext', `${clock(elapsed)} of ${duration(total)}`)
-    if (name === state.preview) state.timecode = duration(elapsed)
+    if (name === state.preview) { state.timecode = duration(elapsed); state.cursorMeters = cursorLevel(name, elapsed) }
   }
 }
 
 function stop(clear = false) {
   playback++
-  if (state.playing) position[state.preview] = ctx.currentTime - startTime
+  if (state.playing) position[state.preview] = playhead(state.preview)
   if (player) { player.onended = null; player.stop(); player.disconnect(); player = null }
   cancelAnimationFrame(frame)
   if (clear) position.original = position.edited = 0
@@ -291,18 +261,17 @@ async function refresh() {
   state.editedDuration = duration(edited.duration)
   state.ready = editedPCM[0].length > 0
   state.editMessage = state.ready ? '' : 'The edits removed all samples. Undo an edit or open another file.'
-  const clip = measured('edited', editedPCM, edited.sampleRate)
-  state.editedMeters = state.ready ? dbfs(await clip.stat('db')) : '–'
+  measured('edited', editedPCM, edited.sampleRate)
   draw(waves.edited, editedPeaks)
+  if (state.ready && selection?.name === 'edited') showSelection(selection)
   paint()
 }
 
-// The name a download takes until one is typed: the sample's own, or the opened file's with -edited.
-const saveDefault = () => (state.sample || state.filename.replace(/\.[^.]*$/, '') + '-edited') + '.' + state.format
+// Keep the name stable across formats and parameter changes; only the save menu adds an extension.
+const downloadName = (format = state.format) => state.saveName + '.' + format
 
-// A new source: a sample by name keeps the edits; an opened file starts from the defaults. A typed save name stays.
+// A new source: a sample by name keeps the edits; an opened file starts from the defaults.
 async function load(pcm, sampleRate, name, sample = '', steps = null) {
-  const typed = state.saveName !== saveDefault()
   stop(true)
   edited?.dispose()
   original?.dispose()
@@ -311,12 +280,12 @@ async function load(pcm, sampleRate, name, sample = '', steps = null) {
   buffers.original = null
   state.originalReady = pcm[0].length > 0
   state.originalDuration = duration(original.duration)
-  state.originalMeters = dbfs(await measured('original', pcm, sampleRate).stat('db'))
+  measured('original', pcm, sampleRate)
   originalPeaks = peaks(pcm)
   draw(waves.original, originalPeaks)
   state.sample = sample
   state.filename = name
-  if (!typed) state.saveName = saveDefault()
+  state.saveName = (sample || name.replace(/\.[^.]+$/, '') || name) + '-edited'
   if (!steps) return reset()
   state.steps = steps
   return render()
@@ -324,318 +293,375 @@ async function load(pcm, sampleRate, name, sample = '', steps = null) {
 const useSample = (name, steps = state.steps) => load(samples[name].make(), RATE, name, name, steps)
 
 async function render(sync = true) {
+  cancelReorder()
   if (sync) cancelEdit()
   const focused = document.activeElement
   cancelSelection()
-  stop(true)
-  clearSelection()
-  state.message = state.editMessage = state.chainError = ''
-  state.applied = program(state.steps)
-  // Text the page writes opens no list when the caret is restored in it; typing or a click does.
-  if (sync) quiet = state.draft = state.applied
+  // A live render keeps the open step's sliders; any other closes its menu.
+  if (sync) { stop(true); clearSelection(); closePill() }
+  state.message = state.editMessage = ''
   state.busy = true
-  state.ready = false
-  buffers.edited = null
+  if (sync) state.ready = false
   state.undoCount = history.length
   state.examples = examples(state.steps, state.format)
+  let next
   try {
-    edited?.dispose()
-    edited = original.clone()
+    next = original.clone()
     for (const { type, args } of state.steps) {
-      edited[type](...args)
-      if (!Number.isFinite(edited.duration) || edited.duration > 120) {
+      next[type](...args)
+      if (!Number.isFinite(next.duration) || next.duration > 120) {
+        state.ready = false
         state.editMessage = 'Keep the edited audio within two minutes.'
-        state.editedMeters = '–'
         return
       }
     }
+    if (!sync && edited) {
+      // A playing selection keeps its time boundaries when an edit changes the track length.
+      if (selection?.name === 'edited' && next.duration > 0) {
+        const scale = edited.duration / next.duration
+        selection = { ...selection, a: Math.min(1, selection.a * scale), b: Math.min(1, selection.b * scale) }
+      }
+      // Keep the streaming instance: its next block patches the plan and ramps changed values.
+      edited.undo(edited.edits.length)
+      edited.run(...next.edits)
+    } else {
+      edited?.dispose()
+      edited = next
+      next = null
+    }
     await refresh()
   } catch {
+    state.ready = false
     state.editMessage = 'The edits could not be applied. Undo or change the chain.'
-    state.editedMeters = '–'
   }
   finally {
+    next?.dispose()
+    if (!state.ready) {
+      if (state.preview === 'edited') stop()
+      if (selection?.name === 'edited') showSelection(null)
+    }
     finishWork()
     if (document.activeElement === document.body && focused?.isConnected) focused.focus({ preventScroll: true })
   }
 }
 
+// A file starts from the default edits, with nothing to undo.
 function reset() {
   state.steps = defaults()
-  history = [0, 1, 2].map(count => defaults().slice(0, count))
+  history = []
   return render()
 }
 
 function undo() {
-  if (state.busy) return
-  if (state.editPending || state.chainError) { cancelEdit(); state.draft = state.applied; state.chainError = ''; closeAssist(); return }
-  if (!history.length) return
+  if (state.busy || !history.length) return
+  cancelEdit()
   state.steps = history.pop()
   return render()
 }
 
-function change(steps, live = false, group = 0) {
-  if (state.busy) return
-  if (!group || group !== lastGroup)
-    history.push(state.steps.map(({ type, args }) => ({ type, args: args.map(value => typeof value === 'object' ? { ...value } : value) })))
+const copySteps = steps => steps.map(({ type, args }) => ({ type, args: args.map(value => typeof value === 'object' ? { ...value } : value) }))
+// One Undo step per edit, and one per slider gesture however many values it passes through.
+function remember(group = 0) {
+  if (!group || group !== lastGroup) history.push(copySteps(state.steps))
   lastGroup = group
+}
+
+function change(steps) {
+  if (state.busy) return
+  remember()
   state.steps = steps
-  return render(!live)
+  return render()
+}
+
+// Reordering previews only the layout. A completed drop changes the audio once, as one Undo step.
+let reorder = null
+const links = () => [...document.querySelectorAll('.chain .link')]
+const bounds = elements => elements.map(el => el.getBoundingClientRect())
+const motion = () => {
+  const style = getComputedStyle(document.documentElement)
+  return { duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : parseFloat(style.getPropertyValue('--dur-short')), easing: style.getPropertyValue('--ease-out').trim() }
+}
+function slide(el, from) {
+  el.getAnimations().forEach(animation => animation.cancel())
+  const to = el.getBoundingClientRect(), timing = motion()
+  if (!timing.duration || (Math.abs(from.left - to.left) < .5 && Math.abs(from.top - to.top) < .5)) return
+  el.animate([{ transform: `translate(${from.left - to.left}px, ${from.top - to.top}px)` }, { transform: 'none' }], timing)
+}
+const moved = (order, from, to) => { const next = [...order]; next.splice(to, 0, ...next.splice(from, 1)); return next }
+async function commitOrder(order, to, before) {
+  const name = state.steps[order[to]].type
+  await change(order.map(index => state.steps[index]))
+  links().forEach((el, index) => slide(el, before[order[index]]))
+  pill(to)?.focus({ preventScroll: true })
+  state.reorderMessage = `${name} moved to position ${to + 1} of ${order.length}.`
+}
+function moveStep(from, to) {
+  if (state.busy || reorder || to < 0 || to >= state.steps.length || from === to) return
+  const order = moved(state.steps.map((_, index) => index), from, to)
+  return commitOrder(order, to, bounds(links()))
+}
+function beginReorder(event) {
+  const button = event.target.closest('.pill')
+  if (!button || button.disabled || state.busy || state.editPending || reorder || event.button !== 0 || !event.isPrimary) return
+  const elements = links(), from = +button.dataset.key
+  reorder = { id: event.pointerId, x: event.clientX, y: event.clientY, from, to: from, button, elements, chain: event.currentTarget, order: elements.map((_, i) => i) }
+  window.addEventListener('pointermove', previewReorder)
+  window.addEventListener('pointerup', finishReorder)
+  window.addEventListener('pointercancel', cancelReorder)
+  window.addEventListener('keydown', reorderKey, true)
+  window.addEventListener('blur', cancelReorder)
+  window.addEventListener('resize', cancelReorder)
+  reorder.chain.addEventListener('lostpointercapture', lostReorder)
+}
+function previewReorder(event) {
+  const d = reorder
+  if (!d || event.pointerId !== d.id) return
+  if (!d.clone) {
+    if (Math.hypot(event.clientX - d.x, event.clientY - d.y) < 5) return
+    const rect = d.button.getBoundingClientRect()
+    closePill()
+    document.querySelector('#add-menu').hidePopover()
+    d.dx = d.x - rect.left
+    d.dy = d.y - rect.top
+    d.clone = d.button.cloneNode(true)
+    d.clone.className = 'pill dragged'
+    d.clone.removeAttribute('data-key')
+    d.clone.removeAttribute('aria-expanded')
+    d.clone.setAttribute('aria-hidden', 'true')
+    d.clone.tabIndex = -1
+    d.clone.style.width = rect.width + 'px'
+    document.body.append(d.clone)
+    d.chain.classList.add('reordering')
+    state.draggingStep = true
+    d.elements.at(-1).classList.add('last')
+    d.elements[d.from].classList.add('drag-source')
+    d.chain.setPointerCapture(d.id)
+  }
+  event.preventDefault()
+  d.clone.style.transform = `translate(${event.clientX - d.dx}px, ${event.clientY - d.dy}px)`
+  const trash = document.querySelector('.tool.add'), over = trashHit(event)
+  trash.classList.toggle('drop-target', over)
+  d.clone.style.visibility = over ? 'hidden' : ''
+  if (over) return
+  // Read settled slots, not their in-flight animation positions, so crossing a neighbor cannot oscillate.
+  const chainBox = d.chain.getBoundingClientRect()
+  const slots = d.order.map(index => {
+    const el = d.elements[index]
+    return { left: chainBox.left + el.offsetLeft - d.chain.offsetLeft, top: chainBox.top + el.offsetTop - d.chain.offsetTop, width: el.offsetWidth, height: el.offsetHeight }
+  })
+  const x = event.clientX - d.dx + d.clone.offsetWidth / 2, y = event.clientY - d.dy + d.clone.offsetHeight / 2
+  let to = d.to, distance = Infinity
+  slots.forEach((slot, i) => {
+    const delta = (x - slot.left - slot.width / 2) ** 2 + 4 * (y - slot.top - slot.height / 2) ** 2
+    if (delta < distance) { distance = delta; to = i }
+  })
+  if (to === d.to) return
+  const before = bounds(d.elements)
+  d.elements.forEach(el => el.getAnimations().forEach(animation => animation.cancel()))
+  d.order = moved(d.order, d.to, to)
+  d.to = to
+  d.order.forEach((index, order) => { d.elements[index].style.order = order; d.elements[index].classList.toggle('last', order === d.order.length - 1) })
+  d.elements.forEach((el, index) => { if (index !== d.from) slide(el, before[index]) })
+}
+function trashHit(event) {
+  const box = document.querySelector('.tool.add').getBoundingClientRect()
+  return event?.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom
+}
+async function finishReorder(event, cancel = false) {
+  const d = reorder
+  if (!d || (event?.pointerId != null && event.pointerId !== d.id)) return
+  reorder = null
+  window.removeEventListener('pointermove', previewReorder)
+  window.removeEventListener('pointerup', finishReorder)
+  window.removeEventListener('pointercancel', cancelReorder)
+  window.removeEventListener('keydown', reorderKey, true)
+  window.removeEventListener('blur', cancelReorder)
+  window.removeEventListener('resize', cancelReorder)
+  d.chain.removeEventListener('lostpointercapture', lostReorder)
+  if (!d.clone) return
+  if (d.chain.hasPointerCapture(d.id)) d.chain.releasePointerCapture(d.id)
+  // Capture the pointer-generated click before it can open a menu after a drop.
+  const suppress = event => { event.preventDefault(); event.stopImmediatePropagation() }
+  d.chain.addEventListener('click', suppress, { capture: true, once: true })
+  setTimeout(() => d.chain.removeEventListener('click', suppress, true), 0)
+  const box = d.chain.getBoundingClientRect(), remove = !cancel && trashHit(event)
+  if (!remove && event?.clientX != null && (event.clientX < box.left - 32 || event.clientX > box.right + 32 || event.clientY < box.top - 32 || event.clientY > box.bottom + 32)) cancel = true
+  const before = bounds(d.elements)
+  const floating = d.clone.getBoundingClientRect()
+  before[d.from] = { left: floating.left, top: floating.top }
+  d.elements.forEach(el => { el.getAnimations().forEach(animation => animation.cancel()); el.style.order = ''; el.classList.remove('last', 'drag-source') })
+  d.chain.classList.remove('reordering')
+  state.draggingStep = false
+  document.querySelector('.tool.add').classList.remove('drop-target')
+  d.clone.remove()
+  if (remove) return removeStep(d.from)
+  if (!cancel && d.from !== d.to) return commitOrder(d.order, d.to, before)
+  d.elements.forEach((el, index) => slide(el, before[index]))
+  d.button.focus({ preventScroll: true })
+}
+function cancelReorder(event) { finishReorder(event, true) }
+function lostReorder(event) { if (event.target === reorder?.chain) cancelReorder(event) }
+function reorderKey(event) {
+  if (event.key !== 'Escape') return
+  event.preventDefault()
+  event.stopImmediatePropagation()
+  cancelReorder()
 }
 
 function cancelEdit() {
   clearTimeout(editTimer)
   editTimer = null
   state.editPending = false
-  pendingGroup = 0
 }
 
+// A render in flight takes no new one: a slider's latest value renders as soon as it lands.
 function finishWork() {
   state.busy = false
-  if (state.editPending && !composing) {
-    clearTimeout(editTimer)
-    editTimer = setTimeout(applyDraft, 0)
-  }
+  if (state.editPending) { clearTimeout(editTimer); editTimer = setTimeout(applyPending, 0) }
 }
 
-function queueEdit(group = 0, delay = 180) {
-  pendingGroup = group
-  state.editPending = true
-  state.chainError = ''
-  if (group && editTimer) return
-  clearTimeout(editTimer)
-  if (!composing) editTimer = setTimeout(applyDraft, delay)
-}
-
-function applyDraft() {
+function applyPending() {
   clearTimeout(editTimer)
   editTimer = null
-  if (state.busy || composing) return
+  if (state.busy) return
   state.editPending = false
-  let parsed
-  try { parsed = parseProgram(state.draft) }
-  catch (error) { state.chainError = error.message + ' Preview unchanged.'; return }
-  state.chainError = ''
-  // The names apply as typed: .save('…') is the next download; audio(name) switches to that sample, keeping the
-  // edits, while a quoted name labels the opened file.
-  if (parsed.format !== state.format) { state.format = parsed.format; state.examples = examples(state.steps, state.format) }
-  state.saveName = parsed.save
-  if (parsed.sample !== state.sample) return useSample(parsed.sample, parsed.steps)
-  if (!parsed.sample) state.filename = parsed.source
-  if (program(parsed.steps) === program(state.steps) && state.ready) { state.applied = program(state.steps); return }
-  return change(parsed.steps, true, pendingGroup)
+  return render(false)
 }
 
-function inputCode(event) {
-  state.draft = event.target.value
-  queueEdit()
-  inspectCaret()
-}
-
-function composition(event) {
-  composing = event.type === 'compositionstart'
-  if (composing) { clearTimeout(editTimer); closeAssist() }
-  else { state.draft = event.target.value; queueEdit(); inspectCaret() }
-}
-
-function editKey(event) {
-  if (event.isComposing) return
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z' && !event.shiftKey) {
-    event.preventDefault(); undo(); return
-  }
-  // A format downloads, so only Enter chooses one: Tab moves on.
-  if (event.key === 'Tab' && state.assist === 'format' && state.suggestions.length) { closeAssist(); return }
-  if (state.suggestions.length && ['ArrowDown', 'ArrowUp', 'Enter', 'Tab'].includes(event.key)) {
-    event.preventDefault()
-    if (event.key === 'Enter' || event.key === 'Tab') accept(state.suggestions[state.suggestionIndex])
-    else state.suggestionIndex = (state.suggestionIndex + (event.key === 'ArrowDown' ? 1 : -1) + state.suggestions.length) % state.suggestions.length
-    return
-  }
-  if (event.key === 'Escape') {
-    if (state.suggestions.length || state.options) { if (state.suggestions.length) quiet = state.draft; closeAssist(); return }
-    cancelEdit(); state.draft = state.applied; state.chainError = ''
-  }
-}
-
-function closeAssist() {
-  state.suggestions = []
-  state.options = null
-  document.querySelector('#method-menu').hidePopover()
-  document.querySelector('#parameter-menu').hidePopover()
-}
-
-// One list opens under the caret: methods after a dot, the samples in audio(…), the formats in .save('…').
+// Each pill opens one menu under it: files, recording and samples under the source, downloads under save, a
+// step's numbers under the step, one slider each.
 const icons = {
-  sample: 'M2 13h2l2-6 3 12 3-15 3 12 2-3h5',
-  file: 'm6 14 1.5-2.9A2 2 0 0 1 9.2 10H20a2 2 0 0 1 1.9 2.5l-1.5 6a2 2 0 0 1-1.9 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.7.9l.8 1.2a2 2 0 0 0 1.7.9H18a2 2 0 0 1 2 2v2',
-  download: 'M12 4v11m-5-5 5 5 5-5M5 20h14'
+  sample: 'M4 10v4m4-8v12m4-14v16m4-12v8m4-6v4',
+  file: 'M9 17V5l10-2v12M9 17a3 3 0 1 1-3-3h3m10 1a3 3 0 1 1-3-3h3',
+  download: 'M12 4v11m-5-5 5 5 5-5M5 20h14',
+  record: 'M12 5a7 7 0 1 0 0 14a7 7 0 1 0 0-14Z',
+  trash: 'M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13M10 10v7m4-7v7'
 }
-const lists = {
-  method: prefix => Object.keys(methods).filter(name => name.startsWith(prefix)).map(name => ({ id: 'method-' + name, value: name, code: name + '()', text: methods[name].description, icon: methods[name].icon })),
-  sample: () => [...Object.entries(samples).map(([name, { description }]) => ({ id: 'sample-' + name, value: name, code: name, text: description, icon: icons.sample })), { id: 'sample-file', value: '', code: 'Open a file…', text: 'WAV, MP3, FLAC and more', icon: icons.file }],
-  // Each format is the download itself, named as it will arrive.
-  format: () => Object.entries(formats).map(([ext, { description }]) => ({ id: 'format-' + ext, value: ext, code: savedAs(withFormat(state.draft, ext)), text: description, icon: icons.download }))
+function menuItems(open) {
+  if (open === 'source') return [
+    { id: '', code: 'Open a file…', text: 'WAV, MP3, FLAC and more', icon: icons.file },
+    { id: 'record', code: 'Record', text: '', icon: icons.record, solid: true },
+    ...Object.entries(samples).map(([name, { description }], index) => ({ id: name, code: name, text: description, icon: icons.sample, separator: index === 0, current: name === state.sample }))
+  ]
+  if (open === 'save') return Object.entries(formats).map(([ext, { description }]) =>
+    ({ id: ext, code: downloadName(ext), text: description, format: ext.toUpperCase(), current: ext === state.format, disabled: state.busy || !state.ready }))
+  return []
 }
-function offer(kind, items, index = 0) {
-  state.options = null
-  document.querySelector('#parameter-menu').hidePopover()
-  if (!items.length || quiet === state.draft) return closeAssist()
-  // The same list keeps its highlight; a download's name follows the text typed into .save('…').
-  // A new list and its highlight land together: the highlight never points past a list.
-  if (state.assist !== kind || state.suggestions.map(item => item.id + item.code).join() !== items.map(item => item.id + item.code).join())
-    batch(() => { state.assist = kind; state.suggestions = items; state.suggestionIndex = index })
-  const menu = document.querySelector('#method-menu')
+
+// The step's numbers, one slider each, in the method's own ranges; times reach the longer track.
+function fieldsOf({ type, args }) {
+  const longest = Math.max(original.duration, length('edited'))
+  const field = (spec, value, arg, key) => {
+    let min = spec.min ?? 0, max = spec.max ?? longest
+    if (type === 'speed' && value < 0) [min, max] = [-max, -min]
+    return { label: spec.label, unit: spec.unit, value, arg, key, step: spec.step ?? .001, min: Math.min(min, value), max: Math.max(max, value) }
+  }
+  const values = [...args]
+  if (type === 'trim' && typeof values[0] !== 'number') values.unshift(null)
+  return values.flatMap((value, arg) => value === null
+    ? [{ ...field(methods[type].params[arg], -40, arg), auto: true, optional: true }]
+    : typeof value === 'object'
+    ? ['at', 'duration'].map(key => field(span[key], value[key], arg - (values[0] === null ? 1 : 0), key))
+    : methods[type].params[arg] ? [{ ...field(methods[type].params[arg], value, arg), optional: type === 'trim' }] : [])
+}
+
+const pill = key => document.querySelector(`.pill[data-key="${key}"]`)
+function openPill(key) {
+  if (state.open === key) return closePill()
+  const fields = typeof key === 'number' ? fieldsOf(state.steps[key]) : []
+  if (typeof key === 'number' && !fields.length) return closePill()
+  batch(() => { state.fields = fields; state.open = key })
+  const menu = document.querySelector('#pill-menu')
   if (!menu.matches(':popover-open')) menu.showPopover()
-  placeMenu()
+  placeMenu(true)
 }
-function accept(item) {
-  if (state.assist === 'method') return completeMethod(item.value)
-  if (state.assist === 'format' && !saveable(item.value)) return
-  closeAssist()
-  if (state.assist === 'format') return chooseFormat(item.value)
-  if (!item.value) return document.querySelector('#audio-file').click()
-  if (item.value !== state.sample && !state.busy) return useSample(item.value)
+function closePill(focus = false) {
+  if (state.open == null) return
+  if (focus) pill(state.open)?.focus({ preventScroll: true })
+  batch(() => { state.open = null; state.fields = [] })
+  document.querySelector('#pill-menu').hidePopover()
 }
-// The file .save('…') names, and the program with another extension there: the text stays the one truth of the format.
-const savedAs = code => { const at = names(code).save; return at ? unquote(code.slice(at.from, at.to)) : '' }
-function withFormat(code, ext) {
-  const at = names(code).save
-  return at ? code.slice(0, at.from) + code.slice(at.from, at.to).replace(/(\.\w+)?(?=['"]$)/, '.' + ext) + code.slice(at.to) : code
-}
-// A format downloads when the program, written with it, has output to save: an error it would fix still allows it.
-function saveable(ext) {
-  if (state.busy || !state.ready) return false
-  try { return !!parseProgram(withFormat(state.draft, ext)) } catch { return false }
-}
-// Choosing a format writes its extension and downloads. Saving disables the editor, which drops its focus: the focus
-// comes back, caret where it was, unless something else has taken it since.
-async function chooseFormat(ext) {
-  const input = document.querySelector('.program-editor')
-  quiet = state.draft = withFormat(state.draft, ext)
-  queueEdit(0, 0)
-  await download()
-  requestAnimationFrame(() => { if (document.activeElement === document.body && !input.disabled) input.focus({ preventScroll: true }) })
-}
-// The name holding the caret: inside the quotes of a file name, anywhere on a sample name.
-function nameAt(cursor) {
-  const at = names(state.draft)
-  for (const kind of ['source', 'save']) {
-    const { from, to } = at[kind] || {}, quoted = /^['"]/.test(state.draft[from])
-    if (at[kind] && (quoted ? cursor > from && cursor < to : cursor >= from && cursor <= to)) return kind
+// Arrow keys on a pill open its menu and step into it.
+function pillKey(event, key) {
+  if (typeof key === 'number' && ['Delete', 'Backspace'].includes(event.key) && !event.altKey && !event.metaKey && !event.ctrlKey) {
+    event.preventDefault()
+    return removeStep(key)
   }
-  return ''
-}
-
-// A click asks for what is under the caret, even where Escape closed it.
-function clickCode() { quiet = null; inspectCaret() }
-
-function inspectCaret() {
-  const input = document.querySelector('.program-editor')
-  if (document.activeElement !== input || composing || state.draft.length > 8192) return
-  const cursor = input.selectionStart, name = nameAt(cursor)
-  if (name === 'source') return offer('sample', lists.sample(), Math.max(0, Object.keys(samples).indexOf(state.sample)))
-  if (name === 'save') return offer('format', lists.format(), Math.max(0, Object.keys(formats).indexOf(state.format)))
-  const before = state.draft.slice(0, cursor), after = state.draft.slice(cursor)
-  const match = /\.([a-z]*)$/i.exec(before)
-  // A name followed by its arguments is an existing call: it offers options, not other names.
-  const called = match && Object.hasOwn(methods, match[1] + /^\w*/.exec(after)[0]) && /^\w*\s*\(/.test(after)
-  if (match && !called && before.lastIndexOf('(') <= before.lastIndexOf(')')) {
-    assistRange = [cursor - match[0].length, cursor]
-    return offer('method', lists.method(match[1]))
+  if (typeof key === 'number' && event.altKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
+    event.preventDefault()
+    return moveStep(key, key + (['ArrowLeft', 'ArrowUp'].includes(event.key) ? -1 : 1))
   }
-  const options = optionsAt(cursor, input.selectionEnd)
-  if (!options) return closeAssist()
-  state.suggestions = []
-  document.querySelector('#method-menu').hidePopover()
-  // The same call keeps its fields, updated in place: new rows would replace the sliders under the pointer.
-  const current = state.options
-  if (current?.start === options.start && current.fields.length === options.fields.length) {
-    options.fields.forEach((field, index) => Object.assign(current.fields[index], field))
-    // The value being adjusted stays marked unless the caret lands on another number.
-    if (options.active >= 0) current.active = options.active
-  } else state.options = options
-  const menu = document.querySelector('#parameter-menu')
-  if (!menu.matches(':popover-open')) menu.showPopover()
-  placeMenu()
-}
-
-// The numbers of the call around the caret, each with its slider; the one under the caret is marked.
-function optionsAt(cursor, end = cursor) {
-  const [bodyFrom, bodyTo] = names(state.draft).body
-  for (const call of state.draft.matchAll(/\.\s*(\w+)\s*\(([^()]*)\)/g)) {
-    const start = call.index
-    if (start < bodyFrom || start >= bodyTo || cursor <= start || cursor >= start + call[0].length || !Object.hasOwn(methods, call[1])) continue
-    const method = methods[call[1]], offset = start + call[0].indexOf('(') + 1, fields = []
-    let index = 0
-    for (const number of call[2].matchAll(/[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/gi)) {
-      const head = call[2].slice(0, number.index), scoped = head.lastIndexOf('{') > head.lastIndexOf('}')
-      const key = scoped ? /(?:at|duration)(?=\s*:\s*$)/.exec(head)?.[0] : index++
-      const spec = scoped ? span[key] : method.params[key], value = +number[0]
-      if (!spec || !Number.isFinite(value)) continue
-      let min = spec.min ?? 0, max = spec.max ?? Math.max(original.duration, length('edited')), step = spec.step ?? .001
-      if (call[1] === 'speed' && value < 0) [min, max] = [-max, -min]
-      const from = offset + number.index
-      fields.push({ ...spec, value, from, to: from + number[0].length, min: Math.min(min, value), max: Math.max(max, value), step })
-    }
-    if (!fields.length) return null
-    return { start, fields, active: fields.findIndex(field => cursor >= field.from && end <= field.to) }
-  }
-  return null
-}
-
-function completeMethod(name) {
-  const input = document.querySelector('.program-editor'), [from, to] = assistRange
-  const rest = state.draft.slice(to), tail = /^\w*(?:\s*\([^()]*\))?/.exec(rest)[0].length
-  const code = '.' + notation(step(name, ...methods[name].args)).js
-  state.draft = state.draft.slice(0, from) + code + rest.slice(tail)
-  closeAssist()
-  queueEdit()
+  if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return
+  event.preventDefault()
+  if (state.open !== key) openPill(key)
   requestAnimationFrame(() => {
-    input.focus({ preventScroll: true })
-    const number = /-?\d+(?:\.\d+)?/.exec(code)
-    const at = from + (number ? number.index : code.length)
-    input.setSelectionRange(at, at + (number?.[0].length || 0))
-    inspectCaret()
+    const menu = document.querySelector('#pill-menu'), items = menu.querySelectorAll('button:not(:disabled), input')
+    ;(menu.querySelector('[aria-current="true"]:not(:disabled)') || items[event.key === 'ArrowUp' ? items.length - 1 : 0])?.focus()
   })
 }
-
-function adjustParameter(event, index) {
-  const { fields } = state.options, field = fields[index], value = +event.target.value, text = String(value)
-  const shift = text.length - (field.to - field.from)
-  state.draft = state.draft.slice(0, field.from) + text + state.draft.slice(field.to)
-  // Fields change in place: a replaced row would take the slider from under the pointer.
+function pillMenuKey(event) { if (!event.target.matches('input')) menuKey(event) }
+function choose(item) {
+  const open = state.open
+  if (item.disabled) return
+  closePill(true)
+  if (open === 'save') return download(item.id)
+  if (item.id === 'record') return record()
+  if (!item.id) return document.querySelector('#audio-file').click()
+  if (item.id !== state.sample && !state.busy) return useSample(item.id)
+}
+// A trash drop or Delete takes that step out; an empty chain leaves focus on +.
+async function removeStep(at) {
+  if (state.busy || state.saving || state.recording || state.micPending || !Number.isInteger(at) || !state.steps[at]) return
+  const name = state.steps[at].type
+  closePill()
+  await change(state.steps.filter((_, i) => i !== at))
+  ;(pill(Math.max(0, at - 1)) || document.querySelector('.tool.add'))?.focus({ preventScroll: true })
+  state.reorderMessage = `${name} removed.`
+}
+// A slider moves one number of the open step. Its field changes in place, so the slider stays under the pointer; the
+// render follows the latest value.
+function adjust(event, index) {
+  const at = state.open, field = state.fields[index], value = +event.target.value
+  if (typeof at !== 'number' || !field) return
+  remember(parameterGroup)
   field.value = value
-  field.to += shift
-  for (const later of fields.slice(index + 1)) { later.from += shift; later.to += shift }
-  state.options.active = index
-  queueEdit(parameterGroup, 50)
+  // In place, so the pill stays the same element through the drag.
+  const args = state.steps[at].args
+  if (field.optional && typeof args[0] !== 'number') {
+    args.unshift(value)
+    state.fields.filter(field => field.key).forEach(field => field.arg++)
+  }
+  field.auto = false
+  args[field.arg] = field.key ? { ...args[field.arg], [field.key]: value } : value
+  state.editPending = true
+  clearTimeout(editTimer)
+  if (!state.busy) editTimer = setTimeout(applyPending, 50)
+  // A wider value widens the pill, and may wrap it: the menu follows.
+  placeMenu()
 }
-
-// A new slider gesture is its own Undo step and marks its number.
-function startParameter(index) {
-  parameterGroup++
-  state.options.active = index
+// A new slider gesture is its own Undo step.
+function startParameter() { parameterGroup++ }
+function autoThreshold(index) {
+  const field = state.fields[index], edit = state.steps[state.open]
+  if (!field?.optional || field.auto) return
+  remember(++parameterGroup)
+  edit.args.shift()
+  state.fields.filter(field => field.key).forEach(field => field.arg--)
+  field.auto = true
+  state.editPending = true
+  applyPending()
 }
-
-function editorBlur() {
-  requestAnimationFrame(() => {
-    if (!document.activeElement.closest('.program-code, #parameter-menu, #method-menu')) closeAssist()
-  })
+// Command or Control+Z undoes anywhere in the demo.
+function demoKey(event) {
+  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'z') { event.preventDefault(); undo() }
 }
-
-// The pointer lights the choice under it, a name or a number, like a selection.
-function hoverCode(event) {
-  const token = document.elementsFromPoint(event.clientX, event.clientY).find(el => el.dataset?.choice)
-  state.hoverAt = token ? +token.dataset.from : -1
-}
-function leaveCode() { state.hoverAt = -1 }
 
 // The add menu appends a method with its default arguments. A selected range scopes it: crop and remove take the
 // range as theirs, the rest take it as their last argument. The range is on that track's timeline, so the method goes
-// where that timeline is: the original's crop first, the edit's methods last.
+// where that timeline is: crop/remove on the original first, methods on the edit last.
 function addMethod(name) {
   if (state.busy || !state.originalReady) return
-  closeAssist()
+  closePill()
   document.querySelector('#add-menu').hidePopover()
   const args = methods[name].args.map(value => typeof value === 'object' ? { ...value } : value)
   if (selection && ranged(name)) return editSelection(name)
@@ -643,36 +669,38 @@ function addMethod(name) {
   return change([...state.steps, step(name, ...args)])
 }
 
-// Where a character offset of the program sits on screen, measured on the highlighted copy.
-const caretRect = () => textRect(document.querySelector('.program-editor').selectionStart)
-function textRect(offset) {
-  const code = document.querySelector('.program-highlight code')
-  const walker = document.createTreeWalker(code, NodeFilter.SHOW_TEXT)
-  while (walker.nextNode()) {
-    if (offset > walker.currentNode.length) { offset -= walker.currentNode.length; continue }
-    const range = document.createRange()
-    range.setStart(walker.currentNode, offset)
-    range.collapse(true)
-    const rect = range.getBoundingClientRect()
-    if (rect.height) return rect
-    break
-  }
-  return document.querySelector('.program-code').getBoundingClientRect()
-}
-
-function placeMenu() {
+// Each menu's tab sits over its trigger and joins its panel.
+// Measure the full menu before scrolling to make room, then constrain only its contents.
+function placeMenu(opening = false) {
   cancelAnimationFrame(menuFrame)
   menuFrame = requestAnimationFrame(() => {
     for (const menu of document.querySelectorAll('[popover]:popover-open')) {
-      const trigger = document.querySelector(`[popovertarget="${menu.id}"]`)
-      // Layout size, not the bounding box: the opening animation briefly scales the menu.
-      const anchor = trigger ? trigger.getBoundingClientRect() : caretRect(), width = menu.offsetWidth, height = menu.offsetHeight
+      const isPill = menu.id === 'pill-menu', panel = menu.querySelector('.pill-body, .add-body')
+      const trigger = isPill ? pill(state.open) : document.querySelector(`[popovertarget="${menu.id}"]`)
+      if (!trigger) continue
+      panel.style.maxHeight = 'none'
+      let anchor = trigger.getBoundingClientRect()
+      if (isPill) {
+        menu.dataset.kind = state.open
+        menu.style.width = state.open === 'source' || state.open === 'save' ? 'max-content' : '240px'
+        menu.style.minWidth = Math.min(innerWidth - 32, Math.max(240, Math.ceil(anchor.width))) + 'px'
+        menu.style.maxWidth = innerWidth - 32 + 'px'
+      }
+      // Menus fade in place; measure their full height before limiting the scrolling body.
+      const width = menu.offsetWidth, height = menu.getBoundingClientRect().height
+      if (opening === true) {
+        // Keep the trigger visible when the full menu is taller than the available screen.
+        const shift = Math.min(Math.max(0, Math.ceil(anchor.top + height - (innerHeight - 16))), Math.floor(anchor.top - 16))
+        if (shift) { scrollBy({ top: shift, behavior: 'instant' }); anchor = trigger.getBoundingClientRect() }
+      }
       // A menu starts at its trigger's left edge, or ends at its right edge when it would overflow.
-      const left = !trigger || anchor.left + width <= innerWidth - 16 ? anchor.left : anchor.right - width
-      menu.style.left = Math.max(16, Math.min(left, innerWidth - width - 16)) + 'px'
-      const below = anchor.bottom + 8, above = anchor.top - height - 8, down = below + height <= innerHeight - 16 || above < 16
-      menu.style.top = Math.max(16, Math.min(down ? below : above, innerHeight - height - 16)) + 'px'
-      menu.dataset.side = down ? 'below' : 'above'
+      const left = Math.max(16, Math.min(isPill && anchor.left + width <= innerWidth - 16 ? anchor.left : anchor.right - width, innerWidth - width - 16))
+      menu.style.left = left + 'px'
+      menu.style.top = anchor.top + 'px'
+      panel.style.maxHeight = Math.max(120, innerHeight - 16 - anchor.top - panel.offsetTop) + 'px'
+      menu.style.setProperty('--tab-x', anchor.left - left + 'px')
+      menu.style.setProperty('--tab-width', anchor.width + 'px')
+      menu.dataset.join = anchor.left - left < 1 ? 'left' : left + width - anchor.right < 1 ? 'right' : ''
     }
   })
 }
@@ -738,15 +766,22 @@ function selectedRange() {
   return { at, duration }
 }
 
-// Crop keeps the selected range and Remove cuts it out; only the edit's selection removes.
-function editSelection(type) {
-  if (!selection || state.busy || (type === 'remove' && selection.name !== 'edited')) return
+// A selection on the original applies before the chain; one on the edit applies after it.
+async function editSelection(type) {
+  if (!selection || state.busy) return
   const { at, duration } = selectedRange(), steps = state.steps, first = steps[0], last = steps.at(-1)
-  if (type === 'remove') return change([...steps, step('remove', { at, duration })])
+  const focused = document.activeElement
+  let next
+  if (type === 'remove') {
+    const edit = step('remove', { at, duration })
+    next = selection.name === 'original' ? [edit, ...steps] : [...steps, edit]
+  }
   // Cropping again updates the crop already at that end of the chain: the original's first, the edit's last.
-  if (selection.name === 'original') return change([step('crop', { at, duration }), ...(first?.type === 'crop' ? steps.slice(1) : steps)])
-  if (last?.type === 'crop') return change([...steps.slice(0, -1), step('crop', { at: +(last.args[0].at + at).toPrecision(12), duration })])
-  return change([...steps, step('crop', { at, duration })])
+  else if (selection.name === 'original') next = [step('crop', { at, duration }), ...(first?.type === 'crop' ? steps.slice(1) : steps)]
+  else if (last?.type === 'crop') next = [...steps.slice(0, -1), step('crop', { at: +(last.args[0].at + at).toPrecision(12), duration })]
+  else next = [...steps, step('crop', { at, duration })]
+  await change(next)
+  if (focused.closest('.action-buttons') && (document.activeElement === focused || document.activeElement === document.body)) document.querySelector('.undo').focus({ preventScroll: true })
 }
 
 function beginSelection(name, event) {
@@ -835,33 +870,230 @@ async function play(name) {
     const audioContext = context()
     await audioContext.resume()
     if (request !== playback) return
+    const [from, to] = range(name)
+    const rate = (name === 'original' ? original : edited).sampleRate
+    if (position[name] < from || Math.round(position[name] * rate) >= Math.round(to * rate)) position[name] = from
+    position[name] = Math.floor(position[name] * rate) / rate
+    if (name === 'edited') return await streamPlayback(edited, position[name], selection?.name === name ? to : null, request)
     let buffer = buffers[name]
     if (!buffer) {
-      const pcm = name === 'edited' ? editedPCM : originalPCM
+      const pcm = originalPCM
       buffer = audioContext.createBuffer(pcm.length, pcm[0].length, original.sampleRate)
       pcm.forEach((channel, i) => buffer.copyToChannel(channel, i))
       buffers[name] = buffer
     }
-    const [from, to] = range(name)
-    if (position[name] < from || position[name] >= to) position[name] = from
     player = audioContext.createBufferSource()
     player.buffer = buffer
     player.connect(audioContext.destination)
     startTime = audioContext.currentTime - position[name]
+    player.loop = state.loop
+    player.loopStart = from
+    player.loopEnd = to
+    if (state.loop) player.position = () => from + (ctx.currentTime - startTime - from) % (to - from)
     player.onended = () => { player?.disconnect(); player = null; stop(); position[name] = to; paint() }
-    player.start(0, position[name], to - position[name])
+    if (state.loop) player.start(0, position[name])
+    else player.start(0, position[name], to - position[name])
     state.pending = false
     state.playing = true
-    function tick() {
-      paint()
-      frame = requestAnimationFrame(tick)
-    }
     tick()
   } catch {
     if (request !== playback) return
     stop()
     state.message = 'Audio playback is unavailable. Try downloading the WAV instead.'
   }
+}
+
+function toggleLoop() {
+  state.loop = !state.loop
+  if (state.playing || state.pending) {
+    const name = state.preview
+    stop()
+    play(name)
+  }
+}
+
+function tick() {
+  paint()
+  frame = requestAnimationFrame(tick)
+}
+
+// Consume the engine's live stream a few blocks ahead, scheduled on one audio clock.
+// Backpressure keeps new parameter values audible promptly; pausing cancels every queued block.
+async function streamPlayback(clip, from, to, request) {
+  const nodes = new Set(), audioContext = ctx
+  const laps = []
+  let time = audioContext.currentTime + .02, end = from, timer, wake, closed = false, done = false
+  const finish = () => {
+    if (!done || nodes.size || closed || request !== playback) return
+    player = null
+    stop()
+    position.edited = Math.min(end, length('edited'))
+    paint()
+  }
+  player = {
+    position() {
+      while (laps.length > 1 && laps[1].time <= audioContext.currentTime) laps.shift()
+      const lap = laps[0], elapsed = Math.max(0, audioContext.currentTime - (lap?.time ?? startTime))
+      return lap ? lap.from + (lap.period ? elapsed % lap.period : elapsed) : from
+    },
+    stop() {
+      closed = true
+      clearTimeout(timer)
+      wake?.()
+      for (const node of nodes) { node.onended = null; node.stop() }
+    },
+    disconnect() { for (const node of nodes) node.disconnect(); nodes.clear() }
+  }
+  startTime = time - from
+  do {
+    const lap = { time, from }
+    laps.push(lap)
+    const stream = clip.stream({ at: from, ...(to == null ? {} : { duration: to - from }) })
+    let frames = 0
+    for await (let channels of stream) {
+      while (!closed && time > audioContext.currentTime + .1) {
+        await new Promise(resolve => { wake = resolve; timer = setTimeout(resolve, 15) })
+      }
+      if (closed || request !== playback) return
+      let count = channels[0]?.length || 0
+      if (!count) continue
+      frames += count
+      // Tiny loops share a scheduled block, avoiding thousands of audio nodes per second.
+      const [loopFrom, loopTo] = range('edited')
+      if (state.loop && from === loopFrom && count < 1024 && count === Math.round((loopTo - loopFrom) * clip.sampleRate)) {
+        const repeats = Math.ceil(1024 / count)
+        lap.period = count / clip.sampleRate
+        channels = channels.map(channel => {
+          const repeated = new Float32Array(count * repeats)
+          for (let i = 0; i < repeats; i++) repeated.set(channel, i * count)
+          return repeated
+        })
+        count *= repeats
+      }
+      const buffer = audioContext.createBuffer(channels.length, count, clip.sampleRate)
+      channels.forEach((channel, i) => buffer.copyToChannel(channel, i))
+      const node = audioContext.createBufferSource()
+      node.buffer = buffer
+      node.connect(audioContext.destination)
+      nodes.add(node)
+      node.onended = () => { nodes.delete(node); node.disconnect(); finish() }
+      // An exhausted scheduling buffer advances the clock anchor, never the content cursor.
+      const late = Math.max(0, audioContext.currentTime - time)
+      startTime += late
+      lap.time += late
+      time += late
+      node.start(time)
+      time += buffer.duration
+      end += buffer.duration
+      if (!state.playing) { state.pending = false; state.playing = true; tick() }
+    }
+    if (closed || request !== playback || !state.loop || !frames) break
+    ;[from, to] = range('edited')
+    if (selection?.name !== 'edited') to = null
+    end = from
+  } while (true)
+  done = true
+  finish()
+}
+
+// Display 50 ms peak bins while capturing; the recorder retains the actual audio for decoding.
+function drawRecording() {
+  const capture = recording
+  if (!capture?.analyser) return
+  const elapsed = Math.min(120, (performance.now() - capture.started) / 1000)
+  capture.analyser.getFloatTimeDomainData(capture.samples)
+  const bin = Math.min(capture.peaks.length - 1, Math.floor(elapsed * 20))
+  for (const value of capture.samples) capture.peaks[bin] = Math.max(capture.peaks[bin], Math.abs(value))
+  while (elapsed > capture.span) capture.span = Math.min(120, capture.span * 2)
+  draw(waves.original, capture.peaks.subarray(0, capture.span * 20))
+  waves.original.style.setProperty('--progress', elapsed / capture.span * 100 + '%')
+  waves.original.style.setProperty('--cursor-opacity', 1)
+  waves.original.querySelector('input').setAttribute('aria-valuetext', `Recording ${duration(elapsed)}`)
+  state.recordingTime = duration(elapsed)
+}
+
+// Capture locally with the browser's recorder, then load its decoded samples like an opened file.
+async function record() {
+  if (state.busy || recording) return
+  stop()
+  clearSelection()
+  state.message = ''
+  state.busy = state.micPending = true
+  const capture = recording = { chunks: [] }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    if (recording !== capture) { stream.getTracks().forEach(track => track.stop()); return }
+    capture.stream = stream
+    const audioContext = context()
+    await audioContext.resume()
+    if (recording !== capture) return
+    capture.source = audioContext.createMediaStreamSource(stream)
+    capture.analyser = audioContext.createAnalyser()
+    capture.analyser.fftSize = 2048
+    // Keep the analysis graph running without routing microphone sound to the speakers.
+    capture.mute = audioContext.createGain()
+    capture.mute.gain.value = 0
+    capture.source.connect(capture.analyser).connect(capture.mute).connect(audioContext.destination)
+    capture.samples = new Float32Array(capture.analyser.fftSize)
+    capture.peaks = new Float32Array(120 * 20)
+    capture.span = 5
+    const recorder = capture.recorder = new MediaRecorder(stream)
+    recorder.ondataavailable = event => { if (event.data.size) capture.chunks.push(event.data) }
+    recorder.onerror = () => {
+      if (recording !== capture) return
+      stopRecording(true)
+      state.message = 'Recording failed. Try again.'
+    }
+    recorder.onstop = async () => {
+      if (recording !== capture) return
+      releaseRecording(false)
+      try {
+        const bytes = await new Blob(capture.chunks, { type: recorder.mimeType }).arrayBuffer()
+        if (!bytes.byteLength) throw Error('Empty recording')
+        const buffer = await context().decodeAudioData(bytes)
+        if (recording !== capture) return
+        if (!buffer.length) throw Error('Empty recording')
+        await load(Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i).slice(0, buffer.sampleRate * 120)), buffer.sampleRate, 'recording')
+      } catch { if (recording === capture) state.message = 'No audio was recorded. Try again.' }
+      finally { if (recording === capture) { releaseRecording(); finishWork() } }
+    }
+    recorder.start()
+    state.preview = 'original'
+    state.micPending = false
+    state.recording = true
+    capture.started = performance.now()
+    state.recordingTime = '0:00.0'
+    drawRecording()
+    capture.clock = setInterval(drawRecording, 50)
+    capture.limit = setTimeout(() => { if (recording === capture) stopRecording() }, 120000)
+  } catch (error) {
+    if (recording !== capture) return
+    stopRecording(true)
+    state.message = error.name === 'NotAllowedError' ? 'Microphone access was denied. Allow it in your browser to record.' : 'Microphone unavailable. Check your input and try again.'
+  }
+}
+function releaseRecording(clear = true) {
+  const capture = recording
+  if (clear) recording = null
+  clearInterval(capture?.clock)
+  clearTimeout(capture?.limit)
+  capture?.source?.disconnect()
+  capture?.analyser?.disconnect()
+  capture?.mute?.disconnect()
+  capture?.stream?.getTracks().forEach(track => track.stop())
+  state.recording = state.micPending = false
+  drawWaves()
+  paint()
+}
+function stopRecording(discard = false) {
+  if (!recording) return
+  const recorder = recording.recorder
+  if (discard || !recorder) {
+    releaseRecording()
+    if (recorder) recorder.onstop = null
+    if (recorder?.state !== 'inactive') recorder?.stop()
+    finishWork()
+  } else if (recorder.state !== 'inactive') recorder.stop()
 }
 
 async function openFile(event) {
@@ -881,11 +1113,11 @@ async function openFile(event) {
   finally { finishWork() }
 }
 
-async function download() {
-  if (state.editPending) await applyDraft()
-  if (state.busy || state.chainError || !state.ready) return
-  closeAssist()
-  const format = state.format
+async function download(format = state.format) {
+  if (state.editPending) await applyPending()
+  if (state.busy || !state.ready) return
+  closePill()
+  if (format !== state.format) batch(() => { state.format = format; state.examples = examples(state.steps, format) })
   state.busy = state.saving = true
   state.message = ''
   try {
@@ -893,7 +1125,7 @@ async function download() {
     const url = URL.createObjectURL(new Blob([bytes], { type: formats[format].mime }))
     const link = document.createElement('a')
     link.href = url
-    link.download = state.saveName
+    link.download = downloadName()
     link.click()
     setTimeout(() => URL.revokeObjectURL(url), 10000)
   } catch { state.message = 'Export failed. Try again.' }
@@ -910,25 +1142,47 @@ async function copy(text, target) {
   } catch { state.copyMessage = 'Clipboard unavailable. Select and copy the code directly.' }
 }
 
+// The demo opens on the first sample.
+const first = Object.keys(samples)[0]
 state = sprae(document.querySelector('#site'), {
-  version: audio.version, originalMeters: '…', editedMeters: '…',
-  examples: examples(defaults(), 'wav'), steps: defaults(), draft: '', applied: '', chainError: '', editPending: false, assist: 'method', suggestions: [], suggestionIndex: 0, options: null, methods, formats, format: 'wav', undoCount: 0, selected: '', selectionLabel: '',
-  tab: 'node', copied: '', copyMessage: '',
-  sample: 'chime', filename: 'chime', saveName: 'chime.wav', hoverAt: -1, selectionMeters: '', originalDuration: '0:08.0', editedDuration: '…',
-  editCount: 3, preview: 'edited', playing: false, pending: false, timecode: '0:00.0',
+  version: audio.version, icons,
+  examples: examples(defaults(), 'wav'), steps: defaults(), editPending: false, open: null, fields: [], methods, formats, format: 'wav', undoCount: 0, selected: '', selectionLabel: '',
+  tab: 'node', copied: '', copyMessage: '', reorderMessage: '', draggingStep: false,
+  sample: first, filename: first, saveName: first + '-edited', selectionMeters: '', originalDuration: '…', editedDuration: '…', cursorMeters: '–',
+  editCount: 3, preview: 'edited', playing: false, pending: false, timecode: '0:00.0', loop: false, recording: false, micPending: false, recordingTime: '0:00.0',
   busy: true, saving: false, ready: false, originalReady: false, message: '', editMessage: '',
-  // The readout shows one thing: a chain error while typing, else the selected range, else a message, else the position.
-  get error() { return this.chainError && !this.suggestions.length ? this.chainError : '' },
-  get notice() { return this.error || (this.selected ? '' : this.message || this.editMessage) },
-  // The name whose list is open stays lit.
-  get listing() { return this.suggestions.length ? { sample: 'source', format: 'save' }[this.assist] || '' : '' },
-  play, seek, inputCode, composition, editKey, inspectCaret, editorBlur, closeParameter: closeAssist, completeMethod, adjustParameter, startParameter, addMethod, clickCode, placeMenu, openMenu, menuKey, highlight, highlightProgram, hoverCode, leaveCode, accept, saveable, codeLines, moveTab, beginSelection, moveSelection, finishSelection, cancelSelection, selectionKey, clearSelection, editSelection,
-  undo, openFile, copy
+  get transportBusy() { return !this.playing && !this.pending && (this.editPending || (this.busy && !this.saving)) },
+  // The readout shows one thing: the selected range, else a message, else the position.
+  get notice() { return this.selected || this.recording || this.micPending ? '' : this.message || this.editMessage },
+  get items() { return menuItems(this.open) },
+  get menuLabel() { return typeof this.open === 'number' ? this.steps[this.open]?.type + '()' : { source: 'Original', save: 'Download' }[this.open] || '' },
+  get stepOpen() { return typeof this.open === 'number' },
+  get pillTab() {
+    const step = typeof this.open === 'number' && this.steps[this.open]
+    return step ? { name: step.type, value: summary(step) } : { name: { source: this.sample || this.filename, save: this.saveName }[this.open] || '', value: '' }
+  },
+  play, seek, openPill, closePill, pillKey, pillMenuKey, choose, adjust, startParameter, removeStep, summary, figure, notation, addMethod, placeMenu, openMenu, menuKey, highlight, codeLines, moveTab, beginSelection, moveSelection, finishSelection, cancelSelection, selectionKey, clearSelection, editSelection,
+  undo, demoKey, openFile, copy, beginReorder, moveStep, toggleLoop, record, stopRecording, autoThreshold
 })
-await load(samples.chime.make(), RATE, 'chime', 'chime')
+await load(samples[first].make(), RATE, first, first)
 new ResizeObserver(drawWaves).observe(waves.original)
-window.addEventListener('resize', () => { placeMenu(); moveTab() })
+// Snap each device's origin without changing its layout height. The footer follows content height.
+const alignGrid = () => {
+  const dot = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dot'))
+  for (const el of document.querySelectorAll('.demo, .code-example')) {
+    const top = el.getBoundingClientRect().top + scrollY - (parseFloat(el.style.getPropertyValue('--grid-offset')) || 0)
+    el.style.setProperty('--grid-offset', ((dot - top % dot) % dot) + 'px')
+  }
+  const bottom = document.querySelector('main').getBoundingClientRect().bottom + scrollY
+  document.querySelector('.footer').style.marginTop = ((dot - bottom % dot) % dot) + 'px'
+}
+const gridObserver = new ResizeObserver(alignGrid)
+for (const el of document.querySelectorAll('main, .hero, .code-section')) gridObserver.observe(el)
+window.addEventListener('resize', () => { placeMenu(true); moveTab() })
 document.fonts.ready.then(() => moveTab())
 window.addEventListener('scroll', placeMenu, { passive: true })
-document.addEventListener('pointerdown', event => { if (!event.target.closest('.program-code, #method-menu, #parameter-menu')) closeAssist() })
-window.addEventListener('pagehide', () => { cancelEdit(); stop(); ctx?.close(); ctx = null })
+// A press outside the open pill and its menu closes the menu; a press on a pill opens or closes it itself.
+document.addEventListener('pointerdown', event => { if (!event.target.closest('#pill-menu, .pill')) closePill() })
+// Escape closes the open pill's menu wherever the focus is, and hands the focus to its pill.
+document.addEventListener('keydown', event => { if (event.key === 'Escape' && state.open != null) { event.preventDefault(); closePill(true) } })
+window.addEventListener('pagehide', () => { cancelReorder(); cancelSelection(); cancelEdit(); stopRecording(true); stop(); ctx?.close(); ctx = null })

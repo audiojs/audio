@@ -173,6 +173,53 @@ test('mid-stream edits apply to an in-flight stream of decoded audio', async t =
   t.ok(maxAbs.at(-1) < 1e-4, `post-edit chunks attenuated (last ${maxAbs.at(-1)})`)
 })
 
+test('mid-stream parameter patches update range, zero duration and channel through the final sample', async t => {
+  const sr = 48000, n = audio.BLOCK_SIZE, gain = 10 ** (-6 / 20)
+  const a = audio.from([new Float32Array(5 * n + 1).fill(.25), new Float32Array(5 * n + 1).fill(.5)], { sampleRate: sr })
+  a.gain(-6, { at: 4 * n / sr, duration: n / sr, channel: 0 })
+  const stream = a.stream()
+  const check = (chunk, left, right, label) => {
+    t.ok(chunk[0].every((value, i) => Math.abs(value - left(i)) < 1e-7), label + ': left samples')
+    t.ok(chunk[1].every((value, i) => Math.abs(value - right(i)) < 1e-7), label + ': right samples')
+  }
+  check((await stream.next()).value, () => .25, () => .5, 'before range')
+  a.undo(); a.gain(-6, { at: 1.5 * n / sr, duration: .5 * n / sr, channel: 1 })
+  check((await stream.next()).value, () => .25, i => i < n / 2 ? .5 : .5 * gain, 'moved half-block range and channel')
+  a.undo(); a.gain(-6, { at: 2 * n / sr, duration: 0 })
+  check((await stream.next()).value, () => .25, () => .5, 'empty range')
+  a.undo(); a.gain(-6, { at: -(n + 1) / sr, channel: 0 })
+  check((await stream.next()).value, () => .25, () => .5, 'before negative range')
+  check((await stream.next()).value, () => .25 * gain, () => .5, 'negative range with duration removed')
+  const last = (await stream.next()).value
+  t.is(last[0].length, 1, 'partial final block')
+  check(last, () => .25 * gain, () => .5, 'final sample')
+  t.ok((await stream.next()).done, 'ends exactly after the final sample')
+  a.dispose()
+})
+
+test('stream boundaries: zero work, EOF, final sample and replay around one block', async t => {
+  const sr = 48000, gain = 10 ** (-6 / 20)
+  for (const n of [1, audio.BLOCK_SIZE - 1, audio.BLOCK_SIZE, audio.BLOCK_SIZE + 1]) {
+    const pcm = Float32Array.from({ length: n }, (_, i) => (i + 1) / (n + 1))
+    const a = audio.from([pcm], { sampleRate: sr }).gain(-6)
+    const collect = async opts => {
+      const result = []
+      for await (const chunk of a.stream(opts)) result.push(...chunk[0])
+      return result
+    }
+    t.is((await collect({ duration: 0 })).length, 0, `${n}: zero-duration request`)
+    t.is((await collect({ at: n / sr })).length, 0, `${n}: request at EOF`)
+    const last = await collect({ at: (n - 1) / sr, duration: 1 / sr })
+    t.is(last.length, 1, `${n}: final sample only`)
+    t.ok(Math.abs(last[0] - pcm[n - 1] * gain) < 1e-7, `${n}: final sample value`)
+    const first = await collect(), second = await collect()
+    t.is(first.length, n, `${n}: complete stream length after empty requests`)
+    t.ok(first.every((value, i) => Math.abs(value - pcm[i] * gain) < 1e-7), `${n}: exact gained samples`)
+    t.ok(arrEq(first, second), `${n}: replay is identical`)
+    a.dispose()
+  }
+})
+
 test('flat read guard: huge virtual length throws instead of allocating', async t => {
   let a = audio.from([new Float32Array(1e6)], { sampleRate: 44100 })
   a.repeat(600)  // 601M virtual samples > 2^29
