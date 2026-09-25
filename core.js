@@ -105,9 +105,11 @@ export default function audio(source, opts = {}) {
   let a = create(pages, 0, 0, 0, { ...opts, source: ref }, null)
   a._.waiters = waiters
   a.decoded = false
+  const abort = a._.abort = new AbortController()
 
   let readyResolve, readyReject
   a._.ready = new Promise((r, j) => { readyResolve = r; readyReject = j })
+  a._.readyResolve = readyResolve
   a._.ready.catch(() => {})  // suppress unhandled rejection
 
   a.ready = (async () => {
@@ -120,7 +122,7 @@ export default function audio(source, opts = {}) {
         a.cache = opts.cache
         a.budget = opts.budget
       }
-      let result = await decodeSource(source, { pages, notify, ondata: emitData, disposed: () => a._.disposed })
+      let result = await decodeSource(source, { pages, notify, ondata: emitData, disposed: () => a._.disposed, signal: abort.signal })
       if (a._.disposed) return true
       a.sampleRate = result.sampleRate
       a._.ch = result.channels
@@ -132,6 +134,7 @@ export default function audio(source, opts = {}) {
       metaEmitted = true
       for (let args of dataQueue.splice(0)) emit(a, 'data', ...args)
       readyResolve()
+      a._.readyResolve = null
 
       let final = await result.decoding
       if (a._.disposed) return true
@@ -147,8 +150,11 @@ export default function audio(source, opts = {}) {
     } catch (e) {
       if (a._.disposed) return true
       readyReject(e)
+      a._.readyResolve = null
       emit(a, 'error', e)
       throw e
+    } finally {
+      if (a._.abort === abort) a._.abort = null
     }
   })()
   a.ready.catch(() => {})  // suppress unhandled rejection; errors surface through LOAD or await
@@ -236,14 +242,32 @@ fn.off = function(event, cb) {
 fn.dispose = function() {
   this._.disposed = true  // checked by in-flight decode/seek continuations to abort without mutating this instance
   this.stop()
+  this._.abort?.abort()
+  this._.abort = null
+  this._.readyResolve?.()
+  this._.readyResolve = null
+  for (const url of this._.urls || []) URL.revokeObjectURL(url)
+  this._.urls = null
   this._.ev = {}
   this._.meters = null
   this._.pcm = null
   this._.plan = null
+  this._.wrc = null
+  this._.rsc = null
+  this._.srcStats = null
+  this._.header = null
+  this._.meta = null
+  this._.markers = null
+  this._.regions = null
+  this._.lru.clear()
+  this.edits.length = 0
+  this.block = null
   this.pages.length = 0
   this.stats = null
+  if (this._.waiters) for (let w of this._.waiters.splice(0)) w()
   this._.waiters = null
   this._.acc = null
+  this.cache = null
 }
 if (Symbol.dispose) fn[Symbol.dispose] = fn.dispose
 
@@ -631,9 +655,11 @@ fn.push = function(data, fmt) {
  *  while mid-decode, and must not be finalized by a transport-level stop(). */
 fn.stop = function() {
   this.playing = false; this.paused = false; this.seeking = false
+  this._.cancelPlay?.()
   if (this._._wake) this._._wake()
   if (this.recording) {
     this.recording = false
+    this._.recording = null
     if (this._._mic) { this._._mic(null); this._._mic = null }
   }
   if (this._.push && this._.acc && !this.decoded) {
@@ -646,22 +672,30 @@ fn.stop = function() {
 
 /** Start recording from mic. Pushes PCM chunks until .stop(). Requires @audio/mic (npm i @audio/mic). */
 fn.record = function(opts = {}) {
+  if (this._.disposed) throw new Error('audio: instance disposed')
   if (!this._.acc) throw new Error('record: instance is not pushable — create with audio()')
   if (this.recording) return this
   this.recording = true
   this.decoded = false
   let self = this, sr = this.sampleRate, ch = this._.ch
+  const request = this._.recording = {}
   let _rec = (async () => {
     let { default: mic } = await import('@audio/mic')
-    let read = mic({ sampleRate: sr, channels: ch, bitDepth: 16, ...opts })
+    if (self._.recording !== request) return
+    let read = await mic({ sampleRate: sr, channels: ch, bitDepth: 16, ...opts })
+    if (self._.recording !== request) { read(null); return }
     self._._mic = read
     read((err, buf) => {
-      if (!self.recording) return
+      if (self._.recording !== request) return
       if (err || !buf) return
       self.push(new Int16Array(buf.buffer, buf.byteOffset, buf.byteLength / 2), 'int16')
     })
   })()
-  _rec.catch(() => {})  // suppress unhandled rejection; surfaces through .ready/.stop
+  _rec.catch(error => {
+    if (self._.recording !== request) return
+    self.stop()
+    emit(self, 'error', error)
+  })
   return this
 }
 
@@ -676,7 +710,9 @@ fn.seek = function(t) {
         if (this._.disposed) return
         if (this.pages[i] === null && await this.cache.has(i)) {
           if (this._.disposed) return
-          this.pages[i] = await this.cache.read(i)
+          const data = await this.cache.read(i)
+          if (this._.disposed) return
+          this.pages[i] = data
           touchLru(this, i)  // restoring counts as access — keeps it eligible for normal LRU aging
         }
       }
@@ -776,18 +812,18 @@ async function toPath(source) {
 }
 
 /** Resolve source to ArrayBuffer. */
-async function resolveSource(source) {
+async function resolveSource(source, signal) {
   if (source instanceof ArrayBuffer) return source
   if (source instanceof Uint8Array) return source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength)
-  if (source instanceof URL) return resolveSource(source.href)
+  if (source instanceof URL) return resolveSource(source.href, signal)
   if (typeof Blob !== 'undefined' && source instanceof Blob) return source.arrayBuffer()
   if (typeof Response !== 'undefined' && source instanceof Response) return source.arrayBuffer()
   if (typeof source === 'string') {
     if (/^(https?|data|blob):/.test(source) || typeof window !== 'undefined')
-      return (await fetch(source)).arrayBuffer()
+      return (await fetch(source, { signal })).arrayBuffer()
     source = await toPath(source)
     let { readFile } = await import('fs/promises')
-    let buf = await readFile(source)
+    let buf = await readFile(source, { signal })
     return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
   }
   throw new TypeError('audio: unsupported source type')
@@ -797,7 +833,7 @@ async function resolveSource(source) {
 const detectType = bytes => getType(bytes) || sniffCodecLocal(bytes)
 const sniffCodecLocal = bytes => { for (let k in audio.codecs || {}) if (audio.codecs[k].test?.(bytes)) return k }
 
-async function detectSource(source) {
+async function detectSource(source, signal) {
   if (source instanceof ArrayBuffer || source instanceof Uint8Array) {
     let bytes = source instanceof ArrayBuffer
       ? new Uint8Array(source)
@@ -816,28 +852,37 @@ async function detectSource(source) {
     let format = detectType(new Uint8Array(hdr))
     let fileSize = (await stat(path)).size
     let { createReadStream } = await import('fs')
-    return { format, reader: createReadStream(path), fileSize }
+    // Start the stream with its consumer attached, even if decoder startup was cancelled.
+    const reader = (async function* () { yield* createReadStream(path, { signal }) })()
+    return { format, reader, fileSize }
   }
   // Blob/File — sniff format from a header slice, stream the body (file input path)
   if (typeof Blob !== 'undefined' && source instanceof Blob) {
     let hdr = new Uint8Array(await source.slice(0, 12).arrayBuffer())
-    return { format: detectType(hdr), reader: iterateStream(source.stream()), fileSize: source.size }
+    return { format: detectType(hdr), reader: iterateStream(source.stream(), signal), fileSize: source.size }
   }
-  let buf = await resolveSource(source)
+  let buf = await resolveSource(source, signal)
   let bytes = new Uint8Array(buf)
   return { format: detectType(bytes), bytes }
 }
 
 /** Async-iterate a web ReadableStream (Safari has no native async iteration). */
-async function* iterateStream(stream) {
+async function* iterateStream(stream, signal) {
   let reader = stream.getReader()
+  const cancel = () => reader.cancel().catch(() => {})
+  signal?.addEventListener('abort', cancel, { once: true })
   try {
+    if (signal?.aborted) return
     while (true) {
       let { done, value } = await reader.read()
       if (done) return
       yield value
     }
-  } finally { reader.releaseLock() }
+  } finally {
+    signal?.removeEventListener('abort', cancel)
+    await cancel()
+    reader.releaseLock()
+  }
 }
 
 /** Universal page accumulator — push(chData, sampleRate) interface.
@@ -933,11 +978,11 @@ async function waDecode(bytes) {
 }
 
 async function decodeSource(source, opts = {}) {
-  let { format, bytes, reader, fileSize } = await detectSource(source)
+  let { format, bytes, reader, fileSize } = await detectSource(source, opts.signal)
 
   // Non-streaming fallback — registered codec atoms decode whole-buffer here too
   if (!format || !decode[format]) {
-    if (!bytes) bytes = new Uint8Array(await resolveSource(source))
+    if (!bytes) bytes = new Uint8Array(await resolveSource(source, opts.signal))
     let dec = format && audio.codecs?.[format]?.decode
     let decoded
     if (dec) decoded = await dec(bytes)
@@ -947,7 +992,7 @@ async function decodeSource(source, opts = {}) {
     let pages = opts.pages || []
     if (!opts.disposed?.()) for (let p of paginate(channelData)) { pages.push(p); opts.notify?.() }
     let stats = audio.statSession?.(sampleRate)?.page(channelData)?.done() ?? null
-    let header = bytes.subarray(0, Math.min(bytes.length, 256 * 1024))
+    let header = bytes.slice(0, Math.min(bytes.length, 256 * 1024))
     return { pages, sampleRate, channels: channelData.length, header, format, decoding: Promise.resolve({ stats, length: channelData[0].length }) }
   }
 
@@ -973,6 +1018,7 @@ async function decodeSource(source, opts = {}) {
   let HEADER_CAP = 256 * 1024, headerChunks = [], headerLen = 0, headerDone = false, headerBytes = null
   let addHeader = buf => {
     if (headerDone || !headerChunks) return
+    buf = buf.subarray(0, HEADER_CAP - headerLen)
     headerChunks.push(buf)
     headerLen += buf.length
     if (headerLen >= HEADER_CAP) headerDone = true
@@ -1018,14 +1064,16 @@ async function decodeSource(source, opts = {}) {
       final.header = flushHeader()
       return final
     } finally {
+      dec.free()
       // Guarantees firstReady settles even on a clean decode that pushed zero samples (empty/truncated
       // input) — otherwise `await firstReady` below hangs forever with no reject/error either.
       resolveFirst()
     }
   })()
+  decoding.catch(() => {})  // disposal can leave before the final result is awaited
 
   await firstReady
-  if (!acc.sampleRate) throw new Error('audio: decoded no audio data')
+  if (!acc.sampleRate) { await decoding; throw new Error('audio: decoded no audio data') }
 
   let estDuration = estimateDuration(fileSize || bytes?.length, format, acc.sampleRate, acc.channels)
   return { pages: acc.pages, sampleRate: acc.sampleRate, channels: acc.channels, header: flushHeader(), format, decoding, acc, estDuration }

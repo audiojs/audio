@@ -948,6 +948,8 @@ async function streamPlayback(clip, from, to, request) {
   do {
     const lap = { time, from }
     laps.push(lap)
+    // Background tabs can suspend animation frames while audio keeps looping.
+    while (laps.length > 1 && laps[1].time <= audioContext.currentTime) laps.shift()
     const stream = clip.stream({ at: from, ...(to == null ? {} : { duration: to - from }) })
     let frames = 0
     for await (let channels of stream) {

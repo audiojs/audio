@@ -11,7 +11,7 @@ const DEFAULT_BUDGET = 500 * 1024 * 1024  // 500MB
  *  for pages that were never read through walkPages (so `a._.lru` cannot see them) — otherwise
  *  those pages would be permanently unevictable the moment any other page becomes LRU-tracked. */
 async function evict(a) {
-  if (!a.cache || a.budget === Infinity) return
+  if (a._.disposed || !a.cache || a.budget === Infinity) return
   let bytes = p => p ? p.reduce((s, ch) => s + ch.byteLength, 0) : 0
   let current = a.pages.reduce((sum, p) => sum + bytes(p), 0)
   if (current <= a.budget) return
@@ -23,6 +23,7 @@ async function evict(a) {
     if (current <= a.budget) break
     if (!a.pages[i]) continue
     await a.cache.write(i, a.pages[i])
+    if (a._.disposed) return
     current -= bytes(a.pages[i])
     a.pages[i] = null
     lru?.delete(i)
@@ -31,13 +32,21 @@ async function evict(a) {
 
 /** Restore evicted pages covering a sample range from cache. */
 async function ensurePages(a, offset, duration) {
-  if (!a.cache) return
+  if (a._.disposed || !a.cache) return
   let PS = audio.PAGE_SIZE, sr = a.sampleRate
   let s = offset != null ? Math.max(0, Math.round(offset * sr)) : 0
   let len = duration != null ? Math.round(duration * sr) : a._.len - s
   let p0 = Math.floor(s / PS), pEnd = Math.min(Math.ceil((s + len) / PS), a.pages.length)
-  for (let i = p0; i < pEnd; i++)
-    if (a.pages[i] === null && await a.cache.has(i)) { a.pages[i] = await a.cache.read(i); touchLru(a, i) }
+  for (let i = p0; i < pEnd; i++) {
+    if (a._.disposed) return
+    if (a.pages[i] === null && await a.cache.has(i)) {
+      if (a._.disposed) return
+      const data = await a.cache.read(i)
+      if (a._.disposed) return
+      a.pages[i] = data
+      touchLru(a, i)
+    }
+  }
 }
 
 /** Derive a page budget from the platform quota (Chrome: ~60% of disk — tracks device

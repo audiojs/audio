@@ -19,12 +19,15 @@ import * as parsers from '@audio/decode/meta'
 // ── Picture helper ──────────────────────────────────────────────────────
 
 /** Wrap picture bytes with a lazy `.url` getter (Blob URL in browser, data URL in Node). */
-function pic(p) {
+function pic(p, urls) {
   Object.defineProperty(p, 'url', {
     get() {
       if (this._url) return this._url
-      if (typeof URL !== 'undefined' && typeof Blob !== 'undefined' && typeof URL.createObjectURL === 'function')
-        return this._url = URL.createObjectURL(new Blob([this.data], { type: this.mime || 'image/jpeg' }))
+      if (typeof URL !== 'undefined' && typeof Blob !== 'undefined' && typeof URL.createObjectURL === 'function') {
+        this._url = URL.createObjectURL(new Blob([this.data], { type: this.mime || 'image/jpeg' }))
+        urls.add(this._url)
+        return this._url
+      }
       let b64 = typeof Buffer !== 'undefined' ? Buffer.from(this.data).toString('base64')
         : btoa(String.fromCharCode.apply(null, this.data))
       return this._url = `data:${this.mime || 'image/jpeg'};base64,${b64}`
@@ -37,13 +40,13 @@ function pic(p) {
 
 // ── Parse/write entry points ────────────────────────────────────────────
 
-function parseByFormat(format, bytes) {
+function parseByFormat(format, bytes, urls) {
   if (!bytes?.length) return null
   let parse = parsers[format]
   if (!parse) return null
   try {
     let r = parse(bytes)
-    if (r?.meta?.pictures) for (let p of r.meta.pictures) pic(p)
+    if (r?.meta?.pictures) for (let p of r.meta.pictures) pic(p, urls)
     return r
   } catch { return null }
 }
@@ -52,7 +55,7 @@ function parseByFormat(format, bytes) {
 function ensureMeta(a) {
   if (a._.metaDone) return
   a._.metaDone = true
-  let r = parseByFormat(a._.format, a._.header)
+  let r = parseByFormat(a._.format, a._.header, a._.urls ??= new Set())
   if (!r) return
   if (!a._.meta) a._.meta = r.meta
   if (!a._.markers) a._.markers = r.markers || []

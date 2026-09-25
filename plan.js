@@ -272,7 +272,9 @@ fn[READ] = async function(offset, duration) {
 fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
   let offset = parseTime(opts?.at), duration = parseTime(opts?.duration)
 
+  if (this._.disposed) return
   if (this._.ready) await this._.ready
+  if (this._.disposed) return
   await loadRefs(this)
 
   let a = this, sr = a.sampleRate, BS = audio.BLOCK_SIZE
@@ -289,7 +291,7 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
   let bufA = Array.from({ length: nch }, () => new Float32Array(BS))
   let xfadeRamp = 0, prevPipe = ''  // crossfade state + pipeline signature for change detection
 
-  while (outPos < endSample + T) {
+  while (!a._.disposed && outPos < endSample + T) {
     let acc = a._.acc
     let avail = a.decoded ? a._.len : acc ? acc.length : a._.len
 

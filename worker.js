@@ -44,7 +44,20 @@ if ((typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalSco
 
 function channel(workerOrPromise) {
   let pending = new Map(), routes = new Map(), nextId = 1, queue = []
-  let worker = null
+  let worker = null, closed = false
+  const rejectPending = error => {
+    for (const p of pending.values()) p.reject(error)
+    pending.clear()
+    queue = []
+  }
+  const post = (msg, transfer) => {
+    try { worker.postMessage(msg, transfer || []) }
+    catch (error) {
+      const request = pending.get(msg.id)
+      pending.delete(msg.id)
+      request?.reject(error)
+    }
+  }
 
   Promise.resolve(workerOrPromise).then(w => {
     worker = w
@@ -60,20 +73,30 @@ function channel(workerOrPromise) {
       }
     }
     w.addEventListener ? w.addEventListener('message', e => recv(e.data)) : w.on('message', recv)
-    for (let [m, t] of queue.splice(0)) w.postMessage(m, t)
-  })
+    for (let [m, t] of queue.splice(0)) post(m, t)
+  }, error => { closed = true; rejectPending(error) })
 
   return {
-    route: (inst, cb) => routes.set(inst, cb),
+    route: (inst, cb) => closed ? cb({ event: '_close' }) : routes.set(inst, cb),
     unroute: inst => routes.delete(inst),
     send(msg, transfer, facade) {
+      if (closed) return Promise.reject(new Error('audio/worker: worker closed'))
       return new Promise((resolve, reject) => {
         msg.id = nextId++
         pending.set(msg.id, { resolve, reject, facade })
-        worker ? worker.postMessage(msg, transfer || []) : queue.push([msg, transfer])
+        worker ? post(msg, transfer) : queue.push([msg, transfer])
       })
     },
-    close() { return this.send({ type: 'close' }).finally(() => worker?.terminate?.()) },
+    close() {
+      const done = this.send({ type: 'close' })
+      closed = true
+      for (const route of routes.values()) route({ event: '_close' })
+      routes.clear()
+      return done.finally(() => {
+        rejectPending(new Error('audio/worker: worker closed'))
+        worker?.terminate?.()
+      })
+    },
   }
 }
 
@@ -130,7 +153,7 @@ function encodeArg(v, chan) {
 const encodeArgs = (args, chan) => args.map(v => encodeArg(v, chan))
 
 function facade(chan, opened) {
-  let ev = {}, opErr = null
+  let ev = {}, opErr = null, disposed = false, disposal
   let target = {
     __isAudioWorker: true,
     _chan: chan,
@@ -139,15 +162,17 @@ function facade(chan, opened) {
     sampleRate: 0, channels: 0, length: 0, duration: 0, version: 0,
     decoded: false, edits: [],
 
-    _snap(s) { Object.assign(target, s) },
+    _snap(s) { if (!disposed) Object.assign(target, s) },
     _emit(name, ...args) { for (let cb of (ev[name] || []).slice()) cb(...args) },
 
     _call(method, args = [], transfer) {
+      if (disposed) return Promise.reject(new Error('audio/worker: instance disposed'))
       if (opErr) { let e = opErr; opErr = null; return Promise.reject(e) }
       let wire = encodeArgs(args, chan)  // validate before queuing — throw at the call site
-      return target._ready.then(() =>
-        chan.send({ type: 'call', inst: target._inst, method, args: wire }, transfer, proxy)
-      ).then(r => decodeResult(r))
+      return target._ready.then(() => {
+        if (disposed) throw new Error('audio/worker: instance disposed')
+        return chan.send({ type: 'call', inst: target._inst, method, args: wire }, transfer, proxy)
+      }).then(r => decodeResult(r))
     },
 
     on(name, cb) {
@@ -196,6 +221,7 @@ function facade(chan, opened) {
     },
 
     play(opts = {}) {
+      if (disposed) return Promise.reject(new Error('audio/worker: instance disposed'))
       if (target.playing && target.paused) {
         target.paused = false
         wake?.()
@@ -232,9 +258,9 @@ function facade(chan, opened) {
     },
 
     dispose() {
-      killPump()
-      target.playing = false
-      return target._ready.then(() => {
+      if (disposal) return disposal
+      release()
+      return disposal = target._ready.then(() => {
         let done = chan.send({ type: 'dispose', inst: target._inst }).catch(() => {})
         chan.unroute(target._inst)
         return done
@@ -248,52 +274,68 @@ function facade(chan, opened) {
   // ── Playback pump ────────────────────────────────────────────────────
   let sink = null, pumpGen = 0, wake = null, rate = 1
 
-  let killPump = () => { pumpGen++; wake?.(); sink?.flush() }
+  let killPump = () => { pumpGen++; wake?.(); sink?.close(); sink = null }
+  const release = () => {
+    disposed = true
+    killPump()
+    target.playing = target.paused = false
+    target.edits.length = 0
+    for (const check of [...waiters]) check(new Error('audio/worker: instance disposed'))
+    ev = {}
+  }
 
   async function runPump(at, onStart, onErr) {
     let gen = ++pumpGen
     target.playing = true; target.paused = false; target.ended = false
-    let sr = target.sampleRate, started = false
+    let sr = target.sampleRate, started = false, output
     try {
-      sink ??= typeof AudioContext !== 'undefined'
+      output = typeof AudioContext !== 'undefined'
         ? await workletSink(target, () => gen === pumpGen)
         : await speakerSink(target)
-      sink.reset(at)
-      sink.playState(true)
-      target._emit('play')
-      // Varispeed between the worker stream and the sink; each written block carries
-      // its source end-position so sinks map output consumption → source time.
-      let vs = varispeed(Math.max(1, target.channels), sr, () => rate)
-      let put = async block => {
-        await sink.write(block, target.volume, at + vs.pos / sr)
-        if (!started) { started = true; onStart() }
-      }
-      streaming:
-      for await (let chunk of target.stream({ at })) {
-        if (gen !== pumpGen || !target.playing) break
-        while (target.paused && gen === pumpGen && target.playing) await new Promise(r => wake = r)
-        if (gen !== pumpGen || !target.playing) break
-        vs.push(chunk)
-        let block
-        while (block = vs.pull(false)) {
-          await put(block)
-          if (gen !== pumpGen || !target.playing) break streaming
+      if (gen !== pumpGen) return
+      sink = output
+      while (gen === pumpGen && target.playing) {
+        output.reset(at)
+        output.playState(true)
+        target._emit('play')
+        // Varispeed between the worker stream and the sink; each written block carries
+        // its source end-position so sinks map output consumption → source time.
+        let vs = varispeed(Math.max(1, target.channels), sr, () => rate), frames = 0
+        let put = async block => {
+          frames += block[0].length
+          await output.write(block, target.volume, at + vs.pos / sr)
+          if (!started) { started = true; onStart() }
         }
-      }
-      if (gen === pumpGen && target.playing && !target.paused) {
-        let block
-        while ((block = vs.pull(true)) && gen === pumpGen && target.playing) await put(block)
-        await sink.drain()
-        if (gen === pumpGen && target.playing) {
-          if (target.loop) { runPump(0, () => {}, onErr); return }
-          target.playing = false; target.ended = true
-          target._emit('timeupdate', target.currentTime)
-          target._emit('ended')
+        streaming:
+        for await (let chunk of target.stream({ at })) {
+          if (gen !== pumpGen || !target.playing) break
+          while (target.paused && gen === pumpGen && target.playing) await new Promise(r => wake = r)
+          if (gen !== pumpGen || !target.playing) break
+          vs.push(chunk)
+          let block
+          while (block = vs.pull(false)) {
+            await put(block)
+            if (gen !== pumpGen || !target.playing) break streaming
+          }
         }
+        if (gen === pumpGen && target.playing && !target.paused) {
+          let block
+          while ((block = vs.pull(true)) && gen === pumpGen && target.playing) await put(block)
+          await output.drain()
+          if (gen === pumpGen && target.playing) {
+            if (target.loop && frames) { at = 0; continue }
+            target.playing = false; target.ended = true
+            target._emit('timeupdate', target.currentTime)
+            target._emit('ended')
+          }
+        }
+        break
       }
     } catch (e) {
       if (gen === pumpGen) { target.playing = false; target._emit('error', e); if (!started) onErr(e) }
     } finally {
+      output?.close()
+      if (sink === output) sink = null
       if (!started) onStart()
     }
   }
@@ -302,10 +344,13 @@ function facade(chan, opened) {
   // reports drive backpressure and currentTime
   async function workletSink(t, live) {
     let actx = new AudioContext({ sampleRate: t.sampleRate })
-    await actx.audioWorklet.addModule(workletURL())
-    let node = new AudioWorkletNode(actx, 'audio-worker-sink', { outputChannelCount: [Math.max(1, t.channels)] })
-    node.connect(actx.destination)
-    let sent = 0, consumed = 0, onDrain = null, lastVol = 1
+    let node
+    try {
+      await actx.audioWorklet.addModule(workletURL())
+      node = new AudioWorkletNode(actx, 'audio-worker-sink', { outputChannelCount: [Math.max(1, t.channels)] })
+      node.connect(actx.destination)
+    } catch (e) { await actx.close(); throw e }
+    let sent = 0, consumed = 0, onDrain = null, lastVol = 1, closed = false
     // Output-frame → source-time map: one span per written block (varispeed makes
     // the mapping non-uniform, so consumption reports interpolate within their span)
     let segs = [], lastSrc = 0
@@ -324,18 +369,30 @@ function facade(chan, opened) {
       reset(at) { node.port.postMessage({ type: 'flush' }); sent = consumed; segs = []; lastSrc = at },
       playState(on) { node.port.postMessage({ type: on ? 'play' : 'pause' }) },
       async write(chunk, volume, srcEnd = lastSrc + chunk[0].length / t.sampleRate) {
+        if (closed) return
+        const frames = chunk[0].length
         if (volume !== lastVol) { lastVol = volume; node.port.postMessage({ volume }) }
         node.port.postMessage({ chunk }, chunk.map(c => c.buffer))
-        segs.push({ s0: sent, s1: sent + chunk[0].length, t0: lastSrc, t1: srcEnd })
+        segs.push({ s0: sent, s1: sent + frames, t0: lastSrc, t1: srcEnd })
         lastSrc = srcEnd
-        sent += chunk[0].length
-        while (sent - consumed > AHEAD && live() && t.playing) {
+        sent += frames
+        while (!closed && sent - consumed > AHEAD && live() && t.playing) {
           await new Promise(r => onDrain = r)
           onDrain = null
         }
       },
-      async drain() { while (consumed < sent && live() && t.playing) { await new Promise(r => onDrain = r); onDrain = null } },
-      flush() { node.port.postMessage({ type: 'flush' }) },
+      async drain() { while (!closed && consumed < sent && live() && t.playing) { await new Promise(r => onDrain = r); onDrain = null } },
+      close() {
+        if (closed) return
+        closed = true
+        onDrain?.()
+        onDrain = null
+        segs = []
+        node.port.onmessage = null
+        node.port.close()
+        node.disconnect()
+        actx.close().catch(() => {})
+      },
     }
   }
 
@@ -345,7 +402,7 @@ function facade(chan, opened) {
     let ch = Math.max(1, t.channels)
     let write = null, lastSrc = 0
     return {
-      reset(at) { write?.(null); write = Speaker({ sampleRate: t.sampleRate, channels: ch, bitDepth: 32 }); lastSrc = at },
+      reset(at) { write?.close(); write = Speaker({ sampleRate: t.sampleRate, channels: ch, bitDepth: 32 }); lastSrc = at },
       playState() {},
       write(chunk, volume, srcEnd = lastSrc + chunk[0].length / t.sampleRate) {
         let len = chunk[0].length, buf = new Float32Array(len * ch)
@@ -358,8 +415,16 @@ function facade(chan, opened) {
           r()
         }))
       },
-      async drain() {},
-      flush() { write?.(null); write = null },
+      drain() {
+        if (!write) return Promise.resolve()
+        const ending = write
+        write = null
+        return new Promise((resolve, reject) => {
+          try { ending.flush(error => { ending.close(); error ? reject(error) : resolve() }) }
+          catch (error) { ending.close(); reject(error) }
+        })
+      },
+      close() { write?.close(); write = null },
     }
   }
 
@@ -393,8 +458,8 @@ function facade(chan, opened) {
   })
 
   let waiters = new Set()
-  let waitDecoded = () => target.decoded ? Promise.resolve() : new Promise((res, rej) => {
-    let check = () => { if (target.decoded) { done(); res() } }
+  let waitDecoded = () => disposed ? Promise.reject(new Error('audio/worker: instance disposed')) : target.decoded ? Promise.resolve() : new Promise((res, rej) => {
+    let check = error => { if (error) { done(); rej(error) } else if (target.decoded) { done(); res() } }
     let onErr = e => { done(); rej(e) }
     let done = () => { let i = (ev.error || []).indexOf(onErr); if (i >= 0) ev.error.splice(i, 1); waiters.delete(check) }
     waiters.add(check)
@@ -405,10 +470,13 @@ function facade(chan, opened) {
   // the promise adopt proxy.then, which waits on this very promise: deadlock.
   target._ready = opened.then(({ inst, snapshot, ops }) => {
     target._inst = inst
+    if (disposed) return true
     target._opNames = ops
     target._snap(snapshot)
     chan.route(inst, msg => {
-      if (msg.event === '_state') {
+      if (msg.event === '_close') {
+        release()
+      } else if (msg.event === '_state') {
         target._snap(msg.snapshot)
         for (let w of [...waiters]) w()
         target._emit('change')
@@ -503,7 +571,7 @@ function host(nodePort) {
 
   import('./audio.js').then(({ default: audio }) => {
     const instances = new Map()   // id → audio instance
-    const streams = new Map()     // sid → async iterator
+    const streams = new Map()     // sid → { inst, iterator }
     const dataSubs = new Map()    // id → flush fn (replays 'data' buffered before the sub landed)
     let nextInst = 1, nextStream = 1
 
@@ -598,10 +666,11 @@ function host(nodePort) {
           let result
           if (method === '_streamOpen') {
             let sid = nextStream++
-            streams.set(sid, a.stream(...decodeArgs(args))[Symbol.asyncIterator]())
+            streams.set(sid, { inst, iterator: a.stream(...decodeArgs(args))[Symbol.asyncIterator]() })
             result = sid
           } else if (method === '_streamNext') {
-            let it = streams.get(args[0])
+            let it = streams.get(args[0])?.iterator
+            if (!it) { send({ id, result: null }); return }
             let { value, done } = await it.next()
             if (done) { streams.delete(args[0]); result = null }
             else {
@@ -609,7 +678,7 @@ function host(nodePort) {
               for (let ch of result) transfer.push(ch.buffer)
             }
           } else if (method === '_streamEnd') {
-            streams.get(args[0])?.return?.()
+            streams.get(args[0])?.iterator.return?.().catch(() => {})
             streams.delete(args[0])
             result = true
           } else {
@@ -635,6 +704,10 @@ function host(nodePort) {
         }
         if (type === 'dispose') {
           try { a.dispose() } catch {}
+          for (const [sid, stream] of streams) if (stream.inst === inst) {
+            stream.iterator.return?.().catch(() => {})
+            streams.delete(sid)
+          }
           instances.delete(inst)
           dataSubs.delete(inst)
           send({ id, result: true })
