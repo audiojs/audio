@@ -67,7 +67,7 @@ AUDIO_MEMORY_SOAK_MS=120000 node --test --test-name-pattern='tiny loops' test/me
 npm run test:all
 ```
 
-The 28 memory tests exercise real browser devices with synthetic audio, fake
+The 29 memory tests exercise real browser devices with synthetic audio, fake
 microphone input, cancellation races, disposal, decode failure, cover-art URLs,
 cache restoration and the actual page. It is included in `test:all`.
 
@@ -84,6 +84,17 @@ and deletion` and `wrapped connectors follow the chain and point along its
 direction through resize, reorder and removal`) also fail on unchanged HEAD.
 All 28 memory tests passed separately in the isolated commit tree.
 
+Follow-up review added a disposal check after asynchronous stream preparation:
+a one-frame cache read completed after disposal previously yielded a zero sample
+instead of EOF. Its regression fails without that check. The background-loop
+test now counts retained history entries directly: removing producer cleanup
+fails with 198 entries after five seconds; the fixed version peaks at seven.
+All 29 memory tests pass with these checks in the isolated commit tree.
+The follow-up full working-tree run passed core, fixes, batch, CLI, MCP, browser
+and 123 of 124 site tests. One logo-motion test timed out in page-startup setup;
+its targeted rerun passed. All 29 memory tests then passed again in the working
+tree. The new production check is one Boolean read per streamed block.
+
 ## Review evidence
 
 Test names below omit the common `memory:` prefix. They live in
@@ -92,10 +103,12 @@ Test names below omit the common `memory:` prefix. They live in
 
 | Exact test name | Input and operation sequence; invariant |
 | --- | --- |
-| one-frame A → A → stereo B decodes exactly across the final byte boundary | Float32 WAV: mono `[.25]` twice, then three-frame stereo; Blob byte splits at N−1 and N; read and streamed PCM equal every input sample at 48 kHz. |
+| one-frame A → A → stereo B decodes exactly across the final byte boundary | Float32 WAV: mono `[.25]` twice, then three-frame stereo; Blob byte splits at N−1 and N; zero-duration stream gives EOF, then two streams of each instance and its read equal every input sample at 48 kHz. |
 | zero-frame encoded input rejects and frees its decoder | Valid empty WAV container → readiness and stream reject, codec freed once. |
 | worker one-frame A → A → stereo B preserves PCM at the block boundary | Replay one mono frame, then 1,025 stereo frames; capture worklet messages before transfer and compare every sample. |
 | dispose wakes a stream waiting for more pushed data | `audio(null)` → pending stream read → dispose → EOF. |
+| disposal during a stream cache read yields no released samples | Evicted mono `[.25]` → pending stream/cache read → dispose → complete cache read → pending and newly opened streams give EOF; pages stay empty. |
+| demo tiny loops keep scheduled audio bounded | Select a short range → loop → suppress animation frames for five seconds → pause → no active sources; scheduled sources and directly counted history entries each peak at no more than 12. |
 | worker disposal drops mirrored edit buffers and rejects reuse | Mix buffered PCM → queue another edit → dispose before its snapshot arrives → edits stay empty; repeated disposal succeeds; play rejects without opening a device. |
 | closing during worker open rejects waiters and a new worker remains usable | Open → close before ready → readiness rejects; new stereo source reads exactly; disposing a pushable worker settles its pending readiness. |
 | rejected worker transfer settles and the next open succeeds | Non-cloneable function source → DataCloneError; next valid mono open/read succeeds. |

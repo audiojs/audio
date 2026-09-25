@@ -344,6 +344,7 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
       }
     }
 
+    if (a._.disposed) return
     if (!plan || outPos >= plan.totalLen + T) {
       if (a.decoded) break
       await new Promise(r => a._.waiters.push(r))

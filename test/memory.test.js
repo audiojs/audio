@@ -425,7 +425,13 @@ test('memory: demo repeated playback and sample replacement has bounded retained
 
 const soak = Number(process.env.AUDIO_MEMORY_SOAK_MS) || 5000
 test('memory: demo tiny loops keep scheduled audio bounded', { timeout: soak + 15000 }, async t => {
-  const page = await open(t, '/index.html')
+  const page = await open(t)
+  // Count retained loop anchors without retaining their objects or exposing a production hook.
+  const source = await readFile(resolve(root, 'site.js'), 'utf8')
+  const instrumented = source.replace('laps.push(lap)', 'laps.push(lap); resources.lapPeak = Math.max(resources.lapPeak || 0, laps.length)')
+  assert.notEqual(instrumented, source, 'loop history instrumentation is installed')
+  await page.route('**/site.js', route => route.fulfill({ contentType: 'text/javascript', body: instrumented }))
+  await page.goto(origin + '/index.html')
   await page.locator('.demo[aria-busy="false"]').waitFor()
   const seek = page.getByRole('slider', { name: 'Seek edited audio' })
   await seek.focus()
@@ -450,6 +456,7 @@ test('memory: demo tiny loops keep scheduled audio bounded', { timeout: soak + 1
   t.diagnostic(JSON.stringify({ milliseconds: soak, before, after, resources: counts }))
   assert(counts.sources > 100, 'many loop blocks were actually scheduled')
   assert(counts.sourcePeak <= 12, 'scheduled native buffers stay bounded')
+  assert(counts.lapPeak > 0 && counts.lapPeak <= 12, 'loop history stays bounded without animation frames')
   assert.equal(counts.activeSources, 0, 'pause stops queued buffers')
   assert(after.usedSize - before.usedSize < 8 * 1024 * 1024)
   assert(after.backingStorageSize - before.backingStorageSize < 2 * 1024 * 1024)

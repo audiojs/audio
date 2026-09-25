@@ -100,6 +100,24 @@ test('memory: dispose wakes a stream waiting for more pushed data', async () => 
   assert.equal((await next).done, true)
 })
 
+test('memory: disposal during a stream cache read yields no released samples', { timeout: 3000 }, async () => {
+  let release, reading
+  const started = new Promise(r => { reading = r })
+  const pcm = [new Float32Array([.25])]
+  const a = audio.from(pcm, { sampleRate: 48000, cache: {
+    has: async () => true,
+    read: () => { reading(); return new Promise(r => { release = r }) }
+  } })
+  a.pages[0] = null
+  const stream = a.stream(), next = stream.next()
+  await started
+  a.dispose()
+  release(pcm)
+  assert.deepEqual(await next, { value: undefined, done: true })
+  assert.deepEqual(await a.stream().next(), { value: undefined, done: true })
+  assert.deepEqual(a.pages, [])
+})
+
 test('memory: disposing cover art revokes its generated blob URL', async () => {
   const source = audio.from([new Float32Array(4800)], { sampleRate: 48000 })
   source.meta.pictures = [{ mime: 'image/png', type: 3, data: new Uint8Array([137, 80, 78, 71]) }]
@@ -132,10 +150,13 @@ test('memory: one-frame A → A → stereo B decodes exactly across the final by
       const decoded = await audio(new SplitBlob([bytes]))
       assert.equal(decoded.sampleRate, 48000)
       assert.deepEqual(await decoded.read(), pcm)
-      const chunks = []
-      for await (const chunk of decoded.stream()) chunks.push(chunk)
-      assert.equal(chunks.length, 1)
-      assert.deepEqual(chunks[0], pcm)
+      assert.deepEqual(await decoded.stream({ duration: 0 }).next(), { value: undefined, done: true })
+      for (let replay = 0; replay < 2; replay++) {
+        const chunks = []
+        for await (const chunk of decoded.stream()) chunks.push(chunk)
+        assert.equal(chunks.length, 1)
+        assert.deepEqual(chunks[0], pcm)
+      }
       decoded.dispose()
       assert.equal(decoded.pages.length, 0)
     }
