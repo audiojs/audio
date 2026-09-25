@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>audio logo motion</title>
+  <link rel="icon" href="logo.svg">
+  <link rel="preload" href="assets/geist.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="logo.css">
+  <style>
+    body { position: relative; padding: calc(var(--space-4xl) + env(safe-area-inset-top, 0px)) var(--space-md) var(--space-3xl); }
+    header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: var(--space-md) var(--space-xl); max-width: 1120px; margin: 0 auto var(--space-xl); }
+    h1 { margin: 0 0 var(--space-sm); font-size: var(--text-heading); font-weight: 500; letter-spacing: -.02em; line-height: 1.1; }
+    header p { max-width: 52ch; margin: 0; color: var(--panel-muted); font-size: var(--text-md); line-height: 1.5; }
+    header label { display: flex; align-items: center; gap: 12px; color: var(--panel-muted); }
+    header select { min-width: 10.5rem; }
+
+    .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: var(--space-md); max-width: 1120px; margin: 0 auto; }
+    /* A tile is one of the site's slabs: the logo on top, how it behaves beneath */
+    .tile { display: grid; overflow: hidden; margin: 0; border: 1px solid var(--panel-rule); border-radius: var(--radius-slab); background: var(--panel); outline-offset: 3px; cursor: pointer; user-select: none; touch-action: manipulation; }
+    .tile:focus-visible { outline: 2px solid var(--panel-knob); }
+    .tile canvas { display: block; width: 100%; aspect-ratio: 4 / 3; }
+    figcaption { display: grid; gap: 10px; padding: 0 18px 18px; }
+    figcaption strong { font-weight: 500; font-size: var(--text-md); }
+    dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; line-height: 1.35; }
+    dt { color: var(--panel-dim); }
+    dd { margin: 0; color: var(--panel-muted); }
+  </style>
+</head>
+<body>
+  <nav class="pages"><a href="logo.html">Lab</a><a href="logo-motion.html" aria-current="page">Motion</a></nav>
+  <header>
+    <div>
+      <h1>Logo motion</h1>
+      <p>Nine ways for the logo to behave: at rest, under the pointer, and pressed. Point at a tile, press it, or focus it and hold Space.</p>
+    </div>
+    <label for="print">Print <select id="print"><button><selectedcontent></selectedcontent></button></select></label>
+  </header>
+  <main class="tiles"></main>
+
+  <script type="module">
+  import { logo, DITHERS, SCREENS, label } from './logo.js'
+
+  const TAU = 2 * Math.PI, EASE = .25 // s, how fast speed, cycles and amplitude follow their targets
+  const restless = !matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  // The logo's own sound: a fundamental and its octave at half amplitude, sin x + ½ sin 2x, under a Hann envelope
+  let audio
+  function sound(seconds) {
+    audio ??= new AudioContext()
+    const t = audio.currentTime + .02, tone = audio.createOscillator(), level = audio.createGain()
+    tone.setPeriodicWave(audio.createPeriodicWave(new Float32Array(3), new Float32Array([0, 1, .5])))
+    tone.frequency.value = 220
+    level.gain.setValueCurveAtTime(Float32Array.from({ length: 64 }, (_, i) => .2 * (1 - Math.cos(TAU * i / 63)) / 2), t, seconds)
+    tone.connect(level).connect(audio.destination)
+    tone.start(t)
+    tone.stop(t + seconds)
+  }
+  const hann = x => x > 0 && x < 1 ? (1 - Math.cos(TAU * x)) / 2 : 0
+
+  // Each variant sets targets from the tile's state: hovered, pressed, how long since the press (s), the pointer
+  // across the tile (-1…1) and the time (s). Speed is in turns a second; settle eases the phase to its rest turn;
+  // phase, when given, is where the signal stands outright.
+  const VARIANTS = [
+    { name: 'Drift', rest: 'Drifts, slowly', hover: 'Quickens', press: 'Settles into the logo',
+      step: s => ({ speed: s.pressed ? 0 : s.hovered ? .6 : .08 * restless, settle: s.pressed }) },
+    { name: 'Breathe', rest: 'Swells and eases, a breath every five seconds', hover: 'Holds its breath', press: 'Flattens to the axis, springs back on release',
+      step: s => ({ amplitude: s.pressed ? .12 : s.hovered ? 1 : 1 - .1 * restless * (1 - Math.cos(TAU * .2 * s.time)) / 2, settle: true }) },
+    { name: 'Pluck', rest: 'Still', hover: 'Trembles', press: 'Rings like a plucked string, then settles',
+      step: s => ({ phase: s.round + .03 * s.hovered * Math.sin(TAU * 1.5 * s.time) + (s.since < 4 ? .22 * Math.exp(-s.since / .5) * Math.sin(TAU * 2.5 * s.since) : 0) }) },
+    { name: 'Tighten', rest: 'Still', hover: 'Tightens to three cycles, drifting', press: 'Tightens to six',
+      step: s => ({ cycles: s.pressed ? 6 : s.hovered ? 3 : 1, speed: s.hovered ? .15 : 0, settle: !s.hovered }) },
+    { name: 'Unveil', rest: 'Still', hover: 'The window opens: the bare sine cycle', press: 'The cycle squares: the gradient rectangle itself',
+      step: s => ({ window: s.hovered || s.pressed ? 'rectangular' : 'hann', signal: s.pressed ? 'square' : 'sine', settle: true }) },
+    { name: 'Harmonics', rest: 'Still', hover: 'Gains its harmonics: a sawtooth', press: 'Turns to noise, a grain of sound',
+      step: s => ({ signal: s.pressed ? 'noise' : s.hovered ? 'sawtooth' : 'sine', speed: s.pressed ? .5 : 0, settle: !s.pressed }) },
+    { name: 'Scope', rest: 'Runs like an oscilloscope trace', hover: 'Holds still', press: 'Turns back the other way',
+      step: s => ({ speed: s.hovered ? 0 : s.direction * .5 * restless }) },
+    { name: 'Scrub', rest: 'Still', hover: 'Follows the pointer', press: 'Snaps back to the logo',
+      step: s => s.hovered && !s.pressed ? { phase: s.round + .5 * s.pointer } : { settle: true } },
+    { name: 'Sound', rest: 'Still', hover: 'Leans in', press: 'Plays itself, sin x + ½ sin 2x at 220 Hz, and moves with the sound',
+      step: s => {
+        const envelope = hann(s.since / 1.2)
+        return { amplitude: 1 + .05 * s.hovered + .4 * envelope, speed: 1.5 * envelope, settle: envelope === 0 }
+      } },
+  ]
+
+  const main = document.querySelector('main'), printPicker = document.getElementById('print')
+  const approach = (value, target, dt) => target + (value - target) * Math.exp(-dt / EASE)
+
+  const tiles = VARIANTS.map(variant => {
+    const tile = document.createElement('figure'), canvas = document.createElement('canvas')
+    tile.className = 'tile'
+    tile.tabIndex = 0
+    tile.innerHTML = `<figcaption><strong>${variant.name}</strong><dl><dt>Rest</dt><dd>${variant.rest}</dd><dt>Hover</dt><dd>${variant.hover}</dd><dt>Press</dt><dd>${variant.press}</dd></dl></figcaption>`
+    canvas.setAttribute('aria-label', `The logo, behaving as ${variant.name}`)
+    tile.prepend(canvas)
+    main.append(tile)
+    const state = { hovered: false, pressed: false, since: Infinity, pointer: 0, direction: 1, phase: 0, speed: 0, cycles: 1, amplitude: 1 }
+    const down = () => {
+      if (state.pressed) return
+      Object.assign(state, { pressed: true, since: 0, direction: -state.direction })
+      if (variant.name === 'Sound') sound(1.2)
+    }
+    const up = () => { state.pressed = false }
+    tile.addEventListener('pointerenter', () => state.hovered = true)
+    tile.addEventListener('pointerleave', () => Object.assign(state, { hovered: false, pressed: false }))
+    tile.addEventListener('pointermove', e => {
+      const box = canvas.getBoundingClientRect()
+      state.pointer = Math.max(-1, Math.min(1, (e.clientX - box.left) / box.width * 2 - 1))
+    })
+    tile.addEventListener('pointerdown', down)
+    tile.addEventListener('pointerup', up)
+    tile.addEventListener('focus', () => state.hovered = true)
+    tile.addEventListener('blur', () => Object.assign(state, { hovered: false, pressed: false }))
+    tile.addEventListener('keydown', e => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); down() } })
+    tile.addEventListener('keyup', e => { if (e.key === ' ' || e.key === 'Enter') up() })
+    return { variant, state, tile, view: logo(canvas) }
+  })
+
+  // One print for every tile, drawn in the picker by the first tile's shader
+  const first = tiles[0].view
+  for (const name of [...DITHERS, null, ...SCREENS]) {
+    if (!name) { printPicker.append(document.createElement('hr')); continue }
+    const option = new Option('', name)
+    option.innerHTML = `${first ? `<span class="icon mask" style="mask-image: url('${first.icon(name)}')"></span>` : ''}<span>${label(name)}</span>`
+    printPicker.append(option)
+  }
+  printPicker.value = 'bayer4'
+  const paint = () => {
+    const css = getComputedStyle(document.documentElement)
+    for (const { view } of tiles) view?.set({ print: printPicker.value, size: 2, ground: css.getPropertyValue('--panel'), figure: css.getPropertyValue('--figure') })
+  }
+  printPicker.addEventListener('input', paint)
+  paint()
+
+  let last = performance.now()
+  function frame(now) {
+    const dt = Math.min(.1, Math.max(0, now - last) / 1000)
+    last = now
+    for (const { variant, state: s, view } of tiles) {
+      if (!view) continue
+      s.since += dt
+      s.time = now / 1000
+      s.round = Math.round(s.phase)
+      const target = { speed: 0, cycles: 1, amplitude: 1, signal: 'sine', window: 'hann', ...variant.step(s) }
+      s.speed = approach(s.speed, target.speed, dt)
+      s.cycles = approach(s.cycles, target.cycles, dt)
+      s.amplitude = approach(s.amplitude, target.amplitude, dt)
+      if (target.phase !== undefined) s.phase = approach(s.phase, target.phase, 4 * dt)
+      else if (target.settle && Math.abs(target.speed) < 1e-3) s.phase = approach(s.phase, s.round, dt)
+      else s.phase += s.speed * dt
+      view.set({ phase: s.phase, cycles: s.cycles, amplitude: s.amplitude, signal: target.signal, window: target.window })
+      view.render(now)
+    }
+    requestAnimationFrame(frame)
+  }
+  requestAnimationFrame(frame)
+  </script>
+</body>
+</html>

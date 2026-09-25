@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>audio logo</title>
+  <link rel="icon" href="logo.svg">
+  <link rel="preload" href="assets/geist.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="logo.css">
+  <style>
+    html { height: 100%; }
+    body { display: grid; grid-template-rows: minmax(min(360px, 60svh), 1fr) auto; min-height: 100%; }
+    .stage { position: relative; min-height: 0; }
+    /* Dragging sideways turns the phase; vertical swipes still scroll the page */
+    canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: pan-y; }
+    canvas.turning { cursor: grabbing; }
+    .fail { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding-inline: var(--space-md); color: var(--figure); text-align: center; }
+    .fail[hidden] { display: none; }
+
+    /* The controls are a band of the screen: its tint and divider fade out toward the sides */
+    .bar { position: relative; isolation: isolate; padding: 22px var(--space-md) 24px; }
+    .bar::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      border-top: 1px solid var(--panel-rule);
+      background: var(--panel);
+      mask-image: linear-gradient(to right, transparent, #000 min(25%, 320px), #000 calc(100% - min(25%, 320px)), transparent);
+    }
+    /* Two rows of four: the waveform, then how it is filled and printed. Each column lines up across both. */
+    .grid { display: grid; grid-template-columns: repeat(4, max-content max-content); justify-content: center; align-items: center; gap: 16px 12px; }
+    .grid > label { justify-self: end; margin-left: 24px; color: var(--panel-muted); cursor: pointer; }
+    .grid > label:nth-child(8n + 1) { margin-left: 0; }
+    .grid select { width: 100%; min-width: 10.5rem; }
+    .slider { display: flex; align-items: center; gap: 10px; }
+    @media (max-width: 800px) {
+      .grid { grid-template-columns: max-content minmax(0, 1fr); justify-content: stretch; }
+      .grid > label { margin-left: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <nav class="pages"><a href="logo.html" aria-current="page">Lab</a><a href="logo-motion.html">Motion</a></nav>
+    <canvas aria-label="A signal through a window, filled with a gradient from the axis to the waveform's edge. Drag sideways to turn its phase."></canvas>
+    <p class="fail" id="fail" hidden>This page needs WebGL 2.</p>
+  </div>
+
+  <form class="bar" id="controls">
+    <div class="grid">
+      <label for="signal">Signal</label>
+      <select id="signal" name="signal"><button><selectedcontent></selectedcontent></button></select>
+      <label for="window">Window</label>
+      <select id="window" name="window"><button><selectedcontent></selectedcontent></button></select>
+      <label for="cycles">Cycles</label>
+      <span class="slider"><input type="range" id="cycles" name="cycles" min="0.5" max="8" step="0.5" value="1"><output id="cycles-out">1</output></span>
+      <label for="speed">Speed</label>
+      <span class="slider"><input type="range" id="speed" name="speed" min="-2" max="2" step="0.05" value="0.25"><output id="speed-out">0.25 Hz</output></span>
+      <label for="gradient">Gradient</label>
+      <select id="gradient" name="gradient"><button><selectedcontent></selectedcontent></button></select>
+      <label for="print">Print</label>
+      <select id="print" name="print"><button><selectedcontent></selectedcontent></button></select>
+      <label for="size">Size</label>
+      <span class="slider"><input type="range" id="size" name="size" min="0.5" max="8" step="0.5" value="3"><output id="size-out">3 px</output></span>
+      <label for="invert">Invert</label>
+      <span class="slider"><input type="checkbox" id="invert" name="invert"></span>
+    </div>
+  </form>
+
+  <script type="module">
+  import { logo, WINDOWS, SIGNALS, DITHERS, SCREENS, label, drawing } from './logo.js'
+
+  const DETENT = .02 // a drag within this many turns of the rest phase lands on it
+  const $ = s => document.querySelector(s)
+  const root = document.documentElement, canvas = $('canvas'), form = $('#controls'), tab = $('link[rel=icon]')
+  const { signal, window: win, gradient, print, cycles, speed, size, invert } = form.elements
+  const view = logo(canvas, { onresize: wake })
+
+  // Every picker shows each choice drawn; print styles are drawn by the logo's own shader
+  const offer = (select, names, draw, chosen) => {
+    for (const name of names) {
+      if (!name) { select.append(document.createElement('hr')); continue }
+      const option = new Option('', name)
+      option.innerHTML = `${draw?.(name) ?? ''}<span>${label(name)}</span>`
+      select.append(option)
+    }
+    select.value = chosen
+  }
+  offer(signal, Object.keys(SIGNALS), drawing.signal, 'sine')
+  offer(win, WINDOWS, drawing.window, 'hann')
+  offer(gradient, WINDOWS, drawing.gradient, 'bartlett')
+  offer(print, [...DITHERS, null, ...SCREENS], view && (name => `<span class="icon mask" style="mask-image: url('${view.icon(name)}')"></span>`), 'bayer4')
+  if (!view) $('#fail').hidden = false
+
+  let phase = 0, last = 0, awake = false, turning = null, shown = -Infinity
+
+  function frame(now) {
+    const dt = Math.min(.1, Math.max(0, now - last) / 1000), hz = +speed.value
+    last = now
+    phase += hz * dt
+    view.set({ phase })
+    const morphing = view.render(now)
+    // The tab's icon follows the waveform, a few times a second
+    if (now - shown > 125 || !(hz || morphing)) {
+      tab.href = view.favicon(matchMedia('(prefers-color-scheme: dark)').matches ? '#F2F4F8' : '#141414')
+      shown = now
+    }
+    awake = !!hz || morphing
+    if (awake) requestAnimationFrame(frame)
+  }
+  function wake() {
+    if (awake || !view) return
+    awake = true
+    last = performance.now()
+    requestAnimationFrame(frame)
+  }
+
+  function sync() {
+    root.classList.toggle('invert', invert.checked)
+    size.disabled = print.value === 'smooth'
+    $('#cycles-out').value = cycles.value
+    $('#speed-out').value = `${speed.value.replace('-', '−')} Hz`
+    $('#size-out').value = `${size.value} px`
+    for (const range of form.querySelectorAll('input[type=range]')) fill(range)
+    const css = getComputedStyle(root)
+    view?.set({
+      signal: signal.value, window: win.value, gradient: gradient.value, print: print.value, cycles: +cycles.value, size: +size.value,
+      ground: css.getPropertyValue('--ground'), figure: css.getPropertyValue('--figure'),
+    })
+  }
+  // A slider's fill runs from zero, or from the low end when zero is off the scale, to the value
+  function fill(range) {
+    const min = +range.min, max = +range.max, at = v => (v - min) / (max - min) * 100
+    const zero = at(Math.min(max, Math.max(min, 0))), value = at(+range.value)
+    range.style.setProperty('--from', `${Math.min(zero, value)}%`)
+    range.style.setProperty('--to', `${Math.max(zero, value)}%`)
+  }
+  form.addEventListener('input', () => { sync(); wake() })
+  form.addEventListener('submit', e => e.preventDefault())
+
+  // Dragging the waveform stops it and turns its phase by hand: the signal follows the pointer under the window,
+  // and lands on its rest phase, the logo for sine through Hann, when brought within DETENT of it
+  canvas.addEventListener('pointerdown', e => {
+    turning = { x: e.clientX, turn: phase }
+    canvas.setPointerCapture(e.pointerId)
+    canvas.classList.add('turning')
+    speed.value = 0
+    sync()
+  })
+  canvas.addEventListener('pointermove', e => {
+    if (!turning) return
+    const moved = (e.clientX - turning.x) * canvas.width / canvas.clientWidth / view.scale()
+    const turn = turning.turn + cycles.value * moved / 2, rest = Math.round(turn)
+    phase = Math.abs(turn - rest) < DETENT ? rest : turn
+    wake()
+  })
+  const release = () => { turning = null; canvas.classList.remove('turning') }
+  canvas.addEventListener('pointerup', release)
+  canvas.addEventListener('pointercancel', release)
+
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) speed.value = 0
+  sync()
+  wake()
+  </script>
+</body>
+</html>

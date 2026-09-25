@@ -1,0 +1,99 @@
+/* The logo pages: the lab and its motion variants. Dark as the site's devices; inverted, the site's paper. */
+@font-face { font-family: 'Geist'; src: url('./assets/geist.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
+:root {
+  color-scheme: dark;
+  --ground: var(--color-screen-low);
+  --figure: var(--color-paper);
+  --panel: var(--color-screen);
+  --panel-rule: var(--color-screen-rule);
+  --panel-edge: var(--color-screen-edge);
+  --panel-hover: var(--color-screen-pill-hover);
+  --panel-ink: var(--color-screen-ink);
+  --panel-muted: var(--color-screen-muted);
+  --panel-dim: var(--color-screen-dim);
+  --panel-knob: var(--color-screen-bright);
+}
+:root.invert {
+  color-scheme: light;
+  --ground: var(--color-paper);
+  --figure: var(--color-ink);
+  --panel: var(--color-hover);
+  --panel-rule: var(--color-rule);
+  --panel-edge: var(--color-rule);
+  --panel-hover: var(--color-rule);
+  --panel-ink: var(--color-ink);
+  --panel-muted: var(--color-muted);
+  --panel-dim: var(--color-muted);
+  --panel-knob: var(--color-ink);
+}
+body { margin: 0; background: var(--ground); color: var(--panel-ink); font: 400 var(--text-sm)/1 var(--font-body); }
+
+/* Lab and Motion, top left */
+.pages { position: absolute; top: calc(var(--space-md) + env(safe-area-inset-top, 0px)); left: var(--space-md); z-index: 1; display: flex; gap: 18px; }
+.pages a { color: var(--panel-dim); text-decoration: none; }
+.pages a:hover, .pages a[aria-current] { color: var(--panel-ink); }
+
+output { min-width: 7ch; color: var(--panel-ink); font-variant-numeric: tabular-nums; }
+input[type=checkbox] { margin: 0; accent-color: var(--panel-ink); cursor: pointer; }
+:is(input, select, a):focus-visible { outline: 2px solid var(--panel-knob); outline-offset: 2px; }
+:disabled { opacity: .4; cursor: default; }
+
+/* A picker is a pill outlined like the site's; where the browser allows, its list shows each choice drawn */
+select {
+  margin: 0;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px var(--panel-rule);
+  color: var(--panel-ink);
+  font: inherit;
+  cursor: pointer;
+}
+select:hover { background: var(--panel-hover); }
+.icon { flex: none; width: 24px; height: 12px; }
+.swatch { height: 8px; border-radius: 2px; }
+.mask { background: currentColor; mask: center / contain no-repeat; }
+@supports (appearance: base-select) {
+  select, ::picker(select) { appearance: base-select; }
+  select { display: flex; align-items: center; gap: 8px; }
+  select::picker-icon { color: var(--panel-muted); }
+  selectedcontent { display: flex; align-items: center; gap: 8px; }
+  ::picker(select) {
+    max-height: min(60svh, 480px);
+    margin-block: 6px;
+    padding: 4px;
+    border: 0;
+    border-radius: 12px;
+    background: var(--panel);
+    box-shadow: var(--shadow-menu);
+    color: var(--panel-muted);
+    scrollbar-width: thin;
+    scrollbar-color: var(--panel-rule) transparent;
+  }
+  option { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 8px; white-space: nowrap; }
+  option::checkmark { display: none; }
+  option:is(:hover, :focus-visible) { background: var(--panel-hover); color: var(--panel-ink); outline: 0; }
+  option:checked { color: var(--panel-ink); }
+  select hr { margin: 4px 10px; border: 0; border-top: 1px solid var(--panel-rule); }
+}
+
+/* The site's slider: a recessed track outlined a step lighter, a quieter fill from zero to the value, a bright knob */
+input[type=range] {
+  --track: 6px;
+  --knob: 14px;
+  --from: 0%;
+  --to: 0%;
+  --fill: linear-gradient(to right, transparent var(--from), var(--panel-muted) var(--from) var(--to), transparent var(--to)), var(--ground);
+  width: 104px;
+  height: 28px;
+  margin: 0;
+  appearance: none;
+  background: none;
+  cursor: ew-resize;
+}
+input[type=range]::-webkit-slider-runnable-track { height: var(--track); border-radius: calc(var(--track) / 2); background: var(--fill); box-shadow: inset 0 0 0 1px var(--panel-edge); }
+input[type=range]::-moz-range-track { height: var(--track); border-radius: calc(var(--track) / 2); background: var(--fill); box-shadow: inset 0 0 0 1px var(--panel-edge); }
+input[type=range]::-webkit-slider-thumb { appearance: none; width: var(--knob); height: var(--knob); margin-top: calc((var(--track) - var(--knob)) / 2); border: 0; border-radius: 50%; background: var(--panel-knob); }
+input[type=range]::-moz-range-thumb { width: var(--knob); height: var(--knob); border: 0; border-radius: 50%; background: var(--panel-knob); }
+input[type=range]:focus-visible { border-radius: 4px; }

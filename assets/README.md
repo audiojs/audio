@@ -7,6 +7,10 @@ The website is static. Serve the repository root with any static HTTP server and
   Refresh them with `node .site-build.js` after changing the library.
 - Encoders load only when their format is exported. MP3 and Ogg include their WASM payloads; FLAC uses the bundled libflacjs encoder.
   Encoder licenses are in `LICENSE-encode-*.txt`, `LICENSE-libflacjs.txt`, and `LICENSE-wasm-media-encoders.txt`.
+- `window-function.js` and `periodic-function.js` bundle the installed window-function 3.0.3 and periodic-function 2.1.2 (both MIT)
+  for `logo.js`, which draws the logo: one sine cycle through a Hann window, filled with a gradient rectangle bent
+  to the waveform. `logo.html` is its lab, any signal through any window; `logo-motion.html` shows nine ways it
+  can behave at rest, under the pointer and pressed. `node .site-build.js` refreshes the bundles too.
 - `sprae.js` is the standalone Sprae 13.9.4 ES module, `dist/sprae.js` from the npm package.
   Its MIT license is included as `LICENSE-sprae.txt`.
 - `geist.woff2` is the Geist variable Latin font, with its OFL license included.

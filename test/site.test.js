@@ -2929,6 +2929,261 @@ test('workshop: menus fit, and the middle pipeline supports reordering, trash, U
     await frame.getByRole('button', { name: 'Add gain', exact: true }).click()
     await frame.locator('.demo[aria-busy="false"]').waitFor()
     assert.equal(await frame.locator('.chain .pill').getAttribute('title'), '.gain(-6)')
-    await frame.locator('.chain .crumb-outline').waitFor()
+    if (await frame.locator('html[data-outlined]').count()) await frame.locator('.chain .crumb-outline').waitFor()
+  }
+})
+
+test('workshop: the continuous strip has one divider per join and rounded ends after wrapping and deletion', async () => {
+  await workshop()
+  const frame = page.frameLocator('#strip-bottom iframe')
+  const joins = () => page.waitForFunction(() => {
+    const doc = document.querySelector('#strip-bottom iframe').contentDocument
+    const pills = [...doc.querySelectorAll('.chain .pill')]
+    if (!pills.length) return false
+    return pills.every((pill, i) => {
+      const svg = pill.querySelector('.crumb-outline')
+      if (!svg) return false
+      const width = pill.getBoundingClientRect().width, fill = svg.firstElementChild, edge = svg.lastElementChild
+      const first = !i || pills[i - 1].offsetTop !== pill.offsetTop, last = i === pills.length - 1 || pills[i + 1].offsetTop !== pill.offsetTop
+      // A left end is solid; every other left edge has the sole chevron stroke.
+      return Math.abs(svg.viewBox.baseVal.width - width) < .01 &&
+        fill.isPointInFill({ x: 1, y: 15 }) === first &&
+        edge.isPointInStroke({ x: 6, y: 15 }) === !first &&
+        edge.isPointInStroke({ x: width - .5, y: 15 }) === last &&
+        !edge.isPointInStroke({ x: width + 6, y: 15 }) &&
+        (first || Math.abs(pill.getBoundingClientRect().left - pills[i - 1].getBoundingClientRect().right) < .01)
+    })
+  })
+  for (const [width, rows] of [[512, 1], [320, 2], [512, 1]]) {
+    await page.getByLabel(`${width} px`, { exact: true }).check()
+    await page.waitForFunction(width => document.querySelector('#strip-bottom iframe').contentDocument.querySelector('.demo').offsetWidth === width, width)
+    await joins()
+    assert.equal(await frame.locator('.chain .pill').evaluateAll(pills => new Set(pills.map(p => p.offsetTop)).size), rows)
+  }
+  await frame.locator('.pill[data-key="0"]').focus(); await page.keyboard.press('Delete')
+  await frame.locator('.demo[aria-busy="false"]').waitFor(); await joins()
+  assert.equal(await frame.locator('.chain .pill').count(), 2)
+  await frame.getByRole('button', { name: 'Undo', exact: true }).click()
+  await frame.locator('.demo[aria-busy="false"]').waitFor(); await settled(frame.locator('.chain')); await joins()
+  assert.equal(await frame.locator('.chain .pill').count(), 3)
+})
+
+test('workshop: wrapped connectors follow the chain and point along its direction through resize, reorder and removal', async () => {
+  await workshop()
+  const ids = ['linked-bottom', 'triangle-end-bottom', 'triangle-bottom', 'triangle-outline-bottom', 'line-chevron-bottom', 'line-arrow-bottom']
+  const end = page.frameLocator('#triangle-end-bottom iframe')
+  assert(await end.locator('.chain .joint:visible').evaluateAll(joints => joints.length === 2 && joints.every(svg => {
+    const path = svg.firstElementChild, width = svg.viewBox.baseVal.width
+    return path.isPointInFill({ x: width - 4.5, y: 7 }) && !path.isPointInFill({ x: width / 2, y: 5 }) && !path.isPointInFill({ x: width - 1, y: 7 })
+  })), 'straight connectors put the filled triangle at the destination, pointing right')
+  const joined = id => page.waitForFunction(id => {
+    const doc = document.querySelector(`#${id} iframe`).contentDocument, svg = doc.querySelector('.chain-routes')
+    const links = [...doc.querySelectorAll('.chain .link')].sort((a, b) => a.offsetTop - b.offsetTop || a.offsetLeft - b.offsetLeft)
+    const expected = links.flatMap((link, i) => links[i + 1]?.offsetTop > link.offsetTop ? [[link, links[i + 1]]] : [])
+    if (svg.children.length !== expected.length || getComputedStyle(svg).pointerEvents !== 'none') return false
+    const box = doc.querySelector('.demo').getBoundingClientRect(), pills = links.map(link => link.querySelector('.pill').getBoundingClientRect())
+    return expected.every(([from, to], i) => {
+      const group = svg.children[i], path = group.firstElementChild, a = from.querySelector('.pill'), b = to.querySelector('.pill')
+      if (group.dataset.from !== a.dataset.key || group.dataset.to !== b.dataset.key || getComputedStyle(from.querySelector('.joint')).visibility !== 'hidden') return false
+      const start = a.getBoundingClientRect(), end = b.getBoundingClientRect(), length = path.getTotalLength()
+      const point = distance => path.getPointAtLength(distance).matrixTransform(path.getScreenCTM())
+      const p = point(0), q = point(length)
+      if (Math.abs(p.x - start.right) > .1 || Math.abs(p.y - (start.top + start.bottom) / 2) > .1 || Math.abs(q.x - end.left) > .1 || Math.abs(q.y - (end.top + end.bottom) / 2) > .1) return false
+      const shape = doc.documentElement.dataset.shape
+      if (shape !== 'linked') {
+        const head = group.lastElementChild, bounds = head.getBBox(), rect = head.getBoundingClientRect()
+        const centered = ['triangle', 'triangle-outline', 'line-chevron'].includes(shape)
+        const centerY = bounds.y + bounds.height / 2
+        if (centered) {
+          if (Math.abs(rect.x + rect.width / 2 - (start.right + end.left) / 2) > .1 || Math.abs(rect.y + rect.height / 2 - (start.bottom + end.top) / 2) > .1) return false
+        } else if (Math.abs(rect.right - end.left + .5) > .1 || Math.abs(rect.y + rect.height / 2 - q.y) > .1) return false
+        if (shape.startsWith('triangle')) {
+          // A leftward triangle is broad on the right, narrow on the left; end triangles are the opposite.
+          if (head.isPointInFill({ x: bounds.x + 1, y: centerY + 2 }) === centered || head.isPointInFill({ x: bounds.x + bounds.width - 1, y: centerY + 2 }) !== centered) return false
+        } else {
+          if (!head.isPointInStroke({ x: centered ? bounds.x : bounds.x + bounds.width, y: centerY }) || head.isPointInStroke({ x: centered ? bounds.x + bounds.width : bounds.x, y: centerY })) return false
+        }
+      }
+      for (let n = 1; n < 128; n++) {
+        const p = point(length * n / 128)
+        if (p.x < box.left || p.x > box.right || pills.some(b => p.x > b.left + .5 && p.x < b.right - .5 && p.y > b.top + .5 && p.y < b.bottom - .5)) return false
+      }
+      return true
+    })
+  }, id)
+  for (const [width, count] of [[512, 0], [320, 1], [512, 0], [320, 1]]) {
+    await page.getByLabel(`${width} px`, { exact: true }).check()
+    await page.waitForFunction(width => document.querySelector('#linked-bottom iframe').contentDocument.querySelector('.demo').offsetWidth === width, width)
+    for (const id of ids) {
+      await joined(id)
+      assert.equal(await page.frameLocator(`#${id} iframe`).locator('.chain-routes g').count(), count, id)
+    }
+  }
+  const frame = page.frameLocator('#triangle-bottom iframe')
+  await page.setViewportSize({ width: 320, height: 1000 })
+  await joined('triangle-bottom')
+  assert.equal(await frame.locator('.chain-routes g').count(), 2, 'three rows have two return paths')
+  await frame.locator('.pill[data-key="0"]').scrollIntoViewIfNeeded()
+  const first = await frame.locator('.pill[data-key="0"]').boundingBox(), last = await frame.locator('.pill[data-key="2"]').boundingBox()
+  await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2); await page.mouse.down()
+  await page.mouse.move(last.x + last.width / 2, last.y + last.height / 2, { steps: 12 })
+  await settled(frame.locator('.chain')); await joined('triangle-bottom')
+  await page.keyboard.press('Escape'); await page.mouse.up()
+  await settled(frame.locator('.chain')); await joined('triangle-bottom')
+  assert.equal((await frame.locator('.chain .pill').evaluateAll(pills => pills.map(p => p.title))).join('\n'), defaultChain)
+  await frame.locator('.pill[data-key="0"]').focus(); await page.keyboard.press('Alt+ArrowRight')
+  await frame.locator('.demo[aria-busy="false"]').waitFor(); await settled(frame.locator('.chain')); await joined('triangle-bottom')
+  assert.deepEqual(await frame.locator('.chain .pill').evaluateAll(pills => pills.map(p => p.title)), ['.normalize(-1)', '.trim()', '.fade(0.02, 0.1)'])
+  await frame.getByRole('button', { name: 'Undo', exact: true }).click()
+  await frame.locator('.demo[aria-busy="false"]').waitFor(); await settled(frame.locator('.chain')); await joined('triangle-bottom')
+  for (let count = 2; count >= 0; count--) {
+    await frame.locator('.pill[data-key="0"]').focus(); await page.keyboard.press('Delete')
+    await frame.locator('.demo[aria-busy="false"]').waitFor(); await joined('triangle-bottom')
+    assert.equal(await frame.locator('.chain-routes g').count(), Math.max(0, count - 1))
+  }
+  await frame.getByRole('button', { name: 'Add a method', exact: true }).click()
+  await frame.getByRole('button', { name: 'Add gain', exact: true }).click()
+  await frame.locator('.demo[aria-busy="false"]').waitFor(); await joined('triangle-bottom')
+  assert.equal(await frame.locator('.chain .pill').getAttribute('title'), '.gain(-6)')
+  assert.equal(await frame.locator('.chain-routes g').count(), 0)
+})
+
+// A canvas as gray levels, one byte a pixel: the logo's tones are neutral, so red carries the whole image
+async function logoShot(canvas = page.locator('canvas')) {
+  const png = (await canvas.screenshot()).toString('base64')
+  const { w, h, gray } = await page.evaluate(async png => {
+    const image = new Image()
+    image.src = 'data:image/png;base64,' + png
+    await image.decode()
+    const context = new OffscreenCanvas(image.width, image.height).getContext('2d')
+    context.drawImage(image, 0, 0)
+    const rgba = context.getImageData(0, 0, image.width, image.height).data
+    let gray = ''
+    for (let i = 0; i < rgba.length; i += 4) gray += String.fromCharCode(rgba[i])
+    return { w: image.width, h: image.height, gray }
+  }, png)
+  return { w, h, gray, at: (x, y) => gray.charCodeAt(y * w + x), lit: gray.split('').some(pixel => pixel.charCodeAt(0) > 200) }
+}
+async function logoStill() {
+  let last = await logoShot()
+  for (let i = 0; i < 40; i++) {
+    await page.waitForTimeout(100)
+    const next = await logoShot()
+    if (next.gray === last.gray) return next
+    last = next
+  }
+  assert.fail('the logo never came to rest')
+}
+
+test('logo: a signal through a window, filled by half a window as its gradient, turned by hand or moving, printed in two tones', async () => {
+  // Reduced motion opens it at rest
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.setViewportSize({ width: 800, height: 760 })
+  await page.goto(origin + '/logo.html', { waitUntil: 'networkidle' })
+  assert.equal(await page.locator('#fail').isVisible(), false)
+  // The drawing alone: the page links sit over its corner
+  await page.addStyleTag({ content: '.pages { display: none }' })
+  const pick = (name, value) => page.selectOption(`select[name="${name}"]`, value)
+  const offered = name => page.locator(`select[name="${name}"] option`).evaluateAll(options => options.map(option => option.value))
+  // The waveform and the gradient offer the same windows, the whole collection, rectangular first
+  const windows = await offered('window')
+  assert.deepEqual(await offered('gradient'), windows)
+  assert(windows.length === 34 && windows[0] === 'rectangular' && ['bartlett', 'hann', 'dolphChebyshev'].every(name => windows.includes(name)), windows.join())
+  // Every print style is drawn in its picker by the shader, and the tab's icon is the waveform
+  const prints = await offered('print')
+  assert.equal(await page.locator('select[name="print"] option .mask[style*="data:image/png"]').count(), prints.length)
+  assert.match(await page.locator('link[rel=icon]').getAttribute('href'), /^data:image\/png/)
+
+  await pick('print', 'smooth')
+  const rest = await logoStill(), { w, h } = rest, axis = h >> 1, ground = rest.at(0, 0)
+  // The lit pixels up a column from the axis
+  const column = (shot, x) => {
+    const lit = []
+    for (let y = axis - 1; y >= 0 && shot.at(x, y) > ground + 8; y--) lit.push(shot.at(x, y))
+    return lit
+  }
+  // At rest a sine cycle through Hann is the logo, odd: half a turn about the centre lands it on itself
+  const unturned = shot => {
+    let off = 0
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) off += Math.abs(shot.at(x, y) - shot.at(w - 1 - x, h - 1 - y))
+    return off / (w * h)
+  }
+  assert(unturned(rest) < 1, `the rest pose differs from its half turn by ${unturned(rest)} a pixel`)
+  // Half of Bartlett is a straight fall: up the tallest column paper fades to ink, never brightening
+  let peak = 0
+  for (let x = 0; x < w / 2; x++) if (column(rest, x).length > column(rest, peak).length) peak = x
+  const fall = column(rest, peak)
+  assert(fall.length > h / 4 && fall[0] > 200 && fall.at(-1) < ground + 40, JSON.stringify([fall.length, fall[0], fall.at(-1)]))
+  assert(fall.every((v, n) => !n || v <= fall[n - 1] + 1), 'the tone never brightens toward the edge')
+  // Rectangular has no fall, so as a gradient it fills flat
+  await pick('gradient', 'rectangular')
+  const flat = column(await logoStill(), peak)
+  assert(flat[0] > 200 && flat.slice(0, -2).every(v => Math.abs(v - flat[0]) <= 1), JSON.stringify(flat))
+  await pick('gradient', 'bartlett')
+  await logoStill()
+
+  // A drag turns the phase by hand; brought back, it lands on the rest pose again
+  const box = await page.locator('canvas').boundingBox(), y = box.y + box.height / 2
+  await page.mouse.move(box.x + box.width / 2, y)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width / 2 + 60, y, { steps: 6 })
+  assert(unturned(await logoStill()) > 5, 'a drag turns the signal under its window')
+  await page.mouse.move(box.x + box.width / 2 + 1, y, { steps: 6 })
+  await page.mouse.up()
+  assert(unturned(await logoStill()) < 1, 'back near where it started, the drag lands on the rest pose')
+  // At speed it moves; a press stops it
+  await page.locator('#speed').fill('0.5')
+  const moving = await logoShot()
+  await page.waitForTimeout(150)
+  assert.notEqual((await logoShot()).gray, moving.gray, 'the signal moves at speed')
+  await page.mouse.move(box.x + box.width / 2, y)
+  await page.mouse.down()
+  await page.mouse.up()
+  assert.equal(await page.locator('#speed').inputValue(), '0')
+  assert.equal(await page.locator('#speed-out').textContent(), '0 Hz')
+
+  for (const mode of ['bayer2', 'bayer4', 'bayer8', 'blue', 'white', 'floyd', 'atkinson']) {
+    await pick('print', mode)
+    await logoStill()
+    assert.equal(new Set((await logoShot()).gray).size, 2, `${mode} dithers to ink and paper only`)
+  }
+  // Engravings print paper inside the shape and leave the ground bare
+  for (const mode of ['halftone', 'lines', 'spikes', 'contours', 'mesh', 'guilloche', 'stipple']) {
+    await pick('print', mode)
+    const { lit, at } = await logoStill()
+    assert(lit && at(0, 0) === ground && at(w - 1, h - 1) === ground, mode)
+  }
+
+  // Haar, a square cycle through a rectangular window, is the gradient rectangle itself: every column alike
+  await pick('print', 'smooth')
+  await pick('signal', 'square')
+  await pick('window', 'rectangular')
+  const haar = await logoStill()
+  const inside = [...Array(w >> 1).keys()].filter(x => haar.at(x, axis - 2) > ground + 8)
+  const l = inside[0], r = inside.at(-1), a = Math.round(l + (r - l) / 4), b = Math.round(l + (r - l) * 3 / 4)
+  for (let y = 0; y < axis; y++) assert(Math.abs(haar.at(a, y) - haar.at(b, y)) <= 1, `row ${y}: ${haar.at(a, y)} ≠ ${haar.at(b, y)}`)
+})
+
+test('logo motion: nine variants, each drawn and each answering the pointer', async () => {
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto(origin + '/logo-motion.html', { waitUntil: 'networkidle' })
+  const tiles = page.locator('.tile')
+  assert.equal(await tiles.count(), 9)
+  for (let i = 0; i < 9; i++) {
+    const tile = tiles.nth(i), canvas = tile.locator('canvas'), name = await tile.locator('strong').textContent()
+    await tile.scrollIntoViewIfNeeded()
+    await page.mouse.move(0, 0)
+    await page.waitForTimeout(700)
+    const rest = await logoShot(canvas)
+    assert(rest.lit, `${name} draws the logo`)
+    // Off centre, so a pointer-following variant has somewhere to follow
+    await tile.hover({ position: { x: 60, y: 60 } })
+    await page.waitForTimeout(700)
+    const hovered = await logoShot(canvas)
+    await page.mouse.down()
+    await page.waitForTimeout(500)
+    const pressed = await logoShot(canvas)
+    await page.mouse.up()
+    assert(new Set([rest.gray, hovered.gray, pressed.gray]).size > 1, `${name} answers the pointer`)
   }
 })
