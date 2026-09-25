@@ -3198,6 +3198,7 @@ test('logo motion: at rest it is the logo; near its middle it stirs; flung it sp
 
   const rest = await logoStill()
   assert(asymmetry(rest) < 1, 'at rest it is the logo')
+  assert.equal(await page.locator('#sound').inputValue(), 'none', 'silent until asked')
   // Hover counts near its middle only: at the stage's edge it rests; over its centre it stirs
   await page.mouse.move(box.x + 30, y)
   assert(apart(rest, await logoStill()) < .05, 'at the edge of the stage it rests')
