@@ -45,7 +45,7 @@
   import { motion, HOVERS, LIFTS, SOUNDS } from './logo-motion.js'
 
   const $ = s => document.querySelector(s)
-  const root = document.documentElement, canvas = $('canvas'), form = $('#controls'), tab = $('link[rel=icon]'), invert = $('#invert')
+  const root = document.documentElement, canvas = $('canvas'), form = $('#controls'), invert = $('#invert')
   const { signal, window: win, gradient, print, cycles, speed, size, gap, hover, lift, sound } = form.elements
   const view = logo(canvas, { onresize: () => answer?.set({}) })
 
@@ -69,20 +69,7 @@
   if (!view) $('#fail').hidden = false
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) speed.value = 0
 
-  // The tab's icon follows the waveform, a few times a second and once more when it comes to rest
-  let shown = -Infinity, trailing
-  const favicon = () => {
-    tab.href = view.favicon(matchMedia('(prefers-color-scheme: dark)').matches ? '#F2F4F8' : '#141414')
-    shown = performance.now()
-  }
-  const answer = view && motion(view, canvas, {
-    ontap: name => { signal.value = name; sync() },
-    onframe: now => {
-      clearTimeout(trailing)
-      if (now - shown > 125) favicon()
-      else trailing = setTimeout(favicon, 125)
-    },
-  })
+  const answer = view && motion(view, canvas, { favicon: true, ontap: name => { signal.value = name; sync() } })
 
   function sync() {
     root.classList.toggle('invert', invert.ariaPressed === 'true')

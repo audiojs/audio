@@ -51,13 +51,15 @@ function click() {
 
 /**
  * Makes a logo drawn by logo.js on canvas answer the pointer and keys, and animates it, drawing only while something moves.
- * settings: speed (turns a second on its own), cycles, signal, hover (a key of HOVERS), lift, sound; ontap(signal) hears
- * the signal a tap moves to; onframe(now) follows each frame drawn. set() changes settings, and set({}) redraws.
+ * settings: speed (turns a second on its own), cycles, signal, hover (a key of HOVERS), lift, sound; tap, whether a tap
+ * gives the next signal, and ontap(signal) to hear which; area, an element whose hover and drag stand for the canvas's,
+ * as a whole title for its mark; favicon, to show the wave in the tab. set() changes settings, and set({}) redraws.
  */
 export function motion(view, canvas, settings = {}) {
-  const o = { speed: 0, cycles: 1, signal: 'sine', hover: 'stir', lift: 'none', sound: 'none', ...settings }
+  const o = { speed: 0, cycles: 1, signal: 'sine', hover: 'stir', lift: 'none', sound: 'none', tap: true, ...settings }
   const s = { hovered: false, pressed: false, dragging: false, lift: 0, phase: 0, velocity: 0, spin: 0, cycles: o.cycles, cyclesVelocity: 0, amplitude: 1, amplitudeVelocity: 0, grab: null, tick: peak(0), tone: null }
-  let changed = true, morphing = false
+  const surface = o.area ?? canvas
+  let changed = true, morphing = false, dragged = false
 
   // Near the middle: inside an ellipse over the waveform's centre, most of a lobe across and one high
   const near = e => {
@@ -73,42 +75,58 @@ export function motion(view, canvas, settings = {}) {
   const release = e => {
     if (!s.pressed) return
     if (s.dragging && e && e.timeStamp - s.grab.at > 80) s.velocity = 0
-    if (!s.dragging) {
+    dragged = s.dragging
+    if (!s.dragging && o.tap) {
       o.signal = SHAPES[(SHAPES.indexOf(o.signal) + 1) % SHAPES.length]
       o.ontap?.(o.signal)
       if (audio && o.sound !== 'none') click()
     }
     Object.assign(s, { pressed: false, dragging: false, grab: null, lift: 0 })
-    canvas.classList.remove('turning')
+    surface.classList.remove('turning')
   }
-  canvas.addEventListener('pointerdown', e => {
-    canvas.setPointerCapture(e.pointerId)
+  surface.addEventListener('pointerdown', e => {
+    surface.setPointerCapture(e.pointerId)
     s.grab = { x: e.clientX, y: e.clientY, lastX: e.clientX, at: e.timeStamp }
+    dragged = false
     press()
   })
-  canvas.addEventListener('pointermove', e => {
-    s.hovered = near(e)
+  surface.addEventListener('pointermove', e => {
+    if (!o.area) s.hovered = near(e)
     if (!s.grab) return
     if (!s.dragging && Math.hypot(e.clientX - s.grab.x, e.clientY - s.grab.y) < DRAG) return
     s.dragging = true
-    canvas.classList.add('turning')
+    surface.classList.add('turning')
     const turned = s.cycles * (e.clientX - s.grab.lastX) * canvas.width / canvas.clientWidth / view.scale() / 2, dt = Math.max(1, e.timeStamp - s.grab.at) / 1000
     s.phase += turned
     s.velocity = .6 * s.velocity + .4 * turned / dt
     s.lift = s.grab.y - e.clientY
     Object.assign(s.grab, { lastX: e.clientX, at: e.timeStamp })
   })
-  canvas.addEventListener('pointerup', release)
-  canvas.addEventListener('pointercancel', release)
-  canvas.addEventListener('pointerleave', () => s.hovered = false)
-  canvas.addEventListener('focus', () => s.hovered = true)
-  canvas.addEventListener('blur', () => { s.hovered = false; release() })
-  // Keys: the arrows nudge it as a small fling would; Space or Enter is a tap
-  canvas.addEventListener('keydown', e => {
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); s.velocity += e.key === 'ArrowRight' ? 1 : -1 }
-    else if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); press() }
-  })
-  canvas.addEventListener('keyup', e => { if (e.key === ' ' || e.key === 'Enter') release() })
+  surface.addEventListener('pointerup', release)
+  surface.addEventListener('pointercancel', release)
+  // A drag is not a click: whatever the area does when clicked, a link's jump say, waits for a real one
+  surface.addEventListener('click', e => { if (dragged) e.preventDefault(), e.stopPropagation(); dragged = false }, true)
+  if (o.area) surface.addEventListener('pointerenter', () => s.hovered = true)
+  surface.addEventListener('pointerleave', () => s.hovered = false)
+  surface.addEventListener('focus', () => s.hovered = true)
+  surface.addEventListener('blur', () => { s.hovered = false; release() })
+  // Keys, on the drawing itself: the arrows nudge it as a small fling would; Space or Enter is a tap. An area keeps its own.
+  if (!o.area) {
+    canvas.addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); s.velocity += e.key === 'ArrowRight' ? 1 : -1 }
+      else if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); press() }
+    })
+    canvas.addEventListener('keyup', e => { if (e.key === ' ' || e.key === 'Enter') release() })
+  }
+
+  // The tab's icon follows the wave, a few times a second and once more when it comes to rest
+  const tab = o.favicon && document.querySelector('link[rel~=icon]')
+  let shown = -Infinity, trailing
+  const favicon = () => {
+    Object.assign(tab, { type: 'image/png', href: view.favicon(matchMedia('(prefers-color-scheme: dark)').matches ? '#F2F4F8' : '#141414') })
+    shown = performance.now()
+  }
+
   // Any touch of the page may start the sound, so it can tick while the logo turns on its own
   const listening = () => { if (o.sound !== 'none') hear() }
   document.addEventListener('pointerdown', listening)
@@ -160,7 +178,11 @@ export function motion(view, canvas, settings = {}) {
       changed = false
       view.set({ phase: s.phase, cycles: s.cycles, amplitude: s.amplitude, signal: o.signal }, now)
       morphing = view.render(now)
-      o.onframe?.(now)
+      if (tab) {
+        clearTimeout(trailing)
+        if (now - shown > 125) favicon()
+        else trailing = setTimeout(favicon, 125)
+      }
     }
     requestAnimationFrame(frame)
   }

@@ -12,12 +12,26 @@
   <link rel="stylesheet" href="site.css">
   <script type="importmap">{"imports":{"@audio/encode-wav":"./assets/wav.js","@audio/encode-mp3":"./assets/mp3.js","@audio/encode-flac":"./assets/flac.js","@audio/encode-aiff":"./assets/aiff.js","@audio/encode-ogg":"./assets/ogg.js"}}</script>
   <script type="module" src="site.js"></script>
+  <script type="module">
+    // The mark drawn live: it drifts, tightens under the pointer anywhere on the title, turns under a drag and keeps
+    // turning when let go, and the tab's icon turns with it. Where WebGL is missing, the static mark stays.
+    import { logo } from './logo.js'
+    import { motion } from './logo-motion.js'
+    const title = document.querySelector('.header .wordmark'), canvas = title.querySelector('.logo canvas')
+    const view = logo(canvas, { clear: true, fit: 'width', onresize: () => mark?.set({}) })
+    const mark = view && motion(view, canvas, { area: title, speed: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : .06, hover: 'tighten', tap: false, favicon: true })
+    if (view) {
+      view.set({ figure: getComputedStyle(title).color })
+      canvas.hidden = false
+      title.querySelector('.logo svg').remove()
+    }
+  </script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
   <div id="site">
     <header class="header wrap">
-      <a class="wordmark" href="#" aria-label="audio home"><svg class="logo" aria-hidden="true" width="96" height="101" viewBox="0 0 96 101" fill="currentColor" stroke="currentColor" stroke-width="4.5"><path d="M0 50.4159C5.08842 50.4159 8.70378 49.9251 17.0681 24.9808C27.8621 -7.20948 35.9058 -10.5986 47.7771 50.4159H0Z"/><path d="M95.5543 50.416C90.4658 50.416 86.8505 50.9067 78.4862 75.8511C67.6922 108.041 59.6484 111.43 47.7771 50.416H95.5543Z"/></svg>audio<span class="version" :text="'v' + version">v2.6.10</span></a>
+      <a class="wordmark" href="#" aria-label="audio home" draggable="false"><span class="logo" aria-hidden="true"><svg width="96" height="101" viewBox="0 0 96 101" fill="currentColor" stroke="currentColor" stroke-width="4.5"><path d="M0 50.4159C5.08842 50.4159 8.70378 49.9251 17.0681 24.9808C27.8621 -7.20948 35.9058 -10.5986 47.7771 50.4159H0Z"/><path d="M95.5543 50.416C90.4658 50.416 86.8505 50.9067 78.4862 75.8511C67.6922 108.041 59.6484 111.43 47.7771 50.416H95.5543Z"/></svg><canvas hidden></canvas></span>audio<span class="version" :text="'v' + version">v2.6.10</span></a>
       <a class="text-link" href="https://github.com/audiojs/audio">GitHub <span aria-hidden="true">↗</span></a>
     </header>
 

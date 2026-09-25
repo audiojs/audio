@@ -3258,3 +3258,26 @@ test('logo motion: at rest it is the logo; near its middle it stirs; flung it sp
   }
   await logoStill()
 })
+
+test('site: the header mark is the logo drawn live; the whole title tightens it, a drag turns it without following the link, the tab icon turns with it', async () => {
+  const title = page.locator('.header .wordmark'), canvas = title.locator('canvas'), url = page.url()
+  assert(await canvas.isVisible() && await title.locator('svg').count() === 0, 'the live mark stands in for the static one')
+  assert.match(await page.locator('link[rel~=icon]').getAttribute('href'), /^data:image\/png/)
+  const apart = (a, b) => { let sum = 0; for (let i = 0; i < a.gray.length; i++) sum += Math.abs(a.gray.charCodeAt(i) - b.gray.charCodeAt(i)); return sum / a.gray.length }
+  const rest = await logoShot(canvas)
+  assert(rest.gray.split('').some(pixel => pixel.charCodeAt(0) < 80), 'inked on the paper')
+  // Hovered on the word, not the mark, it tightens: more cycles than a drift could make in the time
+  const box = await title.boundingBox(), y = box.y + box.height / 2
+  await page.mouse.move(box.x + box.width - 20, y)
+  await page.waitForTimeout(900)
+  const tight = await logoShot(canvas)
+  assert(apart(rest, tight) > 8, `hovering the title tightens the mark, ${apart(rest, tight)}`)
+  // A drag across the title turns it, and is no click on the link
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width - 90, y, { steps: 6 })
+  await page.mouse.up()
+  assert.equal(page.url(), url)
+  // A plain click after it is still the link's
+  await title.click()
+  assert.equal(page.url(), url.replace(/#.*$/, '') + '#')
+})

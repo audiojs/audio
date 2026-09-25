@@ -65,6 +65,7 @@ uniform float uDuty;    // the share of a period a mark fills at full tone
 uniform float uLines;   // lines across a lobe, for the engravings that follow it
 uniform float uSpan;    // uWave covers x in -uSpan…uSpan
 uniform int uMode;
+uniform bool uClear;    // no ground: the figure alone, its paper as opacity, over whatever lies beneath
 uniform vec3 uGround, uFigure;
 uniform sampler2D uWave, uProfile, uNoise, uDots;
 out vec4 o;
@@ -195,7 +196,7 @@ void main() {
     case GUILLOCHE: paper = braid; break;
     case STIPPLE: paper = stipple(gl_FragCoord.xy); break;
   }
-  o = uMode == TONE ? vec4(v, 0, 0, 1) : vec4(mix(uGround, uFigure, paper), 1);
+  o = uMode == TONE ? vec4(v, 0, 0, 1) : uClear ? vec4(uFigure * paper, paper) : vec4(mix(uGround, uFigure, paper), 1);
 }`
 
 // A window as M samples across -1…1 with peak 1: flat top's cosine sum peaks at 4.64 as the collection documents it
@@ -341,9 +342,11 @@ function diffuse(rgba, w, h, kernel) {
  * drawn: signal, window and gradient morph over MORPH ms from now, on render's clock; phase is in turns; size, a
  * mark's, and gap, between marks, in CSS px; colors any CSS color.
  * render(now) draws a frame and tells whether a morph is still under way.
+ * clear draws the figure alone over the page, no ground. fit 'width' spans the window across the canvas, which must be
+ * tall enough for the wave; by default the whole wave fits, window and height.
  */
-export function logo(canvas, { onresize } = {}) {
-  const gl = canvas.getContext('webgl2', { antialias: false, alpha: false })
+export function logo(canvas, { onresize, clear = false, fit = 'all' } = {}) {
+  const gl = canvas.getContext('webgl2', { antialias: false, alpha: clear })
   if (!gl) return null
   const state = { signal: 'sine', window: 'hann', gradient: 'bartlett', print: 'smooth', cycles: 1, phase: 0, amplitude: 1, size: 2, gap: 6, ground: '#000', figure: '#fff' }
   const wave = morpher(`${state.signal} ${state.window}`), fill = morpher(state.gradient)
@@ -393,6 +396,7 @@ export function logo(canvas, { onresize } = {}) {
     gl.uniform1f(U.uWidth, dot)
     gl.uniform1f(U.uDuty, dot / (dot + gap))
     gl.uniform1f(U.uLines, lines)
+    gl.uniform1i(U.uClear, clear && !pixels)
     if (kernel) {
       const w = Math.ceil(W / cell), h = Math.ceil(H / cell), rgba = new Uint8Array(w * h * 4)
       size(gl, 2, w, h)
@@ -412,8 +416,8 @@ export function logo(canvas, { onresize } = {}) {
     return rgba
   }
 
-  // Device px per unit, framed so the window's full height fits
-  const scale = () => Math.min(canvas.width / 2.5, canvas.height / (2.1 * HEIGHT))
+  // Device px per unit
+  const scale = () => fit === 'width' ? canvas.width / 2 : Math.min(canvas.width / 2.5, canvas.height / (2.1 * HEIGHT))
 
   function set(changes, now = performance.now()) {
     Object.assign(state, changes)

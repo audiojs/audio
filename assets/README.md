@@ -9,7 +9,7 @@ The website is static. Serve the repository root with any static HTTP server and
   Encoder licenses are in `LICENSE-encode-*.txt`, `LICENSE-libflacjs.txt`, and `LICENSE-wasm-media-encoders.txt`.
 - `window-function.js` and `periodic-function.js` bundle the installed window-function 3.0.3 and periodic-function 2.1.2 (both MIT)
   for `logo.js`, which draws the logo: one sine cycle through a Hann window, filled with a gradient rectangle bent
-  to the waveform. `logo-motion.js` makes it answer the hand, as the header will: it stirs when hovered near its middle,
+  to the waveform. `logo-motion.js` makes it answer the hand, in the header too: it stirs when hovered near its middle,
   turns under a drag and spins on, and a tap changes its waveform. `logo.html` is the lab for both, any signal through
   any window. `node .site-build.js` refreshes the bundles too.
 - `sprae.js` is the standalone Sprae 13.9.4 ES module, `dist/sprae.js` from the npm package.
