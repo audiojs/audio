@@ -38,7 +38,8 @@ canvas:focus-visible { outline: 2px solid var(--panel-knob); outline-offset: -4p
 .fail { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding-inline: var(--space-md); color: var(--figure); text-align: center; }
 .fail[hidden] { display: none; }
 
-/* The controls are a band of the screen: its tint and divider fade out toward the sides */
+/* The controls are a band of the screen, soft-lit from above: its tint and divider strongest at the top middle,
+   falling away wide and slow, easing out as light does, toward the sides and down */
 .bar { position: relative; isolation: isolate; padding: 22px var(--space-md) 24px; }
 .bar::before {
   content: '';
@@ -47,7 +48,7 @@ canvas:focus-visible { outline: 2px solid var(--panel-knob); outline-offset: -4p
   z-index: -1;
   border-top: 1px solid var(--panel-rule);
   background: var(--panel);
-  mask-image: linear-gradient(to right, transparent, #000 min(25%, 320px), #000 calc(100% - min(25%, 320px)), transparent);
+  mask-image: radial-gradient(ellipse 70% 180% at 50% 0, #000, rgb(0 0 0 / .8) 30%, rgb(0 0 0 / .45) 60%, rgb(0 0 0 / .15) 85%, transparent);
 }
 /* Groups side by side, a divider between: pairs of label and control, running down in columns of four */
 .grid { display: flex; justify-content: center; align-items: start; gap: 40px; }

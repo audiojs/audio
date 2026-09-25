@@ -3087,6 +3087,8 @@ test('logo: a signal through a window, filled by half a window as its gradient, 
   await page.setViewportSize({ width: 800, height: 760 })
   await page.goto(origin + '/logo.html', { waitUntil: 'networkidle' })
   assert.equal(await page.locator('#fail').isVisible(), false)
+  // The control band is lit from above: its light a radial mask, which a browser drops whole if it can't parse it
+  assert.match(await page.locator('.bar').evaluate(bar => getComputedStyle(bar, '::before').maskImage), /^radial-gradient/)
   // No hover, so a pointer over the drawing changes nothing
   const pick = (name, value) => page.selectOption(`select[name="${name}"]`, value)
   await pick('hover', 'none')
