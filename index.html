@@ -21,7 +21,8 @@
     const view = logo(canvas, { clear: true, fit: 'width', onresize: () => mark?.set({}) })
     const mark = view && motion(view, canvas, { area: title, speed: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : .06, hover: 'tighten', tap: false, favicon: true })
     if (view) {
-      view.set({ figure: getComputedStyle(title).color })
+      // Small, it prints flat, and its window is the gentler cosine, so a side lobe stays in sight mid-turn
+      view.set({ figure: getComputedStyle(title).color, window: 'cosine', gradient: 'rectangular' })
       canvas.hidden = false
       title.querySelector('.logo svg').remove()
     }

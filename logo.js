@@ -458,8 +458,10 @@ export function logo(canvas, { onresize, clear = false, fit = 'all' } = {}) {
     return png(print(mode, { width, height, dot: 2, gap: 4, scale: width / 2, centre: [width / 2, 0], lines: height / 6, ground: [0, 0, 0], figure: [1, 1, 1], pixels: true }), width, height, [1, 1, 1])
   }
 
-  // The waveform as last rendered, smooth, in one color with the tone as opacity: a favicon
+  // The waveform as last rendered, in one color: a favicon. Flat, whatever the gradient: a tab shows it at 16 px,
+  // too few for a fall from paper to ink. The next render puts the gradient back.
   function favicon(color, size = 64) {
+    upload(4, profileOf('rectangular'))
     return png(print('smooth', { width: size, height: size, dot: 1, gap: 0, scale: size / 2, centre: [size / 2, size / 2], lines: 2, ground: [0, 0, 0], figure: [1, 1, 1], pixels: true }), size, size, rgb(color))
   }
 
