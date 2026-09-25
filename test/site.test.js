@@ -3266,6 +3266,18 @@ test('site: the header mark is the logo drawn live; the whole title tightens it,
   const apart = (a, b) => { let sum = 0; for (let i = 0; i < a.gray.length; i++) sum += Math.abs(a.gray.charCodeAt(i) - b.gray.charCodeAt(i)); return sum / a.gray.length }
   const rest = await logoShot(canvas)
   assert(rest.gray.split('').some(pixel => pixel.charCodeAt(0) < 80), 'inked on the paper')
+  // Small, it prints flat, and so does the tab's icon: ink or paper, gray only along an edge, where a gradient is gray throughout
+  const tones = values => ({ ink: values.filter(v => v < 60).length, mid: values.filter(v => v >= 60 && v <= 180).length })
+  const mark = tones(rest.gray.split('').map(pixel => pixel.charCodeAt(0)))
+  const icon = tones(await page.evaluate(async () => {
+    const image = new Image()
+    image.src = document.querySelector('link[rel~=icon]').href
+    await image.decode()
+    const context = new OffscreenCanvas(image.width, image.height).getContext('2d')
+    context.drawImage(image, 0, 0)
+    return [...context.getImageData(0, 0, image.width, image.height).data].filter((_, i) => i % 4 === 3).filter(a => a).map(a => 255 - a)
+  }))
+  assert(mark.mid < mark.ink && icon.mid < icon.ink, JSON.stringify({ mark, icon }))
   // Hovered on the word, not the mark, it tightens: more cycles than a drift could make in the time
   const box = await title.boundingBox(), y = box.y + box.height / 2
   await page.mouse.move(box.x + box.width - 20, y)
