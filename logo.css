@@ -28,14 +28,19 @@
 }
 body { margin: 0; background: var(--ground); color: var(--panel-ink); font: 400 var(--text-sm)/1 var(--font-body); }
 
-/* Lab and Motion, top left */
-.pages { position: absolute; top: calc(var(--space-md) + env(safe-area-inset-top, 0px)); left: var(--space-md); z-index: 1; display: flex; gap: 18px; }
-.pages a { color: var(--panel-dim); text-decoration: none; }
-.pages a:hover, .pages a[aria-current] { color: var(--panel-ink); }
+/* Lab and Motion top left; the page's own settings, Invert among them, top right */
+.pages, .corner { position: absolute; top: calc(var(--space-md) + env(safe-area-inset-top, 0px)); z-index: 1; display: flex; align-items: center; gap: 18px; height: 28px; }
+.pages { left: var(--space-md); }
+.corner { right: var(--space-md); color: var(--panel-muted); }
+.toggle { display: grid; place-items: center; margin: 0; padding: 4px; border: 0; border-radius: 50%; background: none; cursor: pointer; }
+.toggle svg { width: 18px; height: 18px; }
+/* Pressed, the disc turns over: the light half swaps sides, as the page's tones do */
+.toggle[aria-pressed=true] svg { transform: scaleX(-1); }
+.pages a, .toggle { color: var(--panel-dim); text-decoration: none; }
+.pages a:hover, .pages a[aria-current], .toggle:hover, .toggle[aria-pressed=true] { color: var(--panel-ink); }
 
 output { min-width: 7ch; color: var(--panel-ink); font-variant-numeric: tabular-nums; }
-input[type=checkbox] { margin: 0; accent-color: var(--panel-ink); cursor: pointer; }
-:is(input, select, a):focus-visible { outline: 2px solid var(--panel-knob); outline-offset: 2px; }
+:is(input, select, a, button):focus-visible { outline: 2px solid var(--panel-knob); outline-offset: 2px; }
 :disabled { opacity: .4; cursor: default; }
 
 /* A picker is a pill outlined like the site's; where the browser allows, its list shows each choice drawn */

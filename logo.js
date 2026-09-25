@@ -14,12 +14,13 @@ export const SIGNALS = {
   square: t => periodic.square(t),
   sawtooth: t => periodic.sawtooth(t),
   clausen: t => periodic.clausen(t),
-  noise: t => periodic.noise(t),
+  // At full scale noise overpowers the drawing, whatever the window
+  noise: t => .35 * periodic.noise(t),
 }
 
 // Ways to print the tone in two inks: dithers, per dot, and engravings, per line or mark
 export const DITHERS = ['smooth', 'bayer2', 'bayer4', 'bayer8', 'blue', 'white', 'floyd', 'atkinson']
-export const SCREENS = ['halftone', 'lines', 'spikes', 'contours', 'mesh', 'guilloche', 'stipple']
+export const SCREENS = ['halftone', 'lines', 'spikes', 'contours', 'traces', 'mesh', 'guilloche', 'stipple']
 const MODES = [...DITHERS, ...SCREENS]
 const TONE = MODES.length // internal pass: raw tone, one texel per cell, read back for error diffusion
 
@@ -59,9 +60,10 @@ uniform vec2 uCentre;   // where the axis crosses the middle of the window, devi
 uniform float uScale;   // device px per unit
 uniform float uCell;    // dot, device px
 uniform float uGrid;    // fragments per cell: uCell on screen, 1 when writing one texel per cell
-uniform float uPitch;   // line and screen period, device px
+uniform float uPitch;   // line and screen period, a mark and its gap, device px
+uniform float uWidth;   // a mark: dot, nib or line width, device px
+uniform float uDuty;    // the share of a period a mark fills at full tone
 uniform float uLines;   // lines across a lobe, for the engravings that follow it
-uniform float uWidth;   // outline width, device px
 uniform float uSpan;    // uWave covers x in -uSpan…uSpan
 uniform int uMode;
 uniform vec3 uGround, uFigure;
@@ -134,10 +136,10 @@ float rule(float u, float w) {
   return clamp(w / 2. - d + .5, 0., 1.);
 }
 
-// Pen stippling: one dot per cell, jittered, all the same size, each inked if its blue-noise rank is under the tone
-// at its centre. Denser where lighter, and even at every density.
+// Pen stippling: one nib-sized dot per cell, jittered, each inked if its blue-noise rank is under the tone at its
+// centre. Denser where lighter, and even at every density.
 float stipple(vec2 f) {
-  float s = uPitch * .55, r = s * .42;
+  float s = uPitch, r = uWidth / 2.;
   ivec2 base = ivec2(floor(f / s));
   float paper = 0.;
   for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
@@ -154,12 +156,14 @@ float stipple(vec2 f) {
 void main() {
   vec2 cell = floor(gl_FragCoord.xy / uGrid), c = gl_FragCoord.xy - uCentre;
   vec3 m = morph(((cell + .5) * uCell - uCentre) / uScale, uCell / uScale);
-  float v = tone(m);
-  // The gradient rectangle's rows bend with the waveform; its columns stand upright
-  float rows = screen(v, tri(m.x * uLines)), columns = screen(v, tri(c.x / uPitch));
-  float grid = max(rule(m.x * uLines, uWidth), rule(c.x / uPitch, uWidth));
+  float v = tone(m), mark = uDuty * v;
+  // The gradient rectangle's rows bend with the waveform; its columns stand upright. Swelling with the tone up to a
+  // mark wide, or one mark wide throughout; inside the outline, and the outline itself.
+  float rows = screen(mark, tri(m.x * uLines)), columns = screen(mark, tri(c.x / uPitch));
+  float row = rule(m.x * uLines, uWidth), column = rule(c.x / uPitch, uWidth);
+  float inside = clamp(m.z + .5, 0., 1.), outline = clamp(uWidth / 2. - abs(m.z) + .5, 0., 1.);
   float wobble = .5 * sin(2. * PI * c.x / (6. * uPitch));
-  float braid = max(screen(.7 * v, tri(m.x * uLines + wobble)), screen(.7 * v, tri(m.x * uLines - wobble)));
+  float braid = max(screen(mark, tri(m.x * uLines + wobble)), screen(mark, tri(m.x * uLines - wobble)));
   uvec2 u = uvec2(cell);
   float paper = v;
   switch (uMode) {
@@ -169,13 +173,15 @@ void main() {
     case BLUE: paper = step(texelFetch(uNoise, ivec2(u % 64u), 0).r, v); break;
     case WHITE: paper = step(white(u), v); break;
     case FLOYD: case ATKINSON: paper = texelFetch(uDots, ivec2(u), 0).r; break;
-    case HALFTONE: paper = screen(v, halftone(gl_FragCoord.xy)); break;
+    case HALFTONE: paper = screen(mark, halftone(gl_FragCoord.xy)); break;
     // Paper lines as wide as the tone: rows of equal amplitude, upright columns, the rectangle's rows bent
-    case LINES: paper = screen(v, tri(c.y / uPitch)); break;
+    case LINES: paper = screen(mark, tri(c.y / uPitch)); break;
     case SPIKES: paper = columns; break;
     case CONTOURS: paper = rows; break;
+    // The bent rows at one width: the waveform traced at every level down to the axis
+    case TRACES: paper = max(inside * row, outline); break;
     // The bent grid itself: its rows, columns and outline, all one width
-    case MESH: paper = max(clamp(m.z + .5, 0., 1.) * grid, clamp(uWidth / 2. - abs(m.z) + .5, 0., 1.)); break;
+    case MESH: paper = max(inside * max(row, column), outline); break;
     // Two families of the bent rows, waving against each other as on a banknote
     case GUILLOCHE: paper = braid; break;
     case STIPPLE: paper = stipple(gl_FragCoord.xy); break;
@@ -322,14 +328,15 @@ function diffuse(rgba, w, h, kernel) {
 
 /**
  * Draws the logo into a canvas, sized to it. Returns null without WebGL 2.
- * set({ signal, window, gradient, print, cycles, phase, amplitude, size, ground, figure }) changes what's drawn:
- * signal, window and gradient morph over MORPH ms; phase is in turns, size in CSS px, colors any CSS color.
+ * set({ signal, window, gradient, print, cycles, phase, amplitude, size, gap, ground, figure }) changes what's drawn:
+ * signal, window and gradient morph over MORPH ms; phase is in turns; size, a mark's, and gap, between marks, in
+ * CSS px; colors any CSS color.
  * render(now) draws a frame and tells whether a morph is still under way.
  */
 export function logo(canvas, { onresize } = {}) {
   const gl = canvas.getContext('webgl2', { antialias: false, alpha: false })
   if (!gl) return null
-  const state = { signal: 'sine', window: 'hann', gradient: 'bartlett', print: 'bayer4', cycles: 1, phase: 0, amplitude: 1, size: 3, ground: '#000', figure: '#fff' }
+  const state = { signal: 'sine', window: 'hann', gradient: 'bartlett', print: 'bayer4', cycles: 1, phase: 0, amplitude: 1, size: 2, gap: 6, ground: '#000', figure: '#fff' }
   const wave = morpher(`${state.signal} ${state.window}`), fill = morpher(state.gradient)
 
   const prog = program(gl), U = {}
@@ -364,17 +371,19 @@ export function logo(canvas, { onresize } = {}) {
     gl.drawArrays(gl.TRIANGLES, 0, 3)
   }
 
-  // Prints the uploaded waveform and gradient in a mode, onto the canvas or, for pixels, into memory
-  function print(mode, { width: W, height: H, dot, scale, centre, lines, ground, figure, pixels = false }) {
+  // Prints the uploaded waveform and gradient in a mode, onto the canvas or, for pixels, into memory.
+  // dot is a mark's size and gap the space between marks, device px; lines, how many cross a lobe.
+  function print(mode, { width: W, height: H, dot, gap, scale, centre, lines, ground, figure, pixels = false }) {
     const kernel = KERNELS[mode], cell = mode === 'smooth' || SCREENS.includes(mode) ? 1 : dot
     gl.uniform3fv(U.uGround, ground)
     gl.uniform3fv(U.uFigure, figure)
     gl.uniform2f(U.uCentre, ...centre)
     gl.uniform1f(U.uScale, scale)
     gl.uniform1f(U.uCell, cell)
-    gl.uniform1f(U.uPitch, 3 * dot)
+    gl.uniform1f(U.uPitch, dot + gap)
+    gl.uniform1f(U.uWidth, dot)
+    gl.uniform1f(U.uDuty, dot / (dot + gap))
     gl.uniform1f(U.uLines, lines)
-    gl.uniform1f(U.uWidth, Math.max(1, .4 * dot))
     if (kernel) {
       const w = Math.ceil(W / cell), h = Math.ceil(H / cell), rgba = new Uint8Array(w * h * 4)
       size(gl, 2, w, h)
@@ -423,8 +432,8 @@ export function logo(canvas, { onresize } = {}) {
     upload(4, profile)
     const { width: W, height: H, clientWidth } = canvas
     if (W && H && clientWidth) {
-      const s = scale(), dot = Math.max(1, Math.round(state.size * W / clientWidth)) // CSS px to canvas px
-      print(state.print, { width: W, height: H, dot, scale: s, centre: [W / 2, H / 2], lines: Math.max(2, Math.round(HEIGHT * s / (3 * dot))), ground: rgb(state.ground), figure: rgb(state.figure) })
+      const s = scale(), px = W / clientWidth, dot = Math.max(1, Math.round(state.size * px)), gap = state.gap * px // CSS px to canvas px
+      print(state.print, { width: W, height: H, dot, gap, scale: s, centre: [W / 2, H / 2], lines: Math.max(2, Math.round(HEIGHT * s / (dot + gap))), ground: rgb(state.ground), figure: rgb(state.figure) })
     }
     return !wave.settled(now) || !fill.settled(now)
   }
@@ -434,12 +443,12 @@ export function logo(canvas, { onresize } = {}) {
   function icon(mode, width = 48, height = 24) {
     upload(3, xs.map(x => Math.abs(x) < 1 ? 1 : 0))
     upload(4, profileOf('bartlett'))
-    return png(print(mode, { width, height, dot: 2, scale: width / 2, centre: [width / 2, 0], lines: height / 6, ground: [0, 0, 0], figure: [1, 1, 1], pixels: true }), width, height, [1, 1, 1])
+    return png(print(mode, { width, height, dot: 2, gap: 4, scale: width / 2, centre: [width / 2, 0], lines: height / 6, ground: [0, 0, 0], figure: [1, 1, 1], pixels: true }), width, height, [1, 1, 1])
   }
 
   // The waveform as last rendered, smooth, in one color with the tone as opacity: a favicon
   function favicon(color, size = 64) {
-    return png(print('smooth', { width: size, height: size, dot: 1, scale: size / 2, centre: [size / 2, size / 2], lines: 2, ground: [0, 0, 0], figure: [1, 1, 1], pixels: true }), size, size, rgb(color))
+    return png(print('smooth', { width: size, height: size, dot: 1, gap: 0, scale: size / 2, centre: [size / 2, size / 2], lines: 2, ground: [0, 0, 0], figure: [1, 1, 1], pixels: true }), size, size, rgb(color))
   }
 
   const resize = new ResizeObserver(([e]) => {

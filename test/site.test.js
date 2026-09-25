@@ -3081,8 +3081,8 @@ test('logo: a signal through a window, filled by half a window as its gradient, 
   await page.setViewportSize({ width: 800, height: 760 })
   await page.goto(origin + '/logo.html', { waitUntil: 'networkidle' })
   assert.equal(await page.locator('#fail').isVisible(), false)
-  // The drawing alone: the page links sit over its corner
-  await page.addStyleTag({ content: '.pages { display: none }' })
+  // The drawing alone: the page links and Invert sit over its corners
+  await page.addStyleTag({ content: '.pages, .corner { display: none }' })
   const pick = (name, value) => page.selectOption(`select[name="${name}"]`, value)
   const offered = name => page.locator(`select[name="${name}"] option`).evaluateAll(options => options.map(option => option.value))
   // The waveform and the gradient offer the same windows, the whole collection, rectangular first
@@ -3148,11 +3148,23 @@ test('logo: a signal through a window, filled by half a window as its gradient, 
     assert.equal(new Set((await logoShot()).gray).size, 2, `${mode} dithers to ink and paper only`)
   }
   // Engravings print paper inside the shape and leave the ground bare
-  for (const mode of ['halftone', 'lines', 'spikes', 'contours', 'mesh', 'guilloche', 'stipple']) {
+  for (const mode of ['halftone', 'lines', 'spikes', 'contours', 'traces', 'mesh', 'guilloche', 'stipple']) {
     await pick('print', mode)
     const { lit, at } = await logoStill()
     assert(lit && at(0, 0) === ground && at(w - 1, h - 1) === ground, mode)
   }
+  // Gap is the space between lines: closer, more of them print. Traces are the mesh without its columns.
+  const paper = ({ gray }) => gray.split('').filter(pixel => pixel.charCodeAt(0) > 128).length
+  await pick('print', 'traces')
+  await page.locator('#gap').fill('2')
+  const close = paper(await logoStill())
+  await page.locator('#gap').fill('16')
+  const apart = paper(await logoStill())
+  await pick('print', 'mesh')
+  const mesh = paper(await logoStill())
+  assert(close > apart && mesh > apart, JSON.stringify({ close, apart, mesh }))
+  await pick('print', 'bayer4')
+  assert(await page.locator('#gap').isDisabled(), 'dithers have no gap')
 
   // Haar, a square cycle through a rectangular window, is the gradient rectangle itself: every column alike
   await pick('print', 'smooth')
@@ -3164,12 +3176,12 @@ test('logo: a signal through a window, filled by half a window as its gradient, 
   for (let y = 0; y < axis; y++) assert(Math.abs(haar.at(a, y) - haar.at(b, y)) <= 1, `row ${y}: ${haar.at(a, y)} ≠ ${haar.at(b, y)}`)
 })
 
-test('logo motion: nine variants, each drawn and each answering the pointer', async () => {
+test('logo motion: twelve variants, each drawn and each answering the pointer; Excite turns under a drag', async () => {
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto(origin + '/logo-motion.html', { waitUntil: 'networkidle' })
   const tiles = page.locator('.tile')
-  assert.equal(await tiles.count(), 9)
-  for (let i = 0; i < 9; i++) {
+  assert.equal(await tiles.count(), 12)
+  for (let i = 0; i < 12; i++) {
     const tile = tiles.nth(i), canvas = tile.locator('canvas'), name = await tile.locator('strong').textContent()
     await tile.scrollIntoViewIfNeeded()
     await page.mouse.move(0, 0)
@@ -3186,4 +3198,20 @@ test('logo motion: nine variants, each drawn and each answering the pointer', as
     await page.mouse.up()
     assert(new Set([rest.gray, hovered.gray, pressed.gray]).size > 1, `${name} answers the pointer`)
   }
+  // Excite, pressed, holds its phase; dragged, the phase follows the pointer
+  const excite = tiles.nth(0), canvas = excite.locator('canvas')
+  await excite.scrollIntoViewIfNeeded()
+  const box = await canvas.boundingBox(), x = box.x + box.width / 2, y = box.y + box.height / 2
+  const apart = (a, b) => { let sum = 0; for (let i = 0; i < a.gray.length; i++) sum += Math.abs(a.gray.charCodeAt(i) - b.gray.charCodeAt(i)); return sum / a.gray.length }
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.waitForTimeout(1200)
+  const held = await logoShot(canvas)
+  await page.waitForTimeout(300)
+  const still = await logoShot(canvas)
+  await page.mouse.move(x + 50, y, { steps: 5 })
+  await page.waitForTimeout(600)
+  const dragged = await logoShot(canvas)
+  await page.mouse.up()
+  assert(apart(held, dragged) > 4 * apart(held, still), JSON.stringify({ held: apart(held, still), dragged: apart(held, dragged) }))
 })

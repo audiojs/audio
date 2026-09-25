@@ -9,19 +9,14 @@
   <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="logo.css">
   <style>
-    body { position: relative; padding: calc(var(--space-4xl) + env(safe-area-inset-top, 0px)) var(--space-md) var(--space-3xl); }
-    header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: var(--space-md) var(--space-xl); max-width: 1120px; margin: 0 auto var(--space-xl); }
-    h1 { margin: 0 0 var(--space-sm); font-size: var(--text-heading); font-weight: 500; letter-spacing: -.02em; line-height: 1.1; }
-    header p { max-width: 52ch; margin: 0; color: var(--panel-muted); font-size: var(--text-md); line-height: 1.5; }
-    header label { display: flex; align-items: center; gap: 12px; color: var(--panel-muted); }
-    header select { min-width: 10.5rem; }
-
-    .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: var(--space-md); max-width: 1120px; margin: 0 auto; }
-    /* A tile is one of the site's slabs: the logo on top, how it behaves beneath */
-    .tile { display: grid; overflow: hidden; margin: 0; border: 1px solid var(--panel-rule); border-radius: var(--radius-slab); background: var(--panel); outline-offset: 3px; cursor: pointer; user-select: none; touch-action: manipulation; }
-    .tile:focus-visible { outline: 2px solid var(--panel-knob); }
+    body { padding: calc(var(--space-4xl) + env(safe-area-inset-top, 0px)) var(--space-md) var(--space-3xl); }
+    .corner select { min-width: 10.5rem; }
+    .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: var(--space-2xl) var(--space-lg); max-width: 1200px; margin: 0 auto; }
+    /* A variant: the logo on the ground, how it behaves beneath */
+    .tile { display: grid; align-content: start; gap: 14px; margin: 0; cursor: pointer; user-select: none; touch-action: pan-y; }
+    .tile:focus-visible { outline: 2px solid var(--panel-knob); outline-offset: 6px; border-radius: 4px; }
     .tile canvas { display: block; width: 100%; aspect-ratio: 4 / 3; }
-    figcaption { display: grid; gap: 10px; padding: 0 18px 18px; }
+    figcaption { display: grid; gap: 10px; }
     figcaption strong { font-weight: 500; font-size: var(--text-md); }
     dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; line-height: 1.35; }
     dt { color: var(--panel-dim); }
@@ -30,20 +25,20 @@
 </head>
 <body>
   <nav class="pages"><a href="logo.html">Lab</a><a href="logo-motion.html" aria-current="page">Motion</a></nav>
-  <header>
-    <div>
-      <h1>Logo motion</h1>
-      <p>Nine ways for the logo to behave: at rest, under the pointer, and pressed. Point at a tile, press it, or focus it and hold Space.</p>
-    </div>
-    <label for="print">Print <select id="print"><button><selectedcontent></selectedcontent></button></select></label>
-  </header>
-  <main class="tiles"></main>
+  <div class="corner">
+    <label for="print">Print</label>
+    <select id="print"><button><selectedcontent></selectedcontent></button></select>
+    <button type="button" class="toggle" id="invert" aria-pressed="false" aria-label="Invert" title="Invert"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"/></svg></button>
+  </div>
+  <main class="tiles" aria-label="Ways for the logo to behave at rest, hovered and pressed"></main>
 
   <script type="module">
   import { logo, DITHERS, SCREENS, label } from './logo.js'
 
   const TAU = 2 * Math.PI, EASE = .25 // s, how fast speed, cycles and amplitude follow their targets
   const restless = !matchMedia('(prefers-reduced-motion: reduce)').matches
+  const SIGNAL_STEPS = ['sine', 'triangle', 'square', 'sawtooth', 'clausen']
+  const WINDOW_STEPS = ['hann', 'gaussian', 'tukey', 'blackmanHarris', 'kaiser', 'welch']
 
   // The logo's own sound: a fundamental and its octave at half amplitude, sin x + ½ sin 2x, under a Hann envelope
   let audio
@@ -59,10 +54,13 @@
   }
   const hann = x => x > 0 && x < 1 ? (1 - Math.cos(TAU * x)) / 2 : 0
 
-  // Each variant sets targets from the tile's state: hovered, pressed, how long since the press (s), the pointer
-  // across the tile (-1…1) and the time (s). Speed is in turns a second; settle eases the phase to its rest turn;
-  // phase, when given, is where the signal stands outright.
+  // Each variant sets targets from the tile's state: hovered, pressed, presses so far, how long since the last (s),
+  // the pointer across the tile (-1…1), where a drag has turned the phase to, and the time (s). Speed is in turns a
+  // second; settle eases the phase to its rest turn; phase, when given, is where the signal stands outright.
   const VARIANTS = [
+    { name: 'Excite', rest: 'Drifts, slowly', hover: 'Stirs: two cycles, richer in harmonics, quicker', press: 'Holds; drag to turn it by hand',
+      step: s => s.pressed ? { phase: s.dragged, cycles: 2, signal: 'clausen' }
+        : s.hovered ? { speed: .8, cycles: 2, signal: 'clausen' } : { speed: .05 * restless } },
     { name: 'Drift', rest: 'Drifts, slowly', hover: 'Quickens', press: 'Settles into the logo',
       step: s => ({ speed: s.pressed ? 0 : s.hovered ? .6 : .08 * restless, settle: s.pressed }) },
     { name: 'Breathe', rest: 'Swells and eases, a breath every five seconds', hover: 'Holds its breath', press: 'Flattens to the axis, springs back on release',
@@ -75,6 +73,10 @@
       step: s => ({ window: s.hovered || s.pressed ? 'rectangular' : 'hann', signal: s.pressed ? 'square' : 'sine', settle: true }) },
     { name: 'Harmonics', rest: 'Still', hover: 'Gains its harmonics: a sawtooth', press: 'Turns to noise, a grain of sound',
       step: s => ({ signal: s.pressed ? 'noise' : s.hovered ? 'sawtooth' : 'sine', speed: s.pressed ? .5 : 0, settle: !s.pressed }) },
+    { name: 'Signals', rest: 'Still', hover: 'Drifts', press: 'Changes its signal: sine, triangle, square, sawtooth, Clausen',
+      step: s => ({ signal: SIGNAL_STEPS[s.presses % SIGNAL_STEPS.length], speed: s.hovered ? .15 : 0, settle: !s.hovered }) },
+    { name: 'Windows', rest: 'Still', hover: 'Drifts', press: 'Changes its window: Hann, Gaussian, Tukey, Blackman–Harris, Kaiser, Welch',
+      step: s => ({ window: WINDOW_STEPS[s.presses % WINDOW_STEPS.length], speed: s.hovered ? .15 : 0, settle: !s.hovered }) },
     { name: 'Scope', rest: 'Runs like an oscilloscope trace', hover: 'Holds still', press: 'Turns back the other way',
       step: s => ({ speed: s.hovered ? 0 : s.direction * .5 * restless }) },
     { name: 'Scrub', rest: 'Still', hover: 'Follows the pointer', press: 'Snaps back to the logo',
@@ -86,7 +88,7 @@
       } },
   ]
 
-  const main = document.querySelector('main'), printPicker = document.getElementById('print')
+  const main = document.querySelector('main'), printPicker = document.getElementById('print'), invert = document.getElementById('invert')
   const approach = (value, target, dt) => target + (value - target) * Math.exp(-dt / EASE)
 
   const tiles = VARIANTS.map(variant => {
@@ -97,18 +99,23 @@
     canvas.setAttribute('aria-label', `The logo, behaving as ${variant.name}`)
     tile.prepend(canvas)
     main.append(tile)
-    const state = { hovered: false, pressed: false, since: Infinity, pointer: 0, direction: 1, phase: 0, speed: 0, cycles: 1, amplitude: 1 }
-    const down = () => {
+    const view = logo(canvas)
+    const state = { hovered: false, pressed: false, presses: 0, since: Infinity, pointer: 0, direction: 1, phase: 0, dragged: 0, grab: null, speed: 0, cycles: 1, amplitude: 1 }
+    // A pointer press can drag; a key press only holds
+    const down = e => {
       if (state.pressed) return
-      Object.assign(state, { pressed: true, since: 0, direction: -state.direction })
+      Object.assign(state, { pressed: true, presses: state.presses + 1, since: 0, direction: -state.direction, dragged: state.phase, grab: e ? { x: e.clientX, phase: state.phase } : null })
+      if (e) tile.setPointerCapture(e.pointerId)
       if (variant.name === 'Sound') sound(1.2)
     }
-    const up = () => { state.pressed = false }
+    const up = () => Object.assign(state, { pressed: false, grab: null })
     tile.addEventListener('pointerenter', () => state.hovered = true)
-    tile.addEventListener('pointerleave', () => Object.assign(state, { hovered: false, pressed: false }))
+    tile.addEventListener('pointerleave', () => Object.assign(state, { hovered: false, pressed: false, grab: null }))
     tile.addEventListener('pointermove', e => {
       const box = canvas.getBoundingClientRect()
       state.pointer = Math.max(-1, Math.min(1, (e.clientX - box.left) / box.width * 2 - 1))
+      // A drag turns the phase as in the lab: the signal follows the pointer under its window
+      if (state.grab && view) state.dragged = state.grab.phase + state.cycles * (e.clientX - state.grab.x) * canvas.width / canvas.clientWidth / view.scale() / 2
     })
     tile.addEventListener('pointerdown', down)
     tile.addEventListener('pointerup', up)
@@ -116,7 +123,7 @@
     tile.addEventListener('blur', () => Object.assign(state, { hovered: false, pressed: false }))
     tile.addEventListener('keydown', e => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); down() } })
     tile.addEventListener('keyup', e => { if (e.key === ' ' || e.key === 'Enter') up() })
-    return { variant, state, tile, view: logo(canvas) }
+    return { variant, state, view }
   })
 
   // One print for every tile, drawn in the picker by the first tile's shader
@@ -129,10 +136,12 @@
   }
   printPicker.value = 'bayer4'
   const paint = () => {
+    document.documentElement.classList.toggle('invert', invert.ariaPressed === 'true')
     const css = getComputedStyle(document.documentElement)
-    for (const { view } of tiles) view?.set({ print: printPicker.value, size: 2, ground: css.getPropertyValue('--panel'), figure: css.getPropertyValue('--figure') })
+    for (const { view } of tiles) view?.set({ print: printPicker.value, size: 2, ground: css.getPropertyValue('--ground'), figure: css.getPropertyValue('--figure') })
   }
   printPicker.addEventListener('input', paint)
+  invert.addEventListener('click', () => { invert.ariaPressed = String(invert.ariaPressed !== 'true'); paint() })
   paint()
 
   let last = performance.now()

@@ -44,6 +44,7 @@
 <body>
   <div class="stage">
     <nav class="pages"><a href="logo.html" aria-current="page">Lab</a><a href="logo-motion.html">Motion</a></nav>
+    <div class="corner"><button type="button" class="toggle" id="invert" aria-pressed="false" aria-label="Invert" title="Invert"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"/></svg></button></div>
     <canvas aria-label="A signal through a window, filled with a gradient from the axis to the waveform's edge. Drag sideways to turn its phase."></canvas>
     <p class="fail" id="fail" hidden>This page needs WebGL 2.</p>
   </div>
@@ -63,9 +64,9 @@
       <label for="print">Print</label>
       <select id="print" name="print"><button><selectedcontent></selectedcontent></button></select>
       <label for="size">Size</label>
-      <span class="slider"><input type="range" id="size" name="size" min="0.5" max="8" step="0.5" value="3"><output id="size-out">3 px</output></span>
-      <label for="invert">Invert</label>
-      <span class="slider"><input type="checkbox" id="invert" name="invert"></span>
+      <span class="slider"><input type="range" id="size" name="size" min="0.5" max="8" step="0.5" value="2"><output id="size-out">2 px</output></span>
+      <label for="gap">Gap</label>
+      <span class="slider"><input type="range" id="gap" name="gap" min="0" max="24" step="0.5" value="6"><output id="gap-out">6 px</output></span>
     </div>
   </form>
 
@@ -74,8 +75,8 @@
 
   const DETENT = .02 // a drag within this many turns of the rest phase lands on it
   const $ = s => document.querySelector(s)
-  const root = document.documentElement, canvas = $('canvas'), form = $('#controls'), tab = $('link[rel=icon]')
-  const { signal, window: win, gradient, print, cycles, speed, size, invert } = form.elements
+  const root = document.documentElement, canvas = $('canvas'), form = $('#controls'), tab = $('link[rel=icon]'), invert = $('#invert')
+  const { signal, window: win, gradient, print, cycles, speed, size, gap } = form.elements
   const view = logo(canvas, { onresize: wake })
 
   // Every picker shows each choice drawn; print styles are drawn by the logo's own shader
@@ -118,15 +119,18 @@
   }
 
   function sync() {
-    root.classList.toggle('invert', invert.checked)
+    root.classList.toggle('invert', invert.ariaPressed === 'true')
+    // Size is a dot, a nib or a line's width; gap, the space between lines and marks, which dithers have none of
     size.disabled = print.value === 'smooth'
+    gap.disabled = DITHERS.includes(print.value)
     $('#cycles-out').value = cycles.value
     $('#speed-out').value = `${speed.value.replace('-', '−')} Hz`
     $('#size-out').value = `${size.value} px`
+    $('#gap-out').value = `${gap.value} px`
     for (const range of form.querySelectorAll('input[type=range]')) fill(range)
     const css = getComputedStyle(root)
     view?.set({
-      signal: signal.value, window: win.value, gradient: gradient.value, print: print.value, cycles: +cycles.value, size: +size.value,
+      signal: signal.value, window: win.value, gradient: gradient.value, print: print.value, cycles: +cycles.value, size: +size.value, gap: +gap.value,
       ground: css.getPropertyValue('--ground'), figure: css.getPropertyValue('--figure'),
     })
   }
@@ -138,6 +142,7 @@
     range.style.setProperty('--to', `${Math.max(zero, value)}%`)
   }
   form.addEventListener('input', () => { sync(); wake() })
+  invert.addEventListener('click', () => { invert.ariaPressed = String(invert.ariaPressed !== 'true'); sync(); wake() })
   form.addEventListener('submit', e => e.preventDefault())
 
   // Dragging the waveform stops it and turns its phase by hand: the signal follows the pointer under the window,
