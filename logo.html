@@ -65,7 +65,7 @@
   offer(print, [...DITHERS, null, ...SCREENS], 'smooth', view && (name => `<span class="icon mask" style="mask-image: url('${view.icon(name)}')"></span>`))
   offer(hover, Object.keys(HOVERS), 'stir')
   offer(lift, LIFTS, 'none')
-  offer(sound, SOUNDS, 'ticks')
+  offer(sound, SOUNDS, 'none')
   if (!view) $('#fail').hidden = false
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) speed.value = 0
 

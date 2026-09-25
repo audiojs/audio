@@ -55,7 +55,7 @@ function click() {
  * the signal a tap moves to; onframe(now) follows each frame drawn. set() changes settings, and set({}) redraws.
  */
 export function motion(view, canvas, settings = {}) {
-  const o = { speed: 0, cycles: 1, signal: 'sine', hover: 'stir', lift: 'none', sound: 'ticks', ...settings }
+  const o = { speed: 0, cycles: 1, signal: 'sine', hover: 'stir', lift: 'none', sound: 'none', ...settings }
   const s = { hovered: false, pressed: false, dragging: false, lift: 0, phase: 0, velocity: 0, spin: 0, cycles: o.cycles, cyclesVelocity: 0, amplitude: 1, amplitudeVelocity: 0, grab: null, tick: peak(0), tone: null }
   let changed = true, morphing = false
 
