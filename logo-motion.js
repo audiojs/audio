@@ -6,7 +6,8 @@ import { SIGNALS } from './logo.js'
 const DRAG = 4 // px a press moves before it is a drag
 const SHAPES = Object.keys(SIGNALS)
 
-// What hovering near its middle adds: turns a second, in the way it already turns, and times as many cycles
+// What hovering adds, by name: turns a second, in the way it already turns, and times as many cycles. A setting may
+// also give its own { speed, cycles }
 export const HOVERS = { none: { speed: 0, cycles: 1 }, drift: { speed: .3, cycles: 1 }, stir: { speed: .8, cycles: 2 }, tighten: { speed: .15, cycles: 3 } }
 // What a drag upward does, beyond turning it
 export const LIFTS = ['none', 'amplitude', 'tension']
@@ -51,7 +52,7 @@ function click() {
 
 /**
  * Makes a logo drawn by logo.js on canvas answer the pointer and keys, and animates it, drawing only while something moves.
- * settings: speed (turns a second on its own), cycles, signal, hover (a key of HOVERS), lift, sound; tap, whether a tap
+ * settings: speed (turns a second on its own), cycles, signal, hover (a key of HOVERS, or its own), lift, sound; tap, whether a tap
  * gives the next signal, and ontap(signal) to hear which; area, an element whose hover and drag stand for the canvas's,
  * as a whole title for its mark; favicon, to show the wave in the tab. set() changes settings, and set({}) redraws.
  */
@@ -155,7 +156,7 @@ export function motion(view, canvas, settings = {}) {
 
   let last = performance.now()
   function frame(now) {
-    const dt = Math.min(.1, Math.max(0, now - last) / 1000), hover = HOVERS[o.hover], active = s.hovered || s.pressed
+    const dt = Math.min(.1, Math.max(0, now - last) / 1000), hover = HOVERS[o.hover] ?? o.hover, active = s.hovered || s.pressed
     last = now
     const motor = o.speed + (active ? Math.sign(o.speed || 1) * hover.speed : 0)
     if (!s.dragging) {

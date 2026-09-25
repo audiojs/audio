@@ -34,6 +34,8 @@ button, .text-link, .footer a { white-space: nowrap; }
 .footer::before { top: -.5px; }
 .header > a, .footer > a, .footer > div { background: var(--color-paper); box-shadow: 0 0 0 var(--space-sm) var(--color-paper); }
 .wordmark { display: inline-flex; align-items: center; gap: 10px; font-size: 27px; font-weight: 650; letter-spacing: -.055em; touch-action: pan-y; user-select: none; }
+/* Held, it is the mark's handle: it stays whole while dragged, not dimmed as a pressed link */
+.wordmark:active { opacity: 1; }
 .wordmark .logo { position: relative; width: 24px; aspect-ratio: 96 / 101; flex-shrink: 0; }
 .wordmark .logo svg { display: block; width: 100%; height: 100%; }
 /* The mark drawn live, in the static one's place: taller than it, so a tightened wave has room */

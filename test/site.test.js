@@ -3284,8 +3284,9 @@ test('site: the header mark is the logo drawn live; the whole title tightens it,
   await page.waitForTimeout(900)
   const tight = await logoShot(canvas)
   assert(apart(rest, tight) > 8, `hovering the title tightens the mark, ${apart(rest, tight)}`)
-  // A drag across the title turns it, and is no click on the link
+  // A drag across the title turns it, whole, not dimmed as a pressed link, and is no click on the link
   await page.mouse.down()
+  assert.equal(await title.evaluate(title => getComputedStyle(title).opacity), '1')
   await page.mouse.move(box.x + box.width - 90, y, { steps: 6 })
   await page.mouse.up()
   assert.equal(page.url(), url)

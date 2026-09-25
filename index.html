@@ -13,13 +13,13 @@
   <script type="importmap">{"imports":{"@audio/encode-wav":"./assets/wav.js","@audio/encode-mp3":"./assets/mp3.js","@audio/encode-flac":"./assets/flac.js","@audio/encode-aiff":"./assets/aiff.js","@audio/encode-ogg":"./assets/ogg.js"}}</script>
   <script type="module" src="site.js"></script>
   <script type="module">
-    // The mark drawn live: it drifts, tightens under the pointer anywhere on the title, turns under a drag and keeps
+    // The mark drawn live: it drifts, tightens by half a cycle under the pointer anywhere on the title, turns under a drag and keeps
     // turning when let go, and the tab's icon turns with it. Where WebGL is missing, the static mark stays.
     import { logo } from './logo.js'
     import { motion } from './logo-motion.js'
     const title = document.querySelector('.header .wordmark'), canvas = title.querySelector('.logo canvas')
     const view = logo(canvas, { clear: true, fit: 'width', onresize: () => mark?.set({}) })
-    const mark = view && motion(view, canvas, { area: title, speed: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : .06, hover: 'tighten', tap: false, favicon: true })
+    const mark = view && motion(view, canvas, { area: title, speed: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : .06, hover: { speed: .15, cycles: 1.5 }, tap: false, favicon: true })
     if (view) {
       // Small, it prints flat, and its window is the gentler cosine, so a side lobe stays in sight mid-turn
       view.set({ figure: getComputedStyle(title).color, window: 'cosine', gradient: 'rectangular' })
