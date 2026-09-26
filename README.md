@@ -62,7 +62,7 @@ npx skills add audiojs/audio
 
 ### MCP
 
-`claude mcp add audio -- npx -y audio --mcp`
+`claude mcp add audio -- npx -y audio --mcp`<br/>
 `Prompt: make ~/Desktop/interview.m4a podcast-ready and tell me the loudness before and after`
 
 
