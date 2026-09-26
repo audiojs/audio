@@ -42,9 +42,27 @@ test('normalize: loudness presets land on target and hold the -1 dBTP ceiling (r
   for (let [preset, target] of [['streaming', -14], ['podcast', -16], ['broadcast', -23]]) {
     let a = program().normalize(preset)
     let pcm = await a.read(), b = audio.from(pcm, { sampleRate: 48000 })
-    t.almost(await b.stat('loudness'), target, 0.05, `${preset}: ${target} LUFS`)
+    t.almost(await b.stat('loudness'), target, 0.01, `${preset}: ${target} LUFS`)
     t.ok(dbtp(pcm) <= -1 + 0.02, `${preset}: true peak ${dbtp(pcm).toFixed(3)} ≤ -1 dBTP`)
   }
+})
+
+// A block model of the limiter errs by the material once it takes several LU (peaks inside a
+// block are unseen); a render that starts with the whole signal known measures its way there.
+test('normalize: heavy limiting still lands on target (speech at -10 LUFS, ~7 LU limited)', async t => {
+  let pcm = await (await audio(lena)).normalize(-10, 'lufs').read()
+  t.almost(await audio.from(pcm, { sampleRate: 44100 }).stat('loudness'), -10, 0.01, '-10 LUFS')
+  t.ok(truepeak(pcm, { fs: 44100 }) <= -1 + 0.02, 'true peak ≤ -1 dBTP')
+})
+
+// Stats a resolve op sees after a lookahead op are rendered: they must be in timeline position,
+// not delayed by the lookahead (a 2048-sample STFT frame here would shift trim's crop by as much)
+test('trim after a lookahead op crops where trim alone does', async t => {
+  let X = Float32Array.from({ length: 24000 }, (_, i) => i > 4000 && i < 16000 ? 0.4 * Math.sin(2 * Math.PI * 300 * i / 8000) : 0)
+  let [a] = await audio.from([X], { sampleRate: 8000 }).trim().read()
+  let [b] = await audio.from([X], { sampleRate: 8000 }).spectral([3000, 3500], -20).trim().read()
+  t.is(b.length, a.length, 'same length')
+  t.ok(a.every((v, i) => Math.abs(v - b[i]) < 0.01), 'same samples (the band edit touches only the onset)')
 })
 
 test('normalize: the preview measures what the render holds (no stale pre-limit loudness)', async t => {
@@ -177,6 +195,11 @@ test('ops: documented positional args are applied, extras rejected', async t => 
   t.is([...(await zeros().mix(ones, 0.2, -6).read())[0]].map(v => +v.toFixed(3)), [0, 0, 0.501, 0.501, 0, 0, 0, 0, 0, 0], 'mix gain dB')
   t.is([...(await zeros().insert(ones, 0.5).read())[0]], [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0], 'insert(src, at)')
   t.throws(() => zeros().gain(1, 2), /gain: expected at most 1 argument/)
+  // an op without params takes options only: positional values were silently dropped
+  t.throws(() => zeros().crop(0.2, 0.3), /crop: takes options/)
+  t.is((await zeros().crop({ at: 0.2, duration: 0.3 }).read())[0].length, 3, 'crop({at, duration})')
+  // a rest param takes the remaining values: crossover(...freqs) ≡ crossover({freqs})
+  t.is((await zeros().crossover(1, 3).read()).length, (await zeros().crossover({ freqs: [1, 3] }).read()).length, 'crossover(...freqs)')
 })
 
 // A butt splice mid-cycle steps the waveform; an equal-power crossfade keeps every sample
@@ -258,7 +281,7 @@ test('fade: fade(in, curve) applies the curve', async t => {
   t.almost(l[25], 0.25, 1e-6, 'linear default')
 })
 
-test('cli: positional ranges, crossfade, sidechain file and save depth, end to end', async t => {
+test('cli: positional ranges, crossfade, sidechain file and save depth, end to end', { timeout: 60000 }, async t => {
   let { execFileSync } = await import('child_process')
   let cli = fileURLToPath(new URL('../bin/cli.js', import.meta.url))
   let run = (...args) => execFileSync(process.execPath, [cli, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })

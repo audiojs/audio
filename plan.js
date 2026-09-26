@@ -3,7 +3,7 @@
  * Intercepts create/run/read/stream to track and materialize edits.
  */
 
-import audio, { readPages, copyPages, walkPages, parseTime, LOAD, READ, emit } from './core.js'
+import audio, { readPages, copyPages, walkPages, parseTime, fromEnd, LOAD, READ, emit } from './core.js'
 
 let fn = audio.fn
 let ops = {}
@@ -132,7 +132,10 @@ function isOpts(v) {
 
 /** Map positional args to named params on ctx. */
 function mapParams(params, args, ctx) {
-  if (params) for (let i = 0; i < params.length && i < args.length; i++) ctx[params[i]] = args[i]
+  if (params) for (let i = 0; i < params.length && i < args.length; i++) {
+    if (params[i].startsWith('...')) { ctx[params[i].slice(3)] = args.slice(i); break }  // rest: the remaining args
+    ctx[params[i]] = args[i]
+  }
 }
 
 /** Normalize edit options: parse time fields and sample aliases. */
@@ -187,17 +190,20 @@ audio.op = function(name, arg1, arg2, arg3) {
   ops[name] = desc
 }
 
-/** Instance method for op `name`. Positional args map to the op's params at call time;
- *  an op not registered yet (a registry plugin still to load) keeps them as `args`,
- *  mapped once it loads. More positional args than params is an error, not a silent drop. */
+/** Instance method for op `name`. Positional args map to the op's params at call time (a
+ *  `...rest` param takes the remaining ones); an op not registered yet (a registry plugin still
+ *  to load) keeps them as `args`, mapped once it loads. More positional args than params is an
+ *  error, not a silent drop: an op without params takes options only. */
 export function opMethod(name) {
   return function(...a) {
     let hasOpts = a.length && isOpts(a.at(-1))
     let o = hasOpts ? { ...a.pop() } : {}
     let d = ops[name]
-    if (d?.params) {
-      if (a.length > d.params.length) throw new TypeError(`${name}: expected at most ${d.params.length} argument${d.params.length === 1 ? '' : 's'} (${d.params.join(', ')}), got ${a.length}`)
-      mapParams(d.params, a, o)
+    if (d) {
+      let p = d.params || []
+      if (!p.at(-1)?.startsWith('...') && a.length > p.length)
+        throw new TypeError(p.length ? `${name}: expected at most ${p.length} argument${p.length === 1 ? '' : 's'} (${p.join(', ')}), got ${a.length}` : `${name}: takes options ({ at, duration, … }), not positional arguments`)
+      mapParams(p, a, o)
     }
     else if (a.length) o.args = a
     for (let k in o) if (typeof o[k] === 'number' && Number.isNaN(o[k])) throw new RangeError(`${name}: ${k} is NaN`)
@@ -277,7 +283,7 @@ export async function ensurePlan(a, plan, offset, duration, visiting = new Set()
     let e = duration != null ? s + Math.round(duration * sr) : plan.totalLen
     e = Math.min(e + latency, plan.totalLen)  // latency cursors read ahead
     // Match streamPlan's warm-up, including pages before the requested range.
-    if (plan.pipeline.length) s = Math.max(0, Math.min(s, s + latency - audio.BLOCK_SIZE * WARMUP))
+    if (plan.pipeline.length) s = warmStart(s, s + latency, plan.warmup)
     // Pull sources (mix/crossfade) use seconds; segment refs use source samples.
     if (plan.pulls) for (let p of plan.pulls) {
       let S = s / sr, E = e / sr
@@ -347,6 +353,7 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
 
   if (this._.disposed) return
   if (this._.ready) await this._.ready
+  offset = await fromEnd(this, offset)
   if (this._.disposed) return
   await loadRefs(this)
 
@@ -389,7 +396,7 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
         // Warm up before the latency-delayed start, never after the requested one: a stage delayed by T must
         // see input from startSample, or a latency past the warm-up loses the first T − warm-up samples
         if ((startSample > 0 || T > 0) && procs.length)
-          outPos = Math.max(0, startSample + Math.min(0, T - BS * WARMUP))
+          outPos = warmStart(startSample, startSample + T, plan.warmup)
       } else if (plan.latency !== T) {
         // Mid-stream latency change — keep content continuity: cursor c ↦ c + ΔT
         outPos += plan.latency - T; T = plan.latency
@@ -402,6 +409,11 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
       } else if (procs.length) {
         // Same structure, values refined — patch ctx in place (ramped in applyProcs)
         patchProcs(procs, plan.pipeline)
+      }
+      // A live source's end moves: ops placed from it follow (their output is held back until final)
+      if (!a.decoded) {
+        let td = plan.totalLen / sr
+        for (let p of procs) { p.ctx.totalDuration = td; if (p.origAt != null && p.origAt < 0) p.at = td + p.origAt }
       }
       if (a.decoded && (!ensured || verChanged)) {
         ensured = true
@@ -427,7 +439,9 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
     // Cursor bounds: pre-decode the limit gates determinism; post-decode cursors may
     // run T past totalLen to flush lookahead delay lines (renders as silence)
     let bound = a.decoded ? plan.totalLen + T : Math.min(plan.limit, plan.totalLen)
-    let blockEnd = outPos < startSample + T ? startSample + T : Math.min(endSample + T, bound)
+    // the latency pre-roll too: nothing is processed past what is settled, or a stateful op
+    // builds on a placement the rest of the input still moves
+    let blockEnd = Math.min(outPos < startSample + T ? startSample + T : endSample + T, bound)
     let len = Math.min(BS, blockEnd - outPos)
     if (len <= 0) { if (a.decoded) break; await new Promise(r => a._.waiters.push(r)); continue }
 
@@ -560,8 +574,11 @@ function adjustLimit(limit, type, ctx) {
     return at < limit ? limit - Math.min(dur, limit - at) : limit
   }
   if (type === 'insert') {
-    // entry-seam crossfade reads the source on past the insertion point
-    if (ctx.crossfade && offset != null && limit < offset + Math.round(parseTime(ctx.crossfade) * sr)) return Math.min(limit, offset)
+    // an entry-seam crossfade overlaps or fades in place depending on the source running X past
+    // the insertion point (clamped to the current end), and in place it touches X before it:
+    // hold there until that's known
+    let x = Math.round((parseTime(ctx.crossfade) || 0) * sr)
+    if (x && offset != null && limit < offset + x) return Math.max(0, Math.min(limit, Math.min(offset, ctx.total) - x))
     if (offset != null && offset <= limit) {
       let s = ctx.source
       let iLen = typeof s === 'number' ? Math.round(s * sr)
@@ -578,7 +595,8 @@ function adjustLimit(limit, type, ctx) {
     return limit
   }
   if (type === 'pad') return limit + Math.round((ctx.before ?? 0) * sr)
-  if (type === 'reverse') return length == null ? Math.min(limit, offset ?? 0) : limit
+  // a reversed range starts with its last sample: hold at its start until all of it is in
+  if (type === 'reverse') return length == null || limit < (offset ?? 0) + length ? Math.min(limit, offset ?? 0) : limit
   if (type === '_resample_seg') return Math.round(limit * (ctx.rate || sr) / sr)
   if (type === '_stretch_seg') {
     // Sliding stretch: piecewise factors — integrate output samples over available input
@@ -606,32 +624,60 @@ function procLatency(desc, o, sr) {
   return (typeof l === 'function' ? Math.round(l(o || {}, sr)) : l) || 0
 }
 
-/** Stats a resolve-stage op sees: source stats remapped through the structural segs
- *  + pipeline accumulated so far, so trim/normalize measure output space, not source
- *  space. Algebraic remap when possible; full synchronous stat pass at final when not;
- *  null during streaming when infeasible (op defers until final). */
-function resolveCtxStats(a, segs, pipeline, sr, final) {
-  let src = a.srcStats
+/** Declared warm-up of a pipeline op in samples: input it needs before an output position to
+ *  get that position right (context before a repaired range, a frame's left half). A render
+ *  that starts mid-timeline begins this far earlier; number, or fn(opts, sr). */
+function procWarmup(desc, o, sr) {
+  let w = desc?.warmup
+  return (typeof w === 'function' ? Math.round(w(o || {}, sr)) : w) || 0
+}
+
+/** Declared holdback of a pipeline op in samples: output before the plan's current end it can't
+ *  finalize until the end is known (a fade-out's length); number, or fn(opts, sr, total). */
+function procHoldback(desc, o, sr, total) {
+  let h = desc?.holdback
+  return (typeof h === 'function' ? Math.round(h(o || {}, sr, total)) : h) || 0
+}
+
+/** First input sample for output from s, with the latency-shifted cursor sc: the fixed warm-up
+ *  blocks before the cursor, the plan's declared warm-up before s, never past s. */
+const warmStart = (s, sc, warmup = 0) => Math.max(0, Math.min(s, s - warmup, sc - audio.BLOCK_SIZE * WARMUP))
+
+/** Stats a resolve-stage op (edit `index`) sees: source stats remapped through the
+ *  structural segs + pipeline accumulated so far, so trim/normalize measure output space,
+ *  not source space. Algebraic remap when possible; otherwise the prefix renders into stats
+ *  as a stage. Its output below the limit is settled, so each compile renders only what
+ *  newly settled: a live stream accumulates them as it goes (partial until final), and the
+ *  timeline is never rendered twice for them. */
+function resolveCtxStats(a, index, st) {
+  let src = a.srcStats, { segs, pipeline, sr } = st
   if (!src) return src
   if (!pipeline.length && segs.length === 1 && segs[0][0] === 0 && segs[0][2] === 0 && !segs[0][3] && segs[0][4] === undefined) return src
-  let plan = { segs, pipeline, totalLen: planLen(segs), sr }
-  let adapted = audio.adaptStats?.(src, plan, sr)
+  let adapted = audio.adaptStats?.(src, st, sr)
   if (adapted) return adapted
-  if (!final || !audio.statSession) return null
-  let key = a.version + ':' + plan.totalLen + ':' + segs.length + ':' + pipeline.length
-  if (a._.rsc?.key === key) return a._.rsc.stats
-  let s = audio.statSession(sr)
-  for (let chunk of streamPlan(a, plan)) s.page(chunk)
-  let stats = s.done()
-  a._.rsc = { key, stats }
-  return stats
+  if (!audio.statSession) return null
+  let edit = a.edits[index], all = a._.rstats ??= new WeakMap(), c = all.get(edit), rv = refVersion(a)
+  if (!c || c.rv !== rv || c.prefix.length !== index || c.prefix.some((e, i) => e !== a.edits[i]))
+    all.set(edit, c = { prefix: a.edits.slice(0, index), rv, pos: 0, hl: 0 })
+  // what was rendered holds while the timeline only grows and the stage keeps its shape
+  if (!c.st || c.st.sr !== sr || c.st.ch !== st.ch || c.st.latency !== st.latency ||
+      pipelineSig(c.st.pipeline) !== pipelineSig(pipeline) || !sameTimeline(c.st.segs, segs)) {
+    c.procs = null; c.st = null
+    c.session = audio.statSession(sr); c.done = 0; c.stats = null
+  }
+  if (c.stats) return c.stats
+  st.outCh = stageWidth(pipeline, st.ch, st.totalLen / sr, sr)
+  st.cur = c
+  let settled = st.final ? st.totalLen : Math.max(0, Math.min(st.limit, st.totalLen) - st.latency)
+  for (let n; (n = Math.min(1 << 16, settled - c.done)) > 0; c.done += n) c.session.page(readStage(a, st, c.done, n))
+  return st.final ? (c.stats = c.session.done()) : c.session.snapshot()
 }
 
 /** Compile edit list into plan segments + pipeline for a given source length.
  *  final=true when source is fully decoded — all positions are determined. */
 function compilePlan(a, len, final) {
   let sr = a._.sr, ch = a._.ch
-  let segs = [[0, len, 0]], pipeline = [], limit = len, pulls = [], latency = 0, clipboard
+  let segs = [[0, len, 0]], pipeline = [], limit = len, pulls = [], latency = 0, warmup = 0, clipboard
 
   // Share pages, never a full PCM copy; the edit prefix replays the processed audio
   // and preserves format derivation and ordinary ref/cache behavior.
@@ -647,8 +693,18 @@ function compilePlan(a, len, final) {
   let pushProc = ed => {
     pipeline.push(ed)
     latency += procLatency(ops[ed[0]], ed[1], sr)
+    warmup = Math.max(warmup, procWarmup(ops[ed[0]], ed[1], sr))
     let o = ed[1]
     if (o) for (let k in o) if (o[k]?.pages) pulls.push({ ref: o[k], at: o.at ?? 0 })
+    // While the end is unknown, output that depends on it waits, and only that much: a range
+    // counted from the end, or the op's declared holdback (a fade-out's length)
+    if (!final) {
+      let t = planLen(segs), hb = procHoldback(ops[ed[0]], o, sr, t)
+      // a range from the end is placed only at the end: until then the op must not reach it,
+      // nor the context it reads before it (warm-up)
+      if (o?.at < 0) hb = Math.max(hb, Math.round(-o.at * sr) + procWarmup(ops[ed[0]], o, sr))
+      if (hb) limit = Math.min(limit, Math.max(0, t - hb))
+    }
   }
 
   // A structural op works on the audio as processed so far: pending pipeline ops bake
@@ -657,12 +713,12 @@ function compilePlan(a, len, final) {
   let index = 0, bakes = 0
   let bake = () => {
     if (!pipeline.length) return
-    let st = { segs, pipeline, totalLen: planLen(segs), sr, ch, latency, pulls, limit }
+    let st = { segs, pipeline, totalLen: planLen(segs), sr, ch, latency, warmup, pulls, limit }
     st.outCh = stageWidth(pipeline, ch, st.totalLen / sr, sr)
     st.cur = stageCursor(a, index, bakes++)
     segs = [seg(0, st.totalLen, 0, undefined, st)]
     ch = st.outCh
-    pipeline = []; pulls = []; latency = 0
+    pipeline = []; pulls = []; latency = 0; warmup = 0
   }
 
   // Apply edits emitted by an expand/resolve hook: structural → segment rewrite,
@@ -710,7 +766,8 @@ function compilePlan(a, len, final) {
       if (type === 'paste') extra.source = clipboard
     }
 
-    if (!final && at != null && at < 0) limit = 0
+    // a structural or stat-resolved op counted from the end moves the whole output with it
+    if (!final && at != null && at < 0 && (op.plan || op.whole || op.resolve)) limit = 0
 
     // Macro expansion — pure rewrite into simpler edits, never needs stats
     if (op.expand) {
@@ -725,20 +782,28 @@ function compilePlan(a, len, final) {
 
     // Stat-conditioned resolve — decides from (remapped) stats, may defer until final
     if (op.resolve) {
-      let stats = resolveCtxStats(a, segs, pipeline, sr, final)
+      let stats = resolveCtxStats(a, i, { segs, pipeline, totalLen: planLen(segs), sr, ch, latency, warmup, pulls, limit, final })
+      // a decision from partial stats holds only for what they have seen: output waits at their
+      // edge, and what the rest of the input can still change waits for it (declared holdback)
+      if (!final) {
+        let t = planLen(segs), hb = procHoldback(op, o, sr, t)
+        if (stats?.min) limit = Math.min(limit, stats.min[0].length * (stats.blockSize || audio.BLOCK_SIZE))
+        if (hb) limit = Math.min(limit, Math.max(0, t - hb))
+      }
       let ctx = { stats, sampleRate: sr, channelCount: ch, channel, at, duration, totalDuration: planLen(segs) / sr, final, ...extra }
-      // What-if render: block stats of the plan so far + candidate pipeline edits. Only
-      // once the whole signal is known: the candidate must hold for the full output.
+      // What-if render: stats of the plan so far + candidate pipeline edits, for decisions a
+      // model of the stats can't make exactly (loudness through a limiter). Only once the whole
+      // signal is known: the candidate must hold for the full output.
       if (final && audio.statSession) ctx.measure = emitted => {
-        let pl = pipeline.slice(), lat = latency
+        let pl = pipeline.slice(), lat = latency, wu = warmup
         for (let re of Array.isArray(emitted[0]) ? emitted : [emitted]) {
           let [t, o] = normalizeEdit(re, sr)
           if (ops[t]?.plan || ops[t]?.whole) throw new Error(`measure: '${t}' is structural; pipeline ops only`)
           o.at ??= at; o.duration ??= duration; o.channel ??= channel
-          pl.push([t, o]); lat += procLatency(ops[t], o, sr)
+          pl.push([t, o]); lat += procLatency(ops[t], o, sr); wu = Math.max(wu, procWarmup(ops[t], o, sr))
         }
         let s = audio.statSession(sr)
-        for (let chunk of streamPlan(a, { segs, pipeline: pl, totalLen: planLen(segs), sr, ch, latency: lat, pulls })) s.page(chunk)
+        for (let chunk of streamPlan(a, { segs, pipeline: pl, totalLen: planLen(segs), sr, ch, latency: lat, warmup: wu, pulls })) s.page(chunk)
         return s.done()
       }
       let resolved = op.resolve(ctx)
@@ -779,7 +844,7 @@ function compilePlan(a, len, final) {
       }
       segs = [seg(0, ref._.len, 0, undefined, ref)]
       ch = ref._.ch
-      pipeline = []; latency = 0; pulls = []
+      pipeline = []; latency = 0; warmup = 0; pulls = []
       if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }
       continue
     }
@@ -799,7 +864,7 @@ function compilePlan(a, len, final) {
   if (final) limit = totalLen
   // ch = pipeline input width — a._.ch unless a whole op rewrote the timeline to a
   // wider/narrower ref (pipeline stages fold their own widths via desc.ch in initProcs)
-  return { segs, pipeline, totalLen, sr, ch, limit: Math.max(0, limit), pulls, latency }
+  return { segs, pipeline, totalLen, sr, ch, limit: Math.max(0, limit), pulls, latency, warmup }
 }
 
 /** Sum ref versions + lengths to detect external mutations (edits or decode growth). */
@@ -1046,7 +1111,7 @@ function seekStage(st, c, s) {
   c.buf = Array.from({ length: st.ch }, () => new Float32Array(BS))
   c.hist = Array.from({ length: st.outCh }, () => new Float32Array(BS))
   c.hl = 0
-  c.pos = (sc > 0 ? Math.max(0, Math.min(s, sc - BS * WARMUP)) : sc) - T
+  c.pos = (sc > 0 ? warmStart(s, sc, st.warmup) : sc) - T
 }
 
 /** Read timeline samples [s, s + n) of a stage. Contiguous reads continue its cursor, so
@@ -1264,7 +1329,7 @@ export function* streamPlan(a, plan, offset, duration) {
 
   let sc = s + T, ec = e + T
   // Same warm-up bound as the async reader: never past the requested start s
-  let ws = (sc > 0 && procs.length) ? Math.max(0, Math.min(s, sc - audio.BLOCK_SIZE * WARMUP)) : sc
+  let ws = (sc > 0 && procs.length) ? warmStart(s, sc, plan.warmup) : sc
   let BS = audio.BLOCK_SIZE, nch = ch
   let bufA = Array.from({ length: nch }, () => new Float32Array(BS))
 

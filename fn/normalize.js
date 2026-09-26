@@ -1,4 +1,4 @@
-import { dcOffsets, peakDb, rmsDb, lufsDb } from './loudness.js'
+import { dcOffsets, peakDb, rmsDb, lufsDb, lufsFromEnergy } from './loudness.js'
 import audio, { resolveChannels } from '../core.js'
 
 // Integrated-loudness presets (LUFS): Spotify/YouTube, Apple Podcasts, EBU R 128
@@ -138,6 +138,26 @@ audio.op('ceiling', {
   process: ceiling,
 })
 
+/** Loudness after `gain` dB and the ceiling, from block stats: a block model of the limiter,
+ *  each block at the gain its sample peak needs (channel-linked), held down by the release
+ *  across later blocks, energy scaled by gain². Blocks don't carry how peaks fall inside them,
+ *  so against rendered output it errs by the material: within 0.01 LU while limiting takes
+ *  < 0.2 LU, up to ±0.2 LU at 2 LU and ±0.5 LU at 5–9 LU of limiting (speech high, dense music low). */
+function limitedLufs(stats, chs, sr, gainDb, ceilDb) {
+  let G = 10 ** (gainDb / 20), c = 10 ** (ceilDb / 20), bs = stats.blockSize
+  let k = 1 - Math.exp(-bs / (RELEASE * sr)), n = stats.energy[chs[0]].length, env = 1
+  let energy = stats.energy.map(e => e)
+  for (let ch of chs) energy[ch] = new Float32Array(n)
+  for (let b = 0; b < n; b++) {
+    let p = 0
+    for (let ch of chs) { let lo = stats.min[ch][b], hi = stats.max[ch][b]; p = Math.max(p, lo < 0 ? -lo : lo, hi < 0 ? -hi : hi) }
+    let r = p * G > c ? c / (p * G) : 1
+    env = Math.min(r, env + (1 - env) * k)
+    for (let ch of chs) energy[ch][b] = stats.energy[ch][b] * G * G * env * env
+  }
+  return lufsFromEnergy(energy, chs, sr, bs)
+}
+
 /** Target → { targetDb, mode }. Presets are integrated loudness; numbers take `mode`. */
 function parseTarget(target, mode) {
   if (typeof target === 'string') {
@@ -149,9 +169,12 @@ function parseTarget(target, mode) {
   return { targetDb: typeof target === 'number' ? target : 0, mode: mode || 'peak' }
 }
 
+// Normalizing sets one gain for the whole selection (Audacity, iZotope RX, FFmpeg loudnorm
+// linear): on a live stream it waits for the end. `adaptive: true` starts at once, the gain
+// following what it has heard so far, the ceiling guarding what it hasn't.
 audio.op('normalize', {
   params: ['target', 'mode'],
-  streamable: true,
+  holdback: (o, sr, total) => o.adaptive ? 0 : total,
   process: (input, output) => { for (let c = 0; c < input.length; c++) output[c].set(input[c]) },
   resolve: (ctx) => {
     let { stats, sampleRate } = ctx
@@ -165,8 +188,10 @@ audio.op('normalize', {
 
     let { targetDb, mode } = parseTarget(ctx.target, ctx.mode)
     // Loudness targets hold a -1 dBTP true-peak ceiling by default (Apple Podcasts, Spotify,
-    // EBU R 128, AES TD1008); `ceiling: false` turns it off, a number moves it
-    let ceiling = ctx.ceiling === false ? null : ctx.ceiling ?? (mode === 'lufs' ? -1 : null)
+    // EBU R 128, AES TD1008); `ceiling: false` turns it off, a number moves it. Adaptive gain
+    // rises before it has heard the loudest part: the ceiling always guards it (the target
+    // itself in peak mode)
+    let ceiling = ctx.ceiling === false ? null : ctx.ceiling ?? (mode === 'lufs' ? -1 : ctx.adaptive ? (mode === 'peak' ? targetDb : -1) : null)
 
     let totalCh = stats.min.length
     let { chs } = resolveChannels(ctx.channel, totalCh)
@@ -190,23 +215,28 @@ audio.op('normalize', {
     // True-peak limiting, never clipping (AES TD1008 §5A: "When upward normalization would
     // cause clipping, peak limiting is required")
     edits.push(['ceiling', { limit: ceiling }])
-    // Limiting takes loudness off the peaks; once the whole signal is known, measure the
-    // limited render and make the difference up (secant steps: loudness rises slower than
-    // gain while the limiter works). Inter-sample overs stay within ~3 dB of sample peaks.
-    let peak = peakDb(stats, chs, dcOff)
-    if (mode === 'lufs' && ctx.measure && peak != null && peak + gain[1].value > ceiling - 3) {
+    // Limiting takes loudness off the peaks: make it back up by secant steps (loudness rises
+    // slower than gain while the limiter works), first on a block model of the limiter, then,
+    // once the whole signal is known, on measured renders, to the target exactly. Adaptive gain
+    // stays on the model: it refines with the stats like the gain itself.
+    // True peaks stay within ~3 dB of sample peaks: below that the limiter never engages.
+    if (mode === 'lufs' && peakDb(stats, chs, dcOff) + gain[1].value > ceiling - 3) {
       let g0 = gain[1].value, slope = 1
-      for (let k = 0, prev = null; k < 6; k++) {
-        let got = lufsDb(ctx.measure(edits), chs, sampleRate)
-        if (got == null) break
-        let err = targetDb - got
-        if (Math.abs(err) < 0.02) break
-        if (prev) slope = Math.min(1, Math.max(0.1, (got - prev.got) / (gain[1].value - prev.gain)))
-        prev = { got, gain: gain[1].value }
-        let next = Math.min(g0 + 12, gain[1].value + err / slope)
-        if (next === gain[1].value) break
-        gain[1].value = next
+      const step = (measure, n) => {
+        for (let k = 0, prev = null; k < n; k++) {
+          let got = measure(gain[1].value)
+          if (got == null) return
+          let err = targetDb - got
+          if (Math.abs(err) < 0.005) return
+          if (prev) slope = Math.min(1, Math.max(0.05, (got - prev.got) / (gain[1].value - prev.g)))
+          prev = { got, g: gain[1].value }
+          let next = Math.min(g0 + 12, gain[1].value + err / slope)
+          if (next === gain[1].value) return
+          gain[1].value = next
+        }
       }
+      step(g => limitedLufs(stats, chs, sampleRate, g, ceiling), 8)
+      if (ctx.measure && !ctx.adaptive) step(() => lufsDb(ctx.measure(edits), chs, sampleRate), 4)
     }
     return edits
   }

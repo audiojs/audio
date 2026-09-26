@@ -1,4 +1,4 @@
-import audio, { emit, parseTime, LOAD } from '../core.js'
+import audio, { emit, parseTime, fromEnd, LOAD } from '../core.js'
 import { buildPlan, streamPlan, ensurePlan, loadRefs } from '../plan.js'
 import encode from '@audio/encode'
 
@@ -36,13 +36,13 @@ const ENCODE_OPTS = ['bitDepth', 'bitrate', 'quality', 'codec', 'compression']
 
 /** Encoder settings from save opts. Lossless output keeps the source's stored depth
  *  (smallest depth the format writes that holds it): a 24-bit master stays 24-bit.
- *  m4a/mp4 carry markers and region starts as chapters. */
+ *  m4a/mp4 (chpl) and mp3 (ID3 CHAP) carry markers and region starts as chapters. */
 function encodeOpts(inst, fmt, opts, m) {
   let o = {}
   for (let k of ENCODE_OPTS) if (opts[k] != null) o[k] = opts[k]
   let depths = DEPTHS[fmt], src = inst.bitDepth
   if (o.bitDepth == null && depths && src > 16) o.bitDepth = depths.find(d => d >= src) ?? depths.at(-1)
-  if ((fmt === 'm4a' || fmt === 'mp4') && m) {
+  if ((fmt === 'm4a' || fmt === 'mp4' || fmt === 'mp3') && m) {
     let sr = inst.sampleRate
     let ch = [...m.markers.map(x => ({ time: x.sample / sr, title: x.label })), ...m.regions.map(x => ({ time: x.sample / sr, title: x.label }))]
     if (ch.length) o.chapters = ch.sort((a, b) => a.time - b.time)
@@ -77,7 +77,7 @@ async function videoSource(inst, fmt, opts) {
 async function assertFrames(inst, opts, verb) {
   if (inst._.waiters && !inst.decoded) return  // live source: length unknown until it ends
   await inst[LOAD]()
-  let at = parseTime(opts.at) ?? 0
+  let at = await fromEnd(inst, parseTime(opts.at)) ?? 0
   let dur = parseTime(opts.duration) ?? inst.duration - at
   if (Math.round(Math.min(dur, inst.duration - at) * inst.sampleRate) < 1)
     throw new Error(`${verb}: nothing to ${verb} — empty range (audio is ${(inst.duration || 0).toFixed(3)}s)`)
@@ -91,23 +91,37 @@ async function assertFrames(inst, opts, verb) {
 // keeping the worst event-loop stall ~60 ms (heaviest op burst) — no spinner/UI freeze.
 const ENCODE_BATCH = 1 << 17
 
-/** Stream-encode audio: calls sink(buf) per chunk, returns sink(null) at end. */
-async function encodeStream(inst, fmt, opts, sink) {
+/** Stream-encode audio: calls sink(buf) per chunk, then sink(null, head) at the end, `head` being
+ *  the bytes to write over the start of the output (the header with its final totals), if any.
+ *  `stream`: the encoder emits as it goes, metadata in the header, memory flat however long the
+ *  output (@audio/encode `stream: true`); else it may hold output to write an exact header. */
+async function encodeStream(inst, fmt, opts, sink, stream) {
   // sampleRate/channels are metadata — constructing the encoder before decode reported
   // them baked in undefined (mp3 defaulted to stereo and threw on mono files)
   if (inst._.ready) await inst._.ready
-  let m = gatherMeta(inst, opts)
-  let enc = await encoderFor(fmt)({ sampleRate: inst.sampleRate, channels: inst.channels, ...(m || {}), ...encodeOpts(inst, fmt, opts, m) })
-  let total = opts.duration != null ? parseTime(opts.duration) : null  // inst.duration builds the plan — defer past LOAD/live
-
   // Live (pushable, still receiving) sources can't be planned ahead — stream per block.
   // A chain carrying a whole-render op can't stream either way: fall through to the
   // planned path, whose LOAD waits decode out (crashed on undefined bus before).
   let live = !!inst._.waiters && !inst.decoded && !inst.edits?.some(e => audio.op?.(e[0])?.whole)
+  // an MP4 streams fragmented: for a live source only, a finished one keeps moov-first, which every player reads
+  if (fmt === 'm4a' || fmt === 'mp4') stream &&= live
+  let offset = await fromEnd(inst, parseTime(opts.at)), duration = parseTime(opts.duration), plan = null, frames
+  if (!live) {
+    await inst[LOAD]()
+    await loadRefs(inst)
+    plan = buildPlan(inst)
+    // the length streamPlan renders: known upfront, the streamed header is exact from the start
+    let s = Math.round((offset || 0) * plan.sr)
+    frames = (duration != null ? s + Math.round(duration * plan.sr) : plan.totalLen) - s
+  }
+  let m = gatherMeta(inst, opts)
+  let enc = await encoderFor(fmt)({ sampleRate: inst.sampleRate, channels: inst.channels, ...(m || {}), ...encodeOpts(inst, fmt, opts, m), ...(stream && { stream: true, frames }) })
+  let total = opts.duration != null ? parseTime(opts.duration) : null  // inst.duration builds the plan — defer past LOAD/live
+
   if (live) {
     total ??= inst.duration
     let written = 0, t = performance.now()
-    for await (let chunk of inst.stream({ at: opts.at, duration: opts.duration })) {
+    for await (let chunk of inst.stream({ at: offset, duration })) {
       let buf = await enc(chunk)
       if (buf.length) await sink(buf)
       written += chunk[0].length
@@ -120,11 +134,7 @@ async function encodeStream(inst, fmt, opts, sink) {
     // Decoded source: drive the DSP through the synchronous plan generator in bursts,
     // crossing an `await` only for I/O between bursts. Identical output to read() (one
     // continuous pass, no seam re-warm), but the hot loop stays hot enough to optimize.
-    await inst[LOAD]()
-    await loadRefs(inst)
     total ??= inst.duration
-    let offset = parseTime(opts.at), duration = parseTime(opts.duration)
-    let plan = buildPlan(inst)
     await ensurePlan(inst, plan, offset, duration)
     let sr = inst.sampleRate, written = 0, batch = [], batchLen = 0
     let drain = async () => {
@@ -145,7 +155,7 @@ async function encodeStream(inst, fmt, opts, sink) {
 
   let final = await enc()
   if (final.length) await sink(final)
-  return sink(null)
+  return sink(null, enc.head?.() || null)
 }
 
 /** Encode audio to bytes. */
@@ -154,11 +164,12 @@ audio.fn.encode = async function(fmt, opts = {}) {
   fmt = resolveFormat(fmt)
   if (!encoderFor(fmt)) throw new Error(`encode: unknown format '${fmt}'`)
   await assertFrames(this, opts, 'encode')
-  let parts = []
-  await encodeStream(this, fmt, opts, buf => { if (buf) parts.push(buf) })
+  let parts = [], head = null
+  await encodeStream(this, fmt, opts, (buf, h) => { if (buf) parts.push(buf); else head = h })
   let total = 0; for (let p of parts) total += p.length
   let out = new Uint8Array(total), pos = 0
   for (let p of parts) { out.set(p, pos); pos += p.length }
+  if (head) out.set(head, 0)
   return out
 }
 
@@ -169,6 +180,8 @@ audio.fn.save = async function(target, opts = {}) {
   if (!encoderFor(fmt)) throw new Error(`save: unknown format '${fmt}'`)
   await assertFrames(this, opts, 'save')
 
+  // finish(head): end the output, writing `head` over its start where the target can seek (a file,
+  // a browser file handle); a pipe keeps the streamed header, its totals saying "unknown"
   let write, finish
   if (typeof target === 'string') {
     let { createWriteStream } = await import('fs')
@@ -178,15 +191,27 @@ audio.fn.save = async function(target, opts = {}) {
     ws.on('error', e => { err = e })
     write = buf => {
       if (err) throw err  // abort the encode loop on the next write instead of writing to a dead stream
-      if (!ws.write(Buffer.from(buf))) return new Promise((res, rej) => { ws.once('drain', res); ws.once('error', rej) })
+      // backpressure: wait for drain (or an error), then leave no listener behind
+      if (!ws.write(Buffer.from(buf))) return new Promise((res, rej) => {
+        let settle = e => { ws.off('drain', settle); ws.off('error', settle); e ? rej(e) : res() }
+        ws.on('drain', settle); ws.on('error', settle)
+      })
     }
-    finish = () => new Promise((res, rej) => {
-      if (err) return rej(err)
-      ws.on('finish', res); ws.on('error', rej); ws.end()
-    })
+    finish = async head => {
+      await new Promise((res, rej) => {
+        if (err) return rej(err)
+        ws.on('finish', res); ws.on('error', rej); ws.end()
+      })
+      if (!head) return
+      let fh = await (await import('fs/promises')).open(target, 'r+')
+      try { await fh.write(head, 0, head.length, 0) } finally { await fh.close() }
+    }
   } else if (target?.write) {
     write = buf => target.write(buf)
-    finish = () => target.close?.()
+    finish = async head => {
+      if (head && typeof target.seek === 'function') { await target.seek(0); await target.write(head) }
+      return target.close?.()
+    }
   } else throw new Error('Invalid save target')
 
   let video = await videoSource(this, fmt, opts)
@@ -195,5 +220,5 @@ audio.fn.save = async function(target, opts = {}) {
     await write(remux(video, await this.encode(fmt, opts)))
     return finish?.()
   }
-  await encodeStream(this, fmt, opts, buf => buf ? write(buf) : finish?.())
+  await encodeStream(this, fmt, opts, (buf, head) => buf ? write(buf) : finish(head), true)
 }

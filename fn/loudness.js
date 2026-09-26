@@ -144,36 +144,62 @@ function maxWindow(win) {
 audio.stat('momentary', { fields: ['energy'], query: maxWindow(0.4) })
 audio.stat('shortterm', { fields: ['energy'], query: maxWindow(3) })
 
-/** K-weighted mean square per block and channel, what the stats engine keeps as `energy`. */
-export function blockEnergy(pcm, sr, bs = audio.BLOCK_SIZE) {
-  let nb = Math.floor(pcm[0].length / bs)
-  return pcm.map(ch => {
-    let k = new Float32Array(ch), e = new Float32Array(nb)
-    kWeighting(k, { fs: sr })
-    for (let b = 0; b < nb; b++) { let s = 0; for (let i = b * bs; i < (b + 1) * bs; i++) s += k[i] * k[i]; e[b] = s / bs }
-    return e
-  })
+/** Integrated loudness in bounded memory: gating-window powers binned at 0.01 LU (the
+ *  histogram of libebur128), so the relative gate needs no history. ITU-R BS.1770-4 §5. */
+function gated() {
+  const LO = ABS_GATE, STEP = 0.01, BINS = 9000
+  let count = new Float64Array(BINS), sum = new Float64Array(BINS), n = 0, total = 0
+  return {
+    add(z) {
+      let l = LUFS_OFFSET + 10 * Math.log10(z)
+      if (!(l > ABS_GATE)) return
+      let i = Math.min(BINS - 1, Math.floor((l - LO) / STEP))
+      count[i]++; sum[i] += z; n++; total += z
+    },
+    value() {
+      if (!n) return null
+      let rel = LUFS_OFFSET + 10 * Math.log10(total / n) + REL_GATE, c = 0, z = 0
+      for (let i = Math.max(0, Math.floor((rel - LO) / STEP)); i < BINS; i++) { c += count[i]; z += sum[i] }
+      return c ? LUFS_OFFSET + 10 * Math.log10(z / c) : null
+    },
+  }
 }
 
-/** Integrated loudness of channel data, LUFS (null when silent or shorter than a gate). */
-export const lufs = (pcm, sr) => lufsFromEnergy(blockEnergy(pcm, sr), pcm.length, sr, audio.BLOCK_SIZE)
-
 /** Dialog loudness, LUFS: BS.1770 integrated loudness of the speech only (AES TD1008 "Speech
- *  Loudness" / Dialog Integrated Loudness; Netflix delivers dialog-gated at -27 LKFS). Speech is
- *  found automatically by @audio/vad: frame energy above the noise floor with a tonal (non-flat)
- *  spectrum; gating windows at least half speech count. -Infinity when no speech is found. */
+ *  Loudness" / Dialog Integrated Loudness; Netflix delivers dialog-gated at -27 LKFS). Streams:
+ *  speech is found by @audio/vad (frame energy above the noise floor, tonal spectrum) over
+ *  10 s windows; each 100 ms sub-block keeps its K-weighted power and speech share; gating
+ *  windows (400 ms, 100 ms hop) at least half speech count. -Infinity when no speech is found. */
 audio.stat('dialog', {})
 audio.fn.dialog = async function(opts) {
   let { vad } = await import('@audio/vad')
-  let pcm = await this.read({ at: opts?.at, duration: opts?.duration })
-  let sr = this.sampleRate, bs = audio.BLOCK_SIZE, nb = Math.floor(pcm[0].length / bs)
-  if (!nb) return -Infinity
-  let energy = blockEnergy(pcm, sr, bs)
-  let mono = pcm[0]
-  if (pcm.length > 1) { mono = new Float32Array(mono.length); for (let ch of pcm) for (let i = 0; i < mono.length; i++) mono[i] += ch[i] / pcm.length }
-  // frames of one block at half-block hop: frames 2b and 2b+1 start inside block b
-  let { active } = vad(mono, { fs: sr, frameSize: bs, hopSize: bs / 2 })
-  let mask = new Uint8Array(nb)
-  for (let b = 0; b < nb; b++) mask[b] = active[2 * b] || active[2 * b + 1] ? 1 : 0
-  return lufsFromEnergy(energy, pcm.length, sr, bs, 0, nb, mask) ?? -Infinity
+  let sr = this.sampleRate, nch = this.channels, G = channelWeights(nch), SUB = Math.round(sr / 10), WIN = 100 * SUB
+  let k = Array.from({ length: nch }, () => ({ fs: sr })), acc = gated()
+  let mono = new Float32Array(WIN), fill = 0, zs = [], z = 0, zn = 0, tail = []  // tail: last 3 sub-blocks
+  const window = () => {
+    let { active, hop } = vad(mono.subarray(0, fill), { fs: sr, frameSize: 1024, hopSize: 512 })
+    let subs = zs.map((z, j) => {
+      let a0 = Math.floor(j * SUB / hop), a1 = Math.min(active.length, Math.ceil((j + 1) * SUB / hop)), on = 0
+      for (let a = a0; a < a1; a++) on += active[a]
+      return { z, s: a1 > a0 ? on / (a1 - a0) : 0 }
+    })
+    for (let b of subs) {
+      tail.push(b)
+      if (tail.length > 4) tail.shift()
+      if (tail.length === 4 && tail.reduce((s, t) => s + t.s, 0) >= 2) acc.add(tail.reduce((s, t) => s + t.z, 0) / 4)
+    }
+    fill = 0; zs = []
+  }
+  for await (let chunk of this.stream({ at: opts?.at, duration: opts?.duration })) {
+    let n = chunk[0].length, w = chunk.map((ch, c) => { let x = Float32Array.from(ch); kWeighting(x, k[c]); return x })
+    for (let i = 0; i < n; i++) {
+      let m = 0
+      for (let c = 0; c < nch; c++) { z += (G ? G[c] : 1) * w[c][i] * w[c][i]; m += chunk[c][i] / nch }
+      mono[fill++] = m
+      if (++zn === SUB) { zs.push(z / SUB); z = zn = 0 }
+      if (fill === WIN) window()
+    }
+  }
+  if (zs.length) window()
+  return acc.value() ?? -Infinity
 }

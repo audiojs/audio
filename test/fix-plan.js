@@ -629,3 +629,70 @@ test('bake: replacing the edits mid-stream (A → B) keeps streaming the new cha
   t.ok(Math.abs(out[sr0 * 2] - 0.5 * 10 ** (-12 / 20)) < 1e-6, `new gain after the switch (${out[sr0 * 2]})`)
   t.ok(out.subarray(sr0 * 3, sr0 * 3.25).every(v => v === Math.fround(0.2)), 'new insert untouched')
 })
+
+// ── Streaming guarantees over baked prefixes ──
+// A baked prefix is read like any stream: contiguous reads continue its state, a jump
+// (crop far in, reverse, seek) re-seeks with the same warm-up as seeking the prefix itself.
+// runsum never forgets, so these pin the exact seek model, not just "close enough".
+
+const collect = async it => { let p = []; for await (let b of it) p.push(b[0]); return cat(p) }
+
+test('stream: a jump into a baked prefix equals seeking that prefix', async t => {
+  let src = () => dc(1e-4, sr0 * 4).runsum()
+  let seek = (await src().read({ at: 2, duration: 1 }))[0]
+  t.is(maxDiff((await src().crop({ at: 2, duration: 1 }).read())[0], seek), 0, 'crop far into the effect ≡ read({at}) of the effect')
+  t.is(maxDiff(await collect(src().crop({ at: 2, duration: 1 })), seek), 0, 'streamed crop ≡ the same seek')
+})
+
+test('stream: reverse over a long-memory effect is blockwise seeks, stream ≡ read', async t => {
+  let T = sr0 * 3, n = audio.BLOCK_SIZE
+  let src = () => dc(1e-4, T).runsum()
+  let out = (await src().reverse().read())[0]
+  t.is(maxDiff(await collect(src().reverse()), out), 0, 'stream ≡ read')
+  t.is(maxDiff((await src().reverse().read())[0], out), 0, 'deterministic across renders')
+  for (let o of [0, n * 10]) {
+    let seek = (await src().read({ at: (T - o - n) / sr0, duration: n / sr0 }))[0]
+    t.is(maxDiff(out.subarray(o, o + n), seek.slice().reverse()), 0, `output block at ${o} ≡ reversed seek into the effect`)
+  }
+})
+
+test('stream: stream({at}) ≡ read({at}) on a baked chain, and a backward seek on the same instance', async t => {
+  let mk = () => dc(1e-4, sr0 * 4).runsum().insert(dc(0.25, sr0 / 2), { at: 1 }).fade(0.1, 0.1)
+  for (let at of [0.5, 1.25, 3]) {
+    let read = (await mk().read({ at }))[0]
+    t.is(maxDiff(await collect(mk().stream({ at })), read), 0, `stream({at: ${at}}) ≡ read({at: ${at}})`)
+  }
+  let a = mk()
+  await collect(a.stream({ at: 3 }))
+  t.is(maxDiff(await collect(a.stream({ at: 0.5 })), (await mk().read({ at: 0.5 }))[0]), 0, 'seek back on a used instance ≡ fresh seek')
+})
+
+test('stream: a reversed effect over a huge virtual length streams without materializing', async t => {
+  let a = audio.from([new Float32Array(1e6).fill(0.5)], { sampleRate: 44100 }).repeat(600).gain(-3).reverse()
+  let err = null
+  try { await a.read() } catch (e) { err = e }
+  t.ok(/too large/i.test(err?.message), 'too large to materialize')
+  let blocks = 0, ok = true
+  for await (let b of a.stream()) { ok &&= b[0].every(v => Math.abs(v - 0.5 * 10 ** (-3 / 20)) < 1e-6); if (++blocks === 16) break }
+  t.is(blocks, 16, 'first blocks stream')
+  t.ok(ok, 'streamed blocks carry the processed samples')
+})
+
+test('stream: reverse and far crop while the source is still decoding ≡ decoded read', async t => {
+  let done = await audio('test/fixture.wav')
+  let cut = Math.min(0.3, done.duration / 2)
+  for (let [name, chain] of [['reverse', a => a.runsum().reverse()], ['crop', a => a.runsum().crop({ at: cut })], ['splice', a => a.runsum().remove({ at: cut, duration: cut / 2 })]]) {
+    let flat = (await chain(done.clone()).read())[0]
+    t.is(maxDiff(await collect(chain(audio('test/fixture.wav'))), flat), 0, `${name}: live ≡ decoded`)
+  }
+})
+
+test('stream: seeks and crops at the final boundary of a baked chain', async t => {
+  let T = sr0 * 4, src = () => dc(1e-4, T).runsum()
+  let last = (await src().read({ at: (T - 1) / sr0 }))[0]
+  t.is(last.length, 1, 'one sample left before the end')
+  t.is(maxDiff((await src().crop({ at: (T - 1) / sr0 }).read())[0], last), 0, 'crop to the last sample ≡ seek to it')
+  let mk = () => src().insert(dc(0.25, sr0 / 2), { at: 1 })
+  t.is((await collect(mk().stream({ at: 4.5 }))).length, 0, 'stream({at: end}) yields nothing')
+  t.is((await mk().read({ at: 4.5 }))[0].length, 0, 'read({at: end}) is empty')
+})

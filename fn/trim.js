@@ -37,13 +37,14 @@ const trimResolve = (ctx) => {
   let total = Math.round(totalDuration * sampleRate)
   let thresh = resolveThreshold(stats, ch, 0, stats.energy[0].length, threshold)
 
-  // Progressive: trim head immediately, tail after decode
+  // Progressive: the head trims at once; the tail is held back to the last loud block and
+  // released as sound resumes, so trailing silence is never emitted and then contradicted
   if (stats.partial) {
-    let s = 0
+    let s = 0, e = blocks - 1
     for (; s < blocks; s++) if (isLoud(stats, s, ch, thresh)) break
-    if (s === 0) return false  // no head silence yet
     if (s >= blocks) return ['crop', { at: 0, duration: 0 }]  // all silence so far
-    return ['crop', { at: (s * audio.BLOCK_SIZE) / sampleRate }]  // head only, open duration
+    for (; e > s; e--) if (isLoud(stats, e, ch, thresh)) break
+    return ['crop', { at: s * audio.BLOCK_SIZE / sampleRate, duration: (e + 1 - s) * audio.BLOCK_SIZE / sampleRate }]
   }
 
   let s = 0, e = blocks - 1
@@ -58,4 +59,6 @@ const trimResolve = (ctx) => {
   return ['crop', { at: startSample / sampleRate, duration: (endSample - startSample) / sampleRate }]
 }
 
-audio.op('trim', { params: ['threshold'], process: trim, resolve: trimResolve })
+// The automatic threshold reads the whole input (its quietest tenth): on a live stream every cut
+// waits for the end. A given threshold decides block by block, so trim streams.
+audio.op('trim', { params: ['threshold'], process: trim, resolve: trimResolve, holdback: (o, sr, total) => o.threshold == null ? total : 0 })

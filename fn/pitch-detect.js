@@ -8,14 +8,21 @@
  * notes opts: { at, duration, frameSize=2048, hopSize, threshold=0.15, minClarity=0.5 }
  * chords opts: { at, duration, frameSize=4096, hopSize, method='nnls', selfProb }
  * key opts: { at, duration, frameSize=4096, method='nnls' }
+ *
+ * Chords and key are chroma analysis: optional packages (@audio/mir-chroma, -chord, -key),
+ * loaded on first use.
  */
 
 import { yin } from '@audio/pitch'
-import { chroma, chord, smoothChords, key } from '@audio/mir'
 import { hzToMidi, name as midiToName } from '@audio/note'
 import { hann } from '@audio/window'
 import { analyzeBlocks } from './spectrum.js'
 import audio from '../core.js'
+
+let mir
+const loadMir = () => mir ??= Promise.all([import('@audio/mir-chroma'), import('@audio/mir-chord'), import('@audio/mir-key')]).then(
+  ([c, h, k]) => ({ chroma: c.default, chord: h.default, smoothChords: h.smooth, key: k.default }),
+  e => { mir = null; throw new Error(`chords/key: install @audio/mir-chroma @audio/mir-chord @audio/mir-key (${e.message})`) })
 
 let wins = {}
 let hannWin = n => wins[n] || (wins[n] = Float32Array.from({ length: n }, (_, i) => hann(i, n)))
@@ -90,6 +97,7 @@ audio.fn.chords = async function(opts) {
   let hop = opts?.hopSize ?? (N >> 1)
   let method = opts?.method ?? 'nnls'
   let hopSec = hop / sr, win = hannWin(N)
+  let { chroma, chord, smoothChords } = await loadMir()
 
   let frames = [], buf = new Float32Array(N)
   await streamFrames(this, opts, N, hop, (frame, time) => {
@@ -129,6 +137,7 @@ audio.fn.key = async function(opts) {
   let N = opts?.frameSize ?? 4096
   let method = opts?.method ?? 'nnls'
   let win = hannWin(N), buf = new Float32Array(N)
+  let { chroma, key } = await loadMir()
 
   let { acc, cnt } = await analyzeBlocks(this, opts, N, 12, (block, acc) => {
     for (let i = 0; i < N; i++) buf[i] = block[i] * win[i]

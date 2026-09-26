@@ -5,7 +5,7 @@ Measured on the 2.6.10 working tree, 2026-09-25. Reference values quoted from pr
 ## Status
 
 Fixed, tested in [test/pro.js](../test/pro.js):
-- D1: loudness normalize runs a true-peak lookahead limiter (4×, 32-tap Lanczos detector, same kernel as `stat truepeak`) and makes the limited loudness back up (`ctx.measure`, secant). Program material lands within 0.001 LU at ≤ -1 dBTP.
+- D1: loudness normalize runs a true-peak lookahead limiter (4×, 32-tap Lanczos detector, same kernel as `stat truepeak`) and makes the limited loudness back up by secant steps: on a block model of the limiter while live (within 0.01 LU under light limiting, ±0.5 LU at 5–9 LU of it), then on measured renders when the render starts with the whole signal known (within 0.005 LU, usually one pass). Make-up stops at +12 dB over the plain gain.
 - D2: pointwise derivation keeps only min/max/clipping; stats declare `fields`; a query missing one renders.
 - D3: `save` forwards bitDepth/bitrate/quality/codec/compression; lossless keeps the source depth (`a.bitDepth`); m4a writes chapters. CLI `192k`, `24bit`.
 - D4: `normalize(target, mode)` (`normalize -18 lufs`), unknown mode/preset throw, more positional args than params throw.
@@ -17,8 +17,7 @@ Wired: registry plugins autowired (deps, methods before load, `load` hook), side
 
 Open:
 - Transcription: `@audio/neural-asr` unpublished.
-- AAC encode in Node (WebCodecs only): m4a/mp4 audio in Node is FLAC by default, `codec:alac|opus`.
-- Chapters: MP3 (ID3 CHAP) unsupported by the encoder; m4a `chpl` written but not read back by `decode-mp4`.
+- Chapters: m4a `chpl` and MP3 ID3 CHAP are written, not read back (`decode-mp4`, `decode-mp3`).
 - Room tone fill; `split` at silence/onsets; polarity invert, take alignment; denoise profile from a chosen range (`specsub` reads only leading frames); noise floor stat; dialog-gated `normalize` mode (measure `stat dialog`, then `gain`).
 - Engine: a non-ranged latency plugin with a range passes out-of-range audio undelayed (pre-existing).
 
@@ -97,6 +96,31 @@ The atom exists; the CLI can't reach it. Wiring, not DSP.
 | Dialog-gated loudness | `vad` + BS.1770 | stat |
 | Podcast chapters | `encode-mp4` `writeMeta({chapters})` | markers → chapters (verify) |
 | Transcript, alignment, stems | `neural-asr`, `-align`, `-separate`, `-diarize` | neural lane policy ([todo.md](todo.md)) |
+
+## Streaming
+
+A live source (push, pipe, socket, fetch body, stdin) renders as it arrives, and its output equals the whole-file render. [test/stream.js](../test/stream.js) checks 20 chains live against the file, bounds when the first output appears, and keeps the ratchet of ops that still wait (it may only shrink).
+
+Engine: `latency` (delay compensation), `warmup` (seeks start early by what an op needs), `holdback` (output that depends on the unknown end waits by that much only: fade-out, ranges from the end, crossfade blend, trim's silent tail, shrink's open pause). Resolve ops stop at their stats horizon. Measurement renders (normalize through the limiter, stats after a non-derivable op) run only when the render starts with the whole input known; a live stream that ends keeps its progressive decisions.
+
+Streaming now: normalize (progressive), trim, shrink, fade, crossfade, splices with crossfades, ranged reverse, spectral (STFT only near its range), repair (range + context), match (lookahead, refits at 2×), dialog loudness, filters, time/pitch/rate ops, the streaming plugins.
+
+Waits for the whole input:
+- Inherent: `reverse()` of everything.
+- Clipboard: `copy` captures at the end of decode.
+- 48 registry atoms declared `streaming: false`, by kernel class: whole-signal oversampling (softclip, tape, tube, transistor, waveshaper, multisat, amp, cabinet), state built per call (plate, fdn, spring, shimmer, multiband, dyneq, leveler, auto), batch repair (declick, declip, decrackle, debreath), time-scaling (stretch-*, pitch-shift, paulstretch, tune, tapestop), upmix (surround), one-call synthesis (noise, chirp, pluck, fm, modal, risset, rhythm, sfx, kick, snare, cymbal, adsr, voice, poly). Each is a fix in its own package: carry state across calls.
+
+Decisions that read the whole input wait for it, by declaring a holdback of all of it: trim/shrink with the automatic threshold (a given threshold streams), normalize's one gain for the selection (`adaptive: true` streams, the ceiling guarding what it hasn't heard). Resolve ops after a filter get the prefix stage's stats, accumulated as it renders. `read()` waits for its range, or for the end.
+
+Output: `save` streams every format (@audio/encode `stream: true`), headers exact upfront when the length is known (`frames`), patched at the end otherwise (a pipe keeps "unknown"); m4a from a live source is fragmented. AAC encodes in Node (FDK, WASM).
+
+Open, for a week-long stream (the three unbounded axes):
+- PCM pages: 48 kHz stereo is ~232 GB a week. Needs a retention window behind the slowest reader (`retain`), or disk-backed pages (a Node counterpart of the OPFS cache).
+- Per-block stats: ~1.3 GB a week. Needs running aggregates (loudness as a gating histogram, peak, DC) plus a recent window for trim/shrink.
+- Recompiles: every new chunk recompiles the plan, and resolve ops rescan all blocks: quadratic in stream time; shrink adds a remove per pause, growing the plan. Needs incremental resolve over aggregates, and settled structural edits folded out of the plan.
+- The 48 registry atoms declared `streaming: false`; the clipboard.
+
+Speed (next): the default CLI overview spends most of its time in `@audio/mir-chroma` NNLS key detection (dense 72-pitch dictionary × every bin × 30 iterations, `Dᵀs` recomputed each iteration): ~5 s for an 11 s clip on a loaded machine. Sparse dictionary columns and a hoisted `Dᵀs` are algorithmic, before any jz work.
 
 ## Missing
 

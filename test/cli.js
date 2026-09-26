@@ -722,7 +722,7 @@ test('CLI — crop + normalize broadcast prints overview without hanging', { tim
   t.ok(stdout.includes('Peak:'), 'has Peak')
   t.ok(stdout.includes('Loudness:'), 'has Loudness')
   t.ok(stdout.includes('BPM:'), 'has BPM')
-  t.ok(stdout.includes('Key:'), 'has Key')
+  t.ok(!stdout.includes('Key:'), 'no Key: chroma analysis is optional, `stat key` asks for it')
   // Block-stat algebra path should be fast — assert under 30s for the 12s fixture.
   // (The original bug had this hanging > 1 min on a 16-min file.)
   t.ok(elapsed < 30000, `completes fast (${elapsed}ms < 30s)`)

@@ -257,7 +257,7 @@ until an edit uses it; `process`/`whole` read it from `desc.mod`:
 audio.op('repair', {
   params: ['band'],
   load: () => import('@audio/denoise-repair'),
-  whole: (input, output, ctx) => { let repair = audio.op('repair').mod.default /* … */ }
+  process: (input, output, ctx) => { let repair = audio.op('repair').mod.default /* … */ }
 })
 ```
 
@@ -270,6 +270,39 @@ timeline, so delayed output lands aligned and the final samples flush through
 past-the-end silence. Contract plugins declare `latency` per CONTRACT.md and
 get this automatically.
 
+### warmup
+
+Input the op must see before an output position to produce it: a number of samples or
+`(opts, sampleRate) => samples`. Seeks and ranged reads start the pipeline that much earlier
+and discard the lead-in, so a read from the middle equals the same span of a full render. An
+STFT op warms up over the frames overlapping its first output; a repair over the context it
+interpolates from.
+
+### holdback
+
+How much output depends on the unknown end of a live stream: `(opts, sampleRate, total) => samples`,
+for pipeline and resolve ops alike (`total` for a decision that needs all of it).
+While the source is still arriving, output stops that far before the current end and resumes
+as more arrives, so a week-long stream with a fade-out holds back the fade's length, not the
+week. Ranges counted from the end (`{at: -2}`) hold back by themselves; declare `holdback` for
+end-relative parameters the engine can't see:
+
+```js
+audio.op('fade', { holdback: (o, sr) => o.in < 0 && o.at == null ? -o.in * sr : 0, /* … */ })
+```
+
+### streaming
+
+A live source (`audio()` + `push`, a pipe, a socket, a response body) renders as it arrives,
+and its output equals the whole-file render. Every op streams, holding back only its declared
+`latency`, `warmup` and `holdback`, except `whole` ops, plugins registered `streaming: false`,
+`reverse()` of everything and the clipboard: those wait for the end, and so does a decision that
+reads the whole input (declared as a holdback of all of it: trim's automatic threshold, normalize's
+one gain for the selection). A resolve op after an op its stats can't be derived through (trim
+after a filter) gets the stats of the stage before it, accumulated as that stage renders. Nothing
+is processed past what is settled, the latency pre-roll included. [test/stream.js](../test/stream.js) checks each chain live against the
+whole file and keeps the list of ops that still wait; that list only shrinks.
+
 ### resolve
 
 Pre-render replacement using decoded stats (stat-conditioned — trim, normalize). The engine
@@ -277,7 +310,9 @@ remaps stats through any structural edits already in the chain, so `ctx.stats` i
 this op's own output space. During incremental streaming, `ctx.stats` may come from
 `stats.snapshot()` with `partial: true` — resolve can return partial results that refine as
 more data decodes (e.g. trim detects head silence early, normalize applies gain from
-available peaks).
+available peaks). Output stops at the stats horizon, and a decision the rest of the stream can
+still change is held back: trim holds a silent tail until sound resumes or the stream ends,
+shrink holds an open pause at its target gap.
 
 ```js
 audio.op('trim', {
@@ -300,8 +335,11 @@ audio.op('trim', {
 `resolve` runs at render time with decoded audio stats and replaces abstract ops with concrete ones.
 
 Once the whole signal is known (`ctx.final`), `ctx.measure(edits)` renders the plan so far plus
-candidate pipeline edits and returns their block stats: a what-if pass for decisions that stats
-alone can't make. `normalize` uses it to make loudness back up after its true-peak limiter.
+candidate pipeline edits and returns their block stats: a what-if pass for decisions stats alone
+can't make exactly. `normalize` uses it to land loudness through its true-peak limiter, after
+stepping on a block model; its `adaptive` mode, which decides while a stream is live, stays on the
+model. An op that measures holds its output until the end (holdback), so nothing it decides is
+emitted before it measures.
 
 ### pointwise
 
@@ -412,13 +450,13 @@ Op plugins:
 **denoise** dehum · specsub · wiener · omlsa · dereverb · deplosive · dewind · declick · declip · decrackle · debreath —
 **effects** delay · chorus · flanger · phaser · tremolo · vibrato · autowah · wah · bitcrusher · distortion · exciter · ringmod · freqshift · multitap · pingpong · slew · noiseshaper · lofi · graindelay · stutter · subbass · sbr · rotary · tapestop —
 **reverb** freeverb · schroeder · plate · fdn · spring · shimmer —
-**filter** biquad · moog · korg35 · diode · oberheim · resonator · spectral-tilt · variable · comb · dcblocker · emphasis · deemphasis · derivative · integral —
+**filter** moog · korg35 · diode · oberheim · resonator · spectral-tilt · variable · comb · dcblocker · emphasis · deemphasis · derivative · integral —
 **eq** geq · tilt · baxandall · dyneq —
 **spatial** widener · haas · panner · autopan · midside · microshift · surround —
 **shift** pitch-shift · vocoder · formant-shift · paulstretch —
 **color** tape · transistor · waveshaper · multisat · amp · cabinet · defeedback —
 **generate** osc · noise · chirp · pluck · risset · rhythm · sfx · kick · cymbal · snare · adsr · voice · poly · fm · bell · epiano · modal —
-**more** yin · tube · isolate · tune
+**more** tube · isolate · tune
 
 Stat plugins (land on `a.stat(name)`):
 

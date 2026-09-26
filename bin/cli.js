@@ -398,15 +398,11 @@ function opCallArgs(op) {
 
 // ── I/O ──────────────────────────────────────────────────────────────────
 
-async function getStdinBuffer() {
-  return new Promise((resolve, reject) => {
-    let chunks = []
-    let stdin = process.stdin
-
-    stdin.on('data', chunk => chunks.push(chunk))
-    stdin.on('end', () => resolve(Buffer.concat(chunks)))
-    stdin.on('error', reject)
-  })
+/** stdin as a byte stream: decoding starts with the first chunk, so a live pipe never waits for EOF. */
+async function stdinStream() {
+  let it = process.stdin[Symbol.asyncIterator](), first = await it.next()
+  if (first.done) throw new Error('no input: pass a file, or pipe audio in')
+  return (async function* () { yield first.value; for (let r; !(r = await it.next()).done;) yield r.value })()
 }
 
 /** Single-line prompt with optional default. Returns trimmed input, or null if cancelled.
@@ -1154,19 +1150,16 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     let actualSource = source
     if (!actualSource) {
       if (process.stdin.isTTY) throw new Error('no input: pass a file, or pipe audio in')
-      actualSource = await getStdinBuffer()
-      if (!actualSource.length) throw new Error('no input: pass a file, or pipe audio in')
+      actualSource = await stdinStream()
     } else if (opts.concatFiles.length) {
       actualSource = [actualSource, ...opts.concatFiles]
     }
 
     // ── sink: play ──────────────────────────────────────────────────────
     if (sink.name === 'play') {
-      let canStream = transforms.every(op => {
-        let desc = audio.op(op.name)
-        return desc && !desc.plan && !(desc.resolve && !desc.streamable) && op.name !== 'clip' && op.name !== 'split'
-      })
-      let isFile = typeof actualSource === 'string' || Array.isArray(actualSource)
+      // The engine holds back what must wait (a fade-out, a range from the end, a whole-input
+      // decision), so playback starts as the source arrives; clip and split need the whole input
+      let wait = transforms.some(op => op.name === 'clip' || op.name === 'split')
       let a = audio(actualSource)
       // Race metadata against decode failure — a bad source must error, not hang/exit silently.
       await new Promise((resolve, reject) => {
@@ -1175,7 +1168,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       })
 
       let loop = sink.args.includes('loop')
-      let playOpts = { paused: !canStream || !isFile, loop }
+      let playOpts = { paused: wait, loop }
       if (range) { playOpts.at = resolveOffset(range.offset, a.decoded ? a.duration : a._.estDur); playOpts.duration = range.duration }
 
       // Any op-application failure (sync or during the async post-decode path) routes through
@@ -1184,13 +1177,13 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       let playErr = null, p
       let failPlay = err => { if (!playErr) playErr = err; p?.stop() }
 
-      if (canStream && isFile) {
-        a = await applyTransforms(a, transforms)
+      if (!wait) {
+        ;[a] = await applyTransforms(a, transforms)
       } else {
         ;(async () => {
           try {
             await a
-            a = await applyTransforms(a, transforms)
+            ;[a] = await applyTransforms(a, transforms)
             p.resume()
           } catch (e) { failPlay(e) }
         })()
@@ -1203,6 +1196,17 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       )
       if (playErr) throw playErr
       process.exit(0)
+    }
+
+    // ── sink: save, as the source arrives ───────────────────────────────
+    // A pipe or URL arrives at its own pace: output follows it as the engine settles it (a pipe
+    // in is a pipe out). A local file decodes faster than it renders, so it decodes first and
+    // renders in one batched pass. A range counted from the end, clip and split need it whole.
+    let arriving = typeof actualSource !== 'string' && !Array.isArray(actualSource) || /^https?:\/\//.test(actualSource)
+    if (sink.name === 'save' && arriving && !transforms.some(o => o.name === 'split' || o.name === 'clip') && !(range?.offset < 0)) {
+      let a = audio(actualSource)
+      await new Promise((resolve, reject) => { a.on('metadata', resolve); a.ready.catch(reject) })
+      return runSave(a, transforms, sink.args, range, opts, actualSource)
     }
 
     // ── sink: stat / save  (full decode) ────────────────────────────────
@@ -1219,7 +1223,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     if (sink.name === 'save') return runSave(a, transforms, sink.args, range, opts, actualSource, loadTime)
 
     // ── sink: stat ──────────────────────────────────────────────────────
-    a = await applyTransforms(a, transforms)  // clip rebinds a
+    ;[a] = await applyTransforms(a, transforms)  // clip rebinds a
 
     let statNames = sink.args.filter(v => typeof v === 'string')
     if (!statNames.length) return printOverview(a, range, loadTime)
@@ -1340,6 +1344,8 @@ For more info: https://github.com/audiojs/audio
 
 // ── Sink/Source Implementations ─────────────────────────────────────────
 
+/** Apply the transforms; resolves to `[a]` (clip rebinds it). Wrapped: an instance is thenable
+ *  (awaiting it waits for the whole decode), and a promise resolved with a thenable adopts it. */
 async function applyTransforms(a, transforms) {
   for (let op of transforms) {
     await resolveSourceArgs(op)
@@ -1347,7 +1353,7 @@ async function applyTransforms(a, transforms) {
     if (op.name === 'clip') a = a.clip(...args)
     else { try { a[op.name](...args) } catch (e) { throw new Error(`${op.name}: ${formatError(e)}`) } }
   }
-  return a
+  return [a]
 }
 
 async function runSave(a, transforms, sinkArgs, range, opts, source, loadTime) {
@@ -1358,7 +1364,7 @@ async function runSave(a, transforms, sinkArgs, range, opts, source, loadTime) {
   let splitIdx = transforms.findIndex(o => o.name === 'split')
   if (splitIdx >= 0) {
     let pre = transforms.slice(0, splitIdx), splitOp = transforms[splitIdx], post = transforms.slice(splitIdx + 1)
-    a = await applyTransforms(a, pre)
+    ;[a] = await applyTransforms(a, pre)
     let cue = null
     if (opts.cue) {
       let { readFileSync } = await import('fs')
@@ -1396,13 +1402,7 @@ async function runSave(a, transforms, sinkArgs, range, opts, source, loadTime) {
 
   if (output !== '-' && !opts.force) await confirmOverwrite(output)
 
-  a = await applyTransforms(a, transforms)
-  if (!a.decoded) {
-    let sp = !opts.verbose ? spinnerBar('Decoding') : null
-    if (sp && a._.estDur) a.on('data', ({ offset }) => sp.progress(offset / a._.estDur, offset))
-    await a.ready
-    sp?.stop()
-  }
+  ;[a] = await applyTransforms(a, transforms)
 
   let fmt = opts.format || (output === '-' ? 'wav' : output.split('.').pop())
   let saveOpts = { ...opts.sink?.opts, format: fmt }
@@ -1410,8 +1410,8 @@ async function runSave(a, transforms, sinkArgs, range, opts, source, loadTime) {
 
   try {
     if (output === '-') {
-      let bytes = await a.encode(fmt, saveOpts)
-      process.stdout.write(Buffer.from(bytes))
+      let out = process.stdout
+      await a.save({ write: buf => out.write(Buffer.from(buf)) ? undefined : new Promise(r => out.once('drain', r)) }, saveOpts)
     } else {
       let lbl = transforms.length
         ? (() => { let n = opsLabel(transforms); return n.length === 1 ? `${n[0]} + saving` : 'Applying edits + saving' })()
@@ -1445,12 +1445,6 @@ async function printOverview(a, range, loadTime) {
     let mn = Math.min(...bpms), mx = Math.max(...bpms)
     return mx - mn < 10 ? `${Math.round((mn + mx) / 2)} BPM` : `${Math.round(mn)}–${Math.round(mx)} BPM`
   })()
-  let keyStr = await (async () => {
-    // Sample a 30s window from the middle for long inputs — chroma analysis is per-frame and dominates wall time
-    let win = Math.min(30, dur), off = off0 + Math.max(0, (dur - win) / 2)
-    let kOpts = win < dur ? { at: off, duration: win } : statOpts
-    try { let k = await a.key(kOpts); return k && k.confidence > 0.3 ? k.label : 'n/a' } catch { return 'n/a' }
-  })()
   console.log(`  Duration:   ${fmtTime(dur)}`)
   console.log(`  Channels:   ${a.channels}`)
   console.log(`  SampleRate: ${a.sampleRate} Hz`)
@@ -1458,7 +1452,6 @@ async function printOverview(a, range, loadTime) {
   console.log(`  Peak:       ${peak.toFixed(1)} dBFS`)
   console.log(`  Loudness:   ${l.toFixed(1)} LUFS`)
   console.log(`  BPM:        ${bpmStr}`)
-  console.log(`  Key:        ${keyStr}`)
   console.log(`  Clipping:   ${clips.length || 'none'}`)
   console.log(`  DC offset:  ${Math.abs(dcOff) > 0.0001 ? dcOff.toFixed(4) : 'none'}`)
   if (loadTime) console.log(`  Loaded in:  ${loadTime}s`)
@@ -1515,7 +1508,7 @@ async function runBatch(globPattern, transforms, sink, range, opts) {
     if (!opts.force) await confirmOverwrite(outFile)
     process.stderr.write(`Processing: ${file}\n`)
     let a = await audio(file)
-    a = await applyTransforms(a, transforms)
+    ;[a] = await applyTransforms(a, transforms)
     let saveOpts = { ...sink.opts }
     if (range) { saveOpts.at = resolveOffset(range.offset, a.duration); saveOpts.duration = range.duration }
     if (opts.format) saveOpts.format = opts.format
@@ -1618,7 +1611,7 @@ async function runRecord(transforms, sink, range, opts) {
 
   if (sink.name === 'save') return runSave(a, transforms, sink.args, range, opts, '(mic)', null)
   // stat
-  a = await applyTransforms(a, transforms)
+  ;[a] = await applyTransforms(a, transforms)
   let names = sink.args.filter(v => typeof v === 'string')
   if (!names.length) return printOverview(a, range, null)
   return printStats(a, sink.args, names, range)

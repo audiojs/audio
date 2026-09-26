@@ -45,6 +45,7 @@ import audio from '../core.js'
 audio.op('fade', {
   params: ['in', 'out', 'curve'],
   ranged: true,
+  holdback: (o, sr) => o.in < 0 && o.at == null ? -o.in * sr : 0,  // a fade-out ends where the audio does
   process: fade,
   expand: (ctx) => {
     // fade(in, curve): a curve name in the `out` slot

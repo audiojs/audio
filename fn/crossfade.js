@@ -43,6 +43,7 @@ const crossfade = (input, output, ctx) => {
 audio.op('crossfade', {
   params: ['source', 'duration', 'curve'],
   ranged: true,
+  holdback: (o, sr, total) => o.at != null ? total - o.at * sr : 0,  // from the blend on, it waits for the end
   expand: (ctx) => {
     let dur = ctx.duration || 0.5
     let curve = ctx.curve || 'cos'

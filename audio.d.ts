@@ -84,7 +84,8 @@ export interface AudioInstance {
   // ── Core I/O ────────────────────────────────────────────────────
   /** Move playhead — preloads nearby pages, triggers seek if playing */
   seek(t: number): this
-  /** Read audio data. Channel option returns single Float32Array. */
+  /** Read audio data. Channel option returns single Float32Array. A source still arriving is waited
+   *  for: a range until it has arrived, all of it (or a range from the end) until the end. */
   read(opts?: { at?: Time, duration?: Time, channel?: number, format?: string, meta?: Record<string, any> }): Promise<Float32Array[] | Float32Array | Int16Array[] | Uint8Array[] | Uint8Array>
   /** Async-iterable over materialized blocks. `for await (let block of a)` uses default range. */
   [Symbol.asyncIterator](): AsyncGenerator<Float32Array[], void, unknown>
@@ -176,8 +177,9 @@ export interface AudioInstance {
   crossfeed(freq?: number, level?: number): this
   /** Band-splitting crossover (LR4, allpass-aligned flat sum) — N split freqs → N+1 bands × channels, band-major */
   crossover(...freqs: (number | number[])[]): this
-  /** Match EQ: fit up to `bands` (8) parametric bands so this source's tonal balance follows `reference`; `amount` 0..1 */
-  match(reference: AudioSource, amount?: number, opts?: { bands?: number }): this
+  /** Match EQ: fit up to `bands` (8) parametric bands so this source's tonal balance follows `reference`; `amount` 0..1.
+   *  Streams `lookahead` seconds (10) behind the input, refitting as the analyzed length doubles. */
+  match(reference: AudioSource, amount?: number, opts?: { bands?: number, lookahead?: number }): this
   /** Spectral edit: gain (dB, default: remove) on `band` [low, high] Hz over the time range */
   spectral(band?: [number, number], gain?: number, opts?: { at?: Time, duration?: Time }): this
   /** Spectral repair: rebuild a damaged time range (optionally one band) from its surroundings */
@@ -185,6 +187,7 @@ export interface AudioInstance {
   resample(targetRate: number, opts?: { type?: 'linear' | 'sinc' }): this
 
   // ── Smart ops ───────────────────────────────────────────────
+  /** Strip leading/trailing silence. The automatic threshold reads the whole input: on a live stream it waits for the end; a given one streams. */
   trim(threshold?: number): this
   /** Compress silent pauses to a target gap (seconds, default 0.3) throughout, or within {at, duration} */
   shrink(gap?: number, threshold?: number): this
@@ -282,6 +285,9 @@ export interface NormalizeOpts {
   ceiling?: number | false
   /** Remove DC offset first (default true) */
   dc?: boolean
+  /** Live stream: start at once, the gain following what it has heard, the ceiling guarding what it
+   *  hasn't (the target in peak mode). Default: one gain for the whole selection, waiting for its end. */
+  adaptive?: boolean
   at?: Time
   duration?: Time
   channel?: number | number[]
@@ -373,6 +379,12 @@ export interface OpDescriptor {
   whole?: (input: Float32Array[], output: Float32Array[], ctx: Record<string, any>) => void
   /** Algebraic stats update for advanced cases pointwise can't cover (e.g. rms/dc/energy) — mutate `stats` in place, or return `false` to bail to a full recompute. */
   deriveStats?: (stats: AudioStats, opts: Record<string, any>) => void | false
+  /** Output delay in samples (delay compensation), or per options */
+  latency?: number | ((opts: Record<string, any>, sampleRate: number) => number)
+  /** Input needed before an output position: seeks and ranged reads start this much earlier */
+  warmup?: number | ((opts: Record<string, any>, sampleRate: number) => number)
+  /** Output that depends on a live stream's unknown end: held back this far before the current end */
+  holdback?: (opts: Record<string, any>, sampleRate: number, total: number) => number
   hidden?: boolean
 }
 
@@ -391,9 +403,9 @@ declare function audio(source?: null, opts?: AudioOpts): AudioInstance & {
   record(opts?: Record<string, any>): AudioInstance
   recording: boolean
 }
-/** Async entry — decode from file/URL/bytes, wrap PCM/silence, concat from array, or restore from JSON */
+/** Async entry — decode from file/URL/bytes (a byte stream, response or pipe decodes as it arrives), wrap PCM/silence, concat from array, or restore from JSON */
 /** Sync entry — returns instance immediately. Thenable: `await audio(src)` waits for full decode. */
-declare function audio(source: string | URL | ArrayBuffer | Uint8Array | AudioBuffer | Float32Array[] | number | AudioDocument | (AudioInstance | string | URL | ArrayBuffer)[], opts?: AudioOpts): AudioInstance & PromiseLike<AudioInstance>
+declare function audio(source: string | URL | ArrayBuffer | Uint8Array | Response | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array> | AudioBuffer | Float32Array[] | number | AudioDocument | (AudioInstance | string | URL | ArrayBuffer)[], opts?: AudioOpts): AudioInstance & PromiseLike<AudioInstance>
 
 declare namespace audio {
   /** Package version */

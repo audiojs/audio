@@ -35,9 +35,13 @@ const shrinkResolve = (ctx) => {
     if (!isLoud(stats, i, ch, thresh)) { if (start == null) start = i }
     else if (start != null) { close(start, i * bs); start = null }
   }
-  // Trailing run closes at the scan edge: a range end always, end-of-audio only once stats are final
+  // Trailing run at the scan edge: a range end closes it. At the end of partial stats it's a pause
+  // still open: whether its remainder goes depends on how long it lasts, so a live stream holds
+  // output at its first `gap` until it closes or the stream ends
   if (start != null && (to < blocks || !stats.partial)) close(start, Math.min(to * bs, total))
+  else if (start != null) edits.push(['crop', { at: 0, duration: Math.max(0, (start * bs + gapSamples) / sr - shift) }])
   return edits.length ? edits : false
 }
 
-audio.op('shrink', { params: ['gap', 'threshold'], process: shrink, resolve: shrinkResolve })
+// Like trim: an automatic threshold waits for the whole input, a given one streams
+audio.op('shrink', { params: ['gap', 'threshold'], process: shrink, resolve: shrinkResolve, holdback: (o, sr, total) => o.threshold == null ? total : 0 })

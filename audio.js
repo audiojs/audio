@@ -68,8 +68,6 @@ const OPS = {
   sbr: '@audio/effect-sbr/audio',
   rotary: '@audio/effect-rotary/audio',
   tapestop: '@audio/effect-tapestop/audio',
-  biquad: '@audio/filter-biquad/audio',
-  yin: '@audio/pitch-yin/audio',
   tube: '@audio/saturate-tube/audio',
   osc: '@audio/synth-osc/audio',
   fm: '@audio/synth-fm/audio',

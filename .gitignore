@@ -7,3 +7,4 @@ dist
 /.playwright-mcp
 bench/.cache
 /.hallmark
+/videos

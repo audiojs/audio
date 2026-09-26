@@ -1,9 +1,9 @@
 import audio from '../core.js'
 import { highpass, lowpass, allpass } from '@audio/filter'
 
-/** Split points: positional args or freqs option — deduped, ascending. */
+/** Split points (positional or the freqs option), deduped, ascending. */
 const splitFreqs = ctx => {
-  let f = ctx.freqs ?? ctx.args ?? []
+  let f = ctx.freqs ?? []
   return [...new Set((Array.isArray(f) ? f.flat() : [f]).map(Number).filter(x => x > 0 && Number.isFinite(x)))].sort((a, b) => a - b)
 }
 
@@ -39,4 +39,4 @@ const crossoverCh = (curCh, ctx) => {
   return bands === 1 ? 0 : curCh * bands
 }
 
-audio.op('crossover', { process: crossover, ch: crossoverCh })
+audio.op('crossover', { params: ['...freqs'], process: crossover, ch: crossoverCh })

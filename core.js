@@ -653,6 +653,29 @@ fn[LOAD] = async function() {
   if (!this.decoded && this.ready && this.edits?.some(e => audio.op?.(e[0])?.whole)) await this.ready
   this._.acc?.drain()
 }
+/** Resolve once the whole source has arrived: decode done, or a pushed stream stopped. */
+export async function arrived(a) {
+  if (a.ready) await a.ready
+  while (!a.decoded && a._.waiters && !a._.disposed) await new Promise(r => a._.waiters.push(r))
+}
+
+/** A time counted from the end (negative), resolved against the output's duration: known only once
+ *  the source has arrived. Other times pass through. */
+export async function fromEnd(a, at) {
+  if (!(at < 0)) return at
+  await arrived(a)
+  return Math.max(0, a.duration + at)
+}
+
+/** Concatenate a block stream into channel arrays. */
+async function collect(blocks, nch) {
+  let parts = [], n = 0
+  for await (let b of blocks) { parts.push(b); n += b[0].length }
+  let out = Array.from({ length: parts[0]?.length ?? nch }, () => new Float32Array(n))
+  for (let i = 0, o = 0; i < parts.length; o += parts[i++][0].length) parts[i].forEach((c, k) => out[k].set(c, o))
+  return out
+}
+
 /** Default read — restores any evicted pages first (no-op if cache.js isn't loaded or a has no cache). */
 fn[READ] = async function(offset, duration) {
   if (audio.ensurePages) await audio.ensurePages(this, offset, duration)
@@ -766,7 +789,12 @@ fn.read = async function(opts) {
   let { at, duration, format, channel, meta } = opts
   at = parseTime(at); duration = parseTime(duration)
   await this[LOAD]()
-  let pcm = await this[READ](at, duration)
+  // A source still arriving: wait for what is asked. A range reads as the stream settles it;
+  // all of it (or a range counted from the end) waits for the end, which an endless stream never
+  // reaches: stream() it, or read a range.
+  at = await fromEnd(this, at)
+  let pcm = !this.decoded && this._.waiters && duration != null ? await collect(this.stream({ at, duration }), this._.ch)
+    : (await arrived(this), await this[READ](at, duration))
   if (channel != null) pcm = [pcm[channel]]
   if (!format) return channel != null ? pcm[0] : pcm
   let converted = encode[format] ? await encode[format](pcm, { sampleRate: this.sampleRate, ...meta }) : pcm.map(ch => convert(ch, 'float32', format))
@@ -899,9 +927,38 @@ async function detectSource(source, signal) {
     let hdr = new Uint8Array(await source.slice(0, 12).arrayBuffer())
     return { format: detectType(hdr), reader: iterateStream(source.stream(), signal), fileSize: source.size }
   }
+  // Byte streams: an http(s) response, a web ReadableStream, a Node stream or any async
+  // iterable of bytes decode as they arrive, so a live or endless source never waits for its end
+  if (source instanceof URL) source = source.href
+  if (typeof source === 'string' && /^https?:/.test(source)) {
+    let res = await fetch(source, { signal })
+    if (!res.ok) throw new Error(`audio: ${source}: HTTP ${res.status}`)
+    source = res
+  }
+  if (typeof Response !== 'undefined' && source instanceof Response && source.body)
+    return { ...await streamed(iterateStream(source.body, signal)), fileSize: +source.headers.get('content-length') || undefined }
+  if (typeof source?.getReader === 'function') return streamed(iterateStream(source, signal))
+  if (source?.[Symbol.asyncIterator] && !source.pages) return streamed(source, signal)
   let buf = await resolveSource(source, signal)
   let bytes = new Uint8Array(buf)
   return { format: detectType(bytes), bytes }
+}
+
+/** A byte stream as { format, reader }: the format sniffed from its first bytes, which the
+ *  reader yields again before the rest. */
+async function streamed(chunks, signal) {
+  let it = chunks[Symbol.asyncIterator](), head = [], n = 0
+  // disposing the instance ends a stream still waiting for bytes: a Node stream is destroyed, the
+  // iterator returned, and a read in flight no longer holds the decoder
+  let ended = new Promise(r => signal?.aborted ? r() : signal?.addEventListener('abort', r, { once: true }))
+  signal?.addEventListener('abort', () => { chunks.destroy?.(); it.return?.()?.catch?.(() => {}) }, { once: true })
+  const next = () => signal ? Promise.race([it.next(), ended.then(() => ({ done: true }))]) : it.next()
+  const bytes = v => v instanceof Uint8Array ? v : new Uint8Array(v.buffer ?? v, v.byteOffset ?? 0, v.byteLength)
+  while (n < 12) { let { done, value } = await next(); if (done) break; value = bytes(value); head.push(value); n += value.length }
+  let hdr = new Uint8Array(Math.min(n, 12)), o = 0
+  for (let h of head) { if (o >= hdr.length) break; let k = Math.min(h.length, hdr.length - o); hdr.set(h.subarray(0, k), o); o += k }
+  const reader = (async function* () { yield* head; for (let r; !(r = await next()).done;) yield bytes(r.value) })()
+  return { format: detectType(hdr), reader }
 }
 
 /** Async-iterate a web ReadableStream (Safari has no native async iteration). */
