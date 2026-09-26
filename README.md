@@ -40,7 +40,7 @@ audio('voice.mp3').trim().normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 
 ### Browser
 
-<details><summary>CDN</summary>
+#### CDN
 
 ```html
 <script type="module">
@@ -49,13 +49,9 @@ audio('voice.mp3').trim().normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 </script>
 ```
 
-</details>
-
-<details><summary>Bundler</summary>
+#### Bundler
 
 `import audio from 'audio'` in Vite, esbuild or webpack; codecs and plugins become code-split chunks, fetched on demand. Subpath imports (`audio/core`, `audio/fn/gain`) are source ESM and need a bundler.
-
-</details>
 
 
 ### CLI
