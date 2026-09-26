@@ -459,10 +459,13 @@ export function logo(canvas, { onresize, clear = false, fit = 'all' } = {}) {
   }
 
   // The waveform as last rendered, in one color: a favicon. Flat, whatever the gradient: a tab shows it at 16 px,
-  // too few for a fall from paper to ink. The next render puts the gradient back.
+  // too few for a fall from paper to ink. Fit to the window's peak, not the wave's, so a crest turning through
+  // the middle stays whole and the icon keeps its size, with a pixel spare for the antialiased edge.
+  // The next render puts the gradient back.
   function favicon(color, size = 64) {
     upload(4, profileOf('rectangular'))
-    return png(print('smooth', { width: size, height: size, dot: 1, gap: 0, scale: size / 2, centre: [size / 2, size / 2], lines: 2, ground: [0, 0, 0], figure: [1, 1, 1], pixels: true }), size, size, rgb(color))
+    const scale = (size / 2 - 1) / Math.max(1, HEIGHT * state.amplitude)
+    return png(print('smooth', { width: size, height: size, dot: 1, gap: 0, scale, centre: [size / 2, size / 2], lines: 2, ground: [0, 0, 0], figure: [1, 1, 1], pixels: true }), size, size, rgb(color))
   }
 
   const resize = new ResizeObserver(([e]) => {

@@ -101,6 +101,7 @@ async function removeStep(index) { await closeMenu(); await pill(index).focus();
 // Builds a chain through the pills: every step removed, then each call added from the + menu with its defaults and
 // its numbers set by slider. Numbers only, within the sliders' ranges; a range on the timeline comes from a selection.
 async function setChain(code) {
+  await cursor('edited', 0)
   while (await steps().count()) await removeStep(0)
   for (const [, type, raw] of code.matchAll(/\.(\w+)\(([^()]*)\)/g)) {
     await addMethod(type)
@@ -179,6 +180,19 @@ test('site: static bundle hydrates offline and exports finite, trimmed PCM', asy
   assert(result.channels[0].length < seconds(first) * result.rate)
   assert(result.channels[0].every(Number.isFinite))
   assert(result.channels[0].some(value => Math.abs(value) > .5))
+})
+
+test('site: the install button copies the command, then shows a check until the copy mark returns', async () => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin })
+  const mark = () => page.locator('.install .copy-mark path').evaluate(path => ({ d: path.getAttribute('d'), width: path.getBBox().width }))
+  const copyMark = await mark()
+  assert(copyMark.width > 0)
+  await button('Copy npm install command').click()
+  await page.getByText('Install command copied.').waitFor({ state: 'attached' })
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'npm i audio')
+  const check = await mark()
+  assert(check.width > 0 && check.d !== copyMark.d)
+  await page.waitForFunction(d => document.querySelector('.install .copy-mark path').getAttribute('d') === d, copyMark.d)
 })
 
 test('site: A → A → stereo B, undo and rebuilding the chain preserve the current file samples', async () => {
@@ -431,6 +445,149 @@ async function watchPlayback() {
     AudioBufferSourceNode.prototype.stop = function (...args) { stops++; return stop.apply(this, args) }
   })
 }
+
+test('site: output releases smoothly across buffer boundaries and cancels future or late sources', async () => {
+  const results = await page.evaluate(async () => {
+    const { default: output } = await import('/site-output.js')
+    const sr = 48000, block = 1024, results = []
+    for (const pause of [null, 0, 128 / sr, 1023 / sr, 1024 / sr]) {
+      const ctx = new OfflineAudioContext(2, sr / 4, sr)
+      let completed = 0
+      const sink = output(ctx, () => completed++)
+      const source = (value, frames = block) => {
+        const node = ctx.createBufferSource()
+        node.buffer = ctx.createBuffer(2, frames, sr)
+        node.buffer.getChannelData(0).fill(value)
+        node.buffer.getChannelData(1).fill(-value / 2)
+        return node
+      }
+      // No work, stop before a scheduled start, inside the attack, then either side of a join.
+      if (pause != null) for (let i = 0; i < 8; i++) sink.start(source(.25), (pause === 0 ? .01 : 0) + i * block / sr)
+      let stopped
+      const stop = () => {
+        stopped = ctx.currentTime
+        sink.stop(); sink.stop()
+        sink.start(source(.75), stopped + .05) // a late producer cannot resurrect a closed session
+      }
+      let rendered
+      if (pause > 0) {
+        const suspended = ctx.suspend(pause)
+        rendered = ctx.startRendering()
+        await suspended
+        stop()
+        await ctx.resume()
+      } else { stop(); rendered = ctx.startRendering() }
+      const buffer = await rendered
+      await new Promise(resolve => setTimeout(resolve, 0))
+      const left = buffer.getChannelData(0), right = buffer.getChannelData(1)
+      const end = Math.ceil((stopped + (pause > 0 ? .004 : 0)) * sr)
+      results.push({ pause, stopped, completed, remaining: sink.size,
+        peak: Math.max(...left), maxJump: left.reduce((max, value, i) => Math.max(max, Math.abs(value - (left[i - 1] || 0))), 0),
+        silent: left.slice(end).every(value => value === 0),
+        stereo: left.every((value, i) => Number.isFinite(value) && right[i] === -value / 2)
+      })
+    }
+    // Releasing the old session must not disconnect a newly started one.
+    const ctx = new OfflineAudioContext(1, sr / 4, sr)
+    const a = output(ctx, () => {}), b = output(ctx, () => {})
+    const node = value => { const n = ctx.createBufferSource(); n.buffer = ctx.createBuffer(1, sr / 4, sr); n.buffer.getChannelData(0).fill(value); return n }
+    a.start(node(.25), 0)
+    const suspended = ctx.suspend(.04), rendered = ctx.startRendering()
+    await suspended
+    const changed = ctx.currentTime
+    a.stop(); b.start(node(.125), changed)
+    await ctx.resume()
+    const pcm = (await rendered).getChannelData(0)
+    results.push({ replacement: pcm.slice(Math.ceil((changed + .008) * sr), Math.floor(.2 * sr)).every(value => value === .125) })
+    return results
+  })
+  for (const result of results.slice(0, -1)) {
+    assert(result.silent && result.stereo, JSON.stringify(result))
+    assert.equal(result.remaining, 0, 'scheduled sources are released too')
+    assert.equal(result.completed, 0, 'manual stop does not fire natural-end actions')
+    assert(result.maxJump < .002, JSON.stringify(result))
+    assert(result.pause > 0 ? result.peak > 0 : result.peak === 0, JSON.stringify(result))
+  }
+  assert(results.at(-1).replacement)
+})
+
+test('site: player intent prepares audio without starting sound', async () => {
+  await page.evaluate(() => {
+    const Native = AudioContext
+    window.contexts = []; window.started = 0
+    window.AudioContext = class extends Native { constructor(...args) { super(...args); contexts.push(this) } }
+    const start = AudioBufferSourceNode.prototype.start
+    AudioBufferSourceNode.prototype.start = function (...args) { started++; return start.apply(this, args) }
+  })
+  await page.locator('.demo').hover()
+  assert.equal(await page.evaluate(() => contexts.length), 1)
+  assert.equal(await page.evaluate(() => started), 0)
+  await slider('edited').focus()
+  assert.equal(await page.evaluate(() => contexts.length), 1)
+  await page.keyboard.press('Space')
+  await button('Pause edited audio').waitFor()
+  assert.equal(await page.evaluate(() => contexts.length), 1)
+  assert((await page.evaluate(() => started)) > 0)
+})
+
+test('site: source-start failure releases the output and playback can retry', async () => {
+  await page.evaluate(() => {
+    window.outputs = []
+    const create = AudioContext.prototype.createGain, start = AudioBufferSourceNode.prototype.start
+    AudioContext.prototype.createGain = function () {
+      const gain = create.call(this), disconnect = gain.disconnect
+      const record = { disconnected: false }; outputs.push(record)
+      gain.disconnect = function (...args) { record.disconnected = true; return disconnect.apply(this, args) }
+      return gain
+    }
+    AudioBufferSourceNode.prototype.start = function (...args) {
+      AudioBufferSourceNode.prototype.start = start
+      throw new Error('start failed')
+    }
+  })
+  await button('Play edited audio').click()
+  await page.waitForFunction(() => document.querySelector('.demo-message').textContent.includes('playback is unavailable'))
+  assert.deepEqual(await page.evaluate(() => outputs), [{ disconnected: true }])
+  await button('Play edited audio').click()
+  await button('Pause edited audio').waitFor()
+  assert.equal(await message(), '')
+})
+
+for (const name of ['original', 'edited']) test(`site: ${name} starts promptly and stopping releases the whole scheduled queue`, async () => {
+  await upload(await file('stop.wav', [new Float32Array(48000 * 3).fill(.25), new Float32Array(48000 * 3).fill(-.125)]))
+  await setChain('.gain(0)')
+  await page.evaluate(() => {
+    window.scheduled = []
+    const start = AudioBufferSourceNode.prototype.start, stop = AudioBufferSourceNode.prototype.stop
+    const connect = AudioBufferSourceNode.prototype.connect, disconnect = AudioBufferSourceNode.prototype.disconnect
+    AudioBufferSourceNode.prototype.connect = function (to, ...args) { this.outlet = to; return connect.call(this, to, ...args) }
+    AudioBufferSourceNode.prototype.start = function (at, ...args) {
+      this.record = { at, now: this.context.currentTime, rate: this.context.sampleRate, gain: this.outlet instanceof GainNode }
+      scheduled.push(this.record)
+      return start.call(this, at, ...args)
+    }
+    AudioBufferSourceNode.prototype.stop = function (at) { this.record.stop = at; this.record.stopped = this.context.currentTime; return stop.call(this, at) }
+    AudioBufferSourceNode.prototype.disconnect = function (...args) { if (this.record) this.record.disconnected = this.context.currentTime; return disconnect.apply(this, args) }
+  })
+  await button(`Play ${name} audio`).click()
+  await page.waitForFunction(count => scheduled.length >= count, name === 'edited' ? 4 : 1)
+  const first = await page.evaluate(() => scheduled[0])
+  assert(first.gain, 'both playback paths use the anti-click output')
+  assert(first.at - first.now <= 128 / first.rate + .000001, JSON.stringify(first))
+  await button(`Pause ${name} audio`).click()
+  const count = await page.evaluate(() => scheduled.length)
+  await page.waitForTimeout(150)
+  const scheduled = await page.evaluate(() => window.scheduled)
+  assert.equal(scheduled.length, count, 'no producer schedules another block after stop')
+  const stopped = scheduled.filter(node => node.stop != null)
+  assert(stopped.length >= (name === 'edited' ? 2 : 1), 'queued sources were stopped')
+  assert(stopped.every(node => node.stop > node.stopped && node.stop <= node.stopped + .004001 && node.disconnected >= node.stop), JSON.stringify(stopped))
+  assert.equal(new Set(stopped.map(node => node.stop)).size, 1, 'one cutoff for the whole queue')
+  assert(scheduled.every(node => node.disconnected != null), 'no sources remain connected')
+  await button(`Play ${name} audio`).click()
+  await page.waitForFunction(count => scheduled.length > count, count)
+  assert(await button(`Pause ${name} audio`).isVisible())
+})
 
 test('site: live filter sliders change streamed samples without restarting playback or the cursor', async () => {
   const pcm = Float32Array.from({ length: 48000 * 6 }, (_, i) => .2 * Math.sin(2 * Math.PI * 6000 * i / 48000))
@@ -720,6 +877,76 @@ test('site: seek supports keyboard boundaries, playback continuation and menu ed
   assert.equal(await slider('original').inputValue(), '0')
 })
 
+for (const name of ['original', 'edited']) test(`site: Space plays the focused ${name} waveform, pauses once and respects its range`, async () => {
+  await watchPlayback()
+  const other = name === 'original' ? 'edited' : 'original'
+  await button(`Play ${other} audio`).click()
+  await page.waitForFunction(() => played.length === 1)
+  await slider(name).focus()
+  const scroll = await page.evaluate(() => scrollY)
+  await page.keyboard.down('Space')
+  await button(`Pause ${name} audio`).waitFor()
+  await page.waitForFunction(() => played.length === 2)
+  assert(await button(`Play ${other} audio`).isVisible())
+  assert.equal(await slider(name).evaluate(el => el === document.activeElement), true)
+  assert.equal(await slider(name).getAttribute('aria-keyshortcuts'), 'Space')
+  // Repeated keydowns while held must neither pause nor restart playback.
+  for (let i = 0; i < 3; i++) await page.keyboard.down('Space')
+  await page.keyboard.up('Space')
+  assert(await button(`Pause ${name} audio`).isVisible())
+  assert.equal(await page.evaluate(() => played.length), 2)
+  assert.equal(await page.evaluate(() => scrollY), scroll)
+  await page.keyboard.press('Space')
+  assert(await button(`Play ${name} audio`).isVisible())
+  const paused = await slider(name).inputValue()
+  await page.waitForTimeout(100)
+  assert.equal(await slider(name).inputValue(), paused)
+  assert.equal(await page.evaluate(() => played.length), 2)
+  for (const modifier of ['Control', 'Meta', 'Alt', 'Shift']) await page.keyboard.press(`${modifier}+Space`)
+  assert.equal(await page.evaluate(() => played.length), 2)
+  await slider(name).press('End')
+  await page.keyboard.press('Space')
+  await page.waitForFunction(() => played.length === 3)
+  assert.equal(await page.evaluate(() => played[2].offset), 0, 'Space at EOF restarts from the beginning')
+  await page.keyboard.press('Space')
+  await dragWave(name, .2, .6)
+  const selected = await page.locator('.range output').textContent()
+  await page.keyboard.press('Space')
+  await page.waitForFunction(() => played.length === 4)
+  const playback = await page.evaluate(() => played[3])
+  assert(Math.abs(playback.offset / playback.duration - .2) < .01)
+  assert(Math.abs(playback.limit / playback.duration - .4) < .01)
+  assert.equal(await page.locator('.range output').textContent(), selected)
+  await page.keyboard.press('Space')
+  assert(await button(`Play ${name} audio`).isVisible())
+  assert.equal(await page.locator('.range output').textContent(), selected)
+})
+
+test('site: Space cancels pending waveform playback without hijacking other controls', async () => {
+  await watchPlayback()
+  await page.evaluate(() => {
+    const resume = AudioContext.prototype.resume
+    AudioContext.prototype.resume = function () { return new Promise(resolve => { window.finishResume = () => resume.call(this).then(resolve) }) }
+  })
+  await slider('edited').focus()
+  await page.keyboard.press('Space')
+  await button('Pause edited audio').waitFor()
+  await page.keyboard.press('Space')
+  await page.evaluate(() => finishResume())
+  assert(await button('Play edited audio').isVisible())
+  assert.equal(await page.evaluate(() => played.length), 0)
+  await openPill(2)
+  await menu().getByRole('slider', { name: 'Fade in (s)', exact: true }).press('Space')
+  assert.equal(await page.evaluate(() => played.length), 0)
+  await closeMenu()
+  await button('Loop playback').press('Space')
+  assert.equal(await button('Loop playback').getAttribute('aria-pressed'), 'true')
+  assert.equal(await page.evaluate(() => played.length), 0)
+  await addButton().press('Space')
+  await page.locator('#add-menu').waitFor()
+  assert.equal(await page.evaluate(() => played.length), 0)
+})
+
 test('site: pause cancels pending resume before an audio source starts', async () => {
   await watchPlayback()
   await page.evaluate(() => {
@@ -879,7 +1106,7 @@ test('site: selected playback stops at its end; click seeks and clears the range
   assert(Math.abs(+(await slider('original').inputValue()) - 500) < 5)
 })
 
-for (const name of ['original', 'edited']) test(`site: cropping ${name} selection uses that timeline and undo restores PCM`, async () => {
+for (const name of ['edited']) test(`site: cropping ${name} selection uses that timeline and undo restores PCM`, async () => {
   await upload(await file('crop.wav', [tone(48000)]))
   await setChain('')
   await addProcessing('speed')
@@ -894,7 +1121,7 @@ for (const name of ['original', 'edited']) test(`site: cropping ${name} selectio
   const expected = prior.channels[0].slice(9600)
   assert(cropped.channels[0].every((value, i) => Math.abs(value - expected[i]) < 1 / 32767))
   const code = await page.locator('.code-example pre').innerText()
-  assert(name === 'original' ? code.indexOf('.crop(') < code.indexOf('.speed(') : code.indexOf('.crop(') > code.indexOf('.speed('))
+  assert(code.indexOf('.crop(') > code.indexOf('.speed('))
   assert.equal(await page.locator('.range').count(), 0)
   await undoEdit()
   assert.deepEqual(await output(), prior)
@@ -906,8 +1133,8 @@ test('site: a pointer selection lights its track, shows its range in the readout
   await setChain('')
   assert.equal(await page.locator('.edited-row.active').count(), 1)
   // Fractional pointer positions, as a trackpad reports them.
-  await dragWave('original', .3037, .6071)
-  assert.equal(await page.locator('.audio-row.active .track-name').textContent(), 'Original')
+  await dragWave('edited', .3037, .6071)
+  assert.equal(await page.locator('.audio-row.active .track-name').textContent(), 'Unchanged')
   assert.match(await page.locator('.range output').textContent(), /^0:00\.\d–0:01\.\d$/)
   // The range reads in the position's face.
   const faces = await page.evaluate(() => [...document.querySelectorAll('.timecode output')].map(el => { const style = getComputedStyle(el); return style.fontFamily + ' ' + style.fontWeight }))
@@ -947,17 +1174,10 @@ test('site: Crop and Undo keep working across selections, and cropping again upd
   await crop('edited', .5, 1)
   assert.equal((await lines()).length, 2)
   assert(near((await lines())[1], [1, .5]))
-  // Cropping the original again replaces its crop, even while the result is empty.
-  await crop('original', .1, .3)
-  assert.match(await message(), /removed all samples/)
-  await crop('original', .6, .9)
-  assert.equal((await lines()).length, 3)
-  assert(near((await lines())[0], [1.2, .6]))
-  // The Undo button steps back one crop at a time.
   await undoEdit()
-  assert(near((await lines())[0], [.2, .4]))
+  assert(near((await lines())[1], [.5, 1]))
   await undoEdit()
-  assert.equal((await lines()).length, 2)
+  assert.equal(await chain(), '.gain(0)')
   assert.equal(await message(), '')
 })
 
@@ -976,7 +1196,7 @@ test('site: with a range of the edit selected, the add menu applies methods ther
   await dragWave('edited', .25, .5)
   assert(!(await button('Undo').isVisible()))
   await addButton().click()
-  assert.match(await page.locator('.menu-scope').innerText(), /^Apply to 0:00\.\d–0:01\.\d$/)
+  assert.equal(await page.locator('.menu-scope').count(), 0)
   // Pad has no range: it waits for the whole edit.
   assert(await button('Add pad').isDisabled())
   await button('Add gain').click(); await idle()
@@ -995,36 +1215,38 @@ test('site: with a range of the edit selected, the add menu applies methods ther
   assert(await page.locator('.menu-scope').isHidden())
   assert(await button('Add pad').isEnabled())
   await page.keyboard.press('Escape')
-  // The original's selection crops or removes first; other methods then apply to the whole edit.
+  // ORIGINAL offers Copy only; the selection cannot alter either waveform.
   await dragWave('original', .25, .5)
+  const before = await chain()
   await addButton().click()
-  assert(await button('Add remove').isEnabled())
+  for (const name of ['crop', 'remove', 'gain']) assert(await button('Add ' + name).isDisabled())
+  for (const name of ['copy', 'cut', 'paste']) assert.equal(await button('Add ' + name).count(), 0)
   await page.keyboard.press('Escape')
-  await addMethod('gain')
-  assert.equal(await chain(), '.gain(-6)')
-  await dragWave('original', .25, .5)
-  await addMethod('crop')
-  assert.match(await chain(), /^\.crop\(\{ at: [\d.]+, duration: [\d.]+ \}\)\n\.gain\(-6\)$/)
+  await slider('original').press('ControlOrMeta+x')
+  assert.equal(await chain(), before)
+  assert(!(await button('Cut selection').isVisible()))
+  assert(!(await button('Crop selection').isVisible()))
 })
 
 test('site: a crop chain with no overlap disables output and Undo restores the prior samples', async () => {
   await upload(await file('no-overlap.wav', [tone(48000)]))
-  // A step between the crops keeps them apart: the edit's crop is last, the original's first.
   await setChain('.gain(0)')
   await cursor('edited', 500)
   await slider('edited').focus()
   await page.keyboard.press('Shift+End')
   await addMethod('crop')
   const prior = await output()
-  await cursor('original', 250)
-  await slider('original').focus()
-  await page.keyboard.press('Shift+Home')
+  await addMethod('gain')
   await addMethod('crop')
+  await setParam(3, 'Start (s)', .5)
+  await closeMenu()
   assert.equal(await message(), 'The edits removed all samples. Undo an edit or open another file.')
   assert(await downloadDisabled())
   assert(await button('Play edited audio').isDisabled())
   assert(await slider('edited').isDisabled())
   assert(await button('Play original audio').isEnabled())
+  await undoEdit()
+  await undoEdit()
   await undoEdit()
   assert.equal(await message(), '')
   assert.deepEqual(await output(), prior)
@@ -1047,7 +1269,7 @@ test('site: selection cancellation restores the previous range and keyboard sele
   await slider('original').focus()
   await page.keyboard.press('Control+a')
   assert.deepEqual(await page.locator('#original-wave').evaluate(track => [track.style.getPropertyValue('--selection-start'), track.style.getPropertyValue('--selection-end')]), ['0%', '100%'])
-  await addMethod('reverse')
+  await slider('original').press('Escape')
   assert.equal(await page.locator('.range').count(), 0)
 })
 
@@ -1076,8 +1298,8 @@ test('site: interrupted pointer selection restores the prior range and releases 
 test('site: sub-sample selection at the final boundary crops one sample', async () => {
   await upload(await file('one.wav', [new Float32Array([.25])]))
   await setChain('')
-  await cursor('original', 1000)
-  await slider('original').focus()
+  await cursor('edited', 1000)
+  await slider('edited').focus()
   await page.keyboard.press('Shift+ArrowLeft')
   await addMethod('crop')
   const result = await output()
@@ -1934,14 +2156,15 @@ test('site: a selected range shows its peak in dBFS, the library measuring the s
 })
 
 test('site: selection actions replace Undo on the baseline without shifting the readout', async () => {
-  assert.equal(await page.locator('.readout button:visible').count(), 1)
+  assert.equal(await page.locator('.readout button:visible').count(), 2)
   assert(!(await button('Undo').isVisible()))
   await addMethod('gain')
   assert(await button('Undo').isEnabled())
   const layout = () => page.locator('.readout').evaluate(readout => {
     const baseline = el => { const probe = document.createElement('span'); probe.style.cssText = 'display: inline-block; width: 0; height: 0'; el.append(probe); const y = probe.getBoundingClientRect().top; probe.remove(); return y }
     const times = readout.querySelector('.timecode output'), meter = readout.querySelector('.meters'), box = times.getBoundingClientRect()
-    return { time: baseline(times) - readout.getBoundingClientRect().top, meter: baseline(meter) - readout.getBoundingClientRect().top, height: readout.closest('.demo').offsetHeight, fits: box.right <= readout.querySelector('.readout-slot').getBoundingClientRect().right + .5, font: parseFloat(getComputedStyle(times).fontSize), loop: readout.querySelector('.loop svg').getBoundingClientRect().width }
+    const lightness = el => parseFloat(getComputedStyle(el).color.slice(6))
+    return { time: baseline(times) - readout.getBoundingClientRect().top, meter: baseline(meter) - readout.getBoundingClientRect().top, plus: readout.querySelector('.add svg').getBoundingClientRect().bottom - readout.getBoundingClientRect().top, height: readout.closest('.demo').offsetHeight, fits: box.right <= readout.querySelector('.readout-slot').getBoundingClientRect().right + .5, font: parseFloat(getComputedStyle(times).fontSize), loop: readout.querySelector('.loop svg').getBoundingClientRect().width, dim: lightness(meter) < lightness(times) }
   })
   for (const width of [1440, 1280, 960, 768, 414, 390, 375, 320]) {
     await page.setViewportSize({ width, height: 900 })
@@ -1951,15 +2174,22 @@ test('site: selection actions replace Undo on the baseline without shifting the 
     assert.equal(selected.height, before.height, `${width}: player height`)
     assert(Math.abs(selected.time - before.time) < 1, `${width}: time baseline ${before.time} → ${selected.time}`)
     assert(Math.abs(selected.meter - before.meter) < 1, `${width}: level baseline ${before.meter} → ${selected.meter}`)
+    assert(Math.abs(before.plus - before.time) < 1 && Math.abs(selected.plus - selected.time) < 1, `${width}: + stays on the time baseline`)
+    if (width >= 960) assert(Math.abs(selected.meter - selected.time) < 1 && Math.abs(before.meter - before.time) < 1, `${width}: desktop levels stay beside the time`)
     assert(selected.fits && selected.font <= 32, `${width}: compact range fits`)
+    assert(before.dim && selected.dim, `${width}: the level stays dimmer than the time`)
     assert.equal(selected.loop, 12)
     assert(!(await button('Undo').isVisible()))
-    assert(await button('Crop selection').isVisible())
-    assert(await button('Remove selection').isVisible())
+    assert.equal(await button('Crop selection').count(), 0)
+    assert(await button('Cut selection').isVisible())
     const actions = await page.locator('.action-buttons').evaluate(el => {
       const time = el.closest('.readout').querySelector('.timecode output'), probe = document.createElement('span')
       probe.style.cssText = 'display:inline-block;width:0;height:0'; time.append(probe)
-      const baseline = probe.getBoundingClientRect().top; probe.remove()
+      let baseline = probe.getBoundingClientRect().top; probe.remove()
+      if (el.getBoundingClientRect().top > time.getBoundingClientRect().bottom) {
+        el.closest('.readout').querySelector('.meters').append(probe)
+        baseline = probe.getBoundingClientRect().top; probe.remove()
+      }
       return [...el.querySelectorAll('button:not([hidden]) svg')].map(icon => icon.getBoundingClientRect().bottom - baseline)
     })
     assert(actions.every(drift => Math.abs(drift) < 1), `${width}: action icons on the time baseline ${actions}`)
@@ -1971,22 +2201,21 @@ test('site: selection actions replace Undo on the baseline without shifting the 
   assert(!(await button('Undo').isVisible()))
 })
 
-for (const track of ['original', 'edited']) for (const method of ['crop', 'remove']) test(`site: quick ${method} uses the ${track} timeline and Undo restores the exact stereo audio`, async () => {
+for (const track of ['edited']) for (const method of ['crop', 'cut']) test(`site: ${method} uses the ${track} timeline and Undo restores the exact stereo audio`, async () => {
   const pcm = [tone(48000, 220, .5), tone(48000, 330, .25)]
   await upload(await file('quick.wav', pcm))
   await setChain('.gain(-6).reverse()')
   const before = await output()
   await dragWave(track, .25, .5)
   assert(!(await button('Undo').isVisible()))
-  const action = button(method === 'crop' ? 'Crop selection' : 'Remove selection')
-  await action.focus(); await page.keyboard.press('Enter'); await idle()
+  if (method === 'crop') await addMethod('crop')
+  else { await button('Cut selection').focus(); await page.keyboard.press('Enter'); await idle() }
   assert.equal(await page.locator('.range').count(), 0)
   assert(await button('Undo').isVisible())
-  assert(await button('Undo').evaluate(el => el === document.activeElement))
+  if (method === 'cut') assert(await button('Undo').evaluate(el => el === document.activeElement))
   const clip = audio.from(pcm, { sampleRate: 48000 }), range = { at: .25, duration: .25 }
-  if (track === 'original') clip[method](range)
   clip.gain(-6).reverse()
-  if (track === 'edited') clip[method](range)
+  clip[method](range)
   const expected = await clip.read(), result = await output()
   assert.equal(result.channels.length, 2)
   result.channels.forEach((channel, c) => {
@@ -1999,14 +2228,193 @@ for (const track of ['original', 'edited']) for (const method of ['crop', 'remov
   assert.deepEqual(await output(), before)
 })
 
+test('site: clipboard tools fit a selected range without overlapping meters, and stay out of the processing menu', async () => {
+  await slider('edited').focus(); await page.keyboard.press('ControlOrMeta+a')
+  await button('Copy selection').click(); await idle()
+  for (const width of [320, 360, 375, 414, 640, 768, 960, 1024, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 1000 })
+    const tools = page.locator('.readout-actions button:visible')
+    assert.deepEqual(await tools.evaluateAll(buttons => buttons.map(el => el.getAttribute('aria-label'))), ['Cut selection', 'Copy selection', 'Paste', 'Add a method'])
+    const layout = await page.locator('.readout').evaluate(readout => {
+      const box = el => el.getBoundingClientRect(), bounds = box(readout)
+      const buttons = [...readout.querySelectorAll('.readout-actions button:not([hidden])')].map(box)
+      const glyphs = [...readout.querySelectorAll('.readout-actions button:not([hidden]) svg')].map(box)
+      const icons = [...readout.querySelectorAll('.readout-actions button:not([hidden]) path')].map(box)
+      const loop = box(readout.querySelector('.loop svg')), meter = box(readout.querySelector('.meters')), time = box(readout.querySelector('.timecode output'))
+      const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+      return {
+        // The + button includes 4px below its glyph to join the menu tab.
+        inside: glyphs.every(b => b.left >= bounds.left && b.right <= bounds.right + .5 && b.bottom <= bounds.bottom + .5),
+        clear: buttons.every((b, i) => !overlaps(b, loop) && !overlaps(b, meter) && !overlaps(b, time) && (!i || !overlaps(b, buttons[i - 1]))),
+        ink: icons.map(b => [b.width, b.height]), height: bounds.height,
+        inline: loop.top < time.bottom && loop.bottom > time.top,
+        overflow: document.documentElement.scrollWidth > innerWidth
+      }
+    })
+    assert(layout.inside && layout.clear && !layout.overflow, `${width}: ${JSON.stringify(layout)}`)
+    assert.equal(layout.height, 60, 'toolbar changes preserve player height')
+    if (width >= 960) assert(layout.inline, `${width}: the full clipboard toolbar keeps Loop beside the time`)
+    assert(layout.ink.every(([w, h]) => Math.max(w, h) >= 13 && Math.max(w, h) <= 15), 'no undersized clipboard glyph')
+  }
+  await addButton().click()
+  for (const name of ['copy', 'cut', 'paste']) assert.equal(await button('Add ' + name).count(), 0)
+  assert.equal(await button('Crop selection').count(), 0)
+  assert(await button('Add crop').isEnabled())
+  await button('Add crop').click(); await idle()
+  assert.equal((await steps().last().locator('span').first().textContent()), 'crop')
+  await button('Undo').click(); await idle()
+  await cursor('edited', 500)
+  assert(await button('Paste').isVisible(), 'a caret still offers Paste')
+  await slider('edited').focus(); await page.keyboard.press('ControlOrMeta+a')
+  await button('Cut selection').click(); await idle()
+  assert(await button('Paste').isVisible(), 'empty output still offers Paste')
+  await button('Paste').click(); await idle()
+  assert(await button('Play edited audio').isEnabled())
+})
+
+test('site: clipboard actions copy unchanged audio, paste at a caret or replace a range, and Undo restores the clipboard', async () => {
+  const pcm = [Float32Array.from({ length: 48000 }, (_, i) => (i % 47) / 64), Float32Array.from({ length: 48000 }, (_, i) => -(i % 31) / 64)]
+  await upload(await file('clipboard.wav', pcm))
+  await setChain('.gain(-6).fade(0.5, 0)')
+  const before = await output()
+  const expect = async expected => {
+    const actual = await output()
+    actual.channels.forEach((ch, c) => {
+      assert.equal(ch.length, expected[c].length)
+      assert(ch.every((v, i) => Math.abs(v - expected[c][i]) < 1 / 32767))
+    })
+  }
+  assert(!(await button('Paste').isVisible()))
+  await dragWave('edited', .25, .5)
+  await slider('edited').press('ControlOrMeta+c'); await idle()
+  assert.equal(await page.locator('.range').count(), 1, 'Copy preserves the selection')
+  assert(await button('Paste').isVisible())
+  await expect(before.channels)
+  await slider('edited').press('Escape')
+  await slider('edited').evaluate(el => { el.value = '750'; el.dispatchEvent(new Event('input', { bubbles: true })) })
+  assert.equal(await page.locator('.range').count(), 0)
+  await slider('edited').press('ControlOrMeta+v'); await idle()
+  assert.equal(+(await slider('edited').inputValue()), 800, 'caret follows the inserted fragment')
+  await expect(before.channels.map(ch => [...ch.slice(0, 36000), ...ch.slice(12000, 24000), ...ch.slice(36000)]))
+  await button('Undo').click(); await idle()
+  assert(await button('Paste').isVisible())
+  await dragWave('edited', .5, .75)
+  await button('Paste').click(); await idle()
+  await expect(before.channels.map(ch => [...ch.slice(0, 24000), ...ch.slice(12000, 24000), ...ch.slice(36000)]))
+  await button('Undo').click(); await idle()
+  await expect(before.channels)
+  await dragWave('edited', .5, .75)
+  await slider('edited').press('ControlOrMeta+x'); await idle()
+  await expect(before.channels.map(ch => [...ch.slice(0, 24000), ...ch.slice(36000)]))
+  await button('Undo').click(); await idle()
+  await slider('edited').focus(); await page.keyboard.press('Home')
+  await button('Paste').click(); await idle()
+  await expect(before.channels.map(ch => [...ch.slice(12000, 24000), ...ch]))
+  await button('Undo').click(); await idle()
+  await button('Undo').click(); await idle()
+  assert(!(await button('Paste').isVisible()), 'Undo Copy removes the clipboard')
+  assert.equal(await chain(), '.gain(-6)\n.fade(0.5, 0)')
+})
+
+test('site: Cut all and Paste restores empty audio, and opening a new file clears the clipboard', async () => {
+  await upload(await file('single.wav', [Float32Array.of(.25), Float32Array.of(-.125)]))
+  await setChain('')
+  const before = await output()
+  await slider('edited').focus(); await page.keyboard.press('ControlOrMeta+a')
+  await button('Cut selection').click(); await idle()
+  assert(await button('Play edited audio').isDisabled())
+  assert(await button('Paste').isEnabled())
+  await page.keyboard.press('ControlOrMeta+v'); await idle()
+  assert.deepEqual(await output(), before)
+  assert(await button('Play edited audio').isEnabled())
+  await upload(await file('next.wav', [Float32Array.of(.5)]))
+  assert(!(await button('Paste').isVisible()))
+  await addButton().click()
+  assert.equal(await page.getByRole('button', { name: 'Add paste', exact: true }).count(), 0)
+})
+
+test('site: ORIGINAL only copies; later cross-waveform pastes preserve earlier captures and replay in the examples', async () => {
+  const dir = await mkdtemp(resolve(tmpdir(), 'audio-site-captures-'))
+  try {
+    const pcm = [Float32Array.from({ length: 48000 }, (_, i) => (i % 47) / 64), Float32Array.from({ length: 48000 }, (_, i) => -(i % 31) / 64)]
+    const input = await file('recording.wav', pcm)
+    await writeFile(resolve(dir, input.name), input.buffer)
+    await upload(input)
+    await setChain('.gain(-6).fade(0.5, 0)')
+    const before = await output()
+    const expect = async expected => {
+      const actual = await output()
+      assert.equal(actual.channels.length, expected.length)
+      actual.channels.forEach((ch, c) => {
+        assert.equal(ch.length, expected[c].length)
+        assert(ch.every((v, i) => Math.abs(v - expected[c][i]) < 1 / 32767))
+      })
+    }
+    await dragWave('edited', .25, .5)
+    await button('Copy selection').click(); await idle()
+    const copiedChain = await chain()
+    await slider('original').focus()
+    await page.keyboard.press('ControlOrMeta+x')
+    await page.keyboard.press('ControlOrMeta+v')
+    assert.equal(await chain(), copiedChain, 'keyboard focus on ORIGINAL cannot cut or paste an EDITED selection')
+    await cursor('edited', 1000)
+    await button('Paste').click(); await idle()
+    const firstPaste = before.channels.map(ch => [...ch, ...ch.slice(12000, 24000)])
+    await expect(firstPaste)
+    const priorChain = await chain()
+    await dragWave('original', .5, .75)
+    for (const name of ['Crop selection', 'Cut selection', 'Paste']) assert(!(await button(name).isVisible()), name)
+    await slider('original').press('ControlOrMeta+x')
+    await slider('original').press('ControlOrMeta+v')
+    assert.equal(await chain(), priorChain)
+    await button('Copy selection').click(); await idle()
+    assert.equal(await chain(), priorChain, 'Copy ORIGINAL never adds a processing stage')
+    await expect(firstPaste)
+    await cursor('edited', 0)
+    await slider('edited').focus()
+    await page.keyboard.press('ControlOrMeta+v'); await idle()
+    const secondPaste = firstPaste.map((ch, c) => [...pcm[c].slice(24000, 36000), ...ch])
+    await expect(secondPaste)
+    // Copy EDITED after both kinds of Paste, then paste that new capture again.
+    await dragWave('edited', 0, 1 / 6)
+    await button('Copy selection').click(); await idle()
+    const copiedRange = /\.copy\(\{ at: ([\d.]+), duration: ([\d.]+) \}\)$/.exec(await chain())
+    const copiedFrames = Math.round(+copiedRange[2] * 48000)
+    await cursor('edited', 1000)
+    await button('Paste').click(); await idle()
+    const expected = secondPaste.map(ch => [...ch, ...ch.slice(0, copiedFrames)])
+    await expect(expected)
+    // Execute the displayed Node example, including every captured source reference.
+    await button('Node.js').click()
+    const js = (await page.locator('.code-example pre').innerText()).replace("from 'audio'", `from ${JSON.stringify(resolve(root, 'audio.js'))}`)
+    await writeFile(resolve(dir, 'replay.mjs'), js)
+    await promisify(execFile)(process.execPath, [resolve(dir, 'replay.mjs')], { cwd: dir })
+    let replay = await decode(await readFile(resolve(dir, 'edited.wav')))
+    replay.channels.forEach((ch, c) => assert(ch.length === expected[c].length && ch.every((v, i) => Math.abs(v - expected[c][i]) < 1 / 32767)))
+    await button('CLI').click()
+    const cli = (await page.locator('.code-example pre').innerText()).replace(/\\\n/g, ' ')
+    for (const command of cli.split('\n').filter(line => line.startsWith('audio '))) {
+      await promisify(execFile)(process.execPath, [resolve(root, 'bin/cli.js'), ...command.trim().split(/\s+/).slice(1), '--force'], { cwd: dir })
+    }
+    replay = await decode(await readFile(resolve(dir, 'edited.wav')))
+    replay.channels.forEach((ch, c) => assert(ch.length === expected[c].length && ch.every((v, i) => Math.abs(v - expected[c][i]) < 2 / 32767)))
+    await button('Undo').click(); await idle()
+    await button('Undo').click(); await idle()
+    await expect(secondPaste)
+    await cursor('edited', 0)
+    await button('Paste').click(); await idle()
+    await expect(secondPaste.map((ch, c) => [...pcm[c].slice(24000, 36000), ...ch]))
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
 test('site: quick actions recover from an empty result and render failure with Undo still available', async () => {
   await upload(await file('one-sample.wav', [new Float32Array([.25])]))
   await setChain('')
   const before = await output()
   await slider('edited').focus(); await page.keyboard.press('ControlOrMeta+a')
-  await button('Remove selection').click(); await idle()
+  await button('Cut selection').click(); await idle()
   assert(await button('Play edited audio').isDisabled())
-  assert(!(await button('Remove selection').isVisible()))
+  assert(!(await button('Cut selection').isVisible()))
   assert(await button('Undo').isVisible())
   await button('Undo').click(); await idle()
   assert.deepEqual(await output(), before)
@@ -2015,7 +2423,7 @@ test('site: quick actions recover from an empty result and render failure with U
     const { default: audio } = await import('./assets/audio.js'), read = audio.fn.read
     audio.fn.read = function () { audio.fn.read = read; return Promise.reject(new Error('quick edit failed')) }
   })
-  await button('Crop selection').click(); await idle()
+  await addMethod('crop')
   assert.match(await message(), /could not be applied/)
   assert(await button('Undo').isVisible())
   await button('Undo').click(); await idle()
@@ -2133,7 +2541,18 @@ test('site: an open crumb can be dragged through its connected menu tab', async 
   assert(await button('Undo').isDisabled(), 'one drop creates one history entry')
 })
 
-test('site: Add shows all methods without a scrollbar; a short viewport still reaches the last method', async () => {
+test('site: scrolling as Add opens preserves room for its menu in a short viewport', async () => {
+  await page.setViewportSize({ width: 320, height: 350 })
+  await addButton().evaluate(el => el.scrollIntoView({ block: 'end', behavior: 'instant' }))
+  await page.waitForTimeout(100)
+  await addButton().evaluate(el => { el.click(); window.dispatchEvent(new Event('scroll')) })
+  await page.waitForFunction(() => {
+    const menu = document.querySelector('#add-menu'), box = menu.getBoundingClientRect()
+    return menu.matches(':popover-open') && box.top >= 16 && box.bottom <= innerHeight - 16 + .5
+  }, null, { timeout: 2000 })
+})
+
+test('site: Add shows processing methods without a scrollbar; a short viewport still reaches the last method', async () => {
   const menu = page.locator('#add-menu')
   for (const [width, height] of [[1440, 1000], [320, 900], [320, 350]]) {
     await page.setViewportSize({ width, height })
@@ -2149,7 +2568,7 @@ test('site: Add shows all methods without a scrollbar; a short viewport still re
       return { top: box.top, bottom: box.bottom, client: body.clientHeight, scroll: body.scrollHeight, scrollbar: getComputedStyle(body).scrollbarWidth }
     })
     assert.equal(layout.scrollbar, 'none')
-    assert(layout.top >= 16 && layout.bottom <= height - 16 + .5, `${width}×${height}: menu stays in the viewport`)
+    assert(layout.top >= 16 && layout.bottom <= height - 16 + .5, `${width}×${height}: menu stays in the viewport ${JSON.stringify(layout)}`)
     if (height >= 900) assert.equal(layout.client, layout.scroll, 'all methods fit without scrolling')
     await menu.getByRole('button').first().focus()
     await page.keyboard.press('End')
@@ -2709,24 +3128,28 @@ test('site: the desktop widget fits its default chain and the add menu joins its
   }
 })
 
-test('site: add stays beside the final crumb at every wrap boundary', async () => {
-  for (const chain of [defaultChain, '.trim()\n.normalize(-1)\n.fade(0.02, 0.1)\n.gain(-6)', '.fade(0.02, 0.1)', '']) {
-    await setChain(chain)
+test('site: Add stays in the waveform actions while the chain uses all available row space', async () => {
+  for (const code of [defaultChain, '.trim()\n.normalize(-1)\n.fade(0.02, 0.1)\n.gain(-6)', '.fade(0.02, 0.1)', '']) {
+    await setChain(code)
     await closeMenu()
     const failures = await page.locator('.demo').evaluate(demo => {
       const failures = []
       for (let width = 256; width <= 560; width += 4) {
         demo.style.width = width + 'px'
-        const css = getComputedStyle(demo), box = demo.getBoundingClientRect()
-        const add = demo.querySelector('.add').getBoundingClientRect(), last = demo.querySelector('.link:last-child .pill')?.getBoundingClientRect()
-        const center = add.y + add.height / 2
-        if (last && (Math.abs(center - last.y - last.height / 2) > 1 || last.right > add.left || Math.abs(last.bottom + parseFloat(css.paddingBottom) - box.bottom) > 1)) failures.push(width)
-        if (!last && Math.abs(center - box.bottom + parseFloat(css.paddingBottom) + 15) > 1) failures.push(width)
+        const add = demo.querySelector('.add').getBoundingClientRect()
+        const chain = demo.querySelector('.chain'), edge = chain.getBoundingClientRect().right
+        if (add.bottom >= chain.getBoundingClientRect().top || Math.abs(add.right - edge) > 1) failures.push({ width, action: 'Add above chain at content edge' })
+        const pills = [...chain.querySelectorAll('.pill')].map(p => p.getBoundingClientRect())
+        for (let i = 1; i < pills.length; i++) {
+          const prev = pills[i - 1], next = pills[i]
+          const limit = i === pills.length - 1 ? edge : edge - 12
+          if (next.top > prev.top && prev.right + 22 + next.width <= limit) failures.push({ width, earlyWrap: i })
+        }
       }
       demo.style.width = ''
       return failures
     })
-    assert.deepEqual(failures, [], chain || 'empty chain')
+    assert.deepEqual(failures, [], code || 'empty chain')
   }
   await addMethod('gain')
   assert.equal(await steps().count(), 1)
@@ -2737,10 +3160,8 @@ test('site: utility icons share the content edge and loop colors stay stable thr
     await page.setViewportSize({ width, height: 1000 })
     const geometry = await page.locator('.demo').evaluate(demo => {
       const edge = demo.getBoundingClientRect().right - parseFloat(getComputedStyle(demo).paddingRight)
-      const crumb = demo.querySelector('.link:last-child').getBoundingClientRect(), add = demo.querySelector('.add svg').getBoundingClientRect()
       return [
         ...['.add svg', '.duration'].map(selector => ({ selector, gap: edge - demo.querySelector(selector).getBoundingClientRect().right })),
-        { selector: 'last crumb center', gap: crumb.y + crumb.height / 2 - add.y - add.height / 2 }
       ]
     })
     assert(geometry.every(({ gap }) => Math.abs(gap) < 1), JSON.stringify(geometry))
@@ -2798,10 +3219,10 @@ async function workshop() {
     const frame = await element.contentFrame()
     await frame.locator('.demo[aria-busy="false"]').waitFor()
   }
-  await page.waitForFunction(() => document.querySelectorAll('iframe[data-ready]').length === 6)
+  await page.waitForFunction(() => document.querySelectorAll('iframe[data-ready]').length === 15)
 }
 
-test('workshop: all six live layouts preserve the original and fit desktop, narrow and mobile widths', async () => {
+test('workshop: bottom pipelines preserve the original and fit desktop, narrow and mobile widths', async () => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   const appearance = demo => {
     const css = getComputedStyle(demo), pill = getComputedStyle(demo.querySelector('.pill'))
@@ -2815,9 +3236,9 @@ test('workshop: all six live layouts preserve the original and fit desktop, narr
     assert.equal((await frame.locator('.chain .pill').evaluateAll(pills => pills.map(p => p.title))).join('\n'), defaultChain)
     const layout = await frame.locator('.demo').evaluate(demo => {
       const box = selector => demo.querySelector(selector).getBoundingClientRect()
-      return { middle: !!demo.querySelector('.pipeline'), first: box('.audio-row'), edited: box('.edited-row'), chain: box('.chain'), pills: [...demo.querySelectorAll('.chain .pill')].map(p => p.getBoundingClientRect().top) }
+      return { middle: !!demo.querySelector('.pipeline'), readout: box('.readout'), chain: box('.chain'), pills: [...demo.querySelectorAll('.chain .pill')].map(p => p.getBoundingClientRect().top) }
     })
-    assert(layout.middle ? layout.chain.top >= layout.first.bottom && layout.chain.bottom <= layout.edited.top : layout.chain.top >= layout.edited.bottom)
+    assert(!layout.middle && layout.chain.top >= layout.readout.bottom, 'every pipeline stays below the current time')
     assert(layout.pills.every(top => top === layout.pills[0]), 'the default three crumbs fit one row')
   }
   for (const width of [320, 512]) {
@@ -2832,9 +3253,9 @@ test('workshop: all six live layouts preserve the original and fit desktop, narr
       for (const frame of document.querySelectorAll('iframe')) {
         const doc = frame.contentDocument, chain = doc.querySelector('.chain').getBoundingClientRect()
         const pills = [...doc.querySelectorAll('.chain .pill')].map(p => p.getBoundingClientRect())
-        const add = doc.querySelector('.add').getBoundingClientRect(), last = pills.at(-1)
+        const add = doc.querySelector('.add').getBoundingClientRect()
         if (doc.documentElement.scrollWidth > frame.clientWidth || pills.some(p => p.left < chain.left || p.right > chain.right + 1)) failures.push(frame.title + ': overflow')
-        if (Math.abs(add.top + add.height / 2 - last.top - last.height / 2) > 1 || last.right > add.left) failures.push(frame.title + ': plus placement')
+        if (add.bottom >= chain.top || Math.abs(add.right - chain.right) > 1) failures.push(frame.title + ': plus placement')
       }
       return failures
     })
@@ -2844,11 +3265,11 @@ test('workshop: all six live layouts preserve the original and fit desktop, narr
 
 test('workshop: pointed pills keep opaque token outlines, connected menus and live parameter editing', async () => {
   await workshop()
-  for (const shape of ['soft', 'chevron']) {
-    const frame = page.frameLocator(`#${shape}-middle iframe`), fade = frame.locator('.pill[data-key="2"]')
+  for (const shape of ['soft', 'chevron', 'strip']) {
+    const frame = page.frameLocator(`#${shape}-bottom iframe`), fade = frame.locator('.pill[data-key="2"]')
     const paint = () => fade.evaluate(pill => {
-      const path = getComputedStyle(pill.querySelector('path')), source = getComputedStyle(document.querySelector('.track-file'))
-      return { fill: path.fill, stroke: path.stroke, rule: source.borderColor, background: source.backgroundColor }
+      const fill = getComputedStyle(pill.querySelector('path:first-child')), edge = getComputedStyle(pill.querySelector('path:last-child')), source = getComputedStyle(document.querySelector('.track-file'))
+      return { fill: fill.fill, stroke: edge.stroke, rule: source.borderColor, background: source.backgroundColor }
     })
     await page.mouse.move(0, 0)
     const rest = await paint()
@@ -2869,8 +3290,8 @@ test('workshop: pointed pills keep opaque token outlines, connected menus and li
     await page.waitForFunction(id => {
       const doc = document.querySelector(`#${id} iframe`).contentDocument, pill = doc.querySelector('.pill[data-key="2"]')
       const p = pill.getBoundingClientRect(), tab = doc.querySelector('.pill-tab').getBoundingClientRect(), panel = doc.querySelector('.pill-body').getBoundingClientRect()
-      return pill.querySelector('svg').viewBox.baseVal.width === pill.offsetWidth && Math.abs(tab.left - p.left) < 1 && Math.abs(tab.top - p.top) < 1 && Math.abs(panel.top - p.bottom + 1) < 1
-    }, `${shape}-middle`)
+      return Math.abs(pill.querySelector('svg').viewBox.baseVal.width - p.width) < .01 && Math.abs(tab.left - p.left) < 1 && Math.abs(tab.top - p.top) < 1 && Math.abs(panel.top - p.bottom + 1) < 1
+    }, `${shape}-bottom`)
     await page.keyboard.press('Escape')
     await frame.getByRole('button', { name: 'Pause edited audio' }).click()
     await frame.locator('.pill[data-key="1"]').focus(); await page.keyboard.press('Tab')
@@ -2879,9 +3300,9 @@ test('workshop: pointed pills keep opaque token outlines, connected menus and li
   assert.equal(await page.frameLocator('#round-bottom iframe').locator('.pill[data-key="2"]').getAttribute('title'), '.fade(0.02, 0.1)', 'edits stay in their own preview')
 })
 
-test('workshop: menus fit, and the middle pipeline supports reordering, trash, Undo and an empty chain', async () => {
+test('workshop: pipeline variants keep menus usable through reorder, deletion, Undo and empty chains', async () => {
   await workshop()
-  for (const id of ['soft-bottom', 'chevron-middle']) {
+  for (const id of ['linked-bottom', 'chevron-end-bottom', 'chevron-soft-bottom', 'chevron-medium-bottom', 'chevron-small-bottom', 'triangle-end-bottom', 'triangle-bottom', 'triangle-outline-bottom', 'line-chevron-bottom', 'line-arrow-bottom', 'arrows-bottom', 'strip-bottom', 'soft-bottom', 'chevron-bottom']) {
     const element = page.locator(`#${id} iframe`), frame = element.contentFrame()
     const initialHeight = await element.evaluate(el => el.offsetHeight)
     for (const keys of [[0, 2], ['source'], ['save'], ['add']]) {
@@ -2968,49 +3389,102 @@ test('workshop: the continuous strip has one divider per join and rounded ends a
   assert.equal(await frame.locator('.chain .pill').count(), 3)
 })
 
+const joinedChain = id => page.waitForFunction(id => {
+  const doc = id ? document.querySelector(`#${id} iframe`).contentDocument : document, svg = doc.querySelector('.chain-routes')
+  const links = [...doc.querySelectorAll('.chain .link')].sort((a, b) => a.offsetTop - b.offsetTop || a.offsetLeft - b.offsetLeft)
+  const expected = links.flatMap((link, i) => links[i + 1]?.offsetTop > link.offsetTop ? [[link, links[i + 1]]] : [])
+  if (svg.children.length !== expected.length || getComputedStyle(svg).pointerEvents !== 'none') return false
+  const box = doc.querySelector('.demo').getBoundingClientRect(), pills = links.map(link => link.querySelector('.pill').getBoundingClientRect())
+  const edge = doc.querySelector('.chain').getBoundingClientRect().left
+  if (links.some((link, i) => (!i || link.offsetTop > links[i - 1].offsetTop) && Math.abs(pills[i].left - edge - (i ? 12 : 0)) > .1)) return false
+  return expected.every(([from, to], i) => {
+    const group = svg.children[i], path = group.firstElementChild, a = from.querySelector('.pill'), b = to.querySelector('.pill')
+    if (group.dataset.from !== a.dataset.key || group.dataset.to !== b.dataset.key || getComputedStyle(from.querySelector('.joint')).visibility !== 'hidden') return false
+    if (Math.abs(path.getBoundingClientRect().left - edge) > .1) return false
+    const start = a.getBoundingClientRect(), end = b.getBoundingClientRect(), length = path.getTotalLength()
+    const shape = doc.documentElement.dataset.shape || 'arrows'
+    const endChevron = shape === 'arrows' || doc.documentElement.hasAttribute('data-end-chevron')
+    const gap = shape === 'arrows' ? 1 + Math.SQRT1_2 : endChevron ? 1.5 : 0
+    const point = distance => path.getPointAtLength(distance).matrixTransform(path.getScreenCTM())
+    const p = point(0), q = point(length)
+    if (Math.abs(p.x - start.right - (shape === 'arrows' ? 2 : 0)) > .1 || Math.abs(p.y - (start.top + start.bottom) / 2) > .1 || Math.abs(q.x - end.left + gap) > .1 || Math.abs(q.y - (end.top + end.bottom) / 2) > .1) return false
+    if (shape !== 'linked') {
+      const head = group.lastElementChild, bounds = head.getBBox(), rect = head.getBoundingClientRect()
+      const centered = ['triangle', 'triangle-outline', 'line-chevron'].includes(shape)
+      const centerY = bounds.y + bounds.height / 2
+      if (endChevron) {
+        const css = getComputedStyle(head), height = { 'chevron-end': 15, 'chevron-soft': 15, 'chevron-medium': 12, 'chevron-small': 10, arrows: 10 }[shape]
+        if (css.fill !== 'none' || css.strokeLinecap !== (shape === 'arrows' ? 'butt' : 'round') || css.strokeLinejoin !== (shape === 'arrows' ? 'miter' : 'round') || Math.abs(rect.height - height) > .1 ||
+          Math.abs(end.left - rect.right - (shape === 'arrows' ? Math.SQRT1_2 : .5) - 1) > .1) return false
+      }
+      if (centered) {
+        if (Math.abs(rect.x + rect.width / 2 - (start.right + end.left) / 2) > .1 || Math.abs(rect.y + rect.height / 2 - (start.bottom + end.top) / 2) > .1) return false
+      } else if (Math.abs(rect.right - end.left + (gap || .5)) > .1 || Math.abs(rect.y + rect.height / 2 - q.y) > .1) return false
+      if (shape.startsWith('triangle')) {
+        // A leftward triangle is broad on the right, narrow on the left; end triangles are the opposite.
+        if (head.isPointInFill({ x: bounds.x + 1, y: centerY + 2 }) === centered || head.isPointInFill({ x: bounds.x + bounds.width - 1, y: centerY + 2 }) !== centered) return false
+      } else {
+        if (!head.isPointInStroke({ x: centered ? bounds.x : bounds.x + bounds.width, y: centerY }) || head.isPointInStroke({ x: centered ? bounds.x + bounds.width : bounds.x, y: centerY })) return false
+      }
+    }
+    for (let n = 1; n < 128; n++) {
+      const p = point(length * n / 128)
+      if (p.x < edge - .1 || p.x > box.right || pills.some(b => p.x > b.left + .5 && p.x < b.right - .5 && p.y > b.top + .5 && p.y < b.bottom - .5)) return false
+    }
+    return true
+  })
+}, id)
+
+test('site: arrow links reconnect through wrapping, reordering, removal and reset', async () => {
+  for (const width of [1440, 320, 768, 320]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await joinedChain()
+    assert.equal(await page.locator('.chain-routes g').count(), width === 320 ? 1 : 0)
+  }
+  await pill(0).focus(); await page.keyboard.press('Alt+ArrowRight')
+  await idle(); await settled(page.locator('.chain')); await joinedChain()
+  assert.equal(await chain(), '.normalize(-1)\n.trim()\n.fade(0.02, 0.1)')
+  await button('Undo').click(); await idle(); await settled(page.locator('.chain')); await joinedChain()
+  assert.equal(await chain(), defaultChain)
+  await setParam(2, 'Fade in (s)', .3); await closeMenu(); await joinedChain()
+  for (let count = 2; count >= 0; count--) {
+    await pill(0).focus(); await page.keyboard.press('Delete')
+    await idle(); await joinedChain()
+    assert.equal(await page.locator('.chain-routes g').count(), Math.max(0, count - 1))
+  }
+  await addMethod('gain'); await joinedChain()
+  assert.equal(await chain(), '.gain(-6)')
+  assert.equal(await page.locator('.chain-routes g').count(), 0)
+  await setChain(defaultChain); await closeMenu(); await joinedChain()
+  assert.equal(await page.locator('.chain-routes g').count(), 1)
+})
+
 test('workshop: wrapped connectors follow the chain and point along its direction through resize, reorder and removal', async () => {
   await workshop()
-  const ids = ['linked-bottom', 'triangle-end-bottom', 'triangle-bottom', 'triangle-outline-bottom', 'line-chevron-bottom', 'line-arrow-bottom']
+  const ids = ['linked-bottom', 'chevron-end-bottom', 'chevron-soft-bottom', 'chevron-medium-bottom', 'chevron-small-bottom', 'arrows-bottom', 'triangle-end-bottom', 'triangle-bottom', 'triangle-outline-bottom', 'line-chevron-bottom', 'line-arrow-bottom']
+  for (const [shape, height] of [['chevron-end', 15], ['chevron-soft', 15], ['chevron-medium', 12], ['chevron-small', 10], ['arrows', 10]]) {
+    const frame = page.frameLocator(`#${shape}-bottom iframe`)
+    assert(await frame.locator('.chain .joint:visible').evaluateAll((joints, height) => joints.length === 2 && joints.every(svg => {
+      const path = svg.firstElementChild, rect = path.getBoundingClientRect(), css = getComputedStyle(path)
+      const arrows = document.documentElement.dataset.shape === 'arrows'
+      const next = svg.parentElement.nextElementSibling.querySelector('.pill').getBoundingClientRect()
+      return css.fill === 'none' && css.strokeWidth === '1px' && css.strokeLinecap === (arrows ? 'butt' : 'round') && css.strokeLinejoin === (arrows ? 'miter' : 'round') &&
+        css.stroke === getComputedStyle(svg.previousElementSibling).borderColor && Math.abs(rect.height - height) < .1 &&
+        Math.abs(next.left - rect.right - (arrows ? Math.SQRT1_2 : .5) - 1) < .1 &&
+        Math.abs(rect.y + rect.height / 2 - (next.top + next.bottom) / 2) < .1 && !path.isPointInStroke({ x: svg.viewBox.baseVal.width - .25, y: 8 })
+    }), height), `${shape}: 1px strokes leave a 1px gap before the next pill`)
+  }
+  assert(await page.frameLocator('#arrows-bottom iframe').locator('.chain .joint:visible').evaluateAll(joints => joints.length === 2 && joints.every(svg => {
+    const path = svg.firstElementChild, css = getComputedStyle(path), rect = path.getBoundingClientRect()
+    const pill = svg.previousElementSibling.getBoundingClientRect()
+    return css.opacity === '1' && Math.abs(rect.left - pill.right - 2) < .1
+  })), 'Arrow links leave 2px after the source pill, an extra pixel of clearance')
   const end = page.frameLocator('#triangle-end-bottom iframe')
   assert(await end.locator('.chain .joint:visible').evaluateAll(joints => joints.length === 2 && joints.every(svg => {
     const path = svg.firstElementChild, width = svg.viewBox.baseVal.width
     return path.isPointInFill({ x: width - 4.5, y: 7 }) && !path.isPointInFill({ x: width / 2, y: 5 }) && !path.isPointInFill({ x: width - 1, y: 7 })
   })), 'straight connectors put the filled triangle at the destination, pointing right')
-  const joined = id => page.waitForFunction(id => {
-    const doc = document.querySelector(`#${id} iframe`).contentDocument, svg = doc.querySelector('.chain-routes')
-    const links = [...doc.querySelectorAll('.chain .link')].sort((a, b) => a.offsetTop - b.offsetTop || a.offsetLeft - b.offsetLeft)
-    const expected = links.flatMap((link, i) => links[i + 1]?.offsetTop > link.offsetTop ? [[link, links[i + 1]]] : [])
-    if (svg.children.length !== expected.length || getComputedStyle(svg).pointerEvents !== 'none') return false
-    const box = doc.querySelector('.demo').getBoundingClientRect(), pills = links.map(link => link.querySelector('.pill').getBoundingClientRect())
-    return expected.every(([from, to], i) => {
-      const group = svg.children[i], path = group.firstElementChild, a = from.querySelector('.pill'), b = to.querySelector('.pill')
-      if (group.dataset.from !== a.dataset.key || group.dataset.to !== b.dataset.key || getComputedStyle(from.querySelector('.joint')).visibility !== 'hidden') return false
-      const start = a.getBoundingClientRect(), end = b.getBoundingClientRect(), length = path.getTotalLength()
-      const point = distance => path.getPointAtLength(distance).matrixTransform(path.getScreenCTM())
-      const p = point(0), q = point(length)
-      if (Math.abs(p.x - start.right) > .1 || Math.abs(p.y - (start.top + start.bottom) / 2) > .1 || Math.abs(q.x - end.left) > .1 || Math.abs(q.y - (end.top + end.bottom) / 2) > .1) return false
-      const shape = doc.documentElement.dataset.shape
-      if (shape !== 'linked') {
-        const head = group.lastElementChild, bounds = head.getBBox(), rect = head.getBoundingClientRect()
-        const centered = ['triangle', 'triangle-outline', 'line-chevron'].includes(shape)
-        const centerY = bounds.y + bounds.height / 2
-        if (centered) {
-          if (Math.abs(rect.x + rect.width / 2 - (start.right + end.left) / 2) > .1 || Math.abs(rect.y + rect.height / 2 - (start.bottom + end.top) / 2) > .1) return false
-        } else if (Math.abs(rect.right - end.left + .5) > .1 || Math.abs(rect.y + rect.height / 2 - q.y) > .1) return false
-        if (shape.startsWith('triangle')) {
-          // A leftward triangle is broad on the right, narrow on the left; end triangles are the opposite.
-          if (head.isPointInFill({ x: bounds.x + 1, y: centerY + 2 }) === centered || head.isPointInFill({ x: bounds.x + bounds.width - 1, y: centerY + 2 }) !== centered) return false
-        } else {
-          if (!head.isPointInStroke({ x: centered ? bounds.x : bounds.x + bounds.width, y: centerY }) || head.isPointInStroke({ x: centered ? bounds.x + bounds.width : bounds.x, y: centerY })) return false
-        }
-      }
-      for (let n = 1; n < 128; n++) {
-        const p = point(length * n / 128)
-        if (p.x < box.left || p.x > box.right || pills.some(b => p.x > b.left + .5 && p.x < b.right - .5 && p.y > b.top + .5 && p.y < b.bottom - .5)) return false
-      }
-      return true
-    })
-  }, id)
+  const joined = joinedChain
   for (const [width, count] of [[512, 0], [320, 1], [512, 0], [320, 1]]) {
     await page.getByLabel(`${width} px`, { exact: true }).check()
     await page.waitForFunction(width => document.querySelector('#linked-bottom iframe').contentDocument.querySelector('.demo').offsetWidth === width, width)
@@ -3019,33 +3493,35 @@ test('workshop: wrapped connectors follow the chain and point along its directio
       assert.equal(await page.frameLocator(`#${id} iframe`).locator('.chain-routes g').count(), count, id)
     }
   }
-  const frame = page.frameLocator('#triangle-bottom iframe')
   await page.setViewportSize({ width: 320, height: 1000 })
-  await joined('triangle-bottom')
-  assert.equal(await frame.locator('.chain-routes g').count(), 2, 'three rows have two return paths')
-  await frame.locator('.pill[data-key="0"]').scrollIntoViewIfNeeded()
-  const first = await frame.locator('.pill[data-key="0"]').boundingBox(), last = await frame.locator('.pill[data-key="2"]').boundingBox()
-  await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2); await page.mouse.down()
-  await page.mouse.move(last.x + last.width / 2, last.y + last.height / 2, { steps: 12 })
-  await settled(frame.locator('.chain')); await joined('triangle-bottom')
-  await page.keyboard.press('Escape'); await page.mouse.up()
-  await settled(frame.locator('.chain')); await joined('triangle-bottom')
-  assert.equal((await frame.locator('.chain .pill').evaluateAll(pills => pills.map(p => p.title))).join('\n'), defaultChain)
-  await frame.locator('.pill[data-key="0"]').focus(); await page.keyboard.press('Alt+ArrowRight')
-  await frame.locator('.demo[aria-busy="false"]').waitFor(); await settled(frame.locator('.chain')); await joined('triangle-bottom')
-  assert.deepEqual(await frame.locator('.chain .pill').evaluateAll(pills => pills.map(p => p.title)), ['.normalize(-1)', '.trim()', '.fade(0.02, 0.1)'])
-  await frame.getByRole('button', { name: 'Undo', exact: true }).click()
-  await frame.locator('.demo[aria-busy="false"]').waitFor(); await settled(frame.locator('.chain')); await joined('triangle-bottom')
-  for (let count = 2; count >= 0; count--) {
-    await frame.locator('.pill[data-key="0"]').focus(); await page.keyboard.press('Delete')
-    await frame.locator('.demo[aria-busy="false"]').waitFor(); await joined('triangle-bottom')
-    assert.equal(await frame.locator('.chain-routes g').count(), Math.max(0, count - 1))
+  for (const id of ['triangle-bottom', 'arrows-bottom']) {
+    const frame = page.frameLocator(`#${id} iframe`)
+    await joined(id)
+    assert.equal(await frame.locator('.chain-routes g').count(), 2, 'three rows have two return paths')
+    await frame.locator('.pill[data-key="0"]').scrollIntoViewIfNeeded()
+    const first = await frame.locator('.pill[data-key="0"]').boundingBox(), last = await frame.locator('.pill[data-key="2"]').boundingBox()
+    await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2); await page.mouse.down()
+    await page.mouse.move(last.x + last.width / 2, last.y + last.height / 2, { steps: 12 })
+    await settled(frame.locator('.chain')); await joined(id)
+    await page.keyboard.press('Escape'); await page.mouse.up()
+    await settled(frame.locator('.chain')); await joined(id)
+    assert.equal((await frame.locator('.chain .pill').evaluateAll(pills => pills.map(p => p.title))).join('\n'), defaultChain)
+    await frame.locator('.pill[data-key="0"]').focus(); await page.keyboard.press('Alt+ArrowRight')
+    await frame.locator('.demo[aria-busy="false"]').waitFor(); await settled(frame.locator('.chain')); await joined(id)
+    assert.deepEqual(await frame.locator('.chain .pill').evaluateAll(pills => pills.map(p => p.title)), ['.normalize(-1)', '.trim()', '.fade(0.02, 0.1)'])
+    await frame.getByRole('button', { name: 'Undo', exact: true }).click()
+    await frame.locator('.demo[aria-busy="false"]').waitFor(); await settled(frame.locator('.chain')); await joined(id)
+    for (let count = 2; count >= 0; count--) {
+      await frame.locator('.pill[data-key="0"]').focus(); await page.keyboard.press('Delete')
+      await frame.locator('.demo[aria-busy="false"]').waitFor(); await joined(id)
+      assert.equal(await frame.locator('.chain-routes g').count(), Math.max(0, count - 1))
+    }
+    await frame.getByRole('button', { name: 'Add a method', exact: true }).click()
+    await frame.getByRole('button', { name: 'Add gain', exact: true }).click()
+    await frame.locator('.demo[aria-busy="false"]').waitFor(); await joined(id)
+    assert.equal(await frame.locator('.chain .pill').getAttribute('title'), '.gain(-6)')
+    assert.equal(await frame.locator('.chain-routes g').count(), 0)
   }
-  await frame.getByRole('button', { name: 'Add a method', exact: true }).click()
-  await frame.getByRole('button', { name: 'Add gain', exact: true }).click()
-  await frame.locator('.demo[aria-busy="false"]').waitFor(); await joined('triangle-bottom')
-  assert.equal(await frame.locator('.chain .pill').getAttribute('title'), '.gain(-6)')
-  assert.equal(await frame.locator('.chain-routes g').count(), 0)
 })
 
 // A canvas as gray levels, one byte a pixel: the logo's tones are neutral, so red carries the whole image
@@ -3257,6 +3733,25 @@ test('logo motion: at rest it is the logo; near its middle it stirs; flung it sp
     await away()
   }
   await logoStill()
+})
+
+test('site: the tab icon holds the whole wave as it turns, no crest cut at its edge', async () => {
+  const clipped = await page.evaluate(async () => {
+    const { logo } = await import('./logo.js'), canvas = document.createElement('canvas')
+    const view = logo(canvas), clipped = []
+    for (let phase = 0; phase < 1; phase += 1 / 16) {
+      view.set({ phase }); view.render()
+      const image = new Image()
+      image.src = view.favicon('#000')
+      await image.decode()
+      const { width: w, height: h } = image, context = new OffscreenCanvas(w, h).getContext('2d')
+      context.drawImage(image, 0, 0)
+      const alpha = context.getImageData(0, 0, w, h).data, edge = y => Array.from({ length: w }, (_, x) => alpha[(y * w + x) * 4 + 3]).some(a => a > 8)
+      if (edge(0) || edge(h - 1)) clipped.push(phase)
+    }
+    return clipped
+  })
+  assert.deepEqual(clipped, [], `crests reach the icon's edge at phases ${clipped}`)
 })
 
 test('site: the header mark is the logo drawn live; the whole title tightens it, a drag turns it without following the link, the tab icon turns with it', async () => {

@@ -61,7 +61,7 @@ audio('voice.mp3').trim().normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 ### CLI
 
 ```sh
-npm i -g audio
+npm i -g audio  # or: npx audio …
 audio voice.wav trim normalize podcast fade 0.3s -0.5s save clean.mp3
 ```
 
@@ -188,7 +188,7 @@ let b = audio(JSON.parse(json))  // re-decode + replay edits
 
 | Method                         | Description                                                                                                                         |
 |:--|:--|
-| `audio(source, opts?)` | decode from file, URL, or bytes. Returns instantly — decodes in background. |
+| `audio(source, opts?)` | decode from file, URL, bytes, or a byte stream. Returns instantly — decodes in background; streams decode as they arrive. |
 | `audio.from(source, opts?)` | wrap existing PCM, AudioBuffer, silence, or function. Sync, no I/O. |
 
 ```js
@@ -198,6 +198,7 @@ let c = audio(inputEl.files[0])           // Blob, File, Response, ArrayBuffer
 let d = audio()                           // empty, ready for .push() or .record()
 let e = audio([intro, body, outro])       // concat (virtual, no copy)
 let f = audio([a, b, c], { crossfade: 2 })  // concat with 2s crossfade
+let g = audio(process.stdin)              // byte stream: pipe, socket, fetch body – decodes as it arrives
 // opts: { sampleRate, channels, crossfade, curve, storage: 'memory' | 'persistent' | 'auto' }
 
 await a    // await for decode — if you need .duration, full stats etc
@@ -240,8 +241,8 @@ let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 
 | Method                         | Description                                                                                                                         |
 |:--|:--|
-| `.trim(threshold?)` | strip leading/trailing silence (dB, default auto). |
-| `.shrink(gap?, threshold?)` | shorten silent pauses to `gap` seconds (default 0.3); `0` removes them.<br><sub>≡ FFmpeg `silenceremove`, Audacity truncate-silence</sub> |
+| `.trim(threshold?)` | strip leading/trailing silence (dB, default auto). On a live stream a given threshold streams, holding a silent tail until sound resumes; the automatic one reads the whole input, so it waits for the end. |
+| `.shrink(gap?, threshold?)` | shorten silent pauses to `gap` seconds (default 0.3); `0` removes them. Streams with a given threshold, like `trim`.<br><sub>≡ FFmpeg `silenceremove`, Audacity truncate-silence</sub> |
 | `.crop({at, duration})` | keep range, discard rest. |
 | `.remove(at, duration, crossfade?)` | delete range, close gap. `crossfade` (`'10ms'`) makes the splice an equal-power crossfade centered on the cut; the length stays the same. |
 | `.insert(source, at?, crossfade?)` | insert audio (default: at end), or a number of seconds of silence; `crossfade` fades both seams. |
@@ -280,7 +281,7 @@ a.remix([0, 0])                           // L→both; .remix(1) for mono
 |:--|:--|
 | `.gain(dB, opts?)` | `{ unit: 'linear' }` takes a multiplier. |
 | `.fade(in, out?, curve?)` | curves `'linear'` `'exp'` `'log'` `'cos'`. `{start, end}` levels 0..1 fade between any levels (a duck); `{mid}` skews the half-amplitude point.<br><sub>≡ Audacity adjustable-fade</sub> |
-| `.normalize(target?, mode?)` | remove DC, normalize. Loudness targets hold a true-peak ceiling, -1 dBTP by default: a lookahead limiter, then the loudness it took made back up. Presets per Apple Podcasts, Spotify, EBU R 128 (ITU-R BS.1770-4):<br>`'podcast'` -16 LUFS<br>`'streaming'` -14 LUFS<br>`'broadcast'` -23 LUFS<br>`-18, 'lufs'` any loudness; `-3` peak dB; no arg: peak 0 dBFS; `'rms'` mode<br>`{ ceiling: -2 }` dBTP, `false` off<br>`{ dc: false }` keep DC<br><sub>≡ FFmpeg `loudnorm`</sub> |
+| `.normalize(target?, mode?)` | remove DC, normalize. Loudness targets hold a true-peak ceiling, -1 dBTP by default: a lookahead limiter, then the loudness it took made back up. Presets per Apple Podcasts, Spotify, EBU R 128 (ITU-R BS.1770-4):<br>`'podcast'` -16 LUFS<br>`'streaming'` -14 LUFS<br>`'broadcast'` -23 LUFS<br>`-18, 'lufs'` any loudness; `-3` peak dB; no arg: peak 0 dBFS; `'rms'` mode<br>`{ ceiling: -2 }` dBTP, `false` off<br>`{ dc: false }` keep DC<br>`{ adaptive: true }` on a live stream, start at once: the gain follows what it has heard, the ceiling (the target itself in peak mode) guards what it hasn't. Without it, one gain for the whole selection: a live stream waits for its end.<br><sub>≡ FFmpeg `loudnorm`</sub> |
 | `.mix(source, at?, gain?)` | overlay at `at` seconds, source level `gain` dB.<br><sub>≡ FFmpeg `amix` weights</sub> |
 | `.crossfade(source, duration?, curve?)` | append with overlap, default 0.5s. `'cos'` (default) suits similar material; `'equal'` (equal-power) keeps loudness across unrelated tracks.<br><sub>≡ FFmpeg `acrossfade`</sub> |
 | `.pan(value, opts?)` | −1 left, 0 center, 1 right. |
@@ -331,7 +332,7 @@ a.filter(customFn, { cutoff: 2000 })      // custom filter function
 | `.crossfeed(freq?, level?)` | headphone crossfeed, default 700 Hz, 0.3.<br><sub>≡ SoX `earwax`, bs2b</sub> |
 | `.resample(rate, {type?})` | upsampling defaults to linear, downsampling to anti-aliased 32-tap windowed sinc. `type: 'sinc'` or `'linear'` forces one. |
 | `.crossover(...freqs)` | N split frequencies → N+1 bands × channels, band-major. Linkwitz-Riley 4th order; bands sum back flat.<br><sub>≡ FFmpeg `acrossover`</sub> |
-| `.match(ref, amount?)` | match EQ: up to 8 parametric bands fit to the reference/source spectrum ratio. Tone only; loudness stays with `normalize`.<br><sub>≡ iZotope Ozone Match EQ</sub> |
+| `.match(ref, amount?)` | match EQ: up to 8 parametric bands fit to the reference/source spectrum ratio. Tone only; loudness stays with `normalize`. Streams `{lookahead}` s behind (10), refitting as it hears more.<br><sub>≡ iZotope Ozone Match EQ</sub> |
 | `.spectral(band?, gain?, {at, duration})` | gain on a time × frequency region, `band` = `[lo, hi]` Hz; default removes it.<br><sub>≡ Audacity spectral edit, FFmpeg `afftfilt`</sub> |
 | `.repair(band?, {at, duration})` | rebuild a damaged range (dropout, beep, click burst) from its surroundings.<br><sub>≡ iZotope RX Spectral Repair</sub> |
 
@@ -352,8 +353,8 @@ a.repair({ at: 1.2, duration: 0.05 })     // a dropout
 
 | Method                         | Description                                                                                                                         |
 |:--|:--|
-| `await .read(opts?)` | rendered PCM. `{ format, channel }` to convert. |
-| `await .save(path, opts?)` | encode + write, format from extension. Lossless keeps the source depth; `{ bitDepth, bitrate, quality, codec }` set the encoder; m4a writes markers as chapters. A video source saved to `.mp4`/`.mov` keeps its picture: only the audio track changes. |
+| `await .read(opts?)` | rendered PCM. `{ format, channel }` to convert. A source still arriving is waited for: a range until it has arrived, all of it until the end (an endless stream: read ranges, or `stream()`). |
+| `await .save(path, opts?)` | encode + write, format from extension. Lossless keeps the source depth; `{ bitDepth, bitrate, quality, codec }` set the encoder; m4a and mp3 write markers as chapters. Output streams as it encodes, headers patched with their totals at the end (a pipe keeps them "unknown"); m4a from a live source is fragmented. A video source saved to `.mp4`/`.mov` keeps its picture: only the audio track changes. |
 | `await .encode(format?, opts?)` | encode to `Uint8Array`. |
 | `.clone()` | independent edits, shared pages. |
 | `.push(data, format?)` | feed PCM into a pushable instance; `.stop()` finalizes. |
@@ -453,7 +454,7 @@ m.stop()                                                           // release
 | `'chords'` | `[{time, duration, label, root, quality, confidence}]` (NNLS chroma + Viterbi). |
 | `'key'` | `{tonic, mode, label, confidence}` (Krumhansl-Schmuckler). |
 
-Opts: `bpm`, `beats`, `onsets` take `{ minBpm, maxBpm, delta, frameSize, hopSize }`; `notes` takes `{ frameSize, hopSize, threshold, minClarity }`; `chords`, `key` take `{ frameSize, hopSize, method: 'nnls' | 'pcp' }`.
+Opts: `bpm`, `beats`, `onsets` take `{ minBpm, maxBpm, delta, frameSize, hopSize }`; `notes` takes `{ frameSize, hopSize, threshold, minClarity }`; `chords`, `key` take `{ frameSize, hopSize, method: 'nnls' | 'pcp' }`. `chords` and `key` need the optional `@audio/mir-chroma`, `@audio/mir-chord`, `@audio/mir-key` (installed with `audio` unless optional dependencies are skipped).
 
 ```js
 let loud = await a.stat('loudness')                       // LUFS
@@ -580,7 +581,7 @@ a.play()                                    // AudioWorklet (no SharedArrayBuffe
 
 ## CLI
 
-**`npm i -g audio`**
+**`npm i -g audio`**, or without installing: `npx audio …`
 
 ```sh
 audio [source] [transforms...] [sink] [options]

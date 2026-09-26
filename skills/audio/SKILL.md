@@ -15,7 +15,7 @@ Ops: trim [DB] · shrink [GAP] · normalize podcast|streaming|broadcast|DB [lufs
 Stats: db peak rms loudness momentary shortterm dialog truepeak lra dc clipping silence crest correlation bpm key chords notes; `spectrum 32` takes bins.
 
 Measure, edit, verify:
-1. `in.wav`: overview (duration, peak, LUFS, BPM, key, clipping, DC)
+1. `in.wav`: overview (duration, peak, LUFS, BPM, clipping, DC)
 2. `in.wav trim normalize podcast stat loudness truepeak`: preview, nothing written
 3. `in.wav trim normalize podcast save out.mp3`: write a new file, keep the source
 4. `out.mp3 stat loudness truepeak`: confirm; report a missed target, don't hide it
