@@ -40,8 +40,6 @@ audio('voice.mp3').trim().normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 
 ### Browser
 
-#### CDN
-
 ```html
 <script type="module">
   import audio from 'https://esm.sh/audio'
@@ -49,37 +47,23 @@ audio('voice.mp3').trim().normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 </script>
 ```
 
-#### Bundler
-
-`import audio from 'audio'` in Vite, esbuild or webpack; codecs and plugins become code-split chunks, fetched on demand. Subpath imports (`audio/core`, `audio/fn/gain`) are source ESM and need a bundler.
-
-
 ### CLI
 
 ```sh
-npm i -g audio  # or: npx audio …
+npm i -g audio # or: npx audio …
 audio voice.wav trim normalize podcast fade 0.3s -0.5s save clean.mp3
 ```
 
-### AI
-
-Agents run the [CLI](#cli): measure, edit, save to a new file, measure again. One page teaches them the grammar and loudness targets: [skills/audio/SKILL.md](skills/audio/SKILL.md).
-
-Coding agents with a shell (Claude Code, Codex) take it as a skill:
+### Skill
 
 ```sh
 npx skills add audiojs/audio
 ```
 
-Chat apps (Claude Desktop, Cursor, VS Code) get it as an MCP server, one tool that takes CLI arguments:
+### MCP
 
-```json
-{ "mcpServers": { "audio": { "command": "npx", "args": ["-y", "audio", "--mcp"] } } }
-```
-
-Claude Code: `claude mcp add audio -- npx -y audio --mcp`. Plugins (compressor, declick, ducker…) install with `audio` and load on first use.
-
-Then ask: *"make ~/Desktop/interview.m4a podcast-ready and tell me the loudness before and after"*.
+`claude mcp add audio -- npx -y audio --mcp`
+`Prompt: make ~/Desktop/interview.m4a podcast-ready and tell me the loudness before and after`
 
 
 ## Recipes
