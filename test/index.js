@@ -5130,20 +5130,24 @@ test('playbackRate — live change speeds playback (varispeed ramp)', { skip: !i
   let sr = 44100, ch = new Float32Array(sr)  // 1s silence, volume 0 — inaudible timing test
   let a = audio.from([ch], { sampleRate: sr })
 
-  // baseline: rate 4 from start → ~0.25s wall
-  let t0 = performance.now()
+  // baseline: rate 4 from start → ~0.25s wall. Clocks start once playback has: opening the device
+  // (0.4-1 s cold on a loaded machine) is not the rate under test.
+  let ended = new Promise(r => a.on('ended', r))
   a.play({ volume: 0, rate: 4 })
-  await new Promise(r => a.on('ended', r))
+  await a.played
+  let t0 = performance.now()
+  await ended
   let fast = (performance.now() - t0) / 1000
   t.ok(fast < 0.6, `rate 4 from start: ${fast.toFixed(2)}s wall for 1s audio`)
 
   // live: start at 1, ramp to 4 after ~150ms → well under realtime, slower than pure 4×
   a.playbackRate = 1
-  t0 = performance.now()
+  ended = new Promise(r => a.on('ended', r))
   a.play({ volume: 0 })
   await a.played
+  t0 = performance.now()
   setTimeout(() => { a.playbackRate = 4 }, 150)
-  await new Promise(r => a.on('ended', r))
+  await ended
   let ramped = (performance.now() - t0) / 1000
   t.ok(ramped < 0.85, `live ramp 1→4: ${ramped.toFixed(2)}s wall (expect ≈0.36)`)
   t.ok(a.ended, 'ended naturally')
