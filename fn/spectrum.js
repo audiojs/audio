@@ -5,7 +5,7 @@
  */
 
 import fft from 'fourier-transform'
-import { hann } from '@audio/window'
+import hann from 'window-function/hann'
 import aWeighting from '@audio/weighting-a'
 
 // ── Mel scale ───────────────────────────────────────────────────
@@ -43,32 +43,49 @@ function hannWin(n) {
 export function melSpectrum(samples, sr, opts = {}) {
   let { bins = 128, fMin = 30, fMax = Math.min(sr / 2, 20000), weight = true } = opts
   let N = samples.length, win = hannWin(N)
-  let buf = new Float32Array(N)
+  let buf = scratch[N] ??= new Float32Array(N)
   for (let i = 0; i < N; i++) buf[i] = samples[i] * win[i]
   let mag = fft(buf)
 
-  let mMin = toMel(fMin), mMax = toMel(fMax), binHz = sr / N
+  let bank = melBank(N, sr, bins, fMin, fMax, weight)
   let out = new Float32Array(bins)
-
-  let hz = new Float32Array(bins + 2)
-  for (let i = 0; i < hz.length; i++) hz[i] = fromMel(mMin + (mMax - mMin) * i / (bins + 1))
-
   for (let b = 0; b < bins; b++) {
-    let fLo = hz[b], fMid = hz[b + 1], fHi = hz[b + 2]
-    let kLo = Math.max(1, Math.floor(fLo / binHz)), kHi = Math.min(mag.length - 1, Math.ceil(fHi / binHz))
-    let sum = 0, wsum = 0
-    for (let k = kLo; k <= kHi; k++) {
-      let f = k * binHz
-      let w = f <= fMid ? (f - fLo) / (fMid - fLo || 1) : (fHi - f) / (fHi - fMid || 1)
-      if (w <= 0) continue
-      sum += w * mag[k] ** 2
-      wsum += w
-    }
+    let { k, w, wsum, gain } = bank[b], sum = 0
+    for (let j = 0; j < k.length; j++) sum += w[j] * mag[k[j]] ** 2
     let rms = wsum > 0 ? Math.sqrt(sum / wsum) : 0
-    if (weight) rms *= aWeighting.response(fMid, sr)  // digital response at actual rate (a-weighting ignored its sr arg)
+    if (weight) rms *= gain
     out[b] = rms
   }
   return out
+}
+
+let scratch = {}
+
+/** The filterbank for a block size, rate and band layout, built once rather than per block: per band
+ *  the FFT bins it covers, their triangle weights and sum, and the A-weighting gain at its center. */
+let banks = new Map()
+function melBank(N, sr, bins, fMin, fMax, weight) {
+  let key = `${N} ${sr} ${bins} ${fMin} ${fMax} ${weight}`, bank = banks.get(key)
+  if (bank) return bank
+  let mMin = toMel(fMin), mMax = toMel(fMax), binHz = sr / N, last = (N >> 1) - 1
+  let hz = new Float32Array(bins + 2)
+  for (let i = 0; i < hz.length; i++) hz[i] = fromMel(mMin + (mMax - mMin) * i / (bins + 1))
+  bank = []
+  for (let b = 0; b < bins; b++) {
+    let fLo = hz[b], fMid = hz[b + 1], fHi = hz[b + 2]
+    let kLo = Math.max(1, Math.floor(fLo / binHz)), kHi = Math.min(last, Math.ceil(fHi / binHz))
+    let k = [], w = [], wsum = 0
+    for (let j = kLo; j <= kHi; j++) {
+      let f = j * binHz
+      let v = f <= fMid ? (f - fLo) / (fMid - fLo || 1) : (fHi - f) / (fHi - fMid || 1)
+      if (v <= 0) continue
+      k.push(j); w.push(v); wsum += v
+    }
+    // digital response at the actual rate (a-weighting ignored its sr arg)
+    bank.push({ k: Int32Array.from(k), w: Float64Array.from(w), wsum, gain: weight ? aWeighting.response(fMid, sr) : 1 })
+  }
+  banks.set(key, bank)
+  return bank
 }
 
 

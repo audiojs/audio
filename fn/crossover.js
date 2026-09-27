@@ -1,5 +1,5 @@
 import audio from '../core.js'
-import { highpass, lowpass, allpass } from '@audio/filter'
+import { highpass, lowpass, allpass } from '@audio/filter-biquad'
 
 /** Split points (positional or the freqs option), deduped, ascending. */
 const splitFreqs = ctx => {

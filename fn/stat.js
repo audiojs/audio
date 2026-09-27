@@ -5,12 +5,31 @@ let rMin = (values, from, to) => { let v = Infinity; for (let i = from; i < to; 
 let rMax = (values, from, to) => { let v = -Infinity; for (let i = from; i < to; i++) if (values[i] > v) v = values[i]; return v === -Infinity ? 0 : v }
 let rSum = (values, from, to) => { let v = 0; for (let i = from; i < to; i++) v += values[i]; return v }
 
+/** One pass per channel serves min, max, dc, clipping, ms and correlation (block record). */
+function core(chs) {
+  let n = chs[0].length, min = [], max = [], dc = [], clipping = [], ms = [], xy = 0
+  for (let c = 0; c < chs.length; c++) {
+    let x = chs[c], mn = Infinity, mx = -Infinity, s = 0, q = 0, k = 0
+    for (let i = 0; i < n; i++) {
+      let v = x[i], v2 = v * v
+      if (v < mn) mn = v
+      if (v > mx) mx = v
+      s += v
+      q += v2
+      if (v2 >= 1) k++  // |v| ≥ 1, NaN excluded
+    }
+    min.push(mn); max.push(mx); dc.push(s / n); clipping.push(k); ms.push(q / n)
+  }
+  if (chs.length > 1) {
+    let l = chs[0], r = chs[1]
+    for (let i = 0; i < n; i++) xy += l[i] * r[i]
+    xy /= n
+  }
+  return { min, max, dc, clipping, ms, correlation: xy }
+}
+
 audio.stat('min', {
-  block: (chs) => chs.map(ch => {
-    let mn = Infinity
-    for (let i = 0; i < ch.length; i++) if (ch[i] < mn) mn = ch[i]
-    return mn
-  }),
+  block: core,
   reduce: rMin,
   query: (stats, chs, from, to) => {
     let v = Infinity
@@ -20,11 +39,7 @@ audio.stat('min', {
 })
 
 audio.stat('max', {
-  block: (chs) => chs.map(ch => {
-    let mx = -Infinity
-    for (let i = 0; i < ch.length; i++) if (ch[i] > mx) mx = ch[i]
-    return mx
-  }),
+  block: core,
   reduce: rMax,
   query: (stats, chs, from, to) => {
     let v = -Infinity
@@ -34,20 +49,12 @@ audio.stat('max', {
 })
 
 audio.stat('dc', {
-  block: (chs) => chs.map(ch => {
-    let sum = 0
-    for (let i = 0; i < ch.length; i++) sum += ch[i]
-    return sum / ch.length
-  }),
+  block: core,
   reduce: rMean
 })
 
 audio.stat('clipping', {
-  block: (chs) => chs.map(ch => {
-    let n = 0
-    for (let i = 0; i < ch.length; i++) if (ch[i] >= 1 || ch[i] <= -1) n++
-    return n
-  }),
+  block: core,
   reduce: rSum,
   query: (stats, chs, from, to, sr) => {
     let bs = stats.blockSize, times = []
@@ -61,11 +68,7 @@ audio.stat('clipping', {
 })
 
 audio.stat('ms', {
-  block: (chs) => chs.map(ch => {
-    let sum = 0
-    for (let i = 0; i < ch.length; i++) sum += ch[i] * ch[i]
-    return sum / ch.length
-  }),
+  block: core,
   reduce: rMean,
 })
 
@@ -120,12 +123,7 @@ audio.stat('crest', {
 
 audio.stat('correlation', {
   fields: ['correlation', 'ms'],
-  block: (chs) => {
-    if (chs.length < 2) return 0
-    let sum = 0, n = chs[0].length
-    for (let i = 0; i < n; i++) sum += chs[0][i] * chs[1][i]
-    return sum / n
-  },
+  block: core,
   reduce: rMean,
   query: (stats, chs, from, to) => {
     if (chs.length < 2) return 1

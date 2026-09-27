@@ -401,6 +401,14 @@ audio.stat('mystat', (chs, ctx) => chs.map(ch => /* number */))
 
 `block` is called per 1024-sample block during decode. Return number (all channels) or array (per-channel). Stored in `a.stats.mystat` as `Float32Array[]`.
 
+One pass can serve several stats: register the same `block` function for each and return a record keyed by stat name. The engine calls a shared function once per block; the built-in `min`/`max`/`dc`/`clipping`/`ms`/`correlation` share one pass.
+
+```js
+const band = chs => ({ lo: chs.map(lowEnergy), hi: chs.map(highEnergy) })
+audio.stat('lo', { block: band, reduce: rMean })
+audio.stat('hi', { block: band, reduce: rMean })
+```
+
 `reduce` is `(blockValues, from, to) → number` — it combines the values returned by `block`, enabling `a.stat('mystat')` scalar and `a.stat('mystat', {bins})` binned queries.
 
 `query` adds a derived aggregation: `query(stats, chs, from, to, sr) → value`. Used for stats that derive from other block data (e.g. `db` derives from `min`/`max`, `peak` from `min`/`max`, `rms` from `ms`).

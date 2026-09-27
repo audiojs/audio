@@ -1,5 +1,5 @@
 import audio from '../core.js'
-import { kWeighting } from '@audio/weighting'
+import kWeighting from '@audio/weighting-k'
 
 // ── LUFS measurement ─────────────────────────────────────────
 
@@ -95,16 +95,7 @@ export function lufsDb(stats, chs, sampleRate) {
 export let rMean = (values, from, to) => { let n = to - from; if (!n) return 0; let v = 0; for (let i = from; i < to; i++) v += values[i]; return v / n }
 
 audio.stat('energy', {
-  block: (chs, ctx) => {
-    if (!ctx.k) ctx.k = chs.map(() => ({ fs: ctx.sampleRate }))
-    return chs.map((ch, c) => {
-      let k = new Float32Array(ch)
-      kWeighting(k, ctx.k[c])
-      let sum = 0
-      for (let i = 0; i < k.length; i++) sum += k[i] * k[i]
-      return sum / k.length
-    })
-  },
+  block: (chs, ctx) => kWeighting.ms(chs, ctx.k ??= { fs: ctx.sampleRate }),
   reduce: rMean
 })
 

@@ -3,7 +3,7 @@
  * Self-registers on import — exposes statSession on audio, adds fn.stat.
  */
 
-import audio, { parseTime, LOAD, resolveChannels } from './core.js'
+import audio, { parseTime, LOAD, resolveChannels, yieldTask } from './core.js'
 import { buildPlan, streamPlan, ensurePlan } from './plan.js'
 
 // ── Stat descriptor registry ────────────────────────────────────
@@ -18,24 +18,36 @@ audio.stat = function(name, desc) {
   statDefs[name] = desc
 }
 
+/** A block function's value for one stat: a record { [name]: value } serves several stats from one pass. */
+const blockValue = (v, name) => v !== null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v) ? v[name] : v
+
 /** Create a stat computation session. ch inferred from first .page() call. */
 function statSession(sr) {
   let fns, acc, ch, last = 0, rem = null, remLen = 0
 
   function init(c) {
     ch = c
-    fns = Object.entries(audio.stat())
-      .filter(([_, d]) => d.block)
-      .map(([name, d]) => ({ name, fn: d.block, ctx: { sampleRate: sr } }))
+    // stats sharing one block function are computed by one call per block
+    let groups = new Map()
     acc = Object.create(null)
-    for (let { name } of fns) acc[name] = Array.from({ length: ch }, () => [])
+    for (let [name, d] of Object.entries(audio.stat())) {
+      if (!d.block) continue
+      let g = groups.get(d.block)
+      if (!g) groups.set(d.block, g = { fn: d.block, ctx: { sampleRate: sr }, names: [] })
+      g.names.push(name)
+      acc[name] = Array.from({ length: ch }, () => [])
+    }
+    fns = [...groups.values()]
   }
 
   function processBlock(block) {
-    for (let { name, fn, ctx } of fns) {
-      let v = fn(block, ctx)
-      if (typeof v === 'number') for (let c = 0; c < ch; c++) acc[name][c].push(v)
-      else for (let c = 0; c < ch; c++) acc[name][c].push(v[c])
+    for (let { fn, ctx, names } of fns) {
+      let r = fn(block, ctx)
+      for (let name of names) {
+        let v = blockValue(r, name), a = acc[name]
+        if (typeof v === 'number') for (let c = 0; c < ch; c++) a[c].push(v)
+        else for (let c = 0; c < ch; c++) a[c].push(v[c])
+      }
     }
   }
 
@@ -190,7 +202,7 @@ async function streamStats(s, inst, plan, offset, duration) {
   for (let chunk of streamPlan(inst, plan, offset, duration)) {
     s.page(chunk)
     let now = performance.now()
-    if (now - t > 8) { await new Promise(r => setTimeout(r, 0)); t = performance.now() }
+    if (now - t > 8) { await yieldTask(); t = performance.now() }
   }
 }
 

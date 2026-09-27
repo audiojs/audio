@@ -25,13 +25,25 @@ export function mfcc(samples, sr, opts = {}) {
   for (let i = 0; i < nMel; i++) logMel[i] = Math.log(mag[i] ** 2 + 1e-10)
 
   // DCT-II → cepstral coefficients
-  let out = new Float32Array(bins)
+  let out = new Float32Array(bins), cos = dct(bins, nMel)
   for (let k = 0; k < bins; k++) {
     let sum = 0
-    for (let n = 0; n < nMel; n++) sum += logMel[n] * Math.cos(Math.PI * k * (2 * n + 1) / (2 * nMel))
+    for (let n = 0, o = k * nMel; n < nMel; n++) sum += logMel[n] * cos[o + n]
     out[k] = sum
   }
   return out
+}
+
+/** DCT-II basis cos(πk(2n+1)/2N), bins × nMel, built once per layout. */
+let bases = new Map()
+function dct(bins, nMel) {
+  let key = `${bins} ${nMel}`, cos = bases.get(key)
+  if (!cos) {
+    cos = new Float64Array(bins * nMel)
+    for (let k = 0; k < bins; k++) for (let n = 0; n < nMel; n++) cos[k * nMel + n] = Math.cos(Math.PI * k * (2 * n + 1) / (2 * nMel))
+    bases.set(key, cos)
+  }
+  return cos
 }
 
 // ── Stat registration ───────────────────────────────────────────

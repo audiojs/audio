@@ -7,6 +7,9 @@
 import audio, { resolveChannels as resolveChs } from '../core.js'
 import { melSpectrum } from './spectrum.js'
 
+// A block function's value for one stat: a record { [name]: value } serves several stats (stats.js)
+const blockValue = (v, name) => v !== null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v) ? v[name] : v
+
 /** Compute per-block value of a named stat from raw block stats, honoring channel semantics. */
 function frameValue(name, raw, blockChs, sr, opts) {
   let ch = blockChs.length
@@ -59,10 +62,12 @@ function holdDecay(cur, prev, alpha) {
 
 /** Compute all block-level stat values once per frame. */
 function computeRawBlock(blockChs, sr) {
-  let raw = {}, ch = blockChs.length
+  let raw = {}, ch = blockChs.length, done = new Map()  // stats sharing a block function: one call
   for (let [name, desc] of Object.entries(audio.stat())) {
     if (!desc.block) continue
-    let v = desc.block(blockChs, { sampleRate: sr })
+    let r = done.get(desc.block)
+    if (r === undefined) done.set(desc.block, r = desc.block(blockChs, { sampleRate: sr }))
+    let v = blockValue(r, name)
     raw[name] = typeof v === 'number' ? Array(ch).fill(v) : v
   }
   return raw

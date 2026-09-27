@@ -13,9 +13,9 @@
  * loaded on first use.
  */
 
-import { yin } from '@audio/pitch'
+import yin from '@audio/pitch-yin'
 import { hzToMidi, name as midiToName } from '@audio/note'
-import { hann } from '@audio/window'
+import hann from 'window-function/hann'
 import { analyzeBlocks } from './spectrum.js'
 import audio from '../core.js'
 

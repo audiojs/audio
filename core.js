@@ -242,6 +242,18 @@ audio.PAGE_SIZE = 1024 * audio.BLOCK_SIZE
 export const LOAD = Symbol('load')
 export const READ = Symbol('read')
 
+/** Give the event loop a turn (I/O, timers, rendering) between bursts of work. setTimeout(0)
+ *  waits ≥1 ms in Node and ≥4 ms once nested in a browser; these return as soon as the loop has turned. */
+export const yieldTask =
+  typeof setImmediate === 'function' ? () => new Promise(r => setImmediate(r)) :
+  globalThis.scheduler?.yield ? () => globalThis.scheduler.yield() :
+  typeof MessageChannel === 'function' ? () => new Promise(r => {
+    let mc = new MessageChannel()  // one per turn, closed after: no open port holds a runtime alive
+    mc.port1.onmessage = () => { mc.port1.close(); r() }
+    mc.port2.postMessage(0)
+  }) :
+  () => new Promise(r => setTimeout(r, 0))
+
 /** Resolve a channel option to concrete indices: null → all, n → [n], [..] → per-channel. */
 export function resolveChannels(channel, total) {
   let perCh = Array.isArray(channel)
@@ -919,7 +931,8 @@ async function detectSource(source, signal) {
     let fileSize = (await stat(path)).size
     let { createReadStream } = await import('fs')
     // Start the stream with its consumer attached, even if decoder startup was cancelled.
-    const reader = (async function* () { yield* createReadStream(path, { signal }) })()
+    // Large reads: each is a thread-pool round trip, and waiting on 64 KB ones idled a busy machine for seconds.
+    const reader = (async function* () { yield* createReadStream(path, { signal, highWaterMark: 1 << 20 }) })()
     return { format, reader, fileSize }
   }
   // Blob/File — sniff format from a header slice, stream the body (file input path)
@@ -1096,7 +1109,7 @@ async function decodeSource(source, opts = {}) {
   let t = performance.now()
   let yieldLoop = () => {
     let now = performance.now()
-    if (now - t > 8) { t = now; return new Promise(r => setTimeout(r, 0)) }
+    if (now - t > 8) { t = now; return yieldTask() }
   }
   let firstResolve
   let origNotify = opts.notify
@@ -1128,28 +1141,31 @@ async function decodeSource(source, opts = {}) {
     return headerBytes
   }
 
+  // Bytes reach the decoder in FEED slices, however large the chunks they arrive in: each decode call
+  // stays short enough to yield after (playback, UI), while file reads stay large and few.
+  const FEED = 64 * 1024
+  let feed = async buf => {
+    for (let off = 0; off < buf.length; off += FEED) {
+      if (disposed()) return false
+      let r = await dec(buf.subarray(off, Math.min(off + FEED, buf.length)))
+      if (disposed()) return false
+      if (r.channelData.length) acc.push(r.channelData, r.sampleRate)
+      await yieldLoop()
+    }
+    return true
+  }
+
   let decoding = (async () => {
     try {
       if (reader) {
         for await (let chunk of reader) {
-          if (disposed()) return { stats: null, length: acc.length }
           let buf = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk)
           addHeader(buf)
-          let r = await dec(buf)
-          if (disposed()) return { stats: null, length: acc.length }
-          if (r.channelData.length) acc.push(r.channelData, r.sampleRate)
-          await yieldLoop()
+          if (!await feed(buf)) return { stats: null, length: acc.length }
         }
       } else {
         addHeader(bytes)
-        let FEED = 64 * 1024
-        for (let off = 0; off < bytes.length; off += FEED) {
-          if (disposed()) return { stats: null, length: acc.length }
-          let r = await dec(bytes.subarray(off, Math.min(off + FEED, bytes.length)))
-          if (disposed()) return { stats: null, length: acc.length }
-          if (r.channelData.length) acc.push(r.channelData, r.sampleRate)
-          await yieldLoop()
-        }
+        if (!await feed(bytes)) return { stats: null, length: acc.length }
       }
       if (disposed()) return { stats: null, length: acc.length }
       let flushed = await dec()

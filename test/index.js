@@ -294,6 +294,29 @@ test('audio.stat — custom field', async t => {
   t.is(stereo.stats._testCorr[0][0], stereo.stats._testCorr[1][0], 'same value both channels')
 })
 
+test('audio.stat – one block function serves several stats (record)', async t => {
+  let calls = 0
+  const ends = chs => { calls++; return { _first: chs.map(ch => ch[0]), _last: chs.map(ch => ch[ch.length - 1]) } }
+  audio.stat('_first', { block: ends })
+  audio.stat('_last', { block: ends })
+  audio.stat('_count', { block: chs => ({ _count: chs.map(ch => ch.length) }) })
+  try {
+    let ch = new Float32Array(BLOCK_SIZE * 3).map((_, i) => i / 10000)
+    let a = audio.from([ch, ch.map(v => -v)])
+    t.is(calls, 3, 'one call per block serves both stats')
+    t.is([a.stats._first[0][1], a.stats._last[0][1], a.stats._first[1][2]], [ch[BLOCK_SIZE], ch[2 * BLOCK_SIZE - 1], -ch[2 * BLOCK_SIZE]], 'each stat stores its own field, per channel')
+    t.is(a.stats._count[1][2], BLOCK_SIZE, 'a record from a block function of its own')
+  } finally { delete audio.stat()._first; delete audio.stat()._last; delete audio.stat()._count }
+})
+
+test('stat – block stats at the edges: ±1 and beyond clip, NaN counts for nothing', async t => {
+  let ch = new Float32Array(BLOCK_SIZE)
+  ch.set([1, -1, 1.5, -1.5, 0.9999999, -0.9999999, NaN, Infinity])
+  let a = audio.from([ch])
+  t.is(a.stats.clipping[0][0], 5, '±1, ±1.5 and ∞ clip; just under 1 and NaN do not')
+  t.is([a.stats.min[0][0], a.stats.max[0][0]], [-1.5, Infinity], 'extremes skip NaN')
+})
+
 test('index — block structure', async t => {
   let a = audio.from([new Float32Array(PAGE_SIZE * 2)])
   t.is(a.stats.blockSize, BLOCK_SIZE, 'blockSize = 1024')
@@ -2992,6 +3015,34 @@ test('encode — format is case-insensitive', async t => {
   t.ok(bytes2.length > 100, 'Mp3 (mixed-case) encodes')
 })
 
+// save renders in bursts of 2^17 frames, each encoded and written as one chunk: lengths inside, at and across a
+// burst must come back sample-exact (float WAV is lossless)
+test('save – lengths at and across a burst decode sample-exact', { skip: !isNode }, async t => {
+  let { tmpdir } = await import('os'), { join } = await import('path'), fs = await import('fs')
+  for (let n of [1, 131071, 131072, 131073, 262151]) {
+    let L = Float32Array.from({ length: n }, (_, i) => Math.sin(i * 0.01) * 0.5), R = L.map(v => -v)
+    let path = join(tmpdir(), `test-burst-${n}-${Date.now()}.wav`)
+    await audio.from([L, R], { sampleRate: 44100 }).save(path, { bitDepth: 32 })
+    let pcm = await (await audio(path)).read()
+    fs.unlinkSync(path)
+    t.ok(pcm[0].length === n && pcm[0].every((v, i) => v === L[i]) && pcm[1].every((v, i) => v === R[i]), `${n} frames`)
+  }
+})
+
+// A file is read in 1 MB chunks and fed to the decoder in 64 KB slices; 24-bit stereo frames (6 bytes) split across both
+test('decode – a file read in chunks decodes the same as its bytes, frames split across reads', { skip: !isNode }, async t => {
+  let { tmpdir } = await import('os'), { join } = await import('path'), fs = await import('fs')
+  let n = 44100 * 10, L = Float32Array.from({ length: n }, (_, i) => Math.sin(i * 0.013) * 0.7), R = L.map((v, i) => Math.cos(i * 0.007) * 0.4)
+  let path = join(tmpdir(), `test-chunks-${Date.now()}.wav`)
+  await audio.from([L, R], { sampleRate: 44100 }).save(path, { bitDepth: 24 })
+  let bytes = fs.readFileSync(path)
+  let a = await (await audio(path)).read(), b = await (await audio(bytes)).read()
+  fs.unlinkSync(path)
+  t.ok(bytes.length > 2 * (1 << 20), `${(bytes.length / (1 << 20)).toFixed(1)} MB: several reads`)
+  t.ok(a[0].length === n && a.every((ch, c) => ch.every((v, i) => v === b[c][i])), 'path ≡ bytes, sample for sample')
+  t.ok(a[0].every((v, i) => Math.abs(v - L[i]) < 2 ** -22), 'within 24-bit quantization of the source')
+})
+
 test('save — progress event fires during encode', { skip: !isNode }, async t => {
   let a = audio.from([new Float32Array(44100 * 3).fill(0.5)], { sampleRate: 44100 })
   let { tmpdir } = await import('os')
@@ -5311,6 +5362,20 @@ test('resample — stereo', async t => {
   a.resample(22050)
   t.is(a.channels, 2, 'stereo preserved')
   t.is(a.sampleRate, 22050, 'target rate')
+})
+
+// Downsampling widens the sinc kernel; its Lanczos window must span the widened support, or the truncated
+// kernel ripples in the passband (a 1 kHz tone came out of 2:1 only 33 dB clean).
+test('resample – sinc downsampling keeps a tone clean', async t => {
+  let snr = async (from, to, f) => {
+    let a = audio.from([new Float32Array(from).map((_, i) => 0.5 * Math.sin(2 * Math.PI * f * i / from))], { sampleRate: from })
+    let y = (await a.resample(to).read())[0], s = 0, e = 0
+    for (let i = Math.round(to * 0.1); i < Math.round(to * 0.9); i++) { let r = 0.5 * Math.sin(2 * Math.PI * f * i / to); s += r * r; e += (y[i] - r) ** 2 }
+    return 10 * Math.log10(s / e)
+  }
+  let half = await snr(44100, 22050, 1000), cd = await snr(48000, 44100, 1000)
+  t.ok(half > 70, `44.1k→22.05k, 1 kHz: ${half.toFixed(1)} dB`)
+  t.ok(cd > 60, `48k→44.1k, 1 kHz: ${cd.toFixed(1)} dB`)
 })
 
 test('resample — non-destructive (undoable)', async t => {

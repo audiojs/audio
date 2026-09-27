@@ -1,5 +1,7 @@
-import { highpass as hpFilter, lowpass as lpFilter, bandpass as bpFilter, notch as notchFilter, allpass } from '@audio/filter'
-import { lowShelf as lsFilter, highShelf as hsFilter, parametricEq } from '@audio/eq'
+import { highpass as hpFilter, lowpass as lpFilter, bandpass as bpFilter, notch as notchFilter, allpass } from '@audio/filter-biquad'
+import lsFilter from '@audio/eq-lowshelf'
+import hsFilter from '@audio/eq-highshelf'
+import parametricEq from '@audio/eq-parametric'
 import { highpass as hpCoefs, lowpass as lpCoefs } from '@audio/biquad'
 const apFilter = allpass.second
 

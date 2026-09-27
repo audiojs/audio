@@ -20,7 +20,7 @@
 
 import { seg, subSeg, spliceSegs, planOffset, isCurve, curveFn } from '../plan.js'
 import audio from '../core.js'
-import { pvocLock } from '@audio/stretch'
+import pvocLock from '@audio/stretch-pvoc-lock'
 
 // pvocLock stretches time by r and keeps pitch, with a phase-locked vocoder (Laroche & Dolson 1999,
 // @audio/stretch-pvoc-lock); a fractional cursor then resamples that stream at rate r — one advance of r per
@@ -91,36 +91,39 @@ function processChannel(s, input, output, a0, a1) {
   // the CONTENT under the cursor — the ring lags the writer, so keying by wall
   // time would detune by f′·lag. The map converts ring position (vocoder-output
   // samples) → quantum, replaying exactly the spans the segments produced.
-  let map = s.map, r = s.ratio, fade = s.fade
+  // per-sample state in locals, written back after the loop
+  let map = s.map, r = s.ratio, fade = s.fade, ring = s.ring, ringStart = s.ringStart, ringLen = s.ringLen
+  let readPos = s.readPos, fed = s.fed, j = s.j, delay = s.delay, dp = s.dp
   for (let i = 0; i < len; i++) {
     let wet = 0
     if (i >= f0 && i < f1) {
-      let p = s.readPos
+      let p = readPos
       if (map) {
-        while (s.j + 1 < map.sv.length && p >= map.sv[s.j + 1]) s.j++
-        r = map.kf[s.j]
+        while (j + 1 < map.sv.length && p >= map.sv[j + 1]) j++
+        r = map.kf[j]
       }
       // 4-point cubic (Catmull-Rom): the cursor upsamples by 1/r, and linear interpolation's corners image there.
-      let idx = Math.floor(p) - s.ringStart, ring = s.ring
-      if (idx >= 0 && idx + 1 < s.ringLen) {
-        let x0 = ring[idx], x1 = ring[idx + 1], xm = idx > 0 ? ring[idx - 1] : x0, x2 = idx + 2 < s.ringLen ? ring[idx + 2] : x1, f = p - Math.floor(p)
+      let fl = Math.floor(p), idx = fl - ringStart
+      if (idx >= 0 && idx + 1 < ringLen) {
+        let x0 = ring[idx], x1 = ring[idx + 1], xm = idx > 0 ? ring[idx - 1] : x0, x2 = idx + 2 < ringLen ? ring[idx + 2] : x1, f = p - fl
         wet = x0 + .5 * f * (x1 - xm + f * (2 * xm - 5 * x0 + 4 * x1 - x2 + f * (3 * (x0 - x1) + x2 - xm)))
       }
-      s.readPos += r
-      s.fed++
+      readPos += r
+      fed++
     }
     let dry = 0
     if (!whole) {
-      dry = s.delay[s.dp]
-      s.delay[s.dp] = input[i]
-      s.dp = s.dp + 1 === lat ? 0 : s.dp + 1
+      dry = delay[dp]
+      delay[dp] = input[i]
+      dp = dp + 1 === lat ? 0 : dp + 1
     }
     // The sample leaving now entered `lat` samples ago (position q): from the range, it is the vocoder's,
     // ramped in over its first `fade` samples and out over its last.
     let q = i - lat, w = 0
-    if (q >= a0 && q < a1) w = Math.max(0, Math.min(1, (s.fed - lat) / fade, (a1 - q) / fade))
+    if (q >= a0 && q < a1) w = Math.max(0, Math.min(1, (fed - lat) / fade, (a1 - q) / fade))
     output[i] = w === 1 ? wet : w === 0 ? dry : dry + (wet - dry) * (.5 - .5 * Math.cos(Math.PI * w))
   }
+  s.readPos = readPos; s.fed = fed; s.dp = dp; s.j = j
 
   let drop = Math.floor(s.readPos) - 1 - s.ringStart
   if (drop > 0 && drop < s.ringLen) {

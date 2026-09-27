@@ -1,4 +1,4 @@
-import audio, { emit, parseTime, fromEnd, LOAD } from '../core.js'
+import audio, { emit, parseTime, fromEnd, LOAD, yieldTask } from '../core.js'
 import { buildPlan, streamPlan, ensurePlan, loadRefs } from '../plan.js'
 import encode from '@audio/encode'
 
@@ -126,7 +126,7 @@ async function encodeStream(inst, fmt, opts, sink, stream) {
       if (buf.length) await sink(buf)
       written += chunk[0].length
       let now = performance.now()
-      if (now - t > 8) { await new Promise(r => setTimeout(r, 0)); t = performance.now() }
+      if (now - t > 8) { await yieldTask(); t = performance.now() }
       emit(inst, 'progress', { offset: written / inst.sampleRate, total })
     }
     if (!written) throw new Error('encode: nothing to encode — source ended empty')
@@ -134,23 +134,25 @@ async function encodeStream(inst, fmt, opts, sink, stream) {
     // Decoded source: drive the DSP through the synchronous plan generator in bursts,
     // crossing an `await` only for I/O between bursts. Identical output to read() (one
     // continuous pass, no seam re-warm), but the hot loop stays hot enough to optimize.
+    // A burst gathers into fresh buffers (streamPlan reuses its own; an encoder may keep
+    // what it is handed), then encodes and writes as one chunk.
     total ??= inst.duration
     await ensurePlan(inst, plan, offset, duration)
-    let sr = inst.sampleRate, written = 0, batch = [], batchLen = 0
+    let sr = inst.sampleRate, written = 0, batch = null, n = 0
     let drain = async () => {
-      for (let chunk of batch) {
-        let buf = await enc(chunk)
-        if (buf.length) await sink(buf)
-        written += chunk[0].length
-        emit(inst, 'progress', { offset: written / sr, total })
-      }
-      batch = []; batchLen = 0
+      let buf = await enc(n < batch[0].length ? batch.map(c => c.subarray(0, n)) : batch)
+      if (buf.length) await sink(buf)
+      written += n; batch = null; n = 0
+      emit(inst, 'progress', { offset: written / sr, total })
     }
     for (let chunk of streamPlan(inst, plan, offset, duration)) {
-      batch.push(chunk.map(c => c.slice())); batchLen += chunk[0].length  // copy: streamPlan reuses buffers
-      if (batchLen >= ENCODE_BATCH) await drain()
+      let len = chunk[0].length
+      if (batch && n + len > batch[0].length) await drain()
+      batch ??= chunk.map(() => new Float32Array(Math.max(ENCODE_BATCH, len)))
+      for (let c = 0; c < chunk.length; c++) batch[c].set(chunk[c], n)
+      n += len
     }
-    if (batchLen) await drain()
+    if (n) await drain()
   }
 
   let final = await enc()
@@ -185,7 +187,8 @@ audio.fn.save = async function(target, opts = {}) {
   let write, finish
   if (typeof target === 'string') {
     let { createWriteStream } = await import('fs')
-    let ws = createWriteStream(target)
+    // a burst's worth of chunks queue without waiting on the disk: rendering overlaps the writes
+    let ws = createWriteStream(target, { highWaterMark: 1 << 22 })
     let err = null
     // Attached at creation, not inside finish() — an 'error' event with no listener crashes the process
     ws.on('error', e => { err = e })
