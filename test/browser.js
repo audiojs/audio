@@ -1,5 +1,6 @@
 /**
  * Browser test runner — builds bundle, starts server, launches headless Chromium via Playwright, captures tst output.
+ * `--serve` (npm run test:browser -- --serve): keep the test page up to run and debug in a real browser instead.
  */
 import { createServer } from 'http'
 import { readFile } from 'fs/promises'
@@ -35,6 +36,11 @@ let server = createServer(async (req, res) => {
 
 await new Promise(r => server.listen(0, r))
 let port = server.address().port
+
+if (process.argv.includes('--serve')) {
+  console.log(`Browser tests: http://localhost:${port} (Ctrl-C stops)`)
+  await new Promise(() => {})
+}
 
 let browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] })
 let page = await browser.newPage()
