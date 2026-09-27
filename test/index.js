@@ -5382,6 +5382,28 @@ test('resample – sinc downsampling keeps a tone clean', async t => {
   t.ok(cd > 60, `48k→44.1k, 1 kHz: ${cd.toFixed(1)} dB`)
 })
 
+// Downsampling keeps the lowpass's 16 zero crossings each side at the new Nyquist, its taps widening with the ratio
+// (J. O. Smith, Digital Audio Resampling, ccrma.stanford.edu/~jos/resample): one response at 2:1, 3:1 and past the
+// 64-tap cap (96k→22.05k). Bounds sit a few dB inside the measured 0.10 dB, -38.6 dB and -62 dB.
+test('resample – sinc downsampling: flat to 0.9 of the new Nyquist, aliases down, alike at 2:1, 3:1 and 4.35:1', async t => {
+  let out = async (from, to, f) => (await audio.from([new Float32Array(1 << 15).map((_, i) => Math.sin(2 * Math.PI * f * i / from))], { sampleRate: from }).resample(to).read())[0]
+  // the sine at f in y over its middle half, least squares, in dB against the unit input
+  let level = (y, f, sr) => {
+    let n0 = y.length >> 2, w = 2 * Math.PI * f / sr, ss = 0, cc = 0, sc = 0, ys = 0, yc = 0
+    for (let i = n0; i < 3 * n0; i++) { let s = Math.sin(w * i), c = Math.cos(w * i); ss += s * s; cc += c * c; sc += s * c; ys += y[i] * s; yc += y[i] * c }
+    let d = ss * cc - sc * sc
+    return 20 * Math.log10(Math.hypot((ys * cc - yc * sc) / d, (yc * ss - ys * sc) / d))
+  }
+  let rmsDb = y => { let n0 = y.length >> 2, s = 0; for (let i = n0; i < 3 * n0; i++) s += y[i] * y[i]; return 10 * Math.log10(s / (2 * n0) / 0.5) }
+  for (let [from, to] of [[44100, 22050], [48000, 16000], [96000, 22050]]) {
+    let nyq = to / 2, pass = level(await out(from, to, 0.9 * nyq), 0.9 * nyq, to)
+    let near = rmsDb(await out(from, to, 1.1 * nyq)), far = rmsDb(await out(from, to, 1.36 * nyq))
+    t.ok(Math.abs(pass) < 0.2, `${from}→${to}: 0.9 Nyquist at ${pass.toFixed(2)} dB`)
+    t.ok(near < -35, `${from}→${to}: 1.1× Nyquist aliases at ${near.toFixed(1)} dB`)
+    t.ok(far < -58, `${from}→${to}: 1.36× Nyquist aliases at ${far.toFixed(1)} dB`)
+  }
+})
+
 test('resample — non-destructive (undoable)', async t => {
   let a = audio.from([tone(440, 0.5)], { sampleRate: 44100 })
   a.resample(22050)

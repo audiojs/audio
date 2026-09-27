@@ -3,7 +3,7 @@
  *
  * a.resample(48000)                 → linear interpolation (default, fast)
  * a.resample(22050)                 → downsample with anti-alias sinc
- * a.resample(48000, {type:'sinc'})  → 32-tap windowed-sinc (Lanczos, polyphase table), high quality
+ * a.resample(48000, {type:'sinc'})  → windowed-sinc (Lanczos, 16 zero crossings each side, polyphase table), high quality
  *
  * Structural op: changes segment rates + updates effective sampleRate.
  *
@@ -18,28 +18,33 @@
 import { seg } from '../plan.js'
 import audio from '../core.js'
 
-// ── Sinc interpolator (Lanczos-windowed, 32 taps) ──────────────────────
+// ── Sinc interpolator (Lanczos-windowed) ───────────────────────────────
 
-const SINC_HALF = 16, TAPS = 2 * SINC_HALF
+// SINC_HALF zero crossings of the lowpass each side: 32 taps at or above the source rate. Downsampling stretches
+// the kernel by 1/scale to cut at the new Nyquist and widens the taps with it, so the lowpass keeps its zero
+// crossings, and with them its transition band and stopband, up to MAX_HALF taps each side (margin: the context
+// plan.js reads around each block).
+const SINC_HALF = 16, MAX_HALF = 64
 const sinc = x => x === 0 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x)
-// Lanczos window over the kernel's actual support: SINC_HALF taps each side span |x| ≤ SINC_HALF·scale
-const lanczos = (x, scale) => sinc(x) * sinc(x / (SINC_HALF * scale))
+// Lanczos: the sinc under the central lobe of one `a` times wider, zero at the support's ends (±a zero crossings)
+const lanczos = (x, a) => sinc(x) * sinc(x / a)
 
-// The kernel tabulated at PHASES fractional offsets (+1 row to close the interval) with each row's sum for DC
-// normalization; a sample between two rows blends their dot products linearly. ~150 dB SNR against evaluating
-// sin per tap, which cost 64 sin calls per output sample.
+// The kernel tabulated at fractional offsets (+1 row to close the interval) with each row's sum for DC
+// normalization; a sample between two rows blends their dot products linearly. PHASES rows at the source rate,
+// scale times as many for a stretched kernel, as much smoother: ~150 dB SNR against evaluating sin per tap.
 const PHASES = 2048
 let banks = new Map()
 function bank(scale) {
   let b = banks.get(scale)
   if (b) return b
-  let T = new Float64Array((PHASES + 1) * TAPS), W = new Float64Array(PHASES + 1)
-  for (let p = 0; p <= PHASES; p++) {
+  let half = Math.min(MAX_HALF, Math.ceil(SINC_HALF / scale - 1e-9)), taps = 2 * half, a = half * scale
+  let P = Math.ceil(PHASES * scale), T = new Float64Array((P + 1) * taps), W = new Float64Array(P + 1)
+  for (let p = 0; p <= P; p++) {
     let w = 0
-    for (let j = 0; j < TAPS; j++) w += T[p * TAPS + j] = lanczos((j + 1 - SINC_HALF - p / PHASES) * scale, scale)
+    for (let j = 0; j < taps; j++) w += T[p * taps + j] = lanczos((j + 1 - half - p / P) * scale, a)
     W[p] = w
   }
-  banks.set(scale, b = { T, W })
+  banks.set(scale, b = { T, W, P, half, taps, a })
   return b
 }
 
@@ -47,13 +52,13 @@ function bank(scale) {
 function sincInterp(src, target, tOff, n, rate, phase = 0) {
   let absR = Math.abs(rate), rev = rate < 0
   let scale = absR > 1 ? 1 / absR : 1  // widen kernel for downsample (anti-alias)
-  let { T, W } = bank(scale), len = src.length
+  let k = bank(scale), { T, W, P, half, taps } = k, len = src.length
   for (let i = 0; i < n; i++) {
     let pos = (rev ? n - 1 - i : i) * absR + phase
-    let base = Math.floor(pos), f = (pos - base) * PHASES, p = Math.floor(f), mu = f - p, s0 = base + 1 - SINC_HALF
-    if (s0 < 0 || s0 + TAPS > len) { target[tOff + i] = edge(src, base, pos - base, scale); continue }
-    let r0 = p * TAPS, r1 = r0 + TAPS, a0 = 0, a1 = 0, b0 = 0, b1 = 0
-    for (let j = 0; j < TAPS; j += 2) {
+    let base = Math.floor(pos), f = (pos - base) * P, p = Math.floor(f), mu = f - p, s0 = base + 1 - half
+    if (s0 < 0 || s0 + taps > len) { target[tOff + i] = edge(src, base, pos - base, scale, k); continue }
+    let r0 = p * taps, r1 = r0 + taps, a0 = 0, a1 = 0, b0 = 0, b1 = 0
+    for (let j = 0; j < taps; j += 2) {
       let x = src[s0 + j], y = src[s0 + j + 1]
       a0 += T[r0 + j] * x; a1 += T[r0 + j + 1] * y
       b0 += T[r1 + j] * x; b1 += T[r1 + j + 1] * y
@@ -62,15 +67,15 @@ function sincInterp(src, target, tOff, n, rate, phase = 0) {
     target[tOff + i] = w !== 0 ? (a + mu * (b0 + b1 - a)) / w : 0
   }
 }
-sincInterp.margin = SINC_HALF
+sincInterp.margin = MAX_HALF
 
 /** One sample whose taps reach past the buffer: the taps inside, evaluated exactly, renormalized. */
-function edge(src, base, frac, scale) {
+function edge(src, base, frac, scale, { half, a }) {
   let sum = 0, w = 0
-  for (let t = 1 - SINC_HALF; t <= SINC_HALF; t++) {
+  for (let t = 1 - half; t <= half; t++) {
     let idx = base + t
     if (idx < 0 || idx >= src.length) continue
-    let k = lanczos((t - frac) * scale, scale)
+    let k = lanczos((t - frac) * scale, a)
     sum += src[idx] * k; w += k
   }
   return w !== 0 ? sum / w : 0

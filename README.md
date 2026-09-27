@@ -310,7 +310,7 @@ a.filter(customFn, { cutoff: 2000 })      // custom filter function
 | `.vocals(mode?)` | mid/side: `'isolate'` (default) keeps center, `'remove'` keeps sides.<br><sub>≡ SoX `oops`</sub> |
 | `.dither(bits?, {shape?})` | TPDF, default 16-bit. `shape: true` adds 2nd-order noise shaping: quantization noise moves above ~Nyquist/2, audibly quieter. |
 | `.crossfeed(freq?, level?)` | headphone crossfeed, default 700 Hz, 0.3.<br><sub>≡ SoX `earwax`, bs2b</sub> |
-| `.resample(rate, {type?})` | upsampling defaults to linear, downsampling to anti-aliased 32-tap windowed sinc. `type: 'sinc'` or `'linear'` forces one. |
+| `.resample(rate, {type?})` | upsampling defaults to linear, downsampling to anti-aliased windowed sinc, its taps widening with the ratio. `type: 'sinc'` or `'linear'` forces one. |
 | `.crossover(...freqs)` | N split frequencies → N+1 bands × channels, band-major. Linkwitz-Riley 4th order; bands sum back flat.<br><sub>≡ FFmpeg `acrossover`</sub> |
 | `.match(ref, amount?)` | match EQ: up to 8 parametric bands fit to the reference/source spectrum ratio. Tone only; loudness stays with `normalize`. Streams `{lookahead}` s behind (10), refitting as it hears more.<br><sub>≡ iZotope Ozone Match EQ</sub> |
 | `.spectral(band?, gain?, {at, duration})` | gain on a time × frequency region, `band` = `[lo, hi]` Hz; default removes it.<br><sub>≡ Audacity spectral edit, FFmpeg `afftfilt`</sub> |
