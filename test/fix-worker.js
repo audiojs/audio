@@ -301,19 +301,22 @@ test('worker: live playbackRate — varispeed pump, source-time currentTime', as
   w.on('ratechange', () => { rc = true })
   w.volume = 0
 
-  let t0 = performance.now()
+  // play() resolves on the first block out: clocks start there, opening the device is not the rate
+  let ended = new Promise(r => w.on('ended', r))
   await w.play({ rate: 4 })
-  await new Promise(r => w.on('ended', r))
+  let t0 = performance.now()
+  await ended
   let wall = (performance.now() - t0) / 1000
   t.ok(wall < 0.6, `rate 4: 1s source in ${wall.toFixed(2)}s wall`)
   t.ok(rc, 'ratechange emitted')
   t.ok(Math.abs(w.currentTime - 1) < 0.05, `currentTime in source seconds (${w.currentTime.toFixed(2)})`)
 
   w.playbackRate = 1
-  t0 = performance.now()
+  ended = new Promise(r => w.on('ended', r))
   await w.play({ at: 0 })
+  t0 = performance.now()
   setTimeout(() => { w.playbackRate = 4 }, 200)
-  await new Promise(r => w.on('ended', r))
+  await ended
   wall = (performance.now() - t0) / 1000
   t.ok(wall < 0.75, `live ramp 1→4 mid-play: ${wall.toFixed(2)}s wall (expect ≈0.4)`)
   await w.dispose()
