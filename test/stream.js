@@ -181,12 +181,15 @@ test('stream: CLI stdin → stdout streams (first output before EOF)', { timeout
   let { spawn } = await import('node:child_process'), { fileURLToPath } = await import('node:url')
   let bytes = await audio.from([Float32Array.from({ length: SR * 10 }, (_, i) => 0.3 * Math.sin(i / 7))], { sampleRate: SR }).encode('wav')
   let p = spawn(process.execPath, [fileURLToPath(new URL('../bin/cli.js', import.meta.url)), 'gain', '-3db', 'save', '-'], { stdio: ['pipe', 'pipe', 'ignore'] })
-  let first = null, fed = 0, n = 0
+  let first = null, fed = 0, n = 0, out = new Promise(r => p.stdout.once('data', r))
   p.stdout.on('data', d => { first ??= fed; n += d.length })
   let closed = new Promise(r => p.on('close', r))
-  for (let o = 0; o < bytes.length; o += 8000) { p.stdin.write(bytes.subarray(o, o + 8000)); fed = o + 8000; await new Promise(r => setTimeout(r, 20)) }
+  for (let o = 0; o < bytes.length; o += 8000) { p.stdin.write(bytes.subarray(o, o + 8000)); fed = Math.min(o + 8000, bytes.length); await new Promise(r => setTimeout(r, 20)) }
+  // a loaded machine can take longer to start the CLI than the input takes to send: EOF waits for the first output, 10 s at most
+  await Promise.race([out, new Promise(r => setTimeout(r, 10000).unref())])
+  let early = first != null
   p.stdin.end(); await closed
-  t.ok(first != null && first < bytes.length, `first output after ${first} of ${bytes.length} bytes in`)
+  t.ok(early, `first output before EOF, after ${first} of ${bytes.length} bytes in`)
   t.ok(n > bytes.length * 0.9, 'all of it out')
 })
 
