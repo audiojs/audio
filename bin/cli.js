@@ -1624,6 +1624,8 @@ export { parseValue, parseRange, parseArgs, showOpHelp, HELP, progressBar, fmtTi
 let argv1 = process.argv[1]
 try { argv1 = (await import('fs')).realpathSync(argv1) } catch {}
 if (import.meta.url === `file://${argv1}`) {
+  // On macOS a pipe takes stdout and stderr asynchronously: blocking writes keep process.exit() from cutting output short
+  for (let s of [process.stdout, process.stderr]) s._handle?.setBlocking?.(true)
   main().catch(err => {
     console.error(`audio: ${formatError(err)}`)
     process.exit(1)
