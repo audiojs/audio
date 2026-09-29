@@ -1,0 +1,96 @@
+/* Hallmark · component: processing chain · genre: modern-minimal · theme: existing Quiet tokens
+ * Existing player supplies playback, focus, disabled, loading, error and recovery states.
+ * Pre-emit critique: Philosophy 5 · Hierarchy 4 · Execution 4 · Specificity 5 · Restraint 5 · Variety 4
+ * Verified: existing contrast tokens, keyboard focus, one-row scrolling, connected menus, live edits and drag lifecycle. */
+.workshop-head, .workshop-main { max-width: 1216px; margin-inline: auto; padding-inline: 24px; }
+.workshop-head { min-height: 96px; display: flex; justify-content: space-between; align-items: center; }
+.workshop-head > a, .workshop-intro { background: var(--color-paper); box-shadow: 0 0 0 8px var(--color-paper); }
+.workshop-main { padding-bottom: 64px; }
+.workshop-intro { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-block: 40px 32px; }
+.workshop-intro h1 { font-size: clamp(30px, 4vw, 44px); line-height: 1.1; letter-spacing: -.045em; }
+.workshop-controls { display: flex; flex-wrap: wrap; justify-content: end; gap: 8px 32px; font: 12px var(--font-mono); }
+.workshop-controls fieldset { display: flex; flex-wrap: wrap; gap: 0 16px; margin: 0; padding: 0; border: 0; }
+.workshop-controls legend { padding: 0; margin-bottom: 6px; color: var(--color-muted); }
+.workshop-controls :is(label, p) { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; margin: 0; white-space: nowrap; }
+.workshop-controls label { cursor: pointer; }
+.workshop-controls input { accent-color: var(--color-ink); }
+.workshop-controls input[type="range"] { width: 96px; }
+.workshop-controls input:focus-visible { outline: 2px solid var(--color-ink); outline-offset: 4px; }
+/* Readouts hold the width of their longest value, so dragging a slider never shifts the row. */
+.workshop-controls output { width: 5ch; flex: none; text-align: end; color: var(--color-muted); font-variant-numeric: tabular-nums; }
+.workshop-controls output[name="waist"] { width: 7ch; }
+/* A preview is always its chosen width, the player plus the iframe's 24px margins: columns drop out rather than
+   shrink it, which would switch the player to its narrow layout. */
+.workshop { --player: 560px; }
+.workshop[data-width="narrow"] { --player: 368px; }
+.workshop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(var(--player), 100%), 1fr)); gap: 40px 16px; align-items: start; }
+.variant { min-width: 0; }
+.variant-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 14px 24px 0; border-top: 1px solid var(--color-rule); background: var(--color-paper); }
+.variant-heading h2 { font: 500 15px var(--font-body); letter-spacing: -.015em; }
+.variant-player { position: relative; width: min(var(--player), 100%); margin-inline: auto; }
+/* Cast the original shadow outside the iframe so its viewport cannot crop it. */
+.variant-player::before { content: ''; position: absolute; inset: 24px 24px auto; height: var(--player-height, 0px); border-radius: var(--radius-slab); box-shadow: var(--shadow-long); pointer-events: none; }
+.variant iframe { position: relative; display: block; width: 100%; height: 500px; border: 0; color-scheme: light; }
+#workshop-status { margin: 24px; color: var(--color-muted); }
+#workshop-status:empty { display: none; }
+@media (max-width: 760px) {
+  .workshop-head, .workshop-main { padding-inline: 16px; }
+  .workshop-intro { align-items: start; flex-direction: column; gap: 20px; margin-top: 24px; }
+  .workshop-controls { justify-content: start; }
+  .workshop-grid { gap: 32px; }
+  .variant-heading { padding-inline: 16px; }
+}
+
+/* These overrides apply only inside the workshop's isolated copies of index.html. */
+html.workshop-preview { overflow: clip; }
+.workshop-preview body { min-height: 0; padding: 24px 24px 56px; overflow: clip; background: var(--color-transparent); }
+.workshop-preview :is(.skip, .header, .intro, .code-section, .ecosystem, .footer) { display: none; }
+.workshop-preview .hero { display: block; width: 100%; margin: 0; padding: 0; }
+.workshop-preview .demo { width: 100%; margin: 0; translate: none; box-shadow: inset 0 1px 0 var(--color-screen-rule), 0 0 0 1px var(--color-bezel); }
+@media (min-width: 500px) {
+  .workshop-preview .demo { --demo-x: 24px; --demo-bottom: 16px; padding-top: 20px; }
+}
+
+/* Chain beads: each chain pill draws its halves of the necks in the resting fill and its own body over them in the
+   fill of its state, so hover, press and open light the pill alone. File pills take the same fills without necks. */
+.workshop-preview[data-chain] { --bead-rest: var(--color-screen-pill); --bead-hover: var(--color-screen-pill-hover); --bead-open: var(--color-screen-raised); --bead-lift: var(--color-screen-pill-active); }
+.workshop-preview[data-chain="light"] { --bead-rest: oklch(82% 0 0); --bead-hover: oklch(90% 0 0); --bead-open: var(--color-screen-bright); --bead-lift: var(--color-screen-bright); }
+/* Black keeps the divider's edge: the slab darkens toward the bottom, where a bare black bead would sink into it. */
+.workshop-preview[data-chain="black"] { --bead-rest: oklch(0% 0 0); --bead-hover: var(--color-screen-pill-active); --bead-open: var(--color-screen-pill-active); --bead-edge: var(--color-screen-rule); }
+.workshop-preview[data-chain="outline"] { --bead-edge: var(--color-screen-dim); }
+.workshop-preview[data-chain] .pill { --bead: var(--bead-rest); border-color: var(--bead-edge, var(--bead)); background-color: var(--bead); }
+@media (hover: hover) {
+  .workshop-preview[data-chain] .pill:hover:not(:disabled, .open) { --bead: var(--bead-hover); }
+}
+.workshop-preview[data-chain] .pill:active:not(:disabled), .workshop-preview[data-chain] .pill.open { --bead: var(--bead-open); }
+.workshop-preview[data-chain] .pill.dragged { --bead: var(--bead-lift); box-shadow: none; filter: var(--filter-menu); }
+.workshop-preview[data-chain="light"] .pill { color: var(--color-screen-low); }
+.workshop-preview[data-chain="light"] .pill :is(.pill-value, svg) { color: oklch(40% 0 0); }
+/* One row that scrolls sideways. Its padding keeps focus rings and the 44px press area inside the scroller;
+   margins give that room back, and the divider is drawn inset to the original line. */
+.workshop-preview[data-chain] .chain { flex-wrap: nowrap; column-gap: var(--bead-gap); overflow-x: auto; scrollbar-width: none; scroll-padding-inline: 4px; margin-inline: -4px; margin-bottom: -7px; padding: 17px 4px 7px; border-top: 0; background: linear-gradient(var(--color-screen-rule) 0 0) 4px 0 / calc(100% - 8px) 1px no-repeat; }
+.workshop-preview[data-chain] .chain::-webkit-scrollbar { display: none; }
+.workshop-preview[data-chain] .chain .link { flex: none; max-width: none; margin-left: 0; }
+.workshop-preview[data-chain] .chain .joint { display: none; }
+/* The bead is an svg child, not an icon: keep the gap .pill:has(> svg) tightens. */
+.workshop-preview[data-chain] :is(.chain .pill, .pill.dragged) { isolation: isolate; gap: 10px; border: 0; padding-inline: 13px; background: none; }
+.workshop-preview .pill > .bead { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.workshop-preview .bead-neck { fill: var(--bead-rest); }
+.workshop-preview .bead-body { fill: var(--bead); transition: fill var(--dur-micro) var(--ease-out); }
+.workshop-preview .bead-edge { fill: none; stroke: var(--bead-edge, none); stroke-width: 1; }
+.workshop-preview .step-label, .workshop-preview .step-label > span { display: contents; }
+/* Icons: a step is a round bead showing its method. Opened, it grows in place into the full pill, its icon still,
+   its name and values unfolding beside it, and pushes its neighbors along; its menu drops below it. A change of shape
+   in place eases in and out, so the growth reads whole. Folded, the label stays for assistive tech. */
+.workshop-preview .step-icon { display: none; }
+.workshop-preview[data-chain][data-steps="icons"] :is(.chain .pill, .pill.dragged) { gap: 0; padding: 0 7px; transition: color var(--dur-micro) var(--ease-out), gap var(--dur-short) var(--ease-in-out), padding var(--dur-short) var(--ease-in-out); }
+.workshop-preview[data-chain][data-steps="icons"] .chain .pill.open { gap: 8px; padding-right: 13px; }
+.workshop-preview[data-chain][data-steps="icons"] :is(.chain .pill, .pill.dragged) > .step-icon { display: block; width: 16px; height: 16px; color: inherit; }
+.workshop-preview[data-chain][data-steps="icons"] .step-label { display: grid; grid-template-columns: 0fr; transition: grid-template-columns var(--dur-short) var(--ease-in-out); }
+.workshop-preview[data-chain][data-steps="icons"] .pill.open .step-label { grid-template-columns: 1fr; }
+.workshop-preview[data-chain][data-steps="icons"] .step-label > span { display: flex; gap: 10px; min-width: 0; overflow: hidden; }
+.workshop-preview[data-chain][data-steps="icons"] .pill-menu:not([data-kind="source"], [data-kind="save"]) .pill-tab { visibility: hidden; }
+.workshop-preview[data-chain][data-steps="icons"] .pill-menu:not([data-kind="source"], [data-kind="save"]) .pill-body { margin-top: 6px; border-radius: 12px; }
+@media (prefers-reduced-motion: reduce) {
+  .workshop-preview :is(.bead-body, .chain .pill, .step-label) { transition: none; }
+}

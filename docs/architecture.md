@@ -11,6 +11,7 @@ See also: [Plugins](plugins.md)
 | `cache.js` | Page cache — LRU eviction to OPFS, on-demand restore. Large files stay playable without exhausting RAM. |
 | `plan.js` | Edit pipeline — non-destructive edit list, plan builder, stream renderer. `a.gain(-3).trim()` becomes a declarative plan materialized on read. |
 | `audio.js` | Full bundle — core + stats + cache + plan + all plugins. The default import. |
+| `deck.js` | Playback output — the deck (an AudioWorklet on the page's one AudioContext; Node: @audio/speaker) and its main-thread transport. Engine-free: the worker facade uses it as is. |
 | `fn/*.js` | Plugins — each file is one op, stat, or method. Self-contained, independently importable. |
 | `bin/cli.js` | CLI — arg parsing, plugin auto-discovery, batch/glob/macro/playback. |
 
@@ -31,17 +32,48 @@ serialization and stream≡read carry across the boundary unchanged. Op methods 
 proxied against the worker's live registry (plugins registered worker-side appear
 automatically); `read`/`encode` results transfer zero-copy; facades sharing a worker
 reference each other by instance id (`a.mix(b)`). Custom worker entry = your plugin
-imports + `import 'audio/worker'` (the file self-hosts in worker scope). Playback crosses
-the boundary too — `a.play()` streams to an AudioWorklet (browser, no SharedArrayBuffer)
-or the `@audio/speaker` sink (Node); breakpoint curves `{t, v}` replace function params,
-which can't serialize.
+imports + `import 'audio/worker'` (the file self-hosts in worker scope); the engine talks
+on a MessageChannel handed over once (`{ '@audio': port }`), so the app's own messages on
+the Worker never meet its protocol, and `expose(a)` hands an instance the app made to the
+page (`audioWorker.adopt(id, { worker })`). Breakpoint curves `{t, v}` replace function
+params, which can't serialize.
+
+Playback crosses the boundary without the main thread: the voice runs in the worker and
+posts straight into the page's deck worklet through a port the page handed it, so the
+page can stall for seconds without a dropout; the facade keeps the clock and the events.
 
 Motivation: DSP on the calling thread competes with the ~23ms/block playback budget, so
 heavy chains (compressor, denoise, declick) jank the UI. The worker moves render
-off-thread while the facade keeps the media-element API; live `playbackRate` runs
-`fn/varispeed.js` (shared with the local player) for parity. Main-thread stays the
-zero-setup default — the worker is the recommended path for editor UIs. Validated against
+off-thread while the facade keeps the media-element API. Main-thread stays the zero-setup
+default — the worker is the recommended path for editor UIs. Validated against
 [wavearea](https://github.com/dy/wavearea), which runs its editor on `audio/worker`.
+
+## Playback
+
+```
+voice (engine: main thread or worker) ──port──▶ deck (AudioWorklet) ──▶ speakers
+                                  ◀──reports──        ──reports──▶ transport (main thread)
+```
+
+- **Voice** (`fn/play.js`) renders the instance's timeline with `stream()` into runs: planar blocks placed on an
+  axis in seconds. A loop is unrolled on it: each pass's last 10 ms crossfade (equal power) into the 10 ms before the
+  span's start. It renders up to 2 s ahead of the deck's head, yielding to the event loop, so a busy thread doesn't
+  starve the output. On an edit it renders again from just ahead of the head and splices the run in there; a seek
+  splices at once, a hand-off (`b.play({ from: a })`) continues the axis from another instance.
+- **Deck** (`deck.js`, one AudioWorkletNode per playback, channels as the source has) reads with a varispeed head:
+  playbackRate glides (~50 ms), the source rate converts to the device's through a windowed sinc (bit-exact copy at
+  unit rate). It crossfades a splice (linear for an edit or hand-off: the same sound changed; equal power for a
+  seek), ramps start, pause, stop and underrun over 5 ms, and reports its head.
+- **Transport** (main thread) maps the reports to what the speakers play now, compensating the output latency
+  (`getOutputTimestamp`): `currentTime`, `timeupdate`, `ended`, and meter values released when heard.
+
+One AudioContext per page (`audio.context`, on a global symbol shared by every copy of the library), made on first
+use and resumed by the first gesture; the deck resamples, so any source rate plays on it. Node runs the same deck
+in a pump into `@audio/speaker`.
+
+The stream itself (`plan.js`) crossfades too: an edit that changes what renders at its position (a cut, an insert,
+an op added or removed) plays the old render into the new over ~20 ms, the new one warmed up at the same place;
+a parameter change ramps in place.
 
 ## Stream-first
 
@@ -64,7 +96,7 @@ Ops don't mutate source pages. `a.gain(-3).crop({at: 1, duration: 5})` pushes tw
   - **Range scoping** — `{at, duration}` on an op without native range handling is applied by the engine: input copied through outside the range, the op invoked only on the in-range sub-block.
   - **Automation** — function-valued numeric params are sampled by the engine in 128-sample sub-blocks (`gain`/`pan` opt into per-sample via `auto: 'sample'`; ops with genuine function args like `filter(fn)`/`transform(fn)` exclude them via `fnArgs`). Breakpoint curves `{t, v}` are the serializable equivalent — same sampling, but they survive `toJSON()` and the worker boundary.
   - **Click-free patching** — when a streamed plan's values refine (progressive normalize, live edits), numeric changes ramp linearly across one block instead of stepping.
-  - **Mid-stream edits** — `stream()`/`play()` watch `a.version`; edits pushed while streaming recompile the plan and crossfade (~20ms) into the new pipeline.
+  - **Mid-stream edits** — `stream()` watches `a.version`; an edit pushed while streaming recompiles the plan: values patch in place (ramped), and a change of what renders here (segments, pipeline, latency, width) crossfades (~20 ms) from the old render into the new. `play()` splices edits in ahead of the head ([Playback](#playback)).
 - **Stages** — edits apply in order: a structural op works on the audio as processed so far. When one follows pipeline ops, the pending pipeline bakes into a stage (a nested plan the new segment map reads as its source) and a fresh pipeline starts. So `a.gain(-6).insert(b)` leaves `b` untouched, and a fade, range or automation issued before a splice keeps its time coordinates. A stage streams through a persistent cursor: contiguous reads continue its processor state exactly, a jump re-seeks with the same warm-up as seeking. Edited instances read as sources (insert, paste, mix) stream the same way.
 - **Limit** — the safe output boundary. During incremental streaming (`final=false`), `adjustLimit` tracks how far output is deterministic given partial source data.
 

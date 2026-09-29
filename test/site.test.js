@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import wav from '@audio/encode-wav'
 import audio from '../audio.js'
-import { samples as built, RATE } from '../site-samples.js'
+import { samples as built, RATE } from '../site/samples.js'
 import '../.site-build.js'
 
 const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '')
@@ -55,7 +55,7 @@ beforeEach(async () => {
 afterEach(async () => { await page?.close(); assert.deepEqual(errors, []) })
 
 const button = name => page.getByRole('button', { name, exact: true, includeHidden: name === 'Undo' })
-// A sample's length as the page shows it, m:ss.t with tenths floored at the millisecond, from site-samples.js itself:
+// A sample's length as the page shows it, m:ss.t with tenths floored at the millisecond, from site/samples.js itself:
 // the tests hold for whichever samples it makes.
 const shown = name => {
   const tenths = Math.floor(Math.round(built[name].make()[0].length / RATE * 1000) / 100)
@@ -63,7 +63,7 @@ const shown = name => {
 }
 const idle = () => page.locator('.demo[aria-busy="false"]').waitFor()
 const message = () => page.locator('.demo-message').innerText()
-// The demo opens on the first sample site-samples.js makes; its length in seconds.
+// The demo opens on the first sample site/samples.js makes; its length in seconds.
 const first = Object.keys(built)[0]
 const seconds = name => built[name].make()[0].length / RATE
 // The chain holds only edits. Each pill's title is its call, so chain() reads the edits as code.
@@ -448,7 +448,7 @@ async function watchPlayback() {
 
 test('site: output releases smoothly across buffer boundaries and cancels future or late sources', async () => {
   const results = await page.evaluate(async () => {
-    const { default: output } = await import('/site-output.js')
+    const { default: output } = await import('/site/output.js')
     const sr = 48000, block = 1024, results = []
     for (const pause of [null, 0, 128 / sr, 1023 / sr, 1024 / sr]) {
       const ctx = new OfflineAudioContext(2, sr / 4, sr)
@@ -3211,51 +3211,65 @@ test('site: utility icons share the content edge and loop colors stay stable thr
   assert.equal(await menu().locator('.method-option > svg:not(.format-icon)').count(), 0)
 })
 
+const chains = ['light', 'black', 'outline']
 async function workshop() {
   await page.setViewportSize({ width: 1440, height: 1000 })
-  await page.goto(origin + '/workshop.html', { waitUntil: 'networkidle' })
+  await page.goto(origin + '/workshop/index.html', { waitUntil: 'networkidle' })
   for (const element of await page.locator('iframe').all()) {
     await element.scrollIntoViewIfNeeded()
     const frame = await element.contentFrame()
     await frame.locator('.demo[aria-busy="false"]').waitFor()
   }
-  await page.waitForFunction(() => document.querySelectorAll('iframe[data-ready]').length === 15)
+  await page.waitForFunction(count => document.querySelectorAll('iframe[data-ready]').length === count, chains.length + 1)
 }
+// Sets workshop controls by name, as one input to every preview
+const setControls = settings => page.evaluate(settings => {
+  const form = document.querySelector('.workshop-controls')
+  for (const [name, value] of Object.entries(settings)) {
+    const input = form.elements[name]
+    if (input instanceof RadioNodeList) [...input].find(option => option.value === value).checked = true
+    else input.value = value
+  }
+  form.dispatchEvent(new Event('input'))
+}, settings)
 
-test('workshop: bottom pipelines preserve the original and fit desktop, narrow and mobile widths', async () => {
+test('workshop: previews keep the original and fit desktop, narrow and mobile widths', async () => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   const appearance = demo => {
-    const css = getComputedStyle(demo), pill = getComputedStyle(demo.querySelector('.pill'))
-    return [css.padding, pill.borderColor, pill.backgroundColor, getComputedStyle(demo.querySelector('.timecode')).fontSize]
+    const css = getComputedStyle(demo), pill = getComputedStyle(demo.querySelector('.pill')), step = getComputedStyle(demo.querySelector('.chain .pill'))
+    return [css.padding, pill.borderColor, pill.backgroundColor, getComputedStyle(demo.querySelector('.timecode')).fontSize, step.width, step.padding, step.gap, getComputedStyle(demo.querySelector('.chain')).flexWrap]
   }
   const original = await page.locator('.demo').evaluate(appearance)
   await workshop()
-  assert.deepEqual(await page.frameLocator('#round-bottom iframe').locator('.demo').evaluate(appearance), original)
+  assert.deepEqual(await page.frameLocator('#original iframe').locator('.demo').evaluate(appearance), original)
   for (const element of await page.locator('iframe').all()) {
     const frame = await element.contentFrame()
     assert.equal((await frame.locator('.chain .pill').evaluateAll(pills => pills.map(p => p.title))).join('\n'), defaultChain)
     const layout = await frame.locator('.demo').evaluate(demo => {
       const box = selector => demo.querySelector(selector).getBoundingClientRect()
-      return { middle: !!demo.querySelector('.pipeline'), readout: box('.readout'), chain: box('.chain'), pills: [...demo.querySelectorAll('.chain .pill')].map(p => p.getBoundingClientRect().top) }
+      return { readout: box('.readout'), chain: box('.chain'), pills: [...demo.querySelectorAll('.chain .pill')].map(p => p.getBoundingClientRect().top) }
     })
-    assert(!layout.middle && layout.chain.top >= layout.readout.bottom, 'every pipeline stays below the current time')
-    assert(layout.pills.every(top => top === layout.pills[0]), 'the default three crumbs fit one row')
+    assert(layout.chain.top >= layout.readout.bottom, 'every chain stays below the current time')
+    assert(layout.pills.every(top => top === layout.pills[0]), 'the default three pills fit one row')
   }
   for (const width of [320, 512]) {
     await page.getByLabel(`${width} px`, { exact: true }).check()
     await page.waitForFunction(width => [...document.querySelectorAll('iframe')].every(f => f.contentDocument.querySelector('.demo').offsetWidth === width), width)
   }
-  for (const width of [320, 375, 414, 768, 1920]) {
+  for (const width of [320, 375, 414, 768, 1000, 1920]) {
     await page.setViewportSize({ width, height: 1000 })
     const failures = await page.evaluate(() => {
       const failures = []
       if (document.documentElement.scrollWidth > innerWidth) failures.push('page overflow')
       for (const frame of document.querySelectorAll('iframe')) {
-        const doc = frame.contentDocument, chain = doc.querySelector('.chain').getBoundingClientRect()
+        const doc = frame.contentDocument, element = doc.querySelector('.chain'), chain = element.getBoundingClientRect()
+        // Wherever it fits, a preview is the player's chosen width, so the readout keeps the layout it has there.
+        if (innerWidth >= 608 && doc.querySelector('.demo').offsetWidth !== 512) failures.push(frame.title + ': width')
         const pills = [...doc.querySelectorAll('.chain .pill')].map(p => p.getBoundingClientRect())
-        const add = doc.querySelector('.add').getBoundingClientRect()
+        // The plus ends where the chain's content does, the divider's end.
+        const add = doc.querySelector('.add').getBoundingClientRect(), end = chain.right - parseFloat(getComputedStyle(element).paddingRight)
         if (doc.documentElement.scrollWidth > frame.clientWidth || pills.some(p => p.left < chain.left || p.right > chain.right + 1)) failures.push(frame.title + ': overflow')
-        if (add.bottom >= chain.top || Math.abs(add.right - chain.right) > 1) failures.push(frame.title + ': plus placement')
+        if (add.bottom >= chain.top || Math.abs(add.right - end) > 1) failures.push(frame.title + ': plus placement')
       }
       return failures
     })
@@ -3263,23 +3277,38 @@ test('workshop: bottom pipelines preserve the original and fit desktop, narrow a
   }
 })
 
-test('workshop: pointed pills keep opaque token outlines, connected menus and live parameter editing', async () => {
+test('workshop: chain beads color one pill at a time and open as the full pill with its menu and live parameter editing', async () => {
   await workshop()
-  for (const shape of ['soft', 'chevron', 'strip']) {
-    const frame = page.frameLocator(`#${shape}-bottom iframe`), fade = frame.locator('.pill[data-key="2"]')
-    const paint = () => fade.evaluate(pill => {
-      const fill = getComputedStyle(pill.querySelector('path:first-child')), edge = getComputedStyle(pill.querySelector('path:last-child')), source = getComputedStyle(document.querySelector('.track-file'))
-      return { fill: fill.fill, stroke: edge.stroke, rule: source.borderColor, background: source.backgroundColor }
+  for (const id of chains) {
+    const frame = page.frameLocator(`#${id} iframe`), normalize = frame.locator('.pill[data-key="1"]'), fade = frame.locator('.pill[data-key="2"]')
+    const paint = pill => pill.evaluate(pill => {
+      const css = part => getComputedStyle(pill.querySelector(part)), file = getComputedStyle(document.querySelector('.track-file'))
+      return { neck: css('.bead-neck').fill, body: css('.bead-body').fill, stroke: css('.bead-edge').stroke, background: file.backgroundColor, border: file.borderColor }
     })
     await page.mouse.move(0, 0)
-    const rest = await paint()
-    assert.equal(rest.fill, rest.background)
-    assert.equal(rest.stroke, rest.rule)
+    const rest = await paint(fade)
+    assert(rest.body === rest.neck && rest.body === rest.background, `${id}: at rest a bead is one fill, the file pills' own`)
+    assert.equal(rest.stroke, id === 'light' ? 'none' : rest.border, id)
+    if (id !== 'light') assert.notEqual(rest.stroke, rest.body, `${id}: a dark bead keeps an edge against the slab`)
+    // Each step shows its own method's icon, the one Add lists it with.
+    assert(await frame.locator('.chain .pill').evaluateAll(pills => pills.every(pill => {
+      const icon = pill.querySelector('.step-icon'), type = pill.title.slice(1, pill.title.indexOf('('))
+      return icon.getBoundingClientRect().width === 16 && icon.firstElementChild.getAttribute('d') === document.querySelector(`#add-menu [aria-label="Add ${type}"] path`).getAttribute('d')
+    })), id)
     await fade.hover()
-    assert.equal((await paint()).stroke, rest.stroke)
+    await settled(fade)
+    const hovered = await paint(fade)
+    assert.notEqual(hovered.body, rest.body, `${id}: the bead under the pointer lights`)
+    assert(hovered.neck === rest.neck && hovered.stroke === rest.stroke, `${id}: only its own circle lights, never its necks or edge`)
+    assert.deepEqual(await paint(normalize), rest, `${id}: the neighbor stays at rest`)
     await frame.getByRole('button', { name: 'Loop playback' }).click()
     await frame.getByRole('button', { name: 'Play edited audio' }).click()
+    const iconAt = () => fade.evaluate(pill => { const { x, y } = pill.querySelector('.step-icon').getBoundingClientRect(); return { x, y } })
+    const icon = await iconAt()
     await fade.click()
+    // Opening animates: the label unfolds beside the icon rather than appearing at once.
+    await page.waitForFunction(id => document.querySelector(`#${id} iframe`).contentDocument.querySelector('.pill[data-key="2"] .step-label').getAnimations()
+      .some(animation => animation.transitionProperty === 'grid-template-columns' && animation.playState === 'running'), id)
     const control = frame.getByRole('slider', { name: 'Fade out (s)', exact: true })
     await control.dispatchEvent('pointerdown')
     await control.evaluate(el => { el.value = '1.25'; el.dispatchEvent(new Event('input', { bubbles: true })) })
@@ -3287,22 +3316,31 @@ test('workshop: pointed pills keep opaque token outlines, connected menus and li
     await frame.locator('.demo[aria-busy="false"]').waitFor()
     assert.equal(await fade.getAttribute('title'), '.fade(0.02, 1.25)')
     assert(await frame.getByRole('button', { name: 'Pause edited audio' }).isEnabled())
-    await page.waitForFunction(id => {
-      const doc = document.querySelector(`#${id} iframe`).contentDocument, pill = doc.querySelector('.pill[data-key="2"]')
-      const p = pill.getBoundingClientRect(), tab = doc.querySelector('.pill-tab').getBoundingClientRect(), panel = doc.querySelector('.pill-body').getBoundingClientRect()
-      return Math.abs(pill.querySelector('svg').viewBox.baseVal.width - p.width) < .01 && Math.abs(tab.left - p.left) < 1 && Math.abs(tab.top - p.top) < 1 && Math.abs(panel.top - p.bottom + 1) < 1
-    }, `${shape}-bottom`)
+    // Open, the bead is the full pill: its icon where it was, its whole name and values beside it, lit as open,
+    // and its menu drops below it in place of the tab that covers a named pill.
+    await settled(fade)
+    await beaded(id)
+    const open = await fade.evaluate(pill => {
+      const p = pill.getBoundingClientRect(), text = pill.querySelector('.step-label > span'), doc = pill.ownerDocument
+      const panel = doc.querySelector('.pill-body').getBoundingClientRect()
+      return { width: p.width, whole: text.scrollWidth <= text.clientWidth && text.clientWidth > 0, drop: panel.top - p.bottom, left: panel.left - p.left,
+        tab: getComputedStyle(doc.querySelector('.pill-tab')).visibility, body: getComputedStyle(pill.querySelector('.bead-body')).fill }
+    })
+    assert(open.width > 30 && open.whole, `${id}: the name and values show whole`)
+    assert.deepEqual(await iconAt(), icon, `${id}: the icon stays put`)
+    assert(open.drop >= 4 && Math.abs(open.left) < 1 && open.tab === 'hidden', `${id}: the menu drops below the pill`)
+    assert.notEqual(open.body, rest.body, `${id}: the open pill is lit`)
     await page.keyboard.press('Escape')
     await frame.getByRole('button', { name: 'Pause edited audio' }).click()
     await frame.locator('.pill[data-key="1"]').focus(); await page.keyboard.press('Tab')
     assert.notEqual(await fade.evaluate(el => getComputedStyle(el).outlineStyle), 'none')
   }
-  assert.equal(await page.frameLocator('#round-bottom iframe').locator('.pill[data-key="2"]').getAttribute('title'), '.fade(0.02, 0.1)', 'edits stay in their own preview')
+  assert.equal(await page.frameLocator('#original iframe').locator('.pill[data-key="2"]').getAttribute('title'), '.fade(0.02, 0.1)', 'edits stay in their own preview')
 })
 
-test('workshop: pipeline variants keep menus usable through reorder, deletion, Undo and empty chains', async () => {
+test('workshop: previews keep menus usable through reorder, deletion, Undo and empty chains', async () => {
   await workshop()
-  for (const id of ['linked-bottom', 'chevron-end-bottom', 'chevron-soft-bottom', 'chevron-medium-bottom', 'chevron-small-bottom', 'triangle-end-bottom', 'triangle-bottom', 'triangle-outline-bottom', 'line-chevron-bottom', 'line-arrow-bottom', 'arrows-bottom', 'strip-bottom', 'soft-bottom', 'chevron-bottom']) {
+  for (const id of ['original', ...chains]) {
     const element = page.locator(`#${id} iframe`), frame = element.contentFrame()
     const initialHeight = await element.evaluate(el => el.offsetHeight)
     for (const keys of [[0, 2], ['source'], ['save'], ['add']]) {
@@ -3350,90 +3388,113 @@ test('workshop: pipeline variants keep menus usable through reorder, deletion, U
     await frame.getByRole('button', { name: 'Add gain', exact: true }).click()
     await frame.locator('.demo[aria-busy="false"]').waitFor()
     assert.equal(await frame.locator('.chain .pill').getAttribute('title'), '.gain(-6)')
-    if (await frame.locator('html[data-outlined]').count()) await frame.locator('.chain .crumb-outline').waitFor()
+    // A lone step, rebuilt from an empty chain, is round at both ends.
+    if (id !== 'original') await beaded(id)
   }
 })
 
-test('workshop: the continuous strip has one divider per join and rounded ends after wrapping and deletion', async () => {
-  await workshop()
-  const frame = page.frameLocator('#strip-bottom iframe')
-  const joins = () => page.waitForFunction(() => {
-    const doc = document.querySelector('#strip-bottom iframe').contentDocument
-    const pills = [...doc.querySelectorAll('.chain .pill')]
-    if (!pills.length) return false
-    return pills.every((pill, i) => {
-      const svg = pill.querySelector('.crumb-outline')
-      if (!svg) return false
-      const width = pill.getBoundingClientRect().width, fill = svg.firstElementChild, edge = svg.lastElementChild
-      const first = !i || pills[i - 1].offsetTop !== pill.offsetTop, last = i === pills.length - 1 || pills[i + 1].offsetTop !== pill.offsetTop
-      // A left end is solid; every other left edge has the sole chevron stroke.
-      return Math.abs(svg.viewBox.baseVal.width - width) < .01 &&
-        fill.isPointInFill({ x: 1, y: 15 }) === first &&
-        edge.isPointInStroke({ x: 6, y: 15 }) === !first &&
-        edge.isPointInStroke({ x: width - .5, y: 15 }) === last &&
-        !edge.isPointInStroke({ x: width + 6, y: 15 }) &&
-        (first || Math.abs(pill.getBoundingClientRect().left - pills[i - 1].getBoundingClientRect().right) < .01)
-    })
+// A join is a circle of the workshop's radius set between two neighboring pills, touching both: each neck follows its
+// outline, solid inside the waist and open above it, and fill and edge both reach half a pixel past the waist into the
+// neighbor's half, so no hairline shows between them. A pill's body is its own stadium, never its necks: it is what
+// lights. A circle too small to reach both pills leaves them apart. The slot a pill is lifted from breaks the chain,
+// and the lifted pill has no necks.
+const beaded = id => page.waitForFunction(id => {
+  const radius = document.querySelector('.workshop-controls').elements.radius.valueAsNumber
+  const doc = document.querySelector(`#${id} iframe`).contentDocument, chain = doc.querySelector('.chain'), gap = parseFloat(getComputedStyle(chain).columnGap)
+  const waist = Math.sqrt(Math.max(0, (15 + radius) ** 2 - (15 + gap / 2) ** 2)) - radius, top = 15 - waist
+  const links = [...chain.querySelectorAll('.link')].sort((a, b) => +a.style.order - +b.style.order)
+  if (!links.length || links.some(link => link.offsetTop !== links[0].offsetTop)) return false
+  const joined = (a, b) => waist >= 1 && !!b && ![a, b].some(link => link.classList.contains('drag-source'))
+  const box = link => link.querySelector('.pill').getBoundingClientRect()
+  const beads = links.map((link, i) => [link.querySelector('.pill'), joined(link, links[i - 1]), joined(link, links[i + 1])])
+  const lifted = doc.querySelector('.pill.dragged')
+  if (lifted) beads.push([lifted, false, false])
+  const neck = (fill, edge, x, s) => fill.isPointInFill({ x, y: 15 }) && fill.isPointInFill({ x, y: top + .25 }) && !fill.isPointInFill({ x, y: top - .25 }) && edge.isPointInStroke({ x, y: top + .5 }) &&
+    fill.isPointInFill({ x: x + s * .25, y: top + .25 }) && edge.isPointInStroke({ x: x + s * .25, y: top + .5 })
+  return links.every((link, i) => !links[i + 1] || Math.abs(box(links[i + 1]).left - box(link).right - gap) < .01) && beads.every(([pill, left, right]) => {
+    const svg = pill.querySelector(':scope > .bead')
+    if (!svg) return false
+    const width = pill.getBoundingClientRect().width, [fill, body, edge] = svg.children
+    return Math.abs(svg.viewBox.baseVal.width - width) < .01 &&
+      body.isPointInFill({ x: .5, y: 15 }) && body.isPointInFill({ x: width - .5, y: 15 }) && !body.isPointInFill({ x: 1, y: 1 }) && !body.isPointInFill({ x: width - 1, y: 29 }) &&
+      !body.isPointInFill({ x: -.5, y: 15 }) && !body.isPointInFill({ x: width + .5, y: 15 }) &&
+      (left ? neck(fill, edge, -gap / 2, -1) : !fill.isPointInFill({ x: -.5, y: 15 })) &&
+      (right ? neck(fill, edge, width + gap / 2, 1) : !fill.isPointInFill({ x: width + .5, y: 15 }))
   })
-  for (const [width, rows] of [[512, 1], [320, 2], [512, 1]]) {
-    await page.getByLabel(`${width} px`, { exact: true }).check()
-    await page.waitForFunction(width => document.querySelector('#strip-bottom iframe').contentDocument.querySelector('.demo').offsetWidth === width, width)
-    await joins()
-    assert.equal(await frame.locator('.chain .pill').evaluateAll(pills => new Set(pills.map(p => p.offsetTop)).size), rows)
+}, id)
+
+test('workshop: necks follow the join circle between neighbors and round off at the ends through tuning, dragging, deletion and Undo', async () => {
+  await workshop()
+  const waist = () => page.locator('.workshop-controls output[name="waist"]').textContent()
+  // Readouts hold their width, so tuning never shifts the sliders; values snap to whole pixels.
+  const row = () => page.locator('.workshop-controls .joins').evaluate(set => [...set.querySelectorAll('input, output')].map(el => { const { left, width } = el.getBoundingClientRect(); return [left, width] }))
+  const steady = await row(), values = () => page.evaluate(() => ['gap', 'radius'].map(name => document.querySelector('.workshop-controls').elements[name].value))
+  assert.equal(await waist(), '9.4 px')
+  for (const [settings, readout] of [[{ width: 'narrow' }, '9.4 px'], [{ gap: '0', radius: '2' }, '12 px'], [{ gap: '16', radius: '1' }, 'apart'], [{ gap: '3', radius: '30' }, '23.7 px'], [{ gap: '0', radius: '30' }, '24.9 px'], [{ gap: '12.5', radius: '7.5' }, 'apart'], [{ steps: 'names' }, 'apart'], [{ steps: 'icons', gap: '5', radius: '5', width: 'wide' }, '9.4 px']]) {
+    await setControls(settings)
+    for (const id of chains) await beaded(id)
+    assert.equal(await waist(), readout, JSON.stringify(settings))
+    assert.deepEqual(await row(), steady, JSON.stringify(settings))
   }
+  await setControls({ gap: '12.5', radius: '7.5' })
+  assert.deepEqual(await values(), ['13', '8'])
+  await setControls({ gap: '5', radius: '5' })
+  const frame = page.frameLocator('#outline iframe')
+  await frame.locator('.pill[data-key="0"]').scrollIntoViewIfNeeded()
+  const first = await frame.locator('.pill[data-key="0"]').boundingBox(), last = await frame.locator('.pill[data-key="2"]').boundingBox()
+  await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2); await page.mouse.down()
+  await page.mouse.move(first.x + first.width / 2 + 8, first.y + first.height / 2)
+  await frame.locator('.pill.dragged').waitFor()
+  await settled(frame.locator('.chain')); await beaded('outline')
+  await page.mouse.move(last.x + last.width / 2, last.y + last.height / 2, { steps: 12 })
+  await settled(frame.locator('.chain')); await beaded('outline')
+  await page.keyboard.press('Escape'); await page.mouse.up()
+  await settled(frame.locator('.chain')); await beaded('outline')
+  assert.equal((await frame.locator('.chain .pill').evaluateAll(pills => pills.map(p => p.title))).join('\n'), defaultChain)
   await frame.locator('.pill[data-key="0"]').focus(); await page.keyboard.press('Delete')
-  await frame.locator('.demo[aria-busy="false"]').waitFor(); await joins()
+  await frame.locator('.demo[aria-busy="false"]').waitFor(); await beaded('outline')
   assert.equal(await frame.locator('.chain .pill').count(), 2)
   await frame.getByRole('button', { name: 'Undo', exact: true }).click()
-  await frame.locator('.demo[aria-busy="false"]').waitFor(); await settled(frame.locator('.chain')); await joins()
+  await frame.locator('.demo[aria-busy="false"]').waitFor(); await settled(frame.locator('.chain')); await beaded('outline')
   assert.equal(await frame.locator('.chain .pill').count(), 3)
+  // A middle bead opens in place, pushing its neighbor along with the necks still attached, and folds back on close.
+  const middle = frame.locator('.pill[data-key="1"]'), width = () => middle.evaluate(pill => pill.getBoundingClientRect().width)
+  await middle.click(); await frame.locator('.pill.open[data-key="1"]').waitFor()
+  await settled(frame.locator('.chain')); await beaded('outline')
+  assert(await width() > 30, 'open, the bead is the full pill')
+  await page.keyboard.press('Escape'); await frame.locator('.pill.open').waitFor({ state: 'detached' })
+  await settled(frame.locator('.chain')); await beaded('outline')
+  assert.equal(await width(), 30, 'closed, it is a circle again')
 })
 
-const joinedChain = id => page.waitForFunction(id => {
-  const doc = id ? document.querySelector(`#${id} iframe`).contentDocument : document, svg = doc.querySelector('.chain-routes')
-  const links = [...doc.querySelectorAll('.chain .link')].sort((a, b) => a.offsetTop - b.offsetTop || a.offsetLeft - b.offsetLeft)
+const joinedChain = () => page.waitForFunction(() => {
+  const svg = document.querySelector('.chain-routes')
+  const links = [...document.querySelectorAll('.chain .link')].sort((a, b) => a.offsetTop - b.offsetTop || a.offsetLeft - b.offsetLeft)
   const expected = links.flatMap((link, i) => links[i + 1]?.offsetTop > link.offsetTop ? [[link, links[i + 1]]] : [])
   if (svg.children.length !== expected.length || getComputedStyle(svg).pointerEvents !== 'none') return false
-  const box = doc.querySelector('.demo').getBoundingClientRect(), pills = links.map(link => link.querySelector('.pill').getBoundingClientRect())
-  const edge = doc.querySelector('.chain').getBoundingClientRect().left
+  const box = document.querySelector('.demo').getBoundingClientRect(), pills = links.map(link => link.querySelector('.pill').getBoundingClientRect())
+  const edge = document.querySelector('.chain').getBoundingClientRect().left
   if (links.some((link, i) => (!i || link.offsetTop > links[i - 1].offsetTop) && Math.abs(pills[i].left - edge - (i ? 12 : 0)) > .1)) return false
   return expected.every(([from, to], i) => {
     const group = svg.children[i], path = group.firstElementChild, a = from.querySelector('.pill'), b = to.querySelector('.pill')
     if (group.dataset.from !== a.dataset.key || group.dataset.to !== b.dataset.key || getComputedStyle(from.querySelector('.joint')).visibility !== 'hidden') return false
     if (Math.abs(path.getBoundingClientRect().left - edge) > .1) return false
-    const start = a.getBoundingClientRect(), end = b.getBoundingClientRect(), length = path.getTotalLength()
-    const shape = doc.documentElement.dataset.shape || 'arrows'
-    const endChevron = shape === 'arrows' || doc.documentElement.hasAttribute('data-end-chevron')
-    const gap = shape === 'arrows' ? 1 + Math.SQRT1_2 : endChevron ? 1.5 : 0
+    // The route leaves 2px after its pill and ends where the arrowhead's miter stays 1px clear of the next one.
+    const start = a.getBoundingClientRect(), end = b.getBoundingClientRect(), length = path.getTotalLength(), gap = 1 + Math.SQRT1_2
     const point = distance => path.getPointAtLength(distance).matrixTransform(path.getScreenCTM())
     const p = point(0), q = point(length)
-    if (Math.abs(p.x - start.right - (shape === 'arrows' ? 2 : 0)) > .1 || Math.abs(p.y - (start.top + start.bottom) / 2) > .1 || Math.abs(q.x - end.left + gap) > .1 || Math.abs(q.y - (end.top + end.bottom) / 2) > .1) return false
-    if (shape !== 'linked') {
-      const head = group.lastElementChild, bounds = head.getBBox(), rect = head.getBoundingClientRect()
-      const centered = ['triangle', 'triangle-outline', 'line-chevron'].includes(shape)
-      const centerY = bounds.y + bounds.height / 2
-      if (endChevron) {
-        const css = getComputedStyle(head), height = { 'chevron-end': 15, 'chevron-soft': 15, 'chevron-medium': 12, 'chevron-small': 10, arrows: 10 }[shape]
-        if (css.fill !== 'none' || css.strokeLinecap !== (shape === 'arrows' ? 'butt' : 'round') || css.strokeLinejoin !== (shape === 'arrows' ? 'miter' : 'round') || Math.abs(rect.height - height) > .1 ||
-          Math.abs(end.left - rect.right - (shape === 'arrows' ? Math.SQRT1_2 : .5) - 1) > .1) return false
-      }
-      if (centered) {
-        if (Math.abs(rect.x + rect.width / 2 - (start.right + end.left) / 2) > .1 || Math.abs(rect.y + rect.height / 2 - (start.bottom + end.top) / 2) > .1) return false
-      } else if (Math.abs(rect.right - end.left + (gap || .5)) > .1 || Math.abs(rect.y + rect.height / 2 - q.y) > .1) return false
-      if (shape.startsWith('triangle')) {
-        // A leftward triangle is broad on the right, narrow on the left; end triangles are the opposite.
-        if (head.isPointInFill({ x: bounds.x + 1, y: centerY + 2 }) === centered || head.isPointInFill({ x: bounds.x + bounds.width - 1, y: centerY + 2 }) !== centered) return false
-      } else {
-        if (!head.isPointInStroke({ x: centered ? bounds.x : bounds.x + bounds.width, y: centerY }) || head.isPointInStroke({ x: centered ? bounds.x + bounds.width : bounds.x, y: centerY })) return false
-      }
-    }
+    if (Math.abs(p.x - start.right - 2) > .1 || Math.abs(p.y - (start.top + start.bottom) / 2) > .1 || Math.abs(q.x - end.left + gap) > .1 || Math.abs(q.y - (end.top + end.bottom) / 2) > .1) return false
+    const head = group.lastElementChild, bounds = head.getBBox(), rect = head.getBoundingClientRect(), css = getComputedStyle(head), centerY = bounds.y + bounds.height / 2
+    if (css.fill !== 'none' || css.strokeLinecap !== 'butt' || css.strokeLinejoin !== 'miter' || Math.abs(rect.height - 10) > .1 ||
+      Math.abs(rect.right - end.left + gap) > .1 || Math.abs(rect.y + rect.height / 2 - q.y) > .1) return false
+    if (!head.isPointInStroke({ x: bounds.x + bounds.width, y: centerY }) || head.isPointInStroke({ x: bounds.x, y: centerY })) return false
     for (let n = 1; n < 128; n++) {
       const p = point(length * n / 128)
       if (p.x < edge - .1 || p.x > box.right || pills.some(b => p.x > b.left + .5 && p.x < b.right - .5 && p.y > b.top + .5 && p.y < b.bottom - .5)) return false
     }
     return true
   })
-}, id)
+})
 
 test('site: arrow links reconnect through wrapping, reordering, removal and reset', async () => {
   for (const width of [1440, 320, 768, 320]) {
@@ -3459,69 +3520,42 @@ test('site: arrow links reconnect through wrapping, reordering, removal and rese
   assert.equal(await page.locator('.chain-routes g').count(), 1)
 })
 
-test('workshop: wrapped connectors follow the chain and point along its direction through resize, reorder and removal', async () => {
+test('workshop: named chains stay on one row and scroll sideways, and a drop lands where it falls', async () => {
   await workshop()
-  const ids = ['linked-bottom', 'chevron-end-bottom', 'chevron-soft-bottom', 'chevron-medium-bottom', 'chevron-small-bottom', 'arrows-bottom', 'triangle-end-bottom', 'triangle-bottom', 'triangle-outline-bottom', 'line-chevron-bottom', 'line-arrow-bottom']
-  for (const [shape, height] of [['chevron-end', 15], ['chevron-soft', 15], ['chevron-medium', 12], ['chevron-small', 10], ['arrows', 10]]) {
-    const frame = page.frameLocator(`#${shape}-bottom iframe`)
-    assert(await frame.locator('.chain .joint:visible').evaluateAll((joints, height) => joints.length === 2 && joints.every(svg => {
-      const path = svg.firstElementChild, rect = path.getBoundingClientRect(), css = getComputedStyle(path)
-      const arrows = document.documentElement.dataset.shape === 'arrows'
-      const next = svg.parentElement.nextElementSibling.querySelector('.pill').getBoundingClientRect()
-      return css.fill === 'none' && css.strokeWidth === '1px' && css.strokeLinecap === (arrows ? 'butt' : 'round') && css.strokeLinejoin === (arrows ? 'miter' : 'round') &&
-        css.stroke === getComputedStyle(svg.previousElementSibling).borderColor && Math.abs(rect.height - height) < .1 &&
-        Math.abs(next.left - rect.right - (arrows ? Math.SQRT1_2 : .5) - 1) < .1 &&
-        Math.abs(rect.y + rect.height / 2 - (next.top + next.bottom) / 2) < .1 && !path.isPointInStroke({ x: svg.viewBox.baseVal.width - .25, y: 8 })
-    }), height), `${shape}: 1px strokes leave a 1px gap before the next pill`)
-  }
-  assert(await page.frameLocator('#arrows-bottom iframe').locator('.chain .joint:visible').evaluateAll(joints => joints.length === 2 && joints.every(svg => {
-    const path = svg.firstElementChild, css = getComputedStyle(path), rect = path.getBoundingClientRect()
-    const pill = svg.previousElementSibling.getBoundingClientRect()
-    return css.opacity === '1' && Math.abs(rect.left - pill.right - 2) < .1
-  })), 'Arrow links leave 2px after the source pill, an extra pixel of clearance')
-  const end = page.frameLocator('#triangle-end-bottom iframe')
-  assert(await end.locator('.chain .joint:visible').evaluateAll(joints => joints.length === 2 && joints.every(svg => {
-    const path = svg.firstElementChild, width = svg.viewBox.baseVal.width
-    return path.isPointInFill({ x: width - 4.5, y: 7 }) && !path.isPointInFill({ x: width / 2, y: 5 }) && !path.isPointInFill({ x: width - 1, y: 7 })
-  })), 'straight connectors put the filled triangle at the destination, pointing right')
-  const joined = joinedChain
-  for (const [width, count] of [[512, 0], [320, 1], [512, 0], [320, 1]]) {
-    await page.getByLabel(`${width} px`, { exact: true }).check()
-    await page.waitForFunction(width => document.querySelector('#linked-bottom iframe').contentDocument.querySelector('.demo').offsetWidth === width, width)
-    for (const id of ids) {
-      await joined(id)
-      assert.equal(await page.frameLocator(`#${id} iframe`).locator('.chain-routes g').count(), count, id)
+  await setControls({ steps: 'names', width: 'narrow' })
+  for (const id of chains) {
+    const frame = page.frameLocator(`#${id} iframe`), chain = frame.locator('.chain')
+    await beaded(id)
+    assert(await chain.evaluate(c => c.scrollWidth > c.clientWidth), `${id}: the names overflow the row and scroll`)
+    assert.equal(await frame.locator('.chain-routes g').count(), 0, `${id}: nothing wraps, so nothing returns`)
+    // Focus scrolls a pill fully in, with its ring and 44px press area inside the scroller.
+    for (const key of [2, 0]) {
+      await frame.locator(`.pill[data-key="${key}"]`).focus()
+      assert(await chain.evaluate((c, key) => {
+        const box = c.getBoundingClientRect(), p = c.querySelector(`.pill[data-key="${key}"]`).getBoundingClientRect()
+        return p.left - 4 >= box.left - .5 && p.right + 4 <= box.right + .5 && p.top - 7 >= box.top - .5 && p.bottom + 7 <= box.bottom + .5
+      }, key), `${id}: pill ${key} and its ring fit`)
     }
   }
-  await page.setViewportSize({ width: 320, height: 1000 })
-  for (const id of ['triangle-bottom', 'arrows-bottom']) {
-    const frame = page.frameLocator(`#${id} iframe`)
-    await joined(id)
-    assert.equal(await frame.locator('.chain-routes g').count(), 2, 'three rows have two return paths')
-    await frame.locator('.pill[data-key="0"]').scrollIntoViewIfNeeded()
-    const first = await frame.locator('.pill[data-key="0"]').boundingBox(), last = await frame.locator('.pill[data-key="2"]').boundingBox()
-    await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2); await page.mouse.down()
-    await page.mouse.move(last.x + last.width / 2, last.y + last.height / 2, { steps: 12 })
-    await settled(frame.locator('.chain')); await joined(id)
-    await page.keyboard.press('Escape'); await page.mouse.up()
-    await settled(frame.locator('.chain')); await joined(id)
-    assert.equal((await frame.locator('.chain .pill').evaluateAll(pills => pills.map(p => p.title))).join('\n'), defaultChain)
-    await frame.locator('.pill[data-key="0"]').focus(); await page.keyboard.press('Alt+ArrowRight')
-    await frame.locator('.demo[aria-busy="false"]').waitFor(); await settled(frame.locator('.chain')); await joined(id)
-    assert.deepEqual(await frame.locator('.chain .pill').evaluateAll(pills => pills.map(p => p.title)), ['.normalize(-1)', '.trim()', '.fade(0.02, 0.1)'])
-    await frame.getByRole('button', { name: 'Undo', exact: true }).click()
-    await frame.locator('.demo[aria-busy="false"]').waitFor(); await settled(frame.locator('.chain')); await joined(id)
-    for (let count = 2; count >= 0; count--) {
-      await frame.locator('.pill[data-key="0"]').focus(); await page.keyboard.press('Delete')
-      await frame.locator('.demo[aria-busy="false"]').waitFor(); await joined(id)
-      assert.equal(await frame.locator('.chain-routes g').count(), Math.max(0, count - 1))
-    }
-    await frame.getByRole('button', { name: 'Add a method', exact: true }).click()
-    await frame.getByRole('button', { name: 'Add gain', exact: true }).click()
-    await frame.locator('.demo[aria-busy="false"]').waitFor(); await joined(id)
-    assert.equal(await frame.locator('.chain .pill').getAttribute('title'), '.gain(-6)')
-    assert.equal(await frame.locator('.chain-routes g').count(), 0)
-  }
+  // Named steps open as themselves: the tab is the pill, without an icon.
+  const frame = page.frameLocator('#black iframe'), chain = frame.locator('.chain')
+  await frame.locator('.pill[data-key="1"]').click()
+  await page.waitForFunction(() => {
+    const doc = document.querySelector('#black iframe').contentDocument, p = doc.querySelector('.pill[data-key="1"]').getBoundingClientRect(), tab = doc.querySelector('.pill-tab')
+    const icon = tab.querySelector('svg')
+    return Math.abs(tab.getBoundingClientRect().width - p.width) < 1 && (!icon || getComputedStyle(icon).display === 'none')
+  })
+  await page.keyboard.press('Escape')
+  // Slots are read from the scrolled row: fade dropped on normalize lands second, not first.
+  await chain.evaluate(c => { c.scrollLeft = c.scrollWidth })
+  const fade = await frame.locator('.pill[data-key="2"]').boundingBox(), normalize = await frame.locator('.pill[data-key="1"]').boundingBox()
+  await page.mouse.move(fade.x + fade.width / 2, fade.y + fade.height / 2); await page.mouse.down()
+  await page.mouse.move(normalize.x + normalize.width / 2, normalize.y + normalize.height / 2, { steps: 12 }); await page.mouse.up()
+  await frame.locator('.demo[aria-busy="false"]').waitFor()
+  assert.deepEqual(await frame.locator('.chain .pill').evaluateAll(pills => pills.map(p => p.title)), ['.trim()', '.fade(0.02, 0.1)', '.normalize(-1)'])
+  await frame.getByRole('button', { name: 'Undo', exact: true }).click()
+  await frame.locator('.demo[aria-busy="false"]').waitFor(); await settled(chain); await beaded('black')
+  assert.equal((await frame.locator('.chain .pill').evaluateAll(pills => pills.map(p => p.title))).join('\n'), defaultChain)
 })
 
 // A canvas as gray levels, one byte a pixel: the logo's tones are neutral, so red carries the whole image
@@ -3561,7 +3595,7 @@ test('logo: a signal through a window, filled by half a window as its gradient, 
   // Reduced motion opens it at rest
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.setViewportSize({ width: 800, height: 760 })
-  await page.goto(origin + '/logo.html', { waitUntil: 'networkidle' })
+  await page.goto(origin + '/logo/index.html', { waitUntil: 'networkidle' })
   assert.equal(await page.locator('#fail').isVisible(), false)
   // The control band is lit from above: its light a radial mask, which a browser drops whole if it can't parse it
   assert.match(await page.locator('.bar').evaluate(bar => getComputedStyle(bar, '::before').maskImage), /^radial-gradient/)
@@ -3667,7 +3701,7 @@ test('logo motion: at rest it is the logo; near its middle it stirs; flung it sp
   // Reduced motion gives it no speed of its own
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.setViewportSize({ width: 800, height: 760 })
-  await page.goto(origin + '/logo.html', { waitUntil: 'networkidle' })
+  await page.goto(origin + '/logo/index.html', { waitUntil: 'networkidle' })
   await page.selectOption('#print', 'smooth')
   const canvas = page.locator('canvas'), box = await canvas.boundingBox(), x = box.x + box.width / 2, y = box.y + box.height / 2
   const away = () => page.mouse.move(x, box.y + box.height + 30)
@@ -3722,7 +3756,7 @@ test('logo motion: at rest it is the logo; near its middle it stirs; flung it sp
   assert(top(tall) < top(plain) - 10 && Math.abs(top(plain) - top(still)) < 30, JSON.stringify({ still: top(still), plain: top(plain), tall: top(tall) }))
 
   // A tick for each peak through the middle, crest and trough: two a turn, none at the rest turn itself
-  assert.deepEqual(await page.evaluate(async () => { const { peak } = await import('/logo-motion.js'); return [-.26, 0, .24, .26, .74, .76, 1, 1.26].map(peak) }), [-2, -1, -1, 0, 0, 1, 1, 2])
+  assert.deepEqual(await page.evaluate(async () => { const { peak } = await import('/logo/motion.js'); return [-.26, 0, .24, .26, .74, .76, 1, 1.26].map(peak) }), [-2, -1, -1, 0, 0, 1, 1, 2])
   // Both sounds play under the hand
   for (const sound of ['tone', 'ticks']) {
     await page.selectOption('#sound', sound)
@@ -3737,7 +3771,7 @@ test('logo motion: at rest it is the logo; near its middle it stirs; flung it sp
 
 test('site: the tab icon holds the whole wave as it turns, no crest cut at its edge', async () => {
   const clipped = await page.evaluate(async () => {
-    const { logo } = await import('./logo.js'), canvas = document.createElement('canvas')
+    const { logo } = await import('./logo/logo.js'), canvas = document.createElement('canvas')
     const view = logo(canvas), clipped = []
     for (let phase = 0; phase < 1; phase += 1 / 16) {
       view.set({ phase }); view.render()

@@ -2,9 +2,9 @@
  * Finalize 2026-09-24 · dot-grid paper from the top edge, header and footer rules and both device origins on the same grid. Source and download beside their tracks. Waveform actions above edit crumbs; flat active crumbs, animated reordering, compact connected slider menus, drag-to-trash removal. Compact ranges in a fixed readout, keyboard Undo, full waveforms, dark code slab, reduced-motion support.
  * Pre-emit critique: Philosophy 5 · Hierarchy 4 · Execution 4 · Specificity 5 · Restraint 4 · Variety 4
  * Verified: contrast, keyboard focus, playback lifecycle, 320 / 375 / 414 / 768 / 1024 / 1440 / 1920 px */
-@import './tokens.css';
-@font-face { font-family: 'Geist'; src: url('./assets/geist.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
-@font-face { font-family: 'Wavefont'; src: url('./assets/wavefont.woff2') format('woff2'); font-weight: 4 1000; font-display: block; }
+@import '../assets/tokens.css';
+@font-face { font-family: 'Geist'; src: url('../assets/geist.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: 'Wavefont'; src: url('../assets/wavefont.woff2') format('woff2'); font-weight: 4 1000; font-display: block; }
 * { box-sizing: border-box; }
 html { overflow-x: clip; scroll-behavior: smooth; }
 /* The page is dot-grid paper, edge to edge. */
@@ -32,7 +32,8 @@ button, .text-link, .footer a { white-space: nowrap; }
 .header::after, .footer::before { content: ''; position: absolute; inset-inline: 0; height: 1px; background: var(--color-rule); }
 .header::after { bottom: -.5px; }
 .footer::before { top: -.5px; }
-.header > a, .footer > a, .footer > div { background: var(--color-paper); box-shadow: 0 0 0 var(--space-sm) var(--color-paper); }
+.header > a, .header > nav, .footer > a, .footer > div { background: var(--color-paper); box-shadow: 0 0 0 var(--space-sm) var(--color-paper); }
+.header-links { display: flex; gap: 24px; }
 .wordmark { display: inline-flex; align-items: center; gap: 10px; font-size: 27px; font-weight: 650; letter-spacing: -.055em; touch-action: pan-y; user-select: none; }
 /* Held, it is the mark's handle: it stays whole while dragged, not dimmed as a pressed link */
 .wordmark:active { opacity: 1; }

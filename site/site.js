@@ -1,8 +1,8 @@
-import sprae, { batch } from './assets/sprae.js'
-import connectChain from './site-chain.js'
-import output from './site-output.js'
-import audio, { bitDepth } from './assets/audio.js'
-import { samples, RATE } from './site-samples.js'
+import sprae, { batch } from '../assets/sprae.js'
+import connectChain from './chain.js'
+import output from './output.js'
+import audio, { bitDepth } from '../assets/audio.js'
+import { samples, RATE } from './samples.js'
 
 // The demo accepts method calls with literal numbers, not arbitrary JavaScript. Crop, remove, copy and cut take a time range,
 // { at, duration }; processing methods take it as an optional last argument. Paste takes a position; pad is whole-track.
@@ -507,10 +507,11 @@ function previewReorder(event) {
   d.clone.style.visibility = over ? 'hidden' : ''
   if (over) return
   // Read settled slots, not their in-flight animation positions, so crossing a neighbor cannot oscillate.
+  // Offsets ignore scrolling, so a chain that scrolls sideways subtracts its own.
   const chainBox = d.chain.getBoundingClientRect()
   const slots = d.order.map(index => {
     const el = d.elements[index]
-    return { left: chainBox.left + el.offsetLeft - d.chain.offsetLeft, top: chainBox.top + el.offsetTop - d.chain.offsetTop, width: el.offsetWidth, height: el.offsetHeight }
+    return { left: chainBox.left + el.offsetLeft - d.chain.offsetLeft - d.chain.scrollLeft, top: chainBox.top + el.offsetTop - d.chain.offsetTop - d.chain.scrollTop, width: el.offsetWidth, height: el.offsetHeight }
   })
   const x = event.clientX - d.dx + d.clone.offsetWidth / 2, y = event.clientY - d.dy + d.clone.offsetHeight / 2
   let to = d.to, distance = Infinity

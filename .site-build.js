@@ -1,10 +1,15 @@
 // Refresh the audio modules used by the static website: node .site-build.js
 import { build } from 'esbuild'
+import { builtinModules } from 'node:module'
+import audio from './audio.js'
+
+// Node's own modules stay out of the browser bundles: the library imports them only on Node, when a path is a file
+const node = builtinModules.flatMap(name => [name, `node:${name}`])
 
 await build({
   entryPoints: {
     audio: 'audio.js',
-    // logo.js: any signal through any window
+    // logo/logo.js: any signal through any window
     'window-function': 'node_modules/window-function/index.js',
     'periodic-function': 'node_modules/periodic-function/index.js',
     ...Object.fromEntries(['wav', 'mp3', 'flac', 'aiff', 'ogg'].map(format => [format, `node_modules/@audio/encode-${format}/${format}-encode.js`]))
@@ -14,7 +19,7 @@ await build({
   minify: true,
   format: 'esm',
   platform: 'browser',
-  external: ['fs', 'fs/promises', 'url'],
+  external: node,
   plugins: [{
     name: 'lazy-atoms',
     setup(build) {
@@ -26,4 +31,66 @@ await build({
     }
   }],
   legalComments: 'linked'
+})
+
+// The REPL's editor: CodeMirror with the JavaScript language, one module.
+await build({
+  stdin: {
+    contents: `
+      export { EditorState, StateField, StateEffect, Transaction } from '@codemirror/state'
+      export { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection, dropCursor, showTooltip, tooltips } from '@codemirror/view'
+      export { defaultKeymap, history, historyKeymap, indentWithTab, undo, redo, undoDepth, redoDepth } from '@codemirror/commands'
+      export { javascript, localCompletionSource, scopeCompletionSource } from '@codemirror/lang-javascript'
+      export { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
+      export { syntaxHighlighting, HighlightStyle, bracketMatching, indentOnInput, syntaxTree } from '@codemirror/language'
+      export { setDiagnostics } from '@codemirror/lint'
+      export { highlightSelectionMatches } from '@codemirror/search'
+      export { tags } from '@lezer/highlight'
+      export { parser } from '@lezer/javascript'`,
+    resolveDir: '.',
+    sourcefile: 'codemirror.js'
+  },
+  outfile: 'assets/codemirror.js',
+  bundle: true,
+  minify: true,
+  format: 'esm',
+  legalComments: 'eof'
+})
+
+// The REPL's engine worker: the library with every plugin and codec as a chunk that loads on first use.
+// Workers have no import maps, so no bare import is left for the browser to resolve.
+await build({
+  entryPoints: { worker: 'repl/worker.js' },
+  outdir: 'repl/dist',
+  chunkNames: 'chunks/[name]-[hash]',
+  bundle: true,
+  splitting: true,
+  minify: true,
+  // plugins register by their factory's name
+  keepNames: true,
+  format: 'esm',
+  platform: 'browser',
+  external: node,
+  plugins: [{
+    // one literal import per registry plugin, which the worker loads through audio.import
+    name: 'registry',
+    setup(build) {
+      build.onResolve({ filter: /^repl:plugins$/ }, () => ({ path: 'plugins', namespace: 'repl' }))
+      build.onLoad({ filter: /.*/, namespace: 'repl' }, () => ({
+        resolveDir: '.',
+        contents: `export default {${[...new Set(Object.values(audio.plugins))].map(spec => `${JSON.stringify(spec)}: () => import(${JSON.stringify(spec)})`).join(',\n')}}`
+      }))
+    }
+  }, {
+    // an optional codec that is not installed stays an import that fails only if a file needs it
+    name: 'optional-codecs',
+    setup(build) {
+      build.onResolve({ filter: /^@audio\// }, async args => {
+        if (args.pluginData?.resolving) return
+        const found = await build.resolve(args.path, { kind: args.kind, resolveDir: args.resolveDir, importer: args.importer, pluginData: { resolving: true } })
+        return found.errors.length ? { path: args.path, external: true } : found
+      })
+    }
+  }],
+  legalComments: 'eof'
 })

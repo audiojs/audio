@@ -1,9 +1,9 @@
-// A playback session owns its gain and every scheduled source, including future ones.
-export default function output(context, onempty) {
+// A playback session owns its gain and every scheduled source, including future ones. It plays into `destination`.
+export default function output(context, onempty, destination = context.destination) {
   const gain = context.createGain(), nodes = new Set(), ramp = .004
   let began, closed = false
   gain.gain.value = 0
-  gain.connect(context.destination)
+  gain.connect(destination)
   return {
     get size() { return nodes.size },
     start(node, at, ...args) {

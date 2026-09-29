@@ -1,7 +1,7 @@
 // The audio logo, drawn: a signal through a window, filled with a gradient rectangle bent to the waveform, printed.
 // One sine cycle through a Hann window is the logo itself: sin x (1 + cos x), i.e. sin x + ½ sin 2x.
-import * as windows from './assets/window-function.js'
-import * as periodic from './assets/periodic-function.js'
+import * as windows from '../assets/window-function.js'
+import * as periodic from '../assets/periodic-function.js'
 
 // Every window of the collection but its helpers, rectangular first
 const SKIP = ['generate', 'apply', 'enbw', 'scallopLoss', 'cola', 'rectangular']

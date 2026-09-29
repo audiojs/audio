@@ -52,12 +52,14 @@ function click() {
 
 /**
  * Makes a logo drawn by logo.js on canvas answer the pointer and keys, and animates it, drawing only while something moves.
- * settings: speed (turns a second on its own), cycles, signal, hover (a key of HOVERS, or its own), lift, sound; tap, whether a tap
- * gives the next signal, and ontap(signal) to hear which; area, an element whose hover and drag stand for the canvas's,
- * as a whole title for its mark; favicon, to show the wave in the tab. set() changes settings, and set({}) redraws.
+ * settings: speed (turns a second on its own), cycles, amplitude (its height, or a function read each frame, eased either
+ * way), signal, hover (a key of HOVERS, or its own), lift, sound; tap, whether a tap gives the next signal, and ontap(signal)
+ * to hear which; area, an element whose hover and drag stand for the canvas's, as a whole title for its mark; favicon, to
+ * show the wave in the tab; hidden, to keep moving while the page is hidden, where the tab's icon is all that shows.
+ * set() changes settings, and set({}) redraws.
  */
 export function motion(view, canvas, settings = {}) {
-  const o = { speed: 0, cycles: 1, signal: 'sine', hover: 'stir', lift: 'none', sound: 'none', tap: true, ...settings }
+  const o = { speed: 0, cycles: 1, amplitude: 1, signal: 'sine', hover: 'stir', lift: 'none', sound: 'none', tap: true, hidden: false, ...settings }
   const s = { hovered: false, pressed: false, dragging: false, lift: 0, phase: 0, velocity: 0, spin: 0, cycles: o.cycles, cyclesVelocity: 0, amplitude: 1, amplitudeVelocity: 0, grab: null, tick: peak(0), tone: null }
   const surface = o.area ?? canvas
   let changed = true, morphing = false, dragged = false
@@ -168,7 +170,7 @@ export function motion(view, canvas, settings = {}) {
     s.spin = s.dragging ? Math.abs(s.velocity) : Math.abs(s.velocity - motor)
     const lift = s.dragging ? s.lift : 0
     const cycles = o.cycles * (active ? hover.cycles : 1) * (o.lift === 'tension' ? Math.min(6, Math.max(.5, 1 + lift / 40)) : 1)
-    const amplitude = o.lift === 'amplitude' ? Math.min(1.8, Math.max(.1, 1 + lift / 60)) : 1
+    const amplitude = (typeof o.amplitude === 'function' ? o.amplitude() : o.amplitude) * (o.lift === 'amplitude' ? Math.min(1.8, Math.max(.1, 1 + lift / 60)) : 1)
     // A lift follows the hand at once; everything else eases, with a little give
     const [stiffness, damping] = s.dragging && o.lift !== 'none' ? [900, 1] : [150, .6]
     ;[s.cycles, s.cyclesVelocity] = spring(s.cycles, s.cyclesVelocity, cycles, dt, stiffness, damping)
@@ -185,15 +187,25 @@ export function motion(view, canvas, settings = {}) {
         else trailing = setTimeout(favicon, 125)
       }
     }
-    requestAnimationFrame(frame)
+    next()
   }
-  requestAnimationFrame(frame)
+  // Frames follow the display, which stops for a hidden page; a mark kept moving (hidden) with an icon in the tab
+  // steps on a timer instead, at the icon's pace
+  let pending = 0, timed = false
+  function next() {
+    timed = document.hidden && o.hidden && !!tab
+    pending = timed ? setTimeout(() => frame(performance.now()), 125) : requestAnimationFrame(frame)
+  }
+  const restart = () => { (timed ? clearTimeout : cancelAnimationFrame)(pending); next() }
+  document.addEventListener('visibilitychange', restart)
+  next()
 
   return {
     set(changes) {
       Object.assign(o, changes)
       changed = true
       if (o.sound !== 'none' && navigator.userActivation?.isActive) hear()
+      if (document.hidden) restart()
     },
   }
 }

@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>audio logo</title>
-  <link rel="icon" href="logo.svg">
-  <link rel="preload" href="assets/geist.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="tokens.css">
+  <link rel="icon" href="../assets/logo.svg">
+  <link rel="preload" href="../assets/geist.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="../assets/tokens.css">
   <link rel="stylesheet" href="logo.css">
 </head>
 <body>
@@ -42,7 +42,7 @@
 
   <script type="module">
   import { logo, WINDOWS, SIGNALS, DITHERS, SCREENS, label, drawing } from './logo.js'
-  import { motion, HOVERS, LIFTS, SOUNDS } from './logo-motion.js'
+  import { motion, HOVERS, LIFTS, SOUNDS } from './motion.js'
 
   const $ = s => document.querySelector(s)
   const root = document.documentElement, canvas = $('canvas'), form = $('#controls'), invert = $('#invert')

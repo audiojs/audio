@@ -100,6 +100,7 @@ audio.op('myOp', {
   ranged: true,                           // op handles {at, duration} itself — engine skips its range scoping
   auto: 'sample',                         // op samples function params itself (default: engine, 128-sample steps)
   fnArgs: ['arg1'],                       // params that are genuine functions, not automation (e.g. transform's fn)
+  prepare: async (a, index) => { },       // async work before render (model inference), see below
 })
 ```
 
@@ -261,6 +262,18 @@ audio.op('repair', {
 })
 ```
 
+### prepare
+
+`async (a, index) => void`, awaited per edit after `load`, before anything renders: work an
+edit needs that cannot run inside the synchronous render, such as model inference over its
+whole input. The edit's input is `a` as the edits before it leave it; the op keeps its result
+on the edit's options under a symbol key, which reaches `ctx` and stays out of serialization.
+`vocals({ model })` separates this way, then its `process` copies the result block by block.
+A prepare that needs only part of its input reads that range, and a source still arriving is
+waited for only that far: `denoise({ noise: { at, duration } })` learns its noise print from the
+range, then streams (its input `audio.from(a)`, which follows a source still arriving, with `a`'s
+edits before `index`).
+
 ### latency
 
 Declared lookahead in samples — a number, or `(opts, sampleRate) => samples` for
@@ -409,11 +422,13 @@ audio.stat('lo', { block: band, reduce: rMean })
 audio.stat('hi', { block: band, reduce: rMean })
 ```
 
+A record can also carry fields no stat is named after: list them in `extra` and they land in `a.stats` beside the stat's own. A field that holds its block's place on a grid counted from the start of the stats names the grid's `period: sr => samples`: an edit that moves blocks by other than whole periods drops the field, and a query that needs it measures again (a range: the range itself). The `energy` stat does this for the 100 ms grid of BS.1770's gating blocks (`kcut1`, `kcut2`), so integrated loudness is exact from block stats. `a.stats.length` is the samples the blocks cover; the last block can be short.
+
 `reduce` is `(blockValues, from, to) → number` — it combines the values returned by `block`, enabling `a.stat('mystat')` scalar and `a.stat('mystat', {bins})` binned queries.
 
 `query` adds a derived aggregation: `query(stats, chs, from, to, sr) → value`. Used for stats that derive from other block data (e.g. `db` derives from `min`/`max`, `peak` from `min`/`max`, `rms` from `ms`).
 
-`ctx` has `sampleRate` and persists across blocks within one decode session — set any property for stateful computation.
+`ctx` has `sampleRate` and persists across blocks within one decode session (and across the blocks of a playback, for the meter) — set any property for stateful computation.
 
 Registered stats auto-participate in the playback meter — `a.meter('mystat', cb)` streams per-block values during playback. Block-defined stats emit the raw block value; `query`-defined stats are evaluated against a single-block pseudo-stats window.
 
@@ -452,10 +467,12 @@ audio(4).poly({ notes: [{ time: 0, midi: 60, duration: 1 }, { time: 0, midi: 64,
 
 `audio.plugins` maps name → package; the packages install with `audio`. Registry ops are instance methods from the start: `a.compressor(-30, 8)` records the edit and the package loads (dynamic import) at the first render, mapping the positional args onto its params. Registry stats load inside `a.stat(name)`. The CLI resolves names the same way; a sidechain file is `key:FILE` (`ducker key:voice.wav`).
 
+`audio.import(spec)` is how a registry package loads, `import(spec)` by default. A bundle whose bundler cannot follow a computed `import()` (a worker has no import map) replaces it with literal imports: `audio.import = spec => loaders[spec]()`. The REPL's worker does this with one generated `() => import('…')` per registry package.
+
 Op plugins:
 
 **dynamics** compressor · limiter · gate · expander · deesser · ducker · compand · softclip · leveler · transient-shaper · multiband · fet · opto · varimu · vca —
-**denoise** dehum · specsub · wiener · omlsa · dereverb · deplosive · dewind · declick · declip · decrackle · debreath —
+**denoise** dehum · specsub · wiener · omlsa · dereverb · deplosive · dewind · declick · declip · decrackle · debreath · rnnoise (optional package: `@audio/neural-denoise`) —
 **effects** delay · chorus · flanger · phaser · tremolo · vibrato · autowah · wah · bitcrusher · distortion · exciter · ringmod · freqshift · multitap · pingpong · slew · noiseshaper · lofi · graindelay · stutter · subbass · sbr · rotary · tapestop —
 **reverb** freeverb · schroeder · plate · fdn · spring · shimmer —
 **filter** moog · korg35 · diode · oberheim · resonator · spectral-tilt · variable · comb · dcblocker · emphasis · deemphasis · derivative · integral —
