@@ -35,7 +35,7 @@
 import { notes as noteTracker } from '@audio/pitch-pyin'
 import { name as midiToName } from '@audio/note'
 import hann from 'window-function/hann'
-import audio from '../core.js'
+import audio, { mono, pickChannels, perChannel } from '../core.js'
 
 const need = (what, pkgs, p) => p.catch(e => { throw new Error(`${what}: install ${pkgs} (${e.message})`) })
 const loadChords = () => need('chords', '@audio/mir-nnls-chroma @audio/mir-chordino (GPL-2.0-or-later)',
@@ -55,18 +55,6 @@ const loadStage1 = () => stage1 ??= import('@audio/neural-pitch').then(m => m.ca
 let wins = {}
 let hannWin = n => wins[n] || (wins[n] = Float32Array.from({ length: n }, (_, i) => hann(i, n)))
 
-/** Stream the channels' mean. */
-async function* mono(inst, opts) {
-  for await (let pcm of inst.stream({ at: opts?.at, duration: opts?.duration })) {
-    let n = pcm[0]?.length
-    if (!n) continue
-    if (pcm.length === 1) { yield pcm[0]; continue }
-    let m = new Float32Array(n)
-    for (let ch of pcm) for (let i = 0; i < n; i++) m[i] += ch[i] / pcm.length
-    yield m
-  }
-}
-
 /** NNLS chromagram of the range, and where it ends (s). */
 async function chromagramOf(inst, opts, chromagram) {
   let write = chromagram({ fs: inst.sampleRate, blockSize: opts?.frameSize, stepSize: opts?.hopSize, tuning: opts?.tuning }), n = 0
@@ -84,35 +72,35 @@ audio.stat('key', {})
 // scoops stay inside a note, a note played again on its pitch splits at the level rise.
 // Frames stream through, so memory holds the notes, not the audio. `robust` hands the HMM a
 // network's candidates instead of YIN's (pitch-pyin's `candidates` hook).
-audio.fn.notes = async function(opts) {
+audio.fn.notes = perChannel(async function(opts) {
   if (opts?.poly) return polyNotes(this, opts)
   let write = noteTracker({ ...opts, fs: this.sampleRate, ...(opts?.robust && { candidates: await loadStage1() }) }), events = []
   for await (let m of mono(this, opts)) events.push(...write(m))
   events.push(...write())
   return events.map(({ time, duration, freq, midi, clarity }) => ({ time, duration, freq, midi, note: midiToName(midi), clarity }))
-}
+})
 
 // Polyphonic: Basic Pitch reads the whole range at once (its posteriors take about 9 MB per
 // minute). Times are relative to `at`, as in the monophonic path.
-async function polyNotes(inst, { at, duration, poly, frameSize, hopSize, ...opts }) {
+async function polyNotes(inst, { at, duration, channel, poly, frameSize, hopSize, ...opts }) {
   let transcribe = await loadNeural()
-  let notes = await transcribe(await inst.read({ at, duration }), { ...opts, sampleRate: inst.sampleRate })
+  let notes = await transcribe(pickChannels(await inst.read({ at, duration }), channel), { ...opts, sampleRate: inst.sampleRate })
   return notes.map(({ time, duration, freq, midi, velocity, bends }) => ({ time, duration, freq, midi, note: midiToName(midi), velocity, bends }))
 }
 
 // ── Chords — Chordino on NNLS chroma ────────────────────────────
 
-audio.fn.chords = async function(opts) {
+audio.fn.chords = perChannel(async function(opts) {
   let [{ default: chromagram }, { default: chordino }] = await loadChords()
   let cg = await chromagramOf(this, opts, chromagram)
   // silence has no chords
   if (!cg.treble.some(c => c.some(v => v > 0))) return []
   return chordino(cg, { boostN: opts?.boostN, end: cg.end })
-}
+})
 
 // ── Key — Krumhansl-Schmuckler on the mean chroma ───────────────
 
-audio.fn.key = async function(opts) {
+audio.fn.key = perChannel(async function(opts) {
   let pcp = opts?.method === 'pcp', [{ default: chroma }, { default: key }] = await loadKey(pcp)
   let avg = new Float64Array(12), sum = 0
   if (pcp) {
@@ -130,4 +118,4 @@ audio.fn.key = async function(opts) {
   for (let k = 0; k < 12; k++) sum += avg[k]
   if (!sum) return { tonic: -1, mode: 'major', label: 'N', confidence: 0 }
   return key(avg)
-}
+})

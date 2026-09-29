@@ -1,6 +1,6 @@
 {
   "name": "audio",
-  "version": "2.8.0",
+  "version": "2.8.1",
   "description": "Audio loading, playback, analysis and editing",
   "type": "module",
   "main": "audio.js",
@@ -91,8 +91,8 @@
     "@audio/denoise-dewind": "^0.1.9",
     "@audio/denoise-omlsa": "^0.2.0",
     "@audio/denoise-repair": "^0.2.0",
-    "@audio/denoise-spectral": "^0.2.0",
-    "@audio/denoise-wiener": "^0.2.0",
+    "@audio/denoise-spectral": "^0.2.1",
+    "@audio/denoise-wiener": "^0.2.1",
     "@audio/dynamics-compand": "^0.1.6",
     "@audio/dynamics-compressor": "^0.3.0",
     "@audio/dynamics-deesser": "^0.2.7",
@@ -243,7 +243,7 @@
     "@audio/weighting-k": "^1.2.0",
     "@audio/window": "^1.0.3",
     "audio-type": "^2.8.0",
-    "fourier-transform": "^2.4.2",
+    "fourier-transform": "^2.5.1",
     "parse-duration": "^2.1.9",
     "pcm-convert": "^3.3.0",
     "window-function": "^3.0.0"

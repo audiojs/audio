@@ -13,7 +13,7 @@ import convert, { parse as parseFmt } from 'pcm-convert'
 import parseDuration from 'parse-duration'
 import { resolveBuses } from './batch.js'
 
-audio.version = '2.8.0'
+audio.version = '2.8.1'
 
 /** Parse time value: number passthrough, string via parse-duration or timecode. */
 export function parseTime(v) {
@@ -284,7 +284,28 @@ export const yieldTask =
 export function resolveChannels(channel, total) {
   let perCh = Array.isArray(channel)
   let chs = channel != null ? (perCh ? channel : [channel]) : Array.from({ length: total }, (_, i) => i)
+  for (let c of chs) if (!Number.isInteger(c) || c < 0 || c >= total) throw new RangeError(`channel ${c}: the audio has ${total} channel${total === 1 ? '' : 's'}`)
   return { chs, perCh }
+}
+
+/** The channels `channel` picks from a block, as resolveChannels reads it: all by default. */
+export const pickChannels = (pcm, channel) => resolveChannels(channel, pcm.length).chs.map(c => pcm[c])
+
+/** A streaming stat method that reads `{ channel }` as the block stats do: an array of channels answers per channel. */
+export const perChannel = f => function (opts) {
+  return Array.isArray(opts?.channel) ? Promise.all(opts.channel.map(channel => f.call(this, { ...opts, channel }))) : f.call(this, opts)
+}
+
+/** Stream a range as the chosen channels' mean: what beats, notes, chords and key read. */
+export async function* mono(inst, opts) {
+  for await (let all of inst.stream({ at: opts?.at, duration: opts?.duration })) {
+    let pcm = pickChannels(all, opts?.channel), n = pcm[0]?.length
+    if (!n) continue
+    if (pcm.length === 1) { yield pcm[0]; continue }
+    let m = new Float32Array(n)
+    for (let ch of pcm) for (let i = 0; i < n; i++) m[i] += ch[i] / pcm.length
+    yield m
+  }
 }
 
 /** Emit event on instance. Snapshots listeners so a handler that (un)subscribes mid-emit

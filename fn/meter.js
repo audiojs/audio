@@ -16,10 +16,13 @@ function frameValue(name, raw, blockChs, sr, opts) {
   let { chs, perCh } = resolveChs(opts?.channel, ch)
 
   if (name === 'spectrum') {
+    // the chosen channels' mean power spectrum (all by default)
     let N = opts?.N ?? 1024
-    let src = blockChs[0], input
-    if (src.length >= N) input = src.subarray(0, N)
-    else { input = new Float32Array(N); input.set(src) }
+    let input = chs.map(c => {
+      let src = blockChs[c]
+      if (src.length >= N) return src.subarray(0, N)
+      let x = new Float32Array(N); x.set(src); return x
+    })
     let spec = melSpectrum(input, sr, {
       bins: opts?.bins ?? 128, fMin: opts?.fMin, fMax: opts?.fMax, weight: opts?.weight
     })

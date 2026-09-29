@@ -58,6 +58,20 @@ Not published: `pcm-convert` 3.3.0 (committed; npm wants the owner's OTP), `neur
 
 Follow-ups: `denoise-detect` still pins the 0.1.x kernels and stft 1.x, so `@audio/denoise`'s `denoise()` runs the old ones (detect 0.3.0); `dynamics-multiband` and the six compressor dependents stay on compressor 0.2.x (identical `compressorGain`); Opus in MP4 is not end-trimmed (10248 samples where ffprobe says 9600); 7.1 AAC channel order is not mapped; `fn/beat.js` `detect()` and `fn/spectrum.js` read the first channel only.
 
+## Next, from 2026-09-29
+
+Done: Order steps 1, 2, 4 and 5 (ops, `vocals` weights, audio → mel baseline, recognizer M0 and M1) and mel's harmonics. In order, what follows:
+
+1. **Track 4, modal snapshots.** No training; `synth-modal` already plays `modes`. Build the fit: `sinusoidal-track` partials, a decay fit per partial (log-envelope regression; matrix pencil where modes sit closer than a bin), `{ ratio, gain, t60 }` out. Bench frozen first: synthetic modal renders with exact modes (ratio, t60 error), then recordings (karatalas, bells, mridanga, tabla), scored by render-and-compare (`specLoss`). Done when a karatala re-rendered from its snapshot scores under the bench's threshold and plays in mel.
+2. **mel engine, rest of step 3.** The filter and inharmonic partials: Track 4's snapshots and M2's subtractive voices both need them, and analysis can't beat what the engine reaches.
+3. **Recognizer M2, subtractive families.** Corpus from the audiojs filter models (`filter-moog-ladder`, `-diode-ladder`, `-korg35`, `-oberheim`) and OB-Xd and Surge XT presets rendered headless (DawDreamer). Family and model heads on the M1 encoder recipe, catalog bound to its SHA; a seeded `match` refines the named preset. Bench: held-out presets and held-out synths, frozen before training.
+4. **Recognizer M3, real recordings.** `neural-separate` stems → note segments → recognizer → a timeline of named sounds; calibrate the "not in the catalog" threshold from rebuild distance.
+5. **Track 3, gesture × snapshot.** Harmonic amplitude tables over pitch and loudness taken from a recording, played by mel from a new pitch curve (DDSP's split without a network at playback).
+6. **Encoders where classical analysis fails (step 6).** Folding partials into curves, noise, reverb, polyphony: trained on mel's seeded renders, the GPU as data factory and candidate search.
+7. **Voice (step 8).** kNN-VC on WavLM features (`neural-diarize` already runs WavLM) with a vocoder, or a Kokoro voicepack encoder; "verified" is the speaker-verification cosine at the equal-error threshold.
+
+Open for the owner: `neural-timbre`'s DX7 catalog terms (unpublished until then); DeepFilterNet weight terms (fetched, never bundled).
+
 ## Principle
 
 gpu-font's [research.md](../../gpu-font/research.md) records the gpu-time rule: "Predict the uncertain part; compute deterministic rules normally." Audio's best small models follow it: RNNoise predicts 22 band gains and leaves the rest to DSP; DDSP drives a fixed additive synth. The [neural lane policy](../../@audio/neural/README.md) agrees: classical tools never require ML, deterministic pipelines stay classical.

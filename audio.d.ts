@@ -4,6 +4,8 @@
 
 /** Time value: seconds as number, or parseable string ('1.5s', '500ms', '1:30') */
 type Time = number | string
+/** A result, or one per channel when `channel` is an array */
+type PerChannel<C, R> = C extends number[] ? R[] : R
 
 type AudioSource = AudioInstance | AudioBuffer | Float32Array[] | number
 type FilterType = 'highpass' | 'lowpass' | 'bandpass' | 'notch' | 'eq' | 'lowshelf' | 'highshelf' | 'allpass'
@@ -107,35 +109,35 @@ export interface AudioInstance {
   stat(name: 'min' | 'max', opts?: { at?: Time, duration?: Time }): Promise<number>
   stat(name: 'min' | 'max', opts: { bins: number, at?: Time, duration?: Time, channel?: number }): Promise<Float32Array>
   stat(name: 'min' | 'max', opts: { bins: number, at?: Time, duration?: Time, channel: number[] }): Promise<Float32Array[]>
-  stat(name: 'spectrum', opts?: { bins?: number, at?: Time, duration?: Time, fMin?: number, fMax?: number, weight?: boolean }): Promise<Float32Array>
-  stat(name: 'cepstrum', opts?: { bins?: number, at?: Time, duration?: Time }): Promise<Float32Array>
+  /** Of the chosen channels' mean power (all by default) */
+  stat<C extends number | number[] = number>(name: 'spectrum', opts?: { bins?: number, at?: Time, duration?: Time, fMin?: number, fMax?: number, weight?: boolean, channel?: C }): Promise<PerChannel<C, Float32Array>>
+  stat<C extends number | number[] = number>(name: 'cepstrum', opts?: { bins?: number, at?: Time, duration?: Time, channel?: C }): Promise<PerChannel<C, Float32Array>>
   /** The noise print of a range, as `denoise({ noise })` takes it: dB in 1025 bands 23.4375 Hz apart, 0 to 24 kHz (white
    *  noise of RMS 0.01 prints −40 throughout). The channels' power averaged; `channel: [..]` a print each */
   stat(name: 'print', opts?: { at?: Time, duration?: Time, channel?: number }): Promise<number[]>
   stat(name: 'print', opts: { at?: Time, duration?: Time, channel: number[] }): Promise<number[][]>
   stat(name: 'silence', opts?: { threshold?: number, minDuration?: number, at?: Time, duration?: Time }): Promise<{ at: number, duration: number }[]>
-  stat(name: 'centroid', opts?: { at?: Time, duration?: Time }): Promise<number>
-  stat(name: 'flatness', opts?: { at?: Time, duration?: Time }): Promise<number>
+  stat<C extends number | number[] = number>(name: 'centroid' | 'flatness', opts?: { at?: Time, duration?: Time, channel?: C }): Promise<PerChannel<C, number>>
   stat(name: 'bpm', opts?: { at?: Time, duration?: Time, minBpm?: number, maxBpm?: number, delta?: number, minConfidence?: number, channel?: number | number[] }): Promise<number>
   stat(name: 'beats' | 'onsets', opts?: { at?: Time, duration?: Time, minBpm?: number, maxBpm?: number, delta?: number, channel?: number | number[] }): Promise<Float64Array>
-  stat(name: 'notes', opts: { poly: true, at?: Time, duration?: Time, minFreq?: number, maxFreq?: number, minDuration?: number, onsetThreshold?: number, frameThreshold?: number }): Promise<{ time: number, duration: number, freq: number, midi: number, note: string, velocity: number, bends: number[] }[]>
+  stat<C extends number | number[] = number>(name: 'notes', opts: { poly: true, at?: Time, duration?: Time, minFreq?: number, maxFreq?: number, minDuration?: number, onsetThreshold?: number, frameThreshold?: number, channel?: C }): Promise<PerChannel<C, { time: number, duration: number, freq: number, midi: number, note: string, velocity: number, bends: number[] }[]>>
   /** robust: pYIN's stage 1 from @audio/neural-pitch (optional package), for noise and rooms; YIN otherwise */
-  stat(name: 'notes', opts?: { poly?: false, robust?: boolean, at?: Time, duration?: Time, minFreq?: number, maxFreq?: number, frameSize?: number, hopSize?: number, minDuration?: number }): Promise<{ time: number, duration: number, freq: number, midi: number, note: string, clarity: number }[]>
+  stat<C extends number | number[] = number>(name: 'notes', opts?: { poly?: false, robust?: boolean, at?: Time, duration?: Time, minFreq?: number, maxFreq?: number, frameSize?: number, hopSize?: number, minDuration?: number, channel?: C }): Promise<PerChannel<C, { time: number, duration: number, freq: number, midi: number, note: string, clarity: number }[]>>
   /** Chordino on NNLS chroma (Mauch & Dixon 2010), as the reference plugin; tuning: concert A in Hz, read from the audio unless given */
-  stat(name: 'chords', opts?: { at?: Time, duration?: Time, frameSize?: number, hopSize?: number, tuning?: number, boostN?: number }): Promise<{ time: number, duration: number, root: number, quality: 'maj' | 'min' | '7' | 'maj7' | 'min7' | 'maj6' | 'min6' | 'dim' | 'aug' | 'hdim7' | 'N', bass: number, label: string, confidence: number }[]>
-  stat(name: 'key', opts?: { at?: Time, duration?: Time, frameSize?: number, hopSize?: number, tuning?: number, method?: 'nnls' | 'pcp' }): Promise<{ tonic: number, mode: 'major' | 'minor', label: string, confidence: number, scores?: { label: string, score: number }[] }>
+  stat<C extends number | number[] = number>(name: 'chords', opts?: { at?: Time, duration?: Time, frameSize?: number, hopSize?: number, tuning?: number, boostN?: number, channel?: C }): Promise<PerChannel<C, { time: number, duration: number, root: number, quality: 'maj' | 'min' | '7' | 'maj7' | 'min7' | 'maj6' | 'min6' | 'dim' | 'aug' | 'hdim7' | 'N', bass: number, label: string, confidence: number }[]>>
+  stat<C extends number | number[] = number>(name: 'key', opts?: { at?: Time, duration?: Time, frameSize?: number, hopSize?: number, tuning?: number, method?: 'nnls' | 'pcp', channel?: C }): Promise<PerChannel<C, { tonic: number, mode: 'major' | 'minor', label: string, confidence: number, scores?: { label: string, score: number }[] }>>
   stat<T extends string[]>(name: T, opts?: { at?: Time, duration?: Time, bins?: number, channel?: number | number[] }): Promise<{ [K in keyof T]: number | Float32Array | Float32Array[] }>
   stat(name: string, opts?: { at?: Time, duration?: Time, bins?: number, channel?: number | number[] }): Promise<number | Float32Array | Float32Array[]>
-  spectrum(opts?: { bins?: number, at?: Time, duration?: Time, fMin?: number, fMax?: number, weight?: boolean }): Promise<Float32Array>
-  cepstrum(opts?: { bins?: number, at?: Time, duration?: Time }): Promise<Float32Array>
+  spectrum<C extends number | number[] = number>(opts?: { bins?: number, at?: Time, duration?: Time, fMin?: number, fMax?: number, weight?: boolean, channel?: C }): Promise<PerChannel<C, Float32Array>>
+  cepstrum<C extends number | number[] = number>(opts?: { bins?: number, at?: Time, duration?: Time, channel?: C }): Promise<PerChannel<C, Float32Array>>
   silence(opts?: { threshold?: number, minDuration?: number, at?: Time, duration?: Time }): Promise<{ at: number, duration: number }[]>
   /** stat('print'): the noise print of a range, for denoise({ noise }) */
   print(opts?: { at?: Time, duration?: Time, channel?: number }): Promise<number[]>
   print(opts: { at?: Time, duration?: Time, channel: number[] }): Promise<number[][]>
-  centroid(opts?: { at?: Time, duration?: Time }): Promise<number>
-  flatness(opts?: { at?: Time, duration?: Time }): Promise<number>
-  /** High-fidelity beat/tempo detection via spectral flux (single streaming pass). More precise than stat('bpm'). */
-  detect(opts?: { at?: Time, duration?: Time, frameSize?: number, hopSize?: number, minBpm?: number, maxBpm?: number, delta?: number }): Promise<{ bpm: number, confidence: number, beats: Float64Array, onsets: Float64Array }>
+  centroid<C extends number | number[] = number>(opts?: { at?: Time, duration?: Time, channel?: C }): Promise<PerChannel<C, number>>
+  flatness<C extends number | number[] = number>(opts?: { at?: Time, duration?: Time, channel?: C }): Promise<PerChannel<C, number>>
+  /** High-fidelity beat/tempo detection via spectral flux of the chosen channels' mean (single streaming pass). More precise than stat('bpm'). */
+  detect<C extends number | number[] = number>(opts?: { at?: Time, duration?: Time, frameSize?: number, hopSize?: number, minBpm?: number, maxBpm?: number, delta?: number, channel?: C }): Promise<PerChannel<C, { bpm: number, confidence: number, beats: Float64Array, onsets: Float64Array }>>
   /** Serialize to JSON */
   toJSON(): { source: string | null, edits: EditOp[], sampleRate: number, channels: number, duration: number }
 

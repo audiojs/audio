@@ -9,7 +9,7 @@ import { melSpectrum, analyzeBlocks } from './spectrum.js'
 
 /**
  * Compute MFCCs from a block of samples.
- * @param {Float32Array} samples — mono PCM block (power-of-2 length)
+ * @param {Float32Array|Float32Array[]} samples – mono PCM block, or one per channel (their mean power); power-of-2 length
  * @param {number} sr — sample rate
  * @param {object} [opts]
  * @param {number} [opts.bins=13] — number of cepstral coefficients
@@ -48,17 +48,17 @@ function dct(bins, nMel) {
 
 // ── Stat registration ───────────────────────────────────────────
 
-import audio from '../core.js'
+import audio, { perChannel } from '../core.js'
 
 audio.stat('cepstrum', {})
 
 /** a.stat('cepstrum', {bins}) → average MFCCs over range */
-audio.fn.cepstrum = async function(opts) {
+audio.fn.cepstrum = perChannel(async function(opts) {
   let bins = opts?.bins ?? 13
   let sr = this.sampleRate
 
-  let { acc, cnt } = await analyzeBlocks(this, opts, 1024, bins, (block, acc) => {
-    let c = mfcc(block, sr, { bins })
+  let { acc, cnt } = await analyzeBlocks(this, opts, 1024, bins, (blocks, acc) => {
+    let c = mfcc(blocks, sr, { bins })
     for (let k = 0; k < bins; k++) acc[k] += c[k]
   })
 
@@ -66,4 +66,4 @@ audio.fn.cepstrum = async function(opts) {
   let out = new Float32Array(bins)
   for (let k = 0; k < bins; k++) out[k] = acc[k] / cnt
   return out
-}
+})

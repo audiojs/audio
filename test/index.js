@@ -1614,6 +1614,15 @@ test('meter — spectrum type returns Float32Array of bins', async t => {
   t.ok(max > 0, `non-zero spectrum (max ${max.toFixed(4)})`)
 })
 
+test('meter – spectrum hears every channel', async t => {
+  let R = tone(1000, 0.3), a = audio.from([new Float32Array(R.length), R], { sampleRate: 44100 }), last
+  a.meter({ type: 'spectrum', bins: 32 }, v => { last = v })
+  a.play()
+  await new Promise(r => a.on('ended', r))
+  let max = last.reduce((m, v) => Math.max(m, v), 0)
+  t.ok(max > 0.01, `the right channel's tone (max ${max.toFixed(4)})`)
+})
+
 test('meter — smoothing attenuates step response', async t => {
   // Compare raw vs smoothed: smoothed should show less variance block-to-block
   let ch = new Float32Array(44100 * 0.4)
@@ -3691,6 +3700,54 @@ test('stat(spectrum) — with range', async t => {
   t.ok(p2i > p1i, `1kHz peak (bin ${p2i}) > 440Hz peak (bin ${p1i})`)
 })
 
+test('stat(spectrum) – every channel: the mean of their power spectra, anti-phase content kept', async t => {
+  // L 440 Hz, R 2 kHz less that 440 Hz: the first channel alone has no 2 kHz, the channels' mean sample no 440 Hz
+  let sr = 44100, s = genTone(440, 1, 0.5, sr), u = genTone(2000, 1, 0.5, sr), r = u.map((v, i) => v - s[i])
+  let spec = chs => audio.from(chs, { sampleRate: sr }).stat('spectrum', { bins: 64 })
+  let st = await spec([s, r]), L = await spec([s]), R = await spec([r]), err = 0
+  // bands above -120 dB: below, the stat's -200 dB floor bends the sum
+  for (let b = 0, e; b < 64; b++) if ((e = 10 * Math.log10((10 ** (L[b] / 10) + 10 ** (R[b] / 10)) / 2)) > -120) err = Math.max(err, Math.abs(st[b] - e))
+  t.ok(err < 0.001, `each band the mean of the channels' powers (max error ${err.toFixed(5)} dB)`)
+  let same = await spec([s, s])
+  t.ok(same.every((v, b) => Math.abs(v - L[b]) < 1e-4), 'identical channels read as mono')
+})
+
+test('stat(centroid, flatness, cepstrum) – a sound in the right channel alone reads as in mono', async t => {
+  let sr = 44100, x = genTone(440, 1, 0.3, sr), seed = 7
+  for (let i = 0; i < x.length; i++) x[i] += 0.05 * ((seed = seed * 16807 % 2147483647) / 2147483647 - 0.5)
+  let st = audio.from([new Float32Array(x.length), x], { sampleRate: sr }), one = audio.from([x], { sampleRate: sr })
+  t.almost(await st.stat('centroid'), await one.stat('centroid'), 1e-6, 'centroid')
+  t.almost(await st.stat('flatness'), await one.stat('flatness'), 1e-6, 'flatness')
+  // the mean power is half the right channel's: c0 falls by 40 mel bands × ln 2 (less the bands next to empty,
+  // whose log holds at its floor), the shape (c1..) stays
+  let cs = await st.stat('cepstrum'), c1 = await one.stat('cepstrum')
+  t.almost(cs[0], c1[0] - 40 * Math.LN2, 0.05, `c0 at half the power (${(cs[0] - c1[0]).toFixed(3)})`)
+  t.ok(cs.every((v, k) => !k || Math.abs(v - c1[k]) < 0.005), 'c1.. as mono')
+})
+
+test('stat(spectrum, centroid, cepstrum, notes), detect() – { channel } reads the chosen channels', async t => {
+  let sr = 44100, x = genTone(440, 1, 0.5, sr), z = new Float32Array(x.length)
+  let a = audio.from([z, x], { sampleRate: sr }), one = audio.from([x], { sampleRate: sr })
+  let peak = s => s.reduce((m, v) => Math.max(m, v), -Infinity)
+  t.ok(peak(await a.stat('spectrum', { channel: 0 })) < -150, 'spectrum: channel 0 is silent')
+  t.is(Array.from(await a.stat('spectrum', { channel: 1 })), Array.from(await one.stat('spectrum')), 'spectrum: channel 1 is the tone')
+  t.is(await a.stat('centroid', { channel: [0, 1] }), [0, await one.stat('centroid')], 'centroid: [0, 1] per channel')
+  t.is(Array.from(await a.stat('cepstrum', { channel: 1 })), Array.from(await one.stat('cepstrum')), 'cepstrum: channel 1 is the tone')
+  t.is((await a.stat('notes', { channel: 0 })).length, 0, 'notes: none in channel 0')
+  t.is((await a.stat('notes', { channel: 1 })).map(n => n.note), ['A4'], 'notes: A4 in channel 1')
+  let c = clickTrack(120, 8, sr), b = audio.from([new Float32Array(c.length), c], { sampleRate: sr })
+  t.is((await b.detect({ channel: 0 })).bpm, 0, 'detect: no beat in channel 0')
+  let d = await b.detect({ channel: 1 })
+  t.ok(Math.abs(d.bpm - 120) < 3, `detect: 120 BPM in channel 1 (got ${d.bpm.toFixed(1)})`)
+})
+
+test('stat: a channel the audio lacks throws, naming it', async t => {
+  let a = audio.from([new Float32Array(4410), new Float32Array(4410)], { sampleRate: 44100 })
+  for (let name of ['db', 'spectrum', 'notes'])
+    t.ok(await a.stat(name, { channel: 2 }).then(() => false, e => e instanceof RangeError && /channel 2: the audio has 2 channels/.test(e.message)), `${name}: channel 2 of 2`)
+  t.ok(await a.stat('db', { channel: [0, -1] }).then(() => false, e => e instanceof RangeError), 'a negative channel in an array')
+})
+
 
 // ── Cepstrum stat ────────────────────────────────────────────────────────
 
@@ -4043,6 +4100,11 @@ test('stretch(curve) — serializable sliding stretch + ranged form', async t =>
   t.ok(Math.abs(b.duration - 2.5) < 0.01, `ranged sliding stretch (${b.duration.toFixed(3)} ≈ 2.5)`)
   let q = await b.read()
   t.ok(q[0].subarray(0, sr >> 1).every((v, i) => Math.abs(v - d[i]) < 1e-6), 'pre-range untouched')
+  // the vocoder's rate is read from the range start, as the drain's: no silent gap while the factor rises (inside
+  // the stretched 0.5 to 2 s; the splice back at 2 s crossfades two phases of a pure sine and dips on its own)
+  let w = 1024, low = Infinity
+  for (let i = sr >> 1; i + w <= 1.95 * sr; i += w >> 1) { let e = 0; for (let j = i; j < i + w; j++) e += q[0][j] ** 2; low = Math.min(low, Math.sqrt(e / w)) }
+  t.ok(low > 0.1, `no dropout: quietest window RMS ${low.toFixed(3)}`)
 })
 
 // Markers at 1, 2, 3 s, the one at 2 s dragged to 2.4 s: 1–2 s plays ×1.4, 2–3 s ×0.6, the rest untouched.
@@ -4247,6 +4309,15 @@ test('detect() — full result with all fields', async t => {
   t.ok(result.beats instanceof Float64Array, 'beats is Float64Array')
   t.ok(result.onsets instanceof Float64Array, 'onsets is Float64Array')
   t.ok(result.confidence >= 0, 'confidence non-negative')
+})
+
+test('detect() – every channel: a beat in the right channel alone reads as in the channels\' mean', async t => {
+  let sr = 44100, x = clickTrack(120, 8, sr), det = chs => audio.from(chs, { sampleRate: sr }).detect()
+  let st = await det([new Float32Array(x.length), x]), mean = await det([x.map(v => v / 2)])
+  t.ok(Math.abs(st.bpm - 120) < 3, `120 BPM heard in the right channel (got ${st.bpm.toFixed(1)})`)
+  t.is(Array.from(st.beats), Array.from(mean.beats), 'beats of the channels\' mean')
+  let same = await det([x, x]), one = await det([x])
+  t.is([same.bpm, ...same.beats], [one.bpm, ...one.beats], 'identical channels read as mono')
 })
 
 test('stat(bpm) — with range opts', async t => {

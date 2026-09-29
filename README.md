@@ -453,7 +453,7 @@ m.stop()                                                           // release
 | Method                         | Description                                                                                                                         |
 |:--|:--|
 | `await .stat(name, opts?)` | one value; with `{ bins }` a `Float32Array`; an array of names gives an array. `{ channel: n }` one channel, `[n, m]` per channel; `{at, duration}` sub-range. |
-| `await .detect(opts?)` | `{ bpm, confidence, beats, onsets }` in one pass. |
+| `await .detect(opts?)` | `{ bpm, confidence, beats, onsets }` in one pass; `{ channel }` as in `stat`. |
 | `await .check(spec)` | pass or fail against a delivery spec: `{ pass, rules: [{ name, value, unit, min, max, pass }] }`. `'acx'` (RMS, peak, noise floor, room tone, 44.1 kHz), `'podcast'` (Apple: -16 LUFS ±1, ≤ -1 dBTP), `'streaming'` (Spotify: plays at -14 LUFS, ≤ -1 dBTP), `'broadcast'` (EBU R 128: -23 ±0.2 LUFS, ≤ -1 dBTP), `'netflix'` (dialog -27 ±2 LUFS, ≤ -2 dBTP). Each limit cites its source in [fn/check.js](fn/check.js). |
 
 | Stat                         | Description                                                                                                                         |
@@ -474,7 +474,7 @@ m.stop()                                                           // release
 | `'flatness'` | spectral flatness: 0 tonal, 1 noise. |
 | `'correlation'` | L/R phase correlation, −1 to +1. Mono returns 1. |
 | `'max'`, `'min'` | peak envelope per bin, for waveforms. |
-| `'spectrum'` | mel spectrum in dB (A-weighted). |
+| `'spectrum'` | mel spectrum in dB (A-weighted); of several channels, their mean power. |
 | `'cepstrum'` | MFCCs. |
 | `'bpm'` | tempo. |
 | `'beats'`, `'onsets'` | timestamps as `Float64Array` (seconds). |
