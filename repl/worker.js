@@ -250,11 +250,20 @@ function spectrum({ output, from, to, columns, rows = 512, scale = 'log', low, h
   return { channels, columns, rows, peak, ready: all }
 }
 
+// The output named by the run that made it, once whole; null once a newer output has replaced it
+async function whole(output) {
+  const r = outputs.get(output)
+  if (r && !r.done) await r.finished
+  return r?.done ? r : null
+}
+
 // Where the output's hits start, in seconds: cue points for warping. After a closing warp() they are the hits of
 // the audio before it, where its markers take them: stretching makes no hits, though its smear can read as some.
-async function onsets() {
-  const r = await settled()
-  if (!r?.length) return { times: [] }
+// Null for an output a newer one has replaced: the page reads hits against the code that made them.
+async function onsets({ output }) {
+  const r = await whole(output)
+  if (!r) return { times: null }
+  if (!r.length) return { times: [] }
   r.onsets ??= await hits(r)
   return { times: r.onsets }
 }
@@ -284,8 +293,8 @@ function carry(times, markers, end) {
 
 // The output's pitch: f0 in Hz every 10 ms, 0 where unvoiced or silent. YIN (de Cheveigné & Kawahara 2002) on the
 // mono mix at about 11 kHz: averaging four samples before dropping three keeps voices, whose pitch stays under 1 kHz.
-async function contour() {
-  const r = await settled()
+async function contour({ output }) {
+  const r = await whole(output)
   if (!r?.length) return { times: [], f0: [] }
   if (r.contour) return r.contour
   const x = mixdown(r), d = Math.max(1, Math.floor(r.sampleRate / 11025)), fs = r.sampleRate / d

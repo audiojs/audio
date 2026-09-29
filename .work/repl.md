@@ -42,7 +42,7 @@ Sources: R11:interactive-tools, R12:spectrogram-waveform-display.
 |---|---|---|---|
 | Zoom buttons, Zoom to selection (⌘\\), full (⌘0) | wheel, pinch, Ctrl+wheel, `=` `-` `0`; View > Zoom to the selection; out past the whole to eight times it | ✅ | |
 | Zoom tool (Z), Grab tool (G) | wheel, trackpad and pinch | ⊘ | Modes a trackpad makes unnecessary |
-| Scrub | none in RX: dragging the playhead "plays back audio while positioning" | ★ | Hold or drag the caret, or a selection's edge, and the moment under it sounds, at its own pitch (vocoder with random-phase noise bins); on a box, only its band |
+| Scrub | none in RX: dragging the playhead "plays back audio while positioning" | ★ | Press, hold or drag the caret, or a selection's edge, and the moment under it sounds at once, at its own pitch, every channel (a vocoder with random-phase noise bins); an attack it passes plays once as recorded, not smeared (Nagel & Walther 2009, Röbel 2003); on a box, only its band |
 | Instant Process (I): every new selection is processed at once | the bar under the selection | ⊘ | A latched mode, the kind users forget is on |
 | Pencil | none (RX offers Interpolate instead) | ✗ | |
 | Clip gain line: add, drag, delete points, shift segments | the gain line (View), on its own dB scale: points drag, a press on the line adds one, a double-click removes one; ⌘-drag a selection up or down, or −3/+3 dB, adds a ramped trapezoid to it | ◐ | No segment moves |
@@ -88,7 +88,7 @@ Sources: R11:transport-controls---displays, R12:common-module-controls.
 | Pre-roll/post-roll for Preview | none | ✗ | |
 | Module Preview with live parameter changes, Bypass | every change re-renders and the new output takes over playback where it is (play({ from }), 20 ms crossfade), so a slider is heard as it moves | ◐ | No per-step bypass |
 | Compare Settings (named versions, rendered in the background) | Before: the file as it opened, level-matched, same place | ◐ | No versions of our own to compare |
-| Output noise/clicks/hum/reverb only (the residual) | Δ on a stack card: the output before the step less the output after it, drawn and played; off for steps that move time, where the two don't line up | ★ | Any step, not only RX's repair modules |
+| Output noise/clicks/hum/reverb only (the residual) | Δ on a stack card: the output before the step less the output after it, drawn and played; off for steps that change the sound's time, rate or channels, where the two don't line up | ★ | Any step, not only RX's repair modules |
 | Solo or mute a channel | none | ✗ | |
 | Click history items to A/B states | none | ✗ | See §6 |
 | Streaming Preview (a platform's normalization and codec) | Check measures against the spec; nothing to audition | ◐ | |

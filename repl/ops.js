@@ -199,7 +199,8 @@ const table = {
 export const ops = Object.fromEntries(Object.entries(table).map(([name, [group, text, params]]) =>
   [name, { name, group, text, ...(params === 'range' ? { params: RANGE, range: true } : params && { params }) }]))
 
-// Instance methods that are not edits. `sink` ends a chain: the REPL inserts edits before it.
+// Instance methods, beside the edits above. `sink` ends a chain: the REPL inserts edits before it. `edits`: it changes the
+// sound in place, sample for sample.
 export const methods = {
   stat: { text: 'Measure: loudness, peak, key, bpm…', async: true },
   detect: { text: 'Tempo, beats and onsets in one pass', async: true },
@@ -212,10 +213,14 @@ export const methods = {
   split: { text: 'Excerpts between times' },
   mark: { text: 'A marker at a time, with a label' },
   undo: { text: 'Undo the last edit' },
-  transform: { text: 'Process with your own function' },
-  filter: { text: 'Filter by type name' },
-  write: { text: 'Overwrite with samples' }
+  transform: { text: 'Process with your own function', edits: true },
+  filter: { text: 'Filter by type name', edits: true },
+  write: { text: 'Overwrite with samples', edits: true }
 }
+
+// A step whose output doesn't line up with its input, sample for sample: a cut, a stretch, a new rate, a join, another
+// count of channels; a method that isn't a change to the sound in place. What it takes out has no meaning (the stack's Δ).
+export const reshapes = name => ['Edit', 'Time & pitch'].includes(ops[name]?.group) || ['remix', 'crossfade', 'warp'].includes(name) || !!methods[name] && !methods[name].edits
 
 export const stats = {
   db: 'Peak level, dBFS', rms: 'RMS level', peak: 'Peak amplitude', loudness: 'Integrated loudness, LUFS',

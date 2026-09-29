@@ -1,4 +1,4 @@
-import { ops, format, fromManifest } from './ops.js'
+import { ops, format, fromManifest, reshapes } from './ops.js'
 import { chain, callAt, setArg, number, offCalls, turnOff, turnOn, parseCall } from './code.js'
 
 // The stack, beside the output: the chain's steps as cards, in order; the same chain as the code, as controls. A card
@@ -35,8 +35,10 @@ export default function stack(root, { ed, describe = async () => null, duration 
       dismissed = new Set([...dismissed].map(map))
       if (focus != null) focus = map(focus)
     }
-    const code = ed.code, calls = chain(code)?.calls || [], [from, to] = ed.range, at = callAt(code, ed.head)
+    const code = ed.code, c = chain(code), calls = c?.calls || [], [from, to] = ed.range, at = callAt(code, ed.head)
     const own = at && calls.some(k => k.to === at.to && k.name === at.name)
+    // audio.from(…) makes the sound: its call is the source, not a step on it
+    if (c?.root.name === 'VariableName' && code.slice(c.root.from, c.root.to) === 'audio' && calls[0]) calls[0] = { ...calls[0], origin: true }
     // the live steps and those turned off, in the order they stand
     const steps = [...calls, ...offCalls(code).map(o => ({ ...parseCall(o.text), ...o, dot: o.from, list: null, off: true }))].sort((p, q) => p.dot - q.dot)
     const rows = at && !own ? [{ ...at, outside: true }, ...steps] : steps
@@ -65,7 +67,8 @@ export default function stack(root, { ed, describe = async () => null, duration 
       // a press leaves the keys where they were: Space still plays, the code keeps its caret
       toggle.addEventListener('mousedown', event => event.preventDefault())
       toggle.addEventListener('click', () => flip(card))
-      if (!call.outside) {
+      // the source has nothing to turn off, take away or remove
+      if (!call.outside && !call.origin) {
         card.delta = button(head, 'step-delta', 'Δ', null, () => hear(card))
         card.on = button(head, 'step-on', null, 'M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0', () => onOff(card))
         button(head, 'step-remove', null, 'm7 7 10 10M17 7 7 17', () => drop(card), `Remove .${call.name}() from the chain`, `Remove ${call.name}`)
@@ -87,10 +90,9 @@ export default function stack(root, { ed, describe = async () => null, duration 
     return b
   }
 
-  // Live steps, in order: those the output runs
+  // Live steps, in order: those the output runs; the bar stays under the source, which a chain can't do without
   const live = () => cards.filter(c => !c.call.off && !c.call.outside)
-  // A step that moves time (cuts, stretches, a new rate) has no difference to hear: before and after don't line up
-  const moves = name => ['Edit', 'Time & pitch'].includes(ops[name]?.group) || name === 'mark'
+  const least = () => live()[0]?.call.origin ? 1 : 0
 
   function render() {
     const code = ed.code, steps = live(), kept = bar == null ? Infinity : bar
@@ -107,18 +109,19 @@ export default function stack(root, { ed, describe = async () => null, duration 
         c.on.setAttribute('aria-pressed', String(!call.off))
         c.on.title = call.off ? `Turn .${call.name}() back on` : `Turn .${call.name}() off: the output without it`
         c.on.setAttribute('aria-label', call.off ? `Turn ${call.name} on` : `Turn ${call.name} off`)
-        c.delta.disabled = !!call.off || moves(call.name)
+        c.delta.disabled = !!call.off || reshapes(call.name)
         c.delta.setAttribute('aria-pressed', String(i >= 0 && i === delta))
-        c.delta.title = moves(call.name) ? `.${call.name}() moves time: nothing lines up to take away` : i === delta ? 'Back to the output' : `Hear and see what .${call.name}() takes out`
+        c.delta.title = reshapes(call.name) ? `.${call.name}() changes the sound's time, rate or channels: nothing lines up to take away` : i === delta ? 'Back to the output' : `Hear and see what .${call.name}() takes out`
         c.delta.setAttribute('aria-label', `What ${call.name} takes out`)
       }
       if (open && !c.params && ops[call.name]) { c.params = params(c); c.li.append(c.params.dom); c.params.load() }
       if (!open && c.params) { c.params.dom.remove(); c.params = null }
       c.params?.refresh()
     }
-    // the bar under the last step kept
-    const place = position()
+    // the bar under the last step kept; moved, it keeps the keys it had
+    const place = position(), keys = document.activeElement === rollback
     if (list.children[place] !== rollback) list.insertBefore(rollback, cards[place]?.li ?? null)
+    if (keys && document.activeElement !== rollback) rollback.focus({ preventScroll: true })
     rollback.classList.toggle('back', bar != null)
     const lit = cards.find(c => c.params?.ready && c.call.list?.from === focus)
     lit ? lit.params.guide() : oncall(null)
@@ -164,7 +167,7 @@ export default function stack(root, { ed, describe = async () => null, duration 
     rollback.setPointerCapture(event.pointerId)
     const move = e => {
       const steps = live(), gaps = steps.map(c => c.li.getBoundingClientRect()).map(r => r.top + r.height / 2)
-      const kept = gaps.filter(y => y < e.clientY).length
+      const kept = Math.max(least(), gaps.filter(y => y < e.clientY).length)
       const next = kept >= steps.length ? null : kept
       if (next !== bar) { bar = next; delta = null; render() }
     }
@@ -177,7 +180,8 @@ export default function stack(root, { ed, describe = async () => null, duration 
     const to = { ArrowUp: now - 1, ArrowDown: now + 1, Home: 0, End: n }[event.key]
     if (to == null) return
     event.preventDefault()
-    view(null, Math.max(0, to) >= n ? null : Math.max(0, to))
+    const kept = Math.max(least(), to)
+    view(null, kept >= n ? null : kept)
   })
 
   // A card's sliders, one per parameter; a plugin's come from its manifest, read by the engine.

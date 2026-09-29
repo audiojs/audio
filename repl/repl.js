@@ -407,7 +407,8 @@ async function evaluate() {
   // Built-in samples are made when a script first names one; the worker takes messages in order, so the file
   // arrives before the run that opens it, and runs stay in the order they were asked for.
   for (const name of script.names) if (!eng.has(name) && builtins[name]) eng.file(name, sample(name))
-  const coming = arrival(script.names)
+  // the output keeps the code that made it (what ran, and what the editor had)
+  const coming = Object.assign(arrival(script.names), { code: runs, editor: code })
   if (!waiting++) waited = performance.now()
   status()
   const result = await eng.run(script, coming)
@@ -488,7 +489,7 @@ function arrival(names) {
     })
     a.parts = []
     if (a.on) v.finish()
-    settle({ id: a.id, names, channels, sampleRate: m.sampleRate, duration: m.duration, stats: m.stats, segments: m.segments, markers: m.markers, bitDepth: m.bitDepth }, !a.on)
+    settle({ id: a.id, names, channels, sampleRate: m.sampleRate, duration: m.duration, stats: m.stats, segments: m.segments, markers: m.markers, bitDepth: m.bitDepth, code: a.code, editor: a.editor }, !a.on)
     status()
   }
   a.error = m => {
@@ -601,9 +602,12 @@ async function toggleAB() {
 async function marks() {
   v.show = state.show
   if (!state.whole) return
-  // the cues whether they show or not: a double-click selects between them, ⌥ and the arrows step by them
-  v.cues = cuesOf(await eng.onsets(), ed.code)
-  if (state.show.pitch) v.contour = await eng.contour()
+  // the cues whether they show or not: a double-click selects between them, ⌥ and the arrows step by them. They are the
+  // hits of the output shown, read against the code that made it; once the code has moved on (a cue dragged), the
+  // output coming brings its own, and the cues the view moved stay till then
+  const out = output, times = await eng.onsets(out.id)
+  if (times && out === output && out.editor === ed.code) v.cues = cuesOf(times, out.code)
+  if (state.show.pitch) { const f0 = await eng.contour(out.id); if (out === output) v.contour = f0 }
 }
 function toggleShow(name) {
   state.show = { ...state.show, [name]: !state.show[name] }

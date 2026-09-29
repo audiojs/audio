@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
+import vm from 'node:vm'
 import { promisify } from 'node:util'
 import { tmpdir } from 'node:os'
 import { extname, resolve, sep } from 'node:path'
@@ -198,6 +199,85 @@ test('code: the CLI translation makes the same audio as the script (bin/cli.js o
     assert.equal(cli(scripts[4], name => ops[name]?.params), 'audio in.wav denoise 20db noise:0s..0.4s 1s..1.5s')
     assert.equal(cli(`audio('in.wav').denoise({ noise: [{ at: 0, duration: 0.4 }, { at: 1, duration: 0.2 }] })`), null)
   } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+// ── The scrub voice ────────────────────────────────────────────
+
+// Its processor (repl/scrub.js), run in Node with the worklet's globals stubbed, a 128-frame quantum at a time: the
+// channels `x` at `rate`, the caret at caret(q) samples in quantum q, for `seconds`
+async function scrubbed(x, caret, seconds, rate = 48000) {
+  let Proc
+  vm.runInContext(await readFile(new URL('../repl/scrub.js', import.meta.url), 'utf8'), vm.createContext({
+    AudioWorkletProcessor: class { constructor() { this.port = { onmessage: null, postMessage() {} } } },
+    registerProcessor: (_, cls) => { Proc = cls }, sampleRate: rate, currentTime: 0
+  }))
+  const proc = new Proc(), send = data => proc.port.onmessage({ data }), Q = 128, n = Math.ceil(seconds * rate / Q)
+  send({ x, rate })
+  send({ caret: caret(0), on: true })
+  const out = x.map(() => new Float32Array(n * Q)), block = x.map(() => new Float32Array(Q))
+  for (let q = 0; q < n; q++) { send({ caret: caret(q) }); proc.process([], [block]); out.forEach((o, c) => o.set(block[c], q * Q)) }
+  return out
+}
+// noise 60 dB down, and a click at 0.5 s: 1 ms of noise, decaying; the same numbers every run (a 32-bit LCG)
+function clicked(rate = 48000, loud = 1) {
+  let seed = 1
+  const noise = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 31 - 1, click = rate / 2
+  return Float32Array.from({ length: rate }, (_, i) => noise() * (1e-3 + (i >= click && i < click + 48 ? loud * Math.exp(-(i - click) / 10) : 0)))
+}
+// attacks by their first difference, which a steady floor hardly has: where the loudest is, how sharp against the
+// source's, and how far over the floor the 20 ms before it rise
+function attack(y, x, rate = 48000) {
+  const d = v => Float64Array.from(v, (s, i) => i ? s - v[i - 1] : 0), rms = (v, a, b) => Math.sqrt(v.slice(a, b).reduce((s, u) => s + u * u, 0) / (b - a))
+  const dx = d(x), dy = d(y), click = rate / 2
+  let p = 0
+  for (let i = 1; i < dy.length; i++) if (Math.abs(dy[i]) > Math.abs(dy[p])) p = i
+  return { at: p, dy, sharp: Math.abs(dy[p]) / Math.max(...dx.slice(click, click + 48).map(Math.abs)), before: 20 * Math.log10(rms(dy, p - .02 * rate, p - .002 * rate) / rms(dx, 0, click - 480)) }
+}
+
+// A click the caret crosses is an event: it plays once, as recorded, with nothing of it before it. A vocoder alone
+// spreads it over the frames it falls in, a slow caret keeping it in many: 0.2 of its attack, 33 dB over the floor in the
+// 20 ms before it.
+test('scrub: a click dragged over at half speed, or back over it, plays once, as sharp as recorded, nothing smeared before it', async () => {
+  const x = clicked()
+  for (const [from, speed] of [[.4, .5], [.6, -.5]]) {
+    const a = attack((await scrubbed([x], q => from * 48000 + q * 128 * speed, .4))[0], x)
+    assert.ok(a.sharp > .8, `${speed}×: the attack at ${a.sharp.toFixed(2)} of the source's`)
+    assert.ok(a.before < 3, `${speed}×: ${a.before.toFixed(1)} dB over the floor before it`)
+  }
+})
+
+// Held on a click, the caret plays it once, then the floor around it: the attack is not held as a smeared noise
+test('scrub: a caret held on a click plays it once, then holds the sound around it', async () => {
+  const x = clicked(), out = (await scrubbed([x], () => 24000, .4))[0], a = attack(out, x)
+  assert.ok(a.sharp > .5, `once, at ${a.sharp.toFixed(2)} of its attack`)
+  const later = Math.max(...a.dy.slice(a.at + 0.03 * 48000).map(Math.abs))
+  assert.ok(later < Math.abs(a.dy[a.at]) * .1, `then ${(later / Math.abs(a.dy[a.at])).toFixed(3)} of it at most`)
+})
+
+// Every channel as one image: a click in the left channel alone sounds in the left alone
+test('scrub: a click in one channel sounds in that channel only', async () => {
+  const left = clicked(), right = clicked(48000, 0), [l, r] = await scrubbed([left, right], q => .4 * 48000 + q * 64, .4)
+  const a = attack(l, left), b = attack(r, left)
+  assert.ok(a.sharp > .8, `left: the attack at ${a.sharp.toFixed(2)}`)
+  assert.ok(b.sharp < .01, `right: ${b.sharp.toFixed(4)} of it`)
+})
+
+// A steady tone holds no onset: it scrubs as a tone, at its pitch and level
+test('scrub: a steady tone dragged at its own speed plays at its pitch and level', async () => {
+  const rate = 48000, x = Float32Array.from({ length: rate }, (_, i) => .5 * Math.sin(2 * Math.PI * 440 * i / rate))
+  const y = (await scrubbed([x], q => .2 * rate + q * 128, .5))[0].subarray(.2 * rate)
+  let crossings = 0
+  for (let i = 1; i < y.length; i++) if (y[i - 1] < 0 && y[i] >= 0) crossings++
+  const hz = crossings / (y.length / rate), db = 20 * Math.log10(Math.sqrt(y.reduce((s, v) => s + v * v, 0) / y.length) / (.5 / Math.SQRT2))
+  assert.ok(Math.abs(hz - 440) < 5, `${hz.toFixed(1)} Hz`)
+  assert.ok(Math.abs(db) < 1.5, `${db.toFixed(2)} dB`)
+})
+
+// At the edges nothing breaks: a sound shorter than a frame, silence, a caret before the start and past the end, and
+// one that jumps 20,000 samples a quantum all play finite samples
+test('scrub: short sounds, silence, a caret past either end or leaping stay finite', async () => {
+  const cases = [[[Float32Array.from({ length: 100 }, (_, i) => Math.sin(i))], q => q * 10], [[new Float32Array(48000)], q => q * 128], [[clicked()], () => -5000], [[clicked()], () => 90000], [[clicked(), clicked()], q => (q * 20000) % 48000]]
+  for (const [x, caret] of cases) for (const c of await scrubbed(x, caret, .2)) assert.ok(c.every(Number.isFinite))
 })
 
 // ── The reassigned spectrogram ─────────────────────────────────
@@ -1291,12 +1371,13 @@ test('repl: the caret drags like an edge, from its line or anywhere on the time 
   await page.addInitScript(tap)
   await open()
   const { box, x } = await axis(6.525), row = box.y + box.height - 8, lane = box.y + box.height / 2
-  // a press on the time row puts the caret there and sounds the moment under it at once
+  // a press on the time row puts the caret there and sounds the moment under it at once: sooner than the 200 ms a press
+  // was once held for before it sounded, on a machine however busy
   await page.mouse.move(x(3), row)
   await page.mouse.down()
-  await page.waitForTimeout(90)
+  await page.waitForTimeout(150)
   const pressed = await heard()
-  assert.ok(pressed.finite && pressed.peak > .01, `sounds within 90 ms of the press: peak ${pressed.peak}`)
+  assert.ok(pressed.finite && pressed.peak > .01, `sounds within 150 ms of the press: peak ${pressed.peak}`)
   await page.mouse.up()
   await page.locator('.time', { hasText: /^0:03\.000$/ }).waitFor()
   await page.waitForTimeout(300)
@@ -1632,6 +1713,37 @@ test('repl: a step turns off and on, Δ shows what it takes out, the bar rolls t
   assert.ok(await card('Fade').evaluate(el => el.classList.contains('rolled')))
   await page.locator('.rollback').dblclick()
   await page.locator('.viewing').waitFor({ state: 'detached' })
+})
+
+// A generated sound's first call makes it: the source has nothing to turn off, take away or remove, and the chain can't
+// roll back past it. A step that changes time, rate or channels has nothing to take away (Δ): it doesn't line up.
+test('repl: a generated sound\'s source has no switches and the bar stays under it; a step that reshapes has no Δ', async () => {
+  await open()
+  await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 440 * t), { duration: 1, channels: 2 }).gain(-3).filter('highpass', 80).remix(1).speed(2)`)
+  await lengthIs('0:00.500')
+  await tab('Stack')
+  const card = name => page.locator('.step', { has: page.locator('.step-name', { hasText: name }) })
+  assert.equal(await card('From').locator('button.icon-button').count(), 0)
+  assert.equal(await card('Gain').locator('button.icon-button').count(), 3)
+  const delta = name => card(name).getByRole('button', { name: `What ${name.toLowerCase()} takes out` })
+  assert.deepEqual([await delta('Gain').isDisabled(), await delta('Filter').isDisabled(), await delta('Remix').isDisabled(), await delta('Speed').isDisabled()], [false, false, true, true])
+  // Home on the bar: as far back as the source, not past it
+  await page.locator('.rollback').focus()
+  await page.keyboard.press('Home')
+  await page.locator('.viewing', { hasText: 'Rolled back to .from()' }).waitFor()
+  await lengthIs('0:01.000')
+  await page.keyboard.press('End')
+  await page.locator('.viewing').waitFor({ state: 'detached' })
+})
+
+// What each card says of its step: numbers with their units, a band in hertz, a range by its times, a gain curve by its
+// points, warp's markers as from → to, a sound by its name
+test('repl: each card says what its step is set to, whatever its arguments are', async () => {
+  await open()
+  await write(`audio('chime.wav')\n  .gain({ t: [0, 1, 2], v: [0, -6, 0] })\n  .spectral([500, 2000], -6, { at: 1, duration: 0.5 })\n  .warp([[1, 1.2], [2, 2.1]])\n  .mix(audio('chime.wav'), { at: 2 })\n  .normalize(-16, 'lufs')`)
+  await lengthIs('0:08.000')
+  await tab('Stack')
+  assert.deepEqual(await page.locator('.step-args').allInnerTexts(), ['curve, 3 points', '500 Hz – 2 kHz · −6 dB · 1–1.5 s', '1 → 1.2, 2 → 2.1', 'chime.wav · from 2 s', '−16 dB · lufs'])
 })
 
 // What the sound is, on the display: its rate resamples it, its channels mix it, each setting the chain's one call
