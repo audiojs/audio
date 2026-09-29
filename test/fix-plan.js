@@ -696,3 +696,17 @@ test('stream: seeks and crops at the final boundary of a baked chain', async t =
   t.is((await collect(mk().stream({ at: 4.5 }))).length, 0, 'stream({at: end}) yields nothing')
   t.is((await mk().read({ at: 4.5 }))[0].length, 0, 'read({at: end}) is empty')
 })
+
+// Block stats (1024 samples a block) remap through a plan only where each segment ends on a block edge or at its
+// source's end: a segment ending inside a block would read that block's samples past it. Here 0–1 s is a sine at
+// 0.25 and 1–2 s the same at full scale; 1 s at 8 kHz ends inside block 7
+test('stats remap — a crop from 0 or a remove ending inside a block measures only what stays', async t => {
+  let SR = 8000, x = Float32Array.from({ length: SR * 2 }, (_, i) => (i < SR ? .25 : 1) * Math.sin(2 * Math.PI * 300 * i / SR))
+  let peak = async a => Math.max(...(await a.read())[0].map(Math.abs))
+  t.ok(Math.abs(await peak(audio.from([x], { sampleRate: SR }).crop({ at: 0, duration: 1 }).normalize(0)) - 1) < 1e-3, 'crop from 0: normalized by its own peak')
+  // the loud second removed: what stays is the quiet first
+  t.ok(Math.abs(await peak(audio.from([x], { sampleRate: SR }).remove({ at: 1, duration: 1 }).normalize(0)) - 1) < 1e-3, 'remove: the removed audio no longer counts')
+  // block-aligned (1024 samples), the remap stands: the same answer, quickly
+  let aligned = Float32Array.from({ length: 4096 }, (_, i) => (i < 2048 ? .25 : 1) * Math.sin(i / 7))
+  t.ok(Math.abs(await peak(audio.from([aligned], { sampleRate: SR }).crop({ at: 0, duration: 2048 / SR }).normalize(0)) - 1) < 1e-3, 'aligned crop')
+})

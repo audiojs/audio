@@ -2,7 +2,7 @@
 
 _Audio playback, editing and analysis_
 
-<!-- <img src="preview.svg?v=1" alt="Audiojs demo" width="540"> -->
+<!-- <img src="docs/preview.svg?v=1" alt="Audiojs demo" width="540"> -->
 
 * **Any Format** — fast [wasm codecs](https://github.com/audiojs/decode), no ffmpeg.
 * **Non-destructive** — virtual edits, infinite undo, instant clone.
@@ -84,6 +84,30 @@ a.remove({ at: 120, duration: 15 }).fade(0.1, { at: 120 })
 
 // find clipped blocks
 let clips = await a.stat('clipping')
+
+// does it pass? each rule of the spec, measured
+let { pass, rules } = await a.check('podcast')         // acx, podcast, streaming, broadcast, netflix
+```
+
+### Master & deliver
+
+```js
+// master a song to a reference track: its tone (mid and side), width and loudness, under -1 dBTP
+audio('mix.wav').master(await audio('reference.wav')).save('master.wav')
+
+// audiobook chapter for ACX: RMS -23..-18 dB, peaks under -3 dB, floor under -60 dB, room tone at each end, 44.1 kHz
+let ch = audio('chapter-01.wav')
+  .highpass(80).omlsa({ gMin: -12 }).compressor({ threshold: -24, ratio: 2.5 })
+  .normalize(-20, 'rms', { ceiling: -3.5 })
+  .trim().pad(1.5, 2).roomtone()                      // room tone, not digital silence
+  .resample(44100)
+console.log(await ch.check('acx'))                    // passed 10 of 10 real narrations (.work/pro.md)
+await ch.save('chapter-01.mp3', { bitrate: 192 })
+
+// tighten pauses in a talking-head video, then hand the cuts to the video editor
+let talk = audio('talk.mp4').shrink(0.3)
+await talk.save('talk.m4a')                            // the sound, cut
+fs.writeFileSync('talk.edl', await talk.cuts('edl'))   // the same cuts for the picture (Premiere, Resolve)
 ```
 
 ### Compose
@@ -198,16 +222,16 @@ let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 | `.channels` | channel count. |
 | `.sampleRate` | sample rate. |
 | `.length` | samples per channel. |
-| `.currentTime` | playback position in seconds, smooth during playback. |
+| `.currentTime` | what the speakers play now, in seconds: their latency compensated, smooth; at pause it holds where playback resumes. |
 | `.playing` | true during playback. |
 | `.paused` | true when paused. |
 | `.volume` | 0..1 linear. Settable. |
 | `.muted` | mute, independent of volume. Settable. |
-| `.loop` | settable. |
-| `.playbackRate` | 0.0625..16, settable mid-playback; ramps click-free (~50ms varispeed). `.speed()` bakes it. |
+| `.loop` | settable, mid-playback too: the span repeats, each seam a 10 ms equal-power crossfade. |
+| `.playbackRate` | 0.0625..16, settable mid-playback; glides click-free (~50 ms, tape-style varispeed). `.speed()` bakes it. |
 | `.ended` | true when playback reached the end, not after `stop()`. |
 | `.seeking` | true during a seek. |
-| `.played` | promise, resolves when playback starts. |
+| `.played` | promise, resolves when playback sounds. |
 | `.recording` | true during mic recording. |
 | `.ready` | promise, resolves when fully decoded. |
 | `.source` | original source. |
@@ -236,6 +260,7 @@ let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 | `.reverse({at?, duration?})` | reverse audio or range. |
 | `.speed(rate)` | changes pitch and duration together. |
 | `.stretch(factor)` | changes duration, keeps pitch (phase-locked vocoder). A `t => f` or `{t, v}` factor slides the tempo; duration becomes ∫factor dt. |
+| `.warp(markers)` | move moments in time: `[[from, to], …]` in seconds. Between markers the audio stretches to fit, pitch kept; start and end stay.<br><sub>≡ Logic Flex Time, Ableton warp markers</sub> |
 | `.pitch(semitones)` | changes pitch, keeps duration. |
 | `.remix(channels)` | channel count, or a map: `[1, 0]` swaps L/R. |
 
@@ -251,6 +276,7 @@ a.cut(2, 1).paste(5)                      // move 2s–3s to 5s of the shortened
 let [pt1, pt2] = a.split('30m')           // zero-copy parts
 let hook = a.clip({ at: 60, duration: 30 })  // zero-copy excerpt
 a.stretch(1.1)                            // 10% longer, same pitch
+a.warp([[1, 1], [2, 2.4], [3, 3]])        // the hit at 2s lands at 2.4s; 1s–3s keeps its length
 a.pitch(-2)                               // 2 semitones down, same tempo
 a.remix([0, 0])                           // L→both; .remix(1) for mono
 ```
@@ -261,7 +287,8 @@ a.remix([0, 0])                           // L→both; .remix(1) for mono
 |:--|:--|
 | `.gain(dB, opts?)` | `{ unit: 'linear' }` takes a multiplier. |
 | `.fade(in, out?, curve?)` | curves `'linear'` `'exp'` `'log'` `'cos'`. `{start, end}` levels 0..1 fade between any levels (a duck); `{mid}` skews the half-amplitude point.<br><sub>≡ Audacity adjustable-fade</sub> |
-| `.normalize(target?, mode?)` | remove DC, normalize. Loudness targets hold a true-peak ceiling, -1 dBTP by default: a lookahead limiter, then the loudness it took made back up. Presets per Apple Podcasts, Spotify, EBU R 128 (ITU-R BS.1770-4):<br>`'podcast'` -16 LUFS<br>`'streaming'` -14 LUFS<br>`'broadcast'` -23 LUFS<br>`-18, 'lufs'` any loudness; `-3` peak dB; no arg: peak 0 dBFS; `'rms'` mode<br>`{ ceiling: -2 }` dBTP, `false` off<br>`{ dc: false }` keep DC<br>`{ adaptive: true }` on a live stream, start at once: the gain follows what it has heard, the ceiling (the target itself in peak mode) guards what it hasn't. Without it, one gain for the whole selection: a live stream waits for its end.<br><sub>≡ FFmpeg `loudnorm`</sub> |
+| `.normalize(target?, mode?)` | remove DC, normalize. Loudness targets hold a true-peak ceiling, -1 dBTP by default: a lookahead limiter, then the loudness it took made back up. Presets per Apple Podcasts, Spotify, EBU R 128 (ITU-R BS.1770-4):<br>`'podcast'` -16 LUFS<br>`'streaming'` -14 LUFS<br>`'broadcast'` -23 LUFS<br>`-18, 'lufs'` any loudness; `-3` peak dB; no arg: peak 0 dBFS; `'rms'` mode<br>an audio instance: its integrated loudness<br>`{ ceiling: -2 }` dBTP, `false` off<br>`{ dc: false }` keep DC<br>`{ adaptive: true }` on a live stream, start at once: the gain follows what it has heard, the ceiling (the target itself in peak mode) guards what it hasn't. Without it, one gain for the whole selection: a live stream waits for its end.<br><sub>≡ FFmpeg `loudnorm`</sub> |
+| `.roomtone(threshold?)` | fill digital silence (≥ 10 ms under -90 dBFS: edited-out pauses, `pad()`) with the recording's own room tone. `.trim().pad(1.5, 2).roomtone()` gives an audiobook chapter its room tone at each end (ACX rejects digital silence).<br><sub>≡ iZotope RX Ambience Match</sub> |
 | `.mix(source, at?, gain?)` | overlay at `at` seconds, source level `gain` dB.<br><sub>≡ FFmpeg `amix` weights</sub> |
 | `.crossfade(source, duration?, curve?)` | append with overlap, default 0.5s. `'cos'` (default) suits similar material; `'equal'` (equal-power) keeps loudness across unrelated tracks.<br><sub>≡ FFmpeg `acrossfade`</sub> |
 | `.pan(value, opts?)` | −1 left, 0 center, 1 right. |
@@ -307,18 +334,22 @@ a.filter(customFn, { cutoff: 2000 })      // custom filter function
 
 | Method                         | Description                                                                                                                         |
 |:--|:--|
-| `.vocals(mode?)` | mid/side: `'isolate'` (default) keeps center, `'remove'` keeps sides.<br><sub>≡ SoX `oops`</sub> |
+| `.vocals(mode?, {model?})` | mid/side: `'isolate'` (default) keeps center, `'remove'` keeps sides. `model` separates with a trained model instead, `'umxhq'` (Open-Unmix, MIT weights) or `'htdemucs'` (Hybrid Transformer Demucs, higher SDR, weights for research only), through the optional `@audio/neural-separate`; `'remove'` then subtracts the model's vocals. Weights are exported locally ([how](https://github.com/audiojs/neural/tree/main/packages/neural-separate#weights)) or served from `weights`.<br><sub>≡ SoX `oops`; Demucs, Open-Unmix</sub> |
 | `.dither(bits?, {shape?})` | TPDF, default 16-bit. `shape: true` adds 2nd-order noise shaping: quantization noise moves above ~Nyquist/2, audibly quieter. |
 | `.crossfeed(freq?, level?)` | headphone crossfeed, default 700 Hz, 0.3.<br><sub>≡ SoX `earwax`, bs2b</sub> |
 | `.resample(rate, {type?})` | upsampling defaults to linear, downsampling to anti-aliased windowed sinc, its taps widening with the ratio. `type: 'sinc'` or `'linear'` forces one. |
 | `.crossover(...freqs)` | N split frequencies → N+1 bands × channels, band-major. Linkwitz-Riley 4th order; bands sum back flat.<br><sub>≡ FFmpeg `acrossover`</sub> |
-| `.match(ref, amount?)` | match EQ: up to 8 parametric bands fit to the reference/source spectrum ratio. Tone only; loudness stays with `normalize`. Streams `{lookahead}` s behind (10), refitting as it hears more.<br><sub>≡ iZotope Ozone Match EQ</sub> |
+| `.match(ref, amount?)` | match EQ: up to 8 parametric bands fit to the reference/source spectrum ratio. Tone only; loudness stays with `normalize`. Streams `{lookahead}` s behind (10), refitting as it hears more. `{ midside: true }` matches a stereo pair's mid and side apart, and the side level to the reference's width.<br><sub>≡ iZotope Ozone Match EQ</sub> |
+| `.master(ref, opts?)` | master to a reference track: `match` in mid and side, then `normalize` to the reference's integrated loudness under -1 dBTP (`{ ceiling }`).<br><sub>≡ Matchering</sub> |
 | `.spectral(band?, gain?, {at, duration})` | gain on a time × frequency region, `band` = `[lo, hi]` Hz; default removes it.<br><sub>≡ Audacity spectral edit, FFmpeg `afftfilt`</sub> |
-| `.repair(band?, {at, duration})` | rebuild a damaged range (dropout, beep, click burst) from its surroundings.<br><sub>≡ iZotope RX Spectral Repair</sub> |
+| `.repair(band?, {at, duration, method?, window?})` | rebuild a damaged range (dropout, beep, click burst) from its surroundings. `method` `'auto'` (default) transplants the passage that joins seamlessly, searched in the `window` s (10) before the range; failing that, AR interpolation up to 70 ms, a sinusoidal bridge beyond. `'ar'`, `'sinusoidal'`, `'similarity'`, `'spectral'` force one.<br><sub>≡ iZotope RX Spectral Repair</sub> |
+| `.denoise(reduction?, threshold?, {noise})` | remove a noise that holds still (hiss, hum and buzz, a fan, room tone, tape), learned where it plays alone: `noise` is that `{ at, duration }` of the op's input, or several, or a print saved from `stat('print')`. It goes `reduction` dB down (12) everywhere, or in the op's own `{ at, duration }`; what stays is the same noise, quieter, without musical tones. `threshold` (dB) raises the print: more of the quiet counts as noise. OM-LSA on the held noise (`@audio/denoise-omlsa`), each channel its own print; a live source renders once the range has arrived. VoiceBank+DEMAND PESQ, the noise learned from the half second before each speaker starts: noisy 1.97, `omlsa()` 2.40, `denoise()` 2.48. For noise that moves: `omlsa()`, `deepfilter()`.<br><sub>≡ iZotope RX Spectral De-noise (Learn), Adobe Audition Noise Reduction (noise print), Audacity Noise Reduction</sub> |
+| `.deepfilter(limit?, floor?, {weights?, device?})`, `.rnnoise(limit?)` | neural speech denoising through the optional `@audio/neural-denoise`: it also removes noise that moves (keys, traffic, a busy room). `deepfilter` runs DeepFilterNet3, its 8 MB model downloaded once, over the whole input before rendering; `rnnoise` streams RNNoise, weights in the package, 30 ms behind. `deepfilter` takes the noise `limit` dB down (12), or further, to `floor` dB under the voice's loudness (−45; `false`: the limit only): a narration keeps its room tone, noisy speech loses its noise. VoiceBank+DEMAND PESQ: noisy 1.97, `wiener()` 2.19, `rnnoise()` 2.46, `deepfilter({ floor: false })` 2.67, `deepfilter()` 3.10, `deepfilter(0)` 3.16. `limit` `0` lifts the limit; `rnnoise`'s 20 keeps it from removing the voice. Speech only: both drop music and singing.<br><sub>≡ DeepFilterNet, RNNoise</sub> |
 
 ```js
 a.vocals()                                // isolate center-panned vocals
 a.vocals('remove')                        // remove vocals (karaoke)
+a.vocals({ model: 'umxhq' })              // vocals by a separation model
 a.dither(16)                              // TPDF dither to 16-bit
 a.dither(16, { shape: true })             // noise-shaped
 a.crossfeed()                             // headphone crossfeed
@@ -327,6 +358,10 @@ a.resample(96000, { type: 'sinc' })       // high-quality windowed-sinc
 a.match(reference, 0.7)                   // 70% of the way to its tone
 a.spectral([1000, 4000], -30, { at: 2.1, duration: 0.3 })  // a cough
 a.repair({ at: 1.2, duration: 0.05 })     // a dropout
+a.repair({ at: 42, duration: 1 })         // a lost second of music: the passage that fits
+a.denoise({ noise: { at: 1.2, duration: 0.5 } })  // hiss learned from a pause, 12 dB down everywhere
+a.deepfilter()                            // speech out of noise: the noise 45 dB under the voice, room tone kept
+a.rnnoise()                               // the same, streaming
 ```
 
 ### I/O
@@ -336,6 +371,7 @@ a.repair({ at: 1.2, duration: 0.05 })     // a dropout
 | `await .read(opts?)` | rendered PCM. `{ format, channel }` to convert. A source still arriving is waited for: a range until it has arrived, all of it until the end (an endless stream: read ranges, or `stream()`). |
 | `await .save(path, opts?)` | encode + write, format from extension. Lossless keeps the source depth; `{ bitDepth, bitrate, quality, codec }` set the encoder; m4a and mp3 write markers as chapters. Output streams as it encodes, headers patched with their totals at the end (a pipe keeps them "unknown"); m4a from a live source is fragmented. A video source saved to `.mp4`/`.mov` keeps its picture: only the audio track changes. |
 | `await .encode(format?, opts?)` | encode to `Uint8Array`. |
+| `await .cuts(format?, opts?)` | the edits as a cut list of the source file: `'edl'` (CMX 3600: Premiere, Resolve, Avid), `'fcpxml'` (Final Cut Pro, Resolve), `'otio'` (OpenTimelineIO); none gives `{ fps, clips }`. Cuts land on the video's frames (its MP4/MOV track), else `{ fps }` (30). The CLI's `save cuts.edl` writes one. |
 | `.clone()` | independent edits, shared pages. |
 | `.push(data, format?)` | feed PCM into a pushable instance; `.stop()` finalizes. |
 
@@ -359,18 +395,27 @@ src.stop()                                             // finalize
 
 | Method                         | Description                                                                                                                         |
 |:--|:--|
-| `.play(opts?)` | `{ at, duration, volume, rate, loop }`. |
-| `.pause()`, `.resume()`, `.seek(t)`, `.stop()` | `stop()` also ends recording. |
+| `.play(opts?)` | `{ at, duration, loop, volume, rate, paused }`. `at` defaults to `currentTime` (the start once ended); playing already, it jumps there without a gap. |
+| `.play({ from: b })` | take over `b`'s playback where it is (its span, loop, volume, rate, pause), crossfaded, no gap; `b` stops. |
+| `.pause()`, `.resume()`, `.seek(t)`, `.stop()` | each ramps over 5 ms, none clicks; `seek` crossfades, and in a loop stays in its span. `stop()` also ends recording. |
 | `.record(opts?)` | mic. `{ deviceId, sampleRate, channels }`. |
+| `audio.context` | the page's one AudioContext, which playback uses: made on first use, resumed by the first gesture; set your own before playing. |
+
+Playback renders up to 2 s ahead into an AudioWorklet on `audio.context` (Node: @audio/speaker), so a busy main thread doesn't stop it, and sounds within milliseconds of `play()` (the device's own latency aside). An edit to the playing instance is heard ~50 ms later where it happens: the audio rendered ahead gives way, crossfaded. A source still arriving (decoding, pushed) plays what has come and goes on as more comes. Any channel count plays as it is; the device downmixes.
 
 ```js
 a.play({ at: 30, duration: 10 })          // play 30s–40s
-await a.played                            // wait for output to start
+await a.played                            // wait for sound
 a.volume = 0.5; a.loop = true             // live adjustments
 a.muted = true                            // mute without changing volume
 a.playbackRate = 1.5                      // tape-style speed ramp
 a.pause(); a.seek(60); a.resume()         // jump to 1:00
-a.stop()                                  // end playback or recording
+a.highpass(80)                            // an edit while playing: heard where it happens
+b.play({ from: a })                       // b takes over at the same place, crossfaded
+b.stop()                                  // end playback or recording
+
+await audio.context.audioWorklet.addModule('./scrub.js')  // your own nodes, on the same context
+let scrub = new AudioWorkletNode(audio.context, 'scrub')
 
 let mic = audio()
 mic.record({ sampleRate: 16000, channels: 1 })
@@ -381,7 +426,7 @@ mic.stop()
 
 | Method                         | Description                                                                                                                         |
 |:--|:--|
-| `.meter(what, cb?)` | live per-block stats during playback: `rms`, `peak`, `ms`, `min`, `max`, `dc`, `clipping`, `spectrum`, or your own. Without `cb`, read `.value`. Returns `{ value, stop() }`. |
+| `.meter(what, cb?)` | live per-block stats of what plays, delivered as it is heard: `rms`, `peak`, `ms`, `min`, `max`, `dc`, `clipping`, `spectrum`, or your own. Without `cb`, read `.value`. Returns `{ value, stop() }`. The same on a worker facade: measured in the worker, delivered on the page. |
 
 | Option                         | Description                                                                                                                         |
 |:--|:--|
@@ -409,17 +454,20 @@ m.stop()                                                           // release
 |:--|:--|
 | `await .stat(name, opts?)` | one value; with `{ bins }` a `Float32Array`; an array of names gives an array. `{ channel: n }` one channel, `[n, m]` per channel; `{at, duration}` sub-range. |
 | `await .detect(opts?)` | `{ bpm, confidence, beats, onsets }` in one pass. |
+| `await .check(spec)` | pass or fail against a delivery spec: `{ pass, rules: [{ name, value, unit, min, max, pass }] }`. `'acx'` (RMS, peak, noise floor, room tone, 44.1 kHz), `'podcast'` (Apple: -16 LUFS ±1, ≤ -1 dBTP), `'streaming'` (Spotify: plays at -14 LUFS, ≤ -1 dBTP), `'broadcast'` (EBU R 128: -23 ±0.2 LUFS, ≤ -1 dBTP), `'netflix'` (dialog -27 ±2 LUFS, ≤ -2 dBTP). Each limit cites its source in [fn/check.js](fn/check.js). |
 
 | Stat                         | Description                                                                                                                         |
 |:--|:--|
 | `'db'` | peak amplitude in dBFS. |
-| `'rms'` | RMS amplitude, linear. |
+| `'rms'` | RMS amplitude, linear (the CLI prints dBFS). |
+| `'noisefloor'` | RMS of the quietest 0.4 s, dB: the room between words (ACX Check's measure, sample-exact). |
+| `'print'` | the noise print of a range, as `denoise({ noise })` takes it: dB in 1025 bands 23.4375 Hz apart, 0 to 24 kHz (white noise of RMS 0.01 prints −40). |
 | `'peak'` | `max(\|min\|, \|max\|)`, linear. |
 | `'loudness'` | integrated LUFS (ITU-R BS.1770-4; surround channels weighted, LFE excluded). |
 | `'momentary'`, `'shortterm'` | maximum 400 ms / 3 s loudness, LUFS (EBU Tech 3341). |
 | `'dialog'` | loudness of the speech only, LUFS: speech found automatically (AES TD1008 dialog loudness). |
 | `'dc'` | DC offset. |
-| `'clipping'` | clipped samples (scalar: timestamps, binned: counts). |
+| `'clipping'` | clipped samples, at 16-bit full scale (±32767/32768) or beyond (scalar: timestamps, binned: counts). |
 | `'silence'` | silent ranges as `{at, duration}`. |
 | `'crest'` | peak/RMS in dB. Sine ≈ 3dB, square ≈ 0dB. |
 | `'centroid'` | spectral centroid in Hz (brightness). |
@@ -430,11 +478,11 @@ m.stop()                                                           // release
 | `'cepstrum'` | MFCCs. |
 | `'bpm'` | tempo. |
 | `'beats'`, `'onsets'` | timestamps as `Float64Array` (seconds). |
-| `'notes'` | `[{time, duration, freq, midi, note, clarity}]` (YIN). |
-| `'chords'` | `[{time, duration, label, root, quality, confidence}]` (NNLS chroma + Viterbi). |
+| `'notes'` | `[{time, duration, freq, midi, note, clarity}]` (pYIN + Tony note HMM); with `robust: true`, the same through noise and rooms (a neural pYIN stage 1); with `poly: true`, polyphonic `[{time, duration, freq, midi, note, velocity, bends}]` (Basic Pitch). |
+| `'chords'` | `[{time, duration, label, root, quality, bass, confidence}]`: Chordino on NNLS chroma (Mauch & Dixon 2010), matched to the reference plugin; labels like `'Am'`, `'G7'`, `'C/E'`, `'N'`. |
 | `'key'` | `{tonic, mode, label, confidence}` (Krumhansl-Schmuckler). |
 
-Opts: `bpm`, `beats`, `onsets` take `{ minBpm, maxBpm, delta, frameSize, hopSize }`; `notes` takes `{ frameSize, hopSize, threshold, minClarity }`; `chords`, `key` take `{ frameSize, hopSize, method: 'nnls' | 'pcp' }`. `chords` and `key` need the optional `@audio/mir-chroma`, `@audio/mir-chord`, `@audio/mir-key` (installed with `audio` unless optional dependencies are skipped).
+Opts: `bpm`, `beats`, `onsets` take `{ minBpm, maxBpm, delta, frameSize, hopSize }`; `notes` takes `{ minFreq, maxFreq, frameSize, hopSize, minDuration }`; `chords`, `key` take `{ frameSize, hopSize, tuning }` (frames of 16384 samples at 44.1 kHz, 0.34 to 0.51 s at other rates, every eighth of a frame; concert A read from the audio unless `tuning` in Hz is given); `chords` also `boostN` (no-chord bias, 0.1); `key` also `method: 'nnls' | 'pcp'`. `chords` needs `@audio/mir-nnls-chroma` and `@audio/mir-chordino`, `key` needs `@audio/mir-nnls-chroma`: GPL-2.0-or-later translations of the reference plugins, installed by choice (`npm i @audio/mir-nnls-chroma @audio/mir-chordino`); `key` with `method: 'pcp'` needs only the MIT `@audio/mir-chroma` and `@audio/mir-key`, installed with `audio` unless optional dependencies are skipped. `notes` with `robust: true` needs `@audio/neural-pitch` (weights inside): a network's pitch candidates in place of YIN's keep the notes where YIN loses them (Vocadito onsets F 0.76 against 0.53 at 0 dB SNR) and trail it slightly on clean audio, so YIN stays the default. `notes` with `poly: true` takes `{ minFreq, maxFreq, minDuration, onsetThreshold, frameThreshold }` and needs `@audio/neural-transcribe`, whose model downloads on first use; `bends` are cents from the note's pitch per 11.6 ms frame, in 33.3-cent steps (in-tune notes read 0).
 
 ```js
 let loud = await a.stat('loudness')                       // LUFS
@@ -459,6 +507,7 @@ let k = await a.stat('key')                               // {label: 'C', mode: 
 | `.meta` | tags: `{title, artist, album, year, bpm, key, comment, pictures, raw, ...}`. Writable. `meta.raw` holds format-specific blocks untouched (WAV bext/iXML, ID3v2 frames, FLAC blocks). |
 | `.meta.pictures` | cover art `[{mime, type, description, data, url}]`. `.url` is a lazy Blob URL (browser) or data URL (Node). |
 | `.markers` | `[{time, label}]` in output seconds; edits shift or drop them. |
+| `.mark(time, label?)` | a marker at `time`, seconds of the audio as edited so far; later edits carry it. Chainable. |
 | `.regions` | `[{at, duration, label}]`; edits shift or drop them. |
 
 Parsed on decode, written on save; round-trips WAV, MP3, FLAC.
@@ -489,12 +538,12 @@ await a.save('stripped.wav', { meta: false })   // opt out
 |:--|:--|
 | `'data'` | pages decoded/pushed. Payload: `{ delta, offset, sampleRate, channels }`. |
 | `'change'` | any edit or undo. |
-| `'metadata'` | stream header decoded. Payload: `{ sampleRate, channels }`. |
-| `'timeupdate'` | playback position. Payload: `currentTime`. |
+| `'metadata'` | stream header decoded. Payload: `{ sampleRate, channels, estDuration }`: seconds it lasts, from the header where it says (WAV, AIFF, FLAC, an MP3's Xing or VBRI frame, a constant bitrate), else from its size; null when neither is known. |
+| `'timeupdate'` | playback position, as heard (~50 times a second). Payload: `currentTime`. |
 | `'play'` | playback started or resumed. |
 | `'pause'` | playback paused. |
 | `'volumechange'` | volume or muted changed. |
-| `'ended'` | playback finished (not on loop). |
+| `'ended'` | playback ended: at its end, by `stop()`, or taken over by `play({ from })`; not in a loop. |
 | `'progress'` | during save/encode. Payload: `{ offset, total }` in seconds. |
 
 ```js
@@ -546,16 +595,26 @@ a.crush(4)                                  // custom op, chainable like built-i
 |:--|:--|
 | `audioWorker(source, opts?)` | same API, engine in a Worker; the main thread keeps a few-KB facade. |
 | `audio(source, { worker: true })` | same, once `audio/worker` is imported. |
-| `{ worker: new Worker(url) }` | your own worker entry: import extra codecs or plugins, then `audio/worker`. |
+| `{ worker: new Worker(url) }` | your own worker entry: codecs, plugins, your own code and messages, then `audio/worker`, which talks on a port of its own. |
+| `expose(a)` → id, `audioWorker.adopt(id, { worker })` | hand an instance your worker made to the page as a facade. |
+| `audioWorker.context` | the page's AudioContext, the same as `audio.context`. |
 
-Across the boundary `clip()`, `split()`, `clone()` return promises; op errors emit `'error'`; functions don't cross, use `{t, v}` curves. [Architecture](docs/architecture.md#worker-engine).
+Across the boundary `clip()`, `split()`, `clone()` return promises; op errors emit `'error'`; functions don't cross, use `{t, v}` curves. `play()` renders in the worker straight into the page's AudioWorklet: the main thread can stall for seconds without a dropout. [Architecture](docs/architecture.md#worker-engine).
 
 ```js
 import audioWorker from 'audio/worker'
 let a = audioWorker('track.mp3')            // decode/edits/stats/encode in a Worker
 a.gain(-3).fade(0.5)
 let [mins, maxs] = await a.stat(['min','max'], { bins: 640 })  // transferred, zero-copy
-a.play()                                    // AudioWorklet (no SharedArrayBuffer) / @audio/speaker
+a.play()                                    // rendered in the worker, played by an AudioWorklet (Node: @audio/speaker)
+
+// your own worker: its messages stay its own, and what it makes plays on the page
+import audio from 'audio'                   // worker.js
+import { expose } from 'audio/worker'
+self.onmessage = ({ data }) => self.postMessage({ out: expose(audio(data.file).gain(-3)) })
+
+let worker = new Worker('./worker.js', { type: 'module' })   // page
+worker.onmessage = ({ data }) => audioWorker.adopt(data.out, { worker }).play()
 ```
 
 
@@ -609,7 +668,7 @@ normalize -27 lufs ceiling:-2     ducker key:voice.wav     save out.m4a codec:al
 ### Playback
 
 
-<img src="player.gif" alt="Audiojs demo" width="624">
+<img src="docs/player.gif" alt="Audiojs demo" width="624">
 
 <!-- ```sh
 audio kirtan.mp3
@@ -669,6 +728,12 @@ audio book.wav normalize -20 lufs save book.mp3 192k
 # fix a video's sound, keep the picture
 audio talk.mp4 highpass 80hz 4 normalize podcast save talk.clean.mp4
 
+# master to a reference track (tone, width, loudness)
+audio mix.wav master reference.wav save master.wav
+
+# shorten pauses; the same cuts as an EDL for the video editor (.fcpxml, .otio too)
+audio talk.mp4 shrink 0.3 save talk.edl
+
 # split
 audio audiobook.mp3 split 30m 60m save 'chapter-{i}.mp3'
 audio album.wav split --cue album.cue save '{i} - {title}.mp3'   # cue-sheet tracks, tagged
@@ -696,6 +761,10 @@ audio track.mp3 stat beats onsets
 # loudness to spec: integrated, max momentary / short-term, speech only, true peak
 audio mix.wav stat loudness momentary shortterm dialog truepeak
 
+# pass or fail against a delivery spec (exit 1 on a fail); --json for scripts
+audio episode.wav normalize podcast check podcast
+audio chapter.wav check acx --json
+
 # pitch / chords / key
 audio song.mp3 stat notes
 audio song.mp3 stat chords
@@ -714,6 +783,7 @@ audio speech.wav gain -3db stat db
 ```sh
 audio '*.wav' trim normalize podcast save '{name}.clean.{ext}'
 audio '*.wav' gain -3db save '{name}.out.{ext}'
+audio 'chapters/*.mp3' check acx                      # a whole audiobook: one line per chapter
 ```
 
 ### Stdin/stdout

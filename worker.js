@@ -3,7 +3,7 @@
  *
  * On the MAIN thread it exports the facade — imports none of the engine, stays a
  * few KB. Inside a WORKER it self-hosts: loads the engine via dynamic import and
- * speaks the protocol (open/call/sub/stream) over postMessage. The default spawn
+ * speaks the protocol (open/call/sub/stream) on a port of its own. The default spawn
  * runs this same file as the worker entry.
  *
  *   import audioWorker from 'audio/worker'
@@ -18,10 +18,13 @@
  * come along for free. Facades sharing one worker can reference each other
  * (`a.mix(b)`), resolved worker-side by instance id.
  *
- * Custom worker (extra codecs, plugins): an entry that imports them, then this file:
+ * Custom worker (extra codecs, plugins, the app's own code): an entry that imports them, then this file:
  *   import '@audio/decode-aac'
- *   import 'audio/worker'      // self-hosts; codecs registered first
- * and pass it: audioWorker('a.m4a', { worker: new Worker(new URL('./my-worker.js', import.meta.url), { type: 'module' }) })
+ *   import { expose } from 'audio/worker'      // self-hosts; codecs registered first
+ *   self.onmessage = e => { ... self.postMessage({ output: expose(a) }) }   // the app's own messages
+ * and on the page: audioWorker('a.m4a', { worker }), or audioWorker.adopt(id, { worker }) for an instance it made.
+ * The engine talks on a MessageChannel handed over once ({ '@audio': port }), so the app's messages on the Worker
+ * never meet its protocol.
  *
  * Boundary deviations from the local API (all async by nature):
  *  - clip()/split()/clone() return Promise<facade>
@@ -29,29 +32,33 @@
  *    use `await a.run([type, opts])` for strict per-op errors
  *  - function-valued params don't cross — use breakpoint curves {t, v} (serializable
  *    automation, sampled by the engine like functions)
- *  - play() pumps worker-rendered blocks into an AudioWorklet over its message port
- *    (browser — no SharedArrayBuffer/COOP-COEP needed) or @audio/speaker (node)
+ *  - play() renders in the worker straight into the page's AudioWorklet (deck.js), past the main thread;
+ *    Node: @audio/speaker
  */
 
-import varispeed from './fn/varispeed.js'  // shared live-rate stage (no engine deps)
+import { open, context, TAKE } from './deck.js'   // the output (no engine deps)
 
 // ── Self-host: imported inside a Worker, this module becomes the engine host ──
 const nodeWT = typeof process !== 'undefined' && process.versions?.node
   ? await import('node:worker_threads').catch(() => null) : null
-if ((typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope) || (nodeWT && !nodeWT.isMainThread)) host(nodeWT?.parentPort)
+let hosted = null   // the host's registry, when this module runs in a worker
+if ((typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope) || (nodeWT && !nodeWT.isMainThread)) hosted = host(nodeWT?.parentPort)
+
+const listen = (port, fn) => port.on ? port.on('message', fn) : port.onmessage = e => fn(e.data)
+const isPort = v => typeof MessagePort !== 'undefined' && v instanceof MessagePort
 
 // ── Channel: one worker, many instances ─────────────────────────────────
 
 function channel(workerOrPromise) {
   let pending = new Map(), routes = new Map(), nextId = 1, queue = []
-  let worker = null, closed = false
+  let port = null, worker = null, closed = false
   const rejectPending = error => {
     for (const p of pending.values()) p.reject(error)
     pending.clear()
     queue = []
   }
   const post = (msg, transfer) => {
-    try { worker.postMessage(msg, transfer || []) }
+    try { port.postMessage(msg, transfer || []) }
     catch (error) {
       const request = pending.get(msg.id)
       pending.delete(msg.id)
@@ -61,7 +68,11 @@ function channel(workerOrPromise) {
 
   Promise.resolve(workerOrPromise).then(w => {
     worker = w
-    let recv = msg => {
+    // the engine's own port: the Worker's messages stay the app's
+    let mc = new MessageChannel()
+    w.postMessage({ '@audio': mc.port2 }, [mc.port2])
+    port = mc.port1
+    listen(port, msg => {
       if (msg.id != null) {
         let p = pending.get(msg.id)
         if (!p) return
@@ -71,8 +82,7 @@ function channel(workerOrPromise) {
       } else if (msg.event) {
         routes.get(msg.inst)?.(msg)
       }
-    }
-    w.addEventListener ? w.addEventListener('message', e => recv(e.data)) : w.on('message', recv)
+    })
     for (let [m, t] of queue.splice(0)) post(m, t)
   }, error => { closed = true; rejectPending(error) })
 
@@ -84,7 +94,7 @@ function channel(workerOrPromise) {
       return new Promise((resolve, reject) => {
         msg.id = nextId++
         pending.set(msg.id, { resolve, reject, facade })
-        worker ? post(msg, transfer) : queue.push([msg, transfer])
+        port ? post(msg, transfer) : queue.push([msg, transfer])
       })
     },
     close() {
@@ -94,6 +104,7 @@ function channel(workerOrPromise) {
       routes.clear()
       return done.finally(() => {
         rejectPending(new Error('audio/worker: worker closed'))
+        port?.close()
         worker?.terminate?.()
       })
     },
@@ -131,8 +142,11 @@ export async function close() {
 
 // Core async surface bridged explicitly; everything else the proxy treats as a
 // chainable op — the worker registry is the source of truth, nothing duplicated here.
-const ASYNC = ['read', 'stat', 'encode', 'save', 'undo', 'seek', 'stop', 'push', 'detect', 'toJSON']
+const ASYNC = ['read', 'stat', 'encode', 'save', 'undo', 'push', 'detect', 'toJSON']
 const WRAPPED = ['clip', 'clone', 'split']  // return new instance(s) → sub-facades
+// events the facade raises itself; any other needs a worker-side subscription
+const LOCAL = ['change', 'error', 'play', 'pause', 'ended', 'timeupdate', 'volumechange', 'ratechange']
+const EDIT = 0.02
 
 /** Deep-encode outgoing values: sibling facades → {__ref}, functions rejected
  *  (can't cross the boundary — P3 breakpoint curves), containers copied. */
@@ -143,7 +157,7 @@ function encodeArg(v, chan) {
     if (v._chan !== chan) throw new TypeError('audio/worker: facades must share a worker to reference each other')
     return { __ref: v._inst }
   }
-  if (ArrayBuffer.isView(v) || v instanceof ArrayBuffer) return v
+  if (ArrayBuffer.isView(v) || v instanceof ArrayBuffer || isPort(v)) return v
   if (typeof Blob !== 'undefined' && v instanceof Blob) return v  // File/Blob clone natively — deep copy would strip prototype props
   if (Array.isArray(v)) return v.map(x => encodeArg(x, chan))
   let o = {}
@@ -177,8 +191,7 @@ function facade(chan, opened) {
 
     on(name, cb) {
       ;(ev[name] ??= []).push(cb)
-      // lifecycle + transport events are emitted facade-side; anything else needs a worker-side sub
-      if (!['change', 'error', 'play', 'pause', 'ended', 'timeupdate'].includes(name) && !ev[name]._sub) {
+      if (!LOCAL.includes(name) && !ev[name]._sub) {
         ev[name]._sub = true
         target._ready.then(() => chan.send({ type: 'sub', inst: target._inst, event: name })).catch(() => {})
       }
@@ -207,54 +220,81 @@ function facade(chan, opened) {
       } finally { target._call('_streamEnd', [sid]).catch(() => {}) }
     },
 
-    // ── Transport — playback pumps worker-rendered blocks into a sink:
-    // AudioWorklet over a message port (browser, no SAB/COOP-COEP needed)
-    // or @audio/speaker (node). The worker only renders; the sink only plays.
-    playing: false, paused: false, ended: false, currentTime: 0, volume: 1, loop: false,
-
-    // Live playback speed — parity with the local engine: the pump runs a varispeed
-    // stage, so setting this mid-playback ramps smoothly (~50ms, tape-style).
+    // ── Transport: the worker renders straight into the page's deck (deck.js); the facade holds its clock
+    playing: false, paused: false, ended: false, seeking: false, played: null,
+    get currentTime() { let h = session?.tp?.heard(); return h && h.run >= session.seekRun ? h.time : ct },
+    set currentTime(v) { ct = v },
+    get volume() { return vol },
+    set volume(v) { v = Math.max(0, Math.min(1, +v || 0)); if (vol !== v) { vol = v; level(); target._emit('volumechange') } },
+    get muted() { return mute },
+    set muted(v) { v = !!v; if (mute !== v) { mute = v; level(); target._emit('volumechange') } },
     get playbackRate() { return rate },
     set playbackRate(v) {
       v = Math.max(0.0625, Math.min(16, +v || 1))
-      if (rate !== v) { rate = v; target._emit('ratechange') }
+      if (rate !== v) { rate = v; session?.tp?.set({ rate }); target._emit('ratechange') }
     },
+    get loop() { return loop },
+    set loop(v) { v = !!v; if (loop !== v) { loop = v; if (session) target._call('_loop', [v]).catch(() => {}) } },
 
     play(opts = {}) {
       if (disposed) return Promise.reject(new Error('audio/worker: instance disposed'))
-      if (target.playing && target.paused) {
-        target.paused = false
-        wake?.()
-        sink?.playState(true)
-        target._emit('play')
-        return Promise.resolve()
-      }
-      if (target.playing) return Promise.resolve()
-      if (opts.loop != null) target.loop = opts.loop
+      if (opts.volume != null) target.volume = opts.volume
       if (opts.rate != null) target.playbackRate = opts.rate
-      return new Promise((res, rej) => runPump(opts.at ?? target.currentTime ?? 0, res, rej))
+      if (opts.from) return handoff(opts.from, opts)
+      if (session && target.playing) {
+        if (opts.loop != null) target.loop = opts.loop
+        if (opts.at != null || opts.duration !== undefined) {
+          span = [opts.at ?? span[0], opts.duration]
+          target._call('_span', span).catch(() => {})
+          target.seek(span[0])
+        }
+        if (target.paused && !opts.paused) target.resume()
+        return target.played
+      }
+      loop = !!opts.loop
+      return begin({ at: opts.at ?? (target.ended ? 0 : ct), duration: opts.duration, paused: opts.paused })
     },
     pause() {
       if (!target.playing || target.paused) return proxy
       target.paused = true
-      sink?.playState(false)
+      session?.tp?.set({ playing: false })
       target._emit('pause')
       return proxy
     },
+    resume() {
+      if (!target.paused) return proxy
+      target.paused = false
+      session?.tp?.set({ playing: true })
+      target._emit('play')
+      return proxy
+    },
     seek(t) {
-      target.currentTime = Math.max(0, t)
-      if (target.playing) {
-        let resume = !target.paused
-        killPump()
-        if (resume) runPump(target.currentTime, () => {}, e => target._emit('error', e))
-        else target.playing = false
-      }
-      return target._call('seek', [t])
+      ct = t = Math.max(0, t)
+      if (!session || !target.playing) return target._call('seek', [t])
+      target.seeking = true
+      let s = session
+      return target._call('_seek', [t]).then(r => { if (s === session && r) { s.seekRun = r.run; ct = r.at } })
     },
     stop() {
-      killPump()
-      target.playing = false; target.paused = false
+      end(false)
       return target._call('stop', [])
+    },
+    /** Live stats of what plays, released as it is heard: same arguments as the local meter() */
+    meter(what, cb) {
+      let opts = typeof what === 'string' || Array.isArray(what) ? { type: what } : what ?? {}
+      let id = ++probeId, probe = { opts, cb, value: undefined, stop: null }
+      probes.set(id, probe)
+      target._call('_meter', [id, opts]).catch(() => {})
+      probe.stop = () => { if (probes.delete(id)) target._call('_meter', [id, null]).catch(() => {}) }
+      return probe
+    },
+    [TAKE]() {
+      let s = session
+      if (!s || !target.playing) return null
+      let t = { tp: s.tp, head: s.tp?.head(), time: target.currentTime, span, loop, paused: target.paused, volume: vol, muted: mute, rate }
+      s.taken = !!s.tp
+      end(false)
+      return t
     },
 
     dispose() {
@@ -271,161 +311,85 @@ function facade(chan, opened) {
   for (let m of ASYNC) target[m] ??= (...args) => target._call(m, args)
   for (let m of WRAPPED) target[m] = (...args) => target._call(m, args)
 
-  // ── Playback pump ────────────────────────────────────────────────────
-  let sink = null, pumpGen = 0, wake = null, rate = 1
+  // ── Playback session ─────────────────────────────────────────────────
+  let session = null, ct = 0, vol = 1, mute = false, rate = 1, loop = false, span = [0, undefined], probeId = 0
+  let probes = new Map()
+  const level = () => session?.tp?.set({ volume: mute ? 0 : vol })
 
-  let killPump = () => { pumpGen++; wake?.(); sink?.close(); sink = null }
+  function begin(o, taken) {
+    end(false)
+    let s = session = { tp: null, taken: false, done: false, first: true, seekRun: 0, ok: null, fail: null }
+    target.playing = true; target.paused = !!o.paused; target.ended = false; target.seeking = false
+    span = [o.at, o.duration]
+    ct = o.time ?? Math.max(0, o.at)
+    target.played = new Promise((r, j) => { s.ok = r; s.fail = j })
+    target.played.catch(() => {})
+    if (!target.paused) target._emit('play')
+    ;(async () => {
+      try {
+        await target._ready
+        // the rate and channels arrive with the source's header
+        while (!target.sampleRate && !s.done) await new Promise(r => { let f = () => { target.off('change', f); r() }; target.on('change', f) })
+        let tp = taken ?? await open({ channels: target.channels, sampleRate: target.sampleRate, playing: !target.paused, volume: mute ? 0 : vol, rate })
+        if (s.done) { if (!taken) tp.stop(); return }
+        s.tp = tp
+        if (taken) tp.set({ playing: !target.paused, volume: mute ? 0 : vol, rate })
+        tp.emit = (type, m) => {
+          if (session !== s) return
+          if (type === 'end') return end(true)
+          if (type === 'error') return end(false, m)
+          if (m.pos == null) return
+          if (s.first && m.speed > 0) { s.first = false; s.ok() }
+          if (target.seeking && m.run >= s.seekRun) target.seeking = false
+          if (target.playing && !target.paused) target._emit('timeupdate', target.currentTime)
+        }
+        let port = tp.port()
+        await target._call('_play', [{ at: o.at, duration: o.duration, loop, from: o.from, splice: o.splice, runs: tp.runs(), port }], [port])
+      } catch (e) { if (session === s) end(false, e) }
+    })()
+    return target.played
+  }
+  // playback ends: at its end, by stop(), an error, or taken over
+  function end(natural, err) {
+    let s = session
+    if (!s || s.done) return
+    s.done = true
+    let h = s.tp?.heard()
+    if (h && h.run >= s.seekRun) ct = h.time
+    session = null
+    if (!s.taken) s.tp?.stop()
+    if (!disposed && target._inst != null) target._call('_stop', []).catch(() => {})
+    target.playing = target.paused = target.seeking = false
+    if (natural) target.ended = true
+    if (err && s.first) s.fail(err)
+    else s.ok()
+    if (err && !s.first) target._emit('error', err)
+    target._emit('ended')
+  }
+  function handoff(from, opts) {
+    let t = from[TAKE]?.()
+    if (t) {
+      if (opts.volume == null) target.volume = t.volume
+      if (opts.rate == null) target.playbackRate = t.rate
+      target.muted = t.muted
+    }
+    loop = opts.loop ?? t?.loop ?? from.loop ?? false
+    let sp = t?.span ?? [from.currentTime ?? 0, undefined]
+    // the deck carries on when it has the channels; else a new one starts where the other stopped
+    if (!t?.tp || t.head == null || Math.max(2, target.channels | 0) > t.tp.ch) {
+      t?.tp?.stop()
+      return begin({ at: t ? t.time : sp[0], duration: sp[1], paused: opts.paused ?? t?.paused })
+    }
+    let P = t.head + (t.paused ? 0 : 0.05 * t.rate)
+    return begin({ at: sp[0], duration: sp[1], paused: t.paused, time: t.time, from: P, splice: { at: P, fade: EDIT } }, t.tp)
+  }
+
   const release = () => {
     disposed = true
-    killPump()
-    target.playing = target.paused = false
+    end(false)
     target.edits.length = 0
     for (const check of [...waiters]) check(new Error('audio/worker: instance disposed'))
     ev = {}
-  }
-
-  async function runPump(at, onStart, onErr) {
-    let gen = ++pumpGen
-    target.playing = true; target.paused = false; target.ended = false
-    let sr = target.sampleRate, started = false, output
-    try {
-      output = typeof AudioContext !== 'undefined'
-        ? await workletSink(target, () => gen === pumpGen)
-        : await speakerSink(target)
-      if (gen !== pumpGen) return
-      sink = output
-      while (gen === pumpGen && target.playing) {
-        output.reset(at)
-        output.playState(true)
-        target._emit('play')
-        // Varispeed between the worker stream and the sink; each written block carries
-        // its source end-position so sinks map output consumption → source time.
-        let vs = varispeed(Math.max(1, target.channels), sr, () => rate), frames = 0
-        let put = async block => {
-          frames += block[0].length
-          await output.write(block, target.volume, at + vs.pos / sr)
-          if (!started) { started = true; onStart() }
-        }
-        streaming:
-        for await (let chunk of target.stream({ at })) {
-          if (gen !== pumpGen || !target.playing) break
-          while (target.paused && gen === pumpGen && target.playing) await new Promise(r => wake = r)
-          if (gen !== pumpGen || !target.playing) break
-          vs.push(chunk)
-          let block
-          while (block = vs.pull(false)) {
-            await put(block)
-            if (gen !== pumpGen || !target.playing) break streaming
-          }
-        }
-        if (gen === pumpGen && target.playing && !target.paused) {
-          let block
-          while ((block = vs.pull(true)) && gen === pumpGen && target.playing) await put(block)
-          await output.drain()
-          if (gen === pumpGen && target.playing) {
-            if (target.loop && frames) { at = 0; continue }
-            target.playing = false; target.ended = true
-            target._emit('timeupdate', target.currentTime)
-            target._emit('ended')
-          }
-        }
-        break
-      }
-    } catch (e) {
-      if (gen === pumpGen) { target.playing = false; target._emit('error', e); if (!started) onErr(e) }
-    } finally {
-      output?.close()
-      if (sink === output) sink = null
-      if (!started) onStart()
-    }
-  }
-
-  // Browser sink: persistent AudioWorkletNode fed over its port; consumption
-  // reports drive backpressure and currentTime
-  async function workletSink(t, live) {
-    let actx = new AudioContext({ sampleRate: t.sampleRate })
-    let node
-    try {
-      await actx.audioWorklet.addModule(workletURL())
-      node = new AudioWorkletNode(actx, 'audio-worker-sink', { outputChannelCount: [Math.max(1, t.channels)] })
-      node.connect(actx.destination)
-    } catch (e) { await actx.close(); throw e }
-    let sent = 0, consumed = 0, onDrain = null, lastVol = 1, closed = false
-    // Output-frame → source-time map: one span per written block (varispeed makes
-    // the mapping non-uniform, so consumption reports interpolate within their span)
-    let segs = [], lastSrc = 0
-    const AHEAD = 8192  // ~185ms of buffered audio ahead of the playhead
-    node.port.onmessage = e => {
-      consumed = e.data.consumed
-      if (live()) {
-        while (segs.length > 1 && segs[0].s1 <= consumed) segs.shift()
-        let g = segs[0]
-        if (g) t.currentTime = consumed >= g.s1 ? g.t1 : g.t0 + (consumed - g.s0) / (g.s1 - g.s0) * (g.t1 - g.t0)
-        t._emit('timeupdate', t.currentTime)
-      }
-      onDrain?.()
-    }
-    return {
-      reset(at) { node.port.postMessage({ type: 'flush' }); sent = consumed; segs = []; lastSrc = at },
-      playState(on) { node.port.postMessage({ type: on ? 'play' : 'pause' }) },
-      async write(chunk, volume, srcEnd = lastSrc + chunk[0].length / t.sampleRate) {
-        if (closed) return
-        const frames = chunk[0].length
-        if (volume !== lastVol) { lastVol = volume; node.port.postMessage({ volume }) }
-        node.port.postMessage({ chunk }, chunk.map(c => c.buffer))
-        segs.push({ s0: sent, s1: sent + frames, t0: lastSrc, t1: srcEnd })
-        lastSrc = srcEnd
-        sent += frames
-        while (!closed && sent - consumed > AHEAD && live() && t.playing) {
-          await new Promise(r => onDrain = r)
-          onDrain = null
-        }
-      },
-      async drain() { while (!closed && consumed < sent && live() && t.playing) { await new Promise(r => onDrain = r); onDrain = null } },
-      close() {
-        if (closed) return
-        closed = true
-        onDrain?.()
-        onDrain = null
-        segs = []
-        node.port.onmessage = null
-        node.port.close()
-        node.disconnect()
-        actx.close().catch(() => {})
-      },
-    }
-  }
-
-  // Node sink: @audio/speaker, inherently backpressured per write
-  async function speakerSink(t) {
-    let { default: Speaker } = await import('@audio/speaker')
-    let ch = Math.max(1, t.channels)
-    let write = null, lastSrc = 0
-    return {
-      reset(at) { write?.close(); write = Speaker({ sampleRate: t.sampleRate, channels: ch, bitDepth: 32 }); lastSrc = at },
-      playState() {},
-      write(chunk, volume, srcEnd = lastSrc + chunk[0].length / t.sampleRate) {
-        let len = chunk[0].length, buf = new Float32Array(len * ch)
-        for (let i = 0; i < len; i++) for (let c = 0; c < ch; c++)
-          buf[i * ch + c] = (chunk[c] || chunk[0])[i] * volume
-        lastSrc = srcEnd
-        return new Promise(r => write(new Uint8Array(buf.buffer), () => {
-          t.currentTime = srcEnd
-          t._emit('timeupdate', t.currentTime)
-          r()
-        }))
-      },
-      drain() {
-        if (!write) return Promise.resolve()
-        const ending = write
-        write = null
-        return new Promise((resolve, reject) => {
-          try { ending.flush(error => { ending.close(); error ? reject(error) : resolve() }) }
-          catch (error) { ending.close(); reject(error) }
-        })
-      },
-      close() { write?.close(); write = null },
-    }
   }
 
   // NB: never resolve a call promise with the proxy — it's a thenable gated on
@@ -437,10 +401,7 @@ function facade(chan, opened) {
     if (Array.isArray(r) && r[0]?.__inst) return r.map(adopt)
     return r
   }
-  let adopt = r => {
-    let f = facade(chan, Promise.resolve({ inst: r.__inst, snapshot: r.snapshot, ops: target._opNames }))
-    return f
-  }
+  let adopt = r => facade(chan, Promise.resolve({ inst: r.__inst, snapshot: r.snapshot, ops: target._opNames }))
 
   let proxy = new Proxy(target, {
     get(t, prop) {
@@ -480,6 +441,14 @@ function facade(chan, opened) {
         target._snap(msg.snapshot)
         for (let w of [...waiters]) w()
         target._emit('change')
+      } else if (msg.event === '_meter') {
+        // values measured as the worker rendered, released as they are heard
+        let [run, pos, vals] = msg.args
+        session?.tp?.defer(run, pos, () => { for (let [id, v] of vals) { let p = probes.get(id); if (p) { p.value = v; p.cb?.(v) } } })
+      } else if (msg.event === '_playerror') {
+        let e = remoteErr(msg.args[0])
+        console.error('Playback error:', e)
+        end(false, e)
       } else if (msg.event === 'error') {
         target._emit('error', remoteErr(msg.args[0]))
       } else target._emit(msg.event, ...msg.args)
@@ -502,113 +471,96 @@ export default function audioWorker(source, opts = {}) {
   return facade(chan, chan.send({ type: 'open', source, opts: rest }))
 }
 
+/** A facade for an instance the worker's own code made and exposed (expose(a) in the worker gives the id). */
+audioWorker.adopt = (id, { worker } = {}) => {
+  if (!worker) throw new TypeError('audio/worker: adopt(id, { worker }) — the worker that exposed it')
+  let chan = workerChannel(worker)
+  return facade(chan, chan.send({ type: 'adopt', inst: id }))
+}
+
+/** The page's AudioContext, the one playback uses (shared with the engine's audio.context) */
+Object.defineProperty(audioWorker, 'context', { get: () => context(), set: ctx => context(ctx), enumerable: true })
+
+/** In a worker: register an instance the app made, for the page to adopt; returns its id (the same id again for the
+ *  same instance). */
+export function expose(a) {
+  if (!hosted) throw new Error('audio/worker: expose() runs in a worker that imports audio/worker')
+  return hosted.expose(a)
+}
+
 // P4 — `audio(src, { worker: true })` dispatches here once this module is imported.
 // A global slot (not an engine import) keeps this facade out of the engine's graph
 // and the engine out of this file — either can load without dragging in the other.
 globalThis[Symbol.for('audio.worker')] = audioWorker
 
-// ── Playback sink worklet — inlined so the whole worker bridge is one file.
-// AudioWorkletProcessor fed rendered blocks over its port (no SharedArrayBuffer,
-// works without COOP/COEP); posts throttled consumption reports for backpressure.
-
-const WORKLET_SRC = `
-class AudioWorkerSink extends AudioWorkletProcessor {
-  constructor() {
-    super()
-    this.chunks = []
-    this.offset = 0
-    this.playing = false
-    this.volume = 1
-    this.consumed = 0
-    this.reported = 0
-    this.port.onmessage = e => {
-      let m = e.data
-      if (m.chunk) this.chunks.push(m.chunk)
-      else if (m.type === 'play') this.playing = true
-      else if (m.type === 'pause') this.playing = false
-      else if (m.type === 'flush') { this.chunks = []; this.offset = 0 }
-      if (m.volume != null) this.volume = m.volume
-    }
-  }
-  process(inputs, outputs) {
-    let out = outputs[0]
-    if (!this.playing || !out[0]) return true
-    let need = out[0].length, filled = 0
-    while (filled < need && this.chunks.length) {
-      let c = this.chunks[0]
-      let n = Math.min(need - filled, c[0].length - this.offset)
-      for (let ch = 0; ch < out.length; ch++) {
-        let src = c[Math.min(ch, c.length - 1)]
-        for (let i = 0; i < n; i++) out[ch][filled + i] = src[this.offset + i] * this.volume
-      }
-      this.offset += n
-      filled += n
-      if (this.offset >= c[0].length) { this.chunks.shift(); this.offset = 0 }
-    }
-    this.consumed += filled
-    if (this.consumed - this.reported >= 2048 || (filled < need && this.consumed > this.reported)) {
-      this.reported = this.consumed
-      this.port.postMessage({ consumed: this.consumed })
-    }
-    return true
-  }
-}
-registerProcessor('audio-worker-sink', AudioWorkerSink)
-`
-let _workletURL = null
-const workletURL = () => _workletURL ??= URL.createObjectURL(new Blob([WORKLET_SRC], { type: 'text/javascript' }))
-
 // ── Engine host — runs when this module is imported inside a Worker ──────
-// Listener attaches synchronously (messages buffer while the engine loads via
-// dynamic import, so nothing posted during startup is lost); the engine chunk
-// never loads on the main thread.
+// The listener attaches synchronously: a page connects by handing over a port ({ '@audio': port }), which the
+// engine speaks on from then (messages wait while the engine loads via dynamic import); every other message on the
+// Worker is the app's. The engine chunk never loads on the main thread.
 function host(nodePort) {
-  const port = nodePort || self
-  const send = (msg, transfer) => port.postMessage(msg, transfer || [])
+  const scope = nodePort || self
   const pending = []
-  let handle = msg => pending.push(msg)
-  port.on ? port.on('message', m => handle(m)) : port.addEventListener('message', e => handle(e.data))
+  let handle = (msg, reply) => pending.push([msg, reply])
+  const instances = new Map()   // id → audio instance
+  const owners = new Map()      // id → the connection that opened or adopted it (its events go there)
+  const ids = new WeakMap()     // instance → id
+  const dataSubs = new Map()    // id → flush fn (replays 'data' buffered before the sub landed)
+  let nextInst = 1
+
+  const connect = port => listen(port, msg => handle(msg, (m, t) => port.postMessage(m, t || [])))
+  const onMessage = e => {
+    let d = nodePort ? e : e.data, port = d?.['@audio']
+    if (!port) return
+    e.stopImmediatePropagation?.()   // the app's own listeners never see the handshake
+    connect(port)
+  }
+  nodePort ? nodePort.on('message', onMessage) : scope.addEventListener('message', onMessage)
+
+  // Live instances in edit opts (mix/insert sources) aren't structured-cloneable —
+  // replace with a marker; the facade's edits mirror is informational (undo depth, UI)
+  const safeEdits = edits => edits.map(([t, o]) => [t, o && Object.fromEntries(
+    Object.entries(o).map(([k, v]) => [k, v?.pages ? { __audio: true } : v]))])
+
+  const snap = a => ({
+    version: a.version, length: a.length, duration: a.duration,
+    sampleRate: a.sampleRate, channels: a.channels, decoded: a.decoded,
+    edits: safeEdits(a.edits),
+  })
+
+  const errObj = e => ({ message: e?.message ?? String(e), stack: e?.stack })
+
+  function register(a) {
+    if (ids.has(a)) return ids.get(a)
+    let id = nextInst++
+    instances.set(id, a)
+    ids.set(a, id)
+    let send = msg => { try { owners.get(id)?.(msg) } catch {} }
+    let state = () => send({ event: '_state', inst: id, snapshot: snap(a) })
+    a.on('change', state)
+    a.on('metadata', state)
+    a.on('error', e => send({ event: 'error', inst: id, args: [errObj(e)] }))
+    a.ready?.then(state, () => {})  // decoded=true snapshot; rejection already emitted as 'error'
+    // 'data' streams during decode, which starts at open — before the facade's 'sub' round-trip
+    // lands. Attach the forwarder now and buffer until the sub arrives, else early deltas drop.
+    let q = [], live = false
+    a.on('data', (...args) => {
+      if (live) send({ event: 'data', inst: id, args })
+      else q.push(args)
+    })
+    dataSubs.set(id, () => { live = true; for (let args of q.splice(0)) send({ event: 'data', inst: id, args }) })
+    return id
+  }
 
   import('./audio.js').then(({ default: audio }) => {
-    const instances = new Map()   // id → audio instance
+    const { voice, emitMeter } = audio[Symbol.for('audio.play')]
     const streams = new Map()     // sid → { inst, iterator }
-    const dataSubs = new Map()    // id → flush fn (replays 'data' buffered before the sub landed)
-    let nextInst = 1, nextStream = 1
+    const voices = new Map()      // id → the voice playing it into a page's deck
+    const probes = new Map()      // `${id}:${probe}` → meter probe
+    let nextStream = 1
+    const ops = () => Object.entries(audio.op()).filter(([, d]) => !d.hidden).map(([n]) => n)
 
     // Methods whose fresh result buffers are safe to transfer (never views of live state)
     const TRANSFER = new Set(['read', 'encode'])
-
-    // Live instances in edit opts (mix/insert sources) aren't structured-cloneable —
-    // replace with a marker; the facade's edits mirror is informational (undo depth, UI)
-    const safeEdits = edits => edits.map(([t, o]) => [t, o && Object.fromEntries(
-      Object.entries(o).map(([k, v]) => [k, v?.pages ? { __audio: true } : v]))])
-
-    const snap = a => ({
-      version: a.version, length: a.length, duration: a.duration,
-      sampleRate: a.sampleRate, channels: a.channels, decoded: a.decoded,
-      edits: safeEdits(a.edits),
-    })
-
-    const errObj = e => ({ message: e?.message ?? String(e), stack: e?.stack })
-
-    function register(a) {
-      let id = nextInst++
-      instances.set(id, a)
-      let state = () => { try { send({ event: '_state', inst: id, snapshot: snap(a) }) } catch {} }
-      a.on('change', state)
-      a.on('metadata', state)
-      a.on('error', e => send({ event: 'error', inst: id, args: [errObj(e)] }))
-      a.ready?.then(state, () => {})  // decoded=true snapshot; rejection already emitted as 'error'
-      // 'data' streams during decode, which starts at open — before the facade's 'sub' round-trip
-      // lands. Attach the forwarder now and buffer until the sub arrives, else early deltas drop.
-      let q = [], live = false
-      a.on('data', (...args) => {
-        if (live) { try { send({ event: 'data', inst: id, args }) } catch {} }
-        else q.push(args)
-      })
-      dataSubs.set(id, () => { live = true; for (let args of q.splice(0)) { try { send({ event: 'data', inst: id, args }) } catch {} } })
-      return id
-    }
 
     /** Decode wire args: {__ref: id} → live instance; recurse into plain containers. */
     function decodeArgs(v) {
@@ -619,7 +571,7 @@ function host(nodePort) {
         return a
       }
       if (Array.isArray(v)) return v.map(decodeArgs)
-      if (ArrayBuffer.isView(v) || v instanceof ArrayBuffer) return v
+      if (ArrayBuffer.isView(v) || v instanceof ArrayBuffer || isPort(v)) return v
       if (typeof Blob !== 'undefined' && v instanceof Blob) return v  // File/Blob arrive cloned — pass through untouched
       let o = {}
       for (let k of Object.keys(v)) o[k] = decodeArgs(v[k])
@@ -627,10 +579,10 @@ function host(nodePort) {
     }
 
     /** Encode a call result: instances → refs, collect transferables for allowed methods. */
-    function encodeResult(r, a, method, transfer) {
+    function encodeResult(r, a, method, transfer, send) {
       if (r === a) return { __self: true }
-      if (r?.pages) return { __inst: register(r), snapshot: snap(r) }
-      if (Array.isArray(r) && r[0]?.pages) return r.map(x => encodeResult(x, a, method, transfer))
+      if (r?.pages) { let id = register(r); owners.set(id, send); return { __inst: id, snapshot: snap(r) } }
+      if (Array.isArray(r) && r[0]?.pages) return r.map(x => encodeResult(x, a, method, transfer, send))
       if (TRANSFER.has(method)) {
         if (ArrayBuffer.isView(r)) transfer.push(r.buffer)
         else if (Array.isArray(r)) for (let ch of r) if (ArrayBuffer.isView(ch)) transfer.push(ch.buffer)
@@ -638,16 +590,47 @@ function host(nodePort) {
       return r
     }
 
-    handle = async msg => {
+    // Playback: a voice renders the instance into the deck's port, straight to the audio thread; meters are
+    // measured here as it renders and released on the page when heard
+    const playback = {
+      _play(a, id, [o], send) {
+        voices.get(id)?.stop()
+        voices.set(id, voice(a, o.port, {
+          ...o,
+          meter(b, run, pos, time, sr) {
+            if (!a._.meters?.length) return
+            let vals = []
+            emitMeter(a, b, time, (p, v) => { if (p.id != null) vals.push([p.id, v]) })
+            if (vals.length) send({ event: '_meter', inst: id, args: [run, pos + b[0].length / 2 / sr, vals] })
+          },
+          error: e => send({ event: '_playerror', inst: id, args: [errObj(e)] }),
+        }))
+      },
+      _seek(a, id, [t]) { a.seek(t); return voices.get(id)?.seek(t) },
+      _span(a, id, [at, duration]) { voices.get(id)?.span(at, duration) },
+      _loop(a, id, [v]) { voices.get(id)?.loop(v) },
+      _stop(a, id) { voices.get(id)?.stop(); voices.delete(id) },
+      _meter(a, id, [pid, opts]) {
+        let key = id + ':' + pid
+        probes.get(key)?.stop()
+        probes.delete(key)
+        if (opts) { let p = a.meter(opts); p.id = pid; probes.set(key, p) }
+      },
+    }
+
+    handle = async (msg, send) => {
       let { id, inst, type } = msg
       try {
-        if (type === 'open') {
-          let a = audio(decodeArgs(msg.source), msg.opts || {})
-          let ops = Object.entries(audio.op()).filter(([, d]) => !d.hidden).map(([n]) => n)
-          send({ id, result: { inst: register(a), ops, snapshot: snap(a) } })
+        if (type === 'open' || type === 'adopt') {
+          let n = inst
+          if (type === 'open') n = register(audio(decodeArgs(msg.source), msg.opts || {}))
+          else if (!instances.has(n)) throw new Error(`audio/worker: nothing exposed as ${n}`)
+          owners.set(n, send)
+          send({ id, result: { inst: n, ops: ops(), snapshot: snap(instances.get(n)) } })
           return
         }
         if (type === 'close') {
+          for (let v of voices.values()) v.stop()
           for (let a of instances.values()) { try { a.dispose() } catch {} }
           instances.clear()
           dataSubs.clear()
@@ -681,6 +664,8 @@ function host(nodePort) {
             streams.get(args[0])?.iterator.return?.().catch(() => {})
             streams.delete(args[0])
             result = true
+          } else if (playback[method]) {
+            result = playback[method](a, inst, decodeArgs(args), send) ?? null
           } else {
             if (typeof a[method] !== 'function') throw new TypeError(`audio/worker: no method '${method}'`)
             result = a[method](...decodeArgs(args))
@@ -690,7 +675,7 @@ function host(nodePort) {
             // popped edits may hold live instances in opts (insert/mix source) — sanitize like snapshots
             else if (method === 'undo' && result != null)
               result = Array.isArray(result[0]) ? safeEdits(result) : safeEdits([result])[0]
-            else result = encodeResult(result, a, method, transfer)
+            else result = encodeResult(result, a, method, transfer, send)
           }
           send({ id, result, snapshot: snap(a) }, transfer)
           return
@@ -698,17 +683,20 @@ function host(nodePort) {
         if (type === 'sub') {
           // 'data' is pre-attached at register — flush the buffer and go live instead of double-subscribing.
           if (msg.event === 'data') dataSubs.get(inst)?.()
-          else a.on(msg.event, (...args) => { try { send({ event: msg.event, inst, args }) } catch {} })
+          else a.on(msg.event, (...args) => { try { owners.get(inst)?.({ event: msg.event, inst, args }) } catch {} })
           send({ id, result: true })
           return
         }
         if (type === 'dispose') {
+          voices.get(inst)?.stop()
+          voices.delete(inst)
           try { a.dispose() } catch {}
           for (const [sid, stream] of streams) if (stream.inst === inst) {
             stream.iterator.return?.().catch(() => {})
             streams.delete(sid)
           }
           instances.delete(inst)
+          owners.delete(inst)
           dataSubs.delete(inst)
           send({ id, result: true })
           return
@@ -718,6 +706,8 @@ function host(nodePort) {
         send({ id, error: errObj(e) })
       }
     }
-    for (let m of pending.splice(0)) handle(m)
+    for (let [m, r] of pending.splice(0)) handle(m, r)
   })
+
+  return { expose: register }
 }

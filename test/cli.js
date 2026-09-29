@@ -42,6 +42,21 @@ test('parseArgs — multiple transforms', t => {
   t.is(r.transforms[2].name, 'normalize')
 })
 
+test('parseArgs: a word among an op\'s enumerated values is its argument, though it names an op', async t => {
+  let ops = a => parseArgs(['in.wav', ...a, 'save', 'o.wav']).transforms.map(o => [o.name, o.args, o.opts ?? {}])
+  t.is(ops(['vocals', 'remove']), [['vocals', ['remove'], {}]], 'vocals remove: the mode, not the remove op (was: an empty file)')
+  t.is(ops(['vocals', 'isolate', 'normalize']), [['vocals', ['isolate'], {}], ['normalize', [], {}]], 'isolate, a plugin too')
+  t.is(ops(['filter', 'highpass', '80hz']), [['filter', ['highpass', 80], {}]], 'filter TYPE')
+  t.is(ops(['filter', 'lowpass', '8khz', 'highpass', '80hz']), [['filter', ['lowpass', 8000], {}], ['highpass', [80], {}]], 'once per parameter: a second starts the next op')
+  t.is(ops(['vocals', 'remove', 'remove', '1s..2s'])[1][0], 'remove')
+  let loaded = new Set(Object.keys(audio.op()))
+  await audio.use('korg35', 'modal')
+  try {
+    t.is(ops(['korg35', '1khz', 'highpass']), [['korg35', [1000], { type: 'highpass' }]], 'a plugin\'s enum from its manifest, out of turn: by name')
+    t.is(ops(['modal', 'plate']), [['modal', [], { model: 'plate' }]])
+  } finally { for (let n in audio.op()) if (!loaded.has(n)) delete audio.op()[n] }  // unloaded again: the docs coverage test counts built-ins
+})
+
 test('parseArgs — transform with multiple args', t => {
   let r = parseArgs(['in.wav', 'fade', '1.5s', 'linear'])
   t.is(r.transforms[0].name, 'fade')
@@ -1047,11 +1062,11 @@ test('parseArgs — per-sink help: save --help', t => {
 test('op help — all built-in ops have help', t => {
   let expected = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'clip', 'remove',
     'insert', 'copy', 'cut', 'paste', 'repeat', 'mix', 'crossfade', 'remix', 'highpass', 'lowpass', 'eq', 'lowshelf',
-    'highshelf', 'notch', 'bandpass', 'allpass', 'filter', 'pan', 'pad', 'speed', 'stretch',
+    'highshelf', 'notch', 'bandpass', 'allpass', 'filter', 'pan', 'pad', 'speed', 'stretch', 'warp',
     'pitch', 'vocals', 'dither', 'crossfeed', 'resample', 'write', 'transform', 'split', 'shrink', 'crossover',
-    'match', 'spectral', 'repair',
+    'match', 'master', 'roomtone', 'spectral', 'repair', 'deepfilter', 'denoise',
     // sinks + sources
-    'play', 'stat', 'save', 'record']
+    'play', 'stat', 'check', 'save', 'record']
   for (let op of expected) t.ok(HELP[op], `${op} has help`)
   for (let name in HELP) t.ok(expected.includes(name), `${name} in expected list`)
 })
@@ -1402,6 +1417,21 @@ test('CLI — crossfeed', async t => {
     let result = await audio(outPath)
     t.ok(result.duration > 0, 'crossfeed processed')
     t.is(result.channels, 2, 'stereo preserved')
+  } finally { cleanup(srcPath); cleanup(outPath) }
+})
+
+test('CLI: vocals remove keeps the sides, not an empty file', async t => {
+  let srcPath = join(__dirname, 'tmp-cli-vocals-remove-src.wav')
+  let outPath = join(__dirname, 'tmp-cli-vocals-remove.wav')
+  try {
+    let c = tone(440, 1, 0.4), s = tone(2000, 1, 0.2)
+    await audio.from([c.map((v, i) => v + s[i]), c.map((v, i) => v - s[i])], { sampleRate: 44100 }).save(srcPath)
+    await runCli([srcPath, 'vocals', 'remove', 'save', outPath, '--force'])
+    let [l] = await (await audio(outPath)).read()
+    t.is(l.length, s.length, 'all of it')
+    let d = 0
+    for (let i = 0; i < s.length; i++) d = Math.max(d, Math.abs(l[i] - s[i]))
+    t.ok(d < 1e-3, `the side signal, to 16-bit rounding: max |d| ${d.toExponential(1)}`)
   } finally { cleanup(srcPath); cleanup(outPath) }
 })
 

@@ -23,6 +23,8 @@ function mid(buf, edge = 0.1, sr = 44100) {
 const isNode = typeof process !== 'undefined' && process.versions?.node
 // delivery-grade suite: files, CLI, video, bare atom imports (Node only)
 if (isNode) await import('./pro.js')
+// playback offline: the deck fed by a voice, sample by sample (the browser suite plays it for real: test/play.html)
+if (isNode) await import('./deck.js')
 
 // Isomorphic fixture loading: file paths in Node, HTTP URLs in browser
 let lenaPath, lenaMp3, readFileSync
@@ -200,7 +202,10 @@ test('audio() — record from mic (null backend)', { skip: !isNode }, async t =>
   let a = audio()
   a.record({ backend: 'null' })
   await new Promise(r => setTimeout(r, 150))
-  t.ok(a.duration >= 0, `recording has duration: ${a.duration.toFixed(3)}`)
+  let early = a._.acc.length
+  await new Promise(r => setTimeout(r, 300))
+  // each block the device hands over is taken, and the next asked for: the take grows as time passes
+  t.ok(a._.acc.length > early, `recording grows: ${early} → ${a._.acc.length} samples`)
   a.stop()
   t.is(a.decoded, true, 'decoded after stop')
 })
@@ -309,11 +314,12 @@ test('audio.stat – one block function serves several stats (record)', async t 
   } finally { delete audio.stat()._first; delete audio.stat()._last; delete audio.stat()._count }
 })
 
-test('stat – block stats at the edges: ±1 and beyond clip, NaN counts for nothing', async t => {
+test('stat – block stats at the edges: 16-bit full scale and beyond clip, NaN counts for nothing', async t => {
   let ch = new Float32Array(BLOCK_SIZE)
-  ch.set([1, -1, 1.5, -1.5, 0.9999999, -0.9999999, NaN, Infinity])
+  // PCM decodes as v/2^(bits-1): a 16-bit file clipped at +32767 reads 32767/32768
+  ch.set([1, -1, 1.5, -1.5, 32767 / 32768, -32767 / 32768, 32766 / 32768, NaN, Infinity])
   let a = audio.from([ch])
-  t.is(a.stats.clipping[0][0], 5, '±1, ±1.5 and ∞ clip; just under 1 and NaN do not')
+  t.is(a.stats.clipping[0][0], 7, '±1, ±1.5, ±32767/32768 and ∞ clip; 32766/32768 and NaN do not')
   t.is([a.stats.min[0][0], a.stats.max[0][0]], [-1.5, Infinity], 'extremes skip NaN')
 })
 
@@ -1631,7 +1637,8 @@ test('meter — probe.stop() removes subscription', async t => {
   let count = 0
   let probe = a.meter('rms', () => count++)
   a.play()
-  await new Promise(r => setTimeout(r, 100))  // accumulate some
+  // accumulate some: until the first values arrive, however long playback takes to start on a busy machine
+  await new Promise(r => { let i = setInterval(() => count > 1 && (clearInterval(i), r()), 5) })
   let before = count
   probe.stop()
   await new Promise(r => a.on('ended', r))
@@ -3800,6 +3807,23 @@ test('crossover — 3 bands sum allpass-flat', async t => {
   t.ok(Math.abs(rms(sum) - rms(ch)) < 0.005, `bands sum to input energy (${rms(sum).toFixed(4)} vs ${rms(ch).toFixed(4)})`)
 })
 
+test('crossover: 3 and 4 bands sum flat at every frequency (LR4 tree, LP² + HP² = allpass per split)', async t => {
+  // Linkwitz & Riley (1976); the tree of FFmpeg acrossover. Bands sliced by their two edges alone summed
+  // 0.04 dB off with 3 bands and 0.14 dB with 4, between the split points.
+  let sr = 44100, n = 16384
+  for (let freqs of [[120, 2000], [100, 1000, 8000]]) {
+    let x = new Float32Array(n); x[0] = 1
+    let pcm = await audio.from([x], { sampleRate: sr }).crossover(freqs).read()
+    let worst = 0
+    for (let k = 0; k < 120; k++) {
+      let f = 20 * 1000 ** (k / 119), w = 2 * Math.PI * f / sr, re = 0, im = 0
+      for (let i = 0; i < n; i++) { let s = 0; for (let b of pcm) s += b[i]; re += s * Math.cos(w * i); im -= s * Math.sin(w * i) }
+      worst = Math.max(worst, Math.abs(10 * Math.log10(re * re + im * im)))
+    }
+    t.ok(worst < 1e-3, `${freqs.length + 1} bands: sum within ${worst.toExponential(1)} dB of flat`)
+  }
+})
+
 test('crossover — no freqs is passthrough, Nyquist guarded, stream width matches', async t => {
   let sr = 44100, ch = new Float32Array(sr).fill(0.1)
   let a = audio.from([ch], { sampleRate: sr })
@@ -4021,6 +4045,39 @@ test('stretch(curve) — serializable sliding stretch + ranged form', async t =>
   t.ok(q[0].subarray(0, sr >> 1).every((v, i) => Math.abs(v - d[i]) < 1e-6), 'pre-range untouched')
 })
 
+// Markers at 1, 2, 3 s, the one at 2 s dragged to 2.4 s: 1–2 s plays ×1.4, 2–3 s ×0.6, the rest untouched.
+test('warp — markers move a hit, neighbours and length stay; equals the ranged stretches it stands for', async t => {
+  let sr = 44100, x = clickTrack(60, 4, sr)
+  let warped = audio.from([x.slice()], { sampleRate: sr }).warp([[1, 1], [2, 2.4], [3, 3]])
+  let stretched = audio.from([x.slice()], { sampleRate: sr }).stretch(1.4, { at: 1, duration: 1 }).stretch(0.6, { at: 2.4, duration: 1 })
+  t.is(warped.duration, 4, 'length kept')
+  let [w, s] = [(await warped.read())[0], (await stretched.read())[0]]
+  let diff = 0
+  for (let i = 0; i < w.length; i++) diff = Math.max(diff, Math.abs(w[i] - s[i]))
+  t.ok(w.length === s.length && diff < 1e-6, `same samples as the two ranged stretches (${diff})`)
+  // hits start at 0, 1, 2, 3 s; onset detection lags a Hann-shaped attack by about 22 ms, and the vocoder smears it by
+  // part of its window either way, so each detected hit is held within 30 ms of where the markers put its start
+  let after = [...await audio.from([w], { sampleRate: sr }).stat('onsets')], starts = [0, 1, 2.4, 3]
+  t.ok(after.length === 4 && after.every((o, i) => Math.abs(o - starts[i]) < .03), `hits land where the markers put them (${after.map(o => o.toFixed(3))})`)
+})
+
+test('warp — one marker: start and end stay; an end marker moves the end; crossing markers throw', async t => {
+  let sr = 44100, x = clickTrack(60, 4, sr)
+  let one = audio.from([x.slice()], { sampleRate: sr }).warp([[2, 2.4]])
+  t.is(one.duration, 4, 'end stays')
+  let onsets = [...await audio.from(await one.read(), { sampleRate: sr }).stat('onsets')]
+  t.ok(onsets.some(o => Math.abs(o - 2.4) < .03) && !onsets.some(o => Math.abs(o - 2) < .03), `the hit at 2 s plays at 2.4 s (${onsets.map(o => o.toFixed(3))})`)
+  t.ok(Math.abs(audio.from([x.slice()], { sampleRate: sr }).warp([[4, 5]]).duration - 5) < 1e-3, 'a marker at the end moves the end')
+  let none = await audio.from([x.slice()], { sampleRate: sr }).warp([]).read()
+  t.ok(none[0].every((v, i) => v === x[i]), 'no markers: untouched')
+  let err = null
+  try { audio.from([x.slice()], { sampleRate: sr }).warp([[2, 3], [2.5, 2.8]]).duration } catch (e) { err = e }
+  t.ok(err instanceof RangeError && /order/.test(err.message), 'crossing markers throw')
+  err = null
+  try { audio.from([x.slice()], { sampleRate: sr }).warp([[3, 4.5]]).duration } catch (e) { err = e }
+  t.ok(err instanceof RangeError && /past the end/.test(err.message), 'a marker past the end throws')
+})
+
 // ── frames hook — variable-length whole-render ops (time-stretch class) ───
 
 test('whole op frames hook — structural output length', async t => {
@@ -4228,6 +4285,33 @@ test('stat(onsets) — silence returns empty array', async t => {
   t.is(onsets.length, 0, 'no onsets in silence')
 })
 
+test('stat(onsets) — a ring that beats as it decays is one hit, not one per swell', async t => {
+  // a bar struck once a second: its tone and a weaker partial 1 Hz above, beating as the ring decays; each swell is
+  // a fraction of a dB, where a strike rises tens of dB (as the chime sample does, site/samples.js)
+  let sr = 44100, x = new Float32Array(sr * 5), strikes = [.5, 1.5, 2.5, 3.5]
+  for (let at of strikes) for (let i = Math.round(at * sr); i < x.length; i++) {
+    let s = i / sr - at
+    x[i] += .3 * Math.exp(-s / 1.2) * Math.min(1, s / .002) * (Math.sin(2 * Math.PI * 440 * s) + .24 * Math.sin(2 * Math.PI * 441 * s))
+  }
+  let onsets = [...await audio.from([x], { sampleRate: sr }).stat('onsets')]
+  t.ok(onsets.length === strikes.length && onsets.every((o, i) => Math.abs(o - strikes[i]) < .03), `the four strikes (${onsets.map(o => o.toFixed(3))})`)
+})
+
+test('stat(onsets) — a sound struck at its first sample has an onset at 0; a range from mid-ring has none at its start', async t => {
+  // the first block rises from the silence before the sound, a range's first block from the block before the range
+  let sr = 44100, x = new Float32Array(sr * 3), strikes = [0, 1, 2]
+  for (let at of strikes) for (let i = Math.round(at * sr); i < x.length; i++) {
+    let s = i / sr - at
+    x[i] += .3 * Math.exp(-s / 1.2) * Math.min(1, s / .002) * (Math.sin(2 * Math.PI * 440 * s) + .24 * Math.sin(2 * Math.PI * 441 * s))
+  }
+  let a = audio.from([x], { sampleRate: sr })
+  let all = [...await a.stat('onsets')]
+  t.ok(all.length === 3 && all.every((o, i) => Math.abs(o - strikes[i]) < .03), `the three strikes, the first at 0 (${all.map(o => o.toFixed(3))})`)
+  // from 0.5 s the ring is decaying: the strikes at 1 and 2 s, counted from the range
+  let part = [...await a.stat('onsets', { at: .5, duration: 2 })]
+  t.ok(part.length === 2 && part.every((o, i) => Math.abs(o - (strikes[i + 1] - .5)) < .03), `from 0.5 s: the strikes at 1 and 2 s (${part.map(o => o.toFixed(3))})`)
+})
+
 test('stat(beats) — silence returns empty array', async t => {
   let sr = 44100
   let ch = new Float32Array(sr * 2)
@@ -4335,10 +4419,23 @@ test('stat(chords) — detects C major triad', async t => {
   let a = audio.from([ch], { sampleRate: sr })
   let chords = await a.stat('chords')
   t.ok(Array.isArray(chords), 'returns array')
-  t.ok(chords.length >= 1, `has chords (got ${chords.length})`)
-  t.is(chords[0].label, 'C', `label is C (got ${chords[0].label})`)
-  t.is(chords[0].quality, 'maj', `quality is maj (got ${chords[0].quality})`)
-  t.ok(chords[0].confidence > 0.3, `confidence > 0.3 (got ${chords[0].confidence.toFixed(2)})`)
+  // Chordino starts on no-chord (its first frame), then the triad for the rest
+  t.is(chords.map(c => c.label), ['N', 'C'], `N then C (got ${chords.map(c => c.label)})`)
+  let c = chords[1]
+  t.is(c.quality, 'maj', `quality is maj (got ${c.quality})`)
+  t.ok(c.confidence > 0.3, `confidence > 0.3 (got ${c.confidence.toFixed(2)})`)
+  t.ok(Math.abs(c.time + c.duration - 2) < 1e-9, 'lasts to the end')
+})
+
+test('stat(chords) — reads the tuning; every channel counts', async t => {
+  let sr = 44100
+  // C major 40 cents sharp (A = 450.3 Hz), on the right channel only
+  let r = multiTone([261.63, 329.63, 392.00].map(f => f * 2 ** (40 / 1200)), 2, sr, 3)
+  let a = audio.from([new Float32Array(r.length), r], { sampleRate: sr })
+  let labels = (await a.stat('chords')).map(c => c.label)
+  t.is(labels, ['N', 'C'], `C, 40 cents sharp (got ${labels})`)
+  let k = await a.stat('key')
+  t.ok(k.label === 'C' || k.label === 'Am', `key from the right channel (got ${k.label})`)
 })
 
 test('stat(chords) — detects chord change', async t => {
@@ -4378,11 +4475,11 @@ test('stat(key) — detects C major from I-IV-V-I progression', async t => {
   ch.set(V, I.length + IV.length)
   ch.set(I, I.length + IV.length + V.length)
   let a = audio.from([ch], { sampleRate: sr })
-  let k = await a.stat('key', { method: 'pcp' })
-  t.ok(k.label, 'has label')
-  t.ok(k.confidence > 0, `confidence > 0 (got ${k.confidence.toFixed(2)})`)
-  // C major and A minor are relative keys (same pitch classes) — accept either
-  t.ok(k.label === 'C' || k.label === 'Am', `key is C or Am (got ${k.label})`)
+  for (let method of ['nnls', 'pcp']) {
+    let k = await a.stat('key', { method })
+    t.ok(k.confidence > 0, `${method}: confidence > 0 (got ${k.confidence.toFixed(2)})`)
+    t.is(k.label, 'C', `${method}: key is C (got ${k.label})`)
+  }
 })
 
 test('stat(key) — silence returns N', async t => {
@@ -4390,6 +4487,21 @@ test('stat(key) — silence returns N', async t => {
   let k = await a.stat('key')
   t.is(k.label, 'N', 'silence → N')
   t.is(k.confidence, 0, 'zero confidence')
+})
+
+test('stat(chords): without the GPL chroma packages, chords and key name them; key pcp works', { skip: !isNode }, async t => {
+  // a child process whose resolve hook hides the two packages, as an install without them would
+  let { execFileSync } = await import('node:child_process')
+  let hide = `data:text/javascript,export async function resolve(s, c, next) { if (s === '@audio/mir-nnls-chroma' || s === '@audio/mir-chordino') throw Object.assign(new Error('not installed'), { code: 'ERR_MODULE_NOT_FOUND' }); return next(s, c) }`
+  let out = execFileSync(process.execPath, ['--import', `data:text/javascript,import { register } from 'node:module'; register(${JSON.stringify(hide)})`,
+    '--input-type=module', '-e', `import audio from './audio.js'
+    let a = audio.from([new Float32Array(44100)], { sampleRate: 44100 }), err = p => p.then(() => 'resolved', e => e.message)
+    console.log(JSON.stringify({ chords: await err(a.stat('chords')), key: await err(a.stat('key')), pcp: (await a.stat('key', { method: 'pcp' })).label }))`],
+    { cwd: new URL('..', import.meta.url), encoding: 'utf8' })
+  let { chords, key, pcp } = JSON.parse(out.trim().split('\n').pop())
+  t.ok(chords.startsWith('chords: install @audio/mir-nnls-chroma @audio/mir-chordino'), chords)
+  t.ok(key.startsWith('key: install @audio/mir-nnls-chroma'), key)
+  t.is(pcp, 'N', 'pcp needs only the MIT packages')
 })
 
 
@@ -4924,6 +5036,29 @@ test('stretch, pitch — continuous from the first sample: no stall, gap or step
   }
 })
 
+test('stretch, pitch: a low voice keeps its harmonics, no lost fundamental, no sub-octave', async t => {
+  // The vocoder frame must resolve neighbouring harmonics of the signal it is fed. stretch(2) feeds it the
+  // source an octave down, so a frame fixed at 23 ms lost a 110 Hz tone's fundamental (-32 dB) and let in a
+  // component at 1.5·f0 (-36 dB): pYIN heard speech slowed 2× an octave off. The frame now spans the same
+  // source time at any factor. Reference: the input's own harmonic series, levels relative to its strongest.
+  let sr = 44100, n = sr * 2
+  let harm = f0 => Float32Array.from({ length: n }, (_, i) => { let s = 0; for (let h = 1; h <= 20; h++) s += Math.sin(2 * Math.PI * f0 * h * i / sr) / h; return .2 * s })
+  let level = (y, f) => { // Hann-windowed DFT magnitude at f, dB re the strongest harmonic probed
+    let N = 32768, s0 = (y.length - N) >> 1, re = 0, im = 0, w = 2 * Math.PI * f / sr
+    for (let i = 0; i < N; i++) { let v = y[s0 + i] * (.5 - .5 * Math.cos(2 * Math.PI * i / N)); re += v * Math.cos(w * i); im -= v * Math.sin(w * i) }
+    return Math.hypot(re, im)
+  }
+  for (let [label, edit, f0, out] of [['stretch(2)', a => a.stretch(2), 110, 110], ['stretch(3)', a => a.stretch(3), 110, 110], ['pitch(7)', a => a.pitch(7), 70, 70 * 2 ** (7 / 12)]]) {
+    let a = audio.from([harm(f0)], { sampleRate: sr })
+    edit(a)
+    let y = (await a.read())[0], ref = level(y, out)
+    let db = f => 20 * Math.log10(level(y, f) / ref)
+    t.ok(db(2 * out) < -4 && db(2 * out) > -8, `${label}: 2nd harmonic ${db(2 * out).toFixed(1)} dB (the input's -6.0)`)
+    t.ok(db(out / 2) < -60, `${label}: no sub-octave (${db(out / 2).toFixed(1)} dB)`)
+    t.ok(db(1.5 * out) < -40, `${label}: nothing between harmonics (${db(1.5 * out).toFixed(1)} dB at 1.5·f0)`)
+  }
+})
+
 test('pitch, stretch — a range splices in place: outside it the input, untouched', async t => {
   let sr = 44100, x = Float32Array.from({ length: sr * 2 }, (_, i) => .5 * Math.sin(2 * Math.PI * 440 * i / sr))
   let a = audio.from([x], { sampleRate: sr })
@@ -5229,6 +5364,72 @@ test('vocals — mono passthrough', async t => {
   let maxDiff = 0
   for (let i = 0; i < ch.length; i++) maxDiff = Math.max(maxDiff, Math.abs(pcm[0][i] - ch[i]))
   t.ok(maxDiff < 1e-6, `mono unchanged: maxDiff ${maxDiff.toFixed(6)}`)
+})
+
+// vocals({ model }): @audio/neural-separate, an optional package, loaded through audio.import
+const withImport = async (stub, fn) => { let orig = audio.import; audio.import = spec => stub(spec, orig); try { return await fn() } finally { audio.import = orig } }
+const stereoMix = (dur = 3) => {
+  let v = tone(220, dur), b = tone(55, dur), p = tone(660, dur)
+  return [v.map((x, i) => 0.5 * x + 0.4 * b[i] + 0.2 * p[i]), v.map((x, i) => 0.5 * x + 0.3 * b[i] + 0.3 * p[i])]
+}
+
+test('vocals: model option records beside mode', t => {
+  let a = audio.from(stereoMix(0.1), { sampleRate: 44100 })
+  a.vocals({ model: 'umxhq' }).vocals('remove', { model: 'htdemucs', weights: '/w' })
+  t.is(a.edits.map(e => e[1]), [{ model: 'umxhq' }, { mode: 'remove', model: 'htdemucs', weights: '/w' }])
+})
+
+test('vocals: without a model, mid/side runs and no separation package loads', async t => {
+  let loaded = []
+  await withImport((spec, orig) => (loaded.push(spec), orig(spec)), async () => {
+    let [L, R] = stereoMix(0.5)
+    let pcm = await audio.from([L, R], { sampleRate: 44100 }).vocals().read()
+    let maxDiff = 0
+    for (let i = 0; i < L.length; i++) maxDiff = Math.max(maxDiff, Math.abs(pcm[0][i] - (L[i] + R[i]) / 2))
+    t.ok(maxDiff < 1e-6, `mid: maxDiff ${maxDiff}`)
+  })
+  t.ok(!loaded.includes('@audio/neural-separate'), 'neural-separate not imported')
+})
+
+test('vocals: model without @audio/neural-separate rejects naming the package', async t => {
+  await withImport((spec, orig) => spec === '@audio/neural-separate' ? Promise.reject(new Error(`Cannot find package '${spec}'`)) : orig(spec), async () => {
+    let err = await audio.from(stereoMix(0.5), { sampleRate: 44100 }).vocals({ model: 'umxhq' }).read().catch(e => e)
+    t.ok(/install @audio\/neural-separate/.test(err?.message), err?.message)
+  })
+})
+
+const neural = isNode && await import('@audio/neural-separate').catch(() => null)
+const umxhq = neural && (await import('fs')).existsSync(`${process.env.AUDIO_NEURAL_CACHE || (await import('os')).homedir() + '/.cache/audiojs/neural'}/umxhq/vocals.onnx`)
+
+;(neural ? test : test.skip)('vocals: model with its weights missing names the file and the export script; an unknown model names the known ones', async t => {
+  let dir = (await import('fs')).mkdtempSync((await import('os')).tmpdir() + '/audio-vocals-')
+  let err = await audio.from(stereoMix(0.5), { sampleRate: 44100 }).vocals({ model: 'umxhq', weights: dir }).read().catch(e => e)
+  t.ok(/umxhq weights not found.*export-openunmix\.py/.test(err?.message), err?.message)
+  err = await audio.from(stereoMix(0.5), { sampleRate: 44100 }).vocals({ model: 'spleeter' }).read().catch(e => e)
+  t.ok(/unknown model 'spleeter', expected umxhq, htdemucs/.test(err?.message), err?.message)
+})
+
+;(umxhq ? test : test.skip)('vocals: model umxhq equals separate() on the op input, remove is the complement, one inference per input', { timeout: 120000 }, async t => { // a model run on a busy machine
+  let calls = 0
+  await withImport((spec, orig) => spec === '@audio/neural-separate' ? orig(spec).then(m => ({ ...m, default: (...a) => (calls++, m.default(...a)) })) : orig(spec), async () => {
+    let mix = stereoMix(3)
+    let input = await audio.from(mix, { sampleRate: 44100 }).gain(-3).read()
+    let { stems } = await neural.default(input, { sampleRate: 44100, model: 'umxhq', targets: ['vocals'] })
+    calls = 0
+    let a = audio.from(mix, { sampleRate: 44100 }).gain(-3).vocals({ model: 'umxhq' })
+    let out = await a.read()
+    let snr = (x, ref) => { let s = 0, e = 0; for (let i = 0; i < ref.length; i++) { s += ref[i] ** 2; e += (x[i] - ref[i]) ** 2 } return 10 * Math.log10(s / e) }
+    for (let c of [0, 1]) t.ok(snr(out[c], stems.vocals[c]) > 100, `isolate ch${c}: ${snr(out[c], stems.vocals[c]).toFixed(1)} dB`)
+    await assertStreamRead(t, a, 'vocals model')
+    a.gain(1)
+    await a.read()
+    t.is(calls, 1, 'separated once: re-reads and edits after it reuse the result')
+    let rest = await audio.from(mix, { sampleRate: 44100 }).gain(-3).vocals('remove', { model: 'umxhq' }).read()
+    for (let c of [0, 1]) {
+      let d = input[c].map((v, i) => v - stems.vocals[c][i])
+      t.ok(snr(rest[c], d) > 100, `remove ch${c}: ${snr(rest[c], d).toFixed(1)} dB`)
+    }
+  })
 })
 
 test('dither — quantizes to target bit depth', async t => {
@@ -6939,3 +7140,5 @@ if (isNode) for (let f of ['./plugin-effects.js', './plugin-denoise.js', './plug
     console.warn(`skip ${f} — manifest packages not resolvable (${e.message.split("'")[1] || ''})`)
   }
 }
+// the REPL's voice recipes against the delivery specs they name (where the REPL is checked out)
+if (isNode) await import('./recipes.js').catch(e => { if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e; console.warn(`skip ./recipes.js — ${e.message.split("'")[1] || ''} missing`) })

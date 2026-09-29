@@ -2,51 +2,76 @@
  * Pitch analysis — note events, chord sequence, key detection.
  *
  * a.stat('notes', opts)   → [{time, duration, freq, midi, note, clarity}]
+ * a.stat('notes', { poly: true }) → [{time, duration, freq, midi, note, velocity, bends}]
+ * a.stat('notes', { robust: true }) → as notes, through noise and rooms
  * a.stat('chords', opts)  → [{time, duration, label, root, quality, confidence}]
  * a.stat('key', opts)     → {tonic, mode, label, confidence}
  *
- * notes opts: { at, duration, frameSize=2048, hopSize, threshold=0.15, minClarity=0.5 }
- * chords opts: { at, duration, frameSize=4096, hopSize, method='nnls', selfProb }
- * key opts: { at, duration, frameSize=4096, method='nnls' }
+ * notes opts: { at, duration, minFreq=50, maxFreq=2000, frameSize, hopSize, minDuration=0.1 }
+ * poly notes: Basic Pitch (Bittner et al., ICASSP 2022) through the optional
+ *   @audio/neural-transcribe, loaded on first use (its model downloads once); takes
+ *   { minFreq, maxFreq, minDuration, onsetThreshold, frameThreshold }. `bends` are cents from the
+ *   note's pitch per 11.6 ms frame, in 33.3-cent steps; in-tune notes read 0.
+ * robust notes: pYIN's stage 1 from the optional @audio/neural-pitch (loaded on first use, weights
+ *   inside): a 6,066-parameter network's pitch posterior in place of YIN's candidates; the pitch HMM
+ *   and Tony's note model stay. Vocadito note onsets, F: 0.76 against YIN's 0.53 at 0 dB SNR, 0.67
+ *   against 0.63 in a measured room; clean, YIN ends notes better (offsets 0.65 against 0.61), so it
+ *   stays the default (neural-pitch README, Benchmark).
+ * chords and key: NNLS Chroma (Mauch & Dixon, ISMIR 2010) of the channels' mean, as the reference
+ *   plugin computes it (c4dm/nnls-chroma, matched stage by stage): frames of `frameSize` (16384 at
+ *   44.1 kHz, 0.34 to 0.51 s at other rates) every `hopSize` (frameSize/8), concert A read from the
+ *   audio unless `tuning` (Hz) is given.
+ * chords opts: { at, duration, frameSize, hopSize, tuning, boostN=0.1 }: Chordino's chord model on
+ *   bass and treble chroma. quality: maj, min, 7, maj7, min7, maj6, min6, dim, aug, hdim7, or N;
+ *   bass: the pitch class in the bass (label 'C/E'). The first frame is always N (its prior).
+ * key opts: { at, duration, frameSize, hopSize, tuning, method='nnls' | 'pcp' }: Krumhansl-Schmuckler
+ *   on the mean treble chroma ('pcp': Fujishima chroma of 4096-sample blocks).
  *
- * Chords and key are chroma analysis: optional packages (@audio/mir-chroma, -chord, -key),
- * loaded on first use.
+ * Chords and key are chroma analysis, loaded on first use: NNLS Chroma and Chordino
+ * (@audio/mir-nnls-chroma, @audio/mir-chordino) are GPL-2.0-or-later and install by choice;
+ * key's 'pcp' needs only the MIT @audio/mir-chroma and @audio/mir-key, installed with audio.
  */
 
-import yin from '@audio/pitch-yin'
-import { hzToMidi, name as midiToName } from '@audio/note'
+import { notes as noteTracker } from '@audio/pitch-pyin'
+import { name as midiToName } from '@audio/note'
 import hann from 'window-function/hann'
-import { analyzeBlocks } from './spectrum.js'
 import audio from '../core.js'
 
-let mir
-const loadMir = () => mir ??= Promise.all([import('@audio/mir-chroma'), import('@audio/mir-chord'), import('@audio/mir-key')]).then(
-  ([c, h, k]) => ({ chroma: c.default, chord: h.default, smoothChords: h.smooth, key: k.default }),
-  e => { mir = null; throw new Error(`chords/key: install @audio/mir-chroma @audio/mir-chord @audio/mir-key (${e.message})`) })
+const need = (what, pkgs, p) => p.catch(e => { throw new Error(`${what}: install ${pkgs} (${e.message})`) })
+const loadChords = () => need('chords', '@audio/mir-nnls-chroma @audio/mir-chordino (GPL-2.0-or-later)',
+  Promise.all([import('@audio/mir-nnls-chroma'), import('@audio/mir-chordino')]))
+const loadKey = pcp => pcp
+  ? need('key', '@audio/mir-chroma @audio/mir-key', Promise.all([import('@audio/mir-chroma'), import('@audio/mir-key')]))
+  : need('key', '@audio/mir-nnls-chroma (GPL-2.0-or-later) @audio/mir-key', Promise.all([import('@audio/mir-nnls-chroma'), import('@audio/mir-key')]))
+
+let neural
+const loadNeural = () => neural ??= import('@audio/neural-transcribe').then(m => m.default,
+  e => { neural = null; throw new Error(`notes({ poly: true }): install @audio/neural-transcribe (${e.message})`) })
+
+let stage1
+const loadStage1 = () => stage1 ??= import('@audio/neural-pitch').then(m => m.candidates,
+  e => { stage1 = null; throw new Error(`notes({ robust: true }): install @audio/neural-pitch (${e.message})`) })
 
 let wins = {}
 let hannWin = n => wins[n] || (wins[n] = Float32Array.from({ length: n }, (_, i) => hann(i, n)))
 
-/** Stream ch0 with overlapping frames of size N, hop H. */
-async function streamFrames(inst, opts, N, hop, fn) {
-  let rem = new Float32Array(0), pos = 0
+/** Stream the channels' mean. */
+async function* mono(inst, opts) {
   for await (let pcm of inst.stream({ at: opts?.at, duration: opts?.duration })) {
-    let ch0 = pcm[0]
-    if (!ch0?.length) continue
-    let input = ch0
-    if (rem.length) {
-      input = new Float32Array(rem.length + ch0.length)
-      input.set(rem, 0)
-      input.set(ch0, rem.length)
-    }
-    let off = 0
-    while (off + N <= input.length) {
-      fn(input.subarray(off, off + N), pos / inst.sampleRate)
-      off += hop
-      pos += hop
-    }
-    rem = off < input.length ? input.slice(off) : new Float32Array(0)
+    let n = pcm[0]?.length
+    if (!n) continue
+    if (pcm.length === 1) { yield pcm[0]; continue }
+    let m = new Float32Array(n)
+    for (let ch of pcm) for (let i = 0; i < n; i++) m[i] += ch[i] / pcm.length
+    yield m
   }
+}
+
+/** NNLS chromagram of the range, and where it ends (s). */
+async function chromagramOf(inst, opts, chromagram) {
+  let write = chromagram({ fs: inst.sampleRate, blockSize: opts?.frameSize, stepSize: opts?.hopSize, tuning: opts?.tuning }), n = 0
+  for await (let m of mono(inst, opts)) { write(m); n += m.length }
+  return { ...write(), end: n / inst.sampleRate }
 }
 
 // ── Notes — monophonic pitch events ─────────────────────────────
@@ -55,101 +80,54 @@ audio.stat('notes', {})
 audio.stat('chords', {})
 audio.stat('key', {})
 
+// pYIN's Viterbi-smoothed f0 of the channels' mean, segmented by Tony's note HMM (@audio/pitch-pyin): vibrato and
+// scoops stay inside a note, a note played again on its pitch splits at the level rise.
+// Frames stream through, so memory holds the notes, not the audio. `robust` hands the HMM a
+// network's candidates instead of YIN's (pitch-pyin's `candidates` hook).
 audio.fn.notes = async function(opts) {
-  let sr = this.sampleRate
-  let N = opts?.frameSize ?? 2048
-  let hop = opts?.hopSize ?? (N >> 1)
-  let threshold = opts?.threshold ?? 0.15
-  let minClarity = opts?.minClarity ?? 0.5
-  let hopSec = hop / sr
-
-  let events = [], cur = null
-  let push = () => {
-    if (!cur) return
-    events.push({
-      time: cur.time, duration: cur.end - cur.time,
-      freq: cur.fs / cur.n, midi: cur.midi, note: cur.note, clarity: cur.cs / cur.n
-    })
-  }
-
-  await streamFrames(this, opts, N, hop, (frame, time) => {
-    let r = yin(frame, { fs: sr, threshold })
-    if (r && r.clarity >= minClarity) {
-      let midi = Math.round(hzToMidi(r.freq))
-      if (cur && cur.midi === midi) {
-        cur.end = time + hopSec; cur.fs += r.freq; cur.cs += r.clarity; cur.n++
-      } else {
-        push()
-        cur = { time, end: time + hopSec, midi, note: midiToName(midi), fs: r.freq, cs: r.clarity, n: 1 }
-      }
-    } else { push(); cur = null }
-  })
-  push()
-
-  return events
+  if (opts?.poly) return polyNotes(this, opts)
+  let write = noteTracker({ ...opts, fs: this.sampleRate, ...(opts?.robust && { candidates: await loadStage1() }) }), events = []
+  for await (let m of mono(this, opts)) events.push(...write(m))
+  events.push(...write())
+  return events.map(({ time, duration, freq, midi, clarity }) => ({ time, duration, freq, midi, note: midiToName(midi), clarity }))
 }
 
-// ── Chords — chord sequence via chroma + Viterbi ────────────────
+// Polyphonic: Basic Pitch reads the whole range at once (its posteriors take about 9 MB per
+// minute). Times are relative to `at`, as in the monophonic path.
+async function polyNotes(inst, { at, duration, poly, frameSize, hopSize, ...opts }) {
+  let transcribe = await loadNeural()
+  let notes = await transcribe(await inst.read({ at, duration }), { ...opts, sampleRate: inst.sampleRate })
+  return notes.map(({ time, duration, freq, midi, velocity, bends }) => ({ time, duration, freq, midi, note: midiToName(midi), velocity, bends }))
+}
+
+// ── Chords — Chordino on NNLS chroma ────────────────────────────
 
 audio.fn.chords = async function(opts) {
-  let sr = this.sampleRate
-  let N = opts?.frameSize ?? 4096
-  let hop = opts?.hopSize ?? (N >> 1)
-  let method = opts?.method ?? 'nnls'
-  let hopSec = hop / sr, win = hannWin(N)
-  let { chroma, chord, smoothChords } = await loadMir()
-
-  let frames = [], buf = new Float32Array(N)
-  await streamFrames(this, opts, N, hop, (frame, time) => {
-    for (let i = 0; i < N; i++) buf[i] = frame[i] * win[i]
-    frames.push({ time, chroma: chroma(buf, { fs: sr, method }) })
-  })
-  if (!frames.length) return []
-
-  // All-silent frames → empty (Viterbi can't produce 'N')
-  let hasEnergy = false
-  for (let f of frames) { for (let v of f.chroma) if (v > 0) { hasEnergy = true; break }; if (hasEnergy) break }
-  if (!hasEnergy) return []
-
-  let smoothed = smoothChords(frames.map(f => f.chroma), { selfProb: opts?.selfProb })
-
-  // Collapse consecutive identical chords with mean confidence
-  let result = []
-  for (let i = 0; i < smoothed.length; i++) {
-    let s = smoothed[i], last = result[result.length - 1]
-    let conf = chord(frames[i].chroma, { minConfidence: 0 }).confidence
-    if (last && last.label === s.label) {
-      last.duration = frames[i].time + hopSec - last.time
-      last._cs += conf; last._cn++
-    } else {
-      result.push({ time: frames[i].time, duration: hopSec, ...s, confidence: conf, _cs: conf, _cn: 1 })
-    }
-  }
-  for (let r of result) { r.confidence = r._cs / r._cn; delete r._cs; delete r._cn }
-
-  return result
+  let [{ default: chromagram }, { default: chordino }] = await loadChords()
+  let cg = await chromagramOf(this, opts, chromagram)
+  // silence has no chords
+  if (!cg.treble.some(c => c.some(v => v > 0))) return []
+  return chordino(cg, { boostN: opts?.boostN, end: cg.end })
 }
 
-// ── Key — musical key via Krumhansl-Schmuckler ──────────────────
+// ── Key — Krumhansl-Schmuckler on the mean chroma ───────────────
 
 audio.fn.key = async function(opts) {
-  let sr = this.sampleRate
-  let N = opts?.frameSize ?? 4096
-  let method = opts?.method ?? 'nnls'
-  let win = hannWin(N), buf = new Float32Array(N)
-  let { chroma, key } = await loadMir()
-
-  let { acc, cnt } = await analyzeBlocks(this, opts, N, 12, (block, acc) => {
-    for (let i = 0; i < N; i++) buf[i] = block[i] * win[i]
-    let c = chroma(buf, { fs: sr, method })
-    for (let i = 0; i < 12; i++) acc[i] += c[i]
-  })
-
-  if (!cnt) return { tonic: -1, mode: 'major', label: 'N', confidence: 0 }
-
+  let pcp = opts?.method === 'pcp', [{ default: chroma }, { default: key }] = await loadKey(pcp)
   let avg = new Float64Array(12), sum = 0
-  for (let i = 0; i < 12; i++) { avg[i] = acc[i] / cnt; sum += avg[i] }
+  if (pcp) {
+    let N = opts?.frameSize ?? 4096, win = hannWin(N), buf = new Float32Array(N), fill = 0
+    for await (let m of mono(this, opts)) for (let i = 0; i < m.length; i++) {
+      buf[fill] = m[i] * win[fill]
+      if (++fill < N) continue
+      let c = chroma(buf, { fs: this.sampleRate })
+      for (let k = 0; k < 12; k++) avg[k] += c[k]
+      fill = 0
+    }
+  } else {
+    for (let c of (await chromagramOf(this, opts, chroma)).treble) for (let k = 0; k < 12; k++) avg[k] += c[k]
+  }
+  for (let k = 0; k < 12; k++) sum += avg[k]
   if (!sum) return { tonic: -1, mode: 'major', label: 'N', confidence: 0 }
-
   return key(avg)
 }

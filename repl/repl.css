@@ -1,0 +1,353 @@
+/* The REPL: the site's dot-grid paper around two of its black slabs, the script and the output, filling the window. */
+@import '../assets/tokens.css';
+@font-face { font-family: 'Geist'; src: url('../assets/geist.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
+
+:root {
+  --color-screen-accent: oklch(76% .15 58);
+  --color-screen-wave: oklch(78% 0 0);
+  --color-screen-wave-dim: oklch(46% 0 0);
+  --color-notch: oklch(12% 0 0);
+  --bar: 56px;
+  --gutter: 14px;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; overflow: hidden; background: radial-gradient(circle, var(--color-grid) 1px, var(--color-transparent) 1px) 50% calc(var(--dot) / -2) / var(--dot) var(--dot), var(--color-paper); color: var(--color-ink); font: 400 14px/1.5 var(--font-body); -webkit-font-smoothing: antialiased; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; opacity: .4; }
+:focus { outline: none; }
+/* Scrollbars: a quiet thumb on a clear track */
+* { scrollbar-width: thin; scrollbar-color: var(--color-screen-rule) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 4px; background: var(--color-screen-rule) padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-screen-muted) padding-box; }
+[hidden] { display: none !important; }
+/* Until the script takes the page over, its conditional and repeated parts stay out of sight and the rest takes no
+   clicks, never shown dead. Sprae drops each directive attribute as it takes that element, so any version of the
+   script that runs wakes the page; none depends on a line of it. */
+[\:if], [\:each], [\:hidden] { display: none !important; }
+.repl[\:data-layout] { pointer-events: none; }
+svg { flex: none; }
+
+.repl { display: grid; grid-template-rows: var(--bar) minmax(0, 1fr); height: 100dvh; }
+
+/* Bar: the mark, where to start, and the page's actions */
+.bar { display: flex; align-items: center; gap: 20px; padding-inline: calc(var(--gutter) + 6px); min-width: 0; }
+.wordmark { display: inline-flex; align-items: center; gap: 8px; color: var(--color-ink); text-decoration: none; font-size: 21px; font-weight: 650; letter-spacing: -.05em; touch-action: pan-y; user-select: none; }
+.wordmark .logo { position: relative; width: 19px; aspect-ratio: 96 / 101; flex-shrink: 0; }
+.wordmark .logo svg { display: block; width: 100%; height: 100%; }
+/* The live mark, taller than its box: the wave swells past it */
+.wordmark .logo canvas { position: absolute; top: 50%; left: 0; width: 100%; height: 32px; translate: 0 -50%; pointer-events: none; }
+.bar-end { display: flex; align-items: center; gap: 4px; }
+/* The app menu: the page's acts, grouped as desktop apps group them */
+.menubar { display: flex; align-items: center; gap: 0; min-width: 0; overflow: hidden; }
+.menubar-item { min-height: 30px; padding: 0 9px; border: 0; border-radius: 6px; background: none; color: var(--color-ink); font-size: 13px; font-weight: 500; white-space: nowrap; }
+.menubar-item:hover, .menubar-item[aria-expanded="true"] { background: var(--color-hover); }
+.menubar-item:focus-visible { outline: 2px solid var(--color-ink); outline-offset: -2px; }
+/* its menus float free, placed by menu.js; a row: a check, the words, the keys */
+.menu.menubar-list { position: fixed; inset: auto; width: max-content; min-width: 220px; max-width: min(440px, calc(100vw - 16px)); margin: 0; position-area: none; position-try-fallbacks: none; }
+.menubar-list:focus { outline: none; }
+.menubar-list hr { margin: 5px 8px; border: 0; border-top: 1px solid var(--color-screen-rule); }
+.menubar-list .menu-group:first-child { margin-top: 4px; }
+.menu-row { display: grid; grid-template-columns: 16px max-content minmax(0, 1fr); align-items: center; gap: 6px; width: 100%; min-height: 28px; padding: 0 10px 0 6px; border: 0; border-radius: 6px; background: none; color: var(--color-screen-ink); text-align: left; font-size: 12.5px; }
+.menu-row:hover, .menu-row:focus { outline: none; background: var(--color-screen-pill-active); color: var(--color-screen-bright); }
+.menu-row[aria-disabled="true"] { color: var(--color-screen-dim); }
+.menu-row[aria-disabled="true"]:hover, .menu-row[aria-disabled="true"]:focus { background: var(--color-screen-hover); color: var(--color-screen-dim); }
+.menu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-keys { overflow: hidden; margin-left: 12px; color: var(--color-screen-muted); font: 11px var(--font-mono); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.menu-keys.hint { font: 11.5px var(--font-body); }
+.menu-row[aria-checked="true"] .menu-check::before { content: '✓'; display: block; text-align: center; font-size: 12px; color: var(--color-screen-bright); }
+.menu-row.has-sub .menu-keys::after { content: '›'; font: 14px var(--font-body); }
+.menu-row.has-sub[aria-expanded="true"] { background: var(--color-screen-pill-active); }
+/* a narrow window's submenus open in place, under their row */
+.menu.menubar-list.inline { position: static; width: auto; min-width: 0; max-width: none; max-height: none; margin: 2px 0 6px 14px; padding: 0 0 0 4px; overflow: visible; border-left: 1px solid var(--color-screen-rule); border-radius: 0; background: none; box-shadow: none; }
+.menu-row.has-sub:has(+ .inline) .menu-keys::after { content: '▾'; font-size: 13px; }
+.bar-end { margin-left: auto; }
+.bar-button { min-height: 34px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--color-transparent); color: var(--color-ink); font-size: 13px; font-weight: 500; white-space: nowrap; }
+.bar-button:hover:not(:disabled) { background: var(--color-hover); }
+.bar-button.primary { background: var(--color-ink); color: var(--color-paper); }
+.bar-button.primary:hover:not(:disabled) { background: var(--color-soft-ink); }
+.split-button { display: flex; gap: 1px; margin-left: 6px; }
+.split-button .bar-button:first-child { border-radius: 8px 0 0 8px; }
+.split-button .format { border-radius: 0 8px 8px 0; min-width: 52px; font: 500 11px var(--font-mono); letter-spacing: .02em; }
+.icon-button { display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 8px; background: var(--color-transparent); color: inherit; }
+.icon-button svg { width: 18px; height: 18px; }
+.bar .icon-button:hover:not(:disabled) { background: var(--color-hover); }
+
+/* Panes: the output, and at its right the chain, as its stack or its code; one slab: a rule divides them, and one bar
+   runs along the foot of both. The chain opens and closes from the bar; closed, the output has the slab. */
+.panes { --side: minmax(260px, var(--split)); --gap: 12px; display: grid; min-height: 0; margin: 0 var(--gutter) var(--gutter); border-radius: var(--radius-slab); background: repeating-linear-gradient(var(--color-scanline) 0 1px, var(--color-transparent) 1px 3px), linear-gradient(var(--color-screen), var(--color-screen-low)); color: var(--color-screen-soft); box-shadow: inset 0 1px 0 var(--color-screen-rule), 0 0 0 1px var(--color-bezel), 0 2px 2px oklch(0% 0 0 / .06), 0 12px 24px oklch(0% 0 0 / .1); grid-template-columns: minmax(300px, 1fr) var(--gap) var(--side); grid-template-rows: minmax(0, 1fr) auto; }
+.panes[data-side="none"] { --side: 0; --gap: 0; }
+.view-slab { grid-area: 1 / 1; }
+.splitter { grid-area: 1 / 2; }
+.side-slab { grid-area: 1 / 3; }
+.panes > .status { grid-area: 2 / 1 / 3 / -1; }
+[data-layout="column"] .panes { --side: minmax(160px, var(--split)); grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(180px, 1fr) var(--gap) var(--side) auto; }
+[data-layout="column"] .panes[data-side="none"] { --side: 0; --gap: 0; }
+[data-layout="column"] .view-slab { grid-area: 1 / 1; }
+[data-layout="column"] .splitter { grid-area: 2 / 1; cursor: row-resize; }
+[data-layout="column"] .side-slab { grid-area: 3 / 1; }
+[data-layout="column"] .panes > .status { grid-area: 4 / 1; }
+.splitter { cursor: col-resize; position: relative; touch-action: none; }
+.splitter::before { content: ''; position: absolute; inset: 0 auto 0 50%; width: 1px; background: var(--color-screen-rule); }
+[data-layout="column"] .splitter::before { inset: 50% 0 auto; width: auto; height: 1px; }
+.splitter::after { content: ''; position: absolute; inset: 30% 5px; border-radius: 2px; background: var(--color-transparent); transition: background var(--dur-micro) var(--ease-out); }
+[data-layout="column"] .splitter::after { inset: 5px 30%; }
+.splitter:hover::after { background: var(--color-screen-muted); }
+
+.slab { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* One bar along the foot of both panes: play, the time and what the output is, then what acts on it */
+.status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; min-height: 60px; padding: 0 8px 0 12px; border-top: 1px solid var(--color-screen-rule); container-type: inline-size; }
+:is(.slab, .status) .icon-button { color: var(--color-screen-muted); }
+:is(.slab, .status) .icon-button:hover:not(:disabled), :is(.slab, .status) .icon-button[aria-pressed="true"] { color: var(--color-screen-bright); background: var(--color-screen-hover); }
+.text-button { min-height: 28px; padding: 0 10px; border: 1px solid var(--color-screen-rule); border-radius: 6px; background: var(--color-transparent); color: var(--color-screen-soft); font-size: 12px; }
+.text-button:hover { color: var(--color-screen-bright); border-color: var(--color-screen-muted); }
+
+/* The chain's panel: its stack or its code, a tab each */
+.side-head { display: flex; align-items: center; min-height: 38px; padding: 4px 8px 0; }
+.stack, .script { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+.editor { flex: 1; min-height: 0; }
+.console { max-height: 32%; overflow: auto; padding: 10px 20px 12px; border-top: 1px solid var(--color-screen-rule); font: 12px/1.6 var(--font-mono); }
+.console .line { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--color-screen-soft); }
+.console .line.value { color: var(--color-screen-bright); }
+.console .line.value::before { content: '→ '; color: var(--color-screen-dim); }
+.console .line.warn { color: var(--color-screen-accent); }
+.console .line.error { color: var(--color-screen-error); }
+/* Tabs: two or three views of one thing, one shown; the one shown lit, as a switch */
+.tabs { display: flex; flex: none; gap: 2px; padding: 2px; border-radius: 8px; background: oklch(100% 0 0 / .04); }
+.tabs button { min-height: 26px; padding: 0 10px; border: 0; border-radius: 6px; background: none; color: var(--color-screen-muted); font-size: 12px; }
+.tabs button:hover { color: var(--color-screen-bright); }
+.tabs button[aria-selected="true"] { background: var(--color-screen-pill-active); color: var(--color-screen-bright); }
+
+/* The stack: a card per step of the chain, in order, its name and what it is set to; open, its settings. The steps the
+   code's selection touches are marked. A step turned off, or rolled back past, dims; the one heard for what it takes
+   out is ringed. The bar at the foot rolls the chain back when dragged up. */
+.steps { flex: 1; min-height: 0; overflow: auto; padding: 4px 10px 8px; }
+.steps-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.step { position: relative; border-radius: 10px; background: oklch(100% 0 0 / .06); transition: background var(--dur-micro) var(--ease-out), opacity var(--dur-micro) var(--ease-out); }
+.step:hover { background: oklch(100% 0 0 / .085); }
+.step.current::before { content: ''; position: absolute; inset: 10px auto 10px -5px; width: 2px; border-radius: 1px; background: var(--color-screen-accent); }
+.step.delta { box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-screen-accent) 70%, transparent); }
+.step.off .step-name, .step.off .step-args, .step.rolled { opacity: .42; }
+.step-head { display: flex; align-items: center; gap: 2px; min-height: 42px; padding-right: 6px; }
+.step-toggle { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; min-height: 42px; padding: 0 6px 0 12px; border: 0; background: none; text-align: left; }
+.step-toggle::before { content: ''; flex: none; width: 6px; height: 6px; margin-right: 2px; border-right: 1.5px solid var(--color-screen-muted); border-bottom: 1.5px solid var(--color-screen-muted); rotate: -45deg; transition: rotate var(--dur-micro) var(--ease-out); }
+.step-toggle[aria-expanded="true"]::before { rotate: 45deg; }
+.step-name { flex: none; color: var(--color-screen-ink); font: 600 14px var(--font-body); letter-spacing: -.01em; }
+.step.open .step-name, .step-toggle:hover .step-name { color: var(--color-screen-bright); }
+.step.outside .step-name { font-style: italic; }
+.step-args { flex: 1; min-width: 0; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; color: var(--color-screen-soft); font: 12px var(--font-body); font-variant-numeric: tabular-nums; }
+/* its switches show on hover, and stay while they are on */
+.step-head .icon-button { width: 26px; height: 26px; border-radius: 6px; opacity: 0; transition: opacity var(--dur-micro) var(--ease-out); }
+.step-head:hover .icon-button, .step-head .icon-button:focus-visible, .step-head .step-delta[aria-pressed="true"], .step.off .step-on { opacity: 1; }
+.step-head .icon-button svg { width: 15px; height: 15px; }
+.step-delta { font: 600 13px var(--font-body); }
+.slab .step-head .step-delta[aria-pressed="true"] { color: var(--color-screen-accent); background: none; }
+.step-head .icon-button:disabled { opacity: 0; }
+/* the rollback bar: at the foot, a rule; dragged up between steps, the steps below it roll back */
+.rollback { position: relative; height: 14px; margin: -4px 6px; list-style: none; cursor: ns-resize; touch-action: none; }
+.rollback::before { content: ''; position: absolute; inset: 6px 0 auto; height: 2px; border-radius: 1px; background: var(--color-screen-rule); transition: background var(--dur-micro) var(--ease-out); }
+.rollback:hover::before, .rollback:focus-visible::before, .rollback.back::before { background: var(--color-screen-accent); }
+.rollback:focus-visible { outline: none; }
+.add-step { display: flex; align-items: center; gap: 8px; margin: 6px 10px 12px; min-height: 36px; padding: 0 12px; border: 1px dashed var(--color-screen-rule); border-radius: 10px; background: none; color: var(--color-screen-muted); font-size: 12px; }
+.add-step:hover:not(:disabled) { color: var(--color-screen-bright); border-color: var(--color-screen-muted); }
+.add-step svg { width: 14px; height: 14px; }
+.params { display: grid; gap: 2px; padding: 0 12px 12px 30px; color: var(--color-screen-soft); }
+.params.none { color: var(--color-screen-dim); font-size: 11px; }
+.param { display: grid; grid-template-columns: 70px minmax(48px, 1fr) 58px; align-items: center; gap: 8px; min-height: 26px; }
+.param label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-screen-muted); font: 11px var(--font-mono); }
+.param output { grid-column: 3; text-align: right; color: var(--color-screen-ink); font: 11px var(--font-mono); font-variant-numeric: tabular-nums; }
+.param output.unset { color: var(--color-screen-dim); }
+.param input, .param .choices { grid-column: 2; grid-row: 1; }
+.param.choice .choices { grid-column: 2 / 4; padding-block: 2px; }
+.param input[type="range"] { width: 100%; height: 18px; margin: 0; background: none; -webkit-appearance: none; appearance: none; }
+.param input[type="range"]::-webkit-slider-runnable-track { height: 2px; border-radius: 1px; background: var(--color-screen-rule); }
+.param input[type="range"]::-moz-range-track { height: 2px; border-radius: 1px; background: var(--color-screen-rule); }
+.param input[type="range"]::-webkit-slider-thumb { width: 12px; height: 12px; margin-top: -5px; border: 0; border-radius: 50%; background: var(--color-screen-bright); -webkit-appearance: none; }
+.param input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: var(--color-screen-bright); }
+.choices { display: flex; flex-wrap: wrap; gap: 4px; }
+.choices button { min-height: 22px; padding: 0 7px; border: 1px solid var(--color-screen-rule); border-radius: 5px; background: none; color: var(--color-screen-muted); font: 11px var(--font-mono); }
+.choices button[aria-pressed="true"] { border-color: var(--color-screen-muted); color: var(--color-screen-bright); background: var(--color-screen-pill-active); }
+
+/* Output */
+/* Above the picture: what it is on the left, how it shows on the right */
+.view-head { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 4px 8px 0 14px; }
+.source { flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-screen-bright); font: 12px var(--font-mono); }
+/* what the picture shows when it is not the output: what a step takes out, or the chain rolled back */
+.viewing { flex: none; margin: 0; padding: 2px 8px; border-radius: 6px; background: color-mix(in oklch, var(--color-screen-accent) 16%, transparent); color: var(--color-screen-accent); font-size: 11.5px; white-space: nowrap; }
+.view { position: relative; flex: 1; min-height: 0; margin: 0 0 0 8px; }
+.plot { position: absolute; inset: 0; touch-action: none; cursor: text; }
+.plot canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+/* the pictures fade out before the labels at their right and the time row below, instead of ending at a cut: by an
+   exponential, a straight line in decibels, so it reads as even (e^-2u, over the last 32 px and the last 16) */
+.plot canvas.waveform, .plot canvas.spectrum { mask-image: linear-gradient(to right, #000 calc(100% - 84px), rgb(0 0 0 / .55) calc(100% - 76px), rgb(0 0 0 / .27) calc(100% - 68px), rgb(0 0 0 / .10) calc(100% - 60px), rgb(0 0 0 / .04) calc(100% - 56px), transparent calc(100% - 52px)), linear-gradient(to bottom, #000 calc(100% - 40px), rgb(0 0 0 / .55) calc(100% - 36px), rgb(0 0 0 / .27) calc(100% - 32px), rgb(0 0 0 / .10) calc(100% - 28px), rgb(0 0 0 / .04) calc(100% - 26px), transparent calc(100% - 24px)); mask-composite: intersect; }
+.plot canvas.spectrum { transition: opacity var(--dur-short) var(--ease-out); }
+.dropping .view::after { content: ''; position: absolute; inset: -4px 8px 0 -4px; border: 1px dashed var(--color-screen-muted); border-radius: 10px; pointer-events: none; }
+
+.empty, .recording { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 24px; text-align: center; }
+.empty-title { margin: 0; color: var(--color-screen-ink); font-size: 20px; font-weight: 450; letter-spacing: -.02em; }
+.empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.empty-button { display: inline-flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 14px 0 12px; border: 1px solid var(--color-screen-rule); border-radius: 999px; background: var(--color-screen); color: var(--color-screen-soft); font-size: 13px; }
+.empty-button svg { width: 16px; height: 16px; color: var(--color-screen-muted); }
+.empty-button:hover { color: var(--color-screen-bright); border-color: var(--color-screen-muted); }
+.recording-time { margin: 0; color: var(--color-screen-bright); font: 300 44px/1 var(--font-display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.meter { width: min(320px, 70%); height: 3px; border-radius: 2px; background: var(--color-screen-rule); overflow: hidden; }
+.meter span { display: block; width: calc(var(--level, 0) * 100%); height: 100%; background: var(--color-screen-record); transition: width 60ms linear; }
+.stop svg { color: var(--color-screen-record); }
+/* A sound on its way, none of it here yet: a line where its waveform will be, a glint running along it */
+.loading { position: absolute; inset: 50% 60px auto 8px; height: 1px; background: linear-gradient(90deg, transparent, var(--color-screen-soft), transparent) 0 0 / 30% 100% no-repeat, var(--color-screen-rule); animation: glint 1.4s var(--ease-in-out) infinite; pointer-events: none; }
+@keyframes glint { from { background-position: -40% 0, 0 0; } to { background-position: 140% 0, 0 0; } }
+.notice { position: absolute; left: 50%; bottom: 36px; translate: -50% 0; max-width: calc(100% - 48px); margin: 0; padding: 8px 14px; border-radius: 8px; background: var(--color-screen-raised); color: var(--color-screen-ink); box-shadow: var(--shadow-menu); font-size: 12px; }
+
+/* The edits for what is selected, in a bar that follows it */
+.edits { position: absolute; z-index: 2; translate: -50% 0; display: flex; align-items: center; gap: 1px; padding: 3px; border-radius: 10px; background: var(--color-screen-raised); color: var(--color-screen-soft); box-shadow: var(--shadow-menu); }
+.slab .edits .icon-button { width: 30px; height: 30px; border-radius: 7px; color: var(--color-screen-soft); }
+.edits .icon-button svg { width: 17px; height: 17px; }
+.edits .text-button { min-height: 30px; padding: 0 7px; border: 0; border-radius: 7px; color: var(--color-screen-soft); font: 11px var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.edits .text-button:hover { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+
+/* The bar's parts */
+/* Record and play, side by side as on a deck */
+.record, .play { display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 50%; background: none; color: var(--color-screen-bright); }
+.record { width: 36px; margin-right: -6px; }
+.record:hover { background: var(--color-screen-hover); }
+.record-icon { display: block; width: 11px; height: 11px; border-radius: 50%; background: var(--color-screen-record); opacity: .8; }
+.record:hover .record-icon { opacity: 1; }
+.record.on .record-icon { border-radius: 2px; opacity: 1; animation: recording 1.2s var(--ease-in-out) infinite alternate; }
+@keyframes recording { to { opacity: .45; } }
+.play:hover:not(:disabled) { background: var(--color-screen-hover); }
+.play-icon { display: block; width: 0; height: 0; margin-left: 2px; border-top: 7px solid transparent; border-bottom: 7px solid transparent; border-left: 11px solid currentColor; }
+.play-icon.paused { width: 11px; height: 14px; margin-left: 0; border: 0; border-inline: 3px solid currentColor; }
+/* The time as on the home page, large light digits; beside them the display's two rows, as on a hi-fi: its switches and
+   what the sound is above, its levels, or what the engine is doing, below */
+/* the time keeps its width; where there is no room beside it the bar's other items wrap under it, and the display
+   shrinks first: its figures count for nothing in the time's width */
+.timecode { --time-size: 40px; display: flex; flex: 1; align-items: center; gap: 10px; }
+.time { flex: none; padding: 0 6px; border: 0; border-radius: 6px; background: none; color: var(--color-screen-ink); font: 300 var(--time-size)/1 var(--font-display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; text-align: left; white-space: nowrap; }
+.time.range { font-size: calc(var(--time-size) * .6); }
+.time:hover:not(:disabled) { background: var(--color-screen-hover); }
+.display { display: grid; flex: 1 1 0; gap: 3px; min-width: 0; contain: inline-size; }
+.facts, .readout { display: flex; align-items: center; gap: 6px; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px/16px var(--font-mono); font-variant-numeric: tabular-nums; }
+/* what the sound is, each a button: its rate resamples it, its channels mix it */
+.fact { flex: none; margin: 0 -3px; padding: 0 3px; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; }
+.fact:hover, .fact:focus-visible { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+.facts { color: var(--color-screen-soft); }
+.facts span { overflow: hidden; text-overflow: ellipsis; }
+.readout { display: block; color: var(--color-screen-muted); }
+/* a switch lit when on, as a hi-fi's indicator */
+.lamp { display: inline-grid; flex: none; place-items: center; width: 26px; height: 20px; margin-left: -4px; padding: 0; border: 1px solid var(--color-screen-rule); border-radius: 4px; background: none; color: var(--color-screen-dim); }
+.lamp svg { width: 13px; height: 13px; }
+.lamp:hover:not(:disabled) { color: var(--color-screen-bright); border-color: var(--color-screen-muted); }
+.lamp[aria-pressed="true"] { color: var(--color-screen-accent); border-color: color-mix(in oklch, var(--color-screen-accent) 55%, transparent); }
+.readout.problem { color: var(--color-screen-error); }
+.readout.working { color: var(--color-screen-soft); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.ab { width: auto; padding: 0 8px; font: 11px var(--font-body); }
+/* The check's verdict on the bar; its rules in a panel above it */
+.check-button { flex: none; min-height: 28px; max-width: 120px; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--color-screen-rule); border-radius: 6px; background: none; color: var(--color-screen-muted); font: 11px var(--font-mono); }
+.check-button:hover:not(:disabled) { color: var(--color-screen-bright); border-color: var(--color-screen-muted); }
+.check-button.pass { color: var(--color-screen-bright); }
+.check-button.fail { color: var(--color-screen-error); border-color: color-mix(in oklch, var(--color-screen-error) 45%, transparent); }
+.tools { display: flex; flex: none; align-items: center; gap: 2px; margin-left: auto; }
+.tools .icon-button svg { width: 17px; height: 17px; }
+/* Undo, and what was done under it */
+.history { display: flex; align-items: center; }
+.slab .history .more, .status .history .more { width: 18px; margin-left: -4px; }
+.history .more svg { width: 14px; height: 14px; }
+#history-menu { position-area: top span-left; }
+#history-menu .menu-item.ahead strong { color: var(--color-screen-muted); }
+.side-toggle { margin-left: 4px; }
+
+/* Menus and the search */
+.menu { width: 300px; max-height: min(560px, calc(100dvh - var(--bar) - 24px)); margin: 0; padding: 6px; overflow: auto; border: 0; border-radius: 10px; background: var(--color-screen-raised); color: var(--color-screen-soft); box-shadow: var(--shadow-menu); position-area: bottom span-right; position-try-fallbacks: flip-block, flip-inline; margin-block: 6px; }
+.menu.wide { width: 380px; }
+.menu.narrow { width: 230px; }
+#rate-menu, #channels-menu { position-area: top span-right; }
+#format-menu, #add-menu { position-area: top span-left; }
+/* the method list from a menu with no stack to hang from: under the bar */
+#add-menu.floating { position: fixed; inset: calc(var(--bar) + 8px) auto auto 50%; translate: -50% 0; }
+#format-menu { position-area: bottom span-left; }
+.menu.check { width: 530px; max-width: calc(100vw - 24px); padding: 6px 10px 10px; position-area: top span-left; }
+.check .choices { margin: 0 0 10px; }
+.check-table { width: 100%; border-collapse: collapse; font: 11px/1.4 var(--font-mono); font-variant-numeric: tabular-nums; transition: opacity var(--dur-short) var(--ease-out); }
+.check-table.stale { opacity: .45; }
+.check-table th, .check-table td { padding: 5px 6px; border-top: 1px solid var(--color-screen-rule); text-align: right; white-space: nowrap; }
+.check-table thead th { border-top: 0; color: var(--color-screen-dim); font: 10px var(--font-body); letter-spacing: .06em; text-transform: uppercase; }
+.check-table th[scope="row"], .check-table thead th:first-child { text-align: left; color: var(--color-screen-ink); font-weight: 400; }
+.check-table td { color: var(--color-screen-soft); }
+.check-table .fail { color: var(--color-screen-error); }
+.check-table .pass .mark { color: var(--color-screen-bright); }
+.check-table .info, .check-table .limit { color: var(--color-screen-muted); }
+.check-table tr[title]:not([title=""]) th[scope="row"] { text-decoration: underline dotted var(--color-screen-dim); text-underline-offset: 3px; }
+.check-note { margin: 10px 6px 0; color: var(--color-screen-muted); font-size: 11px; }
+.check-note a { color: var(--color-screen-soft); }
+.check-note a:hover { color: var(--color-screen-bright); }
+.menu-item { display: flex; align-items: baseline; gap: 12px; width: 100%; min-height: 32px; padding: 6px 10px; border: 0; border-radius: 6px; background: none; text-align: left; font-size: 12px; }
+.menu-item strong { flex: none; color: var(--color-screen-ink); font: 500 12px var(--font-mono); }
+.menu-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-screen-muted); }
+.menu-item:hover, .menu-item[aria-current="true"] { background: var(--color-screen-pill-active); }
+.menu-item:hover strong { color: var(--color-screen-bright); }
+.menu-group { margin: 10px 10px 4px; color: var(--color-screen-dim); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+.menu-search { width: 100%; min-height: 34px; margin-bottom: 4px; padding: 0 10px; border: 1px solid var(--color-screen-rule); border-radius: 6px; background: var(--color-screen); color: var(--color-screen-ink); font-size: 13px; }
+input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
+.menu-empty { margin: 12px 10px; color: var(--color-screen-muted); font-size: 12px; }
+
+.search { width: min(620px, calc(100vw - 24px)); max-height: min(640px, calc(100dvh - 48px)); padding: 0; border: 0; border-radius: var(--radius-slab); background: var(--color-screen); color: var(--color-screen-soft); box-shadow: var(--shadow-menu); }
+.search::backdrop { background: oklch(20% 0 0 / .35); }
+.search-form { display: flex; gap: 8px; padding: 14px; border-bottom: 1px solid var(--color-screen-rule); }
+.search-form input { flex: 1; min-width: 0; min-height: 36px; padding: 0 12px; border: 1px solid var(--color-screen-rule); border-radius: 8px; background: var(--color-screen-low); color: var(--color-screen-ink); }
+.search .bar-button.primary { background: var(--color-screen-bright); color: var(--color-screen); }
+.search .bar-button:not(.primary) { color: var(--color-screen-ink); border: 1px solid var(--color-screen-rule); }
+.search .bar-button:hover:not(:disabled) { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+.search .icon-button { color: var(--color-screen-muted); }
+.search-state { margin: 10px 18px 0; color: var(--color-screen-muted); font-size: 12px; min-height: 18px; }
+.results { margin: 0; padding: 6px 8px 10px; list-style: none; overflow: auto; max-height: 480px; }
+.results li { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 8px; }
+.results li:hover { background: var(--color-screen-raised); }
+.results .icon-button { color: var(--color-screen-bright); }
+.result-text { display: grid; flex: 1; min-width: 0; }
+.result-text strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-screen-ink); font-weight: 500; font-size: 13px; }
+.result-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-screen-muted); font-size: 11px; }
+.file-input { display: none; }
+/* What the mouse and keys do */
+.help { width: min(560px, calc(100vw - 24px)); max-height: min(640px, calc(100dvh - 48px)); padding: 0 0 12px; border: 0; border-radius: var(--radius-slab); background: var(--color-screen); color: var(--color-screen-soft); box-shadow: var(--shadow-menu); }
+.help::backdrop { background: oklch(20% 0 0 / .35); }
+.help-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 0 8px; }
+.help .icon-button { color: var(--color-screen-muted); }
+.help-list { display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px; margin: 0; padding: 4px 18px 8px; font-size: 12.5px; }
+.help-list dt { color: var(--color-screen-ink); font: 12px var(--font-mono); }
+.help-list dd { margin: 0; color: var(--color-screen-muted); }
+
+@media (max-width: 720px) {
+  :root { --gutter: 8px; --bar: 52px; }
+  .bar { gap: 4px; padding-inline: 12px 8px; }
+  .wordmark { font-size: 18px; margin-right: 4px; }
+  .wordmark .logo { width: 16px; }
+  .wordmark .logo canvas { height: 27px; }
+  .bar-button { padding: 0 8px; }
+  .bar-end > .icon-button, .bar-end > .bar-button:not(.primary) { display: none; }
+  .split-button { margin-left: 0; }
+  .split-button .format { min-width: 44px; }
+  /* stacked, as the column layout is: the chain under the output */
+  .repl .panes { --side: minmax(160px, var(--split)); grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(200px, 1fr) var(--gap) var(--side) auto; }
+  .repl .panes[data-side="none"] { --side: 0; --gap: 0; }
+  .repl .view-slab { grid-area: 1 / 1; }
+  .repl .splitter { grid-area: 2 / 1; cursor: row-resize; }
+  .repl .side-slab { grid-area: 3 / 1; }
+  .repl .panes > .status { grid-area: 4 / 1; }
+}
+/* A narrow bar: smaller digits; the undo and the panels wrap to a second row, and narrower still the figures go (a
+   problem stays) */
+@container (max-width: 560px) {
+  .timecode { --time-size: 28px; }
+  .tools .icon-button { width: 30px; }
+}
+@container (max-width: 420px) {
+  .readout:not(.problem, .working) { display: none; }
+}
+/* narrow windows: the menu's names go small before anything else */
+@media (max-width: 900px) { .menubar-item { padding: 0 6px; font-size: 12.5px; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

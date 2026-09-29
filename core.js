@@ -11,8 +11,9 @@ import getType from 'audio-type'
 import encode from '@audio/encode'
 import convert, { parse as parseFmt } from 'pcm-convert'
 import parseDuration from 'parse-duration'
+import { resolveBuses } from './batch.js'
 
-audio.version = '2.7.0'
+audio.version = '2.8.0'
 
 /** Parse time value: number passthrough, string via parse-duration or timecode. */
 export function parseTime(v) {
@@ -171,15 +172,37 @@ function makeThenable(a) {
   a.catch = function(reject) { return a.then(null, reject) }
 }
 
+/** A copy `b` of a source `a` still arriving (a file decoding, a pushed stream) follows it (audio.from): it reads the
+ *  pages as they land and has what `a` has, its length, stats, header and end, its rate and channels unless the copy
+ *  asked for its own (`keep`), so it streams and edits live as `a` does. It shares `a`'s pages: disposing `b` drops
+ *  its reference only; disposing `a` ends `b` too, as it ends `a`'s own streams. */
+function follow(b, a, keep) {
+  b.pages = a.pages
+  let own = false
+  for (let k of ['len', 'acc', 'waiters', 'ready', 'estDur', 'header', 'format', 'bits', ...(keep.sr ? ['sr'] : []), ...(keep.ch ? ['ch'] : [])])
+    Object.defineProperty(b._, k, { get: () => a._[k], set() {}, enumerable: true, configurable: true })
+  Object.defineProperty(b._, 'disposed', { get: () => own || a._.disposed, set(v) { own = v }, enumerable: true, configurable: true })
+  for (let k of ['decoded', 'stats'])
+    Object.defineProperty(b, k, { get: () => a[k], set() {}, enumerable: true, configurable: true })
+  // the rate and channels arrive with the header: what was worked out from none is worked out again
+  if (!a._.sr) { let meta = () => { a.off('metadata', meta); b._.fmtV = b._.lenV = -1 }; a.on('metadata', meta) }
+  b.ready = a.ready.then(() => true)
+  b.ready.catch(() => {})
+  makeThenable(b)
+}
+
 /** Sync creation from PCM data, AudioBuffer, audio instance, function, or seconds of silence. */
 audio.from = function(source, opts = {}) {
   if (Array.isArray(source) && source[0] instanceof Float32Array) return fromChannels(source, opts)
   if (typeof source === 'number') return fromSilence(source, opts)
   if (typeof source === 'function') return fromFunction(source, opts)
   if (source?.pages) {
-    return create([...source.pages], opts.sampleRate ?? source.sampleRate,
+    let b = create([...source.pages], opts.sampleRate ?? source.sampleRate,
       opts.channels ?? source._.ch, source._.len,
       { source: source.source, storage: source.storage, cache: source.cache, budget: opts.budget ?? source.budget, bitDepth: opts.bitDepth ?? source._.bits }, source.stats)
+    // a source still arriving: the copy follows it as it lands; a rate or channel count asked for stays the copy's
+    if (source._.waiters && !source.decoded) follow(b, source, { sr: !opts.sampleRate || opts.sampleRate === source._.sr, ch: !opts.channels || opts.channels === source._.ch })
+    return b
   }
   if (source?.getChannelData) {
     let chs = Array.from({ length: source.numberOfChannels }, (_, i) => new Float32Array(source.getChannelData(i)))
@@ -237,6 +260,9 @@ audio.fn = fn                    // instance prototype (like $.fn)
 
 audio.BLOCK_SIZE = 1024
 audio.PAGE_SIZE = 1024 * audio.BLOCK_SIZE
+
+/** Full scale as PCM decodes (v/2^(bits-1)): 16-bit +32767 reads 32767/32768, so a sample this loud counts as clipped. */
+export const FULL = 32767 / 32768
 
 /** Internal protocol symbols for plugin overrides. */
 export const LOAD = Symbol('load')
@@ -301,7 +327,8 @@ fn.dispose = function() {
   this._.lru.clear()
   this.edits.length = 0
   this.block = null
-  this.pages.length = 0
+  // dropped, not emptied: a copy that follows this source (follow) may still read them
+  this.pages = []
   this.stats = null
   if (this._.waiters) for (let w of this._.waiters.splice(0)) w()
   this._.waiters = null
@@ -328,7 +355,7 @@ audio.use = function(...plugins) {
     if (typeof p === 'string') {
       let spec = audio.plugins?.[p] ?? audio.atoms?.[p]  // .atoms — deprecated ≤2.5 name
       if (!spec) throw new Error(`audio.use: unknown plugin '${p}' — not in audio.plugins registry`)
-      ;(loads ??= []).push(import(spec).then(ns => {
+      ;(loads ??= []).push(audio.import(spec).then(ns => {
         for (let k of Object.keys(ns)) { if (isOp(ns[k])) useOp(ns[k]); else if (isStat(ns[k])) useStat(ns[k]); else if (isCodec(ns[k])) useCodec(ns[k]) }
       }, e => { throw new Error(`audio.use('${p}'): install ${spec.split('/').slice(0, 2).join('/')} — ${e.message}`) }))
     }
@@ -339,6 +366,10 @@ audio.use = function(...plugins) {
   }
   return loads ? Promise.all(loads).then(() => audio) : audio
 }
+
+/** How a registry plugin's module loads. A bundled page whose bundler cannot see `import(spec)` (a worker has no
+ *  import map) supplies literal imports: audio.import = spec => loaders[spec]() */
+audio.import = spec => import(spec)
 
 /** Register a codec plugin: { codec: fmt, test?(bytes) → bool, decode?(bytes) →
  *  { channelData, sampleRate } | Promise, encode?(opts) → enc } (enc(chunk) →
@@ -397,12 +428,13 @@ function useOp(m) {
     ? (o, sr) => m.latency({ sampleRate: sr, params: snapParams(n => o?.[n]) }) | 0
     : m.latency | 0
 
-  let init = (ctx, maxBlock = audio.BLOCK_SIZE) => {
+  let init = (ctx, maxBlock = audio.BLOCK_SIZE, width) => {
     let snapshot = snapParams(name => ctx[name])
     let mctx = {
       sampleRate: ctx.sampleRate, maxBlockSize: maxBlock, maxChannels: 32,
       render: 'offline', duration: ctx.totalDuration, currentTime: 0,
-      params: snapshot, layouts: undefined, events: undefined,
+      // declared layouts (contract §Buses) resolve against the input width; `layouts` option picks
+      params: snapshot, layouts: resolveBuses(m.channels, width == null ? [] : [width], ctx.layouts).layouts, events: undefined,
       // events.out declaration validated; host routing of emissions is future work
       emit(name) { if (!(name in (m.events?.out || {}))) throw new Error(`emit: "${name}" not declared in events.out`) }
     }
@@ -435,9 +467,14 @@ function useOp(m) {
     : Array.isArray(side) && typeof side[0] === 'number' ? side[0] : null
   let outN = busN(m.channels?.outputs)
   let ch = outN != null && outN !== busN(m.channels?.inputs) ? () => outN : undefined
+  // Declared layouts (contract §Buses, e.g. mono → 'ambisonic-1'): the output width is the resolved layout's,
+  // unless both sides declare the same layouts (the width carries through)
+  let { inputs: li, outputs: lo } = m.channels ?? {}
+  if (resolveBuses(m.channels).layouts && JSON.stringify(li) !== JSON.stringify(lo))
+    ch = (n, o) => resolveBuses(m.channels, [n], o?.layouts).outputs[0]?.channels
 
   let process = (input, output, ctx) => {
-    let st = ctx._am ??= init(ctx)
+    let st = ctx._am ??= init(ctx, undefined, input.length)
     st.mctx.currentTime = ctx.blockOffset || 0
     if (noteIn) feedEvents(st, ctx, input[0].length)
     fill(st, ctx)
@@ -507,7 +544,7 @@ function useOp(m) {
     return audio.op(id, {
       params: names, plugin: m, atom: m, ch, tail: wholeTail, frames,
       whole(input, output, ctx) {
-        let st = init(ctx, input[0].length)
+        let st = init(ctx, input[0].length, input.length)
         if (noteIn && ctx.notes) st.mctx.events = noteSlots(ctx.notes, ctx.sampleRate)
         fill(st, ctx)
         st.process([input], [output], st.live)
@@ -557,6 +594,7 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
       ct: 0, ctStamp: 0,    // currentTime wall-clock interpolation
       vol: 1, muted: false, // volume 0..1 linear with change events
       rate: 1, // playbackRate
+      loop: false,
       push: false,     // true only for pushable (audio(null)) instances — gates fn.stop()'s finalize branch
       disposed: false, // set by fn.dispose() — in-flight async continuations check this to abort
       evicting: false, // non-reentrant guard for scheduleEvict
@@ -578,6 +616,9 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
   Object.defineProperties(a, {
     currentTime: {
       get() {
+        // playing: what the speakers play now (fn/play.js)
+        let heard = this._.clock?.()
+        if (heard != null) return heard
         if (this.playing && !this.paused) {
           let t = this._.ct + (performance.now() - this._.ctStamp) / 1000 * (this._.rate || 1)
           let d = this.duration
@@ -603,10 +644,15 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
       set(v) { v = Math.max(0.0625, Math.min(16, +v || 1)); if (this._.rate !== v) { this._.rate = v; emit(this, 'ratechange') } },
       enumerable: true, configurable: true
     },
+    loop: {
+      get() { return this._.loop },
+      set(v) { v = !!v; if (this._.loop !== v) { this._.loop = v; this._.onloop?.(v) } },
+      enumerable: true, configurable: true
+    },
   })
   a.playing = false; a.paused = false
   a.ended = false; a.seeking = false
-  a.loop = false; a.block = null
+  a.block = null
 
   // Cache
   a._.lru = new Set()
@@ -650,10 +696,13 @@ Object.defineProperties(fn, {
 })
 
 /** Resolve lazily loaded op modules (a descriptor's `load: () => import(...)` hook) for
- *  the ops an instance's edits name, so sync plan compilation finds them on `desc.mod`.
+ *  the ops an instance's edits name, so sync plan compilation finds them on `desc.mod`,
+ *  then run each edit's asynchronous preparation (`prepare(a, index)`, e.g. model inference
+ *  over the edit's input) before anything renders.
  *  Keeps atoms out of the bundle until an edit uses them. */
 export async function loadOps(a) {
   for (let [type] of a.edits ?? []) { let d = audio.op?.(type); if (d?.load && !d.mod) d.mod = await (d.loading ??= d.load()) }
+  for (let i = 0; i < (a.edits?.length ?? 0); i++) await audio.op?.(a.edits[i][0])?.prepare?.(a, i)
 }
 
 fn[LOAD] = async function() {
@@ -729,7 +778,6 @@ fn.push = function(data, fmt) {
 fn.stop = function() {
   this.playing = false; this.paused = false; this.seeking = false
   this._.cancelPlay?.()
-  if (this._._wake) this._._wake()
   if (this.recording) {
     this.recording = false
     this._.recording = null
@@ -758,11 +806,14 @@ fn.record = function(opts = {}) {
     let read = await mic({ sampleRate: sr, channels: ch, bitDepth: 16, ...opts })
     if (self._.recording !== request) { read(null); return }
     self._._mic = read
-    read((err, buf) => {
+    // a read hands over one block; the next is asked for as each comes, so none is missed
+    const take = (err, buf) => {
       if (self._.recording !== request) return
       if (err || !buf) return
       self.push(new Int16Array(buf.buffer, buf.byteOffset, buf.byteLength / 2), 'int16')
-    })
+      read(take)
+    }
+    read(take)
   })()
   _rec.catch(error => {
     if (self._.recording !== request) return
@@ -791,7 +842,7 @@ fn.seek = function(t) {
       }
     })().catch(() => {})
   }
-  if (this.playing) { this._._seekTo = t; if (this._._wake) this._._wake() }
+  if (this.playing && this._.seek) this._.seek(t)
   else this.seeking = false
   return this
 }
@@ -907,7 +958,9 @@ async function resolveSource(source, signal) {
   throw new TypeError('audio: unsupported source type')
 }
 
-/** Detect format + prepare source. */
+/** Detect format + prepare source. Ogg names its codec after the first page header, at byte 28 (Opus, FLAC):
+ *  the sniff reads 64 bytes, or all there is. */
+const SNIFF = 64
 const detectType = bytes => getType(bytes) || sniffCodecLocal(bytes)
 const sniffCodecLocal = bytes => { for (let k in audio.codecs || {}) if (audio.codecs[k].test?.(bytes)) return k }
 
@@ -924,10 +977,10 @@ async function detectSource(source, signal) {
     let path = await toPath(source)
     let { open, stat } = await import('fs/promises')
     let fh = await open(path, 'r')
-    let hdr = new Uint8Array(12)
-    await fh.read(hdr, 0, 12, 0)
+    let hdr = new Uint8Array(SNIFF)
+    let { bytesRead } = await fh.read(hdr, 0, SNIFF, 0)
     await fh.close()
-    let format = detectType(new Uint8Array(hdr))
+    let format = detectType(hdr.subarray(0, bytesRead))
     let fileSize = (await stat(path)).size
     let { createReadStream } = await import('fs')
     // Start the stream with its consumer attached, even if decoder startup was cancelled.
@@ -937,7 +990,7 @@ async function detectSource(source, signal) {
   }
   // Blob/File — sniff format from a header slice, stream the body (file input path)
   if (typeof Blob !== 'undefined' && source instanceof Blob) {
-    let hdr = new Uint8Array(await source.slice(0, 12).arrayBuffer())
+    let hdr = new Uint8Array(await source.slice(0, SNIFF).arrayBuffer())
     return { format: detectType(hdr), reader: iterateStream(source.stream(), signal), fileSize: source.size }
   }
   // Byte streams: an http(s) response, a web ReadableStream, a Node stream or any async
@@ -967,8 +1020,8 @@ async function streamed(chunks, signal) {
   signal?.addEventListener('abort', () => { chunks.destroy?.(); it.return?.()?.catch?.(() => {}) }, { once: true })
   const next = () => signal ? Promise.race([it.next(), ended.then(() => ({ done: true }))]) : it.next()
   const bytes = v => v instanceof Uint8Array ? v : new Uint8Array(v.buffer ?? v, v.byteOffset ?? 0, v.byteLength)
-  while (n < 12) { let { done, value } = await next(); if (done) break; value = bytes(value); head.push(value); n += value.length }
-  let hdr = new Uint8Array(Math.min(n, 12)), o = 0
+  while (n < SNIFF) { let { done, value } = await next(); if (done) break; value = bytes(value); head.push(value); n += value.length }
+  let hdr = new Uint8Array(Math.min(n, SNIFF)), o = 0
   for (let h of head) { if (o >= hdr.length) break; let k = Math.min(h.length, hdr.length - o); hdr.set(h.subarray(0, k), o); o += k }
   const reader = (async function* () { yield* head; for (let r; !(r = await next()).done;) yield bytes(r.value) })()
   return { format: detectType(hdr), reader }
@@ -1059,14 +1112,77 @@ function pageAccumulator(opts = {}) {
   }
 }
 
-/** Estimate duration from file size, format, sampleRate, channels.
- *  Display-only placeholder heuristics (assumed VBR/bitrate) — feeds CLI progress only, never decode/render. */
-function estimateDuration(fileSize, format, sampleRate, channels) {
+/** How long encoded audio lasts, before it has all arrived: from its header where that says (a WAV or AIFF data size,
+ *  FLAC's sample count, an MP3's Xing, Info or VBRI frame count, or a constant-bitrate MP3's first frame), else from
+ *  its size at a typical bitrate. For progress and a picture's width while a stream arrives; never decode or render. */
+function estimateDuration(fileSize, format, sampleRate, channels, header) {
+  let known = header?.length ? headerDuration(format, header, fileSize) : null
+  if (known > 0) return known
   if (!fileSize || !sampleRate || !channels) return null
   if (format === 'wav') return Math.max(0, (fileSize - 44) / (sampleRate * channels * 2))  // 16-bit PCM
   if (format === 'flac') return fileSize / (sampleRate * channels * 0.7)  // ~56% compression typical
   if (format === 'mp3') return fileSize / (128000 / 8)  // assume 128kbps
   if (format === 'ogg' || format === 'opus') return fileSize / (96000 / 8)  // assume 96kbps
+  return null
+}
+
+// MPEG audio frame headers (ISO/IEC 11172-3 §2.4.2.3, 13818-3): kbps by [MPEG-1?][layer 1..3][index]; Hz by version
+const MPEG_KBPS = [
+  [[0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256], [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160], [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160]],
+  [[0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448], [0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384], [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320]]
+]
+const MPEG_HZ = { 3: [44100, 48000, 32000], 2: [22050, 24000, 16000], 0: [11025, 12000, 8000] }
+
+/** Seconds a header states, or null; a WAV written as it streamed and a constant-bitrate MP3 need the file's size. */
+function headerDuration(format, h, fileSize) {
+  let dv = new DataView(h.buffer, h.byteOffset, h.byteLength), id = o => String.fromCharCode(h[o], h[o + 1], h[o + 2], h[o + 3])
+  try {
+    if (format === 'wav' || format === 'aiff') {
+      let le = format === 'wav', rate = 0, frames = 0, bytes = 0, data = 0
+      for (let o = 12; o + 8 <= h.length;) {
+        let size = dv.getUint32(o + 4, le)
+        if (le && id(o) === 'fmt ') rate = dv.getUint32(o + 16, true)               // bytes a second
+        if (le && id(o) === 'data') { data = o + 8; bytes = size; break }
+        if (!le && id(o) === 'COMM') {
+          frames = dv.getUint32(o + 10)
+          // an 80-bit extended float: exponent, then a 64-bit mantissa with its integer bit
+          let e = dv.getUint16(o + 16) & 0x7fff, m = dv.getUint32(o + 18) * 2 ** 32 + dv.getUint32(o + 22)
+          return frames / (m * 2 ** (e - 16383 - 63))
+        }
+        o += 8 + size + (size & 1)
+      }
+      // a data size of 0 or all ones: written as it streamed; the rest of the file is the data
+      if (bytes === 0 || bytes === 0xffffffff) bytes = fileSize ? fileSize - data : 0
+      return rate && data ? bytes / rate : null
+    }
+    if (format === 'flac') {
+      if (id(0) !== 'fLaC') return null
+      let rate = (h[18] << 12 | h[19] << 4 | h[20] >> 4), total = (h[21] & 15) * 2 ** 32 + dv.getUint32(22)
+      return rate && total ? total / rate : null
+    }
+    if (format === 'mp3') {
+      let o = 0
+      // ID3v2: its size is syncsafe, seven bits a byte; a footer adds 10
+      if (h[0] === 0x49 && h[1] === 0x44 && h[2] === 0x33) o = 10 + (h[6] << 21 | h[7] << 14 | h[8] << 7 | h[9]) + (h[5] & 16 ? 10 : 0)
+      for (let end = Math.min(h.length - 4, o + 65536); o < end; o++) if (h[o] === 0xff && (h[o + 1] & 0xe0) === 0xe0) {
+        let version = h[o + 1] >> 3 & 3, layer = 4 - (h[o + 1] >> 1 & 3), kbps = MPEG_KBPS[+(version === 3)][layer - 1]?.[h[o + 2] >> 4], hz = MPEG_HZ[version]?.[h[o + 2] >> 2 & 3]
+        if (version === 1 || layer > 3 || !kbps || !hz) continue
+        let mono = (h[o + 3] >> 6) === 3, spf = layer === 1 ? 384 : layer === 2 || version === 3 ? 1152 : 576
+        // a VBR tag in the first frame counts the frames: Xing or Info after the side information, VBRI at 32
+        let x = o + 4 + (version === 3 ? (mono ? 17 : 32) : (mono ? 9 : 17))
+        if (x + 12 <= h.length && (id(x) === 'Xing' || id(x) === 'Info') && h[x + 7] & 1) {
+          // LAME's tag after the Xing fields (bytes, TOC, quality) holds the encoder delay and padding, 12 bits each,
+          // which decoders trim: the stream is that much shorter than its frames. FFmpeg writes the same tag under
+          // its own name (Lavc, Lavf), and mpg123 reads all three
+          let f = h[x + 7], l = x + 12 + (f & 2 ? 4 : 0) + (f & 4 ? 100 : 0) + (f & 8 ? 4 : 0)
+          let trim = l + 24 <= h.length && /^(LAME|Lavc|Lavf)$/.test(id(l)) ? (h[l + 21] << 4 | h[l + 22] >> 4) + ((h[l + 22] & 15) << 8 | h[l + 23]) : 0
+          return (dv.getUint32(x + 8) * spf - trim) / hz
+        }
+        if (o + 54 <= h.length && id(o + 36) === 'VBRI') return dv.getUint32(o + 50) * spf / hz
+        return fileSize ? (fileSize - o) * 8 / (kbps * 1000) : null
+      }
+    }
+  } catch {}
   return null
 }
 
@@ -1186,6 +1302,6 @@ async function decodeSource(source, opts = {}) {
   await firstReady
   if (!acc.sampleRate) { await decoding; throw new Error('audio: decoded no audio data') }
 
-  let estDuration = estimateDuration(fileSize || bytes?.length, format, acc.sampleRate, acc.channels)
+  let header = flushHeader(), estDuration = estimateDuration(fileSize || bytes?.length, format, acc.sampleRate, acc.channels, header)
   return { pages: acc.pages, sampleRate: acc.sampleRate, channels: acc.channels, header: flushHeader(), format, decoding, acc, estDuration }
 }

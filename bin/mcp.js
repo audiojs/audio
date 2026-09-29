@@ -74,7 +74,8 @@ async function call(id, { args }) {
   if (cancelled.delete(id)) return null  // the spec forbids answering a cancelled request
   let body = [out, err].map(s => s.replace(/^\s*\n/, '').trimEnd()).filter(Boolean).join('\n')  // stderr carries "Saved …", "→ part", errors
   if (body.length > LIMIT) body = body.slice(0, LIMIT) + `\n… ${body.length - LIMIT} more chars cut: narrow with a range (0..30s) or fewer stats`
-  return text(body || 'done', code !== 0)
+  // A failed `check` prints its report and exits 1: a result, not a tool error (its errors write only stderr)
+  return text(body || 'done', code !== 0 && !(argv.includes('check') && out.trim()))
 }
 
 const text = (t, isError = false) => ({ content: [{ type: 'text', text: t }], isError })

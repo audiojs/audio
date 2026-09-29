@@ -205,3 +205,29 @@ test('fix save.js — encoder construction waits for metadata (mono file → mp3
   let size = (await import('fs')).statSync('/tmp/fix-mono.mp3').size
   t.ok(size > 1000, `mono file encodes to mp3 straight off the source (${size}B)`)
 })
+
+// mark(time, label): a moment in the audio as it is after its edits, kept to through the edits after it
+test('mark — a moment marked after edits keeps to it through later ones', t => {
+  let a = audio.from([new Float32Array(4 * 8000)], { sampleRate: 8000 })
+  a.remove({ at: 0, duration: 1 }).mark(1, 'here')
+  t.is(a.markers, [{ time: 1, label: 'here' }], 'where it was put')
+  a.pad(0.5, 0)
+  t.is(a.markers, [{ time: 1.5, label: 'here' }], 'moved on by what came before it')
+  a.crop({ at: 1, duration: 1.5 })
+  t.is(a.markers, [{ time: 0.5, label: 'here' }], 'and by a crop')
+  // in padding, which plays none of the source, the nearest moment that does
+  let b = audio.from([new Float32Array(8000)], { sampleRate: 8000 }).pad(1, 0).mark(0.2)
+  t.is(b.markers, [{ time: 1, label: '' }])
+  // chainable, several, in time order
+  let c = audio.from([new Float32Array(8000)], { sampleRate: 8000 }).mark(0.75, 'b').mark(0.25, 'a')
+  t.is(c.markers.map(m => m.label), ['a', 'b'])
+  // through a reversal and a speed change, where it was put, to a sample
+  let r = audio.from([new Float32Array(8000)], { sampleRate: 8000 }).reverse().mark(0.25)
+  t.ok(Math.abs(r.markers[0].time - 0.25) <= 1 / 8000, `reversed: ${r.markers[0].time}`)
+  let f = audio.from([new Float32Array(16000)], { sampleRate: 8000 }).speed(2).mark(0.25)
+  t.ok(Math.abs(f.markers[0].time - 0.25) <= 1 / 8000, `twice as fast: ${f.markers[0].time}`)
+  // past the end, the end; on nothing, nothing
+  t.is(audio.from([new Float32Array(8000)], { sampleRate: 8000 }).mark(5).markers, [{ time: 7999 / 8000, label: '' }])
+  t.is(audio.from([new Float32Array(8000)], { sampleRate: 8000 }).crop({ at: 0.5, duration: 0.25 }).mark(3).markers, [{ time: 0.25 - 1 / 8000, label: '' }])
+  t.is(audio.from([new Float32Array(0)], { sampleRate: 8000 }).mark(1).markers, [])
+})

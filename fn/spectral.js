@@ -5,15 +5,22 @@
  * a.spectral([6000, 9000], { at: 5, duration: 0.2 })          → remove the band there (default gain: off)
  * a.repair({ at: 1.2, duration: 0.05 })                         → rebuild a dropout from its surroundings
  * a.repair([0, 3000], { at: 1.2, duration: 0.05 })              → rebuild only that band
+ * a.repair({ at: 12, duration: 1, method: 'similarity' })       → transplant the best-matching passage
  *
  * `band` is [low, high] in Hz (default: full band); the time range is the op's own at/duration
  * (spectral default: all of it; repair requires one). Both stream with bounded latency, so a
  * cough edited into a days-long stream costs its own seconds, not the stream's:
  * - spectral: an STFT (@audio/stft stream, 2048/512, the frames of @audio/spectral-edit) engaged
  *   only while frames can touch the region, delayed passthrough elsewhere; latency one frame.
- * - repair: the damaged range plus two frames of context each side, repaired once by
- *   @audio/denoise-repair (log-magnitude interpolation, phase advanced from the leading context)
- *   and spliced into a delay line; latency = the range + context.
+ * - repair: the damaged range plus context, repaired once by @audio/denoise-repair and spliced into
+ *   a delay line. `method` 'auto' routes by length and content: a transplant of the passage that joins
+ *   seamlessly, searched in the `window` s (10) before the range; failing that, AR interpolation up to
+ *   70 ms and a sinusoidal bridge over a matched noise floor beyond. 'ar' | 'sinusoidal' |
+ *   'similarity' | 'spectral' force one. The search reads only the past, so latency stays the range
+ *   + two frames of trailing context + a frame (at 44.1 kHz: the range + 139 ms); searching the future
+ *   too would add the window, for ≤ 0.2 dB LSD (README of @audio/denoise-repair). Memory: the window
+ *   + range + two frames per channel (10 s, 1 s, 48 kHz stereo: 4.3 MB). Channels share one decision,
+ *   routed on their mix: a transplant copies the same passage into each.
  */
 import audio from '../core.js'
 
@@ -54,14 +61,11 @@ function spectral(input, output, ctx) {
   let n0 = st.n, end = n0 + len
   if (!st.sp && st.e0 >= n0 && st.e0 < end && st.e0 < st.e1) {
     let { stftStream } = audio.op('spectral').mod, at = st.e0, { s0, s1, k0, k1, g } = st
-    st.sp = Array.from({ length: nch }, () => {
-      let frame = 0
-      return stftStream((mag, phase) => {
-        let mid = at + frame++ * HOP + N / 2
-        if (mid >= s0 && mid <= s1) for (let k = k0; k <= k1; k++) mag[k] *= g
-        return { mag, phase }
-      }, { fs: sr, frameSize: N, hopSize: HOP })
-    })
+    st.sp = Array.from({ length: nch }, () => stftStream((mag, phase, _, c) => {
+      let mid = at + c.pos + N / 2
+      if (mid >= s0 && mid <= s1) for (let k = k0; k <= k1; k++) mag[k] *= g
+      return { mag, phase }
+    }, { fs: sr, frameSize: N, hopSize: HOP }))
     st.q = st.sp.map(() => []); st.qAt = at
   }
   if (st.sp) {
@@ -92,24 +96,30 @@ audio.op('spectral', {
   process: spectral,
 })
 
-// Context either side of a repaired range: the frames the kernel interpolates from
-const C = 2 * N
+// Context of a repaired range: two frames after it, what the local tiers (AR, sinusoidal, spectral)
+// read; before it the same, or the similarity search window when a transplant may be chosen
+const C = 2 * N, WINDOW = 10
+const past = (o, sr) => (o.method ?? 'auto') === 'auto' || o.method === 'similarity' ? Math.max(C, Math.round((o.window ?? WINDOW) * sr)) : C
+// latency: the range, its trailing context, and the frame the splice reaches back; warm-up: the
+// range and everything before it the repair reads
+const latency = (o, sr) => o.duration != null ? Math.round(o.duration * sr) + C + N : 0
+const warmup = (o, sr) => o.duration != null ? Math.round(o.duration * sr) + past(o, sr) + N : 0
 
 function repair(input, output, ctx) {
   let nch = input.length, len = input[0].length, sr = ctx.sampleRate
   let st = ctx._rp
   if (!st) {
     if (ctx.at == null || ctx.duration == null) throw new RangeError('repair: needs the damaged time range, e.g. {at: 1.2, duration: 0.05}')
-    let D = Math.round(ctx.duration * sr) + 3 * N
-    st = ctx._rp = { n: Math.round((ctx.blockOffset || 0) * sr), D, dl: Array.from({ length: nch }, () => delay(D)), w: null, out: null, done: false }
+    let D = latency(ctx, sr)
+    st = ctx._rp = { n: Math.round((ctx.blockOffset || 0) * sr), D, P: past(ctx, sr), dl: Array.from({ length: nch }, () => delay(D)), w: null, out: null, done: false }
   }
-  // window [c0, c1) holds the range with 2N of context; [u0, u1) is spliced back. A range counted
+  // window [c0, c1) holds the range with its context; [u0, u1) is spliced back. A range counted
   // from a live stream's end moves with it until collection starts (output is held back till then)
   if (!st.done && !st.w) {
-    let { s0, s1, f0, f1 } = region(ctx), c0 = Math.max(0, s0 - C), c1 = s1 + C
+    let { s0, s1, f0, f1 } = region(ctx), c0 = Math.max(0, s0 - st.P), c1 = s1 + C
     Object.assign(st, { s0, s1, f0, f1, c0, c1, u0: Math.max(0, s0 - N), u1: s1 + N })
   }
-  let repairFn = audio.op('repair').mod.default
+  let mod = audio.op('repair').mod
   for (let i = 0; i < len; i++, st.n++) {
     let n = st.n, j = n - st.D
     if (!st.done && n >= st.c0 && n < st.c1) {
@@ -117,13 +127,17 @@ function repair(input, output, ctx) {
       for (let c = 0; c < nch; c++) st.w[c][n - st.c0] = input[c][i]
     }
     if (!st.done && n === st.c1 - 1) {
-      let reg = { at: (st.s0 - st.c0) / sr, duration: (st.s1 - st.s0) / sr, from: st.f0, to: st.f1 }
-      st.out = st.w.map(w => repairFn(w, { fs: sr, regions: [reg] }))
+      let opts = { fs: sr, method: ctx.method, window: st.P / sr, regions: [{ at: (st.s0 - st.c0) / sr, duration: (st.s1 - st.s0) / sr, from: st.f0, to: st.f1 }] }
+      // one decision for all channels, routed on their mix: a transplant copies the same passage in each
+      let mix = st.w[0], regions = opts.regions
+      if (nch > 1) { mix = new Float32Array(mix.length); for (let w of st.w) for (let k = 0; k < w.length; k++) mix[k] += w[k] / nch }
+      if (mod.plan) regions = mod.plan(mix, opts)   // @audio/denoise-repair < 0.2 has one method and no plan
+      st.out = st.w.map(w => mod.default(w, { ...opts, regions }).slice(st.u0 - st.c0, st.u1 - st.c0))
       st.w = null; st.done = true
     }
     for (let c = 0; c < nch; c++) {
       let x = st.dl[c](input[c][i])
-      output[c][i] = st.out && j >= st.u0 && j < st.u1 ? st.out[c][j - st.c0] : x
+      output[c][i] = st.out && j >= st.u0 && j < st.u1 ? st.out[c][j - st.u0] : x
     }
     if (j >= st.u1) st.out = null
   }
@@ -132,8 +146,8 @@ function repair(input, output, ctx) {
 audio.op('repair', {
   params: ['band'],
   ranged: true,
-  latency: (o, sr) => o.duration != null ? Math.round(o.duration * sr) + 3 * N : 0,
-  warmup: (o, sr) => o.duration != null ? Math.round(o.duration * sr) + 3 * N : 0,  // the window's leading context
+  latency,
+  warmup,
   load: () => import('@audio/denoise-repair'),
   process: repair,
 })

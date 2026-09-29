@@ -119,6 +119,19 @@ test('mcp: overview, preview chain, save to a quoted path with spaces', E2E, asy
   } finally { await c.close(); rmSync(dir, { recursive: true, force: true }) }
 })
 
+// A spec the file misses is an answer, not a failure of the tool: the report comes back as a result
+test('mcp: a failed check is a result with its report; a bad spec is an error', E2E, async t => {
+  let c = client()
+  try {
+    let r = await c.call(`${lena} check broadcast`)
+    t.is(r.isError, false, 'report, not an error')
+    t.ok(/✗ Loudness/.test(r.content[0].text) && /failed/.test(r.content[0].text), r.content[0].text)
+    let e = await c.call(`${lena} check youtube`)
+    t.is(e.isError, true)
+    t.ok(e.content[0].text.includes('unknown spec'), e.content[0].text)
+  } finally { await c.close() }
+})
+
 test('mcp: errors come back as tool errors the model can act on', E2E, async t => {
   let c = client()
   try {

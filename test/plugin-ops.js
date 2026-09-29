@@ -82,6 +82,22 @@ test('audio.use(name) resolves through the registry (dynamic import)', async () 
   ok(/unknown plugin/.test(err?.message), 'unknown name throws')
 })
 
+test('audio.use(name) loads through audio.import, so a bundle can supply literal imports', async () => {
+  let asked = [], original = audio.import
+  let echo = () => (inputs, outputs) => { inputs[0].forEach((c, i) => outputs[0][i].set(c)) }
+  echo.channels = 'any'
+  echo.params = { level: { type: 'number', min: 0, max: 1, default: 1 } }
+  audio.plugins.echo = '@audio/echo-probe/audio'
+  audio.import = spec => (asked.push(spec), spec === '@audio/echo-probe/audio' ? Promise.resolve({ echo }) : original(spec))
+  try {
+    await audio.use('echo')
+    is(asked.join(), '@audio/echo-probe/audio', 'the registry name loaded through audio.import, once')
+    let input = tone(440, 0.1)
+    let out = (await audio.from([input], { sampleRate: SR }).echo().read())[0]
+    ok(out.length === input.length && out.every((v, i) => v === input[i]), 'the supplied module renders')
+  } finally { audio.import = original; delete audio.plugins.echo; delete audio.fn.echo }
+})
+
 // ── Wave B: dynamics-gate + denoise-dehum ─────────────────────────────
 
 import { gate } from '@audio/dynamics-gate/audio'
@@ -246,7 +262,8 @@ test('leveler: loud/quiet sections converge in RMS toward target loudness', asyn
   // per-block hosting could not level is covered in the engine-hosting block below.
   let loud = tone(440, 10, 0.5), quiet = tone(440, 10, 0.006)
   let combined = new Float32Array([...loud, ...quiet])
-  let out = (await audio.from([combined], { sampleRate: SR }).leveler({ target: -20, frame: 0.5, maxGain: 12, smooth: 5 }).read())[0]
+  // gate 40: the quiet tone, 38 dB under, is a quiet voice to lift, not a pause to hold (the default gate is 20 dB)
+  let out = (await audio.from([combined], { sampleRate: SR }).leveler({ target: -20, frame: 0.5, maxGain: 12, smooth: 5, gate: 40 }).read())[0]
   ok(out.every(isFinite))
   let margin = Math.round(3 * SR)
   let gapBefore = Math.abs(db(rms(loud, 0, loud.length - margin)) - db(rms(quiet, margin)))
@@ -297,7 +314,8 @@ test('whole-render hosting: leveler converges time-varying levels (streaming:fal
   for (let i = 0; i < SR; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 330 * i / SR)
   for (let i = SR; i < n; i++) ch[i] = 0.02 * Math.sin(2 * Math.PI * 330 * i / SR)
   let a = audio.from([ch.slice()], { sampleRate: SR })
-  let out = (await a.leveler({ maxGain: 30, frame: 0.1, smooth: 2 }).read())[0]
+  // gate 40: the quiet second, 28 dB under, is a quiet voice to lift, not a pause to hold (the default gate is 20 dB)
+  let out = (await a.leveler({ maxGain: 30, frame: 0.1, smooth: 2, gate: 40 }).read())[0]
   is(out.length, n, 'length preserved')
   let gap0 = 20 * Math.log10(rms(ch, SR * 0.2, SR * 0.8) / rms(ch, SR * 1.2, SR * 1.8))
   let gap1 = 20 * Math.log10(rms(out, SR * 0.2, SR * 0.8) / rms(out, SR * 1.2, SR * 1.8))
@@ -306,7 +324,7 @@ test('whole-render hosting: leveler converges time-varying levels (streaming:fal
 
   // whole-render composes: ops after it apply to the materialized result
   let b = audio.from([ch.slice()], { sampleRate: SR })
-  b.leveler({ maxGain: 30, frame: 0.1, smooth: 2 }).gain(-6)
+  b.leveler({ maxGain: 30, frame: 0.1, smooth: 2, gate: 40 }).gain(-6)
   let out2 = (await b.read())[0]
   almost(rms(out2, SR * 0.2, SR * 0.8), rms(out, SR * 0.2, SR * 0.8) * 10 ** (-6 / 20), 1e-3, 'post-op applies to materialized output')
   b.undo(); b.undo()
@@ -376,4 +394,33 @@ test('filter ops: Q, and the former q still read', async () => {
   let pos = (await audio.from([x.slice()], { sampleRate: SR }).bandpass(1000, 4).read())[0]
   let named = (await audio.from([x.slice()], { sampleRate: SR }).bandpass({ freq: 1000, Q: 4 }).read())[0]
   ok(pos.every((v, i) => v === named[i]), 'positional (freq, Q) ≡ named')
+})
+
+// Layout tags (contract §Buses), declared as @audio/spatial-ambisonic declares them: widths follow the resolved
+// layout, the factory sees ctx.layouts, and a `layouts` option picks among the declared ones
+let built = []
+function layoutEncode(ctx) {
+  built.push(ctx.layouts)
+  return (inputs, outputs) => { for (let c = 0; c < outputs[0].length; c++) outputs[0][c].set(inputs[0][0]) }
+}
+layoutEncode.channels = { inputs: 1, outputs: ['ambisonic-1', 'ambisonic-2', 'ambisonic-3'] }
+layoutEncode.params = {}
+function layoutDecode(ctx) {
+  built.push(ctx.layouts)
+  return (inputs, outputs) => { for (let c = 0; c < outputs[0].length; c++) outputs[0][c].set(inputs[0][c]) }
+}
+layoutDecode.channels = { inputs: ['ambisonic-1', 'ambisonic-2', 'ambisonic-3'], outputs: ['stereo', 'quad', '5.1', '7.1'] }
+layoutDecode.params = {}
+audio.use(layoutEncode, layoutDecode)
+
+test('use(module) hosts declared layouts: mono → ambisonic → speakers', async () => {
+  let x = tone(440, 0.5)
+  let enc = await audio.from([x], { sampleRate: SR })['layout-encode']().read()
+  is(enc.length, 4, 'first order by default')
+  ok(enc.every(c => c.every((v, i) => v === x[i])), 'every channel written')
+  is(built.at(-1), { inputs: [undefined], outputs: ['ambisonic-1'] })
+  is((await audio.from([x], { sampleRate: SR })['layout-encode']({ layouts: { outputs: ['ambisonic-2'] } }).read()).length, 9, 'second order chosen')
+  let dec = await audio.from([x], { sampleRate: SR })['layout-encode']()['layout-decode']().read()
+  is(dec.length, 2, 'decoded to stereo')
+  is(built.at(-1), { inputs: ['ambisonic-1'], outputs: ['stereo'] })
 })

@@ -83,6 +83,48 @@ Object.defineProperties(audio.fn, {
   }
 })
 
+/**
+ * Mark a moment: `time` in seconds of the audio as it is now, after its edits, and a label; chainable. The marker
+ * keeps to the moment it marks through the edits after it, and saves as a cue or chapter (save.js). A time where
+ * the audio plays none of its own source (silence, an inserted file) marks the nearest moment that does.
+ *   audio('talk.mp3').remove({ at: 0, duration: 5 }).mark(60, 'Part two').save('talk.mp3')
+ */
+audio.fn.mark = function (time, label = '') {
+  ensureMeta(this)
+  let plan = this.edits?.length ? buildPlan(this) : null, sr = plan ? plan.sr : this._.sr || this.sampleRate
+  let p = Math.max(0, Math.round((+time || 0) * sr))
+  // unedited, a time past the end marks the end; a source still arriving has no end yet
+  let sample = plan ? nearestSource(p, plan.segs) : this.decoded ? (this._.len ? Math.min(p, this._.len - 1) : null) : p
+  if (sample != null) (this._.markers ||= []).push({ sample, label: String(label ?? '') })
+  return this
+}
+
+/** The source sample an output sample plays, through plan segments (remapSample's inverse); null where it plays none
+ *  of the source */
+function sourceSample(p, segs) {
+  for (let sg of segs) {
+    if (sg[6] && !(sg = dominant(sg))) continue
+    let from = sg[0], count = sg[1], to = sg[2], rate = sg[3] || 1, ref = sg[4]
+    if (p < to || p >= to + count) continue
+    let idx = p - to, absR = Math.abs(rate), s = rate < 0 ? from + (count - 1 - idx) * absR : from + idx * absR
+    if (ref?.segs) { let q = sourceSample(s, ref.segs); if (q != null) return Math.round(q); continue }
+    if (ref !== undefined) continue
+    return Math.round(s)
+  }
+  return null
+}
+// …or at the nearest output sample that plays some, the edge of the source's segment closest to it
+function nearestSource(p, segs) {
+  let at = sourceSample(p, segs)
+  if (at != null) return at
+  let best = null, d = Infinity
+  for (let sg of segs) {
+    if (sg[4] !== undefined && !sg[4]?.segs) continue
+    for (let q of [sg[2], sg[2] + sg[1] - 1]) { let s = sourceSample(q, [sg]); if (s != null && Math.abs(q - p) < d) { d = Math.abs(q - p); best = s } }
+  }
+  return best
+}
+
 function toSrcMarker(a, m) {
   let sr = a._.sr || a.sampleRate
   let sample = m.sample != null ? m.sample : Math.round((m.time ?? 0) * sr)

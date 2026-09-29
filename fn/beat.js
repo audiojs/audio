@@ -15,6 +15,7 @@
 
 import combTempo from '@audio/beat-tempo/comb'
 import detect from '@audio/beat-detect'
+import { beatTrack } from '@audio/beat'
 import { peakPick, ODF } from '@audio/onset'
 import audio from '../core.js'
 
@@ -26,40 +27,35 @@ function energyOdf(stats, from, to, sr) {
   if (!energy?.length) return null
   let n = to - from, ch = energy.length
 
-  // Average channels to mono energy envelope
-  let en = new Float64Array(n)
-  for (let c = 0; c < ch; c++)
+  // Average channels to mono energy envelope, and the block before the range: silence before the start
+  let en = new Float64Array(n), before = 0
+  for (let c = 0; c < ch; c++) {
     for (let i = 0; i < n; i++) en[i] += energy[c][from + i]
-  if (ch > 1) for (let i = 0; i < n; i++) en[i] /= ch
+    if (from > 0) before += energy[c][from - 1]
+  }
+  if (ch > 1) { for (let i = 0; i < n; i++) en[i] /= ch; before /= ch }
 
-  // Positive first differences = energy flux ODF
+  // Positive first differences = energy flux ODF; the first block rises from the one before it, so a sound that
+  // starts struck has its onset at the start
   let odf = new Float64Array(n)
-  for (let i = 1; i < n; i++) { let d = en[i] - en[i - 1]; if (d > 0) odf[i] = d }
+  for (let i = 0; i < n; i++) { let d = en[i] - (i ? en[i - 1] : before); if (d > 0) odf[i] = d }
 
   let any = false
   for (let i = 0; i < n; i++) if (odf[i] > 0) { any = true; break }
   if (!any) return null
 
-  return { odf, nFrames: n, hopSize: stats.blockSize, fs: sr }
+  return { odf, energy: en, before, nFrames: n, hopSize: stats.blockSize, fs: sr }
 }
 
-/** Phase-align beat grid with detected onsets. */
-function beatGrid(bpm, onsets, blockCount, blockSize, sr) {
-  let duration = blockCount * blockSize / sr
-  let iv = 60 / bpm
-  let bestPhase = 0, bestScore = -Infinity
-  for (let p = 0; p < 20; p++) {
-    let phase = (p / 20) * iv, score = 0
-    for (let o of onsets) {
-      let d = ((o - phase) % iv + iv) % iv
-      score -= d < iv / 2 ? d : iv - d
-    }
-    if (score > bestScore) { bestScore = score; bestPhase = phase }
-  }
-  let beats = []
-  for (let t = bestPhase; t < duration; t += iv) beats.push(t)
-  if (beats.length && beats[0] > iv * 0.25) beats.unshift(Math.max(0, beats[0] - iv))
-  return new Float64Array(beats)
+// Onsets: peaks of the flux over its local mean that make the sound louder, their block holding at least 1 dB more
+// energy than the quieter of the two before it, about the least change of level heard. Onsets are relative changes
+// (Klapuri, ICASSP 1999); smaller swells, like the beating of partials in a decay, pass the local mean only because
+// a decay's flux is small everywhere.
+const RISE = 10 ** (1 / 10)
+function pickOnsets({ odf, energy, before, hopSize }, sr, opts) {
+  let pick = { hopSize, fs: sr, ...opts }
+  let rises = f => energy[f] >= RISE * Math.min(f > 0 ? energy[f - 1] : before, f > 1 ? energy[f - 2] : before)
+  return peakPick(odf, pick).filter(t => rises(Math.round(t * pick.fs / pick.hopSize)))
 }
 
 // ── Stat descriptors (instant — read from existing energy blocks) ─
@@ -80,10 +76,9 @@ audio.stat('beats', {
   query: (stats, chs, from, to, sr, opts) => {
     let odfData = energyOdf(stats, from, to, sr)
     if (!odfData) return new Float64Array(0)
-    let onsets = peakPick(odfData.odf, { hopSize: stats.blockSize, fs: sr, ...opts })
-    let { bpm } = combTempo(null, { [ODF]: odfData, fs: sr, ...opts })
-    if (bpm <= 0 || !onsets.length) return new Float64Array(0)
-    return beatGrid(bpm, onsets, to - from, stats.blockSize, sr)
+    // Ellis's dynamic-programming tracker (JNMR 2007) on the flux, at combTempo's tempo: it follows the beats
+    // where a fixed grid drifts off with the tempo, and takes the strong onsets for the beats, not the off-beats
+    return beatTrack(null, { [ODF]: odfData, fs: sr, ...opts }).beats
   }
 })
 
@@ -91,8 +86,7 @@ audio.stat('onsets', {
   fields: ['energy'],
   query: (stats, chs, from, to, sr, opts) => {
     let odfData = energyOdf(stats, from, to, sr)
-    if (!odfData) return new Float64Array(0)
-    return peakPick(odfData.odf, { hopSize: stats.blockSize, fs: sr, ...opts })
+    return odfData ? pickOnsets(odfData, sr, opts) : new Float64Array(0)
   }
 })
 

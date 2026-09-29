@@ -1,0 +1,265 @@
+// Speech recipes, stage by stage: renders each recipe of repl/recipes.js that processes a voice, and every
+// prefix of it, on VoiceBank+DEMAND and on ten Spoken Wikipedia narrations. bench/speech.py scores them.
+//
+//   node bench/speech.mjs SET SYSTEM[,SYSTEM...] [SHARD/N]
+//   node bench/speech.mjs list
+//   node bench/speech.mjs dirs SYSTEM[,SYSTEM...]     each system's output directory, for bench/speech.py
+//
+// SET: `test` (VoiceBank+DEMAND test, 824 utterances), `train` (504 utterances of its 28-speaker training set,
+// disjoint from the test speakers and noises: the only set settings are chosen on), `test-clean` and
+// `train-clean` (their clean references as input: what a stage does to clean speech), `rooms` (the narrations),
+// `rooms-train` (ten other narrations, for choosing settings), `reverb-train` and `reverb-test` (a quarter of those
+// clean utterances through MIT IR Survey rooms, Traer & McDermott 2016: even-numbered responses for training, odd
+// for testing; the direct sound aligned to the dry take).
+// SYSTEM: a recipe's slug (`enhance-speech`), its first k stages (`enhance-speech:3`), all its prefixes
+// (`enhance-speech:*`), the recipe without stage k (`enhance-speech-3`), a recipe as it was (`was-enhance-speech`),
+// an entry of EXTRA, or `lin:SYSTEM`: the system's tone filters alone (SI-SDR's reference, on a clean set).
+//
+// Each stage's output is kept, so a prefix renders once for every recipe that shares it, and each system is
+// the previous prefix's output through one more stage. Outputs stay whole (read() length, declared tails
+// included), so stage by stage equals the chain at once. VoiceBank+DEMAND is scored against its clean
+// reference sample by sample, so there the structural stages (trim, pad, shrink, roomtone, resample) are left
+// out; the narrations run whole recipes and get the check a recipe names (and ACX's, for its noise floor).
+//
+// Data. VoiceBank+DEMAND (Valentini-Botinhao 2017, CC BY 4.0, doi:10.7488/ds/2117): clean_testset_wav,
+// noisy_testset_wav in ~/.cache/audiojs/data/vbdemand/; training files (clean_trainset_28spk_wav,
+// noisy_trainset_28spk_wav, first 18 of each speaker) in vbdemand-train/{clean,noisy}/. Narrations: the first
+// 60 s of each, 48 kHz mono float32, in spoken/<name>.f32 (@audio/neural-denoise scripts/accuracy.mjs ROOMS);
+// rooms-train, ten more from Wikimedia Commons' Spoken English Wikipedia category (every 223rd title from the
+// 131st, the ten above skipped, over 70 s; CC BY-SA), in spoken-train/ with its manifest.json.
+// Outputs: ~/.cache/audiojs/data/recipes[-SPEECH_TAG]/SET/<stage>/<stage>/…/<name>.wav (float); a floor
+// target writes the attenuation it chose beside each output (<name>.limit).
+
+import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, existsSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import audio from '../audio.js'
+import RECIPES from '../repl/recipes.js'
+import { noiseDrop, attenuation } from '../fn/deepfilter.js'
+
+// SPEECH_TAG names a separate output tree: the same stages after their packages change
+const DATA = path.join(os.homedir(), '.cache', 'audiojs', 'data'), OUT = path.join(DATA, 'recipes' + (process.env.SPEECH_TAG ? '-' + process.env.SPEECH_TAG : ''))
+const VOICE = ['Podcast voice', 'Enhance speech', 'Reduce noise', 'Remove hum', 'Remove room echo', 'Breaths, clicks, pops',
+  'Shorten pauses', 'Room tone for silence', 'Audiobook chapter', 'Podcast episode', 'Narration, tightened', 'Vocal chain']
+const STRUCTURAL = /^(trim|pad|shrink|roomtone|resample|crop)\(/
+
+// The recipes as they were before this bench (repl/recipes.js, 2026-09-27): `was-<slug>`, prefixes as for recipes
+export const WAS = {
+  'podcast-voice': ['highpass(80)', 'trim()', 'compressor({ threshold: -24, ratio: 3 })', "normalize('podcast')", 'fade(0.3, 0.5)'],
+  'enhance-speech': ['highpass(80)', 'dehum()', 'omlsa()', 'deesser()', 'compressor({ threshold: -24, ratio: 3 })', 'eq(3000, 2, 1)', "normalize('podcast')"],
+  'reduce-noise': ['omlsa()'],
+  'remove-hum': ['dehum({ freq: 50 })'],
+  'remove-room-echo': ['highpass(80)', 'dereverb({ t60: 0.6 })'],
+  'breaths-clicks-pops': ['declick()', 'deplosive()', 'debreath({ range: -12 })'],
+  'shorten-pauses': ['shrink(0.3)'],
+  'room-tone-for-silence': ['roomtone()'],
+  'audiobook-chapter': ['highpass(80)', 'omlsa({ gMin: -12 })', 'compressor({ threshold: -24, ratio: 2.5 })', "normalize(-20, 'rms', { ceiling: -3.5 })", 'trim()', 'pad(1.5, 2)', 'roomtone()', 'resample(44100)'],
+  'podcast-episode': ['highpass(80)', 'omlsa({ gMin: -12 })', 'deesser()', 'compressor({ threshold: -24, ratio: 2.5 })', "normalize('podcast')"],
+  'narration-tightened': ['highpass(80)', 'omlsa({ gMin: -12 })', 'shrink(0.6)', 'leveler({ target: -20 })', "normalize('podcast')"],
+  'vocal-chain': ['highpass(90)', 'deesser()', 'compressor({ threshold: -20, ratio: 3 })', 'eq(3000, 2, 1)', 'highshelf(10000, 2)', 'plate({ decay: 0.4, mix: 0.12 })', "normalize('streaming')"],
+}
+
+// Candidates the recipes are chosen from (on `train`); same form as a recipe's stages
+const AB = d => ['highpass(80)', d, 'compressor({ threshold: -24, ratio: 2.5 })', "normalize(-20, 'rms', { ceiling: -3.5 })", 'trim()', 'pad(1.5, 2)', 'roomtone()', 'resample(44100)']
+const PE = d => ['highpass(80)', d, 'deesser()', 'compressor({ threshold: -24, ratio: 2.5 })', "normalize('podcast')"]
+export const EXTRA = {
+  // neural denoisers: fixed attenuation limits (floor: false) against the floor target (deepfilter's default)
+  'dfn-0': ['deepfilter(0)'], 'dfn-12': ['deepfilter({ limit: 12, floor: false })'], 'dfn-24': ['deepfilter({ limit: 24, floor: false })'],
+  'dfn-b40': ['deepfilter({ below: 40 })'], 'dfn-b45': ['deepfilter({ below: 45 })'], 'dfn-b50': ['deepfilter({ below: 50 })'],
+  'dfn-12b45': ['deepfilter()'],
+  'rnn-0': ['rnnoise(0)'], 'rnn-20': ['rnnoise(20)'], 'rnn-b45': ['rnnoise({ below: 45, limit: 20 })'], 'rnn-b50': ['rnnoise({ below: 50, limit: 20 })'],
+  'ab-dfn12': AB('deepfilter({ limit: 12, floor: false })'), 'ab-dfnb45': AB('deepfilter({ below: 45 })'), 'ab-dfnb50': AB('deepfilter({ below: 50 })'),
+  'ab-rnn20': AB('rnnoise(20)'), 'ab-rnnb50': AB('rnnoise({ below: 50, limit: 20 })'),
+  'pe-dfn12': PE('deepfilter({ limit: 12, floor: false })'), 'pe-dfnb45': PE('deepfilter({ below: 45 })'), 'pe-dfnb50': PE('deepfilter({ below: 50 })'),
+}
+// the level set before what reads absolute level (de-esser, compressor): podcast loudness, ACX's RMS
+const POD = ["normalize(-16, 'lufs', { ceiling: false })"], ACX = ["normalize(-20, 'rms', { ceiling: false })"]
+const comp = (t, r) => `compressor({ threshold: ${t}, ratio: ${r} })`
+const cand = (id, st) => EXTRA[id] = st
+for (let [d, den] of [['dfn12', 'deepfilter({ limit: 12, floor: false })'], ['dfn24', 'deepfilter({ limit: 24, floor: false })'], ['dfnb45', 'deepfilter({ below: 45 })'], ['dfn12b45', 'deepfilter()'], ['rnn20', 'rnnoise(20)'], ['rnn12', 'rnnoise(12)'], ['rnn15', 'rnnoise(15)']]) {
+  cand(`n-${d}`, ['highpass(80)', den])
+  cand(`np-${d}`, ['highpass(80)', den, "normalize('podcast')"])
+  for (let [t, r] of [[-26, 2], [-20, 2], [-20, 3], [-14, 3]]) cand(`np-${d}-c${-t}r${r}`, ['highpass(80)', den, ...POD, comp(t, r), "normalize('podcast')"])
+  for (let [t, r] of [[-26, 2], [-20, 2.5], [-14, 3], [-10, 3]]) cand(`na-${d}-c${-t}r${r}`, ['highpass(80)', den, ...ACX, comp(t, r), "normalize(-20, 'rms', { ceiling: -3.5 })", 'trim()', 'pad(1.5, 2)', 'roomtone()', 'resample(44100)'])
+}
+// Enhance speech, neural, with the fixed 24 dB it had before deepfilter's floor
+cand('esn-24', ['highpass(80)', 'dehum()', 'deepfilter({ limit: 24, floor: false })', "normalize(-16, 'lufs', { ceiling: false })", "deesser({ mode: 'band', threshold: -30 })", "normalize('podcast')"])
+// Remove room echo: the late-reverb model's decay time and over-estimation
+for (let [t, a] of [[0.6, 1.5], [0.4, 1.5], [0.3, 1], [0.4, 1], [0.6, 1]]) cand(`echo-t${t * 10}a${a * 10}`, ['highpass(80)', `dereverb({ t60: ${t}, alpha: ${a} })`])
+// classical denoisers (the fixed @audio/denoise), alone and in the ACX chain; dehum first: it leaves hum-free input alone
+const ACXEND = ["normalize(-20, 'rms', { ceiling: -3.5 })", 'trim()', 'pad(1.5, 2)', 'roomtone()', 'resample(44100)']
+for (let [d, den] of [['omlsa', 'omlsa()'], ['omlsa12', 'omlsa({ gMin: -12 })'], ['wiener', 'wiener()'], ['specsub', 'specsub()'], ['dfn24', 'deepfilter({ limit: 24, floor: false })'], ['dfn12b45', 'deepfilter()'], ['rnn20', 'rnnoise(20)']]) {
+  cand(`c-${d}`, ['highpass(80)', 'dehum()', den])
+  cand(`ca-${d}`, ['highpass(80)', 'dehum()', den, ...ACX, comp(-14, 3), ...ACXEND])
+}
+// the floor set where the level is final: after the level is set and the compressor has worked
+for (let b of [45, 50]) {
+  cand(`na2-dfnb${b}`, ['highpass(80)', ...ACX, comp(-26, 2), `deepfilter({ below: ${b} })`, "normalize(-20, 'rms', { ceiling: -3.5 })", 'trim()', 'pad(1.5, 2)', 'roomtone()', 'resample(44100)'])
+  cand(`np2-dfnb${b}`, ['highpass(80)', ...POD, comp(-26, 2), `deepfilter({ below: ${b} })`, "normalize('podcast')"])
+}
+
+const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+// `$src\n  .a()\n  .b(…)` → ['a()', 'b(…)']
+const stages = code => code.replace(/^\$src\s*\./, '').split(/\)\s*\.(?=[a-z])/).map((s, i, all) => (i < all.length - 1 ? s + ')' : s).trim())
+
+export const recipes = Object.fromEntries([
+  ...RECIPES.filter(r => r.code.startsWith('$src') && (VOICE.includes(r.name) || /speech|voice|narration|podcast|audiobook|noise/i.test(r.name)))
+    .map(r => [slug(r.name), { name: r.name, spec: r.spec, stages: stages(r.code) }]),
+  ...Object.entries(WAS).map(([k, st]) => [`was-${k}`, { name: k, spec: { 'podcast-voice': 'podcast', 'enhance-speech': 'podcast', 'audiobook-chapter': 'acx', 'podcast-episode': 'podcast', 'narration-tightened': 'podcast', 'vocal-chain': 'streaming' }[k], stages: st }]),
+])
+
+/** System name → { stages, spec } */
+// the tone filters: linear and time-invariant, a timbre choice rather than damage. `lin:SYSTEM` is SYSTEM's tone
+// filters alone; on the clean set it is the reference its output is scored against (bench/speech.py --lin), so a
+// highpass's phase shift (SI-SDR of clean speech through highpass(80): 6.2 dB) and an EQ's boost are not counted
+// as degradation; DNSMOS, reference-free, judges them
+const LINEAR = /^(highpass|lowpass|eq|highshelf|lowshelf)\(/
+export function system(id) {
+  if (id.startsWith('lin:')) return { stages: system(id.slice(4)).stages.filter(s => LINEAR.test(s)), spec: null }
+  if (EXTRA[id]) return { stages: EXTRA[id], spec: null }
+  let m = id.match(/^(.*?)(?::(\d+)|-(\d+))?$/), r = recipes[m[1]] ?? (EXTRA[m[1]] && { stages: EXTRA[m[1]], spec: null })
+  if (!r) throw new Error(`unknown system ${id}`)
+  if (m[2]) return { stages: r.stages.slice(0, +m[2]), spec: r.spec }
+  if (m[3]) return { stages: r.stages.filter((_, i) => i !== +m[3] - 1), spec: r.spec }
+  return r
+}
+export const expand = id => id.startsWith('lin:') ? expand(id.slice(4)).map(k => 'lin:' + k)
+  : id.endsWith(':*') ? system(id.slice(0, -2)).stages.map((_, k) => `${id.slice(0, -2)}:${k + 1}`) : [id]
+
+const dir = s => s.replace(/\s+/g, '').replace(/["'\/]/g, '')
+
+function readWav(file) {
+  let b = readFileSync(file), dv = new DataView(b.buffer, b.byteOffset, b.byteLength), o = 12, fmt, nc, sr
+  while (o < b.length) {
+    let id = b.toString('ascii', o, o + 4), len = dv.getUint32(o + 4, true)
+    if (id === 'fmt ') fmt = dv.getUint16(o + 8, true), nc = dv.getUint16(o + 10, true), sr = dv.getUint32(o + 12, true)
+    if (id === 'data') {
+      let n = len / (fmt === 3 ? 4 : 2) / nc, ch = Array.from({ length: nc }, () => new Float32Array(n))
+      for (let i = 0; i < n; i++) for (let c = 0; c < nc; c++)
+        ch[c][i] = fmt === 3 ? dv.getFloat32(o + 8 + 4 * (i * nc + c), true) : dv.getInt16(o + 8 + 2 * (i * nc + c), true) / 32768
+      return { ch, sr }
+    }
+    o += 8 + len + (len & 1)
+  }
+  throw new Error(`no data chunk in ${file}`)
+}
+
+function writeWav(file, ch, sr) {
+  let n = ch[0].length, nc = ch.length, b = Buffer.alloc(44 + 4 * n * nc)
+  b.write('RIFF', 0); b.writeUInt32LE(36 + 4 * n * nc, 4); b.write('WAVEfmt ', 8); b.writeUInt32LE(16, 16)
+  b.writeUInt16LE(3, 20); b.writeUInt16LE(nc, 22); b.writeUInt32LE(sr, 24); b.writeUInt32LE(4 * sr * nc, 28)
+  b.writeUInt16LE(4 * nc, 32); b.writeUInt16LE(32, 34); b.write('data', 36); b.writeUInt32LE(4 * n * nc, 40)
+  for (let i = 0, p = 44; i < n; i++) for (let c = 0; c < nc; c++, p += 4) b.writeFloatLE(ch[c][i], p)
+  writeFileSync(file + '.part', b)
+  renameSync(file + '.part', file)  // an interrupted run leaves no short file behind
+}
+
+export const SETS = {
+  test: { dir: 'vbdemand', input: 'noisy_testset_wav' },
+  'test-clean': { dir: 'vbdemand', input: 'clean_testset_wav' },
+  train: { dir: 'vbdemand-train', input: 'noisy' },
+  'train-clean': { dir: 'vbdemand-train', input: 'clean' },
+  'reverb-train': { dir: 'vbreverb', input: 'train-reverb' },
+  'reverb-train-clean': { dir: 'vbreverb', input: 'train-clean' },
+  'reverb-test': { dir: 'vbreverb', input: 'test-reverb' },
+  'reverb-test-clean': { dir: 'vbreverb', input: 'test-clean' },
+  rooms: { dir: 'spoken', rooms: true },
+  'rooms-train': { dir: 'spoken-train', rooms: true },
+}
+
+function inputs(set) {
+  let s = SETS[set], d = path.join(DATA, s.dir)
+  if (!s.rooms) return readdirSync(path.join(d, s.input)).filter(f => f.endsWith('.wav')).sort()
+    .map(f => [f.slice(0, -4), () => readWav(path.join(d, s.input, f))])
+  return readdirSync(d).filter(f => f.endsWith('.f32')).sort().map(f => [f.slice(0, -4), () => {
+    let b = readFileSync(path.join(d, f))
+    return { ch: [new Float32Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength))], sr: 48000 }
+  }])
+}
+
+// Neural stages run @audio/neural-denoise with one model handle (one thread) for all files, and deepfilter as audio's
+// op does (fn/deepfilter.js): the unlimited output y, the input x mixed back, (1 − a)·y + a·x, a = 10^(−L/20),
+// L = `limit` (12) raised to what brings the noise `floor` dB (−45) under the voice. The op loads the model per
+// edit. The floor experiment's { below, min } is { floor: −below, limit: min }, `min` absent meaning no minimum.
+let models = {}, denoise
+async function neural(x, model, o) {
+  if (!models[model]) {
+    let nd = await import('@audio/neural-denoise')
+    denoise = nd.default
+    models[model] = await nd.load(model === 'deepfilter' ? 'deepfilternet3' : 'rnnoise', { sessionOptions: { intraOpNumThreads: 1, interOpNumThreads: 1 } })
+  }
+  if (model === 'rnnoise') return { ch: await denoise(x.ch, { sampleRate: x.sr, model: models[model], limit: o.limit ?? 20 }), sr: x.sr }
+  let y = await denoise(x.ch, { sampleRate: x.sr, model: models[model], limit: 0 }), drop
+  if (o.below == null) drop = await attenuation(x.ch, y, x.sr, o.limit ?? 12, o.floor === undefined ? -45 : o.floor)
+  else {
+    let loud = await audio.from(x.ch, { sampleRate: x.sr }).stat('loudness')
+    drop = Math.max(o.min ?? 0, (Number.isFinite(loud) && noiseDrop(x.ch, y, x.sr, loud, -o.below)) || 0)
+  }
+  let g = drop === Infinity ? 0 : 10 ** (-drop / 20)
+  return { ch: g ? y.map((v, c) => v.map((s, i) => (1 - g) * s + g * x.ch[c][i])) : y, sr: x.sr, note: drop }
+}
+
+async function stage(x, s) {
+  let m = s.match(/^(deepfilter|rnnoise)\((.*)\)$/)
+  if (!m) return { ch: (await new Function('a', `return a.${s}`)(audio.from(x.ch, { sampleRate: x.sr })).read()).map(c => Float32Array.from(c)), sr: 0 }
+  // positional (limit, floor) or one options object, as the ops take them
+  let args = new Function(`return [${m[2]}]`)(), o = typeof args[0] === 'object' ? args[0] : { limit: args[0], floor: args[1] }
+  return neural(x, m[1], o)
+}
+
+/** The system's output for one input, rendering (and keeping) whatever prefix is missing. */
+async function render(set, list, name, get) {
+  let at = path.join(OUT, set), k = 0, x
+  let files = list.map((_, i) => path.join(at, ...list.slice(0, i + 1).map(dir), name + '.wav'))
+  for (k = list.length; k > 0 && !existsSync(files[k - 1]); k--);
+  if (k === list.length) return files[k - 1]
+  x = k ? readWav(files[k - 1]) : get()
+  for (; k < list.length; k++) {
+    let y = await stage(x, list[k])
+    // the rate a resample leaves: its output length over the input's
+    y.sr ||= list[k].startsWith('resample(') ? Number(list[k].match(/\d+/)[0]) : x.sr
+    mkdirSync(path.dirname(files[k]), { recursive: true })
+    writeWav(files[k], y.ch, y.sr)
+    // the limit a floor target chose, per file
+    if (y.note != null) writeFileSync(files[k].replace(/\.wav$/, '.limit'), String(y.note))
+    x = y
+  }
+  return files[list.length - 1]
+}
+
+async function run(set, ids, shard) {
+  let [k, n] = shard.split('/').map(Number), all = inputs(set).filter((_, i) => i % n === k)
+  for (let id of ids.flatMap(expand)) {
+    let { stages: st, spec } = system(id), rooms = SETS[set].rooms, list = rooms ? st : st.filter(s => !STRUCTURAL.test(s))
+    if (!list.length) continue
+    let c0 = process.cpuUsage(), checks = {}, out
+    for (let [name, get] of all) {
+      out = await render(set, list, name, get)
+      if (!rooms) continue
+      let { ch, sr } = readWav(out), a = audio.from(ch, { sampleRate: sr })
+      checks[name] = Object.fromEntries(await Promise.all([...new Set([spec, 'acx'].filter(Boolean))].map(async s => [s, await a.check(s)])))
+    }
+    if (rooms) {
+      let f = path.join(path.dirname(out), `checks.${k}.json`)
+      writeFileSync(f, JSON.stringify(checks))
+    }
+    let c = process.cpuUsage(c0)
+    console.log(`${set} ${id} [${list.join(' ')}] ${((c.user + c.system) / 1e6).toFixed(1)} s CPU`)
+  }
+  for (let m of Object.values(models)) m.free?.()
+}
+
+let [set, ids, shard = '0/1'] = process.argv.slice(2)
+if (set === 'list') {
+  for (let [k, r] of Object.entries(recipes)) console.log(`${k} (${r.spec ?? '-'}): ${r.stages.join(' → ')}`)
+  for (let [k, st] of Object.entries(EXTRA)) console.log(`${k}: ${st.join(' → ')}`)
+  // system → output directory, for bench/speech.py
+} else if (set === 'dirs') {
+  let out = {}
+  for (let id of ids.split(',').flatMap(expand)) for (let s of Object.keys(SETS)) for (let k of [id, 'lin:' + id]) {
+    let st = system(k).stages, list = SETS[s].rooms ? st : st.filter(x => !STRUCTURAL.test(x))
+    out[`${s}/${k}`] = list.length ? path.join(OUT, s, ...list.map(dir)) : null
+  }
+  console.log(JSON.stringify(out))
+} else if (SETS[set]) await run(set, ids.split(','), shard)
+else console.log('usage: node bench/speech.mjs SET SYSTEM[,SYSTEM...] [SHARD/N] | list | dirs SYSTEM[,SYSTEM...]')

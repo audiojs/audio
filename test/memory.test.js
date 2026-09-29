@@ -36,7 +36,19 @@ async function open(t, path = '/api.html') {
   await page.route('**/*', route => route.request().url().startsWith(origin + '/') ? route.continue() : route.abort())
   await page.addInitScript(() => {
     // Counters do not retain contexts or buffers themselves.
-    window.resources = { opened: 0, closed: 0, live: 0, peak: 0, sources: 0, activeSources: 0, sourcePeak: 0 }
+    window.resources = { opened: 0, closed: 0, live: 0, peak: 0, sources: 0, activeSources: 0, sourcePeak: 0, decks: 0, decksLive: 0 }
+    // playback decks (deck.js): an AudioWorkletNode each, disconnected when its playback ends
+    const NativeNode = AudioWorkletNode
+    window.AudioWorkletNode = class extends NativeNode {
+      constructor(ctx, name, opts) {
+        super(ctx, name, opts)
+        if (name !== 'audio-deck') return
+        resources.decks++
+        resources.decksLive++
+        let gone = false, disconnect = this.disconnect.bind(this)
+        this.disconnect = (...args) => { if (!gone && !args.length) { gone = true; resources.decksLive-- } return disconnect(...args) }
+      }
+    }
     const Native = AudioContext
     window.AudioContext = class extends Native {
       constructor(opts) {
@@ -79,7 +91,7 @@ async function resident() {
   } catch { return null }
 }
 
-test('memory: repeated API playback closes every audio context', { timeout: 30000 }, async t => {
+test('memory: repeated API playback reuses the page\'s one context and releases every deck', { timeout: 30000 }, async t => {
   const page = await open(t)
   const resources = await page.evaluate(async () => {
     const { default: audio } = await import('/assets/audio.js')
@@ -95,10 +107,12 @@ test('memory: repeated API playback closes every audio context', { timeout: 3000
     return window.resources
   })
   t.diagnostic(JSON.stringify(resources))
-  assert.equal(resources.live, 0)
+  assert.equal(resources.opened, 1, 'one context for the page, made once')
+  assert.equal(resources.decks, 12, 'a deck per playback')
+  assert.equal(resources.decksLive, 0, 'every deck released')
 })
 
-test('memory: worker disposal closes its worklet and audio context', { timeout: 30000 }, async t => {
+test('memory: worker disposal releases its deck', { timeout: 30000 }, async t => {
   const page = await open(t)
   const resources = await page.evaluate(async () => {
     const { default: audio, close } = await import('/worker.js')
@@ -112,7 +126,8 @@ test('memory: worker disposal closes its worklet and audio context', { timeout: 
     return window.resources
   })
   t.diagnostic(JSON.stringify(resources))
-  assert.equal(resources.live, 0)
+  assert.equal(resources.opened, 1, 'the page context')
+  assert.equal(resources.decksLive, 0, 'every deck released')
 })
 
 test('memory: worker disposal drops mirrored edit buffers and rejects reuse', { timeout: 15000 }, async t => {
@@ -180,38 +195,45 @@ test('memory: rejected worker transfer settles and the next open succeeds', { ti
   assert.deepEqual(result.pcm, [[.25]])
 })
 
-test('memory: worker one-frame A → A → stereo B preserves PCM at the block boundary', { timeout: 15000 }, async t => {
+test('memory: worker one-frame A → A → stereo B plays every frame, once', { timeout: 15000 }, async t => {
   const page = await open(t)
   const result = await page.evaluate(async () => {
-    const Native = AudioWorkletNode
-    let captured
-    window.AudioWorkletNode = class extends Native {
-      constructor(...args) {
-        super(...args)
-        const post = this.port.postMessage.bind(this.port)
-        this.port.postMessage = (message, ...rest) => {
-          if (message.chunk) captured.push(message.chunk.map(c => [...c]))
-          return post(message, ...rest)
-        }
-      }
-    }
     const { default: audio, close } = await import('/worker.js')
+    // what reaches the destination: every deck feeds a tap too (a silent source keeps it running every quantum)
+    const ctx = audio.context
+    await ctx.resume()
+    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([`registerProcessor('tap', class extends AudioWorkletProcessor {
+      process(i) { this.port.postMessage(i[0].map(c => c.slice())); return true } })`], { type: 'text/javascript' })))
+    const tap = new AudioWorkletNode(ctx, 'tap', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] })
+    const connect = AudioNode.prototype.connect, keep = new ConstantSourceNode(ctx, { offset: 0 })
+    connect.call(tap, ctx.destination); connect.call(keep, tap); keep.start()
+    AudioNode.prototype.connect = function (to, ...rest) { if (to === ctx.destination && this !== tap) connect.call(this, tap); return connect.call(this, to, ...rest) }
+    let got = []
+    tap.port.onmessage = e => got.push(e.data)
     const aPCM = [new Float32Array([.25])]
     const bPCM = [Float32Array.from({ length: 1025 }, (_, i) => i / 2048), new Float32Array(1025).fill(-.125)]
     const a = await audio(aPCM, { sampleRate: 48000 }), b = await audio(bPCM, { sampleRate: 48000 })
     const results = []
     for (const [clip, pcm] of [[a, aPCM], [a, aPCM], [b, bPCM]]) {
-      captured = []
+      got = []
       const ended = new Promise(r => clip.on('ended', r))
       await clip.play({ at: 0 })
       await ended
       clip.off('ended')
-      results.push({ expected: pcm.map(c => [...c]), actual: pcm.map((_, c) => captured.flatMap(block => block[c])) })
+      await new Promise(r => setTimeout(r, 50))
+      const L = got.flatMap(q => [...q[0]]), R = got.flatMap(q => [...(q[1] || q[0])])
+      const on = L.map((v, i) => v !== 0 || R[i] !== 0), first = on.indexOf(true), n = on.lastIndexOf(true) + 1 - first
+      // past the 5 ms fade in (240 frames at 48 kHz) and before the fade out, the samples themselves
+      const steady = pcm[0].length > 480 ? pcm.map((c, k) => [...c.subarray(240, c.length - 240)].every((v, i) => v === [L, R][k][first + 240 + i])) : [true]
+      results.push({ frames: pcm[0].length, n, steady })
     }
     await a.dispose(); await b.dispose(); await close()
     return results
   })
-  for (const { actual, expected } of result) assert.deepEqual(actual, expected)
+  for (const { frames, n, steady } of result) {
+    assert.equal(n, frames, 'every frame, once: none lost, none repeated')
+    assert(steady.every(Boolean), 'the samples themselves, channel by channel')
+  }
 })
 
 test('memory: rapid API restart, paused stop and stream failure release the device', { timeout: 30000 }, async t => {
@@ -234,53 +256,51 @@ test('memory: rapid API restart, paused stop and stream failure release the devi
     b.play()
     const error = await b.played.then(() => '', e => e.message)
     b.dispose()
-    await new Promise(r => setTimeout(r, 100))
+    await new Promise(r => setTimeout(r, 300))
     return { running, error, ...resources }
   })
   assert.equal(result.running, true, 'an obsolete playback cannot stop its replacement')
   assert.equal(result.error, 'test stream failure')
-  assert.equal(result.live, 0)
+  assert.equal(result.opened, 1, 'the page context')
+  assert.equal(result.decksLive, 0, 'every deck released')
 })
 
-test('memory: worker buffers at most one lookahead window and drains before ended', { timeout: 15000 }, async t => {
+test('memory: worker renders at most its lookahead ahead and ended waits for playback', { timeout: 15000 }, async t => {
   const page = await open(t)
   const result = await page.evaluate(async () => {
+    // the deck reports how much audio waits ahead of its head (buf, seconds)
     let peak = 0
     const Native = AudioWorkletNode
     window.AudioWorkletNode = class extends Native {
       constructor(...args) {
         super(...args)
-        let sent = 0, consumed = 0
-        const post = this.port.postMessage.bind(this.port)
-        this.port.postMessage = (message, ...rest) => {
-          if (message.chunk) {
-            sent += message.chunk[0].length
-            peak = Math.max(peak, sent - consumed)
-          }
-          return post(message, ...rest)
-        }
-        this.port.addEventListener('message', e => { consumed = e.data.consumed })
+        this.port.addEventListener('message', e => { if (e.data.buf != null) peak = Math.max(peak, e.data.buf) })
       }
     }
     const { default: audio, close } = await import('/worker.js')
+    const long = await audio([new Float32Array(48000 * 5)], { sampleRate: 48000 })
+    await long.play()
+    await new Promise(r => setTimeout(r, 1000))
+    await long.stop()
     const a = await audio([new Float32Array(48000)], { sampleRate: 48000 })
     const ended = new Promise(r => a.on('ended', r)), start = performance.now()
     await a.play()
     await ended
     const elapsed = performance.now() - start, position = a.currentTime
+    await long.dispose()
     await a.dispose()
     await close()
-    await new Promise(r => setTimeout(r, 100))
-    return { queuedFrames: peak, elapsed, position, ...resources }
+    await new Promise(r => setTimeout(r, 300))
+    return { ahead: peak, elapsed, position, ...resources }
   })
   t.diagnostic(JSON.stringify(result))
-  assert(result.queuedFrames > 0 && result.queuedFrames <= 8192 + 1024, 'transferred buffers still count toward backpressure')
+  assert(result.ahead > 1 && result.ahead <= 2.05, `rendered ahead, within its 2 s (${result.ahead.toFixed(2)} s)`)
   assert(result.elapsed >= 800, 'ended waits for actual playback')
-  assert(result.position >= .99, 'consumed frames advance the source position')
-  assert.equal(result.live, 0)
+  assert(result.position >= .99, 'the position runs to the end')
+  assert.equal(result.decksLive, 0, 'every deck released')
 })
 
-test('memory: worker disposed during worklet startup closes the late context', { timeout: 15000 }, async t => {
+test('memory: worker disposed during worklet startup releases the late deck', { timeout: 15000 }, async t => {
   const page = await open(t)
   const result = await page.evaluate(async () => {
     const add = Worklet.prototype.addModule
@@ -295,10 +315,10 @@ test('memory: worker disposed during worklet startup closes the late context', {
     release()
     await playing
     await close()
-    await new Promise(r => setTimeout(r, 100))
+    await new Promise(r => setTimeout(r, 300))
     return resources
   })
-  assert.equal(result.live, 0)
+  assert.equal(result.decksLive, 0, 'a deck made late is released too')
 })
 
 test('memory: stopping during microphone permission releases the late stream', { timeout: 15000 }, async t => {
@@ -348,17 +368,17 @@ test('memory: microphone denial permits retry and repeated capture releases ever
   await page.evaluate(() => recording.dispose())
 })
 
-test('memory: closing the shared worker closes active playback devices', { timeout: 15000 }, async t => {
+test('memory: closing the shared worker releases its playing deck', { timeout: 15000 }, async t => {
   const page = await open(t)
   const result = await page.evaluate(async () => {
     const { default: audio, close } = await import('/worker.js')
     const a = await audio([new Float32Array(48000)], { sampleRate: 48000 })
     await a.play()
     await close()
-    await new Promise(r => setTimeout(r, 100))
+    await new Promise(r => setTimeout(r, 300))
     return resources
   })
-  assert.equal(result.live, 0)
+  assert.equal(result.decksLive, 0, 'closing the worker releases the deck it played')
 })
 
 test('memory: worker looping reuses its device and empty loops terminate', { timeout: 15000 }, async t => {
@@ -366,10 +386,10 @@ test('memory: worker looping reuses its device and empty loops terminate', { tim
   const result = await page.evaluate(async () => {
     const { default: worker, close } = await import('/worker.js')
     const a = await worker([new Float32Array(4800)], { sampleRate: 48000 })
-    let laps = 0
-    a.on('play', () => laps++)
+    let laps = 0, last = 0
     await a.play({ loop: true })
-    await new Promise(r => setTimeout(r, 600))
+    // a pass is the position coming round again
+    for (let i = 0; i < 60; i++) { await new Promise(r => setTimeout(r, 10)); let t = a.currentTime; if (t < last - 0.05) laps++; last = t }
     const opened = resources.opened
     await a.dispose()
     const { default: audio } = await import('/assets/audio.js')
@@ -381,12 +401,12 @@ test('memory: worker looping reuses its device and empty loops terminate', { tim
       await empty.dispose()
     }
     await close()
-    await new Promise(r => setTimeout(r, 100))
+    await new Promise(r => setTimeout(r, 300))
     return { laps, openedForLoops: opened, ...resources }
   })
-  assert(result.laps >= 3)
+  assert(result.laps >= 3, `looped (${result.laps} passes)`)
   assert.equal(result.openedForLoops, 1)
-  assert.equal(result.live, 0)
+  assert.equal(result.decksLive, 0, 'every deck released')
 })
 
 test('memory: demo repeated playback and sample replacement has bounded retained heap', { timeout: 60000 }, async t => {
@@ -427,10 +447,10 @@ const soak = Number(process.env.AUDIO_MEMORY_SOAK_MS) || 5000
 test('memory: demo tiny loops keep scheduled audio bounded', { timeout: soak + 15000 }, async t => {
   const page = await open(t)
   // Count retained loop anchors without retaining their objects or exposing a production hook.
-  const source = await readFile(resolve(root, 'site.js'), 'utf8')
+  const source = await readFile(resolve(root, 'site/site.js'), 'utf8')
   const instrumented = source.replace('laps.push(lap)', 'laps.push(lap); resources.lapPeak = Math.max(resources.lapPeak || 0, laps.length)')
   assert.notEqual(instrumented, source, 'loop history instrumentation is installed')
-  await page.route('**/site.js', route => route.fulfill({ contentType: 'text/javascript', body: instrumented }))
+  await page.route('**/site/site.js', route => route.fulfill({ contentType: 'text/javascript', body: instrumented }))
   await page.goto(origin + '/index.html')
   await page.locator('.demo[aria-busy="false"]').waitFor()
   const seek = page.getByRole('slider', { name: 'Seek edited audio' })

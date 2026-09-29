@@ -4,6 +4,8 @@
  * a.match(ref)                         → up to 8 parametric bands fitted to the reference/source spectrum ratio
  * a.match(ref, 0.6)                    → partial match (amount 0..1)
  * a.match(ref, { bands: 12, lookahead: 30 })
+ * a.match(ref, { midside: true })      → stereo: mid and side each matched to the reference's (Matchering's split)
+ * a.master(ref)                        → match in mid/side, then the reference's integrated loudness under -1 dBTP
  *
  * The reference's long-term average spectrum is read in chunks; the source's accumulates as it
  * streams (Welch, 4096/2048 Hann). The op looks `lookahead` seconds ahead (default 10), so the
@@ -16,7 +18,7 @@
  */
 import audio from '../core.js'
 import { fft } from 'fourier-transform'
-import { kWeighting } from '@audio/weighting'
+import kWeighting from '@audio/weighting-k'
 import { peaking, lowshelf, highshelf, process as biquad, state } from '@audio/biquad'
 import { refLen } from '../plan.js'
 
@@ -91,37 +93,57 @@ function run(q, x, c) {
   return y
 }
 
+/** Mid (L+R)/2 and side (L−R)/2 of a stereo buffer; decoded back as L = M + S, R = M − S. */
+const mid = (l, r) => l.map((v, i) => (v + r[i]) / 2), side = (l, r) => l.map((v, i) => (v - r[i]) / 2)
+
 function match(input, output, ctx) {
   let nch = input.length, len = input[0].length, sr = ctx.sampleRate
   let st = ctx._m
   if (!st) {
-    let ref = ctx.source, rsr = ref.sampleRate ?? sr, rn = refLen(ref, rsr), rw = welch()
-    for (let off = 0; off < rn; off += 1 << 16) { let pcm = ctx.render(ref, off, Math.min(1 << 16, rn - off)); rw.push(mono(pcm, pcm[0].length)) }
+    let ref = ctx.source, rsr = ref.sampleRate ?? sr, rn = refLen(ref, rsr)
+    // parts matched separately: the channels' mix, or a stereo pair's mid and side
+    let ms = !!ctx.midside && nch === 2, parts = ms ? [ch => mid(ch[0], ch[1]), ch => side(ch[0], ch[1])] : [ch => mono(ch, ch[0].length)]
+    let rw = parts.map(() => welch())
+    for (let off = 0; off < rn; off += 1 << 16) {
+      let pcm = ctx.render(ref, off, Math.min(1 << 16, rn - off))
+      // a mono reference is all mid: the mid matches it, the side stays as it is
+      parts.forEach((f, p) => !ms ? rw[p].push(mono(pcm, pcm[0].length)) : pcm.length > 1 ? rw[p].push(f(pcm)) : p === 0 && rw[0].push(pcm[0]))
+    }
     let L = Math.max(FRAME, Math.round((ctx.lookahead ?? 10) * sr))
     st = ctx._m = {
-      L, n: 0, next: L, dst: smooth(rw.power(), rsr), kp: kPower(sr), sw: welch(), cur: null, prev: null, xf: 0,
+      L, n: 0, next: L, ms, parts, kp: kPower(sr), xf: 0,
+      p: rw.map(w => ({ ref: w.power(), dst: smooth(w.power(), rsr), sw: welch(), cur: null, prev: null })),
       dl: Array.from({ length: nch }, () => ({ b: new Float32Array(L), i: 0 })),
     }
   }
   // analysis runs L ahead of the output; refit whenever the analyzed length doubles
-  st.sw.push(mono(input, len))
+  st.parts.forEach((f, p) => st.p[p].sw.push(st.ms ? f(input) : mono(input, len)))
   let end = st.n + len, X = Math.round(XFADE * sr)
   if (end >= st.next) {
-    let eq = cascade(fitEq(ctx, st.sw.power(), st.dst, st.kp), nch)
-    if (eq) { st.prev = st.cur; st.cur = eq; st.xf = st.prev ? X : 0 }
+    let fitted = st.p.map(q => cascade(fitEq(ctx, q.sw.power(), q.dst, st.kp), st.ms ? 1 : nch))
+    // width: each fit holds its part's loudness; the side then takes the reference's side-to-mid ratio (K-weighted)
+    if (st.ms && fitted[1]) {
+      let k = P => P ? P.reduce((a, v, j) => a + st.kp[j] * v, 0) : 0
+      let [rm, rs, sm, ss] = [k(st.p[0].ref), k(st.p[1].ref), k(st.p[0].sw.power()), k(st.p[1].sw.power())]
+      // clamped to ±12 dB; `amount` scales it in dB, as it scales the EQ
+      if (rm > 0 && rs > 0 && sm > 0 && ss > 0) fitted[1].gain *= Math.min(4, Math.max(0.25, Math.sqrt((rs / rm) / (ss / sm)) ** (ctx.amount ?? 1)))
+    }
+    if (fitted.some(Boolean)) { st.p.forEach((q, i) => { q.prev = q.cur; q.cur = fitted[i] ?? q.cur }); st.xf = st.p.some(q => q.prev) ? X : 0 }
     while (st.next <= end) st.next *= 2
   }
-  for (let c = 0; c < nch; c++) {
-    let d = st.dl[c], x = new Float32Array(len)
-    for (let i = 0; i < len; i++) { x[i] = d.b[d.i]; d.b[d.i] = input[c][i]; if (++d.i === st.L) d.i = 0 }
-    let y = run(st.cur, x, c)
-    if (st.xf > 0) {
-      let p = run(st.prev, x, c)
-      for (let i = 0; i < len && i < st.xf; i++) { let t = 1 - (st.xf - i) / X; y[i] = p[i] * (1 - t) + y[i] * t }
-    }
-    output[c].set(y)
+  // the delayed input, per channel
+  let x = st.dl.map((d, c) => { let y = new Float32Array(len), inp = input[c]; for (let i = 0; i < len; i++) { y[i] = d.b[d.i]; d.b[d.i] = inp[i]; if (++d.i === st.L) d.i = 0 } return y })
+  // each part through its EQ, the previous fit crossfading out
+  const eq = (q, sig, c) => {
+    let y = run(q.cur, sig, c)
+    if (st.xf > 0 && q.prev) { let p = run(q.prev, sig, c); for (let i = 0; i < len && i < st.xf; i++) { let t = 1 - (st.xf - i) / X; y[i] = p[i] * (1 - t) + y[i] * t } }
+    return y
   }
-  if (st.xf > 0 && !(st.xf = Math.max(0, st.xf - len))) st.prev = null
+  if (st.ms) {
+    let m = eq(st.p[0], mid(x[0], x[1]), 0), s = eq(st.p[1], side(x[0], x[1]), 0)
+    for (let i = 0; i < len; i++) { output[0][i] = m[i] + s[i]; output[1][i] = m[i] - s[i] }
+  } else for (let c = 0; c < nch; c++) output[c].set(eq(st.p[0], x[c], c))
+  if (st.xf > 0 && !(st.xf = Math.max(0, st.xf - len))) st.p.forEach(q => q.prev = null)
   st.n = end
 }
 
@@ -131,3 +153,11 @@ audio.op('match', {
   load: () => import('@audio/eq-fit'),
   process: match,
 })
+
+/** Master to a reference, Matchering's way: its tone in mid and side, then its integrated loudness (BS.1770), a
+ *  true-peak ceiling at -1 dBTP (`ceiling` moves it). Matchering matches RMS of the loudest 15 s pieces and limits
+ *  sample peaks at -0.016 dBFS; gated loudness weighs the loud parts, and inter-sample peaks stay under the ceiling. */
+audio.fn.master = function(ref, opts = {}) {
+  let { ceiling, amount, ...rest } = opts
+  return this.match(ref, { midside: true, ...(amount != null && { amount }), ...rest }).normalize(ref, ceiling != null ? { ceiling } : undefined)
+}

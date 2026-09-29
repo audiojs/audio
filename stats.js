@@ -3,7 +3,7 @@
  * Self-registers on import — exposes statSession on audio, adds fn.stat.
  */
 
-import audio, { parseTime, LOAD, resolveChannels, yieldTask } from './core.js'
+import audio, { parseTime, LOAD, resolveChannels, yieldTask, FULL } from './core.js'
 import { buildPlan, streamPlan, ensurePlan } from './plan.js'
 
 // ── Stat descriptor registry ────────────────────────────────────
@@ -18,12 +18,16 @@ audio.stat = function(name, desc) {
   statDefs[name] = desc
 }
 
+/** Period, in samples, of the grid a block field holds its place on: its descriptor's `period(sr)` (a field listed in
+ *  `extra`), else none. */
+const periodOf = (f, sr) => Object.values(statDefs).find(d => d.period && d.extra?.includes(f))?.period(sr)
+
 /** A block function's value for one stat: a record { [name]: value } serves several stats from one pass. */
 const blockValue = (v, name) => v !== null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v) ? v[name] : v
 
 /** Create a stat computation session. ch inferred from first .page() call. */
 function statSession(sr) {
-  let fns, acc, ch, last = 0, rem = null, remLen = 0
+  let fns, acc, ch, last = 0, rem = null, remLen = 0, total = 0
 
   function init(c) {
     ch = c
@@ -34,13 +38,14 @@ function statSession(sr) {
       if (!d.block) continue
       let g = groups.get(d.block)
       if (!g) groups.set(d.block, g = { fn: d.block, ctx: { sampleRate: sr }, names: [] })
-      g.names.push(name)
-      acc[name] = Array.from({ length: ch }, () => [])
+      // `extra`: fields the block function's record carries that no stat is named after
+      for (let f of [name, ...d.extra ?? []]) if (!(f in acc)) { g.names.push(f); acc[f] = Array.from({ length: ch }, () => []) }
     }
     fns = [...groups.values()]
   }
 
   function processBlock(block) {
+    total += block[0].length
     for (let { fn, ctx, names } of fns) {
       let r = fn(block, ctx)
       for (let name of names) {
@@ -106,14 +111,15 @@ function statSession(sr) {
     },
     done() {
       this.flush()
-      let out = { blockSize: audio.BLOCK_SIZE }
+      // length: samples the blocks cover, the last block possibly short
+      let out = { blockSize: audio.BLOCK_SIZE, length: total }
       if (acc) for (let name in acc) out[name] = acc[name].map(a => new Float32Array(a))
       return out
     },
     /** Return current accumulated stats without flushing remainder. */
     snapshot() {
       if (!acc) return null
-      let out = { blockSize: audio.BLOCK_SIZE, partial: true }
+      let out = { blockSize: audio.BLOCK_SIZE, length: total, partial: true }
       // Expose raw arrays to avoid O(N) allocation per chunk during progressive streaming
       for (let name in acc) out[name] = acc[name]
       return out
@@ -156,9 +162,17 @@ function remapStats(srcStats, plan, sr) {
     if (ref !== undefined && ref !== null && !(ref.segs && from(ref)?.[fields[0]]?.length === ch)) return null  // external ref
     if (Math.abs(rate) !== 1) return null               // resampled
     if (s[0] % bs !== 0 || s[2] % bs !== 0) return null // unaligned — force recompute
+    // ending inside a block short of what it reads: that block's stats hold samples past the segment
+    if (ref !== null && (s[0] + s[1]) % bs !== 0 && s[0] + s[1] < from(ref).length) return null
   }
+  // A field with a period holds its block's place on a grid of that many samples from the start of the stats: it moves
+  // only by whole periods, forward. Fields a derived stage dropped are dropped here too.
+  fields = fields.filter(f => {
+    let p = periodOf(f, sr)
+    return segs.every(s => s[4] === null || (!p || (s[3] || 1) > 0 && (s[2] - s[0]) % p === 0) && from(s[4])[f])
+  })
   let outBlocks = Math.ceil(totalLen / bs)
-  let out = { blockSize: bs }
+  let out = { blockSize: bs, length: totalLen }
   for (let f of fields) out[f] = Array.from({ length: ch }, () => new Float32Array(outBlocks))
 
   for (let s of segs) {
@@ -208,7 +222,7 @@ async function streamStats(s, inst, plan, offset, duration) {
 
 /** Clone block-level stats (deep copy of all Float32Arrays). */
 function cloneStats(src) {
-  let out = { blockSize: src.blockSize }
+  let out = { blockSize: src.blockSize, length: src.length }
   for (let k in src) {
     if (k === 'blockSize' || !Array.isArray(src[k])) continue
     out[k] = src[k].map(a => new Float32Array(a))
@@ -241,7 +255,7 @@ function tryDeriveStats(srcStats, pipeline) {
 }
 
 // Fields a pointwise probe recomputes exactly (monotonic f: block extremes map to extremes).
-const PROBED = new Set(['blockSize', 'partial', 'min', 'max', 'clipping'])
+const PROBED = new Set(['blockSize', 'length', 'partial', 'min', 'max', 'clipping'])
 
 /** Auto-derive min/max/clipping for pointwise ops by probing process with edge values.
  *  Energy, mean square and DC of a nonlinear map aren't functions of block extremes:
@@ -263,7 +277,7 @@ function derivePointwise(desc, stats, opts) {
       stats.max[c][i] = Math.max(outA[c][i], outB[c][i])
     }
     if (stats.clipping) for (let i = 0; i < n; i++)
-      stats.clipping[c][i] = (stats.min[c][i] <= -1 || stats.max[c][i] >= 1) ? Math.max(1, stats.clipping[c][i]) : 0
+      stats.clipping[c][i] = (stats.min[c][i] <= -FULL || stats.max[c][i] >= FULL) ? Math.max(1, stats.clipping[c][i]) : 0
   }
 }
 
@@ -276,6 +290,14 @@ export async function queryRange(inst, opts, need) {
   let at = parseTime(opts?.at), dur = parseTime(opts?.duration)
   let hasRange = at != null || dur != null
   let lacks = s => need?.some(f => !s?.[f])
+  // a range read from fields placed on a grid from the start of the stats (`period`): stats of the range itself
+  if (hasRange && need?.some(f => periodOf(f, inst.sampleRate))) {
+    let s = statSession(inst.sampleRate), plan = buildPlan(inst), atN = at != null && at < 0 ? inst.duration + at : at || 0
+    await ensurePlan(inst, plan, atN, dur)
+    await streamStats(s, inst, plan, atN, dur)
+    let stats = s.done(), first = Object.values(stats).find(v => v?.[0]?.length)
+    return { stats, ch: inst.channels, sr: inst.sampleRate, from: 0, to: first?.[0]?.length || 0 }
+  }
 
   if (!inst.edits?.length && inst._.statsV !== inst.version && inst._.srcStats) {
     // back to pristine (undo to zero edits) — restore the pre-edit snapshot

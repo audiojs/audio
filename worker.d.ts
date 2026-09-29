@@ -13,15 +13,26 @@ export interface WorkerFacade extends PromiseLike<WorkerFacade> {
   readonly edits: [string, Record<string, unknown>][]
   readonly ready: Promise<true>
 
-  // transport (playback pumps worker-rendered blocks into an AudioWorklet or @audio/speaker)
+  // transport: rendered in the worker straight into the page's AudioWorklet (Node: @audio/speaker), as the local API
   readonly playing: boolean
   readonly paused: boolean
   readonly ended: boolean
-  readonly currentTime: number
+  readonly seeking: boolean
+  /** What the speakers play now, in seconds (their latency compensated); held at pause where playback resumes */
+  currentTime: number
   volume: number
+  muted: boolean
+  playbackRate: number
+  /** Settable while playing: the span repeats, each seam a 10 ms equal-power crossfade */
   loop: boolean
-  play(opts?: { at?: number, loop?: boolean }): Promise<void>
+  /** Resolves when playback sounds */
+  readonly played: Promise<void> | null
+  /** Same options as the local play(); `from` takes over another instance's or facade's playback where it is */
+  play(opts?: { at?: number, duration?: number, loop?: boolean, volume?: number, rate?: number, paused?: boolean, from?: { currentTime: number } }): Promise<void>
   pause(): WorkerFacade
+  resume(): WorkerFacade
+  /** Live stats of what plays: measured in the worker, delivered on the page as heard */
+  meter(what: string | string[] | Record<string, unknown>, cb?: (value: any) => void): { value: any, stop(): void }
 
   /** PCM read — Float32Array per channel, transferred (zero-copy). */
   read(opts?: { at?: number | string, duration?: number | string, channel?: number, format?: string }): Promise<Float32Array[] | Float32Array>
@@ -64,12 +75,26 @@ export interface WorkerFacade extends PromiseLike<WorkerFacade> {
 }
 
 export interface WorkerOptions extends Record<string, unknown> {
-  /** Bring your own worker (custom codecs/plugins entry importing 'audio/worker' (self-hosts in worker scope)). */
+  /** Bring your own worker: an entry importing 'audio/worker' (it self-hosts in worker scope) beside your codecs,
+   *  plugins and code. The engine talks on a port of its own; the Worker's messages stay yours. */
   worker?: Worker | { postMessage(msg: unknown, transfer?: unknown[]): void }
 }
 
 /** Open a source in the engine worker — same shape as audio(source, opts). */
-export default function audioWorker(source?: unknown, opts?: WorkerOptions): WorkerFacade
+declare function audioWorker(source?: unknown, opts?: WorkerOptions): WorkerFacade
+
+declare namespace audioWorker {
+  /** A facade for an instance your worker's own code made: expose(a) there gives the id. */
+  function adopt(id: number, opts: { worker: Worker | { postMessage(msg: unknown, transfer?: unknown[]): void } }): WorkerFacade
+  /** The page's AudioContext, which playback uses (the same as audio.context); set your own before playing. */
+  let context: AudioContext | null
+}
+
+export default audioWorker
+
+/** In a worker importing 'audio/worker': register an instance the app made, for the page to adopt. Returns its id
+ *  (the same id again for the same instance). */
+export function expose(a: object): number
 
 /** Terminate the shared default worker. */
 export function close(): Promise<void>

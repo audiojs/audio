@@ -282,11 +282,16 @@ test('worker: pause/resume/stop', async t => {
   await new Promise(r => setTimeout(r, 150))
   c.pause()
   t.ok(c.playing && c.paused && !c.ended, 'paused mid-play')
+  // currentTime is what the speakers play: it runs on while they play out what they had, then holds exactly
   let tPause = c.currentTime
+  await new Promise(r => setTimeout(r, 150))
+  let held = c.currentTime
+  t.ok(held >= tPause && held - tPause < 0.15, `ran on only by the output latency (${((held - tPause) * 1000).toFixed(0)} ms)`)
   await new Promise(r => setTimeout(r, 120))
-  t.ok(Math.abs(c.currentTime - tPause) < 0.05, 'time holds while paused')
+  t.is(c.currentTime, held, 'time holds while paused')
   c.play()
   await new Promise(r => setTimeout(r, 120))
+  t.ok(c.currentTime > held && c.currentTime < held + 0.2, `resumes from where it held (${c.currentTime.toFixed(3)})`)
   await c.stop()
   t.ok(!c.playing, 'stopped')
 })
@@ -332,4 +337,75 @@ test('worker: P4 — audio(src, {worker: true}) dispatches to the worker facade'
   let pcm = await a.read()
   t.ok(Math.abs(pcm[0][100] / genTone(440, 0.1, 0.3, 44100)[100] - 0.501) < 0.01, 'ops replay through the worker engine')
   await a.dispose()
+})
+
+test('worker: a custom worker speaks its own messages beside the engine, and exposes an instance to adopt', async t => {
+  let { Worker: NodeWorker } = await import('node:worker_threads')
+  let w = new NodeWorker(new URL('./worker-app.js', import.meta.url)), replies = []
+  w.on('message', m => replies.push(m))
+  let a = await audioWorker('test/fixture.wav', { worker: w })   // engine call ids start at 1, like the app's
+  w.postMessage({ type: 'make', id: 1, duration: 0.5 })
+  for (let i = 0; i < 200 && !replies.length; i++) await new Promise(r => setTimeout(r, 5))
+  t.is(replies.length, 1, "the app hears its own replies only, the engine's travel on their own port")
+  let { id, made, again } = replies[0]
+  t.is(id, 1, 'its ids are its own')
+  t.is(made, again, 'the same instance exposed twice: one id')
+  let b = audioWorker.adopt(made, { worker: w })
+  await b.ready
+  t.ok(Math.abs(b.duration - 0.5) < 1e-9, 'the adopted facade mirrors the instance')
+  let [pcm] = await b.read(), peak = pcm.reduce((m, v) => Math.max(m, Math.abs(v)), 0)
+  t.ok(Math.abs(peak - 0.5 * 10 ** (-6 / 20)) < 1e-3, `its edits ride along (peak ${peak.toFixed(4)})`)
+  b.gain(-6)
+  let [pcm2] = await b.read()
+  t.ok(Math.abs(pcm2[1000] / pcm[1000] - 10 ** (-6 / 20)) < 1e-4, 'the page edits it like any facade')
+  t.ok((await a.read())[0].length > 0, 'the engine speaks on beside it')
+  t.is(replies.length, 1, 'and never on the Worker')
+  t.throws(() => audioWorker.adopt(made), /worker/, 'adopt needs the worker')
+  await w.terminate()
+})
+
+test('worker: meters are measured in the worker and released when heard', async t => {
+  let sr = 44100, x = new Float32Array(sr)
+  for (let i = sr / 2; i < sr; i++) x[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / sr)
+  let w = audioWorker(null, { sampleRate: sr, channels: 1 })
+  await w.push([x])
+  await w.stop()
+  let loud = null, values = [], peak = 0
+  let probe = w.meter('rms', v => { values.push(v); if (v > 0.1 && loud == null) loud = w.currentTime })
+  w.meter('peak', v => { peak = Math.max(peak, v) })
+  w.volume = 0
+  let ended = new Promise(r => w.on('ended', r))
+  await w.play()
+  await ended
+  t.ok(loud != null && Math.abs(loud - 0.5) < 0.06, `the tone's rms arrives when it is heard (at ${loud?.toFixed(3)} s of 0.5)`)
+  let tone = values.filter(v => v > 0.1), mean = tone.reduce((s, v) => s + v, 0) / tone.length
+  t.ok(Math.abs(mean - 0.5 / Math.SQRT2) < 0.01, `rms of a 0.5 sine ${mean.toFixed(4)} (0.3536)`)
+  t.ok(Math.abs(peak - 0.5) < 0.01, `peak ${peak.toFixed(4)}`)
+  t.ok(probe.value > 0.3, 'pull form: probe.value')
+  probe.stop()
+  await w.dispose()
+})
+
+test('worker: play({ from }) hands playback to another facade, or to a local instance, at the same place', async t => {
+  let sr = 44100, tone = genTone(440, 3, 0.5, sr)
+  let a = audioWorker(null, { sampleRate: sr, channels: 1 })
+  await a.push([tone]); await a.stop()
+  let b = await a.clone()
+  b.gain(-6)
+  a.volume = 0
+  await a.play()
+  await new Promise(r => setTimeout(r, 200))
+  let aEnded = false
+  a.on('ended', () => { aEnded = true })
+  b.play({ from: a })
+  t.ok(aEnded && !a.playing, 'the other stops')
+  await new Promise(r => setTimeout(r, 250))
+  t.ok(b.playing && b.volume === 0 && b.currentTime > 0.3, `b plays on from there (${b.currentTime.toFixed(3)})`)
+  let l = audio.from([tone], { sampleRate: sr })
+  l.play({ from: b })
+  t.ok(!b.playing && l.playing, 'a local instance takes it over too')
+  await new Promise(r => setTimeout(r, 200))
+  t.ok(l.currentTime > 0.5, `and plays on (${l.currentTime.toFixed(3)})`)
+  l.stop()
+  await Promise.all([a.dispose(), b.dispose()])
 })

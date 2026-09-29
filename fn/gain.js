@@ -18,7 +18,7 @@ const gain = (input, output, ctx) => {
   }
 }
 
-import audio from '../core.js'
+import audio, { FULL } from '../core.js'
 audio.op('gain', {
   params: ['value'],
   ranged: true,
@@ -42,7 +42,7 @@ audio.op('gain', {
         if (stats.energy) stats.energy[c][i] *= g2
       }
       if (stats.clipping) for (let i = 0; i < n; i++)
-        stats.clipping[c][i] = (stats.min[c][i] <= -1 || stats.max[c][i] >= 1) ? Math.max(1, stats.clipping[c][i]) : 0
+        stats.clipping[c][i] = (stats.min[c][i] <= -FULL || stats.max[c][i] >= FULL) ? Math.max(1, stats.clipping[c][i]) : 0
     }
   }
 })

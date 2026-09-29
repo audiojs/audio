@@ -1,6 +1,6 @@
 import { build } from 'esbuild'
 
-const NODE_BUILTINS = ['fs', 'fs/promises', 'url']
+const NODE_BUILTINS = ['fs', 'fs/promises', 'url', 'path']
 
 // WASM codec packages — loaded on demand by audio-decode / encode-audio
 const CODECS = [

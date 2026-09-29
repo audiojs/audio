@@ -142,3 +142,41 @@ test('smoothing ramps block-rate params without zipper steps', () => {
 	assert.ok(Math.abs(seen[1] - 128 / (0.1 * SR)) < 1e-5, 'linear step size')
 	assert.equal(seen[seen.length - 1], 1, 'reaches target')
 })
+
+// Layout tags (CONTRACT.md § Buses), declared as @audio/spatial-ambisonic declares them: each atom copies its input
+// channels round-robin into its outputs and records the ctx.layouts it was built with
+function layoutAtom (inputs, outputs, seen) {
+	let f = ctx => { seen.push(ctx.layouts); return (ins, outs) => { for (let c = 0; c < outs[0].length; c++) outs[0][c].set(ins[0][c % ins[0].length]) } }
+	f.channels = { inputs, outputs }
+	return f
+}
+const AMBI = ['ambisonic-1', 'ambisonic-2', 'ambisonic-3']
+
+test('layouts — tags resolve to widths and ctx.layouts: by the input, the host default, or `layouts`', () => {
+	let seen = [], x = sine(440, 1024), chs = n => Array.from({ length: n }, () => x)
+	let encoder = layoutAtom(1, AMBI, seen), rotate = layoutAtom(AMBI, AMBI, seen), decoder = layoutAtom(AMBI, ['stereo', 'quad', '5.1', '7.1'], seen)
+	let y = toBatch(encoder)(x)
+	assert.equal(y.length, 4, 'mono → first-order ambisonics: 4 channels, all of them returned')
+	assert.deepEqual(seen.pop(), { inputs: [undefined], outputs: ['ambisonic-1'] })
+	assert.equal(toBatch(encoder)(x, { layouts: { outputs: ['ambisonic-3'] } }).length, 16, 'third order chosen')
+	assert.equal(toBatch(rotate)(chs(9)).length, 9, '9 channels in are second order, and out')
+	assert.deepEqual(seen.at(-1), { inputs: ['ambisonic-2'], outputs: ['ambisonic-2'] })
+	assert.equal(toBatch(decoder)(chs(4)).length, 2, 'decoder defaults to stereo')
+	assert.equal(toBatch(decoder)(chs(4), { layouts: { outputs: ['5.1'] } }).length, 6)
+	assert.throws(() => toBatch(decoder)(chs(5)), /5 channels fit none/)
+	assert.throws(() => toBatch(decoder)(chs(4), { layouts: { outputs: ['mono'] } }), /not declared/)
+	let s = toStream(encoder, { layouts: { outputs: ['ambisonic-2'] } })
+	assert.equal(s.write(x).length, 9, 'stream: chosen layout')
+	assert.throws(() => toStream(rotate).write(chs(9)), /layouts/, 'stream: a width the default layout misses asks for `layouts`')
+	assert.equal(toStream(rotate, { layouts: { inputs: ['ambisonic-2'] } }).write(chs(9)).length, 9)
+})
+
+test('layouts — count declarations keep ctx.layouts undefined and their widths', () => {
+	let seen = [], upmix = layoutAtom(2, 6, seen), x = sine(440, 1024)
+	assert.equal(toBatch(upmix)([x, x]).length, 6)
+	assert.equal(seen.pop(), undefined)
+	let any = layoutAtom('any', 'any', seen)
+	assert.equal(toBatch(any)([x, x, x]).length, 3)
+	assert.equal(toBatch(any)(x).length, 1024, 'a bare channel in, a bare channel out')
+	assert.equal(seen.pop(), undefined)
+})

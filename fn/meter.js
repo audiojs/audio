@@ -30,8 +30,9 @@ function frameValue(name, raw, blockChs, sr, opts) {
   let desc = audio.stat(name)
   if (!desc) throw new Error(`Unknown meter stat: '${name}'`)
 
+  // Array.from: a typed array's map keeps its type, and a Float64Array can't hold the per-channel arrays
   let pseudo = { blockSize: blockChs[0].length }
-  for (let n in raw) pseudo[n] = raw[n].map(v => Float32Array.of(v))
+  for (let n in raw) pseudo[n] = Array.from(raw[n], v => Float32Array.of(v))
 
   if (desc.query) {
     return perCh ? chs.map(c => desc.query(pseudo, [c], 0, 1, sr, opts))
@@ -60,21 +61,26 @@ function holdDecay(cur, prev, alpha) {
   return out
 }
 
-/** Compute all block-level stat values once per frame. */
-function computeRawBlock(blockChs, sr) {
+/** Compute all block-level stat values once per frame. `ctxs`: each block function's context, kept across the blocks
+ *  of a playback (a filter's state: K-weighting restarted from rest every block misreads the energy). */
+function computeRawBlock(blockChs, sr, ctxs) {
   let raw = {}, ch = blockChs.length, done = new Map()  // stats sharing a block function: one call
   for (let [name, desc] of Object.entries(audio.stat())) {
     if (!desc.block) continue
-    let r = done.get(desc.block)
-    if (r === undefined) done.set(desc.block, r = desc.block(blockChs, { sampleRate: sr }))
+    let r = done.get(desc.block), ctx = ctxs.get(desc.block)
+    if (!ctx) ctxs.set(desc.block, ctx = { sampleRate: sr })
+    if (r === undefined) done.set(desc.block, r = desc.block(blockChs, ctx))
     let v = blockValue(r, name)
     raw[name] = typeof v === 'number' ? Array(ch).fill(v) : v
   }
   return raw
 }
 
-/** Dispatch meter to all probes for one playback block. Called from fn/play.js. */
-export function emitMeter(a, blockChs, offset) {
+const deliverNow = (p, v) => { p.value = v; if (p.cb) p.cb(v) }
+
+/** Measure one playback block for every probe, and deliver each value: to the probe at once (the default), or as
+ *  the caller schedules it (fn/play.js releases values when their block is heard; the worker posts them). */
+export function emitMeter(a, blockChs, offset, deliver = deliverNow) {
   let probes = a._.meters
   if (!probes?.length) return
 
@@ -84,17 +90,15 @@ export function emitMeter(a, blockChs, offset) {
   for (let p of probes) {
     let opts = p.opts
     if (opts.type == null) {
-      if (!raw) raw = computeRawBlock(blockChs, sr)
+      if (!raw) raw = computeRawBlock(blockChs, sr, a._.meterCtx ??= new Map())
       let delta = { fromBlock: 0 }
-      for (let n in raw) delta[n] = raw[n].map(v => Float32Array.of(v))
-      let ev = { delta, offset }
-      p.value = ev
-      if (p.cb) p.cb(ev)
+      for (let n in raw) delta[n] = Array.from(raw[n], v => Float32Array.of(v))
+      deliver(p, { delta, offset })
       continue
     }
 
     let types = Array.isArray(opts.type) ? opts.type : [opts.type]
-    if (types.some(t => t !== 'spectrum') && !raw) raw = computeRawBlock(blockChs, sr)
+    if (types.some(t => t !== 'spectrum') && !raw) raw = computeRawBlock(blockChs, sr, a._.meterCtx ??= new Map())
 
     let values = {}
     for (let t of types) values[t] = frameValue(t, raw, blockChs, sr, opts)
@@ -118,9 +122,7 @@ export function emitMeter(a, blockChs, offset) {
       }
     }
 
-    let out = typeof opts.type === 'string' ? values[opts.type] : values
-    p.value = out
-    if (p.cb) p.cb(out)
+    deliver(p, typeof opts.type === 'string' ? values[opts.type] : values)
   }
 }
 

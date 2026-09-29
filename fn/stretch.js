@@ -29,27 +29,34 @@ import pvocLock from '@audio/stretch-pvoc-lock'
 // shortens the synthesis hop instead of lengthening the analysis hop, which past a frame skipped input and
 // broke the frame buffer. The analysis hop is fractional, so the vocoder's average ratio is exactly r and the
 // cursor consumes exactly what it produces, without drift.
-// The vocoder emits a frame late. The cursor runs a fixed latency behind rather than stalling on an empty
-// ring (a stall left a silent gap, then a click); the ops declare that latency and the engine reads ahead to
-// compensate it. They handle their own range, so dry and processed audio share the one latency.
+// The vocoder emits a sample once every frame overlapping it is in: pOut = frame/2·(r + 1) of its output behind
+// its input (half a frame of analysis, half of synthesis). The cursor runs a fixed latency behind rather than
+// stalling on an empty ring (a stall left a silent gap, then a click); the ops declare that latency and the
+// engine reads ahead to compensate it. They handle their own range, so dry and processed audio share the one
+// latency.
 // The vocoder's first frame smears its onset across the frame (pre-echo), so processed audio would start and
 // end mid-waveform; 5 ms raised-cosine ramps cross from dry to processed at both edges of the span.
 // `ratio` may be a function `(t seconds of this stage's feed) => r` — sliding stretch; `rmin` is its floor.
-// Frames last about 23 ms at any rate (1024 samples at 44.1 kHz): a longer frame smears attacks further.
-const frameOf = (sampleRate = 44100) => 2 ** Math.round(Math.log2(sampleRate * 1024 / 44100))
+// Frames hold about 46 ms of the source (2048 samples at 44.1 kHz): the vocoder must resolve a low voice's or a
+// bass's harmonics, or it smears neighbours into beats and a sub-octave (a 23 ms frame put 1200 cents of f0
+// error on speech slowed 2×, and lost a 110 Hz tone's fundamental). `scale` sizes the frame for a stage
+// fed the source transposed down by it (stretch: by its factor), so the frame keeps the same source span.
+const frameOf = (sampleRate = 44100, scale = 1) => 2 ** Math.round(Math.log2(sampleRate * 2048 * scale / 44100))
 const synHopOf = (r, frame) => Math.max(1, Math.min(frame >> 2, Math.round((frame >> 2) * r)))
 
-/** Output samples the stage runs behind its input, for ratios down to rmin: the vocoder's frame fill plus the
- *  synthesis frame it holds back. Covers every block size for r in [0.05, 20] (measured). */
-export const phaseLockLatency = (rmin, sampleRate) => {
-  let frame = frameOf(sampleRate)
-  return frame + Math.ceil((frame + synHopOf(rmin, frame)) / rmin)
+/** Output samples the stage runs behind its input, for ratios down to rmin: the vocoder's pOut plus one synthesis
+ *  hop of margin, at r of its samples per output sample. A sliding ratio runs the vocoder on a hop function, whose
+ *  stream (fourier-transform stftStream) holds back pOut more: frame + (frame + synHop)/r in all. Covers every
+ *  block size for r in [0.05, 20] at 8, 44.1 and 48 kHz (measured: a constant ratio needs (pOut + 2.4)/r). */
+export const phaseLockLatency = (rmin, sampleRate, scale = 1, sliding = false) => {
+  let frame = frameOf(sampleRate, scale), synHop = synHopOf(rmin, frame)
+  return sliding ? frame + Math.ceil((frame + synHop) / rmin) : Math.ceil((Math.round(frame / 2 * (rmin + 1)) + synHop) / rmin)
 }
 
-export function initPhaseLockStream(nch, ratio, sampleRate = 44100, rmin = typeof ratio === 'function' ? ratio(0) : ratio) {
-  let rate = typeof ratio === 'function' ? ratio : () => ratio, r0 = rate(0), frame = frameOf(sampleRate)
-  let synHop = synHopOf(rmin, frame), lat = phaseLockLatency(rmin, sampleRate)
-  let anaHop = fs => synHop / Math.max(1e-6, rate(Math.max(0, fs) / sampleRate))
+export function initPhaseLockStream(nch, ratio, sampleRate = 44100, rmin = typeof ratio === 'function' ? ratio(0) : ratio, scale = 1) {
+  let sliding = typeof ratio === 'function', rate = sliding ? ratio : () => ratio, r0 = rate(0), frame = frameOf(sampleRate, scale)
+  let synHop = synHopOf(rmin, frame), lat = phaseLockLatency(rmin, sampleRate, scale, sliding)
+  let anaHop = sliding ? fs => synHop / Math.max(1e-6, rate(Math.max(0, fs) / sampleRate)) : synHop / r0
   let opts = { frameSize: frame, hopSize: frame >> 2, synHop, anaHop, sampleRate, fs: sampleRate }
   return Array.from({ length: nch }, () => ({
     write: pvocLock(opts),
@@ -207,7 +214,7 @@ const stretchDsp = (input, output, ctx) => {
     if (!st) {
       let base = ctx.blockOffset || 0, sr = ctx.sampleRate
       let fn = t => lookupAt(ctx.ot, ctx.fv, base + t)
-      st = ctx._state = initPhaseLockStream(input.length, fn, sr, Math.min(...ctx.fv))
+      st = ctx._state = initPhaseLockStream(input.length, fn, sr, minOf(ctx.fv), frameScale(ctx.fv))
       // vocoder-output sample breakpoints since feed start, one factor per span
       let ot = ctx.ot, fv = ctx.fv
       let k0 = 0
@@ -229,12 +236,19 @@ const stretchDsp = (input, output, ctx) => {
     for (let c = 0; c < input.length; c++) output[c].set(input[c])
     return
   }
-  if (!ctx._state) ctx._state = initPhaseLockStream(input.length, factor, ctx.sampleRate)
+  if (!ctx._state) ctx._state = initPhaseLockStream(input.length, factor, ctx.sampleRate, factor, frameScale([factor]))
   phaseLockBlock(ctx._state, input, output, ctx)
 }
 
+// The plan slows the source by the factor (compression speeds it up) before the vocoder restores its pitch: the
+// vocoder's frame scales by the factor to span the same source time. A sliding factor sizes it by its largest:
+// too short a frame for the slowest span is what loses the harmonics. Compression stops at half the base frame
+// (1024 samples at 44.1 kHz): shorter, the vocoder can't resolve the transposed signal itself.
+const minOf = a => a.reduce((m, v) => v < m ? v : m, Infinity)
+const frameScale = a => a.reduce((m, v) => v > m ? v : m, 0.5)
+
 audio.op('_stretch_seg', { params: ['factor'], plan: stretchPlan, hidden: true })
-const stretchLatency = (o, sr) => o.fv ? phaseLockLatency(Math.min(...o.fv), sr) : typeof o.factor === 'number' && o.factor > 0 && o.factor !== 1 ? phaseLockLatency(o.factor, sr) : 0
+const stretchLatency = (o, sr) => o.fv ? phaseLockLatency(minOf(o.fv), sr, frameScale(o.fv), true) : typeof o.factor === 'number' && o.factor > 0 && o.factor !== 1 ? phaseLockLatency(o.factor, sr, frameScale([o.factor])) : 0
 audio.op('_stretch_dsp', { params: ['factor'], process: stretchDsp, hidden: true, ranged: true, latency: stretchLatency })
 audio.op('stretch', {
   params: ['factor'],

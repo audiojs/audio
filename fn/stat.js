@@ -1,8 +1,9 @@
-import audio from '../core.js'
-import { rMean } from './loudness.js'
+import audio, { FULL } from '../core.js'
+import { rMean, blockMean } from './loudness.js'
 
 let rMin = (values, from, to) => { let v = Infinity; for (let i = from; i < to; i++) if (values[i] < v) v = values[i]; return v === Infinity ? 0 : v }
 let rMax = (values, from, to) => { let v = -Infinity; for (let i = from; i < to; i++) if (values[i] > v) v = values[i]; return v === -Infinity ? 0 : v }
+const FULL2 = FULL * FULL
 let rSum = (values, from, to) => { let v = 0; for (let i = from; i < to; i++) v += values[i]; return v }
 
 /** One pass per channel serves min, max, dc, clipping, ms and correlation (block record). */
@@ -16,7 +17,7 @@ function core(chs) {
       if (v > mx) mx = v
       s += v
       q += v2
-      if (v2 >= 1) k++  // |v| ≥ 1, NaN excluded
+      if (v2 >= FULL2) k++  // |v| ≥ full scale, NaN excluded
     }
     min.push(mn); max.push(mx); dc.push(s / n); clipping.push(k); ms.push(q / n)
   }
@@ -72,15 +73,17 @@ audio.stat('ms', {
   reduce: rMean,
 })
 
+/** RMS over the channels' mean squares averaged: ACX Check 2.4.2-1 `track-rms` (the root of the mean of both channels'
+ *  mean squares), each block weighed by its samples. */
+const meanSquare = (stats, chs, from, to) => {
+  let sum = 0
+  for (let c of chs) sum += blockMean(stats.ms[c], stats, from, Math.min(to, stats.ms[c].length))
+  return chs.length ? sum / chs.length : 0
+}
+
 audio.stat('rms', {
   fields: ['ms'],
-  query: (stats, chs, from, to) => {
-    if (!stats.ms) return 0
-    let sum = 0, n = 0
-    for (let c of chs)
-      for (let i = from; i < Math.min(to, stats.ms[c].length); i++) { sum += stats.ms[c][i]; n++ }
-    return n ? Math.sqrt(sum / n) : 0
-  }
+  query: (stats, chs, from, to) => stats.ms ? Math.sqrt(meanSquare(stats, chs, from, to)) : 0
 })
 
 audio.stat('peak', {
@@ -113,10 +116,7 @@ audio.stat('crest', {
         if (b > peak) peak = b
       }
     }
-    let sum = 0, n = 0
-    for (let c of chs)
-      for (let i = from; i < Math.min(to, stats.ms[c].length); i++) { sum += stats.ms[c][i]; n++ }
-    let rms = n ? Math.sqrt(sum / n) : 0
+    let rms = Math.sqrt(meanSquare(stats, chs, from, to))
     return (peak > 0 && rms > 0) ? 20 * Math.log10(peak / rms) : 0
   }
 })

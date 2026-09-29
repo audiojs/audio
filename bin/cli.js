@@ -13,6 +13,8 @@
 import audio from '../audio.js'
 import { toMel } from '../fn/spectrum.js'
 import { lufsFromEnergy } from '../fn/loudness.js'
+import { specs } from '../fn/check.js'
+import { formats as cutFormats } from '../fn/cuts.js'
 import parseDuration from 'parse-duration'
 import fft from 'fourier-transform'
 
@@ -45,12 +47,13 @@ function isBand(s) {
   return !!e && e[1] !== '' && e.some(t => FREQ_TOK.test(t)) && e.every(t => t === '' || FREQ_TOK.test(t) || /^\d+(\.\d+)?$/.test(t))
 }
 
-/** `name:value`: a named op/sink option (ceiling:-2, key:voice.wav, crossfade:10ms).
- *  Two-letter minimum keeps drive letters (C:\) out; URLs (http://…) stay positional. */
+/** `name:value`: a named op/sink option (ceiling:-2, key:voice.wav, crossfade:10ms); a time range gives
+ *  `{ at, duration }` (noise:0.5s..1s). Two-letter minimum keeps drive letters (C:\) out; URLs (http://…) stay positional. */
 function namedOpt(tok) {
   let m = typeof tok === 'string' && tok.match(/^([a-zA-Z][\w-]+):(.+)$/)
   if (!m || m[2].startsWith('//')) return null
   let v = m[2]
+  if (isRange(v)) { let { offset, duration } = parseRange(v); return [m[1], { at: offset, duration }] }
   return [m[1], v === 'true' ? true : v === 'false' ? false : parseValue(v)]
 }
 
@@ -130,14 +133,16 @@ function isFlag(s) {
   return !match
 }
 
+// Methods the CLI runs like ops: they compose ops (master = match + normalize to a reference)
+const METHOD_OPS = new Set(['split', 'clip', 'master'])
 function isOpName(s) {
   let op = audio.op(s)
-  return (op && !op.hidden) || s === 'split' || s === 'clip'
+  return (op && !op.hidden) || METHOD_OPS.has(s)
 }
 
 // Verb taxonomy — sources produce audio, sinks terminate the chain
 const SOURCE_VERBS = new Set(['record'])
-const SINK_VERBS = new Set(['play', 'stat', 'save'])
+const SINK_VERBS = new Set(['play', 'stat', 'save', 'check'])
 const STAT_AGG = new Set(['key', 'notes', 'chords'])  // stat names handled via dedicated methods
 function isVerb(s) { return SOURCE_VERBS.has(s) || SINK_VERBS.has(s) }
 function isStatName(s) { return audio.stat(s) != null || STAT_AGG.has(s) }
@@ -161,12 +166,13 @@ const HELP = {
   pad:       { usage: 'pad [BEFORE] [AFTER]', desc: 'Add silence to start/end (single arg = both)', examples: ['pad 1s', 'pad 0.5s 2s'], label: 'Padding' },
   speed:     { usage: 'speed RATE', desc: 'Change speed — 2 = double, 0.5 = half, -1 = reverse', examples: ['speed 2', 'speed 0.5', 'speed -1'], label: 'Changing speed' },
   stretch:   { usage: 'stretch FACTOR', desc: 'Time-stretch (same pitch) — 2 = 2× slower, 0.5 = 2× faster', examples: ['stretch 2', 'stretch 0.5', 'stretch 1.25'], label: 'Stretching' },
+  warp:      { usage: 'warp MARKERS', desc: 'Move moments in time, [from, to] seconds pairs; the audio between them stretches to fit, pitch kept (via --macro)', examples: ['warp [[1,1],[2,2.4],[3,3]]'], label: 'Warping' },
   pitch:     { usage: 'pitch SEMI', desc: 'Pitch-shift in semitones (same duration)', examples: ['pitch 7', 'pitch -12', 'pitch 5'], label: 'Pitch shifting' },
   insert:    { usage: 'insert SRC [OFF] [XFADE]', desc: 'Insert audio at position (default: append); XFADE crossfades both seams', examples: ['insert other.wav 3s', 'insert other.wav 3s 10ms'], label: 'Inserting' },
   mix:       { usage: 'mix SRC [OFF] [GAIN]', desc: 'Mix in another audio file, at an offset and level', examples: ['mix bg.wav 0s', 'mix bed.mp3 0s -18db'], label: 'Mixing' },
   remix:     { usage: 'remix CH|MAP', desc: 'Change channel count or remap', examples: ['remix 1', 'remix 2', 'remix 1,0'], label: 'Remixing' },
   pan:       { usage: 'pan VALUE [RANGE]', desc: 'Stereo balance: -1 left, 0 center, 1 right', examples: ['pan -0.5', 'pan 1 2s..5s'], label: 'Panning' },
-  filter:    { usage: 'filter TYPE ...ARGS', desc: 'Generic filter dispatch', examples: ['filter highpass 80hz'], label: 'Filtering', kind: 'filter' },
+  filter:    { usage: 'filter TYPE ...ARGS', desc: 'Generic filter dispatch', examples: ['filter highpass 80hz'], label: 'Filtering', kind: 'filter', values: { type: ['highpass', 'lowpass', 'eq', 'lowshelf', 'highshelf', 'notch', 'bandpass', 'allpass'] } },
   highpass:  { usage: 'highpass FC [ORDER]', desc: 'High-pass filter', examples: ['highpass 80hz', 'highpass 120hz 4'], label: 'Filtering', kind: 'filter' },
   lowpass:   { usage: 'lowpass FC [ORDER]', desc: 'Low-pass filter', examples: ['lowpass 8khz', 'lowpass 4khz 4'], label: 'Filtering', kind: 'filter' },
   eq:        { usage: 'eq FC GAIN [Q]', desc: 'Parametric EQ', examples: ['eq 1khz -3db', 'eq 300hz 2 0.5'], label: 'Filtering', kind: 'filter' },
@@ -175,7 +181,7 @@ const HELP = {
   notch:     { usage: 'notch FC [Q]', desc: 'Notch (band-reject) filter', examples: ['notch 60hz', 'notch 50hz 50'], label: 'Filtering', kind: 'filter' },
   bandpass:  { usage: 'bandpass FC [Q]', desc: 'Band-pass filter', examples: ['bandpass 1khz', 'bandpass 440hz 10'], label: 'Filtering', kind: 'filter' },
   allpass:   { usage: 'allpass FC [Q]', desc: 'All-pass filter (phase shift)', examples: ['allpass 1khz', 'allpass 440hz 10'], label: 'Filtering', kind: 'filter' },
-  vocals:    { usage: 'vocals [MODE]', desc: 'Vocal isolation (default) or removal', examples: ['vocals', 'vocals remove'], label: 'Processing vocals' },
+  vocals:    { usage: 'vocals [MODE]', desc: 'Vocal isolation (default) or removal', examples: ['vocals', 'vocals remove'], label: 'Processing vocals', values: { mode: ['isolate', 'remove'] } },
   dither:    { usage: 'dither [BITS] [shape:true]', desc: 'TPDF dither to target bit depth (default: 16). shape:true enables 2nd-order noise shaping.', examples: ['dither', 'dither 8', 'dither 16 shape:true'], label: 'Dithering' },
   crossfeed: { usage: 'crossfeed [FC] [LEVEL]', desc: 'Headphone crossfeed for improved imaging', examples: ['crossfeed', 'crossfeed 500hz 0.4'], label: 'Applying crossfeed' },
   resample:  { usage: 'resample RATE', desc: 'Change sample rate with anti-aliased downsampling', examples: ['resample 48000', 'resample 22050'], label: 'Resampling' },
@@ -183,14 +189,19 @@ const HELP = {
   match:     { usage: 'match REF [AMOUNT]', desc: 'Match EQ: fit parametric bands so the tone follows a reference (amount 0..1)', examples: ['match reference.wav', 'match reference.wav 0.7'], label: 'Matching' },
   spectral:  { usage: 'spectral [BAND] [DB] [RANGE]', desc: 'Gain on a time × frequency region; default removes it', examples: ['spectral 1khz..4khz -30db 2.1s..2.4s', 'spectral 6khz..9khz 5s..5.2s'], label: 'Editing spectrum' },
   repair:    { usage: 'repair [BAND] RANGE', desc: 'Rebuild a damaged range from its surroundings', examples: ['repair 1.2s..1.25s', 'repair 0..3khz 1.2s..1.25s'], label: 'Repairing' },
+  denoise:   { usage: 'denoise [DB] [THRESHOLD] noise:RANGE [RANGE]', desc: 'Remove a steady noise (hiss, hum, fan, room tone) learned where it plays alone: noise:RANGE; it goes DB down (12) everywhere, or in RANGE', examples: ['denoise noise:0..0.5s', 'denoise 20 noise:3.1s..3.6s save clean.wav'], label: 'Denoising' },
+  deepfilter: { usage: 'deepfilter [LIMIT]', desc: 'Speech out of noise by DeepFilterNet3 (optional @audio/neural-denoise; 8 MB model, downloaded once): noise drops by at most LIMIT dB, 12 by default, 0 for none', examples: ['deepfilter', 'deepfilter 20', 'deepfilter normalize podcast'], label: 'Enhancing speech' },
   crossover: { usage: 'crossover FREQS...', desc: 'Split into frequency bands — N freqs → N+1 bands × channels (LR4)', examples: ['crossover 200hz', 'crossover 300hz 3khz save bands.wav'], label: 'Splitting bands' },
+  roomtone:  { usage: 'roomtone [THRESHOLD]', desc: "Fill digital silence (edited pauses, pad) with the recording's own room tone", examples: ['roomtone', 'trim pad 1.5s 2s roomtone check acx'], label: 'Filling room tone' },
+  master:    { usage: 'master REF', desc: 'Master to a reference track: its tone in mid and side, its loudness, under -1 dBTP (ceiling:N)', examples: ['master ref.wav save out.wav', 'master ref.wav ceiling:-2 check streaming'], label: 'Mastering' },
   write:     { usage: 'write DATA [RANGE]', desc: 'Write raw sample values at a position (via --macro)', examples: ['write [0,0] 1s..1.1s'], label: 'Writing' },
   split:     { usage: 'split TIMES... | split --cue FILE', desc: 'Split into parts at times or cue-sheet tracks ({i}/{title}/{name} in output)', examples: ['split 30s 60s save part-{i}.wav', 'split --cue album.cue save "{i} - {title}.mp3"'], label: 'Splitting' },
   transform: { usage: 'transform FN', desc: 'Apply a custom per-block function (plugin/library API)', examples: ['transform myFn'], label: 'Transforming' },
   // ── sinks (terminate chain) ─────────────────────────────────────────────
   play:   { usage: 'play [loop]', desc: 'Open player UI (autoplay)', examples: ['play', 'play loop', '1s..10s play loop', 'normalize play'], kind: 'sink' },
   stat:   { usage: 'stat [NAMES...]', desc: 'Print analysis (default: overview)', examples: ['stat', 'stat loudness rms', 'stat spectrum 128'], kind: 'sink', params: () => wrapWords(Object.keys(audio.stat())) },
-  save:   { usage: 'save PATH [BITRATE] [DEPTH]', desc: 'Encode and write to file (or - for stdout); lossless keeps the source depth', examples: ['save out.wav', 'save out.mp3 192k', 'save out.wav 24bit', 'save out.m4a codec:alac', 'save -'], kind: 'sink' },
+  check:  { usage: 'check SPEC', desc: 'Pass or fail each rule of a delivery spec; exits 1 on a fail', examples: ['check podcast', 'normalize podcast check podcast', 'check acx --json'], kind: 'sink', params: () => specs.join(', ') },
+  save:   { usage: 'save PATH [BITRATE] [DEPTH]', desc: 'Encode and write to file (or - for stdout); lossless keeps the source depth; .edl/.fcpxml/.otio write the cuts for a video editor (fps:N)', examples: ['save out.wav', 'save out.mp3 192k', 'save out.wav 24bit', 'save out.m4a codec:alac', 'shrink save cuts.edl', 'save -'], kind: 'sink' },
   // ── sources (provide input) ─────────────────────────────────────────────
   record: { usage: 'record [DUR]', desc: 'Capture from microphone', examples: ['record save out.wav', 'record 30s normalize save out.wav'], kind: 'source' },
 }
@@ -216,6 +227,14 @@ function pluginHelp(name, desc) {
   return { usage: `${name} [${args}]`, desc: `Plugin${typeof desc.tail === 'number' && desc.tail ? ` (tail ${desc.tail}s)` : desc.tail ? ' (tail: param-dependent)' : ''}`, examples: [], params }
 }
 
+/** The parameter of op `name` whose enumerated values include `word` (vocals: mode isolate|remove): a plugin's
+ *  enum params from its manifest, a built-in's from its help's `values`. */
+function enumParam(name, word) {
+  let d = audio.op(name), specs = d?.plugin?.params
+  let values = specs ? Object.fromEntries(Object.entries(specs).filter(([, sp]) => sp.type === 'enum').map(([k, sp]) => [k, sp.values])) : (d?.help ?? HELP[name])?.values
+  for (let k in values) if (values[k].includes(word)) return k
+}
+
 /** Word-wrap names into indented help lines. */
 function wrapWords(words, width = 78) {
   let lines = [], line = '  '
@@ -234,7 +253,7 @@ function showOpHelp(name) {
   let params = typeof h.params === 'function' ? h.params() : h.params
   if (params) console.log('  Params:\n' + params + '\n')
   if (h.examples.length) console.log('  Examples:')
-  let sinkless = ex => !/(^|\s)(save|play|stat)(\s|$)/.test(ex)
+  let sinkless = ex => !/(^|\s)(save|play|stat|check)(\s|$)/.test(ex)
   for (let ex of h.examples) console.log(`    ${h.kind === 'source' ? `audio ${ex}` : h.kind === 'sink' ? `audio in.wav ${ex}` : `audio in.wav ${ex}${sinkless(ex) ? ' save out.wav' : ''}`}`)
   console.log()
 }
@@ -249,7 +268,7 @@ function showOpHelp(name) {
  */
 function parseArgs(args) {
   let source = null, transforms = [], sink = null, range = null
-  let format = null, verbose = false, showHelp = false, force = false
+  let format = null, verbose = false, showHelp = false, force = false, json = false
   let macro = null, helpOp = null, concatFiles = [], cue = null
   let i = 0
 
@@ -265,6 +284,7 @@ function parseArgs(args) {
 
     if (arg === '--help' || arg === '-h') { showHelp = true; i++; continue }
     if (arg === '--verbose') { verbose = true; i++; continue }
+    if (arg === '--json') { json = true; i++; continue }
     if (arg === '--format') { format = args[++i]; i++; continue }
     if (arg === '--force' || arg === '-f') { force = true; i++; continue }
     if (arg === '--macro') { macro = args[++i]; i++; continue }
@@ -316,12 +336,17 @@ function parseArgs(args) {
 
     // Transform op: positional args, `name:value` options, and one time range anywhere
     let name = arg, opArgs = [], opOpts = null, kv
-    let offset = null, duration = null
+    let offset = null, duration = null, params = audio.op(name)?.params ?? []
     i++
     while (i < args.length && !isFlag(args[i])) {
-      if (isOpName(args[i]) || isVerb(args[i])) break
+      // One of the op's enumerated values binds to its parameter, though it names an op too (vocals remove,
+      // filter highpass): in place when it comes in its turn, by name otherwise; once, so a second starts an op
+      let p = enumParam(name, args[i]), at = params.indexOf(p)
+      if (p && (opOpts?.[p] !== undefined || at >= 0 && at < opArgs.length)) p = null
+      if (!p && (isOpName(args[i]) || isVerb(args[i]))) break
       let tok = args[i++]
-      if (kv = namedOpt(tok)) (opOpts ??= {})[kv[0]] = kv[1]
+      if (p) { if (at === opArgs.length) opArgs.push(tok); else (opOpts ??= {})[p] = tok }
+      else if (kv = namedOpt(tok)) (opOpts ??= {})[kv[0]] = kv[1]
       else if (isRange(tok)) ({ offset, duration } = parseRange(tok))
       else opArgs.push(parseValue(tok))
     }
@@ -351,7 +376,7 @@ function parseArgs(args) {
   // Default sink: `stat` (overview) — when no explicit sink and audio is finite
   if (!sink && !showHelp && !helpOp) sink = { name: 'stat', args: [] }
 
-  return { source, transforms, sink, range, format, verbose, showHelp, force, macro, helpOp, concatFiles, cue }
+  return { source, transforms, sink, range, format, verbose, showHelp, force, macro, helpOp, concatFiles, cue, json }
 }
 
 /** Parse a cue sheet into { title, performer, tracks: [{ n, title, performer, at }] }.
@@ -368,7 +393,7 @@ export function parseCue(text) {
   return disc
 }
 
-const SOURCE_OPS = new Set(['mix', 'insert', 'crossfade', 'match'])
+const SOURCE_OPS = new Set(['mix', 'insert', 'crossfade', 'match', 'master'])
 
 async function resolveSourceArgs(op) {
   // key:FILE: sidechain / reference input of keyed ops (ducker, match, …)
@@ -502,7 +527,7 @@ function fmtTime(s, full) {
   return full || h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`
 }
 
-const STAT_UNITS = { db: 'dBFS', loudness: 'LUFS', dialog: 'LUFS', momentary: 'LUFS', shortterm: 'LUFS', truepeak: 'dBTP', lra: 'LU', bpm: 'BPM' }
+const STAT_UNITS = { db: 'dBFS', rms: 'dBFS', noisefloor: 'dBFS', loudness: 'LUFS', dialog: 'LUFS', momentary: 'LUFS', shortterm: 'LUFS', truepeak: 'dBTP', lra: 'LU', bpm: 'BPM' }
 
 function fmtStat(name, result) {
   if (result instanceof Float32Array || result instanceof Float64Array || Array.isArray(result)) {
@@ -1133,7 +1158,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
 
     // Validate transform names
     for (let op of transforms) {
-      if (op.name !== 'split' && op.name !== 'clip' && !audio.op(op.name))
+      if (!METHOD_OPS.has(op.name) && !audio.op(op.name))
         throw new Error(`Unknown operation: ${op.name}`)
     }
     if (opts.cue && !transforms.some(o => o.name === 'split'))
@@ -1225,9 +1250,10 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     // ── sink: stat ──────────────────────────────────────────────────────
     ;[a] = await applyTransforms(a, transforms)  // clip rebinds a
 
+    if (sink.name === 'check') return printCheck(a, sink.args[0], opts.json)
     let statNames = sink.args.filter(v => typeof v === 'string')
-    if (!statNames.length) return printOverview(a, range, loadTime)
-    return printStats(a, sink.args, statNames, range, sink.opts)
+    if (!statNames.length) return printOverview(a, range, loadTime, opts.json)
+    return printStats(a, sink.args, statNames, range, sink.opts, opts.json)
   } catch (err) {
     console.error(`audio: ${formatError(err)}`)
     process.exit(1)
@@ -1405,6 +1431,13 @@ async function runSave(a, transforms, sinkArgs, range, opts, source, loadTime) {
   ;[a] = await applyTransforms(a, transforms)
 
   let fmt = opts.format || (output === '-' ? 'wav' : output.split('.').pop())
+  // A cut list: the edits as clips of the source, for a video editor (fn/cuts.js)
+  if (cutFormats.includes(fmt)) {
+    let text = await a.cuts(fmt, { fps: opts.sink?.opts?.fps })
+    if (output === '-') process.stdout.write(text)
+    else { (await import('fs')).writeFileSync(output, text); console.error(`Saved ${output}: ${(await a.cuts()).clips.length} clips`) }
+    process.exit(0)
+  }
   let saveOpts = { ...opts.sink?.opts, format: fmt }
   if (range) { saveOpts.at = resolveOffset(range.offset, a.duration); saveOpts.duration = range.duration }
 
@@ -1428,61 +1461,95 @@ async function runSave(a, transforms, sinkArgs, range, opts, source, loadTime) {
   process.exit(0)
 }
 
-async function printOverview(a, range, loadTime) {
+async function printOverview(a, range, loadTime, json) {
   let off0 = range ? resolveOffset(range.offset, a.duration) : 0
   let statOpts = range ? { at: off0, duration: range.duration } : undefined
-  let [peak, , l, clips, dcOff] = await a.stat(['db', 'rms', 'loudness', 'clipping', 'dc'], statOpts)
+  let [peak, rms, l, clips, dcOff] = await a.stat(['db', 'rms', 'loudness', 'clipping', 'dc'], statOpts)
   let dur = range?.duration ?? a.duration
-  let bpmStr = await (async () => {
+  let bpm = await (async () => {
     let win = Math.min(8, dur)
-    if (dur < 4) { let b = await a.stat('bpm', statOpts); return b > 0 ? `${Math.round(b)} BPM` : 'n/a' }
+    if (dur < 4) { let b = await a.stat('bpm', statOpts); return b > 0 ? Math.round(b) : null }
     let n = Math.min(4, Math.floor(dur / win)), step = dur / (n + 1)
     let bpms = (await Promise.all(Array.from({ length: n }, (_, i) => {
       let at = Math.max(0, off0 + step * (i + 1) - win / 2)
       return a.stat('bpm', { at, duration: win })
     }))).filter(b => b > 0)
-    if (!bpms.length) return 'n/a'
+    if (!bpms.length) return null
     let mn = Math.min(...bpms), mx = Math.max(...bpms)
-    return mx - mn < 10 ? `${Math.round((mn + mx) / 2)} BPM` : `${Math.round(mn)}–${Math.round(mx)} BPM`
+    return mx - mn < 10 ? Math.round((mn + mx) / 2) : [Math.round(mn), Math.round(mx)]
   })()
+  let dc = Math.abs(dcOff) > 0.0001 ? dcOff : 0
+  if (json) {
+    console.log(JSON.stringify({ duration: dur, channels: a.channels, sampleRate: a.sampleRate, samples: a.length, peak, rms: dbfs(rms), loudness: l, bpm, clipping: clips.length, dc }))
+    process.exit(0)
+  }
   console.log(`  Duration:   ${fmtTime(dur)}`)
   console.log(`  Channels:   ${a.channels}`)
   console.log(`  SampleRate: ${a.sampleRate} Hz`)
   console.log(`  Samples:    ${a.length}`)
   console.log(`  Peak:       ${peak.toFixed(1)} dBFS`)
+  console.log(`  RMS:        ${dbfs(rms).toFixed(1)} dBFS`)
   console.log(`  Loudness:   ${l.toFixed(1)} LUFS`)
-  console.log(`  BPM:        ${bpmStr}`)
+  console.log(`  BPM:        ${bpm == null ? 'n/a' : Array.isArray(bpm) ? `${bpm[0]}–${bpm[1]} BPM` : `${bpm} BPM`}`)
   console.log(`  Clipping:   ${clips.length || 'none'}`)
-  console.log(`  DC offset:  ${Math.abs(dcOff) > 0.0001 ? dcOff.toFixed(4) : 'none'}`)
+  console.log(`  DC offset:  ${dc ? dc.toFixed(4) : 'none'}`)
   if (loadTime) console.log(`  Loaded in:  ${loadTime}s`)
   process.exit(0)
 }
 
-async function printStats(a, sinkArgs, names, range, extra) {
+/** The CLI speaks decibels: `rms` prints in dBFS (the library returns the linear value). */
+const dbfs = v => v > 0 ? 20 * Math.log10(v) : -Infinity
+
+async function printStats(a, sinkArgs, names, range, extra, json) {
+  let out = {}
   for (let name of names) {
     let idx = sinkArgs.indexOf(name)
     let bins = idx >= 0 && idx + 1 < sinkArgs.length && typeof sinkArgs[idx + 1] === 'number' ? sinkArgs[idx + 1] : undefined
     let statOpts = { ...extra }
     if (bins != null) statOpts.bins = bins
     if (range) { statOpts.at = resolveOffset(range.offset, a.duration); statOpts.duration = range.duration }
-    let result
-    if (name === 'key') {
-      let k = await a.key(Object.keys(statOpts).length ? statOpts : undefined)
-      result = k?.label || 'N'
-    } else if (name === 'notes') {
-      result = await a.notes(Object.keys(statOpts).length ? statOpts : undefined)
-      for (let n of result) console.log(`  ${n.time.toFixed(3)}s  ${n.note.padEnd(4)} ${n.freq.toFixed(1)}Hz  ${n.duration.toFixed(3)}s  clarity:${n.clarity.toFixed(2)}`)
-      continue
-    } else if (name === 'chords') {
-      result = await a.chords(Object.keys(statOpts).length ? statOpts : undefined)
-      for (let c of result) console.log(`  ${c.time.toFixed(3)}s  ${c.label.padEnd(6)} ${c.duration.toFixed(3)}s  conf:${c.confidence.toFixed(2)}`)
-      continue
-    } else {
-      result = await a.stat(name, Object.keys(statOpts).length ? statOpts : undefined)
-    }
-    fmtStat(name, result)
+    let o = Object.keys(statOpts).length ? statOpts : undefined, result
+    if (name === 'key') result = (await a.key(o))?.label || 'N'
+    else if (name === 'notes') result = await a.notes(o)
+    else if (name === 'chords') result = await a.chords(o)
+    else result = await a.stat(name, o)
+    if (name === 'rms') result = Array.isArray(result) ? result.map(dbfs) : dbfs(result)
+    if (json) { out[name] = ArrayBuffer.isView(result) ? Array.from(result) : result; continue }
+    if (name === 'notes') for (let n of result) console.log(`  ${n.time.toFixed(3)}s  ${n.note.padEnd(4)} ${n.freq.toFixed(1)}Hz  ${n.duration.toFixed(3)}s  clarity:${n.clarity.toFixed(2)}`)
+    else if (name === 'chords') for (let c of result) console.log(`  ${c.time.toFixed(3)}s  ${c.label.padEnd(6)} ${c.duration.toFixed(3)}s  conf:${c.confidence.toFixed(2)}`)
+    else fmtStat(name, result)
   }
+  if (json) console.log(JSON.stringify(out))
   process.exit(0)
+}
+
+/** A spec's limits as words: `-23 to -18`, `≤ -3`, `= 44100`. */
+function fmtLimit({ min, max }) {
+  if (min != null && max != null) return min === max ? `= ${min}` : `${min} to ${max}`
+  return max != null ? `≤ ${max}` : min != null ? `≥ ${min}` : ''
+}
+
+const fmtVal = v => Number.isInteger(v) || !Number.isFinite(v) ? String(v) : v.toFixed(2)
+
+function fmtCheck(r) {
+  let lines = [`  ${r.name}  ${r.url}`], w = Math.max(...r.rules.map(x => x.name.length))
+  for (let x of r.rules) {
+    let mark = x.pass == null ? '·' : x.pass ? '✓' : '✗'
+    let val = fmtVal(x.value)
+    let lim = fmtLimit(x)
+    lines.push(`  ${mark} ${x.name.padEnd(w)}  ${val.padStart(8)} ${x.unit.padEnd(4)}  ${lim}${x.note ? `${lim ? '  ' : ''}(${x.note})` : ''}`)
+  }
+  let failed = r.rules.filter(x => x.pass === false).length
+  if (r.note) lines.push(`  ${r.note}`)
+  lines.push(failed ? `  ${failed} of ${r.rules.filter(x => x.pass != null).length} failed` : '  pass')
+  return lines.join('\n')
+}
+
+async function printCheck(a, spec, json) {
+  if (spec == null) throw new Error(`check: which spec? ${specs.join(', ')}`)
+  let r = await a.check(spec)
+  console.log(json ? JSON.stringify(r) : fmtCheck(r))
+  process.exit(r.pass ? 0 : 1)
 }
 
 async function runBatch(globPattern, transforms, sink, range, opts) {
@@ -1493,7 +1560,8 @@ async function runBatch(globPattern, transforms, sink, range, opts) {
   let files = readdirSync(dir).filter(f => re.test(f)).map(f => join(dir, f)).sort()
   if (!files.length) throw new Error(`No files matching: ${globPattern}`)
 
-  if (sink.name !== 'save') throw new Error(`batch mode requires 'save' sink, got '${sink.name}'`)
+  if (sink.name === 'check') return batchCheck(files, transforms, sink.args[0], opts)
+  if (sink.name !== 'save') throw new Error(`batch mode requires 'save' or 'check' sink, got '${sink.name}'`)
   let pattern = sink.args.find(v => typeof v === 'string')
   // A literal pattern with no {name}/{ext} placeholder resolves to the same path for every
   // matched file — each iteration would silently overwrite the previous one's output.
@@ -1516,6 +1584,27 @@ async function runBatch(globPattern, transforms, sink, range, opts) {
     process.stderr.write(`  → ${outFile}\n`)
   }
   process.exit(0)
+}
+
+/** One line per file (✓, or ✗ with the failed rules), then the count. ACX wants a whole book
+ *  mono or stereo: the one rule only a batch can check. */
+async function batchCheck(files, transforms, spec, opts) {
+  if (spec == null) throw new Error(`check: which spec? ${specs.join(', ')}`)
+  let reports = [], channels = new Set()
+  for (let file of files) {
+    let a = await audio(file)
+    ;[a] = await applyTransforms(a, transforms)
+    let r = { file, ...await a.check(spec) }
+    reports.push(r); channels.add(a.channels)
+    if (!opts.json) console.log(`  ${r.pass ? '✓' : '✗'} ${file}${r.pass ? '' : '  ' + r.rules.filter(x => x.pass === false).map(x => `${x.name} ${fmtVal(x.value)} ${x.unit} (${fmtLimit(x)})`).join(' · ')}`)
+  }
+  let mixed = reports[0].spec === 'acx' && channels.size > 1, failed = reports.filter(r => !r.pass).length
+  if (opts.json) console.log(JSON.stringify(mixed ? { reports, pass: false, note: 'mixed mono and stereo files' } : reports))
+  else {
+    if (mixed) console.log('  ✗ mixed mono and stereo files: ACX wants all mono or all stereo')
+    console.log(`  ${reports[0].name}: ${failed ? `${failed} of ${files.length} files failed` : `all ${files.length} files pass`}`)
+  }
+  process.exit(failed || mixed ? 1 : 0)
 }
 
 function makeLevelBar(level, w) {

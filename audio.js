@@ -41,6 +41,8 @@ const OPS = {
   declip: '@audio/denoise-declip/audio',
   decrackle: '@audio/denoise-decrackle/audio',
   debreath: '@audio/denoise-debreath/audio',
+  // neural lane, optional package: RNNoise with its weights inside (deepfilter, its DeepFilterNet3, is fn/deepfilter.js)
+  rnnoise: '@audio/neural-denoise/audio',
   // denoise-gate/-deesser merged into the dynamics atoms above (2026-07 near-dupe merge:
   // gate gained hysteresis + look-ahead; deesser gained mode 'band' dynamic peaking EQ)
   freeverb: '@audio/reverb-freeverb/audio',
@@ -219,6 +221,8 @@ import './fn/play.js'
 import './fn/meter.js'
 import './fn/meta.js'
 import './fn/save.js'
+import './fn/check.js'
+import './fn/cuts.js'
 
 // ── Ops ─────────────────────────────────────────────────────────────────
 
@@ -243,6 +247,7 @@ import './fn/pan.js'
 import './fn/pad.js'
 import './fn/speed.js'
 import './fn/stretch.js'
+import './fn/warp.js'
 import './fn/pitch.js'
 import './fn/transform.js'
 import './fn/crossfade.js'
@@ -250,8 +255,11 @@ import './fn/crossover.js'
 import './fn/match.js'
 import './fn/spectral.js'
 import './fn/vocals.js'
+import './fn/deepfilter.js'
+import './fn/denoise.js'
 import './fn/dither.js'
 import './fn/crossfeed.js'
+import './fn/roomtone.js'
 import './fn/resample.js'
 
 // ── Stats ───────────────────────────────────────────────────────────────

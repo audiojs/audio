@@ -369,7 +369,7 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
   let T = 0  // pipeline latency — outPos runs in cursor space, T ahead of the timeline
   let nch = a._.ch
   let bufA = Array.from({ length: nch }, () => new Float32Array(BS))
-  let xfadeRamp = 0, prevPipe = ''  // crossfade state + pipeline signature for change detection
+  let xf = null, sigP = '', yielded = false  // an edit's crossfade (the old render going out), pipeline signature
 
   while (!a._.disposed && outPos < endSample + T) {
     let acc = a._.acc
@@ -377,39 +377,44 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
 
     // Rebuild the plan when new source data arrives, on the one-time post-decode pass,
     // or when edits were pushed mid-stream (live parameter/op changes during playback)
-    if (avail > builtLen || (a.decoded && !ensured) || a.version !== lastVer) {
-      let verChanged = plan != null && a.version !== lastVer
+    // (an edit during a crossfade waits for it to finish: ~20 ms)
+    if (avail > builtLen || (a.decoded && !ensured) || (a.version !== lastVer && !xf)) {
+      let verChanged = plan != null && a.version !== lastVer, old = plan, warm = null
       lastVer = a.version
       builtLen = Math.max(builtLen, avail)
       plan = compilePlan(a, builtLen, a.decoded)
-      // Whole-op ref may rewrite the pipeline input width (e.g. 2→5.1 upmix)
-      if ((plan.ch ?? nch) !== nch) {
-        nch = plan.ch
+      let sig = pipelineSig(plan.pipeline), width = plan.ch ?? nch
+      // procs for this plan from timeline sample t (warmed up below, once its pages are there)
+      const fresh = t => {
+        nch = width; T = plan.latency; sigP = sig
         bufA = Array.from({ length: nch }, () => new Float32Array(BS))
-        procs = null
-      }
-      let curPipe = pipelineSig(plan.pipeline)
-      if (!procs) {
-        T = plan.latency
         procs = initProcs(plan.pipeline, plan.totalLen / sr, sr, nch)
-        prevPipe = curPipe
-        // Warm up before the latency-delayed start, never after the requested one: a stage delayed by T must
-        // see input from startSample, or a latency past the warm-up loses the first T − warm-up samples
-        if ((startSample > 0 || T > 0) && procs.length)
-          outPos = warmStart(startSample, startSample + T, plan.warmup)
-      } else if (plan.latency !== T) {
-        // Mid-stream latency change — keep content continuity: cursor c ↦ c + ΔT
-        outPos += plan.latency - T; T = plan.latency
+        outPos = t + T
+        warm = t
       }
-      if (procs && curPipe !== prevPipe) {
-        // Structural pipeline change (ops added/removed) — full reinit with crossfade
+      if (procs && yielded && verChanged && (plan.latency !== T || width !== nch || sig !== sigP || !sameTimeline(old.segs, plan.segs))) {
+        // An edit that changes what renders here (a cut, an insert, an op added or removed, a new latency or width):
+        // the old render goes on for ~20 ms beside the new one, warmed up at the same place, and crossfades into it
+        // (linear: the same sound, changed)
+        let n = Math.min(2048, Math.round(sr * 0.02))
+        xf = { plan: old, procs, pos: outPos, buf: bufA, n, left: n }
+        fresh(outPos - T)
+      } else if (procs && yielded && (width !== nch || sig !== sigP)) fresh(outPos - T)
+      else if (!procs || width !== nch || sig !== sigP) {
+        // First compile, or a pipeline settled before anything streamed. Warm up before the latency-delayed start,
+        // never after the requested one: a stage delayed by T must see input from startSample, or a latency past
+        // the warm-up loses the first T − warm-up samples
+        nch = width; T = plan.latency; sigP = sig
+        bufA = Array.from({ length: nch }, () => new Float32Array(BS))
         procs = initProcs(plan.pipeline, plan.totalLen / sr, sr, nch)
-        prevPipe = curPipe
-        xfadeRamp = Math.min(2048, Math.round(sr * 0.02))  // ~20ms crossfade to avoid click
-      } else if (procs.length) {
+        outPos = (startSample > 0 || T > 0) && procs.length ? warmStart(startSample, startSample + T, plan.warmup) : startSample
+      } else {
+        // Latency refined as the source arrives — keep content continuity: cursor c ↦ c + ΔT
+        if (plan.latency !== T) { outPos += plan.latency - T; T = plan.latency }
         // Same structure, values refined — patch ctx in place (ramped in applyProcs)
-        patchProcs(procs, plan.pipeline)
+        if (procs.length) patchProcs(procs, plan.pipeline)
       }
+      if (verChanged) await loadRefs(a)
       // A live source's end moves: ops placed from it follow (their output is held back until final)
       if (!a.decoded) {
         let td = plan.totalLen / sr
@@ -426,6 +431,14 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
         await ensurePlan(a, plan, offset, duration)
         let seen = new Set()
         for (let s of plan.segs) if (s[4]?.pages && !seen.has(s[4])) { seen.add(s[4]); await s[4][LOAD]() }
+      }
+      // new procs mid-stream: warmed up over what precedes the timeline position, which has rendered already
+      if (warm != null && procs.length) for (let p = warmStart(warm, outPos, plan.warmup); p < outPos;) {
+        let len = Math.min(BS, outPos - p)
+        for (let b of bufA) b.fill(0, 0, len)
+        renderBlock(a, plan.segs, p, len, bufA)
+        applyProcs(len < BS ? bufA.map(b => b.subarray(0, len)) : bufA, procs, p, sr)
+        p += len
       }
     }
 
@@ -454,20 +467,23 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
     for (let b of bufA) b.fill(0, 0, len)
     renderBlock(a, plan.segs, outPos, len, bufA)
     let src = len < BS ? bufA.map(b => b.subarray(0, len)) : bufA
-    let out
-    if (xfadeRamp > 0 && procs.length) {
-      // Crossfade from dry (pre-proc) to wet (post-proc) to avoid click at pipeline transition
-      let dry = bufA.map(b => b.slice(0, len))
-      out = applyProcs(src, procs, outPos, sr)
-      let n = Math.min(xfadeRamp, len), nc = Math.min(dry.length, out.length)
-      for (let c = 0; c < nc; c++)
-        for (let i = 0; i < n; i++) { let t = (xfadeRamp - n + i + 1) / xfadeRamp; out[c][i] = dry[c][i] * (1 - t) + out[c][i] * t }
-      xfadeRamp -= n
-    } else {
-      out = procs.length ? applyProcs(src, procs, outPos, sr) : src
+    let out = procs.length ? applyProcs(src, procs, outPos, sr) : src
+    if (xf) {
+      // the old render over the same stretch of the timeline, fading out as the new one fades in
+      let ob = xf.buf
+      for (let b of ob) b.fill(0, 0, len)
+      renderBlock(a, xf.plan.segs, xf.pos, len, ob)
+      let os = len < BS ? ob.map(b => b.subarray(0, len)) : ob
+      let oo = xf.procs.length ? applyProcs(os, xf.procs, xf.pos, sr) : os, k = xf.n - xf.left
+      for (let c = 0; c < out.length; c++) {
+        let o = oo[c % oo.length], y = out[c]
+        for (let i = 0; i < len; i++) { let t = Math.min(1, (k + i + 1) / xf.n); y[i] = o[i] * (1 - t) + y[i] * t }
+      }
+      xf.pos += len
+      if ((xf.left -= len) <= 0) xf = null
     }
 
-    if (outPos >= startSample + T) yield out.map(b => b.slice(0, len))
+    if (outPos >= startSample + T) { yielded = true; yield out.map(b => b.slice(0, len)) }
     outPos += len
   }
 }
@@ -652,7 +668,8 @@ const warmStart = (s, sc, warmup = 0) => Math.max(0, Math.min(s, s - warmup, sc 
 function resolveCtxStats(a, index, st) {
   let src = a.srcStats, { segs, pipeline, sr } = st
   if (!src) return src
-  if (!pipeline.length && segs.length === 1 && segs[0][0] === 0 && segs[0][2] === 0 && !segs[0][3] && segs[0][4] === undefined) return src
+  // the source itself, whole: a crop from 0 keeps the first segment's start but not its length
+  if (!pipeline.length && segs.length === 1 && segs[0][0] === 0 && segs[0][2] === 0 && segs[0][1] === a._.len && !segs[0][3] && segs[0][4] === undefined) return src
   let adapted = audio.adaptStats?.(src, st, sr)
   if (adapted) return adapted
   if (!audio.statSession) return null

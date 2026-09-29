@@ -58,6 +58,8 @@ const EXACT = {
   'spectral 1 s at -2 s: placed once the end is known': [a => a.spectral([200, 400], -20, { at: -2, duration: 1 }), Infinity],
   'repair(50 ms at 1 s)': [a => a.repair({ at: 1, duration: 0.05 }), 1.3],
   'repair(50 ms at -1.5 s)': [a => a.repair({ at: -1.5, duration: 0.05 }), Infinity],
+  'repair(1 s at 3.6 s): a transplant searched in the past adds no latency': [a => a.repair({ at: 3.6, duration: 1 }), 2.1],
+  'denoise(noise 0.5 s at 1 s): learned once the range has arrived': [a => a.denoise({ noise: { at: 1, duration: 0.5 } }), 1.7],
   'plugins: limiter, compressor, freeverb': [a => a.limiter().compressor().freeverb(), 0.5],
 }
 
@@ -193,6 +195,49 @@ test('stream: CLI stdin → stdout streams (first output before EOF)', { timeout
   t.ok(n > bytes.length * 0.9, 'all of it out')
 })
 
+// An edit while streaming changes what renders at the playhead: the old render crossfades into the new one over
+// ~20 ms (linear), so a cut, an insert or an op added mid-stream never steps the signal
+test('stream: an edit that changes the render mid-stream crossfades into it, no step', async t => {
+  // the largest step between samples: the sine's, and the crossfade's own (at most 2A over its length); a cut
+  // without it steps by up to 2A
+  let f = 300, A = 0.4, fade = Math.round(SR * 0.02), slope = 2 * Math.PI * f * A / SR + 2 * A / fade
+  let steps = x => { let m = 0; for (let i = 1; i < x.length; i++) m = Math.max(m, Math.abs(x[i] - x[i - 1])); return m }
+  const run = async edit => {
+    let a = audio.from(t => A * Math.sin(2 * Math.PI * f * t), { duration: 3, sampleRate: SR }), out = [], n = 0
+    for await (let b of a.stream()) { out.push(...b[0]); if (++n === 4) edit(a) }
+    return { out, a }
+  }
+  // a cut behind the playhead: the sound under it jumps by 0.2537 s (a phase jump for this sine)
+  let { out, a } = await run(a => a.remove({ at: 0.1, duration: 0.2537 }))
+  let at = 4 * 1024
+  t.ok(steps(out) <= slope, `cut: largest step ${steps(out).toFixed(3)} ≤ ${slope.toFixed(3)}`)
+  let [after] = await a.read({ at: (at + fade) / SR })
+  t.ok(same(out.slice(at + fade), after), 'after the crossfade: the edited render, sample for sample')
+  t.is(out.length, at + fade + after.length, 'length follows the edit')
+  // an op added: from the old chain's output (not the dry signal) into the new chain's
+  ;({ out } = await run(a => a.gain(-6).highpass(20)))
+  let before = await run(() => {}), max = 0
+  for (let i = at; i < at + fade; i++) max = Math.max(max, Math.abs(out[i]))
+  t.ok(max <= A * 1.01, `op added: no level above the source through the fade (${max.toFixed(3)})`)
+  t.ok(steps(out) <= slope, `op added: largest step ${steps(out).toFixed(3)}`)
+  t.ok(before.out.length === out.length, 'op added: same length')
+})
+
+// Edits closer together than the crossfade: the second waits for the first's crossfade, and both are heard; an edit
+// that ends the audio where it plays ends the stream there
+test('stream: two edits within one crossfade both land; one ending the audio where it plays ends the stream', async t => {
+  let sine = () => audio.from(t => .4 * Math.sin(2 * Math.PI * 300 * t), { duration: 3, sampleRate: SR }), at = 4 * 1024, fade = Math.round(SR * 0.02)
+  let a = sine(), out = [], n = 0
+  for await (let b of a.stream()) { out.push(...b[0]); if (++n === 4) { a.gain(-6); a.remove({ at: 0.1, duration: 0.25 }) } }
+  let [after] = await sine().gain(-6).remove({ at: 0.1, duration: 0.25 }).read({ at: (at + 2 * fade) / SR })
+  t.ok(same(out.slice(at + 2 * fade), after), 'after both crossfades: the render with both edits, sample for sample')
+  t.is(out.length, at + 2 * fade + after.length, 'its length, both edits')
+  let c = sine(), got = 0
+  n = 0
+  for await (let b of c.stream()) { got += b[0].length; if (++n === 4) c.crop({ at: 0, duration: at / SR }) }
+  t.is(got, at, 'nothing past the new end')
+})
+
 // Waiting for the whole input today: the only list allowed to hold such ops, and only to shrink
 const WHOLE = {
   'reverse()': [a => a.reverse(), 'inherent: the last sample plays first'],
@@ -211,3 +256,97 @@ for (let [call, [chain, why]] of Object.entries(WHOLE)) test(`stream: waits for 
 })
 
 test.todo('stream: a day-long stream runs in bounded memory (pages consumed, stats kept as running aggregates)')
+
+// A copy made while its source decodes (clone, audio.from) reads the pages as they land and ends with the source:
+// it streams, edited, as the whole file renders; disposing it leaves the source whole.
+const slowly = bytes => (async function* () { for (let o = 0; o < bytes.length; o += 4096) { await pause(); yield bytes.subarray(o, o + 4096) } })()
+test('stream: a copy of a source still decoding follows it and ends with it', async t => {
+  let bytes = await audio.from([X], { sampleRate: SR }).encode('wav', { bitDepth: 32 })
+  let src = audio(slowly(bytes)), copy = src.clone(), edited = src.clone().gain(-6), twice = src.clone().clone(), plain = audio.from(src)
+  // a rate asked for stays the copy's; the samples still follow
+  let faster = audio.from(src, { sampleRate: SR * 2 })
+  t.is(copy.decoded, false, 'follows while its source arrives')
+  let out = []
+  for await (let b of edited.stream()) out.push(...b[0])
+  t.ok(src.decoded && copy.decoded && edited.decoded && twice.decoded && plain.decoded, 'ends with it')
+  t.is([copy.sampleRate, copy.channels], [SR, 1], 'the rate and channels its header brought')
+  let whole = (await audio.from([X], { sampleRate: SR }).gain(-6).read())[0]
+  t.ok(out.length === whole.length && out.every((v, i) => Math.abs(v - whole[i]) < 1e-6), 'streamed as the whole file renders')
+  for (let [name, a] of [['clone', copy], ['clone of a clone', twice], ['audio.from', plain]]) t.is((await a.read())[0].length, X.length, name)
+  t.is([faster.sampleRate, faster.length], [SR * 2, X.length], 'its own rate, the source\'s samples')
+  copy.dispose()
+  t.is((await src.read())[0].length, X.length, 'disposing the copy leaves the source whole')
+})
+
+test('stream: a copy of a source that fails fails too; one whose source is disposed ends with it', async t => {
+  let bad = audio(slowly(new Uint8Array(20000).fill(7))), copy = bad.clone()
+  let failed = await copy.read().then(() => null, e => e)
+  t.ok(failed instanceof Error, `reading it rejects: ${failed?.message}`)
+  let bytes = await audio.from([X], { sampleRate: SR }).encode('wav', { bitDepth: 32 })
+  let src = audio(slowly(bytes)), follower = src.clone(), got = 0
+  for await (let b of follower.stream()) { got += b[0].length; if (got >= SR) src.dispose() }
+  t.ok(got >= SR && got < X.length, `its stream ended where the source was disposed: ${got} of ${X.length}`)
+  t.ok(follower._.disposed, 'and it is disposed as its source is')
+})
+
+// How long a stream lasts, known from its header before it has arrived (metadata's estDuration): a WAV or AIFF data
+// size, FLAC's sample count, an MP3's Xing/Info frame count or, at a constant bitrate, its first frame's rate; the
+// size-free ones with no length said for the bytes either. MPEG-1 Layer III frames (ISO/IEC 11172-3 §2.4.2.3): 1152
+// samples, 144000 · kbps / Hz bytes plus a padding byte.
+test('stream: how long a stream lasts is known from its header before it arrives', async t => {
+  let x = Float32Array.from({ length: 44100 * 7.3 }, (_, i) => .3 * Math.sin(i / 20) * Math.sin(i / 3000))
+  let estimate = async (bytes, size = true) => {
+    let a = audio(new Response(new Blob([bytes]).stream(), size ? { headers: { 'content-length': String(bytes.length) } } : {})), e = null
+    a.on('metadata', m => e = m.estDuration)
+    await a
+    return [e, a.duration]
+  }
+  for (let [type, opts] of [['wav', {}], ['wav', { bitDepth: 24 }], ['flac', {}], ['aiff', {}], ['mp3', {}], ['mp3', { bitrate: 64 }]]) {
+    let bytes = await audio.from([x, x], { sampleRate: 44100 }).encode(type, opts)
+    let [e, d] = await estimate(bytes)
+    t.ok(Math.abs(e - d) < 1e-3, `${type} ${JSON.stringify(opts)}: ${e} s, is ${d} s`)
+    if (type === 'aiff' || opts.bitrate) continue
+    ;[e, d] = await estimate(bytes, false)
+    // the MP3's Info frame counts its frames (LAME's delay and padding off), so it needs no size either
+    t.ok(Math.abs(e - d) < 1e-3, `${type} ${JSON.stringify(opts)}, no length said: ${e} s, is ${d} s`)
+  }
+  // a constant-bitrate MP3 without its Info frame, bare and after an ID3v2 tag of 3000 bytes: its first frame's rate
+  let mp3 = await audio.from([x, x], { sampleRate: 44100 }).encode('mp3', { bitrate: 128 })
+  let frame = (h, o) => Math.floor(144000 * [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320][h[o + 2] >> 4] / 44100) + (h[o + 2] >> 1 & 1)
+  let o = 0
+  while (!(mp3[o] === 0xff && (mp3[o + 1] & 0xe0) === 0xe0)) o++
+  let bare = new Uint8Array([...mp3.subarray(0, o), ...mp3.subarray(o + frame(mp3, o))])
+  let tag = new Uint8Array(3010); tag.set([0x49, 0x44, 0x33, 4, 0, 0, 0, 0, 3000 >> 7, 3000 & 127])
+  for (let [name, bytes] of [['bare', bare], ['after ID3v2', new Uint8Array([...tag, ...bare])]]) {
+    let [e, d] = await estimate(bytes)
+    t.ok(Math.abs(e - d) < 0.03, `CBR mp3, ${name}: ${e} s, is ${d} s`)
+  }
+  // with no frame count, only the size gives the length by its bitrate: unknown, not guessed
+  t.is((await estimate(bare, false))[0], null, 'CBR mp3, bare, no length said: not known')
+  // FFmpeg writes LAME's tag under its own name (Lavc, Lavf): the same delay and padding
+  let lavc = mp3.slice(), lame = Buffer.from(lavc).indexOf('LAME')
+  lavc.set([0x4c, 0x61, 0x76, 0x63], lame)
+  let [le, ld] = await estimate(lavc, false)
+  t.ok(lame > 0 && Math.abs(le - ld) < 1e-3, `mp3 with FFmpeg's tag name: ${le} s, is ${ld} s`)
+  // a Xing (flags: frame count) or VBRI frame ahead of the audio, 32 bytes of side information into a stereo MPEG-1
+  // frame: its frame count, with no size said
+  let count = 0
+  for (let p = 0; p + 4 <= mp3.length && mp3[p] === 0xff; p += frame(mp3, p)) count++
+  for (let name of ['Xing', 'VBRI']) {
+    let head = new Uint8Array(frame(mp3, 0)), v = new DataView(head.buffer)
+    head.set(mp3.subarray(0, 4))
+    head.set([...name].map(c => c.charCodeAt(0)), 36)
+    if (name === 'Xing') { v.setUint32(40, 1); v.setUint32(44, count) } else v.setUint32(50, count)
+    let [e] = await estimate(new Uint8Array([...head, ...mp3]), false)
+    t.is(e, count * 1152 / 44100, `${name}: its ${count} frames of 1152 samples`)
+  }
+  // a WAV written to a pipe, its data size unknown (all ones): the rest of the file, when its size is said
+  let piped = await audio.from([x], { sampleRate: 44100 }).encode('wav'), at = Buffer.from(piped).indexOf('data')
+  new DataView(piped.buffer, piped.byteOffset).setUint32(at + 4, 0xffffffff, true)
+  let [pe, pd] = await estimate(piped)
+  t.ok(Math.abs(pe - pd) < 1e-3, `wav of unknown data size: ${pe} s, is ${pd} s`)
+  t.is((await estimate(piped, false))[0], null, 'and with no size said, not known')
+  // the smallest WAV there is: one sample
+  let [e, d] = await estimate(await audio.from([Float32Array.of(.5)], { sampleRate: 8000 }).encode('wav'))
+  t.is([e, d], [1 / 8000, 1 / 8000], 'one sample')
+})

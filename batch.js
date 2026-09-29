@@ -53,20 +53,55 @@ function shapeIn (input) {
 	return { buses: input, shape: 'buses' }
 }
 function shapeOut (buses, shape) {
-	if (shape === 'mono') return buses[0][0]
+	// a bare channel in, several out (mono → stereo, → ambisonic): the channels, not the first
+	if (shape === 'mono') return buses[0].length > 1 ? buses[0] : buses[0][0]
 	if (shape === 'channels') return buses[0]
 	return buses
 }
 
-function outputDecl (factory, inBuses) {
-	let ch = factory.channels ?? 'any'
-	if (typeof ch === 'number') return [ch]
-	if (ch === 'any') return [inBuses ? inBuses[0].length : 1]
-	let outs = ch.outputs ?? 'any'
-	if (outs === 'any') return [inBuses ? inBuses[0].length : 1]
-	if (typeof outs === 'number') return [outs]
-	if (Array.isArray(outs)) return outs
-	return []
+// Speaker layouts and their channel counts (CONTRACT.md § Buses)
+const LAYOUTS = { mono: 1, stereo: 2, quad: 4, '5.1': 6, '7.1': 8 }
+export function layoutChannels (tag) {
+	if (tag in LAYOUTS) return LAYOUTS[tag]
+	let n = /^ambisonic-(\d+)$/.exec(tag)?.[1]
+	if (n) return (+n + 1) ** 2
+	throw new Error(`unknown layout "${tag}"`)
+}
+
+// one side of a `channels` declaration → buses, each { layouts: string[] } or { count: number | 'any' }
+function sideBuses (decl) {
+	let bus = d => typeof d === 'number' || d === 'any' ? { count: d } : typeof d === 'string' ? { layouts: [d] }
+		: d?.layouts ? { layouts: [].concat(d.layouts) } : { count: 'any' }
+	if (decl == null) return [{ count: 'any' }]
+	if (!Array.isArray(decl)) return [bus(decl)]
+	if (decl.length && decl.every(d => typeof d === 'string')) return [{ layouts: decl }]   // one bus, host picks
+	return decl.map(bus)
+}
+
+/**
+ * Resolve a `channels` declaration (CONTRACT.md § channels, § Buses) against the input buses' widths: a bus with
+ * layouts takes the one chosen (`{ inputs, outputs }` of tags), else an input bus the first of its width, else an
+ * output bus its input's layout when it declares it too, else the first. Count buses keep their count; 'any' takes
+ * the width of input bus 0.
+ * → { inputs: [{ layout, channels }], outputs: [{ layout, channels }], layouts } — layouts: ctx.layouts, or
+ * undefined when the declaration names none.
+ */
+export function resolveBuses (channels = 'any', widths = [], chosen = {}) {
+	let decl = typeof channels === 'object' && !Array.isArray(channels) ? channels : { inputs: channels, outputs: channels }
+	let named = false
+	let pick = (bus, b, side, want, prefer) => {
+		if (!bus.layouts) return { layout: undefined, channels: bus.count === 'any' ? (widths[0] ?? 1) : bus.count }
+		named = true
+		let tag = chosen?.[side]?.[b]
+		if (tag != null && !bus.layouts.includes(tag)) throw new Error(`${side} bus ${b}: layout "${tag}" is not declared (${bus.layouts.join(', ')})`)
+		tag ??= want != null ? bus.layouts.find(t => layoutChannels(t) === want) : bus.layouts.includes(prefer) ? prefer : bus.layouts[0]
+		if (tag == null) throw new Error(`${side} bus ${b}: ${want} channels fit none of its layouts (${bus.layouts.join(', ')})`)
+		if (want != null && layoutChannels(tag) !== want) throw new Error(`${side} bus ${b}: layout "${tag}" has ${layoutChannels(tag)} channels, the input ${want}`)
+		return { layout: tag, channels: layoutChannels(tag) }
+	}
+	let inputs = sideBuses(decl.inputs).map((bus, b) => pick(bus, b, 'inputs', widths[b]))
+	let outputs = sideBuses(decl.outputs).map((bus, b) => pick(bus, b, 'outputs', undefined, inputs[b]?.layout))
+	return { inputs, outputs, layouts: named ? { inputs: inputs.map(b => b.layout), outputs: outputs.map(b => b.layout) } : undefined }
 }
 
 function makeCtx (factory, opts, state, events) {
@@ -110,10 +145,12 @@ export function toBatch (factory, baseOpts = {}) {
 
 		let frames = inBuses ? inBuses[0][0].length : (opts.frames ?? Math.round((opts.duration ?? 1) * opts.sampleRate))
 		if (!opts.duration) opts.duration = frames / opts.sampleRate
+		let res = resolveBuses(factory.channels, inBuses ? inBuses.map(b => b.length) : [], opts.layouts)
 		let ctx = makeCtx(factory, opts, state, events)
+		ctx.layouts = res.layouts
 		let process = factory(ctx)
 
-		let outDecl = outputDecl(factory, inBuses)
+		let outDecl = res.outputs.map(b => b.channels)
 		let outBuses = outDecl.map(nch => Array.from({ length: nch }, () => new Float32Array(frames)))
 
 		let live = {}
@@ -146,6 +183,9 @@ export function toStream (factory, baseOpts = {}) {
 	let state = paramState(specs, opts.params || {})
 	let events = []
 	let ctx = makeCtx(factory, opts, state, events)
+	// declared layouts resolve before the first chunk: `layouts` given, else each bus's first
+	let res = resolveBuses(factory.channels, [], opts.layouts)
+	ctx.layouts = res.layouts
 	let process = factory(ctx)
 	let live = {}
 	let started = false, outDecl
@@ -157,7 +197,14 @@ export function toStream (factory, baseOpts = {}) {
 			if (chunkParams) for (let k in chunkParams) if (state[k]) { state[k].value = chunkParams[k]; state[k].fn = null }
 			let { buses: inBuses, shape } = shapeIn(chunk)
 			let frames = inBuses ? inBuses[0][0].length : 0
-			if (!started) { outDecl = outputDecl(factory, inBuses); started = true }
+			if (!started) {
+				let widths = inBuses ? inBuses.map(b => b.length) : []
+				res.inputs.forEach((b, i) => {
+					if (b.layout && widths[i] != null && widths[i] !== b.channels) throw new Error(`toStream: input bus ${i} has ${widths[i]} channels, layout "${b.layout}" ${b.channels}; pass { layouts: { inputs: [...] } }`)
+				})
+				outDecl = res.layouts ? res.outputs.map(b => b.channels) : resolveBuses(factory.channels, widths).outputs.map(b => b.channels)
+				started = true
+			}
 			let outBuses = outDecl.map(nch => Array.from({ length: nch }, () => new Float32Array(frames)))
 			for (let pos = 0; pos < frames; pos += opts.maxBlockSize) {
 				let n = Math.min(opts.maxBlockSize, frames - pos)
