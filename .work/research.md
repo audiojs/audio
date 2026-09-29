@@ -8,6 +8,14 @@
 * Direct, linear code, self-descriptive, common patterns, flat minimal abstractions.
 * If audacity had CLI
 
+## Goal
+
+* Audio editor for AI era
+
+## Ideas 
+
+* [ ] Integrations for vscode, sublime text, atom and other editors - edit audio like text!
+
 ## Principles
 
 - **Stream-first** — every operation works per-page. No full-data paths exist. Instant playback, editing, analysis regardless of file size or edit chain depth.
@@ -20,6 +28,13 @@
 ## Mission
 
 Replace sox/ffmpeg/Web Audio API ceremony for the 90% case: one file, some transforms, one output. Provide a streaming, non-destructive, paged audio document that's equally native to Node CLI scripts and browser DAW UIs. Make audio manipulation in JS as natural as string manipulation.
+
+## REPL Scenarios
+
+* User drops suno track, can master it perfectly (!automastering feature - OPEN MASTERING?)
+* Drop a recording... we need stem splitting then.
+* Desktop agentic harness: drop a file, tell agents to analyze the required mastering and editing (style etc)
+* Run the recorder, record session... like we can have multiple samples of recording to work with... Tabs then?
 
 
 ## Essence
