@@ -375,6 +375,41 @@ test('splice: remove / insert crossfades are click-free, length-exact, stream �
   t.is(m.markers.map(x => [x.label, +x.time.toFixed(3)]), [['a', 0.2], ['b', 0.7]], 'a marker inside the cut goes, later ones shift')
 })
 
+// write() puts samples or another sound over the audio from `at`, as a tape records over what is there (punch-in);
+// what runs past the end extends it
+test('write: samples or a sound over the audio from at, what runs past the end extending it', async t => {
+  let sr = 1000, ramp = n => audio.from([Float32Array.from({ length: n }, (_, i) => i + 1)], { sampleRate: sr })
+  let take = () => audio.from([Float32Array.of(-1, -2, -3)], { sampleRate: sr }), vals = async a => [...(await a.read())[0]]
+  t.is(await vals(ramp(6).write(take(), { at: 0.002 })), [1, 2, -1, -2, -3, 6], 'a sound, within the audio')
+  t.is(await vals(ramp(4).write(take(), { at: 0.003 })), [1, 2, 3, -1, -2, -3], 'past the end: the audio grows to hold it')
+  t.is(await vals(ramp(4).write([Float32Array.of(9, 9)], { at: 0.003 })), [1, 2, 3, 9, 9], 'samples, the same way')
+  t.is(await vals(ramp(4).write(Float32Array.of(7), { at: 0 })), [7, 2, 3, 4], 'one Float32Array for every channel')
+  let stereo = audio.from([new Float32Array(4), new Float32Array(4)], { sampleRate: sr }), [l, r] = await stereo.write(take(), { at: 0.001 }).read()
+  t.is([[...l], [...r]], [[0, -1, -2, -3], [0, -1, -2, -3]], 'a mono sound into both channels')
+  let a = ramp(4).write(take(), { at: 0.003 }), s = []
+  for await (let b of a.stream()) s.push(...b[0])
+  t.is(s, await vals(a), 'stream ≡ read')
+  a.undo()
+  t.is(await vals(a), [1, 2, 3, 4], 'undo restores the length and the samples')
+  await t.rejects(() => ramp(4).write(3).read(), /write: expected samples/)
+})
+
+// A range crossfaded with no source to blend into: the audio either side of it meets across its length, as a selection
+// crossfaded in an editor, which is remove() with a splice as long as the range
+test('crossfade: a range with no source crossfades across it, as remove with a splice its length', async t => {
+  let sr = 48000, tone = () => audio.from(x => 0.5 * Math.sin(2 * Math.PI * 440 * x), { duration: 1, sampleRate: sr })
+  let [a] = await tone().crossfade({ at: 0.5, duration: 0.01 }).read(), [b] = await tone().remove(0.5, 0.01, 0.01).read()
+  t.is(a.length, sr - 480, 'the range goes: 1 s less 10 ms')
+  t.ok(a.length === b.length && a.every((v, i) => v === b[i]), 'sample for sample remove(at, duration, duration)')
+  // the two sides meet out of phase; an equal-power sum of two such tones reaches at most √2 of either's amplitude, so of
+  // its slope, where a butt splice steps many times it
+  let steep = x => { let m = 0; for (let i = 1; i < x.length; i++) m = Math.max(m, Math.abs(x[i] - x[i - 1])); return m }
+  let slope = 0.5 * 2 * Math.PI * 440 / sr, [x] = await tone().crossfade({ at: 0.5, duration: 0.005 }).read(), [butt] = await tone().remove(0.5, 0.005).read()
+  t.ok(steep(x) <= slope * Math.SQRT2, `no step at the seam: ${(steep(x) / slope).toFixed(3)}× the tone's slope, a butt splice ${(steep(butt) / slope).toFixed(1)}×`)
+  // neither: said when it renders, as every op's arguments are
+  await t.rejects(() => tone().crossfade().read(), /crossfade: expected a source to blend into, or a range/)
+})
+
 test('splice: crossfade edges — file bounds, oversize, zero length, empty host, one sample, undo', async t => {
   let ramp = n => audio.from([Float32Array.from({ length: n }, (_, i) => i + 1)], { sampleRate: 1000 })
   let vals = async a => [...(await a.read())[0]]

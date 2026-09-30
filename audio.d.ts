@@ -175,8 +175,11 @@ export interface AudioInstance {
   /** Mix another source in at `at`, `gain` dB (FFmpeg amix weights) */
   mix(other: AudioSource, opts?: { at?: Time, duration?: Time, gain?: number }): this
   mix(other: AudioSource, at?: Time, gain?: number, opts?: { duration?: Time }): this
-  crossfade(other: AudioSource, duration?: Time, curve?: 'linear' | 'exp' | 'log' | 'cos'): this
-  write(data: Float32Array[] | Float32Array, opts?: { at?: Time }): this
+  crossfade(other: AudioSource, duration?: Time, curve?: 'linear' | 'exp' | 'log' | 'cos' | 'equal'): this
+  /** No source: crossfade across the range, the audio before it fading into the audio after it; the range goes */
+  crossfade(range: { at: Time, duration?: Time }): this
+  /** Overwrite from `at` with samples or another sound; what runs past the end extends it */
+  write(data: Float32Array[] | Float32Array | AudioInstance | AudioBuffer, opts?: { at?: Time, duration?: Time }): this
   remix(channels: number | (number | null)[]): this
   pan(value: number | ((t: number) => number), opts?: { at?: Time, duration?: Time, channel?: number | number[] }): this
 

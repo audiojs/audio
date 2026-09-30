@@ -290,9 +290,9 @@ a.remix([0, 0])                           // L→both; .remix(1) for mono
 | `.normalize(target?, mode?)` | remove DC, normalize. Loudness targets hold a true-peak ceiling, -1 dBTP by default: a lookahead limiter, then the loudness it took made back up. Presets per Apple Podcasts, Spotify, EBU R 128 (ITU-R BS.1770-4):<br>`'podcast'` -16 LUFS<br>`'streaming'` -14 LUFS<br>`'broadcast'` -23 LUFS<br>`-18, 'lufs'` any loudness; `-3` peak dB; no arg: peak 0 dBFS; `'rms'` mode<br>an audio instance: its integrated loudness<br>`{ ceiling: -2 }` dBTP, `false` off<br>`{ dc: false }` keep DC<br>`{ adaptive: true }` on a live stream, start at once: the gain follows what it has heard, the ceiling (the target itself in peak mode) guards what it hasn't. Without it, one gain for the whole selection: a live stream waits for its end.<br><sub>≡ FFmpeg `loudnorm`</sub> |
 | `.roomtone(threshold?)` | fill digital silence (≥ 10 ms under -90 dBFS: edited-out pauses, `pad()`) with the recording's own room tone. `.trim().pad(1.5, 2).roomtone()` gives an audiobook chapter its room tone at each end (ACX rejects digital silence).<br><sub>≡ iZotope RX Ambience Match</sub> |
 | `.mix(source, at?, gain?)` | overlay at `at` seconds, source level `gain` dB.<br><sub>≡ FFmpeg `amix` weights</sub> |
-| `.crossfade(source, duration?, curve?)` | append with overlap, default 0.5s. `'cos'` (default) suits similar material; `'equal'` (equal-power) keeps loudness across unrelated tracks.<br><sub>≡ FFmpeg `acrossfade`</sub> |
+| `.crossfade(source, duration?, curve?)` | append with overlap, default 0.5s. `'cos'` (default) suits similar material; `'equal'` (equal-power) keeps loudness across unrelated tracks. With no source, `.crossfade({ at, duration })` crossfades across the range, as an editor crossfades a selection: the audio before it fades into the audio after it, and the range goes.<br><sub>≡ FFmpeg `acrossfade`</sub> |
 | `.pan(value, opts?)` | −1 left, 0 center, 1 right. |
-| `.write(data, {at?})` | overwrite samples with raw PCM. |
+| `.write(data, {at?})` | overwrite from `at` with raw PCM or another sound, as a tape records over what is there; what runs past the end extends it. |
 | `.transform(fn)` | inline `(input, output, ctx) => void`. Not serialized. |
 
 ```js

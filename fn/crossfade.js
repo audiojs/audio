@@ -48,6 +48,12 @@ audio.op('crossfade', {
     let dur = ctx.duration || 0.5
     let curve = ctx.curve || 'cos'
     let source = ctx.source
+    // No source: a crossfade across a range, as an editor crossfades a selection. The audio before it fades out into
+    // the audio after it over the range's length, which goes: remove() with an equal-power splice as long as the range.
+    if (source == null) {
+      if (ctx.at == null) throw new TypeError('crossfade: expected a source to blend into, or a range to crossfade across ({ at, duration })')
+      return [['remove', { at: ctx.at, duration: dur, crossfade: dur }]]
+    }
     if (!source?.pages) source = audio.from(source, { sampleRate: ctx.sampleRate })
 
     let srcDur = source.duration
