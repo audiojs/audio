@@ -104,14 +104,12 @@ export default function engine(url = new URL('./dist/worker.js', import.meta.url
       queued = null
       spawn()
     },
-    // Frames of an output, named by the run that made it: { output: id, from, to, columns, … }
-    spectrum: request => call({ type: 'spectrum', ...request }),
     // an output's hits and pitch, named by the run that made it; hits null once a newer output replaced it
     onsets: output => call({ type: 'onsets', output }).then(r => r.times ?? null),
     contour: output => call({ type: 'contour', output }).then(r => r.f0 ? r : { times: [], f0: [] }),
     export: request => call({ type: 'export', ...request }),
-    // The spec's rules for the last output and for the source it opened ({ output, input }, fn/check.js).
-    check: (spec, source) => call({ type: 'check', spec, source }),
+    // The spec's rules for the last output ({ output }, fn/check.js).
+    check: spec => call({ type: 'check', spec }),
     // The source it opened, level-matched to `loudness` (LUFS), for A/B listening.
     original: (source, loudness) => call({ type: 'original', source, loudness }),
     // A plugin's parameters from its manifest, fetched once.

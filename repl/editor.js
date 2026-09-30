@@ -103,24 +103,35 @@ export default function editor(parent, { doc = '', onchange, oncaret, files = ()
     return null
   }
 
-  const view = new EditorView({
-    parent,
-    state: EditorState.create({
-      doc,
-      extensions: [
-        lineNumbers(), history(), drawSelection(), dropCursor(), indentOnInput(), bracketMatching(), closeBrackets(), highlightActiveLine(), highlightSelectionMatches(),
-        javascript(), syntaxHighlighting(highlight), theme,
-        autocompletion({ override: [insideStrings, methodsAfterDot, localCompletionSource, scopeCompletionSource(globalThis)], icons: false, maxRenderedOptions: 400 }),
-        tooltips({ parent: document.body }),
-        keymap.of([...Object.entries(keys).map(([key, run]) => ({ key, run: () => (run(), true), preventDefault: true })), ...closeBracketsKeymap, ...completionKeymap, ...historyKeymap, indentWithTab, ...defaultKeymap]),
-        EditorView.updateListener.of(update => {
-          if (update.docChanged) onchange?.(update.state.doc.toString(), update)
-          if (update.docChanged || update.selectionSet) oncaret?.(update)
-        }),
-        EditorView.contentAttributes.of({ 'aria-label': 'Script' })
-      ]
-    })
-  })
+  const extensions = [
+    lineNumbers(), history(), drawSelection(), dropCursor(), indentOnInput(), bracketMatching(), closeBrackets(), highlightActiveLine(), highlightSelectionMatches(),
+    javascript(), syntaxHighlighting(highlight), theme,
+    autocompletion({ override: [insideStrings, methodsAfterDot, localCompletionSource, scopeCompletionSource(globalThis)], icons: false, maxRenderedOptions: 400 }),
+    tooltips({ parent: document.body }),
+    keymap.of([...Object.entries(keys).map(([key, run]) => ({ key, run: () => (run(), true), preventDefault: true })), ...closeBracketsKeymap, ...completionKeymap, ...historyKeymap, indentWithTab, ...defaultKeymap]),
+    EditorView.updateListener.of(update => {
+      if (update.docChanged) onchange?.(update.state.doc.toString(), update)
+      if (update.docChanged || update.selectionSet) oncaret?.(update)
+    }),
+    EditorView.contentAttributes.of({ 'aria-label': 'Script' })
+  ]
+  const view = new EditorView({ parent, state: EditorState.create({ doc, extensions }) })
+
+  // Documents, each its own text, history and caret: open(key) shows one, new with `doc` the first time; the one it
+  // replaces is kept for coming back to, and forgotten when closed. The document the editor is made with is the first
+  // key opened.
+  const kept = new Map()
+  let key = null
+  function open(k, text = '') {
+    if (k === key) return
+    const first = key == null
+    if (!first) kept.set(key, view.state)
+    key = k
+    if (first) return
+    view.setState(kept.get(k) ?? EditorState.create({ doc: text, extensions }))
+    kept.delete(k)
+    onchange?.(view.state.doc.toString(), null)
+  }
 
   // A slider's moves rewrite the text live and out of the history; where it comes to rest, the whole move is recorded
   // as one change: back to the text before it, out of the history too, then on to the last.
@@ -142,6 +153,7 @@ export default function editor(parent, { doc = '', onchange, oncaret, files = ()
 
   return {
     view,
+    open, close: k => kept.delete(k),
     get code() { return view.state.doc.toString() },
     get head() { return view.state.selection.main.head },
     get range() { const { from, to } = view.state.selection.main; return [from, to] },

@@ -9,36 +9,49 @@
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
   <link rel="preload" href="assets/geist.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="repl/repl.css">
+  <script type="module" blocking="render">
+    // The mark in the bar drawn live before the page first shows, so a page arriving takes up the last one's turn at once
+    import { mark } from './logo/mark.js'
+    mark(document.querySelector('.bar .wordmark'))
+  </script>
   <script type="module" src="repl/repl.js"></script>
 </head>
 <body>
-  <div id="repl" class="repl" :data-layout="layout" :class="{ dropping }">
+  <div id="repl" class="repl" :class="{ dropping }">
     <header class="bar">
-      <a class="wordmark" href="./" aria-label="audio home" title="audio: the library's home page" draggable="false"><span class="logo" aria-hidden="true"><svg viewBox="0 0 96 101" fill="currentColor" stroke="currentColor" stroke-width="4.5"><path d="M0 50.4159C5.08842 50.4159 8.70378 49.9251 17.0681 24.9808C27.8621 -7.20948 35.9058 -10.5986 47.7771 50.4159H0Z"/><path d="M95.5543 50.416C90.4658 50.416 86.8505 50.9067 78.4862 75.8511C67.6922 108.041 59.6484 111.43 47.7771 50.416H95.5543Z"/></svg><canvas hidden></canvas></span>audio</a>
+      <a class="wordmark" href="./" aria-label="audio home" title="audio: the library's home page" draggable="false"><span class="logo" aria-hidden="true"><svg viewBox="0 0 96 101" fill="currentColor" stroke="currentColor" stroke-width="4.5"><path d="M0 50.4159C5.08842 50.4159 8.70378 49.9251 17.0681 24.9808C27.8621 -7.20948 35.9058 -10.5986 47.7771 50.4159H0Z"/><path d="M95.5543 50.416C90.4658 50.416 86.8505 50.9067 78.4862 75.8511C67.6922 108.041 59.6484 111.43 47.7771 50.416H95.5543Z"/></svg><canvas hidden></canvas></span><span class="name">audio</span></a>
       <nav class="menubar" aria-label="Menu"></nav>
       <div class="bar-end">
         <button class="bar-button" :onclick="share" :text="shared ? 'Link copied' : 'Share'" title="Copy a link that opens this script">Share</button>
         <div class="split-button">
           <button class="bar-button primary" :onclick="exportFiles()" :disabled="!whole || exporting" :text="exporting ? 'Exporting…' : saves.length > 1 ? 'Export ' + saves.length + ' files' : 'Export'" :title="saves.length ? 'Save the files the script names in save() (⌘S)' : 'Download the output as ' + format.toUpperCase() + ' (⌘S)'">Export</button>
-          <button class="bar-button primary format" popovertarget="format-menu" :disabled="!whole || exporting || saves.length > 0" :aria-label="'Format: ' + format" :title="saves.length ? 'The script names its files and formats in save()' : 'Choose the export format'" :text="format.toUpperCase()">WAV</button>
+          <button class="bar-button primary format" :onclick="openExport" :disabled="!whole || exporting || saves.length > 0" :aria-label="'Format: ' + format" :title="saves.length ? 'The script names its files and formats in save()' : 'Choose the export format, and check the output: the panel\'s Export'" :text="format.toUpperCase()">WAV</button>
         </div>
       </div>
     </header>
 
-    <main class="panes" :style="{ '--split': split + '%' }" :data-side="side ? 'open' : 'none'">
+    <main class="panes" :data-side="side ? 'open' : 'none'">
       <section class="slab view-slab" aria-label="Output">
         <header class="view-head">
-          <p class="source" :title="[name, length].filter(Boolean).join(' · ')" :text="name">untitled</p>
-          <p class="viewing" :if="viewing" :text="viewing"></p>
-          <div class="tabs" role="tablist" aria-label="The output as" :hidden="!hasOutput">
-            <button role="tab" :each="d in displays" :aria-selected="display === d.name ? 'true' : 'false'" :title="d.title" :onclick="setDisplay(d.name)" :text="d.label"></button>
+          <!-- the open sounds, a tab each, as an audio editor's files -->
+          <div class="files" role="tablist" aria-label="Open sounds">
+            <div class="file" :each="t in tabs" :class="{ current: t.id === tab }">
+              <button role="tab" :class="{ source: t.id === tab }" :aria-selected="t.id === tab ? 'true' : 'false'" :title="t.id === tab ? [t.name, length].filter(Boolean).join(' · ') : t.name" :onclick="switchTab(t.id)" :text="t.name"></button>
+              <button class="file-close" :aria-label="'Close ' + t.name" title="Close: its script and its edits go" :onclick="closeTab(t.id)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
+            </div>
+            <button class="icon-button file-new" aria-label="New tab" title="A new tab, an empty script" :onclick="newTab()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M12 6v12M6 12h12"/></svg></button>
           </div>
+          <button class="viewing" :if="viewing" :onclick="showAll" title="Back to the output of the whole chain (Esc on the edits)"><span :text="viewing"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
+          <div class="tabs" role="tablist" aria-label="The output as" :hidden="!hasOutput">
+            <button role="tab" :each="d in displays" :aria-selected="display === d.name ? 'true' : 'false'" :aria-label="d.label" :title="d.title" :onclick="setDisplay(d.name)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path :d="d.icon"/></svg></button>
+          </div>
+          <button class="icon-button view-settings" popovertarget="view-menu" aria-label="View settings" title="What the picture shows: the frequency scale, the hits, curves and meters, snapping, the units of time"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 8h9m4 0h3M4 16h3m4 0h9M15 6v4M9 14v4"/></svg></button>
         </header>
         <div class="view">
           <div class="plot" role="application" :aria-label="plotHelp" aria-describedby="status"></div>
           <div class="edits" role="toolbar" :aria-label="band ? 'Edit the band' : selection ? 'Edit the selection' : 'At the caret'" :hidden="!bar || !edits.length" :style="bar && { left: bar.x + 'px', top: bar.y + 'px' }">
             <button :each="op in edits" :class="op.text ? 'text-button' : 'icon-button'" :aria-label="op.label" :title="op.label + (op.keys ? ' (' + op.keys + ')' : '')" :onclick="editSelection(op.type)"><svg :if="!op.text" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path :d="op.icon"/></svg><span :if="op.text" :text="op.text"></span></button>
-            <button class="icon-button" :if="selection && !band" popovertarget="add-menu" aria-label="Apply a method to the selection" title="Apply a method to the selection"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 4v16M4 12h16"/></svg></button>
+            <button class="icon-button" :if="selection && !band" :onclick="openTools" aria-label="Apply a tool to the selection" title="Apply a tool to the selection: the panel's tools"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 4v16M4 12h16"/></svg></button>
           </div>
           <div class="loading" :if="loading && !hasOutput" aria-hidden="true"></div>
           <div class="empty" :if="ran && !hasOutput && !recording && !loading">
@@ -50,28 +63,38 @@
               <button class="empty-button" popovertarget="open-menu" title="Built-in samples and generators"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 12h3l3-7 4 14 3-7h5"/></svg>Sample or generate</button>
             </div>
           </div>
-          <div class="recording" :if="recording">
-            <p class="recording-time" :text="recording.pending ? 'Waiting for the microphone…' : recording.time"></p>
-            <div class="meter" aria-hidden="true"><span :style="{ '--level': recording.level }"></span></div>
-            <button class="empty-button stop" :onclick="stopRecording" title="Stop recording; the take opens in the script"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1"/></svg>Stop</button>
+          <div class="recording" :if="recording?.pending">
+            <p class="recording-time">Waiting for the microphone…</p>
           </div>
-          <p class="notice" role="status" :if="notice" :text="notice"></p>
         </div>
       </section>
 
-      <div class="splitter" :hidden="!side" role="separator" tabindex="0" :aria-orientation="layout === 'row' ? 'vertical' : 'horizontal'" aria-label="Resize" :aria-valuenow="Math.round(split)" aria-valuemin="20" aria-valuemax="60" title="Drag to resize; arrow keys too" :onpointerdown="resizeStart" :onkeydown="resizeKey"></div>
-
-      <!-- the chain, as its steps or as the code that makes them: two views of one script -->
-      <section class="slab side-slab" aria-label="The chain" :hidden="!side">
+      <!-- the panel, as Luminar's, top to bottom at the right: the tools, the edits they make (the chain's steps), the code
+           that is both, and the export: the checks and the file -->
+      <section class="slab side-slab" aria-label="Tools and edits" :hidden="!side">
         <header class="side-head">
-          <div class="tabs" role="tablist" aria-label="The chain as">
-            <button role="tab" :aria-selected="side === 'stack' ? 'true' : 'false'" :onclick="setSide('stack')" title="The chain's steps, each with its settings: turn one off, hear what it takes out, roll back to it">Stack</button>
+          <div class="tabs big" role="tablist" aria-label="The panel shows">
+            <button role="tab" :aria-selected="side === 'tools' ? 'true' : 'false'" :onclick="setSide('tools')" title="Every method, by kind: a click adds it to the chain, on the selection if there is one">Tools</button>
+            <button role="tab" :aria-selected="side === 'edits' ? 'true' : 'false'" :onclick="setSide('edits')" :title="stepCount ? 'The chain\'s ' + stepCount + (stepCount > 1 ? ' steps' : ' step') + ': choose one to see the output up to it and set it' : 'The chain\'s steps: none yet'">Edits<span class="dot" :if="stepCount" aria-hidden="true"></span></button>
             <button role="tab" :aria-selected="side === 'code' ? 'true' : 'false'" :onclick="setSide('code')" title="The script that makes the output">Code</button>
+            <button role="tab" :aria-selected="side === 'export' ? 'true' : 'false'" :onclick="setSide('export')" title="Check the output against a delivery spec, choose its format, export it">Export</button>
           </div>
         </header>
-        <div class="stack" :hidden="side !== 'stack'">
+        <div class="toolbox" :hidden="side !== 'tools'">
+          <input class="tool-search" type="search" placeholder="Find a tool" aria-label="Find a tool" title="Find a tool by its name or by what it does; Enter adds the first" :value="toolQuery" :oninput="e => toolQuery = e.target.value" :onkeydown="toolKey">
+          <p class="tool-target" :text="toolTarget"></p>
+          <div class="tool-list">
+            <template :each="group in toolGroups">
+              <p class="tool-group" :text="group.name"></p>
+              <button class="tool" :each="op in group.items" :onclick="addOp(op.name)" :disabled="!hasOutput" :title="'.' + op.name + '(): ' + op.text"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="group.icon"/></svg><strong :text="op.label"></strong><span :text="op.text"></span></button>
+            </template>
+            <p class="tool-none" :if="!toolGroups.length">No tool by that name</p>
+          </div>
+        </div>
+        <div class="stack" :hidden="side !== 'edits'">
           <div class="steps"></div>
-          <button class="add-step" popovertarget="add-menu" :disabled="!hasOutput" :title="selection ? 'Apply a method to the selection' : 'Add a method to the end of the chain'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span :text="selection ? 'Apply to the selection' : 'Add a step'">Add a step</span></button>
+          <p class="no-steps" :if="hasOutput && !stepCount">No edits yet: pick one from the <button class="link" :onclick="setSide('tools')" title="Every method, by kind">tools</button>, or edit on the waveform.</p>
+          <button class="discard" :onclick="discard" :disabled="!stepCount" title="Take every step out of the chain, keeping the sound it starts from; Undo brings them back">Discard edits</button>
         </div>
         <div class="script" :hidden="side !== 'code'">
           <div class="editor"></div>
@@ -79,32 +102,47 @@
             <div :each="line in lines" :class="'line ' + line.level" :text="line.text"></div>
           </div>
         </div>
+        <div class="export" :hidden="side !== 'export'">
+          <p class="panel-group">Check</p>
+          <div class="choices" role="group" aria-label="Delivery spec">
+            <button :each="s in specs" :aria-pressed="spec === s.key ? 'true' : 'false'" :onclick="setSpec(s.key)" :title="s.key ? 'Check the output against ' + s.label : 'No check'" :text="s.label"></button>
+          </div>
+          <table class="check-table" :if="report" :class="{ stale: checking }">
+            <thead><tr><th scope="col">Rule</th><th scope="col">After</th><th scope="col">Limit</th></tr></thead>
+            <tbody>
+              <tr :each="row in checkRows" :title="row.note">
+                <th scope="row" :text="row.name"></th>
+                <td :class="row.afterClass"><span class="mark" :text="row.afterMark"></span> <span :text="row.after"></span></td>
+                <td class="limit" :text="row.limit && row.limit + row.unit"></td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="check-note" :if="report?.note" :text="report?.note"></p>
+          <p class="check-note" :if="spec && !report" :text="checking ? 'Measuring the output…' : 'Open or make a sound to check it.'"></p>
+          <p class="check-note" :if="report"><a :href="report?.url" target="_blank" rel="noopener" :text="report?.name + ' spec'"></a></p>
+          <p class="panel-group">Export as</p>
+          <div class="choices" role="group" aria-label="Export format">
+            <button :each="f in formats" :aria-pressed="f.name === format ? 'true' : 'false'" :onclick="setFormat(f.name)" :disabled="saves.length > 0" :title="saves.length ? 'The script names its files and formats in save()' : 'Export as ' + f.name.toUpperCase() + ': ' + f.text" :text="f.name.toUpperCase()"></button>
+          </div>
+          <button class="discard export-button" :onclick="exportFiles()" :disabled="!whole || exporting" :text="exporting ? 'Exporting…' : saves.length > 1 ? 'Export ' + saves.length + ' files' : 'Export ' + (saves.length ? 'the file save() names' : format.toUpperCase())" :title="saves.length ? 'Save the files the script names in save() (⌘S)' : 'Download the output as ' + format.toUpperCase() + ' (⌘S)'">Export</button>
+        </div>
       </section>
 
       <footer class="status" id="status">
-        <button class="record" :class="{ on: recording }" :onclick="toggleRecording" :aria-label="recording ? 'Stop recording' : 'Record'" :title="recording ? 'Stop recording; the take opens in the script' : 'Record from the microphone'"><span class="record-icon" aria-hidden="true"></span></button>
+        <!-- the transport, as a deck's: play, record, loop -->
         <button class="play" :onpointerdown="playPress" :onclick="playClick" :disabled="!whole" :aria-label="playing ? 'Pause' : 'Play'" :title="(playing ? 'Pause' : band ? 'Play the selected band' : selection ? 'Play the selection' : 'Play from the cursor') + ' (Space)'" aria-keyshortcuts="Space"><span class="play-icon" :class="{ paused: playing }" aria-hidden="true"></span></button>
-        <div class="timecode">
-          <button class="time" :class="{ range: selection && !playing }" :text="timeText" :title="timeTitle" :onclick="cycleUnits" aria-live="off">0:00.000</button>
-          <button class="lamp" :aria-pressed="loop ? 'true' : 'false'" aria-label="Loop" :title="loop ? 'Looping: playback repeats the selection or the whole output. Click to stop' : 'Loop playback'" :onclick="toggleLoop" :disabled="!whole"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 11V6h17m-4-4 4 4-4 4M21 13v5H4m4-4-4 4 4 4"/></svg></button>
-          <!-- two rows, as on a hi-fi's display: what the sound is (its rate and channels change it), its levels or what is happening -->
-          <div class="display">
-            <p class="facts" :if="!sound" :text="facts"></p>
-            <p class="facts" :if="sound"><button class="fact" popovertarget="rate-menu" :title="'Sample rate ' + sound?.rate + ': resample to another'" :text="sound?.rate"></button><span aria-hidden="true">·</span><button class="fact" popovertarget="channels-menu" :title="sound?.channels + ': mix to mono or stereo'" :text="sound?.channels"></button><span :if="sound?.depth" aria-hidden="true">·</span><span :if="sound?.depth" :text="sound?.depth"></span></p>
-            <p class="readout" :class="{ problem, working: !problem && progress }" :title="problem || progress || readout" :text="problem || progress || readout"></p>
-          </div>
-        </div>
-        <span class="visually-hidden" role="status" :text="problem || progress.replace(/[\d.]+\s*(%|s)$/, '').trim()"></span>
+        <button class="record" :class="{ on: recording }" :onclick="toggleRecording" :aria-label="recording ? 'Stop recording' : 'Record'" :title="recording ? 'Stop recording: the take is a step of the chain' : whole ? 'Record from the microphone at the caret, over what is there, as a tape; into the selection, to its end (with the loop on, pass after pass)' : 'Record from the microphone'"><span class="record-icon" aria-hidden="true"></span></button>
+        <button class="loop" :aria-pressed="loop ? 'true' : 'false'" aria-label="Loop" :title="loop ? 'Looping: playback repeats the selection or the whole output. Click to stop' : 'Loop playback'" :onclick="toggleLoop" :disabled="!whole"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11V6h17m-4-4 4 4-4 4M21 13v5H4m4-4-4 4 4 4"/></svg></button>
+        <div class="clock" :class="{ range: selection && !playing && !recording }" :title="timeTitle" aria-live="off"><p class="time" :text="timeText">0:00.000</p><p class="span" :if="spanText" :text="spanText"></p></div>
+        <!-- a status bar's two sides: at the left, after the time, what is happening (a note, a problem, the engine's work);
+             at the right, what the sound is: its levels, then its rate and channels, each a click from changing it -->
+        <p class="message" :class="{ problem: notice ? noticeKind === 'error' : !!problem, working: !notice && !problem && progress }" :title="notice || problem || progress" :text="notice || problem || progress"></p>
+        <span class="visually-hidden" role="status" :text="notice || problem || progress.replace(/[\d.]+\s*(%|s)$/, '').trim()"></span>
         <button class="text-button" :if="slow" :onclick="stop" title="Stop the script: restarts the engine, keeps the last output">Stop</button>
-        <button class="icon-button ab" :aria-pressed="ab ? 'true' : 'false'" aria-label="Before" aria-keyshortcuts="B" :title="abTitle" :onclick="toggleAB" :disabled="!canCompare">Before</button>
-        <button class="check-button" popovertarget="check-panel" :class="checkClass" :disabled="!whole" :text="checkLabel" :title="checkTitle">Check</button>
+        <p class="readout" :title="readout" :text="readout"></p>
+        <p class="facts" :if="sound"><button class="fact" popovertarget="rate-menu" :title="'Sample rate ' + sound?.rate + ': resample to another'" :text="sound?.rate"></button><button class="fact" popovertarget="channels-menu" :title="sound?.channels + ': mix to mono or stereo'" :text="sound?.channels"></button><span :if="sound?.depth" :text="sound?.depth"></span></p>
         <div class="tools">
-          <div class="history" :hidden="!canUndo && !canRedo">
-            <button class="icon-button" aria-label="Undo" :title="undoTitle" :onclick="undo" :disabled="!canUndo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 15 3 9l6-6M3 9h12a6 6 0 0 1 0 12h-4"/></svg></button>
-            <button class="icon-button" aria-label="Redo" :title="'Redo (' + (mac ? '⇧⌘Z' : 'Ctrl+Shift+Z') + ')'" :onclick="redo" :hidden="!canRedo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 15 6-6-6-6M21 9H9a6 6 0 0 0 0 12h4"/></svg></button>
-            <button class="icon-button more" popovertarget="history-menu" aria-label="History" title="What was done: go back or forward to any step"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg></button>
-          </div>
-          <button class="icon-button side-toggle" :aria-pressed="side ? 'true' : 'false'" aria-label="The chain" :title="side ? 'Hide the chain, its stack and code' : 'Show the chain: its stack and code'" :onclick="toggleSide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>
+          <button class="icon-button side-toggle" :aria-pressed="side ? 'true' : 'false'" aria-label="The panel" :title="side ? 'Hide the panel: tools, edits, code and export' : 'Show the panel: tools, edits, code and export'" :onclick="toggleSide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>
         </div>
       </footer>
     </main>
@@ -119,41 +157,6 @@
       <button class="menu-item" :each="item in generators" :onclick="useCode(item.code)" :title="item.code"><strong :text="item.name"></strong><span :text="item.text"></span></button>
     </div>
 
-    <div id="history-menu" class="menu wide" popover :ontoggle="e => e.newState === 'open' && (steps = undoList())">
-      <p class="menu-group">History, newest first</p>
-      <button class="menu-item" :each="step in steps" :aria-current="step.current ? 'true' : null" :class="{ ahead: step.ahead }" :onclick="goTo(step.index)" :title="step.ahead ? 'Redo to here' : step.current ? 'Where the script is now' : 'Undo to here'"><strong :text="step.label"></strong><span :text="step.ahead ? 'undone' : step.current ? 'now' : ''"></span></button>
-    </div>
-
-    <div id="add-menu" class="menu wide" popover :ontoggle="e => e.newState === 'open' && (opQuery = '', e.target.querySelector('input').focus())">
-      <input class="menu-search" type="search" placeholder="Find a method" aria-label="Find a method" :value="opQuery" :oninput="e => opQuery = e.target.value" :onkeydown="opKey">
-      <template :each="group in opGroups">
-        <p class="menu-group" :text="group.name"></p>
-        <button class="menu-item" :each="op in group.items" :onclick="addOp(op.name)" :title="'.' + op.name + '(): ' + op.text"><strong :text="op.name"></strong><span :text="op.text"></span></button>
-      </template>
-      <p class="menu-empty" :if="!opGroups.length">No method by that name</p>
-    </div>
-
-    <div id="check-panel" class="menu check" popover>
-      <p class="menu-group">Check against</p>
-      <div class="choices" role="group" aria-label="Delivery spec">
-        <button :each="s in specs" :aria-pressed="spec === s.key ? 'true' : 'false'" :onclick="setSpec(s.key)" :title="s.key ? 'Check the output against ' + s.label : 'No check'" :text="s.label"></button>
-      </div>
-      <table class="check-table" :if="report" :class="{ stale: checking }">
-        <thead><tr><th scope="col">Rule</th><th scope="col" :if="before">Before</th><th scope="col">After</th><th scope="col">Limit</th></tr></thead>
-        <tbody>
-          <tr :each="row in checkRows" :title="row.note">
-            <th scope="row" :text="row.name"></th>
-            <td :if="before" :class="row.beforeClass"><span class="mark" :text="row.beforeMark"></span> <span :text="row.before"></span></td>
-            <td :class="row.afterClass"><span class="mark" :text="row.afterMark"></span> <span :text="row.after"></span></td>
-            <td class="limit" :text="row.limit + ' ' + row.unit"></td>
-          </tr>
-        </tbody>
-      </table>
-      <p class="check-note" :if="report?.note" :text="report?.note"></p>
-      <p class="check-note" :if="spec && !report" :text="checking ? 'Measuring the output…' : 'Open or make a sound to check it.'"></p>
-      <p class="check-note" :if="report"><a :href="report?.url" target="_blank" rel="noopener" :text="report?.name + ' spec'"></a><span :text="before ? ' · before: the file as it opened' : ''"></span></p>
-    </div>
-
     <div id="rate-menu" class="menu narrow" popover>
       <p class="menu-group">Resample to</p>
       <button class="menu-item" :each="r in rates" :aria-current="sound && r.hz === sound.hz ? 'true' : null" :onclick="resampleTo(r.hz)" :title="'Resample to ' + r.label + (r.text ? ': ' + r.text.toLowerCase() : '')"><strong :text="r.label"></strong><span :text="r.text"></span></button>
@@ -164,8 +167,28 @@
       <button class="menu-item" :each="n in [1, 2]" :aria-current="sound && n === sound.count ? 'true' : null" :onclick="remixTo(n)" :title="n === 1 ? 'Mix to mono' : 'Mix to stereo'"><strong :text="n === 1 ? 'mono' : 'stereo'"></strong><span :text="n === 1 ? 'One channel, the sides summed' : 'Two channels'"></span></button>
     </div>
 
-    <div id="format-menu" class="menu" popover>
-      <button class="menu-item" :each="f in formats" :aria-current="f.name === format ? 'true' : null" :onclick="setFormat(f.name)" :title="'Export as ' + f.name.toUpperCase() + ': ' + f.text"><strong :text="f.name.toUpperCase()"></strong><span :text="f.text"></span></button>
+    <!-- what the picture shows, from the button above its axes -->
+    <div id="view-menu" class="menu narrow" popover>
+      <p class="menu-group">Frequency scale</p>
+      <div class="choices" role="group" aria-label="Frequency scale">
+        <button :each="sc in scaleList" :aria-pressed="scale === sc.name ? 'true' : 'false'" :onclick="setScale(sc.name)" :title="'The spectrogram\'s frequencies in ' + sc.text" :text="sc.label"></button>
+      </div>
+      <p class="menu-group">Show</p>
+      <button class="menu-row" :each="o in overlayList" :aria-pressed="show[o.name] ? 'true' : 'false'" :onclick="toggleShow(o.name)" :title="o.title"><span class="menu-check" aria-hidden="true"></span><span class="menu-label" :text="o.label"></span></button>
+      <button class="menu-row" :aria-pressed="snapping ? 'true' : 'false'" :onclick="toggleSnap" title="A dragged edge or caret goes onto a cue or marker a few pixels from it"><span class="menu-check" aria-hidden="true"></span><span class="menu-label">Snap to cues and markers</span></button>
+      <p class="menu-group">Times in</p>
+      <div class="choices" role="group" aria-label="Times in">
+        <button :each="u in unitList" :aria-pressed="units === u.name ? 'true' : 'false'" :onclick="setUnits(u.name)" :title="u.label + ': ' + u.example" :text="u.short"></button>
+      </div>
+      <p class="menu-group">Levels in</p>
+      <div class="choices" role="group" aria-label="Levels in">
+        <button :each="l in levelList" :aria-pressed="levels === l.name ? 'true' : 'false'" :onclick="setLevels(l.name)" :title="l.label + ': ' + l.example" :text="l.short"></button>
+      </div>
+    </div>
+
+    <!-- a fade's curve, from the corner that makes it -->
+    <div id="fade-menu" class="menu narrow" popover aria-label="Fade curve">
+      <button class="menu-item curve" :each="cv in curves" :aria-current="fadeCurve === cv.name ? 'true' : null" :onclick="setCurve(cv.name)" :title="cv.label + ' fade'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="cv.icon"/></svg><strong :text="cv.label"></strong></button>
     </div>
 
     <dialog class="search" :onclose="closeSearch">
@@ -187,25 +210,32 @@
       <form method="dialog" class="help-head"><p class="menu-group">Mouse and keys</p><button class="icon-button" aria-label="Close" title="Close (Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></form>
       <dl class="help-list">
         <dt>Click</dt><dd>Put the caret there and hear the moment under it. On the time row, anywhere along it</dd>
-        <dt>Drag</dt><dd>Select a time range; on the spectrogram, a time and frequency box</dd>
+        <dt>Alt-click</dt><dd>Another caret; on one, take it away. A paste, or M, goes to every caret</dd>
+        <dt>Drag</dt><dd>Select a time range; on the spectrogram, a time and frequency box, and with Shift one axis of it, the other whole. An edge snaps to the cue or marker it comes near, which lights</dd>
         <dt>Double-click</dt><dd>Select between the cues either side (the hits found, and the markers); in a pause, the pause</dd>
         <dt>Triple-click</dt><dd>Select the phrase: a sentence, a line played, between longer pauses</dd>
-        <dt>Shift-click or drag</dt><dd>Extend the selection. Shift while dragging keeps to one axis</dd>
+        <dt>Shift-click or drag</dt><dd>Extend the selection. Shift while dragging keeps to one axis; while dragging the caret, makes a range from where it was</dd>
         <dt>Drag a selection</dt><dd>Move its audio there; the rest closes up after it</dd>
         <dt>Alt-drag a selection</dt><dd>Copy its audio over what is there</dd>
-        <dt>A selection's top corners</dt><dd>Drag inward: fade it in from its start, out to its end</dd>
-        <dt>Its bottom right corner</dt><dd>Across: its length, pitch kept, what follows moving with it. Up or down: its level, or on the spectrogram its pitch. ⌘-drag its end or body does the same</dd>
+        <dt>The corners at its top</dt><dd>Inward: fade it in from its start, out to its end. Outward: a fade centred on that edge. A click: the fade's curve</dd>
+        <dt>The pill on its top edge</dt><dd>Up or down: its level; on the spectrogram, its pitch. ⌘-drag its body does the same</dd>
+        <dt>The grip in its bottom right corner</dt><dd>Across: its length, pitch kept, what follows moving with it. ⌘-drag its end does the same</dd>
         <dt>Alt-drag elsewhere, ⌘D</dt><dd>Another range; the next one like the selection. Edits act on all</dd>
         <dt>A cue on the time row</dt><dd>Drag it: the audio either side stretches to meet it</dd>
-        <dt>Hold or drag the caret or an edge</dt><dd>Hear the moment under it</dd>
+        <dt>Hold or drag the caret or an edge</dt><dd>Hear the moment under it; near a cue, it goes onto it</dd>
         <dt>Space</dt><dd>Play or pause: the selection, else from the caret. Put the caret elsewhere while it plays and it plays from there</dd>
         <dt>Arrows, ⌥ arrows, ⌘ arrows</dt><dd>Move the caret a little, to the next cue, to the next phrase; Shift extends</dd>
-        <dt>Wheel</dt><dd>Pan. On the times, zoom time; on the frequencies, zoom them. Pinch, or Ctrl and the wheel, zooms time</dd>
-        <dt>= − 0</dt><dd>Zoom in, out, show all</dd>
+        <dt>Wheel</dt><dd>Scroll: through time; up and down over zoomed-in frequencies, through them. Pinch, or Ctrl and the wheel, zooms the axis under the pointer: the frequencies or the spectrum beside them, the levels (a quiet sound larger, or what goes over full scale), else time</dd>
+        <dt>= − 0</dt><dd>Zoom in, out, show all (all the frequencies, full scale)</dd>
         <dt>Delete, ⌘X ⌘C ⌘V, ⌘Z</dt><dd>Edit the selection; undo. Each edit is a step of the chain</dd>
-        <dt>B</dt><dd>Hear the file as it opened, level-matched, at the same place</dd>
+        <dt>B</dt><dd>Hear the file as it opened, level-matched, at the same place; B again, the output</dd>
+        <dt>Record</dt><dd>Into the waveform from the caret, over what is there, as a tape; into a selection, to its end (with the loop on, pass after pass). Undo takes it back</dd>
         <dt>M</dt><dd>A marker at the caret; drag its flag to move it, double-click it to take it away</dd>
-        <dt>The stack</dt><dd>Each step: its settings, a switch that turns it off, and Δ, what it takes out. Drag the bar at its foot up to roll back to a step</dd>
+        <dt>Tools</dt><dd>Every method, by kind: a click adds it to the chain, on the selection if there is one</dd>
+        <dt>Edits</dt><dd>The chain's steps. Choose one: the output up to it, and its settings; again, or Esc, the whole chain. Its Δ: what it takes out; its eye turns it off</dd>
+        <dt>Export</dt><dd>The output checked against a delivery spec, rule by rule; its format, and the file</dd>
+        <dt>View settings</dt><dd>Above the axes: the frequency scale, what shows over the sound, snapping, the units of time and of level</dd>
+        <dt>Tabs</dt><dd>Above the picture, a sound each, its own script and edits. A sound opened goes into a tab of its own; + a new one, × closes one</dd>
         <dt>F10</dt><dd>The menu</dd>
       </dl>
     </dialog>

@@ -6,7 +6,7 @@
 import audio from '../audio.js'
 import plugins from 'repl:plugins'
 import { yin } from '@audio/pitch'
-import reassign from './reassign.js'
+import attacks from './attack.js'
 
 // Registry plugins load from their chunks: the build writes one literal import per plugin.
 audio.import = spec => plugins[spec]?.() ?? import(spec)
@@ -226,30 +226,6 @@ async function settled() {
 // The output's channels averaged to one.
 const mixdown = r => r.mix ??= r.pcm.length === 1 ? pcmOf(r)[0] : pcmOf(r)[0].map((_, i) => r.pcm.reduce((s, c) => s + c[i], 0) / r.pcm.length)
 
-// Spectrograms of an output's channels between two sample offsets: `columns` frames by `rows` frequencies spaced
-// evenly on a `scale` (scale.js) from `low` to `high` Hz (by default its floor to Nyquist), dB from -100 to 0 as bytes.
-// Reassigned (reassign.js): each cell's energy moves to where its phase places it, so a full-scale sine reads about
-// 0 dB on a line one row thin. `peak` is the loudest byte, which the picture draws as white. While the output still
-// arrives, the frames whose samples are all in; asked again, the new frames are added to them.
-function spectrum({ output, from, to, columns, rows = 512, scale = 'log', low, high, size = 2048 }) {
-  const r = outputs.get(output)
-  if (!r?.length) return { channels: [], columns, rows, peak: 0 }
-  const key = [from, to, columns, rows, scale, low, high, size].join()
-  const frames = r.frames?.key === key ? r.frames : r.frames = { key, power: r.pcm.map(() => new Float32Array(columns * rows)), next: 0 }
-  const step = (to - from) / columns, all = r.done ? columns : Math.max(0, Math.min(columns, Math.floor((r.length - size / 2 - from) / step - .5) + 1))
-  if (all > frames.next) {
-    pcmOf(r).forEach((pcm, c) => reassign(pcm, { from, to, columns, rows, scale, low, high, size, sampleRate: r.sampleRate, cols: [frames.next, all], out: frames.power[c] }))
-    frames.next = all
-  }
-  let peak = 0
-  const channels = frames.power.map(power => {
-    const bytes = new Uint8Array(power.length)
-    for (let i = 0; i < power.length; i++) { const b = bytes[i] = Math.max(0, Math.min(255, Math.round((10 * Math.log10(power[i] + 1e-12) + 100) / 100 * 255))); if (b > peak) peak = b }
-    return bytes
-  })
-  return { channels, columns, rows, peak, ready: all }
-}
-
 // The output named by the run that made it, once whole; null once a newer output has replaced it
 async function whole(output) {
   const r = outputs.get(output)
@@ -257,8 +233,9 @@ async function whole(output) {
   return r?.done ? r : null
 }
 
-// Where the output's hits start, in seconds: cue points for warping. After a closing warp() they are the hits of
-// the audio before it, where its markers take them: stretching makes no hits, though its smear can read as some.
+// Where the output's hits start, in seconds: cue points for warping, snapping and slicing, each where its attack starts
+// (attack.js). After a closing warp() they are the hits of the audio before it, where its markers take them:
+// stretching makes no hits, though its smear can read as some.
 // Null for an output a newer one has replaced: the page reads hits against the code that made them.
 async function onsets({ output }) {
   const r = await whole(output)
@@ -268,7 +245,7 @@ async function onsets({ output }) {
   return { times: r.onsets }
 }
 async function hits(r) {
-  const found = async pcm => [...await audio.from(pcm, { sampleRate: r.sampleRate }).stat('onsets')]
+  const found = async pcm => attacks([...await audio.from(pcm, { sampleRate: r.sampleRate }).stat('onsets')], pcm, r.sampleRate)
   const warp = r.instance.edits?.at(-1)
   if (warp?.[0] !== 'warp') return found(pcmOf(r))
   const before = r.instance.clone()
@@ -331,17 +308,14 @@ async function exporting({ format, name, parts }) {
   return { files: out }
 }
 
-// Delivery checks (fn/check.js), the proof a chain meets a spec: the output, and the source it opened as it was
-// before any edit. Each output and each source is checked once per spec.
-const sourceChecks = new WeakMap()
-async function checking({ spec, source }) {
+// Delivery checks (fn/check.js), the proof a chain meets a spec: the output, checked once per spec.
+async function checking({ spec }) {
   const r = await settled()
-  if (!r?.length) return { output: null, input: null }
+  if (!r?.length) return { output: null }
   const flat = () => { const a = audio.from(pcmOf(r), { sampleRate: r.sampleRate }); return a.check(spec).finally(() => a.dispose?.()) }
-  const checks = r.checks ??= {}, src = source && sources.get(source)
-  const inputs = src && (sourceChecks.get(src) || sourceChecks.set(src, {}).get(src))
-  try { return { output: await (checks[spec] ??= flat()), input: src ? await (inputs[spec] ??= src.check(spec)) : null } }
-  catch (error) { delete checks[spec]; if (inputs) delete inputs[spec]; throw error }
+  const checks = r.checks ??= {}
+  try { return { output: await (checks[spec] ??= flat()) } }
+  catch (error) { delete checks[spec]; throw error }
 }
 
 // The source as it opened, for listening against the output at the same place: a copy, at the output's loudness
@@ -366,12 +340,12 @@ async function describe({ name }) {
 
 const handlers = {
   file: ({ name, data }) => { data ? files.set(name, data) : files.delete(name); forget(name); return {} },
-  run: execute, spectrum, onsets, contour, export: exporting, describe, check: checking, original
+  run: execute, onsets, contour, export: exporting, describe, check: checking, original
 }
 self.onmessage = async ({ data }) => {
   let reply
   try { reply = await handlers[data.type](data) }
   catch (error) { reply = { error: failure(error) } }
-  const transfer = data.type === 'spectrum' || data.type === 'original' ? reply.channels?.map(c => c.buffer) : data.type === 'export' ? reply.files?.map(f => f.bytes.buffer) : []
+  const transfer = data.type === 'original' ? reply.channels?.map(c => c.buffer) : data.type === 'export' ? reply.files?.map(f => f.bytes.buffer) : []
   post({ id: data.id, ...reply }, transfer || [])
 }

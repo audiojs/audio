@@ -1,6 +1,7 @@
 // Where sound comes from: files, the microphone, a sound search, the built-in samples.
 // Each becomes a name the script opens with audio('name').
 import { samples, RATE } from '../site/samples.js'
+import { cycle } from './meters.js'
 
 // A name that is free in `taken`: voice.wav, voice-2.wav, …
 export function unique(name, taken) {
@@ -20,8 +21,10 @@ export function sample(name) {
 
 // Records from the microphone, sample for sample: an AudioWorklet hands over every block. The context starts in the
 // click that asks to record, so it runs even when the permission prompt takes a while.
-// Returns { level, stop(): { channels, sampleRate }, cancel() }; `level` is the latest block's peak.
-export async function record() {
+// Each block goes to `onblock` as it comes, the channels of it.
+// Returns { level, heard, trace(t), sampleRate, stop(): { channels, sampleRate }, cancel() }; `level` is the latest block's peak,
+// `heard` the RMS of the last 50 ms, and trace(t) eases one cycle of them into the trace t (meters.js).
+export async function record({ onblock } = {}) {
   const context = new AudioContext()
   context.resume()
   try {
@@ -32,9 +35,18 @@ export async function record() {
     await context.audioWorklet.addModule(url)
     URL.revokeObjectURL(url)
     const source = context.createMediaStreamSource(stream), node = new AudioWorkletNode(context, 'take', { numberOfOutputs: 0 })
-    const blocks = [], take = { level: 0 }
+    const blocks = [], take = { level: 0 }, recent = new Float32Array(16384)
+    Object.defineProperties(take, {
+      heard: { get() { let sum = 0; for (let i = recent.length - 2400; i < recent.length; i++) sum += recent[i] * recent[i]; return Math.sqrt(sum / 2400) } },
+    })
+    take.trace = t => cycle([recent], recent.length - 1600, context.sampleRate, t)
     node.port.onmessage = ({ data }) => {
       blocks.push(data)
+      onblock?.(data)
+      // the latest of the channels' mean, sliding
+      const n = data[0].length
+      recent.copyWithin(0, n)
+      for (let i = 0; i < n; i++) { let sum = 0; for (const c of data) sum += c[i]; recent[recent.length - n + i] = sum / data.length }
       let peak = 0
       for (const channel of data) for (const v of channel) if (Math.abs(v) > peak) peak = Math.abs(v)
       take.level = peak
@@ -53,6 +65,7 @@ export async function record() {
       return { channels, sampleRate: context.sampleRate }
     }
     take.cancel = release
+    take.sampleRate = context.sampleRate
     return take
   } catch (error) { context.close(); throw error }
 }

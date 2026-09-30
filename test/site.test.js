@@ -3769,6 +3769,69 @@ test('logo motion: at rest it is the logo; near its middle it stirs; flung it sp
   await logoStill()
 })
 
+test('logo: the zero axis runs across the window under a silent wave, thin, taking as much of the ink as it is given', async () => {
+  const rows = await page.evaluate(async () => {
+    const { logo } = await import('./logo/logo.js'), canvas = document.createElement('canvas')
+    Object.assign(canvas.style, { position: 'fixed', left: 0, top: 0, width: '96px', height: '40px' })
+    document.body.append(canvas)
+    const view = logo(canvas, { clear: true, fit: 'width' })
+    await new Promise(r => setTimeout(r, 100))
+    const shot = () => {
+      view.render()
+      const c = new OffscreenCanvas(canvas.width, canvas.height).getContext('2d')
+      c.drawImage(canvas, 0, 0)
+      const d = c.getImageData(0, 0, canvas.width, canvas.height).data, w = canvas.width, h = canvas.height
+      const at = (x, y) => d[(y * w + x) * 4 + 3]
+      return { across: [.1, .5, .9].map(f => at(Math.round(w * f), h >> 1)), above: [.5, 1.5].map(dy => at(w >> 1, Math.round(h / 2 + dy * canvas.width / 96 * 6))) }
+    }
+    view.set({ figure: '#000', amplitude: 0, axis: 0 })
+    const none = shot()
+    view.set({ axis: 1 })
+    const full = shot()
+    view.set({ axis: .5 })
+    const faint = shot()
+    canvas.remove()
+    return { none, full, faint }
+  })
+  assert.deepEqual(rows.none.across, [0, 0, 0], 'no axis unless asked')
+  assert(rows.full.across.every(a => a > 200), `the axis crosses the window: ${rows.full.across}`)
+  assert(rows.faint.across.every(a => a > 90 && a < 160), `half the ink is faint: ${rows.faint.across}`)
+  assert(rows.full.above.every(a => a === 0), `and is thin: ${rows.full.above}`)
+})
+
+test('logo motion: a mimic copies the pointer\'s sideways moves near its middle, and catches in the logo pose when the pointer leaves', async () => {
+  await page.setViewportSize({ width: 800, height: 760 })
+  await page.goto(origin + '/logo/index.html', { waitUntil: 'networkidle' })
+  await page.selectOption('#print', 'smooth')
+  await page.selectOption('#hover', 'mimic')
+  await page.locator('#speed').fill('0')
+  const canvas = page.locator('canvas'), box = await canvas.boundingBox(), x = box.x + box.width / 2, y = box.y + box.height / 2
+  const apart = (a, b) => { let sum = 0; for (let i = 0; i < a.gray.length; i++) sum += Math.abs(a.gray.charCodeAt(i) - b.gray.charCodeAt(i)); return sum / a.gray.length }
+  const rest = await logoStill()
+  assert(asymmetry(rest) < 1, 'at rest it is the logo')
+  await page.mouse.move(x, y)
+  await page.waitForTimeout(500)
+  assert(apart(rest, await logoShot()) < .05, 'hovering alone leaves it as it is')
+  // across, it turns with the pointer; back to where it was, it is as it was
+  await page.mouse.move(x + 60, y, { steps: 8 })
+  await page.waitForTimeout(500)
+  assert(apart(rest, await logoShot()) > 1, 'moved across, it turns with the pointer')
+  await page.mouse.move(x, y, { steps: 8 })
+  await page.waitForTimeout(500)
+  assert(apart(rest, await logoShot()) < .05, 'and back, it is as it was')
+  // the pointer leaving, in the middle of a move, catches it in a pose
+  await page.mouse.move(x + 45, y, { steps: 6 })
+  await page.mouse.move(box.x + 10, box.y + box.height - 10)
+  assert(asymmetry(await logoStill()) < 1, 'gone, it is the logo again')
+  // asked for less motion, it leaves the pointer alone
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.mouse.move(x, y)
+  const calm = await logoStill()
+  await page.mouse.move(x + 60, y, { steps: 8 })
+  await page.waitForTimeout(500)
+  assert(apart(calm, await logoShot()) < .05, 'with reduced motion the pointer does not move it')
+})
+
 test('site: the tab icon holds the whole wave as it turns, no crest cut at its edge', async () => {
   const clipped = await page.evaluate(async () => {
     const { logo } = await import('./logo/logo.js'), canvas = document.createElement('canvas')
@@ -3788,7 +3851,7 @@ test('site: the tab icon holds the whole wave as it turns, no crest cut at its e
   assert.deepEqual(clipped, [], `crests reach the icon's edge at phases ${clipped}`)
 })
 
-test('site: the header mark is the logo drawn live; the whole title tightens it, a drag turns it without following the link, the tab icon turns with it', async () => {
+test('site: the header mark is the logo drawn live; over the whole title it copies the pointer, a drag turns it without following the link, the tab icon turns with it', async () => {
   const title = page.locator('.header .wordmark'), canvas = title.locator('canvas'), url = page.url()
   assert(await canvas.isVisible() && await title.locator('svg').count() === 0, 'the live mark stands in for the static one')
   assert.match(await page.locator('link[rel~=icon]').getAttribute('href'), /^data:image\/png/)
@@ -3807,12 +3870,24 @@ test('site: the header mark is the logo drawn live; the whole title tightens it,
     return [...context.getImageData(0, 0, image.width, image.height).data].filter((_, i) => i % 4 === 3).filter(a => a).map(a => 255 - a)
   }))
   assert(mark.mid < mark.ink && icon.mid < icon.ink, JSON.stringify({ mark, icon }))
-  // Hovered on the word, not the mark, it tightens: more cycles than a drift could make in the time
-  const box = await title.boundingBox(), y = box.y + box.height / 2
+  // Hovered on the word, not the mark, it does no more than drift; moved along the title, it copies the pointer's move
+  // as a drag would, a cycle for the mark's width, and is back where it was when the pointer is
+  const box = await title.boundingBox(), y = box.y + box.height / 2, width = await canvas.evaluate(c => c.clientWidth)
+  const phase = () => page.evaluate(async () => (await import('/logo/mark.js')).mark(document.querySelector('.header .wordmark')).phase)
   await page.mouse.move(box.x + box.width - 20, y)
+  await page.waitForTimeout(300)
+  const start = await phase()
   await page.waitForTimeout(900)
-  const tight = await logoShot(canvas)
-  assert(apart(rest, tight) > 8, `hovering the title tightens the mark, ${apart(rest, tight)}`)
+  const hovered = await phase()
+  await page.mouse.move(box.x + box.width - 50, y, { steps: 12 })
+  await page.waitForTimeout(500)
+  const left = await phase()
+  await page.mouse.move(box.x + box.width - 20, y, { steps: 12 })
+  await page.waitForTimeout(500)
+  const back = await phase()
+  assert(Math.abs(hovered - start) < .1, `hovering the title alone leaves the mark drifting, ${hovered - start} turns in a second`)
+  assert(Math.abs(left - hovered + 30 / width) < .15, `30 px left turns it back ${30 / width} of a turn, ${left - hovered}`)
+  assert(Math.abs(back - start) < .3, `and 30 px right turns it forward again, ${back - start} from where it was`)
   // A drag across the title turns it, whole, not dimmed as a pressed link, and is no click on the link
   await page.mouse.down()
   assert.equal(await title.evaluate(title => getComputedStyle(title).opacity), '1')
@@ -3822,4 +3897,71 @@ test('site: the header mark is the logo drawn live; the whole title tightens it,
   // A plain click after it is still the link's
   await title.click()
   assert.equal(page.url(), url.replace(/#.*$/, '') + '#')
+})
+
+test('logo motion: a height or a cycle count that is no number for a moment does not freeze the mark', async () => {
+  await page.goto(origin + '/logo/index.html', { waitUntil: 'networkidle' })
+  const state = await page.evaluate(async () => {
+    const { logo } = await import('/logo/logo.js'), { motion } = await import('/logo/motion.js'), canvas = document.createElement('canvas')
+    Object.assign(canvas.style, { position: 'fixed', left: 0, top: 0, width: '96px', height: '40px' })
+    document.body.append(canvas)
+    const view = logo(canvas, { clear: true, fit: 'width' })
+    let bad = false
+    const mark = motion(view, canvas, { amplitude: () => bad ? NaN : .8, cycles: () => bad ? Infinity * 0 : 2, axis: () => bad ? NaN : .5 })
+    const frames = n => new Promise(resolve => { let k = 0; const tick = () => ++k < n ? requestAnimationFrame(tick) : resolve(); tick() })
+    await frames(60)
+    bad = true
+    await frames(30)
+    const during = { ...view.state }
+    bad = false
+    mark.set({})
+    await frames(90)
+    canvas.remove()
+    return { during: [during.amplitude, during.cycles, during.axis], after: [view.state.amplitude, view.state.cycles, view.state.axis] }
+  })
+  assert(state.during.every(Number.isFinite), `held while it is bad: ${state.during}`)
+  assert(Math.abs(state.after[0] - .8) < .02 && Math.abs(state.after[1] - 2) < .02 && Math.abs(state.after[2] - .5) < .02, `and back after: ${state.after}`)
+})
+
+test('logo motion: a hover sets off at once and eases out to the pace it keeps', async () => {
+  await page.goto(origin + '/logo/index.html', { waitUntil: 'networkidle' })
+  const pace = await page.evaluate(async () => {
+    const { extra, HOVERS } = await import('/logo/motion.js'), h = HOVERS.creep, at = ms => extra(h, ms)
+    const after = Array.from({ length: 200 }, (_, i) => at(150 + i * (h.ms - 150) / 199))
+    return { start: at(0), soon: at(150), fast: Math.max(...after), eased: after.every((v, i) => !i || v <= after[i - 1] + 1e-9), end: at(h.ms), later: at(10 * h.ms), keeps: h.speed, ms: h.ms }
+  })
+  assert.equal(pace.start, 0)
+  assert.equal(pace.keeps, .5, 'it keeps half a turn a second')
+  assert(pace.soon > 2 && pace.soon === pace.fast, `it is off within 150 ms, at ${pace.soon} turns a second`)
+  assert(pace.eased, 'and slows, never speeding up again')
+  assert(Math.abs(pace.end - pace.keeps) < 1e-9 && pace.later === pace.end, 'to the pace it keeps')
+  assert(pace.ms <= 1200, 'within about a second')
+})
+
+test('site: from page to page the wordmark carries on: the REPL\'s mark, clicked, launches, and the home page takes up its spin as the page fades across', async () => {
+  await page.addInitScript(() => {
+    addEventListener('pagereveal', e => window.revealed = !!e.viewTransition)
+    try { window.carried = JSON.parse(sessionStorage.getItem('audio-logo')) } catch {}
+  })
+  await page.goto(origin + '/repl.html', { waitUntil: 'networkidle' })
+  const bar = page.locator('.bar .wordmark')
+  await bar.locator('canvas').waitFor()
+  await page.waitForTimeout(600)
+  await bar.click()
+  await page.waitForURL(origin + '/')
+  const header = page.locator('.header .wordmark canvas')
+  await header.waitFor()
+  const a = await logoShot(header)
+  await page.waitForTimeout(80)
+  const b = await logoShot(header)
+  const { revealed, carried } = await page.evaluate(() => ({ revealed: window.revealed, carried: window.carried }))
+  assert(carried && carried.launch > 0 && carried.velocity > 0, `the REPL hands on a launch under way: ${JSON.stringify(carried)}`)
+  assert.equal(revealed, true, 'the pages cross in a view transition')
+  // The mark and the name are the transition's own, so they glide while the rest fades
+  assert.deepEqual(await page.evaluate(() => ['.logo', '.name'].map(part => getComputedStyle(document.querySelector('.header .wordmark ' + part)).viewTransitionName)), ['mark', 'name'])
+  let off = 0
+  for (let i = 0; i < a.gray.length; i++) off += Math.abs(a.gray.charCodeAt(i) - b.gray.charCodeAt(i))
+  assert(off / a.gray.length > 4, `it arrives spinning, ${off / a.gray.length}`)
+  // Sessions hold it for the next page only
+  assert.equal(await page.evaluate(() => sessionStorage.getItem('audio-logo')), null)
 })

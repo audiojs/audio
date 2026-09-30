@@ -1,4 +1,5 @@
 import audio from '../assets/audio.js'
+import { cycle } from './meters.js'
 
 // Plays the output with the library's own playback: play() into a deck on the page's one AudioContext (audio.context).
 // The output is audio.from() of the samples the view draws, shared, not copied. A new output while playing takes over
@@ -60,6 +61,11 @@ export default function player({ onend = () => {} } = {}) {
       let sum = 0, n = 0
       for (const x of channels) for (let k = Math.max(0, i - half); k < Math.min(x.length, i + half); k++, n++) sum += x[k] * x[k]
       return n ? Math.sqrt(sum / n) : 0
+    },
+    // What the speakers play now, one cycle of it eased into the trace t (meters.js); left as it was when stopped
+    trace(t) {
+      if (this.playing && channels) cycle(channels, voice.currentTime * out.sampleRate, out.sampleRate, t)
+      return t
     },
     // A new output: while one plays, the new one takes over where it is
     set(pcm, sampleRate) {

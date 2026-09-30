@@ -3,13 +3,15 @@
 // Built-in ops are described here; registry plugins describe their own parameters (the engine reads their manifests).
 
 // A parameter: { name, min, max, default, unit, step, log, values }. `values` makes it a choice; `selection` (what to
-// select) makes it the selected range, or ranges, set from the picture, not a slider.
+// select) makes it the selected range, or ranges, set from the picture, not a slider; `required`, the library has no
+// default for it, so a new call writes this one.
 const p = (name, min, max, def, unit = '', more) => ({ name, min, max, default: def, unit, ...more })
 const hz = (name = 'freq', def = 1000, min = 20, max = 20000) => p(name, min, max, def, 'Hz', { log: true })
 const db = (name, min, max, def) => p(name, min, max, def, 'dB', { step: .1 })
 const sec = (name, max, def, min = 0) => p(name, min, max, def, 's', { step: .01 })
 const choice = (name, values, def = values[0]) => ({ name, values, default: def })
 const Q = (def = .707) => p('Q', .1, 30, def, '', { log: true })
+const need = s => ({ ...s, required: true })
 
 // Ops whose time range is the whole call: `.remove({ at, duration })`.
 const RANGE = [p('at', 0, 1, 0, 's', { step: .01 }), p('duration', 0, 1, 1, 's', { step: .01 })]
@@ -36,14 +38,14 @@ const table = {
   fade: ['Level', 'Fade in and out', [sec('in', 5, .5), sec('out', 5, .5), choice('curve', ['linear', 'exp', 'log', 'cos'])]],
   pan: ['Level', 'Balance left and right', [p('value', -1, 1, 0, '', { step: .01 })]],
   mix: ['Level', 'Layer another sound on top', [{ name: 'source' }, sec('at', 1, 0), db('gain', -36, 12, 0)]],
-  crossfade: ['Level', 'Blend into another sound', [{ name: 'source' }, sec('duration', 10, .5), choice('curve', ['cos', 'equal', 'linear'])]],
+  crossfade: ['Level', 'Blend into another sound, or across the selection', [{ name: 'source' }, sec('duration', 10, .5), choice('curve', ['cos', 'equal', 'linear'])]],
   remix: ['Level', 'Change channel count', [choice('channels', [1, 2], 2)]],
   dither: ['Level', 'Add dither for a lower bit depth', [p('bits', 8, 24, 16, 'bit', { step: 1 })]],
   // Filter
-  highpass: ['Filter', 'Cut lows', [hz('freq', 80), choice('order', [2, 4, 6, 8], 2)]],
-  lowpass: ['Filter', 'Cut highs', [hz('freq', 8000), choice('order', [2, 4, 6, 8], 2)]],
-  bandpass: ['Filter', 'Keep one band', [hz(), Q()]],
-  notch: ['Filter', 'Remove one frequency', [hz('freq', 50), Q(30)]],
+  highpass: ['Filter', 'Cut lows', [need(hz('freq', 80)), choice('order', [2, 4, 6, 8], 2)]],
+  lowpass: ['Filter', 'Cut highs', [need(hz('freq', 8000)), choice('order', [2, 4, 6, 8], 2)]],
+  bandpass: ['Filter', 'Keep one band', [need(hz()), Q()]],
+  notch: ['Filter', 'Remove one frequency', [need(hz('freq', 50)), Q(30)]],
   allpass: ['Filter', 'Shift phase around a frequency', [hz(), Q()]],
   lowshelf: ['Filter', 'Boost or cut the lows', [hz('freq', 200), db('gain', -24, 24, 0), Q()]],
   highshelf: ['Filter', 'Boost or cut the highs', [hz('freq', 8000), db('gain', -24, 24, 0), Q()]],
@@ -116,7 +118,7 @@ const table = {
   vocoder: ['Time & pitch', 'Pitch shift by phase vocoder'],
   paulstretch: ['Time & pitch', 'Blurred, textural pitch shift'],
   tune: ['Time & pitch', 'Snap pitch to a scale'],
-  resample: ['Time & pitch', 'Change the sample rate', [choice('rate', [8000, 16000, 22050, 32000, 44100, 48000, 96000], 48000)]],
+  resample: ['Time & pitch', 'Change the sample rate', [need(choice('rate', [8000, 16000, 22050, 32000, 44100, 48000, 96000], 48000))]],
   'stretch-paul': ['Time & pitch', 'Extreme stretch for drones'],
   'stretch-wsola': ['Time & pitch', 'Stretch speech, low CPU'],
   'stretch-psola': ['Time & pitch', 'Stretch a single voice'],
@@ -215,7 +217,7 @@ export const methods = {
   undo: { text: 'Undo the last edit' },
   transform: { text: 'Process with your own function', edits: true },
   filter: { text: 'Filter by type name', edits: true },
-  write: { text: 'Overwrite with samples', edits: true }
+  write: { text: 'Overwrite with samples or another sound, as a tape records', edits: true }
 }
 
 // A step whose output doesn't line up with its input, sample for sample: a cut, a stretch, a new rate, a join, another
@@ -232,13 +234,28 @@ export const stats = {
   min: 'Minimum', max: 'Maximum', dr: 'Dynamic range', replaygain: 'ReplayGain', print: 'Noise print of a range, for denoise'
 }
 
+// Icons, 24 × 24 strokes, one for each group of methods, beside its tools
+export const icons = {
+  Edit: 'M8.1 8.1 21 21M8.1 15.9 21 3M9 6a3 3 0 1 1-6 0 3 3 0 0 1 6 0m0 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
+  Level: 'M3 18h18V6z',
+  Filter: 'M3 8h8c4 0 5 4 6 7s2 4 4 4',
+  Dynamics: 'M4 4v16h16M4 20l7-7c3-3 6-4 9-4',
+  Repair: 'm4 14 6 6 10-10-6-6ZM9 11l1 1m2-2 1 1m-2 3 1 1m2-2 1 1',
+  'Time & pitch': 'M12 7v5l3 2m6-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0',
+  Effect: 'M12 3v4m0 10v4M3 12h4m10 0h4M5.6 5.6l2.8 2.8m7.2 7.2 2.8 2.8m-12.8 0 2.8-2.8m7.2-7.2 2.8-2.8',
+  Color: 'M12 21c-3.9 0-6-2.6-6-5.6 0-4.2 4-5.8 4-10.4 3.1 1.7 8 5.3 8 10.4 0 3-2.1 5.6-6 5.6Z',
+  Reverb: 'M4 5v14m5-11v8m5-6v4m5-2.5v1',
+  Space: 'M15 12a6 6 0 1 1-12 0 6 6 0 0 1 12 0m6 0a6 6 0 1 1-12 0 6 6 0 0 1 12 0',
+  Generate: 'M3 12c2-6 4-6 6 0s4 6 6 0 4-6 6 0'
+}
+
 export const presets = { normalize: ['podcast', 'streaming', 'broadcast'], vocals: ['isolate', 'remove'] }
 
 // What a step's new settings do to the picture while its output renders, drawn at once: the factor they change the
 // level by at time t of the output, from its settings before (`was`) and now (`is`), by name, the output `T` long; none
 // where a level can't say it (a step that moves time, filters or compresses shows its output when it comes). A step
 // with a range changes only there. The curves are fade()'s (fn/fade.js).
-const CURVES = { linear: u => u, exp: u => u * u, log: u => Math.sqrt(u), cos: u => (1 - Math.cos(u * Math.PI)) / 2 }
+export const CURVES = { linear: u => u, exp: u => u * u, log: u => Math.sqrt(u), cos: u => (1 - Math.cos(u * Math.PI)) / 2 }
 const within = (s, f) => s.at == null && s.duration == null ? f : t => t >= (s.at ?? 0) && t < (s.at ?? 0) + (s.duration ?? Infinity) ? f(t) : 1
 function fading({ in: a = .5, out, curve }, T) {
   const c = CURVES[curve] ?? CURVES.linear, fin = a > 0 ? a : 0, fout = a < 0 ? -a : Math.abs(out ?? 0)
@@ -254,11 +271,11 @@ export const previews = {
   }
 }
 
-// The value of a numeric parameter as the slider shows it.
+// The value of a numeric parameter as the slider shows it, its unit right after it (−1dB, 8kHz, 0.5s).
 export function format(value, { unit = '', step } = {}) {
   if (typeof value !== 'number') return String(value)
   const digits = step >= 1 ? 0 : Math.abs(value) >= 100 ? 0 : Math.abs(value) >= 10 ? 1 : 2
-  const text = unit === 'Hz' && Math.abs(value) >= 1000 ? +(value / 1000).toFixed(2) + ' kHz' : +value.toFixed(digits) + (unit ? (unit === '×' ? '' : ' ') + unit : '')
+  const text = unit === 'Hz' && Math.abs(value) >= 1000 ? +(value / 1000).toFixed(2) + 'kHz' : +value.toFixed(digits) + unit
   return value < 0 ? '−' + text.slice(1) : text
 }
 
@@ -277,7 +294,14 @@ export function guides(name, args, duration) {
   // a level: a threshold (denoise's is an offset on its noise, none), a ceiling, a peak to reach
   const level = name === 'denoise' ? null : args.threshold ?? (name === 'limiter' ? args.ceiling : name === 'normalize' && typeof args.target === 'number' && args.mode !== 'lufs' && args.mode !== 'rms' ? args.target : null)
   if (typeof level === 'number') out.push({ level })
-  if (name === 'fade') out.push({ fade: [args.in ?? .5, args.out ?? args.in ?? .5], duration })
+  // a fade's ramps along its curve: fade(in, out) at the ends; fade(d, { at }) one ramp from `at`, in over d, or out
+  // (d < 0) over −d
+  if (name === 'fade') {
+    const d = typeof args.in === 'number' ? args.in : .5, at = typeof args.at === 'number' ? (args.at < 0 ? duration + args.at : args.at) : null
+    const from = at ?? (d < 0 ? duration + d : 0), curve = CURVES[args.curve] ? args.curve : 'linear', ramps = [[from, from + Math.abs(d), d < 0 ? 'out' : 'in', curve]]
+    if (d >= 0 && at == null && typeof args.out === 'number' && args.out) ramps.push([duration - Math.abs(args.out), duration, 'out', curve])
+    out.push({ ramps })
+  }
   if (['paste', 'insert', 'mix'].includes(name) && typeof args.at === 'number') out.push({ at: args.at })
   const freq = args.freq ?? args.fc
   if (typeof freq === 'number' && ops[name] && ['Filter', 'Repair', 'Space'].includes(ops[name].group)) out.push({ freq })

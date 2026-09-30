@@ -1,5 +1,6 @@
 // What the meters at the view's right edge read: each channel's level, RMS and peak, and its spectrum, from the
-// output's samples, over the 50 ms before the playhead as it plays, around the caret, or across a selection.
+// output's samples, over the 50 ms before the playhead as it plays, around the caret, or across a selection; and the
+// cycle the mark in the bar draws as it plays.
 
 // RMS and peak of each channel over samples [from, to)
 export function levels(channels, from, to) {
@@ -26,6 +27,77 @@ export function spectra(channels, from, to, { size = 4096, frames = 16 } = {}) {
     }
     return Float32Array.from(power, p => 10 * Math.log10(p + 1e-20))
   })
+}
+
+// What the mark in the bar draws of a sound: `wave`, one cycle of it, and `hz`, its pitch, kept between frames so a
+// pitch that holds is not lost to the next frame's doubt
+export const trace = (points = 64) => ({ wave: new Float32Array(points), hz: 0 })
+
+// One cycle of what sounds at sample `at`, for the eye, as the logo's signals stand: a period sampled evenly from its
+// start, falling through zero at mid-period, into t.wave; the pitch it is of, into t.hz. The channels summed and
+// averaged down to about 16 kHz. The period is a peak of the normalized autocorrelation, 2 kHz to 50 Hz: the one the
+// last frame had, if the sound still repeats there nearly as well as anywhere (within 80% of the best peak), else the
+// shortest within 90% of the best; no peak of half a correlation (noise, a slow drift, what only ever falls off from
+// lag 0) keeps the last pitch and shows 12 ms. A sample that is no number counts for silence.
+// The cycle is set about the falling zero crossing nearest `at`; softened round by [1 2 1] / 4 24 times over, near a
+// Gaussian 3.5 points wide (of the bar's 64), so its first few harmonics stay and a chord's or a hiss's fine wiggle
+// goes; peak 1. Eased a share `ease` of the way into t.wave: a cycle that repeats holds its shape, what never repeats
+// settles to a slow stir.
+export function cycle(channels, at, rate, t, ease = .3) {
+  const d = Math.max(1, Math.round(rate / 16000)), r = rate / d, lo = Math.floor(r / 2000), hi = Math.ceil(r / 50), n = 3 * hi, m = n - hi
+  const x = new Float32Array(n), from = Math.round(at) - (n >> 1) * d
+  let mean = 0
+  for (let k = 0; k < n; k++) {
+    let sum = 0
+    for (const ch of channels) for (let i = from + k * d, j = 0; j < d; i++, j++) if (i >= 0 && i < ch.length && Number.isFinite(ch[i])) sum += ch[i]
+    mean += x[k] = sum / d
+  }
+  mean /= n
+  for (let k = 0; k < n; k++) x[k] -= mean
+  let e0 = 0
+  for (let k = 0; k < m; k++) e0 += x[k] * x[k]
+  const corr = new Float32Array(hi + 2)
+  for (let l = lo - 1; l <= hi + 1; l++) {
+    let xy = 0, yy = 0
+    for (let k = 0; k < m; k++) { const y = x[k + l] ?? 0; xy += x[k] * y; yy += y * y }
+    corr[l] = xy / Math.sqrt(e0 * yy + 1e-30)
+  }
+  const peaked = l => l >= lo && l <= hi && corr[l] >= corr[l - 1] && corr[l] >= corr[l + 1]
+  let best = 0
+  for (let l = lo; l <= hi; l++) if (peaked(l) && corr[l] > best) best = corr[l]
+  // a lag's peak, between the samples
+  const refine = l => { const a = corr[l - 1], b = corr[l], c = corr[l + 1], bend = a - 2 * b + c; return l + (bend < 0 ? (a - c) / (2 * bend) : 0) }
+  let period = t.hz ? r / t.hz : .012 * r
+  if (best > .5) {
+    let pick = 0
+    // the last frame's pitch, within a semitone and a half either way
+    if (t.hz) for (let l = Math.floor(r / t.hz / 1.09); l <= Math.ceil(r / t.hz * 1.09); l++) if (peaked(l) && corr[l] >= .8 * best && (!pick || corr[l] > corr[pick])) pick = l
+    for (let l = lo; !pick && l <= hi; l++) if (corr[l] >= .9 * best && peaked(l)) pick = l
+    period = refine(pick)
+    t.hz = r / period
+  }
+  // off the axis by what a period about the middle holds, which the stretch's mean, not whole periods, left
+  const mid = n >> 1, whole = Math.round(period)
+  let offset = 0
+  for (let k = mid - (whole >> 1); k < mid - (whole >> 1) + whole; k++) offset += x[k]
+  for (let k = 0; k < n; k++) x[k] -= offset / whole
+  const falls = k => k >= 0 && k + 1 < n && x[k] >= 0 && x[k + 1] < 0
+  let centre = mid
+  for (let off = 0; off < period; off++) {
+    const k = falls(mid + off) ? mid + off : falls(mid - off - 1) ? mid - off - 1 : -1
+    if (k >= 0) { centre = k + x[k] / (x[k] - x[k + 1]); break }
+  }
+  const read = p => { const i = Math.max(0, Math.min(n - 2, Math.floor(p))), f = p - i; return x[i] + (x[i + 1] - x[i]) * f }
+  const P = t.wave.length, one = Float32Array.from(t.wave, (_, j) => read(centre + period * (j / P - .5)))
+  if (!one.every(Number.isFinite)) return t
+  for (let pass = 0; pass < 24; pass++) for (let j = 0, first = one[0], before = one[P - 1]; j < P; j++) {
+    const here = one[j]
+    one[j] = (before + 2 * here + (j + 1 < P ? one[j + 1] : first)) / 4
+    before = here
+  }
+  const peak = one.reduce((p, v) => Math.max(p, Math.abs(v)), 1e-4)
+  for (let j = 0; j < P; j++) t.wave[j] += (one[j] / peak - t.wave[j]) * ease
+  return t
 }
 
 const windows = new Map()

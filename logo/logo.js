@@ -36,7 +36,8 @@ export const label = name => LABELS[name] ?? name.replace(/[A-Z]/g, c => ' ' + c
 const HEIGHT = .94 / (3 * Math.sqrt(3) / 8)
 const SPAN = 1.2, SAMPLES = 2048 // the waveform texture covers x in ±SPAN, the window -1…1
 const M = 256, PROFILE = 256     // samples per window, per gradient
-const MORPH = 600                // ms from one choice to the next
+const MORPH = 600                // ms from one choice to the next, unless set otherwise
+const AXIS = 4.5 / 96            // the zero axis's width, a share of the window's: the logo's own baseline stroke
 
 // Error diffusion kernels as dx, dy, weight; dy runs down the page
 const KERNELS = {
@@ -63,6 +64,8 @@ uniform float uPitch;   // line and screen period, a mark and its gap, device px
 uniform float uWidth;   // a mark: dot, nib or line width, device px
 uniform float uDuty;    // the share of a period a mark fills at full tone
 uniform float uLines;   // lines across a lobe, for the engravings that follow it
+uniform float uAxis;    // the zero axis across the window: its width, device px
+uniform float uFaint;   // and how much of the figure's ink it takes, 0 for none
 uniform float uSpan;    // uWave covers x in -uSpan…uSpan
 uniform int uMode;
 uniform bool uClear;    // no ground: the figure alone, its paper as opacity, over whatever lies beneath
@@ -196,6 +199,8 @@ void main() {
     case GUILLOCHE: paper = braid; break;
     case STIPPLE: paper = stipple(gl_FragCoord.xy); break;
   }
+  // the axis the wave stands on, faint, whatever the wave is: silence too
+  if (uFaint > 0. && uMode != TONE) paper = max(paper, uFaint * clamp(uAxis / 2. - abs(c.y) + .5, 0., 1.) * clamp(uScale - abs(c.x) + .5, 0., 1.));
   o = uMode == TONE ? vec4(v, 0, 0, 1) : uClear ? vec4(uFigure * paper, paper) : vec4(mix(uGround, uFigure, paper), 1);
 }`
 
@@ -212,6 +217,11 @@ function sample(w, x) {
   if (!(x >= -1 && x <= 1)) return 0
   const p = (x + 1) / 2 * (M - 1), i = Math.min(M - 2, p | 0)
   return w[i] + (w[i + 1] - w[i]) * (p - i)
+}
+// A trace, one period sampled evenly from its start, read at t turns between samples, round and round
+function around(trace, t) {
+  const u = (t - Math.floor(t)) * trace.length, i = Math.floor(u), k = u - i
+  return trace[i % trace.length] * (1 - k) + trace[(i + 1) % trace.length] * k
 }
 
 // A gradient is half a window, centre to edge, stretched to run paper to ink: Bartlett's is linear, Hann's is
@@ -237,19 +247,19 @@ export const drawing = {
   },
 }
 
-// What's drawn morphs to a new choice over MORPH ms, from wherever the last change had got to
+// What's drawn morphs to a new choice over `span` ms, from wherever the last change had got to
 function morpher(key) {
-  let from = [[key, 1]], to = key, since = -Infinity
+  let from = [[key, 1]], to = key, since = -Infinity, span = MORPH
   const mix = now => {
-    const k = Math.min(1, Math.max(0, now - since) / MORPH), e = k < .5 ? 4 * k ** 3 : 1 - (2 - 2 * k) ** 3 / 2
+    const k = Math.min(1, Math.max(0, now - since) / span), e = k < .5 ? 4 * k ** 3 : 1 - (2 - 2 * k) ** 3 / 2
     const out = new Map([[to, e]])
     for (const [key, w] of from) out.set(key, (out.get(key) ?? 0) + w * (1 - e))
     return [...out].filter(([, w]) => w > 1e-4)
   }
   return {
     mix,
-    to(key, now) { if (key !== to) from = mix(now), to = key, since = now },
-    settled: now => now - since >= MORPH,
+    to(key, now, ms) { if (key !== to) from = mix(now), to = key, since = now, span = ms },
+    settled: now => now - since >= span,
   }
 }
 
@@ -338,9 +348,13 @@ function diffuse(rgba, w, h, kernel) {
 
 /**
  * Draws the logo into a canvas, sized to it. Returns null without WebGL 2.
- * set({ signal, window, gradient, print, cycles, phase, amplitude, size, gap, ground, figure }, now) changes what's
- * drawn: signal, window and gradient morph over MORPH ms from now, on render's clock; phase is in turns; size, a
- * mark's, and gap, between marks, in CSS px; colors any CSS color.
+ * set({ signal, window, gradient, print, cycles, phase, amplitude, size, gap, ground, figure, morph, axis }, now) changes
+ * what's drawn: signal, window and gradient morph over `morph` ms (MORPH by default) from now, on render's clock; phase
+ * is in turns; size, a mark's, and gap, between marks, in CSS px; colors any CSS color. A signal is a name of SIGNALS
+ * or a trace: one period sampled evenly from its start, falling through zero at mid-period as SIGNALS do, which turns
+ * and repeats as they do; read afresh each render, so an array refilled in place changes with no morph. axis, 0…1, is
+ * how much of the figure's ink the zero axis takes, across the window, at least a pixel thick, wave or none: 0, none,
+ * by default; half, it is faint.
  * render(now) draws a frame and tells whether a morph is still under way.
  * clear draws the figure alone over the page, no ground. fit 'width' spans the window across the canvas, which must be
  * tall enough for the wave; by default the whole wave fits, window and height.
@@ -348,8 +362,11 @@ function diffuse(rgba, w, h, kernel) {
 export function logo(canvas, { onresize, clear = false, fit = 'all' } = {}) {
   const gl = canvas.getContext('webgl2', { antialias: false, alpha: clear })
   if (!gl) return null
-  const state = { signal: 'sine', window: 'hann', gradient: 'bartlett', print: 'smooth', cycles: 1, phase: 0, amplitude: 1, size: 2, gap: 6, ground: '#000', figure: '#fff' }
-  const wave = morpher(`${state.signal} ${state.window}`), fill = morpher(state.gradient)
+  const state = { signal: 'sine', window: 'hann', gradient: 'bartlett', print: 'smooth', cycles: 1, phase: 0, amplitude: 1, size: 2, gap: 6, ground: '#000', figure: '#fff', morph: MORPH, axis: 0 }
+  // the last trace given, which a morph away from it still draws
+  let trace = null
+  const key = () => `${typeof state.signal === 'string' ? state.signal : 'trace'} ${state.window}`
+  const wave = morpher(key()), fill = morpher(state.gradient)
 
   const prog = program(gl), U = {}
   gl.useProgram(prog)
@@ -385,7 +402,7 @@ export function logo(canvas, { onresize, clear = false, fit = 'all' } = {}) {
 
   // Prints the uploaded waveform and gradient in a mode, onto the canvas or, for pixels, into memory.
   // dot is a mark's size and gap the space between marks, device px; lines, how many cross a lobe.
-  function print(mode, { width: W, height: H, dot, gap, scale, centre, lines, ground, figure, pixels = false }) {
+  function print(mode, { width: W, height: H, dot, gap, scale, centre, lines, ground, figure, axis = 0, faint = 0, pixels = false }) {
     const kernel = KERNELS[mode], cell = mode === 'smooth' || SCREENS.includes(mode) ? 1 : dot
     gl.uniform3fv(U.uGround, ground)
     gl.uniform3fv(U.uFigure, figure)
@@ -396,6 +413,8 @@ export function logo(canvas, { onresize, clear = false, fit = 'all' } = {}) {
     gl.uniform1f(U.uWidth, dot)
     gl.uniform1f(U.uDuty, dot / (dot + gap))
     gl.uniform1f(U.uLines, lines)
+    gl.uniform1f(U.uAxis, axis)
+    gl.uniform1f(U.uFaint, faint)
     gl.uniform1i(U.uClear, clear && !pixels)
     if (kernel) {
       const w = Math.ceil(W / cell), h = Math.ceil(H / cell), rgba = new Uint8Array(w * h * 4)
@@ -421,15 +440,16 @@ export function logo(canvas, { onresize, clear = false, fit = 'all' } = {}) {
 
   function set(changes, now = performance.now()) {
     Object.assign(state, changes)
-    wave.to(`${state.signal} ${state.window}`, now)
-    fill.to(state.gradient, now)
+    if (typeof state.signal !== 'string') trace = state.signal
+    wave.to(key(), now, state.morph)
+    fill.to(state.gradient, now, state.morph)
   }
 
   function render(now = performance.now()) {
     const turn = state.phase, n = state.cycles
     heights.fill(0)
     for (const [key, weight] of wave.mix(now)) {
-      const [signalName, windowName] = key.split(' '), f = SIGNALS[signalName], w = shape(windowName), a = HEIGHT * weight * state.amplitude
+      const [signalName, windowName] = key.split(' '), f = SIGNALS[signalName] ?? (t => around(trace, t)), w = shape(windowName), a = HEIGHT * weight * state.amplitude
       for (let i = 0; i < SAMPLES; i++) {
         const x = xs[i]
         if (x >= -1 && x <= 1) heights[i] += a * sample(w, x) * f(n * x / 2 + .5 - turn)
@@ -445,7 +465,7 @@ export function logo(canvas, { onresize, clear = false, fit = 'all' } = {}) {
     const { width: W, height: H, clientWidth } = canvas
     if (W && H && clientWidth) {
       const s = scale(), px = W / clientWidth, dot = Math.max(1, Math.round(state.size * px)), gap = state.gap * px // CSS px to canvas px
-      print(state.print, { width: W, height: H, dot, gap, scale: s, centre: [W / 2, H / 2], lines: Math.max(2, Math.round(HEIGHT * s / (dot + gap))), ground: rgb(state.ground), figure: rgb(state.figure) })
+      print(state.print, { width: W, height: H, dot, gap, scale: s, centre: [W / 2, H / 2], lines: Math.max(2, Math.round(HEIGHT * s / (dot + gap))), ground: rgb(state.ground), figure: rgb(state.figure), axis: Math.max(px, AXIS * 2 * s), faint: state.axis })
     }
     return !wave.settled(now) || !fill.settled(now)
   }
@@ -465,7 +485,7 @@ export function logo(canvas, { onresize, clear = false, fit = 'all' } = {}) {
   function favicon(color, size = 64) {
     upload(4, profileOf('rectangular'))
     const scale = (size / 2 - 1) / Math.max(1, HEIGHT * state.amplitude)
-    return png(print('smooth', { width: size, height: size, dot: 1, gap: 0, scale, centre: [size / 2, size / 2], lines: 2, ground: [0, 0, 0], figure: [1, 1, 1], pixels: true }), size, size, rgb(color))
+    return png(print('smooth', { width: size, height: size, dot: 1, gap: 0, scale, centre: [size / 2, size / 2], lines: 2, ground: [0, 0, 0], figure: [1, 1, 1], axis: Math.max(2, AXIS * 2 * scale), faint: state.axis, pixels: true }), size, size, rgb(color))
   }
 
   const resize = new ResizeObserver(([e]) => {

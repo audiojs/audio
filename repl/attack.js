@@ -1,0 +1,35 @@
+// Where each hit's attack starts, for a cut there to keep all of it. The onset stat reads energy in blocks
+// (fn/beat.js, 1024 samples, 23 ms at 44.1 kHz), so a hit it finds can start up to a block before or after the time it
+// gives. Around that time, on an envelope 5 ms wide every millisecond (wide enough that a tone's own cycles don't read
+// as rises): the loudest window, the quietest before it, and the last window before the loudest still within 5% of the
+// way up from one to the other (13 dB under the rise). The attack starts about halfway into that window, as a sharp
+// strike comes into a window only at its end; then back to the zero crossing before it, within a millisecond, so a cut
+// there starts from silence. On the built-in chime and handpan, whose strikes are known, this lands from 3.5 ms before
+// each strike to half a millisecond into one that rises over 2.5 ms (test/repl.test.js), where the blocks put hits
+// 14 ms either side. A slice point, as librosa's onset_backtrack makes one (McFee et al. 2015), found from the rise
+// rather than from the local minimum before it, which the ring of a struck bar puts inside its own attack. `channels`
+// are the output's; each time comes back after the one before.
+const WIDE = .005, HOP = .001, UP = .05
+export default function attacks(times, channels, rate, block = 1024) {
+  const n = channels[0]?.length ?? 0, hop = Math.max(1, Math.round(rate * HOP)), wide = Math.max(hop, Math.round(rate * WIDE))
+  const mix = i => { let s = 0; for (const x of channels) s += x[i]; return s }
+  const out = []
+  for (const t of times) {
+    const at = Math.round(t * rate), floor = out.length ? Math.round(out.at(-1) * rate) + hop : 0
+    const lo = Math.min(Math.max(floor, at - Math.round(block * 1.5)), n), hi = Math.max(lo, Math.min(n - wide, at + block))
+    // energy of each window [lo + k·hop, … + wide), from the running sum of every channel's squares
+    const sum = new Float64Array(hi + wide - lo + 1)
+    for (let i = lo; i < hi + wide; i++) { let e = 0; for (const x of channels) e += (x[i] ?? 0) ** 2; sum[i - lo + 1] = sum[i - lo] + e }
+    const energy = Array.from({ length: Math.floor((hi - lo) / hop) + 1 }, (_, k) => sum[k * hop + wide] - sum[k * hop])
+    let peak = 0
+    energy.forEach((e, k) => { if (e > energy[peak]) peak = k })
+    const base = Math.min(...energy.slice(0, peak + 1)), up = base + UP * (energy[peak] - base)
+    let k = peak
+    while (k >= 0 && energy[k] > up) k--
+    // nothing quieter where it looked: the attack starts no later than where it began looking (the start of the sound)
+    let start = k < 0 ? lo : Math.min(lo + k * hop + (wide >> 1), lo + peak * hop)
+    for (let i = start, end = Math.max(floor, start - hop); i > end; i--) if (mix(i - 1) * mix(i) <= 0) { start = i; break }
+    out.push(Math.max(floor, start) / rate)
+  }
+  return out
+}

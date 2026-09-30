@@ -17,7 +17,8 @@ The website is static. Serve the repository root with any static HTTP server and
 - `tokens.css` holds the colors, type, spacing and motion shared by the site, the logo lab and the REPL; `logo.svg` is the static mark and tab icon.
 - `codemirror.js` bundles the installed CodeMirror 6 and Lezer packages (MIT) the REPL's editor needs: state, view, commands,
   the JavaScript language, completion, lint, search. Licenses are at the end of the file. `node .site-build.js` refreshes it.
-- `gl-waveform.js` is gl-waveform 5 (MIT), the WebGL2 waveform the REPL draws with, copied from its repository until it is published.
+- `gl-waveform.js` and `gl-spectrogram.js` are the installed gl-waveform 5 and gl-spectrogram 2 (both MIT), the WebGL2 waveform
+  and spectrogram (FFT and reassignment on the GPU) the REPL draws with, each one module. `node .site-build.js` copies them.
 - The REPL's engine is built into `repl/dist/`, which git ignores: `worker.js` and a chunk per plugin and codec, loaded on first use.
   `node .site-build.js` builds it; the site must be built before it is served.
 - `geist.woff2` is the Geist variable Latin font, with its OFL license included.

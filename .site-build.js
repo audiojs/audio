@@ -1,6 +1,7 @@
 // Refresh the audio modules used by the static website: node .site-build.js
 import { build } from 'esbuild'
 import { builtinModules } from 'node:module'
+import { copyFile } from 'node:fs/promises'
 import audio from './audio.js'
 
 // Node's own modules stay out of the browser bundles: the library imports them only on Node, when a path is a file
@@ -94,3 +95,6 @@ await build({
   }],
   legalComments: 'eof'
 })
+
+// The REPL's pictures: gl-waveform and gl-spectrogram, each one ES module with no dependencies, as published
+for (const name of ['gl-waveform', 'gl-spectrogram']) await copyFile(`node_modules/${name}/index.js`, `assets/${name}.js`)

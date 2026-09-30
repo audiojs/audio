@@ -4,18 +4,19 @@ import editor from './editor.js'
 import view from './view.js'
 import player from './player.js'
 import stack from './stack.js'
-import { logo } from '../logo/logo.js'
-import { motion } from '../logo/motion.js'
+import { mark as drawMark } from '../logo/mark.js'
 import recipes from './recipes.js'
-import { ops, methods, guides, previews, GROUPS } from './ops.js'
-import { prepare, error, append, source, chain, number, rollback, residual } from './code.js'
+import { ops, methods, guides, previews, GROUPS, CURVES, icons as groupIcons } from './ops.js'
+import { prepare, error, append, source, chain, number, rollback, residual, setArg } from './code.js'
 import { builtins, sample, record, search, credit, unique } from './sources.js'
 import scales from './scale.js'
 import menubar from './menu.js'
-import { levels, spectra } from './meters.js'
+import { levels, spectra, cycle, trace } from './meters.js'
+import time, { UNITS } from './time.js'
 
-// The REPL: its output, and beside it the chain that makes it, as a stack of steps or as the code: two views of one
-// script, a tab each, in a panel that opens and closes. Every change to the script runs it; the output is drawn,
+// The REPL: its output, and at its right a panel that opens and closes, as Luminar's: the tools, every method by kind,
+// one click adding it; the edits, the chain that makes the output as a stack of steps; the same chain as code; and the
+// export, the output checked against a spec and saved as a file. Every change to the script runs it; the output is drawn,
 // measured and played. Selecting, cutting or applying a method on the waveform, or a slider in the stack, writes the
 // script.
 const root = document.querySelector('#repl')
@@ -47,33 +48,36 @@ const icons = {
 // What the picture shows besides the sound, each a thing to grab where it is, none a mode: the hits (its onsets, on the
 // time row: a click puts the caret on one, a drag moves it and the audio around it stretches), the pitch curve (a voiced
 // stretch drags up or down), the gain line (its points drag; a press on the line adds one), the meters at the right
-const overlays = [['hits', 'Hits'], ['pitch', 'Pitch curve'], ['gain', 'Gain line'], ['meters', 'Meters']]
-// How times read: minutes and seconds, seconds, or samples
-const unitsList = [['clock', 'Minutes and seconds', '0:05.000'], ['seconds', 'Seconds', '5.000 s'], ['samples', 'Samples', '240000']]
+const overlays = [['hits', 'Hits', 'The hits found: cues to snap to, slice at, and drag'], ['pitch', 'Pitch curve', 'A voice\'s pitch, its voiced stretches dragged up or down'], ['gain', 'Gain line', 'The gain curve, its points dragged'], ['meters', 'Meters', 'Level and spectrum at the right']]
+// How the waveform's level axis writes levels: decibels from full scale, mirrored about the centre line, or the sample
+// values themselves, signed
+const levelList = [['db', 'Decibels', '−6dB', 'dB'], ['linear', 'Sample values', '0.5', '±1']].map(([name, label, example, short]) => ({ name, label, example, short }))
+// The frequency scales the view settings choose between (scale.js)
+const scaleNames = { log: 'Octaves', mel: 'Mel', lin: 'Hertz' }
+// A fade's curves, as fn/fade.js names them, each drawn as it fades in (ops.js CURVES), as its handle on the picture draws it
+const curves = [['linear', 'Linear'], ['exp', 'Exponential'], ['log', 'Logarithmic'], ['cos', 'S-curve']]
+  .map(([name, label]) => ({ name, label, icon: 'M' + Array.from({ length: 13 }, (_, i) => `${4 + 16 * i / 12} ${+(20 - 16 * CURVES[name](i / 12)).toFixed(2)}`).join('L') }))
 // What the picture shows, a tab each: the waveform, or the spectrogram, never both (each zooms its own way)
-const displays = [['wave', 'Waveform', 'The waveform: levels over time'], ['spec', 'Spectrogram', 'The spectrogram: frequencies over time']].map(([name, label, title]) => ({ name, label, title }))
+const displays = [['wave', 'Waveform', 'The waveform: levels over time', 'M4 10v4m4-8v12m4-15v18m4-14v10m4-6v2'], ['spec', 'Spectrogram', 'The spectrogram: frequencies over time', 'M4 5h16M4 9.5h10M4 14h13M4 18.5h6']].map(([name, label, title, icon]) => ({ name, label, title, icon }))
 // Rates a sound resamples to, from the facts on the display
 const rates = [[8000, 'Telephone'], [11025, ''], [16000, 'Speech'], [22050, ''], [32000, ''], [44100, 'CD'], [48000, 'Video'], [88200, ''], [96000, 'High resolution']]
-  .map(([hz, text]) => ({ hz, label: `${+(hz / 1000).toFixed(3)} kHz`, text }))
+  .map(([hz, text]) => ({ hz, label: `${+(hz / 1000).toFixed(3)}kHz`, text }))
 // Delivery specs the output can be checked against (fn/check.js holds their rules and sources)
 const specs = [['', 'Off', ''], ['podcast', 'Apple Podcasts', 'Apple'], ['streaming', 'Spotify', 'Spotify'], ['broadcast', 'EBU R 128', 'R 128'], ['acx', 'ACX audiobook', 'ACX'], ['netflix', 'Netflix', 'Netflix']]
   .map(([key, label, short]) => ({ key, label, short }))
 
 // Stored per browser: the script and how the page was left.
 const stored = (() => { try { return JSON.parse(localStorage.getItem('audio-repl')) || {} } catch { return {} } })()
-const store = () => { try { localStorage.setItem('audio-repl', JSON.stringify({ code: ed.code, layout: state.layout, display: state.display, scale: state.scale, side_split: state.split, format: state.format, spec: state.spec, side: state.side, show: state.show, units: state.units })) } catch {} }
+const store = () => { try { localStorage.setItem('audio-repl', JSON.stringify({ docs: docs.map(d => ({ code: d.id === state.tab ? ed.code : d.code })), doc: docs.findIndex(d => d.id === state.tab), display: state.display, scale: state.scale, format: state.format, spec: state.spec, side: state.side, show: state.show, units: state.units, snap: state.snapping, curve: state.fadeCurve, levels: state.levels })) } catch {} }
 
-const clock = (t, digits = 3) => {
-  const m = Math.floor(t / 60), s = t - m * 60
-  return `${m}:${s.toFixed(digits).padStart(digits ? digits + 3 : 2, '0')}`
-}
+// A number and its unit as the page writes them: the unit right after the value, no space (−1.0dB, 44.1kHz)
 const dbfs = db => Number.isFinite(db) ? `${db < 0 ? '−' : ''}${Math.abs(db).toFixed(1)}` : '−∞'
 // Keys as this platform names them
 const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform)
 const keys = s => mac ? s : s.replace(/⌘/g, 'Ctrl+').replace(/⇧/g, 'Shift+').replace(/⌥/g, 'Alt+')
-// A time in the units chosen: 0:05.000, 5.000 s, or its sample at the output's rate
-const stamp = t => state.units === 'seconds' ? `${t.toFixed(3)} s` : state.units === 'samples' ? String(Math.round(t * (output?.sampleRate || 48000))) : clock(t)
-const span = d => state.units === 'samples' ? `${Math.round(d * (output?.sampleRate || 48000))} samples` : `${d.toFixed(3)} s`
+// A time, or a length of time, in the units chosen, as the view writes them (time.js): 0:05.000, 5.000s, 240000
+const clock = (t, digits = 3) => time(t, state.units, { digits, rate: output?.sampleRate })
+const stamp = t => clock(t)
 // A check's numbers as the page prints them: to 0.01 as judged, whole numbers whole, a true minus sign
 const minus = s => s.replace(/^-/, '−')
 const value = v => Number.isFinite(v) ? minus(Number.isInteger(v) ? String(v) : v.toFixed(2)) : v < 0 ? '−∞' : '∞'
@@ -92,120 +96,133 @@ let output = null, incoming = null, showing = 0
 let timer = 0, ticker = 0, recorder = null, previewAudio = null, waiting = 0, waited = 0, original = null, checks = 0
 // the script after each step of its history (remember), and how many steps back it was last
 let steps = [], depthWas = 0
+// the open documents, a tab each: [{ id, code, steps, depthWas }], the code of the one shown in the editor (switchTab)
+let docs = [], docIds = 0
 // what the output shows when not the whole chain (the stack): what live step `delta` takes out, or the chain rolled
 // back to its first `back` steps
 let viewing = { delta: null, back: null }
 
-// The mark in the bar, drawn live: at rest it holds the logo's pose; playing, it travels and swells with what is heard,
-// and so does the tab's icon, in a hidden tab too. Without WebGL the static mark stays.
-const wordmark = root.querySelector('.bar .wordmark'), canvas = wordmark.querySelector('.logo canvas')
-const drawn = logo(canvas, { clear: true, fit: 'width', onresize: () => logoMark?.set({}) })
-const logoMark = drawn && motion(drawn, canvas, { area: wordmark, hover: { speed: .15, cycles: 1.5 }, tap: false, favicon: true })
-if (drawn) {
-  drawn.set({ figure: getComputedStyle(wordmark).color, window: 'cosine', gradient: 'rectangular' })
-  canvas.hidden = false
-  wordmark.querySelector('.logo svg').remove()
-}
-// Heard RMS to the wave's height: a sliver of it at −48 dBFS and below, all of it at full scale
-const swell = rms => .15 + .85 * Math.min(1, Math.max(0, 1 + 20 * Math.log10(rms + 1e-9) / 48))
+// The mark in the bar, drawn live (logo/mark.js): at rest it holds the logo's pose. Playing or recording, its wave is
+// one cycle of what is heard, running through its window 2.5 times a second, as tall as it is loud; scrubbing, one
+// cycle of the moment under the caret, turned by the caret's travel (2.5 turns for a second of it). The tab's icon
+// shows the same, in a hidden tab too.
+const logoMark = drawMark(root.querySelector('.bar .wordmark')), heard = trace()
+const PACE = 2.5
+// Its cycles across the window follow the pitch it draws, smoothly: one at 100 Hz and below, a cycle and three quarters
+// more for each octave up, at most three and a half
+const cyclesOf = hz => hz ? Math.min(3.5, Math.max(1, 1 + .75 * Math.log2(hz / 100))) : 1
+// Heard RMS to the wave's height: half of it at −48 dBFS and below, all of it at full scale. The mark only says that
+// something sounds, so it is never flat; a silence is the faint axis alone, its wave nothing.
+const swell = rms => { const loud = 1 + 20 * Math.log10(rms + 1e-9) / 48; return .5 + .5 * (loud > 0 ? Math.min(1, loud) : 0) }
+// How much of the ink the zero axis takes while the mark shows a sound: half, as the waveform's own axis does
+const FAINT = .5
 const still = matchMedia('(prefers-reduced-motion: reduce)')
+// The caret under a scrub, and the RMS of the output there (the 50 ms around it)
+let scrubbed = null
+const beneath = () => !output ? 0 : Math.max(0, ...levels(output.channels, Math.round(scrubbed * output.sampleRate) - 1200, Math.round(scrubbed * output.sampleRate) + 1200).map(l => l.rms))
 // while the engine works it sways gently, the same whether a file arrives or an output renders
 let swaying = ''
 function sway() {
-  const mode = still.matches ? 'rest' : pl.playing ? 'play' : waiting || incoming ? 'work' : 'rest'
+  const mode = still.matches ? 'rest' : scrubbed != null && output?.duration ? 'scrub' : recorder && !state.recording?.pending ? 'record' : pl.playing ? 'play' : waiting || incoming ? 'work' : 'rest'
   if (mode === swaying) return
   swaying = mode
-  logoMark?.set(mode === 'play' ? { speed: .5, amplitude: () => swell(pl.level), hidden: true } : mode === 'work' ? { speed: .25, amplitude: .45, hidden: true } : { speed: 0, amplitude: 1, hidden: false })
+  heard.hz = 0
+  logoMark?.set({
+    scrub: { signal: () => (output && cycle(output.channels, scrubbed * output.sampleRate, output.sampleRate, heard, .5), heard.wave), cycles: () => cyclesOf(heard.hz), speed: 0, hold: true, hover: 'none', amplitude: () => swell(beneath()), axis: FAINT, hidden: false },
+    record: { signal: () => (recorder?.trace(heard), heard.wave), cycles: () => cyclesOf(heard.hz), speed: PACE, hold: false, hover: 'none', amplitude: () => swell(recorder?.heard ?? 0), axis: FAINT, hidden: true },
+    play: { signal: () => (pl.trace(heard), heard.wave), cycles: () => cyclesOf(heard.hz), speed: PACE, hold: false, hover: 'none', amplitude: () => swell(pl.level), axis: FAINT, hidden: true },
+    work: { signal: 'sine', cycles: 1, speed: .25, hold: false, hover: 'none', amplitude: .45, axis: 0, hidden: true },
+    rest: { signal: 'sine', cycles: 1, speed: 0, hold: false, hover: 'mimic', amplitude: 1, axis: 0, hidden: false },
+  }[mode])
 }
 
+// the panel's tabs; one stored under a name it no longer has opens on the edits, and a closed panel stays closed
+const sides = ['tools', 'edits', 'code', 'export'], sideOf = name => name == null ? null : sides.includes(name) ? name : 'edits'
+
 const state = sprae(root, {
-  layout: stored.layout || (innerWidth < 900 ? 'column' : 'row'), split: stored.side_split || 30, format: stored.format || 'wav',
+  format: stored.format || 'wav', snapping: stored.snap ?? true, fadeCurve: stored.curve || 'linear', curves,
+  scaleList: Object.entries(scales).map(([name, sc]) => ({ name, label: scaleNames[name], text: sc.text })),
+  overlayList: overlays.map(([name, label, title]) => ({ name, label, title })),
+  unitList: UNITS.map(([name, label, example, short]) => ({ name, label, example, short })), levelList, levels: stored.levels === 'linear' ? 'linear' : 'db',
   display: stored.display === 'spec' ? 'spec' : 'wave', scale: stored.scale || 'log', displays, rates, sound: null, viewing: '',
   show: { hits: true, pitch: false, gain: true, meters: true, ...stored.show }, units: stored.units || 'clock',
-  side: 'side' in stored ? stored.side : 'stack', bar: null,
-  name: 'untitled', length: '', hasOutput: false, whole: false, ran: false, problem: '', notice: '', dropping: false,
-  progress: '', loading: false, slow: false, lines: [], saves: [], exporting: false, shared: false, canUndo: false, canRedo: false, steps: [],
-  time: '0:00.000', facts: '', readout: '', selection: null, band: null, ranges: 0, pauses: false, canPaste: false, playing: false, loop: false, recording: null,
-  specs, spec: stored.spec || '', report: null, before: null, checking: false, ab: false, abGain: 0, canCompare: false,
+  side: 'side' in stored ? sideOf(stored.side) : 'edits', bar: null, stepCount: 0,
+  tabs: [], tab: 0, name: 'untitled', length: '', hasOutput: false, whole: false, ran: false, problem: '', notice: '', noticeKind: '', dropping: false,
+  progress: '', loading: false, slow: false, lines: [], saves: [], exporting: false, shared: false, canUndo: false, canRedo: false,
+  time: '0:00.000', readout: '', selection: null, band: null, ranges: 0, carets: 1, pauses: false, canPaste: false, playing: false, loop: false, recording: null,
+  specs, spec: stored.spec || '', report: null, checking: false, ab: false, abGain: 0, canCompare: false,
   query: '', results: [], searching: false, searchState: '', previewing: -1,
-  opQuery: '', samples: Object.entries(builtins).map(([name, text]) => ({ name, text })), generators, formats, clock,
+  toolQuery: '', samples: Object.entries(builtins).map(([name, text]) => ({ name, text })), generators, formats, clock,
   get recipeGroups() { return [...new Set(recipes.map(r => r.group))].map(name => ({ name, items: recipes.filter(r => r.group === name) })) },
-  get opGroups() {
-    const q = this.opQuery.trim().toLowerCase()
-    return GROUPS.map(name => ({ name, items: Object.values(ops).filter(op => op.group === name && (!q || op.name.includes(q) || op.text.toLowerCase().includes(q))) })).filter(g => g.items.length)
+  // The tools: every method, by kind, its group's icon beside it; the words typed find them by name or by what they do
+  get toolGroups() {
+    const q = this.toolQuery.trim().toLowerCase()
+    return GROUPS.map(name => ({ name, icon: groupIcons[name], items: Object.values(ops).filter(op => op.group === name && (!q || op.name.includes(q) || op.text.toLowerCase().includes(q)))
+      .map(op => ({ ...op, label: op.name[0].toUpperCase() + op.name.slice(1) })) })).filter(g => g.items.length)
   },
+  // what a tool acts on: the selection, each range, or all of it
+  get toolTarget() { return this.band ? 'The band selected: the tools act on its time range' : this.ranges > 1 ? `Each of the ${this.ranges} ranges selected` : this.selection ? `The selection, ${stamp(this.selection[0])}–${stamp(this.selection[1])}` : 'All of it; select a range to act on that alone' },
   // Edits for what is selected, in a bar under it: a time range, a band of it on the spectrogram, or at the caret a paste
   get edits() {
     const t = (type, label, keys, icon = type) => ({ type, label, keys, icon: icons[icon] }), level = (type, label, text) => ({ type, label, text })
-    if (this.band) return [t('remove', 'Remove this band', '⌫'), level('quieter', 'This band 6 dB quieter', '−6 dB'), level('louder', 'This band 6 dB louder', '+6 dB'), t('repair', 'Rebuild this band from its surroundings')]
+    if (this.band) return [t('remove', 'Remove this band', '⌫'), level('quieter', 'This band 6 dB quieter', '−6dB'), level('louder', 'This band 6 dB louder', '+6dB'), t('repair', 'Rebuild this band from its surroundings')]
     // several ranges: what acts on each alike; pauses, each shortened
-    if (this.ranges > 1) return [t('remove', `Delete all ${this.ranges}`, '⌫'), level('quieter', `Each 3 dB quieter`, '−3 dB'), level('louder', `Each 3 dB louder`, '+3 dB'), ...(this.pauses ? [level('shorten', 'Shorten each pause to a quarter second', 'Shorten')] : []), level('denoise', `The noise alone in all ${this.ranges}: learned there, taken 12 dB down everywhere`, 'Denoise')]
-    if (this.selection) return [t('cut', 'Cut', '⌘X'), t('copy', 'Copy', '⌘C'), t('remove', 'Delete', '⌫'), t('crop', 'Keep only this'), level('quieter', '3 dB quieter, eased in and out over 5 ms', '−3 dB'), level('louder', '3 dB louder, eased in and out over 5 ms', '+3 dB'), level('denoise', 'The noise alone: learned here, taken 12 dB down everywhere', 'Denoise')]
+    if (this.ranges > 1) return [t('remove', `Delete all ${this.ranges}`, '⌫'), level('quieter', `Each 3 dB quieter`, '−3dB'), level('louder', `Each 3 dB louder`, '+3dB'), ...(this.pauses ? [level('shorten', 'Shorten each pause to a quarter second', 'Shorten')] : []), level('denoise', `The noise alone in all ${this.ranges}: learned there, taken 12 dB down everywhere`, 'Denoise')]
+    if (this.selection) return [t('cut', 'Cut', '⌘X'), t('copy', 'Copy', '⌘C'), t('remove', 'Delete', '⌫'), t('crop', 'Keep only this'), level('quieter', '3 dB quieter, eased in and out over 5 ms', '−3dB'), level('louder', '3 dB louder, eased in and out over 5 ms', '+3dB'), level('denoise', 'The noise alone: learned here, taken 12 dB down everywhere', 'Denoise')]
+    // several carets: a paste at each, a marker at each
+    if (this.carets > 1) return [...(this.canPaste ? [t('paste', `Paste at all ${this.carets}`, '⌘V')] : []), level('mark', `A marker at each of the ${this.carets} carets`, 'Mark each')]
     return this.canPaste ? [t('paste', 'Paste at the cursor', '⌘V')] : []
   },
-  // The check: a verdict on the bar, rule by rule in its panel, the source beside the output
-  get checkLabel() {
-    const s = specs.find(s => s.key === this.spec)
-    if (!this.spec) return 'Check'
-    if (!this.report) return this.checking ? 'Checking…' : s.short
-    const failed = this.report.rules.filter(r => r.pass === false).length
-    return `${mark(this.report.pass)} ${s.short}${failed ? ` · ${failed}` : ''}`
-  },
-  get checkTitle() {
-    if (!this.spec) return 'Check the output against a delivery spec: Apple Podcasts, Spotify, EBU R 128, ACX or Netflix'
-    if (!this.report) return `Checking against ${specs.find(s => s.key === this.spec).label}…`
-    const failed = this.report.rules.filter(r => r.pass === false).map(r => r.name)
-    return `${this.report.name}: ${failed.length ? 'fails ' + failed.join(', ') : 'passes'}. Open for each rule, before and after`
-  },
-  get checkClass() { return this.report && !this.checking ? verdict(this.report.pass) : '' },
+  // The check, rule by rule, in the panel's Export tab: each rule, the output's value and mark, its limit
   get checkRows() {
-    const before = this.before?.rules || []
-    return (this.report?.rules || []).map((r, i) => ({
-      name: r.name, unit: r.unit, limit: limit(r), note: r.note || before[i]?.note || '',
-      after: value(r.value), afterMark: mark(r.pass), afterClass: verdict(r.pass),
-      before: before[i] ? value(before[i].value) : '', beforeMark: before[i] ? mark(before[i].pass) : '', beforeClass: before[i] ? verdict(before[i].pass) : ''
-    }))
-  },
-  get abTitle() {
-    if (!this.canCompare) return 'Before the edits: open a file to compare with'
-    const gain = `${this.abGain >= 0 ? '+' : '−'}${Math.abs(this.abGain).toFixed(1)} dB`
-    return this.ab ? `Hearing before the edits: the file as it opened, level-matched (${gain}). Press to hear after (B)` : 'Hear before the edits: the file as it opened, level-matched, at the same place (B)'
+    return (this.report?.rules || []).map(r => ({ name: r.name, unit: r.unit, limit: limit(r), note: r.note || '', after: value(r.value), afterMark: mark(r.pass), afterClass: verdict(r.pass) }))
   },
   setSpec(key) { state.spec = key; store(); scheduleCheck(0) },
   toggleAB,
-  // The clock: the playhead, the caret, or a selection's start–end, in the units chosen; a click changes the units
+  // The clock: the playhead, the caret, or a selection's start–end, and under it how long that is (several ranges: how
+  // many, and how long in all), in the units the view settings choose
   get timeText() {
     const sel = this.selection
-    if (this.playing || !sel) return this.time
+    if (this.playing || this.recording || !sel) return this.time
     return `${stamp(sel[0])}–${stamp(sel[1])}`
   },
+  get spanText() {
+    if (this.playing || this.recording || !this.selection) return ''
+    return this.ranges > 1 ? `${this.ranges} ranges, ${clock(v.ranges.reduce((n, [p, q]) => n + q - p, 0))} in all` : clock(this.selection[1] - this.selection[0])
+  },
   get timeTitle() {
-    const what = this.playing ? 'Playhead' : this.selection ? 'Selection start and end' : 'Caret'
-    return `${what}, in ${unitsList.find(u => u[0] === this.units)[1].toLowerCase()}. Click for ${unitsList[(unitsList.findIndex(u => u[0] === this.units) + 1) % unitsList.length][1].toLowerCase()}`
+    const what = this.playing ? 'Playhead' : this.selection ? 'Selection: its start, its end, and how long it is' : 'Caret'
+    return `${what}, in ${UNITS.find(u => u[0] === this.units)[1].toLowerCase()} (the view settings)`
   },
-  get undoTitle() { const now = this.steps.find(s => s.current); return `Undo${now && this.canUndo ? `: ${now.label}` : ''} (${keys('⌘Z')})` },
   get plotHelp() {
-    return `${this.display === 'spec' ? 'Spectrogram' : 'Waveform'}. Click to put the caret and hear the moment there; drag to select a time range, or on the spectrogram a time and frequency box; double-click selects between the cues around it, triple-click a phrase. Drag a selection to move its audio, Alt-drag to copy it over; drag its bottom right corner across to stretch it, up or down to change its level or, on the spectrogram, its pitch. The wheel pans; on the times it zooms time, on the frequencies the frequencies.`
+    return `${this.display === 'spec' ? 'Spectrogram' : 'Waveform'}. Click to put the caret and hear the moment there, Alt-click for another caret; drag to select a time range, or on the spectrogram a time and frequency box, Shift keeping it to one axis; a dragged edge or caret snaps to the cues; double-click selects between the cues around it, triple-click a phrase. Drag a selection to move its audio, Alt-drag to copy it over; its top corners fade it (a click, the fade's curve), the pill on its top edge sets its level (on the spectrogram its pitch), the grip in its bottom right corner stretches it. The wheel scrolls; a pinch, or Ctrl and the wheel, zooms the frequencies or the levels over them and time elsewhere.`
   },
-  toggleLayout() { state.layout = state.layout === 'row' ? 'column' : 'row'; store() },
   setSide(name) { state.side = name; store() },
-  toggleSide() { state.side = state.side ? null : 'stack'; store() },
-  setFormat(name) { state.format = name; document.querySelector('#format-menu').hidePopover(); store() },
-  setDisplay, cycleUnits, toggleLoop, undoList, goTo, toggleRecording, resampleTo, remixTo,
+  toggleSide() { state.side = state.side ? null : 'edits'; store() },
+  // the output as the whole chain makes it, from what a step takes out or the chain rolled back
+  showAll: () => rk.choose(null), discard: () => rk.discard(),
+  setFormat(name) { state.format = name; store() },
+  // the checks and the file, in the panel
+  openExport() { state.side = 'export'; store() },
+  setScale(name) { state.scale = v.scale = name; store() },
+  toggleSnap() { state.snapping = v.snapping = !state.snapping; store() },
+  setCurve, toggleShow, setUnits, setLevels,
+  setDisplay, toggleLoop, undoList, goTo, toggleRecording, resampleTo, remixTo,
   togglePlay, playPress, playClick, stop: () => eng.stop(), undo: () => ed.undo(), redo: () => ed.redo(), mac, share, exportFiles,
-  pickFiles, openFiles, startRecording, stopRecording, useSample, useCode, useRecipe, addOp, editSelection, opKey,
-  openSearch, closeSearch, runSearch, typeSearch, preview, useResult,
-  resizeStart, resizeKey
+  switchTab, newTab, closeTab, pickFiles, openFiles, startRecording, stopRecording, useSample, useCode, useRecipe, addOp, editSelection, toolKey, openTools,
+  openSearch, closeSearch, runSearch, typeSearch, preview, useResult
 })
 
-// The script editor
+// The script editor, on the document shown
+const first = await initialDocs()
 ed = editor(root.querySelector('.editor'), {
-  doc: await initialCode(),
+  doc: first.code,
   onchange(code, update) {
-    const slider = update.transactions.some(tr => tr.isUserEvent('input.slider'))
+    const slider = !!update?.transactions.some(tr => tr.isUserEvent('input.slider'))
     state.canUndo = ed.canUndo
     state.canRedo = ed.canRedo
     remember(code, slider)
+    retitle()
     v.envelope = envelopeOf(code)
     schedule(slider ? 0 : 250)
     clearTimeout(store.timer)
@@ -216,14 +233,20 @@ ed = editor(root.querySelector('.editor'), {
   describe: name => eng.describe(name),
   keys: { 'Mod-Enter': togglePlay, 'Mod-s': () => exportFiles() }
 })
+ed.open(first.id)
+state.tab = first.id
+retitle()
+store()
 
 // The output view
 v = view(root.querySelector('.plot'), {
-  spectrum: request => eng.spectrum({ ...request, output: showing }),
   onselect(selection, band, ranges = []) {
     state.selection = selection
+    // the caret goes to the selection's start (view.js); once the selection is gone the clock and play start there
+    if (selection && !pl.playing) { state.time = stamp(selection[0]); pl.seek(selection[0]) }
     state.band = band
     state.ranges = ranges.length
+    state.carets = v?.carets.length ?? 1
     // every range a pause of the output (its silences, worker.js), give or take a pause's block
     state.pauses = ranges.length > 1 && ranges.every(([a, b]) => output?.segments?.silences.some(([p, q]) => Math.abs(p - a) < .03 && Math.abs(q - b) < .03))
     describe()
@@ -232,23 +255,29 @@ v = view(root.querySelector('.plot'), {
   // the caret put elsewhere while it plays: playback goes there, over what is selected now (all of it, if nothing)
   oncursor(t) { if (pl.playing) pl.play(plays(t)); else { state.time = stamp(t); meter(); pl.seek(t) } },
   // an edit made on the picture: true once it is written in the script
-  onedit(type, detail) { const act = { warp, envelope, pitch: shift, move: carry, copy: carry, stretch, lift, fade, unmark, remark }[type]; return !!(act ? act(detail, type) : editSelection(type, detail)) },
-  onscale(name) { state.scale = name; store() },
+  onedit(type, detail) { const act = { warp, envelope, pitch: shift, carry, stretch, lift, fade, unmark, remark }[type]; return !!(act ? act(detail, type) : editSelection(type, detail)) },
+  // a fade's corner clicked: the curves it can take, where it is
+  oncurve({ x, y }) { const menu = root.querySelector('#fade-menu'); Object.assign(menu.style, { left: `${x}px`, top: `${y + 6}px` }); menu.showPopover() },
   onscrub,
   onbox: follow
 })
 v.display = state.display
 v.scale = state.scale
 v.units = state.units
+v.levels = state.levels
 v.show = state.show
+v.snapping = state.snapping
+v.fadeCurve = state.fadeCurve
 v.envelope = envelopeOf(ed.code)
 
-// The stack beside the output; its card in hand draws what it sets over the output (ops.js guides). What the output
-// shows when it is not the whole chain (what a step takes out, the chain rolled back) runs in place of the script.
+// The edits, the stack of the chain's steps; the card under the pointer draws what it sets over the output (ops.js
+// guides). What the output shows when it is not the whole chain (the chain up to the step chosen, what a step takes out)
+// runs in place of the script.
 rk = stack(root.querySelector('.steps'), {
   ed,
   describe: name => eng.describe(name),
   duration: () => v.duration,
+  source: () => { const s = source(ed.code); return s?.strings.length ? s.strings.map(x => label(x.name)).join(' + ') : null },
   oncall(call, spec, values) {
     if (!call || !spec) { v.guides = []; return }
     const named = Object.fromEntries(spec.map((s, i) => [s.name, values[i]]))
@@ -256,6 +285,7 @@ rk = stack(root.querySelector('.steps'), {
     v.guides = guides(call.name, named, v.duration)
   },
   onview(next) { viewing = next; schedule(0) },
+  onsteps(n) { state.stepCount = n },
   // a slider's move shows on the picture at once, where a level says it (ops.js previews), until its output comes
   onpreview(name, was, is) { v.preview(previews[name]?.(was, is, v.duration) ?? null) }
 })
@@ -270,9 +300,10 @@ function menus() {
   const recipesMenu = [...new Set(recipes.map(r => r.group))].flatMap(group => [{ group }, ...recipes.filter(r => r.group === group).map(r => ({ label: r.name, hint: r.text, run: () => useRecipe(r) }))])
   const edit = (label, type, key, when) => ({ label, keys: key && keys(key), run: () => editSelection(type), disabled: !when })
   return [
-    { name: 'File', title: 'Open, record or find a sound; samples, generators, recipes; export', items: [
+    { name: 'File', title: 'A new tab; open, record or find a sound; samples, generators, recipes; export', items: [
+      { label: 'New tab', hint: 'An empty script', run: () => newTab() },
       { label: 'Open file…', keys: keys('⌘O'), run: pickFiles },
-      { label: 'Record', run: startRecording, disabled: !!state.recording },
+      { label: state.whole ? 'Record at the caret' : 'Record', hint: state.whole ? 'Over what is there, as a tape' : '', run: startRecording, disabled: !!state.recording },
       { label: 'Find a sound…', run: openSearch },
       { label: 'Samples', items: Object.entries(builtins).map(([name, text]) => ({ label: name, hint: text, run: () => useSample(name) })) },
       { label: 'Generate', items: generators.map(g => ({ label: g.name, hint: g.text, run: () => useCode(g.code) })) },
@@ -281,7 +312,9 @@ function menus() {
       { label: state.saves.length > 1 ? `Export ${state.saves.length} files` : 'Export', keys: keys('⌘S'), run: exportFiles, disabled: none || state.exporting },
       { label: 'Export as', items: formats.map(f => check(f.name.toUpperCase(), state.format === f.name, () => state.setFormat(f.name), { hint: f.text })), disabled: state.saves.length > 0 },
       { label: 'Export the parts between markers', run: () => exportFiles(true), disabled: none || !output?.markers?.length },
-      { label: 'Copy a link to this script', run: share }
+      { label: 'Copy a link to this script', run: share },
+      '-',
+      { label: 'Close tab', hint: 'Its script and its edits go', run: () => closeTab() }
     ] },
     { name: 'Edit', title: 'Undo and history; cut, copy, paste, delete; levels; methods', items: [
       { label: 'Undo', keys: keys('⌘Z'), run: () => ed.undo(), disabled: !state.canUndo },
@@ -298,7 +331,7 @@ function menus() {
       edit(band ? '6 dB louder' : '3 dB louder', 'louder', '', sel),
       edit('Rebuild the band from around it', 'repair', '', band),
       edit('Take this noise out everywhere', 'denoise', '', sel && !band),
-      { label: sel ? 'Apply a method to the selection…' : 'Add a method…', run: () => openAdd(), disabled: none },
+      { label: sel ? 'Apply a tool to the selection…' : 'Add a tool…', run: () => openTools(), disabled: none },
       '-',
       { label: 'Add a marker', keys: 'M', run: addMarker, disabled: none },
       { label: 'A double-click on a marker takes it away', disabled: true }
@@ -323,27 +356,30 @@ function menus() {
     ] },
     { name: 'View', title: 'Waveform and spectrogram, what shows on them; zoom; panels; units', items: [
       ...displays.map(d => check(d.label, state.display === d.name, () => setDisplay(d.name))),
-      { label: 'Frequency scale', items: Object.entries(scales).map(([name, sc]) => check({ log: 'Octaves', mel: 'Mel', lin: 'Hertz' }[name], state.scale === name, () => { v.scale = name; state.scale = name; store() }, { hint: sc.text })) },
+      { label: 'Frequency scale', items: Object.entries(scales).map(([name, sc]) => check(scaleNames[name], state.scale === name, () => state.setScale(name), { hint: sc.text })) },
       '-',
       ...overlays.map(([name, label]) => check(label, state.show[name], () => toggleShow(name))),
+      check('Snap to cues and markers', state.snapping, () => state.toggleSnap()),
       '-',
       { label: 'Zoom in', keys: '=', run: () => v.zoom(.5), disabled: none },
       { label: 'Zoom out', keys: '−', run: () => v.zoom(2), disabled: none },
       { label: 'Zoom to the selection', run: () => v.zoomTo(...sel), disabled: !sel },
       { label: 'Show all of it', keys: '0', run: () => v.fit(), disabled: none },
       '-',
-      check('The chain', !!state.side, () => state.toggleSide()),
-      check('Its stack', state.side === 'stack', () => state.setSide('stack')),
+      check('The panel', !!state.side, () => state.toggleSide()),
+      check('Its tools', state.side === 'tools', () => state.setSide('tools')),
+      check('Its edits', state.side === 'edits', () => state.setSide('edits')),
       check('Its code', state.side === 'code', () => state.setSide('code')),
-      check('The chain beside the output', state.layout === 'row', () => state.toggleLayout()),
-      { label: 'Times in', items: unitsList.map(([name, label, example]) => check(label, state.units === name, () => setUnits(name), { hint: example })) },
+      check('Its export', state.side === 'export', () => state.setSide('export')),
+      { label: 'Times in', items: UNITS.map(([name, label, example]) => check(label, state.units === name, () => setUnits(name), { hint: example })) },
+      { label: 'Levels in', items: levelList.map(l => check(l.label, state.levels === l.name, () => setLevels(l.name), { hint: l.example })) },
       '-',
       { label: 'Reset the view', run: resetView }
     ] },
     { name: 'Process', title: 'Every method by kind, for the output or the selection', items: [
       ...GROUPS.map(group => ({ label: group, items: Object.values(ops).filter(op => op.group === group).map(op => ({ label: op.name, hint: op.text, run: () => addOp(op.name) })), disabled: none })),
       '-',
-      { label: 'Find a method…', run: () => openAdd(), disabled: none }
+      { label: 'Find a tool…', run: () => openTools(), disabled: none }
     ] },
     { name: 'Play', title: 'Play, loop, hear it before the edits; delivery checks', items: [
       { label: state.playing ? 'Pause' : sel ? 'Play the selection' : 'Play from the caret', keys: 'Space', run: togglePlay, disabled: !whole },
@@ -362,30 +398,30 @@ function menus() {
 menubar(root.querySelector('.menubar'), menus)
 // the keys in the help as this platform names them
 for (const dt of root.querySelectorAll('.help-list dt')) dt.textContent = keys(dt.textContent)
-// The method list, from a menu: at the stack's + where the stack shows, else under the bar
-function openAdd() {
-  const menu = document.querySelector('#add-menu'), at = root.querySelector('.add-step')
-  const anchored = at?.offsetParent != null
-  menu.classList.toggle('floating', !anchored)
-  menu.showPopover(anchored ? { source: at } : undefined)
+// The tools, from a menu or the bar of edits: the panel opens on them, the words to find one in hand
+function openTools() {
+  closeMenus()
+  state.side = 'tools'
+  store()
+  requestAnimationFrame(() => root.querySelector('.tool-search')?.focus())
 }
 function resetView() {
   v.fit()
   state.display = v.display = 'wave'
   state.show = { hits: true, pitch: false, gain: true, meters: true }
   setUnits('clock')
+  setLevels('db')
   marks()
   store()
 }
 
 // The bar of edits follows what is selected, centred under it and kept inside the picture: under a range (it spans
-// the lanes, so the bar sits at their foot), under a box on the spectrogram or over it where there is no room, at the
-// caret for a paste. None while a drag goes on.
+// the lanes, so the bar sits at their foot, clear of the grip that stretches it), under a box on the spectrogram or
+// over it where there is no room, at the caret for a paste. None while a drag goes on.
 function follow(box) {
   if (!box) { state.bar = null; return }
   const edits = root.querySelector('.edits'), plot = root.querySelector('.plot'), w = edits.offsetWidth || 240, h = edits.offsetHeight || 36
   const x = Math.max(w / 2 + 4, Math.min(box.width - w / 2 - 4, (box.x0 + box.x1) / 2))
-  // under a range it stands clear of the corner that transforms it
   const y = box.band ? (box.y1 + 6 + h <= box.height ? box.y1 + 6 : Math.max(4, box.y0 - 6 - h)) : box.y1 - h - 22
   state.bar = { x: Math.round(x), y: Math.round(Math.min(y, plot.clientHeight - h - 4)) }
 }
@@ -402,7 +438,7 @@ async function evaluate() {
   // the whole chain, what one step of it takes out, or the chain rolled back, as the stack says
   const calls = chain(code)?.calls || [], { delta, back } = viewing, step = calls[delta]
   const runs = step ? residual(code, delta) : back != null ? rollback(code, back) : code
-  state.viewing = step ? `What .${step.name}() takes out` : back != null && back < calls.length ? `Rolled back to ${back ? `.${calls[back - 1].name}()` : 'the source'}` : ''
+  state.viewing = step ? `What .${step.name}() takes out` : back != null && back < calls.length ? back ? `Up to .${calls[back - 1].name}()` : 'The source alone' : ''
   const script = prepare(runs)
   // Built-in samples are made when a script first names one; the worker takes messages in order, so the file
   // arrives before the run that opens it, and runs stay in the order they were asked for.
@@ -417,8 +453,8 @@ async function evaluate() {
   status()
 }
 
-// A run's reply: what the script printed in the console under it; what went wrong, once, in the bar beside the time,
-// in place of the output's figures, and at its line in the script. The last output that ran stays. A sound it made
+// A run's reply: what the script printed in the console under it; what went wrong, in the status bar after the time
+// and at its line in the script. The last output that ran stays. A sound it made
 // then arrives (arrival).
 function show(result, syntax = false, names = [], coming = null) {
   // the first result, whatever it is, says whether there is a sound: until then the view waits, not invites
@@ -426,7 +462,8 @@ function show(result, syntax = false, names = [], coming = null) {
   const lines = [...(result.logs || [])], e = result.error
   if (result.value != null) lines.push({ level: 'value', text: result.value })
   state.lines = lines
-  state.problem = e ? e.message + (e.line ? ` (line ${e.line})` : '') : ''
+  const problem = e ? e.message + (e.line ? ` (line ${e.line})` : '') : ''
+  state.problem = problem
   if (syntax) return
   const doc = ed.view.state.doc
   ed.errors(e?.line && e.line <= doc.lines ? [{ from: doc.line(e.line).from, to: doc.line(e.line).to, message: e.message }] : [])
@@ -544,10 +581,10 @@ let ticking = 0
 function status() {
   const now = performance.now(), a = incoming
   let text = '', since = null
-  if (a?.loaded) text = a.loaded.estimate ? `Loading ${Math.min(99, Math.floor(a.loaded.at / a.loaded.estimate * 100))}%` : `Loading ${a.loaded.at.toFixed(1)} s`
+  if (a?.loaded) text = a.loaded.estimate ? `Loading ${Math.min(99, Math.floor(a.loaded.at / a.loaded.estimate * 100))}%` : `Loading ${a.loaded.at.toFixed(1)}s`
   else if (waiting && now - waited > 300) { text = 'Running…'; since = waited }
   else if (a && now - a.last > 400) { text = 'Rendering…'; since = a.last }
-  state.progress = text && since != null && now - since > 1000 ? `${text} ${((now - since) / 1000).toFixed(1)} s` : text
+  state.progress = text && since != null && now - since > 1000 ? `${text} ${((now - since) / 1000).toFixed(1)}s` : text
   state.slow = since != null && now - since > 2000
   const busy = waiting || a
   if (busy && !ticking) ticking = setInterval(status, 100)
@@ -566,27 +603,28 @@ function entitle(names, has) {
 // The one file the script opens, whose original the output compares with; none for generated or joined sources.
 const sourceName = () => { const s = source(ed.code)?.strings; return s?.length === 1 ? s[0].name : null }
 
-// Checks the output (and the file it came from) against the chosen spec, a moment after it settles; a newer output's
-// check replaces an older one's, which the page then ignores.
+// Checks the output against the chosen spec, a moment after it settles; a newer output's check replaces an older one's,
+// which the page then ignores.
 function scheduleCheck(delay = 300) {
   clearTimeout(scheduleCheck.timer)
-  if (!state.spec || !state.hasOutput) { state.report = state.before = null; state.checking = false; return }
+  if (!state.spec || !state.hasOutput) { state.report = null; state.checking = false; return }
   state.checking = true
   scheduleCheck.timer = setTimeout(async () => {
-    const seq = ++checks, spec = state.spec, r = await eng.check(spec, sourceName())
+    const seq = ++checks, spec = state.spec, r = await eng.check(spec)
     if (seq !== checks || spec !== state.spec) return
     state.checking = false
-    if (r.error) { state.report = state.before = null; return note(`Check failed: ${r.error.message}`) }
+    if (r.error) { state.report = null; return note(`Check failed: ${r.error.message}`) }
     state.report = r.output
-    state.before = r.input
   }, delay)
 }
 
 // A/B: the original at the same place, level-matched to the output; the next output, or B again, returns to it.
+// B, or Play > Hear it before the edits; the word over the picture says which is heard
 async function toggleAB() {
   const name = sourceName()
   if (!state.hasOutput) return
-  if (state.ab || !name) { state.ab = false; pl.set(output.channels, output.sampleRate); return }
+  if (!name) return note('A generated sound has no file as it opened to hear it against.')
+  if (state.ab) { state.ab = false; pl.set(output.channels, output.sampleRate); return note('Hearing the output, after the edits') }
   const loudness = output.stats.loudness
   if (original?.name !== name || original.loudness !== loudness) {
     const r = await eng.original(name, loudness)
@@ -596,6 +634,7 @@ async function toggleAB() {
   state.ab = true
   state.abGain = original.gain
   pl.set(original.channels, original.sampleRate)
+  note(`Hearing before the edits: the file as it opened, level-matched (${original.gain >= 0 ? '+' : '−'}${Math.abs(original.gain).toFixed(1)}dB). B for after`)
 }
 
 // What the picture shows besides the sound, as the View menu says: the hits, the pitch curve, the gain line, meters.
@@ -629,32 +668,28 @@ function setDisplay(name) {
   store()
 }
 
-// The display's two rows: what the output is (its rate, channels, depth), or the selection's length, beside the loop
-// switch; below, its levels: the output's peak and loudness, the selection's peak and RMS, or the band selected.
-const hertz = f => f >= 1000 ? `${+(f / 1000).toFixed(2)} kHz` : `${Math.round(f)} Hz`
+// What the output is, at the status bar's right: its levels (the output's peak and loudness, the selection's peak and
+// RMS, or the band selected), then its rate, channels and depth, a click away from resampling and remixing.
+const hertz = f => f >= 1000 ? `${+(f / 1000).toFixed(2)}kHz` : `${Math.round(f)}Hz`
 function describe() {
   state.sound = null
-  if (!output?.duration) { state.facts = state.readout = ''; return }
-  const sel = state.selection
-  if (sel) {
-    const [a, b] = sel, rate = output.sampleRate, from = Math.floor(a * rate), to = Math.ceil(b * rate)
-    let peak = 0, sum = 0, n = 0
-    for (const ch of output.channels) for (let i = from; i < to && i < ch.length; i++) { const x = ch[i]; sum += x * x; n++; if (Math.abs(x) > peak) peak = Math.abs(x) }
-    state.facts = state.ranges > 1 ? `${state.ranges} ranges, ${span(v.ranges.reduce((n, [p, q]) => n + q - p, 0))} in all` : span(b - a)
-    state.readout = state.band ? `${hertz(state.band[0])} – ${hertz(state.band[1])}` : `peak ${dbfs(20 * Math.log10(peak))} dB · RMS ${dbfs(10 * Math.log10(sum / Math.max(1, n)))} dB`
-    return
-  }
+  if (!output?.duration) { state.readout = ''; return }
   const { sampleRate, channels, stats, bitDepth } = output, k = channels.length
-  state.sound = { hz: sampleRate, rate: `${+(sampleRate / 1000).toFixed(3)} kHz`, count: k, channels: k === 1 ? 'mono' : k === 2 ? 'stereo' : `${k} ch`, depth: bitDepth ? `${bitDepth}-bit` : '' }
-  state.readout = [`peak ${dbfs(stats.peak)} dBFS`, Number.isFinite(stats.loudness) ? `${dbfs(stats.loudness)} LUFS` : ''].filter(Boolean).join(' · ')
+  state.sound = { hz: sampleRate, rate: `${+(sampleRate / 1000).toFixed(3)}kHz`, count: k, channels: k === 1 ? 'mono' : k === 2 ? 'stereo' : `${k} ch`, depth: bitDepth ? `${bitDepth}-bit` : '' }
+  const sel = state.selection
+  if (!sel) { state.readout = [`peak ${dbfs(stats.peak)}dBFS`, Number.isFinite(stats.loudness) ? `${dbfs(stats.loudness)}LUFS` : ''].filter(Boolean).join(' · '); return }
+  const [a, b] = sel, rate = output.sampleRate, from = Math.floor(a * rate), to = Math.ceil(b * rate)
+  let peak = 0, sum = 0, n = 0
+  for (const ch of output.channels) for (let i = from; i < to && i < ch.length; i++) { const x = ch[i]; sum += x * x; n++; if (Math.abs(x) > peak) peak = Math.abs(x) }
+  state.readout = state.band ? `${hertz(state.band[0])}–${hertz(state.band[1])}` : `peak ${dbfs(20 * Math.log10(peak))}dB · RMS ${dbfs(10 * Math.log10(sum / Math.max(1, n)))}dB`
 }
-function cycleUnits() { setUnits(unitsList[(unitsList.findIndex(u => u[0] === state.units) + 1) % unitsList.length][0]) }
 function setUnits(name) {
   state.units = v.units = name
   state.time = stamp(pl.playing ? pl.time : v.cursor)
   describe()
   store()
 }
+function setLevels(name) { state.levels = v.levels = name; store() }
 function toggleLoop() { state.loop = !state.loop; pl.loop = state.loop }
 // The sound's rate or channels changed from the display: the chain's last resample() or remix() set again, else one
 // added at its end
@@ -681,7 +716,6 @@ function undoList() {
   return steps.map((s, index) => ({ index, label: s?.label ?? '', current: index === back, ahead: index > back })).reverse()
 }
 function goTo(index) {
-  document.querySelector('#history-menu').hidePopover()
   const [back] = ed.depth
   for (let i = back; i > index; i--) ed.undo()
   for (let i = back; i < index; i++) ed.redo()
@@ -705,7 +739,7 @@ function said(before, after) {
 const brief = t => t.length > 28 ? t.slice(0, 27) + '…' : t || '()'
 function named(code, k) {
   const range = k.args.find(a => a.kind === 'object')?.props, at = range?.find(p => p.name === 'at')?.value, d = range?.find(p => p.name === 'duration')?.value
-  const where = typeof at === 'number' && typeof d === 'number' ? ` ${at.toFixed(2)}–${(at + d).toFixed(2)} s` : ''
+  const where = typeof at === 'number' && typeof d === 'number' ? ` ${at.toFixed(2)}–${(at + d).toFixed(2)}s` : ''
   return verbs[k.name] ? verbs[k.name] + where : `.${k.name}(${brief(code.slice(k.list.from + 1, k.list.to - 1).replace(/\s+/g, ' ').trim())})`
 }
 
@@ -741,28 +775,39 @@ async function togglePlay() {
 let resume = false
 function onscrub(t, band) {
   if (t != null) {
-    if (pl.playing) { resume = true; cancelAnimationFrame(ticker); state.playing = false; v.playhead = null; sway() }
+    if (pl.playing) { resume = true; cancelAnimationFrame(ticker); state.playing = false; v.playhead = null }
+    // the mark turns with the caret's travel
+    if (scrubbed != null) logoMark?.turn(PACE * (t - scrubbed))
+    scrubbed = t
+    sway()
     return pl.scrub(t, band)
   }
+  scrubbed = null
   pl.scrub(null)
   if (resume) { resume = false; togglePlay() }
+  sway()
 }
 
 // Edits made on the picture become calls at the end of the output chain, their times to the view's precision. A band
 // selection edits only its frequencies.
 function editSelection(type, range = v.selection) {
   if (type === 'undo' || type === 'redo') return ed[type]()
+  if (type === 'mark') return addMarker()
+  // a paste at each caret, from the last back so each time holds for the ones before it
+  if (type === 'paste') {
+    const at = Array.isArray(range?.[0]) ? range.map(r => r[0]) : v.carets.length ? v.carets : [v.cursor]
+    return !!write(at.sort((p, q) => q - p).map(t => `paste(${number(t, v.unit)})`).join('.'))
+  }
   // an op that learns from the selection takes it whole, every range
   if (ops[type]?.params?.some(s => s.selection)) return addOp(type)
   const all = Array.isArray(range?.[0]) ? range : !v.band && v.ranges.length > 1 ? v.ranges : null
   if (all?.length > 1) return editRanges(type, all)
   if (all) range = all[0]
-  if (!range && type !== 'paste') return
+  if (!range) return
   if (type === 'quieter' || type === 'louder') return v.band ? bandLevel(type === 'louder' ? 1 : -1, range) : level(type === 'louder' ? 3 : -3, range)
-  const [a, b] = range || [v.cursor, v.cursor], s = t => number(t, v.unit), span = `{ at: ${s(a)}, duration: ${s(b - a)} }`, band = v.band
+  const [a, b] = range, s = t => number(t, v.unit), span = `{ at: ${s(a)}, duration: ${s(b - a)} }`, band = v.band
   const hz = band && `[${band.map(f => Math.round(f)).join(', ')}]`
-  const call = type === 'paste' ? `paste(${s(a)})`
-    : band ? { remove: `spectral(${hz}, ${span})`, repair: `repair(${hz}, ${span})` }[type]
+  const call = band ? { remove: `spectral(${hz}, ${span})`, repair: `repair(${hz}, ${span})` }[type]
     : `${type}(${span})`
   if (!call || !write(call)) return false
   if (band) return true
@@ -825,9 +870,9 @@ function warp({ from, to, prev, next }) {
 
 // A selection's audio dragged elsewhere: cut and pasted where it lands, the rest closing up behind it; with Alt, a
 // copy of it over what is there. One step, so one undo.
-function carry({ at, duration, to }, type) {
+function carry({ at, duration, to, copy }) {
   const s = t => number(t, v.unit), span = `{ at: ${s(at)}, duration: ${s(duration)} }`
-  return write(type === 'move' ? `cut(${span}).paste(${s(to)})` : `copy(${span}).remove({ at: ${s(to)}, duration: ${s(duration)} }).paste(${s(to)})`)
+  return write(copy ? `copy(${span}).remove({ at: ${s(to)}, duration: ${s(duration)} }).paste(${s(to)})` : `cut(${span}).paste(${s(to)})`)
 }
 // A selection stretched from its end, pitch kept; what follows moves with it
 function stretch({ at, duration, factor }) {
@@ -835,10 +880,10 @@ function stretch({ at, duration, factor }) {
 }
 // A selection's level moved up or down by the pointer, onto the gain curve as a level change is
 const lift = ({ range, db, drawn }) => level(db, range, !drawn)
-// A marker at the caret, or where it plays while it plays: mark() at the chain's end (M)
+// A marker at the caret, at each when there are several, or where it plays while it plays: mark() at the chain's end (M)
 function addMarker() {
   if (!state.whole) return
-  return write(`mark(${number(pl.playing ? pl.time : v.cursor, v.unit)})`)
+  return write((pl.playing ? [pl.time] : v.carets).map(t => `mark(${number(t, v.unit)})`).join('.'))
 }
 // The mark() call that set a marker: the one whose time is nearest
 function markCall(time) {
@@ -859,10 +904,20 @@ function remark({ time, to }) {
   ed.change({ from: at.from, to: at.to, insert: number(Math.max(0, at.value + to - time), v.unit) })
   return true
 }
-// A selection faded in from its start, or out to its end, over `length` s
-function fade({ kind, at, duration, length }) {
+// A fade in or out over [from, to], from a selection's corner: from its edge inward, or centred on its edge; on its
+// curve, unless it is the straight one fade() takes by default
+function fade({ kind, from, to, curve = 'linear' }) {
   const s = t => number(t, v.unit)
-  return write(kind === 'in' ? `fade(${s(length)}, { at: ${s(at)} })` : `fade(${s(-length)}, { at: ${s(at + duration - length)} })`)
+  return write(`fade(${s(kind === 'in' ? to - from : from - to)}, { at: ${s(from)}${curve === 'linear' ? '' : `, curve: '${curve}'`} })`)
+}
+// The curve fades take from the corners, chosen from one: the fade just made there takes it too, when it is the
+// chain's last step and one a corner makes (its time in an options object)
+function setCurve(name) {
+  root.querySelector('#fade-menu').hidePopover()
+  state.fadeCurve = v.fadeCurve = name
+  store()
+  const last = lastEdit(ed.code, 'fade')?.call
+  if (last?.args.find(a => a.kind === 'object')?.props.some(p => p.name === 'at')) ed.change(setArg(last, 'curve', name))
 }
 
 // The gain line's points: one gain() curve in dB, updated in place; no points removes it.
@@ -873,7 +928,8 @@ function envelope({ t, v: dbs }) {
   if (curve) return ed.change({ from: last.call.list.from + 1, to: last.call.list.to - 1, insert: text }), true
   return !!(t.length && write(`gain(${text})`))
 }
-const curveOf = call => { const o = call?.args[0]; const t = o?.props?.find(p => p.name === 't')?.value, v = o?.props?.find(p => p.name === 'v')?.value; return Array.isArray(t) && Array.isArray(v) && t.length === v.length ? { t, v } : null }
+// hoisted: the page draws the gain line of the script it opens with before this line runs
+function curveOf(call) { const o = call?.args[0]; const t = o?.props?.find(p => p.name === 't')?.value, v = o?.props?.find(p => p.name === 'v')?.value; return Array.isArray(t) && Array.isArray(v) && t.length === v.length ? { t, v } : null }
 // The curve the gain line shows: the chain's last gain() curve.
 function envelopeOf(code) {
   const calls = chain(code)?.calls || []
@@ -930,13 +986,23 @@ function bandLevel(sign, [a, b]) {
   write(`spectral([${band.join(', ')}], ${6 * sign}, { at: ${s(a)}, duration: ${s(b - a)} })`)
 }
 
+// A tool added: its call at the end of the chain, on the selection (each range) if there is one; its card is the one
+// chosen among the edits, open, its sliders in hand (the panel turns to them from the tools), and the code's caret goes
+// into it.
 function addOp(name) {
-  document.querySelector('#add-menu').hidePopover()
   const op = ops[name], learn = op?.params?.find(s => s.selection), several = v.ranges.length > 1 && !v.band
   const span = ([a, b]) => `{ at: ${number(a, v.unit)}, duration: ${number(b - a, v.unit)} }`
   const call = args => /^[\w$]+$/.test(name) ? `${name}(${args})` : `['${name}'](${args})`
-  // The caret goes into the new call, so its sliders open.
-  const add = text => { const change = write(text); if (change) ed.select(change.from + change.insert.indexOf(text) + text.indexOf('(') + 1) }
+  const add = text => {
+    const change = write(text)
+    if (!change) return
+    // the last call it wrote, where its "(" is
+    const end = change.from + change.insert.length, at = chain(ed.code)?.calls.findLast(k => k.list.from >= change.from && k.list.from < end)?.list.from
+    if (at == null) return
+    ed.select(at + 1)
+    if (state.side === 'tools') { state.side = 'edits'; store() }
+    rk.choose(at)
+  }
   // what it learns from is what is selected (denoise: where the noise plays alone), every range of it; it acts on all
   if (learn) {
     const list = v.band ? [] : several ? [...v.ranges].sort((p, q) => p[0] - q[0]) : v.selection ? [v.selection] : []
@@ -944,10 +1010,11 @@ function addOp(name) {
     return add(call(`{ ${learn.name}: ${list.length > 1 ? `[${list.map(span).join(', ')}]` : span(list[0])} }`))
   }
   // several ranges: the method on each, from the last back, in one step
-  if (several) return write([...v.ranges].sort((p, q) => q[0] - p[0]).map(r => call(span(r))).join('.'))
-  // a selection of all of it is no range at all
+  const needs = (op.params || []).slice(0, (op.params || []).findLastIndex(s => s.required) + 1).map(s => typeof s.default === 'string' ? quote(s.default) : String(s.default))
+  if (several) return add([...v.ranges].sort((p, q) => q[0] - p[0]).map(r => call([...needs, span(r)].join(', '))).join('.'))
+  // a selection of all of it is no range at all; what the library can't do without is written, set to its default
   const sel = v.selection && (v.selection[0] > v.unit / 2 || v.selection[1] < v.duration - v.unit / 2) ? v.selection : null
-  add(call(sel ? span(sel) : op.range ? `{ at: 0, duration: ${number(v.duration)} }` : ''))
+  add(call([...needs, sel ? span(sel) : op.range ? `{ at: 0, duration: ${number(v.duration)} }` : ''].filter(Boolean).join(', ')))
 }
 function write(call) {
   const change = append(ed.code, call)
@@ -955,17 +1022,25 @@ function write(call) {
   ed.change(change)
   return change
 }
-function opKey(event) {
+// Enter in the tools' search adds the first found; Escape clears the words
+function toolKey(event) {
+  if (event.key === 'Escape' && state.toolQuery) { event.preventDefault(); state.toolQuery = '' }
   if (event.key !== 'Enter') return
-  const first = state.opGroups[0]?.items[0]
+  const first = state.toolGroups[0]?.items[0]
   if (first) addOp(first.name)
 }
-function note(text) { state.notice = text; clearTimeout(note.timer); note.timer = setTimeout(() => state.notice = '', 4000) }
+// A word over the picture for a few seconds: a hint, or what went wrong (`error`), longer
+function note(text, kind = '') {
+  state.notice = text
+  state.noticeKind = kind
+  clearTimeout(note.timer)
+  note.timer = setTimeout(() => state.notice = '', kind === 'error' ? 8000 : 4000)
+}
 
-// Sources. A new source replaces the one the output chain has (the same edits apply to it);
-// a file dropped on the waveform joins it at the end; one dropped on the script is written where it lands.
+// Sources. A new sound opens in a tab of its own, or in the tab shown if it is empty; a file dropped on the waveform
+// joins it at the end; one dropped on the script is written where it lands.
 function pickFiles() { closeMenus(); root.querySelector('.file-input').click() }
-async function openFiles(list, how = 'replace', at = null) {
+async function openFiles(list, how = 'new', at = null) {
   root.querySelector('.file-input').value = ''
   const files = list.filter(f => /^(audio|video)\//.test(f.type) || /\.(wav|mp3|flac|ogg|oga|opus|m4a|aac|aiff?|caf|webm|mp4|mov|wma|amr|mka)$/i.test(f.name))
   if (!files.length) return note(list.length ? 'Those are not audio files.' : '')
@@ -986,26 +1061,22 @@ function place(names, how, at = null) {
   if (how === 'join' && src?.array) return ed.change({ from: src.array[1] - 1, insert: ', ' + list.join(', ') })
   if (how === 'join' && src?.strings.length === 1) return ed.change({ from: src.strings[0].from, to: src.strings[0].to, insert: `[${[quote(src.strings[0].name), ...list].join(', ')}]` })
   if (how === 'join' && chain(code)) return write(`insert(audio(${expr}))`)
-  ed.change(over(code, `audio(${expr})`))
+  opening(`audio(${expr})`)
 }
-// A new sound in the script: over the one it opens (a file, or the audio.from(…) making it), so the edits after it
-// stay; into an empty script; else after what is written there, which stays too. `before` goes on a line above it.
-function over(code, insert, before = '') {
-  const src = source(code), c = src ? null : chain(code), made = c && code.slice(c.root.from, c.root.to) === 'audio' && c.calls[0]?.name === 'from'
-  const at = src || (made && { from: c.root.from, to: c.calls[0].to })
-  if (at) return before ? [{ from: code.lastIndexOf('\n', at.from - 1) + 1, insert: before + '\n' }, { from: at.from, to: at.to, insert }] : { from: at.from, to: at.to, insert }
-  const text = (before ? before + '\n' : '') + insert
-  return code.trim() ? { from: code.length, insert: `\n\n${text}` } : { from: 0, to: code.length, insert: text }
+// A new sound, in a tab of its own unless the one shown is empty; `before` on a line above the statement that opens it
+function opening(insert, before = '') {
+  if (ed.code.trim()) newTab()
+  ed.change({ from: 0, to: ed.code.length, insert: (before ? before + '\n' : '') + insert })
 }
 async function useSample(name) {
   closeMenus()
   if (!eng.has(name)) await eng.file(name, sample(name))
-  place([name], 'replace')
+  place([name], 'new')
 }
 function useCode(code) {
   closeMenus()
   state.problem = ''
-  ed.change(over(ed.code, code))
+  opening(code)
 }
 function useRecipe(recipe) {
   closeMenus()
@@ -1016,38 +1087,71 @@ function useRecipe(recipe) {
 }
 const closeMenus = () => { for (const menu of root.querySelectorAll('[popover]')) if (menu.matches(':popover-open')) menu.hidePopover() }
 
+// Recording goes into the waveform as it comes, as a dictaphone's. Over the output, from the caret or the selection's
+// start, what it covers is replaced, as a tape records on (a punch-in), and extended past the end: one write() step,
+// undone as any edit. A selection ends it at its end; with the loop on, each pass starts over there and replaces the
+// last, the take the one that was going when it stopped. With nothing open, the take is the sound.
+let take = null
 async function startRecording() {
   closeMenus()
   if (recorder || state.recording) return
   if (pl.playing) togglePlay()
-  state.recording = { pending: true, time: '0:00.0', level: 0 }
+  const into = state.whole, sel = into && !v.band ? v.selection : null
+  const t = take = { into, at: into ? (sel ? sel[0] : v.cursor) : 0, until: sel ? sel[1] : null, samples: 0, pass: 0, queue: [], frame: 0, started: false }
+  state.recording = { pending: true }
   try {
-    recorder = await record()
+    recorder = await record({ onblock: block => { t.queue.push(block); t.frame ||= requestAnimationFrame(() => flush(t)) } })
     if (!state.recording) return recorder.cancel()
+    t.rate = recorder.sampleRate
     state.recording.pending = false
-    const started = performance.now()
-    recorder.clock = setInterval(() => {
-      if (!state.recording) return
-      state.recording.time = clock((performance.now() - started) / 1000, 1)
-      state.recording.level = Math.min(1, recorder.level)
-    }, 80)
+    sway()
   } catch (e) {
     state.recording = null
-    recorder = null
+    recorder = take = null
+    sway()
     note(e?.name === 'NotAllowedError' ? 'Microphone access was denied. Allow it in the browser to record.' : 'The microphone is not available.')
   }
 }
+// The blocks come since the last frame: onto the picture, the playhead where the take has got to
+function flush(t) {
+  t.frame = 0
+  const blocks = t.queue.splice(0)
+  if (take !== t || !blocks.length) return
+  const begin = () => t.into ? v.take({ at: t.at, sampleRate: t.rate, channels: blocks[0].length }) : v.stream({ sampleRate: t.rate, channels: blocks[0].length, total: null })
+  if (!t.started) { t.started = true; begin(); state.hasOutput = true }
+  const room = t.until == null ? Infinity : Math.round((t.until - t.at) * t.rate)
+  for (const block of blocks) {
+    // past the selection's end: with the loop on, the next pass, over it again; else the take ends
+    if (t.samples - t.pass >= room) {
+      if (!state.loop) return stopRecording()
+      t.pass = t.samples
+      begin()
+    }
+    t.samples += block[0].length
+    t.into ? v.grow(block) : v.append(block)
+  }
+  const at = t.at + (t.samples - t.pass) / t.rate
+  v.playhead = at
+  state.time = stamp(at)
+}
 async function stopRecording() {
-  const take = recorder
-  if (!take) { state.recording = null; return }
-  clearInterval(take.clock)
-  recorder = null
-  const audio = take.stop()
+  const rec = recorder, t = take
+  if (!rec) { state.recording = null; return }
+  recorder = take = null
+  cancelAnimationFrame(t.frame)
+  const got = rec.stop()
   state.recording = null
-  if (!audio.channels[0]?.length) return note('Nothing was recorded.')
-  const name = unique('recording.wav', new Set(eng.names))
-  await eng.file(name, audio)
-  place([name], 'replace')
+  v.playhead = null
+  sway()
+  // the last pass, to the selection's end
+  const length = t.until == null ? Infinity : Math.round((t.until - t.at) * got.sampleRate)
+  const channels = got.channels.map(c => c.slice(t.pass, t.pass + length))
+  if (!channels[0]?.length) { if (t.into) v.take(null); return note('Nothing was recorded.') }
+  const name = unique(t.into ? 'take.wav' : 'recording.wav', new Set(eng.names))
+  await eng.file(name, { channels, sampleRate: got.sampleRate })
+  if (!t.into) return place([name], 'new')
+  if (!write(`write(audio(${quote(name)}), { at: ${number(t.at, v.unit)} })`)) return v.take(null)
+  v.setCursor(t.at + channels[0].length / got.sampleRate)
 }
 
 // Sound search
@@ -1088,11 +1192,11 @@ function preview(i) {
   previewAudio.play().catch(() => { state.previewing = -1; state.searchState = 'This sound cannot play here.' })
   state.previewing = i
 }
-// A found sound replaces the source, its credit on the line above the statement that opens it.
+// A found sound, its credit on the line above the statement that opens it
 function useResult(r) {
   closeSearch()
   state.problem = ''
-  ed.change(over(ed.code, `audio(${quote(r.url)})`, credit(r)))
+  opening(`audio(${quote(r.url)})`, credit(r))
 }
 
 // Export: each save() the script makes, or the output as one file.
@@ -1123,35 +1227,58 @@ async function share() {
   const local = prepare(ed.code).names.filter(name => eng.has(name) && !builtins[name])
   if (local.length) note(`Link copied. ${local.join(', ')} ${local.length > 1 ? 'stay' : 'stays'} on this device: whoever opens the link opens ${local.length > 1 ? 'them' : 'it'} too.`)
 }
-async function initialCode() {
+// The documents as the page was left, each a tab, and the one shown; a link's script is shown, in a tab of its own
+// unless one holds it already
+async function initialDocs() {
+  const list = stored.docs?.length ? stored.docs.map(d => d.code) : [stored.code ?? DEFAULT]
+  let at = Math.max(0, Math.min(stored.doc ?? 0, list.length - 1))
   const hash = location.hash.match(/^#code=([\w-]+)/)?.[1]
   if (hash) try {
     const bytes = Uint8Array.from(atob(hash.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))
-    return await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text()
+    const code = await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text()
+    at = list.includes(code) ? list.indexOf(code) : list.push(code) - 1
   } catch {}
-  return stored.code ?? DEFAULT
+  docs = list.map(code => ({ id: ++docIds, code }))
+  return docs[at]
 }
 
-// Resizing the panes
-function resizeStart(event) {
-  const panes = root.querySelector('.panes'), splitter = event.currentTarget
-  splitter.setPointerCapture(event.pointerId)
-  const move = e => {
-    const r = panes.getBoundingClientRect(), row = state.layout === 'row'
-    // the chain's panel, at the right or below: what is past the divider
-    const fraction = row ? (e.clientX - r.left) / r.width : (e.clientY - r.top) / r.height
-    state.split = Math.max(20, Math.min(60, (1 - fraction) * 100))
-  }
-  splitter.addEventListener('pointermove', move)
-  splitter.addEventListener('pointerup', () => { splitter.removeEventListener('pointermove', move); store() }, { once: true })
-}
-function resizeKey(event) {
-  const step = { ArrowLeft: 2, ArrowUp: 2, ArrowRight: -2, ArrowDown: -2 }[event.key]
-  if (!step) return
-  event.preventDefault()
-  state.split = Math.max(20, Math.min(60, state.split + step))
+// Tabs over the picture, as an audio editor's open files: a script each, with its own history (the editor keeps it) and
+// its own steps (remember). A sound opened goes into a tab of its own, unless the tab shown is empty.
+// each tab named by the sound its script opens (nameOf), the one shown as its script now reads; the others kept
+function retitle() { state.tabs = docs.map(d => ({ id: d.id, name: d.id === state.tab ? nameOf(ed.code) : d.name ??= nameOf(d.code) })) }
+function nameOf(code) { const s = source(code)?.strings; return s?.length ? s.map(x => label(x.name)).join(' + ') : chain(code) ? 'generated' : 'untitled' }
+function switchTab(id) {
+  if (id === state.tab || !docs.some(d => d.id === id)) return
+  const was = docs.find(d => d.id === state.tab), next = docs.find(d => d.id === id)
+  if (was) Object.assign(was, { code: ed.code, name: nameOf(ed.code), steps, depthWas })
+  ;({ steps = [], depthWas = 0 } = next)
+  state.tab = id
+  viewing = { delta: null, back: null }
+  v.select(0, 0)
+  v.setCursor(0)
+  ed.open(id, next.code)
+  rk?.refresh()
+  retitle()
   store()
 }
+function newTab(code = '') {
+  const doc = { id: ++docIds, code }
+  docs.push(doc)
+  switchTab(doc.id)
+  return doc
+}
+// Closing the last tab leaves an empty one; closing the one shown shows its neighbour
+function closeTab(id = state.tab) {
+  const i = docs.findIndex(d => d.id === id)
+  if (i < 0) return
+  if (docs.length > 1 && id === state.tab) switchTab(docs[i + 1]?.id ?? docs[i - 1].id)
+  else if (docs.length === 1) newTab()
+  docs.splice(i, 1)
+  ed.close(id)
+  retitle()
+  store()
+}
+
 
 // Files dropped anywhere. Capturing, so the editor never reads audio as text.
 root.addEventListener('dragover', event => {
@@ -1168,19 +1295,28 @@ root.addEventListener('drop', event => {
   state.dropping = false
   const inEditor = event.target.closest('.editor'), onView = event.target.closest('.view')
   const at = inEditor ? ed.view.posAtCoords({ x: event.clientX, y: event.clientY }) : null
-  openFiles([...event.dataTransfer.files], inEditor && at != null ? 'at' : onView && state.hasOutput ? 'join' : 'replace', at)
+  openFiles([...event.dataTransfer.files], inEditor && at != null ? 'at' : onView && state.hasOutput ? 'join' : 'new', at)
 }, true)
 
+// Esc closes an open menu and does nothing else: the selection under it stays. A menu that has the keys (the menubar's)
+// closes itself
+document.addEventListener('keydown', event => {
+  const open = event.key === 'Escape' && !event.target.closest?.('[popover], .menubar') && root.querySelector('[popover]:popover-open')
+  if (!open) return
+  event.preventDefault()
+  event.stopPropagation()
+  open.hidePopover()
+}, true)
 document.addEventListener('keydown', event => {
   const mod = event.metaKey || event.ctrlKey, typing = event.target.closest?.('.cm-editor, input, textarea, select, dialog')
-  if (!typing && !mod && !event.altKey && event.key.toLowerCase() === 'b' && state.canCompare) { event.preventDefault(); toggleAB() }
+  if (!typing && !mod && !event.altKey && event.key.toLowerCase() === 'b' && state.whole) { event.preventDefault(); toggleAB() }
   else if (!typing && !mod && !event.altKey && event.key.toLowerCase() === 'm' && state.whole) { event.preventDefault(); addMarker() }
   else if (event.key === ' ' && !typing && !event.target.closest('button, a')) { event.preventDefault(); togglePlay() }
   else if (mod && event.key.toLowerCase() === 's') { event.preventDefault(); exportFiles() }
   else if (mod && event.key.toLowerCase() === 'o') { event.preventDefault(); pickFiles() }
 })
 // Buttons around the picture act without taking focus: Space stays play, and the picture or the script keeps its keys
-root.addEventListener('mousedown', event => { if (event.target.closest('.status button, .tabs button, .edits button, .add-step')) event.preventDefault() })
+root.addEventListener('mousedown', event => { if (event.target.closest('.status button, .tabs button, .files button, .edits button, .tool, .discard, .link, .viewing, .view-settings, #view-menu button, #fade-menu button')) event.preventDefault() })
 // The first touch of the page opens the audio device, so the first play starts at once
 for (const type of ['pointerdown', 'keydown']) addEventListener(type, () => pl.warm(), { capture: true, once: true })
 addEventListener('pagehide', () => { pl.close(); recorder?.cancel() })
