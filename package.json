@@ -1,6 +1,6 @@
 {
   "name": "audio",
-  "version": "2.8.1",
+  "version": "2.9.0",
   "description": "Audio loading, playback, analysis and editing",
   "type": "module",
   "main": "audio.js",

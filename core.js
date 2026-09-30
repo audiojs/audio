@@ -13,7 +13,7 @@ import convert, { parse as parseFmt } from 'pcm-convert'
 import parseDuration from 'parse-duration'
 import { resolveBuses } from './batch.js'
 
-audio.version = '2.8.1'
+audio.version = '2.9.0'
 
 /** Parse time value: number passthrough, string via parse-duration or timecode. */
 export function parseTime(v) {
