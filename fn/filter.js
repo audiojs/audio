@@ -33,7 +33,11 @@ function apply(input, output, ctx, key, fn, makeParams, sync) {
 
 // ── Filter dispatch ─────────────────────────────────────────────────────
 
-const syncFc = (p, ctx) => { p.fc = ctx.freq; p.order = ctx.order }
+const syncFc = (p, ctx) => {
+  let order = ctx.order ?? 2
+  if (!Number.isSafeInteger(order) || order < 2 || order % 2) throw new RangeError('filter: order must be an even integer >= 2')
+  p.fc = ctx.freq; p.order = order
+}
 // `Q` as everywhere in the ecosystem; `q` is its former name here, still read (options and saved edits)
 const Q = (ctx, dflt) => ctx.Q ?? ctx.q ?? dflt
 const syncFcQ = (p, ctx) => { p.fc = ctx.freq; if (Q(ctx) != null) p.Q = Q(ctx) }

@@ -162,6 +162,9 @@ function remapStats(srcStats, plan, sr) {
     if (ref !== undefined && ref !== null && !(ref.segs && from(ref)?.[fields[0]]?.length === ch)) return null  // external ref
     if (Math.abs(rate) !== 1) return null               // resampled
     if (s[0] % bs !== 0 || s[2] % bs !== 0) return null // unaligned — force recompute
+    // Reversing a short final block moves it to the front: none of the old block
+    // boundaries then match the output grid, so reversing block records is wrong.
+    if (rate < 0 && s[1] % bs !== 0) return null
     // ending inside a block short of what it reads: that block's stats hold samples past the segment
     if (ref !== null && (s[0] + s[1]) % bs !== 0 && s[0] + s[1] < from(ref).length) return null
   }
@@ -213,6 +216,8 @@ audio.adaptStats = (src, plan, sr) => {
 /** Stream plan blocks into stat session, yielding event loop periodically to avoid blocking. */
 async function streamStats(s, inst, plan, offset, duration) {
   let t = performance.now()
+  // Keep fields/channel shape even when the plan yields no samples.
+  s.page(Array.from({ length: inst.channels }, () => new Float32Array(0)))
   for (let chunk of streamPlan(inst, plan, offset, duration)) {
     s.page(chunk)
     let now = performance.now()
@@ -290,6 +295,12 @@ export async function queryRange(inst, opts, need) {
   let at = parseTime(opts?.at), dur = parseTime(opts?.duration)
   let hasRange = at != null || dur != null
   let lacks = s => need?.some(f => !s?.[f])
+  // Block rounding must not turn an empty sample range into the final block.
+  let start = at < 0 ? Math.max(0, inst.duration + at) : at ?? 0
+  if (dur === 0 || start >= inst.duration) {
+    let stats = statSession(inst.sampleRate).page(Array.from({ length: inst.channels }, () => new Float32Array(0))).done()
+    return { stats, ch: inst.channels, sr: inst.sampleRate, from: 0, to: 0 }
+  }
   // a range read from fields placed on a grid from the start of the stats (`period`): stats of the range itself
   if (hasRange && need?.some(f => periodOf(f, inst.sampleRate))) {
     let s = statSession(inst.sampleRate), plan = buildPlan(inst), atN = at != null && at < 0 ? inst.duration + at : at || 0
@@ -304,7 +315,7 @@ export async function queryRange(inst, opts, need) {
     inst.stats = inst._.srcStats
     inst._.statsV = inst.version
   }
-  if (inst.edits?.length && (inst._.statsV !== inst.version || lacks(inst.stats))) {
+  if (!inst.stats || lacks(inst.stats) || inst.edits?.length && inst._.statsV !== inst.version) {
     if (!inst._.srcStats) inst._.srcStats = inst.stats
     let plan = buildPlan(inst), src = inst._.srcStats
     // Fast path: remap by plan segs + derive pipeline algebraically (e.g. crop + gain + clamp)
@@ -360,8 +371,9 @@ audio.fn.stat = async function(name, opts) {
   }
 
   // Raw block stats
-  let blockStats = stats[name], reduce = desc?.reduce
-  if (!blockStats || !reduce) throw new Error(`No block stat: '${name}'`)
+  let blockStats = stats[name], aggregate = desc?.reduce
+  if (!blockStats || !aggregate) throw new Error(`No block stat: '${name}'`)
+  let reduce = (values, from, to) => aggregate(values, from, to, stats)
 
   // Binned mode
   if (bins != null) {

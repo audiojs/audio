@@ -186,7 +186,7 @@ export interface AudioInstance {
   // ── Filters ──────────────────────────────────────────────────
   filter(type: FilterType, ...params: number[]): this
   filter(fn: (data: Float32Array, params: Record<string, unknown>) => void, opts?: Record<string, unknown>): this
-  /** order: even Butterworth order: 2 (12 dB/oct, default), 4 (24), 6, 8 */
+  /** Even integer Butterworth order >= 2: 2 (12 dB/oct, default), 4 (24), 6, 8, … Other orders are rejected. */
   highpass(freq: number, order?: number): this
   lowpass(freq: number, order?: number): this
   bandpass(freq: number, Q?: number): this
@@ -529,8 +529,8 @@ declare namespace audio {
   interface StatDescriptor {
     /** Per-block computation during decode */
     block?: (chs: Float32Array[], ctx: { sampleRate: number, [k: string]: unknown }) => number | number[]
-    /** Reducer for scalar/binned queries: (blockValues, from, to) → number */
-    reduce?: (blockValues: Float32Array, from: number, to: number) => number
+    /** Reducer for scalar/binned queries; stats includes blockSize and sample length for weighting. */
+    reduce?: (blockValues: Float32Array, from: number, to: number, stats: AudioStats) => number
     /** Derived aggregation from block stats */
     query?: (stats: AudioStats, chs: number[], from: number, to: number, sr: number) => any
     /** Block fields the query reads; derived stats lacking one re-render instead */

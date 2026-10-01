@@ -1,6 +1,7 @@
 import test from 'tst'
 import audio from '../audio.js'
 import './clipboard.js'
+import './parity.js'
 const { PAGE_SIZE, BLOCK_SIZE } = audio
 
 import { tone as genTone, clickTrack } from './gen.js'

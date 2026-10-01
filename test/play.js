@@ -199,7 +199,8 @@ test('live edit: heard within 100 ms at the same place, crossfaded', { timeout: 
   let latency = heardAt(f0 + k) - T0
   t.ok(k + 128 <= x.length && latency < 100, `heard ${latency.toFixed(0)} ms after the edit`)
   t.ok(Math.abs(peakOf(x.subarray(k + 0.05 * sr, k + 0.1 * sr)) - 0.5 * 10 ** (-12 / 20)) < 0.005, 'the edited level')
-  t.ok(bend(x) < 3 * sineBend(441, 0.5), `no click (${bend(x).toExponential(1)})`)
+  let b = bend(x), at = bend.at, frame = Math.floor(f0) + at
+  t.ok(b < 3 * sineBend(441, 0.5), `no click (${b.toExponential(1)}) at ${(at / sr).toFixed(4)} s ${b > 0.01 ? JSON.stringify({ samples: [...x.subarray(Math.max(0, at - 3), at + 4)], reports: reports.filter(r => Math.abs(r.frame - frame) < 2200), chunks: chunks.filter(c => Math.abs(c.frame - frame) < 2200).map(c => c.frame) }) : ''}`)
 })
 
 test('hand-off: another instance takes over where playback is, no gap, no click', { timeout: 20000 }, async t => {

@@ -313,7 +313,7 @@ a.pan(-0.3, { at: 10, duration: 5 })      // pan left for range
 
 | Method                         | Description                                                                                                                         |
 |:--|:--|
-| `.highpass(freq, order?)`, `.lowpass(freq, order?)` | Butterworth pass filter; order 2 (12 dB/oct, default), 4 (24), 6, 8. |
+| `.highpass(freq, order?)`, `.lowpass(freq, order?)` | Butterworth pass filter; even integer order ≥ 2: 2 (12 dB/oct, default), 4 (24), 6, 8, … Other orders are rejected. |
 | `.bandpass(freq, Q?)`, `.notch(freq, Q?)` | band-pass / notch. |
 | `.allpass(freq, Q?)` | phase shift, unity magnitude. |
 | `.lowshelf(freq, dB)`, `.highshelf(freq, dB)` | shelf EQ. |

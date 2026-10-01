@@ -123,7 +123,7 @@ export function lufsDb(stats, chs, sampleRate, from, to) {
 
 // ── Stats ────────────────────────────────────────────────────────
 
-export let rMean = (values, from, to) => { let n = to - from; if (!n) return 0; let v = 0; for (let i = from; i < to; i++) v += values[i]; return v / n }
+export let rMean = (values, from, to, stats) => blockMean(values, stats, from, to)
 
 /** K-weighted mean square of each channel's block (BS.1770-5 eq. 1), and where the 100 ms grid of the gating blocks
  *  cuts it, the grid counted from the start of the stats: `kcut1`, `kcut2`, the block's energy before its first and

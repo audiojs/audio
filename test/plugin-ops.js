@@ -56,7 +56,7 @@ test('op introspection carries module param metadata (CLI help substrate)', () =
   is(d.plugin.params.threshold.min, -60)
   is(d.plugin.params.threshold.unit, 'dB')
   ok(d.params.includes('ratio'))
-  is(audio.op('freeverb').tail, 6)
+  is(audio.op('freeverb').tail, freeverb.tail)
 })
 
 test('tail op is undo-atomic and serializes as one edit', async () => {
@@ -67,6 +67,78 @@ test('tail op is undo-atomic and serializes as one edit', async () => {
   is(a.toJSON().edits.length, 1)
   a.undo()
   is(a.duration, dur0, 'undo removes reverb AND its tail pad')
+})
+
+for (let name of ['delay', 'freeverb']) {
+  test(`parity: ${name} dry bypass preserves samples, length and source in read/stream`, async () => {
+    await audio.use(name)
+    for (let sampleRate of [16000, 48000, 96000]) for (let channels of [1, 2]) for (let frames of [0, 1, 1024, 1025]) {
+      let input = Array.from({ length: channels }, (_, c) => Float32Array.from({ length: frames }, (_, i) => ((i + c) % 19 - 9) / 16))
+      let source = audio.from(input.map(x => x.slice()), { sampleRate }), a = source.clone()[name]({ mix: 0 })
+      try {
+        is(a.length, frames, 'dry effect adds no tail')
+        let out = await a.read()
+        for (let c = 0; c < channels; c++) is(out[c], input[c], 'sample-exact bypass')
+        let offset = 0
+        for await (let chunk of a.stream()) {
+          for (let c = 0; c < channels; c++) is(chunk[c], input[c].subarray(offset, offset + chunk[c].length))
+          offset += chunk[0].length
+        }
+        is(offset, frames, 'stream length')
+        let original = await source.read()
+        for (let c = 0; c < channels; c++) is(original[c], input[c], 'source unchanged')
+      } finally { a.dispose(); source.dispose() }
+    }
+  })
+
+  test(`parity: ${name} rerenders A/A/B without stale effect state`, async () => {
+    await audio.use(name)
+    const sampleRate = 16000, opts = { mix: 1, ...(name === 'delay' ? { time: .01, feedback: .5 } : {}) }
+    let A = new Float32Array(1025), B = new Float32Array(1025)
+    A[0] = .5; B[512] = -.25
+    let a = audio.from([A], { sampleRate })[name](opts)
+    let b = audio.from([B], { sampleRate })[name](opts)
+    try {
+      let first = (await a.read())[0]
+      is((await a.read())[0], first, 'A again')
+      a.undo(); a.write([B]); a[name](opts)
+      is((await a.read())[0], (await b.read())[0], 'changed B equals a fresh instance')
+    } finally { a.dispose(); b.dispose() }
+  })
+
+  test(`parity: ${name} retains wet tails, including mix automation starting dry`, async () => {
+    await audio.use(name)
+    const sampleRate = 16000, length = 3200
+    for (let mix of [1, t => t < .05 ? 0 : 1, { t: [0, .05], v: [0, 1] }]) {
+      let input = tone(440, length / sampleRate, .5, sampleRate)
+      let a = audio.from([input], { sampleRate })[name]({ mix, ...(name === 'delay' ? { time: .01, feedback: .5 } : {}) })
+      try {
+        let out = (await a.read())[0]
+        ok(out.length > length, 'wet tail has frames')
+        ok(out.subarray(length).some(x => Math.abs(x) > 1e-5), 'wet tail is audible')
+        let offset = 0
+        for await (let chunk of a.stream()) {
+          is(chunk[0], out.subarray(offset, offset + chunk[0].length), 'stream matches read')
+          offset += chunk[0].length
+        }
+        is(offset, out.length)
+        is(a.edits.length, 1, 'effect and its tail remain one edit')
+        a.undo()
+        is(a.length, length, 'undo removes effect and tail')
+      } finally { a.dispose() }
+    }
+  })
+}
+
+test('parity: delay tail remains finite with automated feedback', async () => {
+  await audio.use('delay')
+  let a = audio.from([Float32Array.of(1, 0, 0)], { sampleRate: 16000 }).delay({ time: .01, feedback: () => .5, mix: 1 })
+  try {
+    let out = (await a.read())[0]
+    ok(out.length > 160, 'reserves the delayed impulse')
+    ok(out.every(Number.isFinite), 'no invalid tail planning')
+    ok(out.subarray(3).some(x => x !== 0), 'delayed impulse survives')
+  } finally { a.dispose() }
 })
 
 test('audio.use(name) resolves through the registry (dynamic import)', async () => {

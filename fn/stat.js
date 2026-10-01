@@ -130,10 +130,9 @@ audio.stat('correlation', {
     if (!stats.correlation || !stats.ms) return 0
     // correlation block stores scalar (L*R mean) — same in all channels
     let corr = stats.correlation[0], ms = stats.ms
-    let xy = 0, xx = 0, yy = 0, n = 0
     let end = Math.min(to, corr.length)
-    for (let i = from; i < end; i++) { xy += corr[i]; xx += ms[0][i]; yy += ms[1][i]; n++ }
-    if (!n || xx === 0 || yy === 0) return 0
-    return (xy / n) / Math.sqrt((xx / n) * (yy / n))
+    let xy = blockMean(corr, stats, from, end)
+    let xx = blockMean(ms[0], stats, from, end), yy = blockMean(ms[1], stats, from, end)
+    return xx > 0 && yy > 0 ? xy / Math.sqrt(xx * yy) : 0
   }
 })
