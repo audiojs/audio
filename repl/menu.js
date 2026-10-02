@@ -4,7 +4,8 @@
 // Keys as in desktop menus (WAI-ARIA menubar): ←/→ across the bar, ↓, Enter or Space opens, ↑/↓ through a menu, → into
 // a submenu, ← back out, Enter runs, Esc closes; F10 reaches the bar. Hovering across the bar while a menu is open
 // opens the one under the pointer. After an item runs, the keys go back to where they were, so Space still plays.
-// A narrow window has one Menu, the menus inside it, each opening in place.
+// A narrow window has one Menu, the menus inside it, each opening in place. The same menus open at a point, as a
+// context menu (`at`), with the same keys but ← and →.
 export default function menubar(root, model) {
   let open = null, back = null, hovering = 0
   const narrow = matchMedia('(max-width: 720px)')
@@ -41,7 +42,25 @@ export default function menubar(root, model) {
     place(panel, button.getBoundingClientRect(), 'below')
     button.setAttribute('aria-expanded', 'true')
     buttons().forEach(b => b.tabIndex = b === button ? 0 : -1)
-    open = { i, button, panel }
+    opened({ i, button, panel }, focus)
+  }
+  // The menu at a point, a context menu's `items`, the keys going back where they were when it closes. It opens while
+  // the button is still down (a Mac's right press), so it closes itself on a press outside it rather than on the release
+  function at(items, x, y) {
+    back = open ? back : document.activeElement
+    close(false)
+    const panel = list(items, 'Context menu'), outside = event => { if (!panel.contains(event.target)) close(false) }
+    panel.className += ' menubar-menu'
+    panel.popover = 'manual'
+    document.body.append(panel)
+    panel.showPopover()
+    place(panel, { left: x, right: x, top: y - 4, bottom: y - 4 }, 'below')
+    addEventListener('pointerdown', outside, true)
+    panel.addEventListener('toggle', event => { if (event.newState === 'closed') removeEventListener('pointerdown', outside, true) })
+    opened({ i: -1, button: null, panel }, false)
+  }
+  function opened(o, focus) {
+    const { panel, button } = open = o
     panel.addEventListener('toggle', event => { if (event.newState === 'closed' && open?.panel === panel) finish() })
     // opened by the pointer, the menu itself has the keys until an item does
     panel.addEventListener('keydown', event => {
@@ -49,8 +68,8 @@ export default function menubar(root, model) {
       const list = rows(panel), k = event.key
       if (k === 'ArrowDown' || k === 'Home') first(panel)?.focus()
       else if (k === 'ArrowUp' || k === 'End') list.at(-1)?.focus()
-      else if (k === 'ArrowRight' || k === 'ArrowLeft') show((i + (k === 'ArrowRight' ? 1 : -1) + buttons().length) % buttons().length)
-      else if (k === 'Escape') { close(false); button.focus() }
+      else if ((k === 'ArrowRight' || k === 'ArrowLeft') && button) show((o.i + (k === 'ArrowRight' ? 1 : -1) + buttons().length) % buttons().length)
+      else if (k === 'Escape') { close(!button); button?.focus() }
       else return
       event.preventDefault()
     })
@@ -78,6 +97,8 @@ export default function menubar(root, model) {
       row.title = it.hint || ''
       row.innerHTML = '<span class="menu-check" aria-hidden="true"></span><span class="menu-label"></span><span class="menu-keys"></span>'
       row.children[1].textContent = it.label
+      // its icon, in the check's place, where it has one (a path of the page's own)
+      if (it.icon) row.children[0].innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="${it.icon}"/></svg>`
       // its keys, or a word on what it is
       row.children[2].textContent = it.items ? '' : it.keys || it.hint || ''
       if (!it.keys && it.hint) row.children[2].classList.add('hint')
@@ -148,7 +169,7 @@ export default function menubar(root, model) {
     if (!open) return
     const { panel, button } = open
     open = null
-    button.setAttribute('aria-expanded', 'false')
+    button?.setAttribute('aria-expanded', 'false')
     if (panel.matches(':popover-open')) panel.hidePopover()
     panel.remove()
     if (restore) { const to = back; back = null; to?.isConnected && to !== document.body ? to.focus({ preventScroll: true }) : null }
@@ -174,9 +195,9 @@ export default function menubar(root, model) {
     else if (k === 'End') list.at(-1)?.focus()
     else if (k === 'ArrowRight' && row.sub) expand(row, true)
     else if (k === 'ArrowLeft' && sub && !panel.classList.contains('inline')) { const owner = panel.previousElementSibling; collapse(owner.parentElement); owner.focus() }
-    else if (k === 'ArrowRight' || k === 'ArrowLeft') show((open.i + (k === 'ArrowRight' ? 1 : -1) + buttons().length) % buttons().length)
+    else if ((k === 'ArrowRight' || k === 'ArrowLeft') && open.button) show((open.i + (k === 'ArrowRight' ? 1 : -1) + buttons().length) % buttons().length)
     else if (k === 'Enter' || k === ' ') row.click()
-    else if (k === 'Escape') { if (sub) { const owner = panel.previousElementSibling; collapse(owner.parentElement); owner.focus() } else { const b = open.button; close(false); b.focus() } }
+    else if (k === 'Escape') { if (sub) { const owner = panel.previousElementSibling; collapse(owner.parentElement); owner.focus() } else { const b = open.button; close(!b); b?.focus() } }
     else if (k === 'Tab') close()
     else if (k.length === 1 && /\S/.test(k)) {
       // the next item starting with that letter
@@ -198,5 +219,5 @@ export default function menubar(root, model) {
   addEventListener('resize', () => close(false))
   narrow.addEventListener('change', draw)
   draw()
-  return { draw, close }
+  return { draw, close, at }
 }

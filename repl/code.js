@@ -75,6 +75,10 @@ function sourcesOf(call) {
   return []
 }
 
+// An option by its name, FFmpeg's short ones (`d`, `xfade`) as the library reads them: what the page reads from a call
+// says `duration` and `crossfade` however it is written; what it writes is short
+const LONG = { d: 'duration', xfade: 'crossfade' }, SHORT = { duration: 'd', crossfade: 'xfade' }
+const canon = key => LONG[key] ?? key
 // A call's arguments with their places in the text and, for literals, their values.
 function args(code, list) {
   return children(list).filter(n => !['(', ')', ','].includes(n.name) && !quiet(n)).map(node => {
@@ -84,7 +88,7 @@ function args(code, list) {
     if (node.name === 'ObjectExpression') Object.assign(arg, { kind: 'object', props: node.getChildren('Property').map(prop => {
       const key = prop.getChild('PropertyDefinition') || prop.firstChild, val = prop.lastChild
       const v = val && val !== key ? literal(code, val) : undefined
-      return { name: key && text(code, key).replace(/^['"]|['"]$/g, ''), from: prop.from, to: prop.to, valueFrom: val?.from, valueTo: val?.to, kind: v === undefined ? 'other' : Array.isArray(v) ? 'array' : typeof v, value: v }
+      return { name: key && canon(text(code, key).replace(/^['"]|['"]$/g, '')), from: prop.from, to: prop.to, valueFrom: val?.from, valueTo: val?.to, kind: v === undefined ? 'other' : Array.isArray(v) ? 'array' : typeof v, value: v }
     }) })
     return arg
   })
@@ -102,7 +106,7 @@ function literal(code, node) {
     return items.every(v => typeof v === 'number' || Array.isArray(v) || isRange(v)) ? items : undefined
   }
   if (node.name === 'ObjectExpression') {
-    const value = Object.fromEntries(node.getChildren('Property').map(p => [text(code, p.firstChild), p.lastChild !== p.firstChild ? literal(code, p.lastChild) : undefined]))
+    const value = Object.fromEntries(node.getChildren('Property').map(p => [canon(text(code, p.firstChild)), p.lastChild !== p.firstChild ? literal(code, p.lastChild) : undefined]))
     return isRange(value) ? value : undefined
   }
 }
@@ -171,8 +175,9 @@ export function residual(code, i) {
   return `${head}const __before = ${before}\n__before.clone().mix(__before.clone()${code.slice(call.dot, call.to)}.gain(-1, { unit: 'linear' }))`
 }
 
-// The change that adds `.name(args)` to the output chain, before a closing save() or play().
-// Multi-line chains get their own line; a bare name gets a new statement. Null when there is no chain.
+// The change that adds `.name(args)` to the output chain, before a closing save() or play(): a line of its own, as the
+// edits are a card each, indented as the chain's lines are; a bare name gets a new statement. Null when there is no
+// chain.
 export function append(code, call) {
   const c = chain(code)
   if (!c) return null
@@ -191,9 +196,7 @@ export function append(code, call) {
     const indent = code.slice(0, ref.dot).match(/\n([ \t]*)$/)[1]
     return before ? { from: at, insert: `.${call}\n${indent}` } : { from: at, insert: `\n${indent}.${call}` }
   }
-  const line = lineOf(code, at)
-  if (line.text.length + call.length + 1 <= 80) return { from: at, insert: `.${call}` }
-  const indent = line.indent + '  '
+  const line = lineOf(code, at), indent = line.indent + '  '
   return { from: at, insert: `\n${indent}.${call}${before ? `\n${indent}` : ''}` }
 }
 const lineOf = (code, pos) => {
@@ -238,8 +241,8 @@ export function callAt(code, pos) {
   return null
 }
 
-// The change that sets a call's argument: positional by index, or a property of its options object by name.
-// Missing earlier positions are filled from `fill`.
+// The change that sets a call's argument: positional by index, or a property of its options object by name (a new one
+// written short). Missing earlier positions are filled from `fill`.
 export function setArg(call, where, value, fill = []) {
   const insert = typeof value === 'string' ? `'${value.replace(/'/g, "\\'")}'` : String(value)
   if (typeof where === 'number') {
@@ -249,14 +252,14 @@ export function setArg(call, where, value, fill = []) {
     const values = [...fill.slice(positional.length, where).map(v => typeof v === 'string' ? `'${v}'` : String(v)), insert]
     return { from: before, insert: (positional.length ? ', ' : '') + values.join(', ') + (call.args.some(a => a.kind === 'object') && !positional.length ? ', ' : '') }
   }
-  const options = call.args.find(a => a.kind === 'object')
+  const options = call.args.find(a => a.kind === 'object'), key = SHORT[where] ?? where
   if (!options) return call.args.length
-    ? { from: call.args.at(-1).to, insert: `, { ${where}: ${insert} }` }
-    : { from: call.list.from + 1, insert: `{ ${where}: ${insert} }` }
+    ? { from: call.args.at(-1).to, insert: `, { ${key}: ${insert} }` }
+    : { from: call.list.from + 1, insert: `{ ${key}: ${insert} }` }
   const prop = options.props.find(p => p.name === where)
   if (prop) return { from: prop.valueFrom, to: prop.valueTo, insert }
   const lastProp = options.props.at(-1)
-  return lastProp ? { from: lastProp.to, insert: `, ${where}: ${insert}` } : { from: options.from + 1, insert: ` ${where}: ${insert} ` }
+  return lastProp ? { from: lastProp.to, insert: `, ${key}: ${insert}` } : { from: options.from + 1, insert: ` ${key}: ${insert} ` }
 }
 
 // A number as the code writes it: short, no float noise.

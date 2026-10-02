@@ -19,8 +19,16 @@ const SRC = {
   8: [[0], [1], [2], [4, 6], [5, 7]],   // L R C LFE Lb Rb Ls Rs
 }
 
-/** n → m coefficient matrix [out][in] for a known layout, else null. */
+/** n → m coefficient matrix [out][in] for a known layout, else null. To 5.1 (L R C LFE Ls Rs), from 7.1: the 3/2 rows,
+ *  and the LFE as it was. */
 function downmix(n, m) {
+  if (m === 6) {
+    let rows = n > 6 && downmix(n, 5)
+    if (!rows) return null
+    let lfe = new Float64Array(n)
+    lfe[3] = 1
+    return [...rows.slice(0, 3), lfe, ...rows.slice(3)]
+  }
   let rows = DOWN[m], src = SRC[n]
   if (!rows || !src) return null
   return rows.map(row => {

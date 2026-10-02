@@ -1,0 +1,52 @@
+/* The REPL's skin: every colour, font, size and shadow it draws with, in one place, for a theme to set: the screen's
+   greys and its accent (rulers, helpers, information), white for what is selected and edited, the waveform's own, the
+   fills that raise a card or a key over the screen, the hints' look, the bar's height and the gutters. Under it the
+   site's tokens (assets/tokens.css): its paper, ink, fonts, radii, durations and shadows. Another skin (a Winamp skin
+   read in, an editor's colour theme) is another file setting these. */
+@import '../assets/tokens.css';
+@font-face { font-family: 'Geist'; src: url('../assets/geist.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
+
+:root {
+  --color-screen-accent: oklch(76% .15 58);
+  /* a selection's wash and hairline; the caret, white at the opacity that reads as --color-screen-muted over the screen:
+     over the waveform it lightens, as a screen blend would, never darker than what it crosses */
+  --color-screen-select: oklch(100% 0 0 / .05);
+  --color-screen-caret: oklch(100% 0 0 / .55);
+  /* the waveform's colour, dim while a file arrives; the notch a handle leaves */
+  --color-screen-wave: oklch(78% 0 0);
+  --color-screen-wave-dim: oklch(46% 0 0);
+  --color-notch: oklch(12% 0 0);
+  /* what a field says while it is empty, under what is written in it */
+  --color-screen-placeholder: oklch(48% 0 0);
+  /* white over the screen, raising what is on it: a card, a field's well, a quiet button, a slider's track, a switch off */
+  --color-screen-fill: oklch(100% 0 0 / .06);
+  --color-screen-fill-soft: oklch(100% 0 0 / .07);
+  --color-screen-fill-hover: oklch(100% 0 0 / .085);
+  --color-screen-fill-chosen: oklch(100% 0 0 / .09);
+  --color-screen-fill-quiet: oklch(100% 0 0 / .08);
+  --color-screen-fill-quiet-hover: oklch(100% 0 0 / .13);
+  --color-screen-fill-off: oklch(100% 0 0 / .1);
+  --color-screen-switch: oklch(100% 0 0 / .14);
+  --color-screen-track: oklch(100% 0 0 / .18);
+  --color-screen-well: oklch(0% 0 0 / .2);
+  --color-backdrop: oklch(20% 0 0 / .35);
+  /* a switch's keys: raised in their bezel, the one on pressed in */
+  --key-bezel: oklch(0% 0 0 / .45);
+  --key-bezel-light: oklch(100% 0 0 / .07);
+  --key-face: linear-gradient(oklch(100% 0 0 / .11), oklch(100% 0 0 / .04));
+  --key-light: oklch(100% 0 0 / .12);
+  --key-seam: oklch(0% 0 0 / .4);
+  --key-pressed: linear-gradient(oklch(0% 0 0 / .35), oklch(0% 0 0 / .15));
+  --key-pressed-shadow: oklch(0% 0 0 / .7);
+  /* the slab's rim, its bezel and the shadow it casts on the paper */
+  --shadow-panes: inset 0 1px 0 var(--color-screen-rule), 0 0 0 1px var(--color-bezel), 0 2px 2px oklch(0% 0 0 / .06), 0 12px 24px oklch(0% 0 0 / .1);
+  /* what is held up off the screen while it is dragged: a tab */
+  --shadow-lifted: 0 2px 8px oklch(0% 0 0 / .4);
+  /* the hints by what they are about (hint.js) */
+  --hint-bg: var(--color-screen);
+  --hint-ink: var(--color-screen-bright);
+  /* the page's bar, and the paper round the slab */
+  --bar: 56px;
+  --gutter: 14px;
+  color-scheme: light;
+}

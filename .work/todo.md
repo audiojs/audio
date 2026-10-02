@@ -10,10 +10,41 @@ Parity evidence: [.work/baseline.md](baseline.md). Perf: [docs/comparison.md § 
 3. [ ] **jz/WASM lane** — for streaming/realtime/worklet where batch JIT can't help: compile hot kernels (fourier-transform, biquad, pvoc) via `@audio/compile` → per-atom `dist/*.wasm` + `./wasm` export, host prefers in `useAtom`. Blocked on jz typed-array provenance fix (bench/fftplan + bench/provenance repro cases landed in jz; ~6× gap). ~1.4× over warm JS once fixed — realtime-lane priority, not batch.
 4. [ ] Small: Wavearea: adopt facade.play() P3 or keep own player · `audio-ponyfill` package (#68) · common processing scripts (vocal warmup etc)
 
-
 * [ ] Integrations for VSCode, sublime, atom and other tools: edit audio
 * [ ] REPL: theme selector, don't force users.
 * [ ] REPL: all winamp themes?!
+* [ ] Automastering - must have.
+* [ ] drop a file - receive agent recommendation on improvements: essentially agent should do all job
+* [ ] Instagram filters for your sound
+* [ ] Diarization - detecting spekers, autoadding cues
+* [ ] Detect current type of speaker etc
+
+* [ ] tracks, to meet classical SAAS layout
+
+## AI tier
+
+* [ ] Use ai editoring: select a part, tell AI what to generate here instead (in-context agent)
+* [ ] AI generation: select various external gens beyond just studio
+* [ ] AI remastering: for a selection, remaster variants.
+* [ ] Podcast: make podcast-ready speech
+* [ ] Detect parts of speech, ads etc - remove
+* [ ] Agentic musician for live playing
+
+## Pro tier
+
+* [ ] WASM processing
+* [ ] Professional integrations
+* [ ] Desktop: VST plugins gateway
+* [ ] Processing recipes: dolby etc, collections
+* [ ] Create your own VSTs
+* [ ]
+
+
+## Scenarios
+
+* [ ] Record yourself at home, master-prepare the recording quickly, autotune notes, reduce noise, trim silences
+* [ ] Record on the studio: multiple takes in multiple tracks, selecting the best one, solo/mute/edits - from various system inputs, prepare, save the sketch
+* [ ] Edit audio for video files: drop video directly with a little preview - trim silences, shorten long parts, normalize/process
 
 ## Open
 

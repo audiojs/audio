@@ -1,5 +1,12 @@
 ## Vision
 
+* Micro-DAW
+* Sublime text for Audio
+* Instagram filters for your sound
+* Audio editor for AI era
+
+## Audio class
+
 * Universal versatile audio container/tool/swiss knife, giving a simple intuitive way to perform any industry-standard common-case audio manipulations and operations.
 * Giving a way to easily run custom processors / operations from js environments.
 * Works with files of any duration without losing performance.
@@ -8,11 +15,7 @@
 * Direct, linear code, self-descriptive, common patterns, flat minimal abstractions.
 * If audacity had CLI
 
-## Goal
-
-* Audio editor for AI era
-
-## Ideas 
+## Ideas
 
 * [ ] Integrations for vscode, sublime text, atom and other editors - edit audio like text!
 
@@ -36,6 +39,15 @@ Replace sox/ffmpeg/Web Audio API ceremony for the 90% case: one file, some trans
 * Desktop agentic harness: drop a file, tell agents to analyze the required mastering and editing (style etc)
 * Run the recorder, record session... like we can have multiple samples of recording to work with... Tabs then?
 
+## WIIFM
+
+* Simple trivial and accessible high-end audio editing
+* Improve any of your sound collections or recordings
+* Prepare audio for your videos - quickly
+* Deslop suno
+* Apply filters to your sound, like boost or make sound like your favorite band (stylizer)
+* Automaster your tracks: prepare for publishing
+* Run a recording sessino
 
 ## Essence
 

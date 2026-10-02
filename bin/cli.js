@@ -160,6 +160,7 @@ const HELP = {
   copy:      { usage: 'copy [OFF DUR | RANGE]', desc: 'Copy a range to the audio clipboard', examples: ['copy 1s..3s', 'copy'], label: 'Copying' },
   cut:       { usage: 'cut [OFF DUR | RANGE] [XFADE]', desc: 'Copy a range to the clipboard and delete it; XFADE crossfades the splice', examples: ['cut 1s..3s', 'cut 1s..3s 10ms', 'cut'], label: 'Cutting' },
   paste:     { usage: 'paste [OFF] [XFADE]', desc: 'Insert copied audio (default: append); XFADE crossfades both seams', examples: ['paste 5s', 'paste 5s 10ms', 'paste'], label: 'Pasting' },
+  move:      { usage: 'move OFF DUR TO | RANGE TO [XFADE]', desc: 'Slide a range to TO, over what is there, silence where it was; XFADE crossfades each edge', examples: ['move 2s..3s 5s', 'move 2s..3s 5s 10ms'], label: 'Moving' },
   remove:    { usage: 'remove OFF DUR | RANGE [XFADE]', desc: 'Delete time range; XFADE is an equal-power crossfade centered on the splice', examples: ['remove 2s..4s', 'remove 2s..4s 10ms', 'remove 2s 2s'], label: 'Removing' },
   reverse:   { usage: 'reverse [RANGE]', desc: 'Reverse audio', examples: ['reverse', 'reverse 1s..5s'], label: 'Reversing' },
   repeat:    { usage: 'repeat N', desc: 'Repeat N times', examples: ['repeat 3'], label: 'Repeating' },
@@ -1005,7 +1006,8 @@ async function main() {
     process.exit(0)
   }
 
-  if (args[0] === '--mcp') return (await import('./mcp.js')).default()
+  if (args[0] === '--mcp') return (await import('./mcp.js')).default(args.slice(1))
+  if (args[0] === '--bridge') return (await import('./bridge.js')).default(args.slice(1))
 
   // ── Shell Completions ──────────────────────────────────────────────────
   if (args[0] === '--completions') {
@@ -1335,7 +1337,8 @@ Options:
   --help, -h    Show this help (or after an op: audio gain --help)
   --version, -v Show version
   --completions SHELL  Print tab-completion script (zsh, bash, fish)
-  --mcp         Serve this CLI to AI agents as an MCP tool (stdio)
+  --mcp         Serve this CLI to AI agents as an MCP tool (stdio); --repl URL --key K adds the REPL's tools
+  --bridge      Let AI agents edit the sound open in the REPL, and the REPL chat with your agent (127.0.0.1:7777)
 
 Batch:
   audio '*.wav' gain -3db save '{name}.out.{ext}'

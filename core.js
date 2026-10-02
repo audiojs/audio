@@ -15,6 +15,16 @@ import { resolveBuses } from './batch.js'
 
 audio.version = '2.9.0'
 
+/** Options as written short or long, the long kept: FFmpeg's `d` for duration (afade, acrossfade, atrim), and its
+ *  crossfade filter's name, `xfade`, for crossfade. */
+export function named(o) {
+  if (o == null || typeof o !== 'object' || (o.d === undefined && o.xfade === undefined)) return o
+  let { d, xfade, ...rest } = o
+  if (d !== undefined) rest.duration ??= d
+  if (xfade !== undefined) rest.crossfade ??= xfade
+  return rest
+}
+
 /** Parse time value: number passthrough, string via parse-duration or timecode. */
 export function parseTime(v) {
   if (v == null) return v
@@ -298,6 +308,7 @@ export const perChannel = f => function (opts) {
 
 /** Stream a range as the chosen channels' mean: what beats, notes, chords and key read. */
 export async function* mono(inst, opts) {
+  opts = named(opts)
   for await (let all of inst.stream({ at: opts?.at, duration: opts?.duration })) {
     let pcm = pickChannels(all, opts?.channel), n = pcm[0]?.length
     if (!n) continue
@@ -693,7 +704,7 @@ function fromSilence(seconds, opts = {}) {
 
 function fromFunction(fn, opts = {}) {
   let sr = opts.sampleRate || 44100, ch = opts.channels || 1
-  let dur = opts.duration
+  let dur = named(opts).duration
   if (dur == null) throw new TypeError('audio.from(fn): duration required')
   let len = Math.round(dur * sr)
   let chs = Array.from({ length: ch }, () => new Float32Array(len))
@@ -870,6 +881,7 @@ fn.seek = function(t) {
 
 fn.read = async function(opts) {
   if (typeof opts !== 'object' || opts === null) opts = {}
+  opts = named(opts)
   let { at, duration, format, channel, meta } = opts
   at = parseTime(at); duration = parseTime(duration)
   await this[LOAD]()

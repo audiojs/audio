@@ -2,7 +2,7 @@
  * Playback: a voice renders the instance's timeline into a deck (deck.js), which plays it. The page's one
  * AudioContext in a browser, @audio/speaker in Node. The voice is shared with the worker, which runs it by its engine.
  */
-import audio, { emit, yieldTask, fromEnd } from '../core.js'
+import audio, { emit, yieldTask, fromEnd, named } from '../core.js'
 import { emitMeter } from './meter.js'
 import { open, timeline, context, TAKE } from '../deck.js'
 
@@ -176,6 +176,7 @@ audio[Symbol.for('audio.play')] = { voice, emitMeter }
  *  ended). Playing already, it goes to `at` (or the new span) without a gap. `from`: take over that instance's
  *  playback where it is, crossfaded: its span, loop, volume, rate and pause; it stops. */
 audio.fn.play = function(opts = {}) {
+  opts = named(opts)
   let a = this
   if (a._.disposed) throw new Error('audio: instance disposed')
   if (opts.volume != null) a.volume = opts.volume

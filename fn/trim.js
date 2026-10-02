@@ -8,12 +8,17 @@ export function autoThreshold(energies) {
   return Math.max(-80, Math.min(-20, 10 * Math.log10(floor) + 12))
 }
 
-/** Resolve dB threshold to linear. Auto-detects from energy stats when db is null. */
+/** Resolve dB threshold to linear. Found when db is null: 12 dB over the quietest tenth of the blocks (their floor),
+ *  and 40 dB under their peak at most. Sound with no floor, a bell ringing on into the next strike, has a quietest tenth
+ *  that is still sound: 12 dB over it read a tail at -22 dBFS as silence. */
 export function resolveThreshold(stats, ch, from, to, db) {
   if (db == null) {
-    let energies = []
-    for (let c = 0; c < ch; c++) for (let i = from; i < to; i++) energies.push(stats.energy[c][i])
-    db = autoThreshold(energies)
+    let energies = [], peak = 0
+    for (let c = 0; c < ch; c++) for (let i = from; i < to; i++) {
+      energies.push(stats.energy[c][i])
+      peak = Math.max(peak, -stats.min[c][i], stats.max[c][i])
+    }
+    db = Math.min(autoThreshold(energies), 20 * Math.log10(peak || 1e-9) - 40)
   }
   return 10 ** (db / 20)
 }

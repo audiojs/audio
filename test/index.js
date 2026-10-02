@@ -24,6 +24,8 @@ function mid(buf, edge = 0.1, sr = 44100) {
 const isNode = typeof process !== 'undefined' && process.versions?.node
 // delivery-grade suite: files, CLI, video, bare atom imports (Node only)
 if (isNode) await import('./pro.js')
+// cut lists for video editors: the time map, CMX 3600, OpenTimelineIO, FCPXML read back (Node only: files, a video)
+if (isNode) await import('./cuts.js')
 // playback offline: the deck fed by a voice, sample by sample (the browser suite plays it for real: test/play.html)
 if (isNode) await import('./deck.js')
 
@@ -1057,6 +1059,22 @@ test('trim — removes silence', async t => {
   let pcm = await a.read()
   t.ok(pcm[0].length < ch.length, `trimmed: ${pcm[0].length} < ${ch.length}`)
   t.ok(pcm[0].length > 44000, `kept signal: ${pcm[0].length} > 44000`)
+})
+
+// A bell struck twice, 1.5 s apart, ringing on into the second strike: a 440 Hz tone at 0.9 decaying 20 dB a second,
+// so each tail ends 30 dB under the strike. It has no floor: its quietest tenth is the tail itself, and 12 dB over that
+// (the auto threshold, which was capped at -20 dBFS only) read the last half second of each tail as silence. Silence
+// now lies 40 dB under the peak at least.
+test('silence, trim — a ringing tail with no floor under it is sound', async t => {
+  let sr = 44100, x = new Float32Array(sr * 3)
+  for (let i = 0; i < x.length; i++) { let s = i / sr % 1.5; x[i] = 0.9 * 10 ** (-20 * s / 20) * Math.sin(2 * Math.PI * 440 * i / sr) }
+  t.is((await audio.from([x], { sampleRate: sr }).silence({ minDuration: .06 })).length, 0, 'no silence in the tails')
+  let a = audio.from([x], { sampleRate: sr }).trim()
+  t.ok(Math.abs(a.duration - 3) < 1024 / sr, `trim keeps both tails: ${a.duration.toFixed(3)} s`)
+  // under it, a true pause: the tone stopped for 0.5 s, 60 dB down, is one
+  let y = x.map((v, i) => i > sr && i < sr * 1.5 ? v * 1e-3 : v)
+  let gaps = await audio.from([y], { sampleRate: sr }).silence({ minDuration: .06 })
+  t.ok(gaps.length === 1 && Math.abs(gaps[0].at - 1) < .03 && Math.abs(gaps[0].at + gaps[0].duration - 1.5) < .03, JSON.stringify(gaps))
 })
 
 test('normalize', async t => {
@@ -5149,6 +5167,126 @@ test('pitch, stretch — a range splices in place: outside it the input, untouch
   for (let i = sr * 1.5; i < stretched.length; i++) after = Math.max(after, Math.abs(stretched[i] - x[i - sr / 2]))
   t.ok(before < 1e-6 && after < 1e-6, `stretch: the input before (${before}) and after (${after}) the range`)
   assertPitch(t, stretched.subarray(sr * .6, sr * 1.4), 440, 'stretch in range')
+})
+
+// A shift drawn as a curve, as the gain line is: semitones over the timeline's seconds, straight between points and flat
+// past the ends (plan.js curveFn). The vocoder runs only where it is not zero; elsewhere the input passes as it was.
+const harmonics = (f0, dur, sr = 44100, n = 10) => Float32Array.from({ length: Math.round(dur * sr) }, (_, i) => { let s = 0; for (let h = 1; h <= n; h++) s += Math.sin(2 * Math.PI * f0 * h * i / sr) / h; return .2 * s })
+test('pitch({ t, v }): constant, a curve is pitch(semitones) sample for sample; zero, the input; zero in places, the input there', async t => {
+  let sr = 44100, x = harmonics(220, 2)
+  let read = async f => (await f(audio.from([x.slice()], { sampleRate: sr })).read())[0]
+  let same = (p, q) => p.length === q.length && p.every((v, i) => v === q[i])
+  t.ok(same(await read(a => a.pitch(5)), await read(a => a.pitch({ t: [0, 1], v: [5, 5] }))), 'pitch(5) ≡ pitch({ t: [0, 1], v: [5, 5] })')
+  t.ok(same(await read(a => a.pitch(-3, { at: .5, duration: .7 })), await read(a => a.pitch({ t: [1], v: [-3] }, { at: .5, duration: .7 }))), 'ranged: pitch(−3, range) ≡ the constant curve over the range')
+  t.ok(same(await read(a => a.pitch({ t: [0, 2], v: [0, 0] })), x), 'a zero curve: the input, sample for sample')
+  t.ok(same(await read(a => a.pitch(0)), x), 'pitch(0): the input, sample for sample')
+  let y = await read(a => a.pitch({ t: [0, .8, 1, 1.4, 1.6], v: [0, 0, 4, 4, 0] }))
+  t.ok(y.length === x.length && y.subarray(0, .8 * sr).every((v, i) => v === x[i]) && y.subarray(1.6 * sr).every((v, i) => v === x[1.6 * sr + i]),
+    'zero before 0.8 s and after 1.6 s: the input there, sample for sample')
+  let held = y.subarray(1.05 * sr, 1.35 * sr), up = energyAt(held, 220 * 2 ** (4 / 12)), was = energyAt(held, 220)
+  t.ok(up > 0.05 && up > 100 * was, `+4 st where the curve is 4: ${up.toFixed(3)} at 277 Hz, ${was.toExponential(1)} left at 220 Hz`)
+})
+
+// Its pitch follows the curve. f0 by YIN (de Cheveigné & Kawahara, JASA 111(4), 2002) on 23 ms frames every 10 ms,
+// against 220 Hz · 2^(v(t)/12) at each frame's centre: a frame averages the glide over its length, which at the fastest
+// here (24 st/s) bends the estimate by under a cent, so the error is the shifter's. Measured: median 1.7, worst 12.3.
+test('pitch({ t, v }): a glide follows the curve within cents, its bends make no click, stream ≡ read', async t => {
+  let { default: yin } = await import('@audio/pitch-yin')
+  let sr = 44100, x = harmonics(220, 3), curve = { t: [.3, 1.3, 1.8, 2.3, 2.6], v: [0, 7, 7, -5, -5] }
+  let v = s => { let { t: T, v: V } = curve; if (s <= T[0]) return V[0]; for (let i = 1; i < T.length; i++) if (s <= T[i]) return V[i - 1] + (V[i] - V[i - 1]) * (s - T[i - 1]) / (T[i] - T[i - 1]); return V.at(-1) }
+  let a = audio.from([x.slice()], { sampleRate: sr }).pitch(curve), y = (await a.read())[0], cents = []
+  for (let c = 1024; c + 512 < y.length; c += 441) {
+    let r = yin(y.subarray(c - 512, c + 512), { fs: sr, minFreq: 60, maxFreq: 1500 })
+    if (r) cents.push(Math.abs(1200 * Math.log2(r.freq / (220 * 2 ** (v(c / sr) / 12)))))
+  }
+  cents.sort((p, q) => p - q)
+  t.ok(cents.length > 280 && cents[cents.length >> 1] < 3, `median ${cents[cents.length >> 1].toFixed(2)} cents off the curve (${cents.length} frames)`)
+  t.ok(cents.at(-1) < 15, `every frame within 15 cents (worst ${cents.at(-1).toFixed(1)})`)
+  // a click is a peak of the second difference: at each bend it is the shifted tone's own, the input's times r² at the
+  // highest pitch within the 25 ms either side
+  let d2 = (p, q) => { let m = 0; for (let i = Math.max(2, p); i < q; i++) m = Math.max(m, Math.abs(y[i] - 2 * y[i - 1] + y[i - 2])); return m }
+  let ref = 0; for (let i = 2; i < .25 * sr; i++) ref = Math.max(ref, Math.abs(x[i] - 2 * x[i - 1] + x[i - 2]))
+  for (let b of curve.t) {
+    let hi = Math.max(v(b - .025), v(b), v(b + .025)), peak = d2(Math.round((b - .025) * sr), Math.round((b + .025) * sr)) / ref
+    t.ok(peak < 1.05 * 2 ** (2 * hi / 12), `bend at ${b} s: peak curvature ${peak.toFixed(2)}× the input's, the tone's own ${(2 ** (2 * hi / 12)).toFixed(2)}×`)
+  }
+  let s = []
+  for await (let b of a.stream()) s.push(...b[0])
+  t.ok(s.length === y.length && s.every((q, i) => q === y[i]), 'stream ≡ read')
+})
+
+// Where a range's shifted audio meets the input. Fed only the range, the vocoder saw the audio cut off at both edges and
+// smeared that step over its frames, and crossed with the input over 5 ms: a splash at each seam of −41 to −63 dB re the
+// frame (the tone's own is below −90), and clicks of up to 8× the tone's curvature; a stretch's crossfade ran inside the
+// range, with the plan's resampled audio there at the wrong pitch. Now the vocoder starts a context before the range and
+// the crossfades are constant-power for the correlation they meet: measured −63 to −108 dB, curvature at most 1.2×.
+test('pitch, stretch: a range meets the input with no splash, dip or click at its seams', async t => {
+  let { default: fft } = await import('fourier-transform').then(m => ({ default: m.fft }))
+  let sr = 44100, sine = Float32Array.from({ length: 2 * sr }, (_, i) => .5 * Math.sin(2 * Math.PI * 440 * i / sr)), tone = harmonics(220, 2, sr, 8)
+  // energy above fc re the frame's, 1024-sample Hann frames every 256 within 60 ms of the seam: the worst (dB)
+  let splash = (y, fc, c) => {
+    let N = 1024, worst = -Infinity
+    for (let s = Math.round(c - .06 * sr); s + N <= c + .06 * sr; s += 256) {
+      let fr = new Float64Array(N); for (let i = 0; i < N; i++) fr[i] = y[s + i] * (.5 - .5 * Math.cos(2 * Math.PI * i / N))
+      let [re, im] = fft(fr), hi = 0, all = 0
+      for (let k = 1; k < N / 2; k++) { let p = re[k] ** 2 + im[k] ** 2; all += p; if (k * sr / N > fc) hi += p }
+      worst = Math.max(worst, 10 * Math.log10(hi / all + 1e-30))
+    }
+    return worst
+  }
+  // level over two periods every ms within 20 ms of the seam, re the level 75 ms either side: the deepest dip (dB)
+  let dip = (y, c, w) => {
+    let lv = m => { let e = 0; for (let j = m - (w >> 1); j < m + (w >> 1); j++) e += y[j] ** 2; return Math.sqrt(e / w) }
+    let ref = (lv(c - Math.round(.075 * sr)) + lv(c + Math.round(.075 * sr))) / 2, lo = Infinity
+    for (let m = c - Math.round(.02 * sr); m <= c + Math.round(.02 * sr); m += 44) lo = Math.min(lo, 20 * Math.log10(lv(m) / ref))
+    return lo
+  }
+  // the peak second difference within 30 ms of the seam, re the largest 100 to 300 ms either side
+  let click = (y, c) => {
+    let d2 = (p, q) => { let m = 0; for (let i = Math.max(2, p); i < Math.min(y.length, q); i++) m = Math.max(m, Math.abs(y[i] - 2 * y[i - 1] + y[i - 2])); return m }
+    return d2(c - Math.round(.03 * sr), c + Math.round(.03 * sr)) / Math.max(d2(c - Math.round(.3 * sr), c - Math.round(.1 * sr)), d2(c + Math.round(.1 * sr), c + Math.round(.3 * sr)))
+  }
+  for (let [name, x, fc, w] of [['sine', sine, 2000, 200], ['tone', tone, 4000, 401]]) {
+    for (let [op, edit, k, limits] of [
+      ['pitch +7', a => a.pitch(7, { at: .5, duration: .5 }), 1, [-60, -1.5, 1.3]], ['pitch −3', a => a.pitch(-3, { at: .5, duration: .5 }), 1, [-60, -1.5, 1.3]],
+      ['pitch +0.5', a => a.pitch(.5, { at: .5, duration: .5 }), 1, [-60, -1.5, 1.3]],
+      // a range sped up ends where the plan rounded its length: up to half a sample of the source steps there
+      ['stretch 1.5', a => a.stretch(1.5, { at: .5, duration: .5 }), 1.5, [-55, -1.5, 1.3]], ['stretch 0.75', a => a.stretch(.75, { at: .5, duration: .5 }), .75, [-55, -1.5, 2.2]]]) {
+      let y = (await edit(audio.from([x.slice()], { sampleRate: sr })).read())[0], seams = [.5 * sr, Math.round(.5 * sr + .5 * sr * k)]
+      let s = Math.max(...seams.map(c => splash(y, fc, c))), d = Math.min(...seams.map(c => dip(y, c, w))), c = Math.max(...seams.map(c => click(y, c)))
+      t.ok(s < limits[0] && d > limits[1] && c < limits[2], `${name}, ${op}: splash ${s.toFixed(0)} dB, dip ${d.toFixed(1)} dB, curvature ${c.toFixed(2)}×`)
+    }
+  }
+})
+
+// A voice's own cycles re-spaced (the optional @audio/tune-curve, TD-PSOLA): the shifter splices them in as it does the
+// vocoder's, one set of cycles for all channels
+test('pitch({ voice: true }): the shift lands, the input outside the range and where the curve is zero, stream ≡ read', async t => {
+  if (!await import('@audio/tune-curve').catch(() => null)) return t.ok(true, 'skipped: @audio/tune-curve is not installed')
+  let { default: yin } = await import('@audio/pitch-yin')
+  let sr = 44100, x = harmonics(140, 3)
+  let read = async f => (await f(audio.from([x.slice(), x.map(v => .5 * v)], { sampleRate: sr })).read())
+  let [l, r] = await read(a => a.pitch(5, { voice: true })), f = yin(l.subarray(sr, sr + 4096), { fs: sr, minFreq: 60, maxFreq: 1000 }).freq
+  t.ok(Math.abs(1200 * Math.log2(f / (140 * 2 ** (5 / 12)))) < 2, `+5 st: ${f.toFixed(2)} Hz`)
+  t.ok(l.length === x.length && l.every((v, i) => Math.abs(.5 * v - r[i]) < 1e-6), 'both channels on one set of cycles, each at its level')
+  let [y] = await read(a => a.pitch(-4, { at: 1, duration: 1, voice: true }))
+  t.ok(y.subarray(0, sr).every((v, i) => v === x[i]) && y.subarray(2 * sr).every((v, i) => v === x[2 * sr + i]), 'ranged: the input before and after, sample for sample')
+  let [z] = await read(a => a.pitch({ t: [0, 3], v: [0, 0] }, { voice: true }))
+  t.ok(z.every((v, i) => v === x[i]), 'a zero curve: the input')
+  let a = audio.from([x.slice()], { sampleRate: sr }).pitch({ t: [.5, 1, 2, 2.5], v: [0, 3, -2, 0] }, { voice: true }), s = []
+  for await (let b of a.stream()) s.push(...b[0])
+  let w = (await a.read())[0]
+  t.ok(s.length === w.length && s.every((v, i) => v === w[i]), 'stream ≡ read')
+})
+
+// What a stretch makes of a range, to the sample, so an editor can draw it ahead: round(round(duration · sr) · factor)
+// samples (stretchSegs places each piece by its rounded ends, so the pieces sum to that), the rest as it was
+test('stretch: a range comes out round(round(duration · sr) · factor) samples long, at any factor', async t => {
+  let sr = 44100, x = Float32Array.from({ length: 3 * sr }, (_, i) => .3 * Math.sin(i / 9))
+  for (let [f, at, d] of [[1.2345678, .5, 1.23456], [.737, 1, .8], [2.5, 0, 1], [1 / 3, .25, 2], [1.0001, .3, .1]]) {
+    let n = Math.round(d * sr), want = x.length - n + Math.round(n * f), a = audio.from([x.slice()], { sampleRate: sr }).stretch(f, { at, duration: d })
+    t.ok(a.length === want && (await a.read())[0].length === want, `stretch(${+f.toFixed(7)}, { at: ${at}, duration: ${d} }): ${want} samples`)
+  }
 })
 
 test('decoded source — reads past the end are silent, so a lookahead op matches the same PCM in memory', async t => {

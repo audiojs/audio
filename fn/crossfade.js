@@ -45,7 +45,7 @@ audio.op('crossfade', {
   ranged: true,
   holdback: (o, sr, total) => o.at != null ? total - o.at * sr : 0,  // from the blend on, it waits for the end
   expand: (ctx) => {
-    let dur = ctx.duration || 0.5
+    let dur = ctx.duration ?? 0.5
     let curve = ctx.curve || 'cos'
     let source = ctx.source
     // No source: a crossfade across a range, as an editor crossfades a selection. The audio before it fades out into

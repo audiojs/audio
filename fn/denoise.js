@@ -33,7 +33,7 @@
  * 2.68 unprocessed. Each channel is learned and gained apart: linking the channels' gains measured 0.6 dB less SNR gain
  * where their noises differ, 0.1 dB more where they are the same.
  */
-import audio, { parseTime } from '../core.js'
+import audio, { parseTime, named } from '../core.js'
 import { fingerprint } from './vocals.js'
 
 const LEARNED = Symbol('denoise.learned'), REDUCTION = 12
@@ -69,7 +69,7 @@ export function fromPrint(print, sr) {
   return Float64Array.from({ length: N / 2 + 1 }, (_, k) => U * c * 10 ** (lerp(print, n > 1 ? k * sr / N / TOP * (n - 1) : 0) / 10))
 }
 
-const isRange = r => r != null && typeof r === 'object' && !Array.isArray(r) && r.duration != null
+const isRange = r => r != null && typeof r === 'object' && !Array.isArray(r) && named(r).duration != null
 const ranges = noise => isRange(noise) ? [noise] : Array.isArray(noise) && noise.length && noise.every(isRange) ? noise : null
 const isPrint = p => Array.isArray(p) && p.length > 0 && p.every(v => typeof v === 'number' && Number.isFinite(v))
 const prints = noise => isPrint(noise) ? [noise] : Array.isArray(noise) && noise.length && noise.every(isPrint) ? noise : null
@@ -88,7 +88,7 @@ async function prepare(a, index) {
   check(o)
   let list = ranges(o.noise)
   if (!list) { delete o[LEARNED]; return }                // a print: nothing to learn, and no range's print stays
-  list = list.map(r => ({ at: parseTime(r.at) ?? 0, duration: parseTime(r.duration) }))
+  list = list.map(named).map(r => ({ at: parseTime(r.at) ?? 0, duration: parseTime(r.duration) }))
   if (list.some(r => !(r.duration > 0))) throw new RangeError('denoise: a noise range needs a duration over 0 s')
   let chs = o.channel == null ? null : [o.channel].flat(), id = `${JSON.stringify(list)}:${chs ?? ''}`
   // same instance state as last time: the input is too (read() and stream() both prepare)

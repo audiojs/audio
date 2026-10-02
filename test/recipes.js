@@ -33,12 +33,14 @@ function narration(sr = 48000, dur = 12) {
   return x
 }
 
-const run = (code, x) => new Function('$src', `return ${code}`)(audio.from([x.slice()], { sampleRate: 48000 }))
+// a recipe is an expression on `$src`, or statements whose last line is what it makes (one that measures first)
+const AsyncFunction = (async () => {}).constructor
+const run = (code, x) => new AsyncFunction('$src', code.startsWith('$src') ? `return ${code}` : code.replace(/\n([^\n]+)$/, '\nreturn $1'))(audio.from([x.slice()], { sampleRate: 48000 }))
 const needs = code => /deepfilter\(/.test(code) ? HAS_DFN : /rnnoise\(/.test(code) ? !!neural : true
 const x = narration()
 
-const voice = r => ['Clean up', 'Deliver'].includes(r.group) || r.name === 'Vocal chain'
-for (let r of recipes.filter(r => voice(r) && r.spec && r.code.startsWith('$src')))
+const voice = r => ['Clean up', 'Deliver'].includes(r.group)
+for (let r of recipes.filter(r => voice(r) && r.spec))
   (needs(r.code) ? test : test.skip)(`recipes: ${r.name} passes ${r.spec}`, { timeout: 180000 }, async () => {
     let c = await (await run(r.code, x)).check(r.spec)
     ok(c.pass, c.rules.map(q => `${q.name} ${typeof q.value === 'number' ? q.value.toFixed(1) : q.value}${q.pass === false ? ' ✗' : ''}`).join(', '))

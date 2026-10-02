@@ -13,7 +13,7 @@ const choice = (name, values, def = values[0]) => ({ name, values, default: def 
 const Q = (def = .707) => p('Q', .1, 30, def, '', { log: true })
 const need = s => ({ ...s, required: true })
 
-// Ops whose time range is the whole call: `.remove({ at, duration })`.
+// Ops whose time range is the whole call: `.remove({ at, duration })`; with more after it: `.move({ at, duration, to })`.
 const RANGE = [p('at', 0, 1, 0, 's', { step: .01 }), p('duration', 0, 1, 1, 's', { step: .01 })]
 
 export const GROUPS = ['Edit', 'Level', 'Filter', 'Dynamics', 'Repair', 'Time & pitch', 'Effect', 'Color', 'Reverb', 'Space', 'Generate']
@@ -27,6 +27,7 @@ const table = {
   remove: ['Edit', 'Delete a range and close the gap', 'range'],
   cut: ['Edit', 'Delete a range into the clipboard', 'range'],
   copy: ['Edit', 'Copy a range to the clipboard', 'range'],
+  move: ['Edit', 'Slide a range to another time, over what is there', ['range', sec('to', 1, 0)]],
   paste: ['Edit', 'Insert the clipboard', [sec('at', 1, 0)]],
   insert: ['Edit', 'Insert audio or seconds of silence', [{ name: 'source' }, sec('at', 1, 0)]],
   pad: ['Edit', 'Add silence before and after', [sec('before', 5, .5), sec('after', 5, .5)]],
@@ -199,7 +200,7 @@ const table = {
 }
 
 export const ops = Object.fromEntries(Object.entries(table).map(([name, [group, text, params]]) =>
-  [name, { name, group, text, ...(params === 'range' ? { params: RANGE, range: true } : params && { params }) }]))
+  [name, { name, group, text, ...(params === 'range' || params?.[0] === 'range' ? { params: [...RANGE, ...params === 'range' ? [] : params.slice(1)], range: true } : params && { params }) }]))
 
 // Instance methods, beside the edits above. `sink` ends a chain: the REPL inserts edits before it. `edits`: it changes the
 // sound in place, sample for sample.
@@ -303,6 +304,7 @@ export function guides(name, args, duration) {
     out.push({ ramps })
   }
   if (['paste', 'insert', 'mix'].includes(name) && typeof args.at === 'number') out.push({ at: args.at })
+  if (name === 'move' && typeof args.to === 'number') out.push({ at: args.to })
   const freq = args.freq ?? args.fc
   if (typeof freq === 'number' && ops[name] && ['Filter', 'Repair', 'Space'].includes(ops[name].group)) out.push({ freq })
   if (name === 'dehum' || (name === 'notch' && typeof freq === 'number')) for (let k = 2; k <= (args.harmonics ?? 1); k++) out.push({ freq: (freq ?? 50) * k })

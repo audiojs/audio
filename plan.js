@@ -3,7 +3,7 @@
  * Intercepts create/run/read/stream to track and materialize edits.
  */
 
-import audio, { readPages, copyPages, walkPages, parseTime, fromEnd, LOAD, READ, emit } from './core.js'
+import audio, { readPages, copyPages, walkPages, parseTime, named, fromEnd, LOAD, READ, emit, resolveChannels } from './core.js'
 
 let fn = audio.fn
 let ops = {}
@@ -140,7 +140,7 @@ function mapParams(params, args, ctx) {
 
 /** Normalize edit options: parse time fields and sample aliases. */
 function normalizeOpts(opts, sr) {
-  let o = isOpts(opts) ? { ...opts } : {}
+  let o = isOpts(opts) ? { ...named(opts) } : {}
   if (o.at != null) o.at = parseTime(o.at)
   if (o.duration != null) o.duration = parseTime(o.duration)
   if (o.offset != null) { o.at = o.offset / sr; delete o.offset }
@@ -197,7 +197,7 @@ audio.op = function(name, arg1, arg2, arg3) {
 export function opMethod(name) {
   return function(...a) {
     let hasOpts = a.length && isOpts(a.at(-1))
-    let o = hasOpts ? { ...a.pop() } : {}
+    let o = hasOpts ? { ...named(a.pop()) } : {}
     let d = ops[name]
     if (d) {
       let p = d.params || []
@@ -349,6 +349,7 @@ fn[READ] = async function(offset, duration) {
 // ── Stream ─────────────────────────────────────────────────────
 
 fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
+  opts = named(opts)
   let offset = parseTime(opts?.at), duration = parseTime(opts?.duration)
 
   if (this._.disposed) return
@@ -858,6 +859,8 @@ function compilePlan(a, len, final) {
         let wctx = { sampleRate: sr, channelCount: input.length, totalDuration: input[0].length / sr, at, duration, channel, render, ...extra }
         op.whole(input, output, wctx)
         a._.wrc.m.set(key, ref = audio.from(output, { sampleRate: sr }))
+        // without a frames hook it renders in place: the timeline it read stays the time map under it (fn/cuts.js)
+        if (!op.frames) ref._.timeline = { segs, sr }
       }
       segs = [seg(0, ref._.len, 0, undefined, ref)]
       ch = ref._.ch
@@ -953,7 +956,7 @@ export function resample(src, target, tOff, n, rate, phase = 0) {
 const refStack = new Set()
 
 /** Read a sample range from an audio instance (handles edits via plan). */
-function readRange(a, srcStart, n) {
+function readRange(a, srcStart, n, sg, at) {
   if (!a.edits.length) {
     return Array.from({ length: a._.ch }, (_, c) => {
       let out = new Float32Array(n)
@@ -969,7 +972,7 @@ function readRange(a, srcStart, n) {
     let plan = buildPlan(a)
     plan.cur ??= a._.cursor ??= { pos: 0, hl: 0 }
     plan.outCh ??= stageWidth(plan.pipeline, plan.ch, plan.totalLen / plan.sr, plan.sr)
-    return readStage(a, plan, srcStart, n)
+    return readStage(a, plan, srcStart, n, sg, at)
   } finally { refStack.delete(a) }
 }
 
@@ -1051,7 +1054,7 @@ function renderSeg(a, sg, chunk, dstOff, n, at) {
   let bufStart = base - margin
   let copyOff = bufStart < 0 ? -bufStart : 0
   let copyStart = Math.max(0, bufStart)
-  let srcPcm = ref.segs ? readStage(a, ref, copyStart, srcN - copyOff) : readRange(ref, copyStart, srcN - copyOff)
+  let srcPcm = ref.segs ? readStage(a, ref, copyStart, srcN - copyOff, sg, at) : readRange(ref, copyStart, srcN - copyOff, sg, at)
   for (let c = 0; c < chunk.length; c++) {
     let src = srcPcm[c % srcPcm.length]
     if (copyOff || src.length < srcN) {
@@ -1119,6 +1122,35 @@ function carryStage(c, st) {
   patchProcs(c.procs, st.pipeline)
 }
 
+/** The cursor that reads a stage on from s, for segment sg at output position `at`. A stage read at two places in
+ *  turn, block by block (a crossfade's two sides over one processed source, a copy pasted from it), keeps a cursor for
+ *  each, READERS at most: one cursor would re-seek at every block, the seek's warm-up approximation at each block's edge,
+ *  a click there after a stretch or a pitch. A cursor is its reader's while that reads on: its segment's (known by where
+ *  it reads from and where it goes, which a recompile keeps), through the cursor of the stage it renders for (`reading`:
+ *  two cursors of an outer stage read an inner one at two places too). Another skips ahead on it only once that segment
+ *  is done. The stage's own cursor (st.cur) holds the others; none reading on from s, an unused one seeks there, else
+ *  the one read longest ago. */
+const READERS = 4
+let readTick = 0, reading = null
+function reader(st, s, sg, at) {
+  let main = st.cur, all = [main, ...(main.more ??= [])], BS = audio.BLOCK_SIZE, best = null, gap = Infinity
+  let mine = r => !sg || r.till == null || at >= r.till || r.from === sg[0] && r.to === sg[2] && r.by === reading
+  // the nearest that reads on from s, the one read last among as near: a cursor left further on by an earlier read
+  // (another seek's history) never stands in for the one just reading
+  for (let r of all) {
+    if (r.st !== st) carryStage(r, st)
+    let d = Math.abs(s - r.pos)
+    if (!r.procs || s < r.pos - r.hl || s > r.pos + BS * WARMUP || !mine(r) || d > gap || d === gap && r.used < best.used) continue
+    best = r; gap = d
+  }
+  if (!best) {
+    best = all.find(r => !r.procs) ?? (all.length < READERS ? main.more[main.more.push({ pos: 0, hl: 0, st }) - 1] : all.reduce((p, q) => p.used <= q.used ? p : q))
+    seekStage(st, best, s)
+  }
+  Object.assign(best, { used: ++readTick, from: sg?.[0], to: sg?.[2], till: sg ? sg[2] + sg[1] : null, by: reading })
+  return best
+}
+
 /** Start a stage cursor at timeline sample s, warmed up like streamPlan: up to WARMUP
  *  blocks before the latency-shifted cursor, never past s. */
 function seekStage(st, c, s) {
@@ -1134,17 +1166,17 @@ function seekStage(st, c, s) {
 /** Read timeline samples [s, s + n) of a stage. Contiguous reads continue its cursor, so
  *  processor state stays exact; overlaps come from a one-block history; a jump back or
  *  far ahead re-seeks with warm-up — the approximation seeking already makes. */
-function readStage(a, st, s, n) {
-  let c = st.cur, BS = audio.BLOCK_SIZE, T = st.latency
-  if (c.st !== st) carryStage(c, st)
-  if (!c.procs || s < c.pos - c.hl || s > c.pos + BS * WARMUP) seekStage(st, c, s)
+function readStage(a, st, s, n, sg, at) {
+  let c = reader(st, s, sg, at), BS = audio.BLOCK_SIZE, T = st.latency
   let out = Array.from({ length: st.outCh }, () => new Float32Array(n))
   let k = Math.min(c.pos, s + n) - s
   if (k > 0) for (let ch = 0; ch < out.length; ch++) out[ch].set(c.hist[ch].subarray(BS - (c.pos - s), BS - (c.pos - s) + k))
   while (c.pos < s + n) {
     let len = Math.min(BS, (c.pos < s ? s : s + n) - c.pos)
     for (let b of c.buf) b.fill(0, 0, len)
-    renderBlock(a, st.segs, c.pos + T, len, c.buf)
+    let was = reading
+    reading = c
+    try { renderBlock(a, st.segs, c.pos + T, len, c.buf) } finally { reading = was }
     let src = len < BS ? c.buf.map(b => b.subarray(0, len)) : c.buf
     let blk = applyProcs(src, c.procs, c.pos + T, st.sr)
     for (let ch = 0; ch < out.length; ch++) {
@@ -1203,7 +1235,8 @@ function applyProcs(bufA, procs, outOff, sr) {
       let inV = full ? cur : cur.map(ch => ch.subarray(i0, i1))
       let outV = full ? out : out.map(ch => ch.subarray(i0, i1))
       if (channel != null) {
-        let chs = typeof channel === 'number' ? [channel] : channel
+        // a channel the audio hasn't is an error that says so, not a crash further in
+        let { chs } = resolveChannels(channel, inV.length)
         // Channels outside the scope pass through, delayed by the stage's latency, so they
         // stay aligned with the processed ones once the engine compensates the whole stage
         for (let c = 0; c < inV.length; c++) if (!chs.includes(c)) {

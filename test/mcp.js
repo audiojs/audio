@@ -1,5 +1,7 @@
 // MCP server (bin/mcp.js): protocol over real stdio, the one tool end-to-end, the argument splitter.
+// Its --repl mode and the REPL bridge it talks to: ./bridge.js, run along.
 import test from 'tst'
+import './bridge.js'
 import { spawn } from 'child_process'
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'fs'
 import { homedir, tmpdir } from 'os'
@@ -31,6 +33,12 @@ function client() {
   let request = (method, params) => new Promise(r => { let i = ++id; pending.set(i, r); write({ id: i, method, params }) })
   return {
     seen, request,
+    raw: line => proc.stdin.write(line + '\n'),
+    // the first message seen that matches, taken out of `seen`
+    next: async (pred, ms = 5000) => {
+      for (let t0 = Date.now(); Date.now() - t0 < ms; await sleep(10)) { let i = seen.findIndex(pred); if (i >= 0) return seen.splice(i, 1)[0] }
+      throw new Error(`no such message in ${ms} ms`)
+    },
     notify: (method, params) => write({ method, params }),
     call: async args => (await request('tools/call', { name: 'audio', arguments: { args } })).result,
     close: () => new Promise(r => { proc.on('close', r); proc.stdin.end() })
@@ -70,6 +78,51 @@ test('mcp: modern discover, stateless call, unsupported version error', E2E, asy
     let e = await c.request('tools/list', { _meta: { 'io.modelcontextprotocol/protocolVersion': '1900-01-01' } })
     t.is(e.error.code, -32022, 'UnsupportedProtocolVersionError')
     t.is(e.error.data.requested, '1900-01-01')
+  } finally { await c.close() }
+})
+
+// 2026-07-28: discover and list results MUST carry ttlMs ≥ 0 and cacheScope (server/utilities/caching);
+// servers SHOULD name themselves in each result's _meta (basic/versioning, SEP-2575)
+test('mcp: modern lists carry cache hints, modern results name the server, legacy ones stay as they were', E2E, async t => {
+  let c = client()
+  try {
+    for (let method of ['server/discover', 'tools/list']) {
+      let { result } = await c.request(method, MODERN)
+      t.ok(Number.isInteger(result.ttlMs) && result.ttlMs >= 0, `${method} ttlMs ${result.ttlMs}`)
+      t.is(result.cacheScope, 'public', `${method}: the same for every caller`)
+      t.is(result._meta['io.modelcontextprotocol/serverInfo'], { name: 'audio', version: audio.version })
+    }
+    let r = (await c.request('tools/call', { ...MODERN, name: 'audio', arguments: { args: '--version' } })).result
+    t.is(r._meta['io.modelcontextprotocol/serverInfo'].name, 'audio', 'a tool result names it too')
+    t.ok(!('ttlMs' in r), 'a tool result is not cacheable')
+    let legacy = (await c.request('tools/list')).result
+    t.ok(!('ttlMs' in legacy) && !('_meta' in legacy) && !('resultType' in legacy), 'legacy list unchanged')
+  } finally { await c.close() }
+})
+
+// JSON-RPC 2.0 §5-6: an invalid message gets -32600, a batch one array of its responses (2025-03-26, served
+// here, MUST receive batches); a response from the client is answered by nothing. Before: a batch went
+// unanswered and a `null` line killed the server.
+test('mcp: batches, invalid messages and stray responses', E2E, async t => {
+  let c = client()
+  try {
+    c.raw(JSON.stringify([{ jsonrpc: '2.0', id: 'a', method: 'ping' }, { jsonrpc: '2.0', method: 'notifications/initialized' }, { jsonrpc: '2.0', id: 'b', method: 'tools/list' }]))
+    let batch = await c.next(Array.isArray)
+    t.is(batch.map(m => m.id), ['a', 'b'], 'one array, a response per request')
+    t.is(batch[1].result.tools[0].name, 'audio')
+    t.ok(batch.every(m => m.jsonrpc === '2.0'), 'each a JSON-RPC response')
+
+    for (let line of ['null', '5', '"ping"', '[]', '{"jsonrpc":"2.0","id":7}']) {
+      c.raw(line)
+      let e = await c.next(m => m.error)
+      t.is([e.id, e.error.code], [line.includes('"id":7') ? 7 : null, -32600], `${line}: Invalid Request`)
+    }
+    c.raw('{"jsonrpc":"2.0","id":99,"result":{}}')
+    c.raw(JSON.stringify([{ jsonrpc: '2.0', method: 'notifications/initialized' }]))
+    c.raw('not json')
+    t.is((await c.next(m => m.error)).error.code, -32700, 'parse error')
+    t.is((await c.request('ping')).result, {}, 'alive after all of it')
+    t.ok(!c.seen.some(m => m.id === 99 || Array.isArray(m)), 'no answer to a response or to notifications')
   } finally { await c.close() }
 })
 

@@ -3871,7 +3871,7 @@ test('site: the header mark is the logo drawn live; over the whole title it copi
   }))
   assert(mark.mid < mark.ink && icon.mid < icon.ink, JSON.stringify({ mark, icon }))
   // Hovered on the word, not the mark, it does no more than drift; moved along the title, it copies the pointer's move
-  // as a drag would, a cycle for the mark's width, and is back where it was when the pointer is
+  // half as far as a drag would turn it (a cycle for the mark's width), and is back where it was when the pointer is
   const box = await title.boundingBox(), y = box.y + box.height / 2, width = await canvas.evaluate(c => c.clientWidth)
   const phase = () => page.evaluate(async () => (await import('/logo/mark.js')).mark(document.querySelector('.header .wordmark')).phase)
   await page.mouse.move(box.x + box.width - 20, y)
@@ -3886,7 +3886,7 @@ test('site: the header mark is the logo drawn live; over the whole title it copi
   await page.waitForTimeout(500)
   const back = await phase()
   assert(Math.abs(hovered - start) < .1, `hovering the title alone leaves the mark drifting, ${hovered - start} turns in a second`)
-  assert(Math.abs(left - hovered + 30 / width) < .15, `30 px left turns it back ${30 / width} of a turn, ${left - hovered}`)
+  assert(Math.abs(left - hovered + 15 / width) < .15, `30 px left turns it back ${15 / width} of a turn, half a drag's, ${left - hovered}`)
   assert(Math.abs(back - start) < .3, `and 30 px right turns it forward again, ${back - start} from where it was`)
   // A drag across the title turns it, whole, not dimmed as a pressed link, and is no click on the link
   await page.mouse.down()
@@ -3897,6 +3897,108 @@ test('site: the header mark is the logo drawn live; over the whole title it copi
   // A plain click after it is still the link's
   await title.click()
   assert.equal(page.url(), url.replace(/#.*$/, '') + '#')
+})
+
+// The frames the wordmarks' marks draw, counted as they are drawn: [ms, canvas width, solid pixels, half-tone pixels, whether
+// the static mark is still there]. A flat mark is solid with a rim of half-tone; a mark fading in or out is mostly
+// half-tone, or a shape that comes to size.
+function watchMarks() {
+  const draw = WebGL2RenderingContext.prototype.drawArrays
+  window.__frames = []
+  WebGL2RenderingContext.prototype.drawArrays = function (...args) {
+    draw.apply(this, args)
+    const c = this.canvas
+    if (!c.closest?.('.wordmark')) return
+    const k = new OffscreenCanvas(c.width, c.height).getContext('2d')
+    k.drawImage(c, 0, 0)
+    const d = k.getImageData(0, 0, c.width, c.height).data
+    let solid = 0, half = 0
+    for (let i = 3; i < d.length; i += 4) { if (d[i] > 215) solid++; else if (d[i] > 40) half++ }
+    window.__frames.push([performance.now(), c.width, solid, half, !!c.closest('.wordmark').querySelector('svg')])
+  }
+}
+
+test('site: the header mark comes whole and stays plain: from its first frame at size it is solid ink, nothing fades in', async () => {
+  const fresh = await browser.newPage()
+  await fresh.addInitScript(watchMarks)
+  await fresh.goto(origin, { waitUntil: 'networkidle' })
+  await fresh.waitForTimeout(1200)
+  const frames = await fresh.evaluate(() => window.__frames)
+  const width = frames.at(-1)[1], sized = frames.filter(f => f[1] === width)
+  const ink = sized.map(f => f[2]), rim = Math.max(...sized.map(f => f[3] / f[2]))
+  assert(sized.length > 20, `${sized.length} frames at its size`)
+  assert(Math.min(...ink) > .85 * Math.max(...ink), `solid from the first frame: ${ink.slice(0, 5)} … of ${Math.min(...ink)}–${Math.max(...ink)}`)
+  assert(rim < .6, `and flat, a rim of half-tone only, not a gradient: ${rim}`)
+  // the static mark stays until the live one has drawn at its size, so there is never less than the logo on the page
+  assert.equal(frames[frames.findIndex(f => !f[4])][1], width, 'the static mark leaves with the first frame at size')
+  // and whatever it shows next it shows at once: a new signal is whole in the first frame after it
+  await fresh.evaluate(async () => {
+    const it = (await import('/logo/mark.js')).mark(document.querySelector('.header .wordmark'))
+    window.__frames.length = 0
+    it.set({ signal: 'square' })
+  })
+  await fresh.waitForTimeout(400)
+  const next = (await fresh.evaluate(() => window.__frames)).filter(f => f[1] === width).map(f => f[2])
+  await fresh.close()
+  assert(next.length > 3 && next[0] > .85 * next.at(-1) && next[0] < 1.15 * next.at(-1), `the square is whole in its first frame: ${next.slice(0, 6)} … ${next.at(-1)}`)
+})
+
+test('logo: a morph of nothing takes a new signal, window or gradient at once', async () => {
+  const same = await page.evaluate(async () => {
+    const { logo } = await import('./logo/logo.js'), canvas = document.createElement('canvas')
+    Object.assign(canvas.style, { position: 'fixed', left: 0, top: 0, width: '96px', height: '40px' })
+    document.body.append(canvas)
+    const view = logo(canvas, { clear: true, fit: 'width' })
+    await new Promise(r => setTimeout(r, 100))
+    const shot = now => {
+      const morphing = view.render(now)
+      const c = new OffscreenCanvas(canvas.width, canvas.height).getContext('2d')
+      c.drawImage(canvas, 0, 0)
+      return { morphing, data: [...c.getImageData(0, 0, canvas.width, canvas.height).data] }
+    }
+    view.set({ figure: '#000', signal: 'triangle', window: 'cosine', gradient: 'rectangular', morph: 0 }, 1000)
+    const at = shot(1000), later = shot(9000)
+    // and with a morph, the same moment is mid-way
+    view.set({ signal: 'square', morph: 600 }, 20000)
+    const half = shot(20200)
+    canvas.remove()
+    return { morphing: at.morphing, equal: at.data.every((v, i) => v === later.data[i]), midway: half.morphing }
+  })
+  assert.equal(same.morphing, false, 'nothing under way')
+  assert(same.equal, 'the first frame is the last')
+  assert.equal(same.midway, true, 'where a morph of 600 ms is still under way after 200')
+})
+
+test('logo motion: the axis is there or not at once, with no fade in or out', async () => {
+  await page.goto(origin + '/logo/index.html', { waitUntil: 'networkidle' })
+  const axes = await page.evaluate(async () => {
+    const { logo } = await import('/logo/logo.js'), { motion } = await import('/logo/motion.js'), canvas = document.createElement('canvas')
+    Object.assign(canvas.style, { position: 'fixed', left: 0, top: 0, width: '96px', height: '40px' })
+    document.body.append(canvas)
+    const view = logo(canvas, { clear: true, fit: 'width' })
+    const mark = motion(view, canvas, {})
+    const frames = n => new Promise(resolve => { let k = 0; const tick = () => ++k < n ? requestAnimationFrame(tick) : resolve(); tick() })
+    await frames(5)
+    mark.set({ axis: .5 })
+    await frames(3)
+    const on = view.state.axis
+    mark.set({ axis: 0 })
+    await frames(3)
+    const off = view.state.axis
+    canvas.remove()
+    return { on, off }
+  })
+  assert.deepEqual(axes, { on: .5, off: 0 })
+})
+
+test('site: the mark and the name change places between pages by moving only: the old picture goes and the new stands whole', async () => {
+  for (const [path, sheet] of [['/', 'site/site.css'], ['/repl.html', 'repl/repl.css']]) {
+    await page.goto(origin + path, { waitUntil: 'networkidle' })
+    const rules = await page.evaluate(() => [...document.styleSheets].flatMap(sheet => { try { return [...sheet.cssRules] } catch { return [] } })
+      .filter(rule => /view-transition-(old|new)\((mark|name)\)/.test(rule.selectorText ?? '')).map(rule => [rule.selectorText, rule.style.display, rule.style.animationName]))
+    assert(rules.some(([selector, display]) => /old\(mark\)/.test(selector) && /old\(name\)/.test(selector) && display === 'none'), `${sheet}: the old pictures go, ${JSON.stringify(rules)}`)
+    assert(rules.some(([selector, , animation]) => /new\(mark\)/.test(selector) && /new\(name\)/.test(selector) && animation === 'none'), `${sheet}: the new ones do not fade in, ${JSON.stringify(rules)}`)
+  }
 })
 
 test('logo motion: a height or a cycle count that is no number for a moment does not freeze the mark', async () => {

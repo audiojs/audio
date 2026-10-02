@@ -7,12 +7,15 @@ import {
 import { ops, methods, stats, presets, GROUPS, format, fromManifest } from './ops.js'
 
 // The script editor: JavaScript with the audio methods completed after a dot, sources and stat names completed
-// inside strings. `oncaret(update)` hears every move of the selection and every change, for the stack beside it.
-export default function editor(parent, { doc = '', onchange, oncaret, files = () => [], describe = async () => null, keys = {} }) {
+// inside strings. `oncaret(update)` hears every move of the selection and every change, for the stack beside it. A
+// number says what it sets in the page's hints (`hint`, hint.js), pointed at, selected, dragged or stepped.
+export default function editor(parent, { doc = '', onchange, oncaret, files = () => [], describe = async () => null, keys = {}, hint = null }) {
   const highlight = HighlightStyle.define([
     { tag: [tags.keyword, tags.modifier, tags.controlKeyword, tags.definitionKeyword, tags.moduleKeyword, tags.operatorKeyword], color: 'var(--color-screen-bright)' },
     { tag: [tags.function(tags.propertyName), tags.function(tags.variableName)], color: 'var(--color-screen-ink)' },
-    { tag: [tags.string, tags.number, tags.bool, tags.null, tags.regexp], color: 'var(--color-screen-muted)' },
+    { tag: [tags.string, tags.bool, tags.null, tags.regexp], color: 'var(--color-screen-muted)' },
+    // a number drags (scrub): the pointer says so
+    { tag: tags.number, color: 'var(--color-screen-muted)', cursor: 'ew-resize' },
     { tag: [tags.comment, tags.lineComment, tags.blockComment], color: 'var(--color-screen-dim)', fontStyle: 'italic' },
     { tag: tags.invalid, color: 'var(--color-screen-error)' }
   ])
@@ -103,15 +106,118 @@ export default function editor(parent, { doc = '', onchange, oncaret, files = ()
     return null
   }
 
+  // A number in the script: the Number node, a minus before it its own, so it goes through zero; its text, its place
+  const literal = (state, node) => {
+    if (node?.name !== 'Number') return null
+    const minus = node.parent?.name === 'UnaryExpression' && state.sliceDoc(node.parent.from, node.from).trim() === '-'
+    const from = minus ? node.parent.from : node.from, text = state.sliceDoc(from, node.to).replace(/\s+/g, '')
+    return /^-?(\d+\.?\d*|\.\d+)$/.test(text) ? { node, from, to: node.to, text } : null
+  }
+  // the one under the pointer, by the text it shows (what the highlighter drew from the syntax tree), not by coordinates
+  // the editor may not have measured yet, just shown
+  const pointed = (view, event) => {
+    const text0 = event.target.closest?.('.cm-line') && event.target.firstChild?.nodeType === 3 ? event.target.firstChild : null
+    const pos = text0 ? view.posAtDOM(text0, 0) : null
+    return pos == null ? null : literal(view.state, syntaxTree(view.state).resolveInner(pos, 1))
+  }
+  // the one selected, whole, with its minus or without
+  const selected = state => {
+    const { from, to } = state.selection.main, n = from < to && literal(state, syntaxTree(state).resolveInner(to, -1))
+    return n && n.to === to && (from === n.from || from === n.node.from) ? n : null
+  }
+  // k steps of its last decimal from it, as it is written: 0.25 by 0.01, 3 by 1
+  const stepped = (text, k) => (+text + k * 10 ** -(text.split('.')[1] || '').length).toFixed((text.split('.')[1] || '').length).replace(/^-(0\.?0*)$/, '$1')
+
+  // What a number sets, said by it: the method it is given to, the parameter (by its name in an options object, else by
+  // its place among the arguments), its value as written in its unit, and the range the edits' sliders give it (ops.js). The
+  // options every edit takes are the range's and the seam's, in seconds; a gain curve's, its times and levels
+  const OPTIONS = { at: ['at', 's'], duration: ['duration', 's'], to: ['to', 's'], crossfade: ['crossfade', 's'], t: ['time', 's'], v: ['level', 'dB'] }
+  function says(state, n) {
+    let node = n.node, key = null
+    for (let p = node.parent; p; node = p, p = p.parent) {
+      if (p.name === 'Property') { if (key == null) { const d = p.getChild('PropertyDefinition'); key = d ? state.sliceDoc(d.from, d.to) : '' } continue }
+      if (['UnaryExpression', 'ObjectExpression', 'ArrayExpression'].includes(p.name)) continue
+      if (p.name !== 'ArgList') return null
+      const target = p.parent?.firstChild, name = target?.name === 'MemberExpression' ? target.getChild('PropertyName') : target?.name === 'VariableName' ? target : null
+      const call = name && state.sliceDoc(name.from, name.to)
+      let index = 0
+      for (let c = p.firstChild; c && c.from < node.from; c = c.nextSibling) if (!['(', ')', ','].includes(c.name)) index++
+      const params = ops[call]?.params, spec = key ? params?.find(s => s.name === key) ?? (OPTIONS[key] && { name: OPTIONS[key][0], unit: OPTIONS[key][1] }) : params?.[index]
+      const range = spec?.min != null ? `, ${format(spec.min, spec)} to ${format(spec.max, spec)}` : ''
+      return `${call ?? ''} ${spec?.name ?? key ?? ''} ${n.text.replace(/^-/, '−')}${spec?.unit ?? ''}${range}`.replace(/\s+/g, ' ').trim()
+    }
+    return null
+  }
+  // said under it, or put away
+  const self = {}
+  function tell(view, n) {
+    const text = n && says(view.state, n), at = text && view.coordsAtPos(n.from)
+    at ? hint?.show(text, { x: at.left, y: at.bottom + 12 }, self) : hint?.hide(self)
+  }
+
+  // A number dragged across, as Bret Victor's Tangle has it: a step up or down for every 4 px (its last decimal's step,
+  // ten of them with Shift), the output following as it goes (a slider's live edit, out of the history), one step of
+  // the history where it is let go. Pressed and let go where it was, the caret goes there, as anywhere; a double-click
+  // selects all of it, its minus and its decimals, for the arrows to step. Pointed at, it says what it sets.
+  let dragging = false
+  const scrub = EditorView.domEventHandlers({
+    mousedown(event, view) {
+      if (event.button || event.detail > 2 || event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return false
+      const n = pointed(view, event)
+      if (!n) return false
+      event.preventDefault()
+      if (event.detail === 2) { view.dispatch({ selection: { anchor: n.from, head: n.to } }); view.focus(); return true }
+      const x0 = event.clientX, { from } = n
+      let moved = false, { text } = n, length = n.to - from
+      dragging = true
+      const move = e => {
+        if (!moved && Math.abs(e.clientX - x0) < 3) return
+        moved = true
+        const next = stepped(n.text, Math.trunc((e.clientX - x0) / 4) * (e.shiftKey ? 10 : 1))
+        if (next === text) return
+        slide({ from, to: from + length, insert: next })
+        text = next
+        length = next.length
+        tell(view, literal(view.state, syntaxTree(view.state).resolveInner(from + length, -1)))
+      }
+      const up = () => {
+        removeEventListener('pointermove', move)
+        removeEventListener('pointerup', up)
+        dragging = false
+        if (moved) settle()
+        else view.dispatch({ selection: { anchor: view.posAtCoords({ x: x0, y: event.clientY }) ?? from } })
+        view.focus()
+      }
+      addEventListener('pointermove', move)
+      addEventListener('pointerup', up)
+      return true
+    },
+    mousemove(event, view) { if (!dragging && !selected(view.state)) tell(view, pointed(view, event)) },
+    mouseleave(event, view) { if (!dragging && !selected(view.state)) hint?.hide(self) },
+    blur() { if (!dragging) hint?.hide(self) }
+  })
+  // A number selected, the arrows step it, as a spin box's: ↑ up and ↓ down by its last decimal's step, ten with Shift;
+  // still selected, saying what it is now. Else the arrows are the caret's.
+  function nudge(view, k) {
+    const n = selected(view.state)
+    if (!n) return false
+    const next = stepped(n.text, k)
+    view.dispatch({ changes: { from: n.from, to: n.to, insert: next }, selection: { anchor: n.from, head: n.from + next.length }, userEvent: 'input.step', scrollIntoView: true })
+    return true
+  }
+  const steps = [{ key: 'ArrowUp', run: v => nudge(v, 1), shift: v => nudge(v, 10) }, { key: 'ArrowDown', run: v => nudge(v, -1), shift: v => nudge(v, -10) }]
+
   const extensions = [
     lineNumbers(), history(), drawSelection(), dropCursor(), indentOnInput(), bracketMatching(), closeBrackets(), highlightActiveLine(), highlightSelectionMatches(),
-    javascript(), syntaxHighlighting(highlight), theme,
+    javascript(), syntaxHighlighting(highlight), theme, scrub,
     autocompletion({ override: [insideStrings, methodsAfterDot, localCompletionSource, scopeCompletionSource(globalThis)], icons: false, maxRenderedOptions: 400 }),
     tooltips({ parent: document.body }),
-    keymap.of([...Object.entries(keys).map(([key, run]) => ({ key, run: () => (run(), true), preventDefault: true })), ...closeBracketsKeymap, ...completionKeymap, ...historyKeymap, indentWithTab, ...defaultKeymap]),
+    keymap.of([...Object.entries(keys).map(([key, run]) => ({ key, run: () => (run(), true), preventDefault: true })), ...steps, ...closeBracketsKeymap, ...completionKeymap, ...historyKeymap, indentWithTab, ...defaultKeymap]),
     EditorView.updateListener.of(update => {
       if (update.docChanged) onchange?.(update.state.doc.toString(), update)
       if (update.docChanged || update.selectionSet) oncaret?.(update)
+      // a number selected says what it sets; once it is not, it is quiet
+      if (update.selectionSet && !dragging) requestAnimationFrame(() => { if (!dragging) tell(update.view, selected(update.view.state)) })
     }),
     EditorView.contentAttributes.of({ 'aria-label': 'Script' })
   ]

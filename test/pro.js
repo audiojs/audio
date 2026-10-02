@@ -410,6 +410,62 @@ test('crossfade: a range with no source crossfades across it, as remove with a s
   await t.rejects(() => tone().crossfade().read(), /crossfade: expected a source to blend into, or a range/)
 })
 
+// After a stretch, a pitch or a warp (a phase vocoder, its state carried from block to block), a crossfade's two sides
+// read the one processed sound at two places in turn, and so does each stage inside it. Each side reads as that sound
+// does on its own from there: one cursor for both, re-seeked at every block, steps at each block's edge, a click. Short
+// (50 ms, under the 8 blocks a cursor skips ahead by) or long, the sides keep their own
+test('crossfade: after a stretch, a pitch or a warp, each side reads on as the processed sound does alone', async t => {
+  let sr = 44100, tone = () => audio.from(x => 0.5 * Math.sin(2 * Math.PI * 440 * x), { duration: 2, sampleRate: sr })
+  let made = { stretch: () => tone().stretch(1.25), pitch: () => tone().pitch(3), warp: () => tone().warp([[0.6, 0.7], [1.2, 1.2]]) }
+  for (let [name, make] of Object.entries(made)) for (let dur of [0.3, 0.05]) {
+    let at = 0.5, off = Math.round(at * sr), d = Math.round(dur * sr), h = Math.floor(d / 2)
+    let [x] = await make().crossfade({ at, duration: dur }).read(), [before] = await make().read()
+    // the side after the range, read on its own from where it starts fading in
+    let [after] = await make().remove({ at: 0, duration: (off + d - h) / sr }).read(), worst = 0
+    // equal-power (plan.js renderEnvSeg): the gains sin and cos of a phase linear across the overlap, at sample centres
+    for (let i = 0; i < 2 * h; i++) { let u = (i + .5) / (2 * h); worst = Math.max(worst, Math.abs(x[off - h + i] - before[off - h + i] * Math.cos(u * Math.PI / 2) - after[i] * Math.sin(u * Math.PI / 2))) }
+    t.ok(worst < 1e-6, `${name}, ${dur * 1000} ms: the overlap is its sides' equal-power sum, within ${worst.toExponential(1)}`)
+  }
+  // streamed, block by block, the same samples as read
+  let [r] = await made.warp().crossfade({ at: 0.5, duration: 0.3 }).read(), s = []
+  for await (let b of made.warp().crossfade({ at: 0.5, duration: 0.3 }).stream()) s.push(...b[0])
+  t.ok(s.length === r.length && s.every((v, i) => v === r[i]), 'stream ≡ read')
+})
+
+// A range moved as a DAW slides a clip (slip mode): over what is where it lands, silence where it was, the length kept,
+// past the end extending it; positional or by name; its edges crossfaded without a step; stream ≡ read; undo
+test('move: a range slides over what is there, silence where it was', async t => {
+  let ramp = n => audio.from([Float32Array.from({ length: n }, (_, i) => i + 1)], { sampleRate: 1000 }), vals = async a => [...(await a.read())[0]]
+  t.is(await vals(ramp(10).move({ at: 0.002, duration: 0.003, to: 0.006 })), [1, 2, 0, 0, 0, 6, 3, 4, 5, 10], 'later')
+  t.is(await vals(ramp(10).move({ at: 0.005, duration: 0.003, to: 0 })), [6, 7, 8, 4, 5, 0, 0, 0, 9, 10], 'earlier, to the start')
+  t.is(await vals(ramp(10).move({ at: 0.002, duration: 0.003, to: 0.003 })), [1, 2, 0, 3, 4, 5, 7, 8, 9, 10], 'over itself')
+  t.is(await vals(ramp(10).move({ at: 0.002, duration: 0.003, to: 0.008 })), [1, 2, 0, 0, 0, 6, 7, 8, 3, 4, 5], 'past the end: longer')
+  t.is(await vals(ramp(10).move(0.002, 0.003, 0.006)), await vals(ramp(10).move({ at: 0.002, duration: 0.003, to: 0.006 })), 'positional')
+  t.is(await vals(ramp(10).move({ at: 0.002, duration: 0.003, to: 0.002 })), await vals(ramp(10)), 'to where it is: unchanged')
+  t.is(await vals(ramp(10).move({ at: 0.002, duration: 0, to: 0.006 })), await vals(ramp(10)), 'nothing to move')
+  let a = ramp(10).move({ at: 0.002, duration: 0.003, to: 0.006 })
+  a.undo()
+  t.is(await vals(a), await vals(ramp(10)), 'undo restores it')
+  // a tone's sample steps stay within its slope (√2 of it where two sides meet out of phase), where a butt edge steps
+  let sr = 48000, tone = () => audio.from(x => 0.5 * Math.sin(2 * Math.PI * 440 * x), { duration: 1, sampleRate: sr })
+  let step = x => { let m = 0; for (let i = 1; i < x.length; i++) m = Math.max(m, Math.abs(x[i] - x[i - 1])); return m }
+  let slope = 0.5 * 2 * Math.PI * 440 / sr, moved = () => tone().move({ at: 0.2001, duration: 0.1003, to: 0.5007, crossfade: 0.01 })
+  let [butt] = await tone().move({ at: 0.2001, duration: 0.1003, to: 0.5007 }).read(), [x] = await moved().read()
+  t.ok(step(butt) > 2 * slope && step(x) <= slope * Math.SQRT2, `edges ${(step(x) / slope).toFixed(2)}× the slope, butt ${(step(butt) / slope).toFixed(1)}×`)
+  t.is(x.length, sr, 'the length kept')
+  let s = []
+  for await (let b of moved().stream()) s.push(...b[0])
+  t.ok(s.length === x.length && s.every((v, i) => Math.abs(v - x[i]) < 1e-7), 'stream ≡ read')
+  // at the file's edges a crossfade shrinks to fit: moved from the start to the very end, its edges there meet butt (no
+  // audio before the range, none past the end); where it was, its end fades the audio after it in over the 2 samples
+  // its handle and the range allow, equal-power at sample centres (plan.js renderEnvSeg: sin of (i + .5) / 2 · π/2)
+  let g = i => Math.sin((i + 0.5) / 2 * Math.PI / 2), edged = await vals(ramp(10).move({ at: 0, duration: 0.003, to: 0.007, crossfade: 0.004 }))
+  t.ok([0, 0, 3 * g(0), 4 * g(1), 5, 6, 7, 1, 2, 3].every((v, i) => Math.abs(edged[i] - v) < 1e-6), `edges: ${edged.map(v => +v.toFixed(3))}`)
+  // each channel its own; a time as a string
+  let st = audio.from([Float32Array.of(1, 2, 3, 4), Float32Array.of(-1, -2, -3, -4)], { sampleRate: 1000 })
+  t.is((await st.move({ at: 0, duration: 0.002, to: '0.002' }).read()).map(c => [...c]), [[0, 0, 1, 2], [0, 0, -1, -2]], 'stereo, to as a string')
+})
+
 test('splice: crossfade edges — file bounds, oversize, zero length, empty host, one sample, undo', async t => {
   let ramp = n => audio.from([Float32Array.from({ length: n }, (_, i) => i + 1)], { sampleRate: 1000 })
   let vals = async a => [...(await a.read())[0]]
@@ -440,6 +496,41 @@ test('normalize: limiter path — stream ≡ read, silence and sub-gate input ar
   t.ok(x.every((v, i) => v === y[i]), '100 ms (< one 400 ms gate): no loudness, no change')
 })
 
+// FFmpeg's short names (afade/acrossfade/atrim `d`; its crossfade filter `xfade`) say the same as the long ones, wherever
+// an option is a duration or a crossfade: edits, ranges read and measured, nested ranges, clips; the long one wins.
+test('aliases: d is duration and xfade crossfade, everywhere; the long name wins', async t => {
+  let a = () => audio.from(i => Math.sin(2 * Math.PI * 440 * i), { d: 2, sampleRate: 8000 }), same = (p, q) => p[0].length === q[0].length && p[0].every((v, i) => v === q[0][i])
+  t.is(a().duration, 2, 'audio.from(fn, { d })')
+  t.ok(same(await a().remove({ at: .5, d: .5, xfade: .01 }).read(), await a().remove({ at: .5, duration: .5, crossfade: .01 }).read()), 'remove({ d, xfade })')
+  t.ok(same(await a().fade(.1, { at: 1, d: .2 }).read(), await a().fade(.1, { at: 1, duration: .2 }).read()), 'fade({ d })')
+  t.ok(same(await a().move({ at: .2, d: .3, to: 1, xfade: .01 }).read(), await a().move({ at: .2, duration: .3, to: 1, crossfade: .01 }).read()), 'move({ d, xfade })')
+  t.is((await a().read({ at: .5, d: .25 }))[0].length, 2000, 'read({ d })')
+  t.is(await a().stat('rms', { at: .25, d: 1 }), await a().stat('rms', { at: .25, duration: 1 }), 'stat({ d })')
+  t.is(a().clip({ at: .5, d: .5 }).duration, .5, 'clip({ d })')
+  t.is((await a().read({ d: .25, duration: .5 }))[0].length, 4000, 'both given: duration')
+})
+
+// What a file is (its rate, its channels) is known once its header is read: a stat asked of a file just opened reads
+// it first, so it measures as it would once loaded; an op on a channel the audio hasn't says so
+test('a file just opened: its dialog and noise floor, a registry op encoded; an op on a channel it hasn\'t', async t => {
+  let loaded = await audio(lena)
+  t.is(await audio(lena).stat('dialog'), await loaded.stat('dialog'), 'dialog')
+  t.ok(Number.isFinite(await audio(lena).stat('dialog')), 'speech found')
+  t.is(await audio(lena).stat('noisefloor'), await loaded.stat('noisefloor'), 'noise floor')
+  // a registry op on a file encoded as it decodes: wired before the encoder plans (the README's first example)
+  let bytes = await audio(lena).highpass(80).compressor({ threshold: -20, ratio: 3 }).encode('wav')
+  t.is((await audio(bytes)).length, (await audio(lena)).length, 'encoded whole')
+  let err = await audio.from([new Float32Array(100)], { sampleRate: 8000 }).highpass(100, 4, { channel: 1 }).read().catch(e => e)
+  t.ok(err instanceof RangeError && /channel 1: the audio has 1 channel/.test(err.message), err.message)
+})
+
+// A crossfade across a range of no length takes nothing out: 0 is a length, not the default half second
+test('crossfade: across a range of no length, the sound as it was', async t => {
+  let a = () => audio.from(i => Math.sin(2 * Math.PI * 440 * i), { duration: 1, sampleRate: 8000 })
+  let x = await a().crossfade({ at: .5, duration: 0 }).read(), y = await a().read()
+  t.ok(x[0].length === y[0].length && x[0].every((v, i) => v === y[0][i]))
+})
+
 test('remix: quad and 7.1 downmix, same coefficients', async t => {
   let n = 48, one = (N, c) => Array.from({ length: N }, (_, k) => new Float32Array(n).fill(k === c ? 1 : 0))
   let st = async (N, c) => (await audio.from(one(N, c), { sampleRate: 48000 }).remix(2).read()).map(x => +x[0].toFixed(4))
@@ -447,6 +538,13 @@ test('remix: quad and 7.1 downmix, same coefficients', async t => {
   t.is(await st(8, 3), [0, 0], '7.1 LFE dropped')
   t.is(await st(8, 4), [0.7071, 0], '7.1 back left → L')
   t.is(await st(8, 7), [0, 0.7071], '7.1 side right → R')
+  // 7.1 (L R C LFE Lb Rb Ls Rs, WAV/SMPTE order) to 5.1: the fronts and the LFE as they were, each side's back and side
+  // surrounds into its surround, at 1 as the 3/2 identity takes them (the slots above)
+  let five = async c => (await audio.from(one(8, c), { sampleRate: 48000 }).remix(6).read()).map(x => +x[0].toFixed(4))
+  t.is(await five(2), [0, 0, 1, 0, 0, 0], '7.1 C → C')
+  t.is(await five(3), [0, 0, 0, 1, 0, 0], '7.1 LFE → LFE')
+  t.is(await five(4), [0, 0, 0, 0, 1, 0], '7.1 back left → Ls')
+  t.is(await five(7), [0, 0, 0, 0, 0, 1], '7.1 side right → Rs')
 })
 
 test('save: audio-only mp4 stays audio-only; bitDepth is null without a PCM header', async t => {
@@ -680,44 +778,7 @@ test('cli: check prints each rule and exits 1 on a fail; --json; a folder is che
   t.ok(/all 2 files pass/.test(fixed.stdout), fixed.stdout)
 })
 
-// ── Cut lists ────────────────────────────────────────────────────────────
-
-// Checked against OpenTimelineIO 0.18.1 (ASWF): its cmx_3600, otio_json and fcpx_xml readers parse these files back
-// to the same source ranges and record positions (.work/pro.md › Cut lists). Frame rate: the MP4 video track's mdhd
-// timescale over its stts delta (ISO/IEC 14496-12 §8.4.2, §8.6.1.2); size: tkhd width/height, 16.16 (§8.3.2).
-test('cuts: clips of the source through stages, crossfades cut at the middle, frames from the video track', async t => {
-  let { videoRate } = await import('../fn/cuts.js')
-  t.is(await videoRate(video), { timescale: 10240, delta: 1024, width: 64, height: 48 }, 'test/video.mp4: 10 fps, 64×48')
-  let v = await (await audio(video)).remove(0.5, 0.5).cuts()
-  // the audio track is its edit list's 2 s (ffprobe duration_ts 88200): AAC priming and padding trimmed, as decode-mp4 1.3 does
-  t.is([v.fps, v.clips.map(c => [c.at, c.from, +c.duration.toFixed(6)])], [10, [[0, 0, 0.5], [0.5, 1, 1]]], 'remove 0.5–1 s: two clips')
-  let x = (await (await audio(lena)).highpass(80).remove(2, 1, 0.1).cuts()).clips
-  t.is(x.map(c => [+c.at.toFixed(6), +c.from.toFixed(6)]), [[0, 0], [2, 3]], 'processing before a crossfaded remove: one cut at its middle')
-  let s = await audio(lena), shrunk = s.clone().shrink(0.2), c = (await shrunk.cuts()).clips
-  t.almost(c.reduce((d, x) => d + x.duration, 0), shrunk.duration, 1e-9, 'shrink: the clips fill the output')
-  t.ok(c.every((x, i) => !i || x.from >= c[i - 1].from + c[i - 1].duration - 1e-9), 'in source order, never overlapping')
-  let ins = (await (await audio(lena)).crop({ at: 0, duration: 2 }).insert((await audio(lena24)).crop({ at: 5, duration: 1 }), 1).cuts()).clips
-  t.is(ins.map(c => [c.at, +c.from.toFixed(6), c.source.split('/').pop()]), [[0, 0, 'lena.wav'], [1, 5, 'lena-24.aiff'], [2, 1, 'lena.wav']], 'an inserted file is its own clip, with its edits')
-  t.ok(await (await audio(lena)).speed(2).cuts().then(() => false, e => /speed change/.test(e.message)), 'a speed change throws')
-  t.ok(await audio.from([new Float32Array(44100)], { sampleRate: 44100 }).cuts().then(() => false, e => /generated audio/.test(e.message)), 'generated audio throws')
-})
-
-test('cuts: EDL timecode, FCPXML rational times at 29.97 (1001/30000 s frames), OTIO; EDL refuses a non-SMPTE rate', async t => {
-  let a = (await audio(lena)).remove(1, 0.5)
-  let edl = await a.cuts('edl', { fps: 25 })
-  t.is(edl.split('\n').slice(0, 7), ['TITLE: lena cuts', 'FCM: NON-DROP FRAME', '',
-    '001  AX       AA    C        00:00:00:00 00:00:01:00 00:00:00:00 00:00:01:00', '* FROM CLIP NAME: lena.wav', '',
-    '002  AX       AA    C        00:00:01:13 00:00:12:07 00:00:01:00 00:00:11:19'], 'CMX 3600 at 25 fps: 1.5 s = 37.5 → 38 frames, 12.2717 s = 306.8 → 307')
-  let fcp = await a.cuts('fcpxml', { fps: 30000 / 1001 }), frames = s => { let [n, d] = s.replace('s', '').split('/'); return +n / +d * 30000 / 1001 }
-  t.ok(fcp.includes('frameDuration="1001/30000s"'), 'NTSC frame duration exact')
-  let clips = [...fcp.matchAll(/<asset-clip [^>]*offset="([^"]+)"[^>]*start="([^"]+)" duration="([^"]+)"/g)].map(m => m.slice(1).map(frames).map(f => +f.toFixed(9)))
-  t.is(clips, [[0, 0, 30], [30, 45, 323]], 'whole frames: 1 s = 29.97 → 30, 1.5 s = 44.96 → 45, 12.2717 s = 367.8 → 368')
-  let otio = JSON.parse(await a.cuts('otio', { fps: 25 }))
-  let track = otio.tracks.children.find(k => k.kind === 'Audio').children
-  t.is(track.map(c => [c.OTIO_SCHEMA, c.source_range.start_time.value, c.source_range.duration.value]), [['Clip.1', 0, 25], ['Clip.1', 38, 269]], 'OTIO clips in frames')
-  t.ok(track[0].media_reference.target_url.startsWith('file:///') && track[0].media_reference.target_url.endsWith('/lena.wav'), 'file URL')
-  t.ok(await (await audio(video)).remove(0.5, 0.5).cuts('edl').then(() => false, e => /SMPTE/.test(e.message)), '10 fps has no SMPTE timecode')
-})
+// Cut lists (fn/cuts.js): test/cuts.js
 
 // ── Reference mastering ──────────────────────────────────────────────────
 
@@ -786,7 +847,7 @@ test('roomtone: digital silence becomes the room, at its level, without clicks; 
   t.is([...(await loud.clone().roomtone().read())[0]], [...(await loud.read())[0]], 'no silence: unchanged')
 })
 
-// ── Edges: the smallest inputs, silence, sub-ranges, stereo, a leading gap ──
+// ── Edges: the smallest inputs, silence, sub-ranges, stereo ──
 
 test('noisefloor: under 0.4 s is the whole signal; silence is -∞; a range is its own slice', async t => {
   seed = 41
@@ -817,14 +878,6 @@ test('check: silence fails what it must and doesn\'t throw; roomtone leaves sile
   t.almost(db(rr, sr + 441, 2 * sr - 441), -66, 2, 'right at its own, the stereo image kept')
 })
 
-test('cuts: a gap before the first clip keeps its place in every format', async t => {
-  let a = (await audio(lena)).crop({ at: 0, duration: 2 }).pad(0.5, 0)
-  t.is((await a.cuts()).clips.map(c => [c.at, c.from, c.duration]), [[0.5, 0, 2]], 'clip at 0.5 s')
-  t.ok((await a.cuts('edl', { fps: 25 })).includes('00:00:00:00 00:00:02:00 00:00:00:13 00:00:02:13'), 'EDL record in after the gap: 0.5 s = 12.5 → 13 frames')
-  let otio = JSON.parse(await a.cuts('otio', { fps: 25 })).tracks.children[0].children
-  t.is(otio.map(c => [c.OTIO_SCHEMA, c.source_range.start_time.value, c.source_range.duration.value]), [['Gap.1', 0, 13], ['Clip.1', 0, 50]], 'OTIO: a gap, then the clip')
-  t.ok(/<gap [^>]*offset="0\/25s"[^>]*duration="13\/25s"/.test(await a.cuts('fcpxml', { fps: 25 })), 'FCPXML: a gap of 13 frames')
-})
 
 // ── Format detection ─────────────────────────────────────────────────────
 

@@ -104,9 +104,12 @@ export default function engine(url = new URL('./dist/worker.js', import.meta.url
       queued = null
       spawn()
     },
-    // an output's hits and pitch, named by the run that made it; hits null once a newer output replaced it
-    onsets: output => call({ type: 'onsets', output }).then(r => r.times ?? null),
+    // an output's cues (`kind`: the edges of its pauses, or its hits) and pitch, named by the run that made it; cues null
+    // once a newer output replaced it
+    cues: (output, kind) => call({ type: 'cues', output, kind }).then(r => r.times ?? null),
     contour: output => call({ type: 'contour', output }).then(r => r.f0 ? r : { times: [], f0: [] }),
+    // what it holds, as a musician says it: the note over `note` [from, to] s, the tempo and key over `span`
+    listen: (output, note, span) => call({ type: 'listen', output, note, span }),
     export: request => call({ type: 'export', ...request }),
     // The spec's rules for the last output ({ output }, fn/check.js).
     check: spec => call({ type: 'check', spec }),

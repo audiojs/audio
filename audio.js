@@ -201,10 +201,18 @@ async function autowire(a) {
 }
 let load = audio.fn[LOAD], stream = audio.fn.stream
 audio.fn[LOAD] = async function() { if (this.edits?.length) await autowire(this); return load.call(this) }
-// a live (still decoding) stream skips LOAD: wire before its first plan too
+// a live (still decoding) stream skips LOAD: wire before its first plan too; and so does a file encoded or saved as it
+// decodes, which plans from its length before it streams
 audio.fn.stream = audio.fn[Symbol.asyncIterator] = async function*(opts) {
   if (this.edits?.length) { await autowire(this); await loadOps(this) }
   yield* stream.call(this, opts)
+}
+for (let name of ['encode', 'save']) {
+  let f = audio.fn[name]
+  audio.fn[name] = async function(...args) {
+    if (this.edits?.length) { await autowire(this); await loadOps(this) }
+    return f.apply(this, args)
+  }
 }
 
 // ── Infrastructure (self-register on import) ────────────────────────────
@@ -232,6 +240,7 @@ import './fn/insert.js'
 import './fn/copy.js'
 import './fn/cut.js'
 import './fn/paste.js'
+import './fn/move.js'
 import './fn/repeat.js'
 import './fn/gain.js'
 import './fn/fade.js'

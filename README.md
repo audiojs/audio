@@ -65,6 +65,14 @@ npx skills add audiojs/audio
 `claude mcp add audio -- npx -y audio --mcp`<br/>
 `Prompt: make ~/Desktop/interview.m4a podcast-ready and tell me the loudness before and after`
 
+### REPL bridge
+
+```sh
+npx audio --bridge --key K  # audio bridge on http://127.0.0.1:7777  key K
+```
+
+Connect the REPL to it, and its chat runs your own Claude Code or Codex, which reads, edits and plays the sound open there. Any agent gets the same `repl_*` tools: `claude mcp add audio -- npx -y audio --mcp --repl http://127.0.0.1:7777 --key K`.
+
 
 ## Recipes
 
@@ -107,7 +115,7 @@ await ch.save('chapter-01.mp3', { bitrate: 192 })
 // tighten pauses in a talking-head video, then hand the cuts to the video editor
 let talk = audio('talk.mp4').shrink(0.3)
 await talk.save('talk.m4a')                            // the sound, cut
-fs.writeFileSync('talk.edl', await talk.cuts('edl'))   // the same cuts for the picture (Premiere, Resolve)
+await talk.save('talk.edl')                            // the same cuts for the picture (Premiere, Resolve)
 ```
 
 ### Compose
@@ -253,18 +261,19 @@ let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 | `.copy({at?, duration?})` | copy range (default: all) to this instance's clipboard. |
 | `.cut({at?, duration?, crossfade?})` | copy, then remove. |
 | `.paste({at?, crossfade?})` | insert the clipboard (default: at end). |
+| `.move({at, duration, to, crossfade?})` | slide a range to `to`, over what is there; silence where it was, the length kept (past the end, extended). `crossfade` crossfades each edge, centered.<br><sub>≡ a DAW's clip moved in slip mode</sub> |
 | `.clip({at, duration})` | zero-copy excerpt as a new instance. |
 | `.split(...offsets)` | zero-copy excerpts between timestamps. |
 | `.pad(before, after?)` | silence at edges (seconds). |
 | `.repeat(n)` | repeat n times. |
 | `.reverse({at?, duration?})` | reverse audio or range. |
 | `.speed(rate)` | changes pitch and duration together. |
-| `.stretch(factor)` | changes duration, keeps pitch (phase-locked vocoder). A `t => f` or `{t, v}` factor slides the tempo; duration becomes ∫factor dt. |
+| `.stretch(factor)` | changes duration, keeps pitch (phase-locked vocoder). A `t => f` or `{t, v}` factor slides the tempo; duration becomes ∫factor dt. A range `{at, duration}` comes out `round(round(duration · sampleRate) · factor)` samples long, to the sample; the audio around it as it was. |
 | `.warp(markers)` | move moments in time: `[[from, to], …]` in seconds. Between markers the audio stretches to fit, pitch kept; start and end stay.<br><sub>≡ Logic Flex Time, Ableton warp markers</sub> |
-| `.pitch(semitones)` | changes pitch, keeps duration. |
-| `.remix(channels)` | channel count, or a map: `[1, 0]` swaps L/R. |
+| `.pitch(semitones, {voice?})` | changes pitch, keeps duration. Semitones may be a curve `{t, v}` (seconds → semitones, straight between points, flat past the ends, as the gain line's) or `t => semitones`; where it is zero the audio is as it was. `{ voice: true }` re-spaces a voice's own glottal cycles (TD-PSOLA, the optional `@audio/tune-curve`): formants and consonants kept, one voice.<br><sub>≡ Melodyne pitch drawing</sub> |
+| `.remix(channels)` | channel count (down per ITU-R BS.775: 7.1 → 5.1, stereo, mono), or a map: `[1, 0]` swaps L/R, `null` a silent channel. |
 
-Every op takes a trailing `{at, duration, channel}` range, except channel-changing `remix` and `crossover`. Times are seconds or strings (`'1:30'`, `'2m'`); negative counts from the end.
+Every op takes a trailing `{at, duration, channel}` range, except channel-changing `remix` and `crossover`. Times are seconds or strings (`'1:30'`, `'2m'`); negative counts from the end. FFmpeg's short names work wherever the long ones do: `d` for `duration`, `xfade` for `crossfade` (`a.remove({ at: 1, d: 0.5, xfade: 0.01 })`).
 
 ```js
 a.trim(-30)                               // strip silence below -30dB
@@ -273,11 +282,13 @@ a.remove(12.3, 0.4, '10ms')               // cut a breath, crossfaded: no click
 a.insert(intro, { at: 0 })                // prepend; .insert(3) appends 3s silence
 a.copy(60, 30).paste(120)                 // duplicate the chorus at 2:00
 a.cut(2, 1).paste(5)                      // move 2s–3s to 5s of the shortened timeline
+a.move({ at: 2, duration: 1, to: 5 })     // slide 2s–3s over 5s–6s, silence left at 2s–3s
 let [pt1, pt2] = a.split('30m')           // zero-copy parts
 let hook = a.clip({ at: 60, duration: 30 })  // zero-copy excerpt
 a.stretch(1.1)                            // 10% longer, same pitch
 a.warp([[1, 1], [2, 2.4], [3, 3]])        // the hit at 2s lands at 2.4s; 1s–3s keeps its length
 a.pitch(-2)                               // 2 semitones down, same tempo
+a.pitch({ t: [1, 1.2, 2, 2.2], v: [0, 3, 3, 0] }, { voice: true })  // a note drawn 3 semitones up, formants kept
 a.remix([0, 0])                           // L→both; .remix(1) for mono
 ```
 
@@ -369,9 +380,9 @@ a.rnnoise()                               // the same, streaming
 | Method                         | Description                                                                                                                         |
 |:--|:--|
 | `await .read(opts?)` | rendered PCM. `{ format, channel }` to convert. A source still arriving is waited for: a range until it has arrived, all of it until the end (an endless stream: read ranges, or `stream()`). |
-| `await .save(path, opts?)` | encode + write, format from extension. Lossless keeps the source depth; `{ bitDepth, bitrate, quality, codec }` set the encoder; m4a and mp3 write markers as chapters. Output streams as it encodes, headers patched with their totals at the end (a pipe keeps them "unknown"); m4a from a live source is fragmented. A video source saved to `.mp4`/`.mov` keeps its picture: only the audio track changes. |
-| `await .encode(format?, opts?)` | encode to `Uint8Array`. |
-| `await .cuts(format?, opts?)` | the edits as a cut list of the source file: `'edl'` (CMX 3600: Premiere, Resolve, Avid), `'fcpxml'` (Final Cut Pro, Resolve), `'otio'` (OpenTimelineIO); none gives `{ fps, clips }`. Cuts land on the video's frames (its MP4/MOV track), else `{ fps }` (30). The CLI's `save cuts.edl` writes one. |
+| `await .save(path, opts?)` | encode + write, format from extension. Lossless keeps the source depth; `{ bitDepth, bitrate, quality, codec }` set the encoder; m4a and mp3 write markers as chapters. Output streams as it encodes, headers patched with their totals at the end (a pipe keeps them "unknown"); m4a from a live source is fragmented. A video source saved to `.mp4`/`.mov` keeps its picture: only the audio track changes. `.edl`, `.otio`, `.fcpxml` write the cuts. |
+| `await .encode(format?, opts?)` | encode to `Uint8Array`; `'edl'`, `'otio'`, `'fcpxml'`: the cuts, as UTF-8. |
+| `await .cuts(format?, opts?)` | the edits as a cut list for a video editor: `'edl'` (CMX 3600: Premiere, Resolve, Avid), `'fcpxml'` (Final Cut Pro, Resolve), `'otio'` (OpenTimelineIO); none gives `{ fps, clips: [{ at, duration, from, rate, source }] }`. Cuts, moves, gaps and inserted files place the clips; speed, stretch and warp set their rate; markers go along. Processing is not in the list: lay the processed audio under the picture. Cuts land on the video track's frames (MP4/MOV), else `{ fps }` (30), each within half a frame of the sound; its timecode track starts the source times, drop-frame as it counts (`{ dropFrame }`). The CLI's `save cuts.edl` writes one. |
 | `.clone()` | independent edits, shared pages. |
 | `.push(data, format?)` | feed PCM into a pushable instance; `.stop()` finalizes. |
 

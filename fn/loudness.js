@@ -1,4 +1,4 @@
-import audio, { resolveChannels } from '../core.js'
+import audio, { resolveChannels, LOAD } from '../core.js'
 import kWeighting from '@audio/weighting-k'
 import { state, step } from '@audio/biquad'
 
@@ -230,6 +230,8 @@ function gated() {
  *  under 0.4 s the whole signal is the one window. */
 audio.stat('noisefloor', {})
 audio.fn.noisefloor = async function(opts) {
+  // its rate known first: a file just opened has none until its header is read
+  await this[LOAD]()
   let sr = this.sampleRate, W = Math.round(0.4 * sr), H = Math.round(sr / 10)
   let ring = new Float64Array(W), n = 0, min = Infinity
   for await (let chunk of this.stream({ at: opts?.at, duration: opts?.duration })) {
@@ -256,6 +258,7 @@ audio.fn.noisefloor = async function(opts) {
  *  windows (400 ms, 100 ms hop) at least half speech count. -Infinity when no speech is found. */
 audio.stat('dialog', {})
 audio.fn.dialog = async function(opts) {
+  await this[LOAD]()
   let { vad } = await import('@audio/vad')
   let sr = this.sampleRate, nch = this.channels, G = channelWeights(nch), SUB = Math.round(sr / 10), WIN = 100 * SUB
   let k = Array.from({ length: nch }, () => ({ fs: sr })), acc = gated()

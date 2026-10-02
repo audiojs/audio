@@ -247,18 +247,18 @@ export const drawing = {
   },
 }
 
-// What's drawn morphs to a new choice over `span` ms, from wherever the last change had got to
+// What's drawn morphs to a new choice over `span` ms, from wherever the last change had got to; in none, it changes at once
 function morpher(key) {
   let from = [[key, 1]], to = key, since = -Infinity, span = MORPH
   const mix = now => {
-    const k = Math.min(1, Math.max(0, now - since) / span), e = k < .5 ? 4 * k ** 3 : 1 - (2 - 2 * k) ** 3 / 2
+    const k = span > 0 ? Math.min(1, Math.max(0, now - since) / span) : 1, e = k < .5 ? 4 * k ** 3 : 1 - (2 - 2 * k) ** 3 / 2
     const out = new Map([[to, e]])
     for (const [key, w] of from) out.set(key, (out.get(key) ?? 0) + w * (1 - e))
     return [...out].filter(([, w]) => w > 1e-4)
   }
   return {
     mix,
-    to(key, now, ms) { if (key !== to) from = mix(now), to = key, since = now, span = ms },
+    to(key, now, ms) { if (key !== to) from = ms > 0 ? mix(now) : [], to = key, since = now, span = ms },
     settled: now => now - since >= span,
   }
 }
@@ -349,7 +349,7 @@ function diffuse(rgba, w, h, kernel) {
 /**
  * Draws the logo into a canvas, sized to it. Returns null without WebGL 2.
  * set({ signal, window, gradient, print, cycles, phase, amplitude, size, gap, ground, figure, morph, axis }, now) changes
- * what's drawn: signal, window and gradient morph over `morph` ms (MORPH by default) from now, on render's clock; phase
+ * what's drawn: signal, window and gradient morph over `morph` ms (MORPH by default; 0, at once) from now, on render's clock; phase
  * is in turns; size, a mark's, and gap, between marks, in CSS px; colors any CSS color. A signal is a name of SIGNALS
  * or a trace: one period sampled evenly from its start, falling through zero at mid-period as SIGNALS do, which turns
  * and repeats as they do; read afresh each render, so an array refilled in place changes with no morph. axis, 0…1, is

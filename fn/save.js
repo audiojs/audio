@@ -1,5 +1,6 @@
-import audio, { emit, parseTime, fromEnd, LOAD, yieldTask } from '../core.js'
+import audio, { emit, parseTime, named, fromEnd, LOAD, yieldTask } from '../core.js'
 import { buildPlan, streamPlan, ensurePlan, loadRefs } from '../plan.js'
+import { formats as lists } from './cuts.js'
 import encode from '@audio/encode'
 
 const FMT_ALIAS = { aif: 'aiff', oga: 'ogg', mov: 'mp4', m4v: 'mp4' }
@@ -163,7 +164,10 @@ async function encodeStream(inst, fmt, opts, sink, stream) {
 /** Encode audio to bytes. */
 audio.fn.encode = async function(fmt, opts = {}) {
   if (typeof fmt === 'object') { opts = fmt; fmt = undefined }
+  opts = named(opts)
   fmt = resolveFormat(fmt)
+  // an edit list for a video editor (edl, otio, fcpxml): the cuts as text, not sound (fn/cuts.js)
+  if (lists.includes(fmt)) return new TextEncoder().encode(await this.cuts(fmt, opts))
   if (!encoderFor(fmt)) throw new Error(`encode: unknown format '${fmt}'`)
   await assertFrames(this, opts, 'encode')
   let parts = [], head = null
@@ -177,9 +181,10 @@ audio.fn.encode = async function(fmt, opts = {}) {
 
 /** Save audio to file path (Node) or writable handle (browser). */
 audio.fn.save = async function(target, opts = {}) {
+  opts = named(opts)
   let fmt = opts.format ?? (typeof target === 'string' ? target.split('.').pop() : 'wav')
   fmt = resolveFormat(fmt)
-  if (!encoderFor(fmt)) throw new Error(`save: unknown format '${fmt}'`)
+  if (!encoderFor(fmt) && !lists.includes(fmt)) throw new Error(`save: unknown format '${fmt}'`)
   await assertFrames(this, opts, 'save')
 
   // finish(head): end the output, writing `head` over its start where the target can seek (a file,
@@ -217,6 +222,7 @@ audio.fn.save = async function(target, opts = {}) {
     }
   } else throw new Error('Invalid save target')
 
+  if (lists.includes(fmt)) { await write(await this.encode(fmt, opts)); return finish() }
   let video = await videoSource(this, fmt, opts)
   if (video) {
     let { remux } = await import('@audio/encode-mp4/remux')

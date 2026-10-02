@@ -6,7 +6,7 @@
 import audio from '../audio.js'
 import plugins from 'repl:plugins'
 import { yin } from '@audio/pitch'
-import attacks from './attack.js'
+import attacks, { hits } from './attack.js'
 
 // Registry plugins load from their chunks: the build writes one literal import per plugin.
 audio.import = spec => plugins[spec]?.() ?? import(spec)
@@ -34,7 +34,7 @@ const load = name => {
   if (file && !(file instanceof Blob)) return audio.from(file.channels, { sampleRate: file.sampleRate })
   if (file || /^(https?|data|blob):/.test(name)) return audio(file || name)
   // a file the page never had, or lost with a reload: the page asks for it by name
-  throw Object.assign(new Error(`${name} is not open. Drop the file on the page or open it.`), { missing: name })
+  throw Object.assign(new Error(`${name} is not open here: open it, or drop it on the page`), { missing: name })
 }
 // A source opens once, the first time a script names it, and decodes while scripts run on it. One that won't decode
 // is let go, so the next run tries again.
@@ -148,11 +148,11 @@ async function render(r) {
     if (!alive()) return
     const pcm = pcmOf(r), length = r.length, sampleRate = r.sampleRate || r.instance.sampleRate
     const flat = audio.from(pcm.length ? pcm : [new Float32Array(0)], { sampleRate })
-    const [peak, rms, loudness] = length ? await flat.stat(['db', 'rms', 'loudness']) : [-Infinity, 0, -Infinity]
-    // its pauses, as a text's spaces and line breaks: under the level its quiet tenth sets (trim.js), 60 ms between
-    // sounds, 250 ms between phrases (a speaker's breath)
-    const gaps = async min => length ? (await flat.silence({ minDuration: min })).map(g => [g.at, g.at + g.duration]) : []
-    const segments = { silences: await gaps(.06), pauses: await gaps(.25) }
+    const [peak, rms, loudness, clipped] = length ? await flat.stat(['db', 'rms', 'loudness', 'clipping']) : [-Infinity, 0, -Infinity, []]
+    // where it clips: the blocks with a sample at full scale or past it (stat('clipping')), runs of them as [from, to] s
+    const block = audio.BLOCK_SIZE / sampleRate, clips = []
+    for (const t of clipped) clips.at(-1)?.[1] >= t - 1e-9 ? clips.at(-1)[1] = t + block : clips.push([t, t + block])
+    const segments = { silences: await gaps(flat, PAUSE) }
     flat.dispose?.()
     if (!alive()) return
     r.done = true
@@ -160,7 +160,7 @@ async function render(r) {
     for (const o of outputs.values()) if (o !== r) drop(o)
     // its markers (mark()), where its edits put them
     const markers = r.instance.markers.filter(m => m.time <= length / sampleRate).map(({ time, label }) => ({ time, label }))
-    post({ id: r.id, event: 'done', duration: length / sampleRate, sampleRate, channels: pcm.length, stats: r.stats, segments, markers, bitDepth: r.instance.bitDepth ?? null })
+    post({ id: r.id, event: 'done', duration: length / sampleRate, sampleRate, channels: pcm.length, stats: r.stats, segments, markers, clips, bitDepth: r.instance.bitDepth ?? null })
     r.finish(r)
   } catch (error) {
     if (!alive()) return
@@ -233,26 +233,46 @@ async function whole(output) {
   return r?.done ? r : null
 }
 
-// Where the output's hits start, in seconds: cue points for warping, snapping and slicing, each where its attack starts
-// (attack.js). After a closing warp() they are the hits of the audio before it, where its markers take them:
-// stretching makes no hits, though its smear can read as some.
-// Null for an output a newer one has replaced: the page reads hits against the code that made them.
-async function onsets({ output }) {
+// Its pauses, as a text's spaces: under the level its quiet tenth sets (trim.js), 60 ms at least between sounds
+const PAUSE = .06
+const gaps = async (a, min) => a.duration ? (await a.silence({ minDuration: min })).map(g => [g.at, g.at + g.duration]) : []
+
+// The output's cues, in seconds: points to snap to, slice at and warp by. `edges` (a voice's, a solo instrument's): where
+// each sound starts and ends, the edges of the pauses between them, as words are found; each start where its attack
+// starts (attack.js), each end where the quiet begins, at most a block (23 ms) after the sound falls under the level.
+// `hits` (drums, struck notes, gates): where the level jumps, up where an attack starts, down where a sound stops, read
+// the same both ways, so a reversed sound's are its own mirrored (attack.js). After a closing warp() they are the cues
+// of the audio before it, where its markers take them: stretching makes none, though its smear can read as hits.
+// Null for an output a newer one has replaced: the page reads cues against the code that made them.
+const FIND = {
+  hits,
+  edges: (pcm, rate) => reading(pcm, rate, async a => {
+    const quiet = await gaps(a, PAUSE), end = pcm[0].length / rate
+    const starts = attacks(quiet.map(g => g[1]).filter(t => t < end), pcm, rate)
+    return [...quiet.map(g => g[0]).filter(t => t > 0), ...starts].sort((p, q) => p - q)
+  })
+}
+// `pcm` read as audio for `read`, let go after
+async function reading(pcm, rate, read) {
+  const a = audio.from(pcm, { sampleRate: rate })
+  try { return await read(a) } finally { a.dispose?.() }
+}
+async function cues({ output, kind = 'edges' }) {
   const r = await whole(output)
   if (!r) return { times: null }
   if (!r.length) return { times: [] }
-  r.onsets ??= await hits(r)
-  return { times: r.onsets }
+  r.cues ??= {}
+  r.cues[kind] ??= await found(r, FIND[kind])
+  return { times: r.cues[kind] }
 }
-async function hits(r) {
-  const found = async pcm => attacks([...await audio.from(pcm, { sampleRate: r.sampleRate }).stat('onsets')], pcm, r.sampleRate)
+async function found(r, find) {
   const warp = r.instance.edits?.at(-1)
-  if (warp?.[0] !== 'warp') return found(pcmOf(r))
+  if (warp?.[0] !== 'warp') return find(pcmOf(r), r.sampleRate)
   const before = r.instance.clone()
   before.undo()
   try {
     const pcm = await before.read()
-    return carry(await found(pcm), warp[1].markers, pcm[0].length / r.sampleRate)
+    return carry(await find(pcm, r.sampleRate), warp[1].markers, pcm[0].length / r.sampleRate)
   } finally { before.dispose?.() }
 }
 // Times before a warp() to where its markers put them: straight between markers; the start and the end stay, but a
@@ -270,36 +290,78 @@ function carry(times, markers, end) {
 
 // The output's pitch: f0 in Hz every 10 ms, 0 where unvoiced or silent. YIN (de Cheveigné & Kawahara 2002) on the
 // mono mix at about 11 kHz: averaging four samples before dropping three keeps voices, whose pitch stays under 1 kHz.
+const FRAME = 512
+function voice(r) {
+  if (r.voice) return r.voice
+  const x = mixdown(r), d = Math.max(1, Math.floor(r.sampleRate / 11025)), fs = r.sampleRate / d
+  const y = new Float32Array(Math.floor(x.length / d))
+  for (let i = 0; i < y.length; i++) { let s = 0; for (let j = 0; j < d; j++) s += x[i * d + j]; y[i] = s / d }
+  return r.voice = { y, fs, hop: Math.round(fs / 100) }
+}
+// f0 of the frame starting at sample s of the voice
+function f0At({ y, fs }, s) {
+  const frame = y.subarray(s, s + FRAME)
+  let power = 0
+  for (const v of frame) power += v * v
+  const p = power / FRAME > 1e-6 ? yin(frame, { fs, minFreq: 60, maxFreq: 1000 }) : null
+  return p && p.clarity > .6 ? p.freq : 0
+}
 async function contour({ output }) {
   const r = await whole(output)
   if (!r?.length) return { times: [], f0: [] }
   if (r.contour) return r.contour
-  const x = mixdown(r), d = Math.max(1, Math.floor(r.sampleRate / 11025)), fs = r.sampleRate / d
-  const y = new Float32Array(Math.floor(x.length / d))
-  for (let i = 0; i < y.length; i++) { let s = 0; for (let j = 0; j < d; j++) s += x[i * d + j]; y[i] = s / d }
-  const size = 512, hop = Math.round(fs / 100), times = [], f0 = []
-  for (let s = 0; s + size <= y.length; s += hop) {
-    const frame = y.subarray(s, s + size)
-    let power = 0
-    for (const v of frame) power += v * v
-    const p = power / size > 1e-6 ? yin(frame, { fs, minFreq: 60, maxFreq: 1000 }) : null
-    times.push((s + size / 2) / fs)
-    f0.push(p && p.clarity > .6 ? p.freq : 0)
-  }
+  const v = voice(r), times = [], f0 = []
+  for (let s = 0; s + FRAME <= v.y.length; s += v.hop) { times.push((s + FRAME / 2) / v.fs); f0.push(f0At(v, s)) }
   return r.contour = { times: Float32Array.from(times), f0: Float32Array.from(f0) }
 }
 
-// Encoded files: each save() the script made, or the output in one format; or, with `parts`, each part of the output
+// What the output holds, as a musician says it (the status bar): the note over `note` [from, to] s, the tempo and key
+// over `span`, each only where it is clear, else null.
+// The note: YIN's f0 every 10 ms (as contour()), at most 2,000 frames spread over the range (a median needs no more),
+// where at least half are voiced: their median [f], or, if their middle half spans more than a semitone, a melody's
+// compass, its 10th to 90th percentile [low, high]. Tempo (detect(): spectral flux, within 1 BPM where stat('bpm')
+// is 2 off) and key (stat('key') 'pcp': Krumhansl-Schmuckler over its chroma) only over 6 s at least, and where its two
+// halves say the same: tempos within 4%, as tempo estimates are scored (Gouyon et al. 2006, "Accuracy 1"), one key.
+const STEADY = 6
+async function listen({ output, note, span }) {
+  const r = await whole(output)
+  if (!r?.length) return {}
+  const rate = r.sampleRate, end = r.length / rate
+  const v = voice(r), first = Math.max(0, Math.round(note[0] * v.fs - FRAME / 2)), last = Math.min(v.y.length - FRAME, Math.round(note[1] * v.fs - FRAME / 2))
+  const count = Math.max(1, Math.min(2000, Math.floor((last - first) / v.hop) + 1)), f0 = []
+  for (let k = 0; k < count && last >= first; k++) f0.push(f0At(v, Math.round(first + (count > 1 ? (last - first) * k / (count - 1) : 0))))
+  const voiced = f0.filter(Boolean).sort((p, q) => p - q), at = q => voiced[Math.min(voiced.length - 1, Math.floor(q * voiced.length))]
+  const pitch = voiced.length * 2 < f0.length || !voiced.length ? null : 1200 * Math.log2(at(.75) / at(.25)) > 100 ? [at(.1), at(.9)] : [at(.5)]
+  const [a, b] = [Math.max(0, span[0]), Math.min(end, span[1])], key = `${a},${b}`
+  r.heard ??= new Map()
+  if (!r.heard.has(key)) r.heard.set(key, b - a < STEADY ? {} : await reading(pcmOf(r), rate, async x => {
+    const half = (b - a) / 2, parts = [[a, b - a], [a, half], [a + half, half]].map(([at, duration]) => ({ at, duration }))
+    const tempos = await Promise.all(parts.map(o => x.detect(o).then(d => d.bpm)))
+    const keys = await Promise.all(parts.map(o => x.stat('key', { ...o, method: 'pcp' }).catch(() => null)))
+    const close = t => t > 0 && Math.abs(t - tempos[0]) <= .04 * tempos[0]
+    return {
+      bpm: tempos[0] > 0 && close(tempos[1]) && close(tempos[2]) ? tempos[0] : null,
+      key: keys[0] && keys[0].label !== 'N' && keys.every(k => k?.label === keys[0].label) ? { tonic: keys[0].tonic, mode: keys[0].mode } : null
+    }
+  }))
+  return { pitch, ...r.heard.get(key) }
+}
+
+const CUTS = ['edl', 'otio', 'fcpxml']
+// Encoded files: each save() the script made, as it says, or the output in one format, with the page's `options` for it
+// (the library's encode options: a depth, a bitrate, a quality, no markers); or, with `parts`, each part of the output
 // between its markers, named after the marker it starts at.
-async function exporting({ format, name, parts }) {
+async function exporting({ format, name, parts, options = {} }) {
   const r = await settled()
   if (!r) throw new Error('Nothing to export yet.')
+  // an edit list: the cuts, as text (the library's cuts())
+  if (CUTS.includes(format)) return { files: [{ name: `${name}.${format}`, type: format, bytes: new TextEncoder().encode(await r.instance.cuts(format, options)) }] }
   if (parts) {
     const marks = r.instance.markers.filter(m => m.time > 0 && m.time < r.length / r.sampleRate), pieces = await r.instance.split(...marks.map(m => m.time))
     const label = (i, m) => (m?.label || `${String(i + 1).padStart(2, '0')}`).replace(/[^\w .-]+/g, '-')
-    return { files: await Promise.all(pieces.map(async (p, i) => ({ name: `${name}-${label(i, marks[i - 1])}.${format}`, type: format, bytes: await p.encode(format) }))) }
+    return { files: await Promise.all(pieces.map(async (p, i) => ({ name: `${name}-${label(i, marks[i - 1])}.${format}`, type: format, bytes: await p.encode(format, options) }))) }
   }
-  const targets = r.saves.length ? r.saves : [{ instance: r.instance, name }]
+  const targets = r.saves.length ? r.saves : [{ instance: r.instance, name, opts: options }]
   const out = []
   for (const { instance, name, opts } of targets) {
     const type = (name.match(/\.(\w+)$/)?.[1] || format || 'wav').toLowerCase()
@@ -340,7 +402,7 @@ async function describe({ name }) {
 
 const handlers = {
   file: ({ name, data }) => { data ? files.set(name, data) : files.delete(name); forget(name); return {} },
-  run: execute, onsets, contour, export: exporting, describe, check: checking, original
+  run: execute, cues, contour, listen, export: exporting, describe, check: checking, original
 }
 self.onmessage = async ({ data }) => {
   let reply

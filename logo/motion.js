@@ -16,9 +16,9 @@ const CARRY = 'audio-logo' // where a page leaving hands its motion to the next,
 
 // What hovering adds, by name: turns a second, in the way it already turns, and times as many cycles. A hover with a
 // burst sets off at once and eases out over `ms` to the pace it keeps. One with `follow` copies the pointer: its sideways
-// moves turn the wave as a drag does, that many times over, and it stays where they leave it until the pointer goes.
+// moves turn the wave by that share of what a drag's would, and it stays where they leave it until the pointer goes.
 // A setting may also give its own { speed, cycles, burst, ms, follow }
-export const HOVERS = { none: { speed: 0, cycles: 1 }, mimic: { speed: 0, cycles: 1, follow: 1 }, creep: { speed: .5, cycles: 1, burst: 3, ms: 1100 }, drift: { speed: .3, cycles: 1 }, stir: { speed: .8, cycles: 2 }, tighten: { speed: .15, cycles: 3 } }
+export const HOVERS = { none: { speed: 0, cycles: 1 }, mimic: { speed: 0, cycles: 1, follow: .5 }, creep: { speed: .5, cycles: 1, burst: 3, ms: 1100 }, drift: { speed: .3, cycles: 1 }, stir: { speed: .8, cycles: 2 }, tighten: { speed: .15, cycles: 3 } }
 // What a drag upward does, beyond turning it
 export const LIFTS = ['none', 'amplitude', 'tension']
 // How it sounds: a tick each time a peak, crest or trough, passes through the middle, however it turns; or, under the
@@ -71,17 +71,18 @@ function click() {
 /**
  * Makes a logo drawn by logo.js on canvas answer the pointer and keys, and animates it, drawing only while something moves.
  * settings: speed (turns a second on its own), cycles and amplitude (its height), each a number or a function read each
- * frame, eased either way; axis, how much of the ink the zero axis takes (see logo.js), 0 to 1, a number or a function too;
- * signal (a name, or a function read each frame that gives a trace, drawn every frame while it
+ * frame, eased either way; axis, how much of the ink the zero axis takes (see logo.js), 0 to 1, a number or a function
+ * too, taking it at once; signal (a name, or a function read each frame that gives a trace, drawn every frame while it
  * is set: see logo.js); hover (a key of HOVERS, or its own), lift, sound; hold, to keep it from catching in its pose
- * while something else turns it by turn(); tap, whether a tap gives the next signal, and ontap(signal) to hear which; area, an element whose hover and drag stand for the canvas's, as a whole title for its mark; favicon, to
+ * while something else turns it by turn(); tap, whether a tap gives the next signal, and ontap(signal) to hear which;
+ * ondraw(), called after each frame drawn; area, an element whose hover and drag stand for the canvas's, as a whole title for its mark; favicon, to
  * show the wave in the tab; hidden, to keep moving while the page is hidden, where the tab's icon is all that shows.
  * set() changes settings, and set({}) redraws; turn(turns) turns it at once, and phase reads where it has turned to.
  */
 export function motion(view, canvas, settings = {}) {
   const o = { speed: 0, cycles: 1, amplitude: 1, signal: 'sine', hover: 'stir', lift: 'none', sound: 'none', tap: true, hidden: false, axis: 0, ...settings }
   // velocity is the motor's drive and what a hand gave, the fling; pose, the rest turn it is caught toward
-  const s = { hovered: false, over: false, seen: null, follow: 0, pressed: false, dragging: false, lift: 0, phase: 0, velocity: 0, drive: 0, fling: 0, pose: null, launch: -Infinity, ran: -Infinity, was: false, spin: 0, cycles: typeof o.cycles === 'function' ? 1 : o.cycles, cyclesVelocity: 0, amplitude: 1, amplitudeVelocity: 0, axis: 0, axisVelocity: 0, grab: null, tick: peak(0), tone: null }
+  const s = { hovered: false, over: false, seen: null, follow: 0, pressed: false, dragging: false, lift: 0, phase: 0, velocity: 0, drive: 0, fling: 0, pose: null, launch: -Infinity, ran: -Infinity, was: false, spin: 0, cycles: typeof o.cycles === 'function' ? 1 : o.cycles, cyclesVelocity: 0, amplitude: 1, amplitudeVelocity: 0, axis: 0, grab: null, tick: peak(0), tone: null }
   const surface = o.area ?? canvas
   const still = matchMedia('(prefers-reduced-motion: reduce)')
   let changed = true, morphing = false, dragged = false
@@ -258,14 +259,17 @@ export function motion(view, canvas, settings = {}) {
     const [stiffness, damping] = s.dragging && o.lift !== 'none' ? [900, 1] : [400, .8]
     ;[s.cycles, s.cyclesVelocity] = spring(s.cycles, s.cyclesVelocity, cycles, dt, stiffness, damping)
     ;[s.amplitude, s.amplitudeVelocity] = spring(s.amplitude, s.amplitudeVelocity, amplitude, dt, stiffness, damping)
-    ;[s.axis, s.axisVelocity] = spring(s.axis, s.axisVelocity, typeof o.axis === 'function' ? o.axis() : o.axis, dt, 400, 1)
+    // the axis is there or not, at once
+    const axis = typeof o.axis === 'function' ? o.axis() : o.axis
+    if (Number.isFinite(axis) && axis !== s.axis) { s.axis = axis; changed = true }
     if (audio) listen()
     // Drawn only while something moves or changes, or a trace is live
     const live = typeof o.signal === 'function'
-    if (changed || morphing || live || s.pressed || Math.abs(s.velocity) > 1e-5 || Math.abs(s.cyclesVelocity) > 1e-5 || Math.abs(s.amplitudeVelocity) > 1e-5 || Math.abs(s.axisVelocity) > 1e-5) {
+    if (changed || morphing || live || s.pressed || Math.abs(s.velocity) > 1e-5 || Math.abs(s.cyclesVelocity) > 1e-5 || Math.abs(s.amplitudeVelocity) > 1e-5) {
       changed = false
       view.set({ phase: s.phase, cycles: s.cycles, amplitude: s.amplitude, axis: Math.min(1, Math.max(0, s.axis)), signal: live ? o.signal() : o.signal }, now)
       morphing = view.render(now)
+      o.ondraw?.()
       if (tab) {
         clearTimeout(trailing)
         if (now - shown > 125) favicon()

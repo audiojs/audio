@@ -3,7 +3,7 @@
  * Self-registers on import — exposes statSession on audio, adds fn.stat.
  */
 
-import audio, { parseTime, LOAD, resolveChannels, yieldTask, FULL } from './core.js'
+import audio, { parseTime, named, LOAD, resolveChannels, yieldTask, FULL } from './core.js'
 import { buildPlan, streamPlan, ensurePlan } from './plan.js'
 
 // ── Stat descriptor registry ────────────────────────────────────
@@ -292,6 +292,7 @@ export async function queryRange(inst, opts, need) {
   await inst[LOAD]()
   // Block stats land only after full decode — LOAD alone resolves at metadata
   if (!inst.decoded && inst.ready) await inst.ready
+  opts = named(opts)
   let at = parseTime(opts?.at), dur = parseTime(opts?.duration)
   let hasRange = at != null || dur != null
   let lacks = s => need?.some(f => !s?.[f])

@@ -4,6 +4,7 @@
 
 /** Time value: seconds as number, or parseable string ('1.5s', '500ms', '1:30') */
 type Time = number | string
+// Wherever an option is `duration` it may be `d`, and `crossfade` `xfade` (FFmpeg's names); the long one wins
 /** A result, or one per channel when `channel` is an array */
 type PerChannel<C, R> = C extends number[] ? R[] : R
 
@@ -11,7 +12,7 @@ type AudioSource = AudioInstance | AudioBuffer | Float32Array[] | number
 type FilterType = 'highpass' | 'lowpass' | 'bandpass' | 'notch' | 'eq' | 'lowshelf' | 'highshelf' | 'allpass'
 type RepairOpts = { at: Time, duration: Time, method?: 'auto' | 'ar' | 'sinusoidal' | 'similarity' | 'spectral', window?: number }
 /** Where the noise plays alone (a range of the op's input, or several), or its print (dB per band, one or per channel) */
-type DenoiseOpts = { noise: { at?: Time, duration: Time } | { at?: Time, duration: Time }[] | number[] | number[][], at?: Time, duration?: Time, channel?: number | number[] }
+type DenoiseOpts = { noise: { at?: Time, duration: Time } | { at?: Time, duration: Time }[] | number[] | number[][], at?: Time, duration?: Time, d?: Time, channel?: number | number[] }
 
 export interface AudioInstance {
   /** Decoded PCM pages */
@@ -94,94 +95,101 @@ export interface AudioInstance {
   seek(t: number): this
   /** Read audio data. Channel option returns single Float32Array. A source still arriving is waited
    *  for: a range until it has arrived, all of it (or a range from the end) until the end. */
-  read(opts?: { at?: Time, duration?: Time, channel?: number, format?: string, meta?: Record<string, any> }): Promise<Float32Array[] | Float32Array | Int16Array[] | Uint8Array[] | Uint8Array>
+  read(opts?: { at?: Time, duration?: Time, d?: Time, channel?: number, format?: string, meta?: Record<string, any> }): Promise<Float32Array[] | Float32Array | Int16Array[] | Uint8Array[] | Uint8Array>
   /** Async-iterable over materialized blocks. `for await (let block of a)` uses default range. */
   [Symbol.asyncIterator](): AsyncGenerator<Float32Array[], void, unknown>
   /** Ensure stats are fresh, return stats + block range */
   /** loudness: integrated LUFS (BS.1770-4, surround weighted) · momentary/shortterm: max 400 ms / 3 s LUFS (EBU Tech 3341) · dialog: speech-gated LUFS (AES TD1008) · noisefloor: dB RMS of the quietest 0.4 s (ACX Check) */
-  stat(name: 'db' | 'rms' | 'noisefloor' | 'loudness' | 'momentary' | 'shortterm' | 'dialog' | 'peak' | 'crest', opts?: { at?: Time, duration?: Time, channel?: number | number[] }): Promise<number | number[]>
+  stat(name: 'db' | 'rms' | 'noisefloor' | 'loudness' | 'momentary' | 'shortterm' | 'dialog' | 'peak' | 'crest', opts?: { at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): Promise<number | number[]>
   /** Each rule of a delivery spec, measured: pass is null for rules the spec describes without bounding */
   check(spec: 'acx' | 'podcast' | 'streaming' | 'broadcast' | 'netflix' | 'apple' | 'spotify' | 'ebu'): Promise<{ spec: string, name: string, url: string, note?: string, pass: boolean, rules: { name: string, value: number, unit: string, min?: number | null, max?: number | null, pass: boolean | null, note?: string }[] }>
-  stat(name: 'clipping', opts?: { at?: Time, duration?: Time }): Promise<Float32Array>
-  stat(name: 'clipping', opts: { bins: number, at?: Time, duration?: Time }): Promise<Float32Array>
-  stat(name: 'dc', opts?: { at?: Time, duration?: Time }): Promise<number>
-  stat(name: 'correlation', opts?: { at?: Time, duration?: Time }): Promise<number>
-  stat(name: 'min' | 'max', opts?: { at?: Time, duration?: Time }): Promise<number>
-  stat(name: 'min' | 'max', opts: { bins: number, at?: Time, duration?: Time, channel?: number }): Promise<Float32Array>
-  stat(name: 'min' | 'max', opts: { bins: number, at?: Time, duration?: Time, channel: number[] }): Promise<Float32Array[]>
+  stat(name: 'clipping', opts?: { at?: Time, duration?: Time, d?: Time }): Promise<Float32Array>
+  stat(name: 'clipping', opts: { bins: number, at?: Time, duration?: Time, d?: Time }): Promise<Float32Array>
+  stat(name: 'dc', opts?: { at?: Time, duration?: Time, d?: Time }): Promise<number>
+  stat(name: 'correlation', opts?: { at?: Time, duration?: Time, d?: Time }): Promise<number>
+  stat(name: 'min' | 'max', opts?: { at?: Time, duration?: Time, d?: Time }): Promise<number>
+  stat(name: 'min' | 'max', opts: { bins: number, at?: Time, duration?: Time, d?: Time, channel?: number }): Promise<Float32Array>
+  stat(name: 'min' | 'max', opts: { bins: number, at?: Time, duration?: Time, d?: Time, channel: number[] }): Promise<Float32Array[]>
   /** Of the chosen channels' mean power (all by default) */
-  stat<C extends number | number[] = number>(name: 'spectrum', opts?: { bins?: number, at?: Time, duration?: Time, fMin?: number, fMax?: number, weight?: boolean, channel?: C }): Promise<PerChannel<C, Float32Array>>
-  stat<C extends number | number[] = number>(name: 'cepstrum', opts?: { bins?: number, at?: Time, duration?: Time, channel?: C }): Promise<PerChannel<C, Float32Array>>
+  stat<C extends number | number[] = number>(name: 'spectrum', opts?: { bins?: number, at?: Time, duration?: Time, d?: Time, fMin?: number, fMax?: number, weight?: boolean, channel?: C }): Promise<PerChannel<C, Float32Array>>
+  stat<C extends number | number[] = number>(name: 'cepstrum', opts?: { bins?: number, at?: Time, duration?: Time, d?: Time, channel?: C }): Promise<PerChannel<C, Float32Array>>
   /** The noise print of a range, as `denoise({ noise })` takes it: dB in 1025 bands 23.4375 Hz apart, 0 to 24 kHz (white
    *  noise of RMS 0.01 prints −40 throughout). The channels' power averaged; `channel: [..]` a print each */
-  stat(name: 'print', opts?: { at?: Time, duration?: Time, channel?: number }): Promise<number[]>
-  stat(name: 'print', opts: { at?: Time, duration?: Time, channel: number[] }): Promise<number[][]>
-  stat(name: 'silence', opts?: { threshold?: number, minDuration?: number, at?: Time, duration?: Time }): Promise<{ at: number, duration: number }[]>
-  stat<C extends number | number[] = number>(name: 'centroid' | 'flatness', opts?: { at?: Time, duration?: Time, channel?: C }): Promise<PerChannel<C, number>>
-  stat(name: 'bpm', opts?: { at?: Time, duration?: Time, minBpm?: number, maxBpm?: number, delta?: number, minConfidence?: number, channel?: number | number[] }): Promise<number>
-  stat(name: 'beats' | 'onsets', opts?: { at?: Time, duration?: Time, minBpm?: number, maxBpm?: number, delta?: number, channel?: number | number[] }): Promise<Float64Array>
-  stat<C extends number | number[] = number>(name: 'notes', opts: { poly: true, at?: Time, duration?: Time, minFreq?: number, maxFreq?: number, minDuration?: number, onsetThreshold?: number, frameThreshold?: number, channel?: C }): Promise<PerChannel<C, { time: number, duration: number, freq: number, midi: number, note: string, velocity: number, bends: number[] }[]>>
+  stat(name: 'print', opts?: { at?: Time, duration?: Time, d?: Time, channel?: number }): Promise<number[]>
+  stat(name: 'print', opts: { at?: Time, duration?: Time, d?: Time, channel: number[] }): Promise<number[][]>
+  stat(name: 'silence', opts?: { threshold?: number, minDuration?: number, at?: Time, duration?: Time, d?: Time }): Promise<{ at: number, duration: number }[]>
+  stat<C extends number | number[] = number>(name: 'centroid' | 'flatness', opts?: { at?: Time, duration?: Time, d?: Time, channel?: C }): Promise<PerChannel<C, number>>
+  stat(name: 'bpm', opts?: { at?: Time, duration?: Time, d?: Time, minBpm?: number, maxBpm?: number, delta?: number, minConfidence?: number, channel?: number | number[] }): Promise<number>
+  stat(name: 'beats' | 'onsets', opts?: { at?: Time, duration?: Time, d?: Time, minBpm?: number, maxBpm?: number, delta?: number, channel?: number | number[] }): Promise<Float64Array>
+  stat<C extends number | number[] = number>(name: 'notes', opts: { poly: true, at?: Time, duration?: Time, d?: Time, minFreq?: number, maxFreq?: number, minDuration?: number, onsetThreshold?: number, frameThreshold?: number, channel?: C }): Promise<PerChannel<C, { time: number, duration: number, freq: number, midi: number, note: string, velocity: number, bends: number[] }[]>>
   /** robust: pYIN's stage 1 from @audio/neural-pitch (optional package), for noise and rooms; YIN otherwise */
-  stat<C extends number | number[] = number>(name: 'notes', opts?: { poly?: false, robust?: boolean, at?: Time, duration?: Time, minFreq?: number, maxFreq?: number, frameSize?: number, hopSize?: number, minDuration?: number, channel?: C }): Promise<PerChannel<C, { time: number, duration: number, freq: number, midi: number, note: string, clarity: number }[]>>
+  stat<C extends number | number[] = number>(name: 'notes', opts?: { poly?: false, robust?: boolean, at?: Time, duration?: Time, d?: Time, minFreq?: number, maxFreq?: number, frameSize?: number, hopSize?: number, minDuration?: number, channel?: C }): Promise<PerChannel<C, { time: number, duration: number, freq: number, midi: number, note: string, clarity: number }[]>>
   /** Chordino on NNLS chroma (Mauch & Dixon 2010), as the reference plugin; tuning: concert A in Hz, read from the audio unless given */
-  stat<C extends number | number[] = number>(name: 'chords', opts?: { at?: Time, duration?: Time, frameSize?: number, hopSize?: number, tuning?: number, boostN?: number, channel?: C }): Promise<PerChannel<C, { time: number, duration: number, root: number, quality: 'maj' | 'min' | '7' | 'maj7' | 'min7' | 'maj6' | 'min6' | 'dim' | 'aug' | 'hdim7' | 'N', bass: number, label: string, confidence: number }[]>>
-  stat<C extends number | number[] = number>(name: 'key', opts?: { at?: Time, duration?: Time, frameSize?: number, hopSize?: number, tuning?: number, method?: 'nnls' | 'pcp', channel?: C }): Promise<PerChannel<C, { tonic: number, mode: 'major' | 'minor', label: string, confidence: number, scores?: { label: string, score: number }[] }>>
-  stat<T extends string[]>(name: T, opts?: { at?: Time, duration?: Time, bins?: number, channel?: number | number[] }): Promise<{ [K in keyof T]: number | Float32Array | Float32Array[] }>
-  stat(name: string, opts?: { at?: Time, duration?: Time, bins?: number, channel?: number | number[] }): Promise<number | Float32Array | Float32Array[]>
-  spectrum<C extends number | number[] = number>(opts?: { bins?: number, at?: Time, duration?: Time, fMin?: number, fMax?: number, weight?: boolean, channel?: C }): Promise<PerChannel<C, Float32Array>>
-  cepstrum<C extends number | number[] = number>(opts?: { bins?: number, at?: Time, duration?: Time, channel?: C }): Promise<PerChannel<C, Float32Array>>
-  silence(opts?: { threshold?: number, minDuration?: number, at?: Time, duration?: Time }): Promise<{ at: number, duration: number }[]>
+  stat<C extends number | number[] = number>(name: 'chords', opts?: { at?: Time, duration?: Time, d?: Time, frameSize?: number, hopSize?: number, tuning?: number, boostN?: number, channel?: C }): Promise<PerChannel<C, { time: number, duration: number, root: number, quality: 'maj' | 'min' | '7' | 'maj7' | 'min7' | 'maj6' | 'min6' | 'dim' | 'aug' | 'hdim7' | 'N', bass: number, label: string, confidence: number }[]>>
+  stat<C extends number | number[] = number>(name: 'key', opts?: { at?: Time, duration?: Time, d?: Time, frameSize?: number, hopSize?: number, tuning?: number, method?: 'nnls' | 'pcp', channel?: C }): Promise<PerChannel<C, { tonic: number, mode: 'major' | 'minor', label: string, confidence: number, scores?: { label: string, score: number }[] }>>
+  stat<T extends string[]>(name: T, opts?: { at?: Time, duration?: Time, d?: Time, bins?: number, channel?: number | number[] }): Promise<{ [K in keyof T]: number | Float32Array | Float32Array[] }>
+  stat(name: string, opts?: { at?: Time, duration?: Time, d?: Time, bins?: number, channel?: number | number[] }): Promise<number | Float32Array | Float32Array[]>
+  spectrum<C extends number | number[] = number>(opts?: { bins?: number, at?: Time, duration?: Time, d?: Time, fMin?: number, fMax?: number, weight?: boolean, channel?: C }): Promise<PerChannel<C, Float32Array>>
+  cepstrum<C extends number | number[] = number>(opts?: { bins?: number, at?: Time, duration?: Time, d?: Time, channel?: C }): Promise<PerChannel<C, Float32Array>>
+  silence(opts?: { threshold?: number, minDuration?: number, at?: Time, duration?: Time, d?: Time }): Promise<{ at: number, duration: number }[]>
   /** stat('print'): the noise print of a range, for denoise({ noise }) */
-  print(opts?: { at?: Time, duration?: Time, channel?: number }): Promise<number[]>
-  print(opts: { at?: Time, duration?: Time, channel: number[] }): Promise<number[][]>
-  centroid<C extends number | number[] = number>(opts?: { at?: Time, duration?: Time, channel?: C }): Promise<PerChannel<C, number>>
-  flatness<C extends number | number[] = number>(opts?: { at?: Time, duration?: Time, channel?: C }): Promise<PerChannel<C, number>>
+  print(opts?: { at?: Time, duration?: Time, d?: Time, channel?: number }): Promise<number[]>
+  print(opts: { at?: Time, duration?: Time, d?: Time, channel: number[] }): Promise<number[][]>
+  centroid<C extends number | number[] = number>(opts?: { at?: Time, duration?: Time, d?: Time, channel?: C }): Promise<PerChannel<C, number>>
+  flatness<C extends number | number[] = number>(opts?: { at?: Time, duration?: Time, d?: Time, channel?: C }): Promise<PerChannel<C, number>>
   /** High-fidelity beat/tempo detection via spectral flux of the chosen channels' mean (single streaming pass). More precise than stat('bpm'). */
-  detect<C extends number | number[] = number>(opts?: { at?: Time, duration?: Time, frameSize?: number, hopSize?: number, minBpm?: number, maxBpm?: number, delta?: number, channel?: C }): Promise<PerChannel<C, { bpm: number, confidence: number, beats: Float64Array, onsets: Float64Array }>>
+  detect<C extends number | number[] = number>(opts?: { at?: Time, duration?: Time, d?: Time, frameSize?: number, hopSize?: number, minBpm?: number, maxBpm?: number, delta?: number, channel?: C }): Promise<PerChannel<C, { bpm: number, confidence: number, beats: Float64Array, onsets: Float64Array }>>
   /** Serialize to JSON */
   toJSON(): { source: string | null, edits: EditOp[], sampleRate: number, channels: number, duration: number }
 
   // ── Structural ops ───────────────────────────────────────────
-  crop(opts?: { at?: Time, duration?: Time }): this
+  crop(opts?: { at?: Time, duration?: Time, d?: Time }): this
   /** crossfade: seconds or '10ms', equal-power fades at both seams */
-  insert(other: AudioSource, at?: Time | { at?: Time, crossfade?: Time }, crossfade?: Time): this
+  insert(other: AudioSource, at?: Time | { at?: Time, crossfade?: Time, xfade?: Time }, crossfade?: Time): this
   /** Copy a range to this instance's clipboard without changing its audio. Undoable. */
-  copy(opts?: { at?: Time, duration?: Time }): this
-  copy(at: Time, duration?: Time): this
+  copy(opts?: { at?: Time, duration?: Time, d?: Time }): this
+  copy(at: Time, duration?: Time, d?: Time): this
   /** Copy a range to the clipboard and remove it in one undoable edit. */
-  cut(opts?: { at?: Time, duration?: Time }): this
-  cut(at: Time, duration?: Time): this
+  cut(opts?: { at?: Time, duration?: Time, d?: Time }): this
+  cut(at: Time, duration?: Time, d?: Time): this
   /** Insert the latest copied or cut range; defaults to append. Keeps the clipboard. */
   paste(opts?: { at?: Time }): this
   paste(at: Time): this
+  /** Slide a range to `to`, over what is there, silence where it was (a DAW's slip mode); the length kept, or extended
+   *  past the end. crossfade: seconds or '10ms', an equal-power crossfade centered on each edge */
+  move(opts: { at?: Time, duration?: Time, d?: Time, to: Time, crossfade?: Time, xfade?: Time }): this
+  move(at: Time, duration: Time, to: Time, crossfade?: Time): this
   /** crossfade: seconds or '10ms', an equal-power crossfade centered on the splice; length unchanged */
-  remove(opts?: { at?: Time, duration?: Time, crossfade?: Time }): this
-  remove(at: Time, duration?: Time, crossfade?: Time): this
-  repeat(times: number, opts?: { at?: Time, duration?: Time }): this
+  remove(opts?: { at?: Time, duration?: Time, d?: Time, crossfade?: Time, xfade?: Time }): this
+  remove(at: Time, duration?: Time, d?: Time, crossfade?: Time): this
+  repeat(times: number, opts?: { at?: Time, duration?: Time, d?: Time }): this
   pad(before: number, after?: number): this
   speed(rate: number): this
   /** Time-stretch preserving pitch. Factor may be a fn or curve of source-time seconds — sliding stretch (continuous tempo envelope), duration = ∫factor dt */
-  stretch(factor: number | ((t: number) => number) | { t: number[], v: number[] }, opts?: { at?: Time, duration?: Time }): this
+  stretch(factor: number | ((t: number) => number) | { t: number[], v: number[] }, opts?: { at?: Time, duration?: Time, d?: Time }): this
   /** Move moments in time: [from, to] pairs in seconds. Between neighbouring markers the audio stretches to fit, pitch kept; start and end stay (a marker at the end moves it). */
   warp(markers: [number, number][]): this
-  pitch(semitones: number): this
+  /** Shift pitch, keep duration. Semitones: a number, a curve { t, v } (seconds → semitones, straight between points,
+   *  flat past the ends) or t => semitones; where it is zero the audio stays as it was. voice: a voice's own glottal
+   *  cycles re-spaced (TD-PSOLA, optional @audio/tune-curve): formants and consonants kept, one voice. */
+  pitch(semitones: number | ((t: number) => number) | { t: number[], v: number[] }, opts?: { at?: Time, duration?: Time, d?: Time, channel?: number | number[], voice?: boolean }): this
 
   // ── Sample ops ──────────────────────────────────────────────
-  gain(value: number | ((t: number) => number), opts?: { at?: Time, duration?: Time, channel?: number | number[], unit?: 'db' | 'linear' }): this
+  gain(value: number | ((t: number) => number), opts?: { at?: Time, duration?: Time, d?: Time, channel?: number | number[], unit?: 'db' | 'linear' }): this
   /** Fade in (positive) / out (negative). Adjustable: start/end gain levels (0..1) and mid — position of the half-amplitude point within the fade */
   fade(duration: Time, curve?: 'linear' | 'exp' | 'log' | 'cos', opts?: { at?: Time, start?: number, end?: number, mid?: number }): this
   fade(fadeIn: Time, fadeOut: Time, curve?: 'linear' | 'exp' | 'log' | 'cos'): this
-  reverse(opts?: { at?: Time, duration?: Time }): this
+  reverse(opts?: { at?: Time, duration?: Time, d?: Time }): this
   /** Mix another source in at `at`, `gain` dB (FFmpeg amix weights) */
-  mix(other: AudioSource, opts?: { at?: Time, duration?: Time, gain?: number }): this
-  mix(other: AudioSource, at?: Time, gain?: number, opts?: { duration?: Time }): this
-  crossfade(other: AudioSource, duration?: Time, curve?: 'linear' | 'exp' | 'log' | 'cos' | 'equal'): this
+  mix(other: AudioSource, opts?: { at?: Time, duration?: Time, d?: Time, gain?: number }): this
+  mix(other: AudioSource, at?: Time, gain?: number, opts?: { duration?: Time, d?: Time }): this
+  crossfade(other: AudioSource, duration?: Time, d?: Time, curve?: 'linear' | 'exp' | 'log' | 'cos' | 'equal'): this
   /** No source: crossfade across the range, the audio before it fading into the audio after it; the range goes */
-  crossfade(range: { at: Time, duration?: Time }): this
+  crossfade(range: { at: Time, duration?: Time, d?: Time }): this
   /** Overwrite from `at` with samples or another sound; what runs past the end extends it */
-  write(data: Float32Array[] | Float32Array | AudioInstance | AudioBuffer, opts?: { at?: Time, duration?: Time }): this
+  write(data: Float32Array[] | Float32Array | AudioInstance | AudioBuffer, opts?: { at?: Time, duration?: Time, d?: Time }): this
   remix(channels: number | (number | null)[]): this
-  pan(value: number | ((t: number) => number), opts?: { at?: Time, duration?: Time, channel?: number | number[] }): this
+  pan(value: number | ((t: number) => number), opts?: { at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
 
   // ── Filters ──────────────────────────────────────────────────
   filter(type: FilterType, ...params: number[]): this
@@ -214,7 +222,7 @@ export interface AudioInstance {
   /** Fill digital silence (≥ 10 ms under `threshold` dBFS, default -90) with the recording's own room tone */
   roomtone(threshold?: number): this
   /** Spectral edit: gain (dB, default: remove) on `band` [low, high] Hz over the time range */
-  spectral(band?: [number, number], gain?: number, opts?: { at?: Time, duration?: Time }): this
+  spectral(band?: [number, number], gain?: number, opts?: { at?: Time, duration?: Time, d?: Time }): this
   /** Spectral repair: rebuild a damaged time range (optionally one band) from its surroundings. `method` 'auto' routes by
    *  length and content: a transplant of the passage that joins seamlessly, searched in the `window` s (10) before the
    *  range; failing that, AR interpolation up to 70 ms and a sinusoidal bridge over a matched noise floor beyond */
@@ -230,12 +238,12 @@ export interface AudioInstance {
    *  cached): the whole input, once, before rendering; a live stream waits for its end. The noise drops by `limit` dB
    *  (default 12: room tone stays; 0: no limit), or further, to `floor` dB under the voice's integrated loudness
    *  (default -45; false: `limit` only). `weights`: URL of an upstream ONNX export */
-  deepfilter(limit?: number, floor?: number | false, opts?: { weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, channel?: number | number[] }): this
-  deepfilter(opts: { limit?: number, floor?: number | false, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, channel?: number | number[] }): this
+  deepfilter(limit?: number, floor?: number | false, opts?: { weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
+  deepfilter(opts: { limit?: number, floor?: number | false, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   /** RNNoise speech denoising, streaming, through @audio/neural-denoise (optional package, weights inside): 1439
    *  samples of latency at 48 kHz, compensated; other rates resampled in and out. `limit`: dB (default 20; 0: none) */
-  rnnoise(limit?: number, opts?: { at?: Time, duration?: Time, channel?: number | number[] }): this
-  rnnoise(opts: { limit?: number, at?: Time, duration?: Time, channel?: number | number[] }): this
+  rnnoise(limit?: number, opts?: { at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
+  rnnoise(opts: { limit?: number, at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   resample(targetRate: number, opts?: { type?: 'linear' | 'sinc' }): this
 
   // ── Smart ops ───────────────────────────────────────────────
@@ -243,7 +251,7 @@ export interface AudioInstance {
   trim(threshold?: number): this
   /** Compress silent pauses to a target gap (seconds, default 0.3) throughout, or within {at, duration} */
   shrink(gap?: number, threshold?: number): this
-  shrink(opts: { gap?: number, threshold?: number, at?: Time, duration?: Time }): this
+  shrink(opts: { gap?: number, threshold?: number, at?: Time, duration?: Time, d?: Time }): this
   /** Loudness targets (presets, mode 'lufs') hold a true-peak ceiling, -1 dBTP by default: a lookahead
    *  limiter, then loudness made up to the target. `ceiling`: dBTP, or false for none. */
   normalize(): this
@@ -255,7 +263,7 @@ export interface AudioInstance {
   normalize(opts: NormalizeOpts & { target?: number | 'streaming' | 'podcast' | 'broadcast' }): this
 
   // ── Fns (registered via audio.fn) ───────────────────────────
-  clip(opts?: { at?: Time, duration?: Time }): AudioInstance
+  clip(opts?: { at?: Time, duration?: Time, d?: Time }): AudioInstance
   split(...offsets: Time[]): AudioInstance[]
   undo(n?: number): EditOp | EditOp[] | null
   run(...edits: EditOp[]): this
@@ -274,9 +282,9 @@ export interface AudioInstance {
   /** Encode and write. An MP4/MOV source saved to .mp4/.mov/.m4v keeps its video (audio track swapped). */
   save(target: string | FileSystemWritableFileStream, opts?: EncodeOpts & { format?: string, video?: boolean }): Promise<void>
   encode(format?: string, opts?: EncodeOpts): Promise<Uint8Array>
-  /** The edits as clips of the source file (seconds), or a cut list for a video editor: CMX 3600 EDL, FCPXML 1.9, OpenTimelineIO */
-  cuts(opts?: { fps?: number }): Promise<{ fps: number, clips: { at: number, duration: number, from: number, source: string }[] }>
-  cuts(format: 'edl' | 'fcpxml' | 'otio', opts?: { fps?: number, title?: string, url?: string }): Promise<string>
+  /** The edits as clips of the source files (seconds; `rate`: source seconds per output second, negative reversed), or a cut list for a video editor: CMX 3600 EDL, FCPXML 1.9, OpenTimelineIO. encode() and save('cuts.edl') take them too. */
+  cuts(opts?: CutOpts): Promise<{ fps: number, clips: { at: number, duration: number, from: number, rate: number, source: string }[] }>
+  cuts(format: 'edl' | 'fcpxml' | 'otio', opts?: CutOpts): Promise<string>
   encode(opts?: EncodeOpts): Promise<Uint8Array>
   clone(): AudioInstance
 }
@@ -353,7 +361,7 @@ export interface NormalizeOpts {
    *  hasn't (the target in peak mode). Default: one gain for the whole selection, waiting for its end. */
   adaptive?: boolean
   at?: Time
-  duration?: Time
+  duration?: Time, d?: Time
   channel?: number | number[]
 }
 
@@ -366,9 +374,23 @@ export interface VocalsModel {
   device?: string
 }
 
-export interface EncodeOpts {
+/** Cut lists (cuts(), encode/save to edl, otio, fcpxml) */
+export interface CutOpts {
+  /** Frame rate; default: the video track's (MP4/MOV), else 30 */
+  fps?: number
+  /** Drop-frame timecode (29.97, 59.94); default: as the file's timecode track counts */
+  dropFrame?: boolean
+  /** List title; default: '<file name> cuts' */
+  title?: string
+  /** URL written for the source file; names it when the audio came from bytes */
+  url?: string
+  markers?: Marker[]
+  regions?: Region[]
+}
+
+export interface EncodeOpts extends CutOpts {
   at?: Time
-  duration?: Time
+  duration?: Time, d?: Time
   meta?: Meta | false
   markers?: Marker[]
   regions?: Region[]
@@ -405,7 +427,7 @@ export interface PlayOpts {
   /** Where to start, and the span's start (default currentTime; the start once ended) */
   at?: Time
   /** The span's length (default: to the end) */
-  duration?: Time
+  duration?: Time, d?: Time
   /** Repeat the span */
   loop?: boolean
   volume?: number
