@@ -4,13 +4,13 @@ Researched 2026-10-01. Every script below ran in Node against the working tree (
 
 ## Terms
 
-- **Preset**: one op's settings. `normalize('podcast')`, `deesser({ fc: 7500 })`. Already in [repl/ops.js](../repl/ops.js) as `presets`.
+- **Preset**: one op's settings. `normalize('podcast')`, `deesser({ fc: 7500 })`. Already in [editor/ops.js](../editor/ops.js) as `presets`.
 - **Recipe**: an ordered chain with settings and a reason per step. It encodes a technique: parallel compression, the Abbey Road send.
 - **Scenario**: a goal with a spec. Recipe + `check(spec)` + the measurements that steer it. A scenario passes or fails; a recipe only sounds a certain way.
 
-A scenario is a script, not only a chain. Several measure first and then act: dialogue loudness sets the gain (Netflix, ATSC), per-mic loudness sets the trims (interview), onsets drive the gate (gated reverb). [repl/recipes.js](../repl/recipes.js) already runs `await` inside a recipe, so this needs no new machinery.
+A scenario is a script, not only a chain. Several measure first and then act: dialogue loudness sets the gain (Netflix, ATSC), per-mic loudness sets the trims (interview), onsets drive the gate (gated reverb). [editor/recipes.js](../editor/recipes.js) already runs `await` inside a recipe, so this needs no new machinery.
 
-For the REPL panel and for agents, one entry should carry:
+For the editor panel and for agents, one entry should carry:
 
 ```js
 { group, name, text,        // as now
@@ -182,7 +182,7 @@ let [L, D] = await a.stat(['loudness', 'dialog'])
 a.normalize(-27 + L - D, 'lufs', { ceiling: -2 })
 ```
 
-Measured: dialogue -27.00 LUFS, -9.81 dBTP, `check('netflix')` passes. The existing REPL list has the spec but no recipe for it.
+Measured: dialogue -27.00 LUFS, -9.81 dBTP, `check('netflix')` passes. The existing editor list has the spec but no recipe for it.
 
 ### Music master for streaming
 
@@ -638,7 +638,7 @@ No low-pass after it: the missing filter is the sound. Level unchanged (-25.36 L
 
 ---
 
-## 5. What repl/recipes.js has, and what changes
+## 5. What editor/recipes.js has, and what changes
 
 Measured in the same harness where marked.
 
@@ -693,7 +693,7 @@ Ops and specs the recipes above needed and did not have. Ordered by how many rec
 All reproduce on committed HEAD (f5fc6bb) as well as the working tree.
 
 - **D1 (fixed: audio.js wires registry ops before encode and save, as before stream; test/pro.js "a file just opened"). `audio(path).<registry op>().save()` fails before decode finishes**: "Unknown op: compressor". The headline pattern `audio('voice.wav').highpass(80).compressor(…).normalize('podcast').save('out.mp3')` fails in a fresh process, with or without the `normalize`; awaiting the source first works. `save()` takes its live path while the file decodes and reads `inst.duration` ([fn/save.js](../fn/save.js), `total ??= inst.duration`) before `stream()` wires the registry ops ([audio.js](../audio.js), the `stream` wrapper), and `duration` builds the plan.
-- **D2. Registry ops inside a source passed to `mix` or `insert` are not wired.** `stat()` on the result always fails ("Unknown op: transistor", `noise`, `plate`, `compressor`); `save()` fails after `insert`, or when a resolve op such as `normalize` follows the `mix`; `read()` works. `autowire` in audio.js walks only the instance's own `edits`, not its refs'. It breaks every parallel recipe, sends, and generated noise in a mix, wherever the result is measured or saved. Not checked in the REPL, whose Check panel measures with `stat()`.
+- **D2. Registry ops inside a source passed to `mix` or `insert` are not wired.** `stat()` on the result always fails ("Unknown op: transistor", `noise`, `plate`, `compressor`); `save()` fails after `insert`, or when a resolve op such as `normalize` follows the `mix`; `read()` works. `autowire` in audio.js walks only the instance's own `edits`, not its refs'. It breaks every parallel recipe, sends, and generated noise in a mix, wherever the result is measured or saved. Not checked in the editor, whose Check panel measures with `stat()`.
 - **D3. `haas({ channel: 'right' })` crashes** ("chs.map is not a function", plan.js `run`): the plugin's `channel` param collides with the engine's `{ channel }` range key. Rename the param (`side`), or reserve the range keys.
 - **D4. A 32-bit float WAV the library writes cannot be read back** when the source had tags: the LIST chunk puts `data` at an offset not divisible by 4 and @audio/decode-wav builds a `Float32Array` view on it ("start offset of Float32Array should be a multiple of 4", decode-wav.js:191). Copy to an aligned buffer, or read through a DataView.
 - **D5. Dual-mono MP3 and M4A decode as 1 channel** (ffprobe: 2). The ACX "all mono or all stereo" rule and Apple's stereo-only WAV/FLAC rule depend on this count.

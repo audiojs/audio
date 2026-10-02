@@ -104,7 +104,7 @@ Cells contain method/op names where supported, `—` if absent. For `audio`, pla
 | **Analysis (rhythm/melody)** | | | | | | | | | | |
 | Tempo / BPM | `stat('bpm')` | — | `beat.tempo`, `beat.beat_track` | `aubiotempo` | `RhythmExtractor`, `PercivalBpmEstimator` | — | — | — | Beat Finder | `tempo` |
 | Beat tracking | `stat('beats')` | — | `beat.beat_track` | `aubiotrack` | `BeatTrackerMultiFeature`, `BeatsLoudness` | — | — | — | Beat Finder | `beat` |
-| Onset detection | `stat('onsets')` | — | `onset.onset_detect` | `aubioonset`, `onset` | `OnsetDetection`, `Onsets` | — | — | — | Sound Finder | `detectSpeech` (vad) |
+| Onset detection | `stat('onsets')`, `stat('hits')` (at the zero crossing to cut at) | — | `onset.onset_detect` | `aubioonset`, `onset` | `OnsetDetection`, `Onsets` | — | — | — | Sound Finder | `detectSpeech` (vad) |
 | Pitch (notes, F0) | `stat('notes')` | — | `pyin`, `piptrack` | `aubiopitch`, `aubionotes` | `PitchYin`, `PitchYinFFT`, `PredominantPitchMelodia` | — | — | — | (plugin) | `pitch` |
 | Chord recognition | `stat('chords')` | — | (3rd-party) | — | `ChordsDetection`, `ChordsDetectionBeats` | — | — | — | — | — |
 | Key detection | `stat('key')` | — | (3rd-party) | — | `KeyExtractor`, `Key` | — | — | — | — | — |

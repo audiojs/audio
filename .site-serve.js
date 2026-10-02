@@ -1,4 +1,4 @@
-// Serve the website and the REPL from this folder, nothing cached, so a reload always runs the files as they are:
+// Serve the website and the editor from this folder, nothing cached, so a reload always runs the files as they are:
 // npm run serve (builds first), or node .site-serve.js [port]
 import { createServer } from 'node:http'
 import { readFile, stat } from 'node:fs/promises'
@@ -25,7 +25,7 @@ createServer(async (req, res) => {
   } catch { res.writeHead(404, { 'content-type': 'text/plain' }).end(`Not found: ${pathname}`) }
 })
   .on('error', e => { console.error(e.code === 'EADDRINUSE' ? `Port ${port} is taken: node .site-serve.js <port>` : e.message); process.exit(1) })
-  .listen(port, () => console.log(`http://localhost:${port}/           website\nhttp://localhost:${port}/repl.html  REPL`))
+  .listen(port, () => console.log(`http://localhost:${port}/           website\nhttp://localhost:${port}/editor.html  editor`))
 
 async function send(res, path) {
   const body = await readFile(path)

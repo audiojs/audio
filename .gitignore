@@ -9,3 +9,4 @@ bench/.cache
 /.hallmark
 /videos
 token.npm
+/.samples

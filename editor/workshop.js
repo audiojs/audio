@@ -7,6 +7,9 @@
 //             Finder column's divider (a rule, its knob at the foot), or nothing until it is pointed at
 //   end       where the sound ends, past which the picture scrolls: a line, the room past it shaded, hatched, a cap on
 //             the time row, or a tag saying so
+//   speed     how the speed shows by Play (set by Play held and dragged, or its right-click list): a readout once it is
+//             not 1× (a click, 1× again), a pill turning 1×, 1.5×, 2× as a messenger's voice notes do, a slider, or a
+//             ring round Play
 // Chosen and settled: 2 px before the meters, no fade where the sound runs past the view, dark squares with no rim,
 // notched beside their lines, square, crop in the context menu and K (a handle is dragged; crop is only clicked), the
 // length after the time between bars |t|, undo and redo, then the picture's switch, then its settings over its meter,
@@ -18,9 +21,10 @@ const CHOICES = {
   recipes: [['book', 'Book'], ['flask', 'Flask'], ['wand', 'Wand']],
   agent: [['spark', 'Chat spark'], ['sparks', 'Sparks'], ['bot', 'Bot']],
   resizer: [['bar', 'Bar'], ['dots', 'Dots'], ['pill', 'Pill'], ['finder', 'Finder'], ['none', 'None']],
-  end: [['line', 'Line'], ['shade', 'Shade'], ['hatch', 'Hatch'], ['cap', 'Cap'], ['tag', 'Tag']]
+  end: [['line', 'Line'], ['shade', 'Shade'], ['hatch', 'Hatch'], ['cap', 'Cap'], ['tag', 'Tag']],
+  speed: [['readout', 'Readout'], ['pill', 'Pill'], ['slider', 'Slider'], ['ring', 'Ring']]
 }
-const NAMES = { settings: 'Settings icon', recipes: 'Recipes icon', agent: 'Agent icon', resizer: 'Panel edge', end: 'End' }
+const NAMES = { settings: 'Settings icon', recipes: 'Recipes icon', agent: 'Agent icon', resizer: 'Panel edge', end: 'End', speed: 'Speed' }
 const KEY = 'audio-repl-workshop'
 
 export default function workshop(root, apply) {

@@ -5,6 +5,7 @@
  * a.stat('beats', opts)   → Float64Array of beat timestamps (seconds)
  * a.stat('onsets', opts)  → Float64Array of onset timestamps (seconds)
  * a.detect(opts)          → { bpm, confidence, beats, onsets } — high-fidelity via spectral flux
+ * steadyTempo(a, { at, duration }) → BPM or null: detect()'s, only where the whole range holds it
  *
  * stat opts: { at, duration, minBpm, maxBpm, delta, channel }
  * detect opts: + { frameSize, hopSize }
@@ -115,3 +116,20 @@ audio.fn.detect = perChannel(async function(opts) {
   let { at, duration, channel, ...detectOpts } = opts || {}
   return detect(data, { fs: this.sampleRate, ...detectOpts })
 })
+
+// ── Steady tempo: one the whole range holds ──────────────────────
+
+// The tempo of `a` over [at, at + duration] s where it is clear, else null (speech, rubato, a change of tempo): detect()'s
+// over the range and over each half within 4% of each other, as tempo estimates are scored (Gouyon et al., "An
+// experimental comparison of audio tempo induction algorithms", IEEE TASLP 14(5), 2006, "Accuracy 1"). Judged over 6 s
+// at least, a half then holding 3 beats at 60 BPM, and over 3 minutes at most, the middle of a longer range, past an
+// intro and outro: detect() takes about 2 ms a second of sound, three times over.
+const STEADY = 6, MOST = 180
+export async function steadyTempo(a, { at = 0, duration = Infinity } = {}) {
+  duration = Math.min(duration, a.duration - at)
+  if (!(duration >= STEADY)) return null
+  if (duration > MOST) { at += (duration - MOST) / 2; duration = MOST }
+  let half = duration / 2
+  let [bpm, ...halves] = await Promise.all([[at, duration], [at, half], [at + half, half]].map(([at, duration]) => a.detect({ at, duration }).then(d => d.bpm)))
+  return bpm > 0 && halves.every(h => Math.abs(h - bpm) <= .04 * bpm) ? bpm : null
+}

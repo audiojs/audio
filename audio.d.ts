@@ -12,7 +12,8 @@ type AudioSource = AudioInstance | AudioBuffer | Float32Array[] | number
 type FilterType = 'highpass' | 'lowpass' | 'bandpass' | 'notch' | 'eq' | 'lowshelf' | 'highshelf' | 'allpass'
 type RepairOpts = { at: Time, duration: Time, method?: 'auto' | 'ar' | 'sinusoidal' | 'similarity' | 'spectral', window?: number }
 /** Where the noise plays alone (a range of the op's input, or several), or its print (dB per band, one or per channel) */
-type DenoiseOpts = { noise: { at?: Time, duration: Time } | { at?: Time, duration: Time }[] | number[] | number[][], at?: Time, duration?: Time, d?: Time, channel?: number | number[] }
+/** `band` [low, high] Hz: only those frequencies gained, the rest as they were */
+type DenoiseOpts = { noise: { at?: Time, duration: Time } | { at?: Time, duration: Time }[] | number[] | number[][], band?: [number, number], at?: Time, duration?: Time, d?: Time, channel?: number | number[] }
 
 export interface AudioInstance {
   /** Decoded PCM pages */
@@ -52,6 +53,8 @@ export interface AudioInstance {
   muted: boolean
   /** Playback speed ratio: 1 = normal, 2 = double speed, 0.5 = half. Clamped 0.0625–16. */
   playbackRate: number
+  /** At a rate other than 1, the pitch kept (WSOLA), as a media element's; false: it follows the speed, as a tape's. Default true. */
+  preservesPitch: boolean
   /** Whether playback loops its span; settable while playing (each seam a 10 ms equal-power crossfade) */
   loop: boolean
   /** True when playback ended naturally (not via stop) */
@@ -101,6 +104,8 @@ export interface AudioInstance {
   /** Ensure stats are fresh, return stats + block range */
   /** loudness: integrated LUFS (BS.1770-4, surround weighted) · momentary/shortterm: max 400 ms / 3 s LUFS (EBU Tech 3341) · dialog: speech-gated LUFS (AES TD1008) · noisefloor: dB RMS of the quietest 0.4 s (ACX Check) */
   stat(name: 'db' | 'rms' | 'noisefloor' | 'loudness' | 'momentary' | 'shortterm' | 'dialog' | 'peak' | 'crest', opts?: { at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): Promise<number | number[]>
+  /** bins: the value over each of n spans of the range, on the block grid (as waveform bins); NaN where the stat has none */
+  stat<C extends number | number[] = number>(name: 'db' | 'rms' | 'noisefloor' | 'loudness' | 'momentary' | 'shortterm' | 'dialog' | 'peak' | 'crest' | 'dc' | 'correlation' | 'centroid' | 'flatness' | 'bpm', opts: { bins: number, at?: Time, duration?: Time, d?: Time, channel?: C }): Promise<PerChannel<C, Float32Array>>
   /** Each rule of a delivery spec, measured: pass is null for rules the spec describes without bounding */
   check(spec: 'acx' | 'podcast' | 'streaming' | 'broadcast' | 'netflix' | 'apple' | 'spotify' | 'ebu'): Promise<{ spec: string, name: string, url: string, note?: string, pass: boolean, rules: { name: string, value: number, unit: string, min?: number | null, max?: number | null, pass: boolean | null, note?: string }[] }>
   stat(name: 'clipping', opts?: { at?: Time, duration?: Time, d?: Time }): Promise<Float32Array>
@@ -120,6 +125,8 @@ export interface AudioInstance {
   stat(name: 'silence', opts?: { threshold?: number, minDuration?: number, at?: Time, duration?: Time, d?: Time }): Promise<{ at: number, duration: number }[]>
   stat<C extends number | number[] = number>(name: 'centroid' | 'flatness', opts?: { at?: Time, duration?: Time, d?: Time, channel?: C }): Promise<PerChannel<C, number>>
   stat(name: 'bpm', opts?: { at?: Time, duration?: Time, d?: Time, minBpm?: number, maxBpm?: number, delta?: number, minConfidence?: number, channel?: number | number[] }): Promise<number>
+  /** Where the level jumps, up (a strike) or down (a stop), each at the zero crossing a cut there keeps all of the sound from */
+  stat(name: 'hits', opts?: { at?: Time, duration?: Time, d?: Time }): Promise<Float64Array>
   stat(name: 'beats' | 'onsets', opts?: { at?: Time, duration?: Time, d?: Time, minBpm?: number, maxBpm?: number, delta?: number, channel?: number | number[] }): Promise<Float64Array>
   stat<C extends number | number[] = number>(name: 'notes', opts: { poly: true, at?: Time, duration?: Time, d?: Time, minFreq?: number, maxFreq?: number, minDuration?: number, onsetThreshold?: number, frameThreshold?: number, channel?: C }): Promise<PerChannel<C, { time: number, duration: number, freq: number, midi: number, note: string, velocity: number, bends: number[] }[]>>
   /** robust: pYIN's stage 1 from @audio/neural-pitch (optional package), for noise and rooms; YIN otherwise */
@@ -132,6 +139,8 @@ export interface AudioInstance {
   spectrum<C extends number | number[] = number>(opts?: { bins?: number, at?: Time, duration?: Time, d?: Time, fMin?: number, fMax?: number, weight?: boolean, channel?: C }): Promise<PerChannel<C, Float32Array>>
   cepstrum<C extends number | number[] = number>(opts?: { bins?: number, at?: Time, duration?: Time, d?: Time, channel?: C }): Promise<PerChannel<C, Float32Array>>
   silence(opts?: { threshold?: number, minDuration?: number, at?: Time, duration?: Time, d?: Time }): Promise<{ at: number, duration: number }[]>
+  /** stat('hits'): where the level jumps, each at the sample to cut at */
+  hits(opts?: { at?: Time, duration?: Time, d?: Time }): Promise<Float64Array>
   /** stat('print'): the noise print of a range, for denoise({ noise }) */
   print(opts?: { at?: Time, duration?: Time, d?: Time, channel?: number }): Promise<number[]>
   print(opts: { at?: Time, duration?: Time, d?: Time, channel: number[] }): Promise<number[][]>
@@ -173,6 +182,13 @@ export interface AudioInstance {
    *  flat past the ends) or t => semitones; where it is zero the audio stays as it was. voice: a voice's own glottal
    *  cycles re-spaced (TD-PSOLA, optional @audio/tune-curve): formants and consonants kept, one voice. */
   pitch(semitones: number | ((t: number) => number) | { t: number[], v: number[] }, opts?: { at?: Time, duration?: Time, d?: Time, channel?: number | number[], voice?: boolean }): this
+  /** A voice's rises and falls made wider or flatter about its median pitch: 1 as it was, 0 a monotone, 2 twice as
+   *  wide, below 0 rises turned to falls. Its own glottal cycles re-spaced (optional @audio/tune-curve): timing,
+   *  formants and consonants kept, one voice. */
+  intonation(factor: number, opts?: { at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
+  /** Move the formants (the spectral envelope: a voice's vowels, the size of its head), keep the pitch. Semitones: a
+   *  number, a curve { t, v } (seconds → semitones) or t => semitones; where it is zero the audio stays as it was. */
+  formant(semitones: number | ((t: number) => number) | { t: number[], v: number[] }, opts?: { at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
 
   // ── Sample ops ──────────────────────────────────────────────
   gain(value: number | ((t: number) => number), opts?: { at?: Time, duration?: Time, d?: Time, channel?: number | number[], unit?: 'db' | 'linear' }): this
@@ -470,6 +486,8 @@ export interface MeterOpts {
 
 export interface OpDescriptor {
   params?: string[]
+  /** The shapes its `curve` param names, each the level over 0..1 (fade, crossfade) */
+  curves?: Record<string, (x: number) => number>
   process?: (input: Float32Array[], output: Float32Array[], ctx: Record<string, any>) => void
   plan?: (segs: any[], ctx: Record<string, any>) => any[]
   resolve?: (ctx: Record<string, any>) => EditOp | EditOp[] | false | null

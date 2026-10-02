@@ -32,7 +32,7 @@
  * key's 'pcp' needs only the MIT @audio/mir-chroma and @audio/mir-key, installed with audio.
  */
 
-import { notes as noteTracker } from '@audio/pitch-pyin'
+import { notes as noteTracker, track } from '@audio/pitch-pyin'
 import { name as midiToName } from '@audio/note'
 import hann from 'window-function/hann'
 import audio, { mono, pickChannels, perChannel } from '../core.js'
@@ -60,6 +60,29 @@ async function chromagramOf(inst, opts, chromagram) {
   let write = chromagram({ fs: inst.sampleRate, blockSize: opts?.frameSize, stepSize: opts?.hopSize, tuning: opts?.tuning }), n = 0
   for await (let m of mono(inst, opts)) { write(m); n += m.length }
   return { ...write(), end: n / inst.sampleRate }
+}
+
+// ── Contour — a voice's pitch as it goes ────────────────────────
+
+/** A voice's pitch every `hop` s over one channel `x` at `fs`: { times (s, each frame's centre), f0 (Hz, 0 where there
+ *  is none) }. pYIN's Viterbi path (Mauch & Dixon, ICASSP 2014), from `minFreq` to `maxFreq`, on `x` averaged in
+ *  groups to about 11 kHz (a voice's pitch stays under 1 kHz); a frame whose peak is under 0.03 of the loudest is
+ *  silent, as Praat's silence threshold has it (Boersma 1993), for pYIN's model holds its lowest pitch through a pause.
+ *  On a lecture against Praat (Sound: To Pitch (ac), 60 to 600 Hz): 85% of its voiced frames found, 10 cents from it
+ *  in the median, 6% of its unvoiced ones taken for voiced; YIN's dip under .15 finds 45%. */
+export function contour(x, fs, { hop = .01, minFreq = 60, maxFreq = 1000 } = {}) {
+  let d = Math.max(1, Math.floor(fs / 11025)), fsd = fs / d, y = new Float32Array(Math.floor(x.length / d)), top = 0
+  for (let i = 0; i < y.length; i++) { let s = 0; for (let j = 0; j < d; j++) s += x[i * d + j]; y[i] = s / d; top = Math.max(top, Math.abs(y[i])) }
+  let H = Math.max(1, Math.round(hop * fsd)), { times, f0 } = track(y, { fs: fsd, minFreq, maxFreq, hopSize: H })
+  // the frame's peak, over its YIN window either side of its centre
+  let W = 2 ** Math.ceil(Math.log2(2 * fsd / minFreq)) >> 1
+  for (let i = 0; i < f0.length; i++) {
+    if (!f0[i]) continue
+    let c = Math.round(times[i] * fsd), m = 0
+    for (let k = Math.max(0, c - W); k < Math.min(y.length, c + W); k++) m = Math.max(m, Math.abs(y[k]))
+    if (m < .03 * top) f0[i] = 0
+  }
+  return { times: Float32Array.from(times), f0 }
 }
 
 // ── Notes — monophonic pitch events ─────────────────────────────

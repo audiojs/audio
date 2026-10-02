@@ -1,6 +1,6 @@
 import test from 'tst'
 import { parseValue, parseRange, parseArgs, parseCue, showOpHelp, HELP, progressBar, fmtTime, isOpName, isVerb, isStatName, SOURCE_VERBS, SINK_VERBS, prompt, playerSave, defaultSavePath, opsLabel } from '../bin/cli.js'
-import { tone } from './gen.js'
+import { tone, clickTrack } from './gen.js'
 import { EventEmitter } from 'events'
 import audio from '../audio.js'
 import { spawn } from 'child_process'
@@ -662,6 +662,55 @@ test('CLI — stat sink with range', async t => {
   t.ok(stdout.includes('loudness'), 'loudness over range')
 })
 
+// ── Overview tempo, spectrum bands: what the numbers are ─────────────────
+
+// The tempo as the editor reads it (fn/beat.js steadyTempo): detect()'s over the whole and each half within 4% (Gouyon et
+// al. 2006, "Accuracy 1"), judged over 6 s to 3 minutes, the middle 3 of a longer sound
+test('CLI overview: a tempo only where the sound holds one', { timeout: 60000 }, async t => {
+  let dir = mkdtempSync(join(tmpdir(), 'audio-cli-'))
+  let wav = async (name, x) => { let p = join(dir, name); await audio.from([x], { sampleRate: 44100 }).save(p); return p }
+  let cat = (x, y) => { let o = new Float32Array(x.length + y.length); o.set(x); o.set(y, x.length); return o }
+  let overview = async (...args) => (await runCli(args)).stdout
+  let bpm = async (...args) => (await overview(...args)).match(/BPM: +(.*)/)[1]
+  try {
+    let click = await wav('click.wav', clickTrack(120, 20))
+    t.is(await bpm(click), '120 BPM', 'a click track at 120 BPM')
+    t.is(JSON.parse(await overview(click, '--json')).bpm, 120, '--json: a number')
+    t.is(await bpm(await wav('long.wav', clickTrack(100, 200))), '100 BPM', 'over 3 minutes: its middle 3')
+    t.is(await bpm(await wav('change.wav', cat(clickTrack(90, 10), clickTrack(120, 10)))), 'n/a', '90 then 120 BPM: the halves disagree')
+    t.is(await bpm(await wav('short.wav', clickTrack(120, 5))), 'n/a', 'under 6 s: too short to judge')
+    t.ok((await overview(click, '15s..')).includes('Duration:   0:05'), 'an open range lasts to the end (was the whole 0:20)')
+    if (!lenaPath) return
+    t.is(await bpm(lenaPath), 'n/a', 'speech: none (was 79 BPM)')
+    t.is(JSON.parse(await overview(lenaPath, '--json')).bpm, null, '--json: null')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+// Mel bands' centres from HTK's mel scale, Mel(f) = 1127 ln(1 + f/700) (The HTK Book 3.4, §5.4, eq. 5.13; the constant
+// cancels in evenly spaced bands): bins + 2 edges from 30 Hz to 20 kHz (fn/spectrum.js), band i peaking at edge i + 1
+test('CLI stat spectrum: each band at its centre, under what its levels are', { timeout: 30000 }, async t => {
+  let mel = f => 1127 * Math.log(1 + f / 700), hz = m => 700 * (Math.exp(m / 1127) - 1)
+  let want = Array.from({ length: 32 }, (_, i) => hz(mel(30) + (mel(20000) - mel(30)) * (i + 1) / 33))
+  let dir = mkdtempSync(join(tmpdir(), 'audio-cli-')), sine = join(dir, 'sine.wav')
+  try {
+    await audio.from([tone(1000, 2)], { sampleRate: 44100 }).save(sine)
+    let [head, ...rows] = (await runCli([sine, 'stat', 'spectrum', '32'])).stdout.trimEnd().split('\n')
+    t.is(head.trim(), 'spectrum: dB, A-weighted, 32 mel bands from 30Hz to 20kHz, each at its centre', 'says what the levels are')
+    let bands = rows.map(r => { let [, f, k, db] = r.match(/^ +([\d.]+)(k?)Hz +(-?[\d.]+)$/); return [f * (k ? 1000 : 1), +db] })
+    t.is(bands.length, 32, 'a row a band')
+    t.ok(bands.every(([f], i) => Math.abs(f - want[i]) <= (want[i] < 1000 ? .5 : 5)), 'each labelled by its centre')
+    let nearest = want.reduce((p, q) => Math.abs(q - 1000) < Math.abs(p - 1000) ? q : p), loudest = bands.reduce((p, q) => q[1] > p[1] ? q : p)
+    t.ok(Math.abs(loudest[0] - nearest) <= 5, `a 1 kHz tone peaks in the band centred nearest 1 kHz (${loudest[0]} Hz)`)
+
+    let json = JSON.parse((await runCli([sine, 'stat', 'spectrum', '32', '--json'])).stdout)
+    t.is(json.spectrum, Array.from(await (await audio(sine)).stat('spectrum', { bins: 32 })), '--json: the levels as they were')
+    t.ok(json.spectrumHz.length === 32 && json.spectrumHz.every((f, i) => Math.abs(f / want[i] - 1) < 1e-9), '--json: spectrumHz, the centres')
+
+    let [other] = (await runCli([sine, 'stat', 'spectrum', '8', 'weight:false', 'fMin:100', 'fMax:8000'])).stdout.split('\n')
+    t.is(other.trim(), 'spectrum: dB, 8 mel bands from 100Hz to 8kHz, each at its centre', 'its options: their range, unweighted')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
 // ── Range-from-stdin equivalence: `audio 0..Xs` ⇔ `audio stat 0..Xs` ─────
 
 test('parseArgs — bare range alone equals stat with range', t => {
@@ -1063,7 +1112,7 @@ test('op help — all built-in ops have help', t => {
   let expected = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'clip', 'remove',
     'insert', 'copy', 'cut', 'paste', 'move', 'repeat', 'mix', 'crossfade', 'remix', 'highpass', 'lowpass', 'eq', 'lowshelf',
     'highshelf', 'notch', 'bandpass', 'allpass', 'filter', 'pan', 'pad', 'speed', 'stretch', 'warp',
-    'pitch', 'vocals', 'dither', 'crossfeed', 'resample', 'write', 'transform', 'split', 'shrink', 'crossover',
+    'pitch', 'intonation', 'formant', 'vocals', 'dither', 'crossfeed', 'resample', 'write', 'transform', 'split', 'shrink', 'crossover',
     'match', 'master', 'roomtone', 'spectral', 'repair', 'deepfilter', 'denoise',
     // sinks + sources
     'play', 'stat', 'check', 'save', 'record']

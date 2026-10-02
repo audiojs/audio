@@ -1,3 +1,18 @@
+/**
+ * Hits — where the level jumps, each at the sample a cut there keeps all of: up where an attack starts, down where a
+ * sound stops.
+ *
+ * a.stat('hits', { at?, duration? }) → Float64Array of times (seconds)
+ * hits(channels, rate)                → the same, from samples
+ * attacks(times, channels, rate)      → where the attack near each time starts (a slice point)
+ * stops(times, channels, rate)        → where the sound near each time stops
+ *
+ * stat('onsets') reads energy in blocks (23 ms at 44.1 kHz) and finds where a sound gets louder; hits are found every
+ * 5 ms both ways, and each lands on its attack's zero crossing: what an editor cuts at.
+ */
+
+import audio, { parseTime, named } from '../core.js'
+
 // Where each hit's attack starts, for a cut there to keep all of it. The onset stat reads energy in blocks
 // (fn/beat.js, 1024 samples, 23 ms at 44.1 kHz), so a hit it finds can start up to a block before or after the time it
 // gives. Around that time, on an envelope 5 ms wide every millisecond (wide enough that a tone's own cycles don't read
@@ -5,13 +20,13 @@
 // way up from one to the other (13 dB under the rise). The attack starts about halfway into that window, as a sharp
 // strike comes into a window only at its end; then back to the zero crossing before it, within a millisecond, so a cut
 // there starts from silence. On the built-in chime and handpan, whose strikes are known, this lands from 3.5 ms before
-// each strike to half a millisecond into one that rises over 2.5 ms (test/repl.test.js), where the blocks put hits
+// each strike to half a millisecond into one that rises over 2.5 ms (test/hits.js), where the blocks put hits
 // 14 ms either side. A slice point, as librosa's onset_backtrack makes one (McFee et al. 2015), found from the rise
 // rather than from the local minimum before it, which the ring of a struck bar puts inside its own attack. `channels`
 // are the output's; each time comes back after the one before. `back` reads the channels from their end: the same
 // search, for where a sound stops.
 const WIDE = .005, HOP = .001, UP = .05
-export default function attacks(times, channels, rate, block = 1024, back = false) {
+export function attacks(times, channels, rate, block = 1024, back = false) {
   const n = channels[0]?.length ?? 0, hop = Math.max(1, Math.round(rate * HOP)), wide = Math.max(hop, Math.round(rate * WIDE))
   const at = back ? (x, i) => x[n - 1 - i] ?? 0 : (x, i) => x[i] ?? 0
   const mix = i => { let s = 0; for (const x of channels) s += at(x, i); return s }
@@ -44,15 +59,19 @@ export function stops(times, channels, rate, block = 1024) {
 }
 
 // The hits: where the level jumps, up (a strike, a note, a word struck) or down (a gate, a stop, a reversed strike), not
-// where it swells or dies away. The level is every 5 ms, of the 10 ms there, in dB down to 60 under the loudest (quieter
-// is silence, its flicker no change). A jump is the 10 ms after a moment over the 10 ms before: 6 dB or more (twice the
-// amplitude), the largest its way within 50 ms, and at least twice the median change within 100 ms, so a ring that
-// beats or a fast decay, changing as much from moment to moment, makes none. In dB a decay or a swell is a steady
-// slope, where a strike is a step: the onset as a relative change, Klapuri (ICASSP 1999), read both ways, so the cues of
-// a reversed sound are its own, mirrored. Each up lands where its attack starts (attacks()), each down where its sound
+// where it swells or dies away, nor where the background flickers. The level is every 5 ms, of the 10 ms there, in dB
+// down to 40 under the loudest (quieter is the background, its flicker no change). A jump is the 10 ms after a moment
+// over the 10 ms before: 6 dB or more (twice the amplitude), the largest its way within 50 ms, at least twice the median
+// change within 100 ms, so a ring that beats or a fast decay, changing as much from moment to moment, makes none, and
+// its louder side 12 dB or more over the quietest tenth of the sound (the background, as trim.js reads it), so noise
+// alone makes none. Measured on voice-overs (room noise 45 to 53 dB under the voice) and a fan's rumble: the noise's own
+// 10 ms flicker reaches 6 to 15 dB, its hits 0 to 15 dB over the quietest tenth, a word's 25 to 60; 463 hits in a 49 s
+// voice-over became 106, a rumble alone's 111 none, a sung take's 72 kept 67. In dB a decay or a swell is a steady slope,
+// where a strike is a step: the onset as a relative change, Klapuri (ICASSP 1999), read both ways, so the cues of a
+// reversed sound are its own, mirrored. Each up lands where its attack starts (attacks()), each down where its sound
 // stops (stops()), looked for from 1.5 × 12.5 ms before the jump to 12.5 ms after: the 10 ms either side of it that it
 // compares, and half the 5 ms window attacks() reads.
-const STEP = .005, JUMP = 6, APART = .05, AROUND = .1, NEAR = .0125
+const STEP = .005, JUMP = 6, APART = .05, AROUND = .1, NEAR = .0125, RANGE = 40, OVER = 12
 export function hits(channels, rate) {
   const n = channels[0]?.length ?? 0, hop = Math.max(1, Math.round(rate * STEP)), K = Math.floor(n / hop)
   const e = new Float64Array(K)
@@ -62,7 +81,8 @@ export function hits(channels, rate) {
     for (const x of channels) for (let i = k * hop; i < (k + 1) * hop; i++) s += x[i] * x[i]
     top = Math.max(top, e[k] = s / hop / channels.length)
   }
-  const floor = Math.max(1e-10, top * 1e-6), level = Float64Array.from(e, (v, k) => 10 * Math.log10(Math.max(floor, (v + (e[k + 1] ?? v)) / 2)))
+  const floor = Math.max(1e-10, top * 10 ** (-RANGE / 10)), level = Float64Array.from(e, (v, k) => 10 * Math.log10(Math.max(floor, (v + (e[k + 1] ?? v)) / 2)))
+  const background = Float64Array.from(level).sort()[Math.floor(K * .1)] ?? -Infinity
   const jump = new Float64Array(K)
   for (let k = 2; k < K - 1; k++) jump[k] = level[k] - level[k - 2]
   const apart = Math.round(APART / STEP), around = Math.round(AROUND / STEP), ups = [], downs = []
@@ -76,8 +96,19 @@ export function hits(channels, rate) {
     for (let i = Math.max(2, k - around); i <= Math.min(K - 2, k + around); i++) if (Math.abs(i - k) > 2) near.push(Math.abs(jump[i]))
     near.sort((p, q) => p - q)
     if (j < 2 * (near[near.length >> 1] ?? 0)) continue
+    // the louder side: after a rise, before a fall
+    if ((jump[k] > 0 ? Math.max(level[k], level[k + 1]) : Math.max(level[k - 2], level[k - 3] ?? -Infinity)) - background < OVER) continue
     ;(jump[k] > 0 ? ups : downs).push(k * hop / rate)
   }
   const near = Math.round(rate * NEAR)
   return [...attacks(ups, channels, rate, near), ...stops(downs, channels, rate, near)].sort((p, q) => p - q)
 }
+
+audio.fn.hits = async function(opts) {
+  let { at, duration } = named(opts) || {}
+  at = parseTime(at); duration = parseTime(duration)
+  let ranged = at != null || duration != null, pcm = await this.read(ranged ? { at, duration } : undefined)
+  let from = at == null ? 0 : at < 0 ? Math.max(0, this.duration + at) : at
+  return Float64Array.from(hits(pcm, this.sampleRate), t => t + from)
+}
+audio.stat('hits', {})

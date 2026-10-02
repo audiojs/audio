@@ -6,28 +6,28 @@ import { samples, RATE } from './samples.js'
 
 // The demo accepts method calls with literal numbers, not arbitrary JavaScript. Crop, remove, copy and cut take a time range,
 // { at, duration }; processing methods take it as an optional last argument. Paste takes a position; pad is whole-track.
-const span = { at: { label: 'Start', unit: 's' }, duration: { label: 'Duration', unit: 's' } }
-const hz = label => ({ label, min: 20, max: 10000, step: 10, unit: 'Hz' })
+const span = { at: { label: 'Start', unit: 's', help: 'Where the range begins, in seconds from the start of the sound.' }, duration: { label: 'Duration', unit: 's', help: 'How long the range lasts, in seconds.' } }
+const hz = (label, help) => ({ label, help, min: 20, max: 10000, step: 10, unit: 'Hz' })
 const methods = {
-  trim: { arity: [0, 1], args: [], icon: 'M7 4v16M17 4v16M2.5 12h2m15 0h2M10 10v4m2-6v8m2-6v4', description: 'Cut edge silence', params: [{ label: 'Threshold', min: -80, max: 0, step: 1, unit: 'dB' }] },
+  trim: { arity: [0, 1], args: [], icon: 'M7 4v16M17 4v16M2.5 12h2m15 0h2M10 10v4m2-6v8m2-6v4', description: 'Cut edge silence', params: [{ label: 'Threshold', help: 'Silence level. Audio quieter than this at the start and the end is cut away.', min: -80, max: 0, step: 1, unit: 'dB' }] },
   crop: { args: [{ at: 0, duration: 1 }], icon: 'M7 2v13a2 2 0 0 0 2 2h13M2 7h13a2 2 0 0 1 2 2v13', description: 'Keep a range', params: span },
   remove: { args: [{ at: 0, duration: 1 }], icon: 'M7 4H4v16h3M17 4h3v16h-3M8 12h8', description: 'Delete a range', params: span },
   cut: { args: [{ at: 0, duration: 1 }], icon: 'M8.1 8.1 21 21M8.1 15.9 21 3M9 6a3 3 0 1 1-6 0 3 3 0 0 1 6 0m0 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0', description: 'Cut to clipboard', params: span },
   copy: { args: [{ at: 0, duration: 1 }], icon: 'M8 8h13v13H8zM16 8V3H3v13h5', description: 'Copy to clipboard', params: span },
-  paste: { args: [0], icon: 'M8 5H3v16h18V5h-5M8 3h8v4H8z', description: 'Insert clipboard', params: [{ label: 'Position', unit: 's' }] },
-  pad: { arity: [1, 2], args: [.5, .5], whole: true, icon: 'M12 8v8m-2.5-6v4m5-4v4M7 12H2.5m2-2-2 2 2 2M17 12h4.5m-2-2 2 2-2 2', description: 'Add silence', params: [{ label: 'Before', min: 0, max: 5, step: .05, unit: 's' }, { label: 'After', min: 0, max: 5, step: .05, unit: 's' }] },
-  shrink: { arity: [0, 2], args: [.3], icon: 'M4 6v12M20 6v12M7 12h4m-2-2 2 2-2 2m8-2h-4m2-2-2 2 2 2', description: 'Shorten pauses', params: [{ label: 'Gap', min: 0, max: 2, step: .05, unit: 's' }, { label: 'Threshold', min: -80, max: 0, step: 1, unit: 'dB' }] },
-  repeat: { arity: [1, 1], args: [2], icon: 'm17 2 4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4m14-1v2a3 3 0 0 1-3 3H3', description: 'Repeat n times', params: [{ label: 'Times', min: 1, max: 8, step: 1, unit: '×' }] },
+  paste: { args: [0], icon: 'M8 5H3v16h18V5h-5M8 3h8v4H8z', description: 'Insert clipboard', params: [{ label: 'Position', help: 'Where the clipboard goes in, in seconds. What follows moves later.', unit: 's' }] },
+  pad: { arity: [1, 2], args: [.5, .5], whole: true, icon: 'M12 8v8m-2.5-6v4m5-4v4M7 12H2.5m2-2-2 2 2 2M17 12h4.5m-2-2 2 2-2 2', description: 'Add silence', params: [{ label: 'Before', help: 'Silence added before the start, in seconds.', min: 0, max: 5, step: .05, unit: 's' }, { label: 'After', help: 'Silence added after the end, in seconds.', min: 0, max: 5, step: .05, unit: 's' }] },
+  shrink: { arity: [0, 2], args: [.3], icon: 'M4 6v12M20 6v12M7 12h4m-2-2 2 2-2 2m8-2h-4m2-2-2 2 2 2', description: 'Shorten pauses', params: [{ label: 'Gap', help: 'Longest pause kept. A longer pause is cut down to this.', min: 0, max: 2, step: .05, unit: 's' }, { label: 'Threshold', help: 'Silence level. Audio quieter than this counts as a pause.', min: -80, max: 0, step: 1, unit: 'dB' }] },
+  repeat: { arity: [1, 1], args: [2], icon: 'm17 2 4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4m14-1v2a3 3 0 0 1-3 3H3', description: 'Repeat n times', params: [{ label: 'Times', help: 'How many extra times it plays after the first: 2 plays it three times in all.', min: 1, max: 8, step: 1, unit: '×' }] },
   reverse: { arity: [0, 0], args: [], icon: 'M20 7H4m5-5L4 7l5 5M4 17h16m-5-5 5 5-5 5', description: 'Play backwards', params: [] },
-  gain: { arity: [1, 1], args: [-6], icon: 'm11 5-5 4H3v6h3l5 4ZM16 12h5', description: 'Change volume', params: [{ label: 'Gain', min: -36, max: 12, step: .1, unit: 'dB' }] },
-  normalize: { arity: [0, 1], args: [-1], icon: 'M4 5h16M4 19h16m-8-3V8m-3 3 3-3 3 3', description: 'Set peak level', params: [{ label: 'Peak', min: -36, max: 0, step: .1, unit: 'dB' }] },
-  fade: { arity: [1, 2], args: [.02, .1], icon: 'm3 18 5-12h8l5 12', description: 'Fade in and out', params: [{ label: 'Fade in', unit: 's' }, { label: 'Fade out', unit: 's' }] },
-  speed: { arity: [1, 1], args: [1.25], icon: 'm4 6 8 6-8 6Zm9 0 8 6-8 6Z', description: 'Speed and pitch', params: [{ label: 'Speed', min: .25, max: 4, step: .05, unit: '×' }] },
-  stretch: { arity: [1, 1], args: [1.5], icon: 'M3 12h18M6 9l-3 3 3 3m12-6 3 3-3 3M12 8v8', description: 'Tempo, same pitch', params: [{ label: 'Stretch', min: .25, max: 4, step: .05, unit: '×' }] },
-  pitch: { arity: [1, 1], args: [7], icon: 'M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4', description: 'Pitch, same tempo', params: [{ label: 'Pitch', min: -24, max: 24, step: 1, unit: 'st' }] },
-  lowpass: { arity: [1, 1], args: [1000], icon: 'M3 7h9c3 0 5 4 7 10', description: 'Cut highs', params: [hz('Cutoff')] },
-  highpass: { arity: [1, 1], args: [500], icon: 'M21 7h-9c-3 0-5 4-7 10', description: 'Cut lows', params: [hz('Cutoff')] },
-  eq: { arity: [2, 3], args: [1000, 6], icon: 'M3 17c4 0 5-10 9-10s5 10 9 10', description: 'Boost or cut a band', params: [hz('Frequency'), { label: 'Gain', min: -24, max: 24, step: .5, unit: 'dB' }, { label: 'Q', min: .1, max: 10, step: .1, unit: '' }] }
+  gain: { arity: [1, 1], args: [-6], icon: 'm11 5-5 4H3v6h3l5 4ZM16 12h5', description: 'Change volume', params: [{ label: 'Gain', help: 'Volume change. Above 0 is louder, below 0 quieter; every 6 dB doubles or halves the size of the wave.', min: -36, max: 12, step: .1, unit: 'dB' }] },
+  normalize: { arity: [0, 1], args: [-1], icon: 'M4 5h16M4 19h16m-8-3V8m-3 3 3-3 3 3', description: 'Set peak level', params: [{ label: 'Peak', help: 'The level the loudest peak is brought to, in dB. 0 is full scale.', min: -36, max: 0, step: .1, unit: 'dB' }] },
+  fade: { arity: [1, 2], args: [.02, .1], icon: 'm3 18 5-12h8l5 12', description: 'Fade in and out', params: [{ label: 'Fade in', help: 'How long the start takes to come up from silence, in seconds.', unit: 's' }, { label: 'Fade out', help: 'How long the end takes to die away to silence, in seconds.', unit: 's' }] },
+  speed: { arity: [1, 1], args: [1.25], icon: 'm4 6 8 6-8 6Zm9 0 8 6-8 6Z', description: 'Speed and pitch', params: [{ label: 'Speed', help: 'Playback speed. 2 is twice as fast and an octave higher; 0.5 is half as fast and an octave lower.', min: .25, max: 4, step: .05, unit: '×' }] },
+  stretch: { arity: [1, 1], args: [1.5], icon: 'M3 12h18M6 9l-3 3 3 3m12-6 3 3-3 3M12 8v8', description: 'Tempo, same pitch', params: [{ label: 'Stretch', help: 'Length. 2 makes it twice as long and 0.5 half as long; the pitch stays.', min: .25, max: 4, step: .05, unit: '×' }] },
+  pitch: { arity: [1, 1], args: [7], icon: 'M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4', description: 'Pitch, same tempo', params: [{ label: 'Pitch', help: 'Pitch change in semitones. 12 is an octave up, -12 an octave down; the length stays.', min: -24, max: 24, step: 1, unit: 'st' }] },
+  lowpass: { arity: [1, 1], args: [1000], icon: 'M3 7h9c3 0 5 4 7 10', description: 'Cut highs', params: [hz('Cutoff', 'Sound above this frequency is turned down.')] },
+  highpass: { arity: [1, 1], args: [500], icon: 'M21 7h-9c-3 0-5 4-7 10', description: 'Cut lows', params: [hz('Cutoff', 'Sound below this frequency is turned down.')] },
+  eq: { arity: [2, 3], args: [1000, 6], icon: 'M3 17c4 0 5-10 9-10s5 10 9 10', description: 'Boost or cut a band', params: [hz('Frequency', 'Centre of the band that is boosted or cut.'), { label: 'Gain', help: 'Boost above 0, cut below 0, in dB.', min: -24, max: 24, step: .5, unit: 'dB' }, { label: 'Q', help: 'Width. Higher is narrower and more pointed; lower is broader and gentler.', min: .1, max: 10, step: .1, unit: '' }] }
 }
 const effects = Object.fromEntries(Object.entries(methods).filter(([name]) => !['copy', 'cut', 'paste'].includes(name)))
 const ranged = type => methods[type].params === span
@@ -620,7 +620,7 @@ function fieldsOf({ type, args }) {
   const field = (spec, value, arg, key) => {
     let min = spec.min ?? 0, max = spec.max ?? longest
     if (type === 'speed' && value < 0) [min, max] = [-max, -min]
-    return { label: spec.label, unit: spec.unit, value, arg, key, step: spec.step ?? .001, min: Math.min(min, value), max: Math.max(max, value) }
+    return { label: spec.label, help: spec.help, unit: spec.unit, value, arg, key, step: spec.step ?? .001, min: Math.min(min, value), max: Math.max(max, value) }
   }
   const values = [...args]
   if (type === 'trim' && typeof values[0] !== 'number') values.unshift(null)

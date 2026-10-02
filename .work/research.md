@@ -32,7 +32,7 @@
 
 Replace sox/ffmpeg/Web Audio API ceremony for the 90% case: one file, some transforms, one output. Provide a streaming, non-destructive, paged audio document that's equally native to Node CLI scripts and browser DAW UIs. Make audio manipulation in JS as natural as string manipulation.
 
-## REPL Scenarios
+## Editor Scenarios
 
 * User drops suno track, can master it perfectly (!automastering feature - OPEN MASTERING?)
 * Drop a recording... we need stem splitting then.

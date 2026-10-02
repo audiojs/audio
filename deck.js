@@ -25,13 +25,15 @@ export class Deck {
     this.runs = new Map()
     this.cur = null                 // the run playing, and its head: frames on its axis
     this.x = 0
+    this.grain = null               // the grains it sounds through while its pitch is kept at another rate
     this.next = null                // a run waiting to splice in: { run, at, pos, fade, power }
-    this.xf = null                  // a crossfade under way: { run, x } going out, x0 where the new run came in, n frames
+    this.xf = null                  // a crossfade under way: { run, x, grain } going out, x0 where the new run came in, n frames
     this.playing = init.playing ?? true
     this.stopping = false
     this.done = false
     this.vol = this.volT = init.volume ?? 1
     this.rate = this.rateT = init.rate ?? 1
+    this.keep = init.preservesPitch ?? true                      // the pitch kept at another rate, as a media element's
     this.env = 0                    // start, pause, stop and underrun envelope
     this.moving = false
     this.starved = false
@@ -44,6 +46,9 @@ export class Deck {
     this.w = new Float64Array(128)
     this.a = new Float64Array(channels)
     this.b = new Float64Array(channels)
+    this.c = new Float64Array(channels)   // a grain fading out
+    this.sp = { H: 0, X: 0, W: 0 }
+    this.A = 2
   }
 
   // From the voice: { run, sr, pos, loop?, splice? } opens a run at `pos` seconds on its axis (`loop` [s, e]: the
@@ -59,11 +64,12 @@ export class Deck {
     if (m.end) r.ended = true
   }
 
-  // From the transport: { playing }, { volume }, { rate }, { stop }
+  // From the transport: { playing }, { volume }, { rate }, { preservesPitch }, { stop }
   set(m) {
     if (m.playing !== undefined) this.playing = !!m.playing
     if (m.volume !== undefined) this.volT = m.volume
     if (m.rate !== undefined) this.rateT = m.rate
+    if (m.preservesPitch !== undefined) this.keep = !!m.preservesPitch
     if (m.stop) this.stopping = true
   }
 
@@ -85,8 +91,7 @@ export class Deck {
       r.map = Int8Array.from({ length: this.ch }, (_, c) => c < d.length ? c : d.length === 1 && c < 2 ? 0 : -1)
     }
     if (r.n + len > r.cap) {
-      let h = r === this.cur ? this.x : this.xf && r === this.xf.run ? this.xf.x : r.t0
-      let k = Math.max(0, Math.min(r.n, Math.floor(h) - 64 - r.t0))
+      let k = Math.max(0, Math.min(r.n, Math.floor(this.low(r)) - 64 - r.t0))
       if (k) { for (let t of r.tape) t.copyWithin(0, k, r.n); r.t0 += k; r.n -= k }
       if (r.n + len > r.cap) {
         r.cap = 1 << (32 - Math.clz32(r.n + len - 1))
@@ -118,53 +123,204 @@ export class Deck {
       let step = this.rate * r.sr / this.sr, g = this.env * this.vol
       // a run's end fades over the last 5 ms, so a span cut mid-sound ends without a click
       if (r.ended && !this.next) { let left = (r.t0 + r.n - this.x) / step; if (left < this.R) g *= Math.max(0, left) / this.R }
-      this.read(r, this.x, step, A)
+      let G = this.pitch(r, frame + i)
+      if (G) this.grains(r, this.x, G, A)
+      else this.read(r, this.x, step, A)
       r.played = true
       let f = this.xf
       if (f) {
-        let fs = this.rate * f.run.sr / this.sr, t = Math.min(1, (this.x - f.x0) / f.n)
+        // through grains, a crossfade lasts its time as heard; the head's, its frames on the axis
+        let fs = this.rate * f.run.sr / this.sr, t = Math.min(1, f.m ? f.k / f.m : (this.x - f.x0) / f.n)
         let u = f.power ? Math.cos(t * Math.PI / 2) : 1 - t, v = f.power ? Math.sin(t * Math.PI / 2) : t
-        this.read(f.run, f.x, fs, B)
+        if (f.grain) this.grains(f.run, f.x, f.grain, B)
+        else this.read(f.run, f.x, fs, B)
         for (let c = 0; c < N; c++) out[c][i] = (B[c] * u + A[c] * v) * g
-        f.x += fs
+        f.x += fs; f.k++
       } else for (let c = 0; c < N; c++) out[c][i] = A[c] * g
       this.x += step
-      if (f && this.x - f.x0 >= f.n) { this.runs.delete(f.run.id); this.xf = null; this.post(frame + i + 1) }
+      if (f && (f.m ? f.k >= f.m : this.x - f.x0 >= f.n)) { this.runs.delete(f.run.id); this.xf = null; this.post(frame + i + 1) }
       if (r.ended && !this.next && this.x >= r.t0 + r.n) {
         this.env = 0; this.moving = false
         this.post(frame + i + 1)          // where it ended, held
-        this.runs.delete(r.id); this.cur = null
+        this.runs.delete(r.id); this.cur = this.grain = null
         this.report({ end: frame + i + 1 })
       }
     }
     if ((this.due -= n) <= 0) { this.due += 1024; this.post(frame + n) }
   }
 
-  // Start a waiting run when the playing one reaches its point and it has audio there; late, it comes in aligned
+  // Start a waiting run when the playing one reaches its point and it has audio there; late, it comes in aligned.
+  // Through grains, the point is where they are heard, between their crossfades, and the new run goes on through the
+  // same grains (an edit's two renders crossfade in phase); a seek starts its own
   splice(f) {
-    let s = this.next, r = s.run, c = this.cur, x
+    let s = this.next, r = s.run, c = this.cur, G = this.grain, x, y = null
     if (s.at == null || !c) x = r.t0
     else {
-      let sec = this.x / c.sr
-      if (sec < s.at && !(c.ended && this.x >= c.t0 + c.n) && this.moving) return
-      x = r.sr === c.sr && s.pos === s.at ? Math.max(r.t0, this.x) : Math.max(r.t0, (s.pos + Math.max(0, sec - s.at)) * r.sr)
+      let sec = (G ? G.y : this.x) / c.sr
+      if ((sec < s.at || G && G.t < G.X) && !(c.ended && this.x >= c.t0 + c.n) && this.moving) return
+      let same = r.sr === c.sr && s.pos === s.at
+      if (G) { x = same ? this.x : (s.pos + this.x / c.sr - s.at) * r.sr; y = Math.max(r.t0, same ? G.y : (s.pos + sec - s.at) * r.sr) }
+      else x = same ? Math.max(r.t0, this.x) : Math.max(r.t0, (s.pos + Math.max(0, sec - s.at)) * r.sr)
     }
-    let step = this.rate * r.sr / this.sr
-    if (!r.ended && r.t0 + r.n - x < this.R * step + 16 * Math.min(4, Math.max(1, step)) + 1) return
+    if (!r.ended && r.t0 + r.n - Math.max(x, y ?? x) < this.need(r, this.rate)) return
     this.next = null
-    if (c && this.moving) this.xf = { run: c, x: this.x, x0: x, n: Math.max(1, s.fade * r.sr), power: s.power }
+    let ng = y != null ? { ...G, y, z: y, zh: false, yh: false } : this.keep && this.rate !== 1 ? this.fresh(r, x) : null
+    if (c && this.moving) this.xf = { run: c, x: this.x, x0: x, n: Math.max(1, s.fade * r.sr), power: s.power, grain: G, k: 0, m: G || ng ? Math.max(1, Math.round(s.fade * this.sr)) : 0 }
     else if (c) this.runs.delete(c.id)   // nothing sounding: cut
-    this.cur = r; this.x = x; this.starved = false
+    this.cur = r; this.x = x; this.grain = ng; this.starved = false
     this.post(f)
   }
 
   // Underrun: fade out while the audio lasts, hold, and come back once there is 50 ms (at the start, enough to fade)
   starve(r) {
     if (r.ended) { this.starved = false; return }
-    let step = Math.max(this.rate, this.rateT) * r.sr / this.sr
-    let have = r.t0 + r.n - this.x, need = this.R * step + 16 * Math.min(4, Math.max(1, step)) + 1
+    let have = r.t0 + r.n - this.x, need = this.need(r, Math.max(this.rate, this.rateT))
     if (!this.starved) { if (have < need) this.starved = true }
     else if (have >= (r.played ? Math.max(need, 0.05 * r.sr) : need)) this.starved = false
+  }
+
+  // Frames run r must have ahead of the head to sound on at rate p: the ramp's at its step and the kernel's reach;
+  // through grains, as far as the next one's search and the grain itself reach
+  need(r, p) {
+    let u = r.sr / this.sr, step = p * u, n = this.R * step + 16 * Math.min(4, Math.max(1, step)) + 1
+    if (this.grain || this.keep && p !== 1) { let o = this.span(p, this.sp); n += u * (p * o.H + (p + 1) * (o.H + o.X) / 2) + o.W * r.sr + 16 }
+    return n
+  }
+
+  // Where run r is still to be read from: its head; through grains, theirs, and as far back as a grain's search reaches
+  low(r) {
+    let f = this.xf, mine = r === this.cur, h = mine ? this.x : f && r === f.run ? f.x : r.t0, G = mine ? this.grain : f && r === f.run ? f.grain : null
+    return G ? Math.min(h - 0.1 * r.sr, G.y, G.z) : h
+  }
+
+
+  // ── The pitch kept: WSOLA ──────────────────────────────────────────────
+  // At a rate other than 1 with the pitch kept, the head moves at the rate as ever (where the run is, its splices,
+  // its end, what is reported), and what sounds is grains of the run at its own pitch, each placed about the head
+  // (Waveform Similarity Overlap-Add: W. Verhelst & M. Roelands, "An overlap-add technique based on waveform
+  // similarity (WSOLA) for high quality time-scale modification of speech", ICASSP 1993). A grain plays on until the
+  // next one starts and crossfades into it; the next starts near where the head will be in its middle, at the place
+  // whose next frames are most like what the grain playing would play on (its natural progression), so the two meet
+  // in phase. The players of the web do the same: Chromium's media element (AudioRendererAlgorithm, WSOLA) and
+  // Firefox's (SoundTouch's TDStretch).
+
+  // The grains the run sounds through: from where the rate leaves 1 with the pitch kept, a grain from the head on,
+  // crossfading from its varispeed (at a rate still all but 1, the same sound); back to the head where a grain would
+  // start once the rate is 1 again, the head put where the grain is (the same sound, no seam); the pitch let go, a
+  // crossfade into the head's varispeed between the grains' own
+  pitch(r, f) {
+    let G = this.grain
+    if (!G) {
+      if (!this.keep || this.rate === 1) return null
+      // on the sample grid: at the run's own rate, a grain's frames are then the samples themselves
+      let y = Math.round(this.x)
+      return this.grain = this.span(this.rate, { y, z: y, yh: false, zh: true, t: 0, H: 0, X: 0, W: 0, rc: Math.abs(this.rate - 1) < 0.01 ? 1 : 0 })
+    }
+    if (G.yh) return G.t < G.X ? G : this.grain = null
+    if (this.rate === 1 && G.t >= G.H && !this.xf) { this.x = G.y; this.grain = null; this.post(f); return null }
+    if (!this.keep && this.rate !== 1 && G.t >= G.X) { if (this.x < r.t0) this.x = G.y; G.z = G.y; G.zh = false; G.yh = true; G.t = 0; G.H = Infinity; G.rc = 0 }
+    return G
+  }
+
+  // Grains for run r from head x on, none fading out: a seek's, or a run's first
+  fresh(r, x) {
+    let G = this.span(this.rate, { y: 0, z: 0, yh: false, zh: false, t: 0, H: 0, X: 0, W: 0, rc: 1 }), u = r.sr / this.sr
+    let c = x + (this.rate - 1) * u * (G.H + G.X) / 2
+    G.y = G.z = Math.max(r.t0, Math.min(Math.round(c), r.t0 + r.n - (G.H + G.X) * u))
+    G.t = G.X
+    return G
+  }
+
+  // A grain's hop H and crossfade X (output frames), and how far W (seconds) either side of the head's place the next
+  // may move, at rate p
+  span(p, o) {
+    o.H = Math.round(0.03 * this.sr); o.X = Math.round(0.01 * this.sr); o.W = 0.012
+    return o
+  }
+
+  // A frame of run r through grains G: the grain playing, over its first X frames crossfading from the one before;
+  // both at the run's own pitch (or one of them the head's varispeed, switching), and at the hop the next grain
+  grains(r, x, G, acc) {
+    if (G.t >= G.H) this.hop(r, x, G)
+    let u = r.sr / this.sr, s = this.rate * u
+    this.read(r, G.yh ? x : G.y, G.yh ? s : u, acc)
+    if (G.t < G.X) {
+      // a fade (Hann) kept at a constant power for the correlation of what it joins: linear for the same sound, equal
+      // power for unrelated ones (M. Fink, M. Holters & U. Zölzer, "Signal-matched power-complementary cross-fading
+      // and dry-wet mixing", DAFx 2016)
+      let C = this.c, v = 0.5 - 0.5 * Math.cos(Math.PI * (G.t + 0.5) / G.X), w = 1 - v, k = 1 / Math.sqrt(v * v + w * w + 2 * G.rc * v * w)
+      this.read(r, G.zh ? x : G.z, G.zh ? s : u, C)
+      for (let c = 0; c < acc.length; c++) acc[c] = (acc[c] * v + C[c] * w) * k
+    }
+    G.y += u; G.z += u; G.t++
+  }
+
+  // The next grain: about the head's place in its middle (c), the start most like the grain playing's natural
+  // progression (n); a whole grain inside the audio there is (by a run's end, the search slides back from it)
+  hop(r, x, G) {
+    let p = this.rate, u = r.sr / this.sr, n = G.y
+    this.span(p, G)
+    let W = G.W * r.sr, L = Math.max(8, Math.round(G.X * u)), c = x + (p - 1) * u * (G.H + G.X) / 2
+    let top = r.t0 + r.n - (G.H + G.X) * u, hi = Math.min(c + W, top), lo = Math.max(r.t0, Math.min(c, top) - W)
+    // An attack sounds once, as recorded: where the grains would meet, the grain plays on through it; slower, the next
+    // starts past one the grain playing has sounded, not before it again (a stutter); faster, before the last one it
+    // would leap, not past it unheard (a drop)
+    let F = this.frame(r), q, y
+    if (this.onset(r, n - F, n + L, false) >= 0) { G.z = n; G.zh = false; G.t = 0; G.rc = 1; return }
+    q = lo < n ? this.onset(r, lo - F, n, true) : -1
+    if (q >= 0) { lo = Math.max(lo, q + this.A * F); hi = Math.max(hi, Math.min(top, lo + W)) }
+    q = hi > n + L ? this.onset(r, n + L, hi + L + F, true) : -1
+    if (q >= 0) { hi = Math.max(r.t0, q - L - F); lo = Math.min(lo, Math.max(r.t0, hi - W)) }
+    y = hi >= lo ? this.match(r, n, lo, hi, c, W, L) : n
+    G.z = n; G.zh = false; G.y = y; G.t = 0; G.rc = hi >= lo ? Math.max(0, this.mc) : 1
+  }
+
+  // Attacks: frames of ~2.9 ms on the run's axis whose first difference has 12 dB more energy, over the channels, than
+  // the four before had on average (P. Masri, PhD thesis, Bristol 1996; J. P. Bello et al., "A tutorial on onset
+  // detection in music signals", IEEE Trans. Speech and Audio Processing 13, 2005). Where the first in [a, b) starts
+  // (the last, `last`), or -1
+  frame(r) { return Math.max(32, Math.round(r.sr / 344)) }
+  onset(r, a, b, last) {
+    let T = r.tape, F = this.frame(r), j1 = Math.ceil(b / F), at = -1, e1 = 0, e2 = 0, e3 = 0, e4 = 0
+    for (let j = Math.ceil(a / F) - 4, j0 = j + 4; j < j1; j++) {
+      let s = j * F - r.t0, e = 0
+      if (s >= 1 && s + F <= r.n) for (let c = 0; c < T.length; c++) { let t = T[c]; for (let k = s; k < s + F; k++) { let d = t[k] - t[k - 1]; e += d * d } }
+      if (j >= j0 && e > 1e-8 * F && e > 4 * (e1 + e2 + e3 + e4)) { at = j * F; if (!last) return at }
+      e4 = e3; e3 = e2; e2 = e1; e1 = e
+    }
+    return at
+  }
+
+  // The start in [lo, hi], n + d for a whole d (a grain keeps n's place between samples), whose next L frames are most
+  // like the L from n: their normalized cross-correlation over the channels, a little less away from c (SoundTouch's
+  // TDStretch weighs it so, toward the middle of its search). Searched at every D-th frame (about 11 kHz), refined
+  // about the best; this.mc the correlation found
+  match(r, n, lo, hi, c, W, L) {
+    let T = r.tape, b = Math.floor(n) - r.t0, d0 = Math.max(Math.ceil(lo - n), -b), d1 = Math.min(Math.floor(hi - n), r.n - L - b)
+    this.mc = 0
+    if (b < 0 || b + L > r.n || d1 < d0) return Math.max(lo, Math.min(hi, Math.round(c)))
+    let D = Math.max(1, Math.round(r.sr / 11025)), best = -Infinity, at = d0
+    for (let d = d0; d <= d1; d += D) {
+      let q = (n + d - c) / W, v = (this.ncc(T, b, b + d, L, D) + 0.1) * (1 - 0.25 * Math.min(1, q * q))
+      if (v > best) { best = v; at = d }
+    }
+    let e0 = Math.max(d0, at - D + 1), e1 = Math.min(d1, at + D - 1)
+    best = -Infinity
+    for (let d = e0; d <= e1; d++) {
+      let m = this.ncc(T, b, b + d, L, 1), q = (n + d - c) / W, v = (m + 0.1) * (1 - 0.25 * Math.min(1, q * q))
+      if (v > best) { best = v; at = d; this.mc = m }
+    }
+    return n + at
+  }
+
+  // Normalized cross-correlation of the L frames from tape index i with those from j, over the channels, every s-th
+  ncc(T, i, j, L, s) {
+    let xy = 0, xx = 0, yy = 0
+    for (let c = 0; c < T.length; c++) {
+      let t = T[c]
+      for (let k = 0; k < L; k += s) { let p = t[i + k], q = t[j + k]; xy += p * q; xx += p * p; yy += q * q }
+    }
+    return xx > 0 && yy > 0 ? xy / Math.sqrt(xx * yy) : 0
   }
 
   // Frames of run r at head x into acc, one per output: a copy at unit step on a sample, else a windowed sinc,
@@ -343,8 +499,8 @@ async function nodeDevice(sr, ch, init) {
 
 /** Open a deck: channels as the source has (two at least: mono plays on both), the rate the device runs at
  *  (the page's context; Node: sampleRate). */
-export async function open({ channels, sampleRate, playing = true, volume = 1, rate = 1 } = {}) {
-  let ctx = context(), ch = Math.max(2, channels | 0), init = { playing, volume, rate }
+export async function open({ channels, sampleRate, playing = true, volume = 1, rate = 1, preservesPitch = true } = {}) {
+  let ctx = context(), ch = Math.max(2, channels | 0), init = { playing, volume, rate, preservesPitch }
   return transport(ctx ? await webDevice(ctx, ch, init) : await nodeDevice(sampleRate, ch, init))
 }
 

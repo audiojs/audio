@@ -13,6 +13,13 @@ import aWeighting from '@audio/weighting-a'
 export let toMel = f => 2595 * Math.log10(1 + f / 700)
 export let fromMel = m => 700 * (10 ** (m / 2595) - 1)
 
+/** The edges of `bins` mel bands from `fMin` to `fMax` Hz: bins + 2 frequencies evenly spaced in mel, band b rising
+ *  from edge b to its centre, edge b + 1, and falling to edge b + 2. */
+export function melEdges(bins, sr, fMin = 30, fMax = Math.min(sr / 2, 20000)) {
+  let mMin = toMel(fMin), mMax = toMel(fMax)
+  return Array.from({ length: bins + 2 }, (_, i) => fromMel(mMin + (mMax - mMin) * i / (bins + 1)))
+}
+
 // ── Window cache ────────────────────────────────────────────────
 
 let windows = {}
@@ -64,7 +71,7 @@ let scratch = {}, pows = {}
  * @returns {Float32Array} magnitude per mel bin (linear scale)
  */
 export function melSpectrum(samples, sr, opts = {}) {
-  let { bins = 128, fMin = 30, fMax = Math.min(sr / 2, 20000), weight = true } = opts
+  let { bins = 128, fMin, fMax, weight = true } = opts
   let mag = magnitude(samples), N = mag.length * 2
 
   let bank = melBank(N, sr, bins, fMin, fMax, weight)
@@ -85,9 +92,7 @@ let banks = new Map()
 function melBank(N, sr, bins, fMin, fMax, weight) {
   let key = `${N} ${sr} ${bins} ${fMin} ${fMax} ${weight}`, bank = banks.get(key)
   if (bank) return bank
-  let mMin = toMel(fMin), mMax = toMel(fMax), binHz = sr / N, last = (N >> 1) - 1
-  let hz = new Float32Array(bins + 2)
-  for (let i = 0; i < hz.length; i++) hz[i] = fromMel(mMin + (mMax - mMin) * i / (bins + 1))
+  let hz = melEdges(bins, sr, fMin, fMax), binHz = sr / N, last = (N >> 1) - 1
   bank = []
   for (let b = 0; b < bins; b++) {
     let fLo = hz[b], fMid = hz[b + 1], fHi = hz[b + 2]

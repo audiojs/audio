@@ -9,7 +9,7 @@ Serving > marketing. Protection > power, usefulness > fame, help > greed.
 - People who work with a recording want three things: it sounds finished, it passes the rules of wherever it goes, and it comes out in the right format.
 - **Our focus: speech that sounds finished, with proof that it passes.** Podcasters, narrators, course makers and video creators first; ACX is one of the specs, not the product. Music gets the same loop through reference mastering.
 - Format jobs are free everywhere; there is little room for us there. Neural cleanup (Adobe Podcast Enhance) leads on bad rooms; ours is statistical, and we say so.
-- Built this round: `check` against five delivery specs (CLI, library, MCP, and a REPL panel of each rule before and after, with a Before button to hear the original), `roomtone`, `master REF` (Matchering's method on our stack), cut lists for video editors (EDL, FCPXML, OTIO), and recipes that end in a check.
+- Built this round: `check` against five delivery specs (CLI, library, MCP, and an editor panel of each rule before and after, with a Before button to hear the original), `roomtone`, `master REF` (Matchering's method on our stack), cut lists for video editors (EDL, FCPXML, OTIO), and recipes that end in a check.
 - On ten real amateur narrations: our podcast recipe passes Apple Podcasts on 10 of 10, and our audiobook chain passes every ACX rule on 10 of 10, room tone included (see "What the test showed").
 - Second round: `auto` (automatic enhancement) runs 15 to 32 times faster than real time, 4 to 6 times faster than before, and no longer declicks clean speech; Ogg decoding of FLAC, Opus and cut files is fixed. Published 2026-09-27; `audio` depends on the new versions, itself unreleased.
 - Every use case raised so far, with its status, is in "Every use case".
@@ -18,8 +18,8 @@ Serving > marketing. Protection > power, usefulness > fame, help > greed.
 
 | Who | The moment it hurts | What they use today | Our fit now |
 |---|---|---|---|
-| **Podcasters, course makers, YouTubers** (speech) | It sounds amateur: noise, hum, echo, two voices at different levels, long pauses; the platform turns it up or down | Auphonic ($11 to $99/month, uploads, credits), Descript (cloud), Adobe Podcast Enhance (neural, uploads), iZotope RX (expensive) | **Strong**: "Enhance speech" and "Podcast episode" recipes, `check podcast` and a Before/After comparison in the REPL. **Weak** on bad rooms: our denoise is statistical, not neural |
-| **Narrators** (audiobooks) | ACX rejects the file: noise floor, digital silence instead of room tone, peaks, RMS; pauses too long; a phrase read flat | ACX Check in Audacity, iZotope RX, paid studios | **Strong**: `check acx` (the same measure as ACX Check), the "Audiobook chapter" recipe, `roomtone`, `shrink` for pauses, the REPL pitch tool for a phrase's contour, `'ch*.mp3' check acx` for a whole book |
+| **Podcasters, course makers, YouTubers** (speech) | It sounds amateur: noise, hum, echo, two voices at different levels, long pauses; the platform turns it up or down | Auphonic ($11 to $99/month, uploads, credits), Descript (cloud), Adobe Podcast Enhance (neural, uploads), iZotope RX (expensive) | **Strong**: "Enhance speech" and "Podcast episode" recipes, `check podcast` and a Before/After comparison in the editor. **Weak** on bad rooms: our denoise is statistical, not neural |
+| **Narrators** (audiobooks) | ACX rejects the file: noise floor, digital silence instead of room tone, peaks, RMS; pauses too long; a phrase read flat | ACX Check in Audacity, iZotope RX, paid studios | **Strong**: `check acx` (the same measure as ACX Check), the "Audiobook chapter" recipe, `roomtone`, `shrink` for pauses, the editor pitch tool for a phrase's contour, `'ch*.mp3' check acx` for a whole book |
 | **Vocalists** (a voice take, singing) | Wants it to sound produced without knowing a vocal chain | Plugins in a DAW, paid presets, LANDR-style services | **Good as a recipe**: "Vocal chain" (de-ess, compress, presence, air, plate, streaming loudness). **Automated**: `auto` measures the take and picks the chain, 15 to 32 times faster than real time |
 | **Producers mastering a song** | Wants it to sound like a reference track; LANDR, eMastered and CloudBounce charge to download; Matchering needs Python | LANDR, eMastered, CloudBounce, BandLab, Matchering (11.9k downloads/month) | **Strong**: `master REF` matches the reference's tone in mid and side, its width and its loudness, under -1 dBTP |
 | **People polishing AI music** (Suno, Udio) | Muddy, fizzy, flat, smeared stereo | Suno Remaster, Sunofix, de-artifact (neural) | **Partial**: "AI track, settled" recipe (mud cut, fizz tamed dynamically, low end in mono, some dynamics back). The metallic codec sound needs neural tools |
@@ -78,7 +78,7 @@ From ACX's rejection emails as quoted by narrators' guides, and narrators' own f
 | Spectral Repair | `repair`, `spectral` | yes |
 | Ambience Match | `roomtone` | fills silence with the room; matching across files is open |
 | Loudness Control | `normalize` + `check` | yes, with proof |
-| Leveler, Dialogue Contour | `leveler`; REPL pitch tool | yes |
+| Leveler, Dialogue Contour | `leveler`; editor pitch tool | yes |
 | Ozone Match EQ | `match` | yes, now mid/side too |
 | Ozone reference mastering, Matchering | `master REF` | yes |
 | Maximizer | true-peak ceiling, `limiter` | yes |
@@ -89,12 +89,12 @@ From ACX's rejection emails as quoted by narrators' guides, and narrators' own f
 
 ## Built this round
 
-- **`check SPEC`**: acx, podcast (Apple), streaming (Spotify), broadcast (EBU R 128-2023), netflix. Each limit is quoted from its source in `fn/check.js`. In the CLI (exit 1 on a fail, `--json`, a glob checks a whole book), the library (`a.check()`), MCP (a failed check is a result), and the REPL (a Check button, a panel of each rule before and after, a Before button that plays the original level-matched to the result).
+- **`check SPEC`**: acx, podcast (Apple), streaming (Spotify), broadcast (EBU R 128-2023), netflix. Each limit is quoted from its source in `fn/check.js`. In the CLI (exit 1 on a fail, `--json`, a glob checks a whole book), the library (`a.check()`), MCP (a failed check is a result), and the editor (a Check button, a panel of each rule before and after, a Before button that plays the original level-matched to the result).
 - **`stat noisefloor`**: ACX Check's measure, ported and tested sample-for-sample (0.000 dB difference).
 - **`roomtone`**: digital silence becomes the recording's own room tone.
 - **`master REF`**, **`match(ref, { midside: true })`**, **`normalize(ref)`**: reference mastering.
 - **Cut lists**: `a.cuts()`, `save x.edl|x.fcpxml|x.otio`; validated with OpenTimelineIO's own readers.
-- **Recipes** in the REPL, each checked against its spec on real files (20 of 20 runs pass): Podcast episode, Audiobook chapter, Narration tightened, Enhance speech, Remove room echo, Breaths/clicks/pops, Room tone for silence, Master to a reference, Master a song, Vocal chain, AI track settled.
+- **Recipes** in the editor, each checked against its spec on real files (20 of 20 runs pass): Podcast episode, Audiobook chapter, Narration tightened, Enhance speech, Remove room echo, Breaths/clicks/pops, Room tone for silence, Master to a reference, Master a song, Vocal chain, AI track settled.
 - README, skill (within its 2048-character limit), and a line in audio-decode's README pointing to `audio` (local, not yet published).
 
 ## Second round: speed and decoding
@@ -150,7 +150,7 @@ Each one raised so far: by you ("you"), by the market research ("research"), or 
 | Two voices at different levels | research | `leveler` | built |
 | Podcast episode to Apple or Spotify | research | "Podcast episode", `check podcast`, `check streaming` | built |
 | Audiobook chapter to ACX | research, test | "Audiobook chapter", `check acx`, `roomtone`, a folder checked at once | built; consistency across chapters open |
-| Narrator shaping pauses, level and tone (prosody) | you | `shrink`, "Narration tightened"; in the REPL, drag a phrase's pitch curve, move a moment in time (`warp`), draw a level envelope | built |
+| Narrator shaping pauses, level and tone (prosody) | you | `shrink`, "Narration tightened"; in the editor, drag a phrase's pitch curve, move a moment in time (`warp`), draw a level envelope | built |
 | Removing pauses | you | `shrink`, `trim` | built |
 | Removing filler words ("um") | you | none: needs word-level transcription, and stock Whisper drops fillers | waiting |
 | AI-voiced content (TTS audiobooks, generated podcasts) | research | TTS leaves digital silence between sentences, ACX's rejection: `roomtone`, `check`, a music bed under `ducker` | fits |
@@ -158,7 +158,7 @@ Each one raised so far: by you ("you"), by the market research ("research"), or 
 | Voice-over auditions and demo reels | research | `check` with the casting sites' specs | candidate: specs not verified |
 | Transcription prep (interviews before Whisper) | research | denoise and level | candidate: benefit unmeasured |
 | Transcription | research | `@audio/neural-asr` | waiting (unpublished); we call models, not make them |
-| Language learning, speech therapy | research | the REPL's pitch curve, learner against a model | partial; niche |
+| Language learning, speech therapy | research | the editor's pitch curve, learner against a model | partial; niche |
 | Linguists: pitch curves, formants | research | `stat notes`, the pitch view; Praat does more | partial |
 
 **Music**
@@ -172,7 +172,7 @@ Each one raised so far: by you ("you"), by the market research ("research"), or 
 | Polishing AI music (Suno, Udio) | you | "AI track, settled" | partial: the metallic codec sound needs neural tools |
 | Stem splitting | you | `vocals` (center channel only) | waiting: demucs-web |
 | Music analysis: key, tempo, chords, loudness, spectrum | you | `stat key`, `bpm`, `chords`, `beats`, `notes`, `loudness`, `lra`; spectrogram | built |
-| Educators showing what a process does | you | the REPL: a script, Before/After at matched loudness, spectrogram, share links | built; no lessons written |
+| Educators showing what a process does | you | the editor: a script, Before/After at matched loudness, spectrogram, share links | built; no lessons written |
 | Musicians practising: slow down, transpose, loop | research | `stretch`, `pitch`, `repeat`; "Slow down", "Shift pitch" | built |
 | Sample packs: trim, level, tag key and tempo | research | batch trim, `normalize`, `stat key`, `bpm` | fits; tagging not written |
 | Game audio assets | research | Sony ASWG-R001 (-24 LKFS console, -18 portable, ≤ -1 dBTP) as a `check` spec; batch levelling | candidate |
@@ -206,17 +206,17 @@ Each one raised so far: by you ("you"), by the market research ("research"), or 
 | Archivists: wow and flutter (tape wobble) | research | `@audio/denoise-dewow` (published): speed curve from partials, a reference tone or pitch, corrected by variable-rate resampling | fits: not wired as an op in `audio` |
 | Converting formats | research | `save x.mp3 192k` and others | built; free everywhere, not a focus |
 
-## The REPL
+## The editor
 
 What it has now: a script editor with completion and sliders; the same chain as a CLI command; recipes (including delivery and mastering); open, record or find a sound; waveform and spectrogram; the Check panel (spec picker, each rule before and after, limits, the spec's link); a Before button (or B) that plays the original level-matched to the result; share links; export.
 
-The line with wavearea stays: the REPL changes sound through a script, wavearea by hand on a timeline.
+The line with wavearea stays: the editor changes sound through a script, wavearea by hand on a timeline.
 
 Agents: their own agent over MCP works today; WebMCP and in-page API keys wait. What makes any agent good here is what it can measure (stats, `check`), what it can do (operations) and what it knows (the skill).
 
 ## How this could fail
 
-1. **The REPL keeps growing and the proof gets buried.** The panel exists now; keep it one click from every output.
+1. **The editor keeps growing and the proof gets buried.** The panel exists now; keep it one click from every output.
 2. **Recipes that pass the numbers but sound processed.** We can't listen. Sign: a human comparing before and after on the ten files prefers the original. Check before promoting the recipes.
 3. **Automation is fast but unheard.** `auto` now picks its chain in seconds; nobody has listened to what it picks. Sign: its output on the ten files loses to "Enhance speech" by ear.
 4. **Nobody switches.** Sign: downloads and skill installs flat 8 weeks after `check` ships.
@@ -224,7 +224,7 @@ Agents: their own agent over MCP works today; WebMCP and in-page API keys wait. 
 
 ## Next steps
 
-1. **Listen.** Compare before and after on the ten files through "Audiobook chapter" and "Enhance speech" in the REPL. The numbers pass; the ear decides the settings.
+1. **Listen.** Compare before and after on the ten files through "Audiobook chapter" and "Enhance speech" in the editor. The numbers pass; the ear decides the settings.
 2. **Release `audio`** with both rounds. The dependency packages are published (audio-type 2.8.0, @audio/decode 3.16.2 (vorbis 1.3.3, opus 1.3.2, flac 1.3.5), @audio/resample 1.2.3 (sinc 1.2.0, polyphase 1.1.0), eq-fir 1.0.2, @audio/denoise 0.3.11 (denoise-detect 0.2.0, noise-estimate 1.0.2), @audio/chain 0.1.1).
 3. **Listen to `auto`** against "Enhance speech" on the same ten files.
 4. **Chapter consistency** in batch `check`: floor and RMS spread across a book, and one room tone for all chapters.

@@ -24,7 +24,7 @@
   <div id="site">
     <header class="header wrap">
       <a class="wordmark" href="#" aria-label="audio home" draggable="false"><span class="logo" aria-hidden="true"><svg width="96" height="101" viewBox="0 0 96 101" fill="currentColor" stroke="currentColor" stroke-width="4.5"><path d="M0 50.4159C5.08842 50.4159 8.70378 49.9251 17.0681 24.9808C27.8621 -7.20948 35.9058 -10.5986 47.7771 50.4159H0Z"/><path d="M95.5543 50.416C90.4658 50.416 86.8505 50.9067 78.4862 75.8511C67.6922 108.041 59.6484 111.43 47.7771 50.416H95.5543Z"/></svg><canvas hidden></canvas></span><span class="name">audio</span><span class="version" :text="'v' + version">v2.6.10</span></a>
-      <nav class="header-links" aria-label="Elsewhere"><a class="text-link" href="repl.html">REPL</a><a class="text-link" href="https://github.com/audiojs/audio">GitHub <span aria-hidden="true">↗</span></a></nav>
+      <nav class="header-links" aria-label="Elsewhere"><a class="text-link" href="editor.html">Editor</a><a class="text-link" href="https://github.com/audiojs/audio">GitHub <span aria-hidden="true">↗</span></a></nav>
     </header>
 
     <main id="main">
@@ -91,7 +91,7 @@
                 </button>
               </div>
               <div class="step-options" :if="stepOpen">
-                <div class="parameter" :each="field, index in fields"><span class="parameter-label"><label :for="'parameter-' + index" :text="field.label"></label><button class="parameter-auto" :if="field.optional" :aria-pressed="field.auto ? 'true' : 'false'" :onclick="event => { event.preventDefault(); autoThreshold(index) }">Auto</button><output :text="field.auto ? '' : figure(field.value, field.unit)"></output></span><input class="parameter-slider" :id="'parameter-' + index" type="range" :aria-label="field.unit ? field.label + ' (' + field.unit + ')' : field.label" :min="field.min" :max="field.max" :step="field.step" :value="field.value" :style="'--fill: ' + (field.value - field.min) / (field.max - field.min || 1) * 100 + '%'" :onpointerdown="startParameter" :onkeydown="startParameter" :oninput="event => adjust(event, index)"></div>
+                <div class="parameter" :each="field, index in fields" :title="field.help"><span class="parameter-label"><label :for="'parameter-' + index" :text="field.label"></label><button class="parameter-auto" :if="field.optional" title="Find the silence level from the sound itself" :aria-pressed="field.auto ? 'true' : 'false'" :onclick="event => { event.preventDefault(); autoThreshold(index) }">Auto</button><output :text="field.auto ? '' : figure(field.value, field.unit)"></output></span><input class="parameter-slider" :id="'parameter-' + index" type="range" :aria-label="field.unit ? field.label + ' (' + field.unit + ')' : field.label" :aria-description="field.help" :min="field.min" :max="field.max" :step="field.step" :value="field.value" :style="'--fill: ' + (field.value - field.min) / (field.max - field.min || 1) * 100 + '%'" :onpointerdown="startParameter" :onkeydown="startParameter" :oninput="event => adjust(event, index)"></div>
               </div>
             </div>
           </div>

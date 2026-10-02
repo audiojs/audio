@@ -1501,6 +1501,22 @@ test('site: a step\'s pill opens a slider per number, each changing only its own
   assert.equal(await pill(1).getAttribute('aria-haspopup'), null)
 })
 
+// Pointed at, each slider says what it does: a title on its row, a range's and a method's alike
+test('site: each parameter slider says what it does when pointed at', async () => {
+  await upload(await file('help.wav', [tone(96000, 220, .5)]))
+  await setChain('.trim().shrink().pad(0.5, 0.5).repeat(2).gain(-6).normalize(-1).fade(0.02, 0.1).crop().speed(1.25).stretch(1.5).pitch(7).lowpass(1000).highpass(500).eq(1000, 6)')
+  const seen = []
+  for (let i = 0, n = await steps().count(); i < n; i++) {
+    await openPill(i)
+    for (const [label, title] of await menu().locator('.parameter').evaluateAll(fields => fields.map(el => [el.querySelector('label').textContent, el.title]))) {
+      assert.match(title, /^[A-Z].*\.$/, `${label}: ${title}`)
+      seen.push(label)
+    }
+    await closeMenu()
+  }
+  assert.ok(seen.length >= 17, seen.join())
+})
+
 test('site: a parameter slider updates only its step, renders during a drag and undoes the gesture once', async () => {
   const pcm = tone(4800)
   await upload(await file('slider.wav', [pcm]))
@@ -3992,7 +4008,7 @@ test('logo motion: the axis is there or not at once, with no fade in or out', as
 })
 
 test('site: the mark and the name change places between pages by moving only: the old picture goes and the new stands whole', async () => {
-  for (const [path, sheet] of [['/', 'site/site.css'], ['/repl.html', 'repl/repl.css']]) {
+  for (const [path, sheet] of [['/', 'site/site.css'], ['/editor.html', 'editor/editor.css']]) {
     await page.goto(origin + path, { waitUntil: 'networkidle' })
     const rules = await page.evaluate(() => [...document.styleSheets].flatMap(sheet => { try { return [...sheet.cssRules] } catch { return [] } })
       .filter(rule => /view-transition-(old|new)\((mark|name)\)/.test(rule.selectorText ?? '')).map(rule => [rule.selectorText, rule.style.display, rule.style.animationName]))
@@ -4040,12 +4056,12 @@ test('logo motion: a hover sets off at once and eases out to the pace it keeps',
   assert(pace.ms <= 1200, 'within about a second')
 })
 
-test('site: from page to page the wordmark carries on: the REPL\'s mark, clicked, launches, and the home page takes up its spin as the page fades across', async () => {
+test('site: from page to page the wordmark carries on: the editor\'s mark, clicked, launches, and the home page takes up its spin as the page fades across', async () => {
   await page.addInitScript(() => {
     addEventListener('pagereveal', e => window.revealed = !!e.viewTransition)
     try { window.carried = JSON.parse(sessionStorage.getItem('audio-logo')) } catch {}
   })
-  await page.goto(origin + '/repl.html', { waitUntil: 'networkidle' })
+  await page.goto(origin + '/editor.html', { waitUntil: 'networkidle' })
   const bar = page.locator('.bar .wordmark')
   await bar.locator('canvas').waitFor()
   await page.waitForTimeout(600)
@@ -4057,7 +4073,7 @@ test('site: from page to page the wordmark carries on: the REPL\'s mark, clicked
   await page.waitForTimeout(80)
   const b = await logoShot(header)
   const { revealed, carried } = await page.evaluate(() => ({ revealed: window.revealed, carried: window.carried }))
-  assert(carried && carried.launch > 0 && carried.velocity > 0, `the REPL hands on a launch under way: ${JSON.stringify(carried)}`)
+  assert(carried && carried.launch > 0 && carried.velocity > 0, `the editor hands on a launch under way: ${JSON.stringify(carried)}`)
   assert.equal(revealed, true, 'the pages cross in a view transition')
   // The mark and the name are the transition's own, so they glide while the rest fades
   assert.deepEqual(await page.evaluate(() => ['.logo', '.name'].map(part => getComputedStyle(document.querySelector('.header .wordmark ' + part)).viewTransitionName)), ['mark', 'name'])

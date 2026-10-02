@@ -2,6 +2,7 @@ import test from 'tst'
 import audio from '../audio.js'
 import './clipboard.js'
 import './parity.js'
+import './hits.js'
 const { PAGE_SIZE, BLOCK_SIZE } = audio
 
 import { tone as genTone, clickTrack } from './gen.js'
@@ -890,6 +891,23 @@ test('crossfade — linear curve', async t => {
   t.ok(Math.abs(pcm[0][pcm[0].length - 1]) < 0.01, 'last sample: 0.0')
 })
 
+test('fade, crossfade — the curves they take, as their descriptors carry them', async t => {
+  let sr = 44100, fades = audio.op('fade').curves, blends = audio.op('crossfade').curves
+  t.is(Object.keys(fades), ['linear', 'exp', 'log', 'cos'], 'fade: the four README names')
+  t.is(Object.keys(blends), [...Object.keys(fades), 'equal'], 'crossfade: those and equal power')
+  for (let name in fades) {
+    let pcm = await audio.from([new Float32Array(sr).fill(1)], { sampleRate: sr }).fade(1, name).read()
+    for (let u of [.1, .25, .5, .75, .9]) t.ok(Math.abs(pcm[0][Math.round(u * sr)] - fades[name](u)) < 1e-3, `fade ${name} at ${u}: ${pcm[0][Math.round(u * sr)]} ≈ ${fades[name](u)}`)
+  }
+  for (let name in blends) {
+    let a = audio.from([new Float32Array(sr)], { sampleRate: sr }), b = audio.from([new Float32Array(sr).fill(1)], { sampleRate: sr })
+    let pcm = await a.crossfade(b, .5, name).read()
+    for (let u of [.1, .5, .9]) t.ok(Math.abs(pcm[0][Math.round((.5 + u * .5) * sr)] - blends[name](u)) < 1e-3, `crossfade ${name} at ${u}`)
+  }
+  // equal power: the gains' squares sum to one (W3C Web Audio equal-power law)
+  for (let u of [.1, .5, .9]) t.ok(Math.abs(blends.equal(u) ** 2 + blends.equal(1 - u) ** 2 - 1) < 1e-12, `equal at ${u}`)
+})
+
 test('crossfade — default duration', async t => {
   let sr = 44100
   let a = audio.from([new Float32Array(sr).fill(0.5)], { sampleRate: sr })
@@ -1404,6 +1422,61 @@ test('stat — array of names', async t => {
   t.ok(typeof loud === 'number', 'loudness is number')
   t.ok(peak < 0, `peak negative (${peak.toFixed(1)})`)
   t.ok(loud < 0, `loud negative (${loud.toFixed(1)})`)
+})
+
+// `bins`: a stat over each of n spans of the range, where it happens. At 40960 Hz a second is 40 blocks of 1024 and ten
+// 100 ms steps of 4096 samples, so 1 s bins fall on both grids and each bin reads as the stat over its second. A 997 Hz
+// tone at 0.5, 0.1, silence, 0.25 over four seconds, the last 0.4 s of each silent (the K-filter at rest when the next
+// second starts); the right channel 6 dB under the left.
+function levels(sr = 40960) {
+  let l = Float32Array.from({ length: 4 * sr }, (_, i) => { let s = i / sr; return s % 1 < 0.6 ? [0.5, 0.1, 0, 0.25][s | 0] * Math.sin(2 * Math.PI * 997 * s) : 0 })
+  return audio.from([l, l.map(v => v / 2)], { sampleRate: sr })
+}
+const seconds = (a, name, opts) => Promise.all([0, 1, 2, 3].map(at => a.stat(name, { ...opts, at, duration: 1 })))
+
+test('stat — bins: each bin reads as the stat over its span', async t => {
+  let a = levels()
+  // BS.1770-5 gates 400 ms blocks every 100 ms: a second holds seven; EBU Tech 3341 §2.2: momentary is a 400 ms window
+  for (let name of ['loudness', 'momentary', 'db', 'rms', 'peak', 'crest', 'dc', 'centroid']) {
+    let s = await a.stat(name, { bins: 4 })
+    t.ok(s instanceof Float32Array && s.length === 4, `${name}: a Float32Array of 4`)
+    t.almost(s, await seconds(a, name), 1e-4, `${name}: [${[...s].map(v => v.toFixed(2))}]`)
+  }
+  t.is((await a.stat('loudness', { bins: 4 }))[2], -Infinity, 'the silent second: -Infinity, as its loudness')
+  // a range splits as the whole does: seconds 1–2 and 2–3
+  t.almost(await a.stat('loudness', { at: 1, duration: 2, bins: 2 }), (await seconds(a, 'loudness')).slice(1, 3), 1e-4, 'bins of a range')
+  t.almost(await a.stat('momentary', { at: 1, duration: 2, bins: 2 }), (await seconds(a, 'momentary')).slice(1, 3), 1e-4, 'bins of a range, a method')
+  t.is(await a.stat('momentary', { at: 1, d: 1 }), await a.stat('momentary', { at: 1, duration: 1 }), '`d` for duration, a method\'s range too')
+})
+
+test('stat — bins: per channel, several names on one grid, bins too short to measure', async t => {
+  let a = levels()
+  for (let name of ['db', 'loudness', 'momentary']) {
+    let [l, r] = await a.stat(name, { bins: 4, channel: [0, 1] })
+    t.almost(l, await seconds(a, name, { channel: 0 }), 1e-4, `${name}, left`)
+    t.almost(r, await seconds(a, name, { channel: 1 }), 1e-4, `${name}, right`)
+    t.almost(await a.stat(name, { bins: 4, channel: 1 }), r, 1e-4, `${name}, channel 1 alone`)
+  }
+  let [mx, lu, mo] = await a.stat(['max', 'loudness', 'momentary'], { bins: 4, channel: 0 })
+  t.almost(mx, await seconds(a, 'max', { channel: 0 }), 1e-4, 'max, as the others: the same seconds')
+  t.almost(lu, await seconds(a, 'loudness', { channel: 0 }), 1e-4, 'loudness')
+  t.almost(mo, await seconds(a, 'momentary', { channel: 0 }), 1e-4, 'momentary')
+  // 100 ms bins hold no 400 ms gating block (BS.1770-5) nor momentary window (EBU Tech 3341 §2.2): -Infinity, as such a range reads
+  t.ok((await a.stat('loudness', { bins: 40 })).every(v => v === -Infinity), 'loudness over 100 ms: -Infinity')
+  t.ok((await a.stat('momentary', { bins: 40 })).every(v => v === -Infinity), 'momentary over 100 ms: -Infinity')
+  t.is(await a.stat('momentary', { at: 0, duration: 0.1 }), -Infinity, '…as momentary over 100 ms reads')
+  await t.rejects(() => a.stat('db', { bins: 2.5 }), RangeError, 'bins: a whole number')
+})
+
+test('stat — bins: lists, a key and spectra come whole', async t => {
+  let a = levels()
+  t.is(await a.stat('silence', { bins: 4 }), await a.stat('silence'), 'silence: the regions, their times their own')
+  t.is([...await a.stat('onsets', { bins: 4 })], [...await a.stat('onsets')], 'onsets: the times')
+  t.is(await a.stat('key', { bins: 4 }), await a.stat('key'), 'key: one')
+  t.is((await a.stat('spectrum', { bins: 16 })).length, 16, 'spectrum: bins its bands')
+  t.is((await a.stat('cepstrum', { bins: 13 })).length, 13, 'cepstrum: bins its coefficients')
+  let [mn, mx] = await a.stat(['min', 'max'], { bins: 4, channel: 0 })
+  t.ok(mn.every((v, i) => v <= mx[i]), 'block stats bin as before')
 })
 
 
@@ -7350,5 +7423,5 @@ if (isNode) for (let f of ['./plugin-effects.js', './plugin-denoise.js', './plug
     console.warn(`skip ${f} — manifest packages not resolvable (${e.message.split("'")[1] || ''})`)
   }
 }
-// the REPL's voice recipes against the delivery specs they name (where the REPL is checked out)
+// the editor's voice recipes against the delivery specs they name (where the editor is checked out)
 if (isNode) await import('./recipes.js').catch(e => { if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e; console.warn(`skip ./recipes.js — ${e.message.split("'")[1] || ''} missing`) })

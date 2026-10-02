@@ -1,5 +1,5 @@
 // MCP server (bin/mcp.js): protocol over real stdio, the one tool end-to-end, the argument splitter.
-// Its --repl mode and the REPL bridge it talks to: ./bridge.js, run along.
+// Its --editor mode and the editor's bridge it talks to: ./bridge.js, run along.
 import test from 'tst'
 import './bridge.js'
 import { spawn } from 'child_process'

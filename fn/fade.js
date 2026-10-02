@@ -44,6 +44,8 @@ const fade = (input, output, ctx) => {
 import audio from '../core.js'
 audio.op('fade', {
   params: ['in', 'out', 'curve'],
+  // the level along a fade in, 0..1 over 0..1, by the name `curve` takes: audio.op('fade').curves
+  curves: CURVES,
   ranged: true,
   holdback: (o, sr) => o.in < 0 && o.at == null ? -o.in * sr : 0,  // a fade-out ends where the audio does
   process: fade,

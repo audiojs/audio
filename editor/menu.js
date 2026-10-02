@@ -45,19 +45,23 @@ export default function menubar(root, model) {
     opened({ i, button, panel }, focus)
   }
   // The menu at a point, a context menu's `items`, the keys going back where they were when it closes. It opens while
-  // the button is still down (a Mac's right press), so it closes itself on a press outside it rather than on the release
-  function at(items, x, y) {
+  // the button is still down (a Mac's right press), so it closes itself on a press outside it rather than on the release.
+  // Or a button's own menu (`owner`), under it, its right edge at the button's: a press on the button closes it.
+  function at(items, x, y, owner = null) {
+    if (owner && open?.owner === owner) return close()
     back = open ? back : document.activeElement
     close(false)
-    const panel = list(items, 'Context menu'), outside = event => { if (!panel.contains(event.target)) close(false) }
+    const panel = list(items, owner?.getAttribute('aria-label') || 'Context menu'), outside = event => { if (!panel.contains(event.target) && !owner?.contains(event.target)) close(false) }
     panel.className += ' menubar-menu'
     panel.popover = 'manual'
     document.body.append(panel)
     panel.showPopover()
-    place(panel, { left: x, right: x, top: y - 4, bottom: y - 4 }, 'below')
+    const r = owner?.getBoundingClientRect()
+    place(panel, r ? { left: r.right - panel.offsetWidth, right: r.right, top: r.bottom, bottom: r.bottom } : { left: x, right: x, top: y - 4, bottom: y - 4 }, 'below')
     addEventListener('pointerdown', outside, true)
-    panel.addEventListener('toggle', event => { if (event.newState === 'closed') removeEventListener('pointerdown', outside, true) })
-    opened({ i: -1, button: null, panel }, false)
+    owner?.setAttribute('aria-expanded', 'true')
+    panel.addEventListener('toggle', event => { if (event.newState === 'closed') { removeEventListener('pointerdown', outside, true); owner?.setAttribute('aria-expanded', 'false') } })
+    opened({ i: -1, button: null, panel, owner }, false)
   }
   function opened(o, focus) {
     const { panel, button } = open = o
@@ -167,9 +171,9 @@ export default function menubar(root, model) {
   // Ends the open menu; the keys go back where they were, unless `restore` is off (another menu takes over)
   function close(restore = true) {
     if (!open) return
-    const { panel, button } = open
+    const { panel, button, owner } = open
     open = null
-    button?.setAttribute('aria-expanded', 'false')
+    for (const b of [button, owner]) b?.setAttribute('aria-expanded', 'false')
     if (panel.matches(':popover-open')) panel.hidePopover()
     panel.remove()
     if (restore) { const to = back; back = null; to?.isConnected && to !== document.body ? to.focus({ preventScroll: true }) : null }

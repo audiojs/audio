@@ -8,10 +8,11 @@
  * with and without a shell learn the same grammar. Hand-rolled JSON-RPC (a few tools need no
  * SDK); serves modern (2026-07-28, per-request _meta) and legacy (initialize) clients.
  *
- *   audio --mcp --repl http://127.0.0.1:7777 --key K
+ *   audio --mcp --editor http://127.0.0.1:7777 --key K
  *
- * adds the REPL's tools (repl_state, repl_edit, …) for the sound open in the user's browser: each
- * goes to the bridge (`audio --bridge`, bin/bridge.js), which hands it to the page and returns its answer.
+ * adds the editor's tools (state, measure, edit, …) for the sound open in the user's audio editor,
+ * a browser page: each goes to the bridge (`audio --bridge`, bin/bridge.js), which hands it to the
+ * page and returns its answer: JSON as text, a picture ({ image: data URL }) as image content.
  */
 import { spawn } from 'child_process'
 import { readFileSync } from 'fs'
@@ -42,16 +43,17 @@ const TOOL = {
   }
 }
 
-// The REPL's tools: the page implements them, the bridge carries them; names and arguments are the
-// bridge protocol. The descriptions are all an agent knows of the page, so they teach the script.
-const repl = (name, title, description, properties = {}, required = [], readOnlyHint = false) => ({
+// The editor's tools: the page implements them, the bridge carries them; names and arguments are the
+// bridge protocol. Bare verbs: clients name them by the server, mcp__audio__edit. The descriptions
+// are all an agent knows of the page, so they teach the script.
+const def = (name, title, description, properties = {}, required = [], readOnlyHint = false) => ({
   name, title, description, inputSchema: { type: 'object', properties, required, additionalProperties: false },
   annotations: { readOnlyHint, destructiveHint: false }  // every change is one undo step
 })
 const secs = description => ({ type: 'number', description })
-const REPL = [
-  repl('repl_state', 'REPL state', "The sound open in the user's audio REPL, a browser page connected through `audio --bridge`: { script, duration, sampleRate, channels, selection: [a, b] in seconds or null, cursor, markers, stats: { peak dBFS, loudness LUFS }, problem }, problem being the script's error or null. Read it first, and again when the user may have acted: they edit the same sound, every repl_ tool acts on it, and each change shows and sounds in the page at once.", {}, [], true),
-  repl('repl_script', 'Replace REPL script', `Replace the whole REPL script and run it; answers once the sound has rendered: { ok, problem?, duration? }. One undo step.
+const EDITOR = [
+  def('state', 'Editor state', "The sound open in the user's audio editor, a browser page connected through `audio --bridge`: { script, duration, sampleRate, channels, selection: [a, b] in seconds or null, band: [low, high] Hz or null, cursor, markers, stats: { peak dBFS, loudness LUFS }, steps: [{ call, on }] the script's edits in order (`step` takes their index), problem }, problem being the script's error or null. Read it first, and again when the user may have acted: they edit the same sound, every tool here acts on it, and each change shows and sounds in the page at once. Measure anything else with `measure`, see it with `look`.", {}, [], true),
+  def('script', 'Replace the script', `Replace the whole script and run it; answers once the sound has rendered: { ok, problem?, duration? }. One undo step.
 The script is JavaScript; its last expression is the sound the page shows and plays: the source, then a chain of the audio library's methods (API: https://github.com/audiojs/audio#api):
   audio('voice.wav')
     .highpass(80)
@@ -66,19 +68,38 @@ Dynamics: compressor limiter gate expander deesser leveler ducker multiband
 Repair: omlsa deepfilter dehum declick decrackle declip dereverb deplosive debreath dewind roomtone spectral repair
 Time, pitch: speed stretch pitch warp resample tune
 Effect: delay chorus flanger phaser tremolo vibrato distortion tape exciter freeverb plate widener vocals, more
+Mark: mark(time, 'label') puts a finding on the user's timeline; markers export as WAV cues and MP3 chapters.
 Plugin ops take named params, .compressor({ threshold: -24, ratio: 3 }); the audio tool's \`OP --help\` lists an op's params.`,
     { code: { type: 'string', description: 'The whole script' } }, ['code']),
-  repl('repl_edit', 'Add a REPL step', "Append one call to the end of the REPL script's chain and run it, as one undo step; answers like repl_script. Prefer it to repl_script for a single step: the rest of the user's script stays as they wrote it.",
-    { call: { type: 'string', description: "One method call as repl_script describes, no leading dot: \"normalize(-16, 'lufs')\", \"remove({ at: 1, d: 0.5, xfade: 0.01 })\"" } }, ['call']),
-  repl('repl_select', 'Select in REPL', 'Select a range in the page, { at, d }, or place the cursor, { cursor }: shows the user a place, changes no sound.',
-    { at: secs('Range start, seconds'), d: secs('Range duration, seconds'), cursor: secs('Cursor position, seconds') }),
-  repl('repl_play', 'Play REPL sound', "Play the output on the user's speakers, from at for d seconds; without them, as the page's play button would. Let the user hear a change; repl_stop stops.",
-    { at: secs('Start, seconds'), d: secs('Duration, seconds') }),
-  repl('repl_stop', 'Stop REPL playback', 'Stop playback in the page.'),
-  repl('repl_check', 'Check REPL output', "Check the output against a delivery spec: 'podcast' (Apple, -16 LUFS), 'streaming' (Spotify, -14), 'broadcast' (EBU R 128, -23), 'netflix' (dialog -27, true peak -2 dBTP), 'acx' (audiobook). Answers the report, { spec, pass, rules: [{ name, value, unit, min, max, pass }] }: tell the user a fail as it is.",
+  def('edit', 'Add an edit', "Append one call to the end of the script's chain and run it, as one undo step; answers as `script` does. Prefer it to `script` for a single step: the rest of the user's script stays as they wrote it.",
+    { call: { type: 'string', description: "One method call as `script` describes, no leading dot: \"normalize(-16, 'lufs')\", \"remove({ at: 1, d: 0.5, xfade: 0.01 })\"" } }, ['call']),
+  def('measure', 'Measure the sound', `Run JavaScript on the sound open in the page; its last expression, awaited, comes back as JSON (arrays whole, -Infinity as "-Infinity"). Read-only: the script, the sound and its history stay as they are. In scope: out, the output as the user hears it, every edit in, its markers; src, the file as it opened (null for a generated sound); audio, the library. Times are seconds; a stat takes { at, d } for a range, { bins: n } for n values across it (where, not only how much), { channel: i } for one channel.
+  out.stat(['loudness', 'dialog', 'truepeak', 'lra', 'noisefloor'])
+  out.stat('loudness', { bins: Math.ceil(out.duration) })  // each second
+  out.stat('db', { at: 12, d: 0.5 })
+  out.stat('spectrum', { at: 3, d: 1, bins: 64 })  // dB per mel band from 30 Hz, A-weighted unless weight: false
+  out.silence({ threshold: -45, minDuration: 0.3 })  // pauses, [{ at, duration }]
+  out.stat('notes'); out.stat('onsets'); out.detect()  // pitch, attacks, tempo
+  src.stat('loudness')  // before the edits
+Stats: db rms peak crest dc clipping loudness momentary shortterm dialog truepeak lra dr replaygain noisefloor correlation centroid flatness rolloff slope spectrum ltas cepstrum silence hits onsets beats bpm key chords notes melody; Object.keys(audio.stat()) lists the built-in ones. An answer over 20000 chars is cut: ask for fewer bins or a range.`,
+    { code: { type: 'string', description: 'JavaScript; its last expression is the answer' } }, ['code'], true),
+  def('look', 'Look at the sound', 'A picture of the output as the page draws it, a PNG: the waveform over the spectrogram, the times and frequencies labelled, from at for d seconds; without them, what the user sees. Clicks, breaths, sibilance, hum lines, a band cut off show here before any number does. The user\'s view stays as it is.',
+    { at: secs('Start, seconds'), d: secs('Duration, seconds') }, [], true),
+  def('select', 'Select', "Select a range in the page, { at, d }; with low and high, a box of that band on the spectrogram, which then shows (for spectral([low, high], dB, { at, d }), repair()); or place the cursor, { cursor }. Brought into the user's view; shows them a place, changes no sound.",
+    { at: secs('Range start, seconds'), d: secs('Range duration, seconds'), low: { type: 'number', description: 'Band bottom, Hz' }, high: { type: 'number', description: 'Band top, Hz' }, cursor: secs('Cursor position, seconds') }),
+  def('scrub', 'Scrub', "Move the user's cursor as a held one moves, the moment under it sounding: held at `at` for d seconds, or swept to `to` over d seconds (by default as fast as it plays). To point the user's ear at a place; `play` plays it as it is.",
+    { at: secs('Where it starts, seconds'), to: secs('Where it ends, seconds'), d: secs('How long, seconds') }, ['at']),
+  def('step', 'Change an edit', 'Act on one edit of the chain, by its index in `state`.steps, as its card in the Edits panel does: on: false turns it off (commented out, kept), on: true back on; remove: true takes it away; to: n moves it to stand at index n. One undo step; answers as `script` does.',
+    { index: { type: 'integer', description: 'The edit, its index in `state`.steps' }, on: { type: 'boolean', description: 'Turn it on or off' }, remove: { type: 'boolean', description: 'Take it away' }, to: { type: 'integer', description: 'Move it to this index' } }, ['index']),
+  def('open', 'Open a file', "Open an audio or video file of the user's machine in the editor, in a tab of its own, by its absolute path (~ the home): the bridge reads it. Answers as `script` does, with the name the script opens it by.",
+    { path: { type: 'string', description: 'Absolute path, as /Users/me/voice.wav or ~/voice.wav' } }, ['path']),
+  def('play', 'Play', "Play the output on the user's speakers, from at for d seconds; without them, as the page's play button would. Let the user hear a change; `stop` stops. original: true plays the file as it opened, level-matched to the output, so the two compare fairly (the page's B key); false, the output again.",
+    { at: secs('Start, seconds'), d: secs('Duration, seconds'), original: { type: 'boolean', description: 'true: the file as it opened, level-matched; false: the output' } }),
+  def('stop', 'Stop', 'Stop playback in the page.'),
+  def('check', 'Check against a spec', "Check the output against a delivery spec: 'podcast' (Apple, -16 LUFS), 'streaming' (Spotify, -14), 'broadcast' (EBU R 128, -23), 'netflix' (dialog -27, true peak -2 dBTP), 'acx' (audiobook). Answers the report, { spec, pass, rules: [{ name, value, unit, min, max, pass }] }: tell the user a fail as it is.",
     { spec: { type: 'string', description: 'podcast, streaming, broadcast, netflix or acx' } }, ['spec'], true),
-  repl('repl_undo', 'Undo in REPL', 'Undo the last change to the REPL script, as Cmd+Z in the page.'),
-  repl('repl_redo', 'Redo in REPL', 'Redo the change repl_undo undid.')
+  def('undo', 'Undo', 'Undo the last change to the script, as Cmd+Z in the page.'),
+  def('redo', 'Redo', 'Redo the change `undo` undid.')
 ]
 
 /** Shell-style split: whitespace separates, quotes group, backslash escapes a quote/space/backslash (Windows paths survive), ~ is home. */
@@ -98,7 +119,7 @@ export function split(str) {
 }
 
 const running = new Map(), cancelled = new Set()  // request id → what to kill (a child, a fetch); ids the client gave up on
-let bridge = null  // { url, key } with --repl
+let bridge = null  // { url, key } with --editor
 
 function run(id, argv) {
   return new Promise(resolve => {
@@ -121,12 +142,11 @@ async function call(id, { args }) {
   let { code, out, err } = await run(id, argv)
   if (cancelled.delete(id)) return null  // the spec forbids answering a cancelled request
   let body = [out, err].map(s => s.replace(/^\s*\n/, '').trimEnd()).filter(Boolean).join('\n')  // stderr carries "Saved …", "→ part", errors
-  if (body.length > LIMIT) body = body.slice(0, LIMIT) + `\n… ${body.length - LIMIT} more chars cut: narrow with a range (0..30s) or fewer stats`
   // A failed `check` prints its report and exits 1: a result, not a tool error (its errors write only stderr)
-  return text(body || 'done', code !== 0 && !(argv.includes('check') && out.trim()))
+  return text(cut(body, 'narrow with a range (0..30s) or fewer stats') || 'done', code !== 0 && !(argv.includes('check') && out.trim()))
 }
 
-/** A REPL tool call, through the bridge to the page: its result as JSON text, its error as a tool error. */
+/** An editor tool call, through the bridge to the page: its result as JSON text, its error as a tool error. */
 async function relay(id, tool, args) {
   let ctl = new AbortController()
   running.set(id, { kill: () => ctl.abort() })
@@ -138,17 +158,20 @@ async function relay(id, tool, args) {
     let { result, error } = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
     if (cancelled.delete(id)) return null
     if (error != null) return text(`${tool}: ${error}`, true)  // no page, a timeout, the page's own error: the model can act on each
-    return text(result == null ? 'done' : typeof result === 'string' ? result : JSON.stringify(result))
+    let png = typeof result?.image === 'string' && result.image.match(/^data:(image\/\w+);base64,(.+)$/)
+    if (png) return { content: [{ type: 'image', mimeType: png[1], data: png[2] }, ...result.text ? [{ type: 'text', text: result.text }] : []], isError: false }
+    return text(cut(result == null ? 'done' : typeof result === 'string' ? result : JSON.stringify(result)))
   } catch (e) {
     if (cancelled.delete(id)) return null
-    return text(`${tool}: no bridge at ${bridge.url} (${e.cause?.code ?? e.message}): the user runs \`audio --bridge\` and opens the REPL`, true)
+    return text(`${tool}: no bridge at ${bridge.url} (${e.cause?.code ?? e.message}): the user runs \`audio --bridge\` and opens the editor`, true)
   } finally { running.delete(id) }
 }
 
 const text = (t, isError = false) => ({ content: [{ type: 'text', text: t }], isError })
+const cut = (t, how = 'ask for fewer bins or a range') => t.length > LIMIT ? t.slice(0, LIMIT) + `\n… ${t.length - LIMIT} more chars cut: ${how}` : t
 const wrap = m => ({ jsonrpc: '2.0', ...m })
 const send = m => process.stdout.write(JSON.stringify(Array.isArray(m) ? m.map(wrap) : wrap(m)) + '\n')
-const tools = () => bridge ? [TOOL, ...REPL] : [TOOL]
+const tools = () => bridge ? [TOOL, ...EDITOR] : [TOOL]
 
 /** One message → its response, or null for a notification, a response, a cancelled request. */
 async function handle(msg) {
@@ -188,12 +211,12 @@ async function handle(msg) {
 }
 const answer = msg => handle(msg).catch(e => msg?.id != null ? { id: msg.id, error: { code: -32603, message: e.message } } : null)
 
-/** argv after --mcp: [--repl URL] [--key K], the key also from AUDIO_BRIDGE_KEY. */
+/** argv after --mcp: [--editor URL] [--key K], the key also from AUDIO_BRIDGE_KEY. */
 function options(argv) {
-  if (!argv.includes('--repl')) return null
+  if (!argv.includes('--editor')) return null
   let value = flag => argv.includes(flag) ? argv[argv.indexOf(flag) + 1] : undefined
-  let url = value('--repl'), key = value('--key') ?? process.env.AUDIO_BRIDGE_KEY
-  if (!key) throw new Error('--repl needs the key `audio --bridge` printed: --key K, or AUDIO_BRIDGE_KEY')
+  let url = value('--editor'), key = value('--key') ?? process.env.AUDIO_BRIDGE_KEY
+  if (!key) throw new Error('--editor needs the key `audio --bridge` printed: --key K, or AUDIO_BRIDGE_KEY')
   return { url: url?.startsWith('http') ? url.replace(/\/+$/, '') : 'http://127.0.0.1:7777', key }
 }
 

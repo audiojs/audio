@@ -87,7 +87,7 @@ export default function engine(url = new URL('./dist/worker.js', import.meta.url
             for (const p of parts) x.set(p.channels[c].subarray(0, Math.max(0, length - p.at)), p.at)
             return x
           })
-          resolve({ ...reply, output: { channels, sampleRate: last.sampleRate, duration: last.duration, stats: last.stats, bitDepth: last.bitDepth } })
+          resolve({ ...reply, output: { channels, sampleRate: last.sampleRate, duration: last.duration, stats: last.stats, markers: last.markers, bitDepth: last.bitDepth } })
         }
         self.run(script, {
           chunk: m => parts.push(m),
@@ -113,6 +113,8 @@ export default function engine(url = new URL('./dist/worker.js', import.meta.url
     export: request => call({ type: 'export', ...request }),
     // The spec's rules for the last output ({ output }, fn/check.js).
     check: spec => call({ type: 'check', spec }),
+    // A prepared script's value (code.js prepare) on copies of the output shown and its source, as JSON: { value } or { error }
+    evaluate: script => call({ type: 'eval', ...script }),
     // The source it opened, level-matched to `loudness` (LUFS), for A/B listening.
     original: (source, loudness) => call({ type: 'original', source, loudness }),
     // A plugin's parameters from its manifest, fetched once.

@@ -1,4 +1,4 @@
-/* The REPL's skin: every colour, font, size and shadow it draws with, in one place, for a theme to set: the screen's
+/* The editor's skin: every colour, font, size and shadow it draws with, in one place, for a theme to set: the screen's
    greys and its accent (rulers, helpers, information), white for what is selected and edited, the waveform's own, the
    fills that raise a card or a key over the screen, the hints' look, the bar's height and the gutters. Under it the
    site's tokens (assets/tokens.css): its paper, ink, fonts, radii, durations and shadows. Another skin (a Winamp skin
@@ -11,6 +11,8 @@
   /* a selection's wash and hairline; the caret, white at the opacity that reads as --color-screen-muted over the screen:
      over the waveform it lightens, as a screen blend would, never darker than what it crosses */
   --color-screen-select: oklch(100% 0 0 / .05);
+  /* the same wash over a spectrogram, whose speckle hides a lift a waveform's even ground shows */
+  --color-screen-select-spectrum: oklch(100% 0 0 / .16);
   --color-screen-caret: oklch(100% 0 0 / .55);
   /* the waveform's colour, dim while a file arrives; the notch a handle leaves */
   --color-screen-wave: oklch(78% 0 0);

@@ -52,3 +52,23 @@ export function rms(d, from = 0, to = d.length) {
   for (let i = from; i < to; i++) s += d[i] * d[i]
   return Math.sqrt(s / (to - from))
 }
+
+/** A voice: Rosenberg (1971) glottal pulses at f0 (Hz, or t => Hz), differentiated (lip radiation), through Klatt (1980)
+ *  resonators at Peterson & Barney's (1952) male /a/ formants, 730, 1090, 2440 and 3400 Hz, each `k` times as high. */
+export function vowel(f0, dur, k = 1, sr = 44100) {
+  let rs = [[730, 90], [1090, 110], [2440, 170], [3400, 250]].map(([F, B]) => {
+    let C = -Math.exp(-2 * Math.PI * B * k / sr), Bc = 2 * Math.exp(-Math.PI * B * k / sr) * Math.cos(2 * Math.PI * F * k / sr), A = 1 - Bc - C, y1 = 0, y2 = 0
+    return x => { let y = A * x + Bc * y1 + C * y2; y2 = y1; y1 = y; return y }
+  })
+  let n = Math.round(dur * sr), d = new Float32Array(n), ph = 0, prev = 0, peak = 0
+  for (let i = 0; i < n; i++) {
+    ph += (typeof f0 === 'function' ? f0(i / sr) : f0) / sr
+    if (ph >= 1) ph -= 1
+    let g = ph < .4 ? .5 * (1 - Math.cos(Math.PI * ph / .4)) : ph < .56 ? Math.cos(Math.PI * (ph - .4) / .32) : 0, y = g - prev
+    prev = g
+    for (let r of rs) y = r(y)
+    d[i] = y
+  }
+  for (let v of d) peak = Math.max(peak, Math.abs(v))
+  return d.map(v => .3 * v / peak)
+}

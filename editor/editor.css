@@ -1,4 +1,4 @@
-/* The REPL: the site's dot-grid paper around two of its black slabs, the script and the output, filling the window. */
+/* The editor: the site's dot-grid paper around two of its black slabs, the script and the output, filling the window. */
 @import './skin.css';
 
 * { box-sizing: border-box; }
@@ -19,11 +19,11 @@ button:disabled { cursor: default; opacity: .4; }
    clicks, never shown dead. Sprae drops each directive attribute as it takes that element, so any version of the
    script that runs wakes the page; none depends on a line of it. */
 [\:if], [\:each], [\:hidden] { display: none !important; }
-.repl[\:class] { pointer-events: none; }
+.app[\:class] { pointer-events: none; }
 svg { flex: none; }
 
-.repl { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: var(--bar) minmax(0, 1fr) auto; height: 100dvh; }
-/* WORKSHOP (repl/workshop.js): the variants to choose between, a strip under the page */
+.app { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: var(--bar) minmax(0, 1fr) auto; height: 100dvh; }
+/* WORKSHOP (editor/workshop.js): the variants to choose between, a strip under the page */
 .workshop { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 0 var(--gutter) 10px; color: var(--color-muted); font: 11px var(--font-mono); }
 .workshop-group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .workshop-group span { margin-right: 4px; }
@@ -83,7 +83,7 @@ svg { flex: none; }
 
 /* Panes: a head over the picture (the open sounds; how it shows, ending where its pictures end; undo and redo over its
    meters and labels) and over the panel (the panels' buttons, at the slab's right, as an editor's activity bar), the
-   picture, the panel docked beside it when one is open (the edits, the code, the export, the settings), part of the
+   picture, the panel docked beside it when one is open (the recipes, the agent, the edits, the code, the export), part of the
    slab, no line between, all one width so nothing moves as it turns from one to another, and the bar along the foot of
    both. The panel's left edge drags its width (--panel, kept); the button that opened it, again, closes it. Opening it,
    the picture keeps where it starts and its scale (view.js): it shows less of the sound, never squeezed. */
@@ -106,33 +106,41 @@ svg { flex: none; }
 .view-head .history .icon-button:hover:not([aria-disabled="true"]):not(:disabled) { background: var(--color-screen-hover); color: var(--color-screen-bright); }
 .view-head .history .icon-button:is([aria-disabled="true"], :disabled) { opacity: .35; }
 .panes[data-side="open"] .view-head { padding-right: 32px; }
+/* the bar under both: what the output holds (its note, key, levels) ends where the picture ends, what the sound is (its
+   rate, channels, depth) at the bar's end, under the panel; the panel's width less the bar's end, the 14 px before the
+   facts and the 6 px gap keeping the picture's end's 20 */
+.panes[data-side="open"] .facts { width: calc(min(var(--panel), 60vw) - 20px); justify-content: flex-end; }
 /* its left edge, a strip to drag, a grip on it (WORKSHOP: a bar, three dots, or none, a line only where pointed at) */
 .panel-edge { position: absolute; z-index: 1; top: 0; bottom: 0; left: -3px; display: grid; place-items: center; width: 7px; cursor: ew-resize; touch-action: none; }
 .panel-grip { display: block; transition: background var(--dur-micro) var(--ease-out), box-shadow var(--dur-micro) var(--ease-out); }
-.repl[data-resizer="bar"] .panel-grip { width: 3px; height: 28px; border-radius: 2px; background: var(--color-screen-rule); }
-.repl[data-resizer="bar"] .panel-edge:is(:hover, :active) .panel-grip { background: var(--color-screen-muted); }
-.repl[data-resizer="dots"] .panel-grip { --dot: var(--color-screen-dim); width: 3px; height: 3px; border-radius: 50%; background: var(--dot); box-shadow: 0 -6px var(--dot), 0 6px var(--dot); }
-.repl[data-resizer="dots"] .panel-edge:is(:hover, :active) .panel-grip { --dot: var(--color-screen-soft); }
-.repl[data-resizer="none"] .panel-edge:is(:hover, :active) { background: linear-gradient(90deg, transparent 3px, var(--color-screen-muted) 3px 4px, transparent 4px); }
+.app[data-resizer="bar"] .panel-grip { width: 3px; height: 28px; border-radius: 2px; background: var(--color-screen-rule); }
+.app[data-resizer="bar"] .panel-edge:is(:hover, :active) .panel-grip { background: var(--color-screen-muted); }
+.app[data-resizer="dots"] .panel-grip { --dot: var(--color-screen-dim); width: 3px; height: 3px; border-radius: 50%; background: var(--dot); box-shadow: 0 -6px var(--dot), 0 6px var(--dot); }
+.app[data-resizer="dots"] .panel-edge:is(:hover, :active) .panel-grip { --dot: var(--color-screen-soft); }
+.app[data-resizer="none"] .panel-edge:is(:hover, :active) { background: linear-gradient(90deg, transparent 3px, var(--color-screen-muted) 3px 4px, transparent 4px); }
 /* a pill with a grip, two short lines in it, as an iPad's split view; a Finder column's divider, a rule its height, its
    knob with the grip at its foot */
-.repl[data-resizer="pill"] .panel-grip, .repl[data-resizer="finder"] .panel-grip { --grip: var(--color-screen-dim); width: 7px; height: 40px; border-radius: 4px; background: linear-gradient(90deg, transparent 2px, var(--grip) 2px 3px, transparent 3px 4px, var(--grip) 4px 5px, transparent 5px) center / 7px 10px no-repeat, var(--color-screen-raised); }
-.repl[data-resizer="finder"] .panel-edge { place-items: end center; padding-bottom: 10px; background: linear-gradient(90deg, transparent 3px, var(--color-screen-rule) 3px 4px, transparent 4px); }
-.repl[data-resizer="finder"] .panel-grip { height: 18px; border-radius: 3px; }
-.repl:is([data-resizer="pill"], [data-resizer="finder"]) .panel-edge:is(:hover, :active) .panel-grip { --grip: var(--color-screen-bright); }
+.app[data-resizer="pill"] .panel-grip, .app[data-resizer="finder"] .panel-grip { --grip: var(--color-screen-dim); width: 7px; height: 40px; border-radius: 4px; background: linear-gradient(90deg, transparent 2px, var(--grip) 2px 3px, transparent 3px 4px, var(--grip) 4px 5px, transparent 5px) center / 7px 10px no-repeat, var(--color-screen-raised); }
+.app[data-resizer="finder"] .panel-edge { place-items: end center; padding-bottom: 10px; background: linear-gradient(90deg, transparent 3px, var(--color-screen-rule) 3px 4px, transparent 4px); }
+.app[data-resizer="finder"] .panel-grip { height: 18px; border-radius: 3px; }
+.app:is([data-resizer="pill"], [data-resizer="finder"]) .panel-edge:is(:hover, :active) .panel-grip { --grip: var(--color-screen-bright); }
 
 .slab { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 /* The bar along the foot of the output and the panel, one with them, a status bar as an editor's: play and the time,
    then what is happening; at its right what the output is */
 .status { --time-size: 40px; display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 60px; padding: 0 20px 0 12px; container-type: inline-size; }
+/* the picture's side of it: with the panel open, the facts under the panel, a container of its own, so the queries below
+   that hide what it shows measure the room beside the panel; closed, the bar's, the facts in it */
+.status-main { display: flex; flex: 1 1 0; align-items: center; gap: 6px; min-width: 0; }
+.panes[data-side="open"] .status-main { container-type: inline-size; }
 :is(.slab, .status) .icon-button { color: var(--color-screen-muted); }
 :is(.slab, .status) .icon-button:hover:not(:disabled), :is(.slab, .status) .icon-button[aria-pressed="true"] { color: var(--color-screen-bright); background: var(--color-screen-hover); }
 .text-button { min-height: 28px; padding: 0 10px; border: 1px solid var(--color-screen-rule); border-radius: 6px; background: var(--color-transparent); color: var(--color-screen-soft); font-size: 12px; }
 .text-button:hover { color: var(--color-screen-bright); border-color: var(--color-screen-muted); }
 
-/* The panel: its edits, its code, its export or its settings, a tab each in the bar */
+/* The panel: its recipes, its agent, its edits, its code or its export, a tab each in the bar */
 .stack, .script { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
-.editor { flex: 1; min-height: 0; }
+.script-editor { flex: 1; min-height: 0; }
 .console { max-height: 32%; overflow: auto; padding: 10px 20px 12px; border-top: 1px solid var(--color-screen-rule); font: 12px/1.6 var(--font-mono); }
 .console .line { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--color-screen-soft); }
 .console .line.value { color: var(--color-screen-bright); }
@@ -144,8 +152,8 @@ svg { flex: none; }
 .tabs { display: flex; flex: none; gap: 14px; }
 .tabs button { position: relative; min-height: 28px; padding: 0; border: 0; background: none; color: var(--color-screen-dim); font: 500 12px var(--font-body); }
 .tabs button:hover { color: var(--color-screen-soft); }
-.tabs button[aria-selected="true"] { color: var(--color-screen-bright); }
-/* an icon each: the panels' at the head's right (the settings' sliders, the code's brackets, the export's arrow down),
+.tabs button:is([aria-selected="true"], [aria-expanded="true"]) { color: var(--color-screen-bright); }
+/* an icon each: the panels' at the head's right (the code's brackets, the export's arrow down), the settings' sliders,
    the picture's in the bar before its levels (the waveform's bars, the spectrogram's partials) */
 .tabs.icons { gap: 4px; }
 .tabs.icons button { display: grid; place-items: center; width: 34px; min-height: 30px; border-radius: 7px; }
@@ -180,6 +188,9 @@ svg { flex: none; }
 .steps-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-xs); margin: 0; padding: 0; list-style: none; }
 .step { position: relative; min-width: 0; border-radius: 10px; background: var(--color-screen-fill); transition: background var(--dur-micro) var(--ease-out), opacity var(--dur-micro) var(--ease-out); }
 .step:hover { background: var(--color-screen-fill-hover); }
+/* a group's steps, unfolded under its card, set in as an outline sets them */
+.step.grouped { margin-left: 14px; }
+.step-group .step-toggle[aria-expanded="true"] .step-icon { color: var(--color-screen-accent); }
 .step.chosen { background: var(--color-screen-fill-chosen); }
 .step.delta { box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-screen-accent) 70%, transparent); }
 .step.off .step-toggle, .step.rolled { opacity: .42; }
@@ -205,6 +216,13 @@ svg { flex: none; }
 .params .step-delta { justify-self: start; min-height: 24px; padding: 0 9px; border: 1px solid var(--color-screen-rule); border-radius: 6px; background: none; color: var(--color-screen-muted); font: 11.5px var(--font-body); }
 .params .step-delta:hover { color: var(--color-screen-bright); border-color: var(--color-screen-muted); }
 .params .step-delta[aria-pressed="true"] { border-color: color-mix(in oklch, var(--color-screen-accent) 70%, transparent); color: var(--color-screen-accent); }
+/* the settings few touch, folded after those that matter under a button of their own: how many, and open or not */
+.params .step-more { display: flex; align-items: center; justify-self: start; gap: 4px; min-height: 22px; margin-left: -3px; padding: 0; border: 0; background: none; color: var(--color-screen-muted); font: 11.5px var(--font-body); }
+.params .step-more:hover { color: var(--color-screen-bright); }
+.params .step-more:focus-visible { outline: 1px solid var(--color-screen-muted); outline-offset: 2px; border-radius: 4px; }
+.params .step-more svg { width: 13px; height: 13px; transition: rotate var(--dur-micro) var(--ease-out); }
+.params .step-more[aria-expanded="true"] svg { rotate: 90deg; }
+.params .step-more span { color: var(--color-screen-dim); font: 10.5px var(--font-mono); }
 .step-toggle:focus-visible { outline: 1px solid var(--color-screen-muted); outline-offset: -1px; border-radius: 10px; }
 /* none yet; and the button that takes them all away, at the foot */
 /* at the edits' foot, the palette: another step */
@@ -244,7 +262,8 @@ svg { flex: none; }
 .file { display: flex; flex: 0 1 auto; align-items: center; min-width: 48px; max-width: 220px; height: 28px; padding: 0 3px 0 10px; border-radius: 7px; color: var(--color-screen-dim); }
 .file:hover { background: var(--color-screen-hover); color: var(--color-screen-soft); }
 /* dragged along, held under the pointer, the others stepping aside */
-.file { position: relative; transition: transform var(--dur-short) var(--ease-out); }
+/* a neighbour giving way to a tab dragged slides aside at once, as quickly as a finger moves */
+.file { position: relative; transition: transform var(--dur-micro) var(--ease-out); }
 .file.dragging { z-index: 1; transition: none; background: var(--color-screen-raised); box-shadow: var(--shadow-lifted); }
 .file.current { background: var(--color-screen-raised); color: var(--color-screen-bright); }
 .file [role="tab"] { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; color: inherit; font: 12px var(--font-mono); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -269,6 +288,9 @@ svg { flex: none; }
 .plot canvas.waveform, .plot canvas.spectrum { mask-image: linear-gradient(to right, #000 calc(100% - var(--end) - var(--fade)), rgb(0 0 0 / .55) calc(100% - var(--end) - var(--fade) * .75), rgb(0 0 0 / .27) calc(100% - var(--end) - var(--fade) * .5), rgb(0 0 0 / .10) calc(100% - var(--end) - var(--fade) * .25), rgb(0 0 0 / .04) calc(100% - var(--end) - var(--fade) * .125), transparent calc(100% - var(--end))); }
 .plot canvas.spectrum { transition: opacity var(--dur-short) var(--ease-out); }
 .dropping .view::after { content: ''; position: absolute; inset: -4px 8px 0 -4px; border: 1px dashed var(--color-screen-muted); border-radius: 10px; pointer-events: none; }
+/* a file held over the tabs: it opens in a tab of its own, where the new tab's button is */
+.dropping-tab .files { border-radius: 8px; box-shadow: inset 0 0 0 1px var(--color-screen-muted); }
+.dropping-tab .file-new { background: var(--color-screen-fill-hover); color: var(--color-screen-accent); }
 
 .empty, .recording { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 24px; text-align: center; }
 .empty-title { margin: 0; color: var(--color-screen-ink); font-size: 20px; font-weight: 450; letter-spacing: -.02em; }
@@ -297,24 +319,43 @@ svg { flex: none; }
 .record.on .record-icon { border-radius: 2px; opacity: 1; animation: recording 1.2s var(--ease-in-out) infinite alternate; }
 @keyframes recording { to { opacity: .45; } }
 .play:hover:not(:disabled) { background: var(--color-screen-hover); }
+/* The speed it plays at. A ring round Play: its share of 0.1× to 10× on a log scale from the top, clockwise; 1× half */
+.play { position: relative; }
+.play.ringed::before { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: conic-gradient(var(--color-screen-accent) calc(var(--speed) * 360deg), var(--color-screen-rule) 0); mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px)); pointer-events: none; }
+.speed-readout, .speed-pill { flex: none; min-height: 22px; padding: 0 7px; border: 0; border-radius: 11px; background: var(--color-screen-fill); color: var(--color-screen-accent); font: 11px var(--font-mono); font-variant-numeric: tabular-nums; }
+.speed-pill { color: var(--color-screen-ink); }
+.speed-slider { flex: none; width: 72px; accent-color: var(--color-screen-accent); }
+/* Play dragged: the speeds' scale over it, 0.1× to 10×, a doubling each 32 px (213 px), the speed marked; the pointer
+   hidden */
+.speed-axis { position: fixed; z-index: 20; width: calc(213px + 28px); height: 34px; translate: 0 calc(-100% - 10px); border-radius: 8px; background: var(--color-screen-raised); box-shadow: var(--shadow-menu); pointer-events: none; }
+.speed-tick { position: absolute; bottom: 6px; left: calc(14px + var(--at) * 213px); translate: -50% 0; color: var(--color-screen-dim); font: 10px var(--font-mono); }
+.speed-tick::before { content: ''; position: absolute; top: -8px; left: 50%; width: 1px; height: 5px; background: var(--color-screen-rule); }
+.speed-mark { position: absolute; top: 4px; left: calc(14px + var(--at) * 213px); translate: -50% 0; padding: 0 4px; border-radius: 4px; background: var(--color-screen-accent); color: var(--color-screen); font: 10px var(--font-mono); }
+.shuttling, .shuttling * { cursor: none !important; }
 .play-icon { display: block; width: 0; height: 0; margin-left: 2px; border-top: 7px solid transparent; border-bottom: 7px solid transparent; border-left: 11px solid currentColor; }
 .play-icon.paused { width: 11px; height: 14px; margin-left: 0; border: 0; border-inline: 3px solid currentColor; }
 /* The time as on the home page, large light digits, one time always, the caret's or the playhead's; after it, how long
-   all that is selected is, white between dim bars, as a length is marked, on its baseline. It keeps its width: the message after it
-   shrinks first, then the levels at the right go */
-.clock { display: flex; flex: none; align-items: baseline; gap: 10px; margin: 0; padding: 0 6px; }
+   all that is selected is, white between dim bars, as a length is marked, on its baseline. It keeps its width, the
+   length's room kept while there is none, as the levels' at the right: nothing moves as a selection is made, dragged,
+   played or heard, the message between them the one that gives way */
+.status-main > *, .facts { flex: none; }
+.clock { display: flex; align-items: baseline; gap: 10px; margin: 0; padding: 0 6px; }
 .time { color: var(--color-screen-ink); font: 300 var(--time-size)/1 var(--font-display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.length { color: var(--color-screen-bright); font: 300 calc(var(--time-size) * .5)/1 var(--font-display); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.length { min-width: 4.6em; color: var(--color-screen-bright); font: 300 calc(var(--time-size) * .5)/1 var(--font-display); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.length:empty { visibility: hidden; }
 .length::before, .length::after { content: '|'; color: var(--color-screen-dim); }
-.message, .facts, .readout, .heard { display: flex; align-items: center; gap: 10px; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px/16px var(--font-mono); font-variant-numeric: tabular-nums; }
-/* what is happening, one line after the time: a note, a problem in red, the engine's work */
+.message, .facts, .readout, .heard { display: flex; align-items: center; gap: 10px; min-width: 0; margin: 0; white-space: nowrap; font: 11px/16px var(--font-mono); font-variant-numeric: tabular-nums; }
+.message, .heard { overflow: hidden; text-overflow: ellipsis; }
+/* what is happening, one line after the time: a note, a problem in red, the engine's work; the room that is left, whole
+   or none: what the sound is is never cut short, it goes whole as the bar narrows (below) */
 .message { display: block; flex: 1 1 0; margin-left: 6px; color: var(--color-screen-soft); }
 .message.problem { color: var(--color-screen-error); }
 /* what the sound is, each a button: its rate resamples it, its channels mix it */
 .fact { flex: none; margin: 0 -3px; padding: 0 3px; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; }
 .fact:hover, .fact:focus-visible { background: var(--color-screen-hover); color: var(--color-screen-bright); }
-.facts { flex: none; margin-left: 14px; color: var(--color-screen-soft); }
-.readout { display: block; flex: 0 1 auto; margin-left: 6px; color: var(--color-screen-muted); }
+.facts { margin-left: 14px; color: var(--color-screen-soft); }
+/* the levels as digits turn: room for the longest (peak −10.0dB RMS −21.0dB), at the right */
+.readout { display: block; min-width: 25ch; margin-left: 6px; color: var(--color-screen-muted); text-align: right; }
 .heard { display: block; flex: 0 1 auto; margin-left: 6px; color: var(--color-screen-dim); }
 /* Scenarios: a goal's whole chain each, found by their words, a card each: its name, what it does, the spec it delivers */
 .scenarios, .chat { display: flex; flex: 1; flex-direction: column; min-height: 0; }
@@ -342,17 +383,88 @@ svg { flex: none; }
 .chat-empty code { padding: 2px 6px; border-radius: 5px; background: var(--color-screen-fill-soft); color: var(--color-screen-bright); font: 12px var(--font-mono); }
 .link { padding: 0; border: 0; background: none; color: var(--color-screen-bright); text-decoration: underline; text-underline-offset: 3px; }
 .chat-message { margin: 0 0 12px; font-size: 13px; line-height: 1.5; }
-.chat-message p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-message.user p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .chat-message.user { width: fit-content; max-width: 85%; margin-left: auto; padding: 6px 10px; border-radius: 10px; background: var(--color-screen-fill-quiet); color: var(--color-screen-bright); }
 .chat-message.agent { color: var(--color-screen-ink); }
-.chat-tools { display: block; margin-top: 4px; color: var(--color-screen-dim); font: 11px var(--font-mono); }
+/* a call the agent made, where it made it: done, a tick; refused, a cross */
+.chat-step { display: flex; gap: 7px; margin: 3px 0; color: var(--color-screen-muted); font: 11.5px/1.45 var(--font-mono); overflow-wrap: anywhere; }
+.chat-step::before { content: '✓'; flex: none; width: 10px; color: var(--color-screen-dim); }
+.chat-step.failed::before { content: '✗'; color: var(--color-screen-error); }
+.chat-step > span:first-child, .chat-step > button { min-width: 0; }
+/* a place on the sound, a click away: the step's words underlined as a link's, dotted */
+.chat-step button { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; text-decoration: underline dotted var(--color-screen-dim); text-underline-offset: 3px; }
+.chat-step button:hover, .chat-step button:focus-visible { color: var(--color-screen-bright); text-decoration-color: currentColor; }
+/* what it came to */
+.chat-note { flex: 0 1 auto; min-width: 0; color: var(--color-screen-soft); }
+.chat-note::before { content: '· '; color: var(--color-screen-dim); }
+.chat-step.failed .chat-note { color: var(--color-screen-error); }
+.md + .chat-step { margin-top: 8px; }
+.chat-step + .md { margin-top: 8px; }
+/* the agent's words, Markdown (markdown.js), set as the panel's own text: code in its wells, tables ruled, links underlined */
+.md { overflow-wrap: break-word; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md :is(p, ul, ol, pre, blockquote, .md-table) { margin: 0 0 8px; }
+.md :is(h1, h2, h3, h4, h5, h6) { margin: 14px 0 6px; color: var(--color-screen-bright); font-size: 13px; font-weight: 600; line-height: 1.35; }
+.md h1 { font-size: 15px; }
+.md h2 { font-size: 14px; }
+.md :is(ul, ol) { padding-left: 20px; }
+.md li { margin: 2px 0; }
+.md li > :is(ul, ol, p) { margin: 2px 0 0; }
+.md li::marker { color: var(--color-screen-dim); }
+.md strong { color: var(--color-screen-bright); font-weight: 600; }
+.md del { color: var(--color-screen-muted); }
+.md a { color: var(--color-screen-bright); text-decoration: underline var(--color-screen-dim); text-underline-offset: 2px; }
+.md a:hover { text-decoration-color: currentColor; }
+.md code { padding: 1px 5px; border-radius: 4px; background: var(--color-screen-fill-soft); color: var(--color-screen-bright); font: 12px var(--font-mono); }
+.md pre { padding: 8px 10px; overflow-x: auto; border-radius: 8px; background: var(--color-screen-well); }
+.md pre code { padding: 0; background: none; color: var(--color-screen-ink); white-space: pre; }
+.md blockquote { padding-left: 10px; border-left: 2px solid var(--color-screen-rule); color: var(--color-screen-soft); }
+.md hr { margin: 12px 0; border: 0; border-top: 1px solid var(--color-screen-rule); }
+.md-table { overflow-x: auto; }
+.md table { width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.4; }
+.md :is(th, td) { padding: 5px 10px 5px 0; border-top: 1px solid var(--color-screen-rule); text-align: left; vertical-align: top; }
+.md :is(th, td):last-child { padding-right: 0; }
+.md thead th { border-top: 0; color: var(--color-screen-muted); font-weight: 500; }
+.md :is(th, td).right { text-align: right; }
+.md :is(th, td).center { text-align: center; }
+/* while it answers: three dots in turn, what it does now, one line, and how long it has taken */
+.chat-busy { display: flex; align-items: center; gap: 8px; min-height: 20px; margin: 4px 0 0; color: var(--color-screen-muted); font: 11px var(--font-mono); }
+.chat-doing { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-elapsed { flex: none; margin-left: auto; color: var(--color-screen-dim); font-variant-numeric: tabular-nums; }
+.chat-dots { display: inline-flex; gap: 3px; }
+.chat-dots i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: chat-dot 1.2s ease-in-out infinite; }
+.chat-dots i:nth-child(2) { animation-delay: .15s; }
+.chat-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes chat-dot { 0%, 60%, 100% { opacity: .25; } 30% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .chat-dots i { animation: none; opacity: .6; } }
+/* its conversations: the open one's name, a click listing the tab's others; a new one */
+.chat-head { display: flex; flex: none; align-items: center; gap: 4px; padding: 4px 8px 0 8px; }
+.chat-title { display: flex; flex: 1; align-items: center; gap: 4px; min-width: 0; height: 28px; padding: 0 6px; border: 0; border-radius: 6px; background: none; color: var(--color-screen-soft); font-size: 12px; font-weight: 500; }
+.chat-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-title svg { width: 14px; height: 14px; color: var(--color-screen-dim); }
+.chat-title:hover, .chat-title:focus-visible { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+.chat-head .icon-button { width: 28px; height: 28px; }
+.chat-head .icon-button svg { width: 16px; height: 16px; }
+.chat-item { display: flex; align-items: center; gap: 2px; }
+.chat-item .menu-item { flex: 1; min-width: 0; }
+.chat-item .menu-item strong { flex: 1; min-width: 0; overflow: hidden; font: 12px var(--font-body); text-overflow: ellipsis; white-space: nowrap; }
+.chat-item .menu-item span { flex: none; font-size: 11px; }
+/* its delete, where the pointer is (always, where there is none) */
+.chat-drop { flex: none; width: 28px; height: 28px; opacity: 0; }
+.chat-drop svg { width: 14px; height: 14px; }
+.chat-item:is(:hover, :focus-within) .chat-drop { opacity: 1; }
+@media (hover: none) { .chat-drop { opacity: 1; } }
 .chat-error { display: block; margin-top: 4px; color: var(--color-screen-error); font-size: 12px; }
 .chat-form { display: flex; flex: none; align-items: flex-end; gap: 8px; padding: 8px 14px 14px; }
 .chat-form textarea { flex: 1; min-height: 40px; padding: 9px 12px; resize: none; line-height: 1.4; }
 .chat-send { display: grid; flex: none; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 9px; background: var(--color-screen-bright); color: var(--color-screen); }
 .chat-send:disabled { background: var(--color-screen-fill-off); color: var(--color-screen-dim); }
 .chat-send svg { width: 17px; height: 17px; }
-.settings .field { margin-bottom: 6px; }
+/* the bridge, over the message: its address and key until it connects, then the agent on it */
+.chat-connect { flex: none; padding: 8px 14px 0; }
+.chat-connect .field { margin-bottom: 6px; }
+.chat-connect .field-note { margin: 2px 0 4px; }
 
 /* a marker's name, written over its flag */
 .marker-name { position: absolute; z-index: 2; width: 140px; height: 18px; padding: 0 5px; border: 1px solid var(--color-screen-muted); border-radius: 4px; background: var(--color-screen); color: var(--color-screen-bright); font: 11px var(--font-mono); outline: none; }
@@ -366,15 +478,20 @@ svg { flex: none; }
 .menu.wide { width: 380px; }
 .menu.narrow { width: 230px; }
 #rate-menu, #channels-menu { position-area: top span-right; }
-/* The export: the checks, rule by rule, and the file. The settings: what the picture shows and how */
-.export, .settings { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: auto; padding: 0 14px 14px; }
-.settings .choices + .choices { margin-top: 4px; }
-:is(.export, .settings) > .panel-group:first-child, .export > .form:first-child > .panel-group:first-child { margin-top: 4px; }
-.settings .menu-row { padding-left: 0; }
+/* A dropdown: a picture's options or the settings, every group in sight, its choices as keys, what the chosen one does
+   said under them */
+.dropdown { position: fixed; inset: auto; width: min(360px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); margin: 0; padding: 4px 14px 12px; overflow: auto; border: 0; border-radius: 12px; background: var(--color-screen-raised); color: var(--color-screen-soft); box-shadow: var(--shadow-menu); }
+.dropdown-group { padding-top: 10px; }
+.dropdown-label { margin: 0 0 6px; color: var(--color-screen-ink); font: 500 12px var(--font-body); }
+.dropdown .choices button { min-height: 26px; padding: 0 9px; font-size: 11.5px; }
+.dropdown-note { min-height: 15px; margin: 5px 0 0; color: var(--color-screen-dim); font: 11.5px/15px var(--font-body); }
+/* The export: the checks, rule by rule, and the file */
+.export { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: auto; padding: 0 14px 14px; }
+.export > .panel-group:first-child, .export > .form:first-child > .panel-group:first-child { margin-top: 4px; }
 .panel-group { display: flex; flex: none; align-items: baseline; gap: 8px; margin: 16px 0 8px; overflow: hidden; color: var(--color-screen-ink); font-size: 12px; font-weight: 500; white-space: nowrap; }
 /* what it is for, in a few words after it */
 .panel-group span { min-width: 0; overflow: hidden; color: var(--color-screen-dim); font-weight: 400; text-overflow: ellipsis; }
-:is(.export, .settings) .choices button { min-height: 26px; padding: 0 9px; font-size: 11.5px; }
+.export .choices button { min-height: 26px; padding: 0 9px; font-size: 11.5px; }
 .export .check-table { margin-top: 12px; }
 /* a long limit wraps in a narrow panel */
 .export .check-table .limit { white-space: normal; }
@@ -473,17 +590,18 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
 /* A narrow or short window: the panel a sheet over the lower part of the output, the whole width, as tall as it can be
    and keep a strip of the picture over it */
 @media (max-width: 760px), (max-height: 520px) {
-  .repl .panes > .side-slab { position: absolute; z-index: 3; grid-area: 2 / 1 / 3 / -1; inset: auto 6px 6px; width: auto; max-width: none; height: max(min(260px, calc(100% - 12px)), calc(100% - 80px)); border-radius: 10px; background: var(--color-screen-raised); box-shadow: var(--shadow-menu); }
-  .repl .panes[data-side="none"] > .view-slab, .repl .panes > .view-slab { grid-column: 1 / -1; }
-  .repl .panel-edge { display: none; }
+  .app .panes > .side-slab { position: absolute; z-index: 3; grid-area: 2 / 1 / 3 / -1; inset: auto 6px 6px; width: auto; max-width: none; height: max(min(260px, calc(100% - 12px)), calc(100% - 80px)); border-radius: 10px; background: var(--color-screen-raised); box-shadow: var(--shadow-menu); }
+  .app .panes[data-side="none"] > .view-slab, .app .panes > .view-slab { grid-column: 1 / -1; }
+  .app .panel-edge { display: none; }
+  .app .panes[data-side="open"] .facts { width: auto; }
 }
-/* A narrow bar: smaller digits, and narrower still the levels and the rate go, the picture's switch staying */
-@container (max-width: 560px) {
-  .clock { --time-size: 28px; }
-}
-@container (max-width: 420px) {
-  .readout, .facts, .heard { display: none; }
-}
+/* A narrow bar: what the sound holds goes, then the digits are smaller, then the levels, the rate and the length, each
+   whole where the bar has the room for it and the message a hundred pixels or so */
+@container (max-width: 970px) { .heard { display: none; } }
+@container (max-width: 790px) { .clock { --time-size: 28px; } }
+@container (max-width: 715px) { .readout { display: none; } }
+@container (max-width: 540px) { .facts { display: none; } }
+@container (max-width: 430px) { .length { display: none; } }
 /* narrow windows: the menu's names go small before anything else */
 @media (max-width: 900px) { .menubar-item { padding: 0 6px; font-size: 12.5px; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

@@ -481,6 +481,24 @@ test('denoise: each channel learns its own noise; the op\'s range leaves the res
 	ok(rms(y, 3 * SR + F, 4 * SR - F) < rms(dirty, 3 * SR + F, 4 * SR - F), 'inside: the noise down')
 })
 
+// A band: the bins inside it gained as the whole spectrum's would be, those outside passed as they were. Measured through
+// 4th-order Butterworth filters an octave clear of the band's edges (2 to 8 kHz): under 1 kHz the input, 3 to 6 kHz the
+// whole denoise, to a fraction of a dB
+test('denoise: a band gains only its own frequencies', async () => {
+	let { dirty } = take(15)
+	let [inBand] = await audio.from([dirty], { sampleRate: SR }).denoise({ noise: PAUSE, band: [2000, 8000] }).read()
+	let [whole] = await audio.from([dirty], { sampleRate: SR }).denoise({ noise: PAUSE }).read()
+	let level = async (x, f) => 20 * Math.log10(rms((await f(audio.from([x], { sampleRate: SR })).read())[0]))
+	let low = a => a.lowpass(1000, 4), mid = a => a.highpass(3000, 4).lowpass(6000, 4)
+	let below = await level(inBand, low) - await level(dirty, low), within = await level(inBand, mid) - await level(whole, mid)
+	ok(Math.abs(below) < 0.1, `under 1 kHz: ${below.toFixed(3)} dB from the input`)
+	ok(Math.abs(within) < 0.5, `3 to 6 kHz: ${within.toFixed(3)} dB from the whole denoise`)
+	let pause = async x => rest((await mid(audio.from([x], { sampleRate: SR })).read())[0]), down = await pause(dirty) - await pause(inBand)
+	ok(down > 10, `the noise there, in the pause, ${down.toFixed(1)} dB down`)
+	let err = await audio.from([dirty], { sampleRate: SR }).denoise({ noise: PAUSE, band: [8000, 2000] }).read().catch(e => e)
+	ok(/^denoise: band is \[low, high\] Hz/.test(err?.message), err?.message)
+})
+
 test('denoise: says what it needs', async () => {
 	let a = () => audio.from([take(15).dirty], { sampleRate: SR })
 	let err = await a().denoise().read().catch(e => e)

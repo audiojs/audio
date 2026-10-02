@@ -172,15 +172,18 @@ Object.defineProperty(audio, 'context', { get: () => context(), set: ctx => cont
 // the worker host plays through the engine it loads (one module: a bundle of audio.js carries these along)
 audio[Symbol.for('audio.play')] = { voice, emitMeter }
 
-/** play({ at, duration, loop, volume, rate, paused, from }): `at` defaults to where playback is (the start once
- *  ended). Playing already, it goes to `at` (or the new span) without a gap. `from`: take over that instance's
- *  playback where it is, crossfaded: its span, loop, volume, rate and pause; it stops. */
+/** play({ at, duration, loop, volume, rate, preservesPitch, paused, from }): `at` defaults to where playback is (the
+ *  start once ended). Playing already, it goes to `at` (or the new span) without a gap. `from`: take over that
+ *  instance's playback where it is, crossfaded: its span, loop, volume, rate and pause; it stops. At a `rate` other
+ *  than 1 the pitch is kept, as a media element keeps it (deck.js: WSOLA), unless `preservesPitch` is false: then it
+ *  follows the speed, as a tape's. */
 audio.fn.play = function(opts = {}) {
   opts = named(opts)
   let a = this
   if (a._.disposed) throw new Error('audio: instance disposed')
   if (opts.volume != null) a.volume = opts.volume
   if (opts.rate != null) a.playbackRate = opts.rate
+  if (opts.preservesPitch != null) a.preservesPitch = opts.preservesPitch
   if (opts.from) return handoff(a, opts.from, opts), a
   let s = a._.play
   if (s && a.playing) {
@@ -214,7 +217,7 @@ proto.resume = function() {
 proto[TAKE] = function() {
   let s = this._.play
   if (!s || !this.playing) return null
-  let t = { tp: s.tp, head: s.tp?.head(), time: this.currentTime, span: this._.span, loop: this.loop, paused: this.paused, volume: this.volume, muted: this.muted, rate: this.playbackRate }
+  let t = { tp: s.tp, head: s.tp?.head(), time: this.currentTime, span: this._.span, loop: this.loop, paused: this.paused, volume: this.volume, muted: this.muted, rate: this.playbackRate, keep: this.preservesPitch }
   s.taken = !!s.tp
   s.end(false)
   return t
@@ -227,6 +230,7 @@ function handoff(b, a, opts) {
   if (t) {
     if (opts.volume == null) b.volume = t.volume
     if (opts.rate == null) b.playbackRate = t.rate
+    if (opts.preservesPitch == null) b.preservesPitch = t.keep
     b.muted = t.muted
   }
   // the deck carries on when it has the channels; else a new one starts where the other stopped
@@ -249,7 +253,7 @@ function begin(a, o, taken) {
   a.played.catch(() => {})
 
   const volume = () => s.tp?.set({ volume: a.muted ? 0 : a.volume })
-  const rate = () => s.tp?.set({ rate: a.playbackRate })
+  const rate = () => s.tp?.set({ rate: a.playbackRate, preservesPitch: a.preservesPitch })
   // playback ends: at its end, by stop(), by an error, or taken over
   const end = (natural, err) => {
     if (done) return
@@ -285,10 +289,10 @@ function begin(a, o, taken) {
   ;(async () => {
     try {
       if (!taken && a._.ready) await a._.ready
-      let tp = taken ?? await open({ channels: a.channels, sampleRate: a.sampleRate, playing: !a.paused, volume: a.muted ? 0 : a.volume, rate: a.playbackRate })
+      let tp = taken ?? await open({ channels: a.channels, sampleRate: a.sampleRate, playing: !a.paused, volume: a.muted ? 0 : a.volume, rate: a.playbackRate, preservesPitch: a.preservesPitch })
       if (done) { if (!taken) tp.stop(); return }
       s.tp = tp
-      if (taken) { tp.set({ playing: !a.paused, volume: a.muted ? 0 : a.volume, rate: a.playbackRate }) }
+      if (taken) { tp.set({ playing: !a.paused, volume: a.muted ? 0 : a.volume, rate: a.playbackRate, preservesPitch: a.preservesPitch }) }
       tp.emit = (type, m) => {
         if (a._.play !== s) return
         if (type === 'end') return end(true)

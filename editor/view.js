@@ -1,7 +1,7 @@
 import Waveform from '../assets/gl-waveform.js'
 import Spectrogram from '../assets/gl-spectrogram.js'
 import scales from './scale.js'
-import { CURVES } from './ops.js'
+import { CURVES, CROSSFADES } from './ops.js'
 import clock from './time.js'
 import tint, { hue } from './tint.js'
 
@@ -35,13 +35,15 @@ import tint, { hue } from './tint.js'
 // among several, say what when the pointer is on one, and a click on one turns it to its next way (`onmode`), as a
 // tool's options cycle, no menu: its top corners, drawn as the fade they make, fade it (inward, from its edge; outward,
 // the audio past it goes, crossfading into it; a click, the next curve); the pill on its top edge, dragged up or down,
-// sets its level or its pitch (a click, the other); the square past its end, a square's height off each lane's foot,
-// trims it (cut back, or silence added), stretches it or speeds it (a click, the next). With none, the square past the
-// caret pulls silence open there, as trimming out does. None while it plays. What else shows (`show`) is grabbed where
-// it is, never through a mode: the cues (held ⌘), the gain line and its points, the pitch curve's voiced stretches. Holding the caret or dragging it, or an edge, hears the moment under it (`onscrub`; a
-// box, only its band).
+// sets its level; the tools at its foot, side by side, a voice's pitch, intonation and formants, each dragged up or down;
+// the square past its end, a square's height off each lane's foot, trims it (cut back, or silence added), stretches it
+// or speeds it (a click, the next). With none, the square past the caret pulls silence open there, as trimming out
+// does. None while it plays. What else shows (`show`) is grabbed where it is, never through a mode: the cues (held ⌘),
+// the gain line and its points; editing pitch (`pitching`), on the spectrogram the pitch curve, dragged up or down the
+// whole pitch line with it, a click on it a point of the line there, dragged, as RX's Dialogue Contour has them; on the
+// waveform the pitch line itself. Holding the caret or dragging it, or an edge, hears the moment under it (`onscrub`; a box, only its band).
 // What a drag does as it goes, what a handle or an edge does, is said by the pointer in the page's hints (`hint`,
-// hint.js); a pitch dragged is heard as it will sound (`onaudition`).
+// hint.js); a pitch, an intonation or formants dragged are heard as they will sound, from where they start (`onaudition`).
 // The view never changes audio: edits go to the script through `onedit`.
 // GAP between lanes is 2 px, as between the pictures and the meters. GUTTER holds the axis labels, the widest a
 // frequency's (22.05k); STICK, how near a dragged time goes onto a cue or a marker
@@ -93,12 +95,16 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // more ranges beside the selection, as a text editor's several selections: [[a, b], …], or on the spectrogram more
   // boxes, as Photoshop's several selections: [[a, b, low, high], …]; edits act on them all
   let more = []
+  // where a file held over the picture would go in, or null
+  let dropped = null
   // the meters at the right edge: each channel's { rms, peak } and spectrum (dB per bin of `size` at `rate`), or none
   let meters = null
-  // A take being recorded over the output (a tape's punch-in): from `at` s, its `length` samples at `rate`, a waveform
-  // and a spectrogram per channel, each drawn in its picture's lanes; the output it replaces hidden, the output after it
-  // where it is
+  // A take being recorded over the output (a tape's punch-in), or into nothing: from `at` s, its `length` samples at
+  // `rate`, a waveform and a spectrogram per channel, each drawn in its picture's lanes; the output it replaces hidden,
+  // the output after it where it is. The view keeps its scale and follows the take past its right edge, as a recording
+  // app's; into nothing, RECORD s across.
   let recording = null
+  const RECORD = 10
   function taking() {
     const { at, total } = recording, last = at + recording.length / recording.rate
     duration = Math.max(total, last)
@@ -123,6 +129,8 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // the time shown [start, end], and the part of the spectrogram's frequency axis shown, 0..1 on its scale
   let start = 0, end = 0, fview = [0, 1], selection = null, band = null, cursor = 0, playhead = null, guides = []
   let cues = [], envelope = null, shift = null, contour = null, snapping = true, fadeCurve = 'linear'
+  // a pitch or an intonation a tool let go on the selection: the pitch curve shows it until the output it makes comes
+  let landed = null
   // where the output clips, [[from, to], …] s: underlined red on the time row
   let clips = []
   // the sample values a waveform lane shows, bottom to top: [-1, 1] full scale; zoomed in, a part of it, scrolled up or
@@ -130,9 +138,9 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // 'db', mirrored about the centre line
   let aview = [-1, 1], levelUnits = 'linear'
   // what the grip past a selection's end does to its length, chosen from a click on it: 'trim' (cut back, or silence
-  // added), 'stretch' (the pitch kept) or 'speed' (the pitch following, as a tape's); and the pill on its top edge,
-  // dragged up or down: 'level' or 'pitch'
-  let gripMode = 'stretch', pillMode = 'level'
+  // added), 'stretch' (the pitch kept) or 'speed' (the pitch following, as a tape's); and whether pitch is edited: the
+  // pitch curve and the pitch line in place of the gain line (`pitchLine`)
+  let gripMode = 'stretch', pitching = false
   // how the time row marks time: 'labels' with their ticks, 'ticks' alone, or 'none'; the caret's, the pointer's and a
   // selection's times show whatever it is
   let ruler = 'labels'
@@ -154,18 +162,16 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
 
   // Geometry, in CSS pixels
   const plot = () => ({ w: Math.max(1, W - GUTTER), h: Math.max(1, H - RULER) })
-  const merged = () => shape() === 'wave' && waveLook.lanes === 'one'
+  const merged = () => display === 'wave' && waveLook.lanes === 'one'
   function lanes() {
     const { w, h } = plot(), n = merged() ? 1 : Math.max(1, count), lh = (h - GAP * (n - 1)) / n
     const stack = Array.from({ length: n }, (_, i) => [0, i * (lh + GAP), w, lh])
-    return shape() === 'spec' ? { wave: [], spec: stack } : { wave: stack, spec: [] }
+    return display === 'spec' ? { wave: [], spec: stack } : { wave: stack, spec: [] }
   }
   // the lanes' top and bottom
   const extent = rects => [Math.min(...rects.map(r => r[1])), Math.max(...rects.map(r => r[1] + r[3]))]
   // the time row, right under the lanes: its ticks run down from them, its labels beside their tops
   const row = () => plot().h + 7
-  // a file arriving shows as a waveform, whatever the picture shows: there are no frames of it yet
-  const shape = () => arriving?.dim ? 'wave' : display
   const x = t => (t - start) / (end - start || 1) * plot().w
   const time = px => start + px / plot().w * (end - start)
   const clamp = t => Math.max(0, Math.min(duration, t))
@@ -193,9 +199,9 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   }
   const stuck = t => stick(t)?.t ?? t
   // The line edited over the sound, on its own scale in each lane: the gain curve, dB, mirrored about the centre line as
-  // the waveform is (GAIN), by tenths of a dB; or, the pill set to pitch, the pitch curve, semitones, an octave up at
+  // the waveform is (GAIN), by tenths of a dB; or, editing pitch, the pitch line, semitones, an octave up at
   // the lane's top and one down at its foot, by whole semitones (held ⌘, cents). Each snaps to 0
-  const pitchLine = () => pillMode === 'pitch'
+  const pitchLine = () => pitching
   const ly = ([, y, , lh], v, sign = 1) => y + lh / 2 - sign * (pitchLine() ? Math.max(-1, Math.min(1, v / 12)) : Math.max(0, Math.min(1, (v - GAIN[0]) / (GAIN[1] - GAIN[0])))) * lh / 2
   const valueOf = ([, y, , lh], py) => pitchLine() ? (y + lh / 2 - py) / (lh / 2) * 12 : GAIN[0] + Math.min(1, Math.abs(py - y - lh / 2) / (lh / 2)) * (GAIN[1] - GAIN[0])
   const snapV = (rect, py) => {
@@ -224,9 +230,10 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     linePoints().forEach((p, i) => { const e = Math.hypot(x(p[0]) - px, ly(rect, p[1]) - fold(rect, py)); if (nearPoint(rect, px, py)(p) && e < d) { d = e; best = i } })
     return best
   }
-  // Lanes the overlays draw in: pitch over the spectrogram if it shows, amplitude over the waveform if it shows
+  // Lanes the overlays draw in: amplitude over the waveform if it shows; the line edited, the gain's there too, the
+  // pitch's on the waveform alone (the spectrogram has its own: the pitch curve, the line's points on it)
   const ampLanes = L => L.wave.length ? L.wave : L.spec
-  const pitchLanes = L => L.spec.length ? L.spec : L.wave
+  const lineLanes = L => pitchLine() ? L.wave : ampLanes(L)
 
   // A canvas resized is blank until drawn again, and the browser shows what is there at the next paint: drawn here,
   // in the resize callback before that paint, a divider dragged never flashes an empty picture. Where the view starts
@@ -297,7 +304,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   function crossed(p, q, n = 24) {
     const h = half(p, q), len = 2 * h / n, L = q - p
     const ramp = (s, rise) => Array.from({ length: n }, (_, i) => {
-      const u = (i + .5) / n, g = rise ? Math.sin(u * Math.PI / 2) : Math.cos(u * Math.PI / 2)
+      const u = (i + .5) / n, g = CROSSFADES.equal(rise ? u : 1 - u)
       return { s0: s + i * len, s1: s + (i + 1) * len, d0: p - h + i * len, d1: p - h + (i + 1) * len, gain: Math.max(1e-4, g) }
     })
     return [{ s0: 0, s1: p - h, d0: 0, d1: p - h, gain: 1 }, ...ramp(p - h, false), ...ramp(q - h, true), { s0: q + h, s1: duration, d0: p + h, d1: duration - L, gain: 1 }].filter(c => c.s1 > c.s0)
@@ -312,6 +319,8 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (!pictures) return paint(L)
     pictures = false
     if (gl) {
+      // the whole canvas cleared, whatever scissor a lane's drawing left: two renders in a task (snapshot) see no frame between
+      gl.disable(gl.SCISSOR_TEST)
       gl.viewport(0, 0, waveCanvas.width, waveCanvas.height)
       gl.clearColor(0, 0, 0, 0)
       gl.clear(gl.COLOR_BUFFER_BIT)
@@ -380,6 +389,29 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if ([...specs, ...recording?.specs ?? []].some(sg => sg.pending)) invalidate()
   }
 
+  // The picture as a PNG data URL, for an agent to look at: the waveform over the spectrogram, each with its rulers, of
+  // [a, b] s (what shows, else), at most `width` px across. Drawn, read and put back in one task: the screen never shows it
+  function snapshot(range, width = 1200) {
+    const was = { start, end, display, hovered }, modes = sgl ? ['wave', 'spec'] : ['wave']
+    if (range) { start = Math.max(0, range[0]); end = Math.max(start + 32 / rate, range[1]) }
+    hovered = null
+    const k = Math.min(1, width / overlay.width), w = Math.round(overlay.width * k), h = Math.round(overlay.height * k)
+    const shot = Object.assign(document.createElement('canvas'), { width: w, height: h * modes.length }), g = shot.getContext('2d')
+    g.fillStyle = color('--color-screen')
+    g.fillRect(0, 0, w, shot.height)
+    modes.forEach((mode, i) => {
+      display = mode
+      // a spectrogram zoomed out fills its columns over several renders (spectrograms)
+      for (let n = 0; n < 64 && (!n || specs.some(sg => sg.pending)); n++) { pictures = true; render() }
+      for (const canvas of [specCanvas, waveCanvas, overlay]) g.drawImage(canvas, 0, i * h, w, h)
+    })
+    ;({ start, end, display, hovered } = was)
+    cancelAnimationFrame(frame)
+    pictures = true
+    render()
+    return shot.toDataURL('image/png')
+  }
+
   // The overlay: selection, guides, what shows besides the sound, caret, playhead, the pointer's readouts, axes. What a
   // drag, a handle or an edge does is said in the page's hints, by the pointer (say), and goes when nothing says it.
   let said = false
@@ -427,17 +459,20 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     paintRuler([
       ...(at && apart(pointed) ? [{ t: pointed, fill: caret }] : []),
       ...edges,
-      ...(playhead != null ? [{ t: playhead, fill: bright }] : apart(cursor) ? [{ t: cursor, fill: caret }] : [])
+      ...(playhead != null ? [{ t: playhead, fill: bright }] : apart(cursor) ? [{ t: cursor, fill: caret }] : []),
+      ...(dropped != null ? [{ t: dropped, fill: accent() }] : [])
     ])
+    // a file held over the picture: where it goes in, a caret of its own, as a text editor shows where a drop lands
+    if (dropped != null) { c.fillStyle = accent(); across(Math.round(x(dropped)), 2); c.font = `10px ${color('--font-mono')}`; tag('Insert here', Math.round(x(dropped)) + 6, extent(all)[0] + 8, 'left', accent()) }
     // the times a drag's edges are at, or the caret dragged: the cues and markers they sit on light
     const lit = drag?.caret ? [cursor] : drag?.anchor != null || drag?.carry || drag?.stretch ? sel || [] : drag?.span || []
     if (show.hits) paintCues(all, lit)
     paintMarkers(all, lit)
     paintOvers(L)
-    // what is edited over the sound: its level (the gain line) or, the pill set to pitch, its pitch (the pitch curve)
-    const pitching = pillMode === 'pitch'
-    if (pitching || show.gain && (envelope || drag?.points)) paintLine(ampLanes(L))
-    if (pitching) paintContour(pitchLanes(L))
+    // what is edited over the sound: its level (the gain line) or, editing pitch, its pitch (the pitch line on the
+    // waveform, the pitch curve on the spectrogram)
+    if (pitchLine()) { paintLine(L.wave); paintContour(L.spec) }
+    else if (show.gain && (envelope || drag?.points)) paintLine(ampLanes(L))
     // a line in each lane: the caret (and the others beside it), or while it plays the playhead, which is the caret
     // moving; while an output arrives, where it has come to
     // moving; while an output arrives, where it has come to. With a band selected on the spectrogram, the caret and the
@@ -498,11 +533,11 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   }
   // A time range's handles, each clicked or dragged to do one thing, where the range is wide enough for them: in its top
   // corners the fade each makes, a small square with the fade's curve in it as the fade menu draws it; the pill on its
-  // top edge its level (its pitch on the spectrogram); a square with ↔ just past its end its length, from the end
-  // only. With several ranges, the one under the pointer has them. With none, at the caret (the one under the pointer),
+  // top edge its level; at its foot, side by side, the tools of a voice in it (TOOLS): its pitch, its intonation, its
+  // formants; a square with ↔ just past its end its length, from the end only. With several ranges, the one under the pointer has them. With none, at the caret (the one under the pointer),
   // a square pulls silence open. [kind, x, y] each, a square's x and y its centre; a fade being dragged stays under the
   // pointer, where it reaches.
-  const BOX = 16
+  const BOX = 16, TOOLS = ['pitch', 'intonation', 'formant']
   // the range, or the caret, the handles are for: the one the pointer is on or by among several, else the selection's
   function handled() {
     if (drag || !hovered) return selection ? [...selection] : [cursor, cursor]
@@ -511,7 +546,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     return all.find(([p, q]) => t >= p - by && t <= q + by) ?? (selection ? [...selection] : [cursor, cursor])
   }
   function grips(L) {
-    const all = [...L.wave, ...L.spec], [top] = extent(all), h = BOX / 2
+    const all = [...L.wave, ...L.spec], [top, bottom] = extent(all), h = BOX / 2
     // each square on whole pixels, so crisp at any pixel ratio, notched: flush with the top and with the line it sits by,
     // never over it: the caret's, which a range's start has (a pixel wide, its first); a range's end, its last pixel,
     // lit only as it would move, then drawn over the square (paintEdge)
@@ -530,22 +565,19 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (drag && !drag.fade) return []
     const fade = kind => drag?.fade === kind && drag.span ? Math.round(x(drag.p)) : kind === 'in' ? xa : xb
     if (xb - xa >= 2 * (BOX + INSET) + 8) out.push(['in', fade('in') + 1 + h, top + h], ['out', fade('out') - h, top + h])
-    if (xb - xa >= 72 && !drag?.fade) out.push(['level', (xa + xb) / 2, top + 4])
+    if (xb - xa >= 72 && !drag?.fade) out.push(['level', (xa + xb) / 2, top + 4], ...TOOLS.map((kind, i) => [kind, Math.round((xa + xb) / 2) + (i - 1) * (BOX + 2), bottom - h]))
     if (xb - xa >= 20 && !drag?.fade) out.push(...lower(xb).map(p => ['stretch', ...p]))
     return out.filter(([, gx]) => gx >= 0 && gx <= plot().w)
   }
-  // a grip within reach of the pointer: a square and a little round it, the pill its shape
-  const reachOf = kind => kind === 'level' ? [-16, 16, -7, 7] : [-BOX / 2 - 2, BOX / 2 + 2, -BOX / 2 - 2, BOX / 2 + 2]
+  // a grip within reach of the pointer: a square and a little round it, the pill its shape, a tool its square alone
+  const reachOf = kind => kind === 'level' ? [-16, 16, -7, 7] : TOOLS.includes(kind) ? [-BOX / 2, BOX / 2, -BOX / 2, BOX / 2] : [-BOX / 2 - 2, BOX / 2 + 2, -BOX / 2 - 2, BOX / 2 + 2]
   const gripAt = (L, px, py) => grips(L).find(([k, gx, gy]) => { const [x0, x1, y0, y1] = reachOf(k); return px - gx >= x0 && px - gx <= x1 && py - gy >= y0 && py - gy <= y1 })
   // what each does, as its way is now (a click on it turns it to the next)
   const CURVE_WORDS = { linear: 'linear', exp: 'exponential', log: 'logarithmic', cos: 'S-curve' }
-  const gripName = kind => ({ in: `Fade in, ${CURVE_WORDS[fadeCurve]}`, out: `Fade out, ${CURVE_WORDS[fadeCurve]}`, level: pillName(), stretch: { trim: 'Trim', stretch: 'Stretch', speed: 'Speed' }[gripMode], gap: 'Insert silence' })[kind]
-  // the pill's: its level in steps; its pitch in semitones, from the note the range has, where the pitch curve has one
-  const pillName = () => {
-    const f = pillMode === 'pitch' && selection && median({ at: selection[0], duration: selection[1] - selection[0] })
-    return pillMode === 'pitch' ? `Pitch${f ? ` ${noteOf(f)}` : ''}, by semitones` : `Level, by ${levelStep}dB`
-  }
-  const gripPointer = kind => kind === 'level' ? 'ns-resize' : kind === 'stretch' && gripMode !== 'trim' ? STRETCH : 'ew-resize'
+  // the pill's level in steps; the pitch in semitones, from the note the range has where the pitch curve has one
+  const gripName = kind => ({ in: `Fade in, ${CURVE_WORDS[fadeCurve]}`, out: `Fade out, ${CURVE_WORDS[fadeCurve]}`, level: `Level, by ${levelStep}dB`, pitch: pitchName(), intonation: 'Intonation, wider or flatter', formant: 'Formants, by semitones', stretch: { trim: 'Trim', stretch: 'Stretch', speed: 'Speed' }[gripMode], gap: 'Insert silence' })[kind]
+  const pitchName = () => { const f = selection && median({ at: selection[0], duration: selection[1] - selection[0] }); return `Pitch${f ? ` ${noteOf(f)}` : ''}, by semitones` }
+  const gripPointer = kind => kind === 'level' || TOOLS.includes(kind) ? 'ns-resize' : kind === 'stretch' && gripMode !== 'trim' ? STRETCH : 'ew-resize'
   // Dark squares with no rim, each glyph in its own, soft lines on the screen's colour so they show over the waveform;
   // the one under the pointer, or dragged, bright, and it says what it does
   function paintGrips(L, at) {
@@ -562,6 +594,10 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
         for (let i = 0; i <= 12; i++) c.lineTo(gx - dir * span / 2 + dir * span * i / 12, gy + span / 2 - span * curve(i / 12))
       }
       else if (kind === 'level') { c.moveTo(gx - 8, gy); c.lineTo(gx + 8, gy) }
+      // the tools: pitch an arrow up and down; intonation a wave widening; formants two peaks of an envelope
+      else if (kind === 'pitch') { c.moveTo(gx, gy - 5); c.lineTo(gx, gy + 5); c.moveTo(gx - 2.5, gy - 2.5); c.lineTo(gx, gy - 5); c.lineTo(gx + 2.5, gy - 2.5); c.moveTo(gx - 2.5, gy + 2.5); c.lineTo(gx, gy + 5); c.lineTo(gx + 2.5, gy + 2.5) }
+      else if (kind === 'intonation') for (let i = 0; i <= 12; i++) c.lineTo(gx - 6 + i, gy - (1 + 4 * i / 12) * Math.sin(Math.PI * i / 3))
+      else if (kind === 'formant') { c.moveTo(gx - 6, gy + 4); c.quadraticCurveTo(gx - 3, gy - 6, gx, gy + 4); c.quadraticCurveTo(gx + 3, gy - 6, gx + 6, gy + 4) }
       // trim, as Audacity's: a play triangle into a bracket, the end it moves; silence opened at a caret is trimming out
       else if (kind === 'gap' || gripMode === 'trim') { c.moveTo(gx - 5, gy - 4); c.lineTo(gx, gy); c.lineTo(gx - 5, gy + 4); c.closePath(); c.moveTo(gx + 2, gy - 5); c.lineTo(gx + 5, gy - 5); c.lineTo(gx + 5, gy + 5); c.lineTo(gx + 2, gy + 5) }
       // speed, as Audacity's: a clock
@@ -649,40 +685,46 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (d.stretch) return `${d.mode} ×${((d.to - d.a) / (d.b - d.a)).toFixed(3)}, ${stamp(d.to - d.a)}`
     if (d.gap) return `silence ${stamp(d.to - d.at)}`
     if (d.lift === 'gain') return `${st(d.db)}dB`
-    // a point of the line: its value, as the line writes it
-    if (d.points) { const v = d.points[d.index][1]; return d.line === 'pitchline' ? pitchSays({ st: v }) : `${st(v)}dB` }
-    if (d.lift === 'pitch' || d.run) return pitchSays(d)
+    // the pitch curve, before the points it moves: how far, the note of the stretch pressed from and to, all of it moving
+    if (d.run) return `${pitchSays(d.st, median(pitchRange(d)))}, all of it`
+    // a point of the line: its value, as the line writes it; one on the pitch curve, the note it goes from and to
+    if (d.points) { const [t, v] = d.points[d.index]; return d.line === 'pitchline' ? pitchSays(v, d.hz, d.hz && toneAt(t)) : `${st(v)}dB` }
+    if (d.lift === 'pitch') return pitchSays(d.st, median(pitchRange(d)))
+    if (d.lift === 'intonation') return intonationSays(d)
+    if (d.lift === 'formant') return `formants ${semis(d.st)}`
     if (d.span) return `${d.cross ? 'crossfade' : `fade ${d.fade}`} ${stamp(d.span[1] - d.span[0])}`
     // a range as it is made or resized: how long it is
     if ((d.resizing || d.anchor != null && !d.caret) && d.moved && selection) return stamp(selection[1] - selection[0])
     return ''
   }
-  // A pitch dragged: in whole semitones, as a keyboard has them; held ⌘, in cents. Heard as it will sound each time it
-  // changes (`onaudition`), over what it moves
-  function pitchTo(ratio) {
-    const st = 12 * Math.log2(ratio), was = drag.st ?? 0
-    drag.st = fine() ? Math.round(st * 100) / 100 : Math.round(st)
-    drag.ratio = 2 ** (drag.st / 12)
-    if (drag.st !== was) onaudition(drag.st ? { ...pitchRange(drag), semitones: drag.st } : null)
+  // A pitch dragged, or formants: in whole semitones, as a keyboard has them; held ⌘, in cents
+  const semitones = ratio => { const st = 12 * Math.log2(ratio); return fine() ? Math.round(st * 100) / 100 : Math.round(st) }
+  // What a drag on the pitch does, heard as it will sound (`onaudition`): from its first move, as it is at 0 too, and
+  // again each time it changes
+  function hear(d, changed, what) {
+    if (!changed && d.heard) return
+    d.heard = true
+    onaudition(what)
   }
-  // what a pitch drag moves: a voiced stretch of the pitch curve, or the range its pill is on
+  // what a pitch drag is heard over: the voiced stretch of the pitch curve pressed, or the range its tool is on
   function pitchRange(d) {
     if (!d.run) return { at: d.a, duration: d.b - d.a }
     const { times } = contour, hop = times[1] - times[0] || .01
     return { at: Math.max(0, times[d.run[0]] - hop / 2), duration: times[d.run[1]] - times[d.run[0]] + hop }
   }
-  // How far a pitch goes, as a tuner says it: semitones and cents, and the note it goes from and to, the pitch curve's
-  // median over it, where it has one
-  function pitchSays(d) {
-    const st = d.st ?? 0, whole = Math.trunc(st), ct = Math.round(Math.abs(st - whole) * 100)
-    const says = `${st > 0 ? '+' : st < 0 ? '−' : ''}${Math.abs(whole)}st${ct ? ` ${ct}ct` : ''}`, f = median(pitchRange(d))
-    return f ? `${says}, ${noteOf(f)} → ${noteOf(f * 2 ** (st / 12))}` : says
+  // How far a pitch goes, as a tuner says it: semitones and cents, and the note it goes from (`f`, Hz, the pitch curve's
+  // median over what moves, where it has one) and to
+  const semis = st => { const whole = Math.trunc(st), ct = Math.round(Math.abs(st - whole) * 100); return `${st > 0 ? '+' : st < 0 ? '−' : ''}${Math.abs(whole)}st${ct ? ` ${ct}ct` : ''}` }
+  const pitchSays = (st = 0, f = 0, to = f * 2 ** (st / 12)) => f ? `${semis(st)}, ${noteOf(f)} → ${noteOf(to)}` : semis(st)
+  // How wide a voice's rises and falls go over the range, as the status bar gives a melody's compass (its 10th to 90th
+  // percentile), and as wide as the factor makes them
+  function intonationSays({ k, a, b }) {
+    const st = voiced(a, b).map(f => 12 * Math.log2(f)), q = p => st[Math.floor(p * (st.length - 1))], wide = st.length > 1 ? q(.9) - q(.1) : 0
+    return `×${k.toFixed(2)}${wide ? `, ${wide.toFixed(1)}st → ${(wide * Math.abs(k)).toFixed(1)}st wide` : ''}`
   }
-  function median({ at, duration }) {
-    if (!contour?.f0.length) return 0
-    const list = [...contour.f0.filter((f, i) => f && contour.times[i] >= at && contour.times[i] <= at + duration)].sort((p, q) => p - q)
-    return list.length ? list[list.length >> 1] : 0
-  }
+  // the pitch curve's voiced frames over [a, b], Hz, low to high; their median
+  function voiced(a, b) { return contour?.f0.length ? [...contour.f0.filter((f, i) => f && contour.times[i] >= a && contour.times[i] <= b)].sort((p, q) => p - q) : [] }
+  function median({ at, duration }) { const list = voiced(at, at + duration); return list.length ? list[list.length >> 1] : 0 }
   const pitched = (rect, L) => L.spec.includes(rect)
   const clampY = ([, y, , lh], ly) => Math.max(y + 5, Math.min(y + lh - 5, ly))
   // Marks [y, text] by a lane, the most important first: each where there is room, its tick at its height, its label
@@ -789,10 +831,10 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       c.textAlign = 'right'
       c.fillText(`${+g.level.toFixed(1)}dB`, end - 6, Math.max(y + 8, ay(rect, amp) - 7))
     }
-    // a fade's ramp, [t0, t1, 'in' or 'out', curve]: its level along its curve (fn/fade.js; 'equal', a crossfade's equal
+    // a fade's ramp, [t0, t1, 'in' or 'out', curve]: its level along its curve (the library's; 'equal', a crossfade's equal
     // power, sin and cos), from silence on the centre line to the lane's edges, mirrored as the lane is
     if (g.ramps) for (const [, y, , lh] of ampLanes(L)) for (const [t0, t1, kind, name] of g.ramps) {
-      const curve = name === 'equal' ? u => Math.sin(u * Math.PI / 2) : CURVES[name] ?? CURVES.linear, mid = y + lh / 2, half = lh / 2 - 2
+      const curve = CROSSFADES[name] ?? CURVES.linear, mid = y + lh / 2, half = lh / 2 - 2
       for (const sign of [1, -1]) {
         c.beginPath()
         for (let i = 0; i <= 32; i++) { const u = i / 32; c.lineTo(x(t0 + u * (t1 - t0)), mid - sign * half * curve(kind === 'in' ? u : 1 - u)) }
@@ -857,23 +899,25 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       tag(m.text, m.lx, y, 'left')
     }
   }
-  // The selection, in each lane (a box on the spectrogram), and the other ranges: a faint wash, the edge under the
-  // pointer (`hot`) or dragged lit, as it would move
+  // The selection, in each lane (a box on the spectrogram), and the other ranges: a wash over each, the one highlight in
+  // both pictures, the edge under the pointer (`hot`) or dragged lit, as it would move. A wash lifts a waveform's even
+  // dark ground at once, where a spectrogram's speckle hides the same lift: its lanes take a wash that lifts as plainly.
   function paintSelection(L, sel) {
     const { w } = plot(), all = [...L.wave, ...L.spec], boxes = []
-    // [x, y, width, height], clipped to the lane, on whole pixels
-    const push = (a, b, y0, y1) => { const p = Math.round(Math.max(a, 0)), q = Math.round(Math.min(b, w)); y0 = Math.round(y0); y1 = Math.round(y1); if (q > p && y1 > y0) boxes.push([p, y0, q - p, y1 - y0]) }
+    // [x, y, width, height, on the spectrogram], clipped to the lane, on whole pixels
+    const push = (a, b, y0, y1, spec) => { const p = Math.round(Math.max(a, 0)), q = Math.round(Math.min(b, w)); y0 = Math.round(y0); y1 = Math.round(y1); if (q > p && y1 > y0) boxes.push([p, y0, q - p, y1 - y0, spec]) }
+    const lane = (rect, a, b, y0 = rect[1], y1 = rect[1] + rect[3]) => push(a, b, y0, y1, L.spec.includes(rect))
     if (sel) {
       const a = x(sel[0]), b = x(sel[1])
-      if (band) for (const rect of L.spec) push(a, b, Math.max(rect[1], fy(rect, band[1])), Math.min(rect[1] + rect[3], fy(rect, band[0])))
-      else for (const rect of all) push(a, b, rect[1], rect[1] + rect[3])
+      if (band) for (const rect of L.spec) lane(rect, a, b, Math.max(rect[1], fy(rect, band[1])), Math.min(rect[1] + rect[3], fy(rect, band[0])))
+      else for (const rect of all) lane(rect, a, b)
     }
     for (const [p, q, lo, hi] of drag?.carry ? [] : more) if (q > p) {
-      if (lo == null) for (const rect of all) push(x(p), x(q), rect[1], rect[1] + rect[3])
-      else for (const rect of L.spec) push(x(p), x(q), Math.max(rect[1], fy(rect, hi)), Math.min(rect[1] + rect[3], fy(rect, lo)))
+      if (lo == null) for (const rect of all) lane(rect, x(p), x(q))
+      else for (const rect of L.spec) lane(rect, x(p), x(q), Math.max(rect[1], fy(rect, hi)), Math.min(rect[1] + rect[3], fy(rect, lo)))
     }
-    c.fillStyle = color('--color-screen-select')
-    for (const b of boxes) c.fillRect(...b)
+    const wash = [color('--color-screen-select'), color('--color-screen-select-spectrum')]
+    for (const [px, py, bw, bh, spec] of boxes) { c.fillStyle = wash[+spec]; c.fillRect(px, py, bw, bh) }
   }
   // Where the sound ends, where the view shows past it (WORKSHOP `endMark`): a rule down the lanes; the room past it
   // shaded, or hatched; a cap on the time row, as a bracket closes; a rule and a tag with the length
@@ -907,17 +951,17 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   }
   // a time as the whole page writes it, in the units chosen (time.js): 0:05, 5.0s, 240000
   const stamp = (t, d = digits()) => clock(t, units, { digits: d, rate })
-  // Cues: a faint line in each lane. Held ⌘ (Ctrl) they all light, and a press on one takes it; the one dragged is bright
-  // where it will land, and so are those a dragged edge sits on (`lit`)
+  // Cues: shown only where they matter, never as a forest over the sound: the one dragged, bright where it will land;
+  // those a dragged edge or caret sits on (`lit`); held ⌘ (Ctrl), the one under the pointer a press would take
   const on = (lit, px) => lit.some(t => Math.abs(x(t) - px) < .5)
   const editing = (keys = held) => !!(mac ? keys.metaKey : keys.ctrlKey)
   function paintCues(rects, lit) {
-    const all = editing(held) && !drag
+    const near = !drag && hovered ? nearCue(...hovered, held) : -1
     c.fillStyle = accent()
     for (const [i, t] of cues.entries()) {
-      const moving = drag?.cue === i, at = moving ? drag.to : moved(t), px = Math.round(x(at)), bright = moving || on(lit, px)
-      if (at == null || px < 0 || px > plot().w) continue
-      c.globalAlpha = bright ? 1 : all ? .7 : .22
+      const moving = drag?.cue === i, at = moving ? drag.to : moved(t), px = Math.round(x(at))
+      if (at == null || px < 0 || px > plot().w || !(moving || i === near || on(lit, px))) continue
+      c.globalAlpha = moving || on(lit, px) ? 1 : .7
       for (const [, ly, , lh] of rects) c.fillRect(px, ly, 1, lh)
     }
     c.globalAlpha = 1
@@ -1007,22 +1051,51 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     c.globalAlpha = 1
   }
   const linePoints = () => { const curve = pitchLine() ? shift : envelope; return drag?.points ?? (curve ? curve.t.map((t, i) => [t, curve.v[i]]) : []) }
-  // The value the line has at t: straight between its points, flat past its ends (plan.js curveFn)
-  function lineAt(t) {
-    const pts = linePoints()
+  const curveOf = pts => ({ t: pts.map(p => p[0]), v: pts.map(p => p[1]) })
+  // A line's value at t: straight between its points, flat past its ends (plan.js curveFn); 0 with none
+  function valueAt(pts, t) {
     if (!pts.length) return 0
     if (t <= pts[0][0]) return pts[0][1]
     for (let i = 1; i < pts.length; i++) if (t <= pts[i][0]) { const [t0, v0] = pts[i - 1], [t1, v1] = pts[i]; return v0 + (v1 - v0) * (t - t0) / (t1 - t0 || 1) }
     return pts.at(-1)[1]
   }
+  function lineAt(t) { return valueAt(linePoints(), t) }
   // a line that shows: the pitch's always, the gain's once there is a curve, or while its points are being made
   const onLine = (rect, px, py) => (pitchLine() || envelope || drag?.points) && Math.abs(ly(rect, lineAt(time(px))) - fold(rect, py)) <= EDGE
-  // The pitch curve, a line per voiced stretch, or only over `only` [a, b]; the stretch or range being dragged at its new
-  // pitch
-  function paintContour(rects, only = null) {
+
+  // The pitch curve as it shows: the output's, moved as the pitch line has moved since it was measured (its edit on its
+  // way, a drag of it), and as the selection's pill dragged moves it. Frame i's pitch, Hz, 0 where it has none
+  function toneOf(i) {
+    const { times, f0, basis } = contour, t = times[i]
+    return f0[i] && moved(f0[i] * 2 ** ((lineAt(t) - valueAt(basis, t)) / 12), t)
+  }
+  // a pitch at t as a tool dragged over the selection makes it: higher or lower, or its rises and falls wider or
+  // flatter about the range's median
+  function moved(f, t) {
+    const d = drag?.lift ? drag : landed
+    if (!d || t < d.a || t > d.b) return f
+    return d.lift === 'pitch' ? f * d.ratio : d.lift === 'intonation' && d.mid ? d.mid * (f / d.mid) ** d.k : f
+  }
+  // The pitch curve at any t, where a point of the line sits on it: between two voiced frames straight in pitch, a gap
+  // crossed from one side to the other, past them the nearest, as the voice had it before the line; then as the line
+  // has it at t itself. 0 with no voice at all
+  function toneAt(t) {
+    const { times, f0, basis } = contour, n = times.length, own = i => f0[i] * 2 ** (-valueAt(basis, times[i]) / 12)
+    let lo = 0, hi = n - 1
+    while (lo < hi) { const m = (lo + hi + 1) >> 1; if (times[m] <= t) lo = m; else hi = m - 1 }
+    let a = lo, b = lo + 1
+    while (a >= 0 && !f0[a]) a--
+    while (b < n && !f0[b]) b++
+    const fa = a >= 0 ? own(a) : 0, fb = b < n ? own(b) : 0
+    if (!fa && !fb) return 0
+    const f = !fa ? fb : !fb ? fa : fa * (fb / fa) ** Math.max(0, Math.min(1, (t - times[a]) / (times[b] - times[a])))
+    return moved(f * 2 ** (lineAt(t) / 12), t)
+  }
+  // The pitch curve, a line per voiced stretch, as it shows, and on it the pitch line's points
+  function paintContour(rects) {
     if (!contour?.f0.length) return
-    const { times, f0 } = contour, lift = drag?.lift === 'pitch'
-    c.strokeStyle = accent()
+    const { times, f0 } = contour, pts = linePoints()
+    c.strokeStyle = c.fillStyle = accent()
     c.lineWidth = 1.5
     for (const rect of rects) {
       c.save()
@@ -1030,17 +1103,25 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       c.beginPath()
       let open = false
       for (let i = 0; i < f0.length; i++) {
-        // shifted as it is dragged, and as the pitch line has it
-        const shifted = (drag?.run && i >= drag.run[0] && i <= drag.run[1] || lift && times[i] >= drag.a && times[i] <= drag.b ? f0[i] * drag.ratio : f0[i]) * (pitchLine() ? 2 ** (lineAt(times[i]) / 12) : 1)
-        if (!f0[i] || times[i] < start - .1 || times[i] > end + .1 || only && (times[i] < only[0] || times[i] > only[1])) { open = false; continue }
-        const px = x(times[i]), py = fy(rect, shifted)
+        if (!f0[i] || times[i] < start - .1 || times[i] > end + .1) { open = false; continue }
+        const px = x(times[i]), py = fy(rect, toneOf(i))
         open ? c.lineTo(px, py) : c.moveTo(px, py)
         open = true
       }
       c.stroke()
+      for (const [t] of pts) { const f = toneAt(t); if (f) c.fillRect(Math.round(x(t)) - 3, Math.round(fy(rect, f)) - 3, 6, 6) }
       c.restore()
     }
     c.lineWidth = 1
+  }
+  // the pitch line's point within reach of the pointer where it sits on the pitch curve, the nearest; -1 for none
+  function pointOn(rect, px, py) {
+    let best = -1, d = Infinity
+    linePoints().forEach(([t], i) => {
+      const f = toneAt(t), dx = x(t) - px, dy = f ? fy(rect, f) - py : Infinity
+      if (Math.abs(dx) <= EDGE && Math.abs(dy) <= EDGE + 2 && Math.hypot(dx, dy) < d) { d = Math.hypot(dx, dy); best = i }
+    })
+    return best
   }
 
   // From 32 samples across to eight times the whole, a bird's view: the sound starts at the left, the room is on its right.
@@ -1049,7 +1130,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // under the meters and the labels to be edited, the room past it shown as past the end (`endMark`)
   function setRange(a, b, past = false) {
     const min = Math.min(duration, 32 / rate)
-    let span = Math.max(min, Math.min(duration * 8, b - a))
+    let span = Math.max(min, Math.min(Math.max(duration * 8, recording ? RECORD : 0), b - a))
     const last = past ? duration - span / 2 : duration - span
     a = span <= duration || past ? Math.max(0, Math.min(Math.max(last, start), a)) : 0
     start = a; end = a + span
@@ -1107,7 +1188,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // a flag: the caret goes to it; dragged, the marker moves
     if (flag >= 0) { if (selection) select(0, 0); setCursor(markers[flag].time) }
     drag = flag >= 0 ? { marker: flag, x: px, to: markers[flag].time, moved: false }
-      : gripDown(px, py, L, event) || endDown(px, py, event) || (show.hits && cueDown(px, py, event)) || (show.gain && pillMode !== 'pitch' && penDown(px, py, L)) || (pillMode === 'pitch' && (penDown(px, py, L, true) || pitchDown(px, py, L) || penDown(px, py, L))) || selectDown(event, px, py, t, L)
+      : gripDown(px, py, L, event) || endDown(px, py, event) || (show.hits && cueDown(px, py, event)) || (show.gain && !pitchLine() && penDown(px, py, L)) || (pitchLine() && (toneDown(px, py, L) || penDown(px, py, L, true) || pitchDown(px, py, L) || penDown(px, py, L))) || selectDown(event, px, py, t, L)
     // ⌘ aims finely, but not what it took hold of: a box, audio carried, an end stretched, a cue
     drag.aim = { px, py, ex: px, ey: py, on: editing(event), k: editing(event) && !drag.box && !drag.carry && !drag.end && drag.cue == null ? FINE : 1 }
     // a plain press held still: the caret, dragged, no selection
@@ -1179,7 +1260,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     return best
   }
   // A press on a range's handles (the one under the pointer's, which becomes the one gestures act on): a fade from its
-  // corner; its level or its pitch from its pill, dragged up or down; its length from its grip, trimmed, stretched or
+  // corner; its level, pitch, intonation or formants from its pill, dragged up or down; its length from its grip, trimmed, stretched or
   // sped. Each only clicked asks what it does (its curve, its mode). At a caret, silence opened. They come before
   // anything else there, the gain line or the pitch curve under them included.
   function gripDown(px, py, L, event) {
@@ -1189,7 +1270,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (other) take(other)
     if (kind === 'gap') return { gap: true, at: cursor, to: cursor, x: px, offset: cursor - time(px) }
     const [a, b] = selection
-    if (kind === 'level') return { pill: true, a, b, x: px, y: py, lane: [...L.wave, ...L.spec][0], moved: false }
+    if (kind === 'level' || TOOLS.includes(kind)) return { pill: true, tool: kind, a, b, x: px, y: py, lane: [...L.wave, ...L.spec][0], moved: false }
     // each keeps the distance it was pressed at from the edge it moves
     return kind === 'stretch' ? { stretch: true, a, b, to: b, x: px, offset: b - time(px), mode: gripMode } : { fade: kind, a, b, x: px, offset: (kind === 'in' ? a : b) - time(px) }
   }
@@ -1201,8 +1282,12 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     const [a, b] = selection
     return { stretch: true, end: true, a, b, to: b, x: px, offset: b - time(px), mode: gripMode }
   }
-  // its level, up or down, or its pitch, as the pill's mode says
-  const lifting = (rect, py) => { const [a, b] = selection; return pillMode === 'pitch' ? { lift: 'pitch', a, b, rect, y: py, ratio: 1 } : { lift: 'gain', a, b, rect, y: py, db: 0 } }
+  // what its pill or a tool sets, up or down: its level; its pitch, its intonation (about the range's median pitch) or
+  // its formants
+  const lifting = (rect, py, tool) => {
+    const [a, b] = selection, ways = { pitch: { lift: 'pitch', ratio: 1, st: 0 }, intonation: { lift: 'intonation', k: 1, mid: median({ at: a, duration: b - a }) }, formant: { lift: 'formant', st: 0 } }
+    return { a, b, rect, y: py, ...ways[tool] ?? { lift: 'gain', db: 0 } }
+  }
   // Shift held while dragging a gain point keeps to one axis: the one the drag has gone further along from its press
   const lock = (event, px, py) => !event.shiftKey || drag?.x == null || drag?.y == null ? [px, py] : Math.abs(px - drag.x) >= Math.abs(py - drag.y) ? [px, drag.y] : [drag.x, py]
   // One of the others, a range, a box or a caret, made the one gestures act on; the one there was, among the others
@@ -1251,7 +1336,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // The line edited where it is (the pitch's 0 while it has no points), within a few pixels of it, or a point; only a
   // point (`point`), where the pitch curve's voiced stretches, under the line, come before its body
   function penDown(px, py, L, point = false) {
-    const rect = ampLanes(L).find(r => inside(r, px, py))
+    const rect = lineLanes(L).find(r => inside(r, px, py))
     if (!rect || !onLine(rect, px, py) || point && pointAt(rect, px, py) < 0) return null
     const points = linePoints().map(p => [...p])
     let index = pointAt(rect, px, py), offset = [0, 0]
@@ -1265,19 +1350,35 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     }
     return { points, line: pitchLine() ? 'pitchline' : 'envelope', index, rect, offset, x: px, y: py, t0: points[index][0], before: JSON.stringify(linePoints()) }
   }
+  // A point of the pitch line where it sits on the pitch curve: dragged up or down to the pitch the pointer is at (`hz`
+  // the curve's there when pressed, `v0` the point's value then), along time between its neighbours
+  function toneDown(px, py, L) {
+    const rect = contour?.f0.length && L.spec.find(r => inside(r, px, py)), index = rect ? pointOn(rect, px, py) : -1
+    if (index < 0) return null
+    const points = linePoints().map(p => [...p]), [t, v0] = points[index], hz = toneAt(t)
+    return { points, line: 'pitchline', tone: true, index, rect, hz, v0, offset: [x(t) - px, fy(rect, hz) - py], x: px, y: py, t0: t, before: JSON.stringify(linePoints()) }
+  }
+  // A press on the pitch curve: dragged up or down, the whole pitch line with it (`base`, the line before; each point by
+  // as much, or with none one where it was pressed): all of the voice moved, as it moves under the pointer, heard over
+  // the voiced stretch pressed (frames [a, b]); let go where it was pressed, a point of the line there (tapped)
   function pitchDown(px, py, L) {
-    if (!contour?.f0.length) return null
-    const rects = pitchLanes(L), rect = rects.find(r => inside(r, px, py))
+    const rect = contour?.f0.length && L.spec.find(r => inside(r, px, py))
     if (!rect) return null
-    const { times, f0 } = contour
+    const { times, f0 } = contour, t = time(px)
     let i = 0
-    while (i < times.length - 1 && times[i + 1] <= time(px)) i++
-    if (!f0[i] || Math.abs(fy(rect, f0[i]) - py) > 12) return null
+    while (i < times.length - 1 && times[i + 1] <= t) i++
+    if (!f0[i] || Math.abs(fy(rect, toneOf(i)) - py) > 12) return null
     let a = i, b = i
     while (a > 0 && f0[a - 1]) a--
     while (b < f0.length - 1 && f0[b + 1]) b++
-    return { run: [a, b], rect, y: py, ratio: 1 }
+    const base = linePoints().map(p => [...p])
+    return { run: [a, b], rect, x: px, y: py, at: snap(t), base, points: base, st: 0, moved: false }
   }
+  // A click on the pitch curve: a point of the pitch line there, at the value the line has, so nothing changes yet
+  const tapped = d => d.base.some(p => Math.abs(p[0] - d.at) < .001) ? d.base : [...d.base, [d.at, valueAt(d.base, d.at)]].sort((p, q) => p[0] - q[0])
+  // where a point of the pitch line is heard as it is dragged: from the one before it to the one after, a second either
+  // side at most
+  const heardAround = (pts, i) => { const t = pts[i][0], a = Math.max(pts[i - 1]?.[0] ?? 0, t - 1), b = Math.min(pts[i + 1]?.[0] ?? duration, t + 1); return { at: a, duration: Math.max(.05, b - a) } }
   function move(event) {
     const [px, py] = local(event)
     if (pointers.has(event.pointerId)) pointers.set(event.pointerId, local(event))
@@ -1316,17 +1417,34 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       drag.moved = true
       drag.to = Math.max(drag.prev + .01, Math.min(drag.next - .01, snap(time(px)) + drag.offset))
     }
+    // the pitch curve, once it moves: up or down by semitones, the whole pitch line with it
+    else if (drag.run) {
+      if (!drag.moved && Math.abs(px - drag.x) < 3 && Math.abs(py - drag.y) < 3) return
+      drag.moved = true
+      const st = semitones(yf(drag.rect, py) / yf(drag.rect, drag.y)), range = pitchRange(drag), changed = st !== drag.st
+      if (changed || !drag.heard) { drag.st = st; drag.points = drag.base.length ? drag.base.map(([t, v]) => [t, v + st]) : [[drag.at, st]] }
+      hear(drag, changed, { ...range, curve: curveOf(drag.points) })
+    }
     else if (drag.points) {
-      const p = drag.points[drag.index], lo = drag.points[drag.index - 1]?.[0] ?? 0, hi = drag.points[drag.index + 1]?.[0] ?? duration
+      // on the pitch curve, once it moves a few pixels
+      if (drag.tone && !drag.moved) { if (Math.abs(px - drag.x) < 3 && Math.abs(py - drag.y) < 3) return; drag.moved = true }
+      const p = drag.points[drag.index], lo = drag.points[drag.index - 1]?.[0] ?? 0, hi = drag.points[drag.index + 1]?.[0] ?? duration, was = [...p]
       // a point moved only up or down keeps its time as it was, not taken to the zoom's step
       const [dx, dy] = drag.offset, [qx, qy] = lock(event, px, py)
-      p[0] = qx === drag.x ? drag.t0 : Math.max(lo, Math.min(hi, snap(time(qx + dx)))); p[1] = snapV(drag.rect, fold(drag.rect, qy) + dy)
+      p[0] = qx === drag.x ? drag.t0 : Math.max(lo, Math.min(hi, snap(time(qx + dx))))
+      // on the pitch curve: to the pitch the pointer is at, in whole semitones (held ⌘, cents), 0 within reach of where it
+      // would be at 0
+      if (drag.tone) {
+        const zero = fy(drag.rect, drag.hz * 2 ** (-drag.v0 / 12)), v = drag.v0 + 12 * Math.log2(yf(drag.rect, qy + dy) / drag.hz)
+        p[1] = Math.abs(qy + dy - zero) <= SNAP ? 0 : fine() ? Math.round(v * 100) / 100 : Math.round(v)
+      }
+      else p[1] = snapV(drag.rect, fold(drag.rect, qy) + dy)
+      if (drag.line === 'pitchline') hear(drag, p[0] !== was[0] || p[1] !== was[1], { ...heardAround(drag.points, drag.index), curve: curveOf(drag.points) })
     }
-    else if (drag.run) pitchTo(yf(drag.rect, py) / yf(drag.rect, drag.y))
-    // the pill, its first move: up or down, its level or its pitch
+    // the pill or a tool, its first move: up or down, its level, or a voice's pitch, intonation or formants
     else if (drag.pill) {
       if (Math.max(Math.abs(px - drag.x), Math.abs(py - drag.y)) < 3) return
-      drag = { ...lifting(drag.lane, drag.y), aim: drag.aim }
+      drag = { ...lifting(drag.lane, drag.y, drag.tool), aim: drag.aim }
       return drags(event, px, py)
     }
     // moved audio lands with its start or its end on a cue, whichever is nearer one, past the end too (silence opening
@@ -1359,7 +1477,24 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       drag.db = Math.max(-24, Math.min(12, +(Math.round((drag.y - py) / drag.rect[3] * 24 / levelStep) * levelStep).toFixed(1)))
       pieces = arrange('gain', drag.a, drag.b, drag.a, drag.db)
     }
-    else if (drag.lift === 'pitch') pitchTo(yf(drag.rect, py) / yf(drag.rect, drag.y))
+    // pitch, by semitones (by the pitch axis's frequencies: the spectrogram's, or on the waveform the voice's, VOICE)
+    else if (drag.lift === 'pitch') {
+      const st = semitones(yf(drag.rect, py) / yf(drag.rect, drag.y)), changed = st !== drag.st
+      drag.st = st; drag.ratio = 2 ** (st / 12)
+      hear(drag, changed, { ...pitchRange(drag), pitch: st })
+    }
+    // intonation, a factor: up half a lane twice as wide, down half a lane a monotone, by 0.05 (held ⌘, 0.01), 0 to 3
+    else if (drag.lift === 'intonation') {
+      const k = 1 + (drag.y - py) / (drag.rect[3] / 2), step = fine() ? 100 : 20, was = drag.k
+      drag.k = Math.max(0, Math.min(3, Math.round(k * step) / step))
+      hear(drag, drag.k !== was, { ...pitchRange(drag), intonation: drag.k })
+    }
+    // formants, by semitones on the pitch line's scale (half a lane an octave), ±12
+    else if (drag.lift === 'formant') {
+      const st = Math.max(-12, Math.min(12, semitones(2 ** ((drag.y - py) / (drag.rect[3] / 2))))), changed = st !== drag.st
+      drag.st = st
+      hear(drag, changed, { ...pitchRange(drag), formant: st })
+    }
     // A fade's corner, dragged: inward, the fade runs from the edge to it; outward, past the edge, the audio out there
     // goes, what is before it crossfading into the range (or the range into what is after). It shows as it goes.
     else if (drag.fade) {
@@ -1428,7 +1563,8 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   let held = {}, hot = null, grabbing = false
   function hover(px, py, keys = held) {
     held = keys
-    const L = lanes(), rect = (show.gain || pillMode === 'pitch') && ampLanes(L).find(r => inside(r, px, py)), spectral = L.spec.some(r => inside(r, px, py)) && editing(keys)
+    const L = lanes(), rect = (show.gain || pitchLine()) && lineLanes(L).find(r => inside(r, px, py)), spectral = L.spec.some(r => inside(r, px, py)) && editing(keys)
+    const tone = pitchLine() && contour?.f0.length && L.spec.find(r => inside(r, px, py))
     const handle = gripAt(L, px, py)?.[0], end = !handle && editing(keys) && py <= plot().h && edgeAt(px)?.edge === 1
     const cue = !handle && !end && show.hits && nearCue(px, py, keys) >= 0
     const within = selection && !band && py <= plot().h && px > x(selection[0]) + EDGE && px < x(selection[1]) - EDGE
@@ -1438,8 +1574,8 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       : within && keys.altKey ? 'copy'
       : within && editing(keys) ? 'move'
       : nearMarker(px, py) >= 0 ? 'pointer'
-      : rect && onLine(rect, px, py) && pointAt(rect, px, py) >= 0 ? 'move'
-      : pillMode === 'pitch' && pitchDown(px, py, L) || rect && onLine(rect, px, py) ? 'ns-resize' : null
+      : rect && onLine(rect, px, py) && pointAt(rect, px, py) >= 0 || tone && pointOn(tone, px, py) >= 0 ? 'move'
+      : tone && pitchDown(px, py, L) || rect && onLine(rect, px, py) ? 'ns-resize' : null
     // Shift or Alt held, a press sums or adds wherever it is, an edge's or a caret's line too
     const plain = !keys.shiftKey && !keys.altKey, caret = plain && caretAt(px, py)
     hot = end || other == null && !spectral && plain ? edgeAt(px) : null
@@ -1462,8 +1598,9 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       if (!d.moved) { select(0, 0); setCursor(from) }
       else if (Math.abs(d.to - from) > 1e-4) { cues = cues.with(d.cue, d.to); ahead = true; onedit('warp', { from, to: d.to, prev: d.prev, next: d.next }) }
     }
-    else if (d.points) { if (JSON.stringify(d.points) !== d.before) onedit(d.line, { t: d.points.map(p => p[0]), v: d.points.map(p => p[1]) }) }
-    else if (d.run) { onaudition(null); if (d.st) onedit('pitch', { ...pitchRange(d), semitones: d.st }) }
+    // the pitch curve moved, or clicked: the whole pitch line moved, or a point of it there
+    else if (d.run) { onaudition(null); if (!d.moved) onedit('pitchline', curveOf(tapped(d))); else if (d.st) onedit('pitchline', curveOf(d.points)) }
+    else if (d.points) { if (d.line === 'pitchline') onaudition(null); if (JSON.stringify(d.points) !== d.before) onedit(d.line, curveOf(d.points)) }
     // a drag that moved audio: the picture keeps the pieces where they went until the output comes (set, stream)
     else if (d.carry) {
       const length = d.b - d.a
@@ -1472,7 +1609,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       else if (Math.abs(d.to - d.a) < 1e-9 || !onedit('carry', { at: d.a, duration: length, to: d.to, copy: d.carry === 'copy' })) pieces = null
       else select(d.to, d.to + length, null, true)
     }
-    else if ((d.stretch || d.pill) && !d.moved) { if (!d.end) onmode(d.pill ? 'pill' : 'grip') }
+    else if ((d.stretch || d.pill) && !d.moved) { if (d.stretch && !d.end) onmode('grip') }
     else if (d.stretch && d.mode === 'trim') {
       if (Math.abs(d.to - d.b) < 1e-9 || !onedit('trim', { at: d.a, end: d.b, to: d.to })) pieces = null
       else d.to > d.a ? select(d.a, d.to, null, true) : (select(0, 0), setCursor(d.a))
@@ -1483,7 +1620,13 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       else select(d.a, d.to, null, true)
     }
     else if (d.lift === 'gain') { if (!d.db || !onedit('lift', { range: [d.a, d.b], db: d.db })) pieces = null }
-    else if (d.lift === 'pitch') { onaudition(null); if (d.st) onedit('pitch', { ...pitchRange(d), semitones: d.st }) }
+    // the selection's pitch, intonation or formants: its pitch curve shown as the edit leaves it until the output it
+    // makes is measured
+    else if (d.lift === 'pitch' || d.lift === 'intonation' || d.lift === 'formant') {
+      onaudition(null)
+      const range = pitchRange(d), made = d.lift === 'pitch' ? d.st && onedit('pitch', { ...range, semitones: d.st }) : d.lift === 'intonation' ? d.k !== 1 && onedit('intonation', { ...range, factor: d.k }) : d.st && onedit('formant', { ...range, semitones: d.st })
+      if (made && d.lift !== 'formant') landed = d
+    }
     else if (d.fade && !d.span) onmode('curve')
     // let go where it was pressed, give or take a few pixels: nothing
     else if (d.fade && Math.abs(x(d.p) - x(d.fade === 'in' ? d.a : d.b)) < 3) pieces = null
@@ -1503,15 +1646,16 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     hover(...local(event), event)
     invalidate()
   }
-  // Clicks counted: a double-click takes away the gain point under it, or selects between the cues around it (or the
+  // Clicks counted: a double-click takes away the line's point under it (the pitch line's on the pitch curve too), or selects between the cues around it (or the
   // pause it is in); a triple-click, the sound between the pauses either side
   function clicked(event) {
     if (!duration || event.detail < 2 || event.button > 0) return
-    const [px, py] = local(event), L = lanes(), rect = (pitchLine() || show.gain) && ampLanes(L).find(r => inside(r, px, py)), flag = nearMarker(px, py)
+    const [px, py] = local(event), L = lanes(), rect = (pitchLine() || show.gain) && lineLanes(L).find(r => inside(r, px, py)), flag = nearMarker(px, py)
+    const tone = pitchLine() && contour?.f0.length && L.spec.find(r => inside(r, px, py))
     if (flag >= 0) return rename(flag)
-    if (event.detail === 2 && rect && (pitchLine() ? shift : envelope)) {
-      const pts = linePoints(), i = pointAt(rect, px, py)
-      if (i >= 0) { pts.splice(i, 1); onedit(pitchLine() ? 'pitchline' : 'envelope', { t: pts.map(p => p[0]), v: pts.map(p => p[1]) }); return }
+    if (event.detail === 2 && (rect || tone) && (pitchLine() ? shift : envelope)) {
+      const pts = linePoints(), i = rect ? pointAt(rect, px, py) : pointOn(tone, px, py)
+      if (i >= 0) { pts.splice(i, 1); onedit(pitchLine() ? 'pitchline' : 'envelope', curveOf(pts)); return }
     }
     if (py > plot().h || px > plot().w) return
     around(event.detail === 2 ? 'fragment' : 'sound', clamp(time(px)), event.altKey ? 'add' : event.shiftKey ? 'extend' : null)
@@ -1529,10 +1673,10 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   }
   // Where the caret steps, as a text's words and lines, and what the clicks take: the cues (found, the markers), the
   // fragments' edges; the pauses' edges, the sounds', a pause that ends where a cue is (the two found within 30 ms of each
-  // other) ending at the cue
+  // other) ending at the cue. An edit drawn ahead takes them where it moves them, as they are drawn.
   function edges(kind) {
-    const onCue = t => cues.find(c => Math.abs(c - t) < .03) ?? t
-    const all = [0, duration, ...markers.map(m => m.time), ...(kind === 'fragment' ? cues : segments.silences.flat().map(onCue))].filter(t => t >= 0 && t <= duration)
+    const at = list => list.map(moved).filter(t => t != null), shown = at(cues), onCue = t => shown.find(c => Math.abs(c - t) < .03) ?? t
+    const all = [0, duration, ...at(markers.map(m => m.time)), ...(kind === 'fragment' ? shown : at(segments.silences.flat()).map(onCue))].filter(t => t >= 0 && t <= duration)
     return [...new Set(all.map(t => +t.toFixed(6)))].sort((a, b) => a - b)
   }
   // an edge within three pixels of the caret is where it is: a hit found a few ms after the pause it ends is one place
@@ -1632,9 +1776,11 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     fview = [0, 1]; leveled = false
     invalidate()
   }
-  function reveal(t) {
+  // [a, b] s brought into sight, as an editor scrolls to what it selects: moved to show it, zoomed out to fit it
+  function reveal(a, b = a) {
     const span = end - start
-    if (t < start || t > end) setRange(t - span * .1, t + span * .9)
+    if (b - a > span * .9) setRange(a - (b - a) * .05, b + (b - a) * .05)
+    else if (a < start || b > end) setRange(a - span * .1, a + span * .9)
   }
 
   // Keys while the view has focus: arrows move the caret a hundredth of the view, by cues or sounds as a text's
@@ -1650,13 +1796,14 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       reveal(t)
     }
     const head = selection ? (selection[0] === origin() ? selection[1] : selection[0]) : cursor
-    // as in a text: by cues as by words (⌥ on a Mac, Ctrl elsewhere), by sounds as by lines (⌘ on a Mac, Ctrl ↑ ↓)
+    // as in a text: by cues as by words (⌥ on a Mac, Ctrl elsewhere), by sounds as by lines (⌘ on a Mac, Ctrl ↑ ↓); to the
+    // start or the end as to a text's (⌘ ↑ ↓ on a Mac, Home and End)
     const word = mac ? event.altKey && !event.metaKey : event.ctrlKey && !event.altKey
     const line = mac ? event.metaKey && !event.altKey : false, dir = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[k]
     if (dir && (k === 'ArrowLeft' || k === 'ArrowRight') && (word || line)) stepTo(line ? 'sound' : 'fragment', dir, event.shiftKey)
     else if (dir && (k === 'ArrowUp' || k === 'ArrowDown') && (word || event.altKey && mac)) stepTo('sound', dir, event.shiftKey)
     else if (k === 'ArrowLeft' || k === 'ArrowRight') to(clamp((event.shiftKey ? head : cursor) + (k === 'ArrowLeft' ? -step : step)))
-    else if (k === 'Home' || k === 'End') to(k === 'Home' ? 0 : duration)
+    else if (k === 'Home' || k === 'End' || line && (k === 'ArrowUp' || k === 'ArrowDown')) to(k === 'Home' || k === 'ArrowUp' ? 0 : duration)
     else if (k === '=' || k === '+') zoom(.5, playhead ?? (selection ? (selection[0] + selection[1]) / 2 : cursor))
     else if (k === '-' || k === '_') zoom(2, playhead ?? cursor)
     else if (k === '0' && !mod) { fview = [0, 1]; aview = [-1, 1]; setRange(0, duration) }
@@ -1696,6 +1843,19 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       if (sgl) (specs[i] ||= new Spectrogram(sgl, { background: color('--color-screen'), ...look })).update({ color: dim ? color('--color-screen-wave-dim') : look.color ?? null })
     }
   }
+  // The samples [i0, i1) where two outputs of one length differ, in any channel; [0, 0] where none do
+  function changed(was, now) {
+    let i0 = Infinity, i1 = 0
+    now.forEach((y, c) => {
+      const x = was[c]
+      let a = 0, b = y.length
+      while (a < b && x[a] === y[a]) a++
+      if (a === b) return
+      while (b > a && x[b - 1] === y[b - 1]) b--
+      i0 = Math.min(i0, a); i1 = Math.max(i1, b)
+    })
+    return i1 > 0 ? [i0, i1] : [0, 0]
+  }
   // Each channel's samples for its pictures: the whole output, or none yet of one arriving
   const fill = channels => { tints.clear(); channels.forEach((data, i) => { waves[i].update({ data }); specs[i]?.update({ data, sampleRate: rate, levels: null }) }) }
   // After new samples: the levels again, the selection and the caret within them, and the range kept where it still fits;
@@ -1708,7 +1868,8 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     more = more.map(([a, b, ...f]) => [Math.min(a, duration), Math.min(b, duration), ...f]).filter(([a, b]) => b > a || a === b && b < duration)
     cursor = Math.min(cursor, duration)
     if (all || end - start <= 0) setRange(0, duration)
-    else if (start >= duration || !stay && end > duration) setRange(duration - (end - start), duration)
+    // a sound arriving, its length not known yet, is kept within it once it is (finish)
+    else if (!(arriving && arriving.total == null) && (start >= duration || !stay && end > duration)) setRange(duration - (end - start), duration)
     else invalidate()
   }
 
@@ -1751,10 +1912,19 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   }
 
   return {
-    // New output in place of the one shown (replace)
+    // New output in place of the one shown (replace). One as long as it, at its rate, is drawn anew only where it differs
+    // (an edit over a range, a band taken out): the rest of each picture, its levels and the view stay as they are.
     set(channels, sampleRate) {
       channels ||= []
       const all = replace(channels[0]?.length ? channels[0].length / (sampleRate || rate) : 0)
+      if (!arriving && channels.length && channels.length === data.length && (sampleRate || rate) === rate && channels.every((y, c) => y.length === data[c].length)) {
+        ended()
+        const [i0, i1] = changed(data, channels)
+        data = channels
+        if (i1 > i0) channels.forEach((y, c) => { waves[c].set(y.subarray(i0, i1), i0); specs[c]?.set(y.subarray(i0, i1), i0) })
+        tints.clear()
+        return invalidate()
+      }
       arriving = null
       ended()
       count = channels.length; rate = sampleRate || rate
@@ -1763,12 +1933,36 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       fill(data = channels)
       renew(all)
     },
+    // A file held over the picture (a drag's event, or null when it leaves): where it would go in, the time under the
+    // pointer, onto a cue or marker near it as a dragged caret goes; that time, or null
+    dropAt(event) {
+      dropped = event && duration ? stuck(snap(clamp(time(local(event)[0])))) : null
+      invalidate(true)
+      return dropped
+    },
+    // Samples of an output arriving as long as the one shown, from `at`: drawn where they differ from what shows, the
+    // rest left as it is, so an edit's output comes in where it changes as it renders, nothing else drawn again
+    patch(at, channels) {
+      if (arriving || channels.length !== data.length) return
+      channels.forEach((y, c) => {
+        const x = data[c]
+        let a = 0, b = Math.min(y.length, x.length - at)
+        while (a < b && x[at + a] === y[a]) a++
+        if (a === b) return
+        while (b > a && x[at + b - 1] === y[b - 1]) b--
+        waves[c].set(y.subarray(a, b), at + a)
+        specs[c]?.set(y.subarray(a, b), at + a)
+      })
+      tints.clear()
+      invalidate()
+    },
     // An output as it arrives: stream() starts it, `total` samples long where that is known, else as long as what has
     // come, `dim` while it is the file arriving, not yet the output; append() adds each piece; finish() ends it, its
     // length what came. A new file shows all of it; an output in place of the one shown keeps the view where it is
-    // (zoomed in, it stays zoomed in), and that output's length until its own is known.
-    stream({ sampleRate, channels, total = null, dim = false }) {
-      const all = replace(total == null ? null : total / (sampleRate || rate)) || dim
+    // (zoomed in, it stays zoomed in), and that output's length until its own is known. `keep`: the view stays where it
+    // is, a new file too (one coming into the view as it was left)
+    stream({ sampleRate, channels, total = null, dim = false, keep = false }) {
+      const all = (replace(total == null ? null : total / (sampleRate || rate)) || dim) && !keep
       ended()
       count = channels; rate = sampleRate || rate
       arriving = { total, length: 0, dim, fit: all }
@@ -1804,6 +1998,8 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       ended()
       if (!opts) { pieces = null; return invalidate() }
       const { at, sampleRate, channels } = opts
+      // into nothing: its lanes, and the scale a take is watched at
+      if (!duration) { count = channels; rate = sampleRate; lay(count); start = at; end = at + RECORD }
       recording = { at, rate: sampleRate, length: 0, total: duration, waves: Array.from({ length: channels }, () => new Waveform(gl, { rms: false, density: true, color: color('--color-screen-wave') })),
         specs: sgl ? Array.from({ length: channels }, () => new Spectrogram(sgl, { background: color('--color-screen'), ...look, sampleRate })) : [] }
       taking()
@@ -1822,6 +2018,23 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // an edit drawn ahead of its output: the output waits whole to take its place
     get expecting() { return !!pieces },
     get range() { return [start, end] },
+    // What shows, as a tab keeps it and the page restores it: the time, the frequencies, the levels; none without a sound.
+    // Set, it shows that again, within the sound as it is now
+    // Set while the sound arrives, it shows that at once, the sound coming into it, its length not yet known: what arrives
+    // no longer fits the view, and the view moves only as it is moved (finish() keeps it within the sound)
+    // With it, the sound's shape, to lay the lanes out as they were before any of it comes: its length, rate, channels
+    get frame() { return duration || arriving ? { range: [start, end], freqs: [...fview], levels: [...aview], duration, rate, channels: count } : null },
+    set frame(f) {
+      const ok = p => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite) && p[1] > p[0]
+      if (!f || !duration && !arriving) return
+      if (ok(f.freqs)) setFreqs(...f.freqs)
+      if (ok(f.levels)) scrollLevels(f.levels[0], Math.max(2e-3, Math.min(8, f.levels[1] - f.levels[0])))
+      if (!ok(f.range)) return
+      if (!arriving) return setRange(...f.range, true)
+      arriving.fit = false
+      start = Math.max(0, f.range[0]); end = Math.max(start + 32 / rate, f.range[1])
+      invalidate()
+    },
     // What is selected, whole, as the history keeps it beside a step: the selection, its band, the others beside it,
     // the caret, where the selection was begun; set, all of it back as it was
     get state() { return { selection: selection && [...selection], band: band && [...band], more: more.map(r => [...r]), cursor, anchor } },
@@ -1871,13 +2084,19 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // the output's markers, [{ time, label }]
     set markers(list) { markers = list || []; invalidate(true) },
     set cues(list) { cues = list || []; invalidate() },
-    // what the grip and the pill do: 'trim', 'stretch' or 'speed'; 'level' or 'pitch'
+    // what the grip does: 'trim', 'stretch' or 'speed'; whether pitch is edited
     set gripMode(mode) { gripMode = ['trim', 'speed'].includes(mode) ? mode : 'stretch'; invalidate(true) },
-    set pillMode(mode) { pillMode = mode === 'pitch' ? 'pitch' : 'level'; invalidate(true) },
+    set pitching(on) { pitching = !!on; invalidate(true) },
     set envelope(curve) { envelope = curve; invalidate() },
-    // the pitch curve the script has, semitones { t, v }, the line edited when the pill is set to pitch
+    // the pitch line the script has, semitones { t, v }, the line edited when pitch is
     set shift(curve) { shift = curve; invalidate() },
-    set contour(track) { contour = track; invalidate() },
+    // The output's pitch, { times, f0 } (Hz every 10 ms, 0 where there is none), and `shift`, the pitch line it was
+    // measured with, so the curve shows the line's changes since at once
+    set contour(track) {
+      contour = track && { ...track, basis: track.shift ? track.shift.t.map((t, i) => [t, track.shift.v[i]]) : [] }
+      landed = null
+      invalidate()
+    },
     set guides(list) { guides = list || []; invalidate() },
     // While playing, a zoomed view scrolls with the playhead held in the middle; at the ends the playhead walks.
     set playhead(t) {
@@ -1907,6 +2126,8 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // every range selected, in time order, and every caret; addNext() adds the next like the selection (⌘D)
     get ranges() { return ranges() }, get carets() { return carets() }, get boxes() { return boxes() }, addNext,
     select, setCursor, around, step: stepTo,
-    zoom, zoomTo: (a, b) => { const pad = (b - a) * .05; setRange(a - pad, b + pad) }, fit: () => { fview = [0, 1]; aview = [-1, 1]; setRange(0, duration) }
+    zoom, zoomTo: (a, b) => { const pad = (b - a) * .05; setRange(a - pad, b + pad) }, fit: () => { fview = [0, 1]; aview = [-1, 1]; setRange(0, duration) },
+    // the picture of a range, for an agent; a range or a time brought into sight
+    snapshot, reveal
   }
 }

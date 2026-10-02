@@ -1,4 +1,4 @@
-// The REPL bridge (bin/bridge.js) over real HTTP on 127.0.0.1, and the MCP server's --repl mode through it:
+// The editor's bridge (bin/bridge.js) over real HTTP on 127.0.0.1, and the MCP server's --editor mode through it:
 // a fake page (an SSE client), fake agent CLIs on PATH that print what Claude Code and Codex print.
 import test from 'tst'
 import { spawn } from 'child_process'
@@ -31,6 +31,22 @@ const say = text => [ev({ type: 'content_block_start', index: 0, content_block: 
   ev({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } }),
   { type: 'assistant', message: { content: [{ type: 'text', text }] }, parent_tool_use_id: null, session_id: S }]
 if (input === 'hang') setInterval(() => {}, 1000)
+// a session it does not hold, as each says so: Claude Code a result naming it, Codex its stderr alone
+else if (process.argv.includes('gone')) name === 'claude'
+  ? (print([{ type: 'result', subtype: 'error_during_execution', is_error: true, num_turns: 0, session_id: 'gone', errors: ['No conversation found with session ID: gone'] }]), process.exit(1))
+  : (process.stderr.write('Error: thread/resume: thread/resume failed: no rollout found for thread id gone (code -32600)\\n'), process.exit(1))
+// a call the tool refused, as each reports it
+else if (input === 'refused') print(name === 'claude' ? [
+  { type: 'system', subtype: 'init', session_id: S },
+  { type: 'assistant', message: { content: [{ type: 'tool_use', id: 't', name: 'mcp__audio__edit', input: { call: 'nope()' } }] }, parent_tool_use_id: null, session_id: S },
+  { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't', content: 'edit: no nope', is_error: true }] }, parent_tool_use_id: null, session_id: S },
+  { type: 'result', subtype: 'success', is_error: false, result: '', session_id: S }
+] : [
+  { type: 'thread.started', thread_id: T },
+  { type: 'item.started', item: { id: 'i', type: 'mcp_tool_call', server: 'audio', tool: 'edit', arguments: { call: 'nope()' }, status: 'in_progress' } },
+  { type: 'item.completed', item: { id: 'i', type: 'mcp_tool_call', server: 'audio', tool: 'edit', arguments: { call: 'nope()' }, status: 'failed' } },
+  { type: 'turn.completed' }
+])
 else if (input === 'crash') process.stderr.write('warming up\\nboom: no credit\\n'), process.exit(3)
 else if (name === 'claude') print([
   { type: 'system', subtype: 'hook_started', session_id: S },
@@ -43,8 +59,8 @@ else if (name === 'claude') print([
   ev({ type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'Reading ' } }),
   ev({ type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'the sound.' } }),
   { type: 'assistant', message: { content: [{ type: 'text', text: 'Reading the sound.' }] }, parent_tool_use_id: null, session_id: S },
-  ev({ type: 'content_block_start', index: 2, content_block: { type: 'tool_use', id: 'toolu_1', name: 'mcp__audio__repl_state', input: {} } }),
-  { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'toolu_1', name: 'mcp__audio__repl_state', input: {} }] }, parent_tool_use_id: null, session_id: S },
+  ev({ type: 'content_block_start', index: 2, content_block: { type: 'tool_use', id: 'toolu_1', name: 'mcp__audio__state', input: {} } }),
+  { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'toolu_1', name: 'mcp__audio__state', input: {} }] }, parent_tool_use_id: null, session_id: S },
   { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: '{"duration":3}' }] }, parent_tool_use_id: null, session_id: S },
   { type: 'assistant', message: { content: [{ type: 'text', text: 'a subagent speaks' }] }, parent_tool_use_id: 'toolu_9', session_id: S },
   ...(input === 'fail' ? [{ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['API Error: 529 overloaded'], session_id: S }]
@@ -54,8 +70,10 @@ else print([
   { type: 'thread.started', thread_id: T },
   { type: 'turn.started' },
   { type: 'item.completed', item: { id: 'item_0', type: 'reasoning', text: 'thinking' } },
-  { type: 'item.started', item: { id: 'item_1', type: 'mcp_tool_call', server: 'audio', tool: 'repl_state', arguments: {}, status: 'in_progress' } },
-  { type: 'item.completed', item: { id: 'item_1', type: 'mcp_tool_call', server: 'audio', tool: 'repl_state', arguments: {}, status: 'completed' } },
+  { type: 'item.started', item: { id: 'item_1', type: 'mcp_tool_call', server: 'audio', tool: 'state', arguments: {}, status: 'in_progress' } },
+  { type: 'item.completed', item: { id: 'item_1', type: 'mcp_tool_call', server: 'audio', tool: 'state', arguments: {}, status: 'completed' } },
+  { type: 'item.started', item: { id: 'item_9', type: 'mcp_tool_call', server: 'files', tool: 'edit', arguments: { path: 'a' }, status: 'in_progress' } },
+  { type: 'item.completed', item: { id: 'item_9', type: 'mcp_tool_call', server: 'files', tool: 'edit', arguments: { path: 'a' }, status: 'completed' } },
   { type: 'error', message: 'Reconnecting... 1/5' },
   ...(input === 'fail' ? [{ type: 'turn.failed', error: { message: 'usage limit reached' } }] : [
     { type: 'item.completed', item: { id: 'item_2', type: 'agent_message', text: 'It is 3 s long.' } },
@@ -76,7 +94,7 @@ async function bridge(flags = ['--key', KEY], env = {}) {
   return { line, url: line.match(/http:\/\/127\.0\.0\.1:\d+/)?.[0], close: () => new Promise(r => { proc.once('close', r); proc.kill() }) }
 }
 
-/** A REPL page: its event stream, each `data:` line parsed; next(pred) takes the first unread event that matches. */
+/** An editor page: its event stream, each `data:` line parsed; next(pred) takes the first unread event that matches. */
 function page(url, key = KEY) {
   let events = [], waiters = [], status, ended
   let done = new Promise(r => ended = r)
@@ -141,22 +159,22 @@ function mcp(args, env = {}) {
     close: () => { proc.stdin.end(); return new Promise(r => proc.exitCode != null ? r() : proc.once('close', r)) }
   }
 }
-const REPL_TOOLS = ['repl_state', 'repl_script', 'repl_edit', 'repl_select', 'repl_play', 'repl_stop', 'repl_check', 'repl_undo', 'repl_redo']
+const EDITOR_TOOLS = ['state', 'script', 'edit', 'measure', 'look', 'select', 'scrub', 'step', 'open', 'play', 'stop', 'check', 'undo', 'redo']
 
 
 test('bridge: prints its address and key; a random 128-bit key unless given, or from AUDIO_BRIDGE_KEY', async t => {
   let a = await bridge([]), b = await bridge([], { AUDIO_BRIDGE_KEY: 'from-env' }), c = await bridge()
   try {
-    t.ok(/^audio bridge on http:\/\/127\.0\.0\.1:\d+ {2}key [0-9a-f]{32}$/.test(a.line), a.line)
-    t.ok(b.line.endsWith('  key from-env'), b.line)
-    t.ok(c.line.endsWith(`  key ${KEY}`), c.line)
-    t.is((await fetch(`${a.url}/health?key=${a.line.split('key ')[1]}`)).status, 200, 'the printed key opens it')
+    t.ok(/^audio bridge on http:\/\/127\.0\.0\.1:\d+ {2}key [0-9a-f]{32} {2}agent claude \(--agent codex\)$/.test(a.line), a.line)
+    t.ok(b.line.includes('  key from-env  '), b.line)
+    t.ok(c.line.includes(`  key ${KEY}  `), c.line)
+    t.is((await fetch(`${a.url}/health?key=${a.line.match(/key (\S+)/)[1]}`)).status, 200, 'the printed key opens it')
   } finally { await a.close(); await b.close(); await c.close() }
 })
 
 test('bridge: bad options fail with usage', async t => {
-  for (let flags of [['--port', 'x'], ['--nope', '1'], ['--timeout', '0'], ['--key']]) {
-    let proc = spawn(process.execPath, [bin, '--bridge', ...flags], { stdio: ['ignore', 'ignore', 'pipe'] }), err = ''
+  for (let flags of [['--port', 'x'], ['--nope', '1'], ['--timeout', '0'], ['--key'], ['--agent', 'gemini'], ['--agent', '__proto__'], ['--agent', 'codex']]) {
+    let proc = spawn(process.execPath, [bin, '--bridge', ...flags], { env: { ...process.env, PATH: join(dir, 'empty') }, stdio: ['ignore', 'ignore', 'pipe'] }), err = ''
     proc.stderr.setEncoding('utf8').on('data', d => err += d)
     let code = await new Promise(r => proc.on('close', r))
     t.is(code, 1, flags.join(' '))
@@ -167,7 +185,7 @@ test('bridge: bad options fail with usage', async t => {
 test('bridge: the key on every endpoint, by query or bearer; CORS for any origin, preflight with private network', async t => {
   let b = await bridge()
   try {
-    for (let [method, path] of [['GET', '/health'], ['GET', '/events'], ['POST', '/call'], ['POST', '/reply'], ['POST', '/chat'], ['POST', '/chat/stop'], ['GET', '/nope']]) {
+    for (let [method, path] of [['GET', '/health'], ['GET', '/events'], ['GET', '/file?path=' + join(root, 'test/fixture.wav')], ['POST', '/call'], ['POST', '/reply'], ['POST', '/chat'], ['POST', '/chat/stop'], ['GET', '/nope']]) {
       let r = await fetch(b.url + path, { method })
       t.is(r.status, 401, `${method} ${path} without key`)
       t.is(r.headers.get('access-control-allow-origin'), '*', '401 readable cross-origin')
@@ -187,30 +205,45 @@ test('bridge: the key on every endpoint, by query or bearer; CORS for any origin
   } finally { await b.close() }
 })
 
+test('bridge: /file hands a media file of this machine to the page, by its absolute path; nothing else', async t => {
+  let b = await bridge(), get = path => fetch(`${b.url}/file?key=${KEY}&path=${encodeURIComponent(path)}`)
+  try {
+    let wav = join(root, 'test/fixture.wav'), r = await get(wav)
+    t.is([r.status, r.headers.get('content-type'), +r.headers.get('content-length')], [200, 'audio/wav', readFileSync(wav).length])
+    t.ok(Buffer.from(await r.arrayBuffer()).equals(readFileSync(wav)), 'the bytes as on disk')
+    t.is((await get('test/fixture.wav')).status, 400, 'a relative path')
+    t.is((await get(join(root, 'package.json'))).status, 415, 'not audio or video')
+    t.is((await get(join(root, 'test/nope.wav'))).status, 404, 'no such file')
+    mkdirSync(join(dir, 'folder.wav'), { recursive: true })
+    t.is((await get(join(dir, 'folder.wav'))).status, 404, 'a folder')
+    t.is((await fetch(`${b.url}/file?key=${KEY}`)).status, 400, 'no path')
+  } finally { await b.close() }
+})
+
 test('bridge: a page gets hello, answers a call; /call round-trips result and error', async t => {
   let b = await bridge(), p
   try {
-    t.is(await health(b.url), { ok: true, page: false, agents: ['claude', 'codex'] }, 'health before a page; fakes on PATH')
+    t.is(await health(b.url), { ok: true, page: false, agent: 'claude' }, 'health before a page; the first agent on PATH')
     p = page(b.url)
     let { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
-    t.is(await p.next(), { type: 'hello', version, agents: ['claude', 'codex'] })
+    t.is(await p.next(), { type: 'hello', version, agent: { id: 'claude', name: 'Claude Code' } })
     t.is(p.status, 200)
     t.is((await health(b.url)).page, true)
 
-    let pending = post(b.url, '/call', { tool: 'repl_select', args: { at: 1, d: 0.5 } })
+    let pending = post(b.url, '/call', { tool: 'select', args: { at: 1, d: 0.5 } })
     let call = await p.next(e => e.type === 'call')
-    t.is(call.tool, 'repl_select')
+    t.is(call.tool, 'select')
     t.is(call.args, { at: 1, d: 0.5 })
     t.ok(typeof call.id === 'string' && call.id, 'string id')
     t.is(await post(b.url, '/reply', { id: call.id, result: { ok: true } }), { status: 204, body: null })
     t.is(await pending, { status: 200, body: { result: { ok: true } } })
 
-    pending = post(b.url, '/call', { tool: 'repl_edit', args: { call: 'nope(' } })
+    pending = post(b.url, '/call', { tool: 'edit', args: { call: 'nope(' } })
     call = await p.next(e => e.type === 'call')
     await post(b.url, '/reply', { id: call.id, error: 'SyntaxError: Unexpected end of input' })
     t.is(await pending, { status: 200, body: { error: 'SyntaxError: Unexpected end of input' } })
 
-    pending = post(b.url, '/call', { tool: 'repl_stop' })
+    pending = post(b.url, '/call', { tool: 'stop' })
     call = await p.next(e => e.type === 'call')
     t.is(call.args, {}, 'args default to {}')
     await post(b.url, '/reply', { id: call.id })
@@ -224,14 +257,14 @@ test('bridge: a page gets hello, answers a call; /call round-trips result and er
 test('bridge: no page → 503; a page that leaves fails its calls at once', async t => {
   let b = await bridge()
   try {
-    t.is(await post(b.url, '/call', { tool: 'repl_state' }), { status: 503, body: { error: 'No REPL page is connected' } })
+    t.is(await post(b.url, '/call', { tool: 'state' }), { status: 503, body: { error: 'No editor page is connected' } })
     let p = page(b.url)
     await p.next()
-    let pending = post(b.url, '/call', { tool: 'repl_state' })
+    let pending = post(b.url, '/call', { tool: 'state' })
     await p.next(e => e.type === 'call')
     let t0 = Date.now()
     p.close()
-    t.is(await pending, { status: 503, body: { error: 'The REPL page disconnected' } })
+    t.is(await pending, { status: 503, body: { error: 'The editor page disconnected' } })
     t.ok(Date.now() - t0 < 1000, 'not after the timeout')
     await until(async () => !(await health(b.url)).page)
   } finally { await b.close() }
@@ -241,7 +274,7 @@ test('bridge: a second page replaces the first, which still answers what it hold
   let b = await bridge(), p1 = page(b.url), p2
   try {
     await p1.next()
-    let held = post(b.url, '/call', { tool: 'repl_state' })
+    let held = post(b.url, '/call', { tool: 'state' })
     let call1 = await p1.next(e => e.type === 'call')
     p2 = page(b.url)
     t.is((await p2.next()).type, 'hello')
@@ -252,9 +285,9 @@ test('bridge: a second page replaces the first, which still answers what it hold
     await post(b.url, '/reply', { id: call1.id, result: 'from the first' })
     t.is((await held).body, { result: 'from the first' }, 'the replaced page answered its call')
 
-    let pending = post(b.url, '/call', { tool: 'repl_undo' })
+    let pending = post(b.url, '/call', { tool: 'undo' })
     let call2 = await p2.next(e => e.type === 'call')
-    t.is(call2.tool, 'repl_undo', 'new calls go to the new page')
+    t.is(call2.tool, 'undo', 'new calls go to the new page')
     await post(b.url, '/reply', { id: call2.id, result: { ok: true } })
     t.is((await pending).body, { result: { ok: true } })
     t.is(p1.events.length, 0, 'nothing more reached the first')
@@ -267,58 +300,72 @@ test('bridge: a call the page does not answer times out with 504', async t => {
   try {
     await p.next()
     let t0 = Date.now()
-    let r = await post(b.url, '/call', { tool: 'repl_script', args: { code: 'x' } })
+    let r = await post(b.url, '/call', { tool: 'script', args: { code: 'x' } })
     t.is(r.status, 504)
-    t.ok(r.body.error.includes('did not answer repl_script within 0.2 s'), r.body.error)
+    t.ok(r.body.error.includes('did not answer script within 0.2 s'), r.body.error)
     t.ok(Date.now() - t0 < 2000, `${Date.now() - t0} ms`)
     let call = await p.next(e => e.type === 'call')
     t.is((await post(b.url, '/reply', { id: call.id, result: 1 })).status, 404, 'a late answer finds no call')
   } finally { p.close(); await b.close() }
 })
 
-test('mcp --repl: lists the repl tools; a call goes through the bridge to the page and back', { timeout: 30000 }, async t => {
-  let b = await bridge(), p = page(b.url), c = mcp(['--repl', b.url, '--key', KEY])
+test('mcp --editor: lists the editor tools; a call goes through the bridge to the page and back', { timeout: 30000 }, async t => {
+  let b = await bridge(), p = page(b.url), c = mcp(['--editor', b.url, '--key', KEY])
   try {
     await p.next()
     let { result } = await c.request('tools/list')
-    t.is(result.tools.map(x => x.name), ['audio', ...REPL_TOOLS])
+    t.is(result.tools.map(x => x.name), ['audio', ...EDITOR_TOOLS])
     for (let tool of result.tools) {
       t.ok(tool.description.length <= 2048, `${tool.name} ${tool.description.length} ≤ 2048 chars`)
       t.ok(!tool.description.includes('\u2014'), `${tool.name}: no em dash`)
       t.is(tool.inputSchema.type, 'object')
     }
     let tool = name => result.tools.find(x => x.name === name)
-    t.is(tool('repl_script').inputSchema.required, ['code'])
-    t.is(tool('repl_edit').inputSchema.required, ['call'])
-    t.is(tool('repl_check').inputSchema.required, ['spec'])
-    t.ok(tool('repl_state').annotations.readOnlyHint, 'state reads only')
-    t.ok(/\bd = duration\b/.test(tool('repl_script').description) && /xfade = crossfade/.test(tool('repl_script').description), 'aliases taught')
+    t.is(tool('script').inputSchema.required, ['code'])
+    t.is(tool('edit').inputSchema.required, ['call'])
+    t.is(tool('check').inputSchema.required, ['spec'])
+    t.ok(tool('state').annotations.readOnlyHint, 'state reads only')
+    t.is(tool('measure').inputSchema.required, ['code'])
+    t.ok(tool('measure').annotations.readOnlyHint && tool('look').annotations.readOnlyHint, 'eval and view read only')
+    t.ok(/\bd = duration\b/.test(tool('script').description) && /xfade = crossfade/.test(tool('script').description), 'aliases taught')
 
-    let pending = c.request('tools/call', { name: 'repl_state', arguments: {} })
+    let pending = c.request('tools/call', { name: 'state', arguments: {} })
     let call = await p.next(e => e.type === 'call')
-    t.is([call.tool, call.args], ['repl_state', {}])
+    t.is([call.tool, call.args], ['state', {}])
     let state = { script: "audio('voice.wav')", duration: 3, sampleRate: 48000, channels: 1, selection: null, cursor: 0, markers: [], stats: { peak: -1, loudness: -20 }, problem: null }
     await post(b.url, '/reply', { id: call.id, result: state })
     let r = (await pending).result
     t.is(r.isError, false)
     t.is(JSON.parse(r.content[0].text), state, 'the page state as JSON text')
 
-    pending = c.request('tools/call', { name: 'repl_edit', arguments: { call: "normalize('podcast')" } })
+    pending = c.request('tools/call', { name: 'edit', arguments: { call: "normalize('podcast')" } })
     call = await p.next(e => e.type === 'call')
     t.is(call.args, { call: "normalize('podcast')" })
     await post(b.url, '/reply', { id: call.id, error: 'normalize: unknown preset' })
     r = (await pending).result
     t.is(r.isError, true)
-    t.is(r.content[0].text, 'repl_edit: normalize: unknown preset')
+    t.is(r.content[0].text, 'edit: normalize: unknown preset')
 
-    pending = c.request('tools/call', { name: 'repl_undo' })
+    // a picture comes back as image content; an answer too long, cut, saying how to narrow it
+    pending = c.request('tools/call', { name: 'look', arguments: { at: 1, d: 2 } })
+    call = await p.next(e => e.type === 'call')
+    t.is(call.args, { at: 1, d: 2 })
+    await post(b.url, '/reply', { id: call.id, result: { image: 'data:image/png;base64,iVBORw0KGgo=', text: '1 s to 3 s' } })
+    t.is((await pending).result.content, [{ type: 'image', mimeType: 'image/png', data: 'iVBORw0KGgo=' }, { type: 'text', text: '1 s to 3 s' }])
+    pending = c.request('tools/call', { name: 'measure', arguments: { code: "out.stat('ms', { bins: 1e5 })" } })
+    call = await p.next(e => e.type === 'call')
+    await post(b.url, '/reply', { id: call.id, result: Array(30000).fill(0) })
+    r = (await pending).result
+    t.ok(r.content[0].text.length < 20200 && /more chars cut: ask for fewer bins or a range$/.test(r.content[0].text), r.content[0].text.slice(-80))
+
+    pending = c.request('tools/call', { name: 'undo' })
     call = await p.next(e => e.type === 'call')
     await post(b.url, '/reply', { id: call.id })
     t.is((await pending).result.content[0].text, 'done', 'no result reads done')
 
     // Cancelled: the fetch is dropped, no response goes out, the server stays responsive
     let answered = false
-    c.request('tools/call', { name: 'repl_play', arguments: { at: 1 } }).then(() => answered = true)
+    c.request('tools/call', { name: 'play', arguments: { at: 1 } }).then(() => answered = true)
     call = await p.next(e => e.type === 'call')
     c.notify('notifications/cancelled', { requestId: c.id, reason: 'test' })
     t.ok((await c.request('ping')).result, 'responsive after cancel')
@@ -329,14 +376,14 @@ test('mcp --repl: lists the repl tools; a call goes through the bridge to the pa
   } finally { await c.close(); p.close(); await b.close() }
 })
 
-test('mcp --repl: no page, no bridge, wrong key come back as tool errors that say what to do', { timeout: 30000 }, async t => {
+test('mcp --editor: no page, no bridge, wrong key come back as tool errors that say what to do', { timeout: 30000 }, async t => {
   let b = await bridge()
-  let calls = async (c, name = 'repl_state') => (await c.request('tools/call', { name, arguments: {} })).result
-  let c1 = mcp(['--repl', b.url, '--key', KEY]), c2 = mcp(['--repl', 'http://127.0.0.1:9', '--key', KEY]), c3 = mcp(['--repl', b.url, '--key', 'wrong'])
-  let c4 = mcp(['--repl', b.url], { AUDIO_BRIDGE_KEY: KEY })
+  let calls = async (c, name = 'state') => (await c.request('tools/call', { name, arguments: {} })).result
+  let c1 = mcp(['--editor', b.url, '--key', KEY]), c2 = mcp(['--editor', 'http://127.0.0.1:9', '--key', KEY]), c3 = mcp(['--editor', b.url, '--key', 'wrong'])
+  let c4 = mcp(['--editor', b.url], { AUDIO_BRIDGE_KEY: KEY })
   try {
     let r = await calls(c1)
-    t.is([r.isError, r.content[0].text], [true, 'repl_state: No REPL page is connected'])
+    t.is([r.isError, r.content[0].text], [true, 'state: No editor page is connected'])
     r = await calls(c2)
     t.is(r.isError, true)
     t.ok(r.content[0].text.includes('no bridge at http://127.0.0.1:9') && r.content[0].text.includes('audio --bridge'), r.content[0].text)
@@ -344,13 +391,13 @@ test('mcp --repl: no page, no bridge, wrong key come back as tool errors that sa
     t.is(r.isError, true)
     t.ok(r.content[0].text.includes('key'), r.content[0].text)
     r = await calls(c4)
-    t.is(r.content[0].text, 'repl_state: No REPL page is connected', 'key from AUDIO_BRIDGE_KEY')
+    t.is(r.content[0].text, 'state: No editor page is connected', 'key from AUDIO_BRIDGE_KEY')
     let plain = mcp([])
-    t.is((await plain.request('tools/list')).result.tools.length, 1, 'without --repl, the audio tool alone')
-    t.is((await plain.request('tools/call', { name: 'repl_state', arguments: {} })).error.code, -32602, 'repl tools unknown without --repl')
+    t.is((await plain.request('tools/list')).result.tools.length, 1, 'without --editor, the audio tool alone')
+    t.is((await plain.request('tools/call', { name: 'state', arguments: {} })).error.code, -32602, 'editor tools unknown without --editor')
     await plain.close()
   } finally { await Promise.all([c1, c2, c3, c4].map(c => c.close())); await b.close() }
-  let nokey = mcp(['--repl', 'http://127.0.0.1:7777'])
+  let nokey = mcp(['--editor', 'http://127.0.0.1:7777'])
   let { code, err } = await nokey.exit
   t.is(code, 1, 'no key: refuses to start')
   t.ok(err.includes('--key'), err)
@@ -364,8 +411,9 @@ test('bridge chat: claude streams text, tool, session, done in order; the text o
     let events = await chat(p, b.url, { text })
     t.is(events, [
       { session: CLAUDE_SESSION },
+      { thinking: true },
       { text: 'Reading ' }, { text: 'the sound.' },
-      { tool: 'repl_state' },
+      { thinking: true }, { tool: 'state', input: {}, id: 'toolu_1' }, { answered: 'toolu_1', failed: false },
       { text: '\n\n' }, { text: 'It is 3 s long.' },
       { done: true }
     ])
@@ -378,36 +426,52 @@ test('bridge chat: claude streams text, tool, session, done in order; the text o
     t.is(argv[argv.indexOf('--allowedTools') + 1], 'mcp__audio__*')
     t.ok(!argv.includes('--resume'), 'a new conversation')
     let { mcpServers } = JSON.parse(argv[argv.indexOf('--mcp-config') + 1])
-    t.is(mcpServers.audio, { command: process.execPath, args: [bin, '--mcp', '--repl', b.url, '--key', KEY] }, 'this repo\'s MCP server, absolute paths')
+    t.is(mcpServers.audio, { command: process.execPath, args: [bin, '--mcp', '--editor', b.url, '--key', KEY] }, 'this repo\'s MCP server, absolute paths')
 
-    await chat(p, b.url, { text: 'and now?', agent: 'claude', session: CLAUDE_SESSION })
-    argv = logged('claude').argv
+    let history = [{ role: 'user', text: 'how long is it?' }, { role: 'agent', text: 'It is 3 s long.' }]
+    await chat(p, b.url, { text: 'and now?', session: CLAUDE_SESSION, history })
+    ;({ argv, input } = logged('claude'))
     t.is(argv[argv.indexOf('--resume') + 1], CLAUDE_SESSION, 'continues the session')
+    t.is(input, 'and now?', 'which holds what was said')
 
+    // a session it no longer holds: the same turn afresh, told what was said; a new one with no session, told too
+    let told = 'Our conversation so far, which you no longer hold:\n\nUser: how long is it?\n\nYou: It is 3 s long.\n\nThe user now says:\n\nand now?'
+    t.is((await chat(p, b.url, { text: 'and now?', session: 'gone', history }))[0], { session: CLAUDE_SESSION }, 'the session it starts instead')
+    ;({ argv, input } = logged('claude'))
+    t.ok(!argv.includes('--resume'), 'afresh')
+    t.is(input, told)
+    t.is((await chat(p, b.url, { text: 'and now?', history })).at(-1), { done: true })
+    t.is(logged('claude').input, told, 'a conversation another agent began')
+
+    t.is(await chat(p, b.url, { text: 'refused' }), [{ session: CLAUDE_SESSION }, { tool: 'edit', input: { call: 'nope()' }, id: 't' }, { answered: 't', failed: true }, { done: true }], 'a call refused')
     t.is((await chat(p, b.url, { text: 'fail' })).at(-1), { done: true, error: 'API Error: 529 overloaded' })
     t.is((await chat(p, b.url, { text: 'crash' })).at(-1), { done: true, error: 'boom: no credit' }, 'exit without a result: the last stderr line')
   } finally { p.close(); await b.close() }
 })
 
 test('bridge chat: codex events and its exec command line', { timeout: 15000 }, async t => {
-  let b = await bridge(), p = page(b.url)
+  let b = await bridge(['--key', KEY, '--agent', 'codex']), p = page(b.url)
   try {
-    await p.next()
-    let events = await chat(p, b.url, { text: 'how long?', agent: 'codex' })
-    t.is(events, [{ session: CODEX_THREAD }, { tool: 'repl_state' }, { text: 'It is 3 s long.' }, { text: '\n\nAnything else?' }, { done: true }])
+    t.is((await p.next()).agent, { id: 'codex', name: 'Codex' }, '--agent chooses it')
+    t.ok(b.line.endsWith('  agent codex (--agent claude)'), b.line)
+    let events = await chat(p, b.url, { text: 'how long?' })
+    t.is(events, [{ session: CODEX_THREAD }, { tool: 'state', input: {}, id: 'item_1' }, { answered: 'item_1', failed: false }, { tool: 'files.edit', input: { path: 'a' }, id: 'item_9' }, { answered: 'item_9', failed: false }, { text: 'It is 3 s long.' }, { text: '\n\nAnything else?' }, { done: true }])
     let { argv, input } = logged('codex')
     t.is(input, 'how long?')
     t.is(argv.slice(0, 3), ['exec', '--json', '--skip-git-repo-check'])
     t.is(argv.at(-1), '-', 'the prompt from stdin')
     t.ok(argv.includes(`mcp_servers.audio.command=${JSON.stringify(process.execPath)}`), 'node, absolute')
-    t.ok(argv.includes(`mcp_servers.audio.args=${JSON.stringify([bin, '--mcp', '--repl', b.url, '--key', KEY])}`), 'the MCP server args as a TOML array')
+    t.ok(argv.includes(`mcp_servers.audio.args=${JSON.stringify([bin, '--mcp', '--editor', b.url, '--key', KEY])}`), 'the MCP server args as a TOML array')
 
-    await chat(p, b.url, { text: 'more', agent: 'codex', session: CODEX_THREAD })
+    await chat(p, b.url, { text: 'more', session: CODEX_THREAD })
     argv = logged('codex').argv
     t.is(argv.slice(0, 2), ['exec', 'resume'])
     t.is(argv.slice(-2), [CODEX_THREAD, '-'])
+    t.is((await chat(p, b.url, { text: 'more', session: 'gone', history: [{ role: 'user', text: 'how long?' }] })).at(-1), { done: true }, 'a thread it lacks: afresh')
+    t.ok(logged('codex').input.startsWith('Our conversation so far'), logged('codex').input)
 
-    t.is((await chat(p, b.url, { text: 'fail', agent: 'codex' })).at(-1), { done: true, error: 'usage limit reached' })
+    t.is(await chat(p, b.url, { text: 'refused' }), [{ session: CODEX_THREAD }, { tool: 'edit', input: { call: 'nope()' }, id: 'i' }, { answered: 'i', failed: true }, { done: true }], 'a call refused')
+    t.is((await chat(p, b.url, { text: 'fail' })).at(-1), { done: true, error: 'usage limit reached' })
   } finally { p.close(); await b.close() }
 })
 
@@ -428,21 +492,22 @@ test('bridge chat: stop kills the turn; bad requests are refused before anything
     let bad = async body => (await post(b.url, '/chat', body))
     t.is((await bad({})).status, 400, 'no text')
     t.is((await bad({ text: '  ' })).status, 400, 'blank text')
-    t.is((await bad({ text: 'hi', agent: 'rm' })).status, 400, 'unknown agent')
-    t.is((await bad({ text: 'hi', agent: '__proto__' })).status, 400, 'not a registry key')
+    t.is((await bad({ text: 'hi', history: 'all of it' })).status, 400, 'history a list')
+    t.is((await bad({ text: 'hi', history: [{ role: 'user', text: 5 }] })).status, 400, 'of texts')
     t.is((await bad({ text: 'hi', session: '--dangerously-skip-permissions' })).status, 400, 'a session id is never a flag')
     t.is((await bad({ text: 'hi', session: 5 })).status, 400, 'a session id is a string')
   } finally { p.close(); await b.close() }
 
   let none = await bridge(['--key', KEY], { PATH: join(dir, 'empty') }), q = page(none.url)
   try {
-    t.is((await q.next()).agents, [], 'no agents on PATH')
-    t.is(await post(none.url, '/chat', { text: 'hi' }), { status: 400, body: { error: 'claude is not on PATH' } })
+    t.is((await q.next()).agent, null, 'no agent on PATH')
+    t.ok(none.line.endsWith('  no agent on PATH'), none.line)
+    t.is(await post(none.url, '/chat', { text: 'hi' }), { status: 400, body: { error: 'No agent on PATH: install Claude Code or Codex, then start the bridge again' } })
     q.close()
     await until(async () => !(await health(none.url)).page)
-    t.is((await post(none.url, '/chat', { text: 'hi', agent: 'claude' })).status, 400, 'agent checked first')
+    t.is((await post(none.url, '/chat', { text: 'hi' })).status, 400, 'agent checked first')
   } finally { await none.close() }
   let lone = await bridge()
-  try { t.is(await post(lone.url, '/chat', { text: 'hi' }), { status: 503, body: { error: 'No REPL page is connected' } }) }
+  try { t.is(await post(lone.url, '/chat', { text: 'hi' }), { status: 503, body: { error: 'No editor page is connected' } }) }
   finally { await lone.close() }
 })

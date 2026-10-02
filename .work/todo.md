@@ -11,8 +11,8 @@ Parity evidence: [.work/baseline.md](baseline.md). Perf: [docs/comparison.md § 
 4. [ ] Small: Wavearea: adopt facade.play() P3 or keep own player · `audio-ponyfill` package (#68) · common processing scripts (vocal warmup etc)
 
 * [ ] Integrations for VSCode, sublime, atom and other tools: edit audio
-* [ ] REPL: theme selector, don't force users.
-* [ ] REPL: all winamp themes?!
+* [ ] editor: theme selector, don't force users.
+* [ ] editor: all winamp themes?!
 * [ ] Automastering - must have.
 * [ ] drop a file - receive agent recommendation on improvements: essentially agent should do all job
 * [ ] Instagram filters for your sound

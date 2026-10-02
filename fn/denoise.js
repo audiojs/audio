@@ -7,6 +7,7 @@
  * a.denoise({ noise: [{ at: 0, duration: 0.4 }, { at: 7.1, duration: 0.3 }] })  → learned from both pauses
  * a.denoise(12, 3, { noise })                               → threshold 3 dB: the quiet just over the noise goes too
  * a.denoise({ noise: print })                               → a print saved from `await b.stat('print', { at, duration })`
+ * a.denoise({ noise: { at: 1.2, duration: 0.5 }, band: [2000, 8000] })  → only 2 to 8 kHz: the rest as it was
  *
  * For hiss, hum and buzz, a fan, room tone, tape: noise that holds still. The print is the noise's power spectrum,
  * averaged over the frames inside `noise`, a range of the op's input (the audio as the edits before it leave it), or
@@ -18,6 +19,8 @@
  * noise, `reduction` dB quieter, not tones: log kurtosis ratio 0.00 on steady noise at 12 to 20 dB (musical noise is
  * above 0); in the half second after music stops, 0.06 at 12 dB, 0.46 at 20. `threshold` raises the print by that many
  * dB before the gain reads it (RX's Threshold): more of what is quiet counts as noise. `reduction` 0 leaves the input.
+ * `band` [low, high] Hz gains only the bins from low to high, each bin whose centre is inside; the others pass as they were,
+ * so a noise found in a box of time and frequency (a whistle's band, a hiss above the voice) goes there alone.
  *
  * A print is dB per band, the bands 23.4375 Hz apart from 0 to 24 kHz (1025 values: the op's own bins at 48 and
  * 96 kHz), each the level white noise of that density would have: white noise of RMS 0.01 prints −40 throughout. Any
@@ -80,6 +83,8 @@ function check(o) {
   if (typeof t !== 'number' || !Number.isFinite(t)) throw new TypeError(`denoise: threshold is dB, not ${t}`)
   if (!ranges(o.noise) && !prints(o.noise))
     throw new TypeError('denoise: needs the noise: { noise: { at, duration } }, where it plays alone (or several such ranges, or a print from stat(\'print\'))')
+  if (o.band != null && !(Array.isArray(o.band) && o.band.length === 2 && o.band.every(Number.isFinite) && o.band[0] >= 0 && o.band[0] < o.band[1]))
+    throw new TypeError(`denoise: band is [low, high] Hz, 0 ≤ low < high, not ${JSON.stringify(o.band)}`)
 }
 
 /** Learn the print from the edit's `noise` range(s) of its input (the audio as the edits before it leave it). */
@@ -117,6 +122,16 @@ function init(ctx, nch) {
   let reduction = ctx.reduction ?? REDUCTION, thr = 10 ** ((ctx.threshold ?? 0) / 10)
   let n0 = Math.round((ctx.blockOffset || 0) * sr), g0 = Math.ceil(n0 / hop) * hop
   let st = { n: n0, g0, s0: -Infinity, s1: Infinity, chans: [] }
+  // the band's bins, each whose centre is inside it; the rest kept as they were (`was`)
+  let band = ctx.band, k0 = band ? Math.ceil(band[0] * N / sr) : 0, k1 = band ? Math.min(N / 2, Math.floor(band[1] * N / sr)) : N / 2
+  let was = band && new Float32Array(N / 2 + 1)
+  const gain = (proc, mag, phase) => {
+    if (!band) return proc(mag, phase)
+    was.set(mag)
+    let out = proc(mag, phase)
+    for (let k = 0; k <= N / 2; k++) if (k < k0 || k > k1) out.mag[k] = was[k]
+    return out
+  }
   for (let c = 0; c < nch; c++) {
     let profile = fromPrint(list[Math.min(c, list.length - 1)], sr).map(v => v * thr), f = 0
     let proc = reduction > 0 && processor({ fs: sr, frameSize: N, hopSize: hop, profile, gMin: -reduction })
@@ -124,7 +139,7 @@ function init(ctx, nch) {
     let visit = (mag, phase, state, sc) => {
       let mid = g0 - (N - hop) + (sc?.pos ?? f * hop) + N / 2
       f++
-      return proc && mid >= st.s0 && mid < st.s1 ? proc(mag, phase) : { mag, phase }
+      return proc && mid >= st.s0 && mid < st.s1 ? gain(proc, mag, phase) : { mag, phase }
     }
     let stft = stftStream(visit, { fs: sr, frameSize: N, hopSize: hop })
     st.chans.push({ stft, q: new Float32Array(N << 2), len: N - 1, drop: N - hop - stft.write(new Float32Array(N - hop)).length })

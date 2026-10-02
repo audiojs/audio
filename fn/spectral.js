@@ -42,16 +42,16 @@ const delay = D => { let b = new Float32Array(D), i = 0; return x => { let y = b
  *  kernel's frame grid, early enough that every frame touching the region is whole (or at the
  *  first grid point reached, when rendering starts mid-region). */
 function place(ctx, n) {
-  let sr = ctx.sampleRate, { s0, s1, f0, f1 } = region(ctx)
+  let { s0, s1 } = region(ctx)
   let e0 = Math.max(Number.isFinite(s0) ? s0 - 2 * N : 0, 0, n)
-  return {
-    s0, s1, k0: Math.max(0, Math.floor(f0 * N / sr)), k1: Math.min(N / 2, Math.ceil(f1 * N / sr)),
-    g: ctx.gain == null ? 0 : 10 ** (ctx.gain / 20),
-    e0: Math.ceil(e0 / HOP) * HOP, e1: s1 + 3 * N, u0: s0 - N, u1: s1 + N,
-  }
+  return { s0, s1, e0: Math.ceil(e0 / HOP) * HOP, e1: s1 + 3 * N, u0: s0 - N, u1: s1 + N }
 }
 
-function spectral(input, output, ctx) {
+/** An op's STFT over its region (@audio/stft, `stft`; formant.js runs one too): `edit(mag, phase, mid, st, state)`
+ *  changes the frame centred on timeline sample `mid` (the region [st.s0, st.s1), `state` the channel's own) and
+ *  returns what to resynthesize. Elsewhere the input passes, delayed by N; a frame no edit changes gives its input
+ *  back, so the two meet without a seam. */
+export function regionStft(input, output, ctx, stft, edit) {
   let nch = input.length, len = input[0].length, sr = ctx.sampleRate
   let st = ctx._sp ??= { n: Math.round((ctx.blockOffset || 0) * sr), dl: Array.from({ length: nch }, () => delay(N)), sp: null, q: null, qAt: 0, done: false }
   st.n0 ??= st.n
@@ -60,12 +60,8 @@ function spectral(input, output, ctx) {
   if (!st.sp && !st.done) Object.assign(st, place(ctx, st.n0))
   let n0 = st.n, end = n0 + len
   if (!st.sp && st.e0 >= n0 && st.e0 < end && st.e0 < st.e1) {
-    let { stftStream } = audio.op('spectral').mod, at = st.e0, { s0, s1, k0, k1, g } = st
-    st.sp = Array.from({ length: nch }, () => stftStream((mag, phase, _, c) => {
-      let mid = at + c.pos + N / 2
-      if (mid >= s0 && mid <= s1) for (let k = k0; k <= k1; k++) mag[k] *= g
-      return { mag, phase }
-    }, { fs: sr, frameSize: N, hopSize: HOP }))
+    let at = st.e0
+    st.sp = Array.from({ length: nch }, () => stft.stftStream((mag, phase, state, c) => edit(mag, phase, at + c.pos + N / 2, st, state), { fs: sr, frameSize: N, hopSize: HOP }))
     st.q = st.sp.map(() => []); st.qAt = at
   }
   if (st.sp) {
@@ -85,6 +81,16 @@ function spectral(input, output, ctx) {
     if (end - N >= st.e1) { st.sp = st.q = null; st.done = true }  // past the region: back to plain delay
     else if (done > 1 << 16) { st.q = st.q.map(q => q.slice(done)); st.qAt += done }
   }
+}
+
+// the band's bins [k0, k1] and its gain, scaled in each frame centred in the region
+function spectral(input, output, ctx) {
+  let sr = ctx.sampleRate, { f0, f1 } = region(ctx), g = ctx.gain == null ? 0 : 10 ** (ctx.gain / 20)
+  let k0 = Math.max(0, Math.floor(f0 * N / sr)), k1 = Math.min(N / 2, Math.ceil(f1 * N / sr))
+  regionStft(input, output, ctx, audio.op('spectral').mod, (mag, phase, mid, { s0, s1 }) => {
+    if (mid >= s0 && mid <= s1) for (let k = k0; k <= k1; k++) mag[k] *= g
+    return { mag, phase }
+  })
 }
 
 audio.op('spectral', {

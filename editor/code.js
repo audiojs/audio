@@ -161,6 +161,34 @@ export function turnOff(code, call) {
 // ... and back on, as it was written
 export const turnOn = (code, off) => ({ from: off.from, to: off.to, insert: off.text })
 
+// The chain's steps as the edits show them, in order, those turned off among them: { name, text, on, call } each, `text`
+// as written ('.fade(0.5)'); audio.from(…), which makes the sound, is no step
+export function steps(code) {
+  const c = chain(code)
+  if (!c) return []
+  const made = c.root.name === 'VariableName' && code.slice(c.root.from, c.root.to) === 'audio' && !!c.calls[0]
+  return [...c.calls.slice(made ? 1 : 0).map(k => ({ name: k.name, text: code.slice(k.dot, k.to), on: true, call: { ...k, from: k.dot } })),
+    ...offCalls(code).map(o => ({ name: o.name, text: o.text, on: false, call: o }))].sort((p, q) => p.call.from - q.call.from)
+}
+// A step where it stands: its line, newline before it included, where it has the line to itself; else itself alone
+function piece(code, { from, to }) {
+  const line = lineOf(code, from), alone = !code.slice(line.from, from).trim() && !code.slice(to, lineOf(code, to).to).trim()
+  return alone && line.from ? { from: line.from - 1, to } : { from, to }
+}
+// The change that takes step `i` of steps() away, on or off
+export function dropStep(code, i) {
+  const s = steps(code)[i]
+  return s ? { ...piece(code, s.call), insert: '' } : null
+}
+// The change that moves live step `i` of steps() to stand at `j` among them: taken out where it stands and put in after
+// the step at `j` (moving later) or before it (earlier); null for a step turned off, or no move
+export function moveStep(code, i, j) {
+  const list = steps(code), s = list[i], t = list[j]
+  if (!s?.on || !t || i === j) return null
+  const p = piece(code, s.call), at = j > i ? t.call.to : piece(code, t.call).from
+  return [{ from: p.from, to: p.to, insert: '' }, { from: at, insert: code.slice(p.from, p.to) }]
+}
+
 // The script with the chain kept to its first `n` steps, as a rollback bar leaves it; as it is when that is all of them
 export function rollback(code, n) {
   const c = chain(code)
@@ -176,28 +204,44 @@ export function residual(code, i) {
 }
 
 // The change that adds `.name(args)` to the output chain, before a closing save() or play(): a line of its own, as the
-// edits are a card each, indented as the chain's lines are; a bare name gets a new statement. Null when there is no
-// chain.
+// edits are a card each, indented as the chain's lines are; a bare name gets a new statement. Or a group of calls,
+// `{ name, calls }`: its name a comment on a line of its own, its calls indented under it, one step of the edits (groups).
+// Null when there is no chain.
 export function append(code, call) {
   const c = chain(code)
   if (!c) return null
   const { statement, expr, root, calls } = c
   if (!calls.length && root?.name === 'VariableName' && statement.name === 'ExpressionStatement') {
     const line = lineOf(code, statement.from)
-    return { from: line.from, insert: `${line.indent}${text(code, root)}.${call}\n` }
+    return { from: line.from, insert: `${line.indent}${text(code, root)}${typeof call === 'string' ? `.${call}` : call.calls.map(k => `.${k}`).join('')}
+` }
   }
   const sink = calls.findIndex(k => methods[k.name]?.sink)
   const before = sink >= 0 ? calls[sink] : null
-  const lastCall = sink > 0 ? calls[sink - 1] : sink < 0 ? calls.at(-1) : null
   const multiline = calls.some(k => /\n\s*$/.test(code.slice(0, k.dot)))
   const at = before ? before.dot : expr.to
-  if (multiline) {
-    const ref = calls.find(k => /\n\s*$/.test(code.slice(0, k.dot)))
-    const indent = code.slice(0, ref.dot).match(/\n([ \t]*)$/)[1]
-    return before ? { from: at, insert: `.${call}\n${indent}` } : { from: at, insert: `\n${indent}.${call}` }
-  }
-  const line = lineOf(code, at), indent = line.indent + '  '
-  return { from: at, insert: `\n${indent}.${call}${before ? `\n${indent}` : ''}` }
+  const ref = multiline && calls.find(k => /\n\s*$/.test(code.slice(0, k.dot)))
+  const indent = ref ? code.slice(0, ref.dot).match(/\n([ \t]*)$/)[1] : lineOf(code, at).indent + '  '
+  const body = typeof call === 'string' ? `.${call}` : [`// ${call.name}`, ...call.calls.map(k => `  .${k}`)].join(`\n${indent}`)
+  if (before && multiline) return { from: at, insert: `${body}\n${indent}` }
+  return { from: at, insert: `\n${indent}${body}${before ? `\n${indent}` : ''}` }
+}
+// Groups of steps, as an outline holds them: a line comment alone on its line in the chain, its name, and the steps on
+// the lines after it indented deeper than it, to the first line that is not. [{ name, from, to }], from the comment to
+// the end of its last line; a step turned off (`// .fade(0.5)`) is no group's name, and stays in its group.
+export function groups(code) {
+  const c = chain(code), out = []
+  if (!c) return out
+  parse(code).iterate({ from: c.root.to, enter: ref => {
+    if (ref.name !== 'LineComment') return
+    const t = text(code, ref), line = lineOf(code, ref.from)
+    // alone on its line, between the chain's calls (not inside one's arguments), and not a step turned off
+    if (code.slice(line.from, ref.from).trim() || /^\/\/\s*\./.test(t) || c.calls.some(k => k.list && ref.from > k.list.from && ref.from < k.list.to)) return
+    let to = ref.to
+    for (let next = lineOf(code, to + 1); to < code.length && next.text.trim() && next.indent.length > line.indent.length; next = lineOf(code, next.to + 1)) to = next.to
+    if (to > ref.to) out.push({ name: t.replace(/^\/\/\s*/, '').trim(), from: line.from, to })
+  } })
+  return out
 }
 const lineOf = (code, pos) => {
   const from = code.lastIndexOf('\n', pos - 1) + 1, end = code.indexOf('\n', pos), to = end < 0 ? code.length : end
@@ -266,6 +310,21 @@ export function setArg(call, where, value, fill = []) {
 export const number = (value, step = .001) => {
   const digits = Math.max(0, Math.min(6, Math.ceil(-Math.log10(step))))
   return String(+(+value).toFixed(digits))
+}
+
+// The names a script declares (let, const, var, destructured too), and the script with some of them named anew, `names`
+// { old: new }, wherever they stand as names, never in a string, a template's text or after a dot
+export function declared(code) {
+  const out = new Set()
+  parse(code).iterate({ enter: ref => { if (ref.name === 'VariableDefinition') out.add(code.slice(ref.from, ref.to)) } })
+  return out
+}
+export function rename(code, names) {
+  const at = []
+  parse(code).iterate({ enter: ref => { if ((ref.name === 'VariableName' || ref.name === 'VariableDefinition') && names[code.slice(ref.from, ref.to)]) at.push(ref.from, ref.to) } })
+  let out = ''
+  for (let i = 0, last = 0; i <= at.length; i += 2) out += i < at.length ? code.slice(last, at[i]) + names[code.slice(at[i], at[i + 1])] : code.slice(last), last = at[i + 1]
+  return out
 }
 
 // The output chain as a CLI command, when it is one: audio('in.wav').gain(-3).save('out.wav') →

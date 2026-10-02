@@ -1,9 +1,9 @@
-// The REPL's voice recipes (repl/recipes.js), run as the REPL runs them, `$src` the open sound: each one that names
+// The editor's voice recipes (editor/recipes.js), run as the editor runs them, `$src` the open sound: each one that names
 // a delivery spec passes its check on a narration recorded at home: phrases and pauses, the room 35 dB under the
 // voice (nine Spoken Wikipedia narrations: 13 to 59 dB, median 39), the level 20 dB under a podcast's.
 import test, { ok } from 'tst'
 import audio from '../audio.js'
-import recipes from '../repl/recipes.js'
+import recipes from '../editor/recipes.js'
 import { existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import os from 'node:os'

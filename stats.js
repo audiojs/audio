@@ -129,17 +129,35 @@ function statSession(sr) {
 
 // ── Bin reduction ────────────────────────────────────────────────
 
+/** Blocks [a, b) of bin i of n over blocks [from, to): n equal shares, each at least a block. */
+function binAt(from, to, n, i) {
+  let bpp = (to - from) / n, a = from + Math.floor(i * bpp), b = Math.min(from + Math.floor((i + 1) * bpp), to)
+  return [a, b > a ? b : a + 1]
+}
+
 function binReduce(values, from, to, bins, reduce) {
   if (bins <= 0 || to <= from) return new Float32Array(Math.max(0, bins))
   from = Math.max(0, from); to = Math.min(to, values.length)
   if (to <= from) return new Float32Array(bins)
-  let out = new Float32Array(bins), bpp = (to - from) / bins
-  for (let i = 0; i < bins; i++) {
-    let a = from + Math.floor(i * bpp), b = Math.min(from + Math.floor((i + 1) * bpp), to)
-    if (b <= a) b = a + 1
-    out[i] = reduce(values, a, b)
-  }
+  let out = new Float32Array(bins)
+  for (let i = 0; i < bins; i++) out[i] = reduce(values, ...binAt(from, to, bins, i))
   return out
+}
+
+const num = v => v === null || typeof v === 'number'
+
+/** A stat over each of n bins of blocks [from, to), `of(a, b)` measuring blocks [a, b): a Float32Array, or one a
+ *  channel where `of` gives the values of nch channels; null (nothing to measure) as NaN. Null as soon as a value is
+ *  not a number. */
+async function series(from, to, n, nch, of) {
+  let vals = []
+  for (let i = 0; i < n; i++) {
+    let v = await of(...binAt(from, to, n, i))
+    if (!num(v) && !(nch && Array.isArray(v) && v.length === nch && v.every(num))) return null
+    vals.push(v)
+  }
+  return Array.isArray(vals[0]) ? Array.from({ length: nch }, (_, c) => Float32Array.from(vals, v => v[c] ?? NaN))
+    : Float32Array.from(vals, v => v ?? NaN)
 }
 
 
@@ -356,42 +374,61 @@ audio.fn.stat = async function(name, opts) {
   if (!desc && audio.plugins?.[name]) { await audio.use(name); desc = audio.stat(name) }
   if (!desc) throw new Error(`Unknown stat: '${name}'`)
 
-  // Registered stat with instance method (streaming analysis: spectrum, cepstrum, silence, etc.)
-  if (desc && !desc.query && !desc.reduce && !desc.block && typeof this[name] === 'function') return this[name](opts)
+  // `bins`: where, not only how much. A stat whose value is a number gives its value over each of n bins of the range,
+  // one block grid for all (binReduce's): a block stat reduces the bin's blocks, a query reads them, a method measures
+  // the bin's seconds; a null (nothing to measure) is NaN. A stat whose value is not a number, as its first bin's shows
+  // (events and regions carry their own times; a key; a vector, which spectrum and cepstrum size by `bins`), answers
+  // once for the whole range, opts as given.
+  // `d` as `duration` for every stat: a method reads the long name only
+  opts = named(opts)
+  let { bins, ...o } = opts ?? {}
+  if (bins != null && !(Number.isInteger(bins) && bins >= 0)) throw new RangeError(`bins ${bins}: a whole number, 0 or more`)
+
+  // Registered stat with instance method (streaming analysis: spectrum, cepstrum, silence, plugins, etc.)
+  if (!desc.query && !desc.reduce && !desc.block && typeof this[name] === 'function') {
+    if (bins == null) return this[name](opts)
+    await this[LOAD]()
+    if (!this.decoded && this.ready) await this.ready
+    // the range's ends as asked, the bins between on the block grid
+    let { at, duration, ...rest } = o, sr = this.sampleRate, bs = audio.BLOCK_SIZE, T = this.duration
+    at = parseTime(at); duration = parseTime(duration)
+    let t0 = at < 0 ? Math.max(0, T + at) : Math.min(at ?? 0, T), t1 = duration != null ? Math.min(T, t0 + duration) : T
+    let t = i => Math.min(t1, Math.max(t0, i * bs / sr)), nch = Array.isArray(rest.channel) && rest.channel.length
+    let v = await series(Math.floor(t0 * sr / bs), Math.ceil(t1 * sr / bs), bins, nch, (a, b) => this[name]({ ...rest, at: t(a), duration: t(b) - t(a) }))
+    return v ?? this[name](opts)
+  }
 
   let { stats, ch, sr, from, to } = await queryRange(this, opts, desc.fields ?? (desc.block ? [name] : null))
-  let bins = opts?.bins
 
   // Resolve channel selection once
   let { chs, perCh } = resolveChannels(opts?.channel, ch)
 
-  // Derived stats — custom query (skip if bins requested on block stat)
-  if (desc?.query && bins == null) {
-    if (perCh) return chs.map(c => desc.query(stats, [c], from, to, sr, opts))
-    return desc.query(stats, chs, from, to, sr, opts)
-  }
-
-  // Raw block stats
-  let blockStats = stats[name], aggregate = desc?.reduce
-  if (!blockStats || !aggregate) throw new Error(`No block stat: '${name}'`)
+  let blockStats = stats[name], aggregate = desc.reduce
   let reduce = (values, from, to) => aggregate(values, from, to, stats)
 
-  // Binned mode
-  if (bins != null) {
-    let n = bins ?? (to - from)
-    let reduce1 = (c) => binReduce(blockStats[c], from, to, n, reduce)
+  // Binned block stats: each channel's blocks reduced per bin, the channels averaged
+  if (bins != null && blockStats && aggregate) {
+    let reduce1 = c => binReduce(blockStats[c], from, to, bins, reduce)
     if (perCh) return chs.map(reduce1)
     if (chs.length === 1) return reduce1(chs[0])
-    let out = new Float32Array(n), bpp = (to - from) / n
-    for (let i = 0; i < n; i++) {
-      let a = from + Math.floor(i * bpp), b = Math.min(from + Math.floor((i + 1) * bpp), to)
-      if (b <= a) b = a + 1
-      let sum = 0
+    let out = new Float32Array(bins)
+    for (let i = 0; i < bins; i++) {
+      let [a, b] = binAt(from, to, bins, i), sum = 0
       for (let c of chs) sum += reduce(blockStats[c], a, b)
       out[i] = sum / chs.length
     }
     return out
   }
+
+  // Derived stats — custom query
+  if (desc.query) {
+    let q = (a, b, op) => perCh ? chs.map(c => desc.query(stats, [c], a, b, sr, op)) : desc.query(stats, chs, a, b, sr, op)
+    if (bins == null) return q(from, to, opts)
+    return await series(from, to, bins, perCh && chs.length, (a, b) => q(a, b, o)) ?? q(from, to, opts)
+  }
+
+  // Raw block stats
+  if (!blockStats || !aggregate) throw new Error(`No block stat: '${name}'`)
 
   // Scalar mode
   if (perCh) return chs.map(c => reduce(blockStats[c], from, to))

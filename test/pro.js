@@ -8,6 +8,7 @@ import { readFileSync, mkdtempSync, rmSync } from 'fs'
 import { fileURLToPath } from 'url'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { vowel } from './gen.js'
 
 const lena = fileURLToPath(new URL('../node_modules/audio-lena/lena.wav', import.meta.url))
 const lena24 = fileURLToPath(new URL('../node_modules/audio-lena/lena-24.aiff', import.meta.url))
@@ -224,6 +225,12 @@ test('EBU Tech 3341 cases 10, 11, 13, 14: the maxima find a tone wherever it lie
   for (let i = 0; i < 20; i++) {
     t.almost(await s.stat('shortterm', { at: 6 * i, duration: 6 }), -38 + i, 0.1, `case 11.${i}`)
     t.almost(await m.stat('momentary', { at: 0.8 * i, duration: 0.8 }), -38 + i, 0.1, `case 14.${i}`)
+  }
+  // the same files as one series each, `bins` a segment: each bin its tone's maximum (bins on the block grid hold each tone)
+  let S = await s.stat('shortterm', { bins: 20 }), M = await m.stat('momentary', { bins: 20 })
+  for (let i = 0; i < 20; i++) {
+    t.almost(S[i], -38 + i, 0.1, `case 11.${i}: bin ${i}`)
+    t.almost(M[i], -38 + i, 0.1, `case 14.${i}: bin ${i}`)
   }
 })
 
@@ -635,6 +642,105 @@ test('match: equalizes toward a reference tonal balance', async t => {
   let want = (await band(ref, 8000)) - (await band(ref, 500)), got = (await band(m, 8000)) - (await band(m, 500))
   t.almost(got, want, 1, `8 kHz vs 500 Hz tilt ${got.toFixed(2)} ≈ reference ${want.toFixed(2)} dB`)
   t.almost(await m.stat('loudness'), await src.stat('loudness'), 0.01, 'tone only: integrated loudness held')
+})
+
+// The pitch curve a voice is edited on (the editor's, intonation()'s): a voice gliding as speech does, ±4 semitones about
+// 140 Hz twice a second, which YIN's own threshold (.15) found half of, the curve finds whole and close to its pitch;
+// silence before it has none, nor a room's mains hum after it, 40 dB down (pYIN alone hears its 60 Hz; Praat's silence
+// threshold, 0.03 of the peak, does not); nothing in, nothing out
+test('contour: a gliding voice whole, to within cents; silence and a quiet hum have no pitch', async t => {
+  let { contour } = await import('../fn/pitch-detect.js'), sr = 44100, f = s => 140 * 2 ** (4 * Math.sin(2 * Math.PI * 2 * s) / 12)
+  let v = vowel(f, 2), x = new Float32Array(4 * sr), seed = 5
+  x.set(v, sr)
+  for (let i = 3 * sr; i < x.length; i++) x[i] = .003 * Math.sin(2 * Math.PI * 60 * i / sr) + .001 * ((seed = seed * 16807 % 2147483647) / 2147483647 - .5)
+  let { times, f0 } = contour(x, sr), inside = [], cents = [], off = []
+  times.forEach((s, i) => {
+    if (s > 1.05 && s < 2.95) { inside.push(f0[i]); if (f0[i]) cents.push(Math.abs(1200 * Math.log2(f0[i] / f(s - 1)))) }
+    else if (s < .95 || s > 3.05) off.push(f0[i])
+  })
+  let found = inside.filter(Boolean).length / inside.length
+  cents.sort((p, q) => p - q)
+  t.ok(found > .97, `${(100 * found).toFixed(0)}% of the voice's frames found`)
+  t.ok(cents[cents.length >> 1] < 10, `${cents[cents.length >> 1].toFixed(1)} cents from its pitch, in the median`)
+  t.ok(off.every(h => h === 0), `no pitch in the silence or the hum (${off.filter(Boolean).length} of ${off.length} frames)`)
+  let none = contour(new Float32Array(0), sr), short = contour(new Float32Array(100), sr)
+  t.ok(none.times.length === 0 && none.f0.length === 0 && short.f0.every(h => h === 0), 'nothing in, nothing out; a moment of silence, no pitch')
+})
+
+// A voice's melody, wider or flatter: its pitch read back (the contour the editor draws) lies `factor` times as far from
+// its median as it did, in semitones; at 1 the input; a range leaves the rest as it was
+test('intonation: rises and falls scale about the median; 1 is the input; a range keeps the rest', async t => {
+  if (!await import('@audio/tune-curve').catch(() => null)) return t.ok(true, 'skipped: @audio/tune-curve is not installed')
+  let { contour } = await import('../fn/pitch-detect.js')
+  // ±3 semitones about 140 Hz, a rise and fall every 1.25 s, as speech's melody moves
+  let sr = 44100, x = vowel(s => 140 * 2 ** (3 * Math.sin(2 * Math.PI * .8 * s) / 12), 3)
+  let read = async f => (await f(audio.from([x.slice(), x.map(v => .5 * v)], { sampleRate: sr })).read())
+  // semitones from the median, over 0.5–2.5 s
+  let moves = (y, from = .5, to = 2.5) => {
+    let { times, f0 } = contour(y, sr), st = [...f0].map((f, i) => times[i] > from && times[i] < to && f ? 12 * Math.log2(f) : NaN).filter(v => v === v)
+    let mid = [...st].sort((p, q) => p - q)[st.length >> 1]
+    return st.map(v => v - mid)
+  }
+  let spread = m => { let s = [...m].sort((p, q) => p - q); return s[Math.floor(.9 * (s.length - 1))] - s[Math.floor(.1 * (s.length - 1))] }
+  let base = spread(moves(x))
+  for (let k of [0, .5, 2]) {
+    let [l, r] = await read(a => a.intonation(k)), got = spread(moves(l))
+    t.ok(Math.abs(got - k * base) < .4 + .1 * k * base, `×${k}: ${base.toFixed(2)} → ${got.toFixed(2)} semitones from the 10th to the 90th percentile (${(k * base).toFixed(2)} asked)`)
+    if (k === 2) t.ok(l.every((v, i) => Math.abs(.5 * v - r[i]) < 1e-6), 'both channels on one set of cycles, each at its level')
+  }
+  let [same] = await read(a => a.intonation(1))
+  t.ok(same.every((v, i) => v === x[i]), '×1: the input, sample for sample')
+  let [y] = await read(a => a.intonation(0, { at: 1, duration: 1 })), err = 0
+  for (let i = 0; i < x.length; i++) if (i < sr || i >= 2 * sr) err = Math.max(err, Math.abs(y[i] - x[i]))
+  t.ok(err < 1e-6, `ranged: before and after it the input (${err.toExponential(1)} off)`)
+  let flat = spread(moves(y, 1.1, 1.9)), was = spread(moves(x, 1.1, 1.9))
+  t.ok(flat < .5 && was > 3, `ranged: inside it a monotone (${was.toFixed(2)} → ${flat.toFixed(2)} semitones)`)
+  // counted from the end, the range's last second: before it the input
+  let [z] = await read(a => a.intonation(2, { at: -1 })), early = 0
+  for (let i = 0; i < 2 * sr; i++) early = Math.max(early, Math.abs(z[i] - x[i]))
+  t.ok(early < 1e-6 && spread(moves(z, 2.1, 2.9)) > 1.5 * spread(moves(x, 2.1, 2.9)), `from the end: before it the input (${early.toExponential(1)} off), in it wider`)
+  // no voice (noise), no factor, a moment of voice: the input, its length
+  let seed = 7, noise = Float32Array.from({ length: sr }, () => .2 * ((seed = seed * 16807 % 2147483647) / 2147483647 - .5))
+  let unchanged = async (src, f) => { let [o] = await f(audio.from([src.slice()], { sampleRate: sr })).read(); return o.length === src.length && o.every((v, i) => v === src[i]) }
+  t.ok(await unchanged(noise, a => a.intonation(2)), 'noise, no voice in it: the input')
+  t.ok(await unchanged(x, a => a.intonation()), 'no factor: the input')
+  let [blip] = await audio.from([x.slice(0, 880)], { sampleRate: sr }).intonation(2).read()
+  t.ok(blip.length === 880 && blip.every(Number.isFinite), 'a moment of voice, 20 ms: its length, numbers')
+})
+
+// Formants moved, the pitch kept: a vowel whose resonators are made 3 semitones higher is what formant(3) should give;
+// its harmonics' levels land close to that vowel's, and its pitch stays
+test('formant: the harmonics take the moved formants\' levels, the pitch stays; 0 is the input; a range keeps the rest', async t => {
+  let { default: yin } = await import('@audio/pitch-yin')
+  let sr = 44100, h = (d, f, a, b) => { let w = 2 * Math.PI * f / sr, re = 0, im = 0; for (let i = a; i < b; i++) { let g = .5 - .5 * Math.cos(2 * Math.PI * (i - a) / (b - a)); re += d[i] * g * Math.cos(w * i); im -= d[i] * g * Math.sin(w * i) } return Math.hypot(re, im) }
+  // the levels of the harmonics under 5 kHz re the truth's, the mean taken out: their median distance from it
+  let off = (y, truth, f0) => {
+    let d = []
+    for (let k = 1; k * f0 < 5000; k++) d.push(20 * Math.log10(h(y, k * f0, sr / 2, 3 * sr / 2) / h(truth, k * f0, sr / 2, 3 * sr / 2)))
+    let mean = d.reduce((s, v) => s + v) / d.length, e = d.map(v => Math.abs(v - mean)).sort((p, q) => p - q)
+    return e[e.length >> 1]
+  }
+  for (let [f0, st] of [[110, 3], [110, -4], [220, 3], [220, -4]]) {
+    let x = vowel(f0, 2), truth = vowel(f0, 2, 2 ** (st / 12)), [y] = await audio.from([x], { sampleRate: sr }).formant(st).read()
+    let got = off(y, truth, f0), was = off(x, truth, f0), f = yin(y.subarray(sr, sr + 4096), { fs: sr, minFreq: 60, maxFreq: 1000 }).freq
+    t.ok(got < 2 && got < was / 3, `${f0} Hz, ${st > 0 ? '+' : ''}${st}: harmonics ${got.toFixed(1)} dB from the vowel made so (left as it was, ${was.toFixed(1)})`)
+    t.ok(Math.abs(1200 * Math.log2(f / f0)) < 2, `${f0} Hz, ${st > 0 ? '+' : ''}${st}: the pitch stays, ${f.toFixed(2)} Hz`)
+  }
+  let x = vowel(130, 3), read = f => f(audio.from([x.slice()], { sampleRate: sr })).read().then(r => r[0])
+  let z = await read(a => a.formant(0)), e0 = 0
+  for (let i = 0; i < x.length; i++) e0 = Math.max(e0, Math.abs(z[i] - x[i]))
+  t.ok(e0 < 1e-6, `0: the input (${e0.toExponential(1)} off)`)
+  let y = await read(a => a.formant(4, { at: 1, duration: 1 })), N = 2048
+  t.ok(y.subarray(0, sr - N).every((v, i) => v === x[i]) && y.subarray(2 * sr + N).every((v, i) => v === x[2 * sr + N + i]), 'ranged: the input a frame before and after it, sample for sample')
+  let unset = await read(a => a.formant()), e1 = 0
+  for (let i = 0; i < x.length; i++) e1 = Math.max(e1, Math.abs(unset[i] - x[i]))
+  t.ok(e1 < 1e-6, `no semitones: the input (${e1.toExponential(1)} off)`)
+  let [blip] = await audio.from([x.slice(0, 100)], { sampleRate: sr }).formant(3).read()
+  t.ok(blip.length === 100 && blip.every(Number.isFinite), 'shorter than a frame: its length, numbers')
+  let a = audio.from([x.slice()], { sampleRate: sr }).formant({ t: [.5, 1, 2], v: [0, 3, -3] }), s = []
+  for await (let b of a.stream()) s.push(...b[0])
+  let w = (await a.read())[0]
+  t.ok(s.length === w.length && s.every((v, i) => v === w[i]), 'a curve: stream ≡ read')
 })
 
 test('spectral: removes a band in a time range; repair rebuilds a dropout', async t => {

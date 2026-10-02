@@ -1,6 +1,8 @@
-// What the REPL knows about each method: its group in the menu, what it does, its parameters for the sliders,
+// What the editor knows about each method: its group in the menu, what it does, its parameters for the sliders,
 // and what it draws over the waveform while its call is being edited.
 // Built-in ops are described here; registry plugins describe their own parameters (the engine reads their manifests).
+// What each parameter does, in words, for the tooltip over its slider, is help.js's.
+import audio from '../assets/audio.js'
 
 // A parameter: { name, min, max, default, unit, step, log, values }. `values` makes it a choice; `selection` (what to
 // select) makes it the selected range, or ranges, set from the picture, not a slider; `required`, the library has no
@@ -114,6 +116,8 @@ const table = {
   speed: ['Time & pitch', 'Faster or slower, pitch follows', [p('rate', .25, 4, 1, '×', { step: .01, log: true })]],
   stretch: ['Time & pitch', 'Longer or shorter, same pitch', [p('factor', .25, 4, 1, '×', { step: .01, log: true })]],
   pitch: ['Time & pitch', 'Higher or lower, same length', [p('semitones', -24, 24, 0, 'st', { step: 1 })]],
+  intonation: ['Time & pitch', 'A voice\'s rises and falls, wider or flatter', [p('factor', 0, 3, 1, '×', { step: .05 })]],
+  formant: ['Time & pitch', 'Move a voice\'s formants, pitch kept', [p('semitones', -12, 12, 0, 'st', { step: .5 })]],
   'pitch-shift': ['Time & pitch', 'Pitch shift, choice of method'],
   'formant-shift': ['Time & pitch', 'Pitch shift keeping the voice'],
   vocoder: ['Time & pitch', 'Pitch shift by phase vocoder'],
@@ -202,7 +206,7 @@ const table = {
 export const ops = Object.fromEntries(Object.entries(table).map(([name, [group, text, params]]) =>
   [name, { name, group, text, ...(params === 'range' || params?.[0] === 'range' ? { params: [...RANGE, ...params === 'range' ? [] : params.slice(1)], range: true } : params && { params }) }]))
 
-// Instance methods, beside the edits above. `sink` ends a chain: the REPL inserts edits before it. `edits`: it changes the
+// Instance methods, beside the edits above. `sink` ends a chain: the editor inserts edits before it. `edits`: it changes the
 // sound in place, sample for sample.
 export const methods = {
   stat: { text: 'Measure: loudness, peak, key, bpm…', async: true },
@@ -255,8 +259,8 @@ export const presets = { normalize: ['podcast', 'streaming', 'broadcast'], vocal
 // What a step's new settings do to the picture while its output renders, drawn at once: the factor they change the
 // level by at time t of the output, from its settings before (`was`) and now (`is`), by name, the output `T` long; none
 // where a level can't say it (a step that moves time, filters or compresses shows its output when it comes). A step
-// with a range changes only there. The curves are fade()'s (fn/fade.js).
-export const CURVES = { linear: u => u, exp: u => u * u, log: u => Math.sqrt(u), cos: u => (1 - Math.cos(u * Math.PI)) / 2 }
+// with a range changes only there. The curves are fade()'s, and a crossfade's, its equal power too, as the library has them.
+export const CURVES = audio.op('fade').curves, CROSSFADES = audio.op('crossfade').curves
 const within = (s, f) => s.at == null && s.duration == null ? f : t => t >= (s.at ?? 0) && t < (s.at ?? 0) + (s.duration ?? Infinity) ? f(t) : 1
 function fading({ in: a = .5, out, curve }, T) {
   const c = CURVES[curve] ?? CURVES.linear, fin = a > 0 ? a : 0, fout = a < 0 ? -a : Math.abs(out ?? 0)
@@ -280,7 +284,7 @@ export function format(value, { unit = '', step } = {}) {
   return value < 0 ? '−' + text.slice(1) : text
 }
 
-// A plugin manifest's params ({ threshold: { min, max, default, unit } }) as the REPL's list.
+// A plugin manifest's params ({ threshold: { min, max, default, unit } }) as the editor's list.
 export const fromManifest = spec => Object.entries(spec || {}).map(([name, s]) => s.type === 'enum' ? choice(name, s.values, s.default)
   : s.type === 'bool' ? choice(name, [true, false], s.default)
   : p(name, s.min, s.max, s.default, s.unit || '', { step: s.step, log: s.curve === 'log' || (s.unit === 'Hz' && s.min > 0 && s.max / s.min >= 100) }))
@@ -292,8 +296,9 @@ export function guides(name, args, duration) {
   const range = args.at != null && args.duration != null ? [args.at, args.at + args.duration] : null
   if (ops[name]?.range) range && out.push({ range, dim: name === 'crop' ? 'outside' : 'inside' })
   else if (range) out.push({ range })
-  // a level: a threshold (denoise's is an offset on its noise, none), a ceiling, a peak to reach
-  const level = name === 'denoise' ? null : args.threshold ?? (name === 'limiter' ? args.ceiling : name === 'normalize' && typeof args.target === 'number' && args.mode !== 'lufs' && args.mode !== 'rms' ? args.target : null)
+  // a level: a threshold in dB (denoise's is an offset on its noise, declick's and decrackle's a multiple of the sound's
+  // own error: none), a ceiling, a peak to reach
+  const level = ['denoise', 'declick', 'decrackle'].includes(name) ? null : args.threshold ?? (name === 'limiter' ? args.ceiling : name === 'normalize' && typeof args.target === 'number' && args.mode !== 'lufs' && args.mode !== 'rms' ? args.target : null)
   if (typeof level === 'number') out.push({ level })
   // a fade's ramps along its curve: fade(in, out) at the ends; fade(d, { at }) one ramp from `at`, in over d, or out
   // (d < 0) over −d

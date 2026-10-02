@@ -1,4 +1,4 @@
-// Speech recipes, stage by stage: renders each recipe of repl/recipes.js that processes a voice, and every
+// Speech recipes, stage by stage: renders each recipe of editor/recipes.js that processes a voice, and every
 // prefix of it, on VoiceBank+DEMAND and on ten Spoken Wikipedia narrations. bench/speech.py scores them.
 //
 //   node bench/speech.mjs SET SYSTEM[,SYSTEM...] [SHARD/N]
@@ -34,7 +34,7 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, exists
 import os from 'node:os'
 import path from 'node:path'
 import audio from '../audio.js'
-import RECIPES from '../repl/recipes.js'
+import RECIPES from '../editor/recipes.js'
 import { noiseDrop, attenuation } from '../fn/deepfilter.js'
 
 // SPEECH_TAG names a separate output tree: the same stages after their packages change
@@ -43,7 +43,7 @@ const VOICE = ['Podcast voice', 'Enhance speech', 'Reduce noise', 'Remove hum', 
   'Shorten pauses', 'Room tone for silence', 'Audiobook chapter', 'Podcast episode', 'Narration, tightened', 'Vocal chain']
 const STRUCTURAL = /^(trim|pad|shrink|roomtone|resample|crop)\(/
 
-// The recipes as they were before this bench (repl/recipes.js, 2026-09-27): `was-<slug>`, prefixes as for recipes
+// The recipes as they were before this bench (editor/recipes.js, 2026-09-27): `was-<slug>`, prefixes as for recipes
 export const WAS = {
   'podcast-voice': ['highpass(80)', 'trim()', 'compressor({ threshold: -24, ratio: 3 })', "normalize('podcast')", 'fade(0.3, 0.5)'],
   'enhance-speech': ['highpass(80)', 'dehum()', 'omlsa()', 'deesser()', 'compressor({ threshold: -24, ratio: 3 })', 'eq(3000, 2, 1)', "normalize('podcast')"],

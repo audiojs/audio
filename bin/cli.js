@@ -11,7 +11,8 @@
  */
 
 import audio from '../audio.js'
-import { toMel } from '../fn/spectrum.js'
+import { toMel, melEdges } from '../fn/spectrum.js'
+import { steadyTempo } from '../fn/beat.js'
 import { lufsFromEnergy } from '../fn/loudness.js'
 import { specs } from '../fn/check.js'
 import { formats as cutFormats } from '../fn/cuts.js'
@@ -169,6 +170,8 @@ const HELP = {
   stretch:   { usage: 'stretch FACTOR', desc: 'Time-stretch (same pitch) — 2 = 2× slower, 0.5 = 2× faster', examples: ['stretch 2', 'stretch 0.5', 'stretch 1.25'], label: 'Stretching' },
   warp:      { usage: 'warp MARKERS', desc: 'Move moments in time, [from, to] seconds pairs; the audio between them stretches to fit, pitch kept (via --macro)', examples: ['warp [[1,1],[2,2.4],[3,3]]'], label: 'Warping' },
   pitch:     { usage: 'pitch SEMI', desc: 'Pitch-shift in semitones (same duration)', examples: ['pitch 7', 'pitch -12', 'pitch 5'], label: 'Pitch shifting' },
+  intonation: { usage: 'intonation FACTOR [RANGE]', desc: "A voice's rises and falls about its median pitch: 0 monotone, 1 as it was, 2 twice as wide (optional @audio/tune-curve)", examples: ['intonation 1.5', 'intonation 0 2s..5s'], label: 'Changing intonation' },
+  formant:   { usage: 'formant SEMI [RANGE]', desc: 'Move the formants in semitones, pitch kept: up a smaller, brighter voice, down a larger, darker one', examples: ['formant 3', 'formant -2 1s..3s'], label: 'Moving formants' },
   insert:    { usage: 'insert SRC [OFF] [XFADE]', desc: 'Insert audio at position (default: append); XFADE crossfades both seams', examples: ['insert other.wav 3s', 'insert other.wav 3s 10ms'], label: 'Inserting' },
   mix:       { usage: 'mix SRC [OFF] [GAIN]', desc: 'Mix in another audio file, at an offset and level', examples: ['mix bg.wav 0s', 'mix bed.mp3 0s -18db'], label: 'Mixing' },
   remix:     { usage: 'remix CH|MAP', desc: 'Change channel count or remap', examples: ['remix 1', 'remix 2', 'remix 1,0'], label: 'Remixing' },
@@ -562,6 +565,17 @@ function fmtStat(name, result) {
     let val = typeof result === 'number' ? (Number.isFinite(result) ? result.toFixed(4) : '-Inf') : String(result)
     console.log(`  ${name.padEnd(12)} ${val}${unit ? ' ' + unit : ''}`)
   }
+}
+
+/** Hz as the editor writes it (editor/ops.js): 113Hz, 1.04kHz. */
+const fmtHz = f => f >= 1000 ? `${+(f / 1000).toFixed(2)}kHz` : `${Math.round(f)}Hz`
+
+/** The spectrum band by band, each at its centre, under what its levels are (fn/spectrum.js): `edges` as melEdges()
+ *  lays them out, `weighted` where A-weighting applies. */
+function fmtSpectrum(db, edges, weighted) {
+  let hz = edges.slice(1, -1).map(fmtHz), w = Math.max(...hz.map(s => s.length))
+  console.log(`  spectrum: dB${weighted ? ', A-weighted' : ''}, ${db.length} mel bands from ${fmtHz(edges[0])} to ${fmtHz(edges.at(-1))}, each at its centre`)
+  for (let i = 0; i < db.length; i++) console.log(`    ${hz[i].padStart(w)}  ${db[i].toFixed(1).padStart(6)}`)
 }
 
 /** Animated UI (spinner, player, meter) paints only on a terminal; piped stderr keeps plain messages. */
@@ -1337,8 +1351,8 @@ Options:
   --help, -h    Show this help (or after an op: audio gain --help)
   --version, -v Show version
   --completions SHELL  Print tab-completion script (zsh, bash, fish)
-  --mcp         Serve this CLI to AI agents as an MCP tool (stdio); --repl URL --key K adds the REPL's tools
-  --bridge      Let AI agents edit the sound open in the REPL, and the REPL chat with your agent (127.0.0.1:7777)
+  --mcp         Serve this CLI to AI agents as an MCP tool (stdio); --editor URL --key K adds the editor's tools
+  --bridge      Let AI agents edit the sound open in the editor, and its chat talk to your agent (127.0.0.1:7777)
 
 Batch:
   audio '*.wav' gain -3db save '{name}.out.{ext}'
@@ -1468,19 +1482,9 @@ async function printOverview(a, range, loadTime, json) {
   let off0 = range ? resolveOffset(range.offset, a.duration) : 0
   let statOpts = range ? { at: off0, duration: range.duration } : undefined
   let [peak, rms, l, clips, dcOff] = await a.stat(['db', 'rms', 'loudness', 'clipping', 'dc'], statOpts)
-  let dur = range?.duration ?? a.duration
-  let bpm = await (async () => {
-    let win = Math.min(8, dur)
-    if (dur < 4) { let b = await a.stat('bpm', statOpts); return b > 0 ? Math.round(b) : null }
-    let n = Math.min(4, Math.floor(dur / win)), step = dur / (n + 1)
-    let bpms = (await Promise.all(Array.from({ length: n }, (_, i) => {
-      let at = Math.max(0, off0 + step * (i + 1) - win / 2)
-      return a.stat('bpm', { at, duration: win })
-    }))).filter(b => b > 0)
-    if (!bpms.length) return null
-    let mn = Math.min(...bpms), mx = Math.max(...bpms)
-    return mx - mn < 10 ? Math.round((mn + mx) / 2) : [Math.round(mn), Math.round(mx)]
-  })()
+  let dur = Math.min(range?.duration ?? Infinity, a.duration - off0)
+  // a tempo only where the sound holds one: none for speech
+  let bpm = await steadyTempo(a, { at: off0, duration: dur })
   let dc = Math.abs(dcOff) > 0.0001 ? dcOff : 0
   if (json) {
     console.log(JSON.stringify({ duration: dur, channels: a.channels, sampleRate: a.sampleRate, samples: a.length, peak, rms: dbfs(rms), loudness: l, bpm, clipping: clips.length, dc }))
@@ -1493,7 +1497,7 @@ async function printOverview(a, range, loadTime, json) {
   console.log(`  Peak:       ${peak.toFixed(1)} dBFS`)
   console.log(`  RMS:        ${dbfs(rms).toFixed(1)} dBFS`)
   console.log(`  Loudness:   ${l.toFixed(1)} LUFS`)
-  console.log(`  BPM:        ${bpm == null ? 'n/a' : Array.isArray(bpm) ? `${bpm[0]}–${bpm[1]} BPM` : `${bpm} BPM`}`)
+  console.log(`  BPM:        ${bpm == null ? 'n/a' : `${Math.round(bpm)} BPM`}`)
   console.log(`  Clipping:   ${clips.length || 'none'}`)
   console.log(`  DC offset:  ${dc ? dc.toFixed(4) : 'none'}`)
   if (loadTime) console.log(`  Loaded in:  ${loadTime}s`)
@@ -1517,9 +1521,12 @@ async function printStats(a, sinkArgs, names, range, extra, json) {
     else if (name === 'chords') result = await a.chords(o)
     else result = await a.stat(name, o)
     if (name === 'rms') result = Array.isArray(result) ? result.map(dbfs) : dbfs(result)
-    if (json) { out[name] = ArrayBuffer.isView(result) ? Array.from(result) : result; continue }
+    // the spectrum's bands, as fn/spectrum.js lays them out for these options
+    let edges = name === 'spectrum' && ArrayBuffer.isView(result) ? melEdges(result.length, a.sampleRate, statOpts.fMin, statOpts.fMax) : null
+    if (json) { out[name] = ArrayBuffer.isView(result) ? Array.from(result) : result; if (edges) out.spectrumHz = edges.slice(1, -1); continue }
     if (name === 'notes') for (let n of result) console.log(`  ${n.time.toFixed(3)}s  ${n.note.padEnd(4)} ${n.freq.toFixed(1)}Hz  ${n.duration.toFixed(3)}s  clarity:${n.clarity.toFixed(2)}`)
     else if (name === 'chords') for (let c of result) console.log(`  ${c.time.toFixed(3)}s  ${c.label.padEnd(6)} ${c.duration.toFixed(3)}s  conf:${c.confidence.toFixed(2)}`)
+    else if (edges) fmtSpectrum(result, edges, statOpts.weight !== false)
     else fmtStat(name, result)
   }
   if (json) console.log(JSON.stringify(out))

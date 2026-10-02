@@ -428,6 +428,8 @@ A record can also carry fields no stat is named after: list them in `extra` and 
 
 `query` adds a derived aggregation: `query(stats, chs, from, to, sr) → value`. Used for stats that derive from other block data (e.g. `db` derives from `min`/`max`, `peak` from `min`/`max`, `rms` from `ms`).
 
+`a.stat(name, { bins: n })` gives n numbers on the block grid: `reduce` over each bin's blocks, else `query` over them, else a stat plugin (or a stat with its own method) over each bin's `{ at, duration }`; a null is NaN. A stat whose value is not a number (events, a key, a spectrum) answers once for the whole range.
+
 `ctx` has `sampleRate` and persists across blocks within one decode session (and across the blocks of a playback, for the meter) — set any property for stateful computation.
 
 Registered stats auto-participate in the playback meter — `a.meter('mystat', cb)` streams per-block values during playback. Block-defined stats emit the raw block value; `query`-defined stats are evaluated against a single-block pseudo-stats window.
@@ -467,7 +469,7 @@ audio(4).poly({ notes: [{ time: 0, midi: 60, duration: 1 }, { time: 0, midi: 64,
 
 `audio.plugins` maps name → package; the packages install with `audio`. Registry ops are instance methods from the start: `a.compressor(-30, 8)` records the edit and the package loads (dynamic import) at the first render, mapping the positional args onto its params. Registry stats load inside `a.stat(name)`. The CLI resolves names the same way; a sidechain file is `key:FILE` (`ducker key:voice.wav`).
 
-`audio.import(spec)` is how a registry package loads, `import(spec)` by default. A bundle whose bundler cannot follow a computed `import()` (a worker has no import map) replaces it with literal imports: `audio.import = spec => loaders[spec]()`. The REPL's worker does this with one generated `() => import('…')` per registry package.
+`audio.import(spec)` is how a registry package loads, `import(spec)` by default. A bundle whose bundler cannot follow a computed `import()` (a worker has no import map) replaces it with literal imports: `audio.import = spec => loaders[spec]()`. The editor's worker does this with one generated `() => import('…')` per registry package.
 
 Op plugins:
 

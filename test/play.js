@@ -271,6 +271,34 @@ test('meters: known signals, released when heard (local and worker)', { timeout:
   }
 })
 
+// Speed with the pitch kept (deck.js WSOLA), as a media element plays at a speed. A 441 Hz sine's pitch, from its rising
+// zero crossings over the steady middle of what was heard, stays 441 Hz at 2× and 0.5× (a varispeed would read 882 and
+// 220.5); it plays for its length over the rate; no click (the second difference within 3× the sine's own); the
+// playhead goes at the rate. preservesPitch false: the tape's varispeed, the pitch × 2
+const pitchOf = (x, s, e) => { let n = 0, a = -1, b = -1; for (let i = s + 1; i < e; i++) if (x[i - 1] < 0 && x[i] >= 0) { if (a < 0) a = i; b = i; n++ } return (n - 1) / ((b - a) / sr) }
+test('speed: the pitch kept at 2× and 0.5×, the length over the rate, no click; preservesPitch false, a tape', { timeout: 30000 }, async t => {
+  for (let [rate, keep, want] of [[2, true, 441], [0.5, true, 441], [2, false, 882]]) {
+    let a = sine(441, 0.5, 2), f0 = now(), times = []
+    a.playbackRate = rate
+    a.preservesPitch = keep
+    a.play()
+    await a.played
+    await sleep(100)
+    let t0 = performance.now(), c0 = a.currentTime
+    await sleep(400)
+    times.push((a.currentTime - c0) / ((performance.now() - t0) / 1000))
+    await ended(a)
+    await sleep(50)
+    let x = tape(f0, now()), [s, e] = sounding(x), len = (e - s) / sr, inner = [s + Math.round(0.1 * len * sr), e - Math.round(0.1 * len * sr)]
+    let f = pitchOf(x, ...inner)
+    t.ok(Math.abs(f / want - 1) < 0.01, `${rate}×, pitch ${keep ? 'kept' : 'following'}: ${f.toFixed(1)} Hz, ${want} wanted`)
+    t.ok(Math.abs(len - 2 / rate) < 0.03 * 2 / rate, `${rate}×: ${len.toFixed(3)} s of it, ${2 / rate} wanted`)
+    let b = bend(x, inner[0], inner[1])
+    t.ok(b < 3 * sineBend(want, 0.5), `${rate}×: no click (${b.toExponential(1)}, the sine's ${sineBend(want, 0.5).toExponential(1)})`)
+    t.ok(Math.abs(times[0] / rate - 1) < 0.1, `${rate}×: the playhead at ${times[0].toFixed(2)}× real time`)
+  }
+})
+
 test('pause, resume, seek and stop ramp: no click', { timeout: 20000 }, async t => {
   let a = sine(441, 0.5, 4), f0 = now()
   a.play()
@@ -324,6 +352,8 @@ test('@audio/speaker: chunks play back to back, no gap', { timeout: 20000 }, asy
   await new Promise(r => write(null, r))
   await sleep(50)
   let x = tape(f0, now()), [s, e] = sounding(x)
-  t.ok(bend(x, s, e) < 3 * sineBend(441, 0.5), `no gap between chunks (${bend(x, s, e).toExponential(1)})`)
+  // past the first chunk's own fade-in (64 frames), whose corner bends more than the sine where the device runs at
+  // 44.1 kHz: 0.5·|sin(63ω)|/64 + 0.5ω², 7.2e-3 there against 5.4e-3 at 48 kHz
+  t.ok(bend(x, s + 128, e) < 3 * sineBend(441, 0.5), `no gap between chunks (${bend(x, s + 128, e).toExponential(1)})`)
   t.ok(Math.abs(e - s - 64 * n) < 64, `all of it (${e - s} of ${64 * n} frames)`)
 })

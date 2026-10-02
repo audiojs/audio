@@ -125,6 +125,18 @@ test('ranged stat: {at, duration} scopes the analysis', async () => {
 	ok(r2 > r1 * 3, `range scoping works (${r1.toFixed(0)} vs ${r2.toFixed(0)} Hz)`)
 })
 
+test('binned stat: {bins} measures each bin as its range, a null as NaN', async () => {
+	// 40960 Hz: a second is 40 blocks of 1024, so 1 s bins fall on the block grid. 997 Hz at -6 and -18 dBFS, seconds 0 and 2
+	let sr = 40960, x = new Float32Array(4 * sr)
+	x.set(tone(997, 1, 0.5, sr), 0); x.set(tone(997, 1, 0.125, sr), 2 * sr)
+	let a = audio.from([x], { sampleRate: sr })
+	let tp = await a.stat('truepeak', { bins: 4 })
+	for (let i = 0; i < 4; i++) is(tp[i], Math.fround(await a.stat('truepeak', { at: i, duration: 1 })), `truepeak ${i}–${i + 1} s: ${tp[i].toFixed(2)} dBTP`)
+	// EBU Tech 3342: LRA spreads 3 s short-term loudness; a 1 s range has none, null
+	is(await a.stat('lra', { at: 0, duration: 1 }), null, 'lra over 1 s: null')
+	ok((await a.stat('lra', { bins: 4 })).every(Number.isNaN), 'lra in 1 s bins: NaN each')
+})
+
 test('chroma: chord tones dominate the mean chromagram', async () => {
 	await audio.use('chroma')
 	let n = SR * 2, d = new Float32Array(n)

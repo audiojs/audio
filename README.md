@@ -65,13 +65,13 @@ npx skills add audiojs/audio
 `claude mcp add audio -- npx -y audio --mcp`<br/>
 `Prompt: make ~/Desktop/interview.m4a podcast-ready and tell me the loudness before and after`
 
-### REPL bridge
+### Editor and agents
 
 ```sh
-npx audio --bridge --key K  # audio bridge on http://127.0.0.1:7777  key K
+npx audio --bridge --key K  # audio bridge on http://127.0.0.1:7777  key K  agent claude (--agent codex)
 ```
 
-Connect the REPL to it, and its chat runs your own Claude Code or Codex, which reads, edits and plays the sound open there. Any agent gets the same `repl_*` tools: `claude mcp add audio -- npx -y audio --mcp --repl http://127.0.0.1:7777 --key K`.
+Connect the editor to it, and its chat runs your own Claude Code or Codex, which measures, looks at, edits and plays the sound open there; each tab keeps its conversations. Any agent gets the same editor tools (`state`, `measure`, `look`, `edit`, `select`, `play`, `check`, …): `claude mcp add audio -- npx -y audio --mcp --editor http://127.0.0.1:7777 --key K`.
 
 
 ## Recipes
@@ -236,7 +236,8 @@ let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 | `.volume` | 0..1 linear. Settable. |
 | `.muted` | mute, independent of volume. Settable. |
 | `.loop` | settable, mid-playback too: the span repeats, each seam a 10 ms equal-power crossfade. |
-| `.playbackRate` | 0.0625..16, settable mid-playback; glides click-free (~50 ms, tape-style varispeed). `.speed()` bakes it. |
+| `.playbackRate` | 0.0625..16, settable mid-playback, click-free. The pitch stays (WSOLA, as a browser's media element plays at a speed) unless `.preservesPitch` is false: then it glides over ~50 ms and the pitch follows, tape-style. `.speed()` bakes it. |
+| `.preservesPitch` | true: at a rate other than 1, the pitch kept. false: varispeed, the pitch with the speed. Settable mid-playback. |
 | `.ended` | true when playback reached the end, not after `stop()`. |
 | `.seeking` | true during a seek. |
 | `.played` | promise, resolves when playback sounds. |
@@ -271,6 +272,8 @@ let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 | `.stretch(factor)` | changes duration, keeps pitch (phase-locked vocoder). A `t => f` or `{t, v}` factor slides the tempo; duration becomes ∫factor dt. A range `{at, duration}` comes out `round(round(duration · sampleRate) · factor)` samples long, to the sample; the audio around it as it was. |
 | `.warp(markers)` | move moments in time: `[[from, to], …]` in seconds. Between markers the audio stretches to fit, pitch kept; start and end stay.<br><sub>≡ Logic Flex Time, Ableton warp markers</sub> |
 | `.pitch(semitones, {voice?})` | changes pitch, keeps duration. Semitones may be a curve `{t, v}` (seconds → semitones, straight between points, flat past the ends, as the gain line's) or `t => semitones`; where it is zero the audio is as it was. `{ voice: true }` re-spaces a voice's own glottal cycles (TD-PSOLA, the optional `@audio/tune-curve`): formants and consonants kept, one voice.<br><sub>≡ Melodyne pitch drawing</sub> |
+| `.intonation(factor)` | a voice's rises and falls wider or flatter about its median pitch: `1` as it was, `0` a monotone, `2` twice as wide. Its own cycles re-spaced (as `pitch({ voice: true })`): timing, formants and consonants kept, one voice.<br><sub>≡ Melodyne pitch modulation, Praat's pitch range factor</sub> |
+| `.formant(semitones)` | moves the formants (the spectral envelope: a voice's vowels, the size of its head), keeps the pitch. A number, a curve `{t, v}` or `t => semitones`. Any sound; with `pitch()`, a voice kept its own or made another's.<br><sub>≡ Melodyne formant tool, Praat's formant shift ratio</sub> |
 | `.remix(channels)` | channel count (down per ITU-R BS.775: 7.1 → 5.1, stereo, mono), or a map: `[1, 0]` swaps L/R, `null` a silent channel. |
 
 Every op takes a trailing `{at, duration, channel}` range, except channel-changing `remix` and `crossover`. Times are seconds or strings (`'1:30'`, `'2m'`); negative counts from the end. FFmpeg's short names work wherever the long ones do: `d` for `duration`, `xfade` for `crossfade` (`a.remove({ at: 1, d: 0.5, xfade: 0.01 })`).
@@ -289,6 +292,8 @@ a.stretch(1.1)                            // 10% longer, same pitch
 a.warp([[1, 1], [2, 2.4], [3, 3]])        // the hit at 2s lands at 2.4s; 1s–3s keeps its length
 a.pitch(-2)                               // 2 semitones down, same tempo
 a.pitch({ t: [1, 1.2, 2, 2.2], v: [0, 3, 3, 0] }, { voice: true })  // a note drawn 3 semitones up, formants kept
+a.intonation(1.5, { at: 2, d: 3 })        // 2s–5s: every rise and fall half as wide again
+a.formant(-2)                             // a larger, darker voice on the same notes
 a.remix([0, 0])                           // L→both; .remix(1) for mono
 ```
 
@@ -297,11 +302,11 @@ a.remix([0, 0])                           // L→both; .remix(1) for mono
 | Method                         | Description                                                                                                                         |
 |:--|:--|
 | `.gain(dB, opts?)` | `{ unit: 'linear' }` takes a multiplier. |
-| `.fade(in, out?, curve?)` | curves `'linear'` `'exp'` `'log'` `'cos'`. `{start, end}` levels 0..1 fade between any levels (a duck); `{mid}` skews the half-amplitude point.<br><sub>≡ Audacity adjustable-fade</sub> |
+| `.fade(in, out?, curve?)` | curves `'linear'` `'exp'` `'log'` `'cos'`, as functions in `audio.op('fade').curves`. `{start, end}` levels 0..1 fade between any levels (a duck); `{mid}` skews the half-amplitude point.<br><sub>≡ Audacity adjustable-fade</sub> |
 | `.normalize(target?, mode?)` | remove DC, normalize. Loudness targets hold a true-peak ceiling, -1 dBTP by default: a lookahead limiter, then the loudness it took made back up. Presets per Apple Podcasts, Spotify, EBU R 128 (ITU-R BS.1770-4):<br>`'podcast'` -16 LUFS<br>`'streaming'` -14 LUFS<br>`'broadcast'` -23 LUFS<br>`-18, 'lufs'` any loudness; `-3` peak dB; no arg: peak 0 dBFS; `'rms'` mode<br>an audio instance: its integrated loudness<br>`{ ceiling: -2 }` dBTP, `false` off<br>`{ dc: false }` keep DC<br>`{ adaptive: true }` on a live stream, start at once: the gain follows what it has heard, the ceiling (the target itself in peak mode) guards what it hasn't. Without it, one gain for the whole selection: a live stream waits for its end.<br><sub>≡ FFmpeg `loudnorm`</sub> |
 | `.roomtone(threshold?)` | fill digital silence (≥ 10 ms under -90 dBFS: edited-out pauses, `pad()`) with the recording's own room tone. `.trim().pad(1.5, 2).roomtone()` gives an audiobook chapter its room tone at each end (ACX rejects digital silence).<br><sub>≡ iZotope RX Ambience Match</sub> |
 | `.mix(source, at?, gain?)` | overlay at `at` seconds, source level `gain` dB.<br><sub>≡ FFmpeg `amix` weights</sub> |
-| `.crossfade(source, duration?, curve?)` | append with overlap, default 0.5s. `'cos'` (default) suits similar material; `'equal'` (equal-power) keeps loudness across unrelated tracks. With no source, `.crossfade({ at, duration })` crossfades across the range, as an editor crossfades a selection: the audio before it fades into the audio after it, and the range goes.<br><sub>≡ FFmpeg `acrossfade`</sub> |
+| `.crossfade(source, duration?, curve?)` | append with overlap, default 0.5s. `'cos'` (default) suits similar material; `'equal'` (equal-power) keeps loudness across unrelated tracks; each in `audio.op('crossfade').curves`. With no source, `.crossfade({ at, duration })` crossfades across the range, as an editor crossfades a selection: the audio before it fades into the audio after it, and the range goes.<br><sub>≡ FFmpeg `acrossfade`</sub> |
 | `.pan(value, opts?)` | −1 left, 0 center, 1 right. |
 | `.write(data, {at?})` | overwrite from `at` with raw PCM or another sound, as a tape records over what is there; what runs past the end extends it. |
 | `.transform(fn)` | inline `(input, output, ctx) => void`. Not serialized. |
@@ -354,7 +359,7 @@ a.filter(customFn, { cutoff: 2000 })      // custom filter function
 | `.master(ref, opts?)` | master to a reference track: `match` in mid and side, then `normalize` to the reference's integrated loudness under -1 dBTP (`{ ceiling }`).<br><sub>≡ Matchering</sub> |
 | `.spectral(band?, gain?, {at, duration})` | gain on a time × frequency region, `band` = `[lo, hi]` Hz; default removes it.<br><sub>≡ Audacity spectral edit, FFmpeg `afftfilt`</sub> |
 | `.repair(band?, {at, duration, method?, window?})` | rebuild a damaged range (dropout, beep, click burst) from its surroundings. `method` `'auto'` (default) transplants the passage that joins seamlessly, searched in the `window` s (10) before the range; failing that, AR interpolation up to 70 ms, a sinusoidal bridge beyond. `'ar'`, `'sinusoidal'`, `'similarity'`, `'spectral'` force one.<br><sub>≡ iZotope RX Spectral Repair</sub> |
-| `.denoise(reduction?, threshold?, {noise})` | remove a noise that holds still (hiss, hum and buzz, a fan, room tone, tape), learned where it plays alone: `noise` is that `{ at, duration }` of the op's input, or several, or a print saved from `stat('print')`. It goes `reduction` dB down (12) everywhere, or in the op's own `{ at, duration }`; what stays is the same noise, quieter, without musical tones. `threshold` (dB) raises the print: more of the quiet counts as noise. OM-LSA on the held noise (`@audio/denoise-omlsa`), each channel its own print; a live source renders once the range has arrived. VoiceBank+DEMAND PESQ, the noise learned from the half second before each speaker starts: noisy 1.97, `omlsa()` 2.40, `denoise()` 2.48. For noise that moves: `omlsa()`, `deepfilter()`.<br><sub>≡ iZotope RX Spectral De-noise (Learn), Adobe Audition Noise Reduction (noise print), Audacity Noise Reduction</sub> |
+| `.denoise(reduction?, threshold?, {noise})` | remove a noise that holds still (hiss, hum and buzz, a fan, room tone, tape), learned where it plays alone: `noise` is that `{ at, duration }` of the op's input, or several, or a print saved from `stat('print')`. It goes `reduction` dB down (12) everywhere, or in the op's own `{ at, duration }`, or only in a `band` `[low, high]` Hz, the rest as it was; what stays is the same noise, quieter, without musical tones. `threshold` (dB) raises the print: more of the quiet counts as noise. OM-LSA on the held noise (`@audio/denoise-omlsa`), each channel its own print; a live source renders once the range has arrived. VoiceBank+DEMAND PESQ, the noise learned from the half second before each speaker starts: noisy 1.97, `omlsa()` 2.40, `denoise()` 2.48. For noise that moves: `omlsa()`, `deepfilter()`.<br><sub>≡ iZotope RX Spectral De-noise (Learn), Adobe Audition Noise Reduction (noise print), Audacity Noise Reduction</sub> |
 | `.deepfilter(limit?, floor?, {weights?, device?})`, `.rnnoise(limit?)` | neural speech denoising through the optional `@audio/neural-denoise`: it also removes noise that moves (keys, traffic, a busy room). `deepfilter` runs DeepFilterNet3, its 8 MB model downloaded once, over the whole input before rendering; `rnnoise` streams RNNoise, weights in the package, 30 ms behind. `deepfilter` takes the noise `limit` dB down (12), or further, to `floor` dB under the voice's loudness (−45; `false`: the limit only): a narration keeps its room tone, noisy speech loses its noise. VoiceBank+DEMAND PESQ: noisy 1.97, `wiener()` 2.19, `rnnoise()` 2.46, `deepfilter({ floor: false })` 2.67, `deepfilter()` 3.10, `deepfilter(0)` 3.16. `limit` `0` lifts the limit; `rnnoise`'s 20 keeps it from removing the voice. Speech only: both drop music and singing.<br><sub>≡ DeepFilterNet, RNNoise</sub> |
 
 ```js
@@ -419,7 +424,8 @@ a.play({ at: 30, duration: 10 })          // play 30s–40s
 await a.played                            // wait for sound
 a.volume = 0.5; a.loop = true             // live adjustments
 a.muted = true                            // mute without changing volume
-a.playbackRate = 1.5                      // tape-style speed ramp
+a.playbackRate = 1.5                      // faster, the pitch kept
+a.preservesPitch = false                  // the pitch follows the speed, as a tape's
 a.pause(); a.seek(60); a.resume()         // jump to 1:00
 a.highpass(80)                            // an edit while playing: heard where it happens
 b.play({ from: a })                       // b takes over at the same place, crossfaded
@@ -463,7 +469,7 @@ m.stop()                                                           // release
 
 | Method                         | Description                                                                                                                         |
 |:--|:--|
-| `await .stat(name, opts?)` | one value; with `{ bins }` a `Float32Array`; an array of names gives an array. `{ channel: n }` one channel, `[n, m]` per channel; `{at, duration}` sub-range. |
+| `await .stat(name, opts?)` | one value; with `{ bins: n }` a `Float32Array`, the value over each of n spans of the range: where, not only how much (lists, a key and spectra come whole; `bins` sizes spectrum and cepstrum); an array of names gives an array. `{ channel: n }` one channel, `[n, m]` per channel; `{at, duration}` sub-range. |
 | `await .detect(opts?)` | `{ bpm, confidence, beats, onsets }` in one pass; `{ channel }` as in `stat`. |
 | `await .check(spec)` | pass or fail against a delivery spec: `{ pass, rules: [{ name, value, unit, min, max, pass }] }`. `'acx'` (RMS, peak, noise floor, room tone, 44.1 kHz), `'podcast'` (Apple: -16 LUFS ±1, ≤ -1 dBTP), `'streaming'` (Spotify: plays at -14 LUFS, ≤ -1 dBTP), `'broadcast'` (EBU R 128: -23 ±0.2 LUFS, ≤ -1 dBTP), `'netflix'` (dialog -27 ±2 LUFS, ≤ -2 dBTP). Each limit cites its source in [fn/check.js](fn/check.js). |
 
@@ -489,6 +495,7 @@ m.stop()                                                           // release
 | `'cepstrum'` | MFCCs. |
 | `'bpm'` | tempo. |
 | `'beats'`, `'onsets'` | timestamps as `Float64Array` (seconds). |
+| `'hits'` | where the level jumps, up (a strike) or down (a stop), as `Float64Array` (seconds): each at its attack's zero crossing, the sample to cut at, where `'onsets'` reads 23 ms blocks. |
 | `'notes'` | `[{time, duration, freq, midi, note, clarity}]` (pYIN + Tony note HMM); with `robust: true`, the same through noise and rooms (a neural pYIN stage 1); with `poly: true`, polyphonic `[{time, duration, freq, midi, note, velocity, bends}]` (Basic Pitch). |
 | `'chords'` | `[{time, duration, label, root, quality, bass, confidence}]`: Chordino on NNLS chroma (Mauch & Dixon 2010), matched to the reference plugin; labels like `'Am'`, `'G7'`, `'C/E'`, `'N'`. |
 | `'key'` | `{tonic, mode, label, confidence}` (Krumhansl-Schmuckler). |

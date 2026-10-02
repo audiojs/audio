@@ -8,7 +8,7 @@
 // whole or not at all (createWritable writes aside and swaps in on close). Storage failing (a private window, a full
 // disk, a browser before createWritable: Chrome 86, Firefox 111, Safari 26, MDN browser-compat-data) keeps nothing,
 // quietly: the file stays open until the page closes, as before.
-const DIR = 'audio-repl-files'
+const DIR = 'audio-repl-files'  // the name the editor had before: what a browser kept is found
 const dir = async () => (await navigator.storage.getDirectory()).getDirectoryHandle(DIR, { create: true })
 // a name as a file's name there, which takes no slash
 const key = name => encodeURIComponent(name)

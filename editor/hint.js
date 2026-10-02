@@ -1,7 +1,7 @@
 // Hints: a few words by what they are about, one at a time, over everything, as a tooltip that follows the hand: what a
 // number in the code sets and its range, what a drag on the picture does as it goes, what a handle or a button does now.
 // Whoever shows one hides only its own (`by`), so the picture redrawing never takes away the code's. Its look is the
-// page's, for a theme to restyle (repl.css .hint).
+// page's, for a theme to restyle (editor.css .hint).
 export default function hint(parent = document.body) {
   const el = parent.appendChild(Object.assign(document.createElement('div'), { className: 'hint', hidden: true }))
   el.setAttribute('aria-hidden', 'true')

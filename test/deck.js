@@ -50,10 +50,10 @@ function rig(sr, ch = 2) {
   }
 }
 
-test('deck: a unit-rate run is a bit-exact copy; other rates through a windowed sinc (> 90 dB)', async t => {
+test('deck: a unit-rate run is a bit-exact copy; other rates through a windowed sinc (> 90 dB), the pitch kept by WSOLA', async t => {
   let x = Float32Array.from({ length: 44100 }, (_, i) => 0.5 * Math.sin(2 * Math.PI * 441 * i / 44100))
-  const play = (srOut, rate = 1) => {
-    let d = new Deck(srOut, 2, () => {}, { rate }), out = [], q = [new Float32Array(128), new Float32Array(128)]
+  const play = (srOut, rate = 1, preservesPitch = false) => {
+    let d = new Deck(srOut, 2, () => {}, { rate, preservesPitch }), out = [], q = [new Float32Array(128), new Float32Array(128)]
     d.feed({ run: 1, sr: 44100, pos: 0 })
     for (let o = 0; o < x.length; o += 1024) d.feed({ run: 1, data: [x.slice(o, o + 1024)] })
     d.feed({ run: 1, end: 1 })
@@ -68,6 +68,16 @@ test('deck: a unit-rate run is a bit-exact copy; other rates through a windowed 
   let up = snr(play(48000), 441, 48000, 1000, 40000), fast = snr(play(44100, 2), 882, 44100, 3000, 20000)
   t.ok(up > 90, `44.1 → 48 kHz: ${up.toFixed(1)} dB`)
   t.ok(fast > 90, `playbackRate 2: ${fast.toFixed(1)} dB`)
+  // the pitch kept (WSOLA, Verhelst & Roelands 1993): at rate 1 still the samples themselves; at 2 and 0.5 the 441 Hz
+  // sine stays 441 Hz (its rising zero crossings over the middle), lasting half and twice as long
+  let kept = play(44100, 1, true)
+  t.ok(kept.subarray(R, x.length - R).every((v, i) => v === x[i + R]), 'pitch kept, unit rate: the samples themselves')
+  const pitch = (y, from, to) => { let n = 0, a = -1, b = -1; for (let i = from + 1; i < to; i++) if (y[i - 1] < 0 && y[i] >= 0) { if (a < 0) a = i; b = i; n++ } return (n - 1) / ((b - a) / 44100) }
+  for (const rate of [2, 0.5]) {
+    let y = play(44100, rate, true), last = y.findLastIndex(v => Math.abs(v) > 1e-4), f = pitch(y, Math.round(last * .1), Math.round(last * .9))
+    t.ok(Math.abs(f / 441 - 1) < .005, `pitch kept at ${rate}: ${f.toFixed(2)} Hz`)
+    t.ok(Math.abs(last / 44100 - 1 / rate) < .02, `pitch kept at ${rate}: ${(last / 44100).toFixed(3)} s for 1 s`)
+  }
 })
 
 test('deck: pause, resume and stop ramp over 5 ms; an underrun fades out, holds, and comes back where it held', async t => {

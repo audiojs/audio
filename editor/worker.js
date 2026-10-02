@@ -1,12 +1,13 @@
-// The REPL's engine, in a worker: it runs scripts against the audio library, so a long render or a runaway
-// script never freezes the page. Built with the library into repl/dist/ (node .site-build.js).
+// The editor's engine, in a worker: it runs scripts against the audio library, so a long render or a runaway
+// script never freezes the page. Built with the library into editor/dist/ (node .site-build.js).
 // A file starts decoding when a script first names it, and the script runs at once, on a copy that follows the file
 // as it arrives (clone). The output streams to the page as it renders; while a file arrives and the output has
 // nothing yet (it needs the whole file, as trim and normalize do), the file itself streams, as it decodes.
 import audio from '../audio.js'
-import plugins from 'repl:plugins'
-import { yin } from '@audio/pitch'
-import attacks, { hits } from './attack.js'
+import plugins from 'editor:plugins'
+import { attacks, hits } from '../fn/hits.js'
+import { steadyTempo } from '../fn/beat.js'
+import { contour as pitchOf } from '../fn/pitch-detect.js'
 
 // Registry plugins load from their chunks: the build writes one literal import per plugin.
 audio.import = spec => plugins[spec]?.() ?? import(spec)
@@ -22,7 +23,7 @@ const outputs = new Map()      // run id → its output as it streams: { instanc
 let run = null                 // the script running now: { created, saves }
 let newest = 0                 // the run whose output streams: older streams stop
 
-// Script calls that reach outside the page become REPL actions: save() marks an export for the Export button,
+// Script calls that reach outside the page become editor actions: save() marks an export for the Export button,
 // play() is the page's transport, record() is the page's Record button.
 audio.fn.save = function (target, opts) { run?.saves.push({ instance: this, name: String(target ?? ''), opts }); return Promise.resolve(this) }
 audio.fn.play = function () { return this }
@@ -49,15 +50,20 @@ const forget = name => { sources.get(name)?.dispose(); sources.delete(name) }
 // What a failed source says: which file, and why
 const opening = (name, error) => error.missing ? error : new Error(`Could not open ${name}: ${error.message}`)
 
-// `audio` as scripts see it: a named source opens from the page's files, and each run edits its own copy.
-const track = a => (run?.created.push(a), a)
-const api = new Proxy(function audio_(source, opts) {
-  if (typeof source === 'string' && !opts) return track(open(source).clone())
-  if (Array.isArray(source) && source.some(s => typeof s === 'string')) return track(audio(source.map(s => typeof s === 'string' ? api(s) : s), opts))
-  return track(audio(source, opts))
-}, {
-  get: (target, key) => key === 'from' ? (...args) => track(audio.from(...args)) : audio[key]
-})
+// `audio` as scripts see it: a named source opens from the page's files, and each run edits its own copy, which knows
+// the source it was copied from (`roots`); every instance made goes to `track`, to be let go with what made it
+const roots = new WeakMap()
+function scoped(track) {
+  const api = new Proxy(function audio_(source, opts) {
+    if (typeof source === 'string' && !opts) { const a = open(source).clone(); roots.set(a, open(source)); return track(a) }
+    if (Array.isArray(source) && source.some(s => typeof s === 'string')) return track(audio(source.map(s => typeof s === 'string' ? api(s) : s), opts))
+    return track(audio(source, opts))
+  }, {
+    get: (target, key) => key === 'from' ? (...args) => track(audio.from(...args)) : audio[key]
+  })
+  return api
+}
+const api = scoped(a => (run?.created.push(a), a))
 
 // A value as the console prints it.
 function inspect(value, depth = 0) {
@@ -109,6 +115,8 @@ async function execute({ id, code, names = [] }) {
     if (!output) { for (const r of outputs.values()) drop(r); dispose(run.created); return result }
     const record = { id, instance: output, created: run.created, saves: run.saves, names, pcm: null, length: 0, sampleRate: 0, done: false }
     record.finished = new Promise(resolve => { record.finish = resolve })
+    record.rebased = rebased(record)
+    if (record.rebased) record.created.push(record.rebased)
     outputs.set(id, record)
     render(record)
     return result
@@ -128,6 +136,38 @@ function drop(r) {
   r.finish(null)
 }
 
+// A run whose script is the last output's with calls added after it (an edit made on the picture, a recipe, a step
+// typed at the end) renders those calls on the last output's samples, not the whole script again from its sources:
+// what they leave as it was passes through block by block, only what they change is processed (a ranged op copies the
+// rest), so an edit lands at once wherever it is. The same source, the same edits before them (`sig`); anything else,
+// or anything it cannot say is the same (a function, samples made in the script), renders whole, as before. The
+// script's markers must be the last one's (a marker added renders whole); the output's are then the last output's,
+// moved by the calls as they move the audio. Its length, its markers and its samples come from this; the script's own
+// instance, unrendered, still says what else it holds (its cuts, its depth).
+function rebased(r) {
+  const b = [...outputs.values()].findLast(o => o.done && o !== r), root = roots.get(r.instance)
+  if (!b || !root || roots.get(b.instance) !== root || b.names.join() !== r.names.join()) return null
+  const was = b.instance.edits, now = r.instance.edits, marks = a => (a.meta, JSON.stringify(a._.markers ?? []))
+  if (now.length < was.length || was.some((e, i) => sig(e) !== sig(now[i])) || [...was, ...now].some(e => sig(e) == null) || marks(b.instance) !== marks(r.instance)) return null
+  try {
+    const a = audio.from(pcmOf(b), { sampleRate: b.sampleRate })
+    if (b.markers.length) a.markers = b.markers
+    return a.run(...now.slice(was.length).map(([type, opts]) => [type, opts ? { ...opts } : {}]))
+  } catch { return null }
+}
+// An edit as a string to compare, or null where it holds what cannot be compared: a copy of a source as that source and
+// its own edits; a function or samples, never the same as another's
+const ids = new WeakMap()
+let lastId = 0
+const idOf = o => ids.get(o) ?? (ids.set(o, ++lastId), lastId)
+function sig(v) {
+  if (typeof v === 'function' || ArrayBuffer.isView(v)) return null
+  if (v == null || typeof v !== 'object') return JSON.stringify(v) ?? 'undefined'
+  if (isAudio(v)) { const root = roots.get(v), edits = sig(v.edits); return root && edits != null ? `a${idOf(root)}${edits}` : null }
+  const parts = Array.isArray(v) ? v.map(sig) : Object.keys(v).sort().map(k => { const x = sig(v[k]); return x == null ? null : `${k}:${x}` })
+  return parts.includes(null) ? null : Array.isArray(v) ? `[${parts}]` : `{${parts}}`
+}
+
 const post = (message, transfer = []) => self.postMessage(message, transfer)
 
 // A run's output to the page as it renders, in pieces of about a tenth of a second, then its figures. While the files
@@ -140,7 +180,7 @@ async function render(r) {
   let first = false
   if (name) arriving(r.id, name, () => alive() && !first)
   try {
-    await relay(r.instance.stream(), alive, (at, channels) => {
+    await relay((r.rebased ?? r.instance).stream(), alive, (at, channels) => {
       first = true
       keep(r, at, channels)
       post({ id: r.id, event: 'chunk', at, channels, sampleRate: r.sampleRate, ...expect(r) }, channels.map(c => c.buffer))
@@ -159,7 +199,7 @@ async function render(r) {
     r.stats = { peak, rms, loudness }
     for (const o of outputs.values()) if (o !== r) drop(o)
     // its markers (mark()), where its edits put them
-    const markers = r.instance.markers.filter(m => m.time <= length / sampleRate).map(({ time, label }) => ({ time, label }))
+    const markers = r.markers = (r.rebased ?? r.instance).markers.filter(m => m.time <= length / sampleRate).map(({ time, label }) => ({ time, label }))
     post({ id: r.id, event: 'done', duration: length / sampleRate, sampleRate, channels: pcm.length, stats: r.stats, segments, markers, clips, bitDepth: r.instance.bitDepth ?? null })
     r.finish(r)
   } catch (error) {
@@ -172,6 +212,7 @@ async function render(r) {
 // How long the output will be: known once its files have all arrived; until then what the first still arriving says
 // it lasts, with how much of it has come
 function expect(r) {
+  if (r.rebased) return { total: r.rebased.length }
   if (r.instance.decoded) return { total: r.instance.length }
   const src = r.names.map(n => sources.get(n)).find(s => s && !s.decoded), estimate = src?._.estDur ?? null
   return { total: estimate && Math.round(estimate * r.sampleRate), loaded: src?._.acc ? src._.acc.length / src.sampleRate : null, estimate }
@@ -239,9 +280,9 @@ const gaps = async (a, min) => a.duration ? (await a.silence({ minDuration: min 
 
 // The output's cues, in seconds: points to snap to, slice at and warp by. `edges` (a voice's, a solo instrument's): where
 // each sound starts and ends, the edges of the pauses between them, as words are found; each start where its attack
-// starts (attack.js), each end where the quiet begins, at most a block (23 ms) after the sound falls under the level.
+// starts (fn/hits.js), each end where the quiet begins, at most a block (23 ms) after the sound falls under the level.
 // `hits` (drums, struck notes, gates): where the level jumps, up where an attack starts, down where a sound stops, read
-// the same both ways, so a reversed sound's are its own mirrored (attack.js). After a closing warp() they are the cues
+// the same both ways, so a reversed sound's are its own mirrored (fn/hits.js). After a closing warp() they are the cues
 // of the audio before it, where its markers take them: stretching makes none, though its smear can read as hits.
 // Null for an output a newer one has replaced: the page reads cues against the code that made them.
 const FIND = {
@@ -288,59 +329,42 @@ function carry(times, markers, end) {
   })
 }
 
-// The output's pitch: f0 in Hz every 10 ms, 0 where unvoiced or silent. YIN (de Cheveigné & Kawahara 2002) on the
-// mono mix at about 11 kHz: averaging four samples before dropping three keeps voices, whose pitch stays under 1 kHz.
-const FRAME = 512
-function voice(r) {
-  if (r.voice) return r.voice
-  const x = mixdown(r), d = Math.max(1, Math.floor(r.sampleRate / 11025)), fs = r.sampleRate / d
-  const y = new Float32Array(Math.floor(x.length / d))
-  for (let i = 0; i < y.length; i++) { let s = 0; for (let j = 0; j < d; j++) s += x[i * d + j]; y[i] = s / d }
-  return r.voice = { y, fs, hop: Math.round(fs / 100) }
-}
-// f0 of the frame starting at sample s of the voice
-function f0At({ y, fs }, s) {
-  const frame = y.subarray(s, s + FRAME)
-  let power = 0
-  for (const v of frame) power += v * v
-  const p = power / FRAME > 1e-6 ? yin(frame, { fs, minFreq: 60, maxFreq: 1000 }) : null
-  return p && p.clarity > .6 ? p.freq : 0
-}
+// The output's pitch, the pitch curve the page draws: f0 in Hz every 10 ms, 0 where unvoiced or silent, the library's
+// contour() (pYIN, as intonation() reads it) on the mono mix
 async function contour({ output }) {
   const r = await whole(output)
   if (!r?.length) return { times: [], f0: [] }
-  if (r.contour) return r.contour
-  const v = voice(r), times = [], f0 = []
-  for (let s = 0; s + FRAME <= v.y.length; s += v.hop) { times.push((s + FRAME / 2) / v.fs); f0.push(f0At(v, s)) }
-  return r.contour = { times: Float32Array.from(times), f0: Float32Array.from(f0) }
+  return r.contour ??= pitchOf(mixdown(r), r.sampleRate)
 }
 
 // What the output holds, as a musician says it (the status bar): the note over `note` [from, to] s, the tempo and key
 // over `span`, each only where it is clear, else null.
-// The note: YIN's f0 every 10 ms (as contour()), at most 2,000 frames spread over the range (a median needs no more),
-// where at least half are voiced: their median [f], or, if their middle half spans more than a semitone, a melody's
-// compass, its 10th to 90th percentile [low, high]. Tempo (detect(): spectral flux, within 1 BPM where stat('bpm')
-// is 2 off) and key (stat('key') 'pcp': Krumhansl-Schmuckler over its chroma) only over 6 s at least, and where its two
-// halves say the same: tempos within 4%, as tempo estimates are scored (Gouyon et al. 2006, "Accuracy 1"), one key.
-const STEADY = 6
+// The note: the pitch curve's frames over the range (contour(), every 10 ms; the whole one if it was asked for), at most
+// 2,000 (a median needs no more): past 20 s, a second at each of 20 places spread over it; where at least half are
+// voiced: their median [f], or, if their middle half spans more than a semitone, a melody's
+// compass, its 10th to 90th percentile [low, high]. Tempo (steadyTempo, the CLI's too: detect()'s spectral flux, within
+// 1 BPM where stat('bpm') is 2 off, where the range and its halves agree within 4%, Gouyon et al. 2006) and key
+// (stat('key') 'pcp': Krumhansl-Schmuckler over its chroma, one key over the range and its halves) only over 6 s at
+// least, and over 3 minutes at most, so the reading (about 2 ms of work a second of sound, three times over) never holds
+// up a run for long.
+const STEADY = 6, MOST = 180, HEARD = 20
 async function listen({ output, note, span }) {
   const r = await whole(output)
   if (!r?.length) return {}
   const rate = r.sampleRate, end = r.length / rate
-  const v = voice(r), first = Math.max(0, Math.round(note[0] * v.fs - FRAME / 2)), last = Math.min(v.y.length - FRAME, Math.round(note[1] * v.fs - FRAME / 2))
-  const count = Math.max(1, Math.min(2000, Math.floor((last - first) / v.hop) + 1)), f0 = []
-  for (let k = 0; k < count && last >= first; k++) f0.push(f0At(v, Math.round(first + (count > 1 ? (last - first) * k / (count - 1) : 0))))
+  const [n0, n1] = [Math.max(0, note[0]), Math.min(end, note[1])], f0 = []
+  if (r.contour) r.contour.times.forEach((t, i) => { if (t >= n0 && t <= n1) f0.push(r.contour.f0[i]) })
+  else for (const [p, q] of n1 - n0 <= HEARD ? [[n0, n1]] : Array.from({ length: HEARD }, (_, k) => { const p = n0 + (n1 - n0 - 1) * k / (HEARD - 1); return [p, p + 1] }))
+    f0.push(...pitchOf(mixdown(r).subarray(Math.round(p * rate), Math.round(q * rate)), rate).f0)
   const voiced = f0.filter(Boolean).sort((p, q) => p - q), at = q => voiced[Math.min(voiced.length - 1, Math.floor(q * voiced.length))]
   const pitch = voiced.length * 2 < f0.length || !voiced.length ? null : 1200 * Math.log2(at(.75) / at(.25)) > 100 ? [at(.1), at(.9)] : [at(.5)]
   const [a, b] = [Math.max(0, span[0]), Math.min(end, span[1])], key = `${a},${b}`
   r.heard ??= new Map()
-  if (!r.heard.has(key)) r.heard.set(key, b - a < STEADY ? {} : await reading(pcmOf(r), rate, async x => {
+  if (!r.heard.has(key)) r.heard.set(key, b - a < STEADY || b - a > MOST ? {} : await reading(pcmOf(r), rate, async x => {
     const half = (b - a) / 2, parts = [[a, b - a], [a, half], [a + half, half]].map(([at, duration]) => ({ at, duration }))
-    const tempos = await Promise.all(parts.map(o => x.detect(o).then(d => d.bpm)))
-    const keys = await Promise.all(parts.map(o => x.stat('key', { ...o, method: 'pcp' }).catch(() => null)))
-    const close = t => t > 0 && Math.abs(t - tempos[0]) <= .04 * tempos[0]
+    const [bpm, keys] = await Promise.all([steadyTempo(x, parts[0]), Promise.all(parts.map(o => x.stat('key', { ...o, method: 'pcp' }).catch(() => null)))])
     return {
-      bpm: tempos[0] > 0 && close(tempos[1]) && close(tempos[2]) ? tempos[0] : null,
+      bpm,
       key: keys[0] && keys[0].label !== 'N' && keys.every(k => k?.label === keys[0].label) ? { tonic: keys[0].tonic, mode: keys[0].mode } : null
     }
   }))
@@ -391,6 +415,36 @@ async function original({ source, loudness }) {
   return { channels: pcm.map(c => c.map(v => v * k)), sampleRate: src.sampleRate, gain }
 }
 
+// What an agent asks of the sound (the `measure` tool): `code`, prepared as a script is (code.js), runs on copies of the output
+// shown (`out`, its markers) and of the file it opened (`src`), with the library, and changes nothing; its value, awaited,
+// as JSON carries it
+async function evaluate({ code }) {
+  const r = await settled(), made = [], keep = a => (made.push(a), a)
+  const out = r?.length ? keep(audio.from(pcmOf(r), { sampleRate: r.sampleRate })) : null, src = r && sources.get(r.names[0])
+  if (out && r.markers?.length) out.markers = r.markers
+  const started = performance.now()
+  const guard = () => { if (performance.now() - started > LOOP_LIMIT) throw new RangeError(`A loop ran for ${LOOP_LIMIT / 1000} s; stopped it.`) }
+  try {
+    let value = await new AsyncFunction('audio', 'out', 'src', '__loop', '__out', code + '\n//# sourceURL=repl.js')(scoped(keep), out, src ? keep(src.clone()) : null, guard, x => new Out(x))
+    if (value instanceof Out) value = value.value
+    if (value && typeof value.then === 'function' && !isAudio(value)) value = await value
+    return { value: plain(value) }
+  } finally { dispose(made) }
+}
+// A value as JSON carries it: arrays whole, typed or not, numbers to 7 digits, those JSON has no word for as text (an
+// output's silence is -Infinity dB); a sound, what it is
+function plain(v, depth = 0) {
+  if (typeof v === 'number') return Number.isInteger(v) ? v : Number.isFinite(v) ? +v.toPrecision(7) : String(v)
+  if (typeof v === 'bigint') return String(v)
+  if (v == null || typeof v !== 'object') return typeof v === 'function' ? undefined : v
+  if (depth > 12) return null
+  if (isAudio(v)) return { duration: v.duration, channels: v.channels, sampleRate: v.sampleRate }
+  if (ArrayBuffer.isView(v) || Array.isArray(v)) return Array.from(v, x => plain(x, depth + 1) ?? null)
+  if (v instanceof Map) v = Object.fromEntries(v)
+  if (v instanceof Error) return { error: v.message }
+  return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, plain(x, depth + 1)]))
+}
+
 // A plugin's parameters, from its manifest; null for built-in ops and unknown names.
 async function describe({ name }) {
   if (!audio.plugins[name]) return { params: null }
@@ -402,7 +456,7 @@ async function describe({ name }) {
 
 const handlers = {
   file: ({ name, data }) => { data ? files.set(name, data) : files.delete(name); forget(name); return {} },
-  run: execute, cues, contour, listen, export: exporting, describe, check: checking, original
+  run: execute, cues, contour, listen, export: exporting, describe, check: checking, original, eval: evaluate
 }
 self.onmessage = async ({ data }) => {
   let reply

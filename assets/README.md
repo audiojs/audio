@@ -14,12 +14,12 @@ The website is static. Serve the repository root with any static HTTP server and
   any window. `node .site-build.js` refreshes the bundles too.
 - `sprae.js` is the standalone Sprae 13.9.4 ES module, `dist/sprae.js` from the npm package.
   Its MIT license is included as `LICENSE-sprae.txt`.
-- `tokens.css` holds the colors, type, spacing and motion shared by the site, the logo lab and the REPL; `logo.svg` is the static mark and tab icon.
-- `codemirror.js` bundles the installed CodeMirror 6 and Lezer packages (MIT) the REPL's editor needs: state, view, commands,
+- `tokens.css` holds the colors, type, spacing and motion shared by the site, the logo lab and the editor; `logo.svg` is the static mark and tab icon.
+- `codemirror.js` bundles the installed CodeMirror 6 and Lezer packages (MIT) the editor's code pane needs: state, view, commands,
   the JavaScript language, completion, lint, search. Licenses are at the end of the file. `node .site-build.js` refreshes it.
 - `gl-waveform.js` and `gl-spectrogram.js` are the installed gl-waveform 5 and gl-spectrogram 2 (both MIT), the WebGL2 waveform
-  and spectrogram (FFT and reassignment on the GPU) the REPL draws with, each one module. `node .site-build.js` copies them.
-- The REPL's engine is built into `repl/dist/`, which git ignores: `worker.js` and a chunk per plugin and codec, loaded on first use.
+  and spectrogram (FFT and reassignment on the GPU) the editor draws with, each one module. `node .site-build.js` copies them.
+- The editor's engine is built into `editor/dist/`, which git ignores: `worker.js` and a chunk per plugin and codec, loaded on first use.
   `node .site-build.js` builds it; the site must be built before it is served.
 - `geist.woff2` is the Geist variable Latin font, with its OFL license included.
 - `wavefont.woff2` is the variable Wavefont from the local Wavefont 3.6.0 project;

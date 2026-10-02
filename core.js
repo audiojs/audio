@@ -626,6 +626,7 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
       ct: 0, ctStamp: 0,    // currentTime wall-clock interpolation
       vol: 1, muted: false, // volume 0..1 linear with change events
       rate: 1, // playbackRate
+      keep: true, // preservesPitch
       loop: false,
       push: false,     // true only for pushable (audio(null)) instances — gates fn.stop()'s finalize branch
       disposed: false, // set by fn.dispose() — in-flight async continuations check this to abort
@@ -674,6 +675,12 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
     playbackRate: {
       get() { return this._.rate },
       set(v) { v = Math.max(0.0625, Math.min(16, +v || 1)); if (this._.rate !== v) { this._.rate = v; emit(this, 'ratechange') } },
+      enumerable: true, configurable: true
+    },
+    // at a rate other than 1, the pitch kept (true, as a media element's) or following the speed, as a tape's
+    preservesPitch: {
+      get() { return this._.keep },
+      set(v) { v = !!v; if (this._.keep !== v) { this._.keep = v; emit(this, 'ratechange') } },
       enumerable: true, configurable: true
     },
     loop: {

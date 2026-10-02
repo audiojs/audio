@@ -212,7 +212,9 @@ test('memory: worker one-frame A → A → stereo B plays every frame, once', { 
     tap.port.onmessage = e => got.push(e.data)
     const aPCM = [new Float32Array([.25])]
     const bPCM = [Float32Array.from({ length: 1025 }, (_, i) => i / 2048), new Float32Array(1025).fill(-.125)]
-    const a = await audio(aPCM, { sampleRate: 48000 }), b = await audio(bPCM, { sampleRate: 48000 })
+    // at the device's own rate, so each frame plays as one frame (a device at 44.1 kHz would resample 48 kHz's 1025 to 942)
+    const sr = ctx.sampleRate, fade = Math.round(.005 * sr)
+    const a = await audio(aPCM, { sampleRate: sr }), b = await audio(bPCM, { sampleRate: sr })
     const results = []
     for (const [clip, pcm] of [[a, aPCM], [a, aPCM], [b, bPCM]]) {
       got = []
@@ -223,8 +225,8 @@ test('memory: worker one-frame A → A → stereo B plays every frame, once', { 
       await new Promise(r => setTimeout(r, 50))
       const L = got.flatMap(q => [...q[0]]), R = got.flatMap(q => [...(q[1] || q[0])])
       const on = L.map((v, i) => v !== 0 || R[i] !== 0), first = on.indexOf(true), n = on.lastIndexOf(true) + 1 - first
-      // past the 5 ms fade in (240 frames at 48 kHz) and before the fade out, the samples themselves
-      const steady = pcm[0].length > 480 ? pcm.map((c, k) => [...c.subarray(240, c.length - 240)].every((v, i) => v === [L, R][k][first + 240 + i])) : [true]
+      // past the 5 ms fade in and before the fade out, the samples themselves
+      const steady = pcm[0].length > 2 * fade ? pcm.map((c, k) => [...c.subarray(fade, c.length - fade)].every((v, i) => v === [L, R][k][first + fade + i])) : [true]
       results.push({ frames: pcm[0].length, n, steady })
     }
     await a.dispose(); await b.dispose(); await close()

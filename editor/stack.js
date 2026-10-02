@@ -1,18 +1,22 @@
 import { ops, methods, format, fromManifest, reshapes, icons } from './ops.js'
 import opIcons from './icons.js'
-import { chain, setArg, number, offCalls, turnOff, turnOn, parseCall } from './code.js'
+import { chain, setArg, number, offCalls, turnOff, turnOn, parseCall, groups } from './code.js'
+import { help, layout } from './help.js'
 
 // The edits: the chain's steps as cards, in order, as Luminar's edits or a history panel; the same chain as the code,
 // as controls, a rack of cards as mel's modules. The sound it starts from is the first card (the file opened, or
 // audio.from() making one). A card names its step and what it is set to. A press on one chooses it: it opens to its settings, a
 // slider (or a choice) each, and the output shows as it is up to that step, the steps after it dimmed; a press again,
-// or Escape, shows the whole chain again. A slider rewrites its argument in place, a whole drag one undo step. The card
-// under the pointer draws what it sets over the output (`oncall`). Two acts on it, over its right end where the pointer
+// or Escape, shows the whole chain again. A slider rewrites its argument in place, a whole drag one undo step. Pointed
+// at, each says what it does and which way to move it (help.js); the engine's own, which few touch, wait under Advanced.
+// The card under the pointer draws what it sets over the output (`oncall`). Two acts on it, over its right end where the pointer
 // is, its settings running under them to the card's edge: its eye turns the step off and on (the call commented out
 // where it stands, so the code says it too); its × removes it. Going back to a card is choosing it: an edit made then
 // goes after it, the steps after it gone. Open, a card's Δ plays and draws what its step takes out (the output before
-// it less the output after it). What the output shows, when it is not the whole chain, goes to `onview({ delta, back
-// })`: `delta` the index of the live step whose difference plays, `back` how many live steps are kept.
+// it less the output after it). Steps grouped in the code (code.js groups: a recipe's, under its name) are one card,
+// folded: a press unfolds it to its steps, its eye turns them all off and on, its × removes them all. What the output
+// shows, when it is not the whole chain, goes to `onview({ delta, back })`: `delta` the index of the live step whose
+// difference plays, `back` how many live steps are kept.
 export default function stack(root, { ed, describe = async () => null, duration = () => 1, source = () => null, oncall = () => {}, onview = () => {}, onpreview = () => {} }) {
   // the cards first, what adds to them after
   const list = root.insertBefore(document.createElement('ol'), root.firstChild)
@@ -21,6 +25,8 @@ export default function stack(root, { ed, describe = async () => null, duration 
   // from); what the output shows: the difference a live step makes, or the chain kept to its first `back` live steps;
   // the card under the pointer
   let chosen = null, cards = [], shape = '', delta = null, back = null, hovered = null
+  // the groups, a card each over its steps' cards; those unfolded, by name and place among those of that name
+  let folds = [], unfolded = new Set()
 
   // Every change to the code, and once at the start; a move of its caret alone changes nothing here
   function refresh(update) {
@@ -31,19 +37,23 @@ export default function stack(root, { ed, describe = async () => null, duration 
     const made = c?.root.name === 'VariableName' && code.slice(c.root.from, c.root.to) === 'audio' && !!calls[0]
     const steps = [...calls.map((k, i) => i || !made ? k : { ...k, origin: true }), ...offCalls(code).map(o => ({ ...parseCall(o.text), ...o, dot: o.from, list: null, off: true }))].sort((p, q) => p.dot - q.dot)
     const name = !made && source(), rows = name ? [{ name, sound: true }, ...steps] : steps
+    const gs = groups(code), groupOf = k => k.sound ? -1 : gs.findIndex(g => k.dot > g.from && k.dot < g.to)
     // cards are built again only when the steps change, never by a slider's own edits; then the whole chain shows
-    const next = rows.map(k => (k.off ? '~' : '') + k.name).join()
-    if (next !== shape) { build(rows); if (shape) { chosen = null; view(null, null) } }
+    const next = rows.map(k => (k.off ? '~' : '') + k.name + '/' + groupOf(k)).join() + gs.map(g => g.name).join()
+    if (next !== shape) { build(rows, gs, groupOf); if (shape) { chosen = null; view(null, null) } }
     shape = next
     rows.forEach((call, i) => { cards[i].call = call })
+    gs.forEach((g, i) => { if (folds[i]) folds[i].group = g })
     render()
   }
 
   const EYE = 'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Zm10 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z'
+  // a group's icon: steps stacked in a folder
+  const FOLD = 'M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11ZM8 11h8M8 14.5h5'
   // a card's icon: the sound's, a file's bars or a generator's wave; a step's own (icons.js), else its kind's
   const iconOf = call => call.sound ? 'M4 10v4m4-8v12m4-15v18m4-14v10m4-6v2' : call.origin ? icons.Generate : opIcons[call.name] ?? icons[ops[call.name]?.group] ?? icons.Effect
   const SHUT = 'M3 3l18 18M10.6 5.1Q11.3 5 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4M6.6 6.6A17 17 0 0 0 2 12s3.6 7 10 7a10 10 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2'
-  function build(rows) {
+  function build(rows, gs = [], groupOf = () => -1) {
     hovered = null
     cards = rows.map(call => {
       const li = document.createElement('li'), head = li.appendChild(document.createElement('div'))
@@ -65,9 +75,43 @@ export default function stack(root, { ed, describe = async () => null, duration 
         card.on = button(acts, 'step-on', null, EYE, () => onOff(card))
         button(acts, 'step-remove', null, 'm7 7 10 10M17 7 7 17', () => drop(card), `Remove .${call.name}() from the chain`, `Remove ${call.name}`)
       }
+      card.fold = groupOf(call)
       return card
     })
-    list.replaceChildren(...cards.map(c => c.li))
+    // a group's card, before its steps' cards, named by its comment, folded
+    const seen = {}
+    folds = gs.map(group => {
+      const key = `${group.name}#${seen[group.name] = (seen[group.name] ?? -1) + 1}`
+      const li = document.createElement('li'), head = li.appendChild(document.createElement('div'))
+      li.className = 'step step-group'
+      head.className = 'step-head'
+      head.innerHTML = `<button class="step-toggle" type="button" aria-expanded="false"><svg class="step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${FOLD}"/></svg><span class="step-name"></span><span class="step-args"></span></button>`
+      const toggle = head.firstChild, fold = { li, toggle, key, group }
+      toggle.querySelector('.step-name').textContent = group.name
+      toggle.addEventListener('mousedown', event => event.preventDefault())
+      toggle.addEventListener('click', () => { unfolded.has(key) ? unfolded.delete(key) : unfolded.add(key); render() })
+      const acts = head.appendChild(document.createElement('div'))
+      acts.className = 'step-acts'
+      fold.on = button(acts, 'step-on', null, EYE, () => switchAll(fold))
+      button(acts, 'step-remove', null, 'm7 7 10 10M17 7 7 17', () => dropAll(fold), `Remove ${group.name}: all its steps`, `Remove ${group.name}`)
+      return fold
+    })
+    const items = []
+    cards.forEach((c, i) => { if (c.fold >= 0 && cards[i - 1]?.fold !== c.fold) items.push(folds[c.fold].li); items.push(c.li) })
+    list.replaceChildren(...items)
+  }
+  // a group's steps' cards
+  const members = fold => cards.filter(c => c.fold === folds.indexOf(fold))
+  // a group's steps all turned off, or all back on when they all are, in one step
+  function switchAll(fold) {
+    const steps = members(fold), on = steps.every(c => c.call.off), code = ed.code
+    const changes = steps.filter(c => !!c.call.off === on).map(c => on ? turnOn(code, c.call) : turnOff(code, c.call))
+    if (changes.length && changes.every(Boolean)) ed.change(changes)
+  }
+  // a group taken out, its name and its steps, with the line it was on
+  function dropAll(fold) {
+    const { from, to } = fold.group
+    ed.change({ from: Math.max(0, from - 1), to, insert: '' })
   }
   function button(head, name, text, path, act, title = '', label = title) {
     const b = head.appendChild(document.createElement('button'))
@@ -117,6 +161,20 @@ export default function stack(root, { ed, describe = async () => null, duration 
       if (open && !c.params) { c.params = params(c); c.li.append(c.params.dom); c.params.load() }
       if (!open && c.params) { c.params.dom.remove(); c.params = null }
       c.params?.refresh(i >= 0 && i === delta)
+    }
+    // a group folded hides its steps, unless the step chosen is one of them; its eye is off when all of them are
+    for (const fold of folds) {
+      const steps = members(fold), open = unfolded.has(fold.key) || steps.some(c => cards.indexOf(c) === at), off = steps.every(c => c.call.off)
+      fold.toggle.setAttribute('aria-expanded', String(open))
+      fold.toggle.title = open ? `Fold ${fold.group.name}` : `${fold.group.name}: its ${steps.length} steps, one step of the edits`
+      fold.toggle.querySelector('.step-args').textContent = `${steps.length} steps`
+      fold.li.classList.toggle('off', off)
+      fold.li.classList.toggle('rolled', steps.every(c => c.li.classList.contains('rolled')))
+      fold.on.setAttribute('aria-pressed', String(!off))
+      fold.on.querySelector('path').setAttribute('d', off ? SHUT : EYE)
+      fold.on.title = off ? `Turn ${fold.group.name} back on` : `Turn ${fold.group.name} off: the output without its steps`
+      fold.on.setAttribute('aria-label', off ? `Turn ${fold.group.name} on` : `Turn ${fold.group.name} off`)
+      for (const c of steps) { c.li.hidden = !open; c.li.classList.add('grouped') }
     }
     guide()
   }
@@ -178,12 +236,14 @@ export default function stack(root, { ed, describe = async () => null, duration 
 
   // Keys on the cards: up and down go between them, Escape shows the whole chain again
   list.addEventListener('keydown', event => {
-    const i = cards.findIndex(c => c.toggle === document.activeElement)
+    // the cards shown: a group's own, and its steps' when it is unfolded
+    const shown = [...list.children].filter(li => !li.hidden).map(li => li.querySelector('.step-toggle')), i = shown.indexOf(document.activeElement)
     if (event.key === 'Escape' && (chosen != null || delta != null)) { event.preventDefault(); chosen = null; view(null, null) }
-    else if (i >= 0 && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) { event.preventDefault(); cards[Math.max(0, Math.min(cards.length - 1, i + (event.key === 'ArrowDown' ? 1 : -1)))].toggle.focus() }
+    else if (i >= 0 && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) { event.preventDefault(); shown[Math.max(0, Math.min(shown.length - 1, i + (event.key === 'ArrowDown' ? 1 : -1)))].focus() }
   })
 
-  // A card's sliders, one per parameter; a plugin's come from its manifest, read by the engine.
+  // A card's sliders, one per parameter; a plugin's come from its manifest, read by the engine. The ones that matter come
+  // first and the engine's own are folded under Advanced (help.js layouts), open where the code sets one of them.
   function params(card) {
     const dom = document.createElement('div')
     dom.className = 'params'
@@ -202,6 +262,7 @@ export default function stack(root, { ed, describe = async () => null, duration 
         // a source, a band or what is learned from a selection is set in the code or on the picture, not by a slider
         rows = spec.map((s, i) => s.name === 'source' || s.name === 'band' || s.selection ? null : build(s, i)).filter(Boolean)
         if (!rows.length) { dom.append('No settings'); dom.classList.add('none'); return }
+        arrange(name)
         self.ready = true
         values()
       },
@@ -215,18 +276,25 @@ export default function stack(root, { ed, describe = async () => null, duration 
     const fromSlider = (s, x) => s.log && s.min > 0 ? s.min * (s.max / s.min) ** (x / 1000) : s.min + x / 1000 * (s.max - s.min)
     // Times in the audio reach its end.
     const limits = s => ['at', 'duration', 'to'].includes(s.name) && s.unit === 's' ? { ...s, max: Math.max(duration(), .01) } : s
+    // What pointing at a setting says: what it does and which way to move it (help.js), and for a number its range and
+    // where it starts; the choices are on show.
+    function tip(s, text) {
+      const lim = limits(s), facts = s.values ? s.values.join(', ') : `${format(lim.min, s)} to ${format(lim.max, s)}${s.default == null ? '' : `, default ${format(s.default, s)}`}`
+      return !text ? `${s.name}: ${facts}` : s.values ? text : `${text}\n${facts}`
+    }
     // a row: its name and value above, its slider (or choices) across below
     function build(s, index) {
-      const row = dom.appendChild(document.createElement('div'))
+      const row = dom.appendChild(document.createElement('div')), text = help(card.call.name, s.name)
       row.className = 'param'
       const label = row.appendChild(document.createElement('label')), out = row.appendChild(document.createElement('output'))
       label.textContent = s.name
-      row.title = s.values ? `${s.name}: ${s.values.join(', ')}` : `${s.name}: ${format(limits(s).min, s)} to ${format(limits(s).max, s)}; drag, or arrow keys on the slider`
+      row.title = tip(s, text)
       if (s.values) {
         const group = row.appendChild(document.createElement('div'))
         group.className = 'choices'
         group.role = 'group'
         group.setAttribute('aria-label', s.name)
+        if (text) group.setAttribute('aria-description', text)
         for (const value of s.values) {
           const button = group.appendChild(document.createElement('button'))
           button.type = 'button'
@@ -235,11 +303,12 @@ export default function stack(root, { ed, describe = async () => null, duration 
           button.onclick = () => write(s, index, value)
         }
         row.classList.add('choice')
-        return { s, index, out, group }
+        return { s, index, row, out, group }
       }
       const input = row.appendChild(document.createElement('input'))
       Object.assign(input, { type: 'range', min: 0, max: 1000, step: 'any' })
       input.setAttribute('aria-label', s.unit ? `${s.name} (${s.unit})` : s.name)
+      if (text) input.setAttribute('aria-description', text)
       input.addEventListener('pointerdown', () => { dragging = input })
       input.addEventListener('pointerup', () => { dragging = null })
       input.addEventListener('input', () => {
@@ -247,7 +316,24 @@ export default function stack(root, { ed, describe = async () => null, duration 
         write(s, index, +number(Math.round(raw / step) * step, step), true)
       })
       input.addEventListener('change', () => ed.settle())
-      return { s, index, out, input }
+      return { s, index, row, out, input }
+    }
+    // The rows in the order the layout gives them, those few touch after a button that folds them away
+    function arrange(name) {
+      const [front, folded] = layout(name, rows.map(r => r.s.name)), by = n => rows.find(r => r.s.name === n)
+      dom.append(...front.map(by).map(r => r.row))
+      if (!folded.length) return
+      const back = folded.map(by), set = valuesOf(self.spec, card.call), more = dom.appendChild(document.createElement('button'))
+      more.type = 'button'
+      more.className = 'step-more'
+      more.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>Advanced <span></span>'
+      more.lastChild.textContent = back.length
+      more.title = `Settings few need to touch: ${folded.join(', ')}`
+      const fold = open => { more.setAttribute('aria-expanded', String(open)); for (const r of back) r.row.hidden = !open }
+      more.addEventListener('mousedown', event => event.preventDefault())
+      more.addEventListener('click', () => fold(more.getAttribute('aria-expanded') !== 'true'))
+      dom.append(...back.map(r => r.row))
+      fold(back.some(r => set[r.index] !== undefined))
     }
     function values() {
       const now = valuesOf(self.spec, card.call)
