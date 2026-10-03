@@ -338,45 +338,55 @@ test('rnnoise, deepfilter: without @audio/neural-denoise each names the package,
 	ok(/^deepfilter: can't load DeepFilterNet3 from file:\/\/\/nonexistent\//.test(err?.message), err?.message)
 	err = await a().deepfilter(-3).read().catch(e => e)
 	ok(/^deepfilter: limit is dB/.test(err?.message), err?.message)
-	err = await a().deepfilter({ floor: 6 }).read().catch(e => e)
-	ok(/^deepfilter: floor is dB under the voice/.test(err?.message), err?.message)
 })
 
 ;(HAS_DFN ? test : test.skip)('deepfilter: the package on the op input, unlimited, the input mixed back at the limit; its channel only, once', NEURAL_RUN, async () => {
 	let { clean, dirty } = take(), calls = 0
 	await withImport((spec, orig) => spec === '@audio/neural-denoise' ? orig(spec).then(m => ({ ...m, default: (...a) => (calls++, m.default(...a)) })) : orig(spec), async () => {
 		let [input] = await audio.from([dirty], { sampleRate: SR }).gain(-6).read(), [ref] = await audio.from([clean], { sampleRate: SR }).gain(-6).read()
-		let [y] = await neural.default([input], { sampleRate: SR, model: 'deepfilternet3', limit: 0 }), g = 10 ** (-12 / 20)
+		let [y] = await neural.default([input], { sampleRate: SR, model: 'deepfilternet3', limit: 0 }), g = 10 ** (-18 / 20)
 		calls = 0
-		let a = audio.from([dirty, dirty], { sampleRate: SR }).gain(-6).deepfilter({ channel: 1, floor: false })
+		let a = audio.from([dirty, dirty], { sampleRate: SR }).gain(-6).deepfilter({ channel: 1 })
 		let [l, r] = await a.read()
-		is(maxDiff(r, y.map((v, i) => (1 - g) * v + g * input[i])), 0, 'the package on the edits before it, 12 dB limit')
+		is(maxDiff(r, y.map((v, i) => (1 - g) * v + g * input[i])), 0, 'the package on the edits before it, 18 dB limit')
 		is(maxDiff(l, input), 0, 'channel 0 untouched')
 		a.gain(1); await a.read()
 		is(calls, 1, 'enhanced once: re-reads and later edits reuse it')
 		let drop = floorDb(input) - floorDb(r), speech = speechDb(r) - speechDb(ref)
-		ok(drop > 10 && drop < 12.5, `floor: false: noise down ${drop.toFixed(1)} dB, room tone kept`)
+		ok(drop > 15 && drop < 18.2, `noise down ${drop.toFixed(1)} dB, no more than the limit: room tone kept`)
 		ok(Math.abs(speech) < 1.5, `speech ${speech.toFixed(2)} dB from the clean take`)
 		let [none] = await audio.from([input], { sampleRate: SR }).deepfilter(0).read()
 		is(maxDiff(none, y), 0, 'limit 0: the package unlimited')
+		// kept by the model and its input in a host's store (core.js memo), never by the limit: another instance at another
+		// limit reads the run back, the limit applied after it
+		let kept = new Map(), k6 = 10 ** (-6 / 20)
+		audio.memo = { get: k => kept.get(k) ?? null, set: (k, v) => kept.set(k, v) }
+		try {
+			await audio.from([input], { sampleRate: SR }).deepfilter(12).read()
+			calls = 0
+			let [again] = await audio.from([input], { sampleRate: SR }).deepfilter(6).read()
+			is(calls, 0, 'the model run read back, at another limit')
+			is(maxDiff(again, y.map((v, i) => (1 - k6) * v + k6 * input[i])), 0, '…6 dB applied to it')
+		} finally { delete audio.memo }
 	})
 })
 
-// floor: the noise 45 dB under the voice's loudness by default, never less than the limit's 12 dB down
-;(HAS_DFN ? test : test.skip)('deepfilter: noisy speech loses its noise to 45 dB under the voice, quiet speech the limit\'s 12 dB', NEURAL_RUN, async () => {
-	let { clean, dirty } = take(15), L = await audio.from([dirty], { sampleRate: SR }).stat('loudness')
-	let [y] = await audio.from([dirty], { sampleRate: SR }).deepfilter().read()
-	let under = floorDb(y) - L, speech = speechDb(y) - speechDb(clean)
-	ok(under < -40 && under > -48, `noise 15 dB under: the pause ${-under.toFixed(1)} dB under the voice (${(floorDb(dirty) - floorDb(y)).toFixed(1)} dB down)`)
-	ok(Math.abs(speech) < 1.5, `speech ${speech.toFixed(2)} dB from the clean take`)
-	let [z] = await audio.from([dirty], { sampleRate: SR }).deepfilter(12, -35).read()
-	ok(Math.abs(floorDb(z) - L + 35) < 3, `floor -35: the pause ${(L - floorDb(z)).toFixed(1)} dB under the voice`)
-	let quiet = take(55).dirty
-	let [q] = await audio.from([quiet], { sampleRate: SR }).deepfilter().read()
-	let [f] = await audio.from([quiet], { sampleRate: SR }).deepfilter({ floor: false }).read()
-	is(maxDiff(q, f), 0, 'noise 55 dB under: the 12 dB limit, room tone kept')
+// limit: the most anything drops, as upstream's atten_lim_db. Held notes, which the model takes for noise, keep their
+// level: VocalSet (Wilkins et al., ISMIR 2018, CC BY 4.0) singer F2's straight long tones on /a/, once in the data cache
+// (@audio/neural-denoise README, Accuracy: Singing); before the voice guard they lost 17.5 dB, the limit's whole 18.
+const HELD = path.join(os.homedir(), '.cache', 'audiojs', 'data', 'vocalset', 'FULL', 'female2', 'long_tones', 'straight', 'f2_long_straight_a.wav')
+;(HAS_DFN ? test : test.skip)('deepfilter: the noise drops by the limit at most (18 dB by default); held notes keep their level', NEURAL_RUN, async () => {
+	let { clean, dirty } = take(15)
+	for (let [limit, lo] of [[undefined, 15], [6, 5]]) {
+		let a = audio.from([dirty], { sampleRate: SR }), [y] = await (limit == null ? a.deepfilter() : a.deepfilter(limit)).read()
+		let drop = floorDb(dirty) - floorDb(y), most = limit ?? 18
+		ok(drop > lo && drop < most + .2, `limit ${most}: the pause ${drop.toFixed(1)} dB down`)
+		ok(Math.abs(speechDb(y) - speechDb(clean)) < 1.5, `speech ${(speechDb(y) - speechDb(clean)).toFixed(2)} dB from the clean take`)
+	}
+	if (!existsSync(HELD)) return console.log('  (no VocalSet in the data cache: held notes not checked)')
+	let [x] = await audio(HELD).read(), [y] = await audio(HELD).deepfilter().read()
+	ok(speechDb(y) - speechDb(x) > -3, `held notes: ${(speechDb(y) - speechDb(x)).toFixed(1)} dB`)
 })
-
 
 // ════════════════════════════════════════════════════════════════════════════
 // denoise (built-in op, fn/denoise.js): the noise learned where it plays alone, a range of the op's input, then

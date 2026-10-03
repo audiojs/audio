@@ -194,7 +194,7 @@ const HELP = {
   spectral:  { usage: 'spectral [BAND] [DB] [RANGE]', desc: 'Gain on a time × frequency region; default removes it', examples: ['spectral 1khz..4khz -30db 2.1s..2.4s', 'spectral 6khz..9khz 5s..5.2s'], label: 'Editing spectrum' },
   repair:    { usage: 'repair [BAND] RANGE', desc: 'Rebuild a damaged range from its surroundings', examples: ['repair 1.2s..1.25s', 'repair 0..3khz 1.2s..1.25s'], label: 'Repairing' },
   denoise:   { usage: 'denoise [DB] [THRESHOLD] noise:RANGE [RANGE]', desc: 'Remove a steady noise (hiss, hum, fan, room tone) learned where it plays alone: noise:RANGE; it goes DB down (12) everywhere, or in RANGE', examples: ['denoise noise:0..0.5s', 'denoise 20 noise:3.1s..3.6s save clean.wav'], label: 'Denoising' },
-  deepfilter: { usage: 'deepfilter [LIMIT]', desc: 'Speech out of noise by DeepFilterNet3 (optional @audio/neural-denoise; 8 MB model, downloaded once): noise drops by at most LIMIT dB, 12 by default, 0 for none', examples: ['deepfilter', 'deepfilter 20', 'deepfilter normalize podcast'], label: 'Enhancing speech' },
+  deepfilter: { usage: 'deepfilter [LIMIT]', desc: 'Speech out of noise by DeepFilterNet3 (optional @audio/neural-denoise; 8 MB model, downloaded once): noise drops by at most LIMIT dB (18), 0 for no limit; held sung notes kept', examples: ['deepfilter', 'deepfilter 12', 'deepfilter normalize podcast'], label: 'Enhancing speech' },
   crossover: { usage: 'crossover FREQS...', desc: 'Split into frequency bands — N freqs → N+1 bands × channels (LR4)', examples: ['crossover 200hz', 'crossover 300hz 3khz save bands.wav'], label: 'Splitting bands' },
   roomtone:  { usage: 'roomtone [THRESHOLD]', desc: "Fill digital silence (edited pauses, pad) with the recording's own room tone", examples: ['roomtone', 'trim pad 1.5s 2s roomtone check acx'], label: 'Filling room tone' },
   master:    { usage: 'master REF', desc: 'Master to a reference track: its tone in mid and side, its loudness, under -1 dBTP (ceiling:N)', examples: ['master ref.wav save out.wav', 'master ref.wav ceiling:-2 check streaming'], label: 'Mastering' },
@@ -531,7 +531,7 @@ function fmtTime(s, full) {
   return full || h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`
 }
 
-const STAT_UNITS = { db: 'dBFS', rms: 'dBFS', noisefloor: 'dBFS', loudness: 'LUFS', dialog: 'LUFS', momentary: 'LUFS', shortterm: 'LUFS', truepeak: 'dBTP', lra: 'LU', bpm: 'BPM' }
+const STAT_UNITS = { db: 'dBFS', rms: 'dBFS', noisefloor: 'dBFS', loudness: 'LUFS', dialog: 'LUFS', momentary: 'LUFS', shortterm: 'LUFS', truepeak: 'dBTP', lra: 'LU', bpm: 'BPM', hnr: 'dB', harmonic: 'dBFS' }
 
 function fmtStat(name, result) {
   if (result instanceof Float32Array || result instanceof Float64Array || Array.isArray(result)) {

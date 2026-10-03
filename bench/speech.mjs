@@ -27,15 +27,13 @@
 // 60 s of each, 48 kHz mono float32, in spoken/<name>.f32 (@audio/neural-denoise scripts/accuracy.mjs ROOMS);
 // rooms-train, ten more from Wikimedia Commons' Spoken English Wikipedia category (every 223rd title from the
 // 131st, the ten above skipped, over 70 s; CC BY-SA), in spoken-train/ with its manifest.json.
-// Outputs: ~/.cache/audiojs/data/recipes[-SPEECH_TAG]/SET/<stage>/<stage>/…/<name>.wav (float); a floor
-// target writes the attenuation it chose beside each output (<name>.limit).
+// Outputs: ~/.cache/audiojs/data/recipes[-SPEECH_TAG]/SET/<stage>/<stage>/…/<name>.wav (float).
 
 import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, existsSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import audio from '../audio.js'
 import RECIPES from '../editor/recipes.js'
-import { noiseDrop, attenuation } from '../fn/deepfilter.js'
 
 // SPEECH_TAG names a separate output tree: the same stages after their packages change
 const DATA = path.join(os.homedir(), '.cache', 'audiojs', 'data'), OUT = path.join(DATA, 'recipes' + (process.env.SPEECH_TAG ? '-' + process.env.SPEECH_TAG : ''))
@@ -63,41 +61,32 @@ export const WAS = {
 const AB = d => ['highpass(80)', d, 'compressor({ threshold: -24, ratio: 2.5 })', "normalize(-20, 'rms', { ceiling: -3.5 })", 'trim()', 'pad(1.5, 2)', 'roomtone()', 'resample(44100)']
 const PE = d => ['highpass(80)', d, 'deesser()', 'compressor({ threshold: -24, ratio: 2.5 })', "normalize('podcast')"]
 export const EXTRA = {
-  // neural denoisers: fixed attenuation limits (floor: false) against the floor target (deepfilter's default)
-  'dfn-0': ['deepfilter(0)'], 'dfn-12': ['deepfilter({ limit: 12, floor: false })'], 'dfn-24': ['deepfilter({ limit: 24, floor: false })'],
-  'dfn-b40': ['deepfilter({ below: 40 })'], 'dfn-b45': ['deepfilter({ below: 45 })'], 'dfn-b50': ['deepfilter({ below: 50 })'],
-  'dfn-12b45': ['deepfilter()'],
-  'rnn-0': ['rnnoise(0)'], 'rnn-20': ['rnnoise(20)'], 'rnn-b45': ['rnnoise({ below: 45, limit: 20 })'], 'rnn-b50': ['rnnoise({ below: 50, limit: 20 })'],
-  'ab-dfn12': AB('deepfilter({ limit: 12, floor: false })'), 'ab-dfnb45': AB('deepfilter({ below: 45 })'), 'ab-dfnb50': AB('deepfilter({ below: 50 })'),
-  'ab-rnn20': AB('rnnoise(20)'), 'ab-rnnb50': AB('rnnoise({ below: 50, limit: 20 })'),
-  'pe-dfn12': PE('deepfilter({ limit: 12, floor: false })'), 'pe-dfnb45': PE('deepfilter({ below: 45 })'), 'pe-dfnb50': PE('deepfilter({ below: 50 })'),
+  // neural denoisers at their attenuation limits (deepfilter's default 18)
+  'dfn-0': ['deepfilter(0)'], 'dfn-12': ['deepfilter(12)'], 'dfn-18': ['deepfilter()'], 'dfn-24': ['deepfilter(24)'],
+  'rnn-0': ['rnnoise(0)'], 'rnn-20': ['rnnoise(20)'],
+  'ab-dfn12': AB('deepfilter(12)'), 'ab-dfn18': AB('deepfilter()'), 'ab-rnn20': AB('rnnoise(20)'),
+  'pe-dfn12': PE('deepfilter(12)'), 'pe-dfn18': PE('deepfilter()'),
 }
 // the level set before what reads absolute level (de-esser, compressor): podcast loudness, ACX's RMS
 const POD = ["normalize(-16, 'lufs', { ceiling: false })"], ACX = ["normalize(-20, 'rms', { ceiling: false })"]
 const comp = (t, r) => `compressor({ threshold: ${t}, ratio: ${r} })`
 const cand = (id, st) => EXTRA[id] = st
-for (let [d, den] of [['dfn12', 'deepfilter({ limit: 12, floor: false })'], ['dfn24', 'deepfilter({ limit: 24, floor: false })'], ['dfnb45', 'deepfilter({ below: 45 })'], ['dfn12b45', 'deepfilter()'], ['rnn20', 'rnnoise(20)'], ['rnn12', 'rnnoise(12)'], ['rnn15', 'rnnoise(15)']]) {
+for (let [d, den] of [['dfn12', 'deepfilter(12)'], ['dfn18', 'deepfilter()'], ['dfn24', 'deepfilter(24)'], ['rnn20', 'rnnoise(20)'], ['rnn12', 'rnnoise(12)'], ['rnn15', 'rnnoise(15)']]) {
   cand(`n-${d}`, ['highpass(80)', den])
   cand(`np-${d}`, ['highpass(80)', den, "normalize('podcast')"])
   for (let [t, r] of [[-26, 2], [-20, 2], [-20, 3], [-14, 3]]) cand(`np-${d}-c${-t}r${r}`, ['highpass(80)', den, ...POD, comp(t, r), "normalize('podcast')"])
   for (let [t, r] of [[-26, 2], [-20, 2.5], [-14, 3], [-10, 3]]) cand(`na-${d}-c${-t}r${r}`, ['highpass(80)', den, ...ACX, comp(t, r), "normalize(-20, 'rms', { ceiling: -3.5 })", 'trim()', 'pad(1.5, 2)', 'roomtone()', 'resample(44100)'])
 }
-// Enhance speech, neural, with the fixed 24 dB it had before deepfilter's floor
-cand('esn-24', ['highpass(80)', 'dehum()', 'deepfilter({ limit: 24, floor: false })', "normalize(-16, 'lufs', { ceiling: false })", "deesser({ mode: 'band', threshold: -30 })", "normalize('podcast')"])
+// Enhance speech, neural, at a 24 dB limit
+cand('esn-24', ['highpass(80)', 'dehum()', 'deepfilter(24)', "normalize(-16, 'lufs', { ceiling: false })", "deesser({ mode: 'band', threshold: -30 })", "normalize('podcast')"])
 // Remove room echo: the late-reverb model's decay time and over-estimation
 for (let [t, a] of [[0.6, 1.5], [0.4, 1.5], [0.3, 1], [0.4, 1], [0.6, 1]]) cand(`echo-t${t * 10}a${a * 10}`, ['highpass(80)', `dereverb({ t60: ${t}, alpha: ${a} })`])
 // classical denoisers (the fixed @audio/denoise), alone and in the ACX chain; dehum first: it leaves hum-free input alone
 const ACXEND = ["normalize(-20, 'rms', { ceiling: -3.5 })", 'trim()', 'pad(1.5, 2)', 'roomtone()', 'resample(44100)']
-for (let [d, den] of [['omlsa', 'omlsa()'], ['omlsa12', 'omlsa({ gMin: -12 })'], ['wiener', 'wiener()'], ['specsub', 'specsub()'], ['dfn24', 'deepfilter({ limit: 24, floor: false })'], ['dfn12b45', 'deepfilter()'], ['rnn20', 'rnnoise(20)']]) {
+for (let [d, den] of [['omlsa', 'omlsa()'], ['omlsa12', 'omlsa({ gMin: -12 })'], ['wiener', 'wiener()'], ['specsub', 'specsub()'], ['dfn24', 'deepfilter(24)'], ['dfn18', 'deepfilter()'], ['rnn20', 'rnnoise(20)']]) {
   cand(`c-${d}`, ['highpass(80)', 'dehum()', den])
   cand(`ca-${d}`, ['highpass(80)', 'dehum()', den, ...ACX, comp(-14, 3), ...ACXEND])
 }
-// the floor set where the level is final: after the level is set and the compressor has worked
-for (let b of [45, 50]) {
-  cand(`na2-dfnb${b}`, ['highpass(80)', ...ACX, comp(-26, 2), `deepfilter({ below: ${b} })`, "normalize(-20, 'rms', { ceiling: -3.5 })", 'trim()', 'pad(1.5, 2)', 'roomtone()', 'resample(44100)'])
-  cand(`np2-dfnb${b}`, ['highpass(80)', ...POD, comp(-26, 2), `deepfilter({ below: ${b} })`, "normalize('podcast')"])
-}
-
 const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 // `$src\n  .a()\n  .b(…)` → ['a()', 'b(…)']
 const stages = code => code.replace(/^\$src\s*\./, '').split(/\)\s*\.(?=[a-z])/).map((s, i, all) => (i < all.length - 1 ? s + ')' : s).trim())
@@ -178,9 +167,8 @@ function inputs(set) {
 }
 
 // Neural stages run @audio/neural-denoise with one model handle (one thread) for all files, and deepfilter as audio's
-// op does (fn/deepfilter.js): the unlimited output y, the input x mixed back, (1 − a)·y + a·x, a = 10^(−L/20),
-// L = `limit` (12) raised to what brings the noise `floor` dB (−45) under the voice. The op loads the model per
-// edit. The floor experiment's { below, min } is { floor: −below, limit: min }, `min` absent meaning no minimum.
+// op does (fn/deepfilter.js): the unlimited output y, the input x mixed back, (1 − a)·y + a·x, a = 10^(−limit/20),
+// `limit` 18 unless given. The op loads the model per edit.
 let models = {}, denoise
 async function neural(x, model, o) {
   if (!models[model]) {
@@ -189,21 +177,15 @@ async function neural(x, model, o) {
     models[model] = await nd.load(model === 'deepfilter' ? 'deepfilternet3' : 'rnnoise', { sessionOptions: { intraOpNumThreads: 1, interOpNumThreads: 1 } })
   }
   if (model === 'rnnoise') return { ch: await denoise(x.ch, { sampleRate: x.sr, model: models[model], limit: o.limit ?? 20 }), sr: x.sr }
-  let y = await denoise(x.ch, { sampleRate: x.sr, model: models[model], limit: 0 }), drop
-  if (o.below == null) drop = await attenuation(x.ch, y, x.sr, o.limit ?? 12, o.floor === undefined ? -45 : o.floor)
-  else {
-    let loud = await audio.from(x.ch, { sampleRate: x.sr }).stat('loudness')
-    drop = Math.max(o.min ?? 0, (Number.isFinite(loud) && noiseDrop(x.ch, y, x.sr, loud, -o.below)) || 0)
-  }
-  let g = drop === Infinity ? 0 : 10 ** (-drop / 20)
-  return { ch: g ? y.map((v, c) => v.map((s, i) => (1 - g) * s + g * x.ch[c][i])) : y, sr: x.sr, note: drop }
+  let y = await denoise(x.ch, { sampleRate: x.sr, model: models[model], limit: 0 }), limit = o.limit ?? 18, g = limit ? 10 ** (-limit / 20) : 0
+  return { ch: g ? y.map((v, c) => v.map((s, i) => (1 - g) * s + g * x.ch[c][i])) : y, sr: x.sr }
 }
 
 async function stage(x, s) {
   let m = s.match(/^(deepfilter|rnnoise)\((.*)\)$/)
   if (!m) return { ch: (await new Function('a', `return a.${s}`)(audio.from(x.ch, { sampleRate: x.sr })).read()).map(c => Float32Array.from(c)), sr: 0 }
-  // positional (limit, floor) or one options object, as the ops take them
-  let args = new Function(`return [${m[2]}]`)(), o = typeof args[0] === 'object' ? args[0] : { limit: args[0], floor: args[1] }
+  // positional limit or one options object, as the ops take them
+  let args = new Function(`return [${m[2]}]`)(), o = typeof args[0] === 'object' ? args[0] : { limit: args[0] }
   return neural(x, m[1], o)
 }
 
@@ -220,8 +202,6 @@ async function render(set, list, name, get) {
     y.sr ||= list[k].startsWith('resample(') ? Number(list[k].match(/\d+/)[0]) : x.sr
     mkdirSync(path.dirname(files[k]), { recursive: true })
     writeWav(files[k], y.ch, y.sr)
-    // the limit a floor target chose, per file
-    if (y.note != null) writeFileSync(files[k].replace(/\.wav$/, '.limit'), String(y.note))
     x = y
   }
   return files[list.length - 1]

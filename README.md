@@ -73,10 +73,16 @@ One agent at a time: `claude mcp add audio -- npx -y audio --mcp`, `qwen mcp add
 ### Editor and agents
 
 ```sh
-npx audio --bridge  # audio bridge on http://127.0.0.1:7777  key K  agents claude, codex, pi, kimi
+npx audio --bridge
+# audio bridge on http://127.0.0.1:7777
+#
+#   key     3e37b8c61acf5b50f010852168f4843d
+#   agents  Claude Code, Codex, Pi, Kimi Code
+#
+#   In the editor's Agent panel, paste the key, then Connect. It stays the same next time.
 ```
 
-Connect the editor to it with the key (once: the bridge keeps it), and its chat runs an agent of yours, which measures, looks at, edits and plays the sound open there; each tab keeps its conversations, each with the agent picked under the message. The bridge finds Claude Code, Codex, Pi, Gemini CLI, Qwen Code, Kimi Code, OpenCode, Kilo Code, Cline, Goose, Factory Droid, Cursor, Augment, Kiro and Mistral Vibe on PATH; any other that speaks [ACP](https://agentclientprotocol.com/get-started/registry) runs by its command line, `--agent "my-agent --acp"`.
+Connect the editor to it with the key (once: the bridge keeps it), and its chat runs an agent of yours, which measures, looks at, edits and plays the sound open there, and finds which edit did what: it measures the sound before and after each, and what each took out; each tab keeps its conversations, each with the agent picked under the message. The bridge finds Claude Code, Codex, Pi, Gemini CLI, Qwen Code, Kimi Code, OpenCode, Kilo Code, Cline, Goose, Factory Droid, Cursor, Augment, Kiro and Mistral Vibe on PATH; any other that speaks [ACP](https://agentclientprotocol.com/get-started/registry) runs by its command line, `--agent "my-agent --acp"`.
 
 Any MCP agent gets the editor's tools (`state`, `measure`, `look`, `edit`, `select`, `play`, `check`, …), the running bridge found by itself: `npx add-mcp "npx -y audio --mcp --editor"`.
 
@@ -297,7 +303,7 @@ let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 | `.formant(semitones)` | moves the formants (the spectral envelope: a voice's vowels, the size of its head), keeps the pitch. A number, a curve `{t, v}` or `t => semitones`. Any sound; with `pitch()`, a voice kept its own or made another's.<br><sub>≡ Melodyne formant tool, Praat's formant shift ratio</sub> |
 | `.remix(channels)` | channel count (down per ITU-R BS.775: 7.1 → 5.1, stereo, mono), or a map: `[1, 0]` swaps L/R, `null` a silent channel. |
 
-Every op takes a trailing `{at, duration, channel}` range, except channel-changing `remix` and `crossover`. Times are seconds or strings (`'1:30'`, `'2m'`); negative counts from the end. FFmpeg's short names work wherever the long ones do: `d` for `duration`, `xfade` for `crossfade` (`a.remove({ at: 1, d: 0.5, xfade: 0.01 })`).
+Every op takes a trailing `{at, duration, channel}` range, except channel-changing `remix` and `crossover`, and every op that keeps the timeline a `mix`: how much of its output is heard, the rest its input, 0 to 1 or a curve `{t, v}` over time (`{ mix: { t: [11.99, 12, 14, 14.01], v: [1, 0, 0, 1] } }` turns it off from 12 s to 14 s, as RX's Restore Selection; an effect's own `mix` is its own). Times are seconds or strings (`'1:30'`, `'2m'`); negative counts from the end. FFmpeg's short names work wherever the long ones do: `d` for `duration`, `xfade` for `crossfade` (`a.remove({ at: 1, d: 0.5, xfade: 0.01 })`).
 
 ```js
 a.trim(-30)                               // strip silence below -30dB
@@ -381,7 +387,7 @@ a.filter(customFn, { cutoff: 2000 })      // custom filter function
 | `.spectral(band?, gain?, {at, duration})` | gain on a time × frequency region, `band` = `[lo, hi]` Hz; default removes it.<br><sub>≡ Audacity spectral edit, FFmpeg `afftfilt`</sub> |
 | `.repair(band?, {at, duration, method?, window?})` | rebuild a damaged range (dropout, beep, click burst) from its surroundings. `method` `'auto'` (default) transplants the passage that joins seamlessly, searched in the `window` s (10) before the range; failing that, AR interpolation up to 70 ms, a sinusoidal bridge beyond. `'ar'`, `'sinusoidal'`, `'similarity'`, `'spectral'` force one.<br><sub>≡ iZotope RX Spectral Repair</sub> |
 | `.denoise(reduction?, threshold?, {noise})` | remove a noise that holds still (hiss, hum and buzz, a fan, room tone, tape), learned where it plays alone: `noise` is that `{ at, duration }` of the op's input, or several, or a print saved from `stat('print')`. It goes `reduction` dB down (12) everywhere, or in the op's own `{ at, duration }`, or only in a `band` `[low, high]` Hz, the rest as it was; what stays is the same noise, quieter, without musical tones. `threshold` (dB) raises the print: more of the quiet counts as noise. OM-LSA on the held noise (`@audio/denoise-omlsa`), each channel its own print; a live source renders once the range has arrived. VoiceBank+DEMAND PESQ, the noise learned from the half second before each speaker starts: noisy 1.97, `omlsa()` 2.40, `denoise()` 2.48. For noise that moves: `omlsa()`, `deepfilter()`.<br><sub>≡ iZotope RX Spectral De-noise (Learn), Adobe Audition Noise Reduction (noise print), Audacity Noise Reduction</sub> |
-| `.deepfilter(limit?, floor?, {weights?, device?})`, `.rnnoise(limit?)` | neural speech denoising through the optional `@audio/neural-denoise`: it also removes noise that moves (keys, traffic, a busy room). `deepfilter` runs DeepFilterNet3, its 8 MB model downloaded once, over the whole input before rendering; `rnnoise` streams RNNoise, weights in the package, 30 ms behind. `deepfilter` takes the noise `limit` dB down (12), or further, to `floor` dB under the voice's loudness (−45; `false`: the limit only): a narration keeps its room tone, noisy speech loses its noise. VoiceBank+DEMAND PESQ: noisy 1.97, `wiener()` 2.19, `rnnoise()` 2.46, `deepfilter({ floor: false })` 2.67, `deepfilter()` 3.10, `deepfilter(0)` 3.16. `limit` `0` lifts the limit; `rnnoise`'s 20 keeps it from removing the voice. Speech only: both drop music and singing.<br><sub>≡ DeepFilterNet, RNNoise</sub> |
+| `.deepfilter(limit?, {weights?, device?})`, `.rnnoise(limit?)` | neural speech denoising through the optional `@audio/neural-denoise`: it also removes noise that moves (keys, traffic, a busy room). `deepfilter` runs DeepFilterNet3, its 8 MB model downloaded once, over the whole input before rendering; `rnnoise` streams RNNoise, weights in the package, 30 ms behind. `limit` is the most the noise goes down, in dB: `deepfilter`'s 18 is the most before the voice itself sounds filtered (DNSMOS SIG holds to 18 and falls past it), so room tone stays; `rnnoise`'s 20 keeps it from removing the voice; `0` lifts it. `deepfilter` keeps held sung notes, which the model alone takes for noise (VocalSet: 1.9 dB down, not 39). VoiceBank+DEMAND PESQ: noisy 1.97, `wiener()` 2.19, `rnnoise()` 2.46, `deepfilter()` 2.90, `deepfilter(0)` 3.15. Music: both drop it.<br><sub>≡ DeepFilterNet, RNNoise</sub> |
 
 ```js
 a.vocals()                                // isolate center-panned vocals
@@ -397,7 +403,7 @@ a.spectral([1000, 4000], -30, { at: 2.1, duration: 0.3 })  // a cough
 a.repair({ at: 1.2, duration: 0.05 })     // a dropout
 a.repair({ at: 42, duration: 1 })         // a lost second of music: the passage that fits
 a.denoise({ noise: { at: 1.2, duration: 0.5 } })  // hiss learned from a pause, 12 dB down everywhere
-a.deepfilter()                            // speech out of noise: the noise 45 dB under the voice, room tone kept
+a.deepfilter()                            // speech out of noise: 18 dB down at most, room tone kept
 a.rnnoise()                               // the same, streaming
 ```
 
@@ -520,6 +526,9 @@ m.stop()                                                           // release
 | `'notes'` | `[{time, duration, freq, midi, note, clarity}]` (pYIN + Tony note HMM); with `robust: true`, the same through noise and rooms (a neural pYIN stage 1); with `poly: true`, polyphonic `[{time, duration, freq, midi, note, velocity, bends}]` (Basic Pitch). |
 | `'chords'` | `[{time, duration, label, root, quality, bass, confidence}]`: Chordino on NNLS chroma (Mauch & Dixon 2010), matched to the reference plugin; labels like `'Am'`, `'G7'`, `'C/E'`, `'N'`. |
 | `'key'` | `{tonic, mode, label, confidence}` (Krumhansl-Schmuckler). |
+| `'voicing'` | share of the range voiced, 0 to 1: frames of pYIN's pitch curve with a pitch, every 10 ms. |
+| `'hnr'` | harmonics-to-noise ratio, dB, over the voiced frames (Boersma 1993; matches Praat's To Harmonicity (ac) frame by frame); null where none is voiced. |
+| `'harmonic'` | level of the periodic part, dB: the periodic share of each frame's power (Boersma's r) times the power. Unlike RMS, unmoved by noise taken away: what an edit left of a voice. |
 
 Opts: `bpm`, `beats`, `onsets` take `{ minBpm, maxBpm, delta, frameSize, hopSize }`; `notes` takes `{ minFreq, maxFreq, frameSize, hopSize, minDuration }`; `chords`, `key` take `{ frameSize, hopSize, tuning }` (frames of 16384 samples at 44.1 kHz, 0.34 to 0.51 s at other rates, every eighth of a frame; concert A read from the audio unless `tuning` in Hz is given); `chords` also `boostN` (no-chord bias, 0.1); `key` also `method: 'nnls' | 'pcp'`. `chords` needs `@audio/mir-nnls-chroma` and `@audio/mir-chordino`, `key` needs `@audio/mir-nnls-chroma`: GPL-2.0-or-later translations of the reference plugins, installed by choice (`npm i @audio/mir-nnls-chroma @audio/mir-chordino`); `key` with `method: 'pcp'` needs only the MIT `@audio/mir-chroma` and `@audio/mir-key`, installed with `audio` unless optional dependencies are skipped. `notes` with `robust: true` needs `@audio/neural-pitch` (weights inside): a network's pitch candidates in place of YIN's keep the notes where YIN loses them (Vocadito onsets F 0.76 against 0.53 at 0 dB SNR) and trail it slightly on clean audio, so YIN stays the default. `notes` with `poly: true` takes `{ minFreq, maxFreq, minDuration, onsetThreshold, frameThreshold }` and needs `@audio/neural-transcribe`, whose model downloads on first use; `bends` are cents from the note's pitch per 11.6 ms frame, in 33.3-cent steps (in-tune notes read 0).
 
@@ -546,7 +555,7 @@ let k = await a.stat('key')                               // {label: 'C', mode: 
 | `.meta` | tags: `{title, artist, album, year, bpm, key, comment, pictures, raw, ...}`. Writable. `meta.raw` holds format-specific blocks untouched (WAV bext/iXML, ID3v2 frames, FLAC blocks). |
 | `.meta.pictures` | cover art `[{mime, type, description, data, url}]`. `.url` is a lazy Blob URL (browser) or data URL (Node). |
 | `.markers` | `[{time, label}]` in output seconds; edits shift or drop them. |
-| `.mark(time, label?)` | a marker at `time`, seconds of the audio as edited so far; `{at, duration}`, a region. Later edits carry it. Chainable. |
+| `.mark(time, label?)` | a marker at `time`, seconds of the audio as edited so far; `{at, duration}`, a region. Later edits carry it; in silence, at its distance from the sound nearest it; past the end, the end until a later edit makes the audio reach it. Chainable. |
 | `.regions` | `[{at, duration, label}]`; edits shift or drop them. |
 
 Parsed on decode, written on save; round-trips WAV, MP3, FLAC.

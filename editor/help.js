@@ -376,8 +376,7 @@ export const texts = {
     xiFloor: 'Lowest signal-to-noise ratio it assumes, in dB. Lower removes more of faint sounds close to the noise; higher protects them, but leaves more noise.'
   },
   deepfilter: {
-    limit: 'The least the noise is turned down, in dB. 0 lifts the limit: the model\'s full cleaning, and pauses can fall to digital silence.',
-    floor: 'How far under the voice the noise is brought, in dB, where it started louder than that. More negative is cleaner. Where the noise is already under it, only the limit applies, so room tone stays.'
+    limit: 'The most the noise is turned down, in dB. Past 18 the voice itself starts to sound filtered, like a call. 0 lifts the limit: the model\'s full cleaning, and pauses can fall to digital silence.'
   },
   rnnoise: {
     limit: 'The most the noise is turned down, in dB. A limit keeps the model from damaging the voice. 0 lifts the limit.'

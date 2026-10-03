@@ -13,7 +13,10 @@ type FilterType = 'highpass' | 'lowpass' | 'bandpass' | 'notch' | 'eq' | 'lowshe
 type RepairOpts = { at: Time, duration: Time, method?: 'auto' | 'ar' | 'sinusoidal' | 'similarity' | 'spectral', window?: number }
 /** Where the noise plays alone (a range of the op's input, or several), or its print (dB per band, one or per channel) */
 /** `band` [low, high] Hz: only those frequencies gained, the rest as they were */
-type DenoiseOpts = { noise: { at?: Time, duration: Time } | { at?: Time, duration: Time }[] | number[] | number[][], band?: [number, number], at?: Time, duration?: Time, d?: Time, channel?: number | number[] }
+/** How much of an edit's output is heard, the rest its input: 0 to 1 (1, all of it, by default), a curve over the input's
+ *  time, or a function of it. Any edit that keeps the timeline and the channels takes it; an effect's own mix is its own. */
+type Mix = number | { t: number[], v: number[] } | ((t: number) => number)
+type DenoiseOpts = { noise: { at?: Time, duration: Time } | { at?: Time, duration: Time }[] | number[] | number[][], band?: [number, number], at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }
 
 export interface AudioInstance {
   /** Decoded PCM pages */
@@ -67,11 +70,11 @@ export interface AudioInstance {
   block: Float32Array | null
   /** Container tags: title/artist/album/year/pictures/... + raw format-specific blocks. Writable; persists through save. */
   meta: Meta
-  /** Structural markers in output seconds, projected through the edit plan. Writable. */
+  /** Structural markers in output seconds, projected through the edit plan. Writable: set, they are marked as mark() does. */
   markers: Marker[]
   /** A marker at `time`, seconds of the audio as edited so far, or a region over `{ at, duration }`; the edits after it carry it along. */
   mark(time: number | { at: number, duration?: number, d?: number }, label?: string): this
-  /** Structural regions in output seconds, projected through the edit plan. Writable. */
+  /** Structural regions in output seconds, projected through the edit plan. Writable: set, they are marked as mark() does. */
   regions: Region[]
 
   // ── Events ──────────────────────────────────────────────────────
@@ -123,6 +126,8 @@ export interface AudioInstance {
   stat(name: 'print', opts?: { at?: Time, duration?: Time, d?: Time, channel?: number }): Promise<number[]>
   stat(name: 'print', opts: { at?: Time, duration?: Time, d?: Time, channel: number[] }): Promise<number[][]>
   stat(name: 'silence', opts?: { threshold?: number, minDuration?: number, at?: Time, duration?: Time, d?: Time }): Promise<{ at: number, duration: number }[]>
+  stat<C extends number | number[] = number>(name: 'voicing' | 'hnr' | 'harmonic', opts?: { at?: Time, duration?: Time, d?: Time, channel?: C }): Promise<PerChannel<C, number | null>>
+  stat<C extends number | number[] = number>(name: 'voicing' | 'hnr' | 'harmonic', opts: { bins: number, at?: Time, duration?: Time, d?: Time, channel?: C }): Promise<PerChannel<C, Float32Array>>
   stat<C extends number | number[] = number>(name: 'centroid' | 'flatness', opts?: { at?: Time, duration?: Time, d?: Time, channel?: C }): Promise<PerChannel<C, number>>
   stat(name: 'bpm', opts?: { at?: Time, duration?: Time, d?: Time, minBpm?: number, maxBpm?: number, delta?: number, minConfidence?: number, channel?: number | number[] }): Promise<number>
   /** Where the level jumps, up (a strike) or down (a stop), each at the zero crossing a cut there keeps all of the sound from */
@@ -185,13 +190,13 @@ export interface AudioInstance {
   /** A voice's rises and falls made wider or flatter about its median pitch: 1 as it was, 0 a monotone, 2 twice as
    *  wide, below 0 rises turned to falls. Its own glottal cycles re-spaced (optional @audio/tune-curve): timing,
    *  formants and consonants kept, one voice. */
-  intonation(factor: number, opts?: { at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
+  intonation(factor: number, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
   /** Move the formants (the spectral envelope: a voice's vowels, the size of its head), keep the pitch. Semitones: a
    *  number, a curve { t, v } (seconds → semitones) or t => semitones; where it is zero the audio stays as it was. */
-  formant(semitones: number | ((t: number) => number) | { t: number[], v: number[] }, opts?: { at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
+  formant(semitones: number | ((t: number) => number) | { t: number[], v: number[] }, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
 
   // ── Sample ops ──────────────────────────────────────────────
-  gain(value: number | ((t: number) => number), opts?: { at?: Time, duration?: Time, d?: Time, channel?: number | number[], unit?: 'db' | 'linear' }): this
+  gain(value: number | ((t: number) => number), opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[], unit?: 'db' | 'linear' }): this
   /** Fade in (positive) / out (negative). Adjustable: start/end gain levels (0..1) and mid — position of the half-amplitude point within the fade */
   fade(duration: Time, curve?: 'linear' | 'exp' | 'log' | 'cos', opts?: { at?: Time, start?: number, end?: number, mid?: number }): this
   fade(fadeIn: Time, fadeOut: Time, curve?: 'linear' | 'exp' | 'log' | 'cos'): this
@@ -205,7 +210,7 @@ export interface AudioInstance {
   /** Overwrite from `at` with samples or another sound; what runs past the end extends it */
   write(data: Float32Array[] | Float32Array | AudioInstance | AudioBuffer, opts?: { at?: Time, duration?: Time, d?: Time }): this
   remix(channels: number | (number | null)[]): this
-  pan(value: number | ((t: number) => number), opts?: { at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
+  pan(value: number | ((t: number) => number), opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
 
   // ── Filters ──────────────────────────────────────────────────
   filter(type: FilterType, ...params: number[]): this
@@ -238,7 +243,7 @@ export interface AudioInstance {
   /** Fill digital silence (≥ 10 ms under `threshold` dBFS, default -90) with the recording's own room tone */
   roomtone(threshold?: number): this
   /** Spectral edit: gain (dB, default: remove) on `band` [low, high] Hz over the time range */
-  spectral(band?: [number, number], gain?: number, opts?: { at?: Time, duration?: Time, d?: Time }): this
+  spectral(band?: [number, number], gain?: number, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix }): this
   /** Spectral repair: rebuild a damaged time range (optionally one band) from its surroundings. `method` 'auto' routes by
    *  length and content: a transplant of the passage that joins seamlessly, searched in the `window` s (10) before the
    *  range; failing that, AR interpolation up to 70 ms and a sinusoidal bridge over a matched noise floor beyond */
@@ -251,15 +256,15 @@ export interface AudioInstance {
   denoise(reduction: number, opts: DenoiseOpts): this
   denoise(opts: DenoiseOpts & { reduction?: number, threshold?: number }): this
   /** Speech enhancement by DeepFilterNet3 through @audio/neural-denoise (optional package; its 8 MB model downloads once,
-   *  cached): the whole input, once, before rendering; a live stream waits for its end. The noise drops by `limit` dB
-   *  (default 12: room tone stays; 0: no limit), or further, to `floor` dB under the voice's integrated loudness
-   *  (default -45; false: `limit` only). `weights`: URL of an upstream ONNX export */
-  deepfilter(limit?: number, floor?: number | false, opts?: { weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
-  deepfilter(opts: { limit?: number, floor?: number | false, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
+   *  cached): the whole input, once, before rendering; a live stream waits for its end. `limit`: the most the noise
+   *  drops, dB (default 18: room tone stays, the voice keeps its sound; 0: no limit). Held sung notes, which the model
+   *  alone takes for noise, are kept. `weights`: URL of an upstream ONNX export */
+  deepfilter(limit?: number, opts?: { weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
+  deepfilter(opts: { limit?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   /** RNNoise speech denoising, streaming, through @audio/neural-denoise (optional package, weights inside): 1439
    *  samples of latency at 48 kHz, compensated; other rates resampled in and out. `limit`: dB (default 20; 0: none) */
-  rnnoise(limit?: number, opts?: { at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
-  rnnoise(opts: { limit?: number, at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
+  rnnoise(limit?: number, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
+  rnnoise(opts: { limit?: number, at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
   resample(targetRate: number, opts?: { type?: 'linear' | 'sinc' }): this
 
   // ── Smart ops ───────────────────────────────────────────────
@@ -583,6 +588,9 @@ declare namespace audio {
   const plugins: Record<string, string>
   /** @deprecated ≤2.5 name — alias of `plugins` (same object) */
   const atoms: Record<string, string>
+  /** Where what an edit's preparation takes long to make (a model's run over its input: deepfilter(), vocals({ model })) is kept between runs,
+   *  by a key naming the model and the input's samples. Unset by default (made each time); the editor keeps them in the browser. */
+  let memo: { get(key: string): Promise<Float32Array[] | null>, set(key: string, channels: Float32Array[]): Promise<void> } | null | undefined
   /** Register plugins: contract factories (audio.js manifests with own `params`), `(audio) => {}` plugin functions, or registry names. String names dynamic-import — returns a promise; direct values register synchronously. */
   /** Stat plugin — whole-signal analyzer registered as a.stat(name) */
   interface StatPlugin { stat: string, compute(channels: Float32Array[], opts: { sampleRate: number, [k: string]: unknown }): unknown }
