@@ -147,11 +147,12 @@ function drop(r) {
 function rebased(r) {
   const b = [...outputs.values()].findLast(o => o.done && o !== r), root = roots.get(r.instance)
   if (!b || !root || roots.get(b.instance) !== root || b.names.join() !== r.names.join()) return null
-  const was = b.instance.edits, now = r.instance.edits, marks = a => (a.meta, JSON.stringify(a._.markers ?? []))
+  const was = b.instance.edits, now = r.instance.edits, marks = a => (a.meta, JSON.stringify([a._.markers ?? [], a._.regions ?? []]))
   if (now.length < was.length || was.some((e, i) => sig(e) !== sig(now[i])) || [...was, ...now].some(e => sig(e) == null) || marks(b.instance) !== marks(r.instance)) return null
   try {
     const a = audio.from(pcmOf(b), { sampleRate: b.sampleRate })
     if (b.markers.length) a.markers = b.markers
+    if (b.regions.length) a.regions = b.regions
     return a.run(...now.slice(was.length).map(([type, opts]) => [type, opts ? { ...opts } : {}]))
   } catch { return null }
 }
@@ -198,8 +199,12 @@ async function render(r) {
     r.done = true
     r.stats = { peak, rms, loudness }
     for (const o of outputs.values()) if (o !== r) drop(o)
-    // its markers (mark()), where its edits put them
-    const markers = r.markers = (r.rebased ?? r.instance).markers.filter(m => m.time <= length / sampleRate).map(({ time, label }) => ({ time, label }))
+    // its markers and its ranges (mark()), where its edits put them; to the page, one list in time order, a range with its
+    // duration
+    const done = r.rebased ?? r.instance, end = length / sampleRate
+    r.markers = done.markers.filter(m => m.time <= end).map(({ time, label }) => ({ time, label }))
+    r.regions = done.regions.filter(g => g.at < end).map(({ at, duration, label }) => ({ at, duration: Math.min(duration, end - at), label }))
+    const markers = [...r.markers, ...r.regions.map(({ at, duration, label }) => ({ time: at, duration, label }))].sort((p, q) => p.time - q.time)
     post({ id: r.id, event: 'done', duration: length / sampleRate, sampleRate, channels: pcm.length, stats: r.stats, segments, markers, clips, bitDepth: r.instance.bitDepth ?? null })
     r.finish(r)
   } catch (error) {
@@ -416,20 +421,58 @@ async function original({ source, loudness }) {
 }
 
 // What an agent asks of the sound (the `measure` tool): `code`, prepared as a script is (code.js), runs on copies of the output
-// shown (`out`, its markers) and of the file it opened (`src`), with the library, and changes nothing; its value, awaited,
-// as JSON carries it
+// shown (`out`, its markers) and of the file it opened (`src`), with the library, and changes nothing; its value, awaited
+// through (a stat left unawaited in an object or array too), as JSON carries it. `measured`, what it measured on them,
+// stat by stat ({ of: 'out' | 'src', name, opts, value }), for the page to say whatever shape the value takes
 async function evaluate({ code }) {
-  const r = await settled(), made = [], keep = a => (made.push(a), a)
+  const r = await settled(), made = [], keep = a => (made.push(a), a), calls = []
   const out = r?.length ? keep(audio.from(pcmOf(r), { sampleRate: r.sampleRate })) : null, src = r && sources.get(r.names[0])
   if (out && r.markers?.length) out.markers = r.markers
+  if (out && r.regions?.length) out.regions = r.regions
   const started = performance.now()
   const guard = () => { if (performance.now() - started > LOOP_LIMIT) throw new RangeError(`A loop ran for ${LOOP_LIMIT / 1000} s; stopped it.`) }
   try {
-    let value = await new AsyncFunction('audio', 'out', 'src', '__loop', '__out', code + '\n//# sourceURL=repl.js')(scoped(keep), out, src ? keep(src.clone()) : null, guard, x => new Out(x))
+    let value = await new AsyncFunction('audio', 'out', 'src', '__loop', '__out', code + '\n//# sourceURL=repl.js')(scoped(keep), watched(out, 'out', calls), src ? watched(keep(src.clone()), 'src', calls) : null, guard, x => new Out(x))
     if (value instanceof Out) value = value.value
-    if (value && typeof value.then === 'function' && !isAudio(value)) value = await value
-    return { value: plain(value) }
+    value = await settle(value)
+    const measured = (await Promise.allSettled(calls.map(c => c.value))).flatMap((x, i) => x.status === 'fulfilled' ? [{ ...calls[i], value: plain(x.value) }] : [])
+    return { value: plain(value), measured }
   } finally { dispose(made) }
+}
+// A sound whose measuring calls are noted in `calls` as the script makes them: each stat by its name (a list of them,
+// each), silence() and detect(); the library's own calls, on the sound itself, not. Each answers a promise that says so
+// when read before it is awaited (`out.stat('melody').f0`), rather than giving undefined to fail on further on
+const MEASURES = new Set(['stat', 'silence', 'detect'])
+function watched(a, of, calls) {
+  if (!a) return a
+  const note = (name, opts, value) => (calls.push({ of, name, opts: where(opts), value }), value)
+  const pending = (p, call) => new Proxy(p, {
+    get(t, k) {
+      if (k in t) return typeof t[k] === 'function' ? t[k].bind(t) : t[k]
+      if (typeof k === 'symbol') return undefined
+      throw new TypeError(`${call} is a promise: await it first, (await ${call}).${k}`)
+    }
+  })
+  const said = (k, args) => `${of}.${k}(${args.filter(x => x !== undefined).map(x => JSON.stringify(x)).join(', ').replace(/"/g, "'")})`
+  return new Proxy(a, {
+    get(t, k) {
+      const v = Reflect.get(t, k, t)
+      if (typeof v !== 'function') return v
+      if (!MEASURES.has(k)) return v.bind(t)
+      if (k !== 'stat') return opts => pending(note(k, opts, v.call(t, opts)), said(k, [opts]))
+      return (name, opts) => pending(Array.isArray(name) ? Promise.all(name.map(n => note(n, opts, v.call(t, n, opts)))) : note(name, opts, v.call(t, name, opts)), said(k, [name, opts]))
+    }
+  })
+}
+// where a stat was taken: its range, its bins, its channel
+const where = (o = {}) => o && typeof o === 'object' ? Object.fromEntries(['at', 'd', 'duration', 'bins', 'channel'].filter(k => o[k] != null).map(k => [k, o[k]])) : {}
+// A value with every promise in it awaited, through arrays and plain objects
+async function settle(v, depth = 0) {
+  if (v instanceof Promise || v && typeof v.then === 'function' && !isAudio(v)) v = await v
+  if (depth > 12 || v == null || typeof v !== 'object' || isAudio(v) || ArrayBuffer.isView(v)) return v
+  if (Array.isArray(v)) return Promise.all(v.map(x => settle(x, depth + 1)))
+  if (Object.getPrototypeOf(v) !== Object.prototype) return v
+  return Object.fromEntries(await Promise.all(Object.entries(v).map(async ([k, x]) => [k, await settle(x, depth + 1)])))
 }
 // A value as JSON carries it: arrays whole, typed or not, numbers to 7 digits, those JSON has no word for as text (an
 // output's silence is -Infinity dB); a sound, what it is

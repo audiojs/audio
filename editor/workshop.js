@@ -1,30 +1,27 @@
 // WORKSHOP: variants to choose between, a strip under the page, each choice kept in this browser and sent to the page
 // (`apply`). Temporary: the ones chosen become the page's own, and the strip goes.
-//   settings  the settings' icon: three sliders with round thumbs, or two
-//   recipes   the recipes' icon: a recipe book open, a flask, a wand with its spark
-//   agent     the agent's: a chat with a spark in it, sparks alone, a small robot
-//   resizer   the panel's edge, dragged for its width: a bar on it, three dots, a pill with a grip (an iPad's split), a
-//             Finder column's divider (a rule, its knob at the foot), or nothing until it is pointed at
-//   end       where the sound ends, past which the picture scrolls: a line, the room past it shaded, hatched, a cap on
-//             the time row, or a tag saying so
-//   speed     how the speed shows by Play (set by Play held and dragged, or its right-click list): a readout once it is
-//             not 1× (a click, 1× again), a pill turning 1×, 1.5×, 2× as a messenger's voice notes do, a slider, or a
-//             ring round Play
+//   recipes   the recipes' icon: a book, a scroll, steps joined, a function, a flask, a mortar, a layout, tiles,
+//             the command key, pedals
+//   end       where the sound ends, past which the picture scrolls: a line down the lanes, the room past it hatched, a
+//             dotted line, or nothing in the lanes, the time row's ticks stopping there
+//   grid      how the lanes are ruled, behind the waveform (hidden where it is), over the spectrogram: a cross where the
+//             time row's ticks meet the axis' on the right, a dot where their finer steps meet (0.1, 0.2 … 0.9 of full
+//             scale; a fifth of the time row's step); the crosses alone; a dot at each, the ticks' larger; a line from
+//             each tick; or none
 // Chosen and settled: 2 px before the meters, no fade where the sound runs past the view, dark squares with no rim,
 // notched beside their lines, square, crop in the context menu and K (a handle is dragged; crop is only clicked), the
-// length after the time between bars |t|, undo and redo, then the picture's switch, then its settings over its meter,
-// none moving as it turns, the panels' buttons at the slab's top right, the edits a panel of its own, the panel docked with no
-// line between, the export's arrow down onto a tray, how a held caret sounds in the settings, the switches as raised keys
-// in one bezel (skeuo), the view's options from a right-click on its tab
+// length after the time between bars |t|, undo and redo, then the picture's switch, then its settings at the head of its axis,
+// none moving as it turns, the panels' buttons at the slab's top right, the edits a panel of its own, the panel docked,
+// a rule at its edge in the slab's rule colour as far from its content as that is from the slab's edge, the export's
+// arrow down onto a tray, how a held caret sounds in the settings, the switches as raised keys in one bezel (skeuo), the
+// view's options from a right-click on its tab, two sliders for the settings, a spark for the agent, the speed a pill in
+// the record button's place while it plays, and round Play a ring, how far through the sound it plays
 const CHOICES = {
-  settings: [['three', '3 sliders'], ['two', '2 sliders']],
-  recipes: [['book', 'Book'], ['flask', 'Flask'], ['wand', 'Wand']],
-  agent: [['spark', 'Chat spark'], ['sparks', 'Sparks'], ['bot', 'Bot']],
-  resizer: [['bar', 'Bar'], ['dots', 'Dots'], ['pill', 'Pill'], ['finder', 'Finder'], ['none', 'None']],
-  end: [['line', 'Line'], ['shade', 'Shade'], ['hatch', 'Hatch'], ['cap', 'Cap'], ['tag', 'Tag']],
-  speed: [['readout', 'Readout'], ['pill', 'Pill'], ['slider', 'Slider'], ['ring', 'Ring']]
+  recipes: [['book', 'Book'], ['scroll', 'Scroll'], ['flow', 'Flow'], ['formula', 'ƒx'], ['flask', 'Flask'], ['mortar', 'Mortar'], ['template', 'Template'], ['gallery', 'Tiles'], ['command', '⌘'], ['pedals', 'Pedals']],
+  end: [['line', 'Line'], ['hatch', 'Hatch'], ['dots', 'Dots'], ['ruler', 'Ruler']],
+  grid: [['marks', 'Crosses + dots'], ['crosses', 'Crosses'], ['dots', 'Dots'], ['lines', 'Lines'], ['none', 'None']]
 }
-const NAMES = { settings: 'Settings icon', recipes: 'Recipes icon', agent: 'Agent icon', resizer: 'Panel edge', end: 'End', speed: 'Speed' }
+const NAMES = { recipes: 'Recipes icon', end: 'End', grid: 'Grid' }
 const KEY = 'audio-repl-workshop'
 
 export default function workshop(root, apply) {

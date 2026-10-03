@@ -23,12 +23,7 @@ function mid(buf, edge = 0.1, sr = 44100) {
 }
 
 const isNode = typeof process !== 'undefined' && process.versions?.node
-// delivery-grade suite: files, CLI, video, bare atom imports (Node only)
-if (isNode) await import('./pro.js')
-// cut lists for video editors: the time map, CMX 3600, OpenTimelineIO, FCPXML read back (Node only: files, a video)
-if (isNode) await import('./cuts.js')
-// playback offline: the deck fed by a voice, sample by sample (the browser suite plays it for real: test/play.html)
-if (isNode) await import('./deck.js')
+// the Node-only suites (files, CLI, video, playback offline, contract modules, recipes) run beside this one: test/run.js
 
 // Isomorphic fixture loading: file paths in Node, HTTP URLs in browser
 let lenaPath, lenaMp3, readFileSync
@@ -5242,6 +5237,127 @@ test('pitch, stretch — a range splices in place: outside it the input, untouch
   assertPitch(t, stretched.subarray(sr * .6, sr * 1.4), 440, 'stretch in range')
 })
 
+// A voice: glottal pulses at 120 Hz with a 3 Hz, 5% vibrato, through two formant resonators (700 and 1200 Hz). The
+// vocoder keeps each harmonic but not their alignment to one another: the pulses spread, and the peakiness of the
+// waveform (its kurtosis) falls toward a noise's. Waveform-similarity overlap-add copies the pulses as they are.
+const pulses = (dur, sr = 44100) => {
+  let n = Math.round(dur * sr), y = new Float32Array(n), ph = 0, z = [0, 0, 0, 0]
+  let res = (f, bw) => { let r = Math.exp(-Math.PI * bw / sr); return [2 * r * Math.cos(2 * Math.PI * f / sr), -r * r] }
+  let [a1, a2] = res(700, 80), [b1, b2] = res(1200, 100)
+  for (let i = 0; i < n; i++) {
+    ph += 120 * (1 + .05 * Math.sin(2 * Math.PI * 3 * i / sr)) / sr
+    let e = ph >= 1 ? (ph -= 1, 1) : 0, s = e + a1 * z[0] + a2 * z[1]
+    z[1] = z[0]; z[0] = s
+    y[i] = s + b1 * z[2] + b2 * z[3]; z[3] = z[2]; z[2] = y[i]
+  }
+  let m = y.reduce((m, v) => Math.max(m, Math.abs(v)), 0)
+  return y.map(v => .5 * v / m)
+}
+const kurtosis = y => {
+  let a = Math.floor(y.length * .2), b = Math.floor(y.length * .8), mu = 0, m2 = 0, m4 = 0
+  for (let i = a; i < b; i++) mu += y[i] / (b - a)
+  for (let i = a; i < b; i++) { let d = y[i] - mu; m2 += d * d; m4 += d ** 4 }
+  return m4 * (b - a) / (m2 * m2)
+}
+
+test('stretch({ voice: true }): a voice keeps the shape of its pulses, which the vocoder spreads', async t => {
+  let sr = 44100, x = pulses(2), k = kurtosis(x)
+  // the period: the lag of the strongest normalized autocorrelation over 2.5 to 12.5 ms, mid-signal
+  let period = y => {
+    let a = y.length >> 1, n = 4096, best = -1, lag = 0
+    for (let l = 110; l < 550; l++) {
+      let xy = 0, xx = 0, yy = 0
+      for (let i = 0; i < n; i++) { let p = y[a + i], q = y[a + i + l]; xy += p * q; xx += p * p; yy += q * q }
+      if (xy / Math.sqrt(xx * yy) > best) { best = xy / Math.sqrt(xx * yy); lag = l }
+    }
+    return lag
+  }
+  for (let f of [.7, 1.5, 2]) {
+    let voice = (await audio.from([x], { sampleRate: sr }).stretch(f, { voice: true }).read())[0]
+    let vocoder = (await audio.from([x], { sampleRate: sr }).stretch(f).read())[0]
+    t.ok(Math.abs(kurtosis(voice) / k - 1) < .05, `×${f}: voice keeps the pulses' kurtosis (${kurtosis(voice).toFixed(2)}, the input's ${k.toFixed(2)})`)
+    if (f > 1) t.ok(kurtosis(vocoder) / k < .75, `×${f}: the vocoder spreads them (${kurtosis(vocoder).toFixed(2)})`)
+    // 120 Hz ± its 5% vibrato: 350 to 387 samples
+    t.ok(Math.abs(period(voice) - sr / 120) < 20, `×${f}: the pitch kept (a ${period(voice)}-sample period, 120 Hz is ${(sr / 120).toFixed(0)})`)
+  }
+})
+
+// Slowed by copying the waveform, noise (an s, breath, a room's reverberation) plays its last few milliseconds again at
+// every splice: a comb filter whose delay changes splice to splice, heard as a flanger. Slowing, the voice stretch keeps
+// the vocoder over noise. Measure: the strongest normalized autocorrelation over 2 to 20 ms lags, in 20 ms frames.
+test('stretch({ voice: true }) slowed: noise stays noise, no comb (the flanger of copying)', async t => {
+  let sr = 44100, seed = 9, rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647 * 2 - 1
+  let x = Float32Array.from({ length: sr * 2 }, () => .3 * rnd())
+  let comb = y => {
+    let W = 882, s = 0, c = 0
+    for (let p = sr / 2; p + 2 * W < y.length - sr / 2; p += 2205, c++) {
+      let best = 0
+      for (let l = 88; l <= W; l++) { let xy = 0, xx = 0, yy = 0; for (let i = 0; i < W; i++) { let a = y[p + i], b = y[p + i + l]; xy += a * b; xx += a * a; yy += b * b } best = Math.max(best, xy / Math.sqrt(xx * yy)) }
+      s += best
+    }
+    return s / c
+  }
+  let k = comb(x)
+  for (let f of [1.5, 2]) {
+    let y = (await audio.from([x], { sampleRate: sr }).stretch(f, { voice: true }).read())[0]
+    t.ok(comb(y) < k + .06, `×${f}: ${comb(y).toFixed(3)}, the input's ${k.toFixed(3)} (copying: .40 at ×1.5)`)
+  }
+})
+
+test('stretch({ voice: true }): lengths to the sample, the input outside a range, stream ≡ read, one alignment for all channels', async t => {
+  let sr = 44100, x = pulses(3)
+  let read = async f => (await f(audio.from([x.slice()], { sampleRate: sr })).read())[0]
+  for (let f of [.5, .7, 1.5, 2, 3]) {
+    let y = await read(a => a.stretch(f, { voice: true }))
+    t.is(y.length, Math.round(x.length * f), `×${f}: round(length · factor) samples`)
+    let parts = []
+    for await (let c of audio.from([x.slice()], { sampleRate: sr }).stretch(f, { voice: true }).stream()) parts.push(...c[0])
+    t.ok(parts.length === y.length && parts.every((v, i) => v === y[i]), `×${f}: streamed ≡ read`)
+    let n = sr, z = await read(a => a.stretch(f, { at: 1, duration: 1, voice: true })), m = Math.round(n * f), off = 0
+    t.is(z.length, x.length - n + m, `×${f}: a range comes out round(duration · sr · factor) long`)
+    for (let i = 0; i < sr; i++) off = Math.max(off, Math.abs(z[i] - x[i]))
+    for (let i = 2 * sr; i < x.length; i++) off = Math.max(off, Math.abs(z[i - n + m] - x[i]))
+    t.ok(off === 0, `×${f}: the input before and after the range, sample for sample (${off})`)
+  }
+  // channels share one alignment: the right a negated left stays its negation, image and all (shortened, sample for
+  // sample; slowed, each channel's vocoder rounds its own way between resets)
+  for (let [f, tol] of [[.7, 0], [1.5, 1e-4]]) {
+    let [l, r] = await audio.from([x.slice(), x.map(v => -v)], { sampleRate: sr }).stretch(f, { voice: true }).read(), d = 0
+    for (let i = 0; i < l.length; i++) d = Math.max(d, Math.abs(l[i] + r[i]))
+    t.ok(d <= tol, `stereo ×${f}: one alignment for both channels (${d.toExponential(1)})`)
+  }
+  // a sliding factor, 1 → 1.5 over 3 s: the length integrates it; its map ends between samples, which once read the
+  // input at a fractional place (NaN) in the last segment
+  let s = audio.from([x.slice()], { sampleRate: sr }).stretch(t => 1 + t / 6, { voice: true }), sy = (await s.read())[0]
+  t.ok(Math.abs(s.duration - 3.75) < .01, `sliding: ${s.duration.toFixed(3)} s (∫ = 3.75)`)
+  t.ok(sy.every(Number.isFinite) && sy.subarray(-2000).some(v => v !== 0), 'sliding: finite to the last sample, which is still the voice')
+  // a range at the very end, and audio shorter than a segment: lengths to the sample, finite
+  let e = await read(a => a.stretch(2, { at: 2.5, duration: .5, voice: true }))
+  t.is(e.length, x.length + sr / 2, 'a range at the end: doubled')
+  t.ok(e.every(Number.isFinite) && e.subarray(-1000).some(v => v !== 0), 'a range at the end: the voice up to the last sample, not silence')
+  for (let n of [0, 1, 100, 1500]) {
+    let y = (await audio.from([x.slice(0, n)], { sampleRate: sr }).stretch(1.5, { voice: true }).read())[0]
+    t.ok(y.length === Math.round(n * 1.5) && y.every(Number.isFinite), `${n} samples → ${y.length}, finite`)
+  }
+})
+
+test('stretch({ voice: true }) — continuous from the first sample: no stall, gap or step at any factor', async t => {
+  // as the vocoder's test above: a tone easing in and out over 50 ms
+  let sr = 44100, n = sr * 2, edge = sr * .05, curve = .5 * (2 * Math.PI * 440 / sr) ** 2
+  let x = Float32Array.from({ length: n }, (_, i) => .5 * Math.sin(2 * Math.PI * 440 * i / sr) * Math.sin(Math.PI / 2 * Math.min(1, i / edge, (n - 1 - i) / edge)) ** 2)
+  for (let f of [.05, .3, .5, .8, 1.5, 3, 8, 20]) {
+    let out = (await audio.from([x], { sampleRate: sr }).stretch(f, { voice: true }).read())[0], d2 = 0, gap = 0, run = 0
+    for (let i = 2; i < out.length; i++) {
+      d2 = Math.max(d2, Math.abs(out[i] - 2 * out[i - 1] + out[i - 2]))
+      run = out[i] === 0 ? run + 1 : 0
+      gap = Math.max(gap, run)
+    }
+    t.ok(gap < 4, `×${f}: no gap (longest run of zeros ${gap})`)
+    t.ok(d2 < 1.5 * curve, `×${f}: no step (peak curvature ${(d2 / curve).toFixed(2)}× the sine's)`)
+    t.ok(Math.abs(out[0]) < 1e-3 && Math.abs(out[1]) < 1e-2, `×${f}: starts from silence`)
+  }
+})
+
 // A shift drawn as a curve, as the gain line is: semitones over the timeline's seconds, straight between points and flat
 // past the ends (plan.js curveFn). The vocoder runs only where it is not zero; elsewhere the input passes as it was.
 const harmonics = (f0, dur, sr = 44100, n = 10) => Float32Array.from({ length: Math.round(dur * sr) }, (_, i) => { let s = 0; for (let h = 1; h <= n; h++) s += Math.sin(2 * Math.PI * f0 * h * i / sr) / h; return .2 * s })
@@ -7409,19 +7525,3 @@ test('cli ops registry — all built-ins available', t => {
 })
 
 } // end isNode guard for CLI tests
-
-// Contract-module integration — node-only for now: the browser page would need
-// import-map entries for every @audio module atom + its transitive kernels.
-// Effects/denoise suites resolve manifests from the sibling @audio checkout until
-// their npm releases land — skip cleanly where neither is present (e.g. bare CI).
-if (isNode) await import('./plugin-ops.js')
-if (isNode) for (let f of ['./plugin-effects.js', './plugin-denoise.js', './plugin-spatial.js', './plugin-shift.js', './plugin-tune.js',
-  './plugin-reverb.js', './plugin-dynamics.js', './plugin-filter.js', './plugin-eq.js', './plugin-color.js', './plugin-synth.js', './plugin-stats.js', './plugin-notes.js', './plugin-stretch.js', './plugin-fate.js']) {
-  try { await import(f) }
-  catch (e) {
-    if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e
-    console.warn(`skip ${f} — manifest packages not resolvable (${e.message.split("'")[1] || ''})`)
-  }
-}
-// the editor's voice recipes against the delivery specs they name (where the editor is checked out)
-if (isNode) await import('./recipes.js').catch(e => { if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e; console.warn(`skip ./recipes.js — ${e.message.split("'")[1] || ''} missing`) })

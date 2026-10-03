@@ -8,7 +8,8 @@ import { homedir, tmpdir } from 'os'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import audio from '../audio.js'
-import { split } from '../bin/mcp.js'
+import { lines, split } from '../bin/mcp.js'
+import { PassThrough } from 'stream'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const bin = join(root, 'bin', 'cli.js')
@@ -121,6 +122,8 @@ test('mcp: batches, invalid messages and stray responses', E2E, async t => {
     c.raw(JSON.stringify([{ jsonrpc: '2.0', method: 'notifications/initialized' }]))
     c.raw('not json')
     t.is((await c.next(m => m.error)).error.code, -32700, 'parse error')
+    c.raw('{"jsonrpc":"2.0","id":"sep","method":"ping","params":{"text":"a\u2028b\u2029c"}}')
+    t.is((await c.next(m => m.id === 'sep')).result, {}, 'U+2028 and U+2029 inside a message: one message')
     t.is((await c.request('ping')).result, {}, 'alive after all of it')
     t.ok(!c.seen.some(m => m.id === 99 || Array.isArray(m)), 'no answer to a response or to notifications')
   } finally { await c.close() }
@@ -265,4 +268,22 @@ test('mcp: split: quotes, escapes, tilde, Windows paths', t => {
   t.is(split(`''`), [''])
   t.is(split('  '), [])
   t.throws(() => split('"open'), /unclosed/)
+})
+
+test('mcp: lines: split at \\n alone, across chunks, a character split across them, the last line without one', async t => {
+  let run = async chunks => {
+    let got = [], s = new PassThrough()
+    lines(s, l => got.push(l))
+    for (let c of chunks) s.write(c)
+    s.end()
+    await new Promise(r => s.on('end', r))
+    return got
+  }
+  t.is(await run([]), [], 'nothing: no line')
+  t.is(await run(['a']), ['a'], 'no newline: one line at the end')
+  t.is(await run(['a\n']), ['a'], 'a newline ends a line, opens none')
+  t.is(await run(['\n']), [''], 'an empty line is a line')
+  t.is(await run(['a\r\nb\n']), ['a', 'b'], 'CRLF')
+  t.is(await run(['{"t":"x\u2028', 'y\u2029"}\r', '\n']), ['{"t":"x\u2028y\u2029"}'], 'U+2028 and U+2029 stay inside; CR and LF in two chunks')
+  t.is(await run([Buffer.from([0x61, 0xc3]), Buffer.from([0xa9, 0x0a, 0x62])]), ['aé', 'b'], 'é split across chunks, whole')
 })

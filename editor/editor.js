@@ -3,10 +3,10 @@ import engine from './engine.js'
 import codeEditor from './script.js'
 import view, { HOLD, NOTES, noteOf } from './view.js'
 import player from './player.js'
-import stack from './stack.js'
+import stack, { valuesOf } from './stack.js'
 import { mark as drawMark } from '../logo/mark.js'
 import recipes from './recipes.js'
-import { ops, methods, guides, previews, GROUPS, CURVES, icons as groupIcons } from './ops.js'
+import { ops, methods, guides, previews, GROUPS, CURVES, fromManifest, icons as groupIcons } from './ops.js'
 import { prepare, error, append, source, chain, number, rollback, residual, setArg, declared, rename, steps as stepsOf, dropStep, moveStep, turnOff, turnOn } from './code.js'
 import { builtins, sample, record, search, credit, unique } from './sources.js'
 import scales from './scale.js'
@@ -20,7 +20,7 @@ import hint from './hint.js'
 import { methods as scrubbers } from './scrub-methods.js'
 import agent from './agent.js'
 import md from './markdown.js'
-import doing, { noted } from './doing.js'
+import doing, { measures, noted } from './doing.js'
 
 // The editor: its output, and at its right a panel that opens and closes, as Luminar's: the tools, every method by kind,
 // one click adding it; the edits, the chain that makes the output as a stack of steps; the same chain as code; and the
@@ -83,10 +83,11 @@ function cueTimes(edges, hits) {
 // How the time row marks time: labels and their ticks, ticks alone, or nothing but the times that matter now (the caret's,
 // the pointer's, a selection's)
 const rulers = [['labels', 'Labels'], ['ticks', 'Ticks'], ['none', 'None']].map(([name, label]) => ({ name, label }))
-// The spectrogram's look: grey from the screen to white, or a colormap (matplotlib's magma, inferno and viridis, 9 of
-// their 256 entries, matplotlib/_cm_listed.py), bent by a gamma (a level's share of the range raised to it: under 1 the
-// quiet parts show brighter); the dB from the loudest down to the floor; the FFT size, else 40 ms and more on a zoomed
-// band (gl-spectrogram)
+// The spectrogram's look: grey, black to white screened over the page, so the page shows through where the sound is
+// quiet and the louder is the whiter; or a colormap (matplotlib's magma, inferno and viridis, 9 of their 256 entries,
+// matplotlib/_cm_listed.py); bent by a gamma (a level's share of the range raised to it: under 1 the quiet parts show
+// brighter); the dB from the loudest down to the floor; the FFT size, else 40 ms and more on a zoomed band
+// (gl-spectrogram)
 const MAPS = {
   magma: ['#000004', '#1c1044', '#4f127b', '#812581', '#b5367a', '#e55064', '#fb8761', '#fec287', '#fcfdbf'],
   inferno: ['#000004', '#1f0c48', '#550f6d', '#88226a', '#ba3655', '#e35933', '#f98c0a', '#f9c932', '#fcffa4'],
@@ -111,11 +112,14 @@ const waveLooks = {
   lanes: [['split', 'A lane each', 'Each channel on its own'], ['one', 'One lane', 'All the channels over each other, each its own hue']],
   fill: [['density', 'Density', 'Brighter where the sound is most often'], ['rms', 'RMS', 'A lighter core as loud as its RMS'], ['flat', 'Flat', 'One shade from peak to peak']]
 }
-// the look as gl-spectrogram takes it: one colour (grey, even in lightness over the screen) or 17 stops of a colormap
+// the look as gl-spectrogram takes it: 17 stops of a colormap. Grey's are a grey even in lightness, screened over the
+// page (Compositing and Blending 1, screen: cb + cs − cb·cs), which for a grey cs is white over it at cs's opacity: the
+// grey's sRGB value (IEC 61966-2-1) at OKLab lightness L, where Y = L³ (Ottosson 2020)
+const screened = L => { const y = L ** 3; return y <= .0031308 ? 12.92 * y : 1.055 * y ** (1 / 2.4) - .055 }
 function paint({ map, gamma, depth, size, method }) {
   const n = 17, u = k => (k / (n - 1)) ** gamma
   const at = (hex, t) => { const i = Math.min(hex.length - 2, Math.floor(t * (hex.length - 1))), f = t * (hex.length - 1) - i, rgb = h => [1, 3, 5].map(j => parseInt(h.slice(j, j + 2), 16)); return `rgb(${rgb(hex[i]).map((v, j) => Math.round(v + (rgb(hex[i + 1])[j] - v) * f)).join(' ')})` }
-  const color = MAPS[map] ? Array.from({ length: n }, (_, k) => at(MAPS[map], u(k))) : gamma === 1 ? null : Array.from({ length: n }, (_, k) => `oklch(${(21 + 79 * u(k)).toFixed(2)}% 0 0)`)
+  const color = Array.from({ length: n }, (_, k) => MAPS[map] ? at(MAPS[map], u(k)) : `rgb(255 255 255 / ${screened(u(k)).toFixed(4)})`)
   return { color, depth, size, method }
 }
 // How the waveform's level axis writes levels: decibels from full scale, mirrored about the centre line, or the sample
@@ -133,23 +137,23 @@ const glyphs = { up: 'M12 19V5m-6 6 6-6 6 6', down: 'M12 5v14m-6-6 6 6 6-6', mar
 // (remove, insert), stretches it, the pitch kept (fn/stretch.js), or speeds it, the pitch following, as a tape
 // (fn/speed.js)
 const gripModes = [['trim', 'Trim', 'Cut back, or silence added'], ['stretch', 'Stretch', 'The pitch kept'], ['speed', 'Speed', 'The pitch follows, as a tape’s']].map(([name, label, text]) => ({ name, label, text }))
-// The settings' icon to choose between (WORKSHOP), on the 24 grid of the others: three sliders with round thumbs, or
-// two, set apart from the spectrogram's lines
-const SETTINGS_ICONS = {
-  three: 'M4 6h2m4 0h10M4 12h9m4 0h3M4 18h4m4 0h8M10 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm7 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm-5 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z',
-  two: 'M4 8h3m4 0h9M4 16h9m4 0h3M11 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm6 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z'
-}
-// The recipes' icon and the agent's to choose between (WORKSHOP): a recipe book open, a flask, a wand with its spark;
-// a chat with a spark in it, sparks alone, a small robot
+// The settings' icon, on the 24 grid of the others: two sliders, set apart from the spectrogram's lines; the agent's, a
+// spark
+const SETTINGS_ICON = 'M4 8h3m4 0h9M4 16h9m4 0h3M11 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm6 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z'
+const AGENT_ICON = 'M12 3c.6 4.7 4.3 8.4 9 9-4.7.6-8.4 4.3-9 9-.6-4.7-4.3-8.4-9-9 4.7-.6 8.4-4.3 9-9Z'
+// The recipes' icon to choose between (WORKSHOP): an open book, a scroll, two steps joined, a function, a flask, a mortar
+// and pestle, a page's layout, four tiles, the command key, two pedals on a cable
 const RECIPES_ICONS = {
-  book: 'M12 6.5C10 5 7 4.5 4 5v13c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5V5c-3-.5-6 0-8 1.5Zm0 0v13',
+  book: 'M3 5h5a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H3Zm18 0h-5a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h6Z',
+  scroll: 'M8 4h11a2 2 0 0 1 0 4h-2v10a2 2 0 0 1-2 2H6a2 2 0 0 1 0-4h9M8 4a2 2 0 0 0-2 2v10M8 4a2 2 0 0 1 2 2v2h7M9.5 12h4',
+  flow: 'M5 3.5h3A1.5 1.5 0 0 1 9.5 5v3A1.5 1.5 0 0 1 8 9.5H5A1.5 1.5 0 0 1 3.5 8V5A1.5 1.5 0 0 1 5 3.5Zm11 11h3a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5h-3a1.5 1.5 0 0 1-1.5-1.5v-3a1.5 1.5 0 0 1 1.5-1.5ZM6.5 9.5V15a2.5 2.5 0 0 0 2.5 2.5h5.5',
+  formula: 'M13 4h-1.3A2.7 2.7 0 0 0 9 6.7v10.6a2.7 2.7 0 0 1-2.7 2.7H5M6 10h6m2.5 2.5 5 5m0-5-5 5',
   flask: 'M9 3h6m-5 0v6l-5 9a2 2 0 0 0 1.8 3h10.4a2 2 0 0 0 1.8-3l-5-9V3M7.5 15h9',
-  wand: 'M5 19 15 9m2-6 .9 2.1L20 6l-2.1.9L17 9l-.9-2.1L14 6l2.1-.9Z'
-}
-const AGENT_ICONS = {
-  spark: 'M4 5h16v11H9l-5 4ZM12 7.5l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8Z',
-  sparks: 'M10 4l1.6 4.4L16 10l-4.4 1.6L10 16l-1.6-4.4L4 10l4.4-1.6ZM18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8Z',
-  bot: 'M5 9h14v10H5zM12 5v4M12 4.5h.01M9 13h.01M15 13h.01M9.5 16.5h5'
+  mortar: 'M3.5 10.5h17a8.5 8.5 0 0 1-17 0Zm8.5 0L17.5 3',
+  template: 'M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2ZM4 9h16M10 9v11',
+  gallery: 'M5.5 4h3A1.5 1.5 0 0 1 10 5.5v3A1.5 1.5 0 0 1 8.5 10h-3A1.5 1.5 0 0 1 4 8.5v-3A1.5 1.5 0 0 1 5.5 4Zm10 0h3A1.5 1.5 0 0 1 20 5.5v3a1.5 1.5 0 0 1-1.5 1.5h-3A1.5 1.5 0 0 1 14 8.5v-3A1.5 1.5 0 0 1 15.5 4Zm-10 10h3a1.5 1.5 0 0 1 1.5 1.5v3A1.5 1.5 0 0 1 8.5 20h-3A1.5 1.5 0 0 1 4 18.5v-3A1.5 1.5 0 0 1 5.5 14Zm10 0h3a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5h-3a1.5 1.5 0 0 1-1.5-1.5v-3a1.5 1.5 0 0 1 1.5-1.5Z',
+  command: 'M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3',
+  pedals: 'M6 5h3a1.5 1.5 0 0 1 1.5 1.5v11A1.5 1.5 0 0 1 9 19H6a1.5 1.5 0 0 1-1.5-1.5v-11A1.5 1.5 0 0 1 6 5Zm9 0h3a1.5 1.5 0 0 1 1.5 1.5v11A1.5 1.5 0 0 1 18 19h-3a1.5 1.5 0 0 1-1.5-1.5v-11A1.5 1.5 0 0 1 15 5ZM2.5 15h2m6 0h3m6 0h2M7.5 10.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Zm9 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z'
 }
 // What the picture shows, a tab each: the waveform, or the spectrogram, never both (each zooms its own way); the
 // spectrogram's again, its frequencies on the next scale
@@ -160,7 +164,6 @@ const nextScale = name => { const list = Object.keys(scales); return list[(list.
 const SPEEDS = {
   range: r => Number.isFinite(+r) && +r > 0 ? Math.max(.1, Math.min(10, +r)) : 1,
   at: r => (Math.log10(r) + 1) / 2,
-  of: u => 10 ** (2 * Math.max(0, Math.min(1, u)) - 1),
   ticks: [.1, .5, 1, 2, 5, 10], list: [.5, .75, 1, 1.25, 1.5, 2, 3], turn: [1, 1.5, 2]
 }
 // How a held caret sounds: the lab's eight ways (scrub-methods.js, their names its own), the closest first
@@ -196,6 +199,8 @@ const value = v => Number.isFinite(v) ? minus(Number.isInteger(v) ? String(v) : 
 const limit = ({ min, max }) => min != null && max != null ? (min === max ? `= ${value(min)}` : `${value(min)} to ${value(max)}`) : max != null ? `≤ ${value(max)}` : min != null ? `≥ ${value(min)}` : ''
 const mark = pass => pass == null ? '·' : pass ? '✓' : '✗'
 const verdict = pass => pass == null ? 'info' : pass ? 'pass' : 'fail'
+// a check's rule as its table's row: its name, the output's value and mark, its limit (the Export tab's, the chat's)
+const ruled = r => ({ name: r.name, unit: r.unit, limit: limit(r), note: r.note || '', after: value(r.value), afterMark: mark(r.pass), afterClass: verdict(r.pass) })
 const label = name => /^(https?|blob|data):/.test(name) ? decodeURIComponent(name.split(/[?#]/)[0].split('/').pop() || name) : name
 const quote = s => `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
 
@@ -254,15 +259,16 @@ function sway() {
 const sides = ['recipes', 'chat', 'edits', 'code', 'export'], sideOf = name => name == null ? null : sides.includes(name) ? name : 'edits'
 
 const state = sprae(root, {
-  format: stored.format || 'wav', encoding: { markers: true, ...stored.encoding }, snapping: stored.snap ?? true, fadeCurve: stored.curve || 'linear', gripMode: ['trim', 'speed'].includes(stored.grip) ? stored.grip : 'stretch', pitch: !!stored.pitch, settingsIcon: SETTINGS_ICONS.three, recipesIcon: RECIPES_ICONS.book, agentIcon: AGENT_ICONS.spark,
+  format: stored.format || 'wav', encoding: { markers: true, ...stored.encoding }, snapping: stored.snap ?? true, fadeCurve: stored.curve || 'linear', gripMode: ['trim', 'speed'].includes(stored.grip) ? stored.grip : 'stretch', pitch: !!stored.pitch, settingsIcon: SETTINGS_ICON, recipesIcon: RECIPES_ICONS.book, agentIcon: AGENT_ICON,
   overlayList: overlays.map(([name, label, title]) => ({ name, label, title })),
   unitList: UNITS.map(([name, label, example, short]) => ({ name, label, example, short })), levelList, levels: stored.levels === 'db' ? 'db' : 'linear',
   rulers, ruler: stored.ruler || 'labels', splices: [0, 5, 10, 20], splice: stored.splice ?? 10, steps: [.1, 1, 3], levelStep: stored.step || 1, look: { ...LOOK, ...stored.look }, wave: Object.fromEntries(Object.entries(WAVE).map(([k, d]) => [k, waveLooks[k].some(([v]) => v === stored.wave?.[k]) ? stored.wave[k] : d])),
   scrubs, scrub: scrubbers[stored.scrub] ? stored.scrub : 'hybrid',
-  // the speed it plays at, the pitch kept; how it shows (WORKSHOP `speed`); the scale a held Play shows while dragged
+  // the speed it plays at, the pitch kept; how far through the sound it plays (Play's ring); the scale a held Play shows
+  // while dragged
   dropdown: null, get dropdownTitle() { return { settings: 'Settings', wave: 'Waveform', spec: 'Spectrogram' }[this.dropdown] ?? '' },
   get dropdownGroups() { return this.dropdown ? optionGroups(this.dropdown) : [] },
-  speed: SPEEDS.range(stored.speed), speedLook: 'readout', speedAxis: null, speedTicks: SPEEDS.ticks.map(t => ({ t, label: `${t}×`, at: SPEEDS.at(t) })),
+  speed: SPEEDS.range(stored.speed), played: 0, speedAxis: null, speedTicks: SPEEDS.ticks.map(t => ({ t, label: `${t}×`, at: SPEEDS.at(t) })),
   get speedText() { return `${+this.speed.toFixed(this.speed < 1 ? 2 : 1)}×` },
   get speedAt() { return SPEEDS.at(this.speed) },
   display: stored.display === 'spec' ? 'spec' : 'wave', scale: scales[stored.scale] ? stored.scale : 'log', displays, rates, layouts, sound: null, viewing: '',
@@ -292,9 +298,7 @@ const state = sprae(root, {
   // what a tool acts on: the selection, each range, or all of it
   get toolTarget() { return this.band ? 'For the band selected; a method, for its time range' : this.ranges > 1 ? `For each of the ${this.ranges} ranges selected` : this.selection ? `For the selection, ${stamp(this.selection[0])}–${stamp(this.selection[1])}` : 'For all of it; select a range for that alone' },
   // The check, rule by rule, in the panel's Export tab: each rule, the output's value and mark, its limit
-  get checkRows() {
-    return (this.report?.rules || []).map(r => ({ name: r.name, unit: r.unit, limit: limit(r), note: r.note || '', after: value(r.value), afterMark: mark(r.pass), afterClass: verdict(r.pass) }))
-  },
+  get checkRows() { return (this.report?.rules || []).map(ruled) },
   setSpec(key) { state.spec = key; store(); scheduleCheck(0) },
   toggleAB,
   // The clock, in the units the settings choose: the playhead, or the caret, one time always, the ranges being on the
@@ -321,14 +325,14 @@ const state = sprae(root, {
     const words = this.scenarioQuery.toLowerCase().split(/\s+/).filter(Boolean), has = r => words.every(w => `${r.group} ${r.name} ${r.text} ${r.spec ?? ''}`.toLowerCase().includes(w))
     return [...new Set(recipes.map(r => r.group))].map(name => ({ name, items: recipes.filter(r => r.group === name && has(r)) })).filter(g => g.items.length)
   },
-  // The agent: the bridge it is reached through and its key (kept in this browser), whether it is there, the agent it
-  // runs ({ id, name }, chosen as the bridge started); the open tab's conversation, whether the agent is answering, the
-  // tab's conversations, the message being written. Its words are Markdown (markdown.js)
-  bridgeUrl: stored.agent?.url || 'http://127.0.0.1:7777', bridgeKey: stored.agent?.key || '', agentStatus: 'off', agentInfo: null,
+  // The agent: the bridge it is reached through and its key (kept in this browser), whether it is there, the agents it
+  // found ({ id, name }) and the one asked; the open tab's conversation, whether the agent is answering, the tab's
+  // conversations, the message being written. Its words are Markdown (markdown.js)
+  bridgeUrl: stored.agent?.url || 'http://127.0.0.1:7777', bridgeKey: stored.agent?.key || '', agentStatus: 'off', agents: [], agentInfo: null,
   chat: [], chatBusy: false, chats: [], chatText: '',
-  get agentNote() { return { off: 'Put the key in, then connect', connecting: 'Connecting…', offline: 'Not running: npx audio --bridge', replaced: 'Taken by another page', online: 'No agent on that machine: install Claude Code or Codex, then start the bridge again' }[this.agentStatus] },
+  get agentNote() { return { off: 'Put the key in, then connect', connecting: 'Connecting…', offline: 'Not running: npx audio --bridge', replaced: 'Taken by another page', online: 'No agent on that machine: install one (Claude Code, Codex, Pi, Gemini CLI, Kimi Code…), then start the bridge again' }[this.agentStatus] },
   get chatTitle() { return this.chats.find(c => c.open)?.title ?? 'New conversation' },
-  connectAgent, sendChat, chatKey, newChat, openChat, dropChat, showChat, md, partsOf, visit, tick: Date.now(), elapsed,
+  connectAgent, pickAgent, sendChat, chatKey, newChat, openChat, dropChat, showChat, md, partsOf, visit, tick: Date.now(), elapsed,
   undo: () => ed.undo(), resizePanel,
   // a display's tab says what it shows; the spectrogram's, shown, what a click on it again does: the next scale
   displayTitle(d) {
@@ -362,7 +366,7 @@ const state = sprae(root, {
   toggleSnap() { state.snapping = v.snapping = !state.snapping; store() },
   toggleShow, setUnits, setLevels, setRuler, setStep, setLook, setSplice, setScrub,
   setDisplay, looksAt, settingsMenu, dropToggle, toggleLoop, undoList, goTo, toggleRecording, resampleTo, remixTo,
-  togglePlay, playPress, playClick, setSpeed, speedMenu, turnSpeed, SPEEDS, stop: () => eng.stop(), redo: () => ed.redo(), mac, share, exportFiles,
+  togglePlay, playPress, playClick, setSpeed, speedMenu, turnSpeed, stop: () => eng.stop(), redo: () => ed.redo(), mac, share, exportFiles,
   switchTab, newTab, closeTab, dragTab, pickFiles, openFiles, startRecording, stopRecording, useSample, useCode, useRecipe, addOp, editSelection, toolKey, openTools,
   openSearch, closeSearch, runSearch, typeSearch, preview, useResult
 })
@@ -450,8 +454,8 @@ v.waveform = state.wave
 pl.scrubMode = state.scrub
 // the speed kept from before
 pl.rate = state.speed
-// WORKSHOP: the settings' icon, the panel's edge, the switches' look
-workshop(root.querySelector('.workshop'), o => { state.settingsIcon = SETTINGS_ICONS[o.settings]; root.dataset.resizer = o.resizer; state.recipesIcon = RECIPES_ICONS[o.recipes]; state.agentIcon = AGENT_ICONS[o.agent]; v.endMark = o.end; state.speedLook = o.speed })
+// WORKSHOP: the recipes' icon, how the sound's end shows, how the lanes are ruled
+workshop(root.querySelector('.workshop'), o => { state.recipesIcon = RECIPES_ICONS[o.recipes]; v.endMark = o.end; v.grid = o.grid })
 // the panel as wide as it was left
 if (state.panel) root.querySelector('.panes').style.setProperty('--panel', `${state.panel}px`)
 v.show = state.show
@@ -468,21 +472,28 @@ if (first.frame?.duration > 0 && first.frame.rate > 0 && Number.isInteger(first.
   holding = true
   aim()
 }
+// The page is wired: its menus, its tabs, its script and its picture are all laid out, in the frame the first paint
+// already drew. Shown after the view's first frame, so what comes up is the sound where it was left, never an empty
+// picture that fills in after (editor.css, data-boot).
+requestAnimationFrame(() => requestAnimationFrame(() => root.removeAttribute('data-boot')))
 
+// What a call sets, drawn over the output (ops.js guides), from its values by its parameters' names (`spec`)
+function guidesOf(call, spec, values = valuesOf(spec, call)) {
+  const named = Object.fromEntries(spec.map((s, i) => [s.name, values[i]]))
+  for (const arg of call.args) if (arg.kind === 'object') for (const p of arg.props) named[p.name] ??= p.value
+  return guides(call.name, named, v.duration)
+}
+// The agent's last edit, drawn over the output while the script is as it left it (showEdit): { code, guides }
+let shown = null, carded = false
 // The edits, the stack of the chain's steps; the card under the pointer draws what it sets over the output (ops.js
-// guides). What the output shows when it is not the whole chain (the chain up to the step chosen, what a step takes out)
-// runs in place of the script.
+// guides), and none pointed at, what the agent's last edit sets. What the output shows when it is not the whole chain
+// (the chain up to the step chosen, what a step takes out) runs in place of the script.
 rk = stack(root.querySelector('.steps'), {
   ed,
   describe: name => eng.describe(name),
   duration: () => v.duration,
   source: () => { const s = source(ed.code); return s?.strings.length ? s.strings.map(x => label(x.name)).join(' + ') : null },
-  oncall(call, spec, values) {
-    if (!call || !spec) { v.guides = []; return }
-    const named = Object.fromEntries(spec.map((s, i) => [s.name, values[i]]))
-    for (const arg of call.args) if (arg.kind === 'object') for (const p of arg.props) named[p.name] ??= p.value
-    v.guides = guides(call.name, named, v.duration)
-  },
+  oncall(call, spec, values) { carded = !!(call && spec); v.guides = carded ? guidesOf(call, spec, values) : shown?.guides ?? [] },
   onview(next) { viewing = next; schedule(0) },
   // a slider's move shows on the picture at once, where a level says it (ops.js previews), until its output comes
   onpreview(name, was, is) { v.preview(previews[name]?.(was, is, v.duration) ?? null) }
@@ -508,7 +519,7 @@ function menus() {
       '-',
       { label: state.saves.length > 1 ? `Export ${state.saves.length} files` : 'Export', keys: keys('⌘S'), run: exportFiles, disabled: none || state.exporting },
       { label: 'Export as', items: formats.map(f => check(f.name.toUpperCase(), state.format === f.name, () => state.setFormat(f.name), { hint: f.text })), disabled: state.saves.length > 0 },
-      { label: 'Export the parts between markers', run: () => exportFiles(true), disabled: none || !output?.markers?.length },
+      { label: 'Export the parts between markers', run: () => exportFiles(true), disabled: none || !output?.markers?.some(m => !m.duration) },
       { label: 'Copy a link to this script', run: share },
       '-',
       { label: 'Close tab', hint: 'Its script and its edits go', run: () => closeTab() }
@@ -530,8 +541,8 @@ function menus() {
       edit('Take this noise out everywhere', 'denoise', '', sel),
       { label: sel ? 'Find an edit for the selection…' : 'Find an edit…', keys: keys('⌘P'), run: () => openTools(), disabled: none },
       '-',
-      { label: 'Add a marker', keys: 'M', run: addMarker, disabled: none },
-      { label: 'A double-click on a marker\'s flag names it', disabled: true }
+      { label: sel ? 'Mark the selection' : 'Add a marker', keys: 'M', run: addMarker, disabled: none },
+      { label: 'A click on a marker\'s name renames it', disabled: true }
     ] },
     { name: 'Select', title: 'All, none, a fragment or a sound; the caret by cues and sounds', items: [
       { label: 'All', keys: keys('⌘A'), run: () => v.select(0, v.duration), disabled: none },
@@ -608,7 +619,7 @@ function optionGroups(kind) {
   if (kind === 'spec') return [
     group('Method', specMethods, state.look.method, m => setLook('method', m)),
     group('Frequency scale', Object.entries(scales).map(([name, sc]) => [name, scaleNames[name], sc.text[0].toUpperCase() + sc.text.slice(1)]), state.scale, setScale),
-    group('Colours', looks.map.map(m => [m, m[0].toUpperCase() + m.slice(1), m === 'grey' ? 'From the screen to white' : `Matplotlib's ${m}`]), state.look.map, m => setLook('map', m)),
+    group('Colours', looks.map.map(m => [m, m[0].toUpperCase() + m.slice(1), m === 'grey' ? 'Black to white, the page through it' : `Matplotlib's ${m}`]), state.look.map, m => setLook('map', m)),
     group('Gamma', looks.gamma.map(g => [g, `γ${g}`, g < 1 ? 'Quiet parts brighter' : g > 1 ? 'Quiet parts darker' : 'Levels even']), state.look.gamma, g => setLook('gamma', g)),
     group('Range', looks.depth.map(d => [d, `${d}dB`, `From the loudest down ${d} dB to the floor`]), state.look.depth, d => setLook('depth', d)),
     group('FFT size', looks.size.map(n => [n, n ? String(n) : 'Auto', n ? `Frames of ${n} samples` : 'Frames of 40 ms, longer on a zoomed band']), state.look.size, n => setLook('size', n))
@@ -687,6 +698,7 @@ function contextMenu() {
     method('Reverse', 'reverse'), method('Normalize', 'normalize'),
     act('Take this noise out everywhere', 'denoise', '', true, opIcons.denoise),
     '-',
+    { label: several ? 'Mark each' : 'Mark it', keys: 'M', run: addMarker, icon: glyphs.marker },
     { label: 'Zoom to it', run: () => v.zoomTo(a, b), icon: glyphs.zoom },
     find, ...look
   ]
@@ -795,9 +807,11 @@ const ran = () => new Promise(resolve => waiters.push(resolve))
 const finished = result => { for (const resolve of waiters.splice(0)) resolve(result) }
 const within = (promise, ms = 60000) => Promise.race([promise, new Promise(resolve => setTimeout(() => resolve({ ok: false, problem: 'Still running' }), ms))])
 
-// A run's output as it arrives. The view keeps the last output until the new one is whole, or for a moment: one that
-// takes longer shows as it comes. A view with nothing, or a file new to it, shows at once: the file itself as it
-// decodes, dim, while the output has nothing yet (it waits for the whole file, as trim and normalize do).
+// How long a sound already shown holds whole before what is on its way shows in its place as it comes, ms
+const WAIT = 250
+// A run's output as it arrives. The view keeps what it shows until the new sound is whole, or for a moment: one that
+// takes longer than that shows as it comes. A view with nothing, and a file new to it, shows it at once: the file
+// itself as it decodes, dim, while the output has nothing yet (it waits for the whole file, as trim and normalize do).
 function arrival(names) {
   const a = { id: 0, names, parts: [], sampleRate: 0, channels: 0, total: null, started: performance.now(), last: performance.now(), on: false, preview: false, loaded: null }
   const current = () => incoming === a
@@ -807,6 +821,9 @@ function arrival(names) {
     a.loaded = { at: (m.at + m.channels[0].length) / m.sampleRate, estimate: m.estimate }
     // nor while the picture holds a take recorded, or an edit drawn ahead, till the output that has it comes
     if (!a.preview && (v.expecting || state.hasOutput && !fresh(names))) return status()
+    // nor while the picture holds the sound as the page was left (`holding`) and the output is still about to come: the
+    // page opens the file it was left on, and shows it arriving only once that takes long enough to be worth saying
+    if (!a.preview && holding && performance.now() - a.started < WAIT) return status()
     if (!a.preview) {
       a.preview = true
       showing = 0
@@ -833,7 +850,11 @@ function arrival(names) {
     // an edit the view drew ahead waits whole: the picture it drew holds till then, nothing moving; an output as long as
     // the one shown (an edit over a range, a band taken out) comes in over it as it renders, only where it differs
     else if (alike(a)) { if (!v.expecting) v.patch(m.at, m.channels) }
-    else if (a.preview || !state.hasOutput || !v.expecting && performance.now() - a.started > 150) begin(a)
+    // what the picture holds — the file itself, dim, or the sound the page was left on — stays whole until the output is
+    // whole too, which takes its place in one step (done); drawn as it renders, it would first go back to nothing and
+    // fill again from the start. Only a picture with nothing in it, or an output that takes longer than a moment, shows
+    // as it comes
+    else if (!a.preview && (!state.hasOutput && !holding || !v.expecting && performance.now() - a.started > WAIT)) begin(a)
     status()
   }
   a.done = m => {
@@ -985,6 +1006,7 @@ async function toggleAB() {
 // What the picture shows besides the sound, as the View menu says: the cues, the pitch curve, the gain line, meters.
 async function marks() {
   v.show = state.show
+  if (shown && shown.code !== ed.code) { shown = null; if (!carded) v.guides = [] }
   if (!state.whole) return
   // the cues whether they show or not: a double-click selects between them, ⌥ and the arrows step by them, an edge goes
   // onto them. They are the output's shown, read against the code that made it; once the code has moved on (a cue
@@ -1170,7 +1192,7 @@ const plays = (at = v.cursor) => v.boxes.length > 1 ? { from: v.boxes[0][0], to:
   : { from: 0, loop: state.loop, start: at >= v.duration ? 0 : at }
 // Play answers the press, as a transport key does, not the release; a key or a script clicking it (detail 0) still works.
 // Held and dragged across, it sets the speed (setSpeed): a scale shows over it, 0.1× to 10×, the pointer hidden, the
-// speed going twice or half as fast each 32 px; let go, the speed stays, shown by Play (WORKSHOP `speed`). So a press
+// speed going twice or half as fast each 32 px; let go, the speed stays, shown in record's place while it plays. So a press
 // while it plays pauses at its release, unless it was dragged, with the caret where it was pressed.
 const OCTAVE = 32, AXIS = OCTAVE * Math.log2(100)
 function playPress(event) {
@@ -1225,7 +1247,7 @@ async function togglePlay(at) {
   await pl.play(plays())
   if (!pl.playing) { state.playing = false; return }
   sway()
-  const tick = () => { if (!pl.playing) return; const t = pl.time; v.playhead = t; state.time = stamp(t); meter(t); ticker = requestAnimationFrame(tick) }
+  const tick = () => { if (!pl.playing) return; const t = pl.time; v.playhead = t; state.time = stamp(t); state.played = t / (v.duration || 1); meter(t); ticker = requestAnimationFrame(tick) }
   tick()
 }
 
@@ -1397,37 +1419,47 @@ function trim({ end, to }) {
 function crossfade({ at, duration }) { const d = number(duration, v.unit); return +d > 0 && write(`crossfade({ at: ${number(at, v.unit)}, d: ${d} })`) }
 // A selection's level moved up or down by the pointer, onto the gain curve as a level change is
 const lift = ({ range, db, drawn }) => level(db, range, !drawn)
-// A marker at the caret, at each when there are several, or where it plays while it plays: mark() at the chain's end (M)
+// A marker at the caret, at each when there are several, or where it plays while it plays; over what is selected, a
+// range marked: mark() at the chain's end (M). One made, not playing, its name is asked for over its flag
 function addMarker() {
   if (!state.whole) return
-  return write((pl.playing ? [pl.time] : v.carets).map(t => `mark(${number(t, v.unit)})`).join('.'))
+  const s = t => number(t, v.unit), playing = pl.playing
+  const spans = playing ? [[pl.time, pl.time]] : [...v.ranges, ...v.carets.map(t => [t, t])].sort((p, q) => p[0] - q[0])
+  if (!spans.length) return
+  const made = write(spans.map(([a, b]) => b > a ? `mark({ at: ${s(a)}, d: ${s(b - a)} })` : `mark(${s(a)})`).join('.')), [[a, b]] = spans
+  if (made && !playing && spans.length === 1) v.name({ time: +s(a), ...b > a && { duration: +s(b - a) } })
+  return made
 }
-// The mark() call that set a marker: the one whose time is nearest
-function markCall(time) {
-  const calls = (chain(ed.code)?.calls || []).filter(k => k.name === 'mark' && typeof k.args[0]?.value === 'number')
-  return calls.reduce((a, k) => !a || Math.abs(k.args[0].value - time) < Math.abs(a.args[0].value - time) ? k : a, null)
+// The time a mark() call marks: its number, or its range's start
+const markedAt = call => call.name === 'mark' ? call.args[0]?.kind === 'object' ? call.args[0].value?.at : call.args[0]?.value : undefined
+// The mark() call that set a marker: the one of its kind, a moment or a range, nearest its time and length; of two
+// alike, the later
+function markCall({ time, duration = 0 }) {
+  const calls = (chain(ed.code)?.calls || []).filter(k => typeof markedAt(k) === 'number' && !duration === (k.args[0].kind === 'number'))
+  const far = k => Math.abs(markedAt(k) - time) + Math.abs((k.args[0].value?.duration ?? 0) - duration)
+  return calls.reduce((a, k) => !a || far(k) <= far(a) ? k : a, null)
 }
-// A marker taken away (a double-click on its flag), or moved (a drag of it): its mark() call gone, or its time moved
+const unmarked = () => note('This marker comes from the file; no mark() in the script sets it.')
+// A marker taken away (from its flag's menu), or moved (a drag of it): its mark() call gone, or its time moved
 // as much, the edits after it being what they were
-function unmark({ time }) {
-  const call = markCall(time)
-  if (!call) return note('This marker comes from the file; no mark() in the script sets it.')
+function unmark(marker) {
+  const call = markCall(marker)
+  if (!call) return unmarked()
   ed.change({ from: call.dot ?? call.from, to: call.to, insert: '' })
   return true
 }
 // A marker named, or its name taken away: its mark() call's label
-function relabel({ time, label }) {
-  const call = markCall(time)
-  if (!call) return note('This marker comes from the file; no mark() in the script sets it.')
-  const named = call.args[1]
-  if (!label) return named ? (ed.change({ from: call.args[0].to, to: named.to, insert: '' }), true) : true
-  ed.change(setArg(call, 1, label))
+function relabel({ label, ...marker }) {
+  const call = markCall(marker)
+  if (!call) return unmarked()
+  const [at, named] = call.args
+  if (label || named) ed.change({ from: at.to, to: named?.to ?? at.to, insert: label ? `, ${quote(label)}` : '' })
   return true
 }
-function remark({ time, to }) {
-  const call = markCall(time), at = call?.args[0]
-  if (!at) return note('This marker comes from the file; no mark() in the script sets it.')
-  ed.change({ from: at.from, to: at.to, insert: number(Math.max(0, at.value + to - time), v.unit) })
+function remark({ to, ...marker }) {
+  const arg = markCall(marker)?.args[0], at = arg?.kind === 'object' ? arg.props.find(p => p.name === 'at') : arg
+  if (typeof at?.value !== 'number') return unmarked()
+  ed.change({ from: at.valueFrom ?? at.from, to: at.valueTo ?? at.to, insert: number(Math.max(0, at.value + to - marker.time), v.unit) })
   return true
 }
 // A fade in or out over [from, to], from a selection's corner: from its edge inward, or centred on its edge; on its
@@ -1580,6 +1612,9 @@ function addOp(name, open = true) {
 // A call at the end of the chain, as one step. The output showing the chain rolled back to a step (the edits), the
 // steps after it go first, in the same step: the edit is made on what shows
 function write(...calls) {
+  // no call, no change: an empty one would leave a dot
+  calls = calls.filter(Boolean)
+  if (!calls.length) return null
   const cut = rk.ahead()
   let code = cut ? applied(ed.code, cut) : ed.code, change = null
   for (const call of calls) {
@@ -1869,9 +1904,12 @@ const page = {
   },
   async edit({ call }) {
     if (typeof call !== 'string' || !call.trim()) throw new Error('edit: call is one method call, e.g. "normalize(-16)"')
+    const text = call.trim().replace(/^\./, ''), was = output, before = was && pitched(text) ? await eng.contour(was.id) : null
     const done = ran()
-    if (!write(call.trim().replace(/^\./, ''))) throw new Error('Open or generate a sound first')
-    return within(done)
+    if (!write(text)) throw new Error('Open or generate a sound first')
+    const r = await within(done)
+    if (r.ok) await showEdit(text, was, before)
+    return r
   },
   // the caret, a range, or a box of a range and a band (on the spectrogram, which then shows), brought into sight as the
   // user's own would be
@@ -1931,10 +1969,12 @@ const page = {
     return { playing: pl.playing, original: !!state.ab }
   },
   // anything the library measures, on the output shown and its source, changing nothing (worker.js evaluate)
-  async measure({ code }) {
+  // what it measured, stat by stat, told the chat besides (`tell`)
+  async measure({ code }, tell) {
     if (typeof code !== 'string' || !code.trim()) throw new Error('measure: code is JavaScript, its last expression the answer')
     const r = await eng.evaluate(prepare(code))
     if (r.error) throw new Error(r.error.line ? `line ${r.error.line}: ${r.error.message}` : r.error.message)
+    tell?.(r.measured)
     return r.value ?? null
   },
   // the picture, the waveform over the spectrogram, of [at, at + d] or of what shows (view.js snapshot)
@@ -1942,26 +1982,54 @@ const page = {
     if (!state.whole) throw new Error('Nothing drawn yet: open or generate a sound first')
     const a = at != null ? Math.max(0, +at) : null, range = a != null ? [a, duration != null ? a + +duration : output.duration] : null
     const [from, to] = range ?? v.range
-    return { image: v.snapshot(range), text: `${stamp(from)} to ${stamp(to)}: the waveform, levels ${state.levels === 'db' ? 'in dB' : 'as sample values'}, over the spectrogram, frequencies in ${scaleNames[state.scale].toLowerCase()}` }
+    const toned = shown?.code === ed.code && shown.guides.some(g => g.pitch)
+    return { image: v.snapshot(range), text: `${stamp(from)} to ${stamp(to)}: the waveform, levels ${state.levels === 'db' ? 'in dB' : 'as sample values'}, over the spectrogram, frequencies in ${scaleNames[state.scale].toLowerCase()}${toned ? '; on it the pitch curve before your last edit, dashed, and after it' : ''}` }
   },
   stop() { if (pl.playing) togglePlay(); return { playing: false } },
   async check({ spec }) { const r = await eng.check(spec); if (r.error) throw new Error(r.error.message); return r.output },
   async undo() { if (!ed.canUndo) return { ok: false, problem: 'Nothing to undo' }; const done = ran(); ed.undo(); return within(done) },
   async redo() { if (!ed.canRedo) return { ok: false, problem: 'Nothing to redo' }; const done = ran(); ed.redo(); return within(done) }
 }
-// The page's answers to the agent's last calls, by tool and arguments: what each came to, said beside its step (noted)
+// An edit that moves pitch (Time & pitch: pitch, intonation, formant, tune…), by its call's name
+const pitched = text => ops[text.match(/^([\w$]+)\s*\(/)?.[1]]?.group === 'Time & pitch'
+// What the agent's edit `text` sets, drawn over the output as its card draws it pointed at, its range brought into view;
+// for a pitch edit that keeps the length, the pitch curve over the output before it (`was`, its curve `before`), dashed,
+// and after, the spectrogram showing. It stays while the script is as the edit left it, the agent's look seeing it too
+async function showEdit(text, was, before) {
+  const k = chain(ed.code)?.calls.findLast(k => ed.code.slice(k.dot + 1, k.to) === text), code = ed.code
+  if (!k) return
+  const list = guidesOf(k, ops[k.name]?.params ?? fromManifest(await eng.describe(k.name)))
+  if (before?.f0.length && output && was && Math.abs(output.duration - was.duration) < 1e-3) {
+    const after = await eng.contour(output.id)
+    if (after.f0.length) list.push({ pitch: { before, after } })
+  }
+  if (ed.code !== code) return
+  if (list.some(g => g.pitch) && state.display !== 'spec') setDisplay('spec')
+  shown = { code, guides: list }
+  if (!carded) v.guides = list
+  const range = list.find(g => g.range)?.range
+  if (range) v.reveal(...range)
+}
+// The page's answers to the agent's last calls, by tool and arguments, and what a tool told the chat besides: what each
+// came to, said beside its step (noted, measures)
 const answers = []
-const answering = (tool, args, at, result, error) => { answers.push({ tool, key: JSON.stringify(args ?? {}), at, result, error }); answers.splice(0, answers.length - 32) }
+const answering = (tool, args, at, result, error, told) => { answers.push({ tool, key: JSON.stringify(args ?? {}), at, result, error, told }); answers.splice(0, answers.length - 32) }
 const bridge = agent({
   tools: Object.fromEntries(Object.entries(page).map(([tool, f]) => [tool, async args => {
     const at = Date.now()
-    try { const r = await f(args); answering(tool, args, at, r); return r } catch (e) { answering(tool, args, at, null, e.message); throw e }
+    let told
+    try { const r = await f(args, x => told = x); answering(tool, args, at, r, null, told); return r } catch (e) { answering(tool, args, at, null, e.message); throw e }
   }])),
-  // online, its agent as the bridge started with it ({ id, name }, or null where it found none)
-  onstatus(status, hello) { state.agentStatus = status; if (hello) state.agentInfo = hello.agent },
+  // online, the agents the bridge found on its machine, its first one first (none: it found none)
+  onstatus(status, hello) { state.agentStatus = status; if (hello) { state.agents = hello.agents ?? (hello.agent ? [hello.agent] : []); askAgent() } },
   onchat: answer
 })
 function connectAgent() { store(); bridge.connect(state.bridgeUrl.trim(), state.bridgeKey.trim()) }
+// The agent the next message goes to, among those the bridge found: the one just picked, else the open conversation's,
+// else the one last picked, else the bridge's first. Another than a conversation's own is told what was said
+let picked = null
+function askAgent() { state.agentInfo = [conversation()?.agent, picked].map(id => state.agents.find(a => a.id === id)).find(Boolean) ?? state.agents[0] ?? null }
+function pickAgent(id) { picked = id; state.agentInfo = state.agents.find(a => a.id === id) ?? state.agentInfo; root.querySelector('#agents-menu')?.hidePopover() }
 if (state.bridgeKey) connectAgent()
 
 // The conversations are a tab's own, as its script and edits are, kept with it: { id, at, title, agent, session,
@@ -1986,6 +2054,7 @@ function showMessages(c) { state.chat = c?.messages ?? []; state.chatBusy = !!c?
 function showChat() {
   const c = conversation()
   showMessages(c)
+  askAgent()
   state.chats = chatsOf(docOf()).toReversed().map(x => ({ id: x.id, title: x.title, when: ago(x.at), open: x === c }))
   following = true
 }
@@ -2025,8 +2094,9 @@ function answer(m) {
     // begun since the agent said it makes it (a moment before, its events and the call racing to the page)
     const done = m.answered && (running.find(r => r.id === m.answered) ?? running[0])
     if (done) {
-      const key = JSON.stringify(done.input ?? {}), a = answers.findLast(x => x.tool === done.tool && x.key === key && x.at > done.at - 250), note = a ? a.error ?? noted(done.tool, done.input, a.result) : ''
-      parts = [...parts, { step: done.then, ...note && { note }, ...done.show && { show: done.show }, ...m.failed && { failed: true } }]
+      const key = JSON.stringify(done.input ?? {}), a = answers.findLast(x => x.tool === done.tool && x.key === key && x.at > done.at - 250)
+      const note = a ? a.error ?? noted(done.tool, done.input, a.result, a.told) : '', rows = a && !a.error && tabled(done.tool, a)
+      parts = [...parts, { step: rows && done.tool === 'measure' ? 'Measured' : done.then, ...note && { note }, ...rows && { rows }, ...done.show && { show: done.show }, ...m.failed && { failed: true } }]
       running = running.filter(r => r !== done)
     }
     if (m.done) { parts = [...parts, ...running.map(r => ({ step: r.then, ...m.error && { failed: true } }))]; running = [] }
@@ -2037,6 +2107,13 @@ function answer(m) {
     }
   })
   if (m.done) { turns.delete(m.turn); c.at = Date.now(); store() }
+}
+// What a call came to, as a table under its step: a check's rules, as the Export tab shows them; what a measure measured,
+// where it measured more than one thing; none else
+function tabled(tool, { result, told }) {
+  if (tool === 'check') return result?.rules?.length ? result.rules.map(ruled) : null
+  const rows = tool === 'measure' ? measures(told, sayAs) : []
+  return rows.length > 1 ? rows : null
 }
 // A step's place on the sound, gone to: its range (and band) selected, its time the caret, its edit chosen among the edits
 function visit(show) {
@@ -2065,7 +2142,7 @@ async function sendChat() {
   showChat()
   store()
   try {
-    const turn = await bridge.chat(text, session, history)
+    const turn = await bridge.chat(text, session, history, id)
     turns.set(turn, c)
     told(c, () => ({ turn }))
     for (const m of early.get(turn) ?? []) answer(m)

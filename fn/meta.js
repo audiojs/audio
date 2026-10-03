@@ -11,7 +11,7 @@
  *   a.regions              → [{at, duration, label}] in output seconds
  */
 
-import audio from '../core.js'
+import audio, { named } from '../core.js'
 import { buildPlan, dominant } from '../plan.js'
 import * as parsers from '@audio/decode/meta'
 
@@ -84,18 +84,30 @@ Object.defineProperties(audio.fn, {
 })
 
 /**
- * Mark a moment: `time` in seconds of the audio as it is now, after its edits, and a label; chainable. The marker
- * keeps to the moment it marks through the edits after it, and saves as a cue or chapter (save.js). A time where
- * the audio plays none of its own source (silence, an inserted file) marks the nearest moment that does.
- *   audio('talk.mp3').remove({ at: 0, duration: 5 }).mark(60, 'Part two').save('talk.mp3')
+ * Mark a moment, or a range: `time` in seconds of the audio as it is now, after its edits, or `{ at, duration }`, and a
+ * label; chainable. The mark keeps to what it marks through the edits after it, and saves as a cue or chapter
+ * (save.js), a range as a region. A time where the audio plays none of its own source (silence, an inserted file)
+ * marks the nearest moment that does.
+ *   audio('talk.mp3').remove({ at: 0, duration: 5 }).mark(60, 'Part two').mark({ at: 90, d: 30 }, 'Q&A').save('talk.mp3')
  */
 audio.fn.mark = function (time, label = '') {
   ensureMeta(this)
   let plan = this.edits?.length ? buildPlan(this) : null, sr = plan ? plan.sr : this._.sr || this.sampleRate
-  let p = Math.max(0, Math.round((+time || 0) * sr))
-  // unedited, a time past the end marks the end; a source still arriving has no end yet
-  let sample = plan ? nearestSource(p, plan.segs) : this.decoded ? (this._.len ? Math.min(p, this._.len - 1) : null) : p
-  if (sample != null) (this._.markers ||= []).push({ sample, label: String(label ?? '') })
+  // the source sample a time plays; unedited, a time past the end marks the end; a source still arriving has no end yet
+  let source = t => {
+    let p = Math.max(0, Math.round((+t || 0) * sr))
+    return plan ? nearestSource(p, plan.segs) : this.decoded ? (this._.len ? Math.min(p, this._.len - 1) : null) : p
+  }
+  label = String(label ?? '')
+  let { at, duration } = time && typeof time === 'object' ? named(time) : { at: time }
+  if (!(duration > 0)) {
+    let sample = source(at)
+    if (sample != null) (this._.markers ||= []).push({ sample, label })
+    return this
+  }
+  // a range: from the sample its start plays to the one its last plays, either way round (reversed)
+  let a = source(at), b = source(+at + duration - 1 / sr)
+  if (a != null && b != null) (this._.regions ||= []).push({ sample: Math.min(a, b), length: Math.abs(b - a) + 1, label })
   return this
 }
 

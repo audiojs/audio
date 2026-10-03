@@ -16,11 +16,14 @@
     // The mark in the bar drawn live before the page first shows, so a page arriving takes up the last one's turn at once
     import { mark } from './logo/mark.js'
     mark(document.querySelector('.bar .wordmark'))
+    // The page shows once it is wired (editor.js drops data-boot); however its script fares, it shows by the time
+    // everything has loaded, never left blank
+    addEventListener('load', () => document.querySelector('#app')?.removeAttribute('data-boot'))
   </script>
   <script type="module" src="editor/editor.js"></script>
 </head>
 <body>
-  <div id="app" class="app" :class="{ dropping: dropping === 'open', 'dropping-tab': dropping === 'tab' }">
+  <div id="app" class="app" data-boot :class="{ dropping: dropping === 'open', 'dropping-tab': dropping === 'tab' }">
     <header class="bar">
       <a class="wordmark" href="./" aria-label="audio home" title="audio: the library's home page" draggable="false"><span class="logo" aria-hidden="true"><svg viewBox="0 0 96 101" fill="currentColor" stroke="currentColor" stroke-width="4.5"><path d="M0 50.4159C5.08842 50.4159 8.70378 49.9251 17.0681 24.9808C27.8621 -7.20948 35.9058 -10.5986 47.7771 50.4159H0Z"/><path d="M95.5543 50.416C90.4658 50.416 86.8505 50.9067 78.4862 75.8511C67.6922 108.041 59.6484 111.43 47.7771 50.416H95.5543Z"/></svg><canvas hidden></canvas></span><span class="name">audio</span></a>
       <nav class="menubar" aria-label="Menu"></nav>
@@ -30,7 +33,7 @@
     </header>
 
     <main class="panes" :data-side="side ? 'open' : 'none'">
-      <!-- over the picture: the open sounds; at its right undo and redo, how it shows, and over its meters its settings -->
+      <!-- over the picture: the open sounds; at its right undo and redo, how it shows, and at the head of its axis its settings -->
       <header class="view-head">
         <!-- the open sounds, a tab each, as an audio editor's files, dragged along to reorder; a selection's audio dragged
              up onto them goes to a tab of its own -->
@@ -48,8 +51,9 @@
           <button class="icon-button" :onclick="redo" :disabled="!canRedo" aria-label="Redo" :title="'Redo (' + keys('⇧⌘Z') + ')'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5m5 5H10a6 6 0 0 0 0 12h3"/></svg></button>
         </div>
         <!-- how the picture shows: the waveform, the spectrogram (again, its frequencies on the next scale; right-clicked,
-             how it draws); then its settings, over its meter, wherever the switch is -->
-        <div class="tabs icons display" role="tablist" aria-label="The output as" :hidden="!hasOutput">
+             how it draws), its room kept with no sound to show, so nothing beside it moves when one comes; then its
+             settings, at the head of its axis -->
+        <div class="tabs icons display" role="tablist" aria-label="The output as" :inert="!hasOutput">
           <button role="tab" :each="d in displays" :aria-selected="display === d.name ? 'true' : 'false'" :aria-label="d.label" :title="displayTitle(d)" :onclick="e => setDisplay(d.name, e)" :oncontextmenu="e => { e.preventDefault(); looksAt(e.currentTarget, d.name) }"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path :d="d.icon"/></svg></button>
         </div>
         <div class="tabs icons view-settings">
@@ -69,7 +73,6 @@
       <section class="slab view-slab" aria-label="Output">
         <div class="view">
           <div class="plot" role="application" :aria-label="plotHelp" aria-describedby="status"></div>
-          <div class="loading" :if="loading && !hasOutput" aria-hidden="true"></div>
           <div class="empty" :if="ran && !hasOutput && !recording && !loading">
             <p class="empty-title">Drop audio here</p>
             <div class="empty-actions">
@@ -88,7 +91,7 @@
       <!-- the panel beside the picture at its right: the recipes, the agent, the edits (the chain's steps), the code that is
            both, the export (the checks and the file); its left edge drags its width, a grip on it -->
       <section class="slab side-slab" :aria-label="sideTitle">
-        <div class="panel-edge" aria-hidden="true" :onpointerdown="resizePanel" title="Drag: the panel's width"><span class="panel-grip"></span></div>
+        <div class="panel-edge" aria-hidden="true" :onpointerdown="resizePanel" title="Drag: the panel's width"></div>
         <div class="stack" :hidden="side !== 'edits'">
           <!-- the cards (stack.js), then right under them what adds to them -->
           <div class="steps">
@@ -121,7 +124,7 @@
           <div class="chat-log" role="log" aria-label="The conversation">
             <!-- until it connects, how; connected, nothing: the message box says who answers -->
             <div class="chat-empty" :if="!chat.length && !(agentStatus === 'online' && agentInfo)">
-              <p :if="agentStatus !== 'online'">Your own agent, Claude Code or Codex, can measure and edit this sound. In a terminal, run</p>
+              <p :if="agentStatus !== 'online'">Your own agent, Claude Code, Codex, Pi, Gemini, Kimi or another, can measure and edit this sound. In a terminal, run</p>
               <p :if="agentStatus !== 'online'"><code>npx audio --bridge</code></p>
               <p :if="agentStatus !== 'online'">and paste the key it prints below.</p>
               <p :if="agentStatus === 'online'" :text="agentNote"></p>
@@ -131,7 +134,17 @@
               <!-- the agent's words, and each call it made in its place among them, as the user would say it -->
               <template :each="p in partsOf(m)">
                 <div class="md" :if="p.text" :html="md(p.text)"></div>
-                <p class="chat-step" :if="p.step" :class="{ failed: p.failed }" :title="p.failed ? 'This call failed; the agent was told why' : null"><button type="button" :if="p.show" :onclick="visit(p.show)" :title="p.show?.edit ? 'Show this edit among the edits' : 'Show this place on the sound'" :text="p.step"></button><span :if="!p.show" :text="p.step"></span><span class="chat-note" :if="p.note" :text="p.note"></span></p>
+                <p class="chat-step" :if="p.step" :class="{ failed: p.failed }" :title="p.failed ? 'This call failed; the agent was told why' : null"><span><button type="button" :if="p.show" :onclick="visit(p.show)" :title="p.show?.edit ? 'Show this edit among the edits' : 'Show this place on the sound'" :text="p.step"></button><span :if="!p.show" :text="p.step"></span><span class="chat-note" :if="p.note" :text="': ' + p.note"></span></span></p>
+                <!-- what it came to, where that is several values: a check's rules, as Export shows them; what it measured -->
+                <table class="check-table chat-table" :if="p.rows">
+                  <tbody>
+                    <tr :each="row in p.rows" :title="row.note || null">
+                      <th scope="row" :text="row.name"></th>
+                      <td :class="row.afterClass"><span class="mark" :if="row.afterMark" :text="row.afterMark + ' '"></span><span :text="row.after"></span></td>
+                      <td class="limit" :if="row.limit != null" :text="row.limit && row.limit + row.unit"></td>
+                    </tr>
+                  </tbody>
+                </table>
               </template>
               <!-- while it answers: what it does now, as it happens, and how long it has taken -->
               <p class="chat-busy" :if="m.pending"><span class="chat-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="chat-doing" :text="m.doing" :title="m.doing"></span><span class="chat-elapsed" :text="elapsed(m.since, tick)"></span></p>
@@ -149,6 +162,8 @@
             <textarea rows="2" aria-label="A message to the agent" :placeholder="agentStatus === 'online' && agentInfo ? 'Ask ' + agentInfo.name + '…' : 'Not connected'" :value="chatText" :oninput="e => chatText = e.target.value" :onkeydown="chatKey" :disabled="agentStatus !== 'online' || !agentInfo"></textarea>
             <button class="chat-send" type="submit" :disabled="agentStatus !== 'online' || !agentInfo || (!chatText.trim() && !chatBusy)" :aria-label="chatBusy ? 'Stop' : 'Send'" :title="chatBusy ? 'Stop the agent' : 'Send (Enter)'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="chatBusy ? 'M7 7h10v10H7z' : 'M12 19V5m-6 6 6-6 6 6'"/></svg></button>
           </form>
+          <!-- the agent asked, where the bridge found more than one: a click lists the others -->
+          <button class="chat-agent" popovertarget="agents-menu" :if="agentStatus === 'online' && agents.length > 1" :title="'Ask another agent: the bridge found ' + agents.length"><span :text="agentInfo?.name"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button>
         </div>
         <!-- the export: the file (its format, what the format is written with, the markers in it, its name and size), the
              cuts as an edit list for a video editor, and the output checked against a delivery spec -->
@@ -215,24 +230,28 @@
       <footer class="status" id="status">
         <!-- the picture's side: play and the time, what is happening, what the output holds -->
         <div class="status-main">
-          <!-- the transport, as a deck's: play, record, loop -->
-          <button class="play" :class="{ ringed: speedLook === 'ring' }" :style="'--speed: ' + speedAt" :onpointerdown="playPress" :onclick="playClick" :oncontextmenu="speedMenu" :disabled="!whole || recording" :aria-label="playing ? 'Pause' : 'Play'" :title="(playing ? 'Pause' : boxes > 1 ? 'Play the ' + boxes + ' bands selected, each over its time' : band ? 'Play the selected band' : selection ? 'Play the selection' : 'Play from the cursor') + ' (Space)'" aria-keyshortcuts="Space"><span class="play-icon" :class="{ paused: playing }" aria-hidden="true"></span></button>
-          <!-- the speed it plays at, the pitch kept: shown as the workshop has it; while Play is dragged, its scale -->
-          <button class="speed-readout" :if="(speedLook === 'readout' || speedLook === 'ring') && speed !== 1" :onclick="setSpeed(1)" :text="speedText" title="Playing at this speed, the pitch kept: a click, 1× again (Play held and dragged sets it; right-clicked, a list)"></button>
-          <button class="speed-pill" :if="speedLook === 'pill'" :onclick="turnSpeed" :text="speedText" aria-label="Speed" title="Speed, the pitch kept: 1×, 1.5×, 2× in turn (Play held and dragged: any, 0.1× to 10×)"></button>
-          <input class="speed-slider" type="range" :if="speedLook === 'slider'" min="0" max="1000" :value="Math.round(speedAt * 1000)" :oninput="e => setSpeed(SPEEDS.of(e.target.value / 1000))" aria-label="Speed" :title="'Speed ' + speedText + ', the pitch kept: 0.1× to 10×'">
-          <button class="record" :class="{ on: recording }" :onclick="toggleRecording" :aria-label="recording ? 'Stop recording' : 'Record'" :title="recording ? 'Stop recording: the take is a step of the chain' : whole ? 'Record from the microphone at the caret, over what is there, as a tape; into the selection, to its end (with the loop on, pass after pass)' : 'Record from the microphone'"><span class="record-icon" aria-hidden="true"></span></button>
+          <!-- the transport, as a deck's: play, a ring round it how far through the sound it plays; record, and while it
+               plays (nothing records then) in its place the speed, the pitch kept, a pill turning 1×, 1.5×, 2× as a
+               messenger's voice notes do, so nothing beside it moves; loop. Play held and dragged sets any speed, its
+               scale over it; right-clicked, Play or the pill, a list -->
+          <button class="play" :class="{ rolling: playing }" :style="'--played: ' + played" :onpointerdown="playPress" :onclick="playClick" :oncontextmenu="speedMenu" :disabled="!whole || recording" :aria-label="playing ? 'Pause' : 'Play'" :title="(playing ? 'Pause' : boxes > 1 ? 'Play the ' + boxes + ' bands selected, each over its time' : band ? 'Play the selected band' : selection ? 'Play the selection' : 'Play from the cursor') + ' (Space)'" aria-keyshortcuts="Space"><span class="play-icon" :class="{ paused: playing }" aria-hidden="true"></span></button>
+          <span class="deck-slot">
+            <button class="record" :class="{ on: recording }" :inert="playing" :onclick="toggleRecording" :aria-label="recording ? 'Stop recording' : 'Record'" :title="recording ? 'Stop recording: the take is a step of the chain' : whole ? 'Record from the microphone at the caret, over what is there, as a tape; into the selection, to its end (with the loop on, pass after pass)' : 'Record from the microphone'"><span class="record-icon" aria-hidden="true"></span></button>
+            <button class="speed-pill" :inert="!playing" :onclick="turnSpeed" :oncontextmenu="speedMenu" :text="speedText" aria-label="Speed" title="Speed, the pitch kept: 1×, 1.5×, 2× in turn; right-clicked, a list (Play held and dragged: any, 0.1× to 10×)"></button>
+          </span>
           <button class="loop" :aria-pressed="loop ? 'true' : 'false'" aria-label="Loop" :title="loop ? 'Looping: playback repeats the selection or the whole output. Click to stop' : 'Loop playback'" :onclick="toggleLoop" :disabled="!whole"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11V6h17m-4-4 4 4-4 4M21 13v5H4m4-4-4 4 4 4"/></svg></button>
           <!-- the time, and after it how long all that is selected is (its room kept while none is) -->
           <p class="clock" :title="timeTitle" aria-live="off"><span class="time" :text="timeText">0:00.000</span><span class="length" :text="lengthText"></span></p>
-          <!-- a status bar's two sides: at the left, after the time, what is happening (a note, a problem, the engine's work);
-               at the right, what the sound is: its levels, then its rate and channels, each a click from changing it -->
-          <p class="message" :class="{ problem: notice ? noticeKind === 'error' : !!problem, working: !notice && !problem && progress }" :title="notice || problem || progress" :text="notice || problem || progress"></p>
+          <!-- a status bar's two sides: at the left, after the time, what was done or went wrong (a note, a problem);
+               at the right, what the sound is: its levels, and while one is on its way how far it is, in their place, as
+               the live word on the same thing; then its rate and channels, each a click from changing it -->
+          <p class="message" :class="{ problem: notice ? noticeKind === 'error' : !!problem }" :title="notice || problem" :text="notice || problem"></p>
           <span class="visually-hidden" role="status" :text="notice || problem || progress.replace(/[\d.]+\s*(%|s)$/, '').trim()"></span>
           <button class="text-button" :if="missing" :onclick="() => pickFiles(missing)" :title="'Open the file the script calls ' + missing">Open it…</button>
-          <button class="text-button" :if="slow" :onclick="stop" title="Stop the script: restarts the engine, keeps the last output">Stop</button>
           <p class="heard" :if="heard" :title="heard?.title" :text="heard?.text"></p>
-          <p class="readout" :title="readout" :text="readout"></p>
+          <!-- beside the live word, the way out of it -->
+          <button class="text-button" :if="slow" :onclick="stop" title="Stop the script: restarts the engine, keeps the last output">Stop</button>
+          <p class="readout" :class="{ working: !!progress }" :title="progress || readout" :text="progress || readout"></p>
         </div>
         <div class="speed-axis" :if="speedAxis" :style="'left: ' + speedAxis.left + 'px; top: ' + speedAxis.top + 'px; --at: ' + speedAt" aria-hidden="true">
           <span class="speed-tick" :each="k in speedTicks" :style="'--at: ' + k.at" :text="k.label"></span>
@@ -271,6 +290,12 @@
         <button class="menu-item" :aria-current="c.open ? 'true' : null" :onclick="openChat(c.id)" :title="c.title"><strong :text="c.title"></strong><span :text="c.when"></span></button>
         <button class="icon-button chat-drop" :onclick="dropChat(c.id)" :aria-label="'Delete ' + c.title" title="Delete this conversation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
       </div>
+    </div>
+
+    <!-- the agents the bridge found on its machine, the one asked marked -->
+    <div id="agents-menu" class="menu narrow" popover>
+      <p class="menu-group">Ask</p>
+      <button class="menu-item" :each="a in agents" :aria-current="a.id === agentInfo?.id ? 'true' : null" :onclick="pickAgent(a.id)" :title="'Ask ' + a.name"><strong :text="a.name"></strong></button>
     </div>
 
     <div id="rate-menu" class="menu narrow" popover>
@@ -331,7 +356,7 @@
         <dt>The square past the caret</dt><dd>With nothing selected, drag it across: silence opens there, that long, as trimming out does. At the end, it is before the caret, and pulled out past the picture's edge the view widens, the silence as long as it goes</dd>
         <dt>Right-click</dt><dd>The edits for what is under the pointer: the selection, else the caret put there; last, how the waveform or the spectrogram draws. On a caret, an edge or a handle, all stays as it is</dd>
         <dt>Space</dt><dd>Play or pause: the selection (from where it paused, inside it), else from the caret. Put the caret elsewhere while it plays and it plays from there. While recording, it stops the recording</dd>
-        <dt>Play, held</dt><dd>Dragged across, the speed it plays at, the pitch kept: faster to the right, slower to the left, twice or half each 32 px, 0.1× to 10×, on a scale over it. Let go, the speed stays, shown by Play (a click there, 1× again); right-clicked, a list of speeds. While it records, Play is off</dd>
+        <dt>Play, held</dt><dd>Dragged across, the speed it plays at, the pitch kept: faster to the right, slower to the left, twice or half each 32 px, 0.1× to 10×, on a scale over it. Let go, the speed stays; while it plays it stands in the record button's place, a pill turning 1×, 1.5×, 2×; right-clicked, Play or the pill, a list of speeds. Round Play while it plays, a ring: how far through the sound it is. While it records, Play is off</dd>
         <dt>Waveform, spectrogram</dt><dd>Over the picture, where it ends: how the output shows; right-clicked, how it draws, a dropdown (the waveform's colour, lanes, fill, levels in dB or sample values; the spectrogram's method, from frames as they are to reassigned or Wigner–Ville, its scale, colours, range and FFT size). The spectrogram's again: its frequencies on the next scale, octaves, mel, hertz. After them, over the meters, the settings, a menu</dd>
         <dt>Arrows, ⌥ arrows, ⌘ arrows</dt><dd>Move the caret a little, to the next cue, to the next sound, the selection kept; ⌘ ↑ ↓ (Home, End), to the start, the end; Shift extends</dd>
         <dt>The time</dt><dd>The caret's, or the playhead's; after it, how long all that is selected is. Pointed at, the selection and its samples</dd>
@@ -342,7 +367,7 @@
         <dt>Delete, ⌘X ⌘C ⌘V, ⌘Z ⇧⌘Z</dt><dd>Edit the selection; undo, redo, as the arrows over the picture do. Each edit is a step of the chain, its seams crossfaded (the settings)</dd>
         <dt>B</dt><dd>Hear the file as it opened, level-matched, at the same place; B again, the output</dd>
         <dt>Record</dt><dd>Into the picture from the caret, drawn as the waveform or the spectrogram, over what is there, as a tape; into a selection, to its end (with the loop on, pass after pass). Undo takes it back</dd>
-        <dt>M</dt><dd>A marker at the caret, its flag over the picture; drag the flag to move it, double-click it to name it; right-click it to name it or take it away</dd>
+        <dt>M</dt><dd>A marker at the caret, or over the selection, its flag over the picture, its name asked for; drag the flag (a range's bar) to move it, click its name or double-click the flag to rename it; right-click it to name it or take it away</dd>
         <dt>Edits</dt><dd>Every step of the chain, a panel. Choose one: the output up to it, and its settings; again, or Esc, the whole chain. An edit made then goes after it, the steps after it gone, as a browser's history goes. Its eye turns it off, its × takes it away; open, its Δ: what it takes out. A recipe's steps are one card under its name, folded (in the code, a comment over its calls, set in); a press unfolds it, its eye and × act on all of them. Add an edit, under them: the palette</dd>
         <dt>Recipes, Agent, Edits, Code, Export</dt><dd>At the top right, a panel each, beside the picture, which keeps where it starts and its scale: a goal's whole chain, found by its words, folded by what it is for, put after the script's own over the selection or all of it; your own agent, through the local bridge (npx audio --bridge, its key here), its words as they come, each call it makes in plain words, its conversations kept with the tab; the chain's steps; the script, its numbers dragged across, or selected and stepped by ↑ ↓ (Shift, ten steps), what each sets said by it; the file (its format, what it is written with, its markers, its name; ⌘S), the cuts as an edit list for a video editor (EDL, OTIO, FCPXML), the output checked against a delivery spec. Its button again closes it; its left edge drags its width. The settings, over the meters, a dropdown: what holds everywhere</dd>
         <dt>Tabs</dt><dd>Above the picture, a sound each, its own script and edits, dragged along to reorder. A sound opened goes into a tab of its own; + a new one, × closes one. A selection dragged up onto them with Alt goes to a tab of its own, copied; with ⌘, moved</dd>

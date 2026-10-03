@@ -21,9 +21,9 @@ const VERBS = {
   plan: ['Planning', 'Planned'], delegate: ['Delegating', 'Delegated'], scrub: ['Scrubbing', 'Scrubbed'], open: ['Opening', 'Opened'],
   remove: ['Removing', 'Removed'], move: ['Moving', 'Moved'], off: ['Turning off', 'Turned off'], on: ['Turning on', 'Turned on']
 }
-// the units a stat reads in, as the page writes them
+// the units a stat reads in, as the page writes them; peak and rms are sample values, db their dBFS
 const UNITS = {
-  db: 'dBFS', peak: 'dBFS', rms: 'dBFS', noisefloor: 'dBFS', loudness: 'LUFS', momentary: 'LUFS', shortterm: 'LUFS', dialog: 'LUFS',
+  db: 'dBFS', noisefloor: 'dBFS', loudness: 'LUFS', momentary: 'LUFS', shortterm: 'LUFS', dialog: 'LUFS',
   truepeak: 'dBTP', lra: 'LU', dr: 'dB', crest: 'dB', replaygain: 'dB', bpm: 'BPM', centroid: 'Hz', rolloff: 'Hz'
 }
 const list = new Intl.ListFormat('en', { type: 'conjunction' })
@@ -49,12 +49,13 @@ function said(tool, o, { time, spec }) {
   const d = o.d ?? o.duration, span = o.at == null ? '' : d == null ? `from ${time(+o.at)}` : `${time(+o.at)}–${time(+o.at + +d)}`
   const range = o.at != null && d != null ? { range: [+o.at, +o.at + +d] } : o.at != null ? { caret: +o.at } : null
   const band = o.low != null && o.high != null ? `, ${hz(+o.low)}–${hz(+o.high)}` : ''
-  const mark = typeof o.call === 'string' && o.call.match(/^\.?mark\(\s*([\d.]+)\s*(?:,\s*(['"`])(.*)\2)?/)
+  // mark(time, label) or mark({ at, d }, label): [, time, at, d, quote, label]
+  const mark = typeof o.call === 'string' && o.call.match(/^\.?mark\(\s*(?:([\d.]+)|\{\s*at:\s*([\d.]+),\s*d(?:uration)?:\s*([\d.]+)\s*\})\s*(?:,\s*(['"`])(.*)\4)?/)
   switch (tool) {
     case 'state': return ['read', 'the sound']
     case 'measure': return ['measure', measuring(o.code)]
     case 'look': return ['look', span || 'the picture', range]
-    case 'edit': return mark ? ['mark', `${mark[3] ? `“${mark[3]}” ` : ''}at ${time(+mark[1])}`, { caret: +mark[1] }] : ['apply', line(o.call).replace(/^\./, ''), { edit: line(o.call).replace(/^\./, '') }]
+    case 'edit': return mark ? ['mark', `${mark[5] ? `“${mark[5]}” ` : ''}${mark[1] ? `at ${time(+mark[1])}` : `${time(+mark[2])}–${time(+mark[2] + +mark[3])}`}`, mark[1] ? { caret: +mark[1] } : { range: [+mark[2], +mark[2] + +mark[3]] }] : ['apply', line(o.call).replace(/^\./, ''), { edit: line(o.call).replace(/^\./, '') }]
     case 'script': return ['rewrite', 'the script']
     case 'check': return ['check', spec(o.spec)]
     case 'play': return ['play', `${o.original ? 'the original' : 'the output'}${span && ` ${span}`}`, range]
@@ -87,20 +88,65 @@ export default function doing(tool, input, { time = t => `${t} s`, spec = s => s
 
 // A number as the page writes a level: two places at most, a true minus, silence as −∞
 const num = v => v === '-Infinity' || v === -Infinity ? '−∞' : v === 'Infinity' ? '∞' : typeof v === 'number' ? String(+v.toFixed(2)).replace(/^-/, '−') : null
-// What a call came to, in a few words, from the page's answer: a measurement its values in their units (a series, how
-// many and their span), an edit the output's loudness and peak after it, a check whether it passes and on what it
-// fails; '' where there is nothing to say
-export function noted(tool, input, result) {
+const json = v => { const s = JSON.stringify(v); return s == null ? '' : s.length > 60 ? s.slice(0, 59) + '…' : s }
+// a series' span, its silence (−∞) and its empty bins (NaN) left out
+const span = (v, unit = '') => {
+  const finite = v.filter(Number.isFinite)
+  return `${v.length} values${finite.length ? `, ${num(Math.min(...finite))} to ${num(Math.max(...finite))}${unit}` : ''}`
+}
+// stats whose value is a list of times, of events; of bands or coefficients, a vector
+const TIMES = new Set(['onsets', 'beats', 'hits', 'clipping'])
+const VECTORS = { spectrum: 'bands', ltas: 'bands', cepstrum: 'coefficients' }
+// A stat's value as the page writes it: a level in its units, a frequency in Hz or kHz, a series its span, events how
+// many, a key its name, pauses how many and the longest
+function reading(name, v) {
+  const list = ArrayBuffer.isView(v) ? Array.from(v) : v, unit = UNITS[name] ? ` ${UNITS[name]}` : ''
+  if (num(list) != null) return name === 'centroid' || name === 'rolloff' ? hz(list) : num(list) + unit
+  if (VECTORS[name] && Array.isArray(list)) return `${list.length} ${VECTORS[name]}`
+  if (TIMES.has(name) && Array.isArray(list)) return list.length ? String(list.length) : 'none'
+  if (name === 'silence' && Array.isArray(list)) return list.length ? `${list.length}, the longest ${num(Math.max(...list.map(p => +p.duration || 0)))} s` : 'none'
+  if (name === 'notes' && Array.isArray(list)) {
+    const by = list.filter(n => n.midi != null).sort((a, b) => a.midi - b.midi)
+    return by.length ? `${by.length}, ${by[0].note} to ${by.at(-1).note}` : 'none'
+  }
+  if (name === 'chords' && Array.isArray(list)) return String(list.filter(c => c.label !== 'N').length || 'none')
+  if (name === 'melody' && list?.f0) {
+    const f = Array.from(list.f0).filter((x, i) => x > 0 && (list.voiced?.[i] ?? true))
+    return f.length ? `${hz(Math.min(...f))} to ${hz(Math.max(...f))}` : 'unvoiced'
+  }
+  if (name === 'key' && list?.label) return list.label
+  if (name === 'replaygain' && list?.gain != null) return `${num(list.gain)} dB`
+  if (name === 'detect' && list?.bpm != null) return `${num(list.bpm)} BPM`
+  if (Array.isArray(list) && list.every(x => num(x) != null || x === 'NaN')) return list.length > 3 ? span(list.map(x => typeof x === 'number' ? x : x === '-Infinity' ? -Infinity : NaN), unit) : list.map(x => num(x) ?? '–').map(x => x + unit).join(', ')
+  return json(v)
+}
+const channels = c => Array.isArray(c) ? `channels ${c.map(i => +i + 1).join(', ')}` : `channel ${+c + 1}`
+// What a measure call measured, stat by stat as the page noted them (worker.js evaluate): each its name, where it was
+// taken (over time, a range, a channel, the original), its value
+export function measures(told, { time = t => `${t} s` } = {}) {
+  return (Array.isArray(told) ? told : []).map(({ of, name, opts = {}, value }) => {
+    const d = opts.d ?? opts.duration, word = STATS[name] ?? String(name)
+    const where = [
+      opts.at != null && (d != null ? `${time(+opts.at)}–${time(+opts.at + +d)}` : `from ${time(+opts.at)}`),
+      opts.channel != null && channels(opts.channel), of === 'src' && 'original'
+    ].filter(Boolean)
+    const over = opts.bins != null && !VECTORS[name] && Array.isArray(value) ? ' over time' : ''
+    return { name: word[0].toUpperCase() + word.slice(1) + over + (where.length ? `, ${where.join(', ')}` : ''), after: reading(name, value) }
+  })
+}
+// What a call came to, in a few words, from the page's answer: a measurement its value in its units (several, said by
+// measures(), rather), an edit the output's loudness and peak after it, a check whether it passes and on what it fails;
+// '' where there is nothing to say. `told`, what the page noted besides its answer: a measure's stats
+export function noted(tool, input, result, told) {
   const o = input && typeof input === 'object' ? input : {}, r = result
   if (tool === 'measure') {
+    if (told?.length) return told.length === 1 ? measures(told)[0].after : ''
     const names = named(o.code), unit = i => UNITS[names[i]] ? ` ${UNITS[names[i]]}` : ''
     const one = (v, i = 0) => num(v) != null ? num(v) + unit(i) : null
     if (one(r) != null) return one(r)
     if (Array.isArray(r) && r.length && r.length === names.length && r.every(v => num(v) != null)) return r.map(one).join(', ')
-    const finite = Array.isArray(r) && r.every(v => num(v) != null) ? r.filter(Number.isFinite) : []
-    if (finite.length && r.length > 3) return `${r.length} values, ${num(Math.min(...finite))} to ${num(Math.max(...finite))}${unit(0)}`
-    const json = JSON.stringify(r)
-    return json == null ? '' : json.length > 60 ? json.slice(0, 59) + '…' : json
+    if (Array.isArray(r) && r.length > 3 && r.every(v => num(v) != null)) return span(r.map(v => typeof v === 'number' ? v : v === '-Infinity' ? -Infinity : Infinity), unit(0))
+    return json(r)
   }
   if (r && typeof r === 'object' && 'ok' in r) return r.ok === false ? r.problem ?? 'failed' : r.loudness != null ? `now ${num(r.loudness)} LUFS, peak ${num(r.peak)} dBFS` : ''
   if (tool === 'check' && r) return r.pass ? 'passes' : `fails ${list.format(r.rules.filter(x => x.pass === false).map(x => x.name.toLowerCase()))}`

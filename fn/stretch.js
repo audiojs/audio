@@ -10,7 +10,9 @@
  *      per quantum (a piecewise-constant rate, set at plan time, so ranged reads,
  *      seek, duration, serialization all follow the segment algebra).
  *   2. Process: the shifter below reads the source back through the plan's map and
- *      time-stretches it with a phase-locked vocoder, its output the timeline itself.
+ *      time-stretches it with a phase-locked vocoder, its output the timeline itself; with
+ *      { voice: true }, by waveform-similarity overlap-add (@audio/stretch-wsola) shortening, and the
+ *      vocoder reset to the input's waveform where it fits (@audio/stretch-pvsola) slowing.
  *
  * The shifter (shifter / shiftBlock) is exported for pitch.js: the same vocoder, read by
  * a cursor at the ratio semitones give instead.
@@ -19,6 +21,8 @@
 import { seg, subSeg, spliceSegs, planOffset, isCurve, curveFn } from '../plan.js'
 import audio from '../core.js'
 import pvocLock from '@audio/stretch-pvoc-lock'
+import * as wsola from '@audio/stretch-wsola'
+import * as pvsola from '@audio/stretch-pvsola'
 
 // pvocLock stretches time and keeps pitch, with a phase-locked vocoder (Laroche & Dolson 1999,
 // @audio/stretch-pvoc-lock); a fractional cursor reads that stream at the rate it was stretched by, which shifts the
@@ -67,6 +71,27 @@ export const phaseLockLatency = (rmin, sampleRate) => {
 /** Where shifted audio meets the input, a crossfade this long: 10 ms */
 const fadeOf = sr => Math.max(1, Math.round(.01 * sr))
 
+// A voice: the phase vocoder keeps each harmonic's phase but not their alignment to one another, so a voice's glottal
+// pulses spread and it sounds distant, its consonants smeared (Röbel, DAFx 2010). Shortened, a voice is copied a segment
+// at a time (WSOLA): each segment read where it best continues the one before, the skipped audio never heard. Slowed,
+// copying plays a few milliseconds again at every splice, and over noise and reverberation that repeat is a comb filter
+// whose delay changes splice to splice, a flanger: there the vocoder's frames restart from the input's own waveform
+// wherever it fits (PVSOLA), and the noise between stays the vocoder's. On speech (VoiceBank, Spoken Wikipedia, a
+// lecture), the vocoder kept 0.62 to 0.70 of the input's pulse peakiness (kurtosis over voiced frames); WSOLA at 0.7×
+// 1.07, PVSOLA at 1.5 and 2× 0.89 and 0.85, the periodicity WSOLA put in noise there (0.53, 0.60 against the input's
+// 0.30) down to the vocoder's (0.40, 0.46). Both suit one voice and not chords: no one alignment fits several pitches.
+const voiceEngine = (rmax, sampleRate) => {
+  if (rmax > 1) {
+    let { N, T } = pvsola.geometry({ sampleRate })
+    // a frame waits for the input to reach its end and the shift searched past it
+    return { latency: Math.ceil(rmax * (N / 2 + T + 2 + ZC) + N / 2) + 2, make: (nch, at) => pvsola.stretcher(nch, { at, sampleRate }) }
+  }
+  // a segment waits for its second half, the search, the hop the segment before ran on, and at the input's start, where
+  // segments repeat the opening, half a segment more of the map's slope
+  let { S, H, D } = wsola.geometry({ sampleRate })
+  return { latency: Math.ceil(rmax * (S + D + H + ZC + 3)) + 2, make: (nch, at, end) => wsola.stretcher(nch, { at, end, sampleRate }) }
+}
+
 /** Samples a shifter runs behind its input: the vocoder's latency (or a voice engine's, `engine`), and the crossfade it
  *  looks across before the one back into the input. A stretch (`rmax`, its largest factor) waits for its input to reach
  *  the content a frame ahead, which the plan has put further on by the factor. */
@@ -79,7 +104,9 @@ export const shiftLatency = (rmin, sampleRate, rmax, engine) => {
  *  it is not 1 on (sorted; to may be Infinity); `rmin`: the least ratio it takes, 1 included where it returns to it.
  *  A stretch passes `map`: { T(t): the timeline place of content t, U: its inverse, D: how much longer the timeline is
  *  after the range, rate(t): T′, rmax: its largest factor }. A voice passes `voice`: { make(ratio of seconds) → a
- *  retuner (@audio/tune-curve), latency, context }. */
+ *  retuner (@audio/tune-curve), latency, context }; a voice stretch, { make(at, end) → a stretcher (@audio/stretch-wsola,
+ *  @audio/stretch-pvsola) putting its output sample s at content sample at(s), the content ending at end(), length() of
+ *  the timeline, latency, context }. */
 export function shifter(nch, { sampleRate: sr, ratio, spans, rmin, map = null, voice = null }) {
   let N = frameOf(sr), X = fadeOf(sr), C = N + X + (voice ? voice.context : 0), lat = shiftLatency(rmin, sr, map?.rmax, voice?.latency), list = []
   for (let [a, b] of spans) {
@@ -160,11 +187,12 @@ function dryOut(h, output, q0, len) {
 /** A run of the vocoder over the span [e0, e1) of the timeline, fed from timeline sample S (content U(S)). */
 function session(st, S, [e0, e1]) {
   let { nch, sr, ratio, rmin, N, map, voice } = st, half = N >> 1, synHop = synHopOf(rmin, N), u0 = map ? map.U(S) : S
-  // a voice: one retuner for all channels, its cycles laid on the timeline as they were found (read at rate 1)
+  // a voice: one engine for all channels, its output laid on the timeline (read at rate 1): a retuner's cycles as they
+  // were found, or a stretch's segments where the map puts them
   if (voice) {
-    let tc = voice.make(x => ratio(S + x * sr))
-    if (tc.latency + st.X > st.lat) throw new Error(`pitch: the voice engine runs ${tc.latency} samples behind, over the ${st.lat - st.X} declared`)
-    return { S, u0, e0: Math.max(e0, S), e1, fed: 0, tc, voc: Array.from({ length: nch }, ring), rate: () => 1, t: 0, p: 0 }
+    let tc = map ? voice.make(s => map.U(S + s) - u0, () => map.U(voice.length()) - u0) : voice.make(x => ratio(S + x * sr))
+    if (tc.latency != null && tc.latency + st.X > st.lat) throw new Error(`pitch: the voice engine runs ${tc.latency} samples behind, over the ${st.lat - st.X} declared`)
+    return { S, u0, e0: Math.max(e0, S), e1, fed: 0, tc, voc: Array.from({ length: nch }, ring), rate: () => 1, t: 0, p: 0, buf: null }
   }
   // the content, from u0 on, and its ratio, per sample
   let rate = n => ratio(u0 + n)
@@ -213,23 +241,19 @@ function feed(st, cur, h, n1) {
     while (to > from && map.T(cur.u0 + to) > edge) to--
   }
   if (to <= from) return
-  let nch = cur.voc.length
+  let nch = cur.voc.length, xs = h.buf.map((b, c) => {
+    if (!map) return b.subarray(cur.S + from - h.start, cur.S + to - h.start)
+    let x = (cur.buf ??= [])[c] = cur.buf[c]?.length >= to - from ? cur.buf[c].subarray(0, to - from) : new Float32Array(to - from)
+    for (let i = 0; i < to - from; i++) { let u = cur.u0 + from + i; x[i] = dryBand(h, c, map.T(u), Math.min(1, 1 / map.rate(u))) }
+    return x
+  })
+  cur.fed = to
   if (cur.tc) {
-    let res = cur.tc.write(h.buf.map(b => b.subarray(cur.S + from - h.start, cur.S + to - h.start)))
+    let res = cur.tc.write(xs)
     for (let c = 0; c < nch; c++) append(cur.voc[c], res[c])
-    cur.fed = to
     return
   }
-  for (let c = 0; c < nch; c++) {
-    let v = cur.voc[c], x
-    if (!map) x = h.buf[c].subarray(cur.S + from - h.start, cur.S + to - h.start)
-    else {
-      x = (cur.buf ??= [])[c] = cur.buf[c]?.length >= to - from ? cur.buf[c].subarray(0, to - from) : new Float32Array(to - from)
-      for (let i = 0; i < to - from; i++) { let u = cur.u0 + from + i; x[i] = dryBand(h, c, map.T(u), Math.min(1, 1 / map.rate(u))) }
-    }
-    append(v, v.write(x))
-  }
-  cur.fed = to
+  for (let c = 0; c < nch; c++) append(cur.voc[c], cur.voc[c].write(xs[c]))
   // hops the vocoders have used go
   let k = Math.min(...cur.voc.map(v => v.frames())) - 2 - cur.fr.base
   if (k > 256) { cur.fr.hop.splice(0, k); cur.fr.base += k }
@@ -397,7 +421,7 @@ const stretchShape = o => {
   let f = o.factor
   return typeof f === 'number' && f > 0 && f !== 1 ? { rmin: ranged ? Math.min(1, f) : f, rmax: Math.max(1, f) } : null
 }
-const stretchLatency = (o, sr) => { let sh = stretchShape(o); return sh ? shiftLatency(sh.rmin, sr, sh.rmax) : 0 }
+const stretchLatency = (o, sr) => { let sh = stretchShape(o); return sh ? shiftLatency(sh.rmin, sr, sh.rmax, o.voice ? voiceEngine(sh.rmax, sr).latency : undefined) : 0 }
 
 /** The plan's map of a stretch, content sample u → timeline T(u), and back: piecewise linear, the identity before the
  *  range and shifted by D after it. `knots`: [content, timeline, factor] at each piece's start, in order. */
@@ -431,7 +455,11 @@ const stretchDsp = (input, output, ctx) => {
       }
       map.rmax = sh.rmax
     }
-    st = ctx._state = sh && shifter(input.length, { sampleRate: sr, rmin: sh.rmin, ratio: map.rate, spans: [[a0, a1]], map })
+    // a voice: one engine for all channels (segments shortening, reset frames slowing), none reading past the timeline's
+    // end once it is known
+    let length = () => ctx.totalDuration >= 0 ? Math.round(ctx.totalDuration * sr) : Infinity, eng = sh && ctx.voice && voiceEngine(sh.rmax, sr)
+    let voice = eng ? { make: (at, end) => eng.make(input.length, at, end), length, latency: eng.latency, context: 0 } : null
+    st = ctx._state = sh && shifter(input.length, { sampleRate: sr, rmin: sh.rmin, ratio: map.rate, spans: [[a0, a1]], map, voice })
   }
   if (!st) { for (let c = 0; c < input.length; c++) output[c].set(input[c]); return }
   shiftBlock(st, input, output, Math.round(ctx.blockOffset * ctx.sampleRate))
@@ -469,7 +497,7 @@ audio.op('stretch', {
       // _stretch_seg splices in pre-stretch (source) coords; _stretch_dsp works on
       // the stretched timeline — same at, span = Σ quanta output
       let ranged = ctx.at != null || ctx.duration != null
-      let dsp = { fv, ot, q, at: ctx.at != null ? from : undefined, duration: ranged ? tOut - from : undefined, n: ranged ? spanN : undefined }
+      let dsp = { fv, ot, q, at: ctx.at != null ? from : undefined, duration: ranged ? tOut - from : undefined, n: ranged ? spanN : undefined, voice: ctx.voice }
       return [
         ['_stretch_seg', { fv, q, at: ctx.at, duration: ctx.duration }],
         ['_stretch_dsp', dsp]
@@ -480,7 +508,7 @@ audio.op('stretch', {
     // _stretch_seg inherits {at, duration} in pre-stretch coords (segment splice);
     // _stretch_dsp works post-stretch: same at, duration scaled by the factor
     // the stretched range, as long as the plan makes it: round(round(duration · sr) · factor) samples
-    let dsp = { factor: f }
+    let dsp = { factor: f, voice: ctx.voice }
     if (ctx.duration != null) { dsp.n = Math.round(ctx.duration * ctx.sampleRate); dsp.duration = Math.round(dsp.n * f) / ctx.sampleRate }
     return [
       ['_stretch_seg', { factor: f }],

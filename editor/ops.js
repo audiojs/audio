@@ -218,7 +218,7 @@ export const methods = {
   clone: { text: 'An independent copy' },
   clip: { text: 'An excerpt, sharing samples' },
   split: { text: 'Excerpts between times' },
-  mark: { text: 'A marker at a time, with a label' },
+  mark: { text: 'A marker at a time, or over a range, with a label' },
   undo: { text: 'Undo the last edit' },
   transform: { text: 'Process with your own function', edits: true },
   filter: { text: 'Filter by type name', edits: true },

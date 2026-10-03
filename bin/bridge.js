@@ -1,33 +1,36 @@
 /**
  * audio bridge: the editor page and the user's own AI agents meet here, over HTTP on 127.0.0.1.
  *
- *   audio --bridge [--port 7777] [--key K] [--timeout 30] [--agent claude|codex]
+ *   audio --bridge [--port 7777] [--key K] [--timeout 30] [--agent NAME | --agent "COMMAND"]
  *
  * The page holds the sound, so an agent reaches it through tools the page answers. The page listens
  * on GET /events (Server-Sent Events) and answers each `call` event with POST /reply; POST /call,
- * which `audio --mcp --editor URL --key K` sends for an agent's editor tool, waits for that answer;
+ * which `audio --mcp --editor` sends for an agent's editor tool, waits for that answer;
  * GET /file?path=P hands the page a media file from this machine, to open (`open`).
- * POST /chat runs the bridge's agent CLI headless, with those tools attached, and streams its
- * answer to the page as `chat` events. The agent is chosen once, as the bridge starts: --agent, or
- * the first of AGENTS found on PATH. CORS is open to any origin (the page may be served from
- * https://audiojs.dev), so the key is the auth: every request carries it, as `?key=K` or
- * `Authorization: Bearer K`. Nothing the page sends is executed except an agent CLI from the
- * registry below, spawned without a shell, the user's text on its stdin.
+ * POST /chat runs an agent CLI of the user's headless, with those tools attached, and streams its
+ * answer to the page as `chat` events: any of AGENTS found on PATH, the page choosing one for each
+ * conversation, --agent the first; or any agent that speaks ACP, by its command line. CORS is open
+ * to any origin (the page may be served from https://audiojs.dev), so the key is the auth: every
+ * request carries it, as `?key=K` or `Authorization: Bearer K`. The address and key are kept in
+ * BRIDGE (bin/mcp.js): the key holds from one run to the next, and an MCP server finds the bridge by
+ * itself. Nothing the page sends is executed except an agent CLI the bridge found, spawned without a
+ * shell, the user's text on its stdin.
  */
 import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { accessSync, constants, createReadStream, readFileSync, statSync } from 'node:fs'
+import { accessSync, constants, createReadStream, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, delimiter, extname, isAbsolute, join } from 'node:path'
-import { createInterface } from 'node:readline'
+import { basename, delimiter, dirname, extname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { BRIDGE, EDITOR, TOOL, lines, split } from './mcp.js'
 
 const CLI = fileURLToPath(new URL('./cli.js', import.meta.url))
+const PI = fileURLToPath(new URL('./pi.js', import.meta.url))
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 const LIMIT = 8 << 20  // bytes of a request body: a script or a page's answer, never audio
 const SESSION = /^\w[\w-]{0,127}$/  // an agent's session id lands in argv: no leading dash, so never a flag
-const USAGE = 'audio --bridge [--port 7777] [--key K] [--timeout 30] [--agent claude|codex]'
+const USAGE = 'audio --bridge [--port 7777] [--key K] [--timeout 30] [--agent NAME | --agent "COMMAND"]'
 const RECALL = 30000  // chars of an earlier conversation told to an agent that does not hold it
 const PREFLIGHT = {
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -37,7 +40,7 @@ const PREFLIGHT = {
 }
 
 // What a chat agent is told besides its own setup: where it is and what the tools touch.
-const PROMPT = `You are chatting with the user inside the audio editor, a browser page where they edit one sound with the audio JS library. The tools of the MCP server "audio" (state, measure, look, edit, step, script, select, scrub, play, check, open, undo) read and change that sound; the user sees and hears each change at once. Work on the sound in the page, not on files: a file dropped into the page has no path, and the page's sound is the script's output, edits included. Call state first. Measure with measure (any stat, over time or a range, silences, notes), see with look, mark findings on the timeline with edit("mark(time, 'label')"), point the user at a place with select (a band too) or scrub. Open a file of theirs with open. Prefer edit for one step; step turns an edit off, takes it away or moves it; script rewrites; check measures against a delivery spec; play lets them hear it (original: true for the file as it opened, level-matched). Reply briefly, in Markdown: the page renders it beside the sound.`
+const PROMPT = `You are chatting with the user inside the audio editor, a browser page where they edit one sound with the audio JS library. The editor's tools (state, measure, look, edit, step, script, select, scrub, play, check, open, undo; the MCP server "audio") read and change that sound; the user sees and hears each change at once. Work on the sound in the page, not on files: a file dropped into the page has no path, and the page's sound is the script's output, edits included. Call state first. Measure with measure (any stat, over time or a range, silences, notes), see with look, mark findings on the timeline with edit("mark(time, 'label')"), point the user at a place with select (a band too) or scrub. Open a file of theirs with open. Prefer edit for one step; step turns an edit off, takes it away or moves it; script rewrites; check measures against a delivery spec; play lets them hear it (original: true for the file as it opened, level-matched). Reply briefly, in Markdown: the page renders it beside the sound.`
 
 const toml = v => JSON.stringify(v)  // a JSON string or array of strings is TOML too
 // What GET /file hands a page, by extension: the audio and video the editor opens, nothing else on the machine
@@ -48,21 +51,21 @@ const MEDIA = {
 }
 
 /**
- * Agent CLIs /chat can run, the bridge's one chosen as it starts. `name` is what the page calls it.
- * A turn spawns `KEY ...args(mcp, session)`: `mcp` is { command, args } of the MCP server serving
- * the editor's tools, `session` the id the agent gave on an earlier turn, to continue that
- * conversation. The user's text goes to stdin, never into argv, where a text like
- * `--dangerously-skip-permissions` would read as a flag; `env` adds to its environment. read()
- * makes a parser for one turn: each JSON line the agent prints → chat events, { text } |
- * { tool, input, id } (a call starts, with what it was given) | { answered: id, failed } (that
- * call's answer, in whatever order they come) | { thinking } (it thinks, or composes a call) |
+ * Agent CLIs /chat can run, by the executable's name on PATH (`command`, where it differs). `name` is
+ * what the page calls it. Most speak ACP, the Agent Client Protocol (acp(), below): `acp` is the
+ * arguments that start one as an ACP server, the MCP server handed to it as a session opens.
+ *
+ * The others print JSON lines of their own: a turn spawns `KEY ...args(mcp, session)`, `mcp` being
+ * { command, args } of the MCP server serving the editor's tools, `session` the id the agent gave on
+ * an earlier turn, to continue that conversation. The user's text goes to stdin, never into argv,
+ * where a text like `--dangerously-skip-permissions` would read as a flag; `env` adds to its
+ * environment. read() makes a parser for one turn: each JSON line the agent prints → chat events,
+ * { text } | { tool, input, id } (a call starts, with what it was given) | { answered: id, failed }
+ * (that call's answer, in whatever order they come) | { thinking } (it thinks, or composes a call) |
  * { session } | { done, error? }, or { error } to report should the agent exit without finishing.
  *
- * To add an agent: its headless command, a JSON-lines output, a way to attach an MCP server for one
- * run. Found here but left out for want of one:
- *   gemini    gemini -p … -o stream-json: MCP servers only from settings.json (`gemini mcp add` writes
- *             it for good); --resume takes "latest" or an index, not an id
- *   opencode  opencode run --format json -s ID: MCP servers only from opencode.json
+ * Any other ACP agent runs by its command line, --agent "goose acp". Every agent runs with
+ * AUDIO_EDITOR and AUDIO_BRIDGE_KEY, the bridge's address and key, which bin/pi.js reaches it by.
  */
 export const AGENTS = {
   // Claude Code: https://code.claude.com/docs/en/headless; stream-json lines carry the session id,
@@ -123,18 +126,175 @@ export const AGENTS = {
         return []
       }
     }
+  },
+  // Pi: https://pi.dev, `pi --mode json` prints its session, then its events (docs/json.md), the text on stdin its
+  // prompt. It takes no MCP server: the editor's tools come as an extension (bin/pi.js), its own (read, bash, edit,
+  // write) left out. A run that fails says so in its last assistant message, exiting 0.
+  pi: {
+    name: 'Pi',
+    args: (mcp, session) => ['--mode', 'json', '--no-builtin-tools', '-e', PI, '--append-system-prompt', PROMPT, ...(session ? ['--session', session] : [])],
+    read() {
+      let said = false, failed = null
+      return m => {
+        let e = m.assistantMessageEvent
+        if (m.type === 'session') return [{ session: m.id }]
+        if (e?.type === 'text_start' && said) return [{ text: '\n\n' }]
+        if (e?.type === 'text_delta') return said = true, [{ text: e.delta }]
+        if (e?.type === 'thinking_start' || e?.type === 'toolcall_start') return [{ thinking: true }]
+        if (m.type === 'tool_execution_start') return [{ tool: m.toolName, input: m.args, id: m.toolCallId }]
+        if (m.type === 'tool_execution_end') return [{ answered: m.toolCallId, failed: !!m.isError }]
+        // a retry may follow a failure: the last one decides, once pi settles
+        if (m.type === 'message_end' && m.message?.role === 'assistant') failed = ['error', 'aborted'].includes(m.message.stopReason) ? plain(m.message.errorMessage) || m.message.stopReason : null
+        if (m.type === 'agent_settled') return [failed ? { done: true, error: failed } : { done: true }]
+        return []
+      }
+    }
+  },
+  // ACP agents, as the ACP registry starts them (https://agentclientprotocol.com/get-started/registry). Left out: Copilot
+  // CLI, which drops a session's MCP servers; OpenHands, whose loaded session loses them; Crush and Aider speak no ACP
+  gemini: { name: 'Gemini CLI', acp: ['--acp'] },
+  qwen: { name: 'Qwen Code', acp: ['--acp'] },
+  kimi: { name: 'Kimi Code', acp: ['acp'] },
+  opencode: { name: 'OpenCode', acp: ['acp'] },
+  kilo: { name: 'Kilo Code', acp: ['acp'] },
+  cline: { name: 'Cline', acp: ['--acp'] },
+  goose: { name: 'Goose', acp: ['acp'] },
+  droid: { name: 'Factory Droid', acp: ['exec', '--output-format', 'acp'] },
+  cursor: { name: 'Cursor', command: 'cursor-agent', acp: ['acp'] },
+  auggie: { name: 'Augment', acp: ['--acp'] },
+  kiro: { name: 'Kiro', command: 'kiro-cli', acp: ['acp'] },
+  vibe: { name: 'Mistral Vibe', command: 'vibe-acp', acp: [] }
+}
+
+// A provider's error as a person reads it: `400: {"message": …}` its message
+const plain = s => { try { return JSON.parse(s.match(/^\d{3}: (\{.*\})$/s)[1]).message || s } catch { return s } }
+
+// What an ACP turn's end says, by its stop reason, where it ended short
+const STOPPED = { max_tokens: 'It ran out of tokens', max_turn_requests: 'It reached its limit of steps', refusal: 'It declined to go on', cancelled: 'Stopped' }
+// The kinds of an ACP agent's own tool calls that only read, allowed as Claude Code's reading is
+const READS = new Set(['read', 'search', 'think', 'fetch'])
+const OURS = [TOOL, ...EDITOR]
+
+/**
+ * The editor's tool an ACP tool call is, by its title as agents write an MCP server's tool, mcp__audio__edit,
+ * audio_edit, audio/edit, Tool: audio/edit, edit (audio MCP Server); or bare, given only what that tool takes.
+ */
+function ours({ title, rawInput }) {
+  let t = String(title ?? '').trim()
+  let name = t.match(/(?:^|[^a-z\d])audio(?:__|[_./:-])(\w+)(?=$|[\s(:])/i)?.[1] ?? t.match(/^(\w+)\s*\(\s*audio\b/i)?.[1]
+  if (OURS.some(x => x.name === name)) return name
+  let tool = OURS.find(x => x.name === t)
+  if (tool && Object.keys(rawInput ?? {}).every(k => Object.hasOwn(tool.inputSchema.properties, k))) return t
+}
+
+// An ACP error as said: its details where it has them, else its message; one that wants a sign-in, how to give it
+function failure(e, name) {
+  let said = String(typeof e?.data === 'string' ? e.data : typeof e?.data?.details === 'string' ? e.data.details : e?.message ?? 'failed').replace(/\.$/, '')
+  return /auth/i.test(said) ? `${said}: sign in to ${name} in a terminal, then ask again` : said
+}
+
+/**
+ * One turn with an agent that speaks the Agent Client Protocol (https://agentclientprotocol.com), JSON-RPC
+ * over its stdio, `write` sending a message: initialize; the conversation gone on with (session/resume,
+ * or session/load, its replay unheard) or begun (session/new, the prompt before the user's text), the
+ * MCP server handed to it either way; the text prompted. What happens comes to `take` as chat events,
+ * as a parsed line of another agent's does. Returns the parser of what the agent prints, which
+ * answers its requests: a permission granted for the editor's tools and for reading, refused for the
+ * rest, as Claude Code runs here; no other of a client's (files, terminals) offered.
+ */
+function acp(write, take, { text, session, mcp, name }) {
+  let n = 0, asked = new Map(), calls = new Map(), quiet = false, said = false, gap = false
+  let ask = (method, params) => new Promise((resolve, reject) => { asked.set(++n, { resolve, reject }); write({ jsonrpc: '2.0', id: n, method, params }) })
+  let opened = { cwd: process.cwd(), mcpServers: [{ name: 'audio', command: mcp.command, args: mcp.args, env: [] }] }
+  ;(async () => {
+    let { agentCapabilities: can = {} } = await ask('initialize', { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false }, clientInfo: { name: 'audio', version } })
+    let sessionId = session
+    if (!session) ({ sessionId } = await ask('session/new', opened))
+    else if (can.sessionCapabilities?.resume) await ask('session/resume', { sessionId, ...opened })
+    else if (can.loadSession) { quiet = true; await ask('session/load', { sessionId, ...opened }); quiet = false }
+    else throw new Error(`${name} cannot go on with an earlier conversation`)
+    take({ session: sessionId })
+    let { stopReason } = await ask('session/prompt', { sessionId, prompt: [{ type: 'text', text: session ? text : `${PROMPT}\n\n---\n\n${text}` }] })
+    take(STOPPED[stopReason] ? { done: true, error: STOPPED[stopReason] } : { done: true })
+  })().catch(e => take({ done: true, error: e.message }))
+
+  // A call said once it says what it was given, or runs; answered once it ends. An update carries only what changed.
+  function called({ sessionUpdate, ...u }) {
+    let c = { ...calls.get(u.toolCallId), ...u }, out = [], ended = c.status === 'completed' || c.status === 'failed'
+    calls.set(u.toolCallId, c)
+    if (!c.said && (ended || c.status === 'in_progress' || Object.keys(c.rawInput ?? {}).length)) {
+      c.said = gap = true
+      let title = String(c.title ?? '').trim().split('\n')[0].slice(0, 120) || c.kind || 'tool'
+      // its own, by its title: one titled as an editor tool is, its own all the same (`edit` is ours alone)
+      out.push({ tool: ours(c) ?? (OURS.some(x => x.name === title) ? `${title} (${name}'s)` : title), input: c.rawInput, id: c.toolCallId })
+    }
+    if (ended && !c.answered) c.answered = true, out.push({ answered: c.toolCallId, failed: c.status === 'failed' })
+    return out
+  }
+  function grant({ toolCall = {}, options = [] }) {
+    let c = { ...calls.get(toolCall.toolCallId), ...toolCall }
+    let pick = ([kind, or]) => options.find(o => o.kind === kind) ?? options.find(o => o.kind === or)
+    let o = ours(c) || READS.has(c.kind) ? pick(['allow_once', 'allow_always']) : pick(['reject_once', 'reject_always'])
+    return o ? { outcome: 'selected', optionId: o.optionId } : { outcome: 'cancelled' }
+  }
+
+  return m => {
+    if (m.method == null) {  // an answer to the bridge
+      let w = asked.get(m.id)
+      asked.delete(m.id)
+      m.error ? w?.reject(new Error(failure(m.error, name))) : w?.resolve(m.result ?? {})
+      return []
+    }
+    if (m.id != null) {  // the agent asks
+      write({ jsonrpc: '2.0', id: m.id, ...m.method === 'session/request_permission' ? { result: { outcome: grant(m.params ?? {}) } } : { error: { code: -32601, message: `Method not found: ${m.method}` } } })
+      return []
+    }
+    let u = m.method === 'session/update' && !quiet && m.params?.update || {}
+    if (u.sessionUpdate === 'agent_message_chunk' && u.content?.type === 'text' && u.content.text) {
+      let t = (said && gap ? '\n\n' : '') + u.content.text
+      said = true, gap = false
+      return [{ text: t }]
+    }
+    if (u.sessionUpdate === 'agent_thought_chunk') return [{ thinking: true }]
+    if (u.sessionUpdate === 'tool_call' || u.sessionUpdate === 'tool_call_update') return called(u)
+    return []
   }
 }
 
-/** The executable NAME on PATH, or undefined. Relative PATH entries are skipped: no binary from the cwd. */
+/** The executable NAME on PATH (or at its absolute path), or undefined. Relative PATH entries are skipped: no binary from the cwd. */
 function which(name) {
   let exts = process.platform === 'win32' ? (process.env.PATHEXT ?? '.EXE').split(';') : ['']
-  for (let dir of (process.env.PATH ?? '').split(delimiter)) if (isAbsolute(dir)) for (let ext of exts) {
-    let file = join(dir, name + ext)
+  let dirs = isAbsolute(name) ? [''] : (process.env.PATH ?? '').split(delimiter).filter(dir => isAbsolute(dir))
+  for (let dir of dirs) for (let ext of exts) {
+    let file = dir ? join(dir, name + ext) : name + ext
     try { if (statSync(file).isFile()) return accessSync(file, constants.X_OK), file } catch {}
   }
 }
-const found = () => Object.keys(AGENTS).filter(which)
+
+/** The agents to chat with: --agent's first (a name, or an ACP agent's command line), then the rest of AGENTS on PATH. */
+function agentsOf(chosen) {
+  let out = new Map()
+  if (chosen != null && !Object.hasOwn(AGENTS, chosen)) {
+    let [command, ...args] = split(chosen), path = command && which(command)
+    if (!path) throw new Error(`--agent: ${command ? `${command} not found` : 'empty'}; one of ${Object.keys(AGENTS).join(', ')}, or the command line of an agent that speaks ACP`)
+    out.set(chosen, { name: chosen, path, acp: args })
+  } else if (chosen != null && !which(AGENTS[chosen].command ?? chosen)) throw new Error(`--agent ${chosen}: not on PATH`)
+  for (let id of [chosen, ...Object.keys(AGENTS)]) {
+    let path = Object.hasOwn(AGENTS, id) && which(AGENTS[id].command ?? id)
+    if (path && !out.has(id)) out.set(id, { ...AGENTS[id], path })
+  }
+  return out
+}
+
+/** What the last bridge kept: { url, key }. */
+const kept = () => { try { return JSON.parse(readFileSync(BRIDGE, 'utf8')) } catch { return {} } }
+// The address and key, kept for the next run and for MCP servers to find: the user's alone to read
+function keep(url, key) {
+  try {
+    mkdirSync(dirname(BRIDGE), { recursive: true, mode: 0o700 })
+    writeFileSync(BRIDGE, JSON.stringify({ url, key }) + '\n', { mode: 0o600 })
+  } catch {}
+}
 
 const same = (a, b) => {
   if (typeof a !== 'string') return false
@@ -162,23 +322,25 @@ const body = req => new Promise((resolve, reject) => {
 })
 
 function options(argv) {
-  let o = { port: 7777, key: process.env.AUDIO_BRIDGE_KEY || randomBytes(16).toString('hex'), timeout: 30 }
+  let o = { port: 7777, timeout: 30 }
   for (let i = 0; i < argv.length; i += 2) {
     let name = argv[i].replace(/^--/, ''), value = argv[i + 1]
     if (!['port', 'key', 'timeout', 'agent'].includes(name) || argv[i] === name) throw new Error(`unknown option ${argv[i]}: ${USAGE}`)
     if (value == null) throw new Error(`${argv[i]} needs a value: ${USAGE}`)
     o[name] = name === 'key' || name === 'agent' ? value : +value
   }
-  if (o.agent != null && !Object.hasOwn(AGENTS, o.agent)) throw new Error(`--agent: ${Object.keys(AGENTS).join(' or ')}`)
-  if (o.agent != null && !which(o.agent)) throw new Error(`--agent ${o.agent}: not on PATH`)
   if (!Number.isInteger(o.port) || o.port < 0 || o.port > 65535) throw new Error('--port: 0..65535, 0 picks a free one')
   if (!(o.timeout > 0)) throw new Error('--timeout: seconds a page has to answer a call, over 0')
-  if (!o.key) throw new Error('--key: not empty')
+  if (o.key === '') throw new Error('--key: not empty')
+  o.key ??= process.env.AUDIO_BRIDGE_KEY || kept().key || randomBytes(16).toString('hex')
+  o.agents = agentsOf(o.agent)
   return o
 }
 
 export default function bridge(argv = []) {
-  let { port, key, timeout, agent = found()[0] } = options(argv)
+  let { port, key, timeout, agents } = options(argv)
+  let first = agents.keys().next().value  // the agent a conversation starts with, unless the page names another
+  let listed = [...agents].map(([id, a]) => ({ id, name: a.name }))
   timeout *= 1000
   let url, page = null              // the one connected page's event stream
   let calls = new Map()             // call id → { page, answer([status, body]) }
@@ -190,7 +352,7 @@ export default function bridge(argv = []) {
     if (page) send(page, { type: 'replaced' }), page.end()
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' })
     page = res
-    send(res, { type: 'hello', version, agent: agent ? { id: agent, name: AGENTS[agent].name } : null })
+    send(res, { type: 'hello', version, agent: listed[0] ?? null, agents: listed })
     let beat = setInterval(() => res.write(':\n\n'), 15000)  // keeps proxies and idle timers from closing it
     res.on('close', () => {
       clearInterval(beat)
@@ -223,17 +385,18 @@ export default function bridge(argv = []) {
     reply(res, 204)
   }
 
-  // POST /chat: one agent turn, its output streamed to the page as chat events. `history`, the conversation so far as
-  // the page keeps it ([{ role: 'user' | 'agent', text }]), is told to an agent that does not hold it: no `session`, or
-  // one it no longer has.
-  function chat({ text, session, history = [] }, res) {
+  // POST /chat: one agent turn, its output streamed to the page as chat events. `agent`, one of those hello listed, the
+  // first unless named. `history`, the conversation so far as the page keeps it ([{ role: 'user' | 'agent', text }]), is
+  // told to an agent that does not hold it: no `session`, or one it no longer has.
+  function chat({ text, session, history = [], agent = first }, res) {
     if (typeof text !== 'string' || !text.trim()) return reply(res, 400, { error: 'text: what to tell the agent' })
-    if (!agent) return reply(res, 400, { error: `No agent on PATH: install ${Object.values(AGENTS).map(a => a.name).join(' or ')}, then start the bridge again` })
+    if (!agents.size) return reply(res, 400, { error: `No agent on PATH: install one (${Object.values(AGENTS).slice(0, 6).map(a => a.name).join(', ')}, …), then start the bridge again` })
+    if (!agents.has(agent)) return reply(res, 400, { error: `agent: one of ${[...agents.keys()].join(', ')}` })
     if (session && !(typeof session === 'string' && SESSION.test(session))) return reply(res, 400, { error: 'session: an id the agent gave' })
     if (!Array.isArray(history) || !history.every(m => typeof m?.text === 'string')) return reply(res, 400, { error: 'history: [{ role, text }]' })
     if (!page) return reply(res, 503, { error: 'No editor page is connected' })
     let turn = randomBytes(8).toString('hex')
-    run(turn, text, session || undefined, history)
+    run(turn, agent, text, session || undefined, history)
     reply(res, 202, { turn })
   }
 
@@ -247,38 +410,42 @@ export default function bridge(argv = []) {
     return told.length ? `Our conversation so far, which you no longer hold:\n\n${told.join('\n\n')}\n\nThe user now says:\n\n${text}` : text
   }
 
-  function run(turn, text, session, history) {
-    let { args, read, env } = AGENTS[agent], parse = read()
+  function run(turn, id, text, session, history) {
+    let a = agents.get(id), parse
     let mcp = { command: process.execPath, args: [CLI, '--mcp', '--editor', url, '--key', key] }
-    let child = spawn(which(agent), args(mcp, session), { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...env } })
+    let child = spawn(a.path, a.acp ?? a.args(mcp, session), { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...a.env, AUDIO_EDITOR: url, AUDIO_BRIDGE_KEY: key } })
     let over = false, said, problem, err = ''
     let emit = e => send(page, { type: 'chat', turn, ...e })
     // A session the agent cannot resume (started in another folder, another machine's, cleared) fails before the agent
-    // names one: the same turn again, afresh, told what was said
+    // names one: the same turn again, afresh, told what was said. An ACP agent stays to serve: its turn over, it goes.
     let end = (error, again = true) => {
       if (over) return
       over = true
-      if (error && again && session && !said) return child.kill(), run(turn, text, undefined, history)
+      if (a.acp) child.kill()
+      if (error && again && session && !said) return child.kill(), run(turn, id, text, undefined, history)
       emit(error ? { done: true, error } : { done: true })
+    }
+    let take = e => {
+      if (over) return
+      if (e.done) return end(e.error)
+      if ('error' in e) problem = e.error
+      else if (!e.session) emit(e)
+      else if (e.session !== said) emit({ session: said = e.session })
     }
     turns.set(turn, { child, stop() { end('Stopped', false); child.kill(); setTimeout(() => child.kill('SIGKILL'), 3000).unref() } })
     child.stdin.on('error', () => {})  // an agent may exit before reading
-    child.stdin.end(session ? text : recall(history, text))
+    let input = session ? text : recall(history, text)
+    parse = a.acp ? acp(m => child.stdin.write(JSON.stringify(m) + '\n'), take, { text: input, session, mcp, name: a.name }) : (child.stdin.end(input), a.read())
     child.stderr.setEncoding('utf8').on('data', d => err = (err + d).slice(-4000))
-    createInterface({ input: child.stdout }).on('line', line => {
+    lines(child.stdout, line => {
       let m
       try { m = JSON.parse(line) } catch { return }
-      if (!over) for (let e of parse(m)) {
-        if (e.done) return end(e.error)
-        if ('error' in e) problem = e.error
-        else if (!e.session) emit(e)
-        else if (e.session !== said) emit({ session: said = e.session })
-      }
+      if (!over) for (let e of parse(m)) take(e)
     })
-    child.on('error', e => end(`${agent}: ${e.message}`))
+    child.on('error', e => end(`${id}: ${e.message}`))
     child.on('close', (code, signal) => {
       if (turns.get(turn)?.child === child) turns.delete(turn)
-      end(code === 0 ? problem : problem || err.trim().split('\n').at(-1) || `${agent} exited with ${signal ?? `code ${code}`}`)
+      end(code === 0 ? problem : problem || err.trim().split('\n').at(-1) || `${id} exited with ${signal ?? `code ${code}`}`)
     })
   }
 
@@ -312,7 +479,7 @@ export default function bridge(argv = []) {
     try {
       if (req.method === 'GET' && pathname === '/events') return listen(res)
       if (req.method === 'GET' && pathname === '/file') return file(searchParams.get('path'), res)
-      if (req.method === 'GET' && pathname === '/health') return reply(res, 200, { ok: true, page: !!page, agent: agent ?? null })
+      if (req.method === 'GET' && pathname === '/health') return reply(res, 200, { ok: true, page: !!page, agent: first ?? null, agents: [...agents.keys()] })
       if (req.method === 'POST' && Object.hasOwn(POST, pathname)) return await POST[pathname](await body(req), res)
       reply(res, 404, { error: `No ${req.method} ${pathname}` })
     } catch (e) { reply(res, e.status ?? 500, { error: e.message }) }
@@ -326,8 +493,9 @@ export default function bridge(argv = []) {
     server.once('error', e => reject(e.code === 'EADDRINUSE' ? new Error(`port ${port} is in use, another bridge? Pick one: --port N`) : e))
     server.listen(port, '127.0.0.1', () => {
       url = `http://127.0.0.1:${server.address().port}`
-      let others = found().filter(a => a !== agent).map(a => `--agent ${a}`)
-      console.log(`audio bridge on ${url}  key ${key}  ${agent ? `agent ${agent}${others.length ? ` (${others.join(', ')})` : ''}` : 'no agent on PATH'}`)
+      keep(url, key)
+      let ids = [...agents.keys()].map(id => /\s/.test(id) ? JSON.stringify(id) : id)
+      console.log(`audio bridge on ${url}  key ${key}  ${ids.length ? `agent${ids.length > 1 ? 's' : ''} ${ids.join(', ')}` : 'no agent on PATH'}`)
       resolve(server)
     })
   })

@@ -29,6 +29,7 @@ Parity evidence: [.work/baseline.md](baseline.md). Perf: [docs/comparison.md § 
 * [ ] Podcast: make podcast-ready speech
 * [ ] Detect parts of speech, ads etc - remove
 * [ ] Agentic musician for live playing
+* [ ] detect style of music
 
 ## Pro tier
 

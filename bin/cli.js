@@ -1351,8 +1351,8 @@ Options:
   --help, -h    Show this help (or after an op: audio gain --help)
   --version, -v Show version
   --completions SHELL  Print tab-completion script (zsh, bash, fish)
-  --mcp         Serve this CLI to AI agents as an MCP tool (stdio); --editor URL --key K adds the editor's tools
-  --bridge      Let AI agents edit the sound open in the editor, and its chat talk to your agent (127.0.0.1:7777)
+  --mcp         Serve this CLI to AI agents as an MCP tool (stdio); --editor adds the editor's tools, through the bridge
+  --bridge      Let AI agents edit the sound open in the editor, and its chat talk to yours: Claude Code, Codex, Pi, any ACP agent (127.0.0.1:7777)
 
 Batch:
   audio '*.wav' gain -3db save '{name}.out.{ext}'

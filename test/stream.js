@@ -53,6 +53,7 @@ const EXACT = {
   'pad, repeat': [a => a.pad(0.5, 0.5).repeat(1), 0.4],
   'reverse({at: 1, duration: 1}): range held until complete': [a => a.reverse({ at: 1, duration: 1 }), 0.4],
   'speed, stretch, pitch, resample': [a => a.speed(1.5).stretch(1.25).pitch(3).resample(16000), 0.5],
+  'stretch(1.25, { voice: true })': [a => a.stretch(1.25, { voice: true }), 0.5],
   'remix(2), crossover': [a => a.remix(2).crossover(1000), 0.4],
   'spectral([200, 400], -20, 1 s at 1 s)': [a => a.spectral([200, 400], -20, { at: 1, duration: 1 }), 0.6],
   'spectral 1 s at -2 s: placed once the end is known': [a => a.spectral([200, 400], -20, { at: -2, duration: 1 }), Infinity],

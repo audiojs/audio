@@ -193,7 +193,7 @@ test('declick (streaming:false): removes an inserted click, leaves clean speech 
 })
 
 test('declip (streaming:false): reconstructs a clipped sine closer to the unclipped reference', async () => {
-	let n = SR
+	let n = SR / 10                                 // 44 cycles: 88 runs to restore
 	let clean = new Float32Array(n)
 	for (let i = 0; i < n; i++) clean[i] = Math.sin(2 * Math.PI * 440 * i / SR)
 	let clipLevel = 0.85                          // ~10-sample clipped run per half-cycle

@@ -8,16 +8,18 @@
  * with and without a shell learn the same grammar. Hand-rolled JSON-RPC (a few tools need no
  * SDK); serves modern (2026-07-28, per-request _meta) and legacy (initialize) clients.
  *
- *   audio --mcp --editor http://127.0.0.1:7777 --key K
+ *   audio --mcp --editor [URL] [--key K]
  *
  * adds the editor's tools (state, measure, edit, …) for the sound open in the user's audio editor,
  * a browser page: each goes to the bridge (`audio --bridge`, bin/bridge.js), which hands it to the
  * page and returns its answer: JSON as text, a picture ({ image: data URL }) as image content.
+ * Without URL and key, the bridge running now, as it left them in BRIDGE: one line installs it in
+ * any agent, `npx -y audio --mcp --editor`.
  */
 import { spawn } from 'child_process'
 import { readFileSync } from 'fs'
 import { homedir } from 'os'
-import { createInterface } from 'readline'
+import { join } from 'path'
 import { fileURLToPath } from 'url'
 
 const CLI = fileURLToPath(new URL('./cli.js', import.meta.url))
@@ -28,8 +30,10 @@ const LIMIT = 20000  // chars of output per call: a beat/note list must not floo
 const SERVER = 'io.modelcontextprotocol/serverInfo'
 const CACHE = { ttlMs: 3600000, cacheScope: 'public' }  // modern lists must say how long they stay fresh: ours never change while the process lives
 const INVALID = { code: -32600, message: 'Invalid Request' }
+/** Where a running bridge keeps its address and key, for an editor tool to find it */
+export const BRIDGE = join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'audio', 'bridge.json')
 
-const TOOL = {
+export const TOOL = {
   name: 'audio',
   title: 'Audio',
   description: readFileSync(new URL('../skills/audio/SKILL.md', import.meta.url), 'utf8').replace(/^---[\s\S]*?---\s*/, ''),
@@ -51,7 +55,7 @@ const def = (name, title, description, properties = {}, required = [], readOnlyH
   annotations: { readOnlyHint, destructiveHint: false }  // every change is one undo step
 })
 const secs = description => ({ type: 'number', description })
-const EDITOR = [
+export const EDITOR = [
   def('state', 'Editor state', "The sound open in the user's audio editor, a browser page connected through `audio --bridge`: { script, duration, sampleRate, channels, selection: [a, b] in seconds or null, band: [low, high] Hz or null, cursor, markers, stats: { peak dBFS, loudness LUFS }, steps: [{ call, on }] the script's edits in order (`step` takes their index), problem }, problem being the script's error or null. Read it first, and again when the user may have acted: they edit the same sound, every tool here acts on it, and each change shows and sounds in the page at once. Measure anything else with `measure`, see it with `look`.", {}, [], true),
   def('script', 'Replace the script', `Replace the whole script and run it; answers once the sound has rendered: { ok, problem?, duration? }. One undo step.
 The script is JavaScript; its last expression is the sound the page shows and plays: the source, then a chain of the audio library's methods (API: https://github.com/audiojs/audio#api):
@@ -83,7 +87,7 @@ Plugin ops take named params, .compressor({ threshold: -24, ratio: 3 }); the aud
   src.stat('loudness')  // before the edits
 Stats: db rms peak crest dc clipping loudness momentary shortterm dialog truepeak lra dr replaygain noisefloor correlation centroid flatness rolloff slope spectrum ltas cepstrum silence hits onsets beats bpm key chords notes melody; Object.keys(audio.stat()) lists the built-in ones. An answer over 20000 chars is cut: ask for fewer bins or a range.`,
     { code: { type: 'string', description: 'JavaScript; its last expression is the answer' } }, ['code'], true),
-  def('look', 'Look at the sound', 'A picture of the output as the page draws it, a PNG: the waveform over the spectrogram, the times and frequencies labelled, from at for d seconds; without them, what the user sees. Clicks, breaths, sibilance, hum lines, a band cut off show here before any number does. The user\'s view stays as it is.',
+  def('look', 'Look at the sound', 'A picture of the output as the page draws it, a PNG: the waveform over the spectrogram, the times and frequencies labelled, from at for d seconds; without them, what the user sees. Clicks, breaths, sibilance, hum lines, a band cut off show here before any number does. Your last edit shows over it as its card draws it (its range, a threshold, a fade); a pitch edit, the pitch curve before it, dashed, and after. The user\'s view stays as it is.',
     { at: secs('Start, seconds'), d: secs('Duration, seconds') }, [], true),
   def('select', 'Select', "Select a range in the page, { at, d }; with low and high, a box of that band on the spectrogram, which then shows (for spectral([low, high], dB, { at, d }), repair()); or place the cursor, { cursor }. Brought into the user's view; shows them a place, changes no sound.",
     { at: secs('Range start, seconds'), d: secs('Range duration, seconds'), low: { type: 'number', description: 'Band bottom, Hz' }, high: { type: 'number', description: 'Band top, Hz' }, cursor: secs('Cursor position, seconds') }),
@@ -119,7 +123,7 @@ export function split(str) {
 }
 
 const running = new Map(), cancelled = new Set()  // request id → what to kill (a child, a fetch); ids the client gave up on
-let bridge = null  // { url, key } with --editor
+let bridge = null  // with --editor: { url, key } as given, either one possibly missing
 
 function run(id, argv) {
   return new Promise(resolve => {
@@ -146,25 +150,61 @@ async function call(id, { args }) {
   return text(cut(body, 'narrow with a range (0..30s) or fewer stats') || 'done', code !== 0 && !(argv.includes('check') && out.trim()))
 }
 
-/** An editor tool call, through the bridge to the page: its result as JSON text, its error as a tool error. */
+/** The bridge an editor call goes to: URL and key as given, what is missing as the running bridge left it in BRIDGE. */
+function locate({ url, key } = {}) {
+  let saved = {}
+  if (!url || !key) try { saved = JSON.parse(readFileSync(BRIDGE, 'utf8')) } catch {}
+  return { url: url || saved.url || 'http://127.0.0.1:7777', key: key || saved.key }
+}
+const given = () => ({ url: process.env.AUDIO_EDITOR, key: process.env.AUDIO_BRIDGE_KEY })
+
+/**
+ * An editor tool call, through the bridge to the page, as MCP content: its result as JSON text, a picture as an image;
+ * its error a tool error the model can act on (no bridge, no page, a timeout, the page's own). `to`: { url, key },
+ * either one missing found as locate() finds it; by default AUDIO_EDITOR and AUDIO_BRIDGE_KEY. Throws only aborted.
+ */
+export async function reach(tool, args, { signal, to = given() } = {}) {
+  let { url, key } = locate(to), res
+  if (!key) return text(`${tool}: no bridge running: the user runs \`audio --bridge\` and opens the editor`, true)
+  try {
+    res = await fetch(`${url}/call`, {
+      method: 'POST', signal, body: JSON.stringify({ tool, args }),
+      headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }
+    })
+  } catch (e) {
+    if (signal?.aborted) throw e
+    return text(`${tool}: no bridge at ${url} (${e.cause?.code ?? e.message}): the user runs \`audio --bridge\` and opens the editor`, true)
+  }
+  let { result, error } = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+  if (error != null) return text(`${tool}: ${error}`, true)
+  let png = typeof result?.image === 'string' && result.image.match(/^data:(image\/\w+);base64,(.+)$/)
+  if (png) return { content: [{ type: 'image', mimeType: png[1], data: png[2] }, ...result.text ? [{ type: 'text', text: result.text }] : []], isError: false }
+  return text(cut(result == null ? 'done' : typeof result === 'string' ? result : JSON.stringify(result)))
+}
+
 async function relay(id, tool, args) {
   let ctl = new AbortController()
   running.set(id, { kill: () => ctl.abort() })
   try {
-    let res = await fetch(`${bridge.url}/call`, {
-      method: 'POST', signal: ctl.signal, body: JSON.stringify({ tool, args }),
-      headers: { authorization: `Bearer ${bridge.key}`, 'content-type': 'application/json' }
-    })
-    let { result, error } = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
-    if (cancelled.delete(id)) return null
-    if (error != null) return text(`${tool}: ${error}`, true)  // no page, a timeout, the page's own error: the model can act on each
-    let png = typeof result?.image === 'string' && result.image.match(/^data:(image\/\w+);base64,(.+)$/)
-    if (png) return { content: [{ type: 'image', mimeType: png[1], data: png[2] }, ...result.text ? [{ type: 'text', text: result.text }] : []], isError: false }
-    return text(cut(result == null ? 'done' : typeof result === 'string' ? result : JSON.stringify(result)))
+    let result = await reach(tool, args, { signal: ctl.signal, to: bridge })
+    return cancelled.delete(id) ? null : result
   } catch (e) {
     if (cancelled.delete(id)) return null
-    return text(`${tool}: no bridge at ${bridge.url} (${e.cause?.code ?? e.message}): the user runs \`audio --bridge\` and opens the editor`, true)
+    throw e
   } finally { running.delete(id) }
+}
+
+/** Each line of a stream to `fn`, split at \n alone: JSON holds U+2028 and U+2029 as they are, where readline splits too. */
+export function lines(stream, fn) {
+  let rest = ''
+  stream.setEncoding('utf8')
+  stream.on('data', d => {
+    let all = (rest + d).split('\n')
+    rest = all.pop()
+    for (let line of all) fn(line.endsWith('\r') ? line.slice(0, -1) : line)
+  })
+  stream.on('end', () => rest && fn(rest))
+  return stream
 }
 
 const text = (t, isError = false) => ({ content: [{ type: 'text', text: t }], isError })
@@ -211,19 +251,17 @@ async function handle(msg) {
 }
 const answer = msg => handle(msg).catch(e => msg?.id != null ? { id: msg.id, error: { code: -32603, message: e.message } } : null)
 
-/** argv after --mcp: [--editor URL] [--key K], the key also from AUDIO_BRIDGE_KEY. */
+/** argv after --mcp: [--editor [URL]] [--key K], URL and key also from AUDIO_EDITOR and AUDIO_BRIDGE_KEY. */
 function options(argv) {
   if (!argv.includes('--editor')) return null
-  let value = flag => argv.includes(flag) ? argv[argv.indexOf(flag) + 1] : undefined
-  let url = value('--editor'), key = value('--key') ?? process.env.AUDIO_BRIDGE_KEY
-  if (!key) throw new Error('--editor needs the key `audio --bridge` printed: --key K, or AUDIO_BRIDGE_KEY')
-  return { url: url?.startsWith('http') ? url.replace(/\/+$/, '') : 'http://127.0.0.1:7777', key }
+  let value = flag => { let v = argv[argv.indexOf(flag) + 1]; return argv.includes(flag) && v && !v.startsWith('--') ? v : undefined }
+  let url = value('--editor') || given().url
+  return { url: url && (/^https?:\/\//.test(url) ? url : 'http://' + url).replace(/\/+$/, ''), key: value('--key') || given().key }
 }
 
 export default function serve(argv = []) {
   bridge = options(argv)
-  let rl = createInterface({ input: process.stdin })
-  rl.on('line', async line => {
+  lines(process.stdin, async line => {
     if (!line.trim()) return
     let msg
     try { msg = JSON.parse(line) } catch { return send({ id: null, error: { code: -32700, message: 'Parse error' } }) }
@@ -235,6 +273,6 @@ export default function serve(argv = []) {
   })
   // Client closes stdin (or signals) to shut down: take in-flight children along, so no play/record outlives the server
   let exit = () => { for (let child of running.values()) child.kill(); process.exit(0) }
-  rl.on('close', exit)
+  process.stdin.on('end', exit)
   process.on('SIGTERM', exit)
 }

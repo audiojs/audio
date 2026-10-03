@@ -1,7 +1,7 @@
 // Refresh the audio modules used by the static website: node .site-build.js
 import { build } from 'esbuild'
 import { builtinModules } from 'node:module'
-import { copyFile } from 'node:fs/promises'
+import { copyFile, readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import audio from './audio.js'
 
@@ -64,6 +64,11 @@ await build({
   legalComments: 'eof'
 })
 
+// What the library loads by name (audio.import): each registry plugin, and the optional packages its own ops load on
+// first use, its peer dependencies (deepfilter's @audio/neural-denoise, vocals' -separate)
+const { peerDependencies = {} } = JSON.parse(await readFile('package.json', 'utf8'))
+const named = [...new Set([...Object.values(audio.plugins), ...Object.keys(peerDependencies)])]
+
 // The editor's engine worker: the library with every plugin and codec as a chunk that loads on first use.
 // Workers have no import maps, so no bare import is left for the browser to resolve.
 await build({
@@ -79,14 +84,25 @@ await build({
   platform: 'browser',
   external: node,
   plugins: [{
-    // one literal import per registry plugin, which the worker loads through audio.import
+    // one literal import per package the library loads by name, which the worker loads through audio.import
     name: 'registry',
     setup(build) {
       build.onResolve({ filter: /^editor:plugins$/ }, () => ({ path: 'plugins', namespace: 'editor' }))
       build.onLoad({ filter: /.*/, namespace: 'editor' }, () => ({
         resolveDir: '.',
-        contents: `export default {${[...new Set(Object.values(audio.plugins))].map(spec => `${JSON.stringify(spec)}: () => import(${JSON.stringify(spec)})`).join(',\n')}}`
+        contents: `export default {${named.map(spec => `${JSON.stringify(spec)}: () => import(${JSON.stringify(spec)})`).join(',\n')}}`
       }))
+    }
+  }, {
+    // the neural ops' ONNX runtime, which @audio/neural-runtime imports by a name it picks as it runs, import(spec): the
+    // browser's, its wasm build, as a literal import (its .wasm copied beside it, below)
+    name: 'onnx-runtime',
+    setup(build) {
+      build.onLoad({ filter: /@audio[\\/]neural-runtime[\\/]runtime\.js$/ }, async args => {
+        const code = await readFile(args.path, 'utf8')
+        if (!code.includes('import(spec)')) throw new Error('@audio/neural-runtime no longer imports its runtime by import(spec): see .site-build.js')
+        return { loader: 'js', contents: code.replace('import(spec)', "(spec === 'onnxruntime-web' ? import('onnxruntime-web/wasm') : Promise.reject(new Error(`${spec}: the editor runs the wasm backend`)))") }
+      })
     }
   }, {
     // an optional codec that is not installed stays an import that fails only if a file needs it
@@ -101,6 +117,10 @@ await build({
   }],
   legalComments: 'eof'
 })
+
+// What the worker's chunks fetch beside themselves: the ONNX runtime's wasm, RNNoise's weights
+for (const [from, name] of [['onnxruntime-web/ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.wasm'], ['@audio/neural-denoise/rnnoise.bin', 'rnnoise.bin']])
+  try { await copyFile(fileURLToPath(import.meta.resolve(from)), `editor/dist/chunks/${name}`) } catch {}
 
 // The editor's pictures: gl-waveform and gl-spectrogram, each one ES module with no dependencies, as published
 for (const name of ['gl-waveform', 'gl-spectrogram']) await copyFile(`node_modules/${name}/index.js`, `assets/${name}.js`)

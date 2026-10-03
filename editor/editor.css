@@ -20,6 +20,12 @@ button:disabled { cursor: default; opacity: .4; }
    script that runs wakes the page; none depends on a line of it. */
 [\:if], [\:each], [\:hidden] { display: none !important; }
 .app[\:class] { pointer-events: none; }
+/* The page comes up once, whole. The paper and the slabs are there in the first paint, and what fills them — the menus,
+   the tabs, the script, the picture where the sound was left — waits out of sight until all of it is ready, then comes
+   up together, inside the frame it already has: nothing is laid out twice, so nothing jumps (editor.js drops data-boot
+   after the first frame). */
+.app[data-boot] > .workshop, .app[data-boot] > .bar > .menubar, .app[data-boot] > .panes > * { opacity: 0; }
+.app > .workshop, .app > .bar > .menubar, .app > .panes > * { transition: opacity var(--dur-short) var(--ease-out); }
 svg { flex: none; }
 
 .app { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: var(--bar) minmax(0, 1fr) auto; height: 100dvh; }
@@ -97,33 +103,28 @@ svg { flex: none; }
 .panes > .status { grid-area: 3 / 1 / 4 / -1; }
 /* the panels' buttons over the panel */
 .side-head { display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-height: 38px; padding: 4px 8px 0 6px; }
-/* undo and redo, then how the picture shows, a pair as they are, then its settings over its meter (the waveform's bar,
-   6 px before the labels' 40 px, view.js): each where it is whatever shows, nothing moving as the picture turns */
+/* undo and redo, then how the picture shows, a pair as they are, then its settings at the head of its axis: the glyph
+   (its ink 16 of its 24 units, 17 px in a 28 px button) over the axis's ticks, which run 12 px from a pixel inside the
+   labels' 40 px (view.js GUTTER, TICK), so the button ends 19 px before the picture does. Each where it is whatever
+   shows, nothing moving as the picture turns */
 .view-head .history, .view-head .tabs.display { display: flex; flex: none; gap: 1px; }
+.view-head .tabs.display[inert] { visibility: hidden; }
 .view-head :is(.history .icon-button, .display button, .view-settings button) { width: 28px; height: 28px; min-height: 28px; border-radius: 6px; }
 .view-head .history .icon-button { color: var(--color-screen-soft); }
 .view-head :is(.history .icon-button, .display button, .view-settings button) svg { width: 17px; height: 17px; }
 .view-head .history .icon-button:hover:not([aria-disabled="true"]):not(:disabled) { background: var(--color-screen-hover); color: var(--color-screen-bright); }
 .view-head .history .icon-button:is([aria-disabled="true"], :disabled) { opacity: .35; }
-.panes[data-side="open"] .view-head { padding-right: 32px; }
+.panes[data-side="open"] .view-head { padding-right: 19px; }
 /* the bar under both: what the output holds (its note, key, levels) ends where the picture ends, what the sound is (its
    rate, channels, depth) at the bar's end, under the panel; the panel's width less the bar's end, the 14 px before the
    facts and the 6 px gap keeping the picture's end's 20 */
 .panes[data-side="open"] .facts { width: calc(min(var(--panel), 60vw) - 20px); justify-content: flex-end; }
-/* its left edge, a strip to drag, a grip on it (WORKSHOP: a bar, three dots, or none, a line only where pointed at) */
-.panel-edge { position: absolute; z-index: 1; top: 0; bottom: 0; left: -3px; display: grid; place-items: center; width: 7px; cursor: ew-resize; touch-action: none; }
-.panel-grip { display: block; transition: background var(--dur-micro) var(--ease-out), box-shadow var(--dur-micro) var(--ease-out); }
-.app[data-resizer="bar"] .panel-grip { width: 3px; height: 28px; border-radius: 2px; background: var(--color-screen-rule); }
-.app[data-resizer="bar"] .panel-edge:is(:hover, :active) .panel-grip { background: var(--color-screen-muted); }
-.app[data-resizer="dots"] .panel-grip { --dot: var(--color-screen-dim); width: 3px; height: 3px; border-radius: 50%; background: var(--dot); box-shadow: 0 -6px var(--dot), 0 6px var(--dot); }
-.app[data-resizer="dots"] .panel-edge:is(:hover, :active) .panel-grip { --dot: var(--color-screen-soft); }
-.app[data-resizer="none"] .panel-edge:is(:hover, :active) { background: linear-gradient(90deg, transparent 3px, var(--color-screen-muted) 3px 4px, transparent 4px); }
-/* a pill with a grip, two short lines in it, as an iPad's split view; a Finder column's divider, a rule its height, its
-   knob with the grip at its foot */
-.app[data-resizer="pill"] .panel-grip, .app[data-resizer="finder"] .panel-grip { --grip: var(--color-screen-dim); width: 7px; height: 40px; border-radius: 4px; background: linear-gradient(90deg, transparent 2px, var(--grip) 2px 3px, transparent 3px 4px, var(--grip) 4px 5px, transparent 5px) center / 7px 10px no-repeat, var(--color-screen-raised); }
-.app[data-resizer="finder"] .panel-edge { place-items: end center; padding-bottom: 10px; background: linear-gradient(90deg, transparent 3px, var(--color-screen-rule) 3px 4px, transparent 4px); }
-.app[data-resizer="finder"] .panel-grip { height: 18px; border-radius: 3px; }
-.app:is([data-resizer="pill"], [data-resizer="finder"]) .panel-edge:is(:hover, :active) .panel-grip { --grip: var(--color-screen-bright); }
+/* its left edge: a rule in the slab's own rule colour, as the home page's slab rules off its parts, as far from the
+   panel's content as that is from the slab's edge (a panel's sides inset alike); a strip 7 px wide to drag for its width,
+   the rule brighter where pointed at */
+.panel-edge { position: absolute; z-index: 1; top: 0; bottom: 0; left: -4px; width: 7px; cursor: ew-resize; touch-action: none; }
+.panel-edge::before { content: ''; position: absolute; inset: 0 3px; background: var(--color-screen-rule); transition: background var(--dur-micro) var(--ease-out); }
+.panel-edge:is(:hover, :active)::before { background: var(--color-screen-muted); }
 
 .slab { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 /* The bar along the foot of the output and the panel, one with them, a status bar as an editor's: play and the time,
@@ -183,7 +184,7 @@ svg { flex: none; }
 /* The edits: a rack of cards, one per step of the chain, in order (as mel's modules): a fold, the step's name and, folded,
    what it is set to. The one chosen unfolds to its settings, the output shown up to it, and the steps after it dim; so
    does a step turned off. The one heard for what it takes out is ringed. */
-.steps { flex: 1; min-height: 0; overflow: hidden auto; padding: 4px 10px 8px 4px; }
+.steps { flex: 1; min-height: 0; overflow: hidden auto; padding: 4px 10px 8px; }
 /* cards apart by the spacing token, as wide as the panel: what they say is cut short, never widening them */
 .steps-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-xs); margin: 0; padding: 0; list-style: none; }
 .step { position: relative; min-width: 0; border-radius: 10px; background: var(--color-screen-fill); transition: background var(--dur-micro) var(--ease-out), opacity var(--dur-micro) var(--ease-out); }
@@ -285,8 +286,11 @@ svg { flex: none; }
    them), square above the time row; where the sound runs on past the view they may fade out on the way, by an
    exponential, a straight line in decibels, so it reads as even (e^-2u, over --fade px, none by default) */
 .plot { --fade: 0px; --end: 52px; }
-.plot canvas.waveform, .plot canvas.spectrum { mask-image: linear-gradient(to right, #000 calc(100% - var(--end) - var(--fade)), rgb(0 0 0 / .55) calc(100% - var(--end) - var(--fade) * .75), rgb(0 0 0 / .27) calc(100% - var(--end) - var(--fade) * .5), rgb(0 0 0 / .10) calc(100% - var(--end) - var(--fade) * .25), rgb(0 0 0 / .04) calc(100% - var(--end) - var(--fade) * .125), transparent calc(100% - var(--end))); }
-.plot canvas.spectrum { transition: opacity var(--dur-short) var(--ease-out); }
+.plot canvas.waveform, .plot canvas.spectrum, .plot canvas.grid { mask-image: linear-gradient(to right, #000 calc(100% - var(--end) - var(--fade)), rgb(0 0 0 / .55) calc(100% - var(--end) - var(--fade) * .75), rgb(0 0 0 / .27) calc(100% - var(--end) - var(--fade) * .5), rgb(0 0 0 / .10) calc(100% - var(--end) - var(--fade) * .25), rgb(0 0 0 / .04) calc(100% - var(--end) - var(--fade) * .125), transparent calc(100% - var(--end))); }
+/* How brightly the sound is drawn is the layer's own (view.js, light): none before any of it is here, dim while it is
+   the file arriving, full once it is the output; what is drawn over it comes with it. It only ever fades between them,
+   so a sound never blinks, and empty lanes never wait for one. */
+.plot canvas { opacity: 0; transition: opacity var(--dur-short) var(--ease-out); }
 .dropping .view::after { content: ''; position: absolute; inset: -4px 8px 0 -4px; border: 1px dashed var(--color-screen-muted); border-radius: 10px; pointer-events: none; }
 /* a file held over the tabs: it opens in a tab of its own, where the new tab's button is */
 .dropping-tab .files { border-radius: 8px; box-shadow: inset 0 0 0 1px var(--color-screen-muted); }
@@ -301,9 +305,6 @@ svg { flex: none; }
 /* while the browser asks for the microphone; then the take draws into the waveform */
 .recording { pointer-events: none; }
 .recording-time { margin: 0; color: var(--color-screen-soft); font-size: 14px; }
-/* A sound on its way, none of it here yet: a line where its waveform will be, a glint running along it */
-.loading { position: absolute; inset: 50% 60px auto 8px; height: 1px; background: linear-gradient(90deg, transparent, var(--color-screen-soft), transparent) 0 0 / 30% 100% no-repeat, var(--color-screen-rule); animation: glint 1.4s var(--ease-in-out) infinite; pointer-events: none; }
-@keyframes glint { from { background-position: -40% 0, 0 0; } to { background-position: 140% 0, 0 0; } }
 
 
 /* The bar's parts */
@@ -319,12 +320,18 @@ svg { flex: none; }
 .record.on .record-icon { border-radius: 2px; opacity: 1; animation: recording 1.2s var(--ease-in-out) infinite alternate; }
 @keyframes recording { to { opacity: .45; } }
 .play:hover:not(:disabled) { background: var(--color-screen-hover); }
-/* The speed it plays at. A ring round Play: its share of 0.1× to 10× on a log scale from the top, clockwise; 1× half */
+/* How far through the sound it plays: a ring round Play, its share of the whole from the top, clockwise, there while it
+   plays */
 .play { position: relative; }
-.play.ringed::before { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: conic-gradient(var(--color-screen-accent) calc(var(--speed) * 360deg), var(--color-screen-rule) 0); mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px)); pointer-events: none; }
-.speed-readout, .speed-pill { flex: none; min-height: 22px; padding: 0 7px; border: 0; border-radius: 11px; background: var(--color-screen-fill); color: var(--color-screen-accent); font: 11px var(--font-mono); font-variant-numeric: tabular-nums; }
-.speed-pill { color: var(--color-screen-ink); }
-.speed-slider { flex: none; width: 72px; accent-color: var(--color-screen-accent); }
+.play::before { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: conic-gradient(var(--color-screen-accent) calc(var(--played) * 360deg), var(--color-screen-rule) 0); mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px)); opacity: 0; transition: opacity var(--dur-short) var(--ease-out); pointer-events: none; }
+.play.rolling::before { opacity: 1; }
+/* Record, and while it plays the speed in its place: one slot, as wide as the widest speed (0.13×), the one there
+   fading in for the other, so nothing beside it moves */
+.deck-slot { display: grid; place-items: center; }
+.deck-slot > * { grid-area: 1 / 1; transition: opacity var(--dur-micro) var(--ease-out); }
+.deck-slot > [inert] { opacity: 0; }
+.speed-pill { min-width: calc(5ch + 14px); min-height: 22px; padding: 0 7px; border: 0; border-radius: 11px; background: var(--color-screen-fill); color: var(--color-screen-ink); font: 11px var(--font-mono); font-variant-numeric: tabular-nums; }
+.speed-pill:hover { background: var(--color-screen-fill-hover); }
 /* Play dragged: the speeds' scale over it, 0.1× to 10×, a doubling each 32 px (213 px), the speed marked; the pointer
    hidden */
 .speed-axis { position: fixed; z-index: 20; width: calc(213px + 28px); height: 34px; translate: 0 calc(-100% - 10px); border-radius: 8px; background: var(--color-screen-raised); box-shadow: var(--shadow-menu); pointer-events: none; }
@@ -356,6 +363,8 @@ svg { flex: none; }
 .facts { margin-left: 14px; color: var(--color-screen-soft); }
 /* the levels as digits turn: room for the longest (peak −10.0dB RMS −21.0dB), at the right */
 .readout { display: block; min-width: 25ch; margin-left: 6px; color: var(--color-screen-muted); text-align: right; }
+/* while a sound is on its way, how far it is stands where its levels do, in their place, its way out beside it */
+.readout.working { min-width: 0; color: var(--color-screen-soft); }
 .heard { display: block; flex: 0 1 auto; margin-left: 6px; color: var(--color-screen-dim); }
 /* Scenarios: a goal's whole chain each, found by their words, a card each: its name, what it does, the spec it delivers */
 .scenarios, .chat { display: flex; flex: 1; flex-direction: column; min-height: 0; }
@@ -390,16 +399,18 @@ svg { flex: none; }
 .chat-step { display: flex; gap: 7px; margin: 3px 0; color: var(--color-screen-muted); font: 11.5px/1.45 var(--font-mono); overflow-wrap: anywhere; }
 .chat-step::before { content: '✓'; flex: none; width: 10px; color: var(--color-screen-dim); }
 .chat-step.failed::before { content: '✗'; color: var(--color-screen-error); }
-.chat-step > span:first-child, .chat-step > button { min-width: 0; }
+.chat-step > span { min-width: 0; }
 /* a place on the sound, a click away: the step's words underlined as a link's, dotted */
 .chat-step button { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; text-decoration: underline dotted var(--color-screen-dim); text-underline-offset: 3px; }
 .chat-step button:hover, .chat-step button:focus-visible { color: var(--color-screen-bright); text-decoration-color: currentColor; }
 /* what it came to */
-.chat-note { flex: 0 1 auto; min-width: 0; color: var(--color-screen-soft); }
-.chat-note::before { content: '· '; color: var(--color-screen-dim); }
+.chat-note { color: var(--color-screen-soft); }
 .chat-step.failed .chat-note { color: var(--color-screen-error); }
 .md + .chat-step { margin-top: 8px; }
-.chat-step + .md { margin-top: 8px; }
+.chat-step + .md, .chat-table + .md { margin-top: 8px; }
+/* its values, under it, indented past the tick: the check table's rows */
+.chat-message .chat-table { width: calc(100% - 17px); margin: 2px 0 6px 17px; }
+.chat-message .chat-table th[scope="row"] { white-space: normal; }
 /* the agent's words, Markdown (markdown.js), set as the panel's own text: code in its wells, tables ruled, links underlined */
 .md { overflow-wrap: break-word; }
 .md > :first-child { margin-top: 0; }
@@ -456,11 +467,17 @@ svg { flex: none; }
 .chat-item:is(:hover, :focus-within) .chat-drop { opacity: 1; }
 @media (hover: none) { .chat-drop { opacity: 1; } }
 .chat-error { display: block; margin-top: 4px; color: var(--color-screen-error); font-size: 12px; }
-.chat-form { display: flex; flex: none; align-items: flex-end; gap: 8px; padding: 8px 14px 14px; }
+.chat-form { display: flex; flex: none; align-items: flex-end; gap: 8px; padding: 8px 14px 0; }
 .chat-form textarea { flex: 1; min-height: 40px; padding: 9px 12px; resize: none; line-height: 1.4; }
 .chat-send { display: grid; flex: none; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 9px; background: var(--color-screen-bright); color: var(--color-screen); }
 .chat-send:disabled { background: var(--color-screen-fill-off); color: var(--color-screen-dim); }
 .chat-send svg { width: 17px; height: 17px; }
+/* the agent asked, under the message: a click lists the others the bridge found */
+.chat-agent { display: flex; align-self: flex-start; align-items: center; gap: 2px; max-width: calc(100% - 20px); height: 24px; margin: 4px 0 0 10px; padding: 0 6px; border: 0; border-radius: 6px; background: none; color: var(--color-screen-muted); font-size: 11.5px; }
+.chat-agent span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-agent svg { flex: none; width: 13px; height: 13px; color: var(--color-screen-dim); }
+.chat-agent:hover, .chat-agent:focus-visible { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+#agents-menu { position-area: top span-right; }
 /* the bridge, over the message: its address and key until it connects, then the agent on it */
 .chat-connect { flex: none; padding: 8px 14px 0; }
 .chat-connect .field { margin-bottom: 6px; }
@@ -599,7 +616,7 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
    whole where the bar has the room for it and the message a hundred pixels or so */
 @container (max-width: 970px) { .heard { display: none; } }
 @container (max-width: 790px) { .clock { --time-size: 28px; } }
-@container (max-width: 715px) { .readout { display: none; } }
+@container (max-width: 715px) { .readout:not(.working) { display: none; } }
 @container (max-width: 540px) { .facts { display: none; } }
 @container (max-width: 430px) { .length { display: none; } }
 /* narrow windows: the menu's names go small before anything else */

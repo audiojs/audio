@@ -25,7 +25,7 @@ export default function editor(parent, { doc = '', onchange, oncaret, files = ()
     '&': { height: '100%', color: 'var(--color-screen-soft)', backgroundColor: 'transparent', fontSize: '13px' },
     '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.75' },
     '.cm-content': { padding: '14px 0 40px', caretColor: 'var(--color-screen-bright)' },
-    '.cm-line': { padding: '0 20px 0 6px' },
+    '.cm-line': { padding: '0 16px 0 6px' },
     '.cm-gutters': { backgroundColor: 'transparent', border: 'none', color: 'var(--color-screen-rule)' },
     '.cm-lineNumbers .cm-gutterElement': { padding: '0 6px 0 16px', minWidth: '22px' },
     '.cm-activeLine': { backgroundColor: 'oklch(100% 0 0 / .03)' },

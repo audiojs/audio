@@ -69,27 +69,33 @@ const ADD = `${pointer('M7 5h4M9 5v14M7 19h4M17 13v6M14 16h6', 9)}, copy`
 const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform)
 const LEVELS = [0, -6, -12, -24, -48, -18, -36, -30, -60, -72, 6, 12]  // dBFS the level axis marks, halvings first, where they fit
 const TICK = 12                               // a tick's length on either axis, px
+const MINOR = 6                               // the grid's finer steps at least this far apart, px
 const VOICE = [60, 1000]                      // the pitch axis when no spectrogram shows, Hz, on a log scale
 const GAIN = [-36, 12]                        // the gain line's scale, dB: the lane's centre line to its edges, 0 dB
                                               // three quarters of the way out, so a boost shows above it
 
 export default function view(root, { onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onaudition = () => {}, hint = null } = {}) {
   const layer = name => root.appendChild(Object.assign(document.createElement('canvas'), { className: name }))
-  const specCanvas = layer('spectrum'), waveCanvas = layer('waveform'), overlay = layer('overlay')
+  // the grid between the pictures: over the spectrogram, under the waveform
+  const specCanvas = layer('spectrum'), gridCanvas = layer('grid'), waveCanvas = layer('waveform'), overlay = layer('overlay')
   // gl-waveform draws its own anti-aliased coverage; the context needs premultiplied alpha, not multisampling
   const gl = waveCanvas.getContext('webgl2', { premultipliedAlpha: true, antialias: false })
   // gl-spectrogram computes what a lane shows as it draws it, on the GPU, from the samples it holds: nothing to wait
   // for. It renders into float textures (EXT_color_buffer_float, which nearly every WebGL2 has)
   let sgl = specCanvas.getContext('webgl2', { premultipliedAlpha: true, antialias: false })
   if (!sgl?.getExtension('EXT_color_buffer_float')) sgl = null
-  const c = overlay.getContext('2d')
+  const c = overlay.getContext('2d'), gc = gridCanvas.getContext('2d')
+  // the grid as ruled, kept while it stays where it is; the waveform as a solid shape, to cut the grid by (paintGrid)
+  const ruling = document.createElement('canvas'), rc = ruling.getContext('2d'), solid = document.createElement('canvas'), sc = solid.getContext('2d')
   const style = getComputedStyle(root)
   const color = name => style.getPropertyValue(name).trim()
   let waves = [], specs = [], count = 0, rate = 44100, duration = 0, display = 'wave', scale = 'log', units = 'clock', hovered = null
   // what shows besides the sound; the pauses in it, for selecting and stepping as in a text
   let show = { hits: true, gain: true, meters: true }, segments = { silences: [] }
-  // the output's markers: [{ time, label }], flags on the time row
+  // the output's markers: [{ time, label }], a range's with its duration, flags over the lanes
   let markers = []
+  // the times a marker marks: a moment, or a range's start and end
+  const marked = m => m.duration ? [m.time, m.time + m.duration] : [m.time]
   // an output arriving: { total, length, dim, fit }; total samples where known, `dim` while it is the file, not the output
   let arriving = null
   // more ranges beside the selection, as a text editor's several selections: [[a, b], …], or on the spectrogram more
@@ -144,8 +150,10 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // how the time row marks time: 'labels' with their ticks, 'ticks' alone, or 'none'; the caret's, the pointer's and a
   // selection's times show whatever it is
   let ruler = 'labels'
-  // how the sound's end shows, past which the view scrolls (WORKSHOP): 'line', 'shade', 'hatch', 'cap', 'tag'
+  // how the sound's end shows, past which the view scrolls (WORKSHOP): 'line', 'hatch', 'dots', 'ruler'
   let endMark = 'line'
+  // how the lanes are ruled (WORKSHOP, paintGrid): 'marks', 'crosses', 'dots', 'lines' or 'none'
+  let grid = 'none'
   // the steps a selection's level goes up or down in, dB, as the pill is dragged
   let levelStep = 1
   // how the spectrogram draws, gl-spectrogram's options: its colours, its depth in dB, its FFT size
@@ -191,7 +199,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   function stick(t) {
     let best = null
     if (!snapping || fine()) return best
-    for (const q of [...cues, ...markers.map(m => m.time)]) {
+    for (const q of [...cues, ...markers.flatMap(marked)]) {
       const d = Math.abs(x(q) - x(t))
       if (d <= STICK && (!best || d < best.d)) best = { t: q, d }
     }
@@ -242,7 +250,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     const r = root.getBoundingClientRect(), d = devicePixelRatio || 1, cw = Math.round(r.width * d), ch = Math.round(r.height * d), was = plot().w
     W = r.width; H = r.height; dpr = d
     if (duration && W > GUTTER + 1 && was > 1 && plot().w !== was) setRange(start, start + (end - start) / was * plot().w)
-    for (const canvas of [specCanvas, waveCanvas, overlay]) if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch }
+    for (const canvas of [specCanvas, gridCanvas, waveCanvas, overlay, ruling, solid]) if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch }
     cancelAnimationFrame(frame)
     frame = 0; pictures = true
     render()
@@ -310,12 +318,27 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     return [{ s0: 0, s1: p - h, d0: 0, d1: p - h, gain: 1 }, ...ramp(p - h, false), ...ramp(q - h, true), { s0: q + h, s1: duration, d0: p + h, d1: duration - L, gain: 1 }].filter(c => c.s1 > c.s0)
   }
 
+  // How brightly the sound is drawn, set on the layers themselves so it fades (editor.css): nothing drawn yet, a file
+  // arriving (dim, as it is not the output yet), or a sound that is there. One sound never blinks out for the next:
+  // whatever shows stays until what replaces it is drawn over it, and only its light moves. What is drawn over the
+  // sound (its axes, its lanes' marks, the caret) comes with the first of it: empty lanes never show, waiting for it.
+  const SHADES = { none: 0, dim: .45, full: 1 }
+  let shade = 'none'
+  function light(name) {
+    if (name === shade) return
+    shade = name
+    for (const canvas of [specCanvas, gridCanvas, waveCanvas]) canvas.style.opacity = SHADES[name]
+    overlay.style.opacity = +(name !== 'none')
+  }
   // A frame: the pictures when they changed, the overlay always; the pointer's readout redraws only the overlay
   let pictures = false
   function invalidate(overlay = false) { pictures ||= !overlay; frame ||= requestAnimationFrame(render) }
   function render() {
     frame = 0
     const L = lanes(), from = start * rate, to = end * rate
+    light(recording || data.length || arriving?.length ? arriving?.dim ? 'dim' : 'full' : 'none')
+    // the grid ruled anew (a zoom, the level axis' units) draws the pictures again, as it is cut by the waveform drawn
+    if (gridKey(L) !== ruled) pictures = true
     if (!pictures) return paint(L)
     pictures = false
     if (gl) {
@@ -339,6 +362,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       })
     }
     if (sgl) spectrograms(L, from, to)
+    paintGrid(L)
     paint(L)
   }
   // A channel's waveform over [x0, x1) of its lane, samples [from, to): in its colour, or coloured for what it holds
@@ -403,7 +427,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       display = mode
       // a spectrogram zoomed out fills its columns over several renders (spectrograms)
       for (let n = 0; n < 64 && (!n || specs.some(sg => sg.pending)); n++) { pictures = true; render() }
-      for (const canvas of [specCanvas, waveCanvas, overlay]) g.drawImage(canvas, 0, i * h, w, h)
+      for (const canvas of [specCanvas, gridCanvas, waveCanvas, overlay]) g.drawImage(canvas, 0, i * h, w, h)
     })
     ;({ start, end, display, hovered } = was)
     cancelAnimationFrame(frame)
@@ -503,7 +527,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     c.textAlign = 'left'
     const near = rect => rect === lane ? Math.round(at[1]) : null
     for (const rect of L.wave) ticks(rect, levelMarks(rect), near(rect))
-    for (const rect of L.spec) hz(rect, near(rect))
+    for (const rect of L.spec) ticks(rect, hzMarks(rect), near(rect))
     // the pointer's values; what a drag does, in a few words by it
     c.textAlign = 'left'
     // what a drag does, by the pointer wherever it is: past the picture's edge too, where silence is pulled out to
@@ -517,10 +541,11 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       tag(text, w + 1, ly + 9, 'left')
     }
   }
-  // What is drawn in the lanes (a selection, the cues, the pitch curve, the caret) ends where the pictures do (repl.css,
+  // What is drawn in the lanes (a selection, the cues, the pitch curve, the caret) ends where the pictures do (editor.css,
   // --end): before the labels, or 2 px before the meters when they show, a waveform's bar or a spectrogram's spectrum,
-  // never behind them
-  const lanesEnd = L => { const { w } = plot(); return meters && show.meters ? (L.spec.length ? w - METER - 2 : w - 7) - 2 : w }
+  // never behind them. The meters keep their width from the first frame, whether they read anything yet or not, so a
+  // sound arriving never shortens the pictures under it
+  const lanesEnd = L => { const { w } = plot(); return show.meters ? (L.spec.length ? w - METER - 2 : w - 7) - 2 : w }
   let ends = null
   function endLanes(L) {
     const { w } = plot(), end = lanesEnd(L)
@@ -727,14 +752,22 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   function median({ at, duration }) { const list = voiced(at, at + duration); return list.length ? list[list.length >> 1] : 0 }
   const pitched = (rect, L) => L.spec.includes(rect)
   const clampY = ([, y, , lh], ly) => Math.max(y + 5, Math.min(y + lh - 5, ly))
-  // Marks [y, text] by a lane, the most important first: each where there is room, its tick at its height, its label
-  // under it, clear of the pointer's value (`taken`, its y)
-  function ticks(rect, list, taken) {
-    const [, y, , lh] = rect, w = plot().w, placed = taken == null ? [] : [taken]
-    for (const [ly, text] of list) {
+  // Marks [y, …] by a lane, the most important first, those there is room for: in the lane, `gap` px from each other and
+  // from what is there (`placed`, ys, added to)
+  function room([, y, , lh], list, placed = [], gap = 16) {
+    return list.filter(([ly]) => {
       const ty = Math.round(ly)
-      if (ty < y || ty > y + lh || placed.some(p => Math.abs(p - ty) < 16)) continue
+      if (ty < y || ty > y + lh || placed.some(p => Math.abs(p - ty) < gap)) return false
       placed.push(ty)
+      return true
+    })
+  }
+  // Marks [y, text] by a lane: each with room, its tick at its height, its label under it, clear of the pointer's value
+  // (`taken`, its y)
+  function ticks(rect, list, taken) {
+    const w = plot().w
+    for (const [ly, text] of room(rect, list, taken == null ? [] : [taken])) {
+      const ty = Math.round(ly)
       c.fillStyle = color('--color-screen-rule')
       c.fillRect(w + 1, ty, TICK, 1)
       c.fillStyle = color('--color-screen-dim')
@@ -742,21 +775,42 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     }
   }
   // Frequencies, no unit (the axis is plainly hertz): the lowest the lane shows first, at its foot; then the roundest
-  const hz = (rect, taken) => { const [, y, , lh] = rect; ticks(rect, [[y + lh, hertz(yf(rect, y + lh))], ...marks().map(f => [fy(rect, f), hertz(f)])], taken) }
+  const hzMarks = rect => { const [, y, , lh] = rect; return [[y + lh, hertz(yf(rect, y + lh))], ...marks().map(f => [fy(rect, f), hertz(f)])] }
   // Levels within the values a lane shows, the most telling first: as sample values, 0 and full scale, then 1-2-5 steps
   // of what shows; in dB, mirrored about 0 and clear of it, the halvings first, the top's 0 with its unit
   function levelMarks(rect) {
     const [lo, hi] = aview, within = v => v >= lo - 1e-9 && v <= hi + 1e-9
-    if (levelUnits === 'linear') {
-      const step = nice((hi - lo) / 4), list = [0, 1, -1]
-      for (let k = Math.ceil(lo / step - 1e-9); k * step <= hi + 1e-9; k++) list.push(+(k * step).toPrecision(6))
-      return [...new Set(list)].filter(within).map(v => [ay(rect, v), linear(v)])
-    }
+    if (levelUnits === 'linear') return [...new Set([0, 1, -1, ...multiples(lo, hi, valueStep())])].filter(within).map(v => [ay(rect, v), linear(v)])
     const zero = ay(rect, 0)
     return LEVELS.flatMap(db => [1, -1].map(sign => [sign * 10 ** (db / 20), db, sign])).filter(([v]) => within(v) && Math.abs(ay(rect, v) - zero) >= 16)
       .map(([v, db, sign]) => [ay(rect, v), db ? `${db > 0 ? '+' : '−'}${Math.abs(db)}` : sign > 0 ? '0dB' : '0'])
   }
   const linear = v => v ? `${v < 0 ? '−' : ''}${+Math.abs(v).toPrecision(3)}` : '0'
+  // the 1-2-5 step the sample values are marked by, four or so across what a lane shows
+  const valueStep = () => nice((aview[1] - aview[0]) / 4)
+  // the multiples of `step` in [a, b], clear of float error
+  const multiples = (a, b, step) => { const out = []; for (let k = Math.ceil(a / step - 1e-9); k * step <= b + 1e-9; k++) out.push(+(k * step).toPrecision(12)); return out }
+  // The finer step between marks `step` apart, at `ppu` px a unit, for the grid's dots: a fifth (a quarter of a 2), else
+  // a half, as long as they are MINOR px apart
+  const finer = (step, ppu) => [step / (Math.round(step / 10 ** Math.floor(Math.log10(step))) === 2 ? 4 : 5), step / 2].find(s => s * ppu >= MINOR)
+  // The finer steps between a lane's marks, [y] each, for the grid's dots: sample values by their finer step (0.1, 0.2, …
+  // between 0, 0.5 and 1); decibels every 3 dB from the top in, till they crowd towards the centre line; frequencies by
+  // decades as log paper has them, 1 to 9 of each, roundest first, or where the marks go in even steps (a linear axis, a
+  // narrow span zoomed in, as marks() has them) by their finer step
+  function fineMarks(rect) {
+    const lh = rect[3]
+    if (display === 'spec') {
+      const [lo, hi] = freqs(), [fa, fb] = fview.map(u => scales[scale].of(u, lo, hi)), whole = fview[1] - fview[0] > .999
+      const even = scale === 'lin' ? whole ? 5000 : nice((fb - fa) / 6) : !whole && fb / fa <= 3 ? nice((fb - fa) / 6) : 0
+      if (even) { const step = finer(even, lh / (fb - fa)); return step ? multiples(fa, fb, step).map(f => [fy(rect, f)]) : [] }
+      return [1, 5, 2, 3, 4, 6, 7, 8, 9].flatMap(m => [1e4, 1e3, 100, 10].map(p => m * p)).filter(f => f >= fa && f <= fb).map(f => [fy(rect, f)])
+    }
+    const [lo, hi] = aview, ppu = lh / (hi - lo)
+    if (levelUnits === 'linear') { const step = finer(valueStep(), ppu); return step ? multiples(lo, hi, step).map(v => [ay(rect, v)]) : [] }
+    const out = []
+    for (let db = 12; (10 ** (db / 20) - 10 ** ((db - 3) / 20)) * ppu >= MINOR; db -= 3) for (const v of [10 ** (db / 20), -(10 ** (db / 20))]) if (v >= lo && v <= hi) out.push([ay(rect, v)])
+    return out
+  }
   // Frequencies to mark, roundest first: the scale's own when all of it shows; zoomed in, the round values in view,
   // 1-2-5 per decade across a wide span, even steps across a narrow one
   function marks() {
@@ -847,6 +901,29 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       for (const [, y, , lh] of all) { c.beginPath(); c.moveTo(px, y); c.lineTo(px, y + lh); c.stroke() }
       c.setLineDash([])
     }
+    // the pitch over an edit, { before, after }, each { times, f0 } on one grid: before dashed and dim, after as the pitch
+    // curve is, each named where in view they are furthest apart, on its own side; one the same as the other, said so
+    if (g.pitch) for (const rect of L.spec) {
+      const { before, after } = g.pitch, soft = color('--color-screen-soft')
+      c.save()
+      c.beginPath(); c.rect(...rect); c.clip()
+      c.strokeStyle = soft; c.setLineDash([3, 3]); c.lineWidth = 1.25
+      trace(rect, before.times, i => before.f0[i])
+      c.setLineDash([]); c.strokeStyle = accent(); c.lineWidth = 1.5
+      trace(rect, after.times, i => after.f0[i])
+      c.restore()
+      let far = -1, most = 0
+      for (let i = 0; i < Math.min(before.f0.length, after.f0.length); i++) {
+        const t = after.times[i], a = before.f0[i], b = after.f0[i], st = a && b ? Math.abs(12 * Math.log2(b / a)) : 0
+        if (t >= start && t <= end && (far < 0 || st > most) && a && b) { most = st; far = i }
+      }
+      if (far < 0) continue
+      const font = c.font, px = x(after.times[far]), yb = fy(rect, before.f0[far]), ya = fy(rect, after.f0[far]), up = ya < yb
+      c.font = `10px ${color('--font-mono')}`
+      if (most < .25) tag('pitch kept', px, ya - 14, 'center', accent())
+      else { tag('before', px, yb + (up ? 14 : -14), 'center', soft); tag('after', px, ya + (up ? -14 : 14), 'center', accent()) }
+      c.font = font
+    }
     if (g.freq != null || g.band) for (const rect of L.spec) {
       const lw = rect[2]
       if (g.band) {
@@ -870,7 +947,9 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   function labelled() {
     const pps = plot().w / (end - start || 1), steps = units === 'samples' ? [0, 1, 2, 3, 4, 5, 6, 7].flatMap(e => [1, 2, 5].map(m => m * 10 ** e / rate)) : SECONDS
     const step = steps.find(s => s * pps >= 72) ?? steps.at(-1)
-    return { step, digits: Math.max(0, Math.ceil(-Math.log10(step) - 1e-9)), first: Math.max(0, Math.ceil(start / step - 1e-9)) }
+    // the grid's finer step between: the largest of the steps that parts it evenly in three or more
+    const minor = steps.findLast(s => s <= step / 3 * (1 + 1e-9) && Math.abs(step / s - Math.round(step / s)) < 1e-6)
+    return { step, minor, digits: Math.max(0, Math.ceil(-Math.log10(step) - 1e-9)), first: Math.max(0, Math.ceil(start / step - 1e-9)) }
   }
   function paintRuler(marks) {
     const { w, h } = plot(), y = row(), { step, digits, first } = labelled(), taken = []
@@ -885,19 +964,84 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       taken.push([Math.min(px, lx - 4), Math.max(px + 1, lx + tw + 4)])
       shown.push({ ...m, px, lx, text })
     }
+    // the end shown by the time row alone (`endMark` 'ruler'): no ticks past it, no label running into its tick
+    const cut = endMark === 'ruler' ? Math.round(x(duration)) : Infinity
     if (ruler !== 'none') for (let i = first; i * step <= end + 1e-9; i++) {
       const t = i * step, px = Math.round(x(t)), text = stamp(t, digits), tw = c.measureText(text).width
-      if (px + 4 + tw > w) break
+      if (px + 4 + tw > w || px > cut) break
       if (taken.some(([a, b]) => px + tw + 4 > a && px < b)) continue
       c.fillStyle = color('--color-screen-rule')
       c.fillRect(px, h, 1, TICK)
-      if (ruler === 'labels') { c.fillStyle = color('--color-screen-dim'); c.fillText(text, px + 4, y) }
+      if (ruler === 'labels' && px + 4 + tw < cut - 3) { c.fillStyle = color('--color-screen-dim'); c.fillText(text, px + 4, y) }
     }
     for (const m of shown) {
       c.fillStyle = m.fill
       c.fillRect(m.px, h, 1, TICK)
       tag(m.text, m.lx, y, 'left')
     }
+  }
+  // The lanes ruled (WORKSHOP `grid`), on a layer of their own between the pictures: over the spectrogram, as the screen
+  // shows it; behind the waveform, wholly hidden where it is, however faint its fill there. Where the time row's ticks
+  // meet the axis' on the right, a cross, and a dot where their finer steps meet ('marks'); the crosses alone
+  // ('crosses'); a dot at each, the ticks' larger ('dots'); or a line from each tick ('lines'). None on a lane's edge.
+  let ruled = ''
+  const gridKey = L => [grid, duration, start, end, W, H, dpr, display, scale, levelUnits, units, rate, aview, fview, L.wave.length + L.spec.length, lanesEnd(L)].join()
+  function paintGrid(L) {
+    const key = gridKey(L)
+    if (key !== ruled) { ruled = key; rule(L) }
+    gc.setTransform(1, 0, 0, 1, 0, 0)
+    gc.clearRect(0, 0, gridCanvas.width, gridCanvas.height)
+    if (grid === 'none' || !duration) return
+    gc.drawImage(ruling, 0, 0)
+    if (!gl || !L.wave.length) return
+    // the waveform's shape made solid, each pixel it touches at all opaque (its alpha doubled five times over), cut out
+    sc.globalCompositeOperation = 'copy'
+    sc.drawImage(waveCanvas, 0, 0)
+    sc.globalCompositeOperation = 'lighter'
+    for (let i = 0; i < 5; i++) sc.drawImage(solid, 0, 0)
+    gc.globalCompositeOperation = 'destination-out'
+    gc.drawImage(solid, 0, 0)
+    gc.globalCompositeOperation = 'source-over'
+  }
+  // The grid ruled, drawn again only when what places it changes
+  function rule(L) {
+    const all = [...L.wave, ...L.spec], stop = lanesEnd(L)
+    rc.setTransform(dpr, 0, 0, dpr, 0, 0)
+    rc.clearRect(0, 0, W, H)
+    if (grid === 'none' || !duration) return
+    // the times: the time row's steps, and the finer steps between them, [px, a tick's]
+    const { step, minor: sub = step } = labelled(), n = Math.round(step / sub), cols = []
+    for (let i = Math.ceil(start / sub - 1e-9); i * sub <= end + 1e-9; i++) {
+      const px = Math.round(x(i * sub))
+      if (px >= 1 && px < stop) cols.push([px, i % n === 0])
+    }
+    // one path a colour, filled once: where a cross's arms meet, or a line crosses another, is no brighter
+    const marks = new Path2D(), dots = new Path2D()
+    for (const rect of all) {
+      const [, y, , lh] = rect, inner = ty => ty > y && ty < y + lh - 1
+      const ticked = room(rect, display === 'spec' ? hzMarks(rect) : levelMarks(rect)).map(([ly]) => Math.round(ly))
+      const between = room(rect, fineMarks(rect), [...ticked], MINOR).map(([ly]) => Math.round(ly))
+      const rows = [...ticked.filter(inner).map(ty => [ty, true]), ...between.filter(inner).map(ty => [ty, false])]
+      if (grid === 'lines') {
+        for (const [px, tick] of cols) if (tick) marks.rect(px, y, 1, lh)
+        for (const [ty, tick] of rows) if (tick) marks.rect(0, ty, stop, 1)
+        continue
+      }
+      for (const [px, a] of cols) for (const [ty, b] of rows) {
+        if (a && b && grid === 'dots') { dots.rect(px - 1, ty, 3, 1); dots.rect(px, ty - 1, 1, 3) }
+        else if (a && b) { marks.rect(px - 3, ty, 7, 1); marks.rect(px, ty - 3, 1, 7) }
+        else if (grid !== 'crosses') dots.rect(px, ty, 1, 1)
+      }
+    }
+    rc.save()
+    rc.beginPath()
+    for (const [, y, , lh] of all) rc.rect(0, y, stop, lh)
+    rc.clip()
+    rc.fillStyle = color('--color-screen-grid')
+    rc.fill(marks)
+    rc.fillStyle = color('--color-screen-grid-dot')
+    rc.fill(dots)
+    rc.restore()
   }
   // The selection, in each lane (a box on the spectrogram), and the other ranges: a wash over each, the one highlight in
   // both pictures, the edge under the pointer (`hot`) or dragged lit, as it would move. A wash lifts a waveform's even
@@ -919,26 +1063,25 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     const wash = [color('--color-screen-select'), color('--color-screen-select-spectrum')]
     for (const [px, py, bw, bh, spec] of boxes) { c.fillStyle = wash[+spec]; c.fillRect(px, py, bw, bh) }
   }
-  // Where the sound ends, where the view shows past it (WORKSHOP `endMark`): a rule down the lanes; the room past it
-  // shaded, or hatched; a cap on the time row, as a bracket closes; a rule and a tag with the length
+  // Where the sound ends, where the view shows past it (WORKSHOP `endMark`): a rule down the lanes, or a dotted one; the
+  // room past it hatched; or nothing in the lanes, the time row's ticks stopping there (paintRuler) and a tick of its own
   function paintEnd(L) {
-    const px = Math.round(x(duration)), stop = lanesEnd(L), all = [...L.wave, ...L.spec], [top, bottom] = extent(all), h = plot().h
+    const px = Math.round(x(duration)), stop = lanesEnd(L), all = [...L.wave, ...L.spec], [top, bottom] = extent(all)
     if (px < 0 || px >= stop) return
-    const rule = color('--color-screen-rule')
-    if (endMark === 'shade' || endMark === 'hatch') {
+    c.fillStyle = c.strokeStyle = color('--color-screen-rule')
+    if (endMark === 'hatch') {
       c.save()
       c.beginPath()
       for (const [, y, , lh] of all) c.rect(px, y, stop - px, lh)
       c.clip()
-      if (endMark === 'shade') { c.fillStyle = color('--color-screen-fill'); c.fillRect(px, top, stop - px, bottom - top) }
-      else { c.strokeStyle = rule; c.beginPath(); for (let k = px - (bottom - top); k < stop; k += 7) { c.moveTo(k, bottom); c.lineTo(k + bottom - top, top) } c.stroke() }
+      c.beginPath()
+      for (let k = px - (bottom - top); k < stop; k += 7) { c.moveTo(k, bottom); c.lineTo(k + bottom - top, top) }
+      c.stroke()
       c.restore()
-      return
     }
-    c.fillStyle = rule
-    if (endMark !== 'cap') for (const [, y, , lh] of all) c.fillRect(px, y, 1, lh)
-    if (endMark === 'cap') { c.fillStyle = color('--color-screen-soft'); c.fillRect(px, h, 1, TICK); c.fillRect(px - 5, h, 6, 1); c.fillRect(px - 5, h + TICK - 1, 6, 1) }
-    if (endMark === 'tag') { c.font = `10px ${color('--font-mono')}`; tag(`end ${stamp(duration)}`, px + 5, top + 8, 'left', color('--color-screen-dim')) }
+    else if (endMark === 'dots') { c.fillStyle = color('--color-screen-dim'); for (const [, y, , lh] of all) for (let k = y + 1; k < y + lh; k += 4) c.fillRect(px, k, 1, 1) }
+    else if (endMark === 'ruler') { c.fillStyle = color('--color-screen-dim'); c.fillRect(px, plot().h, 1, TICK) }
+    else for (const [, y, , lh] of all) c.fillRect(px, y, 1, lh)
   }
   // The edge dragged, or the one a press would take, any range's, lit as the line it would move: its first pixel or its
   // last, over the handles
@@ -966,26 +1109,45 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     }
     c.globalAlpha = 1
   }
-  // Markers: a thin line in each lane, bright when a dragged edge sits on it, a flag at its top, as a timeline's markers
-  // stand over its tracks, its name beside it (a double-click on the flag names it)
-  const FLAG = 12
+  // Markers: a dashed line down each lane, as Audition draws them, apart from the caret's solid one and lit when a
+  // dragged edge sits on it; a flag at its top, as a timeline's markers stand over its tracks, its name beside it (a click on the name or a double-click on the flag names it). A range: a
+  // line at each end, a bar over the lanes between them, the flag at its start
+  const FLAG = 12, DASH = 3
+  // where each name is drawn, [{ i, from, to }] px, for a click on it
+  let names = []
   function paintMarkers(rects, lit) {
-    const [top] = extent(rects)
+    const [top] = extent(rects), w = plot().w, L = lanes()
     c.textAlign = 'left'
-    for (const [i, { time, label }] of markers.entries()) {
-      const at = drag?.marker === i ? drag.to : moved(time), px = Math.round(x(at))
-      if (at == null || px < 0 || px > plot().w) continue
+    names = []
+    for (const [i, { time, duration, label }] of markers.entries()) {
+      const at = drag?.marker === i ? drag.to : moved(time), px = Math.round(x(at)), ex = duration ? Math.round(x(at + duration)) : px
+      if (at == null || ex < 0 || px > w) continue
       c.fillStyle = color('--color-screen-bright')
-      c.globalAlpha = on(lit, px) ? .9 : .25
-      for (const [, ly, , lh] of rects) c.fillRect(px, ly, 1, lh)
+      for (const p of new Set([px, ex])) {
+        c.globalAlpha = on(lit, p) ? 1 : .7
+        for (const [, ly, , lh] of rects) for (let k = ly; k < ly + lh; k += DASH * 2) c.fillRect(p, k, 1, Math.min(DASH, ly + lh - k))
+      }
+      c.globalAlpha = .5
+      if (duration) { c.fillRect(px, top, ex - px, 3); c.fillRect(ex, top, 1, FLAG) }
       c.globalAlpha = 1
       c.fillRect(px, top, 1, FLAG)
       c.beginPath(); c.moveTo(px, top); c.lineTo(px + 7, top + 3); c.lineTo(px, top + 6); c.fill()
-      if (label && naming?.i !== i) tag(label, px + 10, top + 4, 'left', color('--color-screen-soft'))
+      if (!label || naming && same(naming, markers[i])) continue
+      // past a handle in the corner of a range on it
+      const lx = gripAt(L, px + 10, top + 6) ? px + INSET + BOX + 4 : px + 10
+      tag(label, lx, top + 6, 'left', color('--color-screen-soft'))
+      names.push({ i, from: lx - 3, to: lx + 3 + c.measureText(label).width })
     }
   }
-  // the flag under the pointer, by its line's top
-  const nearMarker = (px, py) => py <= FLAG + 2 ? markers.findIndex(m => Math.abs(x(moved(m.time) ?? m.time) - px) <= EDGE) : -1
+  // two markers one: the same kind at the same time, to half a millisecond (an output's, from the time written)
+  const same = (m, n) => !m.duration === !n.duration && Math.abs(m.time - n.time) < 5e-4
+  // The marker under the pointer on the flags' row: a flag by its line, else the range whose bar is there; or a name
+  function nearMarker(px, py) {
+    if (py > FLAG + 2) return -1
+    const flag = markers.findIndex(m => Math.abs(x(moved(m.time) ?? m.time) - px) <= EDGE)
+    return flag >= 0 ? flag : markers.findIndex(m => m.duration && px >= x(moved(m.time) ?? m.time) && px <= x((moved(m.time) ?? m.time) + m.duration))
+  }
+  const nameAt = (px, py) => py <= FLAG + 2 ? names.find(n => px >= n.from && px <= n.to)?.i ?? -1 : -1
   // A flag's name written where it is: a field over it, Enter or a click away keeps it, Escape leaves it as it was
   let naming = null
   function rename(i) {
@@ -994,7 +1156,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     naming?.input.remove()
     const input = root.appendChild(Object.assign(document.createElement('input'), { className: 'marker-name', value: m.label || '', placeholder: 'Name', spellcheck: false }))
     Object.assign(input.style, { left: `${Math.round(x(moved(m.time) ?? m.time)) + 8}px`, top: '0px' })
-    naming = { i, input }
+    naming = { time: m.time, duration: m.duration, input }
     let done = false
     const end = keep => {
       if (done) return
@@ -1002,9 +1164,10 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       input.remove()
       naming = null
       invalidate(true)
-      // named at once, as a dragged flag stays where it was let go, till the output that has it comes
-      const label = input.value.trim()
-      if (keep && label !== (m.label || '') && onedit('relabel', { time: m.time, label })) markers = markers.with(i, { ...m, label })
+      // named at once, as a dragged flag stays where it was let go, till the output that has it comes: the marker as it
+      // is now, the output having come meanwhile
+      const label = input.value.trim(), j = markers.findIndex(n => same(n, m)), now = markers[j] ?? m
+      if (keep && label !== (now.label || '') && onedit('relabel', { time: now.time, duration: now.duration, label }) && j >= 0) markers = markers.with(j, { ...now, label })
     }
     // the field's own keys and presses stay its own
     for (const type of ['pointerdown', 'click', 'contextmenu', 'wheel']) input.addEventListener(type, e => e.stopPropagation())
@@ -1091,24 +1254,29 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     const f = !fa ? fb : !fb ? fa : fa * (fb / fa) ** Math.max(0, Math.min(1, (t - times[a]) / (times[b] - times[a])))
     return moved(f * 2 ** (lineAt(t) / 12), t)
   }
+  // A pitch curve in a lane, a line per voiced stretch: frame i at times[i], its pitch hz(i) (0 where it has none)
+  function trace(rect, times, hz) {
+    c.beginPath()
+    let open = false
+    for (let i = 0; i < times.length; i++) {
+      const f = hz(i)
+      if (!f || times[i] < start - .1 || times[i] > end + .1) { open = false; continue }
+      const px = x(times[i]), py = fy(rect, f)
+      open ? c.lineTo(px, py) : c.moveTo(px, py)
+      open = true
+    }
+    c.stroke()
+  }
   // The pitch curve, a line per voiced stretch, as it shows, and on it the pitch line's points
   function paintContour(rects) {
     if (!contour?.f0.length) return
-    const { times, f0 } = contour, pts = linePoints()
+    const pts = linePoints()
     c.strokeStyle = c.fillStyle = accent()
     c.lineWidth = 1.5
     for (const rect of rects) {
       c.save()
       c.beginPath(); c.rect(...rect); c.clip()
-      c.beginPath()
-      let open = false
-      for (let i = 0; i < f0.length; i++) {
-        if (!f0[i] || times[i] < start - .1 || times[i] > end + .1) { open = false; continue }
-        const px = x(times[i]), py = fy(rect, toneOf(i))
-        open ? c.lineTo(px, py) : c.moveTo(px, py)
-        open = true
-      }
-      c.stroke()
+      trace(rect, contour.times, toneOf)
       for (const [t] of pts) { const f = toneAt(t); if (f) c.fillRect(Math.round(x(t)) - 3, Math.round(fy(rect, f)) - 3, 6, 6) }
       c.restore()
     }
@@ -1184,9 +1352,12 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       return
     }
     const [px, py] = local(event), t = snap(time(px)), L = lanes()
-    const flag = nearMarker(px, py)
-    // a flag: the caret goes to it; dragged, the marker moves
-    if (flag >= 0) { if (selection) select(0, 0); setCursor(markers[flag].time) }
+    // a handle over a flag is the handle's; a marker's name is named when the click comes (clicked)
+    const grip = gripAt(L, px, py)
+    if (!grip && nameAt(px, py) >= 0) return
+    const flag = grip ? -1 : nearMarker(px, py)
+    // a flag: the caret goes to it, a range's selects it when let go; dragged, the marker moves
+    if (flag >= 0 && !markers[flag].duration) { if (selection) select(0, 0); setCursor(markers[flag].time) }
     drag = flag >= 0 ? { marker: flag, x: px, to: markers[flag].time, moved: false }
       : gripDown(px, py, L, event) || endDown(px, py, event) || (show.hits && cueDown(px, py, event)) || (show.gain && !pitchLine() && penDown(px, py, L)) || (pitchLine() && (toneDown(px, py, L) || penDown(px, py, L, true) || pitchDown(px, py, L) || penDown(px, py, L))) || selectDown(event, px, py, t, L)
     // ⌘ aims finely, but not what it took hold of: a box, audio carried, an end stretched, a cue
@@ -1409,7 +1580,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (drag.marker != null) {
       if (!drag.moved && Math.abs(px - drag.x) < 3) return
       drag.moved = true
-      drag.to = snap(time(px))
+      drag.to = Math.max(0, snap(markers[drag.marker].time + time(px) - time(drag.x)))
       return invalidate(true)
     }
     if (drag.cue != null) {
@@ -1573,6 +1744,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       : cue ? 'col-resize'
       : within && keys.altKey ? 'copy'
       : within && editing(keys) ? 'move'
+      : nameAt(px, py) >= 0 ? 'text'
       : nearMarker(px, py) >= 0 ? 'pointer'
       : rect && onLine(rect, px, py) && pointAt(rect, px, py) >= 0 || tone && pointOn(tone, px, py) >= 0 ? 'move'
       : tone && pitchDown(px, py, L) || rect && onLine(rect, px, py) ? 'ns-resize' : null
@@ -1591,7 +1763,11 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (d?.overrun) cancelAnimationFrame(d.overrun)
     if (d?.pinch) { if (pointers.size) drag = d; return }
     if (!d) return
-    if (d.marker != null) { const m = markers[d.marker]; if (d.moved && Math.abs(d.to - m.time) > 1e-6) { markers = markers.with(d.marker, { ...m, time: d.to }); onedit('remark', { time: m.time, to: d.to }) } }
+    if (d.marker != null) {
+      const m = markers[d.marker]
+      if (d.moved && Math.abs(d.to - m.time) > 1e-6) { markers = markers.with(d.marker, { ...m, time: d.to }); onedit('remark', { time: m.time, duration: m.duration, to: d.to }) }
+      if (m.duration) select(d.to, d.to + m.duration)
+    }
     else if (d.cue != null) {
       // the cue sits where it was dropped at once, so a next drag before the output returns pins its neighbours right
       const from = cues[d.cue]
@@ -1646,9 +1822,12 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     hover(...local(event), event)
     invalidate()
   }
-  // Clicks counted: a double-click takes away the line's point under it (the pitch line's on the pitch curve too), or selects between the cues around it (or the
+  // Clicks counted: a click on a marker's name, or a double-click on its flag, names it; a double-click takes away the
+  // line's point under it (the pitch line's on the pitch curve too), or selects between the cues around it (or the
   // pause it is in); a triple-click, the sound between the pauses either side
   function clicked(event) {
+    const named = gripAt(lanes(), ...local(event)) ? -1 : nameAt(...local(event))
+    if (named >= 0) return event.detail === 1 && rename(named)
     if (!duration || event.detail < 2 || event.button > 0) return
     const [px, py] = local(event), L = lanes(), rect = (pitchLine() || show.gain) && lineLanes(L).find(r => inside(r, px, py)), flag = nearMarker(px, py)
     const tone = pitchLine() && contour?.f0.length && L.spec.find(r => inside(r, px, py))
@@ -1676,7 +1855,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // other) ending at the cue. An edit drawn ahead takes them where it moves them, as they are drawn.
   function edges(kind) {
     const at = list => list.map(moved).filter(t => t != null), shown = at(cues), onCue = t => shown.find(c => Math.abs(c - t) < .03) ?? t
-    const all = [0, duration, ...at(markers.map(m => m.time)), ...(kind === 'fragment' ? shown : at(segments.silences.flat()).map(onCue))].filter(t => t >= 0 && t <= duration)
+    const all = [0, duration, ...at(markers.flatMap(marked)), ...(kind === 'fragment' ? shown : at(segments.silences.flat()).map(onCue))].filter(t => t >= 0 && t <= duration)
     return [...new Set(all.map(t => +t.toFixed(6)))].sort((a, b) => a - b)
   }
   // an edge within three pixels of the caret is where it is: a hit found a few ms after the pause it ends is one place
@@ -1820,11 +1999,11 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     event.preventDefault()
   }
 
-  // A waveform and a spectrogram per channel, dim while it is the file arriving; the spectrogram's silence is the
-  // screen, its loudest white
-  // Each waveform its colour (`hues`): the screen's, dim while it is the file; in one lane, its channel's hue (tint.js);
+  // A waveform and a spectrogram per channel; the spectrogram's silence is the page, seen through, its loudest white. How bright the
+  // pair is drawn is the layers' own (light): dim while it is the file arriving, full once the output is there
+  // Each waveform its colour (`hues`): the screen's; in one lane, its channel's hue (tint.js);
   // as gl-waveform takes it, [r, g, b, a], read once, so a stretch's colour and back costs no parsing
-  let hues = [], dimmed = false, swatch = null
+  let hues = [], swatch = null
   const rgba = css => {
     swatch ??= Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true })
     swatch.clearRect(0, 0, 1, 1)
@@ -1833,14 +2012,13 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     return [...swatch.getImageData(0, 0, 1, 1).data].map(v => v / 255)
   }
   const FILLS = { density: { rms: false, density: true }, rms: { rms: null, density: false }, flat: { rms: false, density: false } }
-  function lay(n, dim = false) {
-    dimmed = dim
+  function lay(n) {
     while (waves.length > n) waves.pop().destroy()
     while (specs.length > n) specs.pop().destroy()
     for (let i = 0; i < n; i++) {
-      hues[i] = waveLook.lanes === 'one' && n > 1 && !dim ? hue(i, n) : rgba(color(dim ? '--color-screen-wave-dim' : '--color-screen-wave'))
+      hues[i] = waveLook.lanes === 'one' && n > 1 ? hue(i, n) : rgba(color('--color-screen-wave'))
       ;(waves[i] ||= new Waveform(gl)).update({ ...FILLS[waveLook.fill] ?? FILLS.density, color: hues[i] })
-      if (sgl) (specs[i] ||= new Spectrogram(sgl, { background: color('--color-screen'), ...look })).update({ color: dim ? color('--color-screen-wave-dim') : look.color ?? null })
+      if (sgl) (specs[i] ||= new Spectrogram(sgl, { background: color('--color-screen'), ...look })).update({ color: look.color ?? null })
     }
   }
   // The samples [i0, i1) where two outputs of one length differ, in any channel; [0, 0] where none do
@@ -1907,7 +2085,9 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (expected) { cues = cues.map(moved).filter(t => t != null); markers = markers.map(m => ({ ...m, time: moved(m.time) })).filter(m => m.time != null) }
     else if (!ahead && total != null && Math.abs(total - duration) > 1e-9) cues = []
     ahead = false
-    pieces = null
+    // an edit still being dragged keeps what it draws: the output arriving is an older one, from before the drag, and
+    // the next move of the pointer lays the pieces out again over it
+    if (!drag) pieces = null
     return all
   }
 
@@ -1967,7 +2147,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       count = channels; rate = sampleRate || rate
       arriving = { total, length: 0, dim, fit: all }
       duration = total ? total / rate : all ? 0 : duration
-      lay(count, dim)
+      lay(count)
       fill(waves.map(() => new Float32Array(0)))
       data = []
       if (dim) { selection = band = null; more = [] }
@@ -2014,7 +2194,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // the whole output's samples, once an output drawn as it arrived has all come: what its colours are read from
     set samples(channels) { data = channels || []; tints.clear(); invalidate() },
     // how the waveform draws: { colour, lanes, fill } (waveLook)
-    set waveform(o) { waveLook = { ...waveLook, ...o }; lay(count, dimmed); tints.clear(); invalidate() },
+    set waveform(o) { waveLook = { ...waveLook, ...o }; lay(count); tints.clear(); invalidate() },
     // an edit drawn ahead of its output: the output waits whole to take its place
     get expecting() { return !!pieces },
     get range() { return [start, end] },
@@ -2067,8 +2247,10 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     set units(name) { units = name; invalidate(true) },
     // how the time row marks time: 'labels', 'ticks', 'none'
     set ruler(mode) { ruler = mode; invalidate(true) },
-    // how the sound's end shows (WORKSHOP): 'line', 'shade', 'hatch', 'cap', 'tag'
+    // how the sound's end shows (WORKSHOP): 'line', 'hatch', 'dots', 'ruler'
     set endMark(name) { endMark = name; invalidate(true) },
+    // how the lanes are ruled (WORKSHOP): 'marks', 'crosses', 'dots', 'lines', 'none'
+    set grid(name) { grid = name; invalidate(true) },
     // the steps, dB, a selection's level goes in as its pill is dragged
     set levelStep(db) { levelStep = +db || 1 },
     // how the spectrogram draws: { map, gamma, depth, size } (repl.js spectrogram settings), as gl-spectrogram takes them
@@ -2081,8 +2263,13 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     set segments(list) { segments = list || { silences: [] } },
     // where the output clips: [[from, to], …] s
     set clips(list) { clips = list || []; invalidate(true) },
-    // the output's markers, [{ time, label }]
+    // the output's markers, [{ time, duration?, label }]
     set markers(list) { markers = list || []; invalidate(true) },
+    // a marker just made, { time, duration? }: drawn at once, before the output that has it comes, its name asked for
+    name(m) {
+      if (!markers.some(n => same(n, m))) markers = [...markers, { ...m, label: '' }].sort((p, q) => p.time - q.time)
+      rename(markers.findIndex(n => same(n, m)))
+    },
     set cues(list) { cues = list || []; invalidate() },
     // what the grip does: 'trim', 'stretch' or 'speed'; whether pitch is edited
     set gripMode(mode) { gripMode = ['trim', 'speed'].includes(mode) ? mode : 'stretch'; invalidate(true) },
@@ -2098,12 +2285,13 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       invalidate()
     },
     set guides(list) { guides = list || []; invalidate() },
-    // While playing, a zoomed view scrolls with the playhead held in the middle; at the ends the playhead walks.
+    // While playing, a zoomed view scrolls with the playhead held in the middle; at the ends the playhead walks. The
+    // playhead is the overlay's: the pictures are drawn again only as the view scrolls
     set playhead(t) {
       playhead = t
       const span = end - start
       if (t != null && !drag && span < duration && (t > start + span / 2 || t < start)) setRange(t - span / 2, t + span / 2)
-      invalidate()
+      invalidate(true)
     },
     // The picture a step's new settings will leave, drawn at once from what shows: its level changed by `gain(t)` (ops.js
     // previews), step by step, a pixel's time apart where it is in view, until its output comes; null draws the output

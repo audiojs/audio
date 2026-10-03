@@ -15,7 +15,7 @@ const HAS_DFN = !!neural && existsSync(path.join(process.env.AUDIO_NEURAL_CACHE 
 // a voice: glottal pulses at 110-140 Hz, tilted −6 dB/octave as a glottal source radiates, through three formants;
 // four syllables a second, an 's' (noise around 6.5 kHz) closing each phrase; 2 s phrases, 1 s pauses, white room
 // noise; seeded
-function narration(sr = 48000, dur = 12) {
+function narration(sr = 48000, dur = 6) {
   let s = 5
   const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647
   const res = (f, bw) => { let r = Math.exp(-Math.PI * bw / sr), c = 2 * r * Math.cos(2 * Math.PI * f / sr); return { a1: c, a2: -r * r, y1: 0, y2: 0 } }

@@ -231,3 +231,21 @@ test('mark — a moment marked after edits keeps to it through later ones', t =>
   t.is(audio.from([new Float32Array(8000)], { sampleRate: 8000 }).crop({ at: 0.5, duration: 0.25 }).mark(3).markers, [{ time: 0.25 - 1 / 8000, label: '' }])
   t.is(audio.from([new Float32Array(0)], { sampleRate: 8000 }).mark(1).markers, [])
 })
+
+// mark({ at, duration }, label): a range, a region kept to what it marks as a moment is
+test('mark — a range marked is a region, kept to through later edits', t => {
+  let a = audio.from([new Float32Array(4 * 8000)], { sampleRate: 8000 })
+  a.remove({ at: 0, duration: 1 }).mark({ at: 1, d: 0.5 }, 'chorus')
+  t.is(a.regions, [{ at: 1, duration: 0.5, label: 'chorus' }], 'where it was put, `d` read as duration')
+  t.is(a.markers, [], 'no marker of its own')
+  a.pad(0.5, 0)
+  t.is(a.regions, [{ at: 1.5, duration: 0.5, label: 'chorus' }], 'moved on by what came before it')
+  a.remove({ at: 1.75, duration: 0.125 })
+  t.is(a.regions, [{ at: 1.5, duration: 0.375, label: 'chorus' }], 'shortened by what is taken out of it')
+  // past the end, to the end; reversed, the same span; no length, a moment
+  t.is(audio.from([new Float32Array(8000)], { sampleRate: 8000 }).mark({ at: 0.5, duration: 5 }).regions, [{ at: 0.5, duration: 0.5, label: '' }])
+  t.is(audio.from([new Float32Array(8000)], { sampleRate: 8000 }).reverse().mark({ at: 0.25, duration: 0.5 }).regions, [{ at: 0.25, duration: 0.5, label: '' }])
+  t.is(audio.from([new Float32Array(8000)], { sampleRate: 8000 }).mark({ at: 0.25, duration: 0 }).markers, [{ time: 0.25, label: '' }])
+  // on nothing, nothing
+  t.is(audio.from([new Float32Array(0)], { sampleRate: 8000 }).mark({ at: 0, duration: 1 }).regions, [])
+})

@@ -20,18 +20,26 @@ const dbtp = pcm => truepeak(pcm, { fs: 48000 })
 let seed = 1
 const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647
 
-/** Stereo program-like material: tones, kick, hats; loud transients, crest ~15 dB. */
+/** Stereo program-like material: tones, kick, hats; loud transients, crest ~15 dB. Made once per length, each call a
+ *  fresh copy, the seed left where making it leaves it. */
+const programs = new Map()
 function program(dur = 6, sr = 48000) {
-  seed = 3
-  let n = dur * sr, L = new Float32Array(n), R = new Float32Array(n)
-  let parts = Array.from({ length: 16 }, () => ({ f: 40 * 2 ** (rnd() * 8), p: rnd() * 6.28, a: 0.06 / (1 + rnd() * 3), pan: rnd() }))
-  for (let i = 0; i < n; i++) {
-    let t = i / sr, s = 0, r = 0, kick = 0.6 * Math.exp(-(t % 0.5) * 30) * Math.sin(2 * Math.PI * 55 * t)
-    let hat = (rnd() * 2 - 1) * Math.exp(-((t + 0.25) % 0.5) * 80) * 0.25
-    for (let q of parts) { let v = q.a * Math.sin(2 * Math.PI * q.f * t + q.p); s += v * (1 - q.pan); r += v * q.pan }
-    L[i] = s + kick + hat; R[i] = r + kick + hat
+  let key = `${dur}/${sr}`
+  if (!programs.has(key)) {
+    seed = 3
+    let n = dur * sr, L = new Float32Array(n), R = new Float32Array(n)
+    let parts = Array.from({ length: 16 }, () => ({ f: 40 * 2 ** (rnd() * 8), p: rnd() * 6.28, a: 0.06 / (1 + rnd() * 3), pan: rnd() }))
+    for (let i = 0; i < n; i++) {
+      let t = i / sr, s = 0, r = 0, kick = 0.6 * Math.exp(-(t % 0.5) * 30) * Math.sin(2 * Math.PI * 55 * t)
+      let hat = (rnd() * 2 - 1) * Math.exp(-((t + 0.25) % 0.5) * 80) * 0.25
+      for (let q of parts) { let v = q.a * Math.sin(2 * Math.PI * q.f * t + q.p); s += v * (1 - q.pan); r += v * q.pan }
+      L[i] = s + kick + hat; R[i] = r + kick + hat
+    }
+    programs.set(key, { chs: [L, R], seed })
   }
-  return audio.from([L, R], { sampleRate: sr })
+  let { chs, seed: after } = programs.get(key)
+  seed = after
+  return audio.from(chs.map(c => c.slice()), { sampleRate: sr })
 }
 
 // ── Loudness to spec ─────────────────────────────────────────────────────

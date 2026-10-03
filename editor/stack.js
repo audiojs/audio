@@ -365,7 +365,7 @@ export default function stack(root, { ed, describe = async () => null, duration 
 }
 
 // The value each parameter has in a call now, by position or by name in an options object; undefined if unset.
-function valuesOf(spec, call) {
+export function valuesOf(spec, call) {
   const positional = call.args.filter(a => a.kind !== 'object'), options = call.args.find(a => a.kind === 'object')
   return spec.map((s, i) => options?.props.find(p => p.name === s.name)?.value ?? positional[i]?.value)
 }

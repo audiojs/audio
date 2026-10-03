@@ -62,16 +62,37 @@ npx skills add audiojs/audio
 
 ### MCP
 
-`claude mcp add audio -- npx -y audio --mcp`<br/>
+```sh
+npx add-mcp "npx -y audio --mcp"  # asks which of your agents: Claude Code, Codex, Cursor, Gemini CLI, Kimi Code, Pi, OpenCode, Zed…
+```
+
 `Prompt: make ~/Desktop/interview.m4a podcast-ready and tell me the loudness before and after`
+
+One agent at a time: `claude mcp add audio -- npx -y audio --mcp`, `qwen mcp add audio npx -y audio --mcp`, `droid mcp add audio "npx -y audio --mcp"`.
 
 ### Editor and agents
 
 ```sh
-npx audio --bridge --key K  # audio bridge on http://127.0.0.1:7777  key K  agent claude (--agent codex)
+npx audio --bridge  # audio bridge on http://127.0.0.1:7777  key K  agents claude, codex, pi, kimi
 ```
 
-Connect the editor to it, and its chat runs your own Claude Code or Codex, which measures, looks at, edits and plays the sound open there; each tab keeps its conversations. Any agent gets the same editor tools (`state`, `measure`, `look`, `edit`, `select`, `play`, `check`, …): `claude mcp add audio -- npx -y audio --mcp --editor http://127.0.0.1:7777 --key K`.
+Connect the editor to it with the key (once: the bridge keeps it), and its chat runs an agent of yours, which measures, looks at, edits and plays the sound open there; each tab keeps its conversations, each with the agent picked under the message. The bridge finds Claude Code, Codex, Pi, Gemini CLI, Qwen Code, Kimi Code, OpenCode, Kilo Code, Cline, Goose, Factory Droid, Cursor, Augment, Kiro and Mistral Vibe on PATH; any other that speaks [ACP](https://agentclientprotocol.com/get-started/registry) runs by its command line, `--agent "my-agent --acp"`.
+
+Any MCP agent gets the editor's tools (`state`, `measure`, `look`, `edit`, `select`, `play`, `check`, …), the running bridge found by itself: `npx add-mcp "npx -y audio --mcp --editor"`.
+
+An agent thinks with the model its own settings name: Pi takes local ones for good from `ollama launch pi --config`; Claude Code takes any Anthropic-compatible endpoint from the bridge's environment:
+
+```sh
+ANTHROPIC_BASE_URL=http://localhost:11434 ANTHROPIC_AUTH_TOKEN=ollama ANTHROPIC_API_KEY= ANTHROPIC_MODEL=qwen3-coder npx audio --bridge
+```
+
+| Models | `ANTHROPIC_BASE_URL`, with the provider's key as `ANTHROPIC_AUTH_TOKEN` |
+|---|---|
+| Ollama | `http://localhost:11434`, token `ollama` ([docs](https://docs.ollama.com/integrations/claude-code)) |
+| Z.ai GLM | `https://api.z.ai/api/anthropic` ([docs](https://docs.z.ai/devpack/tool/claude)) |
+| Kimi | `https://api.moonshot.ai/anthropic` ([docs](https://platform.kimi.ai/docs/guide/claude-code-kimi)) |
+| Qwen | `https://coding-intl.dashscope.aliyuncs.com/apps/anthropic`, Coding Plan ([docs](https://www.alibabacloud.com/help/en/model-studio/claude-code)) |
+| DeepSeek | `https://api.deepseek.com/anthropic` ([docs](https://api-docs.deepseek.com/quick_start/agent_integrations/claude_code)) |
 
 
 ## Recipes
@@ -269,7 +290,7 @@ let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
 | `.repeat(n)` | repeat n times. |
 | `.reverse({at?, duration?})` | reverse audio or range. |
 | `.speed(rate)` | changes pitch and duration together. |
-| `.stretch(factor)` | changes duration, keeps pitch (phase-locked vocoder). A `t => f` or `{t, v}` factor slides the tempo; duration becomes ∫factor dt. A range `{at, duration}` comes out `round(round(duration · sampleRate) · factor)` samples long, to the sample; the audio around it as it was. |
+| `.stretch(factor, {voice?})` | changes duration, keeps pitch (phase-locked vocoder). A `t => f` or `{t, v}` factor slides the tempo; duration becomes ∫factor dt. A range `{at, duration}` comes out `round(round(duration · sampleRate) · factor)` samples long, to the sample; the audio around it as it was. `{ voice: true }` keeps a voice's pulse shape and consonants, which the vocoder makes distant: shortened, its waveform copied a segment at a time (WSOLA, `@audio/stretch-wsola`); slowed, the vocoder's frames restarted from the waveform where it fits (PVSOLA, `@audio/stretch-pvsola`), so breath and reverberation are not repeated into a flanger. One voice, not chords.<br><sub>≡ Logic Flex Time Monophonic, Ableton Tones</sub> |
 | `.warp(markers)` | move moments in time: `[[from, to], …]` in seconds. Between markers the audio stretches to fit, pitch kept; start and end stay.<br><sub>≡ Logic Flex Time, Ableton warp markers</sub> |
 | `.pitch(semitones, {voice?})` | changes pitch, keeps duration. Semitones may be a curve `{t, v}` (seconds → semitones, straight between points, flat past the ends, as the gain line's) or `t => semitones`; where it is zero the audio is as it was. `{ voice: true }` re-spaces a voice's own glottal cycles (TD-PSOLA, the optional `@audio/tune-curve`): formants and consonants kept, one voice.<br><sub>≡ Melodyne pitch drawing</sub> |
 | `.intonation(factor)` | a voice's rises and falls wider or flatter about its median pitch: `1` as it was, `0` a monotone, `2` twice as wide. Its own cycles re-spaced (as `pitch({ voice: true })`): timing, formants and consonants kept, one voice.<br><sub>≡ Melodyne pitch modulation, Praat's pitch range factor</sub> |
@@ -525,7 +546,7 @@ let k = await a.stat('key')                               // {label: 'C', mode: 
 | `.meta` | tags: `{title, artist, album, year, bpm, key, comment, pictures, raw, ...}`. Writable. `meta.raw` holds format-specific blocks untouched (WAV bext/iXML, ID3v2 frames, FLAC blocks). |
 | `.meta.pictures` | cover art `[{mime, type, description, data, url}]`. `.url` is a lazy Blob URL (browser) or data URL (Node). |
 | `.markers` | `[{time, label}]` in output seconds; edits shift or drop them. |
-| `.mark(time, label?)` | a marker at `time`, seconds of the audio as edited so far; later edits carry it. Chainable. |
+| `.mark(time, label?)` | a marker at `time`, seconds of the audio as edited so far; `{at, duration}`, a region. Later edits carry it. Chainable. |
 | `.regions` | `[{at, duration, label}]`; edits shift or drop them. |
 
 Parsed on decode, written on save; round-trips WAV, MP3, FLAC.

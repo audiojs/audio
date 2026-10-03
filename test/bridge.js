@@ -1,9 +1,10 @@
 // The editor's bridge (bin/bridge.js) over real HTTP on 127.0.0.1, and the MCP server's --editor mode through it:
-// a fake page (an SSE client), fake agent CLIs on PATH that print what Claude Code and Codex print.
+// a fake page (an SSE client), fake agent CLIs on PATH that print what Claude Code, Codex and Pi print, and one that
+// speaks ACP as Kimi Code, Gemini CLI and the others do.
 import test from 'tst'
 import { spawn } from 'child_process'
 import { request } from 'http'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 import { createInterface } from 'readline'
@@ -18,8 +19,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 // Fake agents: log argv and stdin, then print the lines the real CLI prints. Claude Code's are as
 // `claude -p --output-format stream-json --verbose --include-partial-messages` printed them (2.1.284);
 // Codex's are the `codex exec --json` events (thread.started, item.*, turn.*). The text picks the case.
-const dir = mkdtempSync(join(tmpdir(), 'audio-bridge-')), fakes = join(dir, 'bin'), logs = join(dir, 'log')
+const dir = mkdtempSync(join(tmpdir(), 'audio-bridge-')), fakes = join(dir, 'bin'), logs = join(dir, 'log'), config = join(dir, 'config')
 mkdirSync(fakes), mkdirSync(logs), mkdirSync(join(dir, 'empty'))
+process.env.XDG_CONFIG_HOME = config  // where the bridges here keep their address and key, bin/pi.js imported here finds them
 process.on('exit', () => rmSync(dir, { recursive: true, force: true }))
 const FAKE = `#!${process.execPath}
 const fs = require('fs'), name = require('path').basename(process.argv[1]), input = fs.readFileSync(0, 'utf8')
@@ -84,9 +86,92 @@ else print([
 for (let name of ['claude', 'codex']) writeFileSync(join(fakes, name), FAKE), chmodSync(join(fakes, name), 0o755)
 const logged = name => JSON.parse(readFileSync(join(logs, name + '.json'), 'utf8'))
 
+// Pi: its session, then its events, as `pi --mode json` prints them (0.87, docs/json.md); a failed run says so in its
+// last assistant message and exits 0. A text delta holds U+2028, where readline would split the line.
+const PI_SESSION = '0199e1a2-4e66-7269-9585-5048be4b749f'
+const FAKE_PI = `#!${process.execPath}
+const fs = require('fs'), input = fs.readFileSync(0, 'utf8'), argv = process.argv.slice(2), at = argv.indexOf('--session')
+fs.writeFileSync(${JSON.stringify(logs)} + '/pi.json', JSON.stringify({ argv, input, editor: process.env.AUDIO_EDITOR, key: process.env.AUDIO_BRIDGE_KEY }))
+if (argv[at + 1] === 'gone' && at >= 0) process.stderr.write("No session found matching 'gone'\\n"), process.exit(1)
+const print = lines => lines.forEach(l => process.stdout.write(JSON.stringify(l) + '\\n'))
+const delta = (type, more) => ({ type: 'message_update', usage: {}, assistantMessageEvent: { type, contentIndex: 0, ...more } })
+const end = (stopReason, errorMessage) => ({ type: 'message_end', message: { role: 'assistant', content: [], stopReason, ...errorMessage && { errorMessage } } })
+print([
+  { type: 'session', version: 3, id: ${JSON.stringify(PI_SESSION)}, timestamp: '2026-10-03T02:58:56.232Z', cwd: '/x' },
+  { type: 'agent_start' }, { type: 'turn_start' },
+  ...input === 'fail' ? [end('error', '400: {"message":"registry.ollama.ai/library/dolphin3:latest does not support tools","type":"invalid_request_error"}')] : [
+    delta('thinking_start'), delta('thinking_delta', { delta: 'hm' }), delta('thinking_end', { content: 'hm' }),
+    delta('text_start'), delta('text_delta', { delta: 'Reading ' }), delta('text_delta', { delta: 'the sound\\u2028.' }), delta('text_end', { content: 'Reading the sound.' }),
+    delta('toolcall_start', { id: 'call_1', toolName: 'state' }), end('toolUse'),
+    { type: 'tool_execution_start', toolCallId: 'call_1', toolName: 'state', args: {} },
+    { type: 'tool_execution_end', toolCallId: 'call_1', toolName: 'state', result: { content: [{ type: 'text', text: '{}' }] }, isError: false },
+    { type: 'turn_end' }, { type: 'turn_start' },
+    delta('text_start'), delta('text_delta', { delta: 'It is 3 s long.' }), end('stop')],
+  { type: 'agent_end', messages: [], willRetry: false }, { type: 'agent_settled' }
+])
+`
+writeFileSync(join(fakes, 'pi'), FAKE_PI), chmodSync(join(fakes, 'pi'), 0o755)
+
+// An ACP agent, JSON-RPC on its stdio, as Kimi Code (which goes on by session/resume) and Gemini CLI (session/load, its
+// replay) speak it: each message it gets logged, a line each. A turn says, thinks, calls the editor's tools as agents
+// title an MCP tool (asking leave for one), calls its own shell (asking leave), asks to read a file of the client's.
+const FAKE_ACP = `#!${process.execPath}
+const fs = require('fs'), name = require('path').basename(process.argv[1]), log = ${JSON.stringify(logs)} + '/' + name + '.jsonl'
+fs.writeFileSync(log, JSON.stringify({ argv: process.argv.slice(2), editor: process.env.AUDIO_EDITOR }) + '\\n')
+const out = m => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m }) + '\\n')
+const update = (sessionId, update) => out({ method: 'session/update', params: { sessionId, update } })
+const waiting = new Map(), ask = (method, params) => new Promise(r => { let id = 'a' + waiting.size; waiting.set(id, r); out({ id, method, params }) })
+const can = name === 'kimi' ? { loadSession: true, sessionCapabilities: { resume: {} } } : { loadSession: true }
+let rest = ''
+process.stdin.setEncoding('utf8').on('data', d => { let all = (rest + d).split('\\n'); rest = all.pop(); for (let l of all) if (l) on(JSON.parse(l)) })
+async function on(m) {
+  fs.appendFileSync(log, JSON.stringify(m) + '\\n')
+  if (m.method == null) return waiting.get(m.id)?.(m)
+  let { id, method, params } = m
+  if (method === 'initialize') return out({ id, result: { protocolVersion: 1, agentCapabilities: can, authMethods: [] } })
+  if (method === 'session/new') return out({ id, result: { sessionId: 'sess-1' } })
+  if (method === 'session/resume' || method === 'session/load') {
+    if (params.sessionId === 'gone') return out({ id, error: { code: -32002, message: 'Resource not found: gone' } })
+    if (method === 'session/load') update(params.sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'said before' } })
+    return out({ id, result: {} })
+  }
+  if (method !== 'session/prompt') return out({ id, error: { code: -32601, message: 'Method not found' } })
+  const s = params.sessionId, text = params.prompt[0].text.split('\\n\\n---\\n\\n').pop()
+  if (text === 'hang') return
+  if (text === 'fail') return out({ id, error: { code: -32603, message: 'Internal error', data: { details: 'openai-codex requires re-authentication.' } } })
+  if (text === 'refuse') return out({ id, result: { stopReason: 'refusal' } })
+  update(s, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'hm' } })
+  update(s, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Reading ' } })
+  update(s, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'the sound.' } })
+  update(s, { sessionUpdate: 'tool_call', toolCallId: 'c1', title: 'mcp__audio__state', kind: 'other', status: 'pending', rawInput: {} })
+  await ask('session/request_permission', { sessionId: s, toolCall: { toolCallId: 'c1' }, options: [{ optionId: 'always', name: 'Always allow', kind: 'allow_always' }, { optionId: 'yes', name: 'Allow', kind: 'allow_once' }, { optionId: 'no', name: 'Reject', kind: 'reject_once' }] })
+  update(s, { sessionUpdate: 'tool_call_update', toolCallId: 'c1', status: 'in_progress' })
+  update(s, { sessionUpdate: 'tool_call_update', toolCallId: 'c1', status: 'completed', content: [] })
+  update(s, { sessionUpdate: 'tool_call', toolCallId: 'c2', title: 'audio_edit', kind: 'other', status: 'pending' })
+  update(s, { sessionUpdate: 'tool_call_update', toolCallId: 'c2', rawInput: { call: 'nope()' } })
+  update(s, { sessionUpdate: 'tool_call_update', toolCallId: 'c2', status: 'failed' })
+  update(s, { sessionUpdate: 'tool_call', toolCallId: 'c3', title: 'Run rm -rf ~', kind: 'execute', status: 'pending', rawInput: { command: 'rm -rf ~' } })
+  await ask('session/request_permission', { sessionId: s, toolCall: { toolCallId: 'c3' }, options: [{ optionId: 'yes', name: 'Allow', kind: 'allow_once' }, { optionId: 'no', name: 'Reject', kind: 'reject_once' }] })
+  update(s, { sessionUpdate: 'tool_call_update', toolCallId: 'c3', status: 'failed' })
+  update(s, { sessionUpdate: 'tool_call', toolCallId: 'c4', title: 'Read voice.txt', kind: 'read', status: 'pending', rawInput: { path: 'voice.txt' } })
+  await ask('session/request_permission', { sessionId: s, toolCall: { toolCallId: 'c4' }, options: [{ optionId: 'yes', name: 'Allow', kind: 'allow_once' }, { optionId: 'no', name: 'Reject', kind: 'reject_once' }] })
+  update(s, { sessionUpdate: 'tool_call_update', toolCallId: 'c4', status: 'completed' })
+  update(s, { sessionUpdate: 'tool_call', toolCallId: 'c5', title: 'state (audio MCP Server)', kind: 'other', status: 'completed', rawInput: {} })
+  update(s, { sessionUpdate: 'tool_call', toolCallId: 'c6', title: 'edit', kind: 'edit', status: 'completed', rawInput: { filePath: 'a.js', oldString: 'x' } })
+  update(s, { sessionUpdate: 'tool_call', toolCallId: 'c7', title: 'Read audio/state.js', kind: 'read', status: 'completed', rawInput: { path: 'audio/state.js' } })
+  await ask('fs/read_text_file', { sessionId: s, path: '/etc/hosts' })
+  update(s, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'It is 3 s long.' } })
+  update(s, { sessionUpdate: 'plan', entries: [] })
+  out({ id, result: { stopReason: 'end_turn' } })
+}
+`
+for (let name of ['gemini', 'kimi', 'my-acp']) writeFileSync(join(fakes, name), FAKE_ACP), chmodSync(join(fakes, name), 0o755)
+// what an ACP fake was started with, and each message it got
+const told = name => readFileSync(join(logs, name + '.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l))
+
 /** `audio --bridge` as a user runs it, on a free port, the fakes alone on PATH. */
 async function bridge(flags = ['--key', KEY], env = {}) {
-  let proc = spawn(process.execPath, [bin, '--bridge', '--port', '0', ...flags], { env: { ...process.env, AUDIO_BRIDGE_KEY: '', PATH: fakes, ...env }, stdio: ['ignore', 'pipe', 'inherit'] })
+  let proc = spawn(process.execPath, [bin, '--bridge', '--port', '0', ...flags], { env: { ...process.env, AUDIO_BRIDGE_KEY: '', PATH: fakes, XDG_CONFIG_HOME: config, ...env }, stdio: ['ignore', 'pipe', 'inherit'] })
   let line = await new Promise((resolve, reject) => {
     createInterface({ input: proc.stdout }).once('line', resolve)
     proc.once('exit', code => reject(new Error(`bridge exited ${code}`)))
@@ -146,7 +231,7 @@ async function chat(p, url, body) {
 
 /** `audio --mcp ARGS` and a minimal client over its stdio. */
 function mcp(args, env = {}) {
-  let proc = spawn(process.execPath, [bin, '--mcp', ...args], { cwd: root, env: { ...process.env, AUDIO_BRIDGE_KEY: '', ...env }, stdio: ['pipe', 'pipe', 'pipe'] })
+  let proc = spawn(process.execPath, [bin, '--mcp', ...args], { cwd: root, env: { ...process.env, AUDIO_BRIDGE_KEY: '', AUDIO_EDITOR: '', XDG_CONFIG_HOME: config, ...env }, stdio: ['pipe', 'pipe', 'pipe'] })
   let pending = new Map(), id = 0, err = ''
   proc.stderr.setEncoding('utf8').on('data', d => err += d)
   createInterface({ input: proc.stdout }).on('line', line => { let m = JSON.parse(line); pending.get(m.id)?.(m); pending.delete(m.id) })
@@ -160,16 +245,31 @@ function mcp(args, env = {}) {
   }
 }
 const EDITOR_TOOLS = ['state', 'script', 'edit', 'measure', 'look', 'select', 'scrub', 'step', 'open', 'play', 'stop', 'check', 'undo', 'redo']
+// the fakes on PATH the bridge knows, in its order, and what the page calls them
+const FOUND = ['claude', 'codex', 'pi', 'gemini', 'kimi'], NAMES = { claude: 'Claude Code', codex: 'Codex', pi: 'Pi', gemini: 'Gemini CLI', kimi: 'Kimi Code' }
 
 
-test('bridge: prints its address and key; a random 128-bit key unless given, or from AUDIO_BRIDGE_KEY', async t => {
-  let a = await bridge([]), b = await bridge([], { AUDIO_BRIDGE_KEY: 'from-env' }), c = await bridge()
+test('bridge: prints its address, key and agents; a random 128-bit key, kept for the next run, unless given', async t => {
+  rmSync(config, { recursive: true, force: true })
+  let a = await bridge([]), key = a.line.match(/key (\S+)/)[1], file = join(config, 'audio', 'bridge.json'), again, b, c
   try {
-    t.ok(/^audio bridge on http:\/\/127\.0\.0\.1:\d+ {2}key [0-9a-f]{32} {2}agent claude \(--agent codex\)$/.test(a.line), a.line)
+    t.ok(/^audio bridge on http:\/\/127\.0\.0\.1:\d+ {2}key [0-9a-f]{32} {2}agents claude, codex, pi, gemini, kimi$/.test(a.line), a.line)
+    t.is((await fetch(`${a.url}/health?key=${key}`)).status, 200, 'the printed key opens it')
+    t.is(JSON.parse(readFileSync(file, 'utf8')), { url: a.url, key }, 'its address and key kept')
+    if (process.platform !== 'win32') t.is(statSync(file).mode & 0o777, 0o600, 'for the user alone to read')
+    await a.close(), a = null
+    again = await bridge([])
+    t.ok(again.line.includes(`  key ${key}  `), 'the next run keeps the key')
+    b = await bridge([], { AUDIO_BRIDGE_KEY: 'from-env' }), c = await bridge()
     t.ok(b.line.includes('  key from-env  '), b.line)
     t.ok(c.line.includes(`  key ${KEY}  `), c.line)
-    t.is((await fetch(`${a.url}/health?key=${a.line.match(/key (\S+)/)[1]}`)).status, 200, 'the printed key opens it')
-  } finally { await a.close(); await b.close(); await c.close() }
+    t.is(JSON.parse(readFileSync(file, 'utf8')), { url: c.url, key: KEY }, 'the last one kept')
+    await c.close(), c = null
+    writeFileSync(file, '{ not json')
+    c = await bridge([])
+    t.ok(/ {2}key [0-9a-f]{32} {2}/.test(c.line), 'a kept file unreadable: a new random key, ' + c.line)
+    t.is(JSON.parse(readFileSync(file, 'utf8')).url, c.url, 'and kept anew')
+  } finally { await a?.close(); await again?.close(); await b?.close(); await c?.close() }
 })
 
 test('bridge: bad options fail with usage', async t => {
@@ -223,10 +323,10 @@ test('bridge: /file hands a media file of this machine to the page, by its absol
 test('bridge: a page gets hello, answers a call; /call round-trips result and error', async t => {
   let b = await bridge(), p
   try {
-    t.is(await health(b.url), { ok: true, page: false, agent: 'claude' }, 'health before a page; the first agent on PATH')
+    t.is(await health(b.url), { ok: true, page: false, agent: 'claude', agents: FOUND }, 'health before a page; the agents on PATH, the first')
     p = page(b.url)
     let { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
-    t.is(await p.next(), { type: 'hello', version, agent: { id: 'claude', name: 'Claude Code' } })
+    t.is(await p.next(), { type: 'hello', version, agent: { id: 'claude', name: 'Claude Code' }, agents: FOUND.map(id => ({ id, name: NAMES[id] })) })
     t.is(p.status, 200)
     t.is((await health(b.url)).page, true)
 
@@ -397,10 +497,27 @@ test('mcp --editor: no page, no bridge, wrong key come back as tool errors that 
     t.is((await plain.request('tools/call', { name: 'state', arguments: {} })).error.code, -32602, 'editor tools unknown without --editor')
     await plain.close()
   } finally { await Promise.all([c1, c2, c3, c4].map(c => c.close())); await b.close() }
-  let nokey = mcp(['--editor', 'http://127.0.0.1:7777'])
-  let { code, err } = await nokey.exit
-  t.is(code, 1, 'no key: refuses to start')
-  t.ok(err.includes('--key'), err)
+  let none = mcp(['--editor'], { XDG_CONFIG_HOME: join(dir, 'empty') })
+  let r = await calls(none)
+  t.is([r.isError, r.content[0].text], [true, 'state: no bridge running: the user runs `audio --bridge` and opens the editor'], 'no key, no bridge kept')
+  await none.close()
+})
+
+test('mcp --editor: with no address or key, the bridge running now, as it kept them', { timeout: 30000 }, async t => {
+  let b = await bridge(), p = page(b.url), c = mcp(['--editor'])
+  try {
+    await p.next()
+    t.is((await c.request('tools/list')).result.tools.map(x => x.name), ['audio', ...EDITOR_TOOLS])
+    let pending = c.request('tools/call', { name: 'select', arguments: { at: 1, d: 2 } })
+    let call = await p.next(e => e.type === 'call')
+    t.is([call.tool, call.args], ['select', { at: 1, d: 2 }])
+    await post(b.url, '/reply', { id: call.id, result: { selection: [1, 3] } })
+    t.is(JSON.parse((await pending).result.content[0].text), { selection: [1, 3] })
+  } finally { await c.close(); p.close(); await b.close() }
+  let env = mcp(['--editor'], { AUDIO_EDITOR: 'http://127.0.0.1:9', AUDIO_BRIDGE_KEY: KEY })
+  let r = (await env.request('tools/call', { name: 'state', arguments: {} })).result
+  t.ok(r.isError && r.content[0].text.includes('no bridge at http://127.0.0.1:9'), 'AUDIO_EDITOR before what was kept: ' + r.content[0].text)
+  await env.close()
 })
 
 test('bridge chat: claude streams text, tool, session, done in order; the text on stdin, never in argv', { timeout: 15000 }, async t => {
@@ -453,7 +570,7 @@ test('bridge chat: codex events and its exec command line', { timeout: 15000 }, 
   let b = await bridge(['--key', KEY, '--agent', 'codex']), p = page(b.url)
   try {
     t.is((await p.next()).agent, { id: 'codex', name: 'Codex' }, '--agent chooses it')
-    t.ok(b.line.endsWith('  agent codex (--agent claude)'), b.line)
+    t.ok(b.line.endsWith('  agents codex, claude, pi, gemini, kimi'), b.line)
     let events = await chat(p, b.url, { text: 'how long?' })
     t.is(events, [{ session: CODEX_THREAD }, { tool: 'state', input: {}, id: 'item_1' }, { answered: 'item_1', failed: false }, { tool: 'files.edit', input: { path: 'a' }, id: 'item_9' }, { answered: 'item_9', failed: false }, { text: 'It is 3 s long.' }, { text: '\n\nAnything else?' }, { done: true }])
     let { argv, input } = logged('codex')
@@ -502,7 +619,7 @@ test('bridge chat: stop kills the turn; bad requests are refused before anything
   try {
     t.is((await q.next()).agent, null, 'no agent on PATH')
     t.ok(none.line.endsWith('  no agent on PATH'), none.line)
-    t.is(await post(none.url, '/chat', { text: 'hi' }), { status: 400, body: { error: 'No agent on PATH: install Claude Code or Codex, then start the bridge again' } })
+    t.is(await post(none.url, '/chat', { text: 'hi' }), { status: 400, body: { error: 'No agent on PATH: install one (Claude Code, Codex, Pi, Gemini CLI, Qwen Code, Kimi Code, …), then start the bridge again' } })
     q.close()
     await until(async () => !(await health(none.url)).page)
     t.is((await post(none.url, '/chat', { text: 'hi' })).status, 400, 'agent checked first')
@@ -510,4 +627,130 @@ test('bridge chat: stop kills the turn; bad requests are refused before anything
   let lone = await bridge()
   try { t.is(await post(lone.url, '/chat', { text: 'hi' }), { status: 503, body: { error: 'No editor page is connected' } }) }
   finally { await lone.close() }
+})
+
+test('bridge chat: pi prints its events; the editor tools come as its extension, which finds the bridge by the env', { timeout: 15000 }, async t => {
+  let b = await bridge(['--key', KEY, '--agent', 'pi']), p = page(b.url)
+  try {
+    t.is((await p.next()).agent, { id: 'pi', name: 'Pi' }, '--agent chooses the first')
+    t.is(await chat(p, b.url, { text: 'how long?' }), [
+      { session: PI_SESSION }, { thinking: true }, { text: 'Reading ' }, { text: 'the sound .' },
+      { thinking: true }, { tool: 'state', input: {}, id: 'call_1' }, { answered: 'call_1', failed: false },
+      { text: '\n\n' }, { text: 'It is 3 s long.' }, { done: true }
+    ], 'a line holding U+2028 is one line')
+    let { argv, input, editor, key } = logged('pi')
+    t.is(input, 'how long?', 'the text on stdin')
+    t.is(argv.slice(0, 3), ['--mode', 'json', '--no-builtin-tools'], 'its own tools left out')
+    t.is(argv[argv.indexOf('-e') + 1], join(root, 'bin', 'pi.js'), 'the editor tools, an extension')
+    t.ok(argv[argv.indexOf('--append-system-prompt') + 1].startsWith('You are chatting'), 'told where it is')
+    t.is([editor, key], [b.url, KEY], 'the bridge, for the extension to reach')
+    t.ok(!argv.includes('--session'), 'a new conversation')
+
+    await chat(p, b.url, { text: 'and now?', session: PI_SESSION })
+    argv = logged('pi').argv
+    t.is(argv[argv.indexOf('--session') + 1], PI_SESSION, 'goes on with its session')
+    t.is((await chat(p, b.url, { text: 'and now?', session: 'gone', history: [{ role: 'user', text: 'how long?' }] }))[0], { session: PI_SESSION }, 'a session it lacks: afresh')
+    t.ok(logged('pi').input.startsWith('Our conversation so far'), 'told what was said')
+    t.is(await chat(p, b.url, { text: 'fail' }), [{ session: PI_SESSION }, { done: true, error: 'registry.ollama.ai/library/dolphin3:latest does not support tools' }], 'a failed run, as its last message says, the provider\'s message')
+  } finally { p.close(); await b.close() }
+})
+
+test('pi extension (bin/pi.js): the editor tools, each reaching the page through the bridge', { timeout: 15000 }, async t => {
+  let b = await bridge(), p = page(b.url), tools = {}
+  let { default: extend } = await import('../bin/pi.js')
+  extend({ registerTool: tool => tools[tool.name] = tool })
+  try {
+    await p.next()
+    t.is(Object.keys(tools), EDITOR_TOOLS)
+    t.is(tools.edit.parameters.required, ['call'], 'its parameters, the MCP tool\'s schema')
+    t.is(tools.edit.label, 'Add an edit')
+    process.env.AUDIO_EDITOR = b.url, process.env.AUDIO_BRIDGE_KEY = KEY
+    let pending = tools.look.execute('id', { at: 1, d: 2 })
+    let call = await p.next(e => e.type === 'call')
+    t.is([call.tool, call.args], ['look', { at: 1, d: 2 }])
+    await post(b.url, '/reply', { id: call.id, result: { image: 'data:image/png;base64,iVBORw0KGgo=', text: '1 s to 3 s' } })
+    t.is(await pending, { content: [{ type: 'image', mimeType: 'image/png', data: 'iVBORw0KGgo=' }, { type: 'text', text: '1 s to 3 s' }], details: undefined }, 'a picture as pi takes one')
+    pending = tools.edit.execute('id', { call: 'nope()' })
+    call = await p.next(e => e.type === 'call')
+    await post(b.url, '/reply', { id: call.id, error: 'nope is not an op' })
+    await pending.then(() => t.fail('resolved'), e => t.is(e.message, 'edit: nope is not an op', 'an error, thrown: a failed result'))
+    delete process.env.AUDIO_EDITOR, delete process.env.AUDIO_BRIDGE_KEY
+    pending = tools.state.execute('id', {})
+    call = await p.next(e => e.type === 'call')
+    await post(b.url, '/reply', { id: call.id, result: { duration: 3 } })
+    t.is((await pending).content, [{ type: 'text', text: '{"duration":3}' }], 'with no env, the bridge kept')
+  } finally { delete process.env.AUDIO_EDITOR, delete process.env.AUDIO_BRIDGE_KEY; p.close(); await b.close() }
+})
+
+test('bridge chat: an ACP agent; its session gone on with by session/resume, its requests answered', { timeout: 15000 }, async t => {
+  let b = await bridge(['--key', KEY, '--agent', 'kimi']), p = page(b.url)
+  try {
+    t.is((await p.next()).agent, { id: 'kimi', name: 'Kimi Code' })
+    let r = await post(b.url, '/chat', { text: 'how long?' }), events = []
+    for (;;) { let { type, turn, ...e } = await p.next(e => e.turn === r.body.turn); events.push(e); if (e.done) break }
+    t.is(events, [
+      { session: 'sess-1' }, { thinking: true }, { text: 'Reading ' }, { text: 'the sound.' },
+      { tool: 'state', input: {}, id: 'c1' }, { answered: 'c1', failed: false },
+      { tool: 'edit', input: { call: 'nope()' }, id: 'c2' }, { answered: 'c2', failed: true },
+      { tool: 'Run rm -rf ~', input: { command: 'rm -rf ~' }, id: 'c3' }, { answered: 'c3', failed: true },
+      { tool: 'Read voice.txt', input: { path: 'voice.txt' }, id: 'c4' }, { answered: 'c4', failed: false },
+      { tool: 'state', input: {}, id: 'c5' }, { answered: 'c5', failed: false },
+      { tool: "edit (Kimi Code's)", input: { filePath: 'a.js', oldString: 'x' }, id: 'c6' }, { answered: 'c6', failed: false },
+      { tool: 'Read audio/state.js', input: { path: 'audio/state.js' }, id: 'c7' }, { answered: 'c7', failed: false },
+      { text: '\n\nIt is 3 s long.' }, { done: true }
+    ], 'its words, the editor tools by their names, however titled; its own by their titles, never taken for ours')
+    let log = told('kimi'), [{ argv, editor }] = log, sent = method => log.find(m => m.method === method)
+    t.is(argv, ['acp'], 'started as an ACP server')
+    t.is(editor, b.url)
+    t.is(sent('initialize').params, { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false }, clientInfo: { name: 'audio', version: JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version } })
+    t.is(sent('session/new').params, { cwd: process.cwd(), mcpServers: [{ name: 'audio', command: process.execPath, args: [bin, '--mcp', '--editor', b.url, '--key', KEY], env: [] }] }, 'the MCP server handed to it, absolute paths')
+    let { text } = sent('session/prompt').params.prompt[0]
+    t.ok(text.startsWith('You are chatting') && text.endsWith('\n\n---\n\nhow long?'), 'told where it is, then the text')
+    let answers = log.slice(1).filter(m => m.method == null).map(m => m.result?.outcome ?? m.error?.code)
+    t.is(answers, [{ outcome: 'selected', optionId: 'yes' }, { outcome: 'selected', optionId: 'no' }, { outcome: 'selected', optionId: 'yes' }, -32601],
+      'the editor\'s tool allowed once, its shell refused, its reading allowed, a client\'s file not offered')
+    await until(async () => (await post(b.url, '/chat/stop', { turn: r.body.turn })).status === 404)
+    t.ok(true, 'its turn over, the agent goes')
+
+    await chat(p, b.url, { text: 'and now?', session: 'sess-1' })
+    log = told('kimi')
+    t.is(log.find(m => m.method === 'session/resume')?.params.sessionId, 'sess-1', 'goes on by session/resume')
+    t.ok(!log.some(m => m.method === 'session/new'), 'not a new one')
+    t.is(log.find(m => m.method === 'session/prompt').params.prompt[0].text, 'and now?', 'the text alone')
+    t.is((await chat(p, b.url, { text: 'and now?', session: 'gone', history: [{ role: 'user', text: 'how long?' }] }))[0], { session: 'sess-1' }, 'a session it lacks: afresh')
+    t.ok(told('kimi').find(m => m.method === 'session/prompt').params.prompt[0].text.includes('Our conversation so far'), 'told what was said')
+
+    t.is((await chat(p, b.url, { text: 'fail' })).at(-1), { done: true, error: 'openai-codex requires re-authentication: sign in to Kimi Code in a terminal, then ask again' }, 'its error, its details, what to do')
+    t.is((await chat(p, b.url, { text: 'refuse' })).at(-1), { done: true, error: 'It declined to go on' })
+    r = await post(b.url, '/chat', { text: 'hang' })
+    await p.next(e => e.turn === r.body.turn && e.session)
+    await post(b.url, '/chat/stop', { turn: r.body.turn })
+    t.is(await p.next(e => e.turn === r.body.turn), { type: 'chat', turn: r.body.turn, done: true, error: 'Stopped' })
+  } finally { p.close(); await b.close() }
+})
+
+test('bridge chat: the page picks the agent; session/load replays unheard; any ACP agent by its command line', { timeout: 15000 }, async t => {
+  let b = await bridge(), p = page(b.url)
+  try {
+    t.is((await p.next()).agents.map(a => a.id), FOUND)
+    let events = await chat(p, b.url, { text: 'how long?', agent: 'gemini' })
+    t.is(events.at(-1), { done: true }, 'gemini, as the page asked')
+    t.is(told('gemini')[0].argv, ['--acp'])
+    events = await chat(p, b.url, { text: 'and now?', session: 'sess-1', agent: 'gemini' })
+    t.ok(told('gemini').some(m => m.method === 'session/load'), 'one that cannot resume loads')
+    t.ok(!events.some(e => e.text === 'said before'), 'its replay unheard')
+    t.is((await post(b.url, '/chat', { text: 'hi', agent: 'nope' })).body, { error: `agent: one of ${FOUND.join(', ')}` })
+  } finally { p.close(); await b.close() }
+
+  let any = await bridge(['--key', KEY, '--agent', 'my-acp --model x']), q = page(any.url)
+  try {
+    t.is((await q.next()).agent, { id: 'my-acp --model x', name: 'my-acp --model x' })
+    t.ok(any.line.endsWith('  agents "my-acp --model x", claude, codex, pi, gemini, kimi'), any.line)
+    t.is((await chat(q, any.url, { text: 'how long?' })).at(-1), { done: true })
+    t.is(told('my-acp')[0].argv, ['--model', 'x'], 'its arguments as given')
+  } finally { q.close(); await any.close() }
+  let proc = spawn(process.execPath, [bin, '--bridge', '--agent', 'nowhere acp'], { env: { ...process.env, PATH: fakes, XDG_CONFIG_HOME: config }, stdio: ['ignore', 'ignore', 'pipe'] }), err = ''
+  proc.stderr.setEncoding('utf8').on('data', d => err += d)
+  t.is(await new Promise(r => proc.on('close', r)), 1)
+  t.ok(err.includes('nowhere not found'), err)
 })
