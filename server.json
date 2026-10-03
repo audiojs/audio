@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.audiojs/audio",
+  "title": "Audio",
+  "description": "Edit, analyze and convert audio: loudness, spec checks, denoise, EQ, cuts, BPM, key. No ffmpeg.",
+  "repository": { "url": "https://github.com/audiojs/audio", "source": "github" },
+  "websiteUrl": "https://github.com/audiojs/audio",
+  "icons": [{ "src": "https://raw.githubusercontent.com/audiojs/audio/master/assets/logo.svg", "mimeType": "image/svg+xml", "sizes": ["any"] }],
+  "version": "2.10.0",
+  "packages": [{
+    "registryType": "npm",
+    "identifier": "audio",
+    "version": "2.10.0",
+    "transport": { "type": "stdio" },
+    "packageArguments": [{ "type": "positional", "value": "--mcp" }]
+  }]
+}

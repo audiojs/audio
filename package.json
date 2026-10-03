@@ -1,6 +1,6 @@
 {
   "name": "audio",
-  "version": "2.9.0",
+  "version": "2.10.0",
   "description": "Audio loading, playback, analysis and editing",
   "type": "module",
   "main": "audio.js",
@@ -26,6 +26,7 @@
   "bin": "./bin/cli.js",
   "license": "MIT",
   "repository": "audiojs/audio",
+  "mcpName": "io.github.audiojs/audio",
   "files": [
     "core.js",
     "audio.js",
@@ -113,7 +114,7 @@
     "@audio/effect-autowah": "^1.1.5",
     "@audio/effect-bitcrusher": "^1.1.4",
     "@audio/effect-chorus": "^2.0.1",
-    "@audio/effect-delay": "^1.0.4",
+    "@audio/effect-delay": "^1.0.5",
     "@audio/effect-distortion": "^1.1.4",
     "@audio/effect-exciter": "^1.2.1",
     "@audio/effect-flanger": "^2.0.1",
@@ -182,7 +183,7 @@
     "@audio/pitch-yin": "^1.0.5",
     "@audio/reverb-dattorro": "^1.1.3",
     "@audio/reverb-fdn": "^1.1.3",
-    "@audio/reverb-freeverb": "^1.0.4",
+    "@audio/reverb-freeverb": "^1.0.5",
     "@audio/reverb-schroeder": "^1.1.3",
     "@audio/reverb-shimmer": "^1.1.4",
     "@audio/reverb-spring": "^1.1.3",
