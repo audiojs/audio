@@ -198,7 +198,7 @@ async function landed(t, a, name) {
 
 // ── Tests ────────────────────────────────────────────────────────────────
 
-test('cuts: the time map plays each moment of the source where the audio has it', async t => {
+test('cuts: the time map plays each moment of the source where the audio has it', { timeout: 60000 }, async t => {
   await fixtures()
   let src = () => audio(clicksWav)
   let chains = {

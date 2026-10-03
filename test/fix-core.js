@@ -1,7 +1,7 @@
 import test from 'tst'
 import audio from '../audio.js'  // full bundle (matches test/index.js) — concat test needs .insert(), metadata test needs stats.js wired for 'data'
 import { File } from 'node:buffer'  // global only since Node 20; node:buffer.File (≡ the global, File extends Blob) works on 18.13+ too
-import { emit } from '../core.js'
+import { emit, memo, blockAt } from '../core.js'
 import { execFileSync } from 'child_process'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
@@ -250,4 +250,32 @@ test('fix cache.js — detectBudget caps residency near DEFAULT_BUDGET, not GBs'
     mock(256 * 2 ** 20)
     t.is(await audio.detectBudget(), 64 * 1024 * 1024, 'small quota clamps to the floor')
   } finally { desc ? Object.defineProperty(globalThis, 'navigator', desc) : delete globalThis.navigator }  // node <21: no navigator global to restore
+})
+
+// What a preparation takes long to make (a model's run over its input) is kept by its key in the store the host gives:
+// made once, read back after; a store that fails is passed by, and with none it is made each time
+test('memo — made once, read back from the store; none, or a failing one, makes it each time', async t => {
+  let made = 0, make = async () => (made++, [Float32Array.of(1, 2)]), kept = new Map()
+  try {
+    t.is((await memo('k', make))[0][1], 2)
+    t.is(made, 1, 'no store: made')
+    audio.memo = { get: async k => kept.get(k) ?? null, set: async (k, v) => { kept.set(k, v) } }
+    await memo('k', make)
+    await new Promise(r => setTimeout(r))
+    t.is([made, kept.has('k')], [2, true], 'made, then kept')
+    t.is((await memo('k', make))[0][0], 1)
+    t.is(made, 2, 'read back, not made again')
+    audio.memo = { get: async () => { throw new Error('no storage') }, set: async () => { throw new Error('full') } }
+    t.is((await memo('k', make))[0][0], 1)
+    t.is(made, 3, 'a store failing: made')
+  } finally { delete audio.memo }
+})
+
+// The one rounding every range takes (stats, normalize, shrink): to the sample, then the block. A pause silence() found
+// (0.40533… s for 0.192 s at 48 kHz) ends on a block's edge, its at + duration a float's hair past it
+test('blockAt: a range to the sample, then its blocks', t => {
+  let sr = 48000, at = 19 * 1024 / sr, end = 0.5973333333333334
+  t.ok(end * sr / 1024 > 28, `its end a hair past its block: ${end * sr / 1024}`)
+  t.is([blockAt(at, sr, 1024), blockAt(end, sr, 1024, Math.ceil)], [19, 28], 'blocks 19 to 28, not 29')
+  t.is([blockAt(0, sr, 1024), blockAt(1024 / sr, sr, 1024, Math.ceil), blockAt(1025 / sr, sr, 1024, Math.ceil)], [0, 1, 2], 'an edge is its block\'s, a sample past it the next')
 })

@@ -2,10 +2,9 @@ import test from 'tst'
 import audio from '../audio.js'
 import './clipboard.js'
 import './parity.js'
-import './hits.js'
 const { PAGE_SIZE, BLOCK_SIZE } = audio
 
-import { tone as genTone, clickTrack } from './gen.js'
+import { tone as genTone, clickTrack, vowel, gauss } from './gen.js'
 const tone = (freq, dur, sr = 44100) => genTone(freq, dur, 1, sr)
 
 /** Goertzel magnitude at `f` Hz over a sample buffer — robust pitch probe. */
@@ -1239,6 +1238,9 @@ test('read — sub-range', async t => {
   let pcm = await a.read({at: 2, duration: 3})
   let expected = Math.round(3 * 44100)
   t.is(pcm[0].length, expected, `3 seconds = ${expected} samples`)
+  // as agents write it, the range in place: it read all ten seconds, and a search over them ran out of time
+  await t.rejects(() => a.read(2, 3), /read\(2, 3\): a range is \{ at, duration \}, read\(\{ at: 2, duration: 3 \}\)/, 'a range in place says how to write it')
+  await t.rejects(() => a.read(2, 3, { channel: 0 }), /read\(\{ at: 2, duration: 3, channel: 0 \}\)/, '…its options with it')
 })
 
 test('read — with format', async t => {
@@ -1472,6 +1474,79 @@ test('stat — bins: lists, a key and spectra come whole', async t => {
   t.is((await a.stat('cepstrum', { bins: 13 })).length, 13, 'cepstrum: bins its coefficients')
   let [mn, mx] = await a.stat(['min', 'max'], { bins: 4, channel: 0 })
   t.ok(mn.every((v, i) => v <= mx[i]), 'block stats bin as before')
+})
+
+// A range the library gave reads its own blocks: a pause silence() found ends on a block's edge, its at + duration a
+// float's hair past it (0.40533… + 0.192 = 0.5973333333333334), which read as one more block, the tone after the pause
+test('stat — a range the library gave reads its own blocks', async t => {
+  let sr = 48000, x = Float32Array.from({ length: sr }, (_, i) => i >= .4 * sr && i < .6 * sr ? 0 : .5 * Math.sin(2 * Math.PI * 440 * i / sr))
+  let a = audio.from([x], { sampleRate: sr }), pauses = await a.silence({ threshold: -40 }), [p] = pauses
+  t.is(pauses.length, 1, 'one pause')
+  t.ok((p.at + p.duration) * sr / audio.BLOCK_SIZE % 1 > 0, 'its end a hair past its block, as floats add it')
+  t.is(await a.stat('db', { at: p.at, duration: p.duration }), -Infinity, 'the pause alone: silent')
+  t.is([...await a.stat('db', { at: p.at, duration: p.duration, bins: 2 })], [-Infinity, -Infinity], 'its bins too')
+})
+
+
+// ── Periodicity: voicing, hnr, harmonic ──────────────────────────────────
+
+/** x with white Gaussian noise added at `snr` dB under its power. */
+const noisy = (x, snr, seed) => {
+  let ms = y => y.reduce((s, v) => s + v * v, 0) / y.length, z = gauss(x.length, seed), k = Math.sqrt(ms(x) / ms(z) * 10 ** (-snr / 10))
+  return x.map((v, i) => v + k * z[i])
+}
+
+// The periodic part's level: r·P, the periodic share of a frame's power (Boersma eq. 3) times the power, averaged as
+// power. A sine of amplitude A has a mean square of A²/2: 20·log10(0.5) − 10·log10(2) = −9.0309 dB (the window holds no
+// whole number of its periods: within 0.01 dB). White noise added at SNR 20 dB leaves it (r·P = P_H, eq. 3); at 0 dB,
+// the RMS 3 dB up, it moves under 0.5 dB (the noise's own strongest autocorrelation peak adds to r: white noise alone
+// reads r ≈ 0.13, so under about −9 dB SNR it reads the noise); −10 dB of gain takes 10 dB off
+test('harmonic: a tone\'s level, the noise left out, a gain moves it', async t => {
+  let sr = 44100, x = genTone(220, 3, .5), at = (y, o) => audio.from([y], { sampleRate: sr }).stat('harmonic', o)
+  let level = await at(x), rms = async y => 20 * Math.log10(await audio.from([y], { sampleRate: sr }).stat('rms'))
+  t.almost(level, 20 * Math.log10(.5) - 10 * Math.log10(2), .01, `A = 0.5: ${level.toFixed(4)} dB`)
+  for (let [snr, moves] of [[20, .01], [0, .5]]) {
+    let y = noisy(x, snr, 7), d = await at(y) - level, up = await rms(y) - await rms(x)
+    t.ok(Math.abs(d) < moves, `noise at SNR ${snr} dB: RMS +${up.toFixed(2)} dB, harmonic ${d >= 0 ? '+' : ''}${d.toFixed(3)} dB`)
+  }
+  let a = audio.from([x], { sampleRate: sr })
+  t.almost(await a.gain(-10).stat('harmonic'), level - 10, 1e-6, '−10 dB of gain: 10 dB down')
+  t.is(await audio.from([new Float32Array(sr)], { sampleRate: sr }).stat('harmonic'), -Infinity, 'silence: −Infinity')
+})
+
+// Voiced: a frame of pYIN's pitch curve with a pitch (contour()). A tone is, silence and white noise are not; lena (a
+// sung recording) with a second of silence put in at 2 s and a second of noise (−40 dB) at 6 s: none there, its sung
+// phrase at 0.3 s whole (Praat's To Pitch (ac), 75–600 Hz, voices 84% of it, 95% of frames as these)
+test('voicing: a tone, silence and noise; a recording\'s pauses', async t => {
+  let sr = 44100, x = new Float32Array(3 * sr)
+  x.set(genTone(220, 1, .5)); x.set(gauss(sr, 3).map(v => .1 * v), 2 * sr)
+  t.is([...await audio.from([x], { sampleRate: sr }).stat('voicing', { bins: 3 })], [1, 0, 0], 'tone, silence, noise')
+  let lena = (await (await audio(lenaPath)).read())[0], y = new Float32Array(lena.length + 2 * sr)
+  y.set(lena.subarray(0, 2 * sr)); y.set(lena.subarray(2 * sr, 5 * sr), 3 * sr); y.set(gauss(sr, 4).map(v => .01 * v), 6 * sr); y.set(lena.subarray(5 * sr), 7 * sr)
+  let a = audio.from([y], { sampleRate: sr }), all = await audio.from([lena], { sampleRate: sr }).stat('voicing')
+  t.is(await a.stat('voicing', { at: 2.1, duration: .8 }), 0, 'the silence put in: none voiced')
+  t.is(await a.stat('voicing', { at: 6.1, duration: .8 }), 0, 'the noise put in: none voiced')
+  t.is(await a.stat('voicing', { at: .3, duration: .65 }), 1, 'the first phrase: all voiced')
+  t.ok(all > .75 && all < .9, `lena: ${all.toFixed(3)} voiced`)
+})
+
+// One pass over the range: bins hold the frames centred in them (a window reaches past: the silence after a vowel
+// holds the frames whose windows still hold its tail); a channel alone, or each; a range alone, as Praat reads what it
+// reads, its frames on a grid of its own (a steady vowel's level, 0.03 dB from its bin's); an edit renders
+test('voicing, hnr, harmonic: bins, channels, ranges, edits', async t => {
+  let sr = 44100, x = new Float32Array(3 * sr)
+  x.set(noisy(vowel(140, 1), 20, 6), sr)
+  let a = audio.from([x, x.map(v => v / 2)], { sampleRate: sr }), [v, h, p] = await a.stat(['voicing', 'hnr', 'harmonic'], { bins: 3 })
+  t.ok(v[0] < .05 && v[1] === 1 && v[2] < .05, `voicing: [${[...v].map(q => q.toFixed(2))}]`)
+  t.ok(Number.isNaN(h[0]) && Math.abs(h[1] - 20) < 1 && h[2] < h[1], `hnr: NaN before the vowel (no voiced frame), [${[...h].map(q => q.toFixed(1))}]`)
+  t.ok(p[0] === -Infinity && p[2] < p[1] - 20, `harmonic: −Infinity before, [${[...p].map(q => q.toFixed(1))}]`)
+  let [l, r] = await a.stat('harmonic', { channel: [0, 1], at: 1, d: 1 })
+  t.almost(l - r, 20 * Math.log10(2), 1e-6, 'per channel: the right one half the left, 6.02 dB under')
+  t.is(await a.stat('hnr', { at: 1, d: 1 }), await a.stat('hnr', { at: 1, duration: 1 }), '`d` for duration')
+  let level = await a.stat('harmonic', { at: 1, d: 1 }), ratio = await a.stat('hnr', { at: 1, d: 1 }), b = a.gain(-6)
+  t.almost(level, p[1], .05, 'a range as its bin, its frames on a grid of its own')
+  t.almost(await b.stat('harmonic', { at: 1, d: 1 }), level - 6, 1e-5, 'an edit renders: −6 dB')
+  t.almost(await b.stat('hnr', { at: 1, d: 1 }), ratio, 1e-6, 'the ratio, not')
 })
 
 

@@ -215,9 +215,9 @@ test('mark — a moment marked after edits keeps to it through later ones', t =>
   t.is(a.markers, [{ time: 1.5, label: 'here' }], 'moved on by what came before it')
   a.crop({ at: 1, duration: 1.5 })
   t.is(a.markers, [{ time: 0.5, label: 'here' }], 'and by a crop')
-  // in padding, which plays none of the source, the nearest moment that does
+  // in padding, which plays none of the source, where it was put: as far from the sound as it was
   let b = audio.from([new Float32Array(8000)], { sampleRate: 8000 }).pad(1, 0).mark(0.2)
-  t.is(b.markers, [{ time: 1, label: '' }])
+  t.is(b.markers, [{ time: 0.2, label: '' }])
   // chainable, several, in time order
   let c = audio.from([new Float32Array(8000)], { sampleRate: 8000 }).mark(0.75, 'b').mark(0.25, 'a')
   t.is(c.markers.map(m => m.label), ['a', 'b'])
@@ -227,9 +227,37 @@ test('mark — a moment marked after edits keeps to it through later ones', t =>
   let f = audio.from([new Float32Array(16000)], { sampleRate: 8000 }).speed(2).mark(0.25)
   t.ok(Math.abs(f.markers[0].time - 0.25) <= 1 / 8000, `twice as fast: ${f.markers[0].time}`)
   // past the end, the end; on nothing, nothing
-  t.is(audio.from([new Float32Array(8000)], { sampleRate: 8000 }).mark(5).markers, [{ time: 7999 / 8000, label: '' }])
-  t.is(audio.from([new Float32Array(8000)], { sampleRate: 8000 }).crop({ at: 0.5, duration: 0.25 }).mark(3).markers, [{ time: 0.25 - 1 / 8000, label: '' }])
+  t.is(audio.from([new Float32Array(8000)], { sampleRate: 8000 }).mark(5).markers, [{ time: 1, label: '' }])
+  t.is(audio.from([new Float32Array(8000)], { sampleRate: 8000 }).crop({ at: 0.5, duration: 0.25 }).mark(3).markers, [{ time: 0.25, label: '' }])
   t.is(audio.from([new Float32Array(0)], { sampleRate: 8000 }).mark(1).markers, [])
+})
+
+// A file still opening has no rate yet: what is marked on it waits, as its edits do, and lands where it would on the file
+// opened (a reload of the editor runs its script on files that are still opening); the file's own markers stay
+test('mark — on a file still opening, where it would be on the file opened, beside its own markers', async t => {
+  await audio.from([new Float32Array(4 * 8000)], { sampleRate: 8000 }).mark(3, 'own').save('/tmp/fix-mark-early.wav')
+  let early = audio('/tmp/fix-mark-early.wav')
+  t.is(early.sampleRate, 0, 'no rate yet')
+  early.mark(1.25, 'a').remove({ at: 0, duration: 0.5 }).mark({ at: 1.5, duration: 0.5 }, 'r')
+  await early
+  let opened = (await audio('/tmp/fix-mark-early.wav')).mark(1.25, 'a').remove({ at: 0, duration: 0.5 }).mark({ at: 1.5, duration: 0.5 }, 'r')
+  t.is(early.markers, opened.markers, 'the moments alike')
+  t.is(early.regions, opened.regions, 'the ranges alike')
+  t.is(early.markers, [{ time: 0.75, label: 'a' }, { time: 2.5, label: 'own' }], 'its own kept, moved by the edit')
+  t.is(early.regions, [{ at: 1.5, duration: 0.5, label: 'r' }])
+  // set, not marked, alike: the times as the audio has them when set, kept to through the edits after
+  let set = audio('/tmp/fix-mark-early.wav')
+  set.remove({ at: 0, duration: 0.5 })
+  set.markers = [{ time: 0.75, label: 'a' }]
+  set.regions = [{ at: 1, duration: 0.5, label: 'r' }, { at: 2, duration: 0, label: 'none' }]
+  set.pad(1, 0)
+  await set
+  t.is(set.markers, [{ time: 1.75, label: 'a' }], 'the file\'s own replaced')
+  t.is(set.regions, [{ at: 2, duration: 0.5, label: 'r' }], 'a range of no length none')
+  // read and set again, the same
+  set.markers = set.markers
+  set.regions = set.regions
+  t.is([set.markers, set.regions], [[{ time: 1.75, label: 'a' }], [{ at: 2, duration: 0.5, label: 'r' }]])
 })
 
 // mark({ at, duration }, label): a range, a region kept to what it marks as a moment is
@@ -248,4 +276,98 @@ test('mark — a range marked is a region, kept to through later edits', t => {
   t.is(audio.from([new Float32Array(8000)], { sampleRate: 8000 }).mark({ at: 0.25, duration: 0 }).markers, [{ time: 0.25, label: '' }])
   // on nothing, nothing
   t.is(audio.from([new Float32Array(0)], { sampleRate: 8000 }).mark({ at: 0, duration: 1 }).regions, [])
+})
+
+// Where a mark falls on what an edit made, not the source: a sound put in, it keeps to that sound; silence (a pad, a gap
+// opened, a take written past the end), the sound nearest it, as far from it as it was, through the edits after it
+test('mark — on silence or a sound put in, kept to as on the source', t => {
+  let sr = 8000, one = s => audio.from([Float32Array.from({ length: s * sr }, (_, i) => Math.sin(i / 5))], { sampleRate: sr })
+  let at = a => a.markers.map(m => m.time), ranges = a => a.regions.map(r => [r.at, r.duration])
+  t.is(at(one(2).pad(0, 2).mark(3)), [3], 'in padding past the end')
+  t.is(at(one(2).pad(0, 2).mark(3).remove({ at: 0, duration: 1 })), [2], 'moved on by what is taken out before it')
+  // reversed, as far the other way, to a sample (a sample i reversed is n − 1 − i)
+  let r = at(one(2).pad(0, 2).mark(3).reverse())
+  t.ok(r.length === 1 && Math.abs(r[0] - 1) <= 1.01 / sr, `reversed: ${r}`)
+  t.is(at(one(2).pad(0, 2).mark(3).speed(2)), [1.5], 'twice as fast, half as far')
+  t.is(at(one(2).pad(0, 2).mark(3.5).crop({ at: 0, duration: 3 })), [], 'cropped away, gone')
+  t.is(at(one(2).insert(1, { at: 1 }).mark(1.4)), [1.4], 'in a gap opened')
+  t.is(at(one(2).write(one(2), { at: 2 }).mark(3).remove({ at: 0, duration: 0.5 })), [2.5], 'in a take written past the end')
+  // a sound put in: its own sample, so what is taken out of it before the mark moves it
+  t.is(at(one(2).insert(one(1), { at: 1 }).mark(1.5).remove({ at: 1, duration: 0.25 })), [1.25], 'in a sound inserted')
+  // ranges alike: in silence alone, and from the sound on into silence
+  t.is(ranges(one(2).pad(0, 2).mark({ at: 2.5, d: 1 })), [[2.5, 1]], 'a range in padding')
+  t.is(ranges(one(2).pad(0, 2).mark({ at: 2.5, d: 1 }).reverse()), [[0.5, 1]], 'reversed')
+  t.is(ranges(one(2).pad(0, 2).mark({ at: 1.5, d: 2 }).speed(2)), [[0.75, 1]], 'from the sound into padding, twice as fast')
+  t.is(ranges(one(2).pad(1, 1).mark({ at: 0.5, d: 3 })), [[0.5, 3]], 'over the sound, from padding to padding')
+  // set by time, as marked
+  let s = one(2).pad(0, 2)
+  s.markers = [{ time: 3, label: 'x' }]
+  t.is(s.markers, [{ time: 3, label: 'x' }], 'set into padding')
+})
+
+// A whole render (roomtone) reads the timeline before it in place: a mark before it stays where it was
+test('mark — through a whole render that keeps the time', async t => {
+  let a = audio.from([Float32Array.from({ length: 2 * 8000 }, (_, i) => i % 8000 < 4000 ? Math.sin(i / 5) : 1e-4 * Math.sin(i))], { sampleRate: 8000 }).mark(1, 'kept').roomtone()
+  await a
+  t.is(a.markers, [{ time: 1, label: 'kept' }])
+})
+
+// A time past the end is as far past the last sound: the end while the audio is shorter, where it was put once an edit
+// after it makes the audio reach it (a marker dragged past a take written later, as the editor writes it)
+test('mark — past the end, the end until an edit after it reaches it', t => {
+  let sr = 8000, one = s => audio.from([Float32Array.from({ length: s * sr }, (_, i) => Math.sin(i / 5))], { sampleRate: sr })
+  let at = a => a.markers.map(m => m.time)
+  t.is(at(one(2).mark(3)), [2], 'the end')
+  t.is(at(one(2).mark(3).pad(0, 0.5)), [2.5], 'not reached yet: the end')
+  t.is(at(one(2).mark(3).pad(0, 2)), [3], 'padded past it: where it was put')
+  t.is(at(one(2).insert(1, { at: 2 }).mark(4.5).write(one(3), { at: 2.5 })), [4.5], 'a take written past the end')
+  t.is(at(one(2).pad(0, 2).mark(3.5).crop({ at: 0, duration: 3 })), [], 'in the audio, then cropped away: gone')
+  // a range all past the end: none while the audio is shorter, where it was put once it reaches it
+  let ranges = a => a.regions.map(r => [+r.at.toFixed(3), +r.duration.toFixed(3)])
+  t.is(ranges(one(2).mark({ at: 3, d: .5 })), [], 'a range past the end: none yet')
+  t.is(ranges(one(2).mark({ at: 3, d: .5 }).pad(0, 2)), [[3, .5]], 'padded past it: where it was put')
+})
+
+// A copy is the sound: the file's own markers and those marked on it come with it, kept to through its edits, and an
+// undone edit takes them back to where they were before it (a region of the output, found at an earlier step)
+test('clone — keeps markers and regions; undone, they go back with the audio', async t => {
+  await audio.from([new Float32Array(4 * 8000)], { sampleRate: 8000 }).mark(3, 'own').save('/tmp/fix-clone-own.wav')
+  let file = await audio('/tmp/fix-clone-own.wav')
+  t.is(file.clone().markers, [{ time: 3, label: 'own' }], "a file's own, on a copy of it opened")
+  let a = audio.from([Float32Array.from({ length: 10 * 8000 }, (_, i) => Math.sin(i / 5))], { sampleRate: 8000 })
+  a.remove({ at: 1, d: 2 }).stretch(1.5, { at: 4, d: 2 }).lowpass(1000).mark(0.5, 'm').mark({ at: 5, d: 1.5 }, 'r')
+  let b = a.clone()
+  t.is([b.markers, b.regions], [a.markers, a.regions], 'the copy has them')
+  b.undo(2)
+  // to the sample (1/8000 s) the stretch rounds to
+  let ms = r => [+r.at.toFixed(3), +r.duration.toFixed(3)]
+  t.is(b.regions.map(ms), [[4.667, 1]], 'before the stretch: 2 s stretched to 3 there')
+  b.undo()
+  t.is(b.regions.map(ms), [[6.667, 1]], 'before the remove: 2 s later')
+  t.is(a.regions.map(ms), [[5, 1.5]], 'the original as it was')
+})
+
+// An edit prepared before it renders (a model's run over its input: deepfilter(), vocals({ model })) leaves the timeline
+// unknown till then where a later edit reads the sound (normalize(), trim()): a mark after them waits till the audio is
+// read, then lands where it was put. Its length asked before that fails, and the read after renders all the same, the
+// stages that failed sought again
+test('mark — after an edit prepared before rendering, once the audio is read', async t => {
+  let PREPARED = Symbol('prepared')
+  audio.op('prepared', {
+    prepare: async (a, i) => { a.edits[i][1][PREPARED] = true },
+    process: (input, output, ctx) => { if (!ctx[PREPARED]) throw new Error('prepared: not yet'); input.forEach((x, c) => output[c].set(x)) }
+  })
+  let one = () => audio.from([Float32Array.from({ length: 3 * 8000 }, (_, i) => (i >= 8000 && i < 16000 ? .5 : 1e-3) * Math.sin(i / 5))], { sampleRate: 8000 })
+  let a = one().prepared().normalize().mark(1, 'm').mark({ at: 1.5, d: .5 }, 'r')
+  t.throws(() => a.duration, /prepared: not yet/, 'its length, before it is read')
+  await a.read()
+  t.is(a.markers, [{ time: 1, label: 'm' }])
+  t.is(a.regions, [{ at: 1.5, duration: .5, label: 'r' }])
+  let b = one().prepared().trim().mark(.5, 'half')
+  await b.read()
+  t.is(b.markers.map(m => m.label), ['half'], 'after a trim it reads the sound for')
+  // a sound mixed in, its edit not prepared either: its length asked first fails, and leaves the read after to render
+  let c = one().mix(one().prepared()).normalize()
+  t.throws(() => c.duration, /prepared: not yet/)
+  t.is((await c.read())[0].length, 3 * 8000, 'the mix read after')
 })

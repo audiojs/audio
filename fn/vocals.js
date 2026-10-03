@@ -18,7 +18,7 @@
  */
 
 import { isolate, remove } from '@audio/vocals'
-import audio, { arrived } from '../core.js'
+import audio, { arrived, memo } from '../core.js'
 
 const SEPARATED = Symbol('vocals.separated')
 
@@ -47,8 +47,9 @@ async function prepare(a, index) {
   let pcm = await input.read()
   let key = `${o.model}:${o.weights ?? ''}:${fingerprint(pcm)}`
   if (sep?.key === key) { sep.stamp = stamp; return }
-  let { stems } = await separate(pcm.slice(0, 2), { sampleRate: input.sampleRate, model: o.model, targets: ['vocals'], weights: o.weights, device: o.device })
-  let [l, r] = stems.vocals
+  // the separation kept by the model and its input (core.js memo): a reload, another tab, the mode changed, read it back
+  let [l, r] = await memo(`vocals:${o.model}:${o.weights ?? ''}:${input.sampleRate}:${fingerprint(pcm)}`, async () =>
+    (await separate(pcm.slice(0, 2), { sampleRate: input.sampleRate, model: o.model, targets: ['vocals'], weights: o.weights, device: o.device })).stems.vocals)
   o[SEPARATED] = { key, stamp, vocals: pcm.length === 1 ? [l.map((v, i) => (v + r[i]) / 2)] : [l, r] }
 }
 

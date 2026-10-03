@@ -27,6 +27,19 @@ export function noise(n, amp = 1, seed = 999) {
   return d
 }
 
+/** White Gaussian noise of unit variance, seeded (Box-Muller): Boersma's (1993) z_n, eq. 31. */
+export function gauss(n, seed = 1) {
+  let s = seed >>> 0, u = () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0, (s + .5) / 4294967296)
+  return Float32Array.from({ length: n }, () => Math.sqrt(-2 * Math.log(u())) * Math.cos(2 * Math.PI * u()))
+}
+
+/** A pulse train at f0 as Boersma (1993) eq. 29 samples it, low-passed at the Nyquist frequency: its harmonics to there
+ *  in cosine phase (the DC left out), peak `amp`. */
+export function pulses(f0, dur, amp = 0.5, sr = SR) {
+  let K = Math.floor(sr / 2 / f0)
+  return Float32Array.from({ length: Math.round(dur * sr) }, (_, i) => { let s = 0; for (let k = 1; k <= K; k++) s += Math.cos(2 * Math.PI * k * f0 * i / sr); return amp * s / K })
+}
+
 /** Unit impulse (optionally positioned). */
 export function impulse(n, amp = 1, at = 0) {
   let d = new Float32Array(n)

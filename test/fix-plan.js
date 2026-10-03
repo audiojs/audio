@@ -710,3 +710,48 @@ test('stats remap — a crop from 0 or a remove ending inside a block measures o
   let aligned = Float32Array.from({ length: 4096 }, (_, i) => (i < 2048 ? .25 : 1) * Math.sin(i / 7))
   t.ok(Math.abs(await peak(audio.from([aligned], { sampleRate: SR }).crop({ at: 0, duration: 2048 / SR }).normalize(0)) - 1) < 1e-3, 'aligned crop')
 })
+
+// mix: how much of an edit's output is heard, the rest its input lined up with it (1 by default). An op's own `mix` (an
+// effect's dry/wet) is its own; structural and channel-changing edits take none
+test('mix — an edit blended with its input: a share, a curve over time, through latency, resolve and patches', async t => {
+  let sr = 8000, n = audio.BLOCK_SIZE, dc = (v, s = 1) => audio.from([new Float32Array(s * sr).fill(v)], { sampleRate: sr })
+  let all = async a => (await a.read())[0], near = (x, v) => Math.abs(x - v) < 1e-6
+  // −20 dB is ×0.1 exactly: half of it heard is 0.5·0.5 + 0.5·0.05
+  t.ok((await all(dc(.5).gain(-20, { mix: .5 }))).every(x => near(x, .275)), 'a share: dry + mix·(wet − dry)')
+  // off over 0.5–1 s with 10 ms ramps outside: the input there, the edit elsewhere
+  let off = await all(dc(.5, 2).gain(-20, { mix: { t: [.49, .5, 1, 1.01], v: [1, 0, 0, 1] } }))
+  t.ok(off.slice(.5 * sr, sr).every(x => near(x, .5)) && off.slice(0, .49 * sr).every(x => near(x, .05)) && off.slice(1.01 * sr).every(x => near(x, .05)), 'a curve: off where it is 0')
+  t.ok(near(off[Math.round(.495 * sr)], .275), 'halfway down its ramp, half of each')
+  // a function of the time: sampled every 128 samples, straight between
+  let fn = await all(dc(.5, 2).gain(-20, { mix: t => t < 1 ? 0 : 1 }))
+  t.ok(fn.slice(0, .95 * sr).every(x => near(x, .5)) && fn.slice(1.05 * sr).every(x => near(x, .05)), 'a function: the input, then the edit')
+  // no samples, nothing to blend
+  t.is((await all(audio.from([new Float32Array(0)], { sampleRate: sr }).gain(-20, { mix: .5 }))).length, 0, 'empty')
+  // a lookahead limiter delays what it plays: the input is delayed as much, so none of it is the input exactly
+  let x = Float32Array.from({ length: sr }, (_, i) => .5 * Math.sin(i / 3))
+  t.is(await all(audio.from([x], { sampleRate: sr }).limiter({ ceiling: -12, mix: 0 })), x, 'through latency, aligned')
+  // a whole render (roomtone reads all of it at once) blended alike, by its curve over time
+  let quiet = Float32Array.from({ length: 2 * sr }, (_, i) => i % sr < sr / 2 ? .5 * Math.sin(i / 5) : 1e-4 * Math.sin(i))
+  let room = audio.from([quiet], { sampleRate: sr }).roomtone(), [full] = await room.read()
+  let [ramped] = await audio.from([quiet], { sampleRate: sr }).roomtone({ mix: { t: [.9, 1], v: [0, 1] } }).read()
+  t.ok(ramped.subarray(0, .9 * sr).every((x, i) => x === quiet[i]) && ramped.subarray(sr).every((x, i) => x === full[sr + i]), 'a whole render: its input, then all of it')
+  // resolved ops (normalize emits a gain) carry it on
+  let peak = async a => Math.max(...(await all(a)).map(Math.abs)), sine = () => audio.from([x], { sampleRate: sr }), top = Math.max(...x.map(Math.abs))
+  let [none, half] = [await peak(sine().normalize(0, { mix: 0 })), await peak(sine().normalize(0, { mix: .5 }))]
+  t.ok(Math.abs(none - top) < 1e-3 && Math.abs(half - (top + 1) / 2) < 1e-3, `normalize: what it emits blended (${none}, ${half})`)
+  // an op's own mix param is its own: handed to it, not blended
+  audio.op('fix-own-mix', { params: ['mix'], process: (i, o, ctx) => o[0].fill(ctx.mix) })
+  audio.op('fix-no-mix', { process: (i, o, ctx) => o[0].fill(ctx.mix ?? 1) })
+  t.ok((await all(dc(0).run(['fix-own-mix', { mix: .3 }]))).every(x => near(x, .3)), "the op's own")
+  t.ok((await all(dc(0).run(['fix-no-mix', { mix: .25 }]))).every(x => near(x, .25)), 'the engine\'s: not handed to the op')
+  // a mix changed while it streams ramps across the next block, as a param patched does
+  let a = dc(.5, 1).gain(-20, { mix: 1 }), s = a.stream()
+  t.ok((await s.next()).value[0].every(x => near(x, .05)), 'all of it')
+  a.edits[0][1].mix = 0; a.version++
+  let r = (await s.next()).value[0]
+  t.ok(near(r[0], .05) && r[n - 1] > .49 && r.every((x, i) => !i || x >= r[i - 1] - 1e-9), 'ramped up to the input')
+  t.ok((await s.next()).value[0].every(x => near(x, .5)), 'then the input')
+  // what it can't take
+  t.throws(() => dc(1).remove({ at: 0, d: .1, mix: .5 }), /keep the timeline/, 'structural')
+  t.throws(() => dc(1).gain(-3, { mix: 2 }), /a share, 0 to 1/, 'over 1')
+})

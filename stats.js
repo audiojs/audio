@@ -3,7 +3,7 @@
  * Self-registers on import — exposes statSession on audio, adds fn.stat.
  */
 
-import audio, { parseTime, named, LOAD, resolveChannels, yieldTask, FULL } from './core.js'
+import audio, { parseTime, named, LOAD, resolveChannels, yieldTask, FULL, blockAt } from './core.js'
 import { buildPlan, streamPlan, ensurePlan } from './plan.js'
 
 // ── Stat descriptor registry ────────────────────────────────────
@@ -258,6 +258,8 @@ function canDerivePipeline(pipeline) {
   for (let [type, opts] of pipeline) {
     if (opts?.at != null || opts?.duration != null || opts?.channel != null) return false
     let desc = audio.op(type)
+    // a mix under 1 blends output and input: no op's derivation holds for that
+    if (opts?.mix != null && opts.mix !== 1 && !desc?.params?.includes('mix')) return false
     if (!desc?.deriveStats && !desc?.pointwise) return false
   }
   return true
@@ -358,8 +360,8 @@ export async function queryRange(inst, opts, need) {
   let first = Object.values(inst.stats).find(v => v?.[0]?.length)
   let blocks = first?.[0]?.length || 0
   let atN = at != null && at < 0 ? inst.duration + at : at
-  let from = atN != null ? Math.floor(atN * sr / bs) : 0
-  let to = dur != null ? Math.ceil(((atN || 0) + dur) * sr / bs) : blocks
+  let from = atN != null ? blockAt(atN, sr, bs) : 0
+  let to = dur != null ? blockAt((atN || 0) + dur, sr, bs, Math.ceil) : blocks
   from = Math.max(0, Math.min(from, blocks))
   to = Math.max(from, Math.min(to, blocks))
   return { stats: inst.stats, ch: inst.channels, sr, from, to }
@@ -394,7 +396,10 @@ audio.fn.stat = async function(name, opts) {
     at = parseTime(at); duration = parseTime(duration)
     let t0 = at < 0 ? Math.max(0, T + at) : Math.min(at ?? 0, T), t1 = duration != null ? Math.min(T, t0 + duration) : T
     let t = i => Math.min(t1, Math.max(t0, i * bs / sr)), nch = Array.isArray(rest.channel) && rest.channel.length
-    let v = await series(Math.floor(t0 * sr / bs), Math.ceil(t1 * sr / bs), bins, nch, (a, b) => this[name]({ ...rest, at: t(a), duration: t(b) - t(a) }))
+    let from = blockAt(t0, sr, bs), to = blockAt(t1, sr, bs, Math.ceil)
+    // a method that reads the range in one pass (frames, each in its window) measures each bin's span of it
+    if (desc.spans) return this[name]({ ...rest, at: t0, duration: t1 - t0, spans: Array.from({ length: bins }, (_, i) => binAt(from, to, bins, i).map(t)) })
+    let v = await series(from, to, bins, nch, (a, b) => this[name]({ ...rest, at: t(a), duration: t(b) - t(a) }))
     return v ?? this[name](opts)
   }
 

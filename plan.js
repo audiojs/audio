@@ -113,6 +113,21 @@ export function planOffset(offset, total, dflt = 0) {
   return Math.min(Math.max(0, s), total)
 }
 
+/** An edit's own dry/wet where its op has none: `mix`, how much of its output is heard, 1 (all of it, the default) to 0
+ *  (its input as it came), a number, a curve {t, v} or t => share over its input's time. Null where it is all of it, or
+ *  the op's own param (an effect's dry/wet). */
+function ownMix(desc, o) {
+  let m = o?.mix
+  return m == null || m === 1 || desc?.params?.includes('mix') ? null : m
+}
+
+/** A mix the engine can take: a share 0..1, a curve or a function, on an op that keeps the timeline and the channels
+ *  (the output and the input line up sample for sample). Throws what is wrong. */
+function mixable(name, m, desc) {
+  if (!(typeof m === 'function' || isCurve(m) || m >= 0 && m <= 1)) throw new RangeError(`${name}: mix is a share, 0 to 1, a curve { t, v } or t => share, not ${JSON.stringify(m)}`)
+  if (m !== 1 && (desc?.plan || desc?.ch || desc?.frames)) throw new TypeError(`${name}: mix blends an edit's output with its input, so it is for edits that keep the timeline and the channels`)
+}
+
 /** Compute [start, end] sample range from a process ctx (at/duration) over a buffer of given len. */
 export function opRange(ctx, len) {
   let sr = ctx.sampleRate
@@ -208,6 +223,7 @@ export function opMethod(name) {
     else if (a.length) o.args = a
     for (let k in o) if (typeof o[k] === 'number' && Number.isNaN(o[k])) throw new RangeError(`${name}: ${k} is NaN`)
     if (d?.ch && (o.at != null || o.duration != null)) throw new TypeError(`${name}: range options not supported for channel-changing ops`)
+    if (o.mix != null && !d?.params?.includes('mix')) mixable(name, o.mix, d)
     return this.run([name, o])
   }
 }
@@ -514,8 +530,11 @@ fn.toJSON = function() {
 }
 
 fn.clone = function() {
-  let b = audio.from(this, { sampleRate: this._.sr })
+  let b = audio.from(this, { sampleRate: this._.sr }), _ = this._
   for (let [type, opts] of this.edits) pushEdit(b, [type, opts ? { ...opts } : {}])
+  // its tags and marks too: the copy plays the same samples through the same edits, so they keep to them as they are
+  if (_.metaDone) Object.assign(b._, { metaDone: true, meta: _.meta && { ..._.meta }, markers: _.markers?.map(m => ({ ...m })), regions: _.regions?.map(r => ({ ...r })) })
+  if (_.marks?.length) b._.marks = _.marks.map(m => ({ ...m }))
   return b
 }
 
@@ -740,17 +759,19 @@ function compilePlan(a, len, final) {
   }
 
   // Apply edits emitted by an expand/resolve hook: structural → segment rewrite,
-  // otherwise pipeline. Inherits the parent edit's range unless overridden.
-  let applyEmitted = (emitted, at, duration, channel) => {
+  // otherwise pipeline. Inherits the parent edit's range and mix unless overridden.
+  let applyEmitted = (emitted, at, duration, channel, mix) => {
     let edits = Array.isArray(emitted) && typeof emitted[0] !== 'string' ? emitted : [emitted]
     for (let re of edits) {
       re = normalizeEdit(re, sr)
       let [rType, rOpts = {}] = re
       let o = { ...rOpts }
       o.at ??= at; o.duration ??= duration; o.channel ??= channel
+      if (mix != null) o.mix ??= mix
       re = [rType, o]
       let rOp = ops[rType]
       if (rOp?.whole) throw new Error(`audio: whole-render op '${rType}' cannot be emitted by expand/resolve`)
+      if (o.mix != null && !rOp?.params?.includes('mix')) mixable(rType, o.mix, rOp)
       if (rOp?.plan && typeof rOp.plan === 'function') {
         bake()
         let { at: rAt, duration: rDur, channel: rCh, ...rExtra } = o
@@ -771,6 +792,9 @@ function compilePlan(a, len, final) {
     let { at, duration, channel, ...extra } = o
     let op = ops[type]
     if (!op) throw new Error(`Unknown op: ${type}`)
+    // a mix of the engine's, not the op's own: blended after it, never handed to it
+    let mix = op.params?.includes('mix') ? undefined : extra.mix
+    if (mix !== undefined) { delete extra.mix; mixable(type, mix, op) }
 
     if (type === 'copy' || type === 'cut') {
       if (!final) { limit = 0; continue }
@@ -792,7 +816,7 @@ function compilePlan(a, len, final) {
       let ctx = { sampleRate: sr, channelCount: ch, channel, at, duration, totalDuration: planLen(segs) / sr, final, ...extra }
       let expanded = op.expand(ctx)
       if (expanded !== null && expanded !== undefined) {
-        if (expanded !== false) applyEmitted(expanded, at, duration, channel)
+        if (expanded !== false) applyEmitted(expanded, at, duration, channel, mix)
         if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }
         continue
       }
@@ -818,6 +842,7 @@ function compilePlan(a, len, final) {
           let [t, o] = normalizeEdit(re, sr)
           if (ops[t]?.plan || ops[t]?.whole) throw new Error(`measure: '${t}' is structural; pipeline ops only`)
           o.at ??= at; o.duration ??= duration; o.channel ??= channel
+          if (mix != null) o.mix ??= mix
           pl.push([t, o]); lat += procLatency(ops[t], o, sr); wu = Math.max(wu, procWarmup(ops[t], o, sr))
         }
         let s = audio.statSession(sr)
@@ -827,7 +852,7 @@ function compilePlan(a, len, final) {
       let resolved = op.resolve(ctx)
       if (resolved === false) { if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }; continue }
       if (resolved) {
-        applyEmitted(resolved, at, duration, channel)
+        applyEmitted(resolved, at, duration, channel, mix)
         if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }
         continue
       }
@@ -858,6 +883,8 @@ function compilePlan(a, len, final) {
         let output = Array.from({ length: outCh }, () => new Float32Array(outLen))
         let wctx = { sampleRate: sr, channelCount: input.length, totalDuration: input[0].length / sr, at, duration, channel, render, ...extra }
         op.whole(input, output, wctx)
+        let share = ownMix(op, o)
+        if (share != null) blend(share, input, output, 0, sr)
         a._.wrc.m.set(key, ref = audio.from(output, { sampleRate: sr }))
         // without a frames hook it renders in place: the timeline it read stays the time map under it (fn/cuts.js)
         if (!op.frames) ref._.timeline = { segs, sr }
@@ -1171,23 +1198,27 @@ function readStage(a, st, s, n, sg, at) {
   let out = Array.from({ length: st.outCh }, () => new Float32Array(n))
   let k = Math.min(c.pos, s + n) - s
   if (k > 0) for (let ch = 0; ch < out.length; ch++) out[ch].set(c.hist[ch].subarray(BS - (c.pos - s), BS - (c.pos - s) + k))
-  while (c.pos < s + n) {
-    let len = Math.min(BS, (c.pos < s ? s : s + n) - c.pos)
-    for (let b of c.buf) b.fill(0, 0, len)
-    let was = reading
-    reading = c
-    try { renderBlock(a, st.segs, c.pos + T, len, c.buf) } finally { reading = was }
-    let src = len < BS ? c.buf.map(b => b.subarray(0, len)) : c.buf
-    let blk = applyProcs(src, c.procs, c.pos + T, st.sr)
-    for (let ch = 0; ch < out.length; ch++) {
-      let b = blk[ch % blk.length].subarray(0, len), h = c.hist[ch]
-      if (c.pos >= s) out[ch].set(b, c.pos - s)
-      if (len >= BS) h.set(b.subarray(len - BS))
-      else { h.copyWithin(0, len); h.set(b, BS - len) }
+  // a read that fails leaves its cursor to seek again: its processors half run (an edit read before its preparation,
+  // deepfilter's before read()) would fail the next read, prepared, too
+  try {
+    while (c.pos < s + n) {
+      let len = Math.min(BS, (c.pos < s ? s : s + n) - c.pos)
+      for (let b of c.buf) b.fill(0, 0, len)
+      let was = reading
+      reading = c
+      try { renderBlock(a, st.segs, c.pos + T, len, c.buf) } finally { reading = was }
+      let src = len < BS ? c.buf.map(b => b.subarray(0, len)) : c.buf
+      let blk = applyProcs(src, c.procs, c.pos + T, st.sr)
+      for (let ch = 0; ch < out.length; ch++) {
+        let b = blk[ch % blk.length].subarray(0, len), h = c.hist[ch]
+        if (c.pos >= s) out[ch].set(b, c.pos - s)
+        if (len >= BS) h.set(b.subarray(len - BS))
+        else { h.copyWithin(0, len); h.set(b, BS - len) }
+      }
+      c.hl = Math.min(BS, c.hl + len)
+      c.pos += len
     }
-    c.hl = Math.min(BS, c.hl + len)
-    c.pos += len
-  }
+  } catch (e) { c.procs = null; throw e }
   return out
 }
 
@@ -1273,9 +1304,64 @@ function applyProcs(bufA, procs, outOff, sr) {
       }
       proc.ramp = ramp = null
     } else run(s, e)
+    // a mix under 1: what it played lined up with what came in, in that share; a number changed, ramped once
+    if (proc.mix != null) {
+      blend(proc.mix, proc.lat ? delayed(proc, cur) : cur, out, tOff - proc.lat, sr)
+      if (Array.isArray(proc.mix)) proc.mix = proc.mix[1] === 1 ? null : proc.mix[1]
+    }
     cur = out
   }
   return cur
+}
+
+/** `wet`, an op's output, in place as the share `m` of itself and the rest `dry`, its input lined up with it; a block at
+ *  a time, so a whole render's blend needs no more than one block of shares */
+function blend(m, dry, wet, t0, sr) {
+  let n = wet[0].length
+  for (let i = 0; i < n; i += audio.BLOCK_SIZE) {
+    let e = Math.min(n, i + audio.BLOCK_SIZE), w = shares(m, i, e, n, t0, sr)
+    for (let c = 0; c < wet.length; c++) {
+      let x = dry[c % dry.length], y = wet[c]
+      for (let k = i; k < e; k++) y[k] = x[k] + w[k - i] * (y[k] - x[k])
+    }
+  }
+}
+
+/** A mix's share at samples [i, e) of n, sample 0 playing the input's sample t0: a number; a ramp [from, to] across the n;
+ *  a curve {t, v} to the sample, straight between its points, flat past its ends; a function of the time in seconds,
+ *  sampled every SUB samples, straight between */
+let _shares = new Float32Array(0)
+function shares(m, i, e, n, t0, sr) {
+  let w = _shares.length >= e - i ? _shares.subarray(0, e - i) : (_shares = new Float32Array(e - i))
+  if (typeof m === 'number') return w.fill(m)
+  if (Array.isArray(m)) { for (let k = i; k < e; k++) w[k - i] = m[0] + (m[1] - m[0]) * k / n; return w }
+  if (isCurve(m)) {
+    let { t, v } = m, last = t.length - 1, j = 0
+    for (let k = i; k < e; k++) {
+      let s = (t0 + k) / sr
+      while (j <= last && t[j] <= s) j++
+      w[k - i] = j === 0 ? v[0] : j > last ? v[last] : v[j - 1] + (v[j] - v[j - 1]) * (s - t[j - 1]) / (t[j] - t[j - 1])
+    }
+    return w
+  }
+  for (let k = i; k < e; k += SUB) {
+    let q = Math.min(e, k + SUB), a = m((t0 + k) / sr), b = m((t0 + q) / sr)
+    for (let u = k; u < q; u++) w[u - i] = a + (b - a) * (u - k) / (q - k)
+  }
+  return w
+}
+
+/** `x` as late as a proc's output: through a delay line of its latency, one per channel */
+function delayed(proc, x) {
+  let L = proc.lat, n = x[0].length, BS = audio.BLOCK_SIZE, j = proc.rj ?? 0
+  let ring = proc.ring ??= x.map(() => new Float32Array(L)), y = proc.late ??= x.map(() => new Float32Array(BS))
+  for (let c = 0; c < x.length; c++) {
+    let r = ring[c], u = x[c], v = y[c], k = j
+    for (let i = 0; i < n; i++) { v[i] = r[k]; r[k] = u[i]; if (++k === L) k = 0 }
+    if (c === x.length - 1) j = k
+  }
+  proc.rj = j
+  return n === BS ? y : y.map(v => v.subarray(0, n))
 }
 
 /** Structural signature — op types only. Value changes patched in place. */
@@ -1289,6 +1375,11 @@ function patchProcs(procs, pipeline) {
   for (let i = 0; i < procs.length && i < pipeline.length; i++) {
     let p = procs[i], o = pipeline[i][1] || {}
     let { at, duration, channel, ...extra } = o
+    if (!p.desc.params?.includes('mix')) {
+      let was = p.mix ?? 1, now = ownMix(p.desc, o) ?? 1
+      p.mix = typeof was === 'number' && typeof now === 'number' && was !== now ? [was, now] : now === 1 ? null : now
+      delete extra.mix
+    }
     p.origAt = at
     p.at = at != null && at < 0 ? p.ctx.totalDuration + at : at
     p.dur = p.ctx.duration = duration
@@ -1317,6 +1408,9 @@ function initProcs(pipeline, totalDur, sr, nch) {
     let desc = ops[ed[0]]
     let o = ed[1] || {}
     let { at, duration: dur, channel, ...extra } = o
+    // a mix of the engine's (the op has none of its own): blended after it, never handed to it
+    let mix = ownMix(desc, o)
+    if (!desc.params?.includes('mix')) delete extra.mix
     let ctx = { duration: dur, sampleRate: sr, totalDuration: totalDur, render, ...extra }
     let outCh = desc.ch ? desc.ch(curCh, ctx) : 0
     let w = outCh || curCh
@@ -1347,7 +1441,7 @@ function initProcs(pipeline, totalDur, sr, nch) {
       ranged: !!desc.ranged,
       preLat: myPre, lat,
       out: Array.from({ length: w }, () => new Float32Array(BS)),
-      fns, autos, ramp: null,
+      fns, autos, ramp: null, mix,
       ctx
     }
   })

@@ -212,6 +212,8 @@ audio.from = function(source, opts = {}) {
       { source: source.source, storage: source.storage, cache: source.cache, budget: opts.budget ?? source.budget, bitDepth: opts.bitDepth ?? source._.bits }, source.stats)
     // a source still arriving: the copy follows it as it lands; a rate or channel count asked for stays the copy's
     if (source._.waiters && !source.decoded) follow(b, source, { sr: !opts.sampleRate || opts.sampleRate === source._.sr, ch: !opts.channels || opts.channels === source._.ch })
+    // one arrived: its header, so the copy reads the file's own tags and markers as the source does
+    else Object.assign(b._, { header: source._.header, format: source._.format })
     return b
   }
   if (source?.getChannelData) {
@@ -270,6 +272,11 @@ audio.fn = fn                    // instance prototype (like $.fn)
 
 audio.BLOCK_SIZE = 1024
 audio.PAGE_SIZE = 1024 * audio.BLOCK_SIZE
+
+/** The block of `bs` samples a time is in, `round` the way (floor: where a range starts; ceil: past where it ends), by its
+ *  nearest sample: a time the library gave (a pause's end, k·bs/sr) lands on its block's edge, not a float's hair past
+ *  it, which ceil reads as one more block. */
+export const blockAt = (t, sr, bs, round = Math.floor) => round(Math.round(t * sr) / bs)
 
 /** Full scale as PCM decodes (v/2^(bits-1)): 16-bit +32767 reads 32767/32768, so a sample this loud counts as clipped. */
 export const FULL = 32767 / 32768
@@ -356,6 +363,7 @@ fn.dispose = function() {
   this._.meta = null
   this._.markers = null
   this._.regions = null
+  this._.marks = null
   this._.lru.clear()
   this.edits.length = 0
   this.block = null
@@ -742,6 +750,20 @@ Object.defineProperties(fn, {
 export async function loadOps(a) {
   for (let [type] of a.edits ?? []) { let d = audio.op?.(type); if (d?.load && !d.mod) d.mod = await (d.loading ??= d.load()) }
   for (let i = 0; i < (a.edits?.length ?? 0); i++) await audio.op?.(a.edits[i][0])?.prepare?.(a, i)
+  // its edits as they are now prepared: what plans them synchronously may render through them (a mark placed, meta.js)
+  a._.prepared = a.version
+}
+
+/** What an edit takes long to make of its input (a model's run over it, in its preparation), by `key`: what names the
+ *  model and its input's samples (vocals.js fingerprint), never a setting applied after it. Read from `audio.memo`, the
+ *  store a host gives ({ get(key) → channels or null, set(key, channels) }: the editor keeps them in the browser), else
+ *  made by make() and kept there. No store, made each time. */
+export async function memo(key, make) {
+  let store = audio.memo, kept = store && await Promise.resolve().then(() => store.get(key)).catch(() => null)
+  if (kept) return kept
+  let made = await make()
+  if (store) Promise.resolve().then(() => store.set(key, made)).catch(() => {})
+  return made
 }
 
 fn[LOAD] = async function() {
@@ -886,9 +908,14 @@ fn.seek = function(t) {
   return this
 }
 
-fn.read = async function(opts) {
-  if (typeof opts !== 'object' || opts === null) opts = {}
-  opts = named(opts)
+fn.read = async function(opts, ...rest) {
+  // a range is an object, as every call's: read(0.5, 1) read all of it, quietly. Said as it would be written
+  if (opts != null && typeof opts !== 'object') {
+    let [duration, more] = rest[0] != null && typeof rest[0] === 'object' ? [null, rest[0]] : rest
+    let js = v => v && typeof v === 'object' ? `{ ${Object.entries(v).map(([k, x]) => `${k}: ${js(x)}`).join(', ')} }` : typeof v === 'string' ? `'${v}'` : String(v)
+    throw new TypeError(`read(${[opts, ...rest].map(js).join(', ')}): a range is { at, duration }, read(${js({ at: opts, ...duration != null && { duration }, ...more })})`)
+  }
+  opts = named(opts ?? {})
   let { at, duration, format, channel, meta } = opts
   at = parseTime(at); duration = parseTime(duration)
   await this[LOAD]()

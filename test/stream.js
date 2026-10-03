@@ -11,6 +11,9 @@ const SR = 8000, CHUNK = 800
 const X = Float32Array.from({ length: SR * 6 }, (_, i) => { let t = i / SR; return (t > 0.5 && t < 2) || (t > 3.5 && t < 5) ? 0.4 * Math.sin(2 * Math.PI * 300 * t) : 0 })
 const B = () => audio.from(t => 0.2, { duration: 0.5, sampleRate: SR })
 const pause = () => new Promise(r => setTimeout(r, 1))
+// registry plugins load before the clock starts: input goes in at 100 times real time (0.1 s a millisecond), so a
+// plugin's first import would count as seconds of latency; what is measured is the stream's own
+await audio.use('limiter', 'compressor', 'freeverb')
 
 /** Push X in chunks into a live source with `chain` applied, reading its stream concurrently.
  *  `first`: seconds of input pushed when the first output arrived. */

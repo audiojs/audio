@@ -1,4 +1,4 @@
-import audio from '../core.js'
+import audio, { blockAt } from '../core.js'
 import { resolveThreshold, isLoud } from './trim.js'
 
 const shrink = (input, output, ctx) => {
@@ -21,8 +21,8 @@ const shrinkResolve = (ctx) => {
 
   // Ranged shrink compresses only pauses inside [at, at+duration]
   if (at != null && at < 0) at = totalDuration + at
-  let from = at != null ? Math.max(0, Math.floor(at * sr / bs)) : 0
-  let to = duration != null ? Math.min(blocks, Math.ceil(((at ?? 0) + duration) * sr / bs)) : blocks
+  let from = at != null ? Math.max(0, blockAt(at, sr, bs)) : 0
+  let to = duration != null ? Math.min(blocks, blockAt((at ?? 0) + duration, sr, bs, Math.ceil)) : blocks
 
   let edits = [], shift = 0, start = null
   const close = (s, endSample) => {

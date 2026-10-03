@@ -70,19 +70,49 @@ async function chromagramOf(inst, opts, chromagram) {
  *  silent, as Praat's silence threshold has it (Boersma 1993), for pYIN's model holds its lowest pitch through a pause.
  *  On a lecture against Praat (Sound: To Pitch (ac), 60 to 600 Hz): 85% of its voiced frames found, 10 cents from it
  *  in the median, 6% of its unvoiced ones taken for voiced; YIN's dip under .15 finds 45%. */
-export function contour(x, fs, { hop = .01, minFreq = 60, maxFreq = 1000 } = {}) {
-  let d = Math.max(1, Math.floor(fs / 11025)), fsd = fs / d, y = new Float32Array(Math.floor(x.length / d)), top = 0
-  for (let i = 0; i < y.length; i++) { let s = 0; for (let j = 0; j < d; j++) s += x[i * d + j]; y[i] = s / d; top = Math.max(top, Math.abs(y[i])) }
-  let H = Math.max(1, Math.round(hop * fsd)), { times, f0 } = track(y, { fs: fsd, minFreq, maxFreq, hopSize: H })
-  // the frame's peak, over its YIN window either side of its centre
-  let W = 2 ** Math.ceil(Math.log2(2 * fsd / minFreq)) >> 1
-  for (let i = 0; i < f0.length; i++) {
-    if (!f0[i]) continue
-    let c = Math.round(times[i] * fsd), m = 0
-    for (let k = Math.max(0, c - W); k < Math.min(y.length, c + W); k++) m = Math.max(m, Math.abs(y[k]))
-    if (m < .03 * top) f0[i] = 0
+export function contour(x, fs, opts) {
+  let write = contours(fs, opts)
+  write(x)
+  return write()
+}
+
+/** contour() as the samples come, in memory of the frames, not the audio: `write(x)` takes the next samples, `write()`
+ *  ends and gives { times, f0 }. */
+export function contours(fs, { hop = .01, minFreq = 60, maxFreq = 1000 } = {}) {
+  let d = Math.max(1, Math.floor(fs / 11025)), fsd = fs / d, H = Math.max(1, Math.round(hop * fsd))
+  // the frame's peak, over its YIN window either side of its centre: frame i's over y[iH − W, iH + W)
+  let W = 2 ** Math.ceil(Math.log2(2 * fsd / minFreq)) >> 1, write = track({ fs: fsd, minFreq, maxFreq, hopSize: H })
+  let y = new Float32Array(2 * W + H), base = 0, n = 0, sum = 0, k = 0, top = 0, f0 = [], peak = []
+  // the peaks of the frames whose windows have arrived (at the end, of all: frames 0 to ⌊n / H⌋, as pYIN's); y keeps
+  // samples from the next frame's window on
+  const peaks = end => {
+    for (let i = peak.length, c; (c = i * H) + W <= n || end && n && c <= n; i++) {
+      let m = 0
+      for (let j = Math.max(0, c - W); j < Math.min(n, c + W); j++) m = Math.max(m, Math.abs(y[j - base]))
+      peak.push(m)
+    }
+    let keep = Math.max(0, peak.length * H - W)
+    if (keep > base) { y.copyWithin(0, keep - base, n - base); base = keep }
   }
-  return { times: Float32Array.from(times), f0 }
+  return x => {
+    if (!x) {
+      peaks(true)
+      for (let v of write().f0) f0.push(v)
+      // a frame whose peak is under 0.03 of the loudest has no pitch
+      let out = Float32Array.from(f0, (v, i) => v && peak[i] < .03 * top ? 0 : v), t = H / fsd
+      return { times: Float32Array.from(out, (_, i) => i * t), f0: out }
+    }
+    // x averaged in groups of d, a short last group dropped
+    let m = Math.floor((k + x.length) / d), out = new Float32Array(m), o = 0
+    for (let i = 0; i < x.length; i++) {
+      sum += x[i]
+      if (++k === d) { out[o] = sum / d; top = Math.max(top, Math.abs(out[o++])); sum = k = 0 }
+    }
+    if (n + m - base > y.length) { let z = new Float32Array(2 * (n + m - base)); z.set(y.subarray(0, n - base)); y = z }
+    y.set(out, n - base); n += m
+    peaks(false)
+    for (let v of write(out).f0) f0.push(v)
+  }
 }
 
 // ── Notes — monophonic pitch events ─────────────────────────────

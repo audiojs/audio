@@ -1,5 +1,5 @@
 import { dcOffsets, peakDb, rmsDb, lufsDb, lufsFromStats, printed } from './loudness.js'
-import audio, { resolveChannels, FULL } from '../core.js'
+import audio, { resolveChannels, FULL, blockAt } from '../core.js'
 import { buildPlan, render } from '../plan.js'
 
 // Integrated-loudness presets (LUFS): Spotify/YouTube, Apple Podcasts, EBU R 128
@@ -240,7 +240,7 @@ audio.op('normalize', {
     // a selection (at, duration) is measured alone, to the block (the whole timeline measured it, and a quiet
     // selection in a loud file got the file's gain)
     let bs = stats.blockSize || audio.BLOCK_SIZE, at = ctx.at == null ? 0 : ctx.at < 0 ? ctx.totalDuration + ctx.at : ctx.at
-    let from = Math.floor(at * sampleRate / bs), to = ctx.duration == null ? Infinity : Math.ceil((at + ctx.duration) * sampleRate / bs)
+    let from = blockAt(at, sampleRate, bs), to = ctx.duration == null ? Infinity : blockAt(at + ctx.duration, sampleRate, bs, Math.ceil)
 
     let dcOff = new Float64Array(totalCh)
     if (ctx.dc !== false && stats.dc) dcOff = dcOffsets(stats, chs, from, to)

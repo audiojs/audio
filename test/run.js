@@ -13,6 +13,8 @@ const SUITES = [
   'recipes',        // the editor's voice recipes against the specs they name
   'deck',           // playback offline: the deck fed by a voice, sample by sample (the browser plays it: test/play.html)
   'cuts',           // cut lists for video editors: the time map, CMX 3600, OpenTimelineIO, FCPXML read back
+  'periodicity',    // voicing, hnr, harmonic against Praat, frame by frame
+  'hits',           // cues: where each attack starts, where each sound stops (fn/hits.js, the editor's)
   'plugin-ops',
   'plugin-notes', 'plugin-tune', 'plugin-stats', 'plugin-stretch', 'plugin-color', 'plugin-effects', 'plugin-reverb',
   'plugin-shift', 'plugin-dynamics', 'plugin-synth', 'plugin-filter', 'plugin-fate', 'plugin-spatial', 'plugin-eq',
