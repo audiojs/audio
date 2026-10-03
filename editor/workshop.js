@@ -1,27 +1,24 @@
 // WORKSHOP: variants to choose between, a strip under the page, each choice kept in this browser and sent to the page
 // (`apply`). Temporary: the ones chosen become the page's own, and the strip goes.
-//   recipes   the recipes' icon: a book, a scroll, steps joined, a function, a flask, a mortar, a layout, tiles,
-//             the command key, pedals
 //   end       where the sound ends, past which the picture scrolls: a line down the lanes, the room past it hatched, a
 //             dotted line, or nothing in the lanes, the time row's ticks stopping there
 //   grid      how the lanes are ruled, behind the waveform (hidden where it is), over the spectrogram: a cross where the
 //             time row's ticks meet the axis' on the right, a dot where their finer steps meet (0.1, 0.2 … 0.9 of full
-//             scale; a fifth of the time row's step); the crosses alone; a dot at each, the ticks' larger; a line from
-//             each tick; or none
+//             scale; a fifth of the time row's step); the crosses alone; a dot at each, the ticks' larger; or none
 // Chosen and settled: 2 px before the meters, no fade where the sound runs past the view, dark squares with no rim,
 // notched beside their lines, square, crop in the context menu and K (a handle is dragged; crop is only clicked), the
 // length after the time between bars |t|, undo and redo, then the picture's switch, then its settings at the head of its axis,
 // none moving as it turns, the panels' buttons at the slab's top right, the edits a panel of its own, the panel docked,
 // a rule at its edge in the slab's rule colour as far from its content as that is from the slab's edge, the export's
 // arrow down onto a tray, how a held caret sounds in the settings, the switches as raised keys in one bezel (skeuo), the
-// view's options from a right-click on its tab, two sliders for the settings, a spark for the agent, the speed a pill in
-// the record button's place while it plays, and round Play a ring, how far through the sound it plays
+// view's options from a right-click on its tab, two sliders for the settings, a spark for the agent, an open book for
+// the recipes, the speed a pill in the record button's place while it plays, and round Play a ring, how far through the
+// sound it plays
 const CHOICES = {
-  recipes: [['book', 'Book'], ['scroll', 'Scroll'], ['flow', 'Flow'], ['formula', 'ƒx'], ['flask', 'Flask'], ['mortar', 'Mortar'], ['template', 'Template'], ['gallery', 'Tiles'], ['command', '⌘'], ['pedals', 'Pedals']],
   end: [['line', 'Line'], ['hatch', 'Hatch'], ['dots', 'Dots'], ['ruler', 'Ruler']],
-  grid: [['marks', 'Crosses + dots'], ['crosses', 'Crosses'], ['dots', 'Dots'], ['lines', 'Lines'], ['none', 'None']]
+  grid: [['marks', 'Crosses + dots'], ['crosses', 'Crosses'], ['dots', 'Dots'], ['none', 'None']]
 }
-const NAMES = { recipes: 'Recipes icon', end: 'End', grid: 'Grid' }
+const NAMES = { end: 'End', grid: 'Grid' }
 const KEY = 'audio-repl-workshop'
 
 export default function workshop(root, apply) {

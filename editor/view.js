@@ -103,19 +103,19 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   let more = []
   // where a file held over the picture would go in, or null
   let dropped = null
-  // the meters at the right edge: each channel's { rms, peak } and spectrum (dB per bin of `size` at `rate`), or none
+  // the meters at the right edge: each channel's { rms, peak } and spectrum (dB per bin of `size` at `rate` Hz), or none
   let meters = null
   // A take being recorded over the output (a tape's punch-in), or into nothing: from `at` s, its `length` samples at
   // `rate`, a waveform and a spectrogram per channel, each drawn in its picture's lanes; the output it replaces hidden,
-  // the output after it where it is. The view keeps its scale and follows the take past its right edge, as a recording
-  // app's; into nothing, RECORD s across.
+  // the output after it where it is. The view keeps its scale and follows the take, its head held a tenth short of where
+  // the lanes end, clear of the meters, as a recording app's; into nothing, RECORD s across.
   let recording = null
   const RECORD = 10
   function taking() {
     const { at, total } = recording, last = at + recording.length / recording.rate
     duration = Math.max(total, last)
-    // the view follows the take past its right edge, as it follows the playhead
-    if (last > end) setRange(last - (end - start) * .9, last + (end - start) * .1)
+    const span = end - start, head = span * .9 * lanesEnd(lanes()) / plot().w
+    if (last > start + head) setRange(last - head, last - head + span, true)
     pieces = [{ s0: 0, s1: at, d0: 0, d1: at }, { s0: last, s1: total, d0: last, d1: total }].filter(p => p.s1 > p.s0)
     invalidate()
   }
@@ -126,6 +126,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     for (const picture of [...recording.waves, ...recording.specs]) picture.destroy()
     duration = recording.total
     recording = null
+    leveled = false
   }
   // The picture as an edit leaves it, before its output comes: pieces of the output as it is, each drawn where it goes
   // (a move, a copy put in, a stretch, a level while dragged; a delete, a cut, a crop once written), [{ s0, s1, d0, d1,
@@ -152,7 +153,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   let ruler = 'labels'
   // how the sound's end shows, past which the view scrolls (WORKSHOP): 'line', 'hatch', 'dots', 'ruler'
   let endMark = 'line'
-  // how the lanes are ruled (WORKSHOP, paintGrid): 'marks', 'crosses', 'dots', 'lines' or 'none'
+  // how the lanes are ruled (WORKSHOP, paintGrid): 'marks', 'crosses', 'dots' or 'none'
   let grid = 'none'
   // the steps a selection's level goes up or down in, dB, as the pill is dragged
   let levelStep = 1
@@ -355,10 +356,10 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
         if (!pieces) return drawWave(wave, i, rect, from, to, 0, rect[2], aview, ratio)
         for (const p of spans()) drawWave(wave, i, rect, p.from, p.to, p.x0, p.x1, aview.map(v => v / p.gain), ratio)
       })
-      // a take being recorded, where it goes: its own waveform over what it replaces
-      if (recording?.length) L.wave.forEach((rect, i) => {
-        const wave = recording.waves[Math.min(i, recording.waves.length - 1)], [x0, x1] = takes()
-        if (x1 > x0) wave.update({ range: [0, recording.length], viewport: [rect[0] + x0, rect[1], x1 - x0, rect[3]], pixelRatio: ratio, amplitude: aview }).render()
+      // a take being recorded, where it goes: its own waveform over what it replaces, drawn as the output's is
+      if (recording?.length) waves.forEach((_, i) => {
+        const c = Math.min(i, recording.waves.length - 1), rect = L.wave[merged() ? 0 : i], [x0, x1] = takes()
+        if (rect && x1 > x0) drawWave(recording.waves[c], i, rect, 0, recording.length, x0, x1, aview, ratio, { x: recording.data[c].subarray(0, recording.length), rate: recording.rate, id: `take ${c}` })
       })
     }
     if (sgl) spectrograms(L, from, to)
@@ -367,25 +368,28 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   }
   // A channel's waveform over [x0, x1) of its lane, samples [from, to): in its colour, or coloured for what it holds
   // (tint.js), a colour every 4 to 8 px, on a grid of the sound's own samples, so the colours stay put as the view
-  // scrolls; where it is silent, its own colour
+  // scrolls; where it is silent, its own colour. The samples are the output's, or a take's (`src`); a stretch not yet
+  // whole is coloured again each time, as a take fills it
   const tints = new Map()
-  function drawWave(wave, i, rect, from, to, x0, x1, amplitude, pixelRatio) {
+  function drawWave(wave, i, rect, from, to, x0, x1, amplitude, pixelRatio, src = { x: data[i], rate, id: i }) {
     const at = (a, b, p, q) => wave.update({ range: [a, b], viewport: [rect[0] + p, rect[1], q - p, rect[3]], pixelRatio, amplitude }).render()
-    if (waveLook.colour === 'none' || arriving || !data[i] || x1 - x0 < 1 || to <= from) return at(from, to, x0, x1)
+    wave.update({ ...FILLS[waveLook.fill] ?? FILLS.density, color: hues[i] })
+    if (waveLook.colour === 'none' || arriving || !src.x || x1 - x0 < 1 || to <= from) return at(from, to, x0, x1)
     const spp = (to - from) / (x1 - x0), len = 2 ** Math.max(4, Math.ceil(Math.log2(spp * 4)))
     if (tints.size > 2e4) tints.clear()
     for (let k = Math.floor(from / len); k * len < to; k++) {
-      const a = Math.max(from, k * len), b = Math.min(to, (k + 1) * len), key = `${i} ${len} ${k}`
-      if (!tints.has(key)) tints.set(key, tint(waveLook.colour, data[i], k * len, (k + 1) * len, rate))
-      wave.update({ color: tints.get(key) ?? hues[i] })
+      const a = Math.max(from, k * len), b = Math.min(to, (k + 1) * len), key = `${src.id} ${len} ${k}`
+      let c = tints.get(key)
+      if (c === undefined) { c = tint(waveLook.colour, src.x, k * len, (k + 1) * len, src.rate); if ((k + 1) * len <= src.x.length) tints.set(key, c) }
+      wave.update({ color: c ?? hues[i] })
       at(a, b, x0 + (a - from) / spp, x0 + (b - from) / spp)
     }
-    wave.update({ color: hues[i] })
   }
 
   // Each channel's spectrogram in its lane, the part of its scale shown; an edit's pieces each where it goes, at its
   // level. One scale of levels for the lanes, the loudest channel's, so channels compare as they sound (each its own
-  // while an output arrives). Zoomed out, a render leaves columns short of frames: it draws again until they are whole.
+  // while an output arrives); a take's channels among them as it comes, so it shows as the output holding it will.
+  // Zoomed out, a render leaves columns short of frames: it draws again until they are whole.
   function spectrograms(L, from, to) {
     sgl.disable(sgl.SCISSOR_TEST)
     sgl.viewport(0, 0, specCanvas.width, specCanvas.height)
@@ -393,10 +397,11 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     sgl.clear(sgl.COLOR_BUFFER_BIT)
     if (!L.spec.length) return
     const [lo, hi] = freqs(), band = fview.map(u => scales[scale].of(u, lo, hi)), ratio = specCanvas.width / (W || 1)
-    for (const sg of specs) sg.update({ scale, band, pixelRatio: ratio })
-    if (!leveled && !arriving && specs.length) {
-      const loudest = specs.map(sg => sg.update({ levels: null }).levels).reduce((a, b) => b[1] > a[1] ? b : a)
-      for (const sg of specs) sg.update({ levels: loudest })
+    const all = [...specs, ...recording?.specs ?? []]
+    for (const sg of all) sg.update({ scale, band, pixelRatio: ratio })
+    if (!leveled && !arriving && all.length) {
+      const loudest = all.map(sg => sg.update({ levels: null }).levels).reduce((a, b) => b[1] > a[1] ? b : a)
+      for (const sg of all) sg.update({ levels: loudest })
       leveled = true
     }
     specs.forEach((sg, i) => {
@@ -405,12 +410,12 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       if (!pieces) return sg.update({ range: [from, to], viewport: rect, gain: 1 }).render()
       for (const p of spans()) sg.update({ range: [p.from, p.to], viewport: [rect[0] + p.x0, rect[1], p.x1 - p.x0, rect[3]], gain: p.gain }).render()
     })
-    // a take being recorded, where it goes: its own spectrogram, at the output's levels, over what it replaces
+    // a take being recorded, where it goes: its own spectrogram over what it replaces
     if (recording?.length) L.spec.forEach((rect, i) => {
       const sg = recording.specs[Math.min(i, recording.specs.length - 1)], [x0, x1] = takes()
-      if (sg && x1 > x0) sg.update({ scale, band, pixelRatio: ratio, levels: specs[0]?.levels ?? null, range: [0, recording.length], viewport: [rect[0] + x0, rect[1], x1 - x0, rect[3]] }).render()
+      if (sg && x1 > x0) sg.update({ range: [0, recording.length], viewport: [rect[0] + x0, rect[1], x1 - x0, rect[3]] }).render()
     })
-    if ([...specs, ...recording?.specs ?? []].some(sg => sg.pending)) invalidate()
+    if (all.some(sg => sg.pending)) invalidate()
   }
 
   // The picture as a PNG data URL, for an agent to look at: the waveform over the spectrogram, each with its rulers, of
@@ -668,7 +673,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       const db = bins[i] ?? bins[0], [, y, , lh] = rect, outline = new Path2D()
       outline.moveTo(left, y + lh)
       for (let py = y + lh; py >= y; py -= 2) {
-        const k = yf(rect, py) / (rate / size), k0 = Math.floor(k), f = k - k0
+        const k = yf(rect, py) / (meters.rate / size), k0 = Math.floor(k), f = k - k0
         const v = (db[k0] ?? -200) * (1 - f) + (db[k0 + 1] ?? -200) * f
         outline.lineTo(left + Math.max(0, Math.min(1, (v + 90) / 90)) * METER, py)
       }
@@ -983,7 +988,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // The lanes ruled (WORKSHOP `grid`), on a layer of their own between the pictures: over the spectrogram, as the screen
   // shows it; behind the waveform, wholly hidden where it is, however faint its fill there. Where the time row's ticks
   // meet the axis' on the right, a cross, and a dot where their finer steps meet ('marks'); the crosses alone
-  // ('crosses'); a dot at each, the ticks' larger ('dots'); or a line from each tick ('lines'). None on a lane's edge.
+  // ('crosses'); or a dot at each, the ticks' larger ('dots'). None on a lane's edge.
   let ruled = ''
   const gridKey = L => [grid, duration, start, end, W, H, dpr, display, scale, levelUnits, units, rate, aview, fview, L.wave.length + L.spec.length, lanesEnd(L)].join()
   function paintGrid(L) {
@@ -1015,18 +1020,13 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       const px = Math.round(x(i * sub))
       if (px >= 1 && px < stop) cols.push([px, i % n === 0])
     }
-    // one path a colour, filled once: where a cross's arms meet, or a line crosses another, is no brighter
+    // one path a colour, filled once: where a cross's arms meet is no brighter
     const marks = new Path2D(), dots = new Path2D()
     for (const rect of all) {
       const [, y, , lh] = rect, inner = ty => ty > y && ty < y + lh - 1
       const ticked = room(rect, display === 'spec' ? hzMarks(rect) : levelMarks(rect)).map(([ly]) => Math.round(ly))
       const between = room(rect, fineMarks(rect), [...ticked], MINOR).map(([ly]) => Math.round(ly))
       const rows = [...ticked.filter(inner).map(ty => [ty, true]), ...between.filter(inner).map(ty => [ty, false])]
-      if (grid === 'lines') {
-        for (const [px, tick] of cols) if (tick) marks.rect(px, y, 1, lh)
-        for (const [ty, tick] of rows) if (tick) marks.rect(0, ty, stop, 1)
-        continue
-      }
       for (const [px, a] of cols) for (const [ty, b] of rows) {
         if (a && b && grid === 'dots') { dots.rect(px - 1, ty, 3, 1); dots.rect(px, ty - 1, 1, 3) }
         else if (a && b) { marks.rect(px - 3, ty, 7, 1); marks.rect(px, ty - 3, 1, 7) }
@@ -1110,21 +1110,23 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     c.globalAlpha = 1
   }
   // Markers: a dashed line down each lane, as Audition draws them, apart from the caret's solid one and lit when a
-  // dragged edge sits on it; a flag at its top, as a timeline's markers stand over its tracks, its name beside it (a click on the name or a double-click on the flag names it). A range: a
-  // line at each end, a bar over the lanes between them, the flag at its start
+  // dragged edge sits on it; a flag at its top, as a timeline's markers stand over its tracks, its name beside it (a
+  // click on the name or a double-click on the flag names it). A range: a line at each end, a bar over the lanes between
+  // them, the flag at its start. The marker chosen, by a press on its flag, in the accent: Delete takes it away
   const FLAG = 12, DASH = 3
-  // where each name is drawn, [{ i, from, to }] px, for a click on it
-  let names = []
+  // where each name is drawn, [{ i, from, to }] px, for a click on it; the marker chosen, { time, duration? }, till the
+  // caret or the selection goes elsewhere
+  let names = [], chosen = null
   function paintMarkers(rects, lit) {
-    const [top] = extent(rects), w = plot().w, L = lanes()
+    const [top] = extent(rects), w = plot().w, L = lanes(), near = hovered && !drag ? markAt(...hovered) : null
     c.textAlign = 'left'
     names = []
     for (const [i, { time, duration, label }] of markers.entries()) {
       const at = drag?.marker === i ? drag.to : moved(time), px = Math.round(x(at)), ex = duration ? Math.round(x(at + duration)) : px
       if (at == null || ex < 0 || px > w) continue
-      c.fillStyle = color('--color-screen-bright')
+      c.fillStyle = chosen && same(chosen, markers[i]) ? accent() : color('--color-screen-bright')
       for (const p of new Set([px, ex])) {
-        c.globalAlpha = on(lit, p) ? 1 : .7
+        c.globalAlpha = on(lit, p) || near != null && p === Math.round(x(near)) ? 1 : .7
         for (const [, ly, , lh] of rects) for (let k = ly; k < ly + lh; k += DASH * 2) c.fillRect(p, k, 1, Math.min(DASH, ly + lh - k))
       }
       c.globalAlpha = .5
@@ -1148,6 +1150,14 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     return flag >= 0 ? flag : markers.findIndex(m => m.duration && px >= x(moved(m.time) ?? m.time) && px <= x((moved(m.time) ?? m.time) + m.duration))
   }
   const nameAt = (px, py) => py <= FLAG + 2 ? names.find(n => px >= n.from && px <= n.to)?.i ?? -1 : -1
+  // The marker line in the lanes within EDGE px of the pointer, a moment's or a range's end: its time, where a press
+  // puts the caret; or null. Snapping as a drag does (stick): not with it off, nor while ⌘ aims finely
+  function markAt(px, py) {
+    if (!snapping || fine() || py <= FLAG + 2 || py > plot().h) return null
+    let best = null
+    for (const t of markers.flatMap(marked).map(t => moved(t) ?? t)) if (Math.abs(x(t) - px) <= EDGE && (best == null || Math.abs(x(t) - px) < Math.abs(x(best) - px))) best = t
+    return best
+  }
   // A flag's name written where it is: a field over it, Enter or a click away keeps it, Escape leaves it as it was
   let naming = null
   function rename(i) {
@@ -1351,13 +1361,15 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       drag = { pinch, range: [start, end], fview, u: rect ? uy(rect, mid[1]) : null, levels: levels && aview, value: levels && ya(levels, mid[1]) }
       return
     }
-    const [px, py] = local(event), t = snap(time(px)), L = lanes()
+    // on a marker's line, its time
+    const [px, py] = local(event), t = markAt(px, py) ?? snap(time(px)), L = lanes()
     // a handle over a flag is the handle's; a marker's name is named when the click comes (clicked)
     const grip = gripAt(L, px, py)
     if (!grip && nameAt(px, py) >= 0) return
     const flag = grip ? -1 : nearMarker(px, py)
     // a flag: the caret goes to it, a range's selects it when let go; dragged, the marker moves
     if (flag >= 0 && !markers[flag].duration) { if (selection) select(0, 0); setCursor(markers[flag].time) }
+    if (flag >= 0) chosen = markers[flag]
     drag = flag >= 0 ? { marker: flag, x: px, to: markers[flag].time, moved: false }
       : gripDown(px, py, L, event) || endDown(px, py, event) || (show.hits && cueDown(px, py, event)) || (show.gain && !pitchLine() && penDown(px, py, L)) || (pitchLine() && (toneDown(px, py, L) || penDown(px, py, L, true) || pitchDown(px, py, L) || penDown(px, py, L))) || selectDown(event, px, py, t, L)
     // ⌘ aims finely, but not what it took hold of: a box, audio carried, an end stretched, a cue
@@ -1580,7 +1592,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (drag.marker != null) {
       if (!drag.moved && Math.abs(px - drag.x) < 3) return
       drag.moved = true
-      drag.to = Math.max(0, snap(markers[drag.marker].time + time(px) - time(drag.x)))
+      drag.to = Math.min(duration, Math.max(0, snap(markers[drag.marker].time + time(px) - time(drag.x))))
       return invalidate(true)
     }
     if (drag.cue != null) {
@@ -1752,7 +1764,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     const plain = !keys.shiftKey && !keys.altKey, caret = plain && caretAt(px, py)
     hot = end || other == null && !spectral && plain ? edgeAt(px) : null
     grabbing = other != null || !!hot || !!caret || plain && py > plot().h
-    root.style.cursor = other ?? (keys.shiftKey && !keys.altKey ? EXTEND[time(px) < origin() ? 1 : 0] : grabbing ? 'ew-resize' : spectral ? 'crosshair' : keys.altKey ? ADD : '')
+    root.style.cursor = other ?? (keys.shiftKey && !keys.altKey ? EXTEND[time(px) < origin() ? 1 : 0] : grabbing ? 'ew-resize' : plain && markAt(px, py) != null ? 'pointer' : spectral ? 'crosshair' : keys.altKey ? ADD : '')
   }
   function leave() { hovered = null; hot = null; invalidate(true) }
   function up(event) {
@@ -1767,6 +1779,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       const m = markers[d.marker]
       if (d.moved && Math.abs(d.to - m.time) > 1e-6) { markers = markers.with(d.marker, { ...m, time: d.to }); onedit('remark', { time: m.time, duration: m.duration, to: d.to }) }
       if (m.duration) select(d.to, d.to + m.duration)
+      chosen = markers[d.marker]
     }
     else if (d.cue != null) {
       // the cue sits where it was dropped at once, so a next drag before the output returns pins its neighbours right
@@ -1888,6 +1901,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     setRange(start + delta / plot().w * span, end + delta / plot().w * span, true)
   }
   function select(a, b, f = null, keep = false) {
+    chosen = null
     selection = a === b ? null : [Math.min(a, b), Math.max(a, b)]
     band = selection && f && f[1] > f[0] ? f : null
     if (!keep) more = []
@@ -1935,7 +1949,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       : (() => { const g = gaps.find(([p]) => p > last + .03); if (!g) return null; const after = gaps.find(([p]) => p > g[1] + 1e-6); return [g[1], after ? after[0] : duration] })()
     if (next && next[1] > next[0]) { add(...next); reveal(next[1]) }
   }
-  function setCursor(t) { cursor = clamp(t); oncursor(cursor); invalidate() }
+  function setCursor(t) { chosen = null; cursor = clamp(t); oncursor(cursor); invalidate() }
   // A right-click, as in a text: outside what is selected it takes the caret there first, the selection gone; inside it,
   // with several carets, or on what a press would grab (a caret, an edge, a handle: the pointer says so), all stays.
   // Then the page's menu for it (`oncontext`), at the pointer
@@ -1986,9 +2000,12 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     else if (k === '=' || k === '+') zoom(.5, playhead ?? (selection ? (selection[0] + selection[1]) / 2 : cursor))
     else if (k === '-' || k === '_') zoom(2, playhead ?? cursor)
     else if (k === '0' && !mod) { fview = [0, 1]; aview = [-1, 1]; setRange(0, duration) }
+    else if (k === 'Escape' && chosen) { chosen = null; invalidate(true) }
     else if (k === 'Escape' && (selection || more.length)) select(0, 0)
     else if (mod && k.toLowerCase() === 'd') addNext()
     else if (mod && k.toLowerCase() === 'a') select(0, duration)
+    // the marker chosen goes before what is selected: a range's flag pressed selects its audio, which stays
+    else if ((k === 'Delete' || k === 'Backspace') && chosen) { const m = chosen; chosen = null; if (onedit('unmark', m)) markers = markers.filter(n => !same(n, m)); invalidate(true) }
     else if ((k === 'Delete' || k === 'Backspace') && ranges().length) onedit('remove', band ? selection : ranges())
     else if (mod && k.toLowerCase() === 'x' && selection && !band) onedit('cut', selection)
     else if (mod && k.toLowerCase() === 'c' && selection && !band) onedit('copy', selection)
@@ -2017,7 +2034,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     while (specs.length > n) specs.pop().destroy()
     for (let i = 0; i < n; i++) {
       hues[i] = waveLook.lanes === 'one' && n > 1 ? hue(i, n) : rgba(color('--color-screen-wave'))
-      ;(waves[i] ||= new Waveform(gl)).update({ ...FILLS[waveLook.fill] ?? FILLS.density, color: hues[i] })
+      waves[i] ||= new Waveform(gl)
       if (sgl) (specs[i] ||= new Spectrogram(sgl, { background: color('--color-screen'), ...look })).update({ color: look.color ?? null })
     }
   }
@@ -2077,11 +2094,13 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
 
   // A new output in place of the one shown. One an edit here drew ahead (`pieces`) takes its place without a move: the
   // view where it was, at its scale, the cues and markers where the edit took them. Another shows all of it where all
-  // of the last showed; its cues go if its length changed (they were the last one's), until its own come, unless the
-  // view moved them to where they are in it (a cue dragged, `ahead`).
+  // of the last showed; zoomed out past its end, the room on its right, at the same scale, while it fits there (a
+  // reload, an edit that shortens it); its cues go if its length changed (they were the last one's), until its own
+  // come, unless the view moved them to where they are in it (a cue dragged, `ahead`).
   let ahead = false, stay = false
   function replace(total) {
-    const expected = stay = !!pieces, all = !duration || !expected && whole()
+    const roomy = end > duration + 1e-9 && total != null && total <= end
+    const expected = stay = !!pieces, all = !duration || !expected && whole() && !roomy
     if (expected) { cues = cues.map(moved).filter(t => t != null); markers = markers.map(m => ({ ...m, time: moved(m.time) })).filter(m => m.time != null) }
     else if (!ahead && total != null && Math.abs(total - duration) > 1e-9) cues = []
     ahead = false
@@ -2180,14 +2199,23 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       const { at, sampleRate, channels } = opts
       // into nothing: its lanes, and the scale a take is watched at
       if (!duration) { count = channels; rate = sampleRate; lay(count); start = at; end = at + RECORD }
-      recording = { at, rate: sampleRate, length: 0, total: duration, waves: Array.from({ length: channels }, () => new Waveform(gl, { rms: false, density: true, color: color('--color-screen-wave') })),
-        specs: sgl ? Array.from({ length: channels }, () => new Spectrogram(sgl, { background: color('--color-screen'), ...look, sampleRate })) : [] }
+      recording = { at, rate: sampleRate, length: 0, total: duration, data: Array.from({ length: channels }, () => new Float32Array(sampleRate)),
+        waves: Array.from({ length: channels }, () => new Waveform(gl)),
+        specs: sgl ? Array.from({ length: channels }, () => new Spectrogram(sgl, { background: color('--color-screen'), ...look, color: look.color ?? null, sampleRate })) : [] }
+      leveled = false
       taking()
     },
     grow(blocks) {
       if (!recording) return
-      if (blocks[0]) for (const list of [recording.waves, recording.specs]) list.forEach((picture, c) => picture.push(blocks[c] ?? blocks[0]))
-      recording.length += blocks[0]?.length ?? 0
+      const n = recording.length, m = blocks[0]?.length ?? 0
+      if (m) recording.data = recording.data.map((x, c) => {
+        if (n + m > x.length) { const y = new Float32Array(Math.max(2 * x.length, n + m)); y.set(x.subarray(0, n)); x = y }
+        x.set(blocks[c] ?? blocks[0], n)
+        return x
+      })
+      if (m) for (const list of [recording.waves, recording.specs]) list.forEach((picture, c) => picture.push(blocks[c] ?? blocks[0]))
+      recording.length += m
+      leveled = false
       taking()
     },
     get duration() { return duration },
@@ -2249,15 +2277,15 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     set ruler(mode) { ruler = mode; invalidate(true) },
     // how the sound's end shows (WORKSHOP): 'line', 'hatch', 'dots', 'ruler'
     set endMark(name) { endMark = name; invalidate(true) },
-    // how the lanes are ruled (WORKSHOP): 'marks', 'crosses', 'dots', 'lines', 'none'
+    // how the lanes are ruled (WORKSHOP): 'marks', 'crosses', 'dots', 'none'
     set grid(name) { grid = name; invalidate(true) },
     // the steps, dB, a selection's level goes in as its pill is dragged
     set levelStep(db) { levelStep = +db || 1 },
     // how the spectrogram draws: { map, gamma, depth, size } (repl.js spectrogram settings), as gl-spectrogram takes them
-    set spectrogram(o) { look = o; for (const sg of specs) sg.update(look); leveled = false; invalidate() },
+    set spectrogram(o) { look = o; for (const sg of [...specs, ...recording?.specs ?? []]) sg.update(look); leveled = false; invalidate() },
     // how the level axis writes levels: 'db' or 'linear'
     set levels(name) { levelUnits = name === 'linear' ? 'linear' : 'db'; invalidate(true) },
-    // what the meters read now: { levels: [{ rms, peak }], spectra: [dB per bin], size }, or null
+    // what the meters read now: { levels: [{ rms, peak }], spectra: [dB per bin], size, rate }, or null
     set meters(m) { meters = m; invalidate(true) },
     // the pauses: { silences: [[start, end], …] } in seconds
     set segments(list) { segments = list || { silences: [] } },

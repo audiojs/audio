@@ -276,9 +276,10 @@ svg { flex: none; }
 .file-new svg { width: 15px; height: 15px; }
 /* what the picture shows when it is not the output: what a step takes out, or the chain up to a step; a press on it
    shows the whole chain again */
-.viewing { display: inline-flex; flex: none; align-items: center; gap: 6px; min-height: 24px; margin: 0; padding: 0 6px 0 9px; border: 0; border-radius: 6px; background: color-mix(in oklch, var(--color-screen-accent) 16%, transparent); color: var(--color-screen-accent); font-size: 11.5px; white-space: nowrap; }
-.viewing svg { width: 13px; height: 13px; }
-.viewing:hover { background: color-mix(in oklch, var(--color-screen-accent) 26%, transparent); }
+.viewing { position: absolute; top: 6px; left: 6px; z-index: 2; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 12px); margin: 0; padding: 3px 3px 3px 9px; border-radius: 6px; background: color-mix(in oklch, var(--color-screen) 88%, transparent); box-shadow: inset 0 0 0 1px var(--color-screen-rule); color: var(--color-screen-soft); font-size: 11.5px; white-space: nowrap; pointer-events: none; }
+.viewing span { overflow: hidden; text-overflow: ellipsis; }
+.viewing button { flex: none; min-height: 20px; padding: 0 8px; border: 0; border-radius: 4px; background: color-mix(in oklch, var(--color-screen-accent) 18%, transparent); color: var(--color-screen-accent); font: inherit; pointer-events: auto; }
+.viewing button:hover { background: color-mix(in oklch, var(--color-screen-accent) 30%, transparent); }
 .view { position: relative; flex: 1; min-height: 0; margin: 0 0 0 8px; }
 .plot { position: absolute; inset: 0; touch-action: none; cursor: text; }
 .plot canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
@@ -296,35 +297,41 @@ svg { flex: none; }
 .dropping-tab .files { border-radius: 8px; box-shadow: inset 0 0 0 1px var(--color-screen-muted); }
 .dropping-tab .file-new { background: var(--color-screen-fill-hover); color: var(--color-screen-accent); }
 
-.empty, .recording { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 24px; text-align: center; }
+.empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 24px; text-align: center; }
 .empty-title { margin: 0; color: var(--color-screen-ink); font-size: 20px; font-weight: 450; letter-spacing: -.02em; }
 .empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .empty-button { display: inline-flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 14px 0 12px; border: 1px solid var(--color-screen-rule); border-radius: 999px; background: var(--color-screen); color: var(--color-screen-soft); font-size: 13px; }
 .empty-button svg { width: 16px; height: 16px; color: var(--color-screen-muted); }
 .empty-button:hover { color: var(--color-screen-bright); border-color: var(--color-screen-muted); }
-/* while the browser asks for the microphone; then the take draws into the waveform */
-.recording { pointer-events: none; }
-.recording-time { margin: 0; color: var(--color-screen-soft); font-size: 14px; }
 
 
 /* The bar's parts */
 /* Play, record and loop, side by side as on a deck, one round button each */
-.record, .play, .loop { display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 50%; background: none; color: var(--color-screen-bright); }
-.record, .loop { width: 36px; height: 36px; }
+.record, .play, .busy, .loop { display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 50%; background: none; color: var(--color-screen-bright); }
+.record, .busy, .loop { width: 36px; height: 36px; }
 .record:hover, .loop:hover:not(:disabled) { background: var(--color-screen-hover); }
 .loop { margin-right: 4px; color: var(--color-screen-muted); }
 .loop svg { width: 17px; height: 17px; }
 .loop[aria-pressed="true"] { color: var(--color-screen-accent); }
 .record-icon { display: block; width: 11px; height: 11px; border-radius: 50%; background: var(--color-screen-record); opacity: .8; }
 .record:hover .record-icon { opacity: 1; }
-.record.on .record-icon { border-radius: 2px; opacity: 1; animation: recording 1.2s var(--ease-in-out) infinite alternate; }
-@keyframes recording { to { opacity: .45; } }
-.play:hover:not(:disabled) { background: var(--color-screen-hover); }
+/* Recording, a square to stop it, steady; armed, the microphone still opening, it blinks, as a deck's record key does */
+.record.on .record-icon { border-radius: 2px; opacity: 1; }
+.record.armed .record-icon { animation: armed .5s steps(1) infinite; }
+@keyframes armed { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .record.armed .record-icon { animation: none; opacity: .5; } }
+.play:hover:not(:disabled), .busy:hover { background: var(--color-screen-hover); }
 /* How far through the sound it plays: a ring round Play, its share of the whole from the top, clockwise, there while it
    plays */
-.play { position: relative; }
-.play::before { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: conic-gradient(var(--color-screen-accent) calc(var(--played) * 360deg), var(--color-screen-rule) 0); mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px)); opacity: 0; transition: opacity var(--dur-short) var(--ease-out); pointer-events: none; }
+.play, .busy { position: relative; }
+.play::before, .busy::before { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: conic-gradient(var(--color-screen-accent) calc(var(--played) * 360deg), var(--color-screen-rule) 0); mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px)); opacity: 0; transition: opacity var(--dur-short) var(--ease-out); pointer-events: none; }
 .play.rolling::before { opacity: 1; }
+/* In its place while the engine works: the same ring, how far what is on its way has come, or a quarter of it turning
+   where nothing says; a square in it, to stop */
+.busy::before { --played: var(--arrived); opacity: 1; }
+.busy.turning::before { --played: .25; animation: turning 1s linear infinite; }
+@keyframes turning { to { rotate: 1turn; } }
+.stop-icon { display: block; width: 10px; height: 10px; border-radius: 2px; background: currentColor; }
 /* Record, and while it plays the speed in its place: one slot, as wide as the widest speed (0.13×), the one there
    fading in for the other, so nothing beside it moves */
 .deck-slot { display: grid; place-items: center; }
@@ -349,7 +356,8 @@ svg { flex: none; }
 .clock { display: flex; align-items: baseline; gap: 10px; margin: 0; padding: 0 6px; }
 .time { color: var(--color-screen-ink); font: 300 var(--time-size)/1 var(--font-display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .length { min-width: 4.6em; color: var(--color-screen-bright); font: 300 calc(var(--time-size) * .5)/1 var(--font-display); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.length:empty { visibility: hidden; }
+.length:empty { display: none; }
+.length.whole { color: var(--color-screen-soft); }
 .length::before, .length::after { content: '|'; color: var(--color-screen-dim); }
 .message, .facts, .readout, .heard { display: flex; align-items: center; gap: 10px; min-width: 0; margin: 0; white-space: nowrap; font: 11px/16px var(--font-mono); font-variant-numeric: tabular-nums; }
 .message, .heard { overflow: hidden; text-overflow: ellipsis; }
@@ -363,8 +371,6 @@ svg { flex: none; }
 .facts { margin-left: 14px; color: var(--color-screen-soft); }
 /* the levels as digits turn: room for the longest (peak −10.0dB RMS −21.0dB), at the right */
 .readout { display: block; min-width: 25ch; margin-left: 6px; color: var(--color-screen-muted); text-align: right; }
-/* while a sound is on its way, how far it is stands where its levels do, in their place, its way out beside it */
-.readout.working { min-width: 0; color: var(--color-screen-soft); }
 .heard { display: block; flex: 0 1 auto; margin-left: 6px; color: var(--color-screen-dim); }
 /* Scenarios: a goal's whole chain each, found by their words, a card each: its name, what it does, the spec it delivers */
 .scenarios, .chat { display: flex; flex: 1; flex-direction: column; min-height: 0; }
@@ -411,6 +417,10 @@ svg { flex: none; }
 /* its values, under it, indented past the tick: the check table's rows */
 .chat-message .chat-table { width: calc(100% - 17px); margin: 2px 0 6px 17px; }
 .chat-message .chat-table th[scope="row"] { white-space: normal; }
+/* a value takes half the row at most, wrapping at its spaces past that: the name keeps the rest */
+.chat-message.agent { container-type: inline-size; }
+.chat-message .chat-table td { white-space: normal; }
+.chat-message .chat-table td > span:last-child { display: inline-block; max-width: 50cqi; }
 /* the agent's words, Markdown (markdown.js), set as the panel's own text: code in its wells, tables ruled, links underlined */
 .md { overflow-wrap: break-word; }
 .md > :first-child { margin-top: 0; }
@@ -571,6 +581,11 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
 
 .search { width: min(620px, calc(100vw - 24px)); max-height: min(640px, calc(100dvh - 48px)); padding: 0; border: 0; border-radius: var(--radius-slab); background: var(--color-screen); color: var(--color-screen-soft); box-shadow: var(--shadow-menu); }
 .search::backdrop { background: var(--color-backdrop); }
+.elsewhere { padding: 20px; border: 0; border-radius: var(--radius-slab); background: var(--color-screen); color: var(--color-screen-ink); box-shadow: var(--shadow-menu); text-align: center; }
+.elsewhere::backdrop { background: var(--color-backdrop); }
+.elsewhere p { margin: 0 0 14px; }
+.elsewhere .bar-button { color: var(--color-screen-ink); border: 1px solid var(--color-screen-rule); }
+.elsewhere .bar-button:hover { background: var(--color-screen-hover); color: var(--color-screen-bright); }
 .search-form { display: flex; gap: 8px; padding: 14px; border-bottom: 1px solid var(--color-screen-rule); }
 .search-form input { flex: 1; min-width: 0; min-height: 36px; padding: 0 12px; border: 1px solid var(--color-screen-rule); border-radius: 8px; background: var(--color-screen-low); color: var(--color-screen-ink); }
 .search .bar-button.primary { background: var(--color-screen-bright); color: var(--color-screen); }
@@ -616,7 +631,7 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
    whole where the bar has the room for it and the message a hundred pixels or so */
 @container (max-width: 970px) { .heard { display: none; } }
 @container (max-width: 790px) { .clock { --time-size: 28px; } }
-@container (max-width: 715px) { .readout:not(.working) { display: none; } }
+@container (max-width: 715px) { .readout { display: none; } }
 @container (max-width: 540px) { .facts { display: none; } }
 @container (max-width: 430px) { .length { display: none; } }
 /* narrow windows: the menu's names go small before anything else */

@@ -9,7 +9,7 @@ const STATS = {
   replaygain: 'ReplayGain', noisefloor: 'noise floor', dc: 'DC offset', clipping: 'clipping', correlation: 'stereo correlation',
   spectrum: 'spectrum', ltas: 'long-term spectrum', cepstrum: 'cepstrum', centroid: 'brightness', rolloff: 'roll-off', slope: 'spectral slope',
   flatness: 'flatness', silence: 'pauses', onsets: 'onsets', beats: 'beats', bpm: 'tempo', detect: 'tempo', key: 'key', chords: 'chords',
-  notes: 'notes', melody: 'melody'
+  notes: 'notes', melody: 'melody', voicing: 'voicing', hnr: 'harmonics-to-noise ratio', harmonic: 'harmonic level'
 }
 // each verb as it runs and once it has
 const VERBS = {
@@ -24,7 +24,7 @@ const VERBS = {
 // the units a stat reads in, as the page writes them; peak and rms are sample values, db their dBFS
 const UNITS = {
   db: 'dBFS', noisefloor: 'dBFS', loudness: 'LUFS', momentary: 'LUFS', shortterm: 'LUFS', dialog: 'LUFS',
-  truepeak: 'dBTP', lra: 'LU', dr: 'dB', crest: 'dB', replaygain: 'dB', bpm: 'BPM', centroid: 'Hz', rolloff: 'Hz'
+  truepeak: 'dBTP', lra: 'LU', dr: 'dB', crest: 'dB', replaygain: 'dB', bpm: 'BPM', centroid: 'Hz', rolloff: 'Hz', hnr: 'dB', harmonic: 'dBFS'
 }
 const list = new Intl.ListFormat('en', { type: 'conjunction' })
 const line = s => String(s ?? '').trim().split('\n')[0]
@@ -36,10 +36,12 @@ function named(code = '') {
   for (const m of code.matchAll(/\.(silence|detect|spectrum|cepstrum)\(/g)) names.push(m[1])
   return names
 }
-// what a measuring script reads: the stats it names, of the output or of the file as it opened, over time or once
+// what a measuring script reads: the stats it names, of the output, of the file as it opened or through the edits, over
+// time or once
 function measuring(code = '') {
   const words = [...new Set(named(code).map(n => STATS[n] ?? n))]
-  return words.length ? `${list.format(words)}${/\bsrc\b/.test(code) && !/\bout\b/.test(code) ? ' of the original' : ''}${/\bbins\s*:/.test(code) ? ' over time' : ''}` : ''
+  const of = /\bstep\s*\(/.test(code) ? ' through the edits' : /\bsrc\b/.test(code) && !/\bout\b/.test(code) ? ' of the original' : ''
+  return words.length ? `${list.format(words)}${of}${/\bbins\s*:/.test(code) ? ' over time' : ''}` : ''
 }
 
 const hz = f => f >= 1000 ? `${+(f / 1000).toFixed(2)} kHz` : `${Math.round(f)} Hz`
@@ -54,15 +56,16 @@ function said(tool, o, { time, spec }) {
   switch (tool) {
     case 'state': return ['read', 'the sound']
     case 'measure': return ['measure', measuring(o.code)]
-    case 'look': return ['look', span || 'the picture', range]
+    case 'look': return ['look', `${o.step != null ? `${o.takes ? 'what' : 'the output up to'} edit ${+o.step + 1}${o.takes ? ' takes out' : ''}${span && ', '}` : ''}${span || (o.step != null ? '' : 'the picture')}`, range]
     case 'edit': return mark ? ['mark', `${mark[5] ? `“${mark[5]}” ` : ''}${mark[1] ? `at ${time(+mark[1])}` : `${time(+mark[2])}–${time(+mark[2] + +mark[3])}`}`, mark[1] ? { caret: +mark[1] } : { range: [+mark[2], +mark[2] + +mark[3]] }] : ['apply', line(o.call).replace(/^\./, ''), { edit: line(o.call).replace(/^\./, '') }]
     case 'script': return ['rewrite', 'the script']
     case 'check': return ['check', spec(o.spec)]
-    case 'play': return ['play', `${o.original ? 'the original' : 'the output'}${span && ` ${span}`}`, range]
+    case 'play': return ['play', `${o.original ? 'the original' : o.step != null ? o.takes ? `what edit ${+o.step + 1} takes out` : `the output up to edit ${+o.step + 1}` : 'the output'}${span && ` ${span}`}`, range]
     case 'stop': return ['stop', 'playback']
     case 'select': return o.cursor != null ? ['caret', time(+o.cursor), { caret: +o.cursor }] : span ? ['select', span + band, range && { ...range, band: band ? [+o.low, +o.high] : null }] : ['clear', 'the selection']
     case 'scrub': return ['scrub', o.to != null ? `${time(+o.at)}–${time(+o.to)}` : time(+o.at), { caret: +(o.to ?? o.at) }]
-    case 'step': return [o.remove ? 'remove' : o.to != null ? 'move' : o.on === false ? 'off' : 'on', `edit ${+o.index + 1}${o.to != null && !o.remove ? ` to ${+o.to + 1}` : ''}`]
+    case 'step': return o.call != null && !o.remove ? ['change', `edit ${+o.index + 1} to ${line(o.call).replace(/^\./, '')}`]
+      : [o.remove ? 'remove' : o.to != null ? 'move' : o.on === false ? 'off' : 'on', `edit ${+o.index + 1}${o.to != null && !o.remove ? ` to ${+o.to + 1}` : ''}${!o.remove && o.to == null && span ? ` over ${span}` : ''}`, !o.remove && o.to == null ? range : null]
     case 'open': return ['open', base(o.path)]
     case 'undo': return ['undo', '']
     case 'redo': return ['redo', '']
@@ -89,10 +92,11 @@ export default function doing(tool, input, { time = t => `${t} s`, spec = s => s
 // A number as the page writes a level: two places at most, a true minus, silence as −∞
 const num = v => v === '-Infinity' || v === -Infinity ? '−∞' : v === 'Infinity' ? '∞' : typeof v === 'number' ? String(+v.toFixed(2)).replace(/^-/, '−') : null
 const json = v => { const s = JSON.stringify(v); return s == null ? '' : s.length > 60 ? s.slice(0, 59) + '…' : s }
-// a series' span, its silence (−∞) and its empty bins (NaN) left out
+// a series' span, its silence (−∞) and its empty bins (NaN) left out; the span itself held together (no-break spaces), so
+// one that wraps breaks after its count
 const span = (v, unit = '') => {
   const finite = v.filter(Number.isFinite)
-  return `${v.length} values${finite.length ? `, ${num(Math.min(...finite))} to ${num(Math.max(...finite))}${unit}` : ''}`
+  return `${v.length} values${finite.length ? `, ${`${num(Math.min(...finite))} to ${num(Math.max(...finite))}${unit}`.replace(/ /g, '\u00a0')}` : ''}`
 }
 // stats whose value is a list of times, of events; of bands or coefficients, a vector
 const TIMES = new Set(['onsets', 'beats', 'hits', 'clipping'])
@@ -128,7 +132,7 @@ export function measures(told, { time = t => `${t} s` } = {}) {
     const d = opts.d ?? opts.duration, word = STATS[name] ?? String(name)
     const where = [
       opts.at != null && (d != null ? `${time(+opts.at)}–${time(+opts.at + +d)}` : `from ${time(+opts.at)}`),
-      opts.channel != null && channels(opts.channel), of === 'src' && 'original'
+      opts.channel != null && channels(opts.channel), of && of !== 'out' && (of === 'src' ? 'original' : of)
     ].filter(Boolean)
     const over = opts.bins != null && !VECTORS[name] && Array.isArray(value) ? ' over time' : ''
     return { name: word[0].toUpperCase() + word.slice(1) + over + (where.length ? `, ${where.join(', ')}` : ''), after: reading(name, value) }
@@ -150,6 +154,6 @@ export function noted(tool, input, result, told) {
   }
   if (r && typeof r === 'object' && 'ok' in r) return r.ok === false ? r.problem ?? 'failed' : r.loudness != null ? `now ${num(r.loudness)} LUFS, peak ${num(r.peak)} dBFS` : ''
   if (tool === 'check' && r) return r.pass ? 'passes' : `fails ${list.format(r.rules.filter(x => x.pass === false).map(x => x.name.toLowerCase()))}`
-  if (tool === 'state' && r) return `${num(r.duration)} s, ${r.channels} ch, ${+(r.sampleRate / 1000).toFixed(3)} kHz`
+  if (tool === 'state' && r) return r.sampleRate ? `${num(r.duration)} s, ${r.channels} ch, ${+(r.sampleRate / 1000).toFixed(3)} kHz` : r.problem ? line(r.problem) : 'no sound open'
   return ''
 }

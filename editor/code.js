@@ -94,7 +94,7 @@ function args(code, list) {
   })
 }
 // A literal's value: numbers (with a sign), strings, booleans, arrays of numbers or of such arrays, ranges ({ at, duration })
-// and arrays of them; undefined for expressions.
+// and arrays of them, curves ({ t, v }); undefined for expressions.
 function literal(code, node) {
   const t = text(code, node)
   if (node.name === 'Number') return +t.replace(/_/g, '')
@@ -107,10 +107,12 @@ function literal(code, node) {
   }
   if (node.name === 'ObjectExpression') {
     const value = Object.fromEntries(node.getChildren('Property').map(p => [canon(text(code, p.firstChild)), p.lastChild !== p.firstChild ? literal(code, p.lastChild) : undefined]))
-    return isRange(value) ? value : undefined
+    return isRange(value) || isCurve(value) ? value : undefined
   }
 }
 const isRange = v => v?.constructor === Object && Object.keys(v).length > 0 && Object.entries(v).every(([k, x]) => (k === 'at' || k === 'duration') && typeof x === 'number')
+// a curve over time, { t, v }: as many values as times, numbers all
+const isCurve = v => v?.constructor === Object && Object.keys(v).length === 2 && Array.isArray(v.t) && Array.isArray(v.v) && v.t.length === v.v.length && [...v.t, ...v.v].every(x => typeof x === 'number')
 
 // The chain the page shows: the last expression statement, or the value of the last declaration.
 // { statement, expr, root, calls: [{ name, dot, from, to, list, args }] } with calls in source order, or null.
@@ -194,6 +196,29 @@ export function rollback(code, n) {
   const c = chain(code)
   return !c || n >= c.calls.length ? code : code.slice(0, n ? c.calls[n - 1].to : c.root.to)
 }
+// The chain as a measure's step(i) reads it (worker.js): each step as steps() lists them, its call as written, whether it is
+// on, the script its output enters it by and, on, the one it leaves it by, rolled back as rollback() rolls back
+export function stages(code) {
+  const c = chain(code), list = steps(code)
+  if (!c) return []
+  let k = c.calls.length - list.filter(s => s.on).length
+  return list.map(s => ({ name: s.name, call: s.text.slice(1), on: s.on, before: rollback(code, k), after: s.on ? rollback(code, ++k) : null }))
+}
+
+// A mix (how much of an edit's output is heard: a share, or a curve { t, v } over time) with [a, b] seconds set to `to`,
+// 0 (the edit off there) or 1 (on), a ramp of `f` seconds outside each end, from and back to what it was; the rest as
+// it was. A number is a curve flat at it; null where it comes to all of it everywhere, a number where it is flat
+export function mixed(mix = 1, a, b, to, f) {
+  const { t, v } = typeof mix === 'number' ? { t: [0], v: [mix] } : mix, n = t.length
+  const at = s => { let j = 0; while (j < n && t[j] <= s) j++; return j === 0 ? v[0] : j === n ? v[n - 1] : v[j - 1] + (v[j] - v[j - 1]) * (s - t[j - 1]) / (t[j] - t[j - 1]) }
+  const all = [...t.map((x, i) => [x, v[i]]).filter(([x]) => x < a - f || x > b + f), ...a - f > 0 ? [[a - f, at(a - f)]] : [], [Math.max(0, a), to], [b, to], [b + f, at(b + f)]]
+    .sort((p, q) => p[0] - q[0])
+  if (all.every(p => p[1] === all[0][1])) return all[0][1] === 1 ? null : all[0][1]
+  // a point whose neighbours are of its value says nothing: the curve is straight between them, flat past its ends
+  const pts = all.filter((p, i) => ![all[i - 1], all[i + 1]].every(q => !q || q[1] === p[1]))
+  return { t: pts.map(p => p[0]), v: pts.map(p => p[1]) }
+}
+
 // The script whose output is what step `i` of the chain takes out: the output before it less the output after it,
 // the step applied to a copy, turned upside down and mixed in. Null when there is no such step.
 export function residual(code, i) {
@@ -288,7 +313,7 @@ export function callAt(code, pos) {
 // The change that sets a call's argument: positional by index, or a property of its options object by name (a new one
 // written short). Missing earlier positions are filled from `fill`.
 export function setArg(call, where, value, fill = []) {
-  const insert = typeof value === 'string' ? `'${value.replace(/'/g, "\\'")}'` : String(value)
+  const insert = typeof value === 'string' ? `'${value.replace(/'/g, "\\'")}'` : value?.raw ?? String(value)
   if (typeof where === 'number') {
     const positional = call.args.filter(a => a.kind !== 'object')
     if (where < positional.length) return { from: positional[where].from, to: positional[where].to, insert }
@@ -304,6 +329,15 @@ export function setArg(call, where, value, fill = []) {
   if (prop) return { from: prop.valueFrom, to: prop.valueTo, insert }
   const lastProp = options.props.at(-1)
   return lastProp ? { from: lastProp.to, insert: `, ${key}: ${insert}` } : { from: options.from + 1, insert: ` ${key}: ${insert} ` }
+}
+
+// The change that takes an option away from a call's options object, the object too where it was its only one; null
+// where it has none of that name
+export function unsetArg(call, where) {
+  const options = call.args.find(a => a.kind === 'object'), props = options?.props ?? [], i = props.findIndex(p => p.name === where)
+  if (i < 0) return null
+  if (props.length === 1) { const prev = call.args[call.args.indexOf(options) - 1]; return { from: prev ? prev.to : options.from, to: options.to, insert: '' } }
+  return i ? { from: props[i - 1].to, to: props[i].to, insert: '' } : { from: props[0].from, to: props[1].from, insert: '' }
 }
 
 // A number as the code writes it: short, no float noise.

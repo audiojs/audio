@@ -11,10 +11,11 @@
  * answer to the page as `chat` events: any of AGENTS found on PATH, the page choosing one for each
  * conversation, --agent the first; or any agent that speaks ACP, by its command line. CORS is open
  * to any origin (the page may be served from https://audiojs.dev), so the key is the auth: every
- * request carries it, as `?key=K` or `Authorization: Bearer K`. The address and key are kept in
- * BRIDGE (bin/mcp.js): the key holds from one run to the next, and an MCP server finds the bridge by
- * itself. Nothing the page sends is executed except an agent CLI the bridge found, spawned without a
- * shell, the user's text on its stdin.
+ * request carries it, as `?key=K` or `Authorization: Bearer K`. The bridge's own key, made once, is
+ * kept with its address in BRIDGE (bin/mcp.js): the same each run, and an MCP server finds the bridge
+ * by itself; one given (--key, AUDIO_BRIDGE_KEY) holds for that run alone, kept nowhere. Nothing the
+ * page sends is executed except an agent CLI the bridge found, spawned without a shell, the user's
+ * text on its stdin.
  */
 import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'
@@ -40,7 +41,7 @@ const PREFLIGHT = {
 }
 
 // What a chat agent is told besides its own setup: where it is and what the tools touch.
-const PROMPT = `You are chatting with the user inside the audio editor, a browser page where they edit one sound with the audio JS library. The editor's tools (state, measure, look, edit, step, script, select, scrub, play, check, open, undo; the MCP server "audio") read and change that sound; the user sees and hears each change at once. Work on the sound in the page, not on files: a file dropped into the page has no path, and the page's sound is the script's output, edits included. Call state first. Measure with measure (any stat, over time or a range, silences, notes), see with look, mark findings on the timeline with edit("mark(time, 'label')"), point the user at a place with select (a band too) or scrub. Open a file of theirs with open. Prefer edit for one step; step turns an edit off, takes it away or moves it; script rewrites; check measures against a delivery spec; play lets them hear it (original: true for the file as it opened, level-matched). Reply briefly, in Markdown: the page renders it beside the sound.`
+const PROMPT = `You are chatting with the user inside the audio editor, a browser page where they edit one sound with the audio JS library. The editor's tools (state, measure, look, edit, step, script, select, scrub, play, check, open, undo; the MCP server "audio") read and change that sound; the user sees and hears each change at once. Work on the sound in the page, not on files: a file dropped into the page has no path, and the page's sound is the script's output, edits included. Call state first. Measure with measure (any stat, over time or a range, silences, notes), see with look, mark findings on the timeline with edit("mark(time, 'label')"), point the user at a place with select (a band too) or scrub. Open a file of theirs with open. Prefer edit for one step; step turns an edit off (over a range alone, too), takes it away, moves it or rewrites it; script rewrites the whole; when something sounds wrong somewhere, find the edit that did it by measuring through the edits (step(i) in measure: the sound before and after it, what it takes out) before changing any; check measures against a delivery spec; play lets them hear it (original: true for the file as it opened, level-matched). Reply briefly, in Markdown: the page renders it beside the sound.`
 
 const toml = v => JSON.stringify(v)  // a JSON string or array of strings is TOML too
 // What GET /file hands a page, by extension: the audio and video the editor opens, nothing else on the machine
@@ -121,8 +122,8 @@ export const AGENTS = {
           return [{ text }]
         }
         if (m.type === 'turn.completed') return [{ done: true }]
-        if (m.type === 'turn.failed') return [{ done: true, error: m.error?.message ?? 'turn failed' }]
-        if (m.type === 'error') return [{ error: m.message }]  // may be a retry: final only if the agent then exits
+        if (m.type === 'turn.failed') return [{ done: true, error: plain(m.error?.message) || 'turn failed' }]
+        if (m.type === 'error') return [{ error: plain(m.message) }]  // may be a retry: final only if the agent then exits
         return []
       }
     }
@@ -166,8 +167,9 @@ export const AGENTS = {
   vibe: { name: 'Mistral Vibe', command: 'vibe-acp', acp: [] }
 }
 
-// A provider's error as a person reads it: `400: {"message": …}` its message
-const plain = s => { try { return JSON.parse(s.match(/^\d{3}: (\{.*\})$/s)[1]).message || s } catch { return s } }
+// A provider's error as a person reads it: a JSON body, bare or after its status (`400: {…}`), its message, at its top or
+// under `error` (Codex prints OpenAI's body whole)
+const plain = s => { try { const e = JSON.parse(String(s).replace(/^\d{3}: /, '')); return e.message || e.error?.message || s } catch { return s } }
 
 // What an ACP turn's end says, by its stop reason, where it ended short
 const STOPPED = { max_tokens: 'It ran out of tokens', max_turn_requests: 'It reached its limit of steps', refusal: 'It declined to go on', cancelled: 'Stopped' }
@@ -288,7 +290,7 @@ function agentsOf(chosen) {
 
 /** What the last bridge kept: { url, key }. */
 const kept = () => { try { return JSON.parse(readFileSync(BRIDGE, 'utf8')) } catch { return {} } }
-// The address and key, kept for the next run and for MCP servers to find: the user's alone to read
+// The address and the bridge's own key, kept for the next run and for MCP servers to find: the user's alone to read
 function keep(url, key) {
   try {
     mkdirSync(dirname(BRIDGE), { recursive: true, mode: 0o700 })
@@ -332,13 +334,15 @@ function options(argv) {
   if (!Number.isInteger(o.port) || o.port < 0 || o.port > 65535) throw new Error('--port: 0..65535, 0 picks a free one')
   if (!(o.timeout > 0)) throw new Error('--timeout: seconds a page has to answer a call, over 0')
   if (o.key === '') throw new Error('--key: not empty')
-  o.key ??= process.env.AUDIO_BRIDGE_KEY || kept().key || randomBytes(16).toString('hex')
+  o.key ??= process.env.AUDIO_BRIDGE_KEY || undefined
+  o.own = !o.key  // a key given is that run's alone: a test's, a one-off's, never the user's next
+  o.key ??= kept().key || randomBytes(16).toString('hex')
   o.agents = agentsOf(o.agent)
   return o
 }
 
 export default function bridge(argv = []) {
-  let { port, key, timeout, agents } = options(argv)
+  let { port, key, own, timeout, agents } = options(argv)
   let first = agents.keys().next().value  // the agent a conversation starts with, unless the page names another
   let listed = [...agents].map(([id, a]) => ({ id, name: a.name }))
   timeout *= 1000
@@ -493,9 +497,16 @@ export default function bridge(argv = []) {
     server.once('error', e => reject(e.code === 'EADDRINUSE' ? new Error(`port ${port} is in use, another bridge? Pick one: --port N`) : e))
     server.listen(port, '127.0.0.1', () => {
       url = `http://127.0.0.1:${server.address().port}`
-      keep(url, key)
-      let ids = [...agents.keys()].map(id => /\s/.test(id) ? JSON.stringify(id) : id)
-      console.log(`audio bridge on ${url}  key ${key}  ${ids.length ? `agent${ids.length > 1 ? 's' : ''} ${ids.join(', ')}` : 'no agent on PATH'}`)
+      if (own) keep(url, key)
+      // where it is, the key to paste, the agents found, what to do: the key bold, the rest quiet, in a terminal
+      let tty = process.stdout.isTTY && !process.env.NO_COLOR, ink = code => s => tty ? `\x1b[${code}m${s}\x1b[0m` : s
+      let [dim, bold] = [ink(2), ink(1)], names = [...agents.values()].map(a => a.name)
+      console.log([
+        `audio bridge on ${url}`, '',
+        `  ${dim('key')}     ${bold(key)}`,
+        `  ${dim('agents')}  ${names.length ? names.join(', ') : `none found: install one (${Object.values(AGENTS).slice(0, 6).map(a => a.name).join(', ')}, …), then start again`}`, '',
+        dim(`  In the editor's Agent panel, paste the key, then Connect.${own ? ' It stays the same next time.' : ''}`)
+      ].join('\n'))
       resolve(server)
     })
   })

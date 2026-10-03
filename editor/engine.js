@@ -1,14 +1,27 @@
 // The page's handle on the engine worker. Scripts run one at a time, the newest waiting its turn: a slider sends many
 // versions, only the latest queued one runs next. A run answers once its script has run; its output then streams to
 // the listener it came with, as events: `loading` (a file it opens, as it decodes, while the output has nothing yet),
-// `chunk` (the output), then `done` or `error`; or `skip`, when a newer script runs and its output takes over.
+// `arrived` (all of that file come, the output still nothing), `doing` (the steps it applies, or the one reading its
+// input whole first, by name), `chunk` (the output), then `done` or `error`; or `skip`, when a newer script runs and its
+// output takes over. An output made before (worker.js, renders kept) comes whole at once.
 // Stop ends a run by replacing the worker.
-export default function engine(url = new URL('./dist/worker.js', import.meta.url)) {
+const WORKER = new URL('./dist/worker.js', import.meta.url)
+// The worker set off as the page starts (start, editor.html), its library and chunks loading while the page's own
+// scripts still arrive; the first engine() takes it, unless it already failed to load
+let early = null
+export function start() {
+  if (early) return
+  early = new Worker(WORKER, { type: 'module' })
+  early.onerror = event => { event.preventDefault?.(); early.failed = true }
+}
+
+export default function engine(url = WORKER) {
   const files = new Map(), pending = new Map(), described = new Map(), listeners = new Map()
   let worker, ids = 0, running = null, queued = null
 
   function spawn() {
-    worker = new Worker(url, { type: 'module' })
+    worker = url === WORKER && early && !early.failed ? early : new Worker(url, { type: 'module' })
+    if (url === WORKER) early = null
     worker.onmessage = ({ data }) => {
       if (data.event) {
         const on = listeners.get(data.id)
@@ -55,6 +68,9 @@ export default function engine(url = new URL('./dist/worker.js', import.meta.url
   }
 
   const self = {
+    // The page's tab whose script runs, and whose output an export, a check or a measure reads: each tab's last output
+    // stays in the worker, the page showing it again as it was (close lets it go)
+    tab: null,
     // A file the scripts can open by name; null forgets it.
     file(name, data) {
       data == null ? files.delete(name) : files.set(name, data)
@@ -66,7 +82,7 @@ export default function engine(url = new URL('./dist/worker.js', import.meta.url
     // the older one with { skipped }.
     run(script, on = {}) {
       queued?.resolve({ skipped: true })
-      const result = new Promise(resolve => { queued = { script, on, resolve } })
+      const result = new Promise(resolve => { queued = { script: { ...script, tab: self.tab }, on, resolve } })
       if (!running) drain()
       return result
     },
@@ -110,11 +126,14 @@ export default function engine(url = new URL('./dist/worker.js', import.meta.url
     contour: output => call({ type: 'contour', output }).then(r => r.f0 ? r : { times: [], f0: [] }),
     // what it holds, as a musician says it: the note over `note` [from, to] s, the tempo and key over `span`
     listen: (output, note, span) => call({ type: 'listen', output, note, span }),
-    export: request => call({ type: 'export', ...request }),
+    export: request => call({ type: 'export', ...request, tab: self.tab }),
     // The spec's rules for the last output ({ output }, fn/check.js).
-    check: spec => call({ type: 'check', spec }),
-    // A prepared script's value (code.js prepare) on copies of the output shown and its source, as JSON: { value } or { error }
-    evaluate: script => call({ type: 'eval', ...script }),
+    check: spec => call({ type: 'check', spec, tab: self.tab }),
+    // A prepared script's value (code.js prepare) on copies of the output shown and its source, and with `steps` the edits
+    // its step(i) reads (code.js stages, each script prepared), as JSON: { value, measured } or { error }
+    evaluate: script => call({ type: 'eval', ...script, tab: self.tab }),
+    // A tab closed: its output goes
+    close: tab => call({ type: 'close', tab }),
     // The source it opened, level-matched to `loudness` (LUFS), for A/B listening.
     original: (source, loudness) => call({ type: 'original', source, loudness }),
     // A plugin's parameters from its manifest, fetched once.

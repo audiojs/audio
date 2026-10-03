@@ -10,11 +10,11 @@ import { help, layout } from './help.js'
 // or Escape, shows the whole chain again. A slider rewrites its argument in place, a whole drag one undo step. Pointed
 // at, each says what it does and which way to move it (help.js); the engine's own, which few touch, wait under Advanced.
 // The card under the pointer draws what it sets over the output (`oncall`). Two acts on it, over its right end where the pointer
-// is, its settings running under them to the card's edge: its eye turns the step off and on (the call commented out
+// is, its settings running under them to the card's edge: its power switch bypasses the step, and turns it back on (the call commented out
 // where it stands, so the code says it too); its × removes it. Going back to a card is choosing it: an edit made then
 // goes after it, the steps after it gone. Open, a card's Δ plays and draws what its step takes out (the output before
 // it less the output after it). Steps grouped in the code (code.js groups: a recipe's, under its name) are one card,
-// folded: a press unfolds it to its steps, its eye turns them all off and on, its × removes them all. What the output
+// folded: a press unfolds it to its steps, its switch bypasses them all and turns them back on, its × removes them all. What the output
 // shows, when it is not the whole chain, goes to `onview({ delta, back })`: `delta` the index of the live step whose
 // difference plays, `back` how many live steps are kept.
 export default function stack(root, { ed, describe = async () => null, duration = () => 1, source = () => null, oncall = () => {}, onview = () => {}, onpreview = () => {} }) {
@@ -47,12 +47,13 @@ export default function stack(root, { ed, describe = async () => null, duration 
     render()
   }
 
-  const EYE = 'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Zm10 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z'
+  // a step's switch, as a plugin's bypass: on, power; bypassed, power struck through
+  const ON = 'M12 3.5v7.5M6.6 6.9a7.5 7.5 0 1 0 10.8 0'
   // a group's icon: steps stacked in a folder
   const FOLD = 'M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11ZM8 11h8M8 14.5h5'
   // a card's icon: the sound's, a file's bars or a generator's wave; a step's own (icons.js), else its kind's
   const iconOf = call => call.sound ? 'M4 10v4m4-8v12m4-15v18m4-14v10m4-6v2' : call.origin ? icons.Generate : opIcons[call.name] ?? icons[ops[call.name]?.group] ?? icons.Effect
-  const SHUT = 'M3 3l18 18M10.6 5.1Q11.3 5 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4M6.6 6.6A17 17 0 0 0 2 12s3.6 7 10 7a10 10 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2'
+  const SHUT = 'M12 3.5v7.5M6.6 6.9a7.5 7.5 0 1 0 10.8 0M4 4l16 16'
   function build(rows, gs = [], groupOf = () => -1) {
     hovered = null
     cards = rows.map(call => {
@@ -72,7 +73,7 @@ export default function stack(root, { ed, describe = async () => null, duration 
       if (!call.sound && !call.origin) {
         const acts = head.appendChild(document.createElement('div'))
         acts.className = 'step-acts'
-        card.on = button(acts, 'step-on', null, EYE, () => onOff(card))
+        card.on = button(acts, 'step-on', null, ON, () => onOff(card))
         button(acts, 'step-remove', null, 'm7 7 10 10M17 7 7 17', () => drop(card), `Remove .${call.name}() from the chain`, `Remove ${call.name}`)
       }
       card.fold = groupOf(call)
@@ -92,7 +93,7 @@ export default function stack(root, { ed, describe = async () => null, duration 
       toggle.addEventListener('click', () => { unfolded.has(key) ? unfolded.delete(key) : unfolded.add(key); render() })
       const acts = head.appendChild(document.createElement('div'))
       acts.className = 'step-acts'
-      fold.on = button(acts, 'step-on', null, EYE, () => switchAll(fold))
+      fold.on = button(acts, 'step-on', null, ON, () => switchAll(fold))
       button(acts, 'step-remove', null, 'm7 7 10 10M17 7 7 17', () => dropAll(fold), `Remove ${group.name}: all its steps`, `Remove ${group.name}`)
       return fold
     })
@@ -147,22 +148,22 @@ export default function stack(root, { ed, describe = async () => null, duration 
       c.li.classList.toggle('rolled', at >= 0 && n > at && delta == null)
       c.li.classList.toggle('delta', i >= 0 && i === delta)
       c.toggle.setAttribute('aria-pressed', String(n === at))
-      c.toggle.title = call.off ? `.${call.name}() is off: its eye turns it back on`
+      c.toggle.title = call.off ? `.${call.name}() is bypassed: its switch turns it back on`
         : n === at ? 'Back to the whole chain (Esc)'
         : call.sound ? `${call.name}: the sound alone, before any step`
         : `${ops[call.name]?.text || '.' + call.name + '()'}: the output up to here, and its settings`
       c.args.textContent = call.sound ? '' : summary(call.source ?? code, call)
       if (c.on) {
         c.on.setAttribute('aria-pressed', String(!call.off))
-        c.on.querySelector('path').setAttribute('d', call.off ? SHUT : EYE)
-        c.on.title = call.off ? `Turn .${call.name}() back on` : `Turn .${call.name}() off: the output without it`
+        c.on.querySelector('path').setAttribute('d', call.off ? SHUT : ON)
+        c.on.title = call.off ? `Bypassed: turn .${call.name}() back on` : `Bypass .${call.name}(): hear the output without it`
         c.on.setAttribute('aria-label', call.off ? `Turn ${call.name} on` : `Turn ${call.name} off`)
       }
       if (open && !c.params) { c.params = params(c); c.li.append(c.params.dom); c.params.load() }
       if (!open && c.params) { c.params.dom.remove(); c.params = null }
       c.params?.refresh(i >= 0 && i === delta)
     }
-    // a group folded hides its steps, unless the step chosen is one of them; its eye is off when all of them are
+    // a group folded hides its steps, unless the step chosen is one of them; its switch is off when all of them are
     for (const fold of folds) {
       const steps = members(fold), open = unfolded.has(fold.key) || steps.some(c => cards.indexOf(c) === at), off = steps.every(c => c.call.off)
       fold.toggle.setAttribute('aria-expanded', String(open))
@@ -171,8 +172,8 @@ export default function stack(root, { ed, describe = async () => null, duration 
       fold.li.classList.toggle('off', off)
       fold.li.classList.toggle('rolled', steps.every(c => c.li.classList.contains('rolled')))
       fold.on.setAttribute('aria-pressed', String(!off))
-      fold.on.querySelector('path').setAttribute('d', off ? SHUT : EYE)
-      fold.on.title = off ? `Turn ${fold.group.name} back on` : `Turn ${fold.group.name} off: the output without its steps`
+      fold.on.querySelector('path').setAttribute('d', off ? SHUT : ON)
+      fold.on.title = off ? `Bypassed: turn ${fold.group.name} back on` : `Bypass ${fold.group.name}: hear the output without its steps`
       fold.on.setAttribute('aria-label', off ? `Turn ${fold.group.name} on` : `Turn ${fold.group.name} off`)
       for (const c of steps) { c.li.hidden = !open; c.li.classList.add('grouped') }
     }
@@ -194,10 +195,11 @@ export default function stack(root, { ed, describe = async () => null, duration 
     choose(chosen === id ? null : id)
   }
   // Chooses a step, by where its "(" is ('source' for the sound it starts from, null for none): the output shows the
-  // chain up to it
-  function choose(id) {
+  // chain up to it, or with `takes` what it takes out, as its Δ (a live step that keeps the timing)
+  function choose(id, takes = false) {
     chosen = id
-    view(null, kept())
+    const c = cards[position()], i = takes && c && !reshapes(c.call.name) ? live().indexOf(c) : -1
+    i >= 0 ? view(i, null) : view(null, kept())
   }
   // A call out of the chain: from the end of the one before it (or of the source) to its own end, with the line break;
   // one turned off, its comment
@@ -361,7 +363,9 @@ export default function stack(root, { ed, describe = async () => null, duration 
     return self
   }
 
-  return { refresh, choose, ahead }
+  // what the output shows: the card chosen (its id, as choose() takes it) and whether its Δ
+  const shown = () => ({ id: chosen, takes: delta != null })
+  return { refresh, choose, ahead, shown }
 }
 
 // The value each parameter has in a call now, by position or by name in an options object; undefined if unset.
@@ -378,19 +382,27 @@ function summary(code, call) {
   for (const o of call.args.filter(a => a.kind === 'object')) {
     const props = o.props ?? [], get = name => props.find(p => p.name === name)?.value
     if (Array.isArray(get('t')) && Array.isArray(get('v'))) { words.push(`curve, ${get('t').length} points`); continue }
-    for (const p of props) if (p.name !== 'at' && p.name !== 'duration') words.push(p.kind === 'object' || typeof p.value === 'number' || Array.isArray(p.value) ? `${p.name} ${said(code, p, spec?.find(s => s.name === p.name))}` : said(code, p))
+    for (const p of props) if (p.name !== 'at' && p.name !== 'duration') words.push(p.name === 'mix' && p.value?.t ? offs(p.value) : p.kind === 'object' || typeof p.value === 'number' || Array.isArray(p.value) ? `${p.name} ${said(code, p, spec?.find(s => s.name === p.name))}` : said(code, p))
     if (get('at') != null || get('duration') != null) words.push(times({ at: get('at') ?? 0, duration: get('duration') }))
   }
   return words.filter(Boolean).join(' · ')
 }
 const seconds = t => `${+t.toFixed(3)}`
 const times = r => r.duration == null ? `from ${seconds(r.at)}s` : `${seconds(r.at)}–${seconds(r.at + r.duration)}s`
+// a mix that turns its edit off and on over time (step's range, RX's Restore Selection): where it is off; another, its points
+function offs({ t, v }) {
+  if (!v.every(x => x === 0 || x === 1)) return `mix, ${t.length} points`
+  const spans = []
+  for (let i = 0; i < t.length; i++) if (!v[i]) spans.at(-1)?.end === i - 1 ? Object.assign(spans.at(-1), { to: t[i], end: i }) : spans.push({ from: i ? t[i] : 0, to: t[i], end: i })
+  return 'off ' + spans.map(s => s.end === t.length - 1 ? times({ at: s.from }) : times({ at: s.from, duration: s.to - s.from })).join(', ')
+}
 function said(code, a, s) {
   const v = a.value
   if (typeof v === 'number') return s ? format(v, s) : `${+v.toFixed(3)}`
   // numbers: a band in hertz, else the numbers; pairs (warp's markers): from → to; ranges: their times
   if (Array.isArray(v)) return v.every(x => typeof x === 'number') ? (s?.unit === 'Hz' || v.length === 2 && v[1] > 20 ? `${format(v[0], { unit: 'Hz' })}–${format(v[1], { unit: 'Hz' })}` : v.map(x => +x.toFixed(3)).join(', '))
     : v.map(x => Array.isArray(x) ? x.map(seconds).join(' → ') : times(x)).join(', ')
+  if (Array.isArray(v?.t)) return `${v.t.length} points`
   if (v && typeof v === 'object') return times(v)
   if (typeof v === 'string' || typeof v === 'boolean') return String(v)
   // an expression: a sound opened by name says the name

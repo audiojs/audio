@@ -28,7 +28,7 @@ export const layouts = {
   graindelay: 'time pitch feedback mix | grain spray jitter',
   rotary: 'hornSpeed drumSpeed depth mix | crossover hornInertia drumInertia micSpread',
   'pitch-shift': 'semitones content formant | method',
-  tune: 'scale root strength | tolerance a4',
+  tune: 'scale root strength speed | tolerance a4',
   baxandall: 'bass treble | fBass fTreble',
   fm: 'freq ratio index amp | indexDecay indexFloor feedback attack release',
   modal: 'freq model t60 strike amp | nmodes damping inharmonicity exciter seed',
@@ -489,7 +489,8 @@ export const texts = {
     root: 'The note the scale starts on, in semitones up from C: 0 is C, 2 is D, 7 is G, 9 is A. Not used by the chromatic scale.',
     a4: 'The tuning of the note A above middle C, in Hz, that every note is worked out from. 440 is standard.',
     tolerance: 'How far off a note can be, in cents (hundredths of a semitone), before it is corrected. Notes closer than this are left as sung.',
-    strength: 'How much of the correction is applied: 1 snaps each note to the exact pitch, less moves it part of the way, 0 does nothing.'
+    strength: 'How much of the correction is applied: 1 snaps each note to the exact pitch, less moves it part of the way, 0 does nothing.',
+    speed: 'How long the pitch may stray from its note before it is pulled back, in milliseconds. 0 holds every moment on the note: the hard, stepped sound. 80 keeps the voice\'s vibrato and slides and takes out its slow drift; 400 only moves each note\'s centre.'
   },
   resample: {
     rate: 'The new sample rate, in Hz. A lower rate keeps less of the high frequencies.'

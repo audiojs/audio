@@ -275,7 +275,7 @@ test('doing: an agent\'s tool call said as the user would say it, only what the 
 // What a call came to, said beside its step: values in their units, a series by its span, an edit by the output after it
 test('doing: what a call came to, from what the page answered', () => {
   assert.equal(noted('measure', { code: "out.stat(['loudness', 'truepeak'])" }, [-21.123, -0.913]), '−21.12 LUFS, −0.91 dBTP')
-  assert.equal(noted('measure', { code: "out.stat('loudness', { bins: 4 })" }, [-20, -21, '-Infinity', -19]), '4 values, −21 to −19 LUFS', 'silence left out of the span')
+  assert.equal(noted('measure', { code: "out.stat('loudness', { bins: 4 })" }, [-20, -21, '-Infinity', -19]), '4 values, −21\u00a0to\u00a0−19\u00a0LUFS', 'silence left out of the span, the span held together')
   assert.equal(noted('measure', { code: "out.stat('db')" }, '-Infinity'), '−∞ dBFS')
   assert.equal(noted('measure', { code: 'out.duration' }, 6.524), '6.52')
   assert.equal(noted('measure', { code: 'out.silence()' }, [{ at: 1, duration: .5 }]), '[{"at":1,"duration":0.5}]')
@@ -286,6 +286,9 @@ test('doing: what a call came to, from what the page answered', () => {
   assert.equal(noted('check', { spec: 'podcast' }, { pass: false, rules: [{ name: 'Loudness', pass: false }, { name: 'True peak', pass: true }] }), 'fails loudness')
   assert.equal(noted('check', { spec: 'podcast' }, { pass: true, rules: [] }), 'passes')
   assert.equal(noted('play', {}, { playing: true }), '')
+  assert.equal(noted('state', {}, { duration: 6.4, sampleRate: 44100, channels: 2 }), '6.4 s, 2 ch, 44.1 kHz')
+  assert.equal(noted('state', {}, { duration: 0, sampleRate: null, channels: null, problem: null }), 'no sound open', 'a new tab: no sound, not "null ch"')
+  assert.equal(noted('state', {}, { duration: 0, sampleRate: null, channels: null, problem: 'nope is not defined' }), 'nope is not defined', 'a script that fails: why')
   assert.equal(noted('measure', { code: 'x' }, { nf: -49.3 }, [{ of: 'out', name: 'noisefloor', opts: {}, value: -49.30758 }]), '−49.31 dBFS', 'one stat noted: its value, whatever the answer')
   assert.equal(noted('measure', { code: 'x' }, { a: 1, b: 2 }, [{ name: 'db', value: -1 }, { name: 'lra', value: 4 }]), '', 'several: the table says them')
 })
@@ -300,7 +303,7 @@ test('doing: what a measure measured, stat by stat, its rows', () => {
   assert.deepEqual(row('peak', .30049), { name: 'Peak', after: '0.3' })
   assert.deepEqual(row('correlation', 1), { name: 'Stereo correlation', after: '1' })
   assert.deepEqual(row('centroid', 2079.7), { name: 'Brightness', after: '2.08 kHz' })
-  assert.deepEqual(row('loudness', [-20, -21, '-Infinity', -19, 'NaN'], { bins: 5 }), { name: 'Loudness over time', after: '5 values, −21 to −19 LUFS' })
+  assert.deepEqual(row('loudness', [-20, -21, '-Infinity', -19, 'NaN'], { bins: 5 }), { name: 'Loudness over time', after: '5 values, −21\u00a0to\u00a0−19\u00a0LUFS' })
   assert.deepEqual(row('db', -3, { at: 1, d: 2, channel: 0 }), { name: 'Peak, 1s–3s, channel 1', after: '−3 dBFS' })
   assert.deepEqual(row('spectrum', Array(64).fill(-40), { bins: 64 }), { name: 'Spectrum', after: '64 bands' })
   assert.deepEqual(row('silence', [{ at: 1, duration: .5 }, { at: 3, duration: 1.25 }]), { name: 'Pauses', after: '2, the longest 1.25 s' })
@@ -746,10 +749,8 @@ test('engine: a measure answers its stats awaited, and notes each one it took', 
     const e = engine(new URL('/editor/dist/worker.js', location.href))
     await e.file('a.wav', { channels: tone.map(c => Float32Array.from(c)), sampleRate: 48000 })
     await e.render(prepare(`audio('a.wav').gain(-6)`))
-    const r = await e.evaluate(prepare(`({ s: out.stat(['db', 'loudness']), lb: out.stat('loudness', { bins: 2 }), sil: out.silence(), was: src.stat('db') })`))
-    return { ...r, early: await e.evaluate(prepare(`out.stat('melody').f0.filter(x => x > 80)`)) }
+    return e.evaluate(prepare(`({ s: out.stat(['db', 'loudness']), lb: out.stat('loudness', { bins: 2 }), sil: out.silence(), was: src.stat('db') })`))
   }, tone.map(c => [...c]))
-  assert.equal(r.early.error.message, "out.stat('melody') is a promise: await it first, (await out.stat('melody')).f0", 'read before awaited, said so')
   const a = audio.from(tone, { sampleRate: RATE }), quiet = audio.from(tone, { sampleRate: RATE }).gain(-6)
   const [db, lufs] = await quiet.stat(['db', 'loudness']), was = await a.stat('db')
   assert.ok(Math.abs(r.value.s[0] - db) < 1e-4 && Math.abs(r.value.s[1] - lufs) < 1e-4, JSON.stringify(r.value.s))
@@ -758,6 +759,89 @@ test('engine: a measure answers its stats awaited, and notes each one it took', 
   assert.ok(Math.abs(r.value.was - was) < 1e-4)
   assert.deepEqual(r.measured.map(m => [m.of, m.name, m.opts]), [['out', 'db', {}], ['out', 'loudness', {}], ['out', 'loudness', { bins: 2 }], ['out', 'silence', {}], ['src', 'db', {}]])
   assert.ok(Math.abs(r.measured[0].value - db) < 1e-4)
+})
+
+// A measure reads the edits (step(i), worker.js): the sound entering and leaving one, what it takes out, and where a time
+// or range of the output was as it entered it, as the library gives them; a stage not made yet is made, the run going again
+test('engine: a measure reads each edit, before and after it, what it takes out, where the output was', async () => {
+  await page.goto(origin + '/blank.html')
+  const tone = [sine(2, 440, .5)], code = `audio('a.wav').remove({ at: 0.5, d: 0.5 }).gain(-6).lowpass(200)`
+  const r = await page.evaluate(async ({ tone, code }) => {
+    const { default: engine } = await import('/editor/engine.js'), { prepare, stages } = await import('/editor/code.js')
+    const e = engine(new URL('/editor/dist/worker.js', location.href))
+    await e.file('a.wav', { channels: tone.map(c => Float32Array.from(c)), sampleRate: 48000 })
+    await e.render(prepare(code))
+    const steps = stages(code).map(s => ({ call: s.call, on: s.on, keeps: s.name !== 'remove', before: prepare(s.before), after: s.after && prepare(s.after) }))
+    return e.evaluate({ ...prepare(`const s = step(1); [s.call, s.on, s.before.stat('db'), s.after.stat('db'), s.takes.stat('db'), s.where({ at: 0.6, d: 0.2 }), step(0).where({ at: 0.6, d: 0.2 }), step(0).takes, step(2).where(1.2), step(0).where(0.6), s.before.duration]`), steps })
+  }, { tone: tone.map(c => [...c]), code })
+  const [call, on, before, after, takes, here, there, none, moment, back, length] = r.value
+  assert.deepEqual([call, on], ['gain(-6)', true])
+  // the tone at 0.5 is −6.02 dBFS; −6 dB more after the gain; what the gain takes out, 1 − 10^(−6/20) of it
+  assert.ok(Math.abs(before - 20 * Math.log10(.5)) < .01 && Math.abs(after - before + 6) < .01, `${before}, ${after}`)
+  assert.ok(Math.abs(takes - 20 * Math.log10(.5 * (1 - 10 ** (-6 / 20)))) < .01, `${takes}`)
+  assert.ok(Math.abs(here.at - .6) < 1e-3 && Math.abs(here.d - .2) < 1e-3, `no edit after the gain moves it: ${JSON.stringify(here)}`)
+  assert.ok(Math.abs(there.at - 1.1) < 1e-3 && Math.abs(there.d - .2) < 1e-3, `before the remove, half a second later: ${JSON.stringify(there)}`)
+  assert.equal(none, null, 'remove changes the timing: nothing taken to say')
+  assert.ok(Math.abs(moment - 1.2) < 1e-3 && Math.abs(back - 1.1) < 1e-3, `a moment alike: ${moment}, ${back}`)
+  assert.ok(Math.abs(length - 1.5) < 1e-6, 'times on a stage are its own')
+  assert.deepEqual(r.measured.map(m => m.of), ['before gain(-6)', 'after gain(-6)', 'what gain(-6) takes out'])
+})
+
+// A measure is its value however the agent's code reads it, as Claude Code and Codex wrote it on the sounds in the page:
+// unawaited and read at once (`out.stat('notes').map`), in a callback not async, in a sum, a comparison, a loop over it,
+// one taken where another says, one after another in a loop; a binned stat's values plain numbers, mapped to text as
+// text (a Float32Array maps to NaN), stat([…])'s values by name too (`L.rms`, as an agent read them), and one chained as
+// a promise still one. The run that reads one too soon runs again
+// once it is made: the values the library gives, each stat noted once, and a stat that fails says why
+test('engine: a measure is its value however the code reads it', async () => {
+  await page.goto(origin + '/blank.html')
+  // a tone with a pause, 0.4 s to 0.6 s
+  const tone = [sine(1, 440, .5).map((v, i) => i >= .4 * RATE && i < .6 * RATE ? 0 : v)]
+  const codes = {
+    notes: `out.stat('notes').map(n => n.note)`,
+    sum: `out.stat('db') - src.stat('db')`,
+    each: `[0, 0.6].map(at => +out.stat('db', { at, d: 0.4 }).toFixed(2))`,
+    loop: `const at = []; for (const p of out.silence({ threshold: -40 })) at.push(+p.at.toFixed(2)); at`,
+    where: `out.silence({ threshold: -40 }).map(p => out.stat('db', { at: p.at, d: p.duration }) < -60)`,
+    steps: `let n = 0; for (let i = 0; i < 40; i++) if (out.stat('db', { at: i * 0.025, d: 0.025 }) > -60) n++; n`,
+    text: `out.stat('db', { bins: 2 }).map(v => v.toFixed(1))`,
+    names: `const s = out.stat(['db', 'loudness']); [s.db, s.loudness]`,
+    // an edit the code makes, made once to the copy each run has: the stat the third run reads, as the first was
+    edited: `out.gain(-6); [out.stat('db').toFixed(2), out.stat('loudness').toFixed(2)].map(Number)`,
+    // a call that asks anew each run (random): runs run out, and say what to write instead
+    random: `out.stat('db', { at: Math.random() / 2, d: 0.1 }).toFixed(1)`,
+    then: `[out.stat('db').then(v => v + 1), out.stat('loudness') * 1]`,
+    nope: `out.stat('nope').length`
+  }
+  const r = await page.evaluate(async ({ tone, codes }) => {
+    const { default: engine } = await import('/editor/engine.js'), { prepare } = await import('/editor/code.js')
+    const e = engine(new URL('/editor/dist/worker.js', location.href))
+    await e.file('a.wav', { channels: tone.map(c => Float32Array.from(c)), sampleRate: 48000 })
+    await e.render(prepare(`audio('a.wav').gain(-6)`))
+    const out = {}
+    for (const [k, code] of Object.entries(codes)) out[k] = await e.evaluate(prepare(code))
+    return out
+  }, { tone: tone.map(c => [...c]), codes })
+  const a = audio.from(tone, { sampleRate: RATE }), quiet = audio.from(tone, { sampleRate: RATE }).gain(-6)
+  const [db, lufs] = await quiet.stat(['db', 'loudness']), pauses = await quiet.silence({ threshold: -40 })
+  let n = 0
+  for (let i = 0; i < 40; i++) if (await quiet.stat('db', { at: i * 0.025, d: 0.025 }) > -60) n++
+  for (const [k, v] of Object.entries(r)) if (k !== 'nope' && k !== 'random') assert.equal(v.error, undefined, `${k}: ${v.error?.message}`)
+  assert.deepEqual(r.notes.value, (await quiet.stat('notes')).map(n => n.note))
+  assert.ok(r.notes.value.length > 0)
+  assert.ok(Math.abs(r.sum.value - (db - await a.stat('db'))) < 1e-4, r.sum.value)
+  assert.deepEqual(r.each.value, [+(await quiet.stat('db', { at: 0, d: .4 })).toFixed(2), +(await quiet.stat('db', { at: .6, d: .4 })).toFixed(2)])
+  assert.deepEqual(r.loop.value, pauses.map(p => +p.at.toFixed(2)))
+  assert.equal(pauses.length, 1)
+  assert.deepEqual(r.where.value, [true])
+  assert.equal(r.steps.value, n)
+  assert.deepEqual(r.text.value, Array.from(await quiet.stat('db', { bins: 2 }), v => v.toFixed(1)))
+  assert.ok(Math.abs(r.names.value[0] - db) < 1e-4 && Math.abs(r.names.value[1] - lufs) < 1e-4, JSON.stringify(r.names.value))
+  assert.ok(Math.abs(r.then.value[0] - (db + 1)) < 1e-4 && Math.abs(r.then.value[1] - lufs) < 1e-4, JSON.stringify(r.then.value))
+  assert.deepEqual(r.sum.measured.map(m => [m.of, m.name]), [['out', 'db'], ['src', 'db']], 'each noted once, though it ran twice')
+  assert.match(r.nope.error.message, /nope/)
+  assert.deepEqual(r.edited.value, [+(db - 6).toFixed(2), +(lufs - 6).toFixed(2)])
+  assert.match(r.random.error.message, /^out\.stat\('db', \{'at':[\d.]+,'d':0\.1\}\) is a promise: await it first, \(await out\.stat\(.*\)\)\.toFixed$/)
 })
 
 // deepfilter in the page as on Node: the same package and model (served from the cache Node keeps it in, as the page would
@@ -1012,7 +1096,7 @@ test('editor: a step chosen among the edits shows the output up to it and opens 
   await page.locator('.plot').focus()
   await page.locator('.step-name', { hasText: 'Normalize' }).click()
   assert.equal(await page.evaluate(() => document.activeElement.classList.contains('plot')), true)
-  await page.locator('.viewing', { hasText: 'Up to .normalize()' }).waitFor()
+  await page.locator('.viewing', { hasText: 'Up to Normalize: ' }).waitFor()
   assert.equal(await opened(), 'Normalize')
   assert.equal(await rolled(), 'Fade')
   const slider = await card('Normalize').locator('input[type=range]').first().boundingBox()
@@ -1033,7 +1117,7 @@ test('editor: a step chosen among the edits shows the output up to it and opens 
   assert.equal(await opened(), '')
   // the badge on the picture shows the whole chain again
   await page.locator('.step-name', { hasText: 'Trim' }).click()
-  await page.locator('.viewing', { hasText: 'Up to .trim()' }).click()
+  await page.locator('.viewing', { hasText: 'Up to Trim: ' }).getByRole('button', { name: 'Show all' }).click()
   await page.locator('.viewing').waitFor({ state: 'detached' })
   assert.equal(await rolled(), '')
   // what a step sets shows on the picture only while its card is under the pointer: normalize's level, a dashed line
@@ -1254,8 +1338,8 @@ test('editor: a slice moved past the end opens silence up to where it lands', as
 // this one as it was; moved (⌘), it leaves this one, the rest closing up as a cut's
 test('editor: a slice dragged onto the tabs goes to a tab of its own; moved, it leaves this one', async () => {
   const { x, y } = await chime()
-  const up = async keys => {
-    await drag([x(1), y], [x(2) - x(1), 0])
+  const up = async (keys, select = true) => {
+    if (select) await drag([x(1), y], [x(2) - x(1), 0])
     const files = await page.locator('.files').boundingBox()
     await keyed(keys, () => drag([x(1.5), y], [files.x + files.width / 2 - x(1.5), files.y + files.height / 2 - y]))
   }
@@ -1266,7 +1350,9 @@ test('editor: a slice dragged onto the tabs goes to a tab of its own; moved, it 
   await page.locator('.file [role="tab"]').first().click()
   await page.waitForFunction(() => scriptText() === "audio('chime.wav')")
   await lengthIs('0:08.000')
-  await up(['ControlOrMeta'])
+  // the tab's selection as it was left
+  await page.waitForFunction(() => document.querySelector('.clock').title.startsWith('Selected 0:01.000–0:02.000:'))
+  await up(['ControlOrMeta'], false)
   await page.waitForFunction(() => document.querySelectorAll('.file').length === 3)
   await page.waitForFunction(() => scriptText() === "audio('chime.wav')\n  .crop({ at: 1, d: 1 })")
   await page.locator('.file [role="tab"]').first().click()
@@ -1394,18 +1480,17 @@ test('editor: the grid crosses where the ticks meet, dots where their finer step
   assert.ok(await blank(), 'nothing with no sound')
 })
 
-// WORKSHOP: the recipes' icon (a cook's hat, or a flask) and the sound's end (a line, hatched, dotted, or the time row
-// stopping); settled, two sliders for the settings, a spark for the agent, the switches joined (raised keys in one
-// bezel), the view's options from a right-click, the export's icon an arrow down onto a tray
-test('editor: the workshop turns the recipes\' icon and the sound\'s end; the settled icons; the switches are keys in a bezel; the view\'s options open from a right-click', async () => {
+// WORKSHOP: the sound's end (a line, hatched, dotted, or the time row stopping); settled, two sliders for the settings,
+// a spark for the agent, an open book for the recipes, the switches joined (raised keys in one bezel), the view's
+// options from a right-click, the export's icon an arrow down onto a tray
+test('editor: the workshop turns the sound\'s end; the settled icons; the switches are keys in a bezel; the view\'s options open from a right-click', async () => {
   await open()
   const icon = name => page.getByRole(name === 'Settings' ? 'button' : 'tab', { name, exact: true }).locator('path').getAttribute('d')
   assert.equal((await icon('Settings')).match(/a2 2 0 1 1-4 0/g).length, 2, 'two sliders, their round thumbs')
   assert.equal(await icon('Agent'), 'M12 3c.6 4.7 4.3 8.4 9 9-4.7.6-8.4 4.3-9 9-.6-4.7-4.3-8.4-9-9 4.7-.6 8.4-4.3 9-9Z', 'a spark, four curved points')
   assert.equal(await icon('Export'), 'M12 4v11m-5-5 5 5 5-5M4 19h16', 'an arrow down onto a tray')
-  assert.match(await icon('Recipes'), /A4\.4 4\.4/, 'a cook\'s hat, its crown\'s puffs')
-  await page.locator('.workshop button', { hasText: 'Flask' }).click()
-  assert.match(await icon('Recipes'), /^M9 3h6/, 'a flask')
+  assert.equal(await icon('Recipes'), 'M3 5h5a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H3Zm18 0h-5a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h6Z', 'an open book')
+  assert.deepEqual(await page.locator('.workshop-group > span').allInnerTexts(), ['End', 'Grid'], 'the recipes\' icon no longer a choice')
   assert.deepEqual(await page.locator('.workshop-group', { hasText: 'End' }).locator('button').allInnerTexts(), ['Line', 'Hatch', 'Dots', 'Ruler'])
   await tab('Export')
   // the switches, settled: raised keys in one bezel, each touching the next
@@ -1426,7 +1511,7 @@ test('editor: an edit made with the output rolled back to a step goes after it, 
   await open()
   await tab('Edits')
   await page.locator('.step-name', { hasText: 'Trim' }).click()
-  await page.locator('.viewing', { hasText: 'Up to .trim()' }).waitFor()
+  await page.locator('.viewing', { hasText: 'Up to Trim: ' }).waitFor()
   await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
   await page.keyboard.press('m')
   await page.waitForFunction(() => /\.trim\(\)\s*\.mark\(0\)$/.test(scriptText().trim()))
@@ -1691,12 +1776,35 @@ test('editor: a file opens where nothing plays, goes in where its caret shows ov
   await page.waitForFunction(() => scriptText() === "audio('tone-3.wav')")
 })
 
+// The engine sets off before the page's own scripts: its worker is asked for while editor.js is still held back, and
+// the page, once up, runs on that worker, not a second one
+test('editor: the engine\'s worker loads ahead of the page\'s scripts, and the page takes it', async () => {
+  let release
+  const held = new Promise(r => release = r)
+  await page.route('**/editor/editor.js', async route => { await held; route.continue() })
+  await page.addInitScript(() => { const W = Worker; window.workers = 0; window.Worker = class extends W { constructor(...a) { super(...a); workers++ } } })
+  const asked = page.waitForRequest('**/editor/dist/worker.js')
+  await page.goto(origin + '/editor.html', { waitUntil: 'commit' })
+  await asked
+  release()
+  await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
+  assert.equal(await page.evaluate(() => workers), 1, 'one worker')
+})
+// One set off ahead that fails to load is let go: the page starts its own, and runs
+test('editor: an engine worker that fails to load ahead is replaced by the page\'s own', async () => {
+  let first = true
+  await page.route('**/editor/dist/worker.js', route => first ? (first = false, route.abort()) : route.continue())
+  await page.goto(origin + '/editor.html')
+  await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
+  assert.equal(first, false, 'the first one failed')
+})
+
 test('editor: before the script runs, the intro shows nothing dead; while the first run renders, it stays away', async () => {
-  // no script at all: the conditional parts (intro, recording, toolbar) stay hidden instead of showing inert buttons
+  // no script at all: the conditional parts (intro, toolbar) stay hidden instead of showing inert buttons
   await page.route('**/editor/editor.js', route => route.abort())
   await page.goto(origin + '/editor.html')
   await page.waitForTimeout(300)
-  for (const part of ['.empty', '.recording']) assert.equal(await page.locator(part).isVisible(), false, part)
+  assert.equal(await page.locator('.empty').isVisible(), false, '.empty')
   // and what does show takes no clicks yet: the Open menu stays shut
   assert.equal(await page.locator('#app').evaluate(el => getComputedStyle(el).pointerEvents), 'none')
   await page.locator('.bar button', { hasText: 'Open' }).first().click({ force: true, timeout: 2000 }).catch(() => {})
@@ -1782,11 +1890,13 @@ test('editor: a file dropped on the waveform of a generated sound goes in where 
 test('editor: the newest script is the one shown, even when an older one waited for a sample', async () => {
   await open()
   await write(`while (true) {}`)
-  await page.locator('.readout', { hasText: 'Running' }).waitFor()
+  await page.locator('.message', { hasText: 'Rendering' }).waitFor()
+  // the ring that stops it in Record's place, Play still Play
+  await page.waitForFunction(() => !document.querySelector('.busy').inert && document.querySelector('.record').inert && !document.querySelector('.play').inert, null, { timeout: 4000 })
   await write(`audio('handpan.wav')`)
   await page.waitForTimeout(400)
   await write(`audio('chime.wav').reverse()`)
-  await page.locator('.readout', { hasText: 'Running' }).waitFor()
+  await page.locator('.message', { hasText: 'Rendering' }).waitFor()
   await page.waitForFunction(() => !document.querySelector('.message').textContent && /LUFS/.test(document.querySelector('.readout').textContent), null, { timeout: 30000 })
   await page.waitForTimeout(1000)
   assert.equal(await page.locator('.source').innerText(), 'chime.wav')
@@ -1850,6 +1960,12 @@ test('editor: a recording becomes a file the script opens', async () => {
   await open()
   await write('')
   await page.locator('.empty').waitFor()
+  // stopped before the microphone answers (Record clicked twice at once): nothing recorded, the microphone let go, the
+  // next take free to start
+  await page.evaluate(() => { const b = document.querySelector('button.record'); b.click(); b.click() })
+  await page.waitForTimeout(500)
+  assert.equal(await page.locator('.empty').isVisible(), true, 'nothing recorded')
+  assert.equal(await page.getByRole('button', { name: 'Stop recording', exact: true }).count(), 0)
   await page.getByRole('button', { name: 'Record', exact: true }).first().click()
   await page.waitForFunction(() => /^0:0[1-9]/.test(document.querySelector('.time').textContent))
   assert.ok(await drawn() > .001, 'the take draws as it comes')
@@ -1865,6 +1981,8 @@ test('editor: a recording becomes a file the script opens', async () => {
   await page.waitForFunction(() => scriptText().startsWith("audio('recording.wav')"))
   await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
   assert.equal(await right(), 0, 'its output at the same scale')
+  // the caret where the take ended, not at its start: Record again records on
+  await page.waitForFunction(() => +document.querySelector('.time').textContent.split(':')[1] > .9)
   // the take itself, untrimmed: about as long as the recording ran
   await write(`audio('recording.wav')`)
   const long = () => page.waitForFunction(() => { const s = +document.querySelector('.source').title.split(' · ').pop().split(':')[1]; return s > .9 && s < 3 })
@@ -3070,12 +3188,28 @@ test('editor: a file over a slow connection shows as it arrives, with how much h
   await open()
   await write(`audio('${origin}/slow/test/fixture.wav').gain(-1)`)
   // under 60% of it come: some drawn, not all
-  await page.locator('.readout', { hasText: /^Loading [1-5]?\d%$/ }).waitFor()
+  await page.locator('.message', { hasText: /^Decoding [1-5]?\d%$/ }).waitFor()
+  // in Record's place, a ring of how much has come, which stops it
+  const ring = page.getByRole('button', { name: 'Stop', exact: true })
+  assert.ok(await ring.isVisible(), 'the ring in Record\'s place')
+  assert.ok(await page.locator('.record').evaluate(e => e.inert), 'Record gives way')
+  const arrived = +await ring.evaluate(e => getComputedStyle(e).getPropertyValue('--arrived'))
+  assert.ok(arrived > 0 && arrived < .6, `the ring as far as it has come: ${arrived}`)
   const early = await drawn()
   assert.ok(early > 0, 'some of it is drawn before it has all come')
   await page.waitForFunction(() => !document.querySelector('.message').textContent && /LUFS/.test(document.querySelector('.readout').textContent), null, { timeout: 20000 })
   assert.ok(await drawn() > early, 'more once it has')
   await lengthIs('0:02.000')
+})
+
+// The ring stops what is on its way: the engine starts again, the status says so, and Record comes back
+test('editor: the ring in Record\'s place stops a file still arriving', async () => {
+  await open()
+  await write(`audio('${origin}/slow/test/fixture.wav')`)
+  await page.locator('.message', { hasText: /^Decoding/ }).waitFor()
+  await page.getByRole('button', { name: 'Stop', exact: true }).click()
+  await page.locator('.message.problem', { hasText: 'Stopped.' }).waitFor()
+  await page.waitForFunction(() => !document.querySelector('.record').inert && document.querySelector('.busy').inert)
 })
 
 // A sound that fails to open says so beside the time; choosing another clears that at once, before it has loaded
@@ -3327,6 +3461,103 @@ test('editor: markers: M over the selection a range, named as it is made, rename
   assert.deepEqual(r.output.markers, [{ time: 0.25, label: 'In' }, { time: 0.5, duration: 0.25, label: 'Chorus' }, { time: 0.75, label: '' }])
 })
 
+// A name written while the output that has its marker is still on its way shows at once, and stays: that output, of
+// the script before the name, leaves the markers the view drew ahead of it as they are
+test('editor: markers: a marker named before its output comes keeps its name through that output', async () => {
+  await open()
+  await write(`audio('chime.wav').stretch(2)`)
+  await lengthIs('0:16.000')
+  const { box, x } = await axis(16), y = box.y + box.height * .3, row = box.y + 6
+  await page.mouse.click(x(3), y)
+  await page.keyboard.press('m')
+  // its run under way, the name written
+  await page.waitForTimeout(400)
+  await page.keyboard.type('Hello')
+  await page.keyboard.press('Enter')
+  // the name is there from the next frame, where a click names it again (a text pointer), till the output with it
+  // comes and after
+  await page.waitForTimeout(50)
+  const seen = []
+  for (const until = Date.now() + 4000; Date.now() < until; await page.waitForTimeout(100)) {
+    await page.mouse.move(x(3) + 22 + seen.length % 2, row)
+    seen.push(await page.locator('.plot').evaluate(el => el.style.cursor))
+  }
+  assert.ok(seen.every(c => c === 'text'), JSON.stringify(seen))
+  assert.match(await code(), /\.mark\([\d.]+, 'Hello'\)/)
+})
+
+// A marker's line, a moment's or a range's end, points as it is neared (a hand, lit) and takes a press onto it: the
+// caret goes to the marker's time, not to the pixel pressed; with snapping off, the pixel's
+test('editor: markers: a press by a marker line puts the caret on it', async () => {
+  await open()
+  await write(`audio('chime.wav').mark(2).mark({ at: 5, d: 1 })`)
+  await lengthIs('0:08.000')
+  const { box, x } = await axis(8), y = box.y + box.height * .3
+  const caret = async () => +(await page.locator('.time').innerText()).split(':')[1]
+  for (const t of [2, 5, 6]) {
+    await grab([[x(t) + 4, y]], 'pointer')
+    await page.mouse.click(x(t) + 4, y)
+    assert.equal(await caret(), t)
+  }
+  await menu('View', 'Snap to cues and markers')
+  await page.mouse.move(x(2) + 4, y)
+  assert.notEqual(await page.locator('.plot').evaluate(el => el.style.cursor), 'pointer')
+  await page.mouse.click(x(2) + 4, y)
+  assert.ok(await caret() > 2, 'the pixel pressed')
+})
+
+// A marker in silence (here padding past the sound's end) stays where it is put, at its distance from the sound nearest
+// it (fn/meta.js), not drawn back onto the sound's last sample; its flag drags on into the silence, to the end at most
+test('editor: markers: one in silence past the sound stays there, and drags on within it', async () => {
+  await open()
+  await write(`audio('chime.wav').pad(0, 2).mark(9)`)
+  await lengthIs('0:10.000')
+  const { box, x } = await axis(10), y = box.y + box.height * .3, row = box.y + 4
+  const caret = async () => +(await page.locator('.time').innerText()).split(':')[1]
+  await page.mouse.click(...await grab([[x(9) + 4, y]], 'pointer'))
+  assert.equal(await caret(), 9, 'its line where it was put, from the output')
+  await drag(await grab([[x(9), row]], 'pointer'), [x(9.5) - x(9), 0])
+  await page.waitForFunction(() => Math.abs(+(scriptText().match(/\.mark\(([\d.]+)\)/)?.[1]) - 9.5) < .05)
+  // dragged past the end, to the end
+  await drag(await grab([[x(9.5), row]], 'pointer'), [x(11) - x(9.5), 0])
+  await page.waitForFunction(() => +(scriptText().match(/\.mark\(([\d.]+)\)/)?.[1]) === 10)
+  await write(`audio('chime.wav').pad(0, 2).mark(9.75)`)
+  await page.mouse.click(...await grab([[x(9.75) + 4, y]], 'pointer'))
+  assert.equal(await caret(), 9.75)
+})
+
+// A press on a marker's flag chooses it, and Delete takes it away, not the audio: a range's selects its audio as well,
+// which stays. A press anywhere else, or Escape, and Delete is what it was
+test('editor: markers: Delete takes away the marker whose flag was pressed', async () => {
+  await open()
+  await noCues()
+  await write(`audio('chime.wav').mark(2).mark({ at: 5, d: 1 })`)
+  await lengthIs('0:08.000')
+  const { box, x } = await axis(8), y = box.y + box.height * .3, row = box.y + 4
+  // chosen, then let go of: Delete with nothing selected does nothing
+  await page.mouse.click(...await grab([[x(2), row]], 'pointer'))
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Delete')
+  await page.waitForTimeout(300)
+  assert.equal(await code(), `audio('chime.wav').mark(2).mark({ at: 5, d: 1 })`)
+  await page.mouse.click(x(2), row)
+  await page.mouse.click(x(4), y)
+  await page.keyboard.press('Delete')
+  await page.waitForTimeout(300)
+  assert.equal(await code(), `audio('chime.wav').mark(2).mark({ at: 5, d: 1 })`)
+  // a moment's
+  await page.mouse.click(x(2), row)
+  await page.keyboard.press('Delete')
+  await page.waitForFunction(() => scriptText() === `audio('chime.wav').mark({ at: 5, d: 1 })`)
+  // a range's: its audio selected, kept
+  await page.mouse.click(x(5.5), row)
+  assert.equal(await selected(), '0:05.000–0:06.000')
+  await page.keyboard.press('Backspace')
+  await page.waitForFunction(() => scriptText() === `audio('chime.wav')`)
+  assert.equal(await selected(), '0:05.000–0:06.000')
+  await lengthIs('0:08.000')
+})
+
 // A selection's top corners, each drawn as the fade it makes, fade it: inward, in from its start or out to its end;
 // outward, past its edge, the audio out there goes, crossfading into the selection (fn/crossfade.js). A click on one
 // turns the curve to the next: the fade just made takes it, and so do the next.
@@ -3434,7 +3665,8 @@ test('editor: a stretch dragged anywhere ends where it was let go, to the sample
   await drag(grip, [x(2.07) - x(1.7) + 3, 0])
   await page.waitForFunction(() => /\.stretch\(/.test(scriptText()))
   const [a, to] = (await selected()).split('–').map(Number)
-  await page.waitForFunction(() => !document.querySelector('.source').title.endsWith(' · 0:08.000'))
+  // its length, in the samples the times are in, no longer 8 s'
+  await page.waitForFunction(() => !document.querySelector('.source').title.endsWith(' · 352800'))
   // all of it selected, in samples: 0 to its length
   await page.locator('.plot').focus()
   await page.keyboard.press('ControlOrMeta+A')
@@ -3572,6 +3804,216 @@ test('editor: each sound opens in a tab of its own, with its own script and hist
   assert.equal(await shown(), '')
   await page.getByText('Drop audio here').waitFor()
   assert.deepEqual(errors, [])
+})
+
+// a script as it reads, its spaces aside
+const scriptOf = text => text.replace(/\s+/g, '')
+// A tab closed opens again where it was, as it was left (⇧⌘T, as a browser's): its script, its selection; one closed
+// before a reload too. What each tab selected stays with it as the tabs are switched
+test('editor: a closed tab opens again where it was, as it was left, after a reload too', async () => {
+  const { x, y } = await chime()
+  const tabs = () => page.locator('.files [role="tab"]').allInnerTexts()
+  await write(`audio('chime.wav').gain(-3)`)
+  await lengthIs('0:08.000')
+  await drag([x(1), y], [x(3) - x(1), 0])
+  const was = await selected()
+  assert.match(was, /^0:0[01]\.\d+–0:0[23]\.\d+$/)
+  await menu('File', 'Samples', 'handpan.wav')
+  await page.waitForFunction(() => scriptText().trim() === "audio('handpan.wav')")
+  await page.getByRole('tab', { name: 'chime.wav' }).click()
+  await page.waitForFunction(was => document.querySelector('.clock').title.startsWith(`Selected ${was}:`), was)
+  await menu('File', 'Close tab')
+  assert.deepEqual(await tabs(), ['handpan.wav'])
+  await page.locator('.plot').focus()
+  await page.keyboard.press('ControlOrMeta+Shift+T')
+  assert.deepEqual(await tabs(), ['chime.wav', 'handpan.wav'])
+  assert.equal(scriptOf(await code()), `audio('chime.wav').gain(-3)`)
+  await page.waitForFunction(was => document.querySelector('.clock').title.startsWith(`Selected ${was}:`), was)
+  // in this visit, the tab itself: its history with it
+  await menu('Edit', 'Undo')
+  await page.waitForFunction(() => !scriptText().includes('gain(-3)'))
+  await menu('Edit', 'Redo')
+  // closed, and the page reloaded: kept, in the menu
+  await menu('File', 'Close tab')
+  await page.waitForTimeout(100)
+  await page.reload()
+  await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
+  assert.deepEqual(await tabs(), ['handpan.wav'])
+  await menu('File', 'Reopen closed tab')
+  assert.deepEqual(await tabs(), ['chime.wav', 'handpan.wav'])
+  await lengthIs('0:08.000')
+  await page.waitForFunction(was => document.querySelector('.clock').title.startsWith(`Selected ${was}:`), was)
+  // none left to open
+  await page.locator('.menubar-item', { hasText: /^File$/ }).click()
+  assert.equal(await menuRow('Reopen closed tab').getAttribute('aria-disabled'), 'true')
+})
+
+// A recording, the only copy there is, is kept until the person deletes it: its tab closed and the page reloaded, it
+// waits under Kept sounds, opened again from there; deleted only once they say so
+const keptFiles = () => page.evaluate(async () => {
+  const names = []
+  try { for await (const k of (await (await navigator.storage.getDirectory()).getDirectoryHandle('audio-repl-files')).keys()) if (!k.endsWith('.crswap')) names.push(decodeURIComponent(k)) } catch {}
+  return names.sort()
+})
+const takesLeft = () => page.evaluate(async () => {
+  let n = 0
+  try { for await (const _ of (await (await navigator.storage.getDirectory()).getDirectoryHandle('audio-repl-takes')).keys()) n++ } catch {}
+  return n
+})
+async function recordFor(seconds) {
+  await page.getByRole('button', { name: 'Record', exact: true }).first().click()
+  await page.waitForFunction(s => { const [m, sec] = document.querySelector('.time').textContent.split(':'); return +m * 60 + +sec >= s }, seconds)
+}
+test('editor: a recording is kept until it is deleted: its tab closed, it waits under Kept sounds', async () => {
+  await open()
+  await write('')
+  await page.locator('.empty').waitFor()
+  await recordFor(1)
+  await page.locator('.plot').focus()
+  await page.keyboard.press('Space')
+  await page.waitForFunction(() => scriptText().startsWith("audio('recording.wav')"))
+  await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
+  const before = await lengthText()
+  // kept as a file, the parts it was written in as it came let go
+  for (const until = Date.now() + 5000; (await keptFiles()).join() !== 'recording.wav' || await takesLeft(); await page.waitForTimeout(100))
+    assert.ok(Date.now() < until, `kept: ${await keptFiles()}, ${await takesLeft()} takes left`)
+  await menu('File', 'Close tab')
+  await page.reload()
+  await page.locator('.empty').waitFor()
+  assert.deepEqual(await keptFiles(), ['recording.wav'])
+  await menu('File', 'Kept sounds', 'recording.wav')
+  await page.waitForFunction(() => scriptText().startsWith("audio('recording.wav')"))
+  await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
+  assert.equal(await lengthText(), before)
+  assert.equal(await page.locator('.message.problem').count(), 0)
+  // a new one takes a name of its own, never the kept one's
+  await menu('File', 'Close tab')
+  await recordFor(.5)
+  await page.locator('.plot').focus()
+  await page.keyboard.press('Space')
+  await page.waitForFunction(() => scriptText().startsWith("audio('recording-2.wav')"))
+  for (const until = Date.now() + 5000; (await keptFiles()).length < 2; await page.waitForTimeout(100)) assert.ok(Date.now() < until)
+  // deleted when asked, and only once said: dismissed, it stays
+  page.once('dialog', d => d.dismiss())
+  await menu('File', 'Kept sounds', 'Delete them…')
+  await page.waitForTimeout(200)
+  assert.deepEqual(await keptFiles(), ['recording-2.wav', 'recording.wav'])
+  page.once('dialog', d => { assert.match(d.message(), /^Delete recording\.wav kept in this browser/); d.accept() })
+  await menu('File', 'Kept sounds', 'Delete them…')
+  for (const until = Date.now() + 3000; (await keptFiles()).length > 1; await page.waitForTimeout(100)) assert.ok(Date.now() < until)
+  assert.deepEqual(await keptFiles(), ['recording-2.wav'], 'the one a tab opens stays')
+})
+
+// A take the page closes on as it records (a reload, a crash) is kept, all but its last second, under the name it was
+// to have, in a tab of its own
+test('editor: a take the page closes on as it records is kept on the next visit', async () => {
+  await open()
+  await write('')
+  await page.locator('.empty').waitFor()
+  await recordFor(2.6)
+  // the browser asks before a take is left
+  page.once('dialog', d => { assert.equal(d.type(), 'beforeunload'); d.accept() })
+  await page.reload()
+  await page.waitForFunction(() => scriptText().startsWith("audio('recording.wav')"))
+  await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
+  await page.locator('.message', { hasText: 'recording.wav, recorded as the page closed, is kept.' }).waitFor()
+  const s = +(await lengthText()).split(':')[1]
+  assert.ok(s >= 1.5 && s < 3.5, `${s} s kept`)
+  for (const until = Date.now() + 3000; await takesLeft(); await page.waitForTimeout(100)) assert.ok(Date.now() < until, 'its parts let go')
+})
+
+// A take as keep.js writes it as it comes, a part each second (here a "second" of 4 frames, so parts split often): read
+// back as a WAV, its samples are the ones written, interleaved, for blocks ending before, at and past a part's end; a
+// slice from a pass on, as long as asked; one written to nothing has no file and no folder left; one the page closed
+// on (no wav() asked) comes back whole on the next visit, under its name, and its parts go once kept
+test('editor: a take written as it comes reads back sample for sample, sliced as asked, and whole after a close', async () => {
+  await page.goto(origin + '/blank.html')
+  const r = await page.evaluate(async () => {
+    const { tape, tapes } = await import('/editor/keep.js')
+    const read = async blob => { const b = await blob.arrayBuffer(), v = new DataView(b); return { format: v.getUint16(20, true), k: v.getUint16(22, true), rate: v.getUint32(24, true), bytes: v.getUint32(40, true), data: [...new Float32Array(b, 44)] } }
+    // blocks of 3, 1, 4 and 5 frames: part ends at 4, 8, 12 fall inside, at and after them; 13 frames, 3 parts and one held
+    const blocks = [3, 1, 4, 5], at = [0]
+    for (const n of blocks) at.push(at.at(-1) + n)
+    const stereo = tape({ name: 's.wav', sampleRate: 4 })
+    blocks.forEach((n, b) => stereo.write([Float32Array.from({ length: n }, (_, i) => at[b] + i), Float32Array.from({ length: n }, (_, i) => -(at[b] + i))]))
+    const whole = await read(await stereo.wav(0, null)), slice = await read(await stereo.wav(5, 6)), past = await read(await stereo.wav(11, 10))
+    await stereo.drop()
+    // mono, one block past a part's end
+    const mono = tape({ name: 'm.wav', sampleRate: 4 })
+    mono.write([Float32Array.from({ length: 6 }, (_, i) => i / 10)])
+    const one = await read(await mono.wav())
+    await mono.drop()
+    // nothing written: no file
+    const none = tape({ name: 'n.wav', sampleRate: 4 })
+    const empty = await none.wav()
+    await none.drop()
+    // closed on: written, never asked for
+    const cut = tape({ name: 'cut.wav', sampleRate: 4 })
+    cut.write([Float32Array.from({ length: 9 }, (_, i) => i)])
+    await cut.flush()
+    const found = await tapes(), back = found.length === 1 ? { name: found[0].name, ...await read(found[0].wav) } : null
+    for (const t of found) await t.drop()
+    return { whole, slice, past, one, empty, back, left: (await tapes()).length }
+  })
+  const frames = (a, b) => Array.from({ length: b - a }, (_, i) => [a + i, -(a + i)]).flat().map(v => v || 0)
+  assert.deepEqual([r.whole.format, r.whole.k, r.whole.rate, r.whole.bytes], [3, 2, 4, 13 * 8], 'IEEE float, 2 channels, its rate, 13 frames')
+  assert.deepEqual(r.whole.data.map(v => v || 0), frames(0, 13), 'every sample, in order, interleaved')
+  assert.deepEqual(r.slice.data.map(v => v || 0), frames(5, 11), 'from frame 5, 6 of them')
+  assert.deepEqual(r.past.data.map(v => v || 0), frames(11, 13), 'asked past the end: what there is')
+  assert.equal(r.past.bytes, 2 * 8)
+  assert.deepEqual(r.one.data.map(v => +v.toFixed(6)), [0, .1, .2, .3, .4, .5], 'mono, across a part')
+  assert.equal(r.empty, null, 'nothing written, no file')
+  // a take the page closed on: all of it that reached the disk (the 9th frame was flushed too), under its name
+  assert.deepEqual([r.back?.name, r.back?.data], ['cut.wav', [0, 1, 2, 3, 4, 5, 6, 7, 8]])
+  assert.equal(r.left, 0, 'its parts let go once kept')
+})
+
+// One editor writes at a time: opened in a second tab, it asks; asked, the first stores what it has (a change made a
+// moment before) and steps aside, saying where it is now
+test('editor: a second tab asks to be the editor; the first stores and steps aside', async () => {
+  // two tabs of one browser: one context, its storage theirs
+  const context = await browser.newContext(), first = await context.newPage(), second = await context.newPage()
+  const script = p => p.evaluate(() => [...document.querySelectorAll('.cm-content .cm-line')].map(l => l.textContent).join('\n'))
+  try {
+    for (const p of [first, second]) p.on('pageerror', e => errors.push(e.message))
+    await first.goto(origin + '/editor.html')
+    await first.locator('.readout', { hasText: 'LUFS' }).waitFor()
+    await first.getByRole('tab', { name: 'Code' }).click()
+    await first.locator('.cm-content').click()
+    await first.keyboard.press('ControlOrMeta+End')
+    await first.keyboard.insertText('.gain(-2)')
+    await second.goto(origin + '/editor.html')
+    // the page asking came up as it was stored, behind the question; once the first has stored, it reads it again
+    await Promise.all([second.waitForEvent('load'), second.getByRole('button', { name: 'Use it here' }).click()])
+    await second.locator('.readout', { hasText: 'LUFS' }).waitFor()
+    assert.match(scriptOf(await script(second)), /\.gain\(-2\)$/, 'the change made a moment before')
+    await first.locator('dialog.elsewhere[open]').waitFor()
+    // and back, with one click there
+    await Promise.all([first.waitForEvent('load'), first.getByRole('button', { name: 'Use it here' }).click()])
+    await first.locator('.readout', { hasText: 'LUFS' }).waitFor()
+    await second.locator('dialog.elsewhere[open]').waitFor()
+    assert.match(scriptOf(await script(first)), /\.gain\(-2\)$/)
+  } finally { await context.close() }
+})
+
+// Every setting kept comes back as it was kept; a value the page no longer has, its default; a store that does not read
+// is set aside, not written over
+test('editor: every setting comes back as it was kept; one the page no longer has, its default', async () => {
+  const all = { display: 'spec', scale: 'mel', format: 'flac', encoding: { markers: false, bitDepth: 24 }, spec: 'podcast', cuts: { format: 'otio', fps: 25 }, side: 'code', show: { hits: false, gain: false, meters: false }, units: 'samples', snap: false, curve: 'cos', levels: 'db', ruler: 'ticks', step: 3, look: { map: 'magma', gamma: .5, depth: 100, size: 2048, method: 'tapers' }, wave: { colour: 'temperature', lanes: 'one', fill: 'flat' }, agent: { url: 'http://127.0.0.1:7778', key: '' }, splice: 20, scrub: 'grains', grip: 'speed', pitch: false, speed: 1.5 }
+  await page.addInitScript(all => { if (!sessionStorage.seeded) { sessionStorage.seeded = 1; localStorage.setItem('audio-repl', JSON.stringify({ ...all, docs: [{ code: "audio('chime.wav')" }] })) } }, all)
+  await open()
+  const kept = () => page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')))
+  const now = await kept()
+  for (const [key, value] of Object.entries(all)) assert.deepEqual(now[key], value, key)
+  // written from another page of the site, so the editor's own store as it closes doesn't write over it
+  const seed = async value => { await page.goto(origin + '/blank.html'); await page.evaluate(v => localStorage.setItem('audio-repl', v), value); await page.goto(origin + '/editor.html') }
+  await seed(JSON.stringify({ units: 'bogus', ruler: 7, step: 'x', format: 'wma', look: { map: 'nope', gamma: 2 }, spec: 'radio', docs: [{ code: 5 }, { code: "audio('chime.wav')" }] }))
+  await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
+  const fixed = await kept()
+  assert.deepEqual([fixed.units, fixed.ruler, fixed.step, fixed.format, fixed.look.map, fixed.look.gamma, fixed.spec, fixed.docs.length], ['clock', 'labels', 1, 'wav', 'grey', 1, '', 1])
+  await seed('{"docs": [{"code": "audio(\'chime.wav\')"')
+  await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
+  assert.equal(await page.evaluate(() => localStorage.getItem('audio-repl-unread')), '{"docs": [{"code": "audio(\'chime.wav\')"')
 })
 
 // The level axis: each level under its tick, in dB or as the sample values; Ctrl and the wheel on it zooms the levels,
@@ -4142,7 +4584,7 @@ test('editor: a step turns off and on, Δ shows what it takes out', async () => 
   // what the fade takes out, from its card open: the start and end it softens, far under the output
   await card('Fade').locator('.step-name').click()
   await card('Fade').getByRole('button', { name: 'Δ What it takes out' }).click()
-  await page.locator('.viewing', { hasText: 'What .fade() takes out' }).waitFor()
+  await page.locator('.viewing', { hasText: 'What Fade takes out' }).waitFor()
   await page.waitForFunction(() => { const m = document.querySelector('.readout').textContent.match(/^peak −([\d.]+)dBFS/); return m && +m[1] > 6 })
   await card('Fade').getByRole('button', { name: 'Δ What it takes out' }).click()
   await page.locator('.viewing').waitFor({ state: 'detached' })
@@ -4181,9 +4623,9 @@ test('editor: a generated sound\'s source has no switches and shows the sound al
   const delta = async name => { await card(name).locator('.step-name').click(); const n = await card(name).locator('.step-delta').count(); await card(name).locator('.step-name').click(); return n }
   assert.deepEqual([await delta('Gain'), await delta('Filter'), await delta('Remix'), await delta('Speed')], [1, 1, 0, 0])
   await page.locator('.step-name', { hasText: 'From' }).click()
-  await page.locator('.viewing', { hasText: 'Up to .from()' }).waitFor()
+  await page.locator('.viewing', { hasText: 'Up to From: ' }).waitFor()
   await lengthIs('0:01.000')
-  await page.locator('.viewing').click()
+  await page.locator('.viewing').getByRole('button', { name: 'Show all' }).click()
   await page.locator('.viewing').waitFor({ state: 'detached' })
   await lengthIs('0:00.500')
 })
@@ -4257,7 +4699,7 @@ test('editor: an output rendering in place of the one shown keeps the zoom, the 
   assert.ok(Math.abs(await left() - before) < .01, 'the view where it was')
   // zoomed in while a sound still arrives, it stays zoomed in once the sound is whole (it went back to all of it)
   await write(`audio('${origin}/slow/test/fixture.wav')`)
-  await page.locator('.readout', { hasText: /^Loading/ }).waitFor()
+  await page.locator('.message', { hasText: /^Decoding/ }).waitFor()
   await page.locator('.plot').focus()
   for (let i = 0; i < 2; i++) await page.keyboard.press('=')
   await page.waitForFunction(() => !document.querySelector('.message').textContent && document.querySelector('.source').title.endsWith('0:02.000'), null, { timeout: 30000 })
@@ -4317,10 +4759,10 @@ test('editor: after a reload the view is where it was left while its sound still
   await page.reload()
   await page.locator('.plot canvas').first().waitFor()
   assert.ok(Math.abs(await left() - before) < .01, 'where it was, before the engine is up')
-  assert.equal(await page.locator('.message').textContent(), '', 'nothing loading yet')
+  assert.match(await page.locator('.message').textContent(), /^(Decoding…)?$/, 'nothing come yet')
   assert.ok(Date.now() - shown < 1500, 'before the worker came')
   await page.unroute(worker)
-  await page.locator('.readout', { hasText: /^Loading/ }).waitFor()
+  await page.locator('.message', { hasText: /^Decoding/ }).waitFor()
   await page.waitForTimeout(300)
   assert.ok(Math.abs(await left() - before) < .01, 'where it was, while it loads')
   await page.waitForFunction(() => !document.querySelector('.message').textContent && document.querySelector('.source').title.endsWith('0:02.000'), null, { timeout: 30000 })
@@ -4331,7 +4773,7 @@ test('editor: after a reload the view is where it was left while its sound still
   await page.waitForFunction(() => !document.querySelector('.message').textContent && document.querySelector('.source').title.endsWith('0:02.000'), null, { timeout: 30000 })
   await page.waitForTimeout(700)
   await page.reload()
-  await page.locator('.readout', { hasText: /^Loading/ }).waitFor()
+  await page.locator('.message', { hasText: /^Decoding/ }).waitFor()
   await page.waitForTimeout(300)
   assert.ok(Math.abs(await left() - before) < .01, 'the file, dim, where it was')
   await page.waitForFunction(() => !document.querySelector('.message').textContent && document.querySelector('.source').title.endsWith('0:02.000'), null, { timeout: 30000 })
@@ -4353,9 +4795,9 @@ test('editor: a file arriving on the spectrogram draws its spectrogram as it com
   await show('spec')
   // an edit that waits for the whole file (normalize): what shows meanwhile is the file itself
   await write(`audio('${origin}/slow/test/fixture.wav').normalize()`)
-  await page.locator('.readout', { hasText: /^Loading/ }).waitFor()
+  await page.locator('.message', { hasText: /^Decoding/ }).waitFor()
   await page.waitForTimeout(900)
-  assert.match(await page.locator('.readout').textContent(), /^Loading/, 'still arriving')
+  assert.match(await page.locator('.message').textContent(), /^Decoding/, 'still arriving')
   const lit = async layer => {
     await page.evaluate(layer => { for (const c of document.querySelectorAll('.plot canvas')) c.style.visibility = c.classList.contains(layer) ? '' : 'hidden' }, layer)
     const n = await pixels(`let n = 0; for (let y = 10; y < h - 30; y++) for (let x = 0; x < w - 60; x++) { const i = (y * w + x) * 4; if (Math.max(d[i], d[i + 1], d[i + 2]) > 40) n++ } return n`)
@@ -4501,6 +4943,25 @@ test('editor: a file opened is kept for the next visit; one gone asks to be open
   assert.match(await code(), /audio\('take one\.wav'\)/)
 })
 
+// The markers are the script's: a reload runs it again on the file kept, which is still opening as it runs, and they
+// come back where they were, a moment's and a range's
+test('editor: markers on a file opened come back where they were after a reload', async () => {
+  await open()
+  const file = await readFile(resolve(root, 'test/fixture.wav'))
+  await page.locator('.file-input').setInputFiles({ name: 'marked.wav', mimeType: 'audio/wav', buffer: file })
+  await lengthIs('0:02.000')
+  await write(`audio('marked.wav').mark(0.5, 'a').mark({ at: 1.2, d: 0.4 }, 'r')`)
+  await page.waitForTimeout(600)
+  await page.reload()
+  await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
+  const { box, x } = await axis(2), row = box.y + 4
+  const at = async t => { await page.mouse.move(x(t), row); return page.locator('.plot').evaluate(el => el.style.cursor) }
+  await grab([[x(0.5), row]], 'pointer')
+  assert.equal(await at(1.4), 'pointer', "the range's bar")
+  assert.notEqual(await at(0.02), 'pointer', 'none at the start')
+  assert.notEqual(await at(1.8), 'pointer', 'none past the range')
+})
+
 test('editor: zoomed out past the whole, the sound starts at the left and the room is on its right', async () => {
   await open()
   await page.locator('.plot').focus()
@@ -4549,9 +5010,33 @@ test('editor: the record button records over the sound from the caret, into the 
   assert.equal(await page.locator('button.play').isDisabled(), true)
   // the clock runs from the caret, past the old end
   await page.waitForFunction(() => /^0:0(8\.[3-9]|9)/.test(document.querySelector('.time').textContent), null, { timeout: 15000 })
+  // the level meter by the lanes reads the microphone, not the sound where the caret was: its bar on the overlay, read as
+  // drawn (view.js, 7 px short of the labels' gutter, GUTTER), up as it beeps and down between
+  await page.waitForFunction(gutter => {
+    const c = document.querySelector('.plot canvas.overlay'), k = c.width / c.clientWidth, w = c.clientWidth - gutter
+    const d = c.getContext('2d').getImageData(Math.round((w - 7) * k), 10 * k, Math.round(3 * k), c.height - 40 * k).data
+    let n = 0
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 60) n++
+    const seen = globalThis.metered ??= { up: false, down: false }
+    if (n > 20) seen.up = true
+    else if (n < 3) seen.down = true
+    return seen.up && seen.down
+  }, GUTTER, { timeout: 10000 })
   await page.getByRole('button', { name: 'Stop recording', exact: true }).click()
   await page.waitForFunction(() => /\.write\(audio\('take\.wav'\), \{ at: 7\.5 \}\)$/.test(scriptText()))
   await page.waitForFunction(() => +document.querySelector('.source').title.split(' · ').pop().split(':')[1] > 8.2)
+  // stopped, the caret waits where the take ended, as a tape's head: Record again records on from there, the takes
+  // meeting to the sample
+  const ended = +(await page.locator('.time').innerText()).split(':')[1]
+  assert.ok(ended > 8.2, `the caret where the take ended: ${ended}`)
+  await page.getByRole('button', { name: 'Record', exact: true }).click()
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
+  await page.waitForFunction(ended => +document.querySelector('.time').textContent.split(':')[1] > ended + .3, ended, { timeout: 15000 })
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).click()
+  await page.waitForFunction(() => /\.write\(audio\('take-2\.wav'\), \{ at: [\d.]+ \}\)$/.test(scriptText()))
+  const on = +(await code()).match(/take-2\.wav'\), \{ at: ([\d.]+)/)[1]
+  assert.ok(Math.abs(on - ended) < .001, `on from ${ended}: ${on}`)
+  await page.keyboard.press('ControlOrMeta+Z')
   await page.keyboard.press('ControlOrMeta+Z')
   await lengthIs('0:08.000')
   // into a selection: it stops at its end by itself, the length kept
@@ -4559,7 +5044,7 @@ test('editor: the record button records over the sound from the caret, into the 
   await drag([x(2), y], [x(2.5) - x(2), 0])
   await page.getByRole('button', { name: 'Record', exact: true }).click()
   await page.getByRole('button', { name: 'Record', exact: true }).waitFor({ timeout: 15000 })
-  await page.waitForFunction(() => /\.write\(audio\('take(-2)?\.wav'\), \{ at: 2 \}\)$/.test(scriptText()))
+  await page.waitForFunction(() => /\.write\(audio\('take(-\d)?\.wav'\), \{ at: 2 \}\)$/.test(scriptText()))
   await lengthIs('0:08.000')
   // with the loop on, pass after pass over the selection until stopped; the clock goes round within it
   await page.keyboard.press('ControlOrMeta+Z')
@@ -4602,6 +5087,43 @@ test('editor: recording with the spectrogram shown draws the take as a spectrogr
   await page.getByRole('button', { name: 'Stop recording', exact: true }).click()
   assert.ok(spectrum > 50, `the take's spectrogram: ${spectrum} lit`)
   assert.equal(waveform, 0)
+})
+
+// A take is drawn as the output holding it will be: the spectrogram at the levels the output's will have (the loudest
+// cell, here the take's own), the waveform in its fill and colour; stopped, the same pixels light the same
+test('editor: a take draws while it records as its output does after', async () => {
+  const looks = [['spec'], ['wave'], ['wave', { Colour: 'Temperature', Fill: 'RMS' }]]
+  for (const [view, wave] of looks) {
+    await open()
+    if (wave) {
+      const box = await page.locator('.plot').boundingBox()
+      await page.mouse.click(box.x + 200, box.y + 60, { button: 'right' })
+      await contextRow('How the waveform draws…').click()
+      for (const [group, name] of Object.entries(wave)) await choice(group, name).click()
+      await page.keyboard.press('Escape')
+    }
+    await write('')
+    await page.locator('.empty').waitFor()
+    await page.getByRole('button', { name: 'Record', exact: true }).first().click()
+    await show(view)
+    await page.waitForFunction(() => /^0:0[3-9]/.test(document.querySelector('.time').textContent), null, { timeout: 15000 })
+    const { box, x } = await axis(10), layer = view === 'spec' ? 'spectrum' : 'waveform'
+    // the layer alone, its mean red, green and blue over 0.2 to 2 s, recorded whole by now
+    const mean = async () => {
+      await page.evaluate(layer => { for (const c of document.querySelectorAll('.plot canvas')) c.style.visibility = c.classList.contains(layer) ? '' : 'hidden' }, layer)
+      const v = await pixels(`const s = [0, 0, 0]; let n = 0; for (let y = 10; y < h - 30; y++) for (let x = arg[0]; x < arg[1]; x++, n++) for (let k = 0; k < 3; k++) s[k] += d[(y * w + x) * 4 + k]; return s.map(v => v / n)`, [Math.round(x(.2) - box.x), Math.round(x(2) - box.x)])
+      await page.evaluate(() => { for (const c of document.querySelectorAll('.plot canvas')) c.style.visibility = '' })
+      return v
+    }
+    const during = await mean()
+    await page.getByRole('button', { name: 'Stop recording', exact: true }).click()
+    await page.waitForFunction(() => /^audio\('recording/.test(scriptText()))
+    await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
+    await page.waitForTimeout(300)
+    const after = await mean(), off = Math.hypot(...during.map((v, k) => v - after[k])) / Math.hypot(...after)
+    assert.ok(Math.hypot(...after) > 5, `${view}: the output drawn (${after})`)
+    assert.ok(off < .05, `${view} ${JSON.stringify(wave ?? {})}: ${during.map(v => v.toFixed(1))} while recording, ${after.map(v => v.toFixed(1))} after`)
+  }
 })
 
 // Search runs as it is typed, half a second after the last key, once
@@ -5138,11 +5660,39 @@ const out = l => process.stdout.write(JSON.stringify(l) + '\\n'), wait = ms => n
     }
     assert.match((await call('step', { index: 5, on: false })).error, /No edit 5/)
     assert.match((await call('step', { index: 0, to: 2 })).error, /No place 2 to move it to: there are 2/)
-    assert.match((await call('step', { index: 0 })).error, /on, remove or to/, 'nothing asked of it')
+    assert.match((await call('step', { index: 0 })).error, /on, remove, to or call/, 'nothing asked of it')
     assert.deepEqual((await call('step', { index: 0, on: true })).result, { ok: true, unchanged: true }, 'on already')
     assert.deepEqual((await call('step', { index: 1, to: 1 })).result, { ok: true, unchanged: true }, 'where it is')
     await call('undo')
     assert.deepEqual(await calls(), ['normalize(-1)', 'trim()', 'fade(0.02, 0.1)'], 'one undo, one act')
+    await call('script', { code: script })
+    // through the edits: one as the sound enters and leaves it, what it takes out, where a range of the output was as it
+    // entered it (none for trim, which changes the timing); turned off over a range alone, its mix 0 there ramped over the
+    // splices (10 ms), and on again; written anew; seen and heard up to it, or what it takes out, the panel as it was after
+    assert.deepEqual(await calls(), ['trim()', 'normalize(-1)', 'fade(0.02, 0.1)', 'gain(-6)'])
+    const { result: through } = await call('measure', { code: "const s = step(3), w = s.where({ at: 1, d: 1 }); [s.call, s.before.stat('db') - s.after.stat('db'), s.takes.stat('db', w), step(0).takes, w.at, w.d]" })
+    assert.equal(through[0], 'gain(-6)', JSON.stringify(through))
+    assert.ok(Math.abs(through[1] - 6) < .01, `6 dB less after it: ${through[1]}`)
+    assert.ok(through[2] < -6, `what it takes out, a half of it less: ${through[2]}`)
+    assert.equal(through[3], null, 'trim changes the timing: nothing taken to say')
+    assert.ok(Math.abs(through[4] - 1) < 1e-3 && Math.abs(through[5] - 1) < 1e-3, `nothing after it moves the time: ${through.slice(4)}`)
+    assert.equal((await call('step', { index: 3, on: false, at: 1, d: 1 })).result.ok, true)
+    assert.equal((await call('state')).result.steps[3].call, 'gain(-6, { mix: { t: [0.99, 1, 2, 2.01], v: [1, 0, 0, 1] } })')
+    const { result: kept } = await call('measure', { code: "[out.stat('db', { at: 1.2, d: 0.6 }) - step(3).before.stat('db', { at: 1.2, d: 0.6 }), out.stat('db', { at: 3, d: 1 }) - step(3).before.stat('db', { at: 3, d: 1 })]" })
+    assert.ok(Math.abs(kept[0]) < .01 && Math.abs(kept[1] + 6) < .01, `off there alone: ${kept}`)
+    assert.equal((await call('step', { index: 3, on: true, at: 1, d: 1 })).result.ok, true)
+    assert.equal((await call('state')).result.steps[3].call, 'gain(-6)', 'on again everywhere: no mix')
+    assert.equal((await call('step', { index: 3, call: 'gain(-3)' })).result.ok, true)
+    assert.equal((await call('state')).result.steps[3].call, 'gain(-3)', 'written anew')
+    const { result: delta } = await call('look', { step: 3, takes: true, at: 1, d: 1 })
+    assert.match(delta.image, /^data:image\/png;base64,/)
+    assert.equal((await call('state')).result.shown, null, 'looked at, the panel as it was')
+    assert.match((await call('look', { step: 0, takes: true })).error, /changes the timing/)
+    await call('play', { step: 2 })
+    assert.deepEqual((await call('state')).result.shown, { step: 2, takes: false }, 'heard up to it, its card chosen')
+    await call('play')
+    assert.equal((await call('state')).result.shown, null, 'the whole chain again')
+    await call('stop')
     await call('script', { code: script })
     // the chat: while it answers, what it runs; then its words as Markdown, the tools it used
     await tab('Agent')
@@ -5253,4 +5803,181 @@ test('editor: the pitch line, in the pitch context, edits a pitch() curve as the
   assert.equal((await code()).match(/\.pitch\(/g).length, 1)
   await page.mouse.dblclick(...await grab([[x(1), mid - 5 * st]], 'move'))
   await page.waitForFunction(() => !scriptText().includes('pitch('))
+})
+
+// An edit turned off over the selection alone, from the picture's context menu (RX's Restore Selection, for one edit): its
+// mix 0 there, ramped over the splices (10 ms), the rest of it as it was; an edit that changes the timing not offered
+test('editor: an edit turned off over the selection alone, from the context menu', async () => {
+  await open()
+  await noCues()
+  await write(`audio('chime.wav')\n  .reverse()\n  .gain(-6)`)
+  await lengthIs('0:08.000')
+  const { box, x } = await axis(8), y = box.y + box.height * .3
+  await drag([x(2), y], [x(3) - x(2), 0])
+  await page.mouse.click(x(2.5), y, { button: 'right' })
+  await contextRow('Turn an edit off here').click()
+  assert.deepEqual(await page.locator('.menubar-sub .menu-label').allInnerTexts(), ['gain(-6)'], 'reverse() changes the timing: not offered')
+  await contextRow('gain\\(-6\\)').click()
+  await page.waitForFunction(() => scriptText().includes('mix:'))
+  assert.match(await page.evaluate(() => scriptText()), /\.gain\(-6, \{ mix: \{ t: \[1\.99, 2, 3, 3\.01\], v: \[1, 0, 0, 1\] \} \}\)$/)
+})
+
+// A tab shown again whose sound is what its script makes shows it as it was, nothing run again (the worker keeps each
+// tab's last output, for its cues, checks and export): its sound, what its run printed, its export. With nothing
+// selected, the clock says how long all of it is, softer than a selection's length
+test('editor: a tab shown again runs nothing; its sound, its words and its export as they were', async () => {
+  await page.addInitScript(() => {
+    const post = Worker.prototype.postMessage
+    globalThis.runs = 0
+    Worker.prototype.postMessage = function (m, t) { if (m?.type === 'run') runs++; return post.call(this, m, t) }
+  })
+  await open()
+  await write(`console.log('the chime')\naudio('chime.wav').gain(-3)`)
+  await lengthIs('0:08.000')
+  await page.waitForFunction(() => !document.querySelector('.message').textContent)
+  assert.equal(await page.locator('.length').innerText(), '0:08.000', 'all of it, nothing selected')
+  assert.ok(await page.locator('.length').evaluate(el => el.classList.contains('whole')))
+  await page.getByRole('button', { name: 'New tab' }).click()
+  assert.equal(await page.locator('.length').evaluate(el => getComputedStyle(el).display), 'none', 'no sound, no length')
+  await write(`audio.from(2)`)
+  await lengthIs('0:02.000')
+  const ran = await page.evaluate(() => runs)
+  await page.locator('.file [role="tab"]').first().click()
+  await lengthIs('0:08.000')
+  await page.waitForTimeout(500)
+  assert.equal(await page.evaluate(() => runs), ran, 'nothing ran again')
+  assert.deepEqual(await page.locator('.console .line').evaluateAll(l => l.map(e => e.textContent)), ['the chime'])
+  await tab('Export')
+  const [d] = await Promise.all([page.waitForEvent('download'), page.locator('.export .export-button').click()])
+  const exported = await audio(await readFile(await d.path()))
+  assert.ok(Math.abs(exported.duration - 8) < .001, `its own sound exported: ${exported.duration} s`)
+  await page.locator('.file [role="tab"]').last().click()
+  await lengthIs('0:02.000')
+  assert.equal(await page.evaluate(() => runs), ran, 'nor the other')
+  // left before its output came: shown again, it runs, and its own output comes
+  await write(`audio.from(3)`)
+  await page.locator('.file [role="tab"]').first().click()
+  await lengthIs('0:08.000')
+  await page.locator('.file [role="tab"]').last().click()
+  await lengthIs('0:03.000')
+  assert.ok(await page.evaluate(() => runs) > ran, 'ran again')
+})
+
+// A view zoomed out past the sound's end, the room on its right, is kept as it was left: a reload shows the sound at the
+// same scale, not fitted to the view, and so does an edit that shortens it; one that makes it longer than the view, fitted
+test('editor: a view zoomed out past the end stays so after a reload', async () => {
+  await open()
+  await noCues()
+  await write(`audio('chime.wav')`)
+  await lengthIs('0:08.000')
+  await page.locator('.plot').focus()
+  for (let i = 0; i < 2; i++) await page.keyboard.press('-')
+  await page.waitForTimeout(700)
+  // the view 32 s wide: an eighth of the way across is 4 s in, where fitted to the sound it would be 1 s
+  const at = async (t = 4) => {
+    const { box, x } = await axis(32)
+    await page.mouse.click(x(t), box.y + box.height * .3)
+    return (await page.locator('.time').innerText()).split(':').reduce((m, s) => m * 60 + +s, 0)
+  }
+  assert.ok(Math.abs(await at() - 4) < .1, 'zoomed out')
+  await page.waitForTimeout(700)
+  await page.reload()
+  await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
+  await page.waitForTimeout(300)
+  assert.ok(Math.abs(await at() - 4) < .1, 'as it was left')
+  await write(`audio('chime.wav').crop({ at: 0, duration: 4 })`)
+  await lengthIs('0:04.000')
+  await page.waitForTimeout(300)
+  assert.ok(Math.abs(await at(2) - 2) < .1, 'shortened: the same scale')
+  await write(`audio('chime.wav').speed(0.2)`)
+  await lengthIs('0:40.000')
+  await page.waitForTimeout(300)
+  assert.ok(Math.abs(await at() - 5) < .1, 'longer than the view: all of it')
+})
+
+// A file all come while the output has nothing yet (a model runs over all of it, deepfilter's): the engine says so,
+// between the file's last piece and the output's first, and the page says it renders, not that it decodes
+test('engine: a file all come, the output still nothing, is said between them', async t => {
+  const { MODEL } = await import('@audio/neural-denoise')
+  const model = await readFile(join(process.env.AUDIO_NEURAL_CACHE || join(homedir(), '.cache', 'audiojs', 'neural'), createHash('sha256').update(MODEL).digest('hex'))).catch(() => null)
+  if (!model) return t.skip('no DeepFilterNet3 model cached: run audio deepfilter once on Node')
+  await page.route(MODEL, route => route.fulfill({ body: model, headers: { 'access-control-allow-origin': '*' } }))
+  await page.goto(origin + '/blank.html')
+  const events = await page.evaluate(async url => {
+    const { default: engine } = await import('/editor/engine.js'), { prepare } = await import('/editor/code.js')
+    const e = engine(new URL('/editor/dist/worker.js', location.href)), seen = []
+    await new Promise(done => e.run(prepare(`audio('${url}').deepfilter()`), {
+      loading: () => seen.push('loading'), arrived: () => seen.push('arrived'), chunk: () => seen.push('chunk'),
+      done: () => { seen.push('done'); done() }, error: m => { seen.push(m.error.message); done() }
+    }))
+    return seen
+  }, `${origin}/slow/test/fixture.wav`)
+  assert.deepEqual([...new Set(events)], ['loading', 'arrived', 'chunk', 'done'])
+  assert.equal(events.filter(e => e === 'arrived').length, 1)
+  assert.ok(events.lastIndexOf('loading') < events.indexOf('arrived') && events.indexOf('arrived') < events.indexOf('chunk'))
+})
+
+// What a model made of its input is kept in the browser by its key (core.js memo), read back whole, the model not run again
+test('engine: what a model made is kept in the browser and read back', async () => {
+  const [r] = await engine([`const k = 'test:' + Math.random(), x = [Float32Array.of(1, 2, 3), Float32Array.of(4, 5, 6)]
+await audio.memo.set(k, x)
+const y = await audio.memo.get(k)
+;[y.length, ...y.map(c => [...c]), await audio.memo.get(k + '?')]`])
+  assert.equal(r.error, undefined, r.error?.message)
+  assert.equal(r.value, '[2, [1, 2, 3], [4, 5, 6], null]')
+})
+
+// Renders kept (worker.js): the steps of an output are kept once it has come, so a step bypassed, or one changed after a
+// slow one (omlsa(), most of a second over 12 s), renders from the step before it, in a fraction of the chain's time; the
+// chain's start chosen alone is kept already. The samples are those of the whole script rendered afresh
+test('engine: a step bypassed or changed renders from the step before it, as the whole script would', async () => {
+  const x = [0, 1].map(c => Float32Array.from({ length: 12 * RATE }, (_, i) => .3 * Math.sin(2 * Math.PI * (220 + c) * i / RATE) + .05 * Math.sin(i * i)))
+  const chain = `audio('x.wav').omlsa().gain(-2).spectral([1000, 4000], { at: 10, d: 0.5 })`
+  const later = [`audio('x.wav').omlsa().spectral([1000, 4000], { at: 10, d: 0.5 })`, `audio('x.wav').omlsa().gain(-3).spectral([1000, 4000], { at: 10, d: 0.5 })`, `audio('x.wav').omlsa()`]
+  await page.goto(origin + '/blank.html')
+  const r = await page.evaluate(async ({ channels, chain, later }) => {
+    const { default: engine } = await import('/editor/engine.js'), { prepare } = await import('/editor/code.js')
+    const e = engine(new URL('/editor/dist/worker.js', location.href))
+    await e.file('x.wav', { channels: channels.map(c => Float32Array.from(c)), sampleRate: 48000 })
+    const time = async code => { const t = performance.now(), r = await e.render(prepare(code)); if (!r.output) throw new Error(r.error?.message); return { ms: performance.now() - t, out: r.output.channels } }
+    const first = await time(chain)
+    // the steps kept while nothing else runs
+    await new Promise(r => setTimeout(r, 3000))
+    const got = []
+    for (const code of later) got.push(await time(code))
+    return { slow: first.ms, got: got.map(g => ({ ms: g.ms, out: g.out.map(c => [...c.subarray(0, 48000 * 12)]) })) }
+  }, { channels: x.map(c => [...c]), chain, later })
+  for (const [i, code] of later.entries()) {
+    assert.ok(r.got[i].ms < r.slow / 4, `${code}: ${r.got[i].ms.toFixed(0)} ms, the chain ${r.slow.toFixed(0)} ms`)
+    const [whole] = await engine([code], { 'x.wav': x }), want = whole.output.channels
+    const diff = Math.max(...r.got[i].out.map((c, k) => c.reduce((m, v, j) => Math.max(m, Math.abs(v - want[k][j])), 0)))
+    assert.ok(diff < 1e-6, `${code}: ${diff}`)
+  }
+})
+
+// An output is kept in the browser by its script and the files it opens: another worker (a reload) has it at once, the
+// same samples; the file changed (another size), it renders again
+test('engine: an output is kept for the next visit by its script and its files', async () => {
+  await page.goto(origin + '/blank.html')
+  const r = await page.evaluate(async () => {
+    const { default: engine } = await import('/editor/engine.js'), { prepare } = await import('/editor/code.js')
+    const tone = n => ({ channels: [Float32Array.from({ length: n }, (_, i) => .5 * Math.sin(i / 9))], sampleRate: 48000 })
+    const code = `audio('t.wav').omlsa().gain(-1)`, run = async file => {
+      const e = engine(new URL('/editor/dist/worker.js', location.href))
+      await e.file('t.wav', file)
+      const seen = [], reply = await new Promise(done => e.run(prepare(code), { doing: m => seen.push(m), done: m => done(m), error: m => done(m) }))
+      // kept as it is written, a moment after
+      await new Promise(r => setTimeout(r, 500))
+      e.stop()
+      return { seen, duration: reply.duration }
+    }
+    const first = await run(tone(20 * 48000))
+    const again = await run(tone(20 * 48000)), other = await run(tone(19 * 48000))
+    return { first, again, other }
+  })
+  assert.deepEqual(r.first.seen[0]?.steps, ['omlsa', 'gain'], 'made: its steps applied')
+  assert.equal(r.again.duration, 20)
+  assert.deepEqual(r.again.seen, [], 'kept: nothing applied')
+  assert.equal(r.other.duration, 19, 'another file, made again')
+  assert.deepEqual(r.other.seen[0], { id: r.other.seen[0].id, event: 'doing', steps: ['omlsa', 'gain'] })
 })

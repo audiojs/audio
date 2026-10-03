@@ -236,7 +236,8 @@ export const stats = {
   clipping: 'Clipped samples', silence: 'Silent ranges', correlation: 'Stereo correlation',
   centroid: 'Brightness, Hz', flatness: 'Noisiness, 0–1', spectrum: 'Mel spectrum', cepstrum: 'MFCCs',
   bpm: 'Tempo', beats: 'Beat times', onsets: 'Onset times', notes: 'Notes', chords: 'Chords', key: 'Key',
-  min: 'Minimum', max: 'Maximum', dr: 'Dynamic range', replaygain: 'ReplayGain', print: 'Noise print of a range, for denoise'
+  min: 'Minimum', max: 'Maximum', dr: 'Dynamic range', replaygain: 'ReplayGain', print: 'Noise print of a range, for denoise',
+  voicing: 'Share voiced, 0–1', hnr: 'Harmonics to noise, dB', harmonic: 'Level of the periodic part, dB'
 }
 
 // Icons, 24 × 24 strokes, one for each group of methods, beside its tools
