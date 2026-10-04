@@ -368,9 +368,11 @@ const state = sprae(root, {
     return [...new Set(recipes.map(r => r.group))].map(name => ({ name, items: recipes.filter(r => r.group === name && has(r)) })).filter(g => g.items.length)
   },
   // The agent: the bridge it is reached through and its key (kept in this browser), whether it is there, the agents it
-  // found ({ id, name }) and the one asked; the open tab's conversation, whether the agent is answering, the tab's
-  // conversations, the message being written. Its words are Markdown (markdown.js)
-  bridgeUrl: stored.agent?.url || 'http://127.0.0.1:7777', bridgeKey: stored.agent?.key || '', agentStatus: 'off', agents: [], agentInfo: null,
+  // found ({ id, name, models: [{ id, name }] }), the one asked and its model (null: its own choice); the open tab's
+  // conversation, whether the agent is answering, the tab's conversations, the message being written. Its words are
+  // Markdown (markdown.js)
+  bridgeUrl: stored.agent?.url || 'http://127.0.0.1:7777', bridgeKey: stored.agent?.key || '', agentStatus: 'off', agents: [], agentInfo: null, agentModel: null,
+  get agentLabel() { const m = this.agentInfo?.models?.find(m => m.id === this.agentModel); return this.agentInfo ? this.agentInfo.name + (m ? ` · ${m.name}` : '') : '' },
   chat: [], chatBusy: false, chats: [], chatText: '',
   get agentNote() { return { off: 'Put the key in, then connect', connecting: 'Connecting…', offline: 'Not running: npx audio --bridge', replaced: 'Taken by another page', online: 'No agent on that machine: install one (Claude Code, Codex, Pi, Gemini CLI, Kimi Code…), then start the bridge again' }[this.agentStatus] },
   get chatTitle() { return this.chats.find(c => c.open)?.title ?? 'New conversation' },
@@ -2310,10 +2312,15 @@ const bridge = agent({
 })
 function connectAgent() { store(); bridge.connect(state.bridgeUrl.trim(), state.bridgeKey.trim()) }
 // The agent the next message goes to, among those the bridge found: the one just picked, else the open conversation's,
-// else the one last picked, else the bridge's first. Another than a conversation's own is told what was said
-let picked = null
-function askAgent() { state.agentInfo = [conversation()?.agent, picked].map(id => state.agents.find(a => a.id === id)).find(Boolean) ?? state.agents[0] ?? null }
-function pickAgent(id) { picked = id; state.agentInfo = state.agents.find(a => a.id === id) ?? state.agentInfo; root.querySelector('#agents-menu')?.hidePopover() }
+// else the one last picked, else the bridge's first; and its model, as it was picked with it, if the agent has it (none:
+// the agent's own choice). Another agent than a conversation's own is told what was said
+let picked = null, pickedModel = null
+function askAgent() {
+  const c = conversation(), a = state.agentInfo = [c?.agent, picked].map(id => state.agents.find(a => a.id === id)).find(Boolean) ?? state.agents[0] ?? null
+  const model = c && a?.id === c.agent ? c.model : a?.id === picked ? pickedModel : null
+  state.agentModel = a?.models?.some(m => m.id === model) ? model : null
+}
+function pickAgent(id, model = null) { picked = id; pickedModel = model; state.agentInfo = state.agents.find(a => a.id === id) ?? state.agentInfo; state.agentModel = model; root.querySelector('#agents-menu')?.hidePopover() }
 if (state.bridgeKey) connectAgent()
 
 // The conversations are a tab's own, as its script and edits are, kept with it: { id, at, title, agent, session,
@@ -2415,18 +2422,18 @@ function elapsed(since, now) { const s = Math.floor((now - since) / 1000); retur
 setInterval(() => { if (state.chatBusy || turns.size) state.tick = Date.now() }, 1000)
 // A message to the agent, or, while it answers, the agent stopped
 async function sendChat() {
-  const d = docOf(), open = conversation(d), last = open?.messages.at(-1), id = state.agentInfo?.id, text = state.chatText.trim()
+  const d = docOf(), open = conversation(d), last = open?.messages.at(-1), id = state.agentInfo?.id, model = state.agentModel, text = state.chatText.trim()
   if (last?.pending) return last.turn && bridge.stop(last.turn)
   if (!text || !id || !d) return
   const c = open ?? { id: Date.now(), title: text.replace(/\s+/g, ' ').slice(0, 120), agent: id, session: null, messages: [] }
   if (!open) { chatsOf(d).push(c); d.chats.splice(0, d.chats.length - CHATS); d.chatId = c.id }
   const history = c.messages.map(m => ({ role: m.role, text: wordsOf(m) })).filter(m => m.text), session = c.agent === id ? c.session : null
-  Object.assign(c, { agent: id, at: Date.now(), messages: [...c.messages, { role: 'user', text }, { role: 'agent', parts: [], running: [], doing: `Starting ${state.agentInfo.name}`, since: Date.now(), pending: true, turn: null, error: '' }] })
+  Object.assign(c, { agent: id, model, at: Date.now(), messages: [...c.messages, { role: 'user', text }, { role: 'agent', parts: [], running: [], doing: `Starting ${state.agentInfo.name}`, since: Date.now(), pending: true, turn: null, error: '' }] })
   state.chatText = ''
   showChat()
   store()
   try {
-    const turn = await bridge.chat(text, session, history, id)
+    const turn = await bridge.chat(text, session, history, id, model)
     turns.set(turn, c)
     told(c, () => ({ turn }))
     for (const m of early.get(turn) ?? []) answer(m)

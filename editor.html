@@ -167,7 +167,7 @@
             <button class="chat-send" type="submit" :disabled="agentStatus !== 'online' || !agentInfo || (!chatText.trim() && !chatBusy)" :aria-label="chatBusy ? 'Stop' : 'Send'" :title="chatBusy ? 'Stop the agent' : 'Send (Enter)'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="chatBusy ? 'M7 7h10v10H7z' : 'M12 19V5m-6 6 6-6 6 6'"/></svg></button>
           </form>
           <!-- the agent asked, where the bridge found more than one: a click lists the others -->
-          <button class="chat-agent" popovertarget="agents-menu" :if="agentStatus === 'online' && agents.length > 1" :title="'Ask another agent: the bridge found ' + agents.length"><span :text="agentInfo?.name"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button>
+          <button class="chat-agent" popovertarget="agents-menu" :if="agentStatus === 'online' && (agents.length > 1 || agentInfo?.models?.length)" :title="'Ask another agent, or another model: the bridge found ' + agents.length + (agents.length > 1 ? ' agents' : ' agent')"><span :text="agentLabel"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button>
         </div>
         <!-- the export: the file (its format, what the format is written with, the markers in it, its name and size), the
              cuts as an edit list for a video editor, and the output checked against a delivery spec -->
@@ -299,10 +299,13 @@
       </div>
     </div>
 
-    <!-- the agents the bridge found on its machine, the one asked marked -->
+    <!-- the agents the bridge found on its machine, each with the models it has under it, the one asked marked -->
     <div id="agents-menu" class="menu narrow" popover>
       <p class="menu-group">Ask</p>
-      <button class="menu-item" :each="a in agents" :aria-current="a.id === agentInfo?.id ? 'true' : null" :onclick="pickAgent(a.id)" :title="'Ask ' + a.name"><strong :text="a.name"></strong></button>
+      <template :each="a in agents">
+        <button class="menu-item" :aria-current="a.id === agentInfo?.id && !agentModel ? 'true' : null" :onclick="pickAgent(a.id)" :title="'Ask ' + a.name + (a.models.length ? ', its model its own choice' : '')"><strong :text="a.name"></strong></button>
+        <button class="menu-item agent-model" :each="m in a.models" :aria-current="a.id === agentInfo?.id && m.id === agentModel ? 'true' : null" :onclick="pickAgent(a.id, m.id)" :title="'Ask ' + a.name + ' with ' + m.name" :text="m.name"></button>
+      </template>
     </div>
 
     <div id="rate-menu" class="menu narrow" popover>

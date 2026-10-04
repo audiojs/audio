@@ -35,8 +35,8 @@ export default function agent({ tools, onstatus = () => {}, onchat = () => {} })
     get connected() { return source?.readyState === EventSource.OPEN },
     // a message to `agent` (one hello listed): the turn it starts, its answer streaming in as chat events. `session` goes
     // on with the agent's own conversation; `history`, what was said, is told to one that does not hold it
-    async chat(text, session, history = [], agent) {
-      const r = await post('/chat', { text, session, history, agent })
+    async chat(text, session, history = [], agent, model) {
+      const r = await post('/chat', { text, session, history, agent, ...model && { model } })
       if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || `The bridge answered ${r.status}`)
       return (await r.json()).turn
     },

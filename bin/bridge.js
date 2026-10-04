@@ -76,9 +76,11 @@ export const AGENTS = {
   claude: {
     name: 'Claude Code',
     env: { ENABLE_TOOL_SEARCH: 'false' },
-    args: (mcp, session) => ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
+    // its aliases, each the newest of its line (--model)
+    models: [{ id: 'opus', name: 'Opus' }, { id: 'sonnet', name: 'Sonnet' }, { id: 'haiku', name: 'Haiku' }],
+    args: (mcp, session, model) => ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
       '--mcp-config', JSON.stringify({ mcpServers: { audio: mcp } }), '--strict-mcp-config',
-      '--allowedTools', 'mcp__audio__*', '--append-system-prompt', PROMPT, ...(session ? ['--resume', session] : [])],
+      '--allowedTools', 'mcp__audio__*', '--append-system-prompt', PROMPT, ...(session ? ['--resume', session] : []), ...(model ? ['--model', model] : [])],
     read() {
       let streamed = false, said = false
       return m => {
@@ -204,18 +206,22 @@ function failure(e, name) {
  * answers its requests: a permission granted for the editor's tools and for reading, refused for the
  * rest, as Claude Code runs here; no other of a client's (files, terminals) offered.
  */
-function acp(write, take, { text, session, mcp, name }) {
+function acp(write, take, { text, session, mcp, name, model }) {
   let n = 0, asked = new Map(), calls = new Map(), quiet = false, said = false, gap = false
   let ask = (method, params) => new Promise((resolve, reject) => { asked.set(++n, { resolve, reject }); write({ jsonrpc: '2.0', id: n, method, params }) })
   let opened = { cwd: process.cwd(), mcpServers: [{ name: 'audio', command: mcp.command, args: mcp.args, env: [] }] }
   ;(async () => {
     let { agentCapabilities: can = {} } = await ask('initialize', { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false }, clientInfo: { name: 'audio', version } })
-    let sessionId = session
-    if (!session) ({ sessionId } = await ask('session/new', opened))
-    else if (can.sessionCapabilities?.resume) await ask('session/resume', { sessionId, ...opened })
-    else if (can.loadSession) { quiet = true; await ask('session/load', { sessionId, ...opened }); quiet = false }
+    let sessionId = session, got
+    if (!session) ({ sessionId, ...got } = await ask('session/new', opened))
+    else if (can.sessionCapabilities?.resume) got = await ask('session/resume', { sessionId, ...opened })
+    else if (can.loadSession) { quiet = true; got = await ask('session/load', { sessionId, ...opened }); quiet = false }
     else throw new Error(`${name} cannot go on with an earlier conversation`)
     take({ session: sessionId })
+    // the models it has, if it says (ACP's session models), and the one asked for, set
+    let { availableModels = [], currentModelId } = got?.models ?? {}
+    if (availableModels.length) take({ models: availableModels.map(m => ({ id: m.modelId, name: m.name || m.modelId })) })
+    if (model && model !== currentModelId && availableModels.some(m => m.modelId === model)) await ask('session/set_model', { sessionId, modelId: model })
     let { stopReason } = await ask('session/prompt', { sessionId, prompt: [{ type: 'text', text: session ? text : `${PROMPT}\n\n---\n\n${text}` }] })
     take(STOPPED[stopReason] ? { done: true, error: STOPPED[stopReason] } : { done: true })
   })().catch(e => take({ done: true, error: e.message }))
@@ -344,7 +350,8 @@ function options(argv) {
 export default function bridge(argv = []) {
   let { port, key, own, timeout, agents } = options(argv)
   let first = agents.keys().next().value  // the agent a conversation starts with, unless the page names another
-  let listed = [...agents].map(([id, a]) => ({ id, name: a.name }))
+  let learned = new Map()  // agent id → the models an ACP agent said it has
+  let listed = () => [...agents].map(([id, a]) => ({ id, name: a.name, models: learned.get(id) ?? a.models ?? [] }))
   timeout *= 1000
   let url, page = null              // the one connected page's event stream
   let calls = new Map()             // call id → { page, answer([status, body]) }
@@ -356,7 +363,7 @@ export default function bridge(argv = []) {
     if (page) send(page, { type: 'replaced' }), page.end()
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' })
     page = res
-    send(res, { type: 'hello', version, agent: listed[0] ?? null, agents: listed })
+    send(res, { type: 'hello', version, agent: listed()[0] ?? null, agents: listed() })
     let beat = setInterval(() => res.write(':\n\n'), 15000)  // keeps proxies and idle timers from closing it
     res.on('close', () => {
       clearInterval(beat)
@@ -392,15 +399,17 @@ export default function bridge(argv = []) {
   // POST /chat: one agent turn, its output streamed to the page as chat events. `agent`, one of those hello listed, the
   // first unless named. `history`, the conversation so far as the page keeps it ([{ role: 'user' | 'agent', text }]), is
   // told to an agent that does not hold it: no `session`, or one it no longer has.
-  function chat({ text, session, history = [], agent = first }, res) {
+  function chat({ text, session, history = [], agent = first, model }, res) {
     if (typeof text !== 'string' || !text.trim()) return reply(res, 400, { error: 'text: what to tell the agent' })
     if (!agents.size) return reply(res, 400, { error: `No agent on PATH: install one (${Object.values(AGENTS).slice(0, 6).map(a => a.name).join(', ')}, …), then start the bridge again` })
     if (!agents.has(agent)) return reply(res, 400, { error: `agent: one of ${[...agents.keys()].join(', ')}` })
     if (session && !(typeof session === 'string' && SESSION.test(session))) return reply(res, 400, { error: 'session: an id the agent gave' })
     if (!Array.isArray(history) || !history.every(m => typeof m?.text === 'string')) return reply(res, 400, { error: 'history: [{ role, text }]' })
+    let models = listed().find(a => a.id === agent).models
+    if (model != null && !models.some(m => m.id === model)) return reply(res, 400, { error: `model: one of ${models.map(m => m.id).join(', ') || `none (${agent} names none)`}` })
     if (!page) return reply(res, 503, { error: 'No editor page is connected' })
     let turn = randomBytes(8).toString('hex')
-    run(turn, agent, text, session || undefined, history)
+    run(turn, agent, text, session || undefined, history, model)
     reply(res, 202, { turn })
   }
 
@@ -414,10 +423,10 @@ export default function bridge(argv = []) {
     return told.length ? `Our conversation so far, which you no longer hold:\n\n${told.join('\n\n')}\n\nThe user now says:\n\n${text}` : text
   }
 
-  function run(turn, id, text, session, history) {
+  function run(turn, id, text, session, history, model) {
     let a = agents.get(id), parse
     let mcp = { command: process.execPath, args: [CLI, '--mcp', '--editor', url, '--key', key] }
-    let child = spawn(a.path, a.acp ?? a.args(mcp, session), { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...a.env, AUDIO_EDITOR: url, AUDIO_BRIDGE_KEY: key } })
+    let child = spawn(a.path, a.acp ?? a.args(mcp, session, model), { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...a.env, AUDIO_EDITOR: url, AUDIO_BRIDGE_KEY: key } })
     let over = false, said, problem, err = ''
     let emit = e => send(page, { type: 'chat', turn, ...e })
     // A session the agent cannot resume (started in another folder, another machine's, cleared) fails before the agent
@@ -426,20 +435,22 @@ export default function bridge(argv = []) {
       if (over) return
       over = true
       if (a.acp) child.kill()
-      if (error && again && session && !said) return child.kill(), run(turn, id, text, undefined, history)
+      if (error && again && session && !said) return child.kill(), run(turn, id, text, undefined, history, model)
       emit(error ? { done: true, error } : { done: true })
     }
     let take = e => {
       if (over) return
       if (e.done) return end(e.error)
       if ('error' in e) problem = e.error
+      // an agent's models, learned: every page told, as a hello tells them
+      else if (e.models) { if (JSON.stringify(e.models) !== JSON.stringify(learned.get(id))) learned.set(id, e.models), send(page, { type: 'hello', version, agent: listed()[0] ?? null, agents: listed() }) }
       else if (!e.session) emit(e)
       else if (e.session !== said) emit({ session: said = e.session })
     }
     turns.set(turn, { child, stop() { end('Stopped', false); child.kill(); setTimeout(() => child.kill('SIGKILL'), 3000).unref() } })
     child.stdin.on('error', () => {})  // an agent may exit before reading
     let input = session ? text : recall(history, text)
-    parse = a.acp ? acp(m => child.stdin.write(JSON.stringify(m) + '\n'), take, { text: input, session, mcp, name: a.name }) : (child.stdin.end(input), a.read())
+    parse = a.acp ? acp(m => child.stdin.write(JSON.stringify(m) + '\n'), take, { text: input, session, mcp, name: a.name, model }) : (child.stdin.end(input), a.read())
     child.stderr.setEncoding('utf8').on('data', d => err = (err + d).slice(-4000))
     lines(child.stdout, line => {
       let m

@@ -131,7 +131,9 @@ async function on(m) {
   if (m.method == null) return waiting.get(m.id)?.(m)
   let { id, method, params } = m
   if (method === 'initialize') return out({ id, result: { protocolVersion: 1, agentCapabilities: can, authMethods: [] } })
-  if (method === 'session/new') return out({ id, result: { sessionId: 'sess-1' } })
+  // its models, as ACP's session models say them; one set by session/set_model
+  if (method === 'session/new') return out({ id, result: { sessionId: 'sess-1', models: { availableModels: [{ modelId: 'k2', name: 'K2' }, { modelId: 'k2-think', name: 'K2 Thinking' }], currentModelId: 'k2' } } })
+  if (method === 'session/set_model') return out({ id, result: {} })
   if (method === 'session/resume' || method === 'session/load') {
     if (params.sessionId === 'gone') return out({ id, error: { code: -32002, message: 'Resource not found: gone' } })
     if (method === 'session/load') update(params.sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'said before' } })
@@ -250,6 +252,8 @@ function mcp(args, env = {}) {
 const EDITOR_TOOLS = ['state', 'script', 'edit', 'measure', 'look', 'select', 'scrub', 'step', 'open', 'play', 'stop', 'check', 'undo', 'redo']
 // the fakes on PATH the bridge knows, in its order, and what the page calls them
 const FOUND = ['claude', 'codex', 'pi', 'gemini', 'kimi'], NAMES = { claude: 'Claude Code', codex: 'Codex', pi: 'Pi', gemini: 'Gemini CLI', kimi: 'Kimi Code' }
+// the models hello lists for each: Claude Code's aliases; the others say theirs once a session opens, if they do
+const MODELS = { claude: [{ id: 'opus', name: 'Opus' }, { id: 'sonnet', name: 'Sonnet' }, { id: 'haiku', name: 'Haiku' }] }
 
 
 test('bridge: prints its address, key and agents; its own key random, kept for the next run; one given, that run\'s alone', async t => {
@@ -340,7 +344,7 @@ test('bridge: a page gets hello, answers a call; /call round-trips result and er
     t.is(await health(b.url), { ok: true, page: false, agent: 'claude', agents: FOUND }, 'health before a page; the agents on PATH, the first')
     p = page(b.url)
     let { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
-    t.is(await p.next(), { type: 'hello', version, agent: { id: 'claude', name: 'Claude Code' }, agents: FOUND.map(id => ({ id, name: NAMES[id] })) })
+    t.is(await p.next(), { type: 'hello', version, agent: { id: 'claude', name: 'Claude Code', models: MODELS.claude }, agents: FOUND.map(id => ({ id, name: NAMES[id], models: MODELS[id] ?? [] })) })
     t.is(p.status, 200)
     t.is((await health(b.url)).page, true)
 
@@ -564,6 +568,11 @@ test('bridge chat: claude streams text, tool, session, done in order; the text o
     ;({ argv, input } = logged('claude'))
     t.is(argv[argv.indexOf('--resume') + 1], CLAUDE_SESSION, 'continues the session')
     t.is(input, 'and now?', 'which holds what was said')
+    t.ok(!argv.includes('--model'), 'no model asked: its own choice')
+    await chat(p, b.url, { text: 'and now?', session: CLAUDE_SESSION, model: 'haiku' })
+    t.is(logged('claude').argv.slice(-2), ['--model', 'haiku'], 'a model asked: --model, the same session')
+    let refused = await post(b.url, '/chat', { text: 'x', model: 'gpt-9' })
+    t.is([refused.status, refused.body.error], [400, 'model: one of opus, sonnet, haiku'], 'one it has not: refused, its models said')
 
     // a session it no longer holds: the same turn afresh, told what was said; a new one with no session, told too
     let told = 'Our conversation so far, which you no longer hold:\n\nUser: how long is it?\n\nYou: It is 3 s long.\n\nThe user now says:\n\nand now?'
@@ -583,7 +592,7 @@ test('bridge chat: claude streams text, tool, session, done in order; the text o
 test('bridge chat: codex events and its exec command line', { timeout: 15000 }, async t => {
   let b = await bridge(['--key', KEY, '--agent', 'codex']), p = page(b.url)
   try {
-    t.is((await p.next()).agent, { id: 'codex', name: 'Codex' }, '--agent chooses it')
+    t.is((await p.next()).agent, { id: 'codex', name: 'Codex', models: [] }, '--agent chooses it')
     t.is(b.printed[3], '  agents  Codex, Claude Code, Pi, Gemini CLI, Kimi Code', '--agent first')
     let events = await chat(p, b.url, { text: 'how long?' })
     t.is(events, [{ session: CODEX_THREAD }, { tool: 'state', input: {}, id: 'item_1' }, { answered: 'item_1', failed: false }, { tool: 'files.edit', input: { path: 'a' }, id: 'item_9' }, { answered: 'item_9', failed: false }, { text: 'It is 3 s long.' }, { text: '\n\nAnything else?' }, { done: true }])
@@ -647,7 +656,7 @@ test('bridge chat: stop kills the turn; bad requests are refused before anything
 test('bridge chat: pi prints its events; the editor tools come as its extension, which finds the bridge by the env', { timeout: 15000 }, async t => {
   let b = await bridge(['--key', KEY, '--agent', 'pi']), p = page(b.url)
   try {
-    t.is((await p.next()).agent, { id: 'pi', name: 'Pi' }, '--agent chooses the first')
+    t.is((await p.next()).agent, { id: 'pi', name: 'Pi', models: [] }, '--agent chooses the first')
     t.is(await chat(p, b.url, { text: 'how long?' }), [
       { session: PI_SESSION }, { thinking: true }, { text: 'Reading ' }, { text: 'the sound .' },
       { thinking: true }, { tool: 'state', input: {}, id: 'call_1' }, { answered: 'call_1', failed: false },
@@ -700,7 +709,7 @@ test('pi extension (bin/pi.js): the editor tools, each reaching the page through
 test('bridge chat: an ACP agent; its session gone on with by session/resume, its requests answered', { timeout: 15000 }, async t => {
   let b = await bridge(['--key', KEY, '--agent', 'kimi']), p = page(b.url)
   try {
-    t.is((await p.next()).agent, { id: 'kimi', name: 'Kimi Code' })
+    t.is((await p.next()).agent, { id: 'kimi', name: 'Kimi Code', models: [] }, 'its models not said yet')
     let r = await post(b.url, '/chat', { text: 'how long?' }), events = []
     for (;;) { let { type, turn, ...e } = await p.next(e => e.turn === r.body.turn); events.push(e); if (e.done) break }
     t.is(events, [
@@ -726,6 +735,12 @@ test('bridge chat: an ACP agent; its session gone on with by session/resume, its
       'the editor\'s tool allowed once, its shell refused, its reading allowed, a client\'s file not offered')
     await until(async () => (await post(b.url, '/chat/stop', { turn: r.body.turn })).status === 404)
     t.ok(true, 'its turn over, the agent goes')
+    t.is((await p.next(e => e.type === 'hello')).agents.find(a => a.id === 'kimi').models, [{ id: 'k2', name: 'K2' }, { id: 'k2-think', name: 'K2 Thinking' }], 'the models its session said it has, told the page')
+    await chat(p, b.url, { text: 'think', model: 'k2-think' })
+    t.is(told('kimi').find(m => m.method === 'session/set_model')?.params, { sessionId: 'sess-1', modelId: 'k2-think' }, 'a model asked for: set before the prompt')
+    await chat(p, b.url, { text: 'as it was', model: 'k2' })
+    t.ok(!told('kimi').some(m => m.method === 'session/set_model'), 'the one it has already: left as it is')
+    t.is((await post(b.url, '/chat', { text: 'x', model: 'gpt-9' })).status, 400, 'a model it doesn\'t have: refused')
 
     await chat(p, b.url, { text: 'and now?', session: 'sess-1' })
     log = told('kimi')
@@ -759,7 +774,7 @@ test('bridge chat: the page picks the agent; session/load replays unheard; any A
 
   let any = await bridge(['--key', KEY, '--agent', 'my-acp --model x']), q = page(any.url)
   try {
-    t.is((await q.next()).agent, { id: 'my-acp --model x', name: 'my-acp --model x' })
+    t.is((await q.next()).agent, { id: 'my-acp --model x', name: 'my-acp --model x', models: [] })
     t.is(any.printed[3], '  agents  my-acp --model x, Claude Code, Codex, Pi, Gemini CLI, Kimi Code')
     t.is((await chat(q, any.url, { text: 'how long?' })).at(-1), { done: true })
     t.is(told('my-acp')[0].argv, ['--model', 'x'], 'its arguments as given')

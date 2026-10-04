@@ -82,7 +82,7 @@ npx audio --bridge
 #   In the editor's Agent panel, paste the key, then Connect. It stays the same next time.
 ```
 
-Connect the editor to it with the key (once: the bridge keeps it), and its chat runs an agent of yours, which measures, looks at, edits and plays the sound open there, and finds which edit did what: it measures the sound before and after each, and what each took out; each tab keeps its conversations, each with the agent picked under the message. The bridge finds Claude Code, Codex, Pi, Gemini CLI, Qwen Code, Kimi Code, OpenCode, Kilo Code, Cline, Goose, Factory Droid, Cursor, Augment, Kiro and Mistral Vibe on PATH; any other that speaks [ACP](https://agentclientprotocol.com/get-started/registry) runs by its command line, `--agent "my-agent --acp"`.
+Connect the editor to it with the key (once: the bridge keeps it), and its chat runs an agent of yours, which measures, looks at, edits and plays the sound open there, and finds which edit did what: it measures the sound before and after each, and what each took out; each tab keeps its conversations, each with the agent, and its model, picked under the message. The bridge finds Claude Code, Codex, Pi, Gemini CLI, Qwen Code, Kimi Code, OpenCode, Kilo Code, Cline, Goose, Factory Droid, Cursor, Augment, Kiro and Mistral Vibe on PATH; any other that speaks [ACP](https://agentclientprotocol.com/get-started/registry) runs by its command line, `--agent "my-agent --acp"`.
 
 Any MCP agent gets the editor's tools (`state`, `measure`, `look`, `edit`, `select`, `play`, `check`, …), the running bridge found by itself: `npx add-mcp "npx -y audio --mcp --editor"`.
 

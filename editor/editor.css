@@ -583,6 +583,8 @@ svg { flex: none; }
 .check-note a:hover { color: var(--color-screen-bright); }
 .menu-item { display: flex; align-items: baseline; gap: 12px; width: 100%; min-height: 32px; padding: 6px 10px; border: 0; border-radius: 6px; background: none; text-align: left; font-size: 12px; }
 .menu-item strong { flex: none; color: var(--color-screen-ink); font: 500 12px var(--font-mono); }
+/* an agent's model, under the agent it runs */
+.menu-item.agent-model { min-height: 28px; padding-left: 22px; color: var(--color-screen-soft); }
 .menu-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-screen-muted); }
 .menu-item:hover, .menu-item[aria-current="true"] { background: var(--color-screen-pill-active); }
 .menu-item:hover strong { color: var(--color-screen-bright); }
