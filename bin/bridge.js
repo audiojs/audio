@@ -489,7 +489,14 @@ export default function bridge(argv = []) {
     } catch (e) { reply(res, e.status ?? 500, { error: e.message }) }
   })
 
-  let quit = () => { for (let t of turns.values()) t.stop(); process.exit(0) }
+  // stopped: the turns stopped, the page's stream ended as a stream ends (cut, the page sees a broken response, a
+  // network error in its console), then gone
+  let quit = () => {
+    for (let t of turns.values()) t.stop()
+    if (!page || page.writableEnded) process.exit(0)
+    page.end(() => process.exit(0))
+    setTimeout(() => process.exit(0), 500).unref()
+  }
   process.on('SIGINT', quit)
   process.on('SIGTERM', quit)
 

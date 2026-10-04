@@ -38,9 +38,9 @@ before(async () => {
     if (url === '/blank.html') { res.writeHead(200, { 'content-type': 'text/html' }).end('<!doctype html><title>blank</title>'); return }
     // a file over a slow connection: 8 KB every 120 ms, its length said up front
     if (url.startsWith('/slow/')) {
-      const data = await readFile(resolve(root, '.' + url.slice(5)))
+      const data = await readFile(resolve(root, '.' + url.slice(5))), ms = +(req.url.match(/[?&]ms=(\d+)/)?.[1] ?? 120)
       res.writeHead(200, { 'content-type': 'audio/wav', 'content-length': data.length })
-      for (let i = 0; i < data.length; i += 8192) { res.write(data.subarray(i, i + 8192)); await new Promise(r => setTimeout(r, 120)) }
+      for (let i = 0; i < data.length; i += 8192) { res.write(data.subarray(i, i + 8192)); await new Promise(r => setTimeout(r, ms)) }
       res.end()
       return
     }
@@ -4902,8 +4902,9 @@ test('editor: a view kept for a file no longer here gives way to the drop', asyn
 test('editor: a file arriving on the spectrogram draws its spectrogram as it comes', async () => {
   await open()
   await show('spec')
-  // an edit that waits for the whole file (normalize): what shows meanwhile is the file itself
-  await write(`audio('${origin}/slow/test/fixture.wav').normalize()`)
+  // an edit that waits for the whole file (normalize): what shows meanwhile is the file itself. Slower than the other
+  // slow files (8 KB every 300 ms, 6.6 s in all), so a slow machine's first draw still finds it arriving
+  await write(`audio('${origin}/slow/test/fixture.wav?ms=300').normalize()`)
   await page.locator('.message', { hasText: /^Decoding/ }).waitFor()
   await page.waitForTimeout(900)
   assert.match(await page.locator('.message').textContent(), /^Decoding/, 'still arriving')
