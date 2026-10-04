@@ -2931,6 +2931,14 @@ test('editor: Alt and a drag on the spectrogram adds another box; Delete takes e
   await page.keyboard.press('ControlOrMeta+K')
   assert.equal(await page.locator('.palette-group').first().innerText(), 'For the 2 bands')
   await page.keyboard.press('Escape')
+  // a method from the context menu, for each box's time: the clicks in each taken out
+  await page.mouse.click(x(1.5), box.y + lane * .25, { button: 'right' })
+  await menuRow('Repair').click()
+  await menuRow('Remove the clicks in each').click()
+  await page.waitForFunction(() => (scriptText().match(/\.declick\(\{ at: [\d.]+, d: [\d.]+ \}\)/g) || []).length === 2)
+  const clicks = [...(await code()).matchAll(/\.declick\(\{ at: ([\d.]+), d: ([\d.]+) \}\)/g)].map(m => +m[1]).sort((p, q) => p - q)
+  assert.ok(Math.abs(clicks[0] - 1) < .02 && Math.abs(clicks[1] - 4) < .02, JSON.stringify(clicks))
+  assert.equal(await readout(), '2 bands', 'the boxes stay')
   await page.locator('.plot').focus()
   await page.keyboard.press('Delete')
   await page.waitForFunction(() => (scriptText().match(/\.spectral\(\[\d+, \d+\], \{ at: [\d.]+, d: [\d.]+ \}\)/g) || []).length === 2)
@@ -4206,8 +4214,8 @@ test('editor: the context menu, or K, keeps only the selection', async () => {
   await lengthIs('0:01.000')
 })
 
-// A click seen on the picture: selected, the context menu takes the clicks out there alone (declick over the range), or
-// rebuilds all of it from around it (repair); the length kept
+// A click seen on the picture: selected, the context menu's Repair takes the clicks out there alone (declick over the
+// range), or rebuilds all of it from around it (repair); the length kept. Every method is there by its kind
 test('editor: the context menu takes the clicks out of the selection, or rebuilds it', async () => {
   await open()
   await noCues()
@@ -4216,12 +4224,23 @@ test('editor: the context menu takes the clicks out of the selection, or rebuild
   const { box, x } = await axis(8), y = box.y + box.height * .3
   await drag([x(2), y], [x(4) - x(2), 0])
   await page.mouse.click(x(3), y, { button: 'right' })
+  await menuRow('Repair').click()
   await menuRow('Remove the clicks here').click()
   await page.waitForFunction(() => /\.declick\(\{ at: 2(\.0\d*)?, d: 2(\.0\d*)? \}\)$/.test(scriptText().trim()))
   await page.mouse.click(x(3), y, { button: 'right' })
+  await menuRow('Repair').click()
   await menuRow('Rebuild from around it').click()
   await page.waitForFunction(() => /\.repair\(\{ at: 2(\.0\d*)?, d: 2(\.0\d*)? \}\)$/.test(scriptText().trim()))
   await lengthIs('0:08.000')
+  // any method, by its kind: a filter over the selection
+  await page.mouse.click(x(3), y, { button: 'right' })
+  await menuRow('Filter').click()
+  // what each does, said in its row (the menus' words once took the tooltip's place, all at the window's corner)
+  const row = await menuRow('highpass').boundingBox(), said = await menuRow('highpass').locator('.menu-keys').boundingBox()
+  assert.ok(said.y >= row.y && said.y + said.height <= row.y + row.height + 1 && said.x > row.x, 'its words in its row')
+  assert.equal(await menuRow('highpass').locator('.menu-keys').innerText(), 'Cut lows')
+  await menuRow('highpass').click()
+  await page.waitForFunction(() => /\.highpass\(80, \{ at: 2(\.0\d*)?, d: 2(\.0\d*)? \}\)$/.test(scriptText().trim()))
 })
 
 // With nothing selected, the square past the caret, where a selection's stretch square is, pulls silence open there:
@@ -4560,6 +4579,8 @@ test('editor: a right-click gives the edits for the selection, or puts the caret
   const item = name => page.locator('.menubar-menu .menu-row', { has: page.locator('.menu-label', { hasText: new RegExp(`^${name}$`) }) })
   await drag([x(1), y], [x(3) - x(1), 0])
   await page.mouse.click(x(2), y, { button: 'right' })
+  // under its kind, Edit, the first of it
+  await item('Edit').click()
   await item('Reverse').click()
   await page.waitForFunction(() => /\.reverse\(\{ at: 1, d: 2 \}\)$/.test(scriptText()))
   assert.equal(await page.locator('.menubar-menu').count(), 0)
@@ -5927,7 +5948,7 @@ test('editor: an edit turned off over the selection alone, from the context menu
   await drag([x(2), y], [x(3) - x(2), 0])
   await page.mouse.click(x(2.5), y, { button: 'right' })
   await contextRow('Turn an edit off here').click()
-  assert.deepEqual(await page.locator('.menubar-sub .menu-label').allInnerTexts(), ['gain(-6)'], 'reverse() changes the timing: not offered')
+  assert.deepEqual(await page.locator('.menubar-sub:popover-open .menu-label').allInnerTexts(), ['gain(-6)'], 'reverse() changes the timing: not offered')
   await contextRow('gain\\(-6\\)').click()
   await page.waitForFunction(() => scriptText().includes('mix:'))
   assert.match(await page.evaluate(() => scriptText()), /\.gain\(-6, \{ mix: \{ t: \[1\.99, 2, 3, 3\.01\], v: \[1, 0, 0, 1\] \} \}\)$/)
@@ -6285,4 +6306,41 @@ test('editor: the edits as layers: picked rows grouped, named, dragged in and ou
   await page.waitForFunction(() => scriptText() === `audio('chime.wav')\n  .fade(1)\n  .reverse()\n  .highpass(80)\n  .gain(-3)`)
   await menu('Edit', 'Undo')
   await page.waitForFunction(() => scriptText().includes('// Montage'))
+})
+
+// A layer's chevron, before its icon, turns down while it is open (a step's settings shown, a group unfolded). Its menu,
+// right-clicked: muted and back on, moved, grouped, the chain up to it made one sound (a file kept as a take is, the
+// script opening it, its marks marked on it again, the steps after it going on from it), one step of the history each
+test('editor: layers: a chevron while open; a row\'s menu mutes, moves, groups and flattens the chain up to it', async () => {
+  await open()
+  await write(`audio('chime.wav')\n  .gain(-3)\n  .mark(1, 'one')\n  .reverse()\n  .highpass(80)`)
+  await lengthIs('0:08.000')
+  await tab('Edits')
+  const row = name => page.locator('.steps-list .step', { has: page.locator('.step-name', { hasText: new RegExp(`^${name}$`) }) })
+  // turned as it settles (it turns over a moment)
+  const turned = (name, to) => row(name).locator('.step-chevron').evaluate((el, to) => new Promise(done => { const look = () => getComputedStyle(el).rotate === to ? done(true) : requestAnimationFrame(look); look(); setTimeout(() => done(false), 1000) }), to)
+  assert.ok(await turned('Reverse', 'none'))
+  await row('Reverse').locator('.step-toggle').click()
+  assert.ok(await turned('Reverse', '90deg'), 'open: turned down')
+  assert.equal(await row('chime.wav').locator('.step-chevron').evaluate(el => getComputedStyle(el).visibility), 'hidden', 'the sound opens to nothing')
+  const rowMenu = async (name, item) => { await row(name).locator('.step-toggle').click({ button: 'right' }); await contextRow(item).click() }
+  await rowMenu('Highpass', 'Mute')
+  await page.waitForFunction(() => scriptText().includes('// .highpass(80)'))
+  await rowMenu('Highpass', 'Unmute')
+  await page.waitForFunction(() => scriptText().includes('\n  .highpass(80)'))
+  await rowMenu('Reverse', 'Move up')
+  await page.waitForFunction(() => /\.gain\(-3\)\n  \.mark\(1, 'one'\)\n  \.reverse\(\)/.test(scriptText()) || /\.gain\(-3\)\n  \.reverse\(\)\n  \.mark/.test(scriptText()))
+  await rowMenu('Highpass', 'Group')
+  await page.waitForFunction(() => scriptText().includes('  // Group\n    .highpass(80)'))
+  // the chain up to Reverse, one sound: a file of its own, its mark on it again, the steps after it from it
+  await rowMenu('Reverse', 'Flatten up to here')
+  await page.waitForFunction(() => /^audio\('chime-flat\.wav'\)/.test(scriptText()))
+  assert.match(await code(), /^audio\('chime-flat\.wav'\)\n  \.mark\(1, 'one'\)\n  \/\/ Group\n    \.highpass\(80\)$/)
+  await lengthIs('0:08.000')
+  const kept = await page.evaluate(async () => { const d = await (await navigator.storage.getDirectory()).getDirectoryHandle('audio-repl-files'); const names = []; for await (const k of d.keys()) names.push(decodeURIComponent(k)); return names })
+  assert.ok(kept.includes('chime-flat.wav'), 'kept as a take is')
+  await rowMenu('Highpass', 'Flatten all')
+  await page.waitForFunction(() => /^audio\('chime-flat-2\.wav'\)\n  \.mark\(1, 'one'\)$/.test(scriptText()))
+  await menu('Edit', 'Undo')
+  await page.waitForFunction(() => /^audio\('chime-flat\.wav'\)\n  \.mark\(1, 'one'\)\n  \/\/ Group/.test(scriptText()))
 })

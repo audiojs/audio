@@ -134,6 +134,9 @@ export default function engine(url = WORKER) {
     evaluate: script => call({ type: 'eval', ...script, tab: self.tab }),
     // A tab closed: its output goes
     close: tab => call({ type: 'close', tab }),
+    // A prepared script's sound whole, as the edits make it (the chain flattened up to a step): { channels, sampleRate,
+    // markers, regions } or { error }
+    bake: script => call({ type: 'bake', ...script }),
     // The source it opened, level-matched to `loudness` (LUFS), for A/B listening.
     original: (source, loudness) => call({ type: 'original', source, loudness }),
     // A plugin's parameters from its manifest, fetched once.

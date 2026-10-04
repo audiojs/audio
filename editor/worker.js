@@ -919,12 +919,21 @@ const handlers = {
   },
   run: execute, cues, contour, listen, export: exporting, describe, check: checking, original, eval: evaluate,
   // a tab closed: its output goes
-  close: ({ tab }) => { for (const r of outputs.values()) if (r.tab === tab) drop(r); return {} }
+  close: ({ tab }) => { for (const r of outputs.values()) if (r.tab === tab) drop(r); return {} },
+  // a script's sound whole, as the edits make it there (the chain flattened up to a step): from the renders kept, as a
+  // step(i) is made, its markers with it
+  bake: async script => {
+    const s = staged(script)
+    await s.promise
+    if (s.error) throw s.error
+    const { pcm, sampleRate, markers, regions } = s.value
+    return { channels: pcm.map(c => c.slice()), sampleRate, markers, regions }
+  }
 }
 self.onmessage = async ({ data }) => {
   let reply
   try { reply = await handlers[data.type](data) }
   catch (error) { reply = { error: failure(error) } }
-  const transfer = data.type === 'original' ? reply.channels?.map(c => c.buffer) : data.type === 'export' ? reply.files?.map(f => f.bytes.buffer) : []
+  const transfer = data.type === 'original' || data.type === 'bake' ? reply.channels?.map(c => c.buffer) : data.type === 'export' ? reply.files?.map(f => f.bytes.buffer) : []
   post({ id: data.id, ...reply }, transfer || [])
 }

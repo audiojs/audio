@@ -539,7 +539,11 @@ rk = stack(root.querySelector('.steps'), {
   oncall(call, spec, values) { carded = !!(call && spec); v.guides = carded ? guidesOf(call, spec, values) : shown?.guides ?? [] },
   onview(next) { viewing = next; schedule(0) },
   // a slider's move shows on the picture at once, where a level says it (ops.js previews), until its output comes
-  onpreview(name, was, is) { v.preview(previews[name]?.(was, is, v.duration) ?? null) }
+  onpreview(name, was, is) { v.preview(previews[name]?.(was, is, v.duration) ?? null) },
+  // a row's own menu, right-clicked; the chain up to a row made one sound
+  oncontext({ x, y, items }) { bar.at(items, x, y) },
+  onflatten: to => flatten(to),
+  keys
 })
 rk.refresh()
 remember(ed.code)
@@ -633,7 +637,7 @@ function menus() {
       { label: 'Reset the view', run: resetView }
     ] },
     { name: 'Process', title: 'Every method by kind, for the output or the selection', items: [
-      ...GROUPS.map(group => ({ label: group, items: Object.values(ops).filter(op => op.group === group).map(op => ({ label: op.name, hint: op.text, run: () => addOp(op.name) })), disabled: none })),
+      ...kinds().map(k => ({ ...k, disabled: none })),
       '-',
       { label: 'Find an edit…', keys: keys('⌘P'), run: () => openTools(), disabled: none }
     ] },
@@ -651,6 +655,12 @@ function menus() {
     ] }
   ]
 }
+// Every method by kind, a submenu each, for the output or what is selected (addOp): first what the selection is most
+// often given of that kind (`lead`, by group), then every method of it by name
+const kinds = (lead = {}, open = true) => GROUPS.map(group => ({ label: group, icon: groupIcons[group], items: [
+  ...lead[group] ? [...lead[group], '-'] : [],
+  ...Object.values(ops).filter(op => op.group === group).map(op => ({ label: op.name, hint: op.text, run: () => addOp(op.name, open) }))
+] }))
 // an edit of the selection, as a menu item: dimmed while there is nothing it can act on
 const edit = (label, type, key, when) => ({ label, keys: key && keys(key), run: () => editSelection(type), disabled: !when })
 const bar = menubar(root.querySelector('.menubar'), menus)
@@ -720,21 +730,23 @@ addEventListener('pointerdown', event => {
   const panel = root.querySelector('.dropdown')
   if (panel.matches(':popover-open') && !panel.contains(event.target) && !dropOwner?.contains(event.target)) closeDropdown()
 }, true)
-// The picture's context menu (a right-click on it): what the Edit menu does to what is under the pointer, and what a
-// selection is most often given (fades with the corners' curve, a crossfade across it, reverse, normalize), each a step
-// of the chain; ⌘P finds the rest. At the caret: paste, a marker, all of it
+// The picture's context menu (a right-click on it): what the Edit menu does to what is under the pointer, then every
+// method by kind (as Process has them), what the selection is most often given of each kind leading its list (fades
+// with the corners' curve, a crossfade across it; the clicks taken out, a rebuild, the noise learned there), each a
+// step of the chain; ⌘P finds any. At the caret: paste, a marker, all of it, and the methods for all of it
 function contextMenu() {
   const list = v.ranges, several = list.length > 1, find = { label: 'Find an edit…', keys: keys('⌘P'), run: () => openTools(), icon: glyphs.find }
   const method = (label, name) => ({ label, run: () => addOp(name, false), icon: opIcons[name] })
   const act = (label, type, key, when, icon) => ({ ...edit(label, type, key, when), icon })
   // and last, how the picture draws: its options, under its switch
   const look = ['-', { label: state.display === 'spec' ? 'How the spectrogram draws…' : 'How the waveform draws…', run: () => looksAt(root.querySelector('.display [aria-selected="true"]')) }]
-  if (v.band) return [act('Delete the band', 'remove', '⌫', true, icons.remove), act('6 dB quieter', 'quieter', '', true, glyphs.down), act('6 dB louder', 'louder', '', true, glyphs.up), act('Rebuild from around it', 'repair', '', true, icons.repair), act('Remove the clicks here', 'declick', '', true, opIcons.declick), act('Take this noise out everywhere', 'denoise', '', true, opIcons.denoise), '-', find, ...look]
+  const repair = [act(several || v.boxes.length > 1 ? 'Remove the clicks in each' : 'Remove the clicks here', 'declick', '', true, opIcons.declick), act('Rebuild from around it', 'repair', '', !several, icons.repair), act('Take this noise out everywhere', 'denoise', '', true, opIcons.denoise)]
+  if (v.band) return [act('Delete the band', 'remove', '⌫', true, icons.remove), act('6 dB quieter', 'quieter', '', true, glyphs.down), act('6 dB louder', 'louder', '', true, glyphs.up), '-', ...kinds({ Repair: repair }, false), '-', find, ...look]
   if (!list.length) return [
     act(v.carets.length > 1 ? `Paste at all ${v.carets.length} carets` : 'Paste', 'paste', '⌘V', state.canPaste, icons.paste),
     { label: v.carets.length > 1 ? 'A marker at each caret' : 'Add a marker', keys: 'M', run: addMarker, icon: glyphs.marker },
     { label: 'Select all', keys: keys('⌘A'), run: () => v.select(0, v.duration), icon: glyphs.all },
-    '-', find, ...look
+    '-', ...kinds({}, false), '-', find, ...look
   ]
   const [a, b] = v.selection ?? list[0]
   return [
@@ -743,12 +755,9 @@ function contextMenu() {
     '-',
     { label: 'Fade in', run: () => fade({ kind: 'in', from: a, to: b, curve: state.fadeCurve }), disabled: several, icon: curveIcon(state.fadeCurve) },
     { label: 'Fade out', run: () => fade({ kind: 'out', from: a, to: b, curve: state.fadeCurve }), disabled: several, icon: curveIcon(state.fadeCurve, true) },
-    method('Crossfade across it', 'crossfade'),
     act('3 dB louder', 'louder', '', true, glyphs.up), act('3 dB quieter', 'quieter', '', true, glyphs.down),
-    method('Reverse', 'reverse'), method('Normalize', 'normalize'),
-    act(several ? 'Remove the clicks in each' : 'Remove the clicks here', 'declick', '', true, opIcons.declick),
-    act('Rebuild from around it', 'repair', '', !several, icons.repair),
-    act('Take this noise out everywhere', 'denoise', '', true, opIcons.denoise),
+    '-',
+    ...kinds({ Edit: [method('Reverse', 'reverse')], Level: [method('Crossfade across it', 'crossfade'), method('Normalize', 'normalize')], Repair: repair }, false),
     ...turningOff(a, b, several),
     '-',
     { label: several ? 'Mark each' : 'Mark it', keys: 'M', run: addMarker, icon: glyphs.marker },
@@ -1766,6 +1775,30 @@ function write(...calls) {
   return change
 }
 const applied = (code, { from, to = from, insert }) => code.slice(0, from) + insert + code.slice(to)
+// The chain up to a step made one sound (`to`, where that step ends; all of it with none): rendered as it shows there
+// (worker.js bake, from the renders kept), kept in this browser as a recording is, and the script opening it in place
+// of the sound and the steps it holds, its markers marked on it again, the steps after it going on from it. One step of
+// the history; the sound made stays kept, as a take does
+async function flatten(to = null) {
+  const code = ed.code, c = chain(code)
+  if (!c) return
+  const end = to ?? c.calls.filter(k => !methods[k.name]?.sink).at(-1)?.to ?? c.root.to
+  // named for the sound it starts from, flattened before or not: chime-flat.wav, chime-flat-2.wav
+  const base = (source(code)?.strings[0]?.name ?? 'audio').replace(/^.*\//, '').replace(/\.\w+$/, '').replace(/-flat(-\d+)?$/, ''), name = unique(`${base}-flat.wav`, taken())
+  note('Flattening…')
+  const r = await eng.bake(prepare(code.slice(0, end)))
+  if (r.error) return note(`Not flattened: ${r.error.message}`, 'error')
+  if (ed.code !== code) return note('Not flattened: the script changed meanwhile')
+  const data = { channels: r.channels, sampleRate: r.sampleRate }
+  await eng.file(name, data)
+  saving(keep(name, data).then(file => { if (file) shelf.set(name, file); else note(`${name} could not be kept in this browser: export it to keep it.`, 'error') }))
+  // its marks, on lines of their own where the chain's calls are
+  const at = c.calls.find(k => /\n[ \t]*$/.test(code.slice(0, k.dot))), sep = at ? `\n${code.slice(0, at.dot).match(/\n([ \t]*)$/)[1]}` : ''
+  const said = label => label ? `, ${quote(label)}` : ''
+  const marks = [...r.markers.map(m => `.mark(${number(m.time)}${said(m.label)})`), ...r.regions.map(g => `.mark({ at: ${number(g.at)}, d: ${number(g.duration)} }${said(g.label)})`)]
+  ed.change({ from: c.expr.from, to: end, insert: `audio(${quote(name)})${marks.map(m => sep + m).join('')}` })
+  note(`Flattened into ${name}`)
+}
 // the one change that makes b of a: what lies between the start and the end they share
 function between(a, b) {
   let i = 0, j = 0

@@ -105,7 +105,7 @@ export default function menubar(root, model) {
       if (it.icon) row.children[0].innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="${it.icon}"/></svg>`
       // its keys, or a word on what it is
       row.children[2].textContent = it.items ? '' : it.keys || it.hint || ''
-      if (!it.keys && it.hint) row.children[2].classList.add('hint')
+      if (!it.keys && it.hint) row.children[2].classList.add('menu-hint')
       if (it.items) {
         row.setAttribute('aria-haspopup', 'menu')
         row.setAttribute('aria-expanded', 'false')

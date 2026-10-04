@@ -59,7 +59,7 @@ svg { flex: none; }
 .menubar-item:hover, .menubar-item[aria-expanded="true"] { background: var(--color-hover); }
 .menubar-item:focus-visible { outline: 2px solid var(--color-ink); outline-offset: -2px; }
 /* its menus float free, placed by menu.js; a row: a check, the words, the keys */
-.menu.menubar-list { position: fixed; inset: auto; width: max-content; min-width: 220px; max-width: min(440px, calc(100vw - 16px)); margin: 0; position-area: none; position-try-fallbacks: none; }
+.menu.menubar-list { position: fixed; inset: auto; width: max-content; min-width: 220px; max-width: min(440px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); margin: 0; position-area: none; position-try-fallbacks: none; }
 .menubar-list:focus { outline: none; }
 .menubar-list hr { margin: 5px 8px; border: 0; border-top: 1px solid var(--color-screen-rule); }
 .menubar-list .menu-group:first-child { margin-top: 4px; }
@@ -69,7 +69,7 @@ svg { flex: none; }
 .menu-row[aria-disabled="true"]:hover, .menu-row[aria-disabled="true"]:focus { background: var(--color-screen-hover); color: var(--color-screen-dim); }
 .menu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .menu-keys { overflow: hidden; margin-left: 12px; color: var(--color-screen-muted); font: 11px var(--font-mono); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-.menu-keys.hint { font: 11.5px var(--font-body); }
+.menu-keys.menu-hint { font: 11.5px var(--font-body); }
 .menu-row:is([aria-checked="true"], [aria-pressed="true"]) .menu-check::before { content: '✓'; display: block; text-align: center; font-size: 12px; color: var(--color-screen-bright); }
 .menu-check svg { display: block; width: 15px; height: 15px; color: var(--color-screen-muted); }
 .menu-row:is(:hover, :focus) .menu-check svg { color: var(--color-screen-bright); }
@@ -203,6 +203,12 @@ svg { flex: none; }
 .step.off .step-toggle, .step.off .params, .step.rolled { opacity: .42; }
 .step-head { position: relative; display: flex; align-items: center; min-height: 28px; }
 .step-toggle { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; min-height: 28px; padding: 0 8px; border: 0; background: none; text-align: left; }
+/* its chevron, small, before its icon: turned down while it is open (a step's settings shown, a group unfolded); the
+   sound the chain starts from opens to nothing, its place kept */
+.step-chevron { flex: none; width: 10px; height: 10px; margin-right: -4px; color: var(--color-screen-dim); transition: rotate var(--dur-micro) var(--ease-out); }
+.step.open .step-chevron, .step-group .step-toggle[aria-expanded="true"] .step-chevron { rotate: 90deg; }
+.step-toggle:hover .step-chevron { color: var(--color-screen-soft); }
+.step.sound .step-chevron { visibility: hidden; }
 /* its icon, its kind's (ops.js), as the palette shows it */
 .step-icon { flex: none; width: 14px; height: 14px; color: var(--color-screen-muted); }
 .step.chosen .step-icon, .step-toggle:hover .step-icon { color: var(--color-screen-accent); }

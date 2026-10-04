@@ -18,7 +18,7 @@ import { help, layout } from './help.js'
 // folded: a press unfolds it to its steps, its switch bypasses them all and turns them back on, its × removes them all. What the output
 // shows, when it is not the whole chain, goes to `onview({ delta, back })`: `delta` the index of the live step whose
 // difference plays, `back` how many live steps are kept.
-export default function stack(root, { ed, describe = async () => null, duration = () => 1, source = () => null, oncall = () => {}, onview = () => {}, onpreview = () => {} }) {
+export default function stack(root, { ed, describe = async () => null, duration = () => 1, source = () => null, oncall = () => {}, onview = () => {}, onpreview = () => {}, oncontext = () => {}, onflatten = () => {}, keys = k => k }) {
   // the cards first, what adds to them after
   const list = root.insertBefore(document.createElement('ol'), root.firstChild)
   list.className = 'steps-list'
@@ -55,8 +55,12 @@ export default function stack(root, { ed, describe = async () => null, duration 
 
   // a step's switch, as a plugin's bypass: on, power; bypassed, power struck through
   const ON = 'M12 3.5v7.5M6.6 6.9a7.5 7.5 0 1 0 10.8 0'
-  // a group's icon: steps stacked in a folder
-  const FOLD = 'M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-11ZM8 11h8M8 14.5h5'
+  // a group's icon, as a layers panel draws one: a square of its corners, what it holds inside; a row's chevron before its
+  // icon, turned down while it is open (a group unfolded, a step's settings shown)
+  const FOLD = 'M4 8.5V5.5A1.5 1.5 0 0 1 5.5 4h3M15.5 4h3A1.5 1.5 0 0 1 20 5.5v3M20 15.5v3a1.5 1.5 0 0 1-1.5 1.5h-3M8.5 20h-3A1.5 1.5 0 0 1 4 18.5v-3'
+  const CHEVRON = '<svg class="step-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9.5 7 5 5-5 5"/></svg>'
+  // the menu's: moved up or down, made one sound, taken away
+  const UP = 'M12 19V5m-6 6 6-6 6 6', DOWN = 'M12 5v14m-6-6 6 6 6-6', FLAT = 'M4 7h16M4 12h16M4 17h16', AWAY = 'm7 7 10 10M17 7 7 17'
   // a card's icon: the sound's, a file's bars or a generator's wave; a step's own (icons.js), else its kind's
   const iconOf = call => call.sound ? 'M4 10v4m4-8v12m4-15v18m4-14v10m4-6v2' : call.origin ? icons.Generate : opIcons[call.name] ?? icons[ops[call.name]?.group] ?? icons.Effect
   const SHUT = 'M12 3.5v7.5M6.6 6.9a7.5 7.5 0 1 0 10.8 0M4 4l16 16'
@@ -64,11 +68,11 @@ export default function stack(root, { ed, describe = async () => null, duration 
     hovered = null
     cards = rows.map(call => {
       const li = document.createElement('li'), head = li.appendChild(document.createElement('div'))
-      li.className = 'step'
+      li.className = call.sound ? 'step sound' : 'step'
       head.className = 'step-head'
-      head.innerHTML = '<button class="step-toggle" type="button"><svg class="step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path/></svg><span class="step-name"></span><span class="step-args"></span></button>'
+      head.innerHTML = `<button class="step-toggle" type="button">${CHEVRON}<svg class="step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path/></svg><span class="step-name"></span><span class="step-args"></span></button>`
       const toggle = head.firstChild, card = { li, toggle, args: toggle.lastChild, call, params: null }
-      toggle.querySelector('path').setAttribute('d', iconOf(call))
+      toggle.querySelector('.step-icon path').setAttribute('d', iconOf(call))
       toggle.querySelector('.step-name').textContent = call.sound ? call.name : call.name[0].toUpperCase() + call.name.slice(1)
       // a press leaves the keys where they were: Space still plays, the code keeps its caret
       toggle.addEventListener('mousedown', event => event.preventDefault())
@@ -80,6 +84,7 @@ export default function stack(root, { ed, describe = async () => null, duration 
         pick(card)
       })
       toggle.addEventListener('pointerdown', event => carry(event, { card }))
+      li.addEventListener('contextmenu', event => { event.preventDefault(); oncontext({ x: event.clientX, y: event.clientY, items: menuOf({ card }) }) })
       li.addEventListener('pointerenter', () => { hovered = card; guide() })
       li.addEventListener('pointerleave', () => { if (hovered === card) { hovered = null; guide() } })
       // the sound the chain starts from has nothing to take away, turn off or remove
@@ -99,13 +104,14 @@ export default function stack(root, { ed, describe = async () => null, duration 
       const li = document.createElement('li'), head = li.appendChild(document.createElement('div'))
       li.className = 'step step-group'
       head.className = 'step-head'
-      head.innerHTML = `<button class="step-toggle" type="button" aria-expanded="false"><svg class="step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${FOLD}"/></svg><span class="step-name"></span><span class="step-args"></span></button>`
+      head.innerHTML = `<button class="step-toggle" type="button" aria-expanded="false">${CHEVRON}<svg class="step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${FOLD}"/></svg><span class="step-name"></span><span class="step-args"></span></button>`
       const toggle = head.firstChild, fold = { li, toggle, key, group }
       toggle.querySelector('.step-name').textContent = group.name
       toggle.addEventListener('mousedown', event => event.preventDefault())
       toggle.addEventListener('click', () => { if (dragged) return; lastFold = fold; unfolded.has(key) ? unfolded.delete(key) : unfolded.add(key); render() })
       toggle.addEventListener('dblclick', () => nameGroup(fold))
       toggle.addEventListener('pointerdown', event => carry(event, { fold }))
+      li.addEventListener('contextmenu', event => { event.preventDefault(); oncontext({ x: event.clientX, y: event.clientY, items: menuOf({ fold }) }) })
       const acts = head.appendChild(document.createElement('div'))
       acts.className = 'step-acts'
       fold.on = button(acts, 'step-on', null, ON, () => switchAll(fold))
@@ -128,9 +134,7 @@ export default function stack(root, { ed, describe = async () => null, duration 
     const self = row.card ?? row.fold
     if (event.button || row.card && (row.card.call.off || row.card.call.sound || row.card.call.origin)) return
     if (row.fold) for (const c of members(row.fold)) c.li.hidden = true
-    const rows = [...list.children].filter(li => !li.hidden).map(li => cards.find(c => c.li === li) ? { card: cards.find(c => c.li === li) } : { fold: folds.find(f => f.li === li) })
-      .filter(r => !r.card?.call.sound && !r.card?.call.origin)
-    const from = rows.findIndex(r => (r.card ?? r.fold) === self), lis = rows.map(r => (r.card ?? r.fold).li)
+    const rows = shownRows(), from = rows.findIndex(r => (r.card ?? r.fold) === self), lis = rows.map(r => (r.card ?? r.fold).li)
     const boxes = lis.map(li => li.getBoundingClientRect()), y0 = event.clientY, mid = b => b.top + b.height / 2
     const step = from + 1 < boxes.length ? boxes[from + 1].top - boxes[from].top : boxes[from].height
     let moved = false, to = from
@@ -161,6 +165,30 @@ export default function stack(root, { ed, describe = async () => null, duration 
     addEventListener('pointermove', move)
     addEventListener('pointerup', up)
     addEventListener('pointercancel', up)
+  }
+  // the rows shown, in order, the sound the chain starts from not one of them
+  const shownRows = () => [...list.children].filter(li => !li.hidden).map(li => cards.find(c => c.li === li) ? { card: cards.find(c => c.li === li) } : { fold: folds.find(f => f.li === li) })
+    .filter(r => !r.card?.call.sound && !r.card?.call.origin)
+  // a row moved one place up or down among those shown, as a drag would take it
+  function shift(row, dir) {
+    const rows = shownRows(), i = rows.findIndex(r => (r.card ?? r.fold) === (row.card ?? row.fold)), by = rows[i + dir]
+    const change = by && landing(row, by, dir > 0)
+    if (change) ed.change(change)
+  }
+  const nextTo = (row, dir) => { const rows = shownRows(), i = rows.findIndex(r => (r.card ?? r.fold) === (row.card ?? row.fold)); return i >= 0 && !!rows[i + dir] }
+  // A row's own menu, right-clicked, as a layers panel's: muted or back on, what it takes out, moved, grouped or not, the
+  // chain up to it made one sound (or all of it), taken away; a group's, named anew too
+  function menuOf(row) {
+    const c = row.card, f = row.fold, all = { label: 'Flatten all', hint: 'The whole chain made one sound', run: () => onflatten(null), icon: FLAT }
+    if (c?.call.sound || c?.call.origin) return [{ label: 'Flatten up to here', hint: 'The sound as it starts, one sound', run: () => onflatten(c.call.origin ? c.call.to : chain(ed.code)?.root.to), disabled: !!c.call.sound, icon: FLAT }, all]
+    const off = c ? !!c.call.off : members(f).every(x => x.call.off), inGroup = c ? c.fold >= 0 : false
+    const mute = { label: off ? 'Unmute' : 'Mute', hint: off ? 'Back in the chain' : 'Bypassed: the output without it', run: () => c ? onOff(c) : switchAll(f), icon: off ? ON : SHUT }
+    const moves = [{ label: 'Move up', run: () => shift(row, -1), disabled: c?.call.off || !nextTo(row, -1), icon: UP }, { label: 'Move down', run: () => shift(row, 1), disabled: c?.call.off || !nextTo(row, 1), icon: DOWN }]
+    const flat = { label: 'Flatten up to here', hint: 'The chain from the sound to here made one sound, the steps after it going on from it', run: () => onflatten(c ? c.call.to : f.group.to), icon: FLAT }
+    if (f) return [mute, { label: 'Rename…', run: () => nameGroup(f) }, '-', ...moves, '-', { label: 'Ungroup', keys: keys('⇧⌘G'), run: () => unmakeGroup(f) }, '-', flat, all, '-', { label: 'Remove', hint: 'The group and its steps', run: () => dropAll(f), icon: AWAY }]
+    const group = { label: picked.includes(c) && picked.length > 1 ? `Group the ${picked.length}` : 'Group', keys: keys('⌘G'), run: () => { if (!picked.includes(c)) picked = [c]; makeGroup() }, disabled: inGroup || off }
+    const takes = { label: 'What it takes out', hint: 'Heard and drawn: the output before it less the output after it', run: () => choose(c.call.list.from, true), disabled: off || reshapes(c.call.name) }
+    return [mute, takes, '-', ...moves, '-', group, { label: 'Ungroup', keys: keys('⇧⌘G'), run: () => unmakeGroup(folds[c.fold]), disabled: !inGroup }, '-', flat, all, '-', { label: 'Remove', run: () => drop(c), icon: AWAY }]
   }
   // The change that takes a row (a step or a group) by another, after it (going down) or before it; none into a group for
   // a group, which goes by the group it lands in
@@ -195,8 +223,9 @@ export default function stack(root, { ed, describe = async () => null, duration 
     ed.change(change)
     return true
   }
-  function unmakeGroup() {
-    const chosenCard = cards[position()], fold = chosenCard && chosenCard.fold >= 0 ? folds[chosenCard.fold] : lastFold && folds.includes(lastFold) ? lastFold : null
+  function unmakeGroup(fold = null) {
+    const chosenCard = cards[position()]
+    fold ??= chosenCard && chosenCard.fold >= 0 ? folds[chosenCard.fold] : lastFold && folds.includes(lastFold) ? lastFold : null
     const change = fold && ungroup(ed.code, fold.group)
     if (change) ed.change(change)
     return !!change
@@ -495,7 +524,7 @@ export default function stack(root, { ed, describe = async () => null, duration 
 
   // what the output shows: the card chosen (its id, as choose() takes it) and whether its Δ
   const shown = () => ({ id: chosen, takes: delta != null })
-  return { refresh, choose, ahead, at, shown, group: makeGroup, ungroup: unmakeGroup }
+  return { refresh, choose, ahead, at, shown, group: makeGroup, ungroup: () => unmakeGroup() }
 }
 
 // The value each parameter has in a call now, by position or by name in an options object; undefined if unset.
