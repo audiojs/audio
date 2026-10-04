@@ -295,8 +295,7 @@ export const fromManifest = spec => Object.entries(spec || {}).map(([name, s]) =
 export function guides(name, args, duration) {
   const out = []
   const range = args.at != null && args.duration != null ? [args.at, args.at + args.duration] : null
-  if (ops[name]?.range) range && out.push({ range, dim: name === 'crop' ? 'outside' : 'inside' })
-  else if (range) out.push({ range })
+  if (range) out.push({ range })
   // a level: a threshold in dB (denoise's is an offset on its noise, declick's and decrackle's a multiple of the sound's
   // own error: none), a ceiling, a peak to reach
   const level = ['denoise', 'declick', 'decrackle'].includes(name) ? null : args.threshold ?? (name === 'limiter' ? args.ceiling : name === 'normalize' && typeof args.target === 'number' && args.mode !== 'lufs' && args.mode !== 'rms' ? args.target : null)
@@ -317,5 +316,26 @@ export function guides(name, args, duration) {
   if (Array.isArray(args.band)) out.push({ band: args.band, range: range || [0, duration] })
   // where a noise is learned: each range it plays alone in
   for (const r of [args.noise].flat()) if (typeof r?.at === 'number' && typeof r.duration === 'number') out.push({ range: [r.at, r.at + r.duration], label: 'noise' })
+  // the notes a tune lands on, over its range: its scale's, up from its root, as MIDI notes over the piano's, A4 at `a4`
+  const degrees = name === 'tune' && SCALES[args.scale ?? 'chromatic']
+  if (degrees) {
+    const root = typeof args.root === 'number' ? args.root : 0
+    const notes = Array.from({ length: 88 }, (_, i) => 21 + i).filter(m => degrees.includes(((m - root) % 12 + 12) % 12))
+    out.push({ notes, root, a4: typeof args.a4 === 'number' ? args.a4 : 440, ...range && { span: range } })
+  }
   return out
+}
+// The scales tune() snaps to, as semitones up from the root: @audio/note's SCALES, which @audio/tune-snap snaps by
+export const SCALES = {
+  chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  major: [0, 2, 4, 5, 7, 9, 11],
+  minor: [0, 2, 3, 5, 7, 8, 10],
+  'harmonic-minor': [0, 2, 3, 5, 7, 8, 11],
+  'melodic-minor': [0, 2, 3, 5, 7, 9, 11],
+  'pentatonic-major': [0, 2, 4, 7, 9],
+  'pentatonic-minor': [0, 3, 5, 7, 10],
+  blues: [0, 3, 5, 6, 7, 10],
+  dorian: [0, 2, 3, 5, 7, 9, 10],
+  mixolydian: [0, 2, 4, 5, 7, 9, 10],
+  whole: [0, 2, 4, 6, 8, 10]
 }
