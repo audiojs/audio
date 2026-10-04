@@ -86,7 +86,7 @@
     "@audio/decode-wav": "^2.0.0",
     "@audio/defeedback": "^1.2.0",
     "@audio/denoise-debreath": "^0.1.8",
-    "@audio/denoise-declick": "^0.1.7",
+    "@audio/denoise-declick": "^0.2.0",
     "@audio/denoise-declip": "^0.1.7",
     "@audio/denoise-decrackle": "^0.1.7",
     "@audio/denoise-dehum": "^0.2.0",
