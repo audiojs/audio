@@ -16,13 +16,15 @@ const pause = () => new Promise(r => setTimeout(r, 1))
 await audio.use('limiter', 'compressor', 'freeverb')
 
 /** Push X in chunks into a live source with `chain` applied, reading its stream concurrently.
- *  `first`: seconds of input pushed when the first output arrived. */
+ *  `first`: seconds of input pushed when the first output arrived. Each chunk goes in once the stream has done what it
+ *  can with the last and waits for more (a slow machine's render time is not the stream's latency). */
 async function live(chain, input = X, ch = 1) {
   let src = audio(null, { sampleRate: SR, channels: ch })
   chain(src)
-  let out = [], first = null, pushed = 0
-  let reader = (async () => { for await (let b of src.stream()) { if (first == null && b[0].length) first = pushed; out.push(...b[0]) } })()
-  for (let o = 0; o < input.length; o += CHUNK) { let c = input.slice(o, o + CHUNK); src.push(ch > 1 ? [c, c.slice()] : c); pushed += c.length; await pause() }
+  let out = [], first = null, pushed = 0, done = false
+  let reader = (async () => { for await (let b of src.stream()) { if (first == null && b[0].length) first = pushed; out.push(...b[0]) } done = true })()
+  let starved = async () => { for (let until = Date.now() + 2000; !done && !src._.waiters?.length && Date.now() < until;) await pause() }
+  for (let o = 0; o < input.length; o += CHUNK) { await starved(); let c = input.slice(o, o + CHUNK); src.push(ch > 1 ? [c, c.slice()] : c); pushed += c.length; await pause() }
   src.stop()
   await reader
   return { out, first: (first ?? pushed) / SR }
