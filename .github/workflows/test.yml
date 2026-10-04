@@ -15,10 +15,12 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npx playwright install --with-deps chromium
-      # a sound device: without one Chromium plays to a fake sink whose clock runs ahead of real time, which the
-      # playback and recording tests measure; a PulseAudio null sink keeps it real time, as on a user's machine
+      - run: npm run test:node
+      # a sound device for the pages: without one Chromium plays to a fake sink whose clock runs ahead of real time,
+      # which the recording and playback tests measure; a PulseAudio null sink keeps it real time, as on a user's
+      # machine. After the Node tests: Node's speaker would play through it too, its latency in their wall clock
       - run: sudo apt-get install -y pulseaudio && pulseaudio --start --exit-idle-time=-1 && pactl info
-      - run: npm run test:all
+      - run: npm run test:pages
         env:
           TEST_PAGES: library
       # real-time playback, clicks and gaps measured as heard: a shared runner misses the audio thread's deadlines now
