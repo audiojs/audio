@@ -37,7 +37,6 @@ const OPS = {
   dereverb: '@audio/denoise-dereverb/audio',
   deplosive: '@audio/denoise-deplosive/audio',
   dewind: '@audio/denoise-dewind/audio',
-  declick: '@audio/denoise-declick/audio',
   declip: '@audio/denoise-declip/audio',
   decrackle: '@audio/denoise-decrackle/audio',
   debreath: '@audio/denoise-debreath/audio',
@@ -268,6 +267,7 @@ import './fn/spectral.js'
 import './fn/vocals.js'
 import './fn/deepfilter.js'
 import './fn/denoise.js'
+import './fn/declick.js'
 import './fn/dither.js'
 import './fn/crossfeed.js'
 import './fn/roomtone.js'

@@ -102,7 +102,8 @@ const table = {
   specsub: ['Repair', 'Reduce noise by spectral subtraction'],
   dehum: ['Repair', 'Remove mains hum'],
   roomtone: ['Repair', 'Fill digital silence with the room tone', [db('threshold', -120, -60, -90)]],
-  declick: ['Repair', 'Remove clicks'],
+  // the clicks found everywhere, or in the selection alone, each rebuilt from around it (fn/declick.js)
+  declick: ['Repair', 'Remove clicks', [p('threshold', 2, 30, 8, '×', { step: .5 }), p('longest', .5, 20, 6, 'ms', { step: .5 }), p('order', 8, 100, 32, '', { step: 1 })]],
   decrackle: ['Repair', 'Remove vinyl crackle'],
   declip: ['Repair', 'Rebuild clipped peaks'],
   dereverb: ['Repair', 'Reduce room echo'],

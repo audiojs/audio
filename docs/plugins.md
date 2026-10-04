@@ -236,7 +236,8 @@ and continues from the result as a reference segment — downstream ops apply to
 processed output, undo unwinds the single edit, and the materialization is cached per
 version. During a live decode the safe limit stays 0 (the whole signal isn't known
 yet); output begins once decode completes. Bounded by the flat-render guard (2³⁰
-samples). Cannot be emitted by `expand`/`resolve`.
+samples). Cannot be emitted by `expand`/`resolve`. A `streaming: false` plugin given `{ at, duration }`
+reads the whole signal and keeps its output in the range alone; the hook gets `ctx.at`/`ctx.duration` to do so itself.
 
 ### sidechain key
 
@@ -474,7 +475,7 @@ audio(4).poly({ notes: [{ time: 0, midi: 60, duration: 1 }, { time: 0, midi: 64,
 Op plugins:
 
 **dynamics** compressor · limiter · gate · expander · deesser · ducker · compand · softclip · leveler · transient-shaper · multiband · fet · opto · varimu · vca —
-**denoise** dehum · specsub · wiener · omlsa · dereverb · deplosive · dewind · declick · declip · decrackle · debreath · rnnoise (optional package: `@audio/neural-denoise`) —
+**denoise** dehum · specsub · wiener · omlsa · dereverb · deplosive · dewind · declip · decrackle · debreath · rnnoise (optional package: `@audio/neural-denoise`) —
 **effects** delay · chorus · flanger · phaser · tremolo · vibrato · autowah · wah · bitcrusher · distortion · exciter · ringmod · freqshift · multitap · pingpong · slew · noiseshaper · lofi · graindelay · stutter · subbass · sbr · rotary · tapestop —
 **reverb** freeverb · schroeder · plate · fdn · spring · shimmer —
 **filter** moog · korg35 · diode · oberheim · resonator · spectral-tilt · variable · comb · dcblocker · emphasis · deemphasis · derivative · integral —

@@ -63,6 +63,8 @@ const EXACT = {
   'repair(50 ms at 1 s)': [a => a.repair({ at: 1, duration: 0.05 }), 1.3],
   'repair(50 ms at -1.5 s)': [a => a.repair({ at: -1.5, duration: 0.05 }), Infinity],
   'repair(1 s at 3.6 s): a transplant searched in the past adds no latency': [a => a.repair({ at: 3.6, duration: 1 }), 2.1],
+  'declick(): a span of 0.74 s with 0.19 s past it': [a => a.declick(), 1.6],
+  'declick(20 ms at 1 s)': [a => a.declick({ at: 1, duration: 0.02 }), 1.6],
   'denoise(noise 0.5 s at 1 s): learned once the range has arrived': [a => a.denoise({ noise: { at: 1, duration: 0.5 } }), 1.7],
   'plugins: limiter, compressor, freeverb': [a => a.limiter().compressor().freeverb(), 0.5],
 }
@@ -251,7 +253,7 @@ const WHOLE = {
   'copy(1, 1).paste(3)': [a => a.copy(1, 1).paste(3), 'clipboard captures at the end of decode'],
   // registry atoms declared streaming: false, for their batch kernels (whole-signal oversampling,
   // state built per call, one-call synthesis); each moves out as its atom gains a streaming form
-  ...Object.fromEntries(['softclip', 'leveler', 'auto', 'declick', 'declip', 'decrackle', 'debreath', 'tapestop', 'tube', 'fm', 'modal', 'surround', 'paulstretch', 'pitch-shift', 'tune', 'plate', 'fdn', 'spring', 'shimmer', 'multiband', 'dyneq', 'tape', 'transistor', 'waveshaper', 'multisat', 'amp', 'cabinet', 'noise', 'chirp', 'pluck', 'risset', 'rhythm', 'sfx', 'kick', 'cymbal', 'snare', 'adsr', 'voice', 'poly', 'stretch-pvoc-lock', 'stretch-pvoc', 'stretch-pghi', 'stretch-wsola', 'stretch-psola', 'stretch-sms', 'stretch-transient', 'stretch-hybrid', 'stretch-paul'].map(n => [`${n}()`, [a => a[n](), 'atom declared streaming: false']])),
+  ...Object.fromEntries(['softclip', 'leveler', 'auto', 'declip', 'decrackle', 'debreath', 'tapestop', 'tube', 'fm', 'modal', 'surround', 'paulstretch', 'pitch-shift', 'tune', 'plate', 'fdn', 'spring', 'shimmer', 'multiband', 'dyneq', 'tape', 'transistor', 'waveshaper', 'multisat', 'amp', 'cabinet', 'noise', 'chirp', 'pluck', 'risset', 'rhythm', 'sfx', 'kick', 'cymbal', 'snare', 'adsr', 'voice', 'poly', 'stretch-pvoc-lock', 'stretch-pvoc', 'stretch-pghi', 'stretch-wsola', 'stretch-psola', 'stretch-sms', 'stretch-transient', 'stretch-hybrid', 'stretch-paul'].map(n => [`${n}()`, [a => a[n](), 'atom declared streaming: false']])),
 }
 
 for (let [call, [chain, why]] of Object.entries(WHOLE)) test(`stream: waits for the whole input: ${call} (${why})`, async t => {

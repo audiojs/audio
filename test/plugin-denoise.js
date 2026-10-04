@@ -155,7 +155,7 @@ test('dewind: cuts LF rumble >=3x, adaptive high-pass', async () => {
 
 
 // ════════════════════════════════════════════════════════════════════════════
-// Whole-render (streaming: false) modules — declick, declip, decrackle, debreath.
+// Whole-render (streaming: false) modules — declip, decrackle, debreath.
 // Each needs the entire signal in one process() call (AR reconstruction using both
 // left AND right context, or a global VAD floor over the full buffer) — see each
 // package's audio.js header for the specific reason. The host's whole-render
@@ -170,26 +170,71 @@ test('dewind: cuts LF rumble >=3x, adaptive high-pass', async () => {
 // property assertions, not tolerant placeholders — nothing here is pending.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { declick } from '@audio/denoise-declick/audio'
 import { declip } from '@audio/denoise-declip/audio'
 import { decrackle } from '@audio/denoise-decrackle/audio'
 import { debreath } from '@audio/denoise-debreath/audio'
-audio.use(declick, declip, decrackle, debreath)
+audio.use(declip, decrackle, debreath)
 
-test('declick (streaming:false): removes an inserted click, leaves clean speech alone', async () => {
-	let speech = lena.subarray(0, SR * 2)
-	let dirty = new Float32Array(speech)
-	for (let k = 0; k < 8; k++) dirty[Math.floor((k + 1) * dirty.length / 9)] += (k & 1 ? -1 : 1) * 0.9
-	let out = (await audio.from([dirty.slice()], { sampleRate: SR }).declick().read())[0]
-	is(out.length, dirty.length, 'equal frames in/out (whole buffer)')
-	ok(out.every(isFinite))
-	let peakDirty = peak(dirty), peakClean = peak(out)
-	ok(peakClean < peakDirty * 0.9, `defining property: click peak reduced (${peakDirty.toFixed(3)} -> ${peakClean.toFixed(3)})`)
+// declick is the library's own op (fn/declick.js): the kernel over spans of the stream, or the clicks in a range
+// a tick as a stylus reads one: an impulse ringing at 5 kHz, decaying in 0.2 ms, at 5× the speech around it
+function ticked(x) {
+	let d = new Float32Array(x), at = []
+	for (let t = Math.round(0.3 * SR); t < x.length - 0.3 * SR; t += Math.round(0.3 * SR)) {
+		let level = rms(x, t - 441, t + 441), tau = 0.2 * SR / 1000
+		for (let n = 0; n < 5 * tau; n++) d[t + n] += 5 * level * Math.exp(-n / tau) * Math.cos(2 * Math.PI * 5000 * n / SR)
+		at.push(t)
+	}
+	return { d, at }
+}
+const err = (x, y, ats) => { let s = 0; for (let t of ats) for (let i = t - 44; i < t + 88; i++) s += (x[i] - y[i]) ** 2; return s }
 
-	let clean = (await audio.from([speech.slice()], { sampleRate: SR }).declick({ threshold: 6 }).read())[0]
-	let err = 0
-	for (let i = 0; i < speech.length; i++) err += (clean[i] - speech[i]) ** 2
-	ok(Math.sqrt(err / speech.length) < 0.01, 'clean speech left largely untouched at conservative threshold')
+test('declick: the ticks gone, the same rendered from anywhere as whole, clean speech untouched', async () => {
+	let speech = lena.subarray(0, SR * 4), { d, at } = ticked(speech)
+	let { default: kernel } = await import('@audio/denoise-declick')
+	let out = (await audio.from([d.slice()], { sampleRate: SR }).declick().read())[0]
+	is(out.length, d.length, 'equal frames in/out')
+	let down = 10 * Math.log10(err(d, speech, at) / err(out, speech, at))
+	ok(down > 12, `the ticks' error ${down.toFixed(1)} dB down`)
+	let whole = kernel(d.slice(), { fs: SR })
+	ok(out.every((v, i) => v === whole[i]), 'streamed in spans ≡ the kernel over the whole')
+	let part = (await audio.from([d.slice()], { sampleRate: SR }).declick().read({ at: 1.7, duration: 1 }))[0], o = Math.round(1.7 * SR)
+	ok(part.every((v, i) => v === out[o + i]), 'a render from 1.7 s ≡ the whole one there')
+	let clean = (await audio.from([speech.slice()], { sampleRate: SR }).declick().read())[0]
+	ok(clean.every((v, i) => v === speech[i]), 'clean speech: not a sample changed')
+})
+
+test('declick({ at, duration }): the clicks in the range, nothing else', async () => {
+	let speech = lena.subarray(0, SR * 4), { d, at } = ticked(speech), t = at[4]
+	let out = (await audio.from([d.slice()], { sampleRate: SR }).declick({ at: (t - 300) / SR, duration: 800 / SR }).read())[0]
+	ok(err(out, speech, [t]) < err(d, speech, [t]) / 10, 'the tick there gone')
+	let moved = []; for (let i = 0; i < d.length; i++) if (out[i] !== d[i]) moved.push(i)
+	ok(moved.length && moved[0] >= t - 300 - 300 && moved.at(-1) < t + 500 + 300, `only around it: ${moved[0] - t}..${moved.at(-1) - t} samples from the tick`)
+	// stereo, each channel its own; a sound shorter than the kernel's spans
+	let [l, r] = await audio.from([d.slice(0, 3000), d.slice(0, 3000)], { sampleRate: SR }).declick().read()
+	ok(l.length === 3000 && l.every((v, i) => v === r[i]), 'short stereo')
+})
+
+test('declick: a click across a span\'s edge, a sound that ends on one, a range counted from the end', async () => {
+	// spans of 16 windows of 2048 at 44.1 kHz: a tick 10 samples before the first edge, the sound two spans long
+	let H = 16 * 2048, speech = lena.subarray(0, 2 * H), d = new Float32Array(speech), t = H - 10, level = rms(speech, t - 441, t + 441)
+	for (let n = 0; n < 44; n++) d[t + n] += 5 * level * Math.exp(-n / 8.8) * Math.cos(2 * Math.PI * 5000 * n / SR)
+	let { default: kernel } = await import('@audio/denoise-declick')
+	let out = (await audio.from([d.slice()], { sampleRate: SR }).declick().read())[0], whole = kernel(d.slice(), { fs: SR })
+	ok(out.length === d.length && out.every((v, i) => v === whole[i]), 'streamed ≡ the kernel over the whole')
+	ok(err(out, speech, [t]) < err(d, speech, [t]) / 10, 'the tick across the edge gone')
+	let end = (await audio.from([d.slice()], { sampleRate: SR }).declick({ at: -(2 * H - t + 300) / SR, duration: 800 / SR }).read())[0]
+	ok(end.every((v, i) => v === out[i]), 'its range counted from the end: the same')
+})
+
+// a whole-render module given a range reads all of it and changes only there
+test('decrackle({ at, duration }): only the range changes', async () => {
+	let d = new Float32Array(lena.subarray(0, SR * 2))
+	for (let i = 0; i < d.length; i += 256) d[i] += 0.4
+	let [y] = await audio.from([d.slice()], { sampleRate: SR }).decrackle({ at: 0.5, duration: 0.5 }).read(), moved = []
+	for (let i = 0; i < d.length; i++) if (y[i] !== d[i]) moved.push(i)
+	ok(moved.length > 0 && moved[0] >= SR * 0.5 && moved.at(-1) < SR, `changed ${moved[0] / SR}–${moved.at(-1) / SR} s`)
+	let [z] = await audio.from([d.slice()], { sampleRate: SR }).decrackle({ at: -0.5 }).read(), first = z.findIndex((v, i) => v !== d[i])
+	ok(first >= SR * 1.5, `counted from the end: from ${first / SR} s`)
 })
 
 test('declip (streaming:false): reconstructs a clipped sine closer to the unclipped reference', async () => {
@@ -235,10 +280,10 @@ test('debreath (streaming:false): attenuates the VAD-inactive region, preserves 
 })
 
 test('whole-render op on a file source waits decode out (was: 0 samples / save crash)', async () => {
-	let out = (await audio('test/fixture.wav').declick().read())
+	let out = (await audio('test/fixture.wav').decrackle().read())
 	ok(out[0].length > 40000, `read renders the full timeline (${out[0].length})`)
 	let a = audio('test/fixture.wav')
-	a.wiener().declick()
+	a.wiener().decrackle()
 	let bytes = await a.read({ format: 'wav' })
 	ok(bytes.length > 40000, `streaming→whole chain renders through save/encode path (${bytes.length}B)`)
 })

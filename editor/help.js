@@ -19,7 +19,7 @@ export const layouts = {
   omlsa: 'gMin | alphaDD qPrior xiFloor',
   deplosive: 'attenuation triggerRatio crossover | attack release',
   dewind: 'cutoffMin cutoffMax | order Q attack release',
-  declick: 'threshold | guard maxBurst order windowSize hopSize',
+  declick: 'threshold | longest order',
   decrackle: 'threshold | guard maxBurst order windowSize hopSize',
   declip: 'clipLevel | maxRun context order',
   debreath: 'range snrTh | flatTh attack release',
@@ -400,12 +400,9 @@ export const texts = {
     threshold: 'Silence level. Stretches quieter than this count as digital silence and are filled with the recording\'s own room tone.'
   },
   declick: {
-    threshold: 'Detection threshold. How big a spike must be, next to the sound\'s usual roughness, to count as a click. Lower finds more clicks (and may nibble the sound); higher finds only loud ones. Reverse of a sensitivity knob.',
-    guard: 'Click widening. How many extra samples either side of a click are rebuilt along with it. Raise it when faint ticks remain at the edges of a repair.',
-    maxBurst: 'Longest repair, in samples. A damaged stretch longer than this is taken for real sound and left alone.',
-    order: 'Model detail. How many earlier samples are used to predict the sound, so a click stands out from it. Higher follows pitched sound more closely and runs slower.',
-    windowSize: 'Analysis window, in samples. The sound is judged against its own pattern within each window. Longer is steadier; shorter follows quick changes.',
-    hopSize: 'How far the window moves each time, in samples. Smaller keeps each click near the middle of a window, where judging is most reliable, but takes longer.'
+    threshold: 'Detection threshold. How far a click must stand out of the sound around it, in multiples of its usual unpredictability. Lower finds fainter clicks (and may nibble the sound); higher, only loud ones.',
+    longest: 'Longest click rebuilt, in milliseconds. A burst longer than this is taken for real sound and left alone, unless it is in the selection.',
+    order: 'Model detail. How many earlier samples predict the next, so a click stands out from what the sound would do. Higher follows pitched sound more closely and runs slower.'
   },
   decrackle: {
     threshold: 'Detection threshold. How big a pop must be, next to the sound\'s usual roughness, to count as crackle. Lower finds more, and may nibble the sound; higher finds only the clear ones. Reverse of a sensitivity knob.',

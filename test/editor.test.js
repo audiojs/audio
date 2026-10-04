@@ -1094,7 +1094,7 @@ test('editor: a card\'s settings say what they do; the engine\'s own wait under 
   // moving one writes it into the code, where it is set
   await more.click()
   await page.locator('.step.open .param', { hasText: 'longest' }).locator('input').fill('250')
-  await page.waitForFunction(() => /declick\(\{ longest: \d/.test(scriptText()))
+  await page.waitForFunction(() => /declick\(8, \d/.test(scriptText()))
   // set in the code, one opens the fold with its card (decrackle was never open here); none set, it is folded
   await write(`audio('chime.wav').decrackle({ guard: 3 })`)
   await reopen('Decrackle')
@@ -4204,6 +4204,24 @@ test('editor: the context menu, or K, keeps only the selection', async () => {
   await page.keyboard.press('k')
   await page.waitForFunction(() => /\.crop\(\{ at: 5(\.0\d*)?, d: 1(\.0\d*)? \}\)$/.test(scriptText().trim()))
   await lengthIs('0:01.000')
+})
+
+// A click seen on the picture: selected, the context menu takes the clicks out there alone (declick over the range), or
+// rebuilds all of it from around it (repair); the length kept
+test('editor: the context menu takes the clicks out of the selection, or rebuilds it', async () => {
+  await open()
+  await noCues()
+  await write(`audio('chime.wav')`)
+  await lengthIs('0:08.000')
+  const { box, x } = await axis(8), y = box.y + box.height * .3
+  await drag([x(2), y], [x(4) - x(2), 0])
+  await page.mouse.click(x(3), y, { button: 'right' })
+  await menuRow('Remove the clicks here').click()
+  await page.waitForFunction(() => /\.declick\(\{ at: 2(\.0\d*)?, d: 2(\.0\d*)? \}\)$/.test(scriptText().trim()))
+  await page.mouse.click(x(3), y, { button: 'right' })
+  await menuRow('Rebuild from around it').click()
+  await page.waitForFunction(() => /\.repair\(\{ at: 2(\.0\d*)?, d: 2(\.0\d*)? \}\)$/.test(scriptText().trim()))
+  await lengthIs('0:08.000')
 })
 
 // With nothing selected, the square past the caret, where a selection's stretch square is, pulls silence open there:

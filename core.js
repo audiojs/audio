@@ -588,6 +588,13 @@ function useOp(m) {
         if (noteIn && ctx.notes) st.mctx.events = noteSlots(ctx.notes, ctx.sampleRate)
         fill(st, ctx)
         st.process([input], [output], st.live)
+        // a range: the module reads all of it, its output kept there alone (one that renders in place, channel for
+        // channel: a time-stretch's range is its frames hook's)
+        if ((ctx.at != null || ctx.duration != null) && !frames && output.length === input.length) {
+          let n = input[0].length, at = ctx.at ?? 0, a = Math.max(0, Math.min(n, Math.round((at < 0 ? ctx.totalDuration + at : at) * ctx.sampleRate)))
+          let b = ctx.duration == null ? n : Math.min(n, a + Math.round(ctx.duration * ctx.sampleRate))
+          for (let c = 0; c < output.length; c++) { output[c].set(input[c].subarray(0, a)); output[c].set(input[c].subarray(b), b) }
+        }
       }
     })
   }
