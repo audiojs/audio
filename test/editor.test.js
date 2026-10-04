@@ -3830,6 +3830,8 @@ test('editor: a selection\'s grip only stretches it, its pill dragged up only se
   assert.doesNotMatch(await code(), /gain/)
   await page.keyboard.press('ControlOrMeta+Z')
   await page.waitForFunction(() => !scriptText().includes('stretch'))
+  // the 8 s output back in view before selecting on it: x() maps 8 s, and the 9 s stretched one may still show
+  await lengthIs('0:08.000')
   await select()
   await drag(await grab([[(x(2.2) + x(4.2)) / 2, box.y + 4]], 'ns-resize'), [60, -80])
   await page.waitForFunction(() => /\.gain\(\{ t: \[2\.2, 2\.205, 4\.195, 4\.2\], v: \[0, [\d.]+, [\d.]+, 0\] \}\)$/.test(scriptText()))

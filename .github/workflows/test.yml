@@ -12,7 +12,10 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
+      # onnxruntime-node fetches its CUDA build from NuGet on Linux unless told: no GPU here, and a slow fetch failed the run
       - run: npm ci
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:node
