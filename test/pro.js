@@ -527,7 +527,8 @@ test('aliases: d is duration and xfade crossfade, everywhere; the long name wins
 
 // What a file is (its rate, its channels) is known once its header is read: a stat asked of a file just opened reads
 // it first, so it measures as it would once loaded; an op on a channel the audio hasn't says so
-test('a file just opened: its dialog and noise floor, a registry op encoded; an op on a channel it hasn\'t', async t => {
+// five files decoded and two plugins loaded: past tst's 5 s on a CI runner running the suites side by side
+test('a file just opened: its dialog and noise floor, a registry op encoded; an op on a channel it hasn\'t', { timeout: 30000 }, async t => {
   let loaded = await audio(lena)
   t.is(await audio(lena).stat('dialog'), await loaded.stat('dialog'), 'dialog')
   t.ok(Number.isFinite(await audio(lena).stat('dialog')), 'speech found')
