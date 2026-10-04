@@ -5196,7 +5196,10 @@ test('editor: the record button records over the sound from the caret, into the 
 
 // Recorded with the spectrogram shown, the take is drawn as one: its columns on the spectrogram's layer where it goes, no
 // waveform on the waveform's. The fake microphone (Chromium's --use-fake-device-for-media-stream) beeps each second.
-test('editor: recording with the spectrogram shown draws the take as a spectrogram', async () => {
+test('editor: recording with the spectrogram shown draws the take as a spectrogram', async t => {
+  // real time on software GL: headless Chromium draws the live spectrogram on the CPU as the take grows, which a CI
+  // runner's few cores can't keep up with (a click on Stop waited past 30 s). CI runs it apart, as advice (test.yml)
+  if (process.env.CI) return t.skip('real time on software GL: CI runs it apart')
   await open()
   await noCues()
   await write(`audio('chime.wav')`)
