@@ -47,16 +47,22 @@ AudioNode.prototype.connect = function (target, ...rest) {
 }
 let chunks = []
 rec.port.onmessage = e => chunks.push(e.data)
-// channel c of what reached the destination over context frames [f0, f1)
+// channel c of what reached the destination over context frames [f0, f1), and which of them the recorder had (heard):
+// not those the host never rendered (a busy machine drops quanta, currentFrame jumping), nor the last few not posted
+// yet. The measures below leave those out: a host's dropout is no click of the deck's
+const heards = new WeakMap()
 const tape = (f0, f1, c = 0) => {
   f0 = Math.floor(f0); f1 = Math.floor(f1)
-  let out = new Float32Array(Math.max(0, f1 - f0))
+  let out = new Float32Array(Math.max(0, f1 - f0)), had = new Uint8Array(out.length)
   for (let k of chunks) {
     let a = Math.max(f0, k.frame), b = Math.min(f1, k.frame + k.ch[0].length)
-    if (a < b) out.set((k.ch[c] || k.ch[0]).subarray(a - k.frame, b - k.frame), a - f0)
+    if (a < b) out.set((k.ch[c] || k.ch[0]).subarray(a - k.frame, b - k.frame), a - f0), had.fill(1, a - f0, b - f0)
   }
+  heards.set(out.buffer, had)
   return out
 }
+// which samples of x (a tape, or part of one) were heard; all of any other array
+const heard = x => heards.get(x.buffer)?.subarray(x.byteOffset / 4, x.byteOffset / 4 + x.length) ?? new Uint8Array(x.length).fill(1)
 const recorded = f => chunks.length && chunks.at(-1).frame + chunks.at(-1).ch[0].length > f
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -71,10 +77,10 @@ const heardAt = f => { let s = stamp(); return s.performanceTime + (f / sr - s.c
 // where there is sound
 const sounding = (x, floor = 1e-4) => [x.findIndex(v => Math.abs(v) > floor), x.findLastIndex(v => Math.abs(v) > floor)]
 // the largest second difference: a sine of amplitude A at f Hz has A·(2πf/sr)²; a gap or a click has orders more
-const bend = (x, from = 1, to = x.length - 1) => { let m = 0, at = 0; for (let i = Math.max(1, from); i < Math.min(to, x.length - 1); i++) { let d = Math.abs(x[i + 1] - 2 * x[i] + x[i - 1]); if (d > m) { m = d; at = i } } bend.at = at; return m }
+const bend = (x, from = 1, to = x.length - 1) => { let m = 0, at = 0, h = heard(x); for (let i = Math.max(1, from); i < Math.min(to, x.length - 1); i++) { if (!(h[i - 1] & h[i] & h[i + 1])) continue; let d = Math.abs(x[i + 1] - 2 * x[i] + x[i - 1]); if (d > m) { m = d; at = i } } bend.at = at; return m }
 const sineBend = (f, A) => A * (2 * Math.PI * f / sr) ** 2
 // the quietest 128 frames (a gap is silent): the smallest block peak
-const hollow = x => { let m = Infinity; for (let i = 0; i + 128 <= x.length; i += 128) { let p = 0; for (let j = i; j < i + 128; j++) p = Math.max(p, Math.abs(x[j])); m = Math.min(m, p) } return m }
+const hollow = x => { let m = Infinity, h = heard(x); for (let i = 0; i + 128 <= x.length; i += 128) { if (h.subarray(i, i + 128).includes(0)) continue; let p = 0; for (let j = i; j < i + 128; j++) p = Math.max(p, Math.abs(x[j])); m = Math.min(m, p) } return m }
 const peakOf = x => x.reduce((m, v) => Math.max(m, Math.abs(v)), 0)
 const sine = (f, A, d, rate = 44100) => audio.from(t => A * Math.sin(2 * Math.PI * f * t), { duration: d, sampleRate: rate })
 const ended = a => new Promise(r => a.on('ended', r))

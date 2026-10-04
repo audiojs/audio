@@ -94,9 +94,12 @@ async function run(url, timeout) {
   }
 }
 
+// TEST_PAGES picks them (library, playback): playback measures clicks in real time, which a shared CI runner, missing
+// the audio thread's deadlines, can't promise; CI runs it apart, as advice
+const pages = (process.env.TEST_PAGES || 'library,playback').split(',')
 try {
-  await run('/', 60000)
-  await run('/test/play.html', 120000)
+  if (pages.includes('library')) await run('/', 60000)
+  if (pages.includes('playback')) await run('/test/play.html', 120000)
 } finally {
   await browser.close()
   server.close()
