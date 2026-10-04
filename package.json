@@ -256,7 +256,7 @@
   "devDependencies": {
     "@audio/mir-chordino": "^1.0.0",
     "@audio/mir-nnls-chroma": "^1.0.0",
-    "@audio/neural-denoise": "^0.1.0",
+    "@audio/neural-denoise": "^0.2.0",
     "@audio/neural-pitch": "^0.1.0",
     "@audio/neural-separate": "^0.1.0",
     "@audio/neural-transcribe": "^0.1.0",
@@ -272,7 +272,7 @@
     "@lezer/javascript": "^1.5.5",
     "audio-lena": "^3.0.0",
     "esbuild": "^0.28.0",
-    "gl-spectrogram": "^2.0.0",
+    "gl-spectrogram": "^2.1.0",
     "gl-waveform": "^5.0.0",
     "onnxruntime-node": "^1.29.0",
     "onnxruntime-web": "^1.30.0",
@@ -293,7 +293,7 @@
   "peerDependencies": {
     "@audio/mir-chordino": "^1.0.0",
     "@audio/mir-nnls-chroma": "^1.0.0",
-    "@audio/neural-denoise": "^0.1.0",
+    "@audio/neural-denoise": "^0.2.0",
     "@audio/neural-pitch": "^0.1.0",
     "@audio/neural-separate": "^0.1.0",
     "@audio/neural-transcribe": "^0.1.0"
