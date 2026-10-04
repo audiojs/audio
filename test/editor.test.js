@@ -5275,7 +5275,9 @@ test('editor: recording with the spectrogram shown draws the take as a spectrogr
 })
 
 // A take is drawn as the output holding it will be: the spectrogram at the levels the output's will have (the loudest
-// cell, here the take's own), the waveform in its fill and colour; stopped, the same pixels light the same
+// cell, here the take's own), the waveform in its fill and colour; stopped, the same pixels light the same. Within 10%:
+// the loudest cell is a beep's, and how loud depends on how that beep's frames align, so the take's levels can move a
+// little once it is whole (two runs' outputs differ by up to 6%; a slow runner's take gets more beeps before the stop)
 test('editor: a take draws while it records as its output does after', async () => {
   const looks = [['spec'], ['wave'], ['wave', { Colour: 'Temperature', Fill: 'RMS' }]]
   for (const [view, wave] of looks) {
@@ -5307,7 +5309,7 @@ test('editor: a take draws while it records as its output does after', async () 
     await page.waitForTimeout(300)
     const after = await mean(), off = Math.hypot(...during.map((v, k) => v - after[k])) / Math.hypot(...after)
     assert.ok(Math.hypot(...after) > 5, `${view}: the output drawn (${after})`)
-    assert.ok(off < .05, `${view} ${JSON.stringify(wave ?? {})}: ${during.map(v => v.toFixed(1))} while recording, ${after.map(v => v.toFixed(1))} after`)
+    assert.ok(off < .1, `${view} ${JSON.stringify(wave ?? {})}: ${during.map(v => v.toFixed(1))} while recording, ${after.map(v => v.toFixed(1))} after`)
   }
 })
 
