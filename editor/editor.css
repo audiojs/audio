@@ -185,34 +185,42 @@ svg { flex: none; }
    what it is set to. The one chosen unfolds to its settings, the output shown up to it, and the steps after it dim; so
    does a step turned off. The one heard for what it takes out is ringed. */
 .steps { flex: 1; min-height: 0; overflow: hidden auto; padding: 4px 10px 8px; }
-/* cards apart by the spacing token, as wide as the panel: what they say is cut short, never widening them */
-.steps-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-xs); margin: 0; padding: 0; list-style: none; }
-.step { position: relative; min-width: 0; border-radius: 10px; background: var(--color-screen-fill); transition: background var(--dur-micro) var(--ease-out), opacity var(--dur-micro) var(--ease-out); }
+/* rows as a layers panel's, close together, as wide as the panel: what they say is cut short, never widening them; a
+   row's own ground only where it is pointed at, chosen or open */
+.steps-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; margin: 0; padding: 0; list-style: none; }
+.step { position: relative; min-width: 0; border-radius: 6px; background: none; transition: background var(--dur-micro) var(--ease-out), opacity var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out); }
+/* dragged along the others, held under the pointer over them */
+.step.dragging { z-index: 1; transition: none; background: var(--color-screen-raised); box-shadow: var(--shadow-lifted); }
 .step:hover { background: var(--color-screen-fill-hover); }
 /* a group's steps, unfolded under its card, set in as an outline sets them */
-.step.grouped { margin-left: 14px; }
+.step.grouped { margin-left: 16px; }
+/* picked with Shift, to be made a group (Mod-G) */
+.step.picked { box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-screen-accent) 55%, transparent); }
+.step.open { background: var(--color-screen-fill); }
 .step-group .step-toggle[aria-expanded="true"] .step-icon { color: var(--color-screen-accent); }
 .step.chosen { background: var(--color-screen-fill-chosen); }
 .step.delta { box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-screen-accent) 70%, transparent); }
-.step.off .step-toggle, .step.rolled { opacity: .42; }
-.step-head { position: relative; display: flex; align-items: center; min-height: 42px; }
-.step-toggle { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; min-height: 42px; padding: 0 12px; border: 0; background: none; text-align: left; }
+.step.off .step-toggle, .step.off .params, .step.rolled { opacity: .42; }
+.step-head { position: relative; display: flex; align-items: center; min-height: 28px; }
+.step-toggle { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; min-height: 28px; padding: 0 8px; border: 0; background: none; text-align: left; }
 /* its icon, its kind's (ops.js), as the palette shows it */
-.step-icon { flex: none; width: 17px; height: 17px; color: var(--color-screen-muted); }
+.step-icon { flex: none; width: 14px; height: 14px; color: var(--color-screen-muted); }
 .step.chosen .step-icon, .step-toggle:hover .step-icon { color: var(--color-screen-accent); }
-.step-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-screen-ink); font: 600 14px var(--font-body); letter-spacing: -.01em; }
+.step-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-screen-ink); font: 500 12.5px var(--font-body); letter-spacing: -.005em; }
 .step.chosen .step-name, .step-toggle:hover .step-name { color: var(--color-screen-bright); }
 /* what it is set to, as far as the card's edge */
-.step-args { flex: 1; min-width: 0; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; color: var(--color-screen-muted); font: 11px var(--font-mono); font-variant-numeric: tabular-nums; }
+.step-args { flex: 1; min-width: 0; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; color: var(--color-screen-muted); font: 10.5px var(--font-mono); font-variant-numeric: tabular-nums; }
 /* open, its settings say what it is set to */
 .step.open .step-args { visibility: hidden; }
-/* its two acts, its eye and ×, over the card's right end where the pointer is (and while it is off, to turn it on),
+/* its two acts, its switch and ×, over the card's right end where the pointer is (and while it is off, to turn it on),
    what it is set to fading out under them */
 .step-acts { position: absolute; top: 50%; right: 6px; display: flex; gap: 2px; translate: 0 -50%; opacity: 0; transition: opacity var(--dur-micro) var(--ease-out); }
 .step-head:hover .step-acts, .step-acts:focus-within, .step.off .step-acts { opacity: 1; }
 .step-head:hover .step-args, .step.off .step-args { mask-image: linear-gradient(to left, transparent 58px, #000 86px); }
-.step-acts .icon-button { width: 26px; height: 26px; border-radius: 6px; }
-.step-acts .icon-button svg { width: 15px; height: 15px; }
+.step-acts .icon-button { width: 22px; height: 22px; border-radius: 5px; }
+/* a group named anew, where its name was */
+.step-rename { flex: 1; min-width: 0; height: 20px; margin: 0; padding: 0 4px; border: 1px solid var(--color-screen-muted); border-radius: 4px; background: var(--color-screen); color: var(--color-screen-bright); font: 500 12.5px var(--font-body); }
+.step-acts .icon-button svg { width: 13px; height: 13px; }
 /* open, what it takes out: heard and drawn */
 .params .step-delta { justify-self: start; min-height: 24px; padding: 0 9px; border: 1px solid var(--color-screen-rule); border-radius: 6px; background: none; color: var(--color-screen-muted); font: 11.5px var(--font-body); }
 .params .step-delta:hover { color: var(--color-screen-bright); border-color: var(--color-screen-muted); }
@@ -224,17 +232,17 @@ svg { flex: none; }
 .params .step-more svg { width: 13px; height: 13px; transition: rotate var(--dur-micro) var(--ease-out); }
 .params .step-more[aria-expanded="true"] svg { rotate: 90deg; }
 .params .step-more span { color: var(--color-screen-dim); font: 10.5px var(--font-mono); }
-.step-toggle:focus-visible { outline: 1px solid var(--color-screen-muted); outline-offset: -1px; border-radius: 10px; }
+.step-toggle:focus-visible { outline: 1px solid var(--color-screen-muted); outline-offset: -1px; border-radius: 8px; }
 /* none yet; and the button that takes them all away, at the foot */
 /* at the edits' foot, the palette: another step */
-.add-step { display: flex; flex: none; align-items: center; gap: 10px; width: 100%; min-height: 40px; margin: 6px 0 0; padding: 0 12px; border: 0; border-radius: 10px; background: none; color: var(--color-screen-muted); font-size: 13px; }
+.add-step { display: flex; flex: none; align-items: center; gap: 8px; width: 100%; min-height: 28px; margin: 4px 0 0; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--color-screen-muted); font-size: 12.5px; }
 .add-step:hover { background: var(--color-screen-fill); color: var(--color-screen-bright); }
-.add-step svg { width: 16px; height: 16px; }
+.add-step svg { width: 14px; height: 14px; }
 .add-step > span { flex: 1; text-align: left; }
 .panel-button { flex: none; min-height: 36px; margin: 4px 10px 12px; border: 0; border-radius: 10px; background: var(--color-screen-fill); color: var(--color-screen-muted); font-size: 13px; }
 .panel-button:hover:not(:disabled) { background: var(--color-screen-fill-chosen); color: var(--color-screen-bright); }
 /* its settings: a name and a value, the slider across under them */
-.params { display: grid; gap: 6px; padding: 0 14px 12px 30px; color: var(--color-screen-soft); }
+.params { display: grid; gap: 6px; padding: 2px 10px 10px 30px; color: var(--color-screen-soft); }
 .params.none { color: var(--color-screen-dim); font-size: 11px; }
 .param { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 8px; }
 .param label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-screen-muted); font: 11px var(--font-mono); }
@@ -260,7 +268,9 @@ svg { flex: none; }
 /* Above the picture: the open sounds on the left, a tab each, the one shown raised; how it shows on the right */
 .view-head { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 4px 0 0 8px; }
 .files { display: flex; flex: 1; align-items: center; gap: 2px; min-width: 0; }
-.file { display: flex; flex: 0 1 auto; align-items: center; min-width: 48px; max-width: 220px; height: 28px; padding: 0 3px 0 10px; border-radius: 7px; color: var(--color-screen-dim); }
+.files-list { display: flex; flex: 0 1 auto; align-items: center; gap: 2px; min-width: 0; overflow: auto hidden; scrollbar-width: thin; scrollbar-color: transparent transparent; }
+.files-list:hover { scrollbar-color: var(--color-screen-rule) transparent; }
+.file { display: flex; flex: none; align-items: center; max-width: 220px; height: 28px; padding: 0 3px 0 10px; border-radius: 7px; color: var(--color-screen-dim); }
 .file:hover { background: var(--color-screen-hover); color: var(--color-screen-soft); }
 /* dragged along, held under the pointer, the others stepping aside */
 /* a neighbour giving way to a tab dragged slides aside at once, as quickly as a finger moves */
@@ -478,7 +488,7 @@ svg { flex: none; }
 @media (hover: none) { .chat-drop { opacity: 1; } }
 .chat-error { display: block; margin-top: 4px; color: var(--color-screen-error); font-size: 12px; }
 .chat-form { display: flex; flex: none; align-items: flex-end; gap: 8px; padding: 8px 14px 0; }
-.chat-form textarea { flex: 1; min-height: 40px; padding: 9px 12px; resize: none; line-height: 1.4; }
+.chat-form textarea { flex: 1; min-height: 40px; max-height: 40vh; padding: 9px 12px; resize: none; line-height: 1.4; field-sizing: content; }
 .chat-send { display: grid; flex: none; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 9px; background: var(--color-screen-bright); color: var(--color-screen); }
 .chat-send:disabled { background: var(--color-screen-fill-off); color: var(--color-screen-dim); }
 .chat-send svg { width: 17px; height: 17px; }

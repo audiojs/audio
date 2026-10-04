@@ -13,8 +13,9 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import wav from '@audio/encode-wav'
 import audio from '../audio.js'
-import { prepare, error, chain, append, source, callAt, setArg, cli, groups, steps, dropStep, moveStep } from '../editor/code.js'
-import { ops, guides, previews } from '../editor/ops.js'
+import { prepare, error, chain, append, source, callAt, setArg, cli, groups, steps, dropStep, moveStep, moveLines, group, ungroup, renameGroup, turnOff, turnOn } from '../editor/code.js'
+import { ops, guides, previews, SCALES } from '../editor/ops.js'
+import { SCALES as NOTE_SCALES, snapMidi } from '@audio/note'
 import { help, layout, layouts, texts } from '../editor/help.js'
 import { boxed } from '../editor/player.js'
 import opIcons from '../editor/icons.js'
@@ -333,6 +334,34 @@ test('markdown: an agent\'s answer as GitHub shows it, nothing in it markup of i
   assert.equal(md('line  \nbreak'), '<p>line<br>break</p>')
 })
 
+// Layers, as the edits panel moves them: a step before or after another, set in as that one is, so into a group or out of
+// one; a group moved whole among the steps outside groups; steps made a group under a comment of its name, the group
+// unmade or named anew; a step put in right after another (append's `after`); a step turned off and on by its comment
+// marks alone, its text where it was
+test('code: layers moved by their lines, made a group, unmade, named; a step put in after another; turned off by its marks', () => {
+  const apply = (code, change) => [change].flat().sort((p, q) => q.from - p.from).reduce((c, x) => c.slice(0, x.from) + (x.insert ?? '') + c.slice(x.to ?? x.from), code)
+  const a = `audio('a.wav')\n  .gain(-3)\n  .reverse()\n  .highpass(80)\n  .fade(1)`, at = (code, name) => { const s = steps(code).find(s => s.name === name).call; return { from: s.from, to: s.to } }
+  const g = apply(a, group(a, 1, 2, 'Montage'))
+  assert.equal(g, `audio('a.wav')\n  .gain(-3)\n  // Montage\n    .reverse()\n    .highpass(80)\n  .fade(1)`)
+  assert.deepEqual(groups(g).map(x => x.name), ['Montage'])
+  assert.equal(group(g, 0, 1), null, 'not across a group')
+  const [m] = groups(g)
+  assert.equal(apply(g, moveLines(g, at(g, 'fade'), m, { into: true })), `audio('a.wav')\n  .gain(-3)\n  // Montage\n    .fade(1)\n    .reverse()\n    .highpass(80)`, 'into the group, first')
+  assert.equal(apply(g, moveLines(g, at(g, 'gain'), at(g, 'highpass'), { after: true })), `audio('a.wav')\n  // Montage\n    .reverse()\n    .highpass(80)\n    .gain(-3)\n  .fade(1)`, 'set in as the step it lands by')
+  assert.equal(apply(g, moveLines(g, at(g, 'reverse'), at(g, 'fade'), { after: true })), `audio('a.wav')\n  .gain(-3)\n  // Montage\n    .highpass(80)\n  .fade(1)\n  .reverse()`, 'out of it')
+  assert.equal(apply(g, moveLines(g, m, at(g, 'fade'), { after: true })), `audio('a.wav')\n  .gain(-3)\n  .fade(1)\n  // Montage\n    .reverse()\n    .highpass(80)`, 'a group whole')
+  assert.equal(moveLines(g, m, at(g, 'reverse')), null, 'not into itself')
+  assert.equal(apply(g, ungroup(g, m)), a)
+  assert.equal(apply(g, renameGroup(g, m, ' Cuts ')), g.replace('Montage', 'Cuts'))
+  assert.equal(renameGroup(g, m, '  '), null)
+  assert.equal(apply(a, append(a, 'gain(-6)', at(a, 'gain').to)), `audio('a.wav')\n  .gain(-3)\n  .gain(-6)\n  .reverse()\n  .highpass(80)\n  .fade(1)`)
+  const b = `audio('a.wav').gain(-3).fade(1)`
+  assert.equal(apply(b, append(b, 'trim()', b.indexOf('.fade'))), `audio('a.wav').gain(-3).trim().fade(1)`, 'on one line')
+  const c = `audio('a.wav').gain(-3).fade(1)`, off = apply(c, turnOff(c, chain(c).calls[0]))
+  assert.equal(off, `audio('a.wav')/* .gain(-3) */.fade(1)`)
+  assert.equal(apply(off, turnOn(off, steps(off)[0].call)), c)
+})
+
 // The chain's edits as an agent acts on them (step): listed in order, those turned off among them; one taken away,
 // on its line or within one; one moved, before or after another, a group's comment staying where it stands
 test('code: the edits listed in order, one taken away or moved where it stands', () => {
@@ -459,7 +488,7 @@ test('help: every setting of every op says what it does; the texts and layouts n
     assert.ok(shown.length && settings[name].length === shown.length + folded.length, `${name}: some shown, the rest folded`)
   }
   // a new setting, one the layout does not name, is shown; a folded one the manifest lacks leaves nothing to fold
-  assert.deepEqual(layout('declick', ['threshold', 'guard', 'extra']), [['threshold', 'extra'], ['guard']])
+  assert.deepEqual(layout('declick', ['threshold', 'longest', 'extra']), [['threshold', 'extra'], ['longest']])
   assert.deepEqual(layout('declick', ['threshold']), [['threshold'], []])
   assert.deepEqual(layout('trim', ['threshold']), [['threshold'], []])
   // a setting of an op without words of its own has its name's, or none
@@ -469,6 +498,21 @@ test('help: every setting of every op says what it does; the texts and layouts n
   // sound's own error, and any plugin that comes with one like them is found here
   assert.ok(thresholds.includes('declick') && thresholds.includes('decrackle'))
   assert.deepEqual(thresholds.filter(name => guides(name, { threshold: 1 }, 8).some(g => g.level != null)), [])
+})
+
+// A tune's guide is the notes it lands on: the scale tables are @audio/note's, which @audio/tune-snap snaps by, and
+// every scale its manifest offers has one; each note listed is one snapMidi keeps (on the scale), and none it would
+// keep between A0 and C8 (MIDI 21–108, the piano's) is missing; A4 is the tuning set, its range the span
+test('code: a tune guides by the notes of its scale, as @audio/note snaps', async () => {
+  assert.deepEqual(SCALES, NOTE_SCALES)
+  const { tune } = await import('@audio/tune-snap/audio')
+  for (const scale of tune.params.scale.values) for (const root of [0, 2, 7, 11]) {
+    const [g] = guides('tune', { scale, root }, 8), keeps = Array.from({ length: 88 }, (_, i) => 21 + i).filter(m => snapMidi(m, { scale, root }) === m)
+    assert.deepEqual(g.notes, keeps, `${scale} from ${root}`)
+  }
+  assert.deepEqual(guides('tune', {}, 8)[0], { notes: Array.from({ length: 88 }, (_, i) => 21 + i), root: 0, a4: 440 })
+  assert.deepEqual(guides('tune', { scale: 'major', a4: 432, at: 1, duration: 2 }, 8).map(g => g.span ?? g.range), [[1, 3], [1, 3]])
+  assert.equal(guides('tune', { scale: 'nope' }, 8).length, 0)
 })
 
 test('code: every recipe calls only methods the menu and the rack know', () => {
@@ -481,8 +525,8 @@ test('code: each guide follows its call: levels, fades, ranges and frequencies',
   // a threshold that is not a level in dB draws none: declick's and decrackle's are multiples of the sound's own error
   assert.deepEqual(guides('declick', { threshold: 4 }, 8), [])
   assert.deepEqual(guides('decrackle', { threshold: 2.5 }, 8), [])
-  assert.deepEqual(guides('remove', { at: 1, duration: .5 }, 8), [{ range: [1, 1.5], dim: 'inside' }])
-  assert.deepEqual(guides('crop', { at: 1, duration: .5 }, 8), [{ range: [1, 1.5], dim: 'outside' }])
+  assert.deepEqual(guides('remove', { at: 1, duration: .5 }, 8), [{ range: [1, 1.5] }])
+  assert.deepEqual(guides('crop', { at: 1, duration: .5 }, 8), [{ range: [1, 1.5] }])
   // fade(in, out) ramps at the ends; fade(d, { at }) one from `at`, out when d < 0 (fn/fade.js)
   assert.deepEqual(guides('fade', { in: .02, out: .1 }, 8), [{ ramps: [[0, .02, 'in', 'linear'], [7.9, 8, 'out', 'linear']] }])
   assert.deepEqual(guides('fade', { in: -.5, at: 3.5, curve: 'cos' }, 8), [{ ramps: [[3.5, 4, 'out', 'cos']] }])
@@ -1037,11 +1081,11 @@ test('editor: a card\'s settings say what they do; the engine\'s own wait under 
   await write(`audio('chime.wav').declick()`)
   await reopen('Declick')
   assert.deepEqual(await shown(), ['threshold'])
-  assert.match(await rows.first().getAttribute('title'), /^Detection threshold\. .*\n1 to 20, default 4$/s)
-  assert.match(await more.innerText(), /^Advanced\s+5$/)
+  assert.match(await rows.first().getAttribute('title'), /^Detection threshold\. .*\n2× to 30×, default 8×$/s)
+  assert.match(await more.innerText(), /^Advanced\s+2$/)
   assert.equal(await more.getAttribute('aria-expanded'), 'false')
   await more.click()
-  assert.deepEqual(await shown(), ['threshold', 'guard', 'maxBurst', 'order', 'windowSize', 'hopSize'])
+  assert.deepEqual(await shown(), ['threshold', 'longest', 'order'])
   // every one says more than its name
   assert.deepEqual(await rows.evaluateAll(all => all.filter(row => !row.title.includes('\n')).map(row => row.querySelector('label').textContent)), [])
   // and it folds again
@@ -1049,8 +1093,8 @@ test('editor: a card\'s settings say what they do; the engine\'s own wait under 
   assert.deepEqual(await shown(), ['threshold'])
   // moving one writes it into the code, where it is set
   await more.click()
-  await page.locator('.step.open .param', { hasText: 'guard' }).locator('input').fill('250')
-  await page.waitForFunction(() => /declick\(\{ guard: \d/.test(scriptText()))
+  await page.locator('.step.open .param', { hasText: 'longest' }).locator('input').fill('250')
+  await page.waitForFunction(() => /declick\(\{ longest: \d/.test(scriptText()))
   // set in the code, one opens the fold with its card (decrackle was never open here); none set, it is folded
   await write(`audio('chime.wav').decrackle({ guard: 3 })`)
   await reopen('Decrackle')
@@ -1330,8 +1374,11 @@ test('editor: a slice moved past the end opens silence up to where it lands', as
   const { x, y } = await chime()
   await drag([x(6), y], [x(7) - x(6), 0])
   await keyed(['ControlOrMeta'], () => drag([x(6.5), y], [x(7.9) - x(6.5), 0]))
-  await page.waitForFunction(() => /\.move\(\{ at: 6, d: 1, to: 7\.4, xfade: 0\.01 \}\)$/.test(scriptText()))
-  await lengthIs('0:08.400')
+  // where it lands, to the pixel the zoom's step rounds to (fonts and widths differ from one machine to another)
+  await page.waitForFunction(() => /\.move\(\{ at: 6, d: 1, to: [\d.]+, xfade: 0\.01 \}\)$/.test(scriptText()))
+  const to = +(await code()).match(/to: ([\d.]+), xfade/)[1]
+  assert.ok(Math.abs(to - 7.4) <= .011, `lands at ${to}`)
+  await lengthIs(`0:0${(to + 1).toFixed(3)}`)
 })
 
 // A slice dragged up over the head onto the tabs goes to a tab of its own, this one's script cropped to it: copied (Alt),
@@ -1505,21 +1552,21 @@ test('editor: the workshop turns the sound\'s end; the settled icons; the switch
   assert.equal(await page.getByRole('tab', { name: 'Spectrogram', exact: true }).getAttribute('aria-selected'), 'true', 'shown at once')
 })
 
-// The edits as a browser's history: a step chosen shows the output up to it; an edit made then goes after it, the steps
-// after it dropped, in one step, which undo takes back
-test('editor: an edit made with the output rolled back to a step goes after it, the steps after it gone', async () => {
+// The edits as a stack of layers: a step chosen shows the output up to it; an edit made then goes in right after it, the
+// steps after it kept, its own card chosen; undo takes it back, the step chosen as it was
+test('editor: an edit made with the output rolled back to a step goes in right after it, the steps after it kept', async () => {
   await open()
   await tab('Edits')
   await page.locator('.step-name', { hasText: 'Trim' }).click()
   await page.locator('.viewing', { hasText: 'Up to Trim: ' }).waitFor()
   await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
   await page.keyboard.press('m')
-  await page.waitForFunction(() => /\.trim\(\)\s*\.mark\(0\)$/.test(scriptText().trim()))
-  assert.doesNotMatch(await code(), /normalize|fade/)
-  await page.locator('.viewing').waitFor({ state: 'detached' })
-  assert.deepEqual(await page.locator('.step-name').allInnerTexts(), ['chime.wav', 'Trim', 'Mark'])
+  await page.waitForFunction(() => /\.trim\(\)\s*\.mark\(0\)\s*\.normalize\(-1\)\s*\.fade\(0\.02, 0\.1\)$/.test(scriptText().trim()))
+  assert.deepEqual(await page.locator('.step-name').allInnerTexts(), ['chime.wav', 'Trim', 'Mark', 'Normalize', 'Fade'])
+  await page.locator('.viewing', { hasText: 'Up to Mark: 2 later steps bypassed' }).waitFor()
   await menu('Edit', 'Undo')
   await page.waitForFunction(() => /\.trim\(\)\s*\.normalize\(-1\)\s*\.fade\(0\.02, 0\.1\)$/.test(scriptText().trim()))
+  await page.locator('.viewing', { hasText: 'Up to Trim: ' }).waitFor()
 })
 
 // Rolled back, a choice that sets the last step again in place (the grip's way, a fade's curve) leaves the steps after
@@ -2968,6 +3015,37 @@ test('editor: the caret drags like an edge, from its line or anywhere on the tim
   assert.ok(apart <= .5, `the mark comes back to the logo, ${apart} apart`)
 })
 
+// Inside a selection the caret's line drags as it does without one, the selection kept; where a selection puts it, on
+// its start, the edge takes the press; only clicked, it is a click: the caret there alone
+test('editor: inside a selection the caret drags, the selection kept; on the selection\'s edge, the edge drags', async () => {
+  await open()
+  const { box, x } = await axis(6.525), row = box.y + box.height - 8, lane = box.y + box.height / 2
+  const drag = async (a, b) => { await page.mouse.move(x(a), lane); await page.mouse.down(); for (let i = 1; i <= 8; i++) await page.mouse.move(x(a + (b - a) * i / 8), lane); await page.mouse.up() }
+  const caret = async () => { const [m, s] = (await page.locator('.time').innerText()).split(':'); return +m * 60 + +s }
+  await drag(1, 3)
+  const range = await selected()
+  assert.ok(range, 'a range selected')
+  // the time row moves the caret alone, into the range
+  await page.mouse.click(x(2), row)
+  assert.ok(Math.abs(await caret() - 2) < .06, `caret at 2s: ${await caret()}`)
+  assert.equal(await selected(), range)
+  // its line there dragged: the caret goes, the range stays as it was
+  await drag(2, 2.5)
+  assert.ok(Math.abs(await caret() - 2.5) < .06, `caret dragged to 2.5s: ${await caret()}`)
+  assert.equal(await selected(), range)
+  // the range's start, the caret on it once a range is made again: the edge's, the range shorter, no caret dragged
+  await page.mouse.click(x(5), lane)
+  await drag(1, 3)
+  const made = await selected(), start = await caret()
+  await drag(start, start + .4)
+  const [a, b] = (await selected()).split('–'), at = t => t.split(':').reduce((m, s) => m * 60 + +s, 0)
+  assert.ok(Math.abs(at(a) - start - .4) < .06 && at(b) === at(made.split('–')[1]), `the start dragged: ${made} → ${a}–${b}`)
+  // a click on the caret's line inside the range, no drag: the caret there alone
+  await page.mouse.click(x(2), row)
+  await page.mouse.click(x(2), lane)
+  assert.equal(await selected(), '')
+})
+
 test('editor: stopping settles the mark into the logo in about 300 ms', async () => {
   // every frame the mark draws, read back as it is drawn
   await page.addInitScript(() => {
@@ -3275,11 +3353,15 @@ test('editor: a double-click selects the fragment between its cues, or the pause
   // to the end and the start, as a text's ⌘ ↓ ↑ (Home and End anywhere)
   assert.equal(await step(mac ? 'Meta+ArrowDown' : 'End'), 2.5)
   assert.equal(await step(mac ? 'Meta+ArrowUp' : 'Home'), 0)
-  // the long pause deleted: the cues after it move back with the audio at once, never where they were a moment before
+  // the long pause deleted: the cues after it move back with the audio at once, never where they were a moment before,
+  // whether its output has come or not (the times the caret steps to, the sound's end not one of them)
   await page.mouse.dblclick(x(1.2), y)
   const [p, q] = await range()
   await page.keyboard.press('Delete')
-  const moved = (await handles()).map(h => h / (box.width - GUTTER) * 2.5), after = at.filter(t => t > q + .01)
+  const moved = [], now = async () => +(await page.locator('.time').innerText()).split(':')[1]
+  await page.keyboard.press('Home')
+  for (let t = 0; ;) { await page.keyboard.press(mac ? 'Alt+ArrowRight' : 'Control+ArrowRight'); const next = await now(); if (next <= t || next > 2.5 - (q - p) - .03) break; moved.push(t = next) }
+  const after = at.filter(t => t > q + .01)
   assert.ok(!moved.some(t => after.some(e => Math.abs(t - e) < .01)), `none left behind: ${JSON.stringify(moved)}`)
   // (the caret steps over two cues within 3 px as one: the pause's end, moved 12 ms after the sound's end before it)
   assert.ok(after.every(e => moved.some(t => Math.abs(t - (e - (q - p))) < .015)), JSON.stringify([moved, after, p, q]))
@@ -3452,9 +3534,13 @@ test('editor: markers: M over the selection a range, named as it is made, rename
   await page.keyboard.type('Start')
   await page.keyboard.press('Enter')
   await page.waitForFunction(() => /\.mark\(1, 'Start'\)/.test(scriptText()) && scriptText().includes("'Chorus'"))
-  // its bar dragged: the range moves and is selected
+  // its bar dragged: the range moves, what is selected and the caret staying as they were; clicked, it is selected
+  await page.mouse.click(x(7.5), y)
   await drag([x(4.5), row], [x(5.5) - x(4.5), 0])
   await page.waitForFunction(() => /\.mark\(\{ at: 4, d: 2 \}, 'Chorus'\)/.test(scriptText()))
+  assert.equal(await selected(), '')
+  assert.equal(await page.locator('.time').innerText(), '0:07.500')
+  await page.mouse.click(x(5), row)
   assert.equal(await selected(), '0:04.000–0:06.000')
   // to the page, the moments and the ranges in one list, in time order
   const [r] = await engine([`audio('x.wav').mark({ at: 0.5, d: 0.25 }, 'Chorus').mark(0.75).mark(0.25, 'In')`], { 'x.wav': [sine(1, 440)] })
@@ -3999,7 +4085,7 @@ test('editor: a second tab asks to be the editor; the first stores and steps asi
 // Every setting kept comes back as it was kept; a value the page no longer has, its default; a store that does not read
 // is set aside, not written over
 test('editor: every setting comes back as it was kept; one the page no longer has, its default', async () => {
-  const all = { display: 'spec', scale: 'mel', format: 'flac', encoding: { markers: false, bitDepth: 24 }, spec: 'podcast', cuts: { format: 'otio', fps: 25 }, side: 'code', show: { hits: false, gain: false, meters: false }, units: 'samples', snap: false, curve: 'cos', levels: 'db', ruler: 'ticks', step: 3, look: { map: 'magma', gamma: .5, depth: 100, size: 2048, method: 'tapers' }, wave: { colour: 'temperature', lanes: 'one', fill: 'flat' }, agent: { url: 'http://127.0.0.1:7778', key: '' }, splice: 20, scrub: 'grains', grip: 'speed', pitch: false, speed: 1.5 }
+  const all = { display: 'spec', scale: 'mel', format: 'flac', encoding: { markers: false, bitDepth: 24 }, spec: 'podcast', cuts: { format: 'otio', fps: 25 }, side: 'code', show: { hits: false, gain: false, meters: false, guides: false }, units: 'samples', snap: false, curve: 'cos', levels: 'db', ruler: 'ticks', step: 3, look: { map: 'magma', gamma: .5, depth: 100, size: 2048, method: 'tapers' }, wave: { colour: 'temperature', lanes: 'one', fill: 'flat' }, agent: { url: 'http://127.0.0.1:7778', key: '' }, splice: 20, scrub: 'grains', grip: 'speed', pitch: false, speed: 1.5 }
   await page.addInitScript(all => { if (!sessionStorage.seeded) { sessionStorage.seeded = 1; localStorage.setItem('audio-repl', JSON.stringify({ ...all, docs: [{ code: "audio('chime.wav')" }] })) } }, all)
   await open()
   const kept = () => page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')))
@@ -4435,8 +4521,13 @@ test('editor: Alt and a double-click adds a word; Shift and a double-click exten
   await page.waitForFunction(() => (scriptText().match(/\.remove\(/g) || []).length === 2)
   await page.keyboard.press('ControlOrMeta+Z')
   await lengthIs('0:02.500')
-  await page.mouse.dblclick(x(.2), y)
-  await page.keyboard.down('Shift'); await page.mouse.dblclick(x(.7), y); await page.keyboard.up('Shift')
+  // its cues come with its output again (its pauses' edges first): a word at .2, extended with Shift to the one at .7,
+  // once they have
+  for (const until = Date.now() + 8000; Date.now() < until; await page.waitForTimeout(200)) {
+    await page.mouse.dblclick(x(.2), y)
+    await page.keyboard.down('Shift'); await page.mouse.dblclick(x(.7), y); await page.keyboard.up('Shift')
+    if (/^0:00\.000–0:00\.9\d*$/.test(await selected())) break
+  }
   assert.match(await selected(), /^0:00\.000–0:00\.9\d*$/)
 })
 
@@ -5075,7 +5166,8 @@ test('editor: recording with the spectrogram shown draws the take as a spectrogr
   await page.mouse.click(x(1), box.y + box.height - 8)
   await page.getByRole('button', { name: 'Record', exact: true }).click()
   await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
-  await page.waitForFunction(() => /^0:0(3\.[5-9]|4)/.test(document.querySelector('.time').textContent), null, { timeout: 15000 })
+  // past 3.5 s (a slow machine's clock, drawn seconds apart, may pass it between two looks)
+  await page.waitForFunction(() => { const [m, s] = document.querySelector('.time').textContent.split(':'); return +m * 60 + +s >= 3.5 }, null, { timeout: 15000 })
   // each layer alone: lit pixels between 1.2 s and 2.8 s, inside the take, over the lanes
   const lit = async layer => {
     await page.evaluate(layer => { for (const c of document.querySelectorAll('.plot canvas')) c.style.visibility = c.classList.contains(layer) ? '' : 'hidden' }, layer)
@@ -5293,7 +5385,7 @@ test('editor: the settings and each picture\'s options are dropdowns, every grou
   assert.equal(await button.getAttribute('aria-expanded'), 'true')
   assert.equal(await page.locator('.side-slab').isVisible(), false, 'no panel')
   assert.equal(await page.locator('.menubar-sub').count(), 0, 'no submenus')
-  assert.deepEqual(await groups(), ['Show over the sound', 'Scrub', 'Times in', 'Level steps', 'Splices', 'Time row'])
+  assert.deepEqual(await groups(), ['Show over the sound', 'Scrub', 'Record in', 'Times in', 'Level steps', 'Splices', 'Time row'])
   const ways = page.locator('.dropdown').getByRole('group', { name: 'Scrub', exact: true }).getByRole('button')
   assert.deepEqual(await ways.allInnerTexts(), ['Vocoder + noise', 'Vocoder', 'Random phase', 'Noisc bank', 'Noisc lines', 'Grains', 'Loop', 'Tape'])
   const note = group => page.locator('.dropdown-group', { has: page.getByRole('group', { name: group, exact: true }) }).locator('.dropdown-note').innerText()
@@ -5980,4 +6072,198 @@ test('engine: an output is kept for the next visit by its script and its files',
   assert.deepEqual(r.again.seen, [], 'kept: nothing applied')
   assert.equal(r.other.duration, 19, 'another file, made again')
   assert.deepEqual(r.other.seen[0], { id: r.other.seen[0].id, event: 'doing', steps: ['omlsa', 'gain'] })
+})
+
+// A ranged edit (a band taken out, a range made quieter) put in, turned off or set again, under steps that work frame by
+// frame (formant(), more than a second over 15 s), renders again only around its range, over the last output
+// (worker.js fragment): the samples the whole script makes afresh, in a fraction of its time
+test('engine: a ranged edit under slow frame-by-frame steps renders again only around its range', async () => {
+  const x = [0, 1].map(c => Float32Array.from({ length: 15 * RATE }, (_, i) => .3 * Math.sin(2 * Math.PI * (220 + c) * i / RATE) + .05 * Math.sin(i * i)))
+  const chain = t => `audio('x.wav')${t}.formant(1.2).compressor()`
+  const first = chain(''), later = [chain(`.gain(-6, { at: 6, d: 0.5 })`), chain(`.gain(-6, { at: 6, d: 0.5 }).spectral([1000, 4000], { at: 10, d: 0.5 })`), chain(`.spectral([1000, 4000], { at: 10, d: 0.5 })`)]
+  await page.goto(origin + '/blank.html')
+  const r = await page.evaluate(async ({ channels, first, later }) => {
+    const { default: engine } = await import('/editor/engine.js'), { prepare } = await import('/editor/code.js')
+    const e = engine(new URL('/editor/dist/worker.js', location.href))
+    await e.file('x.wav', { channels: channels.map(c => Float32Array.from(c)), sampleRate: 48000 })
+    const time = async code => { const t = performance.now(), r = await e.render(prepare(code)); if (!r.output) throw new Error(r.error?.message); return { ms: performance.now() - t, out: [...r.output.channels[0]] } }
+    // made twice whole: the second, its steps' code loaded, is what a render takes
+    await time(chain('.gain(-1)'))
+    const slow = (await time(first)).ms, got = []
+    for (const code of later) got.push(await time(code))
+    return { slow, got }
+    function chain(t) { return `audio('x.wav')${t}.formant(1.2).compressor()` }
+  }, { channels: x.map(c => [...c]), first, later })
+  for (const [i, code] of later.entries()) {
+    assert.ok(r.got[i].ms < r.slow / 4, `${code}: ${r.got[i].ms.toFixed(0)} ms, the chain ${r.slow.toFixed(0)} ms`)
+    const [whole] = await engine([code], { 'x.wav': x }), want = whole.output.channels[0]
+    const diff = r.got[i].out.reduce((m, v, j) => Math.max(m, Math.abs(v - want[j])), 0)
+    assert.ok(diff < 1e-6, `${code}: ${diff}`)
+  }
+})
+
+// History as Photoshop's: a card chosen rolls the output back to it; an edit made then goes in right after it, its card
+// chosen; undone, the card chosen before is chosen again; redone, the edit's card
+test('editor: an edit made rolled back to a card, undone and redone, brings back the card chosen with it', async () => {
+  await open()
+  await noCues()
+  await write(`audio('chime.wav')\n  .gain(-3)\n  .reverse()\n  .highpass(80)`)
+  await lengthIs('0:08.000')
+  await tab('Edits')
+  const card = name => page.locator('.steps-list .step', { has: page.locator('.step-name', { hasText: new RegExp(`^${name}$`) }) })
+  await card('Gain').locator('.step-toggle').click()
+  await page.locator('.viewing', { hasText: 'Up to Gain: 2 later steps bypassed' }).waitFor()
+  const { box, x } = await axis(8), y = box.y + box.height * .3
+  await drag([x(2), y], [x(3) - x(2), 0])
+  await page.keyboard.press('Delete')
+  await page.waitForFunction(() => /\.gain\(-3\)\s*\.remove\([^)]*\)\s*\.reverse\(\)\s*\.highpass\(80\)$/.test(scriptText().trim()))
+  await page.locator('.viewing', { hasText: 'Up to Remove: 2 later steps bypassed' }).waitFor()
+  assert.ok(await card('Remove').evaluate(el => el.classList.contains('chosen')), 'the edit\'s card chosen')
+  await page.keyboard.press('ControlOrMeta+Z')
+  await page.waitForFunction(() => scriptText().includes('.reverse()') && !scriptText().includes('.remove('))
+  await page.locator('.viewing', { hasText: 'Up to Gain: 2 later steps bypassed' }).waitFor()
+  assert.ok(await card('Gain').evaluate(el => el.classList.contains('chosen')), 'its card chosen again')
+  await page.keyboard.press('ControlOrMeta+Shift+Z')
+  await page.waitForFunction(() => scriptText().includes('.remove('))
+  await page.locator('.viewing', { hasText: 'Up to Remove: 2 later steps bypassed' }).waitFor()
+})
+
+// A card dragged up or down takes its step there in the chain; a step bypassed keeps its card where it is, as tall, open
+// if it was, its settings out of reach till it is back on
+test('editor: a card dragged takes its step along the chain; one bypassed stays where it is, as it was', async () => {
+  await open()
+  await write(`audio('chime.wav')\n  .gain(-3)\n  .reverse()\n  .highpass(80)`)
+  await lengthIs('0:08.000')
+  await tab('Edits')
+  const card = name => page.locator('.steps-list .step', { has: page.locator('.step-name', { hasText: new RegExp(`^${name}$`) }) })
+  const names = () => page.locator('.step-name').allInnerTexts()
+  const from = await card('Highpass').locator('.step-toggle').boundingBox(), to = await card('Gain').locator('.step-toggle').boundingBox()
+  await page.mouse.move(from.x + 40, from.y + from.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(from.x + 40, to.y + 2, { steps: 8 })
+  await page.mouse.up()
+  await page.waitForFunction(() => /\.highpass\(80\)\s*\.gain\(-3\)\s*\.reverse\(\)$/.test(scriptText().trim()))
+  assert.deepEqual(await names(), ['chime.wav', 'Highpass', 'Gain', 'Reverse'])
+  assert.equal(await page.locator('.viewing').count(), 0, 'a drag is no click: nothing chosen')
+  // chosen, then bypassed: in place, open, dimmed
+  await card('Gain').locator('.step-toggle').click()
+  await page.locator('.viewing', { hasText: 'Up to Gain: ' }).waitFor()
+  const box = await card('Gain').boundingBox()
+  await card('Gain').hover()
+  await page.getByRole('button', { name: 'Turn gain off' }).click()
+  await page.waitForFunction(() => scriptText().includes('// .gain(-3)'))
+  assert.deepEqual(await names(), ['chime.wav', 'Highpass', 'Gain', 'Reverse'])
+  assert.ok(await card('Gain').evaluate(el => el.classList.contains('open') && el.classList.contains('chosen') && el.classList.contains('off')), 'open, chosen, off')
+  assert.deepEqual(await card('Gain').boundingBox(), box, 'where it was, as tall')
+  assert.ok(await card('Gain').locator('.params').evaluate(el => el.inert), 'its settings out of reach')
+  await page.locator('.viewing', { hasText: 'Up to Highpass: ' }).waitFor()
+  await page.getByRole('button', { name: 'Turn gain on' }).click()
+  await page.waitForFunction(() => scriptText().includes('  .gain(-3)') && !scriptText().includes('//'))
+  await page.locator('.viewing', { hasText: 'Up to Gain: ' }).waitFor()
+})
+
+// A marker's flag dragged moves the marker alone: the caret stays where it was, and what plays plays on, not from the
+// marker; clicked, the caret goes to it
+test('editor: a marker dragged moves alone, the caret and what plays staying where they are', async () => {
+  await open()
+  await noCues()
+  await write(`audio('chime.wav').mark(2)`)
+  await lengthIs('0:08.000')
+  const { box, x } = await axis(8), y = box.y + box.height * .3, row = box.y + 4
+  const now = async () => +(await page.locator('.time').innerText()).split(':')[1]
+  await page.mouse.click(x(6), y)
+  await drag(await grab([[x(2), row]], 'pointer'), [x(3) - x(2), 0])
+  await page.waitForFunction(() => +(scriptText().match(/\.mark\(([\d.]+)\)/)?.[1]) > 2.9)
+  assert.equal(await now(), 6, 'the caret where it was')
+  // playing from the start: dragged back, the marker moves, the playhead goes on from where it was
+  await page.mouse.click(x(.2), y)
+  await page.keyboard.press('Space')
+  await page.getByRole('button', { name: 'Pause' }).waitFor()
+  await drag(await grab([[x(3), row]], 'pointer'), [x(5) - x(3), 0])
+  await page.waitForFunction(() => +(scriptText().match(/\.mark\(([\d.]+)\)/)?.[1]) > 4.9)
+  assert.ok(await now() < 2.5, `played on from the start, not from the marker: ${await now()}`)
+  await page.keyboard.press('Space')
+  // clicked: the caret to it
+  await page.mouse.click(...await grab([[x(5), row]], 'pointer'))
+  assert.ok(Math.abs(await now() - 5) < .05, String(await now()))
+})
+
+// More tabs than fit keep their width and scroll, as a code editor's: the one shown in sight, the wheel moving them along
+test('editor: tabs keep their width and scroll, the one shown in sight', async () => {
+  await page.setViewportSize({ width: 900, height: 700 })
+  await open()
+  for (let i = 0; i < 12; i++) await page.getByRole('button', { name: 'New tab' }).click()
+  const strip = page.locator('.files-list')
+  const { scroll, client } = await strip.evaluate(e => ({ scroll: e.scrollWidth, client: e.clientWidth }))
+  assert.ok(scroll > client, 'more than fit: they scroll')
+  const widths = await page.locator('.file').evaluateAll(l => l.map(e => e.getBoundingClientRect().width))
+  assert.ok(Math.min(...widths) > 60, `none squeezed: ${Math.min(...widths)}`)
+  const sight = () => page.locator('.file.current').evaluate(e => { const r = e.getBoundingClientRect(), s = e.parentElement.getBoundingClientRect(); return r.left >= s.left - 1 && r.right <= s.right + 1 })
+  await page.waitForTimeout(100)
+  assert.ok(await sight(), 'the one shown, the last made, in sight')
+  await strip.hover()
+  await page.mouse.wheel(0, -4000)
+  await page.waitForFunction(() => document.querySelector('.files-list').scrollLeft === 0)
+  await page.locator('.file [role="tab"]').first().click()
+  await page.waitForTimeout(100)
+  assert.ok(await sight())
+})
+
+// A take is mono, the input's first channel, as a recorder takes a voice; the settings record stereo
+test('editor: a recording is mono, unless the settings say stereo', async () => {
+  await open()
+  await write('')
+  await page.locator('.empty').waitFor()
+  await recordFor(1)
+  await page.locator('.plot').focus()
+  await page.keyboard.press('Space')
+  await page.waitForFunction(() => scriptText().startsWith("audio('recording.wav')"))
+  await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
+  assert.match(await facts(), / mono$/)
+  await settings('Record in', 'Stereo')
+  await page.reload()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  assert.equal(await choice('Record in', 'Stereo').getAttribute('aria-pressed'), 'true', 'kept')
+})
+
+// The edits as a layers panel: rows picked with Shift made a group (⌘G), open, its steps set in under its name; the
+// name double-clicked, named anew; a step dragged by a step of it goes into it, out by one outside; the group dragged
+// whole; ⇧⌘G unmakes it. Each one step of the history
+test('editor: the edits as layers: picked rows grouped, named, dragged in and out, the group moved whole, unmade', async () => {
+  await open()
+  await write(`audio('chime.wav')\n  .gain(-3)\n  .reverse()\n  .highpass(80)\n  .fade(1)`)
+  await lengthIs('0:08.000')
+  await tab('Edits')
+  const row = name => page.locator('.steps-list .step', { has: page.locator('.step-name', { hasText: new RegExp(`^${name}$`) }) })
+  const names = () => page.locator('.steps-list .step:not([hidden]) .step-name').allInnerTexts()
+  await row('Reverse').locator('.step-toggle').click()
+  await row('Highpass').locator('.step-toggle').click({ modifiers: ['Shift'] })
+  assert.ok(await row('Highpass').evaluate(el => el.classList.contains('picked')))
+  await page.keyboard.press('ControlOrMeta+G')
+  await page.waitForFunction(() => scriptText().includes('  // Group\n    .reverse()\n    .highpass(80)\n  .fade(1)'))
+  assert.deepEqual(await names(), ['chime.wav', 'Gain', 'Group', 'Reverse', 'Highpass', 'Fade'], 'open, its steps under it')
+  // named anew
+  await row('Group').locator('.step-toggle').dblclick()
+  await page.locator('.step-rename').fill('Montage')
+  await page.keyboard.press('Enter')
+  await page.waitForFunction(() => scriptText().includes('// Montage'))
+  // a step dragged onto one of its steps goes in, set in as they are
+  const drag = async (name, onto, below = true) => {
+    const a = await row(name).locator('.step-toggle').boundingBox(), b = await row(onto).locator('.step-toggle').boundingBox()
+    await page.mouse.move(a.x + 30, a.y + a.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(a.x + 30, below ? b.y + b.height - 2 : b.y + 2, { steps: 10 })
+    await page.mouse.up()
+  }
+  await drag('Fade', 'Reverse', false)
+  await page.waitForFunction(() => scriptText().includes('  // Montage\n    .fade(1)\n    .reverse()\n    .highpass(80)'))
+  // the group dragged whole, above the gain
+  await drag('Montage', 'Gain', false)
+  await page.waitForFunction(() => /audio\('chime\.wav'\)\n  \/\/ Montage\n    \.fade\(1\)\n    \.reverse\(\)\n    \.highpass\(80\)\n  \.gain\(-3\)$/.test(scriptText()))
+  // unmade, from the menu as from ⇧⌘G
+  await row('Reverse').locator('.step-toggle').click()
+  await menu('Edit', 'Ungroup')
+  await page.waitForFunction(() => scriptText() === `audio('chime.wav')\n  .fade(1)\n  .reverse()\n  .highpass(80)\n  .gain(-3)`)
+  await menu('Edit', 'Undo')
+  await page.waitForFunction(() => scriptText().includes('// Montage'))
 })

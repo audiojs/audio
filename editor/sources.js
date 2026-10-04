@@ -22,20 +22,22 @@ export function sample(name) {
 // The microphone, open, sample for sample: an AudioWorklet hands over every block. Opened in the press that asks to
 // record, its context starts in that gesture, so it runs even when the permission prompt takes a while; its module
 // loads while the browser asks. Nothing is kept until take(onblock): from then each block goes to `onblock`, the
-// channels of it, and stop() returns them all.
+// channels of it, and stop() returns them all. `channels`: 1, the input's first alone (a voice, one microphone, as
+// a recorder takes it, mono, however many the device gives: a laptop's twin the same); 2, both as the device gives them.
 // { sampleRate, recent, heard, trace(t), take(onblock), stop(): { channels, sampleRate }, cancel() }: `recent` holds
 // each channel's last 16384 samples (the meters read them), `heard` is the RMS of the last 50 ms, and trace(t) eases one
 // cycle of them into the trace t (meters.js).
-export async function microphone() {
+export async function microphone({ channels = 1 } = {}) {
   const context = new AudioContext()
   context.resume()
   const url = URL.createObjectURL(new Blob([`registerProcessor('take', class extends AudioWorkletProcessor {
-    process([input]) { if (input?.length) this.port.postMessage(input.map(c => c.slice())); return true }
+    constructor(o) { super(); this.k = o.processorOptions.channels }
+    process([input]) { if (input?.length) this.port.postMessage(input.slice(0, this.k).map(c => c.slice())); return true }
   })`], { type: 'text/javascript' }))
-  const asked = navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } })
+  const asked = navigator.mediaDevices.getUserMedia({ audio: { channelCount: { ideal: channels }, echoCancellation: false, noiseSuppression: false, autoGainControl: false } })
   try {
     const [stream] = await Promise.all([asked, context.audioWorklet.addModule(url)])
-    const source = context.createMediaStreamSource(stream), node = new AudioWorkletNode(context, 'take', { numberOfOutputs: 0 })
+    const source = context.createMediaStreamSource(stream), node = new AudioWorkletNode(context, 'take', { numberOfOutputs: 0, processorOptions: { channels } })
     const rate = context.sampleRate, blocks = [], mic = { sampleRate: rate, recent: [] }
     let onblock = null
     Object.defineProperty(mic, 'heard', { get() {

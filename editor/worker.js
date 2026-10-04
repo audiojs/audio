@@ -278,6 +278,13 @@ async function render(r) {
   }
   if (!alive()) return
   if (hit) return replay(r, hit)
+  const patched = await fragment(r)
+  if (!alive()) return
+  if (patched) {
+    if (keyed(r)) store(r.keys.at(-1), patched)
+    if (content) renders.set(content, patched.pcm, { ...patched, pcm: undefined }).catch(() => {})
+    return replay(r, patched)
+  }
   const name = r.names.find(n => sources.has(n) && !sources.get(n).decoded), a = r.based?.instance ?? r.instance
   let first = false
   if (name) arriving(r.id, name, () => alive() && !first)
@@ -377,10 +384,10 @@ async function checkpoint(r) {
 }
 // An instance's samples, rendered a block at a time, giving way to whatever the page asks every 20 ms of work; null once
 // `going()` says to stop
-async function collect(a, going) {
+async function collect(a, going, blocks = a.stream()) {
   const parts = []
   let n = 0, t = performance.now()
-  for await (const block of a.stream()) {
+  for await (const block of blocks) {
     parts.push(block)
     n += block[0].length
     if (performance.now() - t > 20) { await new Promise(resolve => setTimeout(resolve)); if (!going()) return null; t = performance.now() }
@@ -407,6 +414,56 @@ async function made(a, keys = keysOf(a)) {
 }
 // Its markers and ranges, read, as the page has them
 const marksAt = a => ({ markers: a.markers.map(({ time, label }) => ({ time, label })), regions: a.regions.map(({ at, duration, label }) => ({ at, duration, label })) })
+// An edit over a range of the sound (a band taken out, a range made quieter) set again, turned off or on, put in or taken
+// away, the steps after it working sample by sample or frame by frame (none reading the sound whole first, measuring it,
+// moving time or changing its rate or channels): only around the range renders again, over the tab's last output. A
+// lead of LEAD s renders first and goes (what the steps hold settles), then from MARGIN s before the range: there, and
+// past its end, EDGE s at a time, it must come out as the last output had it. Not so at the start (a step that learns
+// from all it has heard, a noise reduction's estimate), all of it renders as before, at the cost of a second at most;
+// past the end, it renders on till it is (a tail, an echo), then stops. The same samples, in a fraction of the time
+// where the steps after it are slow.
+const LEAD = .5, MARGIN = .25, EDGE = .02
+const local = ([type, opts]) => { const d = audio.op(type); return !!d && !['copy', 'cut', 'paste'].includes(type) && !(d.plan || d.whole || d.resolve || d.expand || d.prepare || d.sr || d.ch || d.frames) && !(opts?.at < 0) }
+async function fragment(r) {
+  const o = [...outputs.values()].findLast(x => x.done && x !== r && x.tab === r.tab && x.keys)
+  if (!o || r.keys.marked || o.keys[0] !== r.keys[0] || !keyed(r) || !keyed(o)) return null
+  const was = o.instance.edits.map(sig), now = r.instance.edits.map(sig)
+  let p = 0, q = 0
+  while (p < was.length && p < now.length && was[p] === now[p]) p++
+  while (q < was.length - p && q < now.length - p && was[was.length - 1 - q] === now[now.length - 1 - q]) q++
+  const changed = [...o.instance.edits.slice(p, was.length - q), ...r.instance.edits.slice(p, now.length - q)]
+  const spans = changed.map(([, opts]) => opts?.at >= 0 && opts.duration > 0 ? [+opts.at, +opts.at + +opts.duration] : null)
+  if (!changed.length || spans.includes(null)) return null
+  // the start it renders from: the longest kept up to the change, every step from there working on its own
+  let k = p
+  while (k > 0 && !kept.has(r.keys[k])) k--
+  const edits = r.instance.edits.slice(k)
+  if (!edits.every(local) || !o.instance.edits.slice(k).every(local)) return null
+  const base = recall(r.keys[k]), rate = o.sampleRate, n = o.length, e = Math.round(EDGE * rate)
+  let a
+  try { a = base ? from(base, edits) : prefix(r.instance, r.instance.edits.length) } catch { return null }
+  try {
+    if (a.sampleRate !== rate || a.channels !== o.pcm.length || a.length !== n) return null
+    const at = t => Math.max(0, Math.min(n, Math.round(t * rate)))
+    const s0 = at(Math.min(...spans.map(x => x[0])) - MARGIN), s1 = at(Math.max(...spans.map(x => x[1])) + MARGIN), lead = at(s0 / rate - LEAD)
+    if (s0 === 0 && s1 === n) return null
+    post({ id: r.id, event: 'doing', steps: edits.map(e => e[0]) })
+    const got = o.pcm.map(c => new Float32Array(c.length)), same = (from, to) => got.every((c, ch) => { for (let i = from; i < to; i++) if (Math.abs(c[i] - o.pcm[ch][i]) > 1e-6) return false; return true })
+    let pos = lead, checked = false, end = n, w = s1, t = performance.now()
+    for await (const block of a.stream({ at: lead / rate })) {
+      const len = Math.min(block[0].length, n - pos)
+      block.forEach((c, ch) => got[ch].set(c.subarray(0, len), pos))
+      pos += len
+      if (!checked && pos >= s0 + e) { if (s0 > 0 && !same(s0, s0 + e)) return null; checked = true }
+      // past the range, the first window as it was is where it ends
+      while (checked && w + e <= pos && w < n && !same(w, w + e)) w += e
+      if (checked && w + e <= pos && w < n) { end = w; break }
+      if (performance.now() - t > 20) { await new Promise(resolve => setTimeout(resolve)); if (newest !== r.id) return null; t = performance.now() }
+    }
+    const pcm = o.pcm.map((c, ch) => { const x = c.slice(); x.set(got[ch].subarray(s0, end), s0); return x })
+    return { pcm, sampleRate: rate, markers: o.markers, regions: o.regions, bitDepth: r.instance.bitDepth ?? null }
+  } finally { a.dispose?.() }
+}
 // The output's first `k` edits on its source, as the source arrives
 function prefix(a, k) {
   const b = a.clone()

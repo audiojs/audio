@@ -1,6 +1,6 @@
 import { ops, methods, format, fromManifest, reshapes, icons } from './ops.js'
 import opIcons from './icons.js'
-import { chain, setArg, number, offCalls, turnOff, turnOn, parseCall, groups } from './code.js'
+import { chain, setArg, number, offCalls, turnOff, turnOn, parseCall, groups, steps as stepsOf, moveStep, moveLines, group as groupSteps, ungroup, renameGroup } from './code.js'
 import { help, layout } from './help.js'
 
 // The edits: the chain's steps as cards, in order, as Luminar's edits or a history panel; the same chain as the code,
@@ -11,8 +11,9 @@ import { help, layout } from './help.js'
 // at, each says what it does and which way to move it (help.js); the engine's own, which few touch, wait under Advanced.
 // The card under the pointer draws what it sets over the output (`oncall`). Two acts on it, over its right end where the pointer
 // is, its settings running under them to the card's edge: its power switch bypasses the step, and turns it back on (the call commented out
-// where it stands, so the code says it too); its × removes it. Going back to a card is choosing it: an edit made then
-// goes after it, the steps after it gone. Open, a card's Δ plays and draws what its step takes out (the output before
+// where it stands, so the code says it too); its × removes it. Dragged up or down, a card takes its step there in the
+// chain. Going back to a card is choosing it: an edit made then goes in right after it, the steps after it kept, as a
+// new layer goes over the one selected (at()). Open, a card's Δ plays and draws what its step takes out (the output before
 // it less the output after it). Steps grouped in the code (code.js groups: a recipe's, under its name) are one card,
 // folded: a press unfolds it to its steps, its switch bypasses them all and turns them back on, its × removes them all. What the output
 // shows, when it is not the whole chain, goes to `onview({ delta, back })`: `delta` the index of the live step whose
@@ -35,16 +36,21 @@ export default function stack(root, { ed, describe = async () => null, duration 
     const code = ed.code, c = chain(code), calls = c?.calls || []
     // audio.from(…) makes the sound: its call is where the chain starts, not a step on it
     const made = c?.root.name === 'VariableName' && code.slice(c.root.from, c.root.to) === 'audio' && !!calls[0]
-    const steps = [...calls.map((k, i) => i || !made ? k : { ...k, origin: true }), ...offCalls(code).map(o => ({ ...parseCall(o.text), ...o, dot: o.from, list: null, off: true }))].sort((p, q) => p.dot - q.dot)
+    // a step bypassed, its call commented out, known as it was by where its "(" is, so it stays the card chosen
+    const steps = [...calls.map((k, i) => i || !made ? k : { ...k, origin: true }), ...offCalls(code).map(o => ({ ...parseCall(o.text), ...o, dot: o.from, list: { from: code.indexOf(o.text, o.from) + o.text.indexOf('(') }, off: true }))].sort((p, q) => p.dot - q.dot)
     const name = !made && source(), rows = name ? [{ name, sound: true }, ...steps] : steps
     const gs = groups(code), groupOf = k => k.sound ? -1 : gs.findIndex(g => k.dot > g.from && k.dot < g.to)
-    // cards are built again only when the steps change, never by a slider's own edits; then the whole chain shows
-    const next = rows.map(k => (k.off ? '~' : '') + k.name + '/' + groupOf(k)).join() + gs.map(g => g.name).join()
-    if (next !== shape) { build(rows, gs, groupOf); if (shape) { chosen = null; view(null, null) } }
+    // cards are built again only when the steps change, never by a slider's own edits nor a step bypassed or turned back
+    // on (its card stays as it is, where it is, dimmed while off); then the whole chain shows
+    const next = rows.map(k => k.name + '/' + groupOf(k)).join() + gs.map(g => g.name).join()
+    if (next !== shape) { build(rows, gs, groupOf); if (shape) { chosen = null; picked = []; view(null, null) } }
     shape = next
+    if (opening != null) { const f = folds.find(f => f.group.from === opening); if (f) unfolded.add(f.key); opening = null }
     rows.forEach((call, i) => { cards[i].call = call })
     gs.forEach((g, i) => { if (folds[i]) folds[i].group = g })
     render()
+    // a step bypassed or back on, the output up to the card chosen counts its live steps again
+    if (chosen != null) { const c = cards[position()], i = c ? live().indexOf(c) : -1; delta != null && i >= 0 ? view(i, null) : view(null, kept()) }
   }
 
   // a step's switch, as a plugin's bypass: on, power; bypassed, power struck through
@@ -66,7 +72,14 @@ export default function stack(root, { ed, describe = async () => null, duration 
       toggle.querySelector('.step-name').textContent = call.sound ? call.name : call.name[0].toUpperCase() + call.name.slice(1)
       // a press leaves the keys where they were: Space still plays, the code keeps its caret
       toggle.addEventListener('mousedown', event => event.preventDefault())
-      toggle.addEventListener('click', () => pick(card))
+      toggle.addEventListener('click', event => {
+        if (dragged) return
+        if (event.shiftKey) return pickRange(card)
+        if (picked.length) { picked = []; render() }
+        anchor = card
+        pick(card)
+      })
+      toggle.addEventListener('pointerdown', event => carry(event, { card }))
       li.addEventListener('pointerenter', () => { hovered = card; guide() })
       li.addEventListener('pointerleave', () => { if (hovered === card) { hovered = null; guide() } })
       // the sound the chain starts from has nothing to take away, turn off or remove
@@ -90,7 +103,9 @@ export default function stack(root, { ed, describe = async () => null, duration 
       const toggle = head.firstChild, fold = { li, toggle, key, group }
       toggle.querySelector('.step-name').textContent = group.name
       toggle.addEventListener('mousedown', event => event.preventDefault())
-      toggle.addEventListener('click', () => { unfolded.has(key) ? unfolded.delete(key) : unfolded.add(key); render() })
+      toggle.addEventListener('click', () => { if (dragged) return; lastFold = fold; unfolded.has(key) ? unfolded.delete(key) : unfolded.add(key); render() })
+      toggle.addEventListener('dblclick', () => nameGroup(fold))
+      toggle.addEventListener('pointerdown', event => carry(event, { fold }))
       const acts = head.appendChild(document.createElement('div'))
       acts.className = 'step-acts'
       fold.on = button(acts, 'step-on', null, ON, () => switchAll(fold))
@@ -103,6 +118,112 @@ export default function stack(root, { ed, describe = async () => null, duration 
   }
   // a group's steps' cards
   const members = fold => cards.filter(c => c.fold === folds.indexOf(fold))
+  // A row dragged along the others, a step's card or a group's (its steps with it), is held under the pointer, the others
+  // stepping aside as it passes their middles, and goes where it is let go, set in as the row it lands by: a step into a
+  // group, out of one or along it, under a group's open card first in it; a group among the rows outside groups (code.js
+  // moveLines). A press that stays put is a click; a step bypassed stays put
+  let dragged = false
+  const span = c => ({ from: c.call.dot, to: c.call.to })
+  function carry(event, row) {
+    const self = row.card ?? row.fold
+    if (event.button || row.card && (row.card.call.off || row.card.call.sound || row.card.call.origin)) return
+    if (row.fold) for (const c of members(row.fold)) c.li.hidden = true
+    const rows = [...list.children].filter(li => !li.hidden).map(li => cards.find(c => c.li === li) ? { card: cards.find(c => c.li === li) } : { fold: folds.find(f => f.li === li) })
+      .filter(r => !r.card?.call.sound && !r.card?.call.origin)
+    const from = rows.findIndex(r => (r.card ?? r.fold) === self), lis = rows.map(r => (r.card ?? r.fold).li)
+    const boxes = lis.map(li => li.getBoundingClientRect()), y0 = event.clientY, mid = b => b.top + b.height / 2
+    const step = from + 1 < boxes.length ? boxes[from + 1].top - boxes[from].top : boxes[from].height
+    let moved = false, to = from
+    const move = e => {
+      const dy = e.clientY - y0
+      if (!moved && Math.abs(dy) < 4) return
+      moved = true
+      self.li.classList.add('dragging')
+      self.li.style.transform = `translateY(${dy}px)`
+      const top = boxes[from].top + dy, bottom = boxes[from].bottom + dy
+      to = from
+      boxes.forEach((b, i) => { if (i > from && bottom > mid(b)) to = Math.max(to, i); if (i < from && top < mid(b)) to = Math.min(to, i) })
+      lis.forEach((li, i) => { if (i !== from) li.style.transform = i >= Math.min(from, to) && i <= Math.max(from, to) ? `translateY(${to > from ? -step : step}px)` : '' })
+    }
+    const up = () => {
+      removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up)
+      // laid out in the new order at once, nothing sliding back to where it was
+      for (const li of lis) { li.style.transition = 'none'; li.style.transform = ''; li.classList.remove('dragging') }
+      requestAnimationFrame(() => requestAnimationFrame(() => { for (const li of lis) li.style.transition = '' }))
+      if (!moved) return render()
+      // the click that ends the drag is the drag's, not a choice (gone with the task it comes in)
+      dragged = true
+      setTimeout(() => { dragged = false })
+      const change = to === from ? null : landing(row, rows[to], to > from)
+      if (change) ed.change(change)
+      else render()
+    }
+    addEventListener('pointermove', move)
+    addEventListener('pointerup', up)
+    addEventListener('pointercancel', up)
+  }
+  // The change that takes a row (a step or a group) by another, after it (going down) or before it; none into a group for
+  // a group, which goes by the group it lands in
+  function landing(row, by, after) {
+    const code = ed.code, what = row.card ? span(row.card) : row.fold.group
+    if (by.fold) return row.card && after && unfolded.has(by.fold.key) ? moveLines(code, what, by.fold.group, { into: true }) : moveLines(code, what, by.fold.group, { after })
+    if (row.fold && by.card.fold >= 0) return moveLines(code, what, folds[by.card.fold].group, { after })
+    const lines = moveLines(code, what, span(by.card), { after })
+    if (lines || row.fold) return lines
+    // a chain on one line: the call moved along it
+    const list = stepsOf(code), at = c => list.findIndex(s => s.call.from === c.call.dot)
+    return moveStep(code, at(row.card), at(by.card))
+  }
+  // Rows chosen together for a group: a press with Shift takes the cards from the one chosen last to it (`picked`), each
+  // a step outside groups; Mod-G makes them a group (or the card chosen alone), Mod-Shift-G unmakes the group the card
+  // chosen is in, or the group pressed last. A group's name, double-clicked, is named anew
+  let anchor = null, picked = [], lastFold = null, opening = null
+  function pickRange(card) {
+    const tops = cards.filter(c => !c.call.sound && !c.call.origin && c.fold < 0 && !c.call.off), a = tops.indexOf(anchor ?? card), b = tops.indexOf(card)
+    picked = a < 0 || b < 0 ? [] : tops.slice(Math.min(a, b), Math.max(a, b) + 1)
+    render()
+  }
+  function makeGroup() {
+    const list = stepsOf(ed.code), at = c => list.findIndex(s => s.call.from === c.call.dot)
+    const chosenCard = cards[position()], range = picked.length ? picked : chosenCard && !chosenCard.call.sound && !chosenCard.call.origin && chosenCard.fold < 0 ? [chosenCard] : []
+    if (!range.length) return false
+    const change = groupSteps(ed.code, at(range[0]), at(range.at(-1)))
+    if (!change) return false
+    picked = []
+    // the new group open, its steps in sight (refresh)
+    opening = change.from + 1
+    ed.change(change)
+    return true
+  }
+  function unmakeGroup() {
+    const chosenCard = cards[position()], fold = chosenCard && chosenCard.fold >= 0 ? folds[chosenCard.fold] : lastFold && folds.includes(lastFold) ? lastFold : null
+    const change = fold && ungroup(ed.code, fold.group)
+    if (change) ed.change(change)
+    return !!change
+  }
+  function nameGroup(fold) {
+    const name = fold.toggle.querySelector('.step-name'), input = document.createElement('input')
+    input.className = 'step-rename'
+    input.value = fold.group.name
+    input.setAttribute('aria-label', `Name ${fold.group.name}`)
+    name.replaceWith(input)
+    input.focus()
+    input.select()
+    let done = false
+    const end = keep => {
+      if (done) return
+      done = true
+      const change = keep && input.value.trim() && input.value.trim() !== fold.group.name ? renameGroup(ed.code, fold.group, input.value) : null
+      input.replaceWith(name)
+      // open as it was, under its new name
+      if (change && unfolded.has(fold.key)) opening = fold.group.from
+      if (change) ed.change(change)
+    }
+    input.addEventListener('keydown', event => { event.stopPropagation(); if (event.key === 'Enter') end(true); else if (event.key === 'Escape') end(false) })
+    input.addEventListener('blur', () => end(true))
+    input.addEventListener('click', event => event.stopPropagation())
+    input.addEventListener('pointerdown', event => event.stopPropagation())
+  }
   // a group's steps all turned off, or all back on when they all are, in one step
   function switchAll(fold) {
     const steps = members(fold), on = steps.every(c => c.call.off), code = ed.code
@@ -134,16 +255,17 @@ export default function stack(root, { ed, describe = async () => null, duration 
   // the live steps the chosen card keeps: none past the sound it starts from; all of them (null) at the last, or none chosen
   function kept() {
     const c = cards[position()], steps = live()
-    const n = !c ? null : c.call.sound ? 0 : steps.indexOf(c) + 1
+    const n = !c ? null : c.call.sound ? 0 : steps.filter(k => k.call.dot <= c.call.dot).length
     return n == null || n >= steps.length ? null : n
   }
 
   function render() {
     const code = ed.code, steps = live(), at = position()
     for (const [n, c] of cards.entries()) {
-      const call = c.call, open = n === at && !call.off && !call.sound, i = steps.indexOf(c)
+      const call = c.call, open = n === at && !call.sound, i = steps.indexOf(c)
       c.li.classList.toggle('open', open)
       c.li.classList.toggle('chosen', n === at)
+      c.li.classList.toggle('picked', picked.includes(c))
       c.li.classList.toggle('off', !!call.off)
       c.li.classList.toggle('rolled', at >= 0 && n > at && delta == null)
       c.li.classList.toggle('delta', i >= 0 && i === delta)
@@ -162,6 +284,8 @@ export default function stack(root, { ed, describe = async () => null, duration 
       if (open && !c.params) { c.params = params(c); c.li.append(c.params.dom); c.params.load() }
       if (!open && c.params) { c.params.dom.remove(); c.params = null }
       c.params?.refresh(i >= 0 && i === delta)
+      // bypassed, its settings stay in sight, out of reach till it is back on
+      if (c.params) c.params.dom.inert = !!call.off
     }
     // a group folded hides its steps, unless the step chosen is one of them; its switch is off when all of them are
     for (const fold of folds) {
@@ -218,9 +342,15 @@ export default function stack(root, { ed, describe = async () => null, duration 
     return to > from && code.slice(from, to) !== sinks ? { from, to, insert: sinks } : null
   }
   // While the output shows the chain rolled back to the card chosen, the steps after it, as a change that takes them
-  // away (else null): a new edit then goes after that card, the steps after it dropped, as a browser drops the pages
-  // ahead of one gone back to once another opens
+  // away (else null): the chain as it shows (a selection's audio taken to a tab of its own)
   const ahead = () => back != null && cards[position()] ? past(cards[position()]) : null
+  // While it shows the chain rolled back to a card, that card's call (none for the sound it starts from) and where an edit
+  // made then goes: right after it, the steps after it kept, as a new layer goes over the one selected; else null
+  function at() {
+    const c = back != null && cards[position()], k = c && chain(ed.code)
+    if (!k) return null
+    return { call: c.call.sound ? null : c.call, after: c.call.sound ? k.root.to : c.call.origin ? k.calls[0].to : c.call.to }
+  }
   function onOff(c) {
     const change = c.call.off ? turnOn(ed.code, c.call) : turnOff(ed.code, c.call)
     if (change) ed.change(change)
@@ -365,7 +495,7 @@ export default function stack(root, { ed, describe = async () => null, duration 
 
   // what the output shows: the card chosen (its id, as choose() takes it) and whether its Δ
   const shown = () => ({ id: chosen, takes: delta != null })
-  return { refresh, choose, ahead, shown }
+  return { refresh, choose, ahead, at, shown, group: makeGroup, ungroup: unmakeGroup }
 }
 
 // The value each parameter has in a call now, by position or by name in an options object; undefined if unset.

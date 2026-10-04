@@ -91,7 +91,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   const color = name => style.getPropertyValue(name).trim()
   let waves = [], specs = [], count = 0, rate = 44100, duration = 0, display = 'wave', scale = 'log', units = 'clock', hovered = null
   // what shows besides the sound; the pauses in it, for selecting and stepping as in a text
-  let show = { hits: true, gain: true, meters: true }, segments = { silences: [] }
+  let show = { hits: true, gain: true, meters: true, guides: true }, segments = { silences: [] }
   // the output's markers: [{ time, label }], a range's with its duration, flags over the lanes
   let markers = []
   // the times a marker marks: a moment, or a range's start and end
@@ -471,10 +471,10 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     const sel = drag?.carry && drag.moved && !drag.out ? [drag.to, drag.to + drag.b - drag.a] : drag?.stretch ? [drag.a, drag.to] : back ? [drag.a - back, drag.b - back] : selection
     paintSelection(L, sel)
     paintEnd(L)
-    for (const guide of guides) paintGuide(guide, L, across)
+    if (show.guides) for (const guide of guides) paintGuide(guide, L)
     // a fade as it is dragged, the waveform under it drawn faded; a crossfade, its two curves across the seam
-    if (drag?.span && drag.cross) { const [p, q] = drag.span, h = half(p, q); paintGuide({ ramps: [[p - h, p + h, 'out', 'equal'], [p - h, p + h, 'in', 'equal']] }, L, across) }
-    else if (drag?.span) paintGuide({ ramps: [[...drag.span, drag.fade, fadeCurve]] }, L, across)
+    if (drag?.span && drag.cross) { const [p, q] = drag.span, h = half(p, q); paintGuide({ ramps: [[p - h, p + h, 'out', 'equal'], [p - h, p + h, 'in', 'equal']] }, L) }
+    else if (drag?.span) paintGuide({ ramps: [[...drag.span, drag.fade, fadeCurve]] }, L)
     // the pointer, read out on the axes: its time on the time row, as the script will get it (a dragged edge's, a snapped
     // one's), the labels there giving way to it; its level or frequency by its lane
     const at = hovered && hovered[0] >= 0 && hovered[0] <= w ? hovered : null, lane = at && all.find(r => inside(r, ...at))
@@ -865,23 +865,20 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     c.fillText(text, px, py)
   }
   const accent = () => color('--color-screen-accent')
-  // What a step sets, over the output, in each lane (`across`): its range, a level, its fades' ramps, a time, a
-  // frequency or a band
-  function paintGuide(g, L, across) {
+  // What a step sets, as hints over the output, never over the sound itself (`show.guides`): its range a bar on the time
+  // row, as a DAW's ruler marks a region; a level, its fades' ramps, a time, a frequency, a band, the notes it tunes to
+  function paintGuide(g, L) {
     // its words end where the lanes' pictures do, clear of the meters
-    const { w } = plot(), all = [...L.wave, ...L.spec], end = lanesEnd(L)
+    const { h } = plot(), all = [...L.wave, ...L.spec], end = lanesEnd(L)
     c.strokeStyle = c.fillStyle = accent()
     c.lineWidth = 1
     if (g.range && !g.band) {
-      const a = x(g.range[0]), b = x(g.range[1])
-      if (g.dim === 'outside') { c.fillStyle = color('--color-bezel'); c.globalAlpha = .55; across(0, a); across(b, w - b) }
-      else { c.globalAlpha = .14; across(a, b - a) }
-      c.globalAlpha = 1
-      c.fillStyle = accent()
-      across(Math.round(a), 1); across(Math.round(b), 1)
+      const a = Math.round(x(g.range[0])), b = Math.round(x(g.range[1]))
+      c.fillRect(a, h, Math.max(1, b - a), 2)
       // what the range is to the call (denoise's noise)
-      if (g.label) { c.textAlign = 'left'; c.fillText(g.label, Math.round(a) + 5, all[0][1] + 10) }
+      if (g.label) { c.textAlign = 'left'; c.fillText(g.label, a + 5, all[0][1] + 10) }
     }
+    if (g.notes) for (const rect of L.spec) paintNotes(g, rect, end)
     if (g.level != null) for (const rect of L.wave) {
       const amp = 10 ** (g.level / 20), [, y, lw, lh] = rect
       c.setLineDash([4, 3])
@@ -941,6 +938,31 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
         c.fillText(g.freq >= 1000 ? `${+(g.freq / 1000).toFixed(2)}kHz` : `${Math.round(g.freq)}Hz`, end - 6, ly - 7)
       }
     }
+  }
+  // The notes a tune lands on (`notes`, MIDI, A4 at `a4`), a hairline each over its span on a spectrogram lane, as a
+  // tuner's staff: within the voice's range, a whole tone past it either way, as tune-snap decodes it (the pitch curve's
+  // over the span, else a voice's); the root's brighter. A line within a few pixels of the last gives way, a name at
+  // the span's end within a line's height
+  function paintNotes({ notes, root, a4, span = [0, duration] }, rect, end) {
+    const xa = Math.max(0, Math.round(x(span[0]))), xb = Math.min(end, Math.round(x(span[1])))
+    if (xb - xa < 2) return
+    const f0 = voiced(...span), tone = 2 ** (2 / 12), [lo, hi] = f0.length ? [f0[0] / tone, f0.at(-1) * tone] : VOICE
+    let line = -Infinity, named = -Infinity
+    c.save()
+    c.beginPath(); c.rect(...rect); c.clip()
+    c.textAlign = 'right'
+    for (const m of notes) {
+      const f = a4 * 2 ** ((m - 69) / 12), ly = Math.round(fy(rect, f)) + .5
+      if (f < lo || f > hi || Math.abs(ly - line) < 4) continue
+      line = ly
+      c.globalAlpha = (m - root) % 12 ? .3 : .6
+      c.beginPath(); c.moveTo(xa, ly); c.lineTo(xb, ly); c.stroke()
+      if (Math.abs(ly - named) < 12) continue
+      named = ly
+      c.globalAlpha = .8
+      c.fillText(`${NOTES[m % 12]}${Math.floor(m / 12) - 1}`, xb - 4, ly - 6)
+    }
+    c.restore()
   }
 
   // The time row: a label every step a time reads well in (1-2-5, and minutes'), at least 72 px apart, its tick running
@@ -1240,11 +1262,12 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // way, a drag of it), and as the selection's pill dragged moves it. Frame i's pitch, Hz, 0 where it has none
   function toneOf(i) {
     const { times, f0, basis } = contour, t = times[i]
-    return f0[i] && moved(f0[i] * 2 ** ((lineAt(t) - valueAt(basis, t)) / 12), t)
+    return f0[i] && bent(f0[i] * 2 ** ((lineAt(t) - valueAt(basis, t)) / 12), t)
   }
   // a pitch at t as a tool dragged over the selection makes it: higher or lower, or its rises and falls wider or
-  // flatter about the range's median
-  function moved(f, t) {
+  // flatter about the range's median (named apart from moved(t), the times an edit drawn ahead moves, which one function
+  // of both names had hidden: the cues and the markers stayed where they were till the output came)
+  function bent(f, t) {
     const d = drag?.lift ? drag : landed
     if (!d || t < d.a || t > d.b) return f
     return d.lift === 'pitch' ? f * d.ratio : d.lift === 'intonation' && d.mid ? d.mid * (f / d.mid) ** d.k : f
@@ -1262,7 +1285,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     const fa = a >= 0 ? own(a) : 0, fb = b < n ? own(b) : 0
     if (!fa && !fb) return 0
     const f = !fa ? fb : !fb ? fa : fa * (fb / fa) ** Math.max(0, Math.min(1, (t - times[a]) / (times[b] - times[a])))
-    return moved(f * 2 ** (lineAt(t) / 12), t)
+    return bent(f * 2 ** (lineAt(t) / 12), t)
   }
   // A pitch curve in a lane, a line per voiced stretch: frame i at times[i], its pitch hz(i) (0 where it has none)
   function trace(rect, times, hz) {
@@ -1367,8 +1390,8 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     const grip = gripAt(L, px, py)
     if (!grip && nameAt(px, py) >= 0) return
     const flag = grip ? -1 : nearMarker(px, py)
-    // a flag: the caret goes to it, a range's selects it when let go; dragged, the marker moves
-    if (flag >= 0 && !markers[flag].duration) { if (selection) select(0, 0); setCursor(markers[flag].time) }
+    // a flag: dragged, the marker moves, the caret and what plays staying where they are; clicked, the caret goes to it,
+    // a range's selects it (let go)
     if (flag >= 0) chosen = markers[flag]
     drag = flag >= 0 ? { marker: flag, x: px, to: markers[flag].time, moved: false }
       : gripDown(px, py, L, event) || endDown(px, py, event) || (show.hits && cueDown(px, py, event)) || (show.gain && !pitchLine() && penDown(px, py, L)) || (pitchLine() && (toneDown(px, py, L) || penDown(px, py, L, true) || pitchDown(px, py, L) || penDown(px, py, L))) || selectDown(event, px, py, t, L)
@@ -1426,11 +1449,12 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   const origin = () => !selection ? cursor : anchor === selection[1] ? selection[1] : selection[0]
   // the caret or range gestures act on, as one of the others would hold it
   const current = () => selection ? band ? [...selection, ...band] : [...selection] : [cursor, cursor]
-  // A caret's line within reach, { r } (null r: the caret there is when nothing is selected), and a range's edge, the
-  // nearest: { r (null: the selection), edge, 0 or 1, t }
+  // A caret's line within reach, { r } (null r: the caret, inside a selection too, which it keeps; on the selection's
+  // edge, as a selection puts it, the edge's), and a range's edge, the nearest: { r (null: the selection), edge, 0 or 1, t }
   function caretAt(px, py) {
     if (py > plot().h) return null
-    if (!selection && Math.abs(x(cursor) - px) <= EDGE) return { r: null }
+    const clear = !selection || selection.every(t => Math.abs(x(t) - x(cursor)) > EDGE)
+    if (clear && Math.abs(x(cursor) - px) <= EDGE) return { r: null }
     const r = more.find(r => r.length === 2 && r[0] === r[1] && Math.abs(x(r[0]) - px) <= EDGE)
     return r ? { r } : null
   }
@@ -1778,7 +1802,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (d.marker != null) {
       const m = markers[d.marker]
       if (d.moved && Math.abs(d.to - m.time) > 1e-6) { markers = markers.with(d.marker, { ...m, time: d.to }); onedit('remark', { time: m.time, duration: m.duration, to: d.to }) }
-      if (m.duration) select(d.to, d.to + m.duration)
+      else if (!d.moved) m.duration ? select(m.time, m.time + m.duration) : (select(0, 0), setCursor(m.time))
       chosen = markers[d.marker]
     }
     else if (d.cue != null) {

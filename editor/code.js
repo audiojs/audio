@@ -154,14 +154,18 @@ export function parseCall(call) {
   return k ? { name: k.name, args: k.args, source } : { name: call.match(/^\.([\w$]+)/)?.[1] ?? '', args: [], source }
 }
 // The change that turns a call off, commented out where it stands: a line of its own gets `// `, else it goes in
-// /* */; none when its text would end the comment early
+// /* */; none when its text would end the comment early. Only the marks go in, the call's text untouched, so what is
+// known by where it stands (the card chosen) is still known by it
 export function turnOff(code, call) {
   const line = lineOf(code, call.dot), t = code.slice(call.dot, call.to)
   if (!code.slice(line.from, call.dot).trim() && !code.slice(call.to, line.to).trim()) return { from: call.dot, insert: '// ' }
-  return t.includes('*/') ? null : { from: call.dot, to: call.to, insert: `/* ${t} */` }
+  return t.includes('*/') ? null : [{ from: call.dot, insert: '/* ' }, { from: call.to, insert: ' */' }]
 }
-// ... and back on, as it was written
-export const turnOn = (code, off) => ({ from: off.from, to: off.to, insert: off.text })
+// ... and back on, as it was written: the marks out
+export function turnOn(code, off) {
+  const at = code.indexOf(off.text, off.from), end = at + off.text.length
+  return [{ from: off.from, to: at }, ...end < off.to ? [{ from: end, to: off.to }] : []]
+}
 
 // The chain's steps as the edits show them, in order, those turned off among them: { name, text, on, call } each, `text`
 // as written ('.fade(0.5)'); audio.from(…), which makes the sound, is no step
@@ -189,6 +193,47 @@ export function moveStep(code, i, j) {
   if (!s?.on || !t || i === j) return null
   const p = piece(code, s.call), at = j > i ? t.call.to : piece(code, t.call).from
   return [{ from: p.from, to: p.to, insert: '' }, { from: at, insert: code.slice(p.from, p.to) }]
+}
+
+// Layers: a step or a group moved, set in, made, unmade or named, each as one change, each on lines of their own (the
+// chain written a call a line, as the edits write it); null where they are not.
+// The lines `what` ({ from, to }: a step where it stands, a group from its comment) stands on, with the newline before
+// them; null where something else shares them
+function lines(code, { from, to }) {
+  const a = lineOf(code, from), b = lineOf(code, to)
+  return a.from && !code.slice(a.from, from).trim() && !code.slice(to, b.to).trim() ? { from: a.from - 1, to: b.to, indent: a.indent } : null
+}
+// those lines, each set in by `indent` in place of the first's own, the deeper ones kept deeper
+const setIn = (text, was, indent) => text.replace(new RegExp(`\n${was}`, 'g'), `\n${indent}`)
+// The change that moves `what` before or after `target` (a step or a group, as `what` is), set in as the target is; or,
+// `into` a group (`target` its comment's span), first under its comment, set in as its steps are
+export function moveLines(code, what, target, { after = false, into = false } = {}) {
+  const block = lines(code, what), t = lines(code, target)
+  if (!block || !t || (t.from >= block.from && t.to <= block.to)) return null
+  const indent = into ? lineOf(code, lineOf(code, target.from).to + 1).indent : t.indent
+  const at = into ? lineOf(code, target.from).to : after ? t.to : t.from
+  if (at >= block.from && at <= block.to) return null
+  return [{ from: block.from, to: block.to }, { from: at, insert: setIn(code.slice(block.from, block.to), block.indent, indent) }]
+}
+// The change that makes steps `i` to `j` of steps() a group named `name`: its comment on a line of its own over them,
+// at their place, they set in under it
+export function group(code, i, j, name = 'Group') {
+  const list = steps(code), first = list[Math.min(i, j)], last = list[Math.max(i, j)]
+  const block = first && last && lines(code, { from: first.call.from, to: last.call.to })
+  if (!block || groups(code).some(g => g.from < block.to && g.to > block.from)) return null
+  const text = code.slice(block.from, block.to)
+  return { from: block.from, to: block.to, insert: `\n${block.indent}// ${name}${setIn(text, block.indent, block.indent + '  ')}` }
+}
+// The change that unmakes a group (groups()): its comment's line out, its steps set back to where it stood
+export function ungroup(code, g) {
+  const head = lineOf(code, g.from), body = lineOf(code, head.to + 1)
+  if (!head.from) return null
+  return { from: head.from - 1, to: g.to, insert: setIn(code.slice(head.to, g.to), body.indent, head.indent) }
+}
+// The change that names a group anew
+export function renameGroup(code, g, name) {
+  const head = lineOf(code, g.from), at = code.indexOf('//', g.from)
+  return name.trim() ? { from: at, to: head.to, insert: `// ${name.trim()}` } : null
 }
 
 // The script with the chain kept to its first `n` steps, as a rollback bar leaves it; as it is when that is all of them
@@ -231,8 +276,8 @@ export function residual(code, i) {
 // The change that adds `.name(args)` to the output chain, before a closing save() or play(): a line of its own, as the
 // edits are a card each, indented as the chain's lines are; a bare name gets a new statement. Or a group of calls,
 // `{ name, calls }`: its name a comment on a line of its own, its calls indented under it, one step of the edits (groups).
-// Null when there is no chain.
-export function append(code, call) {
+// With `after`, where a step of the chain ends: right after that step instead. Null when there is no chain.
+export function append(code, call, after = null) {
   const c = chain(code)
   if (!c) return null
   const { statement, expr, root, calls } = c
@@ -248,6 +293,8 @@ export function append(code, call) {
   const ref = multiline && calls.find(k => /\n\s*$/.test(code.slice(0, k.dot)))
   const indent = ref ? code.slice(0, ref.dot).match(/\n([ \t]*)$/)[1] : lineOf(code, at).indent + '  '
   const body = typeof call === 'string' ? `.${call}` : [`// ${call.name}`, ...call.calls.map(k => `  .${k}`)].join(`\n${indent}`)
+  // right after a step of it (`after`, where that step ends), the steps after it staying after it
+  if (after != null && after < at) return { from: after, insert: multiline || typeof call !== 'string' ? `\n${indent}${body}` : body }
   if (before && multiline) return { from: at, insert: `${body}\n${indent}` }
   return { from: at, insert: `\n${indent}${body}${before ? `\n${indent}` : ''}` }
 }

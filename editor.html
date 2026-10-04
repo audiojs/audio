@@ -38,11 +38,14 @@
       <!-- over the picture: the open sounds; at its right undo and redo, how it shows, and at the head of its axis its settings -->
       <header class="view-head">
         <!-- the open sounds, a tab each, as an audio editor's files, dragged along to reorder; a selection's audio dragged
-             up onto them goes to a tab of its own -->
+             up onto them goes to a tab of its own. Each as wide as its name, never squeezed: more than fit scroll, as a
+             code editor's tabs do, the wheel moving them along, the one shown brought into sight -->
         <div class="files" role="tablist" aria-label="Open sounds">
+          <div class="files-list" :onwheel="scrollTabs">
           <div class="file" :each="t in tabs" :class="{ current: t.id === tab }" :data-id="t.id">
             <button role="tab" :class="{ source: t.id === tab }" :aria-selected="t.id === tab ? 'true' : 'false'" :title="t.id === tab ? [t.name, length].filter(Boolean).join(' · ') : t.name" :onclick="switchTab(t.id)" :onpointerdown="e => dragTab(e, t.id)" :text="t.name"></button>
             <button class="file-close" :aria-label="'Close ' + t.name" title="Close: its script and its edits go" :onclick="closeTab(t.id)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
+          </div>
           </div>
           <button class="icon-button file-new" aria-label="New tab" title="A new tab, an empty script" :onclick="newTab()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M12 6v12M6 12h12"/></svg></button>
         </div>
