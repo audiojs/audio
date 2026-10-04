@@ -15,4 +15,7 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npx playwright install --with-deps chromium
+      # a sound device: without one Chromium plays to a fake sink whose clock runs ahead of real time, which the
+      # playback and recording tests measure; a PulseAudio null sink keeps it real time, as on a user's machine
+      - run: sudo apt-get install -y pulseaudio && pulseaudio --start --exit-idle-time=-1 && pactl info
       - run: npm run test:all
