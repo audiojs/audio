@@ -2036,6 +2036,7 @@ test('editor: a recording becomes a file the script opens', async () => {
   assert.equal(await page.locator('.empty').isVisible(), true, 'nothing recorded')
   assert.equal(await page.getByRole('button', { name: 'Stop recording', exact: true }).count(), 0)
   await page.getByRole('button', { name: 'Record', exact: true }).first().click()
+  const started = Date.now()
   await page.waitForFunction(() => /^0:0[1-9]/.test(document.querySelector('.time').textContent))
   assert.ok(await drawn() > .001, 'the take draws as it comes')
   // at a recording app's scale, 10 s across, the take growing from the left: its right half bare
@@ -2046,15 +2047,16 @@ test('editor: a recording becomes a file the script opens', async () => {
   // Space stops it, as it stops playback
   await page.locator('.plot').focus()
   await page.keyboard.press('Space')
+  const ran = (Date.now() - started) / 1000
   await page.getByRole('button', { name: 'Record', exact: true }).first().waitFor()
   await page.waitForFunction(() => scriptText().startsWith("audio('recording.wav')"))
   await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
   assert.equal(await right(), 0, 'its output at the same scale')
   // the caret where the take ended, not at its start: Record again records on
   await page.waitForFunction(() => +document.querySelector('.time').textContent.split(':')[1] > .9)
-  // the take itself, untrimmed: about as long as the recording ran
+  // the take itself, untrimmed: about as long as the recording ran (a slow machine's run, however long)
   await write(`audio('recording.wav')`)
-  const long = () => page.waitForFunction(() => { const s = +document.querySelector('.source').title.split(' · ').pop().split(':')[1]; return s > .9 && s < 3 })
+  const long = () => page.waitForFunction(most => { const s = +document.querySelector('.source').title.split(' · ').pop().split(':')[1]; return s > .9 && s < most }, ran + .5)
   await long()
   const before = await lengthText()
   // kept for the next visit, as a file is (a 32-bit float WAV): the same length after a reload, nothing missing
