@@ -139,6 +139,14 @@ export default function engine(url = WORKER) {
     bake: script => call({ type: 'bake', ...script }),
     // The source it opened, level-matched to `loudness` (LUFS), for A/B listening.
     original: (source, loudness) => call({ type: 'original', source, loudness }),
+    // What plays, made and rendered here as it plays (worker.js voice): a facade of the library's (audio/worker) the page
+    // plays as an instance, or null when there is none (the output gone, the engine stopped)
+    async voice(what) {
+      const r = await call({ type: 'voice', ...what })
+      if (!r.inst) return null
+      const { default: audioWorker } = await import('../worker.js')
+      return audioWorker.adopt(r.inst, { worker })
+    },
     // A plugin's parameters from its manifest, fetched once.
     describe(name) {
       if (!described.has(name)) described.set(name, call({ type: 'describe', name }).then(r => r.params ?? null))

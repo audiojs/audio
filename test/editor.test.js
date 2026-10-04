@@ -17,7 +17,7 @@ import { prepare, error, chain, append, source, callAt, setArg, cli, groups, ste
 import { ops, guides, previews, SCALES } from '../editor/ops.js'
 import { SCALES as NOTE_SCALES, snapMidi } from '@audio/note'
 import { help, layout, layouts, texts } from '../editor/help.js'
-import { boxed } from '../editor/player.js'
+import { boxed } from '../editor/heard.js'
 import opIcons from '../editor/icons.js'
 import clock from '../editor/time.js'
 import { samples, RATE as SAMPLES } from '../site/samples.js'
@@ -704,7 +704,7 @@ test('icons: every method has its own', () => {
   for (const [name, d] of Object.entries(opIcons)) assert.match(d, /^[Mm][\d\s.,MLHVCSQTAZmlhvcsqtaz-]+$/, name)
 })
 
-// Several boxes on the spectrogram play as the library makes them (player.js boxed): each box's band over its time,
+// Several boxes on the spectrogram play as the library makes them (heard.js boxed): each box's band over its time,
 // silence around them. A 300 Hz and a 3 kHz tone together, 2 s; a box keeps 2–4 kHz over 0.2–0.6 s, another 100–500 Hz
 // over 1.2–1.6 s. The 24 dB an octave filters leave the other tone 20 dB under at least (an octave and more away).
 test('boxes: each plays its band over its time, silence around them', async () => {
@@ -1975,6 +1975,28 @@ test('editor: play moves the clock, and a new output keeps playing where it was'
   await page.getByRole('button', { name: 'Play' }).waitFor()
 })
 
+// What plays is rendered by the engine, as it plays (player.js, worker.js voice): the page's own thread held up three
+// seconds, longer than the library renders ahead of the speakers (fn/play.js AHEAD), leaves no gap in it. The speakers' feed taken on the audio thread (taken), past the page's
+test('editor: playback goes on without a gap while the page is busy', async () => {
+  await page.addInitScript(taken)
+  await open()
+  await write(`audio.from(t => Math.sin(2 * Math.PI * 440 * t) / 2, { duration: 8 })`)
+  await page.locator('.readout', { hasText: 'peak −6.0dBFS' }).waitFor()
+  await page.locator('.plot').focus()
+  await page.keyboard.press('Space')
+  await page.getByRole('button', { name: 'Pause' }).waitFor()
+  await page.waitForFunction(() => document.querySelector('.time').textContent > '0:00.300')
+  await page.evaluate(() => { window.__taken.length = 0; const t = performance.now(); while (performance.now() - t < 3000); })
+  await page.waitForTimeout(300)
+  const [x, sr] = await page.evaluate(() => [window.__taken.flatMap(b => [...b]), window.__rate])
+  // the longest run of silence while it played: a sine has none longer than a sample or two
+  let run = 0, longest = 0
+  for (const v of x) { run = Math.abs(v) < 1e-4 ? run + 1 : 0; longest = Math.max(longest, run) }
+  assert.ok(x.length > sr * 3, `${x.length} samples taken`)
+  assert.ok(longest < sr * .005, `a gap of ${(longest / sr * 1000).toFixed(0)} ms`)
+  await page.getByRole('button', { name: 'Pause' }).click()
+})
+
 test('editor: an error is said once, beside the time and at its line; the last output stays', async () => {
   await open()
   await write(`audio('chime.wav').gain(`)
@@ -2115,6 +2137,28 @@ function tap() {
       const gain = this.createGain(), rec = this.createScriptProcessor(4096, 2, 2), out = super.destination
       gain.connect(out); gain.connect(rec); rec.connect(out)
       rec.onaudioprocess = e => window.__heard.push(Float32Array.from(e.inputBuffer.getChannelData(0)))
+      Object.defineProperty(this, 'destination', { get: () => gain })
+    }
+  }
+}
+// What reaches the speakers, taken on the audio thread, the page's thread busy or not: every AudioContext's destination
+// becomes a worklet keeping its left channel, block by block, in window.__taken; run before the page
+function taken() {
+  const Real = window.AudioContext
+  window.__taken = []
+  window.AudioContext = class extends Real {
+    constructor(...args) {
+      super(...args)
+      const gain = this.createGain(), out = super.destination
+      gain.connect(out)
+      window.__rate = this.sampleRate
+      const code = `registerProcessor('taken', class extends AudioWorkletProcessor { process([[left]]) { if (left) this.port.postMessage(left.slice()); return true } })`
+      this.audioWorklet.addModule(URL.createObjectURL(new Blob([code], { type: 'text/javascript' }))).then(() => {
+        const node = new AudioWorkletNode(this, 'taken')
+        node.port.onmessage = e => window.__taken.push(e.data)
+        gain.connect(node)
+        node.connect(out)
+      })
       Object.defineProperty(this, 'destination', { get: () => gain })
     }
   }

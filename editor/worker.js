@@ -5,10 +5,13 @@
 // nothing yet (it needs the whole file, as trim and normalize do), the file itself streams, as it decodes. What a chain
 // made is kept by what made it, its steps too, so what was made before comes at once (renders kept, below).
 import audio from '../audio.js'
+import { loadOps } from '../core.js'
 import plugins from 'editor:plugins'
 import { attacks, hits } from '../fn/hits.js'
 import { steadyTempo } from '../fn/beat.js'
 import { contour as pitchOf } from '../fn/pitch-detect.js'
+import { expose } from '../worker.js'
+import { heard } from './heard.js'
 
 // Registry plugins load from their chunks: the build writes one literal import per plugin.
 audio.import = spec => plugins[spec]?.() ?? import(spec)
@@ -177,6 +180,7 @@ function dispose(created, keep) {
 function drop(r) {
   outputs.delete(r.id)
   dispose(r.created)
+  r.voice?.dispose()
   r.finish(null)
 }
 
@@ -694,6 +698,32 @@ async function original({ source, loudness }) {
   return { channels: pcm.map(c => c.map(v => v * k)), sampleRate: src.sampleRate, gain }
 }
 
+// What plays (player.js): an output (`output`, the run that made it), or the file it opened (`source`, at the output's
+// `loudness`, as original() has it), as the page asks to hear it (heard.js): a band of it, its boxes, or a moment of it
+// [from, to] through an edit, [type, ...args] (a pitch dragged). The page adopts it (audio/worker) and plays it, rendered
+// here into the page's deck as it plays; it lets it go when done. Each a copy of one kept with the output, sharing its
+// samples
+const levels = new WeakMap()
+async function voice({ output, source, loudness, ...as }) {
+  let a
+  if (source != null) {
+    const src = sources.get(source)
+    if (!src) return { inst: null }
+    if (!levels.has(src)) levels.set(src, src.stat('loudness'))
+    const own = await levels.get(src)
+    a = src.clone().gain(Number.isFinite(loudness) && Number.isFinite(own) ? loudness - own : 0)
+  } else {
+    const r = await whole(output)
+    if (!r) return { inst: null }
+    a = (r.voice ??= audio.from(pcmOf(r), { sampleRate: r.sampleRate })).clone()
+  }
+  if (as.edit && !audio.op(as.edit[0])) await audio.use(as.edit[0])
+  // its ops' modules loaded before the page reads it: a whole op (intonation) renders as its length is read
+  const b = heard(a, as)
+  await loadOps(b)
+  return { inst: expose(b) }
+}
+
 // What an agent asks of the sound (the `measure` tool): `code`, prepared as a script is (code.js), runs on copies of the output
 // shown (`out`, its markers) and of the file it opened (`src`), with the library, and changes nothing. What it measures on
 // them is a value however the code reads it, awaited or not, in a callback, a sum or a loop (measuring): a run that read a
@@ -917,7 +947,7 @@ const handlers = {
     if (was) for (const k of kept.keys()) if (k.startsWith(`${idOf(was)}|`)) kept.delete(k)
     data ? files.set(name, data) : files.delete(name); forget(name); stages.clear(); return {}
   },
-  run: execute, cues, contour, listen, export: exporting, describe, check: checking, original, eval: evaluate,
+  run: execute, cues, contour, listen, export: exporting, describe, check: checking, original, voice, eval: evaluate,
   // a tab closed: its output goes
   close: ({ tab }) => { for (const r of outputs.values()) if (r.tab === tab) drop(r); return {} },
   // a script's sound whole, as the edits make it there (the chain flattened up to a step): from the renders kept, as a

@@ -343,8 +343,9 @@ function facade(chan, opened) {
           if (target.seeking && m.run >= s.seekRun) target.seeking = false
           if (target.playing && !target.paused) target._emit('timeupdate', target.currentTime)
         }
+        // the span and a seek asked for before the deck opened: as they are now
         let port = tp.port()
-        await target._call('_play', [{ at: o.at, duration: o.duration, loop, from: o.from, splice: o.splice, runs: tp.runs(), port }], [port])
+        await target._call('_play', [{ at: span[0], duration: span[1], loop, from: o.from ?? (target.seeking ? ct : undefined), splice: o.splice, runs: tp.runs(), port }], [port])
       } catch (e) { if (session === s) end(false, e) }
     })()
     return target.played
@@ -375,10 +376,10 @@ function facade(chan, opened) {
     }
     loop = opts.loop ?? t?.loop ?? from.loop ?? false
     let sp = t?.span ?? [from.currentTime ?? 0, undefined]
-    // the deck carries on when it has the channels; else a new one starts where the other stopped
+    // the deck carries on when it has the channels; else a new one starts where the other stopped, over the same span
     if (!t?.tp || t.head == null || Math.max(2, target.channels | 0) > t.tp.ch) {
       t?.tp?.stop()
-      return begin({ at: t ? t.time : sp[0], duration: sp[1], paused: opts.paused ?? t?.paused })
+      return begin({ at: sp[0], duration: sp[1], paused: opts.paused ?? t?.paused, time: t?.time, from: t?.time })
     }
     let P = t.head + (t.paused ? 0 : 0.05 * t.rate)
     return begin({ at: sp[0], duration: sp[1], paused: t.paused, time: t.time, from: P, splice: { at: P, fade: EDIT } }, t.tp)

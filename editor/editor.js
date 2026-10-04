@@ -486,8 +486,8 @@ v = view(root.querySelector('.plot'), {
   onaudition(o) {
     if (!o) return pl.audition(null)
     const { at } = o, voice = { voice: true }
-    pl.audition(at, at + Math.min(o.duration, 2), a => o.curve ? a.pitch({ t: o.curve.t.map(t => t - at), v: o.curve.v }, voice)
-      : o.pitch ? a.pitch(o.pitch, voice) : o.intonation != null && o.intonation !== 1 ? a.intonation(o.intonation) : o.formant ? a.formant(o.formant) : a)
+    pl.audition(at, at + Math.min(o.duration, 2), o.curve ? ['pitch', { t: o.curve.t.map(t => t - at), v: o.curve.v }, voice]
+      : o.pitch ? ['pitch', o.pitch, voice] : o.intonation != null && o.intonation !== 1 ? ['intonation', o.intonation] : o.formant ? ['formant', o.formant] : null)
   },
   hint: hints
 })
@@ -1042,7 +1042,7 @@ function settle(out, draw = true, behind = false) {
   // the markers as the script has them: an older script's output, the newer one on its way, leaves those the view
   // drew ahead of it (made, named, moved) as they are
   if (!behind) v.markers = out?.markers
-  pl.set(has ? out.channels : null, out?.sampleRate)
+  pl.set(has ? out.channels : null, out?.sampleRate, has ? hears(out) : null)
   if (!has && pl.playing) togglePlay()
   state.duration = has ? out.duration : 0
   state.ab = false
@@ -1110,13 +1110,16 @@ function scheduleCheck(delay = 300) {
   }, delay)
 }
 
+// What opens an output to play (player.js set): the engine's, rendered there as it plays
+const hears = out => o => eng.voice({ ...o, output: out.id })
+
 // A/B: the original at the same place, level-matched to the output; the next output, or B again, returns to it.
 // B, or Play > Hear it before the edits; the word over the picture says which is heard
 async function toggleAB() {
   const name = sourceName()
   if (!state.hasOutput) return
   if (!name) return note('A generated sound has no file as it opened to hear it against.')
-  if (state.ab) { state.ab = false; pl.set(output.channels, output.sampleRate); return note('Hearing the output, after the edits') }
+  if (state.ab) { state.ab = false; pl.set(output.channels, output.sampleRate, hears(output)); return note('Hearing the output, after the edits') }
   const loudness = output.stats.loudness
   if (original?.name !== name || original.loudness !== loudness) {
     const r = await eng.original(name, loudness)
@@ -1125,7 +1128,7 @@ async function toggleAB() {
   }
   state.ab = true
   state.abGain = original.gain
-  pl.set(original.channels, original.sampleRate)
+  pl.set(original.channels, original.sampleRate, o => eng.voice({ ...o, source: name, loudness }))
   note(`Hearing before the edits: the file as it opened, level-matched (${original.gain >= 0 ? '+' : '−'}${Math.abs(original.gain).toFixed(1)}dB). B for after`)
 }
 

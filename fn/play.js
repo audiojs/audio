@@ -233,10 +233,10 @@ function handoff(b, a, opts) {
     if (opts.preservesPitch == null) b.preservesPitch = t.keep
     b.muted = t.muted
   }
-  // the deck carries on when it has the channels; else a new one starts where the other stopped
+  // the deck carries on when it has the channels; else a new one starts where the other stopped, over the same span
   if (!t?.tp || t.head == null || Math.max(2, b.channels | 0) > t.tp.ch) {
     t?.tp?.stop()
-    return begin(b, { at: t ? t.time : span[0], duration: span[1], paused: opts.paused ?? t?.paused })
+    return begin(b, { at: span[0], duration: span[1], paused: opts.paused ?? t?.paused, time: t?.time, from: t?.time })
   }
   let P = t.head + (t.paused ? 0 : 0.05 * t.rate)
   begin(b, { at: span[0], duration: span[1], paused: t.paused, time: t.time, from: P, splice: { at: P, fade: EDIT } }, t.tp)
@@ -302,9 +302,9 @@ function begin(a, o, taken) {
         if (a.seeking && m.run >= s.seekRun) a.seeking = false
         if (a.playing && !a.paused) emit(a, 'timeupdate', a.currentTime)
       }
-      // a seek asked for before the deck opened starts it there
+      // the span and a seek asked for before the deck opened: as they are now
       s.v = voice(a, tp.port(), {
-        at: o.at, duration: o.duration, loop: a.loop, from: o.from ?? (a.seeking ? a._.ct : undefined), splice: o.splice, runs: tp.runs(),
+        at: a._.span[0], duration: a._.span[1], loop: a.loop, from: o.from ?? (a.seeking ? a._.ct : undefined), splice: o.splice, runs: tp.runs(),
         // the block heard: kept (a copy: the block itself goes to the deck) and measured when it plays
         meter: (b, run, pos, time, sr) => {
           let k = b.map(c => c.slice())

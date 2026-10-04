@@ -225,6 +225,47 @@ test('hand-off: another instance takes over where playback is, no gap, no click'
   t.ok(Math.abs(peakOf(x.subarray(s + 0.1 * sr, s + 0.2 * sr)) - 0.5) < 0.005 && Math.abs(peakOf(x.subarray(e - 0.2 * sr, e - 0.1 * sr)) - 0.25) < 0.005, 'from the one to the other')
 })
 
+// A loop plays its span, whatever takes playback over or moves it: a hand-off at once (the deck not open, or not yet
+// reporting), a seek or a new span just before one, hand-off after hand-off while the main thread renders, at 1.5×; local
+// and through the worker. The span sounds loud and the rest quiet, so a quiet stretch longer than a seam's is playback
+// outside the span.
+test('loop: stays in its span through hand-offs, seeks and new spans, at once or with the main thread busy', { timeout: 120000 }, async t => {
+  const S = 0.5, E = 0.8, span = { at: S, duration: E - S, loop: true }
+  const wave = x => (x >= S && x < E ? 0.5 : 0.05) * Math.sin(2 * Math.PI * 440 * x)
+  const kinds = {
+    local: async () => audio.from(wave, { duration: 2, sampleRate: 44100 }),
+    worker: async () => {
+      let w = audioWorker(null, { worker: engine, sampleRate: 44100, channels: 1 })
+      await w.push([Float32Array.from({ length: 2 * 44100 }, (_, i) => wave(i / 44100))])
+      await w.stop()
+      return w
+    },
+  }
+  const out = []
+  for (const [kind, src] of Object.entries(kinds)) {
+    const handoff = async from => { let b = await src(); b.play({ from }); return b }
+    const cases = {
+      'a hand-off at once': async () => { let a = await src(); a.play(span); return handoff(a) },
+      'a hand-off at once, from inside the span': async () => { let a = await src(); a.play(span); a.seek(0.7); return handoff(a) },
+      'a new span at once': async () => { let a = await src(); a.play(); a.play(span); return a },
+      'a hand-off just after a seek': async () => { let a = await src(); a.play(span); await a.played; await sleep(300); a.seek(0.6); return handoff(a) },
+      'hand-offs while the main thread renders': async () => { let a = await src(); a.play(span); await a.played; for (let i = 0; i < 8; i++) { busy(80); a = await handoff(a); await sleep(20) } return a },
+      'hand-offs at 1.5×': async () => { let a = await src(); a.play({ ...span, rate: 1.5 }); await a.played; for (let i = 0; i < 4; i++) { await sleep(150); a = await handoff(a) } return a },
+    }
+    for (const [name, run] of Object.entries(cases)) {
+      let f0 = now(), a = await run(), times = []
+      for (let i = 0; i < 60; i++) { await sleep(20); times.push(a.currentTime) }
+      a.stop()
+      await sleep(80)
+      let x = tape(f0, now()), [s, e] = sounding(x), quiet = 0, most = 0
+      for (let i = s + 0.05 * sr; i + 128 <= e - 300; i += 128) { quiet = peakOf(x.subarray(i, i + 128)) < 0.2 ? quiet + 128 : 0; most = Math.max(most, quiet) }
+      if (most >= 0.02 * sr) out.push(`${kind}, ${name}: quiet for ${(most / sr * 1000).toFixed(0)} ms`)
+      if (!times.every(v => v >= S - 1e-6 && v <= E + 1e-6)) out.push(`${kind}, ${name}: the playhead at ${Math.min(...times).toFixed(3)}..${Math.max(...times).toFixed(3)}`)
+    }
+  }
+  t.ok(!out.length, out.join('; ') || 'only the span sounds, the playhead in it')
+})
+
 test('worker: an app worker speaks its own messages, exposes its outputs; the page follows a new one while playing', { timeout: 20000 }, async t => {
   let w = worker('/test/dist/worker-app.js'), replies = []
   w.onmessage = e => replies.push(e.data)
