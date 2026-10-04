@@ -57,4 +57,5 @@ console.log(`# total ${sum('total')} (${sum('asserts')} assertions), ${((perform
 if (sum('pass')) console.log(`\x1b[32m# pass ${sum('pass')}\x1b[0m`)
 if (failed.length) console.log(`\x1b[31m# fail ${sum('fail')} in ${failed.map(r => r.name).join(', ')}\x1b[0m`)
 if (sum('skip')) console.log(`\x1b[90m# skip ${sum('skip')}\x1b[0m`)
-process.exit(failed.length ? 1 : 0)
+// not process.exit: on a pipe (CI's log) the output still being written would be cut, the summary with it
+process.exitCode = failed.length ? 1 : 0
