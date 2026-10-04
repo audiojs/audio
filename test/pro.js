@@ -959,6 +959,14 @@ test('roomtone: digital silence becomes the room, at its level, without clicks; 
   t.ok(!rule('Noise floor').note, 'no dead silence')
   let loud = audio.from([Float32Array.from({ length: sr }, (_, i) => 0.3 * Math.sin(i / 7))], { sampleRate: sr })
   t.is([...(await loud.clone().roomtone().read())[0]], [...(await loud.read())[0]], 'no silence: unchanged')
+  // every pause gated to zero: no room anywhere, the quietest left the words' own fading syllables (4 a second); those
+  // never hold still, so the gaps stay as they are (they once filled with shuffled syllables, 30 dB over the room)
+  let gated = Float32Array.from({ length: 4 * sr }, (_, i) => (i / sr) % 1 < 0.6 ? 0.3 * Math.sin(Math.PI * 4 * i / sr) ** 2 * Math.sin(2 * Math.PI * 180 * i / sr) : 0)
+  t.is([...(await audio.from([gated], { sampleRate: sr }).roomtone().read())[0]], [...gated], 'no room to take: unchanged')
+  // shorter than a stretch that could hold still, a gap in it: nothing to take the room from; nothing at all: nothing
+  let blip = Float32Array.from({ length: Math.round(0.05 * sr) }, (_, i) => i > 800 && i < 1600 ? 0 : 1e-3 * Math.sin(i))
+  t.is([...(await audio.from([blip], { sampleRate: sr }).roomtone().read())[0]], [...blip], '50 ms: unchanged')
+  t.is((await audio.from([new Float32Array(0)], { sampleRate: sr }).roomtone().read())[0].length, 0, 'empty')
 })
 
 // ── Edges: the smallest inputs, silence, sub-ranges, stereo ──
