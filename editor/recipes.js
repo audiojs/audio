@@ -13,14 +13,14 @@ export default [
   .dehum()
   .omlsa()
   .normalize(-16, 'lufs', { ceiling: false })
-  .deesser({ mode: 'band', threshold: -30 })
+  .deesser({ mode: 'band' })
   .normalize('podcast')`, 'podcast'],
   ['Clean up', 'Enhance speech, neural', 'DeepFilterNet3: less noise, moving noise too, a clear voice', `$src
   .highpass(80)
   .dehum()
   .deepfilter()
   .normalize(-16, 'lufs', { ceiling: false })
-  .deesser({ mode: 'band', threshold: -30 })
+  .deesser({ mode: 'band' })
   .normalize('podcast')`, 'podcast'],
   ['Clean up', 'Reduce noise', 'Lower steady background noise', `$src.omlsa()`],
   ['Clean up', 'Reduce noise, neural', 'DeepFilterNet3: steady and moving background noise', `$src.deepfilter()`],
@@ -80,7 +80,7 @@ a`],
   .highpass(80)
   .omlsa({ gMin: -12 })
   .normalize(-16, 'lufs', { ceiling: false })
-  .deesser({ mode: 'band', threshold: -30 })
+  .deesser({ mode: 'band' })
   .normalize('podcast')`, 'podcast'],
   ['Deliver', 'Film or series (Netflix)', 'Dialogue at −27 LUFS, peaks under −2 dBTP: measured, then set', `let a = $src.highpass(80)
 let [L, D] = await a.stat(['loudness', 'dialog'])
@@ -118,13 +118,13 @@ a.normalize(-24 + L - D, 'lufs', { ceiling: -2 })`],
   .vca({ threshold: -24, ratio: 2, attack: 30, release: 300 })`],
   ['Mix', 'De-ess a voice', 'Sibilance around 7.5 kHz pulled down, after the compression (Senior, SOS 2009)', `$src
   .normalize(-18, 'lufs')
-  .deesser({ mode: 'band', fc: 7500, Q: 1, threshold: -35, ratio: 4 })`],
+  .deesser({ mode: 'band', fc: 7500, Q: 1 })`],
   ['Mix', 'Vocal, 1176 into LA-2A', 'Fast peaks caught, then an even level: series compression, as Universal Audio pairs them', `$src
   .highpass(80)
   .normalize(-18, 'lufs', { ceiling: false })
   .fet({ threshold: -12, ratio: 4, attack: 0.2, release: 50 })
   .opto({ threshold: -20, ratio: 3 })
-  .deesser({ mode: 'band', threshold: -30 })
+  .deesser({ mode: 'band' })
   .normalize(-18, 'lufs')`],
   ['Mix', 'Pultec low end', 'Boost and cut the lows at once: weight at 30 Hz, less mud at 120 Hz', `$src
   .lowshelf(60, 4)

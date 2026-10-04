@@ -524,6 +524,8 @@ test('code: each guide follows its call: levels, fades, ranges and frequencies',
   assert.deepEqual(guides('trim', { threshold: -40 }, 8), [{ level: -40 }])
   // a threshold that is not a level in dB draws none: declick's and decrackle's are multiples of the sound's own error
   assert.deepEqual(guides('declick', { threshold: 4 }, 8), [])
+  // nor deesser's: the sibilance band over the voice body, in dB, not a level of the sound
+  assert.deepEqual(guides('deesser', { threshold: 6 }, 8), [])
   assert.deepEqual(guides('decrackle', { threshold: 2.5 }, 8), [])
   assert.deepEqual(guides('remove', { at: 1, duration: .5 }, 8), [{ range: [1, 1.5] }])
   assert.deepEqual(guides('crop', { at: 1, duration: .5 }, 8), [{ range: [1, 1.5] }])
@@ -1096,9 +1098,9 @@ test('editor: a card\'s settings say what they do; the engine\'s own wait under 
   await page.locator('.step.open .param', { hasText: 'longest' }).locator('input').fill('250')
   await page.waitForFunction(() => /declick\(8, \d/.test(scriptText()))
   // set in the code, one opens the fold with its card (decrackle was never open here); none set, it is folded
-  await write(`audio('chime.wav').decrackle({ guard: 3 })`)
+  await write(`audio('chime.wav').decrackle({ order: 24 })`)
   await reopen('Decrackle')
-  assert.deepEqual(await shown(), ['threshold', 'guard', 'maxBurst', 'order', 'windowSize', 'hopSize'])
+  assert.deepEqual(await shown(), ['threshold', 'order'])
   await write(`audio('chime.wav').decrackle()`)
   await reopen('Decrackle')
   assert.deepEqual(await shown(), ['threshold'])

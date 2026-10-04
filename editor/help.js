@@ -8,21 +8,21 @@
 export const layouts = {
   compressor: 'threshold ratio attack release knee makeup | upThreshold upRatio upKnee upRange',
   gate: 'threshold range release | closeThreshold hold attack lookahead',
-  deesser: 'mode fc threshold ratio | Q knee attack release',
+  deesser: 'mode fc threshold range | ratio Q knee attack release',
   expander: 'threshold ratio range | mode knee attack release',
   leveler: 'target maxGain | frame smooth gate',
   unlimit: 'amount | drive adaptive crestTarget ceiling fastAttack fastRelease slowAttack slowRelease',
   ducker: 'threshold range attack release | ratio knee',
   multiband: 'low high threshold ratio makeup | upThreshold upRatio depth attack release',
   dyneq: 'mode fc Q threshold ratio maxGain | attack release',
-  dehum: 'freq harmonics | Q adaptive',
+  dehum: 'freq harmonics | adaptive',
   omlsa: 'gMin | alphaDD qPrior xiFloor',
   deplosive: 'attenuation triggerRatio crossover | attack release',
-  dewind: 'cutoffMin cutoffMax | order Q attack release',
+  dewind: 'cutoffMin cutoffMax | order attack release',
   declick: 'threshold | longest order',
-  decrackle: 'threshold | guard maxBurst order windowSize hopSize',
-  declip: 'clipLevel | maxRun context order',
-  debreath: 'range snrTh | flatTh attack release',
+  decrackle: 'threshold | order',
+  declip: 'clipLevel | order',
+  debreath: 'range | attack release',
   phaser: 'rate depth feedback | stages fc',
   autowah: 'sens base range Q | attack release',
   graindelay: 'time pitch feedback mix | grain spray jitter',
@@ -263,12 +263,13 @@ export const texts = {
     release: 'How fast it follows the level as it falls, in ms. Short turns quiet sound down quickly; long keeps it open through short gaps.'
   },
   deesser: {
-    mode: 'broadband turns the whole sound down when an s is too loud; band turns down only the harsh range around fc, so the rest stays untouched.',
+    mode: 'broadband turns the whole sound down while an s lasts; band turns down only the harsh range around fc, so the rest stays untouched.',
     fc: 'Where the harsh s sound sits, in Hz. Voices usually have it between 5 and 9 kHz.',
-    Q: 'Width of the range that is watched (broadband) or turned down (band). Higher is narrower and more precise.',
-    threshold: 'How loud the s range must get, in dB, before it is turned down. Lower catches more, and may dull the voice.',
+    Q: 'Width of the range that is watched, and in band mode turned down. Higher is narrower and more precise.',
+    threshold: 'How far the s range must rise over the voice below it, in dB, before it is turned down: 0 is as loud as the voice. Not a level, so it works the same on a quiet or a loud recording. Lower catches softer s sounds.',
     ratio: 'How firmly the s range is turned down once past the threshold. Higher is stronger.',
-    knee: 'How gradually it sets in around the threshold. Used in broadband mode only.',
+    range: 'Most it will turn an s down, in dB. About 6 tames it; much more and the voice starts to lisp.',
+    knee: 'How gradually it sets in around the threshold.',
     attack: 'How fast it reacts when an s begins, in ms.',
     release: 'How fast it lets go after an s ends, in ms.'
   },
@@ -360,7 +361,7 @@ export const texts = {
   },
   auto: {
     type: 'What the sound is: speech, music, or both. It decides which fixes are used and the loudness aimed for.',
-    intensity: 'How strong the fixes are: 0 applies none, 1 as measured, 2 stronger. Covers noise reduction, harshness, tone and compression.',
+    intensity: 'How strong the fixes are: 0 the lightest, 1 as measured, 2 stronger. Covers noise reduction, harshness, tone and compression; hum and clicks found are always removed.',
     targetLufs: 'Loudness to aim for, in LUFS. 0 picks one for the type: -16 for speech, -14 for music.',
     ceiling: 'Highest peak allowed after levelling, in dB. -1 leaves room for streaming encoders.'
   },
@@ -392,9 +393,8 @@ export const texts = {
   },
   dehum: {
     freq: 'The hum frequency, in Hz: 50 or 60 for mains. 0 measures it from the sound. A set value is still tuned by measuring within 0.4%.',
-    harmonics: 'How many multiples of the hum to remove, starting with the hum itself (50, 100, 150 Hz and so on). 0 removes the ones that stand out in the sound, up to 1 kHz.',
-    Q: 'Width of each notch. Higher is narrower: it takes out only the hum and spares the sound around it, but misses hum that wanders.',
-    adaptive: 'With a set frequency, follows a hum that drifts: the frequency is refined by measuring the sound, within about half a hertz.'
+    harmonics: 'How many multiples of the hum to remove, starting with the hum itself (50, 100, 150 Hz and so on). 0 removes all of them up to 1 kHz. Each is followed as it drifts and taken out alone, so music and voice beside it stay.',
+    adaptive: 'With a set frequency, searches for the hum within about half a hertz of it instead of 0.4%: for hum off its nominal frequency, as from a tape running at the wrong speed.'
   },
   roomtone: {
     threshold: 'Silence level. Stretches quieter than this count as digital silence and are filled with the recording\'s own room tone.'
@@ -405,42 +405,33 @@ export const texts = {
     order: 'Model detail. How many earlier samples predict the next, so a click stands out from what the sound would do. Higher follows pitched sound more closely and runs slower.'
   },
   decrackle: {
-    threshold: 'Detection threshold. How big a pop must be, next to the sound\'s usual roughness, to count as crackle. Lower finds more, and may nibble the sound; higher finds only the clear ones. Reverse of a sensitivity knob.',
-    guard: 'Click widening. How many extra samples either side of a click are rebuilt along with it. Raise it when faint ticks remain at the edges of a repair.',
-    maxBurst: 'Longest repair, in samples. A damaged stretch longer than this is taken for real sound and left alone. Crackle is short, so it is small by default.',
-    order: 'Model detail. How many earlier samples are used to predict the sound, so a click stands out from it. Higher follows pitched sound more closely and runs slower.',
-    windowSize: 'Analysis window, in samples. The sound is judged against its own pattern within each window. Longer is steadier; shorter follows quick changes.',
-    hopSize: 'How far the window moves each time, in samples. Smaller keeps each click near the middle of a window, where judging is most reliable, but takes longer.'
+    threshold: 'Detection threshold. How far a tick must stand out, both from what the sound before it predicts and from what the sound either side implies, to count as crackle. Lower finds fainter crackle and may touch the sound; higher, only clear ticks.',
+    order: 'Model detail. How many samples either side predict each one, so a tick stands out from what the sound would do. Higher follows pitched sound more closely and runs slower.'
   },
   declip: {
-    clipLevel: 'The level where the sound was cut flat, as a share of full scale. 0 finds it from the sound.',
-    maxRun: 'Longest flat stretch rebuilt, in samples. A longer one is left alone: a guess over a long gap sounds dull.',
-    context: 'How much clean sound either side of a clipped stretch is used to work out the missing peak, in samples. More is steadier and slower.',
-    order: 'Model detail. How many earlier samples are used to predict the wave. Higher follows pitched sound more closely and runs slower.'
+    clipLevel: 'The level where the sound was cut flat, as a share of full scale, the same on both sides. 0 finds each side\'s from the sound, and leaves a sound that was never cut untouched.',
+    order: 'Model detail. How many earlier samples are used to predict the wave across a cut peak. Higher follows rich music more closely and runs much slower.'
   },
   dereverb: {
     lookahead: 'How far ahead it listens to learn the room before cleaning each moment, in seconds. Longer cleans the first words of a recording better; 0 uses none.'
   },
   deplosive: {
-    triggerRatio: 'How much stronger the low rumble must be than the rest of the voice to count as a pop. Lower catches more pops, and may dip real bass; higher catches only the worst.',
+    triggerRatio: 'How much stronger the low thump must be than the rest of the voice to count as a pop. Lower catches more pops; higher catches only the worst. A voice or a bass note, whose low end has a pitch, is let through.',
     attenuation: 'How far the low end is turned down during a pop, in dB.',
-    crossover: 'The frequency below which pops are found and turned down, in Hz. Sound above it is never touched.',
+    crossover: 'The frequency below which pops are found and turned down, in Hz. During a pop, sound an octave above it dips under 1 dB; between pops nothing is touched.',
     attack: 'How fast the low end is turned down once a pop is found.',
     release: 'How slowly the low end comes back after a pop. Longer is smoother.'
   },
   dewind: {
-    cutoffMin: 'Lowest cutoff, in Hz: where the filter sits when there is no wind. Everything under it is always removed. Raise it to about 120 for steady outdoor recording.',
+    cutoffMin: 'Lowest cutoff, in Hz: where the filter sits in light wind. With no wind the filter is out and nothing is removed. Raise it to about 120 for steady outdoor recording.',
     cutoffMax: 'Highest cutoff, in Hz: how far the filter opens in a strong gust, then it returns.',
     order: 'Steepness of the filter: each step adds 12 dB per octave, so 2 is 24.',
-    Q: 'Sharpness at the cutoff. 0.7 is smooth; higher adds a bump of boost there.',
-    attack: 'How fast the cutoff rises when wind starts. Short stops a gust at once; long lets its first moment through.',
-    release: 'How slowly the cutoff falls back after the wind stops. Longer is smoother.'
+    attack: 'How fast the filter comes in when wind starts. Short stops a gust at once; long lets its first moment through.',
+    release: 'How slowly the filter goes back out after the wind stops. Longer is smoother. A voice or a note sends it out at once.'
   },
   debreath: {
-    range: 'How far everything between words, breaths included, is turned down, in dB. -12 softens it; lower removes more and makes pauses unnaturally dead.',
-    snrTh: 'How far above the quiet background, in dB, a sound must rise to count as speech. Higher is stricter: more is taken for breath and turned down.',
-    flatTh: 'How noise-like a sound may be and still count as speech, 0 to 1. Breaths are noise-like, voiced speech is tonal. Lower is stricter: more is taken for breath.',
-    attack: 'How fast the volume comes back when speech starts. Short keeps the start of words.',
+    range: 'How far everything between phrases, breaths included, is turned down, in dB. -12 softens it; lower removes more and makes pauses unnaturally dead.',
+    attack: 'How long before speech starts the volume comes back. It rises ahead of the word, so the start is never cut; longer is softer.',
     release: 'How slowly the cut is applied after speech ends. Longer is smoother; shorter turns breaths down sooner.'
   },
   defeedback: {

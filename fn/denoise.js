@@ -17,8 +17,9 @@
  * 15 dB (Gerkmann & Hendriks 2012) and set to 0 where Cohen's a priori absence, smoothed over time and neighbouring
  * bins, is 0.9 or more; frames of 32 ms (the power of two nearest), a quarter-frame hop. What stays of the noise is the
  * noise, `reduction` dB quieter, not tones: log kurtosis ratio 0.00 on steady noise at 12 to 20 dB (musical noise is
- * above 0); in the half second after music stops, 0.06 at 12 dB, 0.46 at 20. `threshold` raises the print by that many
- * dB before the gain reads it (RX's Threshold): more of what is quiet counts as noise. `reduction` 0 leaves the input.
+ * above 0); in the half second after music stops, 0.11 at 12 dB, 1.00 at 20 (@audio/denoise's scripts/broadband.mjs).
+ * `threshold` raises the print by that many dB before the gain reads it (RX's Threshold): more of what is quiet counts
+ * as noise. `reduction` 0 leaves the input.
  * `band` [low, high] Hz gains only the bins from low to high, each bin whose centre is inside; the others pass as they were,
  * so a noise found in a box of time and frequency (a whistle's band, a hiss above the voice) goes there alone.
  *
@@ -32,7 +33,7 @@
  * samples stay the same: re-reads and later edits reuse it; a changed range or input relearns it.
  *
  * On the 824 VoiceBank+DEMAND test utterances, each one's noise learned from the half second before its speaker starts
- * (bench/denoise.mjs): PESQ 2.48 and DNSMOS OVRL 2.89, against 2.40 and 2.85 for omlsa() tracking the noise, 1.97 and
+ * (bench/denoise.mjs): PESQ 2.45 and DNSMOS OVRL 2.88, against 2.36 and 2.84 for omlsa() tracking the noise, 1.97 and
  * 2.68 unprocessed. Each channel is learned and gained apart: linking the channels' gains measured 0.6 dB less SNR gain
  * where their noises differ, 0.1 dB more where they are the same.
  */

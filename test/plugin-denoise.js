@@ -142,15 +142,22 @@ test('deplosive: ducks an LF burst, leaves surrounding speech alone', async () =
 	ok(Math.abs(quietAfter - quietBefore) < quietBefore * 0.15, 'speech well outside the burst left mostly alone')
 })
 
-test('dewind: cuts LF rumble >=3x, adaptive high-pass', async () => {
-	let speech = lena.subarray(0, SR * 2)
-	let dirty = new Float32Array(speech.length)
-	for (let i = 0; i < dirty.length; i++) dirty[i] = speech[i] + 0.4 * Math.sin(2 * Math.PI * 40 * i / SR)
+// dewind takes wind: turbulence, low end with no period (Nelke & Vary 2014). A steady low tone, a voice's or a bass
+// line's low end, repeats at its pitch and passes (0.1 took a 40 Hz sine for wind and cut it)
+test('dewind: takes steady LF wind under speech, passes a steady low tone', async () => {
+	let speech = lena.subarray(0, SR * 4), seed = 12345, y = 0, a = Math.exp(-2 * Math.PI * 80 / SR)
+	let rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 0x100000000) * 2 - 1
+	let wind = Float32Array.from({ length: speech.length }, () => 6 * (y = a * y + (1 - a) * rand()))
+	let dirty = Float32Array.from(speech, (v, i) => v + wind[i])
 	let out = (await audio.from([dirty.slice()], { sampleRate: SR }).dewind().read())[0]
 	is(out.length, dirty.length, 'length preserved')
 	ok(out.every(isFinite))
-	let before = narrowEnergy(dirty, 40), after = narrowEnergy(out, 40)
-	ok(after < before * 0.3, `defining property: rumble cut >=3x (${before.toExponential(2)} -> ${after.toExponential(2)})`)
+	let err = x => { let s = 0; for (let i = 0; i < x.length; i++) s += (x[i] - speech[i]) ** 2; return s }
+	let gain = 10 * Math.log10(err(dirty) / err(out))
+	ok(gain > 3, `defining property: wind error ${gain.toFixed(1)} dB down`)
+	let tone = Float32Array.from({ length: SR * 2 }, (_, i) => 0.4 * Math.sin(2 * Math.PI * 40 * i / SR))
+	let kept = (await audio.from([tone.slice()], { sampleRate: SR }).dewind().read())[0]
+	ok(kept.every((v, i) => v === tone[i]), 'a steady 40 Hz tone: no wind, untouched')
 })
 
 
@@ -342,13 +349,14 @@ test('rnnoise, deepfilter: without @audio/neural-denoise each names the package,
 })
 
 ;(neural ? test : test.skip)('rnnoise: the noise floor drops by the limit and no further, speech keeps its level', NEURAL_RUN, async () => {
-	let { clean, dirty } = take()
-	// 20 dB by default: unlimited, the model removes the voice on 12 of 824 VoiceBank files (package README)
-	for (let [limit, lo, hi] of [[null, 18, 20.5], [10, 8, 10.5], [0, 40, Infinity]]) {
+	let { clean, dirty } = take(), D = (await import('@audio/neural-denoise/audio')).rnnoise.params.limit.default
+	// the package's default (16 dB from 0.3, 20 before): unlimited, the model gates clean speech and removes the voice on
+	// some noisy VoiceBank files (package README)
+	for (let [limit, lo, hi] of [[null, D - 2, D + .5], [10, 8, 10.5], [0, 40, Infinity]]) {
 		let a = audio.from([dirty], { sampleRate: SR }), [y] = await (limit == null ? a.rnnoise() : a.rnnoise(limit)).read()
 		is(y.length, dirty.length, 'length kept')
 		let drop = floorDb(dirty) - floorDb(y), speech = speechDb(y) - speechDb(clean)
-		ok(drop > lo && drop < hi, `limit ${limit ?? '20 (default)'}: floor down ${drop.toFixed(1)} dB`)
+		ok(drop > lo && drop < hi, `limit ${limit ?? D + ' (default)'}: floor down ${drop.toFixed(1)} dB`)
 		ok(Math.abs(speech) < 1.5, `speech ${speech.toFixed(2)} dB from the clean take`)
 	}
 })
@@ -357,7 +365,7 @@ test('rnnoise, deepfilter: without @audio/neural-denoise each names the package,
 	let x = take().dirty.subarray(0, 3 * SR)   // read as 48 kHz
 	let [y] = await audio.from([x], { sampleRate: 48000 }).rnnoise().read()
 	is(audio.op('rnnoise').latency({}, 48000), 1439, '960 (RNNoise) + 479 (the frame queue)')
-	is(maxDiff(y, await neural.default(x, { sampleRate: 48000, limit: 20 })), 0, 'equal to the package offline')
+	is(maxDiff(y, await neural.default(x, { sampleRate: 48000 })), 0, 'equal to the package offline, at its default limit')
 })
 
 ;(neural && sinc ? test : test.skip)('rnnoise: at 44.1 kHz, resample-sinc in and out as denoise() does, streamed; channels apart', NEURAL_RUN, async () => {
@@ -365,7 +373,7 @@ test('rnnoise, deepfilter: without @audio/neural-denoise each names the package,
 	let [y] = await a.read()
 	is(audio.op('rnnoise').latency({}, SR), 1354, '30.7 ms')
 	// a stream can't see its end as the offline resampler does: the last 50 ms may differ
-	let want = sinc(await neural.default(sinc(dirty, { from: SR, to: 48000 }), { sampleRate: 48000, limit: 20 }), { from: 48000, to: SR })
+	let want = sinc(await neural.default(sinc(dirty, { from: SR, to: 48000 }), { sampleRate: 48000 }), { from: 48000, to: SR })
 	let n = dirty.length - Math.round(0.05 * SR)
 	is(maxDiff(y.subarray(0, n), want.subarray(0, n)), 0, 'resample-sinc → denoise() → resample-sinc, sample for sample')
 	let parts = [], m = 0

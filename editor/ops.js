@@ -298,8 +298,8 @@ export function guides(name, args, duration) {
   const range = args.at != null && args.duration != null ? [args.at, args.at + args.duration] : null
   if (range) out.push({ range })
   // a level: a threshold in dB (denoise's is an offset on its noise, declick's and decrackle's a multiple of the sound's
-  // own error: none), a ceiling, a peak to reach
-  const level = ['denoise', 'declick', 'decrackle'].includes(name) ? null : args.threshold ?? (name === 'limiter' ? args.ceiling : name === 'normalize' && typeof args.target === 'number' && args.mode !== 'lufs' && args.mode !== 'rms' ? args.target : null)
+  // own error, deesser's the sibilance band over the voice body: none), a ceiling, a peak to reach
+  const level = ['denoise', 'declick', 'decrackle', 'deesser'].includes(name) ? null : args.threshold ?? (name === 'limiter' ? args.ceiling : name === 'normalize' && typeof args.target === 'number' && args.mode !== 'lufs' && args.mode !== 'rms' ? args.target : null)
   if (typeof level === 'number') out.push({ level })
   // a fade's ramps along its curve: fade(in, out) at the ends; fade(d, { at }) one ramp from `at`, in over d, or out
   // (d < 0) over −d

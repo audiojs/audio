@@ -253,7 +253,7 @@ audio.fn.noisefloor = async function(opts) {
 
 /** Dialog loudness, LUFS: BS.1770 integrated loudness of the speech only (AES TD1008 "Speech
  *  Loudness" / Dialog Integrated Loudness; Netflix delivers dialog-gated at -27 LKFS). Streams:
- *  speech is found by @audio/vad (frame energy above the noise floor, tonal spectrum) over
+ *  speech is found by @audio/vad (sound over a tracked noise floor, grown from voicing) over
  *  10 s windows; each 100 ms sub-block keeps its K-weighted power and speech share; gating
  *  windows (400 ms, 100 ms hop) at least half speech count. -Infinity when no speech is found. */
 audio.stat('dialog', {})
@@ -264,7 +264,7 @@ audio.fn.dialog = async function(opts) {
   let k = Array.from({ length: nch }, () => ({ fs: sr })), acc = gated()
   let mono = new Float32Array(WIN), fill = 0, zs = [], z = 0, zn = 0, tail = []  // tail: last 3 sub-blocks
   const window = () => {
-    let { active, hop } = vad(mono.subarray(0, fill), { fs: sr, frameSize: 1024, hopSize: 512 })
+    let { active, hop } = vad(mono.subarray(0, fill), { fs: sr })
     let subs = zs.map((z, j) => {
       let a0 = Math.floor(j * SUB / hop), a1 = Math.min(active.length, Math.ceil((j + 1) * SUB / hop)), on = 0
       for (let a = a0; a < a1; a++) on += active[a]

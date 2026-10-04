@@ -19,9 +19,13 @@
  * SIG holds from 12 to 18 dB and falls past it, the voice filtered, while BAK and PESQ rise (PESQ 2.90 at 18, 3.15
  * unlimited, 2.67 at 12); on ten home narrations OVRL equals the unlimited output's, room tone left at −93 to −59
  * dBFS (package README, Accuracy). The package hears the input with its speech at −20 dBFS (the model is not
- * level-free: quiet takes kept their noise, after a stretch of digital silence most) and keeps the sustained
- * voicing the model takes for noise: VocalSet's held notes come out 1.9 dB down instead of 39 (in noise at 15 dB
- * SNR, 3.4). RNNoise streams: the `rnnoise` registry op, same package.
+ * level-free: quiet takes kept their noise, after a stretch of digital silence most), keeps the sustained voicing
+ * the model takes for noise (VocalSet's held notes come out 1.9 dB down instead of 39; in noise at 15 dB SNR, 3.4),
+ * and from 0.3 has the model hear the bands a band-limited input left empty (a 16 kHz file, a codec's low-pass) as
+ * the noise floor it trained with, not as silence it never heard: VoiceBank+DEMAND at 16 kHz, PESQ 2.83 instead of
+ * 2.72 at 18 dB; full-band and 44.1 kHz input as before. Speech only: music loses 8 to 16 dB in every band, and
+ * nothing tells it from noisy speech well enough to pass it through. RNNoise streams: the `rnnoise` registry op,
+ * same package.
  */
 
 import audio, { arrived, memo } from '../core.js'
@@ -50,9 +54,10 @@ async function prepare(a, index) {
   let key = `${id}:${fingerprint(pcm)}`
   if (done?.key === key) { done.stamp = stamp; return }
   if (!pcm[0]?.length) { o[ENHANCED] = { key, stamp, pcm }; return }
-  // the model's output kept by how it runs (heard at -20 dBFS, held voicing kept: neural-denoise 0.2), the model and
-  // its input (core.js memo), never by the limit, applied after it: a reload, another tab, the limit moved, read it back
-  let y = await memo(`deepfilternet3:-20dBFS,voice:${o.weights ?? ''}:${input.sampleRate}:${fingerprint(pcm)}`, async () => {
+  // the model's output kept by how it runs (heard at -20 dBFS, held voicing kept: neural-denoise 0.2; a band-limited
+  // input's empty bands heard as a noise floor: 0.3), the model and its input (core.js memo), never by the limit,
+  // applied after it: a reload, another tab, the limit moved, read it back
+  let y = await memo(`deepfilternet3:-20dBFS,voice,edge:${o.weights ?? ''}:${input.sampleRate}:${fingerprint(pcm)}`, async () => {
     let model = await load('deepfilternet3', { weights: o.weights, device: o.device }).catch(e => {
       throw new Error(`deepfilter: can't load DeepFilterNet3 from ${o.weights ?? MODEL} (${e.message}); it downloads once (8 MB) and is cached; { weights } takes another URL`)
     })
