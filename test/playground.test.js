@@ -6242,7 +6242,8 @@ test('engine: a ranged edit under slow frame-by-frame steps renders again only a
     function chain(t) { return `audio('x.wav')${t}.formant(1.2).compressor()` }
   }, { channels: x.map(c => [...c]), first, later })
   for (const [i, code] of later.entries()) {
-    assert.ok(r.got[i].ms < r.slow / 4, `${code}: ${r.got[i].ms.toFixed(0)} ms, the chain ${r.slow.toFixed(0)} ms`)
+    // about a fifth of it here, more on a shared runner whose timings jump (a quarter ran out there once)
+    assert.ok(r.got[i].ms < r.slow / 3, `${code}: ${r.got[i].ms.toFixed(0)} ms, the chain ${r.slow.toFixed(0)} ms`)
     const [whole] = await engine([code], { 'x.wav': x }), want = whole.output.channels[0]
     const diff = r.got[i].out.reduce((m, v, j) => Math.max(m, Math.abs(v - want[j])), 0)
     assert.ok(diff < 1e-6, `${code}: ${diff}`)
