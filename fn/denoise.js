@@ -13,11 +13,15 @@
  * averaged over the frames inside `noise`, a range of the op's input (the audio as the edits before it leave it), or
  * several. Each channel learns its own. The gain is OM-LSA's (Cohen & Berdugo 2001) on that held noise,
  * @audio/denoise-omlsa with a `profile`: the log-spectral amplitude gain when speech is present, weighed against a
- * floor `reduction` dB down by the probability of presence, read from the a posteriori SNR at a fixed a priori SNR of
- * 15 dB (Gerkmann & Hendriks 2012) and set to 0 where Cohen's a priori absence, smoothed over time and neighbouring
- * bins, is 0.9 or more; frames of 32 ms (the power of two nearest), a quarter-frame hop. What stays of the noise is the
- * noise, `reduction` dB quieter, not tones: log kurtosis ratio 0.00 on steady noise at 12 to 20 dB (musical noise is
- * above 0); in the half second after music stops, 0.11 at 12 dB, 1.00 at 20 (@audio/denoise's scripts/broadband.mjs).
+ * floor `reduction` dB down by the probability of presence, read from the a posteriori SNR averaged over 105.5 Hz and
+ * over 543 Hz of the frame at fixed priors (Gerkmann, Breithaupt & Martin 2008), and set to 0 where Cohen's a priori
+ * absence is 0.9 or more, that absence read from the a priori SNR smoothed in the cepstrum (Breithaupt, Gerkmann &
+ * Martin 2008) and then over time and neighbouring bins; frames of 32 ms (the power of two nearest), a quarter-frame
+ * hop. Speech 0–5 dB over the noise keeps 3.3 dB more than when presence was read bin by bin at a fixed 15 dB (Gerkmann
+ * & Hendriks 2012; @audio/denoise-omlsa 0.3: −7.9 → −4.6 dB on VoiceBank speech), and the noise in pauses goes as far
+ * down. What stays of the noise is the noise, `reduction` dB quieter, not tones: log kurtosis ratio 0.00 on steady
+ * noise at 12 to 20 dB (musical noise is above 0); in the half second after music stops, 0.05 at 12 dB, 0.61 at 20
+ * (0.11 and 1.00 with omlsa 0.3; @audio/denoise's scripts/broadband.mjs).
  * `threshold` raises the print by that many dB before the gain reads it (RX's Threshold): more of what is quiet counts
  * as noise. `reduction` 0 leaves the input.
  * `band` [low, high] Hz gains only the bins from low to high, each bin whose centre is inside; the others pass as they were,
@@ -33,9 +37,11 @@
  * samples stay the same: re-reads and later edits reuse it; a changed range or input relearns it.
  *
  * On the 824 VoiceBank+DEMAND test utterances, each one's noise learned from the half second before its speaker starts
- * (bench/denoise.mjs): PESQ 2.45 and DNSMOS OVRL 2.88, against 2.36 and 2.84 for omlsa() tracking the noise, 1.97 and
- * 2.68 unprocessed. Each channel is learned and gained apart: linking the channels' gains measured 0.6 dB less SNR gain
- * where their noises differ, 0.1 dB more where they are the same.
+ * (bench/denoise.mjs; @audio/denoise's scripts/speech.mjs `omlsa-learned` runs the same): PESQ 2.46, STOI 0.920 and
+ * DNSMOS OVRL 2.87, against 2.36, 0.920 and 2.85 for omlsa() tracking the noise, 1.97, 0.921 and 2.68 unprocessed,
+ * 2.41, 0.921 and 2.86 for noisereduce's stationary gating on the same lead-in at 12 dB, 2.67, 0.939 and 3.03 for the
+ * DeepFilterNet3 network held to 12 dB. Each channel is learned and gained apart: linking the channels' gains measured
+ * 0.6 dB less SNR gain where their noises differ, 0.1 dB more where they are the same.
  */
 import audio, { parseTime, named } from '../core.js'
 import { fingerprint } from './vocals.js'

@@ -47,9 +47,9 @@ function convolve(x, h) {
 }
 
 // ── Wave: STFT statistical denoisers (specsub, wiener, omlsa, dereverb) ──────
-// All four are causal/streaming: noise PSD (or, for dereverb, the late-tail model) is
-// tracked online, no manual profile argument needed — see each package's audio.js
-// header for why. All declare a fixed latency (STFT analysis/synthesis buffering); .read()
+// specsub, wiener and omlsa stream: the noise PSD is tracked online, no manual profile argument
+// needed; dereverb renders whole (its prediction is fitted over the take, the late tail taken from
+// it) — see each package's audio.js header for why. The streaming ones declare a fixed latency (STFT analysis/synthesis buffering); .read()
 // applies plugin-delay-compensation transparently, so output compares directly against
 // the un-shifted reference at the same sample index (verified: cross-correlation of
 // output against the dry reference peaks at zero shift, not at the raw kernel latency).
@@ -97,7 +97,7 @@ test('dereverb: reduces late-tail energy, never boosts it', async () => {
 	for (let i = 0; i < imp.length; i++) imp[i] = (Math.random() * 2 - 1) * Math.exp(-6.9 * i / (t60 * SR))
 	imp[0] = 1  // direct path
 	let rev = convolve(speech, imp)
-	let out = (await audio.from([rev.slice()], { sampleRate: SR }).dereverb({ t60 }).read())[0]
+	let out = (await audio.from([rev.slice()], { sampleRate: SR }).dereverb().read())[0]
 	is(out.length, rev.length, 'length preserved (latency compensated)')
 	ok(out.every(isFinite))
 	let rmsRev = rms(rev), rmsOut = rms(out)
@@ -105,9 +105,9 @@ test('dereverb: reduces late-tail energy, never boosts it', async () => {
 	ok(rmsOut < rmsRev * 0.98, `defining property: tail energy reduced (${rmsRev.toFixed(4)} -> ${rmsOut.toFixed(4)})`)
 })
 
-// ── Wave: causal kernels (gate, deplosive, dewind) ──────────────────────────
-// deplosive/dewind persist per-sample/per-block state on a plain object across
-// process() calls (same state-per-channel pattern as @audio/denoise-dehum); gate is
+// ── Wave: streaming kernels (gate, deplosive, dewind) ────────────────────────
+// deplosive persists per-sample state across process() calls, dewind an STFT stream with
+// its frame of latency; gate is
 // the dynamics stream kernel (denoise-gate merged into @audio/dynamics-gate 2026-07)
 // hosted with its function-form `latency` (lookahead ms → samples) compensated.
 

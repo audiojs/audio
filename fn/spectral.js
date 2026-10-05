@@ -15,7 +15,8 @@
  * - repair: the damaged range plus context, repaired once by @audio/denoise-repair and spliced into
  *   a delay line. `method` 'auto' routes by length and content: a transplant of the passage that joins
  *   seamlessly, searched in the `window` s (10) before the range; failing that, AR interpolation up to
- *   70 ms and a sinusoidal bridge over a matched noise floor beyond. 'ar' | 'sinusoidal' |
+ *   30 ms and a sinusoidal bridge over a matched noise floor beyond (from 0.4; 70 ms before). Each fill
+ *   meets the program at the range's edges in level and spectrum. 'ar' | 'sinusoidal' |
  *   'similarity' | 'spectral' force one. The search reads only the past, so latency stays the range
  *   + two frames of trailing context + a frame (at 44.1 kHz: the range + 139 ms); searching the future
  *   too would add the window, for ≤ 0.2 dB LSD (README of @audio/denoise-repair). Memory: the window

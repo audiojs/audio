@@ -18,7 +18,7 @@ export const layouts = {
   dehum: 'freq harmonics | adaptive',
   omlsa: 'gMin | alphaDD qPrior xiFloor',
   deplosive: 'attenuation triggerRatio crossover | attack release',
-  dewind: 'cutoffMin cutoffMax | order attack release',
+  dewind: 'attenuation | cutoff',
   declick: 'threshold | longest order',
   decrackle: 'threshold | order',
   declip: 'clipLevel | order',
@@ -413,7 +413,7 @@ export const texts = {
     order: 'Model detail. How many earlier samples are used to predict the wave across a cut peak. Higher follows rich music more closely and runs much slower.'
   },
   dereverb: {
-    lookahead: 'How far ahead it listens to learn the room before cleaning each moment, in seconds. Longer cleans the first words of a recording better; 0 uses none.'
+    strength: 'How much of the room\'s echo is taken. Higher takes more of it and more of the voice with it; 0 takes only what it can cancel exactly, a dB or two.'
   },
   deplosive: {
     triggerRatio: 'How much stronger the low thump must be than the rest of the voice to count as a pop. Lower catches more pops; higher catches only the worst. A voice or a bass note, whose low end has a pitch, is let through.',
@@ -423,11 +423,8 @@ export const texts = {
     release: 'How slowly the low end comes back after a pop. Longer is smoother.'
   },
   dewind: {
-    cutoffMin: 'Lowest cutoff, in Hz: where the filter sits in light wind. With no wind the filter is out and nothing is removed. Raise it to about 120 for steady outdoor recording.',
-    cutoffMax: 'Highest cutoff, in Hz: how far the filter opens in a strong gust, then it returns.',
-    order: 'Steepness of the filter: each step adds 12 dB per octave, so 2 is 24.',
-    attack: 'How fast the filter comes in when wind starts. Short stops a gust at once; long lets its first moment through.',
-    release: 'How slowly the filter goes back out after the wind stops. Longer is smoother. A voice or a note sends it out at once.'
+    attenuation: 'How far the wind is turned down, in dB. A voice\'s harmonics that stand over the wind keep their level; lower takes the wind further and leaves the voice drier. 0 takes nothing.',
+    cutoff: 'The highest frequency wind is taken from, in Hz. Most wind lies under 500 Hz; raise it for strong wind that rushes higher. Nothing above it is touched, and with no wind nothing at all.'
   },
   debreath: {
     range: 'How far everything between phrases, breaths included, is turned down, in dB. -12 softens it; lower removes more and makes pauses unnaturally dead.',
