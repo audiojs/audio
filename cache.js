@@ -62,14 +62,20 @@ async function detectBudget() {
   } catch { return null }
 }
 
-/** Create an OPFS-backed cache backend. Browser only. */
+/** An OPFS-backed page store, its own folder under `dirName`: instances made apart never share pages; copies of one
+ *  (clone, audio.from(a)) share its store, as they share its pages. The folder holds a Web Lock while its store is in
+ *  use, and goes once nothing references the store (FinalizationRegistry), or else with the next store made after the
+ *  page, tab or worker that held it has gone. Browser only. */
 async function opfsCache(dirName = 'audio-cache') {
   if (typeof navigator === 'undefined' || !navigator.storage?.getDirectory)
     throw new Error('OPFS not available in this environment')
   let root = await navigator.storage.getDirectory()
-  let dir = await root.getDirectoryHandle(dirName, { create: true })
+  let base = await root.getDirectoryHandle(dirName, { create: true })
+  let id = crypto.randomUUID(), release = await hold(`${dirName}/${id}`)
+  await sweep(base, dirName)
+  let dir = await base.getDirectoryHandle(id, { create: true })
 
-  return {
+  let cache = {
     async read(i) {
       let handle = await dir.getFileHandle(`p${i}`)
       let file = await handle.getFile()
@@ -101,7 +107,26 @@ async function opfsCache(dirName = 'audio-cache') {
       for await (let [name] of dir) await dir.removeEntry(name)
     }
   }
+  gone?.register(cache, () => base.removeEntry(id, { recursive: true }).catch(() => {}).finally(release))
+  return cache
 }
+
+// A store's folder held while it is in use: a Web Lock by its name, let go by the function returned; none where the
+// platform has no locks
+function hold(name) {
+  let locks = navigator.locks
+  if (!locks) return () => {}
+  return new Promise(taken => locks.request(name, () => new Promise(release => taken(release))))
+}
+// The folders (and pages of an older layout, loose in the base) no lock holds: their stores have gone
+async function sweep(base, dirName) {
+  let locks = navigator.locks
+  if (!locks) return
+  let held = new Set((await locks.query()).held.map(l => l.name))
+  for await (let [name] of base) if (!held.has(`${dirName}/${name}`)) await base.removeEntry(name, { recursive: true }).catch(() => {})
+}
+// Run once a store is let go of by everything: its folder goes
+const gone = typeof FinalizationRegistry !== 'undefined' ? new FinalizationRegistry(done => done()) : null
 
 
 // ── Self-register ────────────────────────────────────────────────

@@ -431,7 +431,10 @@ export interface EncodeOpts extends CutOpts {
 export interface AudioOpts {
   sampleRate?: number
   channels?: number
+  /** Where pages go past `budget`: 'persistent' to OPFS (failing without it), 'auto' to OPFS where there is one */
   storage?: 'memory' | 'persistent' | 'auto'
+  /** Bytes of pages kept in memory before cold ones go to storage */
+  budget?: number
   decode?: 'worker' | 'main'
   /** Host the engine in a Worker (requires `import 'audio/worker'`); pass a Worker instance for a custom entry */
   worker?: boolean | Worker
@@ -552,7 +555,7 @@ declare namespace audio {
   let PAGE_SIZE: number
   /** Samples per stat block (default 1024). Set before creating instances. */
   let BLOCK_SIZE: number
-  /** Page budget from navigator.storage.estimate() — quota/4 clamped 64MB..2GB; null when unavailable */
+  /** Page budget from navigator.storage.estimate() — quota/4 clamped 64MB..512MB; null when unavailable */
   function detectBudget(): Promise<number | null>
   /** OPFS-backed cache backend for large files (browser only) */
   function opfsCache(dirName?: string): Promise<{

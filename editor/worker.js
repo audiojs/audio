@@ -5,7 +5,6 @@
 // nothing yet (it needs the whole file, as trim and normalize do), the file itself streams, as it decodes. What a chain
 // made is kept by what made it, its steps too, so what was made before comes at once (renders kept, below).
 import audio from '../audio.js'
-import { loadOps } from '../core.js'
 import plugins from 'editor:plugins'
 import { attacks, hits } from '../fn/hits.js'
 import { steadyTempo } from '../fn/beat.js'
@@ -718,10 +717,7 @@ async function voice({ output, source, loudness, ...as }) {
     a = (r.voice ??= audio.from(pcmOf(r), { sampleRate: r.sampleRate })).clone()
   }
   if (as.edit && !audio.op(as.edit[0])) await audio.use(as.edit[0])
-  // its ops' modules loaded before the page reads it: a whole op (intonation) renders as its length is read
-  const b = heard(a, as)
-  await loadOps(b)
-  return { inst: expose(b) }
+  return { inst: expose(heard(a, as)) }
 }
 
 // What an agent asks of the sound (the `measure` tool): `code`, prepared as a script is (code.js), runs on copies of the output

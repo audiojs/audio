@@ -271,7 +271,7 @@ Object.defineProperties(fn, {
   },
   length: { get() {
     if (this._.lenV === this.version && this._.lenL === this._.len) return this._.lenC
-    let len = this.edits.length ? buildPlan(this).totalLen : this._.len
+    let len = this.edits.length ? lengthOf(this) : this._.len
     this._.lenC = len; this._.lenV = this.version; this._.lenL = this._.len
     return len
   }, configurable: true },
@@ -712,7 +712,7 @@ function resolveCtxStats(a, index, st) {
 
 /** Compile edit list into plan segments + pipeline for a given source length.
  *  final=true when source is fully decoded — all positions are determined. */
-function compilePlan(a, len, final) {
+function compilePlan(a, len, final, measure = false) {
   let sr = a._.sr, ch = a._.ch
   let segs = [[0, len, 0]], pipeline = [], limit = len, pulls = [], latency = 0, warmup = 0, clipboard
 
@@ -864,6 +864,15 @@ function compilePlan(a, len, final) {
     if (op.whole) {
       if (!final) { limit = 0; continue }
       let t = planLen(segs)
+      // measured, not heard (length): its length as it declares it, its tail and frames, nothing rendered, unless an
+      // edit after it decides from what it made (a resolve, as trim's)
+      if (measure && !a.edits.slice(i + 1).some(([n]) => ops[n]?.resolve)) {
+        let n = t + Math.round((typeof op.tail === 'function' ? op.tail(extra, sr) : op.tail || 0) * sr)
+        segs = [seg(0, op.frames ? Math.max(0, Math.round(op.frames(n, extra, sr))) : n, 0, undefined, null)]
+        pipeline = []; latency = 0; warmup = 0; pulls = []
+        if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }
+        continue
+      }
       if (t > MAX_FLAT_SIZE) throw new Error(`Audio too large for whole-render op '${type}' (${(t / 1e6).toFixed(0)}M samples)`)
       if (a._.wrc?.v !== a.version) a._.wrc = { v: a.version, m: new Map() }
       let key = a.edits.indexOf(edit) + ':' + a._.len + ':' + t
@@ -923,6 +932,17 @@ function refVersion(a) {
 
 // Instances mid-compile — a self-ref (a.insert(a)) re-enters via the length getter
 const compileStack = new Set()
+
+/** The length the edits make, in samples: the plan's when there is one, else measured without rendering what renders
+ *  whole (compilePlan's measure): reading the length neither runs a whole op nor needs its module loaded */
+function lengthOf(a) {
+  if (a._.plan && a._.planV === a.version && a._.planL === a._.len && a._.planR === refVersion(a)) return a._.plan.totalLen
+  if (!a.edits.some(([n]) => ops[n]?.whole)) return buildPlan(a).totalLen
+  if (compileStack.has(a)) throw new Error('audio: circular source reference')
+  compileStack.add(a)
+  try { return compilePlan(a, a._.len, true, true).totalLen }
+  finally { compileStack.delete(a) }
+}
 
 /** Build a read plan from edit list. Always succeeds — every op is plannable. */
 export function buildPlan(a) {

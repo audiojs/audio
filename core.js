@@ -66,6 +66,7 @@ export default function audio(source, opts = {}) {
     a._.push = true  // marks this instance as pushable — only these finalize on stop()
     a._.acc = pageAccumulator({ pages: a.pages, notify, ondata: (...args) => emit(a, 'data', ...args) })
     a._.waiters = waiters
+    stored(a, opts)
     return a
   }
   // Restore from serialized document
@@ -99,9 +100,10 @@ export default function audio(source, opts = {}) {
   // From PCM arrays or silence duration
   if (Array.isArray(source) && source[0] instanceof Float32Array || typeof source === 'number') {
     let a = audio.from(source, opts)
-    if (audio.evict && a.cache && a.budget !== Infinity) {
-      a.ready = audio.evict(a).then(() => { delete a.then; delete a.catch; return true })
-      a.ready.catch(e => emit(a, 'error', e))
+    // awaited, its pages are within the budget
+    if (a._.storing) {
+      a.ready = a.ready.then(() => { delete a.then; delete a.catch; return true })
+      a.ready.catch(() => {})
       makeThenable(a)
     }
     return a
@@ -125,14 +127,8 @@ export default function audio(source, opts = {}) {
 
   a.ready = (async () => {
     try {
-      if (opts.storage === 'persistent') {
-        if (!audio.opfsCache) throw new Error('Persistent storage requires cache module (import "./cache.js")')
-        try { opts = { ...opts, cache: await audio.opfsCache(), budget: opts.budget ?? await audio.detectBudget?.() ?? audio.DEFAULT_BUDGET ?? Infinity } }
-        catch { throw new Error('OPFS not available (required by storage: "persistent")') }
-        if (a._.disposed) return true
-        a.cache = opts.cache
-        a.budget = opts.budget
-      }
+      let store = storeOf(a, opts)
+      if (store) { await store; if (a._.disposed) return true }
       let result = await decodeSource(source, { pages, notify, ondata: emitData, disposed: () => a._.disposed, signal: abort.signal })
       if (a._.disposed) return true
       a.sampleRate = result.sampleRate
@@ -716,7 +712,38 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
 
 function fromChannels(channelData, opts = {}) {
   let sr = opts.sampleRate || 44100
-  return create(paginate(channelData), sr, channelData.length, channelData[0].length, opts, audio.statSession?.(sr).page(channelData).done())
+  let a = create(paginate(channelData), sr, channelData.length, channelData[0].length, opts, audio.statSession?.(sr).page(channelData).done())
+  stored(a, opts)
+  return a
+}
+
+/** Where pages go once the instance holds more than its `budget` of them (cache.js: the browser's own file system,
+ *  OPFS): `storage: 'persistent'` asks for it, failing where there is none; 'auto' takes it where there is one, else
+ *  keeps them in memory; a `cache` given is used as it is. Persistent or auto, the budget is the platform's
+ *  (detectBudget) unless given. Null when there is nothing to set up. */
+function storeOf(a, opts) {
+  let { storage } = opts
+  if (opts.cache || storage !== 'persistent' && storage !== 'auto') return null
+  return (async () => {
+    if (!audio.opfsCache && storage === 'persistent') throw new Error('Persistent storage requires cache module (import "./cache.js")')
+    let cache = await audio.opfsCache?.().catch(() => null)
+    if (!cache) {
+      if (storage === 'persistent') throw new Error('OPFS not available (required by storage: "persistent")')
+      return
+    }
+    let budget = opts.budget ?? await audio.detectBudget?.() ?? audio.DEFAULT_BUDGET ?? Infinity
+    if (a._.disposed) return
+    a.cache = cache
+    a.budget = budget
+  })()
+}
+/** An instance made from samples or pushed, storing as asked (storeOf): `ready` once its pages are within the budget;
+ *  failing, an 'error' */
+function stored(a, opts) {
+  if (!opts.cache && opts.storage !== 'persistent' && opts.storage !== 'auto') return
+  a._.storing = true
+  a.ready = Promise.resolve(storeOf(a, opts)).then(() => audio.evict?.(a)).then(() => true)
+  a.ready.catch(e => emit(a, 'error', e))
 }
 
 function fromSilence(seconds, opts = {}) {

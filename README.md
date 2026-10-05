@@ -865,7 +865,7 @@ audio --completions fish | source       # fish
 <dd>~20K gzipped core. Codecs load on demand via <code>import()</code>, so unused formats aren't fetched.</dd>
 
 <dt>How does it handle large files?</dt>
-<dd>Audio is stored in fixed-size pages. In the browser, cold pages can evict to OPFS when memory exceeds budget — auto-sized from <code>navigator.storage.estimate()</code> (quota/4, 64MB..2GB), overridable via <code>{budget}</code>. Stats stay resident (~7 MB for 2h stereo).</dd>
+<dd>Audio is stored in fixed-size pages. In the browser, with <code>{ storage: 'persistent' }</code> (or <code>'auto'</code>, where OPFS exists), cold pages evict to OPFS when memory exceeds budget — auto-sized from <code>navigator.storage.estimate()</code> (quota/4, 64MB..512MB), overridable via <code>{budget}</code>; each instance keeps its own store, its copies share it. Works for decoded files, <code>audio.from(pcm)</code> and pushed streams. Stats stay resident (~7 MB for 2h stereo).</dd>
 
 <dt>Are edits destructive?</dt>
 <dd>No. <code>a.gain(-3).trim()</code> pushes entries to an edit list — source pages aren't touched. Edits replay on <code>read()</code> / <code>save()</code> / <code>for await</code>.</dd>

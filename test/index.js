@@ -1137,6 +1137,24 @@ test('custom op — with arg', async t => {
   t.ok(Math.abs(pcm[0][0] - 0.3) < 0.001, 'amplified: 0.1 × 3 = 0.3')
 })
 
+// A whole op (the whole signal in one call) is measured for the length, not rendered: its declared tail and frames,
+// its module not yet loaded (intonation's @audio/tune-curve); what renders is as long. Only a read renders it.
+test('custom op — whole: the length measured from its tail and frames, nothing rendered', async t => {
+  let rendered = 0
+  audio.op('twice', { params: ['k'], tail: 0.01, frames: n => n * 2, whole: (input, output) => { rendered++; for (let c = 0; c < input.length; c++) output[c].set(input[c]) } })
+  let a = audio.from([new Float32Array(1000).fill(0.1)], { sampleRate: 1000 }).twice(1).gain(-6)
+  t.is(a.length, 2020, 'tail, then frames: (1000 + 10) × 2')
+  t.is(rendered, 0, 'nothing rendered for it')
+  t.is((await a.read())[0].length, 2020, 'what renders is as long')
+  t.is(rendered, 1, 'a read renders it once')
+  let op = audio.op('intonation'), mod = op.mod
+  op.mod = null
+  try {
+    let b = audio.from([Float32Array.from({ length: 44100 }, (_, i) => Math.sin(i / 20))], { sampleRate: 44100 }).crop({ at: .2, duration: .5 }).intonation(.5)
+    t.is(b.length, 22050, 'intonation, its module not loaded: the length all the same')
+  } finally { op.mod = mod }
+})
+
 test('custom op — with range', async t => {
   audio.op('mute', (input, output, ctx) => {
     let sr = ctx.sampleRate
@@ -2805,6 +2823,27 @@ function mockCache() {
     get size() { return store.size },
   }
 }
+
+// Pages on disk (cache.js, OPFS): each instance its own store, so two made apart never read each other's pages; a pushed
+// one keeps its pages within the budget as they come. Browser only.
+test('storage — persistent instances keep their own pages on disk; a pushed one too', async t => {
+  if (typeof navigator === 'undefined' || !navigator.storage?.getDirectory) return t.ok(true, 'no OPFS here')
+  let ramp = k => Float32Array.from({ length: PAGE_SIZE * 3 }, (_, i) => k * i / (PAGE_SIZE * 3))
+  let a = await audio([ramp(1)], { storage: 'persistent', budget: 0 }), b = await audio([ramp(-1)], { storage: 'persistent', budget: 0 })
+  t.ok(a.pages.every(p => p === null) && b.pages.every(p => p === null), 'every page of both on disk')
+  let [x] = await a.read(), [y] = await b.read(), up = ramp(1), down = ramp(-1)
+  t.ok(x.every((v, i) => v === up[i]) && y.every((v, i) => v === down[i]), 'each reads back its own')
+  let c = audio(null, { sampleRate: 44100, channels: 1, storage: 'auto', budget: PAGE_SIZE * 4 })
+  await c.ready
+  for (let k = 0; k < 4; k++) c.push([up.subarray(k * PAGE_SIZE * .75, (k + 1) * PAGE_SIZE * .75)])
+  c.stop()
+  await c
+  await audio.evict(c)
+  t.ok(c.pages.filter(p => p).length <= 1, `pushed: ${c.pages.filter(p => p).length} of ${c.pages.length} pages in memory`)
+  let [z] = await c.read()
+  t.ok(z.length === PAGE_SIZE * 3 && z.every((v, i) => v === up[i]), 'pushed: all of it reads back')
+  for (let s of [a, b, c]) s.dispose()
+})
 
 test('cache backend — evicts pages when budget exceeded', async t => {
   // 3 pages of mono audio, each page = PAGE_SIZE * 4 bytes
