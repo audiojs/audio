@@ -13,7 +13,6 @@ import scales from './scale.js'
 import menubar from './menu.js'
 import { levels, spectra, cycle, trace } from './meters.js'
 import time, { UNITS } from './time.js'
-import workshop from './workshop.js'
 import opIcons from './icons.js'
 import { keep, unkeep, kept, tape, tapes, own, owner, claim } from './keep.js'
 import hint from './hint.js'
@@ -83,6 +82,15 @@ function cueTimes(edges, hits) {
 // How the time row marks time: labels and their ticks, ticks alone, or nothing but the times that matter now (the caret's,
 // the pointer's, a selection's)
 const rulers = [['labels', 'Labels'], ['ticks', 'Ticks'], ['none', 'None']].map(([name, label]) => ({ name, label }))
+// How the lanes are ruled (view.js paintGrid), behind the waveform and over the spectrogram, by the time row's ticks and
+// the axis' on the right
+const grids = [
+  ['marks', 'Crosses + dots', 'A cross where the ticks meet, a dot where their finer steps do'],
+  ['crosses', 'Crosses', 'A cross where the ticks meet'],
+  ['dots', 'Dots', 'A dot where the ticks meet, and where their finer steps do'],
+  ['lines', 'Lines', 'A faint line from each tick across the lanes'],
+  ['none', 'None', 'The lanes bare']
+]
 // The spectrogram's look: grey, black to white screened over the page, so the page shows through where the sound is
 // quiet and the louder is the whiter; or a colormap (matplotlib's magma, inferno and viridis, 9 of their 256 entries,
 // matplotlib/_cm_listed.py); bent by a gamma (a level's share of the range raised to it: under 1 the quiet parts show
@@ -202,7 +210,7 @@ const saved = d => {
 let full = false
 const store = () => {
   if (!ed || !owner()) return
-  const all = { docs: docs.map(saved), doc: docs.findIndex(d => d.id === state.tab), closed: closed.map(({ doc, ...c }) => doc ? { ...saved(doc), at: c.at } : c), display: state.display, scale: state.scale, format: state.format, encoding: state.encoding, spec: state.spec, cuts: { format: state.cutFormat, fps: state.fps }, side: state.side, show: state.show, units: state.units, snap: state.snapping, curve: state.fadeCurve, levels: state.levels, ruler: state.ruler, step: state.levelStep, look: state.look, wave: state.wave, agent: { url: state.bridgeUrl, key: state.bridgeKey }, splice: state.splice, scrub: state.scrub, record: state.recordIn, grip: state.gripMode, pitch: state.pitch, panel: state.panel, speed: state.speed }
+  const all = { docs: docs.map(saved), doc: docs.findIndex(d => d.id === state.tab), closed: closed.map(({ doc, ...c }) => doc ? { ...saved(doc), at: c.at } : c), display: state.display, scale: state.scale, format: state.format, encoding: state.encoding, spec: state.spec, cuts: { format: state.cutFormat, fps: state.fps }, side: state.side, show: state.show, units: state.units, snap: state.snapping, curve: state.fadeCurve, levels: state.levels, ruler: state.ruler, grid: state.grid, step: state.levelStep, look: state.look, wave: state.wave, agent: { url: state.bridgeUrl, key: state.bridgeKey }, splice: state.splice, scrub: state.scrub, record: state.recordIn, grip: state.gripMode, pitch: state.pitch, panel: state.panel, speed: state.speed }
   try { localStorage.setItem(KEY, JSON.stringify(all)); full = false }
   catch {
     const bare = ({ chats, chat, ...d }) => d
@@ -299,7 +307,7 @@ const state = sprae(root, {
   format: oneOf(stored.format, formats.map(f => f.name), 'wav'), encoding: { markers: true, ...stored.encoding }, snapping: stored.snap ?? true, fadeCurve: oneOf(stored.curve, curves.map(c => c.name), 'linear'), gripMode: ['trim', 'speed'].includes(stored.grip) ? stored.grip : 'stretch', pitch: !!stored.pitch, settingsIcon: SETTINGS_ICON, recipesIcon: RECIPES_ICON, agentIcon: AGENT_ICON,
   overlayList: overlays.map(([name, label, title]) => ({ name, label, title })),
   unitList: UNITS.map(([name, label, example, short]) => ({ name, label, example, short })), levelList, levels: oneOf(stored.levels, ['db'], 'linear'),
-  rulers, ruler: oneOf(stored.ruler, rulers.map(r => r.name), 'labels'), splices: [0, 5, 10, 20], splice: oneOf(stored.splice, [0, 5, 10, 20], 10), steps: [.1, 1, 3], levelStep: oneOf(stored.step, [.1, 1, 3], 1), look: Object.fromEntries(Object.entries(LOOK).map(([k, d]) => [k, oneOf(stored.look?.[k], k === 'method' ? specMethods.map(m => m[0]) : looks[k], d)])), wave: Object.fromEntries(Object.entries(WAVE).map(([k, d]) => [k, waveLooks[k].some(([v]) => v === stored.wave?.[k]) ? stored.wave[k] : d])),
+  rulers, ruler: oneOf(stored.ruler, rulers.map(r => r.name), 'labels'), grid: oneOf(stored.grid, grids.map(g => g[0]), 'marks'), splices: [0, 5, 10, 20], splice: oneOf(stored.splice, [0, 5, 10, 20], 10), steps: [.1, 1, 3], levelStep: oneOf(stored.step, [.1, 1, 3], 1), look: Object.fromEntries(Object.entries(LOOK).map(([k, d]) => [k, oneOf(stored.look?.[k], k === 'method' ? specMethods.map(m => m[0]) : looks[k], d)])), wave: Object.fromEntries(Object.entries(WAVE).map(([k, d]) => [k, waveLooks[k].some(([v]) => v === stored.wave?.[k]) ? stored.wave[k] : d])),
   scrubs, scrub: scrubbers[stored.scrub] ? stored.scrub : 'hybrid', recordIn: stored.record === 2 ? 2 : 1,
   // the speed it plays at, the pitch kept; how far through the sound it plays (Play's ring); the scale a held Play shows
   // while dragged
@@ -496,14 +504,13 @@ v.scale = state.scale
 v.units = state.units
 v.levels = state.levels
 v.ruler = state.ruler
+v.grid = state.grid
 v.levelStep = state.levelStep
 v.spectrogram = paint(state.look)
 v.waveform = state.wave
 pl.scrubMode = state.scrub
 // the speed kept from before
 pl.rate = state.speed
-// WORKSHOP: how the sound's end shows, how the lanes are ruled
-workshop(root.querySelector('.workshop'), o => { v.endMark = o.end; v.grid = o.grid })
 // the panel as wide as it was left
 if (state.panel) root.querySelector('.panes').style.setProperty('--panel', `${state.panel}px`)
 v.show = state.show
@@ -618,6 +625,7 @@ function menus() {
     { name: 'View', title: 'Waveform and spectrogram, what shows on them; zoom; panels; units', items: [
       ...displays.map(d => check(d.label, state.display === d.name, () => setDisplay(d.name))),
       lookMenu('wave'), lookMenu('spec'),
+      { label: 'Grid', items: grids.map(([name, label, hint]) => check(label, state.grid === name, () => setGrid(name), { hint })) },
       '-',
       ...overlays.map(([name, label]) => check(label, state.show[name], () => toggleShow(name))),
       check('Edit pitch', state.pitch, () => setPitch(!state.pitch), { hint: 'The pitch curve on the spectrogram, dragged whole, its points made and dragged' }),
@@ -693,7 +701,8 @@ function optionGroups(kind) {
     group('Times in', state.unitList.map(u => [u.name, u.short, `${u.label}: ${u.example}`]), state.units, setUnits),
     group('Level steps', state.steps.map(db => [db, `${db}dB`, `A selection's level, dragged by its pill, goes ${db} dB a step`]), state.levelStep, setStep),
     group('Splices', state.splices.map(ms => [ms, ms ? `${ms}ms` : 'Off', ms ? `An edit's seams crossfaded over ${ms} ms, so they make no click` : 'At a seam, either side meets as it is']), state.splice, setSplice),
-    group('Time row', rulers.map(r => [r.name, r.label, r.name === 'none' ? 'Only the times that matter now' : r.name === 'ticks' ? 'Ticks along the time row, no labels' : 'The times along the row, labelled']), state.ruler, setRuler)
+    group('Time row', rulers.map(r => [r.name, r.label, r.name === 'none' ? 'Only the times that matter now' : r.name === 'ticks' ? 'Ticks along the time row, no labels' : 'The times along the row, labelled']), state.ruler, setRuler),
+    group('Grid', grids, state.grid, setGrid)
   ]
 }
 // the View menu's submenus, the same groups
@@ -713,7 +722,11 @@ function openDropdown(kind, owner) {
   panel.showPopover()
   const r = owner.getBoundingClientRect(), w = panel.offsetWidth, h = panel.offsetHeight
   panel.style.left = `${Math.max(8, Math.min(innerWidth - w - 8, r.right - w))}px`
-  panel.style.top = `${r.bottom + 6 + h > innerHeight - 8 ? Math.max(8, r.top - 6 - h) : r.bottom + 6}px`
+  const top = r.bottom + 6 + h > innerHeight - 8 ? Math.max(8, r.top - 6 - h) : r.bottom + 6
+  // what is left of the window below it, scrolled within: the groups fill in after it is placed, the settings' taller
+  // than a short window
+  panel.style.top = `${top}px`
+  panel.style.maxHeight = `${innerHeight - 8 - top}px`
 }
 // closed: at once by its button or a press outside, or by Esc (the popover's own toggle)
 function closeDropdown() {
@@ -807,6 +820,7 @@ function resetView() {
   setUnits('clock')
   setLevels('linear')
   setRuler('labels')
+  setGrid('marks')
   state.look = { ...LOOK }
   v.spectrogram = paint(state.look)
   state.wave = { ...WAVE }
@@ -1237,6 +1251,7 @@ function setUnits(name) {
 }
 function setLevels(name) { state.levels = v.levels = name; store() }
 function setRuler(mode) { state.ruler = v.ruler = mode; store() }
+function setGrid(name) { state.grid = v.grid = name; store() }
 function setStep(db) { state.levelStep = v.levelStep = db; store() }
 function setSplice(ms) { state.splice = ms; store() }
 function setLook(key, value) { state.look = { ...state.look, [key]: value }; v.spectrogram = paint(state.look); store() }

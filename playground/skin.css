@@ -13,10 +13,12 @@
   --color-screen-select: oklch(100% 0 0 / .05);
   /* the same wash over a spectrogram, whose speckle hides a lift a waveform's even ground shows */
   --color-screen-select-spectrum: oklch(100% 0 0 / .16);
-  /* the lanes' grid (WORKSHOP): its crosses, where the axes' ticks meet; its dots, a pixel each, brighter;
-     white, so it reads over a spectrogram as over the screen */
+  /* the lanes' grid: its crosses, where the axes' ticks meet; its dots, a pixel each, brighter; its lines, from each
+     tick across the lanes, half a cross's, as they run the lanes' length; white, so it reads over a spectrogram as over
+     the screen */
   --color-screen-grid: oklch(100% 0 0 / .12);
   --color-screen-grid-dot: oklch(100% 0 0 / .26);
+  --color-screen-grid-line: oklch(100% 0 0 / .06);
   --color-screen-caret: oklch(100% 0 0 / .55);
   /* the waveform's colour (a file arriving is the same, drawn dimmer: editor.css); the notch a handle leaves */
   --color-screen-wave: oklch(78% 0 0);

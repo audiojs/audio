@@ -1443,9 +1443,9 @@ test('editor: no object literal in the page names a key twice', async () => {
   assert.deepEqual(warnings.filter(w => w.id === 'duplicate-object-key').map(w => `${w.location.file}:${w.location.line} ${w.text}`), [])
 })
 
-// The sound's end told by the time row alone (WORKSHOP End: Ruler): no tick or label past it, none running into its own
-// tick; a line (Line) leaves the row as it is, labelled on past the end
-test('editor: with the end told by the time row, its ticks and labels stop at the end', async () => {
+// The sound's end, scrolled to the view's middle: a rule down the lanes, and a hatch after it fading out within 24 px
+// (view.js HATCH), the end marked, the room past it bare
+test('editor: the sound\'s end is a line down the lanes and a hatch after it that fades out within 24 px', async () => {
   await open()
   const box = await page.locator('.plot').boundingBox()
   await page.mouse.move(box.x + box.width * .8, box.y + box.height * .4)
@@ -1453,32 +1453,33 @@ test('editor: with the end told by the time row, its ticks and labels stop at th
   for (let i = 0; i < 3; i++) { await page.mouse.wheel(0, -120); await page.waitForTimeout(60) }
   await page.keyboard.up('Control')
   for (let i = 0; i < 12; i++) { await page.mouse.wheel(240, 0); await page.waitForTimeout(40) }
-  // the times the time row writes, as the overlay draws them next
-  await page.evaluate(() => {
-    const fill = CanvasRenderingContext2D.prototype.fillText
-    CanvasRenderingContext2D.prototype.fillText = function (text, ...rest) {
-      if (this.canvas.classList.contains('overlay') && /^\d+:\d+(\.\d+)?$/.test(text)) window.__times.push(text.split(':').reduce((m, s) => m * 60 + +s, 0))
-      return fill.call(this, text, ...rest)
-    }
+  await page.mouse.move(2, 2)
+  await page.waitForTimeout(200)
+  // the overlay's alpha, CSS px: the end, the one column lit all down a lane, left of the meters; then the hatch's
+  // alpha summed down that lane, in thirds of 8 px after it, and the room past them
+  const { end, thirds, past } = await page.evaluate(() => {
+    const canvas = document.querySelector('canvas.overlay'), k = canvas.width / canvas.clientWidth
+    const { data, width } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height)
+    const a = (x, y) => data[(Math.round(y * k) * width + Math.round(x * k)) * 4 + 3]
+    const h = canvas.clientHeight, w = canvas.clientWidth * .7, run = x => { let n = 0, most = 0; for (let y = 0; y < h; y++) most = Math.max(most, n = a(x, y) === 255 ? n + 1 : 0); return most }
+    let end = -1
+    for (let x = 0; x < w; x++) if (run(x) > h / 4) { end = x; break }
+    let y0 = 0; while (a(end, y0) !== 255) y0++
+    let y1 = y0; while (a(end, y1 + 1) === 255) y1++
+    const sum = (from, to) => { let s = 0; for (let x = from; x < to; x++) for (let y = y0; y <= y1; y++) s += a(x, y); return s }
+    return { end, thirds: [sum(end + 1, end + 9), sum(end + 9, end + 17), sum(end + 17, end + 25)], past: sum(end + 26, end + 120) }
   })
-  const written = async end => {
-    await page.locator(`.workshop button[title="End: ${end}"]`).click()
-    await page.evaluate(() => window.__times = [])
-    await page.mouse.move(box.x + 20, box.y + box.height * .4)
-    await page.waitForTimeout(200)
-    return page.evaluate(() => window.__times)
-  }
-  const line = await written('Line'), ruler = await written('Ruler')
-  assert.ok(line.some(t => t > 6.525), `labelled on past the end with a line: ${line}`)
-  assert.ok(ruler.length && ruler.every(t => t <= 6.525), `none past the end: ${ruler}`)
-  assert.ok(Math.max(...ruler) < 6.5, `none running into the end's tick, 6.525 s, a moment after 6.5: ${ruler}`)
+  assert.ok(end > 0, 'a line down the lanes at the end')
+  assert.ok(thirds[0] > thirds[1] && thirds[1] > thirds[2], `the hatch after it fading: ${thirds}`)
+  assert.equal(past, 0, 'none past 24 px')
 })
 
-// The lanes ruled (WORKSHOP Grid: Crosses + dots), where the sound is quiet (2.5 to 3 s): a cross, its arms 3 px, where a
+// The lanes ruled (Grid: Crosses + dots, the default), where the sound is quiet (2.5 to 3 s): a cross, its arms 3 px, where a
 // time row's tick meets a level's; a dot where their fifths meet (2.6 s, 0.3 of full scale, between the ticks at 2.5 s
 // and 3 s, 0.5 and 0); nothing halfway between those. Behind the waveform: none where a hit is (0.5 s, 0). In decibels,
-// a dot every 3 dB between the ticks (−3 dB). With None, or with no sound, nothing at all
-test('editor: the grid crosses where the ticks meet, dots where their finer steps do, hides behind the waveform, and is gone with None or no sound', async () => {
+// a dot every 3 dB between the ticks (−3 dB). Lines (View, Grid): a line from each tick across the lane, fainter than a
+// cross, none at the finer steps. With None, or with no sound, nothing at all
+test('editor: the grid crosses where the ticks meet, dots where their finer steps do, or lines from the ticks; hides behind the waveform, and is gone with None or no sound', async () => {
   await open()
   await page.mouse.move(2, 2)
   // the overlay's ticks, each followed by its label
@@ -1488,7 +1489,8 @@ test('editor: the grid crosses where the ticks meet, dots where their finer step
     proto.fillRect = function (x, y, w, h) { if (this.canvas.classList.contains('overlay')) window.__ticks.push({ x, y, w, h }); return rect.call(this, x, y, w, h) }
     proto.fillText = function (s, x, y) { if (this.canvas.classList.contains('overlay')) window.__ticks.push({ s }); return text.call(this, s, x, y) }
   })
-  await page.locator('.workshop button[title="Grid: Crosses + dots"]').click()
+  await settings('Grid', 'Crosses + dots')
+  await page.mouse.move(2, 2)
   await page.waitForTimeout(200)
   const calls = await page.evaluate(() => window.__ticks), at = {}
   calls.forEach((c, i) => { if (c.w && calls[i + 1]?.s) at[calls[i + 1].s] ??= c.h === 1 ? c.y : c.x })
@@ -1517,30 +1519,35 @@ test('editor: the grid crosses where the ticks meet, dots where their finer step
   assert.ok(Number.isFinite(r6), 'a tick at −6 dB')
   assert.ok((await lit([[c0, r6], [c0 + 3, r6], [c0, r6 + 3]])).every(Boolean), 'a cross at 2.5 s, −6 dB')
   assert.ok((await lit([[c0 + dx, r0 - 10 ** (-3 / 20) * (r0 - r5) * 2]]))[0], 'a dot at 2.6 s, −3 dB')
+  // lines, from the View menu: down from 2.5 s and across from −6 dB, fainter than the cross was; none at 2.6 s, −3 dB
+  const [crossed] = await lit([[c0, r6]])
+  await menu('View', 'Grid', 'Lines')
+  await page.waitForTimeout(200)
+  const [down, across, meet, finer] = await lit([[c0, r6 - 10], [c0 + 10, r6], [c0, r6], [c0 + dx, r0 - 10 ** (-3 / 20) * (r0 - r5) * 2]])
+  assert.ok(down && across, 'a line down from 2.5 s and across from −6 dB')
+  assert.ok(meet < crossed, `fainter than a cross: ${meet} < ${crossed}`)
+  assert.equal(finer, 0, 'none at the finer steps')
   const blank = () => page.evaluate(() => { const canvas = document.querySelector('canvas.grid'); return !canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data.some(v => v) })
-  await page.locator('.workshop button[title="Grid: None"]').click()
+  await settings('Grid', 'None')
   await page.waitForTimeout(200)
   assert.ok(await blank(), 'nothing with None')
   // nor where there is no sound: a new tab, empty
-  await page.locator('.workshop button[title="Grid: Crosses + dots"]').click()
+  await settings('Grid', 'Crosses + dots')
   await page.getByRole('button', { name: 'New tab' }).click()
   await page.locator('.empty').waitFor()
   await page.waitForTimeout(200)
   assert.ok(await blank(), 'nothing with no sound')
 })
 
-// WORKSHOP: the sound's end (a line, hatched, dotted, or the time row stopping); settled, two sliders for the settings,
-// a spark for the agent, an open book for the recipes, the switches joined (raised keys in one bezel), the view's
-// options from a right-click, the export's icon an arrow down onto a tray
-test('editor: the workshop turns the sound\'s end; the settled icons; the switches are keys in a bezel; the view\'s options open from a right-click', async () => {
+// Two sliders for the settings, a spark for the agent, an open book for the recipes, the switches joined (raised keys in
+// one bezel), the view's options from a right-click, the export's icon an arrow down onto a tray
+test('editor: the settled icons; the switches are keys in a bezel; the view\'s options open from a right-click', async () => {
   await open()
   const icon = name => page.getByRole(name === 'Settings' ? 'button' : 'tab', { name, exact: true }).locator('path').getAttribute('d')
   assert.equal((await icon('Settings')).match(/a2 2 0 1 1-4 0/g).length, 2, 'two sliders, their round thumbs')
   assert.equal(await icon('Agent'), 'M12 3c.6 4.7 4.3 8.4 9 9-4.7.6-8.4 4.3-9 9-.6-4.7-4.3-8.4-9-9 4.7-.6 8.4-4.3 9-9Z', 'a spark, four curved points')
   assert.equal(await icon('Export'), 'M12 4v11m-5-5 5 5 5-5M4 19h16', 'an arrow down onto a tray')
   assert.equal(await icon('Recipes'), 'M3 5h5a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H3Zm18 0h-5a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h6Z', 'an open book')
-  assert.deepEqual(await page.locator('.workshop-group > span').allInnerTexts(), ['End', 'Grid'], 'the recipes\' icon no longer a choice')
-  assert.deepEqual(await page.locator('.workshop-group', { hasText: 'End' }).locator('button').allInnerTexts(), ['Line', 'Hatch', 'Dots', 'Ruler'])
   await tab('Export')
   // the switches, settled: raised keys in one bezel, each touching the next
   const group = page.locator('.export .choices').first()
@@ -5480,7 +5487,7 @@ test('editor: the settings and each picture\'s options are dropdowns, every grou
   assert.equal(await button.getAttribute('aria-expanded'), 'true')
   assert.equal(await page.locator('.side-slab').isVisible(), false, 'no panel')
   assert.equal(await page.locator('.menubar-sub').count(), 0, 'no submenus')
-  assert.deepEqual(await groups(), ['Show over the sound', 'Scrub', 'Record in', 'Times in', 'Level steps', 'Splices', 'Time row'])
+  assert.deepEqual(await groups(), ['Show over the sound', 'Scrub', 'Record in', 'Times in', 'Level steps', 'Splices', 'Time row', 'Grid'])
   const ways = page.locator('.dropdown').getByRole('group', { name: 'Scrub', exact: true }).getByRole('button')
   assert.deepEqual(await ways.allInnerTexts(), ['Vocoder + noise', 'Vocoder', 'Random phase', 'Noisc bank', 'Noisc lines', 'Grains', 'Loop', 'Tape'])
   const note = group => page.locator('.dropdown-group', { has: page.getByRole('group', { name: group, exact: true }) }).locator('.dropdown-note').innerText()

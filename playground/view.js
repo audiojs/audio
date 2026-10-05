@@ -70,6 +70,7 @@ const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform)
 const LEVELS = [0, -6, -12, -24, -48, -18, -36, -30, -60, -72, 6, 12]  // dBFS the level axis marks, halvings first, where they fit
 const TICK = 12                               // a tick's length on either axis, px
 const MINOR = 6                               // the grid's finer steps at least this far apart, px
+const HATCH = 24                              // the hatch past the sound's end, fading out over this many px
 const VOICE = [60, 1000]                      // the pitch axis when no spectrogram shows, Hz, on a log scale
 const GAIN = [-36, 12]                        // the gain line's scale, dB: the lane's centre line to its edges, 0 dB
                                               // three quarters of the way out, so a boost shows above it
@@ -151,9 +152,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // how the time row marks time: 'labels' with their ticks, 'ticks' alone, or 'none'; the caret's, the pointer's and a
   // selection's times show whatever it is
   let ruler = 'labels'
-  // how the sound's end shows, past which the view scrolls (WORKSHOP): 'line', 'hatch', 'dots', 'ruler'
-  let endMark = 'line'
-  // how the lanes are ruled (WORKSHOP, paintGrid): 'marks', 'crosses', 'dots' or 'none'
+  // how the lanes are ruled (paintGrid): 'marks', 'crosses', 'dots', 'lines' or 'none'
   let grid = 'none'
   // the steps a selection's level goes up or down in, dB, as the pill is dragged
   let levelStep = 1
@@ -469,8 +468,8 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // a crossfade dragged out of a range's start takes what is before it out: the range goes back by as much
     const back = drag?.cross && drag.fade === 'in' ? drag.span[1] - drag.span[0] : 0
     const sel = drag?.carry && drag.moved && !drag.out ? [drag.to, drag.to + drag.b - drag.a] : drag?.stretch ? [drag.a, drag.to] : back ? [drag.a - back, drag.b - back] : selection
-    paintSelection(L, sel)
     paintEnd(L)
+    paintSelection(L, sel)
     if (show.guides) for (const guide of guides) paintGuide(guide, L)
     // a fade as it is dragged, the waveform under it drawn faded; a crossfade, its two curves across the seam
     if (drag?.span && drag.cross) { const [p, q] = drag.span, h = half(p, q); paintGuide({ ramps: [[p - h, p + h, 'out', 'equal'], [p - h, p + h, 'in', 'equal']] }, L) }
@@ -991,15 +990,13 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       taken.push([Math.min(px, lx - 4), Math.max(px + 1, lx + tw + 4)])
       shown.push({ ...m, px, lx, text })
     }
-    // the end shown by the time row alone (`endMark` 'ruler'): no ticks past it, no label running into its tick
-    const cut = endMark === 'ruler' ? Math.round(x(duration)) : Infinity
     if (ruler !== 'none') for (let i = first; i * step <= end + 1e-9; i++) {
       const t = i * step, px = Math.round(x(t)), text = stamp(t, digits), tw = c.measureText(text).width
-      if (px + 4 + tw > w || px > cut) break
+      if (px + 4 + tw > w) break
       if (taken.some(([a, b]) => px + tw + 4 > a && px < b)) continue
       c.fillStyle = color('--color-screen-rule')
       c.fillRect(px, h, 1, TICK)
-      if (ruler === 'labels' && px + 4 + tw < cut - 3) { c.fillStyle = color('--color-screen-dim'); c.fillText(text, px + 4, y) }
+      if (ruler === 'labels') { c.fillStyle = color('--color-screen-dim'); c.fillText(text, px + 4, y) }
     }
     for (const m of shown) {
       c.fillStyle = m.fill
@@ -1007,10 +1004,10 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       tag(m.text, m.lx, y, 'left')
     }
   }
-  // The lanes ruled (WORKSHOP `grid`), on a layer of their own between the pictures: over the spectrogram, as the screen
-  // shows it; behind the waveform, wholly hidden where it is, however faint its fill there. Where the time row's ticks
-  // meet the axis' on the right, a cross, and a dot where their finer steps meet ('marks'); the crosses alone
-  // ('crosses'); or a dot at each, the ticks' larger ('dots'). None on a lane's edge.
+  // The lanes ruled (`grid`), on a layer of their own between the pictures: over the spectrogram, as the screen shows it;
+  // behind the waveform, wholly hidden where it is, however faint its fill there. Where the time row's ticks meet the
+  // axis' on the right, a cross, and a dot where their finer steps meet ('marks'); the crosses alone ('crosses'); a dot
+  // at each, the ticks' larger ('dots'); or a faint line from each tick across the lanes ('lines'). None on a lane's edge.
   let ruled = ''
   const gridKey = L => [grid, duration, start, end, W, H, dpr, display, scale, levelUnits, units, rate, aview, fview, L.wave.length + L.spec.length, lanesEnd(L)].join()
   function paintGrid(L) {
@@ -1042,11 +1039,16 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       const px = Math.round(x(i * sub))
       if (px >= 1 && px < stop) cols.push([px, i % n === 0])
     }
-    // one path a colour, filled once: where a cross's arms meet is no brighter
+    // one path a colour, filled once: where a cross's arms meet, or two lines cross, is no brighter
     const marks = new Path2D(), dots = new Path2D()
     for (const rect of all) {
       const [, y, , lh] = rect, inner = ty => ty > y && ty < y + lh - 1
       const ticked = room(rect, display === 'spec' ? hzMarks(rect) : levelMarks(rect)).map(([ly]) => Math.round(ly))
+      if (grid === 'lines') {
+        for (const [px, a] of cols) if (a) marks.rect(px, y, 1, lh)
+        for (const ty of ticked.filter(inner)) marks.rect(0, ty, stop, 1)
+        continue
+      }
       const between = room(rect, fineMarks(rect), [...ticked], MINOR).map(([ly]) => Math.round(ly))
       const rows = [...ticked.filter(inner).map(ty => [ty, true]), ...between.filter(inner).map(ty => [ty, false])]
       for (const [px, a] of cols) for (const [ty, b] of rows) {
@@ -1059,7 +1061,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     rc.beginPath()
     for (const [, y, , lh] of all) rc.rect(0, y, stop, lh)
     rc.clip()
-    rc.fillStyle = color('--color-screen-grid')
+    rc.fillStyle = color(grid === 'lines' ? '--color-screen-grid-line' : '--color-screen-grid')
     rc.fill(marks)
     rc.fillStyle = color('--color-screen-grid-dot')
     rc.fill(dots)
@@ -1085,25 +1087,31 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     const wash = [color('--color-screen-select'), color('--color-screen-select-spectrum')]
     for (const [px, py, bw, bh, spec] of boxes) { c.fillStyle = wash[+spec]; c.fillRect(px, py, bw, bh) }
   }
-  // Where the sound ends, where the view shows past it (WORKSHOP `endMark`): a rule down the lanes, or a dotted one; the
-  // room past it hatched; or nothing in the lanes, the time row's ticks stopping there (paintRuler) and a tick of its own
+  // Where the sound ends, where the view shows past it: a rule down the lanes, a hatch after it fading out within HATCH
+  // px, the end marked, the room past it left as it is. Drawn first, on an overlay still clear, as the fade erases the
+  // hatch by a gradient: whatever else goes over it (a stretch's wash past the end) stays whole
   function paintEnd(L) {
     const px = Math.round(x(duration)), stop = lanesEnd(L), all = [...L.wave, ...L.spec], [top, bottom] = extent(all)
     if (px < 0 || px >= stop) return
     c.fillStyle = c.strokeStyle = color('--color-screen-rule')
-    if (endMark === 'hatch') {
-      c.save()
-      c.beginPath()
-      for (const [, y, , lh] of all) c.rect(px, y, stop - px, lh)
-      c.clip()
-      c.beginPath()
-      for (let k = px - (bottom - top); k < stop; k += 7) { c.moveTo(k, bottom); c.lineTo(k + bottom - top, top) }
-      c.stroke()
-      c.restore()
-    }
-    else if (endMark === 'dots') { c.fillStyle = color('--color-screen-dim'); for (const [, y, , lh] of all) for (let k = y + 1; k < y + lh; k += 4) c.fillRect(px, k, 1, 1) }
-    else if (endMark === 'ruler') { c.fillStyle = color('--color-screen-dim'); c.fillRect(px, plot().h, 1, TICK) }
-    else for (const [, y, , lh] of all) c.fillRect(px, y, 1, lh)
+    for (const [, y, , lh] of all) c.fillRect(px, y, 1, lh)
+    const a = px + 1, b = Math.min(stop, a + HATCH)
+    if (b <= a) return
+    c.save()
+    c.beginPath()
+    for (const [, y, , lh] of all) c.rect(a, y, b - a, lh)
+    c.clip()
+    c.lineWidth = 1
+    c.beginPath()
+    for (let k = a - (bottom - top); k < b; k += 7) { c.moveTo(k, bottom); c.lineTo(k + bottom - top, top) }
+    c.stroke()
+    const fade = c.createLinearGradient(a, 0, a + HATCH, 0)
+    fade.addColorStop(0, 'transparent')
+    fade.addColorStop(1, 'black')
+    c.globalCompositeOperation = 'destination-out'
+    c.fillStyle = fade
+    c.fillRect(a, top, b - a, bottom - top)
+    c.restore()
   }
   // The edge dragged, or the one a press would take, any range's, lit as the line it would move: its first pixel or its
   // last, over the handles
@@ -1328,7 +1336,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // From 32 samples across to eight times the whole, a bird's view: the sound starts at the left, the room is on its right.
   // A view an edit left past the sound's end (it got shorter) stays there until it is moved back.
   // Scrolled or zoomed by hand (`past`), the sound's end goes on as far as the view's middle: the tail comes out from
-  // under the meters and the labels to be edited, the room past it shown as past the end (`endMark`)
+  // under the meters and the labels to be edited, the room past it shown as past the end (paintEnd)
   function setRange(a, b, past = false) {
     const min = Math.min(duration, 32 / rate)
     let span = Math.max(min, Math.min(Math.max(duration * 8, recording ? RECORD : 0), b - a))
@@ -2299,9 +2307,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     set units(name) { units = name; invalidate(true) },
     // how the time row marks time: 'labels', 'ticks', 'none'
     set ruler(mode) { ruler = mode; invalidate(true) },
-    // how the sound's end shows (WORKSHOP): 'line', 'hatch', 'dots', 'ruler'
-    set endMark(name) { endMark = name; invalidate(true) },
-    // how the lanes are ruled (WORKSHOP): 'marks', 'crosses', 'dots', 'none'
+    // how the lanes are ruled: 'marks', 'crosses', 'dots', 'lines', 'none'
     set grid(name) { grid = name; invalidate(true) },
     // the steps, dB, a selection's level goes in as its pill is dragged
     set levelStep(db) { levelStep = +db || 1 },

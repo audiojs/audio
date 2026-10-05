@@ -24,17 +24,11 @@ button:disabled { cursor: default; opacity: .4; }
    the tabs, the script, the picture where the sound was left — waits out of sight until all of it is ready, then comes
    up together, inside the frame it already has: nothing is laid out twice, so nothing jumps (editor.js drops data-boot
    after the first frame). */
-.app[data-boot] > .workshop, .app[data-boot] > .bar > .menubar, .app[data-boot] > .panes > * { opacity: 0; }
-.app > .workshop, .app > .bar > .menubar, .app > .panes > * { transition: opacity var(--dur-short) var(--ease-out); }
+.app[data-boot] > .bar > .menubar, .app[data-boot] > .panes > * { opacity: 0; }
+.app > .bar > .menubar, .app > .panes > * { transition: opacity var(--dur-short) var(--ease-out); }
 svg { flex: none; }
 
-.app { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: var(--bar) minmax(0, 1fr) auto; height: 100dvh; }
-/* WORKSHOP (editor/workshop.js): the variants to choose between, a strip under the page */
-.workshop { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 0 var(--gutter) 10px; color: var(--color-muted); font: 11px var(--font-mono); }
-.workshop-group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-.workshop-group span { margin-right: 4px; }
-.workshop button { min-height: 22px; padding: 0 7px; border: 0; border-radius: 5px; background: none; color: inherit; font: inherit; white-space: nowrap; }
-.workshop button[aria-pressed="true"] { background: var(--color-ink); color: var(--color-paper); }
+.app { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: var(--bar) minmax(0, 1fr); height: 100dvh; }
 
 /* Bar: the mark, where to start, and the page's actions */
 .bar { display: flex; align-items: center; gap: 20px; padding-inline: calc(var(--gutter) + 6px); min-width: 0; }

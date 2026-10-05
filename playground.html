@@ -267,9 +267,6 @@
         <p class="facts" :if="sound"><button class="fact" popovertarget="rate-menu" :title="'Sample rate ' + sound?.rate + ': resample to another'" :text="sound?.rate"></button><button class="fact" popovertarget="channels-menu" :title="sound?.channels + ': mix to mono, stereo, 5.1 or 7.1'" :text="sound?.channels"></button><span :if="sound?.depth" :text="sound?.depth"></span></p>
       </footer>
     </main>
-    <!-- WORKSHOP (editor/workshop.js): variants to choose between -->
-    <div class="workshop" aria-label="Workshop: variants to choose between"></div>
-
     <!-- a picture's options, or the settings: a dropdown, every group in sight, its choices, what the chosen one does -->
     <div class="dropdown" popover="manual" role="dialog" :aria-label="dropdownTitle" :ontoggle="dropToggle">
       <section class="dropdown-group" :each="g in dropdownGroups">
