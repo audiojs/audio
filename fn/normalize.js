@@ -184,7 +184,7 @@ function limitedLufs(stats, chs, sr, gainDb, ceilDb, from, to) {
 /** A reference's integrated loudness (BS.1770), from its block stats: decoded before the plan compiles (loadRefs),
  *  its own edits derived when they allow, rendered when they don't (an EQ). */
 function refLoudness(ref) {
-  let st = ref.edits?.length ? audio.adaptStats(ref._.srcStats ?? ref.stats, buildPlan(ref), ref.sampleRate) : ref.stats
+  let src = ref.srcStats, st = ref.edits?.length ? src && audio.adaptStats(src, buildPlan(ref), ref.sampleRate) : src
   if (!st?.kcut1) {
     let s = audio.statSession(ref.sampleRate), n = ref.length
     for (let o = 0; o < n; o += 1 << 16) s.page(render(ref, o, Math.min(1 << 16, n - o)))

@@ -687,11 +687,13 @@ const warmStart = (s, sc, warmup = 0) => Math.max(0, Math.min(s, s - warmup, sc 
  *  timeline is never rendered twice for them. */
 function resolveCtxStats(a, index, st) {
   let src = a.srcStats, { segs, pipeline, sr } = st
-  if (!src) return src
-  // the source itself, whole: a crop from 0 keeps the first segment's start but not its length
-  if (!pipeline.length && segs.length === 1 && segs[0][0] === 0 && segs[0][2] === 0 && segs[0][1] === a._.len && !segs[0][3] && segs[0][4] === undefined) return src
-  let adapted = audio.adaptStats?.(src, st, sr)
-  if (adapted) return adapted
+  if (src) {
+    // the source itself, whole: a crop from 0 keeps the first segment's start but not its length
+    if (!pipeline.length && segs.length === 1 && segs[0][0] === 0 && segs[0][2] === 0 && segs[0][1] === a._.len && !segs[0][3] && segs[0][4] === undefined) return src
+    let adapted = audio.adaptStats?.(src, st, sr)
+    if (adapted) return adapted
+  }
+  // none known (a copy of a stream measured through its edits): the prefix renders into stats, as one that can't adapt
   if (!audio.statSession) return null
   let edit = a.edits[index], all = a._.rstats ??= new WeakMap(), c = all.get(edit), rv = refVersion(a)
   if (!c || c.rv !== rv || c.prefix.length !== index || c.prefix.some((e, i) => e !== a.edits[i]))

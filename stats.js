@@ -116,6 +116,21 @@ function statSession(sr) {
       if (acc) for (let name in acc) out[name] = acc[name].map(a => new Float32Array(a))
       return out
     },
+    /** The stats so far, whole: as done() gives them, the buffered remainder a short final block, the session going on
+     *  as it was (the remainder's block measured on copies of its state) */
+    whole() {
+      if (!acc) return null
+      let tail = remLen > 0 && rem.map(c => c.subarray(0, remLen)), last = Object.create(null)
+      if (tail) for (let { fn, ctx, names } of fns) { let r = fn(tail, structuredClone(ctx)); for (let name of names) last[name] = blockValue(r, name) }
+      let out = { blockSize: audio.BLOCK_SIZE, length: total + remLen }
+      for (let name in acc) out[name] = acc[name].map((a, c) => {
+        let x = new Float32Array(a.length + (tail ? 1 : 0))
+        x.set(a)
+        if (tail) x[a.length] = typeof last[name] === 'number' ? last[name] : last[name][c]
+        return x
+      })
+      return out
+    },
     /** Return current accumulated stats without flushing remainder. */
     snapshot() {
       if (!acc) return null
@@ -331,13 +346,15 @@ export async function queryRange(inst, opts, need) {
     return { stats, ch: inst.channels, sr: inst.sampleRate, from: 0, to: first?.[0]?.length || 0 }
   }
 
-  if (!inst.edits?.length && inst._.statsV !== inst.version && inst._.srcStats) {
-    // back to pristine (undo to zero edits) — restore the pre-edit snapshot
-    inst.stats = inst._.srcStats
+  if (!inst.edits?.length && inst._.statsV !== inst.version && inst._.srcStats != null) {
+    // back to pristine (undo to zero edits) — restore the pre-edit snapshot, or measure again where there was none
+    inst.stats = inst._.srcStats || null
     inst._.statsV = inst.version
   }
   if (!inst.stats || lacks(inst.stats) || inst.edits?.length && inst._.statsV !== inst.version) {
-    if (!inst._.srcStats) inst._.srcStats = inst.stats
+    // the samples' own, before the edits replace `stats` (a pushed stream's once whole); false where unknown (one still
+    // arriving), never the edits'
+    if (inst._.srcStats == null) inst._.srcStats = (inst.decoded ? inst.srcStats : inst.stats) ?? false
     let plan = buildPlan(inst), src = inst._.srcStats
     // Fast path: remap by plan segs + derive pipeline algebraically (e.g. crop + gain + clamp)
     let derived = src?.blockSize && canDerivePipeline(plan.pipeline) && remapStats(src, plan, inst.sampleRate)

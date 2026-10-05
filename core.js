@@ -190,8 +190,9 @@ function follow(b, a, keep) {
   for (let k of ['len', 'acc', 'waiters', 'ready', 'estDur', 'header', 'format', 'bits', ...(keep.sr ? ['sr'] : []), ...(keep.ch ? ['ch'] : [])])
     Object.defineProperty(b._, k, { get: () => a._[k], set() {}, enumerable: true, configurable: true })
   Object.defineProperty(b._, 'disposed', { get: () => own || a._.disposed, set(v) { own = v }, enumerable: true, configurable: true })
-  for (let k of ['decoded', 'stats'])
-    Object.defineProperty(b, k, { get: () => a[k], set() {}, enumerable: true, configurable: true })
+  Object.defineProperty(b, 'decoded', { get: () => a.decoded, set() {}, enumerable: true, configurable: true })
+  // its samples' stats, not what `a`'s edits make of them
+  Object.defineProperty(b, 'stats', { get: () => a.srcStats, set() {}, enumerable: true, configurable: true })
   // the rate and channels arrive with the header: what was worked out from none is worked out again
   if (!a._.sr) { let meta = () => { a.off('metadata', meta); b._.fmtV = b._.lenV = -1 }; a.on('metadata', meta) }
   b.ready = a.ready.then(() => true)
@@ -211,9 +212,11 @@ audio.from = function(source, opts = {}) {
     return create(Array(Math.ceil(length / audio.PAGE_SIZE)).fill(null), sampleRate, channels, length, { ...opts, cache: source }, stats)
   }
   if (source?.pages) {
+    // the copy holds the source's pages, not what its edits make of them: their stats, else one measured through its
+    // edits would be taken for its samples'
     let b = create([...source.pages], opts.sampleRate ?? source.sampleRate,
       opts.channels ?? source._.ch, source._.len,
-      { source: source.source, storage: source.storage, cache: source.cache, budget: opts.budget ?? source.budget, bitDepth: opts.bitDepth ?? source._.bits }, source.stats)
+      { source: source.source, storage: source.storage, cache: source.cache, budget: opts.budget ?? source.budget, bitDepth: opts.bitDepth ?? source._.bits }, source.srcStats)
     // a source still arriving: the copy follows it as it lands; a rate or channel count asked for stays the copy's
     if (source._.waiters && !source.decoded) follow(b, source, { sr: !opts.sampleRate || opts.sampleRate === source._.sr, ch: !opts.channels || opts.channels === source._.ch })
     // one arrived: its header, so the copy reads the file's own tags and markers as the source does
@@ -781,7 +784,9 @@ Object.defineProperties(fn, {
   /** Stored sample depth of the source (16, 24, 32 = float); null for lossy or generated audio. */
   bitDepth: { get() { return this._.bits }, configurable: true },
   /** Source stats (pre-edit snapshot) — used by resolve-stage ops like normalize/trim. */
-  srcStats: { get() { return this._.srcStats || this.stats || this._.acc?.stats }, configurable: true },
+  // false where they were not known when its edits were measured (a stream still arriving): `stats` are the edits' then;
+  // a pushed stream's those it accumulated, so far while it arrives, whole once it is
+  srcStats: { get() { let acc = this._.acc; return (this._.srcStats ?? this.stats) || (acc && (this.decoded ? acc.whole : acc.stats)) || null }, configurable: true },
 })
 
 /** Resolve lazily loaded op modules (a descriptor's `load: () => import(...)` hook) for
@@ -1160,7 +1165,7 @@ async function* iterateStream(stream, signal) {
 function pageAccumulator(opts = {}) {
   let { pages = [], notify, ondata } = opts
   let sr = 0, ch = 0, totalLen = 0, pagePos = 0
-  let pageBuf = null, session
+  let pageBuf = null, session, whole = null, wholeAt = -1
 
   function emit(page) {
     pages.push(page)
@@ -1176,6 +1181,8 @@ function pageAccumulator(opts = {}) {
     get partial() { return pagePos > 0 ? pageBuf.map(c => c.subarray(0, pagePos)) : null },
     get partialLen() { return pagePos },
     get stats() { return session?.snapshot?.() ?? null },
+    // all of them, the last block short: worked out once for each length
+    get whole() { let n = totalLen + pagePos; if (wholeAt !== n) { wholeAt = n; whole = session?.whole?.() ?? null } return whole },
     push(chData, sampleRate) {
       if (!pageBuf) {
         sr = sampleRate; ch = chData.length

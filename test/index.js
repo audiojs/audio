@@ -4203,6 +4203,50 @@ test('push source — dither/pitch/stretch/mix apply over pushed audio', async t
   t.ok(rms(pd) > rms(pa) * 1.2, 'mix adds energy over pushed audio')
 })
 
+// A copy holds the source's pages and replays its edits: what it measures is its own samples, through its own edits.
+// A pushed stream keeps its stats as it accumulated them, and one measured through its edits holds those as its
+// output's, not its samples' (a copy normalized from either went nowhere, or 12 dB past the target)
+test('copy — clone and audio.from(instance) measure their own samples: a pushed stream, one measured through its edits', async t => {
+  let sr = 44100, x = Float32Array.from({ length: sr }, (_, i) => 0.4 * Math.sin(2 * Math.PI * 220 * i / sr))
+  let peak = async a => 20 * Math.log10(Math.max(...(await a.read()).map(c => c.reduce((m, v) => Math.max(m, Math.abs(v)), 0))))
+  let p = audio(null, { sampleRate: sr, channels: 1 })
+  p.push([x]); p.stop()
+  t.ok(Math.abs(await peak(p.clone().normalize(-1)) + 1) < 0.01, 'a pushed stream\'s clone normalizes to -1 dB')
+  let e = audio.from([x], { sampleRate: sr }).gain(-6)
+  await e.stat('db')
+  let c = e.clone()
+  t.ok(Math.abs(await peak(c) - (20 * Math.log10(0.4) - 6)) < 0.01, 'a measured edited clone plays its edits')
+  t.ok(Math.abs(await peak(c.normalize(-1)) + 1) < 0.01, 'and normalizes from what they make')
+  t.ok(Math.abs(await peak(audio.from(e).normalize(-3)) + 3) < 0.01, 'audio.from(it): its samples, normalized from theirs')
+  t.ok(Math.abs(await peak(c.clone().normalize(-2)) + 2) < 0.01, 'a clone\'s clone the same')
+  // a pushed stream edited and measured: its samples' stats kept apart from its output's
+  let q = audio(null, { sampleRate: sr, channels: 1 })
+  q.push([x]); q.stop(); q.gain(-6)
+  t.ok(Math.abs(await q.stat('db') - (20 * Math.log10(0.4) - 6)) < 0.01, 'a pushed stream measured through its edits')
+  t.ok(Math.abs(await peak(q.clone().normalize(-1)) + 1) < 0.01, 'its clone normalizes to -1 dB')
+  q.undo()
+  t.ok(Math.abs(await q.stat('db') - 20 * Math.log10(0.4)) < 0.01, 'its edits undone, its samples\' own again')
+  // shorter than a block: what it accumulated stops short of its end, so once whole it is measured
+  let s = audio(null, { sampleRate: sr, channels: 1 })
+  s.push([x.subarray(0, 1000)]); s.stop()
+  t.ok(Math.abs(await peak(s.clone().normalize(-1)) + 1) < 0.01, 'a pushed stream shorter than a block: its clone normalizes')
+  t.ok(Math.abs(await peak(s.normalize(-1)) + 1) < 0.01, 'and it does itself')
+  // once whole, measured as the same samples from a file are: by the block, its last one short
+  let y = Float32Array.from({ length: 48000 }, (_, i) => i >= 19200 && i < 28800 ? 0 : .5 * Math.sin(2 * Math.PI * 440 * i / 48000))
+  let w = audio(null, { sampleRate: 48000, channels: 1 }), v = audio.from([y], { sampleRate: 48000 })
+  w.push([y.subarray(0, 30001)]); w.push([y.subarray(30001)]); w.stop()
+  for (let at of [0, .4, .575, .99]) t.is(await w.stat('db', { at, duration: .025 }), await v.stat('db', { at, duration: .025 }), `a range at ${at} s as a file's`)
+  t.is(await w.clone().stat('dc'), await v.stat('dc'), 'its clone\'s too')
+  // a copy taken while it arrives follows it; its source edited and measured once whole, the copy still its samples
+  let r = audio(null, { sampleRate: sr, channels: 1 })
+  r.push([x])
+  let f = audio.from(r)
+  r.push([x]); r.stop(); r.gain(-6)
+  await r.stat('db')
+  t.is(f.length, 2 * sr, 'the copy followed it to its end')
+  t.ok(Math.abs(await peak(f.normalize(-1)) + 1) < 0.01, 'and normalizes from its samples, not the source\'s output')
+})
+
 test('push source — dither applies while stream runs live', async t => {
   let sr = 44100
   let tone = n => { let d = new Float32Array(n); for (let i = 0; i < n; i++) d[i] = 0.4 * Math.sin(2 * Math.PI * 220 * i / sr); return d }
