@@ -6176,6 +6176,51 @@ test('engine: an output is kept for the next visit by its script and its files',
   assert.deepEqual(r.other.seen[0], { id: r.other.seen[0].id, event: 'doing', steps: ['omlsa', 'gain'] })
 })
 
+// A page holding `peaks` channel samples gets an output longer than that as its leaves (worker.js feed), as it renders
+// and kept, each leaf its 256 samples' own [min, max, Σx², count], the last one short; each piece from a leaf's start. One
+// it holds comes as samples. samples() reads any range, clamped to the output; null once a newer one replaced it
+test('engine: past what the page holds, an output comes as its peaks, each leaf its samples\' own', async () => {
+  await page.goto(origin + '/blank.html')
+  const r = await page.evaluate(async () => {
+    const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
+    const e = engine(new URL('/playground/dist/worker.js', location.href))
+    e.peaks = 48000
+    const run = code => new Promise(done => { const parts = []; e.run(prepare(code), { chunk: m => parts.push(m), done: m => done({ parts, done: m }), error: m => done({ error: m.error?.message }) }) })
+    // the leaves of each channel, as they should be
+    const want = x => Array.from({ length: Math.ceil(x.length / 256) }, (_, j) => {
+      let lo = Infinity, hi = -Infinity, q = 0, n = 0
+      for (let i = j * 256; i < Math.min(x.length, j * 256 + 256); i++) { const y = x[i]; if (y < lo) lo = y; if (y > hi) hi = y; q += y * y; n++ }
+      return [lo, hi, Math.fround(q), n]
+    }).flat()
+    const check = async ({ parts, done, error }) => {
+      if (error) return { error }
+      const n = Math.round(done.duration * done.sampleRate), pcm = await e.samples(done.id, 0, n)
+      const leaves = pcm.map((_, c) => parts.flatMap(p => p.peaks ? [...p.peaks[c]] : []))
+      let at = 0, aligned = true
+      for (const p of parts) { if (p.peaks && p.at !== at) aligned = false; if (p.peaks) at += p.peaks[0].length / 4 * 256 }
+      return {
+        n, long: done.long, pieces: parts.length, kinds: [...new Set(parts.map(p => p.peaks ? 'peaks' : 'samples'))], aligned,
+        exact: pcm.every((x, c) => JSON.stringify(leaves[c]) === JSON.stringify(want(x))),
+        last: leaves[0].slice(-1)[0], id: done.id
+      }
+    }
+    // files, so what they make is kept
+    const tone = async (name, n) => { await e.file(name, { channels: [Float32Array.from({ length: n }, (_, i) => Math.sin(i / 17) * (.2 + i / n)), Float32Array.from({ length: n }, (_, i) => Math.sin(i / 900) / 3)], sampleRate: 48000 }); return `audio('${name}').gain(-1)` }
+    const long = await check(await run(await tone('long.wav', 96096))), kept = await check(await run(`audio('long.wav').gain(-1)`))
+    const edges = [[-10, 300], [96091, 96200], [10, 10]].map(([a, b]) => e.samples(kept.id, a, b).then(x => x?.map(c => c.length)))
+    const even = await check(await run(await tone('even.wav', 25600))), short = await check(await run(`audio.from(t => Math.sin(t * 3000), { duration: .5, sampleRate: 48000 })`))
+    return { long, kept, edges: await Promise.all(edges), even, short, gone: await e.samples(long.id, 0, 10) }
+  })
+  assert.ok(r.long.long && r.long.kinds.join() === 'peaks' && r.long.pieces > 1, `rendered: as peaks, in ${r.long.pieces} pieces`)
+  assert.ok(r.long.aligned && r.long.exact, 'each piece from where the last left off, each leaf its samples\' own')
+  assert.equal(r.long.last, 96096 - 375 * 256, 'the last leaf holds what is left')
+  assert.ok(r.kept.long && r.kept.exact && r.kept.pieces === 1, 'kept: its leaves at once')
+  assert.deepEqual(r.edges, [[300, 300], [5, 5], [0, 0]], 'samples() clamped to the output')
+  assert.ok(r.even.long && r.even.exact && r.even.last === 256, 'a length of whole leaves: the last one whole')
+  assert.ok(!r.short.long && r.short.kinds.join() === 'samples', 'within what the page holds: samples')
+  assert.equal(r.gone, null, 'replaced: none')
+})
+
 // A ranged edit (a band taken out, a range made quieter) put in, turned off or set again, under steps that work frame by
 // frame (formant(), more than a second over 15 s), renders again only around its range, over the last output
 // (worker.js fragment): the samples the whole script makes afresh, in a fraction of its time

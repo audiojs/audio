@@ -73,8 +73,9 @@ export default function engine(url = WORKER) {
     // The page's tab whose script runs, and whose output an export, a check or a measure reads: each tab's last output
     // stays in the worker, the page showing it again as it was (close lets it go)
     tab: null,
-    // The page draws a long sound from its peaks (gl-waveform's), with samples where it zooms in
-    peaks: false,
+    // The channel samples the page holds of an output: past them it draws its peaks (gl-waveform's), with samples where it
+    // zooms in; 0, it holds them all
+    peaks: 0,
     // A file the scripts can open by name; null forgets it.
     file(name, data) {
       data == null ? files.delete(name) : files.set(name, data)

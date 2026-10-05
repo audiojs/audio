@@ -61,10 +61,11 @@ const KEEP = { storage: 'auto', budget: 2 ** 26 }
 const tape = (sampleRate, channels) => audio(null, { sampleRate, channels, ...KEEP })
 
 // ── Peaks ──
-// What the page draws of a sound longer than it holds as samples (HOLD, channel samples): its leaves (gl-waveform's
+// What the page draws of a sound longer than it holds as samples (a run's `peaks`: how many channel samples it holds,
+// 0 where it draws none): its leaves (gl-waveform's
 // peaks), each LEAF samples as [min, max, Σx², count], a channel's in one array, and windows of its samples where it is
 // zoomed in (samples). Counted as the samples come (leafer), kept with the sound.
-const HOLD = PREVIEW_LIMIT, LEAF = 256
+const LEAF = 256
 function leafer(k) {
   let all = Array.from({ length: k }, () => new Float32Array(4096)), done = 0, fill = 0
   const cur = Array.from({ length: k }, () => [Infinity, -Infinity, 0, 0])
@@ -103,9 +104,9 @@ async function leavesOf(sound) {
   l.end()
   return l.leaves()
 }
-// What the page gets of a sound as it comes, `event` its pieces: its samples; or, where it draws peaks (`peaks`, the
-// run's) and the sound grows longer than it holds (by `total()`, where known, or what has come), its leaves: those so
-// far, then each piece's, `long` with each. `fields()`: what goes with each piece
+// What the page gets of a sound as it comes, `event` its pieces: its samples; or, where it draws peaks and the sound grows
+// past the `peaks` channel samples it holds (by `total()`, where known, or what has come), its leaves: those so far,
+// then each piece's, `long` with each. `fields()`: what goes with each piece
 function feed(id, event, peaks, total, fields = () => ({})) {
   let l = null, long = false, sent = 0
   const leaves = () => { const p = l.leaves(sent); sent = l.count; return p }
@@ -114,7 +115,7 @@ function feed(id, event, peaks, total, fields = () => ({})) {
     get leaves() { return l?.leaves() ?? null },
     send(at, channels) {
       ;(l ??= leafer(channels.length)).push(channels)
-      if (!long && peaks && Math.max(total() ?? 0, at + channels[0].length) * channels.length > HOLD) long = true
+      if (!long && peaks && Math.max(total() ?? 0, at + channels[0].length) * channels.length > peaks) long = true
       if (!long) return post({ id, event, at, channels, ...fields() }, channels.map(c => c.buffer))
       const from = sent * LEAF, p = leaves()
       if (p[0].length) post({ id, event, at: from, peaks: p, long, ...fields() }, p.map(c => c.buffer))
@@ -301,7 +302,7 @@ const out = value => new Out(value)
 // Runs a script, the page's tab `tab`'s: the reply says what it printed and whether it made a sound; the sound then
 // streams (render). Each tab's last output stays, for the page to show again as it was, measure and export, nothing run
 // again; the newest run streams alone.
-async function execute({ id, code, names = [], tab = null, peaks = false }) {
+async function execute({ id, code, names = [], tab = null, peaks = 0 }) {
   const logs = [], log = level => (...args) => logs.push({ level, text: args.map(a => inspect(a)).join(' ') })
   const console = { log: log('log'), info: log('log'), debug: log('log'), warn: log('warn'), error: log('error'), table: log('log') }
   run = { created: [], saves: [] }
@@ -497,7 +498,7 @@ function shelve(content, e) {
 async function replay(r, e) {
   const n = e.sound.length, rate = e.sampleRate, piece = 10 * rate
   Object.assign(r, { sound: e.sound, length: n, sampleRate: rate })
-  if (r.peaks && n * e.sound.channels > HOLD) {
+  if (r.peaks && n * e.sound.channels > r.peaks) {
     const p = await (e.leaves ??= leavesOf(e.sound))
     if (newest !== r.id) return
     post({ id: r.id, event: 'chunk', at: 0, peaks: p.map(c => c.slice()), long: true, sampleRate: rate, total: n })
@@ -520,7 +521,7 @@ function finish(r, e) {
   r.regions = e.regions
   for (const o of outputs.values()) if (o !== r && o.tab === r.tab) drop(o)
   const markers = [...e.markers, ...e.regions.map(({ at, duration, label }) => ({ time: at, duration, label }))].sort((p, q) => p.time - q.time)
-  post({ id: r.id, event: 'done', long: !!r.peaks && r.length * r.sound.channels > HOLD, duration: r.length / r.sampleRate, sampleRate: r.sampleRate, channels: r.sound.channels, stats: e.figures.stats, segments: e.figures.segments, markers, clips: e.figures.clips, bitDepth: e.bitDepth ?? r.instance.bitDepth ?? null })
+  post({ id: r.id, event: 'done', long: !!r.peaks && r.length * r.sound.channels > r.peaks, duration: r.length / r.sampleRate, sampleRate: r.sampleRate, channels: r.sound.channels, stats: e.figures.stats, segments: e.figures.segments, markers, clips: e.figures.clips, bitDepth: e.bitDepth ?? r.instance.bitDepth ?? null })
   r.finish(r)
   checkpoint(r)
 }
