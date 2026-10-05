@@ -2845,6 +2845,20 @@ test('storage — persistent instances keep their own pages on disk; a pushed on
   for (let s of [a, b, c]) s.dispose()
 })
 
+test('cache backend — an instance over a page store: none in memory till read, at most its budget after', async t => {
+  let n = PAGE_SIZE * 3 + 7, x = Float32Array.from({ length: n }, (_, i) => Math.sin(i / 50)), reads = 0
+  let store = { read: async i => (reads++, [x.slice(i * PAGE_SIZE, Math.min(n, (i + 1) * PAGE_SIZE))]), has: async () => true, write: async () => {} }
+  let a = audio.from(store, { length: n, channels: 1, sampleRate: 48000, budget: PAGE_SIZE * 4 })
+  t.is([a.length, a.channels, a.sampleRate, a.pages.filter(Boolean).length, reads], [n, 1, 48000, 0, 0], 'its shape, nothing read')
+  let [y] = await a.read({ at: (PAGE_SIZE * 2 - 3) / 48000, duration: 6 / 48000 })
+  t.is([...y], [...x.subarray(PAGE_SIZE * 2 - 3, PAGE_SIZE * 2 + 3)], 'a range reads from the pages it spans')
+  t.is(reads, 2, 'those two pages only')
+  let [z] = await a.clone().gain(0).read()
+  t.ok(z.length === n && z.every((v, i) => Math.abs(v - x[i]) < 1e-6), 'all of it, through an edit')
+  await audio.evict(a)
+  t.ok(a.pages.filter(Boolean).length <= 1, 'within its budget after')
+})
+
 test('cache backend — evicts pages when budget exceeded', async t => {
   // 3 pages of mono audio, each page = PAGE_SIZE * 4 bytes
   let ch = new Float32Array(PAGE_SIZE * 3).fill(0.5)

@@ -127,8 +127,10 @@ export default function audio(source, opts = {}) {
 
   a.ready = (async () => {
     try {
+      // persistent waits for its store, failing without one; auto decodes at once, its pages going to disk once it has one
       let store = storeOf(a, opts)
-      if (store) { await store; if (a._.disposed) return true }
+      if (store && opts.storage === 'persistent') { await store; if (a._.disposed) return true }
+      else store?.then(() => scheduleEvict(a), () => {})
       let result = await decodeSource(source, { pages, notify, ondata: emitData, disposed: () => a._.disposed, signal: abort.signal })
       if (a._.disposed) return true
       a.sampleRate = result.sampleRate
@@ -202,6 +204,12 @@ audio.from = function(source, opts = {}) {
   if (Array.isArray(source) && source[0] instanceof Float32Array) return fromChannels(source, opts)
   if (typeof source === 'number') return fromSilence(source, opts)
   if (typeof source === 'function') return fromFunction(source, opts)
+  // a page store ({ read(i), has(i), write(i, page) }, as cache.js's: pages kept on disk, a file's): its shape given,
+  // { length, channels, sampleRate, stats }, no page in memory till it is read, at most `budget` bytes of them after
+  if (typeof source?.read === 'function' && typeof source.has === 'function' && !source.pages) {
+    let { length = 0, channels = 1, sampleRate = 44100, stats = null } = opts
+    return create(Array(Math.ceil(length / audio.PAGE_SIZE)).fill(null), sampleRate, channels, length, { ...opts, cache: source }, stats)
+  }
   if (source?.pages) {
     let b = create([...source.pages], opts.sampleRate ?? source.sampleRate,
       opts.channels ?? source._.ch, source._.len,

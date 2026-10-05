@@ -247,6 +247,7 @@ let b = audio.from(3, { channels: 2 })           // 3s silence
 let c = audio.from(t => Math.sin(440*TAU*t), { duration: 2 })  // generator
 let d = audio.from(audioBuffer)                   // Web Audio AudioBuffer
 let e = audio.from(int16arr, { format: 'int16' }) // typed array + format
+let f = audio.from(store, { length, channels, sampleRate }) // pages in a store ({ read(i), has(i), write(i, page) }), read as needed
 ```
 
 ### Properties

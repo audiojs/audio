@@ -569,6 +569,8 @@ declare namespace audio {
   function from(source: Float32Array[] | AudioBuffer | AudioInstance | number, opts?: AudioOpts): AudioInstance
   function from(fn: (t: number, i: number) => number | number[], opts: AudioOpts & { duration: number }): AudioInstance
   function from(source: Int16Array | Int8Array | Uint8Array | Uint16Array, opts: AudioOpts & { format: string }): AudioInstance
+  /** Over a page store (opfsCache's, or a file's pages): its shape given, no page in memory till read */
+  function from(store: { read(i: number): Promise<Float32Array[]>, has(i: number): Promise<boolean>, write(i: number, data: Float32Array[]): Promise<void> }, opts: AudioOpts & { length: number, budget?: number, stats?: object }): AudioInstance
   /** Op registration and query */
   function op(): Record<string, OpDescriptor>
   function op(name: string): OpDescriptor | undefined
