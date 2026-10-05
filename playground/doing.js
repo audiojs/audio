@@ -1,6 +1,6 @@
 // What an agent's tool call does, said as the page's user would say it, for the chat: { now } while it runs, { then }
 // once it has, { show } where on the sound it acted (a range, a time, an edit), to go to. The page's own tools
-// (bin/mcp.js --editor) by what they were given, measuring loudness, applying normalize('podcast'), checking against Apple
+// (bin/mcp.js --playground) by what they were given, measuring loudness, applying normalize('podcast'), checking against Apple
 // Podcasts; the agent's own (Claude Code's, Codex's) by what they touch. Only what the call says: a stat it names, a
 // range, a command; never a guess at more. noted() says what it came to, from what the page answered.
 const STATS = {

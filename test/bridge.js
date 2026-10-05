@@ -264,7 +264,7 @@ test('bridge: prints its address, key and agents; its own key random, kept for t
       `audio bridge on ${a.url}`, '',
       `  key     ${key}`,
       '  agents  Claude Code, Codex, Pi, Gemini CLI, Kimi Code', '',
-      '  In the editor\'s Agent panel, paste the key, then Connect. It stays the same next time.'
+      '  In the playground\'s Agent panel, paste the key, then Connect. It stays the same next time.'
     ], 'plain, not a terminal')
     t.ok(/^[0-9a-f]{32}$/.test(key), '128 random bits')
     t.is((await fetch(`${a.url}/health?key=${key}`)).status, 200, 'the printed key opens it')
@@ -277,7 +277,7 @@ test('bridge: prints its address, key and agents; its own key random, kept for t
     await again.close(), again = null
     b = await bridge([], { AUDIO_BRIDGE_KEY: 'from-env' }), c = await bridge()
     t.is([b.key, c.key], ['from-env', KEY])
-    t.is(c.printed.at(-1), '  In the editor\'s Agent panel, paste the key, then Connect.', 'a key given: not said to stay')
+    t.is(c.printed.at(-1), '  In the playground\'s Agent panel, paste the key, then Connect.', 'a key given: not said to stay')
     t.is(JSON.parse(readFileSync(file, 'utf8')), { url: last, key }, 'a key given is kept nowhere: the own one stays')
     await b.close(), b = null, await c.close(), c = null
     c = await bridge([])
@@ -375,14 +375,14 @@ test('bridge: a page gets hello, answers a call; /call round-trips result and er
 test('bridge: no page → 503; a page that leaves fails its calls at once', async t => {
   let b = await bridge()
   try {
-    t.is(await post(b.url, '/call', { tool: 'state' }), { status: 503, body: { error: 'No editor page is connected' } })
+    t.is(await post(b.url, '/call', { tool: 'state' }), { status: 503, body: { error: 'No playground page is connected' } })
     let p = page(b.url)
     await p.next()
     let pending = post(b.url, '/call', { tool: 'state' })
     await p.next(e => e.type === 'call')
     let t0 = Date.now()
     p.close()
-    t.is(await pending, { status: 503, body: { error: 'The editor page disconnected' } })
+    t.is(await pending, { status: 503, body: { error: 'The playground page disconnected' } })
     t.ok(Date.now() - t0 < 1000, 'not after the timeout')
     await until(async () => !(await health(b.url)).page)
   } finally { await b.close() }
@@ -427,8 +427,8 @@ test('bridge: a call the page does not answer times out with 504', async t => {
   } finally { p.close(); await b.close() }
 })
 
-test('mcp --editor: lists the editor tools; a call goes through the bridge to the page and back', { timeout: 30000 }, async t => {
-  let b = await bridge(), p = page(b.url), c = mcp(['--editor', b.url, '--key', KEY])
+test('mcp --playground: lists the playground tools; a call goes through the bridge to the page and back', { timeout: 30000 }, async t => {
+  let b = await bridge(), p = page(b.url), c = mcp(['--playground', b.url, '--key', KEY])
   try {
     await p.next()
     let { result } = await c.request('tools/list')
@@ -494,14 +494,14 @@ test('mcp --editor: lists the editor tools; a call goes through the bridge to th
   } finally { await c.close(); p.close(); await b.close() }
 })
 
-test('mcp --editor: no page, no bridge, wrong key come back as tool errors that say what to do', { timeout: 30000 }, async t => {
+test('mcp --playground: no page, no bridge, wrong key come back as tool errors that say what to do', { timeout: 30000 }, async t => {
   let b = await bridge()
   let calls = async (c, name = 'state') => (await c.request('tools/call', { name, arguments: {} })).result
-  let c1 = mcp(['--editor', b.url, '--key', KEY]), c2 = mcp(['--editor', 'http://127.0.0.1:9', '--key', KEY]), c3 = mcp(['--editor', b.url, '--key', 'wrong'])
+  let c1 = mcp(['--playground', b.url, '--key', KEY]), c2 = mcp(['--playground', 'http://127.0.0.1:9', '--key', KEY]), c3 = mcp(['--playground', b.url, '--key', 'wrong'])
   let c4 = mcp(['--editor', b.url], { AUDIO_BRIDGE_KEY: KEY })
   try {
     let r = await calls(c1)
-    t.is([r.isError, r.content[0].text], [true, 'state: No editor page is connected'])
+    t.is([r.isError, r.content[0].text], [true, 'state: No playground page is connected'])
     r = await calls(c2)
     t.is(r.isError, true)
     t.ok(r.content[0].text.includes('no bridge at http://127.0.0.1:9') && r.content[0].text.includes('audio --bridge'), r.content[0].text)
@@ -509,20 +509,20 @@ test('mcp --editor: no page, no bridge, wrong key come back as tool errors that 
     t.is(r.isError, true)
     t.ok(r.content[0].text.includes('key'), r.content[0].text)
     r = await calls(c4)
-    t.is(r.content[0].text, 'state: No editor page is connected', 'key from AUDIO_BRIDGE_KEY')
+    t.is(r.content[0].text, 'state: No playground page is connected', 'key from AUDIO_BRIDGE_KEY; --editor, the former name, as --playground')
     let plain = mcp([])
-    t.is((await plain.request('tools/list')).result.tools.length, 1, 'without --editor, the audio tool alone')
-    t.is((await plain.request('tools/call', { name: 'state', arguments: {} })).error.code, -32602, 'editor tools unknown without --editor')
+    t.is((await plain.request('tools/list')).result.tools.length, 1, 'without --playground, the audio tool alone')
+    t.is((await plain.request('tools/call', { name: 'state', arguments: {} })).error.code, -32602, 'playground tools unknown without --playground')
     await plain.close()
   } finally { await Promise.all([c1, c2, c3, c4].map(c => c.close())); await b.close() }
-  let none = mcp(['--editor'], { XDG_CONFIG_HOME: join(dir, 'empty') })
+  let none = mcp(['--playground'], { XDG_CONFIG_HOME: join(dir, 'empty') })
   let r = await calls(none)
-  t.is([r.isError, r.content[0].text], [true, 'state: no bridge running: the user runs `audio --bridge` and opens the editor'], 'no key, no bridge kept')
+  t.is([r.isError, r.content[0].text], [true, 'state: no bridge running: the user runs `audio --bridge` and opens the playground'], 'no key, no bridge kept')
   await none.close()
 })
 
-test('mcp --editor: with no address or key, the bridge running now, as it kept them', { timeout: 30000 }, async t => {
-  let b = await bridge([]), p = page(b.url, b.key), c = mcp(['--editor'])
+test('mcp --playground: with no address or key, the bridge running now, as it kept them', { timeout: 30000 }, async t => {
+  let b = await bridge([]), p = page(b.url, b.key), c = mcp(['--playground'])
   try {
     await p.next()
     t.is((await c.request('tools/list')).result.tools.map(x => x.name), ['audio', ...EDITOR_TOOLS])
@@ -561,7 +561,7 @@ test('bridge chat: claude streams text, tool, session, done in order; the text o
     t.is(argv[argv.indexOf('--allowedTools') + 1], 'mcp__audio__*')
     t.ok(!argv.includes('--resume'), 'a new conversation')
     let { mcpServers } = JSON.parse(argv[argv.indexOf('--mcp-config') + 1])
-    t.is(mcpServers.audio, { command: process.execPath, args: [bin, '--mcp', '--editor', b.url, '--key', KEY] }, 'this repo\'s MCP server, absolute paths')
+    t.is(mcpServers.audio, { command: process.execPath, args: [bin, '--mcp', '--playground', b.url, '--key', KEY] }, 'this repo\'s MCP server, absolute paths')
 
     let history = [{ role: 'user', text: 'how long is it?' }, { role: 'agent', text: 'It is 3 s long.' }]
     await chat(p, b.url, { text: 'and now?', session: CLAUDE_SESSION, history })
@@ -601,7 +601,7 @@ test('bridge chat: codex events and its exec command line', { timeout: 15000 }, 
     t.is(argv.slice(0, 3), ['exec', '--json', '--skip-git-repo-check'])
     t.is(argv.at(-1), '-', 'the prompt from stdin')
     t.ok(argv.includes(`mcp_servers.audio.command=${JSON.stringify(process.execPath)}`), 'node, absolute')
-    t.ok(argv.includes(`mcp_servers.audio.args=${JSON.stringify([bin, '--mcp', '--editor', b.url, '--key', KEY])}`), 'the MCP server args as a TOML array')
+    t.ok(argv.includes(`mcp_servers.audio.args=${JSON.stringify([bin, '--mcp', '--playground', b.url, '--key', KEY])}`), 'the MCP server args as a TOML array')
 
     await chat(p, b.url, { text: 'more', session: CODEX_THREAD })
     argv = logged('codex').argv
@@ -649,7 +649,7 @@ test('bridge chat: stop kills the turn; bad requests are refused before anything
     t.is((await post(none.url, '/chat', { text: 'hi' })).status, 400, 'agent checked first')
   } finally { await none.close() }
   let lone = await bridge()
-  try { t.is(await post(lone.url, '/chat', { text: 'hi' }), { status: 503, body: { error: 'No editor page is connected' } }) }
+  try { t.is(await post(lone.url, '/chat', { text: 'hi' }), { status: 503, body: { error: 'No playground page is connected' } }) }
   finally { await lone.close() }
 })
 
@@ -727,7 +727,7 @@ test('bridge chat: an ACP agent; its session gone on with by session/resume, its
     t.is(argv, ['acp'], 'started as an ACP server')
     t.is(editor, b.url)
     t.is(sent('initialize').params, { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false }, clientInfo: { name: 'audio', version: JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version } })
-    t.is(sent('session/new').params, { cwd: process.cwd(), mcpServers: [{ name: 'audio', command: process.execPath, args: [bin, '--mcp', '--editor', b.url, '--key', KEY], env: [] }] }, 'the MCP server handed to it, absolute paths')
+    t.is(sent('session/new').params, { cwd: process.cwd(), mcpServers: [{ name: 'audio', command: process.execPath, args: [bin, '--mcp', '--playground', b.url, '--key', KEY], env: [] }] }, 'the MCP server handed to it, absolute paths')
     let { text } = sent('session/prompt').params.prompt[0]
     t.ok(text.startsWith('You are chatting') && text.endsWith('\n\n---\n\nhow long?'), 'told where it is, then the text')
     let answers = log.slice(1).filter(m => m.method == null).map(m => m.result?.outcome ?? m.error?.code)

@@ -8,7 +8,7 @@
 // the samples where it zooms in (samples).
 // Stop ends a run by replacing the worker.
 const WORKER = new URL('./dist/worker.js', import.meta.url)
-// The worker set off as the page starts (start, editor.html), its library and chunks loading while the page's own
+// The worker set off as the page starts (start, playground.html), its library and chunks loading while the page's own
 // scripts still arrive; the first engine() takes it, unless it already failed to load
 let early = null
 export function start() {

@@ -1,5 +1,5 @@
 // The editor's engine, in a worker: it runs scripts against the audio library, so a long render or a runaway
-// script never freezes the page. Built with the library into editor/dist/ (node .site-build.js).
+// script never freezes the page. Built with the library into playground/dist/ (node .site-build.js).
 // A file starts decoding when a script first names it, and the script runs at once, on a copy that follows the file
 // as it arrives (clone). The output streams to the page as it renders; while a file arrives and the output has
 // nothing yet (it needs the whole file, as trim and normalize do), the file itself streams, as it decodes. What a chain

@@ -1089,7 +1089,7 @@ function status() {
 function entitle(names, has) {
   const opened = source(ed.code)?.strings.map(s => s.name) || names
   state.name = opened.length ? opened.map(label).join(' + ') : has ? 'generated' : 'untitled'
-  document.title = `${state.name === 'untitled' ? '' : state.name + ' · '}audio editor`
+  document.title = `${state.name === 'untitled' ? '' : state.name + ' · '}audio playground`
 }
 
 // The one file the script opens, whose original the output compares with; none for generated or joined sources.
@@ -2132,7 +2132,7 @@ function download(file) {
 }
 
 // The agent (agent.js): the user's own, through the local bridge, editing the sound open here with the page's tools,
-// each named as the bridge's MCP server names it (bin/mcp.js --editor). What an edit does is answered once its run ends.
+// each named as the bridge's MCP server names it (bin/mcp.js --playground). What an edit does is answered once its run ends.
 const page = {
   state: () => ({
     script: ed.code, name: state.name, duration: output?.duration ?? 0, sampleRate: output?.sampleRate ?? null, channels: output?.channels.length ?? null,

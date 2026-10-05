@@ -4008,7 +4008,7 @@ test('logo motion: the axis is there or not at once, with no fade in or out', as
 })
 
 test('site: the mark and the name change places between pages by moving only: the old picture goes and the new stands whole', async () => {
-  for (const [path, sheet] of [['/', 'site/site.css'], ['/editor.html', 'editor/editor.css']]) {
+  for (const [path, sheet] of [['/', 'site/site.css'], ['/playground.html', 'playground/editor.css']]) {
     await page.goto(origin + path, { waitUntil: 'networkidle' })
     const rules = await page.evaluate(() => [...document.styleSheets].flatMap(sheet => { try { return [...sheet.cssRules] } catch { return [] } })
       .filter(rule => /view-transition-(old|new)\((mark|name)\)/.test(rule.selectorText ?? '')).map(rule => [rule.selectorText, rule.style.display, rule.style.animationName]))
@@ -4061,7 +4061,7 @@ test('site: from page to page the wordmark carries on: the editor\'s mark, click
     addEventListener('pagereveal', e => window.revealed = !!e.viewTransition)
     try { window.carried = JSON.parse(sessionStorage.getItem('audio-logo')) } catch {}
   })
-  await page.goto(origin + '/editor.html', { waitUntil: 'networkidle' })
+  await page.goto(origin + '/playground.html', { waitUntil: 'networkidle' })
   const bar = page.locator('.bar .wordmark')
   await bar.locator('canvas').waitFor()
   await page.waitForTimeout(600)

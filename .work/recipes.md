@@ -4,11 +4,11 @@ Researched 2026-10-01. Every script below ran in Node against the working tree (
 
 ## Terms
 
-- **Preset**: one op's settings. `normalize('podcast')`, `deesser({ fc: 7500 })`. Already in [editor/ops.js](../editor/ops.js) as `presets`.
+- **Preset**: one op's settings. `normalize('podcast')`, `deesser({ fc: 7500 })`. Already in [playground/ops.js](../playground/ops.js) as `presets`.
 - **Recipe**: an ordered chain with settings and a reason per step. It encodes a technique: parallel compression, the Abbey Road send.
 - **Scenario**: a goal with a spec. Recipe + `check(spec)` + the measurements that steer it. A scenario passes or fails; a recipe only sounds a certain way.
 
-A scenario is a script, not only a chain. Several measure first and then act: dialogue loudness sets the gain (Netflix, ATSC), per-mic loudness sets the trims (interview), onsets drive the gate (gated reverb). [editor/recipes.js](../editor/recipes.js) already runs `await` inside a recipe, so this needs no new machinery.
+A scenario is a script, not only a chain. Several measure first and then act: dialogue loudness sets the gain (Netflix, ATSC), per-mic loudness sets the trims (interview), onsets drive the gate (gated reverb). [playground/recipes.js](../playground/recipes.js) already runs `await` inside a recipe, so this needs no new machinery.
 
 For the editor panel and for agents, one entry should carry:
 
@@ -638,7 +638,7 @@ No low-pass after it: the missing filter is the sound. Level unchanged (-25.36 L
 
 ---
 
-## 5. What editor/recipes.js has, and what changes
+## 5. What playground/recipes.js has, and what changes
 
 Measured in the same harness where marked.
 

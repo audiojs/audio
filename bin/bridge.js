@@ -1,11 +1,11 @@
 /**
- * audio bridge: the editor page and the user's own AI agents meet here, over HTTP on 127.0.0.1.
+ * audio bridge: the playground page and the user's own AI agents meet here, over HTTP on 127.0.0.1.
  *
  *   audio --bridge [--port 7777] [--key K] [--timeout 30] [--agent NAME | --agent "COMMAND"]
  *
  * The page holds the sound, so an agent reaches it through tools the page answers. The page listens
  * on GET /events (Server-Sent Events) and answers each `call` event with POST /reply; POST /call,
- * which `audio --mcp --editor` sends for an agent's editor tool, waits for that answer;
+ * which `audio --mcp --playground` sends for an agent's playground tool, waits for that answer;
  * GET /file?path=P hands the page a media file from this machine, to open (`open`).
  * POST /chat runs an agent CLI of the user's headless, with those tools attached, and streams its
  * answer to the page as `chat` events: any of AGENTS found on PATH, the page choosing one for each
@@ -41,7 +41,7 @@ const PREFLIGHT = {
 }
 
 // What a chat agent is told besides its own setup: where it is and what the tools touch.
-const PROMPT = `You are chatting with the user inside the audio editor, a browser page where they edit one sound with the audio JS library. The editor's tools (state, measure, look, edit, step, script, select, scrub, play, check, open, undo; the MCP server "audio") read and change that sound; the user sees and hears each change at once. Work on the sound in the page, not on files: a file dropped into the page has no path, and the page's sound is the script's output, edits included. Call state first. Measure with measure (any stat, over time or a range, silences, notes), see with look, mark findings on the timeline with edit("mark(time, 'label')"), point the user at a place with select (a band too) or scrub. Open a file of theirs with open. Prefer edit for one step; step turns an edit off (over a range alone, too), takes it away, moves it or rewrites it; script rewrites the whole; when something sounds wrong somewhere, find the edit that did it by measuring through the edits (step(i) in measure: the sound before and after it, what it takes out) before changing any; check measures against a delivery spec; play lets them hear it (original: true for the file as it opened, level-matched). Reply briefly, in Markdown: the page renders it beside the sound.`
+const PROMPT = `You are chatting with the user inside the audio playground, a browser page where they edit one sound with the audio JS library. The playground's tools (state, measure, look, edit, step, script, select, scrub, play, check, open, undo; the MCP server "audio") read and change that sound; the user sees and hears each change at once. Work on the sound in the page, not on files: a file dropped into the page has no path, and the page's sound is the script's output, edits included. Call state first. Measure with measure (any stat, over time or a range, silences, notes), see with look, mark findings on the timeline with edit("mark(time, 'label')"), point the user at a place with select (a band too) or scrub. Open a file of theirs with open. Prefer edit for one step; step turns an edit off (over a range alone, too), takes it away, moves it or rewrites it; script rewrites the whole; when something sounds wrong somewhere, find the edit that did it by measuring through the edits (step(i) in measure: the sound before and after it, what it takes out) before changing any; check measures against a delivery spec; play lets them hear it (original: true for the file as it opened, level-matched). Reply briefly, in Markdown: the page renders it beside the sound.`
 
 const toml = v => JSON.stringify(v)  // a JSON string or array of strings is TOML too
 // What GET /file hands a page, by extension: the audio and video the editor opens, nothing else on the machine
@@ -369,17 +369,17 @@ export default function bridge(argv = []) {
       clearInterval(beat)
       if (page !== res) return
       page = null
-      for (let c of calls.values()) if (c.page === res) c.answer([503, { error: 'The editor page disconnected' }])
+      for (let c of calls.values()) if (c.page === res) c.answer([503, { error: 'The playground page disconnected' }])
     })
   }
 
   // POST /call: a tool call for the page; holds the request until the page replies, gives up after `timeout`.
   async function call({ tool, args }, res) {
     if (typeof tool !== 'string' || !tool) return reply(res, 400, { error: 'tool: a name, as state' })
-    if (!page) return reply(res, 503, { error: 'No editor page is connected' })
+    if (!page) return reply(res, 503, { error: 'No playground page is connected' })
     let id = randomBytes(8).toString('hex'), to = page
     let [status, out] = await new Promise(resolve => {
-      let timer = setTimeout(() => resolve([504, { error: `The editor page did not answer ${tool} within ${timeout / 1000} s` }]), timeout)
+      let timer = setTimeout(() => resolve([504, { error: `The playground page did not answer ${tool} within ${timeout / 1000} s` }]), timeout)
       calls.set(id, { page: to, answer: a => { clearTimeout(timer); resolve(a) } })
       res.on('close', () => res.writableFinished || calls.get(id)?.answer([]))  // the caller gave up
       send(to, { type: 'call', id, tool, args: args ?? {} })
@@ -407,7 +407,7 @@ export default function bridge(argv = []) {
     if (!Array.isArray(history) || !history.every(m => typeof m?.text === 'string')) return reply(res, 400, { error: 'history: [{ role, text }]' })
     let models = listed().find(a => a.id === agent).models
     if (model != null && !models.some(m => m.id === model)) return reply(res, 400, { error: `model: one of ${models.map(m => m.id).join(', ') || `none (${agent} names none)`}` })
-    if (!page) return reply(res, 503, { error: 'No editor page is connected' })
+    if (!page) return reply(res, 503, { error: 'No playground page is connected' })
     let turn = randomBytes(8).toString('hex')
     run(turn, agent, text, session || undefined, history, model)
     reply(res, 202, { turn })
@@ -425,7 +425,7 @@ export default function bridge(argv = []) {
 
   function run(turn, id, text, session, history, model) {
     let a = agents.get(id), parse
-    let mcp = { command: process.execPath, args: [CLI, '--mcp', '--editor', url, '--key', key] }
+    let mcp = { command: process.execPath, args: [CLI, '--mcp', '--playground', url, '--key', key] }
     let child = spawn(a.path, a.acp ?? a.args(mcp, session, model), { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...a.env, AUDIO_EDITOR: url, AUDIO_BRIDGE_KEY: key } })
     let over = false, said, problem, err = ''
     let emit = e => send(page, { type: 'chat', turn, ...e })
@@ -523,7 +523,7 @@ export default function bridge(argv = []) {
         `audio bridge on ${url}`, '',
         `  ${dim('key')}     ${bold(key)}`,
         `  ${dim('agents')}  ${names.length ? names.join(', ') : `none found: install one (${Object.values(AGENTS).slice(0, 6).map(a => a.name).join(', ')}, …), then start again`}`, '',
-        dim(`  In the editor's Agent panel, paste the key, then Connect.${own ? ' It stays the same next time.' : ''}`)
+        dim(`  In the playground's Agent panel, paste the key, then Connect.${own ? ' It stays the same next time.' : ''}`)
       ].join('\n'))
       resolve(server)
     })

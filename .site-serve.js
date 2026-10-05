@@ -25,7 +25,7 @@ createServer(async (req, res) => {
   } catch { res.writeHead(404, { 'content-type': 'text/plain' }).end(`Not found: ${pathname}`) }
 })
   .on('error', e => { console.error(e.code === 'EADDRINUSE' ? `Port ${port} is taken: node .site-serve.js <port>` : e.message); process.exit(1) })
-  .listen(port, () => console.log(`http://localhost:${port}/           website\nhttp://localhost:${port}/editor.html  editor`))
+  .listen(port, () => console.log(`http://localhost:${port}/           website\nhttp://localhost:${port}/playground.html  playground`))
 
 async function send(res, path) {
   const body = await readFile(path)

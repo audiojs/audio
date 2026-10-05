@@ -568,7 +568,7 @@ function fmtStat(name, result) {
   }
 }
 
-/** Hz as the editor writes it (editor/ops.js): 113Hz, 1.04kHz. */
+/** Hz as the editor writes it (playground/ops.js): 113Hz, 1.04kHz. */
 const fmtHz = f => f >= 1000 ? `${+(f / 1000).toFixed(2)}kHz` : `${Math.round(f)}Hz`
 
 /** The spectrum band by band, each at its centre, under what its levels are (fn/spectrum.js): `edges` as melEdges()
@@ -1352,8 +1352,8 @@ Options:
   --help, -h    Show this help (or after an op: audio gain --help)
   --version, -v Show version
   --completions SHELL  Print tab-completion script (zsh, bash, fish)
-  --mcp         Serve this CLI to AI agents as an MCP tool (stdio); --editor adds the editor's tools, through the bridge
-  --bridge      Let AI agents edit the sound open in the editor, and its chat talk to yours: Claude Code, Codex, Pi, any ACP agent (127.0.0.1:7777)
+  --mcp         Serve this CLI to AI agents as an MCP tool (stdio); --playground adds the playground's tools, through the bridge
+  --bridge      Let AI agents edit the sound open in the playground, and its chat talk to yours: Claude Code, Codex, Pi, any ACP agent (127.0.0.1:7777)
 
 Batch:
   audio '*.wav' gain -3db save '{name}.out.{ext}'

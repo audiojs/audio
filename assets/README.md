@@ -19,7 +19,7 @@ The website is static. Serve the repository root with any static HTTP server and
   the JavaScript language, completion, lint, search. Licenses are at the end of the file. `node .site-build.js` refreshes it.
 - `gl-waveform.js` and `gl-spectrogram.js` are the installed gl-waveform 5 and gl-spectrogram 2 (both MIT), the WebGL2 waveform
   and spectrogram (FFT and reassignment on the GPU) the editor draws with, each one module. `node .site-build.js` copies them.
-- The editor's engine is built into `editor/dist/`, which git ignores: `worker.js` and a chunk per plugin and codec, loaded on first use.
+- The playground's engine is built into `playground/dist/`, which git ignores: `worker.js` and a chunk per plugin and codec, loaded on first use.
   `node .site-build.js` builds it; the site must be built before it is served.
 - `geist.woff2` is the Geist variable Latin font, with its OFL license included.
 - `wavefont.woff2` is the variable Wavefont from the local Wavefont 3.6.0 project;

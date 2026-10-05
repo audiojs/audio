@@ -10,14 +10,14 @@ The goal: an agent, and the user beside it, drive the same thing whether the sou
 | CLI, `bin/cli.js` | argv: `in.wav trim normalize podcast save out.wav` | none, one shot | people, shells, the `audio` MCP tool |
 | MCP, `bin/mcp.js` | `audio` (the CLI as one tool); with `--editor`, the 14 editor tools | none: relays | agents |
 | Bridge, `bin/bridge.js` | HTTP + SSE on 127.0.0.1, one key | the one page connected; chat turns | the editor page, `mcp --editor`, the agent CLIs it spawns |
-| Editor page | the the editor's tools (`page` in editor/editor.js) | the session: tabs, each a script, its sources, its output, view, history, conversations | the user |
+| Editor page | the the editor's tools (`page` in playground/editor.js) | the session: tabs, each a script, its sources, its output, view, history, conversations | the user |
 
 What is missing for "full control from anywhere":
 
 1. A session exists only inside a page. Without one, an agent falls back to the CLI, which has no state, no eval, no picture: the analysis that started this work ran `audio` on a guessed path and never saw the sound the user had open.
 2. The tools are described twice: argv grammar for the CLI, JSON schemas for the editor's. Nothing guarantees they say the same thing.
 3. One page per bridge, and no way to name which document a call is for.
-4. The page reaches its host only through `EventSource` and `fetch` (editor/agent.js), so it cannot live in a VS Code webview, which talks by `postMessage`.
+4. The page reaches its host only through `EventSource` and `fetch` (playground/agent.js), so it cannot live in a VS Code webview, which talks by `postMessage`.
 
 ## The shift: the script is the document
 
@@ -51,7 +51,7 @@ Calls are `{ tool, args, doc? }` → JSON; `doc` (an id or a path) names the doc
 
 - `CustomTextEditorProvider` for `*.audio.js`, and an "Open with audio editor" for media files that creates the sidecar ([custom editors](https://code.visualstudio.com/api/extension-guides/custom-editors)). The text document is the truth: the page's edits become `WorkspaceEdit`s on it, outside edits (an agent's, git's) arrive as `onDidChangeTextDocument` and re-run it.
 - Files come from `workspace.fs`, posted to the webview as bytes; no bridge needed for them.
-- The page's transport becomes an interface: SSE and `fetch` in a tab, `postMessage` in a webview. editor/agent.js is the only file that knows.
+- The page's transport becomes an interface: SSE and `fetch` in a tab, `postMessage` in a webview. playground/agent.js is the only file that knows.
 - Agents: the bridge runs in the extension process (bin/bridge.js exports it; its signal handlers move to the CLI), and the extension declares `audio --mcp --editor` through `vscode.lm.registerMcpServerDefinitionProvider`, so Copilot's agent mode, Claude Code and Codex see the same tools ([MCP in VS Code](https://code.visualstudio.com/api/extension-guides/ai/mcp)); `environmentVariableCollection` sets the two variables for its terminals, for agent CLIs run there.
 - Saving the audio: rendering runs in the extension host with the library in Node, exactly as the CLI's `save`.
 - To verify early: a module `Worker` and `audioWorklet.addModule` from webview resources (the usual way is a `blob:` URL of the fetched script, with `worker-src blob:` in the CSP); `retainContextWhenHidden` so a hidden tab keeps its decoded audio.
@@ -77,7 +77,7 @@ With `--json` on every verb, the `audio` MCP tool and a shell agent read the sam
 
 1. `session.js`: the tool definitions in one place; `doc` on every call; `docs`. Small, and everything after builds on it.
 2. The script as a file: `audio x.audio.js` in the CLI, sources relative to it; the editor's Open and Save of `.audio.js`.
-3. The transport interface in editor/agent.js; the bridge for several pages; `AUDIO_BRIDGE_URL`.
+3. The transport interface in playground/agent.js; the bridge for several pages; `AUDIO_BRIDGE_URL`.
 4. The VS Code extension: the custom text editor, the in-process bridge, the MCP definition provider.
 5. Headless sessions in `audio --mcp`; `eval` in the CLI.
 6. The CPU picture, for `look` and `audio view` without a GPU.
@@ -85,5 +85,5 @@ With `--json` on every verb, the `audio` MCP tool and a shell agent read the sam
 ## Open questions
 
 - Writing to disk from a page: today the bridge only reads media (GET /file). Saving through it is the same trust (the key), but should only ever write a path the user opened or chose.
-- Long files: the page holds 30 channel-minutes (editor/worker.js PREVIEW_LIMIT). A headless session has no such limit; the same document opened in a page may not show whole.
+- Long files: the page holds 30 channel-minutes (playground/worker.js PREVIEW_LIMIT). A headless session has no such limit; the same document opened in a page may not show whole.
 - Concurrent edits: the user and an agent on one document. The text model serialises them in VS Code; in a tab, the page's history does.

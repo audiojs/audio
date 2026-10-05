@@ -17,7 +17,7 @@ await build({
     'window-function': 'node_modules/window-function/index.js',
     'periodic-function': 'node_modules/periodic-function/index.js',
     ...Object.fromEntries(['wav', 'mp3', 'flac', 'aiff', 'ogg'].map(format => [format, `node_modules/@audio/encode-${format}/${format}-encode.js`])),
-    // what the editor page's library loads on demand, by editor.html's import map: a voice's pitch, its formants, heard as
+    // what the editor page's library loads on demand, by playground.html's import map: a voice's pitch, its formants, heard as
     // they are dragged
     ...atoms(['@audio/tune-curve', '@audio/stft'])
   },
@@ -72,8 +72,8 @@ const named = [...new Set([...Object.values(audio.plugins), ...Object.keys(peerD
 // The editor's engine worker: the library with every plugin and codec as a chunk that loads on first use.
 // Workers have no import maps, so no bare import is left for the browser to resolve.
 await build({
-  entryPoints: { worker: 'editor/worker.js' },
-  outdir: 'editor/dist',
+  entryPoints: { worker: 'playground/worker.js' },
+  outdir: 'playground/dist',
   chunkNames: 'chunks/[name]-[hash]',
   bundle: true,
   splitting: true,
@@ -120,7 +120,7 @@ await build({
 
 // What the worker's chunks fetch beside themselves: the ONNX runtime's wasm, RNNoise's weights
 for (const [from, name] of [['onnxruntime-web/ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.wasm'], ['@audio/neural-denoise/rnnoise.bin', 'rnnoise.bin']])
-  try { await copyFile(fileURLToPath(import.meta.resolve(from)), `editor/dist/chunks/${name}`) } catch {}
+  try { await copyFile(fileURLToPath(import.meta.resolve(from)), `playground/dist/chunks/${name}`) } catch {}
 
 // The editor's pictures: gl-waveform and gl-spectrogram, each one ES module with no dependencies, as published
 for (const name of ['gl-waveform', 'gl-spectrogram']) await copyFile(`node_modules/${name}/index.js`, `assets/${name}.js`)

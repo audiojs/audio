@@ -1,4 +1,4 @@
-// Editor: npm run test:editor. The engine runs in a real browser worker; its output is compared with the library in Node,
+// Editor: npm run test:playground. The engine runs in a real browser worker; its output is compared with the library in Node,
 // the command-line translation with the CLI itself. All requests stay local.
 import { test, before, after, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
@@ -13,19 +13,19 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import wav from '@audio/encode-wav'
 import audio from '../audio.js'
-import { prepare, error, chain, append, source, callAt, setArg, cli, groups, steps, dropStep, moveStep, moveLines, group, ungroup, renameGroup, turnOff, turnOn } from '../editor/code.js'
-import { ops, guides, previews, SCALES } from '../editor/ops.js'
+import { prepare, error, chain, append, source, callAt, setArg, cli, groups, steps, dropStep, moveStep, moveLines, group, ungroup, renameGroup, turnOff, turnOn } from '../playground/code.js'
+import { ops, guides, previews, SCALES } from '../playground/ops.js'
 import { SCALES as NOTE_SCALES, snapMidi } from '@audio/note'
-import { help, layout, layouts, texts } from '../editor/help.js'
-import { boxed } from '../editor/heard.js'
-import opIcons from '../editor/icons.js'
-import clock from '../editor/time.js'
+import { help, layout, layouts, texts } from '../playground/help.js'
+import { boxed } from '../playground/heard.js'
+import opIcons from '../playground/icons.js'
+import clock from '../playground/time.js'
 import { samples, RATE as SAMPLES } from '../site/samples.js'
 import { vowel } from './gen.js'
-import recipes from '../editor/recipes.js'
-import { cycle, trace } from '../editor/meters.js'
-import md from '../editor/markdown.js'
-import doing, { measures, noted } from '../editor/doing.js'
+import recipes from '../playground/recipes.js'
+import { cycle, trace } from '../playground/meters.js'
+import md from '../playground/markdown.js'
+import doing, { measures, noted } from '../playground/doing.js'
 import '../.site-build.js'
 
 const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '')
@@ -44,7 +44,7 @@ before(async () => {
       res.end()
       return
     }
-    const path = resolve(root, '.' + (url === '/' ? '/editor.html' : url))
+    const path = resolve(root, '.' + (url === '/' ? '/playground.html' : url))
     if (!path.startsWith(root + sep)) { res.writeHead(403).end(); return }
     try { res.writeHead(200, { 'content-type': types[extname(path)] || 'application/octet-stream' }).end(await readFile(path)) }
     catch { res.writeHead(404).end() }
@@ -87,8 +87,8 @@ async function wavBytes(channels, sampleRate = RATE) {
 async function engine(scripts, files = {}) {
   await page.goto(origin + '/blank.html')
   return page.evaluate(async ({ scripts, files }) => {
-    const { default: engine } = await import('/editor/engine.js'), { prepare } = await import('/editor/code.js')
-    const e = engine(new URL('/editor/dist/worker.js', location.href))
+    const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
+    const e = engine(new URL('/playground/dist/worker.js', location.href))
     for (const [name, data] of Object.entries(files))
       await e.file(name, data.bytes ? new Blob([new Uint8Array(data.bytes)]) : { channels: data.map(c => Float32Array.from(c)), sampleRate: 48000 })
     const out = []
@@ -107,8 +107,8 @@ test('engine: a voice gliding as speech does has a pitch curve whole, and a comp
   const f = s => 140 * 2 ** (4 * Math.sin(2 * Math.PI * 2 * s) / 12), x = vowel(f, 2, 1, RATE)
   await page.goto(origin + '/blank.html')
   const { found, cents, pitch } = await page.evaluate(async channel => {
-    const { default: engine } = await import('/editor/engine.js'), { prepare } = await import('/editor/code.js')
-    const e = engine(new URL('/editor/dist/worker.js', location.href))
+    const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
+    const e = engine(new URL('/playground/dist/worker.js', location.href))
     await e.file('v.wav', { channels: [Float32Array.from(channel)], sampleRate: 48000 })
     const r = await e.render(prepare(`audio('v.wav')`)), { times, f0 } = await e.contour(r.id), { pitch } = await e.listen(r.id, [.2, 1.8], [0, 2])
     const inside = [...f0].filter((_, i) => times[i] > .05 && times[i] < 1.95), at = [...times].map((t, i) => [t, f0[i]]).filter(([t, h]) => h && t > .05 && t < 1.95)
@@ -158,8 +158,8 @@ test('engine: an edit added after a slow chain lands in a fraction of the chain\
   const x = [0, 1].map(c => Float32Array.from({ length: 30 * RATE }, (_, i) => .3 * Math.sin(2 * Math.PI * (220 + c) * i / RATE) + .05 * Math.sin(i * i)))
   await page.goto(origin + '/blank.html')
   const [slow, edit] = await page.evaluate(async channels => {
-    const { default: engine } = await import('/editor/engine.js'), { prepare } = await import('/editor/code.js')
-    const e = engine(new URL('/editor/dist/worker.js', location.href))
+    const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
+    const e = engine(new URL('/playground/dist/worker.js', location.href))
     await e.file('x.wav', { channels: channels.map(c => Float32Array.from(c)), sampleRate: 48000 })
     const time = async code => { const t = performance.now(); const r = await e.render(prepare(code)); if (!r.output) throw new Error(r.error?.message); return performance.now() - t }
     return [await time(`audio('x.wav').omlsa()`), await time(`audio('x.wav').omlsa().spectral([1000, 4000], { at: 10, d: 0.5 })`)]
@@ -590,7 +590,7 @@ test('code: the CLI translation makes the same audio as the script (bin/cli.js o
 
 // ── The scrub voice ────────────────────────────────────────────
 
-// Its processor (editor/scrub.js), run in Node with the worklet's globals stubbed, a 128-frame quantum at a time: the
+// Its processor (playground/scrub.js), run in Node with the worklet's globals stubbed, a 128-frame quantum at a time: the
 // channels `x` at `rate`, the caret at caret(q) samples in quantum q, for `seconds`
 // The scrub voice as the worklet runs it: its module imported with a worklet's globals, one class for every run
 let Scrubber
@@ -598,7 +598,7 @@ async function scrubbed(x, caret, seconds, rate = 48000, mode) {
   globalThis.sampleRate = rate
   if (!Scrubber) {
     Object.assign(globalThis, { AudioWorkletProcessor: class { constructor() { this.port = { onmessage: null, postMessage() {} } } }, registerProcessor: (_, cls) => { Scrubber = cls }, currentTime: 0 })
-    await import('../editor/scrub.js')
+    await import('../playground/scrub.js')
   }
   const Proc = Scrubber
   const proc = new Proc(), send = data => proc.port.onmessage({ data }), Q = 128, n = Math.ceil(seconds * rate / Q)
@@ -791,8 +791,8 @@ test('engine: a measure answers its stats awaited, and notes each one it took', 
   await page.goto(origin + '/blank.html')
   const tone = [sine(1, 440, .5)]
   const r = await page.evaluate(async tone => {
-    const { default: engine } = await import('/editor/engine.js'), { prepare } = await import('/editor/code.js')
-    const e = engine(new URL('/editor/dist/worker.js', location.href))
+    const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
+    const e = engine(new URL('/playground/dist/worker.js', location.href))
     await e.file('a.wav', { channels: tone.map(c => Float32Array.from(c)), sampleRate: 48000 })
     await e.render(prepare(`audio('a.wav').gain(-6)`))
     return e.evaluate(prepare(`({ s: out.stat(['db', 'loudness']), lb: out.stat('loudness', { bins: 2 }), sil: out.silence(), was: src.stat('db') })`))
@@ -813,8 +813,8 @@ test('engine: a measure reads each edit, before and after it, what it takes out,
   await page.goto(origin + '/blank.html')
   const tone = [sine(2, 440, .5)], code = `audio('a.wav').remove({ at: 0.5, d: 0.5 }).gain(-6).lowpass(200)`
   const r = await page.evaluate(async ({ tone, code }) => {
-    const { default: engine } = await import('/editor/engine.js'), { prepare, stages } = await import('/editor/code.js')
-    const e = engine(new URL('/editor/dist/worker.js', location.href))
+    const { default: engine } = await import('/playground/engine.js'), { prepare, stages } = await import('/playground/code.js')
+    const e = engine(new URL('/playground/dist/worker.js', location.href))
     await e.file('a.wav', { channels: tone.map(c => Float32Array.from(c)), sampleRate: 48000 })
     await e.render(prepare(code))
     const steps = stages(code).map(s => ({ call: s.call, on: s.on, keeps: s.name !== 'remove', before: prepare(s.before), after: s.after && prepare(s.after) }))
@@ -860,8 +860,8 @@ test('engine: a measure is its value however the code reads it', async () => {
     nope: `out.stat('nope').length`
   }
   const r = await page.evaluate(async ({ tone, codes }) => {
-    const { default: engine } = await import('/editor/engine.js'), { prepare } = await import('/editor/code.js')
-    const e = engine(new URL('/editor/dist/worker.js', location.href))
+    const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
+    const e = engine(new URL('/playground/dist/worker.js', location.href))
     await e.file('a.wav', { channels: tone.map(c => Float32Array.from(c)), sampleRate: 48000 })
     await e.render(prepare(`audio('a.wav').gain(-6)`))
     const out = {}
@@ -915,8 +915,8 @@ test('engine: deepfilter and rnnoise run in the page, as on Node', async t => {
 test('engine: save() marks exports and export encodes them', async () => {
   await page.goto(origin + '/blank.html')
   const result = await page.evaluate(async () => {
-    const { default: engine } = await import('/editor/engine.js'), { prepare } = await import('/editor/code.js')
-    const e = engine(new URL('/editor/dist/worker.js', location.href))
+    const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
+    const e = engine(new URL('/playground/dist/worker.js', location.href))
     await e.file('a.wav', { channels: [Float32Array.from({ length: 4800 }, (_, i) => .5 * Math.sin(i / 10))], sampleRate: 48000 })
     const run = await e.run(prepare(`audio('a.wav').gain(-6).save('quiet.wav')`))
     const { files } = await e.export({ format: 'mp3', name: 'ignored' })
@@ -935,8 +935,8 @@ test('engine: save() marks exports and export encodes them', async () => {
 test('engine: a run asked for while another runs waits; a newer one replaces it, which resolves skipped', async () => {
   await page.goto(origin + '/blank.html')
   const results = await page.evaluate(async () => {
-    const { default: engine } = await import('/editor/engine.js'), { prepare } = await import('/editor/code.js')
-    const e = engine(new URL('/editor/dist/worker.js', location.href))
+    const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
+    const e = engine(new URL('/playground/dist/worker.js', location.href))
     const runs = [1, 2, 3].map(seconds => e.render(prepare(`audio.from(${seconds})`)))
     return (await Promise.all(runs)).map(r => r.skipped ? 'skipped' : r.output.duration)
   })
@@ -947,8 +947,8 @@ test('engine: a run asked for while another runs waits; a newer one replaces it,
 test('engine: plugin parameters come from their manifests', async () => {
   await page.goto(origin + '/blank.html')
   const params = await page.evaluate(async () => {
-    const { default: engine } = await import('/editor/engine.js')
-    return engine(new URL('/editor/dist/worker.js', location.href)).describe('compressor')
+    const { default: engine } = await import('/playground/engine.js')
+    return engine(new URL('/playground/dist/worker.js', location.href)).describe('compressor')
   })
   const { compressor } = await import('@audio/dynamics-compressor/audio')
   assert.deepEqual(params, JSON.parse(JSON.stringify(compressor.params)))
@@ -963,7 +963,7 @@ const readout = () => page.locator('.readout').innerText()
 const lengthText = () => page.evaluate(() => document.querySelector('.source').title.split(' · ').pop())
 const seconds = async () => { const [m, s] = (await lengthText()).split(':'); return +m * 60 + +s }
 async function open() {
-  await page.goto(origin + '/editor.html')
+  await page.goto(origin + '/playground.html')
   await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
 }
 // A row of the menu open, by its label, exactly
@@ -1438,7 +1438,7 @@ test('editor: a tab dragged along the others goes where it is let go, kept for t
 // last one (the ring's share of the sound, named `progress` for a moment, took the status bar's word away), so none is
 test('editor: no object literal in the page names a key twice', async () => {
   const { build } = await import('esbuild')
-  const entryPoints = (await readdir(`${root}/editor`)).filter(f => f.endsWith('.js')).map(f => `${root}/editor/${f}`)
+  const entryPoints = (await readdir(`${root}/playground`)).filter(f => f.endsWith('.js')).map(f => `${root}/playground/${f}`)
   const { warnings } = await build({ entryPoints, write: false, bundle: false, outdir: 'out', logLevel: 'silent' })
   assert.deepEqual(warnings.filter(w => w.id === 'duplicate-object-key').map(w => `${w.location.file}:${w.location.line} ${w.text}`), [])
 })
@@ -1830,10 +1830,10 @@ test('editor: a file opens where nothing plays, goes in where its caret shows ov
 test('editor: the engine\'s worker loads ahead of the page\'s scripts, and the page takes it', async () => {
   let release
   const held = new Promise(r => release = r)
-  await page.route('**/editor/editor.js', async route => { await held; route.continue() })
+  await page.route('**/playground/editor.js', async route => { await held; route.continue() })
   await page.addInitScript(() => { const W = Worker; window.workers = 0; window.Worker = class extends W { constructor(...a) { super(...a); workers++ } } })
-  const asked = page.waitForRequest('**/editor/dist/worker.js')
-  await page.goto(origin + '/editor.html', { waitUntil: 'commit' })
+  const asked = page.waitForRequest('**/playground/dist/worker.js')
+  await page.goto(origin + '/playground.html', { waitUntil: 'commit' })
   await asked
   release()
   await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
@@ -1842,29 +1842,29 @@ test('editor: the engine\'s worker loads ahead of the page\'s scripts, and the p
 // One set off ahead that fails to load is let go: the page starts its own, and runs
 test('editor: an engine worker that fails to load ahead is replaced by the page\'s own', async () => {
   let first = true
-  await page.route('**/editor/dist/worker.js', route => first ? (first = false, route.abort()) : route.continue())
-  await page.goto(origin + '/editor.html')
+  await page.route('**/playground/dist/worker.js', route => first ? (first = false, route.abort()) : route.continue())
+  await page.goto(origin + '/playground.html')
   await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
   assert.equal(first, false, 'the first one failed')
 })
 
 test('editor: before the script runs, the intro shows nothing dead; while the first run renders, it stays away', async () => {
   // no script at all: the conditional parts (intro, toolbar) stay hidden instead of showing inert buttons
-  await page.route('**/editor/editor.js', route => route.abort())
-  await page.goto(origin + '/editor.html')
+  await page.route('**/playground/editor.js', route => route.abort())
+  await page.goto(origin + '/playground.html')
   await page.waitForTimeout(300)
   assert.equal(await page.locator('.empty').isVisible(), false, '.empty')
   // and what does show takes no clicks yet: the Open menu stays shut
   assert.equal(await page.locator('#app').evaluate(el => getComputedStyle(el).pointerEvents), 'none')
   await page.locator('.bar button', { hasText: 'Open' }).first().click({ force: true, timeout: 2000 }).catch(() => {})
   assert.equal(await page.locator('#open-menu').evaluate(el => el.matches(':popover-open')), false)
-  await page.unroute('**/editor/editor.js')
+  await page.unroute('**/playground/editor.js')
   errors.splice(0)  // the script this part withheld on purpose
   // a slow engine: the script is up, the first output isn't, and the view doesn't claim there's no sound
   let release
   const held = new Promise(r => release = r)
-  await page.route('**/editor/dist/worker.js', async route => { await held; route.continue() })
-  await page.goto(origin + '/editor.html')
+  await page.route('**/playground/dist/worker.js', async route => { await held; route.continue() })
+  await page.goto(origin + '/playground.html')
   await page.locator('.cm-content').waitFor({ state: 'attached' })
   await page.waitForTimeout(300)
   assert.equal(await page.locator('.empty').isVisible(), false, 'no intro while the first run renders')
@@ -3012,7 +3012,7 @@ test('editor: a band plays through stable filters: what reaches the speakers sta
   assert.ok(finite && peak > 1e-3 && peak <= 1, `peak ${peak}`)
 })
 
-// Scrubbing (editor/scrub.js): a vocoder whose tonal peaks keep their phase advance, the rest of the bins random phases.
+// Scrubbing (playground/scrub.js): a vocoder whose tonal peaks keep their phase advance, the rest of the bins random phases.
 test('editor: the caret drags like an edge, from its line or anywhere on the time row, and the moment under it sounds while held', async () => {
   await page.addInitScript(tap)
   await open()
@@ -3924,7 +3924,7 @@ test('editor: each sound opens in a tab of its own, with its own script and hist
   // a link's script: in a tab of its own, or in the tab that holds it already
   const link = text => page.evaluate(async text => {
     const bytes = new Uint8Array(await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer())
-    return location.origin + '/editor.html#code=' + btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    return location.origin + '/playground.html#code=' + btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
   }, text)
   const visit = async url => { await page.goto(url); await page.reload(); await page.locator('.readout', { hasText: 'LUFS' }).waitFor() }
   const reversed = await link(`audio('chime.wav').reverse()`)
@@ -4073,7 +4073,7 @@ test('editor: a take the page closes on as it records is kept on the next visit'
 test('editor: a take written as it comes reads back sample for sample, sliced as asked, and whole after a close', async () => {
   await page.goto(origin + '/blank.html')
   const r = await page.evaluate(async () => {
-    const { tape, tapes } = await import('/editor/keep.js')
+    const { tape, tapes } = await import('/playground/keep.js')
     const read = async blob => { const b = await blob.arrayBuffer(), v = new DataView(b); return { format: v.getUint16(20, true), k: v.getUint16(22, true), rate: v.getUint32(24, true), bytes: v.getUint32(40, true), data: [...new Float32Array(b, 44)] } }
     // blocks of 3, 1, 4 and 5 frames: part ends at 4, 8, 12 fall inside, at and after them; 13 frames, 3 parts and one held
     const blocks = [3, 1, 4, 5], at = [0]
@@ -4120,13 +4120,13 @@ test('editor: a second tab asks to be the editor; the first stores and steps asi
   const script = p => p.evaluate(() => [...document.querySelectorAll('.cm-content .cm-line')].map(l => l.textContent).join('\n'))
   try {
     for (const p of [first, second]) p.on('pageerror', e => errors.push(e.message))
-    await first.goto(origin + '/editor.html')
+    await first.goto(origin + '/playground.html')
     await first.locator('.readout', { hasText: 'LUFS' }).waitFor()
     await first.getByRole('tab', { name: 'Code' }).click()
     await first.locator('.cm-content').click()
     await first.keyboard.press('ControlOrMeta+End')
     await first.keyboard.insertText('.gain(-2)')
-    await second.goto(origin + '/editor.html')
+    await second.goto(origin + '/playground.html')
     // the page asking came up as it was stored, behind the question; once the first has stored, it reads it again
     await Promise.all([second.waitForEvent('load'), second.getByRole('button', { name: 'Use it here' }).click()])
     await second.locator('.readout', { hasText: 'LUFS' }).waitFor()
@@ -4150,7 +4150,7 @@ test('editor: every setting comes back as it was kept; one the page no longer ha
   const now = await kept()
   for (const [key, value] of Object.entries(all)) assert.deepEqual(now[key], value, key)
   // written from another page of the site, so the editor's own store as it closes doesn't write over it
-  const seed = async value => { await page.goto(origin + '/blank.html'); await page.evaluate(v => localStorage.setItem('audio-repl', v), value); await page.goto(origin + '/editor.html') }
+  const seed = async value => { await page.goto(origin + '/blank.html'); await page.evaluate(v => localStorage.setItem('audio-repl', v), value); await page.goto(origin + '/playground.html') }
   await seed(JSON.stringify({ units: 'bogus', ruler: 7, step: 'x', format: 'wma', look: { map: 'nope', gamma: 2 }, spec: 'radio', docs: [{ code: 5 }, { code: "audio('chime.wav')" }] }))
   await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
   const fixed = await kept()
@@ -4933,7 +4933,7 @@ test('editor: after a reload the view is where it was left while its sound still
   const before = await left()
   assert.ok(before > .8, `zoomed in about the caret: the view from ${before}`)
   // before the engine is up (its worker held back a second and a half), the view is there, where it was left
-  const worker = '**/editor/dist/worker.js'
+  const worker = '**/playground/dist/worker.js'
   await page.route(worker, async route => { await new Promise(r => setTimeout(r, 1500)); await route.continue() })
   const shown = Date.now()
   await page.reload()
@@ -4964,7 +4964,7 @@ test('editor: after a reload the view is where it was left while its sound still
 // The sound held as it was left, its file gone: the view lets it go and invites a drop, as with nothing kept
 test('editor: a view kept for a file no longer here gives way to the drop', async () => {
   await page.addInitScript(() => localStorage.setItem('audio-repl', JSON.stringify({ docs: [{ code: `audio('missing.wav')`, frame: { range: [1, 2], freqs: [0, 1], levels: [-1, 1], duration: 8, rate: 44100, channels: 2 } }] })))
-  await page.goto(origin + '/editor.html')
+  await page.goto(origin + '/playground.html')
   await page.locator('.empty-title', { hasText: 'Drop audio here' }).waitFor()
   await page.locator('.message.problem', { hasText: 'missing.wav is not open' }).waitFor({ state: 'attached' })
 })
@@ -5753,7 +5753,7 @@ const out = l => process.stdout.write(JSON.stringify(l) + '\\n'), wait = ms => n
     'call',
     { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'b', content: 'no', is_error: true }, { type: 'tool_result', tool_use_id: 'a', content: '-1' }, { type: 'tool_result', tool_use_id: 'c', content: '' }, { type: 'tool_result', tool_use_id: 'd', content: '' }] }, parent_tool_use_id: null, session_id: S },
     { type: 'result', subtype: 'success', is_error: false, result: '', session_id: S }
-  ])}.reduce((p, l) => p.then(() => l === 'call' ? fetch(at('--editor') + '/call', { method: 'POST', headers: { authorization: 'Bearer ' + at('--key') }, body: JSON.stringify({ tool: 'measure', args: { code: "out.stat(['truepeak', 'loudness'])" } }) }) : out(l)), Promise.resolve())
+  ])}.reduce((p, l) => p.then(() => l === 'call' ? fetch(at('--playground') + '/call', { method: 'POST', headers: { authorization: 'Bearer ' + at('--key') }, body: JSON.stringify({ tool: 'measure', args: { code: "out.stat(['truepeak', 'loudness'])" } }) }) : out(l)), Promise.resolve())
   for (const l of ${JSON.stringify([
     { type: 'system', subtype: 'init', session_id: S },
     ev({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }),
@@ -6091,8 +6091,8 @@ test('engine: a file all come, the output still nothing, is said between them', 
   await page.route(MODEL, route => route.fulfill({ body: model, headers: { 'access-control-allow-origin': '*' } }))
   await page.goto(origin + '/blank.html')
   const events = await page.evaluate(async url => {
-    const { default: engine } = await import('/editor/engine.js'), { prepare } = await import('/editor/code.js')
-    const e = engine(new URL('/editor/dist/worker.js', location.href)), seen = []
+    const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
+    const e = engine(new URL('/playground/dist/worker.js', location.href)), seen = []
     await new Promise(done => e.run(prepare(`audio('${url}').deepfilter()`), {
       loading: () => seen.push('loading'), arrived: () => seen.push('arrived'), chunk: () => seen.push('chunk'),
       done: () => { seen.push('done'); done() }, error: m => { seen.push(m.error.message); done() }
@@ -6123,8 +6123,8 @@ test('engine: a step bypassed or changed renders from the step before it, as the
   const later = [`audio('x.wav').omlsa().spectral([1000, 4000], { at: 10, d: 0.5 })`, `audio('x.wav').omlsa().gain(-3).spectral([1000, 4000], { at: 10, d: 0.5 })`, `audio('x.wav').omlsa()`]
   await page.goto(origin + '/blank.html')
   const r = await page.evaluate(async ({ channels, chain, later }) => {
-    const { default: engine } = await import('/editor/engine.js'), { prepare } = await import('/editor/code.js')
-    const e = engine(new URL('/editor/dist/worker.js', location.href))
+    const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
+    const e = engine(new URL('/playground/dist/worker.js', location.href))
     await e.file('x.wav', { channels: channels.map(c => Float32Array.from(c)), sampleRate: 48000 })
     const time = async code => { const t = performance.now(), r = await e.render(prepare(code)); if (!r.output) throw new Error(r.error?.message); return { ms: performance.now() - t, out: r.output.channels } }
     const first = await time(chain)
@@ -6147,10 +6147,10 @@ test('engine: a step bypassed or changed renders from the step before it, as the
 test('engine: an output is kept for the next visit by its script and its files', async () => {
   await page.goto(origin + '/blank.html')
   const r = await page.evaluate(async () => {
-    const { default: engine } = await import('/editor/engine.js'), { prepare } = await import('/editor/code.js')
+    const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
     const tone = n => ({ channels: [Float32Array.from({ length: n }, (_, i) => .5 * Math.sin(i / 9))], sampleRate: 48000 })
     const code = `audio('t.wav').omlsa().gain(-1)`, run = async file => {
-      const e = engine(new URL('/editor/dist/worker.js', location.href))
+      const e = engine(new URL('/playground/dist/worker.js', location.href))
       await e.file('t.wav', file)
       const seen = [], reply = await new Promise(done => e.run(prepare(code), { doing: m => seen.push(m), done: m => done(m), error: m => done(m) }))
       // kept as it is written, a moment after
@@ -6178,8 +6178,8 @@ test('engine: a ranged edit under slow frame-by-frame steps renders again only a
   const first = chain(''), later = [chain(`.gain(-6, { at: 6, d: 0.5 })`), chain(`.gain(-6, { at: 6, d: 0.5 }).spectral([1000, 4000], { at: 10, d: 0.5 })`), chain(`.spectral([1000, 4000], { at: 10, d: 0.5 })`)]
   await page.goto(origin + '/blank.html')
   const r = await page.evaluate(async ({ channels, first, later }) => {
-    const { default: engine } = await import('/editor/engine.js'), { prepare } = await import('/editor/code.js')
-    const e = engine(new URL('/editor/dist/worker.js', location.href))
+    const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
+    const e = engine(new URL('/playground/dist/worker.js', location.href))
     await e.file('x.wav', { channels: channels.map(c => Float32Array.from(c)), sampleRate: 48000 })
     const time = async code => { const t = performance.now(), r = await e.render(prepare(code)); if (!r.output) throw new Error(r.error?.message); return { ms: performance.now() - t, out: [...r.output.channels[0]] } }
     // made twice whole: the second, its steps' code loaded, is what a render takes
