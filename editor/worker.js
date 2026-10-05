@@ -60,6 +60,73 @@ audio.memo = { get: async key => (await memos.get(key))?.channels ?? null, set: 
 const KEEP = { storage: 'auto', budget: 2 ** 26 }
 const tape = (sampleRate, channels) => audio(null, { sampleRate, channels, ...KEEP })
 
+// ── Peaks ──
+// What the page draws of a sound longer than it holds as samples (HOLD, channel samples): its leaves (gl-waveform's
+// peaks), each LEAF samples as [min, max, Σx², count], a channel's in one array, and windows of its samples where it is
+// zoomed in (samples). Counted as the samples come (leafer), kept with the sound.
+const HOLD = PREVIEW_LIMIT, LEAF = 256
+function leafer(k) {
+  let all = Array.from({ length: k }, () => new Float32Array(4096)), done = 0, fill = 0
+  const cur = Array.from({ length: k }, () => [Infinity, -Infinity, 0, 0])
+  const close = () => {
+    if (4 * (done + 1) > all[0].length) all = all.map(a => { const b = new Float32Array(2 * a.length); b.set(a); return b })
+    for (let c = 0; c < k; c++) { all[c].set(cur[c], 4 * done); cur[c][0] = Infinity; cur[c][1] = -Infinity; cur[c][2] = cur[c][3] = 0 }
+    done++; fill = 0
+  }
+  return {
+    // complete leaves so far
+    get count() { return done },
+    push(channels) {
+      const n = channels[0].length
+      for (let i = 0; i < n;) {
+        const m = Math.min(n - i, LEAF - fill)
+        for (let c = 0; c < k; c++) {
+          const x = channels[c], v = cur[c]
+          let lo = v[0], hi = v[1], q = v[2], cnt = v[3]
+          for (let j = i; j < i + m; j++) { const y = x[j]; if (y !== y) continue; if (y < lo) lo = y; if (y > hi) hi = y; q += y * y; cnt++ }
+          v[0] = lo; v[1] = hi; v[2] = q; v[3] = cnt
+        }
+        i += m; fill += m
+        if (fill === LEAF) close()
+      }
+    },
+    // the last leaf, short, once all has come
+    end() { if (fill) close() },
+    // leaves from leaf `from` on, each channel's
+    leaves: (from = 0) => all.map(a => a.slice(4 * from, 4 * done))
+  }
+}
+// A sound's leaves, read through
+async function leavesOf(sound) {
+  const l = leafer(sound.channels)
+  for await (const block of sound.stream()) l.push(block)
+  l.end()
+  return l.leaves()
+}
+// What the page gets of a sound as it comes, `event` its pieces: its samples; or, where it draws peaks (`peaks`, the
+// run's) and the sound grows longer than it holds (by `total()`, where known, or what has come), its leaves: those so
+// far, then each piece's, `long` with each. `fields()`: what goes with each piece
+function feed(id, event, peaks, total, fields = () => ({})) {
+  let l = null, long = false, sent = 0
+  const leaves = () => { const p = l.leaves(sent); sent = l.count; return p }
+  return {
+    get long() { return long },
+    get leaves() { return l?.leaves() ?? null },
+    send(at, channels) {
+      ;(l ??= leafer(channels.length)).push(channels)
+      if (!long && peaks && Math.max(total() ?? 0, at + channels[0].length) * channels.length > HOLD) long = true
+      if (!long) return post({ id, event, at, channels, ...fields() }, channels.map(c => c.buffer))
+      const from = sent * LEAF, p = leaves()
+      if (p[0].length) post({ id, event, at: from, peaks: p, long, ...fields() }, p.map(c => c.buffer))
+    },
+    end() {
+      if (!l) return
+      l.end()
+      if (long && sent < l.count) { const from = sent * LEAF, p = leaves(); post({ id, event, at: from, peaks: p, long, ...fields() }, p.map(c => c.buffer)) }
+    }
+  }
+}
+
 // Sounds kept in the browser's own files by a key, past a reload (renders): each file its meta's length, its channels'
 // count and length (three uint32), its meta as JSON (to a multiple of 4 bytes), each channel's samples; then its block
 // figures (the library's stats): their layout's length, their layout as JSON (to 4 bytes), their values. Read back as a
@@ -78,10 +145,10 @@ function shelf(name, max) {
         const [m, k, n] = new Uint32Array(await file.slice(0, 12).arrayBuffer()), at = 12 + pad(m), end = at + k * n * 4
         const meta = m ? JSON.parse(await file.slice(12, 12 + m).text()) : {}
         if (!k || !meta.sampleRate || file.size < end) return null
-        let stats = null
+        let stats = null, leaves = null
         if (file.size > end) {
           const [l] = new Uint32Array(await file.slice(end, end + 4).arrayBuffer()), layout = JSON.parse(await file.slice(end + 4, end + 4 + l).text())
-          stats = unpack(new Float32Array(await file.slice(end + 4 + pad(l)).arrayBuffer()), layout)
+          ;({ leaves = null, ...stats } = unpack(new Float32Array(await file.slice(end + 4 + pad(l)).arrayBuffer()), layout))
         }
         const PS = audio.PAGE_SIZE, store = {
           has: async i => i * PS < n,
@@ -89,10 +156,10 @@ function shelf(name, max) {
           read: i => Promise.all(Array.from({ length: k }, async (_, c) =>
             new Float32Array(await file.slice(at + (c * n + i * PS) * 4, at + (c * n + Math.min(n, (i + 1) * PS)) * 4).arrayBuffer())))
         }
-        return { meta, sound: audio.from(store, { length: n, channels: k, sampleRate: meta.sampleRate, stats, budget: KEEP.budget }) }
+        return { meta, leaves, sound: audio.from(store, { length: n, channels: k, sampleRate: meta.sampleRate, stats, budget: KEEP.budget }) }
       } catch { return null }
     },
-    // `sound` read block by block, each channel's samples where they go, its figures counted as they pass
+    // `sound` read block by block, each channel's samples where they go, its figures and leaves counted as they pass
     async set(key, sound, meta) {
       const d = await dir(), n = sound.length, k = sound.channels, head = json(meta), at = 12 + pad(head.length)
       const out = await (await d.getFileHandle(encodeURIComponent(key), { create: true })).createWritable()
@@ -101,13 +168,14 @@ function shelf(name, max) {
         await write(new Uint32Array([head.length, k, n]), 0)
         await write(head, 12)
         // a page of each channel at a time: few writes, each a long one
-        const session = audio.statSession(sound.sampleRate), PS = audio.PAGE_SIZE, buf = Array.from({ length: k }, () => new Float32Array(Math.min(PS, n)))
+        const session = audio.statSession(sound.sampleRate), leaf = leafer(k), PS = audio.PAGE_SIZE, buf = Array.from({ length: k }, () => new Float32Array(Math.min(PS, n)))
         let pos = 0, from = 0
         const flush = async () => { for (let c = 0; c < k; c++) await write(buf[c].subarray(0, pos - from), at + (c * n + from) * 4); from = pos }
         for await (const block of sound.stream()) {
           const len = Math.min(block[0].length, n - pos), part = block.map(c => c.subarray(0, len))
           if (len <= 0) break
           session.page(part)
+          leaf.push(part)
           for (let i = 0; i < len;) {
             const m = Math.min(len - i, buf[0].length - (pos - from))
             for (let c = 0; c < k; c++) buf[c].set(part[c].subarray(i, i + m), pos - from)
@@ -117,7 +185,8 @@ function shelf(name, max) {
         }
         if (pos > from) await flush()
         if (pos !== n) throw new Error(`${pos} of ${n} samples`)
-        const { layout, data } = pack(session.done()), l = json(layout), end = at + k * n * 4
+        leaf.end()
+        const { layout, data } = pack({ ...session.done(), leaves: leaf.leaves() }), l = json(layout), end = at + k * n * 4
         await write(new Uint32Array([l.length]), end)
         await write(l, end + 4)
         await write(data, end + 4 + pad(l.length))
@@ -232,7 +301,7 @@ const out = value => new Out(value)
 // Runs a script, the page's tab `tab`'s: the reply says what it printed and whether it made a sound; the sound then
 // streams (render). Each tab's last output stays, for the page to show again as it was, measure and export, nothing run
 // again; the newest run streams alone.
-async function execute({ id, code, names = [], tab = null }) {
+async function execute({ id, code, names = [], tab = null, peaks = false }) {
   const logs = [], log = level => (...args) => logs.push({ level, text: args.map(a => inspect(a)).join(' ') })
   const console = { log: log('log'), info: log('log'), debug: log('log'), warn: log('warn'), error: log('error'), table: log('log') }
   run = { created: [], saves: [] }
@@ -252,7 +321,7 @@ async function execute({ id, code, names = [], tab = null }) {
     newest = id
     for (const r of outputs.values()) if (!r.done) drop(r)
     if (!output) { for (const r of outputs.values()) if (r.tab === tab) drop(r); dispose(run.created); return result }
-    const record = { id, tab, instance: output, created: run.created, saves: run.saves, names, tape: null, sound: null, length: 0, sampleRate: 0, done: false }
+    const record = { id, tab, peaks, instance: output, created: run.created, saves: run.saves, names, tape: null, sound: null, length: 0, sampleRate: 0, done: false }
     record.finished = new Promise(resolve => { record.finish = resolve })
     record.keys = keysOf(output)
     record.based = based(record)
@@ -373,7 +442,7 @@ async function render(r) {
   const content = await r.content
   if (!hit && content && alive()) {
     const got = await renders.get(content)
-    if (got) { hit = { ...got.meta, sound: got.sound }; if (keyed(r)) store(r.keys.at(-1), hit) }
+    if (got) { hit = { ...got.meta, sound: got.sound, leaves: got.leaves }; if (keyed(r)) store(r.keys.at(-1), hit) }
   }
   if (!alive()) return
   if (hit) return replay(r, hit)
@@ -386,16 +455,18 @@ async function render(r) {
   }
   const name = r.names.find(n => sources.has(n) && !sources.get(n).decoded), a = r.based?.instance ?? r.instance
   let first = false
-  if (name) arriving(r.id, name, () => alive() && !first)
+  if (name) arriving(r.id, name, () => alive() && !first, r.peaks)
   post({ id: r.id, event: 'doing', steps: a.edits.map(e => e[0]) })
   announce(a.edits)
+  const out = feed(r.id, 'chunk', r.peaks, () => expect(r).total, () => ({ sampleRate: r.sampleRate, ...expect(r) }))
   try {
     await relay(a.stream(), alive, (at, channels) => {
       first = true
       keep(r, at, channels)
-      post({ id: r.id, event: 'chunk', at, channels, sampleRate: r.sampleRate, ...expect(r) }, channels.map(c => c.buffer))
+      out.send(at, channels)
     }, () => r.instance.sampleRate)
     if (!alive()) return
+    out.end()
     r.sampleRate ||= r.instance.sampleRate
     r.sound = (r.tape ??= tape(r.sampleRate, r.instance.channels)).stop()
     const figures = await figuresOf(r.sound), end = r.length / r.sampleRate
@@ -403,7 +474,7 @@ async function render(r) {
     // its markers and its ranges (mark()), where its edits put them
     const markers = a.markers.filter(m => m.time <= end).map(({ time, label }) => ({ time, label }))
     const regions = a.regions.filter(g => g.at < end).map(({ at, duration, label }) => ({ at, duration: Math.min(duration, end - at), label }))
-    const e = { sound: r.sound, sampleRate: r.sampleRate, markers, regions, figures, bitDepth: r.instance.bitDepth ?? null }
+    const e = { sound: r.sound, leaves: out.leaves, sampleRate: r.sampleRate, markers, regions, figures, bitDepth: r.instance.bitDepth ?? null }
     if (keyed(r)) store(r.keys.at(-1), e)
     shelve(content, e)
     finish(r, e)
@@ -419,14 +490,19 @@ const keyed = r => r.keys.length === r.instance.edits.length + 1
 // An output kept past a reload, by what made it (contentOf), once nothing else is being made
 function shelve(content, e) {
   if (!content) return
-  const { sound, ...meta } = e
+  const { sound, leaves, ...meta } = e
   renders.set(content, sound, meta).catch(() => {})
 }
-// A kept output to the page at once, ten seconds a piece
+// A kept output to the page at once: ten seconds a piece, or its leaves where it is longer than the page holds
 async function replay(r, e) {
   const n = e.sound.length, rate = e.sampleRate, piece = 10 * rate
   Object.assign(r, { sound: e.sound, length: n, sampleRate: rate })
-  for (let at = 0; at < n; at += piece) {
+  if (r.peaks && n * e.sound.channels > HOLD) {
+    const p = await (e.leaves ??= leavesOf(e.sound))
+    if (newest !== r.id) return
+    post({ id: r.id, event: 'chunk', at: 0, peaks: p.map(c => c.slice()), long: true, sampleRate: rate, total: n })
+  }
+  else for (let at = 0; at < n; at += piece) {
     const channels = await e.sound.read({ at: at / rate, duration: Math.min(piece, n - at) / rate })
     if (newest !== r.id) return
     post({ id: r.id, event: 'chunk', at, channels, sampleRate: rate, total: n }, channels.map(c => c.buffer))
@@ -444,7 +520,7 @@ function finish(r, e) {
   r.regions = e.regions
   for (const o of outputs.values()) if (o !== r && o.tab === r.tab) drop(o)
   const markers = [...e.markers, ...e.regions.map(({ at, duration, label }) => ({ time: at, duration, label }))].sort((p, q) => p.time - q.time)
-  post({ id: r.id, event: 'done', duration: r.length / r.sampleRate, sampleRate: r.sampleRate, channels: r.sound.channels, stats: e.figures.stats, segments: e.figures.segments, markers, clips: e.figures.clips, bitDepth: e.bitDepth ?? r.instance.bitDepth ?? null })
+  post({ id: r.id, event: 'done', long: !!r.peaks && r.length * r.sound.channels > HOLD, duration: r.length / r.sampleRate, sampleRate: r.sampleRate, channels: r.sound.channels, stats: e.figures.stats, segments: e.figures.segments, markers, clips: e.figures.clips, bitDepth: e.bitDepth ?? r.instance.bitDepth ?? null })
   r.finish(r)
   checkpoint(r)
 }
@@ -605,11 +681,14 @@ function expect(r) {
 }
 // A file as it decodes, to the page, while the output has nothing yet; all of it come, and the output still nothing (a
 // model running over it, a level read from all of it), `arrived`: what is left is the rendering
-async function arriving(id, name, alive) {
-  const src = sources.get(name)
+async function arriving(id, name, alive, peaks) {
+  const src = sources.get(name), estimate = () => src._.estDur && Math.round(src._.estDur * src.sampleRate)
+  const file = feed(id, 'loading', peaks, estimate, () => ({ name, sampleRate: src.sampleRate, estimate: src._.estDur ?? null }))
   try {
-    await relay(src.stream(), alive, (at, channels) => post({ id, event: 'loading', name, at, channels, sampleRate: src.sampleRate, estimate: src._.estDur ?? null }, channels.map(c => c.buffer)), () => src.sampleRate)
-    if (alive()) post({ id, event: 'arrived', name })
+    await relay(src.stream(), alive, (at, channels) => file.send(at, channels), () => src.sampleRate)
+    if (!alive()) return
+    file.end()
+    post({ id, event: 'arrived', name })
   } catch {}   // the output's own stream says what went wrong
 }
 // A stream's blocks, joined into pieces of a tenth of a second or what came in 50 ms, handed to `send(at, channels)`
@@ -633,7 +712,7 @@ async function relay(blocks, alive, send, rate) {
 function keep(r, at, channels) {
   r.sampleRate ||= r.instance.sampleRate
   const end = at + channels[0].length
-  if (end * channels.length > PREVIEW_LIMIT)
+  if (!r.peaks && end * channels.length > PREVIEW_LIMIT)
     throw new RangeError(`The output is over ${(end / r.sampleRate / 60).toFixed(1)} minutes of ${channels.length} channels, longer than the page previews (30 channel-minutes at 48 kHz). Crop it here, or run the script with Node or the CLI.`)
   ;(r.tape ??= tape(r.sampleRate, channels.length)).push(channels)
   r.length = end
@@ -798,6 +877,15 @@ async function original({ source, loudness }) {
   if (pcm[0].length * pcm.length > PREVIEW_LIMIT) return { channels: null }
   const gain = Number.isFinite(loudness) && Number.isFinite(own) ? loudness - own : 0, k = 10 ** (gain / 20)
   return { channels: pcm.map(c => c.map(v => v * k)), sampleRate: src.sampleRate, gain }
+}
+
+// Samples [from, to) of an output, for the page to draw where it is zoomed in on one it holds only the peaks of
+async function samples({ output, from, to }) {
+  const r = await whole(output)
+  if (!r) return { channels: null }
+  const n = r.length, rate = r.sampleRate
+  from = Math.max(0, Math.min(n, Math.floor(from))); to = Math.max(from, Math.min(n, Math.ceil(to)))
+  return { channels: to > from ? await r.sound.read({ at: from / rate, duration: (to - from) / rate }) : Array.from({ length: r.sound.channels }, () => new Float32Array(0)) }
 }
 
 // What plays (player.js): an output (`output`, the run that made it), or the file it opened (`source`, at the output's
@@ -1050,7 +1138,7 @@ const handlers = {
     if (was) for (const k of kept.keys()) if (k.startsWith(`${idOf(was)}|`)) kept.delete(k)
     data ? files.set(name, data) : files.delete(name); forget(name); stages.clear(); return {}
   },
-  run: execute, cues, contour, listen, export: exporting, describe, check: checking, original, voice, eval: evaluate,
+  run: execute, cues, contour, listen, export: exporting, describe, check: checking, original, voice, samples, eval: evaluate,
   // a tab closed: its output goes
   close: ({ tab }) => { for (const r of outputs.values()) if (r.tab === tab) drop(r); return {} },
   // a script's sound whole, as the edits make it there (the chain flattened up to a step): from the renders kept, as a
@@ -1067,6 +1155,6 @@ self.onmessage = async ({ data }) => {
   let reply
   try { reply = await handlers[data.type](data) }
   catch (error) { reply = { error: failure(error) } }
-  const transfer = data.type === 'original' || data.type === 'bake' ? reply.channels?.map(c => c.buffer) : data.type === 'export' ? reply.files?.map(f => f.bytes.buffer) : []
+  const transfer = data.type === 'original' || data.type === 'bake' || data.type === 'samples' ? reply.channels?.map(c => c.buffer) : data.type === 'export' ? reply.files?.map(f => f.bytes.buffer) : []
   post({ id: data.id, ...reply }, transfer || [])
 }

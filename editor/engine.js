@@ -3,7 +3,9 @@
 // the listener it came with, as events: `loading` (a file it opens, as it decodes, while the output has nothing yet),
 // `arrived` (all of that file come, the output still nothing), `doing` (the steps it applies, or the one reading its
 // input whole first, by name), `chunk` (the output), then `done` or `error`; or `skip`, when a newer script runs and its
-// output takes over. An output made before (worker.js, renders kept) comes whole at once.
+// output takes over. An output made before (worker.js, renders kept) comes whole at once. A page that draws peaks
+// (`peaks`) gets those of a sound longer than it holds, in place of its samples (`long`, worker.js feed), and asks for
+// the samples where it zooms in (samples).
 // Stop ends a run by replacing the worker.
 const WORKER = new URL('./dist/worker.js', import.meta.url)
 // The worker set off as the page starts (start, editor.html), its library and chunks loading while the page's own
@@ -71,6 +73,8 @@ export default function engine(url = WORKER) {
     // The page's tab whose script runs, and whose output an export, a check or a measure reads: each tab's last output
     // stays in the worker, the page showing it again as it was (close lets it go)
     tab: null,
+    // The page draws a long sound from its peaks (gl-waveform's), with samples where it zooms in
+    peaks: false,
     // A file the scripts can open by name; null forgets it.
     file(name, data) {
       data == null ? files.delete(name) : files.set(name, data)
@@ -82,7 +86,7 @@ export default function engine(url = WORKER) {
     // the older one with { skipped }.
     run(script, on = {}) {
       queued?.resolve({ skipped: true })
-      const result = new Promise(resolve => { queued = { script: { ...script, tab: self.tab }, on, resolve } })
+      const result = new Promise(resolve => { queued = { script: { ...script, tab: self.tab, peaks: self.peaks }, on, resolve } })
       if (!running) drain()
       return result
     },
@@ -147,6 +151,8 @@ export default function engine(url = WORKER) {
       const { default: audioWorker } = await import('../worker.js')
       return audioWorker.adopt(r.inst, { worker })
     },
+    // Samples [from, to) of an output, each channel's; null once a newer output replaced it
+    samples: (output, from, to) => call({ type: 'samples', output, from, to }).then(r => r.channels ?? null),
     // A plugin's parameters from its manifest, fetched once.
     describe(name) {
       if (!described.has(name)) described.set(name, call({ type: 'describe', name }).then(r => r.params ?? null))
