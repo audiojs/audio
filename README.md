@@ -1,6 +1,6 @@
 # audio [![test](https://github.com/audiojs/audio/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/audio/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/audio?color=white)](https://npmjs.org/package/audio)
 
-_Audio playback, editing and analysis_
+_High-level audio manipulations: loading, playback, analysis and editing. 140+ plugins: denoise, dynamics, EQ, filters, effects, reverb, time and pitch, spatial, synthesis, music analysis._
 
 <!-- <img src="docs/preview.svg?v=1" alt="Audiojs demo" width="540"> -->
 
@@ -35,7 +35,14 @@ _Audio playback, editing and analysis_
 
 ```js
 import audio from 'audio'
-audio('voice.mp3').trim().normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
+
+let song = audio('song.mp3')
+song.play()                                  // the speakers, as a page plays it: no ffmpeg, no player to spawn
+song.pause(); song.seek(60); song.resume()
+
+let voice = audio('voice.wav').trim().normalize('podcast')
+await voice.save('clean.mp3')
+let { pass, rules } = await voice.check('podcast')  // each rule of Apple's spec, measured
 ```
 
 ### Browser
@@ -51,8 +58,15 @@ audio('voice.mp3').trim().normalize('podcast').fade(0.3, 0.5).save('clean.mp3')
 
 ```sh
 npm i -g audio # or: npx audio …
-audio voice.wav trim normalize podcast fade 0.3s -0.5s save clean.mp3
+audio voice.wav trim normalize podcast save clean.mp3
+audio clean.mp3 check podcast
+#   Apple Podcasts  https://podcasters.apple.com/support/893-audio-requirements
+#   ✓ Loudness     -16.44 LUFS  -17 to -15
+#   ✓ True peak     -1.18 dBTP  ≤ -1
+#   pass
 ```
+
+A fail exits 1, so the same line guards a build: [Check in CI](#check-in-ci).
 
 ### Skill
 
@@ -70,7 +84,7 @@ npx add-mcp "npx -y audio --mcp"  # asks which of your agents: Claude Code, Code
 
 One agent at a time: `claude mcp add audio -- npx -y audio --mcp`, `qwen mcp add audio npx -y audio --mcp`, `droid mcp add audio "npx -y audio --mcp"`.
 
-### Editor and agents
+### Playground and agents
 
 ```sh
 npx audio --bridge
@@ -79,12 +93,12 @@ npx audio --bridge
 #   key     3e37b8c61acf5b50f010852168f4843d
 #   agents  Claude Code, Codex, Pi, Kimi Code
 #
-#   In the editor's Agent panel, paste the key, then Connect. It stays the same next time.
+#   In the playground's Agent panel, paste the key, then Connect. It stays the same next time.
 ```
 
-Connect the editor to it with the key (once: the bridge keeps it), and its chat runs an agent of yours, which measures, looks at, edits and plays the sound open there, and finds which edit did what: it measures the sound before and after each, and what each took out; each tab keeps its conversations, each with the agent, and its model, picked under the message. The bridge finds Claude Code, Codex, Pi, Gemini CLI, Qwen Code, Kimi Code, OpenCode, Kilo Code, Cline, Goose, Factory Droid, Cursor, Augment, Kiro and Mistral Vibe on PATH; any other that speaks [ACP](https://agentclientprotocol.com/get-started/registry) runs by its command line, `--agent "my-agent --acp"`.
+Open the [playground](https://audiojs.dev/audio/playground.html), every edit of it a line of `audio` code, and connect it to the bridge with the key (once: the bridge keeps it), and its chat runs an agent of yours, which measures, looks at, edits and plays the sound open there, and finds which edit did what: it measures the sound before and after each, and what each took out; each tab keeps its conversations, each with the agent, and its model, picked under the message. The bridge finds Claude Code, Codex, Pi, Gemini CLI, Qwen Code, Kimi Code, OpenCode, Kilo Code, Cline, Goose, Factory Droid, Cursor, Augment, Kiro and Mistral Vibe on PATH; any other that speaks [ACP](https://agentclientprotocol.com/get-started/registry) runs by its command line, `--agent "my-agent --acp"`.
 
-Any MCP agent gets the editor's tools (`state`, `measure`, `look`, `edit`, `select`, `play`, `check`, …), the running bridge found by itself: `npx add-mcp "npx -y audio --mcp --editor"`.
+Any MCP agent gets the playground's tools (`state`, `measure`, `look`, `edit`, `select`, `play`, `check`, …), the running bridge found by itself: `npx add-mcp "npx -y audio --mcp --playground"`.
 
 An agent thinks with the model its own settings name: Pi takes local ones for good from `ollama launch pi --config`; Claude Code takes any Anthropic-compatible endpoint from the bridge's environment:
 
@@ -838,6 +852,24 @@ audio '*.wav' gain -3db save '{name}.out.{ext}'
 audio 'chapters/*.mp3' check acx                      # a whole audiobook: one line per chapter
 ```
 
+### Check in CI
+
+A file that misses its spec fails the build: one line per file, ✓ or the rule it broke, exit 1 on any fail.
+
+```yaml
+# .github/workflows/audio.yml
+on: [push, pull_request]
+jobs:
+  audio:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: audiojs/audio@master   # or any CI: npx -y audio 'episodes/*.mp3' check podcast
+        with:
+          files: episodes/*.mp3
+          spec: podcast              # streaming, broadcast, netflix, acx
+```
+
 ### Stdin/stdout
 
 ```sh
@@ -862,8 +894,8 @@ audio --completions fish | source       # fish
 <dt>Does it need ffmpeg or native addons?</dt>
 <dd>No, pure JS + WASM. For CLI, you can install globally: <code>npm i -g audio</code>.</dd>
 
-<dt>How big is the bundle?</dt>
-<dd>~20K gzipped core. Codecs load on demand via <code>import()</code>, so unused formats aren't fetched.</dd>
+<dt>How big is it?</dt>
+<dd>In a page: 107 KB gzipped, the whole library minified (<code>dist/audio.min.js</code>); codecs and plugins load on first use via <code>import()</code>, so unused formats aren't fetched. In Node: <code>npm i audio</code> installs 14 MB in 294 packages (every codec and plugin), nothing compiled.</dd>
 
 <dt>How does it handle large files?</dt>
 <dd>Audio is stored in fixed-size pages. In the browser, with <code>{ storage: 'persistent' }</code> (or <code>'auto'</code>, where OPFS exists), cold pages evict to OPFS when memory exceeds budget — auto-sized from <code>navigator.storage.estimate()</code> (quota/4, 64MB..512MB), overridable via <code>{budget}</code>; each instance keeps its own store, its copies share it. Works for decoded files, <code>audio.from(pcm)</code> and pushed streams. Stats stay resident (~7 MB for 2h stereo).</dd>

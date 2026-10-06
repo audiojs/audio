@@ -2,7 +2,7 @@
 
 A landscape of audio tools across the web, Python, CLI, and desktop. The goal: help you pick the right tool for the job — including, often, *not* `audio`.
 
-`audio` occupies a specific niche: **a non-destructive audio workstation library for JavaScript runtimes (Node, Deno, Bun, browsers)**. Decode, edit, analyze, encode, play, record — chainable API + CLI, no native binaries, ~20 KiB gzipped core.
+`audio` occupies a specific niche: **a non-destructive audio workstation library for JavaScript runtimes (Node, Deno, Bun, browsers)**. Decode, edit, analyze, encode, play, record — chainable API + CLI, nothing to compile: 107 KB gzipped in a page (the whole library minified; codecs and plugins load on first use), 14 MB installed in Node with every codec and plugin.
 
 `audio` is part of the [audiojs](https://github.com/audiojs) ecosystem — a constellation of small focused packages (`@audio/decode`, `@audio/encode`, `@audio/speaker`, `@audio/mic`, `@audio/filter`, `@audio/dynamics`, `@audio/denoise`, `wavearea`, ...) that together cover most JS audio needs. `audio` itself composes many of them into a unified workstation.
 
@@ -17,7 +17,7 @@ Cells contain method/op names where supported, `—` if absent. For `audio`, pla
 | Scope | edit + analyze + play + record | high-level edit (slice/fade/normalize) | MIR / analysis | pitch + onset + beat + MFCC | MIR / 240+ algorithms | effects + VST hosting | CLI batch DSP | CLI multimedia | desktop GUI editor | scientific DSP + ML for audio |
 | Language | JS / TS | Python | Python | C (Python/JS bindings) | C++ (Python/JS bindings) | Python (C++/JUCE core) | C | C | C++ | MATLAB |
 | Platform | Node, Deno, Bun, browser | Python (needs FFmpeg) | Python 3 | native, Python, browser (WASM) | native, Python, browser (essentia.js) | Python (native) | native CLI | native CLI + libs | native app (Win/Mac/Linux) | MATLAB R20xx+ |
-| Packaging | `npm i audio` (~20 KiB gz) | `pip install pydub` | `pip install librosa` | `brew install aubio`, `pip install aubio` | `brew install essentia`, build from source | `pip install pedalboard` | `brew install sox` | `brew install ffmpeg` | standalone installer | Mathworks license |
+| Packaging | `npm i audio` (14 MB installed, nothing compiled) | `pip install pydub` | `pip install librosa` | `brew install aubio`, `pip install aubio` | `brew install essentia`, build from source | `pip install pedalboard` | `brew install sox` | `brew install ffmpeg` | standalone installer | Mathworks license |
 | License | MIT | MIT | ISC | GPL-3 | AGPL-3 (commercial avail.) | GPL-3 | GPL/LGPL | LGPL/GPL | GPL-2 | proprietary |
 | Open/closed | open | open | open | open | open | open | open | open | open | closed |
 | API style | chainable + plan | chainable `AudioSegment` | functional (NumPy) | functional + CLI | algorithm objects `Algo()(in)` | callable chain | CLI args | CLI args | GUI + Nyquist + macros | functional + System objects |
@@ -130,7 +130,7 @@ Cells contain method/op names where supported, `—` if absent. For `audio`, pla
 | Macros / batch | CLI macro | scripts | scripts | shell + scripts | scripts + extractor profiles | Python scripts | shell scripts | filter graph | Audacity Macros | scripts / Live Editor |
 | **Misc** | | | | | | | | | | |
 | Performance | measured — [§ Performance](#performance) | slow (shells out to ffmpeg) | numpy-fast | native | native | native | native | native | n/a | native |
-| Bundle size | ~20 KiB gz core | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+| Bundle size | 107 KB gz, minified; codecs and plugins on first use | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 | Last release | active | active | active | active | active | active | 2015 | active | active | active |
 | Integrations | Wavearea, audiojs ecosystem | FFmpeg | scikit-learn, torchaudio, numpy | PureData, MaxMSP, Python, JS | TensorFlow, Gaia, essentia.js | TensorFlow, PyTorch, JUCE plugins | shell, FFmpeg | LADSPA/LV2, ffmpeg.wasm | VST/AU/LV2 plugins | Simulink, Deep Learning Toolbox |
 
@@ -242,5 +242,5 @@ Reading the numbers honestly:
 
 - **Time-to-first-sample** — `audio` plays during decode; native CLIs render then play
 - **Amortized analysis** — the index makes the 2nd..Nth stat/waveform query ~free; CLI tools re-decode per query
-- **Bundle size** — `audio` core ~20 KiB gz vs ffmpeg.wasm ~25 MiB
+- **Bundle size** — `audio` 107 KB gz in a page, codecs on first use, vs ffmpeg.wasm ~25 MiB
 - **Cold-start in browser** — no install, no native binary, no subprocess

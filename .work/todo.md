@@ -3,19 +3,20 @@
 Registry: **141 names** (ops + stats; codec halves ship in every decode-*/encode-*). Flavors complete: op ✔ stat ✔ codec ✔.
 Parity evidence: [.work/baseline.md](baseline.md). Perf: [docs/comparison.md § Performance](../docs/comparison.md).
 
+**Frozen 2026-10-06.** No new surface until a user asks for it: fixes, measurements and what real users hit go first. The proven users are developers (Node playback with a real transport, games, CLI players); podcast and audiobook production can be a product of its own on this engine. Signal: npm downloads on days without a release, and dependents found by their lockfiles, not the monthly total (64% of September's fell on its 4 release days).
+
 ## Next
 
 1. [x] **MCP server + skills** — gate long met, ~40+ registry ops + full stat surface ready ([.work/mcp.md](mcp.md)): `bin/mcp.js` (load/info/analyze/edit/save/undo/read/play, stateful sessions, `@modelcontextprotocol/sdk` over stdio) + `audio-master`/`audio-clean`/`audio-analyze` skills. Watch: counterpoint-studio/audio-file-mcp-app (competitor).
-2. [ ] **Playground** — drag-n-drop + code editor, audiotool-style probe (#53, #58); worker engine (SAB-free playback) removed the hard part
+2. [x] **Playground** — the editor renamed: the library's live face, every edit a line of `audio` code (playground.html; #53, #58)
 3. [ ] **jz/WASM lane** — for streaming/realtime/worklet where batch JIT can't help: compile hot kernels (fourier-transform, biquad, pvoc) via `@audio/compile` → per-atom `dist/*.wasm` + `./wasm` export, host prefers in `useAtom`. Blocked on jz typed-array provenance fix (bench/fftplan + bench/provenance repro cases landed in jz; ~6× gap). ~1.4× over warm JS once fixed — realtime-lane priority, not batch.
-4. [ ] Small: Wavearea: adopt facade.play() P3 or keep own player · `audio-ponyfill` package (#68) · common processing scripts (vocal warmup etc)
+4. [ ] Small: Wavearea: adopt facade.play() P3 or keep own player · `audio/polyfill`: HTMLAudioElement in any runtime (#68) · common processing scripts (vocal warmup etc)
 
 * [ ] Integrations for VSCode, sublime, atom and other tools: edit audio
-* [ ] editor: theme selector, don't force users.
-* [ ] editor: all winamp themes?!
+* [ ] playground: theme selector, don't force users.
 * [ ] Automastering - must have.
 * [ ] drop a file - receive agent recommendation on improvements: essentially agent should do all job
-* [ ] Instagram filters for your sound
+* [ ] Presets: one-tap looks for a sound (idea)
 * [ ] Diarization - detecting spekers, autoadding cues
 * [ ] Detect current type of speaker etc
 

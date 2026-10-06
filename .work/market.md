@@ -14,6 +14,12 @@ Serving > marketing. Protection > power, usefulness > fame, help > greed.
 - Second round: `auto` (automatic enhancement) runs 15 to 32 times faster than real time, 4 to 6 times faster than before, and no longer declicks clean speech; Ogg decoding of FLAC, Opus and cut files is fixed. Published 2026-09-27; `audio` depends on the new versions, itself unreleased.
 - Every use case raised so far, with its status, is in "Every use case".
 
+## Who uses it now (2026-10-05)
+
+Found by lockfile on GitHub, not guessed: developers. Six terminal music players (five started the same day, 2026-08-25, a class by the look of it; one says it took `audio` "for true pause/resume support") and a Node game on SDL playing its sound effects. None of them is a podcaster. Podcast and audiobook production stays a fit for the engine, but as a product of its own; the library's own users are developers who need sound in JavaScript.
+
+Read downloads on days without a release: 64% of September's 3,195 fell on its four release days (mirrors and scanners fetch each version), the other 26 days averaged 44.
+
 ## Who needs what
 
 | Who | The moment it hurts | What they use today | Our fit now |

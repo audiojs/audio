@@ -1,7 +1,7 @@
 {
   "name": "audio",
   "version": "2.10.0",
-  "description": "Audio loading, playback, analysis and editing",
+  "description": "High-level audio manipulations: loading, playback, analysis and editing. 140+ plugins: denoise, dynamics, EQ, filters, effects, reverb, time and pitch, spatial, synthesis, music analysis.",
   "type": "module",
   "main": "audio.js",
   "exports": {

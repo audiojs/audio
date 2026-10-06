@@ -37,3 +37,19 @@ jobs:
         continue-on-error: true
         env:
           CI: ''
+  # the README's runtimes besides Node: a file decoded, edited, measured, encoded and decoded back (test/runtime.js)
+  runtimes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: npm ci
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+      - uses: oven-sh/setup-bun@v2
+      - run: bun test/runtime.js
+      - uses: denoland/setup-deno@v2
+      # from npm the library's bare `fs` imports resolve as Node's; from a checkout Deno needs them allowed
+      - run: deno run -A --unstable-bare-node-builtins test/runtime.js

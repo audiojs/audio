@@ -1,0 +1,25 @@
+name: audio check
+description: Fail the build when an audio file misses its delivery spec (Apple Podcasts, Spotify, EBU R 128, Netflix, ACX)
+branding:
+  icon: volume-2
+  color: gray-dark
+inputs:
+  files:
+    description: "Files or a glob, as `audio` takes them: 'episodes/*.mp3'"
+    required: true
+  spec:
+    description: podcast, streaming, broadcast, netflix or acx
+    default: podcast
+  version:
+    description: The audio version to check with
+    default: latest
+runs:
+  using: composite
+  steps:
+    # one line per file, ✓ or the rule it failed; exit 1 on any fail
+    - shell: bash
+      run: npx -y "audio@$VERSION" "$FILES" check "$SPEC"
+      env:
+        FILES: ${{ inputs.files }}
+        SPEC: ${{ inputs.spec }}
+        VERSION: ${{ inputs.version }}
