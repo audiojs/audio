@@ -871,14 +871,19 @@ async function checking({ spec, tab }) {
 
 // The source as it opened, for listening against the output at the same place: a copy, at the output's loudness
 // (BS.1770), so the comparison hears what the chain did, not that it is louder.
-async function original({ source, loudness }) {
+// Its samples only where the page holds them (`hold` channel samples, engine.js peaks): played by the engine either way
+// (voice), the page's meters and scrub read them.
+async function original({ source, loudness, hold = PREVIEW_LIMIT }) {
   const src = sources.get(source)
   if (!src) return { channels: null }
-  const [pcm, own] = await Promise.all([src.read(), src.stat('loudness')])
-  if (pcm[0].length * pcm.length > PREVIEW_LIMIT) return { channels: null }
-  const gain = Number.isFinite(loudness) && Number.isFinite(own) ? loudness - own : 0, k = 10 ** (gain / 20)
-  return { channels: pcm.map(c => c.map(v => v * k)), sampleRate: src.sampleRate, gain }
+  await src.ready
+  const own = await loudnessOf(src), gain = Number.isFinite(loudness) && Number.isFinite(own) ? loudness - own : 0, k = 10 ** (gain / 20)
+  const length = src.length, channels = length * src.channels > hold ? null : (await src.read()).map(c => c.map(v => v * k))
+  return { channels, length, sampleRate: src.sampleRate, gain }
 }
+// A file's loudness, read once
+const levels = new WeakMap()
+const loudnessOf = src => { if (!levels.has(src)) levels.set(src, src.stat('loudness')); return levels.get(src) }
 
 // Samples [from, to) of an output, for the page to draw where it is zoomed in on one it holds only the peaks of
 async function samples({ output, from, to }) {
@@ -894,14 +899,12 @@ async function samples({ output, from, to }) {
 // [from, to] through an edit, [type, ...args] (a pitch dragged). The page adopts it (audio/worker) and plays it, rendered
 // here into the page's deck as it plays; it lets it go when done. Each a copy of one kept with the output, sharing its
 // samples
-const levels = new WeakMap()
 async function voice({ output, source, loudness, ...as }) {
   let a
   if (source != null) {
     const src = sources.get(source)
     if (!src) return { inst: null }
-    if (!levels.has(src)) levels.set(src, src.stat('loudness'))
-    const own = await levels.get(src)
+    const own = await loudnessOf(src)
     a = src.clone().gain(Number.isFinite(loudness) && Number.isFinite(own) ? loudness - own : 0)
   } else {
     const r = await whole(output)

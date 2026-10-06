@@ -13,17 +13,19 @@ import { heard } from './heard.js'
 // Scrubbing plays the moment under a caret instead (scrub.js), for as long as it is held, as it moves, on the same
 // context. Playback pauses while it sounds.
 export default function player({ onend = () => {} } = {}) {
-  let channels = null, rate = 0, open = null, local = null, voice = null, only = null, at = 0, outs = 0
+  let channels = null, length = 0, rate = 0, open = null, local = null, voice = null, only = null, at = 0, outs = 0
   let scrubbing = null, loaded = null, heldBy = null, mode = 'hybrid', speed = 1
   // a moment heard as an edit being dragged will leave it (audition), and how many were asked for
   let hearing = null, auditions = 0
   // the latest of play and pause wins: a play still opening the device when a pause comes stays paused
   let intent = 0
 
-  // What plays of the output (heard.js): the engine's, or, with none, made here of the samples
+  // What plays of the output (heard.js): the engine's, or, with none, made here of the samples; null for a sound the page
+  // holds none of (a long one) the engine no longer has
   async function made(o) {
     const v = await open?.(o).catch(() => null)
     if (v) return v
+    if (!channels) return null
     local ??= audio.from(channels, { sampleRate: rate })
     return heard(local, o)
   }
@@ -37,7 +39,7 @@ export default function player({ onend = () => {} } = {}) {
   // a facade's call answers later: one that finds its voice gone says nothing
   const calm = r => { if (r instanceof Promise) r.catch(() => {}) }
   const same = o => JSON.stringify(o) === JSON.stringify(only)
-  const duration = () => channels ? channels[0].length / rate : 0
+  const duration = () => length / rate
 
   // The scrub voice hears the output as it is, every channel at its own rate (scrub.js reads it at the device's), sent
   // the first time a scrub needs it after each new output; a node with as many outputs as the output has channels.
@@ -78,18 +80,20 @@ export default function player({ onend = () => {} } = {}) {
       if (this.playing && channels) cycle(channels, voice.currentTime * rate, rate, t)
       return t
     },
-    // A new output, `pcm` at `sampleRate`, and what opens it to play (made); while one plays, the new one takes over
-    // where it is, the one before playing on until it can
-    async set(pcm, sampleRate, opens = null) {
+    // A new output, `pcm` at `sampleRate`, `n` samples long, and what opens it to play (made); a long one with no samples
+    // here (pcm null), played by the engine alone. While one plays, the new one takes over where it is, the one before
+    // playing on until it can
+    async set(pcm, sampleRate, opens = null, n = pcm?.[0]?.length ?? 0) {
       // the scrub voice loads with the first output, so the first press sounds at once
       if (pcm?.[0]?.length) loaded ||= audio.context.audioWorklet.addModule(new URL('./scrub.js', import.meta.url))
       const mine = ++outs, prev = voice, was = local
       channels = pcm?.[0]?.length ? pcm : null
+      length = n
       rate = sampleRate
       open = opens
       local = null
       if (heldBy) scrubber()
-      if (!(prev?.playing && channels)) {
+      if (!(prev?.playing && length)) {
         release(prev)
         if (prev !== was) was?.dispose()
         voice = only = null
@@ -98,6 +102,7 @@ export default function player({ onend = () => {} } = {}) {
       }
       const next = await made(only ?? {})
       if (mine !== outs || voice !== prev) return release(next)
+      if (!next) { release(prev); voice = only = null; return }
       voice = watch(next)
       if (prev.playing) voice.play({ from: prev })
       release(prev)
@@ -106,7 +111,7 @@ export default function player({ onend = () => {} } = {}) {
     // Plays the span from `from` to `to` (or the end), looped or not, starting at `start` in it (its start by default),
     // only `band` [low, high] Hz of it, or only `boxes`, if given; while it plays, or is paused, the same go there
     async play({ from = 0, to = null, loop = false, band = null, boxes = null, start = from } = {}) {
-      if (!channels) return
+      if (!length) return
       const mine = ++intent, o = { band, boxes }
       await audio.context.resume()
       if (mine !== intent) return
@@ -115,7 +120,7 @@ export default function player({ onend = () => {} } = {}) {
         // a new output while it opens: it opens that one instead
         let prev, of, next
         do { release(next); prev = voice; of = outs; next = await made(o) } while (mine === intent && (voice !== prev || of !== outs))
-        if (mine !== intent) return release(next)
+        if (mine !== intent || !next) return release(next)
         release(prev)
         only = o
         voice = watch(next)
@@ -153,12 +158,12 @@ export default function player({ onend = () => {} } = {}) {
       const mine = ++auditions, was = hearing
       hearing = null
       release(was)
-      if (from == null || !channels) return
+      if (from == null || !length) return
       this.pause()
       await audio.context.resume()
       if (mine !== auditions) return
       const of = outs, a = await made({ from, to, edit })
-      if (mine !== auditions || of !== outs) return release(a)
+      if (mine !== auditions || of !== outs || !a) return release(a)
       hearing = a
       a.on('ended', () => { if (hearing === a) { hearing = null; release(a) } })
       a.play()

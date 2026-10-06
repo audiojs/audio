@@ -1027,8 +1027,8 @@ async function write(text) {
   if (!shown) await page.getByRole('tab', { name: 'Code', exact: true }).click()
 }
 // Bright pixels in the plot, from a screenshot: the waveform is drawn.
-async function drawn() {
-  const png = await page.locator('.plot').screenshot()
+async function drawn(of = '.plot') {
+  const png = await page.locator(of).screenshot()
   return page.evaluate(async b64 => {
     const img = new Image()
     img.src = 'data:image/png;base64,' + b64
@@ -1986,6 +1986,52 @@ test('editor: play moves the clock, and a new output keeps playing where it was'
 
 // What plays is rendered by the engine, as it plays (player.js, worker.js voice): the page's own thread held up three
 // seconds, longer than the library renders ahead of the speakers (fn/play.js AHEAD), leaves no gap in it. The speakers' feed taken on the audio thread (taken), past the page's
+// An output longer than the page holds (over 30 channel-minutes) is drawn from its peaks: the whole of it at once, the
+// page's own memory a fraction of its samples; zoomed in, its samples come and the line runs through them; it plays
+// from the engine; a selection's levels read from its leaves
+test('editor: a sound longer than the page holds is drawn from its peaks, its samples where it is zoomed in, and plays', async () => {
+  await open()
+  const heap = () => page.evaluate(() => performance.memory?.usedJSHeapSize ?? 0)
+  await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * (.25 + .2 * Math.sin(t / 40)), { duration: 1820, sampleRate: 48000 })`)
+  await page.waitForFunction(() => document.querySelector('.source').title.endsWith('30:20.000'), null, { timeout: 120000 })
+  await page.waitForFunction(() => !document.querySelector('.message').textContent, null, { timeout: 120000 })
+  await page.evaluate(() => globalThis.gc?.())
+  const used = await heap()
+  assert.ok(used < 200e6, `the page holds ${(used / 1e6).toFixed(0)} MB, its samples would be ${(1820 * 48000 * 4 / 1e6).toFixed(0)}`)
+  assert.ok(await drawn() > .02, 'all of it drawn from its peaks')
+  // zoomed in on the caret, 20 ms or so across, under a sample a pixel: the samples come, the line through them (the
+  // peaks alone draw nothing there)
+  const { box } = await axis(1820)
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height * .3)
+  await page.locator('.plot').focus()
+  for (let i = 0; i < 17; i++) await page.keyboard.press('=')
+  await page.waitForTimeout(1500)
+  // columns with ink off the silence line: the sine's, a twentieth of full scale either side; without its samples, at
+  // most a line across (the caret's)
+  const off = await page.locator('.plot canvas.waveform').screenshot().then(png => page.evaluate(async b64 => {
+    const img = new Image()
+    img.src = 'data:image/png;base64,' + b64
+    await img.decode()
+    const c = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height }), g = c.getContext('2d')
+    g.drawImage(img, 0, 0)
+    const d = g.getImageData(0, 0, c.width, c.height).data, mid = c.height / 2, columns = new Set()
+    // within 40 px of the silence line, clear of the labels at the foot and the right
+    for (let i = 0; i < d.length; i += 4) { const y = Math.floor(i / 4 / c.width), x = i / 4 % c.width; if (d[i] > 120 && Math.abs(y - mid) > 6 && Math.abs(y - mid) < 40 && x < c.width - 60) columns.add(x) }
+    return columns.size
+  }, png.toString('base64')))
+  assert.ok(off > 200, `zoomed in: the line through its samples, ${off} columns off the axis`)
+  // it plays, from the engine
+  await page.keyboard.press('Space')
+  await page.getByRole('button', { name: 'Pause' }).waitFor()
+  const t0 = await page.locator('.time').innerText()
+  await page.waitForTimeout(600)
+  assert.notEqual(await page.locator('.time').innerText(), t0, 'the clock runs')
+  await page.getByRole('button', { name: 'Pause' }).click()
+  // a selection's levels, from its leaves
+  await page.keyboard.press('Shift+ArrowRight')
+  await page.locator('.readout', { hasText: /^peak −\d+\.\ddB RMS −\d+\.\ddB$/ }).waitFor()
+})
+
 test('editor: playback goes on without a gap while the page is busy', async () => {
   await page.addInitScript(taken)
   await open()

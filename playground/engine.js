@@ -143,7 +143,7 @@ export default function engine(url = WORKER) {
     // markers, regions } or { error }
     bake: script => call({ type: 'bake', ...script }),
     // The source it opened, level-matched to `loudness` (LUFS), for A/B listening.
-    original: (source, loudness) => call({ type: 'original', source, loudness }),
+    original: (source, loudness) => call({ type: 'original', source, loudness, hold: self.peaks || undefined }),
     // What plays, made and rendered here as it plays (worker.js voice): a facade of the library's (audio/worker) the page
     // plays as an instance, or null when there is none (the output gone, the engine stopped)
     async voice(what) {

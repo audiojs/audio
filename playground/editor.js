@@ -242,6 +242,13 @@ const label = name => /^(https?|blob|data):/.test(name) ? decodeURIComponent(nam
 const quote = s => `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
 
 const eng = engine()
+// The channel samples the page holds of an output, 30 channel-minutes at 48 kHz: a longer one comes as its peaks, drawn
+// from them, its samples fetched where the view zooms in (view.js summary), played by the engine (player.js)
+eng.peaks = 30 * 60 * 48000
+// how many samples a piece of an arriving sound covers: its samples, or its leaves (256 each, the last as many as it has)
+const extent = m => m.channels ? m.channels[0].length : (m.peaks[0].length / 4 - 1) * 256 + m.peaks[0][m.peaks[0].length - 1]
+// a piece onto the view: its samples, or its leaves
+const piece = m => m.peaks ? v.peaks(m.at, m.peaks) : v.append(m.channels)
 let ed, v, rk
 // the caret is where playback ends, as it is where it pauses
 const pl = player({ onend: () => { state.playing = false; v.playhead = null; v.setCursor(pl.time); state.time = stamp(v.cursor); sway() } })
@@ -283,7 +290,7 @@ const FAINT = .5
 const still = matchMedia('(prefers-reduced-motion: reduce)')
 // The caret under a scrub, and the RMS of the output there (the 50 ms around it)
 let scrubbed = null
-const beneath = () => !output ? 0 : Math.max(0, ...levels(output.channels, Math.round(scrubbed * output.sampleRate) - 1200, Math.round(scrubbed * output.sampleRate) + 1200).map(l => l.rms))
+const beneath = () => !output?.channels ? 0 : Math.max(0, ...levels(output.channels, Math.round(scrubbed * output.sampleRate) - 1200, Math.round(scrubbed * output.sampleRate) + 1200).map(l => l.rms))
 // while the engine works it turns gently, the same whether a file arrives or an output renders, no smaller or paler
 let swaying = ''
 function sway() {
@@ -292,7 +299,7 @@ function sway() {
   swaying = mode
   heard.hz = 0
   logoMark?.set({
-    scrub: { signal: () => (output && cycle(output.channels, scrubbed * output.sampleRate, output.sampleRate, heard, .5), heard.wave), cycles: () => cyclesOf(heard.hz), speed: 0, hold: true, hover: 'none', amplitude: () => swell(beneath()), axis: FAINT, hidden: false },
+    scrub: { signal: () => (output?.channels && cycle(output.channels, scrubbed * output.sampleRate, output.sampleRate, heard, .5), heard.wave), cycles: () => cyclesOf(heard.hz), speed: 0, hold: true, hover: 'none', amplitude: () => swell(beneath()), axis: FAINT, hidden: false },
     record: { signal: () => (recorder?.trace(heard), heard.wave), cycles: () => cyclesOf(heard.hz), speed: PACE, hold: false, hover: 'none', amplitude: () => swell(recorder?.heard ?? 0), axis: FAINT, hidden: true },
     play: { signal: () => (pl.trace(heard), heard.wave), cycles: () => cyclesOf(heard.hz), speed: PACE, hold: false, hover: 'none', amplitude: () => swell(pl.level), axis: FAINT, hidden: true },
     work: { signal: 'sine', cycles: 1, speed: .25, hold: false, hover: 'none', amplitude: 1, axis: 0, hidden: true },
@@ -459,6 +466,8 @@ store()
 
 // The output view
 v = view(root.querySelector('.plot'), {
+  // a long output's samples where the view zooms in
+  onsamples: (from, to) => output?.long ? eng.samples(output.id, from, to) : null,
   onselect(selection, band, ranges = [], boxes = []) {
     state.selection = selection
     state.boxes = boxes.length
@@ -919,7 +928,7 @@ function arrival(names) {
   a.loading = m => {
     if (!current() || a.on) return
     a.last = performance.now()
-    a.loaded = { at: (m.at + m.channels[0].length) / m.sampleRate, estimate: m.estimate }
+    a.loaded = { at: (m.at + extent(m)) / m.sampleRate, estimate: m.estimate }
     // nor while the picture holds a take recorded, or an edit drawn ahead, till the output that has it comes
     if (!a.preview && (v.expecting || state.hasOutput && !fresh(names))) return status()
     // nor while the picture holds the sound as the page was left (`holding`) and the output is still about to come: the
@@ -928,14 +937,14 @@ function arrival(names) {
     if (!a.preview) {
       a.preview = true
       showing = 0
-      v.stream({ sampleRate: m.sampleRate, channels: m.channels.length, total: m.estimate ? Math.round(m.estimate * m.sampleRate) : null, dim: true, keep: holding })
+      v.stream({ sampleRate: m.sampleRate, channels: (m.channels ?? m.peaks).length, total: m.estimate ? Math.round(m.estimate * m.sampleRate) : null, dim: true, keep: holding })
       aim()
       pl.set(null)
       state.whole = false
       state.hasOutput = true
       state.loading = true
     }
-    v.append(m.channels)
+    piece(m)
     status()
   }
   // all of the file come, the output still nothing: decoded, it renders now
@@ -956,15 +965,15 @@ function arrival(names) {
     if (!current()) return
     a.last = performance.now()
     a.sampleRate = m.sampleRate
-    a.channels = m.channels.length
+    a.channels = (m.channels ?? m.peaks).length
     if (m.total) a.total = m.total
     // its file still arriving, how much has come
     a.loaded = m.loaded != null ? { at: m.loaded, estimate: m.estimate } : null
     a.parts.push(m)
-    if (a.on) v.append(m.channels)
+    if (a.on) piece(m)
     // an edit the view drew ahead waits whole: the picture it drew holds till then, nothing moving; an output as long as
     // the one shown (an edit over a range, a band taken out) comes in over it as it renders, only where it differs
-    else if (alike(a)) { if (!v.expecting) v.patch(m.at, m.channels) }
+    else if (alike(a) && m.channels) { if (!v.expecting) v.patch(m.at, m.channels) }
     // what the picture holds — the file itself, dim, or the sound the page was left on — stays whole until the output is
     // whole too, which takes its place in one step (done); drawn as it renders, it would first go back to nothing and
     // fill again from the start. Only a picture with nothing in it, or an output that takes longer than a moment, shows
@@ -979,15 +988,21 @@ function arrival(names) {
     // which is on its way (the script changed since this one ran); taken for it, it would end the wait, and the newer
     // output, arriving unlooked-for, would show all of it again, the view moved under the pointer
     if (v.expecting && !a.on && a.editor !== ed.code) { a.parts = []; return status() }
-    const length = Math.round(m.duration * m.sampleRate)
-    const channels = Array.from({ length: m.channels }, (_, c) => {
+    // its samples whole, or a long one's leaves (the page draws it from them)
+    const length = Math.round(m.duration * m.sampleRate), leaves = Math.ceil(length / 256) * 4
+    const channels = m.long ? null : Array.from({ length: m.channels }, (_, c) => {
       const x = new Float32Array(length)
       for (const p of a.parts) x.set(p.channels[c].subarray(0, Math.max(0, length - p.at)), p.at)
       return x
     })
+    const peaks = m.long ? Array.from({ length: m.channels }, (_, c) => {
+      const x = new Float32Array(leaves)
+      for (const p of a.parts) if (p.peaks) x.set(p.peaks[c].subarray(0, Math.max(0, leaves - p.at / 64)), p.at / 64)
+      return x
+    }) : null
     a.parts = []
     if (a.on) v.finish()
-    settle({ id: a.id, names, channels, sampleRate: m.sampleRate, duration: m.duration, stats: m.stats, segments: m.segments, markers: m.markers, clips: m.clips, bitDepth: m.bitDepth, code: a.code, editor: a.editor, said: a.said }, !a.on, a.editor !== ed.code)
+    settle({ id: a.id, names, channels, peaks, long: !!m.long, length, sampleRate: m.sampleRate, duration: m.duration, stats: m.stats, segments: m.segments, markers: m.markers, clips: m.clips, bitDepth: m.bitDepth, code: a.code, editor: a.editor, said: a.said }, !a.on, a.editor !== ed.code)
     finished({ ok: true, duration: m.duration, loudness: m.stats?.loudness, peak: m.stats?.peak })
     status()
   }
@@ -1007,7 +1022,7 @@ function arrival(names) {
 // A file the shown output doesn't open
 const fresh = names => names.join() !== (output?.names || []).join()
 // An output arriving as long as the one shown, at its rate, with its channels, of the same files
-const alike = a => !!output && a.total != null && a.total === output.channels[0]?.length && a.sampleRate === output.sampleRate && a.channels === output.channels.length && !fresh(a.names)
+const alike = a => !!output?.channels && a.total != null && a.total === output.length && a.sampleRate === output.sampleRate && a.channels === output.channels.length && !fresh(a.names)
 // The view shows an output as it arrives; the player has what has come
 function begin(a) {
   a.on = true
@@ -1015,7 +1030,7 @@ function begin(a) {
   showing = a.id
   v.stream({ sampleRate: a.sampleRate, channels: a.channels, total: a.total })
   aim()
-  for (const p of a.parts) v.append(p.channels)
+  for (const p of a.parts) piece(p)
   state.hasOutput = true
   state.loading = false
 }
@@ -1048,7 +1063,8 @@ function settle(out, draw = true, behind = false) {
   state.hasOutput = has
   state.whole = has
   state.loading = false
-  if (draw) v.set(has ? out.channels : [], out?.sampleRate)
+  if (out?.long) v.summary(out.peaks, out.length, out.sampleRate)
+  else if (draw) v.set(has ? out.channels : [], out?.sampleRate)
   else if (has) v.samples = out.channels
   if (has) aim()
   v.segments = out?.segments
@@ -1056,7 +1072,7 @@ function settle(out, draw = true, behind = false) {
   // the markers as the script has them: an older script's output, the newer one on its way, leaves those the view
   // drew ahead of it (made, named, moved) as they are
   if (!behind) v.markers = out?.markers
-  pl.set(has ? out.channels : null, out?.sampleRate, has ? hears(out) : null)
+  pl.set(has ? out.channels : null, out?.sampleRate, has ? hears(out) : null, has ? out.length : 0)
   if (!has && pl.playing) togglePlay()
   state.duration = has ? out.duration : 0
   state.ab = false
@@ -1076,7 +1092,7 @@ function status() {
   const now = performance.now(), a = incoming, busy = !!(waiting || a)
   began = busy ? began || now : 0
   const names = waiting ? asked : a?.names ?? [], opens = names.length > 0 && fresh(names)
-  const last = a?.parts.at(-1), at = last ? last.at + last.channels[0].length : 0
+  const last = a?.parts.at(-1), at = last ? last.at + extent(last) : 0
   // a file still arriving decodes; once all of it has come, what the output waits for is its steps, said by name: the one
   // reading its input whole first (a model's run over it) while it does, which says how long it has taken; else those it
   // applies, and how far they have come
@@ -1133,16 +1149,16 @@ async function toggleAB() {
   const name = sourceName()
   if (!state.hasOutput) return
   if (!name) return note('A generated sound has no file as it opened to hear it against.')
-  if (state.ab) { state.ab = false; pl.set(output.channels, output.sampleRate, hears(output)); return note('Hearing the output, after the edits') }
+  if (state.ab) { state.ab = false; pl.set(output.channels, output.sampleRate, hears(output), output.length); return note('Hearing the output, after the edits') }
   const loudness = output.stats.loudness
   if (original?.name !== name || original.loudness !== loudness) {
     const r = await eng.original(name, loudness)
-    if (!r.channels) return note(r.error?.message || 'The original is too long to hold beside the output.')
+    if (!r.sampleRate) return note(r.error?.message || 'The file as it opened is no longer open.')
     original = { name, loudness, ...r }
   }
   state.ab = true
   state.abGain = original.gain
-  pl.set(original.channels, original.sampleRate, o => eng.voice({ ...o, source: name, loudness }))
+  pl.set(original.channels, original.sampleRate, o => eng.voice({ ...o, source: name, loudness }), original.length)
   note(`Hearing before the edits: the file as it opened, level-matched (${original.gain >= 0 ? '+' : '−'}${Math.abs(original.gain).toFixed(1)}dB). B for after`)
 }
 
@@ -1177,7 +1193,8 @@ function meter(t = null) {
     v.meters = n ? { levels: levels(x, n - Math.round(rate * .05), n), spectra: spectra(x, n - size, n, { size }), size, rate } : null
     return
   }
-  if (!output?.duration) { v.meters = null; return }
+  // a long output's samples are the engine's: no meters over it
+  if (!output?.channels || !output.duration) { v.meters = null; return }
   const rate = output.sampleRate, x = output.channels, sel = t == null && v.selection
   const [a, b] = t != null ? [t - .05, t] : sel || [v.cursor - .025, v.cursor + .025], from = Math.round(a * rate), to = Math.round(b * rate)
   const [s0, s1] = t != null ? [to - size, to] : sel ? [from, Math.max(to, from + size)] : [Math.round(v.cursor * rate) - size / 2, Math.round(v.cursor * rate) + size / 2]
@@ -1210,13 +1227,15 @@ function describe() {
   listen()
   state.sound = null
   if (!output?.duration) { state.readout = ''; return }
-  const { sampleRate, channels, stats, bitDepth } = output, k = channels.length
+  const { sampleRate, channels, peaks, stats, bitDepth } = output, k = (channels ?? peaks).length
   state.sound = { hz: sampleRate, rate: `${+(sampleRate / 1000).toFixed(3)}kHz`, count: k, channels: layouts.find(l => l.count === k)?.label ?? `${k} ch`, depth: bitDepth ? `${bitDepth}-bit` : '' }
   const sel = state.selection
   if (!sel) { state.readout = [`peak ${dbfs(stats.peak)}dBFS`, Number.isFinite(stats.loudness) ? `${dbfs(stats.loudness)}LUFS` : ''].filter(Boolean).join(' '); return }
   const [a, b] = sel, rate = output.sampleRate, from = Math.floor(a * rate), to = Math.ceil(b * rate)
   let peak = 0, sum = 0, n = 0
-  for (const ch of output.channels) for (let i = from; i < to && i < ch.length; i++) { const x = ch[i]; sum += x * x; n++; if (Math.abs(x) > peak) peak = Math.abs(x) }
+  if (channels) for (const ch of channels) for (let i = from; i < to && i < ch.length; i++) { const x = ch[i]; sum += x * x; n++; if (Math.abs(x) > peak) peak = Math.abs(x) }
+  // a long output's from its leaves, those the selection touches whole: within 256 samples at either end
+  else for (const l of peaks) for (let j = Math.floor(from / 256); j < Math.min(Math.ceil(to / 256), l.length / 4); j++) { peak = Math.max(peak, -l[4 * j], l[4 * j + 1]); sum += l[4 * j + 2]; n += l[4 * j + 3] }
   state.readout = state.boxes > 1 ? `${state.boxes} bands` : state.band ? `${hertz(state.band[0])}–${hertz(state.band[1])}` : `peak ${dbfs(20 * Math.log10(peak))}dB RMS ${dbfs(10 * Math.log10(sum / Math.max(1, n)))}dB`
 }
 // What the sound holds, as a musician says it (worker.js listen()), before its levels: the note under the caret or over
@@ -2150,7 +2169,7 @@ function download(file) {
 // each named as the bridge's MCP server names it (bin/mcp.js --playground). What an edit does is answered once its run ends.
 const page = {
   state: () => ({
-    script: ed.code, name: state.name, duration: output?.duration ?? 0, sampleRate: output?.sampleRate ?? null, channels: output?.channels.length ?? null,
+    script: ed.code, name: state.name, duration: output?.duration ?? 0, sampleRate: output?.sampleRate ?? null, channels: (output?.channels ?? output?.peaks)?.length ?? null,
     selection: v.selection, band: v.band, cursor: v.cursor, markers: output?.markers ?? [], problem: state.problem || null,
     stats: output?.stats ? { peak: output.stats.peak, loudness: output.stats.loudness } : null,
     steps: stepsOf(ed.code).map(({ text, on }) => ({ call: text.slice(1), on })), shown: shownStep()

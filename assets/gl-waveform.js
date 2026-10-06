@@ -146,6 +146,34 @@ export default class Waveform {
   /** Append samples. */
   push(samples) { return this.set(samples, this.#n) }
 
+  /** Summaries of samples not held, for a waveform zoomed out past them: a leaf of B (256) samples each, from sample
+   *  `offset` (a multiple of 256), as [min, max, Σx², count] in a row; the data's length grows to cover them. Zoomed
+   *  out to 1024 samples a pixel or more, columns are exact from them alone; zoomed in, columns read the samples, which
+   *  set() writes over them, leaf by leaf. */
+  peaks(leaves, offset = 0) {
+    offset = Math.trunc(offset)
+    if (!(offset >= 0) || offset % B) throw RangeError(`gl-waveform: peaks start at a multiple of ${B}`)
+    let count = Math.floor(leaves.length / 4)
+    if (!count) return this
+    let j0 = offset / B, last = leaves[4 * count - 1], end = offset + (count - 1) * B + (last > 0 ? last : B)
+    this.#n = Math.max(this.#n, end)
+    let size = Math.ceil(this.#n / B), v = this.#tree[0] = grow(this.#tree[0], size * 4)
+    for (let k = 0; k < count * 4; k++) v[j0 * 4 + k] = leaves[k]
+    this.#index(offset, offset + count * B, false)
+    this.#version++
+    this.#draw = null
+    return this
+  }
+
+  /** Let go of the samples of the whole chunks (65536) within [from, to), keeping what the pyramid knows of them: zoomed
+   *  in there, the line has a gap till set() writes them again. */
+  drop(from = 0, to = this.#n) {
+    for (let j = Math.ceil(from / C); (j + 1) * C <= Math.min(to, Math.ceil(this.#n / C) * C) && j < this.#chunks.length; j++) this.#chunks[j] = null
+    this.#version++
+    this.#draw = null
+    return this
+  }
+
   /** Write samples at offset, extending the data if needed; a gap before offset reads as NaN. */
   set(samples, offset = 0) {
     offset = Math.trunc(offset)
@@ -280,8 +308,8 @@ export default class Waveform {
     return d ? d[i % C] : NaN
   }
 
-  // Rebuild the pyramid nodes covering samples [a, b)
-  #index(a, b) {
+  // Rebuild the pyramid nodes covering samples [a, b), its leaves from the samples unless they were given (peaks)
+  #index(a, b, scan = true) {
     let n = this.#n, t = this.#tree
     if (!n) return void (t.length = 0)
     let lo = Math.floor(a / B), hi = Math.ceil(b / B), size = Math.ceil(n / B), prev = 0
@@ -289,6 +317,7 @@ export default class Waveform {
       let v = t[L] = grow(t[L], size * 4), w = t[L - 1]
       for (let j = lo; j < hi; j++) {
         let p = j * 4
+        if (!L && !scan) continue
         v[p] = Infinity; v[p + 1] = -Infinity; v[p + 2] = v[p + 3] = 0
         if (!L) this.#scan(j * B, Math.min(j * B + B, n), v, p)
         else { merge(v, p, w, 2 * p); if (2 * j + 1 < prev) merge(v, p, w, 2 * p + 4) }
@@ -296,6 +325,14 @@ export default class Waveform {
       if (size === 1) return void (t.length = L + 1)
       lo >>= 1; hi = (hi + 1) >> 1; prev = size; size = (size + 1) >> 1
     }
+  }
+
+  // Samples [a, b) within one leaf into o, or the leaf where they are not held
+  #part(a, b, o) {
+    if (a >= b) return
+    if (this.#chunks[Math.floor(a / C)]) return this.#scan(a, b, o, 0)
+    let v = this.#tree[0], q = Math.floor(a / B) * 4
+    if (v?.[q + 3] > 0) merge(o, 0, v, q)
   }
 
   // Accumulate samples [a, b), within one chunk, into v[p..p+3] = [min, max, sum², count]
@@ -308,13 +345,14 @@ export default class Waveform {
     v[p] = lo; v[p + 1] = hi; v[p + 2] += q; v[p + 3] += k
   }
 
-  // Exact [min, max, sum², count] of samples [a, b) into o
+  // Exact [min, max, sum², count] of samples [a, b) into o; where its edges fall in leaves whose samples are not held
+  // (peaks), those leaves whole
   #stat(a, b, o) {
     o[0] = Infinity; o[1] = -Infinity; o[2] = o[3] = 0
     let ja = Math.ceil(a / B), jb = Math.floor(b / B)
-    if (ja > jb) return this.#scan(a, b, o, 0)
-    this.#scan(a, ja * B, o, 0)
-    this.#scan(jb * B, b, o, 0)
+    if (ja > jb) return this.#part(a, b, o)
+    this.#part(a, ja * B, o)
+    this.#part(jb * B, b, o)
     for (let L = 0; ja < jb; L++) {
       let v = this.#tree[L]
       if (ja & 1) merge(o, 0, v, 4 * ja++)

@@ -75,7 +75,7 @@ const VOICE = [60, 1000]                      // the pitch axis when no spectrog
 const GAIN = [-36, 12]                        // the gain line's scale, dB: the lane's centre line to its edges, 0 dB
                                               // three quarters of the way out, so a boost shows above it
 
-export default function view(root, { onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onaudition = () => {}, hint = null } = {}) {
+export default function view(root, { onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onaudition = () => {}, onsamples = null, hint = null } = {}) {
   const layer = name => root.appendChild(Object.assign(document.createElement('canvas'), { className: name }))
   // the grid between the pictures: over the spectrogram, under the waveform
   const specCanvas = layer('spectrum'), gridCanvas = layer('grid'), waveCanvas = layer('waveform'), overlay = layer('overlay')
@@ -164,6 +164,13 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   let waveLook = { colour: 'none', lanes: 'split', fill: 'density' }
   // the channels' samples the pictures hold, for their colours
   let data = []
+  // A sound longer than the page holds (summary): drawn from its leaves, its samples fetched where it is zoomed in
+  // (onsamples, a chunk of CHUNK at a time, as gl-waveform keeps them): far enough for the waveform to want them (under
+  // WAVE samples a device px, where its columns stop being whole leaves) or for the spectrogram to be drawn (SPAN samples
+  // in view at most), half a view either side too. At most HELD samples a channel held, those farthest from the view let
+  // go first. `windows`: chunk → its channels, or the promise of them; null while the page holds the whole sound
+  const CHUNK = 65536, WAVE = 1024, SPAN = 2 ** 23, HELD = 2 ** 24
+  let windows = null, windowsOf = 0
   // `anchor`: where the selection was begun, the end Shift keeps (origin)
   let W = 0, H = 0, dpr = 1, frame = 0, leveled = false, drag = null, anchor = null
   const pointers = new Map()
@@ -336,7 +343,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   function render() {
     frame = 0
     const L = lanes(), from = start * rate, to = end * rate
-    light(recording || data.length || arriving?.length ? arriving?.dim ? 'dim' : 'full' : 'none')
+    light(recording || data.length || windows || arriving?.length ? arriving?.dim ? 'dim' : 'full' : 'none')
     // the grid ruled anew (a zoom, the level axis' units) draws the pictures again, as it is cut by the waveform drawn
     if (gridKey(L) !== ruled) pictures = true
     if (!pictures) return paint(L)
@@ -361,9 +368,58 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
         if (rect && x1 > x0) drawWave(recording.waves[c], i, rect, 0, recording.length, x0, x1, aview, ratio, { x: recording.data[c].subarray(0, recording.length), rate: recording.rate, id: `take ${c}` })
       })
     }
-    if (sgl) spectrograms(L, from, to)
+    if (sgl && (!windows || covered(from, to))) spectrograms(L, from, to)
+    else if (sgl) { sgl.disable(sgl.SCISSOR_TEST); sgl.clearColor(0, 0, 0, 0); sgl.clear(sgl.COLOR_BUFFER_BIT) }
+    want(L, from, to)
     paintGrid(L)
     paint(L)
+  }
+  // Whether every chunk of samples [from, to) of a long sound is held
+  function covered(from, to) {
+    for (let j = Math.max(0, Math.floor(from / CHUNK)); j * CHUNK < Math.min(to, duration * rate); j++) if (!Array.isArray(windows.get(j))) return false
+    return true
+  }
+  // A long sound's samples where the view needs them (windows): the chunks missing, fetched a run at a time, drawn as they
+  // come; then, past HELD, those farthest from the view let go
+  function want(L, from, to) {
+    if (!windows || arriving || !onsamples) return
+    const spp = (to - from) / Math.max(1, plot().w * dpr)
+    if (!(spp < WAVE || L.spec.length && to - from <= SPAN)) return
+    const span = to - from, n = Math.ceil(duration * rate / CHUNK), j0 = Math.max(0, Math.floor((from - span / 2) / CHUNK)), j1 = Math.min(n, Math.ceil((to + span / 2) / CHUNK))
+    for (let j = j0; j < j1;) {
+      if (windows.has(j)) { j++; continue }
+      let k = j
+      while (k < j1 && !windows.has(k)) k++
+      fetch(j, k, (from + to) / 2)
+      j = k
+    }
+  }
+  // Chunks [j, k) fetched and drawn, `mid` where the view is
+  function fetch(j, k, mid) {
+    const of = windowsOf, got = Promise.resolve(onsamples(j * CHUNK, Math.min(k * CHUNK, Math.round(duration * rate)))).catch(() => null)
+    for (let i = j; i < k; i++) windows.set(i, got)
+    got.then(channels => {
+      if (of !== windowsOf) return
+      if (!channels?.length) { for (let i = j; i < k; i++) windows.delete(i); return }
+      channels.forEach((x, c) => { waves[c]?.set(x, j * CHUNK); specs[c]?.set(x, j * CHUNK) })
+      for (let i = j; i < k; i++) windows.set(i, channels.map(x => x.subarray((i - j) * CHUNK, (i - j + 1) * CHUNK)))
+      leveled = false
+      trim(mid)
+      invalidate()
+    })
+  }
+  // Past HELD samples a channel, the chunks farthest from `mid` let go: from the waveform, which keeps their peaks; the
+  // spectrogram, which keeps what it is given, made again from those still held
+  function trim(mid) {
+    const all = [...windows].filter(([, v]) => Array.isArray(v)).map(([j]) => j)
+    if (all.length * CHUNK <= HELD) return
+    const gone = all.sort((p, q) => Math.abs((q + .5) * CHUNK - mid) - Math.abs((p + .5) * CHUNK - mid)).slice(0, all.length - HELD / CHUNK)
+    for (const j of gone) { windows.delete(j); waves.forEach(w => w.drop(j * CHUNK, (j + 1) * CHUNK)) }
+    specs.forEach(sg => sg.destroy())
+    specs = []
+    lay(count)
+    specs.forEach(sg => sg.update({ sampleRate: rate }))
+    for (const [j, v] of windows) if (Array.isArray(v)) v.forEach((x, c) => specs[c]?.set(x, j * CHUNK))
   }
   // A channel's waveform over [x0, x1) of its lane, samples [from, to): in its colour, or coloured for what it holds
   // (tint.js), a colour every 4 to 8 px, on a grid of the sound's own samples, so the colours stay put as the view
@@ -2129,6 +2185,15 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // of the last showed; zoomed out past its end, the room on its right, at the same scale, while it fits there (a
   // reload, an edit that shortens it); its cues go if its length changed (they were the last one's), until its own
   // come, unless the view moved them to where they are in it (a cue dragged, `ahead`).
+  // What has arrived grown to `n` samples: past what was expected, or with nothing expected, as long as what has come;
+  // all of it shown as it grows, unless the view was zoomed in meanwhile
+  function grown(n) {
+    arriving.length = n
+    const all = arriving.fit && whole()
+    if (arriving.length / rate > duration) duration = arriving.length / rate
+    if (all) setRange(0, duration)
+    else invalidate()
+  }
   let ahead = false, stay = false
   function replace(total) {
     const roomy = end > duration + 1e-9 && total != null && total <= end
@@ -2148,7 +2213,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     set(channels, sampleRate) {
       channels ||= []
       const all = replace(channels[0]?.length ? channels[0].length / (sampleRate || rate) : 0)
-      if (!arriving && channels.length && channels.length === data.length && (sampleRate || rate) === rate && channels.every((y, c) => y.length === data[c].length)) {
+      if (!arriving && !windows && channels.length && channels.length === data.length && (sampleRate || rate) === rate && channels.every((y, c) => y.length === data[c].length)) {
         ended()
         const [i0, i1] = changed(data, channels)
         data = channels
@@ -2161,7 +2226,23 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       count = channels.length; rate = sampleRate || rate
       duration = channels[0]?.length ? channels[0].length / rate : 0
       lay(count)
+      windows = null; windowsOf++
       fill(data = channels)
+      renew(all)
+    },
+    // A sound longer than the page holds, in place of the one shown: drawn from each channel's `leaves` (gl-waveform's
+    // peaks), `length` samples at `sampleRate`; its samples come where it is zoomed in (want)
+    summary(leaves, length, sampleRate) {
+      const all = replace(length / (sampleRate || rate))
+      arriving = null
+      ended()
+      count = leaves.length; rate = sampleRate || rate
+      duration = length / rate
+      lay(count)
+      windows = new Map(); windowsOf++
+      fill(data = waves.map(() => new Float32Array(0)))
+      data = []
+      leaves.forEach((l, i) => waves[i].peaks(l, 0))
       renew(all)
     },
     // A file held over the picture (a drag's event, or null when it leaves): where it would go in, the time under the
@@ -2174,7 +2255,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // Samples of an output arriving as long as the one shown, from `at`: drawn where they differ from what shows, the
     // rest left as it is, so an edit's output comes in where it changes as it renders, nothing else drawn again
     patch(at, channels) {
-      if (arriving || channels.length !== data.length) return
+      if (arriving || windows || channels.length !== data.length) return
       channels.forEach((y, c) => {
         const x = data[c]
         let a = 0, b = Math.min(y.length, x.length - at)
@@ -2199,6 +2280,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       arriving = { total, length: 0, dim, fit: all }
       duration = total ? total / rate : all ? 0 : duration
       lay(count)
+      windows = null; windowsOf++
       fill(waves.map(() => new Float32Array(0)))
       data = []
       if (dim) { selection = band = null; more = [] }
@@ -2207,13 +2289,15 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     append(channels) {
       if (!arriving) return
       channels.forEach((data, i) => { waves[i]?.push(data); specs[i]?.push(data) })
-      arriving.length += channels[0].length
-      // past what was expected, or with nothing expected: as long as what has come; all of it shown as it grows, unless
-      // the view was zoomed in meanwhile
-      const all = arriving.fit && whole()
-      if (arriving.length / rate > duration) duration = arriving.length / rate
-      if (all) setRange(0, duration)
-      else invalidate()
+      grown(arriving.length + channels[0].length)
+    },
+    // A long sound's leaves as it arrives, from sample `at`: each channel's, for the waveform; the spectrogram waits for
+    // samples, once the sound is whole (summary)
+    peaks(at, leaves) {
+      if (!arriving) return
+      leaves.forEach((l, i) => waves[i]?.peaks(l, at))
+      const n = leaves[0].length / 4
+      grown(at + (n - 1) * 256 + (leaves[0][4 * n - 1] || 256))
     },
     finish() {
       if (!arriving) return
@@ -2223,6 +2307,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       lay(count)
       renew(all)
     },
+
     // A take recorded over the output from `at` s, drawn as it comes (take), grown by each block of channels (grow), and
     // drawn until the output that holds it arrives (set, stream); take(null) drops it at once
     take(opts) {
