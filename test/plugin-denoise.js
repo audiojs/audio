@@ -495,6 +495,22 @@ test('denoise: the noise learned from its range goes down by the reduction, the 
 	ok(speechDb(w) < speechDb(clean) - 1.5, `learned from speech: the speech ${(speechDb(clean) - speechDb(w)).toFixed(1)} dB down`)
 })
 
+// frames of at least 32 ms, 2048 at 44.1 kHz as at 48: partials a 1024 frame cannot part from the noise are kept.
+// Eighteen harmonics of 110 Hz, each 57 dB under full scale, from 2 s, in white noise 40 dB under; what the gain does to
+// the partials read apart from the noise by the phase-inversion method (Hagerman & Olofsson 2004)
+test('denoise: at 44.1 kHz a 2048 frame (its latency 2047): held partials under steady noise kept, the noise 12 dB down', async () => {
+	is(audio.op('denoise').latency({}, SR), 2047, 'a 2048 frame')
+	let n = 6 * SR, nz = noise(n, 0.01 * Math.sqrt(3), 3), s = new Float32Array(n)
+	for (let h = 1; h <= 18; h++) for (let i = 2 * SR; i < n; i++) s[i] += 0.002 * Math.sin(2 * Math.PI * 110 * h * i / SR + h)
+	let run = async x => (await audio.from([x], { sampleRate: SR }).denoise({ noise: { at: 0.2, duration: 1.5 } }).read())[0]
+	let yp = await run(s.map((v, i) => v + nz[i])), ym = await run(s.map((v, i) => v - nz[i]))
+	let e = (f, a, b) => { let p = 0; for (let i = a; i < b; i++) p += f(i) ** 2; return p }
+	let kept = 10 * Math.log10(e(i => (yp[i] + ym[i]) / 2, 3 * SR, n) / e(i => s[i], 3 * SR, n))
+	let down = 10 * Math.log10(e(i => nz[i], SR, 2 * SR) / e(i => (yp[i] - ym[i]) / 2, SR, 2 * SR))
+	ok(kept > -3, `partials kept: ${kept.toFixed(2)} dB (a 1024 frame: −4.3)`)
+	ok(Math.abs(down - 12) < 0.3, `the noise alone ${down.toFixed(2)} dB down`)
+})
+
 test('denoise: the range is in the op\'s input: it follows the edits before it', async () => {
 	let { dirty } = take(15)
 	// a second removed from the start: 1.05 s in what is left is the pause's 2.05 s
@@ -566,7 +582,7 @@ test('denoise: each channel learns its own noise; the op\'s range leaves the res
 	is(maxDiff(l, l1), 0, 'left: as alone')
 	is(maxDiff(r, r1), 0, 'right, its louder noise: as alone')
 	let [y] = await audio.from([dirty], { sampleRate: SR }).denoise({ noise: PAUSE, at: 3, duration: 1 }).read()
-	let F = 1024   // a frame at 44.1 kHz: the gains reach half a frame past the range's edges
+	let F = 1024   // half a frame at 44.1 kHz (2048): the gains reach that far past the range's edges
 	ok(maxDiff(y.subarray(0, 3 * SR - F), dirty.subarray(0, 3 * SR - F)) < 1e-6, 'before the range: the input')
 	ok(maxDiff(y.subarray(4 * SR + F), dirty.subarray(4 * SR + F)) < 1e-6, 'after it: the input')
 	ok(rms(y, 3 * SR + F, 4 * SR - F) < rms(dirty, 3 * SR + F, 4 * SR - F), 'inside: the noise down')

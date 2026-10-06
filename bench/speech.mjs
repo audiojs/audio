@@ -92,6 +92,9 @@ for (let [d, den] of [['omlsa', 'omlsa()'], ['omlsa12', 'omlsa({ gMin: -12 })'],
 // Dialogue Isolate with its noise off and the room kept, De-reverb at its defaults
 cand('rx-vdn', ["rx('Voice De-noise')"])
 cand('rx-sdn', ["rx('Spectral De-noise', { adaptive_learning: true })"])
+// Voice De-noise and Spectral De-noise at their best PESQ on `train` (bench/rx/denoise.mjs: reduction, thresholds, quality)
+cand('rx-vdn-tuned', ["rx('Voice De-noise', { reduction: 20, master_threshold: 10 })"])
+cand('rx-sdn-tuned', ["rx('Spectral De-noise', { adaptive_learning: true, quality: 'Extreme', linked_reduction_db: 20 })"])
 cand('rx-di', ["rx('Dialogue Isolate', { noise_gain_db: -Infinity })"])
 cand('rx-drv', ["rx('De-reverb')"])
 const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')

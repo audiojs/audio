@@ -16,12 +16,16 @@
  * floor `reduction` dB down by the probability of presence, read from the a posteriori SNR averaged over 105.5 Hz and
  * over 543 Hz of the frame at fixed priors (Gerkmann, Breithaupt & Martin 2008), and set to 0 where Cohen's a priori
  * absence is 0.9 or more, that absence read from the a priori SNR smoothed in the cepstrum (Breithaupt, Gerkmann &
- * Martin 2008) and then over time and neighbouring bins; frames of 32 ms (the power of two nearest), a quarter-frame
- * hop. Speech 0–5 dB over the noise keeps 3.3 dB more than when presence was read bin by bin at a fixed 15 dB (Gerkmann
- * & Hendriks 2012; @audio/denoise-omlsa 0.3: −7.9 → −4.6 dB on VoiceBank speech), and the noise in pauses goes as far
- * down. What stays of the noise is the noise, `reduction` dB quieter, not tones: log kurtosis ratio 0.00 on steady
- * noise at 12 to 20 dB (musical noise is above 0); in the half second after music stops, 0.05 at 12 dB, 0.61 at 20
- * (0.11 and 1.00 with omlsa 0.3; @audio/denoise's scripts/broadband.mjs).
+ * Martin 2008) and then over time and neighbouring bins; frames of at least 32 ms (the power of two at or above: 2048
+ * at 44.1 and 48 kHz), a quarter-frame hop. The noise held, the frame's length goes to frequency resolution: at 44.1 kHz
+ * the nearest power of two, 1024, cut held partials with the noise between them (music under steady noise, below:
+ * SDR 20.16 → 20.94 dB, music cut by more than 3 dB 2.2 → 1.3 %; speech kept, VoiceBank at 44.1 kHz PESQ 1.875 →
+ * 1.872, OVRL 2.549 → 2.574 on the training set). Speech 0–5 dB over the noise keeps 3.3 dB more than when presence
+ * was read bin by bin at a fixed 15 dB (Gerkmann & Hendriks 2012; @audio/denoise-omlsa 0.3: −7.9 → −4.6 dB on
+ * VoiceBank speech), and the noise in pauses goes as far down. What stays of the noise is the noise, `reduction` dB
+ * quieter, not tones: log kurtosis ratio 0.00 on steady noise at 12 to 20 dB (musical noise is above 0); in the half
+ * second after music stops, 0.04 at 12 dB, 0.40 at 20 (0.05 and 0.61 with 1024 frames at 44.1 kHz, 0.11 and 1.00 with
+ * omlsa 0.3; @audio/denoise's scripts/broadband.mjs).
  * `threshold` raises the print by that many dB before the gain reads it (RX's Threshold): more of what is quiet counts
  * as noise. `reduction` 0 leaves the input.
  * `band` [low, high] Hz gains only the bins from low to high, each bin whose centre is inside; the others pass as they were,
@@ -38,10 +42,18 @@
  *
  * On the 824 VoiceBank+DEMAND test utterances, each one's noise learned from the half second before its speaker starts
  * (bench/denoise.mjs; @audio/denoise's scripts/speech.mjs `omlsa-learned` runs the same): PESQ 2.46, STOI 0.920 and
- * DNSMOS OVRL 2.87, against 2.36, 0.920 and 2.85 for omlsa() tracking the noise, 1.97, 0.921 and 2.68 unprocessed,
+ * DNSMOS OVRL 2.88, against 2.36, 0.920 and 2.85 for omlsa() tracking the noise, 1.97, 0.921 and 2.68 unprocessed,
  * 2.41, 0.921 and 2.86 for noisereduce's stationary gating on the same lead-in at 12 dB, 2.67, 0.939 and 3.03 for the
- * DeepFilterNet3 network held to 12 dB. Each channel is learned and gained apart: linking the channels' gains measured
- * 0.6 dB less SNR gain where their noises differ, 0.1 dB more where they are the same.
+ * DeepFilterNet3 network held to 12 dB; iZotope RX 12 on the same lead-in (bench/rx/denoise.mjs, 2026-10; Learn is no
+ * plugin parameter, so the print its adaptive mode learns there is held): Spectral De-noise 2.19, 0.923 and 2.80 at its
+ * defaults, 2.35, 0.925 and 2.85 at its best on the training set (Extreme, 20 dB); Voice De-noise 2.37, 0.918 and 2.82,
+ * and 2.53, 0.901 and 2.81 at its best (20 dB, threshold +10 dB: an expander that takes PESQ and costs the voice, SIG
+ * 3.22 against 3.37, SI-SDR 3.6 dB against 15.1). Music at 44.1 kHz under steady noise 10 and 25 dB down (ten MUSDB18
+ * test mixtures, strings and jazz; white, pink and two DEMAND noises; the noise learned from 1.5 s of it alone): SDR
+ * 20.9 dB, against 19.4 for Spectral De-noise learned at its defaults and 20.2 at its best, music cut by more than
+ * 3 dB 1.3 % (1.3 and 2.9 %), musical noise after the music stops 0.36 (0.68 and 1.00). Each channel is learned and
+ * gained apart: linking the channels' gains measured 0.6 dB less SNR gain where their noises differ, 0.1 dB more where
+ * they are the same.
  */
 import audio, { parseTime, named } from '../core.js'
 import { fingerprint } from './vocals.js'
@@ -50,8 +62,9 @@ const LEARNED = Symbol('denoise.learned'), REDUCTION = 12
 // the print's grid: 23.4375 Hz (24 kHz over 1024 bands), the bins of a 2048 frame at 48 kHz
 const TOP = 24000, BANDS = 1024
 
-/** The frame: the power of two nearest 32 ms, as @audio/denoise-omlsa's `frame`. */
-export const frame = sr => 2 ** Math.round(Math.log2(0.032 * sr))
+/** The frame: the power of two at or above 32 ms, as @audio/denoise-omlsa's `frame(sr, true)` for a held noise: 2048 at
+ *  44.1 and 48 kHz, 512 at 16. */
+export const frame = sr => 2 ** Math.ceil(Math.log2(sr * 32 / 1000))
 
 const lerp = (y, x) => { let i = Math.floor(x); return i >= y.length - 1 ? y[y.length - 1] : y[i] + (x - i) * (y[i + 1] - y[i]) }
 
