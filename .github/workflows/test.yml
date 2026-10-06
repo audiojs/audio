@@ -66,6 +66,7 @@ jobs:
           ONNXRUNTIME_NODE_INSTALL_CUDA: skip
       - run: npx playwright install --with-deps chromium
       - run: sudo apt-get install -y pulseaudio && pulseaudio --start --exit-idle-time=-1 && pactl info
+      - run: node test/.speaker-start.mjs; node test/.speaker-start.mjs
       - run: npm run test:polyfill
   # action.yml as another repo uses it: a file within its spec passes, one outside it fails the step
   check:
