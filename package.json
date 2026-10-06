@@ -102,6 +102,7 @@
     "@audio/denoise-deplosive": "^0.2.0",
     "@audio/denoise-dereverb": "^0.4.0",
     "@audio/denoise-dewind": "^0.4.0",
+    "@audio/denoise-dewow": "^0.3.0",
     "@audio/denoise-omlsa": "^0.5.0",
     "@audio/denoise-repair": "^0.4.0",
     "@audio/denoise-spectral": "^0.3.0",
