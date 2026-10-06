@@ -4,10 +4,13 @@
 #   python bench/rx/host.py params PLUGIN   its parameters: name, range, default
 #   python bench/rx/host.py lag             each plugin's alignment at its defaults: the lag of its output on noise
 # Plugins load from /Library/Audio/Plug-Ins/VST3/RX 12 <PLUGIN>.vst3 (RX 12 Advanced, authorized). Each job starts
-# from the plugin's defaults and a reset; a file renders whole, offline, in Pedalboard's 8192-sample blocks, the
-# plugin's reported latency taken off (Pedalboard does it). Outputs are float32 WAV at the input's rate. Jobs run in
-# parallel processes (RX_JOBS, default half the cores), each loading a plugin once. A parameter is set by its
-# Pedalboard name to a number or a value's string ("Multi-band"); "-inf" is minus infinity (a gain's off).
+# from the plugin's defaults and a reset, or from a new instance where a reset keeps state (FRESH: on a tone in noise
+# after another sound, Spectral De-noise's output differed from a new instance's by -47 dB, its learned print held;
+# Repair Assistant's by +5 dB, its analysis kept; the others' not at all). A file renders whole, offline, in
+# Pedalboard's 8192-sample blocks, the plugin's reported latency taken off (Pedalboard does it). Outputs are float32
+# WAV at the input's rate. Jobs run in parallel processes (RX_JOBS, default half the cores), each loading a plugin
+# once (FRESH ones per job). A parameter is set by its Pedalboard name to a number or a value's string ("Multi-band");
+# "-inf" is minus infinity (a gain's off).
 import os, sys, json, numpy as np, soundfile as sf, pedalboard
 from multiprocessing import Pool
 
@@ -15,10 +18,11 @@ VST = '/Library/Audio/Plug-Ins/VST3/RX 12 %s.vst3'
 PLUGINS = ['Breath Control', 'De-bleed', 'De-click', 'De-clip', 'De-crackle', 'De-ess', 'De-hum', 'De-plosive', 'De-reverb',
            'Dialogue Isolate', 'Guitar De-noise', 'Mouth De-click', 'Music Rebalance', 'Repair Assistant', 'Spectral De-noise',
            'Voice De-noise']
+FRESH = {'Spectral De-noise', 'Repair Assistant'}
 _loaded = {}
 
 def plugin(name):
-    if name not in _loaded:
+    if name not in _loaded or name in FRESH:
         p = pedalboard.load_plugin(VST % name)
         _loaded[name] = (p, {k: getattr(p, k) for k in p.parameters})
     p, defaults = _loaded[name]
