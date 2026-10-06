@@ -34,6 +34,7 @@ import os from 'node:os'
 import path from 'node:path'
 import audio from '../audio.js'
 import RECIPES from '../playground/recipes.js'
+import { readWav, writeWav, rx } from './rx/lib.mjs'
 
 // SPEECH_TAG names a separate output tree: the same stages after their packages change
 const DATA = path.join(os.homedir(), '.cache', 'audiojs', 'data'), OUT = path.join(DATA, 'recipes' + (process.env.SPEECH_TAG ? '-' + process.env.SPEECH_TAG : ''))
@@ -87,6 +88,12 @@ for (let [d, den] of [['omlsa', 'omlsa()'], ['omlsa12', 'omlsa({ gMin: -12 })'],
   cand(`c-${d}`, ['highpass(80)', 'dehum()', den])
   cand(`ca-${d}`, ['highpass(80)', 'dehum()', den, ...ACX, comp(-14, 3), ...ACXEND])
 }
+// iZotope RX 12 (bench/rx/host.py): Voice De-noise adaptive at its defaults (12 dB), Spectral De-noise adaptive,
+// Dialogue Isolate with its noise off and the room kept, De-reverb at its defaults
+cand('rx-vdn', ["rx('Voice De-noise')"])
+cand('rx-sdn', ["rx('Spectral De-noise', { adaptive_learning: true })"])
+cand('rx-di', ["rx('Dialogue Isolate', { noise_gain_db: -Infinity })"])
+cand('rx-drv', ["rx('De-reverb')"])
 const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 // `$src\n  .a()\n  .b(…)` → ['a()', 'b(…)']
 const stages = code => code.replace(/^\$src\s*\./, '').split(/\)\s*\.(?=[a-z])/).map((s, i, all) => (i < all.length - 1 ? s + ')' : s).trim())
@@ -116,32 +123,6 @@ export const expand = id => id.startsWith('lin:') ? expand(id.slice(4)).map(k =>
   : id.endsWith(':*') ? system(id.slice(0, -2)).stages.map((_, k) => `${id.slice(0, -2)}:${k + 1}`) : [id]
 
 const dir = s => s.replace(/\s+/g, '').replace(/["'\/]/g, '')
-
-function readWav(file) {
-  let b = readFileSync(file), dv = new DataView(b.buffer, b.byteOffset, b.byteLength), o = 12, fmt, nc, sr
-  while (o < b.length) {
-    let id = b.toString('ascii', o, o + 4), len = dv.getUint32(o + 4, true)
-    if (id === 'fmt ') fmt = dv.getUint16(o + 8, true), nc = dv.getUint16(o + 10, true), sr = dv.getUint32(o + 12, true)
-    if (id === 'data') {
-      let n = len / (fmt === 3 ? 4 : 2) / nc, ch = Array.from({ length: nc }, () => new Float32Array(n))
-      for (let i = 0; i < n; i++) for (let c = 0; c < nc; c++)
-        ch[c][i] = fmt === 3 ? dv.getFloat32(o + 8 + 4 * (i * nc + c), true) : dv.getInt16(o + 8 + 2 * (i * nc + c), true) / 32768
-      return { ch, sr }
-    }
-    o += 8 + len + (len & 1)
-  }
-  throw new Error(`no data chunk in ${file}`)
-}
-
-function writeWav(file, ch, sr) {
-  let n = ch[0].length, nc = ch.length, b = Buffer.alloc(44 + 4 * n * nc)
-  b.write('RIFF', 0); b.writeUInt32LE(36 + 4 * n * nc, 4); b.write('WAVEfmt ', 8); b.writeUInt32LE(16, 16)
-  b.writeUInt16LE(3, 20); b.writeUInt16LE(nc, 22); b.writeUInt32LE(sr, 24); b.writeUInt32LE(4 * sr * nc, 28)
-  b.writeUInt16LE(4 * nc, 32); b.writeUInt16LE(32, 34); b.write('data', 36); b.writeUInt32LE(4 * n * nc, 40)
-  for (let i = 0, p = 44; i < n; i++) for (let c = 0; c < nc; c++, p += 4) b.writeFloatLE(ch[c][i], p)
-  writeFileSync(file + '.part', b)
-  renameSync(file + '.part', file)  // an interrupted run leaves no short file behind
-}
 
 export const SETS = {
   test: { dir: 'vbdemand', input: 'noisy_testset_wav' },
@@ -182,6 +163,8 @@ async function neural(x, model, o) {
 }
 
 async function stage(x, s) {
+  // rx('Voice De-noise', { reduction: 20 }): iZotope RX 12's plugin (bench/rx/host.py)
+  if (s.startsWith('rx(')) return rx(...new Function(`return [${s.slice(3, -1)}]`)())(x)
   let m = s.match(/^(deepfilter|rnnoise)\((.*)\)$/)
   if (!m) return { ch: (await new Function('a', `return a.${s}`)(audio.from(x.ch, { sampleRate: x.sr })).read()).map(c => Float32Array.from(c)), sr: 0 }
   // positional limit or one options object, as the ops take them
