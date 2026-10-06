@@ -13,10 +13,11 @@
  * searched ±2 ms and refined between samples by Newton's method on the correlation itself, not on its samples. Its sign
  * says the polarity. A second counts where the correlation at its peak holds 0.8 of what a pure delay would give: a
  * mix's own delays (a Haas-panned part, a stereo delay, a spaced pair's room) hold less where they lead (0.3 to 0.76
- * on MUSDB18 mixes), the program as a whole, offset or not, more (0.8 to 1). Their median says whether the pair is out
- * of line: within a tenth of a sample, polarity as it was, it is left as it came, sample for sample (the opening 7 s of 25
- * MUSDB18 test mixes: their median 0.06 samples at most); else each second's delay is the median of it and its counted
- * neighbours two either side, straight from one to the next, so a tape's azimuth that wanders as it plays is followed.
+ * on MUSDB18 mixes), the program as a whole, offset or not, mostly more (0.8 to 1). Their median says whether the pair
+ * is out of line: within a tenth of a sample, polarity as it was, it is left as it came, sample for sample (7 s
+ * excerpts of 25 MUSDB18 test mixes: their median 0.06 samples at most); else each second's delay is the median of it
+ * and its counted neighbours two either side, straight from one to the next, so a tape's azimuth that wanders as it
+ * plays is followed.
  * Measured on speech delayed by a known fraction (an exact FFT shift), the delay comes back within 0.0001 samples.
  * The second channel is read where the first is, between samples by @audio's Lanczos interpolator (16 zero crossings
  * a side, fn/resample.js), its polarity turned if it was inverted; the first is not touched. Streams 2 ms and 16
