@@ -475,7 +475,7 @@ audio(4).poly({ notes: [{ time: 0, midi: 60, duration: 1 }, { time: 0, midi: 64,
 Op plugins:
 
 **dynamics** compressor · limiter · gate · expander · deesser · ducker · compand · softclip · leveler · transient-shaper · multiband · fet · opto · varimu · vca —
-**denoise** dehum · specsub · wiener · omlsa · dereverb · deplosive · dewind · declip · decrackle · debreath · rnnoise (optional package: `@audio/neural-denoise`) —
+**denoise** dehum · specsub · wiener · omlsa · dereverb · deplosive · dewind · dewow · declip · decrackle · debreath · rnnoise (optional package: `@audio/neural-denoise`) —
 **effects** delay · chorus · flanger · phaser · tremolo · vibrato · autowah · wah · bitcrusher · distortion · exciter · ringmod · freqshift · multitap · pingpong · slew · noiseshaper · lofi · graindelay · stutter · subbass · sbr · rotary · tapestop —
 **reverb** freeverb · schroeder · plate · fdn · spring · shimmer —
 **filter** moog · korg35 · diode · oberheim · resonator · spectral-tilt · variable · comb · dcblocker · emphasis · deemphasis · derivative · integral —

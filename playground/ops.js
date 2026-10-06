@@ -50,6 +50,8 @@ const table = {
   bandpass: ['Filter', 'Keep one band', [need(hz()), Q()]],
   notch: ['Filter', 'Remove one frequency', [need(hz('freq', 50)), Q(30)]],
   allpass: ['Filter', 'Shift phase around a frequency', [hz(), Q()]],
+  // every frequency's phase turned by one angle, 180 the polarity; unset, the angle that lowers the peaks (fn/phase.js)
+  phase: ['Filter', 'Turn the phase to lower the peaks, or flip polarity', [p('angle', -180, 180, 0, '°', { step: 1 })]],
   lowshelf: ['Filter', 'Boost or cut the lows', [hz('freq', 200), db('gain', -24, 24, 0), Q()]],
   highshelf: ['Filter', 'Boost or cut the highs', [hz('freq', 8000), db('gain', -24, 24, 0), Q()]],
   eq: ['Filter', 'Boost or cut a band', [hz(), db('gain', -24, 24, 0), Q(1)]],
@@ -102,6 +104,11 @@ const table = {
   specsub: ['Repair', 'Reduce noise by spectral subtraction'],
   dehum: ['Repair', 'Remove mains hum'],
   roomtone: ['Repair', 'Fill digital silence with the room tone', [db('threshold', -120, -60, -90)]],
+  // the second channel moved onto the first; unset, the delay measured over time (fn/azimuth.js)
+  azimuth: ['Repair', 'Line up a stereo pair in time and polarity', [p('delay', -2, 2, 0, 'ms', { step: .001 })]],
+  dewow: ['Repair', 'Correct wow and flutter'],
+  // the tonal, noisy and transient parts, each at its own level (fn/deconstruct.js)
+  deconstruct: ['Repair', 'Rebalance tones, noise and attacks', [db('tonal', -60, 12, 0), db('noise', -60, 12, 0), db('transient', -60, 12, 0), p('separation', 1, 8, 2, '×', { step: .1 })]],
   // the clicks found everywhere, or in the selection alone, each rebuilt from around it (fn/declick.js)
   declick: ['Repair', 'Remove clicks', [p('threshold', 2, 30, 8, '×', { step: .5 }), p('longest', .5, 20, 6, 'ms', { step: .5 }), p('order', 8, 100, 32, '', { step: 1 })]],
   decrackle: ['Repair', 'Remove vinyl crackle'],
@@ -156,6 +163,8 @@ const table = {
   lofi: ['Effect', 'Worn tape and vinyl'],
   slew: ['Effect', 'Limit how fast the wave can move'],
   noiseshaper: ['Effect', 'Requantize with shaped noise'],
+  // encoded and decoded in place, lined up with the input: what the codec takes out is its step's Δ (fn/codec.js)
+  codec: ['Effect', 'Hear it through a lossy codec', [choice('format', ['mp3', 'aac', 'opus', 'vorbis']), choice('bitrate', [32, 48, 64, 96, 128, 160, 192, 256, 320], 128)]],
   // Color
   distortion: ['Color', 'Distort'],
   tube: ['Color', 'Warm tube saturation'],
@@ -239,7 +248,8 @@ export const stats = {
   centroid: 'Brightness, Hz', flatness: 'Noisiness, 0–1', spectrum: 'Mel spectrum', cepstrum: 'MFCCs',
   bpm: 'Tempo', beats: 'Beat times', onsets: 'Onset times', notes: 'Notes', chords: 'Chords', key: 'Key',
   min: 'Minimum', max: 'Maximum', dr: 'Dynamic range', replaygain: 'ReplayGain', print: 'Noise print of a range, for denoise',
-  voicing: 'Share voiced, 0–1', hnr: 'Harmonics to noise, dB', harmonic: 'Level of the periodic part, dB'
+  voicing: 'Share voiced, 0–1', hnr: 'Harmonics to noise, dB', harmonic: 'Level of the periodic part, dB',
+  similar: 'Places that sound like a range'
 }
 
 // Icons, 24 × 24 strokes, one for each group of methods, beside its tools
@@ -257,7 +267,7 @@ export const icons = {
   Generate: 'M3 12c2-6 4-6 6 0s4 6 6 0 4-6 6 0'
 }
 
-export const presets = { normalize: ['podcast', 'streaming', 'broadcast'], vocals: ['isolate', 'remove'] }
+export const presets = { normalize: ['podcast', 'streaming', 'broadcast'], vocals: ['isolate', 'remove'], codec: ['mp3', 'aac', 'opus', 'vorbis'] }
 
 // What a step's new settings do to the picture while its output renders, drawn at once: the factor they change the
 // level by at time t of the output, from its settings before (`was`) and now (`is`), by name, the output `T` long; none

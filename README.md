@@ -386,6 +386,7 @@ a.pan(-0.3, { at: 10, duration: 5 })      // pan left for range
 | `.highpass(freq, order?)`, `.lowpass(freq, order?)` | Butterworth pass filter; even integer order ≥ 2: 2 (12 dB/oct, default), 4 (24), 6, 8, … Other orders are rejected. |
 | `.bandpass(freq, Q?)`, `.notch(freq, Q?)` | band-pass / notch. |
 | `.allpass(freq, Q?)` | phase shift, unity magnitude. |
+| `.phase(angle?)` | every frequency's phase turned by `angle` degrees (a Hilbert transform; a number, a curve `{t, v}` or `t => degrees`): magnitudes, RMS and loudness as they were, and `-angle` turns it back. `180` inverts polarity, sample for sample (`{ channel: 1 }`: one channel's). Unset, the angle over time that lowers the peaks most, the channels together, never raising one: a voice stands more evenly about zero: its peak 0.7 and 0.8 dB lower on average on VoiceBank's two test speakers (30 sentences each), up to 2.9; where two voices take turns, each its own angle. Streams 0.28 s behind.<br><sub>≡ iZotope RX Phase</sub> |
 | `.lowshelf(freq, dB)`, `.highshelf(freq, dB)` | shelf EQ. |
 | `.eq(freq, gain, Q?)` | parametric EQ. |
 | `.filter(type, ...params)` | by type name, or a custom filter function. |
@@ -397,6 +398,8 @@ a.highpass(80).lowshelf(200, -3)          // rumble + mud
 a.eq(3000, 2, 1.5).highshelf(8000, 3)     // presence + air
 a.notch(50)                               // remove hum
 a.allpass(1000)                           // phase shift at 1kHz
+a.phase()                                 // the peaks lowered, nothing heard
+a.phase(180, { channel: 1 })              // the right channel's polarity
 a.filter(customFn, { cutoff: 2000 })      // custom filter function
 ```
 
@@ -416,6 +419,10 @@ a.filter(customFn, { cutoff: 2000 })      // custom filter function
 | `.declick(threshold?, longest?, {at?, duration?})` | remove clicks: a vinyl tick, a bad splice, a digital glitch, a mouth click on a voice. Each stands `threshold` times (8) out of the AR prediction error around it and is rebuilt by least-squares AR interpolation from 46 ms either side; a pulse with its like 2.5–15 ms away (a voice, a plucked string) or a burst over `longest` ms (6) is sound, left alone. Given `{ at, duration }`, the clicks there: looked for only there, none passed over. Nothing a click doesn't reach changes. Streams about 0.9 s behind. Clicks at 5× the sound around them: ticks 17 dB down, mouth clicks 17, glitches 20 (`@audio/denoise-declick`'s README).<br><sub>≡ iZotope RX De-click, Audacity Click Removal</sub> |
 | `.denoise(reduction?, threshold?, {noise})` | remove a noise that holds still (hiss, hum and buzz, a fan, room tone, tape), learned where it plays alone: `noise` is that `{ at, duration }` of the op's input, or several, or a print saved from `stat('print')`. It goes `reduction` dB down (12) everywhere, or in the op's own `{ at, duration }`, or only in a `band` `[low, high]` Hz, the rest as it was; what stays is the same noise, quieter, without musical tones. `threshold` (dB) raises the print: more of the quiet counts as noise. OM-LSA on the held noise (`@audio/denoise-omlsa`), each channel its own print; a live source renders once the range has arrived. VoiceBank+DEMAND PESQ, the noise learned from the half second before each speaker starts: noisy 1.97, `omlsa()` 2.40, `denoise()` 2.48. For noise that moves: `omlsa()`, `deepfilter()`.<br><sub>≡ iZotope RX Spectral De-noise (Learn), Adobe Audition Noise Reduction (noise print), Audacity Noise Reduction</sub> |
 | `.deepfilter(limit?, {weights?, device?})`, `.rnnoise(limit?)` | neural speech denoising through the optional `@audio/neural-denoise`: it also removes noise that moves (keys, traffic, a busy room). `deepfilter` runs DeepFilterNet3, its 8 MB model downloaded once, over the whole input before rendering; `rnnoise` streams RNNoise, weights in the package, 30 ms behind. `limit` is the most the noise goes down, in dB: `deepfilter`'s 18 is the most before the voice itself sounds filtered (DNSMOS SIG holds to 18 and falls past it), so room tone stays; `rnnoise`'s 16 is the most before it cuts into the voice: RNNoise turns down word ends even with no noise at all (10 dB at 16, 31 unlimited); `0` lifts it. `deepfilter` keeps held sung notes, which the model alone takes for noise (VocalSet: 1.9 dB down, not 39), and hears a 16 kHz file's or a codec's empty top band as the noise floor the model trained with (16 kHz VoiceBank+DEMAND PESQ 2.83, not 2.72). VoiceBank+DEMAND PESQ: noisy 1.97, `wiener()` 2.19, `rnnoise()` 2.49, `deepfilter()` 2.90, `deepfilter(0)` 3.15. Speech only: music loses 8 to 16 dB in every band.<br><sub>≡ DeepFilterNet, RNNoise</sub> |
+| `.deconstruct(tonal?, noise?, transient?, {separation?})` | the tonal, noisy and transient parts, each at its own level, dB: median filters over time and over frequency (Fitzgerald 2010), the noise what is neither by `separation` (2; Driedger, Müller & Disch 2014), soft masks the channels share. The parts add back to the input; 0 dB each leaves it sample for sample. A chord lands 100 % in the tonal part, clicks in the transient, a hiss 68 % in the noise (1 % in each other).<br><sub>≡ iZotope RX Deconstruct</sub> |
+| `.azimuth(delay?)` | a stereo pair lined up in time and polarity, the second channel moved onto the first. Unset, the delay is measured every second (generalized cross-correlation with Knapp & Carter's 1976 weighting, refined between samples: an exact fractional shift comes back to 0.0001 samples) and followed as it wanders; a channel wired backwards turned back; a pair already in line, as a mix's stereo image is, left sample for sample. `delay` ms sets it by hand.<br><sub>≡ iZotope RX Azimuth</sub> |
+| `.dewow(mode?)` | wow and flutter: the speed of the disc or tape measured over time and the sound read back at its inverse; from the music's own notes (a disc's once-a-turn wow, `'partial'`), a pilot or calibration tone (`'reference'`, `refFreq`), or one voice's pitch (`'pitch'`). Nothing proven, nothing changed: a recording without wow comes back sample for sample (`@audio/denoise-dewow`).<br><sub>≡ iZotope RX Wow & Flutter</sub> |
+| `.codec(format?, bitrate?)` | the sound as a lossy codec gives it back: `'mp3'` (default), `'aac'`, `'opus'` or `'vorbis'` at `bitrate` kbps (128), encoded and decoded in place. Each codec's delay undone (its own gapless information, then checked by correlation), so it lines up with the input within 0.03 of a sample (at 44.1 and 48 kHz): A/B it, or hear what it takes out. A codec moves the peaks: masters normalized to -14 LUFS under -1 dBTP came back up to 0.5 dB over it through Opus at 160 kbps, 0.3 through Vorbis, under 0.1 through MP3 320 and AAC 256 (the opening 7 s of 8 MUSDB18 mixes); `.codec('opus', 160).stat('truepeak')` measures it.<br><sub>≡ iZotope RX Streaming Preview</sub> |
 
 ```js
 a.vocals()                                // isolate center-panned vocals
@@ -435,6 +442,10 @@ a.declick({ at: 12.31, duration: 0.02 })  // the clicks seen there
 a.denoise({ noise: { at: 1.2, duration: 0.5 } })  // hiss learned from a pause, 12 dB down everywhere
 a.deepfilter()                            // speech out of noise: 18 dB down at most, room tone kept
 a.rnnoise()                               // the same, streaming
+a.deconstruct(0, -12)                     // the hiss 12 dB down, tones and attacks as they were
+a.azimuth()                               // a tape's two tracks back in line
+a.dewow({ mode: 'reference', refFreq: 1000 })  // a transfer's wow, read from its calibration tone
+a.codec('aac', 256)                       // what a 256 kbps AAC stream does to it
 ```
 
 ### I/O
@@ -559,6 +570,7 @@ m.stop()                                                           // release
 | `'voicing'` | share of the range voiced, 0 to 1: frames of pYIN's pitch curve with a pitch, every 10 ms. |
 | `'hnr'` | harmonics-to-noise ratio, dB, over the voiced frames (Boersma 1993; matches Praat's To Harmonicity (ac) frame by frame); null where none is voiced. |
 | `'harmonic'` | level of the periodic part, dB: the periodic share of each frame's power (Boersma's r) times the power. Unlike RMS, unmoved by noise taken away: what an edit left of a voice. |
+| `'similar'` | where else it sounds like `{ at, duration }` (a cough, a click, a beep): `[{ at, duration, score }]`, the range's log-mel patch, each band over its median, slid along the whole by Pearson's correlation, from `threshold` (0.7); `band` `[low, high]` Hz compares those frequencies alone. Also `a.similar(range, opts)`.<br><sub>≡ iZotope RX Find Similar</sub> |
 
 Opts: `bpm`, `beats`, `onsets` take `{ minBpm, maxBpm, delta, frameSize, hopSize }`; `notes` takes `{ minFreq, maxFreq, frameSize, hopSize, minDuration }`; `chords`, `key` take `{ frameSize, hopSize, tuning }` (frames of 16384 samples at 44.1 kHz, 0.34 to 0.51 s at other rates, every eighth of a frame; concert A read from the audio unless `tuning` in Hz is given); `chords` also `boostN` (no-chord bias, 0.1); `key` also `method: 'nnls' | 'pcp'`. `chords` needs `@audio/mir-nnls-chroma` and `@audio/mir-chordino`, `key` needs `@audio/mir-nnls-chroma`: GPL-2.0-or-later translations of the reference plugins, installed by choice (`npm i @audio/mir-nnls-chroma @audio/mir-chordino`); `key` with `method: 'pcp'` needs only the MIT `@audio/mir-chroma` and `@audio/mir-key`, installed with `audio` unless optional dependencies are skipped. `notes` with `robust: true` needs `@audio/neural-pitch` (weights inside): a network's pitch candidates in place of YIN's keep the notes where YIN loses them (Vocadito onsets F 0.76 against 0.53 at 0 dB SNR) and trail it slightly on clean audio, so YIN stays the default. `notes` with `poly: true` takes `{ minFreq, maxFreq, minDuration, onsetThreshold, frameThreshold }` and needs `@audio/neural-transcribe`, whose model downloads on first use; `bends` are cents from the note's pitch per 11.6 ms frame, in 33.3-cent steps (in-tune notes read 0).
 
@@ -576,6 +588,7 @@ let { bpm, confidence, beats, onsets } = await a.detect() // full pipeline, one 
 let notes = await a.stat('notes')                         // [{time, duration, freq, midi, note: 'A4', clarity}]
 let chords = await a.stat('chords')                       // [{time, duration, label: 'Am', confidence}]
 let k = await a.stat('key')                               // {label: 'C', mode: 'major', confidence}
+let coughs = await a.similar({ at: 12.3, duration: 0.4 })  // [{ at, duration, score }]: the other coughs
 ```
 
 ### Meta

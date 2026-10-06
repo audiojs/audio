@@ -16,6 +16,8 @@ type RepairOpts = { at: Time, duration: Time, method?: 'auto' | 'ar' | 'sinusoid
 /** How much of an edit's output is heard, the rest its input: 0 to 1 (1, all of it, by default), a curve over the input's
  *  time, or a function of it. Any edit that keeps the timeline and the channels takes it; an effect's own mix is its own. */
 type Mix = number | { t: number[], v: number[] } | ((t: number) => number)
+/** The sound to look for: a range, and optionally its band (Hz) and how alike a match must be */
+type SimilarOpts = { at: Time, duration?: Time, d?: Time, band?: [number, number], threshold?: number }
 type DenoiseOpts = { noise: { at?: Time, duration: Time } | { at?: Time, duration: Time }[] | number[] | number[][], band?: [number, number], at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }
 
 export interface AudioInstance {
@@ -132,6 +134,8 @@ export interface AudioInstance {
   stat(name: 'bpm', opts?: { at?: Time, duration?: Time, d?: Time, minBpm?: number, maxBpm?: number, delta?: number, minConfidence?: number, channel?: number | number[] }): Promise<number>
   /** Where the level jumps, up (a strike) or down (a stop), each at the zero crossing a cut there keeps all of the sound from */
   stat(name: 'hits', opts?: { at?: Time, duration?: Time, d?: Time }): Promise<Float64Array>
+  /** Where else it sounds like { at, duration }: the range's log-mel patch slid along the whole (Pearson's r), from `threshold` (0.7); `band` [low, high] Hz compares those alone */
+  stat(name: 'similar', opts: SimilarOpts): Promise<{ at: number, duration: number, score: number }[]>
   stat(name: 'beats' | 'onsets', opts?: { at?: Time, duration?: Time, d?: Time, minBpm?: number, maxBpm?: number, delta?: number, channel?: number | number[] }): Promise<Float64Array>
   stat<C extends number | number[] = number>(name: 'notes', opts: { poly: true, at?: Time, duration?: Time, d?: Time, minFreq?: number, maxFreq?: number, minDuration?: number, onsetThreshold?: number, frameThreshold?: number, channel?: C }): Promise<PerChannel<C, { time: number, duration: number, freq: number, midi: number, note: string, velocity: number, bends: number[] }[]>>
   /** robust: pYIN's stage 1 from @audio/neural-pitch (optional package), for noise and rooms; YIN otherwise */
@@ -146,6 +150,8 @@ export interface AudioInstance {
   silence(opts?: { threshold?: number, minDuration?: number, at?: Time, duration?: Time, d?: Time }): Promise<{ at: number, duration: number }[]>
   /** stat('hits'): where the level jumps, each at the sample to cut at */
   hits(opts?: { at?: Time, duration?: Time, d?: Time }): Promise<Float64Array>
+  /** stat('similar'): the other places that sound like a range (iZotope RX Find Similar) */
+  similar(range: SimilarOpts, opts?: { threshold?: number, band?: [number, number] }): Promise<{ at: number, duration: number, score: number }[]>
   /** stat('print'): the noise print of a range, for denoise({ noise }) */
   print(opts?: { at?: Time, duration?: Time, d?: Time, channel?: number }): Promise<number[]>
   print(opts: { at?: Time, duration?: Time, d?: Time, channel: number[] }): Promise<number[][]>
@@ -242,6 +248,17 @@ export interface AudioInstance {
   master(reference: AudioSource, opts?: { ceiling?: number, amount?: number, bands?: number, lookahead?: number }): this
   /** Fill digital silence (≥ 10 ms under `threshold` dBFS, default -90) with the recording's own room tone */
   roomtone(threshold?: number): this
+  /** Every frequency's phase turned by `angle` degrees (a Hilbert transform), magnitudes kept; 180 inverts polarity. Unset
+   *  or 'auto', the angle over time that lowers the peaks most, never raising one (iZotope RX Phase). Streams 0.28 s behind */
+  phase(angle?: number | 'auto' | ((t: number) => number) | { t: number[], v: number[] }, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
+  /** The second channel (each after the first) moved onto the first: `delay` ms by hand, or measured over time with its
+   *  polarity (GCC, Knapp & Carter 1976); a pair already in line is left sample for sample (iZotope RX Azimuth) */
+  azimuth(delay?: number | 'auto' | ((t: number) => number) | { t: number[], v: number[] }, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
+  /** The tonal, noisy and transient parts at their own levels, dB (−Infinity removes one): median-filter HPSS with
+   *  Driedger's residual; the parts add back to the input (iZotope RX Deconstruct) */
+  deconstruct(tonal?: number, noise?: number, transient?: number, opts?: { separation?: number, at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
+  /** Encoded and decoded in place, lined up with the input: hear what the codec does (iZotope RX Streaming Preview) */
+  codec(format?: 'mp3' | 'aac' | 'opus' | 'vorbis', bitrate?: number, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
   /** Spectral edit: gain (dB, default: remove) on `band` [low, high] Hz over the time range */
   spectral(band?: [number, number], gain?: number, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix }): this
   /** Spectral repair: rebuild a damaged time range (optionally one band) from its surroundings. `method` 'auto' routes by

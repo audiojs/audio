@@ -15,6 +15,7 @@ const SUITES = [
   'cuts',           // cut lists for video editors: the time map, CMX 3600, OpenTimelineIO, FCPXML read back
   'periodicity',    // voicing, hnr, harmonic against Praat, frame by frame
   'hits',           // cues: where each attack starts, where each sound stops (fn/hits.js, the editor's)
+  'rx',             // RX 12's modules we lacked: wow & flutter, azimuth, phase, codec preview, deconstruct, find similar
   'plugin-ops',
   'plugin-notes', 'plugin-tune', 'plugin-stats', 'plugin-stretch', 'plugin-color', 'plugin-effects', 'plugin-reverb',
   'plugin-shift', 'plugin-dynamics', 'plugin-synth', 'plugin-filter', 'plugin-fate', 'plugin-spatial', 'plugin-eq',

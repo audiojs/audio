@@ -37,6 +37,7 @@ const OPS = {
   dereverb: '@audio/denoise-dereverb/audio',
   deplosive: '@audio/denoise-deplosive/audio',
   dewind: '@audio/denoise-dewind/audio',
+  dewow: '@audio/denoise-dewow/audio',
   debleed: '@audio/denoise-debleed/audio',
   declip: '@audio/denoise-declip/audio',
   decrackle: '@audio/denoise-decrackle/audio',
@@ -272,6 +273,10 @@ import './fn/declick.js'
 import './fn/dither.js'
 import './fn/crossfeed.js'
 import './fn/roomtone.js'
+import './fn/phase.js'
+import './fn/azimuth.js'
+import './fn/codec.js'
+import './fn/deconstruct.js'
 import './fn/resample.js'
 
 // ── Stats ───────────────────────────────────────────────────────────────
@@ -282,6 +287,7 @@ import './fn/spectrum.js'
 import './fn/cepstrum.js'
 import './fn/silence.js'
 import './fn/hits.js'
+import './fn/similar.js'
 import './fn/beat.js'
 import './fn/pitch-detect.js'
 import './fn/periodicity.js'

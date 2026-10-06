@@ -49,7 +49,7 @@ function bank(scale) {
 }
 
 /** Plug-in interpolator: `(src, target, tOff, n, rate, phase) => void`. */
-function sincInterp(src, target, tOff, n, rate, phase = 0) {
+export function sincInterp(src, target, tOff, n, rate, phase = 0) {
   let absR = Math.abs(rate), rev = rate < 0
   let scale = absR > 1 ? 1 / absR : 1  // widen kernel for downsample (anti-alias)
   let k = bank(scale), { T, W, P, half, taps } = k, len = src.length

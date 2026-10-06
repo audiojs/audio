@@ -29,6 +29,8 @@ export default {
   bandpass: 'M3 20c4 0 6-12 9-12s5 12 9 12',
   notch: 'M3 7h6c2 0 2.5 13 3 13s1-13 3-13h6',
   allpass: 'M3 6h18M3 11h4c5 0 5 8 10 8h4',
+  // a console's polarity mark, Ø
+  phase: 'M18 12a6 6 0 1 1-12 0 6 6 0 0 1 12 0M5 19 19 5',
   lowshelf: 'M3 6h3c4 0 5 6 9 6h6M3 18h3c4 0 5-6 9-6',
   highshelf: 'M21 6h-3c-4 0-5 6-9 6H3M21 18h-3c-4 0-5-6-9-6',
   eq: 'M2 12h4c3 0 4-7 6-7s3 7 6 7h4M6 12c3 0 4 7 6 7s3-7 6-7',
@@ -79,6 +81,11 @@ export default {
   specsub: 'M2 15l1.5-3 1.5 6 1.5-5 1.5 4 1.5-3 1.5 1c1.5-5 4-5 5.5 0s4 5 5.5 0M3 6h7',
   dehum: 'M2 7h2c1 0 1.5 11 2 11s1-11 2-11h2c1 0 1.5 11 2 11s1-11 2-11h2c1 0 1.5 11 2 11s1-11 2-11h2',
   roomtone: 'M3 9v6M6 6v12M18 6v12M21 9v6M8.5 12l1.2-2 1.2 4 1.2-4 1.2 4 1.2-4 1.2 2',
+  // a tape's two tracks under a head gap out of square; a record turning on a hole off its centre; a tone, a hiss and a
+  // click, the three parts, one above another
+  azimuth: 'M3 8h18M3 16h18M10 4l4 16',
+  dewow: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M15.5 10a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0',
+  deconstruct: 'M3 5h18M3 12l1.5-2 1.5 3 1.5-2 1.5 2 1.5-3 1.5 2 1.5-1 1.5 3 1.5-2 1.5 1 1.5-2 1.5 2M3 19h8l1-4 1 4h8',
   declick: 'M2 13h7l1.5-9 1.5 16 1.5-7H22',
   decrackle: 'M2 12h3l1-4 1 7 1-3h3l1 4 1-6 1 2h3l1-4 1 5 1-1h2',
   declip: 'M3 20c2 0 4-4 5-9h8c1 5 3 9 5 9M8.4 8.1 8.7 7M10.2 4.1l.9-.7M12.9 3.4l.9.7M15.3 7l.3 1.1',
@@ -133,6 +140,8 @@ export default {
   lofi: 'M3 5h18v14H3zM10 11a2 2 0 1 1-4 0 2 2 0 0 1 4 0M18 11a2 2 0 1 1-4 0 2 2 0 0 1 4 0M7 19l1.5-3h7l1.5 3',
   slew: 'M2 16h3l3-8h4l3 8h4l3-8',
   noiseshaper: 'M2 12l2-1 2 2.5 2-4 2 5.5 2-7 2 8.5 2-10 2 11.5 2-13 2 14.5',
+  // a wave into the codec and out again
+  codec: 'M2 12c1.2-4 2.4-4 3.6 0M18.4 12c1.2-4 2.4-4 3.6 0M7 7h10v10H7zM9.5 10h5M9.5 14h5',
   // Color: the circuit or medium that saturates
   distortion: 'M13 2 5 13h6l-1 9 8-11h-6z',
   tube: 'M7 18V9a5 5 0 0 1 10 0v9zM10 18v3M14 18v3M10 15v-4h4v4',

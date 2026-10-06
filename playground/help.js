@@ -14,6 +14,8 @@ export const layouts = {
   unlimit: 'amount | drive adaptive crestTarget ceiling fastAttack fastRelease slowAttack slowRelease',
   ducker: 'threshold range attack release | ratio knee',
   debleed: 'attenuation | span',
+  dewow: 'mode refFreq | smooth maxDeviation wow flutter',
+  deconstruct: 'tonal noise transient | separation',
   multiband: 'low high threshold ratio makeup | upThreshold upRatio depth attack release',
   dyneq: 'mode fc Q threshold ratio maxGain | attack release',
   dehum: 'freq harmonics | adaptive',
@@ -123,6 +125,9 @@ export const texts = {
   allpass: {
     freq: 'Where the sound\'s timing (its phase) is shifted most, in Hz. The level stays the same at every frequency.',
     Q: 'How narrow the shifted region is: higher is more abrupt and more local.'
+  },
+  phase: {
+    angle: 'How far every frequency\'s phase turns, in degrees. 180 flips the polarity; 90 or -90 can lower a voice\'s peaks with nothing heard. Left unset, the angle that lowers the peaks most is found as the sound goes.'
   },
   lowshelf: {
     freq: 'Corner. Everything below it is raised or lowered by the gain.',
@@ -402,6 +407,23 @@ export const texts = {
   roomtone: {
     threshold: 'Silence level. Stretches quieter than this count as digital silence and are filled with the recording\'s own room tone.'
   },
+  azimuth: {
+    delay: 'How late the second channel is, in milliseconds: it is moved that much earlier, onto the first. Left unset, the delay and the polarity are measured as the sound goes; a pair already in line is left as it is.'
+  },
+  dewow: {
+    mode: 'How the speed is read. partial follows the music\'s notes, for a disc\'s once-a-turn wow; reference reads a steady tone (a pilot, a calibration tone, hum); pitch reads one voice, its vibrato taken for wow too.',
+    refFreq: 'The steady tone reference mode reads, in Hz: a calibration tone, a pilot, or 50 or 60 for mains hum. 0 finds it: a pilot above 5 kHz, else the hum.',
+    smooth: 'Where wow ends and flutter begins, in seconds: speed changes slower than this are wow, faster ones flutter.',
+    maxDeviation: 'The most the speed may be off, as a share: 0.05 is 5%. A tone is looked for within it, and no correction goes further.',
+    wow: 'Correct the slow speed changes: a warped or off-centre record, a stretched tape.',
+    flutter: 'Correct the fast speed changes: a tape machine\'s capstan and rollers. Read from a steady tone only.'
+  },
+  deconstruct: {
+    tonal: 'Level of the tones (held notes, hum, a voice\'s vowels), in dB. 0 leaves them; -60 all but removes them.',
+    noise: 'Level of the noise, in dB: what is neither tone nor attack (hiss, breath, room, a snare\'s rattle). 0 leaves it; lower turns it down.',
+    transient: 'Level of the attacks (clicks, consonants, drum hits), in dB. 0 leaves them; lower softens them, higher sharpens them.',
+    separation: 'How strictly the parts are told apart. 1 splits all of it between tones and attacks; higher leaves more to the noise, taking only clear tones and clear attacks.'
+  },
   declick: {
     threshold: 'Detection threshold. How far a click must stand out of the sound around it, in multiples of its usual unpredictability. Lower finds fainter clicks (and may nibble the sound); higher, only loud ones.',
     longest: 'Longest click rebuilt, in milliseconds. A burst longer than this is taken for real sound and left alone, unless it is in the selection; a pop\'s ring is taken off with it if it dies away within this.',
@@ -599,6 +621,10 @@ export const texts = {
   },
   noiseshaper: {
     bits: 'The bit depth to round down to. The rounding noise is pushed toward the highest frequencies, where it is least audible; fewer bits is coarser and louder.'
+  },
+  codec: {
+    format: 'The codec heard: mp3, aac, opus or vorbis. Apple Music streams aac, Spotify\'s apps vorbis, YouTube opus and aac.',
+    bitrate: 'Data per second, in kbps. Lower sounds worse: smeared attacks, swirling highs, the top cut off. 128 is a common stream; 256 and up is near the original.'
   },
   // Color
   distortion: {
