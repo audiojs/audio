@@ -21,6 +21,7 @@ const WINDOW = .04                  // shortest auto FFT, seconds
 const TOP = -60                     // auto levels never put the top below this, dB
 const HALF = 32768                  // half-float cells hold power × HALF: a full-scale sine at 2^15, 80 dB below it normal
 const DEPTH = 80
+const LEVEL = 1.6, FLOOR = 150      // spectra(): a byte per bin, (dB + FLOOR) · LEVEL; 0, silence
 // bands: under each frequency (Hz), frames of the view's FFT size times this; at 2048 the lab's 8192 under 200 Hz to
 // 512 over 3 kHz, about 30 to 60 periods of each band's top
 const BANDS = [[200, 4], [500, 2], [1250, 1], [3000, .5], [Infinity, .25]]
@@ -213,14 +214,21 @@ void main() {
 //           n < L (Riedel & Sidorenko 1995, of L − 1 samples, centered on the frame's), has the spectrum
 //           √(2/L) (X[k − j] − X[k + j]) / 2i, two bins of the padded frame's
 //   kind 2  |Re Z|, Wigner–Ville's real spectrum
+//   kind 3  a column of the spectra given (spectra()): its power, from its level byte, the frame's own column (src) of
+//           `per` a texture row
 const GATHER = HEAD + `
-uniform sampler2D spec, frames, edges;
-uniform int kind, N, last, cap, slot, span, rows, r0, nr;
+uniform sampler2D spec, frames, edges, levels;
+uniform int kind, N, last, cap, slot, span, rows, r0, nr, per;
 uniform float norm, hz; // value → level; Hz per bin
 flat out vec2 v;
+int src;
 
 vec2 Z(int f, int k) { vec4 t = texelFetch(spec, ivec2((k + N) & (N - 1), f >> 1), 0); return (f & 1) == 1 ? t.zw : t.xy; }
 float P(int f, int k) {
+  if (kind == 3) {
+    float q = texelFetch(levels, ivec2((src % per) * (last + 1) + k, src / per), 0).r * 255.;
+    return q > .5 ? exp2((q / ${LEVEL} - ${FLOOR}.) * ${Math.log2(10) / 10}) : 0.;
+  }
   if (kind == 0) { vec2 z = Z(f, k); return dot(z, z); }
   if (kind == 2) return abs(Z(f, k).x);
   float s = 0.;
@@ -235,7 +243,9 @@ void main() {
   gl_PointSize = 1.;
   gl_Position = vec4(2, 2, 2, 1);
   v = vec2(0);
-  float c = texelFetch(frames, ivec2(i & 1023, i >> 10), 0).z;
+  vec4 fr = texelFetch(frames, ivec2(i & 1023, i >> 10), 0);
+  float c = fr.z;
+  src = int(fr.x);
   if (c < 0. || c >= float(span)) return;
   float a = edge(r), b = edge(r + 1), m = max(at(i, a), at(i, b));
   for (int k = int(ceil(a)); float(k) < b; k++) m = max(m, P(i, k));
@@ -303,7 +313,7 @@ const PROGRAMS = {
   ])),
   stage: [QUAD, STAGE, { src: 0, tw: 1 }, ['N', 'L']],
   scatter: [SCATTER, POINT, { spec: 0, frames: 4 }, ['N', 'k0', 'nb', 'cap', 'slot', 'span', 'rows', 'scale', 'squeeze', 'cw', 'norm', 'hz', 'b0', 'bk']],
-  gather: [GATHER, POINT, { spec: 0, frames: 4, edges: 6 }, ['kind', 'N', 'last', 'cap', 'slot', 'span', 'rows', 'r0', 'nr', 'norm', 'hz']],
+  gather: [GATHER, POINT, { spec: 0, frames: 4, edges: 6, levels: 7 }, ['kind', 'N', 'last', 'cap', 'slot', 'span', 'rows', 'r0', 'nr', 'norm', 'hz', 'per']],
   fold: [QUAD, FOLD, { src: 0 }, ['power']],
   reduce: [QUAD, REDUCE, { src: 0 }, ['size', 'most']],
   draw: [QUAD, DRAW, { cells: 0, peak: 1, lut: 5 }, ['origin', 'slot', 'cap', 'f0', 'ratio', 'data', 'unit', 'gain', 'depth', 'levels', 'pinned']]
@@ -345,6 +355,7 @@ export default class Spectrogram {
   #wide = 0              // widest viewport drawn, device px: sizes the caches
   #drawn = false
   #pending = false       // the last render drew columns from fewer frames than they will have
+  #spectra = null        // the spectra given: { size, hop, bins, cols, data (a byte per bin, column after column), tex, per, rows, sent }
   #spent = 0             // frames transformed by this render
 
   constructor(target, options) {
@@ -446,6 +457,40 @@ export default class Spectrogram {
     return this
   }
 
+  /**
+   * Spectra of samples not held (a long sound's, its samples elsewhere): `levels`, a column after another from column `at`,
+   * each of `hop` samples (a power of two), the loudest each bin reaches over the column's frames of `size` points
+   * (Hann, every size / 2 samples), as a byte per bin up to Nyquist: (dB + 150) · 1.6, 0 dB a full-scale sine on its bin, 0
+   * silence. Columns whose frames read samples not held are drawn from them; set() writes samples over them, drop() lets
+   * samples go again. `length`: the samples they cover, where they end short of a column.
+   */
+  spectra(levels, { size, hop, at = 0, length } = {}) {
+    if (!(Number.isInteger(Math.log2(size)) && size >= 16 && Number.isInteger(Math.log2(hop)) && hop >= 1)) throw TypeError('gl-spectrogram: spectra need a power of two size and hop')
+    let bins = size / 2 + 1, cols = Math.floor(levels.length / bins), S = this.#spectra
+    if (!S || S.size !== size || S.hop !== hop) S = this.#spectra = { size, hop, bins, cols: 0, data: new Uint8Array(0), tex: null, sent: 0 }
+    let need = (at + cols) * bins
+    if (S.data.length < need) { let d = new Uint8Array(Math.max(need, 2 * S.data.length)); d.set(S.data); S.data = d }
+    S.data.set(levels.subarray(0, cols * bins), at * bins)
+    S.cols = Math.max(S.cols, at + cols)
+    S.sent = Math.min(S.sent, at)
+    let end = length ?? (at + cols) * hop
+    if (end > MAX) throw RangeError(`gl-spectrogram: data ends past sample ${MAX}`)
+    this.#n = Math.max(this.#n, end)
+    this.#invalidate(at * hop, (at + cols) * hop)
+    return this
+  }
+
+  /** Let go of the samples of the whole chunks (65536) within [from, to): the spectra given draw them again. */
+  drop(from = 0, to = this.#n) {
+    let j0 = Math.ceil(from / C), j1 = Math.floor(Math.min(to, this.#n) / C)
+    for (let j = j0; j < j1 && j < this.#chunks.length; j++) {
+      this.#chunks[j] = null
+      this.#fresh.fill(0, j * C / LW, (j + 1) * C / LW)
+    }
+    if (j1 > j0) this.#invalidate(j0 * C, j1 * C)
+    return this
+  }
+
   /** Draw into the viewport, over what is there. */
   render() {
     let gl = this.gl
@@ -541,10 +586,10 @@ export default class Spectrogram {
     this.canvas.removeEventListener?.('webglcontextlost', this.#lost)
     this.canvas.removeEventListener?.('webglcontextrestored', this.#restored)
     if (!gl.isContextLost()) {
-      for (let t of [this.#tex, this.#index, this.#lut]) gl.deleteTexture(t)
+      for (let t of [this.#tex, this.#index, this.#lut, this.#spectra?.tex]) gl.deleteTexture(t)
       for (let K of [...this.#views, this.#whole?.K, ...this.#whole?.chain ?? []]) if (K) { gl.deleteTexture(K.tex); gl.deleteFramebuffer(K.fbo) }
     }
-    this.#tex = this.#index = this.#lut = this.#whole = null
+    this.#tex = this.#index = this.#lut = this.#whole = this.#spectra = null
     this.#views = []
     this.#chunks = []
     this.#blocks = []
@@ -560,6 +605,8 @@ export default class Spectrogram {
     this.#chunks = []
     this.#blocks = []
     this.#layers = 0
+    if (this.#spectra?.tex && !this.gl.isContextLost()) this.gl.deleteTexture(this.#spectra.tex)
+    this.#spectra = null
     this.#fresh = new Uint8Array(Math.ceil(d.length / LW))
     for (let i = 0; i < d.length; i += C) {
       this.#chunks.push(d.subarray(i, i + C))
@@ -741,19 +788,91 @@ export default class Spectrogram {
     K.done = new Uint16Array(cap)
   }
 
-  // Columns [a, b) of cache K computed from one frame each; true if any had to be
+  // Columns [a, b) of cache K computed from one frame each, or, where their frames read samples not held, from the
+  // spectra given, whole at once; true if any had to be
   #need(K, a, b) {
-    let t = K.tags, d = K.done, mask = K.cap - 1, ran = false
+    let t = K.tags, d = K.done, mask = K.cap - 1, ran = false, given = q => !this.#held(K, q) && this.#given(K, q)
     for (let q = a; q < b;) {
       if (t[q & mask] === q) { q++; continue }
-      let e = q + 1
-      while (e < b && t[e & mask] !== e) e++
-      this.#run(K, q, e, 0)
-      for (let i = q; i < e; i++) { t[i & mask] = i; d[i & mask] = 1 }
+      let g = given(q), e = q + 1
+      while (e < b && t[e & mask] !== e && given(e) === g) e++
+      if (g) this.#fromSpectra(K, q, e)
+      else this.#run(K, q, e, 0)
+      for (let i = q; i < e; i++) { t[i & mask] = i; d[i & mask] = g ? K.sub : 1 }
       ran = true
       q = e
     }
     return ran
+  }
+
+  // Whether the samples column q's frames read are all held (or past the data, silence)
+  #held(K, q) {
+    let a = Math.max(0, Math.floor((q * K.cw - K.reach) / C)), b = Math.min(Math.ceil(this.#n / C), Math.ceil(((q + 1) * K.cw + K.reach) / C))
+    for (let j = a; j < b; j++) if (!this.#chunks[j]) return false
+    return true
+  }
+
+  // Whether the spectra given reach column q
+  #given(K, q) { let S = this.#spectra; return !!S && q * K.cw < S.cols * S.hop }
+
+  // Columns [lo, hi) of K from the spectra given: each the loudest of those its samples span (or the one under its
+  // middle, a column narrower than theirs), read across rows as frames are (GATHER, kind 3)
+  #fromSpectra(K, lo, hi) {
+    let gl = this.gl, c = contexts.get(gl), S = this.#spectra, { cap, rows, cw } = K, p = c.params, s0 = lo & (cap - 1)
+    let spans = s0 + hi - lo <= cap ? [[s0, hi - lo]] : [[s0, cap - s0], [0, s0 + hi - lo - cap]]
+    gl.bindFramebuffer(gl.FRAMEBUFFER, K.fbo)
+    gl.colorMask(true, true, true, true)
+    gl.disable(gl.BLEND)
+    gl.enable(gl.SCISSOR_TEST)
+    gl.clearColor(0, 0, 0, 0)
+    for (let [x, w] of spans) { gl.scissor(x, 0, w, rows); gl.clear(gl.COLOR_BUFFER_BIT) }
+    gl.disable(gl.SCISSOR_TEST)
+    gl.bindVertexArray(c.vao)
+    this.#uploadSpectra()
+    edges(gl, c, K)
+    let nf = 0, flush = () => {
+      if (!nf) return
+      bind(gl, 4, gl.TEXTURE_2D, c.frames)
+      unpack(gl)
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 1024, Math.ceil(nf / 1024), gl.RGBA, gl.FLOAT, p)
+      bind(gl, 0, gl.TEXTURE_2D, S.tex)
+      bind(gl, 7, gl.TEXTURE_2D, S.tex)
+      gather(gl, c, K, K, S.tex, nf, s0, hi - lo, { kind: 3, N: S.size, last: S.size / 2, hz: K.rate / S.size, norm: c.half ? HALF : 1, r0: 0, nr: rows, per: S.per, max: true })
+      nf = 0
+    }
+    for (let q = lo; q < hi; q++) {
+      let a = Math.floor((q * cw - .5) / S.hop), b = Math.ceil(((q + 1) * cw - .5) / S.hop)
+      if (b - a < 1) a = b = Math.floor(((q + .5) * cw - .5) / S.hop), b++
+      for (let o = Math.max(a, 0); o < Math.min(b, S.cols); o++) {
+        p[4 * nf] = o; p[4 * nf + 1] = 0; p[4 * nf + 2] = q - lo; p[4 * nf + 3] = 0
+        if (++nf === 1024 * 32) flush()
+      }
+    }
+    flush()
+  }
+
+  // The spectra given on the GPU: a byte a texel, `per` columns a row; what came since the last upload goes up
+  #uploadSpectra() {
+    let gl = this.gl, c = contexts.get(gl), S = this.#spectra
+    S.per = Math.max(1, Math.floor(c.max / S.bins))
+    let rows = Math.ceil(S.cols / S.per)
+    if (!S.tex || S.rows < rows) {
+      gl.deleteTexture(S.tex)
+      gl.activeTexture(gl.TEXTURE7)
+      gl.bindTexture(gl.TEXTURE_2D, S.tex = gl.createTexture())
+      filter(gl, gl.TEXTURE_2D)
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8, S.per * S.bins, S.rows = Math.min(c.max, Math.max(rows, 2 * (S.rows ?? 0), 1)))
+      S.sent = 0
+    }
+    if (S.sent >= S.cols) return
+    let r0 = Math.floor(S.sent / S.per), w = S.per * S.bins, d = new Uint8Array((rows - r0) * w)
+    d.set(S.data.subarray(r0 * w, Math.min(S.data.length, rows * w)))
+    gl.activeTexture(gl.TEXTURE7)
+    gl.bindTexture(gl.TEXTURE_2D, S.tex)
+    unpack(gl)
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, r0, w, rows - r0, gl.RED, gl.UNSIGNED_BYTE, d)
+    S.sent = S.cols
   }
 
   // More frames for columns [a, b), fewest-framed first, while `budget` frames of N points last (K.cost each), one
@@ -915,6 +1034,7 @@ export default class Spectrogram {
     e.preventDefault()
     contexts.delete(this.gl)
     this.#tex = this.#index = this.#lut = this.#whole = null
+    if (this.#spectra) this.#spectra.tex = null
     this.#depth = 0
     this.#indexed = false
     this.#views = []
@@ -1058,8 +1178,11 @@ function scatter(gl, c, K, into, spec, nf, slot, span) {
 }
 
 // Spectra read across rows: a point per frame and row of [r0, r0 + nr), in the frame's column (GATHER)
-function gather(gl, c, K, into, spec, nf, slot, span, { kind, N, last, hz, norm, r0, nr }) {
+function gather(gl, c, K, into, spec, nf, slot, span, { kind, N, last, hz, norm, r0, nr, per = 1, max = false }) {
   let { cap, rows } = K, u = points(gl, c.gather, into, cap, rows, spec)
+  // columns from the spectra given: each the loudest of those it spans
+  if (max) gl.blendEquation(gl.MAX)
+  gl.uniform1i(u.per, per)
   gl.uniform1i(u.kind, kind)
   gl.uniform1i(u.N, N)
   gl.uniform1i(u.last, last)
@@ -1072,6 +1195,7 @@ function gather(gl, c, K, into, spec, nf, slot, span, { kind, N, last, hz, norm,
   gl.uniform1f(u.norm, norm)
   gl.uniform1f(u.hz, hz)
   gl.drawArrays(gl.POINTS, 0, nf * nr)
+  gl.blendEquation(gl.FUNC_ADD)
   gl.disable(gl.BLEND)
 }
 

@@ -11,6 +11,7 @@ import { steadyTempo } from '../fn/beat.js'
 import { contour as pitchOf } from '../fn/pitch-detect.js'
 import { expose } from '../worker.js'
 import { heard } from './heard.js'
+import { fft } from 'fourier-transform'
 
 // Registry plugins load from their chunks: the build writes one literal import per plugin.
 audio.import = spec => plugins[spec]?.() ?? import(spec)
@@ -60,70 +61,126 @@ audio.memo = { get: async key => (await memos.get(key))?.channels ?? null, set: 
 const KEEP = { storage: 'auto', budget: 2 ** 26 }
 const tape = (sampleRate, channels) => audio(null, { sampleRate, channels, ...KEEP })
 
-// ── Peaks ──
-// What the page draws of a sound longer than it holds as samples (a run's `peaks`: how many channel samples it holds,
-// 0 where it draws none): its leaves (gl-waveform's
-// peaks), each LEAF samples as [min, max, Σx², count], a channel's in one array, and windows of its samples where it is
-// zoomed in (samples). Counted as the samples come (leafer), kept with the sound.
-const LEAF = 256
-function leafer(k) {
-  let all = Array.from({ length: k }, () => new Float32Array(4096)), done = 0, fill = 0
-  const cur = Array.from({ length: k }, () => [Infinity, -Infinity, 0, 0])
-  const close = () => {
-    if (4 * (done + 1) > all[0].length) all = all.map(a => { const b = new Float32Array(2 * a.length); b.set(a); return b })
-    for (let c = 0; c < k; c++) { all[c].set(cur[c], 4 * done); cur[c][0] = Infinity; cur[c][1] = -Infinity; cur[c][2] = cur[c][3] = 0 }
-    done++; fill = 0
+// ── Its picture ──
+// What the page draws of a sound longer than it holds as samples (a run's `peaks`: how many channel samples it holds, 0
+// where it draws none), each channel's, with windows of its samples where it is zoomed in (samples):
+//   leaves   gl-waveform's peaks: each LEAF samples as [min, max, Σx², count]
+//   spectra  gl-spectrogram's: per column of `hop` samples (a power of two, COLS columns or so for the whole), the loudest
+//            each bin reaches over the column's Hann frames of `size` (the 40 ms the spectrogram's own frames take), every
+//            size / 2 samples centered on multiples of size / 2, |X|² over (size / 4)² (0 dB a full-scale sine on its bin),
+//            a byte per bin to Nyquist, (dB + 150) · 1.6, 0 silence
+// Counted as the samples come (pictured), kept with the sound.
+const LEAF = 256, COLS = 16384
+const sizeOf = rate => Math.min(4096, Math.max(256, 2 ** Math.ceil(Math.log2(rate * .04))))
+const hopOf = (total, size) => Math.max(size, 2 ** Math.ceil(Math.log2(Math.max(1, total / COLS))))
+// Arrays that double as they fill, each channel's
+const grower = (k, Type) => {
+  let all = Array.from({ length: k }, () => new Type(4096)), n = 0
+  return {
+    get length() { return n },
+    add(c, values) { if (n + values.length > all[c].length) all = all.map(a => { const b = new Type(Math.max(2 * a.length, n + values.length)); b.set(a.subarray(0, n)); return b }); all[c].set(values, n) },
+    grow(m) { n += m },
+    from: i => all.map(a => a.slice(i, n))
+  }
+}
+function pictured(k, rate, total) {
+  const size = sizeOf(rate), half = size / 2, bins = half + 1, hop = hopOf(total, size), norm = 1 / (size / 4) ** 2
+  const win = Float64Array.from({ length: size }, (_, i) => .5 - .5 * Math.cos(2 * Math.PI * i / size))
+  const leaves = grower(k, Float32Array), levels = grower(k, Uint8Array), cur = Array.from({ length: k }, () => [Infinity, -Infinity, 0, 0])
+  // samples from `base` on, for the frames still to come; the next frame's center `t`; the column `o` its loudest so far
+  let tail = Array.from({ length: k }, () => new Float32Array(2 * size)), base = 0, have = 0, t = half, o = 0, fill = 0, n = 0
+  const most = Array.from({ length: k }, () => new Float64Array(bins)), frame = new Float64Array(size)
+  const leaf = () => {
+    for (let c = 0; c < k; c++) { leaves.add(c, cur[c]); cur[c][0] = Infinity; cur[c][1] = -Infinity; cur[c][2] = cur[c][3] = 0 }
+    leaves.grow(4); fill = 0
+  }
+  const column = () => {
+    const q = new Uint8Array(bins)
+    for (let c = 0; c < k; c++) {
+      for (let b = 0; b < bins; b++) { const p = most[c][b]; q[b] = p > 0 ? Math.max(1, Math.min(255, Math.round((10 * Math.log10(p) + 150) * 1.6))) : 0 }
+      levels.add(c, q)
+      most[c].fill(0)
+    }
+    levels.grow(bins); o++
+  }
+  // the frame centered on t, from the samples held (zeros past the end), into its column's loudest
+  const transform = () => {
+    while (Math.floor(t / hop) > o) column()
+    for (let c = 0; c < k; c++) {
+      const x = tail[c]
+      for (let i = 0; i < size; i++) { const j = t - half + i - base; frame[i] = j >= 0 && j < have ? x[j] * win[i] : 0 }
+      const [re, im] = fft(frame), m = most[c]
+      for (let b = 0; b < bins; b++) { const p = (re[b] * re[b] + im[b] * im[b]) * norm; if (p > m[b]) m[b] = p }
+    }
+    t += half
   }
   return {
-    // complete leaves so far
-    get count() { return done },
+    size, hop,
     push(channels) {
-      const n = channels[0].length
-      for (let i = 0; i < n;) {
-        const m = Math.min(n - i, LEAF - fill)
+      const m = channels[0].length
+      // leaves
+      for (let i = 0; i < m;) {
+        const r = Math.min(m - i, LEAF - fill)
         for (let c = 0; c < k; c++) {
           const x = channels[c], v = cur[c]
           let lo = v[0], hi = v[1], q = v[2], cnt = v[3]
-          for (let j = i; j < i + m; j++) { const y = x[j]; if (y !== y) continue; if (y < lo) lo = y; if (y > hi) hi = y; q += y * y; cnt++ }
+          for (let j = i; j < i + r; j++) { const y = x[j]; if (y !== y) continue; if (y < lo) lo = y; if (y > hi) hi = y; q += y * y; cnt++ }
           v[0] = lo; v[1] = hi; v[2] = q; v[3] = cnt
         }
-        i += m; fill += m
-        if (fill === LEAF) close()
+        i += r; fill += r
+        if (fill === LEAF) leaf()
       }
+      // spectra: the samples kept from the next frame's start, then each frame they now reach
+      const keep = Math.max(0, Math.min(t - half - base, have))
+      if (have - keep + m > tail[0].length) tail = tail.map(x => { const y = new Float32Array(2 * (have - keep + m)); y.set(x.subarray(keep, have)); return y })
+      else if (keep) tail.forEach(x => x.copyWithin(0, keep, have))
+      base += keep; have -= keep
+      tail.forEach((x, c) => x.set(channels[c], have))
+      have += m; n += m
+      while (t + half <= n) transform()
     },
-    // the last leaf, short, once all has come
-    end() { if (fill) close() },
-    // leaves from leaf `from` on, each channel's
-    leaves: (from = 0) => all.map(a => a.slice(4 * from, 4 * done))
+    // all of it come: the last leaf short; the frames over its end, the last column
+    end() {
+      if (fill) leaf()
+      while (t - half < n && Math.floor(t / hop) < Math.ceil(n / hop)) transform()
+      if (n) column()
+    },
+    // what has come since `from` ({ leaves, columns } counted as count() gives them): each channel's
+    since: (from = { leaves: 0, columns: 0 }) => ({ leaves: leaves.from(4 * from.leaves), spectra: { size, hop, at: from.columns, levels: levels.from(from.columns * bins) } }),
+    count: () => ({ leaves: leaves.length / 4, columns: levels.length / bins })
   }
 }
-// A sound's leaves, read through
-async function leavesOf(sound) {
-  const l = leafer(sound.channels)
-  for await (const block of sound.stream()) l.push(block)
-  l.end()
-  return l.leaves()
+// A sound's picture, read through
+async function pictureOf(sound) {
+  const p = pictured(sound.channels, sound.sampleRate, sound.length)
+  for await (const block of sound.stream()) p.push(block)
+  p.end()
+  return p.since()
 }
 // What the page gets of a sound as it comes, `event` its pieces: its samples; or, where it draws peaks and the sound grows
-// past the `peaks` channel samples it holds (by `total()`, where known, or what has come), its leaves: those so far,
-// then each piece's, `long` with each. `fields()`: what goes with each piece
+// past the `peaks` channel samples it holds (by `total()`, where known, or what has come), its picture: all of it so
+// far, then each piece's, `long` with each. `fields()`: what goes with each piece
 function feed(id, event, peaks, total, fields = () => ({})) {
-  let l = null, long = false, sent = 0
-  const leaves = () => { const p = l.leaves(sent); sent = l.count; return p }
+  let p = null, long = false, sent = { leaves: 0, columns: 0 }
+  const picture = () => {
+    const got = p.since(sent), at = sent.leaves * LEAF
+    sent = p.count()
+    if (!got.leaves[0].length && !got.spectra.levels[0].length) return
+    post({ id, event, at, peaks: got.leaves, spectra: got.spectra, long, ...fields() }, [...got.leaves, ...got.spectra.levels].map(c => c.buffer))
+  }
   return {
     get long() { return long },
-    get leaves() { return l?.leaves() ?? null },
+    get picture() { return p?.since() ?? null },
     send(at, channels) {
-      ;(l ??= leafer(channels.length)).push(channels)
+      if (peaks) (p ??= pictured(channels.length, fields().sampleRate || 48000, Math.max(total() ?? 0, at + channels[0].length))).push(channels)
       if (!long && peaks && Math.max(total() ?? 0, at + channels[0].length) * channels.length > peaks) long = true
       if (!long) return post({ id, event, at, channels, ...fields() }, channels.map(c => c.buffer))
-      const from = sent * LEAF, p = leaves()
-      if (p[0].length) post({ id, event, at: from, peaks: p, long, ...fields() }, p.map(c => c.buffer))
+      picture()
     },
     end() {
-      if (!l) return
-      l.end()
-      if (long && sent < l.count) { const from = sent * LEAF, p = leaves(); post({ id, event, at: from, peaks: p, long, ...fields() }, p.map(c => c.buffer)) }
+      if (!p) return
+      p.end()
+      if (long) picture()
     }
   }
 }
@@ -146,10 +203,12 @@ function shelf(name, max) {
         const [m, k, n] = new Uint32Array(await file.slice(0, 12).arrayBuffer()), at = 12 + pad(m), end = at + k * n * 4
         const meta = m ? JSON.parse(await file.slice(12, 12 + m).text()) : {}
         if (!k || !meta.sampleRate || file.size < end) return null
-        let stats = null, leaves = null
+        let stats = null, picture = null
         if (file.size > end) {
           const [l] = new Uint32Array(await file.slice(end, end + 4).arrayBuffer()), layout = JSON.parse(await file.slice(end + 4, end + 4 + l).text())
-          ;({ leaves = null, ...stats } = unpack(new Float32Array(await file.slice(end + 4 + pad(l)).arrayBuffer()), layout))
+          const { leaves, levels, ...figures } = unpack(new Uint8Array(await file.slice(end + 4 + pad(l)).arrayBuffer()), layout)
+          stats = figures
+          if (leaves && levels) picture = { leaves, spectra: { ...layout.spectra, at: 0, levels } }
         }
         const PS = audio.PAGE_SIZE, store = {
           has: async i => i * PS < n,
@@ -157,10 +216,10 @@ function shelf(name, max) {
           read: i => Promise.all(Array.from({ length: k }, async (_, c) =>
             new Float32Array(await file.slice(at + (c * n + i * PS) * 4, at + (c * n + Math.min(n, (i + 1) * PS)) * 4).arrayBuffer())))
         }
-        return { meta, leaves, sound: audio.from(store, { length: n, channels: k, sampleRate: meta.sampleRate, stats, budget: KEEP.budget }) }
+        return { meta, picture, sound: audio.from(store, { length: n, channels: k, sampleRate: meta.sampleRate, stats, budget: KEEP.budget }) }
       } catch { return null }
     },
-    // `sound` read block by block, each channel's samples where they go, its figures and leaves counted as they pass
+    // `sound` read block by block, each channel's samples where they go, its figures and its picture counted as they pass
     async set(key, sound, meta) {
       const d = await dir(), n = sound.length, k = sound.channels, head = json(meta), at = 12 + pad(head.length)
       const out = await (await d.getFileHandle(encodeURIComponent(key), { create: true })).createWritable()
@@ -169,14 +228,14 @@ function shelf(name, max) {
         await write(new Uint32Array([head.length, k, n]), 0)
         await write(head, 12)
         // a page of each channel at a time: few writes, each a long one
-        const session = audio.statSession(sound.sampleRate), leaf = leafer(k), PS = audio.PAGE_SIZE, buf = Array.from({ length: k }, () => new Float32Array(Math.min(PS, n)))
+        const session = audio.statSession(sound.sampleRate), picture = pictured(k, sound.sampleRate, n), PS = audio.PAGE_SIZE, buf = Array.from({ length: k }, () => new Float32Array(Math.min(PS, n)))
         let pos = 0, from = 0
         const flush = async () => { for (let c = 0; c < k; c++) await write(buf[c].subarray(0, pos - from), at + (c * n + from) * 4); from = pos }
         for await (const block of sound.stream()) {
           const len = Math.min(block[0].length, n - pos), part = block.map(c => c.subarray(0, len))
           if (len <= 0) break
           session.page(part)
-          leaf.push(part)
+          picture.push(part)
           for (let i = 0; i < len;) {
             const m = Math.min(len - i, buf[0].length - (pos - from))
             for (let c = 0; c < k; c++) buf[c].set(part[c].subarray(i, i + m), pos - from)
@@ -186,8 +245,10 @@ function shelf(name, max) {
         }
         if (pos > from) await flush()
         if (pos !== n) throw new Error(`${pos} of ${n} samples`)
-        leaf.end()
-        const { layout, data } = pack({ ...session.done(), leaves: leaf.leaves() }), l = json(layout), end = at + k * n * 4
+        picture.end()
+        const { leaves, spectra } = picture.since(), { layout, data } = pack({ ...session.done(), leaves, levels: spectra.levels })
+        layout.spectra = { size: spectra.size, hop: spectra.hop }
+        const l = json(layout), end = at + k * n * 4
         await write(new Uint32Array([l.length]), end)
         await write(l, end + 4)
         await write(data, end + 4 + pad(l.length))
@@ -203,20 +264,28 @@ function shelf(name, max) {
 }
 const json = v => new TextEncoder().encode(JSON.stringify(v))
 const pad = n => Math.ceil(n / 4) * 4
-// The library's block figures as one array of values and their layout ({ blockSize, length, fields: [[name, lengths of
-// each channel's]] }), and back
-function pack(stats) {
+// Figures as bytes and their layout ({ blockSize, length, fields: [[name, each channel's length, its type]] }), and back:
+// the library's block figures, a picture's leaves (Float32) and spectra (bytes), each array to a multiple of 4 bytes
+const TYPES = { f32: Float32Array, u8: Uint8Array }
+function pack(figures) {
   const fields = [], parts = []
-  for (const [name, v] of Object.entries(stats)) if (Array.isArray(v) && v.every(x => x instanceof Float32Array)) { fields.push([name, v.map(x => x.length)]); parts.push(...v) }
-  const data = new Float32Array(parts.reduce((s, x) => s + x.length, 0))
-  parts.reduce((o, x) => (data.set(x, o), o + x.length), 0)
-  return { layout: { blockSize: stats.blockSize, length: stats.length, fields }, data }
+  for (const [name, v] of Object.entries(figures)) {
+    const type = Array.isArray(v) && Object.keys(TYPES).find(t => v.every(x => x instanceof TYPES[t]))
+    if (type) { fields.push([name, v.map(x => x.length), type]); parts.push(...v) }
+  }
+  const data = new Uint8Array(parts.reduce((s, x) => s + pad(x.byteLength), 0))
+  parts.reduce((o, x) => (data.set(new Uint8Array(x.buffer, x.byteOffset, x.byteLength), o), o + pad(x.byteLength)), 0)
+  return { layout: { blockSize: figures.blockSize, length: figures.length, fields }, data }
 }
 function unpack(data, { blockSize, length, fields }) {
-  const stats = { blockSize, length }
+  const figures = { blockSize, length }
   let o = 0
-  for (const [name, lengths] of fields) stats[name] = lengths.map(n => data.slice(o, o += n))
-  return stats
+  for (const [name, lengths, type = 'f32'] of fields) figures[name] = lengths.map(n => {
+    const T = TYPES[type], x = new T(data.buffer.slice(data.byteOffset + o, data.byteOffset + o + n * T.BYTES_PER_ELEMENT))
+    o += pad(n * T.BYTES_PER_ELEMENT)
+    return x
+  })
+  return figures
 }
 
 const AsyncFunction = (async () => {}).constructor
@@ -443,7 +512,7 @@ async function render(r) {
   const content = await r.content
   if (!hit && content && alive()) {
     const got = await renders.get(content)
-    if (got) { hit = { ...got.meta, sound: got.sound, leaves: got.leaves }; if (keyed(r)) store(r.keys.at(-1), hit) }
+    if (got) { hit = { ...got.meta, sound: got.sound, picture: got.picture }; if (keyed(r)) store(r.keys.at(-1), hit) }
   }
   if (!alive()) return
   if (hit) return replay(r, hit)
@@ -475,7 +544,7 @@ async function render(r) {
     // its markers and its ranges (mark()), where its edits put them
     const markers = a.markers.filter(m => m.time <= end).map(({ time, label }) => ({ time, label }))
     const regions = a.regions.filter(g => g.at < end).map(({ at, duration, label }) => ({ at, duration: Math.min(duration, end - at), label }))
-    const e = { sound: r.sound, leaves: out.leaves, sampleRate: r.sampleRate, markers, regions, figures, bitDepth: r.instance.bitDepth ?? null }
+    const e = { sound: r.sound, picture: out.picture, sampleRate: r.sampleRate, markers, regions, figures, bitDepth: r.instance.bitDepth ?? null }
     if (keyed(r)) store(r.keys.at(-1), e)
     shelve(content, e)
     finish(r, e)
@@ -491,17 +560,17 @@ const keyed = r => r.keys.length === r.instance.edits.length + 1
 // An output kept past a reload, by what made it (contentOf), once nothing else is being made
 function shelve(content, e) {
   if (!content) return
-  const { sound, leaves, ...meta } = e
+  const { sound, picture, ...meta } = e
   renders.set(content, sound, meta).catch(() => {})
 }
-// A kept output to the page at once: ten seconds a piece, or its leaves where it is longer than the page holds
+// A kept output to the page at once: ten seconds a piece, or its picture where it is longer than the page holds
 async function replay(r, e) {
   const n = e.sound.length, rate = e.sampleRate, piece = 10 * rate
   Object.assign(r, { sound: e.sound, length: n, sampleRate: rate })
   if (r.peaks && n * e.sound.channels > r.peaks) {
-    const p = await (e.leaves ??= leavesOf(e.sound))
+    const p = await (e.picture ??= pictureOf(e.sound))
     if (newest !== r.id) return
-    post({ id: r.id, event: 'chunk', at: 0, peaks: p.map(c => c.slice()), long: true, sampleRate: rate, total: n })
+    post({ id: r.id, event: 'chunk', at: 0, peaks: p.leaves.map(c => c.slice()), spectra: { ...p.spectra, levels: p.spectra.levels.map(c => c.slice()) }, long: true, sampleRate: rate, total: n })
   }
   else for (let at = 0; at < n; at += piece) {
     const channels = await e.sound.read({ at: at / rate, duration: Math.min(piece, n - at) / rate })

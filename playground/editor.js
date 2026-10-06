@@ -246,9 +246,9 @@ const eng = engine()
 // from them, its samples fetched where the view zooms in (view.js summary), played by the engine (player.js)
 eng.peaks = 30 * 60 * 48000
 // how many samples a piece of an arriving sound covers: its samples, or its leaves (256 each, the last as many as it has)
-const extent = m => m.channels ? m.channels[0].length : (m.peaks[0].length / 4 - 1) * 256 + m.peaks[0][m.peaks[0].length - 1]
+const extent = m => m.channels ? m.channels[0].length : m.peaks[0].length ? (m.peaks[0].length / 4 - 1) * 256 + m.peaks[0][m.peaks[0].length - 1] : 0
 // a piece onto the view: its samples, or its leaves
-const piece = m => m.peaks ? v.peaks(m.at, m.peaks) : v.append(m.channels)
+const piece = m => m.peaks ? v.peaks(m.at, m.peaks, m.spectra) : v.append(m.channels)
 let ed, v, rk
 // the caret is where playback ends, as it is where it pauses
 const pl = player({ onend: () => { state.playing = false; v.playhead = null; v.setCursor(pl.time); state.time = stamp(v.cursor); sway() } })
@@ -1000,9 +1000,16 @@ function arrival(names) {
       for (const p of a.parts) if (p.peaks) x.set(p.peaks[c].subarray(0, Math.max(0, leaves - p.at / 64)), p.at / 64)
       return x
     }) : null
+    // and its spectra, each column's bins after the last's
+    const first = a.parts.find(p => p.spectra)?.spectra, bins = first && first.size / 2 + 1, cols = first && Math.ceil(length / first.hop)
+    const spectra = m.long && first ? { size: first.size, hop: first.hop, levels: Array.from({ length: m.channels }, (_, c) => {
+      const x = new Uint8Array(cols * bins)
+      for (const p of a.parts) if (p.spectra) x.set(p.spectra.levels[c].subarray(0, Math.max(0, (cols - p.spectra.at) * bins)), p.spectra.at * bins)
+      return x
+    }) } : null
     a.parts = []
     if (a.on) v.finish()
-    settle({ id: a.id, names, channels, peaks, long: !!m.long, length, sampleRate: m.sampleRate, duration: m.duration, stats: m.stats, segments: m.segments, markers: m.markers, clips: m.clips, bitDepth: m.bitDepth, code: a.code, editor: a.editor, said: a.said }, !a.on, a.editor !== ed.code)
+    settle({ id: a.id, names, channels, peaks, spectra, long: !!m.long, length, sampleRate: m.sampleRate, duration: m.duration, stats: m.stats, segments: m.segments, markers: m.markers, clips: m.clips, bitDepth: m.bitDepth, code: a.code, editor: a.editor, said: a.said }, !a.on, a.editor !== ed.code)
     finished({ ok: true, duration: m.duration, loudness: m.stats?.loudness, peak: m.stats?.peak })
     status()
   }
@@ -1063,7 +1070,7 @@ function settle(out, draw = true, behind = false) {
   state.hasOutput = has
   state.whole = has
   state.loading = false
-  if (out?.long) v.summary(out.peaks, out.length, out.sampleRate)
+  if (out?.long) v.summary(out.peaks, out.length, out.sampleRate, out.spectra)
   else if (draw) v.set(has ? out.channels : [], out?.sampleRate)
   else if (has) v.samples = out.channels
   if (has) aim()
