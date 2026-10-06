@@ -53,3 +53,19 @@ jobs:
       - uses: denoland/setup-deno@v2
       # from npm the library's bare `fs` imports resolve as Node's; from a checkout Deno needs them allowed
       - run: deno run -A --unstable-bare-node-builtins test/runtime.js
+  # action.yml as another repo uses it: a file within its spec passes, one outside it fails the step
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./
+        with:
+          files: test/fixture.wav
+          spec: streaming
+      - id: off
+        uses: ./
+        continue-on-error: true
+        with:
+          files: test/fixture.wav
+          spec: broadcast
+      - run: test "${{ steps.off.outcome }}" = failure

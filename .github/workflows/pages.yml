@@ -29,10 +29,10 @@ jobs:
       - run: node .site-build.js
       # the repository as served before, its dot-files and node_modules left out
       - run: rsync -a --exclude='.*' --exclude=node_modules ./ _site/
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
       - run: npx playwright install --with-deps chromium
       - run: node test/live.js ${{ steps.deploy.outputs.page_url }}

@@ -2005,10 +2005,10 @@ test('editor: a sound longer than the page holds is drawn from its peaks, its sa
   await page.mouse.click(box.x + box.width / 2, box.y + box.height * .3)
   await page.locator('.plot').focus()
   for (let i = 0; i < 17; i++) await page.keyboard.press('=')
-  await page.waitForTimeout(1500)
   // columns with ink off the silence line: the sine's, a twentieth of full scale either side; without its samples, at
-  // most a line across (the caret's)
-  const off = await page.locator('.plot canvas.waveform').screenshot().then(png => page.evaluate(async b64 => {
+  // most a line across (the caret's). The samples come from the engine as the view zooms in: waited for, as long as a
+  // shared runner takes (1.5 s held locally, not there)
+  const ink = () => page.locator('.plot canvas.waveform').screenshot().then(png => page.evaluate(async b64 => {
     const img = new Image()
     img.src = 'data:image/png;base64,' + b64
     await img.decode()
@@ -2019,6 +2019,8 @@ test('editor: a sound longer than the page holds is drawn from its peaks, its sa
     for (let i = 0; i < d.length; i += 4) { const y = Math.floor(i / 4 / c.width), x = i / 4 % c.width; if (d[i] > 120 && Math.abs(y - mid) > 6 && Math.abs(y - mid) < 40 && x < c.width - 60) columns.add(x) }
     return columns.size
   }, png.toString('base64')))
+  let off = 0
+  for (let end = Date.now() + 15000; (off = await ink()) <= 200 && Date.now() < end;) await page.waitForTimeout(250)
   assert.ok(off > 200, `zoomed in: the line through its samples, ${off} columns off the axis`)
   // it plays, from the engine
   await page.keyboard.press('Space')

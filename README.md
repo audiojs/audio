@@ -904,7 +904,7 @@ audio --completions fish | source       # fish
 <dd>Decode: WAV, MP3, FLAC, OGG Vorbis, Opus, AAC, AIFF, CAF, WebM, AMR, WMA, QOA via <a href="https://github.com/audiojs/decode">decode</a>. Encode: WAV, MP3, FLAC, Opus, OGG, AIFF via <a href="https://github.com/audiojs/encode">encode</a>. Codecs are WASM-based, lazy-loaded on first use.</dd>
 
 <dt>Does it need ffmpeg or native addons?</dt>
-<dd>No, pure JS + WASM. For CLI, you can install globally: <code>npm i -g audio</code>.</dd>
+<dd>No ffmpeg: codecs and processing are JS and WASM. Playing and recording in Node go through a small native addon, prebuilt for macOS, Linux (x64, arm64) and Windows (x64), so nothing compiles at install; elsewhere playback falls back to <code>ffplay</code>, SoX or <code>aplay</code>. For the CLI, install globally: <code>npm i -g audio</code>.</dd>
 
 <dt>How big is it?</dt>
 <dd>In a page: 107 KB gzipped, the whole library minified (<code>dist/audio.min.js</code>); codecs and plugins load on first use via <code>import()</code>, so unused formats aren't fetched. In Node: <code>npm i audio</code> installs 14 MB in 294 packages (every codec and plugin), nothing compiled.</dd>
