@@ -29,7 +29,7 @@
 // 131st, the ten above skipped, over 70 s; CC BY-SA), in spoken-train/ with its manifest.json.
 // Outputs: ~/.cache/audiojs/data/recipes[-SPEECH_TAG]/SET/<stage>/<stage>/…/<name>.wav (float).
 
-import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import audio from '../audio.js'
@@ -80,8 +80,8 @@ for (let [d, den] of [['dfn12', 'deepfilter(12)'], ['dfn18', 'deepfilter()'], ['
 }
 // Enhance speech, neural, at a 24 dB limit
 cand('esn-24', ['highpass(80)', 'dehum()', 'deepfilter(24)', "normalize(-16, 'lufs', { ceiling: false })", "deesser({ mode: 'band', threshold: -30 })", "normalize('podcast')"])
-// Remove room echo: the late-reverb model's decay time and over-estimation
-for (let [t, a] of [[0.6, 1.5], [0.4, 1.5], [0.3, 1], [0.4, 1], [0.6, 1]]) cand(`echo-t${t * 10}a${a * 10}`, ['highpass(80)', `dereverb({ t60: ${t}, alpha: ${a} })`])
+// Remove room echo: dereverb alone at its late estimate's strengths (1: its default)
+for (let s of [0, 0.5, 1, 2]) cand(`echo-s${s * 10}`, [`dereverb({ strength: ${s} })`])
 // classical denoisers (the fixed @audio/denoise), alone and in the ACX chain; dehum first: it leaves hum-free input alone
 const ACXEND = ["normalize(-20, 'rms', { ceiling: -3.5 })", 'trim()', 'pad(1.5, 2)', 'roomtone()', 'resample(44100)']
 for (let [d, den] of [['omlsa', 'omlsa()'], ['omlsa12', 'omlsa({ gMin: -12 })'], ['wiener', 'wiener()'], ['specsub', 'specsub()'], ['dfn24', 'deepfilter(24)'], ['dfn18', 'deepfilter()'], ['rnn20', 'rnnoise(20)']]) {
