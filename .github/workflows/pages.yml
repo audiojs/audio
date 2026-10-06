@@ -1,0 +1,38 @@
+name: pages
+# The website, built: the bundles in assets/ and the playground's engine in playground/dist/ (which git ignores) made
+# from this commit by node .site-build.js, then deployed and opened as a visitor would (test/live.js)
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: npm ci
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+      - run: node .site-build.js
+      # the repository as served before, its dot-files and node_modules left out
+      - run: rsync -a --exclude='.*' --exclude=node_modules ./ _site/
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
+      - run: npx playwright install --with-deps chromium
+      - run: node test/live.js ${{ steps.deploy.outputs.page_url }}
