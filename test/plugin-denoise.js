@@ -313,6 +313,9 @@ import path from 'node:path'
 const neural = await import('@audio/neural-denoise').catch(() => null)
 // the package's resampler, whose arithmetic the rnnoise atom streams
 const sinc = neural && await import('@audio/resample-sinc').then(m => m.default, () => null)
+// neural-denoise 0.4 on: music passes through untouched unless music: 'enhance' (a speech/music/noise classifier);
+// lena is a film scene with music under the voice, so the tests of the model's own work take music: 'enhance'
+const GUARDED = !!neural && 'music' in (await import('@audio/neural-denoise/audio')).rnnoise.params
 const HAS_DFN = !!neural && existsSync(path.join(process.env.AUDIO_NEURAL_CACHE || path.join(os.homedir(), '.cache', 'audiojs', 'neural'), createHash('sha256').update(neural.MODEL).digest('hex')))
 const NEURAL_RUN = { timeout: 180000 }  // model runs, on a busy machine
 const withImport = async (stub, fn) => { let orig = audio.import; audio.import = spec => stub(spec, orig); try { return await fn() } finally { audio.import = orig } }
@@ -397,9 +400,9 @@ test('rnnoise, deepfilter: without @audio/neural-denoise each names the package,
 	let { clean, dirty } = take(), calls = 0
 	await withImport((spec, orig) => spec === '@audio/neural-denoise' ? orig(spec).then(m => ({ ...m, default: (...a) => (calls++, m.default(...a)) })) : orig(spec), async () => {
 		let [input] = await audio.from([dirty], { sampleRate: SR }).gain(-6).read(), [ref] = await audio.from([clean], { sampleRate: SR }).gain(-6).read()
-		let [y] = await neural.default([input], { sampleRate: SR, model: 'deepfilternet3', limit: 0 }), g = 10 ** (-18 / 20)
+		let [y] = await neural.default([input], { sampleRate: SR, model: 'deepfilternet3', limit: 0, music: 'enhance' }), g = 10 ** (-18 / 20)
 		calls = 0
-		let a = audio.from([dirty, dirty], { sampleRate: SR }).gain(-6).deepfilter({ channel: 1 })
+		let a = audio.from([dirty, dirty], { sampleRate: SR }).gain(-6).deepfilter({ channel: 1, music: 'enhance' })
 		let [l, r] = await a.read()
 		is(maxDiff(r, y.map((v, i) => (1 - g) * v + g * input[i])), 0, 'the package on the edits before it, 18 dB limit')
 		is(maxDiff(l, input), 0, 'channel 0 untouched')
@@ -408,16 +411,16 @@ test('rnnoise, deepfilter: without @audio/neural-denoise each names the package,
 		let drop = floorDb(input) - floorDb(r), speech = speechDb(r) - speechDb(ref)
 		ok(drop > 15 && drop < 18.2, `noise down ${drop.toFixed(1)} dB, no more than the limit: room tone kept`)
 		ok(Math.abs(speech) < 1.5, `speech ${speech.toFixed(2)} dB from the clean take`)
-		let [none] = await audio.from([input], { sampleRate: SR }).deepfilter(0).read()
+		let [none] = await audio.from([input], { sampleRate: SR }).deepfilter({ limit: 0, music: 'enhance' }).read()
 		is(maxDiff(none, y), 0, 'limit 0: the package unlimited')
 		// kept by the model and its input in a host's store (core.js memo), never by the limit: another instance at another
 		// limit reads the run back, the limit applied after it
 		let kept = new Map(), k6 = 10 ** (-6 / 20)
 		audio.memo = { get: k => kept.get(k) ?? null, set: (k, v) => kept.set(k, v) }
 		try {
-			await audio.from([input], { sampleRate: SR }).deepfilter(12).read()
+			await audio.from([input], { sampleRate: SR }).deepfilter({ limit: 12, music: 'enhance' }).read()
 			calls = 0
-			let [again] = await audio.from([input], { sampleRate: SR }).deepfilter(6).read()
+			let [again] = await audio.from([input], { sampleRate: SR }).deepfilter({ limit: 6, music: 'enhance' }).read()
 			is(calls, 0, 'the model run read back, at another limit')
 			is(maxDiff(again, y.map((v, i) => (1 - k6) * v + k6 * input[i])), 0, '…6 dB applied to it')
 		} finally { delete audio.memo }
@@ -431,7 +434,7 @@ const HELD = path.join(os.homedir(), '.cache', 'audiojs', 'data', 'vocalset', 'F
 ;(HAS_DFN ? test : test.skip)('deepfilter: the noise drops by the limit at most (18 dB by default); held notes keep their level', NEURAL_RUN, async () => {
 	let { clean, dirty } = take(15)
 	for (let [limit, lo] of [[undefined, 15], [6, 5]]) {
-		let a = audio.from([dirty], { sampleRate: SR }), [y] = await (limit == null ? a.deepfilter() : a.deepfilter(limit)).read()
+		let a = audio.from([dirty], { sampleRate: SR }), [y] = await (limit == null ? a.deepfilter({ music: 'enhance' }) : a.deepfilter({ limit, music: 'enhance' })).read()
 		let drop = floorDb(dirty) - floorDb(y), most = limit ?? 18
 		ok(drop > lo && drop < most + .2, `limit ${most}: the pause ${drop.toFixed(1)} dB down`)
 		ok(Math.abs(speechDb(y) - speechDb(clean)) < 1.5, `speech ${(speechDb(y) - speechDb(clean)).toFixed(2)} dB from the clean take`)
@@ -439,6 +442,31 @@ const HELD = path.join(os.homedir(), '.cache', 'audiojs', 'data', 'vocalset', 'F
 	if (!existsSync(HELD)) return console.log('  (no VocalSet in the data cache: held notes not checked)')
 	let [x] = await audio(HELD).read(), [y] = await audio(HELD).deepfilter().read()
 	ok(speechDb(y) - speechDb(x) > -3, `held notes: ${(speechDb(y) - speechDb(x)).toFixed(1)} dB`)
+})
+
+// music passes through both ops untouched (neural-denoise 0.4): a synthetic band, chords of plucked harmonic tones every
+// half second with a bass note and a tick of noise, which the classifier hears as music throughout
+function band(sec, sr = SR) {
+	let x = new Float32Array(Math.round(sec * sr)), s = 9, rnd = () => (s = (s * 1664525 + 1013904223) % 4294967296, s / 4294967296 - .5)
+	let chords = [[60, 64, 67], [57, 60, 64], [53, 57, 60], [55, 59, 62]], hz = m => 440 * 2 ** ((m - 69) / 12)
+	for (let b = 0; b * .5 < sec; b++) {
+		let t0 = Math.round(b * .5 * sr), c = chords[(b >> 2) % 4]
+		for (let n of [...c, c[0] - 24]) for (let h = 1; h <= 8 && hz(n) * h < 8000; h++)
+			for (let i = 0; i < sr && t0 + i < x.length; i++) x[t0 + i] += .05 / h * Math.exp(-i / sr * (2 + h)) * Math.sin(2 * Math.PI * hz(n) * h * i / sr)
+		for (let i = 0; i < 2000 && t0 + i < x.length; i++) x[t0 + i] += .1 * rnd() * Math.exp(-i / 300)
+	}
+	return x
+}
+;(GUARDED && HAS_DFN ? test : test.skip)('deepfilter, rnnoise: music passes through untouched; music: \'enhance\' processes it', NEURAL_RUN, async () => {
+	let x = band(6), [y] = await audio.from([x], { sampleRate: SR }).deepfilter().read()
+	is(maxDiff(y, x), 0, 'deepfilter: the band as it went in')
+	let [z] = await audio.from([x], { sampleRate: SR }).deepfilter({ music: 'enhance' }).read()
+	ok(maxDiff(z, x) > .01, `music: 'enhance': changed, by up to ${maxDiff(z, x).toFixed(2)}`)
+	// RNNoise decides as it streams: the band's first second is denoised
+	let [r] = await audio.from([x], { sampleRate: SR }).rnnoise().read(), from = Math.round(1.5 * SR)
+	is(maxDiff(r.subarray(from), x.subarray(from)), 0, 'rnnoise: from 1.5 s on, the band as it went in')
+	let err = await audio.from([x], { sampleRate: SR }).deepfilter({ music: 'keep' }).read().catch(e => e)
+	ok(/^deepfilter: music is 'pass' or 'enhance'/.test(err?.message), err?.message)
 })
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -574,4 +602,21 @@ test('denoise: says what it needs', async () => {
 	ok(/past the end/.test(err?.message), 'a range past the end: ' + err?.message)
 	err = await audio.from([new Float32Array(SR)], { sampleRate: SR }).denoise({ noise: { at: 0, duration: 0.5 } }).read().catch(e => e)
 	ok(/^denoise: the noise range is digital silence/.test(err?.message), err?.message)
+})
+
+// debleed reads the bleeding source's own track: the call takes it first, as a keyed op's key
+test('debleed(source): the source\'s bleed taken out of the mic; the same as { key }; a silent source changes nothing', async () => {
+	let n = SR * 4, voice = lena.subarray(0, n), other = lena.subarray(5 * SR, 5 * SR + n)
+	// a co-host 6 ms off through a short room, 10 dB under the voice
+	let path = new Float32Array(600); path[265] = 0.3; path[400] = 0.12; path[590] = 0.05
+	let bleed = convolve(other, path), mic = Float32Array.from(voice, (v, i) => v + bleed[i]), src = () => audio.from([other], { sampleRate: SR })
+	let out = (await audio.from([mic.slice()], { sampleRate: SR }).debleed(src()).read())[0]
+	is(out.length, n)
+	let err = x => { let s = 0; for (let i = SR; i < n; i++) s += (x[i] - voice[i]) ** 2; return s }, down = 10 * Math.log10(err(mic) / err(out))
+	// how far is the package's own measure (its README); hosted, the defining property: less of the bleed
+	ok(down > 1, `defining property: bleed ${down.toFixed(1)} dB down`)
+	let keyed = (await audio.from([mic.slice()], { sampleRate: SR }).debleed({ key: src() }).read())[0]
+	ok(keyed.every((v, i) => v === out[i]), 'debleed(source) ≡ debleed({ key: source })')
+	let still = (await audio.from([mic.slice()], { sampleRate: SR }).debleed(audio.from([new Float32Array(n)], { sampleRate: SR })).read())[0]
+	ok(still.every((v, i) => v === mic[i]), 'a silent source: bit-exact')
 })

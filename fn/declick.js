@@ -5,8 +5,9 @@
  * a.declick(5)                           → threshold 5: fainter ones too
  * a.declick({ at: 12.31, duration: 0.02 })  → the clicks there, seen on the spectrogram: looked for only there
  *
- * A click stands out of the AR prediction error by `threshold` times its local level and is rebuilt by least-squares
- * AR interpolation from 46 ms either side (the package's README, Measured). With a range, clicks are looked for only
+ * A click stands out of the AR prediction error by `threshold` times its local level; it is taken as a gap, an onset
+ * gap or a struck damped resonance (whichever explains it best, by BIC) and rebuilt from 46 ms either side as the
+ * posterior mean under AR (the package's README, Measured). With a range, clicks are looked for only
  * there and none is passed over: not one like a voice's pulses 2.5–15 ms away, nor one longer than `longest` ms. A
  * click's rebuilt span may run past the range by its own length; nothing else changes, sample for sample.
  *

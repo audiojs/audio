@@ -419,6 +419,10 @@ test('sidechain key bus: ducker ducks under the key, recovers after', async () =
   let after = rms(out, Math.round(1.25 * SR), Math.round(1.45 * SR))
   ok(during < before * 0.25, `ducked under key (${(20 * Math.log10(during / before)).toFixed(1)}dB)`)
   ok(after > before * 0.7, `recovers after key (${(20 * Math.log10(after / before)).toFixed(1)}dB)`)
+  // the key is a keyed op's first argument: a.ducker(voice, opts) ≡ a.ducker({ key: voice, ...opts }); it once
+  // landed on the first number, threshold, and nothing ducked
+  let positional = (await audio.from([main.slice(), main.slice()], { sampleRate: SR }).ducker(k, { threshold: -30, ratio: 8, range: -40, attack: 5, release: 50 }).read())[0]
+  ok(positional.every((v, i) => v === out[i]), 'ducker(key, opts) ≡ ducker({ key, ...opts })')
 })
 
 // Renamed params (contract §Parameter metadata `alias`): the new name drives the op, and

@@ -507,6 +507,8 @@ function useOp(m) {
   // Declared extra input buses (contract §channels) — bus 1 fed from ctx.key
   // (an audio instance / Float32Array[]), rendered per block, rate-reconciled
   let keyed = Array.isArray(m.channels?.inputs) && m.channels.inputs.length > 1
+  // its params as a call takes them: a keyed op's key first, the sound it reads (a.ducker(voice, { threshold }))
+  let args = keyed ? ['key', ...names] : names
 
   // Declared fixed output count ≠ input (contract §channels, e.g. 2→5.1 upmix) →
   // op-level `ch` hook; the plan pipeline sizes that stage's buffers to it
@@ -589,7 +591,7 @@ function useOp(m) {
       ? (n, o, sr) => m.frames(n, { sampleRate: sr, params: snapParams(k => o?.[k]) })
       : undefined
     return audio.op(id, {
-      params: names, plugin: m, atom: m, ch, tail: wholeTail, frames,
+      params: args, plugin: m, atom: m, ch, tail: wholeTail, frames,
       whole(input, output, ctx) {
         let st = init(ctx, input[0].length, input.length)
         if (noteIn && ctx.notes) st.mctx.events = noteSlots(ctx.notes, ctx.sampleRate)
@@ -606,16 +608,16 @@ function useOp(m) {
     })
   }
 
-  if (!tail) return audio.op(id, { params: names, plugin: m, atom: m, latency, process, ch })
+  if (!tail) return audio.op(id, { params: args, plugin: m, atom: m, latency, process, ch })
 
   // Declared tail: expand into pad + hidden proc at compile time — the user edit stays
   // one atomic entry (undo/serialize whole), the decay renders into the pad
-  audio.op('_' + id, { params: names, hidden: true, plugin: m, atom: m, latency, process, ch })
+  audio.op('_' + id, { params: args, hidden: true, plugin: m, atom: m, latency, process, ch })
   audio.op(id, {
-    params: names, tail, plugin: m, atom: m, ch,
+    params: args, tail, plugin: m, atom: m, ch,
     expand: (ctx) => {
       let o = {}
-      for (let k of names) if (ctx[k] !== undefined) o[k] = ctx[k]
+      for (let k of args) if (ctx[k] !== undefined) o[k] = ctx[k]
       let t = typeof tail === 'function'
         ? tail({ sampleRate: ctx.sampleRate, params: snapParams(n => o[n]) })
         : tail

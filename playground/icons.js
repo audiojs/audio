@@ -87,6 +87,7 @@ export default {
   dewind: 'M2 8h9.5a2.5 2.5 0 1 0-2.5-2.5M2 12h15a3 3 0 1 1-3 3M2 16h6',
   debreath: 'M3 8v8M6 5v14M18 5v14M21 8v8M9 15c1.5-3 4.5-3 6 0',
   defeedback: 'M2 20h8l2-11 2 11h8M12 2v5M9.5 4.5 12 7l2.5-2.5',
+  debleed: 'M2 9c2-4 4-4 6 0s4 4 6 0 4-4 6 0M2 17c2-3 4-3 6 0s4 3 6 0M15 14l6 6M21 14l-6 6',
   spectral: 'M3 5h18M3 19h18M3 10h5M16 10h5M3 14h5M16 14h5M8 8h8v8H8z',
   repair: 'm4 14 6 6 10-10-6-6ZM9 11l1 1m2-2 1 1m-2 3 1 1m2-2 1 1',
   // Time & pitch: the stretch methods draw what each keeps under a stretch arrow, the pitch shifts beside a pitch arrow

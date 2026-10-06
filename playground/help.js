@@ -13,6 +13,7 @@ export const layouts = {
   leveler: 'target maxGain | frame smooth gate',
   unlimit: 'amount | drive adaptive crestTarget ceiling fastAttack fastRelease slowAttack slowRelease',
   ducker: 'threshold range attack release | ratio knee',
+  debleed: 'attenuation | span',
   multiband: 'low high threshold ratio makeup | upThreshold upRatio depth attack release',
   dyneq: 'mode fc Q threshold ratio maxGain | attack release',
   dehum: 'freq harmonics | adaptive',
@@ -377,10 +378,12 @@ export const texts = {
     xiFloor: 'Lowest signal-to-noise ratio it assumes, in dB. Lower removes more of faint sounds close to the noise; higher protects them, but leaves more noise.'
   },
   deepfilter: {
-    limit: 'The most the noise is turned down, in dB. Past 18 the voice itself starts to sound filtered, like a call. 0 lifts the limit: the model\'s full cleaning, and pauses can fall to digital silence.'
+    limit: 'The most the noise is turned down, in dB. Past 18 the voice itself starts to sound filtered, like a call. 0 lifts the limit: the model\'s full cleaning, and pauses can fall to digital silence.',
+    music: 'pass leaves music as it is, songs included, and cleans only speech and noise. enhance cleans everything, which takes music down and dulls it.'
   },
   rnnoise: {
-    limit: 'The most the noise is turned down, in dB. A limit keeps the model from damaging the voice. 0 lifts the limit.'
+    limit: 'The most the noise is turned down, in dB. A limit keeps the model from damaging the voice. 0 lifts the limit.',
+    music: 'pass leaves music as it is, songs included, and cleans only speech and noise. It decides as it plays: music is cleaned for its first second or so. enhance cleans everything.'
   },
   wiener: {
     rule: 'How the amount to remove is worked out. mmse-lsa leaves less warbling noise behind; wiener is the classic, simpler rule.',
@@ -401,7 +404,7 @@ export const texts = {
   },
   declick: {
     threshold: 'Detection threshold. How far a click must stand out of the sound around it, in multiples of its usual unpredictability. Lower finds fainter clicks (and may nibble the sound); higher, only loud ones.',
-    longest: 'Longest click rebuilt, in milliseconds. A burst longer than this is taken for real sound and left alone, unless it is in the selection.',
+    longest: 'Longest click rebuilt, in milliseconds. A burst longer than this is taken for real sound and left alone, unless it is in the selection; a pop\'s ring is taken off with it if it dies away within this.',
     order: 'Model detail. How many earlier samples predict the next, so a click stands out from what the sound would do. Higher follows pitched sound more closely and runs slower.'
   },
   decrackle: {
@@ -413,7 +416,7 @@ export const texts = {
     order: 'Model detail. How many earlier samples are used to predict the wave across a cut peak. Higher follows rich music more closely and runs much slower.'
   },
   dereverb: {
-    strength: 'How much of the room\'s echo is taken. Higher takes more of it and more of the voice with it; 0 takes only what it can cancel exactly, a dB or two.'
+    strength: 'How much of the room\'s echo is taken. Higher takes more of it and more of the voice with it; 0 takes only what it can cancel exactly, a dB or two. A take with no room to hear, or music with no pauses, is left as it came at any strength.'
   },
   deplosive: {
     triggerRatio: 'How much stronger the low thump must be than the rest of the voice to count as a pop. Lower catches more pops; higher catches only the worst. A voice or a bass note, whose low end has a pitch, is let through.',
@@ -424,12 +427,16 @@ export const texts = {
   },
   dewind: {
     attenuation: 'How far the wind is turned down, in dB. A voice\'s harmonics that stand over the wind keep their level; lower takes the wind further and leaves the voice drier. 0 takes nothing.',
-    cutoff: 'The highest frequency wind is taken from, in Hz. Most wind lies under 500 Hz; raise it for strong wind that rushes higher. Nothing above it is touched, and with no wind nothing at all.'
+    cutoff: 'The highest frequency wind is taken from, in Hz. Most wind lies under 500 Hz, but strong wind rushes up to several kHz, so by default it is taken up to 8 kHz. Nothing above it is touched, and with no wind nothing at all.'
   },
   debreath: {
     range: 'How far everything between phrases, breaths included, is turned down, in dB. -12 softens it; lower removes more and makes pauses unnaturally dead.',
     attack: 'How long before speech starts the volume comes back. It rises ahead of the word, so the start is never cut; longer is softer.',
     release: 'How slowly the cut is applied after speech ends. Longer is smoother; shorter turns breaths down sooner.'
+  },
+  debleed: {
+    attenuation: 'How far the bleed that cancelling leaves is turned down, in dB. Lower takes more of it and, where the wanted sound and the bleed share a frequency, a little of the wanted sound; 0 only cancels.',
+    span: 'How long a stretch of the room between the bleeding source and the mic is learned, in seconds: its delay and first reflections. A bigger, more echoing room wants more.'
   },
   defeedback: {
     notches: 'How many howl frequencies it can cut at once. Each one found gets its own narrow cut; when all are in use, the shallowest is replaced.',

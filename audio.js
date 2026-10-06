@@ -37,6 +37,7 @@ const OPS = {
   dereverb: '@audio/denoise-dereverb/audio',
   deplosive: '@audio/denoise-deplosive/audio',
   dewind: '@audio/denoise-dewind/audio',
+  debleed: '@audio/denoise-debleed/audio',
   declip: '@audio/denoise-declip/audio',
   decrackle: '@audio/denoise-decrackle/audio',
   debreath: '@audio/denoise-debreath/audio',

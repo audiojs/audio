@@ -96,7 +96,7 @@ const table = {
   denoise: ['Repair', 'Remove a noise learned from where it plays alone', [db('reduction', 0, 40, 12), db('threshold', -10, 10, 0), { name: 'noise', selection: 'where the noise plays alone' }]],
   omlsa: ['Repair', 'Reduce background noise that changes'],
   // the noise `limit` dB down at most; 0 lets pauses fall to silence (fn/deepfilter.js)
-  deepfilter: ['Repair', 'Clean speech with a neural model', [db('limit', 0, 40, 18)]],
+  deepfilter: ['Repair', 'Clean speech with a neural model', [db('limit', 0, 40, 18), choice('music', ['pass', 'enhance'])]],
   rnnoise: ['Repair', 'Clean speech with a small neural model, as it streams'],
   wiener: ['Repair', 'Reduce noise, gentle'],
   specsub: ['Repair', 'Reduce noise by spectral subtraction'],
@@ -111,6 +111,7 @@ const table = {
   dewind: ['Repair', 'Reduce wind rumble'],
   debreath: ['Repair', 'Lower breaths between words'],
   defeedback: ['Repair', 'Suppress feedback howl'],
+  debleed: ['Repair', 'Take a source\'s bleed out of a mic, given its track'],
   spectral: ['Repair', 'Change a band over a time range', [p('band', 20, 20000, [1000, 4000], 'Hz', { log: true }), db('gain', -60, 12, -60)]],
   repair: ['Repair', 'Rebuild a damaged range from its surroundings', 'range'],
   // Time & pitch

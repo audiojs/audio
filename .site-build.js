@@ -118,8 +118,8 @@ await build({
   legalComments: 'eof'
 })
 
-// What the worker's chunks fetch beside themselves: the ONNX runtime's wasm, RNNoise's weights
-for (const [from, name] of [['onnxruntime-web/ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.wasm'], ['@audio/neural-denoise/rnnoise.bin', 'rnnoise.bin']])
+// What the worker's chunks fetch beside themselves: the ONNX runtime's wasm, RNNoise's weights, the music guard's
+for (const [from, name] of [['onnxruntime-web/ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.wasm'], ['@audio/neural-denoise/rnnoise.bin', 'rnnoise.bin'], ['@audio/neural-denoise/guard.bin', 'guard.bin']])
   try { await copyFile(fileURLToPath(import.meta.resolve(from)), `playground/dist/chunks/${name}`) } catch {}
 
 // The editor's pictures: gl-waveform and gl-spectrogram, each one ES module with no dependencies, as published
