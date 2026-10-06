@@ -48,7 +48,9 @@ async function scenario(Audio, src, missing, log) {
   let handled = 0
   a.onplay = () => handled++
   const starting = events(a, 'playing')
-  const p = a.play()
+  const p = a.play(), t0 = performance.now()
+  // the raw ms until currentTime moves, shown with a difference
+  ;(async () => { while (a.currentTime < 0.05 && performance.now() - t0 < 3000) await wait(10); log._moves = Math.round(performance.now() - t0) })()
   log.play = { promise: p instanceof Promise, paused: a.paused, events: await starting, resolved: await p.then(() => true) }
   let ticks = 0
   const tick = () => ticks++
