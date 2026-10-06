@@ -52,7 +52,6 @@ async function prepare(a, index) {
   if (floor != null && (typeof floor !== 'number' || !(floor >= 0))) throw new TypeError(`deepfilter: floor is dB under the voice, 0 or more (0: none), not ${floor}`)
   if (music !== 'pass' && music !== 'enhance') throw new TypeError(`deepfilter: music is 'pass' or 'enhance', not ${music}`)
   let { default: denoise, load, MODEL, mixback } = await loadNeural()
-  if (!mixback) throw new Error('deepfilter: needs @audio/neural-denoise 0.5 or later')
   await arrived(a)
   // the channels it runs on, in the order the engine hands them to process()
   let chs = o.channel == null ? null : [o.channel].flat(), id = `${limit}:${floor ?? ''}:${music}:${o.weights ?? ''}:${chs ?? ''}`
@@ -77,6 +76,7 @@ async function prepare(a, index) {
     try { return await denoise(pcm, { sampleRate: input.sampleRate, model, limit: 0, music }) }
     finally { model.free() }
   })
+  if (limit && !mixback) throw new Error('deepfilter: needs @audio/neural-denoise 0.5 or later (its mixback())')
   o[ENHANCED] = { key, stamp, pcm: limit ? y.map((v, c) => mixback(pcm[c], v, { limit, floor, sampleRate: input.sampleRate })) : y }
 }
 
