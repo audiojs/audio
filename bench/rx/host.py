@@ -3,6 +3,8 @@
 #   python bench/rx/host.py serve           the same jobs one per line on stdin, each answered by a line (bench/rx/lib.mjs)
 #   python bench/rx/host.py params PLUGIN   its parameters: name, range, default
 #   python bench/rx/host.py lag             each plugin's alignment at its defaults: the lag of its output on noise
+#   python bench/rx/host.py reuse           each plugin's output after another sound and a reset, against a new
+#                                           instance's, dB (-inf: a reset is enough; FRESH lists the others)
 # Plugins load from /Library/Audio/Plug-Ins/VST3/RX 12 <PLUGIN>.vst3 (RX 12 Advanced, authorized). Each job starts
 # from the plugin's defaults and a reset, or from a new instance where a reset keeps state (FRESH: on a tone in noise
 # after another sound, Spectral De-noise's output differed from a new instance's by -47 dB, its learned print held;
@@ -51,6 +53,18 @@ def lag(name):
         out.append((fs, int(np.argmax(np.abs(c))) - 4096, round(float(np.max(np.abs(c)) / np.dot(a, a)), 3)))
     return name, out
 
+def reuse(name):
+    sr, r = 44100, np.random.default_rng(0)
+    t = np.arange(3 * sr) / sr
+    a = (0.05 * r.standard_normal(len(t)) + 0.1 * np.sin(2 * np.pi * 120 * t)).astype(np.float32)
+    b = (0.2 * np.sin(2 * np.pi * 440 * t) * (t % 0.5 < 0.3) + 0.02 * r.standard_normal(len(t))).astype(np.float32)
+    b[1000::7000] += 0.5
+    y = pedalboard.load_plugin(VST % name).process(b[None], sr)[0]
+    p = pedalboard.load_plugin(VST % name)
+    p.process(a[None], sr); p.reset()
+    d = np.sqrt(np.mean((p.process(b[None], sr)[0] - y) ** 2) / np.mean(y ** 2))
+    return name, round(20 * np.log10(d), 1) if d else -np.inf
+
 if __name__ == '__main__':
     if sys.argv[1] == 'params':
         p = plugin(sys.argv[2])
@@ -59,6 +73,9 @@ if __name__ == '__main__':
         for line in sys.stdin:
             try: print(json.dumps({'out': render(json.loads(line))}), flush=True)
             except Exception as e: print(json.dumps({'error': repr(e)}), flush=True)
+    elif sys.argv[1] == 'reuse':
+        with Pool(4) as pool:
+            for name, db in pool.imap(reuse, PLUGINS): print(name, db, 'FRESH' if name in FRESH else '', flush=True)
     elif sys.argv[1] == 'lag':
         with Pool(8) as pool:
             for name, out in pool.imap(lag, PLUGINS): print(name, out, flush=True)
