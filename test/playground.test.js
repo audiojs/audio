@@ -1986,19 +1986,49 @@ test('editor: play moves the clock, and a new output keeps playing where it was'
 
 // What plays is rendered by the engine, as it plays (player.js, worker.js voice): the page's own thread held up three
 // seconds, longer than the library renders ahead of the speakers (fn/play.js AHEAD), leaves no gap in it. The speakers' feed taken on the audio thread (taken), past the page's
-// An output longer than the page holds (over 30 channel-minutes) is drawn from its peaks: the whole of it at once, the
-// page's own memory a fraction of its samples; zoomed in, its samples come and the line runs through them; it plays
-// from the engine; a selection's levels read from its leaves
-test('editor: a sound longer than the page holds is drawn from its peaks, its samples where it is zoomed in, and plays', async () => {
+// An output longer than the page holds (over 30 channel-minutes) is drawn from its picture: the waveform from its peaks,
+// the spectrogram from its spectra, the whole of it at once, the page's own memory a fraction of its samples; zoomed in,
+// its samples come and the line runs through them, those far behind let go as the view moves on; it plays from the
+// engine; a selection's levels read from its leaves
+test('editor: a sound longer than the page holds is drawn from its peaks and spectra, its samples where it is zoomed in, and plays', async () => {
   await open()
-  const heap = () => page.evaluate(() => performance.memory?.usedJSHeapSize ?? 0)
+  // the page's memory as the engine counts it, its arrays' storage too
+  const cdp = await page.context().newCDPSession(page)
+  const heap = () => cdp.send('Runtime.getHeapUsage').then(u => u.usedSize + (u.backingStorageSize ?? 0))
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * (.25 + .2 * Math.sin(t / 40)), { duration: 1820, sampleRate: 48000 })`)
   await page.waitForFunction(() => document.querySelector('.source').title.endsWith('30:20.000'), null, { timeout: 120000 })
   await page.waitForFunction(() => !document.querySelector('.message').textContent, null, { timeout: 120000 })
-  await page.evaluate(() => globalThis.gc?.())
+  await cdp.send('HeapProfiler.collectGarbage')
   const used = await heap()
-  assert.ok(used < 200e6, `the page holds ${(used / 1e6).toFixed(0)} MB, its samples would be ${(1820 * 48000 * 4 / 1e6).toFixed(0)}`)
+  assert.ok(used < 150e6, `the page holds ${(used / 1e6).toFixed(0)} MB, its samples would be ${(1820 * 48000 * 4 / 1e6).toFixed(0)}`)
   assert.ok(await drawn() > .02, 'all of it drawn from its peaks')
+  // the spectrogram of all of it, from its spectra: the tone a bright row, at 220 Hz
+  await show('spec')
+  await page.waitForTimeout(500)
+  const rows = await page.locator('.plot canvas.spectrum').screenshot().then(png => page.evaluate(async b64 => {
+    const img = new Image()
+    img.src = 'data:image/png;base64,' + b64
+    await img.decode()
+    const c = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height }), g = c.getContext('2d')
+    g.drawImage(img, 0, 0)
+    const d = g.getImageData(0, 0, c.width - 60, c.height - 30).data, w = c.width - 60, lit = []
+    // each row's share of bright pixels, across the lane
+    for (let y = 0; y < c.height - 30; y++) { let n = 0; for (let x = 0; x < w; x++) if (d[(y * w + x) * 4] > 100) n++; lit.push(n / w) }
+    return lit
+  }, png.toString('base64')))
+  assert.ok(rows.filter(v => v > .9).length >= 1 && rows.filter(v => v > .9).length < rows.length / 10, `a row lit across: ${rows.filter(v => v > .9).length} of ${rows.length}`)
+  // zoomed in to two minutes and scrolled across a quarter of it: its samples come where it is, those far behind let go,
+  // the page's memory bounded (the samples of where it went would be 8 × 2 minutes, twice: waveform and spectrogram)
+  const plotBox = await page.locator('.plot').boundingBox()
+  await page.mouse.move(plotBox.x + plotBox.width / 2, plotBox.y + plotBox.height / 2)
+  await page.locator('.plot').focus()
+  for (let i = 0; i < 4; i++) await page.keyboard.press('=')
+  for (let i = 0; i < 8; i++) { await page.mouse.wheel(plotBox.width, 0); await page.waitForTimeout(700) }
+  await cdp.send('HeapProfiler.collectGarbage')
+  const after = await heap()
+  assert.ok(after < used + 200e6, `having gone across, the page holds ${(after / 1e6).toFixed(0)} MB, ${(used / 1e6).toFixed(0)} before`)
+  await page.keyboard.press('0')
+  await show('wave')
   // zoomed in on the caret, 20 ms or so across, under a sample a pixel: the samples come, the line through them (the
   // peaks alone draw nothing there)
   const { box } = await axis(1820)
@@ -2025,8 +2055,9 @@ test('editor: a sound longer than the page holds is drawn from its peaks, its sa
   // it plays, from the engine
   await page.keyboard.press('Space')
   await page.getByRole('button', { name: 'Pause' }).waitFor()
+  // the clock runs once the engine's first render reaches the deck: within 600 ms here, longer on a shared runner
   const t0 = await page.locator('.time').innerText()
-  await page.waitForTimeout(600)
+  await page.waitForFunction(t => document.querySelector('.time').innerText !== t, t0, { timeout: 10000 }).catch(() => {})
   assert.notEqual(await page.locator('.time').innerText(), t0, 'the clock runs')
   await page.getByRole('button', { name: 'Pause' }).click()
   // a selection's levels, from its leaves
@@ -6224,10 +6255,12 @@ test('engine: an output is kept for the next visit by its script and its files',
   assert.deepEqual(r.other.seen[0], { id: r.other.seen[0].id, event: 'doing', steps: ['omlsa', 'gain'] })
 })
 
-// A page holding `peaks` channel samples gets an output longer than that as its leaves (worker.js feed), as it renders
-// and kept, each leaf its 256 samples' own [min, max, Σx², count], the last one short; each piece from a leaf's start. One
-// it holds comes as samples. samples() reads any range, clamped to the output; null once a newer one replaced it
-test('engine: past what the page holds, an output comes as its peaks, each leaf its samples\' own', async () => {
+// A page holding `peaks` channel samples gets an output longer than that as its picture (worker.js feed), as it renders
+// and kept: each leaf its 256 samples' own [min, max, Σx², count], the last one short, each piece from a leaf's start;
+// each spectra column the loudest each bin reaches over its Hann frames of 2048 (40 ms at 48 kHz) every 1024 samples,
+// as a byte (dB + 150) · 1.6, within a byte of a textbook FFT in doubles. One it holds comes as samples. samples() reads
+// any range, clamped to the output; null once a newer one replaced it
+test('engine: past what the page holds, an output comes as its peaks and spectra, each its samples\' own', async () => {
   await page.goto(origin + '/blank.html')
   const r = await page.evaluate(async () => {
     const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
@@ -6240,16 +6273,38 @@ test('engine: past what the page holds, an output comes as its peaks, each leaf 
       for (let i = j * 256; i < Math.min(x.length, j * 256 + 256); i++) { const y = x[i]; if (y < lo) lo = y; if (y > hi) hi = y; q += y * y; n++ }
       return [lo, hi, Math.fround(q), n]
     }).flat()
+    // the spectra of each channel, as they should be: a textbook radix-2 FFT in doubles
+    const fft = (re, im) => {
+      const n = re.length
+      for (let i = 1, j = 0; i < n; i++) { let b = n >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]] } }
+      for (let len = 2; len <= n; len <<= 1) for (let i = 0; i < n; i += len) for (let k = 0; k < len / 2; k++) {
+        const a = -2 * Math.PI * k / len, c = Math.cos(a), s = Math.sin(a), p = i + k, q = p + len / 2, vr = re[q] * c - im[q] * s, vi = re[q] * s + im[q] * c
+        re[q] = re[p] - vr; im[q] = im[p] - vi; re[p] += vr; im[p] += vi
+      }
+    }
+    const spectraOf = (x, N, hop) => {
+      const bins = N / 2 + 1, cols = Math.ceil(x.length / hop), most = new Float64Array(cols * bins)
+      for (let t = N / 2; t - N / 2 < x.length; t += N / 2) {
+        const o = Math.floor(t / hop)
+        if (o >= cols) break
+        const re = Float64Array.from({ length: N }, (_, i) => { const k = t - N / 2 + i; return k < x.length ? x[k] * (.5 - .5 * Math.cos(2 * Math.PI * i / N)) : 0 }), im = new Float64Array(N)
+        fft(re, im)
+        for (let k = 0; k < bins; k++) most[o * bins + k] = Math.max(most[o * bins + k], (re[k] ** 2 + im[k] ** 2) / (N / 4) ** 2)
+      }
+      return Uint8Array.from(most, p => p > 0 ? Math.max(1, Math.min(255, Math.round((10 * Math.log10(p) + 150) * 1.6))) : 0)
+    }
     const check = async ({ parts, done, error }) => {
       if (error) return { error }
       const n = Math.round(done.duration * done.sampleRate), pcm = await e.samples(done.id, 0, n)
       const leaves = pcm.map((_, c) => parts.flatMap(p => p.peaks ? [...p.peaks[c]] : []))
+      const given = parts.find(p => p.spectra)?.spectra, levels = given && pcm.map((_, c) => parts.flatMap(p => p.spectra ? [...p.spectra.levels[c]] : []))
+      const off = given ? Math.max(...pcm.map((x, c) => { const w = spectraOf(x, given.size, given.hop); return w.length === levels[c].length ? Math.max(...w.map((v, i) => Math.abs(v - levels[c][i]))) : Infinity })) : null
       let at = 0, aligned = true
       for (const p of parts) { if (p.peaks && p.at !== at) aligned = false; if (p.peaks) at += p.peaks[0].length / 4 * 256 }
       return {
         n, long: done.long, pieces: parts.length, kinds: [...new Set(parts.map(p => p.peaks ? 'peaks' : 'samples'))], aligned,
         exact: pcm.every((x, c) => JSON.stringify(leaves[c]) === JSON.stringify(want(x))),
-        last: leaves[0].slice(-1)[0], id: done.id
+        spectra: given && { size: given.size, hop: given.hop, off }, last: leaves[0].slice(-1)[0], id: done.id
       }
     }
     // files, so what they make is kept
@@ -6262,6 +6317,8 @@ test('engine: past what the page holds, an output comes as its peaks, each leaf 
   assert.ok(r.long.long && r.long.kinds.join() === 'peaks' && r.long.pieces > 1, `rendered: as peaks, in ${r.long.pieces} pieces`)
   assert.ok(r.long.aligned && r.long.exact, 'each piece from where the last left off, each leaf its samples\' own')
   assert.equal(r.long.last, 96096 - 375 * 256, 'the last leaf holds what is left')
+  assert.deepEqual(r.long.spectra, { size: 2048, hop: 2048, off: r.long.spectra.off }, 'spectra of 40 ms frames, a column each 2048 samples')
+  assert.ok(r.long.spectra.off <= 1 && r.kept.spectra?.off <= 1 && r.even.spectra?.off <= 1, `spectra within a byte of the FFT in doubles: ${[r.long, r.kept, r.even].map(x => x.spectra?.off)}`)
   assert.ok(r.kept.long && r.kept.exact && r.kept.pieces === 1, 'kept: its leaves at once')
   assert.deepEqual(r.edges, [[300, 300], [5, 5], [0, 0]], 'samples() clamped to the output')
   assert.ok(r.even.long && r.even.exact && r.even.last === 256, 'a length of whole leaves: the last one whole')
