@@ -596,7 +596,9 @@ function useOp(m) {
         let st = init(ctx, input[0].length, input.length)
         if (noteIn && ctx.notes) st.mctx.events = noteSlots(ctx.notes, ctx.sampleRate)
         fill(st, ctx)
-        st.process([input], [output], st.live)
+        // a keyed module reads its key bus whole too, rendered over the same length
+        let key = keyed && ctx.key != null && audio.renderAt ? audio.renderAt(ctx.render, ctx.key, 0, input[0].length, ctx.sampleRate) : undefined
+        st.process(keyed ? [input, key] : [input], [output], st.live)
         // a range: the module reads all of it, its output kept there alone (one that renders in place, channel for
         // channel: a time-stretch's range is its frames hook's)
         if ((ctx.at != null || ctx.duration != null) && !frames && output.length === input.length) {

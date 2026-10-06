@@ -425,6 +425,23 @@ test('sidechain key bus: ducker ducks under the key, recovers after', async () =
   ok(positional.every((v, i) => v === out[i]), 'ducker(key, opts) ≡ ducker({ key, ...opts })')
 })
 
+// A whole-render keyed module (streaming: false) reads its key bus whole too: here, the input less the key
+test('sidechain key bus: a whole-render module gets the key over its whole length', async () => {
+  const keyLess = () => (inputs, outputs) => {
+    let [x, k] = inputs, y = outputs[0]
+    for (let c = 0; c < y.length; c++) for (let i = 0; i < y[c].length; i++) y[c][i] = x[c][i] - (k?.[c % k.length]?.[i] ?? 0)
+  }
+  keyLess.channels = { inputs: [1, 1], outputs: [1] }
+  keyLess.streaming = false
+  keyLess.params = { amount: { type: 'number', min: 0, max: 1, default: 1 } }
+  audio.use(keyLess)
+  let n = SR, x = Float32Array.from({ length: n }, (_, i) => Math.sin(i / 9)), k = Float32Array.from({ length: n }, (_, i) => 0.25 * Math.sin(i / 31))
+  let [y] = await audio.from([x], { sampleRate: SR })['key-less'](audio.from([k], { sampleRate: SR })).read()
+  ok(y.every((v, i) => Math.abs(v - (x[i] - k[i])) < 1e-6), 'the key, whole, under the input')
+  let [z] = await audio.from([x], { sampleRate: SR })['key-less']().read()
+  ok(z.every((v, i) => v === x[i]), 'no key: none taken')
+})
+
 // Renamed params (contract §Parameter metadata `alias`): the new name drives the op, and
 // the former name, kept as `alias`, still does, identically, through the host.
 import { defeedback } from '@audio/defeedback/audio'
