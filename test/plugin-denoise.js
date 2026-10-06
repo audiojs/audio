@@ -136,7 +136,8 @@ test('deplosive: ducks an LF burst, leaves surrounding speech alone', async () =
 	is(out.length, dirty.length, 'length preserved')
 	ok(out.every(isFinite))
 	let burstBefore = rms(dirty, bstart, bstart + blen), burstAfter = rms(out, bstart, bstart + blen)
-	let quietBefore = rms(dirty, 0, bstart), quietAfter = rms(out, 0, bstart)
+	// deplosive reads ~14 ms ahead and begins its duck a few ms before a pop: "well outside" ends 10 ms before it
+	let quietBefore = rms(dirty, 0, bstart - SR / 100), quietAfter = rms(out, 0, bstart - SR / 100)
 	// 0.75: the exact-complement deplosive (>=0.1.3) ducks less deeply than the old crossover but adds no coloration
 	ok(burstAfter < burstBefore * 0.75, `defining property: LF burst ducked (${burstBefore.toFixed(4)} -> ${burstAfter.toFixed(4)})`)
 	ok(Math.abs(quietAfter - quietBefore) < quietBefore * 0.15, 'speech well outside the burst left mostly alone')
@@ -271,13 +272,14 @@ test('decrackle (streaming:false): reduces a high-rate impulse shower', async ()
 	ok(peakClean < peakDirty, `defining property: impulse shower peaks reduced (${peakDirty.toFixed(3)} -> ${peakClean.toFixed(3)})`)
 })
 
-test('debreath (streaming:false): attenuates the VAD-inactive region, preserves speech', async () => {
+test('debreath (streaming:false), room: attenuates the VAD-inactive region, preserves speech', async () => {
+	// 1.5 s of white noise is no breath (debreath ≥ 0.3.0 takes breaths alone); `room` turns the rest down, as 0.2 did
 	let speechPart = lena.subarray(0, Math.round(1.5 * SR))
 	let breathPart = new Float32Array(Math.round(1.5 * SR))
 	for (let i = 0; i < breathPart.length; i++) breathPart[i] = 0.02 * (Math.random() * 2 - 1)
 	let dirty = new Float32Array(speechPart.length + breathPart.length)
 	dirty.set(speechPart, 0); dirty.set(breathPart, speechPart.length)
-	let out = (await audio.from([dirty.slice()], { sampleRate: SR }).debreath().read())[0]
+	let out = (await audio.from([dirty.slice()], { sampleRate: SR }).debreath({ room: -12 }).read())[0]
 	is(out.length, dirty.length, 'equal frames in/out (whole buffer)')
 	ok(out.every(isFinite))
 	let speechBefore = rms(dirty, 0, speechPart.length), speechAfter = rms(out, 0, speechPart.length)

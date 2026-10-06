@@ -457,7 +457,7 @@ test('renamed params: new names work, former names (alias) give identical output
   let run = async (op, opts) => (await audio.from([src()], { sampleRate: SR })[op](opts).read())[0]
   let same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i])
   for (let [op, now, was, dflt] of [
-    ['deesser', { fc: 6800, Q: 3, threshold: -40 }, { freq: 6800, q: 3, threshold: -40 }, { threshold: -40 }],
+    ['deesser', { mode: 'band', fc: 6800, Q: 3, threshold: -40 }, { mode: 'band', freq: 6800, q: 3, threshold: -40 }, { mode: 'band', threshold: -40 }],
     ['exciter', { fc: 1200, amount: 0.8 }, { freq: 1200, amount: 0.8 }, { amount: 0.8 }],
     ['subbass', { fc: 150, amount: 0.8 }, { freq: 150, amount: 0.8 }, { amount: 0.8 }],
     ['sbr', { fc: 4000, amount: 0.8 }, { cutoff: 4000, amount: 0.8 }, { amount: 0.8 }],
