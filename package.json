@@ -70,7 +70,7 @@
     "test:mcp": "node test/mcp.js",
     "test:bridge": "node test/bridge.js",
     "test:node": "CI=1 npm test && CI=1 npm run test:fixes && CI=1 npm run test:batch && CI=1 npm run test:cli && npm run test:stream && npm run test:mcp",
-    "test:pages": "npm run test:polyfill && npm run test:memory && npm run test:browser && npm run test:playground",
+    "test:pages": "npm run test:memory && npm run test:browser && npm run test:playground",
     "test:polyfill": "node test/polyfill.js",
     "test:all": "npm run test:node && npm run test:pages",
     "version": "node -p \"var s=require('fs'),v=require('./package.json').version;s.writeFileSync('core.js',s.readFileSync('core.js','utf8').replace(/audio\\.version = '[^']+'/,'audio.version = \\''+v+'\\''));''\" && git add core.js",

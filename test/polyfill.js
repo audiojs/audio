@@ -56,7 +56,8 @@ async function scenario(Audio, src, missing, log) {
   await wait(400)
   a.removeEventListener('timeupdate', tick)
   log.timeupdates = ticks >= 1
-  log.playing = { onplay: handled, moving: a.currentTime > 0.2 && a.currentTime < 1 }
+  log._playing = a.currentTime  // the raw value, shown when the two differ, not compared
+  log.playing = { onplay: handled, moving: log._playing > 0.2 && log._playing < 1 }
 
   const pausing = events(a, 'pause', 1000, t => true)
   a.pause()
@@ -132,8 +133,11 @@ test('polyfill ≡ HTMLAudioElement, observation by observation', { timeout: 120
   const end = await Promise.race([scenario(Audio, 'test/fixture.wav', 'test/missing.wav', ours), stall(40000)])
   server.close()
   if (end === 'stalled') console.log('polyfill stalled after: ' + Object.keys(ours).at(-1))
-  const differ = Object.keys(real).filter(k => JSON.stringify(ours[k]) !== JSON.stringify(real[k]))
+  // `_` keys are raw readings, not compared: shown with a difference, to say what the polyfill saw
+  const keys = Object.keys(real).filter(k => k[0] !== '_'), raw = Object.keys(real).filter(k => k[0] === '_')
+  const differ = keys.filter(k => JSON.stringify(ours[k]) !== JSON.stringify(real[k]))
   for (const k of differ) console.log(`${k}\n  polyfill: ${JSON.stringify(ours[k])}\n  browser:  ${JSON.stringify(real[k])}`)
+  if (differ.length) for (const k of raw) console.log(`${k}: polyfill ${ours[k]}, browser ${real[k]}`)
   t.is(differ, [], 'what the polyfill observes differently')
-  for (const key of Object.keys(real)) t.is(ours[key], real[key], key)
+  for (const key of keys) t.is(ours[key], real[key], key)
 })
