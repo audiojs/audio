@@ -394,49 +394,53 @@ test('rnnoise, deepfilter: without @audio/neural-denoise each names the package,
 	ok(/^deepfilter: can't load DeepFilterNet3 from file:\/\/\/nonexistent\//.test(err?.message), err?.message)
 	err = await a().deepfilter(-3).read().catch(e => e)
 	ok(/^deepfilter: limit is dB/.test(err?.message), err?.message)
+	err = await a().deepfilter({ floor: -40 }).read().catch(e => e)
+	ok(/^deepfilter: floor is dB/.test(err?.message), err?.message)
 })
 
-;(HAS_DFN ? test : test.skip)('deepfilter: the package on the op input, unlimited, the input mixed back at the limit; its channel only, once', NEURAL_RUN, async () => {
+;(HAS_DFN ? test : test.skip)('deepfilter: the package on the op input, unlimited, the input mixed back by its mixback(); its channel only, once', NEURAL_RUN, async () => {
 	let { clean, dirty } = take(), calls = 0
 	await withImport((spec, orig) => spec === '@audio/neural-denoise' ? orig(spec).then(m => ({ ...m, default: (...a) => (calls++, m.default(...a)) })) : orig(spec), async () => {
 		let [input] = await audio.from([dirty], { sampleRate: SR }).gain(-6).read(), [ref] = await audio.from([clean], { sampleRate: SR }).gain(-6).read()
-		let [y] = await neural.default([input], { sampleRate: SR, model: 'deepfilternet3', limit: 0, music: 'enhance' }), g = 10 ** (-18 / 20)
+		let [y] = await neural.default([input], { sampleRate: SR, model: 'deepfilternet3', limit: 0, music: 'enhance' })
 		calls = 0
 		let a = audio.from([dirty, dirty], { sampleRate: SR }).gain(-6).deepfilter({ channel: 1, music: 'enhance' })
 		let [l, r] = await a.read()
-		is(maxDiff(r, y.map((v, i) => (1 - g) * v + g * input[i])), 0, 'the package on the edits before it, 18 dB limit')
+		is(maxDiff(r, neural.mixback(input, y, { sampleRate: SR })), 0, 'the package on the edits before it, the input mixed back by its mixback(): 18 dB, the floor')
 		is(maxDiff(l, input), 0, 'channel 0 untouched')
 		a.gain(1); await a.read()
 		is(calls, 1, 'enhanced once: re-reads and later edits reuse it')
-		let drop = floorDb(input) - floorDb(r), speech = speechDb(r) - speechDb(ref)
-		ok(drop > 15 && drop < 18.2, `noise down ${drop.toFixed(1)} dB, no more than the limit: room tone kept`)
+		let speech = speechDb(r) - speechDb(ref)
 		ok(Math.abs(speech) < 1.5, `speech ${speech.toFixed(2)} dB from the clean take`)
 		let [none] = await audio.from([input], { sampleRate: SR }).deepfilter({ limit: 0, music: 'enhance' }).read()
 		is(maxDiff(none, y), 0, 'limit 0: the package unlimited')
 		// kept by the model and its input in a host's store (core.js memo), never by the limit: another instance at another
 		// limit reads the run back, the limit applied after it
-		let kept = new Map(), k6 = 10 ** (-6 / 20)
+		let kept = new Map()
 		audio.memo = { get: k => kept.get(k) ?? null, set: (k, v) => kept.set(k, v) }
 		try {
 			await audio.from([input], { sampleRate: SR }).deepfilter({ limit: 12, music: 'enhance' }).read()
 			calls = 0
 			let [again] = await audio.from([input], { sampleRate: SR }).deepfilter({ limit: 6, music: 'enhance' }).read()
 			is(calls, 0, 'the model run read back, at another limit')
-			is(maxDiff(again, y.map((v, i) => (1 - k6) * v + k6 * input[i])), 0, '…6 dB applied to it')
+			is(maxDiff(again, neural.mixback(input, y, { limit: 6, sampleRate: SR })), 0, '…6 dB applied to it')
 		} finally { delete audio.memo }
 	})
 })
 
-// limit: the most anything drops, as upstream's atten_lim_db. Held notes, which the model takes for noise, keep their
-// level: VocalSet (Wilkins et al., ISMIR 2018, CC BY 4.0) singer F2's straight long tones on /a/, once in the data cache
-// (@audio/neural-denoise README, Accuracy: Singing); before the voice guard they lost 17.5 dB, the limit's whole 18.
+// limit: how far quiet noise drops, room tone kept; floor: how far under the voice loud noise ends (neural-denoise 0.5's
+// mixback(); 0.4 took every noise down by the limit, 18 dB, and left noise 15 dB under the voice 33 under it). Held notes,
+// which the model takes for noise, keep their level: VocalSet (Wilkins et al., ISMIR 2018, CC BY 4.0) singer F2's straight
+// long tones on /a/, once in the data cache (@audio/neural-denoise README, Accuracy: Singing); before the voice guard they
+// lost 17.5 dB, the limit's whole 18.
 const HELD = path.join(os.homedir(), '.cache', 'audiojs', 'data', 'vocalset', 'FULL', 'female2', 'long_tones', 'straight', 'f2_long_straight_a.wav')
-;(HAS_DFN ? test : test.skip)('deepfilter: the noise drops by the limit at most (18 dB by default); held notes keep their level', NEURAL_RUN, async () => {
-	let { clean, dirty } = take(15)
-	for (let [limit, lo] of [[undefined, 15], [6, 5]]) {
-		let a = audio.from([dirty], { sampleRate: SR }), [y] = await (limit == null ? a.deepfilter({ music: 'enhance' }) : a.deepfilter({ limit, music: 'enhance' })).read()
-		let drop = floorDb(dirty) - floorDb(y), most = limit ?? 18
-		ok(drop > lo && drop < most + .2, `limit ${most}: the pause ${drop.toFixed(1)} dB down`)
+;(HAS_DFN ? test : test.skip)('deepfilter: noise loud against the voice ends 40 dB under it, quiet noise drops by the limit; held notes keep their level', NEURAL_RUN, async () => {
+	let { clean, dirty } = take(15), quiet = take(45).dirty
+	for (let [o, x, want] of [[{}, dirty, 'floor'], [{ floor: 45 }, dirty, 'floor'], [{ floor: 0 }, dirty, 18], [{ limit: 6, floor: 0 }, dirty, 6], [{}, quiet, 18]]) {
+		let [y] = await audio.from([x], { sampleRate: SR }).deepfilter({ ...o, music: 'enhance' }).read()
+		let under = speechDb(y) - floorDb(y), drop = floorDb(x) - floorDb(y), at = o.floor ?? 40
+		if (want === 'floor') ok(Math.abs(under - at) < 1.5, `${JSON.stringify(o)}: the pause ${under.toFixed(1)} dB under the voice (${drop.toFixed(1)} down)`)
+		else ok(drop > want - 3 && drop < want + .2, `${JSON.stringify(o)}${x === quiet ? ', noise 45 dB under' : ''}: the pause ${drop.toFixed(1)} dB down`)
 		ok(Math.abs(speechDb(y) - speechDb(clean)) < 1.5, `speech ${(speechDb(y) - speechDb(clean)).toFixed(2)} dB from the clean take`)
 	}
 	if (!existsSync(HELD)) return console.log('  (no VocalSet in the data cache: held notes not checked)')

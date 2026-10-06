@@ -20,16 +20,16 @@ export const OUT = path.join(DATA, 'rx')
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const PY = process.env.RX_PYTHON || path.join(os.homedir(), '.cache', 'audiojs', 'venv', 'bin', 'python')
 
-/** WAV (16-bit PCM or 32-bit float) → { ch, sr } */
+/** WAV (16- or 24-bit PCM, or 32-bit float) → { ch, sr } */
 export function readWav(file) {
-  let b = readFileSync(file), dv = new DataView(b.buffer, b.byteOffset, b.byteLength), o = 12, fmt, nc, sr
+  let b = readFileSync(file), dv = new DataView(b.buffer, b.byteOffset, b.byteLength), o = 12, fmt, nc, sr, w
   while (o < b.length) {
     let id = b.toString('ascii', o, o + 4), len = dv.getUint32(o + 4, true)
-    if (id === 'fmt ') fmt = dv.getUint16(o + 8, true), nc = dv.getUint16(o + 10, true), sr = dv.getUint32(o + 12, true)
+    if (id === 'fmt ') fmt = dv.getUint16(o + 8, true), nc = dv.getUint16(o + 10, true), sr = dv.getUint32(o + 12, true), w = dv.getUint16(o + 22, true) / 8
     if (id === 'data') {
-      let n = len / (fmt === 3 ? 4 : 2) / nc, ch = Array.from({ length: nc }, () => new Float32Array(n))
-      for (let i = 0; i < n; i++) for (let c = 0; c < nc; c++)
-        ch[c][i] = fmt === 3 ? dv.getFloat32(o + 8 + 4 * (i * nc + c), true) : dv.getInt16(o + 8 + 2 * (i * nc + c), true) / 32768
+      let n = Math.floor(len / w / nc), ch = Array.from({ length: nc }, () => new Float32Array(n))
+      for (let i = 0, p = o + 8; i < n; i++) for (let c = 0; c < nc; c++, p += w)
+        ch[c][i] = fmt === 3 ? dv.getFloat32(p, true) : w === 3 ? (dv.getInt16(p + 1, true) * 256 + dv.getUint8(p)) / 8388608 : dv.getInt16(p, true) / 32768
       return { ch, sr }
     }
     o += 8 + len + (len & 1)

@@ -64,6 +64,8 @@ const PE = d => ['highpass(80)', d, 'deesser()', 'compressor({ threshold: -24, r
 export const EXTRA = {
   // neural denoisers at their attenuation limits (deepfilter's default 18)
   'dfn-0': ['deepfilter(0)'], 'dfn-12': ['deepfilter(12)'], 'dfn-18': ['deepfilter()'], 'dfn-24': ['deepfilter(24)'],
+  // the residual floor, dB under the voice (neural-denoise 0.5; 0: none, 0.4's fixed limit)
+  'dfn-f0': ['deepfilter({ floor: 0 })'], 'dfn-f35': ['deepfilter({ floor: 35 })'], 'dfn-f45': ['deepfilter({ floor: 45 })'],
   'rnn-0': ['rnnoise(0)'], 'rnn-20': ['rnnoise(20)'],
   'ab-dfn12': AB('deepfilter(12)'), 'ab-dfn18': AB('deepfilter()'), 'ab-rnn20': AB('rnnoise(20)'),
   'pe-dfn12': PE('deepfilter(12)'), 'pe-dfn18': PE('deepfilter()'),
@@ -96,6 +98,8 @@ cand('rx-sdn', ["rx('Spectral De-noise', { adaptive_learning: true })"])
 cand('rx-vdn-tuned', ["rx('Voice De-noise', { reduction: 20, master_threshold: 10 })"])
 cand('rx-sdn-tuned', ["rx('Spectral De-noise', { adaptive_learning: true, quality: 'Extreme', linked_reduction_db: 20 })"])
 cand('rx-di', ["rx('Dialogue Isolate', { noise_gain_db: -Infinity })"])
+// Dialogue Isolate tuned on bench/rx/isolate.mjs's tune split: the reverb off too (sensitivity 0 to 10 tried; 5, its default, best)
+cand('rx-di-tuned', ["rx('Dialogue Isolate', { noise_gain_db: -Infinity, reverb_gain_db: -Infinity })"])
 cand('rx-drv', ["rx('De-reverb')"])
 const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 // `$src\n  .a()\n  .b(…)` → ['a()', 'b(…)']
@@ -151,18 +155,18 @@ function inputs(set) {
 }
 
 // Neural stages run @audio/neural-denoise with one model handle (one thread) for all files, and deepfilter as audio's
-// op does (fn/deepfilter.js): the unlimited output y, the input x mixed back, (1 − a)·y + a·x, a = 10^(−limit/20),
-// `limit` 18 unless given. The op loads the model per edit.
-let models = {}, denoise
+// op does (fn/deepfilter.js): the unlimited output y, the input x mixed back by the package's mixback() (`limit` 18
+// unless given, and its `floor`). The op loads the model per edit.
+let models = {}, denoise, mixback
 async function neural(x, model, o) {
   if (!models[model]) {
     let nd = await import('@audio/neural-denoise')
-    denoise = nd.default
+    denoise = nd.default, mixback = nd.mixback
     models[model] = await nd.load(model === 'deepfilter' ? 'deepfilternet3' : 'rnnoise', { sessionOptions: { intraOpNumThreads: 1, interOpNumThreads: 1 } })
   }
   if (model === 'rnnoise') return { ch: await denoise(x.ch, { sampleRate: x.sr, model: models[model], limit: o.limit ?? 20 }), sr: x.sr }
-  let y = await denoise(x.ch, { sampleRate: x.sr, model: models[model], limit: 0 }), limit = o.limit ?? 18, g = limit ? 10 ** (-limit / 20) : 0
-  return { ch: g ? y.map((v, c) => v.map((s, i) => (1 - g) * s + g * x.ch[c][i])) : y, sr: x.sr }
+  let y = await denoise(x.ch, { sampleRate: x.sr, model: models[model], limit: 0 }), limit = o.limit ?? 18
+  return { ch: limit ? y.map((v, c) => mixback(x.ch[c], v, { limit, floor: o.floor, sampleRate: x.sr })) : y, sr: x.sr }
 }
 
 async function stage(x, s) {
