@@ -534,6 +534,8 @@ function transport(dev) {
     head() { return last && last.pos + Math.min((performance.now() - last.at) / 1000 * last.speed, last.buf ?? Infinity) },
     // what the speakers play now: { run, pos on the axis, time on the timeline }
     heard() { return whereHeard(marks, dev.heard(), dev.sr) },
+    // where the deck's head is on the timeline: where a pause holds, the speakers still playing out what is before it
+    held() { let h = tp.head(); return h == null ? null : { run: last.run, time: timeline(h, last.loop) } },
     // call fn once position `pos` of run `run` is heard (meters); dropped if its run is replaced first
     defer(run, pos, fn) { q.push({ run, pos, fn }) },
     stop() {

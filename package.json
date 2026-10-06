@@ -20,6 +20,10 @@
       "default": "./worker.js"
     },
     "./worker-host": "./worker.js",
+    "./polyfill": {
+      "types": "./polyfill.d.ts",
+      "default": "./polyfill.js"
+    },
     "./fn/*": "./fn/*"
   },
   "types": "./audio.d.ts",
@@ -38,6 +42,8 @@
     "worker.js",
     "worker.d.ts",
     "deck.js",
+    "polyfill.js",
+    "polyfill.d.ts",
     "fn/",
     "bin/",
     "skills/",
@@ -64,7 +70,8 @@
     "test:mcp": "node test/mcp.js",
     "test:bridge": "node test/bridge.js",
     "test:node": "CI=1 npm test && CI=1 npm run test:fixes && CI=1 npm run test:batch && CI=1 npm run test:cli && npm run test:stream && npm run test:mcp",
-    "test:pages": "npm run test:browser && npm run test:playground && npm run test:memory",
+    "test:pages": "npm run test:browser && npm run test:playground && npm run test:memory && npm run test:polyfill",
+    "test:polyfill": "node test/polyfill.js",
     "test:all": "npm run test:node && npm run test:pages",
     "version": "node -p \"var s=require('fs'),v=require('./package.json').version;s.writeFileSync('core.js',s.readFileSync('core.js','utf8').replace(/audio\\.version = '[^']+'/,'audio.version = \\''+v+'\\''));''\" && git add core.js",
     "prepublishOnly": "npm run version && npm run build && npm run test:all",

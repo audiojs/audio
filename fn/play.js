@@ -202,13 +202,18 @@ let proto = audio.fn
 proto.pause = function() {
   if (!this.playing || this.paused) return this
   this.paused = true
-  this._.play?.tp?.set({ playing: false })
+  let s = this._.play
+  // currentTime holds at once where playback resumes (the deck's head), not run on while the speakers play out the
+  // ~80 ms written ahead of them (Node's device ring; a page's output latency)
+  if (s) s.held = s.tp?.held() ?? null
+  s?.tp?.set({ playing: false })
   emit(this, 'pause')
   return this
 }
 proto.resume = function() {
   if (!this.paused) return this
   this.paused = false
+  if (this._.play) this._.play.held = null
   this._.play?.tp?.set({ playing: true })
   emit(this, 'play')
   return this
@@ -244,7 +249,7 @@ function handoff(b, a, opts) {
 
 function begin(a, o, taken) {
   a._.cancelPlay?.()   // one playback per instance
-  let s = a._.play = { tp: null, v: null, taken: false, end: null, seekRun: 0 }, done = false, first = true
+  let s = a._.play = { tp: null, v: null, taken: false, end: null, seekRun: 0, held: null }, done = false, first = true
   a.playing = true; a.paused = !!o.paused; a.ended = false; a.seeking = false; a.block = null
   a._.span = [o.at, o.duration]
   a.currentTime = o.time ?? Math.max(0, o.at)
@@ -275,9 +280,13 @@ function begin(a, o, taken) {
   s.span = (at, duration) => { a._.span = [at, duration]; s.v?.span(at, duration); a._.seek(at) }
   a._.cancelPlay = () => end(false)
   // what the speakers play; after a seek, its target until the new place is heard
-  a._.clock = () => { let h = s.tp?.heard(); return h && h.run >= s.seekRun ? h.time : a._.ct }
+  a._.clock = () => {
+    if (a.paused && s.held && s.held.run >= s.seekRun) return s.held.time
+    let h = s.tp?.heard(); return h && h.run >= s.seekRun ? h.time : a._.ct
+  }
+  // paused, a seek is done once the voice stands at its place: nothing plays to wait for (it stayed seeking until resumed)
   a._.seek = t => {
-    a.seeking = true; a._.ct = t
+    a.seeking = !a.paused; a._.ct = t
     if (!s.v) return
     let r = s.v.seek(t)
     s.seekRun = r.run; a._.ct = r.at
@@ -298,6 +307,8 @@ function begin(a, o, taken) {
         if (type === 'end') return end(true)
         if (type === 'error') return end(false, m)
         if (m.pos == null) return
+        // paused, the deck stands still where it ramped down: the place currentTime holds, exactly
+        if (a.paused && m.speed === 0 && m.run >= s.seekRun) s.held = { run: m.run, time: timeline(m.pos, m.loop) }
         if (first && m.speed > 0) { first = false; ok() }
         if (a.seeking && m.run >= s.seekRun) a.seeking = false
         if (a.playing && !a.paused) emit(a, 'timeupdate', a.currentTime)

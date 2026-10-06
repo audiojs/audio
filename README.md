@@ -54,6 +54,18 @@ let { pass, rules } = await voice.check('podcast')  // each rule of Apple's spec
 </script>
 ```
 
+### `Audio` anywhere
+
+```js
+import 'audio/polyfill'          // the page's HTMLAudioElement, in Node, Bun and Deno
+let song = new Audio('song.mp3')
+song.onended = () => console.log('done')
+await song.play()
+song.currentTime = 30; song.volume = 0.5; song.loop = true
+```
+
+Events, their order, promises and errors as Chromium's own element has them, compared observation by observation ([test/polyfill.js](test/polyfill.js)). `import { Audio } from 'audio/polyfill'` leaves the global alone.
+
 ### CLI
 
 ```sh
