@@ -2,8 +2,8 @@
 // versions, only the latest queued one runs next. A run answers once its script has run; its output then streams to
 // the listener it came with, as events: `loading` (a file it opens, as it decodes, while the output has nothing yet),
 // `arrived` (all of that file come, the output still nothing), `doing` (the steps it applies, or the one reading its
-// input whole first, by name), `chunk` (the output), then `done` or `error`; or `skip`, when a newer script runs and its
-// output takes over. An output made before (worker.js, renders kept) comes whole at once. A page that draws peaks
+// input whole first, by name), `tracks` (a script's tracks, each its own picture, before their mix), `chunk` (the
+// output), then `done` or `error`; or `skip`, when a newer script runs and its output takes over. An output made before (worker.js, renders kept) comes whole at once. A page that draws peaks
 // (`peaks`) gets those of a sound longer than it holds, in place of its samples (`long`, worker.js feed), and asks for
 // the samples where it zooms in (samples).
 // Stop ends a run by replacing the worker.
@@ -91,12 +91,13 @@ export default function engine(url = WORKER) {
       if (!running) drain()
       return result
     },
-    // A run with its whole output: { logs, value, saves, output: { channels, sampleRate, duration, stats, bitDepth } },
-    // or { error }, as the page shows them once everything has come.
+    // A run with its whole output: { logs, value, saves, output: { channels, sampleRate, duration, stats, bitDepth,
+    // tracks } }, or { error }, as the page shows them once everything has come; `tracks`, a script's tracks, each
+    // { name, length, mono, silences }
     render(script) {
       return new Promise(resolve => {
         const parts = []
-        let reply = null, last = null
+        let reply = null, last = null, lanes = null
         const settle = () => {
           if (!reply || !last && reply.output && !reply.error && !reply.skipped) return
           if (last?.event === 'skip') return resolve({ ...reply, skipped: true, output: null })
@@ -108,9 +109,10 @@ export default function engine(url = WORKER) {
             for (const p of parts) x.set(p.channels[c].subarray(0, Math.max(0, length - p.at)), p.at)
             return x
           })
-          resolve({ ...reply, output: { channels, sampleRate: last.sampleRate, duration: last.duration, stats: last.stats, markers: last.markers, bitDepth: last.bitDepth } })
+          resolve({ ...reply, output: { channels, sampleRate: last.sampleRate, duration: last.duration, stats: last.stats, markers: last.markers, bitDepth: last.bitDepth, ...lanes && { tracks: lanes.tracks } } })
         }
         self.run(script, {
+          tracks: m => { lanes = m },
           chunk: m => parts.push(m),
           done: m => { last = m; settle() },
           error: m => { last = m; settle() },
@@ -125,17 +127,18 @@ export default function engine(url = WORKER) {
       queued = null
       spawn()
     },
-    // an output's cues (`kind`: the edges of its pauses, or its hits) and pitch, named by the run that made it; cues null
-    // once a newer output replaced it
-    cues: (output, kind) => call({ type: 'cues', output, kind }).then(r => r.times ?? null),
-    contour: output => call({ type: 'contour', output }).then(r => r.f0 ? r : { times: [], f0: [] }),
+    // an output's cues (`kind`: the edges of its pauses, or its hits) and pitch, named by the run that made it, or one of
+    // its tracks' (`track`, its index); cues null once a newer output replaced it
+    cues: (output, kind, track) => call({ type: 'cues', output, kind, track }).then(r => r.times ?? null),
+    contour: (output, track) => call({ type: 'contour', output, track }).then(r => r.f0 ? r : { times: [], f0: [] }),
     // what it holds, as a musician says it: the note over `note` [from, to] s, the tempo and key over `span`
     listen: (output, note, span) => call({ type: 'listen', output, note, span }),
     export: request => call({ type: 'export', ...request, tab: self.tab }),
     // The spec's rules for the last output ({ output }, fn/check.js).
     check: spec => call({ type: 'check', spec, tab: self.tab }),
     // A prepared script's value (code.js prepare) on copies of the output shown and its source, and with `steps` the edits
-    // its step(i) reads (code.js stages, each script prepared), as JSON: { value, measured } or { error }
+    // its step(i) reads (code.js stages, each script prepared; a track's with `track`, its index), as JSON: { value,
+    // measured } or { error }
     evaluate: script => call({ type: 'eval', ...script, tab: self.tab }),
     // A tab closed: its output goes
     close: tab => call({ type: 'close', tab }),

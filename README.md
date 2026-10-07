@@ -436,9 +436,9 @@ a.vocals('remove')                        // remove vocals (karaoke)
 a.vocals({ model: 'umxhq' })              // vocals by a separation model
 a.rebalance({ vocals: 6, drums: -3 })     // the vocals up, the drums down
 a.rebalance(-Infinity)                    // a karaoke track
-a.dither(16)                              // TPDF dither to 16-bit
 a.scene(6)                                // a film's dialogue 6 dB up over its music and effects
 a.scene(-Infinity)                        // a music and effects track
+a.dither(16)                              // TPDF dither to 16-bit
 a.dither(16, { shape: true })             // noise-shaped
 a.crossfeed()                             // headphone crossfeed
 a.convolve('hall.wav', 0.3)               // 30 % of a captured hall

@@ -22,7 +22,8 @@ Parity evidence: [.work/baseline.md](baseline.md). Perf: [docs/comparison.md § 
 * [ ] Diarization - detecting spekers, autoadding cues
 * [ ] Detect current type of speaker etc
 
-* [ ] tracks, to meet classical SAAS layout
+* [x] tracks, to meet classical SAAS layout (.work/editor.md Tracks)
+  * [ ] mute and solo; record into a new track; a piece dragged between tracks; a track's start dragged (its pad)
 
 ## AI tier
 

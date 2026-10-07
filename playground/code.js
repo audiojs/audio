@@ -19,8 +19,39 @@ export function error(code) {
   return found
 }
 
+// Tracks: sounds side by side in time, each its own chain, played together, as a multitrack editor's. A script has
+// them where two or more of its statements declare a sound (a chain from audio(…) or audio.from(…)) that nothing else
+// reads, the last of them its last statement: [{ name, statement }] in order; else none, and its output is its last
+// value. A sound another reads (a mix's source, a noise print, a reference) feeds that one: no track of its own.
+let tracked = { code: null, list: [] }
+export function tracks(code) {
+  if (tracked.code === code) return tracked.list
+  const tree = parse(code), list = statements(tree), read = new Set(), found = []
+  tree.iterate({ enter: ref => {
+    if (ref.name === 'VariableName') read.add(text(code, ref))
+    // `{ noise }` reads noise
+    else if (ref.name === 'Property' && ref.node.firstChild?.name === 'PropertyDefinition' && !ref.node.firstChild.nextSibling) read.add(text(code, ref))
+  } })
+  for (const s of list) {
+    const defs = s.name === 'VariableDeclaration' ? s.getChildren('VariableDefinition') : [], name = defs.length === 1 && text(code, defs[0])
+    if (name && !read.has(name) && sounds(code, defs[0].nextSibling?.nextSibling)) found.push({ name, statement: s })
+  }
+  return (tracked = { code, list: found.length > 1 && found.at(-1).statement.from === list.at(-1).from ? found : [] }).list
+}
+// Whether an expression makes a sound of its own: a chain from audio(…) or audio.from(…), awaited or not
+function sounds(code, node) {
+  if (node?.name === 'AwaitExpression') node = node.lastChild
+  const root = chainRoot(node)
+  return root?.name === 'CallExpression' ? isAudio(code, root) : root !== node && root?.name === 'VariableName' && text(code, root) === 'audio'
+}
+// The track the page edits, by its name: chain() reads its chain, and every edit goes there. None, or a name the script
+// has no track of, the last statement's
+let focused = null
+export const focus = name => { focused = name ?? null }
+
 // The script as a function body: imports become dynamic (`audio` is given), each loop checks its time,
-// and the last expression, or the last declared name, is returned. Lines keep their numbers.
+// and the last expression, or the last declared name, is returned; with tracks, all of them, by name. Lines keep their
+// numbers.
 export function prepare(code) {
   const tree = parse(code), edits = [], names = new Set()
   const at = (pos, insert, to = pos) => edits.push({ from: pos, to, insert })
@@ -42,8 +73,9 @@ export function prepare(code) {
       if (node.name === 'CallExpression' && isAudio(code, node)) for (const s of sourcesOf(node)) names.add(unquote(text(code, s)))
     }
   })
-  const last = statements(tree).at(-1)
-  if (last?.name === 'ExpressionStatement') {
+  const last = statements(tree).at(-1), list = tracks(code)
+  if (list.length) at(last.to, `;return __out({ ${list.map(t => t.name).join(', ')} }, true)`)
+  else if (last?.name === 'ExpressionStatement') {
     const expr = last.firstChild
     at(expr.from, 'return __out(')
     at(expr.to, ')')
@@ -114,10 +146,12 @@ const isRange = v => v?.constructor === Object && Object.keys(v).length > 0 && O
 // a curve over time, { t, v }: as many values as times, numbers all
 const isCurve = v => v?.constructor === Object && Object.keys(v).length === 2 && Array.isArray(v.t) && Array.isArray(v.v) && v.t.length === v.v.length && [...v.t, ...v.v].every(x => typeof x === 'number')
 
-// The chain the page shows: the last expression statement, or the value of the last declaration.
-// { statement, expr, root, calls: [{ name, dot, from, to, list, args }] } with calls in source order, or null.
+// The chain the page shows: the last expression statement, or the value of the last declaration; with tracks, the one
+// the page edits (focus). { statement, expr, root, calls: [{ name, dot, from, to, list, args }], end } with calls in
+// source order, `end` where the next statement starts (its steps turned off are before it), or null.
 export function chain(code) {
-  const tree = parse(code), last = statements(tree).at(-1)
+  const tree = parse(code), list = statements(tree), own = focused && tracks(code).find(t => t.name === focused)
+  const last = own ? own.statement : list.at(-1)
   if (!last) return null
   let expr = last.name === 'ExpressionStatement' ? last.firstChild
     : last.name === 'VariableDeclaration' ? last.getChildren('VariableDefinition').length && last.lastChild : null
@@ -132,17 +166,17 @@ export function chain(code) {
     calls.unshift({ name: text(code, prop), dot: dot.from, from: node.from, to: node.to, list, args: args(code, list) })
     node = member.firstChild
   }
-  return { statement: last, expr, root: node, calls, declared: last.name === 'VariableDeclaration' ? text(code, last.getChildren('VariableDefinition').at(-1)) : null }
+  return { statement: last, expr, root: node, calls, declared: last.name === 'VariableDeclaration' ? text(code, last.getChildren('VariableDefinition').at(-1)) : null, end: list.find(s => s.from > last.from)?.from ?? code.length }
 }
 
 // Steps turned off: calls of the chain commented out where they stood, `// .fade(0.5)` alone on a line or
-// `/* .fade(0.5) */` within one; after the source, to the end. [{ name, text: '.fade(0.5)', from, to }] of the
-// comments, in the order they stand.
+// `/* .fade(0.5) */` within one; after the source, to the next statement or the end. [{ name, text: '.fade(0.5)',
+// from, to }] of the comments, in the order they stand.
 export function offCalls(code) {
   const c = chain(code), out = []
   if (!c) return out
-  parse(code).iterate({ from: c.root.to, enter: ref => {
-    if (!quiet(ref)) return
+  parse(code).iterate({ from: c.root.to, to: c.end, enter: ref => {
+    if (!quiet(ref) || ref.from >= c.end) return
     const m = text(code, ref).match(/^(?:\/\/|\/\*)\s*(\.([\w$]+)\s*\([\s\S]*\))\s*(?:\*\/)?$/)
     if (m) out.push({ name: m[2], text: m[1], from: ref.from, to: ref.to })
   } })
@@ -236,18 +270,20 @@ export function renameGroup(code, g, name) {
   return name.trim() ? { from: at, to: head.to, insert: `// ${name.trim()}` } : null
 }
 
-// The script with the chain kept to its first `n` steps, as a rollback bar leaves it; as it is when that is all of them
+// The script with the chain kept to its first `n` steps, as a rollback bar leaves it, the tracks after it as they are; as
+// it is when that is all of them
 export function rollback(code, n) {
   const c = chain(code)
-  return !c || n >= c.calls.length ? code : code.slice(0, n ? c.calls[n - 1].to : c.root.to)
+  return !c || n >= c.calls.length ? code : code.slice(0, n ? c.calls[n - 1].to : c.root.to) + (c.end < code.length ? code.slice(c.statement.to) : '')
 }
 // The chain as a measure's step(i) reads it (worker.js): each step as steps() lists them, its call as written, whether it is
-// on, the script its output enters it by and, on, the one it leaves it by, rolled back as rollback() rolls back
+// on, the script its output enters it by and, on, the one it leaves it by, rolled back as rollback() rolls back; of the
+// track the page edits, that track alone
 export function stages(code) {
-  const c = chain(code), list = steps(code)
+  const c = chain(code), list = steps(code), alone = tracks(code).some(t => t.statement.from === c?.statement.from) ? s => `${s}\n${c.declared}` : s => s
   if (!c) return []
   let k = c.calls.length - list.filter(s => s.on).length
-  return list.map(s => ({ name: s.name, call: s.text.slice(1), on: s.on, before: rollback(code, k), after: s.on ? rollback(code, ++k) : null }))
+  return list.map(s => ({ name: s.name, call: s.text.slice(1), on: s.on, before: alone(rollback(code, k)), after: s.on ? alone(rollback(code, ++k)) : null }))
 }
 
 // A mix (how much of an edit's output is heard: a share, or a curve { t, v } over time) with [a, b] seconds set to `to`,
@@ -304,13 +340,13 @@ export function append(code, call, after = null) {
 export function groups(code) {
   const c = chain(code), out = []
   if (!c) return out
-  parse(code).iterate({ from: c.root.to, enter: ref => {
-    if (ref.name !== 'LineComment') return
+  parse(code).iterate({ from: c.root.to, to: c.end, enter: ref => {
+    if (ref.name !== 'LineComment' || ref.from >= c.end) return
     const t = text(code, ref), line = lineOf(code, ref.from)
     // alone on its line, between the chain's calls (not inside one's arguments), and not a step turned off
     if (code.slice(line.from, ref.from).trim() || /^\/\/\s*\./.test(t) || c.calls.some(k => k.list && ref.from > k.list.from && ref.from < k.list.to)) return
     let to = ref.to
-    for (let next = lineOf(code, to + 1); to < code.length && next.text.trim() && next.indent.length > line.indent.length; next = lineOf(code, next.to + 1)) to = next.to
+    for (let next = lineOf(code, to + 1); to < c.end && next.text.trim() && next.indent.length > line.indent.length; next = lineOf(code, next.to + 1)) to = next.to
     if (to > ref.to) out.push({ name: t.replace(/^\/\/\s*/, '').trim(), from: line.from, to })
   } })
   return out
@@ -406,6 +442,67 @@ export function rename(code, names) {
   let out = ''
   for (let i = 0, last = 0; i <= at.length; i += 2) out += i < at.length ? code.slice(last, at[i]) + names[code.slice(at[i], at[i + 1])] : code.slice(last), last = at[i + 1]
   return out
+}
+
+// A track made, moved out or taken away, the script as it is after, whole: { code, name } (the track made), or null where
+// the sound the page edits is none of its own (a chain on a name it reads).
+// [at, at + d] of the track the page edits moved to a track of its own under it, where it was in time: its chain as it
+// stands, cropped to the range and put back at its time by silence before it (pad); silence where it was (gain −∞ dB),
+// so the two sound as the one did, and each is edited on its own. `at` and `d` as the script writes them
+export function toTrack(code, { at, d }) {
+  const own = declaredTrack(code)
+  if (!own) return null
+  const c = chain(own.code), name = unused(own.code, own.name.replace(/\d+$/, '') || own.name)
+  let piece = `let ${name} = ${own.code.slice(c.expr.from, c.expr.to)}`
+  piece = put(piece, append(piece, `crop({ at: ${at}, d: ${d} })`))
+  if (+at > 0) piece = put(piece, append(piece, `pad(${at}, 0)`))
+  const silenced = put(own.code, append(own.code, `gain(-Infinity, { at: ${at}, d: ${d} })`))
+  return { code: placed(silenced, chain(silenced).end, piece), name }
+}
+// A sound, `sound` as written (audio('b.wav')), a track of its own under the one the page edits, named for its `file`
+export function addTrack(code, sound, file) {
+  const own = declaredTrack(code)
+  if (!own) return null
+  const name = unused(own.code, identifier(file))
+  return { code: placed(own.code, chain(own.code).end, `let ${name} = ${sound}`), name }
+}
+// The change that takes track `name` away: its statement, its steps turned off with it, the blank lines before it
+export function dropTrack(code, name) {
+  const list = statements(parse(code)), t = tracks(code).find(t => t.name === name)
+  if (!t) return null
+  const next = list.find(s => s.from > t.statement.from)
+  let from = t.statement.from
+  while (from > 0 && /\s/.test(code[from - 1])) from--
+  return { from, to: next ? next.from : code.length, insert: next && from ? '\n\n' : '' }
+}
+// The track the page edits as a declaration: one already, or its sound (`audio('take.wav')…` alone) declared, named for
+// its file; { code, name }, or null where it is no sound of its own
+function declaredTrack(code) {
+  const c = chain(code)
+  if (!c || !sounds(code, c.expr)) return null
+  if (c.statement.name === 'VariableDeclaration') return c.statement.getChildren('VariableDefinition').length === 1 ? { code, name: c.declared } : null
+  if (c.statement.name !== 'ExpressionStatement') return null
+  const name = unused(code, identifier(source(code)?.strings[0]?.name))
+  return { code: code.slice(0, c.statement.from) + `let ${name} = ` + code.slice(c.statement.from), name }
+}
+// `text` a statement of its own at `end`, a blank line either side
+const placed = (code, end, text) => `${code.slice(0, end).replace(/\s*$/, '')}\n\n${text}${end < code.length ? `\n\n${code.slice(end)}` : ''}`
+const put = (code, { from, to = from, insert }) => code.slice(0, from) + insert + code.slice(to)
+// A name the script uses for none: `base`, else base2, base3…
+function unused(code, base) {
+  const taken = declared(code)
+  let name = base, n = 2
+  while (taken.has(name)) name = base + n++
+  return name
+}
+// A file's name as a script's name for its sound: take.wav → take, My take-2.wav → myTake2; `fallback` where that makes
+// none, or one the script can't take (audio, a word of the language)
+const WORDS = new Set('audio console files arguments await async break case catch class const continue debugger default delete do else enum eval export extends false finally for function if implements import in instanceof interface let new null of package private protected public return static super switch this throw true try typeof undefined var void while with yield NaN Infinity'.split(' '))
+function identifier(file, fallback = 'sound') {
+  let base = String(file ?? '').replace(/[?#].*$/, '').replace(/^.*[\\/]/, '').replace(/\.[^.]*$/, '')
+  try { base = decodeURIComponent(base) } catch {}
+  const id = base.split(/[^A-Za-z0-9_$]+/).filter(Boolean).map((w, i) => i ? w[0].toUpperCase() + w.slice(1) : w[0].toLowerCase() + w.slice(1)).join('')
+  return /^[A-Za-z_$][\w$]*$/.test(id) && !WORDS.has(id) ? id : fallback
 }
 
 // The output chain as a CLI command, when it is one: audio('in.wav').gain(-3).save('out.wav') →

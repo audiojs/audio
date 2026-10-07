@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import wav from '@audio/encode-wav'
 import audio from '../audio.js'
-import { prepare, error, chain, append, source, callAt, setArg, cli, groups, steps, dropStep, moveStep, moveLines, group, ungroup, renameGroup, turnOff, turnOn } from '../playground/code.js'
+import { prepare, error, chain, append, source, callAt, setArg, cli, groups, steps, dropStep, moveStep, moveLines, group, ungroup, renameGroup, turnOff, turnOn, tracks, focus, toTrack, addTrack, dropTrack, rollback, stages } from '../playground/code.js'
 import { ops, guides, previews, SCALES } from '../playground/ops.js'
 import { SCALES as NOTE_SCALES, snapMidi } from '@audio/note'
 import { help, layout, layouts, texts } from '../playground/help.js'
@@ -65,7 +65,7 @@ beforeEach(async () => {
   })
   errors = []
   page.on('pageerror', error => errors.push(error.message))
-  page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()) })
+  page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); if (/^(SCRUB|NEAR|POST|AWAIT)/.test(msg.text())) console.log(msg.text()) })
   await page.route('**/*', route => {
     if (route.request().url().startsWith(origin + '/')) return route.continue()
     errors.push(`External request: ${route.request().url()}`)
@@ -165,6 +165,119 @@ test('engine: an edit added after a slow chain lands in a fraction of the chain\
     return [await time(`audio('x.wav').omlsa()`), await time(`audio('x.wav').omlsa().spectral([1000, 4000], { at: 10, d: 0.5 })`)]
   }, x.map(c => [...c]))
   assert.ok(edit < slow / 4, `the edit ${edit.toFixed(0)} ms, the chain ${slow.toFixed(0)} ms`)
+})
+
+// Tracks: the script's sounds side by side, each made alone (its own edits, kept as any output is) and summed into the
+// output from their starts: as long as the longest, a narrower one's channels in turn across the wider's (as mix() spreads
+// a mono sound), one at another rate resampled to the first's (the library's resample()), every track's markers on it.
+// Each track's own picture comes first: its channels averaged, its length. The same samples as the library in Node
+test('engine: tracks are made each alone and played together, their sum as long as the longest', async () => {
+  const a = [sine(1, 220, .3), sine(1, 330, .3)], b = [sine(.5, 440, .2, 24000)]
+  const script = `let a = audio('a.wav')\n  .gain(-6)\n\nlet b = audio('b.wav')\n  .pad(0.25, 0)\n  .mark(0.5, 'b')`
+  await page.goto(origin + '/blank.html')
+  const got = await page.evaluate(async ({ a, b, script }) => {
+    const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
+    const e = engine(new URL('/playground/dist/worker.js', location.href))
+    await e.file('a.wav', { channels: a.map(c => Float32Array.from(c)), sampleRate: 48000 })
+    await e.file('b.wav', { channels: b.map(c => Float32Array.from(c)), sampleRate: 24000 })
+    const r = await e.render(prepare(script))
+    if (!r.output) throw new Error(r.error?.message ?? 'no output')
+    const { channels, sampleRate, markers, tracks } = r.output
+    return { channels: channels.map(c => [...c]), sampleRate, markers, tracks: tracks.map(t => ({ name: t.name, length: t.length, mono: [...t.mono] })), said: r.tracks }
+  }, { a: a.map(c => [...c]), b: b.map(c => [...c]), script })
+  const A = await audio.from(a, { sampleRate: RATE }).gain(-6).read()
+  const B = await audio.from(await audio.from(b, { sampleRate: 24000 }).pad(.25, 0).read(), { sampleRate: 24000 }).resample(RATE).read()
+  assert.deepEqual(got.said, ['a', 'b'], 'the run says its tracks')
+  assert.deepEqual(got.tracks.map(t => [t.name, t.length]), [['a', RATE], ['b', B[0].length]])
+  assert.equal(B[0].length, .75 * RATE)
+  assert.equal(got.sampleRate, RATE)
+  assert.equal(got.channels.length, 2)
+  assert.equal(got.channels[0].length, RATE, 'as long as the longest')
+  const off = (x, want) => x.reduce((m, v, i) => Math.max(m, Math.abs(v - want(i))), 0)
+  for (const c of [0, 1]) assert.ok(off(got.channels[c], i => A[c][i] + (B[0][i] ?? 0)) < 1e-6, `channel ${c}: the sum`)
+  assert.ok(off(got.tracks[0].mono, i => (A[0][i] + A[1][i]) / 2) < 1e-6, 'a track\'s picture, its channels averaged')
+  assert.ok(off(got.tracks[1].mono, i => B[0][i]) < 1e-6)
+  assert.deepEqual(got.markers.map(m => [+m.time.toFixed(6), m.label]), [[.5, 'b']], 'a track\'s markers on the mix')
+})
+
+// A range moved to a track of its own (code.js toTrack) leaves the sound as it was: the two tracks' mix is the one
+// track's output, for a range at its start, inside it and at its end. The same script again makes the same; one track
+// changed, the other kept, makes what Node makes. Edges: a track with nothing in it (at another rate), tracks with nothing
+// in them at all, a track's file not there
+test('engine: a range moved to a track of its own sounds as before; again, changed, empty or missing', async () => {
+  let seed = 7
+  const noise = () => (seed = seed * 16807 % 2147483647) / 2147483647 - .5
+  const x = [0, 1].map(c => Float32Array.from({ length: RATE }, (_, i) => .3 * Math.sin(2 * Math.PI * (220 + 110 * c) * i / RATE) + .1 * noise()))
+  await page.goto(origin + '/blank.html')
+  const got = await page.evaluate(async x => {
+    const { default: engine } = await import('/playground/engine.js'), { prepare, toTrack } = await import('/playground/code.js')
+    const e = engine(new URL('/playground/dist/worker.js', location.href))
+    await e.file('x.wav', { channels: x.map(c => Float32Array.from(c)), sampleRate: 48000 })
+    const run = async code => { const r = await e.render(prepare(code)); return r.output ? { channels: r.output.channels.map(c => [...c]), tracks: r.output.tracks?.map(t => [t.name, t.length]) ?? null, duration: r.output.duration } : { error: r.error?.message } }
+    const one = `audio('x.wav')\n  .gain(-3)`, out = { one: await run(one), splits: [] }
+    for (const [at, d] of [['0', '0.25'], ['0.5', '0.25'], ['0.75', '0.25']]) out.splits.push({ at, ...await run(toTrack(one, { at, d }).code) })
+    const split = toTrack(one, { at: '0.5', d: '0.25' }).code
+    out.again = await run(split)
+    out.changed = await run(`${split}\n  .gain(-6)`)
+    out.empty = await run(`let x = audio('x.wav')\nlet z = audio.from(0)`)
+    out.nothing = await run(`let y = audio.from(0)\nlet z = audio.from(0)`)
+    out.missing = await run(`let x = audio('x.wav')\nlet b = audio('nowhere.wav')`)
+    return out
+  }, x.map(c => [...c]))
+  const A = await audio.from(x, { sampleRate: RATE }).gain(-3).read(), X = await audio.from(x, { sampleRate: RATE }).read()
+  const off = (got, want) => Math.max(...got.map((c, k) => c.reduce((m, v, i) => Math.max(m, Math.abs(v - want(k, i))), 0)))
+  assert.ok(off(got.one.channels, (k, i) => A[k][i]) < 1e-6)
+  for (const s of got.splits) {
+    assert.deepEqual(s.tracks?.map(t => t[0]), ['x', 'x2'], `from ${s.at}: two tracks`)
+    assert.equal(s.channels[0].length, RATE, `from ${s.at}: as long`)
+    assert.ok(off(s.channels, (k, i) => A[k][i]) < 1e-6, `from ${s.at}: the mix is the sound it was`)
+  }
+  assert.deepEqual(got.splits.map(s => s.tracks[1][1]), [RATE / 4, RATE * 3 / 4, RATE], 'each piece from 0 to its end')
+  const { at, ...split } = got.splits[1]
+  assert.deepEqual(got.again, split, 'the same script, the same')
+  const k6 = 10 ** (-6 / 20), inside = i => i >= RATE / 2 && i < RATE * 3 / 4
+  assert.ok(off(got.changed.channels, (k, i) => inside(i) ? A[k][i] * k6 : A[k][i]) < 1e-6, 'the piece 6 dB down, the rest kept')
+  assert.deepEqual(got.empty.tracks, [['x', RATE], ['z', 0]])
+  assert.ok(off(got.empty.channels, (k, i) => X[k][i]) < 1e-6, 'a track with nothing in it adds nothing')
+  assert.deepEqual([got.nothing.duration, got.nothing.tracks?.map(t => t[1])], [0, [0, 0]], 'nothing at all')
+  assert.match(got.missing.error, /nowhere\.wav/)
+})
+
+// Tracks past the channel samples the page holds (the mix's and each track's): the mix and every track come as their
+// pictures (leaves and spectra, each track's as long as the mix, silence after its end), their samples where the view
+// zooms in, each track's channels averaged
+test('engine: tracks longer than the page holds come as pictures, each track\'s samples where it zooms in', async () => {
+  const a = [sine(1, 220, .3), sine(1, 330, .3)], b = [sine(.5, 440, .2)]
+  await page.goto(origin + '/blank.html')
+  const got = await page.evaluate(async ({ a, b }) => {
+    const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
+    const e = engine(new URL('/playground/dist/worker.js', location.href))
+    e.peaks = 48000
+    await e.file('a.wav', { channels: a.map(c => Float32Array.from(c)), sampleRate: 48000 })
+    await e.file('b.wav', { channels: b.map(c => Float32Array.from(c)), sampleRate: 48000 })
+    const out = {}, done = new Promise(resolve => {
+      e.run(prepare(`let a = audio('a.wav')\nlet b = audio('b.wav')`), {
+        tracks: m => { out.tracks = m.tracks.map(t => ({ name: t.name, length: t.length, mono: !!t.mono, leaves: t.leaves?.length, levels: t.spectra?.levels.length, bins: t.spectra && t.spectra.size / 2 + 1, hop: t.spectra?.hop })) },
+        chunk: m => { out.chunks = [...out.chunks ?? [], { long: m.long, samples: !!m.channels }] },
+        done: m => resolve(m), error: m => resolve(m)
+      }).then(r => { out.id = r.id })
+    })
+    const end = await done
+    if (end.error) throw new Error(end.error.message)
+    out.long = end.long
+    out.lanes = (await e.samples(out.id, 12000, 36000)).map(c => [...c])
+    return out
+  }, { a: a.map(c => [...c]), b: b.map(c => [...c]) })
+  assert.equal(got.long, true)
+  assert.ok(got.chunks.every(c => c.long && !c.samples), 'the mix, as its picture')
+  assert.deepEqual(got.tracks.map(t => [t.name, t.length, t.mono]), [['a', RATE, false], ['b', RATE / 2, false]])
+  // a leaf of [min, max, Σx², count] per 256 samples (the last short), a column of bins per hop: the mix's length, each
+  // track's
+  for (const t of got.tracks) assert.equal(t.leaves, Math.ceil(RATE / 256) * 4, `${t.name}: its leaves as long as the mix`)
+  for (const t of got.tracks) assert.equal(t.levels, Math.ceil(RATE / t.hop) * t.bins, `${t.name}: its columns as long as the mix`)
+  const off = (x, want) => x.reduce((m, v, i) => Math.max(m, Math.abs(v - want(i))), 0)
+  assert.ok(off(got.lanes[0], i => (a[0][12000 + i] + a[1][12000 + i]) / 2) < 1e-6, 'a: its channels averaged')
+  assert.ok(off(got.lanes[1], i => b[0][12000 + i] ?? 0) < 1e-6, 'b: silence after its end')
 })
 
 // ── The script as code ─────────────────────────────────────────
@@ -383,6 +496,58 @@ test('code: the edits listed in order, one taken away or moved where it stands',
   const c = `audio('a.wav')\n  // Vinyl\n  .declick()\n  .decrackle()`
   assert.equal(apply(c, moveStep(c, 1, 0)), `audio('a.wav')\n  // Vinyl\n  .decrackle()\n  .declick()`, "a group's name stays over it")
   assert.deepEqual([steps(''), dropStep('', 0), moveStep('x', 0, 1)], [[], null, null], 'no chain')
+})
+
+// Tracks: sounds declared side by side that nothing else reads, the last of them the script's last statement, returned by
+// name; one edited at a time (focus), its chain the one the edits list and every edit joins, the others kept as they are.
+// A range moved to a track of its own: its chain as it stands, cropped and put back at its time; silence where it was
+test('code: tracks are the sounds declared that nothing reads, edited one at a time; a range moved to one of its own', () => {
+  const apply = (code, change) => code.slice(0, change.from) + change.insert + code.slice(change.to ?? change.from)
+  const names = code => tracks(code).map(t => t.name)
+  assert.deepEqual(names(`let a = audio('a.wav')\nlet b = audio('b.wav')`), ['a', 'b'])
+  assert.deepEqual(names(`let a = audio.from(3).noise()\nconst b = await audio('b.wav').trim()`), ['a', 'b'], 'made, awaited')
+  for (const code of [
+    `let a = audio('a.wav')`,
+    `let a = audio('a.wav')\nlet b = audio('b.wav')\na.mix(b)`,
+    `let noise = audio('n.wav')\nlet v = audio('v.wav').denoise({ noise })`,
+    `let a = audio('a.wav')\nlet b = a.clone().gain(-3)`,
+    `let a = audio('a.wav')\nlet b = audio('b.wav')\nconsole.log(1)`
+  ]) assert.deepEqual(names(code), [], code)
+  assert.match(prepare(`let a = audio('a.wav')\nlet b = audio('b.wav')`).code, /;return __out\(\{ a, b \}, true\)$/)
+  // the sound moved out of: named for its file, declared; the piece under it
+  const one = `audio('chime.wav')\n  .trim()\n  .normalize(-1)`, made = toTrack(one, { at: '0.5', d: '0.25' })
+  assert.equal(made.name, 'chime2')
+  assert.equal(made.code, `let chime = audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .gain(-Infinity, { at: 0.5, d: 0.25 })\n\nlet chime2 = audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .crop({ at: 0.5, d: 0.25 })\n  .pad(0.5, 0)`)
+  assert.equal(toTrack(`audio('chime.wav')`, { at: '0', d: '1' }).code, `let chime = audio('chime.wav')\n  .gain(-Infinity, { at: 0, d: 1 })\n\nlet chime2 = audio('chime.wav')\n  .crop({ at: 0, d: 1 })`, 'from the start: no pad')
+  assert.equal(toTrack(`let a = audio('a.wav')\na.gain(-3)`, { at: '0', d: '1' }), null, 'a chain on a name: no sound of its own')
+  try {
+    // the first edited: its steps, an edit joining it, rolled back with the other kept, a measure's stages of it alone
+    focus('chime')
+    const two = made.code
+    assert.deepEqual(steps(two).map(s => s.text), ['.trim()', '.normalize(-1)', '.gain(-Infinity, { at: 0.5, d: 0.25 })'])
+    assert.equal(apply(two, append(two, 'reverse()')), two.replace('0.25 })\n\n', '0.25 })\n  .reverse()\n\n'))
+    assert.equal(rollback(two, 1), two.replace(`  .normalize(-1)\n  .gain(-Infinity, { at: 0.5, d: 0.25 })\n\n`, '\n'))
+    assert.ok(stages(two).every(s => s.before.endsWith('\nchime') && s.after.endsWith('\nchime')))
+    // again: the next piece right under it, named on
+    assert.deepEqual(names(toTrack(two, { at: '1', d: '0.5' }).code), ['chime', 'chime3', 'chime2'])
+    // steps turned off are each track's own, to the next statement
+    const off = `let a = audio('a.wav')\n  .trim()\n  // .fade(1)\n\nlet b = audio('b.wav')\n  // .gain(-3)\n  .reverse()`
+    focus('a')
+    assert.deepEqual(steps(off).map(s => [s.text, s.on]), [['.trim()', true], ['.fade(1)', false]])
+    focus('b')
+    assert.deepEqual(steps(off).map(s => [s.text, s.on]), [['.gain(-3)', false], ['.reverse()', true]])
+    // a file a track of its own, named for it; a track taken away, its steps and the blank line before it with it
+    focus('chime')
+    assert.equal(addTrack(one, `audio('My take-2.wav')`, 'My take-2.wav').code, `let chime = audio('chime.wav')\n  .trim()\n  .normalize(-1)\n\nlet myTake2 = audio('My take-2.wav')`)
+    assert.equal(addTrack(one, `audio('audio.wav')`, 'audio.wav').name, 'sound', 'no name the script cannot take')
+    assert.equal(apply(two, dropTrack(two, 'chime2')), `let chime = audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .gain(-Infinity, { at: 0.5, d: 0.25 })`)
+    assert.equal(apply(off, dropTrack(off, 'a')), `let b = audio('b.wav')\n  // .gain(-3)\n  .reverse()`)
+    assert.equal(dropTrack(one, 'chime'), null)
+    const three = `let a = audio('a.wav')\n\nlet b = audio('b.wav')\n  .gain(-3)\n\nlet c = audio('c.wav')`
+    assert.equal(apply(three, dropTrack(three, 'b')), `let a = audio('a.wav')\n\nlet c = audio('c.wav')`, 'one between others')
+  } finally { focus(null) }
+  // none edited: the last
+  assert.equal(chain(made.code).declared, 'chime2')
 })
 
 test('code: the last expression is returned, loops check their time, and imports become dynamic, on the same lines', () => {
@@ -4371,6 +4536,111 @@ test('editor: the context menu, or K, keeps only the selection', async () => {
   await page.keyboard.press('k')
   await page.waitForFunction(() => /\.crop\(\{ at: 5(\.0\d*)?, d: 1(\.0\d*)? \}\)$/.test(scriptText().trim()))
   await lengthIs('0:01.000')
+})
+
+// A selection moved to a track of its own (the context menu): a lane each, the sound as long as before; the new track
+// edited, its steps the edits'. A press in the other lane edits that track: Delete takes out of it alone. The
+// track deleted (the Edit menu), one sound again; undone, the tracks again
+test('editor: a selection moved to a track of its own, a lane each, each edited apart', async () => {
+  await open()
+  await noCues()
+  await write(`audio('chime.wav')`)
+  await lengthIs('0:08.000')
+  // the edits' first card, the sound they start from, the panel open or not
+  const card = () => page.locator('.steps-list .step-name').first().textContent()
+  const { box, x } = await axis(8), top = box.y + (box.height - 22) * .25, bottom = box.y + (box.height - 22) * .75
+  await drag([x(2), top], [x(3) - x(2), 0])
+  await page.mouse.click(x(2.5), top, { button: 'right' })
+  await contextRow('Move to a new track').click()
+  await page.waitForFunction(() => scriptText().includes('let chime2 = '))
+  assert.equal(await code(), `let chime = audio('chime.wav')\n  .gain(-Infinity, { at: 2, d: 1 })\n\nlet chime2 = audio('chime.wav')\n  .crop({ at: 2, d: 1 })\n  .pad(2, 0)`)
+  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'chime2 · chime.wav')
+  // its output: a lane each, the lower the piece alone, nothing after it where the upper has the sound
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await lengthIs('0:08.000')
+  await page.waitForTimeout(600)
+  const [upper, lower] = await pixels(`const k = w / arg.width, mid = (h - 22 * k) / 2, lit = [0, 0]
+    for (let y = 0; y < h - 22 * k; y++) for (let x = Math.round(arg.a * k); x < Math.round(arg.b * k); x++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 300) lit[y < mid ? 0 : 1]++ }
+    return lit`, { width: box.width, a: x(4.5) - box.x, b: x(7) - box.x })
+  assert.ok(upper > 1000 && lower < upper / 20, `4.5 s to 7 s: the upper lane ${upper} lit, the lower ${lower}`)
+  assert.equal(await selected(), '0:02.000–0:03.000', 'the piece stays selected, in its own lane')
+  // the upper lane: the first track's, a range deleted there alone
+  await page.mouse.click(x(6), top)
+  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'chime · chime.wav')
+  await drag([x(5), top], [x(6) - x(5), 0])
+  await page.keyboard.press('Backspace')
+  await page.waitForFunction(() => /\.gain\(-Infinity, \{ at: 2, d: 1 \}\)\n {2}\.remove\(\{ at: 5, d: 1(, xfade: [\d.]+)? \}\)\n\nlet chime2/.test(scriptText()))
+  await lengthIs('0:07.000')
+  // the lower lane's track taken away: one sound, its steps as they were
+  await page.mouse.click(x(1), bottom)
+  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'chime2 · chime.wav')
+  await menu('Edit', 'Delete the track')
+  await page.waitForFunction(() => !scriptText().includes('chime2'))
+  assert.equal(await card(), 'chime.wav')
+  await page.waitForFunction(() => !('tracks' in document.querySelector('.plot').dataset))
+  await page.keyboard.press('ControlOrMeta+Z')
+  await page.waitForFunction(() => scriptText().includes('let chime2 = ') && document.querySelector('.plot').dataset.tracks === '2')
+})
+
+// The markers are every track's: one a track not edited set is taken away from its flag all the same, its mark() gone
+test('editor: with tracks, a marker of a track not edited is taken away from its flag', async () => {
+  await open()
+  await write(`let a = audio('chime.wav')\n  .mark(1, 'here')\n\nlet b = audio('chime.wav')\n  .gain(-6)`)
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await lengthIs('0:08.000')
+  const { box, x } = await axis(8)
+  await page.mouse.click(x(1), box.y + 4, { button: 'right' })
+  await contextRow('Delete the marker').click()
+  await page.waitForFunction(() => !scriptText().includes('.mark('))
+  assert.match(await code(), /^let a = audio\('chime.wav'\)\s*let b = audio\('chime.wav'\)\n {2}\.gain\(-6\)$/)
+})
+
+// A slice of a track dragged onto the tabs: a tab of that track's alone, its chain cropped to it
+test('editor: with tracks, a slice dragged onto the tabs is the edited track\'s alone', async () => {
+  await open()
+  await noCues()
+  await write(`let a = audio('chime.wav')\n\nlet b = audio('chime.wav')\n  .gain(-6)`)
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await lengthIs('0:08.000')
+  const { box, x } = await axis(8), y = box.y + (box.height - 22) * .75, files = await page.locator('.files').boundingBox()
+  await drag([x(1), y], [x(2) - x(1), 0])
+  await keyed(['Alt'], () => drag([x(1.5), y], [files.x + files.width / 2 - x(1.5), files.y + files.height / 2 - y]))
+  await page.waitForFunction(() => document.querySelectorAll('.file').length === 2)
+  await page.waitForFunction(() => scriptText() === "audio('chime.wav')\n  .gain(-6)\n  .crop({ at: 1, d: 1 })")
+  await lengthIs('0:01.000')
+})
+
+// The edited track flattened (a row's menu): that track's chain made one sound, its own (not another its chain makes on
+// the way, a mix's source): the mix sounds as it did; the other track as it was
+test('editor: with tracks, the edited track flattened is that track alone', async () => {
+  await open()
+  await write(`let a = audio('chime.wav')\n  .gain(-6)\n\nlet b = audio('chime.wav')\n  .reverse()\n  .mix(audio.from(1))`)
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await lengthIs('0:08.000')
+  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'b · chime.wav')
+  const level = await readout()
+  await tab('Edits')
+  await page.locator('.steps-list .step', { has: page.locator('.step-name', { hasText: /^Mix$/ }) }).locator('.step-toggle').click({ button: 'right' })
+  await contextRow('Flatten all').click()
+  await page.waitForFunction(() => scriptText() === "let a = audio('chime.wav')\n  .gain(-6)\n\nlet b = audio('chime-flat.wav')")
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await page.waitForFunction(level => document.querySelector('.readout').innerText === level, level)
+})
+
+// A file opened as a track of its own (File): under the one edited, named for it, the one edited after; the sound as
+// long as the longer of the two
+test('editor: a file opened as a new track goes under the one edited', async () => {
+  await open()
+  await write(`audio('chime.wav')`)
+  await lengthIs('0:08.000')
+  const chooser = page.waitForEvent('filechooser')
+  await menu('File', 'Open as a new track…')
+  await (await chooser).setFiles({ name: 'bed.wav', mimeType: 'audio/wav', buffer: await wavBytes([sine(10, 220, .1)]) })
+  await page.waitForFunction(() => scriptText().includes('let bed = '))
+  assert.equal(await code(), `let chime = audio('chime.wav')\n\nlet bed = audio('bed.wav')`)
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await lengthIs('0:10.000')
+  assert.equal(await page.locator('.steps-list .step-name').first().textContent(), 'bed · bed.wav')
 })
 
 // A click seen on the picture: selected, the context menu's Repair takes the clicks out there alone (declick over the

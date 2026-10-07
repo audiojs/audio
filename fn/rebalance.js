@@ -19,8 +19,9 @@
  * 'htdemucs' or 'htdemucs_ft' (weights for research only), 'umxhq' (Open-Unmix, MIT). scene's: 'mrx' by default (MRX,
  * Petermann et al., ICASSP 2022, trained on Divide and Remaster; MERL's MIT weights), 'tiger' (TIGER, Xu et al., ICLR
  * 2025; Apache-2.0 weights: on 30 of the test clips 12.68 · 10.24 · 8.06 dB against MRX's 10.92 · 5.17 · 5.72, at about
- * 50 times its time). Weights are exported once by the package's scripts into ~/.cache/audiojs/neural, or served from
- * `weights` (a URL or directory); `device` picks the ONNX Runtime backend. The whole input is separated once before
+ * 50 times its time). Weights come from Hugging Face (audiojs/scnet-large, scnet, mrx, tiger-dnr: 8-bit weights, 45, 13,
+ * 31 and 7 MB, each pinned to a commit and checked by its SHA-256), kept in the page's cache or ~/.cache/audiojs/neural,
+ * or from `weights` (a URL or directory); `device` picks the ONNX Runtime backend. The whole input is separated once before
  * rendering and kept on the edit while it stays the same (core.js memo: gains moved, the stems are read back). A model
  * hearing stereo hears mono as stereo and gives the mean of its two stems (MRX and TIGER hear each channel apart);
  * channels past the first two pass through.

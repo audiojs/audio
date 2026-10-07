@@ -365,9 +365,9 @@ const failure = error => {
 }
 
 // The script's last expression comes back boxed (code.js prepare), so a sound still arriving, which is thenable,
-// is not waited out: its output streams instead.
-class Out { constructor(value) { this.value = value } }
-const out = value => new Out(value)
+// is not waited out: its output streams instead. A script with tracks returns them by name (`tracks`)
+class Out { constructor(value, tracks = false) { this.value = value; this.tracks = tracks } }
+const out = (value, tracks) => new Out(value, tracks)
 
 // Runs a script, the page's tab `tab`'s: the reply says what it printed and whether it made a sound; the sound then
 // streams (render). Each tab's last output stays, for the page to show again as it was, measure and export, nothing run
@@ -381,23 +381,30 @@ async function execute({ id, code, names = [], tab = null, peaks = 0 }) {
     const started = performance.now()
     const guard = () => { if (performance.now() - started > LOOP_LIMIT) throw new RangeError(`A loop ran for ${LOOP_LIMIT / 1000} s; stopped it.`) }
     // Scripts see `audio`, `console` (to the page's console) and `files`, the names of the open files.
-    let value = await new AsyncFunction('audio', 'console', 'files', '__loop', '__out', code + '\n//# sourceURL=repl.js')(api, console, [...files.keys()], guard, out)
-    if (value instanceof Out) value = value.value
+    let value = await new AsyncFunction('audio', 'console', 'files', '__loop', '__out', code + '\n//# sourceURL=repl.js')(api, console, [...files.keys()], guard, out), layers = null
+    // tracks, each a sound by its name; one alone is the output as any value is
+    if (value instanceof Out) {
+      const sounds = value.tracks ? Object.entries(value.value).filter(([, a]) => isAudio(a)) : []
+      if (sounds.length > 1) layers = sounds.map(([name, instance]) => ({ name, instance }))
+      value = layers ? undefined : value.tracks ? sounds[0]?.[1] : value.value
+    }
     if (value && typeof value.then === 'function' && !isAudio(value)) value = await value
-    // The output is the script's value, or else the last audio it made (an analysis shows what it measured).
-    const output = isAudio(value) ? value : run.created.findLast(a => !a._?.disposed) ?? null
-    const result = { logs, saves: run.saves.map(s => s.name), output: !!output }
+    // The output is the script's value, or else the last audio it made (an analysis shows what it measured); with
+    // tracks, their mix (mixTracks)
+    const output = layers ? layers[0].instance : isAudio(value) ? value : run.created.findLast(a => !a._?.disposed) ?? null
+    const result = { logs, saves: run.saves.map(s => s.name), output: !!output, ...layers && { tracks: layers.map(t => t.name) } }
     if (!isAudio(value) && value !== undefined) result.value = inspect(value)
     // this run's output is the one that streams now; an older one still streaming stops
     newest = id
     for (const r of outputs.values()) if (!r.done) drop(r)
     if (!output) { for (const r of outputs.values()) if (r.tab === tab) drop(r); dispose(run.created); return result }
-    const record = { id, tab, peaks, instance: output, created: run.created, saves: run.saves, names, tape: null, sound: null, length: 0, sampleRate: 0, done: false }
+    const record = { id, tab, peaks, instance: output, tracks: layers, created: run.created, saves: run.saves, names, tape: null, sound: null, length: 0, sampleRate: 0, done: false }
     record.finished = new Promise(resolve => { record.finish = resolve })
-    record.keys = keysOf(output)
-    record.based = based(record)
+    // a mix is kept as its tracks are, each by its own edits
+    record.keys = layers ? Object.assign([], { marked: true }) : keysOf(output)
+    record.based = layers ? null : based(record)
     if (record.based?.instance) record.created.push(record.based.instance)
-    record.content = contentOf(code, names)
+    record.content = layers ? null : contentOf(code, names)
     outputs.set(id, record)
     render(record)
     return result
@@ -509,6 +516,7 @@ async function render(r) {
   // the run's reply goes first
   await new Promise(resolve => setTimeout(resolve))
   const alive = () => newest === r.id
+  if (r.tracks) return mixTracks(r, alive)
   let hit = r.based?.hit ?? null
   const content = await r.content
   if (!hit && content && alive()) {
@@ -556,6 +564,88 @@ async function render(r) {
     drop(r)
   }
 }
+// Tracks (code.js tracks): each made as an output is, from what is kept of it (made: a track edited renders alone, the
+// others are kept), then summed from their starts into the output: as long as the longest, at the first's rate (another
+// resampled to it), as many channels as the widest has (a narrower one's in turn across them, as mix() spreads a mono
+// sound). The page gets each track's own picture first (`tracks`: its channels averaged, its length, its pauses), then
+// the mix as any output comes, the tracks' markers on it; past the channel samples the page holds, the mix's and the
+// tracks' pictures (long), their samples where it zooms in (samples)
+async function mixTracks(r, alive) {
+  try {
+    for (const t of r.tracks) {
+      if (!alive()) return
+      post({ id: r.id, event: 'doing', steps: t.instance.edits.map(e => e[0]) })
+      // its file whole first: a track is made whole, its rate and channels known
+      await t.instance.ready
+      if (!alive()) return
+      const e = await made(t.instance, keysOf(t.instance), alive)
+      if (!e) return
+      Object.assign(t, e, { made: e })
+      // one not kept (a sound made in the script) goes with the run
+      if (![...kept.values()].includes(e)) r.created.push(e.sound)
+    }
+    const rate = r.tracks[0].sampleRate
+    for (const t of r.tracks) if (t.sampleRate !== rate) {
+      const a = t.sound.clone().resample(rate)
+      try { t.sound = await collect(a, alive) } finally { a.dispose?.() }
+      if (!t.sound) return
+      r.created.push(t.sound)
+      t.sampleRate = rate
+    }
+    // the mix: the widest track, padded with silence to the longest's end, the others mixed in (the library's mix(),
+    // rendered a block at a time onto a tape: nothing held whole)
+    const n = Math.max(...r.tracks.map(t => t.sound.length)), wide = r.tracks.reduce((p, q) => q.sound.channels > p.sound.channels ? q : p), k = wide.sound.channels
+    const m = wide.sound.clone()
+    if (n > m.length) m.pad(0, (n - m.length) / rate)
+    for (const t of r.tracks) if (t !== wide) m.mix(t.sound)
+    const sound = await collect(m, alive)
+    m.dispose?.()
+    if (!sound) return
+    // each track's own picture (laneOf), its pauses: where the page holds the mix's and the tracks' pictures alone
+    // (`long`: more channel samples than it holds), made once for what is kept, so a track not edited costs nothing
+    // again (sent as a copy); its samples each time, as they cost little to make and much to keep
+    r.long = !!r.peaks && n * (k + r.tracks.length) > r.peaks
+    const lanes = []
+    for (const t of r.tracks) {
+      const pictures = t.made.pictures ??= new Map(), key = `${rate} ${n}`
+      let lane = r.long ? pictures.get(key) : null
+      if (!lane) { lane = await laneOf(t.sound, rate, r.long && n, alive); if (!lane) return; if (r.long) pictures.set(key, lane) }
+      t.made.silences ??= await gaps(t.sound, PAUSE)
+      const own = { name: t.name, length: t.sound.length, silences: t.made.silences }
+      lanes.push(lane.mono ? { ...own, mono: lane.mono } : { ...own, leaves: lane.leaves.slice(), spectra: { ...lane.spectra, levels: lane.spectra.levels.slice() } })
+    }
+    if (!alive()) return
+    post({ id: r.id, event: 'tracks', sampleRate: rate, tracks: lanes }, lanes.flatMap(l => l.mono ? [l.mono.buffer] : [l.leaves.buffer, l.spectra.levels.buffer]))
+    const at = (p, q) => p.time - q.time
+    r.instance = sound
+    r.created.push(sound)
+    const depths = r.tracks.map(t => t.instance.bitDepth).filter(Boolean)
+    replay(r, { sound, sampleRate: rate, markers: r.tracks.flatMap(t => t.markers).sort(at), regions: r.tracks.flatMap(t => t.regions).sort((p, q) => p.at - q.at), bitDepth: depths.length ? Math.max(...depths) : null })
+  } catch (error) {
+    if (!alive()) return
+    const failed = r.names.find(n => !sources.has(n))
+    post({ id: r.id, event: 'error', error: failure(failed ? opening(failed, error) : error) })
+    drop(r)
+  }
+}
+// A track's lane as the page draws it, its channels averaged: its samples ({ mono }); or, `n` given (the page holds
+// pictures alone), its leaves and spectra as long as the mix, silence after its end. Null once `alive()` says to stop
+async function laneOf(sound, rate, n, alive) {
+  const len = sound.length, p = n ? pictured(1, rate, n) : null, mono = p ? null : new Float32Array(len)
+  let at = 0
+  for await (const block of sound.stream()) {
+    const x = new Float32Array(Math.min(block[0].length, len - at))
+    for (const c of block) for (let i = 0; i < x.length; i++) x[i] += c[i] / block.length
+    p ? p.push([x]) : mono.set(x, at)
+    at += x.length
+    if (!alive()) return null
+  }
+  if (!p) return { mono }
+  for (let i = at; i < n; i += 65536) p.push([new Float32Array(Math.min(65536, n - i))])
+  p.end()
+  const { leaves, spectra } = p.since()
+  return { leaves: leaves[0], spectra: { size: spectra.size, hop: spectra.hop, levels: spectra.levels[0] } }
+}
 // Whether a run's every edit has a key: its whole output can be kept
 const keyed = r => r.keys.length === r.instance.edits.length + 1
 // An output kept past a reload, by what made it (contentOf), once nothing else is being made
@@ -568,7 +658,7 @@ function shelve(content, e) {
 async function replay(r, e) {
   const n = e.sound.length, rate = e.sampleRate, piece = 10 * rate
   Object.assign(r, { sound: e.sound, length: n, sampleRate: rate })
-  if (r.peaks && n * e.sound.channels > r.peaks) {
+  if (r.peaks && (r.long || n * e.sound.channels > r.peaks)) {
     const p = await (e.picture ??= pictureOf(e.sound))
     if (newest !== r.id) return
     post({ id: r.id, event: 'chunk', at: 0, peaks: p.leaves.map(c => c.slice()), spectra: { ...p.spectra, levels: p.spectra.levels.map(c => c.slice()) }, long: true, sampleRate: rate, total: n })
@@ -591,7 +681,7 @@ function finish(r, e) {
   r.regions = e.regions
   for (const o of outputs.values()) if (o !== r && o.tab === r.tab) drop(o)
   const markers = [...e.markers, ...e.regions.map(({ at, duration, label }) => ({ time: at, duration, label }))].sort((p, q) => p.time - q.time)
-  post({ id: r.id, event: 'done', long: !!r.peaks && r.length * r.sound.channels > r.peaks, duration: r.length / r.sampleRate, sampleRate: r.sampleRate, channels: r.sound.channels, stats: e.figures.stats, segments: e.figures.segments, markers, clips: e.figures.clips, bitDepth: e.bitDepth ?? r.instance.bitDepth ?? null })
+  post({ id: r.id, event: 'done', long: !!r.peaks && (!!r.long || r.length * r.sound.channels > r.peaks), duration: r.length / r.sampleRate, sampleRate: r.sampleRate, channels: r.sound.channels, stats: e.figures.stats, segments: e.figures.segments, markers, clips: e.figures.clips, bitDepth: e.bitDepth ?? r.instance.bitDepth ?? null })
   r.finish(r)
   checkpoint(r)
 }
@@ -643,8 +733,9 @@ async function collect(a, going, blocks = a.stream()) {
   }
   return t.stop()
 }
-// An instance's sound, as kept: whole if it is, else rendered from the longest of its starts kept, then kept
-async function made(a, keys = keysOf(a)) {
+// An instance's sound, as kept: whole if it is, else rendered from the longest of its starts kept, then kept; null once
+// `going()` says to stop
+async function made(a, keys = keysOf(a), going = () => true) {
   const n = a.edits.length
   let b = a
   for (let k = Math.min(keys.length - 1, n); k >= 0; k--) {
@@ -656,7 +747,9 @@ async function made(a, keys = keysOf(a)) {
   }
   try {
     announce(b.edits)
-    const e = { sound: await collect(b, () => true), sampleRate: b.sampleRate, ...marksAt(b) }
+    const sound = await collect(b, going)
+    if (!sound) return null
+    const e = { sound, sampleRate: b.sampleRate, ...marksAt(b) }
     if (keys.length === n + 1) store(keys[n], e)
     return e
   } finally { if (b !== a) b.dispose?.() }
@@ -833,14 +926,17 @@ async function hearing(sound, read) {
   const a = sound.clone()
   try { return await read(a) } finally { a.dispose?.() }
 }
-async function cues({ output, kind = 'edges' }) {
-  const r = await whole(output)
-  if (!r) return { times: null }
-  if (!r.length) return { times: [] }
-  r.cues ??= {}
-  r.cues[kind] ??= await found(r, FIND[kind])
-  return { times: r.cues[kind] }
+async function cues({ output, kind = 'edges', track }) {
+  const p = part(await whole(output), track)
+  if (!p) return { times: null }
+  if (!p.sound.length) return { times: [] }
+  p.cues ??= {}
+  p.cues[kind] ??= await found(p, FIND[kind])
+  return { times: p.cues[kind] }
 }
+// An output, or one of its tracks (`track`, its index, mixTracks): what the page reads of either alike, its instance, its
+// sound and its rate; null for one there is not
+const part = (r, track) => track == null ? r : r?.tracks?.[track] ?? null
 async function found(r, find) {
   const warp = r.instance.edits?.at(-1)
   if (warp?.[0] !== 'warp') return find(await r.sound.read(), r.sampleRate)
@@ -865,11 +961,11 @@ function carry(times, markers, end) {
 }
 
 // The output's pitch, the pitch curve the page draws: f0 in Hz every 10 ms, 0 where unvoiced or silent, the library's
-// contour() (pYIN, as intonation() reads it) on the mono mix
-async function contour({ output }) {
-  const r = await whole(output)
-  if (!r?.length) return { times: [], f0: [] }
-  return r.contour ??= pitchOf(await mixdown(r), r.sampleRate)
+// contour() (pYIN, as intonation() reads it) on the mono mix; or a track's
+async function contour({ output, track }) {
+  const p = part(await whole(output), track)
+  if (!p?.sound.length) return { times: [], f0: [] }
+  return p.contour ??= pitchOf(await mixdown(p), p.sampleRate)
 }
 
 // What the output holds, as a musician says it (the status bar): the note over `note` [from, to] s, the tempo and key
@@ -961,7 +1057,14 @@ async function samples({ output, from, to }) {
   if (!r) return { channels: null }
   const n = r.length, rate = r.sampleRate
   from = Math.max(0, Math.min(n, Math.floor(from))); to = Math.max(from, Math.min(n, Math.ceil(to)))
+  // with tracks, their lanes': each track's channels averaged, silence past its end
+  if (r.tracks) return { channels: await Promise.all(r.tracks.map(t => monoOf(t.sound, from, to, rate))) }
   return { channels: to > from ? await r.sound.read({ at: from / rate, duration: (to - from) / rate }) : Array.from({ length: r.sound.channels }, () => new Float32Array(0)) }
+}
+async function monoOf(sound, from, to, rate) {
+  const x = new Float32Array(to - from), end = Math.min(to, sound.length)
+  if (end > from) for (const c of await sound.read({ at: from / rate, duration: (end - from) / rate })) for (let i = 0; i < c.length && i < x.length; i++) x[i] += c[i] / sound.channels
+  return x
 }
 
 // What plays (player.js): an output (`output`, the run that made it), or the file it opened (`source`, at the output's
@@ -993,7 +1096,7 @@ async function voice({ output, source, loudness, ...as }) {
 // `measured`, what the last run measured, stat by stat ({ of: 'out' | 'src' | what step(i) read, name, opts, value }), for
 // the page to say whatever shape the value takes
 const RUNS = 1000
-async function evaluate({ code, steps = [], tab }) {
+async function evaluate({ code, steps = [], tab, track }) {
   const r = await settled(tab), made = [], keep = a => (made.push(a), a), memo = []
   const run = new AsyncFunction('audio', 'out', 'src', 'step', '__loop', '__out', code + '\n//# sourceURL=repl.js')
   const base = r?.length ? keep(r.sound.clone()) : null, src = r && sources.get(r.names[0])
@@ -1006,7 +1109,7 @@ async function evaluate({ code, steps = [], tab }) {
       const asked = { memo, at: 0, made: [], calls: [], short: false, waits: [] }, started = performance.now()
       const guard = () => { if (performance.now() - started > LOOP_LIMIT) throw new RangeError(`A loop ran for ${LOOP_LIMIT / 1000} s; stopped it.`) }
       let value, error = null
-      try { value = await run(scoped(keep), measuring(out, 'out', asked), src ? measuring(keep(src.clone()), 'src', asked) : null, i => stepOf(steps, i, r, keep, asked), guard, x => new Out(x)) }
+      try { value = await run(scoped(keep), measuring(out, 'out', asked), src ? measuring(keep(src.clone()), 'src', asked) : null, i => stepOf(steps, i, part(r, track), keep, asked), guard, x => new Out(x)) }
       catch (e) { error = e }
       if ((asked.short || asked.made.some(m => !m.awaited)) && n < RUNS) { await Promise.allSettled([...memo.map(m => m.promise), ...asked.waits]); continue }
       if (error) throw error
