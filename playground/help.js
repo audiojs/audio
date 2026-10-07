@@ -186,9 +186,11 @@ export const texts = {
     slope: 'How much each octave is raised over the one below, in dB: above 0 brightens, below 0 darkens, 0 does nothing. It adds up across the octaves, so large values change the loudness a lot.'
   },
   moog: {
-    fc: 'Cutoff, in Hz: sound above it is turned down, 24 dB per octave.',
+    fc: 'Cutoff, in Hz: lowpass turns down sound above it, highpass sound below it, bandpass both sides of it.',
     resonance: 'Emphasis at the cutoff, 0 to 1. Higher gives the squelchy, singing edge of the classic filter; at 1 it rings by itself.',
-    drive: 'How hard the sound is pushed into the filter, which saturates: above 1 adds warm distortion, below 1 is cleaner and quieter.'
+    drive: 'How hard the sound is pushed into the filter, which saturates: above 1 adds warm distortion, below 1 is cleaner and quieter.',
+    type: 'Which side of the cutoff is kept: lowpass the lows (the classic Moog sound), highpass the highs, bandpass a band around the cutoff.',
+    poles: 'Steepness past the cutoff: 4 poles turn sound down 24 dB per octave, the classic ladder; 2 poles, 12 dB, gentler and brighter.'
   },
   korg35: {
     fc: 'Cutoff, in Hz: lowpass turns down sound above it, highpass turns down sound below it.',
@@ -248,7 +250,8 @@ export const texts = {
   limiter: {
     ceiling: 'Highest level allowed, in dB. Nothing gets past it; 0 is full scale.',
     lookahead: 'How far ahead it looks, in ms. It eases the volume down over this time so each peak arrives at the ceiling without clipping. Longer is smoother but dips the sound before a peak.',
-    release: 'How fast the volume comes back after a peak, in ms. Short stays louder but can distort bass; long is smoother and may dull what follows.'
+    release: 'How fast the volume comes back after a peak, in ms. Short stays louder but can distort bass; long is smoother and may dull what follows.',
+    truePeak: 'Holds the waveform between the samples under the ceiling too, as a player rebuilds it. On for a delivery spec in dBTP, such as streaming\'s -1; adds about 2 ms of delay.'
   },
   gate: {
     threshold: 'Level where the gate opens, in dB. Sound louder than this passes; quieter sound is turned down to the range.',
