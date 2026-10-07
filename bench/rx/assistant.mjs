@@ -79,6 +79,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { cfft, cifft } from 'fourier-transform'
 import { readWav, writeWav, lcg, mean, median, table, DATA, OUT as RXOUT } from './lib.mjs'
 import { sos, lp4 } from './voice.mjs'
+import lufsFn from '@audio/loudness-lufs'
+import truepeakFn from '@audio/loudness-truepeak'
 import { harsh } from './deess.mjs'
 import { addPops } from './deplosive.mjs'
 
@@ -381,7 +383,7 @@ async function ours(file, t) {
   let an = { snr: a.snr, hum: a.hum?.level ?? null, clicks: a.clicks, sib: a.sibilanceDb, clip: a.clipping?.count, voiced: a.voicedRatio }
   for (let k of ['reverb', 'pops', 'clipped']) if (a[k] !== undefined) an[k] = a[k]
   let info = { stages: recipe.stages.map(s => s.name), an }
-  return [{ y, lin, info }, { y: yr, lin: linr, info }]
+  return [{ y, lin, info: { ...info, lufs: lufsFn([y], { fs: t.sr }), tp: truepeakFn([y], { fs: t.sr }), target: recipe.targetLufs } }, { y: yr, lin: linr, info }]
 }
 
 // ---- scores
@@ -523,6 +525,14 @@ function report(list, res, labels) {
     console.log(`\n${mode === 'speech' ? 'Speech' : 'Music'} (${mine.length} takes): ${keys.join(' / ')}, mean\n`)
     let rows = GROUPS(mode).map(([g, f]) => { let ts = mine.filter(f); return [`${g} (${ts.length})`, ...labels.map(l => keys.map(k => (k === 'stoi' || k === 'odg' || k === 'pesq' || k === 'ovrl' ? f2 : f1)(avg(ts.map(t => res[l]?.[t.name]), k))).join(' / '))] })
     console.log(table(['takes', ...labels], rows))
+  }
+  let loud = labels.filter(l => list.some(t => res[l]?.[t.name]?.lufs != null))
+  if (loud.length) {
+    console.log(`\nLoudness out (auto()): median LUFS, share within 1 LU of the target; true peak, highest dBTP\n`)
+    console.log(table(['takes', ...loud], ['speech', 'music'].map(mode => {
+      let ts = list.filter(t => t.mode === mode)
+      return [`${mode} (${ts.length})`, ...loud.map(l => { let r = ts.map(t => res[l]?.[t.name]).filter(r => r?.lufs != null); return r.length ? `${median(r.map(r => r.lufs)).toFixed(1)}, ${Math.round(100 * r.filter(r => Math.abs(r.lufs - r.target) <= 1).length / r.length)}%; ${Math.max(...r.map(r => r.tp)).toFixed(2)}` : '' })]
+    })))
   }
   console.log(`\nClean takes, what each changes: SDR of output to input, dB (median, worst); untouched share\n`)
   console.log(table(['material', ...labels], ['speech', 'music'].map(mode => {
