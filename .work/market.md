@@ -91,7 +91,7 @@ From ACX's rejection emails as quoted by narrators' guides, and narrators' own f
 | Dynamic EQ, multiband, imager, exciter | `dyneq`, `multiband`, `widener`, `midside`, `exciter` | yes |
 | Vintage (tape, tube, opto, vari-mu) | `tape`, `tube`, `opto`, `varimu`, `fet` | yes |
 | Master Assistant (automatic) | `auto` | yes, 15 to 32 times faster than real time |
-| Music Rebalance, stems | `vocals` (center channel) | neural separation unpublished; demucs-web waits |
+| Music Rebalance, stems | `rebalance` (SCNet-large, MIT weights) | @audio/neural-separate 0.2.0 unpublished; its weights to host for the page |
 
 ## Built this round
 

@@ -107,6 +107,8 @@ const table = {
   // the second channel moved onto the first; unset, the delay measured over time (fn/azimuth.js)
   azimuth: ['Repair', 'Line up a stereo pair in time and polarity', [p('delay', -2, 2, 0, 'ms', { step: .001 })]],
   dewow: ['Repair', 'Correct wow and flutter'],
+  // a song's four stems, each at its own level, by a separation model (fn/rebalance.js)
+  rebalance: ['Repair', 'Turn a song\'s vocals, bass, drums or the rest up or down', [db('vocals', -60, 12, 0), db('bass', -60, 12, 0), db('drums', -60, 12, 0), db('other', -60, 12, 0)]],
   // the tonal, noisy and transient parts, each at its own level (fn/deconstruct.js)
   deconstruct: ['Repair', 'Rebalance tones, noise and attacks', [db('tonal', -60, 12, 0), db('noise', -60, 12, 0), db('transient', -60, 12, 0), p('separation', 1, 8, 2, '×', { step: .1 })]],
   // the clicks found everywhere, or in the selection alone, each rebuilt from around it (fn/declick.js)

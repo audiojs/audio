@@ -418,6 +418,12 @@ export const texts = {
     wow: 'Correct the slow speed changes: a warped or off-centre record, a stretched tape.',
     flutter: 'Correct the fast speed changes: a tape machine\'s capstan and rollers. Read from a steady tone only.'
   },
+  rebalance: {
+    vocals: 'Level of the singing voice, in dB. 0 leaves it; lower pushes it back, -60 all but takes it out (a karaoke track); higher brings it forward.',
+    bass: 'Level of the bass, in dB. 0 leaves it; lower thins the low end, higher thickens it.',
+    drums: 'Level of the drums and percussion, in dB. 0 leaves them; lower softens the beat, higher punches it up.',
+    other: 'Level of everything else (guitars, keys, strings, pads), in dB. 0 leaves it; -60, with the rest at 0, keeps only the vocals, bass and drums.'
+  },
   deconstruct: {
     tonal: 'Level of the tones (held notes, hum, a voice\'s vowels), in dB. 0 leaves them; -60 all but removes them.',
     noise: 'Level of the noise, in dB: what is neither tone nor attack (hiss, breath, room, a snare\'s rattle). 0 leaves it; lower turns it down.',

@@ -243,6 +243,102 @@ test('deconstruct: a range changes there alone; a render from anywhere is the wh
   ok(residual(x, whole) > -30 && lag(x, whole) ** 2 < 1e-4, `in line with its input (lag ${lag(x, whole).toFixed(4)})`)
 })
 
+// ── Music Rebalance ──────────────────────────────────────────────
+
+// The separation stubbed (audio.import): each stem a fixed share of its channel, 5 % in none, so what the op makes of
+// the stems is known exactly; then SCNet-large itself on a MUSDB18 test preview, where its weights and the data are.
+const SHARES = { vocals: 0.4, bass: 0.3, drums: 0.2, other: 0.05 }
+const withSeparation = async (fn, calls = []) => {
+  let orig = audio.import
+  audio.import = spec => spec !== '@audio/neural-separate' ? orig(spec) : Promise.resolve({
+    models: { 'scnet-large': {}, htdemucs: {} },
+    default: async (chs, o) => (calls.push(o.model), { stems: Object.fromEntries(Object.entries(SHARES).map(([k, w]) => [k, (chs.length === 1 ? [chs[0], chs[0]] : chs).map(c => c.map(v => w * v))])) }),
+  })
+  try { return await fn(calls) } finally { audio.import = orig }
+}
+const song = (n = 44100, k = 1) => [0, 1].map(c => Float32Array.from({ length: n }, (_, i) => 0.3 * Math.sin(2 * Math.PI * (110 + 55 * c) * k * i / 44100) + 0.1 * Math.sin(2 * Math.PI * 1234 * i / 44100)))
+
+test('rebalance: every gain 0 dB leaves the input sample for sample, the separation never loaded', async () => {
+  let x = song(), loaded = [], orig = audio.import
+  audio.import = spec => (loaded.push(spec), orig(spec))
+  try {
+    for (let a of [audio.from(x, { sampleRate: 44100 }).rebalance(), audio.from(x, { sampleRate: 44100 }).rebalance(0, 0, 0, 0)]) {
+      let y = await a.read()
+      ok(y.every((c, k) => c.every((v, i) => v === x[k][i])), 'sample for sample')
+    }
+  } finally { audio.import = orig }
+  ok(!loaded.includes('@audio/neural-separate'), 'neural-separate not imported')
+})
+
+test('rebalance: the input plus each stem\'s change, x + Σ (g − 1)·s; positional in RX\'s order or named; one separation per input', async () => {
+  await withSeparation(async calls => {
+    let x = song(), g = db => db === -Infinity ? 0 : 10 ** (db / 20)
+    for (let [args, gains] of [[[6], { vocals: 6 }], [[{ vocals: 6 }], { vocals: 6 }], [[0, -3, 4.5], { bass: -3, drums: 4.5 }],
+      [[{ drums: -6, other: 12 }], { drums: -6, other: 12 }], [[-Infinity], { vocals: -Infinity }], [[0, -Infinity, -Infinity, -Infinity], { bass: -Infinity, drums: -Infinity, other: -Infinity }]]) {
+      let y = await audio.from(x, { sampleRate: 44100 }).rebalance(...args).read(), f = 1
+      for (let s in gains) f += (g(gains[s]) - 1) * SHARES[s]
+      let err = Math.max(...y.map((c, k) => c.reduce((m, v, i) => Math.max(m, Math.abs(v - f * x[k][i])), 0)))
+      ok(err < 1e-6, `(${args.map(v => typeof v === 'number' ? v : JSON.stringify(v)).join(', ')}): × ${f.toFixed(4)}, max |error| ${err.toExponential(1)}`)
+    }
+    is(calls.at(-1), 'scnet-large', 'SCNet-large by default')
+    calls.length = 0
+    let a = audio.from(x, { sampleRate: 44100 }).rebalance({ vocals: -6, model: 'htdemucs' })
+    await a.read(); a.gain(-1); await a.read()
+    is(calls, ['htdemucs'], 'separated once by the model asked: re-reads and edits after it reuse the stems')
+    let full = await a.read(), parts = []
+    for await (let chunk of a.stream()) parts.push(chunk.map(c => c.slice()))
+    for (let c of [0, 1]) {
+      let flat = new Float32Array(full[c].length), o = 0
+      for (let p of parts) flat.set(p[c], o), o += p[c].length
+      ok(o === flat.length && flat.every((v, i) => Math.abs(v - full[c][i]) < 1e-6), `ch${c}: streamed as read`)
+    }
+    is(calls, ['htdemucs'], 'and streaming it too')
+  })
+})
+
+test('rebalance: mono separates as stereo and hears the mean of the two; channels past two pass through', async () => {
+  await withSeparation(async () => {
+    let [l] = song(), mono = await audio.from([l], { sampleRate: 44100 }).rebalance(-Infinity).read()
+    is(mono.length, 1)
+    ok(mono[0].every((v, i) => Math.abs(v - 0.6 * l[i]) < 1e-6), 'mono: × 0.6, the vocals out')
+    let [L, R] = song(), C = song(44100, 2)[0], three = await audio.from([L, R, C], { sampleRate: 44100 }).rebalance(-Infinity).read()
+    ok(three[2].every((v, i) => v === C[i]), 'third channel untouched')
+    ok(three[1].every((v, i) => Math.abs(v - 0.6 * R[i]) < 1e-6), 'second channel rebalanced')
+  })
+})
+
+test('rebalance: a gain is dB or −Infinity; the model one the package has; the package named when missing', async () => {
+  await withSeparation(async () => {
+    let x = song(4410)
+    let err = await audio.from(x, { sampleRate: 44100 }).rebalance(Infinity).read().catch(e => e)
+    ok(/rebalance: vocals is dB/.test(err?.message), err?.message)
+    err = await audio.from(x, { sampleRate: 44100 }).rebalance(3, { model: 'spleeter' }).read().catch(e => e)
+    ok(/unknown model 'spleeter', expected scnet-large, htdemucs/.test(err?.message), err?.message)
+  })
+  let orig = audio.import
+  audio.import = spec => spec === '@audio/neural-separate' ? Promise.reject(new Error(`Cannot find package '${spec}'`)) : orig(spec)
+  try {
+    let err = await audio.from(song(4410), { sampleRate: 44100 }).rebalance(3).read().catch(e => e)
+    ok(/install @audio\/neural-separate/.test(err?.message), err?.message)
+  } finally { audio.import = orig }
+})
+
+// A MUSDB18 test preview (Rafii et al. 2017; 6.8 s, AAC .stem.mp4, ffmpeg decodes it) through SCNet-large: the vocals
+// alone and the vocals 6 dB up against the stems' own, BSSEval v4's SDR (median over 1 s frames, bench/rx/separate.mjs
+// sdr), as bench/rx/separate.mjs measured them on this track (RX 12 Music Rebalance at Best: 13.29, 20.99 dB)
+const VOCALS_SOLO = 13.19, VOCALS_UP = 20.98
+const MUSDB = `${homedir()}/.cache/audiojs/data/musdb/test/AM Contra - Heart Peripheral.stem.mp4`
+const SCNET = `${process.env.AUDIO_NEURAL_CACHE || homedir() + '/.cache/audiojs/neural'}/scnet-large/scnet-large.onnx`
+;(existsSync(MUSDB) && existsSync(SCNET) ? test : test.skip)('rebalance: SCNet-large on a MUSDB18 test song, the vocals alone and 6 dB up, as measured', { timeout: 600000 }, async () => {
+  let { execFileSync } = await import('child_process'), { sdr, remix } = await import('../bench/rx/separate.mjs')
+  let dec = k => { let b = execFileSync('ffmpeg', ['-v', 'error', '-i', MUSDB, '-map', `0:a:${k}`, '-f', 'f32le', '-ac', '2', '-ar', '44100', '-'], { maxBuffer: 1 << 28 }), x = new Float32Array(b.buffer, b.byteOffset, b.length >> 2); return [0, 1].map(c => Float32Array.from({ length: x.length >> 1 }, (_, i) => x[2 * i + c])) }
+  let x = dec(0), vocals = dec(4), a = audio.from(x, { sampleRate: 44100 })
+  let solo = await a.clone().rebalance(0, -Infinity, -Infinity, -Infinity).read(), up = await a.clone().rebalance(6).read()
+  let s = sdr(vocals, solo), r = sdr(remix(x, { vocals }, { vocals: 6 }), up)
+  ok(s > VOCALS_SOLO - 0.05, `vocals alone: SDR ${s.toFixed(2)} dB`)
+  ok(r > VOCALS_UP - 0.05, `vocals +6 dB: SDR ${r.toFixed(2)} dB`)
+})
+
 // ── Find Similar ─────────────────────────────────────────────────
 
 // Events planted in a voice at known times, their levels up to 10 dB apart: coughs (each a fresh draw of filtered

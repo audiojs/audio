@@ -110,7 +110,7 @@ Sources: R11:module-list, R12:module-list, R11:common-module-controls, R11:modul
 | Module Chain: rows with power, settings, band, remove; drag to reorder | the chain is the script; the rack shows each call as a unit, × removes it | ◐ | No reorder, no power, no per-step band control |
 | Repair Assistant | `auto`, and Check | ◐ | |
 | Plug-in hosting (VST3/AU) | registry plugins | ⊘ | No native plugins in a browser |
-| Stem Split (RX 12), Music/Scene Rebalance | `vocals` (centre channel) | ◐ | Neural separation unpublished |
+| Stem Split (RX 12), Music/Scene Rebalance | `rebalance(vocals, bass, drums, other)` by SCNet-large (MIT weights); a stem alone with the others muted; `vocals` (centre channel, or a model) | ◐ | Ahead of RX 12 Best on drums and other and on most songs for every stem, behind on the bass median (bench/rx/separate.mjs). The weights (169 MB) are exported locally, not hosted: the page cannot reach them yet. No Scene Rebalance (dialogue, music, effects) |
 | Graphic module UIs: EQ nodes, De-hum spectrum, De-clip histogram, contour editors | sliders only | ✗ | The EQ graph first; drawn on the picture's frequency axis |
 
 ## 6. History

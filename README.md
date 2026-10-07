@@ -407,7 +407,8 @@ a.filter(customFn, { cutoff: 2000 })      // custom filter function
 
 | Method                         | Description                                                                                                                         |
 |:--|:--|
-| `.vocals(mode?, {model?})` | mid/side: `'isolate'` (default) keeps center, `'remove'` keeps sides. `model` separates with a trained model instead, `'umxhq'` (Open-Unmix, MIT weights) or `'htdemucs'` (Hybrid Transformer Demucs, higher SDR, weights for research only), through the optional `@audio/neural-separate`; `'remove'` then subtracts the model's vocals. Weights are exported locally ([how](https://github.com/audiojs/neural/tree/main/packages/neural-separate#weights)) or served from `weights`.<br><sub>≡ SoX `oops`; Demucs, Open-Unmix</sub> |
+| `.vocals(mode?, {model?})` | mid/side: `'isolate'` (default) keeps center, `'remove'` keeps sides. `model` separates with a trained model instead, `'scnet-large'` (SCNet, MIT weights, the highest SDR here), `'umxhq'` (Open-Unmix, MIT weights) or `'htdemucs'` (Hybrid Transformer Demucs, weights for research only), through the optional `@audio/neural-separate`; `'remove'` then subtracts the model's vocals. Weights are exported locally ([how](https://github.com/audiojs/neural/tree/main/packages/neural-separate#weights)) or served from `weights`.<br><sub>≡ SoX `oops`; SCNet, Demucs, Open-Unmix</sub> |
+| `.rebalance(vocals?, bass?, drums?, other?, {model?})` | a song's vocals, bass, drums and the rest, each at its own level, dB (−Infinity mutes): a separation model splits the input into the four stems and adds each one's change to it, so 0 dB each leaves the input sample for sample and what the model gives no stem stays as it was. `model` `'scnet-large'` (default: SCNet-large, MIT weights, 169 MB), `'scnet'` (43 MB, a third of the time), `'htdemucs'` (weights for research only) or `'umxhq'`, through the optional `@audio/neural-separate`, its weights exported locally ([how](https://github.com/audiojs/neural/tree/main/packages/neural-separate#weights)) or served from `weights`; the input is separated once, gains moved read the stems back. MUSDB18 test previews, BSSEval v4 SDR of each stem soloed, vocals · bass · drums · other: 10.75 · 8.17 · 10.30 · 6.94, iZotope RX 12 Music Rebalance at Best 10.89 · 9.66 · 9.85 · 6.45, ahead on 33, 32, 38, 32 of the 50 songs; vocals 6 dB up 20.2 dB against 19.5, drums 6 dB down 21.9 against 20.9 (`bench/rx/separate.mjs`).<br><sub>≡ iZotope RX Music Rebalance</sub> |
 | `.dither(bits?, {shape?})` | TPDF, default 16-bit. `shape: true` adds 2nd-order noise shaping: quantization noise moves above ~Nyquist/2, audibly quieter. |
 | `.crossfeed(freq?, level?)` | headphone crossfeed, default 700 Hz, 0.3.<br><sub>≡ SoX `earwax`, bs2b</sub> |
 | `.resample(rate, {type?})` | upsampling defaults to linear, downsampling to anti-aliased windowed sinc, its taps widening with the ratio. `type: 'sinc'` or `'linear'` forces one. |
@@ -428,6 +429,8 @@ a.filter(customFn, { cutoff: 2000 })      // custom filter function
 a.vocals()                                // isolate center-panned vocals
 a.vocals('remove')                        // remove vocals (karaoke)
 a.vocals({ model: 'umxhq' })              // vocals by a separation model
+a.rebalance({ vocals: 6, drums: -3 })     // the vocals up, the drums down
+a.rebalance(-Infinity)                    // a karaoke track
 a.dither(16)                              // TPDF dither to 16-bit
 a.dither(16, { shape: true })             // noise-shaped
 a.crossfeed()                             // headphone crossfeed
