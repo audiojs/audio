@@ -4,8 +4,9 @@
 //   const vdn = rx('Voice De-noise', { reduction: 20 }), om = op('omlsa()')
 //   let y = await vdn({ ch, sr }), z = await om({ ch, sr })      // { ch: Float32Array[], sr }
 //
-// RX runs in one host process per Node process (Python from RX_PYTHON, else ~/.cache/audiojs/venv), plugins loaded
-// once, jobs in order; outputs are aligned to the input (host.py lag: 0 samples for every plugin at 16, 44.1, 48 kHz).
+// RX runs in one host process per Node process (Python from RX_PYTHON, else ~/.cache/audiojs/venv), a new plugin
+// instance per job, jobs in order; outputs are aligned to the input (host.py lag: 0 samples for every plugin at 16,
+// 44.1, 48 kHz).
 // Renders are kept in ~/.cache/audiojs/data/rx/ by `keep(file, fn)`.
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync, unlinkSync } from 'node:fs'
 import { spawn } from 'node:child_process'

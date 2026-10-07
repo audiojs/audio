@@ -3,16 +3,13 @@
 #   python bench/rx/host.py serve           the same jobs one per line on stdin, each answered by a line (bench/rx/lib.mjs)
 #   python bench/rx/host.py params PLUGIN   its parameters: name, range, default
 #   python bench/rx/host.py lag             each plugin's alignment at its defaults: the lag of its output on noise
-#   python bench/rx/host.py reuse           each plugin's output after another sound and a reset, against a new
-#                                           instance's, dB (-inf: a reset is enough; FRESH lists the others)
-# Plugins load from /Library/Audio/Plug-Ins/VST3/RX 12 <PLUGIN>.vst3 (RX 12 Advanced, authorized). Each job starts
-# from the plugin's defaults and a reset, or from a new instance where a reset keeps state (FRESH: on a tone in noise
-# after another sound, Spectral De-noise's output differed from a new instance's by -47 dB, its learned print held;
-# Repair Assistant's by +5 dB, its analysis kept; the others' not at all). A file renders whole, offline, in
+# Plugins load from /Library/Audio/Plug-Ins/VST3/RX 12 <PLUGIN>.vst3 (RX 12 Advanced, authorized), a new instance per
+# job: what a plugin learned survives its reset (run after another sound with learning on, then reset to defaults,
+# against a new instance: De-hum's output differed by -27 dB, Spectral De-noise's by -26, Voice De-noise's by -53,
+# Repair Assistant's by +5 at its defaults), and a load costs 0.35 to 2.8 s. A file renders whole, offline, in
 # Pedalboard's 8192-sample blocks, the plugin's reported latency taken off (Pedalboard does it). Outputs are float32
-# WAV at the input's rate. Jobs run in parallel processes (RX_JOBS, default half the cores), each loading a plugin
-# once (FRESH ones per job). A parameter is set by its Pedalboard name to a number or a value's string ("Multi-band");
-# "-inf" is minus infinity (a gain's off).
+# WAV at the input's rate. Jobs run in parallel processes (RX_JOBS, default half the cores). A parameter is set by its
+# Pedalboard name to a number or a value's string ("Multi-band"); "-inf" is minus infinity (a gain's off).
 import os, sys, json, numpy as np, soundfile as sf, pedalboard
 from multiprocessing import Pool
 
@@ -20,20 +17,9 @@ VST = '/Library/Audio/Plug-Ins/VST3/RX 12 %s.vst3'
 PLUGINS = ['Breath Control', 'De-bleed', 'De-click', 'De-clip', 'De-crackle', 'De-ess', 'De-hum', 'De-plosive', 'De-reverb',
            'Dialogue Isolate', 'Guitar De-noise', 'Mouth De-click', 'Music Rebalance', 'Repair Assistant', 'Spectral De-noise',
            'Voice De-noise']
-FRESH = {'Spectral De-noise', 'Repair Assistant'}
-_loaded = {}
-
-def plugin(name):
-    if name not in _loaded or name in FRESH:
-        p = pedalboard.load_plugin(VST % name)
-        _loaded[name] = (p, {k: getattr(p, k) for k in p.parameters})
-    p, defaults = _loaded[name]
-    for k, v in defaults.items(): setattr(p, k, v)
-    p.reset()
-    return p
 
 def render(job):
-    p = plugin(job['plugin'])
+    p = pedalboard.load_plugin(VST % job['plugin'])
     for k, v in job.get('params', {}).items(): setattr(p, k, float(v) if v in ('-inf', 'inf') else v)
     x, fs = sf.read(job['in'], dtype='float32', always_2d=True)
     y = p.process(np.ascontiguousarray(x.T), fs)
@@ -46,36 +32,21 @@ def lag(name):
     for fs in (16000, 44100, 48000):
         r = np.random.default_rng(1)
         x = (0.1 * r.standard_normal(fs * 3)).astype(np.float32)
-        p = plugin(name)
+        p = pedalboard.load_plugin(VST % name)
         y = p.process(x[None], fs)[0]
         a, b = x[fs:2 * fs], y[fs - 4096:2 * fs + 4096]
         c = np.correlate(b, a, 'valid')
         out.append((fs, int(np.argmax(np.abs(c))) - 4096, round(float(np.max(np.abs(c)) / np.dot(a, a)), 3)))
     return name, out
 
-def reuse(name):
-    sr, r = 44100, np.random.default_rng(0)
-    t = np.arange(3 * sr) / sr
-    a = (0.05 * r.standard_normal(len(t)) + 0.1 * np.sin(2 * np.pi * 120 * t)).astype(np.float32)
-    b = (0.2 * np.sin(2 * np.pi * 440 * t) * (t % 0.5 < 0.3) + 0.02 * r.standard_normal(len(t))).astype(np.float32)
-    b[1000::7000] += 0.5
-    y = pedalboard.load_plugin(VST % name).process(b[None], sr)[0]
-    p = pedalboard.load_plugin(VST % name)
-    p.process(a[None], sr); p.reset()
-    d = np.sqrt(np.mean((p.process(b[None], sr)[0] - y) ** 2) / np.mean(y ** 2))
-    return name, round(20 * np.log10(d), 1) if d else -np.inf
-
 if __name__ == '__main__':
     if sys.argv[1] == 'params':
-        p = plugin(sys.argv[2])
+        p = pedalboard.load_plugin(VST % sys.argv[2])
         for k, v in p.parameters.items(): print(k, '|', v)
     elif sys.argv[1] == 'serve':
         for line in sys.stdin:
             try: print(json.dumps({'out': render(json.loads(line))}), flush=True)
             except Exception as e: print(json.dumps({'error': repr(e)}), flush=True)
-    elif sys.argv[1] == 'reuse':
-        with Pool(4) as pool:
-            for name, db in pool.imap(reuse, PLUGINS): print(name, db, 'FRESH' if name in FRESH else '', flush=True)
     elif sys.argv[1] == 'lag':
         with Pool(8) as pool:
             for name, out in pool.imap(lag, PLUGINS): print(name, out, flush=True)
