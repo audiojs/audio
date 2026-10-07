@@ -219,8 +219,9 @@ function shelf(name, max) {
         return { meta, picture, sound: audio.from(store, { length: n, channels: k, sampleRate: meta.sampleRate, stats, budget: KEEP.budget }) }
       } catch { return null }
     },
-    // `sound` read block by block, each channel's samples where they go, its figures and its picture counted as they pass
-    async set(key, sound, meta) {
+    // `sound` read block by block, each channel's samples where they go, its figures counted as they pass; its picture,
+    // where one was made as it rendered (none made here: a render after it would wait on its spectra)
+    async set(key, sound, meta, picture = null) {
       const d = await dir(), n = sound.length, k = sound.channels, head = json(meta), at = 12 + pad(head.length)
       const out = await (await d.getFileHandle(encodeURIComponent(key), { create: true })).createWritable()
       const write = (data, position) => out.write({ type: 'write', position, data })
@@ -228,7 +229,7 @@ function shelf(name, max) {
         await write(new Uint32Array([head.length, k, n]), 0)
         await write(head, 12)
         // a page of each channel at a time: few writes, each a long one
-        const session = audio.statSession(sound.sampleRate), picture = pictured(k, sound.sampleRate, n), PS = audio.PAGE_SIZE, buf = Array.from({ length: k }, () => new Float32Array(Math.min(PS, n)))
+        const session = audio.statSession(sound.sampleRate), PS = audio.PAGE_SIZE, buf = Array.from({ length: k }, () => new Float32Array(Math.min(PS, n)))
         let pos = 0, from = 0, t = performance.now()
         const flush = async () => { for (let c = 0; c < k; c++) await write(buf[c].subarray(0, pos - from), at + (c * n + from) * 4); from = pos }
         for await (const block of sound.stream()) {
@@ -237,7 +238,6 @@ function shelf(name, max) {
           const len = Math.min(block[0].length, n - pos), part = block.map(c => c.subarray(0, len))
           if (len <= 0) break
           session.page(part)
-          picture.push(part)
           for (let i = 0; i < len;) {
             const m = Math.min(len - i, buf[0].length - (pos - from))
             for (let c = 0; c < k; c++) buf[c].set(part[c].subarray(i, i + m), pos - from)
@@ -247,9 +247,8 @@ function shelf(name, max) {
         }
         if (pos > from) await flush()
         if (pos !== n) throw new Error(`${pos} of ${n} samples`)
-        picture.end()
-        const { leaves, spectra } = picture.since(), { layout, data } = pack({ ...session.done(), leaves, levels: spectra.levels })
-        layout.spectra = { size: spectra.size, hop: spectra.hop }
+        const { layout, data } = pack({ ...session.done(), ...picture && { leaves: picture.leaves, levels: picture.spectra.levels } })
+        if (picture) layout.spectra = { size: picture.spectra.size, hop: picture.spectra.hop }
         const l = json(layout), end = at + k * n * 4
         await write(new Uint32Array([l.length]), end)
         await write(l, end + 4)
@@ -563,7 +562,7 @@ const keyed = r => r.keys.length === r.instance.edits.length + 1
 function shelve(content, e) {
   if (!content) return
   const { sound, picture, ...meta } = e
-  renders.set(content, sound, meta).catch(() => {})
+  renders.set(content, sound, meta, picture).catch(() => {})
 }
 // A kept output to the page at once: ten seconds a piece, or its picture where it is longer than the page holds
 async function replay(r, e) {

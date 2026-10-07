@@ -5871,7 +5871,8 @@ const out = l => process.stdout.write(JSON.stringify(l) + '\\n'), wait = ms => n
   ])}) out(l)
   await wait(800)
   out(${JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: '{}' }] }, parent_tool_use_id: null, session_id: S })})
-  await wait(1500)
+  // thinking past the page's next tick of its seconds (each second, from whenever) on a runner that runs it late
+  await wait(3000)
   out(${JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: '', session_id: S })})
 })()
 `)
@@ -6276,6 +6277,37 @@ test('engine: an output is kept for the next visit by its script and its files',
   assert.deepEqual(r.again.seen, [], 'kept: nothing applied')
   assert.equal(r.other.duration, 19, 'another file, made again')
   assert.deepEqual(r.other.seen[0], { id: r.other.seen[0].id, event: 'doing', steps: ['omlsa', 'gain'] })
+})
+
+// A long output kept: its picture the one it rendered with, read back after a reload; one made where the page drew no
+// picture keeps none (none made in the background, where it would hold up the next render), and draws it on its return
+test('engine: a long output kept comes back after a reload as the picture it was made with, or one drawn then', async () => {
+  await page.goto(origin + '/blank.html')
+  const r = await page.evaluate(async () => {
+    const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
+    const file = { channels: [Float32Array.from({ length: 5 * 48000 }, (_, i) => .5 * Math.sin(i / 9) * Math.sin(i / 20000))], sampleRate: 48000 }
+    const run = async (code, peaks) => {
+      const e = engine(new URL('/playground/dist/worker.js', location.href))
+      e.peaks = peaks
+      await e.file('t.wav', file)
+      const parts = [], seen = []
+      const done = await new Promise(resolve => e.run(prepare(code), { doing: m => seen.push(m), chunk: m => parts.push(m), done: resolve, error: resolve }))
+      // kept as it is written, a moment after
+      await new Promise(resolve => setTimeout(resolve, 500))
+      e.stop()
+      const flat = f => parts.flatMap(p => p.peaks ? [...f(p)] : [])
+      return { made: seen.length > 0, long: done.long, leaves: flat(p => p.peaks[0]), levels: flat(p => p.spectra.levels[0]), grid: parts.find(p => p.spectra)?.spectra && (({ size, hop }) => ({ size, hop }))(parts.find(p => p.spectra).spectra) }
+    }
+    // the same sound by two scripts (kept apart by their text)
+    const unique = Math.random().toFixed(6), drawn = `audio('t.wav').gain(-${unique})`, plain = `audio('t.wav')\n  .gain(-${unique})`
+    return { drawn: await run(drawn, 48000), back: await run(drawn, 48000), plain: await run(plain, 0), drawnThen: await run(plain, 48000) }
+  })
+  assert.ok(r.drawn.made && r.drawn.long && r.drawn.leaves.length && r.drawn.levels.length, 'made, drawn as its picture')
+  assert.ok(!r.back.made && r.back.long, 'kept: nothing applied')
+  assert.deepEqual([r.back.leaves, r.back.levels, r.back.grid], [r.drawn.leaves, r.drawn.levels, r.drawn.grid], 'the picture it was made with')
+  assert.ok(r.plain.made && !r.plain.leaves.length, 'no picture drawn: samples')
+  assert.ok(!r.drawnThen.made && r.drawnThen.long, 'kept, no picture with it: nothing applied')
+  assert.deepEqual([r.drawnThen.leaves, r.drawnThen.levels, r.drawnThen.grid], [r.drawn.leaves, r.drawn.levels, r.drawn.grid], 'its picture drawn on its return, as it would have been made')
 })
 
 // A page holding `peaks` channel samples gets an output longer than that as its picture (worker.js feed), as it renders
