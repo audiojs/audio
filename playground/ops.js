@@ -121,6 +121,8 @@ const table = {
   deplosive: ['Repair', 'Soften p and b pops'],
   dewind: ['Repair', 'Reduce wind rumble'],
   debreath: ['Repair', 'Lower breaths between words'],
+  // a clip-on mic's clothing rustle off the voice, the room's steady tone kept (fn/derustle.js)
+  derustle: ['Repair', 'Remove clothing rustle from a clip-on mic', [db('reduction', 0, 60, 45), choice('ambience', [true, false])]],
   desqueak: ['Repair', 'Lower a guitar\'s string squeaks, harsh picks, amp hiss'],
   defeedback: ['Repair', 'Suppress feedback howl'],
   debleed: ['Repair', 'Take a source\'s bleed out of a mic, given its track'],

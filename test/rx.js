@@ -400,6 +400,58 @@ const MRX = `${process.env.AUDIO_NEURAL_CACHE || homedir() + '/.cache/audiojs/ne
   ok(r > DIALOGUE_UP - 0.05, `dialogue +6 dB: SNR ${r.toFixed(2)} dB`)
 })
 
+// ── De-rustle ────────────────────────────────────────────────────
+
+// DeepFilterNet3 mocked: its voice half the input. derustle mixes the rest back as deepfilter does (neural-denoise's
+// mixback()), its rustle `reduction` dB under the voice, the room 12 dB down; the model's run is deepfilter's
+test('derustle: the model\'s voice and its rest mixed back, rustle to `reduction` dB under the voice, the room 12 dB down; one run shared with deepfilter', async () => {
+  let x = song(48000), orig = audio.import, calls = 0, store = new Map()
+  audio.import = spec => spec === '@audio/neural-denoise' ? Promise.reject(new Error(`Cannot find package '${spec}'`)) : orig(spec)
+  try {
+    let err = await audio.from(x, { sampleRate: 48000 }).derustle().read().catch(e => e)
+    ok(/^derustle: install @audio\/neural-denoise/.test(err?.message), err?.message)
+  } finally { audio.import = orig }
+  let err = await audio.from(x, { sampleRate: 48000 }).derustle(-3).read().catch(e => e)
+  ok(/^derustle: reduction is dB under the voice/.test(err?.message), err?.message)
+  err = await audio.from(x, { sampleRate: 48000 }).derustle({ ambience: 'yes' }).read().catch(e => e)
+  ok(/^derustle: ambience is true or false/.test(err?.message), err?.message)
+  let { mixback } = await orig('@audio/neural-denoise').catch(() => ({}))
+  if (!mixback) return
+  audio.import = spec => spec === '@audio/neural-denoise' ? orig(spec).then(m => ({ ...m, load: async () => ({ free() {} }), default: async chs => (calls++, chs.map(c => c.map(v => v / 2))) })) : orig(spec)
+  audio.memo = { get: k => store.get(k) ?? null, set: (k, v) => store.set(k, v) }
+  try {
+    let half = x.map(c => c.map(v => v / 2))
+    for (let [args, want] of [[[], c => mixback(x[c], half[c], { limit: 12, floor: 45, sampleRate: 48000 })], [[30], c => mixback(x[c], half[c], { limit: 12, floor: 30, sampleRate: 48000 })], [[{ ambience: false }], c => half[c]]]) {
+      let y = await audio.from(x, { sampleRate: 48000 }).derustle(...args).read()
+      y.forEach((ch, c) => { let w = want(c); ok(ch.every((v, i) => v === w[i]), `(${args.map(a => JSON.stringify(a)).join(', ')}) channel ${c}`) })
+    }
+    await audio.from(x, { sampleRate: 48000 }).deepfilter().read()
+    is(calls, 1, 'one model run: derustle\'s settings and deepfilter read it back')
+  } finally { audio.import = orig; delete audio.memo }
+})
+
+// Three VoiceBank test takes (p232, CC BY 4.0) 0.5 s apart under a Freesound clothing recording of the de-rustle
+// bench's test split (188222, "fabric movement suit", CC0) as loud as them, through DeepFilterNet3 once it is cached:
+// SI-SDR against the takes as measured (deepfilter() 13.32, unlimited 13.28), and the takes alone barely touched
+const VB = `${homedir()}/.cache/audiojs/data/vbdemand/clean_testset_wav`, RUSTLE = `${homedir()}/.cache/audiojs/data/rustle/test/188222.f32`
+const DFN = await import('@audio/neural-denoise').then(async m => existsSync(`${process.env.AUDIO_NEURAL_CACHE || homedir() + '/.cache/audiojs/neural'}/${(await import('crypto')).createHash('sha256').update(m.MODEL).digest('hex')}`), () => false)
+;(DFN && existsSync(VB) && existsSync(RUSTLE) ? test : test.skip)('derustle: clothing rustle as loud as the voice off three VoiceBank takes, as measured', { timeout: 300000 }, async () => {
+  let { readFileSync } = await import('fs'), voice = new Float32Array(0)
+  for (let n of ['p232_013', 'p232_014', 'p232_015']) {
+    let v = (await (await audio(`${VB}/${n}.wav`)).read())[0], o = new Float32Array(voice.length + v.length + 24000)
+    o.set(voice); o.set(v, voice.length); voice = o
+  }
+  let b = readFileSync(RUSTLE), r = new Float32Array(b.buffer, b.byteOffset, b.length / 4).subarray(480000, 480000 + voice.length)
+  let p = v => v.reduce((s, x) => s + x * x, 0) / v.length, k = Math.sqrt(p(voice) / p(r)), x = voice.map((v, i) => v + k * r[i])
+  let sisdr = (ref, est) => { let n = ref.length, mr = ref.reduce((a, b) => a + b) / n, me = est.reduce((a, b) => a + b) / n, rr = 0, re = 0, e = 0
+    for (let i = 0; i < n; i++) rr += (ref[i] - mr) ** 2, re += (ref[i] - mr) * (est[i] - me)
+    for (let i = 0; i < n; i++) e += (est[i] - me - re / rr * (ref[i] - mr)) ** 2
+    return 10 * Math.log10(re * re / rr / e) }
+  let [y] = await audio.from([x], { sampleRate: 48000 }).derustle().read(), [z] = await audio.from([voice], { sampleRate: 48000 }).derustle().read()
+  ok(sisdr(voice, y) > 13.26, `rustle as loud as the voice: SI-SDR ${sisdr(voice, x).toFixed(2)} → ${sisdr(voice, y).toFixed(2)} dB`)
+  ok(sisdr(voice, z) > 40, `the takes alone: SI-SDR ${sisdr(voice, z).toFixed(2)} dB`)
+})
+
 // ── Find Similar ─────────────────────────────────────────────────
 
 // Events planted in a voice at known times, their levels up to 10 dB apart: coughs (each a fresh draw of filtered

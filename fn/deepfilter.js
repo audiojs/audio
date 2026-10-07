@@ -41,53 +41,73 @@
 import audio, { arrived, memo } from '../core.js'
 import { fingerprint } from './vocals.js'
 
-const ENHANCED = Symbol('deepfilter.enhanced'), LIMIT = 18
+const LIMIT = 18
 
-const loadNeural = () => audio.import('@audio/neural-denoise').catch(e => { throw new Error(`deepfilter: install @audio/neural-denoise (${e.message})`) })
+/**
+ * An op of the edit's input x and DeepFilterNet3's whole removal y (unlimited), made once ahead of rendering: per
+ * channel, `finish(x, y, o, sampleRate, neural)` (neural: the package's exports), the options it reads named by
+ * `id(o)`, which also checks them. deepfilter's, and derustle's (fn/derustle.js); the model's output is shared.
+ */
+export function enhancer(name, id, finish) {
+  const ENHANCED = Symbol(name + '.enhanced')
+  const loadNeural = () => audio.import('@audio/neural-denoise').catch(e => { throw new Error(`${name}: install @audio/neural-denoise (${e.message})`) })
 
-/** Enhance the edit's input (the audio as the edits before it leave it), ahead of rendering. */
-async function prepare(a, index) {
-  let o = a.edits[index][1], limit = o.limit ?? LIMIT, floor = o.floor, music = o.music ?? 'pass'
-  if (typeof limit !== 'number' || !(limit >= 0)) throw new TypeError(`deepfilter: limit is dB, 0 or more (0: none), not ${limit}`)
-  if (floor != null && (typeof floor !== 'number' || !(floor >= 0))) throw new TypeError(`deepfilter: floor is dB under the voice, 0 or more (0: none), not ${floor}`)
-  if (music !== 'pass' && music !== 'enhance') throw new TypeError(`deepfilter: music is 'pass' or 'enhance', not ${music}`)
-  let { default: denoise, load, MODEL, mixback } = await loadNeural()
-  await arrived(a)
-  // the channels it runs on, in the order the engine hands them to process()
-  let chs = o.channel == null ? null : [o.channel].flat(), id = `${limit}:${floor ?? ''}:${music}:${o.weights ?? ''}:${chs ?? ''}`
-  // same instance state as last time: the input is too (read() and stream() both prepare)
-  let stamp = `${a.version}:${a._.len}:${id}`, done = o[ENHANCED]
-  if (done?.stamp === stamp) return
-  let input = audio.from(a, { sampleRate: a._.sr })
-  input.edits = a.edits.slice(0, index)
-  input.version = index
-  let pcm = await input.read()
-  if (chs) pcm = chs.map(c => pcm[c])
-  let key = `${id}:${fingerprint(pcm)}`
-  if (done?.key === key) { done.stamp = stamp; return }
-  if (!pcm[0]?.length) { o[ENHANCED] = { key, stamp, pcm }; return }
-  // the model's output kept by how it runs (heard at -20 dBFS, held voicing kept: neural-denoise 0.2; a band-limited
-  // input's empty bands heard as a noise floor: 0.3; music passed or not: 0.4), the model and its input (core.js memo),
-  // never by the limit or the floor, applied after it: a reload, another tab, the limit moved, read it back
-  let y = await memo(`deepfilternet3:-20dBFS,voice,edge,music-${music}:${o.weights ?? ''}:${input.sampleRate}:${fingerprint(pcm)}`, async () => {
-    let model = await load('deepfilternet3', { weights: o.weights, device: o.device }).catch(e => {
-      throw new Error(`deepfilter: can't load DeepFilterNet3 from ${o.weights ?? MODEL} (${e.message}); it downloads once (8 MB) and is cached; { weights } takes another URL`)
+  /** Enhance the edit's input (the audio as the edits before it leave it), ahead of rendering. */
+  async function prepare(a, index) {
+    let o = a.edits[index][1], music = o.music ?? 'pass', own = id(o)
+    if (music !== 'pass' && music !== 'enhance') throw new TypeError(`${name}: music is 'pass' or 'enhance', not ${music}`)
+    let neural = await loadNeural(), { default: denoise, load, MODEL } = neural
+    await arrived(a)
+    // the channels it runs on, in the order the engine hands them to process()
+    let chs = o.channel == null ? null : [o.channel].flat(), key0 = `${own}:${music}:${o.weights ?? ''}:${chs ?? ''}`
+    // same instance state as last time: the input is too (read() and stream() both prepare)
+    let stamp = `${a.version}:${a._.len}:${key0}`, done = o[ENHANCED]
+    if (done?.stamp === stamp) return
+    let input = audio.from(a, { sampleRate: a._.sr })
+    input.edits = a.edits.slice(0, index)
+    input.version = index
+    let pcm = await input.read()
+    if (chs) pcm = chs.map(c => pcm[c])
+    let key = `${key0}:${fingerprint(pcm)}`
+    if (done?.key === key) { done.stamp = stamp; return }
+    if (!pcm[0]?.length) { o[ENHANCED] = { key, stamp, pcm }; return }
+    // the model's output kept by how it runs (heard at -20 dBFS, held voicing kept: neural-denoise 0.2; a band-limited
+    // input's empty bands heard as a noise floor: 0.3; music passed or not: 0.4), the model and its input (core.js memo),
+    // never by what is made of it after: a reload, another tab, the limit moved, another op on it, read it back
+    let y = await memo(`deepfilternet3:-20dBFS,voice,edge,music-${music}:${o.weights ?? ''}:${input.sampleRate}:${fingerprint(pcm)}`, async () => {
+      let model = await load('deepfilternet3', { weights: o.weights, device: o.device }).catch(e => {
+        throw new Error(`${name}: can't load DeepFilterNet3 from ${o.weights ?? MODEL} (${e.message}); it downloads once (8 MB) and is cached; { weights } takes another URL`)
+      })
+      try { return await denoise(pcm, { sampleRate: input.sampleRate, model, limit: 0, music }) }
+      finally { model.free() }
     })
-    try { return await denoise(pcm, { sampleRate: input.sampleRate, model, limit: 0, music }) }
-    finally { model.free() }
-  })
-  if (limit && !mixback) throw new Error('deepfilter: needs @audio/neural-denoise 0.5 or later (its mixback())')
-  o[ENHANCED] = { key, stamp, pcm: limit ? y.map((v, c) => mixback(pcm[c], v, { limit, floor, sampleRate: input.sampleRate })) : y }
-}
-
-const deepfilter = (input, output, ctx) => {
-  let done = ctx[ENHANCED]
-  if (!done) throw new Error('deepfilter: enhancement runs before rendering, through read(), stream() or save()')
-  let len = input[0].length, off = Math.round((ctx.blockOffset || 0) * ctx.sampleRate)
-  for (let c = 0; c < input.length; c++) {
-    let v = done.pcm[c], y = output[c]
-    for (let i = 0, j = off; i < len; i++, j++) y[i] = j >= 0 && j < v.length ? v[j] : 0
+    o[ENHANCED] = { key, stamp, pcm: y.map((v, c) => finish(pcm[c], v, o, input.sampleRate, neural)) }
   }
+
+  const process = (input, output, ctx) => {
+    let done = ctx[ENHANCED]
+    if (!done) throw new Error(`${name}: enhancement runs before rendering, through read(), stream() or save()`)
+    let len = input[0].length, off = Math.round((ctx.blockOffset || 0) * ctx.sampleRate)
+    for (let c = 0; c < input.length; c++) {
+      let v = done.pcm[c], y = output[c]
+      for (let i = 0, j = off; i < len; i++, j++) y[i] = j >= 0 && j < v.length ? v[j] : 0
+    }
+  }
+
+  return { prepare, process }
 }
 
-audio.op('deepfilter', { params: ['limit'], process: deepfilter, prepare })
+audio.op('deepfilter', {
+  params: ['limit'],
+  ...enhancer('deepfilter', o => {
+    let limit = o.limit ?? LIMIT, floor = o.floor
+    if (typeof limit !== 'number' || !(limit >= 0)) throw new TypeError(`deepfilter: limit is dB, 0 or more (0: none), not ${limit}`)
+    if (floor != null && (typeof floor !== 'number' || !(floor >= 0))) throw new TypeError(`deepfilter: floor is dB under the voice, 0 or more (0: none), not ${floor}`)
+    return `${limit}:${floor ?? ''}`
+  }, (x, y, o, sampleRate, { mixback }) => {
+    let limit = o.limit ?? LIMIT
+    if (!limit) return y
+    if (!mixback) throw new Error('deepfilter: needs @audio/neural-denoise 0.5 or later (its mixback())')
+    return mixback(x, y, { limit, floor: o.floor, sampleRate })
+  }),
+})

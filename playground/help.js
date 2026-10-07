@@ -472,6 +472,10 @@ export const texts = {
     attack: 'How long before speech starts the volume comes back. It rises ahead of the word, so the start is never cut; longer is softer.',
     release: 'How slowly the cut is applied after speech ends. Longer is smoother; shorter turns breaths down sooner.'
   },
+  derustle: {
+    reduction: 'How far under the voice the rustle of clothes on a clip-on mic is taken, in dB. Higher takes more of it; 0 turns it down only as far as the room\'s tone.',
+    ambience: 'Keep the room\'s steady tone, its air and hum, turned 12 dB down where the rustle is taken. Off removes it with the rustle, leaving silence between words.'
+  },
   desqueak: {
     squeak: 'How far a string squeak, a finger sliding along a wound string, is turned down at most, in dB. Only the squeak goes: the notes ringing under it keep their partials, and a take with no squeak is left as it is. 0 leaves squeaks.',
     pick: 'How far a pick\'s attack is softened at most, in dB: the bright click of each pluck, its first 10 ms, taken down to the level the note rings at just after. 0 leaves attacks; -9 tames attacks that are too sharp.',

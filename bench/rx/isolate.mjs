@@ -58,7 +58,7 @@ export const SYSTEMS = {
 
 // ------------------------------------------------ signal helpers
 
-const f32 = p => { let b = readFileSync(p); return new Float32Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)) }
+export const f32 = p => { let b = readFileSync(p); return new Float32Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)) }
 const pow = (x, a = 0, b = x.length) => { let s = 0; for (let i = a; i < b; i++) s += x[i] * x[i]; return s / Math.max(1, b - a) }
 // P.56-like active level: the mean power of the 10 ms frames within 35 dB of the 99th-percentile frame
 function active(x, sr = SR) {
@@ -68,12 +68,12 @@ function active(x, sr = SR) {
   return on.length ? mean(on) : 0
 }
 const scale = (x, g) => x.map(v => v * g)
-const at = (x, db) => scale(x, Math.sqrt(10 ** (db / 10) / (active(x) || 1)))
-const add = (a, b) => a.map((v, i) => v + (b[i] ?? 0))
+export const at = (x, db) => scale(x, Math.sqrt(10 ** (db / 10) / (active(x) || 1)))
+export const add = (a, b) => a.map((v, i) => v + (b[i] ?? 0))
 // b set to `snr` dB under a, by active levels
-const under = (a, b, snr) => scale(b, Math.sqrt(active(a) / (active(b) || 1) * 10 ** (-snr / 10)))
+export const under = (a, b, snr) => scale(b, Math.sqrt(active(a) / (active(b) || 1) * 10 ** (-snr / 10)))
 // n samples of x from `o`, x tiled where it runs out
-const cut = (x, o, n) => Float32Array.from({ length: n }, (_, i) => x[(o + i) % x.length])
+export const cut = (x, o, n) => Float32Array.from({ length: n }, (_, i) => x[(o + i) % x.length])
 
 // scipy.signal.resample_poly(x, 1, 3): a 61-tap low-pass at 1/3 of Nyquist, Kaiser β = 5, centered
 const I0 = x => { let s = 1, t = 1; for (let k = 1; k < 30; k++) t *= (x / 2 / k) ** 2, s += t; return s }
@@ -117,7 +117,7 @@ const takes = split => {
 const NOISES = ['DWASHING', 'NFIELD', 'NPARK', 'NRIVER', 'OHALLWAY']
 const noise = memo(n => readWav(path.join(DATA, 'demand', n, 'ch01.wav')).ch[0])
 // the noise for take i: its stretch of the split's half
-const demand = (split, i, n, r) => cut(noise(NOISES[i % NOISES.length]), (split === 'test' ? HALF : 0) + Math.floor(r() * (HALF - n)), n)
+export const demand = (split, i, n, r) => cut(noise(NOISES[i % NOISES.length]), (split === 'test' ? HALF : 0) + Math.floor(r() * (HALF - n)), n)
 const narrations = memo(split => { let d = path.join(DATA, split === 'test' ? 'spoken' : 'spoken-train'); return readdirSync(d).filter(f => f.endsWith('.f32')).sort().map(f => f32(path.join(d, f))) })
 const guard = (kind, split) => { let d = path.join(DATA, 'guard', `${split === 'test' ? 'test' : 'train'}-${kind}`); return readdirSync(d).filter(f => f.endsWith('.f32')).sort().map(f => [f.slice(0, -4), path.join(d, f)]) }
 // MIT IR Survey responses at 48 kHz, aligned to the direct peak (2 ms kept before it), peak 1; those with a tail to hear
@@ -183,7 +183,7 @@ async function bed(split, i, n, r) {
 const ND = JSON.parse(readFileSync(new URL(import.meta.resolve('@audio/neural-denoise/package.json')), 'utf8')).version + (process.env.TAG ? '-' + process.env.TAG : '')
 const pinned = id => id.match(/^(.*)@(\d+\.\d+\.\d+(?:-[\w.]+)?)$/)
 const dirname = id => {
-  let [, base, at] = pinned(id) ?? [, id, ND], s = SYSTEMS[base] ?? base, ours = /^nd:|deepfilter|rnnoise/.test(s)
+  let [, base, at] = pinned(id) ?? [, id, ND], s = SYSTEMS[base] ?? base, ours = /^nd:|deepfilter|rnnoise|derustle/.test(s)
   return s.replace(/\s+/g, '').replace(/["'\/:{};=]/g, c => ({ ':': '-', '=': '', ';': ',' }[c] ?? '')) + (ours ? `@${at}` : '')
 }
 let handle
@@ -216,7 +216,7 @@ function runner(id) {
 // ------------------------------------------------ render, score, report
 
 const fit = (y, n) => { let o = new Float32Array(n); o.set(y.subarray(0, n)); return o }
-async function render(split, cond, ids, shard) {
+export async function render(split, cond, ids, shard) {
   let [k, N] = shard.split('/').map(Number), items = CONDITIONS[cond](split), dir = path.join(ROOT, split, cond), run = {}
   // system by system: RX keeps its settings from job to job (a change costs it a reload)
   for (let s of ['ref', ...ids]) for (let [i, it] of items.entries()) {
@@ -287,7 +287,7 @@ function delta(a, b, k) {
 }
 const median = v => { let s = v.filter(x => !Number.isNaN(x)).sort((a, b) => a - b), n = s.length; return n % 2 ? s[n >> 1] : (s[n / 2 - 1] + s[n / 2]) / 2 }
 
-function report(split, conds, ids) {
+export function report(split, conds, ids) {
   let vs = process.env.VS ?? ids.find(s => s !== 'input'), all = {}
   for (let c of conds) {
     let S = Object.fromEntries(ids.map(s => [s, scores(split, c, s)])), n = S[ids[0]].length

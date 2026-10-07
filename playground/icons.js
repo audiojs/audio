@@ -97,6 +97,8 @@ export default {
   deplosive: 'M5 21V4h5a4.5 4.5 0 0 1 0 9H5M17 8h4M16.5 12h4.5M17 16h4',
   dewind: 'M2 8h9.5a2.5 2.5 0 1 0-2.5-2.5M2 12h15a3 3 0 1 1-3 3M2 16h6',
   debreath: 'M3 8v8M6 5v14M18 5v14M21 8v8M9 15c1.5-3 4.5-3 6 0',
+  // the noisy wave coming out clean, under a clip-on mic: its capsule and its clip's jaws
+  derustle: 'M2 15l1.5-3 1.5 6 1.5-5 1.5 4 1.5-3 1.5 1c1.5-5 4-5 5.5 0s4 5 5.5 0M3.5 2h3v5h-3zM5 7v2M6.5 3.5h3M6.5 5.5h3',
   desqueak: 'M2 16h20M2 20h20M5 12c2.5-9 11.5-9 14 0M9 12c1-4 5-4 6 0',
   defeedback: 'M2 20h8l2-11 2 11h8M12 2v5M9.5 4.5 12 7l2.5-2.5',
   debleed: 'M2 9c2-4 4-4 6 0s4 4 6 0 4-4 6 0M2 17c2-3 4-3 6 0s4 3 6 0M15 14l6 6M21 14l-6 6',
