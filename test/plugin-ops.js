@@ -267,6 +267,19 @@ test('limiter: brickwall under ceiling, latency-compensated onset', async () => 
   ok(rms(out, 0, Math.round(0.001 * SR)) > 0.05, 'onset not delayed by lookahead')
 })
 
+test('limiter truePeak: the waveform between samples held at the ceiling, its 96 samples of delay compensated', async () => {
+  // a sine at fs/4, 45° on: samples at ±0.707 of a peak of 1 (ITU-R BS.1770 Annex 2); quadrature samples give its amplitude
+  let n = SR / 2, x = Float32Array.from({ length: n }, (_, i) => Math.sin(Math.PI * i / 2 + Math.PI / 4))
+  let amp = y => 20 * Math.log10(Math.hypot(y[n / 2], y[n / 2 + 1]))
+  let sp = (await audio.from([x], { sampleRate: SR }).limiter({ ceiling: -1 }).read())[0]
+  let tp = (await audio.from([x], { sampleRate: SR }).limiter({ ceiling: -1, truePeak: true }).read())[0]
+  ok(Math.abs(amp(sp)) < 1e-4, `sample peak: ${amp(sp).toFixed(4)} dBTP`)
+  ok(amp(tp) <= -1 + 1e-4 && amp(tp) > -1.05, `true peak: ${amp(tp).toFixed(4)} dBTP`)
+  let click = new Float32Array(n); click[1000] = 0.1
+  let y = (await audio.from([click], { sampleRate: SR }).limiter({ truePeak: true }).read())[0]
+  is(y.indexOf(Math.max(...y)), 1000, 'aligned')
+})
+
 test('deesser: sibilance-keyed broadband reduction, inactive without sibilance', async () => {
   // kernel design: bandpass sidechain drives BROADBAND gain reduction
   let n = SR, ch = new Float32Array(n)

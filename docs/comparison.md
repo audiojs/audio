@@ -55,7 +55,7 @@ Cells contain method/op names where supported, `—` if absent. For `audio`, pla
 | LUFS normalize | `normalize('podcast')`, `normalize(-18, 'lufs')`: true-peak limited, loudness made up | — | custom | — | `LoudnessEBUR128` (measure) | — | — | `loudnorm` | Loudness Normalization | `integratedLoudness` |
 | DC removal | `normalize({dc:true})` | — | custom | — | `DCRemoval` | — | `dcshift` | `dcshift` | DC | highpass at low f |
 | Compressor | `compressor()`, `compand()`, `leveler()` | `compress_dynamic_range()` | custom | — | — | `Compressor(thr, ratio)` | `compand` | `acompressor` | Compressor | `compressor` |
-| Limiter | `limiter()` | — | — | — | — | `Limiter` | (`compand` ∞) | `alimiter` | Limiter | `limiter` |
+| Limiter | `limiter()`, `truePeak: true` for dBTP | — | — | — | — | `Limiter` | (`compand` ∞) | `alimiter` | Limiter | `limiter` |
 | Gate | `gate()` | — | — | — | — | — | `compand` neg | `agate` | Noise Gate | `noisegate` |
 | Distortion / clip | `softclip()`, `distortion()`, `waveshaper()` | — | — | — | — | `Distortion`, `Clipping` | `overdrive` | `asoftclip` | Distortion | custom |
 | Bit crush | `bitcrusher()`, `lofi()` | — | — | — | — | `Bitcrush` | — | `acrusher` | (plugin) | custom |
@@ -67,8 +67,8 @@ Cells contain method/op names where supported, `—` if absent. For `audio`, pla
 | Allpass | `allpass(f, Q?)` | — | custom | filter | `AllPass` | — | `allpass` | `allpass` | — | `designfilt` |
 | Low/high shelf | `lowshelf/highshelf(f, dB, Q?)` | — | custom | filter | `LowShelf`, `HighShelf` | — | `bass`/`treble` | `bass`/`treble` | Bass and Treble | `designShelvingEQ` |
 | Parametric EQ | `eq(f, dB, Q?)` | — | custom | — | — | — | `equalizer` | `equalizer`, `anequalizer` | Filter Curve EQ, Graphic EQ | `multibandParametricEQ`, `graphicEQ` |
-| FIR / convolution | `@audio/eq-fir`, `@audio/reverb-convolution` (import) | — | `scipy.signal.fftconvolve` | — | FFT-based | `Convolution` | — | `afir`, `firequalizer` | (plugin) | `dsp.FIRFilter`, `dsp.Convolver` |
-| Ladder filter | `moog()`, `diode()`, `korg35()`, `oberheim()` | — | — | — | — | `LadderFilter` | — | — | — | — |
+| FIR / convolution | `convolve(ir)` (no latency), `@audio/eq-fir` | — | `scipy.signal.fftconvolve` | — | FFT-based | `Convolution` | — | `afir`, `firequalizer` | (plugin) | `dsp.FIRFilter`, `dsp.Convolver` |
+| Ladder filter | `moog()` (lowpass, highpass, bandpass; 2 or 4 poles), `diode()`, `korg35()`, `oberheim()` | — | — | — | — | `LadderFilter` | — | — | — | — |
 | Derivative / integral | `derivative()`, `integral()` | — | `np.diff` / `np.cumsum` | — | `Derivative` | — | — | `aderivative`, `aintegral` | — | `diff`, `cumsum` |
 | **Spatial effects** | | | | | | | | | | |
 | Reverb | `freeverb()`, `plate()`, `fdn()`, `spring()`, `shimmer()` | — | — | — | — | `Reverb`, `Convolution` | `reverb` | `afir` | Reverb | `reverberator` |
@@ -85,6 +85,7 @@ Cells contain method/op names where supported, `—` if absent. For `audio`, pla
 | Declick | `declick()`, `decrackle()` | — | — | — | `ClickDetector` | — | — | `adeclick` | Click Removal | manual |
 | Declip | `declip()` | — | — | — | — | — | — | `adeclip` | Clip Fix | manual |
 | Dither | `dither(bits?)` | — | — | — | — | — | `dither` | (sample fmt) | (project export) | `dither` |
+| Codec preview | `codec('mp3' \| 'aac' \| 'opus' \| 'vorbis' \| 'gsm', kbps?, { quality? })`, lined up with the input | (export) | — | — | — | `MP3Compressor`, `GSMFullRateCompressor` | (format chain) | (encode, decode) | — | — |
 | **Analysis (volume)** | | | | | | | | | | |
 | Peak (dB) | `stat('db')` | `seg.max_dBFS` | `np.max(np.abs)` | `aubioquiet` | `MaxMagnitude` | — | `stat` | `astats`, `volumedetect` | Plot Spectrum | `max(abs)` |
 | RMS | `stat('rms')` | `seg.rms`, `dBFS` | `feature.rms` | `aubioquiet` | `RMS`, `Energy` | — | `stat` | `astats` | Measure RMS | `rms` |
@@ -125,7 +126,7 @@ Cells contain method/op names where supported, `—` if absent. For `audio`, pla
 | Transport / scheduling | — | — | — | — | — | — | — | — | — | — |
 | MIDI | note events (`voice`/`poly`), `@audio/tune-midi` (import) | — | — | — | — | — | — | — | MIDI import | `midiread`, `midiwrite` |
 | **Plugin hosting** | | | | | | | | | | |
-| VST3 / AU | — | — | — | — | — | VST3, AU | — | LADSPA, LV2 | VST/AU/LV2/Nyquist | `validateAudioPlugin` (export) |
+| VST3 / AU / CLAP / LV2 / WAM | `plugin(ref)` (`@audio/host`): VST3, CLAP, AU, LV2; latency, tails, MIDI, tempo, automation, sidechain, isolation; WAM 2.0 in a page or Node | — | — | — | — | VST3, AU | — | LADSPA, LV2 | VST/AU/LV2/Nyquist | `validateAudioPlugin` (export) |
 | Custom processors | `audio.op(name, descriptor)` | Python function | Python function | C/Python plugin | C++ algorithm | Python `Plugin` subclass | — | C filter | Nyquist | System object subclass |
 | Macros / batch | CLI macro | scripts | scripts | shell + scripts | scripts + extractor profiles | Python scripts | shell scripts | filter graph | Audacity Macros | scripts / Live Editor |
 | **Misc** | | | | | | | | | | |

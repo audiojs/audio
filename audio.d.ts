@@ -4,6 +4,36 @@
 
 /** Time value: seconds as number, or parseable string ('1.5s', '500ms', '1:30') */
 type Time = number | string
+type PluginValue = number | string | boolean
+interface PluginOptions {
+  /** which plugin of a file holding several, by name or id */
+  plugin?: string
+  format?: 'vst3' | 'clap' | 'au' | 'lv2'
+  /** parameters whose names an option has (mix, at, duration, …) */
+  params?: Record<string, PluginValue>
+  /** bytes from its `state`, or base64 */
+  state?: Uint8Array | string
+  /** a preset file (.vstpreset, .aupreset, CLAP, LV2) or the name of one it ships */
+  preset?: string
+  /** its sidechain: another sound */
+  key?: unknown
+  notes?: { time?: number, duration?: number, midi?: number, note?: string, freq?: number, velocity?: number, channel?: number }[]
+  midi?: ({ time?: number, data: ArrayLike<number> } | [ArrayLike<number>, number])[]
+  bpm?: number
+  timeSignature?: [number, number]
+  /** false: no transport at all */
+  transport?: false | { bpm?: number, timeSignature?: [number, number], playing?: boolean }
+  /** seconds of tail past the end; false: none; default: the plugin's own */
+  tail?: number | boolean
+  /** in a process of its own: a crash or hang an error */
+  isolate?: boolean
+  blockSize?: number
+  offline?: boolean
+  at?: Time
+  duration?: Time
+  channel?: number | number[]
+  mix?: number | { t: number[], v: number[] } | ((t: number) => number)
+}
 // Wherever an option is `duration` it may be `d`, and `crossfade` `xfade` (FFmpeg's names); the long one wins
 /** A result, or one per channel when `channel` is an array */
 type PerChannel<C, R> = C extends number[] ? R[] : R
@@ -238,6 +268,14 @@ export interface AudioInstance {
   vocals(opts: VocalsModel & { mode?: 'isolate' | 'remove' }): this
   dither(bits?: number, opts?: { shape?: boolean }): this
   crossfeed(freq?: number, level?: number): this
+  /** Through an impulse response (a file or URL, an instance, channels of samples), with no latency, its decay rendered
+   *  past the end; channel c through its channel c, wrapping */
+  convolve(ir: string | AudioInstance | Float32Array | Float32Array[], mix?: Mix, opts?: { normalize?: boolean, tail?: boolean | number, at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
+  convolve(ir: string | AudioInstance | Float32Array | Float32Array[], opts?: { mix?: Mix, normalize?: boolean, tail?: boolean | number, at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
+  /** A native plugin (VST3, CLAP, Audio Unit, LV2) through @audio/host (optional package, Node): by file, name or id;
+   *  its parameters by key, in its units, numbers, labels, booleans, or automated ({ t, v }, t => v). A Web Audio
+   *  Module (WAM 2.0) by its module's URL or its WebAudioModule class: in a page, or Node with web-audio-api */
+  plugin(ref: string | (abstract new (...args: any[]) => unknown), opts?: PluginOptions & Record<string, PluginValue | { t: number[], v: PluginValue[] } | ((t: number) => PluginValue) | unknown>): this
   /** Band-splitting crossover (LR4, allpass-aligned flat sum) — N split freqs → N+1 bands × channels, band-major */
   crossover(...freqs: (number | number[])[]): this
   /** Match EQ: fit up to `bands` (8) parametric bands so this source's tonal balance follows `reference`; `amount` 0..1.
@@ -257,8 +295,10 @@ export interface AudioInstance {
   /** The tonal, noisy and transient parts at their own levels, dB (−Infinity removes one): median-filter HPSS with
    *  Driedger's residual; the parts add back to the input (iZotope RX Deconstruct) */
   deconstruct(tonal?: number, noise?: number, transient?: number, opts?: { separation?: number, at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
-  /** Encoded and decoded in place, lined up with the input: hear what the codec does (iZotope RX Streaming Preview) */
-  codec(format?: 'mp3' | 'aac' | 'opus' | 'vorbis', bitrate?: number, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
+  /** Encoded and decoded in place, lined up with the input: hear what the codec does (iZotope RX Streaming Preview).
+   *  `quality`: MP3 VBR, LAME's -V (0 best, under 10); 'gsm': GSM 06.10 full rate, 13 kbps at 8 kHz */
+  codec(format?: 'mp3' | 'aac' | 'opus' | 'vorbis' | 'gsm', bitrate?: number, opts?: { quality?: number, at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
+  codec(format: 'mp3' | 'aac' | 'opus' | 'vorbis' | 'gsm', opts?: { bitrate?: number, quality?: number, at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
   /** Spectral edit: gain (dB, default: remove) on `band` [low, high] Hz over the time range */
   spectral(band?: [number, number], gain?: number, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix }): this
   /** Spectral repair: rebuild a damaged time range (optionally one band) from its surroundings. `method` 'auto' routes by
@@ -335,7 +375,7 @@ export interface AudioStats {
   max: Float32Array[]
   ms: Float32Array[]
   energy: Float32Array[]
-  [field: string]: number | Float32Array[]
+  [field: string]: number | Float32Array[] | undefined
 }
 
 export type EditOp = [type: string, opts?: Record<string, any>]
@@ -473,6 +513,8 @@ export interface PlayOpts {
   loop?: boolean
   volume?: number
   rate?: number
+  /** An output by id or name (audio.devices()), else the one whose name holds it; default the system's */
+  device?: string
   /** Open without sounding; resume() plays */
   paused?: boolean
   /** Another instance (or worker facade) whose playback this one takes over where it is */
@@ -555,8 +597,25 @@ export interface AudioDocument {
 /** No source — returns pushable instance. Use .push() to feed PCM, .record() for mic, .stop() to finalize. */
 declare function audio(source?: null, opts?: AudioOpts): AudioInstance & {
   push(data: Float32Array[] | Float32Array | ArrayBufferView, format?: string | { format?: string, channels?: number, sampleRate?: number }): AudioInstance
-  record(opts?: Record<string, any>): AudioInstance
+  record(opts?: RecordOpts): AudioInstance
   recording: boolean
+}
+
+export interface RecordOpts {
+  /** An input by id or name (audio.devices()), else the one whose name holds it; default the system's */
+  device?: string
+  sampleRate?: number
+  channels?: number
+  /** The take through its edits as it comes in: to the default output (true) or one by id or name */
+  monitor?: boolean | string
+  [key: string]: unknown
+}
+
+export interface Device {
+  /** Node: the platform's own (CoreAudio's UID, WASAPI's endpoint id, ALSA's name); a page: enumerateDevices()'s */
+  id: string
+  name: string
+  default: boolean
 }
 /** Async entry — decode from file/URL/bytes (a byte stream, response or pipe decodes as it arrives), wrap PCM/silence, concat from array, or restore from JSON */
 /** Sync entry — returns instance immediately. Thenable: `await audio(src)` waits for full decode. */
@@ -568,6 +627,8 @@ declare namespace audio {
   /** The page's AudioContext, which playback uses: made on first use, resumed by the first gesture. Set your own
    *  before playing; connect your own nodes to it. Null in Node. */
   let context: AudioContext | null
+  /** The inputs to record from and the outputs to play to */
+  function devices(): Promise<{ input: Device[], output: Device[] }>
   /** Samples per PCM page chunk (default 1024 * BLOCK_SIZE). Set before creating instances. */
   let PAGE_SIZE: number
   /** Samples per stat block (default 1024). Set before creating instances. */

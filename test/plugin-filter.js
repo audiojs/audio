@@ -52,6 +52,17 @@ test('korg35: MS-20 lowpass', () => lowpasses('korg35', { resonance: 0 }))
 test('diode: TB-303 ladder lowpass', () => lowpasses('diode', { resonance: 0 }))
 test('variable: smoothed-coefficient lowpass', () => lowpasses('variable'))
 
+test('moog: highpass and bandpass modes, 2 or 4 poles (Pedalboard LadderFilter modes)', async () => {
+	let dry = twoTone(200, 6000, 0.8), run = o => audio.from([dry.slice()], { sampleRate: SR }).moog({ fc: 1500, ...o }).read().then(r => r[0])
+	for (let poles of [2, 4]) {
+		let hp = await run({ type: 'highpass', poles })
+		ok(g(hp, 200) < g(dry, 200) * (poles === 4 ? 0.01 : 0.1), `highpass ${poles}: lows attenuated`)
+		ok(g(hp, 6000) > g(dry, 6000) * 0.5, `highpass ${poles}: highs pass`)
+	}
+	let bp = await audio.from([twoTone(1500, 200, 0.8)], { sampleRate: SR }).moog({ fc: 1500, type: 'bandpass', resonance: 0.5 }).read()
+	ok(g(bp[0], 1500) > 4 * g(bp[0], 200), 'bandpass: fc over the lows')
+})
+
 test('oberheim: multimode — highpass mode attenuates lows', async () => {
 	let dry = twoTone(200, 6000, 0.8)
 	let out = (await audio.from([dry.slice()], { sampleRate: SR }).oberheim({ fc: 1500, type: 'highpass' }).read())[0]

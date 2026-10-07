@@ -96,7 +96,7 @@ const OPS = {
   fdn: '@audio/reverb-fdn/audio',
   spring: '@audio/reverb-spring/audio',
   shimmer: '@audio/reverb-shimmer/audio',
-  // @audio/reverb-convolution — direct-import only (impulse response is an array, not a scalar param)
+  // @audio/reverb-convolution — a.convolve(ir) (fn/convolve.js: the IR is a file, an instance or samples)
   fet: '@audio/dynamics-fet/audio',
   opto: '@audio/dynamics-opto/audio',
   varimu: '@audio/dynamics-varimu/audio',
@@ -256,6 +256,8 @@ import './fn/normalize.js'
 import './fn/filter.js'
 import './fn/pan.js'
 import './fn/pad.js'
+import './fn/plugin.js'
+import './fn/convolve.js'
 import './fn/speed.js'
 import './fn/stretch.js'
 import './fn/warp.js'

@@ -122,10 +122,11 @@ function ownMix(desc, o) {
 }
 
 /** A mix the engine can take: a share 0..1, a curve or a function, on an op that keeps the timeline and the channels
- *  (the output and the input line up sample for sample). Throws what is wrong. */
+ *  (the output and the input line up sample for sample; an op whose width depends on what it hosts, chKeeps, is
+ *  checked where it compiles). Throws what is wrong. */
 function mixable(name, m, desc) {
   if (!(typeof m === 'function' || isCurve(m) || m >= 0 && m <= 1)) throw new RangeError(`${name}: mix is a share, 0 to 1, a curve { t, v } or t => share, not ${JSON.stringify(m)}`)
-  if (m !== 1 && (desc?.plan || desc?.ch || desc?.frames)) throw new TypeError(`${name}: mix blends an edit's output with its input, so it is for edits that keep the timeline and the channels`)
+  if (m !== 1 && (desc?.plan || desc?.ch && !desc.chKeeps || desc?.frames)) throw new TypeError(`${name}: mix blends an edit's output with its input, so it is for edits that keep the timeline and the channels`)
 }
 
 /** Compute [start, end] sample range from a process ctx (at/duration) over a buffer of given len. */
@@ -222,7 +223,7 @@ export function opMethod(name) {
     }
     else if (a.length) o.args = a
     for (let k in o) if (typeof o[k] === 'number' && Number.isNaN(o[k])) throw new RangeError(`${name}: ${k} is NaN`)
-    if (d?.ch && (o.at != null || o.duration != null)) throw new TypeError(`${name}: range options not supported for channel-changing ops`)
+    if (d?.ch && !d.chKeeps && (o.at != null || o.duration != null)) throw new TypeError(`${name}: range options not supported for channel-changing ops`)
     if (o.mix != null && !d?.params?.includes('mix')) mixable(name, o.mix, d)
     return this.run([name, o])
   }
@@ -766,12 +767,12 @@ function compilePlan(a, len, final, measure = false) {
     let edits = Array.isArray(emitted) && typeof emitted[0] !== 'string' ? emitted : [emitted]
     for (let re of edits) {
       re = normalizeEdit(re, sr)
-      let [rType, rOpts = {}] = re
+      let [rType, rOpts = {}] = re, rOp = ops[rType]
       let o = { ...rOpts }
       o.at ??= at; o.duration ??= duration; o.channel ??= channel
-      if (mix != null) o.mix ??= mix
+      // the mix is the processor's: a structural edit it emits (a tail's pad) changes the timeline, not the sound
+      if (mix != null && !rOp?.plan) o.mix ??= mix
       re = [rType, o]
-      let rOp = ops[rType]
       if (rOp?.whole) throw new Error(`audio: whole-render op '${rType}' cannot be emitted by expand/resolve`)
       if (o.mix != null && !rOp?.params?.includes('mix')) mixable(rType, o.mix, rOp)
       if (rOp?.plan && typeof rOp.plan === 'function') {
@@ -968,7 +969,8 @@ let _rsBuf = null, _rsLen = 0
 /** Read channel samples from pages, resampled by rate. Optional `interp` function plugs in custom interpolation. */
 function readSource(a, c, srcOff, n, target, tOff, rate, interp) {
   let r = rate || 1, absR = Math.abs(r)
-  if (absR === 1) {
+  // read as stored, unless a resample chain narrowed its band on the way (interp.band)
+  if (absR === 1 && !interp?.band) {
     let base = Math.floor(srcOff)
     if (r > 0) return copyPages(a, c, base, n, target, tOff)
     return walkPages(a, c, base, n, (pg, ch, s, e, off) => {
@@ -1111,7 +1113,7 @@ function renderSeg(a, sg, chunk, dstOff, n, at) {
       buf.set(src.subarray(0, srcN - copyOff), copyOff)
       src = buf
     }
-    if (absR === 1) {
+    if (absR === 1 && !interp?.band) {
       if (rate < 0) { for (let i = 0; i < n; i++) chunk[c][dstOff + i] = src[n - 1 - i] }
       else chunk[c].set(src.subarray(0, n), dstOff)
     } else (interp || resample)(src, chunk[c], dstOff, n, rate, margin + frac)
@@ -1303,15 +1305,20 @@ function applyProcs(bufA, procs, outOff, sr) {
       } else op(inV, outV, ctx)
     }
 
-    // Engine-level range scoping for ops without native {at, duration} handling
-    let s = 0, e = BS
+    // Engine-level range scoping for ops without native {at, duration} handling. An op with latency runs throughout
+    // (its output comes out late: what it played at a moment is lined up with that moment only past its delay), and
+    // outside the range its input, as late, stands in for it: the range holds on the timeline, not L samples early
+    let s = 0, e = BS, late = null
     if (!proc.ranged && (at != null || dur != null)) {
       let a0 = at != null ? Math.round(at * sr) : 0
       let a1 = dur != null ? a0 + Math.round(dur * sr) : Infinity
-      s = Math.max(0, Math.min(a0 - tOff, BS))
-      e = Math.max(s, Math.min(a1 - tOff, BS))
-      if (s > 0 || e < BS) for (let c = 0; c < out.length; c++) out[c].set(cur[c % cur.length])
-      if (e <= s) { cur = out; continue }
+      if (proc.lat) late = [a0, a1]
+      else {
+        s = Math.max(0, Math.min(a0 - tOff, BS))
+        e = Math.max(s, Math.min(a1 - tOff, BS))
+        if (s > 0 || e < BS) for (let c = 0; c < out.length; c++) out[c].set(cur[c % cur.length])
+        if (e <= s) { cur = out; continue }
+      }
     }
 
     let { autos, ramp } = proc
@@ -1326,9 +1333,19 @@ function applyProcs(bufA, procs, outOff, sr) {
       }
       proc.ramp = ramp = null
     } else run(s, e)
+    // what came in, lined up with what it played: the dry of a mix, what stands outside a range
+    let dry = proc.lat && (late || proc.mix != null) ? delayed(proc, cur) : cur
+    if (late) {
+      let i0 = Math.max(0, Math.min(BS, late[0] - tOff + proc.lat)), i1 = Math.max(i0, Math.min(BS, late[1] - tOff + proc.lat))
+      for (let c = 0; c < out.length; c++) {
+        let d = dry[c % dry.length], o = out[c]
+        for (let i = 0; i < i0; i++) o[i] = d[i]
+        for (let i = i1; i < BS; i++) o[i] = d[i]
+      }
+    }
     // a mix under 1: what it played lined up with what came in, in that share; a number changed, ramped once
     if (proc.mix != null) {
-      blend(proc.mix, proc.lat ? delayed(proc, cur) : cur, out, tOff - proc.lat, sr)
+      blend(proc.mix, dry, out, tOff - proc.lat, sr)
       if (Array.isArray(proc.mix)) proc.mix = proc.mix[1] === 1 ? null : proc.mix[1]
     }
     cur = out
@@ -1435,6 +1452,10 @@ function initProcs(pipeline, totalDur, sr, nch) {
     if (!desc.params?.includes('mix')) delete extra.mix
     let ctx = { duration: dur, sampleRate: sr, totalDuration: totalDur, render, ...extra }
     let outCh = desc.ch ? desc.ch(curCh, ctx) : 0
+    if (outCh === curCh) outCh = 0
+    // an op whose width depends on what it hosts (chKeeps: a plugin) takes a range only where it keeps the width
+    if (outCh && desc.chKeeps && (at != null || dur != null)) throw new TypeError(`${ed[0]}: a range keeps the channel count, and this changes it (${curCh} → ${outCh})`)
+    if (outCh && desc.chKeeps && mix != null) throw new TypeError(`${ed[0]}: mix blends the output with the input, and this changes the channel count (${curCh} → ${outCh})`)
     let w = outCh || curCh
     if (outCh) curCh = outCh
     // Cumulative latency of prior stages — this stage's input content sits preLat

@@ -48,10 +48,11 @@ function bank(scale) {
   return b
 }
 
-/** Plug-in interpolator: `(src, target, tOff, n, rate, phase) => void`. */
-export function sincInterp(src, target, tOff, n, rate, phase = 0) {
+/** Plug-in interpolator: `(src, target, tOff, n, rate, phase) => void`. `band`: the lowpass, as a share of the
+ *  source's Nyquist, where a resampling before this one read it narrower than this rate does. */
+export function sincInterp(src, target, tOff, n, rate, phase = 0, band = 1) {
   let absR = Math.abs(rate), rev = rate < 0
-  let scale = absR > 1 ? 1 / absR : 1  // widen kernel for downsample (anti-alias)
+  let scale = Math.min(absR > 1 ? 1 / absR : 1, band)  // widen kernel for downsample (anti-alias)
   let k = bank(scale), { T, W, P, half, taps } = k, len = src.length
   for (let i = 0; i < n; i++) {
     let pos = (rev ? n - 1 - i : i) * absR + phase
@@ -83,6 +84,21 @@ function edge(src, base, frac, scale, { half, a }) {
 
 const INTERP = { sinc: sincInterp }
 
+// A chain of resamples reads its source once, at the product of their rates, so a rate the chain went down to and
+// back up from would vanish (44.1 kHz → 8 kHz → 44.1 kHz read at 1, all of it): the narrowest band the chain passed,
+// as a share of the source's Nyquist, stays the read's lowpass.
+const bands = new Map()
+function bandSinc(band) {
+  let f = bands.get(band)
+  if (!f) {
+    f = (src, target, tOff, n, rate, phase) => sincInterp(src, target, tOff, n, rate, phase, band)
+    f.margin = MAX_HALF
+    f.band = band
+    bands.set(band, f)
+  }
+  return f
+}
+
 function readRate(rate) {
   if (typeof rate !== 'number' || !Number.isFinite(rate) || rate <= 0)
     throw new RangeError('resample: rate must be a positive finite number')
@@ -103,7 +119,9 @@ function resampleSegs(segs, factor, interp) {
   return segs.map(s => {
     let a = Math.round(s[2] * factor), b = Math.round((s[2] + s[1]) * factor)
     let rate = s[4] === null ? undefined : (s[3] || 1) / factor
-    let nextInterp = interp === null ? undefined : interp || s[5]
+    // the narrowest band read so far: this read's own, or one before it went down further
+    let was = Math.min(s[5]?.band ?? 1, 1 / Math.max(1, Math.abs(s[3] || 1))), now = 1 / Math.max(1, Math.abs(rate || 1))
+    let nextInterp = interp === null ? undefined : was < now ? bandSinc(was) : interp || (s[5]?.band ? undefined : s[5])
     return seg(s[0], b - a, a, rate, s[4], s[4] === null ? undefined : nextInterp, s[6])
   })
 }

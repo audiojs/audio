@@ -798,8 +798,12 @@ Object.defineProperties(fn, {
  *  over the edit's input) before anything renders.
  *  Keeps atoms out of the bundle until an edit uses them. */
 export async function loadOps(a) {
-  for (let [type] of a.edits ?? []) { let d = audio.op?.(type); if (d?.load && !d.mod) d.mod = await (d.loading ??= d.load()) }
-  for (let i = 0; i < (a.edits?.length ?? 0); i++) await audio.op?.(a.edits[i][0])?.prepare?.(a, i)
+  // an op planned before its module loaded (a plugin's tail and latency) plans again once it has; so does one whose
+  // preparation changes what the plan makes of it (how long an impulse response rings: prepare returns true)
+  let changed = false
+  for (let [type] of a.edits ?? []) { let d = audio.op?.(type); if (d?.load && !d.mod && (d.mod = await (d.loading ??= d.load()))) changed = true }
+  for (let i = 0; i < (a.edits?.length ?? 0); i++) if (await audio.op?.(a.edits[i][0])?.prepare?.(a, i) === true) changed = true
+  if (changed) a._.planV = a._.lenV = -1
   // its edits as they are now prepared: what plans them synchronously may render through them (a mark placed, meta.js)
   a._.prepared = a.version
 }
@@ -902,19 +906,22 @@ fn.stop = function() {
   return this
 }
 
-/** Start recording from mic. Pushes PCM chunks until .stop(). Requires @audio/mic (npm i @audio/mic). */
+/** Start recording from mic. Pushes PCM chunks until .stop(). Requires @audio/mic (npm i @audio/mic).
+ *  `device`: an input by id or name (audio.devices()); `monitor`: the take through its edits as it comes in, to the
+ *  default output (`true`) or one by id or name: input monitoring, as a DAW's through a track's inserts. */
 fn.record = function(opts = {}) {
   if (this._.disposed) throw new Error('audio: instance disposed')
   if (!this._.acc) throw new Error('record: instance is not pushable — create with audio()')
   if (this.recording) return this
   this.recording = true
   this.decoded = false
-  let self = this, sr = this.sampleRate, ch = this._.ch
+  let self = this, sr = this.sampleRate, ch = this._.ch, { monitor, ...rest } = opts
   const request = this._.recording = {}
   let _rec = (async () => {
     let { default: mic } = await import('@audio/mic')
     if (self._.recording !== request) return
-    let read = await mic({ sampleRate: sr, channels: ch, bitDepth: 16, ...opts })
+    // small reads while monitoring: each is heard once it has come
+    let read = await mic({ sampleRate: sr, channels: ch, bitDepth: 16, ...monitor && { bufferSize: 10 }, ...rest })
     if (self._.recording !== request) { read(null); return }
     self._._mic = read
     // a read hands over one block; the next is asked for as each comes, so none is missed
@@ -925,6 +932,7 @@ fn.record = function(opts = {}) {
       read(take)
     }
     read(take)
+    if (monitor) await monitorOut(self, request, monitor)
   })()
   _rec.catch(error => {
     if (self._.recording !== request) return
@@ -932,6 +940,29 @@ fn.record = function(opts = {}) {
     emit(self, 'error', error)
   })
   return this
+}
+
+/** The take's live edge through its edits to an output, block by block as it comes (its latency: the input's read,
+ *  one engine block, the output's ring; and the edits' own lookahead), until recording stops. */
+async function monitorOut(a, request, device) {
+  let { default: Speaker } = await import('@audio/speaker')
+  let ch = a.channels, write = await Speaker({ sampleRate: a.sampleRate, channels: ch, bitDepth: 32, bufferSize: 20, ...typeof device === 'string' && { device } })
+  try {
+    for await (let block of a.stream({ at: a.duration })) {
+      if (a._.recording !== request) break
+      let n = block[0].length, buf = new Float32Array(n * ch)
+      for (let c = 0; c < ch; c++) { let x = block[c % block.length]; for (let i = 0; i < n; i++) buf[i * ch + c] = x[i] }
+      await new Promise(r => write(new Uint8Array(buf.buffer), r))
+    }
+  } finally { write.close() }
+}
+
+/** The inputs and outputs to record from and play to: { input: [{ id, name, default }], output: [...] } (Node:
+ *  @audio/mic's and @audio/speaker's; a page: enumerateDevices(), names once the microphone is allowed) */
+audio.devices = async function() {
+  let list = async pkg => { try { return await (await import(pkg)).devices?.() ?? [] } catch { return [] } }
+  let [input, output] = await Promise.all([list('@audio/mic'), list('@audio/speaker')])
+  return { input, output }
 }
 
 fn.seek = function(t) {

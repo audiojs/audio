@@ -465,10 +465,10 @@ async function webDevice(ctx, ch, init) {
 }
 
 // Node: the deck renders 1024 frames at a time into @audio/speaker, which paces the writes. Closing lets the last
-// buffer (a fade's end) play out.
-async function nodeDevice(sr, ch, init) {
+// buffer (a fade's end) play out. `device`: an output by id or name, else the default.
+async function nodeDevice(sr, ch, init, device) {
   let { default: Speaker } = await import('@audio/speaker')
-  let write = Speaker({ sampleRate: sr, channels: ch, bitDepth: 32 }), B = 1024, frame = 0, live = true, closing = false, feed = null
+  let write = Speaker({ sampleRate: sr, channels: ch, bitDepth: 32, ...device && { device } }), B = 1024, frame = 0, live = true, closing = false, feed = null
   let out = Array.from({ length: ch }, () => new Float32Array(B)), buf = new Float32Array(B * ch), bytes = new Uint8Array(buf.buffer)
   const take = m => deck.feed(m)
   const shut = () => { feed?.close(); feed = null; write.close() }
@@ -498,10 +498,25 @@ async function nodeDevice(sr, ch, init) {
 // ── Transport: the main thread's side of a deck ──────────────────────────
 
 /** Open a deck: channels as the source has (two at least: mono plays on both), the rate the device runs at
- *  (the page's context; Node: sampleRate). */
-export async function open({ channels, sampleRate, playing = true, volume = 1, rate = 1, preservesPitch = true } = {}) {
+ *  (the page's context; Node: sampleRate). `device`, an output by id or name: a page plays it on a context of its own,
+ *  sunk there (setSinkId), the page's one staying where it is. */
+export async function open({ channels, sampleRate, playing = true, volume = 1, rate = 1, preservesPitch = true, device } = {}) {
   let ctx = context(), ch = Math.max(2, channels | 0), init = { playing, volume, rate, preservesPitch }
-  return transport(ctx ? await webDevice(ctx, ch, init) : await nodeDevice(sampleRate, ch, init))
+  if (ctx && device) ctx = await sunk(device)
+  return transport(ctx ? await webDevice(ctx, ch, init) : await nodeDevice(sampleRate, ch, init, device))
+}
+
+// a page's context per output device, by its id, or its name as enumerateDevices gives it
+const sinks = new Map()
+async function sunk(device) {
+  let all = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audiooutput'), d = String(device).toLowerCase()
+  let hit = all.find(x => x.deviceId === device || x.label === device) ?? (m => m.length === 1 ? m[0] : null)(all.filter(x => x.label.toLowerCase().includes(d)))
+  let id = hit?.deviceId ?? device, ctx = sinks.get(id)
+  if (ctx && ctx.state !== 'closed') return ctx
+  ctx = new AudioContext({ latencyHint: 'interactive' })
+  await ctx.setSinkId(id)
+  sinks.set(id, ctx)
+  return ctx
 }
 
 // The axis to the timeline: a loop's passes run on past its end

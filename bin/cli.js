@@ -188,6 +188,8 @@ const HELP = {
   vocals:    { usage: 'vocals [MODE]', desc: 'Vocal isolation (default) or removal', examples: ['vocals', 'vocals remove'], label: 'Processing vocals', values: { mode: ['isolate', 'remove'] } },
   dither:    { usage: 'dither [BITS] [shape:true]', desc: 'TPDF dither to target bit depth (default: 16). shape:true enables 2nd-order noise shaping.', examples: ['dither', 'dither 8', 'dither 16 shape:true'], label: 'Dithering' },
   crossfeed: { usage: 'crossfeed [FC] [LEVEL]', desc: 'Headphone crossfeed for improved imaging', examples: ['crossfeed', 'crossfeed 500hz 0.4'], label: 'Applying crossfeed' },
+  convolve:  { usage: 'convolve IR [MIX] [normalize:true] [tail:false]', desc: 'Through an impulse response (a room, a plate, a cabinet): no latency, its decay rendered past the end', examples: ['convolve hall.wav', 'convolve cab.wav 1 normalize:true save amped.wav'], label: 'Convolving' },
+  plugin:    { usage: 'plugin NAME [key:value…]', desc: 'A native plugin (VST3, CLAP, AU, LV2) through @audio/host: its parameters by key (audio --plugins NAME)', examples: ['plugin AUDelay delayTime:0.25 feedback:40', "plugin 'RX 12 De-click' sensitivity:6 save clean.wav"], label: 'Running the plugin' },
   resample:  { usage: 'resample RATE', desc: 'Change sample rate with anti-aliased downsampling', examples: ['resample 48000', 'resample 22050'], label: 'Resampling' },
   crossfade: { usage: 'crossfade SRC [DUR] [CURVE]', desc: 'Crossfade into another audio file', examples: ['crossfade next.wav 2s', 'crossfade next.wav 0.5s cos'], label: 'Crossfading' },
   match:     { usage: 'match REF [AMOUNT]', desc: 'Match EQ: fit parametric bands so the tone follows a reference (amount 0..1)', examples: ['match reference.wav', 'match reference.wav 0.7'], label: 'Matching' },
@@ -201,7 +203,7 @@ const HELP = {
   azimuth:   { usage: 'azimuth [MS]', desc: 'Line up a stereo pair: the second channel moved MS earlier onto the first; none: its delay and polarity measured over time, a pair in line left as it is', examples: ['azimuth', 'azimuth 0.12'], label: 'Aligning channels' },
   rebalance: { usage: 'rebalance [VOCALS] [BASS] [DRUMS] [OTHER]', desc: 'A song\'s vocals, bass, drums and the rest, each at its own level in dB (-60 all but removes one), by a separation model (optional @audio/neural-separate; model:NAME, scnet-large by default, its weights exported once)', examples: ['rebalance 6', 'rebalance -60', 'rebalance 0 0 -6', 'rebalance 0 -60 -60 -60'], label: 'Rebalancing' },
   deconstruct: { usage: 'deconstruct [TONAL] [NOISE] [TRANSIENT] [RANGE]', desc: 'The tonal, noisy and transient parts, each at its own level in dB (-60 all but removes one); separation:N (2) tells them apart more strictly', examples: ['deconstruct 0 -12', 'deconstruct 0 0 -6', 'deconstruct -60 0 0 separation:3'], label: 'Deconstructing' },
-  codec:     { usage: 'codec [FORMAT] [KBPS] [RANGE]', desc: 'The sound as a lossy codec gives it back, lined up with the input: mp3 (default), aac, opus, vorbis, at KBPS (128)', examples: ['codec', 'codec aac 256', 'codec opus 96 save heard.wav'], label: 'Encoding and decoding', values: { format: ['mp3', 'aac', 'opus', 'vorbis'] } },
+  codec:     { usage: 'codec [FORMAT] [KBPS] [RANGE]', desc: 'The sound as a lossy codec gives it back, lined up with the input: mp3 (default), aac, opus, vorbis, at KBPS (128); mp3 quality:V (VBR); gsm (13 kbps, 8 kHz)', examples: ['codec', 'codec aac 256', 'codec mp3 quality:2', 'codec gsm', 'codec opus 96 save heard.wav'], label: 'Encoding and decoding', values: { format: ['mp3', 'aac', 'opus', 'vorbis', 'gsm'] } },
   roomtone:  { usage: 'roomtone [THRESHOLD]', desc: "Fill digital silence (edited pauses, pad) with the recording's own room tone", examples: ['roomtone', 'trim pad 1.5s 2s roomtone check acx'], label: 'Filling room tone' },
   master:    { usage: 'master REF', desc: 'Master to a reference track: its tone in mid and side, its loudness, under -1 dBTP (ceiling:N)', examples: ['master ref.wav save out.wav', 'master ref.wav ceiling:-2 check streaming'], label: 'Mastering' },
   write:     { usage: 'write DATA [RANGE]', desc: 'Write raw sample values at a position (via --macro)', examples: ['write [0,0] 1s..1.1s'], label: 'Writing' },
@@ -278,7 +280,7 @@ function showOpHelp(name) {
  */
 function parseArgs(args) {
   let source = null, transforms = [], sink = null, range = null
-  let format = null, verbose = false, showHelp = false, force = false, json = false
+  let format = null, verbose = false, showHelp = false, force = false, json = false, device = null
   let macro = null, helpOp = null, concatFiles = [], cue = null
   let i = 0
 
@@ -299,6 +301,7 @@ function parseArgs(args) {
     if (arg === '--force' || arg === '-f') { force = true; i++; continue }
     if (arg === '--macro') { macro = args[++i]; i++; continue }
     if (arg === '--cue') { cue = args[++i]; i++; continue }
+    if (arg === '--device') { device = args[++i]; i++; continue }
     // Compat shortcuts: -p ⇔ play, -o PATH ⇔ save PATH, -l ⇔ play loop
     if (arg === '--play' || arg === '-p') { sink = sink || { name: 'play', args: [] }; i++; continue }
     if (arg === '--output' || arg === '-o') { sink = { name: 'save', args: [args[++i]] }; i++; continue }
@@ -386,7 +389,7 @@ function parseArgs(args) {
   // Default sink: `stat` (overview) — when no explicit sink and audio is finite
   if (!sink && !showHelp && !helpOp) sink = { name: 'stat', args: [] }
 
-  return { source, transforms, sink, range, format, verbose, showHelp, force, macro, helpOp, concatFiles, cue, json }
+  return { source, transforms, sink, range, format, verbose, showHelp, force, macro, helpOp, concatFiles, cue, json, device }
 }
 
 /** Parse a cue sheet into { title, performer, tracks: [{ n, title, performer, at }] }.
@@ -1028,6 +1031,13 @@ async function main() {
 
   if (args[0] === '--mcp') return (await import('./mcp.js')).default(args.slice(1))
   if (args[0] === '--bridge') return (await import('./bridge.js')).default(args.slice(1))
+  if (args[0] === '--plugins') return (await import('./plugins.js')).default(args.slice(1))
+  if (args[0] === '--devices') {
+    let { input, output } = await audio.devices()
+    if (args.includes('--json')) return console.log(JSON.stringify({ input, output }, null, 2))
+    for (let [kind, list] of [['in ', input], ['out', output]]) for (let d of list) console.log(`${kind}  ${d.name}${d.default ? '  (default)' : ''}  ${d.id}`)
+    return
+  }
 
   // ── Shell Completions ──────────────────────────────────────────────────
   if (args[0] === '--completions') {
@@ -1079,7 +1089,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     await discoverPlugins()
     let prev = args[1] || '', cur = args[2] || ''
     let ops = Object.keys(HELP)
-    let flags = ['--force', '--verbose', '--format', '--macro', '--cue', '--help', '--version', '-f']
+    let flags = ['--force', '--verbose', '--format', '--macro', '--cue', '--device', '--devices', '--help', '--version', '-f']
 
     // Context-aware completions
     let out = []
@@ -1215,7 +1225,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       })
 
       let loop = sink.args.includes('loop')
-      let playOpts = { paused: wait, loop }
+      let playOpts = { paused: wait, loop, ...sink.opts?.device && { device: sink.opts.device } }
       if (range) { playOpts.at = resolveOffset(range.offset, a.decoded ? a.duration : a._.estDur); playOpts.duration = range.duration }
 
       // Any op-application failure (sync or during the async post-decode path) routes through
@@ -1359,6 +1369,8 @@ Options:
   --completions SHELL  Print tab-completion script (zsh, bash, fish)
   --mcp         Serve this CLI to AI agents as an MCP tool (stdio); --playground adds the playground's tools, through the bridge
   --bridge      Let AI agents edit the sound open in the playground, and its chat talk to yours: Claude Code, Codex, Pi, any ACP agent (127.0.0.1:7777)
+  --plugins     The native plugins @audio/host finds (VST3, CLAP, AU, LV2); --plugins NAME, one's parameters for \`plugin NAME key:value\`
+  --devices     The inputs and outputs (--json); record from one with --device NAME, play to one with play device:NAME
 
 Batch:
   audio '*.wav' gain -3db save '{name}.out.{ext}'
@@ -1374,6 +1386,7 @@ Examples:
   audio in.mp3 normalize save out.wav
   audio in.mp3 highpass 80hz eq 300hz -2db save out.wav
   audio record 30s save voice.wav           Capture mic
+  audio record --device USB plate 0.3 play  Hear the mic through a plate, live (play device:NAME: an output)
   audio in.mp3 + b.mp3 + c.mp3 save out.wav Concat sources
   cat in.wav | audio gain -3db save -       Pipe mode (stdin → stdout)
 
@@ -1703,12 +1716,21 @@ async function runRecord(transforms, sink, range, opts) {
       transforms = transforms.slice(1)
     }
   }
+  // `record 30s`: the bare time parses as a start; a recording has none, so it is how long
+  if (durationSec == null && range?.offset != null && range.duration == null) { durationSec = range.offset; range = null }
   if (!sink) sink = { name: 'save', args: ['recording.wav'] }
-  if (sink.name === 'play') throw new Error("record: 'play' sink not supported (live monitoring is its own beast). Try: record save out.wav")
 
-  let a = audio({ sampleRate: 44100, channels: 1 })
+  let a = audio(null, { sampleRate: 44100, channels: 1 })
+  // record … play: heard live through the ops, as it comes in (input monitoring); nothing kept
+  if (sink.name === 'play') {
+    ;[a] = await applyTransforms(a, transforms)
+    process.stderr.write(`Monitoring — press space/q to stop${durationSec ? ` (max ${fmtTime(durationSec)})` : ''}\n`)
+    a.record({ ...opts.device && { device: opts.device }, monitor: sink.opts?.device ?? true })
+    await recordingUI(a, durationSec)
+    return
+  }
   process.stderr.write(`Recording — press space/q to stop${durationSec ? ` (max ${fmtTime(durationSec)})` : ''}\n`)
-  a.record()
+  a.record(opts.device ? { device: opts.device } : {})
   await recordingUI(a, durationSec)
 
   // Wait for recording to finalize

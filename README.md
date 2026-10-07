@@ -411,6 +411,7 @@ a.filter(customFn, { cutoff: 2000 })      // custom filter function
 | `.rebalance(vocals?, bass?, drums?, other?, {model?})` | a song's vocals, bass, drums and the rest, each at its own level, dB (−Infinity mutes): a separation model splits the input into the four stems and adds each one's change to it, so 0 dB each leaves the input sample for sample and what the model gives no stem stays as it was. `model` `'scnet-large'` (default: SCNet-large, MIT weights, 169 MB), `'scnet'` (43 MB, a third of the time), `'htdemucs'` (weights for research only) or `'umxhq'`, through the optional `@audio/neural-separate`, its weights exported locally ([how](https://github.com/audiojs/neural/tree/main/packages/neural-separate#weights)) or served from `weights`; the input is separated once, gains moved read the stems back. MUSDB18 test previews, BSSEval v4 SDR of each stem soloed, vocals · bass · drums · other: 10.75 · 8.17 · 10.30 · 6.94, iZotope RX 12 Music Rebalance at Best 10.89 · 9.66 · 9.85 · 6.45, ahead on 33, 32, 38, 32 of the 50 songs; vocals 6 dB up 20.2 dB against 19.5, drums 6 dB down 21.9 against 20.9 (`bench/rx/separate.mjs`).<br><sub>≡ iZotope RX Music Rebalance</sub> |
 | `.dither(bits?, {shape?})` | TPDF, default 16-bit. `shape: true` adds 2nd-order noise shaping: quantization noise moves above ~Nyquist/2, audibly quieter. |
 | `.crossfeed(freq?, level?)` | headphone crossfeed, default 700 Hz, 0.3.<br><sub>≡ SoX `earwax`, bs2b</sub> |
+| `.convolve(ir, mix?, {normalize?, tail?})` | the sound through an impulse response: a room, a plate, a cabinet, a microphone as captured. `ir` a file or URL, an audio instance or channels of samples, resampled to the sound's rate; channel c through its channel c, wrapping. No latency (Gardner's partitioned convolution: a direct head, FFT partitions behind it), its decay rendered past the end (`tail: false`, none). `mix` 0 to 1 (1), `normalize: true` the IR at unit energy.<br><sub>≡ Pedalboard `Convolution`, FFmpeg `afir`</sub> |
 | `.resample(rate, {type?})` | upsampling defaults to linear, downsampling to anti-aliased windowed sinc, its taps widening with the ratio. `type: 'sinc'` or `'linear'` forces one. |
 | `.crossover(...freqs)` | N split frequencies → N+1 bands × channels, band-major. Linkwitz-Riley 4th order; bands sum back flat.<br><sub>≡ FFmpeg `acrossover`</sub> |
 | `.match(ref, amount?)` | match EQ: up to 8 parametric bands fit to the reference/source spectrum ratio. Tone only; loudness stays with `normalize`. Streams `{lookahead}` s behind (10), refitting as it hears more. `{ midside: true }` matches a stereo pair's mid and side apart, and the side level to the reference's width.<br><sub>≡ iZotope Ozone Match EQ</sub> |
@@ -425,7 +426,7 @@ a.filter(customFn, { cutoff: 2000 })      // custom filter function
 | `.azimuth(delay?)` | a stereo pair lined up in time and polarity, the second channel moved onto the first. Unset, the delay is measured every second (generalized cross-correlation with Knapp & Carter's 1976 weighting, refined between samples: an exact fractional shift comes back to 0.0001 samples) and followed as it wanders; a channel wired backwards turned back; a pair already in line, as a mix's stereo image is, left sample for sample. `delay` ms sets it by hand.<br><sub>≡ iZotope RX Azimuth</sub> |
 | `.dewow(mode?)` | wow and flutter: the speed of the disc or tape measured over time and the sound read back at its inverse; from the music's own notes (a disc's once-a-turn wow, `'partial'`), a pilot or calibration tone (`'reference'`, `refFreq`), or one voice's pitch (`'pitch'`). Nothing proven, nothing changed: a recording without wow comes back sample for sample (`@audio/denoise-dewow`).<br><sub>≡ iZotope RX Wow & Flutter</sub> |
 | `.desqueak(squeak?, {pick?, amp?})` | a guitar's string squeaks taken down, where a finger slides along a wound string: told from the notes by what a note is not (partials that hold their bins, read on 93 ms frames; a pluck's low partials or click), held 45 ms or more, each bin down to what it holds around the squeak, `squeak` dB at most (30); the notes ringing under it keep their partials, and the take outside the squeaks stays sample for sample. `pick` dB softens each pluck's click to the level its note rings at 15 ms on (-9 restores attacks made 6–12 dB harsher); `amp` dB takes a steady hiss and buzz down (OM-LSA on a print from the quietest frames, a note's peaks kept). GuitarSet test takes against iZotope RX 12 Guitar De-noise: squeaks added, 3.3 dB of their error gone against 2.7, SNR 23.2 dB against 20.5, 2.4 % of a clean take's samples moved against 12.9 %; harsh picks 8.9 dB against 3.3 tuned; squeaks as recorded 12.8 dB median against 13.5, half the plucks and clicks RX touches (`@audio/denoise-desqueak`, `bench/rx/guitar.mjs`).<br><sub>≡ iZotope RX Guitar De-noise</sub> |
-| `.codec(format?, bitrate?)` | the sound as a lossy codec gives it back: `'mp3'` (default), `'aac'`, `'opus'` or `'vorbis'` at `bitrate` kbps (128), encoded and decoded in place. Each codec's delay undone (its own gapless information, then checked by correlation), so it lines up with the input within 0.03 of a sample (at 44.1 and 48 kHz): A/B it, or hear what it takes out. A codec moves the peaks: masters normalized to -14 LUFS under -1 dBTP came back up to 0.5 dB over it through Opus at 160 kbps, 0.3 through Vorbis, under 0.1 through MP3 320 and AAC 256 (7 s excerpts of 8 MUSDB18 mixes); `.codec('opus', 160).stat('truepeak')` measures it.<br><sub>≡ iZotope RX Streaming Preview</sub> |
+| `.codec(format?, bitrate?, {quality?})` | the sound as a lossy codec gives it back: `'mp3'` (default), `'aac'`, `'opus'` or `'vorbis'` at `bitrate` kbps (128), `'mp3'` VBR at `quality` (LAME's -V: 0 best, under 10), `'gsm'` (GSM 06.10 full rate, 13 kbps at 8 kHz: a 1990s phone line), encoded and decoded in place. Each codec's delay undone (its own gapless information, then checked by correlation), so it lines up with the input within 0.03 of a sample (at 44.1 and 48 kHz): A/B it, or hear what it takes out. A codec moves the peaks: masters normalized to -14 LUFS under -1 dBTP came back up to 0.5 dB over it through Opus at 160 kbps, 0.3 through Vorbis, under 0.1 through MP3 320 and AAC 256 (7 s excerpts of 8 MUSDB18 mixes); `.codec('opus', 160).stat('truepeak')` measures it.<br><sub>≡ iZotope RX Streaming Preview, Pedalboard `MP3Compressor`, `GSMFullRateCompressor`</sub> |
 
 ```js
 a.vocals()                                // isolate center-panned vocals
@@ -436,6 +437,7 @@ a.rebalance(-Infinity)                    // a karaoke track
 a.dither(16)                              // TPDF dither to 16-bit
 a.dither(16, { shape: true })             // noise-shaped
 a.crossfeed()                             // headphone crossfeed
+a.convolve('hall.wav', 0.3)               // 30 % of a captured hall
 a.resample(48000)                         // resample to 48kHz (linear)
 a.resample(96000, { type: 'sinc' })       // high-quality windowed-sinc
 a.match(reference, 0.7)                   // 70% of the way to its tone
@@ -453,6 +455,7 @@ a.dewow({ mode: 'reference', refFreq: 1000 })  // a transfer's wow, read from it
 a.desqueak()                              // a guitar's string squeaks
 a.desqueak({ pick: -9, amp: -20 })        // and its harsh picks, and the amp's hiss and buzz
 a.codec('aac', 256)                       // what a 256 kbps AAC stream does to it
+a.codec('gsm')                            // a phone call
 ```
 
 ### I/O
@@ -486,10 +489,11 @@ src.stop()                                             // finalize
 
 | Method                         | Description                                                                                                                         |
 |:--|:--|
-| `.play(opts?)` | `{ at, duration, loop, volume, rate, paused }`. `at` defaults to `currentTime` (the start once ended); playing already, it jumps there without a gap. |
+| `.play(opts?)` | `{ at, duration, loop, volume, rate, paused, device }`. `at` defaults to `currentTime` (the start once ended); playing already, it jumps there without a gap. `device`: an output by id or name (a page plays it on a context of its own, sunk there). |
 | `.play({ from: b })` | take over `b`'s playback where it is (its span, loop, volume, rate, pause), crossfaded, no gap; `b` stops. |
 | `.pause()`, `.resume()`, `.seek(t)`, `.stop()` | each ramps over 5 ms, none clicks; `seek` crossfades, and in a loop stays in its span. `stop()` also ends recording. |
-| `.record(opts?)` | mic. `{ deviceId, sampleRate, channels }`. |
+| `.record(opts?)` | mic. `{ device, sampleRate, channels, monitor }`. `device`: an input by id or name. `monitor`: the take through its edits as it comes in, to the default output (`true`) or one by id or name, about 50 ms behind (the input's read, one block, the output's ring; and the edits' own lookahead): input monitoring, as a DAW's through a track's inserts.<br><sub>≡ Pedalboard `AudioStream`</sub> |
+| `audio.devices()` | the inputs and outputs: `{ input: [{ id, name, default }], output: [...] }`. Node: the platform's own ids (CoreAudio's UID, WASAPI's endpoint id, ALSA's name); a page: `enumerateDevices()`, names once the microphone is allowed. |
 | `audio.context` | the page's one AudioContext, which playback uses: made on first use, resumed by the first gesture; set your own before playing. |
 
 Playback renders up to 2 s ahead into an AudioWorklet on `audio.context` (Node: @audio/speaker), so a busy main thread doesn't stop it, and sounds within milliseconds of `play()` (the device's own latency aside). An edit to the playing instance is heard ~50 ms later where it happens: the audio rendered ahead gives way, crossfaded. A source still arriving (decoding, pushed) plays what has come and goes on as more comes. Any channel count plays as it is; the device downmixes.
@@ -512,6 +516,11 @@ let scrub = new AudioWorkletNode(audio.context, 'scrub')
 let mic = audio()
 mic.record({ sampleRate: 16000, channels: 1 })
 mic.stop()
+
+await audio.devices()                     // { input: [{ id, name, default }, …], output: […] }
+let take = audio()
+take.compressor().plate(0.2)              // edits, heard as they come in
+take.record({ device: 'USB', monitor: 'Headphones' })   // by id, name, or part of a name
 ```
 
 ### Metering
@@ -667,6 +676,7 @@ JSON.stringify(a); audio(json)            // serialize / restore
 | `audio.op(name, descriptor)` | register an op: a `process` function or `{ params, process, plan, resolve }`. |
 | `audio.op(name?)` | one descriptor, or all ops. |
 | `audio.stat(name, descriptor)` | register a stat: `(chs, ctx) => [...]` or `{ block, reduce, query }`. |
+| `.plugin(ref, opts?)` | a native plugin as an edit: VST3, CLAP, Audio Unit or LV2, by file, name or id, through the optional [`@audio/host`](https://github.com/audiojs/host) (Node). Its parameters by key in its own units, functions or `{ t, v }` to automate them; its latency taken off, its tail rendered (`tail` seconds, `false` none); `notes`, `midi`, `bpm`, `timeSignature` for what it hears; `key` a sidechain; `preset`, `state`; `plugin` one of a file holding several; `params` for a parameter named like an option (`mix`, `at`); `isolate` in a process of its own. `audio --plugins` lists them, `audio --plugins NAME` one's parameters. A Web Audio Module (WAM 2.0) by its module's URL or its class, in a page too: hosted by the WAM SDK in an OfflineAudioContext (Node: `web-audio-api`), the input rendered through it before playing, its compensation delay taken off, its decay until silence; parameters by id or label, automation, `notes`, `midi` and `bpm` as WAM events.<br><sub>≡ Pedalboard `load_plugin`, a DAW's insert, a WAM host</sub> |
 
 Plugins also run without the engine: `audio/batch` over a whole signal, `audio/stream` over live chunks. [Plugin tutorial](docs/plugins.md).
 
@@ -685,6 +695,10 @@ audio.op('crush', { params: ['bits'], process: (input, output, ctx) => {
       output[c][i] = Math.round(input[c][i] * steps) / steps
 }})
 a.crush(4)                                  // custom op, chainable like built-ins
+
+a.plugin('RX 12 De-click', { sensitivity: 6 })                  // native plugins: npm i @audio/host
+a.plugin('AUDelay', { delayTime: 0.25, feedback: t => 20 * t })  // automated, on the timeline
+audio(4).plugin('Surge XT', { notes: [{ time: 0, duration: 1, note: 'C4' }], bpm: 96 })
 ```
 
 ### Worker
@@ -740,7 +754,7 @@ crossfade    remix       pan         split       resample
 highpass     lowpass     eq          lowshelf    highshelf
 notch        bandpass    allpass     vocals      dither
 crossfeed    shrink      crossover   match       spectral
-repair       copy        cut         paste
+repair       copy        cut         paste       plugin
 
 # sinks (terminate the chain — at most one)
 stat [NAMES...]    print analysis (default)
@@ -755,6 +769,10 @@ save PATH          encode and write (or `-` for stdout); `192k` bitrate, `24bit`
 --verbose          show progress
 --help, -h         help (or per-op: `audio gain --help`)
 --mcp              serve the CLI to AI agents as an MCP tool (stdio)
+--plugins [NAME]   the native plugins @audio/host finds, or one's parameters
+
+# a native plugin (npm i @audio/host): by name, its parameters as name:value
+audio voice.wav plugin "RX 12 De-click" sensitivity:6 save clean.wav
 
 # named options, after an op or sink: name:value
 normalize -27 lufs ceiling:-2     ducker key:voice.wav     save out.m4a codec:alac

@@ -6178,6 +6178,23 @@ test('resample – sinc downsampling: flat to 0.9 of the new Nyquist, aliases do
   }
 })
 
+test('resample — down and back up keeps the lower rate\'s band: a chain reads once, never wider than it went', async t => {
+  let tone = f => audio.from([Float32Array.from({ length: 44100 }, (_, i) => 0.5 * Math.sin(2 * Math.PI * f * i / 44100))], { sampleRate: 44100 })
+  let peak = y => { let m = 0; for (let i = 2000; i < y.length - 2000; i++) m = Math.max(m, Math.abs(y[i])); return m }
+  for (let type of [undefined, 'sinc']) {
+    let opts = type ? [{ type }] : []
+    let hi = (await tone(6000).resample(8000, ...opts).resample(44100, ...opts).read())[0]
+    t.ok(peak(hi) < 0.5 * 1e-2, `${type ?? 'default'}: 6 kHz, over 8 kHz's Nyquist, gone (${peak(hi).toExponential(1)})`)
+    let lo = (await tone(1000).resample(8000, ...opts).resample(44100, ...opts).read())[0]
+    t.ok(Math.abs(peak(lo) - 0.5) < 0.01, `${type ?? 'default'}: 1 kHz kept (${peak(lo).toFixed(4)})`)
+  }
+  // three steps: the narrowest (16 kHz) holds through 22.05 kHz and back
+  let three = (await tone(10000).resample(16000).resample(22050).resample(44100).read())[0]
+  t.ok(peak(three) < 0.5 * 1e-2, `44.1 → 16 → 22.05 → 44.1 kHz: 10 kHz gone (${peak(three).toExponential(1)})`)
+  let once = (await tone(6000).resample(48000).resample(44100).read())[0]
+  t.ok(Math.abs(peak(once) - 0.5) < 0.01, `up and back: nothing narrowed (${peak(once).toFixed(4)})`)
+})
+
 test('resample — non-destructive (undoable)', async t => {
   let a = audio.from([tone(440, 0.5)], { sampleRate: 44100 })
   a.resample(22050)
@@ -7699,3 +7716,19 @@ test('cli ops registry — all built-ins available', t => {
 })
 
 } // end isNode guard for CLI tests
+
+// A Web Audio Module (WAM 2.0) by its module's URL, hosted by the WAM SDK in an OfflineAudioContext: the page's, or
+// web-audio-api's in Node. test/fixtures/wam: a gain, a sine per held note, all 64 samples late, as it reports.
+test('plugin: a WAM by its module\'s URL, its delay taken off, its notes in place', async t => {
+  if (typeof OfflineAudioContext === 'undefined' && !await import('web-audio-api').then(() => true, () => false)) return t.ok(true, 'no Web Audio here')
+  let url = new URL('./fixtures/wam/index.js', import.meta.url).href, sr = 48000
+  let x = Float32Array.from({ length: sr }, (_, i) => 0.5 * Math.sin(2 * Math.PI * 440 * i / sr))
+  let y = (await audio.from([x], { sampleRate: sr }).plugin(url, { Gain: -6 }).read())[0]
+  let worst = 0
+  for (let i = 0; i < sr; i++) worst = Math.max(worst, Math.abs(y[i] - x[i] * 10 ** (-6 / 20)))
+  t.ok(y.length === sr && worst < 1e-6, `-6 dB, aligned to the sample (${worst.toExponential(1)})`)
+  let s = (await audio.from(1, { sampleRate: sr, channels: 1 }).plugin(url, { notes: [{ time: 0.25, duration: 0.5, note: 'A4' }] }).read())[0], z = 0, early = 0
+  for (let i = 0.3 * sr; i < 0.7 * sr; i++) if (s[i - 1] < 0 && s[i] >= 0) z++
+  for (let i = 0; i < sr / 4 - 1; i++) early = Math.max(early, Math.abs(s[i]))
+  t.ok(Math.abs(z - 176) <= 1 && early === 0, `A4 from 0.25 s, nothing before (${z / 0.4} Hz)`)
+})

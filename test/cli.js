@@ -545,8 +545,16 @@ test('parseArgs — record source', t => {
 test('parseArgs — record with duration then save', t => {
   let r = parseArgs(['record', '30s', 'save', 'out.wav'])
   t.is(r.source, 'record')
-  // Duration is captured as a transform that runRecord interprets at runtime
+  // the bare time parses as a start, which runRecord takes as how long: a recording has no start
+  t.is(r.range, { offset: 30, duration: undefined })
   t.is(r.sink.name, 'save')
+})
+
+test('parseArgs — record from a device, heard live through the ops on another', t => {
+  let r = parseArgs(['record', '--device', 'USB Mic', 'plate', '0.3', 'play', 'device:Headphones'])
+  t.is(r.device, 'USB Mic', '--device: the input')
+  t.is(r.transforms.map(o => o.name), ['plate'])
+  t.is([r.sink.name, r.sink.opts.device], ['play', 'Headphones'], 'play device:NAME: the output')
 })
 
 // ── Op Discovery ─────────────────────────────────────────────────────────
@@ -1112,8 +1120,8 @@ test('op help — all built-in ops have help', t => {
   let expected = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'clip', 'remove',
     'insert', 'copy', 'cut', 'paste', 'move', 'repeat', 'mix', 'crossfade', 'remix', 'highpass', 'lowpass', 'eq', 'lowshelf',
     'highshelf', 'notch', 'bandpass', 'allpass', 'filter', 'pan', 'pad', 'speed', 'stretch', 'warp',
-    'pitch', 'intonation', 'formant', 'vocals', 'dither', 'crossfeed', 'resample', 'write', 'transform', 'split', 'shrink', 'crossover',
-    'match', 'master', 'roomtone', 'spectral', 'repair', 'deepfilter', 'denoise', 'declick', 'phase', 'azimuth', 'deconstruct', 'rebalance', 'codec',
+    'pitch', 'intonation', 'formant', 'vocals', 'dither', 'crossfeed', 'convolve', 'plugin', 'resample', 'write', 'transform', 'split', 'shrink', 'crossover',
+    'match', 'master', 'roomtone', 'spectral', 'repair', 'deepfilter', 'derustle', 'denoise', 'declick', 'phase', 'azimuth', 'deconstruct', 'rebalance', 'scene', 'codec',
     // sinks + sources
     'play', 'stat', 'check', 'save', 'record']
   for (let op of expected) t.ok(HELP[op], `${op} has help`)

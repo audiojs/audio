@@ -194,7 +194,7 @@ audio.fn.play = function(opts = {}) {
   }
   a.loop = opts.loop ?? false
   let at = opts.at ?? (a.ended ? 0 : a._.ct)
-  begin(a, { at, duration: opts.duration, paused: opts.paused })
+  begin(a, { at, duration: opts.duration, paused: opts.paused, device: opts.device })
   return a
 }
 
@@ -298,7 +298,7 @@ function begin(a, o, taken) {
   ;(async () => {
     try {
       if (!taken && a._.ready) await a._.ready
-      let tp = taken ?? await open({ channels: a.channels, sampleRate: a.sampleRate, playing: !a.paused, volume: a.muted ? 0 : a.volume, rate: a.playbackRate, preservesPitch: a.preservesPitch })
+      let tp = taken ?? await open({ channels: a.channels, sampleRate: a.sampleRate, playing: !a.paused, volume: a.muted ? 0 : a.volume, rate: a.playbackRate, preservesPitch: a.preservesPitch, device: o.device })
       if (done) { if (!taken) tp.stop(); return }
       s.tp = tp
       if (taken) { tp.set({ playing: !a.paused, volume: a.muted ? 0 : a.volume, rate: a.playbackRate, preservesPitch: a.preservesPitch }) }
