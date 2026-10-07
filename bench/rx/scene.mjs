@@ -48,7 +48,8 @@ export const SYSTEMS = {
   tiger: 'sep:{"model":"tiger"}',
   scene: 'op:scene()',
   // DeepFilterNet3's speech alone (its whole removal, music enhanced too); with SCNet's tonal stems of the rest as the
-  // music, its drums and what it leaves the effects (none of its stems is effects)
+  // music, its drums and what it leaves the effects (none of its stems is effects). On test30: dialogue 9.40 dB SNR
+  // (mrx 10.92), music −0.68, effects 0.44; its music and effects remixes worse than the input left as it is
   dfn: 'composed:{}',
   composed: 'composed:{"model":"scnet","music":["bass","other","vocals"]}',
 }
@@ -88,7 +89,7 @@ function system(spec) {
       let s = (await separate(rest, { sampleRate: x.sr, model: o.model })).stems, K = rest.length
       // the model's stereo stems back to the clip's channels (mono: their mean)
       let back = st => K === 1 ? [st[0].map((v, i) => (v + st[1][i]) / 2)] : st
-      let music = rest.map((_, k) => Float32Array.from(rest[k], (_, i) => o.music.reduce((a, t) => a + back(s[t])[k][i], 0)))
+      let parts = o.music.map(t => back(s[t])), music = rest.map((_, k) => Float32Array.from(rest[k], (_, i) => parts.reduce((a, p) => a + p[k][i], 0)))
       return { dialogue, music, effects: rest.map((c, k) => c.map((v, i) => v - music[k][i])) }
     })
     return { stems, remix: g => async x => remix(x.ch, await stems(x), g), harm: async x => x.ch }

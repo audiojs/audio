@@ -28,7 +28,8 @@
  * vocals · bass · drums · other: 10.75 · 8.17 · 10.30 · 6.94 dB; RX 12 Music Rebalance at Best 10.89 · 9.66 · 9.85 ·
  * 6.45, behind on 33, 32, 38 and 32 of the songs; the vocals 6 dB up 20.2 dB against RX's 19.5. On Divide and Remaster
  * v3's English test set (150 clips of 60 s, bench/rx/scene.mjs), SNR, the median over clips, dialogue · music · effects:
- * mrx 11.82 · 5.32 · 6.03 dB (the dialogue as deepfilter(0) takes it, 10.47); its authors' Bandit v2 (CC BY-SA
+ * mrx 11.82 · 5.32 · 6.03 dB (the dialogue as deepfilter(0) takes it, 10.47; SCNet splitting the rest, music −0.7 and
+ * effects 0.4 on 30 of the clips); its authors' Bandit v2 (CC BY-SA
  * weights, not run here) 15.6 · 10.4 · 9.9 on all 1200; the dialogue 6 dB up 18.9 dB from the true remix (7.2 left as
  * it is). RX 12 Scene Rebalance runs only in Pro Tools.
  */
