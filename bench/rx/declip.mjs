@@ -1,11 +1,13 @@
 // De-clip: iZotope RX 12's De-clip against `audio`'s declip() (@audio/denoise-declip) on the same clipped buffers.
 //
 //   node bench/rx/declip.mjs tune [i/n] [sets]   RX's grid on the tuning set (part i of n of the items, of these sets)
-//   node bench/rx/declip.mjs ours [i/n]     ours on the test set
+//   node bench/rx/declip.mjs ours [i/n] [sets] [conds]   ours on the test set (these sets, these conditions)
 //   node bench/rx/declip.mjs rx [i/n]       RX default and RX tuned on the test set (after `tune`)
 //   node bench/rx/declip.mjs level [i/n]    ours on soft saturation given the level RX tuned cuts at (after `tune`)
+//   node bench/rx/declip.mjs curves [i/n] [sets|report]   ours on more saturations, alone: the input's SDR and ours's
 //   node bench/rx/declip.mjs inputs         each condition's input: SDR, rails, share of samples touched
 //   node bench/rx/declip.mjs                the tables (whatever is missing rendered first)
+//   node bench/rx/declip.mjs tables         the tables of what is rendered (ours's missing cells '–')
 //
 // Material. Tuning (every RX setting is chosen on it; ours runs at its defaults, nothing tuned): four MUSDB18
 // training mixtures (Rafii et al. 2017, doi:10.5281/zenodo.1117372; its 7 s previews: the first 6 s, mono) and ten
@@ -21,8 +23,9 @@
 // clip_sdr.m; T = 1, 3, 5, 7, 10, 15, 20), scaled so the rails sit at full scale (0 dBFS), as an overdriven converter
 // or a bounce too hot leaves them. asym: the positive side at 0 dBFS at the 15 dB level, the negative at the 7 dB
 // level. down: hard-7, then turned down 6 dB (rails at −6 dBFS). soft: tanh(g·x), g giving 10 dB SDR (analog
-// saturation: no flat top). mp3: hard-7 through LAME at 128 kbit/s (FFmpeg libmp3lame), decoded, aligned. Harm, no
-// defect: clean, the recording peak-normalized to 0 dBFS; limited, it driven 12 dB into a lookahead limiter with a
+// saturation: no flat top); atan: (2/π)·arctan(π/2·g·x) likewise (a softer knee, an algebraic approach to its ceiling,
+// outside the curves declip fits). mp3: hard-7 through LAME at 128 kbit/s (FFmpeg libmp3lame), decoded, aligned.
+// Harm, no defect: clean, the recording peak-normalized to 0 dBFS; limited, it driven 12 dB into a lookahead limiter with a
 // −0.2 dBFS ceiling (a loud master: peaks touch the ceiling, nothing is flat).
 //
 // Systems. RX default: De-clip as loaded (threshold −1.02 dBFS, quality Low, post-limiter on). RX tuned: asymmetric
@@ -34,8 +37,11 @@
 // −4 to −10 dB of SDR here). The harm rows run RX tuned at its hard-20 setting. The host can't set Input/Output Gain to 0 (their grid
 // has 0.01 and −0.02): it leaves +0.01 dB each, which is divided out of every RX render. Ours: op('declip()') at its
 // defaults, through `audio`, as the version installed in node_modules (each version's renders kept apart); on soft
-// saturation, which has no rail to find, also declip({ clipLevel }) at the level RX tuned cuts at (its offset under
-// the peak), what a user who sets RX's threshold would set. Last, the survey's SQAM test beside the means it publishes
+// saturation, which has no rail (0.4.0 found none; 0.5.0 fits its curve), also declip({ clipLevel }) at the level RX
+// tuned cuts at (its offset under the peak), what a user who sets RX's threshold would set. `curves`: ours alone on
+// the test set under arctan and x/√(1 + x²) at 10 dB, tanh at 20 and 30 dB, tanh with each side's ceiling apart
+// (the negative at 0.7), tanh then white noise 60 dB under full scale, a biased tanh (tanh(x + 0.3) − tanh(0.3), over
+// its slope at 0: even harmonics, a valve's); no RX renders. Last, the survey's SQAM test beside the means it publishes
 // (dSDR_clipped, and PEAQ with the reliable samples replaced, as ours keeps them).
 //
 // Measures. ΔSDR: SDR after minus before, dB, over the whole signal (what is heard) and over the clipped samples
@@ -52,11 +58,11 @@ import { spawnSync } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { rx, op, keep, readWav, writeWav, mean, table, DATA, OUT } from './lib.mjs'
+import { rx, op, keep, readWav, writeWav, mean, table, lcg, DATA, OUT } from './lib.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url)), BASE = path.join(OUT, 'declip')
 const PY = process.env.RX_PYTHON || path.join(os.homedir(), '.cache', 'audiojs', 'venv', 'bin', 'python')
-const [phase = 'report', share = '0/1', only] = process.argv.slice(2), [pi, pn] = share.split('/').map(Number)
+const [phase = 'report', share = '0/1', only, conds] = process.argv.slice(2), [pi, pn] = share.split('/').map(Number)
 const OURS = 'ours@' + JSON.parse(readFileSync(path.join(HERE, '../../node_modules/@audio/denoise-declip/package.json'))).version
 
 // ---- material
@@ -90,7 +96,12 @@ const scale = (x, k) => Float32Array.from(x, v => v * k)
 const sdr = (x, y, m) => { let s = 0, e = 0; for (let i = 0; i < x.length; i++) if (!m || m[i]) s += x[i] ** 2, e += (x[i] - y[i]) ** 2; return 10 * Math.log10(s / e) }
 // clip_sdr.m: the threshold in (0, 0.99·max|x|) leaving SDR `db` (fzero there, bisection here)
 const level = (x, db) => { let a = 0, b = 0.99 * peak(x); for (let i = 0; i < 60; i++) { let m = (a + b) / 2; if (sdr(x, clip(x, m)) < db) a = m; else b = m } return (a + b) / 2 }
-const drive = (x, db) => { let a = 0.01, b = 100; for (let i = 0; i < 60; i++) { let g = Math.sqrt(a * b), r = scale(x, g); if (sdr(r, r.map(Math.tanh)) < db) b = g; else a = g } return Math.sqrt(a * b) }
+const drive = (x, db, f = Math.tanh) => { let a = 0.01, b = 100; for (let i = 0; i < 60; i++) { let g = Math.sqrt(a * b), r = scale(x, g); if (sdr(r, r.map(f)) < db) b = g; else a = g } return Math.sqrt(a * b) }
+// saturations of unit slope at 0 (`atan` a condition; the rest `curves`'s)
+const SAT = {
+  atan: v => 2 / Math.PI * Math.atan(Math.PI / 2 * v), alg: v => v / Math.sqrt(1 + v * v),
+  sides: v => v > 0 ? Math.tanh(v) : 0.7 * Math.tanh(v / 0.7), bias: v => (Math.tanh(v + 0.3) - Math.tanh(0.3)) / (1 - Math.tanh(0.3) ** 2),
+}
 // a lookahead limiter: the gain the 5 ms moving average of the minimum over the next 5 ms of ceiling/|x|, released over
 // 100 ms, so a peak touches the ceiling and its neighbours follow the wave (no sample held flat)
 function limit(x, sr, c) {
@@ -121,7 +132,7 @@ function mp3(y, sr, file) {
   return readWav(file).ch[0]
 }
 const LEVELS = [1, 3, 5, 7, 10, 15, 20]
-const CONDS = [...LEVELS.map(t => 'hard-' + t), 'asym', 'down', 'soft', 'mp3', 'clean', 'limited']
+const CONDS = [...LEVELS.map(t => 'hard-' + t), 'asym', 'down', 'soft', 'atan', 'mp3', 'clean', 'limited']
 const HARM = new Set(['clean', 'limited'])
 // → { ref: the ground truth at the input's scale, y: the input, mask: the samples the defect touched }
 function degrade(it, cond) {
@@ -130,6 +141,9 @@ function degrade(it, cond) {
   else if (cond === 'asym') { let h = level(x, 15); ref = scale(x, 1 / h); y = clip(ref, 1, -level(x, 7) / h) }
   else if (cond === 'down') { ref = scale(x, 0.5 / level(x, 7)); y = scale(clip(scale(ref, 2), 1), 0.5) }
   else if (cond === 'soft') { ref = scale(x, drive(x, 10)); y = ref.map(Math.tanh) }
+  else if (cond in SAT) { ref = scale(x, drive(x, 10, SAT[cond])); y = ref.map(SAT[cond]) }
+  else if (cond === 'tanh20' || cond === 'tanh30') { ref = scale(x, drive(x, +cond.slice(4))); y = ref.map(Math.tanh) }
+  else if (cond === 'hiss') { let r = lcg(1); ref = scale(x, drive(x, 10)); y = ref.map(v => Math.tanh(v) + 2e-3 * Math.sqrt(3) * (r() - 0.5)) }
   else if (cond === 'mp3') { ref = scale(x, 1 / level(x, 7)); y = mp3(clip(ref, 1), sr, path.join(BASE, it.set, it.name, 'mp3-in.wav')) }
   else if (cond === 'clean') ref = y = scale(x, 1 / peak(x))
   else if (cond === 'limited') ref = y = limit(scale(x, 4 / peak(x)), sr, 10 ** (-0.2 / 20))
@@ -143,7 +157,7 @@ const G = 10 ** (-0.02 / 20), dB = v => 20 * Math.log10(Math.max(v, 1e-9))
 const OFFS = [-0.07, -0.25, -0.5, -1, -2, -4, -6]
 const GRID = [...OFFS.map(d => `rx:High:${d}`), 'rx:Medium:-0.07', 'rx:Low:-0.07']
 // hard clipping, flat rails: the offsets under −0.25 lost on every tuning item and level they were run on (−0.07 best)
-const gridFor = cond => cond === 'soft' || cond === 'mp3' ? GRID : GRID.filter(s => !/-(0\.5|1|2|4|6)$/.test(s) || !s.includes('High'))
+const gridFor = cond => cond === 'soft' || cond === 'atan' || cond === 'mp3' ? GRID : GRID.filter(s => !/-(0\.5|1|2|4|6)$/.test(s) || !s.includes('High'))
 const params = (sys, y) => {
   if (sys === 'rx') return {}
   let [, q, d] = sys.split(':'), hi = top(y), lo = top(y, -1), th = v => Math.max(-64, Math.min(0, dB(v) + +d))
@@ -196,10 +210,11 @@ const items = material(), tune = items.filter(it => it.split === 'tune'), test =
 const mine = list => list.filter(it => !only || only.split(',').includes(it.set)).filter((_, i) => i % pn === pi), DEFECTS = CONDS.filter(c => !HARM.has(c))
 const file = (it, cond, sys) => path.join(BASE, it.set, it.name, cond, sys.replace(/:/g, '_') + '.wav')
 let res = new Map(), get = (it, cond, sys) => res.get(`${it.set}/${it.name}/${cond}/${sys}`)
-async function measure(list, conds, sysOf) {
+async function measure(list, conds, sysOf, missing = true) {
   for (let it of list) for (let cond of conds) {
-    let d = degrade(it, cond)
-    for (let sys of sysOf(it, cond)) res.set(`${it.set}/${it.name}/${cond}/${sys}`, score(it, cond, d, await render(it, cond, sys)))
+    let d = null
+    for (let sys of sysOf(it, cond)) if (missing || existsSync(file(it, cond, sys)))
+      res.set(`${it.set}/${it.name}/${cond}/${sys}`, score(it, cond, d ??= degrade(it, cond), await render(it, cond, sys)))
   }
 }
 if (phase === 'inputs') {   // each condition's input: SDR to the truth, rails, share of samples the defect touched
@@ -209,7 +224,21 @@ if (phase === 'inputs') {   // each condition's input: SDR to the truth, rails, 
   }
   process.exit(0)
 }
-if (phase === 'ours') { await measure(mine(test), CONDS, () => [OURS]); process.exit(0) }
+if (phase === 'ours') { await measure(mine(test), CONDS.filter(c => !conds || conds.split(',').includes(c)), () => [OURS]); process.exit(0) }
+if (phase === 'curves') {
+  const MORE = { alg: 'x/√(1 + x²), 10 dB', sides: 'tanh, the negative ceiling 0.7, 10 dB', bias: 'tanh biased (even harmonics), 10 dB', tanh20: 'tanh, 20 dB', tanh30: 'tanh, 30 dB', hiss: 'tanh 10 dB, then hiss at −60 dBFS' }
+  if (only !== 'report') await measure(mine(test), Object.keys(MORE), () => [OURS])
+  if (pn > 1) process.exit(0)
+  let rows = []
+  await measure(test, Object.keys(MORE), () => [OURS], false)
+  for (let [c, what] of Object.entries(MORE)) rows.push([what, ...[it => it.set === 'sqam', it => it.set === 'repair' || it.set === 'musdb-test', it => it.set === 'vb-test'].map(f => {
+    let set = test.filter(f).filter(it => get(it, c, OURS)), d = set.map(it => degrade(it, c))
+    if (!set.length) return '–'
+    return `${mean(d.map(d => sdr(d.ref, d.y))).toFixed(1)} → ${mean(set.map((it, i) => sdr(d[i].ref, d[i].y) + get(it, c, OURS).dsdr)).toFixed(1)}${set.length < test.filter(f).length ? ` (${set.length})` : ''}`
+  })])
+  console.log(`## ${OURS} on more saturations: SDR in → out, dB (mean)\n\n` + table(['saturation', 'SQAM', 'other music', 'speech'], rows))
+  process.exit(0)
+}
 // RX tuned: per condition and kind, the grid setting of the best mean ΔSDR on the tuning set (the harm rows: hard-20's)
 await measure(phase === 'tune' ? mine(tune) : tune, DEFECTS, (it, cond) => gridFor(cond))
 if (phase === 'tune') process.exit(0)
@@ -219,8 +248,8 @@ for (let kind of ['music', 'speech']) {
   for (let c of HARM) tuned[kind + c] = tuned[kind + 'hard-20']
 }
 // soft saturation has no rail to find: ours given the level RX tuned cuts at (its offset under the peak), as a user would
-const level_ = it => `${OURS}~${tuned[it.kind + 'soft'].split(':')[2]}`
-if (phase === 'level') { await measure(mine(test), ['soft'], it => [level_(it)]); process.exit(0) }
+const level_ = (it, cond = 'soft') => `${OURS}~${tuned[it.kind + (cond === 'atan' ? 'atan' : 'soft')].split(':')[2]}`
+if (phase === 'level') { await measure(mine(test), ['soft', 'atan'], (it, cond) => [level_(it, cond)]); process.exit(0) }
 await measure(phase === 'rx' ? mine(test) : test, CONDS, (it, cond) => ['rx', tuned[it.kind + cond]])
 if (phase === 'rx') process.exit(0)
 for (let it of test) for (let cond of CONDS) {
@@ -228,10 +257,10 @@ for (let it of test) for (let cond of CONDS) {
   if (existsSync(dir)) for (let sys of readdirSync(dir).filter(f => f.startsWith('ours@')).map(f => f.slice(0, -4)))
     res.set(`${it.set}/${it.name}/${cond}/${sys}`, score(it, cond, d ??= degrade(it, cond), readWav(file(it, cond, sys)).ch[0]))
 }
-await measure(test, CONDS, () => [OURS])
-await measure(test, ['soft'], it => [level_(it)])
+await measure(test, CONDS, () => [OURS], phase !== 'tables')
+await measure(test, ['soft', 'atan'], (it, cond) => [level_(it, cond)], phase !== 'tables')
 const oursTags = [...new Set([...res.keys()].map(k => k.split('/').pop()).filter(s => s.startsWith('ours@')))].sort()
-const systems = (kind, cond) => [['RX default', 'rx'], [`RX tuned`, tuned[kind + cond]], ...oursTags.filter(t => !t.includes('~')).map(t => [t.replace('ours@', 'ours '), t]), [`${OURS.replace('ours@', 'ours ')}, level given`, level_({ kind })]]
+const systems = (kind, cond) => [['RX default', 'rx'], [`RX tuned`, tuned[kind + cond]], ...oursTags.filter(t => !t.includes('~')).map(t => [t.replace('ours@', 'ours '), t]), [`${OURS.replace('ours@', 'ours ')}, level given`, level_({ kind }, cond)]]
 const med = v => [...v].sort((a, b) => a === b ? 0 : a < b ? -1 : 1)[(v.length - 1) >> 1]
 const fmt = v => v === Infinity ? '∞' : Number.isFinite(v) ? v.toFixed(2) : '–'
 
