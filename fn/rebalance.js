@@ -18,18 +18,19 @@
  * (SCNet-large, Tong et al., ICASSP 2024, MIT weights), 'scnet' (a quarter of its size, a third of its time),
  * 'htdemucs' or 'htdemucs_ft' (weights for research only), 'umxhq' (Open-Unmix, MIT). scene's: 'mrx' by default (MRX,
  * Petermann et al., ICASSP 2022, trained on Divide and Remaster; MERL's MIT weights), 'tiger' (TIGER, Xu et al., ICLR
- * 2025; Apache-2.0 weights: 1 to 4 dB ahead of MRX per stem on four test clips, 30 to 100 times its time). Weights are
- * exported once by the package's scripts into ~/.cache/audiojs/neural, or served from `weights` (a URL or directory);
- * `device` picks the ONNX Runtime backend. The whole input is separated once before rendering and kept on the edit
- * while it stays the same (core.js memo: gains moved, the stems are read back). A model hearing stereo hears mono as
- * stereo and gives the mean of its two stems (MRX and TIGER hear each channel apart); channels past the first two pass
- * through.
+ * 2025; Apache-2.0 weights: on 30 of the test clips 12.68 · 10.24 · 8.06 dB against MRX's 10.92 · 5.17 · 5.72, at about
+ * 50 times its time). Weights are exported once by the package's scripts into ~/.cache/audiojs/neural, or served from
+ * `weights` (a URL or directory); `device` picks the ONNX Runtime backend. The whole input is separated once before
+ * rendering and kept on the edit while it stays the same (core.js memo: gains moved, the stems are read back). A model
+ * hearing stereo hears mono as stereo and gives the mean of its two stems (MRX and TIGER hear each channel apart);
+ * channels past the first two pass through.
  * On MUSDB18's 50 test previews (bench/rx/separate.mjs), each stem soloed, BSSEval v4 SDR, the median over songs,
  * vocals · bass · drums · other: 10.75 · 8.17 · 10.30 · 6.94 dB; RX 12 Music Rebalance at Best 10.89 · 9.66 · 9.85 ·
  * 6.45, behind on 33, 32, 38 and 32 of the songs; the vocals 6 dB up 20.2 dB against RX's 19.5. On Divide and Remaster
  * v3's English test set (150 clips of 60 s, bench/rx/scene.mjs), SNR, the median over clips, dialogue · music · effects:
- * mrx 11.82 · 5.32 · 6.03 dB; its authors' Bandit v2 (CC BY-SA weights, not run here) 15.6 · 10.4 · 9.9 on all 1200; the
- * dialogue 6 dB up 18.9 dB from the true remix (7.2 left as it is). RX 12 Scene Rebalance runs only in Pro Tools.
+ * mrx 11.82 · 5.32 · 6.03 dB (the dialogue as deepfilter(0) takes it, 10.47); its authors' Bandit v2 (CC BY-SA
+ * weights, not run here) 15.6 · 10.4 · 9.9 on all 1200; the dialogue 6 dB up 18.9 dB from the true remix (7.2 left as
+ * it is). RX 12 Scene Rebalance runs only in Pro Tools.
  */
 
 import audio, { arrived, memo } from '../core.js'

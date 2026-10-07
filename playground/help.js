@@ -431,7 +431,8 @@ export const texts = {
   scene: {
     dialogue: 'Level of the speech, in dB. 0 leaves it; higher lifts it over the music and effects, lower pushes it back, -60 all but takes it out, leaving a music and effects track.',
     music: 'Level of the score and any songs, in dB. 0 leaves it; lower makes room for the dialogue, -60 all but takes it out.',
-    effects: 'Level of everything else: footsteps, doors, traffic, rain, the room, in dB. 0 leaves it; lower quiets the scene around the voices.'
+    effects: 'Level of everything else: footsteps, doors, traffic, rain, the room, in dB. 0 leaves it; lower quiets the scene around the voices.',
+    model: 'Which model tells the parts apart. mrx is quick, about a fifth of real time. tiger keeps music and effects apart far better, and takes about fifty times as long.'
   },
   deconstruct: {
     tonal: 'Level of the tones (held notes, hum, a voice\'s vowels), in dB. 0 leaves them; -60 all but removes them.',

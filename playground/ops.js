@@ -110,7 +110,7 @@ const table = {
   // a song's four stems, each at its own level, by a separation model (fn/rebalance.js)
   rebalance: ['Repair', 'Turn a song\'s vocals, bass, drums or the rest up or down', [db('vocals', -60, 12, 0), db('bass', -60, 12, 0), db('drums', -60, 12, 0), db('other', -60, 12, 0)]],
   // a soundtrack's dialogue, music and effects, each at its own level, by a separation model (fn/rebalance.js)
-  scene: ['Repair', 'Turn a film\'s dialogue, music or effects up or down', [db('dialogue', -60, 12, 0), db('music', -60, 12, 0), db('effects', -60, 12, 0)]],
+  scene: ['Repair', 'Turn a film\'s dialogue, music or effects up or down', [db('dialogue', -60, 12, 0), db('music', -60, 12, 0), db('effects', -60, 12, 0), choice('model', ['mrx', 'tiger'])]],
   // the tonal, noisy and transient parts, each at its own level (fn/deconstruct.js)
   deconstruct: ['Repair', 'Rebalance tones, noise and attacks', [db('tonal', -60, 12, 0), db('noise', -60, 12, 0), db('transient', -60, 12, 0), p('separation', 1, 8, 2, '×', { step: .1 })]],
   // the clicks found everywhere, or in the selection alone, each rebuilt from around it (fn/declick.js)

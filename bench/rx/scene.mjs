@@ -47,7 +47,9 @@ export const SYSTEMS = {
   'mrx-whole': 'sep:{"model":"mrx","chunk":3600}',
   tiger: 'sep:{"model":"tiger"}',
   scene: 'op:scene()',
-  // SCNet's tonal stems the music, its drums and what it leaves the effects (none of its stems is effects)
+  // DeepFilterNet3's speech alone (its whole removal, music enhanced too); with SCNet's tonal stems of the rest as the
+  // music, its drums and what it leaves the effects (none of its stems is effects)
+  dfn: 'composed:{}',
   composed: 'composed:{"model":"scnet","music":["bass","other","vocals"]}',
 }
 
@@ -81,6 +83,8 @@ function system(spec) {
     let stems = once(async x => {
       separate ??= (await import('@audio/neural-separate')).default
       let dialogue = (await op("deepfilter({ limit: 0, music: 'enhance' })")(x)).ch, rest = x.ch.map((c, k) => c.map((v, i) => v - dialogue[k][i]))
+      // the speech model alone: the dialogue, and the rest unsplit
+      if (!o.model) return { dialogue }
       let s = (await separate(rest, { sampleRate: x.sr, model: o.model })).stems, K = rest.length
       // the model's stereo stems back to the clip's channels (mono: their mean)
       let back = st => K === 1 ? [st[0].map((v, i) => (v + st[1][i]) / 2)] : st
@@ -118,9 +122,14 @@ async function render(split, id, shard) {
     r.dur = x.ch[0].length / x.sr
     store.clear()
     // stems at once (a separation, timed) or each soloed by the op
-    let all = sys.stems && want.some(w => STEMS.includes(w)) ? await time(() => sys.stems(x)) : null
+    let all = sys.stems ? await time(() => sys.stems(x)) : null
     if (all) r.first ??= all[1]
     for (let w of want) {
+      // a stem the system does not give, or a remix of one: none
+      if (all && (STEMS.includes(w) ? !all[0][w] : REMIXES[w] && Object.keys(REMIXES[w]).some(s => !all[0][s]))) {
+        if (REMIXES[w]) r.remix[w] = null; else r.stems[w] = { snr: null, sisdr: null }
+        continue
+      }
       let [y, t] = REMIXES[w] ? await time(() => sys.remix(REMIXES[w])(x)) : w === 'harm' ? [await sys.harm(x)] : all ? [all[0][w]] : await time(() => sys.solo(w)(x))
       if (REMIXES[w]) r.remix[w] = snr(remix(x.ch, refs, REMIXES[w])[0], y[0])
       else if (w === 'harm') r.harm = snr(x.ch[0], y[0])
