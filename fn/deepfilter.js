@@ -36,19 +36,53 @@
  * over a music bed counts as speech, songs as music (package README, Music); from 0.5 speech is favoured by 1 nat a
  * patch, as the stream decides, so a voice under a bed as loud as itself passes untouched in 37% of its frames, not
  * 51%. `music: 'enhance'` enhances everything, as before. RNNoise streams: the `rnnoise` registry op, same package.
+ *
+ * Where the model's voice still carries a room, the model hears the take again with the room's linear prediction taken
+ * off: @audio/denoise-dereverb's weighted prediction error (Nakatani et al., IEEE TASLP 2010) alone, `dereverb(x,
+ * { strength: 0 })`, which cancels the part of the late tail the frames 43 to 150 ms before predict, linearly, the voice
+ * untouched. Whether there is a room is dereverb's own question (no dry take, a diffuse tail, pauses, neither a held
+ * partial nor a beat), asked of the model's output and of the take: asked of the take alone, a noise floor read as a
+ * tail in a fifth of the noisy takes. DeepFilterNet3 trained with reverberant speech in a tenth of its mixtures and
+ * takes part of a room; the input mixed back is the take itself. In MIT IR Survey rooms with noise 5 dB under the voice
+ * (bench/rx/isolate.mjs, test split, 81 of 103 takes heard again) PESQ 1.77 → 1.81, SI-SDR 5.7 → 6.2 dB, DNSMOS OVRL
+ * 2.42 → 2.44 (RX 12 Dialogue Isolate, its reverb off: 1.80, 7.2, 2.51); a voice under a music bed as loud as itself
+ * 1.63 → 1.67, OVRL 2.33 → 2.44 (13 of 103); noise, babble, clean speech and music alone as they were (0 to 2 of 103),
+ * VoiceBank+DEMAND (2 of 824, PESQ 3.045) and the ten narrations (2 of 10, OVRL 3.225 → 3.224) too. The question
+ * costs a dereverb fit of the model's output, about 0.1 s per second at 48 kHz; a take heard again, one of the take
+ * and a second model run.
  */
 
 import audio, { arrived, memo } from '../core.js'
+import dereverb from '@audio/denoise-dereverb'
 import { fingerprint } from './vocals.js'
 
 const LIMIT = 18
+
+// What the model hears again where its voice y still carries a room: the take with the room's prediction off (dereverb's
+// WPE alone) in each channel where dereverb would take a room off y and off the take (null: nowhere, y stands). Asked
+// of the voice, not of the take, so a noise floor, which reads as a tail in the take, is not taken for a room. The last
+// answer kept, so moving the limit or the floor fits no room again.
+let last
+const changed = (a, b) => a.some((v, i) => v !== b[i])
+export function roomless(pcm, y, sampleRate) {
+  let key = `${sampleRate}:${fingerprint(pcm)}:${fingerprint(y)}`
+  if (last?.key === key) return last.heard
+  let heard = pcm.map((x, c) => {
+    if (!changed(dereverb(y[c], { fs: sampleRate, strength: 0 }), y[c])) return x
+    return dereverb(x, { fs: sampleRate, strength: 0 })
+  })
+  last = { key, heard: heard.some((h, c) => changed(h, pcm[c])) ? heard : null }
+  return last.heard
+}
 
 /**
  * An op of the edit's input x and DeepFilterNet3's whole removal y (unlimited), made once ahead of rendering: per
  * channel, `finish(x, y, o, sampleRate, neural)` (neural: the package's exports), the options it reads named by
  * `id(o)`, which also checks them. deepfilter's, and derustle's (fn/derustle.js); the model's output is shared.
+ * `again(pcm, y, sampleRate)`, when given, makes what the model hears again from the input and its first output, or
+ * null (deepfilter's: roomless()).
  */
-export function enhancer(name, id, finish) {
+export function enhancer(name, id, finish, again) {
   const ENHANCED = Symbol(name + '.enhanced')
   const loadNeural = () => audio.import('@audio/neural-denoise').catch(e => { throw new Error(`${name}: install @audio/neural-denoise (${e.message})`) })
 
@@ -74,13 +108,15 @@ export function enhancer(name, id, finish) {
     // the model's output kept by how it runs (heard at -20 dBFS, held voicing kept: neural-denoise 0.2; a band-limited
     // input's empty bands heard as a noise floor: 0.3; music passed or not: 0.4), the model and its input (core.js memo),
     // never by what is made of it after: a reload, another tab, the limit moved, another op on it, read it back
-    let y = await memo(`deepfilternet3:-20dBFS,voice,edge,music-${music}:${o.weights ?? ''}:${input.sampleRate}:${fingerprint(pcm)}`, async () => {
+    let run = x => memo(`deepfilternet3:-20dBFS,voice,edge,music-${music}:${o.weights ?? ''}:${input.sampleRate}:${fingerprint(x)}`, async () => {
       let model = await load('deepfilternet3', { weights: o.weights, device: o.device }).catch(e => {
         throw new Error(`${name}: can't load DeepFilterNet3 from ${o.weights ?? MODEL} (${e.message}); it downloads once (8 MB) and is cached; { weights } takes another URL`)
       })
-      try { return await denoise(pcm, { sampleRate: input.sampleRate, model, limit: 0, music }) }
+      try { return await denoise(x, { sampleRate: input.sampleRate, model, limit: 0, music }) }
       finally { model.free() }
     })
+    let y = await run(pcm), heard = again?.(pcm, y, input.sampleRate)
+    if (heard) y = await run(heard)
     o[ENHANCED] = { key, stamp, pcm: y.map((v, c) => finish(pcm[c], v, o, input.sampleRate, neural)) }
   }
 
@@ -109,5 +145,5 @@ audio.op('deepfilter', {
     if (!limit) return y
     if (!mixback) throw new Error('deepfilter: needs @audio/neural-denoise 0.5 or later (its mixback())')
     return mixback(x, y, { limit, floor: o.floor, sampleRate })
-  }),
+  }, roomless),
 })

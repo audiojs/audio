@@ -34,6 +34,7 @@ import os from 'node:os'
 import path from 'node:path'
 import audio from '../audio.js'
 import RECIPES from '../playground/recipes.js'
+import { roomless } from '../fn/deepfilter.js'
 import { readWav, writeWav, rx } from './rx/lib.mjs'
 
 // SPEECH_TAG names a separate output tree: the same stages after their packages change
@@ -157,8 +158,9 @@ function inputs(set) {
 }
 
 // Neural stages run @audio/neural-denoise with one model handle (one thread) for all files, and deepfilter as audio's
-// op does (fn/deepfilter.js): the unlimited output y, the input x mixed back by the package's mixback() (`limit` 18
-// unless given, and its `floor`). The op loads the model per edit.
+// op does (fn/deepfilter.js): the unlimited output y (the model run again on the take with the room's linear prediction
+// off where y still carries a room: roomless()), the input x mixed back by the package's mixback() (`limit` 18 unless
+// given, and its `floor`). The op loads the model per edit.
 let models = {}, denoise, mixback
 async function neural(x, model, o) {
   if (!models[model]) {
@@ -167,7 +169,8 @@ async function neural(x, model, o) {
     models[model] = await nd.load(model === 'deepfilter' ? 'deepfilternet3' : 'rnnoise', { sessionOptions: { intraOpNumThreads: 1, interOpNumThreads: 1 } })
   }
   if (model === 'rnnoise') return { ch: await denoise(x.ch, { sampleRate: x.sr, model: models[model], limit: o.limit ?? 20 }), sr: x.sr }
-  let y = await denoise(x.ch, { sampleRate: x.sr, model: models[model], limit: 0 }), limit = o.limit ?? 18
+  let run = ch => denoise(ch, { sampleRate: x.sr, model: models[model], limit: 0 }), y = await run(x.ch), heard = roomless(x.ch, y, x.sr), limit = o.limit ?? 18
+  if (heard) y = await run(heard)
   return { ch: limit ? y.map((v, c) => mixback(x.ch[c], v, { limit, floor: o.floor, sampleRate: x.sr })) : y, sr: x.sr }
 }
 

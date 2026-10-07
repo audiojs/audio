@@ -90,6 +90,37 @@ test('omlsa: raises segSNR of noisy speech (IMCRA, non-stationary noise tracking
 	ok(after > before + 0.5, `defining property: segSNR raised (${before.toFixed(2)} -> ${after.toFixed(2)} dB)`)
 })
 
+// x in a room: the direct sound and a late tail of velvet noise (Järveläinen & Karjalainen 2007: a ±1 tap at a random
+// place in each 0.5 ms) from 50 ms on, falling 60 dB in t60 s, its energy `ratio` dB under the direct sound's
+function room(x, t60, ratio = 3) {
+	let s = 5, r = () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296, taps = [], e = 0, y = Float32Array.from(x)
+	for (let k = 0, at = 0.05 * SR, step = SR / 2000; at + k * step < 1.5 * t60 * SR; k++) {
+		let i = Math.round(at + (k + r()) * step), g = (r() < 0.5 ? -1 : 1) * 10 ** (-3 * i / SR / t60)
+		taps.push([i, g]); e += g * g
+	}
+	for (let [i, g] of taps) { g *= 10 ** (-ratio / 20) / Math.sqrt(e); for (let n = i; n < x.length; n++) y[n] += g * x[n - i] }
+	return y
+}
+
+// a beat: a kick (a 60 Hz thump falling over 80 ms) on every half second, 120 bpm, and a hat (noise over 30 ms) between
+function beat(sec) {
+	let x = new Float32Array(Math.round(sec * SR)), s = 3, r = () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296 - 0.5
+	for (let i = 0; i < x.length; i++) {
+		let t = i / SR, u = t % 0.5, v = (t + 0.25) % 0.5
+		x[i] = 0.3 * Math.exp(-u / 0.08) * Math.sin(2 * Math.PI * 60 * u) + 0.1 * Math.exp(-v / 0.03) * r()
+	}
+	return x
+}
+
+test('dereverb: music in a room passes as it came, its beat the mark (0.5 changed it by −2.4 dB of itself); music: \'enhance\' takes it as a room', async () => {
+	// the room gives the beat a diffuse tail, and its pauses are a voice's: the room's checks would process it
+	let x = room(beat(8), 0.6)
+	let [y] = await audio.from([x.slice()], { sampleRate: SR }).dereverb().read()
+	is(maxDiff(y, x), 0, 'untouched')
+	let [z] = await audio.from([x.slice()], { sampleRate: SR }).dereverb({ music: 'enhance' }).read()
+	ok(maxDiff(z, x) > 1e-3, `music: 'enhance': processed (max change ${maxDiff(z, x).toFixed(4)})`)
+})
+
 test('dereverb: reduces late-tail energy, never boosts it', async () => {
 	let speech = lena.subarray(0, SR * 2)
 	let t60 = 0.5
@@ -311,6 +342,7 @@ test('whole-render op on a file source waits decode out (was: 0 samples / save c
 
 import { existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
+import { roomless } from '../fn/deepfilter.js'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -406,14 +438,17 @@ test('rnnoise, deepfilter: without @audio/neural-denoise each names the package,
 	let { clean, dirty } = take(), calls = 0
 	await withImport((spec, orig) => spec === '@audio/neural-denoise' ? orig(spec).then(m => ({ ...m, default: (...a) => (calls++, m.default(...a)) })) : orig(spec), async () => {
 		let [input] = await audio.from([dirty], { sampleRate: SR }).gain(-6).read(), [ref] = await audio.from([clean], { sampleRate: SR }).gain(-6).read()
-		let [y] = await neural.default([input], { sampleRate: SR, model: 'deepfilternet3', limit: 0, music: 'enhance' })
+		// the model run again on the take with the room's prediction off where its voice carries a room (roomless())
+		let run = x => neural.default(x, { sampleRate: SR, model: 'deepfilternet3', limit: 0, music: 'enhance' })
+		let y0 = await run([input]), heard = roomless([input], y0, SR), [y] = heard ? await run(heard) : y0
 		calls = 0
 		let a = audio.from([dirty, dirty], { sampleRate: SR }).gain(-6).deepfilter({ channel: 1, music: 'enhance' })
-		let [l, r] = await a.read()
+		let [l, r] = await a.read(), runs = calls
 		is(maxDiff(r, neural.mixback(input, y, { sampleRate: SR })), 0, 'the package on the edits before it, the input mixed back by its mixback(): 18 dB, the floor')
 		is(maxDiff(l, input), 0, 'channel 0 untouched')
 		a.gain(1); await a.read()
-		is(calls, 1, 'enhanced once: re-reads and later edits reuse it')
+		is(runs, heard ? 2 : 1, 'the model run once, twice where its voice carried a room')
+		is(calls, runs, 'enhanced once: re-reads and later edits reuse it')
 		let speech = speechDb(r) - speechDb(ref)
 		ok(Math.abs(speech) < 1.5, `speech ${speech.toFixed(2)} dB from the clean take`)
 		let [none] = await audio.from([input], { sampleRate: SR }).deepfilter({ limit: 0, music: 'enhance' }).read()
@@ -475,6 +510,19 @@ function band(sec, sr = SR) {
 	is(maxDiff(r.subarray(from), x.subarray(from)), 0, 'rnnoise: from 1.5 s on, the band as it went in')
 	let err = await audio.from([x], { sampleRate: SR }).deepfilter({ music: 'keep' }).read().catch(e => e)
 	ok(/^deepfilter: music is 'pass' or 'enhance'/.test(err?.message), err?.message)
+})
+
+// the model hears a voice in a room with the room's linear prediction off (dereverb's WPE alone): the take comes nearer
+// the dry voice; music, and a take dereverb hears no room in, go in as they came. No model needed
+test('deepfilter: the model hears a voice in a room without the room\'s prediction, music as it came', async () => {
+	// the model's voice stands in as the take itself: where it carries a room, the take is heard without its prediction
+	let speech = lena.subarray(0, 4 * SR), wet = room(speech, 0.5, 6)
+	let [h] = roomless([wet], [wet], SR), err = v => { let e = 0; for (let i = 0; i < v.length; i++) e += (v[i] - speech[i]) ** 2; return 10 * Math.log10(e) }
+	ok(err(h) < err(wet) - 0.5, `nearer the dry voice: ${(err(h) - err(wet)).toFixed(2)} dB of the room off`)
+	ok(roomless([wet], [wet], SR)[0] === h, 'the last one kept: moving the limit fits no room again')
+	let music = room(beat(8), 0.6)
+	is(roomless([music], [music], SR), null, 'music in a room: heard once, as it came')
+	is(roomless([wet], [beat(4)], SR), null, 'a voice the model left no room in (here a beat): heard once')
 })
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -101,7 +101,7 @@
     "@audio/denoise-decrackle": "^0.3.1",
     "@audio/denoise-dehum": "^0.5.2",
     "@audio/denoise-deplosive": "^0.3.0",
-    "@audio/denoise-dereverb": "^0.5.0",
+    "@audio/denoise-dereverb": "^0.6.0",
     "@audio/denoise-desqueak": "^0.2.0",
     "@audio/denoise-dewind": "^0.4.0",
     "@audio/denoise-dewow": "^0.3.0",

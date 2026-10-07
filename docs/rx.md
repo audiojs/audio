@@ -21,8 +21,8 @@
 | De-hum | `dehum()` | 6 hum conditions × speech, readings, music: SDR 34.9 dB, PESQ 4.01 | 25.4, 2.80 | |
 | Spectral De-noise | `denoise({ noise })` | music under steady noise: SDR 20.9 dB | 20.2 (learned, tuned) | |
 | Voice De-noise | `omlsa()` | VoiceBank+DEMAND: PESQ 2.36, SI-SDR 14.2 dB | 2.37, 7.3 (default); 2.50, 3.7 (tuned) | PESQ tuned: ours 2.47 with `omlsa({ threshold: 4 })` |
-| Dialogue Isolate | `deepfilter()` | VoiceBank+DEMAND: PESQ 3.05; mixtures at −5 to 5 dB, babble, music beds: mean PESQ 1.99 | 2.73; 1.86 | a music bed as loud as the voice (DNSMOS OVRL 2.33 vs 2.74); reverberant rooms |
-| De-reverb | `dereverb()` | reverberant VoiceBank: PESQ 2.61; dry takes untouched | 2.46; changes every dry take | music recorded in a room (ours lowers its worst octave 3.1 dB, RX 0.5) |
+| Dialogue Isolate | `deepfilter()` | VoiceBank+DEMAND: PESQ 3.05; mixtures at −5 to 5 dB, babble, music beds, rooms: mean PESQ 2.00; a room with noise: PESQ 1.81 (the model run again on the take with the room's linear prediction off) | 2.73; 1.86; 1.80 | a music bed as loud as the voice (DNSMOS OVRL 2.44 vs 2.74); a room with noise: OVRL 2.44 vs 2.51, SI-SDR 6.2 vs 7.2 dB |
+| De-reverb | `dereverb()` | reverberant VoiceBank: PESQ 2.61; dry takes untouched; music recorded in a room untouched (the four pieces' worst octave 0.0 dB; sung tones and GuitarSet in rooms: +0.1 and −0.1 dB of the music) | 2.46; changes every dry take; −0.5, +0.1, −0.2 | a song whose beat 7 s does not show, in a room (3 of 25 MUSDB18 previews still processed: −0.09 dB of the music, RX +0.01) |
 | De-plosive | `deplosive()` | synthetic pops on VoiceBank: 22.5 dB of the pop's error gone; voiced frames 53.4 dB untouched | 21.9; 46.8 | |
 | De-ess | `deesser()` | harsh sibilants: 12.5 dB of the error gone, SNR 26.2 dB | 12.1, 25.4 | |
 | Breath Control | `debreath()` | narrations: 78 % of breaths down 6 dB, 0.49 % of speech frames touched; real breaths in VoiceBank: 78 % | 88 %, 1.96 %; 73 % | narration breaths caught, at 4 times the speech touched |

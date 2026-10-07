@@ -8,8 +8,10 @@
 // CONDITIONS: comma-separated, or `all`. SYSTEM: `input` (the mixture as it is), a name of SYSTEMS below,
 // `rx:k=v;k=v` (Dialogue Isolate from its defaults, its noise off unless given; -inf turns a gain off),
 // `op:<stages>` (audio's chain, as the editor runs it: op:deepfilter(12)), or `nd:{json}` (@audio/neural-denoise's
-// denoise() with DeepFilterNet3 and these options, one thread). Ours render under the package's version (and TAG);
-// SYSTEM@VERSION reads what an earlier version rendered. VS=SYSTEM sets what the Δ columns pair against.
+// denoise() with DeepFilterNet3 and these options, one thread, as audio's deepfilter op runs it: heard again with the
+// room's prediction off where its voice carries a room, fn/deepfilter.js roomless()). Ours render under the two
+// packages' versions, neural-denoise's and denoise-dereverb's (and TAG), as 0.5.0-drv0.6.0; SYSTEM@VERSION reads what
+// an earlier version rendered (dfn@0.5.0: before the room's prediction). VS=SYSTEM sets what the Δ columns pair against.
 //
 // Speech: VoiceBank's clean takes (Valentini-Botinhao 2017, CC BY 4.0, doi:10.7488/ds/2117), 48 kHz, at -26 dBFS
 // active level (ITU-T P.56's nominal; active: the 10 ms frames within 35 dB of the 99th-percentile one). tune: every
@@ -47,8 +49,11 @@ const SR = 48000, LEVEL = -26, HALF = 150 * SR
 
 // RX at its defaults with its noise off; RX as tuned on `tune` (sensitivity 0, 2.5, 5, 7.5, 10 and the reverb off
 // tried: the reverb off too, its mean PESQ and OVRL over the speech conditions the highest); ours as the editor runs
-// it (fn/deepfilter.js: denoise() unlimited, mixback() after), on one ORT thread; dfn-floor0 is neural-denoise 0.4's
-// op, bit for bit
+// it (fn/deepfilter.js: denoise() unlimited, run again on the take with the room's prediction off where its output
+// still carries a room, mixback() after), on one ORT thread; dfn-floor0 is neural-denoise 0.4's op, bit for bit but
+// for rooms. On `tune`, reverb5: the room's prediction off before the model, PESQ 1.88 → 1.96, SI-SDR 7.3 → 7.9 dB
+// (forced on every take); dereverb() whole after the model 1.89, before it 1.87 (OVRL −0.09); asked of the take
+// rather than of the model's voice, it also ran on a fifth of the noise and babble takes (PESQ −0.01)
 export const SYSTEMS = {
   'rx-di': 'rx:',
   'rx-di-tuned': 'rx:reverb_gain_db=-inf',
@@ -179,8 +184,10 @@ async function bed(split, i, n, r) {
 
 // ------------------------------------------------ systems
 
-// a system's directory: its spec; ours also carry @audio/neural-denoise's version (and TAG, for a change in progress)
-const ND = JSON.parse(readFileSync(new URL(import.meta.resolve('@audio/neural-denoise/package.json')), 'utf8')).version + (process.env.TAG ? '-' + process.env.TAG : '')
+// a system's directory: its spec; ours also carry neural-denoise's and denoise-dereverb's versions (and TAG, for a change
+// in progress)
+const version = p => JSON.parse(readFileSync(new URL(import.meta.resolve(p + '/package.json')), 'utf8')).version
+const ND = version('@audio/neural-denoise') + '-drv' + version('@audio/denoise-dereverb') + (process.env.TAG ? '-' + process.env.TAG : '')
 const pinned = id => id.match(/^(.*)@(\d+\.\d+\.\d+(?:-[\w.]+)?)$/)
 const dirname = id => {
   let [, base, at] = pinned(id) ?? [, id, ND], s = SYSTEMS[base] ?? base, ours = /^nd:|deepfilter|rnnoise|derustle/.test(s)
@@ -206,8 +213,10 @@ function runner(id) {
   if (s.startsWith('nd:')) {
     let o = JSON.parse(s.slice(3))
     return async ({ ch, sr }) => {
-      let { default: denoise } = await import('@audio/neural-denoise')
-      return { ch: await denoise(ch, { sampleRate: sr, model: await dfn(), ...o }), sr }
+      let { default: denoise, mixback } = await import('@audio/neural-denoise'), { roomless } = await import('../../fn/deepfilter.js')
+      let model = await dfn(), run = x => denoise(x, { sampleRate: sr, model, ...o, limit: 0 }), y = await run(ch), heard = roomless(ch, y, sr), limit = o.limit ?? 18
+      if (heard) y = await run(heard)
+      return { ch: limit ? y.map((v, c) => mixback(ch[c], v, { limit, floor: o.floor, sampleRate: sr })) : y, sr }
     }
   }
   throw new Error(`unknown system ${id}`)
