@@ -467,6 +467,11 @@ export const texts = {
     attack: 'How long before speech starts the volume comes back. It rises ahead of the word, so the start is never cut; longer is softer.',
     release: 'How slowly the cut is applied after speech ends. Longer is smoother; shorter turns breaths down sooner.'
   },
+  desqueak: {
+    squeak: 'How far a string squeak, a finger sliding along a wound string, is turned down at most, in dB. Only the squeak goes: the notes ringing under it keep their partials, and a take with no squeak is left as it is. 0 leaves squeaks.',
+    pick: 'How far a pick\'s attack is softened at most, in dB: the bright click of each pluck, its first 10 ms, taken down to the level the note rings at just after. 0 leaves attacks; -9 tames attacks that are too sharp.',
+    amp: 'How far the amp\'s steady hiss, hum and buzz are turned down, in dB, learned from the quietest moments, best a second of the amp alone before the playing. The notes and their decay stay. 0 leaves it; -20 is typical.'
+  },
   debleed: {
     attenuation: 'How far the bleed that cancelling leaves is turned down, in dB. Lower takes more of it and, where the wanted sound and the bleed share a frequency, a little of the wanted sound; 0 only cancels.',
     span: 'How long a stretch of the room between the bleeding source and the mic is learned, in seconds: its delay and first reflections. A bigger, more echoing room wants more.'

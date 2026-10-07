@@ -119,6 +119,7 @@ const table = {
   deplosive: ['Repair', 'Soften p and b pops'],
   dewind: ['Repair', 'Reduce wind rumble'],
   debreath: ['Repair', 'Lower breaths between words'],
+  desqueak: ['Repair', 'Lower a guitar\'s string squeaks, harsh picks, amp hiss'],
   defeedback: ['Repair', 'Suppress feedback howl'],
   debleed: ['Repair', 'Take a source\'s bleed out of a mic, given its track'],
   spectral: ['Repair', 'Change a band over a time range', [p('band', 20, 20000, [1000, 4000], 'Hz', { log: true }), db('gain', -60, 12, -60)]],

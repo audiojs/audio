@@ -42,6 +42,7 @@ const OPS = {
   declip: '@audio/denoise-declip/audio',
   decrackle: '@audio/denoise-decrackle/audio',
   debreath: '@audio/denoise-debreath/audio',
+  desqueak: '@audio/denoise-desqueak/audio',
   // neural lane, optional package: RNNoise with its weights inside (deepfilter, its DeepFilterNet3, is fn/deepfilter.js)
   rnnoise: '@audio/neural-denoise/audio',
   // denoise-gate/-deesser merged into the dynamics atoms above (2026-07 near-dupe merge:

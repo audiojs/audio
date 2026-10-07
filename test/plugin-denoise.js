@@ -644,3 +644,30 @@ test('debleed(source): the source\'s bleed taken out of the mic; the same as { k
 	let still = (await audio.from([mic.slice()], { sampleRate: SR }).debleed(audio.from([new Float32Array(n)], { sampleRate: SR })).read())[0]
 	ok(still.every((v, i) => v === mic[i]), 'a silent source: bit-exact')
 })
+
+// desqueak reads the whole take (streaming: false): plucked notes (partials at 1/h², a click), and between two of them a
+// squeak, a fingertip sliding along a wound string (a pulse per 0.33 mm winding crossed, the hand's speed rising and
+// falling as a minimum-jerk move: Pakarinen, Penttinen & Bank, JASA 122(6), 2007)
+test('desqueak: a guitar\'s squeak taken down, the notes untouched; notes alone come back sample for sample', async () => {
+	let r = (s => () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296 - 0.5)(7), x = new Float32Array(3 * SR)
+	for (let [at, f0] of [[0.2, 110], [0.9, 147], [1.6, 196], [2.3, 131]]) {
+		let i0 = Math.round(at * SR)
+		for (let h = 1; h * f0 < 12000; h++) { let ph = 2 * Math.PI * r(); for (let i = i0; i < x.length; i++) x[i] += 0.2 / h / h * Math.sin(2 * Math.PI * h * f0 * (i - i0) / SR + ph) * Math.exp(-(i - i0) / SR * (1 + 0.3 * h) / 1.2) }
+		for (let i = 0; i < SR / 1000; i++) x[i0 + i] += 0.06 * r()
+	}
+	let T = 0.15, n = Math.round(T * SR), D = 0.6 * T / 1.875, s = new Float64Array(n + 400), burst = Float64Array.from({ length: 40 }, (_, i) => r() * Math.exp(-i / 6))
+	let pos = t => D * (10 * t ** 3 - 15 * t ** 4 + 6 * t ** 5), vel = t => 30 * D / T * t * t * (1 - t) ** 2
+	for (let j = 1, i = 0; ; j++) { while (i < n && pos(i / n) < j * 0.33e-3) i++; if (i >= n) break; for (let k = 0; k < 40; k++) s[i + k] += Math.sqrt(vel(i / n) / 0.6) * burst[k] }
+	let m = Math.max(...s.map(Math.abs)), a = Math.round(0.62 * SR), b = a + s.length, dirty = x.slice()
+	for (let i = 0; i < s.length; i++) dirty[a + i] += 0.05 * s[i] / m
+	let out = (await audio.from([dirty.slice()], { sampleRate: SR }).desqueak().read())[0]
+	is(out.length, x.length)
+	let e0 = 0, e1 = 0; for (let i = a; i < b; i++) e0 += (dirty[i] - x[i]) ** 2, e1 += (out[i] - x[i]) ** 2
+	ok(10 * Math.log10(e0 / e1) > 6, `defining property: the squeak ${(10 * Math.log10(e0 / e1)).toFixed(1)} dB down`)
+	let w = SR / 100, moved = 0; for (let i = 0; i < x.length; i++) if (i < a - w || i >= b + w) moved += out[i] !== dirty[i]
+	is(moved, 0, 'the notes outside the squeak: sample for sample')
+	let clean = (await audio.from([x.slice()], { sampleRate: SR }).desqueak().read())[0]
+	ok(clean.every((v, i) => v === x[i]), 'no squeak: bit-exact')
+	let off = (await audio.from([dirty.slice()], { sampleRate: SR }).desqueak({ squeak: 0 }).read())[0]
+	ok(off.every((v, i) => v === dirty[i]), 'squeak 0: bit-exact')
+})
