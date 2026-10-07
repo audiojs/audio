@@ -10,3 +10,4 @@ bench/.cache
 /videos
 token.npm
 /.samples
+__pycache__/
