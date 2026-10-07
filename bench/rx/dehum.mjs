@@ -4,6 +4,7 @@
 //   node bench/rx/dehum.mjs tune [GRID]   RX's settings on the tuning split (a grid over its main knobs), ours at defaults
 //   node bench/rx/dehum.mjs test          the test split: RX at its defaults, RX tuned, ours 0.4.0, ours now; clean
 //                                         material through each (harm); hum as recorded (no ground truth)
+//   node bench/rx/dehum.mjs clean         ours over 468 clean takes, no hum: the takes it changes (false alarms)
 //   RX_WORKERS=3 (plugin hosts in parallel), DEHUM_BEFORE='ours <version>-<hash>' (the build compared against).
 // Scores are kept per system (~/.cache/audiojs/data/rx/dehum/<split>/<system>.json), not renders; a system's label
 // carries the dehum source's hash, so a changed build is measured again and the others are read back.
@@ -340,6 +341,36 @@ async function harm(systems) {
   return res
 }
 
+// clean material at scale, no hum: a take ours changes at all is a false alarm, its cost the SDR of what comes out
+// against what went in. MUSDB18's 94 training and 50 test previews (7 s), the four pieces of repair/ whole, every third
+// VocalSet take, every third GuitarSet take (mono-mic, its first 30 s)
+const walk = d => existsSync(d) ? readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]) : []
+const wav = (f, s = Infinity) => () => { let w = readWav(f); return { x: w.ch[0].subarray(0, s * w.sr), fs: w.sr } }
+const third = (d, set, s) => walk(path.join(DATA, d)).filter(f => f.endsWith('.wav')).sort().filter((_, i) => i % 3 === 0).map(f => ({ set, f, load: wav(f, s) }))
+const CLEAN = () => [
+  ...['train', 'test'].flatMap(k => ls(path.join(DATA, 'musdb', `${k}-mono`), '.f32').map(f => ({ set: `MUSDB18 ${k}`, f, load: () => ({ x: f32(f), fs: 44100 }) }))),
+  ...ls(path.join(DATA, 'repair'), '.f32').map(f => ({ set: 'pieces', f, load: () => ({ x: f32(f), fs: 44100 }) })),
+  ...third('vocalset', 'VocalSet'), ...third(path.join('guitarset', 'audio_mono-mic'), 'GuitarSet', 30),
+]
+async function clean() {
+  let items = CLEAN(), b = book('clean', OURS), res = []
+  await each(items, async it => {
+    let key = path.relative(DATA, it.f), s = b.s[key]
+    if (!s) {
+      let { x, fs } = it.load(), y = (await ours({ ch: [x], sr: fs })).ch[0], ee = 0
+      for (let i = 0; i < x.length; i++) ee += (y[i] - x[i]) ** 2
+      s = b.s[key] = { sdr: ee ? db(E(x) / ee) : Infinity }; save(b)
+    }
+    res.push({ set: it.set, key, ...s })
+  }, 'clean')
+  console.log(`Clean takes, no hum, through ${OURS}: those changed at all (false alarms) and the worst SDR of a take against itself, dB\n`)
+  console.log(table(['material', 'takes', 'changed', 'worst SDR'], [...new Set(items.map(i => i.set))].map(k => {
+    let ss = res.filter(r => r.set === k), ch = ss.filter(r => r.sdr !== Infinity)
+    return [k, ss.length, ch.length, ch.length ? f1(Math.min(...ch.map(r => r.sdr))) : '∞']
+  })))
+  for (let r of res.filter(r => r.sdr !== Infinity)) console.log(`${r.key}: ${f1(r.sdr)} dB`)
+}
+
 // hum as recorded: no clean reference. The series measure() finds in the input (its f0); the lines' power within
 // ±0.5 Hz of h·f0 to 1 kHz before over after, dB; the rest of the spectrum (20 Hz–8 kHz beyond ±2 Hz of every h·f0)
 // as it comes out against as it went in, SDR. RX learns on the recording itself (a select-all Learn: no room tone)
@@ -433,5 +464,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   let cmd = process.argv[2]
   if (cmd === 'tune') await tune()
   else if (cmd === 'test') await test()
-  else console.log('usage: node bench/rx/dehum.mjs tune [GRID] | test')
+  else if (cmd === 'clean') await clean()
+  else console.log('usage: node bench/rx/dehum.mjs tune [GRID] | test | clean')
 }
