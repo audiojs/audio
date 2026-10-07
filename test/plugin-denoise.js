@@ -93,7 +93,9 @@ test('omlsa: raises segSNR of noisy speech (IMCRA, non-stationary noise tracking
 test('dereverb: reduces late-tail energy, never boosts it', async () => {
 	let speech = lena.subarray(0, SR * 2)
 	let t60 = 0.5
-	let imp = new Float32Array(4096)
+	// the response as long as its decay: cut at 4096 samples (93 ms), its tail stopped dead, faster than a room's, and
+	// dereverb from 0.5 reads such a take as dry (its lowest cells no diffuse tail)
+	let imp = new Float32Array(Math.round(t60 * SR))
 	for (let i = 0; i < imp.length; i++) imp[i] = (Math.random() * 2 - 1) * Math.exp(-6.9 * i / (t60 * SR))
 	imp[0] = 1  // direct path
 	let rev = convolve(speech, imp)

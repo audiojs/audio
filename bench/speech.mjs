@@ -101,6 +101,8 @@ cand('rx-di', ["rx('Dialogue Isolate', { noise_gain_db: -Infinity })"])
 // Dialogue Isolate tuned on bench/rx/isolate.mjs's tune split: the reverb off too (sensitivity 0 to 10 tried; 5, its default, best)
 cand('rx-di-tuned', ["rx('Dialogue Isolate', { noise_gain_db: -Infinity, reverb_gain_db: -Infinity })"])
 cand('rx-drv', ["rx('De-reverb')"])
+// De-reverb at the best of bench/rx/dereverb.mjs `tune` on reverb-train
+cand('rx-drv-tuned', ["rx('De-reverb', { tail_length: 0.5, band_strength_low: 8, band_strength_low_mid: 4, band_strength_high_mid: 6, band_strength_high: 4 })"])
 const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 // `$src\n  .a()\n  .b(…)` → ['a()', 'b(…)']
 const stages = code => code.replace(/^\$src\s*\./, '').split(/\)\s*\.(?=[a-z])/).map((s, i, all) => (i < all.length - 1 ? s + ')' : s).trim())
