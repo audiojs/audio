@@ -251,7 +251,7 @@ const SHARES = { vocals: 0.4, bass: 0.3, drums: 0.2, other: 0.05 }
 const withSeparation = async (fn, calls = []) => {
   let orig = audio.import
   audio.import = spec => spec !== '@audio/neural-separate' ? orig(spec) : Promise.resolve({
-    models: { 'scnet-large': {}, htdemucs: {} },
+    models: { 'scnet-large': { targets: Object.keys(SHARES) }, htdemucs: { targets: Object.keys(SHARES) } },
     default: async (chs, o) => (calls.push(o.model), { stems: Object.fromEntries(Object.entries(SHARES).map(([k, w]) => [k, (chs.length === 1 ? [chs[0], chs[0]] : chs).map(c => c.map(v => w * v))])) }),
   })
   try { return await fn(calls) } finally { audio.import = orig }
@@ -337,6 +337,67 @@ const SCNET = `${process.env.AUDIO_NEURAL_CACHE || homedir() + '/.cache/audiojs/
   let s = sdr(vocals, solo), r = sdr(remix(x, { vocals }, { vocals: 6 }), up)
   ok(s > VOCALS_SOLO - 0.05, `vocals alone: SDR ${s.toFixed(2)} dB`)
   ok(r > VOCALS_UP - 0.05, `vocals +6 dB: SDR ${r.toFixed(2)} dB`)
+})
+
+// ── Scene Rebalance ──────────────────────────────────────────────
+
+// a soundtrack separation mocked: each stem a share of the input, as many channels as it has (MRX hears them apart)
+const SCENE = { dialogue: 0.5, music: 0.3, effects: 0.15 }
+const withScene = async (fn, calls = []) => {
+  let orig = audio.import, stems = ['dialogue', 'music', 'effects']
+  audio.import = spec => spec !== '@audio/neural-separate' ? orig(spec) : Promise.resolve({
+    models: { mrx: { targets: stems }, tiger: { targets: stems }, 'scnet-large': { targets: Object.keys(SHARES) } },
+    default: async (chs, o) => (calls.push(o.model), { stems: Object.fromEntries(Object.entries(SCENE).map(([k, w]) => [k, chs.map(c => c.map(v => w * v))])) }),
+  })
+  try { return await fn(calls) } finally { audio.import = orig }
+}
+
+test('scene: every gain 0 dB leaves the input sample for sample, the separation never loaded', async () => {
+  let x = song(), loaded = [], orig = audio.import
+  audio.import = spec => (loaded.push(spec), orig(spec))
+  try {
+    for (let a of [audio.from(x, { sampleRate: 44100 }).scene(), audio.from(x, { sampleRate: 44100 }).scene(0, 0, 0)])
+      ok((await a.read()).every((c, k) => c.every((v, i) => v === x[k][i])), 'sample for sample')
+  } finally { audio.import = orig }
+  ok(!loaded.includes('@audio/neural-separate'), 'neural-separate not imported')
+})
+
+test('scene: the input plus each stem\'s change, in dialogue, music, effects order or named; MRX by default; mono kept mono', async () => {
+  await withScene(async calls => {
+    let x = song(), g = db => db === -Infinity ? 0 : 10 ** (db / 20)
+    for (let [args, gains] of [[[6], { dialogue: 6 }], [[0, -6], { music: -6 }], [[{ effects: -12, dialogue: 3 }], { effects: -12, dialogue: 3 }], [[-Infinity], { dialogue: -Infinity }]]) {
+      let y = await audio.from(x, { sampleRate: 44100 }).scene(...args).read(), f = 1
+      for (let s in gains) f += (g(gains[s]) - 1) * SCENE[s]
+      let err = Math.max(...y.map((c, k) => c.reduce((m, v, i) => Math.max(m, Math.abs(v - f * x[k][i])), 0)))
+      ok(err < 1e-6, `(${args.map(v => typeof v === 'number' ? v : JSON.stringify(v)).join(', ')}): × ${f.toFixed(4)}, max |error| ${err.toExponential(1)}`)
+    }
+    is(calls.at(-1), 'mrx', 'MRX by default')
+    let [l] = song(), mono = await audio.from([l], { sampleRate: 44100 }).scene(0, -Infinity, -Infinity).read()
+    is(mono.length, 1)
+    ok(mono[0].every((v, i) => Math.abs(v - 0.55 * l[i]) < 1e-6), 'mono: its own stems, × 0.55, the dialogue alone')
+    calls.length = 0
+    await audio.from(x, { sampleRate: 44100 }).scene({ dialogue: 6, model: 'tiger' }).read()
+    is(calls, ['tiger'], 'the model asked')
+    let err = await audio.from(x, { sampleRate: 44100 }).scene(6, { model: 'scnet-large' }).read().catch(e => e)
+    ok(/scene: unknown model 'scnet-large', expected mrx, tiger/.test(err?.message), err?.message)
+    err = await audio.from(x, { sampleRate: 44100 }).scene(Infinity).read().catch(e => e)
+    ok(/scene: dialogue is dB/.test(err?.message), err?.message)
+  })
+})
+
+// A Divide and Remaster v3 test clip (English, 000000; CC BY-SA 4.0, bench/rx/scene.mjs) through MRX: the dialogue
+// alone and 6 dB up against the true stem and remix, SNR, as bench/rx/scene.mjs measured them on this clip
+const DIALOGUE_SOLO = 14.09, DIALOGUE_UP = 20.83
+const DNR = `${homedir()}/.cache/audiojs/data/dnr-v3/test/000000`
+const MRX = `${process.env.AUDIO_NEURAL_CACHE || homedir() + '/.cache/audiojs/neural'}/mrx/mrx.onnx`
+;(existsSync(DNR) && existsSync(MRX) ? test : test.skip)('scene: MRX on a Divide and Remaster test clip, the dialogue alone and 6 dB up, as measured', { timeout: 600000 }, async () => {
+  let read = async f => (await (await audio(`${DNR}/${f}.flac`)).read())[0]
+  let x = await read('mixture'), speech = await read('speech'), a = audio.from([x], { sampleRate: 48000 })
+  let snr = (r, e) => { let s = 0, d = 0; for (let i = 0; i < r.length; i++) s += r[i] ** 2, d += (r[i] - e[i]) ** 2; return 10 * Math.log10(s / d) }
+  let solo = (await a.clone().scene(0, -Infinity, -Infinity).read())[0], up = (await a.clone().scene(6).read())[0]
+  let s = snr(speech, solo), r = snr(x.map((v, i) => v + (10 ** (6 / 20) - 1) * speech[i]), up)
+  ok(s > DIALOGUE_SOLO - 0.05, `dialogue alone: SNR ${s.toFixed(2)} dB`)
+  ok(r > DIALOGUE_UP - 0.05, `dialogue +6 dB: SNR ${r.toFixed(2)} dB`)
 })
 
 // ── Find Similar ─────────────────────────────────────────────────

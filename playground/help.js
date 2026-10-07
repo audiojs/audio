@@ -428,6 +428,11 @@ export const texts = {
     drums: 'Level of the drums and percussion, in dB. 0 leaves them; lower softens the beat, higher punches it up.',
     other: 'Level of everything else (guitars, keys, strings, pads), in dB. 0 leaves it; -60, with the rest at 0, keeps only the vocals, bass and drums.'
   },
+  scene: {
+    dialogue: 'Level of the speech, in dB. 0 leaves it; higher lifts it over the music and effects, lower pushes it back, -60 all but takes it out, leaving a music and effects track.',
+    music: 'Level of the score and any songs, in dB. 0 leaves it; lower makes room for the dialogue, -60 all but takes it out.',
+    effects: 'Level of everything else: footsteps, doors, traffic, rain, the room, in dB. 0 leaves it; lower quiets the scene around the voices.'
+  },
   deconstruct: {
     tonal: 'Level of the tones (held notes, hum, a voice\'s vowels), in dB. 0 leaves them; -60 all but removes them.',
     noise: 'Level of the noise, in dB: what is neither tone nor attack (hiss, breath, room, a snare\'s rattle). 0 leaves it; lower turns it down.',

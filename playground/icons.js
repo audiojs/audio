@@ -88,6 +88,8 @@ export default {
   deconstruct: 'M3 5h18M3 12l1.5-2 1.5 3 1.5-2 1.5 2 1.5-3 1.5 2 1.5-1 1.5 3 1.5-2 1.5 1 1.5-2 1.5 2M3 19h8l1-4 1 4h8',
   // four faders at four heights: a song's stems, each at its own level
   rebalance: 'M4.5 3v2.5M3 5.5h3v3H3zM4.5 8.5V21M9.5 3v9.5M8 12.5h3v3H8zM9.5 15.5V21M14.5 3v5.5M13 8.5h3v3h-3zM14.5 11.5V21M19.5 3v11.5M18 14.5h3v3h-3zM19.5 17.5V21',
+  // three faders at three heights: a soundtrack's dialogue, music and effects
+  scene: 'M6 3v8M4.5 11h3v3h-3zM6 14v7M12 3v3M10.5 6h3v3h-3zM12 9v12M18 3v12.5M16.5 15.5h3v3h-3zM18 18.5V21',
   declick: 'M2 13h7l1.5-9 1.5 16 1.5-7H22',
   decrackle: 'M2 12h3l1-4 1 7 1-3h3l1 4 1-6 1 2h3l1-4 1 5 1-1h2',
   declip: 'M3 20c2 0 4-4 5-9h8c1 5 3 9 5 9M8.4 8.1 8.7 7M10.2 4.1l.9-.7M12.9 3.4l.9.7M15.3 7l.3 1.1',
