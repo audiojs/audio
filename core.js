@@ -102,7 +102,7 @@ export default function audio(source, opts = {}) {
     let a = audio.from(source, opts)
     // awaited, its pages are within the budget
     if (a._.storing) {
-      a.ready = a.ready.then(() => { delete a.then; delete a.catch; return true })
+      a.ready = a._.storing.then(() => { delete a.then; delete a.catch; return true })
       a.ready.catch(() => {})
       makeThenable(a)
     }
@@ -752,13 +752,12 @@ function storeOf(a, opts) {
     a.budget = budget
   })()
 }
-/** An instance made from samples or pushed, storing as asked (storeOf): `ready` once its pages are within the budget;
- *  failing, an 'error' */
+/** An instance made from samples or pushed, storing as asked (storeOf): its store set up and its pages put within the
+ *  budget in the background (`_.storing`), nothing that reads it waiting for that; failing, an 'error' */
 function stored(a, opts) {
   if (!opts.cache && opts.storage !== 'persistent' && opts.storage !== 'auto') return
-  a._.storing = true
-  a.ready = Promise.resolve(storeOf(a, opts)).then(() => audio.evict?.(a)).then(() => true)
-  a.ready.catch(e => emit(a, 'error', e))
+  a._.storing = Promise.resolve(storeOf(a, opts)).then(() => audio.evict?.(a))
+  a._.storing.catch(e => emit(a, 'error', e))
 }
 
 function fromSilence(seconds, opts = {}) {

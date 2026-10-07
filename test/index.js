@@ -2834,11 +2834,13 @@ test('storage — persistent instances keep their own pages on disk; a pushed on
   let [x] = await a.read(), [y] = await b.read(), up = ramp(1), down = ramp(-1)
   t.ok(x.every((v, i) => v === up[i]) && y.every((v, i) => v === down[i]), 'each reads back its own')
   let c = audio(null, { sampleRate: 44100, channels: 1, storage: 'auto', budget: PAGE_SIZE * 4 })
-  await c.ready
   for (let k = 0; k < 4; k++) c.push([up.subarray(k * PAGE_SIZE * .75, (k + 1) * PAGE_SIZE * .75)])
   c.stop()
-  await c
-  await audio.evict(c)
+  // read at once, its store still being set up: nothing that reads it waits on that
+  let [first] = await c.read({ at: 0, duration: 4 / 44100 })
+  t.ok(first.every((v, i) => v === up[i]), 'pushed: read at once')
+  // its store set up, its pages go there till those in memory are within its budget
+  for (let i = 0; i < 200 && c.pages.filter(p => p).length > 1; i++) await new Promise(r => setTimeout(r, 20))
   t.ok(c.pages.filter(p => p).length <= 1, `pushed: ${c.pages.filter(p => p).length} of ${c.pages.length} pages in memory`)
   let [z] = await c.read()
   t.ok(z.length === PAGE_SIZE * 3 && z.every((v, i) => v === up[i]), 'pushed: all of it reads back')

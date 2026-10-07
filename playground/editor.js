@@ -290,7 +290,7 @@ const FAINT = .5
 const still = matchMedia('(prefers-reduced-motion: reduce)')
 // The caret under a scrub, and the RMS of the output there (the 50 ms around it)
 let scrubbed = null
-const beneath = () => !output?.channels ? 0 : Math.max(0, ...levels(output.channels, Math.round(scrubbed * output.sampleRate) - 1200, Math.round(scrubbed * output.sampleRate) + 1200).map(l => l.rms))
+const beneath = () => { const w = output && pl.near(scrubbed), i = w && Math.round(scrubbed * output.sampleRate) - w.from; return w ? Math.max(0, ...levels(w.x, i - 1200, i + 1200).map(l => l.rms)) : 0 }
 // while the engine works it turns gently, the same whether a file arrives or an output renders, no smaller or paler
 let swaying = ''
 function sway() {
@@ -299,7 +299,7 @@ function sway() {
   swaying = mode
   heard.hz = 0
   logoMark?.set({
-    scrub: { signal: () => (output?.channels && cycle(output.channels, scrubbed * output.sampleRate, output.sampleRate, heard, .5), heard.wave), cycles: () => cyclesOf(heard.hz), speed: 0, hold: true, hover: 'none', amplitude: () => swell(beneath()), axis: FAINT, hidden: false },
+    scrub: { signal: () => { const w = output && pl.near(scrubbed); if (w) cycle(w.x, scrubbed * output.sampleRate - w.from, output.sampleRate, heard, .5); return heard.wave }, cycles: () => cyclesOf(heard.hz), speed: 0, hold: true, hover: 'none', amplitude: () => swell(beneath()), axis: FAINT, hidden: false },
     record: { signal: () => (recorder?.trace(heard), heard.wave), cycles: () => cyclesOf(heard.hz), speed: PACE, hold: false, hover: 'none', amplitude: () => swell(recorder?.heard ?? 0), axis: FAINT, hidden: true },
     play: { signal: () => (pl.trace(heard), heard.wave), cycles: () => cyclesOf(heard.hz), speed: PACE, hold: false, hover: 'none', amplitude: () => swell(pl.level), axis: FAINT, hidden: true },
     work: { signal: 'sine', cycles: 1, speed: .25, hold: false, hover: 'none', amplitude: 1, axis: 0, hidden: true },
@@ -1079,7 +1079,7 @@ function settle(out, draw = true, behind = false) {
   // the markers as the script has them: an older script's output, the newer one on its way, leaves those the view
   // drew ahead of it (made, named, moved) as they are
   if (!behind) v.markers = out?.markers
-  pl.set(has ? out.channels : null, out?.sampleRate, has ? hears(out) : null, has ? out.length : 0)
+  pl.set(has ? out.channels : null, out?.sampleRate, has ? hears(out) : null, has ? out.length : 0, fetches(out))
   if (!has && pl.playing) togglePlay()
   state.duration = has ? out.duration : 0
   state.ab = false
@@ -1147,8 +1147,10 @@ function scheduleCheck(delay = 300) {
   }, delay)
 }
 
-// What opens an output to play (player.js set): the engine's, rendered there as it plays
+// What opens an output to play (player.js set): the engine's, rendered there as it plays; and a long one's samples near
+// where it is heard, the engine's
 const hears = out => o => eng.voice({ ...o, output: out.id })
+const fetches = out => out?.long ? (from, to) => eng.samples(out.id, from, to) : null
 
 // A/B: the original at the same place, level-matched to the output; the next output, or B again, returns to it.
 // B, or Play > Hear it before the edits; the word over the picture says which is heard
@@ -1156,7 +1158,7 @@ async function toggleAB() {
   const name = sourceName()
   if (!state.hasOutput) return
   if (!name) return note('A generated sound has no file as it opened to hear it against.')
-  if (state.ab) { state.ab = false; pl.set(output.channels, output.sampleRate, hears(output), output.length); return note('Hearing the output, after the edits') }
+  if (state.ab) { state.ab = false; pl.set(output.channels, output.sampleRate, hears(output), output.length, fetches(output)); return note('Hearing the output, after the edits') }
   const loudness = output.stats.loudness
   if (original?.name !== name || original.loudness !== loudness) {
     const r = await eng.original(name, loudness)
@@ -1200,12 +1202,13 @@ function meter(t = null) {
     v.meters = n ? { levels: levels(x, n - Math.round(rate * .05), n), spectra: spectra(x, n - size, n, { size }), size, rate } : null
     return
   }
-  // a long output's samples are the engine's: no meters over it
-  if (!output?.channels || !output.duration) { v.meters = null; return }
-  const rate = output.sampleRate, x = output.channels, sel = t == null && v.selection
-  const [a, b] = t != null ? [t - .05, t] : sel || [v.cursor - .025, v.cursor + .025], from = Math.round(a * rate), to = Math.round(b * rate)
-  const [s0, s1] = t != null ? [to - size, to] : sel ? [from, Math.max(to, from + size)] : [Math.round(v.cursor * rate) - size / 2, Math.round(v.cursor * rate) + size / 2]
-  v.meters = { levels: levels(x, from, to), spectra: spectra(x, s0, s1, { size }), size, rate }
+  if (!output?.duration) { v.meters = null; return }
+  // a long output's, the samples about it the player has (none till they come)
+  const rate = output.sampleRate, sel = t == null && v.selection, w = pl.near(t ?? (sel ? sel[0] : v.cursor))
+  if (!w) { v.meters = null; return }
+  const [a, b] = t != null ? [t - .05, t] : sel || [v.cursor - .025, v.cursor + .025], from = Math.round(a * rate) - w.from, to = Math.round(b * rate) - w.from
+  const c = Math.round(v.cursor * rate) - w.from, [s0, s1] = t != null ? [to - size, to] : sel ? [from, Math.max(to, from + size)] : [c - size / 2, c + size / 2]
+  v.meters = { levels: levels(w.x, from, to), spectra: spectra(w.x, s0, s1, { size }), size, rate }
 }
 // The picture's switch: the waveform or the spectrogram; the spectrogram's again, its frequencies on the next scale
 // (octaves, mel, hertz), said by it a moment
@@ -2027,7 +2030,15 @@ async function startRecording() {
     t.name = unique(into ? 'take.wav' : 'recording.wav', taken())
     t.rate = mic.sampleRate
     t.tape = tape({ name: t.name, sampleRate: t.rate, onfail: () => note('This browser can’t store the take as it records: until it stops, closing the page loses it.', 'error') })
-    mic.take(block => { t.tape.write(block); t.queue.push(block); t.frame ||= requestAnimationFrame(() => flush(t)) })
+    // what it records goes to the tape, and, up to what the page holds, here too: the take whole should the tape fail
+    t.held = []
+    mic.take(block => {
+      t.tape.write(block)
+      if (t.held && (t.taken = (t.taken ?? 0) + block[0].length) * block.length <= eng.peaks) t.held.push(block)
+      else t.held = null
+      t.queue.push(block)
+      t.frame ||= requestAnimationFrame(() => flush(t))
+    })
     state.recording.pending = false
     sway()
   } catch (e) {
@@ -2067,23 +2078,29 @@ async function stopRecording() {
   if (!rec) { state.recording = null; take = null; return }
   recorder = take = null
   cancelAnimationFrame(t.frame)
-  const got = rec.stop()
+  rec.stop()
+  // the blocks not drawn yet are the take's too
+  for (const block of t.queue.splice(0)) t.samples += block[0].length
   state.recording = null
   v.playhead = null
   sway()
   // the last pass, to the selection's end
-  const length = t.until == null ? Infinity : Math.round((t.until - t.at) * got.sampleRate)
-  const channels = got.channels.map(c => c.slice(t.pass, t.pass + length))
-  if (!channels[0]?.length) { t.tape.drop(); if (t.into) v.take(null); return note('Nothing was recorded.') }
-  // kept from what was written as it came, its parts let go once it is; else from what is here
-  const name = t.name, data = { channels, sampleRate: got.sampleRate }
-  saving(t.tape.wav(t.pass, channels[0].length).then(wav => keep(name, wav ?? data)).then(file => {
+  const rate = rec.sampleRate, length = Math.min(t.samples - t.pass, t.until == null ? Infinity : Math.round((t.until - t.at) * rate))
+  if (!(length > 0)) { t.tape.drop(); if (t.into) v.take(null); return note('Nothing was recorded.') }
+  // the take as it was written down as it came (keep.js tape), a file read from disk as the engine decodes it: none of
+  // it held here; where the tape failed, what is held here, if that is all of it
+  const name = t.name, wav = await t.tape.wav(t.pass, length)
+  const data = wav ?? (t.held && { channels: t.held[0].map((_, c) => { const x = new Float32Array(t.samples); let at = 0; for (const b of t.held) { x.set(b[c] ?? b[0], at); at += b[0].length } return x.subarray(t.pass, t.pass + length) }), sampleRate: rate })
+  if (!data) { t.tape.drop(); if (t.into) v.take(null); return note(`${name} could not be kept in this browser: it was longer than the page holds.`, 'error') }
+  const kept = keep(name, data)
+  saving(kept.then(file => {
     if (!file) return note(`${name} could not be kept in this browser: export it to keep it.`, 'error')
     shelf.set(name, file)
     return t.tape.drop()
   }))
-  await eng.file(name, data)
-  const end = t.at + channels[0].length / got.sampleRate
+  // the engine reads the file kept (the tape's parts go once it is), else what there is
+  await eng.file(name, await kept ?? data)
+  const end = t.at + length / rate
   note(`Recorded ${clock(end - t.at)}`)
   // the sound itself, the caret at its end once it shows (aim)
   if (!t.into) { place([name], 'new'); docs.find(d => d.id === state.tab).view = { selection: null, band: null, more: [], cursor: end, anchor: end }; return }

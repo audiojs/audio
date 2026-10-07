@@ -3099,6 +3099,29 @@ test('editor: a band plays through stable filters: what reaches the speakers sta
 })
 
 // Scrubbing (playground/scrub.js): a vocoder whose tonal peaks keep their phase advance, the rest of the bins random phases.
+// A sound longer than the page holds scrubs as any does: a press on the time row sounds the moment under it, from the
+// samples about it the player fetches (player.js near); the mark shows them too. Where it is held still, it holds
+test('editor: a sound longer than the page holds sounds under the caret as it is pressed', async () => {
+  await page.addInitScript(tap)
+  await open()
+  await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .5, { duration: 1820, sampleRate: 48000 })`)
+  await page.waitForFunction(() => document.querySelector('.source').title.endsWith('30:20.000'), null, { timeout: 120000 })
+  await page.waitForFunction(() => !document.querySelector('.message').textContent, null, { timeout: 120000 })
+  const { box, x } = await axis(1820), row = box.y + box.height - 8
+  await page.waitForTimeout(300)
+  await heard()
+  for (const t of [600, 1500]) {
+    await page.mouse.move(x(t), row)
+    await page.mouse.down()
+    await page.waitForTimeout(600)
+    const pressed = await heard()
+    await page.mouse.up()
+    assert.ok(pressed.finite && pressed.peak > .05, `pressed at ${t} s: peak ${pressed.peak}`)
+    await page.waitForTimeout(300)
+    await heard()
+  }
+})
+
 test('editor: the caret drags like an edge, from its line or anywhere on the time row, and the moment under it sounds while held', async () => {
   await page.addInitScript(tap)
   await open()
@@ -6472,7 +6495,8 @@ test('editor: a recording is mono, unless the settings say stereo', async () => 
   await page.keyboard.press('Space')
   await page.waitForFunction(() => scriptText().startsWith("audio('recording.wav')"))
   await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
-  assert.match(await facts(), / mono$/)
+  // as it was written down, 32-bit float
+  assert.match(await facts(), / mono 32-bit$/)
   await settings('Record in', 'Stereo')
   await page.reload()
   await page.getByRole('button', { name: 'Settings', exact: true }).click()

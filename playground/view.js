@@ -366,7 +366,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       // a take being recorded, where it goes: its own waveform over what it replaces, drawn as the output's is
       if (recording?.length) waves.forEach((_, i) => {
         const c = Math.min(i, recording.waves.length - 1), rect = L.wave[merged() ? 0 : i], [x0, x1] = takes()
-        if (rect && x1 > x0) drawWave(recording.waves[c], i, rect, 0, recording.length, x0, x1, aview, ratio, { x: recording.data[c].subarray(0, recording.length), rate: recording.rate, id: `take ${c}` })
+        if (rect && x1 > x0) drawWave(recording.waves[c], i, rect, 0, recording.length, x0, x1, aview, ratio, { x: recording.data?.[c].subarray(0, recording.length), rate: recording.rate, id: `take ${c}` })
       })
     }
     if (sgl) spectrograms(L, from, to)
@@ -2315,15 +2315,21 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       leveled = false
       taking()
     },
+    // A long take (past HELD samples a channel) is held as a long sound is: its samples let go behind the last HELD, the
+    // waveform keeping its peaks there; its colours the waveform's own
     grow(blocks) {
       if (!recording) return
       const n = recording.length, m = blocks[0]?.length ?? 0
-      if (m) recording.data = recording.data.map((x, c) => {
+      if (m && n + m > HELD) recording.data = null
+      if (m && recording.data) recording.data = recording.data.map((x, c) => {
         if (n + m > x.length) { const y = new Float32Array(Math.max(2 * x.length, n + m)); y.set(x.subarray(0, n)); x = y }
         x.set(blocks[c] ?? blocks[0], n)
         return x
       })
       if (m) for (const list of [recording.waves, recording.specs]) list.forEach((picture, c) => picture.push(blocks[c] ?? blocks[0]))
+      // the chunk the last HELD has just left behind, whole
+      const gone = Math.floor((n + m - HELD) / CHUNK)
+      if (m && gone > Math.floor((n - HELD) / CHUNK) && gone > 0) for (const p of [...recording.waves, ...recording.specs]) p.drop((gone - 1) * CHUNK, gone * CHUNK)
       recording.length += m
       leveled = false
       taking()

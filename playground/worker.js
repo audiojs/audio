@@ -229,9 +229,11 @@ function shelf(name, max) {
         await write(head, 12)
         // a page of each channel at a time: few writes, each a long one
         const session = audio.statSession(sound.sampleRate), picture = pictured(k, sound.sampleRate, n), PS = audio.PAGE_SIZE, buf = Array.from({ length: k }, () => new Float32Array(Math.min(PS, n)))
-        let pos = 0, from = 0
+        let pos = 0, from = 0, t = performance.now()
         const flush = async () => { for (let c = 0; c < k; c++) await write(buf[c].subarray(0, pos - from), at + (c * n + from) * 4); from = pos }
         for await (const block of sound.stream()) {
+          // giving way to whatever the page asks every 20 ms of work: kept in the background, a long one never holds it up
+          if (performance.now() - t > 20) { await new Promise(resolve => setTimeout(resolve)); t = performance.now() }
           const len = Math.min(block[0].length, n - pos), part = block.map(c => c.subarray(0, len))
           if (len <= 0) break
           session.page(part)

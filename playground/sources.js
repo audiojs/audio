@@ -24,7 +24,7 @@ export function sample(name) {
 // loads while the browser asks. Nothing is kept until take(onblock): from then each block goes to `onblock`, the
 // channels of it, and stop() returns them all. `channels`: 1, the input's first alone (a voice, one microphone, as
 // a recorder takes it, mono, however many the device gives: a laptop's twin the same); 2, both as the device gives them.
-// { sampleRate, recent, heard, trace(t), take(onblock), stop(): { channels, sampleRate }, cancel() }: `recent` holds
+// { sampleRate, recent, heard, trace(t), take(onblock), stop(), cancel() }: each block to `onblock` as it comes; `recent` holds
 // each channel's last 16384 samples (the meters read them), `heard` is the RMS of the last 50 ms, and trace(t) eases one
 // cycle of them into the trace t (meters.js).
 export async function microphone({ channels = 1 } = {}) {
@@ -38,7 +38,7 @@ export async function microphone({ channels = 1 } = {}) {
   try {
     const [stream] = await Promise.all([asked, context.audioWorklet.addModule(url)])
     const source = context.createMediaStreamSource(stream), node = new AudioWorkletNode(context, 'take', { numberOfOutputs: 0, processorOptions: { channels } })
-    const rate = context.sampleRate, blocks = [], mic = { sampleRate: rate, recent: [] }
+    const rate = context.sampleRate, mic = { sampleRate: rate, recent: [] }
     let onblock = null
     Object.defineProperty(mic, 'heard', { get() {
       const x = mic.recent, n = x[0]?.length ?? 0, w = Math.round(rate * .05)
@@ -49,7 +49,7 @@ export async function microphone({ channels = 1 } = {}) {
     mic.trace = t => cycle(mic.recent, (mic.recent[0]?.length ?? 0) - 1600, rate, t)
     mic.take = f => { onblock = f }
     node.port.onmessage = ({ data }) => {
-      if (onblock) { blocks.push(data); onblock(data) }
+      onblock?.(data)
       // each channel's latest, sliding
       if (mic.recent.length !== data.length) mic.recent = data.map(() => new Float32Array(16384))
       const n = data[0].length
@@ -57,17 +57,8 @@ export async function microphone({ channels = 1 } = {}) {
     }
     source.connect(node)
     const release = () => { node.port.onmessage = null; source.disconnect(); stream.getTracks().forEach(t => t.stop()); context.close() }
-    mic.stop = () => {
-      release()
-      const length = blocks.reduce((n, b) => n + b[0].length, 0), count = blocks.reduce((n, b) => Math.max(n, b.length), 0)
-      const channels = Array.from({ length: count }, (_, i) => {
-        const out = new Float32Array(length)
-        let at = 0
-        for (const b of blocks) { out.set(b[i] ?? b[0], at); at += b[0].length }
-        return out
-      })
-      return { channels, sampleRate: rate }
-    }
+    // the take is whoever took it (take(f)): the microphone keeps none of it
+    mic.stop = release
     mic.cancel = release
     return mic
   } catch (error) {

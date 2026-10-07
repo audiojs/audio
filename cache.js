@@ -72,15 +72,18 @@ async function opfsCache(dirName = 'audio-cache') {
   let root = await navigator.storage.getDirectory()
   let base = await root.getDirectoryHandle(dirName, { create: true })
   let id = crypto.randomUUID(), release = await hold(`${dirName}/${id}`)
-  await sweep(base, dirName)
+  // the folders of stores gone go in the background: a new store never waits on them
+  sweep(base, dirName).catch(() => {})
   let dir = await base.getDirectoryHandle(id, { create: true })
 
   let cache = {
     async read(i) {
-      let handle = await dir.getFileHandle(`p${i}`)
-      let file = await handle.getFile()
-      let buf = await file.arrayBuffer()
-      let view = new Float32Array(buf)
+      let handle = await dir.getFileHandle(`p${i}`), view
+      if (handle.createSyncAccessHandle) {
+        let h = await handle.createSyncAccessHandle()
+        try { view = new Float32Array(h.getSize() / 4); h.read(view, { at: 0 }) } finally { h.close() }
+      }
+      else view = new Float32Array(await (await handle.getFile()).arrayBuffer())
       let ch = view[0] | 0, samplesPerCh = ((view.length - 1) / ch) | 0
       let data = []
       for (let c = 0; c < ch; c++) data.push(view.slice(1 + c * samplesPerCh, 1 + (c + 1) * samplesPerCh))
@@ -88,12 +91,18 @@ async function opfsCache(dirName = 'audio-cache') {
     },
     async write(i, data) {
       let handle = await dir.getFileHandle(`p${i}`, { create: true })
-      let writable = await handle.createWritable()
       let total = 1 + data.reduce((s, ch) => s + ch.length, 0)
       let packed = new Float32Array(total)
       packed[0] = data.length
       let off = 1
       for (let ch of data) { packed.set(ch, off); off += ch.length }
+      // in a worker, synchronously in place: several times faster than a writable stream, which copies to a swap file
+      if (handle.createSyncAccessHandle) {
+        let h = await handle.createSyncAccessHandle()
+        try { h.truncate(0); h.write(packed, { at: 0 }) } finally { h.close() }
+        return
+      }
+      let writable = await handle.createWritable()
       await writable.write(packed.buffer)
       await writable.close()
     },
