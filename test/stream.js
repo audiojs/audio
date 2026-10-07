@@ -253,9 +253,10 @@ const WHOLE = {
   'shrink()': [a => a.shrink(), 'inherent: the automatic threshold reads the whole input'],
   'normalize(-6)': [a => a.normalize(-6), 'inherent: one gain for the whole selection'],
   'copy(1, 1).paste(3)': [a => a.copy(1, 1).paste(3), 'clipboard captures at the end of decode'],
+  'auto()': [a => a.auto(), 'inherent: the take measured whole, rendered ahead (fn/auto.js)'],
   // registry atoms declared streaming: false, for their batch kernels (whole-signal oversampling,
   // state built per call, one-call synthesis); each moves out as its atom gains a streaming form
-  ...Object.fromEntries(['softclip', 'leveler', 'auto', 'declip', 'decrackle', 'debreath', 'tapestop', 'tube', 'fm', 'modal', 'surround', 'paulstretch', 'pitch-shift', 'tune', 'plate', 'fdn', 'spring', 'shimmer', 'multiband', 'dyneq', 'tape', 'transistor', 'waveshaper', 'multisat', 'amp', 'cabinet', 'noise', 'chirp', 'pluck', 'risset', 'rhythm', 'sfx', 'kick', 'cymbal', 'snare', 'adsr', 'voice', 'poly', 'stretch-pvoc-lock', 'stretch-pvoc', 'stretch-pghi', 'stretch-wsola', 'stretch-psola', 'stretch-sms', 'stretch-transient', 'stretch-hybrid', 'stretch-paul'].map(n => [`${n}()`, [a => a[n](), 'atom declared streaming: false']])),
+  ...Object.fromEntries(['softclip', 'leveler', 'declip', 'decrackle', 'debreath', 'tapestop', 'tube', 'fm', 'modal', 'surround', 'paulstretch', 'pitch-shift', 'tune', 'plate', 'fdn', 'spring', 'shimmer', 'multiband', 'dyneq', 'tape', 'transistor', 'waveshaper', 'multisat', 'amp', 'cabinet', 'noise', 'chirp', 'pluck', 'risset', 'rhythm', 'sfx', 'kick', 'cymbal', 'snare', 'adsr', 'voice', 'poly', 'stretch-pvoc-lock', 'stretch-pvoc', 'stretch-pghi', 'stretch-wsola', 'stretch-psola', 'stretch-sms', 'stretch-transient', 'stretch-hybrid', 'stretch-paul'].map(n => [`${n}()`, [a => a[n](), 'atom declared streaming: false']])),
 }
 
 for (let [call, [chain, why]] of Object.entries(WHOLE)) test(`stream: waits for the whole input: ${call} (${why})`, async t => {

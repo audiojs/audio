@@ -526,6 +526,70 @@ test('deepfilter: the model hears a voice in a room without the room\'s predicti
 })
 
 // ════════════════════════════════════════════════════════════════════════════
+// auto (@audio/chain's, the registry's, hosted by fn/auto.js): a bed under speech goes to DeepFilterNet3 where
+// @audio/neural-denoise is installed, to chain's own OM-LSA without it, and to it where the model passes the take as
+// music. The voice: VoiceBank's test speaker p232 (Valentini-Botinhao et al. 2016, CC BY 4.0; the data cache, as
+// bench/rx/assistant.mjs reads it), under white noise; measured against it through the recipe's own tone filters
+// (its highpass and EQ: a timbre chosen, not damage), as the bench measures.
+// ════════════════════════════════════════════════════════════════════════════
+
+const VB = path.join(os.homedir(), '.cache', 'audiojs', 'data', 'vbdemand', 'clean_testset_wav', 'p232_005.wav')
+const classical = fn => withImport((spec, orig) => spec.startsWith('@audio/neural-denoise') ? Promise.reject(new Error(`Cannot find package '${spec}'`)) : orig(spec), fn)
+const noisy = (x, snr) => { let n = noise(x.length, 1, 7), k = rms(x) / 10 ** (snr / 20) / rms(n); return x.map((v, i) => v + n[i] * k) }
+// SI-SDR (Le Roux et al., ICASSP 2019) of y against r, dB
+function sisdr(r, y) {
+	let ry = 0, rr = 0, e = 0
+	for (let i = 0; i < r.length; i++) { ry += r[i] * y[i]; rr += r[i] * r[i] }
+	for (let i = 0, k = ry / rr; i < r.length; i++) e += (y[i] - k * r[i]) ** 2
+	return 10 * Math.log10(ry * ry / rr / e)
+}
+// the reference through a recipe's tone stages
+const toned = async (ref, recipe, fs) => (await import('@audio/chain')).apply([ref], { ...recipe, stages: recipe.stages.filter(s => s.name === 'hpf' || s.name === 'eq') }, { fs })[0]
+
+test('auto: without @audio/neural-denoise, chain\'s own denoiser: the take as chain renders it, the recipe saying so', async () => {
+	let { dirty } = take(15), { default: chain } = await import('@audio/chain')
+	await classical(async () => {
+		let [y] = await audio.from([dirty], { sampleRate: SR }).auto().read(), want = chain([dirty], { fs: SR, type: 'speech' })
+		ok(want.recipe.stages.some(s => s.name === 'denoise' && s.atom === '@audio/denoise-omlsa'), `OM-LSA takes the bed: ${want.recipe.stages.map(s => s.name)}`)
+		is(maxDiff(y, want.channels[0]), 0, 'chain() itself, sample for sample')
+		is((await audio.from([dirty], { sampleRate: SR }).chain()).stages.find(s => s.name === 'denoise').atom, '@audio/denoise-omlsa', 'the chain stat\'s recipe')
+	})
+})
+
+;(HAS_DFN && existsSync(VB) ? test : test.skip)('auto: a bed under a voice goes to DeepFilterNet3: the bed in its pauses 10 dB further down than chain\'s own leaves it, SI-SDR 1 dB higher; the recipe and its code() say so', NEURAL_RUN, async () => {
+	let { render } = await import('../fn/auto.js'), { code } = await import('@audio/chain')
+	let [ref] = await audio(VB).read(), x = noisy(ref, 5), fs = 48000
+	let [y] = await audio.from([x], { sampleRate: fs }).auto().read(), { channels, recipe } = await render([x], { sampleRate: fs, type: 'speech' })
+	is(maxDiff(y, channels[0]), 0, 'the op renders what render() makes')
+	let d = recipe.stages.find(s => s.name === 'denoise')
+	is(d.atom, '@audio/neural-denoise', `the denoiser that ran: ${JSON.stringify(d.params)}`)
+	ok(code(recipe).includes(`import denoise from '@audio/neural-denoise'`) && !code(recipe).includes('omlsa'), 'code() imports it, and no other')
+	is((await audio.from([x], { sampleRate: fs }).chain()).stages.find(s => s.name === 'denoise').atom, '@audio/neural-denoise', 'the chain stat\'s recipe')
+	// the bed in the voice's pauses (its quietest tenth of 50 ms frames), dB under the voice: in 8.5, OM-LSA 26.7,
+	// DeepFilterNet3 45.4; SI-SDR in 5.0 dB, OM-LSA 14.2, DeepFilterNet3 16.1. PESQ, on the test takes of
+	// bench/rx/assistant.mjs whose plan puts the stage: 1.94 → 2.50 (RX 12 Repair Assistant tuned 2.28)
+	let F = 2400, frames = []
+	for (let i = 0; i + F <= ref.length; i += F) frames.push([rms(ref, i, i + F), i])
+	let quiet = frames.sort((a, b) => a[0] - b[0]).slice(0, Math.ceil(frames.length / 10)).map(f => f[1])
+	let under = v => speechDb(v) - 10 * Math.log10(quiet.reduce((s, i) => s + rms(v, i, i + F) ** 2, 0) / quiet.length)
+	let c = await classical(() => render([x], { sampleRate: fs, type: 'speech' }))
+	ok(under(y) > 40 && under(y) > under(c.channels[0]) + 10, `the bed in the pauses: ${under(x).toFixed(1)} dB under the voice in, chain's own ${under(c.channels[0]).toFixed(1)}, DeepFilterNet3 ${under(y).toFixed(1)}`)
+	let got = sisdr(await toned(ref, recipe, fs), y), was = sisdr(await toned(ref, c.recipe, fs), c.channels[0])
+	ok(got > 15.5 && got > was + 1, `SI-SDR ${sisdr(ref, x).toFixed(1)} dB in, chain's own ${was.toFixed(1)}, DeepFilterNet3 ${got.toFixed(1)}`)
+})
+
+// the guard hears lena (a film's voice over its score) under white noise 10 dB down as music, all of it: the model would
+// leave the take as it came (SI-SDR 10.0 dB, as in; chain's own 17.5)
+;(HAS_DFN ? test : test.skip)('auto: a take the model passes as music keeps chain\'s own denoiser, the recipe saying so', NEURAL_RUN, async () => {
+	let { render } = await import('../fn/auto.js'), x = noisy(lena, 10)
+	let r = await render([x], { sampleRate: SR, type: 'speech' }), c = await classical(() => render([x], { sampleRate: SR, type: 'speech' }))
+	let d = r.recipe.stages.find(s => s.name === 'denoise')
+	is(d.atom, '@audio/denoise-omlsa', 'OM-LSA in the recipe')
+	ok(/; DeepFilterNet3 hears music in \d+ % of it$/.test(d.why), d.why)
+	is(maxDiff(r.channels[0], c.channels[0]), 0, 'the take as without the package')
+})
+
+// ════════════════════════════════════════════════════════════════════════════
 // denoise (built-in op, fn/denoise.js): the noise learned where it plays alone, a range of the op's input, then
 // taken `reduction` dB down everywhere by @audio/denoise-omlsa on that held noise. take()'s pause, 2 to 3 s, is the
 // noise alone: learned from its first 0.4 s, measured on the rest.

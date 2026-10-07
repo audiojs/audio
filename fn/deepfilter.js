@@ -76,6 +76,35 @@ export function roomless(pcm, y, sampleRate) {
 }
 
 /**
+ * DeepFilterNet3's whole removal of `pcm` (channels apart; music the guard hears passed, or not): the package's output
+ * unlimited, the model loaded for the run. Kept by how the model runs (heard at -20 dBFS, held voicing kept:
+ * neural-denoise 0.2; a band-limited input's empty bands heard as a noise floor: 0.3; music passed or not: 0.4), the
+ * model and its input (core.js memo), never by what is made of it after: a reload, another tab, the limit moved, another
+ * op on it (deepfilter, derustle, auto) read it back. `neural`: the package's exports.
+ */
+export function removal(neural, pcm, sampleRate, { music = 'pass', weights, device } = {}) {
+  return memo(`deepfilternet3:-20dBFS,voice,edge,music-${music}:${weights ?? ''}:${sampleRate}:${fingerprint(pcm)}`, async () => {
+    let model = await neural.load('deepfilternet3', { weights, device }).catch(e => {
+      throw new Error(`can't load DeepFilterNet3 from ${weights ?? neural.MODEL} (${e.message}); it downloads once (8 MB) and is cached; { weights } takes another URL`)
+    })
+    try { return await neural.default(pcm, { sampleRate, model, limit: 0, music }) }
+    finally { model.free() }
+  })
+}
+
+/** process() of an op whose whole output its preparation made, kept on the edit at `key`: its samples at the block's
+ *  offset (deepfilter, derustle, auto). */
+export const playback = (name, key) => (input, output, ctx) => {
+  let done = ctx[key]
+  if (!done) throw new Error(`${name}: runs ahead of rendering, through read(), stream() or save()`)
+  let len = input[0].length, off = Math.round((ctx.blockOffset || 0) * ctx.sampleRate)
+  for (let c = 0; c < output.length; c++) {
+    let v = done.pcm[c], y = output[c]
+    for (let i = 0, j = off; i < len; i++, j++) y[i] = j >= 0 && j < v.length ? v[j] : 0
+  }
+}
+
+/**
  * An op of the edit's input x and DeepFilterNet3's whole removal y (unlimited), made once ahead of rendering: per
  * channel, `finish(x, y, o, sampleRate, neural)` (neural: the package's exports), the options it reads named by
  * `id(o)`, which also checks them. deepfilter's, and derustle's (fn/derustle.js); the model's output is shared.
@@ -90,7 +119,7 @@ export function enhancer(name, id, finish, again) {
   async function prepare(a, index) {
     let o = a.edits[index][1], music = o.music ?? 'pass', own = id(o)
     if (music !== 'pass' && music !== 'enhance') throw new TypeError(`${name}: music is 'pass' or 'enhance', not ${music}`)
-    let neural = await loadNeural(), { default: denoise, load, MODEL } = neural
+    let neural = await loadNeural()
     await arrived(a)
     // the channels it runs on, in the order the engine hands them to process()
     let chs = o.channel == null ? null : [o.channel].flat(), key0 = `${own}:${music}:${o.weights ?? ''}:${chs ?? ''}`
@@ -105,32 +134,13 @@ export function enhancer(name, id, finish, again) {
     let key = `${key0}:${fingerprint(pcm)}`
     if (done?.key === key) { done.stamp = stamp; return }
     if (!pcm[0]?.length) { o[ENHANCED] = { key, stamp, pcm }; return }
-    // the model's output kept by how it runs (heard at -20 dBFS, held voicing kept: neural-denoise 0.2; a band-limited
-    // input's empty bands heard as a noise floor: 0.3; music passed or not: 0.4), the model and its input (core.js memo),
-    // never by what is made of it after: a reload, another tab, the limit moved, another op on it, read it back
-    let run = x => memo(`deepfilternet3:-20dBFS,voice,edge,music-${music}:${o.weights ?? ''}:${input.sampleRate}:${fingerprint(x)}`, async () => {
-      let model = await load('deepfilternet3', { weights: o.weights, device: o.device }).catch(e => {
-        throw new Error(`${name}: can't load DeepFilterNet3 from ${o.weights ?? MODEL} (${e.message}); it downloads once (8 MB) and is cached; { weights } takes another URL`)
-      })
-      try { return await denoise(x, { sampleRate: input.sampleRate, model, limit: 0, music }) }
-      finally { model.free() }
-    })
+    let run = x => removal(neural, x, input.sampleRate, { music, weights: o.weights, device: o.device }).catch(e => { throw new Error(`${name}: ${e.message}`) })
     let y = await run(pcm), heard = again?.(pcm, y, input.sampleRate)
     if (heard) y = await run(heard)
     o[ENHANCED] = { key, stamp, pcm: y.map((v, c) => finish(pcm[c], v, o, input.sampleRate, neural)) }
   }
 
-  const process = (input, output, ctx) => {
-    let done = ctx[ENHANCED]
-    if (!done) throw new Error(`${name}: enhancement runs before rendering, through read(), stream() or save()`)
-    let len = input[0].length, off = Math.round((ctx.blockOffset || 0) * ctx.sampleRate)
-    for (let c = 0; c < input.length; c++) {
-      let v = done.pcm[c], y = output[c]
-      for (let i = 0, j = off; i < len; i++, j++) y[i] = j >= 0 && j < v.length ? v[j] : 0
-    }
-  }
-
-  return { prepare, process }
+  return { prepare, process: playback(name, ENHANCED) }
 }
 
 audio.op('deepfilter', {

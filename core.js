@@ -414,6 +414,11 @@ audio.use = function(...plugins) {
   return loads ? Promise.all(loads).then(() => audio) : audio
 }
 
+/** What audio adds to a plugin it hosts, by the name the plugin registers: the op (or stat) as the plugin makes it →
+ *  the one audio registers. A host can do what a plugin's contract can't: fn/auto.js renders @audio/chain's auto ahead
+ *  of time, its denoise stage neural where @audio/neural-denoise is installed. */
+audio.hosted = {}
+
 /** How a registry plugin's module loads. A bundled page whose bundler cannot see `import(spec)` (a worker has no
  *  import map) supplies literal imports: audio.import = spec => loaders[spec]() */
 audio.import = spec => import(spec)
@@ -436,6 +441,7 @@ function useCodec(m) {
  *  are pre-rendered to channel data. */
 function useStat(m) {
   if (!audio.stat) throw new Error('audio.use(stat): stat registry required — import "audio", not "audio/core.js"')
+  m = audio.hosted[m.stat]?.(m) ?? m
   let name = m.stat
   audio.stat(name, {})  // name registered; fn.stat dispatches to the instance method below
   audio.fn[name] = async function(opts) {
@@ -455,6 +461,7 @@ function useOp(m) {
   let specs = m.params || {}
   let names = Object.keys(specs)
   let id = m.id || (m.name || 'module').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
+  let reg = d => audio.op(id, audio.hosted[id]?.(d) ?? d)
   // tail: seconds, or fn(ctx) of the actual params (mirrors latency's fn form) — a
   // feedback delay's decay depends on its feedback setting, not the declared maximum
   let tail = m.tail || 0
@@ -590,7 +597,7 @@ function useOp(m) {
     let frames = m.frames
       ? (n, o, sr) => m.frames(n, { sampleRate: sr, params: snapParams(k => o?.[k]) })
       : undefined
-    return audio.op(id, {
+    return reg({
       params: args, plugin: m, atom: m, ch, tail: wholeTail, frames,
       whole(input, output, ctx) {
         let st = init(ctx, input[0].length, input.length)
@@ -610,12 +617,12 @@ function useOp(m) {
     })
   }
 
-  if (!tail) return audio.op(id, { params: args, plugin: m, atom: m, latency, process, ch })
+  if (!tail) return reg({ params: args, plugin: m, atom: m, latency, process, ch })
 
   // Declared tail: expand into pad + hidden proc at compile time — the user edit stays
   // one atomic entry (undo/serialize whole), the decay renders into the pad
   audio.op('_' + id, { params: args, hidden: true, plugin: m, atom: m, latency, process, ch })
-  audio.op(id, {
+  reg({
     params: args, tail, plugin: m, atom: m, ch,
     expand: (ctx) => {
       let o = {}

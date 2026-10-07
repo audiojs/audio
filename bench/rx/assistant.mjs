@@ -10,7 +10,8 @@
 //   node bench/rx/assistant.mjs wav SPLIT NAME  one take, its reference and ours' output as WAV (listening)
 //   RX_WORKERS=2 plugin hosts, SCORERS=1 scoring processes, TAKES=regex (a subset, by name), SHARD=k/n (every nth
 //   take from the kth, its scores in a file of their own: shards run in parallel processes), CHAIN=path/to/chain.js
-//   (default: @audio/chain as audio resolves it), CHAIN_BEFORE=path/to/chain.js (the build compared against).
+//   (default: @audio/chain as audio resolves it), CHAIN_BEFORE=path/to/chain.js (the build compared against), NEURAL=0
+//   (ours without its neural denoise stage: chain's own, as auto() runs without @audio/neural-denoise).
 // Scores are kept per system (~/.cache/audiojs/data/rx/assistant/<split>/<system>.json), not renders (but declip's, by
 // its code and input: minutes a take). A system's label carries a hash of its sources (ours: chain.js and the files of
 // the packages it calls), so a changed build is measured again and the others are read back.
@@ -58,8 +59,8 @@
 // with its settings and is not all reported (Music: 1074 samples over it at 48 kHz), so each render is aligned to its
 // input by cross-correlation (lag within ±2^15), the input mirrored 2^15 samples either side so that none is lost to a
 // delay the host takes off and the plugin does not have. Ours: @audio/chain's analyze → plan → apply as auto({ type }) runs it,
-// `type` speech or music; and its repair alone: the recipe without its mastering stages (eq, multiband, width, gain,
-// limiter), RX's scope.
+// `type` speech or music, a speech bed's denoise stage DeepFilterNet3's where @audio/neural-denoise is installed (fn/auto.js);
+// and its repair alone: the recipe without its mastering stages (eq, multiband, width, gain, limiter), RX's scope.
 //
 // Measures, against the reference. Speech (16 kHz, scipy resample_poly): PESQ (ITU-T P.862.2 wideband, python-pesq),
 // STOI (Taal et al. 2011, pystoi), SI-SDR (Le Roux et al. 2019) against the reference through the system's own tone
@@ -83,6 +84,7 @@ import lufsFn from '@audio/loudness-lufs'
 import truepeakFn from '@audio/loudness-truepeak'
 import { harsh } from './deess.mjs'
 import { addPops } from './deplosive.mjs'
+import { planned, denoise, NEURAL } from '../../fn/auto.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const OUT = path.join(RXOUT, 'assistant'), PY = process.env.RX_PYTHON || path.join(os.homedir(), '.cache', 'audiojs', 'venv', 'bin', 'python')
@@ -336,8 +338,12 @@ const TUNED = path.join(OUT, 'rx-tuned.json')
 const tuned = () => existsSync(TUNED) ? JSON.parse(readFileSync(TUNED, 'utf8')) : null
 const oracle = (T, t) => Object.assign({}, ...Object.entries(MODULES).filter(([, m]) => m.defects.some(d => d in t.defects)).map(([k]) => T[t.mode].best[k] || {}))
 
-// ours: @audio/chain as a module path; its label carries a hash of chain.js and of the files of the packages it calls
-const MASTER = new Set(['eq', 'multiband', 'width', 'gain', 'limiter']), TONE = new Set(['hpf', 'eq'])
+// ours: @audio/chain as a module path; its label carries a hash of chain.js and of the files of the packages it calls,
+// and where its plan names the neural denoise stage audio's auto() runs (fn/auto.js: @audio/neural-denoise installed,
+// NEURAL=0 not set), of that stage's code: audio's fn/auto.js and fn/deepfilter.js, the package's files and its weights
+const nn = process.env.NEURAL === '0' ? null : await import(NEURAL).catch(() => null)
+const NEURAL_FILES = nn && [...graph(realpathSync(createRequire(import.meta.url).resolve(NEURAL))), path.join(path.dirname(realpathSync(createRequire(import.meta.url).resolve(NEURAL))), 'guard.bin'), ...['auto.js', 'deepfilter.js'].map(f => path.join(HERE, '..', '..', 'fn', f))]
+export const MASTER = new Set(['eq', 'multiband', 'width', 'gain', 'limiter']), TONE = new Set(['hpf', 'eq'])
 const chains = {}
 // the files a module runs: it and its relative imports, recursively (a package's tests, benches and scratch files left out)
 function graph(file, seen = new Set()) {
@@ -351,6 +357,7 @@ export function label(file) {
   let req = createRequire(file), pkg = JSON.parse(readFileSync(path.join(path.dirname(file), 'package.json'), 'utf8')), h = createHash('sha1')
   for (let f of graph(file)) h.update(readFileSync(f))
   for (let dep of Object.keys(pkg.dependencies || {}).sort()) for (let f of graph(realpathSync(req.resolve(dep)))) h.update(readFileSync(f))
+  for (let f of NEURAL_FILES || []) h.update(readFileSync(f))
   return `ours ${pkg.version}-${h.digest('hex').slice(0, 8)}`
 }
 async function chainAt(file) {
@@ -358,13 +365,14 @@ async function chainAt(file) {
   let m = await import(pathToFileURL(file).href)
   return chains[file] = { m, label: label(file) }
 }
-const DEFAULT_CHAIN = realpathSync(createRequire(path.join(HERE, '..', '..', 'package.json')).resolve('@audio/chain'))
+export const DEFAULT_CHAIN = realpathSync(createRequire(path.join(HERE, '..', '..', 'package.json')).resolve('@audio/chain'))
 // both outputs of one analysis: the recipe's repair stages alone, and auto(): its tone and level stages after them, as
 // apply() runs the whole recipe (repairs first in every version measured; the refinement pass with the limiter)
 // The repair stages run one at a time (apply() runs a recipe's stages in order: the same render), a slow one's output
-// kept on disk by its package's code, its params and its input (declip: minutes a take; OUT/stage/)
+// kept on disk by its package's code, its params and its input (declip: minutes a take; OUT/stage/). The plan and its
+// neural stage as audio's auto() makes them (fn/auto.js planned())
 const SLOW = { declip: '@audio/denoise-declip' }
-async function stage(m, file, st, y, sr) {
+export async function stage(m, file, st, y, sr) {
   if (!SLOW[st.name]) return m.apply([y], { stages: [st] }, { fs: sr })[0]
   let h = createHash('sha1').update(JSON.stringify(st.params)).update(String(sr)).update(Buffer.from(y.buffer, y.byteOffset, y.byteLength))
   for (let f of graph(realpathSync(createRequire(file).resolve(SLOW[st.name])))) h.update(readFileSync(f))
@@ -375,14 +383,16 @@ async function stage(m, file, st, y, sr) {
   return out
 }
 async function ours(file, t) {
-  let { m } = await chainAt(file), type = t.mode, a = m.analyze([t.x], { fs: t.sr, type }), recipe = m.plan(a, { type })
-  let only = s => ({ ...recipe, stages: recipe.stages.filter(s) }), yr = t.x
-  for (let st of recipe.stages.filter(s => !MASTER.has(s.name))) yr = await stage(m, file, st, yr, t.sr)
+  let { m } = await chainAt(file), type = t.mode, run = async (stages, y) => { for (let st of stages) y = await stage(m, file, st, y, t.sr); return y }
+  let { analysis: a, recipe, at, x, y: removal } = await planned(m, nn, [t.x], t.sr, { type }, async (stages, [c]) => [await run(stages, c)])
+  let only = s => ({ ...recipe, stages: recipe.stages.filter(s) }), yr = t.x, from = 0
+  if (at >= 0) { let s = recipe.stages[at], on = s.atom === NEURAL; yr = on ? denoise(nn, x, removal, s.params, t.sr)[0] : x[0]; from = on ? at + 1 : at }
+  yr = await run(recipe.stages.slice(from).filter(s => !MASTER.has(s.name)), yr)
   let y = m.apply([yr], only(s => MASTER.has(s.name)), { fs: t.sr })[0]
   let lin = m.apply([t.ref], only(s => TONE.has(s.name)), { fs: t.sr })[0], linr = m.apply([t.ref], only(s => s.name === 'hpf'), { fs: t.sr })[0]
   let an = { snr: a.snr, hum: a.hum?.level ?? null, clicks: a.clicks, sib: a.sibilanceDb, clip: a.clipping?.count, voiced: a.voicedRatio }
   for (let k of ['reverb', 'pops', 'clipped']) if (a[k] !== undefined) an[k] = a[k]
-  let info = { stages: recipe.stages.map(s => s.name), an }
+  let info = { stages: recipe.stages.map(s => s.name), neural: recipe.stages.some(s => s.atom === NEURAL), an }
   return [{ y, lin, info: { ...info, lufs: lufsFn([y], { fs: t.sr }), tp: truepeakFn([y], { fs: t.sr }), target: recipe.targetLufs } }, { y: yr, lin: linr, info }]
 }
 
@@ -452,7 +462,7 @@ async function each(items, one, tag, k = 3) {
 }
 
 // systems: { label: fn(t) → out | [out, ...] for labels[] }; each take's missing scores made and kept
-async function evaluate(split, systems, list = takes(split)) {
+export async function evaluate(split, systems, list = takes(split)) {
   let groups = Object.entries(systems)
   await each(list, async it => {
     let t = null
