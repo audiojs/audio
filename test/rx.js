@@ -189,8 +189,8 @@ test('phase(): its peaks lowered at the same RMS, never raised', { timeout: 1200
 
 // Each codec's own gapless information undoes its delay (LAME's tag, the MP4 edit list, Opus's pre-skip, Vorbis' granule
 // positions): what comes back lines up with what went in to a hundredth of a sample, its length the same, at 44.1 and
-// 48 kHz, mono and stereo. Opus away from 48 kHz goes there and back through our sinc (the encoder's own resampler
-// starts every chunk it is given afresh: half a sample early through save(), a 30 dB SNR down to 18).
+// 48 kHz, mono and stereo. Opus away from 48 kHz is resampled by its encoder as one stream (encode-opus 1.3.2; before
+// it, every chunk afresh: half a sample early through save(), a 30 dB SNR down to 18) and comes back through our sinc.
 test('codec: encoded and decoded in place, lined up sample for sample with the input', { timeout: 120000 }, async () => {
   let { x } = await voice(4)
   for (let sr of [44100, 48000]) {

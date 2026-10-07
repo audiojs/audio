@@ -16,7 +16,8 @@
  * Vorbis its granule positions. Then it is checked: the lag at which output and input correlate best, within 4096
  * samples, is taken out where it beats lag 0 by 1 % (a codec that says its delay wrong; a held tone, which matches at
  * every period, stays as it is).
- * Opus runs at 48 kHz, GSM at 8 kHz: other rates go there and back through `resample`'s sinc.
+ * Opus decodes at 48 kHz, its encoder resampling the input as one stream (@audio/encode-opus 1.3.2); GSM runs at 8 kHz:
+ * what comes back is brought to the input's rate by `resample`'s sinc.
  * `bitrate` in kbps; Vorbis takes a quality, the one whose nominal rate it is (Xiph's: q4 128, q5 160, q6 192 kbps);
  * GSM's is 13. Channels in pairs, GSM's one by one (libgsm 1.0.22, byte for byte as SoX). The edit's input (its range
  * and a second either side) is encoded once, before rendering.
@@ -67,8 +68,6 @@ async function prepare(a, index) {
   let rate = fmt === 'vorbis' ? { quality: quality(kbps) } : fmt === 'mp3' && o.quality != null ? { quality: o.quality } : { bitrate: kbps }
   for (let c = 0; c < pcm.length; c += 2) {
     let pair = pcm.slice(c, c + 2), src = audio.from(pair, { sampleRate: sr })
-    // Opus at 48 kHz from our sinc: the encoder's own resampler starts each chunk it is given afresh
-    if (fmt === 'opus' && sr !== 48000) src.resample(48000, { type: 'sinc' })
     let back = audio(await src.encode(ext, { ...opts, ...rate, meta: false }))
     await back.ready
     if (back.sampleRate !== sr) back.resample(sr, { type: 'sinc' })
