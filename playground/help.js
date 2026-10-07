@@ -8,7 +8,7 @@
 export const layouts = {
   compressor: 'threshold ratio attack release knee makeup | upThreshold upRatio upKnee upRange',
   gate: 'threshold range release | closeThreshold hold attack lookahead',
-  deesser: 'mode fc threshold range | ratio Q knee attack release',
+  deesser: 'mode threshold range | split fc Q ratio knee attack release lookahead',
   expander: 'threshold ratio range | mode knee attack release',
   leveler: 'target maxGain | frame smooth gate',
   unlimit: 'amount | drive adaptive crestTarget ceiling fastAttack fastRelease slowAttack slowRelease',
@@ -19,13 +19,13 @@ export const layouts = {
   multiband: 'low high threshold ratio makeup | upThreshold upRatio depth attack release',
   dyneq: 'mode fc Q threshold ratio maxGain | attack release',
   dehum: 'freq harmonics | adaptive',
-  omlsa: 'gMin | alphaDD qPrior xiFloor',
+  omlsa: 'gMin threshold | alphaDD qPrior xiFloor',
   deplosive: 'attenuation triggerRatio crossover | attack release',
   dewind: 'attenuation | cutoff',
   declick: 'threshold | longest order',
   decrackle: 'threshold | order',
   declip: 'clipLevel | order',
-  debreath: 'range | attack release',
+  debreath: 'range room | attack release',
   phaser: 'rate depth feedback | stages fc',
   autowah: 'sens base range Q | attack release',
   graindelay: 'time pitch feedback mix | grain spray jitter',
@@ -269,15 +269,17 @@ export const texts = {
     release: 'How fast it follows the level as it falls, in ms. Short turns quiet sound down quickly; long keeps it open through short gaps.'
   },
   deesser: {
-    mode: 'broadband turns the whole sound down while an s lasts; band turns down only the harsh range around fc, so the rest stays untouched.',
-    fc: 'Where the harsh s sound sits, in Hz. Voices usually have it between 5 and 9 kHz.',
-    Q: 'Width of the range that is watched, and in band mode turned down. Higher is narrower and more precise.',
+    mode: 'split turns down only the sound over the split frequency while an s lasts, the voice under it untouched; band, only a narrow range around fc; broadband, the whole sound.',
+    split: 'Where the s range starts, in Hz, in split mode: sound over it is turned down while an s lasts, sound under it never. A voice\'s s sounds lie above about 3.5 kHz.',
+    fc: 'In band mode, where the harsh s sound sits, in Hz. Voices usually have it between 5 and 9 kHz.',
+    Q: 'In band mode, the width of the range turned down. Higher is narrower and more precise.',
     threshold: 'How far the s range must rise over the voice below it, in dB, before it is turned down: 0 is as loud as the voice. Not a level, so it works the same on a quiet or a loud recording. Lower catches softer s sounds.',
     ratio: 'How firmly the s range is turned down once past the threshold. Higher is stronger.',
-    range: 'Most it will turn an s down, in dB. About 6 tames it; much more and the voice starts to lisp.',
+    range: 'Most it will turn an s down, in dB. About 6 to 8 tames it; much more and the voice starts to lisp.',
     knee: 'How gradually it sets in around the threshold.',
     attack: 'How fast it reacts when an s begins, in ms.',
-    release: 'How fast it lets go after an s ends, in ms.'
+    release: 'How fast it lets go after an s ends, in ms.',
+    lookahead: 'How far ahead it listens, in ms, so the cut is in place as an s begins rather than just after. The sound comes out that much later, and the editor lines it up.'
   },
   leveler: {
     target: 'The average level each stretch of speech is brought to, in dB. Quieter stretches are turned up toward it, louder ones down.',
@@ -378,13 +380,15 @@ export const texts = {
   },
   omlsa: {
     gMin: 'Most the noise is turned down, in dB. More negative removes more, and risks a hollow, watery voice.',
+    threshold: 'Treats the noise as this many dB louder than it seems: above 0, quiet sound just over the noise goes too, and a voice\'s faintest edges with it; below 0, more is kept.',
     alphaDD: 'Smoothing over time. How much each moment leans on the one before it when judging what is noise. Higher is steadier with fewer warbling leftovers, but slower to catch the start of a word.',
     qPrior: 'How likely any moment is assumed to be only noise. 0 works it out from the sound itself. A value above 0 sets it by hand; from 0.9 up, everything counts as noise and is turned down.',
     xiFloor: 'Lowest signal-to-noise ratio it assumes, in dB. Lower removes more of faint sounds close to the noise; higher protects them, but leaves more noise.'
   },
   deepfilter: {
     limit: 'The most the noise is turned down, in dB. Past 18 the voice itself starts to sound filtered, like a call. 0 lifts the limit: the model\'s full cleaning, and pauses can fall to digital silence.',
-    music: 'pass leaves music as it is, songs included, and cleans only speech and noise. enhance cleans everything, which takes music down and dulls it.'
+    music: 'pass leaves music as it is, songs included, and cleans only speech and noise. enhance cleans everything, which takes music down and dulls it.',
+    floor: 'Noise the limit would leave closer than this to the voice, in dB, is taken down to this far under it; quieter noise keeps the limit, so the room stays. 0 keeps the limit alone.'
   },
   rnnoise: {
     limit: 'The most the noise is turned down, in dB. A limit keeps the model from damaging the voice. 0 lifts the limit.',
@@ -401,7 +405,7 @@ export const texts = {
   },
   dehum: {
     freq: 'The hum frequency, in Hz: 50 or 60 for mains. 0 measures it from the sound. A set value is still tuned by measuring within 0.4%.',
-    harmonics: 'How many multiples of the hum to remove, starting with the hum itself (50, 100, 150 Hz and so on). 0 removes all of them up to 1 kHz. Each is followed as it drifts and taken out alone, so music and voice beside it stay.',
+    harmonics: 'How many multiples of the hum to remove, the hum itself first (50, 100, 150 Hz and so on). 0 removes every one to 1 kHz, and above it those that stand out of the sound, to 8 kHz: a buzz. Each is followed as it drifts.',
     adaptive: 'With a set frequency, searches for the hum within about half a hertz of it instead of 0.4%: for hum off its nominal frequency, as from a tape running at the wrong speed.'
   },
   roomtone: {
@@ -444,7 +448,7 @@ export const texts = {
     order: 'Model detail. How many earlier samples are used to predict the wave across a cut peak. Higher follows rich music more closely and runs much slower.'
   },
   dereverb: {
-    strength: 'How much of the room\'s echo is taken. Higher takes more of it and more of the voice with it; 0 takes only what it can cancel exactly, a dB or two. A take with no room to hear, or music with no pauses, is left as it came at any strength.'
+    strength: 'How much of the room\'s echo is taken. Higher takes more of it and more of the voice with it; 0 takes only what it can cancel exactly, a dB or two. A dry take, a voice or an instrument with no room in it, is left as it came.'
   },
   deplosive: {
     triggerRatio: 'How much stronger the low thump must be than the rest of the voice to count as a pop. Lower catches more pops; higher catches only the worst. A voice or a bass note, whose low end has a pitch, is let through.',
@@ -458,7 +462,8 @@ export const texts = {
     cutoff: 'The highest frequency wind is taken from, in Hz. Most wind lies under 500 Hz, but strong wind rushes up to several kHz, so by default it is taken up to 8 kHz. Nothing above it is touched, and with no wind nothing at all.'
   },
   debreath: {
-    range: 'How far everything between phrases, breaths included, is turned down, in dB. -12 softens it; lower removes more and makes pauses unnaturally dead.',
+    range: 'How far each breath is turned down, in dB, above 300 Hz and never under the room. -12 softens it; lower removes more.',
+    room: 'How far the rest of each pause, the room between phrases, is turned down, in dB. 0 leaves it as it is, so pauses sound natural; lower makes them quieter, then dead.',
     attack: 'How long before speech starts the volume comes back. It rises ahead of the word, so the start is never cut; longer is softer.',
     release: 'How slowly the cut is applied after speech ends. Longer is smoother; shorter turns breaths down sooner.'
   },

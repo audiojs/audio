@@ -98,7 +98,7 @@ const table = {
   denoise: ['Repair', 'Remove a noise learned from where it plays alone', [db('reduction', 0, 40, 12), db('threshold', -10, 10, 0), { name: 'noise', selection: 'where the noise plays alone' }]],
   omlsa: ['Repair', 'Reduce background noise that changes'],
   // the noise `limit` dB down at most; 0 lets pauses fall to silence (fn/deepfilter.js)
-  deepfilter: ['Repair', 'Clean speech with a neural model', [db('limit', 0, 40, 18), choice('music', ['pass', 'enhance'])]],
+  deepfilter: ['Repair', 'Clean speech with a neural model', [db('limit', 0, 40, 18), choice('music', ['pass', 'enhance']), db('floor', 0, 60, 40)]],
   rnnoise: ['Repair', 'Clean speech with a small neural model, as it streams'],
   wiener: ['Repair', 'Reduce noise, gentle'],
   specsub: ['Repair', 'Reduce noise by spectral subtraction'],
