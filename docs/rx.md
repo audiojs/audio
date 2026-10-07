@@ -16,7 +16,7 @@
 |---|---|---|---|---|
 | De-click | `declick()` | ticks on speech at 5×: 31.4 dB of the click's error gone | 14.8 (tuned) | nowhere measured |
 | Mouth De-click | `declick()` | mouth clicks at 2×: 18.1 dB; 83 % taken 10 dB or more | 16.7, 82 % | nowhere measured |
-| De-crackle | `decrackle()` | medium crackle, 200/s on speech: 33.1 dB SDR | 21.0 | harm: its gentlest setting leaves 1 to 18 dB less error on 4 of 6 clean takes |
+| De-crackle | `decrackle()` | medium crackle, 200/s on speech: 32.8 dB SDR; clean takes: 0 to 1.4 % of samples moved, error −44 dB to none | 21.0; 0.3 to 10.3 %, −36 to −67 dB (its gentlest) | harm on 2 of 6 clean takes: its gentlest leaves 2 to 3 dB less error on VoiceBank and "Vibe Ace", moving 7 and 73 times the samples |
 | De-clip | `declip()` | SQAM clipped to 7 dB: ΔSDR 16.7, PEAQ −1.74 | 9.7, −2.44 | soft (tanh) saturation, where ours finds no rail unless given `clipLevel` |
 | De-hum | `dehum()` | 6 hum conditions × speech, readings, music: SDR 34.9 dB, PESQ 4.01 | 25.4, 2.80 | |
 | Spectral De-noise | `denoise({ noise })` | music under steady noise: SDR 20.9 dB | 20.2 (learned, tuned) | |
