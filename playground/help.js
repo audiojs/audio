@@ -457,7 +457,8 @@ export const texts = {
     order: 'Model detail. How many earlier samples are used to predict the wave across a cut peak. Higher follows rich music more closely and runs much slower.'
   },
   dereverb: {
-    strength: 'How much of the room\'s echo is taken. Higher takes more of it and more of the voice with it; 0 takes only what it can cancel exactly, a dB or two. A dry take, a voice or an instrument with no room in it, is left as it came.'
+    strength: 'How much of the room\'s echo is taken. Higher takes more of it and more of the voice with it; 0 takes only what it can cancel exactly, a dB or two. A dry take, a voice or an instrument with no room in it, is left as it came.',
+    music: 'pass leaves music as it is (a held note or a steady beat tells it), so only a voice loses its room; enhance takes the room off whatever it hears.'
   },
   deplosive: {
     triggerRatio: 'How much stronger the low thump must be than the rest of the voice to count as a pop. Lower catches more pops; higher catches only the worst. A voice or a bass note, whose low end has a pitch, is let through.',
