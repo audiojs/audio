@@ -82,3 +82,6 @@
   --z-focus: 10;
   --z-drag: 20;
 }
+/* A touch screen draws the slabs flat: its CSS pixel is rarely a whole number of device pixels, and 1px scanlines there
+   come out uneven, some lines doubled, some gone. */
+@media (pointer: coarse) { :root { --color-scanline: var(--color-transparent); } }

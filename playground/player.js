@@ -3,9 +3,10 @@ import { cycle } from './meters.js'
 import { heard } from './heard.js'
 
 // Plays the output with the library's own playback, into a deck on the page's one AudioContext (audio.context). What
-// plays is made by the engine and rendered there as it plays (set's `open`, engine.js voice: an audio/worker facade the
-// page plays as an instance), past the page's own thread; with none to open (the engine stopped, a test), here, of the
-// samples the view draws, shared, not copied. A new output while playing takes over where it is, crossfaded
+// plays is made and rendered as it plays in a worker (set's `open`, engine.js voice: an audio/worker facade the page
+// plays as an instance): the deck's, of its own, for a sound the page holds, so neither the page's thread nor the
+// engine's processing holds it up; the engine's for a long one, whose samples it has; with none to open (a test), here,
+// of the samples the view draws, shared, not copied. A new output while playing takes over where it is, crossfaded
 // (play({ from })), so a slider is heard as it moves; a band [low, high] plays through 24 dB an octave filters
 // (highpass, lowpass), open at the ends of hearing, and several boxes [a, b, low, high], each its band over its time,
 // over silence (heard.js); loop seams, starts and stops are the library's, crossfaded. The position is what the speakers
@@ -22,15 +23,18 @@ export default function player({ onend = () => {} } = {}) {
   let hearing = null, auditions = 0
   // the latest of play and pause wins: a play still opening the device when a pause comes stays paused
   let intent = 0
+  // where a play asked to start, the clock's until the voice goes there: what plays meanwhile is the place it left
+  let aim = null
 
-  // What plays of the output (heard.js): the engine's, or, with none, made here of the samples; null for a sound the page
-  // holds none of (a long one) the engine no longer has
+  // What plays of the output (heard.js), boxed, { voice } (engine.js voice: one still arriving is thenable): the deck's or
+  // the engine's, or, with none, made here of the samples; null for a sound the page holds none of (a long one) the
+  // engine no longer has
   async function made(o) {
     const v = await open?.(o).catch(() => null)
     if (v) return v
     if (!channels) return null
     local ??= audio.from(channels, { sampleRate: rate })
-    return heard(local, o)
+    return { voice: heard(local, o) }
   }
   // a voice tells the page when it reaches its end by itself; one taken over or stopped goes quietly
   function watch(v) {
@@ -86,7 +90,7 @@ export default function player({ onend = () => {} } = {}) {
 
   return {
     get playing() { return !!voice?.playing && !voice.paused },
-    get time() { return voice ? voice.currentTime : at },
+    get time() { return aim ?? (voice ? voice.currentTime : at) },
     // What the speakers play now, as RMS over the 50 ms around the playhead, all channels; 0 when stopped
     get level() {
       const w = this.playing && near(voice.currentTime)
@@ -123,7 +127,7 @@ export default function player({ onend = () => {} } = {}) {
         at = Math.min(at, duration())
         return
       }
-      const next = await made(only ?? {})
+      const next = (await made(only ?? {}))?.voice
       if (mine !== outs || voice !== prev) return release(next)
       if (!next) { release(prev); voice = only = null; return }
       voice = watch(next)
@@ -131,19 +135,26 @@ export default function player({ onend = () => {} } = {}) {
       release(prev)
       if (prev !== was) was?.dispose()
     },
+    // A sound still arriving, at `sampleRate`, opened by `opens` as set's is, `n` samples of it come: what plays of it
+    // plays what has come, its length growing by grow(n) as pieces come, till set() gives the whole of it; playing, each
+    // takes over where it is
+    arrive(sampleRate, opens, n = 0) { return this.set(null, sampleRate, opens, n) },
+    grow(n) { length += n },
     // Plays the span from `from` to `to` (or the end), looped or not, starting at `start` in it (its start by default),
     // only `band` [low, high] Hz of it, or only `boxes`, if given; while it plays, or is paused, the same go there
     async play({ from = 0, to = null, loop = false, band = null, boxes = null, start = from } = {}) {
       if (!length) return
       const mine = ++intent, o = { band, boxes }
+      aim = start
       await audio.context.resume()
       if (mine !== intent) return
       const span = { at: from, duration: to == null ? undefined : to - from, loop }
       if (!(voice?.playing && same(o))) {
         // a new output while it opens: it opens that one instead
         let prev, of, next
-        do { release(next); prev = voice; of = outs; next = await made(o) } while (mine === intent && (voice !== prev || of !== outs))
-        if (mine !== intent || !next) return release(next)
+        do { release(next); prev = voice; of = outs; next = (await made(o))?.voice } while (mine === intent && (voice !== prev || of !== outs))
+        if (mine !== intent) return release(next)
+        if (!next) { aim = null; return }
         release(prev)
         only = o
         voice = watch(next)
@@ -151,9 +162,10 @@ export default function player({ onend = () => {} } = {}) {
       voice.playbackRate = speed
       voice.play(span)
       if (start !== from) calm(voice.seek(start))
+      aim = null
       await voice.played
     },
-    pause() { intent++; if (voice?.playing && !voice.paused) { voice.pause(); at = voice.currentTime } },
+    pause() { intent++; aim = null; if (voice?.playing && !voice.paused) { voice.pause(); at = voice.currentTime } },
     // the speed it plays at, as a tape's: the pitch with it, at once while it plays (the library glides it)
     get rate() { return speed },
     set rate(r) { speed = r; if (voice) voice.playbackRate = r },
@@ -190,7 +202,7 @@ export default function player({ onend = () => {} } = {}) {
       this.pause()
       await audio.context.resume()
       if (mine !== auditions) return
-      const of = outs, a = await made({ from, to, edit })
+      const of = outs, a = (await made({ from, to, edit }))?.voice
       if (mine !== auditions || of !== outs || !a) return release(a)
       hearing = a
       a.on('ended', () => { if (hearing === a) { hearing = null; release(a) } })

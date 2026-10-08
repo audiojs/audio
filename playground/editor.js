@@ -251,6 +251,22 @@ eng.peaks = 30 * 60 * 48000
 const extent = m => m.channels ? m.channels[0].length : m.peaks[0].length ? (m.peaks[0].length / 4 - 1) * 256 + m.peaks[0][m.peaks[0].length - 1] : 0
 // a piece onto the view: its samples, or its leaves
 const piece = m => m.peaks ? v.peaks(m.at, m.peaks, m.spectra) : v.append(m.channels)
+// A sound arriving, with nothing whole to play, heard as it comes, as far as it has: its pieces pushed to the deck as
+// they come. The file as it decodes (`what` 'file'), while the output has nothing; then the output (`output`), from its
+// first piece, its pieces till then pushed at once, taking over where it plays. One that comes as its peaks waits to be
+// whole
+let arrivals = 0
+function hear(a, m, what) {
+  if (state.whole || !m.channels) return
+  if (a.hearing === what) { eng.push(a.heard, m.channels); return pl.grow(m.channels[0].length) }
+  const parts = what === 'output' ? a.parts : [m]
+  a.hearing = what
+  a.heard = `arriving ${++arrivals}`
+  eng.arrive(a.heard, m.sampleRate, m.channels.length)
+  for (const p of parts) eng.push(a.heard, p.channels)
+  pl.arrive(m.sampleRate, o => eng.voice({ ...o, held: { key: a.heard } }), parts.reduce((n, p) => n + p.channels[0].length, 0))
+  state.arriving = true
+}
 let ed, v, rk
 // the caret is where playback ends, as it is where it pauses
 const pl = player({ onend: () => { state.playing = false; v.playhead = null; v.setCursor(pl.time); state.time = stamp(v.cursor); sway() } })
@@ -329,7 +345,7 @@ const state = sprae(root, {
   show: { hits: true, gain: true, meters: true, guides: true, ...stored.show }, units: oneOf(stored.units, UNITS.map(u => u[0]), 'clock'),
   side: sideOf(stored.side), panel: Number.isFinite(stored.panel) ? stored.panel : null, pick: 0, keys,
   tabs: [], tab: 0, name: 'untitled', duration: 0, hasOutput: false, whole: false, ran: false, problem: '', missing: '', notice: '', noticeKind: '', dropping: false, track: null,
-  progress: '', arrived: null, working: false, loading: false, lines: [], saves: [], exporting: false, shared: false, canUndo: false, canRedo: false,
+  progress: '', arrived: null, working: false, loading: false, arriving: false, lines: [], saves: [], exporting: false, shared: false, canUndo: false, canRedo: false,
   time: '0:00.000', span: 0, readout: '', heard: null, selection: null, band: null, ranges: 0, boxes: 0, carets: 1, pauses: false, canPaste: false, playing: false, loop: false, recording: null,
   // the ring in Play's place (status), unless it plays or records
   get halting() { return this.working && !this.playing && !this.recording },
@@ -869,6 +885,10 @@ async function evaluate() {
   const runs = step ? residual(code, delta) : back != null ? rollback(code, back) : code
   const title = n => n[0].toUpperCase() + n.slice(1), later = back != null ? calls.length - back : 0
   state.viewing = step ? `What ${title(step.name)} takes out` : later > 0 ? `${back ? `Up to ${title(calls[back - 1].name)}` : 'The source alone'}: ${later} later step${later > 1 ? 's' : ''} bypassed` : ''
+  return perform(runs, code)
+}
+// Runs `runs`, the editor holding `code`, its reply and output shown as they come
+async function perform(runs, code) {
   const script = prepare(runs)
   await restoring
   // Built-in samples are made when a script first names one; the worker takes messages in order, so the file
@@ -886,11 +906,16 @@ async function evaluate() {
   if (!result.skipped && eng.tab === coming.tab) show(result, false, script.names, coming)
   status()
 }
-// Stopped: the worker goes, and every output it kept with it; a tab shown again runs its script again
-function stop() {
-  eng.stop()
-  for (const d of docs) if (d.output) d.output.said = null
+// Stopped: what renders stops, and the edit that set it off is undone, as an editor's Cancel leaves an effect unapplied:
+// the script goes back to the one the picture shows, which runs at once from what the worker kept (Redo applies the edit
+// again). A worker held past stopping is replaced, and what it kept goes with it: the output shown is made again in the
+// new one, and a tab shown again runs its script again
+async function stop() {
+  const replaced = await eng.stop(), [back] = ed.depth
+  if (output?.editor != null && back && steps[back - 1]?.code === output.editor) { const { label } = steps[back]; ed.undo(); note(`Stopped: ${label} undone, Redo applies it again`) }
+  else if (replaced && output?.code) perform(output.code, output.editor)
 }
+eng.onrestart = () => { for (const d of docs) if (d.output) d.output.said = null }
 
 // A run's reply: what the script printed in the console under it; what went wrong, in the status bar after the time
 // and at its line in the script. The last output that ran stays. A sound it made
@@ -961,6 +986,7 @@ function arrival(names) {
       state.loading = true
     }
     piece(m)
+    hear(a, m, 'file')
     status()
   }
   // all of the file come, the output still nothing: decoded, it renders now
@@ -988,6 +1014,7 @@ function arrival(names) {
     // its file still arriving, how much has come
     a.loaded = m.loaded != null ? { at: m.loaded, estimate: m.estimate } : null
     a.parts.push(m)
+    hear(a, m, 'output')
     if (a.on) piece(m)
     // tracks' mix: the picture is theirs, drawn once it is whole (done)
     else if (a.lanes) {}
@@ -1093,6 +1120,7 @@ function settle(out, draw = true, behind = false) {
   showing = has ? out.id : 0
   state.hasOutput = has
   state.whole = has
+  state.arriving = false
   state.loading = false
   // tracks, a lane each, the one edited by its name
   v.tracks = has && out.tracks ? out.tracks.map(t => ({ name: t.name, end: t.length / out.sampleRate })) : null
@@ -1198,7 +1226,8 @@ function scheduleCheck(delay = 300) {
 
 // What opens an output to play (player.js set): the engine's, rendered there as it plays; and a long one's samples near
 // where it is heard, the engine's
-const hears = out => o => eng.voice({ ...o, output: out.id })
+// what plays of an output: in the deck, of the samples the page holds; a long one's, made by the engine
+const hears = out => o => eng.voice({ ...o, output: out.id, ...out.channels && { held: { key: out.id, channels: out.channels, sampleRate: out.sampleRate } } })
 const fetches = out => out?.long ? (from, to) => eng.samples(out.id, from, to) : null
 
 // A/B: the original at the same place, level-matched to the output; the next output, or B again, returns to it.
@@ -1216,7 +1245,7 @@ async function toggleAB() {
   }
   state.ab = true
   state.abGain = original.gain
-  pl.set(original.channels, original.sampleRate, o => eng.voice({ ...o, source: name, loudness }), original.length)
+  pl.set(original.channels, original.sampleRate, o => eng.voice({ ...o, source: name, loudness, ...original.channels && { held: { key: `original ${name} ${loudness}`, channels: original.channels, sampleRate: original.sampleRate } } }), original.length)
   note(`Hearing before the edits: the file as it opened, level-matched (${original.gain >= 0 ? '+' : '−'}${Math.abs(original.gain).toFixed(1)}dB). B for after`)
 }
 
@@ -1473,7 +1502,7 @@ function turnSpeed() { setSpeed(SPEEDS.turn.find(r => r > state.speed + 1e-9) ??
 function playClick(event) { if (!event.detail) togglePlay() }
 // Playing and recording are one or the other: while it records, Play is off (Space stops the recording)
 async function togglePlay(at) {
-  if (!state.whole || state.recording) return
+  if (!(state.whole || state.arriving) || state.recording) return
   if (pl.playing) {
     pl.pause()
     cancelAnimationFrame(ticker)

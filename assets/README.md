@@ -30,8 +30,9 @@ The prototype uses browser decoding for uploaded files and the local `audio` eng
 edits and WAV, MP3, FLAC, AIFF, and Ogg Vorbis export. The displayed library examples also support the library's own codecs.
 The demo limits files to 20 MB and two minutes; these are demo limits, not library limits.
 
-The demo and the code example are black slabs with scanlines and a cast shadow: a tight band
-just below the slab, then layers whose offset and blur roughly double into a long, faint tail.
+The demo and the code example are black slabs with scanlines (flat on a touch screen, whose CSS pixel rarely lands on
+whole device pixels) and a cast shadow: a tight band just below the slab, then layers whose offset and blur roughly
+double into a long, faint tail.
 The dot grid starts at the top edge. Header and footer rules meet its columns and rows;
 both slabs start on dot rows with their sides on dot columns, and the footer follows changes in content height.
 Text blocks sit on plain paper while the grid continues through the header and footer.

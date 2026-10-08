@@ -268,12 +268,16 @@ function facade(chan, opened) {
       target._emit('play')
       return proxy
     },
+    // While it plays, the clock holds the place asked for until the worker says which run plays it (the speakers' run
+    // before it is not), as the local deck's does; a later seek's answer is the one that counts
     seek(t) {
       ct = t = Math.max(0, t)
       if (!session || !target.playing) return target._call('seek', [t])
       target.seeking = true
-      let s = session
-      return target._call('_seek', [t]).then(r => { if (s === session && r) { s.seekRun = r.run; ct = r.at } })
+      let s = session, n = ++s.seeks
+      s.seekRun = Infinity
+      let done = r => { if (s === session && n === s.seeks) { s.seekRun = r?.run ?? 0; if (r) ct = r.at } }
+      return target._call('_seek', [t]).then(done, e => { done(); throw e })
     },
     stop() {
       end(false)
@@ -318,7 +322,7 @@ function facade(chan, opened) {
 
   function begin(o, taken) {
     end(false)
-    let s = session = { tp: null, taken: false, done: false, first: true, seekRun: 0, ok: null, fail: null }
+    let s = session = { tp: null, taken: false, done: false, first: true, seekRun: 0, seeks: 0, ok: null, fail: null }
     target.playing = true; target.paused = !!o.paused; target.ended = false; target.seeking = false
     span = [o.at, o.duration]
     ct = o.time ?? Math.max(0, o.at)

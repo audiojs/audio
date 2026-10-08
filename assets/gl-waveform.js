@@ -11,6 +11,7 @@ const B = 256        // samples per pyramid leaf
 const C = 1 << 16    // samples per storage chunk, a multiple of B
 const TW = 2048      // data texture width, texels
 const DOT = 6        // CSS px between samples where dots appear; they reach full size at twice that
+const FLOOR = .1     // Gaussian density's least, where a column reaches at all
 
 const ATTRS = { premultipliedAlpha: true, preserveDrawingBuffer: true, antialias: false, depth: false, stencil: false }
 const COLOR = [0.25, 0.45, 0.85, 1]
@@ -23,7 +24,7 @@ precision highp float;
 precision highp int;
 uniform highp sampler2D data; // envelope: per column [lo, hi, rms lo, rms hi]; line: per sample [y, y]; lo > hi is a gap
 uniform vec2 origin;          // viewport corner, device px
-uniform int count, line, dense;
+uniform int count, line, dense; // dense: 0 the RMS band, 1 Gaussian density over a floor, 2 Laplace density
 uniform float pps, off, hw, rad; // px per sample, first sample position in samples, half line width, dot radius
 uniform float zero, fade;        // silence's y, device px; how much a column holds several samples, 0..1
 uniform vec4 color, rms;         // premultiplied
@@ -54,12 +55,11 @@ void main() {
       a = b;
     }
     vec4 t = at(x);
-    if (dense == 1 && t.x <= t.y) {
-      // the share of the column's samples at or beyond this level, S = 1 − (|v| / P)^k from its peak P and RMS R:
-      // k = 2q / (1 − q), q = R² / P², gives that RMS (a sine fits k = 2; the higher the crest, the lower k)
-      float v = p.y - zero, P = v >= 0. ? t.y - zero : zero - t.x, R = max(t.w - zero, zero - t.z);
-      float q = P > 0. ? clamp(R * R / (P * P), 0., .98) : .98;
-      r = mix(1., 1. - pow(clamp(abs(v) / max(P, 1e-6), 0., 1.), 2. * q / (1. - q)), fade);
+    if (dense > 0 && t.x <= t.y) {
+      // how often noise of the column's RMS R is at this level, against at zero: Gaussian e^(−v²/2R²) over a floor, so a
+      // one-sample peak still shows; or Laplace e^(−√2·|v|/R), as speech is (Gazor & Zhang 2003), a soft cloud
+      float R = max(max(t.w - zero, zero - t.z), 1e-6), v = abs(p.y - zero) / R;
+      r = mix(1., dense == 1 ? ${FLOOR} + ${1 - FLOOR} * exp(-.5 * v * v) : exp(-${Math.SQRT2} * v), fade);
     }
     else r = clamp(min(t.w, p.y + .5) - max(t.z, p.y - .5), 0., 1.);
   } else {
@@ -80,8 +80,8 @@ void main() {
     d = min(d, e);
   }
   float c = clamp(max(hw + .5 - d, rad + .5 - e), 0., 1.);
-  // dense: the fill as bright as the signal is often there, a peak reached once still at 30 %
-  frag = dense == 1 && line == 0 ? color * c * mix(.3, 1., r) : rms * r + color * c * (1. - rms.a * r);
+  // dense: the fill as bright as the signal is often there
+  frag = dense > 0 && line == 0 ? color * c * r : rms * r + color * c * (1. - rms.a * r);
 }`
 
 const UNIFORMS = ['data', 'origin', 'count', 'line', 'dense', 'pps', 'off', 'hw', 'rad', 'zero', 'fade', 'color', 'rms']
@@ -100,8 +100,9 @@ export default class Waveform {
   #amplitude = [-1, 1]
   #viewport = null  // CSS px [x, y, w, h] or null for the whole canvas
   #color = COLOR
-  #rms = null       // color, false to hide, null for a tint of #color
-  #density = false  // fill shaded by how often the signal reaches each level, in place of the RMS band
+  #rms = null       // color, false to hide, null for #color
+  #peaks = null     // the envelope's color zoomed out, null for a tint of #color with the RMS band, #color without
+  #density = false  // 'gaussian' or 'laplace': the fill shaded by how often the signal is at each level, in place of the RMS band
   #thickness = 1
   #pixelRatio = null
   #o = new Float64Array(4)    // query scratch
@@ -128,7 +129,7 @@ export default class Waveform {
   get range() { return this.#range ? [...this.#range] : [0, this.#n] }
   get amplitude() { return [...this.#amplitude] }
 
-  /** Set any of data, range, amplitude, viewport, color, rms, density, thickness, pixelRatio; null restores the default. */
+  /** Set any of data, range, amplitude, viewport, color, rms, peaks, density, thickness, pixelRatio; null restores the default. */
   update(o = {}) {
     if (o.data !== undefined) this.#load(o.data)
     if (o.range !== undefined) this.#range = o.range && nums(o.range, 2, 'range')
@@ -138,7 +139,11 @@ export default class Waveform {
     if (o.pixelRatio !== undefined) this.#pixelRatio = o.pixelRatio == null ? null : nums([o.pixelRatio], 1, 'pixelRatio')[0]
     if (o.color !== undefined) this.#color = o.color == null ? COLOR : rgba(o.color, this.gl)
     if (o.rms !== undefined) this.#rms = o.rms === false ? false : o.rms == null || o.rms === true ? null : rgba(o.rms, this.gl)
-    if (o.density !== undefined) this.#density = !!o.density
+    if (o.peaks !== undefined) this.#peaks = o.peaks == null ? null : rgba(o.peaks, this.gl)
+    if (o.density !== undefined) {
+      if (o.density != null && ![true, false, 'gaussian', 'laplace'].includes(o.density)) throw TypeError(`gl-waveform: density must be gaussian, laplace, true or false, not ${o.density}`)
+      this.#density = o.density === true ? 'gaussian' : o.density || false
+    }
     this.#draw = null
     return this
   }
@@ -235,11 +240,14 @@ export default class Waveform {
     gl.uniform1f(u.off, d.off)
     gl.uniform1f(u.hw, d.hw)
     gl.uniform1f(u.rad, d.rad)
-    gl.uniform1i(u.dense, +this.#density)
+    gl.uniform1i(u.dense, { gaussian: 1, laplace: 2 }[this.#density] ?? 0)
     gl.uniform1f(u.zero, d.zero)
     gl.uniform1f(u.fade, d.fade)
-    let c = this.#color, r = this.#rms ?? tint(c), a = r ? r[3] * d.fade : 0
-    gl.uniform4f(u.color, c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3])
+    // the RMS band in the line's color, the envelope around it lighter: zoomed out the envelope takes peaks', zoomed in
+    // the line keeps color, and they cross as columns go from 1 to 4 samples, where the band fades in
+    let c = this.#color, band = this.#rms !== false && !this.#density, r = this.#rms || c, a = band ? r[3] * d.fade : 0
+    let p = this.#peaks ?? (band ? tint(c) : c), e = c.map((v, i) => v + (p[i] - v) * d.fade)
+    gl.uniform4f(u.color, e[0] * e[3], e[1] * e[3], e[2] * e[3], e[3])
     gl.uniform4f(u.rms, a && r[0] * a, a && r[1] * a, a && r[2] * a, a)
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
     return this
@@ -483,7 +491,7 @@ function nums(v, len, name) {
   return a
 }
 
-// RMS band default: the line color, lightened
+// The envelope's default around the RMS band: the line color, lightened
 function tint(c) { return [c[0] + (1 - c[0]) * .45, c[1] + (1 - c[1]) * .45, c[2] + (1 - c[2]) * .45, c[3]] }
 
 // Compiling starts with the first waveform on a context, so the driver works on it while data loads; the first draw waits

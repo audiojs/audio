@@ -65,8 +65,9 @@ const tape = (sampleRate, channels) => audio(null, { sampleRate, channels, ...KE
 // What the page draws of a sound longer than it holds as samples (a run's `peaks`: how many channel samples it holds, 0
 // where it draws none), each channel's, with windows of its samples where it is zoomed in (samples):
 //   leaves   gl-waveform's peaks: each LEAF samples as [min, max, Σx², count]
-//   spectra  gl-spectrogram's: per column of `hop` samples (a power of two, COLS columns or so for the whole), the loudest
-//            each bin reaches over the column's Hann frames of `size` (the 40 ms the spectrogram's own frames take), every
+//   spectra  gl-spectrogram's: per column of `hop` samples (a power of two, COLS columns or so for the whole), each bin's
+//            mean power over the column's Hann frames of `size` (the 40 ms the spectrogram's own frames take; its columns
+//            join their frames by their mean, combine's default, so the two read alike where they meet), every
 //            size / 2 samples centered on multiples of size / 2, |X|² over (size / 4)² (0 dB a full-scale sine on its bin),
 //            a byte per bin to Nyquist, (dB + 150) · 1.6, 0 silence
 // Counted as the samples come (pictured), kept with the sound.
@@ -87,9 +88,10 @@ function pictured(k, rate, total) {
   const size = sizeOf(rate), half = size / 2, bins = half + 1, hop = hopOf(total, size), norm = 1 / (size / 4) ** 2
   const win = Float64Array.from({ length: size }, (_, i) => .5 - .5 * Math.cos(2 * Math.PI * i / size))
   const leaves = grower(k, Float32Array), levels = grower(k, Uint8Array), cur = Array.from({ length: k }, () => [Infinity, -Infinity, 0, 0])
-  // samples from `base` on, for the frames still to come; the next frame's center `t`; the column `o` its loudest so far
-  let tail = Array.from({ length: k }, () => new Float32Array(2 * size)), base = 0, have = 0, t = half, o = 0, fill = 0, n = 0
-  const most = Array.from({ length: k }, () => new Float64Array(bins)), frame = new Float64Array(size)
+  // samples from `base` on, for the frames still to come; the next frame's center `t`; the column `o`, the sum of its
+  // frames' powers so far and how many
+  let tail = Array.from({ length: k }, () => new Float32Array(2 * size)), base = 0, have = 0, t = half, o = 0, fill = 0, n = 0, frames = 0
+  const sum = Array.from({ length: k }, () => new Float64Array(bins)), frame = new Float64Array(size)
   const leaf = () => {
     for (let c = 0; c < k; c++) { leaves.add(c, cur[c]); cur[c][0] = Infinity; cur[c][1] = -Infinity; cur[c][2] = cur[c][3] = 0 }
     leaves.grow(4); fill = 0
@@ -97,21 +99,22 @@ function pictured(k, rate, total) {
   const column = () => {
     const q = new Uint8Array(bins)
     for (let c = 0; c < k; c++) {
-      for (let b = 0; b < bins; b++) { const p = most[c][b]; q[b] = p > 0 ? Math.max(1, Math.min(255, Math.round((10 * Math.log10(p) + 150) * 1.6))) : 0 }
+      for (let b = 0; b < bins; b++) { const p = sum[c][b] / (frames || 1); q[b] = p > 0 ? Math.max(1, Math.min(255, Math.round((10 * Math.log10(p) + 150) * 1.6))) : 0 }
       levels.add(c, q)
-      most[c].fill(0)
+      sum[c].fill(0)
     }
-    levels.grow(bins); o++
+    levels.grow(bins); o++; frames = 0
   }
-  // the frame centered on t, from the samples held (zeros past the end), into its column's loudest
+  // the frame centered on t, from the samples held (zeros past the end), into its column's sum
   const transform = () => {
     while (Math.floor(t / hop) > o) column()
     for (let c = 0; c < k; c++) {
       const x = tail[c]
       for (let i = 0; i < size; i++) { const j = t - half + i - base; frame[i] = j >= 0 && j < have ? x[j] * win[i] : 0 }
-      const [re, im] = fft(frame), m = most[c]
-      for (let b = 0; b < bins; b++) { const p = (re[b] * re[b] + im[b] * im[b]) * norm; if (p > m[b]) m[b] = p }
+      const [re, im] = fft(frame), m = sum[c]
+      for (let b = 0; b < bins; b++) m[b] += (re[b] * re[b] + im[b] * im[b]) * norm
     }
+    frames++
     t += half
   }
   return {
@@ -150,10 +153,23 @@ function pictured(k, rate, total) {
     count: () => ({ leaves: leaves.length / 4, columns: levels.length / bins })
   }
 }
+// A loop over a stream's blocks giving way to whatever the page asks (a newer run, Stop) every 20 ms of work: the blocks
+// come as promises already settled, and without a task between them the worker hears nothing till the loop ends
+function turns() {
+  let t = performance.now()
+  return async () => {
+    if (performance.now() - t < 20) return
+    await new Promise(resolve => { turned.push(resolve); channel.port2.postMessage(0) })
+    t = performance.now()
+  }
+}
+// a task through a channel, which a timer's 4 ms clamp on nested timeouts would make a fifth of the work
+const channel = new MessageChannel(), turned = []
+channel.port1.onmessage = () => turned.shift()?.()
 // A sound's picture, read through
 async function pictureOf(sound) {
-  const p = pictured(sound.channels, sound.sampleRate, sound.length)
-  for await (const block of sound.stream()) p.push(block)
+  const p = pictured(sound.channels, sound.sampleRate, sound.length), turn = turns()
+  for await (const block of sound.stream()) { p.push(block); await turn() }
   p.end()
   return p.since()
 }
@@ -230,11 +246,11 @@ function shelf(name, max) {
         await write(head, 12)
         // a page of each channel at a time: few writes, each a long one
         const session = audio.statSession(sound.sampleRate), PS = audio.PAGE_SIZE, buf = Array.from({ length: k }, () => new Float32Array(Math.min(PS, n)))
-        let pos = 0, from = 0, t = performance.now()
-        const flush = async () => { for (let c = 0; c < k; c++) await write(buf[c].subarray(0, pos - from), at + (c * n + from) * 4); from = pos }
+        let pos = 0, from = 0
+        const turn = turns(), flush = async () => { for (let c = 0; c < k; c++) await write(buf[c].subarray(0, pos - from), at + (c * n + from) * 4); from = pos }
         for await (const block of sound.stream()) {
-          // giving way to whatever the page asks every 20 ms of work: kept in the background, a long one never holds it up
-          if (performance.now() - t > 20) { await new Promise(resolve => setTimeout(resolve)); t = performance.now() }
+          // kept in the background, a long one never holds up what the page asks
+          await turn()
           const len = Math.min(block[0].length, n - pos), part = block.map(c => c.subarray(0, len))
           if (len <= 0) break
           session.page(part)
@@ -299,6 +315,7 @@ const sources = new Map()      // name → its instance, arriving or arrived; ne
 const outputs = new Map()      // run id → its output as it streams: { tab, instance, tape, sound, length, sampleRate, done, … }; each tab's last kept
 let run = null                 // the script running now: { created, saves }
 let newest = 0                 // the run whose output streams: older streams stop
+let stopped = 0                // the page's Stop: the runs it asked for before it make no output (stop)
 
 // Script calls that reach outside the page become editor actions: save() marks an export for the Export button,
 // play() is the page's transport, record() is the page's Record button.
@@ -394,6 +411,7 @@ async function execute({ id, code, names = [], tab = null, peaks = 0 }) {
     const output = layers ? layers[0].instance : isAudio(value) ? value : run.created.findLast(a => !a._?.disposed) ?? null
     const result = { logs, saves: run.saves.map(s => s.name), output: !!output, ...layers && { tracks: layers.map(t => t.name) } }
     if (!isAudio(value) && value !== undefined) result.value = inspect(value)
+    if (id < stopped) throw new Error('Stopped.')
     // this run's output is the one that streams now; an older one still streaming stops
     newest = id
     for (const r of outputs.values()) if (!r.done) drop(r)
@@ -633,12 +651,14 @@ async function mixTracks(r, alive) {
 async function laneOf(sound, rate, n, alive) {
   const len = sound.length, p = n ? pictured(1, rate, n) : null, mono = p ? null : new Float32Array(len)
   let at = 0
+  const turn = turns()
   for await (const block of sound.stream()) {
+    await turn()
+    if (!alive()) return null
     const x = new Float32Array(Math.min(block[0].length, len - at))
     for (const c of block) for (let i = 0; i < x.length; i++) x[i] += c[i] / block.length
     p ? p.push([x]) : mono.set(x, at)
     at += x.length
-    if (!alive()) return null
   }
   if (!p) return { mono }
   for (let i = at; i < n; i += 65536) p.push([new Float32Array(Math.min(65536, n - i))])
@@ -722,14 +742,14 @@ async function checkpoint(r) {
     finally { a.dispose?.() }
   }
 }
-// An instance's sound, rendered a block at a time onto a tape, giving way to whatever the page asks every 20 ms of work;
-// null once `going()` says to stop
+// An instance's sound, rendered a block at a time onto a tape, giving way to whatever the page asks (turns); null once
+// `going()` says to stop
 async function collect(a, going, blocks = a.stream()) {
-  const t = tape(a.sampleRate, a.channels)
-  let at = performance.now()
+  const t = tape(a.sampleRate, a.channels), turn = turns()
   for await (const block of blocks) {
     t.push(block)
-    if (performance.now() - at > 20) { await new Promise(resolve => setTimeout(resolve)); if (!going()) { t.dispose(); return null } at = performance.now() }
+    await turn()
+    if (!going()) { t.dispose(); return null }
   }
   return t.stop()
 }
@@ -796,7 +816,8 @@ async function fragment(r) {
       const was = await o.sound.read({ at: from / rate, duration: (to - from) / rate })
       return got.every((c, ch) => { for (let i = from; i < to; i++) if (Math.abs(c[i - lead] - was[ch][i - from]) > 1e-6) return false; return true })
     }
-    let checked = false, end = n, w = s1, t = performance.now()
+    let checked = false, end = n, w = s1
+    const turn = turns()
     for await (const block of a.stream({ at: lead / rate })) {
       const len = Math.min(block[0].length, n - pos)
       if (pos + len - lead > got[0].length) got = got.map(c => { const x = new Float32Array(2 * c.length); x.set(c); return x })
@@ -806,7 +827,8 @@ async function fragment(r) {
       // past the range, the first window as it was is where it ends
       while (checked && w + e <= pos && w < n && !await same(w, w + e)) w += e
       if (checked && w + e <= pos && w < n) { end = w; break }
-      if (performance.now() - t > 20) { await new Promise(resolve => setTimeout(resolve)); if (newest !== r.id) return null; t = performance.now() }
+      await turn()
+      if (newest !== r.id) return null
     }
     // the last output with what changed written over it: its pages shared, the range the edit's
     const sound = o.sound.clone().write(got.map(c => c.slice(s0 - lead, end - lead)), { at: s0 / rate })
@@ -855,9 +877,11 @@ async function arriving(id, name, alive, peaks) {
     post({ id, event: 'arrived', name })
   } catch {}   // the output's own stream says what went wrong
 }
-// A stream's blocks, joined into pieces of a tenth of a second or what came in 50 ms, handed to `send(at, channels)`
+// A stream's blocks, joined into pieces of a tenth of a second or what came in 50 ms, handed to `send(at, channels)`,
+// giving way to whatever the page asks (turns)
 async function relay(blocks, alive, send, rate) {
   let parts = [], n = 0, at = 0, sent = performance.now()
+  const turn = turns()
   const flush = () => {
     if (!n) return
     const channels = parts[0].map((_, c) => { const x = new Float32Array(n); let o = 0; for (const p of parts) { x.set(p[c], o); o += p[c].length } return x })
@@ -869,6 +893,7 @@ async function relay(blocks, alive, send, rate) {
     parts.push(block)
     n += block[0].length
     if (n >= (rate() || 48000) / 10 || performance.now() - sent > 50) flush()
+    await turn()
   }
   if (alive()) flush()
 }
@@ -1067,14 +1092,19 @@ async function monoOf(sound, from, to, rate) {
   return x
 }
 
-// What plays (player.js): an output (`output`, the run that made it), or the file it opened (`source`, at the output's
-// `loudness`, as original() has it), as the page asks to hear it (heard.js): a band of it, its boxes, or a moment of it
-// [from, to] through an edit, [type, ...args] (a pitch dragged). The page adopts it (audio/worker) and plays it, rendered
-// here into the page's deck as it plays; it lets it go when done. Each a copy of one kept with the output, sharing its
-// samples
-async function voice({ output, source, loudness, ...as }) {
+// What plays (player.js): an output (`output`, the run that made it), the file it opened (`source`, at the output's
+// `loudness`, as original() has it), or, in the worker that plays (engine.js deck), a sound the page handed it (`held`,
+// its key), as the page asks to hear it (heard.js): a band of it, its boxes, or a moment of it [from, to] through an
+// edit, [type, ...args] (a pitch dragged). The page adopts it (audio/worker) and plays it, rendered here into the page's
+// deck as it plays; it lets it go when done. Each a copy of one kept, sharing its samples
+async function voice({ output, source, held, loudness, ...as }) {
   let a
-  if (source != null) {
+  if (held != null) {
+    const h = holding.get(held)
+    if (!h) return { inst: null }
+    a = h.clone()
+  }
+  else if (source != null) {
     const src = sources.get(source)
     if (!src) return { inst: null }
     const own = await loudnessOf(src)
@@ -1308,13 +1338,24 @@ async function describe({ name }) {
   return { params: spec && JSON.parse(JSON.stringify(spec)) }
 }
 
+// The sounds the page handed the worker that plays (engine.js deck), by key: whole, or still arriving (`count`
+// channels, its pieces pushed as they come: what plays of it plays what has come); those `keep` names stay, the rest go
+const holding = new Map()
 const handlers = {
+  hold: ({ key, channels, count, sampleRate, keep }) => {
+    holding.set(key, channels ? audio.from(channels, { sampleRate }) : audio(null, { sampleRate, channels: count }))
+    for (const k of holding.keys()) if (!keep.includes(k)) holding.delete(k)
+    return {}
+  },
+  push: ({ key, channels }) => { holding.get(key)?.push(channels); return {} },
   // a file changed: what was made of it goes
   file: ({ name, data }) => {
     const was = sources.get(name)
     if (was) for (const k of kept.keys()) if (k.startsWith(`${idOf(was)}|`)) kept.delete(k)
     data ? files.set(name, data) : files.delete(name); forget(name); stages.clear(); return {}
   },
+  // Stop: the output streaming stops, and the script running makes none; those whole stay
+  stop: ({ id }) => { stopped = id; newest = 0; for (const r of outputs.values()) if (!r.done) drop(r); return {} },
   run: execute, cues, contour, listen, export: exporting, describe, check: checking, original, voice, samples, eval: evaluate,
   // a tab closed: its output goes
   close: ({ tab }) => { for (const r of outputs.values()) if (r.tab === tab) drop(r); return {} },
@@ -1329,6 +1370,8 @@ const handlers = {
   }
 }
 self.onmessage = async ({ data }) => {
+  // a run taken: the worker is not held (engine.js HELD)
+  if (data.type === 'run') post({ id: data.id, event: 'taken' })
   let reply
   try { reply = await handlers[data.type](data) }
   catch (error) { reply = { error: failure(error) } }

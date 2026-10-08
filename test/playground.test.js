@@ -1610,7 +1610,7 @@ test('editor: no object literal in the page names a key twice', async () => {
 
 // The sound's end, scrolled to the view's middle: a rule down the lanes, and a hatch after it fading out within 24 px
 // (view.js HATCH), the end marked, the room past it bare
-test('editor: the sound\'s end is a line down the lanes and a hatch after it that fades out within 24 px', async () => {
+test('editor: the sound\'s end is a line down the lanes and a hatch after it that fades out within 24 px, no grid past it', async () => {
   await open()
   const box = await page.locator('.plot').boundingBox()
   await page.mouse.move(box.x + box.width * .8, box.y + box.height * .4)
@@ -1622,7 +1622,7 @@ test('editor: the sound\'s end is a line down the lanes and a hatch after it tha
   await page.waitForTimeout(200)
   // the overlay's alpha, CSS px: the end, the one column lit all down a lane, left of the meters; then the hatch's
   // alpha summed down that lane, in thirds of 8 px after it, and the room past them
-  const { end, thirds, past } = await page.evaluate(() => {
+  const { end, thirds, past, inside, beyond } = await page.evaluate(() => {
     const canvas = document.querySelector('canvas.overlay'), k = canvas.width / canvas.clientWidth
     const { data, width } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height)
     const a = (x, y) => data[(Math.round(y * k) * width + Math.round(x * k)) * 4 + 3]
@@ -1632,11 +1632,28 @@ test('editor: the sound\'s end is a line down the lanes and a hatch after it tha
     let y0 = 0; while (a(end, y0) !== 255) y0++
     let y1 = y0; while (a(end, y1 + 1) === 255) y1++
     const sum = (from, to) => { let s = 0; for (let x = from; x < to; x++) for (let y = y0; y <= y1; y++) s += a(x, y); return s }
-    return { end, thirds: [sum(end + 1, end + 9), sum(end + 9, end + 17), sum(end + 17, end + 25)], past: sum(end + 26, end + 120) }
+    // the grid's layer, all down the lanes, before the end and past it
+    const grid = document.querySelector('canvas.grid'), g = grid.getContext('2d').getImageData(0, 0, grid.width, grid.height)
+    const ruled = (from, to) => { let s = 0; for (let x = Math.round(from * k); x < Math.round(to * k); x++) for (let y = 0; y < grid.height; y++) s += g.data[(y * grid.width + x) * 4 + 3]; return s }
+    return { end, thirds: [sum(end + 1, end + 9), sum(end + 9, end + 17), sum(end + 17, end + 25)], past: sum(end + 26, end + 120), inside: ruled(0, end), beyond: ruled(end + 1, w) }
   })
   assert.ok(end > 0, 'a line down the lanes at the end')
   assert.ok(thirds[0] > thirds[1] && thirds[1] > thirds[2], `the hatch after it fading: ${thirds}`)
   assert.equal(past, 0, 'none past 24 px')
+  assert.ok(inside > 0, 'the grid where the sound is')
+  assert.equal(beyond, 0, 'none past its end')
+})
+
+// A touch screen's CSS pixel is rarely whole device pixels, which 1 px scanlines alias on: the slabs there are flat
+test('editor: on a touch screen the slabs have no scanlines', async () => {
+  const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true })
+  const p = await phone.newPage()
+  await p.goto(origin + '/playground.html')
+  const [coarse, scanline] = await p.evaluate(() => [matchMedia('(pointer: coarse)').matches, getComputedStyle(document.documentElement).getPropertyValue('--color-scanline').trim()])
+  await phone.close()
+  assert.ok(coarse, 'the page sees a coarse pointer')
+  assert.equal(scanline, 'transparent')
+  assert.notEqual(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--color-scanline').trim()), 'transparent', 'with a mouse, the scanlines')
 })
 
 // The lanes ruled (Grid: Crosses + dots, the default), where the sound is quiet (2.5 to 3 s): a cross, its arms 3 px, where a
@@ -2250,6 +2267,31 @@ test('editor: playback goes on without a gap while the page is busy', async () =
   await page.getByRole('button', { name: 'Pause' }).click()
 })
 
+// Playback is the deck's (engine.js), a worker of its own: a script holding the engine 3 s, then its output taking over
+// as it plays, leaves no gap in what is heard
+test('editor: playback goes on without a gap while the engine processes, and its output takes over', async () => {
+  await page.addInitScript(taken)
+  await open()
+  const sine = `audio.from(t => Math.sin(2 * Math.PI * 440 * t) / 2, { duration: 12 })`
+  await write(sine)
+  await page.locator('.readout', { hasText: 'peak −6.0dBFS' }).waitFor()
+  await page.locator('.plot').focus()
+  await page.keyboard.press('Space')
+  await page.getByRole('button', { name: 'Pause' }).waitFor()
+  await page.waitForFunction(() => document.querySelector('.time').textContent > '0:00.300')
+  await page.evaluate(() => { window.__taken.length = 0 })
+  await write(`const s0 = performance.now()\nwhile (performance.now() - s0 < 3000);\n${sine}.gain(-1)`)
+  await page.locator('.readout', { hasText: 'peak −7.0dBFS' }).waitFor({ timeout: 15000 })
+  await page.waitForTimeout(500)
+  const [x, sr] = await page.evaluate(() => [window.__taken.flatMap(b => [...b]), window.__rate])
+  let run = 0, longest = 0
+  for (const v of x) { run = Math.abs(v) < 1e-4 ? run + 1 : 0; longest = Math.max(longest, run) }
+  assert.ok(x.length > sr * 3.5, `${x.length} samples taken`)
+  assert.ok(longest < sr * .005, `a gap of ${(longest / sr * 1000).toFixed(0)} ms`)
+  assert.equal(await page.getByRole('button', { name: 'Pause' }).count(), 1, 'still playing')
+  await page.getByRole('button', { name: 'Pause' }).click()
+})
+
 test('editor: an error is said once, beside the time and at its line; the last output stays', async () => {
   await open()
   await write(`audio('chime.wav').gain(`)
@@ -2777,6 +2819,70 @@ test('editor: the playhead starts at the caret and only moves on, however late t
   assert.ok(times.at(-1) > 2.2, times.at(-1))
 })
 
+// The caret put elsewhere while it plays, ahead or back: from the press on, the clock reads where it went and runs on from
+// there, never a frame where it was (what the speakers still play of it)
+test('editor: the caret put elsewhere while it plays goes there at once, never back', async () => {
+  await open()
+  const { box, x } = await axis(6.525), y = box.y + box.height / 2
+  await page.mouse.click(x(1), y)
+  await page.keyboard.press('Space')
+  await page.waitForFunction(() => document.querySelector('.play')?.getAttribute('aria-label') === 'Pause')
+  // sounding, the speakers' place running ahead of the caret
+  await page.waitForTimeout(800)
+  // the clock each frame after a press at `to` s
+  const after = async to => {
+    await page.evaluate(() => {
+      window.__clock = []
+      addEventListener('pointerdown', () => { window.__pressed = performance.now() }, { once: true, capture: true })
+      const end = performance.now() + 1500, read = () => { const [m, s] = document.querySelector('.time').textContent.split(':'); window.__clock.push([performance.now(), +m * 60 + +s]); performance.now() < end && requestAnimationFrame(read) }
+      read()
+    })
+    await page.mouse.click(x(to), y)
+    await page.waitForTimeout(600)
+    return page.evaluate(() => window.__clock.filter(([t]) => t > window.__pressed).slice(0, 20).map(([, s]) => s))
+  }
+  for (const to of [4, .5]) {
+    const times = await after(to)
+    assert.ok(times.length > 3, times.join())
+    assert.ok(times.every(t => t >= to - .01 && t < to + 1), `from ${to} s: ${times.join()}`)
+    assert.ok(times.every((t, i) => !i || t >= times[i - 1]), times.join())
+  }
+  await page.keyboard.press('Space')
+})
+
+// Played from a caret past the middle of a zoomed view, the view glides till the playhead holds the middle, never
+// jumping there: where it stands across the view, read once paused from the caret and the times two clicks put
+test('editor: played from past the middle of a zoomed view, the view glides the playhead to the middle', async () => {
+  await open()
+  await noCues()
+  await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
+  await lengthIs('0:20.000')
+  const box = await page.locator('.plot').boundingBox(), w = box.width - GUTTER, y = box.y + box.height / 2, at = f => box.x + f * w
+  await page.mouse.move(at(.5), y)
+  for (let i = 0; i < 6; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
+  const time = async () => { const [m, s] = (await page.locator('.time').innerText()).split(':'); return +m * 60 + +s }
+  const across = async () => {
+    const t = await time()
+    await page.mouse.click(at(.1), y)
+    const a = await time()
+    await page.mouse.click(at(.9), y)
+    const b = await time()
+    return .1 + (t - a) / (b - a) * .8
+  }
+  const play = async ms => {
+    await page.mouse.click(at(.85), y)
+    await page.keyboard.press('Space')
+    await page.waitForFunction(() => document.querySelector('.play')?.getAttribute('aria-label') === 'Pause')
+    await page.waitForTimeout(ms)
+    await page.keyboard.press('Space')
+    return across()
+  }
+  const soon = await play(50), later = await play(2500)
+  assert.ok(soon > .65, `just after it starts, still where it started: ${soon.toFixed(2)}`)
+  // (the clock, read paused, is a frame or so past the playhead last drawn)
+  assert.ok(Math.abs(later - .5) < .1, `then in the middle: ${later.toFixed(2)}`)
+})
+
 // What the sound holds, in the status bar: the note at the caret (440 Hz is A4, ISO 16), a melody's compass over a
 // selection (A4 then E5, 659.26 Hz, 2^(7/12) × 440), and, over 6 s at least, the tempo and the key of all of it: clicks
 // every 0.5 s are 120 BPM, a C major triad (C4 E4 G4, 261.63, 329.63, 392 Hz) over them is in C major (Krumhansl-Kessler)
@@ -3051,6 +3157,10 @@ test('editor: the waveform fill is as bright as the signal is often at that leve
   const lit = column.map((v, y) => [v, y]).filter(([v]) => v > 90), top = lit[0][1], mid = Math.round(column.length * (1 - 22 / (await page.locator('.plot').boundingBox()).height) / 2)
   const near = column[mid - 2], far = column[Math.round(top + (mid - top) * .15)]
   assert.ok(near > far * 1.4, `near the centre line ${near}, near the peak ${far}`)
+  // a body, not a line at silence: a tenth of the way out to the peak nearly as bright as by the centre line (gl-waveform
+  // 5.2's Gaussian about the RMS: 0.93 here; 5.1's crest-fitted power fell to 0.74, a line drawn at zero)
+  const tenth = column[Math.round(mid - (mid - top) * .1)]
+  assert.ok(tenth > near * .85, `a tenth of the way out ${tenth}, by the centre line ${near}`)
 })
 
 // One block: a head over the picture and the panel, the bar along the foot of both, the transport at its start, a
@@ -3610,14 +3720,91 @@ test('editor: a file over a slow connection shows as it arrives, with how much h
   await lengthIs('0:02.000')
 })
 
-// The ring stops what is on its way: the engine starts again, the status says so, and Record comes back
+// A file still arriving plays as far as it has come, its pieces pushed to the deck as they come: the file's own, where
+// the output waits for all of it (normalize), or the output's, where it comes as the file does; then on into the output
+// once it is whole, to its end. The fixture sounds from 0.2 s to 1.8 s without a pause: so does what is heard
+test('editor: a file still decoding plays as far as it has come', async () => {
+  await page.addInitScript(taken)
+  await open()
+  for (const [ms, chain] of [[60, ''], [70, '.normalize(-3)']]) {
+    await write(`audio('${origin}/slow/test/fixture.wav?ms=${ms}')${chain}`)
+    await page.locator('.message', { hasText: /^Decoding/ }).waitFor()
+    await page.waitForFunction(() => !document.querySelector('.play').disabled)
+    await page.evaluate(() => { window.__taken.length = 0 })
+    await page.getByRole('button', { name: 'Play', exact: true }).click()
+    await page.getByRole('button', { name: 'Pause' }).waitFor()
+    assert.match(await page.locator('.message').innerText(), /^(Decoding|Applying)/, `${chain}: still arriving`)
+    await page.waitForTimeout(700)
+    const [x, clock] = await page.evaluate(() => [window.__taken.flatMap(b => [...b]), document.querySelector('.time').textContent])
+    assert.ok(x.some(v => Math.abs(v) > .01), `${chain}: heard`)
+    assert.ok(+clock.split(':')[1] > .2, `${chain}: the clock runs: ${clock}`)
+    await lengthIs('0:02.000')
+    await page.getByRole('button', { name: 'Play', exact: true }).waitFor({ timeout: 10000 })
+    const [all, sr] = await page.evaluate(() => [window.__taken.flatMap(b => [...b]), window.__rate])
+    const loud = all.map((v, i) => Math.abs(v) >= 1e-4 ? i : -1).filter(i => i >= 0), heard = all.slice(loud[0], loud.at(-1))
+    let run = 0, longest = 0
+    for (const v of heard) { run = Math.abs(v) < 1e-4 ? run + 1 : 0; longest = Math.max(longest, run) }
+    assert.ok(heard.length > sr * 1.5, `${chain}: ${(heard.length / sr).toFixed(2)} s of it heard`)
+    assert.ok(longest < sr * .005, `${chain}: a gap of ${(longest / sr * 1000).toFixed(0)} ms`)
+    await page.keyboard.press('Home')
+  }
+})
+
+// The ring stops what is on its way, as an editor's Cancel: the script that set it off is undone, the status says so,
+// and Record comes back
 test('editor: the ring in Record\'s place stops a file still arriving', async () => {
   await open()
+  const was = await page.evaluate(() => scriptText())
   await write(`audio('${origin}/slow/test/fixture.wav')`)
   await page.locator('.message', { hasText: /^Decoding/ }).waitFor()
   await page.getByRole('button', { name: 'Stop', exact: true }).click()
-  await page.locator('.message.problem', { hasText: 'Stopped.' }).waitFor()
+  await page.locator('.message', { hasText: /^Stopped: .+ undone, Redo applies it again$/ }).waitFor()
+  assert.equal(await page.evaluate(() => scriptText()), was)
   await page.waitForFunction(() => !document.querySelector('.record').inert && document.querySelector('.busy').inert)
+})
+
+// Stopped while an edit renders, the worker keeps what it made: the edit undone, the picture and the script agree, and
+// the caret steps by the cues as before
+test('editor: Stop while an edit renders undoes it, the caret still stepping by the cues', async () => {
+  await open()
+  await write(bursts)
+  await lengthIs('0:02.500')
+  await write(`${bursts}.repeat(40).stretch(0.5)`)
+  await page.locator('.message', { hasText: /^Applying .*stretch \d+%$/ }).waitFor()
+  await page.getByRole('button', { name: 'Stop', exact: true }).click()
+  await page.locator('.message', { hasText: /^Stopped: .+ undone/ }).waitFor()
+  assert.equal(await page.evaluate(() => scriptText()), bursts)
+  await lengthIs('0:02.500')
+  const { box, x } = await axis(2.5), step = async () => { await page.keyboard.press(process.platform === 'darwin' ? 'Alt+ArrowRight' : 'Control+ArrowRight'); return +(await page.locator('.time').innerText()).split(':')[1] }
+  await page.mouse.click(x(.1), box.y + box.height / 3)
+  let at = 0
+  for (const until = Date.now() + 5000; !(Math.abs(at - .4) < .03) && Date.now() < until; await page.waitForTimeout(200)) { await page.mouse.click(x(.1), box.y + box.height / 3); at = await step() }
+  assert.ok(Math.abs(at - .4) < .03, `to the next cue: ${at}`)
+  assert.ok(Math.abs(await step() - .5) < .03, 'and the one after')
+})
+
+// An edit made while a step holds the worker in one pass over its input (decrackle's, 20 s of it here) is not kept
+// waiting for it: the worker is replaced, and the new script's output comes in a second or so
+test('editor: an edit made while a step holds the engine takes over at once', async () => {
+  await open()
+  await write(`audio('chime.wav').repeat(20).decrackle()`)
+  await page.locator('.message', { hasText: /decrackle… [1-9]/ }).waitFor({ timeout: 20000 })
+  const t0 = Date.now()
+  await write(`audio('chime.wav').gain(-3)`)
+  await page.waitForFunction(() => !document.querySelector('.message').textContent && /LUFS/.test(document.querySelector('.readout').textContent), null, { timeout: 10000 })
+  assert.ok(Date.now() - t0 < 5000, `${Date.now() - t0} ms`)
+  await lengthIs('0:08.000')
+  // Stopped there, the worker is replaced too: the edit undone, the output shown made again in the new one, the caret
+  // stepping by its cues (the chime's fourth strike, 1.81 s, after 1.5 s)
+  await write(`audio('chime.wav').gain(-3).repeat(20).decrackle()`)
+  await page.locator('.message', { hasText: /decrackle… [1-9]/ }).waitFor({ timeout: 20000 })
+  await page.getByRole('button', { name: 'Stop', exact: true }).click()
+  await page.locator('.message', { hasText: /^Stopped: .+ undone/ }).waitFor()
+  assert.equal(await page.evaluate(() => scriptText()), `audio('chime.wav').gain(-3)`)
+  const { box, x } = await axis(8), step = async () => { await page.keyboard.press(process.platform === 'darwin' ? 'Alt+ArrowRight' : 'Control+ArrowRight'); return +(await page.locator('.time').innerText()).split(':')[1] }
+  let at = 0
+  for (const until = Date.now() + 8000; !(at > 1.5 && at < 2.5) && Date.now() < until; await page.waitForTimeout(200)) { await page.mouse.click(x(1.5), box.y + box.height / 3); at = await step() }
+  assert.ok(at > 1.5 && at < 2.5, `to the next cue: ${at}`)
 })
 
 // A sound that fails to open says so beside the time; choosing another clears that at once, before it has loaded
@@ -6582,7 +6769,7 @@ test('engine: a long output kept comes back after a reload as the picture it was
 
 // A page holding `peaks` channel samples gets an output longer than that as its picture (worker.js feed), as it renders
 // and kept: each leaf its 256 samples' own [min, max, Σx², count], the last one short, each piece from a leaf's start;
-// each spectra column the loudest each bin reaches over its Hann frames of 2048 (40 ms at 48 kHz) every 1024 samples,
+// each spectra column each bin's mean power over its Hann frames of 2048 (40 ms at 48 kHz) every 1024 samples,
 // as a byte (dB + 150) · 1.6, within a byte of a textbook FFT in doubles. One it holds comes as samples. samples() reads
 // any range, clamped to the output; null once a newer one replaced it
 test('engine: past what the page holds, an output comes as its peaks and spectra, each its samples\' own', async () => {
@@ -6598,7 +6785,8 @@ test('engine: past what the page holds, an output comes as its peaks and spectra
       for (let i = j * 256; i < Math.min(x.length, j * 256 + 256); i++) { const y = x[i]; if (y < lo) lo = y; if (y > hi) hi = y; q += y * y; n++ }
       return [lo, hi, Math.fround(q), n]
     }).flat()
-    // the spectra of each channel, as they should be: a textbook radix-2 FFT in doubles
+    // the spectra of each channel, as they should be: a textbook radix-2 FFT in doubles, each column its frames' mean power
+    // (gl-spectrogram's combine)
     const fft = (re, im) => {
       const n = re.length
       for (let i = 1, j = 0; i < n; i++) { let b = n >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]] } }
@@ -6608,15 +6796,16 @@ test('engine: past what the page holds, an output comes as its peaks and spectra
       }
     }
     const spectraOf = (x, N, hop) => {
-      const bins = N / 2 + 1, cols = Math.ceil(x.length / hop), most = new Float64Array(cols * bins)
+      const bins = N / 2 + 1, cols = Math.ceil(x.length / hop), sum = new Float64Array(cols * bins), count = new Float64Array(cols)
       for (let t = N / 2; t - N / 2 < x.length; t += N / 2) {
         const o = Math.floor(t / hop)
         if (o >= cols) break
         const re = Float64Array.from({ length: N }, (_, i) => { const k = t - N / 2 + i; return k < x.length ? x[k] * (.5 - .5 * Math.cos(2 * Math.PI * i / N)) : 0 }), im = new Float64Array(N)
         fft(re, im)
-        for (let k = 0; k < bins; k++) most[o * bins + k] = Math.max(most[o * bins + k], (re[k] ** 2 + im[k] ** 2) / (N / 4) ** 2)
+        count[o]++
+        for (let k = 0; k < bins; k++) sum[o * bins + k] += (re[k] ** 2 + im[k] ** 2) / (N / 4) ** 2
       }
-      return Uint8Array.from(most, p => p > 0 ? Math.max(1, Math.min(255, Math.round((10 * Math.log10(p) + 150) * 1.6))) : 0)
+      return Uint8Array.from(sum, (p, i) => (p /= count[Math.floor(i / bins)] || 1) > 0 ? Math.max(1, Math.min(255, Math.round((10 * Math.log10(p) + 150) * 1.6))) : 0)
     }
     const check = async ({ parts, done, error }) => {
       if (error) return { error }

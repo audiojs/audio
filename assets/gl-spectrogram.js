@@ -8,7 +8,8 @@
  * one column thin. The other methods keep a frame in its column: its spectrum as it is, squeezed onto its
  * instantaneous frequencies, of a length by band, through several tapers, or as the Wigner–Ville distribution.
  * Columns sit on a grid anchored to multiples of samples per column and are kept, so a pan computes only what it
- * uncovers. Zoomed out, where a column outspans a window, later renders add frames till every sample is in one.
+ * uncovers. Zoomed out, where a column outspans a window, later renders add frames till every sample is in one, the
+ * column their mean power (so it reads as the samples do zoomed in, from its first frame on) or their loudest.
  */
 
 const LW = 2048, LH = 512, LB = 20  // sample texture layer: LW × LH = 2^LB samples
@@ -61,6 +62,10 @@ const SCALE = { log: 0, mel: 1, lin: 2, erb: 3 }
 //   wigner           pseudo Wigner–Ville of the analytic signal under a Hann lag window (Ville 1948): lines thin
 //                    without reassignment, and between any two components a cross-term
 const METHODS = ['frames', 'reassigned', 'synchrosqueezed', 'bands', 'tapers', 'wigner']
+// How a zoomed-out column joins its frames, and the spectra given it spans
+//   mean  their mean power: noise and tones read as they do zoomed in, and as more frames come only the speckle settles
+//   max   the loudest: a click between frames reads at its own level, noise the higher the more frames a column has
+const COMBINES = ['mean', 'max']
 
 // ── shaders ──────────────────────────────────────────────────────────────
 
@@ -215,7 +220,7 @@ void main() {
 //           √(2/L) (X[k − j] − X[k + j]) / 2i, two bins of the padded frame's
 //   kind 2  |Re Z|, Wigner–Ville's real spectrum
 //   kind 3  a column of the spectra given (spectra()): its power, from its level byte, the frame's own column (src) of
-//           `per` a texture row
+//           `per` a texture row, times its weight (fr.y: 1, or for a mean 1 over the columns it is one of)
 const GATHER = HEAD + `
 uniform sampler2D spec, frames, edges, levels;
 uniform int kind, N, last, cap, slot, span, rows, r0, nr, per;
@@ -250,7 +255,7 @@ void main() {
   float a = edge(r), b = edge(r + 1), m = max(at(i, a), at(i, b));
   for (int k = int(ceil(a)); float(k) < b; k++) m = max(m, P(i, k));
   gl_Position = vec4((float((slot + int(c)) & (cap - 1)) + .5) / float(cap) * 2. - 1., (float(r) + .5) / float(rows) * 2. - 1., 0, 1);
-  v = vec2(m * norm, 0);
+  v = vec2(m * norm * (kind == 3 ? fr.y : 1.), 0);
 }`
 
 const POINT = HEAD + `
@@ -258,8 +263,8 @@ flat in vec2 v;
 out vec4 o;
 void main() { o = vec4(v, 0, 0); }`
 
-// A run's cells onto the cache's same texels, as they are or, summed complex, as their power (blended there by MAX
-// for a column's further frame)
+// A run's cells onto the cache's same texels, as they are or, summed complex, as their power (blended there into the
+// mean, or by MAX, for a column's further frame)
 const FOLD = HEAD + `
 uniform sampler2D src;
 uniform int power;
@@ -338,6 +343,7 @@ export default class Spectrogram {
   #band = null           // [low, high] Hz or null for the scale's floor to Nyquist
   #scale = 'log'
   #method = 'reassigned'
+  #combine = 'mean'
   #rate = 44100
   #viewport = null       // CSS px [x, y, w, h] or null for the whole canvas
   #pixelRatio = null
@@ -407,6 +413,10 @@ export default class Spectrogram {
       if (o.method != null && !METHODS.includes(o.method)) throw TypeError(`gl-spectrogram: method must be ${METHODS.join(', ')}, not ${o.method}`)
       this.#method = o.method ?? 'reassigned'
     }
+    if (o.combine !== undefined) {
+      if (o.combine != null && !COMBINES.includes(o.combine)) throw TypeError(`gl-spectrogram: combine must be ${COMBINES.join(' or ')}, not ${o.combine}`)
+      this.#combine = o.combine ?? 'mean'
+    }
     if (o.band !== undefined) this.#band = o.band && nums(o.band, 2, 'band')
     if (this.#band && !(this.#band[0] < this.#band[1] && this.#band[0] >= 0 && (this.#scale !== 'log' || this.#band[0] > 0)))
       throw RangeError(`gl-spectrogram: band must be [low, high] Hz, 0 ≤ low < high${this.#scale === 'log' ? ', low > 0 on a log scale' : ''}`)
@@ -459,8 +469,9 @@ export default class Spectrogram {
 
   /**
    * Spectra of samples not held (a long sound's, its samples elsewhere): `levels`, a column after another from column `at`,
-   * each of `hop` samples (a power of two), the loudest each bin reaches over the column's frames of `size` points
-   * (Hann, every size / 2 samples), as a byte per bin up to Nyquist: (dB + 150) · 1.6, 0 dB a full-scale sine on its bin, 0
+   * each of `hop` samples (a power of two), each bin's power over the column's frames of `size` points (Hann, every
+   * size / 2 samples) joined as `combine` joins a column's frames (their mean, or the loudest), as a byte per bin up to
+   * Nyquist: (dB + 150) · 1.6, 0 dB a full-scale sine on its bin, 0
    * silence. Columns whose frames read samples not held are drawn from them; set() writes samples over them, drop() lets
    * samples go again. `length`: the samples they cover, where they end short of a column.
    */
@@ -754,13 +765,13 @@ export default class Spectrogram {
   // The cache for view v, and v's columns in it: q0 under the left edge, f0 the edge's offset, ratio columns per px.
   // A cache is reused for columns of the same width, up to rounding in the range's arithmetic.
   #cache(v) {
-    let { W, H, cw, N, b0, bk } = v, s = this.#scale, rate = this.#rate, method = this.#method
-    let i = this.#views.findIndex(K => K.N === N && K.rows === H && K.b0 === b0 && K.bk === bk && K.scale === s && K.rate === rate && K.method === method && Math.abs(K.cw / cw - 1) < 1e-9)
+    let { W, H, cw, N, b0, bk } = v, s = this.#scale, rate = this.#rate, method = this.#method, combine = this.#combine
+    let i = this.#views.findIndex(K => K.N === N && K.rows === H && K.b0 === b0 && K.bk === bk && K.scale === s && K.rate === rate && K.method === method && K.combine === combine && Math.abs(K.cw / cw - 1) < 1e-9)
     let K = i < 0 ? this.#views.length < 2 ? {} : this.#views.pop() : this.#views.splice(i, 1)[0]
     this.#views.unshift(K)
     this.#wide = Math.max(this.#wide, W)
     let cap = Math.min(2 ** Math.ceil(Math.log2(2 * this.#wide + 4)), contexts.get(this.gl).max)
-    if (i < 0) layout(Object.assign(K, { cw, N, b0, bk, scale: s, rate, method, sub: perColumn(cw, N) }), H, contexts.get(this.gl).max)
+    if (i < 0) layout(Object.assign(K, { cw, N, b0, bk, scale: s, rate, method, combine, sub: perColumn(cw, N) }), H, contexts.get(this.gl).max)
     if (i < 0 || K.cap < Math.min(cap, 2 * W + 4)) this.#alloc(K, cap, H)
     let at = (v.r0 + .5) / K.cw
     v.q0 = Math.floor(at)
@@ -815,8 +826,8 @@ export default class Spectrogram {
   // Whether the spectra given reach column q
   #given(K, q) { let S = this.#spectra; return !!S && q * K.cw < S.cols * S.hop }
 
-  // Columns [lo, hi) of K from the spectra given: each the loudest of those its samples span (or the one under its
-  // middle, a column narrower than theirs), read across rows as frames are (GATHER, kind 3)
+  // Columns [lo, hi) of K from the spectra given: each the mean, or the loudest, of those its samples span (K.combine; the
+  // one under its middle, a column narrower than theirs), read across rows as frames are (GATHER, kind 3)
   #fromSpectra(K, lo, hi) {
     let gl = this.gl, c = contexts.get(gl), S = this.#spectra, { cap, rows, cw } = K, p = c.params, s0 = lo & (cap - 1)
     let spans = s0 + hi - lo <= cap ? [[s0, hi - lo]] : [[s0, cap - s0], [0, s0 + hi - lo - cap]]
@@ -837,14 +848,15 @@ export default class Spectrogram {
       gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 1024, Math.ceil(nf / 1024), gl.RGBA, gl.FLOAT, p)
       bind(gl, 0, gl.TEXTURE_2D, S.tex)
       bind(gl, 7, gl.TEXTURE_2D, S.tex)
-      gather(gl, c, K, K, S.tex, nf, s0, hi - lo, { kind: 3, N: S.size, last: S.size / 2, hz: K.rate / S.size, norm: c.half ? HALF : 1, r0: 0, nr: rows, per: S.per, max: true })
+      gather(gl, c, K, K, S.tex, nf, s0, hi - lo, { kind: 3, N: S.size, last: S.size / 2, hz: K.rate / S.size, norm: c.half ? HALF : 1, r0: 0, nr: rows, per: S.per, max: K.combine === 'max' })
       nf = 0
     }
     for (let q = lo; q < hi; q++) {
       let a = Math.floor((q * cw - .5) / S.hop), b = Math.ceil(((q + 1) * cw - .5) / S.hop)
       if (b - a < 1) a = b = Math.floor(((q + .5) * cw - .5) / S.hop), b++
-      for (let o = Math.max(a, 0); o < Math.min(b, S.cols); o++) {
-        p[4 * nf] = o; p[4 * nf + 1] = 0; p[4 * nf + 2] = q - lo; p[4 * nf + 3] = 0
+      let o0 = Math.max(a, 0), o1 = Math.min(b, S.cols), w = K.combine === 'max' ? 1 : 1 / (o1 - o0)
+      for (let o = o0; o < o1; o++) {
+        p[4 * nf] = o; p[4 * nf + 1] = w; p[4 * nf + 2] = q - lo; p[4 * nf + 3] = 0
         if (++nf === 1024 * 32) flush()
       }
     }
@@ -900,8 +912,8 @@ export default class Spectrogram {
 
   // Columns [lo, hi) of K, their frame j of K.sub: every frame j that can reach them transformed and drawn into them
   // only, so columns computed in turns hold what they would computed at once. Frame 0 sums into the emptied columns;
-  // each further frame sums apart and the columns keep the larger, so a column shows its loudest frame and a click
-  // between frames is not lost zoomed out. Frames sit evenly across a column, the middle one first, each centered on a
+  // each further frame sums apart and joins them as K.combine says: into their mean, so a column reads the same from its
+  // first frame to its last, or the larger, so a click between frames reads at its level. Frames sit evenly across a column, the middle one first, each centered on a
   // sample t, which the column holds; a reassigned time t̂ (samples) goes to column floor((t̂ + .5) / cw), so sample k's
   // energy sits at k, as a waveform draws it.
   #run(K, lo, hi, j) {
@@ -959,15 +971,19 @@ export default class Spectrogram {
       else for (let { n, r0, nr } of K.passes) read(S.tex[spectra(n, n, 1)], { kind: 0, N: n, last: n / 2, hz: rate / n, norm: H / (n / 4) ** 2, r0, nr })
     }
     if (into === K) return
-    // the run's cells onto the columns: as they are, squeezed ones as the power of their sums; a further frame's where
-    // they are larger
+    // the run's cells onto the columns: as they are, squeezed ones as the power of their sums; a further frame's, frame j,
+    // into their mean (1 / (j + 1) of it, the rest what the j before it made) or where they are larger
     gl.bindFramebuffer(gl.FRAMEBUFFER, K.fbo)
     gl.viewport(0, 0, cap, rows)
     let { prog, u } = c.fold
     gl.useProgram(prog)
     gl.uniform1i(u.power, squeeze ? 1 : 0)
     bind(gl, 0, gl.TEXTURE_2D, into.tex)
-    if (j) { gl.enable(gl.BLEND); gl.blendEquation(gl.MAX) }
+    if (j) {
+      gl.enable(gl.BLEND)
+      if (K.combine === 'max') gl.blendEquation(gl.MAX)
+      else { gl.blendEquation(gl.FUNC_ADD); gl.blendColor(0, 0, 0, 1 / (j + 1)); gl.blendFunc(gl.CONSTANT_ALPHA, gl.ONE_MINUS_CONSTANT_ALPHA) }
+    }
     gl.enable(gl.SCISSOR_TEST)
     for (let [x, w] of spans) { gl.scissor(x, 0, w, rows); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4) }
     gl.disable(gl.SCISSOR_TEST)
@@ -981,8 +997,8 @@ export default class Spectrogram {
     let gl = this.gl, c = contexts.get(gl), s = this.#scale, method = this.#method, rate = this.#rate, [to] = WARP[s], lo = scales[s].low, hi = rate / 2
     let cw = 2 ** Math.ceil(Math.log2(Math.max(this.#n / WHOLE, 1))), b0 = to(lo), bk = WROWS / (to(hi) - to(lo)), N = this.#fft(lo, hi, WROWS)
     let P = this.#whole ??= { K: {}, chain: [], dirty: true }, K = P.K
-    if (!(K.tex && K.cw === cw && K.N === N && K.b0 === b0 && K.bk === bk && K.scale === s && K.rate === rate && K.method === method)) {
-      layout(Object.assign(K, { cw, N, b0, bk, scale: s, rate, method, sub: 1 }), WROWS, c.max)
+    if (!(K.tex && K.cw === cw && K.N === N && K.b0 === b0 && K.bk === bk && K.scale === s && K.rate === rate && K.method === method && K.combine === this.#combine)) {
+      layout(Object.assign(K, { cw, N, b0, bk, scale: s, rate, method, combine: this.#combine, sub: 1 }), WROWS, c.max)
       this.#alloc(K, WHOLE, WROWS)
       P.dirty = true
     }
@@ -1180,7 +1196,7 @@ function scatter(gl, c, K, into, spec, nf, slot, span) {
 // Spectra read across rows: a point per frame and row of [r0, r0 + nr), in the frame's column (GATHER)
 function gather(gl, c, K, into, spec, nf, slot, span, { kind, N, last, hz, norm, r0, nr, per = 1, max = false }) {
   let { cap, rows } = K, u = points(gl, c.gather, into, cap, rows, spec)
-  // columns from the spectra given: each the loudest of those it spans
+  // columns from the spectra given: each the loudest of those it spans, or their sum, each weighted to their mean
   if (max) gl.blendEquation(gl.MAX)
   gl.uniform1i(u.per, per)
   gl.uniform1i(u.kind, kind)

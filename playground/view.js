@@ -75,6 +75,7 @@ const HATCH = 24                              // the hatch past the sound's end,
 const VOICE = [60, 1000]                      // the pitch axis when no spectrogram shows, Hz, on a log scale
 const GAIN = [-36, 12]                        // the gain line's scale, dB: the lane's centre line to its edges, 0 dB
                                               // three quarters of the way out, so a boost shows above it
+const GLIDE = .3                               // a playhead past the view's middle is drawn to it in this time constant, s
 
 export default function view(root, { onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onaudition = () => {}, onfocus = () => {}, onsamples = null, hint = null } = {}) {
   const layer = name => root.appendChild(Object.assign(document.createElement('canvas'), { className: name }))
@@ -136,7 +137,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // waveform draws silence (`silent`, standing in for none of the output). None: the output as it is.
   let pieces = null
   // the time shown [start, end], and the part of the spectrogram's frequency axis shown, 0..1 on its scale
-  let start = 0, end = 0, fview = [0, 1], selection = null, band = null, cursor = 0, playhead = null, guides = []
+  let start = 0, end = 0, fview = [0, 1], selection = null, band = null, cursor = 0, playhead = null, played = 0, guides = []
   let cues = [], envelope = null, shift = null, contour = null, snapping = true, fadeCurve = 'linear'
   // a pitch or an intonation a tool let go on the selection: the pitch curve shows it until the output it makes comes
   let landed = null
@@ -1081,9 +1082,10 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // The lanes ruled (`grid`), on a layer of their own between the pictures: over the spectrogram, as the screen shows it;
   // behind the waveform, wholly hidden where it is, however faint its fill there. Where the time row's ticks meet the
   // axis' on the right, a cross, and a dot where their finer steps meet ('marks'); the crosses alone ('crosses'); a dot
-  // at each, the ticks' larger ('dots'); or a faint line from each tick across the lanes ('lines'). None on a lane's edge.
+  // at each, the ticks' larger ('dots'); or a faint line from each tick across the lanes ('lines'). None on a lane's edge,
+  // nor past where its sound ends (paintEnd), the room there left plain.
   let ruled = ''
-  const gridKey = L => [grid, duration, start, end, W, H, dpr, display, scale, levelUnits, units, rate, aview, fview, L.wave.length + L.spec.length, lanesEnd(L)].join()
+  const gridKey = L => [grid, duration, start, end, W, H, dpr, display, scale, levelUnits, units, rate, aview, fview, L.wave.length + L.spec.length, lanesEnd(L), tracks?.map(t => t.end)].join()
   function paintGrid(L) {
     const key = gridKey(L)
     if (key !== ruled) { ruled = key; rule(L) }
@@ -1133,7 +1135,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     }
     rc.save()
     rc.beginPath()
-    for (const [, y, , lh] of all) rc.rect(0, y, stop, lh)
+    all.forEach(([, y, , lh], i) => rc.rect(0, y, Math.min(stop, Math.round(x(tracks?.[i]?.end ?? duration))), lh))
     rc.clip()
     rc.fillStyle = color(grid === 'lines' ? '--color-screen-grid-line' : '--color-screen-grid')
     rc.fill(marks)
@@ -2478,12 +2480,20 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       invalidate()
     },
     set guides(list) { guides = list || []; invalidate() },
-    // While playing, a zoomed view scrolls with the playhead held in the middle; at the ends the playhead walks. The
-    // playhead is the overlay's: the pictures are drawn again only as the view scrolls
+    // While playing, a zoomed view scrolls with the playhead held in the middle; at the ends the playhead walks. One
+    // past the middle, played from a caret there, is drawn to it as the view glides: its lead on the middle a frame
+    // before, e^(-dt / GLIDE) of it kept (`played`: that frame's time), so it settles in the middle at any speed. A jump
+    // (a caret put elsewhere as it plays) leads from where it lands; one out of sight, a loop come round, is centred at
+    // once. The playhead is the overlay's: the pictures are drawn again only as the view scrolls
     set playhead(t) {
+      const span = end - start, mid = start + span / 2, now = performance.now(), dt = played ? (now - played) / 1000 : 0
+      const was = playhead == null || t < playhead || t - playhead > 8 * dt ? t : playhead
       playhead = t
-      const span = end - start
-      if (t != null && !drag && span < duration && (t > start + span / 2 || t < start)) setRange(t - span / 2, t + span / 2)
+      played = t == null ? 0 : now
+      if (t != null && !drag && span < duration) {
+        if (t < start || t > end) setRange(t - span / 2, t + span / 2)
+        else if (t > mid) { const lead = Math.max(0, was - mid) * Math.exp(-dt / GLIDE); setRange(t - span / 2 - lead, t + span / 2 - lead) }
+      }
       invalidate(true)
     },
     // The picture a step's new settings will leave, drawn at once from what shows: its level changed by `gain(t)` (ops.js
