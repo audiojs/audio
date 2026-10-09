@@ -842,17 +842,20 @@ function prefix(a, k) {
   return b
 }
 // A step reading its input whole first (its op's prepare: deepfilter's model over it, vocals' separation) is said by
-// its name to the run streaming, while it does
+// its name to the run streaming, while it does; with the part of it running, where it says (auto's 'doing': analysis,
+// then the stages it applies)
 const announced = new WeakSet()
+const named = stages => stages.length > 2 ? `${stages.slice(0, 2).join(', ')} +${stages.length - 2}` : stages.join(', ')
 function announce(edits) {
   for (const [type] of edits) {
     const d = audio.op(type)
     if (!d?.prepare || announced.has(d)) continue
     const prepare = d.prepare
     d.prepare = async (a, i) => {
-      const id = newest
+      const id = newest, doing = ({ op, stages }) => op === type && post({ id, event: 'doing', step: `${type} · ${named(stages)}` })
       post({ id, event: 'doing', step: type })
-      try { return await prepare(a, i) } finally { post({ id, event: 'doing', step: null }) }
+      a.on('doing', doing)
+      try { return await prepare(a, i) } finally { a.off('doing', doing); post({ id, event: 'doing', step: null }) }
     }
     announced.add(d)
   }

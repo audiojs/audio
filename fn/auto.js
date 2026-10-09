@@ -17,7 +17,7 @@
  * OM-LSA. The take is rendered whole ahead of rendering (deepfilter()'s way: a live stream waits for its end), and its
  * recipe, chain's code() included, names the denoiser that ran.
  */
-import audio, { arrived } from '../core.js'
+import audio, { arrived, emit } from '../core.js'
 import { fingerprint } from './vocals.js'
 import { removal, playback } from './deepfilter.js'
 
@@ -29,13 +29,17 @@ const RENDERED = Symbol('auto.rendered'), neural = () => audio.import(NEURAL).ca
  * loads (`nn`, its exports) and the plan puts the neural stage at `at`, the take is run there by `run` (stages, channels)
  * → channels (the stages before it: their output x) and DeepFilterNet3's whole removal y of x is made (deepfilter()'s,
  * kept as it keeps it); where its guard passed most of x as music (y is x there, sample for sample) the plan is made
- * again with that share, and puts chain's own denoiser there. `chain`: its exports.
+ * again with that share, and puts chain's own denoiser there. `chain`: its exports. `say(names)`: each part as it
+ * starts, by the stages it runs ('analysis' first).
  */
-export async function planned(chain, nn, channels, fs, opts, run) {
+export async function planned(chain, nn, channels, fs, opts, run, say = () => {}) {
+  say(['analysis'])
   let analysis = chain.analyze(channels, { fs, type: opts.type }), recipe = chain.plan(analysis, { ...opts, neural: !!nn })
   let at = recipe.stages.findIndex(s => s.atom === NEURAL), x = null, y = null
   if (at < 0) return { analysis, recipe, at, x, y }
+  if (at) say(names(recipe.stages.slice(0, at)))
   x = await run(recipe.stages.slice(0, at), channels)
+  say(['denoise'])
   y = await removal(nn, x, fs).catch(e => { throw new Error(`auto: ${e.message}`) })
   let same = 0, n = 0
   for (let c = 0; c < x.length; c++) for (let i = 0; i < x[c].length; i++, n++) if (x[c][i] === y[c][i]) same++
@@ -47,14 +51,18 @@ export async function planned(chain, nn, channels, fs, opts, run) {
  *  limit and floor. */
 export const denoise = (nn, x, y, { limit, floor }, sampleRate) => x.map((v, c) => nn.mixback(v, y[c], { limit, floor, sampleRate }))
 
+// the stages' names, a step's each once (chain's denoise is one stage, its own and the model's)
+const names = stages => [...new Set(stages.map(s => s.name))]
+
 /** The take through @audio/chain's recipe → { channels, recipe }, as planned(). `opts`: plan()'s (type, intensity,
- *  targetLufs, ceiling). */
-export async function render(channels, { sampleRate: fs, ...opts }) {
+ *  targetLufs, ceiling); `say`: planned()'s. */
+export async function render(channels, { sampleRate: fs, ...opts }, say = () => {}) {
   let [chain, nn] = await Promise.all([audio.import(audio.plugins.auto), neural()])
-  let { recipe, at, x, y } = await planned(chain, nn, channels, fs, opts, async (stages, c) => chain.apply(c, { stages }, { fs }))
-  if (at < 0) return { channels: chain.apply(channels, recipe, { fs }), recipe }
-  let s = recipe.stages[at], on = s.atom === NEURAL
-  return { channels: chain.apply(on ? denoise(nn, x, y, s.params, fs) : x, { ...recipe, stages: recipe.stages.slice(on ? at + 1 : at) }, { fs }), recipe }
+  let { recipe, at, x, y } = await planned(chain, nn, channels, fs, opts, async (stages, c) => chain.apply(c, { stages }, { fs }), say)
+  if (at < 0) { say(names(recipe.stages)); return { channels: chain.apply(channels, recipe, { fs }), recipe } }
+  let s = recipe.stages[at], on = s.atom === NEURAL, rest = recipe.stages.slice(on ? at + 1 : at)
+  if (rest.length) say(names(rest))
+  return { channels: chain.apply(on ? denoise(nn, x, y, s.params, fs) : x, { ...recipe, stages: rest }, { fs }), recipe }
 }
 
 /** The edit's options as its manifest takes them (a number into its range, an unknown choice its default) */
@@ -63,7 +71,8 @@ const params = (specs, o) => Object.fromEntries(Object.entries(specs).map(([k, s
   return [k, sp.type === 'enum' ? (sp.values.includes(v) ? v : sp.default) : typeof v === 'number' ? Math.min(sp.max, Math.max(sp.min, v)) : sp.default]
 }))
 
-/** The take rendered whole from the edit's input (the audio as the edits before it leave it), ahead of rendering. */
+/** The take rendered whole from the edit's input (the audio as the edits before it leave it), ahead of rendering; the
+ *  instance hears each part as it starts (its 'doing' event: { op, stages }), the run taking minutes on a long take. */
 async function prepare(a, index, specs) {
   let o = a.edits[index][1], { options } = await audio.import(audio.plugins.auto), opts = options(params(specs, o))
   await arrived(a)
@@ -78,7 +87,8 @@ async function prepare(a, index, specs) {
   if (chs) pcm = chs.map(c => pcm[c])
   let key = `${own}:${fingerprint(pcm)}`
   if (done?.key === key) { done.stamp = stamp; return }
-  o[RENDERED] = { key, stamp, pcm: pcm[0]?.length ? (await render(pcm, { sampleRate: input.sampleRate, ...opts })).channels : pcm }
+  let say = stages => emit(a, 'doing', { op: 'auto', stages })
+  o[RENDERED] = { key, stamp, pcm: pcm[0]?.length ? (await render(pcm, { sampleRate: input.sampleRate, ...opts }, say)).channels : pcm }
 }
 
 // the manifest's op, rendered here; its recipe stat, planned as auto() plans it (the model run where the plan puts it, the

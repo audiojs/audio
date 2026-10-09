@@ -115,6 +115,8 @@ export interface AudioInstance {
   on(event: 'metadata', fn: (event: { sampleRate: number, channels: number, estDuration: number | null }) => void): this
   on(event: 'data', fn: (event: { delta: ProgressDelta, offset: number, sampleRate: number, channels: number }) => void): this
   on(event: 'progress', fn: (event: { offset: number, total: number }) => void): this
+  /** A step reading its input whole first (auto) says the part of it starting: 'analysis', then the stages it applies */
+  on(event: 'doing', fn: (event: { op: string, stages: string[] }) => void): this
   on(event: 'timeupdate', fn: (time: number) => void): this
   on(event: 'ended', fn: () => void): this
   on(event: 'play', fn: () => void): this

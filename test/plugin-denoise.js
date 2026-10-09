@@ -549,8 +549,10 @@ const toned = async (ref, recipe, fs) => (await import('@audio/chain')).apply([r
 test('auto: without @audio/neural-denoise, chain\'s own denoiser: the take as chain renders it, the recipe saying so', async () => {
 	let { dirty } = take(15), { default: chain } = await import('@audio/chain')
 	await classical(async () => {
-		let [y] = await audio.from([dirty], { sampleRate: SR }).auto().read(), want = chain([dirty], { fs: SR, type: 'speech' })
+		let said = [], a = audio.from([dirty], { sampleRate: SR }).auto().on('doing', e => said.push(e))
+		let [y] = await a.read(), want = chain([dirty], { fs: SR, type: 'speech' })
 		ok(want.recipe.stages.some(s => s.name === 'denoise' && s.atom === '@audio/denoise-omlsa'), `OM-LSA takes the bed: ${want.recipe.stages.map(s => s.name)}`)
+		is(said, [{ op: 'auto', stages: ['analysis'] }, { op: 'auto', stages: [...new Set(want.recipe.stages.map(s => s.name))] }], 'the parts it runs, said as each starts')
 		is(maxDiff(y, want.channels[0]), 0, 'chain() itself, sample for sample')
 		is((await audio.from([dirty], { sampleRate: SR }).chain()).stages.find(s => s.name === 'denoise').atom, '@audio/denoise-omlsa', 'the chain stat\'s recipe')
 	})
