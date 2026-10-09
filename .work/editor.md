@@ -73,7 +73,7 @@ Sources: R12:spectrogram-waveform-display, R11:preferences.
 | Channels separate or summed; L/R or Mid/Side | always separate | ◐ | |
 | Analog waveform (inter-sample peaks in red); sample points at deep zoom | none | ✗ | |
 | Cursor readout: time, dB, Hz | on the axes, at the pointer; on the spectrogram the level its colour stands for too (the loudest cell within 2 px), marked on the spectrum meter | ✅ | |
-| Follow playhead (page or continuous) | a zoomed view scrolls with the playhead held in the middle; played from a caret past it, the view glides it there | ✅ | |
+| Follow playhead (page or continuous) | a zoomed view scrolls with the playhead held in the middle; played from a caret past it, the view glides it there; scrolled or zoomed by hand as it plays, it stays where it was put till the playhead, seen in it, passes its edge | ✅ | |
 | A file drawn as it loads | the output streams as the file arrives, across the length its header says; a file the chain must wait for (trim, normalize) shows dim as it decodes; Loading n% beside the time | ★ | RX decodes before it shows anything |
 | Pictures fade before the rulers | the waveform and spectrogram thin out before the labels at their right and the time row below | ✅ | |
 

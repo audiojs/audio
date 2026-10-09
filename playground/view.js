@@ -142,6 +142,10 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   let pieces = null
   // the time shown [start, end], and the part of the spectrogram's frequency axis shown, 0..1 on its scale
   let start = 0, end = 0, fview = [0, 1], selection = null, band = null, cursor = 0, playhead = null, played = 0, guides = []
+  // the view moved by hand while it plays (the wheel, a pinch, the scrollbar, a zoom to a range): it stays where it was put,
+  // the playhead not followed till, seen in it, it passes its edge (playhead)
+  let steered = false
+  const steer = () => { steered = playhead != null }
   let cues = [], envelope = null, shift = null, contour = null, snapping = true, fadeCurve = 'linear'
   // a pitch or an intonation a tool let go on the selection: the pitch curve shows it until the output it makes comes
   let landed = null
@@ -1533,6 +1537,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     const [px, py] = local(event)
     if (onBar(px, py)) {
       const b = bar(), span = end - start
+      steer()
       if (px < b.x0 || px > b.x1) setRange(px / plot().w * b.total - span / 2, px / plot().w * b.total + span / 2, true)
       drag = { scroll: true, x: px, start, total: b.total, moved: true, keep: true }
       return invalidate()
@@ -1756,12 +1761,13 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       const k = Math.abs(b[0] - a[0]) / Math.max(8, Math.abs(q[0] - p[0])), span = (r1 - r0) * k
       const center = r0 + (a[0] + b[0]) / 2 / plot().w * (r1 - r0)
       const at = (p[0] + q[0]) / 2 / plot().w
+      steer()
       setRange(center - at * span, center - at * span + span, true)
       return
     }
     if (!drag) { hovered = event.pointerType === 'touch' ? null : [px, py]; hover(px, py, event); return invalidate(true) }
     if (drag.pinch) return
-    if (drag.scroll) { const a = drag.start + (px - drag.x) / plot().w * drag.total; return setRange(a, a + end - start, true) }
+    if (drag.scroll) { const a = drag.start + (px - drag.x) / plot().w * drag.total; steer(); return setRange(a, a + end - start, true) }
     drag.raw = [px, py]
     return drags(event, ...aimed(event, px, py))
   }
@@ -1927,7 +1933,8 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   let held = {}, hot = null, grabbing = false
   function hover(px, py, keys = held) {
     held = keys
-    if (onBar(px, py)) { hot = null; grabbing = false; root.style.cursor = ''; return }
+    // the scrollbar's arrow, as a scrollbar's is everywhere
+    if (onBar(px, py)) { hot = null; grabbing = false; root.style.cursor = 'default'; return }
     // in another track's lane, nothing to take hold of: a press there makes it the one edited
     if (tracks && py <= plot().h && laneAt(lanes(), py) !== focus && nearMarker(px, py) < 0) { hot = null; grabbing = false; root.style.cursor = ''; return }
     const L = own(lanes()), rect = (show.gain || pitchLine()) && lineLanes(L).find(r => inside(r, px, py)), spectral = L.spec.some(r => inside(r, px, py)) && editing(keys)
@@ -2074,7 +2081,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     const lines = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 400 : 1, across = Math.abs(event.deltaX) > Math.abs(event.deltaY)
     const factor = Math.exp(Math.max(-50, Math.min(50, event.deltaY * lines)) * .01)
     const levels = onLevels(px, py, L), wave = levels || L.wave.find(r => inside(r, px, py))
-    if (event.ctrlKey || event.metaKey) return freqs ? zoomFreqs(factor, uy(freqs, py)) : levels ? zoomLevels(factor, ya(levels, py)) : zoom(factor, clamp(time(px)))
+    if (event.ctrlKey || event.metaKey) return freqs ? zoomFreqs(factor, uy(freqs, py)) : levels ? zoomLevels(factor, ya(levels, py)) : (steer(), zoom(factor, clamp(time(px))))
     if (rect && fview[1] - fview[0] < 1 && !across) {
       const du = event.deltaY * lines / rect[3] * (fview[1] - fview[0])
       return setFreqs(fview[0] - du, fview[1] - du)
@@ -2082,6 +2089,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // zoomed-in levels scroll up and down over the waveform, as zoomed-in frequencies do over the spectrogram
     if (wave && aview[1] - aview[0] < 2 && !across) return scrollLevels(aview[0] - event.deltaY * lines / wave[3] * (aview[1] - aview[0]))
     const delta = (across ? event.deltaX : event.deltaY) * lines
+    steer()
     setRange(start + delta / plot().w * span, end + delta / plot().w * span, true)
   }
   function select(a, b, f = null, keep = false) {
@@ -2552,14 +2560,17 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // past the middle, played from a caret there, is drawn to it as the view glides: its lead on the middle a frame
     // before, e^(-dt / GLIDE) of it kept (`played`: that frame's time), so it settles in the middle at any speed. A jump
     // (a caret put elsewhere as it plays) leads from where it lands; one out of sight, a loop come round, is centred at
-    // once. The playhead is the overlay's: the pictures are drawn again only as the view scrolls
+    // once. A view moved by hand (`steered`) is left where it is, ahead of the playhead or behind it, till the playhead,
+    // seen in it, passes its edge: then it glides to the middle from there. The playhead is the overlay's: the pictures
+    // are drawn again only as the view scrolls
     set playhead(t) {
       const span = end - start, mid = start + span / 2, now = performance.now(), dt = played ? (now - played) / 1000 : 0
-      const was = playhead == null || t < playhead || t - playhead > 8 * dt ? t : playhead
+      const was = playhead == null || t < playhead || t - playhead > 8 * dt ? t : playhead, seen = was >= start && was <= end
+      if (t == null || steered && seen && t > end) steered = false
       playhead = t
       played = t == null ? 0 : now
-      if (t != null && !drag && span < duration) {
-        if (t < start || t > end) setRange(t - span / 2, t + span / 2)
+      if (t != null && !drag && !steered && span < duration) {
+        if (!seen) setRange(t - span / 2, t + span / 2)
         else if (t > mid) { const lead = Math.max(0, was - mid) * Math.exp(-dt / GLIDE); setRange(t - span / 2 - lead, t + span / 2 - lead) }
       }
       invalidate(true)
@@ -2585,7 +2596,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // every range selected, in time order, and every caret; addNext() adds the next like the selection (⌘D)
     get ranges() { return ranges() }, get carets() { return carets() }, get boxes() { return boxes() }, addNext,
     select, setCursor, around, step: stepTo,
-    zoom, zoomTo: (a, b) => { const pad = (b - a) * .05; setRange(a - pad, b + pad) }, fit: () => { fview = [0, 1]; aview = [-1, 1]; setRange(0, duration) },
+    zoom, zoomTo: (a, b) => { const pad = (b - a) * .05; steer(); setRange(a - pad, b + pad) }, fit: () => { fview = [0, 1]; aview = [-1, 1]; setRange(0, duration) },
     // the picture of a range, for an agent; a range or a time brought into sight
     snapshot, reveal
   }

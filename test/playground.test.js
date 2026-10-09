@@ -2882,6 +2882,46 @@ test('editor: played from past the middle of a zoomed view, the view glides the 
   assert.ok(Math.abs(later - .5) < .1, `then in the middle: ${later.toFixed(2)}`)
 })
 
+// Scrolled while it plays, the view is the hand's: ahead of the playhead or behind it, it stays where it was put; once
+// the playhead, seen in it, passes its edge, the view follows again, gliding the playhead to its middle
+test('editor: scrolled while it plays, the view stays where it was put till the playhead passes its edge, then follows', async () => {
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
+  await open()
+  await noCues()
+  await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
+  await lengthIs('0:20.000')
+  const box = await page.locator('.plot').boundingBox(), w = box.width - GUTTER, y = box.y + box.height / 3
+  await page.mouse.move(box.x + 20, y)
+  for (let i = 0; i < 8; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
+  await page.mouse.click(box.x + 20, y)
+  await page.keyboard.press('Space')
+  await page.waitForFunction(() => document.querySelector('.play')?.getAttribute('aria-label') === 'Pause')
+  const range = () => page.evaluate(() => __view.range), time = async () => { const [m, s] = (await page.locator('.time').innerText()).split(':'); return +m * 60 + +s }
+  await page.waitForTimeout(600)
+  for (const [where, by] of [['ahead', 3], ['behind', -5]]) {
+    await page.mouse.wheel(0, w * by)
+    await page.waitForTimeout(100)
+    const put = await range()
+    await page.waitForTimeout(500)
+    assert.deepEqual(await range(), put, `${where}, left where it was put`)
+  }
+  // the playhead in sight, near the left edge: it crosses the view and passes its right edge, and the view follows it to
+  // the middle
+  const [a, b] = await range(), t = await time()
+  await page.mouse.wheel(0, (t - .1 * (b - a) - a) / (b - a) * w)
+  const put = await range()
+  await page.waitForTimeout(100)
+  assert.deepEqual(await range(), put, 'in sight, left where it was put')
+  await page.waitForTimeout(1500)
+  // the clock and the view read in one go: a frame apart, the view's span is a few frames' play
+  const [c, at] = await page.evaluate(() => { const [m, s] = document.querySelector('.time').textContent.split(':'), [p, q] = __view.range; return [p, (+m * 60 + +s - p) / (q - p)] })
+  assert.ok(c > put[0] && Math.abs(at - .5) < .15, `past the edge, followed: ${at.toFixed(2)} across`)
+  // over the scrollbar, at the time row's foot, the arrow, as over any scrollbar
+  await page.mouse.move(box.x + w / 2, box.y + box.height - 3)
+  assert.equal(await page.locator('.plot').evaluate(e => e.style.cursor), 'default')
+  await page.keyboard.press('Space')
+})
+
 // Zoomed in, a ms is many pixels: the playhead goes on by each frame's own time, however late a busy page runs the
 // frame's work (here 0 to 10 ms, at random, before it), so the view never jolts back and forth. And the pictures'
 // window-wide layers are clipped, not masked: a mask is a pass of its own over each, every frame the view scrolls
