@@ -89,8 +89,11 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   let sgl = specCanvas.getContext('webgl2', { premultipliedAlpha: true, antialias: false })
   if (!sgl?.getExtension('EXT_color_buffer_float')) sgl = null
   const c = overlay.getContext('2d'), gc = gridCanvas.getContext('2d')
-  // the grid as ruled, kept while it stays where it is; the waveform as a solid shape, to cut the grid by (paintGrid)
+  // the grid as ruled, kept while it stays where it is; the waveform as a solid shape, to cut the grid by (paintGrid):
+  // its alpha raised 32-fold by a filter, in one pass, or, where a canvas takes no filter, doubled five times over
   const ruling = document.createElement('canvas'), rc = ruling.getContext('2d'), solid = document.createElement('canvas'), sc = solid.getContext('2d')
+  const SOLID = 'solid-' + Math.random().toString(36).slice(2), filtered = typeof gc.filter === 'string'
+  if (filtered) root.insertAdjacentHTML('beforeend', `<svg width="0" height="0" style="position: absolute" aria-hidden="true"><filter id="${SOLID}"><feComponentTransfer><feFuncA type="linear" slope="32"/></feComponentTransfer></filter></svg>`)
   const style = getComputedStyle(root)
   const color = name => style.getPropertyValue(name).trim()
   let waves = [], specs = [], count = 0, rate = 44100, duration = 0, display = 'wave', scale = 'log', units = 'clock', hovered = null
@@ -162,6 +165,8 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // how the spectrogram draws, gl-spectrogram's options: its colours, its depth in dB, its FFT size; and the levels its
   // colours span, [floor, top] dB, the lanes' one scale once leveled (spectrograms), which the spectrum meter takes too
   let look = {}, decibels = null, picked = null
+  // when the pictures were last drawn, and the overlay's read of the spectrogram put off till they hold still (loudness)
+  let drawn = 0, settle = 0
   // how the waveform draws, as the lab's waveforms do (audiojs.github.io, lab/waveform): `colour` 'none', or
   // 'temperature' (its spectral centroid as the colour of light, low warm, high cool), a stretch at a time (tint.js); `lanes` 'split', a lane each channel, or 'one', every channel in one lane, each its own hue; `fill`
   // 'density' (brighter where the sound is most often), 'rms' (a lighter core as loud as its RMS) or 'flat'
@@ -385,6 +390,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (!pictures) return paint(L)
     pictures = false
     picked = null
+    drawn = performance.now()
     if (gl) {
       // the whole canvas cleared, whatever scissor a lane's drawing left: two renders in a task (snapshot) see no frame between
       gl.disable(gl.SCISSOR_TEST)
@@ -472,12 +478,16 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // level. One scale of levels for the lanes, the loudest channel's, so channels compare as they sound (each its own
   // while an output arrives); a take's channels among them as it comes, so it shows as the output holding it will.
   // Zoomed out, a render leaves columns short of frames: it draws again until they are whole.
+  // With no lane of its own, its canvas is cleared once and left so: a canvas drawn, even blank, is a window-wide layer
+  // composited again, each frame the view scrolls.
+  let blank = false
   function spectrograms(L, from, to) {
+    if (blank && !L.spec.length) return
     sgl.disable(sgl.SCISSOR_TEST)
     sgl.viewport(0, 0, specCanvas.width, specCanvas.height)
     sgl.clearColor(0, 0, 0, 0)
     sgl.clear(sgl.COLOR_BUFFER_BIT)
-    if (!L.spec.length) return
+    if (blank = !L.spec.length) return
     const [lo, hi] = freqs(), band = fview.map(u => scales[scale].of(u, lo, hi)), ratio = specCanvas.width / (W || 1)
     const all = [...specs, ...recording?.specs ?? []]
     for (const sg of all) sg.update({ scale, band, pixelRatio: ratio })
@@ -650,11 +660,16 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   }
   // The level the spectrogram shows under the pointer, dB: the loudest cell of its column within 2 px of it, so a line a
   // pixel thin reads as it is drawn (gl-spectrogram pick); none while an edit's pieces or a take stand for the output.
-  // Read off the GPU once per place until the pictures are drawn again (`picked`), not each frame the overlay is
+  // Read off the GPU once per place until the pictures are drawn again (`picked`), not each frame the overlay is, and only
+  // once they hold still: a read waits for all the GPU has queued, which, as the view scrolls or zooms, is each frame's
+  // drawing, window-wide; till then none, the read coming STILL ms after the last
+  const STILL = 120
   function loudness(i, rect, [px, py]) {
     const sg = specs[i], key = `${i} ${px} ${py}`
     if (!sg || pieces || recording) return null
     if (picked?.key === key) return picked.db
+    const since = performance.now() - drawn
+    if (since < STILL) { clearTimeout(settle); settle = setTimeout(() => invalidate(true), STILL - since); return null }
     const col = sg.pick(px - rect[0])
     let db = null
     if (col) {
@@ -1152,13 +1167,20 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (grid === 'none' || !duration) return
     gc.drawImage(ruling, 0, 0)
     if (!gl || !L.wave.length) return
-    // the waveform's shape made solid, each pixel it touches at all opaque (its alpha doubled five times over), cut out
-    sc.globalCompositeOperation = 'copy'
-    sc.drawImage(waveCanvas, 0, 0)
-    sc.globalCompositeOperation = 'lighter'
-    for (let i = 0; i < 5; i++) sc.drawImage(solid, 0, 0)
+    // the waveform's shape made solid, each pixel it touches at all opaque, cut out: each pass a whole screen's worth of
+    // pixels, the one a frame could spare as the view scrolls, window-wide on a dense screen
     gc.globalCompositeOperation = 'destination-out'
-    gc.drawImage(solid, 0, 0)
+    if (filtered) {
+      gc.filter = `url(#${SOLID})`
+      gc.drawImage(waveCanvas, 0, 0)
+      gc.filter = 'none'
+    } else {
+      sc.globalCompositeOperation = 'copy'
+      sc.drawImage(waveCanvas, 0, 0)
+      sc.globalCompositeOperation = 'lighter'
+      for (let i = 0; i < 5; i++) sc.drawImage(solid, 0, 0)
+      gc.drawImage(solid, 0, 0)
+    }
     gc.globalCompositeOperation = 'source-over'
   }
   // The grid ruled, drawn again only when what places it changes

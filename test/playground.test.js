@@ -2882,6 +2882,48 @@ test('editor: played from past the middle of a zoomed view, the view glides the 
   assert.ok(Math.abs(later - .5) < .1, `then in the middle: ${later.toFixed(2)}`)
 })
 
+// Zoomed in, a ms is many pixels: the playhead goes on by each frame's own time, however late a busy page runs the
+// frame's work (here 0 to 10 ms, at random, before it), so the view never jolts back and forth. And the pictures'
+// window-wide layers are clipped, not masked: a mask is a pass of its own over each, every frame the view scrolls
+test('editor: zoomed in, the playhead goes on by the frames\' own time, however late the page gets to them', async () => {
+  await open()
+  await noCues()
+  await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
+  await lengthIs('0:20.000')
+  for (const layer of ['waveform', 'spectrum', 'grid']) assert.equal(await page.locator(`.plot canvas.${layer}`).evaluate(e => getComputedStyle(e).maskImage), 'none', layer)
+  const box = await page.locator('.plot').boundingBox(), y = box.y + box.height / 2
+  await page.mouse.move(box.x + 20, y)
+  for (let i = 0; i < 6; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
+  await page.mouse.click(box.x + 20, y)
+  // each frame: its time, and the clock as the frame before left it, read first, then the frame held up
+  await page.evaluate(() => {
+    window.__frames = []
+    const each = ts => {
+      const [m, s] = document.querySelector('.time').textContent.split(':')
+      window.__frames.push([ts, +m * 60 + +s])
+      const until = performance.now() + Math.random() * 10
+      while (performance.now() < until);
+      if (window.__frames.length < 120) requestAnimationFrame(each)
+    }
+    requestAnimationFrame(each)
+  })
+  await page.keyboard.press('Space')
+  await page.waitForFunction(() => window.__frames.length >= 120, null, { timeout: 10000 })
+  await page.keyboard.press('Space')
+  const frames = await page.evaluate(() => window.__frames)
+  // while it runs, the clock's step each frame is the frame's step, to the ms the clock shows; the readout, redrawn by the
+  // page's own schedule, may show a frame or two late, and a frame held up may take two, so a step is off by what is
+  // left over whole frames (the display's, the shortest steps)
+  const steps = frames.slice(1).map(([t], i) => t - frames[i][0]).sort((p, q) => p - q), frame = steps[Math.floor(steps.length / 10)], off = []
+  for (let i = 2; i < frames.length; i++) {
+    const [t0, a] = frames[i - 1], [t1, b] = frames[i], d = (b - a) * 1000 - (t1 - t0)
+    if (a > frames[0][1] && b > a) off.push(Math.abs(d - Math.round(d / frame) * frame))
+  }
+  off.sort((p, q) => p - q)
+  assert.ok(off.length > 30, `${off.length} frames running`)
+  assert.ok(off[Math.floor(off.length * .9)] < 2.5, `steps off the frames' by ${off.map(v => v.toFixed(1)).join()} ms`)
+})
+
 // What the sound holds, in the status bar: the note at the caret (440 Hz is A4, ISO 16), a melody's compass over a
 // selection (A4 then E5, 659.26 Hz, 2^(7/12) × 440), and, over 6 s at least, the tempo and the key of all of it: clicks
 // every 0.5 s are 120 BPM, a C major triad (C4 E4 G4, 261.63, 329.63, 392 Hz) over them is in C major (Krumhansl-Kessler)

@@ -294,10 +294,10 @@ svg { flex: none; }
 .plot { position: absolute; inset: 0; touch-action: none; cursor: text; }
 .plot canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 /* the pictures end --end px from the right (view.js sets it: before the labels, or before the meters, nothing behind
-   them), square above the time row; where the sound runs on past the view they may fade out on the way, by an
-   exponential, a straight line in decibels, so it reads as even (e^-2u, over --fade px, none by default) */
-.plot { --fade: 0px; --end: 52px; }
-.plot canvas.waveform, .plot canvas.spectrum, .plot canvas.grid { mask-image: linear-gradient(to right, #000 calc(100% - var(--end) - var(--fade)), rgb(0 0 0 / .55) calc(100% - var(--end) - var(--fade) * .75), rgb(0 0 0 / .27) calc(100% - var(--end) - var(--fade) * .5), rgb(0 0 0 / .10) calc(100% - var(--end) - var(--fade) * .25), rgb(0 0 0 / .04) calc(100% - var(--end) - var(--fade) * .125), transparent calc(100% - var(--end))); }
+   them), square above the time row: clipped, a rectangle the compositor cuts for nothing, where a mask costs a pass of
+   its own over each window-wide layer, every frame the view scrolls */
+.plot { --end: 52px; }
+.plot canvas.waveform, .plot canvas.spectrum, .plot canvas.grid { clip-path: inset(0 var(--end) 0 0); }
 /* How brightly the sound is drawn is the layer's own (view.js, light): none before any of it is here, dim while it is
    the file arriving, full once it is the output; what is drawn over it comes with it. It only ever fades between them,
    so a sound never blinks, and empty lanes never wait for one. */

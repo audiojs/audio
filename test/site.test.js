@@ -3848,23 +3848,28 @@ test('logo motion: a mimic copies the pointer\'s sideways moves near its middle,
   assert(apart(calm, await logoShot()) < .05, 'with reduced motion the pointer does not move it')
 })
 
+// and is drawn without reading the GPU back: a read waits for all the GPU has queued, the page's other drawing too,
+// which behind a window-wide waveform held the page up 50 to 100 ms, a few times a second as the icon turned
 test('site: the tab icon holds the whole wave as it turns, no crest cut at its edge', async () => {
-  const clipped = await page.evaluate(async () => {
+  const { clipped, reads } = await page.evaluate(async () => {
     const { logo } = await import('./logo/logo.js'), canvas = document.createElement('canvas')
-    const view = logo(canvas), clipped = []
+    const view = logo(canvas), clipped = [], read = WebGL2RenderingContext.prototype.readPixels
+    let reads = 0
     for (let phase = 0; phase < 1; phase += 1 / 16) {
       view.set({ phase }); view.render()
       const image = new Image()
-      image.src = view.favicon('#000')
+      WebGL2RenderingContext.prototype.readPixels = function (...a) { reads++; return read.apply(this, a) }
+      try { image.src = view.favicon('#000') } finally { WebGL2RenderingContext.prototype.readPixels = read }
       await image.decode()
       const { width: w, height: h } = image, context = new OffscreenCanvas(w, h).getContext('2d')
       context.drawImage(image, 0, 0)
       const alpha = context.getImageData(0, 0, w, h).data, edge = y => Array.from({ length: w }, (_, x) => alpha[(y * w + x) * 4 + 3]).some(a => a > 8)
       if (edge(0) || edge(h - 1)) clipped.push(phase)
     }
-    return clipped
+    return { clipped, reads }
   })
   assert.deepEqual(clipped, [], `crests reach the icon's edge at phases ${clipped}`)
+  assert.equal(reads, 0, 'pixels read back from the GPU')
 })
 
 test('site: the header mark is the logo drawn live; over the whole title it copies the pointer, a drag turns it without following the link, the tab icon turns with it', async () => {

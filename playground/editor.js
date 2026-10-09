@@ -1517,7 +1517,18 @@ async function togglePlay(at) {
   await pl.play(plays())
   if (!pl.playing) { state.playing = false; return }
   sway()
-  const tick = () => { if (!pl.playing) return; const t = pl.time; v.playhead = t; state.time = stamp(t); state.played = t / (v.duration || 1); meter(t); ticker = requestAnimationFrame(tick) }
+  // The playhead where the speakers are at the frame's own time, not when its callback runs, which a busy page makes
+  // later by a few ms now and then: zoomed in, a ms is many pixels, and the view would jolt back and forth by them.
+  // Never short of the one shown but when the clock itself goes back (the caret put back)
+  let clock = null, shown = null
+  const tick = frame => {
+    if (!pl.playing) return
+    const c = pl.time, late = frame == null ? 0 : (performance.now() - frame) / 1000 * pl.rate
+    const t = clock != null && c >= clock ? Math.max(shown, c - late) : c
+    clock = c; shown = t
+    v.playhead = t; state.time = stamp(t); state.played = t / (v.duration || 1); meter(t)
+    ticker = requestAnimationFrame(tick)
+  }
   tick()
 }
 

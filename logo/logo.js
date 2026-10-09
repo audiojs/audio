@@ -272,10 +272,11 @@ function rgb(color) {
   return [...ink.getImageData(0, 0, 1, 1).data.slice(0, 3)].map(v => v / 255)
 }
 // Pixels read back from GL, rows bottom-up, as a PNG in one color with the red channel as opacity
-const sheet = document.createElement('canvas')
+// kept off the GPU, so what is put on it reads back at once, never waiting for what the GPU has queued
+const sheet = document.createElement('canvas'), SHEET = { willReadFrequently: true }
 function png(rgba, w, h, [r, g, b]) {
   Object.assign(sheet, { width: w, height: h })
-  const context = sheet.getContext('2d'), image = context.createImageData(w, h)
+  const context = sheet.getContext('2d', SHEET), image = context.createImageData(w, h)
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const from = ((h - 1 - y) * w + x) * 4, to = (y * w + x) * 4
     image.data.set([r * 255, g * 255, b * 255, rgba[from]], to)
@@ -480,12 +481,24 @@ export function logo(canvas, { onresize, clear = false, fit = 'all' } = {}) {
 
   // The waveform as last rendered, in one color: a favicon. Flat, whatever the gradient: a tab shows it at 16 px,
   // too few for a fall from paper to ink. Fit to the window's peak, not the wave's, so a crest turning through
-  // the middle stays whole and the icon keeps its size, with a pixel spare for the antialiased edge.
-  // The next render puts the gradient back.
+  // the middle stays whole and the icon keeps its size, with a pixel spare for the antialiased edge. Drawn on the
+  // sheet, not printed by the shader: pixels read back from the GPU wait for all it has queued, the page's own
+  // drawing too, which behind a window-wide waveform held the page 50 to 100 ms, a few times a second as it turned.
   function favicon(color, size = 64) {
-    upload(4, profileOf('rectangular'))
-    const scale = (size / 2 - 1) / Math.max(1, HEIGHT * state.amplitude)
-    return png(print('smooth', { width: size, height: size, dot: 1, gap: 0, scale, centre: [size / 2, size / 2], lines: 2, ground: [0, 0, 0], figure: [1, 1, 1], axis: Math.max(2, AXIS * 2 * scale), faint: state.axis, pixels: true }), size, size, rgb(color))
+    const scale = (size / 2 - 1) / Math.max(1, HEIGHT * state.amplitude), mid = size / 2, axis = Math.max(2, AXIS * 2 * scale)
+    Object.assign(sheet, { width: size, height: size })
+    const context = sheet.getContext('2d', SHEET)
+    context.fillStyle = color
+    // the axis, faint, under the wave, which stands on it in full
+    context.globalAlpha = Math.min(1, Math.max(0, state.axis))
+    context.fillRect(mid - scale, mid - axis / 2, 2 * scale, axis)
+    context.globalAlpha = 1
+    context.beginPath()
+    context.moveTo(mid - scale, mid)
+    for (let i = 0; i < SAMPLES; i++) if (xs[i] >= -1 && xs[i] <= 1) context.lineTo(mid + xs[i] * scale, mid - heights[i] * scale)
+    context.lineTo(mid + scale, mid)
+    context.fill()
+    return sheet.toDataURL('image/png')
   }
 
   const resize = new ResizeObserver(([e]) => {
