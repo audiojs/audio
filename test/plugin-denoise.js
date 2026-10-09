@@ -355,7 +355,8 @@ const GUARDED = !!neural && 'music' in (await import('@audio/neural-denoise/audi
 const HAS_DFN = !!neural && existsSync(path.join(process.env.AUDIO_NEURAL_CACHE || path.join(os.homedir(), '.cache', 'audiojs', 'neural'), createHash('sha256').update(neural.MODEL).digest('hex')))
 const NEURAL_RUN = { timeout: 180000 }  // model runs, on a busy machine
 const withImport = async (stub, fn) => { let orig = audio.import; audio.import = spec => stub(spec, orig); try { return await fn() } finally { audio.import = orig } }
-const maxDiff = (a, b) => { let m = 0; for (let i = 0; i < a.length; i++) m = Math.max(m, Math.abs(a[i] - b[i])); return m }
+// a declaration, hoisted: tests above it run while the module still evaluates its top-level awaits
+function maxDiff(a, b) { let m = 0; for (let i = 0; i < a.length; i++) m = Math.max(m, Math.abs(a[i] - b[i])); return m }
 
 // speech, a second's pause, speech; white noise throughout, `snr` dB under the speech
 function take(snr = 15) {
