@@ -1,0 +1,42 @@
+name: browser
+# The pages in Chromium, each suite only when the change reaches what it loads (test/scope.js picks them), on one
+# Node: a browser test isn't a Node one
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      suites: ${{ steps.pick.outputs.suites }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      # against the push's previous head or the PR's base; run by hand, there is none and all of them run
+      - id: pick
+        run: echo "suites=$(node test/scope.js '${{ github.event.pull_request.base.sha || github.event.before || 'none' }}')" >> "$GITHUB_OUTPUT"
+  pages:
+    needs: scope
+    if: needs.scope.outputs.suites != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: ${{ fromJSON(needs.scope.outputs.suites) }}
+    name: ${{ matrix.suite.name }}
+    # advice: real-time measures a shared runner, missing the audio thread's deadlines now and then, can't promise
+    continue-on-error: ${{ matrix.suite.advice }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      # onnxruntime-node fetches its CUDA build from NuGet on Linux unless told: no GPU here, and a slow fetch failed the run
+      - run: npm ci
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      # a sound device for the pages: without one Chromium plays to a fake sink whose clock runs ahead of real time,
+      # which the recording and playback tests measure; a PulseAudio null sink keeps it real time, as on a user's machine
+      - run: sudo apt-get install -y pulseaudio && pulseaudio --start --exit-idle-time=-1 && pactl info
+      - run: ${{ matrix.suite.run }}

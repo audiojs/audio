@@ -17,26 +17,7 @@ jobs:
         env:
           ONNXRUNTIME_NODE_INSTALL_CUDA: skip
       - run: npm run build
-      - run: npx playwright install --with-deps chromium
       - run: npm run test:node
-      # a sound device for the pages: without one Chromium plays to a fake sink whose clock runs ahead of real time,
-      # which the recording and playback tests measure; a PulseAudio null sink keeps it real time, as on a user's
-      # machine. After the Node tests: Node's speaker would play through it too, its latency in their wall clock
-      - run: sudo apt-get install -y pulseaudio && pulseaudio --start --exit-idle-time=-1 && pactl info
-      - run: npm run test:pages
-        env:
-          TEST_PAGES: library
-      # real-time playback, clicks and gaps measured as heard: a shared runner misses the audio thread's deadlines now
-      # and then, so this one advises and doesn't fail the run
-      - run: npm run test:browser
-        continue-on-error: true
-        env:
-          TEST_PAGES: playback
-      # and recording with the live spectrogram shown, drawn on the CPU here (no GPU): advice too
-      - run: node --test --test-name-pattern="recording with the spectrogram shown" test/playground.test.js
-        continue-on-error: true
-        env:
-          CI: ''
   # the README's runtimes besides Node: a file decoded, edited, measured, encoded and decoded back (test/runtime.js)
   runtimes:
     runs-on: ubuntu-latest
