@@ -290,6 +290,18 @@ test('worker: an app worker speaks its own messages, exposes its outputs; the pa
   w.terminate()
 })
 
+// Pages on disk in a worker (cache.js): OPFS opens a file there to one sync access handle at a time, refusing a second
+// (NoModificationAllowedError), so a page written and read at once, as an eviction, a restore and a prefetch may, takes
+// turns: every read gets the page as written
+test('worker: a page on disk read and written at once takes turns, none refused', { timeout: 20000 }, async t => {
+  let w = worker('/test/dist/worker-app.js'), replies = []
+  w.onmessage = e => replies.push(e.data)
+  w.postMessage({ type: 'pages', id: 1 })
+  await until(() => replies.length)
+  t.is(replies[0], { id: 1, read: [true, true, true] })
+  w.terminate()
+})
+
 test('meters: known signals, released when heard (local and worker)', { timeout: 20000 }, async t => {
   let x = new Float32Array(44100)
   for (let i = 22050; i < 44100; i++) x[i] = 0.5 * Math.sin(2 * Math.PI * 1000 * i / 44100)

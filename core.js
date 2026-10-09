@@ -153,7 +153,7 @@ export default function audio(source, opts = {}) {
       if (final.header) { a._.header = final.header; a._.metaDone = false }
       a.decoded = true
       notify()
-      audio.evict?.(a)
+      audio.evict?.(a).catch(() => {})
       delete a.then; delete a.catch  // clear thenable before resolve to prevent unwrap loop
       return true
     } catch (e) {

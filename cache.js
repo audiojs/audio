@@ -76,8 +76,18 @@ async function opfsCache(dirName = 'audio-cache') {
   sweep(base, dirName).catch(() => {})
   let dir = await base.getDirectoryHandle(id, { create: true })
 
+  // OPFS opens a file to one access handle or writable at a time, refusing a second (NoModificationAllowedError): a
+  // page's reads and writes take turns, whoever asks for them (an eviction, a read restoring the page, a seek's prefetch)
+  let turns = new Map()
+  let turn = (i, fn) => {
+    let p = (turns.get(i) ?? Promise.resolve()).catch(() => {}).then(fn)
+    turns.set(i, p)
+    p.catch(() => {}).finally(() => { if (turns.get(i) === p) turns.delete(i) })
+    return p
+  }
+
   let cache = {
-    async read(i) {
+    read: i => turn(i, async () => {
       let handle = await dir.getFileHandle(`p${i}`), view
       if (handle.createSyncAccessHandle) {
         let h = await handle.createSyncAccessHandle()
@@ -88,8 +98,8 @@ async function opfsCache(dirName = 'audio-cache') {
       let data = []
       for (let c = 0; c < ch; c++) data.push(view.slice(1 + c * samplesPerCh, 1 + (c + 1) * samplesPerCh))
       return data
-    },
-    async write(i, data) {
+    }),
+    write: (i, data) => turn(i, async () => {
       let handle = await dir.getFileHandle(`p${i}`, { create: true })
       let total = 1 + data.reduce((s, ch) => s + ch.length, 0)
       let packed = new Float32Array(total)
@@ -105,7 +115,7 @@ async function opfsCache(dirName = 'audio-cache') {
       let writable = await handle.createWritable()
       await writable.write(packed.buffer)
       await writable.close()
-    },
+    }),
     has(i) {
       return dir.getFileHandle(`p${i}`).then(() => true, () => false)
     },
