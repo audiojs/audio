@@ -91,6 +91,30 @@ test('normalize: the preview measures what the render holds (no stale pre-limit 
   t.almost(preview, rendered, 0.001, `preview ${preview.toFixed(3)} = render ${rendered.toFixed(3)}`)
 })
 
+// The ceiling joins only where it limits: a take whose true peak stays under it after the gain is the gain alone, bit
+// for bit, its loudness the target exactly (the ceiling ran over every sample of every take and limited none of most)
+test('normalize: no limiter where nothing reaches the ceiling', async t => {
+  let x = Float32Array.from({ length: 96000 }, (_, i) => 0.05 * Math.sin(2 * Math.PI * 997 * i / 48000) * (1 + 0.5 * Math.sin(2 * Math.PI * 3 * i / 48000)))
+  let a = audio.from([x], { sampleRate: 48000 }).normalize('broadcast'), [y] = await a.read()
+  let g = -23 - await audio.from([x], { sampleRate: 48000 }).stat('loudness'), [z] = await audio.from([x], { sampleRate: 48000 }).gain(g).read()
+  t.ok(y.length === z.length && y.every((v, i) => v === z[i]), 'the gain alone')
+  t.almost(await audio.from([y], { sampleRate: 48000 }).stat('loudness'), -23, 0.001, '-23 LUFS')
+  t.ok(dbtp([y]) < -1, `true peak ${dbtp([y]).toFixed(2)} dBTP, under the ceiling untouched`)
+  // the pass deciding it reads the ceiling's flush too: a Nyquist burst rising to a hard cut, its samples 6 dB under the
+  // ceiling after the gain, its waveform over it past the last sample (without the flush: +2.5 dBTP out)
+  let cut = Float32Array.from({ length: 48000 }, (_, i) => i < 47936 ? 0.05 * Math.sin(2 * Math.PI * 997 * i / 48000) : 0.42 * (i % 2 ? 1 : -1) * Math.sin(Math.PI / 2 * (i - 47935) / 64))
+  let [w] = await audio.from([cut], { sampleRate: 48000 }).normalize(-23, 'lufs').read()
+  t.ok(dbtp([w]) <= -1 + 0.02, `the cut's over limited: ${dbtp([w]).toFixed(2)} dBTP`)
+  // shorter than the filter: decided whole, from the flush alone
+  let [s] = await audio.from([Float32Array.from({ length: 40 }, (_, i) => 0.01 * Math.sin(i))], { sampleRate: 48000 }).normalize(-20, 'lufs').read()
+  t.ok(s.length === 40 && dbtp([s]) <= -1 + 0.02, `40 samples: ${dbtp([s]).toFixed(2)} dBTP`)
+  // a selection: what lies past it, as loud as it is, neither limits it nor is limited
+  let loud = Float32Array.from({ length: 96000 }, (_, i) => (i < 48000 ? 0.05 : 0.9) * Math.sin(2 * Math.PI * 997 * i / 48000))
+  let [u] = await audio.from([loud], { sampleRate: 48000 }).normalize('broadcast', { at: 0, duration: 1 }).read()
+  t.ok(u.subarray(48000 + 4800).every((v, i) => v === loud[48000 + 4800 + i]), 'past the selection: as it came')
+  t.ok(dbtp([u.subarray(0, 48000)]) < -1, 'the selection: the gain alone, under the ceiling')
+})
+
 test('normalize: numeric loudness target with mode, custom ceiling, and clear errors', async t => {
   let a = (await audio(lena)).normalize(-18, 'lufs')
   t.almost(await a.stat('loudness'), -18, 0.05, 'normalize(-18, "lufs"): AES TD1008 speech target')

@@ -63,16 +63,99 @@ audio.op('dc', {
 const HALF = 48, TAPS = 2 * HALF, MID = HALF, LOOK = 0.005, RELEASE = 0.1, BETA = 8
 const sinc = x => x === 0 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x)
 const i0 = x => { let s = 1, t = 1; for (let k = 1; k < 50; k++) s += t *= (x / 2 / k) ** 2; return s }
-const TPF = [0.25, 0.5, 0.75].map(f => {
-  let h = new Float64Array(TAPS), w = 0            // h[j] weighs x[n − j]
-  for (let j = 0; j < TAPS; j++) { let x = HALF - j - f; w += h[j] = sinc(x) * i0(BETA * Math.sqrt(1 - (x / HALF) ** 2)) / i0(BETA) }
-  return h.map(v => v / w)
-})
-// |y_p| ≤ S·max|x| over the taps, and a parabola's vertex ≤ 9/8 of its peak point: below
-// lim/(9/8·S) no estimate can exceed lim, so the FIR is skipped
-const S = 9 / 8 * Math.max(...TPF.map(h => h.reduce((s, v) => s + Math.abs(v), 0)))
+// The ¼ filter, the ¾ its mirror, the ½ its own: folded about the middle, each pair of taps x[n − k], x[n − 95 + k]
+// reads as their sum and difference, 3 products a pair for the 3 phases (ODD: half the ¼ filter's odd part)
+const fir = f => { let h = new Float64Array(TAPS), w = 0; for (let j = 0; j < TAPS; j++) { let x = HALF - j - f; w += h[j] = sinc(x) * i0(BETA * Math.sqrt(1 - (x / HALF) ** 2)) / i0(BETA) }; return h.map(v => v / w) }
+const QTR = fir(0.25), HLF = fir(0.5)
+const EVEN = new Float64Array(HALF), ODD = new Float64Array(HALF), MIDF = new Float64Array(HALF)
+for (let k = 0; k < HALF; k++) { EVEN[k] = (QTR[k] + QTR[TAPS - 1 - k]) / 2; ODD[k] = (QTR[k] - QTR[TAPS - 1 - k]) / 2; MIDF[k] = (HLF[k] + HLF[TAPS - 1 - k]) / 2 }
+// |y_p| ≤ Σ |h_k|·|x[n − k]| ≤ Σ over blocks of 8 samples of the block's max |x| times its taps' Σ|h|, the most of the 3
+// phases and of the 8 windows starting in a block: BOUND[j] weighs block j of the 13 the 8 windows reach, one bound for
+// all 8. A parabola's vertex ≤ 9/8 of its peak point: where 9/8 of that bound stays under the ceiling no estimate can
+// reach it, and the FIR is skipped
+const BLK = 8, NB = TAPS / BLK + 1, BOUND = new Float64Array(NB)
+for (let r = 0; r < BLK; r++) {
+  let w = new Float64Array(NB)
+  for (let k = 0; k < TAPS; k++) w[(r + TAPS - k) >> 3] += Math.max(Math.abs(QTR[k]), Math.abs(HLF[k]), Math.abs(QTR[TAPS - 1 - k]))
+  for (let j = 0; j < NB; j++) if (w[j] > BOUND[j]) BOUND[j] = w[j]
+}
+// Where it can't skip a block's windows, a window is bound tighter by its 16 middle taps, taken exactly (CEN folded
+// pairs), and the rest at their Σ|h| times the most the 8 windows reach (TAIL): on speech limited 3 dB the limiter
+// takes a quarter of the time the FIR everywhere does, its gain the same to a float32 ulp
+const CEN = 8, TAIL = Math.max(...[QTR, HLF].map(h => h.reduce((t, v, k) => k < HALF - CEN || k >= HALF + CEN ? t + Math.abs(v) : t, 0)))
 /** Vertex of the parabola through equally spaced l, m, r when m is their maximum, else m. */
 const vertex = (l, m, r) => { let c = 2 * m - l - r; return m >= l && m >= r && c > 0 ? m + (l - r) * (l - r) / (8 * c) : m }
+
+/** The reconstructed peak of channels fed block by block → reach(input, t, pk): for each new sample x[n] of the block,
+ *  pk[i] the most any channel reaches over the interval (n − MID, n − MID + 1), its two samples, its 4× points and the
+ *  parabolas through them; exact wherever it can pass `t`, elsewhere the samples' (both then ≤ t). The FIR runs only
+ *  where the bounds let an estimate pass t. */
+function reacher(nch) {
+  let ext = [], top = [], pks = new Float64Array(0)
+  // each channel's |point| before x[m], the ¾ one of the interval before: exact where `known`, else its bound; the
+  // bound of the 8 windows from the last block start
+  let last = new Float64Array(nch), known = new Uint8Array(nch).fill(1), bound = new Float64Array(nch), most = new Float64Array(nch)
+  return (input, t) => {
+    let len = input[0].length, end = TAPS + len, cold = t * 8 / 9
+    // each channel's TAPS samples before this block, then the block; the most of each 8 of them
+    if (!ext.length || ext[0].length < end) {
+      ext = input.map((_, c) => { let b = new Float32Array(end); if (ext[c]) b.set(ext[c].subarray(0, TAPS)); return b })
+      top = ext.map(() => new Float32Array(Math.ceil(end / BLK)))
+      pks = new Float64Array(len)
+    }
+    for (let c = 0; c < nch; c++) {
+      let e = ext[c], q = top[c]
+      e.set(input[c], TAPS)
+      for (let j = 0, b = 0; j < end; j += BLK, b++) { let mx = 0; for (let i = j, z = Math.min(end, j + BLK); i < z; i++) { let v = e[i] < 0 ? -e[i] : e[i]; if (v > mx) mx = v }; q[b] = mx }
+    }
+    for (let i = 0; i < len; i++) {
+      let pk = 0, o = i + TAPS   // e[o]: the newest sample, x[n]
+      if (!(i & 7)) for (let c = 0, j = i >> 3; c < nch; c++) {
+        let q = top[c], u = 0, mx = 0
+        for (let k = 0; k < NB; k++) { let v = q[j + k]; u += BOUND[k] * v; if (v > mx) mx = v }
+        bound[c] = u; most[c] = mx
+      }
+      for (let c = 0; c < nch; c++) {
+        let e = ext[c], a = e[o - MID], b = e[o - MID + 1]   // x[n − MID], x[n − MID + 1]
+        a = a < 0 ? -a : a; b = b < 0 ? -b : b
+        if (a > pk) pk = a
+        if (b > pk) pk = b
+        // the window's bound: no point of this interval, nor a vertex over them, can pass t
+        let l = last[c], hi = a > b ? a : b
+        if (l > hi) hi = l
+        // the 3 points from the middle taps first; the rest of the taps only where those can't bind them
+        let s0 = 0, s1 = 0, s2 = 0
+        if (hi <= cold) {
+          if (bound[c] <= cold) { last[c] = bound[c]; known[c] = 0; continue }
+          for (let k = HALF - CEN; k < HALF; k++) { let x = e[o - k], y = e[o - TAPS + 1 + k], s = x + y; s0 += EVEN[k] * s; s1 += ODD[k] * (x - y); s2 += MIDF[k] * s }
+          let r = TAIL * most[c], u1 = s0 + s1, u3 = s0 - s1
+          u1 = (u1 < 0 ? -u1 : u1) + r; u3 = (u3 < 0 ? -u3 : u3) + r
+          if (u1 <= cold && u3 <= cold && (s2 < 0 ? -s2 : s2) + r <= cold) { last[c] = u3; known[c] = 0; continue }
+        }
+        else for (let k = HALF - CEN; k < HALF; k++) { let x = e[o - k], y = e[o - TAPS + 1 + k], s = x + y; s0 += EVEN[k] * s; s1 += ODD[k] * (x - y); s2 += MIDF[k] * s }
+        // the ¾ point before, where it was bound only
+        if (!known[c]) {
+          let p = o - 1, s0 = 0, s1 = 0
+          for (let k = 0; k < HALF; k++) { let x = e[p - k], y = e[p - TAPS + 1 + k]; s0 += EVEN[k] * (x + y); s1 += ODD[k] * (x - y) }
+          l = s0 - s1; l = l < 0 ? -l : l; known[c] = 1
+        }
+        // the points a, ¼, ½, ¾, b in time order, each local maximum refined by its parabola
+        for (let k = 0; k < HALF - CEN; k++) { let x = e[o - k], y = e[o - TAPS + 1 + k], s = x + y; s0 += EVEN[k] * s; s1 += ODD[k] * (x - y); s2 += MIDF[k] * s }
+        let y1 = s0 + s1, y2 = s2, y3 = s0 - s1
+        y1 = y1 < 0 ? -y1 : y1; y2 = y2 < 0 ? -y2 : y2; y3 = y3 < 0 ? -y3 : y3
+        let v = vertex(l, a, y1)
+        if (v > pk) pk = v
+        if ((v = vertex(a, y1, y2)) > pk) pk = v
+        if ((v = vertex(y1, y2, y3)) > pk) pk = v
+        if ((v = vertex(y2, y3, b)) > pk) pk = v
+        last[c] = y3
+      }
+      pks[i] = pk
+    }
+    for (let c = 0; c < nch; c++) ext[c].copyWithin(0, len, end)
+    return pks
+  }
+}
 
 /** Channel-linked lookahead limiter holding the reconstructed (true) peak at `limit` dBTP.
  *  Required gain g[m] covers the samples and 4× interpolants on both sides of m; a sliding
@@ -81,75 +164,62 @@ const vertex = (l, m, r) => { let c = 2 * m - l - r; return m >= l && m >= r && 
  *  flat at it over the HALF samples each side of m: an interpolant reads its taps at one gain.
  *  (Unwidened, the attack ramp crossed the kernel: 8 kHz speech limited 20 dB came out at
  *  -0.91 dBTP under a -1 ceiling.) Release only ever pulls the gain further down. Output is
- *  delayed MID + lookahead + HALF. */
+ *  delayed MID + lookahead + HALF; where nothing reaches the ceiling, it is the input. */
 function ceiling(input, output, ctx) {
   let nch = input.length, len = input[0].length, sr = ctx.sampleRate
   let st = ctx._tp
   if (!st) {
     let L = Math.round(LOOK * sr), W = L + 1, Q = W + 2 * HALF, D = MID + L + HALF
     st = ctx._tp = {
-      L, W, Q, D, n: 0, hot: -1, rPrev: 1, env: 1, sum: W, ai: 0, qh: 0, qt: 0, di: 0,
+      L, W, Q, D, n: 0, rPrev: 1, env: 1, sum: W, ai: 0, qh: 0, qt: 0, di: 0, reach: reacher(nch),
       avg: new Float64Array(W).fill(1), qv: new Float64Array(Q), qn: new Float64Array(Q),
-      ext: Array.from({ length: nch }, () => new Float32Array(TAPS - 1 + len)),
       dl: Array.from({ length: nch }, () => new Float32Array(D)),
-      last: new Float64Array(nch),   // each channel's |point| before x[m], the ¾ one of the interval before
       rel: 1 - Math.exp(-1 / (RELEASE * sr)),
     }
   }
-  let { L, W, Q, D, avg, qv, qn, dl, rel, last } = st
-  if (st.ext[0].length < TAPS - 1 + len) st.ext = st.ext.map(e => { let b = new Float32Array(TAPS - 1 + len); b.set(e.subarray(0, TAPS - 1)); return b })
-  let ext = st.ext
-  for (let c = 0; c < nch; c++) ext[c].set(input[c], TAPS - 1)
-  let lim = 10 ** ((ctx.limit ?? -1) / 20), cold = lim / S
+  let { L, W, Q, D, avg, qv, qn, dl, rel } = st
+  let lim = 10 ** ((ctx.limit ?? -1) / 20), pks = st.reach(input, lim)
   // range gating in absolute input samples (ranged op: ctx.at is block-relative)
   let base = Math.round((ctx.blockOffset || 0) * sr)
   let r0 = ctx.at != null ? base + Math.round(ctx.at * sr) : -Infinity
   let r1 = ctx.duration != null ? r0 + Math.round(ctx.duration * sr) : Infinity
+  let n = st.n, rPrev = st.rPrev, env = st.env, sum = st.sum, ai = st.ai, qh = st.qh, qt = st.qt, di = st.di
 
-  for (let i = 0; i < len; i++) {
-    let n = st.n, m = n - MID, pk = 0
-    for (let c = 0; c < nch; c++) {
-      let e = ext[c], x = e[i + TAPS - 1]
-      if ((x < 0 ? -x : x) > cold) st.hot = n + TAPS
-      let a = e[i + TAPS - 1 - MID], b = e[i + TAPS - MID]   // x[n − MID], x[n − MID + 1]
-      a = a < 0 ? -a : a; b = b < 0 ? -b : b
-      if (a > pk) pk = a
-      if (b > pk) pk = b
-      if (n > st.hot) { last[c] = 0; continue }
-      // the points a, ¼, ½, ¾, b in time order, each local maximum refined by its parabola
-      let l = last[c], q = a
-      for (let p = 0; p < TPF.length; p++) {
-        // four running sums: independent adds pipeline
-        let h = TPF[p], o = i + TAPS - 1, y0 = 0, y1 = 0, y2 = 0, y3 = 0
-        for (let k = 0; k < TAPS; k += 4) { y0 += h[k] * e[o - k]; y1 += h[k + 1] * e[o - k - 1]; y2 += h[k + 2] * e[o - k - 2]; y3 += h[k + 3] * e[o - k - 3] }
-        let y = y0 + y1 + y2 + y3
-        if (y < 0) y = -y
-        let v = vertex(l, q, y)
-        if (v > pk) pk = v
-        l = q; q = y
-      }
-      let v = vertex(l, q, b)
-      if (v > pk) pk = v
-      last[c] = q
-    }
+  for (let i = 0; i < len; i++, n++) {
+    let m = n - MID, pk = pks[i]
     let r = pk > lim && m >= r0 && m < r1 ? lim / pk : 1
-    let g = r < st.rPrev ? r : st.rPrev
-    st.rPrev = r
+    let g = r < rPrev ? r : rPrev
+    rPrev = r
     // sliding minimum of g over [m − L − 2·HALF, m] (monotonic deque, capacity Q)
-    while (st.qt > st.qh && qv[(st.qt - 1) % Q] >= g) st.qt--
-    qv[st.qt % Q] = g; qn[st.qt % Q] = m; st.qt++
-    if (qn[st.qh % Q] < m - L - 2 * HALF) st.qh++
-    let mn = qv[st.qh % Q]
+    while (qt > qh && qv[(qt - 1) % Q] >= g) qt--
+    qv[qt % Q] = g; qn[qt % Q] = m; qt++
+    if (qn[qh % Q] < m - L - 2 * HALF) qh++
+    let mn = qv[qh % Q]
     // its moving average over [m − L, m] → the gain for output sample m − L − HALF
-    st.sum += mn - avg[st.ai]; avg[st.ai] = mn; st.ai = (st.ai + 1) % W
-    let G = st.sum / W
-    st.env = G < st.env ? G : st.env + (G - st.env) * rel
-    let gain = st.env, di = st.di
-    for (let c = 0; c < nch; c++) { let d = dl[c]; output[c][i] = d[di] * gain; d[di] = ext[c][i + TAPS - 1] }
-    st.di = (di + 1) % D
-    st.n++
+    sum += mn - avg[ai]; avg[ai] = mn; ai = ai + 1 === W ? 0 : ai + 1
+    let G = sum / W
+    env = G < env ? G : env + (G - env) * rel
+    for (let c = 0; c < nch; c++) { let d = dl[c]; output[c][i] = d[di] * env; d[di] = input[c][i] }
+    di = di + 1 === D ? 0 : di + 1
   }
-  for (let c = 0; c < nch; c++) ext[c].copyWithin(0, len, len + TAPS - 1)
+  st.n = n; st.rPrev = rPrev; st.env = env; st.sum = sum; st.ai = ai; st.qh = qh; st.qt = qt; st.di = di
+}
+
+/** Whether the ceiling at `limit` dBTP would limit `chunks` (blocks of channels, as ctx.stream gives them) over samples
+ *  [r0, r1): where it would not, it gives back its input. Stops at the first sample it would limit. */
+function limits(chunks, limit, r0 = -Infinity, r1 = Infinity) {
+  let lim = 10 ** (limit / 20), reach = null, nch = 0, n = 0
+  const over = (block) => {
+    let pks = reach(block, lim)
+    for (let i = 0, len = block[0].length; i < len; i++, n++) if (pks[i] > lim && n - MID >= r0 && n - MID < r1) return true
+    return false
+  }
+  for (let chunk of chunks) {
+    if (!reach) { nch = chunk.length; reach = reacher(nch) }
+    if (over(chunk)) return true
+  }
+  // past the end the ceiling reads silence: the intervals whose taps still reach the last samples
+  return !!reach && over(Array.from({ length: nch }, () => new Float32Array(TAPS)))
 }
 
 /** True-peak ceiling (dBTP), internal to normalize. */
@@ -259,7 +329,13 @@ audio.op('normalize', {
     if (ceiling == null) return edits.length === 1 ? edits[0] : edits
 
     // True-peak limiting, never clipping (AES TD1008 §5A: "When upward normalization would
-    // cause clipping, peak limiting is required")
+    // cause clipping, peak limiting is required"), and only then: once the whole signal is known,
+    // a pass that stops at the first sample the ceiling would limit says whether any does. Where
+    // none, the gain alone meets the target, nothing more rendered.
+    if (ctx.stream && !ctx.adaptive) {
+      let r0 = ctx.at == null ? -Infinity : Math.round(at * sampleRate), r1 = ctx.duration == null ? Infinity : r0 + Math.round(ctx.duration * sampleRate)
+      if (!limits(ctx.stream(edits), ceiling, r0, r1)) return edits.length === 1 ? edits[0] : edits
+    }
     edits.push(['ceiling', { limit: ceiling }])
     // Limiting takes loudness off the peaks: make it back up by secant steps (loudness rises
     // slower than gain while the limiter works), first on a block model of the limiter, then,

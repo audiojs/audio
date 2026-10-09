@@ -836,10 +836,11 @@ function compilePlan(a, len, final, measure = false) {
         if (hb) limit = Math.min(limit, Math.max(0, t - hb))
       }
       let ctx = { stats, sampleRate: sr, channelCount: ch, channel, at, duration, totalDuration: planLen(segs) / sr, final, ...extra }
-      // What-if render: stats of the plan so far + candidate pipeline edits, for decisions a
-      // model of the stats can't make exactly (loudness through a limiter). Only once the whole
-      // signal is known: the candidate must hold for the full output.
-      if (final && audio.statSession) ctx.measure = emitted => {
+      // What-if render: the plan so far + candidate pipeline edits, block by block (stream) or as
+      // their stats (measure), for decisions a model of the stats can't make exactly (loudness
+      // through a limiter, whether it limits at all). Only once the whole signal is known: the
+      // candidate must hold for the full output.
+      if (final) ctx.stream = emitted => {
         let pl = pipeline.slice(), lat = latency, wu = warmup
         for (let re of Array.isArray(emitted[0]) ? emitted : [emitted]) {
           let [t, o] = normalizeEdit(re, sr)
@@ -848,8 +849,11 @@ function compilePlan(a, len, final, measure = false) {
           if (mix != null) o.mix ??= mix
           pl.push([t, o]); lat += procLatency(ops[t], o, sr); wu = Math.max(wu, procWarmup(ops[t], o, sr))
         }
+        return streamPlan(a, { segs, pipeline: pl, totalLen: planLen(segs), sr, ch, latency: lat, warmup: wu, pulls })
+      }
+      if (final && audio.statSession) ctx.measure = emitted => {
         let s = audio.statSession(sr)
-        for (let chunk of streamPlan(a, { segs, pipeline: pl, totalLen: planLen(segs), sr, ch, latency: lat, warmup: wu, pulls })) s.page(chunk)
+        for (let chunk of ctx.stream(emitted)) s.page(chunk)
         return s.done()
       }
       let resolved = op.resolve(ctx)
