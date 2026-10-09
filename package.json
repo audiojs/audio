@@ -288,7 +288,7 @@
     "@lezer/javascript": "^1.5.5",
     "audio-lena": "^3.0.0",
     "esbuild": "^0.28.0",
-    "gl-spectrogram": "^2.3.0",
+    "gl-spectrogram": "^2.4.0",
     "gl-waveform": "^5.2.0",
     "onnxruntime-node": "^1.29.0",
     "onnxruntime-web": "^1.30.0",
