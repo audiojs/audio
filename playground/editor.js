@@ -1021,11 +1021,11 @@ function arrival(names) {
     // an edit the view drew ahead waits whole: the picture it drew holds till then, nothing moving; an output as long as
     // the one shown (an edit over a range, a band taken out) comes in over it as it renders, only where it differs
     else if (alike(a) && m.channels) { if (!v.expecting) v.patch(m.at, m.channels) }
-    // what the picture holds — the file itself, dim, or the sound the page was left on — stays whole until the output is
-    // whole too, which takes its place in one step (done); drawn as it renders, it would first go back to nothing and
-    // fill again from the start. Only a picture with nothing in it, or an output that takes longer than a moment, shows
-    // as it comes
-    else if (!a.preview && (!state.hasOutput && !holding || !v.expecting && performance.now() - a.started > WAIT)) begin(a)
+    // the sound the page was left on stays whole until the output is whole too, which takes its place in one step
+    // (done); drawn as it renders, it would first go back to nothing and fill again from the start. Only a picture with
+    // nothing in it, or an output that takes longer than a moment, shows as it comes; and the file itself, dim, gives
+    // way to the output at its first piece, as the engine stops sending the file then (worker.js arriving)
+    else if (a.preview || !state.hasOutput && !holding || !v.expecting && performance.now() - a.started > WAIT) begin(a)
     status()
   }
   a.done = m => {

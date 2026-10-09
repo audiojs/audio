@@ -16,7 +16,9 @@ import tint, { hue } from './tint.js'
 // decimals, so the script gets the numbers the view shows. Near a mark on the right (a frequency, a level) the pointer
 // takes its value. The wheel scrolls, through time or through zoomed-in frequencies or levels; a pinch, or Ctrl and the
 // wheel, zooms the axis under the pointer: time, the frequencies, or the levels (a quiet sound magnified, or what goes
-// over full scale shown).
+// over full scale shown). Zoomed in, a faint scrollbar at the time row's foot says where the view is in the sound and
+// drags it. On the spectrogram the pointer reads the level under it, marked on the spectrum meter, whose fill is the
+// spectrogram's colours over its levels: the legend.
 // One gesture, select, as in a text: a press puts the caret and sounds the moment under it, all else gone at once, a
 // drag selects, a double-click the fragment around it (between the cues around it: where sounds start and end, where
 // they hit, the markers), or the pause it is in, a triple-click the sound between the pauses either side; however made, a
@@ -71,7 +73,6 @@ const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform)
 const LEVELS = [0, -6, -12, -24, -48, -18, -36, -30, -60, -72, 6, 12]  // dBFS the level axis marks, halvings first, where they fit
 const TICK = 12                               // a tick's length on either axis, px
 const MINOR = 6                               // the grid's finer steps at least this far apart, px
-const HATCH = 24                              // the hatch past the sound's end, fading out over this many px
 const VOICE = [60, 1000]                      // the pitch axis when no spectrogram shows, Hz, on a log scale
 const GAIN = [-36, 12]                        // the gain line's scale, dB: the lane's centre line to its edges, 0 dB
                                               // three quarters of the way out, so a boost shows above it
@@ -158,8 +159,9 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   let grid = 'none'
   // the steps a selection's level goes up or down in, dB, as the pill is dragged
   let levelStep = 1
-  // how the spectrogram draws, gl-spectrogram's options: its colours, its depth in dB, its FFT size
-  let look = {}
+  // how the spectrogram draws, gl-spectrogram's options: its colours, its depth in dB, its FFT size; and the levels its
+  // colours span, [floor, top] dB, the lanes' one scale once leveled (spectrograms), which the spectrum meter takes too
+  let look = {}, decibels = null, picked = null
   // how the waveform draws, as the lab's waveforms do (audiojs.github.io, lab/waveform): `colour` 'none', or
   // 'temperature' (its spectral centroid as the colour of light, low warm, high cool), a stretch at a time (tint.js); `lanes` 'split', a lane each channel, or 'one', every channel in one lane, each its own hue; `fill`
   // 'density' (brighter where the sound is most often), 'rms' (a lighter core as loud as its RMS) or 'flat'
@@ -211,6 +213,16 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   }
   // the time row, right under the lanes: its ticks run down from them, its labels beside their tops
   const row = () => plot().h + 7
+  // Zoomed in, the scrollbar at the time row's foot, under its labels, as an overlay scrollbar is: the whole sound
+  // across the row (or as far as the view goes past its end), the thumb what shows, at least THUMB px. A press on it
+  // drags the view; beside it, the view centres there first. { x0, x1, total }, or null showing all of it
+  const BAR = 8, THUMB = 16
+  function bar() {
+    if (!duration || start <= 0 && end >= duration - 1e-9) return null
+    const total = Math.max(duration, end), w = plot().w, k = w / total, x0 = Math.min(start * k, w - THUMB)
+    return { x0, x1: Math.max(x0 + THUMB, end * k), total }
+  }
+  const onBar = (px, py) => py >= H - BAR && px >= 0 && px <= plot().w && !!bar()
   const x = t => (t - start) / (end - start || 1) * plot().w
   const time = px => start + px / plot().w * (end - start)
   const clamp = t => Math.max(0, Math.min(duration, t))
@@ -372,6 +384,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (gridKey(L) !== ruled) pictures = true
     if (!pictures) return paint(L)
     pictures = false
+    picked = null
     if (gl) {
       // the whole canvas cleared, whatever scissor a lane's drawing left: two renders in a task (snapshot) see no frame between
       gl.disable(gl.SCISSOR_TEST)
@@ -471,6 +484,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (!leveled && !arriving && all.length) {
       const loudest = all.map(sg => sg.update({ levels: null }).levels).reduce((a, b) => b[1] > a[1] ? b : a)
       for (const sg of all) sg.update({ levels: loudest })
+      decibels = loudest
       leveled = true
     }
     specs.forEach((sg, i) => {
@@ -548,7 +562,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     else if (drag?.span) paintGuide({ ramps: [[...drag.span, drag.fade, fadeCurve]] }, T)
     // the pointer, read out on the axes: its time on the time row, as the script will get it (a dragged edge's, a snapped
     // one's), the labels there giving way to it; its level or frequency by its lane
-    const at = hovered && hovered[0] >= 0 && hovered[0] <= w ? hovered : null, lane = at && all.find(r => inside(r, ...at))
+    const at = hovered && hovered[0] >= 0 && hovered[0] <= w && !drag?.scroll && !onBar(...hovered) ? hovered : null, lane = at && all.find(r => inside(r, ...at))
     const pointed = at && (drag?.span ? drag.p : drag?.stretch ? drag.to : drag?.hear ?? stuck(snap(time(at[0]))))
     // the times on the row, each tick the colour of the line it runs on from: an edge lit (`hot`, or dragged) bright
     const caret = color('--color-screen-caret'), bright = color('--color-screen-bright')
@@ -562,6 +576,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       ...(playhead != null ? [{ t: playhead, fill: bright }] : apart(cursor) ? [{ t: cursor, fill: caret }] : []),
       ...(dropped != null ? [{ t: dropped, fill: accent() }] : [])
     ])
+    paintBar()
     // a file held over the picture: where it goes in, a caret of its own, as a text editor shows where a drop lands
     if (dropped != null) { c.fillStyle = accent(); across(Math.round(x(dropped)), 2, mine); c.font = `10px ${color('--font-mono')}`; tag('Insert here', Math.round(x(dropped)) + 6, extent(mine)[0] + 8, 'left', accent()) }
     // the times a drag's edges are at, or the caret dragged: the cues and markers they sit on light
@@ -586,6 +601,14 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       for (const rect of lanes.spec) { const y0 = Math.max(rect[1], fy(rect, only[1])), y1 = Math.min(rect[1] + rect[3], fy(rect, only[0])); c.fillRect(px, y0, 1, y1 - y0) }
     }
     if (arriving) line(arriving.length / rate, color('--color-screen-soft'), null, L)
+    // what is still to come of it, where its length is known: the centre line across it, as silence has it
+    if (arriving && arriving.total > arriving.length) {
+      const a = Math.max(0, Math.round(x(arriving.length / rate)) + 1), b = Math.min(lanesEnd(L), Math.round(x(arriving.total / rate)))
+      c.fillStyle = dim
+      c.globalAlpha = .5
+      if (b > a) for (const rect of L.wave) c.fillRect(a, Math.round(ay(rect, 0)), b - a, 1)
+      c.globalAlpha = 1
+    }
     if (playhead != null) line(playhead, color('--color-screen-bright'), band, L)
     else line(cursor, caret, band)
     for (const r of more) if (r.length === 2 && r[0] === r[1]) line(r[0], caret)
@@ -618,8 +641,31 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       c.fillStyle = caret
       c.fillRect(w + 1, ly, TICK, 1)
       tag(text, w + 1, ly + 9, 'left')
+      // on the spectrogram, the level its colour stands for under it, and where that falls on the spectrum meter's scale
+      const db = pitched(lane, L) ? loudness(L.spec.indexOf(lane), lane, at) : null
+      if (db == null) return
+      tag(decibel(db), w + 1, ly + 21, 'left')
+      if (meters?.spectra && show.meters) { c.fillStyle = caret; c.fillRect(Math.round(meterX(w - METER - 2, db)), ly - 3, 1, 7) }
     }
   }
+  // The level the spectrogram shows under the pointer, dB: the loudest cell of its column within 2 px of it, so a line a
+  // pixel thin reads as it is drawn (gl-spectrogram pick); none while an edit's pieces or a take stand for the output.
+  // Read off the GPU once per place until the pictures are drawn again (`picked`), not each frame the overlay is
+  function loudness(i, rect, [px, py]) {
+    const sg = specs[i], key = `${i} ${px} ${py}`
+    if (!sg || pieces || recording) return null
+    if (picked?.key === key) return picked.db
+    const col = sg.pick(px - rect[0])
+    let db = null
+    if (col) {
+      const n = col.levels.length, k = n / rect[3], r = (rect[1] + rect[3] - py) * k
+      db = -Infinity
+      for (let j = Math.max(0, Math.floor(r - 2 * k)); j <= Math.min(n - 1, Math.ceil(r + 2 * k)); j++) db = Math.max(db, col.levels[j])
+    }
+    picked = { key, db }
+    return db
+  }
+  const decibel = v => { const r = Math.round(v); return Number.isFinite(r) ? `${r < 0 ? '−' : ''}${Math.abs(r)}dB` : '−∞dB' }
   // What is drawn in the lanes (a selection, the cues, the pitch curve, the caret) ends where the pictures do (editor.css,
   // --end): before the labels, or 2 px before the meters when they show, a waveform's bar or a spectrogram's spectrum,
   // never behind them. The meters keep their width from the first frame, whether they read anything yet or not, so a
@@ -723,9 +769,12 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   }
   // The meters, where the picture fades out just before the labels, each on its lane's own scale: by a waveform, a bar
   // mirrored as the lane is, as the waveform draws a sound: the RMS in the colour of its body, out to the peak in the
-  // colour of its edges (red at full scale); by a spectrogram, the spectrum's outline, its level across (-90 to 0 dB),
-  // each frequency at its height in the lane, a gradient under it, the band selected in it lit
+  // colour of its edges (red at full scale); by a spectrogram, the spectrum's outline, its level across on the
+  // spectrogram's own scale (its floor to its top, -90 to 0 dB till it has one), each frequency at its height in the
+  // lane, filled under it with the spectrogram's colours: a level ends in the colour it is drawn in, a legend, the
+  // band selected in it lit
   const METER = 40
+  const meterX = (left, v, [lo, hi] = decibels ?? [-90, 0]) => left + Math.max(0, Math.min(1, (v - lo) / (hi - lo))) * METER
   function paintMeters(L) {
     const { w } = plot(), bar = w - 7
     L.wave.forEach((rect, i) => {
@@ -749,17 +798,13 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       for (let py = y + lh; py >= y; py -= 2) {
         const k = yf(rect, py) / (meters.rate / size), k0 = Math.floor(k), f = k - k0
         const v = (db[k0] ?? -200) * (1 - f) + (db[k0 + 1] ?? -200) * f
-        outline.lineTo(left + Math.max(0, Math.min(1, (v + 90) / 90)) * METER, py)
+        outline.lineTo(meterX(left, v), py)
       }
       outline.lineTo(left, y)
-      // filled under the outline down to the floor, brighter toward the loud end, as a level fills a meter
-      const fill = c.createLinearGradient(left, 0, left + METER, 0), soft = color('--color-screen-soft')
-      fill.addColorStop(0, 'transparent')
-      fill.addColorStop(1, soft)
-      c.globalAlpha = .22
-      c.fillStyle = soft
-      c.fill(outline)
-      c.globalAlpha = .45
+      // filled under the outline down to the floor in the spectrogram's colours, from its floor's to its top's
+      const fill = c.createLinearGradient(left, 0, left + METER, 0), stops = look.color ?? ['transparent', color('--color-screen-soft')]
+      stops.forEach((s, k) => fill.addColorStop(k / (stops.length - 1), s))
+      c.globalAlpha = .7
       c.fillStyle = fill
       c.fill(outline)
       c.globalAlpha = .7
@@ -1079,6 +1124,19 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       tag(m.text, m.lx, y, 'left')
     }
   }
+  // The scrollbar's thumb, faint until the pointer is on it or drags it, then wider and brighter, as macOS's overlay
+  // scrollbars are
+  function paintBar() {
+    const b = bar()
+    if (!b) return
+    const lit = drag?.scroll || !drag && hovered && onBar(...hovered), th = lit ? 5 : 3
+    c.globalAlpha = lit ? .6 : .3
+    c.fillStyle = color('--color-screen-soft')
+    c.beginPath()
+    c.roundRect(Math.round(b.x0), H - 2 - th, Math.round(b.x1 - b.x0), th, th / 2)
+    c.fill()
+    c.globalAlpha = 1
+  }
   // The lanes ruled (`grid`), on a layer of their own between the pictures: over the spectrogram, as the screen shows it;
   // behind the waveform, wholly hidden where it is, however faint its fill there. Where the time row's ticks meet the
   // axis' on the right, a cross, and a dot where their finer steps meet ('marks'); the crosses alone ('crosses'); a dot
@@ -1163,34 +1221,12 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     const wash = [color('--color-screen-select'), color('--color-screen-select-spectrum')]
     for (const [px, py, bw, bh, spec] of boxes) { c.fillStyle = wash[+spec]; c.fillRect(px, py, bw, bh) }
   }
-  // Where the sound ends, where the view shows past it: a rule down the lanes, a hatch after it fading out within HATCH
-  // px, the end marked, the room past it left as it is; each track's where it ends, in its lane. Drawn first, on an
-  // overlay still clear, as the fade erases the hatch by a gradient: whatever else goes over it (a stretch's wash past
-  // the end) stays whole
+  // Where the sound ends, where the view shows past it: a rule down the lanes, as the last of the grid's (which stops
+  // there, as a waveform's centre line does), the room past it left plain; each track's where it ends, in its lane
   function paintEnd(L) {
-    const stop = lanesEnd(L), all = [...L.wave, ...L.spec], [top, bottom] = extent(all), at = new Map()
-    all.forEach((rect, i) => { const px = Math.round(x(tracks?.[i]?.end ?? duration)); if (px >= 0 && px < stop) at.set(px, [...at.get(px) ?? [], rect]) })
-    c.fillStyle = c.strokeStyle = color('--color-screen-rule')
-    for (const [px, rects] of at) {
-      for (const [, y, , lh] of rects) c.fillRect(px, y, 1, lh)
-      const a = px + 1, b = Math.min(stop, a + HATCH)
-      if (b <= a) continue
-      c.save()
-      c.beginPath()
-      for (const [, y, , lh] of rects) c.rect(a, y, b - a, lh)
-      c.clip()
-      c.lineWidth = 1
-      c.beginPath()
-      for (let k = a - (bottom - top); k < b; k += 7) { c.moveTo(k, bottom); c.lineTo(k + bottom - top, top) }
-      c.stroke()
-      const fade = c.createLinearGradient(a, 0, a + HATCH, 0)
-      fade.addColorStop(0, 'transparent')
-      fade.addColorStop(1, 'black')
-      c.globalCompositeOperation = 'destination-out'
-      c.fillStyle = fade
-      c.fillRect(a, top, b - a, bottom - top)
-      c.restore()
-    }
+    const stop = lanesEnd(L)
+    c.fillStyle = color('--color-screen-rule')
+    ;[...L.wave, ...L.spec].forEach(([, y, , lh], i) => { const px = Math.round(x(tracks?.[i]?.end ?? duration)); if (px >= 0 && px < stop) c.fillRect(px, y, 1, lh) })
   }
   // The edge dragged, or the one a press would take, any range's, lit as the line it would move: its first pixel or its
   // last, over the handles
@@ -1471,8 +1507,16 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       drag = { pinch, range: [start, end], fview, u: rect ? uy(rect, mid[1]) : null, levels: levels && aview, value: levels && ya(levels, mid[1]) }
       return
     }
+    // on the scrollbar, the view dragged: pressed beside the thumb, it centres there first
+    const [px, py] = local(event)
+    if (onBar(px, py)) {
+      const b = bar(), span = end - start
+      if (px < b.x0 || px > b.x1) setRange(px / plot().w * b.total - span / 2, px / plot().w * b.total + span / 2, true)
+      drag = { scroll: true, x: px, start, total: b.total, moved: true, keep: true }
+      return invalidate()
+    }
     // on a marker's line, its time
-    const [px, py] = local(event), t = markAt(px, py) ?? snap(time(px))
+    const t = markAt(px, py) ?? snap(time(px))
     // a press in another track's lane makes it the one edited, but on a flag
     if (nearMarker(px, py) < 0 && nameAt(px, py) < 0) refocus(lanes(), py)
     const L = own(lanes())
@@ -1695,6 +1739,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     }
     if (!drag) { hovered = event.pointerType === 'touch' ? null : [px, py]; hover(px, py, event); return invalidate(true) }
     if (drag.pinch) return
+    if (drag.scroll) { const a = drag.start + (px - drag.x) / plot().w * drag.total; return setRange(a, a + end - start, true) }
     drag.raw = [px, py]
     return drags(event, ...aimed(event, px, py))
   }
@@ -1860,6 +1905,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   let held = {}, hot = null, grabbing = false
   function hover(px, py, keys = held) {
     held = keys
+    if (onBar(px, py)) { hot = null; grabbing = false; root.style.cursor = ''; return }
     // in another track's lane, nothing to take hold of: a press there makes it the one edited
     if (tracks && py <= plot().h && laneAt(lanes(), py) !== focus && nearMarker(px, py) < 0) { hot = null; grabbing = false; root.style.cursor = ''; return }
     const L = own(lanes()), rect = (show.gain || pitchLine()) && lineLanes(L).find(r => inside(r, px, py)), spectral = L.spec.some(r => inside(r, px, py)) && editing(keys)

@@ -1608,9 +1608,9 @@ test('editor: no object literal in the page names a key twice', async () => {
   assert.deepEqual(warnings.filter(w => w.id === 'duplicate-object-key').map(w => `${w.location.file}:${w.location.line} ${w.text}`), [])
 })
 
-// The sound's end, scrolled to the view's middle: a rule down the lanes, and a hatch after it fading out within 24 px
-// (view.js HATCH), the end marked, the room past it bare
-test('editor: the sound\'s end is a line down the lanes and a hatch after it that fades out within 24 px, no grid past it', async () => {
+// The sound's end, scrolled to the view's middle: a rule down the lanes, as the last of the grid's, the room past it
+// bare
+test('editor: the sound\'s end is a line down the lanes, nothing past it, no grid either', async () => {
   await open()
   const box = await page.locator('.plot').boundingBox()
   await page.mouse.move(box.x + box.width * .8, box.y + box.height * .4)
@@ -1620,9 +1620,9 @@ test('editor: the sound\'s end is a line down the lanes and a hatch after it tha
   for (let i = 0; i < 12; i++) { await page.mouse.wheel(240, 0); await page.waitForTimeout(40) }
   await page.mouse.move(2, 2)
   await page.waitForTimeout(200)
-  // the overlay's alpha, CSS px: the end, the one column lit all down a lane, left of the meters; then the hatch's
-  // alpha summed down that lane, in thirds of 8 px after it, and the room past them
-  const { end, thirds, past, inside, beyond } = await page.evaluate(() => {
+  // the overlay's alpha, CSS px: the end, the one column lit all down a lane, left of the meters; then the alpha
+  // summed down that lane past it
+  const { end, past, inside, beyond } = await page.evaluate(() => {
     const canvas = document.querySelector('canvas.overlay'), k = canvas.width / canvas.clientWidth
     const { data, width } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height)
     const a = (x, y) => data[(Math.round(y * k) * width + Math.round(x * k)) * 4 + 3]
@@ -1635,11 +1635,10 @@ test('editor: the sound\'s end is a line down the lanes and a hatch after it tha
     // the grid's layer, all down the lanes, before the end and past it
     const grid = document.querySelector('canvas.grid'), g = grid.getContext('2d').getImageData(0, 0, grid.width, grid.height)
     const ruled = (from, to) => { let s = 0; for (let x = Math.round(from * k); x < Math.round(to * k); x++) for (let y = 0; y < grid.height; y++) s += g.data[(y * grid.width + x) * 4 + 3]; return s }
-    return { end, thirds: [sum(end + 1, end + 9), sum(end + 9, end + 17), sum(end + 17, end + 25)], past: sum(end + 26, end + 120), inside: ruled(0, end), beyond: ruled(end + 1, w) }
+    return { end, past: sum(end + 1, end + 120), inside: ruled(0, end), beyond: ruled(end + 1, w) }
   })
   assert.ok(end > 0, 'a line down the lanes at the end')
-  assert.ok(thirds[0] > thirds[1] && thirds[1] > thirds[2], `the hatch after it fading: ${thirds}`)
-  assert.equal(past, 0, 'none past 24 px')
+  assert.equal(past, 0, 'nothing past it')
   assert.ok(inside > 0, 'the grid where the sound is')
   assert.equal(beyond, 0, 'none past its end')
 })
@@ -3146,6 +3145,41 @@ audio.from([tone(1000, .5), tone(4000, .05)], { sampleRate: 48000 })`)
   }
 })
 
+// The pointer on the spectrogram reads the level its colour stands for (gl-spectrogram pick) and marks it on the spectrum
+// meter, which spans the spectrogram's own levels, its floor to its top (view.js meterX): tones of amplitude 0.5 and
+// 0.05, 20 dB apart (20 · log10(0.5 / 0.05)), marked 20/80 of the meter's 40 px apart at the default 80 dB range, the
+// louder, the loudest there is, at the top
+test('editor: the pointer on the spectrogram marks its level on the spectrum meter, on the spectrogram\'s scale', async () => {
+  await open()
+  await write(`const tone = (f, a) => Float32Array.from({ length: 48000 }, (_, i) => a * Math.sin(2 * Math.PI * f * i / 48000))
+audio.from([tone(1000, .5), tone(4000, .05)], { sampleRate: 48000 })`)
+  await lengthIs('0:01.000')
+  await show('spec')
+  await page.waitForTimeout(300)
+  const box = await page.locator('.plot').boundingBox(), lh = (box.height - 22 - LANES) / 2, left = box.width - GUTTER - 42
+  const at = f => 1 - Math.log2(f / 20) / Math.log2(24000 / 20)
+  // the overlay's meter columns along a row, summed over its channels
+  const columns = y => page.evaluate(([y, left]) => {
+    const cv = document.querySelector('canvas.overlay'), k = cv.width / cv.clientWidth, n = Math.round(40 * k)
+    const d = cv.getContext('2d').getImageData(Math.round(left * k), Math.round(y * k) + 1, n, 1).data
+    return { k, sums: Array.from({ length: n }, (_, i) => d[4 * i] + d[4 * i + 1] + d[4 * i + 2] + d[4 * i + 3]) }
+  }, [y, left])
+  // where the pointer's mark is, px into the meter: the columns that change with the pointer on the tone's row
+  const mark = async y => {
+    await page.mouse.move(box.x + box.width * .4, box.y + y)
+    await page.waitForTimeout(150)
+    const on = await columns(y)
+    await page.mouse.move(2, 2)
+    await page.waitForTimeout(150)
+    const off = await columns(y), lit = on.sums.flatMap((v, i) => v !== off.sums[i] ? [i] : [])
+    assert.ok(lit.length, `a mark on the meter at ${y}`)
+    return (lit[0] + lit.at(-1) + 1) / 2 / on.k
+  }
+  const loud = await mark(Math.round(lh * at(1000))), quiet = await mark(Math.round(lh + LANES + lh * at(4000)))
+  assert.ok(loud > 37, `the loudest at the top: ${loud.toFixed(1)} of 40 px`)
+  assert.ok(Math.abs(loud - quiet - 10) <= 1.5, `20 dB apart, 10 px: ${(loud - quiet).toFixed(1)}`)
+})
+
 test('editor: the waveform fill is as bright as the signal is often at that level', async () => {
   await open()
   // noise spends most of its time near silence and rarely reaches its peaks
@@ -3718,6 +3752,37 @@ test('editor: a file over a slow connection shows as it arrives, with how much h
   await page.waitForFunction(() => !document.querySelector('.message').textContent && /LUFS/.test(document.querySelector('.readout').textContent), null, { timeout: 20000 })
   assert.ok(await drawn() > early, 'more once it has')
   await lengthIs('0:02.000')
+})
+
+// A file arriving with nothing to wait for draws as it decodes, all the way: the file itself, dim, then the output in
+// its place from its first piece on, as the engine stops sending the file then (worker.js arriving); what is still to
+// come, its length known from its header, the centre line across it to its end
+test('editor: a file arriving draws as it decodes, what is still to come a centre line to its end', async () => {
+  await open()
+  await noCues()
+  await write(`audio('${origin}/slow/test/fixture.wav')`)
+  await page.locator('.message', { hasText: /^Decoding/ }).waitFor()
+  const { box, x } = await axis(2), end = Math.min(x(2), box.x + box.width - GUTTER - 50) - box.x
+  // CSS px: where the line of how far it has come is (past the caret's), and the share of the columns after it, to the
+  // end, that the centre line lights
+  const read = () => page.evaluate(end => {
+    const cv = document.querySelector('canvas.overlay'), k = cv.width / cv.clientWidth, g = cv.getContext('2d'), h = cv.clientHeight - 22
+    const row = y => g.getImageData(0, Math.round(y) * k, cv.width, 1).data, top = row(h * .25), mid = row(h / 2)
+    let come = -1
+    for (let i = 3 * k; i < cv.width; i++) if (top[4 * i + 3] > 100) { come = i / k; break }
+    let lit = 0, n = 0
+    for (let i = Math.ceil((come + 3) * k); i < end * k; i++, n++) lit += mid[4 * i + 3] > 0
+    return { come, line: n ? lit / n : 1, decoding: /^Decoding/.test(document.querySelector('.message').textContent) }
+  }, end)
+  const early = await read()
+  await page.waitForTimeout(700)
+  const later = await read()
+  assert.ok(early.decoding && later.decoding, 'still decoding')
+  assert.ok(early.come > 0 && later.come > early.come + 20, `as it decodes: come to ${early.come} px, then ${later.come}`)
+  assert.ok(early.line > .98 && later.line > .98, `the centre line to its end: ${early.line}, ${later.line}`)
+  await page.waitForFunction(() => !document.querySelector('.message').textContent, null, { timeout: 20000 })
+  const whole = (await read()).come
+  assert.ok(whole < 0 || whole >= x(2) - box.x - 1, `whole: no line of how far it has come, the end's rule at most: ${whole}`)
 })
 
 // A file still arriving plays as far as it has come, its pieces pushed to the deck as they come: the file's own, where
@@ -5483,6 +5548,38 @@ test('editor: each tab keeps where its sound was zoomed, switched away and back 
   await lengthIs('0:08.000')
   await page.waitForTimeout(300)
   assert.ok(Math.abs(await left() - before) < .01, 'and after a reload')
+})
+// Zoomed in, the scrollbar at the time row's foot (view.js bar): its thumb dragged a quarter of the row across moves the
+// view a quarter of the sound on, a press beside it takes the view there; the caret stays where it was. Showing all of
+// it, there is none, and a press there moves the caret, as on the rest of the time row
+test('editor: zoomed in, the scrollbar at the time row\'s foot moves the view, the caret staying', async () => {
+  await open()
+  await noCues()
+  await write(`audio('chime.wav')`)
+  await lengthIs('0:08.000')
+  const { box, x } = await axis(8), y = box.y + box.height * .3, foot = box.y + box.height - 3, w = box.width - GUTTER
+  const time = async () => (await page.locator('.time').innerText()).split(':').reduce((m, s) => m * 60 + +s, 0)
+  const left = async () => { await page.mouse.click(box.x + 1, y); return time() }
+  await page.mouse.click(x(6), foot)
+  assert.ok(Math.abs(await time() - 6) < .05, `whole, the foot is the time row's: the caret at ${await time()}`)
+  await page.mouse.click(x(2), y)
+  await page.locator('.plot').focus()
+  for (let i = 0; i < 2; i++) await page.keyboard.press('=')
+  await page.waitForTimeout(200)
+  const before = await left(), caret = await time(), span = 8 / 4
+  assert.ok(before > .5 && before < 2, `zoomed in: the view from ${before}`)
+  // the thumb's middle, where the view shows
+  const thumb = t => box.x + (t + span / 2) / 8 * w
+  await page.mouse.move(thumb(before), foot)
+  await page.mouse.down()
+  await page.mouse.move(thumb(before) + w / 8, foot, { steps: 4 })
+  await page.mouse.move(thumb(before) + w / 4, foot, { steps: 4 })
+  await page.mouse.up()
+  assert.equal(await time(), caret, 'the caret where it was')
+  const dragged = await left()
+  assert.ok(Math.abs(dragged - before - 2) < .1, `a quarter of the row, a quarter of the sound: from ${before} to ${dragged}`)
+  await page.mouse.click(box.x + 4, foot)
+  assert.ok(await left() < .05, 'pressed at its start, the view from the start')
 })
 // A view kept from before shows at once on a reload, the sound coming into it as it arrives, not all of it first
 test('editor: after a reload the view is where it was left while its sound still arrives', async () => {
