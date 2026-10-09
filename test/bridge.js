@@ -314,7 +314,7 @@ test('bridge: the key on every endpoint, by query or bearer; CORS for any origin
     t.is((await fetch(`${b.url}/nope?key=${KEY}`)).status, 404, 'unknown path with key')
     t.is((await post(b.url, '/call', 'not json')).status, 400, 'body not JSON')
 
-    let pre = await fetch(`${b.url}/call`, { method: 'OPTIONS', headers: { origin: 'https://audiojs.dev', 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type, authorization', 'access-control-request-private-network': 'true' } })
+    let pre = await fetch(`${b.url}/call`, { method: 'OPTIONS', headers: { origin: 'https://audio.js.org', 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type, authorization', 'access-control-request-private-network': 'true' } })
     t.is(pre.status, 204, 'preflight needs no key')
     t.is(pre.headers.get('access-control-allow-origin'), '*')
     t.is(pre.headers.get('access-control-allow-methods'), 'GET, POST, OPTIONS')

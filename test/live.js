@@ -1,11 +1,11 @@
-// The website as deployed, in a browser: node test/live.js [URL] (default https://audiojs.dev/audio/).
+// The website as deployed, in a browser: node test/live.js [URL] (default https://audio.js.org/).
 // The home page shows this package's version, and the playground opens its sound, decoded and measured: what a
 // visitor sees first, from the files the server actually serves (CI builds them; a page that loads one of them from
 // a path the deploy left out hangs at "Decoding…").
 import { chromium } from 'playwright'
 import { readFileSync } from 'node:fs'
 
-const base = (process.argv[2] || 'https://audiojs.dev/audio/').replace(/\/?$/, '/')
+const base = (process.argv[2] || 'https://audio.js.org/').replace(/\/?$/, '/')
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 const browser = await chromium.launch()
 let failed = 0

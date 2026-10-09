@@ -5,6 +5,61 @@ Parity evidence: [.work/baseline.md](baseline.md). Perf: [docs/comparison.md § 
 
 **Frozen 2026-10-06.** No new surface until a user asks for it: fixes, measurements and what real users hit go first. The proven users are developers (Node playback with a real transport, games, CLI players); podcast and audiobook production can be a product of its own on this engine. Signal: npm downloads on days without a release, and dependents found by their lockfiles, not the monthly total (64% of September's fell on its 4 release days).
 
+## Adoption
+
+Be the answer a person finds by search and an agent picks as a dependency. Proof, not pitch: every page plays a real before/after, runs on your own file, shows the code. Canonical home audiojs.dev. Signal: agent pick rate, dependents by lockfile, downloads on days without a release, Search Console clicks per page.
+
+Page rule: one page, one search query, one problem. Hear it (A/B) → try your file (in-browser, no upload) → copy the code (Node, browser, CLI) → numbers and limits.
+
+### 0. Baseline (week 1)
+- [ ] Agent test: 20 audio tasks × Claude Code, Cursor, ChatGPT, Copilot; log which library each picks and whether its code runs (bench/agents/)
+- [ ] Same 20 with "use `audio`": separates discovery from usability
+- [ ] Search Console + Bing Webmaster on audiojs.dev, sitemap.xml; record ranks for every target query below
+
+### 1. Flagship: RX 12 measured (weeks 1–3)
+- [ ] `/rx`: listen yourself, A / ours / RX per module, from bench/rx renders; numbers from docs/rx.md, "RX leads where" kept
+- [ ] Publish rx-reel: YouTube, X, Bluesky, Mastodon, LinkedIn → `/rx`
+- [ ] Show HN: how we measured RX 12 against free code, losses included
+
+### 2. Creator queries (one page each, a week)
+- [ ] remove background noise · remove hum · fix clipped audio · remove clicks / mouth clicks
+- [ ] remove echo (de-reverb) · remove breaths · de-ess · remove plosives
+- [ ] ACX check online · podcast loudness check (-16 LUFS) · free iZotope RX alternative → `/rx`
+
+### 3. Developer queries (one recipe page each, tested in CI)
+- [ ] trim / convert / normalize audio in JavaScript · play audio in Node
+- [ ] encode MP3 in the browser without ffmpeg.wasm · waveform · detect BPM and key · split on silence
+- [ ] open a 10 GB file in the browser (measure first, then claim)
+- [ ] "When to use something else": ffmpeg.wasm, Tone.js, Howler, OfflineAudioContext, sox/pydub
+- [ ] `audio-decode` README (3.2M/mo): one line, "editing after decoding → `audio`"
+
+### 4. Agents
+- [ ] llms.txt + llms-full.txt (API + recipes) on the site and in the npm package
+- [ ] README first screen: what, when to use, when not, one example per runtime
+- [ ] MCP in the official registry, Smithery, Glama; skills in skill directories; Context7 listing
+- [ ] Every call agents hallucinated in the baseline fails with an error naming the right call
+
+### 5. Try and adopt
+- [ ] Playground opens on a broken take: one click fixes, A/B, export
+- [ ] Every code block on the site → "open in playground"
+- [ ] `npx audio` one-liner on every repair page
+- [ ] Stranger test: 3 developers, 10 minutes, no help; fix where they stall
+
+### 6. Advocacy
+- [ ] Ask the 7 lockfile users why they picked it and what hurt; fix that first
+- [ ] "Built with audio" from dependents, with their permission
+- [ ] Answer open Stack Overflow / Reddit / GitHub questions a page already solves; link the page
+- [ ] Each issue answered with a recipe becomes a page
+
+### Videos (15–30 s, one a week, real renders only)
+- [ ] One per repair: the defect in red on the spectrogram → one function → gone
+- [ ] Terminal: `npx audio take.wav denoise normalize save out.mp3`
+- [ ] Agent: "make this ACX-ready" → `check acx` fails → fixes → passes
+- [ ] 10 GB file, flat memory graph (once measured)
+
+### Week 12
+- [ ] Keep the channels that brought dependents and agent picks; drop the rest; rerun the agent test
+
 ## Next
 
 0. [ ] **Node playback starts ~2 s late on PulseAudio** (CI's null sink): @audio/speaker's miniaudio device takes the first ~0.1 s of writes, then nothing for ~2.2 s, then real time; Chromium's stream on the same sink starts in 90 ms. Found by test/polyfill.js (`_moves`: 421 ms to move, the page 91). Suspend-on-idle is not it. Look at miniaudio's PulseAudio buffer attributes (low-latency profile: tlength, prebuf) or the ALSA backend.

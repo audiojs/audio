@@ -10,7 +10,7 @@
  * POST /chat runs an agent CLI of the user's headless, with those tools attached, and streams its
  * answer to the page as `chat` events: any of AGENTS found on PATH, the page choosing one for each
  * conversation, --agent the first; or any agent that speaks ACP, by its command line. CORS is open
- * to any origin (the page may be served from https://audiojs.dev), so the key is the auth: every
+ * to any origin (the page may be served from https://audio.js.org), so the key is the auth: every
  * request carries it, as `?key=K` or `Authorization: Bearer K`. The bridge's own key, made once, is
  * kept with its address in BRIDGE (bin/mcp.js): the same each run, and an MCP server finds the bridge
  * by itself; one given (--key, AUDIO_BRIDGE_KEY) holds for that run alone, kept nowhere. Nothing the
