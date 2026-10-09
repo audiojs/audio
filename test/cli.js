@@ -203,6 +203,9 @@ test('parseArgs — default sink is stat', t => {
   t.is(r.source, 'in.wav', 'source')
   t.is(r.sink.name, 'stat', 'default sink is stat')
   t.is(r.sink.args.length, 0, 'no stat names → overview')
+  t.ok(r.sink.implied, 'implied, so a terminal opens the player instead')
+  t.ok(!parseArgs(['in.wav', 'stat']).sink.implied, 'explicit stat is not implied')
+  t.ok(parseArgs(['record', '30s']).sink.implied, 'record with no sink: implied, so runRecord saves recording.wav')
 })
 
 test('parseArgs — explicit play sink', t => {

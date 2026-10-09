@@ -217,7 +217,7 @@ const HELP = {
   check:  { usage: 'check SPEC', desc: 'Pass or fail each rule of a delivery spec; exits 1 on a fail', examples: ['check podcast', 'normalize podcast check podcast', 'check acx --json'], kind: 'sink', params: () => specs.join(', ') },
   save:   { usage: 'save PATH [BITRATE] [DEPTH]', desc: 'Encode and write to file (or - for stdout); lossless keeps the source depth; .edl/.fcpxml/.otio write the cuts for a video editor (fps:N)', examples: ['save out.wav', 'save out.mp3 192k', 'save out.wav 24bit', 'save out.m4a codec:alac', 'shrink save cuts.edl', 'save -'], kind: 'sink' },
   // ── sources (provide input) ─────────────────────────────────────────────
-  record: { usage: 'record [DUR]', desc: 'Capture from microphone', examples: ['record save out.wav', 'record 30s normalize save out.wav'], kind: 'source' },
+  record: { usage: 'record [DUR]', desc: 'Capture from microphone (to recording.wav when no sink follows)', examples: ['record save out.wav', 'record 30s normalize save out.wav'], kind: 'source' },
 }
 
 // Inject help into op descriptors so registry is the source of truth.
@@ -388,8 +388,8 @@ function parseArgs(args) {
     return [op]
   })
 
-  // Default sink: `stat` (overview) — when no explicit sink and audio is finite
-  if (!sink && !showHelp && !helpOp) sink = { name: 'stat', args: [] }
+  // Default sink: `stat` (overview); run() opens the player instead for a file at a terminal
+  if (!sink && !showHelp && !helpOp) sink = { name: 'stat', args: [], implied: true }
 
   return { source, transforms, sink, range, format, verbose, showHelp, force, macro, helpOp, concatFiles, cue, json, device }
 }
@@ -1189,6 +1189,9 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     }
     let transforms = [...opts.transforms, ...macroOps]
     let { source, sink, range } = opts
+    // No sink named, a file opened at a terminal: the player, paused, space plays it. Piped, redirected or --json: the overview
+    if (sink.implied && source && source !== 'record' && !/[*?]/.test(source) && !opts.json && process.stdin.isTTY && process.stdout.isTTY && process.stderr.isTTY)
+      sink = { name: 'play', args: [], paused: true }
 
     // Validate transform names
     for (let op of transforms) {
@@ -1227,7 +1230,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
       })
 
       let loop = sink.args.includes('loop')
-      let playOpts = { paused: wait, loop, ...sink.opts?.device && { device: sink.opts.device } }
+      let playOpts = { paused: wait || sink.paused, loop, ...sink.opts?.device && { device: sink.opts.device } }
       if (range) { playOpts.at = resolveOffset(range.offset, a.decoded ? a.duration : a._.estDur); playOpts.duration = range.duration }
 
       // Any op-application failure (sync or during the async post-decode path) routes through
@@ -1243,7 +1246,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
           try {
             await a
             ;[a] = await applyTransforms(a, transforms)
-            p.resume()
+            if (!sink.paused) p.resume()
           } catch (e) { failPlay(e) }
         })()
       }
@@ -1323,7 +1326,7 @@ Usage:
   audio [source] [transforms...] [sink] [options]
 
 A pipeline: a source produces audio, transforms reshape it, a sink consumes it.
-The default sink is 'stat' — printing an overview.
+With no sink, a file opened at a terminal opens the player, paused (space plays); piped or redirected, 'stat' prints an overview.
 
 Source:
   FILE          Path, URL, or glob ('*.wav' for batch)
@@ -1378,8 +1381,9 @@ Batch:
   audio '*.wav' gain -3db save '{name}.out.{ext}'
 
 Examples:
-  audio in.mp3                              Show overview (default sink)
-  audio in.mp3 play                         Open player
+  audio in.mp3                              Open player, paused (overview when piped)
+  audio in.mp3 play                         Open player, playing
+  audio in.mp3 stat                         Show overview
   audio 10s..20s stat                       Range from stdin
   audio in.mp3 10s..20s play loop           Play range, loop
   audio in.mp3 10s..20s fade 1s 1s play     Play range with effects
@@ -1720,7 +1724,7 @@ async function runRecord(transforms, sink, range, opts) {
   }
   // `record 30s`: the bare time parses as a start; a recording has none, so it is how long
   if (durationSec == null && range?.offset != null && range.duration == null) { durationSec = range.offset; range = null }
-  if (!sink) sink = { name: 'save', args: ['recording.wav'] }
+  if (sink.implied) sink = { name: 'save', args: ['recording.wav'] }
 
   let a = audio(null, { sampleRate: 44100, channels: 1 })
   // record … play: heard live through the ops, as it comes in (input monitoring); nothing kept

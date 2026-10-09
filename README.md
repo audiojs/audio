@@ -743,7 +743,7 @@ worker.onmessage = ({ data }) => audioWorker.adopt(data.out, { worker }).play()
 audio [source] [transforms...] [sink] [options]
 ```
 
-A pipeline: a **source** produces audio, **transforms** reshape it, a **sink** consumes it. The default sink is `stat` — printing an overview.
+A pipeline: a **source** produces audio, **transforms** reshape it, a **sink** consumes it. With no sink, a file opened at a terminal opens the player, paused: space plays it. Piped, redirected or `--json`, the default sink is `stat`, printing an overview. `audio record` with no sink saves `recording.wav`.
 
 ```sh
 # sources
@@ -866,11 +866,11 @@ audio record 30s save voice.wav
 ### Analysis
 
 ```sh
-# overview (default sink)
-audio speech.wav
+# overview (the default sink when piped or redirected)
+audio speech.wav stat
 
-# range overview — `audio FILE 0..10s` ⇔ `audio FILE stat 0..10s`
-audio speech.wav 0..10s
+# range overview
+audio speech.wav 0..10s stat
 
 # specific stats
 audio speech.wav stat loudness rms
