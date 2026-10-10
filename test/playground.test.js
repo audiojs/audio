@@ -1868,7 +1868,7 @@ test('editor: Undo steps back through the script, a slider drag one step however
   // what was done: the step undone, still there to redo, named by what it changed (Edit > History, newest first)
   await page.locator('.menubar-item', { hasText: /^Edit$/ }).click()
   await row('History').click()
-  const steps = await page.locator('.menubar-list').last().locator('.menu-label').allInnerTexts()
+  const steps = await page.locator('.menubar-list[aria-label="History"]').locator('.menu-label').allInnerTexts()
   await page.keyboard.press('Escape')
   assert.match(steps[0], /^normalize: -1 → -?[\d.]+$/)
   assert.equal(steps[1], 'The script as it opened')
