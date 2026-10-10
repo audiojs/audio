@@ -192,6 +192,7 @@ const HELP = {
   plugin:    { usage: 'plugin NAME [key:value…]', desc: 'A native plugin (VST3, CLAP, AU, LV2) through @audio/host: its parameters by key (audio --plugins NAME)', examples: ['plugin AUDelay delayTime:0.25 feedback:40', "plugin 'RX 12 De-click' sensitivity:6 save clean.wav"], label: 'Running the plugin' },
   resample:  { usage: 'resample RATE', desc: 'Change sample rate with anti-aliased downsampling', examples: ['resample 48000', 'resample 22050'], label: 'Resampling' },
   crossfade: { usage: 'crossfade SRC [DUR] [CURVE]', desc: 'Crossfade into another audio file', examples: ['crossfade next.wav 2s', 'crossfade next.wav 0.5s cos'], label: 'Crossfading' },
+  align:     { usage: 'align REF', desc: 'Move in time onto a reference it plays with (a part remade or recorded apart): head cut, or silence before it', examples: ['align original-voice.wav', 'align mix.wav save aligned.wav'], label: 'Aligning' },
   match:     { usage: 'match REF [AMOUNT]', desc: 'Match EQ: fit parametric bands so the tone follows a reference (amount 0..1)', examples: ['match reference.wav', 'match reference.wav 0.7'], label: 'Matching' },
   spectral:  { usage: 'spectral [BAND] [DB] [RANGE]', desc: 'Gain on a time × frequency region; default removes it', examples: ['spectral 1khz..4khz -30db 2.1s..2.4s', 'spectral 6khz..9khz 5s..5.2s'], label: 'Editing spectrum' },
   repair:    { usage: 'repair [BAND] RANGE', desc: 'Rebuild a damaged range from its surroundings', examples: ['repair 1.2s..1.25s', 'repair 0..3khz 1.2s..1.25s'], label: 'Repairing' },
@@ -408,7 +409,7 @@ export function parseCue(text) {
   return disc
 }
 
-const SOURCE_OPS = new Set(['mix', 'insert', 'crossfade', 'match', 'master'])
+const SOURCE_OPS = new Set(['mix', 'insert', 'crossfade', 'match', 'master', 'align'])
 
 async function resolveSourceArgs(op) {
   // key:FILE: sidechain / reference input of keyed ops (ducker, match, …)

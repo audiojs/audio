@@ -268,6 +268,26 @@ test('memo — made once, read back from the store; none, or a failing one, make
     audio.memo = { get: async () => { throw new Error('no storage') }, set: async () => { throw new Error('full') } }
     t.is((await memo('k', make))[0][0], 1)
     t.is(made, 3, 'a store failing: made')
+    // asked twice at once, made once; with no store, made again once the first is done
+    delete audio.memo
+    let [a, b] = await Promise.all([memo('j', make), memo('j', make)])
+    t.is([made, a === b], [4, true], 'two asking at once share one making')
+    await memo('j', make)
+    t.is(made, 5, 'no store: the next one made')
+    // a store slow to keep it: asked meanwhile, the one made is shared, not made again
+    let slow = new Map(), held
+    audio.memo = { get: async k => slow.get(k) ?? null, set: (k, v) => new Promise(r => { held = () => { slow.set(k, v); r() } }) }
+    let first = await memo('s', make), second = memo('s', make)
+    t.is([made, await second === first], [6, true], 'before the store holds it: shared')
+    held()
+    await new Promise(r => setTimeout(r))
+    t.is((await memo('s', make)) === first, true, 'then read back')
+    t.is(made, 6)
+    // a making that fails is not kept: asked again, made again
+    let bad = memo('f', async () => { throw new Error('model') })
+    await bad.then(() => t.fail('rejects'), e => t.is(e.message, 'model'))
+    await new Promise(r => setTimeout(r))
+    t.is((await memo('f', make))[0][0], 1, 'after a failure: made')
   } finally { delete audio.memo }
 })
 

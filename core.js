@@ -818,12 +818,22 @@ export async function loadOps(a) {
 /** What an edit takes long to make of its input (a model's run over it, in its preparation), by `key`: what names the
  *  model and its input's samples (vocals.js fingerprint), never a setting applied after it. Read from `audio.memo`, the
  *  store a host gives ({ get(key) → channels or null, set(key, channels) }: the editor keeps them in the browser), else
- *  made by make() and kept there. No store, made each time. */
-export async function memo(key, make) {
-  let store = audio.memo, kept = store && await Promise.resolve().then(() => store.get(key)).catch(() => null)
-  if (kept) return kept
-  let made = await make()
-  if (store) Promise.resolve().then(() => store.set(key, made)).catch(() => {})
+ *  made by make() and kept there. No store, made each time. Asked again while it is being made, or before the store
+ *  holds it, the one making is shared: two tracks split from one sound run the model once. */
+const making = new Map()
+export function memo(key, make) {
+  if (making.has(key)) return making.get(key)
+  let store = audio.memo, storing = false
+  let made = (async () => {
+    try {
+      let kept = store && await Promise.resolve().then(() => store.get(key)).catch(() => null)
+      if (kept) return kept
+      let v = await make()
+      if (store) storing = Promise.resolve().then(() => store.set(key, v)).catch(() => {}).finally(() => making.delete(key))
+      return v
+    } finally { if (!storing) making.delete(key) }
+  })()
+  making.set(key, made)
   return made
 }
 

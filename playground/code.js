@@ -449,15 +449,35 @@ export function rename(code, names) {
 // [at, at + d] of the track the page edits moved to a track of its own under it, where it was in time: its chain as it
 // stands, cropped to the range and put back at its time by silence before it (pad); silence where it was (gain −∞ dB),
 // so the two sound as the one did, and each is edited on its own. `at` and `d` as the script writes them
-export function toTrack(code, { at, d }) {
+export const toTrack = (code, { at, d }) => parted(code, name => name.replace(/\d+$/, '') || name,
+  `gain(-Infinity, { at: ${at}, d: ${d} })`, [`crop({ at: ${at}, d: ${d} })`, ...+at > 0 ? [`pad(${at}, 0)`] : []])
+// The voice of the track the page edits to a track of its own under it, `voice`, by a separation model (vocals(): Kim's
+// Mel-Band RoFormer, on the GPU where there is one); the rest left here, the model's voice taken out, so the two sound as
+// the one did. Both read one run of the model (core.js memo)
+export const voiceTrack = (code, model = 'mel-roformer') => parted(code, () => 'voice',
+  `vocals('remove', { model: '${model}' })`, [`vocals({ model: '${model}' })`])
+// Track `name`'s sound written out on one line, its steps turned off left out: what another track takes as a reference
+// (align(), match()) without reading its name, which would take that track away (tracks are the sounds nothing reads);
+// null for no track of that name
+export function soundOf(code, name) {
+  const t = tracks(code).find(t => t.name === name)
+  let expr = t?.statement.getChildren('VariableDefinition')[0].nextSibling?.nextSibling
+  if (expr?.name === 'AwaitExpression') expr = expr.lastChild
+  if (!expr) return null
+  let out = code.slice(expr.from, expr.to)
+  parse(code).iterate({ from: expr.from, to: expr.to, enter: ref => { if (quiet(ref) && ref.from >= expr.from && ref.to <= expr.to) out = out.slice(0, ref.from - expr.from) + blank(text(code, ref)) + out.slice(ref.to - expr.from) } })
+  return out.replace(/\s*\n\s*/g, '').replace(/\)\s+\./g, ').')
+}
+// The track the page edits in two parts that sound as it did: `here` appended to it, and under it a track of its own,
+// named by `base` of its name, its chain as it stands with the calls `there` appended
+function parted(code, base, here, there) {
   const own = declaredTrack(code)
   if (!own) return null
-  const c = chain(own.code), name = unused(own.code, own.name.replace(/\d+$/, '') || own.name)
+  const c = chain(own.code), name = unused(own.code, base(own.name))
   let piece = `let ${name} = ${own.code.slice(c.expr.from, c.expr.to)}`
-  piece = put(piece, append(piece, `crop({ at: ${at}, d: ${d} })`))
-  if (+at > 0) piece = put(piece, append(piece, `pad(${at}, 0)`))
-  const silenced = put(own.code, append(own.code, `gain(-Infinity, { at: ${at}, d: ${d} })`))
-  return { code: placed(silenced, chain(silenced).end, piece), name }
+  for (const call of there) piece = put(piece, append(piece, call))
+  const left = put(own.code, append(own.code, here))
+  return { code: placed(left, chain(left).end, piece), name }
 }
 // A sound, `sound` as written (audio('b.wav')), a track of its own under the one the page edits, named for its `file`
 export function addTrack(code, sound, file) {

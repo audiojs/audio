@@ -7,7 +7,7 @@ import stack, { valuesOf } from './stack.js'
 import { mark as drawMark } from '../logo/mark.js'
 import recipes from './recipes.js'
 import { ops, methods, guides, previews, GROUPS, CURVES, fromManifest, reshapes, icons as groupIcons } from './ops.js'
-import { prepare, error, append, source, chain, number, rollback, residual, setArg, unsetArg, declared, rename, steps as stepsOf, stages, mixed, dropStep, moveStep, turnOff, turnOn, tracks as tracksOf, focus, toTrack, addTrack, dropTrack } from './code.js'
+import { prepare, error, append, source, chain, number, rollback, residual, setArg, unsetArg, declared, rename, steps as stepsOf, stages, mixed, dropStep, moveStep, turnOff, turnOn, tracks as tracksOf, focus, toTrack, voiceTrack, soundOf, addTrack, dropTrack } from './code.js'
 import { builtins, sample, microphone, search, credit, unique } from './sources.js'
 import scales from './scale.js'
 import menubar from './menu.js'
@@ -610,6 +610,7 @@ function menus() {
       { label: state.saves.length > 1 ? `Export ${state.saves.length} files` : 'Export', keys: keys('⌘S'), run: exportFiles, disabled: none || state.exporting },
       { label: 'Export as', items: formats.map(f => check(f.name.toUpperCase(), state.format === f.name, () => state.setFormat(f.name), { hint: f.text })), disabled: state.saves.length > 0 },
       { label: 'Export the parts between markers', run: () => exportFiles(true), disabled: none || !output?.markers?.some(m => !m.duration) },
+      { label: 'Export the track alone', hint: state.track ?? '', run: () => exportFiles(false, state.track), disabled: none || !state.track },
       { label: 'Copy a link to this script', run: share },
       '-',
       { label: 'Close tab', run: () => closeTab() },
@@ -626,6 +627,9 @@ function menus() {
       edit('Delete', 'remove', '⌫', sel),
       edit('Keep only the selection', 'crop', 'K', sel && !band),
       edit('Move to a new track', 'track', '', sel && !band && state.ranges < 2),
+      { label: 'Split the voice to a new track', hint: 'The rest stays here', run: () => editSelection('voice'), disabled: none },
+      { label: 'Line up with', hint: 'In time, by where the two agree', items: others().map(name => ({ label: name, run: () => lineUp(name) })), disabled: !others().length },
+      { label: 'Match with', hint: 'Its tone, then its loudness', items: others().map(name => ({ label: name, run: () => matchUp(name) })), disabled: !others().length },
       { label: 'Delete the track', hint: state.track ?? '', run: untrack, disabled: !state.track },
       '-',
       edit(band ? '6 dB quieter' : '3 dB quieter', 'quieter', '', sel),
@@ -798,6 +802,7 @@ function contextMenu() {
     act(v.carets.length > 1 ? `Paste at all ${v.carets.length} carets` : 'Paste', 'paste', '⌘V', state.canPaste, icons.paste),
     { label: v.carets.length > 1 ? 'A marker at each caret' : 'Add a marker', keys: 'M', run: addMarker, icon: glyphs.marker },
     { label: 'Select all', keys: keys('⌘A'), run: () => v.select(0, v.duration), icon: glyphs.all },
+    { label: 'Split the voice to a new track', run: () => editSelection('voice'), icon: opIcons.vocals },
     ...untracking, '-', ...kinds({}, false), '-', find, ...look
   ]
   const [a, b] = v.selection ?? list[0]
@@ -843,7 +848,7 @@ function openTools() {
 }
 const closePalette = () => root.querySelector('#palette').hidePopover()
 // The edits for what is selected: a time range, a band of it on the spectrogram, several ranges, or at the caret a paste
-function quick({ band, boxes, ranges, selection, carets, canPaste, pauses }) {
+function quick({ band, boxes, ranges, selection, carets, canPaste, pauses, whole }) {
   const t = (type, label, keys, icon = type) => ({ type, label, keys, icon: icons[icon] ?? opIcons[icon] ?? groupIcons.Level })
   if (boxes > 1) return [t('remove', `Remove all ${boxes} bands`, '⌫'), t('quieter', 'Each 6 dB quieter'), t('louder', 'Each 6 dB louder'), t('repair', 'Rebuild each from its surroundings'), t('declick', 'The clicks in each, taken out'), t('denoise', 'The noise in each, taken 12 dB down in its band everywhere', '', 'repair')]
   if (band) return [t('remove', 'Remove this band', '⌫'), t('quieter', 'This band 6 dB quieter'), t('louder', 'This band 6 dB louder'), t('repair', 'Rebuild this band from its surroundings'), t('declick', 'The clicks here, taken out'), t('denoise', 'The noise here, taken 12 dB down in this band everywhere', '', 'repair')]
@@ -852,7 +857,7 @@ function quick({ band, boxes, ranges, selection, carets, canPaste, pauses }) {
   if (selection) return [t('crop', 'Keep only this', 'K'), t('remove', 'Delete', '⌫'), t('cut', 'Cut', '⌘X'), t('copy', 'Copy', '⌘C'), t('track', 'Move to a new track'), t('quieter', '3 dB quieter'), t('louder', '3 dB louder'), t('declick', 'The clicks here, taken out'), t('repair', 'Rebuild from its surroundings'), t('denoise', 'The noise here, taken 12 dB down everywhere', '', 'repair')]
   // several carets: a paste at each, a marker at each
   if (carets > 1) return [...(canPaste ? [t('paste', `Paste at all ${carets}`, '⌘V')] : []), t('mark', `A marker at each of the ${carets} carets`, 'M', 'paste')]
-  return canPaste ? [t('paste', 'Paste at the caret', '⌘V')] : []
+  return [...canPaste ? [t('paste', 'Paste at the caret', '⌘V')] : [], ...whole ? [t('voice', 'Split the voice to a new track', '', 'vocals')] : []]
 }
 function resetView() {
   v.fit()
@@ -1569,6 +1574,7 @@ function editSelection(type, range = v.selection) {
   if (type === 'undo' || type === 'redo') return ed[type]()
   if (type === 'mark') return addMarker()
   if (type === 'track') return toTrackOf(Array.isArray(range?.[0]) ? range[0] : range)
+  if (type === 'voice') return voiceOut()
   // a paste at each caret, from the last back so each time holds for the ones before it
   if (type === 'paste') {
     const at = Array.isArray(range?.[0]) ? range.map(r => r[0]) : v.carets.length ? v.carets : [v.cursor]
@@ -1694,6 +1700,32 @@ function toTrackOf(range = v.selection) {
   if (!made) return note('This sound is made from another by its name: give it a track of its own in the code.'), false
   if (rk.shown().id != null) rk.choose(null)
   return retrack(made)
+}
+// The voice to a track of its own under this one, by a separation model, the rest left here, so the two sound as the one
+// did (code.js voiceTrack); the new one the track edited, for its own repairs. One step; the model runs once for both
+function voiceOut() {
+  const made = voiceTrack(ed.code, gpu ? 'mel-roformer' : 'scnet-large')
+  if (!made) return note('This sound is made from another by its name: give it a track of its own in the code.'), false
+  if (rk.shown().id != null) rk.choose(null)
+  return retrack(made)
+}
+// Whether this browser has a GPU for WebGPU, not a fallback (SwiftShader): the voice split's model is Mel-RoFormer there
+// (a 464 MB download once, a few seconds a song's minute), SCNet-large elsewhere (45 MB, on the CPU, as fast as it gets)
+let gpu = false
+navigator.gpu?.requestAdapter().then(a => { gpu = !!a && !a.info?.isFallbackAdapter && a.info?.architecture !== 'swiftshader' }, () => {})
+// The tracks other than the one edited, by name: what it may line up with
+function others() { return state.track ? tracksOf(ed.code).map(t => t.name).filter(n => n !== state.track) : [] }
+// The track edited lined up in time with track `name` (fn/align.js): a part remade elsewhere and opened as a new track,
+// put where the original stood. Its reference that track's sound written out (code.js soundOf), not its name: one step
+function lineUp(name) {
+  const ref = soundOf(ed.code, name)
+  return !!ref && !!write(`align(${ref})`)
+}
+// The track edited matched to track `name`: its tone (match EQ), then its loudness (normalize to it), as a part remade
+// takes the place of the one it stands in for. One step
+function matchUp(name) {
+  const ref = soundOf(ed.code, name)
+  return !!ref && !!write(`match(${ref})`, `normalize(${ref})`)
 }
 // The script with a track made, `made` ({ code, name }), that track the one edited from now on
 function retrack(made) {
@@ -2314,14 +2346,16 @@ function useResult(r) {
 }
 
 // Export: each save() the script makes, or the output as one file.
-async function exportFiles(parts = false) {
+async function exportFiles(parts = false, track = null) {
   if (!state.hasOutput || state.exporting) return
   state.exporting = true
   try {
     const base = state.exportName.trim().replace(/\.\w+$/, '') || state.exportBase
     // the format's setting, the markers in the file or none (WAV's cue chunk, MP3's and M4A's chapters)
     const e = ENCODING[state.format], value = e && state.encoding[e[0]], options = { ...value != null && { [e[0]]: value }, ...!state.encoding.markers && { markers: [], regions: [] } }
-    const { files = [], error: failed } = await eng.export({ format: state.format, name: base, parts: parts === true, options })
+    // a track alone, by its index among the tracks
+    const index = track == null ? -1 : tracksOf(ed.code).findIndex(t => t.name === track)
+    const { files = [], error: failed } = await eng.export({ format: state.format, name: base, parts: parts === true, options, ...index >= 0 && { track: index } })
     if (failed) throw new Error(failed.message)
     for (const file of files) download(file)
   } catch (e) { note(`Export failed: ${e.message}`) }

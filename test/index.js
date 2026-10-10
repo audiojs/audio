@@ -6005,6 +6005,67 @@ const umxhq = neural && (await import('fs')).existsSync(`${process.env.AUDIO_NEU
   })
 })
 
+// A voice and the rest split apart (the playground's Split the voice to a new track): each its own chain, read at once,
+// one separation between them (core.js memo), and their sum the input, sample for sample
+test('vocals: a voice and its rest add back to the input, one separation between them', async t => {
+  let calls = 0
+  let fake = { models: { fake: { targets: ['vocals'] } }, default: async (pcm, o) => (calls++, await new Promise(r => setTimeout(r, 20)), { stems: { vocals: pcm.map(c => c.map((v, i) => .3 * v + .01 * Math.sin(i))) } }) }
+  await withImport((spec, orig) => spec === '@audio/neural-separate' ? Promise.resolve(fake) : orig(spec), async () => {
+    let mix = stereoMix(1), from = () => audio.from(mix, { sampleRate: 44100 }).gain(-3)
+    let [voice, rest] = await Promise.all([from().vocals({ model: 'fake' }).read(), from().vocals('remove', { model: 'fake' }).read()])
+    t.is(calls, 1, 'separated once for both')
+    let x = await from().read(), off = 0
+    for (let c of [0, 1]) for (let i = 0; i < x[c].length; i++) off = Math.max(off, Math.abs(voice[c][i] + rest[c][i] - x[c][i]))
+    t.ok(off < 1e-6, `voice + rest = the input: ${off}`)
+  })
+})
+
+// Align: a copy moved, at another level, comes back to the sample (cut where it is late, silence before it where early);
+// a part remade, the same attacks in another timbre, to within a few samples
+test('align — a moved copy back to the sample, a remade part to its attacks', async t => {
+  let sr = 44100, n = 4 * sr, seed = 5
+  const noise = () => (seed = seed * 16807 % 2147483647) / 2147483647 - .5
+  const notes = (shift, wave, dur, decay, k0 = .5) => {
+    let x = new Float32Array(n)
+    for (let k = 0; k < 16; k++) {
+      let t0 = Math.round((.1 + k * .23 + .05 * Math.sin(k * 7)) * sr) + shift, f = 200 * 2 ** ((k * 5 % 12) / 12)
+      for (let i = 0; i < dur * sr && t0 + i < n; i++) if (t0 + i >= 0) x[t0 + i] += k0 * Math.exp(-i / (decay * sr)) * wave(2 * Math.PI * f * i / sr)
+    }
+    for (let i = 0; i < n; i++) x[i] += .01 * noise()
+    return x
+  }
+  let r = notes(0, Math.sin, .2, .05), ref = () => audio.from([r], { sampleRate: sr })
+  for (let D of [1234, -5678, 0, 2 * sr + 17]) {
+    let x = new Float32Array(n)
+    for (let i = 0; i < n; i++) x[i] = i - D >= 0 && i - D < n ? r[i - D] * .5 : 0
+    let y = (await audio.from([x], { sampleRate: sr }).align(ref()).read())[0]
+    t.is(y.length, n - D, `moved ${D}: ${D > 0 ? 'cut by it' : D < 0 ? 'padded by it' : 'as it was'}`)
+    let off = 0
+    for (let i = Math.max(0, -D); i < n - Math.max(0, D); i++) off = Math.max(off, Math.abs(y[i] - .5 * r[i]))
+    t.ok(off < 1e-6, `moved ${D}: on the reference, ${off}`)
+  }
+  let S = Math.round(.3 * sr), remade = notes(S, p => Math.sign(Math.sin(1.5 * p)), .15, .03, .3)
+  let y = (await audio.from([remade], { sampleRate: sr }).align(ref()).read())[0]
+  t.ok(Math.abs(n - y.length - S) <= 4, `remade, ${S} late: cut by ${n - y.length}`)
+  // remade as noise, no waveform shared: by its attacks alone, within a hop (5.8 ms)
+  y = (await audio.from([notes(S, () => 2 * noise(), .15, .03, .3)], { sampleRate: sr }).align(ref()).read())[0]
+  t.ok(Math.abs(n - y.length - S) <= 256, `remade as noise, ${S} late: cut by ${n - y.length}`)
+  // a noise loud every third 0.1 s, half a second late: its waveform, not its beat, a beat early
+  let beat = Float32Array.from({ length: 3 * sr }, (_, i) => noise() * (Math.floor(i / 4410) % 3 ? .1 : 1))
+  y = (await audio.from([beat], { sampleRate: sr }).pad(.5, 0).align(audio.from([beat], { sampleRate: sr })).read())[0]
+  t.is(y.length, beat.length, 'a beat\'s noise, 0.5 s late: cut by it')
+  // the reference edited after a read: the lag found again on the next one
+  let late = audio.from([r], { sampleRate: sr }).pad(.2, 0), back = ref(), a = late.align(back)
+  t.is((await a.read())[0].length, n, 'on the reference')
+  back.pad(.2, 0)
+  t.is((await a.read())[0].length, n + .2 * sr, 'the reference moved too: left as it stands, 0.2 s late')
+  // nothing shared: a silent reference, one shorter than a frame, a silent sound: each left where it is
+  for (let [name, x, z] of [['silent reference', r, new Float32Array(n)], ['a reference of 100 samples', r, r.slice(0, 100)], ['a silent sound', new Float32Array(n), r]])
+    t.is((await audio.from([x], { sampleRate: sr }).align(audio.from([z], { sampleRate: sr })).read())[0].length, n, `${name}: as it was`)
+  let err = await audio.from([r], { sampleRate: sr }).align(3).read().catch(e => e)
+  t.ok(/align: the reference is a sound/.test(err?.message), err?.message)
+})
+
 test('dither — quantizes to target bit depth', async t => {
   // Smooth ramp from -1 to 1
   let n = 4096

@@ -9,10 +9,14 @@
  * SoX `oops` equivalent. Works on stereo material where vocals are panned center.
  * Mono input is passed through unchanged.
  *
- * `model` runs @audio/neural-separate (optional package, loaded on first use): 'umxhq'
- * (Open-Unmix, MIT weights), 'htdemucs' or 'htdemucs_ft' (Hybrid Transformer Demucs, weights
- * for research only). The edit's whole input is separated once before rendering and kept on the
- * edit while that input stays the same. Weights are produced by the package's export scripts
+ * `model` runs @audio/neural-separate (optional package, loaded on first use): 'mel-roformer' (Kim's
+ * Mel-Band RoFormer, MIT weights, the vocals alone, on WebGPU where there is one: MUSDB18 previews' vocals
+ * 12.08 dB SDR against SCNet-large's 11.00), 'scnet-large' or
+ * 'scnet' (SCNet, MIT weights, hosted), 'umxhq' (Open-Unmix, MIT weights), 'htdemucs' or
+ * 'htdemucs_ft' (Hybrid Transformer Demucs, weights for research only). The edit's whole input is
+ * separated once before rendering and kept on the edit while that input stays the same. The two
+ * modes add back to the input, sample for sample: a voice and the rest, each repaired on its own
+ * and mixed, one model run between them (core.js memo). Weights are produced by the package's export scripts
  * into ~/.cache/audiojs/neural, or served from `weights` (a URL or directory); `device` picks
  * the ONNX Runtime backend. Mono separates as stereo; channels past the first two pass through.
  */

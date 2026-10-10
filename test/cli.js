@@ -1124,7 +1124,7 @@ test('op help — all built-in ops have help', t => {
     'insert', 'copy', 'cut', 'paste', 'move', 'repeat', 'mix', 'crossfade', 'remix', 'highpass', 'lowpass', 'eq', 'lowshelf',
     'highshelf', 'notch', 'bandpass', 'allpass', 'filter', 'pan', 'pad', 'speed', 'stretch', 'warp',
     'pitch', 'intonation', 'formant', 'vocals', 'dither', 'crossfeed', 'convolve', 'plugin', 'resample', 'write', 'transform', 'split', 'shrink', 'crossover',
-    'match', 'master', 'roomtone', 'spectral', 'repair', 'deepfilter', 'derustle', 'denoise', 'declick', 'phase', 'azimuth', 'deconstruct', 'rebalance', 'scene', 'codec',
+    'match', 'master', 'align', 'roomtone', 'spectral', 'repair', 'deepfilter', 'derustle', 'denoise', 'declick', 'phase', 'azimuth', 'deconstruct', 'rebalance', 'scene', 'codec',
     // sinks + sources
     'play', 'stat', 'check', 'save', 'record']
   for (let op of expected) t.ok(HELP[op], `${op} has help`)

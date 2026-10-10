@@ -286,6 +286,10 @@ export interface AudioInstance {
   match(reference: AudioSource, amount?: number, opts?: { bands?: number, lookahead?: number, midside?: boolean }): this
   /** Master to a reference track: match in mid and side, then its integrated loudness under a true-peak ceiling (-1 dBTP) */
   master(reference: AudioSource, opts?: { ceiling?: number, amount?: number, bands?: number, lookahead?: number }): this
+  /** Moved in time onto a reference it plays with (a part remade or recorded apart): its head cut where it is late, silence
+   *  before it where early. The lag by the waveforms' GCC-PHAT where they share one, else by their onsets; within ±`within` s
+   *  (10), read from the first `span` s (60). Found before rendering, its input and the reference read whole */
+  align(reference: AudioInstance | Float32Array[], opts?: { within?: number, span?: number }): this
   /** Fill digital silence (≥ 10 ms under `threshold` dBFS, default -90) with the recording's own room tone */
   roomtone(threshold?: number): this
   /** Every frequency's phase turned by `angle` degrees (a Hilbert transform), magnitudes kept; 180 inverts polarity. Unset
@@ -446,11 +450,12 @@ export interface NormalizeOpts {
 }
 
 export interface VocalsModel {
-  /** Separation model preset of @audio/neural-separate: 'umxhq' (Open-Unmix), 'htdemucs', 'htdemucs_ft' (Hybrid Transformer Demucs) */
-  model?: 'umxhq' | 'htdemucs' | 'htdemucs_ft' | (string & {})
+  /** Separation model preset of @audio/neural-separate: 'mel-roformer' (Mel-Band RoFormer, vocals, on WebGPU where there is one),
+   *  'scnet-large', 'scnet' (SCNet, MIT weights, hosted), 'umxhq' (Open-Unmix), 'htdemucs', 'htdemucs_ft' (Hybrid Transformer Demucs) */
+  model?: 'mel-roformer' | 'scnet-large' | 'scnet' | 'umxhq' | 'htdemucs' | 'htdemucs_ft' | (string & {})
+  /** ONNX Runtime backend: 'node' (CPU), 'webgpu' (in Node too), 'coreml', 'wasm'; unset, a GPU-written model takes WebGPU */
   /** Where the model's files are: a URL, or a directory in Node (default ~/.cache/audiojs/neural) */
   weights?: string
-  /** ONNX Runtime backend: 'node' | 'wasm' | 'webgpu' */
   device?: string
 }
 
@@ -674,7 +679,8 @@ declare namespace audio {
   /** @deprecated ≤2.5 name — alias of `plugins` (same object) */
   const atoms: Record<string, string>
   /** Where what an edit's preparation takes long to make (a model's run over its input: deepfilter(), vocals({ model })) is kept between runs,
-   *  by a key naming the model and the input's samples. Unset by default (made each time); the editor keeps them in the browser. */
+   *  by a key naming the model and the input's samples. Unset by default (made each time, shared only while it is made); the editor
+   *  keeps them in the browser; `audio.memo = new Map()` keeps them in memory, so a voice and its rest split apart run the model once. */
   let memo: { get(key: string): Promise<Float32Array[] | null>, set(key: string, channels: Float32Array[]): Promise<void> } | null | undefined
   /** Register plugins: contract factories (audio.js manifests with own `params`), `(audio) => {}` plugin functions, or registry names. String names dynamic-import — returns a promise; direct values register synchronously. */
   /** Stat plugin — whole-signal analyzer registered as a.stat(name) */

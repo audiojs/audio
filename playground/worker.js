@@ -1033,10 +1033,17 @@ async function listen({ output, note, span }) {
 const CUTS = ['edl', 'otio', 'fcpxml']
 // Encoded files: each save() the script made, as it says, or the output in one format, with the page's `options` for it
 // (the library's encode options: a depth, a bitrate, a quality, no markers); or, with `parts`, each part of the output
-// between its markers, named after the marker it starts at.
-async function exporting({ format, name, parts, options = {}, tab }) {
+// between its markers, named after the marker it starts at; with `track` (its index, mixTracks), that track alone, named
+// after it: a stem to take elsewhere (a part regenerated) and bring back.
+async function exporting({ format, name, parts, options = {}, tab, track }) {
   const r = await settled(tab)
   if (!r) throw new Error('Nothing to export yet.')
+  if (track != null) {
+    const t = r.tracks?.[track]
+    if (!t?.sound) throw new Error('No such track to export.')
+    const type = (format || 'wav').toLowerCase()
+    return { files: [{ name: `${name}-${t.name}.${type}`, type, bytes: await t.sound.encode(type, options) }] }
+  }
   // an edit list: the cuts, as text (the library's cuts())
   if (CUTS.includes(format)) return { files: [{ name: `${name}.${format}`, type: format, bytes: new TextEncoder().encode(await r.instance.cuts(format, options)) }] }
   if (parts) {

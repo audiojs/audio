@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import wav from '@audio/encode-wav'
 import audio from '../audio.js'
-import { prepare, error, chain, append, source, callAt, setArg, cli, groups, steps, dropStep, moveStep, moveLines, group, ungroup, renameGroup, turnOff, turnOn, tracks, focus, toTrack, addTrack, dropTrack, rollback, stages } from '../playground/code.js'
+import { prepare, error, chain, append, source, callAt, setArg, cli, groups, steps, dropStep, moveStep, moveLines, group, ungroup, renameGroup, turnOff, turnOn, tracks, focus, toTrack, voiceTrack, soundOf, addTrack, dropTrack, rollback, stages } from '../playground/code.js'
 import { ops, guides, previews, SCALES } from '../playground/ops.js'
 import { SCALES as NOTE_SCALES, snapMidi } from '@audio/note'
 import { help, layout, layouts, texts } from '../playground/help.js'
@@ -515,7 +515,8 @@ test('code: the edits listed in order, one taken away or moved where it stands',
 
 // Tracks: sounds declared side by side that nothing else reads, the last of them the script's last statement, returned by
 // name; one edited at a time (focus), its chain the one the edits list and every edit joins, the others kept as they are.
-// A range moved to a track of its own: its chain as it stands, cropped and put back at its time; silence where it was
+// A range moved to a track of its own: its chain as it stands, cropped and put back at its time; silence where it was.
+// The voice split to one: the model's voice there, the rest here
 test('code: tracks are the sounds declared that nothing reads, edited one at a time; a range moved to one of its own', () => {
   const apply = (code, change) => code.slice(0, change.from) + change.insert + code.slice(change.to ?? change.from)
   const names = code => tracks(code).map(t => t.name)
@@ -535,6 +536,16 @@ test('code: tracks are the sounds declared that nothing reads, edited one at a t
   assert.equal(made.code, `let chime = audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .gain(-Infinity, { at: 0.5, d: 0.25 })\n\nlet chime2 = audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .crop({ at: 0.5, d: 0.25 })\n  .pad(0.5, 0)`)
   assert.equal(toTrack(`audio('chime.wav')`, { at: '0', d: '1' }).code, `let chime = audio('chime.wav')\n  .gain(-Infinity, { at: 0, d: 1 })\n\nlet chime2 = audio('chime.wav')\n  .crop({ at: 0, d: 1 })`, 'from the start: no pad')
   assert.equal(toTrack(`let a = audio('a.wav')\na.gain(-3)`, { at: '0', d: '1' }), null, 'a chain on a name: no sound of its own')
+  // the voice split to a track of its own: the model's voice there, the rest here, the chain as it stood under both
+  const sung = voiceTrack(one)
+  assert.equal(sung.name, 'voice')
+  assert.equal(sung.code, `let chime = audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .vocals('remove', { model: 'mel-roformer' })\n\nlet voice = audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .vocals({ model: 'mel-roformer' })`)
+  assert.deepEqual(names(voiceTrack(sung.code).code), ['chime', 'voice', 'voice2'], 'again: the voice, the last, split, named on')
+  assert.equal(voiceTrack(`let a = audio('a.wav')\na.gain(-3)`), null, 'a chain on a name: no sound of its own')
+  // a track's sound on one line, for another to line up with: its steps turned off left out, no name read
+  assert.equal(soundOf(sung.code, 'voice'), `audio('chime.wav').trim().normalize(-1).vocals({ model: 'mel-roformer' })`)
+  assert.equal(soundOf(`let a = await audio('a .wav')\n  // .fade(1)\n  .gain(-3) /* .trim() */  .reverse()\n\nlet b = audio('b.wav')`, 'a'), `audio('a .wav').gain(-3).reverse()`)
+  assert.equal(soundOf(sung.code, 'nothing'), null)
   try {
     // the first edited: its steps, an edit joining it, rolled back with the other kept, a measure's stages of it alone
     focus('chime')
@@ -1090,6 +1101,26 @@ test('engine: deepfilter and rnnoise run in the page, as on Node', async t => {
     for (let i = 0; i < got.length; i++) { e += expected[i] ** 2; d += (got[i] - expected[i]) ** 2 }
     assert.ok(10 * Math.log10(e / d) > 40, `${name}: ${(10 * Math.log10(e / d)).toFixed(1)} dB from Node's`)
   }
+})
+
+// The voice split to a track of its own (code.js voiceTrack) in the page, by SCNet-large here (the split's mechanics are
+// the model's own: headless Chromium has no GPU for the RoFormer the page uses): its voice on it, the rest left on the
+// first, so their mix is the sound as it was (the hosted model served from the cache Node keeps it in)
+test('engine: the voice split to a track of its own, the rest left, sounds as before', async t => {
+  const { models, REVISIONS } = await import('@audio/neural-separate'), p = models['scnet-large']
+  const model = await readFile(join(process.env.AUDIO_NEURAL_CACHE || join(homedir(), '.cache', 'audiojs', 'neural'), 'scnet-large', p.file)).catch(() => null)
+  if (!model) return t.skip('no SCNet-large cached: run audio rebalance once on Node')
+  await page.route(`https://huggingface.co/${p.repo}/resolve/${REVISIONS['scnet-large']}/${p.file}`, route => route.fulfill({ body: model, headers: { 'access-control-allow-origin': '*' } }))
+  let seed = 3
+  const noise = () => (seed = (seed * 16807) % 2147483647) / 2147483647 - .5
+  const sung = vowel(t => 220 + 30 * Math.sin(2 * Math.PI * 5 * t), 2, 1, RATE)
+  const x = [0, 1].map(c => sung.map((v, i) => .3 * v + .15 * Math.sin(2 * Math.PI * (110 + 55 * c) * i / RATE) + .02 * noise()))
+  const [split] = await engine([voiceTrack(`audio('x.wav')`, 'scnet-large').code], { 'x.wav': x })
+  assert.equal(split.error, undefined, split.error?.message)
+  assert.deepEqual(split.output.tracks.map(t => t.name), ['x', 'voice'])
+  let e = 0, d = 0
+  for (let c = 0; c < 2; c++) for (let i = 0; i < x[c].length; i++) { e += x[c][i] ** 2; d += (split.output.channels[c][i] - x[c][i]) ** 2 }
+  assert.ok(10 * Math.log10(e / d) > 90, `the mix, ${(10 * Math.log10(e / d)).toFixed(1)} dB from the sound`)
 })
 
 test('engine: save() marks exports and export encodes them', async () => {
@@ -4943,6 +4974,47 @@ test('editor: a selection moved to a track of its own, a lane each, each edited 
   await page.waitForFunction(() => !('tracks' in document.querySelector('.plot').dataset))
   await page.keyboard.press('ControlOrMeta+Z')
   await page.waitForFunction(() => scriptText().includes('let chime2 = ') && document.querySelector('.plot').dataset.tracks === '2')
+})
+
+// The voice split to a track of its own (the context menu at the caret, or the Edit menu): the model's voice there, the
+// rest here, the new one edited, the model the GPU's where there is one; undone, one sound. Its sound is the engine test's (the voice split… sounds as before)
+test('editor: the voice split to a track of its own, edited apart, undone in one step', async () => {
+  await page.route(/huggingface\.co/, route => route.abort())
+  await open()
+  await noCues()
+  await write(`audio('chime.wav')`)
+  await lengthIs('0:08.000')
+  const { box, x } = await axis(8)
+  await page.mouse.click(x(1), box.y + box.height * .3)
+  await page.mouse.click(x(1), box.y + box.height * .3, { button: 'right' })
+  await contextRow('Split the voice to a new track').click()
+  await page.waitForFunction(() => scriptText().includes('let voice = '))
+  // headless Chromium's WebGPU is SwiftShader, on the CPU: the split takes SCNet-large there (Mel-RoFormer on a GPU)
+  assert.equal(await code(), `let chime = audio('chime.wav')\n  .vocals('remove', { model: 'scnet-large' })\n\nlet voice = audio('chime.wav')\n  .vocals({ model: 'scnet-large' })`)
+  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'voice · chime.wav')
+  await page.keyboard.press('ControlOrMeta+Z')
+  await page.waitForFunction(() => !scriptText().includes('voice'))
+  await menu('Edit', 'Split the voice to a new track')
+  await page.waitForFunction(() => scriptText().includes('let voice = '))
+})
+
+// A part taken elsewhere and brought back: a track exported alone, named after it; another lined up with it (the Edit
+// menu), its sound written out as the reference, so both stay tracks
+test('editor: a track exported alone; another lined up with it, both tracks still', async () => {
+  await open()
+  await write(`let chime = audio('chime.wav')\n\nlet late = audio('chime.wav')\n  .pad(0.25, 0)`)
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'late · chime.wav')
+  const [d] = await Promise.all([page.waitForEvent('download'), menu('File', 'Export the track alone')])
+  assert.match(d.suggestedFilename(), /-late\.\w+$/)
+  const alone = await audio(await readFile(await d.path()))
+  await alone.read()
+  assert.ok(Math.abs(alone.duration - 8.25) < .01, `that track alone, 0.25 s late: ${alone.duration} s`)
+  await menu('Edit', 'Line up with', 'chime')
+  await page.waitForFunction(() => scriptText().includes('.align('))
+  assert.equal(await code(), `let chime = audio('chime.wav')\n\nlet late = audio('chime.wav')\n  .pad(0.25, 0)\n  .align(audio('chime.wav'))`)
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await lengthIs('0:08.000')
 })
 
 // The markers are every track's: one a track not edited set is taken away from its flag all the same, its mark() gone
