@@ -4362,10 +4362,52 @@ test('stretch(curve) — serializable sliding stretch + ranged form', async t =>
   let q = await b.read()
   t.ok(q[0].subarray(0, sr >> 1).every((v, i) => Math.abs(v - d[i]) < 1e-6), 'pre-range untouched')
   // the vocoder's rate is read from the range start, as the drain's: no silent gap while the factor rises (inside
-  // the stretched 0.5 to 2 s; the splice back at 2 s crossfades two phases of a pure sine and dips on its own)
+  // the stretched 0.5 to 2 s; the splice back at 2 s is the next test's)
   let w = 1024, low = Infinity
   for (let i = sr >> 1; i + w <= 1.95 * sr; i += w >> 1) { let e = 0; for (let j = i; j < i + w; j++) e += q[0][j] ** 2; low = Math.min(low, Math.sqrt(e / w)) }
   t.ok(low > 0.1, `no dropout: quietest window RMS ${low.toFixed(3)}`)
+})
+
+// A ranged stretch or pitch hands back to the input a phase off at every partial (a stretch: the D samples it added).
+// At 441 Hz a slide 1 → 2 over 1 to 2 s adds D = 22051 samples, 220.51 periods: half a period off, the two cancelled in
+// the crossfade (10 ms windows down to 0.69 of the level, 2 ms ones to 0.25). The shifted audio's cursor now slews to
+// the lag where it meets the input. A 10 ms window spans 4.4 periods, its RMS within 1 % whatever its phase; 0.9 leaves
+// the vocoder's own ripple (0.98 of the level inside) and fails any cancellation over 1 dB.
+test('stretch, pitch — the seam back into the input is in phase: no cancellation on a tone half a period off', async t => {
+  let sr = 44100, X = 441, rms = (x, a, b) => { let e = 0; for (let j = a; j < b; j++) e += x[j] ** 2; return Math.sqrt(e / (b - a)) }
+  for (let [name, f, edit] of [
+    ['sliding stretch 1 → 2', 441, a => a.stretch(s => 1 + Math.max(0, Math.min(1, s - 1)), { at: 1, duration: 1 })],
+    ['stretch 1.37', 550, a => a.stretch(1.37, { at: 1, duration: 1 })],
+    ['pitch +3', 1000, a => a.pitch(3, { at: 1, duration: 1 })],
+  ]) {
+    let x = Float32Array.from({ length: 3 * sr }, (_, i) => .5 * Math.sin(2 * Math.PI * f * i / sr))
+    let a = edit(audio.from([x], { sampleRate: sr })), y = (await a.read())[0], e1 = y.length - sr
+    // the quietest 10 ms across the slew's end, the crossfade and past it, against the input after
+    let low = Infinity
+    for (let i = e1 - 3 * X; i <= e1 + X; i += 44) low = Math.min(low, rms(y, i, i + X))
+    low /= rms(y, e1 + X, e1 + 20 * X)
+    t.ok(low > .9, `${name}, ${f} Hz: quietest 10 ms at the seam ${low.toFixed(3)} of the level (> 0.9)`)
+    t.ok(y.subarray(e1).every((v, i) => v === x[2 * sr + i]), `${name}: the input after the range untouched`)
+    // the slew's cost: a lag of at most half a period over 100 ms, the pitch off by 1.1 % at most here
+    let zc = 0
+    for (let i = e1 - 11 * X + 1; i < e1 - X; i++) if ((y[i - 1] < 0) !== (y[i] < 0)) zc++
+    if (name.startsWith('sliding')) t.ok(Math.abs(zc / 2 / .1 / f - 1) < .02, `${name}: ${(zc / 2 / .1).toFixed(0)} Hz over the slew`)
+  }
+  // non-stationary: a chirp 200 Hz → 2 kHz through the same slide meets the input near in phase already; its seam has
+  // no step steeper than the chirp has after it (old and new alike: 0.86 of it) and keeps its level; stream ≡ read
+  let ch = Float32Array.from({ length: 3 * sr }, (_, i) => .5 * Math.sin(2 * Math.PI * 200 * (10 ** (i / sr / 3) - 1) * 3 / Math.LN10))
+  let a = audio.from([ch], { sampleRate: sr }).stretch(s => 1 + Math.max(0, Math.min(1, s - 1)), { at: 1, duration: 1 })
+  let y = (await a.read())[0], e1 = y.length - sr
+  let d2 = (p, q) => { let m = 0; for (let i = p; i < q; i++) m = Math.max(m, Math.abs(y[i] - 2 * y[i - 1] + y[i - 2])); return m }
+  t.ok(d2(e1 - 11 * X, e1) <= d2(e1, e1 + 11 * X), `chirp: no click across the slew and crossfade (${(d2(e1 - 11 * X, e1) / d2(e1, e1 + 11 * X)).toFixed(3)} of the steepest step after)`)
+  let low = Infinity
+  for (let i = e1 - 12 * X; i <= e1 + X; i += 44) low = Math.min(low, rms(y, i, i + X))
+  t.ok(low / rms(y, e1 + X, e1 + 20 * X) > .9, `chirp: quietest 10 ms at the seam ${(low / rms(y, e1 + X, e1 + 20 * X)).toFixed(3)} of the level`)
+  let parts = []
+  for await (let c of a.stream()) parts.push(c[0].slice())
+  let flat = new Float32Array(parts.reduce((n, p) => n + p.length, 0)), o = 0
+  for (let p of parts) { flat.set(p, o); o += p.length }
+  t.ok(flat.length === y.length && flat.every((v, i) => v === y[i]), 'chirp: stream ≡ read')
 })
 
 // Markers at 1, 2, 3 s, the one at 2 s dragged to 2.4 s: 1–2 s plays ×1.4, 2–3 s ×0.6, the rest untouched.

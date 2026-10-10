@@ -54,8 +54,15 @@ export const phaseLockLatency = (rmin, sampleRate) => {
 // across its frames: a broadband splash at each seam, 40 to 50 dB above what a crossfade of two pitches makes.
 // The input outside a span stays as it was: the shifted audio comes in over the span's first 10 ms and goes back out
 // over its last, at a constant power for the correlation the two have there (Fink, Holters & Zölzer 2016: linear
-// for one signal, equal-power for unrelated ones), since by its end it has run ∫(ratio − 1) ahead of the input, a
-// phase offset at every partial. Spans closer than the shifter's latency and a context run as one.
+// for one signal, equal-power for unrelated ones). By its end it has run ∫(ratio − 1) ahead of the input (a stretch:
+// the D samples it added), a phase offset at every partial: a tone half a period off cancelled there (a sine at 441 Hz
+// through a sliding stretch: 2 ms windows down to 0.25 of its level), power a fade can make up only by gains growing
+// without bound. The input past a span cannot move, so the shifted audio does: over the 100 ms before the crossfade its
+// cursor slews to the lag, within 10 ms, where it best meets the input (WSOLA's similarity search, Verhelst & Roelands
+// 1993), and the fade joins the two in phase. A far lag must gain more: its correlation less |lag| / 10 ms decides, so
+// the slew runs at most (1 − ρ) · 10 % off rate where the cursor already met the input at ρ. Into a span no lag is
+// needed: fed the input before it, the vocoder starts on its phases. Spans closer than the shifter's latency and a
+// context run as one.
 // The ratio holds over each sample, so R(t) = ∫ ratio up to t. Each frame's analysis hop spans the input over which
 // R grows by one synthesis hop: frame k's centre is where R has grown by k hops, and the stretched stream has it k
 // hops on, so the centres all lie on P(t) = R(t) + const, and the cursor reading there reads, at every sample, what
@@ -70,6 +77,12 @@ export const phaseLockLatency = (rmin, sampleRate) => {
 
 /** Where shifted audio meets the input, a crossfade this long: 10 ms */
 const fadeOf = sr => Math.max(1, Math.round(.01 * sr))
+/** Before the crossfade back, a slew this long to the lag it meets the input at, searched within a crossfade's 10 ms
+ *  either side (half a period down to 50 Hz): 100 ms */
+const slewOf = sr => 10 * fadeOf(sr)
+/** What the shifter reads past the sample it outputs: the crossfade it measures before the one back, and where a span
+ *  ends (`ends`: back into the input), the slew and the lags searched too; never back, it slews nowhere */
+const aheadOf = (sr, ends) => ends ? slewOf(sr) + 2 * fadeOf(sr) : fadeOf(sr)
 
 // A voice: the phase vocoder keeps each harmonic's phase but not their alignment to one another, so a voice's glottal
 // pulses spread and it sounds distant, its consonants smeared (Röbel, DAFx 2010). Shortened, a voice is copied a segment
@@ -92,29 +105,30 @@ const voiceEngine = (rmax, sampleRate) => {
   return { latency: Math.ceil(rmax * (S + D + H + ZC + 3)) + 2, make: (nch, at, end) => wsola.stretcher(nch, { at, end, sampleRate }) }
 }
 
-/** Samples a shifter runs behind its input: the vocoder's latency (or a voice engine's, `engine`), and the crossfade it
- *  looks across before the one back into the input. A stretch (`rmax`, its largest factor) waits for its input to reach
+/** Samples a shifter runs behind its input: the vocoder's latency (or a voice engine's, `engine`), and what it reads
+ *  ahead (aheadOf: the slew too where a span `ends`). A stretch (`rmax`, its largest factor) waits for its input to reach
  *  the content a frame ahead, which the plan has put further on by the factor. */
-export const shiftLatency = (rmin, sampleRate, rmax, engine) => {
+export const shiftLatency = (rmin, sampleRate, rmax, engine, ends) => {
   let N = frameOf(sampleRate), lat = engine ?? (rmax ? Math.ceil(N / 2 * (1 + rmax)) + synHopOf(rmin, N) + Math.ceil(ZC * rmax) + 4 : phaseLockLatency(rmin, sampleRate))
-  return lat + fadeOf(sampleRate)
+  return lat + aheadOf(sampleRate, ends)
 }
 
 /** A shifter over a stage's timeline. `ratio(t)`: the ratio at content sample t; `spans`: [from, to) timeline samples
- *  it is not 1 on (sorted; to may be Infinity); `rmin`: the least ratio it takes, 1 included where it returns to it.
+ *  it is not 1 on (sorted; to may be Infinity); `rmin`: the least ratio it takes, 1 included where it returns to it;
+ *  `ends`: a span ends, so the shifter slews back into the input (as the op's latency declares).
  *  A stretch passes `map`: { T(t): the timeline place of content t, U: its inverse, D: how much longer the timeline is
  *  after the range, rate(t): T′, rmax: its largest factor }. A voice passes `voice`: { make(ratio of seconds) → a
  *  retuner (@audio/tune-curve), latency, context }; a voice stretch, { make(at, end) → a stretcher (@audio/stretch-wsola,
  *  @audio/stretch-pvsola) putting its output sample s at content sample at(s), the content ending at end(), length() of
  *  the timeline, latency, context }. */
-export function shifter(nch, { sampleRate: sr, ratio, spans, rmin, map = null, voice = null }) {
-  let N = frameOf(sr), X = fadeOf(sr), C = N + X + (voice ? voice.context : 0), lat = shiftLatency(rmin, sr, map?.rmax, voice?.latency), list = []
+export function shifter(nch, { sampleRate: sr, ratio, spans, rmin, ends = false, map = null, voice = null }) {
+  let N = frameOf(sr), X = fadeOf(sr), C = N + X + (voice ? voice.context : 0), lat = shiftLatency(rmin, sr, map?.rmax, voice?.latency, ends), list = []
   for (let [a, b] of spans) {
     if (!(b > a)) continue
     if (list.length && a - list.at(-1)[1] < lat + C + 2 * X) list.at(-1)[1] = Math.max(list.at(-1)[1], b)
     else list.push([a, b])
   }
-  return { nch, sr, ratio, rmin, N, X, C, lat, map, voice, spans: list, si: 0, hist: history(nch), cur: null, pos: new Float64Array(0) }
+  return { nch, sr, ratio, rmin, N, X, L: ends ? slewOf(sr) : 0, W: ends ? X : 0, ahead: aheadOf(sr, ends), C, lat, map, voice, spans: list, si: 0, hist: history(nch), cur: null, pos: new Float64Array(0) }
 }
 
 /** Shift one block: `input` holds timeline samples [n0, n0 + length), `output` gets the shifted timeline `lat`
@@ -191,7 +205,7 @@ function session(st, S, [e0, e1]) {
   // were found, or a stretch's segments where the map puts them
   if (voice) {
     let tc = map ? voice.make(s => map.U(S + s) - u0, () => map.U(voice.length()) - u0) : voice.make(x => ratio(S + x * sr))
-    if (tc.latency != null && tc.latency + st.X > st.lat) throw new Error(`pitch: the voice engine runs ${tc.latency} samples behind, over the ${st.lat - st.X} declared`)
+    if (tc.latency != null && tc.latency + st.ahead > st.lat) throw new Error(`pitch: the voice engine runs ${tc.latency} samples behind, over the ${st.lat - st.ahead} declared`)
     return { S, u0, e0: Math.max(e0, S), e1, fed: 0, tc, voc: Array.from({ length: nch }, ring), rate: () => 1, t: 0, p: 0, buf: null }
   }
   // the content, from u0 on, and its ratio, per sample
@@ -279,6 +293,22 @@ function readAt(v, p) {
   let xm = idx >= 1 ? ring[idx - 1] : 0, x2 = idx + 2 < n ? ring[idx + 2] : x1
   return x0 + .5 * f * (x1 - xm + f * (2 * xm - 5 * x0 + 4 * x1 - x2 + f * (3 * (x0 - x1) + x2 - xm)))
 }
+// A cursor that reads whole samples (a stretch's, a voice's) reads between them as it slews (and in a session opened
+// inside a range): there by the input's kernel (dryBand), as the cubic dulled the top octave (white noise 4 % quieter
+// over the slew)
+function readBand(v, p) {
+  let fl = Math.floor(p)
+  if (p === fl) return readAt(v, p)
+  let sum = 0, acc = 0
+  for (let n = fl - ZC + 1; n <= fl + ZC; n++) {
+    let d = Math.abs(p - n) * RES, i = d | 0, idx = n - v.ringStart
+    if (i >= ZC * RES) continue
+    let k = KERNEL[i] + (KERNEL[i + 1] - KERNEL[i]) * (d - i)
+    sum += k; if (idx >= 0 && idx < v.ringLen) acc += k * v.ring[idx]
+  }
+  return acc / sum
+}
+const readerOf = st => st.map || st.voice ? readBand : readAt
 
 /** Constant-power crossfade gains out of one signal into another that correlates ρ with it over the crossfade (Fink,
  *  Holters & Zölzer, "Signal-matched power-complementary cross-fading and dynamic processing", EURASIP JASP 2016):
@@ -305,43 +335,58 @@ const refAt = (st, h, c, q, back) => {
   return dryBand(h, c, st.map.T(u), Math.min(1, 1 / st.map.rate(u)))
 }
 
-/** Correlation of the shifted audio with what it crosses over timeline samples [q0, q0 + n), all channels */
-function correlation(st, cur, h, q0, n, nch, back) {
-  let xy = 0, xx = 0, yy = 0, p = cursorAt(st, cur, q0)
-  for (let i = 0; i < n; i++, p += st.map || st.voice ? 1 : cur.rate(q0 + i - cur.S))
-    for (let c = 0; c < nch; c++) { let w = readAt(cur.voc[c], p), d = refAt(st, h, c, q0 + i, back); xy += w * d; xx += w * w; yy += d * d }
-  return Math.max(-.5, Math.min(1, xx && yy ? xy / Math.sqrt(xx * yy) : 0))
+/** Where the shifted audio, read up to W samples either side of its cursor, best meets what it crosses over timeline
+ *  samples [q0, q0 + n), all channels: the lag whose normalized correlation, less |lag| / W, is highest (a far lag
+ *  slews the cursor faster, so it must gain more), and that correlation */
+function meet(st, cur, h, q0, n, nch, back, W) {
+  let P = new Float64Array(n), R = new Float64Array(n * nch), rr = 0, p = cursorAt(st, cur, q0)
+  for (let i = 0; i < n; i++, p += st.map || st.voice ? 1 : cur.rate(q0 + i - cur.S)) {
+    P[i] = p
+    for (let c = 0; c < nch; c++) { let d = R[i * nch + c] = refAt(st, h, c, q0 + i, back); rr += d * d }
+  }
+  let best = -Infinity, lag = 0, rho = 0, read = readerOf(st)
+  for (let k = -W; k <= W; k++) {
+    let xy = 0, xx = 0
+    for (let i = 0; i < n; i++) for (let c = 0; c < nch; c++) { let w = read(cur.voc[c], P[i] + k); xy += w * R[i * nch + c]; xx += w * w }
+    let r = xx && rr ? xy / Math.sqrt(xx * rr) : 0, s = r - (W ? Math.abs(k) / W : 0)
+    if (s > best) { best = s; lag = k; rho = r }
+  }
+  return [lag, Math.max(-.5, Math.min(1, rho))]
 }
 
 function mix(st, cur, output, q0, len) {
   let h = st.hist, { S, e0, e1 } = cur, nch = output.length
   // into the shifted audio over the span's first X samples, back over its last (half the span each, if shorter)
-  let X = Math.min(st.X, Math.floor((e1 - e0) / 2)), inAt = e0 > -Infinity ? e0 : -Infinity, outAt = e1 < Infinity ? e1 - X : Infinity
-  // the correlations of the crossfades, measured from the cursor before it moves on past them
-  if (cur.gi == null && inAt > -Infinity && q0 + len > inAt) cur.gi = S <= e0 - st.C ? correlation(st, cur, h, inAt, X, nch, false) : 1
-  if (cur.go == null && q0 + len > outAt) cur.go = correlation(st, cur, h, outAt, X, nch, true)
+  let X = Math.min(st.X, Math.floor((e1 - e0) / 2)), inAt = e0, outAt = e1 < Infinity ? e1 - X : Infinity
+  // the slew before the crossfade back, within what the span leaves after the one in, its lags narrowed with it
+  let L = outAt < Infinity ? Math.max(0, Math.min(st.L, outAt - e0 - X)) : 0, slewAt = outAt - L
+  // the crossfades measured from the cursor before it moves on past them: in from the input it was fed, at its own
+  // phases; out at the lag the slew reaches, chosen as it starts
+  if (cur.gi == null && inAt > -Infinity && q0 + len > inAt) cur.gi = S <= e0 - st.C ? meet(st, cur, h, inAt, X, nch, false, 0)[1] : 1
+  if (cur.go == null && q0 + len > slewAt) [cur.lag, cur.go] = meet(st, cur, h, outAt, X, nch, true, L && Math.floor(st.W * L / st.L))
   if (st.pos.length < len) st.pos = new Float64Array(len)
   let pos = st.pos
-  // the cursor, P(t + 1) = P(t) + ratio(t) (a stretch: + 1)
+  // the cursor, P(t + 1) = P(t) + ratio(t) (a stretch: + 1), slewing on to the lag
   for (let i = 0; i < len; i++) {
-    let t = q0 + i - S
+    let q = q0 + i, t = q - S
     if (t < 0) continue
-    if (st.map || st.voice) { pos[i] = cur.p + t; continue }
-    while (cur.t < t) cur.p += cur.rate(cur.t++)
-    pos[i] = cur.p
+    if (st.map || st.voice) pos[i] = cur.p + t
+    else { while (cur.t < t) cur.p += cur.rate(cur.t++); pos[i] = cur.p }
+    if (cur.lag && q >= slewAt) pos[i] += cur.lag * Math.min(1, (q - slewAt + 1) / L)
   }
+  let read = readerOf(st)
   for (let c = 0; c < nch; c++) {
     let out = output[c], v = cur.voc[c]
     for (let i = 0; i < len; i++) {
       let q = q0 + i
       if (q < e0 || q >= e1 || q < S) { out[i] = dryAt(h, c, q); continue }
-      let y = readAt(v, pos[i])
+      let y = read(v, pos[i])
       if (q < inAt + X) { let [gd, gy] = xfade((q - inAt + .5) / X, cur.gi); out[i] = gd * refAt(st, h, c, q, false) + gy * y }
       else if (q >= outAt) { let [gy, gd] = xfade((q - outAt + .5) / X, cur.go); out[i] = gy * y + gd * refAt(st, h, c, q, true) }
       else out[i] = y
     }
-    // what the cursor has read past goes
-    let back = st.map || st.voice ? cur.p + (q0 + len - 1 - S) : cur.p, drop = Math.floor(back) - 2 - v.ringStart
+    // what the cursor has read past goes, but for the lags searched behind it and a kernel's taps
+    let back = st.map || st.voice ? cur.p + (q0 + len - 1 - S) : cur.p, drop = Math.floor(back) - ZC - st.W - v.ringStart
     if (drop > 0 && drop < v.ringLen) { v.ring.copyWithin(0, drop, v.ringLen); v.ringLen -= drop; v.ringStart += drop }
   }
 }
@@ -421,7 +466,7 @@ const stretchShape = o => {
   let f = o.factor
   return typeof f === 'number' && f > 0 && f !== 1 ? { rmin: ranged ? Math.min(1, f) : f, rmax: Math.max(1, f) } : null
 }
-const stretchLatency = (o, sr) => { let sh = stretchShape(o); return sh ? shiftLatency(sh.rmin, sr, sh.rmax, o.voice ? voiceEngine(sh.rmax, sr).latency : undefined) : 0 }
+const stretchLatency = (o, sr) => { let sh = stretchShape(o); return sh ? shiftLatency(sh.rmin, sr, sh.rmax, o.voice ? voiceEngine(sh.rmax, sr).latency : undefined, o.duration != null) : 0 }
 
 /** The plan's map of a stretch, content sample u → timeline T(u), and back: piecewise linear, the identity before the
  *  range and shifted by D after it. `knots`: [content, timeline, factor] at each piece's start, in order. */
@@ -459,7 +504,7 @@ const stretchDsp = (input, output, ctx) => {
     // end once it is known
     let length = () => ctx.totalDuration >= 0 ? Math.round(ctx.totalDuration * sr) : Infinity, eng = sh && ctx.voice && voiceEngine(sh.rmax, sr)
     let voice = eng ? { make: (at, end) => eng.make(input.length, at, end), length, latency: eng.latency, context: 0 } : null
-    st = ctx._state = sh && shifter(input.length, { sampleRate: sr, rmin: sh.rmin, ratio: map.rate, spans: [[a0, a1]], map, voice })
+    st = ctx._state = sh && shifter(input.length, { sampleRate: sr, rmin: sh.rmin, ratio: map.rate, spans: [[a0, a1]], ends: ctx.duration != null, map, voice })
   }
   if (!st) { for (let c = 0; c < input.length; c++) output[c].set(input[c]); return }
   shiftBlock(st, input, output, Math.round(ctx.blockOffset * ctx.sampleRate))

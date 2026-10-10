@@ -29,6 +29,9 @@ const shape = o => {
   let lo = typeof s === 'number' ? (s ? s : null) : isCurve(s) && s.v.some(v => v) ? s.v.reduce((m, v) => v < m ? v : m, Infinity) : null
   return lo == null ? null : { rmin: Math.min(2 ** (lo / 12), ranged ? 1 : Infinity) }
 }
+// Whether a span ends, back into the input (the shifter then reads ahead to slew there): a range with a length, or a
+// curve back at zero
+const endsOf = (o, sr) => o.duration != null || isCurve(o.semitones) && curveSpans(o.semitones, sr).some(([, b]) => b < Infinity)
 
 /** A curve at a time in seconds, as plan.js curveFn has it (straight between points, flat past the ends), searched
  *  from the point found last: the shifter asks in order, sample by sample. */
@@ -86,7 +89,7 @@ const pitchProc = (input, output, ctx) => {
       let make = r => tc(input.length, { ratio: r, sampleRate: sr, rmin: sh.rmin, minFreq: VOICE_HZ })
       voice = { latency: voiceLatency(sr, sh.rmin), context: voiceContext(sr), make }
     }
-    st = ctx._state = sh && spans.length ? shifter(input.length, { sampleRate: sr, rmin: sh.rmin, spans, ratio, voice }) : null
+    st = ctx._state = sh && spans.length ? shifter(input.length, { sampleRate: sr, rmin: sh.rmin, spans, ends: endsOf(ctx, sr), ratio, voice }) : null
   }
   if (!st) { for (let c = 0; c < input.length; c++) output[c].set(input[c]); return }
   shiftBlock(st, input, output, Math.round(ctx.blockOffset * ctx.sampleRate))
@@ -95,7 +98,7 @@ const pitchProc = (input, output, ctx) => {
 // The shifter runs a fixed latency behind and handles its own range: dry and shifted audio share that latency.
 const pitchLatency = (o, sr) => {
   let sh = shape(o)
-  return sh ? shiftLatency(sh.rmin, sr, undefined, o.voice ? voiceLatency(sr, sh.rmin) : undefined) : 0
+  return sh ? shiftLatency(sh.rmin, sr, undefined, o.voice ? voiceLatency(sr, sh.rmin) : undefined, endsOf(o, sr)) : 0
 }
 
 audio.op('pitch', {
