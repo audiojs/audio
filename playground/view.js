@@ -227,7 +227,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // drags the view; beside it, the view centres there first. { x0, x1, total }, or null showing all of it
   const BAR = 8, THUMB = 16
   function bar() {
-    if (!duration || start <= 0 && end >= duration - 1e-9) return null
+    if (!duration || whole()) return null
     const total = Math.max(duration, end), w = plot().w, k = w / total, x0 = Math.min(start * k, w - THUMB)
     return { x0, x1: Math.max(x0 + THUMB, end * k), total }
   }
@@ -300,8 +300,11 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // and its scale stay: a panel opening beside it, or the window narrowing, shows less of the sound, never squeezes it.
   function resize() {
     const r = root.getBoundingClientRect(), d = devicePixelRatio || 1, cw = Math.round(r.width * d), ch = Math.round(r.height * d), was = plot().w
+    const all = duration && W <= GUTTER + 1 && start <= 0 && Math.abs(end - duration) < 1e-9
     W = r.width; H = r.height; dpr = d
-    if (duration && W > GUTTER + 1 && was > 1 && plot().w !== was) setRange(start, start + (end - start) / was * plot().w)
+    // a sound fitted before the view had a width, fitted once it has one
+    if (all && W > GUTTER + 1) fitTo(0, duration)
+    else if (duration && W > GUTTER + 1 && was > 1 && plot().w !== was) setRange(start, start + (end - start) / was * plot().w)
     for (const canvas of [specCanvas, gridCanvas, waveCanvas, overlay, ruling, solid]) if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch }
     cancelAnimationFrame(frame)
     frame = 0; pictures = true
@@ -690,6 +693,13 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // never behind them. The meters keep their width from the first frame, whether they read anything yet or not, so a
   // sound arriving never shortens the pictures under it
   const lanesEnd = L => { const { w } = plot(); return show.meters ? (L.spec.length ? w - METER - 2 : w - 7) - 2 : w }
+  // The share of the view's span the lanes show: the sound's end, the view at it, sits TAIL px short of where they end,
+  // its last moment, and a caret or cue there, clear of the meters and the labels; the time there (seenTo); [a, b] shown
+  // across them (fitTo)
+  const TAIL = 4
+  const reach = () => W > GUTTER + 1 ? Math.max(.5, (lanesEnd(lanes()) - TAIL) / plot().w) : 1
+  const seenTo = () => start + (end - start) * reach()
+  const fitTo = (a, b) => setRange(a, a + (b - a) / reach())
   let ends = null
   function endLanes(L) {
     const { w } = plot(), end = lanesEnd(L)
@@ -788,10 +798,9 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   }
   // The meters, where the picture fades out just before the labels, each on its lane's own scale: by a waveform, a bar
   // mirrored as the lane is, as the waveform draws a sound: the RMS in the colour of its body, out to the peak in the
-  // colour of its edges (red at full scale); by a spectrogram, the spectrum's outline, its level across on the
+  // colour of its edges (red at full scale), the peak held a while marked past it as it plays; by a spectrogram, the spectrum's outline, its level across on the
   // spectrogram's own scale (its floor to its top, -90 to 0 dB till it has one), each frequency at its height in the
-  // lane, filled under it with the spectrogram's colours: a level ends in the colour it is drawn in, a legend, the
-  // band selected in it lit
+  // lane, filled under it with the upper half of the spectrogram's colours, grey at the floor, the band selected in it lit
   const METER = 40
   const meterX = (left, v, [lo, hi] = decibels ?? [-90, 0]) => left + Math.max(0, Math.min(1, (v - lo) / (hi - lo))) * METER
   function paintMeters(L) {
@@ -808,6 +817,11 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       c.globalAlpha = 1
       c.fillStyle = color('--color-screen-wave')
       c.fillRect(bar, low, 3, high - low)
+      // as it plays, the highest peak a while, a mark either side, red at full scale
+      if (m.hold == null || m.hold <= m.peak) return
+      c.fillStyle = m.hold >= 1 ? color('--color-screen-error') : color('--color-screen-wave')
+      c.fillRect(bar, Math.round(ay(rect, m.hold)), 3, 1)
+      c.fillRect(bar, Math.round(ay(rect, m.hold, -1)) - 1, 3, 1)
     })
     const bins = meters.spectra, size = meters.size, left = w - METER - 2
     if (!bins) return
@@ -820,8 +834,9 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
         outline.lineTo(meterX(left, v), py)
       }
       outline.lineTo(left, y)
-      // filled under the outline down to the floor in the spectrogram's colours, from its floor's to its top's
-      const fill = c.createLinearGradient(left, 0, left + METER, 0), stops = look.color ?? ['transparent', color('--color-screen-soft')]
+      // filled under the outline down to the floor in the spectrogram's colours, from the one halfway up its scale to its
+      // top's: the body of the spectrum reads against the screen, never sinks into it
+      const fill = c.createLinearGradient(left - METER, 0, left + METER, 0), stops = look.color ?? ['transparent', color('--color-screen-soft')]
       stops.forEach((s, k) => fill.addColorStop(k / (stops.length - 1), s))
       c.globalAlpha = .7
       c.fillStyle = fill
@@ -1479,10 +1494,10 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // Scrolled or zoomed by hand (`past`), the sound's end goes on as far as the view's middle: the tail comes out from
   // under the meters and the labels to be edited, the room past it shown as past the end (paintEnd)
   function setRange(a, b, past = false) {
-    const min = Math.min(duration, 32 / rate)
+    const min = Math.min(duration, 32 / rate), k = reach()
     let span = Math.max(min, Math.min(Math.max(duration * 8, recording ? RECORD : 0), b - a))
-    const last = past ? duration - span / 2 : duration - span
-    a = span <= duration || past ? Math.max(0, Math.min(Math.max(last, start), a)) : 0
+    const last = past ? duration - span / 2 : duration - span * k
+    a = span * k <= duration || past ? Math.max(0, Math.min(Math.max(last, start), a)) : 0
     start = a; end = a + span
     invalidate()
   }
@@ -1494,7 +1509,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   }
   const zoom = (factor, at = (start + end) / 2) => setRange(at - (at - start) * factor, at + (end - at) * factor, true)
   // the view shows all of the sound
-  const whole = () => start <= 0 && end >= duration - 1e-9
+  const whole = () => start <= 0 && seenTo() >= duration - 1e-9
   // zoom the frequencies around u, which stays where it is on screen
   const zoomFreqs = (factor, u) => { const [u0, u1] = fview, k = (u - u0) / (u1 - u0), span = (u1 - u0) * factor; setFreqs(u - k * span, u - k * span + span) }
 
@@ -2166,9 +2181,9 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   }
   // [a, b] s brought into sight, as an editor scrolls to what it selects: moved to show it, zoomed out to fit it
   function reveal(a, b = a) {
-    const span = end - start
-    if (b - a > span * .9) setRange(a - (b - a) * .05, b + (b - a) * .05)
-    else if (a < start || b > end) setRange(a - span * .1, a + span * .9)
+    const span = seenTo() - start
+    if (b - a > span * .9) fitTo(a - (b - a) * .05, b + (b - a) * .05)
+    else if (a < start || b > start + span) setRange(a - span * .1, a - span * .1 + end - start)
   }
 
   // Keys while the view has focus: arrows move the caret a hundredth of the view, by cues or sounds as a text's
@@ -2194,7 +2209,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     else if (k === 'Home' || k === 'End' || line && (k === 'ArrowUp' || k === 'ArrowDown')) to(k === 'Home' || k === 'ArrowUp' ? 0 : duration)
     else if (k === '=' || k === '+') zoom(.5, playhead ?? (selection ? (selection[0] + selection[1]) / 2 : cursor))
     else if (k === '-' || k === '_') zoom(2, playhead ?? cursor)
-    else if (k === '0' && !mod) { fview = [0, 1]; aview = [-1, 1]; setRange(0, duration) }
+    else if (k === '0' && !mod) { fview = [0, 1]; aview = [-1, 1]; fitTo(0, duration) }
     else if (k === 'Escape' && chosen) { chosen = null; invalidate(true) }
     else if (k === 'Escape' && (selection || more.length)) select(0, 0)
     else if (mod && k.toLowerCase() === 'd') addNext()
@@ -2257,9 +2272,9 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (selection && selection[1] - selection[0] <= 0) selection = band = null
     more = more.map(([a, b, ...f]) => [Math.min(a, duration), Math.min(b, duration), ...f]).filter(([a, b]) => b > a || a === b && b < duration)
     cursor = Math.min(cursor, duration)
-    if (all || end - start <= 0) setRange(0, duration)
+    if (all || end - start <= 0) fitTo(0, duration)
     // a sound arriving, its length not known yet, is kept within it once it is (finish)
-    else if (!(arriving && arriving.total == null) && (start >= duration || !stay && end > duration)) setRange(duration - (end - start), duration)
+    else if (!(arriving && arriving.total == null) && (start >= duration || !stay && seenTo() > duration + 1e-9)) { const a = duration - (seenTo() - start); setRange(a, a + end - start) }
     else invalidate()
   }
 
@@ -2298,12 +2313,12 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     arriving.length = Math.max(arriving.length, n)
     const all = arriving.fit && whole()
     if (arriving.length / rate > duration) duration = arriving.length / rate
-    if (all) setRange(0, duration)
+    if (all) fitTo(0, duration)
     else invalidate()
   }
   let ahead = false, stay = false
   function replace(total) {
-    const roomy = end > duration + 1e-9 && total != null && total <= end
+    const seen = seenTo(), roomy = seen > duration + 1e-9 && total != null && total <= seen
     const expected = stay = !!pieces, all = !duration || !expected && whole() && !roomy
     if (expected) { cues = cues.map(moved).filter(t => t != null); markers = markers.map(m => ({ ...m, time: moved(m.time) })).filter(m => m.time != null) }
     else if (!ahead && total != null && Math.abs(total - duration) > 1e-9) cues = []
@@ -2505,15 +2520,24 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     get unit() { return unit() },
     get display() { return display },
     set display(mode) {
+      const all = mode !== display && !recording && duration && whole()
       display = mode
       if (mode === 'wave' && band) { band = null; more = more.filter(r => r.length === 2); told() }
+      if (all) fitTo(0, duration)
       invalidate()
     },
     get scale() { return scale },
     set scale(name) { setScale(name) },
     // what shows besides the sound (hits, pitch, gain, meters), as the View menu has it; with the meters, the
     // spectrogram fades out before its spectrum (repl.css)
-    set show(flags) { show = { ...flags }; root.toggleAttribute('data-meters', !!show.meters); invalidate() },
+    // with the meters, the lanes end before them: all of the sound shown stays shown
+    set show(flags) {
+      const all = !show.meters !== !flags.meters && !recording && duration && whole()
+      show = { ...flags }
+      root.toggleAttribute('data-meters', !!show.meters)
+      if (all) fitTo(0, duration)
+      invalidate()
+    },
     // whether a dragged or pressed time goes onto a cue or marker near it; the curve the fade corners draw and make
     set snapping(on) { snapping = on },
     set fadeCurve(name) { fadeCurve = CURVES[name] ? name : 'linear'; invalidate(true) },
@@ -2564,14 +2588,16 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // seen in it, passes its edge: then it glides to the middle from there. The playhead is the overlay's: the pictures
     // are drawn again only as the view scrolls
     set playhead(t) {
-      const span = end - start, mid = start + span / 2, now = performance.now(), dt = played ? (now - played) / 1000 : 0
-      const was = playhead == null || t < playhead || t - playhead > 8 * dt ? t : playhead, seen = was >= start && was <= end
-      if (t == null || steered && seen && t > end) steered = false
+      // what the lanes show of the view, the meters' part of it hidden
+      const span = end - start, to = seenTo(), mid = (start + to) / 2, now = performance.now(), dt = played ? (now - played) / 1000 : 0
+      const was = playhead == null || t < playhead || t - playhead > 8 * dt ? t : playhead, seen = was >= start && was <= to
+      if (t == null || steered && seen && t > to) steered = false
       playhead = t
       played = t == null ? 0 : now
-      if (t != null && !drag && !steered && span < duration) {
-        if (!seen) setRange(t - span / 2, t + span / 2)
-        else if (t > mid) { const lead = Math.max(0, was - mid) * Math.exp(-dt / GLIDE); setRange(t - span / 2 - lead, t + span / 2 - lead) }
+      if (t != null && !drag && !steered && !whole()) {
+        const half = (to - start) / 2
+        if (!seen) setRange(t - half, t - half + span)
+        else if (t > mid) { const lead = Math.max(0, was - mid) * Math.exp(-dt / GLIDE); setRange(t - half - lead, t - half - lead + span) }
       }
       invalidate(true)
     },
@@ -2596,7 +2622,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // every range selected, in time order, and every caret; addNext() adds the next like the selection (⌘D)
     get ranges() { return ranges() }, get carets() { return carets() }, get boxes() { return boxes() }, addNext,
     select, setCursor, around, step: stepTo,
-    zoom, zoomTo: (a, b) => { const pad = (b - a) * .05; steer(); setRange(a - pad, b + pad) }, fit: () => { fview = [0, 1]; aview = [-1, 1]; setRange(0, duration) },
+    zoom, zoomTo: (a, b) => { const pad = (b - a) * .05; steer(); fitTo(a - pad, b + pad) }, fit: () => { fview = [0, 1]; aview = [-1, 1]; fitTo(0, duration) },
     // the picture of a range, for an agent; a range or a time brought into sight
     snapshot, reveal
   }

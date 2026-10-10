@@ -23,7 +23,7 @@ import clock from '../playground/time.js'
 import { samples, RATE as SAMPLES } from '../site/samples.js'
 import { vowel } from './gen.js'
 import recipes from '../playground/recipes.js'
-import { cycle, trace } from '../playground/meters.js'
+import { cycle, trace, ballistics } from '../playground/meters.js'
 import md from '../playground/markdown.js'
 import doing, { measures, noted } from '../playground/doing.js'
 import '../.site-build.js'
@@ -283,6 +283,21 @@ test('engine: tracks longer than the page holds come as pictures, each track\'s 
 // ── The script as code ─────────────────────────────────────────
 
 // One cycle of a sine, whatever its pitch, stands as the logo's signals do: up, then down through zero at mid-period
+// A digital peak meter's return: 20 dB in 1.7 s (IEC 60268-18); the peak held 1.5 s, then falling as fast
+test('meters: as it plays, a peak rises at once and falls back 20 dB in 1.7 s; its mark holds 1.5 s, then falls', () => {
+  const db = v => 20 * Math.log10(v), near = (a, b, what) => assert.ok(Math.abs(a - b) < 1e-6, `${what}: ${a} vs ${b}`)
+  let m = ballistics([{ rms: .3, peak: .9 }], null, 0)
+  assert.deepEqual(m[0], { rms: .3, peak: .9, hold: .9, held: 0 }, 'the first reading as it is')
+  // silence after it, a tenth of a second a frame
+  for (let i = 0; i < 17; i++) m = ballistics([{ rms: 0, peak: 0 }], m, .1)
+  near(db(m[0].peak), db(.9) - 20, 'the peak 1.7 s on, 20 dB down')
+  assert.equal(m[0].rms, 0, 'the RMS as read')
+  // held 1.5 s, then falling at the same rate for the frames past it
+  near(m[0].hold, .9 * 10 ** (-.2 / 1.7), 'the mark, 0.2 s of falling past 1.5 s held')
+  m = ballistics([{ rms: .5, peak: 1 }], m, .1)
+  assert.deepEqual([m[0].peak, m[0].hold, m[0].held], [1, 1, 0], 'a higher peak takes both at once')
+})
+
 test('meters: the bar\'s mark plays one cycle of what sounds, falling through zero at its middle, and its pitch; noise settles to a stir', () => {
   const rate = 48000, sine = f => [Float32Array.from({ length: rate }, (_, i) => .5 * Math.sin(2 * Math.PI * f * i / rate + 1))]
   for (const f of [55, 110, 440, 1500]) {
@@ -1862,7 +1877,7 @@ test('editor: deleting a selection writes remove() and shortens the output by it
   // its sides crossfaded over 10 ms (the settings), the length still less by the selection's
   const [, at, duration] = (await code()).match(/\.remove\(\{ at: ([\d.]+), d: ([\d.]+), xfade: 0\.01 \}\)/)
   // each time goes to the zoom's 1-2-5 step, at most 2.5 pixels
-  const px = before / (box.width - GUTTER)
+  const px = before / await spans(box)
   assert.ok(Math.abs(+at - before * .25) < 3 * px && Math.abs(+duration - before * .25) < 3 * px, `${at} ${duration}`)
   await page.waitForFunction(expected => Math.abs(+document.querySelector('.source').title.split(' · ').pop().split(':')[1] - expected) < .002, before - +duration)
   // the waveform shares the script's history
@@ -2389,8 +2404,11 @@ test('editor: every button and readout says what it is when pointed at', async (
 // The time axis spans the plot less its label gutter (view.js GUTTER, 40 px); the lanes are 2 px apart (GAP), over the
 // time row (RULER, 22 px)
 const GUTTER = 40, LANES = 2
+// All of a sound shown spans the lanes less TAIL px (view.js): to --end px short of the plot's right, the meters past it
+const TAIL = 4
+const spans = async box => box.width - TAIL - await page.locator('.plot').evaluate(el => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => done(parseFloat(getComputedStyle(el).getPropertyValue('--end')))))))
 async function axis(duration) {
-  const box = await page.locator('.plot').boundingBox(), w = box.width - GUTTER
+  const box = await page.locator('.plot').boundingBox(), w = await spans(box)
   return { box, x: t => box.x + t / duration * w }
 }
 // Moves the pointer along `points` until the plot shows `cursor` (a name, or a pattern): where the tool can grab. Marks
@@ -2474,7 +2492,7 @@ async function handles() {
   await page.locator('.plot').focus()
   const now = async () => { const [m, s] = (await page.locator('.time').innerText()).split(':'); return +m * 60 + +s }
   await page.keyboard.press('End')
-  const end = await now(), w = (await page.locator('.plot').boundingBox()).width - GUTTER, out = []
+  const end = await now(), w = await spans(await page.locator('.plot').boundingBox()), out = []
   await page.keyboard.press('Home')
   for (let t = 0; ;) {
     await page.keyboard.press(process.platform === 'darwin' ? 'Alt+ArrowRight' : 'Control+ArrowRight')
@@ -2501,7 +2519,8 @@ test('editor: held ⌘, only the cue under the pointer lights, none elsewhere', 
   const { box, x } = await axis(2), y = box.y + 40
   const lit = () => pixels(`let n = 0, run = false; for (let x = 0; x < w - ${GUTTER}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 60; if (on && !run) n++; run = on } return n`)
   let cue = []
-  for (const until = Date.now() + 8000; !cue.length && Date.now() < until; await page.waitForTimeout(200)) cue = (await handles()).map(px => px / (box.width - GUTTER) * 2).filter(t => Math.abs(t - 1) < .02)
+  const w = await spans(box)
+  for (const until = Date.now() + 8000; !cue.length && Date.now() < until; await page.waitForTimeout(200)) cue = (await handles()).map(px => px / w * 2).filter(t => Math.abs(t - 1) < .02)
   assert.equal(cue.length, 1)
   assert.equal(await lit(), 0, 'none shown')
   await page.mouse.move(x(.75), y)
@@ -2522,7 +2541,8 @@ test('editor: dragging a cue moves it, the audio on either side stretching to fi
   const { box, x } = await axis(2), y = box.y + 20, cursor = () => page.locator('.plot').evaluate(el => el.style.cursor)
   // the hit at 1 s, and the cues either side of it, before it moves
   let cues = []
-  for (const until = Date.now() + 8000; !cues.some(t => Math.abs(t - 1) < .02) && Date.now() < until; await page.waitForTimeout(200)) cues = (await handles()).map(px => px / (box.width - GUTTER) * 2)
+  const w = await spans(box)
+  for (const until = Date.now() + 8000; !cues.some(t => Math.abs(t - 1) < .02) && Date.now() < until; await page.waitForTimeout(200)) cues = (await handles()).map(px => px / w * 2)
   const prev = cues.findLast(t => t < .95), next = cues.find(t => t > 1.05)
   assert.ok(prev > .5 && next < 1.5, `a cue where the hit before falls quiet, and where this one does: ${JSON.stringify(cues)}`)
   await page.keyboard.down('ControlOrMeta')
@@ -2574,7 +2594,7 @@ test('editor: a dragged cue moves alone; the sound stretched around it makes no 
   for (const until = Date.now() + 8000; before.length < 8 && Date.now() < until; await page.waitForTimeout(200)) before = await handles()
   assert.ok(before.length >= 8, JSON.stringify(before))
   // 0.2 s later, a cue with room for it either side
-  const box = await page.locator('.plot').boundingBox(), dx = .2 / 6.525 * (box.width - GUTTER)
+  const box = await page.locator('.plot').boundingBox(), dx = .2 / 6.525 * await spans(box)
   const k = before.findIndex((p, i) => i > 0 && i < before.length - 1 && before[i + 1] - p > dx * 1.5 && p - before[i - 1] > dx * .5)
   assert.ok(k > 0, JSON.stringify(before))
   await dragCue([[box.x + before[k], box.y + 20]], [dx, 0])
@@ -3992,7 +4012,8 @@ test('editor: a double-click selects the fragment between its cues, or the pause
   // (the chime's stay until the new output's come)
   const edges = [.4, .5, .9, 1.5, 1.9, 2, 2.4], found = at => at.length === edges.length && at.every((t, i) => t - edges[i] > -.005 && t - edges[i] < .03)
   let at = []
-  for (const until = Date.now() + 8000; !found(at) && Date.now() < until; await page.waitForTimeout(200)) at = (await handles()).map(h => h / (box.width - GUTTER) * 2.5)
+  const w = await spans(box)
+  for (const until = Date.now() + 8000; !found(at) && Date.now() < until; await page.waitForTimeout(200)) at = (await handles()).map(h => h / w * 2.5)
   assert.ok(found(at), JSON.stringify(at))
   // the sound alone, from its start to its end, as a word between its spaces
   await page.mouse.dblclick(x(.2), y)
@@ -4849,6 +4870,14 @@ test('editor: nothing is drawn behind the meters', async () => {
   const lit = at => pixels(`const x = Math.round(arg); let n = 0; for (let y = 0; y < h - 30; y++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 300) n++ } return n`, at)
   assert.ok(await lit(w - 40) > 20, 'the waveform runs up to the meters')
   assert.equal(await lit(w - 9), 0, 'and stops before the level bar')
+  // all of it shown, its end 4 px short of where the lanes end (view.js TAIL), 2 px before the bar, 2 px before the
+  // spectrum on the spectrogram: its last moment in sight, never behind the meters
+  assert.ok(await lit(w - 14) > 20, 'its last moment by the bar')
+  assert.equal(await lit(w - 12), 0, 'its end 6 px before it')
+  await show('spec')
+  await page.waitForTimeout(800)
+  assert.ok(await lit(w - 49) > 0, 'its last moment by the spectrum')
+  assert.equal(await lit(w - 47), 0, 'its end 6 px before it')
 })
 
 // Crop is clicked, never dragged, so it is no handle: the context menu has it, and K
@@ -5937,16 +5966,17 @@ test('editor: the record button records over the sound from the caret, into the 
   // the clock runs from the caret, past the old end
   await page.waitForFunction(() => /^0:0(8\.[3-9]|9)/.test(document.querySelector('.time').textContent), null, { timeout: 15000 })
   // the level meter by the lanes reads the microphone, not the sound where the caret was: its bar on the overlay, read as
-  // drawn (view.js, 7 px short of the labels' gutter, GUTTER), up as it beeps and down between
+  // drawn (view.js, 7 px short of the labels' gutter, GUTTER), up as it beeps and falling back between, by a fifth at
+  // least (its beeps half a second apart, a peak meter falls 6 dB between them: meters.js ballistics)
   await page.waitForFunction(gutter => {
     const c = document.querySelector('.plot canvas.overlay'), k = c.width / c.clientWidth, w = c.clientWidth - gutter
     const d = c.getContext('2d').getImageData(Math.round((w - 7) * k), 10 * k, Math.round(3 * k), c.height - 40 * k).data
     let n = 0
     for (let i = 3; i < d.length; i += 4) if (d[i] > 60) n++
-    const seen = globalThis.metered ??= { up: false, down: false }
-    if (n > 20) seen.up = true
-    else if (n < 3) seen.down = true
-    return seen.up && seen.down
+    const seen = globalThis.metered ??= { top: 0, down: false }
+    seen.top = Math.max(seen.top, n)
+    if (seen.top > 20 && n < seen.top * .8) seen.down = true
+    return seen.down
   }, GUTTER, { timeout: 10000 })
   await page.getByRole('button', { name: 'Stop recording', exact: true }).click()
   await page.waitForFunction(() => /\.write\(audio\('take\.wav'\), \{ at: 7\.5 \}\)$/.test(scriptText()))

@@ -11,7 +11,7 @@ import { prepare, error, append, source, chain, number, rollback, residual, setA
 import { builtins, sample, microphone, search, credit, unique } from './sources.js'
 import scales from './scale.js'
 import menubar from './menu.js'
-import { levels, spectra, cycle, trace } from './meters.js'
+import { levels, spectra, ballistics, cycle, trace } from './meters.js'
 import time, { UNITS } from './time.js'
 import opIcons from './icons.js'
 import { keep, unkeep, kept, tape, tapes, own, owner, claim } from './keep.js'
@@ -979,7 +979,7 @@ function arrival(names) {
       a.preview = true
       showing = 0
       v.stream({ sampleRate: m.sampleRate, channels: (m.channels ?? m.peaks).length, total: m.estimate ? Math.round(m.estimate * m.sampleRate) : null, dim: true, keep: holding })
-      aim()
+      aim(false, true)
       pl.set(null)
       state.whole = false
       state.hasOutput = true
@@ -1087,7 +1087,7 @@ function begin(a) {
   a.preview = false
   showing = a.id
   v.stream({ sampleRate: a.sampleRate, channels: a.channels, total: a.total })
-  aim()
+  aim(false, true)
   for (const p of a.parts) piece(p)
   state.hasOutput = true
   state.loading = false
@@ -1103,12 +1103,20 @@ function standIn(doc) {
 }
 // A whole output (or none) becomes the page's: drawn (unless it was drawn as it came), played, measured
 // The tab's sound where it was looked at when it was left, and what was selected on it, before a switch or a reload:
-// once, as soon as the sound starts arriving, so the view is where it was while the rest comes in
-function aim(held = false) {
-  const doc = docs.find(d => d.id === state.tab)
+// where it was looked at once, as soon as the sound starts arriving, so the view is where it was while the rest comes in;
+// what was selected, and the caret, once all of it has come (`coming` till then, the caret waiting at its start, never
+// past what has come), unless the caret was put elsewhere meanwhile
+const START = { selection: null, band: null, more: [], cursor: 0, anchor: 0 }, deferred = new WeakSet()
+function aim(held = false, coming = false) {
+  const doc = docs.find(d => d.id === state.tab), view = doc?.view
   if (doc?.frame) { v.frame = doc.frame; doc.frame = null }
   // what was selected, once there is a sound to select on (not the lanes held for it)
-  if (doc?.view && !held) { if (Number.isFinite(doc.view.cursor) && Array.isArray(doc.view.more)) v.state = doc.view; doc.view = null }
+  if (!view || held) return
+  if (!(Number.isFinite(view.cursor) && Array.isArray(view.more))) { doc.view = null; return }
+  if (coming) { if (!deferred.has(view)) { deferred.add(view); v.state = START } return }
+  const now = v.state
+  if (!deferred.has(view) || !now.selection && !now.more.length && now.cursor === 0) v.state = view
+  doc.view = null
 }
 function settle(out, draw = true, behind = false) {
   output = out
@@ -1271,14 +1279,18 @@ function toggleShow(name) {
   meter()
 }
 // The meters at the view's right: the output's level and spectrum where it is heard (the 50 ms before the playhead, a
-// spectrum frame ending there), across the selection, or around the caret (meters.js)
+// spectrum frame ending there), across the selection, or around the caret (meters.js); as it plays or records, the
+// level as a peak meter shows it, its peak held a while (ballistics, from the last frame's: `peaked`)
+let peaked = null
 function meter(t = null) {
-  const size = 4096
+  const size = 4096, now = performance.now()
+  const live = l => { const dt = peaked ? (now - peaked.at) / 1000 : 0; peaked = { levels: ballistics(l, peaked?.levels, dt), at: now }; return peaked.levels }
+  if (t == null && !recorder) peaked = null
   if (!state.show.meters) { v.meters = null; return }
   // recording: what the microphone hears, the 50 ms just come
   if (recorder) {
     const x = recorder.recent, n = x[0]?.length ?? 0, rate = recorder.sampleRate
-    v.meters = n ? { levels: levels(x, n - Math.round(rate * .05), n), spectra: spectra(x, n - size, n, { size }), size, rate } : null
+    v.meters = n ? { levels: live(levels(x, n - Math.round(rate * .05), n)), spectra: spectra(x, n - size, n, { size }), size, rate } : null
     return
   }
   if (!output?.duration) { v.meters = null; return }
@@ -1287,7 +1299,8 @@ function meter(t = null) {
   if (!w) { v.meters = null; return }
   const [a, b] = t != null ? [t - .05, t] : sel || [v.cursor - .025, v.cursor + .025], from = Math.round(a * rate) - w.from, to = Math.round(b * rate) - w.from
   const c = Math.round(v.cursor * rate) - w.from, [s0, s1] = t != null ? [to - size, to] : sel ? [from, Math.max(to, from + size)] : [c - size / 2, c + size / 2]
-  v.meters = { levels: levels(w.x, from, to), spectra: spectra(w.x, s0, s1, { size }), size, rate }
+  const l = levels(w.x, from, to)
+  v.meters = { levels: t != null ? live(l) : l, spectra: spectra(w.x, s0, s1, { size }), size, rate }
 }
 // The picture's switch: the waveform or the spectrogram; the spectrogram's again, its frequencies on the next scale
 // (octaves, mel, hertz), said by it a moment

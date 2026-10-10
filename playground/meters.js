@@ -11,6 +11,20 @@ export function levels(channels, from, to) {
   })
 }
 
+// The levels as a peak meter shows them as sound goes by, each channel's from the last frame's (`was`, `dt` s before):
+// a peak rises at once and falls back 20 dB in 1.7 s, a digital peak meter's return (IEC 60268-18); its mark, `hold`,
+// stays at the highest it reached HOLD s, then falls as fast, `held` s it has stayed. None before, the levels as read
+const HOLD = 1.5
+export function ballistics(levels, was, dt) {
+  const fall = s => 10 ** (-Math.max(0, s) / 1.7)
+  return levels.map((m, i) => {
+    const w = was?.[i]
+    if (!w) return { ...m, hold: m.peak, held: 0 }
+    const peak = Math.max(m.peak, w.peak * fall(dt)), up = peak >= w.hold, held = up ? 0 : w.held + dt
+    return { rms: m.rms, peak, hold: up ? peak : Math.max(peak, w.hold * fall(Math.min(dt, held - HOLD))), held }
+  })
+}
+
 // Power spectra of each channel, dB per bin up to Nyquist, over samples [from, to): Welch's average of Hann frames of
 // `size` hopping by half, at most `frames` of them spread evenly (a long selection is sampled, not read whole). A
 // full-scale sine reads 0 dB at its bin: its peak is N/4 through Hann's coherent gain of a half, so |X|² · 16/N².
