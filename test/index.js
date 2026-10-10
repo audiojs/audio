@@ -5688,7 +5688,7 @@ test('pitch({ voice: true }): the shift lands, the input outside the range and w
 
 // A voice's range: the shift glides in and out as fast as a voice moves its pitch (Xu & Sun 2002: 110 ms for 2.35
 // semitones up), not in 10 ms, a jump; and its cycles are back on the input's own by the crossfade into it, which met
-// them a part of a period off, as much as the input itself (a Rosenberg vowel at 140 Hz: 0.3 to −3.6 dB)
+// them a part of a period off, the difference as loud as the input (a Rosenberg vowel at 140 Hz: −3.6 to +0.3 dB)
 test('pitch({ voice: true }): a range glides in and out at a voice\'s pace, and hands back in phase', async t => {
   if (!await import('@audio/tune-curve').catch(() => null)) return t.ok(true, 'skipped: @audio/tune-curve is not installed')
   let { default: yin } = await import('@audio/pitch-yin')
