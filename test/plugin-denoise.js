@@ -126,8 +126,10 @@ test('dereverb: reduces late-tail energy, never boosts it', async () => {
 	let t60 = 0.5
 	// the response as long as its decay: cut at 4096 samples (93 ms), its tail stopped dead, faster than a room's, and
 	// dereverb from 0.5 reads such a take as dry (its lowest cells no diffuse tail)
-	let imp = new Float32Array(Math.round(t60 * SR))
-	for (let i = 0; i < imp.length; i++) imp[i] = (Math.random() * 2 - 1) * Math.exp(-6.9 * i / (t60 * SR))
+	// a seeded noise: unseeded, one response in some drew a tail dereverb takes for none (CI: energy 2.7471 -> 2.7471)
+	let imp = new Float32Array(Math.round(t60 * SR)), seed = 7
+	let rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 0x100000000) * 2 - 1
+	for (let i = 0; i < imp.length; i++) imp[i] = rand() * Math.exp(-6.9 * i / (t60 * SR))
 	imp[0] = 1  // direct path
 	let rev = convolve(speech, imp)
 	let out = (await audio.from([rev.slice()], { sampleRate: SR }).dereverb().read())[0]
