@@ -274,7 +274,7 @@
     "@audio/mir-nnls-chroma": "^1.0.0",
     "@audio/neural-denoise": "^0.5.0",
     "@audio/neural-pitch": "^0.1.0",
-    "@audio/neural-separate": "^0.4.0",
+    "@audio/neural-separate": "^0.5.0",
     "@audio/neural-transcribe": "^0.1.0",
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.11.1",
@@ -313,7 +313,7 @@
     "@audio/mir-nnls-chroma": "^1.0.0",
     "@audio/neural-denoise": "^0.5.0",
     "@audio/neural-pitch": "^0.1.0",
-    "@audio/neural-separate": "^0.4.0",
+    "@audio/neural-separate": "^0.4.0 || ^0.5.0",
     "@audio/neural-transcribe": "^0.1.0",
     "web-audio-api": "^1.6.0"
   },
