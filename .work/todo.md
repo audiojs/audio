@@ -62,13 +62,9 @@ Page rule: one page, one search query, one problem. Hear it (A/B) → try your f
 
 ## Next
 
-0. [ ] **Node playback starts ~2 s late on PulseAudio** (CI's null sink): @audio/speaker's miniaudio device takes the first ~0.1 s of writes, then nothing for ~2.2 s, then real time; Chromium's stream on the same sink starts in 90 ms. Found by test/polyfill.js (`_moves`: 421 ms to move, the page 91). Suspend-on-idle is not it. Look at miniaudio's PulseAudio buffer attributes (low-latency profile: tlength, prebuf) or the ALSA backend.
-
 1. [x] **MCP server + skills** — gate long met, ~40+ registry ops + full stat surface ready ([.work/mcp.md](mcp.md)): `bin/mcp.js` (load/info/analyze/edit/save/undo/read/play, stateful sessions, `@modelcontextprotocol/sdk` over stdio) + `audio-master`/`audio-clean`/`audio-analyze` skills. Watch: counterpoint-studio/audio-file-mcp-app (competitor).
 2. [x] **Playground** — the editor renamed: the library's live face, every edit a line of `audio` code (playground.html; #53, #58)
 3. [ ] **jz/WASM lane** — for streaming/realtime/worklet where batch JIT can't help: compile hot kernels (fourier-transform, biquad, pvoc) via `@audio/compile` → per-atom `dist/*.wasm` + `./wasm` export, host prefers in `useAtom`. Blocked on jz typed-array provenance fix (bench/fftplan + bench/provenance repro cases landed in jz; ~6× gap). ~1.4× over warm JS once fixed — realtime-lane priority, not batch.
-4. [ ] Small: Wavearea: adopt facade.play() P3 or keep own player · `audio/polyfill`: HTMLAudioElement in any runtime (#68) · common processing scripts (vocal warmup etc)
-
 * [ ] Integrations for VSCode, sublime, atom and other tools: edit audio
 * [ ] playground: theme selector, don't force users.
 * [ ] Automastering - must have.

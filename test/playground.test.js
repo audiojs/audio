@@ -3,6 +3,7 @@
 import { test, before, after, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
+import { PerformanceObserver } from 'node:perf_hooks'
 import { readFile, readdir, writeFile, mkdtemp, rm } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -13,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import wav from '@audio/encode-wav'
 import audio from '../audio.js'
-import { prepare, error, chain, append, source, callAt, setArg, cli, groups, steps, dropStep, moveStep, moveLines, group, ungroup, renameGroup, turnOff, turnOn, tracks, focus, toTrack, voiceTrack, soundOf, addTrack, dropTrack, rollback, stages } from '../playground/code.js'
+import { prepare, error, bare, chain, append, source, callAt, setArg, cli, groups, steps, dropStep, moveStep, moveLines, group, ungroup, renameGroup, turnOff, turnOn, tracks, focus, toTrack, voiceTrack, soundOf, addTrack, dropTrack, rollback, stages } from '../playground/code.js'
 import { ops, guides, previews, SCALES } from '../playground/ops.js'
 import { SCALES as NOTE_SCALES, snapMidi } from '@audio/note'
 import { help, layout, layouts, texts } from '../playground/help.js'
@@ -23,7 +24,7 @@ import clock from '../playground/time.js'
 import { samples, RATE as SAMPLES } from '../site/samples.js'
 import { vowel } from './gen.js'
 import recipes from '../playground/recipes.js'
-import { cycle, trace, ballistics } from '../playground/meters.js'
+import { cycle, trace, ballistics, spectra } from '../playground/meters.js'
 import md from '../playground/markdown.js'
 import doing, { measures, noted } from '../playground/doing.js'
 import '../.site-build.js'
@@ -363,6 +364,22 @@ test('meters: the pitch holds to the note it had, where a fresh look at each mom
   }
 })
 
+// The mark and the spectrum are read every frame it plays. A loop left unoptimized makes a heap number of each product,
+// and the page stops to collect them over and over as it plays (a read past the samples' end did: 30 collections a
+// second in Chrome)
+test('meters: a frame of them as it plays leaves nothing to collect', async () => {
+  const rate = 48000, x = [0, 1].map(c => Float32Array.from({ length: 6 * rate }, (_, i) => .5 * Math.sin(2 * Math.PI * 220 * i / rate + c)))
+  const t = trace(), frame = i => { cycle(x, 4096 + i * 800, rate, t); spectra(x, i * 800, i * 800 + 4096, { size: 4096 }) }
+  for (let i = 0; i < 100; i++) frame(i)
+  let gcs = 0
+  const seen = new PerformanceObserver(list => { gcs += list.getEntries().length })
+  seen.observe({ entryTypes: ['gc'] })
+  for (let i = 0; i < 300; i++) frame(i)
+  await new Promise(r => setTimeout(r, 20))
+  seen.disconnect()
+  assert.ok(gcs <= 10, `${gcs} collections in 300 frames`)
+})
+
 // What the agent does while it answers (doing.js), as the page's user would say it, from the call alone
 test('doing: an agent\'s tool call said as the user would say it, only what the call names', () => {
   const time = t => `${t}s`, spec = k => ({ podcast: 'Apple Podcasts' })[k] ?? k
@@ -488,6 +505,17 @@ test('code: layers moved by their lines, made a group, unmade, named; a step put
   const c = `audio('a.wav').gain(-3).fade(1)`, off = apply(c, turnOff(c, chain(c).calls[0]))
   assert.equal(off, `audio('a.wav')/* .gain(-3) */.fade(1)`)
   assert.equal(apply(off, turnOn(off, steps(off)[0].call)), c)
+  // one turned off, set where it stands, in its comment: the script runs as it did
+  const d = `audio('a.wav')\n  // .gain(-3)\n  .fade(1)`, set = apply(d, setArg(steps(d)[0].call, 0, -6))
+  assert.equal(set, `audio('a.wav')\n  // .gain(-6)\n  .fade(1)`)
+  assert.equal(apply(off, setArg(steps(off)[0].call, 0, -6)), `audio('a.wav')/* .gain(-6) */.fade(1)`)
+  const e = `audio('a.wav')/* .gate({ threshold: -40 }) */`
+  assert.equal(apply(e, setArg(steps(e)[0].call, 'threshold', -50)), `audio('a.wav')/* .gate({ threshold: -50 }) */`)
+  const f = `audio('a.wav')\n  // .fade()`
+  assert.equal(apply(f, setArg(steps(f)[0].call, 0, .5)), `audio('a.wav')\n  // .fade(0.5)`, 'its first setting')
+  assert.equal(bare(set), bare(d), 'comments aside, the same script')
+  assert.notEqual(bare(c), bare(off), 'a step turned off is another')
+  assert.equal(bare(`a /* b\nc */ d // e`), `a  \n  d  `, 'its line breaks kept')
 })
 
 // The chain's edits as an agent acts on them (step): listed in order, those turned off among them; one taken away,
@@ -2699,15 +2727,15 @@ test('editor: a level change draws the gain line; its points drag, above or mirr
   assert.ok(line, 'the line is there to grab between its points')
 })
 
-// Pitch is edited in its own context (View > Edit pitch), on the spectrogram, which the picture turns to: the pitch curve
-// drawn on the voice's harmonics, none over the waveform; dragged up or down, the whole pitch line moves with it, one
-// voice's pitch() curve (with no points, one where it was pressed), all of the voice moved; dragged again, the same
-// curve set again
+// Pitch is edited in its own context (View > Pitch curve), on the spectrogram, which the picture turns to: the pitch curve
+// drawn on the voice's harmonics, none over the waveform; dragged up or down, by cents as the pitch tool goes (12 (dy /
+// lh)²), the whole pitch line moves with it, one voice's pitch() curve (with no points, one where it was pressed), all of
+// the voice moved; dragged again, the same curve set again
 test('editor: dragging the pitch curve moves the whole pitch line, a voice\'s pitch() curve', async () => {
   await open()
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 220 * t) * (t > 0.5 && t < 1.5), { duration: 2 })`)
   await lengthIs('0:02.000')
-  await menu('View', 'Edit pitch')
+  await menu('View', 'Pitch curve')
   assert.equal(await page.getByRole('tab', { name: 'Spectrogram', exact: true }).getAttribute('aria-selected'), 'true')
   // the curve, wherever the spectrogram's scale puts 220 Hz: up its lane at 1 s
   const { box, x } = await axis(2), up = Array.from({ length: Math.floor((box.height - 22) / 3) }, (_, i) => [x(1), box.y + box.height - 22 - 3 * i])
@@ -2717,23 +2745,24 @@ test('editor: dragging the pitch curve moves the whole pitch line, a voice\'s pi
   await show('wave')
   const f0y = box.y + (box.height - 22) * (1 - Math.log(220 / 60) / Math.log(1000 / 60))
   for (let i = 0; i < 9; i++) { await page.mouse.move(x(1), f0y - 4 + i); assert.notEqual(await page.locator('.plot').evaluate(el => el.style.cursor), 'ns-resize') }
-  // Edit pitch off: back to the waveform the spectrogram was turned to from; on again, the spectrogram
+  // Pitch curve off: back to the waveform the spectrogram was turned to from; on again, the spectrogram
   await show('spec')
-  await menu('View', 'Edit pitch')
+  await menu('View', 'Pitch curve')
   assert.equal(await page.getByRole('tab', { name: 'Waveform', exact: true }).getAttribute('aria-selected'), 'true')
-  await menu('View', 'Edit pitch')
+  await menu('View', 'Pitch curve')
   assert.equal(await page.getByRole('tab', { name: 'Spectrogram', exact: true }).getAttribute('aria-selected'), 'true')
   const at = await grab(up, 'ns-resize')
   await page.mouse.move(...at)
   await page.mouse.down()
-  await page.mouse.move(at[0], at[1] - 30, { steps: 6 })
-  assert.match(await page.locator('.hint').innerText(), /^\+\d+st, A3([+−]\d+ct)? → .+, all of it$/)
+  const lh = box.height - 22
+  await page.mouse.move(at[0], at[1] - lh * Math.sqrt(2.5 / 12), { steps: 6 })
+  assert.match(await page.locator('.hint').innerText(), /^\+2st [3-6]\dct, A3([+−]\d+ct)? → .+, all of it$/)
   await page.mouse.up()
-  await page.waitForFunction(() => /\.pitch\(\{ t: \[1\], v: \[[1-9]\d*\] \}, \{ voice: true \}\)$/.test(scriptText().trim()))
-  const st = +(await code()).match(/v: \[(\d+)\]/)[1]
+  await page.waitForFunction(() => /\.pitch\(\{ t: \[1\], v: \[[1-9][\d.]*\] \}, \{ voice: true \}\)$/.test(scriptText().trim()))
+  const st = +(await code()).match(/v: \[([\d.]+)\]/)[1]
   // dragged down again: the same curve, its semitones back toward 0
-  await drag(await grab(up, 'ns-resize'), [0, 15])
-  await page.waitForFunction(st => { const m = scriptText().match(/v: \[(\d+)\]/); return m && +m[1] < st }, st)
+  await drag(await grab(up, 'ns-resize'), [0, lh / 4])
+  await page.waitForFunction(st => { const m = scriptText().match(/v: \[([\d.]+)\]/); return m && +m[1] < st }, st)
   assert.equal((await code()).match(/\.pitch\(/g).length, 1, await code())
 })
 
@@ -2744,7 +2773,7 @@ test('editor: a click on the pitch curve makes a point of the pitch line; dragge
   await open()
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 220 * t) * (t > 0.5 && t < 1.5), { duration: 2 })`)
   await lengthIs('0:02.000')
-  await menu('View', 'Edit pitch')
+  await menu('View', 'Pitch curve')
   const { box, x } = await axis(2), up = t => Array.from({ length: Math.floor((box.height - 22) / 3) }, (_, i) => [x(t), box.y + box.height - 22 - 3 * i])
   await page.mouse.click(...await grab(up(.7), 'ns-resize'))
   await page.waitForFunction(() => /\.pitch\(\{ t: \[0\.7\], v: \[0\] \}, \{ voice: true \}\)$/.test(scriptText().trim()))
@@ -2757,20 +2786,50 @@ test('editor: a click on the pitch curve makes a point of the pitch line; dragge
   await heard()
   await page.mouse.move(...point)
   await page.mouse.down()
-  await page.mouse.move(point[0], point[1] - 20, { steps: 6 })
+  const lh = box.height - 22
+  await page.mouse.move(point[0], point[1] - lh * Math.sqrt(1.5 / 12), { steps: 6 })
   await page.waitForTimeout(500)
-  assert.match(await page.locator('.hint').innerText(), /^\+\d+st, A3([+−]\d+ct)? → /)
+  assert.match(await page.locator('.hint').innerText(), /^\+1st [3-6]\dct, A3([+−]\d+ct)? → /)
   const { peak } = await heard()
   assert.ok(peak > .05, `heard as it goes: ${peak}`)
   await page.mouse.up()
-  await page.waitForFunction(() => /\.pitch\(\{ t: \[0\.7, 1, 1\.3\], v: \[0, [1-9]\d*, 0\] \}, \{ voice: true \}\)$/.test(scriptText().trim()))
+  await page.waitForFunction(() => /\.pitch\(\{ t: \[0\.7, 1, 1\.3\], v: \[0, [1-9][\d.]*, 0\] \}, \{ voice: true \}\)$/.test(scriptText().trim()))
   // on the curve as it now is, a double-click takes it away; the two either side stay
   const raised = await grab(Array.from({ length: 40 }, (_, i) => [point[0], point[1] - 2 * i]), 'move')
   await page.mouse.dblclick(...raised)
   await page.waitForFunction(() => /\.pitch\(\{ t: \[0\.7, 1\.3\], v: \[0, 0\] \}, \{ voice: true \}\)$/.test(scriptText().trim()))
   // the curve dragged between them: every point by as much
-  await drag(await grab(up(1), 'ns-resize'), [0, -20])
-  await page.waitForFunction(() => { const m = scriptText().trim().match(/\.pitch\(\{ t: \[0\.7, 1\.3\], v: \[([1-9]\d*), ([1-9]\d*)\] \}, \{ voice: true \}\)$/); return m && m[1] === m[2] })
+  await drag(await grab(up(1), 'ns-resize'), [0, -lh / 3])
+  await page.waitForFunction(() => { const m = scriptText().trim().match(/\.pitch\(\{ t: \[0\.7, 1\.3\], v: \[([1-9][\d.]*), ([1-9][\d.]*)\] \}, \{ voice: true \}\)$/); return m && m[1] === m[2] })
+})
+
+// The curve's bends as handles, as Praat's Manipulation shows its stylized pitch (PitchTier_stylize, 2 st): none in the
+// script till one moves; dragged, a point of the line, the handles either side its anchors at 0, so only what is between
+// them moves. A click on a selection's pitch tool shows the curve, the spectrogram framed on the voice
+test('editor: the pitch curve\'s bends drag, bending the voice between the handles either side', async () => {
+  await open()
+  await noCues()
+  // a voice swinging ±2.2 semitones about 200 Hz twice a second: highest at 0.5, 1 and 1.5 s (200 + 8π cos 4πt Hz)
+  await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * (200 * t + 2 * Math.sin(2 * Math.PI * 2 * t))), { duration: 2 })`)
+  await lengthIs('0:02.000')
+  const { box, x } = await axis(2), lh = box.height - 22, { pitch } = tools(x, box, .5, 1.5)
+  await drag([x(.5), box.y + 80], [x(1.5) - x(.5), 0])
+  await page.mouse.click(...await grab([pitch], 'ns-resize'))
+  assert.equal(await page.getByRole('tab', { name: 'Spectrogram', exact: true }).getAttribute('aria-selected'), 'true')
+  await page.keyboard.press('Escape')
+  // a handle by the crest at 1 s (Praat's stylization keeps the points a straight line misses most, not the crests
+  // themselves: here 0.95 s of a 10 ms track)
+  const scan = Array.from({ length: 21 }, (_, k) => .9 + k / 100).flatMap(t => Array.from({ length: Math.floor(lh / 2) }, (_, i) => [x(t), box.y + lh - 2 * i]))
+  const knot = await grab(scan, 'move')
+  // a click alone changes nothing
+  await page.mouse.click(...knot)
+  await page.waitForTimeout(300)
+  assert.doesNotMatch(await code(), /\.pitch\(/)
+  await drag(knot, [0, -lh * Math.sqrt(2 / 12)])
+  await page.waitForFunction(() => /\.pitch\(\{ t: \[[\d.]+, [\d.]+, [\d.]+\], v: \[0, [\d.]+, 0\] \}, \{ voice: true \}\)$/.test(scriptText().trim()))
+  const [, t, v] = (await code()).match(/t: \[([^\]]+)\], v: \[([^\]]+)\]/), ts = t.split(', ').map(Number), vs = v.split(', ').map(Number)
+  assert.ok(Math.abs(ts[1] - 1) < .1 && ts[0] > .6 && ts[0] < ts[1] && ts[2] > ts[1] && ts[2] < 1.4, t)
+  assert.ok(Math.abs(vs[1] - 2) < .2, v)
 })
 
 test('editor: the caret goes where the pointer presses; Play starts on its press; the loop switch leaves Space to play', async () => {
@@ -6218,47 +6277,47 @@ test('editor: a crossfade dragged out of a range\'s end draws both sides\' fades
 // formants; the pill on its top edge its level alone
 const tools = (x, box, a, b) => Object.fromEntries(['pitch', 'intonation', 'formant'].map((name, i) => [name, [(x(a) + x(b)) / 2 + (i - 1) * 18, box.y + box.height - 22 - 8]]))
 
-// The pitch tool: dragged up, whole semitones, the note it goes to said by it (a 220 Hz tone is A3, A4 being 440 Hz,
-// ISO 16), the range heard as it will sound while it moves, from the first move on (the library's pitch(), a voice's),
-// one pitch() step let go
-test('editor: the pitch tool goes by semitones, says the note it goes to and is heard as it goes', async () => {
+// The pitch tool: dragged up, by the square of how far, a few cents near where it was pressed, semitones further, 12 a
+// picture's height away; the note it goes to said by it (a 220 Hz tone is A3, A4 being 440 Hz, ISO 16), the range heard
+// as it will sound while it moves, from the first move on (the library's pitch(), a voice's), one pitch() step let go
+test('editor: the pitch tool goes by cents near, semitones far, says the note it goes to and is heard as it goes', async () => {
   await page.addInitScript(tap)
   await open()
   await noCues()
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 220 * t), { duration: 2 })`)
   await lengthIs('0:02.000')
-  // editing pitch, its curve comes, the note said; on the waveform a lane's height is the voice's range, 60 Hz to 1 kHz
-  // on octaves (view.js VOICE): two semitones up is that share of it
-  await menu('View', 'Edit pitch')
+  await menu('View', 'Pitch curve')
   await show('wave')
   const { box, x } = await axis(2), { pitch } = tools(x, box, .5, 1.5)
   await drag([x(.5), box.y + 80], [x(1.5) - x(.5), 0])
   const said = () => page.locator('.hint').innerText()
   for (const until = Date.now() + 8000; Date.now() < until; await page.waitForTimeout(200)) { await page.mouse.move(...pitch); if (/^Pitch A3/.test(await said())) break; await page.mouse.move(pitch[0] + 30, pitch[1] - 40) }
-  assert.match(await said(), /^Pitch A3([+−][1-5]ct)?, by semitones$/)
-  const lh = box.height - 22, up = 2 / (12 * Math.log2(1000 / 60)) * lh + 2
+  assert.match(await said(), /^Pitch A3([+−][1-5]ct)?, by cents; a click hides the curve$/)
+  // the plot's height, one lane: st = 12 (dy / lh)²
+  const lh = box.height - 22, at = st => pitch[1] - lh * Math.sqrt(st / 12)
   await heard()
   await page.mouse.down()
   // pressed and moved a little: at 0, heard as it is
   await page.mouse.move(pitch[0], pitch[1] - 4)
   await page.waitForTimeout(500)
   assert.ok((await heard()).peak > .05, 'at 0 semitones, heard as it is')
-  await page.mouse.move(pitch[0], pitch[1] - up, { steps: 6 })
+  // a fifth of a semitone: cents alone
+  await page.mouse.move(pitch[0], at(.2), { steps: 6 })
   await page.waitForTimeout(500)
-  assert.match(await said(), /^\+2st, A3([+−][1-5]ct)? → B3([+−][1-5]ct)?$/)
+  assert.match(await said(), /^\+(1\d|2\d)ct, A3([+−][1-5]ct)? → A3\+\d+ct$/)
   const { peak } = await heard()
   assert.ok(peak > .05, `heard as it goes: ${peak}`)
-  // with ⌘ (Ctrl), cents: 4 px more, a quarter as far, some hundredths of a semitone
-  await page.keyboard.down('ControlOrMeta')
-  await page.mouse.move(pitch[0], pitch[1] - up - 4, { steps: 2 })
-  assert.match(await said(), /^\+2st [1-9]\d?ct, /)
+  // two and a half semitones, then most of the plot's height: ten and more
+  await page.mouse.move(pitch[0], at(2.5), { steps: 6 })
+  assert.match(await said(), /^\+2st [3-6]\dct, A3/)
+  await page.mouse.move(pitch[0], pitch[1] - lh * .95, { steps: 6 })
+  assert.match(await said(), /^\+10st [6-9]\dct, /)
   await page.mouse.up()
-  await page.keyboard.up('ControlOrMeta')
-  await page.waitForFunction(() => /\.pitch\(2\.\d\d?, \{ at: 0\.5, d: 1, voice: true \}\)$/.test(scriptText()))
+  await page.waitForFunction(() => /\.pitch\(10\.\d\d?, \{ at: 0\.5, d: 1, voice: true \}\)$/.test(scriptText()))
 })
 
 // The tools beside it: a voice's intonation, its rises and falls wider up and flatter down (half a lane twice as wide,
-// or a monotone), by 0.05; its formants, by semitones (half a lane an octave). Each heard as it goes, from the first
+// or a monotone), by 0.05; its formants, as the pitch tool its pitch. Each heard as it goes, from the first
 // move, and one step over the selection; the same again over it sets the same step again
 test('editor: the tools set a voice\'s intonation and its formants, heard as they go, a step each', async () => {
   await page.addInitScript(tap)
@@ -6267,7 +6326,7 @@ test('editor: the tools set a voice\'s intonation and its formants, heard as the
   // a voice whose pitch rises and falls, ±2 semitones about 200 Hz twice a second
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * (200 * t + 2 * Math.sin(2 * Math.PI * 2 * t))), { duration: 2 })`)
   await lengthIs('0:02.000')
-  await menu('View', 'Edit pitch')
+  await menu('View', 'Pitch curve')
   const { box, x } = await axis(2), lh = box.height - 22, { intonation, formant } = tools(x, box, .5, 1.5), said = () => page.locator('.hint').innerText()
   await drag([x(.5), box.y + 80], [x(1.5) - x(.5), 0])
   await page.mouse.move(...intonation)
@@ -6288,16 +6347,16 @@ test('editor: the tools set a voice\'s intonation and its formants, heard as the
   await drag(await grab([intonation], 'ns-resize'), [0, lh / 4])
   await page.waitForFunction(() => /\.intonation\(0\.25, \{ at: 0\.5, d: 1 \}\)$/.test(scriptText()))
   assert.equal((await code()).match(/\.intonation\(/g).length, 1)
-  // formants: up an eighth of a lane, 3 semitones
+  // formants: up half the plot's height, 3 semitones, as the pitch tool goes (12 (dy / lh)²)
   await page.mouse.move(...await grab([formant], 'ns-resize'))
-  assert.equal(await said(), 'Formants, by semitones')
+  assert.equal(await said(), 'Formants, by cents')
   await page.mouse.down()
-  await page.mouse.move(formant[0], formant[1] - lh / 8, { steps: 6 })
+  await page.mouse.move(formant[0], formant[1] - lh / 2, { steps: 6 })
   await page.waitForTimeout(500)
-  assert.equal(await said(), 'formants +3st')
+  assert.match(await said(), /^formants \+(2st 9\dct|3st( [1-9]ct)?)$/)
   assert.ok((await heard()).peak > .05, 'heard as it goes')
   await page.mouse.up()
-  await page.waitForFunction(() => /\.formant\(3, \{ at: 0\.5, d: 1 \}\)$/.test(scriptText()))
+  await page.waitForFunction(() => /\.formant\((2\.9\d?|3(\.0\d?)?), \{ at: 0\.5, d: 1 \}\)$/.test(scriptText()))
 })
 
 // The spectrogram's tab again: its frequencies on the next scale, octaves, mel, hertz, said by it a moment
@@ -6420,6 +6479,34 @@ test('editor: the waveform\'s look, from a right-click on it: coloured by its sp
   const [top, bottom, red] = await lit()
   assert.ok(bottom > top / 2 && red > 40, `one lane, red: ${[top, bottom, red]}`)
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').wave?.colour === 'temperature')
+})
+
+// Coloured in the spectrogram's colours, flat: where the spectrum centres, 100 Hz up to 10 kHz in octaves, along the
+// colormap's upper half, so 100 Hz takes magma's middle, #b5367a, a pink, and 10 kHz its top, #fcfdbf, a pale yellow
+// (matplotlib _cm_listed.py, entries 128 and 255)
+test('editor: the waveform coloured in the spectrogram\'s colours, low at their middle, high at their top', async () => {
+  await page.addInitScript(() => { if (!sessionStorage.seeded) { sessionStorage.seeded = 1; localStorage.setItem('audio-repl', JSON.stringify({ look: { map: 'magma' }, wave: { colour: 'colormap', fill: 'flat' }, docs: [{ code: 'audio.from(t => 0.8 * Math.sin(2 * Math.PI * (t < 1 ? 100 : 10000) * t), { duration: 2 })' }] })) } })
+  await open()
+  await lengthIs('0:02.000')
+  await page.waitForTimeout(500)
+  // the lit pixels' mean colour about the zero line, a third of the way in and two thirds (100 Hz's cycles stand apart)
+  const at = x => pixels(`const y = Math.round((h - 44) / 2), s = [0, 0, 0]; let n = 0; for (let dx = -20; dx < 20; dx++) for (let dy = -3; dy <= 3; dy++) { const i = ((y + dy) * w + Math.round(w * arg) + dx) * 4; if (d[i] + d[i + 1] + d[i + 2] < 250) continue; s[0] += d[i]; s[1] += d[i + 1]; s[2] += d[i + 2]; n++ } return s.map(v => Math.round(v / n))`, x)
+  const [low, high] = [await at(1 / 3), await at(2 / 3)]
+  assert.ok(low[0] - low[1] > 80 && low[2] > low[1], `100 Hz pink, red over green, blue over green: ${low}`)
+  assert.ok(high[1] > 200 && Math.abs(high[0] - high[1]) < 30 && high[2] < high[1], `10 kHz pale yellow: ${high}`)
+  // the spectrogram's colours changed, the waveform's with them: viridis, its middle #21908d, a teal, its top #fde725,
+  // a yellow (entries 128 and 255)
+  await show('spec')
+  const { box } = await axis(1)
+  await page.mouse.click(box.x + 200, box.y + 100, { button: 'right' })
+  await menuRow('How the spectrogram draws…').click()
+  await choice('Colours', 'Viridis').click()
+  await page.keyboard.press('Escape')
+  await show('wave')
+  await page.waitForTimeout(500)
+  const [teal, yellow] = [await at(1 / 3), await at(2 / 3)]
+  assert.ok(teal[1] - teal[0] > 60 && teal[2] - teal[0] > 60, `100 Hz teal: ${teal}`)
+  assert.ok(yellow[0] > 200 && yellow[1] > 180 && yellow[2] < 100, `10 kHz yellow: ${yellow}`)
 })
 
 // The edits' cards are as wide as the panel: a long call's settings, folded, are cut short with an ellipsis, never
@@ -6819,22 +6906,23 @@ test('editor: the export writes the cuts as an edit list, the clip named, at the
   assert.match(events[1], /00:00:03:00 00:00:08:00 00:00:02:00 00:00:07:00/, events[1])
 })
 
-// In the pitch context (View > Edit pitch) the pitch line is edited as the gain line is, on its own scale (half a lane
-// an octave): a press on its 0 makes a point, dragged up whole semitones; one pitch() curve, a voice's, set again in
+// In the pitch context (View > Pitch curve) the pitch line is edited as the gain line is, on its own scale (half a lane
+// an octave): a press on its 0 makes a point, dragged up, to the cent; one pitch() curve, a voice's, set again in
 // place; a double-click on a point takes it away, the last one the call
 test('editor: the pitch line, in the pitch context, edits a pitch() curve as the gain line edits gain()', async () => {
   await open()
   await noCues()
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 220 * t), { d: 2 })`)
   await lengthIs('0:02.000')
-  await menu('View', 'Edit pitch')
+  await menu('View', 'Pitch curve')
   // the line on the waveform (the spectrogram, which the picture turns to, draws its points on the pitch curve)
   await show('wave')
   const { box, x } = await axis(2), lh = box.height - 22, mid = box.y + lh / 2, st = lh / 2 / 12
+  const near = v => page.waitForFunction(v => { const m = scriptText().trim().match(/\.pitch\(\{ t: \[1\], v: \[([\d.]+)\] \}, \{ voice: true \}\)$/); return m && Math.abs(m[1] - v) < .1 }, v)
   await drag(await grab([[x(1), mid]], 'ns-resize'), [0, -3 * st])
-  await page.waitForFunction(() => /\.pitch\(\{ t: \[1\], v: \[3\] \}, \{ voice: true \}\)$/.test(scriptText().trim()))
+  await near(3)
   await drag(await grab([[x(1), mid - 3 * st]], 'move'), [0, -2 * st])
-  await page.waitForFunction(() => /\.pitch\(\{ t: \[1\], v: \[5\] \}, \{ voice: true \}\)$/.test(scriptText().trim()))
+  await near(5)
   assert.equal((await code()).match(/\.pitch\(/g).length, 1)
   await page.mouse.dblclick(...await grab([[x(1), mid - 5 * st]], 'move'))
   await page.waitForFunction(() => !scriptText().includes('pitch('))
@@ -7177,8 +7265,9 @@ test('editor: an edit made rolled back to a card, undone and redone, brings back
 })
 
 // A card dragged up or down takes its step there in the chain; a step bypassed keeps its card where it is, as tall, open
-// if it was, its settings out of reach till it is back on
+// if it was, the output whole; its settings set in its comment, nothing run, till it is back on
 test('editor: a card dragged takes its step along the chain; one bypassed stays where it is, as it was', async () => {
+  await page.addInitScript(() => { const post = Worker.prototype.postMessage; window.runs = 0; Worker.prototype.postMessage = function (m, ...r) { if (m?.type === 'run') runs++; return post.call(this, m, ...r) } })
   await open()
   await write(`audio('chime.wav')\n  .gain(-3)\n  .reverse()\n  .highpass(80)`)
   await lengthIs('0:08.000')
@@ -7203,11 +7292,20 @@ test('editor: a card dragged takes its step along the chain; one bypassed stays 
   assert.deepEqual(await names(), ['chime.wav', 'Highpass', 'Gain', 'Reverse'])
   assert.ok(await card('Gain').evaluate(el => el.classList.contains('open') && el.classList.contains('chosen') && el.classList.contains('off')), 'open, chosen, off')
   assert.deepEqual(await card('Gain').boundingBox(), box, 'where it was, as tall')
-  assert.ok(await card('Gain').locator('.params').evaluate(el => el.inert), 'its settings out of reach')
-  await page.locator('.viewing', { hasText: 'Up to Highpass: ' }).waitFor()
+  await page.locator('.viewing').waitFor({ state: 'detached' })
+  // set while bypassed: into its comment, nothing run
+  const ran = await page.evaluate(() => runs), slider = card('Gain').locator('input[type=range]').first()
+  await slider.evaluate(el => { el.value = 700; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })) })
+  await page.waitForFunction(() => /^  \/\/ \.gain\(-?[\d.]+\)$/m.test(scriptText()) && !scriptText().includes('.gain(-3)'))
+  await page.waitForTimeout(300)
+  assert.equal(await page.evaluate(() => runs), ran, 'nothing run')
+  assert.ok(await card('Gain').evaluate(el => el.classList.contains('open') && el.classList.contains('off')), 'open, off')
+  assert.equal(await page.locator('.viewing').count(), 0, 'the output whole')
+  await card('Gain').hover()
   await page.getByRole('button', { name: 'Turn gain on' }).click()
-  await page.waitForFunction(() => scriptText().includes('  .gain(-3)') && !scriptText().includes('//'))
+  await page.waitForFunction(() => /^  \.gain\(-?[\d.]+\)$/m.test(scriptText()) && !scriptText().includes('//'))
   await page.locator('.viewing', { hasText: 'Up to Gain: ' }).waitFor()
+  assert.ok(await page.evaluate(n => runs > n, ran), 'back on, it runs')
 })
 
 // A marker's flag dragged moves the marker alone: the caret stays where it was, and what plays plays on, not from the

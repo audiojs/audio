@@ -74,7 +74,7 @@ const SPECS = {
   },
   // Spotify normalizes on playback to -14 LUFS, raising quiet tracks only as far as 1 dB of true-peak
   // headroom allows; masters: "below -1dB TP", "True Peak below -2dB" when louder than -14 LUFS
-  streaming: {
+  spotify: {
     name: 'Spotify', url: 'https://support.spotify.com/us/artists/article/loudness-normalization/',
     rules: async a => {
       let [lufs, tp] = await a.stat(['loudness', 'truepeak'])
@@ -110,7 +110,7 @@ const SPECS = {
     }
   },
 }
-const ALIAS = { apple: 'podcast', spotify: 'streaming', ebu: 'broadcast' }
+const ALIAS = { apple: 'podcast', ebu: 'broadcast', streaming: 'spotify' }
 export const specs = Object.keys(SPECS)
 
 audio.fn.check = async function(spec) {

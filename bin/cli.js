@@ -155,7 +155,7 @@ const HELP = {
   fade:      { usage: 'fade [IN] [-OUT] [CURVE]', desc: 'Fade in/out (bare = 0.5s both)', examples: ['fade', 'fade 1s', 'fade .2s -1s cos'], label: 'Fading' },
   trim:      { usage: 'trim [THR]', desc: 'Auto-trim silence (threshold in dB)', examples: ['trim', 'trim -40'], label: 'Trimming' },
   shrink:    { usage: 'shrink [GAP] [THR]', desc: 'Compress silent pauses to a target gap (default 0.3s)', examples: ['shrink', 'shrink 0.5s', 'shrink 0.2s -40'], label: 'Shrinking silence' },
-  normalize: { usage: 'normalize [TARGET] [MODE]', desc: 'Normalize peak (dBFS), loudness (lufs) or rms; loudness holds a -1 dBTP ceiling', examples: ['normalize', 'normalize -3', 'normalize streaming', 'normalize -18 lufs', 'normalize -27 lufs ceiling:-2'], label: 'Normalizing' },
+  normalize: { usage: 'normalize [TARGET] [MODE]', desc: 'Normalize peak (dBFS), loudness (lufs) or rms; loudness holds a -1 dBTP ceiling', examples: ['normalize', 'normalize -3', 'normalize spotify', 'normalize -18 lufs', 'normalize -27 lufs ceiling:-2'], label: 'Normalizing' },
   crop:      { usage: 'crop OFF DUR', desc: 'Crop to time range', examples: ['crop 1s..10s', 'crop 0 5s'], label: 'Cropping' },
   clip:      { usage: 'clip OFF DUR', desc: 'Create a shared-page clip', examples: ['clip 1s..10s', 'clip 0 5s'], label: 'Clipping' },
   copy:      { usage: 'copy [OFF DUR | RANGE]', desc: 'Copy a range to the audio clipboard', examples: ['copy 1s..3s', 'copy'], label: 'Copying' },
@@ -208,7 +208,7 @@ const HELP = {
   deconstruct: { usage: 'deconstruct [TONAL] [NOISE] [TRANSIENT] [RANGE]', desc: 'The tonal, noisy and transient parts, each at its own level in dB (-60 all but removes one); separation:N (2) tells them apart more strictly', examples: ['deconstruct 0 -12', 'deconstruct 0 0 -6', 'deconstruct -60 0 0 separation:3'], label: 'Deconstructing' },
   codec:     { usage: 'codec [FORMAT] [KBPS] [RANGE]', desc: 'The sound as a lossy codec gives it back, lined up with the input: mp3 (default), aac, opus, vorbis, at KBPS (128); mp3 quality:V (VBR); gsm (13 kbps, 8 kHz)', examples: ['codec', 'codec aac 256', 'codec mp3 quality:2', 'codec gsm', 'codec opus 96 save heard.wav'], label: 'Encoding and decoding', values: { format: ['mp3', 'aac', 'opus', 'vorbis', 'gsm'] } },
   roomtone:  { usage: 'roomtone [THRESHOLD]', desc: "Fill digital silence (edited pauses, pad) with the recording's own room tone", examples: ['roomtone', 'trim pad 1.5s 2s roomtone check acx'], label: 'Filling room tone' },
-  master:    { usage: 'master REF', desc: 'Master to a reference track: its tone in mid and side, its loudness, under -1 dBTP (ceiling:N)', examples: ['master ref.wav save out.wav', 'master ref.wav ceiling:-2 check streaming'], label: 'Mastering' },
+  master:    { usage: 'master REF', desc: 'Master to a reference track: its tone in mid and side, its loudness, under -1 dBTP (ceiling:N)', examples: ['master ref.wav save out.wav', 'master ref.wav ceiling:-2 check spotify'], label: 'Mastering' },
   write:     { usage: 'write DATA [RANGE]', desc: 'Write raw sample values at a position (via --macro)', examples: ['write [0,0] 1s..1.1s'], label: 'Writing' },
   split:     { usage: 'split TIMES... | split --cue FILE', desc: 'Split into parts at times or cue-sheet tracks ({i}/{title}/{name} in output)', examples: ['split 30s 60s save part-{i}.wav', 'split --cue album.cue save "{i} - {title}.mp3"'], label: 'Splitting' },
   transform: { usage: 'transform FN', desc: 'Apply a custom per-block function (plugin/library API)', examples: ['transform myFn'], label: 'Transforming' },
@@ -1102,7 +1102,7 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     } else if (prev === 'stat') {
       out = ['db', 'rms', 'loudness', 'clipping', 'dc', 'silence', 'spectrum', 'cepstrum', 'bpm', 'beats', 'onsets', 'key', 'notes', 'chords']
     } else if (prev === 'normalize') {
-      out = ['streaming', 'podcast', 'broadcast', '-1', '-3', '-6']
+      out = ['spotify', 'podcast', 'broadcast', '-1', '-3', '-6']
     } else if (prev === 'fade') {
       out = ['linear', 'exp', 'log', 'cos']
     } else if (prev === 'speed') {
@@ -1190,6 +1190,12 @@ complete -c audio -n __audio_needs_command -f -a '(audio --completions-list (com
     }
     let transforms = [...opts.transforms, ...macroOps]
     let { source, sink, range } = opts
+    // No sink named, a file opened at a terminal: the player, paused, space plays it. Piped, redirected or --json: the overview
+    if (sink.implied && source && source !== 'record' && !/[*?]/.test(source) && !opts.json && process.stdin.isTTY && process.stdout.isTTY && process.stderr.isTTY)
+      sink = { name: 'play', args: [], paused: true }
+    // No sink named, a file opened at a terminal: the player, paused, space plays it. Piped, redirected or --json: the overview
+    if (sink.implied && source && source !== 'record' && !/[*?]/.test(source) && !opts.json && process.stdin.isTTY && process.stdout.isTTY && process.stderr.isTTY)
+      sink = { name: 'play', args: [], paused: true }
     // No sink named, a file opened at a terminal: the player, paused, space plays it. Piped, redirected or --json: the overview
     if (sink.implied && source && source !== 'record' && !/[*?]/.test(source) && !opts.json && process.stdin.isTTY && process.stdout.isTTY && process.stderr.isTTY)
       sink = { name: 'play', args: [], paused: true }

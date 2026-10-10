@@ -32,14 +32,16 @@ export function spectra(channels, from, to, { size = 4096, frames = 16 } = {}) {
   const n = Math.max(1, Math.min(frames, Math.floor((to - from - size) / (size / 2)) + 1)), step = n > 1 ? (to - from - size) / (n - 1) : 0
   const w = hann(size), re = new Float64Array(size), im = new Float64Array(size), norm = 16 / (size * size) / n
   return channels.map(x => {
-    const power = new Float64Array(size / 2 + 1)
+    const power = new Float64Array(size / 2 + 1), db = new Float32Array(size / 2 + 1)
     for (let f = 0; f < n; f++) {
       const at = Math.round(from + f * step)
       for (let i = 0; i < size; i++) { const k = at + i; re[i] = (k >= 0 && k < x.length ? x[k] : 0) * w[i]; im[i] = 0 }
       fft(re, im)
       for (let k = 0; k <= size / 2; k++) power[k] += (re[k] * re[k] + im[k] * im[k]) * norm
     }
-    return Float32Array.from(power, p => 10 * Math.log10(p + 1e-20))
+    // a loop, not Float32Array.from(power, …): that iterates, an object and a heap number a bin, 2049 a frame it plays
+    for (let k = 0; k < db.length; k++) db[k] = 10 * Math.log10(power[k] + 1e-20)
+    return db
   })
 }
 
@@ -59,7 +61,9 @@ export const trace = (points = 64) => ({ wave: new Float32Array(points), hz: 0 }
 // settles to a slow stir.
 export function cycle(channels, at, rate, t, ease = .3) {
   const d = Math.max(1, Math.round(rate / 16000)), r = rate / d, lo = Math.floor(r / 2000), hi = Math.ceil(r / 50), n = 3 * hi, m = n - hi
-  const x = new Float32Array(n), from = Math.round(at) - (n >> 1) * d
+  // two zeros past the end, where the longest lag reads: a read past it would leave the correlation below unoptimized,
+  // each product a heap number, the page collecting garbage every frame it plays
+  const x = new Float32Array(n + 2), from = Math.round(at) - (n >> 1) * d
   let mean = 0
   for (let k = 0; k < n; k++) {
     let sum = 0
@@ -73,7 +77,7 @@ export function cycle(channels, at, rate, t, ease = .3) {
   const corr = new Float32Array(hi + 2)
   for (let l = lo - 1; l <= hi + 1; l++) {
     let xy = 0, yy = 0
-    for (let k = 0; k < m; k++) { const y = x[k + l] ?? 0; xy += x[k] * y; yy += y * y }
+    for (let k = 0; k < m; k++) { const y = x[k + l]; xy += x[k] * y; yy += y * y }
     corr[l] = xy / Math.sqrt(e0 * yy + 1e-30)
   }
   const peaked = l => l >= lo && l <= hi && corr[l] >= corr[l - 1] && corr[l] >= corr[l + 1]
@@ -124,7 +128,7 @@ function fft(re, im) {
     let bit = n >> 1
     for (; j & bit; bit >>= 1) j ^= bit
     j ^= bit
-    if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]] }
+    if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t }
   }
   for (let len = 2; len <= n; len <<= 1) {
     const a = -2 * Math.PI / len, wr = Math.cos(a), wi = Math.sin(a)

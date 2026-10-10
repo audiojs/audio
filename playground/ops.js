@@ -274,7 +274,7 @@ export const icons = {
   Generate: 'M3 12c2-6 4-6 6 0s4 6 6 0 4-6 6 0'
 }
 
-export const presets = { normalize: ['podcast', 'streaming', 'broadcast'], vocals: ['isolate', 'remove'], codec: ['mp3', 'aac', 'opus', 'vorbis'] }
+export const presets = { normalize: ['podcast', 'spotify', 'broadcast'], vocals: ['isolate', 'remove'], codec: ['mp3', 'aac', 'opus', 'vorbis'] }
 
 // What a step's new settings do to the picture while its output renders, drawn at once: the factor they change the
 // level by at time t of the output, from its settings before (`was`) and now (`is`), by name, the output `T` long; none

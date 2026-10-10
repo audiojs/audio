@@ -474,6 +474,8 @@ async function nodeDevice(sr, ch, init, device) {
   const shut = () => { feed?.close(); feed = null; write.close() }
   let dev = {
     sr, ch, report: null,
+    // the deck renders here, a block at a time, each ending in a report: its head stands where the last one says
+    local: true,
     attach(port) { if (feed) { feed.off?.('message', take); feed.close() } feed = port; feed.on('message', take); deck.got = 0 },
     set(m) { deck.set(m) },
     heard: () => Math.max(0, frame - B - 0.05 * sr),   // what is written, less the device ring (~50 ms)
@@ -538,6 +540,8 @@ export function whereHeard(marks, f, sr) {
 
 function transport(dev) {
   let marks = [], last = null, q = [], end = null, runs = 0, stopped = false
+  // seconds a ramp down moves the head at unit rate: the Deck's R - 1 frames
+  let ramp = (Math.max(1, Math.round(dev.sr / 200)) - 1) / dev.sr
   let tp = {
     sr: dev.sr, ch: dev.ch,
     emit: null,                    // (type, value): 'report' (each report), 'end' (heard the end), 'error'
@@ -545,12 +549,12 @@ function transport(dev) {
     port() { let { port1, port2 } = new MessageChannel(); dev.attach(port1); return port2 },
     runs() { return runs += 1e6 },
     set(m) { if (!stopped) dev.set(m) },
-    // the deck's head now, on the axis: its last report, run on, as far as the audio it had
-    head() { return last && last.pos + Math.min((performance.now() - last.at) / 1000 * last.speed, last.buf ?? Infinity) },
+    // the deck's head now, on the axis: its last report, run on, as far as the audio it had (one rendering here: as is)
+    head() { return last && last.pos + (dev.local ? 0 : Math.min((performance.now() - last.at) / 1000 * last.speed, last.buf ?? Infinity)) },
     // what the speakers play now: { run, pos on the axis, time on the timeline }
     heard() { return whereHeard(marks, dev.heard(), dev.sr) },
-    // where the deck's head is on the timeline: where a pause holds, the speakers still playing out what is before it
-    held() { let h = tp.head(); return h == null ? null : { run: last.run, time: timeline(h, last.loop) } },
+    // where a pause holds, the speakers still playing out what is before it: the head, on through the ramp down
+    held() { let h = tp.head(); return h == null ? null : { run: last.run, time: timeline(h + ramp * last.speed, last.loop) } },
     // call fn once position `pos` of run `run` is heard (meters); dropped if its run is replaced first
     defer(run, pos, fn) { q.push({ run, pos, fn }) },
     stop() {

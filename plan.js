@@ -400,7 +400,8 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
       let verChanged = plan != null && a.version !== lastVer, old = plan, warm = null
       lastVer = a.version
       builtLen = Math.max(builtLen, avail)
-      plan = compilePlan(a, builtLen, a.decoded)
+      // whole, the plan its length was read by, if it was (a resolve that measured the signal is not measured twice)
+      plan = a.decoded && builtLen === a._.len ? buildPlan(a) : compilePlan(a, builtLen, a.decoded)
       let sig = pipelineSig(plan.pipeline), width = plan.ch ?? nch
       // procs for this plan from timeline sample t (warmed up below, once its pages are there)
       const fresh = t => {
@@ -837,7 +838,7 @@ function compilePlan(a, len, final, measure = false) {
       }
       let ctx = { stats, sampleRate: sr, channelCount: ch, channel, at, duration, totalDuration: planLen(segs) / sr, final, ...extra }
       // What-if render: the plan so far + candidate pipeline edits, block by block (stream) or as
-      // their stats (measure), for decisions a model of the stats can't make exactly (loudness
+      // their stats (measure: those `names`, or all), for decisions a model of the stats can't make exactly (loudness
       // through a limiter, whether it limits at all). Only once the whole signal is known: the
       // candidate must hold for the full output.
       if (final) ctx.stream = emitted => {
@@ -851,8 +852,8 @@ function compilePlan(a, len, final, measure = false) {
         }
         return streamPlan(a, { segs, pipeline: pl, totalLen: planLen(segs), sr, ch, latency: lat, warmup: wu, pulls })
       }
-      if (final && audio.statSession) ctx.measure = emitted => {
-        let s = audio.statSession(sr)
+      if (final && audio.statSession) ctx.measure = (emitted, names) => {
+        let s = audio.statSession(sr, names)
         for (let chunk of ctx.stream(emitted)) s.page(chunk)
         return s.done()
       }

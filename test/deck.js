@@ -227,6 +227,27 @@ test('play: play({ at }) while playing jumps without stopping; from another inst
   b.stop()
 })
 
+// Node's deck renders a block at a time as the device drains, so its head stands between blocks: a pause holds at once
+// where the deck will stand, not where a clock run on from its last block guessed (31 ms off on PulseAudio)
+test('play: paused, currentTime holds at once where the deck stands, no step once it does', async t => {
+  let a = sine(440, 0.5, 3, 44100), drift = []
+  a.play({ volume: 0 })
+  await a.played
+  for (let i = 0; i < 4; i++) {
+    // the last at 1.5×: the ramp down moves the head 1.5× as far
+    if (i === 3) { a.playbackRate = 1.5; await new Promise(r => setTimeout(r, 300)) }
+    await new Promise(r => setTimeout(r, 150 + 40 * i))
+    a.pause()
+    let at = a.currentTime
+    await new Promise(r => setTimeout(r, 120))
+    drift.push(Math.abs(a.currentTime - at))
+    a.resume()
+  }
+  a.stop()
+  let most = Math.max(...drift)
+  t.ok(most < 0.0005, `held from the pause on: ≤ ${(most * 1000).toFixed(2)} ms over ${drift.length} pauses`)
+})
+
 // A loop over all of it, started at another place: play() then seek() before the deck has opened starts there, and
 // the loop comes round to its own start
 test('play: a seek right after play() starts it there; the loop still comes round to its start', async t => {

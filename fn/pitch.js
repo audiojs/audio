@@ -18,7 +18,7 @@ const VOICE_HZ = 60
 const voiceLatency = (sr, rmin) => {
   let dec = Math.max(1, Math.floor(sr / 11025)), Wd = 2 ** Math.ceil(Math.log2(2 * sr / dec / VOICE_HZ))
   let hop = Math.max(dec, Math.round(.005 * sr / dec) * dec)
-  return Wd / 2 * dec + 2 * hop + Math.ceil(sr / VOICE_HZ * (3 + 1 / Math.min(1, rmin))) + 18
+  return Wd / 2 * dec + 2 * hop + Math.round(.04 * sr) + Math.ceil(sr / VOICE_HZ * (3 + 1 / Math.min(1, rmin))) + 18
 }
 // a frame of YIN and two cycles before a span: the cycles found as they are where it starts
 const voiceContext = sr => 2 ** Math.ceil(Math.log2(2 * sr / VOICE_HZ)) + Math.ceil(2 * sr / VOICE_HZ)
@@ -72,15 +72,22 @@ const pitchProc = (input, output, ctx) => {
     let ratioOf = v => v === last ? lr : (last = v, lr = 2 ** (v / 12))
     let spans = (isCurve(s) ? curveSpans(s, sr) : [[-Infinity, Infinity]])
       .map(([a, b]) => [Math.max(a, a0), Math.min(b, a1)]).filter(([a, b]) => b > a)
-    // A range's edges glide, the shift ramping in (raised cosine) over the 10 ms after the crossfade from the input,
-    // and out over the 10 ms before the one back into it: the shifted audio crosses with the input at the input's own
-    // pitch, as near the same signal in, and out a steady phase apart, so neither crossfade beats.
-    let G = Math.min(Math.round(.01 * sr), (a1 - a0) / 4)
-    let edge = n => Math.max(0, Math.min(1, (n - a0 - G + .5) / G, (a1 - G - n - .5) / G))
+    // A range's edges glide, the shift ramping in (raised cosine) after the 10 ms crossfade from the input, and out
+    // before the one back into it: the shifted audio crosses with the input at the input's own pitch, as near the same
+    // signal in, and out a steady phase apart (a voice's cycles back on the input's own: tune-curve steers them there),
+    // so neither crossfade beats. Audio glides over 10 ms; a voice over the time a voice takes to move that far at its
+    // fastest (Xu & Sun, JASA 111, 2002, Table V: 89.6 ms and 8.7 more a semitone rising, 100.4 and 5.8 falling), within
+    // the range: stepped in 10 ms, 2.35 semitones moved at 235 a second, ten times their 24 (Table VI), and jumped.
+    let X = Math.min(Math.round(.01 * sr), (a1 - a0) / 4)
+    let glide = (v, up) => ctx.voice ? sr * (up ? 89.6 + 8.7 * Math.abs(v) : 100.4 + 5.8 * Math.abs(v)) / 1000 : X
+    let edge = (n, v) => {
+      let gi = glide(v, v > 0), go = glide(v, v < 0), k = Math.min(1, (a1 - a0 - 2 * X) / (gi + go))
+      return Math.max(0, Math.min(1, (n - a0 - X + .5) / (k * gi), (a1 - X - n - .5) / (k * go)))
+    }
     let ratio = n => {
       if (n < a0 || n >= a1) return 1
-      let w = edge(n)
-      return w >= 1 ? ratioOf(semi(n)) : w <= 0 ? 1 : 2 ** (semi(n) * (.5 - .5 * Math.cos(Math.PI * w)) / 12)
+      let v = semi(n), w = edge(n, v)
+      return w >= 1 ? ratioOf(v) : w <= 0 ? 1 : 2 ** (v * (.5 - .5 * Math.cos(Math.PI * w)) / 12)
     }
     let voice = null
     if (sh && ctx.voice) {

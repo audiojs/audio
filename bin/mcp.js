@@ -71,7 +71,7 @@ Sounds declared side by side, none read by another, are tracks, a lane each, pla
     .gain(-18)
 Keep the source the script has. Times are seconds, or '1:30', '500ms'; negative counts from the end. d = duration, xfade = crossfade. Every op takes a trailing range { at, d }: .gain(-6, { at: 10, d: 5 }); and mix, how much of it is heard, 0 to 1 or a curve { t: [s…], v: [0…1] } over time: .omlsa({ mix: 0.7 }).
 Edit: trim shrink crop remove(at, d, xfade) cut copy paste move({ at, d, to }) insert pad repeat reverse
-Level: gain(dB) normalize('podcast'|'streaming'|'broadcast'|dB, 'lufs') fade(in, out) pan mix crossfade remix dither
+Level: gain(dB) normalize('podcast'|'spotify'|'broadcast'|dB, 'lufs') fade(in, out) pan mix crossfade remix dither
 Filter: highpass lowpass bandpass notch allpass lowshelf highshelf eq(Hz, dB, Q) tilt geq match
 Dynamics: compressor limiter gate expander deesser leveler ducker multiband
 Repair: omlsa deepfilter dehum declick decrackle declip dereverb deplosive debreath dewind roomtone spectral repair
@@ -106,8 +106,8 @@ Stats: db rms peak crest dc clipping loudness momentary shortterm dialog truepea
   def('play', 'Play', "Play the output on the user's speakers, from at for d seconds; without them, as the page's play button would. Let the user hear a change; `stop` stops. original: true plays the file as it opened, level-matched to the output, so the two compare fairly (the page's B key); false, the output again. step plays the output up to that edit, takes: true what it takes out, as its card chosen in the Edits panel shows them; it stays chosen until your next play or edit.",
     { at: secs('Start, seconds'), d: secs('Duration, seconds'), original: { type: 'boolean', description: 'true: the file as it opened, level-matched; false: the output' }, step: { type: 'integer', description: 'An edit, its index in `state`.steps: the output up to it' }, takes: { type: 'boolean', description: 'With step: what that edit takes out' } }),
   def('stop', 'Stop', 'Stop playback in the page.'),
-  def('check', 'Check against a spec', "Check the output against a delivery spec: 'podcast' (Apple, -16 LUFS), 'streaming' (Spotify, -14), 'broadcast' (EBU R 128, -23), 'netflix' (dialog -27, true peak -2 dBTP), 'acx' (audiobook). Answers the report, { spec, pass, rules: [{ name, value, unit, min, max, pass }] }: tell the user a fail as it is.",
-    { spec: { type: 'string', description: 'podcast, streaming, broadcast, netflix or acx' } }, ['spec'], true),
+  def('check', 'Check against a spec', "Check the output against a delivery spec: 'podcast' (Apple, -16 LUFS), 'spotify' (-14), 'broadcast' (EBU R 128, -23), 'netflix' (dialog -27, true peak -2 dBTP), 'acx' (audiobook). Answers the report, { spec, pass, rules: [{ name, value, unit, min, max, pass }] }: tell the user a fail as it is.",
+    { spec: { type: 'string', description: 'podcast, spotify, broadcast, netflix or acx' } }, ['spec'], true),
   def('undo', 'Undo', 'Undo the last change to the script, as Cmd+Z in the page.'),
   def('redo', 'Redo', 'Redo the change `undo` undid.')
 ]

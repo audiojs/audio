@@ -8,7 +8,7 @@ inputs:
     description: "Files or a glob, as `audio` takes them: 'episodes/*.mp3'"
     required: true
   spec:
-    description: podcast, streaming, broadcast, netflix or acx
+    description: podcast, spotify, broadcast, netflix or acx
     default: podcast
   version:
     description: The audio version to check with

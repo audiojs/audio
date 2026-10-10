@@ -49,7 +49,7 @@ function program(dur = 6, sr = 48000) {
 // -23.0 LUFS, ≤ -1 dBTP. AES TD1008 §5A: "When upward normalization would cause clipping,
 // peak limiting is required": the ceiling limits, it never clips.
 test('normalize: loudness presets land on target and hold the -1 dBTP ceiling (rendered, not derived)', async t => {
-  for (let [preset, target] of [['streaming', -14], ['podcast', -16], ['broadcast', -23]]) {
+  for (let [preset, target] of [['spotify', -14], ['podcast', -16], ['broadcast', -23]]) {
     let a = program().normalize(preset)
     let pcm = await a.read(), b = audio.from(pcm, { sampleRate: 48000 })
     t.almost(await b.stat('loudness'), target, 0.01, `${preset}: ${target} LUFS`)
@@ -85,7 +85,7 @@ test('trim after a lookahead op crops where trim alone does', async t => {
 })
 
 test('normalize: the preview measures what the render holds (no stale pre-limit loudness)', async t => {
-  let a = program().normalize('streaming')
+  let a = program().normalize('spotify')
   let preview = await a.stat('loudness')
   let rendered = await audio.from(await a.read(), { sampleRate: 48000 }).stat('loudness')
   t.almost(preview, rendered, 0.001, `preview ${preview.toFixed(3)} = render ${rendered.toFixed(3)}`)
@@ -178,11 +178,11 @@ test('normalize: out of steps, it keeps a measured gain under the target, never 
   let sr = 48000, n = 10 * sr, nb = Math.ceil(n / 1024)
   let stage = lufs => { let e = 10 ** ((lufs + 0.691) / 10); return { blockSize: 1024, length: n, energy: [new Float32Array(nb).fill(e)], min: [new Float32Array(nb).fill(-0.9)], max: [new Float32Array(nb).fill(0.9)], dc: [new Float32Array(nb)], ms: [new Float32Array(nb).fill(e)] } }
   let measured = [], measure = edits => { let g = edits.find(e => e[0] === 'gain')[1].value; measured.push(g); return stage(g < 10 ? -14.02 : -13.98) }
-  let edits = audio.op('normalize').resolve({ stats: stage(-20), sampleRate: sr, final: true, target: 'streaming', measure, totalDuration: n / sr })
+  let edits = audio.op('normalize').resolve({ stats: stage(-20), sampleRate: sr, final: true, target: 'spotify', measure, totalDuration: n / sr })
   let g = edits.find(e => e[0] === 'gain')[1].value
   t.ok(g < 10, `kept ${g.toFixed(2)} dB (loudness -14.02), after measuring ${measured.map(v => v.toFixed(1)).join(', ')} dB`)
   for (let [name, a] of [['lena', await audio(lena)], ['program', program()], ['lena, compressed', (await audio(lena)).compressor({ threshold: -30, ratio: 4 })]]) {
-    let r = await a.normalize('streaming').check('streaming')
+    let r = await a.normalize('spotify').check('spotify')
     t.is([r.rules[0].value.toFixed(2), r.rules[1].max, r.pass], ['-14.00', -1, true], `${name}: ${r.rules[0].value.toFixed(4)} LUFS, true peak ${r.rules[1].value.toFixed(3)}`)
   }
 })
@@ -525,9 +525,14 @@ test('splice: crossfade edges — file bounds, oversize, zero length, empty host
 })
 
 test('normalize: limiter path — stream ≡ read, silence and sub-gate input are left alone', async t => {
-  let a = program(2).normalize('streaming'), r = await a.read(), s = [[], []]
+  let a = program(2).normalize('spotify'), r = await a.read(), s = [[], []]
   for await (let b of a.stream()) b.forEach((ch, c) => s[c].push(...ch))
   t.ok(s[0].length === r[0].length && s[0].every((v, i) => Math.abs(v - r[0][i]) < 1e-6), 'stream ≡ read through the ceiling')
+  // measured once: its length read, the stream after it renders by the same plan, nothing measured again
+  let op = audio.op('normalize'), resolve = op.resolve, resolved = 0
+  op.resolve = ctx => (resolved += !!ctx.final, resolve(ctx))
+  try { let b = program(2).normalize('spotify'); b.length; for await (let _ of b.stream()); t.is(resolved, 1, 'resolved once for its length and its stream') }
+  finally { op.resolve = resolve }
   let silent = audio.from([new Float32Array(48000)], { sampleRate: 48000 }).normalize('podcast')
   t.ok((await silent.read())[0].every(v => v === 0), 'silence stays silent')
   let short = audio.from([Float32Array.from({ length: 4800 }, (_, i) => 0.1 * Math.sin(i / 10))], { sampleRate: 48000 })
@@ -562,6 +567,16 @@ test('a file just opened: its dialog and noise floor, a registry op encoded; an 
   t.is((await audio(bytes)).length, (await audio(lena)).length, 'encoded whole')
   let err = await audio.from([new Float32Array(100)], { sampleRate: 8000 }).highpass(100, 4, { channel: 1 }).read().catch(e => e)
   t.ok(err instanceof RangeError && /channel 1: the audio has 1 channel/.test(err.message), err.message)
+})
+
+// A mixed or inserted source's registry ops are wired with the instance's own, before its plan reads the source (a
+// normalize measuring a parallel chain, an insert's length): a parallel compressor measured, an insert saved
+test('a registry op inside a mixed or inserted source: measured, saved', { timeout: 30000 }, async t => {
+  let dry = audio(lena), wet = dry.clone().compressor({ threshold: -25, ratio: 20 })
+  t.almost(await dry.mix(wet).normalize(-18, 'lufs').stat('loudness'), -18, 0.05, 'a parallel chain measured')
+  let n = (await audio(lena)).length
+  await audio(lena).insert(audio(lena).compressor({ threshold: -30 }), 1).save(tmp('insert.wav'))
+  t.is((await audio(tmp('insert.wav'))).length, 2 * n, 'an insert saved whole')
 })
 
 // A crossfade across a range of no length takes nothing out: 0 is a length, not the default half second
@@ -877,12 +892,12 @@ test('check: acx passes a compliant chapter, reads room tone to the block, and n
 // -23.0 LUFS ±0.2 LU in QC (i), ≤ -1 dBTP (m); Spotify plays at -14 LUFS, masters ≤ -1 dBTP, ≤ -2 when
 // louder than -14 (support.spotify.com …/loudness-normalization); limits judged at 0.01 as printed.
 test('check: loudness specs pass what normalize delivers; limits, info rows, aliases, errors', { timeout: 60000 }, async t => {
-  for (let [preset, spec] of [['podcast', 'apple'], ['broadcast', 'ebu'], ['streaming', 'spotify']]) {
+  for (let [preset, spec] of [['podcast', 'apple'], ['broadcast', 'ebu'], ['spotify', 'streaming']]) {
     let r = await program().normalize(preset).check(spec)
     t.ok(r.pass, `${preset} → check ${spec}: ${r.rules.map(x => `${x.name} ${x.value.toFixed(2)}`).join(', ')}`)
     t.is(r.spec, preset, `${spec} is ${preset}`)
   }
-  let loud = await program().normalize(-9, 'lufs').check('streaming'), tp = loud.rules[1]
+  let loud = await program().normalize(-9, 'lufs').check('spotify'), tp = loud.rules[1]
   t.is([loud.rules[0].pass, tp.max, tp.pass], [null, -2, false], 'louder than -14: info row, -2 dBTP, a -1 dBTP master fails')
   t.ok(/plays 5\.0 dB quieter/.test(loud.rules[0].note), loud.rules[0].note)
   let off = await program().normalize(-23.3, 'lufs').check('broadcast')

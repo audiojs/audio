@@ -25,8 +25,9 @@ const periodOf = (f, sr) => Object.values(statDefs).find(d => d.period && d.extr
 /** A block function's value for one stat: a record { [name]: value } serves several stats from one pass. */
 const blockValue = (v, name) => v !== null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v) ? v[name] : v
 
-/** Create a stat computation session. ch inferred from first .page() call. */
-function statSession(sr) {
+/** Create a stat computation session. ch inferred from first .page() call. `names`: those stats alone (with what their
+ *  block functions carry), not every one registered. */
+function statSession(sr, names) {
   let fns, acc, ch, last = 0, rem = null, remLen = 0, total = 0
 
   function init(c) {
@@ -35,7 +36,7 @@ function statSession(sr) {
     let groups = new Map()
     acc = Object.create(null)
     for (let [name, d] of Object.entries(audio.stat())) {
-      if (!d.block) continue
+      if (!d.block || names && !names.includes(name)) continue
       let g = groups.get(d.block)
       if (!g) groups.set(d.block, g = { fn: d.block, ctx: { sampleRate: sr }, names: [] })
       // `extra`: fields the block function's record carries that no stat is named after

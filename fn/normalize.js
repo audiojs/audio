@@ -2,8 +2,9 @@ import { dcOffsets, peakDb, rmsDb, lufsDb, lufsFromStats, printed } from './loud
 import audio, { resolveChannels, FULL, blockAt } from '../core.js'
 import { buildPlan, render } from '../plan.js'
 
-// Integrated-loudness presets (LUFS): Spotify/YouTube, Apple Podcasts, EBU R 128
-const PRESETS = { streaming: -14, podcast: -16, broadcast: -23 }
+// Integrated-loudness presets (LUFS): Spotify (YouTube, Tidal and Amazon Music play at it too), Apple Podcasts, EBU R 128;
+// 'streaming', Spotify's name before it had its own, still read
+const PRESETS = { spotify: -14, podcast: -16, broadcast: -23 }, FORMER = { streaming: 'spotify' }
 const MODES = ['peak', 'lufs', 'rms']
 
 
@@ -164,62 +165,101 @@ function reacher(nch) {
  *  flat at it over the HALF samples each side of m: an interpolant reads its taps at one gain.
  *  (Unwidened, the attack ramp crossed the kernel: 8 kHz speech limited 20 dB came out at
  *  -0.91 dBTP under a -1 ceiling.) Release only ever pulls the gain further down. Output is
- *  delayed MID + lookahead + HALF; where nothing reaches the ceiling, it is the input. */
+ *  delayed MID + lookahead + HALF; where nothing reaches the ceiling, it is the input. Given `peaks` (peaksOf: its
+ *  input's, read before its `gain` dB), it reads them where they hold at that gain, not again. */
 function ceiling(input, output, ctx) {
   let nch = input.length, len = input[0].length, sr = ctx.sampleRate
   let st = ctx._tp
   if (!st) {
     let L = Math.round(LOOK * sr), W = L + 1, Q = W + 2 * HALF, D = MID + L + HALF
     st = ctx._tp = {
-      L, W, Q, D, n: 0, rPrev: 1, env: 1, sum: W, ai: 0, qh: 0, qt: 0, di: 0, reach: reacher(nch),
+      L, W, Q, D, n: 0, rPrev: 1, env: 1, sum: W, ai: 0, qh: 0, qt: 0, qk: 0, di: 0, quiet: Q + W, reach: reacher(nch),
       avg: new Float64Array(W).fill(1), qv: new Float64Array(Q), qn: new Float64Array(Q),
       dl: Array.from({ length: nch }, () => new Float32Array(D)),
       rel: 1 - Math.exp(-1 / (RELEASE * sr)),
     }
   }
   let { L, W, Q, D, avg, qv, qn, dl, rel } = st
-  let lim = 10 ** ((ctx.limit ?? -1) / 20), pks = st.reach(input, lim)
   // range gating in absolute input samples (ranged op: ctx.at is block-relative)
-  let base = Math.round((ctx.blockOffset || 0) * sr)
+  let base = Math.round((ctx.blockOffset || 0) * sr), lim = 10 ** ((ctx.limit ?? -1) / 20)
+  let P = ctx.peaks, s = P && 10 ** ((ctx.gain ?? 0) / 20)
+  let pks = P && P.floor * s <= lim ? scaled(P, base, len, s, st) : st.reach(input, lim)
   let r0 = ctx.at != null ? base + Math.round(ctx.at * sr) : -Infinity
   let r1 = ctx.duration != null ? r0 + Math.round(ctx.duration * sr) : Infinity
-  let n = st.n, rPrev = st.rPrev, env = st.env, sum = st.sum, ai = st.ai, qh = st.qh, qt = st.qt, di = st.di
+  // the deque a ring: its head, the slot after its tail, how many it holds; how many samples in a row needed no limiting
+  let n = st.n, rPrev = st.rPrev, env = st.env, sum = st.sum, ai = st.ai, qh = st.qh, qt = st.qt, qk = st.qk, di = st.di, quiet = st.quiet
 
   for (let i = 0; i < len; i++, n++) {
     let m = n - MID, pk = pks[i]
     let r = pk > lim && m >= r0 && m < r1 ? lim / pk : 1
     let g = r < rPrev ? r : rPrev
     rPrev = r
+    // none to limit over the deque's span and the average's: both all 1 as they stand, the gain released toward 1
+    quiet = g < 1 ? 0 : quiet + 1
+    if (quiet > Q + W) {
+      env = env > 1 - 2 ** -30 ? 1 : env + (1 - env) * rel
+      for (let c = 0; c < nch; c++) { let d = dl[c]; output[c][i] = d[di] * env; d[di] = input[c][i] }
+      di = di + 1 === D ? 0 : di + 1
+      continue
+    }
     // sliding minimum of g over [m − L − 2·HALF, m] (monotonic deque, capacity Q)
-    while (qt > qh && qv[(qt - 1) % Q] >= g) qt--
-    qv[qt % Q] = g; qn[qt % Q] = m; qt++
-    if (qn[qh % Q] < m - L - 2 * HALF) qh++
-    let mn = qv[qh % Q]
+    while (qk && qv[qt ? qt - 1 : Q - 1] >= g) { qt = qt ? qt - 1 : Q - 1; qk-- }
+    qv[qt] = g; qn[qt] = m; qt = qt + 1 === Q ? 0 : qt + 1; qk++
+    if (qn[qh] < m - L - 2 * HALF) { qh = qh + 1 === Q ? 0 : qh + 1; qk-- }
+    let mn = qv[qh]
     // its moving average over [m − L, m] → the gain for output sample m − L − HALF
     sum += mn - avg[ai]; avg[ai] = mn; ai = ai + 1 === W ? 0 : ai + 1
+    // all 1 again, the sum is W, not what its rounding left (calm, above); the release, as close to 1 as a float32
+    // sample tells, is 1
+    if (quiet === Q + W) sum = W
     let G = sum / W
     env = G < env ? G : env + (G - env) * rel
+    if (G === 1 && env > 1 - 2 ** -30) env = 1
     for (let c = 0; c < nch; c++) { let d = dl[c]; output[c][i] = d[di] * env; d[di] = input[c][i] }
     di = di + 1 === D ? 0 : di + 1
   }
-  st.n = n; st.rPrev = rPrev; st.env = env; st.sum = sum; st.ai = ai; st.qh = qh; st.qt = qt; st.di = di
+  st.n = n; st.rPrev = rPrev; st.env = env; st.sum = sum; st.ai = ai; st.qh = qh; st.qt = qt; st.qk = qk; st.di = di; st.quiet = quiet
 }
 
-/** Whether the ceiling at `limit` dBTP would limit `chunks` (blocks of channels, as ctx.stream gives them) over samples
- *  [r0, r1): where it would not, it gives back its input. Stops at the first sample it would limit. */
-function limits(chunks, limit, r0 = -Infinity, r1 = Infinity) {
-  let lim = 10 ** (limit / 20), reach = null, nch = 0, n = 0
-  const over = (block) => {
-    let pks = reach(block, lim)
-    for (let i = 0, len = block[0].length; i < len; i++, n++) if (pks[i] > lim && n - MID >= r0 && n - MID < r1) return true
-    return false
+/** The reconstructed peaks of channels `chs` of `chunks` (blocks of channels, as ctx.stream gives them), as ceiling()
+ *  reads them, sample n's over the interval (n − MID, n − MID + 1), those over `floor` (exact there): { floor, n, at,
+ *  pk }, `n` of them, at samples `at`; past the end, the silence the ceiling reads. Read once, every pass of normalize
+ *  after (each the ceiling at another gain) scales them, none reads them again. Null past BUDGET of them. */
+const BUDGET = 1 << 22, MARGIN = 1
+function peaksOf(chunks, chs, floor) {
+  let reach = null, nch = 0, t = 0, P = { floor, n: 0, at: new Uint32Array(1024), pk: new Float32Array(1024) }
+  const take = block => {
+    let pks = reach(block, floor)
+    for (let i = 0, len = block[0].length; i < len; i++, t++) if (pks[i] > floor) {
+      if (P.n === P.at.length) {
+        if (P.n >= BUDGET) return false
+        let at = new Uint32Array(2 * P.n), pk = new Float32Array(2 * P.n)
+        at.set(P.at); pk.set(P.pk); P.at = at; P.pk = pk
+      }
+      P.at[P.n] = t; P.pk[P.n++] = pks[i]
+    }
+    return true
   }
   for (let chunk of chunks) {
-    if (!reach) { nch = chunk.length; reach = reacher(nch) }
-    if (over(chunk)) return true
+    let block = chs.map(c => chunk[c])
+    if (!reach) { nch = block.length; reach = reacher(nch) }
+    if (!take(block)) return null
   }
-  // past the end the ceiling reads silence: the intervals whose taps still reach the last samples
-  return !!reach && over(Array.from({ length: nch }, () => new Float32Array(TAPS)))
+  return !reach || take(Array.from({ length: nch }, () => new Float32Array(TAPS))) ? P : null
+}
+/** Peaks of samples [at, at + len) times `s`, those under the floor 0, into the ceiling's state `st` */
+function scaled(P, at, len, s, st) {
+  let out = st.pks?.length >= len ? st.pks : st.pks = new Float64Array(len), lo = 0, hi = P.n
+  out.fill(0, 0, len)
+  while (lo < hi) { let mid = (lo + hi) >> 1; P.at[mid] < at ? lo = mid + 1 : hi = mid }
+  for (let j = lo; j < P.n && P.at[j] < at + len; j++) out[P.at[j] - at] = P.pk[j] * s
+  return out
+}
+/** Whether peaks times `gain` dB pass `limit` dBTP anywhere over samples [r0, r1) the ceiling puts out */
+function over(P, gain, limit, r0, r1) {
+  let t = 10 ** ((limit - gain) / 20)
+  for (let j = 0; j < P.n; j++) { let m = P.at[j] - MID; if (P.pk[j] > t && m >= r0 && m < r1) return true }
+  return false
 }
 
 /** True-peak ceiling (dBTP), internal to normalize. */
@@ -272,7 +312,8 @@ function parseTarget(target, mode) {
     return { targetDb: refLoudness(target), mode: 'lufs' }
   }
   if (typeof target === 'string') {
-    if (!(target in PRESETS)) throw new RangeError(`normalize: unknown preset '${target}' (${Object.keys(PRESETS).join(', ')}), or a number with mode peak|lufs|rms`)
+    target = FORMER[target] ?? target
+    if (!Object.hasOwn(PRESETS, target)) throw new RangeError(`normalize: unknown preset '${target}' (${Object.keys(PRESETS).join(', ')}), or a number with mode peak|lufs|rms`)
     if (mode != null && mode !== 'lufs') throw new RangeError(`normalize: preset '${target}' is loudness (lufs), not ${mode}`)
     return { targetDb: PRESETS[target], mode: 'lufs' }
   }
@@ -328,49 +369,56 @@ audio.op('normalize', {
     edits.push(gain)
     if (ceiling == null) return edits.length === 1 ? edits[0] : edits
 
+    // Limiting takes loudness off the peaks: made back up by secant steps (loudness rises slower than gain while the
+    // limiter works), first on a block model of the limiter, then, once the whole signal is known, on measured renders,
+    // to the target exactly. Adaptive gain stays on the model: it refines with the stats like the gain itself.
+    // True peaks stay within ~3 dB of sample peaks: below that the limiter never engages.
+    let g0 = gain[1].value, makeup = mode === 'lufs' && peakDb(stats, chs, dcOff, from, to) + g0 > ceiling - 3, slope = 1
+    // Loudness only rises with gain, and limiting only takes it away: the answer lies between the
+    // static gain and 12 dB of make-up over it. Each measure narrows that bracket; a secant step
+    // that leaves it halves it instead (a slope carried from the model sent an 8 kHz take from
+    // 37.8 dB to 16.9 dB of gain, and four renders ended 0.07 LU short). It lands when the loudness
+    // prints as the target, to 0.01 as `check` judges it: a rule that switches at the target
+    // (Spotify's -2 dBTP past -14 LUFS) then sees the target, not a hair over. Out of steps, it
+    // keeps the loudest gain it measured under the target (the static gain, if none: limiting only
+    // takes loudness away), never the step it had not measured (that one printed -13.98 on its way
+    // to -14, and the check then asked for -2 dBTP).
+    const step = (measure, n) => {
+      let lo = g0, hi = g0 + 12, top = true, under = null   // top: hi is the cap, not a measure
+      for (let k = 0, prev = null; k < n; k++) {
+        let g = gain[1].value, got = measure(g)
+        if (got == null) return
+        if (printed(got) === printed(targetDb)) return
+        let err = targetDb - got
+        if (err > 0) { if (!under || got > under.got) under = { g, got }; if (g >= g0 + 12) return; lo = g } else { hi = g; top = false }
+        if (prev) slope = Math.min(1, Math.max(0.05, (got - prev.got) / (g - prev.g)))
+        prev = { got, g }
+        let next = Math.min(g0 + 12, g + err / slope)
+        if (!(next > lo && (next < hi || top && next === hi))) next = (lo + hi) / 2
+        gain[1].value = next
+      }
+      gain[1].value = under ? under.g : g0
+    }
+    if (makeup) step(g => limitedLufs(stats, chs, sampleRate, g, ceiling, from, to), 8)
+
     // True-peak limiting, never clipping (AES TD1008 §5A: "When upward normalization would
     // cause clipping, peak limiting is required"), and only then: once the whole signal is known,
-    // a pass that stops at the first sample the ceiling would limit says whether any does. Where
-    // none, the gain alone meets the target, nothing more rendered.
+    // its true peaks, read once before the gain (peaksOf), say whether the static gain passes the
+    // ceiling anywhere. Where not, the gain alone meets the target, nothing more rendered; where so,
+    // every measured render and the output scale them, none reads them again. Made up, they hold
+    // exactly MARGIN dB past the model's gain, as far as the measured steps go from it (a step
+    // past that reads its own).
+    let peaks = null, limit = ['ceiling', { limit: ceiling }]
     if (ctx.stream && !ctx.adaptive) {
       let r0 = ctx.at == null ? -Infinity : Math.round(at * sampleRate), r1 = ctx.duration == null ? Infinity : r0 + Math.round(ctx.duration * sampleRate)
-      if (!limits(ctx.stream(edits), ceiling, r0, r1)) return edits.length === 1 ? edits[0] : edits
+      peaks = peaksOf(ctx.stream(hasDc ? edits[0] : ['gain', { value: 0 }]), chs, 10 ** ((ceiling - (makeup ? gain[1].value + MARGIN : g0)) / 20))
+      if (peaks && !over(peaks, g0, ceiling, r0, r1)) { gain[1].value = g0; return edits.length === 1 ? edits[0] : edits }
+      if (peaks) Object.assign(limit[1], { peaks, gain: gain[1].value })
     }
-    edits.push(['ceiling', { limit: ceiling }])
-    // Limiting takes loudness off the peaks: make it back up by secant steps (loudness rises
-    // slower than gain while the limiter works), first on a block model of the limiter, then,
-    // once the whole signal is known, on measured renders, to the target exactly. Adaptive gain
-    // stays on the model: it refines with the stats like the gain itself.
-    // True peaks stay within ~3 dB of sample peaks: below that the limiter never engages.
-    if (mode === 'lufs' && peakDb(stats, chs, dcOff, from, to) + gain[1].value > ceiling - 3) {
-      // Loudness only rises with gain, and limiting only takes it away: the answer lies between the
-      // static gain and 12 dB of make-up over it. Each measure narrows that bracket; a secant step
-      // that leaves it halves it instead (a slope carried from the model sent an 8 kHz take from
-      // 37.8 dB to 16.9 dB of gain, and four renders ended 0.07 LU short). It lands when the loudness
-      // prints as the target, to 0.01 as `check` judges it: a rule that switches at the target
-      // (Spotify's -2 dBTP past -14 LUFS) then sees the target, not a hair over. Out of steps, it
-      // keeps the loudest gain it measured under the target (the static gain, if none: limiting only
-      // takes loudness away), never the step it had not measured (that one printed -13.98 on its way
-      // to -14, and the check then asked for -2 dBTP).
-      let g0 = gain[1].value, slope = 1
-      const step = (measure, n) => {
-        let lo = g0, hi = g0 + 12, top = true, under = null   // top: hi is the cap, not a measure
-        for (let k = 0, prev = null; k < n; k++) {
-          let g = gain[1].value, got = measure(g)
-          if (got == null) return
-          if (printed(got) === printed(targetDb)) return
-          let err = targetDb - got
-          if (err > 0) { if (!under || got > under.got) under = { g, got }; if (g >= g0 + 12) return; lo = g } else { hi = g; top = false }
-          if (prev) slope = Math.min(1, Math.max(0.05, (got - prev.got) / (g - prev.g)))
-          prev = { got, g }
-          let next = Math.min(g0 + 12, g + err / slope)
-          if (!(next > lo && (next < hi || top && next === hi))) next = (lo + hi) / 2
-          gain[1].value = next
-        }
-        gain[1].value = under ? under.g : g0
-      }
-      step(g => limitedLufs(stats, chs, sampleRate, g, ceiling, from, to), 8)
-      if (ctx.measure && !ctx.adaptive) step(() => lufsDb(ctx.measure(edits), chs, sampleRate, from, to), 6)
+    edits.push(limit)
+    if (makeup && ctx.measure && !ctx.adaptive) {
+      step(g => { limit[1].gain = g; return lufsDb(ctx.measure(edits, ['energy']), chs, sampleRate, from, to) }, 6)
+      limit[1].gain = gain[1].value
     }
     return edits
   }

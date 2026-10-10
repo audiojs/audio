@@ -171,21 +171,27 @@ export function chain(code) {
 
 // Steps turned off: calls of the chain commented out where they stood, `// .fade(0.5)` alone on a line or
 // `/* .fade(0.5) */` within one; after the source, to the next statement or the end. [{ name, text: '.fade(0.5)',
-// from, to }] of the comments, in the order they stand.
+// from, to, list, args }] of the comments, in the order they stand: each read as the call it is, its arguments where they
+// stand in the code, so a setting set on it (setArg) goes into its comment
 export function offCalls(code) {
   const c = chain(code), out = []
   if (!c) return out
   parse(code).iterate({ from: c.root.to, to: c.end, enter: ref => {
     if (!quiet(ref) || ref.from >= c.end) return
-    const m = text(code, ref).match(/^(?:\/\/|\/\*)\s*(\.([\w$]+)\s*\([\s\S]*\))\s*(?:\*\/)?$/)
-    if (m) out.push({ name: m[2], text: m[1], from: ref.from, to: ref.to })
+    const t = text(code, ref), m = t.match(/^(?:\/\/|\/\*)\s*(\.([\w$]+)\s*\([\s\S]*\))\s*(?:\*\/)?$/)
+    if (m) out.push({ name: m[2], text: m[1], from: ref.from, to: ref.to, at: ref.from + t.indexOf(m[1]) })
   } })
-  return out
+  // read where it stands: blanks up to it, `_` for what it is called on
+  return out.map(({ at, ...o }) => {
+    const k = chain(' '.repeat(at - 1) + '_' + o.text)?.calls[0]
+    return { ...o, list: k ? { from: k.list.from, to: k.list.to } : { from: at + o.text.indexOf('('), to: o.to }, args: k?.args ?? [] }
+  })
 }
-// A call as written, `.fade(0.5)`, read as a step of a chain: { name, args, source } (its args placed in `source`)
-export function parseCall(call) {
-  const source = '_' + call, k = chain(source)?.calls[0]
-  return k ? { name: k.name, args: k.args, source } : { name: call.match(/^\.([\w$]+)/)?.[1] ?? '', args: [], source }
+// The script without its comments, each a blank (its line breaks kept): what runs, to tell a change that runs nothing
+export function bare(code) {
+  let out = '', last = 0
+  parse(code).iterate({ enter: ref => { if (quiet(ref)) { out += code.slice(last, ref.from) + text(code, ref).replace(/[^\n]+/g, ' '); last = ref.to } } })
+  return out + code.slice(last)
 }
 // The change that turns a call off, commented out where it stands: a line of its own gets `// `, else it goes in
 // /* */; none when its text would end the comment early. Only the marks go in, the call's text untouched, so what is

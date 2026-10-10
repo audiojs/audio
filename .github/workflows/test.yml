@@ -46,11 +46,10 @@ jobs:
         env:
           ONNXRUNTIME_NODE_INSTALL_CUDA: skip
       - run: npx playwright install --with-deps chromium
-      - run: sudo apt-get install -y pulseaudio && pulseaudio --start --exit-idle-time=-1 && pactl info
-      # advice for now: on this runner's PulseAudio null sink Node's speaker (miniaudio) starts playing ~2 s after it
-      # opens (Chromium's stream, 90 ms), so the polyfill's currentTime stands still where the page's moves
+      # the null sink suspended as it idles: idle, it renders 2 s of silence ahead and a new stream waits that out
+      # (pacat's too), where a hardware sink takes it back (alsa-sink.c, "Requesting rewind due to latency change")
+      - run: sudo apt-get install -y pulseaudio && pulseaudio --start --exit-idle-time=-1 && pactl info && pactl unload-module module-suspend-on-idle && pactl load-module module-suspend-on-idle timeout=0
       - run: npm run test:polyfill
-        continue-on-error: true
   # action.yml as another repo uses it: a file within its spec passes, one outside it fails the step
   check:
     runs-on: ubuntu-latest

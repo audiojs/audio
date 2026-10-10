@@ -1,6 +1,6 @@
 ---
 name: audio
-description: Inspect, edit, convert and analyze audio files (wav, mp3, flac, ogg, opus, m4a, aiff…) and the sound of videos (mp4, mov) with the `audio` CLI, no ffmpeg. Loudness/LUFS, true peak and noise floor, normalize and check against podcast, streaming, broadcast, audiobook (ACX) or Netflix specs, trim silence, cut, fade, EQ, match EQ, repair, denoise, ducking, speed, pitch, mix, split, BPM, key, chords. Use for any task that reads or changes an audio file.
+description: Inspect, edit, convert and analyze audio files (wav, mp3, flac, ogg, opus, m4a, aiff…) and the sound of videos (mp4, mov) with the `audio` CLI, no ffmpeg. Loudness/LUFS, true peak and noise floor, normalize and check against podcast, Spotify, broadcast, audiobook (ACX) or Netflix specs, trim silence, cut, fade, EQ, match EQ, repair, denoise, ducking, speed, pitch, mix, split, BPM, key, chords. Use for any task that reads or changes an audio file.
 ---
 
 Shell: `npx -y audio ARGS`. MCP tool `audio`: same ARGS.
@@ -18,4 +18,4 @@ Stats: db peak rms noisefloor loudness dialog truepeak lra dc clipping silence c
 
 Measure, edit, verify: `in.wav` → `in.wav trim normalize podcast check podcast` (a preview) → `… save out.mp3` → `out.mp3 check podcast` (✓/✗ per rule; report fails)
 
-Specs: podcast (Apple, -16 LUFS) · streaming (Spotify, -14) · broadcast (EBU R 128, -23) · netflix (dialog -27, ≤ -2 dBTP) · acx (audiobook). normalize holds ≤ -1 dBTP (`ceiling:-2`). ACX: `omlsa compressor -24 2.5 normalize -20 rms ceiling:-3.5 trim pad 1.5s 2s roomtone resample 44100 save book.mp3 192k`; `'ch*.wav' check acx`: a book.
+Specs: podcast (Apple, -16 LUFS) · spotify (-14) · broadcast (EBU R 128, -23) · netflix (dialog -27, ≤ -2 dBTP) · acx (audiobook). normalize holds ≤ -1 dBTP (`ceiling:-2`). ACX: `omlsa compressor -24 2.5 normalize -20 rms ceiling:-3.5 trim pad 1.5s 2s roomtone resample 44100 save book.mp3 192k`; `'ch*.wav' check acx`: a book.

@@ -144,7 +144,7 @@ export interface AudioInstance {
   /** bins: the value over each of n spans of the range, on the block grid (as waveform bins); NaN where the stat has none */
   stat<C extends number | number[] = number>(name: 'db' | 'rms' | 'noisefloor' | 'loudness' | 'momentary' | 'shortterm' | 'dialog' | 'peak' | 'crest' | 'dc' | 'correlation' | 'centroid' | 'flatness' | 'bpm', opts: { bins: number, at?: Time, duration?: Time, d?: Time, channel?: C }): Promise<PerChannel<C, Float32Array>>
   /** Each rule of a delivery spec, measured: pass is null for rules the spec describes without bounding */
-  check(spec: 'acx' | 'podcast' | 'streaming' | 'broadcast' | 'netflix' | 'apple' | 'spotify' | 'ebu'): Promise<{ spec: string, name: string, url: string, note?: string, pass: boolean, rules: { name: string, value: number, unit: string, min?: number | null, max?: number | null, pass: boolean | null, note?: string }[] }>
+  check(spec: 'acx' | 'podcast' | 'spotify' | 'broadcast' | 'netflix' | 'apple' | 'ebu'): Promise<{ spec: string, name: string, url: string, note?: string, pass: boolean, rules: { name: string, value: number, unit: string, min?: number | null, max?: number | null, pass: boolean | null, note?: string }[] }>
   stat(name: 'clipping', opts?: { at?: Time, duration?: Time, d?: Time }): Promise<Float32Array>
   stat(name: 'clipping', opts: { bins: number, at?: Time, duration?: Time, d?: Time }): Promise<Float32Array>
   stat(name: 'dc', opts?: { at?: Time, duration?: Time, d?: Time }): Promise<number>
@@ -223,7 +223,8 @@ export interface AudioInstance {
   warp(markers: [number, number][]): this
   /** Shift pitch, keep duration. Semitones: a number, a curve { t, v } (seconds → semitones, straight between points,
    *  flat past the ends) or t => semitones; where it is zero the audio stays as it was. voice: a voice's own glottal
-   *  cycles re-spaced (TD-PSOLA, optional @audio/tune-curve): formants and consonants kept, one voice. */
+   *  cycles re-spaced (TD-PSOLA, optional @audio/tune-curve): formants and consonants kept, one voice; a range's
+   *  edges glide as fast as a voice moves its pitch, and its cycles land back on the input's. */
   pitch(semitones: number | ((t: number) => number) | { t: number[], v: number[] }, opts?: { at?: Time, duration?: Time, d?: Time, channel?: number | number[], voice?: boolean }): this
   /** A voice's rises and falls made wider or flatter about its median pitch: 1 as it was, 0 a monotone, 2 twice as
    *  wide, below 0 rises turned to falls. Its own glottal cycles re-spaced (optional @audio/tune-curve): timing,
@@ -339,12 +340,12 @@ export interface AudioInstance {
   /** Loudness targets (presets, mode 'lufs') hold a true-peak ceiling, -1 dBTP by default: a lookahead
    *  limiter, then loudness made up to the target. `ceiling`: dBTP, or false for none. */
   normalize(): this
-  normalize(preset: 'streaming' | 'podcast' | 'broadcast', opts?: NormalizeOpts): this
+  normalize(preset: 'spotify' | 'podcast' | 'broadcast', opts?: NormalizeOpts): this
   normalize(target: number, mode?: 'peak' | 'lufs' | 'rms', opts?: NormalizeOpts): this
   /** To a reference's integrated loudness (BS.1770) */
   normalize(reference: AudioSource, opts?: NormalizeOpts): this
   normalize(target: number, opts?: NormalizeOpts): this
-  normalize(opts: NormalizeOpts & { target?: number | 'streaming' | 'podcast' | 'broadcast' }): this
+  normalize(opts: NormalizeOpts & { target?: number | 'spotify' | 'podcast' | 'broadcast' }): this
 
   // ── Fns (registered via audio.fn) ───────────────────────────
   clip(opts?: { at?: Time, duration?: Time, d?: Time }): AudioInstance

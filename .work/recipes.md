@@ -40,6 +40,8 @@ Inputs:
 | tape.wav | music2 with mild wow and pink hiss at -48 dB RMS, after a 1.5 s hiss-only leader | derived |
 | drums.wav, kick.wav, pad.wav, sfx.wav | the library's own `kick`, `snare`, a sine chord, `sfx({ preset: 'laser' })`, 120 BPM | generated |
 
+The 2026-10-09 pass (the voice recipes joined then) ran on `node_modules/audio-lena/lena.wav` (12.3 s, Lena Stolze's voice from the film "Das schreckliche Mädchen" over a noisy background, mono 44.1 kHz, -17.2 LUFS) and test/recipes.js `narration()` (synthetic, 48 kHz, -36.3 LUFS); the harness also reopened each saved file.
+
 Conventions used throughout:
 
 - **Gain staging first.** Thresholds are absolute dB, so a recipe that compresses starts with `normalize(-18, 'lufs', { ceiling: false })`. That pins the level the thresholds were tuned at, so they behave the same on a quiet and a loud take. -18 is the usual "-18 dBFS = 0 VU" working level; it is a convention, not a rule.
@@ -331,6 +333,8 @@ a.gain(-20 - l, { channel: 0 })
 
 Measured: speakers 6 dB apart in → turns at -16.3 and -14.4 LUFS out (1.9 LU apart; 2.9 without the leveler), episode -16.00, pass. The per-mic measurement includes bleed, which is why trims alone leave a gap. Settings are starting points; the canonical tool is a gain-sharing automixer (gap).
 
+Joined 2026-10-09 as "Interview, two mics" (Clean up, spec podcast), as above. On a synthetic two-mic take (test/recipes.js `interview()`: the narration on mic A for 6 s, then on mic B 6 dB quieter, each mic hearing the other 14 dB down, 1.5 ms late; in -38.09 LUFS): out -16.00 LUFS, -1.00 dBTP, LRA 7.5 → 3.0, the turns at -14.9 and -17.2 LUFS (2.3 LU apart from 6), podcast passes. A mono file stops at the measurement with "channel 1: the audio has 1 channel". `debleed(source)` (since added) takes one mic's bleed out of the other with the other as its key; not tried here.
+
 ### Vinyl transfer, access copy
 
 Pain: clicks, crackle, rumble.
@@ -377,6 +381,16 @@ dry.mix(wet)
 
 20:1 is the plugin's maximum; the 0.1 ms attack keeps transients out of the wet path. Measured on drums: kick tail +5.0 dB (Robjohns' model: +6), hit +1.0 dB, integrated +0.3 LU; true peak 0.91 → 2.25 dBTP, so trim after it. Threshold sits about 22 dB under the input's peaks; move it with the material.
 
+On a voice (joined 2026-10-09 as "Parallel compression"): staged first, so the threshold sits about 20 dB under a voice's peaks at -18 LUFS (Robjohns' -23 dBFS is about 20 dB under full scale), and trimmed after:
+
+```js
+let dry = $src.normalize(-18, 'lufs', { ceiling: false })
+let wet = dry.clone().compressor({ threshold: -25, ratio: 20, knee: 0, attack: 0.1, release: 100 })
+dry.mix(wet).normalize(-18, 'lufs')
+```
+
+Measured (50 ms blocks; "quiet" 20 to 30 dB under the loudest, "loud" the top tenth): lena quiet +4.6 dB, loud +1.2; narration quiet +5.7, loud +0.7 (Robjohns: +6 and 0). A phrase 24 dB under another rises 6.6 dB more than it (test/recipes.js). Out: lena -18.00 LUFS, -5.40 dBTP, LRA 1.4 → 1.2; narration -18.00 LUFS, -1.00 dBTP. A lower threshold does less, not more: at -40 the wet path is squashed flat under quiet passages too (quiet +1.9, lena).
+
 ### Series compression: 1176 into LA-2A
 
 Universal Audio: the 1176 "tames loud transients with the fast attack", then the LA-2A "smooths dynamic range" ([UA](https://www.uaudio.com/blogs/ua/uad-spotlight-ua-1176-la-2a)): 1176 fast attack, fast release, 4:1 or 8:1. Hardware: 1176 attack 20 to 800 µs, release 50 ms to 1.1 s ([1176LN manual](https://media.uaudio.com/assetlibrary/1/1/1176ln_manual.pdf)); LA-2A release "0.06 seconds for 50% release, 0.5 to 5 seconds for complete release" ([LA-2A manual](https://media.uaudio.com/assetlibrary/l/a/la-2a_manual.pdf)).
@@ -420,7 +434,7 @@ let fat = dry.clone().opto({ threshold: -30, ratio: 6 }).lowshelf(150, 3)
 dry.mix(grainy, 0, -12).mix(fat, 0, -9).normalize(-18, 'lufs')
 ```
 
-Measured: -18.00 LUFS, -1.00 dBTP, LRA 4.8 LU. `save()` fails on it ("Unknown op: transistor", D2); it ran via `read()`.
+Measured: -18.00 LUFS, -1.00 dBTP, LRA 4.8 LU. `save()` failed on it ("Unknown op: transistor", D2, now fixed); it ran via `read()`. Not joined: the settings are not his, and "Parallel compression" covers the technique.
 
 ### Pultec low-end trick
 
@@ -434,6 +448,23 @@ $src
 
 Measured response: 30 Hz +3.6, 60 Hz +1.4, 120 Hz -1.8, 240 Hz -0.6, 1 kHz 0.0 dB. Boost below, dip an octave up, as described. The passive curve shapes themselves are not modeled (gap).
 
+### Warm a vocal
+
+Paul White ([SOS, Dec 2001, "The Secrets Of Warmth & Air"](https://www.soundonsound.com/techniques/secrets-warmth-air)): warmth "deals largely with low and low mid-range frequencies". Without valve gear: "first compress the signal using a fairly low ratio (less than 1.5:1), then adjust the threshold to produce a gain reduction of around 5dB on peaks. Follow this with equalisation and add a decibel or two of broad boost over the 50 to 150Hz region using a parametric or sweep equaliser." On vocals, "valve warmth is most evident on the lower 'chest' frequencies". Tape and valves "add distortion that increases in proportion to the level of the input signal" and "tend to have a greater degree of high-frequency roll-off than modern solid-state analogue circuitry. Whenever you take away the top end from a signal, it sounds a little warmer". The other side of it: "If you were to boost a frequency between, say, 2kHz and 7kHz, you would risk making the high end appear harsh and fatiguing."
+
+```js
+$src
+  .normalize(-18, 'lufs', { ceiling: false })
+  .compressor({ threshold: -24, ratio: 1.4, attack: 10, release: 150 })
+  .eq(90, 2, 0.9)
+  .tape({ mix: 0.5 })
+  .normalize(-18, 'lufs')
+```
+
+1.4:1 is under his 1.5:1. At -18 LUFS staging, -24 takes 4.2 dB off lena's peaks and 6.6 off the narration's (his "around 5dB"; -28 gives 5.2 and 7.7). 90 Hz at Q 0.9 spans 50 to 150 Hz, +2 dB is his "a decibel or two". `tape` is the level-dependent saturation plus a playback-head low-pass ([@audio/saturate-tape](https://www.npmjs.com/package/@audio/saturate-tape)), half wet: his roll-off and distortion, a starting point in amount. His optional "gentle dip at around 200 to 250Hz" was left out: the boost measured +0.05 dB (narration) to +0.4 dB (lena) at 150 to 500 Hz, no mud to clean.
+
+Measured, each band's change against the whole file's (rms): lena (female, 44.1 kHz) 50-150 Hz +3.54, 150-500 +0.51, 0.8-1.25 kHz -0.19, 2-5 kHz -0.78, 8 kHz up -2.81 dB; -18.00 LUFS, -5.45 dBTP, LRA 1.4 → 1.0. Narration (synthetic, F0 110 to 140 Hz, 48 kHz) +1.30, +0.01, -0.31, -0.91, -2.31 dB; -18.00 LUFS, -1.27 dBTP. On lena the lows rise past the EQ's 2 dB: her voice has little under 150 Hz, so the room there, lifted by the compression against the speech, counts for more. Tape at full wet takes 8 kHz up -4.3 to -4.7 dB; `tube` instead leaves the top as it was (+0.5 to +1.8 dB), so it is not the warmth White describes.
+
 ### Abbey Road reverb send
 
 Owsinski ([2010](http://bobbyowsinski.blogspot.com/2010/04/secret-of-abbey-road-reverb.html)): roll off "below 600Hz and above 10kHz" at "12dB per octave", on the send "before it hits the reverb". Mud and fizz never enter the reverb.
@@ -445,6 +476,8 @@ dry.mix(send, 0, -12)
 ```
 
 Order 2 is the 12 dB/octave he gives. `mix(send, 0.02, -12)` adds 20 ms of pre-delay (the plate has none). Measured: +0.06 LU: the send adds space, not level. -12 is a starting point.
+
+Joined 2026-10-09 as "Plate on a send", as above. On a voice: lena -17.07 LUFS (+0.15 LU), -4.06 dBTP; narration +0.09 LU. In the 0.5 s after a phrase, 600 Hz to 10 kHz is 19.7 dB over the dry's pause; under 300 Hz against 600 Hz to 10 kHz: -2.0 dB in the voice, -20.6 dB in the tail. The mud stays out of the reverb.
 
 ### Mix-bus glue (SSL G-series bus compressor)
 
@@ -524,6 +557,8 @@ $src.remix(1).delay({ time: 0.135, feedback: 0, mix: 0.25 })
 
 `mix` crossfades dry and wet: 0.25 puts the repeat 9.5 dB under the dry and lowers the dry 2.5 dB (measured -2.08 LU).
 
+Joined 2026-10-09 as "Slapback" without `remix(1)`: a stereo file keeps its image, each channel its own repeat. A click: the repeat at 135 ms, within 0.5 dB of -9.54 dB, nothing else after it. On a voice: lena -19.34 LUFS (-2.12 LU), -6.28 dBTP; narration -2.04 LU.
+
 ### ADT (automatic double tracking)
 
 Ken Townsend, Abbey Road, 1966: a second tape machine "delayed by a few milliseconds", with "an oscillator ... to vary the speed of the second machine, providing variation in delay and pitch" ([Wikipedia](https://en.wikipedia.org/wiki/Automatic_double_tracking), after Lewisohn and Martin).
@@ -533,6 +568,8 @@ $src.chorus({ rate: 0.3, depth: 0.3, delay: 0.006, voices: 1 })
 ```
 
 One voice sweeping 4.2 to 7.8 ms at 0.3 Hz: about 6 cents of drift. `chorus` sums dry and wet 50/50 and halves (measured -2.5 LU). Delay and rate are starting points inside "a few milliseconds".
+
+Joined 2026-10-09 as "Double a vocal (ADT)". A click: the copy 4 to 8 ms after it, over 0.2 of the dry; under 0.05 of it from 0.5 to 3 ms. On a voice: lena -20.31 LUFS (-3.09 LU), -4.78 dBTP, LRA 1.4 → 2.6; narration -2.68 LU. The 50/50 sum combs: 0.8 to 1.25 kHz -0.9 dB against the whole (lena).
 
 ### Gated reverb
 
@@ -575,6 +612,16 @@ $src
 
 The README's own pattern. Measured: -16.00 LUFS, -1.94 dBTP, pass. Unsourced settings: 15 dB of duck, 500 ms release so the bed does not breathe between words.
 
+Joined 2026-10-09 as "Music bed under a voice", turned round: the open sound is the voice (what a podcaster has open), the bed a file named music.wav, cut to the voice's length. Both staged, so the ducker's -40 threshold meets the voice at a known level and the bed sits 12 dB under it whatever it was mastered at (the version above put it 12.7 dB under, -25.4 + -6 against -18.7):
+
+```js
+let voice = $src.normalize(-18, 'lufs', { ceiling: false })
+let bed = audio('music.wav').normalize(-30, 'lufs', { ceiling: false }).ducker({ key: voice.clone(), threshold: -40, range: -15, attack: 20, release: 500 })
+voice.mix(bed).normalize('podcast')
+```
+
+Measured with a synthetic bed (C major pad and a kick on each beat, 120 BPM, stereo, -14 LUFS): lena -16.00 LUFS, -2.88 dBTP; narration -16.24 LUFS, -1.00 dBTP (the ceiling holds it 0.24 under; podcast passes). With a 15 kHz tone for a bed, above the voice: 17.1 dB lower under a phrase than in a pause.
+
 ---
 
 ## 4. Character
@@ -609,7 +656,21 @@ a.remix(1)
   .normalize(-18, 'lufs')
 ```
 
-Hiss before the filters, so the receiver band shapes it too. Built with `audio.from` rather than `noise()`: a registry op inside a mixed source breaks `save()` (D2). Measured: -18.00 LUFS, -1.17 dBTP.
+Hiss before the filters, so the receiver band shapes it too. Built with `audio.from` rather than `noise()`: a registry op inside a mixed source broke `save()` (D2). Measured: -18.00 LUFS, -1.17 dBTP.
+
+Joined 2026-10-09 as "AM radio", D2 fixed, so the hiss is the `noise` op (seeded, the same each run), and the voice staged first so the hiss sits at one level under any voice (the op's white noise is -7.6 dBFS RMS; 38 dB down, -45.6, near the -44.8 of the 0.01 uniform above):
+
+```js
+let a = await $src.normalize(-18, 'lufs', { ceiling: false })
+a.remix(1)
+  .mix(audio.from(a.duration).noise(), 0, -38)
+  .highpass(100, 4)
+  .lowpass(4500, 8)
+  .compressor({ threshold: -24, ratio: 4 })
+  .normalize(-18, 'lufs')
+```
+
+Measured, bands against the whole: lena -18.00 LUFS, -5.29 dBTP, 8 kHz up -16.4 dB (her top was already low: what is left is hiss the filter leaks); narration -18.00 LUFS, -5.06 dBTP, 8 kHz up -36.9 dB, under 80 Hz down over 6 dB.
 
 ### Broadcast processor (Optimod-style)
 
@@ -646,7 +707,7 @@ Measured in the same harness where marked.
 |---|---|
 | Podcast voice, Enhance speech (+ neural), Reduce noise (+ neural), Remove room echo, Breaths/clicks/pops, Shorten pauses, Room tone for silence, Repair clipping | keep. Enhance speech on field.wav: -16.00 LUFS, pass |
 | Remove hum (`dehum({ freq: 50 })`) | keep; name the 60 Hz variant |
-| Restore vinyl (`declick().decrackle().highpass(30)`) | replace with §2 Vinyl: the same click removal (521 → 2 spikes, both), plus rumble taken from the side channel only |
+| Restore vinyl (`declick().decrackle().highpass(30)`) | done: §2 Vinyl, rumble taken from the side channel only |
 | Repair clipping | keep; precede the §2 order recipe |
 | Loudness for streaming / for broadcast | keep; the broadcast one pairs with the new R 128 s1 entry |
 | Measure loudness | keep |
@@ -655,15 +716,19 @@ Measured in the same harness where marked.
 | Narration, tightened | keep |
 | Master to a reference | keep; add "pick a finished master" (a quiet reference gives a quiet master) |
 | Master a song (`multiband` at -20 on an unstaged input) | keep or replace by §1 Music master: its threshold depends on input level; staging first makes it predictable |
-| Vocal chain (de-ess, compress, EQ, plate) | replace by §3 1176 into LA-2A plus de-ess after compression (Senior), and the plate as an Abbey Road send |
+| Vocal chain (de-ess, compress, EQ, plate) | done: "Vocal, 1176 into LA-2A" with the de-esser after the compression (Senior), "Plate on a send" |
 | AI track, settled | keep (no source; it is our own fix) |
 | Ringtone | keep; it already fits Apple's 30 s |
-| Telephone | fix: add `normalize(-18, 'lufs')` (it leaves at 0 dBFS, +9 LU) |
+| Telephone | done: ends at `normalize(-18, 'lufs')` |
 | Hall, Lo-fi, Remove/Isolate vocals, Slow down, Shift pitch, Reverse, Loop, Generate, Analyze, Batch | keep |
 
-Join: Spotify ad, R 128 s1 ad, ATSC A/85, Netflix dialogue (the spec exists, the recipe does not), music master for streaming, voice-over raw, phone prompt, game console/portable, game SFX, repair order, field recording, interview two mics, tape transfer, parallel compression, 1176 into LA-2A, CLA vocal, Scheps parallel vocal, Pultec low end, Abbey Road send, bus glue, mastering chain with dither, de-essing, Haas, mono bass, slapback, ADT, gated reverb, pumping, music bed, AM radio, broadcast processor, SP-1200.
+Joined before: ATSC A/85, Netflix dialogue, music master for streaming, field recording, 1176 into LA-2A, Pultec low end, bus glue, mastering chain with dither, de-essing, mono bass. Joined 2026-10-09, for a voice, each rendered, saved, reopened and measured (numbers beside each in §2 to §4): Warm a vocal (new, §3), Interview, two mics, Parallel compression, Plate on a send (Abbey Road), Double a vocal (ADT), Slapback, Music bed under a voice, AM radio. D2 blocked the parallel ones, the send and the bed (`stat()` and a `normalize` after the `mix`); fixed first (§7).
 
-[test/recipes.js](../test/recipes.js) checks voice recipes against one synthetic narration. Each recipe with a spec should join it, and techniques should assert what they claim (Pultec response shape, mono-bass correlation, parallel +5 dB on tails), not a loudness.
+Join: Spotify ad, R 128 s1 ad, voice-over raw, phone prompt, game console/portable, game SFX, repair order, tape transfer, gated reverb, pumping, broadcast processor, SP-1200.
+
+Not joined, for a voice: Scheps parallel vocal (the two characters are his, the settings ours; "Parallel compression" is the technique), CLA vocal (his settings for one record, and the delay wants the song's tempo, which a spoken voice has not: gap 14), Haas (a voice belongs in the centre, and it loses 2.9 dB in mono).
+
+[test/recipes.js](../test/recipes.js) checks voice recipes against one synthetic narration (the interview against a two-mic take made from it). Each recipe with a spec joins it. Techniques assert what they claim, not a loudness: Warm a vocal (50 to 150 Hz up over 1 dB, 2 to 5 kHz down, 8 kHz up down over 1.5 dB, against 0.8 to 1.25 kHz), Parallel compression (a phrase 24 dB down rises over 4 dB more than a loud one), Plate on a send (a tail after a phrase, its lows 10 dB further under its mids than the voice's), Slapback and ADT (a click's echo where and how loud the source says), Music bed (ducked over 10 dB under a phrase; podcast), AM radio (6 kHz up 20 dB down, mono), Interview (turns 6 dB apart come out within 3). Still owed: Pultec response shape, mono-bass correlation.
 
 Left out, for lack of a source with settings: the "smile curve" EQ, walkie-talkie, tape saturation settings, Serban Ghenea (no interview in his own words found), Bob Clearmountain and Michael Brauer (not researched in this pass).
 
@@ -693,7 +758,7 @@ Ops and specs the recipes above needed and did not have. Ordered by how many rec
 All reproduce on committed HEAD (f5fc6bb) as well as the working tree.
 
 - **D1 (fixed: audio.js wires registry ops before encode and save, as before stream; test/pro.js "a file just opened"). `audio(path).<registry op>().save()` fails before decode finishes**: "Unknown op: compressor". The headline pattern `audio('voice.wav').highpass(80).compressor(…).normalize('podcast').save('out.mp3')` fails in a fresh process, with or without the `normalize`; awaiting the source first works. `save()` takes its live path while the file decodes and reads `inst.duration` ([fn/save.js](../fn/save.js), `total ??= inst.duration`) before `stream()` wires the registry ops ([audio.js](../audio.js), the `stream` wrapper), and `duration` builds the plan.
-- **D2. Registry ops inside a source passed to `mix` or `insert` are not wired.** `stat()` on the result always fails ("Unknown op: transistor", `noise`, `plate`, `compressor`); `save()` fails after `insert`, or when a resolve op such as `normalize` follows the `mix`; `read()` works. `autowire` in audio.js walks only the instance's own `edits`, not its refs'. It breaks every parallel recipe, sends, and generated noise in a mix, wherever the result is measured or saved. Not checked in the editor, whose Check panel measures with `stat()`.
+- **D2 (fixed: `autowire` walks the sources an instance's edits take, through theirs, and loads their ops; test/pro.js "a registry op inside a mixed or inserted source"). Registry ops inside a source passed to `mix` or `insert` are not wired.** `stat()` on the result always fails ("Unknown op: transistor", `noise`, `plate`, `compressor`); `save()` fails after `insert`, or when a resolve op such as `normalize` follows the `mix`; `read()` works. `autowire` in audio.js walks only the instance's own `edits`, not its refs'. It breaks every parallel recipe, sends, and generated noise in a mix, wherever the result is measured or saved. Not checked in the editor, whose Check panel measures with `stat()`.
 - **D3. `haas({ channel: 'right' })` crashes** ("chs.map is not a function", plan.js `run`): the plugin's `channel` param collides with the engine's `{ channel }` range key. Rename the param (`side`), or reserve the range keys.
 - **D4. A 32-bit float WAV the library writes cannot be read back** when the source had tags: the LIST chunk puts `data` at an offset not divisible by 4 and @audio/decode-wav builds a `Float32Array` view on it ("start offset of Float32Array should be a multiple of 4", decode-wav.js:191). Copy to an aligned buffer, or read through a DataView.
 - **D5. Dual-mono MP3 and M4A decode as 1 channel** (ffprobe: 2). The ACX "all mono or all stereo" rule and Apple's stereo-only WAV/FLAC rule depend on this count.

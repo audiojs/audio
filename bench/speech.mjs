@@ -56,7 +56,7 @@ export const WAS = {
   'audiobook-chapter': ['highpass(80)', 'omlsa({ gMin: -12 })', 'compressor({ threshold: -24, ratio: 2.5 })', "normalize(-20, 'rms', { ceiling: -3.5 })", 'trim()', 'pad(1.5, 2)', 'roomtone()', 'resample(44100)'],
   'podcast-episode': ['highpass(80)', 'omlsa({ gMin: -12 })', 'deesser()', 'compressor({ threshold: -24, ratio: 2.5 })', "normalize('podcast')"],
   'narration-tightened': ['highpass(80)', 'omlsa({ gMin: -12 })', 'shrink(0.6)', 'leveler({ target: -20 })', "normalize('podcast')"],
-  'vocal-chain': ['highpass(90)', 'deesser()', 'compressor({ threshold: -20, ratio: 3 })', 'eq(3000, 2, 1)', 'highshelf(10000, 2)', 'plate({ decay: 0.4, mix: 0.12 })', "normalize('streaming')"],
+  'vocal-chain': ['highpass(90)', 'deesser()', 'compressor({ threshold: -20, ratio: 3 })', 'eq(3000, 2, 1)', 'highshelf(10000, 2)', 'plate({ decay: 0.4, mix: 0.12 })', "normalize('spotify')"],
 }
 
 // Candidates the recipes are chosen from (on `train`); same form as a recipe's stages
@@ -111,7 +111,7 @@ const stages = code => code.replace(/^\$src\s*\./, '').split(/\)\s*\.(?=[a-z])/)
 export const recipes = Object.fromEntries([
   ...RECIPES.filter(r => r.code.startsWith('$src') && (VOICE.includes(r.name) || /speech|voice|narration|podcast|audiobook|noise/i.test(r.name)))
     .map(r => [slug(r.name), { name: r.name, spec: r.spec, stages: stages(r.code) }]),
-  ...Object.entries(WAS).map(([k, st]) => [`was-${k}`, { name: k, spec: { 'podcast-voice': 'podcast', 'enhance-speech': 'podcast', 'audiobook-chapter': 'acx', 'podcast-episode': 'podcast', 'narration-tightened': 'podcast', 'vocal-chain': 'streaming' }[k], stages: st }]),
+  ...Object.entries(WAS).map(([k, st]) => [`was-${k}`, { name: k, spec: { 'podcast-voice': 'podcast', 'enhance-speech': 'podcast', 'audiobook-chapter': 'acx', 'podcast-episode': 'podcast', 'narration-tightened': 'podcast', 'vocal-chain': 'spotify' }[k], stages: st }]),
 ])
 
 /** System name → { stages, spec } */

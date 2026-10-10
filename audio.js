@@ -189,8 +189,11 @@ audio.atoms = audio.plugins  // deprecated ≤2.5 name — same object, mutation
 for (let name in OPS) audio.fn[name] ??= opMethod(name)
 
 /** Load every registry op an instance's edits name (dynamic import), then map the
- *  positional args recorded before it loaded onto its params. Refs load through their own LOAD. */
-async function autowire(a) {
+ *  positional args recorded before it loaded onto its params; so for the sources its edits take (mix, insert, a key),
+ *  which its plan reads synchronously: an insert's length, a normalize measuring a mix. */
+async function autowire(a, seen = new Set()) {
+  if (seen.has(a)) return
+  seen.add(a)
   for (let e of a.edits) {
     let [type, o] = e, d = audio.op(type)
     if (!d && audio.plugins[type]) { await audio.use(type); d = audio.op(type) }
@@ -200,6 +203,7 @@ async function autowire(a) {
     d.params.forEach((p, i) => { if (i < args.length) rest[p] = args[i] })
     e[1] = rest
   }
+  for (let [, o] of a.edits) for (let k in o) if (o[k]?.edits?.length) { await autowire(o[k], seen); await loadOps(o[k]) }
 }
 let load = audio.fn[LOAD], stream = audio.fn.stream
 audio.fn[LOAD] = async function() { if (this.edits?.length) await autowire(this); return load.call(this) }

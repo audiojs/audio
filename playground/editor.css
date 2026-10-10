@@ -194,7 +194,8 @@ svg { flex: none; }
 .step-group .step-toggle[aria-expanded="true"] .step-icon { color: var(--color-screen-accent); }
 .step.chosen { background: var(--color-screen-fill-chosen); }
 .step.delta { box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-screen-accent) 70%, transparent); }
-.step.off .step-toggle, .step.off .params, .step.rolled { opacity: .42; }
+/* bypassed, its card dimmed, its settings, open, still in reach; after the card chosen, the steps the output leaves out */
+.step.off .step-toggle, .step.rolled { opacity: .42; }
 .step-head { position: relative; display: flex; align-items: center; min-height: 28px; }
 .step-toggle { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; min-height: 28px; padding: 0 8px; border: 0; background: none; text-align: left; }
 /* its chevron, small, before its icon: turned down while it is open (a step's settings shown, a group unfolded); the

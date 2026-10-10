@@ -7,7 +7,7 @@ import stack, { valuesOf } from './stack.js'
 import { mark as drawMark } from '../logo/mark.js'
 import recipes from './recipes.js'
 import { ops, methods, guides, previews, GROUPS, CURVES, fromManifest, reshapes, icons as groupIcons } from './ops.js'
-import { prepare, error, append, source, chain, number, rollback, residual, setArg, unsetArg, declared, rename, steps as stepsOf, stages, mixed, dropStep, moveStep, turnOff, turnOn, tracks as tracksOf, focus, toTrack, voiceTrack, soundOf, addTrack, dropTrack } from './code.js'
+import { prepare, error, bare, offCalls, append, source, chain, number, rollback, residual, setArg, unsetArg, declared, rename, steps as stepsOf, stages, mixed, dropStep, moveStep, turnOff, turnOn, tracks as tracksOf, focus, toTrack, voiceTrack, soundOf, addTrack, dropTrack } from './code.js'
 import { builtins, sample, microphone, search, credit, unique } from './sources.js'
 import scales from './scale.js'
 import menubar from './menu.js'
@@ -118,9 +118,9 @@ const specMethods = [
 // each or one, its fill
 const WAVE = { colour: 'none', lanes: 'split', fill: 'density' }
 const waveLooks = {
-  colour: [['none', 'One colour', 'The screen\'s'], ['temperature', 'Temperature', 'Low warm, high cool: where its spectrum centres, as the colour of light']],
+  colour: [['none', 'One colour', 'The screen\'s'], ['temperature', 'Temperature', 'Low warm, high cool: where its spectrum centres, as the colour of light'], ['colormap', 'Colormap', 'Where its spectrum centres, in the spectrogram\'s colours: low at their middle, high at their top']],
   lanes: [['split', 'A lane each', 'Each channel on its own'], ['one', 'One lane', 'All the channels over each other, each its own hue']],
-  fill: [['density', 'Density', 'Brighter where the sound is most often'], ['rms', 'RMS', 'A lighter core as loud as its RMS'], ['flat', 'Flat', 'One shade from peak to peak']]
+  fill: [['density', 'Density', 'Brighter where the sound is most often'], ['rms', 'RMS', 'A lighter core as loud as its RMS'], ['flat', 'Flat', 'One shade to about its RMS, soft past it']]
 }
 // the look as gl-spectrogram takes it: 17 stops of a colormap. Grey's are a grey even in lightness, screened over the
 // page (Compositing and Blending 1, screen: cb + cs − cb·cs), which for a grey cs is white over it at cs's opacity: the
@@ -174,7 +174,7 @@ const rates = [[8000, 'Telephone, walkie-talkie'], [11025, 'Low-quality PCM'], [
 const layouts = [[1, 'mono', 'One channel, sides summed'], [2, 'stereo', 'Left and right'], [6, '5.1', 'Surround with LFE'], [8, '7.1', 'Surround, sides and back']]
   .map(([count, label, text]) => ({ count, label, text }))
 // Delivery specs the output can be checked against (fn/check.js holds their rules and sources)
-const specs = [['', 'Off', ''], ['podcast', 'Apple Podcasts', 'Apple'], ['streaming', 'Spotify', 'Spotify'], ['broadcast', 'EBU R 128', 'R 128'], ['acx', 'ACX audiobook', 'ACX'], ['netflix', 'Netflix', 'Netflix']]
+const specs = [['', 'Off', ''], ['podcast', 'Apple Podcasts', 'Apple'], ['spotify', 'Spotify', 'Spotify'], ['broadcast', 'EBU R 128', 'R 128'], ['acx', 'ACX audiobook', 'ACX'], ['netflix', 'Netflix', 'Netflix']]
   .map(([key, label, short]) => ({ key, label, short }))
 
 // One editor writes at a time (keep.js own): opened in a second tab, it asks there to be used there, and once the first
@@ -512,10 +512,10 @@ v = view(root.querySelector('.plot'), {
   // an edit made on the picture: true once it is written in the script
   onedit(type, detail) { const act = { warp, envelope, pitch: shift, intonation: tone, formant, carry, tab: toTab, stretch, trim, lift, fade, crossfade, unmark, remark, relabel, pitchline, insert: silence }[type]; return !!(act ? act(detail, type) : editSelection(type, detail)) },
   // a handle clicked: its next way, in turn, as a tool's options cycle, no menu (a fade corner's curve, the grip's trim,
-  // stretch or speed)
+  // stretch or speed; the pitch tool's curve shown or not)
   onmode(kind) {
     const next = (list, now) => list[(list.findIndex(m => m.name === now) + 1) % list.length].name
-    ;({ curve: () => setCurve(next(curves, state.fadeCurve)), grip: () => setGrip(next(gripModes, state.gripMode)) })[kind]()
+    ;({ curve: () => setCurve(next(curves, state.fadeCurve)), grip: () => setGrip(next(gripModes, state.gripMode)), pitch: () => setPitch(!state.pitch) })[kind]()
   },
   // a flag's own menu: its name, its going; else the edits for what is under the pointer
   oncontext({ x, y, marker }) { bar.at(marker ? [{ label: 'Name…', hint: marker.label || '', run: marker.rename, icon: glyphs.marker }, { label: 'Delete the marker', run: () => unmark(marker), icon: icons.remove }] : contextMenu(), x, y) },
@@ -669,7 +669,7 @@ function menus() {
       { label: 'Grid', items: grids.map(([name, label, hint]) => check(label, state.grid === name, () => setGrid(name), { hint })) },
       '-',
       ...overlays.map(([name, label]) => check(label, state.show[name], () => toggleShow(name))),
-      check('Edit pitch', state.pitch, () => setPitch(!state.pitch), { hint: 'The pitch curve on the spectrogram, dragged whole, its points made and dragged' }),
+      check('Pitch curve', state.pitch, () => setPitch(!state.pitch), { hint: 'The voice\'s pitch on the spectrogram, dragged whole or by its bends; a click on a selection\'s pitch tool shows it too' }),
       check('Snap to cues and markers', state.snapping, () => state.toggleSnap()),
       '-',
       { label: 'Zoom in', keys: '=', run: () => v.zoom(.5), disabled: none },
@@ -890,9 +890,17 @@ async function evaluate() {
   const runs = step ? residual(code, delta) : back != null ? rollback(code, back) : code
   const title = n => n[0].toUpperCase() + n.slice(1), later = back != null ? calls.length - back : 0
   state.viewing = step ? `What ${title(step.name)} takes out` : later > 0 ? `${back ? `Up to ${title(calls[back - 1].name)}` : 'The source alone'}: ${later} later step${later > 1 ? 's' : ''} bypassed` : ''
+  // a change to its comments alone (a bypassed step set, a note) runs nothing: the run asked last, and the output it
+  // made, are this script's too; the same script asked again (a file it waited for come) runs
+  if (sent?.tab === eng.tab && sent.code !== runs && bare(sent.code) === bare(runs)) {
+    for (const o of [sent, output]) if (o?.code != null && bare(o.code) === bare(runs)) Object.assign(o, { code: runs, editor: code })
+    if (!waiting && !incoming && outcome) finished(outcome)
+    return
+  }
   return perform(runs, code)
 }
-// Runs `runs`, the editor holding `code`, its reply and output shown as they come
+// Runs `runs`, the editor holding `code`, its reply and output shown as they come; the last asked (sent)
+let sent = null
 async function perform(runs, code) {
   const script = prepare(runs)
   await restoring
@@ -901,7 +909,7 @@ async function perform(runs, code) {
   // A file kept opens as it was kept, before a sample of its name (one kept before names stayed clear of theirs)
   for (const name of script.names) if (!eng.has(name) && (shelf.has(name) || builtins[name])) eng.file(name, shelf.get(name) ?? sample(name))
   // the output keeps the code that made it (what ran, and what the editor had), and the tab it is for
-  const coming = Object.assign(arrival(script.names), { code: runs, editor: code, tab: eng.tab })
+  const coming = sent = Object.assign(arrival(script.names), { code: runs, editor: code, tab: eng.tab })
   waiting++
   asked = script.names
   status()
@@ -957,10 +965,10 @@ function retell({ lines, saves, names }) {
   state.canPaste = !!chain(ed.code)?.calls.some(c => c.name === 'copy' || c.name === 'cut')
   entitle(names, true)
 }
-// A run's end, for whoever waits on it (an agent's edit): the output's length, or what went wrong
-let waiters = []
+// A run's end, for whoever waits on it (an agent's edit): the output's length, or what went wrong; the last (outcome)
+let waiters = [], outcome = null
 const ran = () => new Promise(resolve => waiters.push(resolve))
-const finished = result => { for (const resolve of waiters.splice(0)) resolve(result) }
+const finished = result => { outcome = result; for (const resolve of waiters.splice(0)) resolve(result) }
 const within = (promise, ms = 60000) => Promise.race([promise, new Promise(resolve => setTimeout(() => resolve({ ok: false, problem: 'Still running' }), ms))])
 
 // How long a sound already shown holds whole before what is on its way shows in its place as it comes, ms
@@ -1461,6 +1469,9 @@ function said(before, after) {
   if (now.length === was.length + 1 && rest(0, 1)) return named(after, now[i])
   if (was.length === now.length + 1 && rest(1, 0)) return `Remove .${was[i].name}()`
   if (was.length === now.length && i < now.length && was[i].name === now[i].name && rest(1, 1)) return `${now[i].name}: ${brief(text(before, was[i]))} → ${brief(text(after, now[i]))}`
+  // a step bypassed, set anew
+  const off = offCalls(before), on = offCalls(after), j = on.findIndex((o, j) => o.text !== off[j]?.text)
+  if (i === was.length && i === now.length && off.length === on.length && j >= 0 && on[j].name === off[j].name) return `${on[j].name}, bypassed: ${brief(text(before, off[j]))} → ${brief(text(after, on[j]))}`
   return 'Edit the script'
 }
 const brief = t => t.length > 28 ? t.slice(0, 27) + '…' : t || '()'
@@ -1848,7 +1859,7 @@ function setGrip(name) {
   const to = n ? exact(n, Math.round(name === 'speed' ? n * k : n / k), name === 'speed') : number(1 / k, .001)
   ed.change({ from: last.dot + 1, to: last.to, insert: `${name}(${to}, ${ed.code.slice(span.from, span.to)})` })
 }
-// Pitch edited, or not (View, Edit pitch). Pitch shows on the spectrogram: editing it, the picture turns to it; done,
+// Pitch edited, or not (View, Pitch curve; a click on the pitch tool). Pitch shows on the spectrogram: editing it, the picture turns to it; done,
 // to the waveform again, if it turned for this
 let pitchFrom = null
 function setPitch(on) {
@@ -1890,7 +1901,7 @@ function envelopeOf(code, name = 'gain') {
 // another edit is the output's as it is, and the line starts anew (hoisted, as envelopeOf)
 function shiftOf(code) { return curveOf(lastEdit(code, 'pitch')?.call) }
 
-// A selection's voice, by its tools: its pitch moved some semitones (whole, or to the cent), pitch() a voice's over it;
+// A selection's voice, by its tools: its pitch moved some semitones, to the cent, pitch() a voice's over it;
 // its intonation, intonation() over it; its formants, formant(). The same again over the same range sets the same
 // call: its semitones added to, its factor multiplied. Its edges match to 50 ms (a pitch frame, 46 ms).
 function voiced(name, value, { at, duration }, join, step, also = '') {

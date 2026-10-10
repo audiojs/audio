@@ -3359,12 +3359,14 @@ test('normalize — preset strings', async t => {
   let ch = new Float32Array(44100)
   for (let i = 0; i < ch.length; i++) ch[i] = 0.5 * Math.sin(2 * Math.PI * 440 * i / 44100)
   let a = audio.from([ch], { sampleRate: 44100 })
-  a.normalize('streaming')
+  a.normalize('spotify')
   let pcm = await a.read()
   let rms = 0
   for (let s of pcm[0]) rms += s * s
   rms = Math.sqrt(rms / pcm[0].length)
-  t.ok(rms > 0, 'streaming preset applied')
+  t.ok(rms > 0, 'spotify preset applied')
+  let former = await audio.from([ch], { sampleRate: 44100 }).normalize('streaming').read()
+  t.ok(former[0].every((v, i) => v === pcm[0][i]), "'streaming', its name before, is spotify")
 })
 
 test('normalize — RMS mode', async t => {
@@ -5682,6 +5684,24 @@ test('pitch({ voice: true }): the shift lands, the input outside the range and w
   for await (let b of a.stream()) s.push(...b[0])
   let w = (await a.read())[0]
   t.ok(s.length === w.length && s.every((v, i) => v === w[i]), 'stream ≡ read')
+})
+
+// A voice's range: the shift glides in and out as fast as a voice moves its pitch (Xu & Sun 2002: 110 ms for 2.35
+// semitones up), not in 10 ms, a jump; and its cycles are back on the input's own by the crossfade into it, which met
+// them a part of a period off, as much as the input itself (a Rosenberg vowel at 140 Hz: 0.3 to −3.6 dB)
+test('pitch({ voice: true }): a range glides in and out at a voice\'s pace, and hands back in phase', async t => {
+  if (!await import('@audio/tune-curve').catch(() => null)) return t.ok(true, 'skipped: @audio/tune-curve is not installed')
+  let { default: yin } = await import('@audio/pitch-yin')
+  let sr = 44100, x = vowel(140, 2), a1 = Math.round(1.1 * sr), X = Math.round(.01 * sr)
+  let at = (d, c) => yin(d.subarray(c - 512, c + 512), { fs: sr, minFreq: 60, maxFreq: 1000 }).freq
+  for (let st of [.05, 2.35, -3]) {
+    let y = (await audio.from([x.slice()], { sampleRate: sr }).pitch(st, { at: .5, duration: .6, voice: true }).read())[0]
+    let moved = s => 1200 * Math.log2(at(y, Math.round(s * sr)) / at(x, Math.round(s * sr))), e = 0, xx = 0
+    for (let i = a1 - X; i < a1; i++) { e += (y[i] - x[i]) ** 2; xx += x[i] ** 2 }
+    let db = 10 * Math.log10(e / xx), early = moved(.53), mid = moved(.8)
+    t.ok(db < -30 && Math.abs(early) < 25 * Math.abs(st) && Math.abs(mid - 100 * st) < 3,
+      `${st} st: ${early.toFixed(0)} cents moved 30 ms in, ${mid.toFixed(1)} mid-range; the crossfade back ${db.toFixed(1)} dB off the input`)
+  }
 })
 
 // What a stretch makes of a range, to the sample, so an editor can draw it ahead: round(round(duration · sr) · factor)

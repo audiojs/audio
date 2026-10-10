@@ -147,7 +147,7 @@ a.remove({ at: 120, duration: 15 }).fade(0.1, { at: 120 })
 let clips = await a.stat('clipping')
 
 // does it pass? each rule of the spec, measured
-let { pass, rules } = await a.check('podcast')         // acx, podcast, streaming, broadcast, netflix
+let { pass, rules } = await a.check('podcast')         // acx, podcast, spotify, broadcast, netflix
 ```
 
 ### Master & deliver
@@ -325,7 +325,7 @@ let f = audio.from(store, { length, channels, sampleRate }) // pages in a store 
 | `.speed(rate)` | changes pitch and duration together. |
 | `.stretch(factor, {voice?})` | changes duration, keeps pitch (phase-locked vocoder). A `t => f` or `{t, v}` factor slides the tempo; duration becomes ∫factor dt. A range `{at, duration}` comes out `round(round(duration · sampleRate) · factor)` samples long, to the sample; the audio around it as it was. `{ voice: true }` keeps a voice's pulse shape and consonants, which the vocoder makes distant: shortened, its waveform copied a segment at a time (WSOLA, `@audio/stretch-wsola`); slowed, the vocoder's frames restarted from the waveform where it fits (PVSOLA, `@audio/stretch-pvsola`), so breath and reverberation are not repeated into a flanger. One voice, not chords.<br><sub>≡ Logic Flex Time Monophonic, Ableton Tones</sub> |
 | `.warp(markers)` | move moments in time: `[[from, to], …]` in seconds. Between markers the audio stretches to fit, pitch kept; start and end stay.<br><sub>≡ Logic Flex Time, Ableton warp markers</sub> |
-| `.pitch(semitones, {voice?})` | changes pitch, keeps duration. Semitones may be a curve `{t, v}` (seconds → semitones, straight between points, flat past the ends, as the gain line's) or `t => semitones`; where it is zero the audio is as it was. `{ voice: true }` re-spaces a voice's own glottal cycles (TD-PSOLA, the optional `@audio/tune-curve`): formants and consonants kept, one voice.<br><sub>≡ Melodyne pitch drawing</sub> |
+| `.pitch(semitones, {voice?})` | changes pitch, keeps duration. Semitones may be a curve `{t, v}` (seconds → semitones, straight between points, flat past the ends, as the gain line's) or `t => semitones`; where it is zero the audio is as it was. `{ voice: true }` re-spaces a voice's own glottal cycles (TD-PSOLA, the optional `@audio/tune-curve`): formants and consonants kept, one voice; a range's edges glide as fast as a voice moves its pitch, and its cycles land back on the input's.<br><sub>≡ Melodyne pitch drawing</sub> |
 | `.intonation(factor)` | a voice's rises and falls wider or flatter about its median pitch: `1` as it was, `0` a monotone, `2` twice as wide. Its own cycles re-spaced (as `pitch({ voice: true })`): timing, formants and consonants kept, one voice.<br><sub>≡ Melodyne pitch modulation, Praat's pitch range factor</sub> |
 | `.formant(semitones)` | moves the formants (the spectral envelope: a voice's vowels, the size of its head), keeps the pitch. A number, a curve `{t, v}` or `t => semitones`. Any sound; with `pitch()`, a voice kept its own or made another's.<br><sub>≡ Melodyne formant tool, Praat's formant shift ratio</sub> |
 | `.remix(channels)` | channel count (down per ITU-R BS.775: 7.1 → 5.1, stereo, mono), or a map: `[1, 0]` swaps L/R, `null` a silent channel. |
@@ -357,7 +357,7 @@ a.remix([0, 0])                           // L→both; .remix(1) for mono
 |:--|:--|
 | `.gain(dB, opts?)` | `{ unit: 'linear' }` takes a multiplier. |
 | `.fade(in, out?, curve?)` | curves `'linear'` `'exp'` `'log'` `'cos'`, as functions in `audio.op('fade').curves`. `{start, end}` levels 0..1 fade between any levels (a duck); `{mid}` skews the half-amplitude point.<br><sub>≡ Audacity adjustable-fade</sub> |
-| `.normalize(target?, mode?)` | remove DC, normalize. Loudness targets hold a true-peak ceiling, -1 dBTP by default: a lookahead limiter, then the loudness it took made back up. Presets per Apple Podcasts, Spotify, EBU R 128 (ITU-R BS.1770-4):<br>`'podcast'` -16 LUFS<br>`'streaming'` -14 LUFS<br>`'broadcast'` -23 LUFS<br>`-18, 'lufs'` any loudness; `-3` peak dB; no arg: peak 0 dBFS; `'rms'` mode<br>an audio instance: its integrated loudness<br>`{ ceiling: -2 }` dBTP, `false` off<br>`{ dc: false }` keep DC<br>`{ adaptive: true }` on a live stream, start at once: the gain follows what it has heard, the ceiling (the target itself in peak mode) guards what it hasn't. Without it, one gain for the whole selection: a live stream waits for its end.<br><sub>≡ FFmpeg `loudnorm`</sub> |
+| `.normalize(target?, mode?)` | remove DC, normalize. Loudness targets hold a true-peak ceiling, -1 dBTP by default: a lookahead limiter, then the loudness it took made back up. Presets per Apple Podcasts, Spotify, EBU R 128 (ITU-R BS.1770-4):<br>`'podcast'` -16 LUFS<br>`'spotify'` -14 LUFS (YouTube, Tidal, Amazon Music too)<br>`'broadcast'` -23 LUFS<br>`-18, 'lufs'` any loudness; `-3` peak dB; no arg: peak 0 dBFS; `'rms'` mode<br>an audio instance: its integrated loudness<br>`{ ceiling: -2 }` dBTP, `false` off<br>`{ dc: false }` keep DC<br>`{ adaptive: true }` on a live stream, start at once: the gain follows what it has heard, the ceiling (the target itself in peak mode) guards what it hasn't. Without it, one gain for the whole selection: a live stream waits for its end.<br><sub>≡ FFmpeg `loudnorm`</sub> |
 | `.roomtone(threshold?)` | fill digital silence (≥ 10 ms under -90 dBFS: edited-out pauses, `pad()`) with the recording's own room tone: its quiet stretches that hold still for 0.3 s, 20 dB under the program. `.trim().pad(1.5, 2).roomtone()` gives an audiobook chapter its room tone at each end (ACX rejects digital silence). Where every pause was gated or cut, there is no room to take, and nothing changes.<br><sub>≡ iZotope RX Ambience Match</sub> |
 | `.mix(source, at?, gain?)` | overlay at `at` seconds, source level `gain` dB.<br><sub>≡ FFmpeg `amix` weights</sub> |
 | `.crossfade(source, duration?, curve?)` | append with overlap, default 0.5s. `'cos'` (default) suits similar material; `'equal'` (equal-power) keeps loudness across unrelated tracks; each in `audio.op('crossfade').curves`. With no source, `.crossfade({ at, duration })` crossfades across the range, as an editor crossfades a selection: the audio before it fades into the audio after it, and the range goes.<br><sub>≡ FFmpeg `acrossfade`</sub> |
@@ -562,7 +562,7 @@ m.stop()                                                           // release
 |:--|:--|
 | `await .stat(name, opts?)` | one value; with `{ bins: n }` a `Float32Array`, the value over each of n spans of the range: where, not only how much (lists, a key and spectra come whole; `bins` sizes spectrum and cepstrum); an array of names gives an array. `{ channel: n }` one channel, `[n, m]` per channel; `{at, duration}` sub-range. |
 | `await .detect(opts?)` | `{ bpm, confidence, beats, onsets }` in one pass; `{ channel }` as in `stat`. |
-| `await .check(spec)` | pass or fail against a delivery spec: `{ pass, rules: [{ name, value, unit, min, max, pass }] }`. `'acx'` (RMS, peak, noise floor, room tone, 44.1 kHz), `'podcast'` (Apple: -16 LUFS ±1, ≤ -1 dBTP), `'streaming'` (Spotify: plays at -14 LUFS, ≤ -1 dBTP), `'broadcast'` (EBU R 128: -23 ±0.2 LUFS, ≤ -1 dBTP), `'netflix'` (dialog -27 ±2 LUFS, ≤ -2 dBTP). Each limit cites its source in [fn/check.js](fn/check.js). |
+| `await .check(spec)` | pass or fail against a delivery spec: `{ pass, rules: [{ name, value, unit, min, max, pass }] }`. `'acx'` (RMS, peak, noise floor, room tone, 44.1 kHz), `'podcast'` (Apple: -16 LUFS ±1, ≤ -1 dBTP), `'spotify'` (plays at -14 LUFS, ≤ -1 dBTP), `'broadcast'` (EBU R 128: -23 ±0.2 LUFS, ≤ -1 dBTP), `'netflix'` (dialog -27 ±2 LUFS, ≤ -2 dBTP). Each limit cites its source in [fn/check.js](fn/check.js). |
 
 | Stat                         | Description                                                                                                                         |
 |:--|:--|
@@ -924,7 +924,7 @@ jobs:
       - uses: audiojs/audio@master   # or any CI: npx -y audio 'episodes/*.mp3' check podcast
         with:
           files: episodes/*.mp3
-          spec: podcast              # streaming, broadcast, netflix, acx
+          spec: podcast              # spotify, broadcast, netflix, acx
 ```
 
 ### Stdin/stdout

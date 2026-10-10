@@ -1,6 +1,6 @@
 import { ops, methods, format, fromManifest, reshapes, icons } from './ops.js'
 import opIcons from './icons.js'
-import { chain, setArg, number, offCalls, turnOff, turnOn, parseCall, groups, steps as stepsOf, moveStep, moveLines, group as groupSteps, ungroup, renameGroup } from './code.js'
+import { chain, setArg, number, offCalls, turnOff, turnOn, groups, steps as stepsOf, moveStep, moveLines, group as groupSteps, ungroup, renameGroup } from './code.js'
 import { help, layout } from './help.js'
 
 // The edits: the chain's steps as cards, in order, as Luminar's edits or a history panel; the same chain as the code,
@@ -11,7 +11,8 @@ import { help, layout } from './help.js'
 // at, each says what it does and which way to move it (help.js); the engine's own, which few touch, wait under Advanced.
 // The card under the pointer draws what it sets over the output (`oncall`). Two acts on it, over its right end where the pointer
 // is, its settings running under them to the card's edge: its power switch bypasses the step, and turns it back on (the call commented out
-// where it stands, so the code says it too); its × removes it. Dragged up or down, a card takes its step there in the
+// where it stands, so the code says it too); its × removes it. Bypassed, it still opens: its settings go into its comment,
+// nothing renders, and what it sets is drawn over the output as it is. Dragged up or down, a card takes its step there in the
 // chain. Going back to a card is choosing it: an edit made then goes in right after it, the steps after it kept, as a
 // new layer goes over the one selected (at()). Open, a card's Δ plays and draws what its step takes out (the output before
 // it less the output after it). Steps grouped in the code (code.js groups: a recipe's, under its name) are one card,
@@ -37,7 +38,7 @@ export default function stack(root, { ed, describe = async () => null, duration 
     // audio.from(…) makes the sound: its call is where the chain starts, not a step on it
     const made = c?.root.name === 'VariableName' && code.slice(c.root.from, c.root.to) === 'audio' && !!calls[0]
     // a step bypassed, its call commented out, known as it was by where its "(" is, so it stays the card chosen
-    const steps = [...calls.map((k, i) => i || !made ? k : { ...k, origin: true }), ...offCalls(code).map(o => ({ ...parseCall(o.text), ...o, dot: o.from, list: { from: code.indexOf(o.text, o.from) + o.text.indexOf('(') }, off: true }))].sort((p, q) => p.dot - q.dot)
+    const steps = [...calls.map((k, i) => i || !made ? k : { ...k, origin: true }), ...offCalls(code).map(o => ({ ...o, dot: o.from, off: true }))].sort((p, q) => p.dot - q.dot)
     const name = !made && source(), rows = name ? [{ name, sound: true }, ...steps] : steps
     const gs = groups(code), groupOf = k => k.sound ? -1 : gs.findIndex(g => k.dot > g.from && k.dot < g.to)
     // cards are built again only when the steps change, never by a slider's own edits nor a step bypassed or turned back
@@ -281,10 +282,11 @@ export default function stack(root, { ed, describe = async () => null, duration 
   const live = () => cards.filter(c => !c.call.off && !c.call.sound)
   // the card chosen, as an index among the cards, or -1
   const position = () => chosen === 'source' ? cards.findIndex(c => c.call.sound) : chosen == null ? -1 : cards.findIndex(c => c.call.list?.from === chosen)
-  // the live steps the chosen card keeps: none past the sound it starts from; all of them (null) at the last, or none chosen
+  // the live steps the chosen card keeps: none past the sound it starts from; all of them (null) at the last, none chosen,
+  // or one bypassed, set without a render, what it sets drawn over the whole output
   function kept() {
     const c = cards[position()], steps = live()
-    const n = !c ? null : c.call.sound ? 0 : steps.filter(k => k.call.dot <= c.call.dot).length
+    const n = !c || c.call.off ? null : c.call.sound ? 0 : steps.filter(k => k.call.dot <= c.call.dot).length
     return n == null || n >= steps.length ? null : n
   }
 
@@ -296,14 +298,14 @@ export default function stack(root, { ed, describe = async () => null, duration 
       c.li.classList.toggle('chosen', n === at)
       c.li.classList.toggle('picked', picked.includes(c))
       c.li.classList.toggle('off', !!call.off)
-      c.li.classList.toggle('rolled', at >= 0 && n > at && delta == null)
+      c.li.classList.toggle('rolled', back != null && n > at)
       c.li.classList.toggle('delta', i >= 0 && i === delta)
       c.toggle.setAttribute('aria-pressed', String(n === at))
-      c.toggle.title = call.off ? `.${call.name}() is bypassed: its switch turns it back on`
-        : n === at ? 'Back to the whole chain (Esc)'
+      c.toggle.title = n === at ? call.off ? 'Close (Esc)' : 'Back to the whole chain (Esc)'
+        : call.off ? `.${call.name}() is bypassed: open, its settings set without a render; its switch turns it back on`
         : call.sound ? `${call.name}: the sound alone, before any step`
         : `${ops[call.name]?.text || '.' + call.name + '()'}: the output up to here, and its settings`
-      c.args.textContent = call.sound ? '' : summary(call.source ?? code, call)
+      c.args.textContent = call.sound ? '' : summary(code, call)
       if (c.on) {
         c.on.setAttribute('aria-pressed', String(!call.off))
         c.on.querySelector('path').setAttribute('d', call.off ? SHUT : ON)
@@ -313,8 +315,6 @@ export default function stack(root, { ed, describe = async () => null, duration 
       if (open && !c.params) { c.params = params(c); c.li.append(c.params.dom); c.params.load() }
       if (!open && c.params) { c.params.dom.remove(); c.params = null }
       c.params?.refresh(i >= 0 && i === delta)
-      // bypassed, its settings stay in sight, out of reach till it is back on
-      if (c.params) c.params.dom.inert = !!call.off
     }
     // a group folded hides its steps, unless the step chosen is one of them; its switch is off when all of them are
     for (const fold of folds) {
@@ -336,14 +336,13 @@ export default function stack(root, { ed, describe = async () => null, duration 
   // What the card under the pointer sets, drawn over the output; none when no card is
   async function guide() {
     const c = hovered, name = c?.call.name
-    if (!c || c.call.off || c.call.sound || !ops[name]) return oncall(null)
+    if (!c || c.call.sound || !ops[name]) return oncall(null)
     const spec = c.params?.spec ?? ops[name].params ?? fromManifest(await describe(name))
     if (hovered === c) oncall(c.call, spec, valuesOf(spec, c.call))
   }
 
   // A press on a card chooses it; on the one chosen, the whole chain comes back
   function pick(c) {
-    if (c.call.off) return
     const id = c.call.sound ? 'source' : c.call.list.from
     choose(chosen === id ? null : id)
   }
@@ -429,6 +428,7 @@ export default function stack(root, { ed, describe = async () => null, duration 
       },
       refresh(heard) {
         takes?.setAttribute('aria-pressed', String(heard))
+        if (takes) takes.disabled = !!card.call.off
         if (self.ready) values()
       }
     }
@@ -516,7 +516,8 @@ export default function stack(root, { ed, describe = async () => null, duration 
       const change = named ? setArg(call, s.name, value) : setArg(call, index, value, spec.map(p => p.default))
       // what the picture shows at once: the settings it had and the ones it gets, by name, its range with them
       const was = { ...Object.fromEntries(options?.props.map(p => [p.name, p.value]) || []), ...Object.fromEntries(spec.map((p, i) => [p.name, valuesOf(spec, call)[i]])) }
-      onpreview(call.name, was, { ...was, [s.name]: value })
+      // bypassed, the output stays as it is
+      if (!call.off) onpreview(call.name, was, { ...was, [s.name]: value })
       live ? ed.slide(change) : ed.change(change, 'input.slider')
     }
     return self
