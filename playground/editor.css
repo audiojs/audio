@@ -8,12 +8,16 @@ button, input { font: inherit; color: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; opacity: .4; }
 :focus { outline: none; }
-/* Scrollbars: a quiet thumb on a clear track */
-* { scrollbar-width: thin; scrollbar-color: var(--color-screen-rule) transparent; }
-::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+/* Scrollbars as the picture's (view.js paintBar): a faint thumb 3px thick, 2px off the edge, on no track; under the pointer
+   5px and brighter, as macOS's overlay scrollbars are. Chrome drops the ::-webkit-scrollbar look wherever scrollbar-width
+   or scrollbar-color is set, so those are for Firefox alone, which has no other */
+@supports not selector(::-webkit-scrollbar) { * { scrollbar-width: thin; scrollbar-color: color-mix(in oklab, var(--color-screen-soft) 30%, transparent) transparent; } }
+::-webkit-scrollbar { width: 9px; height: 9px; background: transparent; }
 ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
-::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 4px; background: var(--color-screen-rule) padding-box; }
-::-webkit-scrollbar-thumb:hover { background: var(--color-screen-muted) padding-box; }
+::-webkit-scrollbar-thumb { border: 0 solid transparent; border-radius: 4px; background: color-mix(in oklab, var(--color-screen-soft) 30%, transparent) padding-box; }
+::-webkit-scrollbar-thumb:horizontal { border-width: 4px 0 2px; }
+::-webkit-scrollbar-thumb:vertical { border-width: 0 2px 0 4px; }
+::-webkit-scrollbar-thumb:hover { border-width: 2px; background-color: color-mix(in oklab, var(--color-screen-soft) 60%, transparent); }
 [hidden] { display: none !important; }
 /* Until the script takes the page over, its conditional and repeated parts stay out of sight and the rest takes no
    clicks, never shown dead. Sprae drops each directive attribute as it takes that element, so any version of the
@@ -521,6 +525,7 @@ svg { flex: none; }
    said under them */
 .dropdown { position: fixed; inset: auto; width: min(360px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); margin: 0; padding: 4px 14px 12px; overflow: auto; border: 0; border-radius: 12px; background: var(--color-screen-raised); color: var(--color-screen-soft); box-shadow: var(--shadow-menu); }
 .dropdown-group { padding-top: 10px; }
+.dropdown-section { margin: 14px 0 12px; padding-top: 14px; border-top: 1px solid var(--color-screen-grid); color: var(--color-screen-ink); font: 600 13px var(--font-body); }
 .dropdown-label { margin: 0 0 6px; color: var(--color-screen-ink); font: 500 12px var(--font-body); }
 .dropdown .choices button { min-height: 26px; padding: 0 9px; font-size: 11.5px; }
 .dropdown-note { min-height: 15px; margin: 5px 0 0; color: var(--color-screen-dim); font: 11.5px/15px var(--font-body); }
@@ -570,6 +575,8 @@ svg { flex: none; }
 .quiet-button { display: flex; align-items: center; justify-content: center; min-height: 34px; margin: 4px 0 0; border: 0; border-radius: 9px; background: var(--color-screen-fill-quiet); color: var(--color-screen-bright); font-size: 12.5px; font-weight: 500; }
 .quiet-button:hover:not(:disabled) { background: var(--color-screen-fill-quiet-hover); }
 .export-size { font: 12px var(--font-mono); opacity: .6; }
+.export-row { display: flex; align-items: center; gap: 6px; }
+.export .export-tracks { min-height: 36px; margin: 4px 0 0; border-radius: 9px; }
 .check-table { width: 100%; border-collapse: collapse; font: 11px/1.4 var(--font-mono); font-variant-numeric: tabular-nums; transition: opacity var(--dur-short) var(--ease-out); }
 .check-table.stale { opacity: .45; }
 .check-table th, .check-table td { padding: 5px 6px; border-top: 1px solid var(--color-screen-rule); text-align: right; white-space: nowrap; }

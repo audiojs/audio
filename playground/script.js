@@ -24,9 +24,11 @@ export default function editor(parent, { doc = '', onchange, oncaret, files = ()
   const theme = EditorView.theme({
     '&': { height: '100%', color: 'var(--color-screen-soft)', backgroundColor: 'transparent', fontSize: '13px' },
     '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.75' },
-    '.cm-content': { padding: '14px 0 40px', caretColor: 'var(--color-screen-bright)' },
+    // the code scrolled across goes under the line numbers, cut off at their edge (under)
+    '.cm-content': { padding: '14px 0 40px', caretColor: 'var(--color-screen-bright)', clipPath: 'inset(0 0 0 var(--under, 0px))' },
     '.cm-line': { padding: '0 16px 0 6px' },
     '.cm-gutters': { backgroundColor: 'transparent', border: 'none', color: 'var(--color-screen-rule)' },
+    '.cm-layer': { clipPath: 'inset(-1e5px -1e5px -1e5px var(--under-layer, 0px))' },
     '.cm-lineNumbers .cm-gutterElement': { padding: '0 6px 0 16px', minWidth: '22px' },
     '.cm-activeLine': { backgroundColor: 'oklch(100% 0 0 / .03)' },
     '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--color-screen-dim)' },
@@ -205,6 +207,15 @@ export default function editor(parent, { doc = '', onchange, oncaret, files = ()
     view.dispatch({ changes: { from: n.from, to: n.to, insert: next }, selection: { anchor: n.from, head: n.from + next.length }, userEvent: 'input.step', scrollIntoView: true })
     return true
   }
+  // The line numbers stand over the code scrolled across under them: what passes beneath is cut off a line's own margin
+  // (6px) past their edge, as far from them as unscrolled, the slab's ground showing through them as everywhere (a gutter
+  // painted over the code would break its scanlines and shading). The code is cut where the scroll has taken it; the
+  // selection and caret, drawn from the scroll's start, past the line numbers too
+  function under(v) {
+    const s = v.scrollDOM.scrollLeft, g = v.dom.querySelector('.cm-gutters')?.offsetWidth ?? 0, cut = s + Math.min(s, 6)
+    v.dom.style.setProperty('--under', `${cut}px`)
+    v.dom.style.setProperty('--under-layer', `${cut + g}px`)
+  }
   const steps = [{ key: 'ArrowUp', run: v => nudge(v, 1), shift: v => nudge(v, 10) }, { key: 'ArrowDown', run: v => nudge(v, -1), shift: v => nudge(v, -10) }]
 
   const extensions = [
@@ -214,6 +225,7 @@ export default function editor(parent, { doc = '', onchange, oncaret, files = ()
     tooltips({ parent: document.body }),
     keymap.of([...Object.entries(keys).map(([key, run]) => ({ key, run: () => (run(), true), preventDefault: true })), ...steps, ...closeBracketsKeymap, ...completionKeymap, ...historyKeymap, indentWithTab, ...defaultKeymap]),
     EditorView.updateListener.of(update => {
+      if (update.geometryChanged) under(update.view)
       if (update.docChanged) onchange?.(update.state.doc.toString(), update)
       if (update.docChanged || update.selectionSet) oncaret?.(update)
       // a number selected says what it sets; once it is not, it is quiet
@@ -222,6 +234,7 @@ export default function editor(parent, { doc = '', onchange, oncaret, files = ()
     EditorView.contentAttributes.of({ 'aria-label': 'Script' })
   ]
   const view = new EditorView({ parent, state: EditorState.create({ doc, extensions }) })
+  view.scrollDOM.addEventListener('scroll', () => under(view), { passive: true })
 
   // Documents, each its own text, history and caret: open(key) shows one, new with `doc` the first time; the one it
   // replaces is kept for coming back to, and forgotten when closed. The document the editor is made with is the first

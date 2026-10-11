@@ -1765,7 +1765,7 @@ test('editor: the grid crosses where the ticks meet, dots where their finer step
   assert.equal((await lit([[hit, r0]]))[0], 0, 'none behind the waveform')
   // the levels in decibels: a cross at −6 dB's tick, a dot at −3 dB, 0.708 of full scale
   await page.evaluate(() => window.__ticks = [])
-  await page.getByRole('tab', { name: 'Waveform', exact: true }).click({ button: 'right' })
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await choice('Levels in', 'Decibels').click()
   await page.keyboard.press('Escape')
   await page.mouse.move(2, 2)
@@ -1795,8 +1795,8 @@ test('editor: the grid crosses where the ticks meet, dots where their finer step
 })
 
 // Two sliders for the settings, a spark for the agent, an open book for the recipes, the switches joined (raised keys in
-// one bezel), the view's options from a right-click, the export's icon an arrow down onto a tray
-test('editor: the settled icons; the switches are keys in a bezel; the view\'s options open from a right-click', async () => {
+// one bezel), the export's icon an arrow down onto a tray; the pictures' switches open no menu of their own
+test('editor: the settled icons; the switches are keys in a bezel; a picture\'s switch right-clicked opens nothing', async () => {
   await open()
   const icon = name => page.getByRole(name === 'Settings' ? 'button' : 'tab', { name, exact: true }).locator('path').getAttribute('d')
   assert.equal((await icon('Settings')).match(/a2 2 0 1 1-4 0/g).length, 2, 'two sliders, their round thumbs')
@@ -1809,11 +1809,11 @@ test('editor: the settled icons; the switches are keys in a bezel; the view\'s o
   const [first, second] = await group.locator('button').evaluateAll(list => list.slice(0, 2).map(b => b.getBoundingClientRect()).map(r => [r.left, r.right]))
   assert.equal(second[0], first[1], 'raised keys in one bezel')
   assert.notEqual(await group.evaluate(el => getComputedStyle(el).backgroundColor), 'rgba(0, 0, 0, 0)')
-  // the view's options: its tab right-clicked, shown at once
+  // how a picture draws is in the settings: its switch right-clicked opens no dropdown, nor shows it
   await page.getByRole('tab', { name: 'Export', exact: true }).click()
   await page.getByRole('tab', { name: 'Spectrogram', exact: true }).click({ button: 'right' })
-  await page.locator('.dropdown').getByRole('group', { name: 'FFT size', exact: true }).waitFor()
-  assert.equal(await page.getByRole('tab', { name: 'Spectrogram', exact: true }).getAttribute('aria-selected'), 'true', 'shown at once')
+  assert.equal(await page.locator('.dropdown:popover-open').count(), 0, 'no dropdown')
+  assert.equal(await page.getByRole('tab', { name: 'Spectrogram', exact: true }).getAttribute('aria-selected'), 'false', 'not shown')
 })
 
 // The edits as a stack of layers: a step chosen shows the output up to it; an edit made then goes in right after it, the
@@ -2085,6 +2085,42 @@ test('editor: a file opens where nothing plays, goes in where its caret shows ov
   await hold('.files', 'tone.wav')
   await page.waitForFunction(n => document.querySelectorAll('.files .file').length === n + 1, tabs)
   await page.waitForFunction(() => scriptText() === "audio('tone-3.wav')")
+})
+
+// Several files dropped at once open together, a track each in one tab, the first edited; exported, a file each. Over
+// the tabs, a tab each
+test('editor: several files dropped open as tracks of one tab, exported a file each; over the tabs, a tab each', async () => {
+  await open()
+  const bytes = [await wavBytes([sine(.5, 440, .5)]), await wavBytes([sine(.75, 220, .5)])]
+  const hold = (selector, names) => page.evaluate(({ selector, names, bytes }) => {
+    const target = document.querySelector(selector), rect = target.getBoundingClientRect(), data = new DataTransfer()
+    names.forEach((name, i) => data.items.add(new File([new Uint8Array(bytes[i])], name, { type: 'audio/wav' })))
+    const at = { bubbles: true, cancelable: true, dataTransfer: data, clientX: rect.left + 40, clientY: rect.top + 10 }
+    for (const kind of ['dragover', 'drop']) target.dispatchEvent(new DragEvent(kind, at))
+  }, { selector, names, bytes: bytes.map(b => [...b]) })
+  await write('')
+  await hold('.view', ['low.wav', 'high.wav'])
+  await page.waitForFunction(() => scriptText() === "let low = audio('low.wav')\n\nlet high = audio('high.wav')")
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'low · low.wav')
+  await lengthIs('0:00.750')
+  const files = []
+  page.on('download', d => files.push(d))
+  await menu('File', 'Export each track')
+  while (files.length < 2) await new Promise(r => setTimeout(r, 50))
+  assert.deepEqual(files.map(d => d.suggestedFilename().replace(/^.*-/, '')), ['low.wav', 'high.wav'])
+  const lengths = []
+  for (const d of files) { const a = await audio(await readFile(await d.path())); await a.read(); lengths.push(+a.duration.toFixed(3)) }
+  assert.deepEqual(lengths, [.5, .75], 'each track alone')
+  // over the tabs: a tab each
+  const tabs = await page.locator('.files .file').count()
+  await hold('.files', ['low.wav', 'high.wav'])
+  await page.waitForFunction(n => document.querySelectorAll('.files .file').length === n + 2, tabs)
+  await page.waitForFunction(() => scriptText() === "audio('high-2.wav')")
+  // picked together (Open file…): a track each, as dropped
+  await page.setInputFiles('.file-input', [{ name: 'low.wav', mimeType: 'audio/wav', buffer: bytes[0] }, { name: 'high.wav', mimeType: 'audio/wav', buffer: bytes[1] }])
+  await page.waitForFunction(() => scriptText() === "let low3 = audio('low-3.wav')\n\nlet high3 = audio('high-3.wav')")
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
 })
 
 // The engine sets off before the page's own scripts: its worker is asked for while editor.js is still held back, and
@@ -3237,8 +3273,8 @@ test('editor: the status bar says the note at the caret, a selection\'s compass,
 
 // The speed it plays at, the pitch kept: Play held and dragged across sets it, twice or half each 32 px, 0.1× to 10×, a
 // scale over it as it goes, the pointer hidden; let go, it stays. While it plays the speed stands in the record
-// button's place (nothing records then), a pill turning 1×, 1.5×, 2×, so nothing beside it moves; right-clicked, Play or
-// the pill, a list. Round Play a ring, how far through the sound it plays, there while it plays. The clock runs at that
+// button's place (nothing records then), a pill turning 1×, 1.5×, 2×, so nothing beside it moves; the Play menu, a
+// list. Round Play a ring, how far through the sound it plays, there while it plays. The clock runs at that
 // speed: over 400 ms at 4×, about 1.6 s
 test('editor: Play held and dragged sets the speed, shown in record\'s place while it plays; a pill, a list; a ring how far it has played', async () => {
   await open()
@@ -3297,9 +3333,8 @@ test('editor: Play held and dragged sets the speed, shown in record\'s place whi
   assert.ok(Math.abs(await clock() - pressed) < .05, `${await clock()} vs ${pressed}`)
   assert.deepEqual((await slot()).map(([off]) => off), [false, true], 'record again')
   assert.equal((await ring())[0], false, 'no ring at rest')
-  // right-clicked: the list; kept for the next visit
-  await page.locator('button.play').click({ button: 'right' })
-  await menuRow('1.5×').click()
+  // the Play menu: the list; kept for the next visit
+  await menu('Play', 'Speed', '1.5×')
   assert.equal(await speed(), 1.5)
   await page.reload()
   await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
@@ -3388,7 +3423,8 @@ test('editor: resizing the panes never shows a blank frame', async () => {
 })
 
 // The settings, the panel's last tab: the frequency scale, what shows, snapping; each remembered
-// The frequency scale is the spectrogram's own: its tab again, or a right-click on it; snapping is a setting; both kept
+// The frequency scale is the spectrogram's own: its tab again, or its section of the settings from a right-click on
+// it; snapping is a setting; both kept
 test('editor: the spectrogram\'s frequency scale from its tab or a right-click, snapping from the settings, both remembered', async () => {
   await open()
   await show('spec')
@@ -3396,10 +3432,8 @@ test('editor: the spectrogram\'s frequency scale from its tab or a right-click, 
   assert.equal(await now(), 'log')
   await show('spec')
   assert.equal(await now(), 'mel')
-  const { box: at } = await axis(1)
-  // the picture's context menu, then its options, a dropdown under its switch
-  await page.mouse.click(at.x + 200, at.y + 100, { button: 'right' })
-  await menuRow('How the spectrogram draws…').click()
+  // the settings, the spectrogram's section of them
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await choice('Frequency scale', 'Hertz').click()
   assert.equal(await now(), 'lin')
   await page.keyboard.press('Escape')
@@ -3701,6 +3735,7 @@ test('editor: Alt and a drag on the spectrogram adds another box; Delete takes e
   await page.keyboard.press('Escape')
   // a method from the context menu, for each box's time: the clicks in each taken out
   await page.mouse.click(x(1.5), box.y + lane * .25, { button: 'right' })
+  await menuRow('Process').click()
   await menuRow('Repair').click()
   await menuRow('Remove the clicks in each').click()
   await page.waitForFunction(() => (scriptText().match(/\.declick\(\{ at: [\d.]+, d: [\d.]+ \}\)/g) || []).length === 2)
@@ -4995,7 +5030,7 @@ test('editor: a second tab asks to be the editor; the first stores and steps asi
 // Every setting kept comes back as it was kept; a value the page no longer has, its default; a store that does not read
 // is set aside, not written over
 test('editor: every setting comes back as it was kept; one the page no longer has, its default', async () => {
-  const all = { display: 'spec', scale: 'mel', format: 'flac', encoding: { markers: false, bitDepth: 24 }, spec: 'podcast', cuts: { format: 'otio', fps: 25 }, side: 'code', show: { hits: false, gain: false, meters: false, guides: false }, units: 'samples', snap: false, curve: 'cos', levels: 'db', ruler: 'ticks', step: 3, look: { map: 'magma', gamma: .5, depth: 100, size: 2048, method: 'tapers' }, wave: { colour: 'temperature', lanes: 'one', fill: 'flat' }, agent: { url: 'http://127.0.0.1:7778', key: '' }, splice: 20, scrub: 'grains', grip: 'speed', pitch: false, speed: 1.5 }
+  const all = { display: 'spec', scale: 'mel', format: 'flac', encoding: { markers: false, bitDepth: 24 }, spec: 'podcast', cuts: { format: 'otio', fps: 25 }, side: 'code', show: { hits: false, gain: false, meters: false, guides: false }, units: 'samples', snap: false, curve: 'cos', levels: 'db', ruler: 'ticks', step: 3, look: { map: 'magma', gamma: .5, depth: 100, size: 2048, method: 'tapers' }, wave: { colour: 'temperature', lanes: 'one', fill: 'flat' }, agent: { url: 'http://127.0.0.1:7778', key: '' }, splice: 20, scrub: 'grains', grip: 'speed', speed: 1.5 }
   await page.addInitScript(all => { if (!sessionStorage.seeded) { sessionStorage.seeded = 1; localStorage.setItem('audio-repl', JSON.stringify({ ...all, docs: [{ code: "audio('chime.wav')" }] })) } }, all)
   await open()
   const kept = () => page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')))
@@ -5040,7 +5075,7 @@ test('editor: the level axis reads in dB or sample values, and zooms', async () 
   await page.waitForTimeout(300)
   assert.ok(await height() > before * 1.5, 'small steps zoom in')
   // in sample values: the pointer on the lane's top edge reads 1
-  await page.getByRole('tab', { name: 'Waveform', exact: true }).click({ button: 'right' })
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await choice('Levels in', 'Sample values').click()
   await page.keyboard.press('Escape')
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')).levels), 'linear')
@@ -5168,6 +5203,38 @@ test('editor: a selection moved to a track of its own, a lane each, each edited 
   await page.waitForFunction(() => scriptText().includes('let chime2 = ') && document.querySelector('.plot').dataset.tracks === '2')
 })
 
+// A track ending before the mix runs on in its lane: no rule at its end, its centre line stopping there, which says so;
+// a double-click on its sound keeps to it, one past it takes the time from its end on, as a pause
+test('editor: a track ends where its sound does, its lane running on past it', async () => {
+  await open()
+  await noCues()
+  await write(`audio('chime.wav')`)
+  await lengthIs('0:08.000')
+  await write(`let chime = audio('chime.wav')\n  .gain(-Infinity, { at: 2, d: 1 })\n\nlet chime2 = audio('chime.wav')\n  .crop({ at: 2, d: 1 })\n  .pad(2, 0)`)
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await lengthIs('0:08.000')
+  await page.waitForTimeout(600)
+  const { box, x } = await axis(8), bottom = box.y + (box.height - 22) * .75
+  // past the lower track's end, nothing bright in its lane: neither its centre line nor a rule
+  const lower = await pixels(`const k = w / arg.width, mid = (h - 22 * k) / 2; let n = 0
+    for (let y = Math.round(mid); y < h - 22 * k; y++) for (let x = Math.round(arg.a * k); x < Math.round(arg.b * k); x++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 300) n++ }
+    return n`, { width: box.width, a: x(3.2) - box.x, b: x(7.5) - box.x })
+  assert.equal(lower, 0, 'past its end the lower lane is plain')
+  await page.mouse.dblclick(x(2.6), bottom)
+  await page.waitForFunction(() => /–0:03\.000:/.test(document.querySelector('.clock').title))
+  await page.mouse.dblclick(x(5), bottom)
+  await page.waitForFunction(() => document.querySelector('.clock').title.startsWith('Selected 0:03.000–0:08.000:'))
+})
+
+// Editing pitch is a mode, not a setting: one stored by an earlier page is not on when it opens
+test('editor: pitch editing is off when the page opens', async () => {
+  await page.addInitScript(() => localStorage.setItem('audio-repl', JSON.stringify({ pitch: true })))
+  await open()
+  await page.locator('.menubar-item', { hasText: /^View$/ }).click()
+  assert.equal(await menuRow('Pitch curve').getAttribute('aria-checked'), 'false')
+  await page.keyboard.press('Escape')
+})
+
 // The voice split to a track of its own (the context menu at the caret, or the Edit menu): the model's voice there, the
 // rest here, the new one edited, the model the GPU's where there is one; undone, one sound. Its sound is the engine test's (the voice split… sounds as before)
 test('editor: the voice split to a track of its own, edited apart, undone in one step', async () => {
@@ -5280,16 +5347,19 @@ test('editor: the context menu takes the clicks out of the selection, or rebuild
   const { box, x } = await axis(8), y = box.y + box.height * .3
   await drag([x(2), y], [x(4) - x(2), 0])
   await page.mouse.click(x(3), y, { button: 'right' })
+  await menuRow('Process').click()
   await menuRow('Repair').click()
   await menuRow('Remove the clicks here').click()
   await page.waitForFunction(() => /\.declick\(\{ at: 2(\.0\d*)?, d: 2(\.0\d*)? \}\)$/.test(scriptText().trim()))
   await page.mouse.click(x(3), y, { button: 'right' })
+  await menuRow('Process').click()
   await menuRow('Repair').click()
   await menuRow('Rebuild from around it').click()
   await page.waitForFunction(() => /\.repair\(\{ at: 2(\.0\d*)?, d: 2(\.0\d*)? \}\)$/.test(scriptText().trim()))
   await lengthIs('0:08.000')
   // any method, by its kind: a filter over the selection
   await page.mouse.click(x(3), y, { button: 'right' })
+  await menuRow('Process').click()
   await menuRow('Filter').click()
   // what each does, said in its row (the menus' words once took the tooltip's place, all at the window's corner)
   const row = await menuRow('highpass').boundingBox(), said = await menuRow('highpass').locator('.menu-keys').boundingBox()
@@ -5624,8 +5694,9 @@ test('editor: Alt and a double-click adds a word; Shift and a double-click exten
   assert.match(await selected(), /^0:00\.000–0:00\.9\d*$/)
 })
 
-// A right-click, as in a text: inside the selection, the edits for it, a method among them written for it; elsewhere the
-// caret goes there first, the selection gone, and the menu has what a caret takes
+// A right-click, as in a text: inside the selection, the edits for it, a method among them written for it (under
+// Process, by its kind), offered again among the recent ones; what the picture has a handle for (the fades, the level) and
+// how it draws are not its. Elsewhere the caret goes there first, the selection gone, and the menu has what a caret takes
 test('editor: a right-click gives the edits for the selection, or puts the caret there and gives the caret\'s', async () => {
   await open()
   await noCues()
@@ -5635,13 +5706,24 @@ test('editor: a right-click gives the edits for the selection, or puts the caret
   const item = name => page.locator('.menubar-menu .menu-row', { has: page.locator('.menu-label', { hasText: new RegExp(`^${name}$`) }) })
   await drag([x(1), y], [x(3) - x(1), 0])
   await page.mouse.click(x(2), y, { button: 'right' })
-  // under its kind, Edit, the first of it
+  // its own: the edits of what is there, then Process, the methods by kind, no more
+  const own = () => page.locator('.menubar-menu > .menu-row .menu-label').allInnerTexts()
+  assert.deepEqual(await own(), ['Cut', 'Copy', 'Paste', 'Delete', 'Keep only this', 'Move to a new track', 'Process', 'Mark it', 'Zoom to it'])
+  // under Process, its kind, Edit, the first of it
+  await item('Process').click()
   await item('Edit').click()
   await item('Reverse').click()
   await page.waitForFunction(() => /\.reverse\(\{ at: 1, d: 2 \}\)$/.test(scriptText()))
   assert.equal(await page.locator('.menubar-menu').count(), 0)
   // an edit in place: no panel opens over the picture
   assert.equal(await page.locator('.side-slab').isVisible(), false, 'the edits stay closed')
+  // offered again, at once, as it was worded; kept with the page
+  await page.mouse.click(x(2), y, { button: 'right' })
+  assert.equal(await page.locator('.menubar-menu > .menu-group').innerText(), 'Recent')
+  assert.deepEqual((await own()).slice(6, 8), ['Reverse', 'Process'])
+  await page.locator('.menubar-menu > .menu-row', { hasText: /^Reverse/ }).click()
+  await page.waitForFunction(() => (scriptText().match(/\.reverse\(\{ at: 1, d: 2 \}\)/g) || []).length === 2)
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').recent?.[0] === 'reverse')
   await page.mouse.click(x(6), y, { button: 'right' })
   assert.equal(await page.locator('.time').innerText(), '0:06.000')
   assert.equal(await item('Cut').count(), 0)
@@ -6322,9 +6404,7 @@ test('editor: a take draws while it records as its output does after', async () 
   for (const [view, wave] of looks) {
     await open()
     if (wave) {
-      const box = await page.locator('.plot').boundingBox()
-      await page.mouse.click(box.x + 200, box.y + 60, { button: 'right' })
-      await contextRow('How the waveform draws…').click()
+      await page.getByRole('button', { name: 'Settings', exact: true }).click()
       for (const [group, name] of Object.entries(wave)) await choice(group, name).click()
       await page.keyboard.press('Escape')
     }
@@ -6497,7 +6577,7 @@ test('editor: the spectrogram\'s tab again turns its frequency scale, said by it
   await open()
   await show('spec')
   const spec = page.getByRole('tab', { name: 'Spectrogram', exact: true })
-  assert.match(await spec.getAttribute('title'), /in octaves\. Again: in mel\. Right-click: how it draws$/)
+  assert.match(await spec.getAttribute('title'), /in octaves\. Again: in mel$/)
   await spec.click()
   assert.equal(await page.locator('.hint').innerText(), 'Mel')
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').scale === 'mel')
@@ -6509,17 +6589,20 @@ test('editor: the spectrogram\'s tab again turns its frequency scale, said by it
 
 // The settings, a dropdown under their button over the meter, not a panel and no levels: every group in sight, its
 // choices, what the chosen one does said under them; how a held caret sounds is one of the lab's eight ways
-// (scrub-methods.js), kept. The button again closes it; how the pictures draw is theirs (a right-click on their switch),
-// a dropdown as plain: the waveform's colour, lanes, fill and levels, the spectrogram's method, scale, colours, gamma,
-// range and FFT size
-test('editor: the settings and each picture\'s options are dropdowns, every group in sight, what each choice does said', async () => {
+// (scrub-methods.js), kept. The button again closes it. How the pictures draw follows, a section each: the waveform's
+// colour, lanes, fill and levels, the spectrogram's method, scale, colours, gamma, range and FFT size; the picture's
+// context menu opens the settings at the section of the one shown
+test('editor: the settings are a dropdown, every group in sight, what each choice does said, the pictures\' a section each', async () => {
   await open()
   const button = page.getByRole('button', { name: 'Settings', exact: true }), groups = () => page.locator('.dropdown .dropdown-label').allInnerTexts()
   await button.click()
   assert.equal(await button.getAttribute('aria-expanded'), 'true')
   assert.equal(await page.locator('.side-slab').isVisible(), false, 'no panel')
   assert.equal(await page.locator('.menubar-sub').count(), 0, 'no submenus')
-  assert.deepEqual(await groups(), ['Show over the sound', 'Scrub', 'Record in', 'Times in', 'Level steps', 'Splices', 'Time row', 'Scroll', 'Grid'])
+  assert.deepEqual(await groups(), ['Show over the sound', 'Scrub', 'Record in', 'Times in', 'Level steps', 'Splices', 'Time row', 'Scroll', 'Grid',
+    'Colour', 'Channels', 'Fill', 'Levels in', 'Method', 'Frequency scale', 'Colours', 'Gamma', 'Range', 'FFT size'])
+  assert.deepEqual(await page.locator('.dropdown .dropdown-section').allInnerTexts(), ['Waveform', 'Spectrogram'])
+  assert.deepEqual(await page.locator('.dropdown').getByRole('group', { name: 'Frequency scale', exact: true }).getByRole('button').allInnerTexts(), ['Octaves', 'Mel', 'ERB', 'Hertz'])
   const ways = page.locator('.dropdown').getByRole('group', { name: 'Scrub', exact: true }).getByRole('button')
   assert.deepEqual(await ways.allInnerTexts(), ['Vocoder + noise', 'Vocoder', 'Random phase', 'Noisc bank', 'Noisc lines', 'Grains', 'Loop', 'Tape'])
   const note = group => page.locator('.dropdown-group', { has: page.getByRole('group', { name: group, exact: true }) }).locator('.dropdown-note').innerText()
@@ -6530,14 +6613,13 @@ test('editor: the settings and each picture\'s options are dropdowns, every grou
   await button.click()
   assert.equal(await page.locator('.dropdown:popover-open').count(), 0, 'its button again closes it')
   assert.equal(await button.getAttribute('aria-expanded'), 'false')
-  // a picture's: a right-click on its switch
-  await page.getByRole('tab', { name: 'Waveform', exact: true }).click({ button: 'right' })
-  assert.deepEqual(await groups(), ['Colour', 'Channels', 'Fill', 'Levels in'])
+  // from the picture's context menu, at the section of the one shown: its heading at the dropdown's top
+  await button.click()
   await page.mouse.click(10, 10)
   assert.equal(await page.locator('.dropdown:popover-open').count(), 0, 'a press outside closes it')
-  await page.getByRole('tab', { name: 'Spectrogram', exact: true }).click({ button: 'right' })
-  assert.deepEqual(await groups(), ['Method', 'Frequency scale', 'Colours', 'Gamma', 'Range', 'FFT size'])
-  assert.deepEqual(await page.locator('.dropdown').getByRole('group', { name: 'Frequency scale', exact: true }).getByRole('button').allInnerTexts(), ['Octaves', 'Mel', 'ERB', 'Hertz'])
+  // how each picture draws, a section of them under its name
+  await button.click()
+  assert.deepEqual(await page.locator('.dropdown .dropdown-section').allInnerTexts(), ['Waveform', 'Spectrogram'])
   await page.keyboard.press('Escape')
   assert.equal(await page.locator('.dropdown:popover-open').count(), 0, 'Esc closes it')
 })
@@ -6551,7 +6633,7 @@ test('editor: the spectrogram\'s method draws a picture of its own, kept; its sc
   await page.waitForTimeout(500)
   const pictures = new Set([await print()])
   for (const method of ['Frames', 'Squeezed', 'By band', 'Tapers', 'Wigner–Ville']) {
-    await page.getByRole('tab', { name: 'Spectrogram', exact: true }).click({ button: 'right' })
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
     await choice('Method', method).click()
     await page.keyboard.press('Escape')
     await page.waitForTimeout(500)
@@ -6589,7 +6671,7 @@ test('editor: a number selected in the code steps with the arrows, saying what i
   await page.locator('.hint', { hasText: /^fade out 0\.1s, 0s to 5s$/ }).waitFor()
 })
 
-// How the waveform draws, from a right-click on it (and the View menu): coloured by where its spectrum centres as a
+// How the waveform draws, from a right-click on it (the settings, and the View menu): coloured by where its spectrum centres as a
 // colour temperature, 100 Hz at 1,800 K (a warm orange: more red than blue, on the black-body locus, Krystek 1985), its
 // channels in one lane
 test('editor: the waveform\'s look, from a right-click on it: coloured by its spectrum\'s warmth, its channels in one lane', async () => {
@@ -6601,10 +6683,8 @@ test('editor: the waveform\'s look, from a right-click on it: coloured by its sp
   const lit = () => pixels(`const out = [0, 0], tint = [0, 0]; for (let y = 0; y < h - 44; y++) for (let x = 0; x < w - 60; x++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 300) { const k = y < (h - 44) / 2 ? 0 : 1; out[k]++; tint[k] += d[i] - d[i + 2] } } return [...out, (tint[0] + tint[1]) / (out[0] + out[1] || 1)]`)
   const [upper, lower, grey] = await lit()
   assert.ok(lower < upper / 10 && Math.abs(grey) < 10, `split, grey: ${[upper, lower, grey]}`)
-  // from the picture's context menu, its options: a dropdown under its switch
-  const { box } = await axis(1)
-  await page.mouse.click(box.x + 200, box.y + 60, { button: 'right' })
-  await contextRow('How the waveform draws…').click()
+  // the settings, the waveform's section of them
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await choice('Channels', 'One lane').click()
   await choice('Colour', 'Temperature').click()
   await page.keyboard.press('Escape')
@@ -6630,9 +6710,7 @@ test('editor: the waveform coloured in the spectrogram\'s colours, low at their 
   // the spectrogram's colours changed, the waveform's with them: viridis, its middle #21908d, a teal, its top #fde725,
   // a yellow (entries 128 and 255)
   await show('spec')
-  const { box } = await axis(1)
-  await page.mouse.click(box.x + 200, box.y + 100, { button: 'right' })
-  await menuRow('How the spectrogram draws…').click()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await choice('Colours', 'Viridis').click()
   await page.keyboard.press('Escape')
   await show('wave')

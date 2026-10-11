@@ -205,6 +205,8 @@ const stored = (() => {
 })()
 const oneOf = (value, list, fallback) => list.includes(value) ? value : fallback
 const docsOf = list => Array.isArray(list) ? list.filter(d => typeof d?.code === 'string') : []
+// the methods last used, the newest first (used)
+let recent = Array.isArray(stored.recent) ? stored.recent.filter(n => typeof n === 'string').slice(0, 3) : []
 // A tab as it is kept: its script, where it was looked at and what was selected, its conversations
 const saved = d => {
   const shown = d.id === state.tab
@@ -214,7 +216,7 @@ const saved = d => {
 let full = false
 const store = () => {
   if (!ed || !owner()) return
-  const all = { docs: docs.map(saved), doc: docs.findIndex(d => d.id === state.tab), closed: closed.map(({ doc, ...c }) => doc ? { ...saved(doc), at: c.at } : c), display: state.display, scale: state.scale, format: state.format, encoding: state.encoding, spec: state.spec, cuts: { format: state.cutFormat, fps: state.fps }, side: state.side, show: state.show, units: state.units, snap: state.snapping, curve: state.fadeCurve, levels: state.levels, ruler: state.ruler, scroll: state.scroll, grid: state.grid, step: state.levelStep, look: state.look, wave: state.wave, agent: { url: state.bridgeUrl, key: state.bridgeKey }, splice: state.splice, scrub: state.scrub, record: state.recordIn, grip: state.gripMode, pitch: state.pitch, panel: state.panel, speed: state.speed }
+  const all = { docs: docs.map(saved), doc: docs.findIndex(d => d.id === state.tab), closed: closed.map(({ doc, ...c }) => doc ? { ...saved(doc), at: c.at } : c), display: state.display, scale: state.scale, format: state.format, encoding: state.encoding, spec: state.spec, cuts: { format: state.cutFormat, fps: state.fps }, side: state.side, show: state.show, units: state.units, snap: state.snapping, curve: state.fadeCurve, levels: state.levels, ruler: state.ruler, scroll: state.scroll, grid: state.grid, step: state.levelStep, look: state.look, wave: state.wave, agent: { url: state.bridgeUrl, key: state.bridgeKey }, splice: state.splice, scrub: state.scrub, record: state.recordIn, grip: state.gripMode, panel: state.panel, speed: state.speed, recent }
   try { localStorage.setItem(KEY, JSON.stringify(all)); full = false }
   catch {
     const bare = ({ chats, chat, ...d }) => d
@@ -331,15 +333,14 @@ function sway() {
 const sides = ['recipes', 'chat', 'edits', 'code', 'export'], sideOf = name => name == null ? null : sides.includes(name) ? name : 'edits'
 
 const state = sprae(root, {
-  format: oneOf(stored.format, formats.map(f => f.name), 'wav'), encoding: { markers: true, ...stored.encoding }, snapping: stored.snap ?? true, fadeCurve: oneOf(stored.curve, curves.map(c => c.name), 'linear'), gripMode: ['trim', 'speed'].includes(stored.grip) ? stored.grip : 'stretch', pitch: !!stored.pitch, settingsIcon: SETTINGS_ICON, recipesIcon: RECIPES_ICON, agentIcon: AGENT_ICON,
+  format: oneOf(stored.format, formats.map(f => f.name), 'wav'), encoding: { markers: true, ...stored.encoding }, snapping: stored.snap ?? true, fadeCurve: oneOf(stored.curve, curves.map(c => c.name), 'linear'), gripMode: ['trim', 'speed'].includes(stored.grip) ? stored.grip : 'stretch', pitch: false, settingsIcon: SETTINGS_ICON, recipesIcon: RECIPES_ICON, agentIcon: AGENT_ICON,
   overlayList: overlays.map(([name, label, title]) => ({ name, label, title })),
   unitList: UNITS.map(([name, label, example, short]) => ({ name, label, example, short })), levelList, levels: oneOf(stored.levels, ['db'], 'linear'),
   rulers, ruler: oneOf(stored.ruler, rulers.map(r => r.name), 'labels'), scroll: oneOf(stored.scroll, scrolls.map(s => s[0]), 'bar'), grid: oneOf(stored.grid, grids.map(g => g[0]), 'marks'), splices: [0, 5, 10, 20], splice: oneOf(stored.splice, [0, 5, 10, 20], 10), steps: [.1, 1, 3], levelStep: oneOf(stored.step, [.1, 1, 3], 1), look: Object.fromEntries(Object.entries(LOOK).map(([k, d]) => [k, oneOf(stored.look?.[k], k === 'method' ? specMethods.map(m => m[0]) : looks[k], d)])), wave: Object.fromEntries(Object.entries(WAVE).map(([k, d]) => [k, waveLooks[k].some(([v]) => v === stored.wave?.[k]) ? stored.wave[k] : d])),
   scrubs, scrub: scrubbers[stored.scrub] ? stored.scrub : 'hybrid', recordIn: stored.record === 2 ? 2 : 1,
   // the speed it plays at, the pitch kept; how far through the sound it plays (Play's ring); the scale a held Play shows
   // while dragged
-  dropdown: null, get dropdownTitle() { return { settings: 'Settings', wave: 'Waveform', spec: 'Spectrogram' }[this.dropdown] ?? '' },
-  get dropdownGroups() { return this.dropdown ? optionGroups(this.dropdown) : [] },
+  dropdown: false, get dropdownGroups() { return this.dropdown ? settingGroups() : [] },
   speed: SPEEDS.range(stored.speed), played: 0, speedAxis: null, speedTicks: SPEEDS.ticks.map(t => ({ t, label: `${t}×`, at: SPEEDS.at(t) })),
   get speedText() { return `${+this.speed.toFixed(this.speed < 1 ? 2 : 1)}×` },
   get speedAt() { return SPEEDS.at(this.speed) },
@@ -421,7 +422,7 @@ const state = sprae(root, {
   displayTitle(d) {
     const as = name => scaleNames[name].toLowerCase()
     const again = this.display === d.name && d.name === 'spec' ? `. Again: in ${as(nextScale(this.scale))}` : ''
-    return (d.name === 'wave' ? 'The waveform: levels over time' : `The spectrogram: frequencies over time, in ${as(this.scale)}`) + again + '. Right-click: how it draws'
+    return (d.name === 'wave' ? 'The waveform: levels over time' : `The spectrogram: frequencies over time, in ${as(this.scale)}`) + again
   },
   // the output as the whole chain makes it, from what a step takes out or the chain rolled back
   showAll: () => rk.choose(null),
@@ -448,8 +449,8 @@ const state = sprae(root, {
   setScale,
   toggleSnap() { state.snapping = v.snapping = !state.snapping; store() },
   toggleShow, setUnits, setLevels, setRuler, setStep, setLook, setSplice, setScrub,
-  setDisplay, looksAt, settingsMenu, dropToggle, toggleLoop, undoList, goTo, toggleRecording, resampleTo, remixTo,
-  togglePlay, playPress, playClick, setSpeed, speedMenu, turnSpeed, stop, redo: () => ed.redo(), mac, share, exportFiles,
+  setDisplay, settingsMenu, dropToggle, toggleLoop, undoList, goTo, toggleRecording, resampleTo, remixTo,
+  togglePlay, playPress, playClick, setSpeed, turnSpeed, stop, redo: () => ed.redo(), mac, share, exportFiles,
   switchTab, newTab, closeTab, dragTab, scrollTabs, pickFiles, openFiles, startRecording, stopRecording, armRecording, useSample, useCode, useRecipe, addOp, editSelection, toolKey, openTools,
   openSearch, closeSearch, runSearch, typeSearch, preview, useResult
 })
@@ -618,6 +619,7 @@ function menus() {
       { label: 'Export as', items: formats.map(f => check(f.name.toUpperCase(), state.format === f.name, () => state.setFormat(f.name), { hint: f.text })), disabled: state.saves.length > 0 },
       { label: 'Export the parts between markers', run: () => exportFiles(true), disabled: none || !output?.markers?.some(m => !m.duration) },
       { label: 'Export the track alone', hint: state.track ?? '', run: () => exportFiles(false, state.track), disabled: none || !state.track },
+      { label: 'Export each track', hint: state.track ? `${tracksOf(ed.code).length} files` : '', run: () => exportFiles(false, true), disabled: none || !state.track },
       { label: 'Copy a link to this script', run: share },
       '-',
       { label: 'Close tab', run: () => closeTab() },
@@ -697,10 +699,11 @@ function menus() {
       '-',
       { label: 'Find an edit…', keys: keys('⌘P'), run: () => openTools(), disabled: none }
     ] },
-    { name: 'Play', title: 'Play, loop, hear it before the edits; delivery checks', items: [
+    { name: 'Play', title: 'Play, loop, hear it before the edits, its speed; delivery checks', items: [
       { label: state.playing ? 'Pause' : sel ? 'Play the selection' : 'Play from the caret', keys: 'Space', run: togglePlay, disabled: !whole || !!state.recording },
       check('Loop', state.loop, toggleLoop, { disabled: !whole }),
       check('Hear it before the edits', state.ab, toggleAB, { keys: 'B', disabled: !state.canCompare }),
+      { label: 'Speed', hint: 'The pitch kept; Play held and dragged: any, 0.1× to 10×', items: SPEEDS.list.map(r => check(`${r}×`, state.speed === r, () => setSpeed(r))) },
       '-',
       { label: 'Check against', items: specs.map(sp => check(sp.label, state.spec === sp.key, () => state.setSpec(sp.key))) }
     ] },
@@ -713,16 +716,24 @@ function menus() {
 }
 // Every method by kind, a submenu each, for the output or what is selected (addOp): first what the selection is most
 // often given of that kind (`lead`, by group), then every method of it by name
+const method = (name, open = true) => ({ label: name, hint: ops[name].text, run: () => addOp(name, open), op: name })
 const kinds = (lead = {}, open = true) => GROUPS.map(group => ({ label: group, icon: groupIcons[group], items: [
   ...lead[group] ? [...lead[group], '-'] : [],
-  ...Object.values(ops).filter(op => op.group === group).map(op => ({ label: op.name, hint: op.text, run: () => addOp(op.name, open) }))
+  ...Object.values(ops).filter(op => op.group === group).map(op => method(op.name, open))
 ] }))
+// The methods last used (`recent`: addOp, from a menu or the palette), the newest first; the context menu offers them
+// again, each as that context words it where it has its own item for it (`lead`), else by its name
+const used = name => { recent = [name, ...recent.filter(n => n !== name)].slice(0, 3); later() }
+const recents = (lead = {}) => {
+  const own = Object.values(lead).flat(), list = recent.filter(n => ops[n]).map(n => own.find(it => it.op === n) ?? { ...method(n, false), icon: opIcons[n] })
+  return list.length ? ['-', { group: 'Recent' }, ...list] : []
+}
 // an edit of the selection, as a menu item: dimmed while there is nothing it can act on
 const edit = (label, type, key, when) => ({ label, keys: key && keys(key), run: () => editSelection(type), disabled: !when })
 const bar = menubar(root.querySelector('.menubar'), menus)
-// What a picture's options and the settings hold, group by group: each its choices, what the chosen one does said under
-// them. The waveform's colour, lanes, fill and level units; the spectrogram's method, frequency scale, colours, gamma,
-// range and FFT size; the settings, what holds everywhere, whichever picture shows
+// What the settings hold, group by group: each its choices, what the chosen one does said under them. What holds
+// everywhere, whichever picture shows; then how each picture draws, a section each: the waveform's colour, lanes, fill
+// and level units; the spectrogram's method, frequency scale, colours, gamma, range and FFT size
 function optionGroups(kind) {
   const group = (label, list, now, set) => ({ label, options: list.map(([value, name, hint]) => ({ label: name, hint, on: now === value, run: () => set(value) })) })
   if (kind === 'wave') return [
@@ -754,19 +765,20 @@ function optionGroups(kind) {
     group('Grid', grids, state.grid, setGrid)
   ]
 }
+// all of them, the pictures' under their names, the first of each section heading it
+const settingGroups = () => [...optionGroups('settings'), ...displays.flatMap(d => optionGroups(d.name).map((g, i) => i ? g : { ...g, section: d.label, kind: d.name }))]
 // the View menu's submenus, the same groups
 function lookMenu(kind) {
   return { label: kind === 'wave' ? 'Waveform' : 'Spectrogram', items: optionGroups(kind).map(g => ({ label: g.label, items: g.options.map(o => ({ label: o.label, hint: o.hint, checked: o.on, run: o.run })) })) }
 }
-// A picture's options (a right-click on its switch) or the settings (their button): a dropdown under it, every group in
-// sight at once, no levels to go through; the button again, a press outside or Esc closes it
+// The settings (their button): a dropdown under it, every group in sight at once, no levels to go through; the button
+// again, a press outside or Esc closes it
 let dropOwner = null
-function openDropdown(kind, owner) {
-  const panel = root.querySelector('.dropdown'), open = panel.matches(':popover-open')
-  if (open && dropOwner === owner && state.dropdown === kind) return closeDropdown()
-  if (open) closeDropdown()
+function openDropdown(owner) {
+  const panel = root.querySelector('.dropdown')
+  if (panel.matches(':popover-open')) return closeDropdown()
   dropOwner = owner
-  state.dropdown = kind
+  state.dropdown = true
   owner.setAttribute('aria-expanded', 'true')
   panel.showPopover()
   const r = owner.getBoundingClientRect(), w = panel.offsetWidth, h = panel.offsetHeight
@@ -783,35 +795,37 @@ function closeDropdown() {
   if (panel.matches(':popover-open')) panel.hidePopover()
   dropOwner?.setAttribute('aria-expanded', 'false')
   dropOwner = null
-  state.dropdown = null
+  state.dropdown = false
 }
 function dropToggle(event) { if (event.newState === 'closed' && dropOwner) closeDropdown() }
-function settingsMenu(event) { openDropdown('settings', event.currentTarget) }
+function settingsMenu(event) { openDropdown(event.currentTarget) }
 // a press outside the dropdown and its button closes it
 addEventListener('pointerdown', event => {
   const panel = root.querySelector('.dropdown')
   if (panel.matches(':popover-open') && !panel.contains(event.target) && !dropOwner?.contains(event.target)) closeDropdown()
 }, true)
-// The picture's context menu (a right-click on it): what the Edit menu does to what is under the pointer, then every
-// method by kind (as Process has them), what the selection is most often given of each kind leading its list (fades
-// with the corners' curve, a crossfade across it; the clicks taken out, a rebuild, the noise learned there), each a
-// step of the chain; ⌘P finds any. At the caret: paste, a marker, all of it, and the methods for all of it
+// The picture's context menu (a right-click on it): what is done to what is under the pointer and nothing else, as
+// Audacity's on a clip. What the picture has a handle for leaves it (the fades, the corners; the level, the pill), and
+// how it draws is the settings' (a right-click on its tab). Then the methods last used, each written for it, and every
+// method under Process, as the menu bar has them, what the selection is most often given of each kind leading its list
+// (a crossfade across it; the clicks taken out, a rebuild, the noise learned there), each a step of the chain; ⌘P finds
+// any. At the caret: paste, a marker, all of it, and the methods for all of it
 function contextMenu() {
-  const list = v.ranges, several = list.length > 1, find = { label: 'Find an edit…', keys: keys('⌘P'), run: () => openTools(), icon: glyphs.find }
-  const method = (label, name) => ({ label, run: () => addOp(name, false), icon: opIcons[name] })
-  const act = (label, type, key, when, icon) => ({ ...edit(label, type, key, when), icon })
+  const list = v.ranges, several = list.length > 1
+  const lead = (label, name) => ({ label, run: () => addOp(name, false), icon: opIcons[name], op: name })
+  const act = (label, type, key, when, icon) => ({ ...edit(label, type, key, when), icon, op: type })
   // with tracks, the one edited taken away
   const untracking = state.track ? [{ label: 'Delete the track', hint: state.track, run: untrack, icon: icons.remove }] : []
-  // and last, how the picture draws: its options, under its switch
-  const look = ['-', { label: state.display === 'spec' ? 'How the spectrogram draws…' : 'How the waveform draws…', run: () => looksAt(root.querySelector('.display [aria-selected="true"]')) }]
   const repair = [act(several || v.boxes.length > 1 ? 'Remove the clicks in each' : 'Remove the clicks here', 'declick', '', true, opIcons.declick), act('Rebuild from around it', 'repair', '', !several, icons.repair), act('Take this noise out everywhere', 'denoise', '', true, opIcons.denoise)]
-  if (v.band) return [act('Delete the band', 'remove', '⌫', true, icons.remove), act('6 dB quieter', 'quieter', '', true, glyphs.down), act('6 dB louder', 'louder', '', true, glyphs.up), '-', ...kinds({ Repair: repair }, false), '-', find, ...look]
+  const process = (leads = {}) => [...recents(leads), '-', { label: 'Process', items: [...kinds(leads, false), '-', { label: 'Find an edit…', keys: keys('⌘P'), run: () => openTools(), icon: glyphs.find }] }]
+  // a band has no pill: its level stays here
+  if (v.band) return [act('Delete the band', 'remove', '⌫', true, icons.remove), act('6 dB quieter', 'quieter', '', true, glyphs.down), act('6 dB louder', 'louder', '', true, glyphs.up), ...process({ Repair: repair })]
   if (!list.length) return [
     act(v.carets.length > 1 ? `Paste at all ${v.carets.length} carets` : 'Paste', 'paste', '⌘V', state.canPaste, icons.paste),
     { label: v.carets.length > 1 ? 'A marker at each caret' : 'Add a marker', keys: 'M', run: addMarker, icon: glyphs.marker },
     { label: 'Select all', keys: keys('⌘A'), run: () => v.select(0, v.duration), icon: glyphs.all },
     { label: 'Split the voice to a new track', run: () => editSelection('voice'), icon: opIcons.vocals },
-    ...untracking, '-', ...kinds({}, false), '-', find, ...look
+    ...untracking, ...process()
   ]
   const [a, b] = v.selection ?? list[0]
   return [
@@ -819,17 +833,11 @@ function contextMenu() {
     act('Keep only this', 'crop', 'K', !several, icons.crop),
     act('Move to a new track', 'track', '', !several, icons.track),
     ...untracking,
-    '-',
-    { label: 'Fade in', run: () => fade({ kind: 'in', from: a, to: b, curve: state.fadeCurve }), disabled: several, icon: curveIcon(state.fadeCurve) },
-    { label: 'Fade out', run: () => fade({ kind: 'out', from: a, to: b, curve: state.fadeCurve }), disabled: several, icon: curveIcon(state.fadeCurve, true) },
-    act('3 dB louder', 'louder', '', true, glyphs.up), act('3 dB quieter', 'quieter', '', true, glyphs.down),
-    '-',
-    ...kinds({ Edit: [method('Reverse', 'reverse')], Level: [method('Crossfade across it', 'crossfade'), method('Normalize', 'normalize')], Repair: repair }, false),
+    ...process({ Edit: [lead('Reverse', 'reverse')], Level: [lead('Crossfade across it', 'crossfade'), lead('Normalize', 'normalize')], Repair: repair }),
     ...turningOff(a, b, several),
     '-',
     { label: several ? 'Mark each' : 'Mark it', keys: 'M', run: addMarker, icon: glyphs.marker },
-    { label: 'Zoom to it', run: () => v.zoomTo(a, b), icon: glyphs.zoom },
-    find, ...look
+    { label: 'Zoom to it', run: () => v.zoomTo(a, b), icon: glyphs.zoom }
   ]
 }
 // An edit turned off over the selection alone, as RX's Restore Selection, for one edit: those that keep the timing, each
@@ -1334,11 +1342,6 @@ function setDisplay(name, event) {
   store()
 }
 function setScale(name) { state.scale = v.scale = name; store() }
-// How the waveform or the spectrogram draws, its menu under its tab right-clicked, shown at once
-function looksAt(el, name = state.display) {
-  if (name !== state.display) setDisplay(name)
-  openDropdown(name, el)
-}
 function setWave(key, value) { state.wave = { ...state.wave, [key]: value }; v.waveform = state.wave; store() }
 // How a held caret sounds (scrub.js), one of the lab's ways
 function setScrub(name) { state.scrub = pl.scrubMode = name; store() }
@@ -1533,11 +1536,7 @@ function setSpeed(r) {
   state.speed = pl.rate = Math.abs(Math.log2(r)) < .04 ? 1 : +r.toPrecision(2)
   store()
 }
-// The speeds as a list, a right-click on Play; the pill's turn
-function speedMenu(event) {
-  event.preventDefault()
-  bar.at(SPEEDS.list.map(r => ({ label: `${r}×`, checked: state.speed === r, run: () => setSpeed(r) })), 0, 0, event.currentTarget)
-}
+// the pill's turn
 function turnSpeed() { setSpeed(SPEEDS.turn.find(r => r > state.speed + 1e-9) ?? SPEEDS.turn[0]) }
 function playClick(event) { if (!event.detail) togglePlay() }
 // Playing and recording are one or the other: while it records, Play is off (Space stops the recording)
@@ -1623,6 +1622,8 @@ function editSelection(type, range = v.selection) {
   const call = band ? { remove: `spectral(${hz}, ${span})`, repair: `repair(${hz}, ${span})` }[type]
     : type === 'remove' || type === 'cut' ? `${type}({ at: ${s(a)}, d: ${s(b - a)}${splice()} })` : `${type}(${span})`
   if (!call || !write(call)) return false
+  // a rebuild is a method written here, not by addOp: one of the recent ones as well
+  if (type === 'repair') used(type)
   // the selection stays where the audio stays (a copy, as in any editor: the next edit takes it); where the range goes,
   // what the edit leaves is drawn at once from the picture there is, until its output comes, the caret where it was
   if (band || !['remove', 'cut', 'crop'].includes(type)) return true
@@ -1878,7 +1879,8 @@ function setGrip(name) {
   ed.change({ from: last.dot + 1, to: last.to, insert: `${name}(${to}, ${ed.code.slice(span.from, span.to)})` })
 }
 // Pitch edited, or not (View, Pitch curve; a click on the pitch tool). Pitch shows on the spectrogram: editing it, the picture turns to it; done,
-// to the waveform again, if it turned for this
+// to the waveform again, if it turned for this. A mode, not a setting: never stored, so a page opened later shows no pitch
+// line nobody asked for there
 let pitchFrom = null
 function setPitch(on) {
   state.pitch = v.pitching = on
@@ -1982,6 +1984,7 @@ function addOp(name, open = true) {
   const add = text => {
     const change = write(text)
     if (!change) return
+    used(name)
     // the last call it wrote, where its "(" is
     const end = change.from + change.insert.length, at = chain(ed.code)?.calls.findLast(k => k.list.from >= change.from && k.list.from < end)?.list.from
     if (at == null) return change
@@ -2074,8 +2077,9 @@ function note(text, kind = '') {
   note.timer = setTimeout(() => state.notice = '', kind === 'error' ? 8000 : 4000)
 }
 
-// Sources. A new sound opens in a tab of its own, or in the tab shown if it is empty; a file dropped on the waveform
-// joins it at the end; one dropped on the script is written where it lands. A file the script opens that is not here
+// Sources. A new sound opens in a tab of its own, or in the tab shown if it is empty; several at once, a track each in
+// one tab, played together, unless dropped on the tabs: a tab each. A file dropped on the waveform goes in where it is
+// dropped; one dropped on the script is written where it lands. A file the script opens that is not here
 // (`missing`) takes the one opened for it (Open it…), or one by its name, and the script runs again.
 // `track`: those picked open as tracks of their own, under the one edited
 let relink = '', asTrack = false
@@ -2148,16 +2152,27 @@ function place(names, how, at = null) {
   if (how === 'insert' && at != null && chain(code)) return write(`insert(audio(${expr}), { at: ${number(at, v.unit)}${splice()} })`)
   // each a track of its own, under the one edited, the last of them edited after
   if (how === 'track' && chain(code)) {
-    let made = null
-    for (const name of names) {
-      const next = addTrack(made?.code ?? code, `audio(${quote(name)})`, name)
-      if (!next) return note('This sound is made from another by its name: add a track to it in the code.')
-      made = next
-      focus(made.name)
-    }
-    return retrack(made)
+    const made = tracked(code, names)
+    return made ? retrack(made) : note('This sound is made from another by its name: add a track to it in the code.')
   }
-  opening(`audio(${expr})`)
+  if (how === 'tabs') { for (const name of names) opening(`audio(${quote(name)})`); return }
+  if (names.length < 2) return opening(`audio(${expr})`)
+  // a track each, the first edited
+  const made = tracked(`audio(${list[0]})`, names.slice(1))
+  if (ed.code.trim()) newTab()
+  state.track = tracksOf(made.code)[0].name
+  ed.change({ from: 0, to: ed.code.length, insert: made.code })
+}
+// `names` each a track of its own under the one `code` edits, in turn: { code, name } of the last, or null where that
+// sound is none of its own
+function tracked(code, names) {
+  let made = { code }
+  for (const name of names) {
+    made = addTrack(made.code, `audio(${quote(name)})`, name)
+    if (!made) return null
+    focus(made.name)
+  }
+  return made
 }
 // A new sound, in a tab of its own unless the one shown is empty; `before` on a line above the statement that opens it
 function opening(insert, before = '') {
@@ -2382,11 +2397,13 @@ async function exportFiles(parts = false, track = null) {
     const base = state.exportName.trim().replace(/\.\w+$/, '') || state.exportBase
     // the format's setting, the markers in the file or none (WAV's cue chunk, MP3's and M4A's chapters)
     const e = ENCODING[state.format], value = e && state.encoding[e[0]], options = { ...value != null && { [e[0]]: value }, ...!state.encoding.markers && { markers: [], regions: [] } }
-    // a track alone, by its index among the tracks
-    const index = track == null ? -1 : tracksOf(ed.code).findIndex(t => t.name === track)
-    const { files = [], error: failed } = await eng.export({ format: state.format, name: base, parts: parts === true, options, ...index >= 0 && { track: index } })
-    if (failed) throw new Error(failed.message)
-    for (const file of files) download(file)
+    // a track alone, by its index among the tracks; every track, a file each (`track` true)
+    const names = tracksOf(ed.code).map(t => t.name), each = track === true ? names.map((_, i) => ({ track: i })) : names.includes(track) ? [{ track: names.indexOf(track) }] : [{}]
+    for (const one of each) {
+      const { files = [], error: failed } = await eng.export({ format: state.format, name: base, parts: parts === true, options, ...one })
+      if (failed) throw new Error(failed.message)
+      for (const file of files) download(file)
+    }
   } catch (e) { note(`Export failed: ${e.message}`) }
   finally { state.exporting = false }
 }
@@ -2905,7 +2922,7 @@ function reopenTab() {
 
 // Files dropped anywhere. Capturing, so the editor never reads audio as text.
 // Held over the picture with a sound in it, a file goes in where the caret it shows is; over the tabs, into a tab of its
-// own; over the script, where the text caret is; elsewhere, it opens. What it would do shows as it is held (`dropping`).
+// own, each; over the script, where the text caret is; elsewhere, it opens, several a track each. What it would do shows as it is held (`dropping`).
 const dropping = event => event.target.closest?.('.files') ? 'tab' : event.target.closest?.('.plot') && state.hasOutput ? 'insert' : 'open'
 root.addEventListener('dragover', event => {
   if (!event.dataTransfer?.types.includes('Files')) return
@@ -2923,8 +2940,7 @@ root.addEventListener('drop', event => {
   state.dropping = false
   v.dropAt(null)
   const inEditor = event.target.closest('.script-editor'), at = inEditor ? ed.view.posAtCoords({ x: event.clientX, y: event.clientY }) : null
-  if (how === 'tab') newTab()
-  openFiles([...event.dataTransfer.files], inEditor && at != null ? 'at' : how === 'insert' && t != null ? 'insert' : 'new', inEditor ? at : t)
+  openFiles([...event.dataTransfer.files], inEditor && at != null ? 'at' : how === 'insert' && t != null ? 'insert' : how === 'tab' ? 'tabs' : 'new', inEditor ? at : t)
 }, true)
 
 // Esc closes an open menu and does nothing else: the selection under it stays. A menu that has the keys (the menubar's)
