@@ -3176,6 +3176,41 @@ test('editor: the overview shows the whole sound under the time row; pressed or 
   assert.ok(Math.abs(c - a + 2) < .1, `dragged 2 s back: ${a.toFixed(2)} → ${c.toFixed(2)}`)
 })
 
+// Followed, the view's start sits on the device's pixels, so the waveform and the marks over it step a whole pixel at a
+// time together, and the playhead stays on one pixel column, never a pixel back and forth
+test('editor: followed, the view steps by whole device pixels and the playhead holds its column', async () => {
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
+  await open()
+  await noCues()
+  await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
+  await lengthIs('0:20.000')
+  const box = await page.locator('.plot').boundingBox(), w = box.width - GUTTER, y = box.y + box.height / 3
+  await page.mouse.move(box.x + w * .1, y)
+  for (let i = 0; i < 5; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
+  await page.mouse.click(box.x + w * .1, y)
+  await page.mouse.move(box.x + w * .1, box.y - 20)
+  await page.keyboard.press('Space')
+  await page.waitForFunction(() => document.querySelector('.play')?.getAttribute('aria-label') === 'Pause')
+  await page.waitForTimeout(1500)
+  // each frame: the view's start in device pixels, and the playhead's column on the overlay, where it is brightest
+  const frames = await page.evaluate(([h]) => new Promise(done => {
+    const out = [], canvas = document.querySelector('.plot canvas.overlay'), g = canvas.getContext('2d'), row = Math.round(h * devicePixelRatio)
+    const each = () => {
+      const [a, b] = __view.range, W = Math.round((canvas.clientWidth - 40) * devicePixelRatio), d = g.getImageData(0, row, canvas.width, 1).data
+      let at = -1, top = 0
+      for (let x = 0; x < W - 120; x++) if (d[x * 4 + 3] > top) { top = d[x * 4 + 3]; at = x }
+      out.push([a * W / (b - a), at])
+      out.length < 60 ? requestAnimationFrame(each) : done(out)
+    }
+    requestAnimationFrame(each)
+  }), [box.height / 3])
+  await page.keyboard.press('Space')
+  const moved = frames.filter(([s], i) => i && s !== frames[i - 1][0])
+  assert.ok(moved.length > 30, `${moved.length} frames scrolled`)
+  assert.ok(frames.every(([s]) => Math.abs(s - Math.round(s)) < 1e-3), `starts off the pixels: ${frames.map(([s]) => (s % 1).toFixed(3)).join()}`)
+  assert.equal(new Set(frames.map(([, x]) => x)).size, 1, `the playhead in columns ${[...new Set(frames.map(([, x]) => x))].join()}`)
+})
+
 // The device's clock comes in steps, each a fraction of a ms off where the last ran on to; zoomed in, that is pixels, back
 // and forth. The playhead runs on by the frames' own time instead, drawn toward the clock: frame to frame it moves as far
 // as the frame's time at the speed, within 50 µs, and stays within a few ms of the clock
@@ -5204,7 +5239,8 @@ test('editor: a selection moved to a track of its own, a lane each, each edited 
 })
 
 // A track ending before the mix runs on in its lane: no rule at its end, its centre line stopping there, which says so;
-// a double-click on its sound keeps to it, one past it takes the time from its end on, as a pause
+// a double-click on its sound keeps to it, one past it takes the time from its end on, as a pause; one on a lane not
+// edited, before its cues are found, keeps to the sound between its pauses
 test('editor: a track ends where its sound does, its lane running on past it', async () => {
   await open()
   await noCues()
@@ -5224,6 +5260,11 @@ test('editor: a track ends where its sound does, its lane running on past it', a
   await page.waitForFunction(() => /–0:03\.000:/.test(document.querySelector('.clock').title))
   await page.mouse.dblclick(x(5), bottom)
   await page.waitForFunction(() => document.querySelector('.clock').title.startsWith('Selected 0:03.000–0:08.000:'))
+  await page.mouse.click(x(6), box.y + (box.height - 22) * .25)
+  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'chime · chime.wav')
+  await page.mouse.dblclick(x(2.9), bottom)
+  const [a, b] = (await selected()).split('–').map(t => +t.split(':')[1])
+  assert.ok(a > 1.9 && b === 3, `the piece, not from the start: ${a}–${b}`)
 })
 
 // Editing pitch is a mode, not a setting: one stored by an earlier page is not on when it opens
@@ -5276,7 +5317,8 @@ test('editor: a track exported alone; another lined up with it, both tracks stil
   await lengthIs('0:08.000')
 })
 
-// The markers are every track's: one a track not edited set is taken away from its flag all the same, its mark() gone
+// A marker is its track's, flagged over its lane: one a track not edited set is taken away from its flag all the same,
+// its mark() gone
 test('editor: with tracks, a marker of a track not edited is taken away from its flag', async () => {
   await open()
   await write(`let a = audio('chime.wav')\n  .mark(1, 'here')\n\nlet b = audio('chime.wav')\n  .gain(-6)`)
@@ -5287,6 +5329,28 @@ test('editor: with tracks, a marker of a track not edited is taken away from its
   await contextRow('Delete the marker').click()
   await page.waitForFunction(() => !scriptText().includes('.mark('))
   assert.match(await code(), /^let a = audio\('chime.wav'\)\s*let b = audio\('chime.wav'\)\n {2}\.gain\(-6\)$/)
+})
+
+// A marker is its track's alone: a double-click in another track's lane goes past it, in its own stops at it; a press
+// on its flag edits its track
+test('editor: with tracks, a track\'s markers are its own', async () => {
+  await open()
+  await write(`let a = audio('chime.wav')\n  .mark(1)\n\nlet b = audio('chime.wav')\n  .gain(-6)`)
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await lengthIs('0:08.000')
+  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'b · chime.wav')
+  const { box, x } = await axis(8), top = box.y + (box.height - 22) * .25, bottom = box.y + (box.height - 22) * .75
+  const from = async () => +(await selected()).split('–')[0].split(':')[1]
+  await page.mouse.dblclick(x(1.05), bottom)
+  assert.ok(await from() < .99, `b's fragment from ${await from()}, past a's marker`)
+  await page.mouse.dblclick(x(1.05), top)
+  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'a · chime.wav')
+  assert.equal(await from(), 1, 'a\'s fragment from its marker')
+  await page.mouse.click(x(6), bottom)
+  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'b · chime.wav')
+  await page.mouse.click(x(1), box.y + 4)
+  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'a · chime.wav')
+  assert.equal(await page.locator('.time').innerText(), '0:01.000', 'the caret on it')
 })
 
 // A slice of a track dragged onto the tabs: a tab of that track's alone, its chain cropped to it
