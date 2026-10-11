@@ -5239,8 +5239,7 @@ test('editor: a selection moved to a track of its own, a lane each, each edited 
 })
 
 // A track ending before the mix runs on in its lane: no rule at its end, its centre line stopping there, which says so;
-// a double-click on its sound keeps to it, one past it takes the time from its end on, as a pause; one on a lane not
-// edited, before its cues are found, keeps to the sound between its pauses
+// a double-click on its sound keeps to it, one past it takes the time from its end on, as a pause
 test('editor: a track ends where its sound does, its lane running on past it', async () => {
   await open()
   await noCues()
@@ -5260,11 +5259,6 @@ test('editor: a track ends where its sound does, its lane running on past it', a
   await page.waitForFunction(() => /–0:03\.000:/.test(document.querySelector('.clock').title))
   await page.mouse.dblclick(x(5), bottom)
   await page.waitForFunction(() => document.querySelector('.clock').title.startsWith('Selected 0:03.000–0:08.000:'))
-  await page.mouse.click(x(6), box.y + (box.height - 22) * .25)
-  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'chime · chime.wav')
-  await page.mouse.dblclick(x(2.9), bottom)
-  const [a, b] = (await selected()).split('–').map(t => +t.split(':')[1])
-  assert.ok(a > 1.9 && b === 3, `the piece, not from the start: ${a}–${b}`)
 })
 
 // Editing pitch is a mode, not a setting: one stored by an earlier page is not on when it opens
@@ -5317,8 +5311,7 @@ test('editor: a track exported alone; another lined up with it, both tracks stil
   await lengthIs('0:08.000')
 })
 
-// A marker is its track's, flagged over its lane: one a track not edited set is taken away from its flag all the same,
-// its mark() gone
+// The markers are every track's: one a track not edited set is taken away from its flag all the same, its mark() gone
 test('editor: with tracks, a marker of a track not edited is taken away from its flag', async () => {
   await open()
   await write(`let a = audio('chime.wav')\n  .mark(1, 'here')\n\nlet b = audio('chime.wav')\n  .gain(-6)`)
@@ -5329,28 +5322,6 @@ test('editor: with tracks, a marker of a track not edited is taken away from its
   await contextRow('Delete the marker').click()
   await page.waitForFunction(() => !scriptText().includes('.mark('))
   assert.match(await code(), /^let a = audio\('chime.wav'\)\s*let b = audio\('chime.wav'\)\n {2}\.gain\(-6\)$/)
-})
-
-// A marker is its track's alone: a double-click in another track's lane goes past it, in its own stops at it; a press
-// on its flag edits its track
-test('editor: with tracks, a track\'s markers are its own', async () => {
-  await open()
-  await write(`let a = audio('chime.wav')\n  .mark(1)\n\nlet b = audio('chime.wav')\n  .gain(-6)`)
-  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
-  await lengthIs('0:08.000')
-  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'b · chime.wav')
-  const { box, x } = await axis(8), top = box.y + (box.height - 22) * .25, bottom = box.y + (box.height - 22) * .75
-  const from = async () => +(await selected()).split('–')[0].split(':')[1]
-  await page.mouse.dblclick(x(1.05), bottom)
-  assert.ok(await from() < .99, `b's fragment from ${await from()}, past a's marker`)
-  await page.mouse.dblclick(x(1.05), top)
-  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'a · chime.wav')
-  assert.equal(await from(), 1, 'a\'s fragment from its marker')
-  await page.mouse.click(x(6), bottom)
-  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'b · chime.wav')
-  await page.mouse.click(x(1), box.y + 4)
-  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'a · chime.wav')
-  assert.equal(await page.locator('.time').innerText(), '0:01.000', 'the caret on it')
 })
 
 // A slice of a track dragged onto the tabs: a tab of that track's alone, its chain cropped to it
