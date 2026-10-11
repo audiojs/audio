@@ -3032,6 +3032,128 @@ test('editor: scrolled while it plays, the view stays where it was put till the 
   await page.keyboard.press('Space')
 })
 
+// The caret, the selection or the playhead out of sight: its time at the edge of the time row it is past, a chevron
+// pointing out to it, and a press there brings the view to it; a click on the clock's time does the same. A click on the
+// length shows the selection whole, again all of it. Each goes there over 300 ms, not at once
+test('editor: out of sight, the caret\'s time waits at the time row\'s edge; it, or the clock\'s time, brings the view to it; the length frames the selection, then all', async () => {
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
+  await open()
+  await noCues()
+  await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
+  await lengthIs('0:20.000')
+  const box = await page.locator('.plot').boundingBox(), w = box.width - GUTTER, y = box.y + box.height / 3
+  const range = () => page.evaluate(() => __view.range), seen = async t => { const [a, b] = await range(); return t >= a && t <= a + (b - a) * .9 }
+  await page.mouse.move(box.x + w / 2, y)
+  for (let i = 0; i < 6; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
+  await page.mouse.click(box.x + w / 2, y)
+  const caret = await page.evaluate(() => __view.cursor)
+  // scrolled past it: its time at the row's left edge, in a tag of its own
+  await page.mouse.wheel(0, w * 3)
+  await page.waitForTimeout(100)
+  assert.ok(!await seen(caret), 'scrolled out of sight')
+  const row = box.y + box.height - 15
+  await page.mouse.move(box.x + 12, row)
+  assert.equal(await page.locator('.plot').evaluate(e => e.style.cursor), 'pointer')
+  // the view on its way a frame after the press, there by 300 ms
+  const was = await range()
+  await page.mouse.click(box.x + 12, row)
+  const on = await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(__view.range[0])))))
+  await page.waitForTimeout(400)
+  const [a, b] = await range()
+  assert.ok(on < was[0] && on > a, `on its way: ${was[0].toFixed(3)} → ${on.toFixed(3)} → ${a.toFixed(3)}`)
+  assert.ok(Math.abs((caret - a) / (b - a) - .45) < .1, `brought to the middle: ${((caret - a) / (b - a)).toFixed(2)} across`)
+  // the clock's time does the same, from either side
+  await page.mouse.wheel(0, -w * 3)
+  await page.waitForTimeout(100)
+  assert.ok(!await seen(caret), 'scrolled the other way out of sight')
+  await page.locator('.time').click()
+  await page.waitForTimeout(400)
+  assert.ok(await seen(caret), 'the clock\'s time brings it back')
+  // past it the other way, its tag at the row's right edge brings it back too
+  await page.mouse.wheel(0, -w * 3)
+  await page.waitForTimeout(100)
+  await page.mouse.click(box.x + w - 40, row)
+  await page.waitForTimeout(400)
+  assert.ok(await seen(caret), 'the right edge\'s tag brings it back')
+  // a selection: the length frames it, then shows all of it, then frames it again
+  await page.evaluate(() => __view.select(5, 7))
+  const framed = async () => { await page.locator('.length').click(); await page.waitForTimeout(400); return range() }
+  let [p, q] = await framed()
+  assert.ok(p <= 5 && p > 4.5 && (q - p) < 3, `the selection framed: ${p.toFixed(2)}–${q.toFixed(2)}`)
+  ;[p, q] = await framed()
+  assert.ok(p === 0 && q >= 20, `all of it: ${p}–${q}`)
+  ;[p, q] = await framed()
+  assert.ok(p <= 5 && (q - p) < 3, 'framed again')
+  // playing, scrolled away from the playhead: the clock's time brings the view back to it, following it again
+  await page.mouse.click(box.x + w / 2, y)
+  await page.keyboard.press('Space')
+  await page.waitForFunction(() => document.querySelector('.play')?.getAttribute('aria-label') === 'Pause')
+  await page.waitForTimeout(600)
+  await page.mouse.wheel(0, w * 3)
+  await page.waitForTimeout(300)
+  const clock = () => page.evaluate(() => { const [m, s] = document.querySelector('.time').textContent.split(':'), [a, b] = __view.range; return (+m * 60 + +s - a) / (b - a) })
+  assert.ok(await clock() < 0, 'scrolled past the playhead')
+  await page.locator('.time').click()
+  await page.waitForTimeout(800)
+  const at = await clock()
+  assert.ok(Math.abs(at - .45) < .15, `followed again: ${at.toFixed(2)} across`)
+  await page.keyboard.press('Space')
+})
+
+// The overview, chosen in the settings for the scroll: the whole sound in a strip under the time row, the part in view
+// lit; a press beside it takes the view there, a drag moves it. The lanes end above it
+test('editor: the overview shows the whole sound under the time row; pressed or dragged, the view goes there', async () => {
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
+  await open()
+  await noCues()
+  await write(`audio.from(t => t < 10 ? Math.sin(2 * Math.PI * 220 * t) * .5 : 0, { duration: 20 })`)
+  await lengthIs('0:20.000')
+  await settings('Scroll', 'Overview')
+  const box = await page.locator('.plot').boundingBox(), w = box.width - GUTTER, foot = box.y + box.height - 12
+  const range = () => page.evaluate(() => __view.range)
+  // drawn where there is sound, its first half; a line where it is silent
+  const ink = f => pixels(`const x = Math.round(arg), xs = []; let n = 0; for (let y = h - 26; y < h - 4; y++) { const i = (y * w + x) * 4; if (d[i] > 60) n++ } return n`, w * f)
+  assert.ok(await ink(.25) > 4, 'the sound drawn in the overview')
+  assert.ok(await ink(.75) <= 2, 'silence a line')
+  await page.mouse.move(box.x + w / 2, box.y + 40)
+  for (let i = 0; i < 6; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
+  const [a0, b0] = await range()
+  // pressed at 3/4 of the strip: the view centred at 15 s, then dragged left a tenth of it, 2 s earlier
+  await page.mouse.move(box.x + w * .75, foot)
+  await page.mouse.down()
+  let [a, b] = await range()
+  assert.ok(Math.abs((a + b) / 2 - 15) < .5 && Math.abs((b - a) - (b0 - a0)) < 1e-6, `centred at 15 s: ${a.toFixed(2)}–${b.toFixed(2)}`)
+  await page.mouse.move(box.x + w * .65, foot, { steps: 4 })
+  await page.mouse.up()
+  const [c] = await range()
+  assert.ok(Math.abs(c - a + 2) < .1, `dragged 2 s back: ${a.toFixed(2)} → ${c.toFixed(2)}`)
+})
+
+// The device's clock comes in steps, each a fraction of a ms off where the last ran on to; zoomed in, that is pixels, back
+// and forth. The playhead runs on by the frames' own time instead, drawn toward the clock: frame to frame it moves as far
+// as the frame's time at the speed, within 50 µs, and stays within a few ms of the clock
+test('editor: the playhead runs on by the frames\' own time, not by the device clock\'s steps', async () => {
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(').replace('const pl = player(', 'const pl = globalThis.__pl = player(') }) })
+  await open()
+  await noCues()
+  await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
+  await lengthIs('0:20.000')
+  await page.locator('.plot').focus()
+  await page.keyboard.press('Space')
+  await page.waitForFunction(() => document.querySelector('.play')?.getAttribute('aria-label') === 'Pause')
+  await page.waitForTimeout(500)
+  const frames = await page.evaluate(() => new Promise(done => {
+    const out = []
+    const each = ts => { out.push([ts, __view.playhead, __pl.time]); out.length < 120 ? requestAnimationFrame(each) : done(out) }
+    requestAnimationFrame(each)
+  }))
+  await page.keyboard.press('Space')
+  const off = frames.slice(1).map(([ts, t], i) => Math.abs((t - frames[i][1]) * 1000 - (ts - frames[i][0]))).sort((p, q) => p - q)
+  assert.ok(off[Math.floor(off.length * .9)] < .05, `steps off the frames' by ${off.map(v => v.toFixed(3)).join()} ms`)
+  const lag = frames.map(([, t, c]) => Math.abs(c - t) * 1000).sort((p, q) => p - q)
+  assert.ok(lag[Math.floor(lag.length * .9)] < 25, `off the clock by ${lag.map(v => v.toFixed(1)).join()} ms`)
+})
+
 // Zoomed in, a ms is many pixels: the playhead goes on by each frame's own time, however late a busy page runs the
 // frame's work (here 0 to 10 ms, at random, before it), so the view never jolts back and forth. And the pictures'
 // window-wide layers are clipped, not masked: a mask is a pass of its own over each, every frame the view scrolls
@@ -6386,7 +6508,7 @@ test('editor: the settings and each picture\'s options are dropdowns, every grou
   assert.equal(await button.getAttribute('aria-expanded'), 'true')
   assert.equal(await page.locator('.side-slab').isVisible(), false, 'no panel')
   assert.equal(await page.locator('.menubar-sub').count(), 0, 'no submenus')
-  assert.deepEqual(await groups(), ['Show over the sound', 'Scrub', 'Record in', 'Times in', 'Level steps', 'Splices', 'Time row', 'Grid'])
+  assert.deepEqual(await groups(), ['Show over the sound', 'Scrub', 'Record in', 'Times in', 'Level steps', 'Splices', 'Time row', 'Scroll', 'Grid'])
   const ways = page.locator('.dropdown').getByRole('group', { name: 'Scrub', exact: true }).getByRole('button')
   assert.deepEqual(await ways.allInnerTexts(), ['Vocoder + noise', 'Vocoder', 'Random phase', 'Noisc bank', 'Noisc lines', 'Grains', 'Loop', 'Tape'])
   const note = group => page.locator('.dropdown-group', { has: page.getByRole('group', { name: group, exact: true }) }).locator('.dropdown-note').innerText()

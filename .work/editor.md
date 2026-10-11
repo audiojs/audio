@@ -29,7 +29,7 @@ Sources: R11:interactive-tools, R12:keyboard-shortcuts, R11:find-similar.
 | Deselect, select all | Esc; ⌘A or double-click | ✅ | |
 | Shift+arrows/Home/End extend | the same | ✅ | |
 | `[` `]` set start/end at the playhead while playing | none | ✗ | |
-| Type Start/End/Length into the readout | the script's `{ at, duration }` is editable text | ◐ | The clock shows start–end, the display above the levels its length; a click on the clock changes its units |
+| Type Start/End/Length into the readout | the script's `{ at, duration }` is editable text | ◐ | The clock shows the caret, or the playhead, and the length selected (else all of it); a click on the time brings the view to it, on the length frames the selection, again all of it |
 | Drag a selection's edges to resize | edges drag; Shift extends | ★ | Undocumented in RX (unverified) |
 | Move the selection shape | ⌘-drag a selection: its audio slides over what is there, silence where it was (move(), a graphic editor's object, a DAW's clip in slip mode), past the end silence opening up to it; Alt-drag puts a copy in, what is there moving on; dragged up onto the tabs, a tab of its own | ★ | The picture shows the result while dragging |
 | Delete closes the gap; on a band, silences it | Delete writes `remove()`, or `spectral()` for a band | ✅ | |
@@ -69,11 +69,11 @@ Sources: R12:spectrogram-waveform-display, R11:preferences.
 | Time ruler in samples, h:m:s, timecode | a label every 1-2-5 step 72 px apart or more, its tick beside it, no axis line; the pointer's time on the same row, snapped as a press would take it, the labels under it giving way; minutes and seconds, seconds or samples (view settings, View > Times in) | ◐ | No timecode frames |
 | Frequency ruler | each label under its tick, no unit, the lowest the lane shows at its foot; the pointer's frequency under its own tick; the scale (octaves, mel, hertz) in the view settings above the axes | ◐ | No colour map or dB window yet; they belong in the same settings |
 | Drag a ruler to pan, wheel to zoom that axis | the wheel scrolls, through zoomed-in frequencies over them; a pinch or Ctrl and the wheel zooms the axis under the pointer | ◐ | No ruler drag; no amplitude zoom |
-| Overview bar showing the whole file, the view, the selections | zoomed in, a faint scrollbar at the time row's foot, its thumb the view, dragged or pressed beside; a bird's view: zoom out past the whole, up to eight times it | ◐ | No waveform strip, no selections on it |
+| Overview bar showing the whole file, the view, the selections | zoomed in, a faint scrollbar at the time row's foot, its thumb the view, dragged or pressed beside; or, chosen in the settings (Scroll), the overview: the whole sound in a strip under the time row, the view lit, the selections and the caret on it, pressed or dragged as the thumb; a bird's view: zoom out past the whole, up to eight times it | ✅ | |
 | Channels separate or summed; L/R or Mid/Side | always separate | ◐ | |
 | Analog waveform (inter-sample peaks in red); sample points at deep zoom | none | ✗ | |
 | Cursor readout: time, dB, Hz | on the axes, at the pointer; on the spectrogram the level its colour stands for too (the loudest cell within 2 px), marked on the spectrum meter | ✅ | |
-| Follow playhead (page or continuous) | a zoomed view scrolls with the playhead held in the middle; played from a caret past it, the view glides it there; scrolled or zoomed by hand as it plays, it stays where it was put till the playhead, seen in it, passes its edge | ✅ | |
+| Follow playhead (page or continuous) | a zoomed view scrolls with the playhead held in the middle; played from a caret past it, the view glides it there; scrolled or zoomed by hand as it plays, it stays where it was put till the playhead, seen in it, passes its edge; the playhead, or the caret, out of sight waits at the time row's edge, its time beside a chevron pointing out to it, a press there (or on the clock's time) bringing the view to it | ✅ | |
 | A file drawn as it loads | the output streams as the file arrives, across the length its header says; a file the chain must wait for (trim, normalize) shows dim as it decodes; Loading n% beside the time | ★ | RX decodes before it shows anything |
 | Pictures fade before the rulers | the waveform and spectrogram thin out before the labels at their right and the time row below | ✅ | |
 
@@ -83,7 +83,7 @@ Sources: R11:transport-controls---displays, R12:common-module-controls.
 
 | RX | Us | Status | Note |
 |---|---|---|---|
-| Play, loop, play from click | Space, the loop switch on the display, play from the caret or the selection; Play held is a shuttle, dragged 0.1× to 10× (twice each 40 px), back to 1× let go, as a shuttle ring springs back | ✅ | The library's own play(): a deck on the page's one AudioContext, fed by the engine's worker as it plays (audio/worker, worker.js voice), so a busy page leaves no gap; its seams, starts and stops crossfaded; the playhead is what the device plays, and never steps back (the device clock only runs on; a glitching device's skipped frames hold it) |
+| Play, loop, play from click | Space, the loop switch on the display, play from the caret or the selection; Play held is a shuttle, dragged 0.1× to 10× (twice each 40 px), back to 1× let go, as a shuttle ring springs back | ✅ | The library's own play(): a deck on the page's one AudioContext, fed by the engine's worker as it plays (audio/worker, worker.js voice), so a busy page leaves no gap; its seams, starts and stops crossfaded; the playhead is what the device plays, and never steps back (the device clock only runs on; a glitching device's skipped frames hold it); drawn, it runs on by the frames' own time, drawn toward that clock in 0.1 s, so its steps don't jitter the view |
 | Play Selection Only, band-limited | Play on a band plays only the band (24 dB/oct Butterworth) | ✅ | |
 | Record | Record opens the take as the script's source | ✅ | The library's own browser recording kept one block only until this session's fix to `record()`; it still takes 16-bit at 44.1 kHz, so the page keeps its own float recorder for now |
 | Scrub every channel | the held caret sounds in stereo (or as many channels as there are), the image kept | ★ | |

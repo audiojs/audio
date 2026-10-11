@@ -172,7 +172,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // the view moved by hand while it plays (the wheel, a pinch, the scrollbar, a zoom to a range): it stays where it was put,
   // the playhead not followed till, seen in it, it passes its edge (playhead)
   let steered = false
-  const steer = () => { steered = playhead != null }
+  const steer = () => { steered = playhead != null; moving = null }
   let cues = [], envelope = null, shift = null, contour = null, snapping = true, fadeCurve = 'linear'
   // a pitch or an intonation a tool let go on the selection: the pitch curve shows it until the output it makes comes
   let landed = null
@@ -224,9 +224,12 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // `anchor`: where the selection was begun, the end Shift keeps (origin)
   let W = 0, H = 0, dpr = 1, frame = 0, leveled = false, drag = null, anchor = null
   const pointers = new Map()
+  // what scrolls the view (the settings): 'bar', a thin bar at the time row's foot, or 'overview', the whole sound in a
+  // strip of its own under it (MAP)
+  let scroll = 'bar'
 
   // Geometry, in CSS pixels
-  const plot = () => ({ w: Math.max(1, W - GUTTER), h: Math.max(1, H - RULER) })
+  const plot = () => ({ w: Math.max(1, W - GUTTER), h: Math.max(1, H - RULER - (scroll === 'overview' ? MAP : 0)) })
   const merged = () => !tracks && display === 'wave' && waveLook.lanes === 'one'
   function lanes() {
     const { w, h } = plot(), n = merged() ? 1 : Math.max(1, count), lh = (h - GAP * (n - 1)) / n
@@ -254,14 +257,19 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // Zoomed in, the scrollbar at the time row's foot, under its labels, as an overlay scrollbar is: the whole sound
   // across the row (or as far as the view goes past its end), the thumb what shows, at least THUMB px. A press on it
   // drags the view; beside it, the view centres there first. { x0, x1, total }, or null showing all of it
-  const BAR = 8, THUMB = 16
+  // Chosen in the settings, the overview takes the bar's place: the whole sound in a strip MAP px tall under the time
+  // row, as a minimap, the view's part of it lit, pressed and dragged as the thumb is
+  const BAR = 8, THUMB = 16, MAP = 28
   function bar() {
     if (!duration || whole()) return null
     const total = Math.max(duration, end), w = plot().w, k = w / total, x0 = Math.min(start * k, w - THUMB)
     return { x0, x1: Math.max(x0 + THUMB, end * k), total }
   }
-  const onBar = (px, py) => py >= H - BAR && px >= 0 && px <= plot().w && !!bar()
+  const onBar = (px, py) => py >= H - (scroll === 'overview' ? MAP : BAR) && px >= 0 && px <= plot().w && !!bar()
   const x = t => (t - start) / (end - start || 1) * plot().w
+  // a time's place on the device's own pixels, where the pictures put it: the marks over them move with them, a device pixel
+  // at a time, as the view scrolls
+  const X = t => Math.round(x(t) * dpr) / dpr
   const time = px => start + px / plot().w * (end - start)
   const clamp = t => Math.max(0, Math.min(duration, t))
   // the 1-2-5 step just above `res`
@@ -419,6 +427,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   function invalidate(overlay = false) { pictures ||= !overlay; frame ||= requestAnimationFrame(render) }
   function render() {
     frame = 0
+    if (moving) moveOn()
     const L = lanes(), from = start * rate, to = end * rate
     light(recording || data.length || windows || arriving?.length ? arriving?.dim ? 'dim' : 'full' : 'none')
     // the grid ruled anew (a zoom, the level axis' units) draws the pictures again, as it is cut by the waveform drawn
@@ -438,7 +447,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       waves.forEach((wave, i) => {
         const rect = L.wave[merged() ? 0 : i]
         if (!rect) return
-        if (!pieces || tracks && i !== focus) return drawWave(wave, i, rect, from, to, 0, rect[2], aview, ratio)
+        if (!pieces || tracks && i !== focus) return drawWave(wave, i, rect, from, to, 0, rect[2], aview, ratio, undefined, tracks?.[i] ? X(tracks[i].end) : Infinity)
         for (const p of spans()) drawWave(wave, i, rect, p.from, p.to, p.x0, p.x1, aview.map(v => v / p.gain), ratio)
       })
       // a take being recorded, where it goes: its own waveform over what it replaces, drawn as the output's is
@@ -504,8 +513,12 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     }
     return palette[Math.round(u * 255)]
   }
-  function drawWave(wave, i, rect, from, to, x0, x1, amplitude, pixelRatio, src = { x: data[i], rate, id: i }) {
-    const at = (a, b, p, q) => wave.update({ range: [a, b], viewport: [rect[0] + p, rect[1], q - p, rect[3]], pixelRatio, amplitude }).render()
+  // `stop`: the px a track's sound ends at, its centre line with it
+  function drawWave(wave, i, rect, from, to, x0, x1, amplitude, pixelRatio, src = { x: data[i], rate, id: i }, stop = Infinity) {
+    const at = (a, b, p, q) => {
+      if (q > stop) { if (p >= stop) return; b = a + (b - a) * (stop - p) / (q - p); q = stop }
+      wave.update({ range: [a, b], viewport: [rect[0] + p, rect[1], q - p, rect[3]], pixelRatio, amplitude }).render()
+    }
     wave.update({ ...FILLS[waveLook.fill] ?? FILLS.density, color: hues[i] })
     if (waveLook.colour === 'none' || arriving || !src.x || x1 - x0 < 1 || to <= from) return at(from, to, x0, x1)
     const spp = (to - from) / (x1 - x0), len = 2 ** Math.max(4, Math.ceil(Math.log2(spp * 4)))
@@ -598,6 +611,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     const { w, h } = plot()
     c.setTransform(dpr, 0, 0, dpr, 0, 0)
     c.clearRect(0, 0, W, H)
+    away = null
     if (!duration) return
     c.font = `10px ${color('--font-mono')}`
     c.textBaseline = 'middle'
@@ -617,23 +631,26 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     else if (drag?.span) paintGuide({ ramps: [[...drag.span, drag.fade, fadeCurve]] }, T)
     // the pointer, read out on the axes: its time on the time row, as the script will get it (a dragged edge's, a snapped
     // one's), the labels there giving way to it; its level or frequency by its lane
-    const at = hovered && hovered[0] >= 0 && hovered[0] <= w && !drag?.scroll && !onBar(...hovered) ? hovered : null, lane = at && all.find(r => inside(r, ...at))
+    const at = hovered && hovered[0] >= 0 && hovered[0] <= w && !drag?.scroll && !onBar(...hovered) && !onAway(...hovered) ? hovered : null, lane = at && all.find(r => inside(r, ...at))
     const pointed = at && (drag?.span ? drag.p : drag?.stretch ? drag.to : drag?.hear ?? stuck(snap(time(at[0]))))
     // the times on the row, each tick the colour of the line it runs on from: an edge lit (`hot`, or dragged) bright
     const caret = color('--color-screen-caret'), bright = color('--color-screen-bright')
     const litEdge = drag?.resizing && sel ? sel[sel[0] === drag.anchor ? 1 : 0] : !drag && hot ? hot.t : null
     const edges = sel && !drag?.span ? sel.map((t, edge) => ({ t, fill: t === litEdge ? bright : caret, edge, of: sel })) : []
     // the pointer's time, or the caret's, where an edge is: the edge's, which says as much
-    const apart = t => !edges.some(m => Math.round(x(m.t)) === Math.round(x(t)))
+    const apart = t => !edges.some(m => X(m.t) === X(t))
+    away = awayOf(L)
     paintRuler([
+      ...(away ? [{ t: away.t, fill: away.fill, side: away.side }] : []),
       ...(at && apart(pointed) ? [{ t: pointed, fill: caret }] : []),
       ...edges,
       ...(playhead != null ? [{ t: playhead, fill: bright }] : apart(cursor) ? [{ t: cursor, fill: caret }] : []),
       ...(dropped != null ? [{ t: dropped, fill: accent() }] : [])
     ])
+    if (hovered && onAway(...hovered)) say(`To the ${playhead != null ? 'playhead' : selection ? 'selection' : 'caret'}`, away.side < 0 ? away.x0 : away.x1, row() - 16, away.side < 0 ? 'left' : 'right')
     paintBar()
     // a file held over the picture: where it goes in, a caret of its own, as a text editor shows where a drop lands
-    if (dropped != null) { c.fillStyle = accent(); across(Math.round(x(dropped)), 2, mine); c.font = `10px ${color('--font-mono')}`; tag('Insert here', Math.round(x(dropped)) + 6, extent(mine)[0] + 8, 'left', accent()) }
+    if (dropped != null) { c.fillStyle = accent(); across(X(dropped), 2, mine); c.font = `10px ${color('--font-mono')}`; tag('Insert here', X(dropped) + 6, extent(mine)[0] + 8, 'left', accent()) }
     // the times a drag's edges are at, or the caret dragged: the cues and markers they sit on light
     const lit = drag?.caret ? [cursor] : drag?.anchor != null || drag?.carry || drag?.stretch ? sel || [] : drag?.span || []
     if (show.hits) paintCues(mine, lit)
@@ -649,7 +666,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // playhead run through the band alone, which is what plays
     // the caret in the edited track's lane, the playhead through all of them
     const line = (t, fill, only = null, lanes = T) => {
-      const px = Math.round(x(t))
+      const px = X(t)
       if (px < 0 || px > w) return
       c.fillStyle = fill
       if (!only) return across(px, 1, [...lanes.wave, ...lanes.spec])
@@ -658,7 +675,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (arriving) line(arriving.length / rate, color('--color-screen-soft'), null, L)
     // what is still to come of it, where its length is known: the centre line across it, as silence has it
     if (arriving && arriving.total > arriving.length) {
-      const a = Math.max(0, Math.round(x(arriving.length / rate)) + 1), b = Math.min(lanesEnd(L), Math.round(x(arriving.total / rate)))
+      const a = Math.max(0, X(arriving.length / rate) + 1), b = Math.min(lanesEnd(L), X(arriving.total / rate))
       c.fillStyle = dim
       c.globalAlpha = .5
       if (b > a) for (const rect of L.wave) c.fillRect(a, Math.round(ay(rect, 0)), b - a, 1)
@@ -675,7 +692,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (at && lane && held.altKey && !drag) paintMeasure(at)
     // a selection's edge under the pointer says which it is and where
     if (at && lane && hot && !drag) {
-      const { t, edge } = hot, text = `${!edge ? 'Start' : editing(held) ? `${gripName('stretch')}, end` : 'End'} ${stamp(t)}`, ex = Math.round(x(t))
+      const { t, edge } = hot, text = `${!edge ? 'Start' : editing(held) ? `${gripName('stretch')}, end` : 'End'} ${stamp(t)}`, ex = X(t)
       say(text, edge ? ex - 6 : ex + 6, clampY(lane, at[1]), edge ? 'right' : 'left')
     }
     if (meters && show.meters) paintMeters(L)
@@ -772,15 +789,15 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // sets the speed; Cubase and Nuendo stretch from an event's lower corners). By the square's left
     const lower = left => all.map(([, y, , lh]) => [left + h, Math.round(y + lh - BOX * 1.5)])
     if (band || playhead != null || drag?.carry || drag?.stretch || drag?.lift || drag?.pill) return []
-    const [a, b] = handled(), xa = Math.round(x(a)), xb = Math.round(x(b)), out = []
+    const [a, b] = handled(), xa = X(a), xb = X(b), out = []
     // a caret: silence to pull open where the grip would be, a stretch of nothing; at the end, where there is no room
     // past it, before it
     if (a === b) {
-      const at = Math.round(x(drag?.gap ? drag.to : a)), left = at + 1 + BOX <= lanesEnd(L) ? at + 1 : at - BOX
+      const at = X(drag?.gap ? drag.to : a), left = at + 1 + BOX <= lanesEnd(L) ? at + 1 : at - BOX
       return duration && (!drag || drag.gap) && at >= 0 && left >= 0 ? lower(left).map(p => ['gap', ...p]) : []
     }
     if (drag && !drag.fade) return []
-    const fade = kind => drag?.fade === kind && drag.span ? Math.round(x(drag.p)) : kind === 'in' ? xa : xb
+    const fade = kind => drag?.fade === kind && drag.span ? X(drag.p) : kind === 'in' ? xa : xb
     if (xb - xa >= 2 * (BOX + INSET) + 8) out.push(['in', fade('in') + 1 + h, top + h], ['out', fade('out') - h, top + h])
     if (xb - xa >= 72 && !drag?.fade) out.push(['level', (xa + xb) / 2, top + 4], ...TOOLS.map((kind, i) => [kind, Math.round((xa + xb) / 2) + (i - 1) * (BOX + 2), bottom - h]))
     if (xb - xa >= 20 && !drag?.fade) out.push(...lower(xb).map(p => ['stretch', ...p]))
@@ -1040,7 +1057,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // the pointer's height from the nearer edge to it, its length over it; none inside the selection
   function paintMeasure(at) {
     const [a, b] = selection ?? [cursor, cursor], t = stuck(snap(time(at[0]))), from = t > b ? b : t < a ? a : null
-    const p = from == null ? 0 : Math.round(x(from)), q = Math.round(x(t)), y = Math.round(at[1])
+    const p = from == null ? 0 : X(from), q = X(t), y = Math.round(at[1])
     if (from == null || Math.abs(q - p) < 12) return
     c.fillStyle = accent()
     c.fillRect(Math.min(p, q), y, Math.abs(q - p), 1)
@@ -1067,7 +1084,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     c.strokeStyle = c.fillStyle = accent()
     c.lineWidth = 1
     if (g.range && !g.band) {
-      const a = Math.round(x(g.range[0])), b = Math.round(x(g.range[1]))
+      const a = X(g.range[0]), b = X(g.range[1])
       c.fillRect(a, h, Math.max(1, b - a), 2)
       // what the range is to the call (denoise's noise)
       if (g.label) { c.textAlign = 'left'; c.fillText(g.label, a + 5, all[0][1] + 10) }
@@ -1092,7 +1109,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       }
     }
     if (g.at != null) {
-      const px = Math.round(x(g.at)) + .5
+      const px = X(g.at) + .5
       c.setLineDash([2, 3])
       for (const [, y, , lh] of all) { c.beginPath(); c.moveTo(px, y); c.lineTo(px, y + lh); c.stroke() }
       c.setLineDash([])
@@ -1138,7 +1155,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // over the span, else a voice's); the root's brighter. A line within a few pixels of the last gives way, a name at
   // the span's end within a line's height
   function paintNotes({ notes, root, a4, span = [0, duration] }, rect, end) {
-    const xa = Math.max(0, Math.round(x(span[0]))), xb = Math.min(end, Math.round(x(span[1])))
+    const xa = Math.max(0, X(span[0])), xb = Math.min(end, X(span[1]))
     if (xb - xa < 2) return
     const f0 = voiced(...span), tone = 2 ** (2 / 12), [lo, hi] = f0.length ? [f0[0] / tone, f0.at(-1) * tone] : VOICE
     let line = -Infinity, named = -Infinity
@@ -1177,7 +1194,16 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     c.textAlign = 'left'
     const shown = []
     for (const m of marks) {
-      const px = Math.round(x(m.t)), text = stamp(m.t), tw = c.measureText(text).width
+      // the playhead or the caret out of sight: its time at the edge it is past, a chevron pointing out to it (chevron)
+      if (m.side) {
+        const text = stamp(m.t), tw = c.measureText(text).width, x0 = m.side < 0 ? 2 : lanesEnd(lanes()) - tw - CHEVRON - 8
+        const lx = m.side < 0 ? x0 + CHEVRON + 6 : x0 + 2
+        taken.push([x0 - 2, x0 + tw + CHEVRON + 10])
+        away.x0 = x0 - 2; away.x1 = x0 + tw + CHEVRON + 10
+        shown.push({ ...m, px: null, lx, text, cx: m.side < 0 ? x0 + 2 : x0 + tw + 6 })
+        continue
+      }
+      const px = X(m.t), text = stamp(m.t), tw = c.measureText(text).width
       let lx = px + 4
       if (m.of && !m.edge && tw + 8 > x(m.of[1]) - x(m.of[0])) lx = px - 4 - tw
       lx = Math.max(0, Math.min(w - tw - 3, lx))
@@ -1186,7 +1212,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       shown.push({ ...m, px, lx, text })
     }
     if (ruler !== 'none') for (let i = first; i * step <= end + 1e-9; i++) {
-      const t = i * step, px = Math.round(x(t)), text = stamp(t, digits), tw = c.measureText(text).width
+      const t = i * step, px = X(t), text = stamp(t, digits), tw = c.measureText(text).width
       if (px + 4 + tw > w) break
       if (taken.some(([a, b]) => px + tw + 4 > a && px < b)) continue
       c.fillStyle = color('--color-screen-rule')
@@ -1195,13 +1221,78 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     }
     for (const m of shown) {
       c.fillStyle = m.fill
-      c.fillRect(m.px, h, 1, TICK)
-      tag(m.text, m.lx, y, 'left')
+      if (m.px != null) c.fillRect(m.px, h, 1, TICK)
+      tag(m.text, m.lx, y, 'left', m.side ? m.fill : undefined)
+      if (m.side) chevron(m.cx, y, m.side, m.fill)
     }
+  }
+  // A chevron CHEVRON px tall pointing to `side` (−1 left, 1 right), its box's left at px, centred on py, on the screen's
+  // colour so the row's labels under it give way
+  const CHEVRON = 10
+  function chevron(px, py, side, fill) {
+    const w = CHEVRON / 2, h = CHEVRON / 2
+    c.fillStyle = color('--color-screen')
+    c.fillRect(px - 2, py - h - 2, w + 4, CHEVRON + 4)
+    c.strokeStyle = fill
+    c.lineWidth = 1.6
+    c.lineCap = c.lineJoin = 'round'
+    c.beginPath()
+    c.moveTo(side < 0 ? px + w : px, py - h)
+    c.lineTo(side < 0 ? px : px + w, py)
+    c.lineTo(side < 0 ? px + w : px, py + h)
+    c.stroke()
+  }
+  // The playhead, else the caret or the selection, wholly out of sight: { t, side (−1 before the view, 1 past it), fill },
+  // and once drawn where its tag is on the time row (x0, x1), a press there bringing the view to it (bring); null in sight
+  let away = null
+  const sought = () => playhead != null ? [playhead, playhead] : selection ?? [cursor, cursor]
+  function awayOf(L) {
+    const [a, b] = sought(), to = time(lanesEnd(L))
+    const side = b < start ? -1 : a > to ? 1 : 0
+    if (!side) return null
+    return { t: side < 0 ? b : a, side, fill: color('--color-screen-bright'), x0: 0, x1: 0 }
+  }
+  const onAway = (px, py) => !!away && py > plot().h && py < plot().h + RULER && px >= away.x0 && px <= away.x1
+  // The view brought to the playhead (following it again, as when it was not moved by hand), else to the caret or the
+  // selection, at its middle, the zoom kept; a selection too long for it shown whole
+  function bring() {
+    const span = seenTo() - start, [a, b] = sought()
+    steered = false
+    if (b - a > span * .9) return travel(a - (b - a) * .05, b + (b - a) * .05)
+    // playing, toward the playhead as it moves on, following it from there
+    const mid = () => playhead ?? (a + b) / 2
+    travel(() => mid() - span / 2, () => mid() + span / 2)
+  }
+  function fitAll() { fview = [0, 1]; aview = [-1, 1]; fitTo(0, duration) }
+  // All that is selected (every range) shown whole, or, shown so already, or with nothing selected, all of the sound
+  function frameSelected() {
+    const all = ranges().filter(Boolean), a = all[0]?.[0], b = Math.max(...all.map(r => r[1]))
+    const span = seenTo() - start
+    if (!(b > a) || start <= a && seenTo() >= b && span < (b - a) * 1.2) { fview = [0, 1]; aview = [-1, 1]; return travel(0, duration) }
+    steer()
+    travel(a - (b - a) * .05, b + (b - a) * .05)
+  }
+  // The view moved to show [a, b] (each a time, or a function of none for one that moves, as the playhead does) over
+  // MOVE s, eased out, its span changing by the same factor each frame, so a zoom out from deep in goes as evenly as a
+  // pan; at once where motion is reduced. A hand on the view (a press, the wheel, a key) stops it where it is
+  const MOVE = .3, calm = matchMedia('(prefers-reduced-motion: reduce)')
+  let moving = null
+  function travel(a, b) {
+    const to = () => [typeof a === 'function' ? a() : a, typeof b === 'function' ? b() : b]
+    if (calm.matches) { moving = null; return fitTo(...to()) }
+    moving = { s: start, e: seenTo(), to, t0: performance.now() }
+    invalidate()
+  }
+  function moveOn() {
+    const { s, e, to, t0 } = moving, k = Math.min(1, (performance.now() - t0) / 1000 / MOVE), u = 1 - (1 - k) ** 3
+    const [a, b] = to(), w = (e - s) * ((b - a) / (e - s)) ** u, mid = (s + e) / 2 + ((a + b) / 2 - (s + e) / 2) * u
+    if (k >= 1) moving = null
+    fitTo(mid - w / 2, mid + w / 2)
   }
   // The scrollbar's thumb, faint until the pointer is on it or drags it, then wider and brighter, as macOS's overlay
   // scrollbars are
   function paintBar() {
+    if (scroll === 'overview') return paintMap()
     const b = bar()
     if (!b) return
     const lit = drag?.scroll || !drag && hovered && onBar(...hovered), th = lit ? 5 : 3
@@ -1212,13 +1303,52 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     c.fill()
     c.globalAlpha = 1
   }
+  // The overview: the sound's peaks over all its channels, as far as the view goes past its end, each device pixel's
+  // (mapImage); over them the view's part lit, what is selected, and the caret or the playhead
+  function paintMap() {
+    if (!duration) return
+    const w = plot().w, y = H - MAP + 4, h = MAP - 7, total = Math.max(duration, end), k = w / total, b = bar()
+    const img = mapImage(w, h, total)
+    if (img) c.drawImage(img, 0, y, w, h)
+    c.fillStyle = color('--color-screen-soft')
+    if (b) { c.globalAlpha = drag?.scroll || !drag && hovered && onBar(...hovered) ? .3 : .18; c.fillRect(b.x0, y - 2, b.x1 - b.x0, h + 4); c.globalAlpha = 1 }
+    c.fillStyle = color('--color-screen-select')
+    for (const [p, q] of ranges().filter(Boolean)) c.fillRect(p * k, y, Math.max(1, (q - p) * k), h)
+    c.fillStyle = color(playhead != null ? '--color-screen-bright' : '--color-screen-caret')
+    c.fillRect(Math.round((playhead ?? cursor) * k * dpr) / dpr, y - 2, 1, h + 4)
+  }
+  // The overview's peaks, drawn once for a sound, a size and as far as the view reaches: from its samples, or a long
+  // sound's leaves (gl-waveform's peaks, 256 samples a leaf); its loudest at the strip's edges
+  let leavesOf = null, map = null
+  function mapImage(w, h, total) {
+    const src = data.length && data[0].length ? data : leavesOf, cols = Math.round(w * dpr), rows = Math.round(h * dpr)
+    if (!src || cols < 1 || rows < 1) return null
+    if (map?.src === src && map.cols === cols && map.rows === rows && map.total === total) return map.canvas
+    const n = Math.round(duration * rate), lo = new Float32Array(cols).fill(Infinity), hi = new Float32Array(cols).fill(-Infinity)
+    for (let i = 0; i < cols; i++) {
+      const a = Math.floor(i * total * rate / cols), b = Math.min(n, Math.floor((i + 1) * total * rate / cols))
+      for (const x of src) {
+        if (src === data) for (let j = a; j < b; j++) { const v = x[j]; if (v < lo[i]) lo[i] = v; if (v > hi[i]) hi[i] = v }
+        else for (let j = Math.floor(a / 256); j < Math.ceil(b / 256); j++) { if (x[j * 4] < lo[i]) lo[i] = x[j * 4]; if (x[j * 4 + 1] > hi[i]) hi[i] = x[j * 4 + 1] }
+      }
+    }
+    let peak = 1e-9
+    for (let i = 0; i < cols; i++) if (hi[i] >= lo[i]) peak = Math.max(peak, Math.abs(lo[i]), Math.abs(hi[i]))
+    const canvas = map?.canvas ?? document.createElement('canvas'), g = canvas.getContext('2d'), mid = rows / 2
+    canvas.width = cols; canvas.height = rows
+    g.fillStyle = color('--color-screen-wave')
+    g.globalAlpha = .55
+    for (let i = 0; i < cols; i++) if (hi[i] >= lo[i]) { const top = mid - hi[i] / peak * mid, bottom = mid - lo[i] / peak * mid; g.fillRect(i, top, 1, Math.max(1, bottom - top)) }
+    map = { src, cols, rows, total, canvas }
+    return canvas
+  }
   // The lanes ruled (`grid`), on a layer of their own between the pictures: over the spectrogram, as the screen shows it;
   // behind the waveform, wholly hidden where it is, however faint its fill there. Where the time row's ticks meet the
   // axis' on the right, a cross, and a dot where their finer steps meet ('marks'); the crosses alone ('crosses'); a dot
   // at each, the ticks' larger ('dots'); or a faint line from each tick across the lanes ('lines'). None on a lane's edge,
   // nor past where its sound ends (paintEnd), the room there left plain.
   let ruled = ''
-  const gridKey = L => [grid, duration, start, end, W, H, dpr, display, scale, levelUnits, units, rate, aview, fview, L.wave.length + L.spec.length, lanesEnd(L), tracks?.map(t => t.end)].join()
+  const gridKey = L => [grid, duration, start, end, W, H, dpr, display, scale, levelUnits, units, rate, aview, fview, L.wave.length + L.spec.length, lanesEnd(L), tracks?.map(t => t.end), scroll].join()
   function paintGrid(L) {
     const key = gridKey(L)
     if (key !== ruled) { ruled = key; rule(L) }
@@ -1252,7 +1382,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // the times: the time row's steps, and the finer steps between them, [px, a tick's]
     const { step, minor: sub = step } = labelled(), n = Math.round(step / sub), cols = []
     for (let i = Math.ceil(start / sub - 1e-9); i * sub <= end + 1e-9; i++) {
-      const px = Math.round(x(i * sub))
+      const px = X(i * sub)
       if (px >= 1 && px < stop) cols.push([px, i % n === 0])
     }
     // one path a colour, filled once: where a cross's arms meet, or two lines cross, is no brighter
@@ -1275,7 +1405,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     }
     rc.save()
     rc.beginPath()
-    all.forEach(([, y, , lh], i) => rc.rect(0, y, Math.min(stop, Math.round(x(tracks?.[i]?.end ?? duration))), lh))
+    all.forEach(([, y, , lh], i) => rc.rect(0, y, Math.min(stop, X(tracks?.[i]?.end ?? duration)), lh))
     rc.clip()
     rc.fillStyle = color(grid === 'lines' ? '--color-screen-grid-line' : '--color-screen-grid')
     rc.fill(marks)
@@ -1304,18 +1434,20 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     for (const [px, py, bw, bh, spec] of boxes) { c.fillStyle = wash[+spec]; c.fillRect(px, py, bw, bh) }
   }
   // Where the sound ends, where the view shows past it: a rule down the lanes, as the last of the grid's (which stops
-  // there, as a waveform's centre line does), the room past it left plain; each track's where it ends, in its lane
+  // there, as a waveform's centre line does), the room past it left plain. A track ending sooner has no rule: the time past
+  // it is still its lane's, to select and edit as the mix runs on; its grid and centre line stop there, which says so
   function paintEnd(L) {
-    const stop = lanesEnd(L)
+    const px = X(duration)
+    if (px < 0 || px >= lanesEnd(L)) return
     c.fillStyle = color('--color-screen-rule')
-    ;[...L.wave, ...L.spec].forEach(([, y, , lh], i) => { const px = Math.round(x(tracks?.[i]?.end ?? duration)); if (px >= 0 && px < stop) c.fillRect(px, y, 1, lh) })
+    for (const [, y, , lh] of [...L.wave, ...L.spec]) c.fillRect(px, y, 1, lh)
   }
   // The edge dragged, or the one a press would take, any range's, lit as the line it would move: its first pixel or its
   // last, over the handles
   function paintEdge(L, sel) {
     const lit = drag?.resizing && sel && !band ? { edge: sel[0] === drag.anchor ? 1 : 0, t: sel[sel[0] === drag.anchor ? 1 : 0] } : !drag && hot
     if (!lit) return
-    const px = Math.round(x(lit.t)) - lit.edge
+    const px = X(lit.t) - lit.edge
     c.fillStyle = color('--color-screen-bright')
     if (px >= 0 && px < lanesEnd(L)) for (const [, y, , lh] of [...L.wave, ...L.spec]) c.fillRect(px, y, 1, lh)
   }
@@ -1329,7 +1461,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     const near = !drag && hovered ? nearCue(...hovered, held) : -1
     c.fillStyle = accent()
     for (const [i, t] of cues.entries()) {
-      const moving = drag?.cue === i, at = moving ? drag.to : moved(t), px = Math.round(x(at))
+      const moving = drag?.cue === i, at = moving ? drag.to : moved(t), px = X(at)
       if (at == null || px < 0 || px > plot().w || !(moving || i === near || on(lit, px))) continue
       c.globalAlpha = moving || on(lit, px) ? 1 : .7
       for (const [, ly, , lh] of rects) c.fillRect(px, ly, 1, lh)
@@ -1349,11 +1481,11 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     c.textAlign = 'left'
     names = []
     for (const [i, { time, duration, label }] of markers.entries()) {
-      const at = drag?.marker === i ? drag.to : moved(time), px = Math.round(x(at)), ex = duration ? Math.round(x(at + duration)) : px
+      const at = drag?.marker === i ? drag.to : moved(time), px = X(at), ex = duration ? X(at + duration) : px
       if (at == null || ex < 0 || px > w) continue
       c.fillStyle = chosen && same(chosen, markers[i]) ? accent() : color('--color-screen-bright')
       for (const p of new Set([px, ex])) {
-        c.globalAlpha = on(lit, p) || near != null && p === Math.round(x(near)) ? 1 : .7
+        c.globalAlpha = on(lit, p) || near != null && p === X(near) ? 1 : .7
         for (const [, ly, , lh] of rects) for (let k = ly; k < ly + lh; k += DASH * 2) c.fillRect(p, k, 1, Math.min(DASH, ly + lh - k))
       }
       c.globalAlpha = .5
@@ -1392,7 +1524,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (!m) return
     naming?.input.remove()
     const input = root.appendChild(Object.assign(document.createElement('input'), { className: 'marker-name', value: m.label || '', placeholder: 'Name', spellcheck: false }))
-    Object.assign(input.style, { left: `${Math.round(x(moved(m.time) ?? m.time)) + 8}px`, top: '0px' })
+    Object.assign(input.style, { left: `${X(moved(m.time) ?? m.time) + 8}px`, top: '0px' })
     naming = { time: m.time, duration: m.duration, input }
     let done = false
     const end = keep => {
@@ -1446,7 +1578,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
         c.lineTo(rect[2], ly(rect, pts.at(-1)[1], sign))
       }
       c.stroke()
-      if (sign > 0) for (const [t, v] of pts) c.fillRect(Math.round(x(t)) - 3, Math.round(ly(rect, v)) - 3, 6, 6)
+      if (sign > 0) for (const [t, v] of pts) c.fillRect(X(t) - 3, Math.round(ly(rect, v)) - 3, 6, 6)
     }
     c.globalAlpha = 1
   }
@@ -1515,8 +1647,8 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       c.save()
       c.beginPath(); c.rect(...rect); c.clip()
       trace(rect, contour.times, toneOf)
-      for (const [t] of pts) { const f = toneAt(t); if (f) c.fillRect(Math.round(x(t)) - 3, Math.round(fy(rect, f)) - 3, 6, 6) }
-      for (const t of knots()) { const f = toneAt(t); if (f) c.strokeRect(Math.round(x(t)) - 2.5, Math.round(fy(rect, f)) - 2.5, 5, 5) }
+      for (const [t] of pts) { const f = toneAt(t); if (f) c.fillRect(X(t) - 3, Math.round(fy(rect, f)) - 3, 6, 6) }
+      for (const t of knots()) { const f = toneAt(t); if (f) c.strokeRect(X(t) - 2.5, Math.round(fy(rect, f)) - 2.5, 5, 5) }
       c.restore()
     }
     c.lineWidth = 1
@@ -1598,6 +1730,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   }
   function down(event) {
     if (!duration || event.button > 0) return
+    moving = null
     root.setPointerCapture(event.pointerId)
     pointers.set(event.pointerId, local(event))
     if (pointers.size === 2) {
@@ -1617,6 +1750,8 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       drag = { scroll: true, x: px, start, total: b.total, moved: true, keep: true }
       return invalidate()
     }
+    // on the time of the playhead or caret out of sight, the view brought to it
+    if (onAway(px, py)) { bring(); return }
     // on a marker's line, its time
     const t = markAt(px, py) ?? snap(time(px))
     // a press in another track's lane makes it the one edited, but on a flag
@@ -2018,6 +2153,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     held = keys
     // the scrollbar's arrow, as a scrollbar's is everywhere
     if (onBar(px, py)) { hot = null; grabbing = false; root.style.cursor = 'default'; return }
+    if (onAway(px, py)) { hot = null; grabbing = false; root.style.cursor = 'pointer'; return }
     // in another track's lane, nothing to take hold of: a press there makes it the one edited
     if (tracks && py <= plot().h && laneAt(lanes(), py) !== focus && nearMarker(px, py) < 0) { hot = null; grabbing = false; root.style.cursor = ''; return }
     const L = own(lanes()), rect = (show.gain || pitchLine()) && lineLanes(L).find(r => inside(r, px, py)), spectral = L.spec.some(r => inside(r, px, py)) && editing(keys)
@@ -2132,7 +2268,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // with Shift, the selection out to it.
   function around(kind, t = cursor, how = null) {
     const list = edges(kind)
-    const [a, b] = segments.silences.find(([a, b]) => t >= a && t <= b) ?? [list.findLast(c => c <= t) ?? 0, list.find(c => c > t) ?? duration]
+    const [a, b] = pauses().find(([a, b]) => t >= a && t <= b) ?? [list.findLast(c => c <= t) ?? 0, list.find(c => c > t) ?? duration]
     if (how === 'add') { more = more.filter(r => !(r[0] === r[1] && r[0] >= a && r[0] <= b)); add(a, b) }
     else if (how === 'extend' && selection) select(Math.min(selection[0], a), Math.max(selection[1], b), null, true)
     else select(a, b)
@@ -2142,8 +2278,16 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // other) ending at the cue. An edit drawn ahead takes them where it moves them, as they are drawn.
   function edges(kind) {
     const at = list => list.map(moved).filter(t => t != null), shown = at(cues), onCue = t => shown.find(c => Math.abs(c - t) < .03) ?? t
-    const all = [0, duration, ...at(markers.flatMap(marked)), ...(kind === 'fragment' ? shown : at(segments.silences.flat()).map(onCue))].filter(t => t >= 0 && t <= duration)
+    const all = [0, duration, ...tail(), ...at(markers.flatMap(marked)), ...(kind === 'fragment' ? shown : at(pauses().flat()).map(onCue))].filter(t => t >= 0 && t <= duration)
     return [...new Set(all.map(t => +t.toFixed(6)))].sort((a, b) => a - b)
+  }
+  // The edited track's end, where it ends before the mix does ([end], else none), and its pauses with the time past it
+  // one of them: its lane runs on silent to the mix's end, so a click there takes that, and one on its sound stops at it
+  const tail = () => { const e = tracks?.[focus]?.end; return e != null && e < duration - 1e-6 ? [e] : [] }
+  function pauses() {
+    const [e] = tail(), list = segments.silences, last = list.at(-1)
+    if (e == null) return list
+    return last && last[1] >= e - 1e-3 ? [...list.slice(0, -1), [last[0], duration]] : [...list, [e, duration]]
   }
   // an edge within three pixels of the caret is where it is: a hit found a few ms after the pause it ends is one place
   function stepTo(kind, dir, extend = false) {
@@ -2217,7 +2361,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // else a sound between pauses
   function addNext() {
     if (!selection || band) return
-    const [a, b] = selection, last = Math.max(...ranges().map(r => r[1])), gaps = segments.silences, list = edges('fragment')
+    const [a, b] = selection, last = Math.max(...ranges().map(r => r[1])), gaps = pauses(), list = edges('fragment')
     const near = (p, q) => Math.abs(p - q) < .03, on = t => list.some(c => Math.abs(c - t) < 1e-3)
     const next = gaps.some(([p, q]) => near(p, a) && near(q, b)) ? gaps.find(([p]) => p >= last - 1e-6)
       : on(a) && on(b) ? (() => { const i = list.findIndex(c => c >= last - 1e-3); return i >= 0 && i < list.length - 1 ? [list[i], list[i + 1]] : null })()
@@ -2258,6 +2402,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // words or lines, the selection kept; Shift extends the selection from where it started. Space and the transport
   // belong to the page.
   function key(event) {
+    moving = null
     const mod = event.metaKey || event.ctrlKey, step = (end - start) / 100, k = event.key
     const to = t => {
       if (event.shiftKey) {
@@ -2416,7 +2561,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       count = channels.length; rate = sampleRate || rate
       duration = channels[0]?.length ? channels[0].length / rate : 0
       lay(count)
-      windows = null; windowsOf++
+      windows = null; windowsOf++; leavesOf = null
       fill(data = channels)
       renew(all)
     },
@@ -2434,6 +2579,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       fill(data = waves.map(() => new Float32Array(0)))
       data = []
       leaves.forEach((l, i) => waves[i].peaks(l, 0))
+      leavesOf = leaves
       if (spectra) specs.forEach((sg, i) => sg.spectra(spectra.levels[i], { size: spectra.size, hop: spectra.hop, length }))
       renew(all)
     },
@@ -2473,7 +2619,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       arriving = { total, length: 0, dim, fit: all }
       duration = total ? total / rate : all ? 0 : duration
       lay(count)
-      windows = null; windowsOf++
+      windows = null; windowsOf++; leavesOf = null
       fill(waves.map(() => new Float32Array(0)))
       data = []
       if (dim) { selection = band = null; more = [] }
@@ -2612,6 +2758,8 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     set units(name) { units = name; invalidate(true) },
     // how the time row marks time: 'labels', 'ticks', 'none'
     set ruler(mode) { ruler = mode; invalidate(true) },
+    // what scrolls the view: 'bar' or 'overview'
+    set scroll(mode) { scroll = mode === 'overview' ? 'overview' : 'bar'; invalidate() },
     // how the lanes are ruled: 'marks', 'crosses', 'dots', 'lines', 'none'
     set grid(name) { grid = name; invalidate(true) },
     // the steps, dB, a selection's level goes in as its pill is dragged
@@ -2662,6 +2810,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // once. A view moved by hand (`steered`) is left where it is, ahead of the playhead or behind it, till the playhead,
     // seen in it, passes its edge: then it glides to the middle from there. The playhead is the overlay's: the pictures
     // are drawn again only as the view scrolls
+    get playhead() { return playhead },
     set playhead(t) {
       // what the lanes show of the view, the meters' part of it hidden
       const span = end - start, to = seenTo(), mid = (start + to) / 2, now = performance.now(), dt = played ? (now - played) / 1000 : 0
@@ -2669,7 +2818,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       if (t == null || steered && seen && t > to) steered = false
       playhead = t
       played = t == null ? 0 : now
-      if (t != null && !drag && !steered && !whole()) {
+      if (t != null && !drag && !steered && !moving && !whole()) {
         const half = (to - start) / 2
         if (!seen) setRange(t - half, t - half + span)
         else if (t > mid) { const lead = Math.max(0, was - mid) * Math.exp(-dt / GLIDE); setRange(t - half - lead, t - half - lead + span) }
@@ -2697,7 +2846,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // every range selected, in time order, and every caret; addNext() adds the next like the selection (⌘D)
     get ranges() { return ranges() }, get carets() { return carets() }, get boxes() { return boxes() }, addNext,
     select, setCursor, around, step: stepTo,
-    zoom, zoomTo: (a, b) => { const pad = (b - a) * .05; steer(); fitTo(a - pad, b + pad) }, fit: () => { fview = [0, 1]; aview = [-1, 1]; fitTo(0, duration) },
+    zoom, zoomTo: (a, b) => { const pad = (b - a) * .05; steer(); fitTo(a - pad, b + pad) }, fit: fitAll, frameSelected, bring,
     // the picture of a range, for an agent; a range or a time brought into sight
     snapshot, reveal
   }

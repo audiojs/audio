@@ -368,6 +368,7 @@ svg { flex: none; }
 .time { color: var(--color-screen-ink); font: 300 var(--time-size)/1 var(--font-display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .length { min-width: 4.6em; color: var(--color-screen-bright); font: 300 calc(var(--time-size) * .5)/1 var(--font-display); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .length:empty { display: none; }
+.time, .length { cursor: pointer; }
 .length.whole { color: var(--color-screen-soft); }
 .length::before, .length::after { content: '|'; color: var(--color-screen-dim); }
 .message, .facts, .readout, .heard { display: flex; align-items: center; gap: 10px; min-width: 0; margin: 0; white-space: nowrap; font: 11px/16px var(--font-mono); font-variant-numeric: tabular-nums; }

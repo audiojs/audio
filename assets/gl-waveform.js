@@ -114,6 +114,9 @@ export default class Waveform {
   #pixelRatio = null
   #o = new Float64Array(4)    // query scratch
   #cols = new Float64Array(0) // per column [from, to, min, max, rms]
+  #ncols = 0                  // values #cols holds, of data #cver
+  #cver = -1
+  #spare = new Float64Array(0) // what the next #columns fills, reading the columns before from #cols
   #key = ''                   // state #cols was computed for
   #buf = new Float32Array(0)  // texels
   #draw = null                // what #buf holds
@@ -403,21 +406,29 @@ export default class Waveform {
   // Per-column stats for width W. Column c starts at sample ceil((q+c)·spp), q = floor(from / spp): anchored to
   // multiples of samples per pixel, so a pan moves whole columns. From 4 leaves per pixel, edges round to a leaf edge
   // (1/8 px off at most), so a column is whole pyramid nodes and costs O(log n) instead of two partial-leaf scans.
+  // A column's stats are its samples' alone: one over the same samples as a column before, the data unchanged, takes
+  // that one's, so a pan computes only the columns it brings in. The columns before are kept beside these, as many.
   #columns(W) {
     let [r0, r1] = this.range, key = `${this.#version} ${r0} ${r1} ${W}`
     if (key === this.#key) return this.#cols
     let spp = (r1 - r0) / W, q = Math.floor(r0 / spp), n = this.#n, o = this.#o, snap = spp >= 4 * B
     let edge = c => snap ? Math.round(Math.ceil((q + c) * spp) / B) * B : Math.ceil((q + c) * spp)
-    if (this.#cols.length < W * 5) this.#cols = new Float64Array(W * 5)
+    let old = this.#cols, m = this.#cver === this.#version ? this.#ncols : 0
+    this.#cols = this.#spare.length >= W * 5 ? this.#spare : new Float64Array(W * 5)
+    this.#spare = old
     let s = this.#cols, b = edge(0)
-    for (let c = 0, k = 0; c < W; c++, k += 5) {
+    for (let c = 0, k = 0, j = 0; c < W; c++, k += 5) {
       let a = Math.max(b, 0)
       b = edge(c + 1)
       let e = Math.min(b, n)
+      // the columns before run in the same order: the one starting here, if any
+      while (j < m && old[j] < a) j += 5
+      if (j < m && old[j] === a && old[j + 1] === Math.max(a, e)) { for (let i = 0; i < 5; i++) s[k + i] = old[j + i]; continue }
       if (a < e) this.#stat(a, e, o)
       else o[0] = Infinity, o[1] = -Infinity, o[3] = 0
       s[k] = a; s[k + 1] = Math.max(a, e); s[k + 2] = o[0]; s[k + 3] = o[1]; s[k + 4] = o[3] && Math.sqrt(o[2] / o[3])
     }
+    this.#ncols = W * 5; this.#cver = this.#version
     this.#key = key
     return s
   }

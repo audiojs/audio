@@ -401,7 +401,11 @@ registerProcessor('audio-deck', class extends AudioWorkletProcessor {
 // ── The page's AudioContext ──────────────────────────────────────────────
 // One per page, made on first use (a play, or reading it), resumed by the first gesture; or the one an app sets
 // before playing. Kept on a global symbol, so every copy of the library on the page (the engine, the worker facade,
-// bundles of either) plays through the same one.
+// bundles of either) plays through the same one. Its device buffer is playback's, not the least the device takes: each
+// callback the audio thread has its time to meet (Chrome on macOS at 48 kHz: 1024 frames, 21 ms, against 256, 5.3 ms),
+// so a stall there (its garbage collected, the machine busy) misses no deadline; the speakers ~16 ms later, which the
+// playhead takes from the device's own clock (heard)
+const HINT = 'playback'
 
 const KEY = Symbol.for('audio.context'), GESTURES = ['pointerdown', 'keydown', 'touchend']
 // the deck's module, loaded once per context by whichever copy comes first (a processor name registers once)
@@ -413,7 +417,7 @@ export function context(ctx) {
   if (ctx !== undefined) { globalThis[KEY] = ctx || undefined; if (ctx) prime(ctx); return ctx || null }
   if (globalThis[KEY]) return globalThis[KEY]
   if (typeof AudioContext === 'undefined') return null
-  let made = new AudioContext({ latencyHint: 'interactive' })
+  let made = new AudioContext({ latencyHint: HINT })
   globalThis[KEY] = made
   prime(made)
   return made
@@ -515,7 +519,7 @@ async function sunk(device) {
   let hit = all.find(x => x.deviceId === device || x.label === device) ?? (m => m.length === 1 ? m[0] : null)(all.filter(x => x.label.toLowerCase().includes(d)))
   let id = hit?.deviceId ?? device, ctx = sinks.get(id)
   if (ctx && ctx.state !== 'closed') return ctx
-  ctx = new AudioContext({ latencyHint: 'interactive' })
+  ctx = new AudioContext({ latencyHint: HINT })
   await ctx.setSinkId(id)
   sinks.set(id, ctx)
   return ctx

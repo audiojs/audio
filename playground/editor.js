@@ -84,6 +84,8 @@ function cueTimes(edges, hits) {
 // How the time row marks time: labels and their ticks, ticks alone, or nothing but the times that matter now (the caret's,
 // the pointer's, a selection's)
 const rulers = [['labels', 'Labels'], ['ticks', 'Ticks'], ['none', 'None']].map(([name, label]) => ({ name, label }))
+// what scrolls the view, zoomed in: a bar at the time row's foot, or the whole sound under it, as a minimap
+const scrolls = [['bar', 'Bar', 'A thin bar at the time row\'s foot, the part of the sound in view'], ['overview', 'Overview', 'The whole sound in a strip under the time row, the part in view lit: pressed, the view goes there; dragged, it moves']]
 // How the lanes are ruled (view.js paintGrid), behind the waveform and over the spectrogram, by the time row's ticks and
 // the axis' on the right
 const grids = [
@@ -212,7 +214,7 @@ const saved = d => {
 let full = false
 const store = () => {
   if (!ed || !owner()) return
-  const all = { docs: docs.map(saved), doc: docs.findIndex(d => d.id === state.tab), closed: closed.map(({ doc, ...c }) => doc ? { ...saved(doc), at: c.at } : c), display: state.display, scale: state.scale, format: state.format, encoding: state.encoding, spec: state.spec, cuts: { format: state.cutFormat, fps: state.fps }, side: state.side, show: state.show, units: state.units, snap: state.snapping, curve: state.fadeCurve, levels: state.levels, ruler: state.ruler, grid: state.grid, step: state.levelStep, look: state.look, wave: state.wave, agent: { url: state.bridgeUrl, key: state.bridgeKey }, splice: state.splice, scrub: state.scrub, record: state.recordIn, grip: state.gripMode, pitch: state.pitch, panel: state.panel, speed: state.speed }
+  const all = { docs: docs.map(saved), doc: docs.findIndex(d => d.id === state.tab), closed: closed.map(({ doc, ...c }) => doc ? { ...saved(doc), at: c.at } : c), display: state.display, scale: state.scale, format: state.format, encoding: state.encoding, spec: state.spec, cuts: { format: state.cutFormat, fps: state.fps }, side: state.side, show: state.show, units: state.units, snap: state.snapping, curve: state.fadeCurve, levels: state.levels, ruler: state.ruler, scroll: state.scroll, grid: state.grid, step: state.levelStep, look: state.look, wave: state.wave, agent: { url: state.bridgeUrl, key: state.bridgeKey }, splice: state.splice, scrub: state.scrub, record: state.recordIn, grip: state.gripMode, pitch: state.pitch, panel: state.panel, speed: state.speed }
   try { localStorage.setItem(KEY, JSON.stringify(all)); full = false }
   catch {
     const bare = ({ chats, chat, ...d }) => d
@@ -332,7 +334,7 @@ const state = sprae(root, {
   format: oneOf(stored.format, formats.map(f => f.name), 'wav'), encoding: { markers: true, ...stored.encoding }, snapping: stored.snap ?? true, fadeCurve: oneOf(stored.curve, curves.map(c => c.name), 'linear'), gripMode: ['trim', 'speed'].includes(stored.grip) ? stored.grip : 'stretch', pitch: !!stored.pitch, settingsIcon: SETTINGS_ICON, recipesIcon: RECIPES_ICON, agentIcon: AGENT_ICON,
   overlayList: overlays.map(([name, label, title]) => ({ name, label, title })),
   unitList: UNITS.map(([name, label, example, short]) => ({ name, label, example, short })), levelList, levels: oneOf(stored.levels, ['db'], 'linear'),
-  rulers, ruler: oneOf(stored.ruler, rulers.map(r => r.name), 'labels'), grid: oneOf(stored.grid, grids.map(g => g[0]), 'marks'), splices: [0, 5, 10, 20], splice: oneOf(stored.splice, [0, 5, 10, 20], 10), steps: [.1, 1, 3], levelStep: oneOf(stored.step, [.1, 1, 3], 1), look: Object.fromEntries(Object.entries(LOOK).map(([k, d]) => [k, oneOf(stored.look?.[k], k === 'method' ? specMethods.map(m => m[0]) : looks[k], d)])), wave: Object.fromEntries(Object.entries(WAVE).map(([k, d]) => [k, waveLooks[k].some(([v]) => v === stored.wave?.[k]) ? stored.wave[k] : d])),
+  rulers, ruler: oneOf(stored.ruler, rulers.map(r => r.name), 'labels'), scroll: oneOf(stored.scroll, scrolls.map(s => s[0]), 'bar'), grid: oneOf(stored.grid, grids.map(g => g[0]), 'marks'), splices: [0, 5, 10, 20], splice: oneOf(stored.splice, [0, 5, 10, 20], 10), steps: [.1, 1, 3], levelStep: oneOf(stored.step, [.1, 1, 3], 1), look: Object.fromEntries(Object.entries(LOOK).map(([k, d]) => [k, oneOf(stored.look?.[k], k === 'method' ? specMethods.map(m => m[0]) : looks[k], d)])), wave: Object.fromEntries(Object.entries(WAVE).map(([k, d]) => [k, waveLooks[k].some(([v]) => v === stored.wave?.[k]) ? stored.wave[k] : d])),
   scrubs, scrub: scrubbers[stored.scrub] ? stored.scrub : 'hybrid', recordIn: stored.record === 2 ? 2 : 1,
   // the speed it plays at, the pitch kept; how far through the sound it plays (Play's ring); the scale a held Play shows
   // while dragged
@@ -381,6 +383,10 @@ const state = sprae(root, {
   // the length is the whole sound's, none being selected
   get lengthWhole() { return !this.recording && !this.span },
   get length() { return this.duration ? clock(this.duration) : '' },
+  // a click on the time brings the view to it; on the length, the selection shown whole, then all of it
+  bringTime() { v.bring() },
+  frameLength() { v.frameSelected() },
+  get lengthTitle() { return `${this.timeTitle}. Click: ${this.span ? 'the selection shown whole; again, all of it' : 'all of it shown'}` },
   get timeTitle() {
     const sel = this.selection, units = UNITS.find(u => u[0] === this.units)[1].toLowerCase()
     if (this.playing || this.recording || !this.span) return `${this.playing ? 'Playhead' : 'Caret'}, in ${units} (the settings)${this.duration && !this.recording ? `; all of it ${clock(this.duration)}` : ''}`
@@ -536,6 +542,7 @@ v.scale = state.scale
 v.units = state.units
 v.levels = state.levels
 v.ruler = state.ruler
+v.scroll = state.scroll
 v.grid = state.grid
 v.levelStep = state.levelStep
 v.spectrogram = paint(state.look)
@@ -743,6 +750,7 @@ function optionGroups(kind) {
     group('Level steps', state.steps.map(db => [db, `${db}dB`, `A selection's level, dragged by its pill, goes ${db} dB a step`]), state.levelStep, setStep),
     group('Splices', state.splices.map(ms => [ms, ms ? `${ms}ms` : 'Off', ms ? `An edit's seams crossfaded over ${ms} ms, so they make no click` : 'At a seam, either side meets as it is']), state.splice, setSplice),
     group('Time row', rulers.map(r => [r.name, r.label, r.name === 'none' ? 'Only the times that matter now' : r.name === 'ticks' ? 'Ticks along the time row, no labels' : 'The times along the row, labelled']), state.ruler, setRuler),
+    group('Scroll', scrolls, state.scroll, setScroll),
     group('Grid', grids, state.grid, setGrid)
   ]
 }
@@ -1386,6 +1394,7 @@ function setUnits(name) {
 }
 function setLevels(name) { state.levels = v.levels = name; store() }
 function setRuler(mode) { state.ruler = v.ruler = mode; store() }
+function setScroll(mode) { state.scroll = v.scroll = mode; store() }
 function setGrid(name) { state.grid = v.grid = name; store() }
 function setStep(db) { state.levelStep = v.levelStep = db; store() }
 function setSplice(ms) { state.splice = ms; store() }
@@ -1494,6 +1503,8 @@ const plays = (at = v.cursor) => v.boxes.length > 1 ? { from: v.boxes[0][0], to:
 // speed going twice or half as fast each 32 px; let go, the speed stays, shown in record's place while it plays. So a press
 // while it plays pauses at its release, unless it was dragged, with the caret where it was pressed.
 const OCTAVE = 32, AXIS = OCTAVE * Math.log2(100)
+// the playhead drawn toward the device's clock in this time constant, s; a clock further ahead than JUMP s is a jump
+const SLEW = .1, JUMP = .05
 function playPress(event) {
   if (event.button !== 0 || state.recording) return
   const button = event.currentTarget, x0 = event.clientX, was = pl.playing, t0 = pl.time, from = state.speed
@@ -1547,14 +1558,21 @@ async function togglePlay(at) {
   if (!pl.playing) { state.playing = false; return }
   sway()
   // The playhead where the speakers are at the frame's own time, not when its callback runs, which a busy page makes
-  // later by a few ms now and then: zoomed in, a ms is many pixels, and the view would jolt back and forth by them.
-  // Never short of the one shown but when the clock itself goes back (the caret put back)
-  let clock = null, shown = null
+  // later by a few ms now and then. The device's clock comes in steps, each landing a fraction of a ms off where the
+  // last ran on to: zoomed in, a ms is many pixels, and the view would jolt back and forth by them. So the playhead runs
+  // on by the frames' own time at the speed, drawn toward the clock with a time constant of SLEW, as a video's frames
+  // follow its sound; a clock that stands (the device starting, or starved) is waited for, never run past. A clock ahead
+  // by more than JUMP (a seek, a loop come round) is taken at once, and one gone back (the caret put back)
+  let clock = null, shown = null, then = 0
   const tick = frame => {
     if (!pl.playing) return
-    const c = pl.time, late = frame == null ? 0 : (performance.now() - frame) / 1000 * pl.rate
-    const t = clock != null && c >= clock ? Math.max(shown, c - late) : c
-    clock = c; shown = t
+    const now = frame ?? performance.now(), r = pl.rate, c = pl.time, heard = c - (performance.now() - now) / 1000 * r
+    let t = heard
+    if (clock != null && c >= clock && heard - shown < JUMP) {
+      const dt = (now - then) / 1000, run = shown + dt * r
+      t = c === clock ? shown : Math.max(shown, run + (heard - run) * (1 - Math.exp(-dt / SLEW)))
+    }
+    clock = c; shown = t; then = now
     v.playhead = t; state.time = stamp(t); state.played = t / (v.duration || 1); meter(t)
     ticker = requestAnimationFrame(tick)
   }
