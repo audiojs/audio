@@ -1308,8 +1308,8 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   function paintMap() {
     if (!duration) return
     const w = plot().w, y = H - MAP + 4, h = MAP - 7, total = Math.max(duration, end), k = w / total, b = bar()
-    const img = mapImage(w, h, total)
-    if (img) c.drawImage(img, 0, y, w, h)
+    const img = mapImage(w, h)
+    if (img) c.drawImage(img, 0, y, duration * k, h)
     c.fillStyle = color('--color-screen-soft')
     if (b) { c.globalAlpha = drag?.scroll || !drag && hovered && onBar(...hovered) ? .3 : .18; c.fillRect(b.x0, y - 2, b.x1 - b.x0, h + 4); c.globalAlpha = 1 }
     c.fillStyle = color('--color-screen-select')
@@ -1317,14 +1317,15 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     c.fillStyle = color(playhead != null ? '--color-screen-bright' : '--color-screen-caret')
     c.fillRect(Math.round((playhead ?? cursor) * k * dpr) / dpr, y - 2, 1, h + 4)
   }
-  // The overview's peaks, drawn once for a sound, a size and as far as the view reaches: from its samples, or a long
-  // sound's leaves (gl-waveform's peaks, 256 samples a leaf); its loudest at the strip's edges
+  // The overview's peaks, drawn once for a sound and a size, over the sound alone (a view past its end narrows it, not
+  // drawn again): from its samples, or a long sound's leaves (gl-waveform's peaks, 256 samples a leaf); its loudest at
+  // the strip's edges
   let leavesOf = null, map = null
-  function mapImage(w, h, total) {
+  function mapImage(w, h) {
     const src = data.length && data[0].length ? data : leavesOf, cols = Math.round(w * dpr), rows = Math.round(h * dpr)
     if (!src || cols < 1 || rows < 1) return null
-    if (map?.src === src && map.cols === cols && map.rows === rows && map.total === total) return map.canvas
-    const n = Math.round(duration * rate), lo = new Float32Array(cols).fill(Infinity), hi = new Float32Array(cols).fill(-Infinity)
+    if (map?.src === src && map.cols === cols && map.rows === rows) return map.canvas
+    const n = Math.round(duration * rate), total = duration, lo = new Float32Array(cols).fill(Infinity), hi = new Float32Array(cols).fill(-Infinity)
     for (let i = 0; i < cols; i++) {
       const a = Math.floor(i * total * rate / cols), b = Math.min(n, Math.floor((i + 1) * total * rate / cols))
       for (const x of src) {
@@ -1339,7 +1340,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     g.fillStyle = color('--color-screen-wave')
     g.globalAlpha = .55
     for (let i = 0; i < cols; i++) if (hi[i] >= lo[i]) { const top = mid - hi[i] / peak * mid, bottom = mid - lo[i] / peak * mid; g.fillRect(i, top, 1, Math.max(1, bottom - top)) }
-    map = { src, cols, rows, total, canvas }
+    map = { src, cols, rows, canvas }
     return canvas
   }
   // The lanes ruled (`grid`), on a layer of their own between the pictures: over the spectrogram, as the screen shows it;

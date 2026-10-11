@@ -2257,6 +2257,11 @@ test('editor: a sound longer than the page holds is drawn from its peaks and spe
   const used = await heap()
   assert.ok(used < 150e6, `the page holds ${(used / 1e6).toFixed(0)} MB, its samples would be ${(1820 * 48000 * 4 / 1e6).toFixed(0)}`)
   assert.ok(await drawn() > .02, 'all of it drawn from its peaks')
+  // the overview of all of it, from its leaves: ink all along it
+  await settings('Scroll', 'Overview')
+  const w0 = (await page.locator('.plot').boundingBox()).width
+  assert.ok(await pixels(`let n = 0; for (let x = 0; x < w * .9; x++) for (let y = h - 26; y < h - 4; y++) { const i = (y * w + x) * 4; if (d[i] > 60) n++ } return n`) > w0 * 2, 'the overview drawn from its leaves')
+  await settings('Scroll', 'Bar')
   // the spectrogram of all of it, from its spectra: the tone a bright row, at 220 Hz
   await show('spec')
   await page.waitForTimeout(500)
@@ -3115,7 +3120,13 @@ test('editor: the overview shows the whole sound under the time row; pressed or 
   const ink = f => pixels(`const x = Math.round(arg), xs = []; let n = 0; for (let y = h - 26; y < h - 4; y++) { const i = (y * w + x) * 4; if (d[i] > 60) n++ } return n`, w * f)
   assert.ok(await ink(.25) > 4, 'the sound drawn in the overview')
   assert.ok(await ink(.75) <= 2, 'silence a line')
+  // zoomed out past the end, the sound's strip ends where the sound does
   await page.mouse.move(box.x + w / 2, box.y + 40)
+  for (let i = 0; i < 2; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, 120); await page.keyboard.up('Control') }
+  const [, past] = await range()
+  assert.ok(past > 25, `zoomed out past the end: ${past}`)
+  assert.ok(await ink(.25 * 20 / past) > 4 && await ink(.75 * 20 / past) <= 2, 'the strip narrowed to the sound')
+  await page.evaluate(() => __view.fit())
   for (let i = 0; i < 6; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
   const [a0, b0] = await range()
   // pressed at 3/4 of the strip: the view centred at 15 s, then dragged left a tenth of it, 2 s earlier
