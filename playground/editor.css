@@ -8,16 +8,14 @@ button, input { font: inherit; color: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; opacity: .4; }
 :focus { outline: none; }
-/* Scrollbars as the picture's (view.js paintBar): a faint thumb 3px thick, 2px off the edge, on no track; under the pointer
-   5px and brighter, as macOS's overlay scrollbars are. Chrome drops the ::-webkit-scrollbar look wherever scrollbar-width
-   or scrollbar-color is set, so those are for Firefox alone, which has no other */
+/* Scrollbars, every one alike and as the picture's (view.js paintBar): a faint thumb 6px thick, 2px off the edge, on no
+   track; under the pointer the same size, only brighter. Chrome drops the ::-webkit-scrollbar look wherever
+   scrollbar-width or scrollbar-color is set, so those are for Firefox alone, which has no other */
 @supports not selector(::-webkit-scrollbar) { * { scrollbar-width: thin; scrollbar-color: color-mix(in oklab, var(--color-screen-soft) 30%, transparent) transparent; } }
-::-webkit-scrollbar { width: 9px; height: 9px; background: transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
 ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
-::-webkit-scrollbar-thumb { border: 0 solid transparent; border-radius: 4px; background: color-mix(in oklab, var(--color-screen-soft) 30%, transparent) padding-box; }
-::-webkit-scrollbar-thumb:horizontal { border-width: 4px 0 2px; }
-::-webkit-scrollbar-thumb:vertical { border-width: 0 2px 0 4px; }
-::-webkit-scrollbar-thumb:hover { border-width: 2px; background-color: color-mix(in oklab, var(--color-screen-soft) 60%, transparent); }
+::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 5px; background: color-mix(in oklab, var(--color-screen-soft) 30%, transparent) padding-box; }
+::-webkit-scrollbar-thumb:hover, ::-webkit-scrollbar-thumb:active { background-color: color-mix(in oklab, var(--color-screen-soft) 60%, transparent); }
 [hidden] { display: none !important; }
 /* Until the script takes the page over, its conditional and repeated parts stay out of sight and the rest takes no
    clicks, never shown dead. Sprae drops each directive attribute as it takes that element, so any version of the
@@ -106,7 +104,8 @@ svg { flex: none; }
    labels' 40 px (view.js GUTTER, TICK), so the button ends 19 px before the picture does. Each where it is whatever
    shows, nothing moving as the picture turns */
 .view-head .history, .view-head .tabs.display { display: flex; flex: none; gap: 1px; }
-.view-head .tabs.display[inert] { visibility: hidden; }
+/* with no sound, the pictures' switch dims as undo does, in sight where it will be */
+.view-head .tabs.display[inert] { opacity: .35; }
 .view-head :is(.history .icon-button, .display button, .view-settings button) { width: 28px; height: 28px; min-height: 28px; border-radius: 6px; }
 .view-head .history .icon-button { color: var(--color-screen-soft); }
 .view-head :is(.history .icon-button, .display button, .view-settings button) svg { width: 17px; height: 17px; }
@@ -192,6 +191,8 @@ svg { flex: none; }
 .step:hover { background: var(--color-screen-fill-hover); }
 /* a group's steps, unfolded under its card, set in as an outline sets them */
 .step.grouped { margin-left: 16px; }
+/* under the steps a track shares with others (stack.js shared), who shares them: a caption over a rule */
+.step[data-shared]::after { content: attr(data-shared); display: block; margin: 2px 8px 5px; padding-bottom: 5px; border-bottom: 1px solid var(--color-screen-rule); color: var(--color-screen-dim); font: 10.5px var(--font-body); }
 /* picked with Shift, to be made a group (Mod-G) */
 .step.picked { box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-screen-accent) 55%, transparent); }
 .step.open { background: var(--color-screen-fill); }
@@ -273,8 +274,10 @@ svg { flex: none; }
 /* Above the picture: the open sounds on the left, a tab each, the one shown raised; how it shows on the right */
 .view-head { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 4px 0 0 8px; }
 .files { display: flex; flex: 1; align-items: center; gap: 2px; min-width: 0; }
+/* the tabs' scrollbar the one apart: the system's own, thin, in the others' colour, shown with the pointer on them; it
+   takes no room where the system's scrollbars overlay (macOS), so tabs past the head's width never make it taller */
 .files-list { display: flex; flex: 0 1 auto; align-items: center; gap: 2px; min-width: 0; overflow: auto hidden; scrollbar-width: thin; scrollbar-color: transparent transparent; }
-.files-list:hover { scrollbar-color: var(--color-screen-rule) transparent; }
+.files-list:hover { scrollbar-color: color-mix(in oklab, var(--color-screen-soft) 30%, transparent) transparent; }
 .file { display: flex; flex: none; align-items: center; max-width: 220px; height: 28px; padding: 0 3px 0 10px; border-radius: 7px; color: var(--color-screen-dim); }
 .file:hover { background: var(--color-screen-hover); color: var(--color-screen-soft); }
 /* dragged along, held under the pointer, the others stepping aside */
@@ -312,12 +315,21 @@ svg { flex: none; }
 .dropping-tab .files { border-radius: 8px; box-shadow: inset 0 0 0 1px var(--color-screen-muted); }
 .dropping-tab .file-new { background: var(--color-screen-fill-hover); color: var(--color-screen-accent); }
 
-.empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 24px; text-align: center; }
+.empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: safe center; gap: 22px; padding: 24px; overflow: auto; text-align: center; }
 .empty-title { margin: 0; color: var(--color-screen-ink); font-size: 20px; font-weight: 450; letter-spacing: -.02em; }
 .empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .empty-button { display: inline-flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 14px 0 12px; border: 1px solid var(--color-screen-rule); border-radius: 999px; background: var(--color-screen); color: var(--color-screen-soft); font-size: 13px; }
 .empty-button svg { width: 16px; height: 16px; color: var(--color-screen-muted); }
 .empty-button:hover { color: var(--color-screen-bright); border-color: var(--color-screen-muted); }
+/* the recent ones, under the ways in: a row each, its name, what it holds and when, at the right */
+.recents { display: grid; width: min(440px, 100%); gap: 1px; margin-top: 6px; text-align: left; }
+.recents-head { margin: 0 0 4px 10px; color: var(--color-screen-dim); font: 500 11.5px var(--font-body); }
+.recent { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 32px; padding: 0 12px 0 10px; border: 0; border-radius: 7px; background: none; color: var(--color-screen-soft); font: 12.5px var(--font-body); text-align: left; }
+.recent svg { flex: none; width: 15px; height: 15px; color: var(--color-screen-muted); }
+.recent-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-meta { flex: none; margin-left: auto; color: var(--color-screen-dim); font-size: 11.5px; }
+.recent:hover { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+.recent:focus-visible { outline: 2px solid var(--color-screen-muted); outline-offset: -2px; }
 
 
 /* The bar's parts */
@@ -379,7 +391,11 @@ svg { flex: none; }
 .message, .heard { overflow: hidden; text-overflow: ellipsis; }
 /* what is happening, one line after the time: a note, a problem in red, the engine's work; the room that is left, whole
    or none: what the sound is is never cut short, it goes whole as the bar narrows (below) */
-.message { display: block; flex: 1 1 0; margin-left: 6px; color: var(--color-screen-soft); }
+.message { flex: 1 1 0; margin-left: 6px; color: var(--color-screen-soft); }
+/* the words cut short before the figure after them (how far, how long) is: it stands apart by its room and its tone */
+.message-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.message-figure { flex: none; color: var(--color-screen-dim); }
+.message-figure:empty { display: none; }
 .message.problem { color: var(--color-screen-error); }
 /* what the sound is, each a button: its rate resamples it, its channels mix it */
 .fact { flex: none; margin: 0 -3px; padding: 0 3px; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; }
@@ -523,9 +539,21 @@ svg { flex: none; }
 #rate-menu, #channels-menu { position-area: top span-right; }
 /* A dropdown: a picture's options or the settings, every group in sight, its choices as keys, what the chosen one does
    said under them */
-.dropdown { position: fixed; inset: auto; width: min(360px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); margin: 0; padding: 4px 14px 12px; overflow: auto; border: 0; border-radius: 12px; background: var(--color-screen-raised); color: var(--color-screen-soft); box-shadow: var(--shadow-menu); }
-.dropdown-group { padding-top: 10px; }
-.dropdown-section { margin: 14px 0 12px; padding-top: 14px; border-top: 1px solid var(--color-screen-grid); color: var(--color-screen-ink); font: 600 13px var(--font-body); }
+.dropdown { position: fixed; inset: auto; width: min(360px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); margin: 0; padding: 6px; overflow: auto; border: 0; border-radius: 12px; background: var(--color-screen-raised); color: var(--color-screen-soft); box-shadow: var(--shadow-menu); }
+/* a section a row: a chevron, its name, what is chosen in it, cut short at the right; open, its groups under it, what is
+   chosen then said by them */
+.dropdown-section + .dropdown-section { margin-top: 2px; }
+.dropdown-section > summary { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 10px 0 8px; border-radius: 7px; list-style: none; cursor: default; }
+.dropdown-section > summary::-webkit-details-marker { display: none; }
+.dropdown-section > summary::before { content: ''; flex: none; width: 5px; height: 5px; margin: 0 3px 0 2px; border: solid var(--color-screen-muted); border-width: 0 1.5px 1.5px 0; rotate: -45deg; transition: rotate var(--dur-micro) var(--ease-out); }
+.dropdown-section[open] > summary::before { rotate: 45deg; translate: 0 -2px; }
+.dropdown-section > summary:hover { background: var(--color-screen-hover); }
+.dropdown-section > summary:focus-visible { outline: 2px solid var(--color-screen-muted); outline-offset: -2px; }
+.dropdown-title { flex: none; color: var(--color-screen-ink); font: 500 12.5px var(--font-body); }
+.dropdown-chosen { min-width: 0; margin-left: auto; overflow: hidden; color: var(--color-screen-dim); font: 11.5px var(--font-body); text-overflow: ellipsis; white-space: nowrap; }
+.dropdown-section[open] > summary .dropdown-chosen { visibility: hidden; }
+.dropdown-section[open] { padding-bottom: 8px; }
+.dropdown-group { padding: 8px 10px 0 26px; }
 .dropdown-label { margin: 0 0 6px; color: var(--color-screen-ink); font: 500 12px var(--font-body); }
 .dropdown .choices button { min-height: 26px; padding: 0 9px; font-size: 11.5px; }
 .dropdown-note { min-height: 15px; margin: 5px 0 0; color: var(--color-screen-dim); font: 11.5px/15px var(--font-body); }

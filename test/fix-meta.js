@@ -371,3 +371,20 @@ test('mark — after an edit prepared before rendering, once the audio is read',
   t.throws(() => c.duration, /prepared: not yet/)
   t.is((await c.read())[0].length, 3 * 8000, 'the mix read after')
 })
+
+// A registry plugin's op is a method before its module loads (audio.js autowire, at the first read): a mark after it
+// waits till the audio is read, then lands where it was put; its length asked before that says why it can't be. A mark
+// whose edits were undone before it landed marked a timeline that is gone, and goes with it
+test('mark — after a plugin not loaded yet, once the audio is read', async t => {
+  let one = () => audio.from([Float32Array.from({ length: 2 * 8000 }, (_, i) => .5 * Math.sin(i / 5))], { sampleRate: 8000 })
+  t.ok(!audio.op('deesser') && !audio.op('limiter'), 'neither loaded yet')
+  let a = one().deesser().mark(1, 'm').mark({ at: .5, d: .25 }, 'r')
+  t.throws(() => a.duration, /deesser: not loaded until the first read/)
+  await a.read()
+  t.is(a.markers, [{ time: 1, label: 'm' }])
+  t.is(a.regions, [{ at: .5, duration: .25, label: 'r' }])
+  let b = one().limiter().remove({ at: 0, d: .5 }).mark(1, 'gone')
+  b.undo()
+  await b.read()
+  t.is(b.markers, [], 'its edits undone')
+})

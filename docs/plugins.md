@@ -468,7 +468,7 @@ audio(4).poly({ notes: [{ time: 0, midi: 60, duration: 1 }, { time: 0, midi: 64,
 
 ## Registry
 
-`audio.plugins` maps name → package; the packages install with `audio`. Registry ops are instance methods from the start: `a.compressor(-30, 8)` records the edit and the package loads (dynamic import) at the first render, mapping the positional args onto its params. Registry stats load inside `a.stat(name)`. The CLI resolves names the same way; a sidechain file is `key:FILE` (`ducker key:voice.wav`).
+`audio.plugins` maps name → package; the packages install with `audio`. Registry ops are instance methods from the start: `a.compressor(-30, 8)` records the edit and the package loads (dynamic import) at the first render, mapping the positional args onto its params. Until then the edit can't be planned at once: `a.duration` throws, saying so, and a `mark()` after it waits for the first read; `await audio.use('compressor')` before the call plans it at once. Registry stats load inside `a.stat(name)`. The CLI resolves names the same way; a sidechain file is `key:FILE` (`ducker key:voice.wav`).
 
 `audio.import(spec)` is how a registry package loads, `import(spec)` by default. A bundle whose bundler cannot follow a computed `import()` (a worker has no import map) replaces it with literal imports: `audio.import = spec => loaders[spec]()`. The editor's worker does this with one generated `() => import('…')` per registry package.
 

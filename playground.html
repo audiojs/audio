@@ -54,7 +54,7 @@
           <button class="icon-button undo" :aria-disabled="canUndo ? null : 'true'" :onclick="undo" aria-label="Undo" :title="'Undo (' + keys('⌘Z') + ')'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
           <button class="icon-button" :onclick="redo" :disabled="!canRedo" aria-label="Redo" :title="'Redo (' + keys('⇧⌘Z') + ')'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5m5 5H10a6 6 0 0 0 0 12h3"/></svg></button>
         </div>
-        <!-- how the picture shows: the waveform, the spectrogram (again, its frequencies on the next scale), its room kept with no sound to show, so nothing beside it moves when one comes; then its
+        <!-- how the picture shows: the waveform, the spectrogram (again, its frequencies on the next scale), dimmed with no sound to show, where it will be when one comes; then its
              settings, at the head of its axis -->
         <div class="tabs icons display" role="tablist" aria-label="The output as" :inert="!hasOutput">
           <button role="tab" :each="d in displays" :aria-selected="display === d.name ? 'true' : 'false'" :aria-label="d.label" :title="displayTitle(d)" :onclick="e => setDisplay(d.name, e)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path :d="d.icon"/></svg></button>
@@ -87,6 +87,12 @@
               <button class="empty-button" :onclick="openSearch" title="Search Freesound, Jamendo and Wikimedia sounds"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>Find a sound</button>
               <button class="empty-button" popovertarget="open-menu" title="Built-in samples and generators"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 12h3l3-7 4 14 3-7h5"/></svg>Sample or generate</button>
             </div>
+            <!-- what to open again, the newest first: a tab closed, as it was left, its edits with it; a file kept here that no
+                 tab opens -->
+            <section class="recents" :if="recents.length" aria-label="Recent">
+              <p class="recents-head">Recent</p>
+              <button class="recent" :each="r in recents" :onclick="r.run" :title="(r.kind === 'tab' ? 'Open this tab again, as it was left: ' : 'Open in a tab: ') + r.name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="r.kind === 'tab' ? 'M4 13a8 8 0 1 0 2.4-5.7L4 9.6M4 4.5v5.1h5.1' : 'M4 10v4m4-8v12m4-15v18m4-14v10m4-6v2'"/></svg><span class="recent-name" :text="r.name"></span><span class="recent-meta" :text="r.meta"></span></button>
+            </section>
           </div>
         </div>
       </section>
@@ -245,7 +251,7 @@
             <button class="play" :class="{ rolling: playing }" :style="'--played: ' + played" :onpointerdown="playPress" :onclick="playClick" :disabled="!(whole || arriving) || recording" :aria-label="playing ? 'Pause' : 'Play'" :title="(playing ? 'Pause' : boxes > 1 ? 'Play the ' + boxes + ' bands selected, each over its time' : band ? 'Play the selected band' : selection ? 'Play the selection' : 'Play from the cursor') + ' (Space)'" aria-keyshortcuts="Space"><span class="play-icon" :class="{ paused: playing }" aria-hidden="true"></span></button>
           </span>
           <span class="deck-slot">
-            <button class="busy" :inert="!halting" :class="{ turning: arrived == null }" :style="'--arrived: ' + (arrived ?? 0)" :onclick="stop" aria-label="Stop" :title="'Stop: ' + progress.replace(/\s*[\d.:]+\s*(%|s)?$/, '')"><span class="stop-icon" aria-hidden="true"></span></button>
+            <button class="busy" :inert="!halting" :class="{ turning: arrived == null }" :style="'--arrived: ' + (arrived ?? 0)" :onclick="stop" aria-label="Stop" :title="'Stop: ' + progress"><span class="stop-icon" aria-hidden="true"></span></button>
             <button class="record" :class="{ on: recording, armed: recording?.pending }" :inert="playing || halting" :onpointerdown="armRecording" :onclick="toggleRecording" :aria-label="recording ? 'Stop recording' : 'Record'" :title="recording?.pending ? 'Opening the microphone: click to cancel' : recording ? 'Stop recording: the take is a step of the chain, the caret where it ended to record on from' : whole ? 'Record from the microphone at the caret, over what is there, as a tape; into the selection, to its end (with the loop on, pass after pass)' : 'Record from the microphone'"><span class="record-icon" aria-hidden="true"></span></button>
             <button class="speed-pill" :inert="!playing" :onclick="turnSpeed" :text="speedText" aria-label="Speed" title="Speed, the pitch kept: 1×, 1.5×, 2× in turn; the Play menu, a list (Play held and dragged: any, 0.1× to 10×)"></button>
           </span>
@@ -256,8 +262,8 @@
           <!-- a status bar's two sides: at the left, after the time, what was done, what the engine does now (how far a
                sound on its way has come) or what went wrong; at the right, what the sound shown is: its levels, then its
                rate and channels, each a click from changing it -->
-          <p class="message" :class="{ problem: notice ? noticeKind === 'error' : !progress && !!problem }" :title="notice || progress || problem" :text="notice || progress || problem"></p>
-          <span class="visually-hidden" role="status" :text="notice || progress.replace(/\s*[\d.:]+\s*(%|s)?$/, '') || problem"></span>
+          <p class="message" :class="{ problem: notice ? noticeKind === 'error' : !progress && !!problem }" :title="notice || (progress + ' ' + figure).trim() || problem"><span class="message-words" :text="notice || progress || problem"></span><span class="message-figure" :text="!notice && progress && figure ? ' ' + figure : ''"></span></p>
+          <span class="visually-hidden" role="status" :text="notice || progress || problem"></span>
           <button class="text-button" :if="missing" :onclick="() => pickFiles(missing)" :title="'Open the file the script calls ' + missing">Open it…</button>
           <p class="heard" :if="heard" :title="heard?.title" :text="heard?.text"></p>
           <p class="readout" :title="whole ? readout : ''" :text="whole ? readout : ''"></p>
@@ -269,17 +275,19 @@
         <p class="facts" :if="sound"><button class="fact" popovertarget="rate-menu" :title="'Sample rate ' + sound?.rate + ': resample to another'" :text="sound?.rate"></button><button class="fact" popovertarget="channels-menu" :title="sound?.channels + ': mix to mono, stereo, 5.1 or 7.1'" :text="sound?.channels"></button><span :if="sound?.depth" :text="sound?.depth"></span></p>
       </footer>
     </main>
-    <!-- the settings: a dropdown, every group in sight, its choices, what the chosen one does; how each picture draws a
-         section under its name -->
+    <!-- the settings: a dropdown of sections, each folded to its name and what is chosen in it; opened, its groups, their
+         choices, what the chosen one does. How each picture draws, a section under its name -->
     <div class="dropdown" popover="manual" role="dialog" aria-label="Settings" :ontoggle="dropToggle">
-      <section class="dropdown-group" :each="g in dropdownGroups">
-        <h3 class="dropdown-section" :if="g.section" :data-section="g.kind" :text="g.section"></h3>
-        <p class="dropdown-label" :text="g.label"></p>
-        <div class="choices" role="group" :aria-label="g.label">
-          <button type="button" :each="o in g.options" :aria-pressed="o.on ? 'true' : 'false'" :onclick="o.run" :title="o.hint" :text="o.label"></button>
-        </div>
-        <p class="dropdown-note" :text="g.note || g.options.find(o => o.on)?.hint || ''"></p>
-      </section>
+      <details class="dropdown-section" :each="s in dropdownSections" :data-section="s.kind" :open="s.open ? true : null" :ontoggle="e => fold(s.kind, e.target.open)">
+        <summary><span class="dropdown-title" :text="s.label"></span><span class="dropdown-chosen" :text="s.chosen"></span></summary>
+        <section class="dropdown-group" :each="g in s.groups">
+          <p class="dropdown-label" :text="g.label"></p>
+          <div class="choices" role="group" :aria-label="g.label">
+            <button type="button" :each="o in g.options" :aria-pressed="o.on ? 'true' : 'false'" :onclick="o.run" :title="o.hint" :text="o.label"></button>
+          </div>
+          <p class="dropdown-note" :text="g.note || g.options.find(o => o.on)?.hint || ''"></p>
+        </section>
+      </details>
     </div>
     <div id="open-menu" class="menu" popover>
       <button class="menu-item" :onclick="pickFiles" title="Open audio or video files; the script opens them by name"><strong>Open file…</strong><span>Audio or video, several at once</span></button>
@@ -365,14 +373,14 @@
         <dt>A press held</dt><dd>Half a second, still: the caret, dragged, no selection, the sound under it heard as it goes</dd>
         <dt>The square past its end</dt><dd>Its length: trimmed back or with silence added, stretched with the pitch kept, or sped up or slowed down with the pitch following. A click: the next. None of them while it plays</dd>
         <dt>The square past the caret</dt><dd>With nothing selected, drag it across: silence opens there, that long, as trimming out does. At the end, it is before the caret, and pulled out past the picture's edge the view widens, the silence as long as it goes</dd>
-        <dt>Right-click</dt><dd>The edits for what is under the pointer: the selection, else the caret put there; the methods used last, again; every method under Process; on a selection, an edit of the chain turned off over it alone. On a caret, an edge or a handle, all stays as it is</dd>
+        <dt>Right-click</dt><dd>The edits for what is under the pointer: the selection, else the caret put there; the methods used last, again; every method by kind, and the search for one; on a selection, an edit of the chain turned off over it alone. On a caret, an edge or a handle, all stays as it is</dd>
         <dt>Space</dt><dd>Play or pause: the selection (from where it paused, inside it), else from the caret. Put the caret elsewhere while it plays and it plays from there. While recording, it stops the recording</dd>
         <dt>Play, held</dt><dd>Dragged across, the speed it plays at, the pitch kept: faster to the right, slower to the left, twice or half each 32 px, 0.1× to 10×, on a scale over it. Let go, the speed stays; while it plays it stands in the record button's place, a pill turning 1×, 1.5×, 2×; the Play menu, a list of speeds. Round Play while it plays, a ring: how far through the sound it is. While it records, Play is off</dd>
         <dt>Waveform, spectrogram</dt><dd>Over the picture, where it ends: how the output shows. How it draws is in the settings, a section each (the waveform's colour, lanes, fill, levels in dB or sample values; the spectrogram's method, from frames as they are to reassigned or Wigner–Ville, its scale, colours, range and FFT size). The spectrogram's again: its frequencies on the next scale, octaves, mel, hertz. After them, over the meters, the settings, a dropdown</dd>
         <dt>Arrows, ⌥ arrows, ⌘ arrows</dt><dd>Move the caret a little, to the next cue, to the next sound, the selection kept; ⌘ ↑ ↓ (Home, End), to the start, the end; Shift extends</dd>
-        <dt>The time</dt><dd>The caret's, or the playhead's; after it, how long all that is selected is, or, nothing selected, all of the sound, softer. Pointed at, the selection and its samples. Clicked, the time brings the view to the caret or the playhead; the length shows the selection whole, again all of the sound. Out of sight, the caret's or the playhead's time waits at the time row's edge, a chevron pointing to it: clicked, the view goes there</dd>
+        <dt>The time</dt><dd>The caret's, or the playhead's; after it, how long all that is selected is, or, nothing selected, all of the sound, softer. Pointed at, the selection and its samples. Clicked, the time brings the view to the caret or the playhead; the length shows the selection whole, again all of the sound. Out of sight, the caret or the playhead stays at the edge of the picture it is past, and under it on the time row a chevron points out to it: clicked, the view goes there</dd>
         <dt>The bar's right</dt><dd>What the sound is: the note at the caret, or over the selection (a melody's compass), and the tempo and key of the selection or of all of it, each where it is clear (pointed at, how it was found); its levels; its rate and channels, a click from changing them</dd>
-        <dt>Wheel</dt><dd>Scroll: through time; up and down over zoomed-in frequencies or levels, through them. Pinch, or Ctrl and the wheel, zooms the axis under the pointer: the frequencies or the spectrum beside them, the levels (a quiet sound larger, or what goes over full scale), else time</dd>
+        <dt>Wheel</dt><dd>Scroll: through time; up and down over zoomed-in frequencies or levels, through them. Pinch, or Ctrl and the wheel, zooms the axis under the pointer: the frequencies or the spectrum beside them, the levels (a quiet sound larger, or what goes over full scale), else time, while it plays about the playhead, the view following it on</dd>
         <dt>= − 0</dt><dd>Zoom in, out, show all (all the frequencies, full scale)</dd>
         <dt>⌘P</dt><dd>The palette: the edits for what is selected, and every method, found by typing (⌘K too)</dd>
         <dt>Delete, ⌘X ⌘C ⌘V, ⌘Z ⇧⌘Z</dt><dd>Edit the selection; undo, redo, as the arrows over the picture do. Each edit is a step of the chain, its seams crossfaded (the settings)</dd>

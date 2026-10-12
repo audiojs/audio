@@ -121,13 +121,16 @@ const ranged = time => !!time && typeof time === 'object'
 
 /** Marks placed, once the audio says its rate (a file still opening has none yet: its marks wait, as its edits do), each
  *  where the edits before it took the audio. One whose timeline renders through an edit not yet prepared (trim() or
- *  normalize() after deepfilter(), which reads its input whole first) waits too, till the audio is read */
+ *  normalize() after deepfilter(), which reads its input whole first), or through a plugin's edit whose module has not
+ *  loaded yet (a.deesser().mark(2): it loads at the first read), waits too, till the audio is read; one whose edits
+ *  were undone before then marked a timeline that is gone, and goes with it */
 function place(a) {
   if (!a._.marks?.length || !(a._.sr || a.sampleRate)) return
   ensureMeta(a)
   let waiting = []
   for (let mark of a._.marks.splice(0)) {
     let { time, label, n } = mark, tl
+    if (n > (a.edits?.length ?? 0)) continue
     try { tl = timelineAt(a, n) }
     catch (e) { if (unprepared(a, n)) { waiting.push(mark); continue } throw e }
     let { segs, sr, end } = tl, { at, duration } = ranged(time) ? named(time) : { at: time }
@@ -146,8 +149,8 @@ function place(a) {
   a._.marks.push(...waiting)
 }
 /** Whether an edit among the first `n` has a preparation (a model's run over its input) not yet made for the audio as it
- *  is now (core.js loadOps) */
-const unprepared = (a, n) => a._.prepared !== a.version && a.edits.slice(0, n).some(([type]) => audio.op(type)?.prepare)
+ *  is now (core.js loadOps), or is a registry plugin's not loaded yet (audio.js autowire) */
+const unprepared = (a, n) => a._.prepared !== a.version && a.edits.slice(0, n).some(([type]) => { let d = audio.op(type); return d ? d.prepare : audio.plugins?.[type] })
 
 /** The audio's timeline as its first `n` edits left it (all, by default): its segments and rate, and its end in samples;
  *  a source still arriving, unedited, none and no end yet (its samples are its own) */

@@ -1,11 +1,12 @@
 import { ops, methods, format, fromManifest, reshapes, icons } from './ops.js'
 import opIcons from './icons.js'
-import { chain, setArg, number, offCalls, turnOff, turnOn, groups, steps as stepsOf, moveStep, moveLines, group as groupSteps, ungroup, renameGroup } from './code.js'
+import { chain, setArg, number, offCalls, turnOff, turnOn, groups, steps as stepsOf, moveStep, moveLines, group as groupSteps, ungroup, renameGroup, upTo, sharing } from './code.js'
 import { help, layout } from './help.js'
 
 // The edits: the chain's steps as cards, in order, as Luminar's edits or a history panel; the same chain as the code,
 // as controls, a rack of cards as mel's modules. The sound it starts from is the first card (the file opened, or
-// audio.from() making one). A card names its step and what it is set to. A press on one chooses it: it opens to its settings, a
+// audio.from() making one); with tracks, the track's (`track`), its × deleting the track (`onuntrack`), as a DAW's
+// track header does. A card names its step and what it is set to. A press on one chooses it: it opens to its settings, a
 // slider (or a choice) each, and the output shows as it is up to that step, the steps after it dimmed; a press again,
 // or Escape, shows the whole chain again. A slider rewrites its argument in place, a whole drag one undo step. Pointed
 // at, each says what it does and which way to move it (help.js); the engine's own, which few touch, wait under Advanced.
@@ -19,7 +20,7 @@ import { help, layout } from './help.js'
 // folded: a press unfolds it to its steps, its switch bypasses them all and turns them back on, its × removes them all. What the output
 // shows, when it is not the whole chain, goes to `onview({ delta, back })`: `delta` the index of the live step whose
 // difference plays, `back` how many live steps are kept.
-export default function stack(root, { ed, describe = async () => null, duration = () => 1, source = () => null, oncall = () => {}, onview = () => {}, onpreview = () => {}, oncontext = () => {}, onflatten = () => {}, keys = k => k }) {
+export default function stack(root, { ed, describe = async () => null, duration = () => 1, source = () => null, oncall = () => {}, onview = () => {}, onpreview = () => {}, oncontext = () => {}, onflatten = () => {}, track = () => null, onuntrack = () => {}, keys = k => k }) {
   // the cards first, what adds to them after
   const list = root.insertBefore(document.createElement('ol'), root.firstChild)
   list.className = 'steps-list'
@@ -29,21 +30,24 @@ export default function stack(root, { ed, describe = async () => null, duration 
   let chosen = null, cards = [], shape = '', delta = null, back = null, hovered = null
   // the groups, a card each over its steps' cards; those unfolded, by name and place among those of that name
   let folds = [], unfolded = new Set()
+  // the tracks that share each part of the chain (code.js sharing): the steps of a sound copied, which each copy goes on from
+  let shared = []
 
   // Every change to the code, and once at the start; a move of its caret alone changes nothing here
   function refresh(update) {
     if (update && !update.docChanged) return
     if (update && typeof chosen === 'number') chosen = update.changes.mapPos(chosen)
     const code = ed.code, c = chain(code), calls = c?.calls || []
+    shared = sharing(code)
     // audio.from(…) makes the sound: its call is where the chain starts, not a step on it
     const made = c?.root.name === 'VariableName' && code.slice(c.root.from, c.root.to) === 'audio' && !!calls[0]
     // a step bypassed, its call commented out, known as it was by where its "(" is, so it stays the card chosen
     const steps = [...calls.map((k, i) => i || !made ? k : { ...k, origin: true }), ...offCalls(code).map(o => ({ ...o, dot: o.from, off: true }))].sort((p, q) => p.dot - q.dot)
-    const name = !made && source(), rows = name ? [{ name, sound: true }, ...steps] : steps
+    const name = !made && source(), rows = name ? [{ name, sound: true, part: 0 }, ...steps] : steps
     const gs = groups(code), groupOf = k => k.sound ? -1 : gs.findIndex(g => k.dot > g.from && k.dot < g.to)
-    // cards are built again only when the steps change, never by a slider's own edits nor a step bypassed or turned back
-    // on (its card stays as it is, where it is, dimmed while off); then the whole chain shows
-    const next = rows.map(k => k.name + '/' + groupOf(k)).join() + gs.map(g => g.name).join()
+    // cards are built again only when the steps change, or the track they are of, never by a slider's own edits nor a
+    // step bypassed or turned back on (its card stays as it is, where it is, dimmed while off); then the whole chain shows
+    const next = rows.map(k => k.name + '/' + groupOf(k)).join() + gs.map(g => g.name).join() + '/' + (track() ?? '')
     if (next !== shape) { build(rows, gs, groupOf); if (shape) { chosen = null; picked = []; view(null, null) } }
     shape = next
     if (opening != null) { const f = folds.find(f => f.group.from === opening); if (f) unfolded.add(f.key); opening = null }
@@ -88,8 +92,14 @@ export default function stack(root, { ed, describe = async () => null, duration 
       li.addEventListener('contextmenu', event => { event.preventDefault(); oncontext({ x: event.clientX, y: event.clientY, items: menuOf({ card }) }) })
       li.addEventListener('pointerenter', () => { hovered = card; guide() })
       li.addEventListener('pointerleave', () => { if (hovered === card) { hovered = null; guide() } })
-      // the sound the chain starts from has nothing to take away, turn off or remove
-      if (!call.sound && !call.origin) {
+      // the sound the chain starts from has nothing to take away, turn off or remove; a track's sound is the track, taken
+      // away whole
+      if ((call.sound || call.origin) && track()) {
+        const acts = head.appendChild(document.createElement('div'))
+        acts.className = 'step-acts'
+        button(acts, 'step-remove', null, AWAY, () => onuntrack(), `Delete the track ${track()}`, `Delete track ${track()}`)
+      }
+      else if (!call.sound && !call.origin) {
         const acts = head.appendChild(document.createElement('div'))
         acts.className = 'step-acts'
         card.on = button(acts, 'step-on', null, ON, () => onOff(card))
@@ -181,7 +191,8 @@ export default function stack(root, { ed, describe = async () => null, duration 
   // chain up to it made one sound (or all of it), taken away; a group's, named anew too
   function menuOf(row) {
     const c = row.card, f = row.fold, all = { label: 'Flatten all', hint: 'The whole chain made one sound', run: () => onflatten(null), icon: FLAT }
-    if (c?.call.sound || c?.call.origin) return [{ label: 'Flatten up to here', hint: 'The sound as it starts, one sound', run: () => onflatten(c.call.origin ? c.call.to : chain(ed.code)?.root.to), disabled: !!c.call.sound, icon: FLAT }, all]
+    if (c?.call.sound || c?.call.origin) return [{ label: 'Flatten up to here', hint: 'The sound as it starts, one sound', run: () => onflatten(c.call.origin ? c.call.to : chain(ed.code)?.root.to), disabled: !!c.call.sound, icon: FLAT }, all,
+      ...track() ? ['-', { label: 'Delete the track', hint: track(), run: () => onuntrack(), icon: AWAY }] : []]
     const off = c ? !!c.call.off : members(f).every(x => x.call.off), inGroup = c ? c.fold >= 0 : false
     const mute = { label: off ? 'Unmute' : 'Mute', hint: off ? 'Back in the chain' : 'Bypassed: the output without it', run: () => c ? onOff(c) : switchAll(f), icon: off ? ON : SHUT }
     const moves = [{ label: 'Move up', run: () => shift(row, -1), disabled: c?.call.off || !nextTo(row, -1), icon: UP }, { label: 'Move down', run: () => shift(row, 1), disabled: c?.call.off || !nextTo(row, 1), icon: DOWN }]
@@ -301,10 +312,12 @@ export default function stack(root, { ed, describe = async () => null, duration 
       c.li.classList.toggle('rolled', back != null && n > at)
       c.li.classList.toggle('delta', i >= 0 && i === delta)
       c.toggle.setAttribute('aria-pressed', String(n === at))
-      c.toggle.title = n === at ? call.off ? 'Close (Esc)' : 'Back to the whole chain (Esc)'
+      const others = shared[call.part] ?? []
+      c.li.classList.toggle('shared', others.length > 0)
+      c.toggle.title = (n === at ? call.off ? 'Close (Esc)' : 'Back to the whole chain (Esc)'
         : call.off ? `.${call.name}() is bypassed: open, its settings set without a render; its switch turns it back on`
         : call.sound ? `${call.name}: the sound alone, before any step`
-        : `${ops[call.name]?.text || '.' + call.name + '()'}: the output up to here, and its settings`
+        : `${ops[call.name]?.text || '.' + call.name + '()'}: the output up to here, and its settings`) + (others.length ? `\nShared with ${others.join(', ')}: a change here changes ${others.length > 1 ? 'them' : 'it'} too` : "")
       c.args.textContent = call.sound ? '' : summary(code, call)
       if (c.on) {
         c.on.setAttribute('aria-pressed', String(!call.off))
@@ -330,6 +343,10 @@ export default function stack(root, { ed, describe = async () => null, duration 
       fold.on.setAttribute('aria-label', off ? `Turn ${fold.group.name} on` : `Turn ${fold.group.name} off`)
       for (const c of steps) { c.li.hidden = !open; c.li.classList.add('grouped') }
     }
+    // under the last row of each part shared, the tracks sharing it
+    const rows = [...list.children].filter(li => !li.hidden), partOf = li => (cards.find(c => c.li === li) ?? members(folds.find(f => f.li === li))[0])?.call.part
+    for (const li of list.children) delete li.dataset.shared
+    shared.forEach((names, part) => { const li = names.length && rows.findLast(li => partOf(li) === part); if (li) li.dataset.shared = `Shared with ${names.join(', ')}` })
     guide()
   }
 
@@ -353,21 +370,29 @@ export default function stack(root, { ed, describe = async () => null, duration 
     const c = cards[position()], i = takes && c && !reshapes(c.call.name) ? live().indexOf(c) : -1
     i >= 0 ? view(i, null) : view(null, kept())
   }
-  // A call out of the chain: from the end of the one before it (or of the source) to its own end, with the line break;
-  // one turned off, its comment
+  // A call out of the chain: from the end of what is before it in its statement (a call, the source) to its own end, with
+  // the line break; one turned off, its comment
   function drop(c) {
     if (c.call.off) return ed.change({ from: c.call.from, to: c.call.to, insert: '' })
-    const k = chain(ed.code), i = k?.calls.findIndex(x => x.list.from === c.call.list.from) ?? -1
-    if (i >= 0) ed.change({ from: k.calls[i - 1]?.to ?? k.root.to, to: k.calls[i].to, insert: '' })
+    const k = chain(ed.code)?.calls.find(x => x.list.from === c.call.list.from)
+    if (k) ed.change({ from: k.prev, to: k.to, insert: '' })
   }
   // The change that takes the steps after a card away, those turned off too, a closing save() or play() kept (from the
   // sound the chain starts from, every step), or null when there are none
   function past(card) {
     const code = ed.code, c = chain(code)
     if (!c) return null
+    const own = c.parts.length - 1, n = card.call.sound ? 0 : card.call.origin ? 1 : c.calls.findIndex(k => k.list.from === card.call.list?.from) + 1
+    const end = Math.max(c.expr.to, ...offCalls(code).filter(o => o.part === own).map(o => o.to))
+    // a card of the sound it copies: its own chain written anew as the copied one up to there, the copy's shared steps
+    // as they are for the tracks that share them
+    if (n && c.calls[n - 1].part < own || !n && own) {
+      const sinks = c.parts[own].calls.filter(k => methods[k.name]?.sink).map(k => code.slice(k.dot, k.to)).join('')
+      return { from: c.expr.from, to: end, insert: upTo(code, c, n) + sinks }
+    }
     const from = card.call.sound ? c.root.to : card.call.origin ? c.calls[0].to : card.call.to
-    const to = Math.max(c.expr.to, ...offCalls(code).map(o => o.to)), sinks = c.calls.filter(k => k.to > from && methods[k.name]?.sink).map(k => code.slice(k.dot, k.to)).join('')
-    return to > from && code.slice(from, to) !== sinks ? { from, to, insert: sinks } : null
+    const sinks = c.calls.filter(k => k.to > from && methods[k.name]?.sink).map(k => code.slice(k.dot, k.to)).join('')
+    return end > from && code.slice(from, end) !== sinks ? { from, to: end, insert: sinks } : null
   }
   // While the output shows the chain rolled back to the card chosen, the steps after it, as a change that takes them
   // away (else null): the chain as it shows (a selection's audio taken to a tab of its own)

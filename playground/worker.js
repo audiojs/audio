@@ -5,6 +5,7 @@
 // nothing yet (it needs the whole file, as trim and normalize do), the file itself streams, as it decodes. What a chain
 // made is kept by what made it, its steps too, so what was made before comes at once (renders kept, below).
 import audio from '../audio.js'
+import { LOAD } from '../core.js'
 import plugins from 'editor:plugins'
 import { attacks, hits } from '../fn/hits.js'
 import { steadyTempo } from '../fn/beat.js'
@@ -358,6 +359,16 @@ function scoped(track) {
   return api
 }
 const api = scoped(a => (run?.created.push(a), a))
+// A copy a script makes of a sound (`take.clone()`, the sound tracks copy, their shared steps in it) knows the source
+// that sound was copied from, so it is kept by its edits as that sound is (keysOf): a track split from another starts
+// from what is kept of the one it was. One made while its sound's run runs goes with that run
+const cloning = audio.fn.clone
+audio.fn.clone = function () {
+  const b = cloning.call(this)
+  if (roots.has(this)) roots.set(b, roots.get(this))
+  if (run?.created.includes(this)) run.created.push(b)
+  return b
+}
 
 // A value as the console prints it.
 function inspect(value, depth = 0) {
@@ -389,7 +400,7 @@ const out = (value, tracks) => new Out(value, tracks)
 // Runs a script, the page's tab `tab`'s: the reply says what it printed and whether it made a sound; the sound then
 // streams (render). Each tab's last output stays, for the page to show again as it was, measure and export, nothing run
 // again; the newest run streams alone.
-async function execute({ id, code, names = [], tab = null, peaks = 0 }) {
+async function execute({ id, code, names = [], tab = null, peaks = 0, preview = false }) {
   const logs = [], log = level => (...args) => logs.push({ level, text: args.map(a => inspect(a)).join(' ') })
   const console = { log: log('log'), info: log('log'), debug: log('log'), warn: log('warn'), error: log('error'), table: log('log') }
   run = { created: [], saves: [] }
@@ -416,7 +427,7 @@ async function execute({ id, code, names = [], tab = null, peaks = 0 }) {
     newest = id
     for (const r of outputs.values()) if (!r.done) drop(r)
     if (!output) { for (const r of outputs.values()) if (r.tab === tab) drop(r); dispose(run.created); return result }
-    const record = { id, tab, peaks, instance: output, tracks: layers, created: run.created, saves: run.saves, names, tape: null, sound: null, length: 0, sampleRate: 0, done: false }
+    const record = { id, tab, peaks, preview, instance: output, tracks: layers, created: run.created, saves: run.saves, names, tape: null, sound: null, length: 0, sampleRate: 0, done: false }
     record.finished = new Promise(resolve => { record.finish = resolve })
     // a mix is kept as its tracks are, each by its own edits
     record.keys = layers ? Object.assign([], { marked: true }) : keysOf(output)
@@ -550,9 +561,17 @@ async function render(r) {
     shelve(content, patched)
     return replay(r, patched)
   }
-  const name = r.names.find(n => sources.has(n) && !sources.get(n).decoded), a = r.based?.instance ?? r.instance
+  // the file it opens, to the page as it decodes; one decoded already, where the page has nothing of it to show
+  // (`preview`) and the output waits for a step reading its input whole (prepare), at once, before that step holds the
+  // worker: the page shows it, dim, while the output is made
+  const a = r.based?.instance ?? r.instance
+  // a registry plugin's op first loaded, as rendering would load it: what it is (its prepare) known before
+  for (const [type] of a.edits) if (!audio.op(type) && audio.plugins?.[type]) await audio.use(type).catch(() => {})
+  if (!alive()) return
+  const whole = a.edits.some(([type]) => audio.op(type)?.prepare)
+  const name = r.names.find(n => sources.has(n) && (!sources.get(n).decoded || r.preview && whole))
   let first = false
-  if (name) arriving(r.id, name, () => alive() && !first, r.peaks)
+  if (name) { const shown = arriving(r.id, name, () => alive() && !first, r.peaks); if (sources.get(name).decoded) await shown; if (!alive()) return }
   post({ id: r.id, event: 'doing', steps: a.edits.map(e => e[0]) })
   announce(a.edits)
   const out = feed(r.id, 'chunk', r.peaks, () => expect(r).total, () => ({ sampleRate: r.sampleRate, ...expect(r) }))
@@ -586,7 +605,7 @@ async function render(r) {
 // others are kept), then summed from their starts into the output: as long as the longest, at the first's rate (another
 // resampled to it), as many channels as the widest has (a narrower one's in turn across them, as mix() spreads a mono
 // sound). The page gets each track's own picture first (`tracks`: its channels averaged, its length, its pauses), then
-// the mix as any output comes, the tracks' markers on it; past the channel samples the page holds, the mix's and the
+// the mix as any output comes, the tracks' markers on it, each with its track's name; past the channel samples the page holds, the mix's and the
 // tracks' pictures (long), their samples where it zooms in (samples)
 async function mixTracks(r, alive) {
   try {
@@ -638,7 +657,7 @@ async function mixTracks(r, alive) {
     r.instance = sound
     r.created.push(sound)
     const depths = r.tracks.map(t => t.instance.bitDepth).filter(Boolean)
-    replay(r, { sound, sampleRate: rate, markers: r.tracks.flatMap(t => t.markers).sort(at), regions: r.tracks.flatMap(t => t.regions).sort((p, q) => p.at - q.at), bitDepth: depths.length ? Math.max(...depths) : null })
+    replay(r, { sound, sampleRate: rate, markers: r.tracks.flatMap(t => t.markers.map(m => ({ ...m, track: t.name }))).sort(at), regions: r.tracks.flatMap(t => t.regions.map(g => ({ ...g, track: t.name }))).sort((p, q) => p.at - q.at), bitDepth: depths.length ? Math.max(...depths) : null })
   } catch (error) {
     if (!alive()) return
     const failed = r.names.find(n => !sources.has(n))
@@ -700,7 +719,7 @@ function finish(r, e) {
   r.markers = e.markers
   r.regions = e.regions
   for (const o of outputs.values()) if (o !== r && o.tab === r.tab) drop(o)
-  const markers = [...e.markers, ...e.regions.map(({ at, duration, label }) => ({ time: at, duration, label }))].sort((p, q) => p.time - q.time)
+  const markers = [...e.markers, ...e.regions.map(({ at, ...g }) => ({ time: at, ...g }))].sort((p, q) => p.time - q.time)
   post({ id: r.id, event: 'done', long: !!r.peaks && (!!r.long || r.length * r.sound.channels > r.peaks), duration: r.length / r.sampleRate, sampleRate: r.sampleRate, channels: r.sound.channels, stats: e.figures.stats, segments: e.figures.segments, markers, clips: e.figures.clips, bitDepth: e.bitDepth ?? r.instance.bitDepth ?? null })
   r.finish(r)
   checkpoint(r)
@@ -845,14 +864,14 @@ function prefix(a, k) {
 // its name to the run streaming, while it does; with the part of it running, where it says (auto's 'doing': analysis,
 // then the stages it applies)
 const announced = new WeakSet()
-const named = stages => stages.length > 2 ? `${stages.slice(0, 2).join(', ')} +${stages.length - 2}` : stages.join(', ')
+const named = stages => stages.length > 2 ? `${stages.slice(0, 2).join(', ')} and ${stages.length - 2} more` : stages.join(' and ')
 function announce(edits) {
   for (const [type] of edits) {
     const d = audio.op(type)
     if (!d?.prepare || announced.has(d)) continue
     const prepare = d.prepare
     d.prepare = async (a, i) => {
-      const id = newest, doing = ({ op, stages }) => op === type && post({ id, event: 'doing', step: `${type} · ${named(stages)}` })
+      const id = newest, doing = ({ op, stages }) => op === type && post({ id, event: 'doing', step: `${type}: ${named(stages)}` })
       post({ id, event: 'doing', step: type })
       a.on('doing', doing)
       try { return await prepare(a, i) } finally { a.off('doing', doing); post({ id, event: 'doing', step: null }) }
@@ -868,11 +887,13 @@ function expect(r) {
   const src = r.names.map(n => sources.get(n)).find(s => s && !s.decoded), estimate = src?._.estDur ?? null
   return { total: estimate && Math.round(estimate * r.sampleRate), loaded: src?._.acc ? src._.acc.length / src.sampleRate : null, estimate }
 }
-// A file as it decodes, to the page, while the output has nothing yet; all of it come, and the output still nothing (a
-// model running over it, a level read from all of it), `arrived`: what is left is the rendering
+// A file as it decodes (or as it is, decoded already: render), to the page, while the output has nothing yet; all of it
+// come, and the output still nothing (a model running over it, a level read from all of it), `arrived`: what is left is
+// the rendering
 async function arriving(id, name, alive, peaks) {
-  const src = sources.get(name), estimate = () => src._.estDur && Math.round(src._.estDur * src.sampleRate)
-  const file = feed(id, 'loading', peaks, estimate, () => ({ name, sampleRate: src.sampleRate, estimate: src._.estDur ?? null }))
+  // its length: as its header says it, all of it come as it is
+  const src = sources.get(name), seconds = () => src.decoded ? src.length / src.sampleRate : src._.estDur ?? null
+  const file = feed(id, 'loading', peaks, () => seconds() && Math.round(seconds() * src.sampleRate), () => ({ name, sampleRate: src.sampleRate, estimate: seconds() }))
   try {
     await relay(src.stream(), alive, (at, channels) => file.send(at, channels), () => src.sampleRate)
     if (!alive()) return
@@ -1047,6 +1068,8 @@ async function exporting({ format, name, parts, options = {}, tab, track }) {
   // an edit list: the cuts, as text (the library's cuts())
   if (CUTS.includes(format)) return { files: [{ name: `${name}.${format}`, type: format, bytes: new TextEncoder().encode(await r.instance.cuts(format, options)) }] }
   if (parts) {
+    // its markers planned, its edits wired first (wired): an output kept was never rendered here
+    await r.instance[LOAD]()
     const marks = r.instance.markers.filter(m => m.time > 0 && m.time < r.length / r.sampleRate), pieces = await r.instance.split(...marks.map(m => m.time))
     const label = (i, m) => (m?.label || `${String(i + 1).padStart(2, '0')}`).replace(/[^\w .-]+/g, '-')
     return { files: await Promise.all(pieces.map(async (p, i) => ({ name: `${name}-${label(i, marks[i - 1])}.${format}`, type: format, bytes: await p.encode(format, options) }))) }
@@ -1166,7 +1189,8 @@ async function evaluate({ code, steps = [], tab, track }) {
 // panel rolls back; `takes`, what it takes out, before less after, as its card's Δ (null where it changes the timing:
 // before and after then don't line up); `where(t | { at, d })`, where a time or a range of the output was as the sound
 // entered it, edits after it undone (null where it was not yet, or no longer, there). Times on before, after and takes
-// are theirs. A stage not made yet stops the run, as a measure not made yet does, and the run goes again once it is.
+// are theirs. A stage not made yet (or the output's edits not yet wired, for where) stops the run, as a measure not made
+// yet does, and the run goes again once it is.
 function stepOf(steps, i, r, keep, asked) {
   const s = steps[i]
   if (!s) throw new RangeError(`No edit ${i}: the script has ${steps.length}${steps.length ? `, 0 to ${steps.length - 1}` : ''} (state's steps)`)
@@ -1204,11 +1228,21 @@ function stepOf(steps, i, r, keep, asked) {
     where(at) {
       const got = ready(s.before), key = `${got.edits}:${JSON.stringify(at)}`
       if (!r?.instance) return null
+      ready(wired(r))
       const places = r.places ??= new Map()
       if (!places.has(key)) places.set(key, placed(r.instance, at, got.edits))
       return places.get(key)
     }
   }
+}
+// An output's edits wired as a render wires them (audio.js autowire: its plugins loaded, their arguments named, its
+// edits prepared), where() planning them at once: one kept (renders kept, past a reload too) was never rendered here,
+// and a plugin it names may not have loaded. Made once, as a stage is: { value } once wired, { error }, else { promise }
+const wired = r => {
+  if (r.wired) return r.wired
+  const w = r.wired = { promise: null }
+  w.promise = r.instance[LOAD]().then(() => { w.value = true }, error => { w.error = error })
+  return w
 }
 // `at`, a time or a range { at, d } of `full`'s output, where it was after its first `n` edits: marked on a copy, the
 // edits after them undone, the mark kept to what it marked (fn/meta.js); a range's pieces as one span

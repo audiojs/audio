@@ -795,7 +795,8 @@ function compilePlan(a, len, final, measure = false) {
     let [type, o = {}] = edit
     let { at, duration, channel, ...extra } = o
     let op = ops[type]
-    if (!op) throw new Error(`Unknown op: ${type}`)
+    // a registry plugin's is known, its module loading at the first read (audio.js autowire)
+    if (!op) throw new Error(audio.plugins?.[type] ? `${type}: not loaded until the first read (or await audio.use('${type}') before calling it)` : `Unknown op: ${type}`)
     // a mix of the engine's, not the op's own: blended after it, never handed to it
     let mix = op.params?.includes('mix') ? undefined : extra.mix
     if (mix !== undefined) { delete extra.mix; mixable(type, mix, op) }
