@@ -164,11 +164,47 @@ function normalizeOpts(opts, sr) {
   return o
 }
 
-/** Normalize an edit to compact ['type', opts] storage form. Accepts ['type'] or ['type', opts]. */
+/** Normalize an edit to compact ['type', opts] storage form. Accepts ['type'] or ['type', opts]. An op whose options
+ *  name another op to do it (`via`: a stretch's method, its algorithm's own op) gives that op's edit in its place: the
+ *  edit is that op's from then on, its module the only one loaded for it (audio.js autowire). */
 function normalizeEdit(edit, sr) {
   if (!Array.isArray(edit) || typeof edit[0] !== 'string') throw new TypeError('audio.run: edit must be [type, opts?]')
-  let [type, opts] = edit
-  return [type, normalizeOpts(opts || {}, sr)]
+  let [type, opts] = edit, o = normalizeOpts(opts || {}, sr)
+  return ops[type]?.via?.(o) ?? [type, o]
+}
+
+/** Constant-power crossfade gains out of one signal into another that correlates ρ with it over the crossfade (Fink,
+ *  Holters & Zölzer, "Signal-matched power-complementary cross-fading and dynamic processing", EURASIP JASP 2016):
+ *  cos and sin over √(1 + 2ρ·cos·sin) at progress u ∈ [0, 1]: linear for one signal (ρ = 1), equal-power for unrelated
+ *  ones (ρ = 0). */
+export const xfade = (u, rho) => {
+  let a = u * Math.PI / 2, c = Math.cos(a), s = Math.sin(a), k = 1 / Math.sqrt(1 + 2 * rho * c * s)
+  return [c * k, s * k]
+}
+
+// A whole op's range rendered: read with 100 ms either side, set back with 10 ms crossfades
+const SEAM_CONTEXT = 0.1, SEAM = 0.01
+
+/** Channel `c` with its range [s0, s1) in place of `m`, the range as an op made it (`n` samples long): each seam
+ *  crossfaded from the audio as it was, which goes on past the range's start and comes in before its end, at the
+ *  constant power the two signals' correlation there asks (out of phase, as unrelated), so neither clicks nor swells */
+function seamed(c, m, n, s0, s1, sr) {
+  let y = new Float32Array(c.length - (s1 - s0) + n), x = Math.min(Math.round(SEAM * sr), n >> 1, s1 - s0)
+  y.set(c.subarray(0, s0)); y.set(m, s0); y.set(c.subarray(s1), s0 + n)
+  let rho = (p, q) => { let pq = 0, pp = 0, qq = 0; for (let i = 0; i < x; i++) { let u = p[i] ?? 0, v = q[i] ?? 0; pq += u * v; pp += u * u; qq += v * v } return pp && qq ? Math.max(0, Math.min(1, pq / Math.sqrt(pp * qq))) : 0 }
+  let ri = rho(c.subarray(s0), m), ro = rho(m.subarray(n - x), c.subarray(s1 - x))
+  for (let i = 0; i < x; i++) {
+    let [di, mi] = xfade((i + .5) / x, ri), [mo, dout] = xfade((i + .5) / x, ro)
+    y[s0 + i] = di * c[s0 + i] + mi * (m[i] ?? 0)
+    y[s0 + n - x + i] = mo * (m[n - x + i] ?? 0) + dout * c[s1 - x + i]
+  }
+  return y
+}
+
+/** A range of a whole signal `n` samples long, [a, b) in samples, as `at` (negative: from the end) and `duration` say */
+function spanOf(n, at, duration, sr) {
+  let a = at == null ? 0 : Math.max(0, Math.min(n, Math.round((at < 0 ? n / sr + at : at) * sr)))
+  return [a, duration == null ? n : Math.min(n, a + Math.round(duration * sr))]
 }
 
 /** Detect functions deeply so non-serializable edits can be omitted from JSON.
@@ -875,9 +911,12 @@ function compilePlan(a, len, final, measure = false) {
       let t = planLen(segs)
       // measured, not heard (length): its length as it declares it, its tail and frames, nothing rendered, unless an
       // edit after it decides from what it made (a resolve, as trim's)
+      // A structural one over a range (a stretch of the selection) makes the range alone, the audio either side as it was
+      let ranged = op.frames && (at != null || duration != null), framesOf = n => Math.max(0, Math.round(op.frames(n, extra, sr)))
       if (measure && !a.edits.slice(i + 1).some(([n]) => ops[n]?.resolve)) {
+        let [s0, s1] = ranged ? spanOf(t, at, duration, sr) : [0, 0]
         let n = t + Math.round((typeof op.tail === 'function' ? op.tail(extra, sr) : op.tail || 0) * sr)
-        segs = [seg(0, op.frames ? Math.max(0, Math.round(op.frames(n, extra, sr))) : n, 0, undefined, null)]
+        segs = [seg(0, ranged ? t - (s1 - s0) + framesOf(s1 - s0) : op.frames ? framesOf(n) : n, 0, undefined, null)]
         pipeline = []; latency = 0; warmup = 0; pulls = []
         if (op.sr) { let ns = op.sr(sr, extra); if (ns) sr = ns }
         continue
@@ -890,19 +929,24 @@ function compilePlan(a, len, final, measure = false) {
         let input = readPlan(a, { segs, pipeline, totalLen: t, sr, ch, latency, pulls })
         // mid-decode the materialized timeline can be empty — keep channel shape, zero frames
         if (!input.length) input = Array.from({ length: ch || 1 }, () => new Float32Array(0))
+        // a range: read with what is either side of it, so the op is under way at its edges (time-linear, as a
+        // stretch is: input sample p comes out at frames(p))
+        let [s0, s1] = ranged ? spanOf(input[0].length, at, duration, sr) : [0, 0], whole = input, cl = 0
+        if (ranged) { let c = Math.round(SEAM_CONTEXT * sr); cl = Math.min(c, s0); input = input.map(x => x.subarray(s0 - cl, Math.min(x.length, s1 + c))) }
         // declared tail → extend input with silence so the decay renders (equal frames in/out)
-        let tailN = Math.round((typeof op.tail === 'function' ? op.tail(extra, sr) : op.tail || 0) * sr)
+        let tailN = ranged ? 0 : Math.round((typeof op.tail === 'function' ? op.tail(extra, sr) : op.tail || 0) * sr)
         if (tailN > 0) input = input.map(chn => { let e = new Float32Array(chn.length + tailN); e.set(chn); return e })
         // channel-changing whole op (e.g. 2→5.1 upmix) — output owns its declared width
         let outCh = (op.ch && op.ch(input.length, extra)) || input.length
         // structural whole op (e.g. time-stretch) — declared frames hook sets output length
-        let outLen = op.frames ? Math.max(0, Math.round(op.frames(input[0].length, extra, sr))) : input[0].length
+        let outLen = op.frames ? framesOf(input[0].length) : input[0].length
         if (outLen > MAX_FLAT_SIZE) throw new Error(`Audio too large for whole-render op '${type}' (${(outLen / 1e6).toFixed(0)}M samples out)`)
         let output = Array.from({ length: outCh }, () => new Float32Array(outLen))
-        let wctx = { sampleRate: sr, channelCount: input.length, totalDuration: input[0].length / sr, at, duration, channel, render, ...extra }
+        let wctx = { sampleRate: sr, channelCount: input.length, totalDuration: input[0].length / sr, at: ranged ? undefined : at, duration: ranged ? undefined : duration, channel, render, ...extra }
         op.whole(input, output, wctx)
         let share = ownMix(op, o)
         if (share != null) blend(share, input, output, 0, sr)
+        if (ranged) { let from = framesOf(cl), n = framesOf(s1 - s0); output = whole.map((c, k) => seamed(c, output[k].subarray(from, from + n), n, s0, s1, sr)) }
         a._.wrc.m.set(key, ref = audio.from(output, { sampleRate: sr }))
         // without a frames hook it renders in place: the timeline it read stays the time map under it (fn/cuts.js)
         if (!op.frames) ref._.timeline = { segs, sr }

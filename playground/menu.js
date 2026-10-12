@@ -173,6 +173,8 @@ export default function menubar(root, model) {
     if (!open) return
     const { panel, button, owner } = open
     open = null
+    // a submenu about to open under the pointer opens no more: its menu is gone
+    clearTimeout(hovering)
     for (const b of [button, owner]) b?.setAttribute('aria-expanded', 'false')
     if (panel.matches(':popover-open')) panel.hidePopover()
     panel.remove()

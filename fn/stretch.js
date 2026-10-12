@@ -13,12 +13,13 @@
  *      time-stretches it with a phase-locked vocoder, its output the timeline itself; with
  *      { voice: true }, by waveform-similarity overlap-add (@audio/stretch-wsola) shortening, and the
  *      vocoder reset to the input's waveform where it fits (@audio/stretch-pvsola) slowing.
+ *   { method }: another algorithm in its place (METHODS below), its own op, loaded only then.
  *
  * The shifter (shifter / shiftBlock) is exported for pitch.js: the same vocoder, read by
  * a cursor at the ratio semitones give instead.
  */
 
-import { seg, subSeg, spliceSegs, planOffset, isCurve, curveFn } from '../plan.js'
+import { seg, subSeg, spliceSegs, planOffset, isCurve, curveFn, xfade } from '../plan.js'
 import audio from '../core.js'
 import pvocLock from '@audio/stretch-pvoc-lock'
 import * as wsola from '@audio/stretch-wsola'
@@ -310,14 +311,6 @@ function readBand(v, p) {
 }
 const readerOf = st => st.map || st.voice ? readBand : readAt
 
-/** Constant-power crossfade gains out of one signal into another that correlates ρ with it over the crossfade (Fink,
- *  Holters & Zölzer, "Signal-matched power-complementary cross-fading and dynamic processing", EURASIP JASP 2016):
- *  cos and sin over √(1 + 2ρ·cos·sin) at progress u ∈ [0, 1]: linear for one signal (ρ = 1), equal-power for unrelated
- *  ones (ρ = 0). */
-const xfade = (u, rho) => {
-  let a = u * Math.PI / 2, c = Math.cos(a), s = Math.sin(a), k = 1 / Math.sqrt(1 + 2 * rho * c * s)
-  return [c * k, s * k]
-}
 
 // Where the cursor reads at timeline sample q: the content q is (the same for a pitch), on through R; a stretch's
 // stretched stream is the timeline, so it reads on at rate 1.
@@ -510,11 +503,25 @@ const stretchDsp = (input, output, ctx) => {
   shiftBlock(st, input, output, Math.round(ctx.blockOffset * ctx.sampleRate))
 }
 
+// The other ways to stretch, each its own op (audio.js registry), its module loaded only when an edit names it: { method }
+// picks one, as @audio/shift's pitch shift names its methods. Each renders the whole of what it stretches at once, from a
+// constant factor; phase-lock, the vocoder above, streams, and slides, and keeps a voice ({ voice })
+export const METHODS = { vocoder: 'stretch-pvoc', pghi: 'stretch-pghi', wsola: 'stretch-wsola', psola: 'stretch-psola', sms: 'stretch-sms', transient: 'stretch-transient', hybrid: 'stretch-hybrid', paulstretch: 'stretch-paul' }
+const via = ({ method, ...o }) => {
+  if (method == null || method === 'phase-lock') return null
+  let to = METHODS[method]
+  if (!to) throw new RangeError(`stretch: unknown method '${method}': phase-lock, ${Object.keys(METHODS).join(', ')}`)
+  if (typeof o.factor !== 'number') throw new TypeError(`stretch: method '${method}' takes a constant factor; a sliding one stretches by phase-lock`)
+  if (o.voice) throw new TypeError(`stretch: voice is phase-lock's; method '${method}' is a way of its own`)
+  return [to, o]
+}
+
 audio.op('_stretch_seg', { params: ['factor'], plan: stretchPlan, hidden: true })
 audio.op('_stretch_dsp', { params: ['factor'], process: stretchDsp, hidden: true, ranged: true, latency: stretchLatency })
 audio.op('stretch', {
   params: ['factor'],
   streamable: true,
+  via,
   expand: (ctx) => {
     let f = ctx.factor
     if (!f || f === 1) return false

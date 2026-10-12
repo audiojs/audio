@@ -502,6 +502,9 @@ export const texts = {
   speed: {
     rate: 'Playback speed. 2 is twice as fast and an octave higher; 0.5 is half as fast and an octave lower.'
   },
+  stretch: {
+    method: 'How it stretches. phase-lock plays as it works; the others take the whole stretch at once: wsola or psola for a voice, transient or hybrid for drums, sms or pghi for held tones, paulstretch for a drone.'
+  },
   pitch: {
     semitones: 'Pitch change in semitones. 12 is an octave up, -12 an octave down; the length stays.'
   },
@@ -537,10 +540,6 @@ export const texts = {
   },
   resample: {
     rate: 'The new sample rate, in Hz. A lower rate keeps less of the high frequencies.'
-  },
-  'stretch-paul': {
-    factor: 'Length. 4 makes it four times as long; the pitch stays. It melts the sound into a drone, and is made for 8 or more.',
-    frame: 'Length of each grain, in seconds. Longer smears more: attacks melt into a smoother, more washed-out sound; shorter keeps more of the original\'s shape.'
   },
   // Effect
   delay: {

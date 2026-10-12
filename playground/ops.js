@@ -6,7 +6,7 @@ import audio from '../assets/audio.js'
 
 // A parameter: { name, min, max, default, unit, step, log, values }. `values` makes it a choice; `selection` (what to
 // select) makes it the selected range, or ranges, set from the picture, not a slider; `required`, the library has no
-// default for it, so a new call writes this one.
+// default for it, so a new call writes this one; `option`, the library takes it only by its name, in the options.
 const p = (name, min, max, def, unit = '', more) => ({ name, min, max, default: def, unit, ...more })
 const hz = (name = 'freq', def = 1000, min = 20, max = 20000) => p(name, min, max, def, 'Hz', { log: true })
 const db = (name, min, max, def) => p(name, min, max, def, 'dB', { step: .1 })
@@ -130,7 +130,8 @@ const table = {
   repair: ['Repair', 'Rebuild a damaged range from its surroundings', 'range'],
   // Time & pitch
   speed: ['Time & pitch', 'Faster or slower, pitch follows', [p('rate', .25, 4, 1, '×', { step: .01, log: true })]],
-  stretch: ['Time & pitch', 'Longer or shorter, same pitch', [p('factor', .25, 4, 1, '×', { step: .01, log: true })]],
+  // its algorithm a choice, each but the vocoder its own module, loaded only when chosen (fn/stretch.js)
+  stretch: ['Time & pitch', 'Longer or shorter, same pitch', [p('factor', .25, 4, 1, '×', { step: .01, log: true }), { ...choice('method', ['phase-lock', 'vocoder', 'pghi', 'wsola', 'psola', 'sms', 'transient', 'hybrid', 'paulstretch']), option: true }]],
   pitch: ['Time & pitch', 'Higher or lower, same length', [p('semitones', -24, 24, 0, 'st', { step: 1 })]],
   intonation: ['Time & pitch', 'A voice\'s rises and falls, wider or flatter', [p('factor', 0, 3, 1, '×', { step: .05 })]],
   formant: ['Time & pitch', 'Move a voice\'s formants, pitch kept', [p('semitones', -12, 12, 0, 'st', { step: .5 })]],
@@ -140,15 +141,6 @@ const table = {
   paulstretch: ['Time & pitch', 'Blurred, textural pitch shift'],
   tune: ['Time & pitch', 'Snap pitch to a scale'],
   resample: ['Time & pitch', 'Change the sample rate', [need(choice('rate', [8000, 16000, 22050, 32000, 44100, 48000, 96000], 48000))]],
-  'stretch-paul': ['Time & pitch', 'Extreme stretch for drones'],
-  'stretch-wsola': ['Time & pitch', 'Stretch speech, low CPU'],
-  'stretch-psola': ['Time & pitch', 'Stretch a single voice'],
-  'stretch-pvoc-lock': ['Time & pitch', 'Stretch by phase-locked vocoder'],
-  'stretch-pvoc': ['Time & pitch', 'Stretch by phase vocoder'],
-  'stretch-pghi': ['Time & pitch', 'Stretch by phase gradient'],
-  'stretch-sms': ['Time & pitch', 'Stretch tonal material'],
-  'stretch-transient': ['Time & pitch', 'Stretch keeping attacks'],
-  'stretch-hybrid': ['Time & pitch', 'Stretch drums and tones apart'],
   // Effect
   delay: ['Effect', 'Echo'],
   pingpong: ['Effect', 'Echo bouncing left and right'],
@@ -220,6 +212,10 @@ const table = {
   poly: ['Generate', 'Polyphonic synth'],
   adsr: ['Generate', 'Attack-decay-sustain-release envelope']
 }
+
+// A method's name as the menus and the edits write it: capitalized, its words apart, an acronym in capitals
+const LABELS = { eq: 'EQ', geq: 'GEQ', dyneq: 'DynEQ', fm: 'FM', sbr: 'SBR', omlsa: 'OMLSA', fdn: 'FDN', adsr: 'ADSR', fet: 'FET', vca: 'VCA', rnnoise: 'RNNoise', dcblocker: 'DC blocker', sfx: 'SFX', lofi: 'Lo-fi' }
+export const labelOf = name => LABELS[name] ?? name[0].toUpperCase() + name.slice(1).replaceAll('-', ' ')
 
 export const ops = Object.fromEntries(Object.entries(table).map(([name, [group, text, params]]) =>
   [name, { name, group, text, ...(params === 'range' || params?.[0] === 'range' ? { params: [...RANGE, ...params === 'range' ? [] : params.slice(1)], range: true } : params && { params }) }]))

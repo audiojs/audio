@@ -1,4 +1,4 @@
-import { ops, methods, format, fromManifest, reshapes, icons } from './ops.js'
+import { ops, methods, format, fromManifest, reshapes, labelOf, icons } from './ops.js'
 import opIcons from './icons.js'
 import { chain, setArg, number, offCalls, turnOff, turnOn, groups, steps as stepsOf, moveStep, moveLines, group as groupSteps, ungroup, renameGroup, upTo, sharing } from './code.js'
 import { help, layout } from './help.js'
@@ -78,7 +78,7 @@ export default function stack(root, { ed, describe = async () => null, duration 
       head.innerHTML = `<button class="step-toggle" type="button">${CHEVRON}<svg class="step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path/></svg><span class="step-name"></span><span class="step-args"></span></button>`
       const toggle = head.firstChild, card = { li, toggle, args: toggle.lastChild, call, params: null }
       toggle.querySelector('.step-icon path').setAttribute('d', iconOf(call))
-      toggle.querySelector('.step-name').textContent = call.sound ? call.name : call.name[0].toUpperCase() + call.name.slice(1)
+      toggle.querySelector('.step-name').textContent = call.sound ? call.name : labelOf(call.name)
       // a press leaves the keys where they were: Space still plays, the code keeps its caret
       toggle.addEventListener('mousedown', event => event.preventDefault())
       toggle.addEventListener('click', event => {
@@ -533,11 +533,11 @@ export default function stack(root, { ed, describe = async () => null, duration 
       }
     }
     // Built-in methods take their parameters in order; ranges and plugins also take an options object, used when the
-    // call already has one or has no arguments yet. A slider's moves are live and out of the history until it comes to
-    // rest; a choice is one step.
+    // call already has one or has no arguments yet, and always for a setting the library reads by its name alone
+    // (`option`). A slider's moves are live and out of the history until it comes to rest; a choice is one step.
     function write(s, index, value, live = false) {
       const call = card.call, op = ops[call.name], spec = self.spec, positional = call.args.filter(a => a.kind !== 'object'), options = call.args.find(a => a.kind === 'object')
-      const named = (!op.params || op.range) && (options || !positional.length)
+      const named = s.option || (!op.params || op.range) && (options || !positional.length)
       const change = named ? setArg(call, s.name, value) : setArg(call, index, value, spec.map(p => p.default))
       // what the picture shows at once: the settings it had and the ones it gets, by name, its range with them
       const was = { ...Object.fromEntries(options?.props.map(p => [p.name, p.value]) || []), ...Object.fromEntries(spec.map((p, i) => [p.name, valuesOf(spec, call)[i]])) }

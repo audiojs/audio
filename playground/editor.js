@@ -6,7 +6,7 @@ import player from './player.js'
 import stack, { valuesOf } from './stack.js'
 import { mark as drawMark } from '../logo/mark.js'
 import recipes from './recipes.js'
-import { ops, methods, guides, previews, GROUPS, CURVES, fromManifest, reshapes, icons as groupIcons } from './ops.js'
+import { ops, methods, guides, previews, GROUPS, CURVES, fromManifest, reshapes, labelOf, icons as groupIcons } from './ops.js'
 import { prepare, error, bare, offCalls, append, source, chain, number, rollback, residual, setArg, unsetArg, declared, rename, inline, between, steps as stepsOf, stages, mixed, dropStep, moveStep, turnOff, turnOn, tracks as tracksOf, focus, toTrack, voiceTrack, soundOf, addTrack, dropTrack } from './code.js'
 import { builtins, sample, microphone, search, credit, unique } from './sources.js'
 import scales from './scale.js'
@@ -365,7 +365,7 @@ const state = sprae(root, {
     const groups = [
       { name: this.boxes > 1 ? `For the ${this.boxes} bands` : this.band ? 'For the band' : this.ranges > 1 ? `For the ${this.ranges} ranges` : this.selection ? 'For the selection' : 'At the caret', items: quick(this).filter(e => found(e.label)).map(e => ({ ...e, run: run(() => editSelection(e.type)) })) },
       ...GROUPS.map(name => ({ name, items: Object.values(ops).filter(op => op.group === name && found(op.name, op.text))
-        .map(op => ({ label: op.name[0].toUpperCase() + op.name.slice(1), text: op.text, icon: opIcons[op.name] ?? groupIcons[name], title: `.${op.name}(): ${op.text}`, run: run(() => addOp(op.name)) })) }))
+        .map(op => ({ label: labelOf(op.name), text: op.text, icon: opIcons[op.name] ?? groupIcons[name], title: `.${op.name}(): ${op.text}`, run: run(() => addOp(op.name)) })) }))
     ].filter(g => g.items.length)
     let i = 0
     for (const g of groups) for (const item of g.items) item.index = i++
@@ -719,11 +719,12 @@ function menus() {
   ]
 }
 // Every method by kind, a submenu each, for the output or what is selected (addOp): first what the selection is most
-// often given of that kind (`lead`, by group), then every method of it by name
-const method = (name, open = true) => ({ label: name, hint: ops[name].text, run: () => addOp(name, open), op: name })
-const kinds = (lead = {}, open = true) => GROUPS.map(group => ({ label: group, icon: groupIcons[group], items: [
+// often given of that kind (`lead`, by group), then every other method of it by name, but those the menu has already
+// (`skip`: a context menu's Cut, Copy, Paste)
+const method = (name, open = true) => ({ label: labelOf(name), hint: ops[name].text, run: () => addOp(name, open), op: name })
+const kinds = (lead = {}, open = true, skip = []) => GROUPS.map(group => ({ label: group, icon: groupIcons[group], items: [
   ...lead[group] ? [...lead[group], '-'] : [],
-  ...Object.values(ops).filter(op => op.group === group).map(op => method(op.name, open))
+  ...Object.values(ops).filter(op => op.group === group && !skip.includes(op.name) && !lead[group]?.some(it => it.op === op.name)).map(op => method(op.name, open))
 ] }))
 // The methods last used (`recent`: addOp, from a menu or the palette), the newest first; the context menu offers them
 // again, each as that context words it where it has its own item for it (`lead`), else by its name
@@ -835,23 +836,25 @@ function contextMenu() {
   // with tracks, the one edited taken away
   const untracking = state.track ? [{ label: 'Delete the track', hint: state.track, run: untrack, icon: icons.remove }] : []
   const repair = [act(several || v.boxes.length > 1 ? 'Remove the clicks in each' : 'Remove the clicks here', 'declick', '', true, opIcons.declick), act('Rebuild from around it', 'repair', '', !several, icons.repair), act('Take this noise out everywhere', 'denoise', '', true, opIcons.denoise)]
-  const process = (leads = {}) => [...recents(leads), '-', ...kinds(leads, false), { label: 'Find an edit…', keys: keys('⌘P'), run: () => openTools(), icon: glyphs.find }]
+  // the menu's own edits, then the methods, none of them again
+  const process = (own, leads = {}) => [...own, ...recents(leads), '-', ...kinds(leads, false, own.map(it => it.op)), { label: 'Find an edit…', keys: keys('⌘P'), run: () => openTools(), icon: glyphs.find }]
   // a band has no pill: its level stays here
-  if (v.band) return [act('Delete the band', 'remove', '⌫', true, icons.remove), act('6 dB quieter', 'quieter', '', true, glyphs.down), act('6 dB louder', 'louder', '', true, glyphs.up), ...process({ Repair: repair })]
-  if (!list.length) return [
+  if (v.band) return process([act('Delete the band', 'remove', '⌫', true, icons.remove), act('6 dB quieter', 'quieter', '', true, glyphs.down), act('6 dB louder', 'louder', '', true, glyphs.up)], { Repair: repair })
+  if (!list.length) return process([
     act(v.carets.length > 1 ? `Paste at all ${v.carets.length} carets` : 'Paste', 'paste', '⌘V', state.canPaste, icons.paste),
     { label: v.carets.length > 1 ? 'A marker at each caret' : 'Add a marker', keys: 'M', run: addMarker, icon: glyphs.marker },
     { label: 'Select all', keys: keys('⌘A'), run: () => v.select(0, v.duration), icon: glyphs.all },
     { label: 'Split the voice to a new track', run: () => editSelection('voice'), icon: opIcons.vocals },
-    ...untracking, ...process()
-  ]
+    ...untracking
+  ])
   const [a, b] = v.selection ?? list[0]
   return [
-    act('Cut', 'cut', '⌘X', !several, icons.cut), act('Copy', 'copy', '⌘C', !several, icons.copy), act('Paste', 'paste', '⌘V', state.canPaste && !several, icons.paste), act('Delete', 'remove', '⌫', true, icons.remove),
-    act('Keep only this', 'crop', 'K', !several, icons.crop),
-    act('Move to a new track', 'track', '', !several, icons.track),
-    ...untracking,
-    ...process({ Edit: [lead('Reverse', 'reverse')], Level: [lead('Crossfade across it', 'crossfade'), lead('Normalize', 'normalize')], Repair: repair }),
+    ...process([
+      act('Cut', 'cut', '⌘X', !several, icons.cut), act('Copy', 'copy', '⌘C', !several, icons.copy), act('Paste', 'paste', '⌘V', state.canPaste && !several, icons.paste), act('Delete', 'remove', '⌫', true, icons.remove),
+      act('Keep only this', 'crop', 'K', !several, icons.crop),
+      act('Move to a new track', 'track', '', !several, icons.track),
+      ...untracking
+    ], { Edit: [lead('Reverse', 'reverse')], Level: [lead('Crossfade across it', 'crossfade'), lead('Normalize', 'normalize')], Repair: repair }),
     '-',
     { label: several ? 'Mark each' : 'Mark it', keys: 'M', run: addMarker, icon: glyphs.marker },
     { label: 'Zoom to it', run: () => v.zoomTo(a, b), icon: glyphs.zoom }
@@ -913,8 +916,8 @@ async function evaluate() {
   // the whole chain, what one step of it takes out, or the chain rolled back, as the stack says
   const calls = chain(code)?.calls || [], { delta, back } = viewing, step = calls[delta]
   const runs = step ? residual(code, delta) : back != null ? rollback(code, back) : code
-  const title = n => n[0].toUpperCase() + n.slice(1), later = back != null ? calls.length - back : 0
-  state.viewing = step ? `What ${title(step.name)} takes out` : later > 0 ? `${back ? `Up to ${title(calls[back - 1].name)}` : 'The source alone'}: ${later} later step${later > 1 ? 's' : ''} bypassed` : ''
+  const later = back != null ? calls.length - back : 0
+  state.viewing = step ? `What ${labelOf(step.name)} takes out` : later > 0 ? `${back ? `Up to ${labelOf(calls[back - 1].name)}` : 'The source alone'}: ${later} later step${later > 1 ? 's' : ''} bypassed` : ''
   // a change to its comments alone (a bypassed step set, a note) runs nothing: the run asked last, and the output it
   // made, are this script's too; the same script asked again (a file it waited for come) runs
   if (sent?.tab === eng.tab && sent.code !== runs && bare(sent.code) === bare(runs)) {
