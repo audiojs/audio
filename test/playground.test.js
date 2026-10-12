@@ -121,6 +121,30 @@ test('engine: a voice gliding as speech does has a pitch curve whole, and a comp
   assert.ok(pitch?.length === 2 && pitch[0] > 105 && pitch[0] < 125 && pitch[1] > 155 && pitch[1] < 182, JSON.stringify(pitch))
 })
 
+// A long file decoding, the worker answers the page meanwhile, at once: the decoder gives way with a task of its own
+// (core.js yieldTask), not scheduler.yield(), whose turn comes before the tasks waiting, so that the worker said nothing
+// till the file had all come (a 2 h MP3: 0% for 11 s, a click's sound none)
+test('engine: a file decoding, the worker answers the page at once', async () => {
+  const n = 360 * 44100, x = Float32Array.from({ length: n }, (_, i) => .3 * Math.sin(2 * Math.PI * 220 * i / 44100))
+  const mp3 = Buffer.from(await audio.from([x], { sampleRate: 44100 }).encode('mp3')).toString('base64')
+  await page.goto(origin + '/blank.html')
+  const r = await page.evaluate(async b64 => {
+    const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
+    const e = engine(new URL('/playground/dist/worker.js', location.href)), bytes = await (await fetch('data:audio/mpeg;base64,' + b64)).arrayBuffer()
+    await e.file('long.mp3', new Blob([bytes]))
+    let started, done = false
+    const loading = new Promise(resolve => { started = resolve })
+    e.run(prepare(`audio('long.mp3')`), { loading: started, chunk: started, done: () => { done = true }, error: () => { done = true } })
+    await loading
+    // asked while it decodes: a tab closed, an answer of nothing to wait on
+    const asked = [], t0 = performance.now()
+    for (let k = 0; k < 5; k++) { const t = performance.now(); await e.close(1000 + k); asked.push(performance.now() - t); await new Promise(r => setTimeout(r, 30)) }
+    return { asked, during: !done, took: performance.now() - t0 }
+  }, mp3)
+  assert.ok(r.during, `asked while it decoded (${r.took.toFixed(0)} ms)`)
+  assert.ok(Math.max(...r.asked) < 100, `answered in ${r.asked.map(t => t.toFixed(0)).join(', ')} ms`)
+})
+
 // A run another takes the place of before it is whole is paused, not let go (worker.js pause): the same script asked
 // for again (a step turned off and back on as it renders) goes on from where it was, sample for sample as it comes
 // rendered whole at once; one left paused goes on by itself while nothing else runs, and is kept: asked for, it is there
@@ -2131,9 +2155,9 @@ test('editor: the export\'s choices keep to one row each, labels whole, the pane
   }
 })
 
-// Before, a key on the deck after Loop: pressed, the file as it opened, as B does, lit while it is heard; again, or B,
+// Before, a key at the bar's right end, after the rate and channels: pressed, the file as it opened, as B does, lit while it is heard; again, or B,
 // the output. A generated sound has no file to hear it against: the key is off
-test('editor: Before on the deck hears the file as it opened, lit while it does; off for a generated sound', async () => {
+test('editor: Before, at the bar\'s right, hears the file as it opened, lit while it does; off for a generated sound', async () => {
   await open()
   await write(`audio('chime.wav').gain(-6)`)
   await lengthIs('0:08.000')
@@ -6094,8 +6118,8 @@ test('editor: a right-click gives the edits for the selection, or puts the caret
   await page.waitForFunction(() => /\.mark\(6\)$/.test(scriptText()))
 })
 
-// A stretch is one method, its algorithm a choice on its card (fn/stretch.js, { method }): the menus list Stretch once, as
-// they name every method, in capitals; a method chosen is written into its call, the output as long as the factor says
+// A stretch is one method, its algorithm a choice on its card (fn/stretch.js, { method }), and so is a pitch shift
+// (fn/pitch.js): the menus list Stretch once and Pitch once, as they name every method, in capitals; a method chosen is written into its call, the output as long as the factor says
 test('editor: one Stretch, its algorithm a choice; the menus name each method in capitals', async () => {
   await open()
   await noCues()
@@ -6106,6 +6130,7 @@ test('editor: one Stretch, its algorithm a choice; the menus name each method in
   await menuRow('Time & pitch').click()
   const names = await page.locator('.menubar-sub:popover-open .menu-label').allInnerTexts()
   assert.deepEqual(names.filter(n => /^stretch/i.test(n)), ['Stretch'], names.join(', '))
+  assert.deepEqual(names.filter(n => /^(pitch|formant shift|vocoder|paulstretch)/i.test(n)), ['Pitch'], 'the pitch shifts one Pitch, its method a choice')
   assert.ok(names.every(n => n[0] === n[0].toUpperCase()), names.join(', '))
   await page.keyboard.press('Escape')
   await write(`audio('chime.wav').stretch(1.5)`)

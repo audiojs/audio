@@ -340,8 +340,8 @@ svg { flex: none; }
 .loop { margin-right: 4px; color: var(--color-screen-muted); }
 .loop svg { width: 17px; height: 17px; }
 .loop[aria-pressed="true"] { color: var(--color-screen-accent); }
-/* before the edits, a key on the deck: lit while the file as it opened is heard */
-.before { min-height: 22px; margin-right: 6px; padding: 0 8px; border: 0; border-radius: 11px; background: var(--color-screen-fill); color: var(--color-screen-muted); font: 11px var(--font-mono); }
+/* before the edits, a key at the bar's right end: lit while the file as it opened is heard */
+.before { flex: none; min-height: 22px; margin-left: 12px; padding: 0 8px; border: 0; border-radius: 11px; background: var(--color-screen-fill); color: var(--color-screen-muted); font: 11px var(--font-mono); }
 .before:hover:not(:disabled) { background: var(--color-screen-fill-hover); color: var(--color-screen-ink); }
 .before[aria-pressed="true"]:not(:disabled) { background: var(--color-screen-accent); color: var(--color-screen); }
 .before:disabled { opacity: .4; }
@@ -399,6 +399,10 @@ svg { flex: none; }
 .message { flex: 1 1 0; margin-left: 6px; color: var(--color-screen-soft); }
 /* the words cut short before the figure after them (how far, how long) is: it stands apart by its room and its tone */
 .message-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* while the engine works: a quarter of a ring turning before its words, still where motion is asked to be less */
+.message-spin { flex: none; width: 10px; height: 10px; margin-right: -4px; border: 1.5px solid var(--color-screen-rule); border-top-color: var(--color-screen-accent); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { rotate: 1turn; } }
+@media (prefers-reduced-motion: reduce) { .message-spin { animation: none; border-color: var(--color-screen-accent); opacity: .7; } }
 .message-figure { flex: none; color: var(--color-screen-dim); }
 .message-figure:empty { display: none; }
 .message.problem { color: var(--color-screen-error); }
@@ -577,7 +581,10 @@ svg { flex: none; }
    check (open while a spec is chosen). A field each: its name in a column of its own, its control, what it means */
 .export .form { padding-bottom: 6px; }
 .export .form + .form { border-top: 1px solid var(--color-screen-rule); }
-.export .form[open] { display: grid; gap: 10px; padding-bottom: 18px; }
+.export .form[open] { display: grid; gap: 14px; padding-bottom: 20px; }
+/* what a form holds lays out in its details' own box, which the grid above would take as one item: the fields' gap is
+   that box's */
+.export .form[open]::details-content { display: grid; gap: 14px; }
 .export .form > summary { margin: 12px 0 6px; list-style: none; cursor: pointer; }
 .export .form > summary::-webkit-details-marker { display: none; }
 .export .form > summary::before { content: '›'; width: 8px; color: var(--color-screen-dim); transition: rotate var(--dur-micro) var(--ease-out); }
@@ -593,7 +600,7 @@ svg { flex: none; }
   .export .field:has(> .choices) { grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .export .field:has(> .choices) > .choices { grid-column: 1; }
 }
-.form-note { margin: 0 2px; color: var(--color-screen-dim); font-size: 11.5px; }
+.form-note { margin: -7px 2px 0; color: var(--color-screen-dim); font-size: 11.5px; text-align: right; }
 .field { display: grid; grid-template-columns: 64px auto minmax(0, 1fr); align-items: center; gap: 10px; min-height: 28px; }
 .field-label { color: var(--color-screen-muted); font-size: 12px; }
 .field-note { overflow: hidden; color: var(--color-screen-dim); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
@@ -616,7 +623,7 @@ svg { flex: none; }
 .export .export-button { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; margin: 4px 0 0; padding: 0 14px; border: 0; border-radius: 9px; background: var(--color-screen-fill-quiet); color: var(--color-screen-bright); font-size: 13px; font-weight: 500; }
 .export .export-button:hover:not(:disabled) { background: var(--color-screen-fill-quiet-hover); }
 /* a lesser act: the edit list, connecting the agent */
-.quiet-button { display: flex; align-items: center; justify-content: center; min-height: 34px; margin: 4px 0 0; border: 0; border-radius: 9px; background: var(--color-screen-fill-quiet); color: var(--color-screen-bright); font-size: 12.5px; font-weight: 500; }
+.quiet-button { display: flex; align-items: center; justify-content: center; justify-self: start; min-height: 34px; margin: 4px 0 0; padding: 0 14px; border: 0; border-radius: 9px; background: var(--color-screen-fill-quiet); color: var(--color-screen-bright); font-size: 12.5px; font-weight: 500; }
 .quiet-button:hover:not(:disabled) { background: var(--color-screen-fill-quiet-hover); }
 .export-size { font: 12px var(--font-mono); opacity: .6; }
 .export-row { display: flex; align-items: center; gap: 6px; }

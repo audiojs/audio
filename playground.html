@@ -256,15 +256,14 @@
             <button class="speed-pill" :inert="!playing" :onclick="turnSpeed" :text="speedText" aria-label="Speed" title="Speed, the pitch kept: 1×, 1.5×, 2× in turn; the Play menu, a list (Play held and dragged: any, 0.1× to 10×)"></button>
           </span>
           <button class="loop" :aria-pressed="loop ? 'true' : 'false'" aria-label="Loop" :title="loop ? 'Looping: playback repeats the selection or the whole output. Click to stop' : 'Loop playback'" :onclick="toggleLoop" :disabled="!whole"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11V6h17m-4-4 4 4-4 4M21 13v5H4m4-4-4 4 4 4"/></svg></button>
-          <!-- before the edits: the file as it opened, level-matched, at the same place; again, after (B) -->
-          <button class="before" :aria-pressed="ab ? 'true' : 'false'" :onclick="toggleAB" :disabled="!canCompare" :title="canCompare ? (ab ? 'Hearing it before the edits: the file as it opened, level-matched. Click for after (B)' : 'Hear it before the edits: the file as it opened, level-matched, from the same place (B)') : 'A generated sound has no file as it opened to hear it against'">Before</button>
           <!-- the time, and after it how long all that is selected is, or with nothing selected all of the sound, softer;
                with no sound, nothing, what the engine says coming right after the time -->
           <p class="clock" :title="timeTitle" aria-live="off"><span class="time" :text="timeText" :onclick="bringTime" :title="timeTitle + '. Click: the view brought to it'">0:00.000</span><span class="length" :class="{ whole: lengthWhole }" :text="lengthText" :onclick="frameLength" :title="lengthTitle"></span></p>
           <!-- a status bar's two sides: at the left, after the time, what was done, what the engine does now (how far a
-               sound on its way has come) or what went wrong; at the right, what the sound shown is: its levels, then its
-               rate and channels, each a click from changing it -->
-          <p class="message" :class="{ problem: notice ? noticeKind === 'error' : !progress && !!problem }" :title="notice || (progress + ' ' + figure).trim() || problem"><span class="message-words" :text="notice || progress || problem"></span><span class="message-figure" :text="!notice && progress && figure ? ' ' + figure : ''"></span></p>
+               sound on its way has come, a mark turning while it works) or what went wrong; at the right, what the sound
+               shown is: its levels, then its rate and channels, each a click from changing it; last, Before: the file as it
+               opened, level-matched, from the same place; again, after (B) -->
+          <p class="message" :class="{ problem: notice ? noticeKind === 'error' : !progress && !!problem }" :title="notice || (progress + ' ' + figure).trim() || problem"><span class="message-spin" :if="progress && !notice" aria-hidden="true"></span><span class="message-words" :text="notice || progress || problem"></span><span class="message-figure" :text="!notice && progress && figure ? ' ' + figure : ''"></span></p>
           <span class="visually-hidden" role="status" :text="notice || progress || problem"></span>
           <button class="text-button" :if="missing" :onclick="() => pickFiles(missing)" :title="'Open the file the script calls ' + missing">Open it…</button>
           <p class="heard" :if="heard" :title="heard?.title" :text="heard?.text"></p>
@@ -275,6 +274,7 @@
           <span class="speed-mark" :text="speedText"></span>
         </div>
         <p class="facts" :if="sound"><button class="fact" popovertarget="rate-menu" :title="'Sample rate ' + sound?.rate + ': resample to another'" :text="sound?.rate"></button><button class="fact" popovertarget="channels-menu" :title="sound?.channels + ': mix to mono, stereo, 5.1 or 7.1'" :text="sound?.channels"></button><span :if="sound?.depth" :text="sound?.depth"></span></p>
+        <button class="before" :aria-pressed="ab ? 'true' : 'false'" :onclick="toggleAB" :disabled="!canCompare" :title="canCompare ? (ab ? 'Hearing it before the edits: the file as it opened, level-matched. Click for after (B)' : 'Hear it before the edits: the file as it opened, level-matched, from the same place (B)') : 'A generated sound has no file as it opened to hear it against'">Before</button>
       </footer>
     </main>
     <!-- the settings: a dropdown of sections, each folded to its name and what is chosen in it; opened, its groups, their

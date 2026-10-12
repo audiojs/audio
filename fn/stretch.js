@@ -19,8 +19,8 @@
  * a cursor at the ratio semitones give instead.
  */
 
-import { seg, subSeg, spliceSegs, planOffset, isCurve, curveFn, xfade } from '../plan.js'
-import audio from '../core.js'
+import { seg, subSeg, spliceSegs, planOffset, isCurve, curveFn } from '../plan.js'
+import audio, { xfade } from '../core.js'
 import pvocLock from '@audio/stretch-pvoc-lock'
 import * as wsola from '@audio/stretch-wsola'
 import * as pvsola from '@audio/stretch-pvsola'

@@ -108,9 +108,24 @@ const pitchLatency = (o, sr) => {
   return sh ? shiftLatency(sh.rmin, sr, undefined, o.voice ? voiceLatency(sr, sh.rmin) : undefined, endsOf(o, sr)) : 0
 }
 
+// The other ways to shift, each its own op (audio.js registry), its module loaded only when an edit names it: { method }
+// picks one, by @audio/shift's names; 'auto' its pitch-shift, which chooses by the sound (and loads them all). Each
+// renders the whole of what it shifts at once, by a constant number of semitones; phase-lock, the vocoder above,
+// streams, follows a curve and keeps a voice ({ voice })
+export const METHODS = { vocoder: 'vocoder', formant: 'formant-shift', paulstretch: 'paulstretch', auto: 'pitch-shift', ...Object.fromEntries(['ola', 'transient', 'psola', 'wsola', 'granular', 'sms', 'hpss', 'sample', 'hybrid', 'delay', 'lpc'].map(m => [m, 'pitch-' + m])) }
+const via = ({ method, ...o }) => {
+  if (method == null || method === 'phase-lock') return null
+  let to = METHODS[method]
+  if (!to) throw new RangeError(`pitch: unknown method '${method}': phase-lock, ${Object.keys(METHODS).join(', ')}`)
+  if (typeof o.semitones !== 'number') throw new TypeError(`pitch: method '${method}' takes a constant number of semitones; a curve shifts by phase-lock`)
+  if (o.voice) throw new TypeError(`pitch: voice is phase-lock's; method '${method}' is a way of its own`)
+  return [to, o]
+}
+
 audio.op('pitch', {
   params: ['semitones'],
   ranged: true,
+  via,
   // a curve reaches the shifter as is, its points telling where the shift is zero
   fnArgs: ['semitones'],
   // A function becomes a curve at plan time, sampled every 5 ms over its range: where it is zero, and how low it goes

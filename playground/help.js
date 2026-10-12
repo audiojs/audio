@@ -30,7 +30,6 @@ export const layouts = {
   autowah: 'sens base range Q | attack release',
   graindelay: 'time pitch feedback mix | grain spray jitter',
   rotary: 'hornSpeed drumSpeed depth mix | crossover hornInertia drumInertia micSpread',
-  'pitch-shift': 'semitones content formant | method',
   tune: 'scale root strength speed | tolerance a4',
   baxandall: 'bass treble | fBass fTreble',
   fm: 'freq ratio index amp | indexDecay indexFloor feedback attack release',
@@ -506,29 +505,14 @@ export const texts = {
     method: 'How it stretches. phase-lock plays as it works; the others take the whole stretch at once: wsola or psola for a voice, transient or hybrid for drums, sms or pghi for held tones, paulstretch for a drone.'
   },
   pitch: {
-    semitones: 'Pitch change in semitones. 12 is an octave up, -12 an octave down; the length stays.'
+    semitones: 'Pitch change in semitones. 12 is an octave up, -12 an octave down; the length stays.',
+    method: 'How it shifts. phase-lock plays as it works; formant, psola or lpc keep a voice; transient or hybrid suit drums, sms held tones; granular and paulstretch blur it; ola is the plainest; auto picks.'
   },
   intonation: {
     factor: 'How far the voice\'s pitch strays from its middle, as a multiple: 1 leaves it, 0 is a monotone, 2 makes every rise and fall twice as wide.'
   },
   formant: {
     semitones: 'How far the formants move, in semitones, the pitch staying: up is a smaller, brighter voice, down a larger, darker one. 2 or 3 is a lot.'
-  },
-  'pitch-shift': {
-    semitones: 'How far the pitch moves, in semitones: 12 is an octave up, -12 an octave down. The length stays.',
-    method: 'The shifting method. auto chooses from the sound; the others suit particular jobs: formant or psola for voices, transient for drums, sms or phase-lock for tonal music, paulstretch or granular for textures.',
-    content: 'A hint to auto about what the sound is: voice picks a method for single voices, tonal one for sustained notes. Ignored when a method is chosen.',
-    formant: 'Keeps the voice\'s tone in place while the pitch moves, so a raised voice does not turn chipmunk. Works only with method auto.'
-  },
-  'formant-shift': {
-    semitones: 'How far the pitch moves, in semitones: 12 is an octave up. The voice\'s tone stays where it was, so a raised voice does not turn chipmunk.'
-  },
-  vocoder: {
-    semitones: 'How far the pitch moves, in semitones: 12 is an octave up, -12 an octave down. The length stays.'
-  },
-  paulstretch: {
-    semitones: 'How far the pitch moves, in semitones: 12 is an octave up, -12 an octave down. Even at 0 the sound is smeared into a texture.',
-    frame: 'Length of each grain, in seconds. Longer smears more: attacks melt into a smoother, more washed-out sound; shorter keeps more of the original\'s shape.'
   },
   tune: {
     scale: 'Which notes the pitch may land on. chromatic is every note, fixing only what is slightly off; the others restrict it to that scale around the root.',

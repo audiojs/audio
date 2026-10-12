@@ -3,7 +3,7 @@
  * Intercepts create/run/read/stream to track and materialize edits.
  */
 
-import audio, { readPages, copyPages, walkPages, parseTime, named, fromEnd, LOAD, READ, emit, resolveChannels } from './core.js'
+import audio, { readPages, copyPages, walkPages, parseTime, named, fromEnd, LOAD, READ, emit, resolveChannels, xfade, correlation } from './core.js'
 
 let fn = audio.fn
 let ops = {}
@@ -173,15 +173,6 @@ function normalizeEdit(edit, sr) {
   return ops[type]?.via?.(o) ?? [type, o]
 }
 
-/** Constant-power crossfade gains out of one signal into another that correlates ρ with it over the crossfade (Fink,
- *  Holters & Zölzer, "Signal-matched power-complementary cross-fading and dynamic processing", EURASIP JASP 2016):
- *  cos and sin over √(1 + 2ρ·cos·sin) at progress u ∈ [0, 1]: linear for one signal (ρ = 1), equal-power for unrelated
- *  ones (ρ = 0). */
-export const xfade = (u, rho) => {
-  let a = u * Math.PI / 2, c = Math.cos(a), s = Math.sin(a), k = 1 / Math.sqrt(1 + 2 * rho * c * s)
-  return [c * k, s * k]
-}
-
 // A whole op's range rendered: read with 100 ms either side, set back with 10 ms crossfades
 const SEAM_CONTEXT = 0.1, SEAM = 0.01
 
@@ -191,8 +182,7 @@ const SEAM_CONTEXT = 0.1, SEAM = 0.01
 function seamed(c, m, n, s0, s1, sr) {
   let y = new Float32Array(c.length - (s1 - s0) + n), x = Math.min(Math.round(SEAM * sr), n >> 1, s1 - s0)
   y.set(c.subarray(0, s0)); y.set(m, s0); y.set(c.subarray(s1), s0 + n)
-  let rho = (p, q) => { let pq = 0, pp = 0, qq = 0; for (let i = 0; i < x; i++) { let u = p[i] ?? 0, v = q[i] ?? 0; pq += u * v; pp += u * u; qq += v * v } return pp && qq ? Math.max(0, Math.min(1, pq / Math.sqrt(pp * qq))) : 0 }
-  let ri = rho(c.subarray(s0), m), ro = rho(m.subarray(n - x), c.subarray(s1 - x))
+  let ri = correlation(c.subarray(s0), m, x), ro = correlation(m.subarray(n - x), c.subarray(s1 - x), x)
   for (let i = 0; i < x; i++) {
     let [di, mi] = xfade((i + .5) / x, ri), [mo, dout] = xfade((i + .5) / x, ro)
     y[s0 + i] = di * c[s0 + i] + mi * (m[i] ?? 0)
@@ -1357,11 +1347,13 @@ function applyProcs(bufA, procs, outOff, sr) {
 
     // Engine-level range scoping for ops without native {at, duration} handling. An op with latency runs throughout
     // (its output comes out late: what it played at a moment is lined up with that moment only past its delay), and
-    // outside the range its input, as late, stands in for it: the range holds on the timeline, not L samples early
-    let s = 0, e = BS, late = null
+    // outside the range its input, as late, stands in for it: the range holds on the timeline, not L samples early.
+    // Either way its output comes in over the range's first 10 ms and goes over its last (seams)
+    let s = 0, e = BS, late = null, span = null
     if (!proc.ranged && (at != null || dur != null)) {
       let a0 = at != null ? Math.round(at * sr) : 0
       let a1 = dur != null ? a0 + Math.round(dur * sr) : Infinity
+      span = [a0 - tOff + (proc.lat || 0), a1 - tOff + (proc.lat || 0), Math.min(Math.round(SEAM * sr), (a1 - a0) >> 1)]
       if (proc.lat) late = [a0, a1]
       else {
         s = Math.max(0, Math.min(a0 - tOff, BS))
@@ -1393,6 +1385,7 @@ function applyProcs(bufA, procs, outOff, sr) {
         for (let i = i1; i < BS; i++) o[i] = d[i]
       }
     }
+    if (span) seams(out, dry, span)
     // a mix under 1: what it played lined up with what came in, in that share; a number changed, ramped once
     if (proc.mix != null) {
       blend(proc.mix, dry, out, tOff - proc.lat, sr)
@@ -1401,6 +1394,20 @@ function applyProcs(bufA, procs, outOff, sr) {
     cur = out
   }
   return cur
+}
+
+/** A range's edges in a block of an op's output (`span`: its start and end in the block's samples, which may lie outside
+ *  it, and the crossfade's length): what the op made comes in from its input `dry` over the first samples and goes back
+ *  over the last, at constant power for signals half alike (Fink et al.'s ρ = ½: within 1.5 dB whether the op keeps its
+ *  input's shape, an EQ, or makes another, a pitch shift; a stream can't measure which before it plays) */
+function seams(out, dry, [b0, b1, x]) {
+  if (x <= 0) return
+  let n = out[0].length
+  for (let c = 0; c < out.length; c++) {
+    let o = out[c], d = dry[c % dry.length]
+    for (let i = Math.max(0, b0), end = Math.min(n, b0 + x); i < end; i++) { let [g, w] = xfade((i - b0 + .5) / x, .5); o[i] = g * d[i] + w * o[i] }
+    for (let i = Math.max(0, b1 - x), end = Math.min(n, b1); i < end; i++) { let [w, g] = xfade((i - b1 + x + .5) / x, .5); o[i] = w * o[i] + g * d[i] }
+  }
 }
 
 /** `wet`, an op's output, in place as the share `m` of itself and the rest `dry`, its input lined up with it; a block at

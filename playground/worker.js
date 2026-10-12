@@ -178,8 +178,12 @@ async function pictureOf(sound) {
 // past the `peaks` channel samples it holds (by `total()`, where known, or what has come), its picture: all of it so
 // far, then each piece's, `long` with each. `fields()`: what goes with each piece
 function feed(id, event, peaks, total, fields = () => ({})) {
-  let p = null, long = false, sent = { leaves: 0, columns: 0 }
+  let p = null, long = false, sent = { leaves: 0, columns: 0 }, posted = 0, later = 0
+  // a picture's new part every 50 ms at most, the rest after: a file decoding hundreds of times faster than it plays
+  // made thousands a second, each a redraw for the page
+  const soon = () => { if (performance.now() - posted >= 50) return picture(); later ||= setTimeout(() => { later = 0; picture() }, 50) }
   const picture = () => {
+    clearTimeout(later); later = 0; posted = performance.now()
     const got = p.since(sent), at = sent.leaves * LEAF
     sent = p.count()
     if (!got.leaves[0].length && !got.spectra.levels[0].length) return
@@ -192,7 +196,7 @@ function feed(id, event, peaks, total, fields = () => ({})) {
       if (peaks) (p ??= pictured(channels.length, fields().sampleRate || 48000, Math.max(total() ?? 0, at + channels[0].length))).push(channels)
       if (!long && peaks && Math.max(total() ?? 0, at + channels[0].length) * channels.length > peaks) long = true
       if (!long) return post({ id, event, at, channels, ...fields() }, channels.map(c => c.buffer))
-      picture()
+      soon()
     },
     end() {
       if (!p) return

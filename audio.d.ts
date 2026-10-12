@@ -224,8 +224,9 @@ export interface AudioInstance {
   /** Shift pitch, keep duration. Semitones: a number, a curve { t, v } (seconds → semitones, straight between points,
    *  flat past the ends) or t => semitones; where it is zero the audio stays as it was. voice: a voice's own glottal
    *  cycles re-spaced (TD-PSOLA, optional @audio/tune-curve): formants and consonants kept, one voice; a range's
-   *  edges glide as fast as a voice moves its pitch, and its cycles land back on the input's. */
-  pitch(semitones: number | ((t: number) => number) | { t: number[], v: number[] }, opts?: { at?: Time, duration?: Time, d?: Time, channel?: number | number[], voice?: boolean }): this
+   *  edges glide as fast as a voice moves its pitch, and its cycles land back on the input's. `method`: another of
+   *  @audio/shift's algorithms (@audio/shift-*, loaded only then), whole-render, constant semitones; 'phase-lock' is the default */
+  pitch(semitones: number | ((t: number) => number) | { t: number[], v: number[] }, opts?: { at?: Time, duration?: Time, d?: Time, channel?: number | number[], voice?: boolean, method?: 'phase-lock' | 'vocoder' | 'formant' | 'psola' | 'wsola' | 'lpc' | 'transient' | 'hybrid' | 'hpss' | 'sms' | 'sample' | 'delay' | 'ola' | 'granular' | 'paulstretch' | 'auto' }): this
   /** A voice's rises and falls made wider or flatter about its median pitch: 1 as it was, 0 a monotone, 2 twice as
    *  wide, below 0 rises turned to falls. Its own glottal cycles re-spaced (optional @audio/tune-curve): timing,
    *  formants and consonants kept, one voice. */

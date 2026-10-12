@@ -132,13 +132,10 @@ const table = {
   speed: ['Time & pitch', 'Faster or slower, pitch follows', [p('rate', .25, 4, 1, '×', { step: .01, log: true })]],
   // its algorithm a choice, each but the vocoder its own module, loaded only when chosen (fn/stretch.js)
   stretch: ['Time & pitch', 'Longer or shorter, same pitch', [p('factor', .25, 4, 1, '×', { step: .01, log: true }), { ...choice('method', ['phase-lock', 'vocoder', 'pghi', 'wsola', 'psola', 'sms', 'transient', 'hybrid', 'paulstretch']), option: true }]],
-  pitch: ['Time & pitch', 'Higher or lower, same length', [p('semitones', -24, 24, 0, 'st', { step: 1 })]],
+  // its algorithm a choice, each but the vocoder its own module, loaded only when chosen (fn/pitch.js)
+  pitch: ['Time & pitch', 'Higher or lower, same length', [p('semitones', -24, 24, 0, 'st', { step: 1 }), { ...choice('method', ['phase-lock', 'vocoder', 'formant', 'psola', 'wsola', 'lpc', 'transient', 'hybrid', 'hpss', 'sms', 'sample', 'delay', 'ola', 'granular', 'paulstretch', 'auto']), option: true }]],
   intonation: ['Time & pitch', 'A voice\'s rises and falls, wider or flatter', [p('factor', 0, 3, 1, '×', { step: .05 })]],
   formant: ['Time & pitch', 'Move a voice\'s formants, pitch kept', [p('semitones', -12, 12, 0, 'st', { step: .5 })]],
-  'pitch-shift': ['Time & pitch', 'Pitch shift, choice of method'],
-  'formant-shift': ['Time & pitch', 'Pitch shift keeping the voice'],
-  vocoder: ['Time & pitch', 'Pitch shift by phase vocoder'],
-  paulstretch: ['Time & pitch', 'Blurred, textural pitch shift'],
   tune: ['Time & pitch', 'Snap pitch to a scale'],
   resample: ['Time & pitch', 'Change the sample rate', [need(choice('rate', [8000, 16000, 22050, 32000, 44100, 48000, 96000], 48000))]],
   // Effect

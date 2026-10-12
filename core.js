@@ -292,11 +292,12 @@ export const FULL = 32767 / 32768
 export const LOAD = Symbol('load')
 export const READ = Symbol('read')
 
-/** Give the event loop a turn (I/O, timers, rendering) between bursts of work. setTimeout(0)
- *  waits ≥1 ms in Node and ≥4 ms once nested in a browser; these return as soon as the loop has turned. */
+/** Give the event loop a turn (I/O, timers, rendering, the messages waiting) between bursts of work. setTimeout(0)
+ *  waits ≥1 ms in Node and ≥4 ms once nested in a browser; these return as soon as the loop has turned. Not
+ *  scheduler.yield(): its continuation is queued ahead of the tasks already waiting, so a loop that yields with it
+ *  keeps them waiting till it ends (a long file decoding in a worker answered nothing for the 11 s it took). */
 export const yieldTask =
   typeof setImmediate === 'function' ? () => new Promise(r => setImmediate(r)) :
-  globalThis.scheduler?.yield ? () => globalThis.scheduler.yield() :
   typeof MessageChannel === 'function' ? () => new Promise(r => {
     let mc = new MessageChannel()  // one per turn, closed after: no open port holds a runtime alive
     mc.port1.onmessage = () => { mc.port1.close(); r() }
@@ -412,6 +413,42 @@ audio.use = function(...plugins) {
     else p(audio)
   }
   return loads ? Promise.all(loads).then(() => audio) : audio
+}
+
+/** Constant-power crossfade gains out of one signal into another that correlates ρ with it over the crossfade (Fink,
+ *  Holters & Zölzer, "Signal-matched power-complementary cross-fading and dynamic processing", EURASIP JASP 2016):
+ *  cos and sin over √(1 + 2ρ·cos·sin) at progress u ∈ [0, 1]: linear for one signal (ρ = 1), equal-power for unrelated
+ *  ones (ρ = 0). */
+export const xfade = (u, rho) => {
+  let a = u * Math.PI / 2, c = Math.cos(a), s = Math.sin(a), k = 1 / Math.sqrt(1 + 2 * rho * c * s)
+  return [c * k, s * k]
+}
+/** How alike two signals are over their first `n` samples, 0 to 1: their normalized correlation, out of phase as unrelated */
+export function correlation(p, q, n) {
+  let pq = 0, pp = 0, qq = 0
+  for (let i = 0; i < n; i++) { let u = p[i] ?? 0, v = q[i] ?? 0; pq += u * v; pp += u * u; qq += v * v }
+  return pp && qq ? Math.max(0, Math.min(1, pq / Math.sqrt(pp * qq))) : 0
+}
+
+/** A whole-render op over a range: it reads all of its input, its output kept in the range alone, the input as it was
+ *  outside it (one that renders in place, channel for channel; a time-stretch's range is its frames hook's). Each edge
+ *  crossfades over 10 ms inside the range, from the input into what the op made and back, at the power their
+ *  correlation there asks: a hard switch between the two clicks wherever they differ */
+export function ranged(input, output, ctx) {
+  if ((ctx.at == null && ctx.duration == null) || output.length !== input.length) return
+  let n = input[0].length, at = ctx.at ?? 0, a = Math.max(0, Math.min(n, Math.round((at < 0 ? ctx.totalDuration + at : at) * ctx.sampleRate)))
+  let b = ctx.duration == null ? n : Math.min(n, a + Math.round(ctx.duration * ctx.sampleRate))
+  let x = Math.min(Math.round(0.01 * ctx.sampleRate), (b - a) >> 1)
+  for (let c = 0; c < output.length; c++) {
+    let i0 = input[c], o = output[c]
+    o.set(i0.subarray(0, a)); o.set(i0.subarray(b), b)
+    let ri = a > 0 ? correlation(i0.subarray(a), o.subarray(a), x) : 1, ro = b < n ? correlation(o.subarray(b - x), i0.subarray(b - x), x) : 1
+    for (let i = 0; i < x; i++) {
+      let u = (i + .5) / x
+      if (a > 0) { let [d, w] = xfade(u, ri); o[a + i] = d * i0[a + i] + w * o[a + i] }
+      if (b < n) { let [w, d] = xfade(u, ro), j = b - x + i; o[j] = w * o[j] + d * i0[j] }
+    }
+  }
 }
 
 /** What audio adds to a plugin it hosts, by the name the plugin registers: the op (or stat) as the plugin makes it →
@@ -606,13 +643,7 @@ function useOp(m) {
         // a keyed module reads its key bus whole too, rendered over the same length
         let key = keyed && ctx.key != null && audio.renderAt ? audio.renderAt(ctx.render, ctx.key, 0, input[0].length, ctx.sampleRate) : undefined
         st.process(keyed ? [input, key] : [input], [output], st.live)
-        // a range: the module reads all of it, its output kept there alone (one that renders in place, channel for
-        // channel: a time-stretch's range is its frames hook's)
-        if ((ctx.at != null || ctx.duration != null) && !frames && output.length === input.length) {
-          let n = input[0].length, at = ctx.at ?? 0, a = Math.max(0, Math.min(n, Math.round((at < 0 ? ctx.totalDuration + at : at) * ctx.sampleRate)))
-          let b = ctx.duration == null ? n : Math.min(n, a + Math.round(ctx.duration * ctx.sampleRate))
-          for (let c = 0; c < output.length; c++) { output[c].set(input[c].subarray(0, a)); output[c].set(input[c].subarray(b), b) }
-        }
+        if (!frames) ranged(input, output, ctx)
       }
     })
   }

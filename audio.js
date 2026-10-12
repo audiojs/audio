@@ -89,6 +89,18 @@ const OPS = {
   'formant-shift': '@audio/shift-formant/audio',
   paulstretch: '@audio/shift-paulstretch/audio',
   'pitch-shift': '@audio/shift/audio',
+  // each of pitch-shift's methods alone, so pitch({ method }) loads that one (fn/pitch.js)
+  'pitch-ola': '@audio/shift-ola/audio',
+  'pitch-transient': '@audio/shift-transient/audio',
+  'pitch-psola': '@audio/shift-psola/audio',
+  'pitch-wsola': '@audio/shift-wsola/audio',
+  'pitch-granular': '@audio/shift-granular/audio',
+  'pitch-sms': '@audio/shift-sms/audio',
+  'pitch-hpss': '@audio/shift-hpss/audio',
+  'pitch-sample': '@audio/shift-sample/audio',
+  'pitch-hybrid': '@audio/shift-hybrid/audio',
+  'pitch-delay': '@audio/shift-delay/audio',
+  'pitch-lpc': '@audio/shift-lpc/audio',
   tune: '@audio/tune-snap/audio',
   // @audio/tune-midi exists too — direct-import only (guide-note list isn't a scalar param)
   schroeder: '@audio/reverb-schroeder/audio',
