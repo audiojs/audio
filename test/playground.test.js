@@ -121,6 +121,42 @@ test('engine: a voice gliding as speech does has a pitch curve whole, and a comp
   assert.ok(pitch?.length === 2 && pitch[0] > 105 && pitch[0] < 125 && pitch[1] > 155 && pitch[1] < 182, JSON.stringify(pitch))
 })
 
+// A run another takes the place of before it is whole is paused, not let go (worker.js pause): the same script asked
+// for again (a step turned off and back on as it renders) goes on from where it was, sample for sample as it comes
+// rendered whole at once; one left paused goes on by itself while nothing else runs, and is kept: asked for, it is there
+test('engine: a run cut short goes on from where it was, its samples as rendered whole, and left alone is kept', async () => {
+  let seed = 7
+  const x = Float32Array.from({ length: 30 * RATE }, (_, i) => .3 * Math.sin(2 * Math.PI * 330 * i / RATE) + .1 * ((seed = seed * 16807 % 2147483647) / 2147483647 - .5))
+  await page.goto(origin + '/blank.html')
+  const r = await page.evaluate(async channel => {
+    const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
+    const open = async () => { const e = engine(new URL('/playground/dist/worker.js', location.href)); await e.file('n.wav', { channels: [Float32Array.from(channel)], sampleRate: 48000 }); return e }
+    const A = prepare(`audio('n.wav').omlsa()`), B = prepare(`audio('n.wav')`), C = prepare(`audio('n.wav').omlsa({ threshold: 0.5 })`)
+    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+    const timed = async (e, s) => { const t = performance.now(), o = await e.render(s); return { o: o.output, ms: performance.now() - t } }
+    const fresh = await open(), whole = await timed(fresh, A), wholeC = await timed(fresh, C)
+    const e = await open()
+    await e.render(B)
+    // cut short a quarter of the way in, the source shown in its place; asked for again at once
+    e.render(A)
+    await sleep(whole.ms / 4)
+    await e.render(B)
+    const back = await timed(e, A)
+    // cut short again, then left alone: it goes on by itself, and is there when asked
+    e.render(C)
+    await sleep(wholeC.ms / 4)
+    await e.render(B)
+    await sleep(wholeC.ms * 2)
+    const kept = await timed(e, C)
+    const diff = (p, q) => p.channels[0].length === q.channels[0].length ? p.channels[0].reduce((m, v, i) => Math.max(m, Math.abs(v - q.channels[0][i])), 0) : Infinity
+    return { whole: whole.ms, back: back.ms, kept: kept.ms, backDiff: diff(whole.o, back.o), keptDiff: diff(wholeC.o, kept.o) }
+  }, [...x])
+  assert.equal(r.backDiff, 0, 'gone on from where it was: the same samples as rendered whole')
+  assert.ok(r.back < r.whole * .9, `the rest of it alone: ${r.back.toFixed(0)} ms, whole ${r.whole.toFixed(0)} ms`)
+  assert.equal(r.keptDiff, 0, 'gone on alone: the same samples')
+  assert.ok(r.kept < r.whole / 4, `kept, there at once: ${r.kept.toFixed(0)} ms`)
+})
+
 // An edit added at the end of the script renders on the last output's samples (worker.js rebased), not the whole script
 // again: the same samples as the whole script rendered afresh, for edits that keep the length, change it, learn from
 // their input or measure it; the same script again, or one changed before its end (A, then B), renders whole, the same
@@ -2072,6 +2108,50 @@ test('editor: a recipe made for a delivery spec checks the output against it', a
   assert.equal(await page.locator('.export').getByRole('button', { name: 'Apple Podcasts' }).getAttribute('aria-pressed'), 'true')
   await page.waitForFunction(() => { const r = [...document.querySelectorAll('.check-table:not(.stale) tbody td:nth-of-type(1)')]; return r.length && r.every(td => !td.textContent.includes('✗')) }, null, { timeout: 30000 })
   assert.match(await code(), /\.normalize\('podcast'\)$/)
+})
+
+// The export's rows of choices each on one line, every label whole, at the panel's narrowest as at its default: a field's
+// choices under its name when they want the row; nothing past the panel's edge
+test('editor: the export\'s choices keep to one row each, labels whole, the panel wide or narrow', async () => {
+  await open()
+  await tab('Export')
+  await page.locator('.export summary', { hasText: 'Edit list' }).click()
+  await page.locator('.export summary', { hasText: 'Check' }).click()
+  for (const format of ['MP3', 'OGG', 'WAV']) {
+    await page.locator('.export').getByRole('button', { name: format, exact: true }).click()
+    for (const px of [440, 280]) {
+      await page.evaluate(px => document.querySelector('.panes').style.setProperty('--panel', px + 'px'), px)
+      const r = await page.locator('.export').evaluate(e => ({
+        over: e.scrollWidth - e.clientWidth,
+        rows: [...e.querySelectorAll('.choices')].filter(c => c.offsetParent).map(c => ({ name: c.getAttribute('aria-label'), lines: new Set([...c.children].map(b => b.offsetTop)).size, cut: [...c.children].filter(b => b.scrollWidth > b.clientWidth + 1).map(b => b.textContent) }))
+      }))
+      assert.equal(r.over, 0, `${format} at ${px}px: nothing past the edge`)
+      for (const row of r.rows) assert.ok(row.lines === 1 && !row.cut.length, `${format} at ${px}px, ${row.name}: ${row.lines} lines, cut ${row.cut}`)
+    }
+  }
+})
+
+// Before, a key on the deck after Loop: pressed, the file as it opened, as B does, lit while it is heard; again, or B,
+// the output. A generated sound has no file to hear it against: the key is off
+test('editor: Before on the deck hears the file as it opened, lit while it does; off for a generated sound', async () => {
+  await open()
+  await write(`audio('chime.wav').gain(-6)`)
+  await lengthIs('0:08.000')
+  const before = page.getByRole('button', { name: 'Before', exact: true })
+  await page.waitForFunction(() => !document.querySelector('button.before').disabled)
+  assert.equal(await before.getAttribute('aria-pressed'), 'false')
+  await before.click()
+  await page.waitForFunction(() => document.querySelector('button.before').getAttribute('aria-pressed') === 'true')
+  assert.match(await page.locator('.status').innerText(), /Hearing before the edits/)
+  const lit = await before.evaluate(e => getComputedStyle(e).backgroundColor)
+  await page.mouse.move(2, 2)
+  assert.equal(await before.evaluate(e => getComputedStyle(e).backgroundColor), lit, 'lit, the pointer on it or not')
+  await page.locator('.plot').focus()
+  await page.keyboard.press('b')
+  await page.waitForFunction(() => document.querySelector('button.before').getAttribute('aria-pressed') === 'false')
+  await write(`audio.from(t => Math.sin(2 * Math.PI * 440 * t), { duration: 1 })`)
+  await lengthIs('0:01.000')
+  assert.equal(await before.isDisabled(), true, 'a generated sound: nothing to hear it against')
 })
 
 // B: the file as it opened, level-matched, at the same place; B again, the output. What is heard is said over the picture

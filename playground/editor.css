@@ -263,7 +263,7 @@ svg { flex: none; }
 .param input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: var(--color-screen-bright); }
 /* A switch: its choices as raised keys joined in one bezel, the one on pressed in */
 .choices { display: flex; flex-wrap: wrap; width: fit-content; max-width: 100%; padding: 1px; border-radius: 7px; background: var(--key-bezel); box-shadow: 0 1px 0 var(--key-bezel-light); }
-.choices button { min-height: 22px; padding: 0 7px; border: 0; border-radius: 0; background: var(--key-face); box-shadow: inset 0 1px 0 var(--key-light), inset -1px 0 var(--key-seam); color: var(--color-screen-soft); font: 11px var(--font-mono); }
+.choices button { min-height: 22px; padding: 0 7px; border: 0; white-space: nowrap; border-radius: 0; background: var(--key-face); box-shadow: inset 0 1px 0 var(--key-light), inset -1px 0 var(--key-seam); color: var(--color-screen-soft); font: 11px var(--font-mono); }
 .choices button:first-child { border-radius: 6px 0 0 6px; }
 .choices button:last-child { border-radius: 0 6px 6px 0; box-shadow: inset 0 1px 0 var(--key-light); }
 .choices button:only-child { border-radius: 6px; }
@@ -340,6 +340,11 @@ svg { flex: none; }
 .loop { margin-right: 4px; color: var(--color-screen-muted); }
 .loop svg { width: 17px; height: 17px; }
 .loop[aria-pressed="true"] { color: var(--color-screen-accent); }
+/* before the edits, a key on the deck: lit while the file as it opened is heard */
+.before { min-height: 22px; margin-right: 6px; padding: 0 8px; border: 0; border-radius: 11px; background: var(--color-screen-fill); color: var(--color-screen-muted); font: 11px var(--font-mono); }
+.before:hover:not(:disabled) { background: var(--color-screen-fill-hover); color: var(--color-screen-ink); }
+.before[aria-pressed="true"]:not(:disabled) { background: var(--color-screen-accent); color: var(--color-screen); }
+.before:disabled { opacity: .4; }
 .record-icon { display: block; width: 11px; height: 11px; border-radius: 50%; background: var(--color-screen-record); opacity: .8; }
 .record:hover .record-icon { opacity: 1; }
 /* Recording, a square to stop it, steady; armed, the microphone still opening, it blinks, as a deck's record key does */
@@ -558,7 +563,7 @@ svg { flex: none; }
 .dropdown .choices button { min-height: 26px; padding: 0 9px; font-size: 11.5px; }
 .dropdown-note { min-height: 15px; margin: 5px 0 0; color: var(--color-screen-dim); font: 11.5px/15px var(--font-body); }
 /* The export: the checks, rule by rule, and the file */
-.export { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: auto; padding: 0 14px 14px; }
+.export { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: auto; padding: 0 14px 14px; container-type: inline-size; }
 .export > .panel-group:first-child, .export > .form:first-child > .panel-group:first-child { margin-top: 4px; }
 .panel-group { display: flex; flex: none; align-items: baseline; gap: 8px; margin: 16px 0 8px; overflow: hidden; color: var(--color-screen-ink); font-size: 12px; font-weight: 500; white-space: nowrap; }
 /* what it is for, in a few words after it */
@@ -579,12 +584,23 @@ svg { flex: none; }
 .export .form[open] > summary::before { rotate: 90deg; }
 .export .form > summary:hover { color: var(--color-screen-bright); }
 .export .choices.wide { width: 100%; }
-.export .choices.wide button { flex: 1; }
-.form-note { margin: -4px 0 0; color: var(--color-screen-dim); font-size: 11.5px; }
+/* each as wide as its label, the room left shared out: a long label is never broken to make them even */
+.export .choices.wide { flex-wrap: nowrap; }
+.export .choices.wide button { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* a narrow panel: the keys closer round their labels, and a field's choices under its name, so a row of them still fits */
+@container (max-width: 340px) {
+  .export .choices button { padding: 0 4px; font-size: 11px; }
+  .export .field:has(> .choices) { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .export .field:has(> .choices) > .choices { grid-column: 1; }
+}
+.form-note { margin: 0 2px; color: var(--color-screen-dim); font-size: 11.5px; }
 .field { display: grid; grid-template-columns: 64px auto minmax(0, 1fr); align-items: center; gap: 10px; min-height: 28px; }
 .field-label { color: var(--color-screen-muted); font-size: 12px; }
 .field-note { overflow: hidden; color: var(--color-screen-dim); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
 .field > .choices, .field > .name-input { grid-column: 2 / -1; }
+/* a field whose choices want the row: its label over them */
+.field.under { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.field.under > .choices { grid-column: 1; }
 /* a name and its extension, one field */
 .name-input { display: flex; align-items: center; min-width: 0; height: 28px; padding: 0 9px; border: 1px solid var(--color-screen-rule); border-radius: 6px; background: var(--color-screen-well); font: 12px var(--font-mono); }
 .name-input:focus-within { border-color: var(--color-screen-muted); }

@@ -209,9 +209,9 @@
               <button :each="f in cutFormats" :aria-pressed="f.name === cutFormat ? 'true' : 'false'" :onclick="cutFormat = f.name" :title="f.text" :text="f.label"></button>
             </div>
             <p class="form-note" :text="cutFormats.find(f => f.name === cutFormat)?.text"></p>
-            <div class="field">
-              <span class="field-label">Frames</span>
-              <div class="choices" role="group" aria-label="Frames a second">
+            <div class="field under">
+              <span class="field-label">Frames a second</span>
+              <div class="choices wide" role="group" aria-label="Frames a second">
                 <button :each="r in frameRates" :aria-pressed="fps === r ? 'true' : 'false'" :onclick="fps = r" :title="r ? r + ' frames a second' : 'The video\'s own rate, read from its file (30 for a sound alone)'" :text="r ?? 'Auto'"></button>
               </div>
             </div>
@@ -256,6 +256,8 @@
             <button class="speed-pill" :inert="!playing" :onclick="turnSpeed" :text="speedText" aria-label="Speed" title="Speed, the pitch kept: 1×, 1.5×, 2× in turn; the Play menu, a list (Play held and dragged: any, 0.1× to 10×)"></button>
           </span>
           <button class="loop" :aria-pressed="loop ? 'true' : 'false'" aria-label="Loop" :title="loop ? 'Looping: playback repeats the selection or the whole output. Click to stop' : 'Loop playback'" :onclick="toggleLoop" :disabled="!whole"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11V6h17m-4-4 4 4-4 4M21 13v5H4m4-4-4 4 4 4"/></svg></button>
+          <!-- before the edits: the file as it opened, level-matched, at the same place; again, after (B) -->
+          <button class="before" :aria-pressed="ab ? 'true' : 'false'" :onclick="toggleAB" :disabled="!canCompare" :title="canCompare ? (ab ? 'Hearing it before the edits: the file as it opened, level-matched. Click for after (B)' : 'Hear it before the edits: the file as it opened, level-matched, from the same place (B)') : 'A generated sound has no file as it opened to hear it against'">Before</button>
           <!-- the time, and after it how long all that is selected is, or with nothing selected all of the sound, softer;
                with no sound, nothing, what the engine says coming right after the time -->
           <p class="clock" :title="timeTitle" aria-live="off"><span class="time" :text="timeText" :onclick="bringTime" :title="timeTitle + '. Click: the view brought to it'">0:00.000</span><span class="length" :class="{ whole: lengthWhole }" :text="lengthText" :onclick="frameLength" :title="lengthTitle"></span></p>
@@ -384,7 +386,7 @@
         <dt>= − 0</dt><dd>Zoom in, out, show all (all the frequencies, full scale)</dd>
         <dt>⌘P</dt><dd>The palette: the edits for what is selected, and every method, found by typing (⌘K too)</dd>
         <dt>Delete, ⌘X ⌘C ⌘V, ⌘Z ⇧⌘Z</dt><dd>Edit the selection; undo, redo, as the arrows over the picture do. Each edit is a step of the chain, its seams crossfaded (the settings)</dd>
-        <dt>B</dt><dd>Hear the file as it opened, level-matched, at the same place; B again, the output</dd>
+        <dt>B, Before</dt><dd>Hear the file as it opened, level-matched, at the same place; B or Before again, the output. Before is on the deck, after Loop</dd>
         <dt>Record</dt><dd>Into the picture from the caret, drawn as the waveform or the spectrogram, its level and spectrum on the meters, over what is there, as a tape; into a selection, to its end (with the loop on, pass after pass). Stopped, the caret waits where the take ended: Record again records on. Undo takes it back</dd>
         <dt>M</dt><dd>A marker at the caret, or over the selection, its flag over the picture, its name asked for; drag the flag (a range's bar) to move it, click its name or double-click the flag to rename it; right-click it to name it or take it away</dd>
         <dt>Edits</dt><dd>Every step of the chain, a panel. Choose one: the output up to it, and its settings; again, or Esc, the whole chain. An edit made then goes in right after it, the steps after it kept. Its power switch bypasses it, to hear the output without it; its × takes it away; open, its Δ: what it takes out. Dragged, a row goes where it is let go, into a group or out of one. Shift picks a range, ⌘G makes it a group, ⇧⌘G unmakes it, a double-click names it. Right-clicked, its menu: mute, move, group, flatten up to it or all of it (made one sound, kept as a take is), remove. A recipe's steps are one group under its name, folded; a press unfolds it, its switch and × act on all of them. Add an edit, under them: the palette</dd>
