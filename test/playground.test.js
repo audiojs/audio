@@ -147,17 +147,20 @@ test('engine: a file decoding, the worker answers the page at once', async () =>
 
 // A run another takes the place of before it is whole is paused, not let go (worker.js pause): the same script asked
 // for again (a step turned off and back on as it renders) goes on from where it was, sample for sample as it comes
-// rendered whole at once; one left paused goes on by itself while nothing else runs, and is kept: asked for, it is there
-test('engine: a run cut short goes on from where it was, its samples as rendered whole, and left alone is kept', async () => {
+// rendered whole at once; one left paused does nothing (its blocks counted by a step after it, `tick`): what is turned
+// off costs nothing
+test('engine: a run cut short goes on from where it was, its samples as rendered whole, and left alone does nothing', async () => {
   let seed = 7
   const x = Float32Array.from({ length: 30 * RATE }, (_, i) => .3 * Math.sin(2 * Math.PI * 330 * i / RATE) + .1 * ((seed = seed * 16807 % 2147483647) / 2147483647 - .5))
   await page.goto(origin + '/blank.html')
   const r = await page.evaluate(async channel => {
     const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
     const open = async () => { const e = engine(new URL('/playground/dist/worker.js', location.href)); await e.file('n.wav', { channels: [Float32Array.from(channel)], sampleRate: 48000 }); return e }
-    const A = prepare(`audio('n.wav').omlsa()`), B = prepare(`audio('n.wav')`), C = prepare(`audio('n.wav').omlsa({ threshold: 0.5 })`)
+    const TICK = `audio.op('tick', { process: (input, output) => { globalThis.ticks = (globalThis.ticks ?? 0) + 1; input.forEach((x, c) => output[c].set(x)) } })\n`
+    const A = prepare(`audio('n.wav').omlsa()`), B = prepare(`audio('n.wav')`), C = prepare(TICK + `audio('n.wav').omlsa({ threshold: 0.5 }).tick()`)
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
     const timed = async (e, s) => { const t = performance.now(), o = await e.render(s); return { o: o.output, ms: performance.now() - t } }
+    const ticks = async e => +(await e.run(prepare('globalThis.ticks ?? 0'))).value
     const fresh = await open(), whole = await timed(fresh, A), wholeC = await timed(fresh, C)
     const e = await open()
     await e.render(B)
@@ -166,19 +169,105 @@ test('engine: a run cut short goes on from where it was, its samples as rendered
     await sleep(whole.ms / 4)
     await e.render(B)
     const back = await timed(e, A)
-    // cut short again, then left alone: it goes on by itself, and is there when asked
+    // cut short again, then left alone: it does nothing; asked for, it goes on from where it was
     e.render(C)
     await sleep(wholeC.ms / 4)
     await e.render(B)
-    await sleep(wholeC.ms * 2)
-    const kept = await timed(e, C)
+    const paused = await ticks(e)
+    await sleep(wholeC.ms)
+    const still = await ticks(e), later = await timed(e, C)
     const diff = (p, q) => p.channels[0].length === q.channels[0].length ? p.channels[0].reduce((m, v, i) => Math.max(m, Math.abs(v - q.channels[0][i])), 0) : Infinity
-    return { whole: whole.ms, back: back.ms, kept: kept.ms, backDiff: diff(whole.o, back.o), keptDiff: diff(wholeC.o, kept.o) }
+    return { whole: whole.ms, back: back.ms, backDiff: diff(whole.o, back.o), laterDiff: diff(wholeC.o, later.o), paused, still }
   }, [...x])
   assert.equal(r.backDiff, 0, 'gone on from where it was: the same samples as rendered whole')
   assert.ok(r.back < r.whole * .9, `the rest of it alone: ${r.back.toFixed(0)} ms, whole ${r.whole.toFixed(0)} ms`)
-  assert.equal(r.keptDiff, 0, 'gone on alone: the same samples')
-  assert.ok(r.kept < r.whole / 4, `kept, there at once: ${r.kept.toFixed(0)} ms`)
+  assert.ok(r.paused > 0, `it had begun: ${r.paused} blocks`)
+  assert.equal(r.still, r.paused, 'left alone, not a block more')
+  assert.equal(r.laterDiff, 0, 'asked for later, it goes on: the same samples')
+})
+
+// A step reading its input whole (any op's or plugin's prepare: rebalance's separation, declip's) can't be stopped but by
+// the worker's end: turned off, or a setting of it changed, as it runs, the worker says it is held and is replaced, the
+// pass gone with it; the very same step the newest run takes again (an edit added after it) runs on, the worker kept,
+// the newest's own pass after it, never two at once. Stop during a pass replaces the worker
+test('engine: a pass no run takes any more is stopped, the worker replaced; one taken again runs on, alone', async () => {
+  const x = Float32Array.from({ length: 2 * RATE }, (_, i) => .3 * Math.sin(2 * Math.PI * 330 * i / RATE))
+  await page.goto(origin + '/blank.html')
+  const r = await page.evaluate(async channel => {
+    const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
+    const e = engine(new URL('/playground/dist/worker.js', location.href))
+    let restarts = 0
+    e.onrestart = () => restarts++
+    await e.file('n.wav', { channels: [Float32Array.from(channel)], sampleRate: 48000 })
+    // a pass of 1.5 s, giving way as a model on the GPU does, what it made kept on its edit as the ops keep theirs (asked
+    // again, it is there): each turn counted, and how many run at once
+    const SLOW = `const MADE = Symbol.for('made'); audio.op('slow', { params: ['k'], prepare: (a, i) => { const o = a.edits[i][1], g = globalThis; if (o[MADE]) return; return new Promise(done => { g.now = (g.now ?? 0) + 1; g.most = Math.max(g.most ?? 0, g.now); let i = 0; const t = setInterval(() => { g.turns = (g.turns ?? 0) + 1; if (++i === 30) { clearInterval(t); g.now--; o[MADE] = true; done() } }, 50) }) }, process: (input, output) => input.forEach((x, c) => output[c].set(x)) })\n`
+    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+    await e.render(prepare(`audio('n.wav')`))
+    // an edit added after it as it runs: taken again, the newest's own after it
+    e.render(prepare(SLOW + `audio('n.wav').slow(1)`))
+    await sleep(300)
+    const after = await e.render(prepare(SLOW + `audio('n.wav').slow(1).gain(-1)`)), kept = restarts
+    // the steps of it kept meanwhile (checkpoint), a run of the same chain answers how many ran at once
+    await sleep(2000)
+    const most = +(await e.run(prepare(SLOW + `audio('n.wav').slow(1).gain(-1)\nglobalThis.most`))).value
+    // a setting of it changed as it runs: let go of, the worker replaced (the steps kept after the last run done first)
+    await sleep(2000)
+    let was = restarts
+    e.render(prepare(SLOW + `audio('n.wav').slow(2)`))
+    await sleep(300)
+    const changed = await e.render(prepare(SLOW + `audio('n.wav').slow(3)`)), onChange = restarts - was
+    // turned off as it runs: let go of
+    await sleep(2000)
+    was = restarts
+    e.render(prepare(SLOW + `audio('n.wav').slow(4)`))
+    await sleep(300)
+    const off = await e.render(prepare(`audio('n.wav')`)), onOff = restarts - was
+    await sleep(500)
+    const turns = +(await e.run(prepare('globalThis.turns ?? 0'))).value
+    // Stop as it runs
+    e.render(prepare(SLOW + `audio('n.wav').slow(5)`))
+    await sleep(300)
+    const stopped = await e.stop()
+    const n = o => o.output?.channels[0].length
+    return { kept, most, onChange, onOff, turns, stopped, after: n(after), changed: n(changed), off: n(off) }
+  }, [...x])
+  assert.equal(r.kept, 0, 'an edit added after it: the pass taken again, the worker kept')
+  assert.equal(r.most, 1, 'the newest\'s own pass after the one in flight, never two at once')
+  assert.equal(r.after, 2 * RATE)
+  assert.equal(r.onChange, 1, 'a setting of it changed: the worker replaced')
+  assert.equal(r.changed, 2 * RATE)
+  assert.equal(r.onOff, 1, 'turned off: the worker replaced')
+  assert.equal(r.off, 2 * RATE, 'the output without it, whole')
+  assert.equal(r.turns, 0, 'no pass runs on in the worker after')
+  assert.equal(r.stopped, true, 'Stop during a pass replaces the worker')
+})
+
+// A step rendering its input whole (a stretch, any plugin over all of it) holds the worker till it ends. The steps of an
+// output kept after it (worker.js checkpoint) take what the output's render made of it, not making it again: taken away
+// at once, nothing waits on it, and a step after it changed renders from it
+test('engine: a step rendering its input whole is made once, kept from the render, never again behind the page\'s back', async () => {
+  const x = Float32Array.from({ length: 2 * RATE }, (_, i) => .3 * Math.sin(2 * Math.PI * 330 * i / RATE))
+  await page.goto(origin + '/blank.html')
+  const r = await page.evaluate(async channel => {
+    const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
+    const e = engine(new URL('/playground/dist/worker.js', location.href))
+    await e.file('n.wav', { channels: [Float32Array.from(channel)], sampleRate: 48000 })
+    // a whole step of a second, at once, each time counted
+    const HEAVY = `audio.op('heavy', { whole: (input, output) => { globalThis.wholes = (globalThis.wholes ?? 0) + 1; const t = performance.now(); while (performance.now() - t < 1000); input.forEach((x, c) => output[c].set(x)) } })\n`
+    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+    const timed = async code => { const t = performance.now(), o = await e.render(prepare(code)); return { n: o.output?.channels[0].length, ms: performance.now() - t } }
+    const first = await timed(HEAVY + `audio('n.wav').heavy().gain(-1)`)
+    await sleep(300)
+    const tweaked = await timed(HEAVY + `audio('n.wav').heavy().gain(-2)`)
+    const gone = await timed(`audio('n.wav').gain(-1)`)
+    const wholes = +(await e.run(prepare('globalThis.wholes'))).value
+    return { first, tweaked, gone, wholes }
+  }, [...x])
+  assert.ok(r.first.ms > 1000 && r.first.n === 2 * RATE, `made: ${r.first.ms.toFixed(0)} ms`)
+  assert.equal(r.wholes, 1, 'made once: kept from the render, not made again')
+  assert.ok(r.tweaked.ms < 500 && r.tweaked.n === 2 * RATE, `a step after it changed, from what it made: ${r.tweaked.ms.toFixed(0)} ms`)
+  assert.ok(r.gone.ms < 500 && r.gone.n === 2 * RATE, `taken away, nothing waits on it: ${r.gone.ms.toFixed(0)} ms`)
 })
 
 // An edit added at the end of the script renders on the last output's samples (worker.js rebased), not the whole script

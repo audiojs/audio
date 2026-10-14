@@ -430,6 +430,9 @@ async function execute({ id, code, names = [], tab = null, peaks = 0, preview = 
     // this run's output is the one that streams now; an older one still streaming stops, paused where it was (pause)
     newest = id
     for (const r of outputs.values()) if (!r.done) pause(r)
+    // a model's pass still running for what it no longer takes (a step turned off, taken away, set otherwise): the worker
+    // replaced (orphaned)
+    if (orphaned(layers ? layers.map(t => t.instance) : output ? [output] : [])) post({ id, event: 'held' })
     if (!output) { for (const r of outputs.values()) if (r.tab === tab) drop(r); dispose(run.created); return result }
     const record = { id, tab, peaks, preview, instance: output, tracks: layers, created: run.created, saves: run.saves, names, tape: null, sound: null, length: 0, sampleRate: 0, done: false }
     record.finished = new Promise(resolve => { record.finish = resolve })
@@ -462,17 +465,19 @@ function drop(r) {
 
 // ── Runs paused ───────────────────────────────────────────────
 // A run another takes the place of before it has all its output (an edit added, a step turned off, while it renders) is
-// paused, not let go: its stream held where it was, what it made kept (its tape stopped: a tape still filling reads
-// back only once it is). Asked for again (the step turned back on), it goes on from there, what it made shown at once;
-// nothing else running, it goes on alone and, whole, is kept as any output is (store, shelve). The same stream going
-// on: the same samples as had it never paused. The newest PAUSED kept
+// paused, not let go: its stream held where it was, what it made kept (its tape stopped once its stream gives no more:
+// a tape still filling reads back only once it is). Asked for again (the step turned back on), it goes on from there,
+// what it made shown at once: the same samples as had it never paused. Not asked, it does nothing: what is turned off
+// costs nothing. The newest PAUSED kept
 const PAUSED = 2
 const paused = new Map()       // key → run
 function pause(r) {
   if (!r.blocks || !keyed(r)) return drop(r)
   outputs.delete(r.id)
   r.finish(null)
-  stopTape(r)
+  r.paused = true
+  // its stream all given already, its figures still being read: what it made is all of it
+  if (r.sound) { r.made = r.sound; r.tape = null }
   const key = r.keys.at(-1)
   unpause(key)
   paused.set(key, r)
@@ -482,6 +487,7 @@ function unpause(key) {
   const r = paused.get(key)
   if (!r) return
   paused.delete(key)
+  r.paused = false
   r.blocks.return?.()
   dispose(r.created)
   r.tape?.dispose()
@@ -505,29 +511,6 @@ function adopt(record, r) {
   dispose(record.created)
   Object.assign(record, { instance: r.instance, created: r.created, blocks: r.blocks, from: r })
 }
-// While nothing else runs (`idle`), the paused runs go on, the newest first, each kept once whole
-async function resume(idle) {
-  for (const [key, r] of [...paused].reverse()) {
-    if (!idle()) return
-    try {
-      await (r.pulling = (async () => {
-        await retape(r)
-        await relay(r.blocks, idle, (at, channels) => keep(r, at, channels), () => r.instance.sampleRate, true)
-        // stopped by another run before its end: what it made kept again, to go on from
-        if (!idle()) stopTape(r)
-      })().finally(() => { r.pulling = null }))
-      if (!idle() || paused.get(key) !== r) return
-      paused.delete(key)
-      const sound = (r.tape ??= tape(r.instance.sampleRate, r.instance.channels)).stop(), end = r.length / r.sampleRate
-      const e = { sound, sampleRate: r.instance.sampleRate, ...marksAt(r.instance), figures: await figuresOf(sound), bitDepth: r.instance.bitDepth ?? null }
-      e.markers = e.markers.filter(m => m.time <= end)
-      store(key, e)
-      shelve(await r.content, e)
-      dispose(r.created)
-    } catch { unpause(key) }
-  }
-}
-
 // ── Renders kept ──────────────────────────────────────────────
 // What a chain made, kept by what made it (keysOf): the source it opens, the marks its script put, its edits up to a step.
 // A run that starts as one kept renders only what follows it, on its samples (based): an edit added at the end, a step
@@ -628,8 +611,8 @@ async function render(r) {
   }
   if (!alive()) return
   if (hit) return replay(r, hit)
-  // a run paused, taken up again: what it made so far, once its stream is let go of where it went on alone
-  if (r.from) { await r.from.pulling?.catch(() => {}); Object.assign(r, { made: r.from.made, length: r.from.length, sampleRate: r.from.sampleRate }); r.from = null }
+  // a run paused, taken up again: what it made so far, once its stream has given what it had when it paused
+  if (r.from) { await r.from.going?.catch(() => {}); Object.assign(r, { made: r.from.made, length: r.from.length, sampleRate: r.from.sampleRate }); r.from = null }
   const patched = r.blocks ? null : await fragment(r)
   if (!alive()) return
   if (patched) {
@@ -641,6 +624,8 @@ async function render(r) {
   // (`preview`) and the output waits for a step reading its input whole (prepare), at once, before that step holds the
   // worker: the page shows it, dim, while the output is made
   const a = r.based?.instance ?? r.instance
+  inputs.set(a, r.keys.slice(r.based?.at ?? 0))
+  r.streamed = { a, at: r.based?.at ?? 0 }
   // a registry plugin's op first loaded, as rendering would load it: what it is (its prepare) known before
   for (const [type] of a.edits) if (!audio.op(type) && audio.plugins?.[type]) await audio.use(type).catch(() => {})
   if (!alive()) return
@@ -654,13 +639,13 @@ async function render(r) {
   try {
     // a run paused and taken up again: what it made, at once
     if (r.made) await retape(r, (at, channels) => { first = true; if (alive()) out.send(at, channels) })
-    // its stream held on it, so another run taking its place pauses it where it is (pause)
+    // its stream held on it, so another run taking its place pauses it where it is (pause): what it made then kept
     r.blocks ??= a.stream()[Symbol.asyncIterator]()
-    await relay(r.blocks, alive, (at, channels) => {
+    await (r.going = relay(r.blocks, alive, (at, channels) => {
       first = true
       keep(r, at, channels)
       if (alive()) out.send(at, channels)
-    }, () => r.instance.sampleRate, true)
+    }, () => r.instance.sampleRate, true).finally(() => { if (r.paused) stopTape(r) }))
     if (!alive()) return
     out.end()
     r.sampleRate ||= r.instance.sampleRate
@@ -802,9 +787,8 @@ function finish(r, e) {
   const markers = [...e.markers, ...e.regions.map(({ at, ...g }) => ({ time: at, ...g }))].sort((p, q) => p.time - q.time)
   post({ id: r.id, event: 'done', long: !!r.peaks && (!!r.long || r.length * r.sound.channels > r.peaks), duration: r.length / r.sampleRate, sampleRate: r.sampleRate, channels: r.sound.channels, stats: e.figures.stats, segments: e.figures.segments, markers, clips: e.figures.clips, bitDepth: e.bitDepth ?? r.instance.bitDepth ?? null })
   r.finish(r)
-  // nothing else running: the runs paused go on, then the steps of this one are kept
-  const idle = () => newest === r.id && outputs.has(r.id)
-  resume(idle).then(() => checkpoint(r))
+  // nothing else running: the steps of this one are kept
+  checkpoint(r)
 }
 // An output's figures: its peak, RMS and loudness; where it clips, the blocks with a sample at full scale or past it
 // (stat('clipping')), runs of them as [from, to] s; its pauses
@@ -816,7 +800,10 @@ async function figuresOf(sound) {
 }
 // The steps of an output kept while nothing else runs, each rendered from the one before it: those that took long (CHEAP
 // ms and more since the last one kept) and the one before the last edit, so a step changed, turned off or chosen renders
-// from just before it. None for a script with marks of its own (a mark after a step would be lost on what came before it)
+// from just before it. A step rendering its input whole (a stretch, a plugin over all of it) runs at once, the worker
+// held till it ends, nothing heard meanwhile, not even a newer run: it is not made again here, but taken from what the
+// output's render made of it (rendered), or the steps from it on are not kept. None for a script with marks of its own
+// (a mark after a step would be lost on what came before it)
 const CHEAP = 50
 async function checkpoint(r) {
   const keys = r.keys, edits = r.instance.edits, n = Math.min(keys.length, edits.length), idle = () => newest === r.id && outputs.has(r.id)
@@ -827,9 +814,16 @@ async function checkpoint(r) {
     if (!idle()) return
     const known = recall(keys[k])
     if (known) { last = known; at = k; cost = 0; continue }
+    if (audio.op(edits[k - 1][0])?.whole) {
+      const e = rendered(r, k)
+      if (!e) return
+      store(keys[k], e); last = e; at = k; cost = 0
+      continue
+    }
     // from the last step made, else (a paste whose copy came before it) from the source
     let a
     try { a = last ? from(last, edits.slice(at, k)) : prefix(r.instance, k) } catch { a = prefix(r.instance, k) }
+    inputs.set(a, keys.slice(k - a.edits.length))
     const started = performance.now()
     try {
       announce(a.edits)
@@ -842,6 +836,19 @@ async function checkpoint(r) {
     } catch { return }
     finally { a.dispose?.() }
   }
+}
+// What a step rendering its input whole made of it in the output's render (plan.js keeps it on the sound that rendered,
+// by the step's place there): the output's first `k` edits, as kept; null where there is none
+function rendered(r, k) {
+  const s = r.streamed, i = k - 1 - (s?.at ?? 0), cache = s?.a._.wrc
+  if (i < 0 || !cache || cache.v !== s.a.version) return null
+  const sound = [...cache.m].findLast(([key]) => key.startsWith(`${i}:`))?.[1]
+  if (!sound) return null
+  // its marks as the steps up to it leave them: none where the file it opens has none
+  const p = prefix(r.instance, k), src = roots.get(r.instance)
+  try { return { sound, sampleRate: sound.sampleRate, ...marksAt(p) } }
+  catch { return src?._.markers?.length || src?._.regions?.length ? null : { sound, sampleRate: sound.sampleRate, markers: [], regions: [] } }
+  finally { p.dispose?.() }
 }
 // An instance's sound, rendered a block at a time onto a tape, giving way to whatever the page asks (turns); null once
 // `going()` says to stop
@@ -866,6 +873,7 @@ async function made(a, keys = keysOf(a), going = () => true) {
     try { b = from(e, a.edits.slice(k)) } catch {}
     break
   }
+  inputs.set(b, keys.slice(n - b.edits.length))
   try {
     announce(b.edits)
     const sound = await collect(b, going)
@@ -954,12 +962,37 @@ function announce(edits) {
     const prepare = d.prepare
     d.prepare = async (a, i) => {
       const id = newest, doing = ({ op, stages }) => op === type && post({ id, event: 'doing', step: `${type}: ${named(stages)}` })
+      // the same step over the same input already in flight: this one after it, so the two never run at once (an op that
+      // keeps what it made by memo() then has it at once)
+      const key = inputs.get(a)?.[i + 1] ?? null
+      for (let p; key && (p = [...passes].find(q => q.key === key));) await p.done
+      let settle
+      const pass = { type, key, done: new Promise(resolve => { settle = resolve }) }
+      passes.add(pass)
       post({ id, event: 'doing', step: type })
       a.on('doing', doing)
-      try { return await prepare(a, i) } finally { a.off('doing', doing); post({ id, event: 'doing', step: null }) }
+      try { return await prepare(a, i) } finally {
+        a.off('doing', doing); post({ id, event: 'doing', step: null })
+        passes.delete(pass)
+        settle()
+      }
     }
     announced.add(d)
   }
+}
+// The passes in flight (a step reading its input whole, as announced: any op's or plugin's prepare), each by its step's
+// key (keysOf: the step, its settings and all before it), or none where it can't be told (a function or samples in its
+// edits, a sound a step reads from inside its own pass): that one is no one's to judge, and runs on. A step turned off
+// or taken away, a setting of it changed, an edit before it changed while it runs over the sound leaves it running, as
+// nothing stops it but the worker's end: one the newest run does not take again (the very same step over the same
+// input: an edit added or changed after it) is orphaned, the worker says so (`held`) and the page replaces it, as it
+// does one held. One taken again, the newest's own waits for it (above)
+const inputs = new WeakMap()   // a sound rendered → the keys of its start and of each of its edits (keysOf)
+const passes = new Set()       // { type, key, done }
+function orphaned(sounds) {
+  if (!passes.size) return false
+  const needs = new Set(sounds.flatMap(a => { const keys = keysOf(a); return a.edits.map(([type], i) => keys[i + 1] ?? `${type}@?`) }))
+  return [...passes].some(p => p.key && !needs.has(p.key) && !needs.has(`${p.type}@?`))
 }
 // How long the output will be: known once its files have all arrived; until then what the first still arriving says
 // it lasts, with how much of it has come
@@ -1487,7 +1520,7 @@ const handlers = {
     data ? files.set(name, data) : files.delete(name); forget(name); stages.clear(); return {}
   },
   // Stop: the output streaming stops, and the script running makes none; those whole stay
-  stop: ({ id }) => { stopped = id; newest = 0; for (const r of outputs.values()) if (!r.done) drop(r); for (const k of [...paused.keys()]) unpause(k); return {} },
+  stop: ({ id }) => { stopped = id; newest = 0; for (const r of outputs.values()) if (!r.done) drop(r); for (const k of [...paused.keys()]) unpause(k); return { held: passes.size > 0 } },
   run: execute, cues, contour, listen, export: exporting, describe, check: checking, original, voice, samples, eval: evaluate,
   // a tab closed: its output goes
   close: ({ tab }) => { for (const r of outputs.values()) if (r.tab === tab) drop(r); for (const [k, r] of [...paused]) if (r.tab === tab) unpause(k); return {} },

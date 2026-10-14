@@ -8,7 +8,9 @@
 // the samples where it zooms in (samples).
 // Stop ends a run where the worker is free to hear it, its outputs kept; a worker held by a step that reads its input
 // whole (a model's pass, a plugin over all of it) for longer than HELD ms is replaced instead, as it is when a newer
-// run waits on it: the outputs it kept then go with it (onrestart).
+// run waits on it, or when such a step still runs for what no longer takes it (a step turned off or taken away while
+// its model runs: the worker says it is `held`), as nothing else stops it: the outputs it kept then go with it
+// (onrestart).
 const HELD = 500
 // calls a worker replaced would lose work of its own in: what an export or a check is still making
 const LASTING = new Set(['export', 'bake', 'check', 'eval'])
@@ -68,7 +70,8 @@ function decks(url) {
 }
 
 export default function engine(url = WORKER) {
-  // `held`: run id → the timer replacing the worker, unless it says it took the run (taken) by then
+  // `held`: run id → { again: the run sent to a new worker in place of this one, timer: again unless the worker says it
+  // took the run (taken) by then }; till the run's reply
   const files = new Map(), pending = new Map(), described = new Map(), listeners = new Map(), held = new Map()
   let worker, ids = 0, running = null, queued = null
 
@@ -76,7 +79,8 @@ export default function engine(url = WORKER) {
     worker = url === WORKER && early && !early.failed ? early : new Worker(url, { type: 'module' })
     if (url === WORKER) early = null
     worker.onmessage = ({ data }) => {
-      if (data.event === 'taken') return clearTimeout(held.get(data.id)), held.delete(data.id)
+      if (data.event === 'taken') return clearTimeout(held.get(data.id)?.timer)
+      if (data.event === 'held') return held.get(data.id)?.again()
       if (data.event) {
         const on = listeners.get(data.id)
         if (data.event === 'done' || data.event === 'error') listeners.delete(data.id)
@@ -109,7 +113,7 @@ export default function engine(url = WORKER) {
   // A new worker in place of one held, what waited on it ended (end), but a plugin's parameters, asked of the new one
   function replace(message, ended) {
     worker.terminate()
-    for (const t of held.values()) clearTimeout(t)
+    for (const h of held.values()) clearTimeout(h.timer)
     held.clear()
     const again = [...pending].filter(([, c]) => c.type === 'describe')
     for (const [id] of again) pending.delete(id)
@@ -120,7 +124,8 @@ export default function engine(url = WORKER) {
   }
   // Whether the worker may be replaced for run `id`: an older output streams, which it no longer needs, and nothing of
   // lasting work waits on it
-  const replaceable = id => [...listeners.keys()].some(k => k < id) && ![...pending.values()].some(c => LASTING.has(c.type))
+  const lasting = () => [...pending.values()].some(c => LASTING.has(c.type))
+  const replaceable = id => [...listeners.keys()].some(k => k < id) && !lasting()
 
   async function drain() {
     while (queued) {
@@ -136,20 +141,22 @@ export default function engine(url = WORKER) {
     running = null
   }
   // A run sent; while an older output streams, a worker that has not taken it within HELD ms is held by that output's
-  // step: replaced, the older output skipped, and the run sent to the new one
+  // step, and one that says it is held runs a step no longer taken: replaced, the older output skipped, and the run sent
+  // to the new one
   function submit(script, on) {
     const reply = call({ type: 'run', ...script }, [], on), id = ids
-    if (!replaceable(id)) return reply
     return new Promise(resolve => {
-      reply.then(resolve)
-      held.set(id, setTimeout(() => {
+      reply.then(r => { clearTimeout(held.get(id)?.timer); held.delete(id); resolve(r) })
+      const again = () => {
+        clearTimeout(held.get(id)?.timer)
         held.delete(id)
-        if (!pending.has(id) || !replaceable(id)) return
+        if (!pending.has(id) || lasting()) return
         pending.delete(id)
         listeners.delete(id)
         replace('Stopped.', on => on.skip?.())
         call({ type: 'run', ...script }, [], on).then(resolve)
-      }, HELD))
+      }
+      held.set(id, { again, timer: replaceable(id) && setTimeout(() => replaceable(id) && again(), HELD) })
     })
   }
 
@@ -205,13 +212,15 @@ export default function engine(url = WORKER) {
         }).then(r => { reply = r; settle() })
       })
     },
-    // A run's output, or a script, stopped: the worker told to, its outputs kept, or, held past HELD ms, replaced;
-    // true when it was (what it kept went with it)
+    // A run's output, or a script, stopped: the worker told to, its outputs kept, or, held past HELD ms or by a step
+    // reading its input whole (a model's pass, which nothing else stops), replaced; true when it was (what it kept went
+    // with it)
     async stop() {
       queued?.resolve({ skipped: true })
       queued = null
       const told = call({ type: 'stop' }), late = new Promise(resolve => setTimeout(resolve, HELD, 'late'))
-      if (await Promise.race([told, late]) === 'late') { replace('Stopped.'); return true }
+      const r = await Promise.race([told, late])
+      if (r === 'late' || r.held) { replace('Stopped.'); return true }
       for (const on of listeners.values()) on.error?.({ error: { message: 'Stopped.' } })
       listeners.clear()
       return false
