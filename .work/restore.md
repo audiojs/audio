@@ -136,8 +136,10 @@ trains on teacher outputs the way LibriTTS-R is Miipher's: distillation by data,
 - The teacher pass: Sidon at 500× real time cleans 1000 h in a few GPU hours. Separation of music for singing
   targets: mel-roformer at RTF 0.44 on the laptop's WebGPU, 100 h of music a day; on a CUDA card far less.
 - Smaller sibling for the page: dim 384, 6 blocks (~8M, ~16 MB fp16) trained the same way; measure what it loses.
-- Checked to work before any GPU is paid for: `train/restore/test.py` runs the chain, a training run with resume,
-  ONNX export matching torch, inference in chunks, on CPU with synthetic voices.
+- Checked to work before any GPU is paid for (torch 2.14, CPU, this session): `train/restore/test.py` runs the chain
+  with all four codecs, a training run with resume, ONNX export within 123 dB of torch at two lengths, inference in
+  chunks on a 25 s file; the WavLM loss path by shape on an untrained model of the same class (the weights' host
+  was unreachable here). Untested: CUDA / MPS, real data at scale, the adversarial phase beyond a few steps.
 
 ## Evaluation
 

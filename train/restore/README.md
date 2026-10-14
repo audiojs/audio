@@ -16,6 +16,11 @@ python score.py --ref clean/ --out restored/                                    
 python test.py                                                                           # smoke test, CPU, a minute
 ```
 
+`score.py` also needs `pesq pyloudnorm` (`pesq` builds from source: on Python 3.13 it needs `setuptools<70` in the build, or Python 3.12).
+
+```
+```
+
 | File | What |
 |---|---|
 | `dsp.py` | the STFT (2048/512 at 48 kHz), levels, the band limit every loss passes through, mel, resampling, the bandwidth a file carries |
