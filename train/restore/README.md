@@ -4,6 +4,8 @@ The training side of `audio`'s coming `restore()` op: one network that takes a v
 through a cheap microphone, a codec or a phone, speech or singing, and gives back the voice as a studio would have
 recorded it, at 48 kHz. The plan, the data and what is known are in [`.work/restore.md`](../../.work/restore.md).
 
+On a GPU machine, `bash run.sh all` does all of the below (about 20 GB of downloads: LibriTTS-R train-clean-100, VCTK, MUSAN, VocalSet). By hand:
+
 ```
 pip install torch torchaudio soundfile scipy onnx onnxruntime onnxconverter-common     # ffmpeg on PATH for codecs
 python data.py scan en.json  /data/vctk /data/libritts-r --kind speech --lang en       # manifests, bandwidth per file
@@ -33,3 +35,4 @@ python test.py                                                                  
 | `infer.py` | files through a checkpoint or the ONNX, chunked |
 | `score.py` | `bench/speech.py`'s measures plus LSD on a directory of outputs against references |
 | `test.py` | the whole path on synthetic voices, CPU |
+| `run.sh` | one command on a GPU machine: fetch the open data, scan, train, export (`bash run.sh all`; `small` for the browser-size model) |
