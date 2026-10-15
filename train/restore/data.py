@@ -3,6 +3,8 @@
     python data.py scan OUT.json DIR [DIR...] [--kind speech|sing] [--lang en|ru|..]
         every audio file under the DIRs: its rate, length and the bandwidth it carries (dsp.bandwidth), one
         manifest; a corpus at 16 or 24 kHz is kept, its band edge recorded, so the losses stop at it (dsp.band)
+    python data.py pairs OUT_DIR N --clean A.json[,B.json] [--rirs DIR] [--noises DIR] [--seg 4]
+        N training pairs as the trainer would draw them, <k>-in.wav and <k>-ref.wav: listen before training
 
 Pairs(manifests, rirs, noises, seg) draws a crop of `seg` seconds from a random file (by length), at 48 kHz mono,
 at a random level, through degrade.Chain, and yields (degraded, clean, bandwidth_hz). An IterableDataset: each
@@ -89,7 +91,17 @@ class Pairs(IterableDataset):
 if __name__ == '__main__':
     import argparse
     a = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    a.add_argument('cmd', choices=['scan']); a.add_argument('out'); a.add_argument('dirs', nargs='+')
+    a.add_argument('cmd', choices=['scan', 'pairs']); a.add_argument('out'); a.add_argument('dirs', nargs='*')
     a.add_argument('--kind', default='speech', choices=['speech', 'sing']); a.add_argument('--lang', default='en')
+    a.add_argument('--clean'); a.add_argument('--rirs'); a.add_argument('--noises'); a.add_argument('--seg', type=float, default=4.0)
     o = a.parse_args()
-    scan(o.out, o.dirs, o.kind, o.lang)
+    if o.cmd == 'scan':
+        scan(o.out, o.dirs, o.kind, o.lang)
+    else:
+        n = int(o.dirs[0]) if o.dirs else 10
+        pairs = Pairs(o.clean.split(','), Bank(o.rirs, rir=True).items if o.rirs else (), Bank(o.noises).items if o.noises else (), o.seg)
+        os.makedirs(o.out, exist_ok=True)
+        for k, (y, x, bw) in zip(range(n), pairs):
+            sf.write(os.path.join(o.out, f'{k}-in.wav'), y.numpy(), SR, subtype='FLOAT')
+            sf.write(os.path.join(o.out, f'{k}-ref.wav'), x.numpy(), SR, subtype='FLOAT')
+            print(k, f'bandwidth {int(bw)} Hz')

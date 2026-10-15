@@ -2,7 +2,8 @@
 
 The training side of `audio`'s coming `restore()` op: one network that takes a voice recorded in a room, in noise,
 through a cheap microphone, a codec or a phone, speech or singing, and gives back the voice as a studio would have
-recorded it, at 48 kHz. The plan, the data and what is known are in [`.work/restore.md`](../../.work/restore.md).
+recorded it, at 48 kHz. The plan, the data and what is known are in [`.work/restore.md`](../../.work/restore.md); the step-by-step runbook from an
+empty GPU machine to the published plugin, with go / no-go numbers, is [`HANDOUT.md`](HANDOUT.md).
 
 On a GPU machine, `bash run.sh all` does all of the below (about 20 GB of downloads: LibriTTS-R train-clean-100, VCTK, MUSAN, VocalSet). By hand:
 
@@ -27,7 +28,7 @@ python test.py                                                                  
 |---|---|
 | `dsp.py` | the STFT (2048/512 at 48 kHz), levels, the band limit every loss passes through, mel, resampling, the bandwidth a file carries |
 | `degrade.py` | the on-the-fly degradation chain: room (measured or synthetic), noise, microphone colour, compressor, clipping, band limit, codec (ffmpeg), word length |
-| `data.py` | manifests and the pair sampler (an IterableDataset: crops by length, levels, the chain) |
+| `data.py` | manifests and the pair sampler (an IterableDataset: crops by length, levels, the chain); `pairs` writes examples to listen to |
 | `model.py` | the generator (ConvNeXt over frames with self-attention, log-magnitude change + phase), the discriminators (multi-period, multi-resolution) |
 | `loss.py` | multi-resolution STFT, log-mel, WavLM feature distance, least-squares GAN, feature matching |
 | `train.py` | the run: regression warm-up, then adversarial; checkpoints, validation (LSD, SI-SDR, mel), samples |
