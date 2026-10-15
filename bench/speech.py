@@ -137,7 +137,7 @@ if __name__ == '__main__':
             names = sorted(f[:-4] for f in os.listdir(f'{d}/{SETS[set_][2]}') if f.endswith('.wav'))[k::n]
             refdir = dirs(ref)[f'{set_}-clean/{ref}'] if ref else None
             # scores of one reference: the clean one, or the clean one through --ref's stages
-            tag = 'scores' + (f'.ref-{hashlib.md5(refdir.encode()).hexdigest()[:8]}' if ref else '')
+            tag = 'scores' + (f'.ref-{hashlib.sha256(refdir.encode()).hexdigest()[:8]}' if ref else '')
             os.makedirs(os.path.join(DATA, 'recipes', set_), exist_ok=True)
             keep = n == 1  # a shard (a trial run) keeps no scores
             base = cached(os.path.join(DATA, 'recipes', set_, f'noisy.{tag}.json'), vb, [(set_, None, refdir, x, True, None) for x in names], pool, keep)
