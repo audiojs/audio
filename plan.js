@@ -3,7 +3,7 @@
  * Intercepts create/run/read/stream to track and materialize edits.
  */
 
-import audio, { readPages, copyPages, walkPages, parseTime, named, fromEnd, LOAD, READ, emit, resolveChannels, xfade, correlation } from './core.js'
+import audio, { readPages, copyPages, walkPages, missed, parseTime, named, fromEnd, LOAD, READ, emit, resolveChannels, xfade, correlation } from './core.js'
 
 let fn = audio.fn
 let ops = {}
@@ -509,15 +509,13 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
       continue
     }
 
-    for (let b of bufA) b.fill(0, 0, len)
-    renderBlock(a, plan.segs, outPos, len, bufA)
+    if (!rendered(a, plan, outPos, len, bufA)) { await ensurePlan(a, plan, outPos / sr, len / sr); rendered(a, plan, outPos, len, bufA) }
     let src = len < BS ? bufA.map(b => b.subarray(0, len)) : bufA
     let out = procs.length ? applyProcs(src, procs, outPos, sr) : src
     if (xf) {
       // the old render over the same stretch of the timeline, fading out as the new one fades in
       let ob = xf.buf
-      for (let b of ob) b.fill(0, 0, len)
-      renderBlock(a, xf.plan.segs, xf.pos, len, ob)
+      if (!rendered(a, xf.plan, xf.pos, len, ob)) { await ensurePlan(a, xf.plan, xf.pos / sr, len / sr); rendered(a, xf.plan, xf.pos, len, ob) }
       let os = len < BS ? ob.map(b => b.subarray(0, len)) : ob
       let oo = xf.procs.length ? applyProcs(os, xf.procs, xf.pos, sr) : os, k = xf.n - xf.left
       for (let c = 0; c < out.length; c++) {
@@ -531,6 +529,16 @@ fn[Symbol.asyncIterator] = fn.stream = async function*(opts) {
     if (outPos >= startSample + T) { yielded = true; yield out.map(b => b.slice(0, len)) }
     outPos += len
   }
+}
+
+
+// A block of a stream rendered into `buf`: false where it met a page let go of since its pages were ensured (another
+// reader's eviction, a store set up only now), read as silence, for the stream to restore it and render it again
+function rendered(a, plan, pos, len, buf) {
+  let m = missed
+  for (let b of buf) b.fill(0, 0, len)
+  renderBlock(a, plan.segs, pos, len, buf)
+  return missed === m
 }
 
 

@@ -20,12 +20,23 @@
     // everything has loaded, never left blank
     addEventListener('load', () => document.querySelector('#app')?.removeAttribute('data-boot'))
   </script>
+  <!-- cross-origin isolated, so a model's wasm runs on threads: where the host sends no such headers (GitHub Pages), sw.js
+       adds them, the first visit reloaded once it is in control; a browser without COEP credentialless stays on one thread -->
+  <!-- embedded in another page (embed.js): the slab alone, laid out before the first paint; no worker of its own, as a
+       frame is isolated only where the page around it is -->
+  <script>
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed')
+    else if (!crossOriginIsolated && isSecureContext && navigator.serviceWorker && !navigator.serviceWorker.controller) {
+      navigator.serviceWorker.addEventListener('controllerchange', () => location.reload(), { once: true })
+      navigator.serviceWorker.register('sw.js').catch(() => {})
+    }
+  </script>
   <!-- the engine sets off first: its worker loads while the rest of the page's scripts arrive -->
   <script type="module" async>import { start } from './playground/engine.js'; start()</script>
   <script type="module" src="playground/editor.js"></script>
 </head>
 <body>
-  <div id="app" class="app" data-boot :class="{ dropping: dropping === 'open', 'dropping-tab': dropping === 'tab' }">
+  <div id="app" class="app" data-boot :class="{ dropping: dropping === 'open' || dropping === 'track', 'dropping-tab': dropping === 'tab' }">
     <header class="bar">
       <a class="wordmark" href="./" aria-label="audio home" title="audio: the library's home page" draggable="false"><span class="logo" aria-hidden="true"><svg viewBox="0 0 96 101" fill="currentColor" stroke="currentColor" stroke-width="4.5"><path d="M0 50.4159C5.08842 50.4159 8.70378 49.9251 17.0681 24.9808C27.8621 -7.20948 35.9058 -10.5986 47.7771 50.4159H0Z"/><path d="M95.5543 50.416C90.4658 50.416 86.8505 50.9067 78.4862 75.8511C67.6922 108.041 59.6484 111.43 47.7771 50.416H95.5543Z"/></svg><canvas hidden></canvas></span><span class="name">audio</span></a>
       <nav class="menubar" aria-label="Menu"></nav>
@@ -37,6 +48,8 @@
     <main class="panes" :data-side="side ? 'open' : 'none'">
       <!-- over the picture: the open sounds; at its right undo and redo, how it shows, and at the head of its axis its settings -->
       <header class="view-head">
+        <!-- embedded: where the tabs are, the way to the whole editor with this script, as it reads now -->
+        <a class="embed-open" :if="embed" :href="full || './playground.html'" target="_blank" rel="noopener" title="Open this script in the audio playground, in a new tab"><span class="embed-name">audio</span><span class="embed-label">Open in playground</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6m0-6-9 9M18 14v5H5V6h5"/></svg></a>
         <!-- the open sounds, a tab each, as an audio editor's files, dragged along to reorder; a selection's audio dragged
              up onto them goes to a tab of its own. Each as wide as its name, never squeezed: more than fit scroll, as a
              code editor's tabs do, the wheel moving them along, the one shown brought into sight -->
@@ -124,10 +137,10 @@
           <p class="form-note" :if="!scenarioGroups.length">No scenario by those words</p>
         </div>
         <!-- the agent: your own, on your machine, through the local bridge; it edits the sound here, the chat its words
-             (Markdown). Its conversations are the tab's, as its script is: the one open, the others to go back to, a new one -->
+             (Markdown). Its conversations are the page's, whichever tab shows: the one open, the others to go back to, a new one -->
         <div class="chat" :hidden="side !== 'chat'">
           <div class="chat-head" :if="chats.length">
-            <button class="chat-title" popovertarget="chats-menu" :onclick="showChat" :title="'This sound\'s conversations: ' + chats.length"><span :text="chatTitle"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button>
+            <button class="chat-title" popovertarget="chats-menu" :onclick="showChat" :title="'Conversations: ' + chats.length"><span :text="chatTitle"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button>
             <button class="icon-button" :onclick="newChat" :disabled="!chat.length" aria-label="New conversation" title="A new conversation: the agent starts afresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M12 6v12M6 12h12"/></svg></button>
           </div>
           <div class="chat-log" role="log" aria-label="The conversation">
@@ -301,9 +314,9 @@
       <button class="menu-item" :each="item in generators" :onclick="useCode(item.code)" :title="item.code"><strong :text="item.name"></strong><span :text="item.text"></span></button>
     </div>
 
-    <!-- the open tab's conversations with the agent, newest first: one opened, or deleted -->
+    <!-- the conversations with the agent, newest first: one opened, or deleted -->
     <div id="chats-menu" class="menu" popover>
-      <p class="menu-group">This sound's conversations</p>
+      <p class="menu-group">Conversations</p>
       <div class="chat-item" :each="c in chats">
         <button class="menu-item" :aria-current="c.open ? 'true' : null" :onclick="openChat(c.id)" :title="c.title"><strong :text="c.title"></strong><span :text="c.when"></span></button>
         <button class="icon-button chat-drop" :onclick="dropChat(c.id)" :aria-label="'Delete ' + c.title" title="Delete this conversation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
@@ -344,7 +357,7 @@
 
     <dialog class="search" :onclose="closeSearch">
       <form class="search-form" method="dialog" :onsubmit.prevent="runSearch">
-        <input type="search" name="q" placeholder="rain, door, applause…" aria-label="Find a sound" title="Searches as you type; Enter searches at once" :value="query" :oninput="typeSearch" autofocus>
+        <input type="search" name="q" placeholder="rain, door, applause…" aria-label="Find a sound" title="Searches as you type; Enter searches at once" :value="query" :oninput="typeSearch">
         <button class="icon-button" type="button" aria-label="Close" title="Close (Esc)" :onclick="closeSearch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
       </form>
       <p class="search-state" role="status" :text="searchState"></p>
@@ -382,7 +395,7 @@
         <dt>Arrows, ⌥ arrows, ⌘ arrows</dt><dd>Move the caret a little, to the next cue, to the next sound, the selection kept; ⌘ ↑ ↓ (Home, End), to the start, the end; Shift extends</dd>
         <dt>The time</dt><dd>The caret's, or the playhead's; after it, how long all that is selected is, or, nothing selected, all of the sound, softer. Pointed at, the selection and its samples. Clicked, the time brings the view to the caret or the playhead; the length shows the selection whole, again all of the sound. Out of sight, the caret or the playhead stays at the edge of the picture it is past, and under it on the time row a chevron points out to it: clicked, the view goes there</dd>
         <dt>The bar's right</dt><dd>What the sound is: the note at the caret, or over the selection (a melody's compass), and the tempo and key of the selection or of all of it, each where it is clear (pointed at, how it was found); its levels; its rate and channels, a click from changing them</dd>
-        <dt>Wheel</dt><dd>Scroll: through time; up and down over zoomed-in frequencies or levels, through them. Pinch, or Ctrl and the wheel, zooms the axis under the pointer: the frequencies or the spectrum beside them, the levels (a quiet sound larger, or what goes over full scale), else time, while it plays about the playhead, the view following it on</dd>
+        <dt>Wheel</dt><dd>Scroll: through time; up and down over zoomed-in frequencies or levels, through them. Pinch, or Ctrl and the wheel, zooms the axis under the pointer, twice as far as the fingers spread, a notch as far as = or −: the frequencies or the spectrum beside them, the levels (a quiet sound larger, or what goes over full scale), else time, while it plays about the playhead, the view following it on</dd>
         <dt>= − 0</dt><dd>Zoom in, out, show all (all the frequencies, full scale)</dd>
         <dt>⌘P</dt><dd>The palette: the edits for what is selected, and every method, found by typing (⌘K too)</dd>
         <dt>Delete, ⌘X ⌘C ⌘V, ⌘Z ⇧⌘Z</dt><dd>Edit the selection; undo, redo, as the arrows over the picture do. Each edit is a step of the chain, its seams crossfaded (the settings)</dd>
@@ -391,8 +404,8 @@
         <dt>M</dt><dd>A marker at the caret, or over the selection, its flag over the picture, its name asked for; drag the flag (a range's bar) to move it, click its name or double-click the flag to rename it; right-click it to name it or take it away</dd>
         <dt>Edits</dt><dd>Every step of the chain, a panel. Choose one: the output up to it, and its settings; again, or Esc, the whole chain. An edit made then goes in right after it, the steps after it kept. Its power switch bypasses it, to hear the output without it; its × takes it away; open, its Δ: what it takes out. Dragged, a row goes where it is let go, into a group or out of one. Shift picks a range, ⌘G makes it a group, ⇧⌘G unmakes it, a double-click names it. Right-clicked, its menu: mute, move, group, flatten up to it or all of it (made one sound, kept as a take is), remove. A recipe's steps are one group under its name, folded; a press unfolds it, its switch and × act on all of them. Add an edit, under them: the palette</dd>
         <dt>Recipes, Agent, Edits, Code, Export</dt><dd>At the top right, a panel each, beside the picture, which keeps where it starts and its scale: a goal's whole chain, found by its words, folded by what it is for, put after the script's own over the selection or all of it; your own agent, through the local bridge (npx audio --bridge, its key here), its words as they come, each call it makes in plain words, its conversations kept with the tab; the chain's steps; the script, its numbers dragged across, or selected and stepped by ↑ ↓ (Shift, ten steps), what each sets said by it; the file (its format, what it is written with, its markers, its name; ⌘S), the cuts as an edit list for a video editor (EDL, OTIO, FCPXML), the output checked against a delivery spec. Its button again closes it; its left edge drags its width. The settings, over the meters, a dropdown: what holds everywhere</dd>
-        <dt>Tracks</dt><dd>Sounds side by side in time, a lane each, played and exported together. Move to a new track (Edit, right-click, ⌘P) takes the selection to a track of its own under this one, where it was, silence left behind, so it sounds as before and is edited alone; Open as a new track (File) adds a file; Split the voice to a new track (Edit, right-click, ⌘P) puts a song's voice, by a separation model, on a track of its own, the rest left on this one, each then repaired alone; Export the track alone (File) takes one elsewhere, to be remade, and Line up with (Edit) puts what comes back, opened as a new track, where the original stood, Match with (Edit) at its tone and loudness. A press in a lane edits its track: the caret, the selection, the edits and their panel are its own, its name bright. In the code, each a sound declared, `let voice = audio(…)`, that no other reads</dd>
-        <dt>Tabs</dt><dd>Above the picture, a sound each, its own script and edits, dragged along to reorder. A sound opened goes into a tab of its own; + a new one, × closes one, ⇧⌘T opens the last closed again, as it was left. A selection dragged up onto them with Alt goes to a tab of its own, copied; with ⌘, moved</dd>
+        <dt>Tracks</dt><dd>Sounds side by side in time, a lane each, played and exported together. Move to a new track (Edit, right-click, ⌘P) takes the selection to a track of its own under this one, where it was, silence left behind, so it sounds as before and is edited alone; Open as a new track (File) adds a file; Split the voice to a new track (Edit, right-click, ⌘P) puts a song's voice, by a separation model, on a track of its own, the rest left on this one, each then repaired alone; Split into four stems puts its voice, bass and drums on three, the rest left here; Export the track alone (File) takes one elsewhere, to be remade, and Line up with (Edit) puts what comes back, opened as a new track, where the original stood, Match with (Edit) at its tone and loudness; Duck under (Edit) takes the track 15 dB down while another sounds, a bed under a voice; Add a master (Edit) puts the tracks' sum through steps of its own, a lane of its own, the last: in the code, `voice.clone().mix(bed)` and its steps. A press in a lane edits its track: the caret, the selection, the edits and their panel are its own, its name bright. In the code, each a sound declared, `let voice = audio(…)`, that no other reads</dd>
+        <dt>Tabs</dt><dd>Above the picture, a sound each, its own script and edits, dragged along to reorder. A sound opened goes into a tab of its own; + a new one, × closes one, ⇧⌘T opens the last closed again, as it was left. A selection dragged up onto them with Alt goes to a tab of its own, copied; with ⌘, moved. A tab dragged down onto the picture is a track of the sound there; Edit › Move the track to its own tab, the other way</dd>
         <dt>F10</dt><dd>The menu</dd>
       </dl>
     </dialog>
@@ -400,6 +413,6 @@
     <input class="file-input" type="file" multiple accept="audio/*,video/*" aria-label="Open audio files" :onchange="e => openFiles([...e.target.files], 'replace')">
   </div>
   <!-- outside the app, which takes no pointer until it is wired: shown before it is (editor.js, keep.js own) -->
-  <dialog class="elsewhere" closedby="none"><p>The editor is open in another tab.</p><button class="bar-button" type="button" autofocus title="The other tab stores what it has and steps aside">Use it here</button></dialog>
+  <dialog class="elsewhere" closedby="none"><p>The editor is open in another tab.</p><button class="bar-button" type="button" title="The other tab stores what it has and steps aside">Use it here</button></dialog>
 </body>
 </html>

@@ -14,11 +14,12 @@
  * no second stream. detect() streams the channels' mean through spectral flux for higher precision.
  */
 
-import combTempo from '@audio/beat-tempo/comb'
-import detect from '@audio/beat-detect'
-import { beatTrack } from '@audio/beat'
-import { peakPick, ODF } from '@audio/onset'
 import audio, { mono, perChannel } from '../core.js'
+
+// @audio/beat, an optional package: loaded by the first stat or detect() that reads it
+let combTempo, detect, beatTrack, peakPick, ODF, loading
+const load = () => loading ??= import('@audio/beat').then(m => ({ combTempo, detect, beatTrack, peakPick, ODF } = m),
+  e => { loading = null; throw new Error(`beats: install @audio/beat (${e.message})`) })
 
 // ── Energy ODF from block stats ──────────────────────────────────
 
@@ -63,6 +64,7 @@ function pickOnsets({ odf, energy, before, hopSize }, sr, opts) {
 
 audio.stat('bpm', {
   fields: ['energy'],
+  load,
   query: (stats, chs, from, to, sr, opts) => {
     let odfData = energyOdf(stats, from, to, sr)
     if (!odfData) return 0
@@ -74,6 +76,7 @@ audio.stat('bpm', {
 
 audio.stat('beats', {
   fields: ['energy'],
+  load,
   query: (stats, chs, from, to, sr, opts) => {
     let odfData = energyOdf(stats, from, to, sr)
     if (!odfData) return new Float64Array(0)
@@ -85,6 +88,7 @@ audio.stat('beats', {
 
 audio.stat('onsets', {
   fields: ['energy'],
+  load,
   query: (stats, chs, from, to, sr, opts) => {
     let odfData = energyOdf(stats, from, to, sr)
     return odfData ? pickOnsets(odfData, sr, opts) : new Float64Array(0)
@@ -112,7 +116,7 @@ async function collectMono(inst, opts) {
 
 /** Full spectral-flux pipeline: { bpm, confidence, beats, onsets }. More precise than stat('bpm'). */
 audio.fn.detect = perChannel(async function(opts) {
-  let data = await collectMono(this, opts)
+  let [data] = await Promise.all([collectMono(this, opts), load()])
   let { at, duration, channel, ...detectOpts } = opts || {}
   return detect(data, { fs: this.sampleRate, ...detectOpts })
 })

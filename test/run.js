@@ -16,6 +16,7 @@ const SUITES = [
   'periodicity',    // voicing, hnr, harmonic against Praat, frame by frame
   'hits',           // cues: where each attack starts, where each sound stops (fn/hits.js, the editor's)
   'rx',             // RX 12's modules we lacked: wow & flutter, azimuth, phase, codec preview, deconstruct, find similar
+  'vocos',          // a voice made again by Vocos (optional @audio/neural-vocode), the input kept above the crossover
   'pedalboard',     // Pedalboard's built-ins we lacked: convolution, MP3 VBR, GSM
   'plugin-ops',
   'plugin-notes', 'plugin-tune', 'plugin-stats', 'plugin-stretch', 'plugin-color', 'plugin-effects', 'plugin-reverb',

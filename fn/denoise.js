@@ -199,7 +199,7 @@ audio.op('denoise', {
   ranged: true,
   latency: (o, sr) => frame(sr) - 1,
   warmup: (o, sr) => 4 * frame(sr),
-  load: () => Promise.all([import('@audio/denoise-omlsa'), import('@audio/stft')]).then(([m, s]) => ({ ...m, ...s })),
+  load: () => Promise.all([import('@audio/denoise/omlsa'), import('@audio/stft')]).then(([m, s]) => ({ ...m, ...s })),
   prepare,
   process: denoise,
 })

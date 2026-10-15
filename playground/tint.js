@@ -14,9 +14,10 @@ export default function centre(x, from, to, rate) {
 
 // The centroid's place as a colour temperature, the low warm and the high cool, as light is: 100 Hz at 1,800 K, a
 // candle's orange, 1 kHz at 6,500 K, daylight's white, 10 kHz at 16,000 K, a clear sky's blue, its octaves even in
-// mireds (10⁶ / K, the scale on which equal steps of warmth look about equal) either side of white; [r, g, b, a] in
-// encoded sRGB as gl-waveform takes a colour
-export const temperature = u => kelvin(1e6 / (u < .5 ? WARM + (WHITE - WARM) * 2 * u : WHITE + (COOL - WHITE) * (2 * u - 1)))
+// mireds (10⁶ / K, the scale on which equal steps of warmth look about equal) either side of white, at OKLab lightness
+// `L` (the waveform's own, so it reads on a light screen as on a dark one); [r, g, b, a] in encoded sRGB as gl-waveform
+// takes a colour
+export const temperature = (u, L = LIGHT) => kelvin(1e6 / (u < .5 ? WARM + (WHITE - WARM) * 2 * u : WHITE + (COOL - WHITE) * (2 * u - 1)), L)
 
 // The centroid's place in a colormap's upper half, [r, g, b, a] stops in 0..1, linear between them: low at its middle,
 // high at its top, as the spectrum meter fills, so the waveform reads against the screen and never sinks into it
@@ -27,26 +28,45 @@ export const colormap = stops => u => {
 
 // A temperature's colour: the Planckian locus in CIE 1960 uv (Krystek 1985, as color-space's kelvin space has it), to
 // xy, to XYZ, to linear sRGB (IEC 61966-2-1), its hue and chroma in OKLab kept, at one lightness so warmth alone differs
-export function kelvin(T) {
+export function kelvin(T, L = LIGHT) {
   const u = (.860117757 + 1.54118254e-4 * T + 1.28641212e-7 * T * T) / (1 + 8.42420235e-4 * T + 7.08145163e-7 * T * T)
   const v = (.317398726 + 4.22806245e-5 * T + 4.20481691e-8 * T * T) / (1 - 2.89741816e-5 * T + 1.61456053e-7 * T * T)
   const d = 2 * u - 8 * v + 4, x = 3 * u / d, y = 2 * v / d, X = x / y, Z = (1 - x - y) / y
   const rgb = [3.2404542 * X - 1.5371385 - .4985314 * Z, -.969266 * X + 1.8760108 + .041556 * Z, .0556434 * X - .2040259 + 1.0572252 * Z].map(c => Math.max(0, c))
   const [, a, b] = oklab(rgb)
-  return [...srgb([LIGHT, a, b]), 1]
+  return [...srgb([L, a, b]), 1]
 }
 
 // Channels in one lane: each its own hue at that lightness, opposite for a pair, evenly round for more, a little clear
 // so where they cross both show
-export const hue = (i, n) => { const h = (50 + 360 * i / n) * Math.PI / 180; return [...srgb([LIGHT, .1 * Math.cos(h), .1 * Math.sin(h)]), .75] }
+export const hue = (i, n, L = LIGHT) => { const h = (50 + 360 * i / n) * Math.PI / 180; return [...srgb([L, .1 * Math.cos(h), .1 * Math.sin(h)]), .75] }
+
+// An encoded sRGB colour's OKLab lightness
+export const lightness = ([r, g, b]) => oklab([r, g, b].map(decode))[0]
+
+// The spectrogram's levels in one ink, `n` stops as CSS colours: the ink at the coverage that, over the far end of the
+// screen from it (black under a light ink, white under a dark one), steps OKLab lightness evenly from that end's to the
+// ink's, each level's share of the way raised to `gamma`. White ink is the grey screened over the page: white at the
+// opacity of the grey's encoded value, as Compositing and Blending 1's screen has it; black ink, its multiply. Mixed in
+// encoded sRGB, as the page composites
+export function inked(ink, n, gamma = 1) {
+  const end = lightness(ink) > .5 ? 0 : 1, L = a => lightness(ink.slice(0, 3).map(v => end + a * (v - end))), L0 = L(0), L1 = L(1)
+  return Array.from({ length: n }, (_, k) => {
+    const want = L0 + (k / (n - 1)) ** gamma * (L1 - L0)
+    let lo = 0, hi = 1
+    for (let j = 0; j < 40; j++) { const m = (lo + hi) / 2; if ((L(m) - want) * Math.sign(L1 - L0) < 0) lo = m; else hi = m }
+    return `rgb(${ink.slice(0, 3).map(v => Math.round(v * 255)).join(' ')} / ${((lo + hi) / 2 * (ink[3] ?? 1)).toFixed(4)})`
+  })
+}
 
 // OKLab (Ottosson 2020, "A perceptual color space for image processing") from linear sRGB, and back to encoded sRGB
 // (IEC 61966-2-1), clipped
-function oklab([r, g, b]) {
+const decode = v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4
+export function oklab([r, g, b]) {
   const l = Math.cbrt(.4122214708 * r + .5363325363 * g + .0514459929 * b), m = Math.cbrt(.2119034982 * r + .6806995451 * g + .1073969566 * b), s = Math.cbrt(.0883024619 * r + .2817188376 * g + .6299787005 * b)
   return [.2104542553 * l + .793617785 * m - .0040720468 * s, 1.9779984951 * l - 2.428592205 * m + .4505937099 * s, .0259040371 * l + .7827717662 * m - .808675766 * s]
 }
-function srgb([L, a, b]) {
+export function srgb([L, a, b]) {
   const l = (L + .3963377774 * a + .2158037573 * b) ** 3, m = (L - .1055613458 * a - .0638541728 * b) ** 3, s = (L - .0894841775 * a - 1.291485548 * b) ** 3
   const encode = v => { v = Math.max(0, Math.min(1, v)); return v <= .0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - .055 }
   return [4.0767416621 * l - 3.3077115913 * m + .2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - .3413193965 * s, -.0041960863 * l - .7034186147 * m + 1.707614701 * s].map(encode)

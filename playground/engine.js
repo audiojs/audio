@@ -257,8 +257,9 @@ export default function engine(url = WORKER) {
       const { default: audioWorker } = await import('../worker.js')
       return { voice: audioWorker.adopt(r.inst, { worker: from }) }
     },
-    // Samples [from, to) of an output, each channel's; null once a newer output replaced it
-    samples: (output, from, to) => call({ type: 'samples', output, from, to }).then(r => r.channels ?? null),
+    // Samples [from, to) of an output, each channel's (with tracks, each track's lane, or `mix` their mix); null once a
+    // newer output replaced it
+    samples: (output, from, to, mix = false) => call({ type: 'samples', output, from, to, mix }).then(r => r.channels ?? null),
     // A sound arriving that the page draws as it comes (its key, its rate, its channels' count), to play as far as it has
     // come: its pieces pushed to the deck in order, a voice of it then { held: { key } }
     arrive: (key, sampleRate, count) => deck.arrive(key, sampleRate, count),

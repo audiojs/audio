@@ -16,11 +16,10 @@ import { shifter, shiftBlock, shiftLatency, rangeOf } from './stretch.js'
 // known at plan time, before it loads (its latencyOf; the shifter checks the two agree).
 const VOICE_HZ = 60
 const voiceLatency = (sr, rmin) => {
-  let dec = Math.max(1, Math.floor(sr / 11025)), Wd = 2 ** Math.ceil(Math.log2(2 * sr / dec / VOICE_HZ))
-  let hop = Math.max(dec, Math.round(.005 * sr / dec) * dec)
-  return Wd / 2 * dec + 2 * hop + Math.round(.04 * sr) + Math.ceil(sr / VOICE_HZ * (3 + 1 / Math.min(1, rmin))) + 18
+  let H = Math.round(sr * 256 / 44100), N = 2 ** Math.ceil(Math.log2(2 * sr / VOICE_HZ)), lag = Math.max(1, Math.round(.15 * sr / H))
+  return 3 * N / 4 + Math.ceil((lag + 1.5) * H) + H + Math.round(.04 * sr) + Math.ceil(sr / VOICE_HZ * (6 + 1 / Math.min(1, rmin))) + 18
 }
-// a frame of YIN and two cycles before a span: the cycles found as they are where it starts
+// a frame of pYIN and two cycles before a span: the cycles found as they are where it starts
 const voiceContext = sr => 2 ** Math.ceil(Math.log2(2 * sr / VOICE_HZ)) + Math.ceil(2 * sr / VOICE_HZ)
 
 // What the shifter needs: the least ratio the shift takes, 1 included outside a range
@@ -92,7 +91,7 @@ const pitchProc = (input, output, ctx) => {
     let voice = null
     if (sh && ctx.voice) {
       let tc = audio.op('pitch').mod?.retuner
-      if (!tc) throw new Error('pitch({ voice: true }): install @audio/tune-curve')
+      if (!tc) throw new Error('pitch({ voice: true }): install @audio/tune')
       let make = r => tc(input.length, { ratio: r, sampleRate: sr, rmin: sh.rmin, minFreq: VOICE_HZ })
       voice = { latency: voiceLatency(sr, sh.rmin), context: voiceContext(sr), make }
     }
@@ -141,7 +140,7 @@ audio.op('pitch', {
     }
     return [['pitch', { semitones: { t, v }, voice: ctx.voice }]]
   },
-  load: () => import('@audio/tune-curve').catch(() => null),
+  load: () => import('@audio/tune/curve').catch(() => null),
   process: pitchProc,
   latency: pitchLatency
 })

@@ -38,6 +38,8 @@ function frameValue(name, raw, blockChs, sr, opts) {
   for (let n in raw) pseudo[n] = Array.from(raw[n], v => Float32Array.of(v))
 
   if (desc.query) {
+    // a stat that reads an optional package (beat.js's): nothing until it has loaded
+    if (desc.load && !desc.ready) { desc.load().then(() => desc.ready = true, () => {}); return null }
     return perCh ? chs.map(c => desc.query(pseudo, [c], 0, 1, sr, opts))
                  : desc.query(pseudo, chs, 0, 1, sr, opts)
   }

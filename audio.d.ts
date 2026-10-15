@@ -216,7 +216,7 @@ export interface AudioInstance {
   remove(at: Time, duration?: Time, d?: Time, crossfade?: Time): this
   repeat(times: number, opts?: { at?: Time, duration?: Time, d?: Time }): this
   pad(before: number, after?: number): this
-  speed(rate: number): this
+  speed(rate: number, opts?: { type?: 'linear' | 'sinc' }): this
   /** Time-stretch preserving pitch. Factor may be a fn or curve of source-time seconds — sliding stretch (continuous tempo envelope), duration = ∫factor dt. `voice`: for one voice, its pulse shape kept: WSOLA shortening, the vocoder reset to the waveform (PVSOLA) slowing. `method`: another algorithm (@audio/stretch-*, loaded only then), whole-render, a constant factor; 'phase-lock' is the default */
   stretch(factor: number | ((t: number) => number) | { t: number[], v: number[] }, opts?: { at?: Time, duration?: Time, d?: Time, voice?: boolean, method?: 'phase-lock' | 'vocoder' | 'pghi' | 'wsola' | 'psola' | 'sms' | 'transient' | 'hybrid' | 'paulstretch', frame?: number }): this
   /** Move moments in time: [from, to] pairs in seconds. Between neighbouring markers the audio stretches to fit, pitch kept; start and end stay (a marker at the end moves it). */
@@ -291,7 +291,7 @@ export interface AudioInstance {
   /** Moved in time onto a reference it plays with (a part remade or recorded apart): its head cut where it is late, silence
    *  before it where early. The lag by the waveforms' GCC-PHAT where they share one, else by their onsets; within ±`within` s
    *  (10), read from the first `span` s (60). Found before rendering, its input and the reference read whole */
-  align(reference: AudioInstance | Float32Array[], opts?: { within?: number, span?: number }): this
+  align(reference: AudioInstance | Float32Array[], opts?: { within?: number, span?: number, drift?: boolean }): this
   /** Fill digital silence (≥ 10 ms under `threshold` dBFS, default -90) with the recording's own room tone */
   roomtone(threshold?: number): this
   /** Every frequency's phase turned by `angle` degrees (a Hilbert transform), magnitudes kept; 180 inverts polarity. Unset
@@ -324,8 +324,16 @@ export interface AudioInstance {
    *  cached): the whole input, once, before rendering; a live stream waits for its end. `limit`: the most the noise
    *  drops, dB (default 18: room tone stays, the voice keeps its sound; 0: no limit). Held sung notes, which the model
    *  alone takes for noise, are kept. `weights`: URL of an upstream ONNX export */
+  /** A voice's band lost above `cutoff` Hz (found where the spectrum falls off a cliff, if not given) rebuilt from its own harmonics and breath. */
+  recover(cutoff?: number): this
+  recover(opts: { cutoff?: number }): this
   deepfilter(limit?: number, opts?: { weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   deepfilter(opts: { limit?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
+  /** The room off a voice: a trained model (optional @audio/neural-separate; @audio/neural-denoise to pass music), the room `reduction` dB down (60); method 'wpe': no model, @audio/denoise-dereverb's kernel */
+  dereverb(reduction?: number, opts?: { music?: 'pass' | 'enhance', method?: 'roformer' | 'wpe', strength?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
+  dereverb(opts: { reduction?: number, music?: 'pass' | 'enhance', method?: 'roformer' | 'wpe', strength?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
+  /** A voice made again by Vocos, a neural vocoder (optional @audio/neural-vocode): another vocoder's artifacts (a TTS's frames ringing on) give way to Vocos's own; Vocos makes nothing above 12 kHz, so the input is kept above `crossover` Hz (11000; 0: Vocos's alone) */
+  vocos(opts?: { crossover?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   /** RNNoise speech denoising, streaming, through @audio/neural-denoise (optional package, weights inside): 1439
    *  samples of latency at 48 kHz, compensated; other rates resampled in and out. `limit`: dB (default 20; 0: none) */
   rnnoise(limit?: number, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
@@ -684,6 +692,9 @@ declare namespace audio {
    *  by a key naming the model and the input's samples. Unset by default (made each time, shared only while it is made); the editor
    *  keeps them in the browser; `audio.memo = new Map()` keeps them in memory, so a voice and its rest split apart run the model once. */
   let memo: { get(key: string): Promise<Float32Array[] | null>, set(key: string, channels: Float32Array[]): Promise<void> } | null | undefined
+  /** Where jobs that go out to threads (parallel.js: declip()'s and auto()'s rebuild) run in a page or a worker: a () → Worker whose entry
+   *  calls parallel.js's serve(). Node uses worker threads of its own; unset elsewhere, the jobs run in turn, the same samples either way. */
+  let worker: (() => Worker) | null | undefined
   /** Register plugins: contract factories (audio.js manifests with own `params`), `(audio) => {}` plugin functions, or registry names. String names dynamic-import — returns a promise; direct values register synchronously. */
   /** Stat plugin — whole-signal analyzer registered as a.stat(name) */
   interface StatPlugin { stat: string, compute(channels: Float32Array[], opts: { sampleRate: number, [k: string]: unknown }): unknown }

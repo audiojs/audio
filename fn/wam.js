@@ -12,7 +12,6 @@
  */
 import audio, { arrived } from '../core.js'
 import { isCurve, curveFn } from '../plan.js'
-import { parse as noteOf } from '@audio/note'
 
 export const WAM = Symbol('plugin.wam')
 // pre-roll: the plugin runs a quarter second before the input reaches it, its parameters' smoothing settled (the
@@ -50,6 +49,9 @@ function valueOf(p, v) {
   }
   return v
 }
+
+// a note by its name ('C4') read by @audio/note, an optional package, loaded for the first one (render)
+let noteOf
 
 /** Notes and MIDI as wam-midi events, at seconds */
 function midiEvents(notes = [], midi = []) {
@@ -94,6 +96,7 @@ async function render(o, params, pcm, sr, room = sr) {
       let [num, den] = o.timeSignature ?? [4, 4]
       events.push({ type: 'wam-transport', data: { currentBar: 0, currentBarStarted: t0, tempo: o.bpm ?? 120, timeSigNumerator: num, timeSigDenominator: den, playing: true }, time: t0 })
     }
+    if (o.notes?.some(n => typeof n.note === 'string')) noteOf ??= (await import('@audio/note').catch(e => { throw new Error(`plugin: a note by name needs @audio/note (${e.message})`) })).parse
     events.push(...midiEvents(o.notes, o.midi).map(e => ({ ...e, time: t0 + e.time })))
     if (events.length) node.scheduleEvents(...events.sort((a, b) => a.time - b.time))
     // a request answered: the port is in order, so the events have reached the processor before rendering starts

@@ -18,7 +18,7 @@ export const layouts = {
   deconstruct: 'tonal noise transient | separation',
   multiband: 'low high threshold ratio makeup | upThreshold upRatio depth attack release',
   dyneq: 'mode fc Q threshold ratio maxGain | attack release',
-  dehum: 'freq harmonics | adaptive',
+  dehum: 'freq harmonics | adaptive tones',
   omlsa: 'gMin threshold | alphaDD qPrior xiFloor',
   deplosive: 'attenuation triggerRatio crossover | attack release',
   dewind: 'attenuation | cutoff',
@@ -387,6 +387,9 @@ export const texts = {
     qPrior: 'How likely any moment is assumed to be only noise. 0 works it out from the sound itself. A value above 0 sets it by hand; from 0.9 up, everything counts as noise and is turned down.',
     xiFloor: 'Lowest signal-to-noise ratio it assumes, in dB. Lower removes more of faint sounds close to the noise; higher protects them, but leaves more noise.'
   },
+  recover: {
+    cutoff: 'Where the band stops, in Hz: above it the voice\'s harmonics and breath are rebuilt where the take lacks them. Left out, the edge is found where the spectrum falls off a cliff; a take with none gets nothing.'
+  },
   deepfilter: {
     limit: 'The most the noise is turned down, in dB. Past 18 the voice itself starts to sound filtered, like a call. 0 lifts the limit: the model\'s full cleaning, and pauses can fall to digital silence.',
     music: 'pass leaves music as it is, songs included, and cleans only speech and noise. enhance cleans everything, which takes music down and dulls it.',
@@ -408,7 +411,8 @@ export const texts = {
   dehum: {
     freq: 'The hum frequency, in Hz: 50 or 60 for mains. 0 measures it from the sound. A set value is still tuned by measuring within 0.4%.',
     harmonics: 'How many multiples of the hum to remove, the hum itself first (50, 100, 150 Hz and so on). 0 removes every one to 1 kHz, and above it those that stand out of the sound, to 8 kHz: a buzz. Each is followed as it drifts.',
-    adaptive: 'With a set frequency, searches for the hum within about half a hertz of it instead of 0.4%: for hum off its nominal frequency, as from a tape running at the wrong speed.'
+    adaptive: 'With a set frequency, searches for the hum within about half a hertz of it instead of 0.4%: for hum off its nominal frequency, as from a tape running at the wrong speed.',
+    tones: 'Also removes steady tones that are not multiples of the hum, held through the whole take: a whine, a test tone, a monitor\'s 15.7 kHz line. A tone that glides, or starts or stops within the take, is left. Off, the hum alone.'
   },
   roomtone: {
     threshold: 'Silence level. Stretches quieter than this count as digital silence and are filled with the recording\'s own room tone.'
@@ -456,8 +460,12 @@ export const texts = {
     order: 'Model detail. How many earlier samples are used to predict the wave across a cut peak. Higher follows rich music more closely and runs much slower.'
   },
   dereverb: {
-    strength: 'How much of the room\'s echo is taken. Higher takes more of it and more of the voice with it; 0 takes only what it can cancel exactly, a dB or two. A dry take, a voice or an instrument with no room in it, is left as it came.',
-    music: 'pass leaves music as it is (a held note or a steady beat tells it), so only a voice loses its room; enhance takes the room off whatever it hears.'
+    reduction: 'How far the room\'s echo goes down, in dB. At 60 it is gone, early reflections and tail alike, and the voice sounds as if spoken into the microphone; lower keeps some of the room, 12 leaves a hint of it.',
+    music: 'pass leaves music as it is, songs included, and takes the room off speech alone; a voice over a music bed counts as speech, and the bed goes with the room. enhance takes everything it hears that is not a voice.',
+    method: 'roformer is a trained model: it takes the whole room, and downloads once (60 MB). wpe needs no model: it takes about 6 dB of the late echo, and leaves a dry take or music as it came.'
+  },
+  vocos: {
+    crossover: 'Above this frequency, in Hz, the sound is kept as it came: the vocoder makes nothing above 12 kHz. Written as 0 in the script, the vocoder\'s alone, its top cut off.'
   },
   deplosive: {
     triggerRatio: 'How much stronger the low thump must be than the rest of the voice to count as a pop. Lower catches more pops; higher catches only the worst. A voice or a bass note, whose low end has a pitch, is let through.',

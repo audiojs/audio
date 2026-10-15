@@ -4,7 +4,7 @@
 import test from 'tst'
 import { spawn } from 'child_process'
 import { request } from 'http'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 import { createInterface } from 'readline'
@@ -249,7 +249,7 @@ function mcp(args, env = {}) {
     close: () => { proc.stdin.end(); return new Promise(r => proc.exitCode != null ? r() : proc.once('close', r)) }
   }
 }
-const EDITOR_TOOLS = ['state', 'script', 'edit', 'measure', 'look', 'select', 'scrub', 'step', 'open', 'play', 'stop', 'check', 'undo', 'redo']
+const EDITOR_TOOLS = ['state', 'script', 'edit', 'measure', 'look', 'select', 'scrub', 'step', 'open', 'save', 'tabs', 'play', 'stop', 'check', 'undo', 'redo']
 // the fakes on PATH the bridge knows, in its order, and what the page calls them
 const FOUND = ['claude', 'codex', 'pi', 'gemini', 'kimi'], NAMES = { claude: 'Claude Code', codex: 'Codex', pi: 'Pi', gemini: 'Gemini CLI', kimi: 'Kimi Code' }
 // the models hello lists for each: Claude Code's aliases; the others say theirs once a session opens, if they do
@@ -303,7 +303,7 @@ test('bridge: bad options fail with usage', async t => {
 test('bridge: the key on every endpoint, by query or bearer; CORS for any origin, preflight with private network', async t => {
   let b = await bridge()
   try {
-    for (let [method, path] of [['GET', '/health'], ['GET', '/events'], ['GET', '/file?path=' + join(root, 'test/fixture.wav')], ['POST', '/call'], ['POST', '/reply'], ['POST', '/chat'], ['POST', '/chat/stop'], ['GET', '/nope']]) {
+    for (let [method, path] of [['GET', '/health'], ['GET', '/events'], ['GET', '/file?path=' + join(root, 'test/fixture.wav')], ['POST', '/save?path=' + join(dir, 'unkeyed.wav')], ['POST', '/call'], ['POST', '/reply'], ['POST', '/chat'], ['POST', '/chat/stop'], ['GET', '/nope']]) {
       let r = await fetch(b.url + path, { method })
       t.is(r.status, 401, `${method} ${path} without key`)
       t.is(r.headers.get('access-control-allow-origin'), '*', '401 readable cross-origin')
@@ -335,6 +335,35 @@ test('bridge: /file hands a media file of this machine to the page, by its absol
     mkdirSync(join(dir, 'folder.wav'), { recursive: true })
     t.is((await get(join(dir, 'folder.wav'))).status, 404, 'a folder')
     t.is((await fetch(`${b.url}/file?key=${KEY}`)).status, 400, 'no path')
+  } finally { await b.close() }
+})
+
+test('bridge: /save writes what the page encoded to a media file, by its absolute path; a file there kept unless force', async t => {
+  let b = await bridge(), out = join(dir, 'saved'), bytes = readFileSync(join(root, 'test/fixture.wav'))
+  let save = (path, body = bytes, force = '') => fetch(`${b.url}/save?key=${KEY}&path=${encodeURIComponent(path)}${force}`, { method: 'POST', body })
+  mkdirSync(out)
+  try {
+    let r = await save(join(out, 'a.wav'))
+    t.is([r.status, await r.json()], [200, { path: join(out, 'a.wav'), bytes: bytes.length }])
+    t.ok(readFileSync(join(out, 'a.wav')).equals(bytes), 'the bytes as sent')
+    r = await save(join(out, 'a.wav'), 'other')
+    t.is(r.status, 409, 'a file there, kept')
+    t.ok(readFileSync(join(out, 'a.wav')).equals(bytes), 'as it was')
+    t.is((await save(join(out, 'a.wav'), 'other', '&force')).status, 200, 'force replaces it')
+    t.is(readFileSync(join(out, 'a.wav'), 'utf8'), 'other')
+    t.is((await save('saved/b.wav')).status, 400, 'a relative path')
+    t.is((await save(join(out, 'b.txt'))).status, 415, 'not audio or video')
+    t.is((await save(join(out, 'nope', 'b.wav'))).status, 404, 'no such folder')
+    t.is((await fetch(`${b.url}/save?key=${KEY}`, { method: 'POST', body: bytes })).status, 400, 'no path')
+    t.is((await save(join(out, 'empty.wav'), '')).status, 400, 'no bytes')
+    // cut halfway: its part seen on disk, then gone with the request
+    let cut = request(`${b.url}/save?key=${KEY}&path=${encodeURIComponent(join(out, 'cut.wav'))}`, { method: 'POST', headers: { 'content-length': bytes.length } })
+    cut.on('error', () => {})
+    cut.write(bytes.subarray(0, bytes.length >> 1))
+    await until(() => readdirSync(out).some(f => f.endsWith('.part')))
+    cut.destroy()
+    await until(() => !readdirSync(out).some(f => f.endsWith('.part')))
+    t.is(readdirSync(out), ['a.wav'], 'nothing else written, no part left')
   } finally { await b.close() }
 })
 

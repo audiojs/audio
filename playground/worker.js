@@ -16,6 +16,8 @@ import { fft } from 'fourier-transform'
 
 // Registry plugins load from their chunks: the build writes one literal import per plugin.
 audio.import = spec => plugins[spec]?.() ?? import(spec)
+// Jobs that go out to threads (parallel.js: declip's blocks) on workers of their own, beside this one (jobs.js)
+audio.worker = () => new Worker(new URL('./jobs.js', import.meta.url), { type: 'module' })
 
 // Samples kept in the browser's own file system by a key, as a studio keeps its renders: each file its meta's length,
 // its channels' count and length (three uint32), its meta as JSON (to a multiple of 4 bytes), then each channel's
@@ -397,14 +399,15 @@ const failure = error => {
 }
 
 // The script's last expression comes back boxed (code.js prepare), so a sound still arriving, which is thenable,
-// is not waited out: its output streams instead. A script with tracks returns them by name (`tracks`)
-class Out { constructor(value, tracks = false) { this.value = value; this.tracks = tracks } }
-const out = (value, tracks) => new Out(value, tracks)
+// is not waited out: its output streams instead. A script with tracks returns them by name (`tracks`), and its master
+// ({ name, value }: the tracks' sum through steps of its own) where it has one
+class Out { constructor(value, tracks = false, master = null) { this.value = value; this.tracks = tracks; this.master = master } }
+const out = (value, tracks, master) => new Out(value, tracks, master)
 
 // Runs a script, the page's tab `tab`'s: the reply says what it printed and whether it made a sound; the sound then
 // streams (render). Each tab's last output stays, for the page to show again as it was, measure and export, nothing run
 // again; the newest run streams alone.
-async function execute({ id, code, names = [], tab = null, peaks = 0, preview = false }) {
+async function execute({ id, code, names = [], tab = null, peaks = 0, preview = false, muted = [] }) {
   const logs = [], log = level => (...args) => logs.push({ level, text: args.map(a => inspect(a)).join(' ') })
   const console = { log: log('log'), info: log('log'), debug: log('log'), warn: log('warn'), error: log('error'), table: log('log') }
   run = { created: [], saves: [] }
@@ -418,6 +421,7 @@ async function execute({ id, code, names = [], tab = null, peaks = 0, preview = 
     if (value instanceof Out) {
       const sounds = value.tracks ? Object.entries(value.value).filter(([, a]) => isAudio(a)) : []
       if (sounds.length > 1) layers = sounds.map(([name, instance]) => ({ name, instance }))
+      if (layers && isAudio(value.master?.value)) layers.push({ name: value.master.name, instance: value.master.value, master: true })
       value = layers ? undefined : value.tracks ? sounds[0]?.[1] : value.value
     }
     if (value && typeof value.then === 'function' && !isAudio(value)) value = await value
@@ -434,7 +438,7 @@ async function execute({ id, code, names = [], tab = null, peaks = 0, preview = 
     // replaced (orphaned)
     if (orphaned(layers ? layers.map(t => t.instance) : output ? [output] : [])) post({ id, event: 'held' })
     if (!output) { for (const r of outputs.values()) if (r.tab === tab) drop(r); dispose(run.created); return result }
-    const record = { id, tab, peaks, preview, instance: output, tracks: layers, created: run.created, saves: run.saves, names, tape: null, sound: null, length: 0, sampleRate: 0, done: false }
+    const record = { id, tab, peaks, preview, instance: output, tracks: layers, muted: new Set(muted), created: run.created, saves: run.saves, names, tape: null, sound: null, length: 0, sampleRate: 0, done: false }
     record.finished = new Promise(resolve => { record.finish = resolve })
     // a mix is kept as its tracks are, each by its own edits
     record.keys = layers ? Object.assign([], { marked: true }) : keysOf(output)
@@ -667,9 +671,9 @@ async function render(r) {
   }
 }
 // Tracks (code.js tracks): each made as an output is, from what is kept of it (made: a track edited renders alone, the
-// others are kept), then summed from their starts into the output: as long as the longest, at the first's rate (another
-// resampled to it), as many channels as the widest has (a narrower one's in turn across them, as mix() spreads a mono
-// sound). The page gets each track's own picture first (`tracks`: its channels averaged, its length, its pauses), then
+// others are kept), then summed from their starts into the output, but those the page mutes (`muted`, by name): as long
+// as the longest, at the first's rate (another resampled to it), as many channels as the widest has (a narrower one's in
+// turn across them, as mix() spreads a mono sound), muted or not; with a master, the output is the master's (a lane of its own, the last), made as the script says. The page gets each track's own picture first (`tracks`: its channels averaged, its length, its pauses), then
 // the mix as any output comes, the tracks' markers on it, each with its track's name; past the channel samples the page holds, the mix's and the
 // tracks' pictures (long), their samples where it zooms in (samples)
 async function mixTracks(r, alive) {
@@ -694,15 +698,21 @@ async function mixTracks(r, alive) {
       r.created.push(t.sound)
       t.sampleRate = rate
     }
-    // the mix: the widest track, padded with silence to the longest's end, the others mixed in (the library's mix(),
-    // rendered a block at a time onto a tape: nothing held whole)
-    const n = Math.max(...r.tracks.map(t => t.sound.length)), wide = r.tracks.reduce((p, q) => q.sound.channels > p.sound.channels ? q : p), k = wide.sound.channels
-    const m = wide.sound.clone()
-    if (n > m.length) m.pad(0, (n - m.length) / rate)
-    for (const t of r.tracks) if (t !== wide) m.mix(t.sound)
-    const sound = await collect(m, alive)
-    m.dispose?.()
-    if (!sound) return
+    // the mix: the master's, or the widest track (silenced, muted), padded with silence to the longest's end, the others
+    // heard mixed in (the library's mix(), rendered a block at a time onto a tape: nothing held whole)
+    const n = Math.max(...r.tracks.map(t => t.sound.length)), mastered = r.tracks.find(t => t.master), heard = t => !r.muted?.has(t.name)
+    const wide = mastered ?? r.tracks.reduce((p, q) => q.sound.channels > p.sound.channels ? q : p), k = wide.sound.channels
+    let sound = mastered?.sound
+    if (!mastered) {
+      const m = wide.sound.clone()
+      if (!heard(wide)) m.gain(-Infinity)
+      if (n > m.length) m.pad(0, (n - m.length) / rate)
+      for (const t of r.tracks) if (t !== wide && heard(t)) m.mix(t.sound)
+      sound = await collect(m, alive)
+      m.dispose?.()
+      if (!sound) return
+      r.created.push(sound)
+    }
     // each track's own picture (laneOf), its pauses: where the page holds the mix's and the tracks' pictures alone
     // (`long`: more channel samples than it holds), made once for what is kept, so a track not edited costs nothing
     // again (sent as a copy); its samples each time, as they cost little to make and much to keep
@@ -713,16 +723,17 @@ async function mixTracks(r, alive) {
       let lane = r.long ? pictures.get(key) : null
       if (!lane) { lane = await laneOf(t.sound, rate, r.long && n, alive); if (!lane) return; if (r.long) pictures.set(key, lane) }
       t.made.silences ??= await gaps(t.sound, PAUSE)
-      const own = { name: t.name, length: t.sound.length, silences: t.made.silences }
+      const own = { name: t.name, length: t.sound.length, channels: t.sound.channels, silences: t.made.silences }
       lanes.push(lane.mono ? { ...own, mono: lane.mono } : { ...own, leaves: lane.leaves.slice(), spectra: { ...lane.spectra, levels: lane.spectra.levels.slice() } })
     }
     if (!alive()) return
     post({ id: r.id, event: 'tracks', sampleRate: rate, tracks: lanes }, lanes.flatMap(l => l.mono ? [l.mono.buffer] : [l.leaves.buffer, l.spectra.levels.buffer]))
     const at = (p, q) => p.time - q.time
     r.instance = sound
-    r.created.push(sound)
     const depths = r.tracks.map(t => t.instance.bitDepth).filter(Boolean)
-    replay(r, { sound, sampleRate: rate, markers: r.tracks.flatMap(t => t.markers.map(m => ({ ...m, track: t.name }))).sort(at), regions: r.tracks.flatMap(t => t.regions.map(g => ({ ...g, track: t.name }))).sort((p, q) => p.at - q.at), bitDepth: depths.length ? Math.max(...depths) : null })
+    // a master's markers but those it copies from the track it starts from
+    const own = t => !t.master ? t.markers : t.markers.filter(m => !r.tracks.some(u => !u.master && u.markers.some(v => v.time === m.time && v.label === m.label)))
+    replay(r, { sound, sampleRate: rate, markers: r.tracks.flatMap(t => own(t).map(m => ({ ...m, track: t.name }))).sort(at), regions: r.tracks.filter(t => !t.master).flatMap(t => t.regions.map(g => ({ ...g, track: t.name }))).sort((p, q) => p.at - q.at), bitDepth: depths.length ? Math.max(...depths) : null })
   } catch (error) {
     if (!alive()) return
     const failed = r.names.find(n => !sources.has(n))
@@ -1176,8 +1187,8 @@ const CUTS = ['edl', 'otio', 'fcpxml']
 // Encoded files: each save() the script made, as it says, or the output in one format, with the page's `options` for it
 // (the library's encode options: a depth, a bitrate, a quality, no markers); or, with `parts`, each part of the output
 // between its markers, named after the marker it starts at; with `track` (its index, mixTracks), that track alone, named
-// after it: a stem to take elsewhere (a part regenerated) and bring back.
-async function exporting({ format, name, parts, options = {}, tab, track }) {
+// after it: a stem to take elsewhere (a part regenerated) and bring back. `saves` false: the output alone, whatever the script saves.
+async function exporting({ format, name, parts, options = {}, tab, track, saves = true }) {
   const r = await settled(tab)
   if (!r) throw new Error('Nothing to export yet.')
   if (track != null) {
@@ -1195,7 +1206,7 @@ async function exporting({ format, name, parts, options = {}, tab, track }) {
     const label = (i, m) => (m?.label || `${String(i + 1).padStart(2, '0')}`).replace(/[^\w .-]+/g, '-')
     return { files: await Promise.all(pieces.map(async (p, i) => ({ name: `${name}-${label(i, marks[i - 1])}.${format}`, type: format, bytes: await p.encode(format, options) }))) }
   }
-  const targets = r.saves.length ? r.saves : [{ instance: r.instance, name, opts: options }]
+  const targets = saves && r.saves.length ? r.saves : [{ instance: r.instance, name, opts: options }]
   const out = []
   for (const { instance, name, opts } of targets) {
     const type = (name.match(/\.(\w+)$/)?.[1] || format || 'wav').toLowerCase()
@@ -1230,14 +1241,15 @@ async function original({ source, loudness, hold = PREVIEW_LIMIT }) {
 const levels = new WeakMap()
 const loudnessOf = src => { if (!levels.has(src)) levels.set(src, src.stat('loudness')); return levels.get(src) }
 
-// Samples [from, to) of an output, for the page to draw where it is zoomed in on one it holds only the peaks of
-async function samples({ output, from, to }) {
+// Samples [from, to) of an output, for the page to draw where it is zoomed in on one it holds only the peaks of, or to
+// hear there (`mix`: with tracks, their mix)
+async function samples({ output, from, to, mix = false }) {
   const r = await whole(output)
   if (!r) return { channels: null }
   const n = r.length, rate = r.sampleRate
   from = Math.max(0, Math.min(n, Math.floor(from))); to = Math.max(from, Math.min(n, Math.ceil(to)))
   // with tracks, their lanes': each track's channels averaged, silence past its end
-  if (r.tracks) return { channels: await Promise.all(r.tracks.map(t => monoOf(t.sound, from, to, rate))) }
+  if (r.tracks && !mix) return { channels: await Promise.all(r.tracks.map(t => monoOf(t.sound, from, to, rate))) }
   return { channels: to > from ? await r.sound.read({ at: from / rate, duration: (to - from) / rate }) : Array.from({ length: r.sound.channels }, () => new Float32Array(0)) }
 }
 async function monoOf(sound, from, to, rate) {
@@ -1400,7 +1412,7 @@ function staged(script) {
     try {
       for (const name of names) open(name)
       let a = await new AsyncFunction('audio', 'console', 'files', '__loop', '__out', code + '\n//# sourceURL=repl.js')(scoped(track), QUIET, [...files.keys()], guard, out)
-      if (a instanceof Out) a = a.value
+      if (a instanceof Out) a = a.master?.value ?? a.value
       if (!isAudio(a)) a = created.findLast(x => !x._?.disposed)
       if (!isAudio(a)) throw new Error('No sound at this edit')
       const { sound, sampleRate, markers, regions } = await made(a)

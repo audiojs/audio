@@ -24,7 +24,8 @@ before(async () => {
     if (!path.startsWith(root + sep)) { res.writeHead(403).end(); return }
     try {
       const body = await readFile(path)
-      res.writeHead(200, { 'content-type': types[extname(path)] || 'application/octet-stream' }).end(body)
+      // cross-origin isolated, as .site-serve.js serves it (sw.js stays out: a page reloaded under a test would lose it)
+      res.writeHead(200, { 'content-type': types[extname(path)] || 'application/octet-stream', 'cross-origin-opener-policy': 'same-origin', 'cross-origin-embedder-policy': 'credentialless' }).end(body)
     } catch { res.writeHead(404).end() }
   })
   await new Promise(r => server.listen(0, '127.0.0.1', r))

@@ -225,7 +225,7 @@ audio.fn.save = async function(target, opts = {}) {
   if (lists.includes(fmt)) { await write(await this.encode(fmt, opts)); return finish() }
   let video = await videoSource(this, fmt, opts)
   if (video) {
-    let { remux } = await import('@audio/encode-mp4/remux')
+    let { remux } = await import('@audio/encode/mp4/remux')
     await write(remux(video, await this.encode(fmt, opts)))
     return finish?.()
   }

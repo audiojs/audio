@@ -46,6 +46,12 @@ export default function agent({ tools, onstatus = () => {}, onchat = () => {} })
       const r = await fetch(`${base}/file?key=${encodeURIComponent(key)}&path=${encodeURIComponent(path)}`)
       if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || `The bridge answered ${r.status}`)
       return new File([await r.blob()], path.split(/[\\/]/).pop(), { type: r.headers.get('content-type') || '' })
+    },
+    // bytes (a Blob, a typed array) written to a file on the bridge's machine, by its path; one there replaced if `force`
+    async save(path, bytes, force) {
+      const r = await fetch(`${base}/save?key=${encodeURIComponent(key)}&path=${encodeURIComponent(path)}${force ? '&force' : ''}`, { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: bytes })
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || `The bridge answered ${r.status}`)
+      return r.json()
     }
   }
 }

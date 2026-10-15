@@ -149,8 +149,8 @@ dry.mix(send, 0, -12)`],
   ['Mix', 'Double a vocal (ADT)', 'A copy 4 to 8 ms late, its delay drifting, as Abbey Road\'s automatic double tracking (1966)', `$src.chorus({ rate: 0.3, depth: 0.3, delay: 0.006, voices: 1 })`],
   ['Mix', 'Slapback', 'One repeat 135 ms late, 9.5 dB under: Sun Studio\'s tape slap on Elvis', `$src.delay({ time: 0.135, feedback: 0, mix: 0.25 })`],
   ['Mix', 'Music bed under a voice', 'Open a track named music.wav: it plays 12 dB under the voice, 15 dB lower while it speaks', `let voice = $src.normalize(-18, 'lufs', { ceiling: false })
-let bed = audio('music.wav').normalize(-30, 'lufs', { ceiling: false }).ducker({ key: voice.clone(), threshold: -40, range: -15, attack: 20, release: 500 })
-voice.mix(bed).normalize('podcast')`, 'podcast'],
+let bed = audio('music.wav').normalize(-30, 'lufs', { ceiling: false }).ducker({ key: voice, threshold: -40, range: -15, attack: 20, release: 500 })
+voice.clone().mix(bed).normalize('podcast')`, 'podcast'],
   ['Mix', 'Pultec low end', 'Boost and cut the lows at once: weight at 30 Hz, less mud at 120 Hz', `$src
   .lowshelf(60, 4)
   .eq(120, -2, 1)`],

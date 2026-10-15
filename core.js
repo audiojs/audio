@@ -191,6 +191,8 @@ function follow(b, a, keep) {
     Object.defineProperty(b._, k, { get: () => a._[k], set() {}, enumerable: true, configurable: true })
   Object.defineProperty(b._, 'disposed', { get: () => own || a._.disposed, set(v) { own = v }, enumerable: true, configurable: true })
   Object.defineProperty(b, 'decoded', { get: () => a.decoded, set() {}, enumerable: true, configurable: true })
+  // the pages' store is `a`'s, set up after the copy may be made (storeOf): a page `a` lets go of comes back from it
+  Object.defineProperty(b, 'cache', { get: () => a.cache, set() {}, enumerable: true, configurable: true })
   // its samples' stats, not what `a`'s edits make of them
   Object.defineProperty(b, 'stats', { get: () => a.srcStats, set() {}, enumerable: true, configurable: true })
   // the rate and channels arrive with the header: what was worked out from none is worked out again
@@ -1086,12 +1088,17 @@ function scheduleEvict(a) {
   audio.evict(a).catch(() => {}).then(() => { a._.evicting = false })
 }
 
+/** How many reads met a page let go of to its store (cache.js), not there: one that renders as it goes (stream) and
+ *  meets one restores it and reads again, as its pages can go between its reads */
+export let missed = 0
+
 /** Walk pages of instance a, calling visitor(page, channel, start, end) for each overlapping page. */
 export function walkPages(a, c, srcOff, len, visitor) {
   let pages = a.pages, PS = audio.PAGE_SIZE
   let p0 = Math.floor(srcOff / PS), pos = p0 * PS
   for (let p = p0; p < pages.length && pos < srcOff + len; p++) {
     let pg = pages[p], pLen = pg ? pg[0].length : PS
+    if (!pg && a.cache) missed++
     if (pos + pLen > srcOff && pg) {
       let s = Math.max(srcOff - pos, 0), e = Math.min(srcOff + len - pos, pLen)
       touchLru(a, p)

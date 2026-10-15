@@ -81,7 +81,7 @@ async function prepare(a, index) {
 /** GSM 06.10 full rate, each channel: to 8 kHz, through libgsm and back, at the input's rate. Frame by frame, no
  *  lookahead: what comes back lines up with what went in (checked, as the others). */
 async function gsm(pcm, sr) {
-  let [{ default: encoder }, { default: decode }] = await Promise.all([import('@audio/encode-gsm'), import('@audio/decode-gsm')])
+  let [{ default: encoder }, { default: decode }] = await Promise.all([import('@audio/encode/gsm'), import('@audio/decode/gsm')])
   let at = (x, from, to) => from === to ? x : audio.from([x], { sampleRate: from }).resample(to, { type: 'sinc' }).read().then(r => r[0])
   let out = []
   for (let x of pcm) {

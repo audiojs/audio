@@ -6,7 +6,7 @@
 
 import fft from 'fourier-transform'
 import hann from 'window-function/hann'
-import aWeighting from '@audio/weighting-a'
+import aWeighting from '@audio/weighting/a'
 
 // ── Mel scale ───────────────────────────────────────────────────
 

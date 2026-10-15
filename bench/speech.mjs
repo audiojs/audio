@@ -169,7 +169,7 @@ async function neural(x, model, o) {
     models[model] = await nd.load(model === 'deepfilter' ? 'deepfilternet3' : 'rnnoise', { sessionOptions: { intraOpNumThreads: 1, interOpNumThreads: 1 } })
   }
   if (model === 'rnnoise') return { ch: await denoise(x.ch, { sampleRate: x.sr, model: models[model], limit: o.limit ?? 20 }), sr: x.sr }
-  let run = ch => denoise(ch, { sampleRate: x.sr, model: models[model], limit: 0 }), y = await run(x.ch), heard = roomless(x.ch, y, x.sr), limit = o.limit ?? 18
+  let run = ch => denoise(ch, { sampleRate: x.sr, model: models[model], limit: 0 }), y = await run(x.ch), heard = await roomless(x.ch, y, x.sr), limit = o.limit ?? 18
   if (heard) y = await run(heard)
   return { ch: limit ? y.map((v, c) => mixback(x.ch[c], v, { limit, floor: o.floor, sampleRate: x.sr })) : y, sr: x.sr }
 }

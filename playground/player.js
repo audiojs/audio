@@ -12,13 +12,14 @@ import { heard } from './heard.js'
 // over silence (heard.js); loop seams, starts and stops are the library's, crossfaded. The position is what the speakers
 // play now: the library reads the device's own clock.
 // Scrubbing plays the moment under a caret instead (scrub.js), for as long as it is held, as it moves, on the same
-// context. Playback pauses while it sounds.
+// context; with tracks, one track's alone, as its lane has it. Playback pauses while it sounds.
 export default function player({ onend = () => {} } = {}) {
   let channels = null, length = 0, rate = 0, open = null, local = null, voice = null, only = null, at = 0, outs = 0
-  // a long sound's samples near where it is heard (near): fetched as they are needed (set's `fetch`), the last asked for
-  // ({ from, to, got }) the one kept
-  let fetch = null, held = null, asking = null
-  let scrubbing = null, scrubbed = null, loaded = null, heldBy = null, mode = 'hybrid', speed = 1
+  // a long sound's samples near where it is heard (near), and its tracks' lanes (lane): windows of them, fetched as they
+  // are needed (set's `fetching` and `lanes`); the tracks' lanes the page holds
+  let fetched = null, lanes = null, laneWindow = null
+  // the track a scrub hears (its lane's index), none for the output
+  let scrubbing = null, scrubbed = null, solo = null, loaded = null, heldBy = null, mode = 'hybrid', speed = 1
   // a moment heard as an edit being dragged will leave it (audition), and how many were asked for
   let hearing = null, auditions = 0
   // the latest of play and pause wins: a play still opening the device when a pause comes stays paused
@@ -47,31 +48,48 @@ export default function player({ onend = () => {} } = {}) {
   const calm = r => { if (r instanceof Promise) r.catch(() => {}) }
   const same = o => JSON.stringify(o) === JSON.stringify(only)
   const duration = () => length / rate
-  // The samples about time `t`: the output's own, or for a long one a window of WINDOW s about it, { x, from } (its first
-  // sample), fetched again once `t` comes within a quarter of its edge, or anywhere else; null till it has come
+  // Samples `fetch(from, to)` gives, about time `t`: a window of WINDOW s about it, { x, from } (its first sample),
+  // fetched again once `t` comes within a quarter of its edge, or anywhere else; null till it has come. `coming()`, the
+  // fetch on its way. One a new output replaced keeps what comes to it to itself
   const WINDOW = 30
-  function near(t) {
-    if (channels) return { x: channels, from: 0 }
-    if (!fetch || !length) return null
-    const i = Math.round(t * rate), w = WINDOW * rate, n = held?.x[0].length ?? 0
-    const inside = held && i >= held.from && i < held.from + n, edge = held && (i - held.from < w / 4 && held.from > 0 || held.from + n - i < w / 4 && held.from + n < length)
-    const coming = asking && i >= asking.from && i < asking.to
-    if ((!inside || edge) && !coming) {
-      const from = Math.max(0, Math.min(length - w, i - w / 2)) | 0, to = Math.min(length, from + w), of = outs
-      const ask = asking = { from, to }
-      ask.got = Promise.resolve(fetch(from, to)).then(x => { if (of === outs && asking === ask && x?.length) held = { x, from } }).catch(() => {}).finally(() => { if (asking === ask) asking = null })
+  function windowed(fetch) {
+    let held = null, asking = null
+    const near = t => {
+      const i = Math.round(t * rate), w = WINDOW * rate, n = held?.x[0].length ?? 0
+      const inside = held && i >= held.from && i < held.from + n, edge = held && (i - held.from < w / 4 && held.from > 0 || held.from + n - i < w / 4 && held.from + n < length)
+      const pending = asking && i >= asking.from && i < asking.to
+      if ((!inside || edge) && !pending) {
+        const from = Math.max(0, Math.min(length - w, i - w / 2)) | 0, to = Math.min(length, from + w)
+        const ask = asking = { from, to }
+        ask.got = Promise.resolve(fetch(from, to)).then(x => { if (asking === ask && x?.length) held = { x, from } }).catch(() => {}).finally(() => { if (asking === ask) asking = null })
+      }
+      return inside ? held : null
     }
-    return inside ? held : null
+    near.coming = () => asking?.got
+    return near
   }
+  // The samples about time `t`: the output's own, or a long one's window about it
+  const near = t => channels ? { x: channels, from: 0 } : length ? fetched?.(t) ?? null : null
+  // The tracks' lanes about time `t`, each its channels averaged: the page's, or a long one's window; and track `k`'s
+  // alone, as one channel
+  const lanesNear = t => Array.isArray(lanes) ? { x: lanes, from: 0 } : length ? laneWindow?.(t) ?? null : null
+  function lane(t, k) {
+    const w = lanesNear(t)
+    return w?.x[k] ? { x: [w.x[k]], from: w.from } : null
+  }
+  // what a scrub hears about time `t`, and what is still coming of it
+  const heard = t => solo == null ? near(t) : lane(t, solo)
+  const coming = () => (solo == null ? fetched : laneWindow)?.coming?.()
 
-  // The scrub voice hears the output as it is, every channel at its own rate (scrub.js reads it at the device's), sent
-  // the first time a scrub needs it after each new output; a node with as many outputs as the output has channels.
+  // The scrub voice hears the output as it is, every channel at its own rate (scrub.js reads it at the device's), or a
+  // track's lane, sent the first time a scrub needs it after each new output or track; a node with as many outputs as
+  // what it hears has channels.
   async function scrubber() {
     const ctx = audio.context
     await ctx.resume()
     loaded ||= ctx.audioWorklet.addModule(new URL('./scrub.js', import.meta.url))
     await loaded
-    const w = near(scrubbed ?? 0), n = w?.x.length || 1
+    const w = heard(scrubbed ?? 0), n = w?.x.length || 1
     if (!scrubbing || scrubbing.channels !== n) {
       scrubbing?.node.disconnect()
       const node = new AudioWorkletNode(ctx, 'scrub', { outputChannelCount: [n] })
@@ -79,8 +97,8 @@ export default function player({ onend = () => {} } = {}) {
       node.port.postMessage({ mode })
       scrubbing = { node, channels: n, of: null }
     }
-    if (w && scrubbing.of !== w.x) {
-      scrubbing.of = w.x
+    if (w && scrubbing.of !== w.x[0]) {
+      scrubbing.of = w.x[0]
       scrubbing.from = w.from
       const x = w.x.map(c => c.slice())
       scrubbing.node.port.postMessage({ x, rate }, x.map(c => c.buffer))
@@ -107,15 +125,18 @@ export default function player({ onend = () => {} } = {}) {
       return t
     },
     // A new output, `pcm` at `sampleRate`, `n` samples long, and what opens it to play (made); a long one with no samples
-    // here (pcm null), played by the engine alone, its samples near where it is heard fetched by `fetch(from, to)`. While
+    // here (pcm null), played by the engine alone, its samples near where it is heard fetched by `fetching(from, to)`.
+    // With tracks, `tracks`: their lanes, each its channels averaged, or what fetches them (from, to) for a long one. While
     // one plays, the new one takes over where it is, the one before playing on until it can
-    async set(pcm, sampleRate, opens = null, n = pcm?.[0]?.length ?? 0, fetching = null) {
+    async set(pcm, sampleRate, opens = null, n = pcm?.[0]?.length ?? 0, fetching = null, tracks = null) {
       // the scrub voice loads with the first output, so the first press sounds at once
       if (pcm?.[0]?.length) loaded ||= audio.context.audioWorklet.addModule(new URL('./scrub.js', import.meta.url))
       const mine = ++outs, prev = voice, was = local
       channels = pcm?.[0]?.length ? pcm : null
       length = n
-      fetch = fetching; held = null
+      fetched = fetching && windowed(fetching)
+      lanes = tracks
+      laneWindow = typeof tracks === 'function' ? windowed(tracks) : null
       rate = sampleRate
       open = opens
       local = null
@@ -177,20 +198,24 @@ export default function player({ onend = () => {} } = {}) {
       at = Math.max(0, Math.min(time, duration()))
       if (voice?.playing && !voice.paused) calm(voice.seek(at))
     },
-    // The moment at `time`, only `band` [low, high] Hz of it if given, until scrub(null); a moving time plays the
-    // sound at its speed. Playback pauses while it sounds.
-    async scrub(time, band = null) {
+    // The moment at `time`, only `band` [low, high] Hz of it if given, or of `track` alone (its lane's index), until
+    // scrub(null); a moving time plays the sound at its speed. Playback pauses while it sounds.
+    async scrub(time, band = null, track = null) {
       if (time == null) { heldBy = null; scrubbed = null; scrubbing?.node.port.postMessage({ on: false }); return }
       if (!length) return
       this.pause()
       scrubbed = time
+      solo = track
       // a long sound's window about the caret, once it has come
-      while (!near(time) && asking) await asking.got
+      while (!heard(time) && coming()) await coming()
       const call = heldBy = {}, s = await scrubber()
-      if (heldBy === call && near(time)) s.node.port.postMessage({ caret: time * rate - s.from, band, on: true })
+      if (heldBy === call && heard(time)) s.node.port.postMessage({ caret: time * rate - s.from, band, on: true })
     },
-    // The samples about `t` the page has (near): { x, from }, or null till they come
+    // The samples about `t` the page has (near): { x, from }, or null till they come; with tracks, their lanes'
     near,
+    lanes: lanesNear,
+    // what a scrub hears about `t`: the output's samples, or the lane of the track it hears
+    heard,
     // A moment heard as an edit will leave it, while the edit is dragged (a pitch): [from, to] of the output through
     // `edit`, a call of the library's on it [type, ...args], once, in place of the one before; null stops it. Playback
     // pauses for it.

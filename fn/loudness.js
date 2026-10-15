@@ -1,5 +1,5 @@
 import audio, { resolveChannels, LOAD } from '../core.js'
-import kWeighting from '@audio/weighting-k'
+import kWeighting from '@audio/weighting/k'
 import { state, step } from '@audio/biquad'
 
 // ── LUFS measurement ─────────────────────────────────────────

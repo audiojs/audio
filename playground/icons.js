@@ -93,7 +93,11 @@ export default {
   declick: 'M2 13h7l1.5-9 1.5 16 1.5-7H22',
   decrackle: 'M2 12h3l1-4 1 7 1-3h3l1 4 1-6 1 2h3l1-4 1 5 1-1h2',
   declip: 'M3 20c2 0 4-4 5-9h8c1 5 3 9 5 9M8.4 8.1 8.7 7M10.2 4.1l.9-.7M12.9 3.4l.9.7M15.3 7l.3 1.1',
+  // harmonics, each a line, the lower whole, the higher drawn back in
+  recover: 'M3 20h18M3 15.5h18M3 11h7.5M13.5 11H21M3 6.5h3.5M9.25 6.5h5.5M17.5 6.5H21',
   dereverb: 'M4 4v16M8 6.5v11M12 8.5v7M16 10v4M20 11v2M9 21 21 5',
+  // a voice's frames, made again as one wave
+  vocos: 'M3 9v6M6 6v12M9 10v4M12 12c1.5-6 3-6 4.5 0s3 6 4.5 0',
   deplosive: 'M5 21V4h5a4.5 4.5 0 0 1 0 9H5M17 8h4M16.5 12h4.5M17 16h4',
   dewind: 'M2 8h9.5a2.5 2.5 0 1 0-2.5-2.5M2 12h15a3 3 0 1 1-3 3M2 16h6',
   debreath: 'M3 8v8M6 5v14M18 5v14M21 8v8M9 15c1.5-3 4.5-3 6 0',

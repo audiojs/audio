@@ -45,7 +45,7 @@ function intonation(input, output, ctx) {
   }
   // pitch() over the range, with its context around it, on its own timeline from p0
   let pitch = audio.op('pitch'), engine = audio.op('intonation').mod
-  if (!engine) throw new Error('intonation: install @audio/tune-curve')
+  if (!engine) throw new Error('intonation: install @audio/tune')
   pitch.mod ??= engine
   let p0 = Math.max(0, a0 - Math.round(CONTEXT * sr)), p1 = Math.min(n, a1 + Math.round(CONTEXT * sr)), off = (a0 - p0) / sr
   let y = render(audio.from(chs.map(c => input[c].slice(p0, p1)), { sampleRate: sr })
@@ -56,6 +56,6 @@ function intonation(input, output, ctx) {
 audio.op('intonation', {
   params: ['factor'],
   // pitch({ voice: true })'s engine, which it runs
-  load: () => import('@audio/tune-curve').catch(() => null),
+  load: () => import('@audio/tune/curve').catch(() => null),
   whole: intonation
 })

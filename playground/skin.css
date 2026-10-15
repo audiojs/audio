@@ -2,17 +2,21 @@
    greys and its accent (rulers, helpers, information), white for what is selected and edited, the waveform's own, the
    fills that raise a card or a key over the screen, the hints' look, the bar's height and the gutters. Under it the
    site's tokens (assets/tokens.css): its paper, ink, fonts, radii, durations and shadows. Another skin (a Winamp skin
-   read in, an editor's colour theme) is another file setting these. */
+   read in, an editor's colour theme: theme.js reads VS Code's) sets these over them. */
 @import '../assets/tokens.css';
 @font-face { font-family: 'Geist'; src: url('../assets/geist.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
 
 :root {
+  /* the accent: what an edit draws on the sound, its handles and curves */
   --color-screen-accent: oklch(76% .15 58);
-  /* a selection's wash and hairline; the caret, white at the opacity that reads as --color-screen-muted over the screen:
-     over the waveform it lightens, as a screen blend would, never darker than what it crosses */
+  /* a selection's wash, behind the sound as a selection is behind text (view.js); the caret, white at the opacity that
+     reads as --color-screen-muted over the screen */
   --color-screen-select: oklch(100% 0 0 / .05);
-  /* the same wash over a spectrogram, whose speckle hides a lift a waveform's even ground shows */
+  /* the same wash under a spectrogram, whose speckle hides a lift a waveform's even ground shows */
   --color-screen-select-spectrum: oklch(100% 0 0 / .16);
+  /* both while the picture is not focused, as an editor's selection goes when its focus is elsewhere: here the same */
+  --color-screen-select-inactive: var(--color-screen-select);
+  --color-screen-select-spectrum-inactive: var(--color-screen-select-spectrum);
   /* the lanes' grid: its crosses, where the axes' ticks meet; its dots, a pixel each, brighter; its lines, from each
      tick across the lanes, half a cross's, as they run the lanes' length; white, so it reads over a spectrogram as over
      the screen */
@@ -23,28 +27,61 @@
   /* the waveform's colour (a file arriving is the same, drawn dimmer: editor.css); the notch a handle leaves */
   --color-screen-wave: oklch(78% 0 0);
   --color-notch: oklch(12% 0 0);
+  /* the spectrogram's ink, its loudest; quieter, less of it over the screen (tint.js inked) */
+  --color-screen-spectrum: oklch(100% 0 0);
+  /* a marker's line and flag, and its name */
+  --color-screen-mark: var(--color-screen-bright);
+  --color-screen-mark-name: var(--color-screen-soft);
+  /* the axes' numbers, the time row's and the levels'; the script's line numbers, the caret's line's */
+  --color-screen-ruler: var(--color-screen-dim);
+  --color-screen-line-number: var(--color-screen-rule);
+  --color-screen-line-number-active: var(--color-screen-dim);
+  /* the script's words, grey here, as a theme colours them there (theme.js SYNTAX); its caret's line, its selection, the
+     selection's other matches and a matching bracket */
+  --color-screen-text: var(--color-screen-soft);
+  --color-screen-storage: var(--color-screen-bright);
+  --color-screen-keyword: var(--color-screen-bright);
+  --color-screen-function: var(--color-screen-ink);
+  --color-screen-variable: var(--color-screen-soft);
+  --color-screen-property: var(--color-screen-soft);
+  --color-screen-type: var(--color-screen-soft);
+  --color-screen-string: var(--color-screen-muted);
+  --color-screen-regexp: var(--color-screen-muted);
+  --color-screen-constant: var(--color-screen-muted);
+  --color-screen-number: var(--color-screen-muted);
+  --color-screen-comment: var(--color-screen-dim);
+  --color-screen-line: oklch(100% 0 0 / .03);
+  --color-screen-line-border: transparent;
+  --color-screen-selection: oklch(100% 0 0 / .15);
+  --color-screen-selection-inactive: var(--color-screen-selection);
+  --color-screen-match: oklch(100% 0 0 / .07);
+  --color-screen-bracket: oklch(100% 0 0 / .1);
+  /* channels in one lane: --color-screen-channel-1, -2 and on, each its hue; unset, hues evenly round (tint.js hue) */
   /* what a field says while it is empty, under what is written in it */
   --color-screen-placeholder: oklch(48% 0 0);
-  /* white over the screen, raising what is on it: a card, a field's well, a quiet button, a slider's track, a switch off */
-  --color-screen-fill: oklch(100% 0 0 / .06);
-  --color-screen-fill-soft: oklch(100% 0 0 / .07);
-  --color-screen-fill-hover: oklch(100% 0 0 / .085);
-  --color-screen-fill-chosen: oklch(100% 0 0 / .09);
-  --color-screen-fill-quiet: oklch(100% 0 0 / .08);
-  --color-screen-fill-quiet-hover: oklch(100% 0 0 / .13);
-  --color-screen-fill-off: oklch(100% 0 0 / .1);
-  --color-screen-switch: oklch(100% 0 0 / .14);
-  --color-screen-track: oklch(100% 0 0 / .18);
+  /* what lifts off the screen, raising what is on it: a card, a field's well, a quiet button, a slider's track, a switch
+     off; white here, a theme's foreground there */
+  --color-screen-lift: oklch(100% 0 0);
+  --color-screen-fill: color-mix(in oklab, var(--color-screen-lift) 6%, transparent);
+  --color-screen-fill-soft: color-mix(in oklab, var(--color-screen-lift) 7%, transparent);
+  --color-screen-fill-hover: color-mix(in oklab, var(--color-screen-lift) 8.5%, transparent);
+  --color-screen-fill-chosen: color-mix(in oklab, var(--color-screen-lift) 9%, transparent);
+  --color-screen-fill-quiet: color-mix(in oklab, var(--color-screen-lift) 8%, transparent);
+  --color-screen-fill-quiet-hover: color-mix(in oklab, var(--color-screen-lift) 13%, transparent);
+  --color-screen-fill-off: color-mix(in oklab, var(--color-screen-lift) 10%, transparent);
+  --color-screen-switch: color-mix(in oklab, var(--color-screen-lift) 14%, transparent);
+  --color-screen-track: color-mix(in oklab, var(--color-screen-lift) 18%, transparent);
   --color-screen-well: oklch(0% 0 0 / .2);
   --color-backdrop: oklch(20% 0 0 / .35);
   /* a switch's keys: raised in their bezel, the one on pressed in */
   --key-bezel: oklch(0% 0 0 / .45);
-  --key-bezel-light: oklch(100% 0 0 / .07);
-  --key-face: linear-gradient(oklch(100% 0 0 / .11), oklch(100% 0 0 / .04));
-  --key-light: oklch(100% 0 0 / .12);
+  --key-bezel-light: color-mix(in oklab, var(--color-screen-lift) 7%, transparent);
+  --key-face: linear-gradient(color-mix(in oklab, var(--color-screen-lift) 11%, transparent), color-mix(in oklab, var(--color-screen-lift) 4%, transparent));
+  --key-light: color-mix(in oklab, var(--color-screen-lift) 12%, transparent);
   --key-seam: oklch(0% 0 0 / .4);
   --key-pressed: linear-gradient(oklch(0% 0 0 / .35), oklch(0% 0 0 / .15));
   --key-pressed-shadow: oklch(0% 0 0 / .7);
+  --key-pressed-ink: var(--color-screen-bright);
   /* the slab's rim, its bezel and the shadow it casts on the paper */
   --shadow-panes: inset 0 1px 0 var(--color-screen-rule), 0 0 0 1px var(--color-bezel), 0 2px 2px oklch(0% 0 0 / .06), 0 12px 24px oklch(0% 0 0 / .1);
   /* what is held up off the screen while it is dragged: a tab */
@@ -52,6 +89,9 @@
   /* the hints by what they are about (hint.js) */
   --hint-bg: var(--color-screen);
   --hint-ink: var(--color-screen-bright);
+  /* the size of the picture's words (its axes' numbers, its tags) and of the script's, in the mono font */
+  --font-size-label: 10px;
+  --font-size-code: 13px;
   /* the page's bar, and the paper round the slab */
   --bar: 56px;
   --gutter: 14px;

@@ -32,17 +32,17 @@
  * key's 'pcp' needs only the MIT @audio/mir-chroma and @audio/mir-key, installed with audio.
  */
 
-import { notes as noteTracker, track } from '@audio/pitch-pyin'
-import { name as midiToName } from '@audio/note'
+import { notes as noteTracker, track } from '@audio/pitch/pyin'
 import hann from 'window-function/hann'
 import audio, { mono, pickChannels, perChannel } from '../core.js'
 
 const need = (what, pkgs, p) => p.catch(e => { throw new Error(`${what}: install ${pkgs} (${e.message})`) })
+const loadNote = () => need('notes', '@audio/note', import('@audio/note')).then(m => m.name)
 const loadChords = () => need('chords', '@audio/mir-nnls-chroma @audio/mir-chordino (GPL-2.0-or-later)',
   Promise.all([import('@audio/mir-nnls-chroma'), import('@audio/mir-chordino')]))
 const loadKey = pcp => pcp
-  ? need('key', '@audio/mir-chroma @audio/mir-key', Promise.all([import('@audio/mir-chroma'), import('@audio/mir-key')]))
-  : need('key', '@audio/mir-nnls-chroma (GPL-2.0-or-later) @audio/mir-key', Promise.all([import('@audio/mir-nnls-chroma'), import('@audio/mir-key')]))
+  ? need('key', '@audio/mir', Promise.all([import('@audio/mir/chroma'), import('@audio/mir/key')]))
+  : need('key', '@audio/mir-nnls-chroma (GPL-2.0-or-later) @audio/mir', Promise.all([import('@audio/mir-nnls-chroma'), import('@audio/mir/key')]))
 
 let neural
 const loadNeural = () => neural ??= import('@audio/neural-transcribe').then(m => m.default,
@@ -130,6 +130,7 @@ audio.fn.notes = perChannel(async function(opts) {
   let write = noteTracker({ ...opts, fs: this.sampleRate, ...(opts?.robust && { candidates: await loadStage1() }) }), events = []
   for await (let m of mono(this, opts)) events.push(...write(m))
   events.push(...write())
+  let midiToName = await loadNote()
   return events.map(({ time, duration, freq, midi, clarity }) => ({ time, duration, freq, midi, note: midiToName(midi), clarity }))
 })
 
@@ -137,7 +138,7 @@ audio.fn.notes = perChannel(async function(opts) {
 // minute). Times are relative to `at`, as in the monophonic path.
 async function polyNotes(inst, { at, duration, channel, poly, frameSize, hopSize, ...opts }) {
   let transcribe = await loadNeural()
-  let notes = await transcribe(pickChannels(await inst.read({ at, duration }), channel), { ...opts, sampleRate: inst.sampleRate })
+  let notes = await transcribe(pickChannels(await inst.read({ at, duration }), channel), { ...opts, sampleRate: inst.sampleRate }), midiToName = await loadNote()
   return notes.map(({ time, duration, freq, midi, velocity, bends }) => ({ time, duration, freq, midi, note: midiToName(midi), velocity, bends }))
 }
 

@@ -46,9 +46,9 @@ function convolve(x, h) {
 	return y
 }
 
-// ── Wave: STFT statistical denoisers (specsub, wiener, omlsa, dereverb) ──────
+// ── Wave: STFT statistical denoisers (specsub, wiener, omlsa, dereverb's wpe) ──────
 // specsub, wiener and omlsa stream: the noise PSD is tracked online, no manual profile argument
-// needed; dereverb renders whole (its prediction is fitted over the take, the late tail taken from
+// needed; dereverb({ method: 'wpe' }) renders whole (its prediction is fitted over the take, the late tail taken from
 // it) — see each package's audio.js header for why. The streaming ones declare a fixed latency (STFT analysis/synthesis buffering); .read()
 // applies plugin-delay-compensation transparently, so output compares directly against
 // the un-shifted reference at the same sample index (verified: cross-correlation of
@@ -57,8 +57,7 @@ function convolve(x, h) {
 import { specsub } from '@audio/denoise-spectral/audio'
 import { wiener } from '@audio/denoise-wiener/audio'
 import { omlsa } from '@audio/denoise-omlsa/audio'
-import { dereverb } from '@audio/denoise-dereverb/audio'
-audio.use(specsub, wiener, omlsa, dereverb)
+audio.use(specsub, wiener, omlsa)
 
 test('specsub: raises segSNR of noisy speech, latency-compensated by the engine', async () => {
 	let speech = lena.subarray(0, SR * 4)
@@ -112,16 +111,16 @@ function beat(sec) {
 	return x
 }
 
-test('dereverb: music in a room passes as it came, its beat the mark (0.5 changed it by −2.4 dB of itself); music: \'enhance\' takes it as a room', async () => {
+test('dereverb wpe: music in a room passes as it came, its beat the mark (0.5 changed it by −2.4 dB of itself); music: \'enhance\' takes it as a room', async () => {
 	// the room gives the beat a diffuse tail, and its pauses are a voice's: the room's checks would process it
 	let x = room(beat(8), 0.6)
-	let [y] = await audio.from([x.slice()], { sampleRate: SR }).dereverb().read()
+	let [y] = await audio.from([x.slice()], { sampleRate: SR }).dereverb({ method: 'wpe' }).read()
 	is(maxDiff(y, x), 0, 'untouched')
-	let [z] = await audio.from([x.slice()], { sampleRate: SR }).dereverb({ music: 'enhance' }).read()
+	let [z] = await audio.from([x.slice()], { sampleRate: SR }).dereverb({ method: 'wpe', music: 'enhance' }).read()
 	ok(maxDiff(z, x) > 1e-3, `music: 'enhance': processed (max change ${maxDiff(z, x).toFixed(4)})`)
 })
 
-test('dereverb: reduces late-tail energy, never boosts it', async () => {
+test('dereverb wpe: reduces late-tail energy, never boosts it', async () => {
 	let speech = lena.subarray(0, SR * 2)
 	let t60 = 0.5
 	// the response as long as its decay: cut at 4096 samples (93 ms), its tail stopped dead, faster than a room's, and
@@ -132,7 +131,7 @@ test('dereverb: reduces late-tail energy, never boosts it', async () => {
 	for (let i = 0; i < imp.length; i++) imp[i] = rand() * Math.exp(-6.9 * i / (t60 * SR))
 	imp[0] = 1  // direct path
 	let rev = convolve(speech, imp)
-	let out = (await audio.from([rev.slice()], { sampleRate: SR }).dereverb().read())[0]
+	let out = (await audio.from([rev.slice()], { sampleRate: SR }).dereverb({ method: 'wpe' }).read())[0]
 	is(out.length, rev.length, 'length preserved (latency compensated)')
 	ok(out.every(isFinite))
 	let rmsRev = rms(rev), rmsOut = rms(out)
@@ -296,6 +295,49 @@ test('declip (streaming:false): reconstructs a clipped sine closer to the unclip
 	ok(errAfter < errBefore, `defining property: closer to the clean reference (MSE ${errBefore.toExponential(2)} -> ${errAfter.toExponential(2)})`)
 })
 
+// declip's rebuild made on worker threads (fn/declip.js, parallel.js): the kernel's own samples, bit for bit, each channel
+// of its own, a range's outside kept as it was
+test('declip on threads: the kernel\'s samples, bit for bit; a range kept outside', async () => {
+	let { default: kernel } = await import('@audio/denoise-declip')
+	let s = lena.subarray(SR, SR + SR / 2), k = 0.9 / peak(s), x = Float32Array.from(s, v => v * k)
+	let L = Float32Array.from(x, v => Math.max(-0.3, Math.min(0.3, v))), R = Float32Array.from(x, v => Math.max(-0.5, Math.min(0.4, v)))
+	let same = (a, b) => a.length === b.length && a.every((v, i) => Object.is(v, b[i]))
+	let out = await audio.from([L.slice(), R.slice()], { sampleRate: SR }).declip().read()
+	ok(same(out[0], kernel(L, { fs: SR, clipLevel: 0, order: 256 })) && same(out[1], kernel(R, { fs: SR, clipLevel: 0, order: 256 })), 'each channel the kernel\'s')
+	let part = await audio.from([L.slice()], { sampleRate: SR }).declip({ at: 0.1, duration: 0.2 }).read(), a = 0.1 * SR, b = 0.3 * SR, all = kernel(L, { fs: SR, clipLevel: 0, order: 256 })
+	ok(same(part[0].subarray(0, a), L.subarray(0, a)) && same(part[0].subarray(b), L.subarray(b)), 'outside the range as it was')
+	ok(same(part[0].subarray(a, b), all.subarray(a, b)), 'inside it the kernel\'s')
+}, { timeout: 600000 })
+
+// parallel.js on its own: results in the jobs' order however the threads hand them back; none, or one, made here; a job
+// that throws rejects the call, and the threads go on serving the next
+test('parallel: jobs on threads, their results in order; none or one here; a throw rejects, the next call served', async () => {
+	let { default: parallel } = await import('../parallel.js')
+	let mod = 'data:text/javascript,' + encodeURIComponent('export const solve = (s, j) => { if (j < 0) throw new Error(\'job \' + j); return new Float64Array([j * s.k]) }')
+	let here = (s, j) => new Float64Array([j * s.k]), jobs = Array.from({ length: 200 }, (_, i) => i)
+	let out = await parallel(mod, { k: 3 }, jobs, here)
+	ok(out.length === 200 && out.every((v, i) => v[0] === 3 * i), 'every result where its job is')
+	is((await parallel(mod, { k: 3 }, [], here)).length, 0, 'no jobs, no results')
+	is((await parallel(mod, { k: 3 }, [5], here))[0][0], 15, 'one job, made here')
+	let failed = await parallel(mod, { k: 3 }, [1, 2, -7, 4], here).then(() => '', e => e.message)
+	is(failed, 'job -7', 'a job that throws rejects the call')
+	ok((await parallel(mod, { k: 2 }, jobs, here)).every((v, i) => v[0] === 2 * i), 'the threads serve the next call')
+})
+
+// declip on threads at its edges: nothing to rebuild (no samples, nothing clipped) comes back as it went in; one
+// channel of two, the other untouched
+test('declip on threads: empty and unclipped as they are; one channel of two', async () => {
+	let { default: kernel } = await import('@audio/denoise-declip')
+	let same = (a, b) => a.length === b.length && a.every((v, i) => Object.is(v, b[i]))
+	is((await audio.from([new Float32Array(0)], { sampleRate: SR }).declip().read())[0].length, 0, 'no samples')
+	let quiet = Float32Array.from(lena.subarray(0, SR / 4), v => v * 0.5)
+	ok(same((await audio.from([quiet.slice()], { sampleRate: SR }).declip().read())[0], quiet), 'nothing clipped: as it was')
+	let s = lena.subarray(SR, SR + SR / 4), k = 0.9 / peak(s), L = Float32Array.from(s, v => v * k), R = Float32Array.from(s, v => Math.max(-0.3, Math.min(0.3, v * k)))
+	let out = await audio.from([L.slice(), R.slice()], { sampleRate: SR }).declip({ channel: 1 }).read()
+	ok(same(out[0], L), 'the channel not asked for as it was')
+	ok(same(out[1], kernel(R, { fs: SR, clipLevel: 0, order: 256 })), 'the one asked for the kernel\'s')
+}, { timeout: 600000 })
+
 test('decrackle (streaming:false): reduces a high-rate impulse shower', async () => {
 	let speech = lena.subarray(0, SR * 2)
 	let dirty = new Float32Array(speech)
@@ -443,7 +485,7 @@ test('rnnoise, deepfilter: without @audio/neural-denoise each names the package,
 		let [input] = await audio.from([dirty], { sampleRate: SR }).gain(-6).read(), [ref] = await audio.from([clean], { sampleRate: SR }).gain(-6).read()
 		// the model run again on the take with the room's prediction off where its voice carries a room (roomless())
 		let run = x => neural.default(x, { sampleRate: SR, model: 'deepfilternet3', limit: 0, music: 'enhance' })
-		let y0 = await run([input]), heard = roomless([input], y0, SR), [y] = heard ? await run(heard) : y0
+		let y0 = await run([input]), heard = await roomless([input], y0, SR), [y] = heard ? await run(heard) : y0
 		calls = 0
 		let a = audio.from([dirty, dirty], { sampleRate: SR }).gain(-6).deepfilter({ channel: 1, music: 'enhance' })
 		let [l, r] = await a.read(), runs = calls
@@ -520,12 +562,12 @@ function band(sec, sr = SR) {
 test('deepfilter: the model hears a voice in a room without the room\'s prediction, music as it came', async () => {
 	// the model's voice stands in as the take itself: where it carries a room, the take is heard without its prediction
 	let speech = lena.subarray(0, 4 * SR), wet = room(speech, 0.5, 6)
-	let [h] = roomless([wet], [wet], SR), err = v => { let e = 0; for (let i = 0; i < v.length; i++) e += (v[i] - speech[i]) ** 2; return 10 * Math.log10(e) }
+	let [h] = await roomless([wet], [wet], SR), err = v => { let e = 0; for (let i = 0; i < v.length; i++) e += (v[i] - speech[i]) ** 2; return 10 * Math.log10(e) }
 	ok(err(h) < err(wet) - 0.5, `nearer the dry voice: ${(err(h) - err(wet)).toFixed(2)} dB of the room off`)
-	ok(roomless([wet], [wet], SR)[0] === h, 'the last one kept: moving the limit fits no room again')
+	ok((await roomless([wet], [wet], SR))[0] === h, 'the last one kept: moving the limit fits no room again')
 	let music = room(beat(8), 0.6)
-	is(roomless([music], [music], SR), null, 'music in a room: heard once, as it came')
-	is(roomless([wet], [beat(4)], SR), null, 'a voice the model left no room in (here a beat): heard once')
+	is(await roomless([music], [music], SR), null, 'music in a room: heard once, as it came')
+	is(await roomless([wet], [beat(4)], SR), null, 'a voice the model left no room in (here a beat): heard once')
 })
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -787,4 +829,58 @@ test('desqueak: a guitar\'s squeak taken down, the notes untouched; notes alone 
 	ok(clean.every((v, i) => v === x[i]), 'no squeak: bit-exact')
 	let off = (await audio.from([dirty.slice()], { sampleRate: SR }).desqueak({ squeak: 0 }).read())[0]
 	ok(off.every((v, i) => v === dirty[i]), 'squeak 0: bit-exact')
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+// dereverb (fn/dereverb.js): a trained model by default, anvuew's room de-reverb through the optional
+// @audio/neural-separate, music passed by @audio/neural-denoise's guard; @audio/denoise-dereverb's kernel by
+// { method: 'wpe' } (above). The model's tests run once it is in the neural cache, so the suite never downloads. The
+// voice: VoiceBank's p232 (as auto's tests above), in the velvet-noise room the wpe tests use.
+// ════════════════════════════════════════════════════════════════════════════
+
+const separate = await import('@audio/neural-separate').catch(() => null)
+const NEURAL_DIR = process.env.AUDIO_NEURAL_CACHE || path.join(os.homedir(), '.cache', 'audiojs', 'neural')
+const HAS_ROOM = !!separate?.models['dereverb-room'] && ['dereverb-room.fp16.onnx', 'dereverb-room.onnx'].some(f => existsSync(path.join(NEURAL_DIR, 'dereverb-room', f)))
+
+test('dereverb: without @audio/neural-separate it names the package and wpe, which runs; bad options name themselves', async () => {
+	let a = () => audio.from([lena.slice(0, SR)], { sampleRate: SR })
+	await withImport((spec, orig) => spec.startsWith('@audio/neural-separate') ? Promise.reject(new Error(`Cannot find package '${spec}'`)) : orig(spec), async () => {
+		let err = await a().dereverb({ music: 'enhance' }).read().catch(e => e)
+		ok(/^dereverb: install @audio\/neural-separate .*method: 'wpe'/.test(err?.message), err?.message)
+		is((await a().dereverb({ method: 'wpe' }).read())[0].length, SR, 'wpe needs no model')
+	})
+	// no model needed where nothing is to be taken: an empty input, reduction 0; the input comes back bit for bit
+	await withImport((spec, orig) => spec.startsWith('@audio/neural-') ? Promise.reject(new Error(`Cannot find package '${spec}'`)) : orig(spec), async () => {
+		is((await audio.from([new Float32Array(0)], { sampleRate: SR }).dereverb().read())[0].length, 0, 'an empty input: empty, no package asked for')
+		let x = lena.slice(0, SR), [y] = await audio.from([x], { sampleRate: SR }).dereverb(0).read()
+		is(maxDiff(y, x), 0, 'reduction 0: the input bit for bit, no package asked for')
+		let [l, r] = await audio.from([x, x], { sampleRate: SR }).dereverb({ method: 'wpe', channel: 1 }).read()
+		is(maxDiff(l, x), 0, 'channel 1: the other channel as it came')
+		is(maxDiff(r, (await audio.from([x], { sampleRate: SR }).dereverb({ method: 'wpe' }).read())[0]), 0, '…and channel 1 as the kernel makes it alone')
+	})
+	for (let [o, re] of [[-3, /^dereverb: reduction is dB/], [{ method: 'model' }, /^dereverb: method is roformer or wpe/], [{ music: 'keep' }, /^dereverb: music is pass or enhance/]]) {
+		let err = await a().dereverb(o).read().catch(e => e)
+		ok(re.test(err?.message), err?.message)
+	}
+})
+
+;(HAS_ROOM && existsSync(VB) ? test : test.skip)('dereverb: a voice in a room comes out nearer the dry voice; reduction mixes the room back, y + 10^(−dB/20)·(x − y), the model\'s whole output at Infinity', NEURAL_RUN, async () => {
+	let a = await audio(VB), fs = a.sampleRate, [dry] = await a.read(), wet = room(dry, 0.6, 0)
+	let [y] = await audio.from([wet], { sampleRate: fs }).dereverb(Infinity).read()
+	is(y.length, wet.length)
+	ok(sisdr(dry, y) > sisdr(dry, wet) + 6, `SI-SDR against the dry voice ${sisdr(dry, wet).toFixed(1)} → ${sisdr(dry, y).toFixed(1)} dB`)
+	let [r] = await audio.from([wet], { sampleRate: fs }).dereverb(12).read(), k = 10 ** (-12 / 20)
+	ok(maxDiff(r, Float32Array.from(wet, (v, i) => y[i] + k * (v - y[i]))) < 1e-6, 'reduction 12: the room 12 dB down, mixed back into the model\'s voice')
+	let [g] = await audio.from([wet], { sampleRate: fs }).dereverb({ at: 1, duration: 1 }).read(), moved = [0, 0]
+	for (let i = 0; i < wet.length; i++) moved[+(i >= fs && i < 2 * fs)] += g[i] !== wet[i]
+	ok(moved[0] === 0 && moved[1] > .9 * fs, `{ at: 1, duration: 1 }: ${moved[1]} samples changed inside, ${moved[0]} outside`)
+	let [w] = await audio.from([wet], { sampleRate: fs }).dereverb({ method: 'wpe' }).read()
+	ok(sisdr(dry, y) > sisdr(dry, w) + 3, `the model over wpe: ${sisdr(dry, w).toFixed(1)} → ${sisdr(dry, y).toFixed(1)} dB`)
+})
+
+;(HAS_ROOM && neural?.guard ? test : test.skip)('dereverb: music in a room passes untouched; music: \'enhance\' takes it as a room', NEURAL_RUN, async () => {
+	let x = room(band(6), 0.6), [y] = await audio.from([x], { sampleRate: SR }).dereverb().read()
+	is(maxDiff(y, x), 0, 'the band in a room as it went in')
+	let [z] = await audio.from([x], { sampleRate: SR }).dereverb({ music: 'enhance' }).read()
+	ok(maxDiff(z, x) > .01, `music: 'enhance': changed, by up to ${maxDiff(z, x).toFixed(2)}`)
 })

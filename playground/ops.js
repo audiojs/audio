@@ -117,7 +117,12 @@ const table = {
   declick: ['Repair', 'Remove clicks', [p('threshold', 2, 30, 8, '×', { step: .5 }), p('longest', .5, 20, 6, 'ms', { step: .5 }), p('order', 8, 100, 32, '', { step: 1 })]],
   decrackle: ['Repair', 'Remove vinyl crackle'],
   declip: ['Repair', 'Rebuild clipped peaks'],
-  dereverb: ['Repair', 'Reduce room echo'],
+  // a voice's band lost above a cutoff, rebuilt from its own harmonics (fn/recover.js)
+  recover: ['Repair', 'Rebuild a voice\'s lost highs from its own harmonics', [hz('cutoff', 4000, 1000, 20000)]],
+  // the room `reduction` dB down by a trained model, music passed; or the classical kernel (fn/dereverb.js)
+  dereverb: ['Repair', 'Remove room echo from a voice', [db('reduction', 0, 60, 60), choice('music', ['pass', 'enhance']), choice('method', ['roformer', 'wpe'])]],
+  // a voice made again by a neural vocoder, the input kept above the crossover (fn/vocos.js)
+  vocos: ['Repair', 'Rebuild a synthetic voice with a neural vocoder', [hz('crossover', 11000, 2000, 12000)]],
   deplosive: ['Repair', 'Soften p and b pops'],
   dewind: ['Repair', 'Reduce wind rumble'],
   debreath: ['Repair', 'Lower breaths between words'],

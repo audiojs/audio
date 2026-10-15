@@ -1,9 +1,3 @@
-# audio — todo
-
-Registry: **141 names** (ops + stats; codec halves ship in every decode-*/encode-*). Flavors complete: op ✔ stat ✔ codec ✔.
-Parity evidence: [.work/baseline.md](baseline.md). Perf: [docs/comparison.md § Performance](../docs/comparison.md).
-
-**Frozen 2026-10-06.** No new surface until a user asks for it: fixes, measurements and what real users hit go first. The proven users are developers (Node playback with a real transport, games, CLI players); podcast and audiobook production can be a product of its own on this engine. Signal: npm downloads on days without a release, and dependents found by their lockfiles, not the monthly total (64% of September's fell on its 4 release days).
 
 ## Adoption
 
@@ -11,47 +5,47 @@ Be the answer a person finds by search and an agent picks as a dependency. Proof
 
 Page rule: one page, one search query, one problem. Hear it (A/B) → try your file (in-browser, no upload) → copy the code (Node, browser, CLI) → numbers and limits.
 
-### 0. Baseline (week 1)
-- [ ] Agent test: 20 audio tasks × Claude Code, Cursor, ChatGPT, Copilot; log which library each picks and whether its code runs (bench/agents/)
-- [ ] Same 20 with "use `audio`": separates discovery from usability
-- [ ] Search Console + Bing Webmaster on audiojs.dev, sitemap.xml; record ranks for every target query below
+* [ ] Measured vs RX (article?)
+  - [ ] `/rx`: listen yourself, A / ours / RX per module, from bench/rx renders; numbers from docs/rx.md, "RX leads where" kept
+  - [ ] Publish rx-reel: YouTube, X, Bluesky, Mastodon, LinkedIn → `/rx`
+  - [ ] Show HN: how we measured RX 12 against free code, losses included
 
-### 1. Flagship: RX 12 measured (weeks 1–3)
-- [ ] `/rx`: listen yourself, A / ours / RX per module, from bench/rx renders; numbers from docs/rx.md, "RX leads where" kept
-- [ ] Publish rx-reel: YouTube, X, Bluesky, Mastodon, LinkedIn → `/rx`
-- [ ] Show HN: how we measured RX 12 against free code, losses included
+* [ ] SEO creator queries (util, articles)
+  - [ ] remove background noise · remove hum · fix clipped audio · remove clicks / mouth clicks
+  - [ ] remove echo (de-reverb) · remove breaths · de-ess · remove plosives
+  - [ ] ACX check online · podcast loudness check (-16 LUFS) · free iZotope RX alternative → `/rx`
 
-### 2. Creator queries (one page each, a week)
-- [ ] remove background noise · remove hum · fix clipped audio · remove clicks / mouth clicks
-- [ ] remove echo (de-reverb) · remove breaths · de-ess · remove plosives
-- [ ] ACX check online · podcast loudness check (-16 LUFS) · free iZotope RX alternative → `/rx`
+* [ ] SEO Developer queries (one recipe page each, tested in CI)
+  - [ ] trim / convert / normalize audio in JavaScript · play audio in Node
+  - [ ] encode MP3 in the browser without ffmpeg.wasm · waveform · detect BPM and key · split on silence
+  - [ ] open a 10 GB file in the browser (measure first, then claim)
+  - [ ] "When to use something else": ffmpeg.wasm, Tone.js, Howler, OfflineAudioContext, sox/pydub
+  - [ ] `audio-decode` README (3.2M/mo): one line, "editing after decoding → `audio`"
 
-### 3. Developer queries (one recipe page each, tested in CI)
-- [ ] trim / convert / normalize audio in JavaScript · play audio in Node
-- [ ] encode MP3 in the browser without ffmpeg.wasm · waveform · detect BPM and key · split on silence
-- [ ] open a 10 GB file in the browser (measure first, then claim)
-- [ ] "When to use something else": ffmpeg.wasm, Tone.js, Howler, OfflineAudioContext, sox/pydub
-- [ ] `audio-decode` README (3.2M/mo): one line, "editing after decoding → `audio`"
+* [ ] Agents
+  - [ ] llms.txt + llms-full.txt (API + recipes) on the site and in the npm package
+  - [ ] README first screen: what, when to use, when not, one example per runtime
+  - [ ] MCP in the official registry, Smithery, Glama; skills in skill directories; Context7 listing
+  - [ ] Every call agents hallucinated in the baseline fails with an error naming the right call
+  * [ ] Agent discoverability
+    - [ ] Agent test: 20 audio tasks × Claude Code, Cursor, ChatGPT, Copilot; log which library each picks and whether its code runs (bench/agents/)
+    - [ ] Same 20 with "use `audio`": separates discovery from usability
+    - [ ] Search Console + Bing Webmaster on audiojs.dev, sitemap.xml; record ranks for every target query below
 
-### 4. Agents
-- [ ] llms.txt + llms-full.txt (API + recipes) on the site and in the npm package
-- [ ] README first screen: what, when to use, when not, one example per runtime
-- [ ] MCP in the official registry, Smithery, Glama; skills in skill directories; Context7 listing
-- [ ] Every call agents hallucinated in the baseline fails with an error naming the right call
 
-### 5. Try and adopt
-- [ ] Playground opens on a broken take: one click fixes, A/B, export
-- [ ] Every code block on the site → "open in playground"
-- [ ] `npx audio` one-liner on every repair page
-- [ ] Stranger test: 3 developers, 10 minutes, no help; fix where they stall
+* [ ] Adoption points
+  - [ ] Playground opens on a broken take: one click fixes, A/B, export
+  - [ ] Every code block on the site → "open in playground"
+  - [ ] `npx audio` one-liner on every repair page
+  - [ ] Stranger test: 3 developers, 10 minutes, no help; fix where they stall
 
-### 6. Advocacy
-- [ ] Ask the 7 lockfile users why they picked it and what hurt; fix that first
-- [ ] "Built with audio" from dependents, with their permission
-- [ ] Answer open Stack Overflow / Reddit / GitHub questions a page already solves; link the page
-- [ ] Each issue answered with a recipe becomes a page
+* [ ] Outreach
+  - [ ] Ask the 7 lockfile users why they picked it and what hurt; fix that first
+  - [ ] "Built with audio" from dependents, with their permission
+  - [ ] Answer open Stack Overflow / Reddit / GitHub questions a page already solves; link the page
+  - [ ] Each issue answered with a recipe becomes a page
 
-### Videos (15–30 s, one a week, real renders only)
+* [ ] Videos (15–30 s, one a week, real renders only)
 - [ ] One per repair: the defect in red on the spectrogram → one function → gone
 - [ ] Terminal: `npx audio take.wav denoise normalize save out.mp3`
 - [ ] Agent: "make this ACX-ready" → `check acx` fails → fixes → passes
@@ -62,16 +56,25 @@ Page rule: one page, one search query, one problem. Hear it (A/B) → try your f
 
 ## Next
 
-1. [x] **MCP server + skills** — gate long met, ~40+ registry ops + full stat surface ready ([.work/mcp.md](mcp.md)): `bin/mcp.js` (load/info/analyze/edit/save/undo/read/play, stateful sessions, `@modelcontextprotocol/sdk` over stdio) + `audio-master`/`audio-clean`/`audio-analyze` skills. Watch: counterpoint-studio/audio-file-mcp-app (competitor).
-2. [x] **Playground** — the editor renamed: the library's live face, every edit a line of `audio` code (playground.html; #53, #58)
-3. [ ] **jz/WASM lane** — for streaming/realtime/worklet where batch JIT can't help: compile hot kernels (fourier-transform, biquad, pvoc) via `@audio/compile` → per-atom `dist/*.wasm` + `./wasm` export, host prefers in `useAtom`. Blocked on jz typed-array provenance fix (bench/fftplan + bench/provenance repro cases landed in jz; ~6× gap). ~1.4× over warm JS once fixed — realtime-lane priority, not batch.
-* [ ] Integrations for VSCode, sublime, atom and other tools: edit audio
-* [ ] playground: theme selector, don't force users.
+* [ ] utils pages - via embedded config of the playground (subset of UI with open-in-repl)
+  * [ ] speech enhancer (adobe)
+  * [ ] finalizer
+  * [ ] autotune
+  * [ ] metronome
+  * [ ] midi synth
+  * [ ] prosody editor
+  * [ ] demos of various plugins (serum, see twitter likes, instagram likes)
+  * [ ] life processing chains: eg. live autotune
+* [ ] articles
+  * [ ] waveform coloring (maybe in gl-waveform?)
+  * [ ] waveform weighting (also gl-waveform?)
+* [ ] **jz/WASM lane** — for streaming/realtime/worklet where batch JIT can't help: compile hot kernels (fourier-transform, biquad, pvoc) via `@audio/compile` → per-atom `dist/*.wasm` + `./wasm` export, host prefers in `useAtom`. Blocked on jz typed-array provenance fix (bench/fftplan + bench/provenance repro cases landed in jz; ~6× gap). ~1.4× over warm JS once fixed — realtime-lane priority, not batch.
+* [ ] Integrations for VSCode (theme preservation?), sublime, atom and other tools: edit audio
+* [x] playground: theme selector, don't force users.
 * [ ] Automastering - must have.
-* [ ] drop a file - receive agent recommendation on improvements: essentially agent should do all job
-* [ ] Presets: one-tap looks for a sound (idea)
+* [ ] Recipes - must be shorter and more meaningful, like speech cleanup should be one and perfect.
 * [ ] Diarization - detecting spekers, autoadding cues
-* [ ] Detect current type of speaker etc
+* [ ] Detect current type of sound in track
 
 * [x] tracks, to meet classical SAAS layout (.work/editor.md Tracks)
   * [ ] mute and solo; record into a new track; a piece dragged between tracks; a track's start dragged (its pad)
@@ -90,17 +93,19 @@ Missing: true harmonic resynthesis (`sbr` is a waveshaper exciter, not the voice
 ### 1. Split, merge (glue: days)
 - [x] Voice and rest that add back to the input: `vocals({ model })` and `vocals('remove', { model })`, SCNet-large hosted (−155 dB from the mix on a MUSDB clip); no new op (`split()` is the time split)
 - [x] Playground: Edit › Split the voice to a new track (right-click at the caret, ⌘P too): `voice` under it, the rest left, each its own chain
-- [ ] Playground: four stems to four tracks
+- [x] Playground: four stems to four tracks: Edit › Split into four stems, voice, bass and drums each alone (`rebalance(…, { residual: -Infinity })`, the residual's own level new), the rest with the residual left; the four add back to the song (> 90 dB in the page), one SCNet-large run
 - [x] `align(ref)`: GCC-PHAT to the sample where the waveforms are shared, else onset envelopes (a part remade); CLI `align REF`; 3.6 s for a 4-minute song
-- [ ] `align()`: tempo drift (a part remade at another tempo): lags at its start and end, `stretch()` between
+- [x] `align()`: drift, where both last 20 s: a copy on another clock by its waveform at three places, read back by `speed(1/ρ, { type: 'sinc' })` (new), within half a sample; a part at another tempo (±10 %) by its onsets, coarse to fine over the rate, then its thirds' lags, stretched back; ends within 2 ms on most of bench/align.mjs (a film's music under dialogue 25 ms, a sparse melody 8 ms); `{ drift: false }`
 - [x] Suno hand-off by file: File › Export the track alone; File › Open as a new track; Edit › Line up with (`align`), Match with (`match` + `normalize` to the original part)
-- [ ] Automix voice over a bed (podcast with music): the bed ducked under the voice (`ducker({ key })`), a master stage over the tracks' sum
+- [x] Automix voice over a bed: Edit › Duck under ‹track› (`ducker({ key: voice, range: -15 })`, a key read by name keeps its track); Edit › Add a master (`voice.clone().mix(bed)` and steps of its own, the output, a lane of its own); the podcast recipe in that form
 - [x] `memo()` shared while it is made and until the store holds it: two tracks, one model run (in the page: the split 101 s, one track alone 84 s; in Node, both at once with no store: one run); Node: `audio.memo = new Map()`
 
 ### 2. Harmonic resynthesis, DSP (a week)
-- [ ] Voice bandwidth rebuilt from its own harmonics: f0 (`pitch-pyin`), partials (`sinusoidal-track`), envelope (`lpc`) extrapolated past the cutoff; harmonics k·f0 synthesized above it, the unvoiced part as noise under the envelope; the low end (telephone 300 Hz) the same way down
-- [ ] Measure against `sbr()` and the input: VoiceBank cut to 8 and 16 kHz, log-spectral distance, PESQ WB, DNSMOS; RX Spectral Recovery not hostable
-- [ ] Then the same for pitched solo instruments in a stem (voice, flute, violin); polyphony stays out
+- [x] `recover(cutoff?)`: f0 by pYIN, the harmonics in the octave under the cutoff set the level, k·f0 synthesized above it falling 12 dB/oct, the noise between them falling 2 (slopes chosen on 26 training utterances: a take's own measured slope did worse, 15.1 against 14.2 dB); added only where the long-term spectrum lacks the band; the cutoff found where it falls 25 dB in a third of an octave and stays down (natural voices: 19.6 at most over 269 takes)
+- [ ] The low end (phone line 300 Hz): tried and taken out. Harmonics under 300 Hz brought LSD over 60–300 Hz from 26.8 to 20.8 dB but DNSMOS OVRL down 0.040±0.009 (824 test takes) and PESQ 2.68 → 1.67: no evidence it sounds better
+- [x] Measured (bench/recover.mjs, .py; 824 test takes): LSD over the band rebuilt 8 kHz 13.9 (sbr 20.0, input 41.3), 16 kHz 12.3 (16.7, 40.6); DNSMOS unmoved (±0.001); PESQ WB falls with any band added, monotonic in its level (4.01 → 2.47 from −∞ to 0 dB), so it cannot rank BWE
+- [ ] Listening test: input / sbr / recover / original, a few takes each, cut to 8 and 16 kHz (MUSHRA-style); the only evidence left that it sounds better
+- [ ] Pitched solo instruments: as it is, no better than sbr (one-off run, cut to 8 kHz, LSD 4–20 kHz: MDB-stem-synth 7 stems 11.5 against 11.4, GuitarSet solo 8 takes 13.7 against 13.2); the slopes are a voice's; per-instrument slopes untried
 
 ### 3. Generative speech restoration: the Adobe Enhance class (1–2 weeks)
 - [ ] `restore()` on Sidon v0.1 (MIT; w2v-BERT 2.0's first 8 layers + LoRA, DAC decoder; 470 MB f16): export to ONNX on this laptop, int8, onnxruntime-node with CoreML, chunked as deepfilter
@@ -148,12 +153,13 @@ Missing: true harmonic resynthesis (`sbr` is a waveshaper exciter, not the voice
 ## Pro tier
 
 * [ ] WASM processing
-* [ ] Professional integrations
 * [ ] Desktop: VST plugins gateway
 * [ ] Processing recipes: dolby etc, collections
 * [ ] Create your own VSTs
-* [ ]
 
+## Integrations
+
+* [ ] Download as plugin (vst processing chain)
 
 ## Scenarios
 
@@ -179,6 +185,5 @@ Missing: true harmonic resynthesis (`sbr` is a waveshaper exciter, not the voice
 
 ### Ideas / someday
 - [ ] Sound level meter app (calibrated)
-- [ ] Text overlays/labels inside of audio (like wav encodes) — meta/markers/regions shipped; authoring UX open
 - [ ] Collection of sound-producing recipes (whispering-voice-in-bg class hacks)
 - [ ] v3 naming (breaking — collect, don't drip): `clip()` vs `stat('clipping')` — rename method to `excerpt()`/`view()`; README disambiguates for now

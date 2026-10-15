@@ -6,7 +6,8 @@
  * The page holds the sound, so an agent reaches it through tools the page answers. The page listens
  * on GET /events (Server-Sent Events) and answers each `call` event with POST /reply; POST /call,
  * which `audio --mcp --playground` sends for an agent's playground tool, waits for that answer;
- * GET /file?path=P hands the page a media file from this machine, to open (`open`).
+ * GET /file?path=P hands the page a media file from this machine, to open (`open`); POST /save?path=P writes
+ * one the page encoded (`save`).
  * POST /chat runs an agent CLI of the user's headless, with those tools attached, and streams its
  * answer to the page as `chat` events: any of AGENTS found on PATH, the page choosing one for each
  * conversation, --agent the first; or any agent that speaks ACP, by its command line. CORS is open
@@ -20,7 +21,8 @@
 import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { accessSync, constants, createReadStream, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { accessSync, constants, createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { pipeline } from 'node:stream/promises'
 import { homedir } from 'node:os'
 import { basename, delimiter, dirname, extname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -41,10 +43,10 @@ const PREFLIGHT = {
 }
 
 // What a chat agent is told besides its own setup: where it is and what the tools touch.
-const PROMPT = `You are chatting with the user inside the audio playground, a browser page where they edit one sound with the audio JS library. The playground's tools (state, measure, look, edit, step, script, select, scrub, play, check, open, undo; the MCP server "audio") read and change that sound; the user sees and hears each change at once. Work on the sound in the page, not on files: a file dropped into the page has no path, and the page's sound is the script's output, edits included. Call state first. Measure with measure (any stat, over time or a range, silences, notes), see with look, mark findings on the timeline with edit("mark(time, 'label')"), point the user at a place with select (a band too) or scrub. Open a file of theirs with open. Prefer edit for one step; step turns an edit off (over a range alone, too), takes it away, moves it or rewrites it; script rewrites the whole; when something sounds wrong somewhere, find the edit that did it by measuring through the edits (step(i) in measure: the sound before and after it, what it takes out) before changing any; check measures against a delivery spec; play lets them hear it (original: true for the file as it opened, level-matched). Reply briefly, in Markdown: the page renders it beside the sound.`
+const PROMPT = `You are chatting with the user inside the audio playground, a browser page where they edit one sound with the audio JS library. The playground's tools (state, measure, look, edit, step, script, select, scrub, play, check, open, save, tabs, undo; the MCP server "audio") read and change that sound; the user sees and hears each change at once. Work on the sound in the page, not on files: a file dropped into the page has no path, and the page's sound is the script's output, edits included. Call state first. Measure with measure (any stat, over time or a range, silences, notes), see with look, mark findings on the timeline with edit("mark(time, 'label')"), point the user at a place with select (a band too) or scrub. Open a file of theirs with open, in a tab of its own; tabs lists the tabs and shows one, every tool acting on the tab shown. To work on the sound with a tool of your own (a model, a script), save it to a file (original: true for the file as it opened), run yours, open what it made. Prefer edit for one step; step turns an edit off (over a range alone, too), takes it away, moves it or rewrites it; script rewrites the whole; when something sounds wrong somewhere, find the edit that did it by measuring through the edits (step(i) in measure: the sound before and after it, what it takes out) before changing any; check measures against a delivery spec; play lets them hear it (original: true for the file as it opened, level-matched). Reply briefly, in Markdown: the page renders it beside the sound.`
 
 const toml = v => JSON.stringify(v)  // a JSON string or array of strings is TOML too
-// What GET /file hands a page, by extension: the audio and video the editor opens, nothing else on the machine
+// What GET /file hands a page and POST /save writes, by extension: the audio and video the editor opens, nothing else on the machine
 const MEDIA = {
   wav: 'audio/wav', mp3: 'audio/mpeg', flac: 'audio/flac', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', m4a: 'audio/mp4',
   aac: 'audio/aac', aif: 'audio/aiff', aiff: 'audio/aiff', caf: 'audio/x-caf', webm: 'audio/webm', mka: 'audio/x-matroska',
@@ -476,6 +478,24 @@ export default function bridge(argv = []) {
     createReadStream(path).on('error', () => res.destroy()).pipe(res)
   }
 
+  // POST /save?path=P[&force]: the request's bytes, a sound the page encoded, written to a media file of this machine by
+  // its absolute path (~ the home), into a folder there: beside it first, then renamed into place, so a cut upload or an
+  // empty one leaves nothing; a file already there kept, unless `force` (given at all)
+  async function save(req, path, force, res) {
+    path = path?.replace(/^~(?=$|[\\/])/, homedir())
+    if (!path || !isAbsolute(path)) return reply(res, 400, { error: 'path: an absolute path to write an audio file to' })
+    if (!MEDIA[extname(path).slice(1).toLowerCase()]) return reply(res, 415, { error: `Not an audio or video file: ${basename(path)}` })
+    if (!statSync(dirname(path), { throwIfNoEntry: false })?.isDirectory()) return reply(res, 404, { error: `No folder ${dirname(path)}` })
+    if (!force && existsSync(path)) return reply(res, 409, { error: `${path} exists: force to replace it` })
+    let part = `${path}.${randomBytes(4).toString('hex')}.part`
+    try {
+      await pipeline(req, createWriteStream(part, { flags: 'wx' }))
+      if (!statSync(part).size) throw fail(400, 'No bytes to write: the body is the encoded sound')
+      renameSync(part, path)
+    } catch (e) { rmSync(part, { force: true }); throw e }
+    reply(res, 200, { path, bytes: statSync(path).size })
+  }
+
   function stop({ turn }, res) {
     let t = turns.get(turn)
     if (!t) return reply(res, 404, { error: 'No such turn running' })
@@ -494,6 +514,7 @@ export default function bridge(argv = []) {
     try {
       if (req.method === 'GET' && pathname === '/events') return listen(res)
       if (req.method === 'GET' && pathname === '/file') return file(searchParams.get('path'), res)
+      if (req.method === 'POST' && pathname === '/save') return await save(req, searchParams.get('path'), searchParams.has('force'), res)
       if (req.method === 'GET' && pathname === '/health') return reply(res, 200, { ok: true, page: !!page, agent: first ?? null, agents: [...agents.keys()] })
       if (req.method === 'POST' && Object.hasOwn(POST, pathname)) return await POST[pathname](await body(req), res)
       reply(res, 404, { error: `No ${req.method} ${pathname}` })

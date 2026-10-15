@@ -27,7 +27,10 @@ createServer(async (req, res) => {
   .on('error', e => { console.error(e.code === 'EADDRINUSE' ? `Port ${port} is taken: node .site-serve.js <port>` : e.message); process.exit(1) })
   .listen(port, () => console.log(`http://localhost:${port}/           website\nhttp://localhost:${port}/playground.html  playground`))
 
+// cross-origin isolated, as sw.js makes the playground on GitHub Pages: the models' wasm runs on threads
+const isolated = { 'cross-origin-opener-policy': 'same-origin', 'cross-origin-embedder-policy': 'credentialless' }
+
 async function send(res, path) {
   const body = await readFile(path)
-  res.writeHead(200, { 'content-type': types[extname(path)] || 'application/octet-stream', 'cache-control': 'no-store' }).end(body)
+  res.writeHead(200, { 'content-type': types[extname(path)] || 'application/octet-stream', 'cache-control': 'no-store', ...isolated }).end(body)
 }

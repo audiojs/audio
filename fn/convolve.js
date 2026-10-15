@@ -14,7 +14,6 @@
  */
 
 import audio, { arrived } from '../core.js'
-import { convolver } from '@audio/reverb-convolution'
 
 const IR = Symbol('convolve.ir'), RUN = Symbol('convolve.run')
 
@@ -49,6 +48,7 @@ async function prepare(a, index) {
 function process(input, output, ctx) {
   let ir = ctx[IR]
   if (!ir) throw new Error('convolve: the impulse response loads before rendering, through read(), stream() or save()')
+  let { convolver } = audio.op('convolve').mod
   let cs = ctx[RUN] ??= input.map((_, c) => convolver(ir.pcm[c % ir.pcm.length]))
   for (let c = 0; c < input.length; c++) cs[c].write(input[c], output[c])
 }
@@ -60,6 +60,8 @@ audio.op('_convolve', {
 
 audio.op('convolve', {
   params: ['ir', 'mix'], prepare,
+  // its convolver: @audio/reverb, an optional package
+  load: () => import('@audio/reverb/convolution').catch(e => { throw new Error(`convolve: install @audio/reverb (${e.message})`) }),
   // the convolver, the mix blended by the engine; its decay as a pad (as a plugin's tail): the edit stays one
   expand: ctx => {
     let ir = ctx[IR], o = { ir: ctx.ir, [IR]: ir }

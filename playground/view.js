@@ -3,7 +3,7 @@ import Spectrogram from '../assets/gl-spectrogram.js'
 import scales from './scale.js'
 import { CURVES, CROSSFADES } from './ops.js'
 import clock from './time.js'
-import centre, { hue, temperature, colormap } from './tint.js'
+import centre, { hue, temperature, colormap, inked, lightness } from './tint.js'
 
 // The output as a picture: the waveform or the spectrogram, one at a time. A lane per channel, apart by a gap: each
 // channel reads on its own (a sound panned to one side, a different take); the caret, the playhead, a selection and the
@@ -53,6 +53,11 @@ import centre, { hue, temperature, colormap } from './tint.js'
 // GAP between lanes is 2 px, as between the pictures and the meters. GUTTER holds the axis labels, the widest a
 // frequency's (22.05k); STICK, how near a dragged time goes onto a cue or a marker
 const GUTTER = 40, RULER = 22, GAP = 2, EDGE = 6, SNAP = 6, STICK = 3, INSET = 3
+// A track's band, with tracks: its head (HEAD px, its name and its mute) over its lane, the bands APART px apart, so a
+// track never reads as a channel (channels are lanes GAP apart, no head)
+const HEAD = 18, APART = 10
+// A track's mute, on the 24 × 24 grid of the page's icons: a speaker, its sound coming out of it, or crossed out
+const SPEAKER = 'M11 5 6 9H3v6h3l5 4z', SOUND_ON = 'M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13', SOUND_OFF = 'm16 9 6 6m0-6-6 6'
 // ⌘ (Ctrl) held while dragging aims finely: the pointer's moves go a quarter as far, and nothing snaps
 const FINE = .25
 // A frequency's note, as a tuner says it, and how far off it is in cents, from `cents` off on (Infinity: the nearest
@@ -105,17 +110,18 @@ const GAIN = [-36, 12]                        // the gain line's scale, dB: the 
                                               // three quarters of the way out, so a boost shows above it
 const GLIDE = .3                               // a playhead past the view's middle is drawn to it in this time constant, s
 
-export default function view(root, { onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onaudition = () => {}, onfocus = () => {}, onsamples = null, hint = null } = {}) {
+export default function view(root, { onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onaudition = () => {}, onfocus = () => {}, onmute = () => {}, onsamples = null, hint = null } = {}) {
   const layer = name => root.appendChild(Object.assign(document.createElement('canvas'), { className: name }))
-  // the grid between the pictures: over the spectrogram, under the waveform
-  const specCanvas = layer('spectrum'), gridCanvas = layer('grid'), waveCanvas = layer('waveform'), overlay = layer('overlay')
+  // the selection under the pictures, as a selection is behind text: the sound drawn over it, a quiet spectrogram's
+  // clear ground showing it; the grid between the pictures: over the spectrogram, under the waveform
+  const selectCanvas = layer('select'), specCanvas = layer('spectrum'), gridCanvas = layer('grid'), waveCanvas = layer('waveform'), overlay = layer('overlay')
   // gl-waveform draws its own anti-aliased coverage; the context needs premultiplied alpha, not multisampling
   const gl = waveCanvas.getContext('webgl2', { premultipliedAlpha: true, antialias: false })
   // gl-spectrogram computes what a lane shows as it draws it, on the GPU, from the samples it holds: nothing to wait
   // for. It renders into float textures (EXT_color_buffer_float, which nearly every WebGL2 has)
   let sgl = specCanvas.getContext('webgl2', { premultipliedAlpha: true, antialias: false })
   if (!sgl?.getExtension('EXT_color_buffer_float')) sgl = null
-  const c = overlay.getContext('2d'), gc = gridCanvas.getContext('2d')
+  const c = overlay.getContext('2d'), gc = gridCanvas.getContext('2d'), sel2d = selectCanvas.getContext('2d')
   // the grid as ruled, kept while it stays where it is; the waveform as a solid shape, to cut the grid by (paintGrid):
   // its alpha raised 32-fold by a filter, in one pass, or, where a canvas takes no filter, doubled five times over
   const ruling = document.createElement('canvas'), rc = ruling.getContext('2d'), solid = document.createElement('canvas'), sc = solid.getContext('2d')
@@ -219,14 +225,37 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   let waveLook = { colour: 'none', lanes: 'split', fill: 'density' }
   // the channels' samples the pictures hold, for their colours
   let data = []
-  // Tracks (the script's sounds side by side in time, code.js tracks), a lane each, its channels averaged: [{ name, end }],
-  // each named at its lane's top left, its sound ending at `end` s; null, one sound, a lane per channel. The one edited
+  // Tracks (the script's sounds side by side in time, code.js tracks), a lane each, its channels averaged: [{ name, end,
+  // muted }], each named at its lane's top left, its mute beside its name (none where `muted` is null: it cannot be), its
+  // sound ending at `end` s; null, one sound, a lane per channel. A muted one's lane dim, as the mix is without it. The one edited
   // (`focus`, its lane) holds the caret, the selection, their handles, the edits drawn ahead and what a step sets; the
   // playhead and the time row run through them all. Each marker is its track's, flagged over its lane: only the edited
   // track's take a dragged time or a double-click onto them. A press in another lane makes it the one edited
   // (`onfocus`), all else there was gone
   let tracks = null, focus = 0
-  const untrack = () => { tracks = null; delete root.dataset.tracks }
+  const untrack = () => { tracks = null; delete root.dataset.tracks; mutes() }
+  // Each track's mute, a button in its head (onmute, its lane's index): a press on it is its own, not the picture's
+  let muteButtons = []
+  function mutes() {
+    const list = tracks ?? []
+    for (const b of muteButtons.splice(list.length)) b.remove()
+    list.forEach((t, i) => {
+      const b = muteButtons[i] ??= muteButton(i)
+      b.hidden = t.muted == null
+      b.setAttribute('aria-pressed', !!t.muted)
+      b.ariaLabel = `Mute ${t.name}`
+      b.title = t.muted ? `${t.name} is muted: the mix is without it. Click to hear it` : `Mute ${t.name}: the mix without it`
+      b.querySelector('.sound').setAttribute('d', t.muted ? SOUND_OFF : SOUND_ON)
+    })
+  }
+  function muteButton(i) {
+    const b = root.appendChild(Object.assign(document.createElement('button'), { className: 'track-mute', type: 'button' }))
+    b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${SPEAKER}"/><path class="sound"/></svg>`
+    for (const type of ['pointerdown', 'pointerup', 'contextmenu']) b.addEventListener(type, e => e.stopPropagation())
+    b.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation() })
+    b.addEventListener('click', e => { e.stopPropagation(); onmute(i) })
+    return b
+  }
   // A sound longer than the page holds (summary): drawn from its picture, the waveform from its leaves and the spectrogram
   // from its spectra, its samples fetched where it is zoomed in (onsamples, a chunk of CHUNK at a time, as the pictures
   // keep them): far enough for the waveform to want them (under WAVE samples a device px, where its columns stop being
@@ -246,8 +275,8 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   const plot = () => ({ w: Math.max(1, W - GUTTER), h: Math.max(1, H - RULER - (scroll === 'overview' ? MAP : 0)) })
   const merged = () => !tracks && display === 'wave' && waveLook.lanes === 'one'
   function lanes() {
-    const { w, h } = plot(), n = merged() ? 1 : Math.max(1, count), lh = (h - GAP * (n - 1)) / n
-    const stack = Array.from({ length: n }, (_, i) => [0, i * (lh + GAP), w, lh])
+    const { w, h } = plot(), n = merged() ? 1 : Math.max(1, count), head = tracks ? HEAD : 0, gap = tracks ? APART : GAP
+    const lh = (h - gap * (n - 1) - head * n) / n, stack = Array.from({ length: n }, (_, i) => [0, i * (lh + gap + head) + head, w, lh])
     return display === 'spec' ? { wave: [], spec: stack } : { wave: stack, spec: [] }
   }
   // the lanes' top and bottom
@@ -257,7 +286,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   const laneAt = (L, py) => [...L.wave, ...L.spec].findIndex(([, y, , lh]) => py >= y && py <= y + lh)
   // another track's lane pressed: it is the one edited now, nothing selected on it
   function refocus(L, py) {
-    const i = tracks && py <= plot().h ? laneAt(L, py) : -1
+    const i = tracks && py <= plot().h ? [...L.wave, ...L.spec].findIndex(([, y, , lh]) => py >= y - HEAD && py <= y + lh) : -1
     if (i < 0 || i === focus) return
     focus = i
     selection = band = null
@@ -356,7 +385,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // a sound fitted before the view had a width, fitted once it has one
     if (all && W > GUTTER + 1) fitTo(0, duration)
     else if (duration && W > GUTTER + 1 && was > 1 && plot().w !== was) setRange(start, start + (end - start) / was * plot().w)
-    for (const canvas of [specCanvas, gridCanvas, waveCanvas, overlay, ruling, solid]) if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch }
+    for (const canvas of [selectCanvas, specCanvas, gridCanvas, waveCanvas, overlay, ruling, solid]) if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch }
     cancelAnimationFrame(frame)
     frame = 0; pictures = true
     render()
@@ -434,7 +463,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (name === shade) return
     shade = name
     for (const canvas of [specCanvas, gridCanvas, waveCanvas]) canvas.style.opacity = SHADES[name]
-    overlay.style.opacity = +(name !== 'none')
+    overlay.style.opacity = selectCanvas.style.opacity = +(name !== 'none')
   }
   // A frame: the pictures when they changed, the overlay always; the pointer's readout redraws only the overlay
   let pictures = false
@@ -522,7 +551,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   let palette = null
   const tone = u => {
     if (!palette) {
-      const of = waveLook.colour === 'colormap' ? colormap((look.color ?? ['transparent', color('--color-screen-soft')]).map(rgba)) : temperature
+      const L = lightness(rgba(color('--color-screen-wave'))), of = waveLook.colour === 'colormap' ? colormap(shades().map(rgba)) : u => temperature(u, L)
       palette = Array.from({ length: 256 }, (_, k) => of(k / 255))
     }
     return palette[Math.round(u * 255)]
@@ -598,7 +627,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       display = mode
       // a spectrogram zoomed out fills its columns over several renders (spectrograms)
       for (let n = 0; n < 64 && (!n || specs.some(sg => sg.pending)); n++) { pictures = true; render() }
-      for (const canvas of [specCanvas, gridCanvas, waveCanvas, overlay]) g.drawImage(canvas, 0, i * h, w, h)
+      for (const canvas of [selectCanvas, specCanvas, gridCanvas, waveCanvas, overlay]) g.drawImage(canvas, 0, i * h, w, h)
     })
     ;({ start, end, display, hovered } = was)
     cancelAnimationFrame(frame)
@@ -623,14 +652,20 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   }
   function overlayOf(L) {
     const { w, h } = plot()
-    c.setTransform(dpr, 0, 0, dpr, 0, 0)
-    c.clearRect(0, 0, W, H)
+    for (const g of [c, sel2d]) { g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H) }
     away = null
     if (!duration) return
     away = awayOf(L)
-    c.font = `10px ${color('--font-mono')}`
+    c.font = label()
     c.textBaseline = 'middle'
     const all = [...L.wave, ...L.spec], dim = color('--color-screen-dim'), T = own(L), mine = [...T.wave, ...T.spec]
+    // a muted track's lane veiled, under all that is drawn over it
+    if (tracks) {
+      c.fillStyle = color('--color-screen')
+      c.globalAlpha = .6
+      all.forEach(([, y, , lh], i) => tracks[i]?.muted && c.fillRect(0, y, lanesEnd(L), lh))
+      c.globalAlpha = 1
+    }
     // what runs through time is drawn in each lane (`rects`: all of them, or the edited track's), never across the gap
     // between two, which holds no sound
     const across = (px, width, rects = all) => { for (const [, y, , lh] of rects) c.fillRect(px, y, width, lh) }
@@ -661,7 +696,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     ])
     paintBar()
     // a file held over the picture: where it goes in, a caret of its own, as a text editor shows where a drop lands
-    if (dropped != null) { c.fillStyle = accent(); across(X(dropped), 2, mine); c.font = `10px ${color('--font-mono')}`; tag('Insert here', X(dropped) + 6, extent(mine)[0] + 8, 'left', accent()) }
+    if (dropped != null) { c.fillStyle = accent(); across(X(dropped), 2, mine); c.font = label(); tag('Insert here', X(dropped) + 6, extent(mine)[0] + 8, 'left', accent()) }
     // the times a drag's edges are at, or the caret dragged: the cues and markers they sit on light
     const lit = drag?.caret ? [cursor] : drag?.anchor != null || drag?.carry || drag?.stretch ? sel || [] : drag?.span || []
     if (show.hits) paintCues(mine, lit)
@@ -695,8 +730,8 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (playhead != null) line(playhead + nudge, color('--color-screen-bright'), band, L)
     else line(cursor, caret, band)
     for (const r of more) if (r.length === 2 && r[0] === r[1]) line(r[0], caret)
-    // the tracks' names, each at its lane's top left, the one edited bright; under the handles
-    if (tracks) all.forEach(([, y], i) => tracks[i] && tag(tracks[i].name, 8, y + 10, 'left', color(i === focus ? '--color-screen-bright' : '--color-screen-dim')))
+    // each track's head over its lane; under the handles
+    if (tracks) all.forEach(([, y, , lh], i) => tracks[i] && paintHead(tracks[i], i, y, lh, i === focus))
     endLanes(L)
     paintGrips(T, at)
     paintEdge(T, sel)
@@ -724,7 +759,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       const ly = Math.round(at[1]), text = pitched(lane, L) ? hertz(snapF(lane, at[1])) : level(lane, at[1])
       c.fillStyle = caret
       c.fillRect(w + 1, ly, TICK, 1)
-      tag(text, w + 1, ly + 9, 'left')
+      tag(text, w + 1, ly + size() - 1, 'left')
       // on the spectrogram, the level its colour stands for under it, and where that falls on the spectrum meter's scale
       const db = pitched(lane, L) ? loudness(L.spec.indexOf(lane), lane, at) : null
       if (db == null) return
@@ -906,7 +941,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       outline.lineTo(left, y)
       // filled under the outline down to the floor in the spectrogram's colours, from the one halfway up its scale to its
       // top's: the body of the spectrum reads against the screen, never sinks into it
-      const fill = c.createLinearGradient(left - METER, 0, left + METER, 0), stops = look.color ?? ['transparent', color('--color-screen-soft')]
+      const fill = c.createLinearGradient(left - METER, 0, left + METER, 0), stops = shades()
       stops.forEach((s, k) => fill.addColorStop(k / (stops.length - 1), s))
       c.globalAlpha = .7
       c.fillStyle = fill
@@ -985,7 +1020,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   const clampY = ([, y, , lh], ly) => Math.max(y + 5, Math.min(y + lh - 5, ly))
   // Marks [y, …] by a lane, the most important first, those there is room for: in the lane, `gap` px from each other and
   // from what is there (`placed`, ys, added to)
-  function room([, y, , lh], list, placed = [], gap = 16) {
+  function room([, y, , lh], list, placed = [], gap = size() + 6) {
     return list.filter(([ly]) => {
       const ty = Math.round(ly)
       if (ty < y || ty > y + lh || placed.some(p => Math.abs(p - ty) < gap)) return false
@@ -1001,8 +1036,8 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       const ty = Math.round(ly)
       c.fillStyle = color('--color-screen-rule')
       c.fillRect(w + 1, ty, TICK, 1)
-      c.fillStyle = color('--color-screen-dim')
-      c.fillText(text, w + 1, ty + 9)
+      c.fillStyle = color('--color-screen-ruler')
+      c.fillText(text, w + 1, ty + size() - 1)
     }
   }
   // Frequencies, no unit (the axis is plainly hertz): the lowest the lane shows first, at its foot; then the roundest
@@ -1079,18 +1114,32 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     c.fillRect(p, y - 3, 1, 7)
     tag(stamp(Math.abs(t - from)), (p + q) / 2, y - 10, 'center', accent())
   }
+  // A track's head: its name, its mute beside it (an HTML button, set where the name ends); the one edited, its name
+  // bright and a bar down its band's left edge. The names part the bands, no rule between them
+  function paintHead(t, i, y, lh, on) {
+    const top = y - HEAD, mid = top + HEAD / 2
+    c.textAlign = 'left'
+    c.fillStyle = color(on ? '--color-screen-bright' : '--color-screen-soft')
+    c.fillText(t.name, 10, mid)
+    if (on) { c.fillStyle = color('--color-screen-bright'); c.fillRect(0, top + 2, 2, HEAD + lh - 2) }
+    const b = muteButtons[i], left = `${Math.round(14 + c.measureText(t.name).width)}px`, at = `${Math.round(top + 1)}px`
+    if (b && (b.style.left !== left || b.style.top !== at)) Object.assign(b.style, { left, top: at })
+  }
   // A value by the pointer, on a patch of the screen so the labels under it give way
   function tag(text, px, py, align, fill = color('--color-screen-bright')) {
     const tw = c.measureText(text).width
     if (align === 'center') px = Math.max(tw / 2 + 3, Math.min(plot().w - tw / 2 - 3, px))
     const left = align === 'center' ? px - tw / 2 : px
+    const lh = size() + 4
     c.fillStyle = color('--color-screen')
-    c.fillRect(left - 3, py - 7, tw + 6, 14)
+    c.fillRect(left - 3, py - lh / 2, tw + 6, lh)
     c.fillStyle = fill
     c.textAlign = align
     c.fillText(text, px, py)
   }
   const accent = () => color('--color-screen-accent')
+  // the picture's words, its numbers and tags: the skin's label size, in its mono font
+  const size = () => parseFloat(color('--font-size-label')) || 10, label = () => `${size()}px ${color('--font-mono')}`
   // What a step sets, as hints over the output, never over the sound itself (`show.guides`): its range a bar on the time
   // row, as a DAW's ruler marks a region; a level, its fades' ramps, a time, a frequency, a band, the notes it tunes to
   function paintGuide(g, L) {
@@ -1147,7 +1196,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       }
       if (far < 0) continue
       const font = c.font, px = x(after.times[far]), yb = fy(rect, before.f0[far]), ya = fy(rect, after.f0[far]), up = ya < yb
-      c.font = `10px ${color('--font-mono')}`
+      c.font = label()
       if (most < .25) tag('pitch kept', px, ya - 14, 'center', accent())
       else { tag('before', px, yb + (up ? 14 : -14), 'center', soft); tag('after', px, ya + (up ? -14 : 14), 'center', accent()) }
       c.font = font
@@ -1225,7 +1274,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       if (taken.some(([a, b]) => px + tw + 4 > a && px < b)) continue
       c.fillStyle = color('--color-screen-rule')
       c.fillRect(px, h, 1, TICK)
-      if (ruler === 'labels') { c.fillStyle = color('--color-screen-dim'); c.fillText(text, px + 4, y) }
+      if (ruler === 'labels') { c.fillStyle = color('--color-screen-ruler'); c.fillText(text, px + 4, y) }
     }
     for (const m of shown) {
       c.fillStyle = m.fill
@@ -1319,11 +1368,12 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (!duration) return
     const w = plot().w, y = H - MAP + 4, h = MAP - 7, total = Math.max(duration, end), k = w / total, b = bar()
     const img = mapImage(w, h)
+    // what is selected behind the peaks, as in the lanes
+    c.fillStyle = wash()[0]
+    for (const [p, q] of ranges().filter(Boolean)) c.fillRect(p * k, y, Math.max(1, (q - p) * k), h)
     if (img) c.drawImage(img, 0, y, duration * k, h)
     c.fillStyle = color('--color-screen-soft')
     if (b) { c.globalAlpha = drag?.scroll || !drag && hovered && onBar(...hovered) ? .3 : .18; c.fillRect(b.x0, y - 2, b.x1 - b.x0, h + 4); c.globalAlpha = 1 }
-    c.fillStyle = color('--color-screen-select')
-    for (const [p, q] of ranges().filter(Boolean)) c.fillRect(p * k, y, Math.max(1, (q - p) * k), h)
     c.fillStyle = color(playhead != null ? '--color-screen-bright' : '--color-screen-caret')
     c.fillRect(Math.round((playhead ?? cursor) * k * dpr) / dpr, y - 2, 1, h + 4)
   }
@@ -1429,6 +1479,10 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // The selection, in each lane (a box on the spectrogram), and the other ranges: a wash over each, the one highlight in
   // both pictures, the edge under the pointer (`hot`) or dragged lit, as it would move. A wash lifts a waveform's even
   // dark ground at once, where a spectrogram's speckle hides the same lift: its lanes take a wash that lifts as plainly.
+  // the selection's colours, a waveform's and a spectrogram's: the inactive ones while the picture is not focused, as
+  // an editor's selection goes when its focus is elsewhere
+  const focused = () => document.hasFocus() && root.contains(document.activeElement)
+  const wash = () => (focused() ? ['--color-screen-select', '--color-screen-select-spectrum'] : ['--color-screen-select-inactive', '--color-screen-select-spectrum-inactive']).map(color)
   function paintSelection(L, sel) {
     const { w } = plot(), all = [...L.wave, ...L.spec], boxes = []
     // [x, y, width, height, on the spectrogram], clipped to the lane, on whole pixels
@@ -1443,8 +1497,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       if (lo == null) for (const rect of all) lane(rect, x(p), x(q))
       else for (const rect of L.spec) lane(rect, x(p), x(q), Math.max(rect[1], fy(rect, hi)), Math.min(rect[1] + rect[3], fy(rect, lo)))
     }
-    const wash = [color('--color-screen-select'), color('--color-screen-select-spectrum')]
-    for (const [px, py, bw, bh, spec] of boxes) { c.fillStyle = wash[+spec]; c.fillRect(px, py, bw, bh) }
+    for (const [px, py, bw, bh, spec] of boxes) { sel2d.fillStyle = wash()[+spec]; sel2d.fillRect(px, py, bw, bh) }
   }
   // The edge dragged, or the one a press would take, any range's, lit as the line it would move: its first pixel or its
   // last, over the handles
@@ -1489,7 +1542,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       const { duration, label } = m, at = drag?.marker === i ? drag.to : placed(m), px = X(at), ex = duration ? X(at + duration) : px
       if (at == null || ex < 0 || px > w) continue
       const lane = markLane(m), rects = lane == null ? all : [all[lane]], top = flagTop(m), faint = ours(m) ? 1 : .5
-      c.fillStyle = chosen && same(chosen, m) ? accent() : color('--color-screen-bright')
+      c.fillStyle = chosen && same(chosen, m) ? accent() : color('--color-screen-mark')
       for (const p of new Set([px, ex])) {
         c.globalAlpha = (on(lit, p) || near != null && p === X(near) ? 1 : .7) * faint
         for (const [, ly, , lh] of rects) for (let k = ly; k < ly + lh; k += DASH * 2) c.fillRect(p, k, 1, Math.min(DASH, ly + lh - k))
@@ -1503,7 +1556,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       if (!label || naming && same(naming, m)) continue
       // past a handle in the corner of a range on it
       const lx = gripAt(L, px + 10, top + 6) ? px + INSET + BOX + 4 : px + 10
-      tag(label, lx, top + 6, 'left', color(ours(m) ? '--color-screen-soft' : '--color-screen-dim'))
+      tag(label, lx, top + 6, 'left', color(ours(m) ? '--color-screen-mark-name' : '--color-screen-dim'))
       names.push({ i, from: lx - 3, to: lx + 3 + c.measureText(label).width, top })
     }
   }
@@ -2331,7 +2384,12 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     event.preventDefault()
     const [px, py] = local(event), span = end - start, L = lanes(), freqs = onFreqs(px, py, L), rect = freqs || L.spec.find(r => inside(r, px, py))
     const lines = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 400 : 1, across = Math.abs(event.deltaX) > Math.abs(event.deltaY)
-    const factor = Math.exp(Math.max(-50, Math.min(50, event.deltaY * lines)) * .01)
+    // A zoom's factor. A trackpad's pinch comes as the wheel with Ctrl, though no key is held (Chrome's: −100·ln s of
+    // deltaY all told for a spread s): the span goes by 1/s², twice as far as the fingers spread, so a few pinches go from
+    // all of a sound to its samples; its events merged, as when the page lags behind, go as far as one by one. Ctrl or ⌘
+    // held, a mouse's wheel: a notch, however far it says it went, at most 2×, as = and − go
+    const pinch = event.ctrlKey && !held.ctrlKey && !held.metaKey, z = event.deltaY * lines * .02
+    const factor = Math.exp(pinch ? z : Math.max(-Math.LN2, Math.min(Math.LN2, z)))
     const levels = onLevels(px, py, L), wave = levels || L.wave.find(r => inside(r, px, py))
     if (event.ctrlKey || event.metaKey) return freqs ? zoomFreqs(factor, uy(freqs, py)) : levels ? zoomLevels(factor, ya(levels, py)) : zoom(factor, clamp(time(px)))
     if (rect && fview[1] - fview[0] < 1 && !across) {
@@ -2464,9 +2522,11 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     event.preventDefault()
   }
 
-  // A waveform and a spectrogram per channel; the spectrogram's silence is the page, seen through, its loudest white. How bright the
-  // pair is drawn is the layers' own (light): dim while it is the file arriving, full once the output is there
-  // Each waveform its colour (`hues`): the screen's; in one lane, its channel's hue (tint.js);
+  // A waveform and a spectrogram per channel; the spectrogram's silence is the page, seen through, its loudest its ink
+  // (the skin's spectrum: white, or a theme's). How bright the pair is drawn is the layers' own (light): dim while it is
+  // the file arriving, full once the output is there
+  // Each waveform its colour (`hues`): the screen's; in one lane, its channel's (the skin's, a theme's syntax hues), else
+  // a hue each evenly round at the waveform's lightness (tint.js);
   // as gl-waveform takes it, [r, g, b, a], read once, so a stretch's colour and back costs no parsing
   let hues = [], swatch = null
   const rgba = css => {
@@ -2476,14 +2536,23 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     swatch.fillRect(0, 0, 1, 1)
     return [...swatch.getImageData(0, 0, 1, 1).data].map(v => v / 255)
   }
-  const FILLS = { density: { rms: false, density: true }, rms: { rms: null, density: false }, flat: { rms: false, density: 'flat' } }
+  // channel i of n's hue in one lane: the skin's, while it has one for each, at the alpha where two cross both show
+  const channel = (i, n) => {
+    const own = Array.from({ length: n }, (_, k) => color(`--color-screen-channel-${k + 1}`))
+    return own.every(Boolean) ? [...rgba(own[i]).slice(0, 3), .75] : hue(i, n, lightness(rgba(color('--color-screen-wave'))))
+  }
+  // the spectrogram's colours: its colormap's, or its levels in the skin's ink over the screen (tint.js inked), bent by
+  // its gamma, 17 stops as the colormaps have; made once a look and a skin, as the meter takes them each frame
+  let shaded = null
+  const shades = () => shaded ??= look.color ?? inked(rgba(color('--color-screen-spectrum')), 17, look.gamma ?? 1)
+  const FILLS = { density: { rms: false, density: true }, rms: { rms: null, density: false }, flat: { rms: false, density: false } }
   function lay(n) {
     while (waves.length > n) waves.pop().destroy()
     while (specs.length > n) specs.pop().destroy()
     for (let i = 0; i < n; i++) {
-      hues[i] = !tracks && waveLook.lanes === 'one' && n > 1 ? hue(i, n) : rgba(color('--color-screen-wave'))
+      hues[i] = !tracks && waveLook.lanes === 'one' && n > 1 ? channel(i, n) : rgba(color('--color-screen-wave'))
       waves[i] ||= new Waveform(gl)
-      if (sgl) (specs[i] ||= new Spectrogram(sgl, { background: color('--color-screen'), ...look })).update({ color: look.color ?? null })
+      if (sgl) (specs[i] ||= new Spectrogram(sgl, { ...look })).update({ background: color('--color-screen'), color: shades() })
     }
   }
   // The samples [i0, i1) where two outputs of one length differ, in any channel; [0, 0] where none do
@@ -2526,6 +2595,9 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   root.addEventListener('click', clicked)
   root.addEventListener('contextmenu', context)
   root.addEventListener('keydown', key)
+  // the selection's colours follow the focus
+  for (const type of ['focusin', 'focusout']) root.addEventListener(type, () => invalidate(true))
+  addEventListener('focus', () => invalidate(true))
   // The modifiers, wherever the focus is: what a press would do shows at once, before the pointer moves
   const modifier = event => {
     if (!['Meta', 'Control', 'Alt', 'Shift'].includes(event.key)) return
@@ -2683,7 +2755,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       if (!duration) { untrack(); count = channels; rate = sampleRate; lay(count); start = at; end = at + RECORD }
       recording = { at, rate: sampleRate, length: 0, total: duration, data: Array.from({ length: channels }, () => new Float32Array(sampleRate)),
         waves: Array.from({ length: channels }, () => new Waveform(gl)),
-        specs: sgl ? Array.from({ length: channels }, () => new Spectrogram(sgl, { background: color('--color-screen'), ...look, color: look.color ?? null, sampleRate })) : [] }
+        specs: sgl ? Array.from({ length: channels }, () => new Spectrogram(sgl, { background: color('--color-screen'), ...look, color: shades(), sampleRate })) : [] }
       leveled = false
       taking()
     },
@@ -2707,13 +2779,14 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       taking()
     },
     get duration() { return duration },
-    // The tracks the lanes are, [{ name, end }] (set before their sound, set() or summary(): a lane each, its channels
-    // averaged), or null; the one edited, by its lane. A sound streaming in is no tracks'
+    // The tracks the lanes are, [{ name, end, muted }] (set before their sound, set() or summary(): a lane each, its
+    // channels averaged), or null; the one edited, by its lane. A sound streaming in is no tracks'
     set tracks(list) {
       tracks = list?.length ? list : null
       focus = Math.min(focus, (tracks?.length ?? 1) - 1)
       if (tracks) root.dataset.tracks = tracks.length
       else delete root.dataset.tracks
+      mutes()
       invalidate()
     },
     get focus() { return focus },
@@ -2790,7 +2863,14 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // the steps, dB, a selection's level goes in as its pill is dragged
     set levelStep(db) { levelStep = +db || 1 },
     // how the spectrogram draws: { map, gamma, depth, size } (repl.js spectrogram settings), as gl-spectrogram takes them
-    set spectrogram(o) { look = o; palette = null; for (const sg of [...specs, ...recording?.specs ?? []]) sg.update(look); leveled = false; invalidate() },
+    set spectrogram(o) { look = o; palette = shaded = null; for (const sg of [...specs, ...recording?.specs ?? []]) sg.update({ ...look, color: shades() }); leveled = false; invalidate() },
+    // the skin changed (a theme worn, theme.js): every colour read from it read again, the pictures drawn again in them
+    restyle() {
+      palette = shaded = map = null; ruled = ''
+      lay(count)
+      for (const sg of recording?.specs ?? []) sg.update({ background: color('--color-screen'), color: shades() })
+      invalidate()
+    },
     // how the level axis writes levels: 'db' or 'linear'
     set levels(name) { levelUnits = name === 'linear' ? 'linear' : 'db'; invalidate(true) },
     // what the meters read now: { levels: [{ rms, peak }], spectra: [dB per bin], size, rate }, or null

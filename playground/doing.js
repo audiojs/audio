@@ -19,7 +19,8 @@ const VERBS = {
   clear: ['Clearing', 'Cleared'], undo: ['Undoing', 'Undid'], redo: ['Redoing', 'Redid'], run: ['Running', 'Ran'], write: ['Writing', 'Wrote'],
   change: ['Changing', 'Changed'], search: ['Searching for', 'Searched for'], web: ['Searching the web for', 'Searched the web for'],
   plan: ['Planning', 'Planned'], delegate: ['Delegating', 'Delegated'], scrub: ['Scrubbing', 'Scrubbed'], open: ['Opening', 'Opened'],
-  remove: ['Removing', 'Removed'], move: ['Moving', 'Moved'], off: ['Turning off', 'Turned off'], on: ['Turning on', 'Turned on']
+  remove: ['Removing', 'Removed'], move: ['Moving', 'Moved'], off: ['Turning off', 'Turned off'], on: ['Turning on', 'Turned on'],
+  save: ['Saving', 'Saved'], switch: ['Switching to', 'Switched to'], close: ['Closing', 'Closed']
 }
 // the units a stat reads in, as the page writes them; peak and rms are sample values, db their dBFS
 const UNITS = {
@@ -67,6 +68,8 @@ function said(tool, o, { time, spec }) {
     case 'step': return o.call != null && !o.remove ? ['change', `edit ${+o.index + 1} to ${line(o.call).replace(/^\./, '')}`]
       : [o.remove ? 'remove' : o.to != null ? 'move' : o.on === false ? 'off' : 'on', `edit ${+o.index + 1}${o.to != null && !o.remove ? ` to ${+o.to + 1}` : ''}${!o.remove && o.to == null && span ? ` over ${span}` : ''}`, !o.remove && o.to == null ? range : null]
     case 'open': return ['open', base(o.path)]
+    case 'save': return ['save', `${o.original ? 'the original' : o.track != null ? `track ${line(o.track)}` : 'the output'} as ${base(o.path)}`]
+    case 'tabs': return o.close != null ? ['close', `tab ${+o.close + 1}`] : o.to != null ? ['switch', `tab ${+o.to + 1}`] : ['read', 'the tabs']
     case 'undo': return ['undo', '']
     case 'redo': return ['redo', '']
     case 'audio': return ['run', `audio ${line(o.args)}`]

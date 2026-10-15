@@ -10,8 +10,9 @@
 // a tail length and four band strengths, bench/rx/dereverb.py `learn`); tuned (the setting `tune` chose: coordinate
 // descent over reduction, tail length, artifact smoothing, the band strengths, enhance dry signal and Learn, on
 // `reverb-train`, by mean PESQ). For reference, RX Dialogue Isolate (a trained separator) with its reverb gain at −∞
-// and its noise kept. Ours: dereverb() at its defaults as audio's op runs it, what the user gets, its cache
-// keyed by the installed @audio/denoise-dereverb's version.
+// and its noise kept. Ours: dereverb() at its defaults as audio's op runs it, what the user gets (anvuew's room
+// de-reverb through @audio/neural-separate, music passed by @audio/neural-denoise's guard), its cache keyed by the
+// installed packages' versions; and dereverb({ method: 'wpe' }), the kernel of @audio/denoise-dereverb, keyed by its.
 //
 // Material (bench/rx/dereverb.py `build`; train and test share no speaker, room, noise segment or piece):
 //   room   VoiceBank clean speech (Valentini-Botinhao 2017, CC BY 4.0, doi:10.7488/ds/2117) in MIT IR Survey rooms
@@ -52,7 +53,8 @@ import { DATA, OUT, rx, op, keep, readWav, table, mean, median } from './lib.mjs
 
 const HERE = path.dirname(fileURLToPath(import.meta.url)), HOME = path.join(OUT, 'dereverb')
 const PY = process.env.RX_PYTHON || path.join(os.homedir(), '.cache', 'audiojs', 'venv', 'bin', 'python')
-const VER = JSON.parse(readFileSync(path.join(HERE, '../../node_modules/@audio/denoise-dereverb/package.json'))).version
+const version = p => JSON.parse(readFileSync(path.join(HERE, '../../node_modules', p, 'package.json'))).version
+const VER = version('@audio/denoise-dereverb'), NVER = `${version('@audio/neural-separate')}-nd${version('@audio/neural-denoise')}`
 
 // RX at the best of `tune` on reverb-train (2026-10-06): PESQ 2.423 at its defaults, 2.488 so, on all 126 (learned
 // 2.408 at best on the half searched, the defaults 2.367 there)
@@ -97,9 +99,10 @@ const SYSTEMS = {
   rx: RX({}), 'rx-learn': RX({}, true), ...TUNED && { 'rx-tuned': RX(TUNED.params, TUNED.learn) },
   // RX's learned separator with its reverb off and the noise kept, on speech: what a trained model takes, for reference
   'rx-di': { key: 'rx-di-reverb=-inf', run: rx('Dialogue Isolate', { reverb_gain_db: -Infinity }), speech: true },
-  ours: { key: `dereverb-${VER}`, run: op('dereverb()') },
+  wpe: { key: `dereverb-${VER}`, run: op("dereverb({ method: 'wpe' })") },
+  ours: { key: `dereverb-roformer-${NVER}`, run: op('dereverb()') },
 }
-const LABEL = { in: 'input', rx: 'RX, defaults', 'rx-learn': 'RX, learned', 'rx-tuned': 'RX, tuned', 'rx-di': 'RX Dialogue Isolate, reverb off', ours: `ours, dereverb ${VER}` }
+const LABEL = { in: 'input', rx: 'RX, defaults', 'rx-learn': 'RX, learned', 'rx-tuned': 'RX, tuned', 'rx-di': 'RX Dialogue Isolate, reverb off', wpe: `dereverb wpe, denoise-dereverb ${VER}`, ours: `ours, dereverb() (neural-separate ${NVER})` }
 
 // the output file of system s on item it, rendered once
 async function render(split, it, s) {
@@ -146,7 +149,7 @@ async function report(split) {
   let S = ['in', ...Object.keys(SYSTEMS)], sys = c => S.filter(s => !SYSTEMS[s]?.speech || at(c)[0]?.kind === 'speech')
   let get = async (c, g) => { let o = {}; for (let s of sys(c)) { let sc = await scores(split, at(c, g), s); o[s] = at(c, g).map(it => sc[it.name]) } return o }
   let log = s => console.log(s + '\n')
-  log(`## De-reverb, ${split}: RX 12 and dereverb ${VER}`)
+  log(`## De-reverb, ${split}: RX 12 and dereverb (neural-separate ${NVER}; wpe ${VER})`)
   for (let s of S) if (s !== 'in') for (let c of ['room', 'noisy', 'dry', 'music', 'pauses', 'music-room']) if (sys(c).includes(s)) await scores(split, at(c), s)
 
   for (let g of ['short', 'long']) {

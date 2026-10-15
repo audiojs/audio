@@ -2,7 +2,7 @@
 
 A landscape of audio tools across the web, Python, CLI, and desktop. The goal: help you pick the right tool for the job — including, often, *not* `audio`.
 
-`audio` occupies a specific niche: **a non-destructive audio workstation library for JavaScript runtimes (Node, Deno, Bun, browsers)**. Decode, edit, analyze, encode, play, record — chainable API + CLI, nothing to compile: 107 KB gzipped in a page (the whole library minified; codecs and plugins load on first use), 14 MB installed in Node with every codec and plugin.
+`audio` occupies a specific niche: **a non-destructive audio workstation library for JavaScript runtimes (Node, Deno, Bun, browsers)**. Decode, edit, analyze, encode, play, record — chainable API + CLI, nothing to compile: 128 KB gzipped in a page (the whole library minified; codecs and plugins load on first use), 14 MB installed in Node with every codec and plugin.
 
 `audio` is part of the [audiojs](https://github.com/audiojs) ecosystem — a constellation of small focused packages (`@audio/decode`, `@audio/encode`, `@audio/speaker`, `@audio/mic`, `@audio/filter`, `@audio/dynamics`, `@audio/denoise`, `wavearea`, ...) that together cover most JS audio needs. `audio` itself composes many of them into a unified workstation.
 
@@ -131,7 +131,7 @@ Cells contain method/op names where supported, `—` if absent. For `audio`, pla
 | Macros / batch | CLI macro | scripts | scripts | shell + scripts | scripts + extractor profiles | Python scripts | shell scripts | filter graph | Audacity Macros | scripts / Live Editor |
 | **Misc** | | | | | | | | | | |
 | Performance | measured — [§ Performance](#performance) | slow (shells out to ffmpeg) | numpy-fast | native | native | native | native | native | n/a | native |
-| Bundle size | 107 KB gz, minified; codecs and plugins on first use | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+| Bundle size | 128 KB gz, minified; codecs and plugins on first use | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 | Last release | active | active | active | active | active | active | 2015 | active | active | active |
 | Integrations | Wavearea, audiojs ecosystem | FFmpeg | scikit-learn, torchaudio, numpy | PureData, MaxMSP, Python, JS | TensorFlow, Gaia, essentia.js | TensorFlow, PyTorch, JUCE plugins | shell, FFmpeg | LADSPA/LV2, ffmpeg.wasm | VST/AU/LV2 plugins | Simulink, Deep Learning Toolbox |
 
@@ -243,5 +243,5 @@ Reading the numbers honestly:
 
 - **Time-to-first-sample** — `audio` plays during decode; native CLIs render then play
 - **Amortized analysis** — the index makes the 2nd..Nth stat/waveform query ~free; CLI tools re-decode per query
-- **Bundle size** — `audio` 107 KB gz in a page, codecs on first use, vs ffmpeg.wasm ~25 MiB
+- **Bundle size** — `audio` 128 KB gz in a page, codecs on first use, vs ffmpeg.wasm ~25 MiB
 - **Cold-start in browser** — no install, no native binary, no subprocess

@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process'
 // the library as the pages load it: its modules, the bundle they become, what that bundle pulls in
 const LIB = ['audio.js', 'core.js', 'plan.js', 'cache.js', 'stats.js', 'batch.js', 'worker.js', 'deck.js', 'fn/', '.esbuild.js', 'package-lock.json']
 // the website as served: its pages, their scripts and the bundles .site-build.js makes
-const SITE = ['index.html', 'site/', 'logo/', 'assets/', '.site-build.js', 'package-lock.json']
+const SITE = ['index.html', 'sw.js', 'site/', 'logo/', 'assets/', '.site-build.js', 'package-lock.json']
 
 // advice: on a shared runner the audio thread misses deadlines now and then, so these report and don't fail the run
 const SUITES = [

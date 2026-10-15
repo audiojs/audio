@@ -70,6 +70,6 @@ audio.op('declick', {
   ranged: true,
   latency: delay,
   warmup: delay,
-  load: () => import('@audio/denoise-declick'),
+  load: () => import('@audio/denoise/declick'),
   process: declick,
 })

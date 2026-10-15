@@ -7,19 +7,20 @@ import stack, { valuesOf } from './stack.js'
 import { mark as drawMark } from '../logo/mark.js'
 import recipes from './recipes.js'
 import { ops, methods, guides, previews, GROUPS, CURVES, fromManifest, reshapes, labelOf, icons as groupIcons } from './ops.js'
-import { prepare, error, bare, offCalls, append, source, chain, number, rollback, residual, setArg, unsetArg, declared, rename, inline, between, steps as stepsOf, stages, mixed, dropStep, moveStep, turnOff, turnOn, tracks as tracksOf, focus, toTrack, voiceTrack, soundOf, addTrack, dropTrack } from './code.js'
+import { prepare, error, bare, offCalls, append, source, chain, number, rollback, residual, setArg, unsetArg, declared, rename, inline, between, steps as stepsOf, stages, mixed, dropStep, moveStep, turnOff, turnOn, tracks as tracksOf, focus, toTrack, voiceTrack, stemTracks, soundOf, addTrack, dropTrack, master as masterOf, addMaster } from './code.js'
 import { builtins, sample, microphone, search, credit, unique } from './sources.js'
 import scales from './scale.js'
 import menubar from './menu.js'
 import { levels, spectra, ballistics, cycle, trace } from './meters.js'
 import time, { UNITS } from './time.js'
 import opIcons from './icons.js'
-import { keep, unkeep, kept, tape, tapes, own, owner, claim } from './keep.js'
+import { keep as keepFile, unkeep, kept, tape, tapes, own, owner, claim } from './keep.js'
 import hint from './hint.js'
 import { methods as scrubbers } from './scrub-methods.js'
 import agent from './agent.js'
 import md from './markdown.js'
 import doing, { measures, noted } from './doing.js'
+import { THEMES, load, parse, skin, fonts, wear, webview, webviewFonts } from './theme.js'
 
 // The editor: its output, and at its right a panel that opens and closes, as Luminar's: the tools, every method by kind,
 // one click adding it; the edits, the chain that makes the output as a stack of steps; the same chain as code; and the
@@ -27,7 +28,12 @@ import doing, { measures, noted } from './doing.js'
 // measured and played. Selecting, cutting or applying a method on the waveform, or a slider in the stack, writes the
 // script.
 const root = document.querySelector('#app')
-const DEFAULT = `audio('chime.wav')
+// Embedded in another page (embed.js, <audio-repl>): one script, the link's; nothing read from this browser or kept in
+// it, no other editor's tabs touched; its panel and its picture as the page asks (?panel=code|edits|none, ?display=spec)
+const params = new URLSearchParams(location.search), EMBED = params.has('embed')
+// a sound opened or recorded, kept for the next visit; embedded, held for this one alone, as it is
+const keep = EMBED ? async (name, data) => data : keepFile
+const DEFAULT =`audio('chime.wav')
   .trim()
   .normalize(-1)
   .fade(0.02, 0.1)`
@@ -95,8 +101,8 @@ const grids = [
   ['lines', 'Lines', 'A faint line from each tick across the lanes'],
   ['none', 'None', 'The lanes bare']
 ]
-// The spectrogram's look: grey, black to white screened over the page, so the page shows through where the sound is
-// quiet and the louder is the whiter; or a colormap (matplotlib's magma, inferno and viridis, 9 of their 256 entries,
+// The spectrogram's look: grey, the screen to its ink (white, or a theme's foreground), so the page shows through where
+// the sound is quiet and the louder is the inkier; or a colormap (matplotlib's magma, inferno and viridis, 9 of their 256 entries,
 // matplotlib/_cm_listed.py); bent by a gamma (a level's share of the range raised to it: under 1 the quiet parts show
 // brighter); the dB from the loudest down to the floor; the FFT size, else 40 ms and more on a zoomed band
 // (gl-spectrogram)
@@ -122,17 +128,14 @@ const WAVE = { colour: 'none', lanes: 'split', fill: 'density' }
 const waveLooks = {
   colour: [['none', 'One colour', 'The screen\'s'], ['temperature', 'Temperature', 'Low warm, high cool: where its spectrum centres, as the colour of light'], ['colormap', 'Colormap', 'Where its spectrum centres, in the spectrogram\'s colours: low at their middle, high at their top']],
   lanes: [['split', 'A lane each', 'Each channel on its own'], ['one', 'One lane', 'All the channels over each other, each its own hue']],
-  fill: [['density', 'Density', 'Brighter where the sound is most often'], ['rms', 'RMS', 'A lighter core as loud as its RMS'], ['flat', 'Flat', 'One shade to about its RMS, soft past it']]
+  fill: [['density', 'Density', 'Brighter where the sound is most often'], ['rms', 'RMS', 'A lighter core as loud as its RMS'], ['flat', 'Flat', 'One solid shade, peak to peak']]
 }
-// the look as gl-spectrogram takes it: 17 stops of a colormap. Grey's are a grey even in lightness, screened over the
-// page (Compositing and Blending 1, screen: cb + cs − cb·cs), which for a grey cs is white over it at cs's opacity: the
-// grey's sRGB value (IEC 61966-2-1) at OKLab lightness L, where Y = L³ (Ottosson 2020)
-const screened = L => { const y = L ** 3; return y <= .0031308 ? 12.92 * y : 1.055 * y ** (1 / 2.4) - .055 }
+// the look as gl-spectrogram takes it: 17 stops of a colormap, bent by the gamma; grey's none, its levels the skin's
+// ink over the screen, which the picture makes (view.js shades)
 function paint({ map, gamma, depth, size, method }) {
   const n = 17, u = k => (k / (n - 1)) ** gamma
   const at = (hex, t) => { const i = Math.min(hex.length - 2, Math.floor(t * (hex.length - 1))), f = t * (hex.length - 1) - i, rgb = h => [1, 3, 5].map(j => parseInt(h.slice(j, j + 2), 16)); return `rgb(${rgb(hex[i]).map((v, j) => Math.round(v + (rgb(hex[i + 1])[j] - v) * f)).join(' ')})` }
-  const color = Array.from({ length: n }, (_, k) => MAPS[map] ? at(MAPS[map], u(k)) : `rgb(255 255 255 / ${screened(u(k)).toFixed(4)})`)
-  return { color, depth, size, method }
+  return { color: MAPS[map] ? Array.from({ length: n }, (_, k) => at(MAPS[map], u(k))) : null, gamma, depth, size, method }
 }
 // How the waveform's level axis writes levels: decibels from full scale, mirrored about the centre line, or the sample
 // values themselves, signed
@@ -186,9 +189,10 @@ const elsewhere = document.querySelector('dialog.elsewhere')
 // the files being written to the browser's storage (hold), which the page waits for before it steps aside
 const writing = new Set()
 elsewhere.addEventListener('cancel', event => event.preventDefault())
-const away = run => { elsewhere.querySelector('button').onclick = run; if (!elsewhere.open) elsewhere.showModal() }
+// (a dialog's field or button is focused as it opens, not marked autofocus: a frame in another site's page is refused that, aloud)
+const away = run => { const go = elsewhere.querySelector('button'); go.onclick = run; if (!elsewhere.open) { elsewhere.showModal(); go.focus() } }
 const back = async () => { await claim(); location.reload() }
-const owning = own({
+const owning = EMBED ? Promise.resolve() : own({
   ask: () => new Promise(away),
   give: async () => { if (recorder) await stopRecording(); await Promise.all(writing); store() },
   lost: () => { pl.close(); recorder?.cancel(); away(back) }
@@ -198,7 +202,7 @@ const owning = own({
 // left; under the name the editor had before, 'audio-repl', so what a browser kept is found. What does not read is set
 // aside under another name, not written over; a value the page has no longer, its default.
 const KEY = 'audio-repl'
-const stored = (() => {
+const stored = EMBED ? { side: params.get('panel') === 'none' ? null : params.get('panel') || 'code', display: params.get('display') } : (() => {
   let raw = null
   try { raw = localStorage.getItem(KEY); const s = JSON.parse(raw); return s && typeof s === 'object' ? s : {} }
   catch { try { raw && localStorage.setItem(KEY + '-unread', raw) } catch {} return {} }
@@ -207,20 +211,30 @@ const oneOf = (value, list, fallback) => list.includes(value) ? value : fallback
 const docsOf = list => Array.isArray(list) ? list.filter(d => typeof d?.code === 'string') : []
 // the methods last used, the newest first (used)
 let recent = Array.isArray(stored.recent) ? stored.recent.filter(n => typeof n === 'string').slice(0, 3) : []
-// A tab as it is kept: its script, where it was looked at and what was selected, its conversations
+// The agent's conversations, the page's whichever tab shows (the chat, below): at most CHATS, the oldest first, the one
+// open its `chatId`; those kept before as each tab's own, the closed ones' too, gathered
+const CHATS = 30
+const talk = (() => {
+  const kept = Array.isArray(stored.chats) ? stored.chats : [...docsOf(stored.docs), ...docsOf(stored.closed)].flatMap(d => Array.isArray(d.chats) ? d.chats : [])
+  const chats = kept.filter(c => Array.isArray(c?.messages)).sort((a, b) => (a.at ?? 0) - (b.at ?? 0)).slice(-CHATS)
+  return { chats, chatId: 'chats' in stored ? stored.chat ?? null : docsOf(stored.docs)[stored.doc ?? 0]?.chat ?? null }
+})()
+// A tab as it is kept: its script, where it was looked at and what was selected
 const saved = d => {
   const shown = d.id === state.tab
-  return { code: shown ? ed.code : d.code, frame: d.frame ?? (shown ? v?.frame : null), view: d.view ?? (shown ? v?.state : null), track: shown ? state.track : d.track ?? null, ...talks(d) }
+  return { code: shown ? ed.code : d.code, frame: d.frame ?? (shown ? v?.frame : null), view: d.view ?? (shown ? v?.state : null), track: shown ? state.track : d.track ?? null, muted: shown ? state.muted : d.muted ?? [] }
 }
 // the storage full, the tabs and the settings are kept without their conversations, and the page says so, once
 let full = false
 const store = () => {
+  // embedded, what the page keeps is its link to the whole editor, the script as it reads now
+  if (EMBED) return ed && link(ed.code).then(code => state.full = `${location.pathname}#code=${code}`)
   if (!ed || !owner()) return
-  const all = { docs: docs.map(saved), doc: docs.findIndex(d => d.id === state.tab), closed: closed.map(({ doc, ...c }) => doc ? { ...saved(doc), at: c.at, shut: c.shut } : c), display: state.display, scale: state.scale, format: state.format, encoding: state.encoding, spec: state.spec, cuts: { format: state.cutFormat, fps: state.fps }, side: state.side, show: state.show, units: state.units, snap: state.snapping, curve: state.fadeCurve, levels: state.levels, ruler: state.ruler, scroll: state.scroll, grid: state.grid, step: state.levelStep, look: state.look, wave: state.wave, agent: { url: state.bridgeUrl, key: state.bridgeKey }, splice: state.splice, scrub: state.scrub, record: state.recordIn, grip: state.gripMode, panel: state.panel, speed: state.speed, folds: state.folds, recent }
+  const all = { docs: docs.map(saved), doc: docs.findIndex(d => d.id === state.tab), closed: closed.map(({ doc, ...c }) => doc ? { ...saved(doc), at: c.at, shut: c.shut } : c), display: state.display, scale: state.scale, format: state.format, encoding: state.encoding, spec: state.spec, cuts: { format: state.cutFormat, fps: state.fps }, side: state.side, show: state.show, units: state.units, snap: state.snapping, curve: state.fadeCurve, levels: state.levels, ruler: state.ruler, scroll: state.scroll, grid: state.grid, step: state.levelStep, look: state.look, wave: state.wave, agent: { url: state.bridgeUrl, key: state.bridgeKey }, splice: state.splice, scrub: state.scrub, record: state.recordIn, grip: state.gripMode, panel: state.panel, speed: state.speed, folds: state.folds, recent, ...talks() }
   try { localStorage.setItem(KEY, JSON.stringify(all)); full = false }
   catch {
-    const bare = ({ chats, chat, ...d }) => d
-    try { localStorage.setItem(KEY, JSON.stringify({ ...all, docs: all.docs.map(bare), closed: all.closed.map(bare) })) } catch {}
+    const { chats, chat, ...bare } = all
+    try { localStorage.setItem(KEY, JSON.stringify(bare)) } catch {}
     if (!full) note('The browser’s storage for this page is full: the agent’s conversations are not kept.', 'error')
     full = true
   }
@@ -310,9 +324,9 @@ const swell = rms => { const loud = 1 + 20 * Math.log10(rms + 1e-9) / 48; return
 // How much of the ink the zero axis takes while the mark shows a sound: half, as the waveform's own axis does
 const FAINT = .5
 const still = matchMedia('(prefers-reduced-motion: reduce)')
-// The caret under a scrub, and the RMS of the output there (the 50 ms around it)
+// The caret under a scrub, and the RMS of what it hears there (the 50 ms around it): the output, or a track's lane
 let scrubbed = null
-const beneath = () => { const w = output && pl.near(scrubbed), i = w && Math.round(scrubbed * output.sampleRate) - w.from; return w ? Math.max(0, ...levels(w.x, i - 1200, i + 1200).map(l => l.rms)) : 0 }
+const beneath = () => { const w = output && pl.heard(scrubbed), i = w && Math.round(scrubbed * output.sampleRate) - w.from; return w ? Math.max(0, ...levels(w.x, i - 1200, i + 1200).map(l => l.rms)) : 0 }
 // while the engine works it turns gently, the same whether a file arrives or an output renders, no smaller or paler
 let swaying = ''
 function sway() {
@@ -321,7 +335,7 @@ function sway() {
   swaying = mode
   heard.hz = 0
   logoMark?.set({
-    scrub: { signal: () => { const w = output && pl.near(scrubbed); if (w) cycle(w.x, scrubbed * output.sampleRate - w.from, output.sampleRate, heard, .5); return heard.wave }, cycles: () => cyclesOf(heard.hz), speed: 0, hold: true, hover: 'none', amplitude: () => swell(beneath()), axis: FAINT, hidden: false },
+    scrub: { signal: () => { const w = output && pl.heard(scrubbed); if (w) cycle(w.x, scrubbed * output.sampleRate - w.from, output.sampleRate, heard, .5); return heard.wave }, cycles: () => cyclesOf(heard.hz), speed: 0, hold: true, hover: 'none', amplitude: () => swell(beneath()), axis: FAINT, hidden: false },
     record: { signal: () => (recorder?.trace(heard), heard.wave), cycles: () => cyclesOf(heard.hz), speed: PACE, hold: false, hover: 'none', amplitude: () => swell(recorder?.heard ?? 0), axis: FAINT, hidden: true },
     play: { signal: () => (pl.trace(heard), heard.wave), cycles: () => cyclesOf(heard.hz), speed: PACE, hold: false, hover: 'none', amplitude: () => swell(pl.level), axis: FAINT, hidden: true },
     work: { signal: 'sine', cycles: 1, speed: .25, hold: false, hover: 'none', amplitude: 1, axis: 0, hidden: true },
@@ -347,8 +361,8 @@ const state = sprae(root, {
   get speedAt() { return SPEEDS.at(this.speed) },
   display: stored.display === 'spec' ? 'spec' : 'wave', scale: scales[stored.scale] ? stored.scale : 'log', displays, rates, layouts, sound: null, viewing: '',
   show: { hits: true, gain: true, meters: true, guides: true, ...stored.show }, units: oneOf(stored.units, UNITS.map(u => u[0]), 'clock'),
-  side: sideOf(stored.side), panel: Number.isFinite(stored.panel) ? stored.panel : null, pick: 0, keys,
-  tabs: [], recents: [], tab: 0, name: 'untitled', duration: 0, hasOutput: false, whole: false, ran: false, problem: '', missing: '', notice: '', noticeKind: '', dropping: false, track: null,
+  embed: EMBED, full: '', side: sideOf(stored.side), panel: Number.isFinite(stored.panel) ? stored.panel : null, pick: 0, keys,
+  tabs: [], recents: [], tab: 0, name: 'untitled', duration: 0, hasOutput: false, whole: false, ran: false, problem: '', missing: '', notice: '', noticeKind: '', dropping: false, track: null, muted: [],
   progress: '', figure: '', arrived: null, working: false, loading: false, arriving: false, lines: [], saves: [], exporting: false, shared: false, canUndo: false, canRedo: false,
   time: '0:00.000', span: 0, readout: '', heard: null, selection: null, band: null, ranges: 0, boxes: 0, carets: 1, pauses: false, canPaste: false, playing: false, loop: false, recording: null,
   // the ring in Play's place (status), unless it plays or records
@@ -396,7 +410,7 @@ const state = sprae(root, {
     return `Selected ${what}: ${clock(length)}, ${Math.round(length * rate)} samples`
   },
   get plotHelp() {
-    return `${this.display === 'spec' ? 'Spectrogram' : 'Waveform'}. Click to put the caret and hear the moment there, by a marker's line on the marker; drag to select a time range, a dragged edge or caret going onto the cues and markers near it; double-click selects the fragment between its cues, triple-click the sound between its pauses. Shift sums: a press or a drag extends the selection to it. Alt adds: another caret, range or fragment; dragged inside the selection, a copy of its audio, put in where it lands; held, how far the pointer is from the selection. ⌘ empowers: dragged inside the selection, its audio moves over what is there; a range's end sets its length; the cue under the pointer lights and drags; on the spectrogram, a box of time and frequency; a drag aims finely. A caret's line, the time row or a range's edge drags, the others staying. A range's top corners fade it, outward crossfading; its pill sets its level, the tools at its foot a voice's pitch, intonation and formants; the square past its end trims, stretches or speeds it, a click on each turning it to the next; with none, the square past the caret opens silence. Right-click for the edits there; ⌘P finds any. The wheel scrolls; a pinch, or Ctrl and the wheel, zooms the frequencies or the levels over them and time elsewhere.${this.track ? ` Tracks, a lane each, play together: a press in a lane edits its track, a marker over it its own; Move to a new track takes a selection to one of its own.` : ''}`
+    return `${this.display === 'spec' ? 'Spectrogram' : 'Waveform'}. Click to put the caret and hear the moment there, by a marker's line on the marker; drag to select a time range, a dragged edge or caret going onto the cues and markers near it; double-click selects the fragment between its cues, triple-click the sound between its pauses. Shift sums: a press or a drag extends the selection to it. Alt adds: another caret, range or fragment; dragged inside the selection, a copy of its audio, put in where it lands; held, how far the pointer is from the selection. ⌘ empowers: dragged inside the selection, its audio moves over what is there; a range's end sets its length; the cue under the pointer lights and drags; on the spectrogram, a box of time and frequency; a drag aims finely. A caret's line, the time row or a range's edge drags, the others staying. A range's top corners fade it, outward crossfading; its pill sets its level, the tools at its foot a voice's pitch, intonation and formants; the square past its end trims, stretches or speeds it, a click on each turning it to the next; with none, the square past the caret opens silence. Right-click for the edits there; ⌘P finds any. The wheel scrolls; a pinch, or Ctrl and the wheel, zooms the frequencies or the levels over them and time elsewhere.${this.track ? ` Tracks, a lane each, play together: a press in a lane edits its track, a marker over it its own, a held caret there hears it alone; the speaker by its name mutes it; Move to a new track takes a selection to one of its own, Move the track to its own tab a track to a tab.` : ''}`
   },
   // a tab opens the panel on it; the tab shown, again, closes it (its tabs stay, to open it again)
   setSide(name) { state.side = state.side === name ? null : name; store() },
@@ -410,7 +424,7 @@ const state = sprae(root, {
   },
   // The agent: the bridge it is reached through and its key (kept in this browser), whether it is there, the agents it
   // found ({ id, name, models: [{ id, name }] }), the one asked and its model (null: its own choice); the open tab's
-  // conversation, whether the agent is answering, the tab's conversations, the message being written. Its words are
+  // conversation, whether the agent is answering, the page's conversations, the message being written. Its words are
   // Markdown (markdown.js)
   bridgeUrl: stored.agent?.url || 'http://127.0.0.1:7777', bridgeKey: stored.agent?.key || '', agentStatus: 'off', agents: [], agentInfo: null, agentModel: null,
   get agentLabel() { const m = this.agentInfo?.models?.find(m => m.id === this.agentModel); return this.agentInfo ? this.agentInfo.name + (m ? ` · ${m.name}` : '') : '' },
@@ -461,9 +475,10 @@ const hints = hint(document.body)
 // The script editor, on the document shown, the files its tabs open kept from before
 const first = await initialDocs()
 // the kept files are listed as the page comes up, not before it: the first run waits for them (evaluate)
-const restoring = kept().then(files => { shelf = files; restock() })
+const restoring = EMBED ? Promise.resolve() : kept().then(files => { shelf = files; restock() })
 ed = codeEditor(root.querySelector('.script-editor'), {
   hint: hints,
+  wrap: EMBED,
   doc: first.code,
   onchange(code, update) {
     const slider = !!update?.transactions.some(tr => tr.isUserEvent('input.slider'))
@@ -488,10 +503,42 @@ ed = codeEditor(root.querySelector('.script-editor'), {
 ed.open(first.id)
 state.tab = eng.tab = first.id
 state.track = first.track
+state.muted = first.muted
 focus(first.track)
 retitle()
 inSight()
 store()
+
+// The theme worn (theme.js): one of VS Code's, those it ships or one opened from a file, kept whole (`audio-theme`) so
+// the page comes up in it and reads it again by the mapping of the day, with VS Code's fonts; none, the screen's own
+// skin. In a VS Code webview, the one VS Code wears and the fonts it has set, followed as they change
+let worn = null
+const dressed = theme => ({ ...skin(theme), ...fonts() })
+try { worn = JSON.parse(localStorage.getItem('audio-theme')); wear(worn && dressed(worn.theme)) } catch { worn = null }
+function dress(next) {
+  worn = next
+  wear(worn && dressed(worn.theme))
+  v.restyle()
+  try { worn ? localStorage.setItem('audio-theme', JSON.stringify(worn)) : localStorage.removeItem('audio-theme') } catch {}
+}
+const setTheme = async t => dress(t && { name: t.name, theme: await load(new URL(`./themes/${t.file}`, import.meta.url).href, { kind: t.kind }) })
+function openTheme() {
+  const input = Object.assign(document.createElement('input'), { type: 'file', accept: '.json,application/json' })
+  input.onchange = async () => {
+    const file = input.files[0]
+    if (!file) return
+    try { const own = parse(await file.text()); dress({ name: own.name ?? file.name.replace(/\.json$/i, ''), theme: await load(null, { theme: own }) }) }
+    catch (e) { note(`${file.name} is not a VS Code colour theme: ${e.message}`, 'error') }
+  }
+  input.click()
+}
+if (webview()) {
+  const follow = () => { worn = { name: 'VS Code', theme: webview() }; wear({ ...skin(worn.theme), ...webviewFonts() }); v?.restyle() }
+  follow()
+  // VS Code marks the body with the theme's kind and id as it changes; the colours it sets on the root, as the skin's
+  // are, so the root is not watched
+  new MutationObserver(follow).observe(document.body, { attributes: true, attributeFilter: ['class', 'data-vscode-theme-id'] })
+}
 
 // The output view
 v = view(root.querySelector('.plot'), {
@@ -499,6 +546,8 @@ v = view(root.querySelector('.plot'), {
   onsamples: (from, to) => output?.long ? eng.samples(output.id, from, to) : null,
   // another track's lane pressed: it is the one edited
   onfocus(i) { const t = output?.tracks?.[i]; if (t) focusOn(t.name) },
+  // a track's mute pressed
+  onmute: toggleMute,
   onselect(selection, band, ranges = [], boxes = []) {
     state.selection = selection
     state.boxes = boxes.length
@@ -597,7 +646,10 @@ rk = stack(root.querySelector('.steps'), {
   onuntrack: untrack,
   keys
 })
-focusOn(state.track)
+// the track edited one the script has (a link's script, opened anew, has none chosen): set before the page's state is
+// all made, so nothing it shows is asked for yet
+state.track = trackOf(state.track)
+focus(state.track)
 rk.refresh()
 remember(ed.code)
 
@@ -640,9 +692,13 @@ function menus() {
       edit('Delete', 'remove', '⌫', sel),
       edit('Keep only the selection', 'crop', 'K', sel && !band),
       edit('Move to a new track', 'track', '', sel && !band && state.ranges < 2),
-      { label: 'Split the voice to a new track', hint: 'The rest stays here', run: () => editSelection('voice'), disabled: none },
+      { label: 'Split the voice to a new track', hint: 'The rest stays here', run: () => editSelection('voice'), disabled: none || mastering() },
+      { label: 'Split into four stems', hint: 'Voice, bass, drums; the rest stays here', run: () => editSelection('stems'), disabled: none || mastering() },
       { label: 'Line up with', hint: 'In time, by where the two agree', items: others().map(name => ({ label: name, run: () => lineUp(name) })), disabled: !others().length },
       { label: 'Match with', hint: 'Its tone, then its loudness', items: others().map(name => ({ label: name, run: () => matchUp(name) })), disabled: !others().length },
+      { label: 'Duck under', hint: 'Quieter while it sounds', items: others().map(name => ({ label: name, run: () => duckUnder(name) })), disabled: !others().length },
+      { label: 'Add a master', hint: 'The tracks\' sum, through steps of its own', run: masterOut, disabled: !state.track || !!masterOf(ed.code) },
+      { label: 'Move the track to its own tab', hint: state.track ?? '', run: detach, disabled: !state.track || mastering() },
       { label: 'Delete the track', hint: state.track ?? '', run: untrack, disabled: !state.track },
       '-',
       edit(band ? '6 dB quieter' : '3 dB quieter', 'quieter', '', sel),
@@ -680,6 +736,13 @@ function menus() {
       ...displays.map(d => check(d.label, state.display === d.name, () => setDisplay(d.name))),
       lookMenu('wave'), lookMenu('spec'),
       { label: 'Grid', items: grids.map(([name, label, hint]) => check(label, state.grid === name, () => setGrid(name), { hint })) },
+      { label: 'Theme', items: [
+        check('The screen', !worn, () => dress(null), { hint: 'Grey on black, as the site draws it' }),
+        ...[['Light', /^light/], ['Dark', /^dark/], ['High contrast', /^hc/]].flatMap(([group, kind]) => ['-', { group }, ...THEMES.filter(t => kind.test(t.kind)).map(t => check(t.name, worn?.name === t.name, () => setTheme(t)))]),
+        ...worn && !THEMES.some(t => t.name === worn.name) ? ['-', check(worn.name, true, () => {})] : [],
+        '-',
+        { label: 'Open a VS Code theme…', hint: 'Any theme\'s .json file', run: openTheme }
+      ] },
       '-',
       ...overlays.map(([name, label]) => check(label, state.show[name], () => toggleShow(name))),
       check('Pitch curve', state.pitch, () => setPitch(!state.pitch), { hint: 'The voice\'s pitch on the spectrogram, dragged whole or by its bends; a click on a selection\'s pitch tool shows it too' }),
@@ -751,7 +814,7 @@ function optionGroups(kind) {
   if (kind === 'spec') return [
     group('Method', specMethods, state.look.method, m => setLook('method', m)),
     group('Frequency scale', Object.entries(scales).map(([name, sc]) => [name, scaleNames[name], sc.text[0].toUpperCase() + sc.text.slice(1)]), state.scale, setScale),
-    group('Colours', looks.map.map(m => [m, m[0].toUpperCase() + m.slice(1), m === 'grey' ? 'Black to white, the page through it' : `Matplotlib's ${m}`]), state.look.map, m => setLook('map', m)),
+    group('Colours', looks.map.map(m => [m, m[0].toUpperCase() + m.slice(1), m === 'grey' ? 'The screen\'s ink, the page through it' : `Matplotlib's ${m}`]), state.look.map, m => setLook('map', m)),
     group('Gamma', looks.gamma.map(g => [g, `γ${g}`, g < 1 ? 'Quiet parts brighter' : g > 1 ? 'Quiet parts darker' : 'Levels even']), state.look.gamma, g => setLook('gamma', g)),
     group('Range', looks.depth.map(d => [d, `${d}dB`, `From the loudest down ${d} dB to the floor`]), state.look.depth, d => setLook('depth', d)),
     group('FFT size', looks.size.map(n => [n, n ? String(n) : 'Auto', n ? `Frames of ${n} samples` : 'Frames of 40 ms, longer on a zoomed band']), state.look.size, n => setLook('size', n))
@@ -834,7 +897,7 @@ function contextMenu() {
   const lead = (label, name) => ({ label, run: () => addOp(name, false), icon: opIcons[name], op: name })
   const act = (label, type, key, when, icon) => ({ ...edit(label, type, key, when), icon, op: type })
   // with tracks, the one edited taken away
-  const untracking = state.track ? [{ label: 'Delete the track', hint: state.track, run: untrack, icon: icons.remove }] : []
+  const untracking = state.track ? [...mastering() ? [] : [{ label: 'Move the track to its own tab', hint: state.track, run: detach, icon: icons.track }], { label: 'Delete the track', hint: state.track, run: untrack, icon: icons.remove }] : []
   const repair = [act(several || v.boxes.length > 1 ? 'Remove the clicks in each' : 'Remove the clicks here', 'declick', '', true, opIcons.declick), act('Rebuild from around it', 'repair', '', !several, icons.repair), act('Take this noise out everywhere', 'denoise', '', true, opIcons.denoise)]
   // the menu's own edits, then the methods, none of them again
   const process = (own, leads = {}) => [...own, ...recents(leads), '-', ...kinds(leads, false, own.map(it => it.op)), { label: 'Find an edit…', keys: keys('⌘P'), run: () => openTools(), icon: glyphs.find }]
@@ -844,7 +907,8 @@ function contextMenu() {
     act(v.carets.length > 1 ? `Paste at all ${v.carets.length} carets` : 'Paste', 'paste', '⌘V', state.canPaste, icons.paste),
     { label: v.carets.length > 1 ? 'A marker at each caret' : 'Add a marker', keys: 'M', run: addMarker, icon: glyphs.marker },
     { label: 'Select all', keys: keys('⌘A'), run: () => v.select(0, v.duration), icon: glyphs.all },
-    { label: 'Split the voice to a new track', run: () => editSelection('voice'), icon: opIcons.vocals },
+    ...mastering() ? [] : [{ label: 'Split the voice to a new track', run: () => editSelection('voice'), icon: opIcons.vocals },
+      { label: 'Split into four stems', run: () => editSelection('stems'), icon: opIcons.rebalance }],
     ...untracking
   ])
   const [a, b] = v.selection ?? list[0]
@@ -885,7 +949,7 @@ function quick({ band, boxes, ranges, selection, carets, canPaste, pauses, whole
   if (selection) return [t('crop', 'Keep only this', 'K'), t('remove', 'Delete', '⌫'), t('cut', 'Cut', '⌘X'), t('copy', 'Copy', '⌘C'), t('track', 'Move to a new track'), t('quieter', '3 dB quieter'), t('louder', '3 dB louder'), t('declick', 'The clicks here, taken out'), t('repair', 'Rebuild from its surroundings'), t('denoise', 'The noise here, taken 12 dB down everywhere', '', 'repair')]
   // several carets: a paste at each, a marker at each
   if (carets > 1) return [...(canPaste ? [t('paste', `Paste at all ${carets}`, '⌘V')] : []), t('mark', `A marker at each of the ${carets} carets`, 'M', 'paste')]
-  return [...canPaste ? [t('paste', 'Paste at the caret', '⌘V')] : [], ...whole ? [t('voice', 'Split the voice to a new track', '', 'vocals')] : []]
+  return [...canPaste ? [t('paste', 'Paste at the caret', '⌘V')] : [], ...whole ? [t('voice', 'Split the voice to a new track', '', 'vocals'), t('stems', 'Split into four stems: voice, bass, drums, the rest', '', 'rebalance')] : []]
 }
 function resetView() {
   v.fit()
@@ -942,7 +1006,7 @@ async function perform(runs, code) {
   asked = script.names
   status()
   // the file shown as it is while the output is made, where the picture has nothing of it (worker.js render)
-  const result = await eng.run({ ...script, preview: !state.hasOutput || fresh(script.names) }, coming)
+  const result = await eng.run({ ...script, muted: [...state.muted], preview: !state.hasOutput || fresh(script.names) }, coming)
   waiting--
   // another tab shown meanwhile: the reply is the one left's, whose output the worker keeps for it
   if (!result.skipped && eng.tab === coming.tab) show(result, false, script.names, coming)
@@ -1107,7 +1171,7 @@ function arrival(names) {
       return x
     }) } : null
     // each track's picture as long as the mix, past its end silent: its samples, or a long one's leaves and spectra
-    const tracks = a.lanes?.map(({ name, length: n, silences }) => ({ name, length: n, silences }))
+    const tracks = a.lanes?.map(({ name, length: n, channels, silences }) => ({ name, length: n, channels, silences }))
     const lanes = !m.long && a.lanes?.map(t => { const x = new Float32Array(length); x.set(t.mono.subarray(0, length)); return x }) || null
     const pictures = m.long && a.lanes ? { leaves: a.lanes.map(t => t.leaves), spectra: { size: a.lanes[0].spectra.size, hop: a.lanes[0].spectra.hop, levels: a.lanes.map(t => t.spectra.levels) } } : null
     a.parts = []
@@ -1183,7 +1247,7 @@ function settle(out, draw = true, behind = false) {
   state.arriving = false
   state.loading = false
   // tracks, a lane each, the one edited by its name
-  v.tracks = has && out.tracks ? out.tracks.map(t => ({ name: t.name, end: t.length / out.sampleRate })) : null
+  v.tracks = has ? lanesShown(out) : null
   if (out?.tracks) v.focus = Math.max(0, out.tracks.findIndex(t => t.name === state.track))
   if (out?.long) v.summary(out.pictures?.leaves ?? out.peaks, out.length, out.sampleRate, out.pictures?.spectra ?? out.spectra)
   else if (draw) v.set(has ? out.lanes ?? out.channels : [], out?.sampleRate)
@@ -1194,7 +1258,7 @@ function settle(out, draw = true, behind = false) {
   // the markers as the script has them: an older script's output, the newer one on its way, leaves those the view
   // drew ahead of it (made, named, moved) as they are
   if (!behind) v.markers = out?.markers
-  pl.set(has ? out.channels : null, out?.sampleRate, has ? hears(out) : null, has ? out.length : 0, fetches(out))
+  pl.set(has ? out.channels : null, out?.sampleRate, has ? hears(out) : null, has ? out.length : 0, fetches(out), has ? lanesOf(out) : null)
   if (!has && pl.playing) togglePlay()
   state.duration = has ? out.duration : 0
   state.ab = false
@@ -1205,11 +1269,21 @@ function settle(out, draw = true, behind = false) {
   meter()
   scheduleCheck()
 }
+// The tracks as their lanes show them, each muted or not; none muted with a master, which mixes them as its script says
+const lanesShown = out => out?.tracks?.map(t => ({ name: t.name, end: t.length / out.sampleRate, muted: masterOf(ed.code) ? null : state.muted.includes(t.name) })) ?? null
+// A track muted, or heard again (its lane's index): the mix made again without it, or with it; its lane says so at once
+function toggleMute(i) {
+  const name = output?.tracks?.[i]?.name
+  if (!name || masterOf(ed.code)) return
+  state.muted = state.muted.includes(name) ? state.muted.filter(n => n !== name) : [...state.muted, name]
+  v.tracks = lanesShown(output)
+  store()
+  schedule(0)
+}
 // The track edited (code.js focus), by its name: its chain is the one the edits show, the picture's handles draw on and
 // every edit goes to. One the script no longer has gives way to its last track; none without tracks
 function focusOn(name) {
-  const list = tracksOf(ed.code).map(t => t.name)
-  name = list.includes(name) ? name : list.at(-1) ?? null
+  name = trackOf(name)
   if (name === state.track) return focus(name)
   state.track = name
   focus(name)
@@ -1223,6 +1297,11 @@ function focusOn(name) {
   v.cues = null
   marks()
   describe()
+}
+// Track `name` where the script has it (or its master), else its last track; null without tracks
+function trackOf(name) {
+  const list = [...tracksOf(ed.code).map(t => t.name), ...masterOf(ed.code) ? [masterOf(ed.code).name] : []]
+  return list.includes(name) ? name : list.at(-1) ?? null
 }
 // The output's track edited ({ name, length, silences }), or null; its index, or none, without tracks
 function lane(out = output) { return out?.tracks?.find(t => t.name === state.track) ?? null }
@@ -1294,7 +1373,9 @@ function scheduleCheck(delay = 300) {
 // where it is heard, the engine's
 // what plays of an output: in the deck, of the samples the page holds; a long one's, made by the engine
 const hears = out => o => eng.voice({ ...o, output: out.id, ...out.channels && { held: { key: out.id, channels: out.channels, sampleRate: out.sampleRate } } })
-const fetches = out => out?.long ? (from, to) => eng.samples(out.id, from, to) : null
+const fetches = out => out?.long ? (from, to) => eng.samples(out.id, from, to, true) : null
+// its tracks' lanes, for a scrub to hear one alone: the page's, or a long one's, the engine's
+const lanesOf = out => out?.lanes ?? (out?.long && out.tracks ? (from, to) => eng.samples(out.id, from, to) : null)
 
 // A/B: the original at the same place, level-matched to the output; the next output, or B again, returns to it.
 // B, or Play > Hear it before the edits; the word over the picture says which is heard
@@ -1302,7 +1383,7 @@ async function toggleAB() {
   const name = sourceName()
   if (!state.hasOutput) return
   if (!name) return note('A generated sound has no file as it opened to hear it against.')
-  if (state.ab) { state.ab = false; pl.set(output.channels, output.sampleRate, hears(output), output.length, fetches(output)); return note('Hearing the output, after the edits') }
+  if (state.ab) { state.ab = false; pl.set(output.channels, output.sampleRate, hears(output), output.length, fetches(output), lanesOf(output)); return note('Hearing the output, after the edits') }
   const loudness = output.stats.loudness
   if (original?.name !== name || original.loudness !== loudness) {
     const r = await eng.original(name, loudness)
@@ -1353,7 +1434,7 @@ function meter(t = null) {
   }
   if (!output?.duration) { v.meters = null; return }
   // with tracks, each lane's own; a long output's, the samples about it the player has (none till they come)
-  const rate = output.sampleRate, sel = t == null && v.selection, w = output.lanes ? { x: output.lanes, from: 0 } : pl.near(t ?? (sel ? sel[0] : v.cursor))
+  const rate = output.sampleRate, sel = t == null && v.selection, at = t ?? (sel ? sel[0] : v.cursor), w = output.tracks ? pl.lanes(at) : pl.near(at)
   if (!w) { v.meters = null; return }
   const [a, b] = t != null ? [t - .05, t] : sel || [v.cursor - .025, v.cursor + .025], from = Math.round(a * rate) - w.from, to = Math.round(b * rate) - w.from
   const c = Math.round(v.cursor * rate) - w.from, [s0, s1] = t != null ? [to - size, to] : sel ? [from, Math.max(to, from + size)] : [c - size / 2, c + size / 2]
@@ -1617,7 +1698,8 @@ function onscrub(t, band) {
     if (scrubbed != null) logoMark?.turn(PACE * (t - scrubbed))
     scrubbed = t
     sway()
-    return pl.scrub(t, band)
+    // with tracks, the one edited alone, as its lane shows it
+    return pl.scrub(t, band, laneIndex())
   }
   scrubbed = null
   pl.scrub(null)
@@ -1632,6 +1714,7 @@ function editSelection(type, range = v.selection) {
   if (type === 'mark') return addMarker()
   if (type === 'track') return toTrackOf(Array.isArray(range?.[0]) ? range[0] : range)
   if (type === 'voice') return voiceOut()
+  if (type === 'stems') return stemsOut()
   // a paste at each caret, from the last back so each time holds for the ones before it
   if (type === 'paste') {
     const at = Array.isArray(range?.[0]) ? range.map(r => r[0]) : v.carets.length ? v.carets : [v.cursor]
@@ -1771,12 +1854,22 @@ function voiceOut() {
   if (rk.shown().id != null) rk.choose(null)
   return retrack(made)
 }
+// A song's voice, bass and drums each to a track of its own under this one, the rest left here, so the four sound as the
+// one did (code.js stemTracks), by SCNet-large, the voice the track edited. One step; the model runs once for all four
+function stemsOut() {
+  const made = stemTracks(ed.code)
+  if (!made) return note('This sound is made from another by its name: give it a track of its own in the code.'), false
+  if (rk.shown().id != null) rk.choose(null)
+  return retrack(made)
+}
 // Whether this browser has a GPU for WebGPU, not a fallback (SwiftShader): the voice split's model is Mel-RoFormer there
 // (a 464 MB download once, a few seconds a song's minute), SCNet-large elsewhere (45 MB, on the CPU, as fast as it gets)
 let gpu = false
 navigator.gpu?.requestAdapter().then(a => { gpu = !!a && !a.info?.isFallbackAdapter && a.info?.architecture !== 'swiftshader' }, () => {})
-// The tracks other than the one edited, by name: what it may line up with
-function others() { return state.track ? tracksOf(ed.code).map(t => t.name).filter(n => n !== state.track) : [] }
+// The tracks other than the one edited, by name: what it may line up with, match, duck under; none for the master
+function others() { return state.track && !mastering() ? tracksOf(ed.code).map(t => t.name).filter(n => n !== state.track) : [] }
+// Whether the one edited is the master (code.js master): the tracks' sum through steps of its own
+function mastering() { return !!state.track && masterOf(ed.code)?.name === state.track }
 // The track edited lined up in time with track `name` (fn/align.js): a part remade elsewhere and opened as a new track,
 // put where the original stood. Its reference that track's sound written out (code.js soundOf), not its name: one step
 function lineUp(name) {
@@ -1788,6 +1881,18 @@ function lineUp(name) {
 function matchUp(name) {
   const ref = soundOf(ed.code, name)
   return !!ref && !!write(`match(${ref})`, `normalize(${ref})`)
+}
+// The track edited ducked under track `name` while that one sounds (a sidechain, fn ducker's `key`): a voice over a music
+// bed, the bed 15 dB down under it. Its key read by name: that track stays a track, heard (code.js tracks)
+function duckUnder(name) { return !!write(`ducker({ key: ${name}, range: -15 })`) }
+// A master after the tracks: the longest a copy, each other mixed into it (code.js addMaster), the one edited then, for
+// steps over their sum (loudness, a limiter, a bus compressor). One step
+function masterOut() {
+  const lens = new Map(output?.tracks?.map(t => [t.name, t.length]) ?? []), names = tracksOf(ed.code).map(t => t.name)
+  const made = addMaster(ed.code, names.reduce((p, q) => (lens.get(q) ?? 0) > (lens.get(p) ?? 0) ? q : p))
+  if (!made) return false
+  if (rk.shown().id != null) rk.choose(null)
+  return retrack(made)
 }
 // The script with a track made, `made` ({ code, name }), that track the one edited from now on
 function retrack(made) {
@@ -1805,6 +1910,29 @@ function untrack() {
   focus(state.track)
   v.select(0, 0)
   ed.change(change)
+  return true
+}
+// A track and a tab are one sound each, the one heard with the others, the other alone: either becomes the other.
+// The track edited to a tab of its own, its steps with it (code.js soundOf), gone from here; one made from another
+// sound here (a copy of it) stays, as it means nothing alone
+function detach() {
+  const name = state.track, sound = name && soundOf(ed.code, name)
+  if (!sound) return false
+  const others = [...ed.code.matchAll(/\blet\s+([\w$]+)/g)].map(m => m[1]).filter(n => n !== name)
+  if (others.some(n => new RegExp(`(^|[^\\w$.'"])${n.replace(/\$/g, '\\$')}\\b`).test(sound))) return note(`${name} is made from another sound here: it can't go to a tab alone.`)
+  if (!untrack()) return false
+  newTab(sound)
+  return true
+}
+// Tab `id`'s sound a track of the one shown, under the one edited, the tab closed (reopened as any is): a script that is
+// one sound, its chain; one of statements (tracks of its own, a measure) stays a tab
+function attach(id) {
+  const d = docs.find(d => d.id === id), code = d?.code ?? '', c = chain(code), sound = c && code.slice(c.expr.from, c.expr.to)
+  if (!sound || code.trim() !== sound.trim()) return note('That tab is more than one sound: it stays a tab.')
+  const made = chain(ed.code) && addTrack(ed.code, sound, label(source(code)?.strings[0]?.name ?? 'track'))
+  if (!made) return note('This sound is made from another by its name: add a track to it in the code.')
+  retrack(made)
+  closeTab(id)
   return true
 }
 // Where an edit makes a seam (audio taken out and what is either side meets, audio or silence put in, a range moved
@@ -2386,7 +2514,7 @@ async function stopRecording() {
 }
 
 // Sound search
-function openSearch() { closeMenus(); root.querySelector('dialog.search').showModal() }
+function openSearch() { closeMenus(); const d = root.querySelector('dialog.search'); d.showModal(); d.querySelector('input[type=search]').focus() }
 function closeSearch() { previewAudio?.pause(); state.previewing = -1; root.querySelector('dialog.search').close() }
 // Searching as the words are typed, half a second after the last key; Enter searches at once. A newer search
 // supersedes an older one still under way.
@@ -2435,9 +2563,7 @@ async function exportFiles(parts = false, track = null) {
   if (!state.hasOutput || state.exporting) return
   state.exporting = true
   try {
-    const base = state.exportName.trim().replace(/\.\w+$/, '') || state.exportBase
-    // the format's setting, the markers in the file or none (WAV's cue chunk, MP3's and M4A's chapters)
-    const e = ENCODING[state.format], value = e && state.encoding[e[0]], options = { ...value != null && { [e[0]]: value }, ...!state.encoding.markers && { markers: [], regions: [] } }
+    const base = state.exportName.trim().replace(/\.\w+$/, '') || state.exportBase, options = encodingOf(state.format)
     // a track alone, by its index among the tracks; every track, a file each (`track` true)
     const names = tracksOf(ed.code).map(t => t.name), each = track === true ? names.map((_, i) => ({ track: i })) : names.includes(track) ? [{ track: names.indexOf(track) }] : [{}]
     for (const one of each) {
@@ -2447,6 +2573,11 @@ async function exportFiles(parts = false, track = null) {
     }
   } catch (e) { note(`Export failed: ${e.message}`) }
   finally { state.exporting = false }
+}
+// What a format is encoded with: its setting, the markers in the file or none (WAV's cue chunk, MP3's and M4A's chapters)
+function encodingOf(format) {
+  const e = ENCODING[format], value = e && state.encoding[e[0]]
+  return { ...value != null && { [e[0]]: value }, ...!state.encoding.markers && { markers: [], regions: [] } }
 }
 
 // The cuts as an edit list, a text file, for the video it came from (a cut podcast's picture cut alike)
@@ -2560,6 +2691,35 @@ const page = {
     const file = await bridge.file(path), done = ran()
     await openFiles([file])
     return { ...await within(done), name: file.name }
+  },
+  // the output (a track alone), encoded as the path's extension says, or the file as it opened, its bytes as they are,
+  // written to a file on the user's machine through the bridge: for the agent's own tools to take it from there
+  async save({ path, track, original, force }) {
+    if (typeof path !== 'string' || !path) throw new Error('save: path, a file on this machine to write')
+    const type = path.match(/\.(\w+)$/)?.[1].toLowerCase()
+    if (original) {
+      const name = sourceName(), file = name && shelf.get(name), own = name?.match(/\.(\w+)$/)?.[1].toLowerCase()
+      if (!file) throw new Error(name ? `${name} is not kept in this page: save the output` : 'A generated sound has no file as it opened')
+      if (type !== own) throw new Error(`${name} is .${own}: save it as .${own}, or the output in any format`)
+      return bridge.save(path, file, force)
+    }
+    if (!formats.some(f => f.name === type)) throw new Error(`save: a path ending in ${formats.map(f => '.' + f.name).join(', ')}`)
+    const names = tracksOf(ed.code).map(t => t.name)
+    if (track != null && !names.includes(track)) throw new Error(`No track ${track}: state.tracks has ${names.join(', ') || 'none'}`)
+    await whole(true)
+    const { files = [], error } = await eng.export({ format: type, name: 'output', options: encodingOf(type), saves: false, ...track != null && { track: names.indexOf(track) } })
+    if (error) throw new Error(error.message)
+    return bridge.save(path, files[0].bytes, force)
+  },
+  // the tabs, a sound each, as the strip shows them; with `to` one shown, the one every tool then acts on; with `close`
+  // one closed (⇧⌘T opens it again)
+  tabs({ to, close }) {
+    if (to != null && close != null) throw new Error('tabs: to or close, not both')
+    const id = i => { if (!docs[i]) throw new Error(`No tab ${i}: there are ${docs.length}`); return docs[i].id }
+    if (close != null) closeTab(id(close))
+    else if (to != null) switchTab(id(to))
+    retitle()
+    return state.tabs.map((t, index) => ({ index, name: t.name, shown: t.id === state.tab }))
   },
   // the output, or with `original` the file as it opened, level-matched (B); with `step`, the output up to that edit, or
   // what it takes out, as its card chosen in the Edits panel shows it (staying so until the agent's next edit or play)
@@ -2700,41 +2860,39 @@ function askAgent() {
 function pickAgent(id, model = null) { picked = id; pickedModel = model; state.agentInfo = state.agents.find(a => a.id === id) ?? state.agentInfo; state.agentModel = model; root.querySelector('#agents-menu')?.hidePopover() }
 if (state.bridgeKey) connectAgent()
 
-// The conversations are a tab's own, as its script and edits are, kept with it: { id, at, title, agent, session,
-// messages }, the one open its `chatId` (null: a new one, begun by its first message), at most CHATS. A message is the
+// The conversations (`talk`) are the page's, not a tab's: the agent goes on with one whichever tab it or the user shows,
+// `open` and `tabs` included. Each { id, at, title, agent, session, messages }, the one open its `chatId` (null: a new
+// one, begun by its first message), at most CHATS. A message is the
 // user's { role, text }, or the agent's { role, parts, running, doing, since, started, pending, turn, error }: its
 // words and its finished calls in the order they came ({ text } | { step, failed }), the calls running, what it does now.
 // The agent's session goes on with a conversation where that agent began it; another agent, or one that lost it, is told
 // what was said (bin/bridge.js)
-const CHATS = 30
-const chatsOf = d => d ? d.chats ??= [] : []
-const docOf = () => docs.find(d => d.id === state.tab)
-const conversation = (d = docOf()) => chatsOf(d).find(c => c.id === d.chatId) ?? null
+const conversation = () => talk.chats.find(c => c.id === talk.chatId) ?? null
 // as kept: an answer the page closed on says so
-function talks(d) { return d.chats?.length ? { chats: d.chats.map(c => ({ ...c, messages: c.messages.map(({ role, text, parts, error, pending }) => ({ role, ...text != null && { text }, ...parts && { parts }, ...(error || pending) && { error: error || 'Cut off: the page closed before the answer ended' } })) })), chat: d.chatId } : {} }
+function talks() { return talk.chats.length ? { chats: talk.chats.map(c => ({ ...c, messages: c.messages.map(({ role, text, parts, error, pending }) => ({ role, ...text != null && { text }, ...parts && { parts }, ...(error || pending) && { error: error || 'Cut off: the page closed before the answer ended' } })) })), chat: talk.chatId } : {} }
 // an agent's message as it shows, its words and calls in turn; its words alone, as told to an agent that did not hear them
 function partsOf(m) { return m.role === 'user' ? [] : m.parts ?? (m.text ? [{ text: m.text }] : []) }
 const wordsOf = m => m.role === 'user' ? m.text : partsOf(m).filter(p => p.text).map(p => p.text.trim()).join('\n\n')
 // a time as a list of past things says it
 const ago = t => { const s = (Date.now() - t) / 1000; return s < 60 ? 'now' : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 86400 ? `${Math.floor(s / 3600)} h ago` : new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) }
-// What shows: the open conversation, whether its agent is answering; the tab's others, newest first
+// What shows: the open conversation, whether its agent is answering; the others, newest first
 function showMessages(c) { state.chat = c?.messages ?? []; state.chatBusy = !!c?.messages.at(-1)?.pending }
 function showChat() {
   const c = conversation()
   showMessages(c)
   askAgent()
-  state.chats = chatsOf(docOf()).toReversed().map(x => ({ id: x.id, title: x.title, when: ago(x.at), open: x === c }))
+  state.chats = talk.chats.toReversed().map(x => ({ id: x.id, title: x.title, when: ago(x.at), open: x === c }))
   following = true
 }
-function newChat() { const d = docOf(); if (d) d.chatId = null; showChat(); store(); root.querySelector('.chat-form textarea')?.focus() }
-function openChat(id) { const d = docOf(); if (d) d.chatId = id; showChat(); store(); root.querySelector('#chats-menu')?.hidePopover() }
+function newChat() { talk.chatId = null; showChat(); store(); root.querySelector('.chat-form textarea')?.focus() }
+function openChat(id) { talk.chatId = id; showChat(); store(); root.querySelector('#chats-menu')?.hidePopover() }
 // A conversation deleted, its answer under way stopped; the open one, a new one in its place
 function dropChat(id) {
-  const d = docOf(), c = chatsOf(d).find(x => x.id === id), last = c?.messages.at(-1)
+  const c = talk.chats.find(x => x.id === id), last = c?.messages.at(-1)
   if (!c) return
   if (last?.pending && last.turn) bridge.stop(last.turn)
-  d.chats = d.chats.filter(x => x !== c)
-  if (d.chatId === id) d.chatId = null
+  talk.chats = talk.chats.filter(x => x !== c)
+  if (talk.chatId === id) talk.chatId = null
   showChat()
   store()
   if (!state.chats.length) root.querySelector('#chats-menu')?.hidePopover()
@@ -2799,11 +2957,11 @@ function elapsed(since, now) { const s = Math.floor((now - since) / 1000); retur
 setInterval(() => { if (state.chatBusy || turns.size) state.tick = Date.now() }, 1000)
 // A message to the agent, or, while it answers, the agent stopped
 async function sendChat() {
-  const d = docOf(), open = conversation(d), last = open?.messages.at(-1), id = state.agentInfo?.id, model = state.agentModel, text = state.chatText.trim()
+  const open = conversation(), last = open?.messages.at(-1), id = state.agentInfo?.id, model = state.agentModel, text = state.chatText.trim()
   if (last?.pending) return last.turn && bridge.stop(last.turn)
-  if (!text || !id || !d) return
+  if (!text || !id) return
   const c = open ?? { id: Date.now(), title: text.replace(/\s+/g, ' ').slice(0, 120), agent: id, session: null, messages: [] }
-  if (!open) { chatsOf(d).push(c); d.chats.splice(0, d.chats.length - CHATS); d.chatId = c.id }
+  if (!open) { talk.chats.push(c); talk.chats.splice(0, talk.chats.length - CHATS); talk.chatId = c.id }
   const history = c.messages.map(m => ({ role: m.role, text: wordsOf(m) })).filter(m => m.text), session = c.agent === id ? c.session : null
   Object.assign(c, { agent: id, model, at: Date.now(), messages: [...c.messages, { role: 'user', text }, { role: 'agent', parts: [], running: [], doing: `Starting ${state.agentInfo.name}`, since: Date.now(), pending: true, turn: null, error: '' }] })
   state.chatText = ''
@@ -2827,9 +2985,12 @@ new MutationObserver(() => { if (following) chatLog.scrollTop = chatLog.scrollHe
 showChat()
 
 // Share: the script travels in the link, compressed. Opened files stay on this device; samples and URLs travel.
+async function link(script) {
+  const bytes = await new Response(new Blob([script]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer()
+  return btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
 async function share() {
-  const bytes = await new Response(new Blob([ed.code]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer()
-  const code = btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  const code = await link(ed.code)
   history.replaceState(null, '', '#code=' + code)
   try { await navigator.clipboard.writeText(location.href); state.shared = true; setTimeout(() => state.shared = false, 1800) }
   catch { note('Copy the link from the address bar.') }
@@ -2840,7 +3001,7 @@ async function share() {
 // The documents as the page was left, each a tab, and the one shown; a link's script is shown, in a tab of its own
 // unless one holds it already
 async function initialDocs() {
-  const list = docsOf(stored.docs).length ? docsOf(stored.docs) : [{ code: typeof stored.code === 'string' ? stored.code : DEFAULT }]
+  const list = EMBED ? [] : docsOf(stored.docs).length ? docsOf(stored.docs) : [{ code: typeof stored.code === 'string' ? stored.code : DEFAULT }]
   let at = Math.max(0, Math.min(stored.doc ?? 0, list.length - 1))
   const hash = location.hash.match(/^#code=([\w-]+)/)?.[1]
   if (hash) try {
@@ -2849,9 +3010,11 @@ async function initialDocs() {
     at = list.findIndex(d => d.code === code)
     if (at < 0) at = list.push({ code }) - 1
   } catch {}
-  // taken once: the tab it went into is kept, its script changed as it may be, and a reload is no second visit
-  if (hash) history.replaceState(null, '', location.pathname + location.search)
-  docs = list.map(({ code, frame, view, chats, chat, track }) => ({ id: ++docIds, code, frame, view, track: typeof track === 'string' ? track : null, chats, chatId: chat ?? null }))
+  if (!list.length) at = list.push({ code: DEFAULT }) - 1
+  // taken once: the tab it went into is kept, its script changed as it may be, and a reload is no second visit; embedded,
+  // the link is all there is, so a reload runs it again
+  if (hash && !EMBED) history.replaceState(null, '', location.pathname + location.search)
+  docs = list.map(({ code, frame, view, track, muted }) => ({ id: ++docIds, code, frame, view, track: typeof track === 'string' ? track : null, muted: Array.isArray(muted) ? muted.filter(n => typeof n === 'string') : [] }))
   return docs[at]
 }
 
@@ -2864,11 +3027,12 @@ function nameOf(code) { const s = tracksOf(code).length ? [...new Set(prepare(co
 function switchTab(id) {
   if (id === state.tab || !docs.some(d => d.id === id)) return
   const was = docs.find(d => d.id === state.tab), next = docs.find(d => d.id === id)
-  if (was) Object.assign(was, { code: ed.code, name: nameOf(ed.code), steps, depthWas, frame: was.frame ?? v.frame, view: was.view ?? v.state, track: state.track })
+  if (was) Object.assign(was, { code: ed.code, name: nameOf(ed.code), steps, depthWas, frame: was.frame ?? v.frame, view: was.view ?? v.state, track: state.track, muted: state.muted })
   ;({ steps = [], depthWas = 0 } = next)
   state.tab = eng.tab = id
   // its track edited, as it was left (its script, opened, keeps it valid: focusOn)
   state.track = next.track ?? null
+  state.muted = next.muted ?? []
   focus(state.track)
   viewing = { delta: null, back: null }
   v.select(0, 0)
@@ -2884,7 +3048,6 @@ function switchTab(id) {
   rk?.refresh()
   retitle()
   inSight()
-  showChat()
   store()
 }
 // More tabs than fit scroll, as a code editor's: the wheel, up and down as across, moves them along; the tab shown is
@@ -2909,11 +3072,16 @@ function dragTab(event, id) {
   const el = event.currentTarget.closest('.file'), tabs = [...el.parentElement.querySelectorAll('.file')], from = tabs.indexOf(el)
   const boxes = tabs.map(t => t.getBoundingClientRect()), step = boxes[from].width + 2, x0 = event.clientX, center = b => b.left + b.width / 2
   let moved = false, to = from
+  const plotBox = root.querySelector('.plot').getBoundingClientRect(), y0 = event.clientY
+  // down onto the picture, another tab's sound goes in as a track (attach)
+  const onto = e => id !== state.tab && state.hasOutput && e.clientX >= plotBox.left && e.clientX <= plotBox.right && e.clientY >= plotBox.top && e.clientY <= plotBox.bottom
   const move = e => {
-    const dx = e.clientX - x0
-    if (!moved && Math.abs(dx) < 4) return
+    const dx = e.clientX - x0, dy = e.clientY - y0
+    if (!moved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return
     moved = true
     el.classList.add('dragging')
+    state.dropping = onto(e) ? 'track' : false
+    if (state.dropping) { el.style.transform = `translate(${dx}px, ${dy}px)`; tabs.forEach(t => { if (t !== el) t.style.transform = '' }); to = from; return }
     el.style.transform = `translateX(${dx}px)`
     // a neighbour gives way once the tab dragged covers half of it: its leading edge past the neighbour's middle
     const left = boxes[from].left + dx, right = boxes[from].right + dx
@@ -2921,13 +3089,16 @@ function dragTab(event, id) {
     boxes.forEach((b, i) => { if (i > from && right > center(b)) to = Math.max(to, i); if (i < from && left < center(b)) to = Math.min(to, i) })
     tabs.forEach((t, i) => { if (i !== from) t.style.transform = i >= Math.min(from, to) && i <= Math.max(from, to) ? `translateX(${to > from ? -step : step}px)` : '' })
   }
-  const up = () => {
+  const up = e => {
     removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up)
     if (!moved) return
+    const track = e.type === 'pointerup' && onto(e)
+    state.dropping = false
     // laid out in the new order at once, nothing sliding back to where it was
     for (const t of tabs) { t.style.transition = 'none'; t.style.transform = ''; t.classList.remove('dragging') }
     if (to !== from) { docs.splice(to, 0, docs.splice(from, 1)[0]); retitle(); store() }
     requestAnimationFrame(() => requestAnimationFrame(() => { for (const t of tabs) t.style.transition = '' }))
+    if (track) attach(id)
   }
   addEventListener('pointermove', move)
   addEventListener('pointerup', up)
@@ -2944,7 +3115,7 @@ function closeTab(id = state.tab) {
   else if (docs.length === 1) newTab()
   docs.splice(i, 1)
   eng.close(id)
-  if (kept.code.trim() || kept.chats) {
+  if (kept.code.trim()) {
     doc.output = null
     closed.push({ ...kept, at: i, shut: Date.now(), doc })
     for (const c of closed.splice(0, closed.length - CLOSED)) if (c.doc) ed.close(c.doc.id)
@@ -2957,8 +3128,8 @@ function closeTab(id = state.tab) {
 function reopenTab(i = closed.length - 1) {
   const [c] = closed.splice(i, 1)
   if (!c) return
-  const doc = c.doc ?? { id: ++docIds, code: c.code, frame: c.frame, view: c.view, track: c.track ?? null, chats: c.chats, chatId: c.chat ?? null }
-  const blank = !ed.code.trim() && !docOf()?.chats?.length ? state.tab : null
+  const doc = c.doc ?? { id: ++docIds, code: c.code, frame: c.frame, view: c.view, track: c.track ?? null, muted: c.muted ?? [] }
+  const blank = !ed.code.trim() ? state.tab : null
   docs.splice(Math.min(c.at ?? docs.length, docs.length), 0, doc)
   switchTab(doc.id)
   if (blank != null) closeTab(blank)
@@ -3022,4 +3193,5 @@ addEventListener('beforeunload', event => { if (recorder || writing.size) event.
 document.addEventListener('visibilitychange', () => { if (document.hidden) { store(); take?.tape?.flush() } })
 
 evaluate()
-recover()
+if (EMBED) store()
+else recover()

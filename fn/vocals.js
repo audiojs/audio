@@ -21,7 +21,6 @@
  * the ONNX Runtime backend. Mono separates as stereo; channels past the first two pass through.
  */
 
-import { isolate, remove } from '@audio/vocals'
 import audio, { arrived, memo } from '../core.js'
 
 const SEPARATED = Symbol('vocals.separated')
@@ -72,7 +71,12 @@ const vocals = (input, output, ctx) => {
   if (input.length < 2) return
   // isolate/remove mutate their two args in place; extra channels (already
   // copied above) are untouched since the kernel only sees output[0..1].
+  let { isolate, remove } = audio.op('vocals').mod
   ;(mode === 'remove' ? remove : isolate)([output[0], output[1]])
 }
 
-audio.op('vocals', { params: ['mode'], process: vocals, prepare })
+audio.op('vocals', {
+  params: ['mode'], process: vocals, prepare,
+  // its mid/side kernel: @audio/vocals, an optional package
+  load: () => import('@audio/vocals').catch(e => { throw new Error(`vocals: install @audio/vocals (${e.message})`) })
+})

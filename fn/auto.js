@@ -20,6 +20,7 @@
 import audio, { arrived, emit } from '../core.js'
 import { fingerprint } from './vocals.js'
 import { removal, playback } from './deepfilter.js'
+import { declipped } from './declip.js'
 
 export const NEURAL = '@audio/neural-denoise'
 const RENDERED = Symbol('auto.rendered'), neural = () => audio.import(NEURAL).catch(() => null)
@@ -54,15 +55,29 @@ export const denoise = (nn, x, y, { limit, floor }, sampleRate) => x.map((v, c) 
 // the stages' names, a step's each once (chain's denoise is one stage, its own and the model's)
 const names = stages => [...new Set(stages.map(s => s.name))]
 
+/** `recipe`'s stages on `channels` as chain.apply() runs them, its declip stages on every core (declipped(), the same
+ *  samples): the stages between them through apply(), its last call the recipe's own (its gain's loudness, its
+ *  limiter's trim after). */
+async function applied(chain, channels, recipe, fs) {
+  let out = channels, from = 0, stages = recipe.stages
+  for (let i = 0; i < stages.length; i++) {
+    if (stages[i].name !== 'declip') continue
+    if (i > from) out = chain.apply(out, { stages: stages.slice(from, i) }, { fs })
+    out = await declipped(out.map(ch => Float32Array.from(ch)), { ...stages[i].params, fs })
+    from = i + 1
+  }
+  return chain.apply(out, { ...recipe, stages: stages.slice(from) }, { fs })
+}
+
 /** The take through @audio/chain's recipe → { channels, recipe }, as planned(). `opts`: plan()'s (type, intensity,
  *  targetLufs, ceiling); `say`: planned()'s. */
 export async function render(channels, { sampleRate: fs, ...opts }, say = () => {}) {
   let [chain, nn] = await Promise.all([audio.import(audio.plugins.auto), neural()])
-  let { recipe, at, x, y } = await planned(chain, nn, channels, fs, opts, async (stages, c) => chain.apply(c, { stages }, { fs }), say)
-  if (at < 0) { say(names(recipe.stages)); return { channels: chain.apply(channels, recipe, { fs }), recipe } }
+  let { recipe, at, x, y } = await planned(chain, nn, channels, fs, opts, (stages, c) => applied(chain, c, { stages }, fs), say)
+  if (at < 0) { say(names(recipe.stages)); return { channels: await applied(chain, channels, recipe, fs), recipe } }
   let s = recipe.stages[at], on = s.atom === NEURAL, rest = recipe.stages.slice(on ? at + 1 : at)
   if (rest.length) say(names(rest))
-  return { channels: chain.apply(on ? denoise(nn, x, y, s.params, fs) : x, { ...recipe, stages: rest }, { fs }), recipe }
+  return { channels: await applied(chain, on ? denoise(nn, x, y, s.params, fs) : x, { ...recipe, stages: rest }, fs), recipe }
 }
 
 /** The edit's options as its manifest takes them (a number into its range, an unknown choice its default) */
@@ -96,5 +111,5 @@ async function prepare(a, index, specs) {
 audio.hosted.auto = ({ whole, ...op }) => ({ ...op, prepare: (a, index) => prepare(a, index, op.plugin.params), process: playback('auto', RENDERED) })
 audio.hosted.chain = stat => ({ ...stat, compute: async (channels, { sampleRate: fs, ...o }) => {
   let [chain, nn] = await Promise.all([audio.import(audio.plugins.auto), neural()])
-  return (await planned(chain, nn, channels, fs, o, async (stages, c) => chain.apply(c, { stages }, { fs }))).recipe
+  return (await planned(chain, nn, channels, fs, o, (stages, c) => applied(chain, c, { stages }, fs))).recipe
 } })

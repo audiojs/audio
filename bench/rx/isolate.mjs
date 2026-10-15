@@ -214,7 +214,7 @@ function runner(id) {
     let o = JSON.parse(s.slice(3))
     return async ({ ch, sr }) => {
       let { default: denoise, mixback } = await import('@audio/neural-denoise'), { roomless } = await import('../../fn/deepfilter.js')
-      let model = await dfn(), run = x => denoise(x, { sampleRate: sr, model, ...o, limit: 0 }), y = await run(ch), heard = roomless(ch, y, sr), limit = o.limit ?? 18
+      let model = await dfn(), run = x => denoise(x, { sampleRate: sr, model, ...o, limit: 0 }), y = await run(ch), heard = await roomless(ch, y, sr), limit = o.limit ?? 18
       if (heard) y = await run(heard)
       return { ch: limit ? y.map((v, c) => mixback(ch[c], v, { limit, floor: o.floor, sampleRate: sr })) : y, sr }
     }

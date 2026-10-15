@@ -308,6 +308,19 @@ test('meter: block stats carry filter state from block to block', async t => {
   for (let b = 1; b < 8; b++) t.almost(got[b], want[b], want[b] * 1e-5, `block ${b}`)
 })
 
+// A stat that loads its package on first use (bpm: @audio/beat) is metered as nothing until it has, not a throw mid-playback
+test('meter: a stat whose package loads on first use reads null until loaded, then its value', async t => {
+  let sr = 48000, x = Float32Array.from({ length: 4096 }, (_, i) => i % 1024 < 64 ? Math.sin(i) : 0)
+  let a = audio.from([x], { sampleRate: sr }), got = []
+  let { emitMeter } = await import('../fn/meter.js')
+  a.meter('bpm', v => got.push(v))
+  emitMeter(a, [x.subarray(0, 1024)], 0)
+  t.ok(got[0] === null || typeof got[0] === 'number', `before: ${got[0]}`)
+  await a.stat('bpm')
+  emitMeter(a, [x.subarray(1024, 2048)], 1024 / sr)
+  t.is(typeof got[1], 'number', `loaded: ${got[1]}`)
+})
+
 // AES TD1008 Annex A: Speech (Dialog Integrated) Loudness, the BS.1770 loudness of the speech only.
 test('loudness: dialog-gated measures speech and ignores a bed', async t => {
   let v = await audio(lena), sr = v.sampleRate

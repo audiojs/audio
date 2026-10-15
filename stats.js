@@ -393,6 +393,8 @@ audio.fn.stat = async function(name, opts) {
   // registry stat plugins (truepeak, lra, …) load on first use
   if (!desc && audio.plugins?.[name]) { await audio.use(name); desc = audio.stat(name) }
   if (!desc) throw new Error(`Unknown stat: '${name}'`)
+  // what a stat reads from an optional package, loaded before it is read (beat.js)
+  await desc.load?.()
 
   // `bins`: where, not only how much. A stat whose value is a number gives its value over each of n bins of the range,
   // one block grid for all (binReduce's): a block stat reduces the bin's blocks, a query reads them, a method measures

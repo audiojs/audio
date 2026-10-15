@@ -296,6 +296,25 @@ test('rebalance: the input plus each stem\'s change, x + Σ (g − 1)·s; positi
   })
 })
 
+test('rebalance: the residual at its own level, r·x + Σ (g − r)·s; at −Infinity a stem alone; four tracks that add back to the input', async () => {
+  await withSeparation(async () => {
+    let x = song(), rest = 1 - Object.values(SHARES).reduce((p, v) => p + v, 0), at = (args, f) => audio.from(x, { sampleRate: 44100 }).rebalance(...args).read().then(y => {
+      let err = Math.max(...y.map((c, k) => c.reduce((m, v, i) => Math.max(m, Math.abs(v - f * x[k][i])), 0)))
+      ok(err < 1e-6, `(${args.map(v => typeof v === 'number' ? v : JSON.stringify(v)).join(', ')}): × ${f.toFixed(4)}, max |error| ${err.toExponential(1)}`)
+      return y
+    })
+    await at([{ residual: -6 }], 1 - rest + rest * 10 ** (-6 / 20))
+    await at([-Infinity, 0, -Infinity, -Infinity, { residual: -Infinity }], SHARES.bass)
+    let mute = { vocals: -Infinity, bass: -Infinity, drums: -Infinity, other: -Infinity }, parts = await Promise.all([
+      at([{ ...mute, other: 0 }], SHARES.other + rest),
+      ...['vocals', 'bass', 'drums'].map(s => at([{ ...mute, [s]: 0, residual: -Infinity }], SHARES[s]))])
+    let err = Math.max(...x.map((c, k) => c.reduce((m, v, i) => Math.max(m, Math.abs(parts.reduce((p, y) => p + y[k][i], 0) - v)), 0)))
+    ok(err < 1e-6, `the four add back to the input: max |error| ${err.toExponential(1)}`)
+    let e = await audio.from(x, { sampleRate: 44100 }).rebalance({ residual: Infinity }).read().catch(e => e)
+    ok(/rebalance: residual is dB/.test(e?.message), e?.message)
+  })
+})
+
 test('rebalance: mono separates as stereo and hears the mean of the two; channels past two pass through', async () => {
   await withSeparation(async () => {
     let [l] = song(), mono = await audio.from([l], { sampleRate: 44100 }).rebalance(-Infinity).read()
@@ -305,6 +324,26 @@ test('rebalance: mono separates as stereo and hears the mean of the two; channel
     ok(three[2].every((v, i) => v === C[i]), 'third channel untouched')
     ok(three[1].every((v, i) => Math.abs(v - 0.6 * R[i]) < 1e-6), 'second channel rebalanced')
   })
+})
+
+test('rebalance: segments every half of one unless `step` says, each step its own separation; scene leaves its model its own', async () => {
+  let seen = [], orig = audio.import, models = { 'scnet-large': { targets: Object.keys(SHARES) }, mrx: { targets: ['dialogue', 'music', 'effects'] } }
+  audio.import = spec => spec !== '@audio/neural-separate' ? orig(spec) : Promise.resolve({
+    models, default: async (chs, o) => (seen.push(o.step), { stems: Object.fromEntries(models[o.model].targets.map(k => [k, chs.map(c => c.map(v => 0.2 * v))])) }),
+  })
+  try {
+    let x = song(4410)
+    await audio.from(x, { sampleRate: 44100 }).rebalance(6).read()
+    await audio.from(x, { sampleRate: 44100 }).rebalance(6, { step: 0.25 }).read()
+    await audio.from(x, { sampleRate: 44100 }).rebalance(6, { step: 0.25 }).read()
+    await audio.from(x, { sampleRate: 44100 }).rebalance(6, { step: 1 }).read()
+    await audio.from(x, { sampleRate: 44100 }).scene(6).read()
+    is(seen, [0.5, 0.25, 0.25, 1, undefined], 'the same input at another step separated again; at the same step too, no store kept in Node')
+    for (let step of [0, 1.5]) {
+      let err = await audio.from(x, { sampleRate: 44100 }).rebalance(6, { step }).read().catch(e => e)
+      ok(/rebalance: step is a share of a segment/.test(err?.message), err?.message)
+    }
+  } finally { audio.import = orig }
 })
 
 test('rebalance: a gain is dB or −Infinity; the model one the package has; the package named when missing', async () => {

@@ -9,34 +9,43 @@ import { ops, methods, stats, presets, GROUPS, format, fromManifest } from './op
 // The script editor: JavaScript with the audio methods completed after a dot, sources and stat names completed
 // inside strings. `oncaret(update)` hears every move of the selection and every change, for the stack beside it. A
 // number says what it sets in the page's hints (`hint`, hint.js), pointed at, selected, dragged or stepped.
-export default function editor(parent, { doc = '', onchange, oncaret, files = () => [], describe = async () => null, keys = {}, hint = null }) {
+// `wrap`: long lines wrap to the panel's width, as an embedded editor's do, never hidden past its edge
+export default function editor(parent, { doc = '', onchange, oncaret, files = () => [], describe = async () => null, keys = {}, hint = null, wrap = false }) {
   const highlight = HighlightStyle.define([
-    { tag: [tags.keyword, tags.modifier, tags.controlKeyword, tags.definitionKeyword, tags.moduleKeyword, tags.operatorKeyword], color: 'var(--color-screen-bright)' },
-    { tag: [tags.function(tags.propertyName), tags.function(tags.variableName)], color: 'var(--color-screen-ink)' },
-    { tag: [tags.string, tags.bool, tags.null, tags.regexp], color: 'var(--color-screen-muted)' },
+    { tag: [tags.definitionKeyword, tags.modifier], color: 'var(--color-screen-storage)' },
+    { tag: [tags.keyword, tags.controlKeyword, tags.moduleKeyword, tags.operatorKeyword], color: 'var(--color-screen-keyword)' },
+    { tag: [tags.function(tags.propertyName), tags.function(tags.variableName)], color: 'var(--color-screen-function)' },
+    { tag: tags.variableName, color: 'var(--color-screen-variable)' },
+    { tag: tags.propertyName, color: 'var(--color-screen-property)' },
+    { tag: [tags.className, tags.typeName], color: 'var(--color-screen-type)' },
+    { tag: tags.string, color: 'var(--color-screen-string)' },
+    { tag: tags.regexp, color: 'var(--color-screen-regexp)' },
+    { tag: [tags.bool, tags.null], color: 'var(--color-screen-constant)' },
     // a number drags (scrub): the pointer says so
-    { tag: tags.number, color: 'var(--color-screen-muted)', cursor: 'ew-resize' },
-    { tag: [tags.comment, tags.lineComment, tags.blockComment], color: 'var(--color-screen-dim)', fontStyle: 'italic' },
+    { tag: tags.number, color: 'var(--color-screen-number)', cursor: 'ew-resize' },
+    { tag: [tags.comment, tags.lineComment, tags.blockComment], color: 'var(--color-screen-comment)', fontStyle: 'italic' },
     { tag: tags.invalid, color: 'var(--color-screen-error)' }
   ])
 
-  // The code slab's look, the same as the site's code examples: grey syntax on the dark screen.
+  // The code slab's look, the same as the site's code examples: grey syntax on the dark screen, or a theme's (skin.css).
   const theme = EditorView.theme({
-    '&': { height: '100%', color: 'var(--color-screen-soft)', backgroundColor: 'transparent', fontSize: '13px' },
+    '&': { height: '100%', color: 'var(--color-screen-text)', backgroundColor: 'transparent', fontSize: 'var(--font-size-code)' },
     '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.75' },
     // the code scrolled across goes under the line numbers, cut off at their edge (under)
     '.cm-content': { padding: '14px 0 40px', caretColor: 'var(--color-screen-bright)', clipPath: 'inset(0 0 0 var(--under, 0px))' },
     '.cm-line': { padding: '0 16px 0 6px' },
-    '.cm-gutters': { backgroundColor: 'transparent', border: 'none', color: 'var(--color-screen-rule)' },
+    '.cm-gutters': { backgroundColor: 'transparent', border: 'none', color: 'var(--color-screen-line-number)' },
     '.cm-layer': { clipPath: 'inset(-1e5px -1e5px -1e5px var(--under-layer, 0px))' },
     '.cm-lineNumbers .cm-gutterElement': { padding: '0 6px 0 16px', minWidth: '22px' },
-    '.cm-activeLine': { backgroundColor: 'oklch(100% 0 0 / .03)' },
-    '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--color-screen-dim)' },
+    '.cm-activeLine': { backgroundColor: 'var(--color-screen-line)', boxShadow: 'inset 0 0 0 2px var(--color-screen-line-border)' },
+    '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--color-screen-line-number-active)' },
     '&.cm-focused': { outline: 'none' },
     '&.cm-focused .cm-cursor': { borderLeftColor: 'var(--color-screen-bright)', borderLeftWidth: '1.5px' },
-    '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground': { backgroundColor: 'oklch(100% 0 0 / .15)' },
-    '.cm-matchingBracket, &.cm-focused .cm-matchingBracket': { backgroundColor: 'oklch(100% 0 0 / .1)', color: 'inherit', outline: 'none' },
-    '.cm-selectionMatch': { backgroundColor: 'oklch(100% 0 0 / .07)' },
+    // the selection, and while the focus is elsewhere the inactive one, as an editor's goes
+    '.cm-selectionBackground': { backgroundColor: 'var(--color-screen-selection-inactive)' },
+    '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': { backgroundColor: 'var(--color-screen-selection)' },
+    '.cm-matchingBracket, &.cm-focused .cm-matchingBracket': { backgroundColor: 'var(--color-screen-bracket)', color: 'inherit', outline: 'none' },
+    '.cm-selectionMatch': { backgroundColor: 'var(--color-screen-match)' },
     '.cm-tooltip': { backgroundColor: 'var(--color-screen-raised)', color: 'var(--color-screen-soft)', border: 'none', borderRadius: '8px', boxShadow: 'var(--shadow-menu)', fontFamily: 'var(--font-body)', fontSize: '12px' },
     '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'var(--font-mono)', maxHeight: '19em', minWidth: '300px', padding: '4px' },
     '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { padding: '2px 8px', lineHeight: '1.7', borderRadius: '4px' },
@@ -231,7 +240,8 @@ export default function editor(parent, { doc = '', onchange, oncaret, files = ()
       // a number selected says what it sets; once it is not, it is quiet
       if (update.selectionSet && !dragging) requestAnimationFrame(() => { if (!dragging) tell(update.view, selected(update.view.state)) })
     }),
-    EditorView.contentAttributes.of({ 'aria-label': 'Script' })
+    EditorView.contentAttributes.of({ 'aria-label': 'Script' }),
+    wrap ? EditorView.lineWrapping : []
   ]
   const view = new EditorView({ parent, state: EditorState.create({ doc, extensions }) })
   view.scrollDOM.addEventListener('scroll', () => under(view), { passive: true })

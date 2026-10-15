@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import wav from '@audio/encode-wav'
 import audio from '../audio.js'
-import { prepare, error, bare, chain, append, source, callAt, setArg, cli, groups, steps, dropStep, moveStep, moveLines, group, ungroup, renameGroup, turnOff, turnOn, tracks, focus, toTrack, voiceTrack, soundOf, addTrack, dropTrack, rollback, stages, sharing, residual } from '../playground/code.js'
+import { prepare, error, bare, chain, append, source, callAt, setArg, cli, groups, steps, dropStep, moveStep, moveLines, group, ungroup, renameGroup, turnOff, turnOn, tracks, focus, toTrack, voiceTrack, stemTracks, soundOf, addTrack, dropTrack, master, addMaster, rollback, stages, sharing, residual } from '../playground/code.js'
 import { ops, guides, previews, SCALES } from '../playground/ops.js'
 import { SCALES as NOTE_SCALES, snapMidi } from '@audio/note'
 import { help, layout, layouts, texts } from '../playground/help.js'
@@ -47,7 +47,8 @@ before(async () => {
     }
     const path = resolve(root, '.' + (url === '/' ? '/playground.html' : url))
     if (!path.startsWith(root + sep)) { res.writeHead(403).end(); return }
-    try { res.writeHead(200, { 'content-type': types[extname(path)] || 'application/octet-stream' }).end(await readFile(path)) }
+    // cross-origin isolated, as .site-serve.js serves it (sw.js stays out: a page reloaded under a test would lose it)
+    try { res.writeHead(200, { 'content-type': types[extname(path)] || 'application/octet-stream', 'cross-origin-opener-policy': 'same-origin', 'cross-origin-embedder-policy': 'credentialless' }).end(await readFile(path)) }
     catch { res.writeHead(404).end() }
   })
   await new Promise(r => server.listen(0, '127.0.0.1', r))
@@ -155,27 +156,29 @@ test('engine: a run cut short goes on from where it was, its samples as rendered
   await page.goto(origin + '/blank.html')
   const r = await page.evaluate(async channel => {
     const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
-    const open = async () => { const e = engine(new URL('/playground/dist/worker.js', location.href)); await e.file('n.wav', { channels: [Float32Array.from(channel)], sampleRate: 48000 }); return e }
+    const open = async name => { const e = engine(new URL('/playground/dist/worker.js', location.href)); await e.file(name, { channels: [Float32Array.from(channel)], sampleRate: 48000 }); return e }
     const TICK = `audio.op('tick', { process: (input, output) => { globalThis.ticks = (globalThis.ticks ?? 0) + 1; input.forEach((x, c) => output[c].set(x)) } })\n`
-    const A = prepare(`audio('n.wav').omlsa()`), B = prepare(`audio('n.wav')`), C = prepare(TICK + `audio('n.wav').omlsa({ threshold: 0.5 }).tick()`)
+    const A = (f = 'n.wav') => prepare(`audio('${f}').omlsa()`), B = prepare(`audio('n.wav')`), C = (f = 'n.wav') => prepare(TICK + `audio('${f}').omlsa({ threshold: 0.5 }).tick()`)
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
     const timed = async (e, s) => { const t = performance.now(), o = await e.render(s); return { o: o.output, ms: performance.now() - t } }
     const ticks = async e => +(await e.run(prepare('globalThis.ticks ?? 0'))).value
-    const fresh = await open(), whole = await timed(fresh, A), wholeC = await timed(fresh, C)
-    const e = await open()
+    // rendered whole from the same samples under another name: the renders the browser keeps (worker.js renders) go by
+    // the script and its files' names, so the same script would be found there, not made
+    const fresh = await open('whole.wav'), whole = await timed(fresh, A('whole.wav')), wholeC = await timed(fresh, C('whole.wav'))
+    const e = await open('n.wav')
     await e.render(B)
     // cut short a quarter of the way in, the source shown in its place; asked for again at once
-    e.render(A)
+    e.render(A())
     await sleep(whole.ms / 4)
     await e.render(B)
-    const back = await timed(e, A)
+    const back = await timed(e, A())
     // cut short again, then left alone: it does nothing; asked for, it goes on from where it was
-    e.render(C)
+    e.render(C())
     await sleep(wholeC.ms / 4)
     await e.render(B)
     const paused = await ticks(e)
     await sleep(wholeC.ms)
-    const still = await ticks(e), later = await timed(e, C)
+    const still = await ticks(e), later = await timed(e, C())
     const diff = (p, q) => p.channels[0].length === q.channels[0].length ? p.channels[0].reduce((m, v, i) => Math.max(m, Math.abs(v - q.channels[0][i])), 0) : Infinity
     return { whole: whole.ms, back: back.ms, backDiff: diff(whole.o, back.o), laterDiff: diff(wholeC.o, later.o), paused, still }
   }, [...x])
@@ -737,6 +740,12 @@ test('code: tracks are the sounds declared that nothing reads, edited one at a t
   assert.equal(sung.code, `let chimeTake = audio('chime.wav')\n  .trim()\n  .normalize(-1)\n\nlet chime = chimeTake.clone()\n  .vocals('remove', { model: 'mel-roformer' })\n\nlet voice = chimeTake.clone()\n  .vocals({ model: 'mel-roformer' })`)
   assert.deepEqual(names(voiceTrack(sung.code).code), ['chime', 'voice', 'voice2'], 'again: the voice, the last, split, named on')
   assert.equal(voiceTrack(`let a = audio('a.wav')\na.gain(-3)`), null, 'a chain on a name: no sound of its own')
+  // four stems to four tracks: the voice, the bass, the drums each alone, the rest (with the residual) here
+  const solo = k => `rebalance(${[0, 1, 2, 3].map(i => i === k ? 0 : '-Infinity').join(', ')}, { residual: -Infinity })`, four = stemTracks(one)
+  assert.equal(four.name, 'voice')
+  assert.equal(four.code, `let chimeTake = audio('chime.wav')\n  .trim()\n  .normalize(-1)\n\nlet chime = chimeTake.clone()\n  .rebalance(-Infinity, -Infinity, -Infinity)\n\n${['voice', 'bass', 'drums'].map((n, k) => `let ${n} = chimeTake.clone()\n  .${solo(k)}`).join('\n\n')}`)
+  assert.equal(stemTracks(`audio('a.wav')`).code, `let a = audio('a.wav')\n  .rebalance(-Infinity, -Infinity, -Infinity)\n\n${['voice', 'bass', 'drums'].map((n, k) => `let ${n} = audio('a.wav')\n  .${solo(k)}`).join('\n\n')}`, 'no steps: each from the file')
+  assert.deepEqual(names(stemTracks(four.code).code), ['chime', 'voice', 'bass', 'drums', 'voice2', 'bass2', 'drums2'], 'again: the last split, named on')
   // a track's sound on one line, for another to line up with: its steps turned off left out, no name read
   assert.equal(soundOf(sung.code, 'voice'), `chimeTake.clone().vocals({ model: 'mel-roformer' })`)
   assert.equal(soundOf(`let a = await audio('a .wav')\n  // .fade(1)\n  .gain(-3) /* .trim() */  .reverse()\n\nlet b = audio('b.wav')`, 'a'), `audio('a .wav').gain(-3).reverse()`)
@@ -790,6 +799,49 @@ test('code: tracks are the sounds declared that nothing reads, edited one at a t
   } finally { focus(null) }
   // none edited: the last
   assert.equal(chain(made.code).declared, 'chime2')
+})
+
+// A sidechain's key keeps the track it reads (a voice the bed ducks under is still heard); a master, the last statement a
+// copy of one track with the others mixed in, then steps of its own, leaves them tracks and is edited as one: its steps
+// those after the mix; tracks made, opened or taken away keep it mixing every track; a key's step goes with its track
+test('code: a key keeps a track; a master mixes the tracks, then steps of its own', () => {
+  const apply = (code, change) => code.slice(0, change.from) + change.insert + code.slice(change.to ?? change.from)
+  const names = code => tracks(code).map(t => t.name)
+  const duck = `let voice = audio('v.wav')\n  .deepfilter()\n\nlet bed = audio('m.wav')\n  .ducker({ key: voice, range: -15 })`
+  assert.deepEqual(names(duck), ['voice', 'bed'], 'a key: both tracks')
+  assert.deepEqual(names(`let voice = audio('v.wav')\nlet bed = audio('m.wav').ducker({ key: voice.clone() })`), ['voice', 'bed'], 'a key a copy of it: both')
+  assert.deepEqual(names(`let noise = audio('n.wav')\nlet v = audio('v.wav').denoise({ noise })`), [], 'a noise print feeds the one it learns for')
+  assert.equal(master(duck), null)
+  const mixed = `${duck}\n\nvoice.clone().mix(bed)\n  .normalize('podcast')`
+  assert.deepEqual(names(mixed), ['voice', 'bed'], 'a master: the tracks it mixes')
+  assert.deepEqual([master(mixed).name, master(mixed).names], ['master', ['voice', 'bed']])
+  assert.match(prepare(mixed).code, /return __out\(\{ voice, bed \}, true, \{ name: "master", value: voice\.clone\(\)\.mix\(bed\)\n {2}\.normalize\('podcast'\) \}\)$/)
+  for (const code of [`let a = audio('a.wav')\nlet b = audio('b.wav')\nlet c = audio('c.wav')\na.clone().mix(b)`, `let a = audio('a.wav')\nlet b = audio('b.wav')\na.mix(b)`, `let a = audio('a.wav')\nlet b = audio('b.wav')\na.clone().mix(b, 0, -6)`])
+    assert.equal(master(code), null, `not a master: ${code.split('\n').at(-1)}`)
+  assert.equal(master(`let master = audio('a.wav')\nlet b = audio('b.wav')\nmaster.clone().mix(b)`).name, 'master2', 'named apart from the tracks')
+  try {
+    focus('master')
+    assert.deepEqual(steps(mixed).map(s => s.text), [".normalize('podcast')"], 'its steps: those after the mix')
+    assert.equal(apply(mixed, append(mixed, 'limiter()')), `${mixed}\n  .limiter()`)
+    assert.equal(rollback(mixed, 0), `${duck}\n\nvoice.clone().mix(bed)`)
+    assert.equal(voiceTrack(mixed), null, 'the master splits into no tracks')
+    // a file opened as a track: before the master, mixed into it
+    assert.equal(addTrack(mixed, `audio('fx.wav')`, 'fx.wav').code, `${duck}\n\nlet fx = audio('fx.wav')\n\nvoice.clone().mix(bed).mix(fx)\n  .normalize('podcast')`)
+    // the master taken away: the tracks as they were
+    assert.equal(apply(mixed, dropTrack(mixed, 'master')), duck)
+    focus('voice')
+    assert.deepEqual(steps(mixed).map(s => s.text), ['.deepfilter()'])
+    // the voice split from a track: the master mixes it too
+    assert.equal(voiceTrack(mixed).code, `let voiceTake = audio('v.wav')\n  .deepfilter()\n\nlet voice = voiceTake.clone()\n  .vocals('remove', { model: 'mel-roformer' })\n\nlet voice2 = voiceTake.clone()\n  .vocals({ model: 'mel-roformer' })\n\nlet bed = audio('m.wav')\n  .ducker({ key: voice, range: -15 })\n\nvoice.clone().mix(bed).mix(voice2)\n  .normalize('podcast')`)
+    // a track taken away: out of the master, the steps keyed on it with it
+    assert.equal(apply(mixed, dropTrack(mixed, 'voice')), `let bed = audio('m.wav')\n\nbed.clone()\n  .normalize('podcast')`)
+    assert.equal(apply(mixed, dropTrack(mixed, 'bed')), `let voice = audio('v.wav')\n  .deepfilter()\n\nvoice.clone()\n  .normalize('podcast')`)
+    const copied = `let voice = audio('v.wav')\n\nlet bed = audio('m.wav')\n  .ducker({ key: voice.clone() })\n  .gain(-3)`
+    assert.equal(apply(copied, dropTrack(copied, 'voice')), `let bed = audio('m.wav')\n  .gain(-3)`, 'its step keyed on a copy of it too')
+  } finally { focus(null) }
+  // a master added: the one given a copy, the others mixed in
+  assert.deepEqual(addMaster(duck, 'bed'), { code: `${duck}\n\nbed.clone().mix(voice)`, name: 'master' })
+  assert.equal(addMaster(mixed, 'voice'), null, 'one already')
 })
 
 test('code: the last expression is returned, loops check their time, and imports become dynamic, on the same lines', () => {
@@ -1173,6 +1225,21 @@ test('engine: registry plugins load in the worker and render as they do in Node'
   assert.ok(diff < 1e-5, `differs by ${diff}`)
 })
 
+// declip's rebuild on threads beside the engine's worker (jobs.js, parallel.js): the kernel's samples as Node makes
+// them, to the last bit or two a browser's own Math may round otherwise; bit for bit wherever they are made (Node's
+// tests, plugin-denoise.js, and declip's own)
+test('engine: declip makes its jobs on threads beside the worker, the kernel\'s samples', async () => {
+  const clipped = [sine(.3, 220, .9).map(v => Math.max(-.5, Math.min(.5, v + .2 * Math.sin(v * 40))))]
+  const [r] = await engine([`audio('clipped.wav').declip()`], { 'clipped.wav': clipped })
+  assert.equal(r.error, undefined)
+  assert.ok(page.workers().length > 1, `threads beside the engine's worker: ${page.workers().length} workers`)
+  const { default: kernel } = await import('@audio/denoise-declip'), expected = kernel(Float32Array.from(clipped[0]), { fs: RATE, clipLevel: 0, order: 256 })
+  assert.ok(expected.some((v, i) => v !== Math.fround(clipped[0][i])), 'something rebuilt')
+  let diff = 0
+  for (let i = 0; i < expected.length; i++) diff = Math.max(diff, Math.abs(expected[i] - r.output.channels[0][i]))
+  assert.ok(diff < 1e-6, `differs by ${diff}`)
+})
+
 test('engine: files decode in the worker; errors name their line; a runaway loop stops; values print', async () => {
   const bytes = await wavBytes([sine(.5, 440, .5)])
   const [decoded, failed, missing, value, looped] = await engine([
@@ -1319,6 +1386,51 @@ test('engine: deepfilter and rnnoise run in the page, as on Node', async t => {
   }
 })
 
+// Vocos in the page (onnxruntime-web's wasm), as on Node (onnxruntime-node): the phase it predicts follows the float
+// rounding of each runtime, so the two are held to each other by their log-mel spectra, as the package holds its output
+// to PyTorch's. Its model served from where export.py leaves it, given by `weights` until it is hosted
+test('engine: vocos runs in the page, as on Node', async t => {
+  const { MODEL, mel } = await import('@audio/neural-vocode').catch(() => ({}))
+  const file = join(process.env.AUDIO_NEURAL_CACHE || join(homedir(), '.cache', 'audiojs', 'neural'), 'vocos', 'vocos.fp16.onnx')
+  const model = mel && await readFile(file).catch(() => null)
+  if (!model) return t.skip('no Vocos model: @audio/neural-vocode\'s scripts/export.py writes it')
+  const url = MODEL?.href ?? 'https://vocos.test/vocos.fp16.onnx'
+  await page.route(url, route => route.fulfill({ body: model, headers: { 'access-control-allow-origin': '*' } }))
+  let seed = 5
+  const noise = () => (seed = (seed * 16807) % 2147483647) / 2147483647 - .5
+  const voice = vowel(t => 140 + 20 * Math.sin(2 * Math.PI * 3 * t), 1.5, 1, RATE).map(x => .3 * x + .002 * noise())
+  const [r] = await engine([`audio('in.wav').vocos({ weights: '${url}' })`], { 'in.wav': [voice] })
+  assert.equal(r.error, undefined, r.error?.message)
+  const node = (await audio.from([voice], { sampleRate: RATE }).vocos({ weights: file }).read())[0], got = r.output.channels[0]
+  assert.equal(got.length, node.length)
+  // mean |log-mel difference| at 24 kHz, dB, over the cells within 60 dB of Node's peak
+  const { default: resample } = await import('@audio/resample-sinc'), at24 = x => resample(x, { from: RATE, to: 24000 })
+  const A = mel(at24(got)), B = mel(at24(node)), peak = Math.max(...B.data)
+  let s = 0, k = 0
+  for (let i = 0; i < B.data.length; i++) if (B.data[i] > peak - 60 * Math.LN10 / 20) s += Math.abs(A.data[i] - B.data[i]), k++
+  assert.ok(s / k * 20 / Math.LN10 < 0.5, `${(s / k * 20 / Math.LN10).toFixed(3)} dB of log mel from Node's`)
+})
+
+// dereverb's model in the page, from its hosted revision (served here from the cache Node keeps it in), as on Node: the
+// page once asked for opts.weights, the model not hosted. The music guard off, the model alone compared
+test('engine: dereverb reads its hosted model in the page, as on Node', { timeout: 300000 }, async t => {
+  const { models, REVISIONS } = await import('@audio/neural-separate'), p = models['dereverb-room']
+  if (!REVISIONS['dereverb-room']) return t.skip('dereverb-room not hosted in the installed @audio/neural-separate')
+  const model = await readFile(join(process.env.AUDIO_NEURAL_CACHE || join(homedir(), '.cache', 'audiojs', 'neural'), 'dereverb-room', p.file)).catch(() => null)
+  if (!model) return t.skip('no dereverb-room cached: run audio dereverb once on Node')
+  await page.route(`https://huggingface.co/${p.repo}/resolve/${REVISIONS['dereverb-room']}/${p.file}`, route => route.fulfill({ body: model, headers: { 'access-control-allow-origin': '*' } }))
+  let seed = 7
+  const noise = () => (seed = (seed * 16807) % 2147483647) / 2147483647 - .5
+  const voice = vowel(t => 140 + 20 * Math.sin(2 * Math.PI * 3 * t), 1.5, 1, RATE).map(x => .3 * x + .002 * noise())
+  const [r] = await engine([`audio('in.wav').dereverb({ music: 'enhance' })`], { 'in.wav': [voice] })
+  assert.equal(r.error, undefined, r.error?.message)
+  const node = (await audio.from([voice], { sampleRate: RATE }).dereverb({ music: 'enhance' }).read())[0], got = r.output.channels[0]
+  assert.equal(got.length, node.length)
+  let e = 0, d = 0
+  for (let i = 0; i < got.length; i++) { e += node[i] ** 2; d += (got[i] - node[i]) ** 2 }
+  assert.ok(10 * Math.log10(e / d) > 30, `${(10 * Math.log10(e / d)).toFixed(1)} dB from Node's`)
+})
+
 // The voice split to a track of its own (code.js voiceTrack) in the page, by SCNet-large here (the split's mechanics are
 // the model's own: headless Chromium has no GPU for the RoFormer the page uses): its voice on it, the rest left on the
 // first, so their mix is the sound as it was (the hosted model served from the cache Node keeps it in)
@@ -1337,6 +1449,39 @@ test('engine: the voice split to a track of its own, the rest left, sounds as be
   let e = 0, d = 0
   for (let c = 0; c < 2; c++) for (let i = 0; i < x[c].length; i++) { e += x[c][i] ** 2; d += (split.output.channels[c][i] - x[c][i]) ** 2 }
   assert.ok(10 * Math.log10(e / d) > 90, `the mix, ${(10 * Math.log10(e / d)).toFixed(1)} dB from the sound`)
+})
+
+// Four stems to four tracks (code.js stemTracks) in the page, by SCNet-large: the voice, the bass, the drums each on a
+// track of their own, the rest left on the first, so their mix is the sound as it was
+test('engine: four stems to four tracks sound as before', async t => {
+  const { models, REVISIONS } = await import('@audio/neural-separate'), p = models['scnet-large']
+  const model = await readFile(join(process.env.AUDIO_NEURAL_CACHE || join(homedir(), '.cache', 'audiojs', 'neural'), 'scnet-large', p.file)).catch(() => null)
+  if (!model) return t.skip('no SCNet-large cached: run audio rebalance once on Node')
+  await page.route(`https://huggingface.co/${p.repo}/resolve/${REVISIONS['scnet-large']}/${p.file}`, route => route.fulfill({ body: model, headers: { 'access-control-allow-origin': '*' } }))
+  const sung = vowel(t => 220 + 30 * Math.sin(2 * Math.PI * 5 * t), 2, 1, RATE)
+  const x = [0, 1].map(c => sung.map((v, i) => .3 * v + .15 * Math.sin(2 * Math.PI * (55 + 27.5 * c) * i / RATE) + .1 * (i % 11025 < 400 ? Math.sin(i * i / 4e5) : 0)))
+  const [split] = await engine([stemTracks(`audio('x.wav')`).code], { 'x.wav': x })
+  assert.equal(split.error, undefined, split.error?.message)
+  assert.deepEqual(split.output.tracks.map(t => t.name), ['x', 'voice', 'bass', 'drums'])
+  let e = 0, d = 0
+  for (let c = 0; c < 2; c++) for (let i = 0; i < x[c].length; i++) { e += x[c][i] ** 2; d += (split.output.channels[c][i] - x[c][i]) ** 2 }
+  assert.ok(10 * Math.log10(e / d) > 90, `the mix, ${(10 * Math.log10(e / d)).toFixed(1)} dB from the sound`)
+})
+
+// A master (code.js master): the output is its value, the tracks' sum through its own steps, each track a lane, it the
+// last; a key read by name keeps its track (the bed ducked under the voice)
+test('engine: a master is the output, the tracks\' sum through its steps, a lane of its own', async () => {
+  const v = vowel(() => 180, 2, 1, RATE), bed = Float32Array.from({ length: 3 * RATE }, (_, i) => .2 * Math.sin(2 * Math.PI * 3000 * i / RATE))
+  const script = `let voice = audio('v.wav')\n\nlet bed = audio('m.wav')\n  .ducker({ key: voice, range: -15 })\n\nvoice.clone().mix(bed)\n  .gain(-6)`
+  const [r] = await engine([script], { 'v.wav': [v], 'm.wav': [bed] })
+  assert.equal(r.error, undefined, r.error?.message)
+  assert.deepEqual(r.output.tracks.map(t => t.name), ['voice', 'bed', 'master'])
+  const a = audio.from([v], { sampleRate: RATE }), want = (await a.clone().mix(audio.from([bed], { sampleRate: RATE }).ducker({ key: a, range: -15 })).gain(-6).read())[0]
+  const got = r.output.channels[0]
+  assert.equal(got.length, want.length, 'as long as the track it copies')
+  let e = 0, d = 0
+  for (let i = 0; i < want.length; i++) { e += want[i] ** 2; d += (got[i] - want[i]) ** 2 }
+  assert.ok(10 * Math.log10(e / d) > 60, `${(10 * Math.log10(e / d)).toFixed(1)} dB from Node's`)
 })
 
 test('engine: save() marks exports and export encodes them', async () => {
@@ -1722,7 +1867,8 @@ test('editor: undo, redo, the picture\'s switch, its settings over its axis, non
   const wider = await box('.side-slab')
   assert.ok(Math.abs(wider.width - was.width - 100) < 3, `${was.width} → ${wider.width}`)
   await page.reload()
-  await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
+  // rendered: the readout says so, out of sight where the wider panel leaves the bar too narrow for it (editor.css)
+  await page.locator('.readout', { hasText: 'LUFS' }).waitFor({ state: 'attached' })
   await page.locator('.export').waitFor()
   assert.ok(Math.abs((await box('.side-slab')).width - wider.width) < 2, 'its width kept')
   await page.getByRole('tab', { name: 'Export', exact: true }).click()
@@ -2157,8 +2303,10 @@ test('editor: completion lists methods by group and a chosen one opens its slide
 })
 
 // A recipe goes on the sound as it is, nothing rewritten: its calls after the chain's own, one step; over the selection
-// when there is one; a script of statements takes the chain as its source; one that makes a sound opens a tab
+// when there is one; a script of statements takes the chain as its source; one that makes a sound opens a tab. Its
+// de-reverb model is not fetched: the script is what is tested
 test('editor: a recipe goes on the sound as it is, over the selection when there is one, one step', async () => {
+  await page.route(/huggingface\.co/, route => route.abort())
   await open()
   const chime = `audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .fade(0.02, 0.1)`
   await menu('File', 'Recipes', 'Reduce noise')
@@ -3243,7 +3391,7 @@ test('editor: played from past the middle of a zoomed view, the view glides the 
   await lengthIs('0:20.000')
   const box = await page.locator('.plot').boundingBox(), w = box.width - GUTTER, y = box.y + box.height / 2, at = f => box.x + f * w
   await page.mouse.move(at(.5), y)
-  for (let i = 0; i < 6; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
+  for (let i = 0; i < 4; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
   const time = async () => { const [m, s] = (await page.locator('.time').innerText()).split(':'); return +m * 60 + +s }
   const across = async () => {
     const t = await time()
@@ -3277,7 +3425,7 @@ test('editor: scrolled while it plays, the view stays where it was put till the 
   await lengthIs('0:20.000')
   const box = await page.locator('.plot').boundingBox(), w = box.width - GUTTER, y = box.y + box.height / 3
   await page.mouse.move(box.x + 20, y)
-  for (let i = 0; i < 8; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
+  for (let i = 0; i < 6; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
   await page.mouse.click(box.x + 20, y)
   await page.keyboard.press('Space')
   await page.waitForFunction(() => document.querySelector('.play')?.getAttribute('aria-label') === 'Pause')
@@ -3305,6 +3453,37 @@ test('editor: scrolled while it plays, the view stays where it was put till the 
   await page.mouse.move(box.x + w / 2, box.y + box.height - 3)
   assert.equal(await page.locator('.plot').evaluate(e => e.style.cursor), 'default')
   await page.keyboard.press('Space')
+})
+
+// A trackpad's pinch (Chrome's: Ctrl and the wheel, no key held, −100·ln s of deltaY for a spread s) zooms twice as far
+// as the fingers spread, about the pointer, its events one by one or merged: spread 2×, the span a quarter. With Ctrl
+// held, a wheel's notch, however far it says it went (a Windows mouse's 100 px, a Mac's 40), goes as far as = does, 2×
+test('editor: a pinch zooms twice as far as the fingers spread, a notch as far as =', async () => {
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
+  await open()
+  await noCues()
+  await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
+  await lengthIs('0:20.000')
+  const box = await page.locator('.plot').boundingBox(), w = box.width - GUTTER, y = box.y + box.height / 3, px = box.x + w * .3
+  const range = () => page.evaluate(() => __view.range), span = async () => { const [a, b] = await range(); return b - a }
+  const [a, b] = await range(), at = a + .3 * (b - a)
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Input.synthesizePinchGesture', { x: px, y, scaleFactor: 2, relativeSpeed: 800, gestureSourceType: 'mouse' })
+  // its last events may still be on their way: the view as it settles
+  let now = await range(), was
+  do { was = now; await page.waitForTimeout(150); now = await range() } while (now[0] !== was[0] || now[1] !== was[1])
+  const [p, q] = await range()
+  assert.ok(Math.abs((q - p) / (b - a) - .25) < .005, `spread 2×, the span ×${((q - p) / (b - a)).toFixed(3)}`)
+  assert.ok(Math.abs(p + .3 * (q - p) - at) < 1e-3 * (q - p), 'the time under the pointer kept')
+  // its events merged into one, as when the page lags behind: as far all the same, here pinched in to half
+  await page.evaluate(([x, y]) => document.querySelector('.plot').dispatchEvent(new WheelEvent('wheel', { deltaY: 100 * Math.log(2), ctrlKey: true, clientX: x, clientY: y, bubbles: true, cancelable: true })), [px, y])
+  assert.ok(Math.abs(await span() / (q - p) - 4) < 1e-6, `merged, the span ×${(await span() / (q - p)).toFixed(3)}`)
+  await page.mouse.move(px, y)
+  for (const dy of [100, 40, -100, -40]) {
+    const was = await span()
+    await page.keyboard.down('Control'); await page.mouse.wheel(0, dy); await page.keyboard.up('Control')
+    assert.ok(Math.abs(await span() / was - 2 ** Math.sign(dy)) < 1e-6, `a ${dy} px notch: ×${(await span() / was).toFixed(3)}`)
+  }
 })
 
 // Zoomed while it plays, the view scales about the playhead, wherever the pointer is, and goes on following it: a zoom
@@ -5226,6 +5405,85 @@ test('editor: each sound opens in a tab of its own, with its own script and hist
   assert.deepEqual(errors, [])
 })
 
+// Embedded in another page (embed.js, <audio-repl>): the element's text becomes the frame's link; the frame runs that
+// script alone, its panel as asked, the tabs and the panels' tabs gone, and reads nothing from the browser nor writes to
+// it, so an editor open in another tab keeps its tabs and is not asked to step aside
+test('editor: embedded, another page\'s script runs alone, its panel as asked, nothing of the editor\'s touched', async () => {
+  await page.goto(origin + '/playground.html')
+  await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
+  // the element, in a page of its own: its text in the frame's link; the editor's tabs as it left them
+  await page.goto(origin + '/blank.html')
+  const kept = await page.evaluate(() => localStorage.getItem('audio-repl'))
+  assert.ok(kept)
+  const src = await page.evaluate(async () => {
+    await import('/embed.js')
+    // as a page writes it: the whole of it indented with the page's markup, which comes off
+    document.body.innerHTML = `<audio-repl panel="edits" height="300"><pre><code>
+      audio('handpan.wav')
+        .gain(-6)
+    </code></pre></audio-repl>`
+    const frame = await new Promise(r => { const t = setInterval(() => { const f = document.querySelector('audio-repl iframe'); if (f) { clearInterval(t); r(f) } }, 20) })
+    return frame.getAttribute('src')
+  })
+  const url = new URL(src, origin)
+  assert.equal(url.pathname, '/playground.html')
+  assert.deepEqual([...url.searchParams], [['embed', ''], ['panel', 'edits']])
+  const script = await page.evaluate(async hash => {
+    const bytes = Uint8Array.from(atob(hash.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))
+    return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text()
+  }, url.hash.slice('#code='.length))
+  assert.equal(script, `audio('handpan.wav')\n  .gain(-6)`)
+  // the frame's page: that script, its edits open, no tabs, the way to the whole editor carrying the script
+  await page.goto(url.href)
+  await page.locator('.step', { hasText: 'Gain' }).waitFor()
+  assert.equal(await page.evaluate(() => scriptText()), script)
+  assert.equal(await page.evaluate(() => document.documentElement.classList.contains('embed')), true)
+  assert.equal(await page.locator('.panes').getAttribute('data-side'), 'open')
+  assert.equal(await page.locator('.stack').isVisible(), true)
+  assert.equal(await page.locator('.files').isVisible(), false)
+  assert.equal(await page.locator('.side-head').isVisible(), false)
+  // its lines wrap to the panel, none hidden past its edge
+  assert.equal(await page.locator('.cm-content.cm-lineWrapping').count(), 1)
+  await page.waitForFunction(() => document.querySelector('.embed-open')?.getAttribute('href')?.includes('#code='))
+  await page.waitForTimeout(700)
+  assert.equal(await page.evaluate(() => localStorage.getItem('audio-repl')), kept)
+  assert.equal(await page.evaluate(() => document.querySelector('dialog.elsewhere').open), false)
+  // a reload runs the link again: it is all the frame has
+  await page.reload()
+  await page.locator('.step', { hasText: 'Gain' }).waitFor()
+  assert.equal(await page.evaluate(() => scriptText()), script)
+  // two frames beside an editor open in another tab of the same browser: none asks another to step aside, and the
+  // editor's tabs stay as they were
+  const context = await browser.newContext(), open = async href => {
+    const p = await context.newPage()
+    p.on('pageerror', error => errors.push(error.message))
+    p.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()) })
+    await p.addInitScript(() => { globalThis.scriptText = () => [...document.querySelectorAll('.cm-content .cm-line')].map(l => l.textContent).join('\n') })
+    await p.goto(href)
+    return p
+  }
+  try {
+    const editor = await open(origin + '/playground.html')
+    await editor.locator('.readout', { hasText: 'LUFS' }).waitFor()
+    await editor.waitForTimeout(700)
+    const tabs = await editor.evaluate(() => localStorage.getItem('audio-repl'))
+    // the whole editor's lines run on, scrolled, as a code editor's do
+    assert.equal(await editor.locator('.cm-content.cm-lineWrapping').count(), 0)
+    const frames = [await open(url.href), await open(url.href)]
+    for (const f of frames) await f.locator('.step', { hasText: 'Gain' }).waitFor()
+    // past the 1.5 s an editor waits for the one open to let go before it asks (keep.js own)
+    await editor.waitForTimeout(2500)
+    for (const p of [editor, ...frames]) assert.equal(await p.evaluate(() => document.querySelector('dialog.elsewhere').open), false)
+    assert.equal(await editor.evaluate(() => localStorage.getItem('audio-repl')), tabs)
+    // no link, or one that does not read: the default script; no panel asked for, none
+    await frames[0].goto(origin + '/playground.html?embed&panel=none#code=@@')
+    await frames[0].locator('.readout', { hasText: 'LUFS' }).waitFor()
+    assert.equal(await frames[0].evaluate(() => scriptText()), `audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .fade(0.02, 0.1)`)
+    assert.equal(await frames[0].locator('.panes').getAttribute('data-side'), 'none')
+  } finally { await context.close() }
+  assert.deepEqual(errors, [])
+})
+
 // a script as it reads, its spaces aside
 const scriptOf = text => text.replace(/\s+/g, '')
 // A tab closed opens again where it was, as it was left (⇧⌘T, as a browser's): its script, its selection; one closed
@@ -5702,6 +5960,43 @@ test('editor: a track exported alone; another lined up with it, both tracks stil
   await lengthIs('0:08.000')
 })
 
+// Automix: a bed ducked under the voice (Edit › Duck under, the key read by name, both still tracks), a master added
+// (Edit › Add a master: the tracks' sum, a lane of its own, edited as one), taken away again (Delete the track)
+test('editor: a bed ducked under the voice, a master over both, a lane of its own', async () => {
+  await open()
+  await write(`let chime = audio('chime.wav')\n\nlet bed = audio('chime.wav')\n  .gain(-12)`)
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'bed · chime.wav')
+  await menu('Edit', 'Duck under', 'chime')
+  await page.waitForFunction(() => scriptText().includes('.ducker('))
+  assert.equal(await code(), `let chime = audio('chime.wav')\n\nlet bed = audio('chime.wav')\n  .gain(-12)\n  .ducker({ key: chime, range: -15 })`)
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await menu('Edit', 'Add a master')
+  await page.waitForFunction(() => scriptText().includes('.clone().mix('))
+  assert.equal(await code(), `let chime = audio('chime.wav')\n\nlet bed = audio('chime.wav')\n  .gain(-12)\n  .ducker({ key: chime, range: -15 })\n\nchime.clone().mix(bed)`)
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '3')
+  await lengthIs('0:08.000')
+  await menu('Edit', 'Delete the track')
+  await page.waitForFunction(() => !scriptText().includes('.clone()'))
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+})
+
+// A link's script with tracks opens in a new page with none of them chosen: the page comes up on its last lane (the
+// master, here), nothing thrown on the way (it threw before the page's state was made: Cannot access 'listening')
+test('editor: a link to a script with tracks and a master opens, the master edited', async () => {
+  const errors = []
+  page.on('pageerror', e => errors.push(e.message))
+  await page.goto(origin + '/blank.html')
+  const url = await page.evaluate(async text => {
+    const bytes = new Uint8Array(await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer())
+    return location.origin + '/playground.html#code=' + btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  }, `let chime = audio('chime.wav')\n\nlet bed = audio('chime.wav')\n  .ducker({ key: chime })\n\nchime.clone().mix(bed)\n  .gain(-6)`)
+  await page.goto(url)
+  await page.waitForFunction(() => document.querySelector('.plot')?.dataset.tracks === '3')
+  await page.waitForFunction(() => [...document.querySelectorAll('.steps-list .step-name')].some(n => n.textContent.includes('Gain')))
+  assert.deepEqual(errors, [])
+})
+
 // A marker is its track's, flagged over its lane: one a track not edited set is taken away from its flag all the same,
 // its mark() gone
 test('editor: with tracks, a marker of a track not edited is taken away from its flag', async () => {
@@ -5709,8 +6004,9 @@ test('editor: with tracks, a marker of a track not edited is taken away from its
   await write(`let a = audio('chime.wav')\n  .mark(1, 'here')\n\nlet b = audio('chime.wav')\n  .gain(-6)`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await lengthIs('0:08.000')
+  // its flag at its lane's top, under the track's head (view.js HEAD, 18 px)
   const { box, x } = await axis(8)
-  await page.mouse.click(x(1), box.y + 4, { button: 'right' })
+  await page.mouse.click(x(1), box.y + 18 + 4, { button: 'right' })
   await contextRow('Delete the marker').click()
   await page.waitForFunction(() => !scriptText().includes('.mark('))
   assert.match(await code(), /^let a = audio\('chime.wav'\)\s*let b = audio\('chime.wav'\)\n {2}\.gain\(-6\)$/)
@@ -5811,6 +6107,34 @@ test('editor: a file opened as a new track goes under the one edited', async () 
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await lengthIs('0:10.000')
   assert.equal(await page.locator('.steps-list .step-name').first().textContent(), 'bed · bed.wav')
+})
+
+// A track and a tab are one sound each, heard with the others or alone: a tab dragged down onto the picture is a track
+// of the sound shown, its tab gone; the track moved to its own tab again, gone from here
+test('editor: a tab dragged onto the picture is a track; a track moved to its own tab', async () => {
+  await open()
+  await write(`audio('chime.wav')`)
+  await lengthIs('0:08.000')
+  await menu('File', 'Samples', 'handpan.wav')
+  await page.waitForFunction(() => scriptText().trim() === "audio('handpan.wav')")
+  await page.getByRole('tab', { name: 'chime.wav' }).click()
+  await page.waitForFunction(() => scriptText().trim() === "audio('chime.wav')")
+  const t = await page.getByRole('tab', { name: 'handpan.wav' }).boundingBox(), plot = await page.locator('.plot').boundingBox()
+  await page.mouse.move(t.x + t.width / 2, t.y + t.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(t.x + t.width / 2, plot.y + plot.height / 3, { steps: 8 })
+  assert.ok(await page.locator('#app.dropping').count(), 'the picture says it takes it')
+  await page.mouse.up()
+  await page.waitForFunction(() => scriptText().includes("let handpan = audio('handpan.wav')"))
+  assert.equal(await code(), `let chime = audio('chime.wav')\n\nlet handpan = audio('handpan.wav')`)
+  assert.deepEqual(await page.locator('.files [role="tab"]').allInnerTexts(), ['chime.wav + handpan.wav'])
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await menu('Edit', 'Move the track to its own tab')
+  await page.waitForFunction(() => scriptText().trim() === "audio('handpan.wav')")
+  assert.deepEqual(await page.locator('.files [role="tab"]').allInnerTexts(), ['chime.wav', 'handpan.wav'])
+  await page.getByRole('tab', { name: 'chime.wav' }).click()
+  await page.waitForFunction(() => scriptText().trim() === "let chime = audio('chime.wav')")
+  await page.waitForFunction(() => !document.querySelector('.plot').dataset.tracks)
 })
 
 // A click seen on the picture: selected, the context menu's Repair takes the clicks out there alone (declick over the
@@ -7237,6 +7561,242 @@ test('editor: the waveform coloured in the spectrogram\'s colours, low at their 
   assert.ok(yellow[0] > 200 && yellow[1] > 180 && yellow[2] < 100, `10 kHz yellow: ${yellow}`)
 })
 
+// VS Code's colour themes (theme.js), read from its own files (playground/themes, as microsoft/vscode ships them): each
+// part of the picture in the colour of the word or the part of the editor it stands for, as the theme writes it, or
+// VS Code's default where it does not (src/vs/platform/theme/common/colors/*.ts, editorColorRegistry.ts). Dark+: the
+// text #D4D4D4, numbers #b5cea8, headings #569cd6, the background #1E1E1E, the inactive selection #3A3D41
+// (dark_vs.json); defaults: line numbers #858585, a group's border #444444, an input #3C3C3C, the selection #264F78,
+// the focus #007FD4. Light+: the text #000000, numbers #098658, headings #800000, the background #FFFFFF, the inactive
+// selection #E5EBF1 (light_vs.json); defaults: line numbers #237893, a group's border #E7E7E7, an input #FFFFFF, the
+// selection #ADD6FF, the focus #0090F1. Monokai: the text #f8f8f2, the background #272822, a group's border #34352f,
+// an input #414339, the focus #99947c, headings #A6E22E, the selection #878b9180 over the background, no inactive
+// one, so the selection at half (monokai-color-theme.json)
+const themed = async name => {
+  const { THEMES, load, skin } = await import('../playground/theme.js'), t = THEMES.find(t => t.name === name)
+  return skin(await load(new URL(`../playground/themes/${t.file}`, import.meta.url).href, { kind: t.kind, get: u => readFile(new URL(u), 'utf8') }))
+}
+test('theme: a VS Code theme read into the skin, the waveform its text, the accent its focus, a marker its headings', async () => {
+  const rgb = hex => `rgb(${[1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).join(' ')})`
+  for (const [name, want] of [
+    ['Dark+', { screen: '#1E1E1E', wave: '#D4D4D4', spectrum: '#D4D4D4', accent: '#007FD4', mark: '#569cd6', ruler: '#858585', number: '#b5cea8', bezel: '#444444', well: '#3C3C3C', select: '#264F78', 'select-inactive': '#3A3D41' }],
+    ['Light+', { screen: '#FFFFFF', wave: '#000000', spectrum: '#000000', accent: '#0090F1', mark: '#800000', ruler: '#237893', number: '#098658', bezel: '#E7E7E7', well: '#FFFFFF', select: '#ADD6FF', 'select-inactive': '#E5EBF1' }],
+    // #878b91 at .5 over #272822, and at .25
+    ['Monokai', { screen: '#272822', wave: '#f8f8f2', spectrum: '#f8f8f2', accent: '#99947c', mark: '#A6E22E', number: '#AE81FF', bezel: '#34352f', well: '#414339', select: '#575A5A', 'select-inactive': '#3F413E' }]
+  ]) {
+    const s = await themed(name), token = k => ({ screen: '--color-screen', bezel: '--color-bezel' })[k] ?? `--color-screen-${k}`
+    for (const [k, hex] of Object.entries(want)) assert.equal(s[token(k)], rgb(hex), `${name}: ${k}`)
+    assert.equal(s['--color-screen-channel-1'], s['--color-screen-wave'], `${name}: the first channel the waveform's colour`)
+  }
+  // every theme VS Code ships reads whole: a colour for every part, each one a canvas takes
+  const { THEMES } = await import('../playground/theme.js')
+  for (const t of THEMES) for (const [k, v] of Object.entries(await themed(t.name))) assert.match(v, /^(rgb\(\d+ \d+ \d+( \/ [\d.]+)?\)|transparent)$/, `${t.name}: ${k}`)
+})
+
+// A word's colour as VS Code's own TextMate engine resolves it (vscode-textmate, Theme.match), for every word the skin
+// takes in every theme VS Code ships: the deepest selector matching it wins, the later of two alike, an ancestor
+// selector only where its ancestors are the word's; a scope no rule takes, its parent's colour, as the engine lays each
+// scope's style over its parent's
+test('theme: each word in the colour VS Code\'s TextMate engine gives it, in every theme it ships', async t => {
+  let tm
+  try { tm = (await import('vscode-textmate')).default } catch { return t.skip('vscode-textmate not installed (npm i -D vscode-textmate)') }
+  const { THEMES, SYNTAX, load, colourer } = await import('../playground/theme.js')
+  const hex = c => c && '#' + c.slice(0, 3).map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('')
+  for (const th of THEMES) {
+    const theme = await load(new URL(`../playground/themes/${th.file}`, import.meta.url).href, { get: u => readFile(new URL(u), 'utf8') })
+    const registry = new tm.Registry({ onigLib: Promise.resolve({}), loadGrammar: async () => null })
+    registry.setTheme({ settings: theme.tokenColors })
+    const engine = registry._syncRegistry._theme, map = registry.getColorMap(), mine = colourer(theme.tokenColors)
+    for (const [word, stack] of Object.entries(SYNTAX)) {
+      let path = null, id = 0
+      for (const scopeName of stack) { path = { scopeName, parent: path }; id = engine.match(path)?.foregroundId || id }
+      assert.equal(hex(mine(stack)), id ? map[id].slice(0, 7).toLowerCase() : null, `${th.name}: ${word}`)
+    }
+  }
+})
+
+// The spectrogram's grey (tint.js inked): in white ink, the grey screened over the page as it was drawn before themes,
+// white at the opacity of the grey's encoded sRGB value at OKLab lightness u^γ (IEC 61966-2-1; Y = L³, Ottosson 2020);
+// in black ink on a light screen, transparent at the floor and opaque at the top, lightness falling evenly
+test('theme: the spectrogram\'s grey in white ink is the grey screened over the page; in black, its multiply', async () => {
+  const { inked, lightness } = await import('../playground/tint.js')
+  const screened = L => { const y = L ** 3; return y <= .0031308 ? 12.92 * y : 1.055 * y ** (1 / 2.4) - .055 }
+  for (const gamma of [.5, .75, 1, 1.5]) assert.deepEqual(inked([1, 1, 1, 1], 17, gamma), Array.from({ length: 17 }, (_, k) => `rgb(255 255 255 / ${screened((k / 16) ** gamma).toFixed(4)})`))
+  const black = inked([0, 0, 0, 1], 5).map(s => +s.split('/ ')[1].slice(0, -1))
+  assert.deepEqual([black[0], black[4]], [0, 1])
+  // to the four places the opacity is written to
+  black.forEach((a, k) => assert.ok(Math.abs(lightness([1 - a, 1 - a, 1 - a]) - (1 - k / 4)) < 1e-3, `step ${k}`))
+})
+
+// The least a theme can be, and the odd forms VS Code reads: `{}`, VS Code's defaults for a dark theme (the background
+// #1E1E1E, the foreground #BBBBBB: src/vs/platform/theme/common/colors/editorColors.ts), every word the foreground as
+// VS Code draws a word no rule colours; a light background alone, a light theme; tokenColors as a .tmTheme path, no
+// rules; JSONC, its comments and trailing commas gone, a "//" in a string kept; selectors in one comma list, the
+// deepest matching winning, the later of two alike, one whose ancestor is another language's never
+test('theme: the least a theme can be, and the odd forms VS Code reads', async () => {
+  const { parse, load, skin, scoper, hex } = await import('../playground/theme.js')
+  const empty = skin({})
+  assert.deepEqual([empty['--color-screen'], empty['--color-screen-ink'], empty['--color-screen-wave'], empty['--color-screen-mark']], ['rgb(30 30 30)', 'rgb(187 187 187)', 'rgb(187 187 187)', 'rgb(187 187 187)'])
+  assert.equal(empty['--color-screen-channel-1'], 'rgb(187 187 187)')
+  assert.equal(empty['--color-screen-channel-2'], undefined, 'one hue only: the rest the even round')
+  // no inactive selection given: the selection at half over the screen, as VS Code's default is; at .7 in high contrast
+  // dark (editor.inactiveSelectionBackground): #264F78 over #1E1E1E, #F3F518 over #000000
+  assert.deepEqual([empty['--color-screen-select-inactive'], empty['--color-screen-selection-inactive']], ['rgb(34 55 75)', 'rgb(34 55 75)'])
+  assert.equal(skin({ kind: 'hcDark' })['--color-screen-select-inactive'], 'rgb(170 171 17)')
+  assert.equal(skin({ colors: { 'editor.background': '#fafafa' } })['--color-screen-ruler'], 'rgb(35 120 147)', 'light, by its background: the light line numbers, #237893')
+  assert.deepEqual((await load(null, { theme: { tokenColors: './x.tmTheme' } })).tokenColors, [])
+  assert.deepEqual(parse('{ /* a */ "url": "http://a//b", // c\n "list": [1, 2,], }'), { url: 'http://a//b', list: [1, 2] })
+  assert.throws(() => parse('not a theme'))
+  const rule = scoper([
+    { scope: 'keyword, string', settings: { foreground: '#111111' } },
+    { scope: 'keyword.control', settings: { foreground: '#222222' } },
+    { scope: 'keyword.control', settings: { foreground: '#333333' } },
+    { scope: 'source.python keyword.control.flow', settings: { foreground: '#444444' } }
+  ])
+  assert.deepEqual(['keyword.operator.js', 'string.quoted.js', 'keyword.control.flow.js', 'comment.js'].map(s => rule(s)), [hex('#111111'), hex('#111111'), hex('#333333'), null])
+  assert.deepEqual([hex('#abc'), hex('#aabbcc80'), hex('red'), hex(42)], [[170 / 255, 187 / 255, 204 / 255, 1], [170 / 255, 187 / 255, 204 / 255, 128 / 255], null, null])
+  // a colour or a selector of the wrong kind passed over, as VS Code does, the rest read
+  assert.equal(skin({ colors: { 'editor.background': 42 }, tokenColors: [{ scope: [7, 'constant.numeric'], settings: { foreground: '#ff0000' } }] })['--color-screen-number'], 'rgb(255 0 0)')
+})
+
+// A theme from its own file (View, Theme, Open a VS Code theme…), one to another leaving nothing of the first (A, then
+// B with fewer channel hues: the first's last hues gone), a file that is not a theme said so, the theme kept; a theme
+// kept that no longer reads, the page up in the screen's own skin
+test('editor: a VS Code theme opened from its file; one to another, nothing of the first left; one that does not read', async () => {
+  await open()
+  const pick = async (name, text) => {
+    const chooser = page.waitForEvent('filechooser')
+    await menu('View', 'Theme', 'Open a VS Code theme…')
+    await (await chooser).setFiles({ name, mimeType: 'application/json', buffer: Buffer.from(text) })
+  }
+  const style = k => page.evaluate(k => document.documentElement.style.getPropertyValue(k), k)
+  // a theme of its own words: two hues apart, then one
+  await pick('mine.json', `{ "name": "Mine", // a comment, as VS Code allows
+    "type": "dark", "colors": { "editor.background": "#102030" },
+    "tokenColors": [{ "scope": "constant.numeric", "settings": { "foreground": "#ff8000" } }, { "scope": "string", "settings": { "foreground": "#00c0ff" } },] }`)
+  await page.waitForFunction(() => document.documentElement.style.getPropertyValue('--color-screen') === 'rgb(16 32 48)')
+  assert.deepEqual([await style('--color-screen-wave'), await style('--color-screen-channel-2'), await style('--color-screen-channel-3')], ['rgb(187 187 187)', 'rgb(255 128 0)', 'rgb(0 192 255)'])
+  await pick('other.json', `{ "name": "Other", "colors": { "editor.background": "#f0f0f0" } }`)
+  await page.waitForFunction(() => document.documentElement.style.getPropertyValue('--color-screen') === 'rgb(240 240 240)')
+  assert.equal(await style('--color-screen-channel-3'), '', 'the first theme\'s third hue gone')
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('audio-theme')).name), 'Other')
+  // not a theme: said so, the theme worn as it was
+  await pick('broken.json', '{ nope')
+  await page.locator('.message.problem', { hasText: 'broken.json is not a VS Code colour theme' }).waitFor()
+  assert.equal(await style('--color-screen'), 'rgb(240 240 240)')
+  // kept, but no longer read: the page comes up whole, in the screen's own skin
+  await page.evaluate(() => localStorage.setItem('audio-theme', '{"name":"Gone","theme":null}'))
+  await page.reload()
+  await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
+  assert.equal(await style('--color-screen'), '')
+})
+
+// VS Code's fonts, not a theme's (a theme has none): unset, its defaults by platform, the editor's EDITOR_FONT_DEFAULTS
+// (src/vs/editor/common/config/fontInfo.ts: Menlo 12 on a Mac, Consolas 14 on Windows, Droid Sans Mono 14 elsewhere)
+// and the workbench's (style.css .mac, .windows, .linux); the editor's size the picture's numbers' too, as its line
+// numbers'; set, as they are set
+test('theme: VS Code\'s fonts by platform, the picture\'s numbers at the editor\'s size; set, as set', async () => {
+  const { fonts } = await import('../playground/theme.js')
+  assert.deepEqual(fonts({}, 'MacIntel'), { '--font-mono': "Menlo, Monaco, 'Courier New', monospace", '--font-body': '-apple-system, BlinkMacSystemFont, sans-serif', '--font-size-code': '12px', '--font-size-label': '12px' })
+  assert.deepEqual(fonts({}, 'Win32'), { '--font-mono': "Consolas, 'Courier New', monospace", '--font-body': "'Segoe WPC', 'Segoe UI', sans-serif", '--font-size-code': '14px', '--font-size-label': '14px' })
+  assert.equal(fonts({}, 'Linux x86_64')['--font-mono'], "'Droid Sans Mono', monospace")
+  assert.deepEqual(fonts({ editor: 'Fira Code', size: '15px', ui: 'Inter' }, 'MacIntel'), { '--font-mono': 'Fira Code', '--font-body': 'Inter', '--font-size-code': '15px', '--font-size-label': '15px' })
+})
+
+// Flat: the waveform one solid shade, peak to peak, nothing graded (gl-waveform with neither its RMS band nor its
+// density: its envelope in the line's colour); Density grades it, most of it lighter. On Light+, its text black
+test('editor: the waveform\'s Flat fill one solid shade; Density graded', async () => {
+  await page.addInitScript(async () => {
+    if (sessionStorage.seeded) return
+    sessionStorage.seeded = 1
+    const m = await import('/playground/theme.js'), t = m.THEMES.find(t => t.name === 'Light+')
+    localStorage.setItem('audio-theme', JSON.stringify({ name: t.name, theme: await m.load(new URL('/playground/themes/' + t.file, location.href).href, { kind: t.kind }) }))
+  })
+  await open()
+  await page.reload()
+  await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
+  await write(`audio.from(t => 0.6 * Math.sin(2 * Math.PI * 3 * t) * Math.sin(2 * Math.PI * 220 * t), { duration: 2 })`)
+  await lengthIs('0:02.000')
+  // of the lanes' inked pixels (darker than the screen's white: the grid's dots and the sound's anti-aliased edges among
+  // them), the share that is the text's black
+  const solid = () => pixels(`let ink = 0, black = 0; for (let y = 0; y < h - 44; y++) for (let x = 0; x < w - 60; x++) { const i = (y * w + x) * 4, v = d[i] + d[i + 1] + d[i + 2]; if (v < 600 && d[i + 2] < 240) { ink++; if (v < 60) black++ } } return black / (ink || 1)`)
+  await page.waitForTimeout(500)
+  const graded = await solid()
+  await menu('View', 'Waveform', 'Fill', 'Flat')
+  await page.waitForTimeout(500)
+  const flat = await solid()
+  assert.ok(flat > .6 && graded < flat - .3, `flat ${flat.toFixed(2)}, density ${graded.toFixed(2)}`)
+})
+
+// A selection behind the sound, as an editor's is behind its text: Light+'s #ADD6FF where the lane is clear, the
+// waveform over it in its own black; the picture not focused, Light+'s inactive selection, #E5EBF1 (light_vs.json)
+test('editor: a selection behind the sound, as behind text; focused elsewhere, the inactive selection\'s colour', async () => {
+  await page.addInitScript(async () => {
+    if (sessionStorage.seeded) return
+    sessionStorage.seeded = 1
+    const m = await import('/playground/theme.js'), t = m.THEMES.find(t => t.name === 'Light+')
+    localStorage.setItem('audio-theme', JSON.stringify({ name: t.name, theme: await m.load(new URL('/playground/themes/' + t.file, location.href).href, { kind: t.kind }) }))
+  })
+  await open()
+  await page.reload()
+  await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
+  await write(`audio.from(t => 0.3 * Math.sin(2 * Math.PI * 220 * t), { duration: 2 })`)
+  await lengthIs('0:02.000')
+  const box = await page.locator('.plot').boundingBox(), w = box.width - GUTTER
+  await page.mouse.move(box.x + w * .3, box.y + box.height * .5)
+  await page.mouse.down()
+  await page.mouse.move(box.x + w * .6, box.y + box.height * .5, { steps: 4 })
+  await page.mouse.up()
+  await page.mouse.move(box.x + w * .9, box.y + 5)
+  await page.waitForTimeout(400)
+  // the colour in the selection's middle, above the sound (an eighth of the way down its one lane) and on its centre line
+  const at = () => pixels(`const px = (y, x) => { const i = (Math.round(y) * w + Math.round(x)) * 4; return [d[i], d[i + 1], d[i + 2]] }; return [px((h - 44) / 8, w * .45), px((h - 44) / 2, w * .45)]`)
+  const near = (c, rgb) => c.every((v, i) => Math.abs(v - rgb[i]) < 6)
+  let [clear, sound] = await at()
+  assert.ok(near(clear, [173, 214, 255]), `behind the sound, the selection: ${clear}`)
+  assert.ok(sound.every(v => v < 60), `the waveform over it, black: ${sound}`)
+  await page.locator('.readout').click()
+  await page.evaluate(() => document.activeElement?.blur())
+  await page.waitForTimeout(300)
+  ;[clear] = await at()
+  assert.ok(near(clear, [229, 235, 241]), `not focused, the inactive selection: ${clear}`)
+})
+
+// A theme from the View menu: the screen its background, the waveform its text's colour; kept as the page comes back;
+// the screen's own skin back, nothing of the theme left
+test('editor: a VS Code theme from the View menu, the waveform in its text\'s colour, kept; the screen\'s own back', async () => {
+  await open()
+  await write(`audio.from(t => 0.8 * Math.sin(2 * Math.PI * 220 * t), { duration: 1 })`)
+  await lengthIs('0:01.000')
+  // the share of the lanes' pixels near a colour
+  const near = rgb => pixels(`const [r, g, b] = arg; let n = 0, all = 0; for (let y = 0; y < h - 44; y++) for (let x = 0; x < w - 60; x++) { const i = (y * w + x) * 4; all++; if (Math.abs(d[i] - r) + Math.abs(d[i + 1] - g) + Math.abs(d[i + 2] - b) < 40) n++ } return n / all`, rgb)
+  await menu('View', 'Theme', 'Light+')
+  await page.waitForTimeout(500)
+  // its density fill lightens most of it; at its densest, the text's black itself
+  assert.ok(await near([0, 0, 0]) > .03, 'the waveform Light+\'s text, #000000')
+  assert.ok(await near([255, 255, 255]) > .3, 'the screen its white')
+  await page.reload()
+  await page.locator('.readout', { hasText: 'LUFS' }).waitFor()
+  await page.waitForTimeout(500)
+  assert.ok(await near([0, 0, 0]) > .03 && await near([255, 255, 255]) > .3, 'kept as the page comes back')
+  await menu('View', 'Theme', 'The screen')
+  await page.waitForTimeout(500)
+  assert.equal(await near([255, 255, 255]), 0, 'none of its white left')
+  assert.deepEqual(await page.evaluate(() => [document.documentElement.style.getPropertyValue('--color-screen'), localStorage.getItem('audio-theme')]), ['', null])
+})
+
+// Inside a VS Code webview the page wears the theme VS Code does: its colours as VS Code sets them on the page
+// (--vscode-*), its kind the body's class (code.visualstudio.com/api/extension-guides/webview, Theming webview content)
+test('editor: in a VS Code webview, the theme VS Code wears', async () => {
+  // set as the page is parsed, before its scripts run, as VS Code sets them before the webview's
+  await page.addInitScript(() => document.addEventListener('readystatechange', () => {
+    // a see-through colour as VS Code writes one there, rgba() (Color.Format.CSS.format)
+    for (const [k, v] of Object.entries({ 'editor-background': '#fffffe', 'editor-foreground': '#202020', 'editorLineNumber-foreground': '#237893', 'editorWhitespace-foreground': 'rgba(10, 20, 30, 0.5)', 'editor-font-family': 'Fira Code', 'editor-font-size': '15px', 'font-family': 'Inter' })) document.documentElement.style.setProperty(`--vscode-${k}`, v)
+    document.body.classList.add('vscode-light')
+  }, { once: true }))
+  await open()
+  assert.deepEqual(await page.evaluate(() => ['--color-screen', '--color-screen-ruler', '--color-screen-wave', '--color-screen-grid', '--font-mono', '--font-body', '--font-size-label'].map(k => document.documentElement.style.getPropertyValue(k))), ['rgb(255 255 254)', 'rgb(35 120 147)', 'rgb(32 32 32)', 'rgb(10 20 30 / 0.502)', 'Fira Code', 'Inter', '15px'])
+})
+
 // The edits' cards are as wide as the panel: a long call's settings, folded, are cut short with an ellipsis, never
 // widening the card past the panel
 test('editor: a long step is cut short in its card, the card no wider than the panel', async () => {
@@ -7291,6 +7851,54 @@ test('editor: the tape scrub, chosen in the settings, plays the sound as the car
   assert.ok(moving > .05 && still < moving / 10, `dragged ${moving}, held still ${still}`)
 })
 
+// With tracks, a scrub hears the track edited alone, as its lane shows it, not their mix: the quiet one quiet, the loud
+// one loud. A track's mute, beside its name: its lane dim, the mix without it, kept with the tab; the heads part the
+// bands with no rule between them, nor say how many channels each has
+test('editor: with tracks, a scrub hears the track edited alone; a muted track leaves the mix', async () => {
+  await page.addInitScript(tap)
+  await open()
+  await settings('Scrub', 'Tape')
+  await write(`const tone = (f, a) => Float32Array.from({ length: 48000 }, (_, i) => a * Math.sin(2 * Math.PI * f * i / 48000))
+let quiet = audio.from([tone(220, .1)], { sampleRate: 48000 })
+
+let loud = audio.from([tone(330, .4), tone(330, .4)], { sampleRate: 48000 })`)
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await lengthIs('0:01.000')
+  const { box, x } = await axis(1), row = box.y + box.height - 8, lane = k => box.y + (box.height - 22) * (k ? .75 : .25)
+  // a track pressed, then the caret dragged along the time row: that track heard
+  const scrub = async k => {
+    await page.mouse.click(x(.1), lane(k))
+    await page.waitForTimeout(200)
+    await page.mouse.move(x(.2), row)
+    await page.mouse.down()
+    await heard()
+    for (let t = .2; t < .8; t += .03) { await page.mouse.move(x(t), row); await page.waitForTimeout(40) }
+    const { peak } = await heard()
+    await page.mouse.up()
+    return peak
+  }
+  const quiet = await scrub(0), loud = await scrub(1)
+  assert.ok(quiet > .02 && quiet < .2, `the quiet track alone: ${quiet}, the mix would be ~.5`)
+  assert.ok(loud > .25, `the loud track: ${loud}`)
+  // the loud one muted: the mix the quiet one's alone (−20 dBFS, 20 · log10 0.1); heard again, both (over −8: 0.4 and
+  // 0.1 summed)
+  const mutes = page.locator('.track-mute'), both = /^peak −[0-7]\.\ddBFS/
+  assert.deepEqual(await mutes.evaluateAll(b => b.map(b => [b.ariaLabel, b.getAttribute('aria-pressed')])), [['Mute quiet', 'false'], ['Mute loud', 'false']])
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(re => new RegExp(re).test(document.querySelector('.readout').innerText), both.source)
+  await mutes.nth(1).click()
+  await page.waitForFunction(() => /^peak −20\.0dBFS/.test(document.querySelector('.readout').innerText))
+  assert.equal(await mutes.nth(1).getAttribute('aria-pressed'), 'true')
+  assert.equal(await page.locator('.plot').getAttribute('data-tracks'), '2', 'its lane still there')
+  // kept with the tab, past a reload
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').docs?.some(d => d.muted?.includes('loud')))
+  await page.reload()
+  await page.waitForFunction(() => document.querySelector('.track-mute[aria-pressed="true"]')?.ariaLabel === 'Mute loud')
+  await page.waitForFunction(() => /^peak −20\.0dBFS/.test(document.querySelector('.readout').innerText))
+  await page.locator('.track-mute').nth(1).click()
+  await page.waitForFunction(re => new RegExp(re).test(document.querySelector('.readout').innerText), both.source)
+})
+
 // A press held still half a second, as a touch's long press puts a text's caret: no selection, the caret dragged, the
 // moment under it heard as it goes
 test('editor: a press held still, then dragged, takes the caret along without selecting', async () => {
@@ -7339,8 +7947,9 @@ test('editor: a fade corner dragged back to where it began makes nothing', async
 
 // A recipe of several calls is one step of the edits: its name a comment, its calls indented under it (code.js groups),
 // one card, folded; a press unfolds it to its steps, its eye turns them all off and on in one step, its × takes them
-// all away. An edit made after it is a step of its own, not the group's
+// all away. An edit made after it is a step of its own, not the group's. Its de-reverb model is not fetched
 test('editor: a recipe is one card of the edits, its steps folded under it, turned off or removed together', async () => {
+  await page.route(/huggingface\.co/, route => route.abort())
   await open()
   const chime = `audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .fade(0.02, 0.1)`
   await menu('File', 'Recipes', 'Remove room echo')
@@ -7393,10 +8002,10 @@ test('editor: a recipe found by its words goes on the sound open; its groups fol
 // the bridge started with named, no choice to make; it answers the agent's tool calls as the MCP server sends them (an
 // edit written into the script, one step; the state of the sound; a measurement and a picture, changing nothing; the
 // file as it opened, level-matched), and the chat streams the agent's words as Markdown, what it runs while it answers,
-// the tools it used. The conversation is the tab's, kept: a reload brings it back, a new one starts empty, the old one
-// is a click away, another tab has its own. The agent here is a stand-in on PATH printing what
+// the tools it used. The conversation is the page's, kept: a reload brings it back, a new one starts empty, the old one
+// is a click away, another tab shows it still (the agent's `open` and `tabs` move between tabs mid-conversation). The agent here is a stand-in on PATH printing what
 // `claude -p --output-format stream-json --verbose --include-partial-messages` prints, a tool's run held for a moment
-test('editor: through the local bridge, an agent measures and edits the sound open; its words as Markdown, kept with the tab', async () => {
+test('editor: through the local bridge, an agent measures and edits the sound open; its words as Markdown, kept across tabs', async () => {
   const { spawn } = await import('node:child_process'), { mkdtempSync, writeFileSync, chmodSync, readFileSync } = await import('node:fs'), { join } = await import('node:path')
   const dir = mkdtempSync(join(tmpdir(), 'audio-agent-')), S = 'b1d0c0de-0000-4000-8000-000000000001', KEY = 'editor-test-key', log = join(dir, 'log')
   const ev = event => ({ type: 'stream_event', event, session_id: S, parent_tool_use_id: null })
@@ -7594,16 +8203,16 @@ const out = l => process.stdout.write(JSON.stringify(l) + '\\n'), wait = ms => n
     await page.locator('.chat-title').click()
     await page.locator('#chats-menu .chat-item', { hasText: 'How long is it?' }).locator('.menu-item').click()
     assert.equal(await page.locator('.chat-message.user').count(), 2)
+    // another tab, the same conversation: the agent's, not the tab's
+    await page.getByRole('button', { name: 'New tab' }).click()
+    assert.equal(await page.locator('.chat-message.user').count(), 2, 'shown still')
+    assert.equal(await page.locator('.chat-title').innerText(), 'How long is it?')
     // deleted, it goes; none left, nor the list of them
     await page.locator('.chat-title').click()
     await page.getByRole('button', { name: 'Delete How long is it?' }).click()
     assert.equal(await page.locator('.chat-message').count(), 0)
     assert.equal(await page.locator('.chat-head').count(), 0, 'none left')
-    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')).docs.some(d => d.chats?.length)), false, 'nor kept')
-    // another tab, its own: none yet
-    await page.getByRole('button', { name: 'New tab' }).click()
-    assert.equal(await page.locator('.chat-message').count(), 0)
-    assert.equal(await page.locator('.chat-head').count(), 0)
+    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')).chats), undefined, 'nor kept')
     // a file of the user's machine, read through the bridge, in the tab shown, which is empty
     const opened = await call('open', { path: fileURLToPath(new URL('fixture.wav', import.meta.url)) })
     assert.deepEqual([opened.result.ok, opened.result.name], [true, 'fixture.wav'], JSON.stringify(opened))
@@ -7611,6 +8220,29 @@ const out = l => process.stdout.write(JSON.stringify(l) + '\\n'), wait = ms => n
     assert.match((await call('open', { path: fileURLToPath(new URL('../package.json', import.meta.url)) })).error, /Not an audio or video file/)
     errors.splice(0, Infinity, ...errors.filter(e => !/ 415 /.test(e)))  // the browser's own word on the refusal, asked for
   } finally { proc.kill() }
+})
+
+// Conversations an earlier page kept with each tab come back as the page's: every tab's, a closed one's too, the oldest
+// first, the one the tab shown had open, open; shown whichever tab shows, and kept so
+test('editor: conversations kept with each tab come back as the page\'s, whichever tab shows', async () => {
+  const chat = (id, title) => ({ id, at: id, title, agent: 'claude', session: null, messages: [{ role: 'user', text: title }, { role: 'agent', parts: [{ text: 'Done.' }] }] })
+  await page.addInitScript(old => { if (!sessionStorage.seeded) { sessionStorage.seeded = 1; localStorage.setItem('audio-repl', JSON.stringify(old)) } }, {
+    doc: 1,
+    docs: [{ code: "audio('chime.wav')", chats: [chat(1, 'First')], chat: 1 }, { code: "audio('chime.wav').gain(-3)", chats: [chat(3, 'Third')], chat: 3 }],
+    closed: [{ code: "audio('chime.wav').gain(-6)", chats: [chat(2, 'Second')], chat: 2, at: 0, shut: 1 }]
+  })
+  await open()
+  await tab('Agent')
+  assert.equal(await page.locator('.chat-title').innerText(), 'Third', 'the one the tab shown had open')
+  await page.locator('.chat-title').click()
+  assert.deepEqual(await page.locator('#chats-menu .chat-item .menu-item').allInnerTexts().then(t => t.map(s => s.split('\n')[0])), ['Third', 'Second', 'First'], 'every tab\'s, newest first')
+  await page.keyboard.press('Escape')
+  await page.locator('.file').first().click()
+  await page.waitForFunction(() => document.querySelector('.file.current') === document.querySelector('.file'))
+  assert.equal(await page.locator('.chat-title').innerText(), 'Third', 'another tab: the same conversation')
+  assert.deepEqual(await page.locator('.chat-message.user').allInnerTexts(), ['Third'])
+  const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')))
+  assert.deepEqual([kept.chats.map(c => c.title), kept.chat, kept.docs.some(d => 'chats' in d)], [['First', 'Second', 'Third'], 3, false], 'kept as the page\'s')
 })
 
 // The cuts as an edit list for a video editor (the library's cuts()): a deletion splits the chime into two events of

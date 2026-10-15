@@ -53,7 +53,6 @@
  */
 
 import audio, { arrived, memo } from '../core.js'
-import dereverb from '@audio/denoise-dereverb'
 import { fingerprint } from './vocals.js'
 
 const LIMIT = 18
@@ -64,9 +63,10 @@ const LIMIT = 18
 // answer kept, so moving the limit or the floor fits no room again.
 let last
 const changed = (a, b) => a.some((v, i) => v !== b[i])
-export function roomless(pcm, y, sampleRate) {
+export async function roomless(pcm, y, sampleRate) {
   let key = `${sampleRate}:${fingerprint(pcm)}:${fingerprint(y)}`
   if (last?.key === key) return last.heard
+  let { default: dereverb } = await import('@audio/denoise/dereverb').catch(e => { throw new Error(`deepfilter: install @audio/denoise (${e.message})`) })
   let heard = pcm.map((x, c) => {
     if (!changed(dereverb(y[c], { fs: sampleRate, strength: 0 }), y[c])) return x
     return dereverb(x, { fs: sampleRate, strength: 0 })
@@ -135,7 +135,7 @@ export function enhancer(name, id, finish, again) {
     if (done?.key === key) { done.stamp = stamp; return }
     if (!pcm[0]?.length) { o[ENHANCED] = { key, stamp, pcm }; return }
     let run = x => removal(neural, x, input.sampleRate, { music, weights: o.weights, device: o.device }).catch(e => { throw new Error(`${name}: ${e.message}`) })
-    let y = await run(pcm), heard = again?.(pcm, y, input.sampleRate)
+    let y = await run(pcm), heard = await again?.(pcm, y, input.sampleRate)
     if (heard) y = await run(heard)
     o[ENHANCED] = { key, stamp, pcm: y.map((v, c) => finish(pcm[c], v, o, input.sampleRate, neural)) }
   }

@@ -2887,6 +2887,23 @@ test('cache backend — evicted pages restore on read', async t => {
   t.ok(pcm[0][PAGE_SIZE * 3 - 1] > 0.99, 'last sample correct (ramp end)')
 })
 
+// A copy taken while its source arrives, before the source's store is set up (storage 'auto' sets it up in the
+// background): the pages the source lets go of after come back to the copy from that store, not as silence
+test('cache backend — a copy taken while its source arrives reads the pages the source let go of', async t => {
+  let x = Float32Array.from({ length: PAGE_SIZE * 3 }, (_, i) => .1 + .8 * i / (PAGE_SIZE * 3))
+  let a = audio(null, { sampleRate: 48000, channels: 1 })
+  a.push([x.subarray(0, PAGE_SIZE)])
+  let b = audio.from(a)
+  a.push([x.subarray(PAGE_SIZE)]); a.stop()
+  Object.assign(a, { cache: mockCache(), budget: PAGE_SIZE * 4 })
+  await audio.evict(a)
+  t.ok(b.pages[0] === null, 'the first page let go of, the copy sharing its pages')
+  let [y] = await b.read()
+  t.ok(y.length === x.length && y.every((v, i) => v === x[i]), 'the copy reads all of it back')
+  let [z] = await b.clone().read({ at: 0, duration: 1 })
+  t.ok(z.every((v, i) => v === x[i]), 'and a copy of the copy')
+})
+
 test('cache backend — index survives eviction', async t => {
   let ch = new Float32Array(PAGE_SIZE * 2).fill(0.7)
   let cache = mockCache()
@@ -5285,6 +5302,24 @@ test('speed — insert after speed preserves data', async t => {
   t.ok(Math.abs(pcm[0][silenceIdx]) < 0.01, 'silence at insert point')
 })
 
+// A rate near 1 read linearly between samples dulls the top: a 15 kHz tone at 44.1 kHz sped 100 ppm, its fraction
+// sweeping 0 to 1, loses up to −3 dB where it stands halfway (cos(π·15/44.1) between neighbours); sinc keeps it
+test('speed({ type: \'sinc\' }) — a rate near 1 keeps the top octave; streamed as read', async t => {
+  let sr = 44100, n = sr, x = Float32Array.from({ length: n }, (_, i) => Math.sin(2 * Math.PI * 15000 * i / sr))
+  let rms = y => { let s = 0, k = 0; for (let i = 1000; i < y.length - 1000; i++) s += y[i] * y[i], k++; return Math.sqrt(s / k) }
+  let lin = (await audio.from([x], { sampleRate: sr }).speed(1.0001).read())[0], sinc = (await audio.from([x], { sampleRate: sr }).speed(1.0001, { type: 'sinc' }).read())[0]
+  let db = y => 20 * Math.log10(rms(y) / Math.SQRT1_2)
+  t.ok(db(lin) < -0.5, `linear: ${db(lin).toFixed(2)} dB`)
+  t.ok(Math.abs(db(sinc)) < 0.05, `sinc: ${db(sinc).toFixed(3)} dB`)
+  let a = audio.from([x], { sampleRate: sr }).speed(0.9999, { type: 'sinc' }), whole = (await a.read())[0], parts = []
+  for await (let chunk of a.stream()) parts.push(chunk[0].slice())
+  let flat = new Float32Array(parts.reduce((p, c) => p + c.length, 0)), o = 0
+  for (let c of parts) flat.set(c, o), o += c.length
+  t.ok(flat.length === whole.length && flat.every((v, i) => Math.abs(v - whole[i]) < 1e-6), 'streamed as read')
+  let err = await audio.from([x], { sampleRate: sr }).speed(2, { type: 'cubic' }).read().catch(e => e)
+  t.ok(/speed: unknown type "cubic"/.test(err?.message), err?.message)
+})
+
 test('speed — streaming matches flat render', async t => {
   let ch = new Float32Array(44100)
   for (let i = 0; i < ch.length; i++) ch[i] = Math.sin(2 * Math.PI * 440 * i / 44100)
@@ -5702,6 +5737,52 @@ test('pitch({ voice: true }): a range glides in and out at a voice\'s pace, and 
     t.ok(db < -30 && Math.abs(early) < 25 * Math.abs(st) && Math.abs(mid - 100 * st) < 3,
       `${st} st: ${early.toFixed(0)} cents moved 30 ms in, ${mid.toFixed(1)} mid-range; the crossfade back ${db.toFixed(1)} dB off the input`)
   }
+})
+
+// A sung voice keeps its cycles whole: where two periods of the input a period apart are alike (normalized correlation
+// over .9), the output's are too, within .25. Its cycles found by YIN alone, voiced at .35, took a strong second
+// harmonic's period for the voice's, and every cycle skipped or repeated put a pulse beside a pulse, its phase jumping:
+// 18 to 30 such seams in lena's 3.8 voiced seconds from -3 to +2 semitones; on pYIN's path, one at most, where a note
+// ends. And it retunes the same whatever blocks it comes in: up to .76 of full scale apart before.
+test('pitch({ voice: true }): a sung voice keeps its cycles whole, the same however it streams', async t => {
+  if (!await import('@audio/tune-curve').catch(() => null)) return t.ok(true, 'skipped: @audio/tune-curve is not installed')
+  let { default: yin } = await import('@audio/pitch-yin'), { retuner } = await import('@audio/tune-curve')
+  let x = (await (await audio(lenaPath)).read())[0], sr = 44100
+  let alike = (d, c, P) => {
+    let best = -1
+    for (let l = Math.floor(.85 * P); l <= Math.ceil(1.18 * P); l++) {
+      let xy = 0, xx = 0, yy = 0
+      for (let i = 0; i < l; i++) { let p = d[c - l + i], q = d[c + i]; xy += p * q; xx += p * p; yy += q * q }
+      best = Math.max(best, xy / Math.sqrt(xx * yy || 1))
+    }
+    return best
+  }
+  // the input's voiced places: a strict YIN's period, a period alike to the next over .9
+  let frames = []
+  for (let c = 2048; c + 2048 < x.length; c += 110) {
+    let r = yin(x.subarray(c - 1024, c + 1024), { fs: sr, minFreq: 60, maxFreq: 400, threshold: .1 })
+    if (r && alike(x, c, sr / r.freq) > .9) frames.push([c, sr / r.freq])
+  }
+  let seams = (y, st, from = 0, to = Infinity) => {
+    let n = 0, last = -Infinity
+    for (let [c, P] of frames) if (c >= from && c < to && alike(x, c, P) - alike(y, c, P / 2 ** (st / 12)) > .25) { if (c - last > .02 * sr) n++; last = c }
+    return n
+  }
+  for (let st of [-1, -3, 2]) {
+    let y = (await audio.from([x.slice()], { sampleRate: sr }).pitch(st, { voice: true }).read())[0]
+    t.ok(seams(y, st) <= 1, `${st} st: ${seams(y, st)} seams over ${(frames.length * 110 / sr).toFixed(1)} voiced seconds`)
+  }
+  // a range, as the editor's pitch tool writes it: its middle, past the glides
+  let y = (await audio.from([x.slice()], { sampleRate: sr }).pitch(-1, { at: 2, duration: 4, voice: true }).read())[0]
+  t.ok(seams(y, -1, 2.2 * sr, 5.8 * sr) <= 1, `-1 st over 2 to 6 s: ${seams(y, -1, 2.2 * sr, 5.8 * sr)} seams`)
+  // blocks of 1024 against odd ones, the retuner alone
+  let run = sizes => {
+    let r = retuner(1, { semitones: -1, sampleRate: sr, rmin: 2 ** (-1 / 12) }), out = [], k = 0
+    for (let i = 0; i < x.length;) { let m = sizes[k++ % sizes.length]; out.push(...r.write([x.subarray(i, i += m)])[0]) }
+    return out.concat(...r.end()[0])
+  }
+  let a = run([1024]), b = run([17, 1000, 4096, 333])
+  t.ok(a.length === b.length && a.every((v, i) => v === b[i]), 'blocks of 1024 ≡ odd blocks')
 })
 
 // What a stretch makes of a range, to the sample, so an editor can draw it ahead: round(round(duration · sr) · factor)
@@ -6126,6 +6207,95 @@ test('align — a moved copy back to the sample, a remade part to its attacks', 
     t.is((await audio.from([x], { sampleRate: sr }).align(audio.from([z], { sampleRate: sr })).read())[0].length, n, `${name}: as it was`)
   let err = await audio.from([r], { sampleRate: sr }).align(3).read().catch(e => e)
   t.ok(/align: the reference is a sound/.test(err?.message), err?.message)
+})
+
+// Align's drift: a part played 3 % slower in another timbre, stretched back onto its original by its attacks; a copy on
+// a clock 100 ppm fast, read back at the original's rate, to the sample; a copy with no drift, its lag alone
+test('align — a part at another tempo stretched back, a copy on another clock read back at its rate', async t => {
+  let { drift, lag } = await import('../fn/align.js'), sr = 16000, n = 30 * sr, seed = 7
+  const noise = () => (seed = seed * 16807 % 2147483647) / 2147483647 - .5
+  // 90 notes at uneven times, `at(t)` where a note of time t lands
+  let times = Array.from({ length: 90 }, (_, k) => .2 + k * .31 + .08 * Math.sin(k * 5.3))
+  const notes = (at, wave, decay, len = n) => {
+    let x = new Float32Array(len)
+    times.forEach((t, k) => {
+      let t0 = Math.round(at(t) * sr), f = 220 * 2 ** ((k * 7 % 12) / 12)
+      for (let i = 0; i < .25 * sr && t0 + i < len; i++) x[t0 + i] += .5 * Math.exp(-i / (decay * sr)) * wave(2 * Math.PI * f * i / sr)
+    })
+    for (let i = 0; i < len; i++) x[i] += .003 * noise()
+    return x
+  }
+  let r = notes(t => t, Math.sin, .06), k = 1.03, pad = .4
+  let part = notes(t => k * t + pad, p => Math.sign(Math.sin(p)), .03, Math.round((k * 30 + pad) * sr))
+  let d = drift(part, r, sr)
+  t.ok(d && !d.shared && Math.abs(d.rho - 1 / k) * part.length < .002 * sr && Math.abs(d.b - pad * sr / k) < .002 * sr, `a part 3 % slower: ρ ${d?.rho.toFixed(6)} (${(1 / k).toFixed(6)}), b ${d?.b.toFixed(0)} (${(pad * sr / k).toFixed(0)})`)
+  let y = (await audio.from([part], { sampleRate: sr }).align(audio.from([r], { sampleRate: sr })).read())[0]
+  t.ok(Math.abs(y.length - (part.length / k - pad * sr / k)) < .003 * sr, `stretched back: ${y.length} samples, ${Math.round(part.length / k - pad * sr / k)} expected`)
+  // a copy whose clock runs 100 ppm fast, 0.3 s late: its rate and lag to the sample
+  let copy = await audio.from([r], { sampleRate: sr }).speed(1 / 1.0001, { type: 'sinc' }).pad(.3, 0).read()
+  d = drift(copy[0], r, sr)
+  t.ok(d?.shared && Math.abs(d.rho - 1 / 1.0001) * n < 1 && Math.abs(d.b - .3 * sr / 1.0001) < 1, `a copy 100 ppm off: ρ ${d?.rho.toFixed(7)}, b ${d?.b.toFixed(2)} (${(.3 * sr / 1.0001).toFixed(2)})`)
+  y = (await audio.from(copy, { sampleRate: sr }).align(audio.from([r], { sampleRate: sr })).read())[0]
+  let e = 0, s = 0
+  for (let i = sr; i < n - sr; i++) e += (y[i] - r[i]) ** 2, s += r[i] ** 2
+  // the lag cut to the sample: 0.4 of one off here, 24 dB on these 220 to 415 Hz tones at 16 kHz
+  t.ok(Math.abs(y.length - n) <= 1 && 10 * Math.log10(s / e) > 20, `read back: ${y.length} samples (${n}), ${(10 * Math.log10(s / e)).toFixed(1)} dB from the original`)
+  // a copy that holds its lag: that lag, no rate
+  d = drift(Float32Array.from({ length: n + 1234 }, (_, i) => i < 1234 ? 0 : .5 * r[i - 1234]), r, sr)
+  t.ok(d?.shared && d.rho === 1 && d.b === 1234, `a copy 1234 samples late: ${JSON.stringify(d)}`)
+  // under LONG s or no drift asked: the lag alone
+  t.is(drift(part.subarray(0, 15 * sr), r.subarray(0, 15 * sr), sr), null, 'under 20 s: none looked for')
+  y = (await audio.from([part], { sampleRate: sr }).align(audio.from([r], { sampleRate: sr }), { drift: false }).read())[0]
+  t.is(part.length - y.length, lag(Float64Array.from(part), Float64Array.from(r), sr), 'drift: false, the lag alone')
+})
+
+// Recover: a voice cut at 4 kHz (resampled to 8 kHz and back) has the band above rebuilt from its harmonics, near
+// where the voice had it, nothing put under the cut; a voice with its band whole gets nothing
+test('recover — a band cut off rebuilt from the voice\'s harmonics, nothing under it; a whole band left alone', async t => {
+  let { ltas, cutoffOf } = await import('../fn/recover.js'), sr = 48000
+  // a voice of harmonics falling 9 dB an octave, its pitch swaying, half a second of breath's noise after it, falling 3
+  let seed = 3, rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647 - .5, ph = 0
+  let x = Float32Array.from({ length: 2.5 * sr }, (_, i) => {
+    let s = i / sr, f0 = 120 + 15 * Math.sin(2 * Math.PI * 4 * s), v = 0
+    ph += 2 * Math.PI * f0 / sr
+    if (s < 2) for (let h = 1; h * f0 < 20000; h++) v += .05 * (h * f0 / 120) ** (-1.5) * Math.sin(h * ph)
+    return v + (s < 2 ? .002 : .02) * rnd()
+  }), from = v => audio.from([v], { sampleRate: sr })
+  let cut = (await from(x).resample(8000, { type: 'sinc' }).resample(sr, { type: 'sinc' }).read())[0].slice(0, x.length)
+  let band = (v, lo, hi) => { let l = ltas(v, sr), bin = sr / 2 / (l.length - 1), p = 0; for (let k = Math.round(lo / bin); k < hi / bin; k++) p += 10 ** (l[k] / 10); return 10 * Math.log10(p) }
+  let edge = cutoffOf(ltas(cut, sr), sr)
+  t.ok(edge > 3400 && edge < 4000, `the cut found at ${edge?.toFixed(0)} Hz`)
+  let y = (await from(cut).recover().read())[0], d = y.map((v, i) => v - cut[i])
+  for (let [lo, hi] of [[4500, 6000], [6000, 9000]]) {
+    let was = band(x, lo, hi), now = band(y, lo, hi), cutb = band(cut, lo, hi)
+    t.ok(Math.abs(now - was) < 6 && now - cutb > 30, `${lo}–${hi} Hz: ${now.toFixed(1)} dB, the voice's ${was.toFixed(1)}, the cut's ${cutb.toFixed(1)}`)
+  }
+  t.ok(band(d, 50, 3000) < band(d, 4000, 20000) - 50, `under the cut: ${(band(d, 50, 3000) - band(d, 4000, 20000)).toFixed(1)} dB under what it adds`)
+  let streamed = []
+  for await (let b of from(cut).recover().stream()) streamed.push(...b[0])
+  t.ok(streamed.length === y.length && streamed.every((v, i) => Math.abs(v - y[i]) < 1e-6), 'streamed as read')
+  let whole = (await from(x).recover().read())[0]
+  t.ok(whole.every((v, i) => v === x[i]), 'a band whole: sample for sample')
+  // a cutoff given: from there, where the input lacks the band; a whole one lacks next to nothing
+  let given = (await from(cut).recover({ cutoff: 3000 }).read())[0], over = (await from(x).recover({ cutoff: 4000 }).read())[0].map((v, i) => v - x[i])
+  t.ok(Math.abs(band(given, 4500, 9000) - band(y, 4500, 9000)) < 3, `cut at 3 kHz: ${band(given, 4500, 9000).toFixed(1)} dB over 4.5–9 kHz, found: ${band(y, 4500, 9000).toFixed(1)}`)
+  t.ok(band(over, 4000, 20000) < band(x, 4000, 20000) - 20, `a whole band: ${(band(over, 4000, 20000) - band(x, 4000, 20000)).toFixed(1)} dB under it added`)
+  // nothing to read, or less than a frame: as it was
+  for (let v of [new Float32Array(0), cut.slice(0, 100), new Float32Array(sr)]) {
+    let z = (await from(v).recover({ cutoff: 4000 }).read())[0]
+    t.ok(z.length === v.length && z.every((s, i) => s === v[i]), `${v.length} samples${v.length === sr ? ' of silence' : ''}: as it was`)
+  }
+  // the same edit after its input changed (A, then B, then A again): made anew each time, each as a fresh one's
+  let a = from(cut).recover(), first = (await a.read())[0]
+  a.edits.unshift(['gain', { value: -6 }])
+  a.version++
+  let quieter = (await a.read())[0], fresh = (await from(cut).gain(-6).recover().read())[0]
+  t.ok(quieter.every((v, i) => Math.abs(v - fresh[i]) < 1e-6), 'its input 6 dB down: as one made on it')
+  a.edits.shift()
+  a.version++
+  t.ok((await a.read())[0].every((v, i) => v === first[i]), 'and back: as at first')
+  let err = await from(x).recover({ cutoff: -1 }).read().catch(e => e)
+  t.ok(/recover: cutoff is Hz/.test(err?.message), err?.message)
 })
 
 test('dither — quantizes to target bit depth', async t => {
@@ -6631,6 +6801,24 @@ test('boundary — evicted pages restored during streaming', async t => {
   let maxDiff = 0
   for (let i = 0; i < streamBuf.length; i++) maxDiff = Math.max(maxDiff, Math.abs(streamBuf[i] - flat[0][i]))
   t.ok(maxDiff < 0.01, `restored pages stream correctly (max diff ${maxDiff.toFixed(4)})`)
+})
+
+// Pages let go of while a stream runs (another reader's eviction, a store set up only after the stream began) come back
+// as it reaches them, never read as silence: a sound's own, and a copy's through an edit
+test('boundary — pages evicted mid-stream are restored as the stream reaches them', async t => {
+  let x = Float32Array.from({ length: PAGE_SIZE * 3 }, (_, i) => .1 + .8 * i / (PAGE_SIZE * 3))
+  let a = await audio([x], { cache: mockCache() })
+  for (let s of [a, a.clone().gain(0)]) {
+    let got = [], gone = 0
+    for await (let [b] of s.stream()) {
+      got.push(b)
+      if (got.length === 1) { s.budget = 0; await audio.evict(s); s.budget = Infinity; gone = s.pages.filter(p => p === null).length }
+    }
+    let y = new Float32Array(got.reduce((n, b) => n + b.length, 0)), at = 0
+    for (let b of got) { y.set(b, at); at += b.length }
+    t.is(gone, 3, 'every page let go of after the first block')
+    t.ok(y.length === x.length && y.every((v, i) => Math.abs(v - x[i]) < 1e-6), `${s === a ? 'its samples' : 'a copy through an edit'}, every one`)
+  }
 })
 
 

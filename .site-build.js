@@ -72,7 +72,7 @@ const named = [...new Set([...Object.values(audio.plugins), ...Object.keys(peerD
 // The editor's engine worker: the library with every plugin and codec as a chunk that loads on first use.
 // Workers have no import maps, so no bare import is left for the browser to resolve.
 await build({
-  entryPoints: { worker: 'playground/worker.js' },
+  entryPoints: { worker: 'playground/worker.js', jobs: 'playground/jobs.js' },
   outdir: 'playground/dist',
   chunkNames: 'chunks/[name]-[hash]',
   bundle: true,

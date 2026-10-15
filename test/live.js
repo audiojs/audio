@@ -25,6 +25,12 @@ await check('playground opens its sound, measured', async page => {
   await page.goto(base + 'playground.html')
   await page.locator('.readout', { hasText: 'LUFS' }).waitFor({ timeout: 60000 })
 })
+// GitHub Pages sends no COOP or COEP: sw.js adds them, so a model's wasm runs on threads
+await check('playground cross-origin isolated', async page => {
+  await page.goto(base + 'playground.html')
+  await page.waitForFunction(() => crossOriginIsolated, null, { timeout: 30000 })
+  await page.locator('.readout', { hasText: 'LUFS' }).waitFor({ timeout: 60000 })
+})
 await check('editor.html still leads to the playground', async page => {
   await page.goto(base + 'editor.html#code=x')
   await page.waitForURL(/playground\.html/, { timeout: 30000 })

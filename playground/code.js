@@ -21,19 +21,52 @@ export function error(code) {
 
 // Tracks: sounds side by side in time, each its own chain, played together, as a multitrack editor's. A script has
 // them where two or more of its statements declare a sound (soundsOf) that nothing else reads, the last of them its last
-// statement: [{ name, statement }] in order; else none, and its output is its last value. A sound another reads (a mix's
-// source, a noise print, a reference, the sound tracks copy) feeds that one: no track of its own.
-let tracked = { code: null, list: [] }
+// statement, or a master after them: [{ name, statement }] in order; else none, and its output is its last value. A
+// sound another reads (a mix's source, a noise print, the sound tracks copy) feeds that one: no track of its own; one
+// read as a sidechain's key (`ducker({ key: voice })`) is still heard, a track.
+// A master: the last statement a copy of one track with each other mixed into it, then steps of its own, which the sum
+// goes through (`voice.clone().mix(bed).normalize('podcast')`, a mix bus's chain): the output is its value, each track
+// heard in it as its lane shows it. master(code): { name, statement, expr, names, head, mixes }, `names` the tracks it
+// mixes, `head` the node that makes their mix (its own steps follow it), `mixes` its mix() calls; or null
+let tracked = { code: null, list: [], master: null }
 export function tracks(code) {
   if (tracked.code === code) return tracked.list
-  const tree = parse(code), list = statements(tree), read = new Set(), found = []
-  tree.iterate({ enter: ref => {
-    if (ref.name === 'VariableName') read.add(text(code, ref))
-    // `{ noise }` reads noise
-    else if (ref.name === 'Property' && ref.node.firstChild?.name === 'PropertyDefinition' && !ref.node.firstChild.nextSibling) read.add(text(code, ref))
-  } })
-  for (const [name, d] of soundsOf(code)) if (!read.has(name)) found.push({ name, statement: d.statement })
-  return (tracked = { code, list: found.length > 1 && found.at(-1).statement.from === list.at(-1).from ? found : [] }).list
+  const tree = parse(code), list = statements(tree), m = mixing(code, list.at(-1))
+  // the sounds nothing reads, but as a key, or as `m` mixes them
+  const unread = m => {
+    const read = new Set()
+    tree.iterate({ enter: ref => {
+      if (ref.name === 'VariableName') { if (!keyed(code, ref.node) && !m?.reads.includes(ref.from)) read.add(text(code, ref)) }
+      // `{ noise }` reads noise
+      else if (ref.name === 'Property' && ref.node.firstChild?.name === 'PropertyDefinition' && !ref.node.firstChild.nextSibling) read.add(text(code, ref))
+    } })
+    return [...soundsOf(code)].filter(([name]) => !read.has(name)).map(([name, d]) => ({ name, statement: d.statement }))
+  }
+  let found = m ? unread(m) : [], master = found.length > 1 && found.length === m.names.length && found.every(t => m.names.includes(t.name)) ? m : null
+  if (!master) found = unread(null)
+  const ok = found.length > 1 && (master || found.at(-1).statement.from === list.at(-1).from)
+  tracked = { code, list: ok ? found : [], master: ok && master ? { ...master, name: unused(code, 'master') } : null }
+  return tracked.list
+}
+export const master = code => (tracks(code), tracked.master)
+// A name read as a key's value, or a copy of it: `{ key: voice }`, `{ key: voice.clone() }`
+function keyed(code, node) {
+  const copy = node.parent?.name === 'MemberExpression' && node.parent.parent?.name === 'CallExpression' && copyOf(code, node) ? node.parent.parent : node, p = copy.parent
+  return p?.name === 'Property' && p.firstChild?.name === 'PropertyDefinition' && text(code, p.firstChild) === 'key' && p.lastChild?.from === copy.from && p.lastChild?.to === copy.to
+}
+// The last statement as a master would be: `a.clone()` and `.mix(b)` calls on it, each of a name, two names or more,
+// all of declared sounds, none twice; its other steps after them. { statement, expr, names, reads, head, mixes } or null
+function mixing(code, last) {
+  if (last?.name !== 'ExpressionStatement') return null
+  const expr = last.firstChild, { root, calls } = walk(code, expr), known = soundsOf(code)
+  if (root?.name !== 'VariableName' || calls[0]?.name !== 'clone' || calls[0].args.length) return null
+  let k = 1
+  while (calls[k]?.name === 'mix' && calls[k].args.length === 1 && /^[A-Za-z_$][\w$]*$/.test(text(code, calls[k].args[0]))) k++
+  const mixes = calls.slice(1, k), names = [text(code, root), ...mixes.map(c => text(code, c.args[0]))]
+  if (!mixes.length || new Set(names).size < names.length || !names.every(n => known.has(n))) return null
+  let head = expr
+  while (head.to !== mixes.at(-1).to) head = head.firstChild.firstChild
+  return { statement: last, expr, names, reads: [root.from, ...mixes.map(c => c.args[0].from)], head, mixes }
 }
 // The sounds a script declares, by name, in order: Map name → { statement, expr, base }. A sound is a chain from
 // audio(…) or audio.from(…), awaited or not, or from a copy of a sound declared before it (`take.clone()…`, `base` its
@@ -90,8 +123,10 @@ export function prepare(code) {
       if (node.name === 'CallExpression' && isAudio(code, node)) for (const s of sourcesOf(node)) names.add(unquote(text(code, s)))
     }
   })
-  const last = statements(tree).at(-1), list = tracks(code)
-  if (list.length) at(last.to, `;return __out({ ${list.map(t => t.name).join(', ')} }, true)`)
+  const last = statements(tree).at(-1), list = tracks(code), m = master(code)
+  // a master's value too, by its name
+  if (m) { at(m.expr.from, `return __out({ ${list.map(t => t.name).join(', ')} }, true, { name: ${JSON.stringify(m.name)}, value: `); at(m.expr.to, ' })') }
+  else if (list.length) at(last.to, `;return __out({ ${list.map(t => t.name).join(', ')} }, true)`)
   else if (last?.name === 'ExpressionStatement') {
     const expr = last.firstChild
     at(expr.from, 'return __out(')
@@ -170,7 +205,7 @@ const isCurve = v => v?.constructor === Object && Object.keys(v).length === 2 &&
 // steps turned off are before it), `root` the first part's, `calls` all of theirs in order, the copies' clone() left out:
 // [{ name, dot, from, to, list, args, part, prev }], `prev` where what goes before it in its statement ends; or null.
 export function chain(code) {
-  const tree = parse(code), list = statements(tree), own = focused && tracks(code).find(t => t.name === focused)
+  const tree = parse(code), list = statements(tree), m = master(code), own = focused && (tracks(code).find(t => t.name === focused) ?? (m?.name === focused ? m : null))
   const last = own ? own.statement : list.at(-1)
   if (!last) return null
   let expr = last.name === 'ExpressionStatement' ? last.firstChild
@@ -179,7 +214,12 @@ export function chain(code) {
   if (expr.name === 'AwaitExpression') expr = expr.lastChild
   const declared = last.name === 'VariableDeclaration' ? text(code, last.getChildren('VariableDefinition').at(-1)) : null
   const parts = [], known = soundsOf(code), endOf = s => list.find(x => x.from > s.from)?.from ?? code.length
-  for (let p = { statement: last, expr, name: declared }; p; ) {
+  // a master's own steps follow the mix it makes
+  if (m && last.from === m.statement.from) {
+    const calls = walk(code, expr).calls.slice(m.mixes.length + 1)
+    parts.push({ statement: last, expr, name: null, root: m.head, calls, head: m.head.to, end: endOf(last) })
+  }
+  for (let p = parts.length ? null : { statement: last, expr, name: declared }; p; ) {
     const { root, calls } = walk(code, p.expr), base = known.get(p.name)?.base, copy = base != null && calls[0]?.name === 'clone'
     parts.unshift({ ...p, root, calls: copy ? calls.slice(1) : calls, head: copy ? calls[0].to : root.to, end: endOf(p.statement) })
     p = copy && parts.length < 64 ? { statement: known.get(base).statement, expr: known.get(base).expr, name: base } : null
@@ -524,13 +564,19 @@ export function rename(code, names) {
 // stands (its steps shared, parted), cropped to the range and put back at its time by silence before it (pad); silence
 // where it was (gain −∞ dB), so the two sound as the one did, and each is edited on its own. `at` and `d` as the script
 // writes them
-export const toTrack = (code, { at, d }) => parted(code, name => name.replace(/\d+$/, '') || name,
-  `gain(-Infinity, { at: ${at}, d: ${d} })`, [`crop({ at: ${at}, d: ${d} })`, ...+at > 0 ? [`pad(${at}, 0)`] : []])
+export const toTrack = (code, { at, d }) => parted(code, `gain(-Infinity, { at: ${at}, d: ${d} })`,
+  [[name => name.replace(/\d+$/, '') || name, `crop({ at: ${at}, d: ${d} })`, ...+at > 0 ? [`pad(${at}, 0)`] : []]])
 // The voice of the track the page edits to a track of its own under it, `voice`, by a separation model (vocals(): Kim's
 // Mel-Band RoFormer, on the GPU where there is one); the rest left here, the model's voice taken out, so the two sound as
 // the one did. Both read one run of the model (core.js memo)
-export const voiceTrack = (code, model = 'mel-roformer') => parted(code, () => 'voice',
-  `vocals('remove', { model: '${model}' })`, [`vocals({ model: '${model}' })`])
+export const voiceTrack = (code, model = 'mel-roformer') => parted(code, `vocals('remove', { model: '${model}' })`,
+  [[() => 'voice', `vocals({ model: '${model}' })`]])
+// A song's four stems to four tracks, by SCNet-large (rebalance()): the voice, the bass and the drums each a track of its
+// own under it, alone (the residual muted too); the rest left here, with what the model gives no stem, so the four sound
+// as the one did. All four read one run of the model (core.js memo)
+const SOLO = (k, rest = ', { residual: -Infinity }') => `rebalance(${[0, 1, 2, 3].map(i => i === k ? 0 : '-Infinity').join(', ')}${rest})`
+export const stemTracks = code => parted(code, 'rebalance(-Infinity, -Infinity, -Infinity)',
+  ['voice', 'bass', 'drums'].map((n, k) => [() => n, SOLO(k)]))
 // Track `name`'s sound written out on one line, its steps turned off left out: what another track takes as a reference
 // (align(), match()) without reading its name, which would take that track away (tracks are the sounds nothing reads);
 // null for no track of that name
@@ -543,11 +589,12 @@ export function soundOf(code, name) {
   parse(code).iterate({ from: expr.from, to: expr.to, enter: ref => { if (quiet(ref) && ref.from >= expr.from && ref.to <= expr.to) out = out.slice(0, ref.from - expr.from) + blank(text(code, ref)) + out.slice(ref.to - expr.from) } })
   return out.replace(/\s*\n\s*/g, '').replace(/\)\s+\./g, ').')
 }
-// The track the page edits in two parts that sound as it did: `here` appended to it, and under it a track of its own,
-// named by `base` of its name, from what it was with the calls `there` appended. The steps it had of its own, on or off,
-// are both parts' then, written once: its sound so far declared apart, `${name}Take`, each part a copy of it (clone());
-// with none, each starts from where it does (the file, or the sound it copies)
-function parted(code, base, here, there) {
+// The track the page edits in parts that sound as it did: `here` appended to it, and under it, for each of `there`, [base,
+// ...calls], a track of its own, named by `base` of its name, from what it was with those calls appended; { code, name },
+// the first of them. The steps it had of its own, on or off, are every part's then, written once: its sound so far
+// declared apart, `${name}Take`, each part a copy of it (clone()); with none, each starts from where it does (the file,
+// or the sound it copies)
+function parted(code, here, there) {
   const own = declaredTrack(code)
   if (!own) return null
   let text = own.code, c = chain(text)
@@ -556,31 +603,73 @@ function parted(code, base, here, there) {
     text = placed(put(text, { from: def.from, to: def.to, insert: take }), c.end + take.length - (def.to - def.from), `let ${own.name} = ${take}.clone()`)
     c = chain(text)
   }
-  const name = unused(text, base(own.name))
-  let piece = `let ${name} = ${text.slice(c.expr.from, c.expr.to)}`
-  for (const call of there) piece = put(piece, append(piece, call))
-  const left = put(text, append(text, here))
-  return { code: placed(left, chain(left).end, piece), name }
+  const sound = text.slice(c.expr.from, c.expr.to), names = []
+  let out = put(text, append(text, here)), end = chain(out).end
+  for (const [base, ...calls] of there) {
+    const name = unused(out, base(own.name))
+    let piece = `let ${name} = ${sound}`
+    for (const call of calls) piece = put(piece, append(piece, call))
+    const at = out.slice(0, end).trimEnd().length + 2
+    out = placed(out, end, piece)
+    end = at + piece.length
+    names.push(name)
+  }
+  return { code: remix(out, names), name: names[0] }
 }
 // A sound, `sound` as written (audio('b.wav')), a track of its own under the one the page edits, named for its `file`
 export function addTrack(code, sound, file) {
-  const own = declaredTrack(code)
-  if (!own) return null
-  const name = unused(own.code, identifier(file))
-  return { code: placed(own.code, chain(own.code).end, `let ${name} = ${sound}`), name }
+  const own = declaredTrack(code), m = master(code)
+  if (!own && !m) return null
+  // where a master is, before it, and mixed into it
+  const text = own?.code ?? code, name = unused(text, identifier(file)), end = m ? mixing(text, statements(parse(text)).at(-1)).statement.from : chain(text).end
+  return { code: remix(placed(text, end, `let ${name} = ${sound}`), [name]), name }
+}
+// A master after the tracks: `first` a copy, each other track mixed into it; { code, name }, or null where the script
+// has a master, or no tracks
+export function addMaster(code, first) {
+  const names = tracks(code).map(t => t.name)
+  if (names.length < 2 || master(code) || !names.includes(first)) return null
+  const out = placed(code, code.length, `${first}.clone()${names.filter(n => n !== first).map(n => `.mix(${n})`).join('')}`)
+  return { code: out, name: master(out)?.name }
+}
+// A master (mixing) mixing `names` too, after the tracks it mixes; the script as it is where it has none
+function remix(code, names) {
+  const m = mixing(code, statements(parse(code)).at(-1)), at = m?.mixes.at(-1).to
+  return m ? code.slice(0, at) + names.filter(n => !m.names.includes(n)).map(n => `.mix(${n})`).join('') + code.slice(at) : code
 }
 // The change that takes track `name` away: its statement, its steps turned off with it, the blank lines before it. A
 // sound it copied that one copy alone reads then goes into that copy, as it was before the two parted (rejoin)
 export function dropTrack(code, name) {
-  const list = statements(parse(code)), t = tracks(code).find(t => t.name === name)
-  if (!t) return null
-  const next = list.find(s => s.from > t.statement.from), known = soundsOf(code)
-  let from = t.statement.from
-  while (from > 0 && /\s/.test(code[from - 1])) from--
-  const change = { from, to: next ? next.from : code.length, insert: next && from ? '\n\n' : '' }
-  let out = put(code, change)
+  const m = master(code), known = soundsOf(code)
+  if (m?.name !== name && !tracks(code).some(t => t.name === name)) return null
+  // the master's mix of it and the steps keyed on it out first, then its statement
+  const out0 = m?.name === name ? code : unmix(unkey(code, name), name), list = statements(parse(out0))
+  const statement = m?.name === name ? list.at(-1) : soundsOf(out0).get(name).statement, next = list.find(s => s.from > statement.from)
+  let from = statement.from
+  while (from > 0 && /\s/.test(out0[from - 1])) from--
+  let out = put(out0, { from, to: next ? next.from : out0.length, insert: next && from ? '\n\n' : '' })
   for (let b = known.get(name)?.base; b != null; b = known.get(b)?.base) out = rejoin(out, b)
   return between(code, out)
+}
+// The script without the steps keyed on `name` (`ducker({ key: name })`): a sidechain with nothing to hear
+function unkey(code, name) {
+  const cut = []
+  parse(code).iterate({ enter: ref => {
+    if (ref.name !== 'VariableName' || text(code, ref) !== name || !keyed(code, ref.node)) return
+    let call = ref.node.parent
+    while (call && call.name !== 'Property') call = call.parent
+    while (call && call.name !== 'CallExpression') call = call.parent
+    const dot = call?.firstChild?.name === 'MemberExpression' && children(call.firstChild).find(c => c.name === '.')
+    if (dot) cut.push(piece(code, { from: dot.from, to: call.to }))
+  } })
+  return cut.sort((p, q) => q.from - p.from).reduce((out, c) => out.slice(0, c.from) + out.slice(c.to), code)
+}
+// The script's master without track `name`: its mix() of it out, or where it copies it, the next it mixes copied instead
+function unmix(code, name) {
+  const m = mixing(code, statements(parse(code)).at(-1)), i = m?.names.indexOf(name) ?? -1
+  if (i < 0) return code
+  if (i) return code.slice(0, m.mixes[i - 1].dot) + code.slice(m.mixes[i - 1].to)
+  return code.slice(0, m.expr.from) + `${m.names[1]}.clone()` + code.slice(m.mixes[0].to)
 }
 // The script with sound `name` written into the one copy of it (`name.clone()…`) where that copy is all that reads it:
 // the steps it holds, and those it holds turned off, the copy's first, the copy's name kept; else as it is
@@ -606,7 +695,7 @@ export function between(a, b) {
 // its file; { code, name }, or null where it is no sound of its own
 function declaredTrack(code) {
   const c = chain(code)
-  if (!c || !sounds(code, c.expr, soundsOf(code))) return null
+  if (!c || c.statement.from === master(code)?.statement.from || !sounds(code, c.expr, soundsOf(code))) return null
   if (c.statement.name === 'VariableDeclaration') return c.statement.getChildren('VariableDefinition').length === 1 ? { code, name: c.declared } : null
   if (c.statement.name !== 'ExpressionStatement') return null
   const name = unused(code, identifier(source(code)?.strings[0]?.name))
