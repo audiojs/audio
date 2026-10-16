@@ -1,9 +1,5 @@
-export const CURVES = {
-  linear: t => t,
-  exp: t => t * t,
-  log: t => Math.sqrt(t),
-  cos: t => (1 - Math.cos(t * Math.PI)) / 2
-}
+import { FADES as CURVES } from './curves.js'
+export { CURVES }
 
 const fade = (input, output, ctx) => {
   let dur = ctx.in

@@ -40,28 +40,38 @@ await build({
   legalComments: 'linked'
 })
 
-// The editor's code pane: CodeMirror with the JavaScript language, one module.
+// The editor's code pane: CodeMirror with the JavaScript language, which the page loads once it shows (script.js); and
+// the parser alone, which reads the scripts from the first (code.js). The two share the parser's chunk.
+const entries = {
+  codemirror: `
+    export { EditorState, StateField, StateEffect, Transaction } from '@codemirror/state'
+    export { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection, dropCursor, showTooltip, tooltips } from '@codemirror/view'
+    export { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory, undo, redo, undoDepth, redoDepth } from '@codemirror/commands'
+    export { javascript, localCompletionSource, scopeCompletionSource } from '@codemirror/lang-javascript'
+    export { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
+    export { syntaxHighlighting, HighlightStyle, bracketMatching, indentOnInput, syntaxTree } from '@codemirror/language'
+    export { setDiagnostics } from '@codemirror/lint'
+    export { highlightSelectionMatches } from '@codemirror/search'
+    export { tags } from '@lezer/highlight'`,
+  lezer: `export { parser } from '@lezer/javascript'`
+}
 await build({
-  stdin: {
-    contents: `
-      export { EditorState, StateField, StateEffect, Transaction } from '@codemirror/state'
-      export { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection, dropCursor, showTooltip, tooltips } from '@codemirror/view'
-      export { defaultKeymap, history, historyKeymap, indentWithTab, undo, redo, undoDepth, redoDepth } from '@codemirror/commands'
-      export { javascript, localCompletionSource, scopeCompletionSource } from '@codemirror/lang-javascript'
-      export { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
-      export { syntaxHighlighting, HighlightStyle, bracketMatching, indentOnInput, syntaxTree } from '@codemirror/language'
-      export { setDiagnostics } from '@codemirror/lint'
-      export { highlightSelectionMatches } from '@codemirror/search'
-      export { tags } from '@lezer/highlight'
-      export { parser } from '@lezer/javascript'`,
-    resolveDir: '.',
-    sourcefile: 'codemirror.js'
-  },
-  outfile: 'assets/codemirror.js',
+  entryPoints: Object.keys(entries).map(name => ({ in: `entry:${name}`, out: name })),
+  outdir: 'assets',
+  // one chunk, the one both read: its name kept, as assets/ is committed
+  chunkNames: 'lezer-[name]',
   bundle: true,
+  splitting: true,
   minify: true,
   format: 'esm',
-  legalComments: 'eof'
+  legalComments: 'eof',
+  plugins: [{
+    name: 'entries',
+    setup(build) {
+      build.onResolve({ filter: /^entry:/ }, args => ({ path: args.path.slice(6), namespace: 'entry' }))
+      build.onLoad({ filter: /.*/, namespace: 'entry' }, args => ({ contents: entries[args.path], resolveDir: '.' }))
+    }
+  }]
 })
 
 // What the library loads by name (audio.import): each registry plugin, and the optional packages its own ops load on

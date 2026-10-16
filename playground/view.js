@@ -50,8 +50,9 @@ import centre, { hue, temperature, colormap, inked, lightness } from './tint.js'
 // What a drag does as it goes, what a handle or an edge does, is said by the pointer in the page's hints (`hint`,
 // hint.js); a pitch, an intonation or formants dragged are heard as they will sound, from where they start (`onaudition`).
 // The view never changes audio: edits go to the script through `onedit`.
-// GAP between lanes is 2 px, as between the pictures and the meters. GUTTER holds the axis labels, the widest a
-// frequency's (22.05k); STICK, how near a dragged time goes onto a cue or a marker
+// GAP between lanes is 2 px, as between the pictures and the meters. GUTTER holds the axis labels at most, the widest a
+// frequency's (22.05k); the axis is as wide as the labels it has (axisWidth). STICK, how near a dragged time goes onto a
+// cue or a marker
 const GUTTER = 40, RULER = 22, GAP = 2, EDGE = 6, SNAP = 6, STICK = 3, INSET = 3
 // A track's band, with tracks: its head (HEAD px, its name and its mute) over its lane, the bands APART px apart, so a
 // track never reads as a channel (channels are lanes GAP apart, no head)
@@ -110,7 +111,7 @@ const GAIN = [-36, 12]                        // the gain line's scale, dB: the 
                                               // three quarters of the way out, so a boost shows above it
 const GLIDE = .3                               // a playhead past the view's middle is drawn to it in this time constant, s
 
-export default function view(root, { onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onaudition = () => {}, onfocus = () => {}, onmute = () => {}, onsamples = null, hint = null } = {}) {
+export default function view(root, { onaxis = () => {}, onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onaudition = () => {}, onfocus = () => {}, onmute = () => {}, onsamples = null, hint = null } = {}) {
   const layer = name => root.appendChild(Object.assign(document.createElement('canvas'), { className: name }))
   // the selection under the pictures, as a selection is behind text: the sound drawn over it, a quiet spectrogram's
   // clear ground showing it; the grid between the pictures: over the spectrogram, under the waveform
@@ -271,8 +272,9 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // strip of its own under it (MAP)
   let scroll = 'bar'
 
-  // Geometry, in CSS pixels
-  const plot = () => ({ w: Math.max(1, W - GUTTER), h: Math.max(1, H - RULER - (scroll === 'overview' ? MAP : 0)) })
+  // Geometry, in CSS pixels; `gutter`, the axis' width at the right (fitAxis)
+  let gutter = GUTTER
+  const plot = () => ({ w: Math.max(1, W - gutter), h: Math.max(1, H - RULER - (scroll === 'overview' ? MAP : 0)) })
   const merged = () => !tracks && display === 'wave' && waveLook.lanes === 'one'
   function lanes() {
     const { w, h } = plot(), n = merged() ? 1 : Math.max(1, count), head = tracks ? HEAD : 0, gap = tracks ? APART : GAP
@@ -380,11 +382,11 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // and its scale stay: a panel opening beside it, or the window narrowing, shows less of the sound, never squeezes it.
   function resize() {
     const r = root.getBoundingClientRect(), d = devicePixelRatio || 1, cw = Math.round(r.width * d), ch = Math.round(r.height * d), was = plot().w
-    const all = duration && W <= GUTTER + 1 && start <= 0 && Math.abs(end - duration) < 1e-9
+    const all = duration && W <= gutter + 1 && start <= 0 && Math.abs(end - duration) < 1e-9
     W = r.width; H = r.height; dpr = d
     // a sound fitted before the view had a width, fitted once it has one
-    if (all && W > GUTTER + 1) fitTo(0, duration)
-    else if (duration && W > GUTTER + 1 && was > 1 && plot().w !== was) setRange(start, start + (end - start) / was * plot().w)
+    if (all && W > gutter + 1) fitTo(0, duration)
+    else if (duration && W > gutter + 1 && was > 1 && plot().w !== was) setRange(start, start + (end - start) / was * plot().w)
     for (const canvas of [selectCanvas, specCanvas, gridCanvas, waveCanvas, overlay, ruling, solid]) if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch }
     cancelAnimationFrame(frame)
     frame = 0; pictures = true
@@ -471,6 +473,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   function render() {
     frame = 0
     if (moving) moveOn()
+    fitAxis()
     const L = lanes(), from = start * rate, to = end * rate
     light(recording || data.length || windows || arriving?.length ? arriving?.dim ? 'dim' : 'full' : 'none')
     // the grid ruled anew (a zoom, the level axis' units) draws the pictures again, as it is cut by the waveform drawn
@@ -799,7 +802,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   // its last moment, and a caret or cue there, clear of the meters and the labels; the time there (seenTo); [a, b] shown
   // across them (fitTo)
   const TAIL = 4
-  const reach = () => W > GUTTER + 1 ? Math.max(.5, (lanesEnd(lanes()) - TAIL) / plot().w) : 1
+  const reach = () => W > gutter + 1 ? Math.max(.5, (lanesEnd(lanes()) - TAIL) / plot().w) : 1
   const seenTo = () => start + (end - start) * reach()
   const fitTo = (a, b) => setRange(a, a + (b - a) / reach())
   let ends = null
@@ -928,6 +931,8 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       c.fillRect(bar, Math.round(ay(rect, m.hold)), 3, 1)
       c.fillRect(bar, Math.round(ay(rect, m.hold, -1)) - 1, 3, 1)
     })
+    // the spectrum read only where a spectrogram's lane draws it (the editor's meters read it as they are drawn)
+    if (!L.spec.length) return
     const bins = meters.spectra, size = meters.size, left = w - METER - 2
     if (!bins) return
     L.spec.forEach((rect, i) => {
@@ -1040,13 +1045,39 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       c.fillText(text, w + 1, ty + size() - 1)
     }
   }
+  // The axis as wide as its labels, a pixel before them and 3 px after, GUTTER at most: the levels' in either unit and
+  // the spectrogram's frequencies', as they are zoomed now, whatever shows, so nothing moves where the pictures end as
+  // one picture or unit turns to the other. A phone's waveform, its labels four characters (−0.5), took a gutter sized
+  // for six (22.05k)
+  function axisWidth() {
+    const [lo, hi] = [scales[scale].low, rate / 2], hz = [scales[scale].of(fview[0], lo, hi), ...marks(true)].map(hertz), lane = [0, 0, 1, 1e4]
+    const texts = [...levelMarks(lane, 'linear'), ...levelMarks(lane, 'db')].map(m => m[1]).concat(hz)
+    c.font = label()
+    return Math.min(GUTTER, Math.ceil(Math.max(TICK, ...texts.map(t => c.measureText(t).width))) + 4)
+  }
+  // The axis' width as its labels change it (what places them changed: `fitted`): the pictures drawn again to the new
+  // width, all of the sound still shown where all of it was, else the view keeping where it starts and its scale, as a
+  // panel opening beside it leaves them (resize); the page told, the settings' button over the axis
+  let fitted = ''
+  function fitAxis() {
+    const key = [aview, fview, scale, rate, label()].join()
+    if (key === fitted) return
+    fitted = key
+    const g = axisWidth(), was = plot().w, all = duration && start <= 0 && Math.abs(seenTo() - duration) < 1e-9 * duration
+    onaxis(g)
+    if (g === gutter) return
+    gutter = g
+    pictures = true
+    if (all) fitTo(0, duration)
+    else if (duration && was > 1 && W > gutter + 1) setRange(start, start + (end - start) / was * plot().w)
+  }
   // Frequencies, no unit (the axis is plainly hertz): the lowest the lane shows first, at its foot; then the roundest
   const hzMarks = rect => { const [, y, , lh] = rect; return [[y + lh, hertz(yf(rect, y + lh))], ...marks().map(f => [fy(rect, f), hertz(f)])] }
   // Levels within the values a lane shows, the most telling first: as sample values, 0 and full scale, then 1-2-5 steps
   // of what shows; in dB, mirrored about 0 and clear of it, the halvings first, the top's 0 with its unit
-  function levelMarks(rect) {
+  function levelMarks(rect, units = levelUnits) {
     const [lo, hi] = aview, within = v => v >= lo - 1e-9 && v <= hi + 1e-9
-    if (levelUnits === 'linear') return [...new Set([0, 1, -1, ...multiples(lo, hi, valueStep())])].filter(within).map(v => [ay(rect, v), linear(v)])
+    if (units === 'linear') return [...new Set([0, 1, -1, ...multiples(lo, hi, valueStep())])].filter(within).map(v => [ay(rect, v), linear(v)])
     const zero = ay(rect, 0)
     return LEVELS.flatMap(db => [1, -1].map(sign => [sign * 10 ** (db / 20), db, sign])).filter(([v]) => within(v) && Math.abs(ay(rect, v) - zero) >= 16)
       .map(([v, db, sign]) => [ay(rect, v), db ? `${db > 0 ? '+' : '−'}${Math.abs(db)}` : sign > 0 ? '0dB' : '0'])
@@ -1079,9 +1110,9 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   }
   // Frequencies to mark, roundest first: the scale's own when all of it shows; zoomed in, the round values in view,
   // 1-2-5 per decade across a wide span, even steps across a narrow one
-  function marks() {
-    if (display === 'wave') return [1000, 500, 200, 100]
-    const [lo, hi] = freqs(), [fa, fb] = fview.map(u => scales[scale].of(u, lo, hi))
+  function marks(spec = display === 'spec') {
+    if (!spec) return [1000, 500, 200, 100]
+    const [lo, hi] = [scales[scale].low, rate / 2], [fa, fb] = fview.map(u => scales[scale].of(u, lo, hi))
     if (fview[1] - fview[0] > .999) return scales[scale].labels.filter(f => f >= lo && f <= hi)
     const within = f => f >= fa && f <= fb, out = []
     if (scale !== 'lin' && fb / fa > 3) {
@@ -1129,6 +1160,8 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
   function tag(text, px, py, align, fill = color('--color-screen-bright')) {
     const tw = c.measureText(text).width
     if (align === 'center') px = Math.max(tw / 2 + 3, Math.min(plot().w - tw / 2 - 3, px))
+    // the pointer's value on the axis, wider than its labels, kept whole within the picture
+    if (align === 'left') px = Math.min(px, W - tw - 3)
     const left = align === 'center' ? px - tw / 2 : px
     const lh = size() + 4
     c.fillStyle = color('--color-screen')
@@ -2070,7 +2103,11 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     drag.raw = [px, py]
     return drags(event, ...aimed(event, px, py))
   }
+  // A move draws the overlay alone (the selection, the caret, the handles are its own), the pictures again only where
+  // the move lays the output's pieces out anew: a selection dragged on a phone redrew every picture each move, the
+  // waveform, the spectrogram and the grid cut by the waveform, each a window-wide layer
   function drags(event, px, py) {
+    const was = pieces
     hovered = event.pointerType === 'touch' ? null : [px, py]
     drag.last = [event, px, py]
     // a drag draws what it does (the helpers, the picture as it will be): the pointer goes while it does, once it moves
@@ -2208,7 +2245,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       }
       else { select(drag.anchor, drag.hear, drag.keep ? band : null, !!drag.keep); anchor = drag.anchor; scrub(drag) }
     }
-    invalidate()
+    invalidate(pieces === was)
   }
   // A drag that takes the sound on past its end (audio moved, silence opened or added, a stretch), out at the picture's
   // right edge with what it moves (`reach`, the time it takes it to): the view widens to show where it reaches, a frame
@@ -2416,7 +2453,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // the caret at its start, as a text's
     if (selection) cursor = selection[0]
     told()
-    invalidate()
+    invalidate(true)
   }
   const told = () => onselect(selection, band, ranges(), boxes())
   // Every range selected, in time order; every caret, the one there is when nothing is selected and those beside it
@@ -2431,7 +2468,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     if (i >= 0) more.splice(i, 1)
     else if (selection || Math.abs(x(cursor) - x(t)) > EDGE) { more.push(current()); selection = band = null; cursor = clamp(t); oncursor(cursor) }
     told()
-    invalidate()
+    invalidate(true)
   }
   // Another range beside those there are, which becomes the one gestures act on; the caret there was stays beside it
   // only among several
@@ -2451,7 +2488,7 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       : (() => { const g = gaps.find(([p]) => p > last + .03); if (!g) return null; const after = gaps.find(([p]) => p > g[1] + 1e-6); return [g[1], after ? after[0] : duration] })()
     if (next && next[1] > next[0]) { add(...next); reveal(next[1]) }
   }
-  function setCursor(t) { chosen = null; cursor = clamp(t); oncursor(cursor); invalidate() }
+  function setCursor(t) { chosen = null; cursor = clamp(t); oncursor(cursor); invalidate(true) }
   // A right-click, as in a text: outside what is selected it takes the caret there first, the selection gone; inside it,
   // with several carets, or on what a press would grab (a caret, an edge, a handle: the pointer says so), all stays.
   // Then the page's menu for it (`oncontext`), at the pointer
@@ -2751,9 +2788,11 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
       ended()
       if (!opts) { pieces = null; return invalidate() }
       const { at, sampleRate, channels } = opts
-      // into nothing: its lanes, and the scale a take is watched at
-      if (!duration) { untrack(); count = channels; rate = sampleRate; lay(count); start = at; end = at + RECORD }
-      recording = { at, rate: sampleRate, length: 0, total: duration, data: Array.from({ length: channels }, () => new Float32Array(sampleRate)),
+      // into nothing: its lanes, and the scale a take is watched at; its levels as loud as it is so far (grow), from
+      // ±1/64 of full scale, a phone's voice filling its lane, not a thread along its middle. Over a sound, the sound's
+      const fresh = !duration
+      if (fresh) { untrack(); count = channels; rate = sampleRate; lay(count); start = at; end = at + RECORD; aview = [-1 / 64, 1 / 64] }
+      recording = { at, rate: sampleRate, length: 0, total: duration, peak: fresh ? 0 : null, data: Array.from({ length: channels }, () => new Float32Array(sampleRate)),
         waves: Array.from({ length: channels }, () => new Waveform(gl)),
         specs: sgl ? Array.from({ length: channels }, () => new Spectrogram(sgl, { background: color('--color-screen'), ...look, color: shades(), sampleRate })) : [] }
       leveled = false
@@ -2771,6 +2810,12 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
         return x
       })
       if (m) for (const list of [recording.waves, recording.specs]) list.forEach((picture, c) => picture.push(blocks[c] ?? blocks[0]))
+      // into nothing, the levels shown widen as it gets louder, by 6 dB steps, a tenth over its peak, to full scale
+      if (m && recording.peak != null) {
+        for (const x of blocks) for (let i = 0; i < x.length; i++) { const v = Math.abs(x[i]); if (v > recording.peak) recording.peak = v }
+        const p = Math.min(1, 2 ** Math.ceil(Math.log2(Math.max(1 / 64, recording.peak * 1.1))))
+        if (p !== aview[1]) aview = [-p, p]
+      }
       // the chunk the last HELD has just left behind, whole
       const gone = Math.floor((n + m - HELD) / CHUNK)
       if (m && gone > Math.floor((n - HELD) / CHUNK) && gone > 0) for (const p of [...recording.waves, ...recording.specs]) p.drop((gone - 1) * CHUNK, gone * CHUNK)
@@ -2802,17 +2847,20 @@ export default function view(root, { onselect = () => {}, oncursor = () => {}, o
     // Set, it shows that again, within the sound as it is now
     // Set while the sound arrives, it shows that at once, the sound coming into it, its length not yet known: what arrives
     // no longer fits the view, and the view moves only as it is moved (finish() keeps it within the sound)
-    // With it, the sound's shape, to lay the lanes out as they were before any of it comes: its length, rate, channels
-    get frame() { return duration || arriving ? { range: [start, end], freqs: [...fview], levels: [...aview], duration, rate, channels: count } : null },
+    // With it, the sound's shape, to lay the lanes out as they were before any of it comes: its length, rate, channels.
+    // `seen`, the time the lanes showed up to, what the view comes back to, whatever the axis beside them is as wide as
+    // then (its labels in a theme's font, say): all of the sound shown, all of it again; `range` alone, the plot's
+    get frame() { return duration || arriving ? { range: [start, end], seen: seenTo(), freqs: [...fview], levels: [...aview], duration, rate, channels: count } : null },
     set frame(f) {
       const ok = p => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite) && p[1] > p[0]
       if (!f || !duration && !arriving) return
       if (ok(f.freqs)) setFreqs(...f.freqs)
       if (ok(f.levels)) scrollLevels(f.levels[0], Math.max(2e-3, Math.min(8, f.levels[1] - f.levels[0])))
       if (!ok(f.range)) return
-      if (!arriving) return setRange(...f.range, true)
+      const [a] = f.range, b = Number.isFinite(f.seen) && f.seen > a ? a + (f.seen - a) / reach() : f.range[1]
+      if (!arriving) return setRange(a, b, true)
       arriving.fit = false
-      start = Math.max(0, f.range[0]); end = Math.max(start + 32 / rate, f.range[1])
+      start = Math.max(0, a); end = Math.max(start + 32 / rate, b)
       invalidate()
     },
     // What is selected, whole, as the history keeps it beside a step: the selection, its band, the others beside it,

@@ -2,7 +2,7 @@
 // and what it draws over the waveform while its call is being edited.
 // Built-in ops are described here; registry plugins describe their own parameters (the engine reads their manifests).
 // What each parameter does, in words, for the tooltip over its slider, is help.js's.
-import audio from '../assets/audio.js'
+import { FADES as CURVES, CROSSFADES } from '../fn/curves.js'
 
 // A parameter: { name, min, max, default, unit, step, log, values }. `values` makes it a choice; `selection` (what to
 // select) makes it the selected range, or ranges, set from the picture, not a slider; `required`, the library has no
@@ -278,7 +278,7 @@ export const presets = { normalize: ['podcast', 'spotify', 'broadcast'], vocals:
 // level by at time t of the output, from its settings before (`was`) and now (`is`), by name, the output `T` long; none
 // where a level can't say it (a step that moves time, filters or compresses shows its output when it comes). A step
 // with a range changes only there. The curves are fade()'s, and a crossfade's, its equal power too, as the library has them.
-export const CURVES = audio.op('fade').curves, CROSSFADES = audio.op('crossfade').curves
+export { CURVES, CROSSFADES }
 const within = (s, f) => s.at == null && s.duration == null ? f : t => t >= (s.at ?? 0) && t < (s.at ?? 0) + (s.duration ?? Infinity) ? f(t) : 1
 function fading({ in: a = .5, out, curve }, T) {
   const c = CURVES[curve] ?? CURVES.linear, fin = a > 0 ? a : 0, fout = a < 0 ? -a : Math.abs(out ?? 0)

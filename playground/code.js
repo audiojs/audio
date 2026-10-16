@@ -1,6 +1,6 @@
 // The script as a syntax tree: what to run, where the output chain is, which call the caret is in,
 // and the edits that the view and the sliders make to the text.
-import { parser } from '../assets/codemirror.js'
+import { parser } from '../assets/lezer.js'
 import { methods } from './ops.js'
 
 let cached = { code: null, tree: null }

@@ -10,15 +10,60 @@
   <link rel="preload" href="assets/geist.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="playground/editor.css">
   <!-- what the page's own library loads when it is first asked for (a voice's pitch, intonation or formants heard as
-       they are dragged): the atoms .site-build.js builds beside it -->
+       they are dragged): the atoms .site-build.js builds beside it; before any module is fetched -->
   <script type="importmap">{ "imports": { "@audio/tune-curve": "./assets/tune-curve.js", "@audio/stft": "./assets/stft.js" } }</script>
+  <!-- what the page waits on to show, fetched at once, not each as the one before it is read and names it, a phone's
+       round trip each: the stylesheets editor.css imports and the bar's mark, which hold up its first paint, then every
+       module editor.js imports, four deep, after them (test/playground.test.js keeps the list whole) -->
+  <link rel="preload" href="playground/skin.css" as="style">
+  <link rel="preload" href="assets/tokens.css" as="style">
+  <link rel="modulepreload" href="logo/mark.js">
+  <link rel="modulepreload" href="logo/logo.js">
+  <link rel="modulepreload" href="logo/motion.js">
+  <link rel="modulepreload" href="assets/window-function.js">
+  <link rel="modulepreload" href="assets/periodic-function.js">
+  <link rel="modulepreload" href="playground/editor.js" fetchpriority="low">
+  <link rel="modulepreload" href="assets/sprae.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/engine.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/script.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/ops.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/view.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/scale.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/time.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/meters.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/player.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/stack.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/icons.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/code.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/recipes.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/sources.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/menu.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/keep.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/hint.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/scrub-methods.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/agent.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/markdown.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/doing.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/theme.js" fetchpriority="low">
+  <link rel="modulepreload" href="fn/curves.js" fetchpriority="low">
+  <link rel="modulepreload" href="assets/gl-waveform.js" fetchpriority="low">
+  <link rel="modulepreload" href="assets/gl-spectrogram.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/tint.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/heard.js" fetchpriority="low">
+  <link rel="modulepreload" href="assets/lezer.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/help.js" fetchpriority="low">
+  <link rel="modulepreload" href="site/samples.js" fetchpriority="low">
+  <link rel="modulepreload" href="assets/lezer-chunk.js" fetchpriority="low">
   <script type="module" blocking="render">
     // The mark in the bar drawn live before the page first shows, so a page arriving takes up the last one's turn at once
     import { mark } from './logo/mark.js'
     mark(document.querySelector('.bar .wordmark'))
     // The page shows once it is wired (editor.js drops data-boot); however its script fares, it shows by the time
-    // everything has loaded, never left blank
-    addEventListener('load', () => document.querySelector('#app')?.removeAttribute('data-boot'))
+    // everything has loaded, never left blank: unless the script is wiring it still then (data-boot="wiring"), which
+    // the window's load no longer waits for, the page loading as fast as it does; then if it fails
+    const show = () => document.querySelector('#app')?.removeAttribute('data-boot')
+    addEventListener('load', () => { if (document.querySelector('#app')?.dataset.boot !== 'wiring') show() })
+    addEventListener('error', show)
   </script>
   <!-- cross-origin isolated, so a model's wasm runs on threads: where the host sends no such headers (GitHub Pages), sw.js
        adds them, the first visit reloaded once it is in control; a browser without COEP credentialless stays on one thread -->
@@ -403,7 +448,7 @@
         <dt>Record</dt><dd>Into the picture from the caret, drawn as the waveform or the spectrogram, its level and spectrum on the meters, over what is there, as a tape; into a selection, to its end (with the loop on, pass after pass). Stopped, the caret waits where the take ended: Record again records on. Undo takes it back</dd>
         <dt>M</dt><dd>A marker at the caret, or over the selection, its flag over the picture, its name asked for; drag the flag (a range's bar) to move it, click its name or double-click the flag to rename it; right-click it to name it or take it away</dd>
         <dt>Edits</dt><dd>Every step of the chain, a panel. Choose one: the output up to it, and its settings; again, or Esc, the whole chain. An edit made then goes in right after it, the steps after it kept. Its power switch bypasses it, to hear the output without it; its × takes it away; open, its Δ: what it takes out. Dragged, a row goes where it is let go, into a group or out of one. Shift picks a range, ⌘G makes it a group, ⇧⌘G unmakes it, a double-click names it. Right-clicked, its menu: mute, move, group, flatten up to it or all of it (made one sound, kept as a take is), remove. A recipe's steps are one group under its name, folded; a press unfolds it, its switch and × act on all of them. Add an edit, under them: the palette</dd>
-        <dt>Recipes, Agent, Edits, Code, Export</dt><dd>At the top right, a panel each, beside the picture, which keeps where it starts and its scale: a goal's whole chain, found by its words, folded by what it is for, put after the script's own over the selection or all of it; your own agent, through the local bridge (npx audio --bridge, its key here), its words as they come, each call it makes in plain words, its conversations kept with the tab; the chain's steps; the script, its numbers dragged across, or selected and stepped by ↑ ↓ (Shift, ten steps), what each sets said by it; the file (its format, what it is written with, its markers, its name; ⌘S), the cuts as an edit list for a video editor (EDL, OTIO, FCPXML), the output checked against a delivery spec. Its button again closes it; its left edge drags its width. The settings, over the meters, a dropdown: what holds everywhere</dd>
+        <dt>Recipes, Agent, Edits, Code, Export</dt><dd>At the top right, a panel each, beside the picture (on a phone, the buttons along the foot, the panel under the picture), which keeps where it starts and its scale: a goal's whole chain, found by its words, folded by what it is for, put after the script's own over the selection or all of it; your own agent, through the local bridge (npx audio --bridge, its key here), its words as they come, each call it makes in plain words, its conversations kept with the tab; the chain's steps; the script, its numbers dragged across, or selected and stepped by ↑ ↓ (Shift, ten steps), what each sets said by it; the file (its format, what it is written with, its markers, its name; ⌘S), the cuts as an edit list for a video editor (EDL, OTIO, FCPXML), the output checked against a delivery spec. Its button again closes it; its left edge drags its width. The settings, over the meters, a dropdown: what holds everywhere</dd>
         <dt>Tracks</dt><dd>Sounds side by side in time, a lane each, played and exported together. Move to a new track (Edit, right-click, ⌘P) takes the selection to a track of its own under this one, where it was, silence left behind, so it sounds as before and is edited alone; Open as a new track (File) adds a file; Split the voice to a new track (Edit, right-click, ⌘P) puts a song's voice, by a separation model, on a track of its own, the rest left on this one, each then repaired alone; Split into four stems puts its voice, bass and drums on three, the rest left here; Export the track alone (File) takes one elsewhere, to be remade, and Line up with (Edit) puts what comes back, opened as a new track, where the original stood, Match with (Edit) at its tone and loudness; Duck under (Edit) takes the track 15 dB down while another sounds, a bed under a voice; Add a master (Edit) puts the tracks' sum through steps of its own, a lane of its own, the last: in the code, `voice.clone().mix(bed)` and its steps. A press in a lane edits its track: the caret, the selection, the edits and their panel are its own, its name bright. In the code, each a sound declared, `let voice = audio(…)`, that no other reads</dd>
         <dt>Tabs</dt><dd>Above the picture, a sound each, its own script and edits, dragged along to reorder. A sound opened goes into a tab of its own; + a new one, × closes one, ⇧⌘T opens the last closed again, as it was left. A selection dragged up onto them with Alt goes to a tab of its own, copied; with ⌘, moved. A tab dragged down onto the picture is a track of the sound there; Edit › Move the track to its own tab, the other way</dd>
         <dt>F10</dt><dd>The menu</dd>

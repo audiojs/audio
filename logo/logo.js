@@ -380,8 +380,11 @@ export function logo(canvas, { onresize, clear = false, fit = 'all' } = {}) {
   gl.uniform1i(U.uWave, 3)
   gl.uniform1i(U.uProfile, 4)
   gl.uniform1f(U.uSpan, SPAN)
+  // the blue-noise map, for the two prints that read it (blue, stipple), made the first time one prints: void-and-cluster
+  // over 64 × 64 held up a phone's first paint a tenth of a second or more, for a mark printed smooth
   texture(gl, 0)
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 64, 64, 0, gl.RED, gl.FLOAT, blueNoise())
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 1, 1, 0, gl.RED, gl.FLOAT, new Float32Array(1))
+  let noisy = false
   texture(gl, 1)
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
   const [toneFbo] = target(gl, 2), [outFbo] = target(gl, 5)
@@ -405,6 +408,11 @@ export function logo(canvas, { onresize, clear = false, fit = 'all' } = {}) {
   // dot is a mark's size and gap the space between marks, device px; lines, how many cross a lobe.
   function print(mode, { width: W, height: H, dot, gap, scale, centre, lines, ground, figure, axis = 0, faint = 0, pixels = false }) {
     const kernel = KERNELS[mode], cell = mode === 'smooth' || SCREENS.includes(mode) ? 1 : dot
+    if (!noisy && (mode === 'blue' || mode === 'stipple')) {
+      noisy = true
+      gl.activeTexture(gl.TEXTURE0)
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 64, 64, 0, gl.RED, gl.FLOAT, blueNoise())
+    }
     gl.uniform3fv(U.uGround, ground)
     gl.uniform3fv(U.uFigure, figure)
     gl.uniform2f(U.uCentre, ...centre)

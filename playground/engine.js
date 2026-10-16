@@ -75,10 +75,14 @@ export default function engine(url = WORKER) {
   const files = new Map(), pending = new Map(), described = new Map(), listeners = new Map(), held = new Map()
   let worker, ids = 0, running = null, queued = null
 
-  function spawn() {
-    worker = url === WORKER && early && !early.failed ? early : new Worker(url, { type: 'module' })
+  function spawn(resend = true) {
+    const ahead = url === WORKER && early && !early.failed
+    worker = ahead ? early : new Worker(url, { type: 'module' })
     if (url === WORKER) early = null
+    // nothing heard from it yet: a worker says nothing till it has loaded and been asked
+    let heard = false
     worker.onmessage = ({ data }) => {
+      heard = true
       if (data.event === 'taken') return clearTimeout(held.get(data.id)?.timer)
       if (data.event === 'held') return held.get(data.id)?.again()
       if (data.event) {
@@ -92,9 +96,16 @@ export default function engine(url = WORKER) {
     }
     worker.onerror = event => {
       event.preventDefault?.()
+      // the one set off ahead, taken before its load failed (the page now comes up that soon): one of the page's own
+      // in its place, sent all it was sent, in order, as though it were the first
+      if (ahead && !heard) return anew()
       end(event.message || 'The engine stopped.')
     }
-    for (const [name, data] of files) worker.postMessage({ type: 'file', name, data, id: 0 })
+    if (resend) for (const [name, data] of files) worker.postMessage({ type: 'file', name, data, id: 0 })
+  }
+  function anew() {
+    spawn(false)
+    for (const [id, c] of pending) worker.postMessage({ ...c.message, id })
   }
   // Every call waiting on the worker ends with `message`, and every stream as `ended` says: an error, by default
   function end(message, ended = on => on.error?.({ error: { message } })) {

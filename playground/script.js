@@ -1,16 +1,113 @@
-import {
-  EditorView, EditorState, Transaction, keymap, lineNumbers, highlightActiveLine, drawSelection, dropCursor, tooltips,
-  defaultKeymap, history, historyKeymap, indentWithTab, undo, redo, undoDepth, redoDepth, javascript, localCompletionSource, scopeCompletionSource,
-  autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap, syntaxHighlighting, HighlightStyle, bracketMatching, indentOnInput,
-  syntaxTree, tags, setDiagnostics, highlightSelectionMatches
-} from '../assets/codemirror.js'
 import { ops, methods, stats, presets, GROUPS, format, fromManifest } from './ops.js'
 
 // The script editor: JavaScript with the audio methods completed after a dot, sources and stat names completed
 // inside strings. `oncaret(update)` hears every move of the selection and every change, for the stack beside it. A
 // number says what it sets in the page's hints (`hint`, hint.js), pointed at, selected, dragged or stepped.
-// `wrap`: long lines wrap to the panel's width, as an embedded editor's do, never hidden past its edge
-export default function editor(parent, { doc = '', onchange, oncaret, files = () => [], describe = async () => null, keys = {}, hint = null, wrap = false }) {
+// `wrap`: long lines wrap to the panel's width, as an embedded editor's do, never hidden past its edge.
+// CodeMirror, the largest module the page has, which a phone waited on before anything showed, comes once the page
+// shows (`onready` then): till then each document is held here as it opened and the edits made to it since, in order,
+// which CodeMirror replays into its history as though they were made there, so nothing waits for it and nothing made
+// before it is lost to undo
+export default function editor(parent, options) {
+  const { doc = '', onchange, oncaret, onready } = options
+  // a document: its text as it opened, the edits since ({ changes, userEvent, history, scroll }), its text now, its
+  // selection, its errors; the one shown by its key, null till open() names it
+  const plain = new Map([[null, { doc, text: doc, edits: [], selection: null, errors: [] }]])
+  let key = null, cm = null
+  const shown = () => plain.get(key)
+  // An edit or a caret moved, here as CodeMirror's update listener tells the page of it: the text, then the caret
+  function dispatch(spec) {
+    if (cm) return cm.dispatch(spec)
+    const d = shown(), ev = spec.userEvent ?? ''
+    if (spec.changes) { d.text = apply(d.text, spec.changes); d.edits.push(spec) }
+    if (spec.selection) d.selection = spec.selection
+    const update = { docChanged: !!spec.changes, changes: { mapPos: pos => mapPos(spec.changes, pos) }, transactions: [{ isUserEvent: e => ev === e || ev.startsWith(e + '.') }] }
+    if (spec.changes) onchange?.(d.text, update)
+    oncaret?.(update)
+  }
+  // A slider's moves rewrite the text live and out of the history; where it comes to rest, the whole move is recorded
+  // as one change: back to the text before it, out of the history too, then on to the last.
+  let before = null
+  function slide(change) {
+    before ??= self.code
+    dispatch({ changes: change, userEvent: 'input.slider', history: false })
+  }
+  function settle() {
+    const start = before, end = self.code
+    before = null
+    if (start == null || start === end) return
+    let a = 0, b = 0
+    while (a < start.length && a < end.length && start[a] === end[a]) a++
+    while (b < start.length - a && b < end.length - a && start[start.length - 1 - b] === end[end.length - 1 - b]) b++
+    dispatch({ changes: { from: a, to: end.length - b, insert: start.slice(a, start.length - b) }, userEvent: 'input.slider', history: false })
+    dispatch({ changes: { from: a, to: start.length - b, insert: end.slice(a, end.length - b) }, userEvent: 'input.slider' })
+  }
+  // after the page's first frames, so the page shows first
+  const ready = new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
+    .then(() => import('../assets/codemirror.js'))
+    .then(lib => { cm = codemirror(lib, parent, options, plain, key, { slide, settle }); plain.clear(); onready?.() })
+  const self = {
+    get view() { return cm?.view ?? null },
+    // Documents, each its own text, history and caret: open(key) shows one, new with `text` the first time; the one it
+    // replaces is kept for coming back to, and forgotten when closed. The document the editor is made with is the first
+    // key opened.
+    open(k, text = '') {
+      if (cm) return cm.open(k, text)
+      if (k === key) return
+      const first = key == null
+      if (first) { plain.set(k, shown()); plain.delete(null) }
+      key = k
+      if (first) return
+      if (!plain.has(k)) plain.set(k, { doc: text, text, edits: [], selection: null, errors: [] })
+      onchange?.(shown().text, null)
+    },
+    close(k) { cm ? cm.close(k) : k !== key && plain.delete(k) },
+    get code() { return cm ? cm.code : shown().text },
+    get head() { return cm ? cm.head : shown().selection?.head ?? shown().selection?.anchor ?? 0 },
+    get range() { if (cm) return cm.range; const { anchor = 0, head = anchor } = shown().selection ?? {}; return [Math.min(anchor, head), Math.max(anchor, head)] },
+    // An edit the page makes, undoable like typing.
+    change(change, userEvent = 'input.view') { dispatch({ changes: change, userEvent, scroll: true }) },
+    slide, settle,
+    select(from, to = from) { cm ? cm.select(from, to) : dispatch({ selection: { anchor: from, head: to } }) },
+    // The caret moved without the keys: the page keeps them
+    caret(pos) { cm ? cm.caret(pos) : dispatch({ selection: { anchor: pos } }) },
+    // One history for typing, sliders and edits made on the waveform: before CodeMirror comes, undone as it does
+    undo() { cm ? cm.undo() : ready.then(() => cm.undo()) },
+    redo() { cm ? cm.redo() : ready.then(() => cm.redo()) },
+    get canUndo() { return cm ? cm.canUndo : self.depth[0] > 0 },
+    get canRedo() { return cm ? cm.canRedo : false },
+    // Steps back and forth: [undoable, redoable]
+    get depth() { return cm ? cm.depth : [shown().edits.filter(e => e.history !== false).length, 0] },
+    // Errors under the text they are about: [{ from, to, message }].
+    errors(list) { if (cm) cm.errors(list); else shown().errors = list }
+  }
+  return self
+}
+
+// A change as CodeMirror takes it, one or a list, positions in the text before it, made to a string
+const changesOf = spec => (Array.isArray(spec) ? spec.flat(Infinity) : [spec]).filter(Boolean).map(c => ({ from: c.from, to: c.to ?? c.from, insert: String(c.insert ?? '') }))
+const apply = (text, spec) => changesOf(spec).sort((a, b) => b.from - a.from).reduce((t, c) => t.slice(0, c.from) + c.insert + t.slice(c.to), text)
+// where a place in the text is after the change (ChangeSet.mapPos): on past what it replaced, at its start if inside it,
+// before what is put in where it stands
+function mapPos(spec, pos) {
+  let d = 0
+  for (const c of changesOf(spec).sort((a, b) => a.from - b.from)) {
+    if (c.to < pos || c.to === pos && c.from < pos) d += c.insert.length - (c.to - c.from)
+    else if (c.from < pos) return c.from + d
+    else break
+  }
+  return pos + d
+}
+
+// The editor as CodeMirror makes it, on the documents held till it came (`plain`), the one shown `key`'s; `shared`, the
+// slider's slide() and settle(), the page's and a number's dragged here alike
+function codemirror(lib, parent, { onchange, oncaret, files = () => [], describe = async () => null, keys = {}, hint = null, wrap = false }, plain, shownKey, { slide, settle }) {
+  const {
+    EditorView, EditorState, Transaction, keymap, lineNumbers, highlightActiveLine, drawSelection, dropCursor, tooltips,
+    history, historyKeymap, defaultKeymap, indentWithTab, isolateHistory, undo, redo, undoDepth, redoDepth, javascript, localCompletionSource, scopeCompletionSource,
+    autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap, syntaxHighlighting, HighlightStyle, bracketMatching, indentOnInput,
+    syntaxTree, tags, setDiagnostics, highlightSelectionMatches
+  } = lib
   const highlight = HighlightStyle.define([
     { tag: [tags.definitionKeyword, tags.modifier], color: 'var(--color-screen-storage)' },
     { tag: [tags.keyword, tags.controlKeyword, tags.moduleKeyword, tags.operatorKeyword], color: 'var(--color-screen-keyword)' },
@@ -243,62 +340,47 @@ export default function editor(parent, { doc = '', onchange, oncaret, files = ()
     EditorView.contentAttributes.of({ 'aria-label': 'Script' }),
     wrap ? EditorView.lineWrapping : []
   ]
-  const view = new EditorView({ parent, state: EditorState.create({ doc, extensions }) })
+  // what the page asks of the text, as a transaction: an edit out of the history (`history: false`), one scrolled to
+  const spec = ({ changes, selection, userEvent, history: kept = true, scroll = false }) => ({ changes, selection, userEvent, scrollIntoView: scroll, annotations: kept ? [] : [Transaction.addToHistory.of(false)] })
+  // A document held till now, as it opened, its edits made again, each a step of its history of its own as it was; its
+  // selection and errors
+  function stateOf(d) {
+    let state = EditorState.create({ doc: d.doc, extensions })
+    for (const e of d.edits) state = state.update({ ...spec(e), scrollIntoView: false, annotations: [...spec(e).annotations, isolateHistory.of('full')] }).state
+    const end = state.doc.length, { anchor, head = anchor } = d.selection ?? {}
+    if (d.selection) state = state.update({ selection: { anchor: Math.min(anchor, end), head: Math.min(head, end) } }).state
+    if (d.errors.length) state = state.update(setDiagnostics(state, d.errors.map(e => ({ ...e, severity: 'error' })))).state
+    return state
+  }
+  const view = new EditorView({ parent, state: stateOf(plain.get(shownKey)) })
   view.scrollDOM.addEventListener('scroll', () => under(view), { passive: true })
 
-  // Documents, each its own text, history and caret: open(key) shows one, new with `doc` the first time; the one it
-  // replaces is kept for coming back to, and forgotten when closed. The document the editor is made with is the first
-  // key opened.
-  const kept = new Map()
-  let key = null
+  // Documents, each its own text, history and caret: open(key) shows one, new with `text` the first time; the one it
+  // replaces is kept for coming back to, and forgotten when closed
+  const kept = new Map([...plain].filter(([k]) => k !== shownKey).map(([k, d]) => [k, stateOf(d)]))
+  let key = shownKey
   function open(k, text = '') {
     if (k === key) return
-    const first = key == null
-    if (!first) kept.set(key, view.state)
+    kept.set(key, view.state)
     key = k
-    if (first) return
     view.setState(kept.get(k) ?? EditorState.create({ doc: text, extensions }))
     kept.delete(k)
     onchange?.(view.state.doc.toString(), null)
   }
 
-  // A slider's moves rewrite the text live and out of the history; where it comes to rest, the whole move is recorded
-  // as one change: back to the text before it, out of the history too, then on to the last.
-  let before = null
-  function slide(change) {
-    before ??= view.state.doc.toString()
-    view.dispatch({ changes: change, userEvent: 'input.slider', annotations: Transaction.addToHistory.of(false) })
-  }
-  function settle() {
-    const start = before, end = view.state.doc.toString()
-    before = null
-    if (start == null || start === end) return
-    let a = 0, b = 0
-    while (a < start.length && a < end.length && start[a] === end[a]) a++
-    while (b < start.length - a && b < end.length - a && start[start.length - 1 - b] === end[end.length - 1 - b]) b++
-    view.dispatch({ changes: { from: a, to: end.length - b, insert: start.slice(a, start.length - b) }, userEvent: 'input.slider', annotations: Transaction.addToHistory.of(false) })
-    view.dispatch({ changes: { from: a, to: start.length - b, insert: end.slice(a, end.length - b) }, userEvent: 'input.slider' })
-  }
-
   return {
     view,
+    dispatch: s => view.dispatch(spec(s)),
     open, close: k => kept.delete(k),
     get code() { return view.state.doc.toString() },
     get head() { return view.state.selection.main.head },
     get range() { const { from, to } = view.state.selection.main; return [from, to] },
-    // An edit the page makes, undoable like typing.
-    change(change, userEvent = 'input.view') { view.dispatch({ changes: change, userEvent, scrollIntoView: true }) },
-    slide, settle,
     select(from, to = from) { view.dispatch({ selection: { anchor: from, head: to }, scrollIntoView: true }); view.focus() },
-    // The caret moved without the keys: the page keeps them
     caret(pos) { view.dispatch({ selection: { anchor: pos }, scrollIntoView: true }) },
-    // One history for typing, sliders and edits made on the waveform
     undo: () => undo(view), redo: () => redo(view),
     get canUndo() { return undoDepth(view.state) > 0 },
     get canRedo() { return redoDepth(view.state) > 0 },
-    // Steps back and forth: [undoable, redoable]
     get depth() { return [undoDepth(view.state), redoDepth(view.state)] },
-    // Errors under the text they are about: [{ from, to, message }].
     errors(list) { view.dispatch(setDiagnostics(view.state, list.map(e => ({ ...e, severity: 'error' })))) }
   }
 }

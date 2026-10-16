@@ -1,7 +1,7 @@
 // The website as deployed, in a browser: node test/live.js [URL] (default https://audio.js.org/).
-// The home page shows this package's version, and the playground opens its sound, decoded and measured: what a
-// visitor sees first, from the files the server actually serves (CI builds them; a page that loads one of them from
-// a path the deploy left out hangs at "Decoding…").
+// The home page shows this package's version; the playground opens on an empty tab, its ways in offered, and a link's
+// script opens its sound, decoded and measured: what a visitor sees first, from the files the server actually serves
+// (CI builds them; a page that loads one of them from a path the deploy left out hangs at "Decoding…").
 import { chromium } from 'playwright'
 import { readFileSync } from 'node:fs'
 
@@ -21,13 +21,20 @@ await check(`home page shows v${version}`, async page => {
   await page.goto(base)
   await page.locator('.header .version', { hasText: `v${version}` }).waitFor({ timeout: 30000 })
 })
-await check('playground opens its sound, measured', async page => {
+// a link to a script, as Share copies it: the script deflated, base64url
+const link = async script => base + 'playground.html#code=' + Buffer.from(await new Response(new Blob([script]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer()).toString('base64url')
+const chime = await link(`audio('chime.wav').trim().normalize(-1)`)
+await check('playground opens on an empty tab, its ways in offered', async page => {
   await page.goto(base + 'playground.html')
+  await page.locator('.empty-button', { hasText: 'Record' }).waitFor({ timeout: 30000 })
+})
+await check('playground opens a link\'s sound, measured', async page => {
+  await page.goto(chime)
   await page.locator('.readout', { hasText: 'LUFS' }).waitFor({ timeout: 60000 })
 })
 // GitHub Pages sends no COOP or COEP: sw.js adds them, so a model's wasm runs on threads
 await check('playground cross-origin isolated', async page => {
-  await page.goto(base + 'playground.html')
+  await page.goto(chime)
   await page.waitForFunction(() => crossOriginIsolated, null, { timeout: 30000 })
   await page.locator('.readout', { hasText: 'LUFS' }).waitFor({ timeout: 60000 })
 })

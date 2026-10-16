@@ -1,6 +1,12 @@
-import audio from '../assets/audio.js'
 import { cycle } from './meters.js'
 import { heard } from './heard.js'
+
+// The library, the page's largest module after CodeMirror, which only playback needs: loaded once the page shows, or with
+// the first sound or press if that comes first; once it has, `audio` itself, so a press that plays opens the device in
+// the press (Safari opens it only there), no promise between them
+let audio = null, loading = null
+const library = () => loading ??= import('../assets/audio.js').then(m => audio = m.default)
+requestAnimationFrame(() => requestAnimationFrame(library))
 
 // Plays the output with the library's own playback, into a deck on the page's one AudioContext (audio.context). What
 // plays is made and rendered as it plays in a worker (set's `open`, engine.js voice: an audio/worker facade the page
@@ -34,7 +40,7 @@ export default function player({ onend = () => {} } = {}) {
     const v = await open?.(o).catch(() => null)
     if (v) return v
     if (!channels) return null
-    local ??= audio.from(channels, { sampleRate: rate })
+    local ??= (audio ?? await library()).from(channels, { sampleRate: rate })
     return { voice: heard(local, o) }
   }
   // a voice tells the page when it reaches its end by itself; one taken over or stopped goes quietly
@@ -85,7 +91,7 @@ export default function player({ onend = () => {} } = {}) {
   // track's lane, sent the first time a scrub needs it after each new output or track; a node with as many outputs as
   // what it hears has channels.
   async function scrubber() {
-    const ctx = audio.context
+    const ctx = (audio ?? await library()).context
     await ctx.resume()
     loaded ||= ctx.audioWorklet.addModule(new URL('./scrub.js', import.meta.url))
     await loaded
@@ -130,7 +136,7 @@ export default function player({ onend = () => {} } = {}) {
     // one plays, the new one takes over where it is, the one before playing on until it can
     async set(pcm, sampleRate, opens = null, n = pcm?.[0]?.length ?? 0, fetching = null, tracks = null) {
       // the scrub voice loads with the first output, so the first press sounds at once
-      if (pcm?.[0]?.length) loaded ||= audio.context.audioWorklet.addModule(new URL('./scrub.js', import.meta.url))
+      if (pcm?.[0]?.length) loaded ||= library().then(a => a.context.audioWorklet.addModule(new URL('./scrub.js', import.meta.url)))
       const mine = ++outs, prev = voice, was = local
       channels = pcm?.[0]?.length ? pcm : null
       length = n
@@ -167,7 +173,7 @@ export default function player({ onend = () => {} } = {}) {
       if (!length) return
       const mine = ++intent, o = { band, boxes }
       aim = start
-      await audio.context.resume()
+      await (audio ?? await library()).context.resume()
       if (mine !== intent) return
       const span = { at: from, duration: to == null ? undefined : to - from, loop }
       if (!(voice?.playing && same(o))) {
@@ -225,7 +231,7 @@ export default function player({ onend = () => {} } = {}) {
       release(was)
       if (from == null || !length) return
       this.pause()
-      await audio.context.resume()
+      await (audio ?? await library()).context.resume()
       if (mine !== auditions) return
       const of = outs, a = (await made({ from, to, edit }))?.voice
       if (mine !== auditions || of !== outs || !a) return release(a)
@@ -236,10 +242,11 @@ export default function player({ onend = () => {} } = {}) {
     // Opens the device ahead of the first play, and loads the scrub voice, so the first press sounds at once: a context
     // made before any click waits suspended until one
     warm() {
+      if (!audio) return void library().then(() => this.warm())
       const ctx = audio.context
       ctx.resume().catch(() => {})
       loaded ||= ctx.audioWorklet.addModule(new URL('./scrub.js', import.meta.url))
     },
-    close() { release(voice); audio.context.close?.() }
+    close() { release(voice); audio?.context.close?.() }
   }
 }

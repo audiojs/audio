@@ -1,6 +1,6 @@
 import { opRange, refLen, renderAt } from '../plan.js'
 import audio from '../core.js'
-import { CURVES as FADES } from './fade.js'
+import { CROSSFADES as CURVES } from './curves.js'
 import './pad.js'
 
 // Curve semantics over fade progress x ∈ [0,1]:
@@ -10,8 +10,7 @@ import './pad.js'
 //   'equal' — equal-power law: g_out = cos(xπ/2), g_in = sin(xπ/2), g²+g² = 1
 //     (W3C Web Audio equal-power panning law). Constant power for uncorrelated
 //     material (two different songs); +3 dB amplitude bump for identical material.
-// Each the source's gain over x: audio.op('crossfade').curves
-const CURVES = { ...FADES, equal: x => Math.sin(x * Math.PI / 2) }
+// Each the source's gain over x: audio.op('crossfade').curves (fn/curves.js)
 const crossfade = (input, output, ctx) => {
   let source = ctx.source, sr = ctx.sampleRate, chLen = input[0].length
   let equal = ctx.curve === 'equal'

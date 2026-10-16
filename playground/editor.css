@@ -99,11 +99,12 @@ svg { flex: none; }
 .panes > .status { grid-area: 3 / 1 / 4 / -1; }
 /* the panels' buttons over the panel */
 .side-head { display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-height: 38px; padding: 4px 8px 0 6px; }
-/* undo and redo, then how the picture shows, a pair as they are, then its settings at the head of its axis: the glyph
-   (its ink 16 of its 24 units, 17 px in a 28 px button) over the axis's ticks, which run 12 px from a pixel inside the
-   labels' 40 px (view.js GUTTER, TICK), so the button ends 19 px before the picture does. Each where it is whatever
-   shows, nothing moving as the picture turns */
+/* undo and redo, set off from the tabs, then how the picture shows, a pair as they are, then its settings at the head
+   of its axis: the glyph (its ink 16 of its 24 units, 17 px in a 28 px button) over the axis's ticks, which run 12 px
+   from a pixel inside the axis (as wide as its labels, --axis, view.js), so the button ends the axis less 21 px before
+   the picture does. Each where it is whatever shows, nothing moving as the picture turns */
 .view-head .history, .view-head .tabs.display { display: flex; flex: none; gap: 1px; }
+.view-head .history { margin-left: 6px; }
 /* with no sound, the pictures' switch dims as undo does, in sight where it will be */
 .view-head .tabs.display[inert] { opacity: .35; }
 .view-head :is(.history .icon-button, .display button, .view-settings button) { width: 28px; height: 28px; min-height: 28px; border-radius: 6px; }
@@ -111,7 +112,7 @@ svg { flex: none; }
 .view-head :is(.history .icon-button, .display button, .view-settings button) svg { width: 17px; height: 17px; }
 .view-head .history .icon-button:hover:not([aria-disabled="true"]):not(:disabled) { background: var(--color-screen-hover); color: var(--color-screen-bright); }
 .view-head .history .icon-button:is([aria-disabled="true"], :disabled) { opacity: .35; }
-.panes[data-side="open"] .view-head { padding-right: 19px; }
+.panes[data-side="open"] .view-head { padding-right: calc(var(--axis, 40px) - 21px); }
 /* the bar under both: what the output holds (its note, key, levels) ends where the picture ends, what the sound is (its
    rate, channels, depth) at the bar's end, under the panel; the panel's width less the bar's end, the 14 px before the
    facts and the 6 px gap keeping the picture's end's 20 */
@@ -691,7 +692,7 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
 .help-list dd { margin: 0; color: var(--color-screen-muted); }
 
 @media (max-width: 720px) {
-  :root { --gutter: 8px; --bar: 52px; }
+  :root { --gutter: 8px; --bar: 44px; }
   .bar { gap: 4px; padding-inline: 12px 8px; }
   .wordmark { font-size: 18px; margin-right: 4px; }
   .wordmark .logo { width: 16px; }
@@ -707,6 +708,22 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
   .app .panel-edge { display: none; }
   .app .panes[data-side="open"] .facts { width: auto; }
 }
+/* A phone held upright: the slab split, the picture over the panel, half of it each, the bar between them; over the
+   picture its own head alone, the tabs' names in reach. The panels' buttons along the slab's foot, under the thumb, each
+   staying where it is as its panel opens and closes, so a press again on the one open closes it */
+@media (max-width: 760px) and (min-height: 521px) {
+  html:not(.embed) .app .panes { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto auto; }
+  html:not(.embed) .app .panes[data-side="open"] { grid-template-rows: auto minmax(0, 1fr) auto minmax(0, 1fr) auto; }
+  html:not(.embed) .app .panes > .view-head { grid-area: 1 / 1; padding-right: calc(var(--axis, 40px) - 21px); }
+  html:not(.embed) .app .panes > .view-slab { grid-area: 2 / 1; }
+  html:not(.embed) .app .panes > .status { grid-area: 3 / 1; }
+  html:not(.embed) .app .panes > .side-slab { position: relative; z-index: auto; grid-area: 4 / 1; inset: auto; height: auto; border-top: 1px solid var(--color-screen-rule); border-radius: 0; background: none; box-shadow: none; }
+  html:not(.embed) .app .panes > .side-head { grid-area: -2 / 1; min-height: 0; padding: 0 6px env(safe-area-inset-bottom); border-top: 1px solid var(--color-screen-rule); }
+  html:not(.embed) .app .side-head .tabs.icons { flex: 1; justify-content: space-around; }
+  html:not(.embed) .app .side-head .tabs.icons button { width: 48px; min-height: 44px; }
+}
+/* On a touchscreen there is nothing to drop: the ways in say it */
+@media (hover: none) and (pointer: coarse) { .empty-title { display: none; } }
 /* A narrow bar: what the sound holds goes, then the digits are smaller, then the levels, the rate and the length, each
    whole where the bar has the room for it and the message a hundred pixels or so */
 @container (max-width: 970px) { .heard { display: none; } }
@@ -727,7 +744,7 @@ html.embed .app { grid-template-rows: minmax(0, 1fr); }
 html.embed .app > .bar, html.embed .files, html.embed .side-head { display: none; }
 /* the panel nearly half the frame: an article's code reads in lines of 50 characters or so */
 html.embed .app .panes { --panel: clamp(320px, 46vw, 560px); margin: 0; border-radius: var(--radius-slab); box-shadow: none; }
-html.embed .panes[data-side="none"] .view-head { padding-right: 19px; }
+html.embed .panes[data-side="none"] .view-head { padding-right: calc(var(--axis, 40px) - 21px); }
 .embed-open { display: inline-flex; flex: 1; align-items: center; gap: 6px; min-width: 0; height: 28px; padding: 0 6px; border-radius: 6px; color: var(--color-screen-muted); font-size: 12px; text-decoration: none; white-space: nowrap; }
 .embed-open:hover { color: var(--color-screen-bright); }
 .embed-open:focus-visible { outline: 2px solid var(--color-screen-bright); outline-offset: -2px; }

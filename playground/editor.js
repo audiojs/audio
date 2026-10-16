@@ -28,15 +28,14 @@ import { THEMES, load, parse, skin, fonts, wear, webview, webviewFonts } from '.
 // measured and played. Selecting, cutting or applying a method on the waveform, or a slider in the stack, writes the
 // script.
 const root = document.querySelector('#app')
+// wiring it: the page waits for its first frame, not for the window's load, which an await below may outlast
+// (playground.html)
+root.dataset.boot = 'wiring'
 // Embedded in another page (embed.js, <audio-repl>): one script, the link's; nothing read from this browser or kept in
 // it, no other editor's tabs touched; its panel and its picture as the page asks (?panel=code|edits|none, ?display=spec)
 const params = new URLSearchParams(location.search), EMBED = params.has('embed')
 // a sound opened or recorded, kept for the next visit; embedded, held for this one alone, as it is
 const keep = EMBED ? async (name, data) => data : keepFile
-const DEFAULT =`audio('chime.wav')
-  .trim()
-  .normalize(-1)
-  .fade(0.02, 0.1)`
 const generators = [
   ['Tone', '440 Hz, any function of time', `audio.from(t => 0.5 * Math.sin(2 * Math.PI * 440 * t), { d: 2 })`],
   ['Noise', 'White, pink or brown', `audio.from(3).noise({ color: 'pink' })`],
@@ -496,6 +495,8 @@ ed = codeEditor(root.querySelector('.script-editor'), {
     later()
   },
   oncaret: update => { rk?.refresh(update); if (rechoose !== undefined) { rk.choose(rechoose); rechoose = undefined } },
+  // CodeMirror come, after the page shows (script.js): the edits made before it are its history now
+  onready() { state.canUndo = ed.canUndo; state.canRedo = ed.canRedo },
   files: () => [...taken()],
   describe: name => eng.describe(name),
   keys: { 'Mod-Enter': togglePlay, 'Mod-s': () => exportFiles() }
@@ -542,6 +543,8 @@ if (webview()) {
 
 // The output view
 v = view(root.querySelector('.plot'), {
+  // the axis as wide as its labels: the settings' button over it (editor.css --axis)
+  onaxis: px => root.querySelector('.panes').style.setProperty('--axis', `${px}px`),
   // a long output's samples where the view zooms in
   onsamples: (from, to) => output?.long ? eng.samples(output.id, from, to) : null,
   // another track's lane pressed: it is the one edited
@@ -975,7 +978,7 @@ async function evaluate() {
   const syntax = error(code)
   if (syntax) {
     ed.errors([{ ...syntax, message: 'Syntax error' }])
-    return show({ logs: [], error: { message: `Syntax error on line ${ed.view.state.doc.lineAt(syntax.from).number}` } }, true)
+    return show({ logs: [], error: { message: `Syntax error on line ${code.slice(0, syntax.from).split('\n').length}` } }, true)
   }
   // the whole chain, what one step of it takes out, or the chain rolled back, as the stack says
   const calls = chain(code)?.calls || [], { delta, back } = viewing, step = calls[delta]
@@ -994,6 +997,9 @@ async function evaluate() {
 // Runs `runs`, the editor holding `code`, its reply and output shown as they come; the last asked (sent)
 let sent = null
 async function perform(runs, code) {
+  // a script with nothing in it runs nothing, nothing else on its way: no sound, at once, the engine not waited for, so
+  // an empty tab offers its ways in as the page comes up (and the run asked last is no longer this script's)
+  if (!waiting && !incoming && !bare(runs).trim()) { sent = null; show({ logs: [] }); return status() }
   const script = prepare(runs)
   await restoring
   // Built-in samples are made when a script first names one; the worker takes messages in order, so the file
@@ -1036,8 +1042,8 @@ function show(result, syntax = false, names = [], coming = null) {
   state.problem = problem
   state.missing = e?.missing || ''
   if (syntax) return
-  const doc = ed.view.state.doc
-  ed.errors(e?.line && e.line <= doc.lines ? [{ from: doc.line(e.line).from, to: doc.line(e.line).to, message: e.message }] : [])
+  const line = e?.line && lineOf(ed.code, e.line)
+  ed.errors(line ? [{ ...line, message: e.message }] : [])
   state.canPaste = !!chain(ed.code)?.calls.some(c => c.name === 'copy' || c.name === 'cut')
   // an edit drawn ahead of its output that failed: the picture goes back to the output there is
   if (e) { v.expect(null); if (!state.hasOutput) entitle(names, false); return finished({ ok: false, problem }) }
@@ -1050,6 +1056,13 @@ function show(result, syntax = false, names = [], coming = null) {
   state.loading = false
   settle(null)
   finished({ ok: true, duration: 0 })
+}
+// The script's line n, from 1: { from, to }, or null past its last
+function lineOf(code, n) {
+  const lines = code.split('\n')
+  if (!(n >= 1 && n <= lines.length)) return null
+  const from = lines.slice(0, n - 1).reduce((at, l) => at + l.length + 1, 0)
+  return { from, to: from + lines[n - 1].length }
 }
 // What the run that made an output said, as it said it, its tab shown again: what it printed, its exports, no problem
 function retell({ lines, saves, names }) {
@@ -1426,10 +1439,13 @@ function meter(t = null) {
   const live = l => { const dt = peaked ? (now - peaked.at) / 1000 : 0; peaked = { levels: ballistics(l, peaked?.levels, dt), at: now }; return peaked.levels }
   if (t == null && !recorder) peaked = null
   if (!state.show.meters) { v.meters = null; return }
+  // the spectrum read once, and only where a spectrogram's lane draws it (view.js paintMeters): a selection dragged
+  // over the waveform reads none, where each move read up to 16 frames a channel
+  const read = (levels, f, rate) => { let got; return { levels, get spectra() { return got ??= f() }, size, rate } }
   // recording: what the microphone hears, the 50 ms just come
   if (recorder) {
     const x = recorder.recent, n = x[0]?.length ?? 0, rate = recorder.sampleRate
-    v.meters = n ? { levels: live(levels(x, n - Math.round(rate * .05), n)), spectra: spectra(x, n - size, n, { size }), size, rate } : null
+    v.meters = n ? read(live(levels(x, n - Math.round(rate * .05), n)), () => spectra(x, n - size, n, { size }), rate) : null
     return
   }
   if (!output?.duration) { v.meters = null; return }
@@ -1439,7 +1455,7 @@ function meter(t = null) {
   const [a, b] = t != null ? [t - .05, t] : sel || [v.cursor - .025, v.cursor + .025], from = Math.round(a * rate) - w.from, to = Math.round(b * rate) - w.from
   const c = Math.round(v.cursor * rate) - w.from, [s0, s1] = t != null ? [to - size, to] : sel ? [from, Math.max(to, from + size)] : [c - size / 2, c + size / 2]
   const l = levels(w.x, from, to)
-  v.meters = { levels: t != null ? live(l) : l, spectra: spectra(w.x, s0, s1, { size }), size, rate }
+  v.meters = read(t != null ? live(l) : l, () => spectra(w.x, s0, s1, { size }), rate)
 }
 // The picture's switch: the waveform or the spectrogram; the spectrogram's again, its frequencies on the next scale
 // (octaves, mel, hertz), said by it a moment
@@ -2999,9 +3015,10 @@ async function share() {
   if (local.length) note(`Link copied. ${local.join(', ')} ${local.length > 1 ? 'stay' : 'stays'} on this device: whoever opens the link opens ${local.length > 1 ? 'them' : 'it'} too.`)
 }
 // The documents as the page was left, each a tab, and the one shown; a link's script is shown, in a tab of its own
-// unless one holds it already
+// unless one holds it already. A first visit opens on an empty tab: the ways in (open, record, find a sound, a sample),
+// not a sound nobody chose
 async function initialDocs() {
-  const list = EMBED ? [] : docsOf(stored.docs).length ? docsOf(stored.docs) : [{ code: typeof stored.code === 'string' ? stored.code : DEFAULT }]
+  const list = EMBED ? [] : docsOf(stored.docs).length ? docsOf(stored.docs) : typeof stored.code === 'string' ? [{ code: stored.code }] : []
   let at = Math.max(0, Math.min(stored.doc ?? 0, list.length - 1))
   const hash = location.hash.match(/^#code=([\w-]+)/)?.[1]
   if (hash) try {
@@ -3010,7 +3027,7 @@ async function initialDocs() {
     at = list.findIndex(d => d.code === code)
     if (at < 0) at = list.push({ code }) - 1
   } catch {}
-  if (!list.length) at = list.push({ code: DEFAULT }) - 1
+  if (!list.length) at = list.push({ code: '' }) - 1
   // taken once: the tab it went into is kept, its script changed as it may be, and a reload is no second visit; embedded,
   // the link is all there is, so a reload runs it again
   if (hash && !EMBED) history.replaceState(null, '', location.pathname + location.search)
@@ -3156,7 +3173,7 @@ root.addEventListener('drop', event => {
   const how = dropping(event), t = how === 'insert' ? v.dropAt(event) : null
   state.dropping = false
   v.dropAt(null)
-  const inEditor = event.target.closest('.script-editor'), at = inEditor ? ed.view.posAtCoords({ x: event.clientX, y: event.clientY }) : null
+  const inEditor = event.target.closest('.script-editor'), at = inEditor ? ed.view?.posAtCoords({ x: event.clientX, y: event.clientY }) ?? null : null
   openFiles([...event.dataTransfer.files], inEditor && at != null ? 'at' : how === 'insert' && t != null ? 'insert' : how === 'tab' ? 'tabs' : 'new', inEditor ? at : t)
 }, true)
 
