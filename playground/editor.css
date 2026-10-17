@@ -99,23 +99,20 @@ svg { flex: none; }
 .panes > .status { grid-area: 3 / 1 / 4 / -1; }
 /* the panels' buttons over the panel */
 .side-head { display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-height: 38px; padding: 4px 8px 0 6px; }
-/* undo and redo, set off from the tabs, then how the picture shows, a pair as they are, then its settings at the head
-   of its axis: the glyph (its ink 16 of its 24 units, 17 px in a 28 px button) over the axis's ticks, which run 12 px
-   from a pixel inside the axis (as wide as its labels, --axis, view.js), so the button ends the axis less 21 px before
-   the picture does. Each where it is whatever shows, nothing moving as the picture turns */
-.view-head .history, .view-head .tabs.display { display: flex; flex: none; gap: 1px; }
-.view-head .history { margin-left: 6px; }
-/* with no sound, the pictures' switch dims as undo does, in sight where it will be */
-.view-head .tabs.display[inert] { opacity: .35; }
-.view-head :is(.history .icon-button, .display button, .view-settings button) { width: 28px; height: 28px; min-height: 28px; border-radius: 6px; }
+/* undo and redo, set off from the tabs, then the picture's settings at the head of its axis: the glyph (its faders 18
+   of its 24 units tall, 20 px in a 28 px button) over the axis's ticks, which run 12 px from a pixel inside the axis (as
+   wide as its labels, --axis, view.js), so the button ends the axis less 21 px before the picture does */
+.view-head .history { display: flex; flex: none; gap: 1px; margin-left: 6px; }
+.view-head :is(.history .icon-button, .view-settings button) { width: 28px; height: 28px; min-height: 28px; border-radius: 6px; }
+.view-head .history .icon-button svg { width: 17px; height: 17px; }
+.view-head .view-settings svg { width: 20px; height: 20px; }
 .view-head .history .icon-button { color: var(--color-screen-soft); }
-.view-head :is(.history .icon-button, .display button, .view-settings button) svg { width: 17px; height: 17px; }
 .view-head .history .icon-button:hover:not([aria-disabled="true"]):not(:disabled) { background: var(--color-screen-hover); color: var(--color-screen-bright); }
 .view-head .history .icon-button:is([aria-disabled="true"], :disabled) { opacity: .35; }
 .panes[data-side="open"] .view-head { padding-right: calc(var(--axis, 40px) - 21px); }
-/* the bar under both: what the output holds (its note, key, levels) ends where the picture ends, what the sound is (its
-   rate, channels, depth) at the bar's end, under the panel; the panel's width less the bar's end, the 14 px before the
-   facts and the 6 px gap keeping the picture's end's 20 */
+/* the bar under both: what the output holds (its note, key, levels) and how the picture shows end where the picture
+   ends, what the sound is (its rate, channels, depth) at the bar's end, under the panel; the panel's width less the
+   bar's end, the 14 px before the facts and the 6 px gap keeping the picture's end's 20 */
 .panes[data-side="open"] .facts { width: calc(min(var(--panel), 60vw) - 20px); justify-content: flex-end; }
 /* its left edge: a rule in the slab's own rule colour, as the home page's slab rules off its parts, as far from the
    panel's content as that is from the slab's edge (a panel's sides inset alike); a strip 7 px wide to drag for its width,
@@ -127,11 +124,11 @@ svg { flex: none; }
 .slab { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 /* The bar along the foot of the output and the panel, one with them, a status bar as an editor's: play and the time,
    then what is happening; at its right what the output is */
-.status { --time-size: 40px; display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 60px; padding: 0 20px 0 12px; container-type: inline-size; }
+.status { --time-size: 40px; display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 60px; padding: 0 20px 0 12px; container: bar / inline-size; }
 /* the picture's side of it: with the panel open, the facts under the panel, a container of its own, so the queries below
    that hide what it shows measure the room beside the panel; closed, the bar's, the facts in it */
 .status-main { display: flex; flex: 1 1 0; align-items: center; gap: 6px; min-width: 0; }
-.panes[data-side="open"] .status-main { container-type: inline-size; }
+.panes[data-side="open"] .status-main { container: picture / inline-size; }
 :is(.slab, .status) .icon-button { color: var(--color-screen-muted); }
 :is(.slab, .status) .icon-button:hover:not(:disabled), :is(.slab, .status) .icon-button[aria-pressed="true"] { color: var(--color-screen-bright); background: var(--color-screen-hover); }
 .text-button { min-height: 28px; padding: 0 10px; border: 1px solid var(--color-screen-rule); border-radius: 6px; background: var(--color-transparent); color: var(--color-screen-soft); font-size: 12px; }
@@ -291,6 +288,18 @@ svg { flex: none; }
 .file:hover .file-close, .file.current .file-close, .file-close:focus-visible { opacity: 1; }
 .file-close:hover { background: var(--color-screen-hover); color: var(--color-screen-bright); }
 .file-close svg { width: 12px; height: 12px; }
+/* What a tab's sound is doing, in its close button's place till that is pointed at, as an editor marks a file unsaved:
+   a quarter of a ring turning while it is on its way, a speaker while it plays, a dot once it is made with the tab not
+   shown, till it is */
+.file-mark { display: none; color: var(--color-screen-accent); }
+.file[data-mark] .file-close { opacity: 1; }
+.file[data-mark]:not(:hover) .file-close:not(:focus-visible) > svg { display: none; }
+.file[data-mark]:not(:hover) .file-close:not(:focus-visible) .file-mark { display: block; }
+.file-mark svg { display: none; }
+.file[data-mark="playing"] .file-mark svg { display: block; }
+.file[data-mark="working"] .file-mark { width: 10px; height: 10px; border: 1.5px solid var(--color-screen-rule); border-top-color: var(--color-screen-accent); border-radius: 50%; animation: spin .8s linear infinite; }
+.file[data-mark="ready"] .file-mark { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+@media (prefers-reduced-motion: reduce) { .file[data-mark="working"] .file-mark { animation: none; border-color: var(--color-screen-accent); opacity: .7; } }
 .slab .file-new { width: 26px; height: 26px; }
 .file-new svg { width: 15px; height: 15px; }
 /* what the picture shows when it is not the output: what a step takes out, or the chain up to a step; a press on it
@@ -302,6 +311,12 @@ svg { flex: none; }
 .view { position: relative; flex: 1; min-height: 0; margin: 0 0 0 8px; }
 .plot { position: absolute; inset: 0; touch-action: none; cursor: text; }
 .plot canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+/* The playhead as it moves (view.js glide): its line down the lanes, its tick and time on the time row, a layer the
+   compositor moves, within the lanes' width */
+.plot .playhead { position: absolute; top: 0; left: 0; height: 100%; overflow: hidden; pointer-events: none; }
+.plot .playhead .head { position: absolute; top: 0; left: 0; height: 100%; will-change: transform; }
+.plot .playhead i { position: absolute; left: 0; width: 1px; background: var(--color-screen-bright); }
+.plot .playhead .when { position: absolute; padding: 0 3px; background: var(--color-screen); color: var(--color-screen-bright); white-space: pre; }
 /* the pictures end --end px from the right (view.js sets it: before the labels, or before the meters, nothing behind
    them), square above the time row: clipped, a rectangle the compositor cuts for nothing, where a mask costs a pass of
    its own over each window-wide layer, every frame the view scrolls */
@@ -365,19 +380,17 @@ svg { flex: none; }
 .busy.turning::before { --played: .25; animation: turning 1s linear infinite; }
 @keyframes turning { to { rotate: 1turn; } }
 .stop-icon { display: block; width: 10px; height: 10px; border-radius: 2px; background: currentColor; }
-/* Record, and while it plays the speed in its place: one slot, as wide as the widest speed (0.13×), the one there
-   fading in for the other, so nothing beside it moves */
+/* Record, and while the engine works the ring stopping it in its place: one slot, the one there fading in for the
+   other, so nothing beside it moves */
 .deck-slot { display: grid; place-items: center; }
 .deck-slot > * { grid-area: 1 / 1; transition: opacity var(--dur-micro) var(--ease-out); }
 .deck-slot > [inert] { opacity: 0; }
-.speed-pill { min-width: calc(5ch + 14px); min-height: 22px; padding: 0 7px; border: 0; border-radius: 11px; background: var(--color-screen-fill); color: var(--color-screen-ink); font: 11px var(--font-mono); font-variant-numeric: tabular-nums; }
-.speed-pill:hover { background: var(--color-screen-fill-hover); }
-/* Play dragged: the speeds' scale over it, 0.1× to 10×, a doubling each 32 px (213 px), the speed marked; the pointer
+/* Play dragged: the shuttle's line over it, −2× to 4×, 40 px each 1× (--span, editor.js), the speed marked; the pointer
    hidden */
-.speed-axis { position: fixed; z-index: 20; width: calc(213px + 28px); height: 34px; translate: 0 calc(-100% - 10px); border-radius: 8px; background: var(--color-screen-raised); box-shadow: var(--shadow-menu); pointer-events: none; }
-.speed-tick { position: absolute; bottom: 6px; left: calc(14px + var(--at) * 213px); translate: -50% 0; color: var(--color-screen-dim); font: 10px var(--font-mono); }
+.speed-axis { position: fixed; z-index: 20; width: calc(var(--span) + 28px); height: 34px; translate: 0 calc(-100% - 10px); border-radius: 8px; background: var(--color-screen-raised); box-shadow: var(--shadow-menu); pointer-events: none; }
+.speed-tick { position: absolute; bottom: 6px; left: calc(14px + var(--at) * var(--span)); translate: -50% 0; color: var(--color-screen-dim); font: 10px var(--font-mono); }
 .speed-tick::before { content: ''; position: absolute; top: -8px; left: 50%; width: 1px; height: 5px; background: var(--color-screen-rule); }
-.speed-mark { position: absolute; top: 4px; left: calc(14px + var(--at) * 213px); translate: -50% 0; padding: 0 4px; border-radius: 4px; background: var(--color-screen-accent); color: var(--color-screen); font: 10px var(--font-mono); }
+.speed-mark { position: absolute; top: 4px; left: calc(14px + var(--at) * var(--span)); translate: -50% 0; min-width: 5ch; padding: 0 4px; text-align: center; border-radius: 4px; background: var(--color-screen-accent); color: var(--color-screen); font: 10px var(--font-mono); }
 .shuttling, .shuttling * { cursor: none !important; }
 .play-icon { display: block; width: 0; height: 0; margin-left: 2px; border-top: 7px solid transparent; border-bottom: 7px solid transparent; border-left: 11px solid currentColor; }
 .play-icon.paused { width: 11px; height: 14px; margin-left: 0; border: 0; border-inline: 3px solid currentColor; }
@@ -411,8 +424,13 @@ svg { flex: none; }
 .fact { flex: none; margin: 0 -3px; padding: 0 3px; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; }
 .fact:hover, .fact:focus-visible { background: var(--color-screen-hover); color: var(--color-screen-bright); }
 .facts { margin-left: 14px; color: var(--color-screen-soft); }
-/* the levels as digits turn: room for the longest (peak −10.0dB RMS −21.0dB), at the right */
-.readout { display: block; min-width: 25ch; margin-left: 6px; color: var(--color-screen-muted); text-align: right; }
+/* the level as digits turn: room for the longest (peak −10.0dBFS), at the right; the rest of them pointed at */
+.readout { display: block; min-width: 14ch; margin-left: 6px; color: var(--color-screen-muted); text-align: right; }
+/* how the picture shows, a pair of keys after the levels; with no sound, dimmed as undo is, in sight where it will be */
+.status .tabs.display { display: flex; gap: 1px; margin-left: 8px; }
+.status .tabs.display button { width: 28px; height: 28px; min-height: 28px; border-radius: 6px; }
+.status .tabs.display svg { width: 17px; height: 17px; }
+.status .tabs.display[inert] { opacity: .35; }
 .heard { display: block; flex: 0 1 auto; margin-left: 6px; color: var(--color-screen-dim); }
 /* Scenarios: a goal's whole chain each, found by their words, a card each: its name, what it does, the spec it delivers */
 .scenarios, .chat { display: flex; flex: 1; flex-direction: column; min-height: 0; }
@@ -548,13 +566,15 @@ svg { flex: none; }
 
 /* The page's hints (hint.js): a few words by what they are about, over everything; a theme's to restyle */
 .hint { position: fixed; z-index: 20; top: 0; left: 0; max-width: min(380px, calc(100vw - 8px)); padding: 1px 6px; overflow: hidden; border-radius: 4px; background: var(--hint-bg); color: var(--hint-ink); box-shadow: 0 0 0 1px var(--color-screen-rule); font: 11px/16px var(--font-mono); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
+/* The controls' tooltips (popoff): raised, as the menus are, the name bright, the keys in the mono, softer, after it */
+:root { --popoff-bg: var(--color-screen-raised); --popoff-ink: var(--color-screen-bright); --popoff-soft: var(--color-screen-soft); --popoff-muted: var(--color-screen-muted); --popoff-font: 11.5px/16px var(--font-body); --popoff-keys-font: 11px var(--font-mono); --popoff-shadow: drop-shadow(0 0 .5px var(--color-bezel)) drop-shadow(0 3px 8px oklch(0% 0 0 / .28)); --popoff-fade: var(--dur-micro); }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* Menus and the search */
 .menu { width: 300px; max-height: min(560px, calc(100dvh - var(--bar) - 24px)); margin: 0; padding: 6px; overflow: auto; border: 0; border-radius: 10px; background: var(--color-screen-raised); color: var(--color-screen-soft); box-shadow: var(--shadow-menu); position-area: bottom span-right; position-try-fallbacks: flip-block, flip-inline; margin-block: 6px; }
 .menu.wide { width: 380px; }
 .menu.narrow { width: 230px; }
-#rate-menu, #channels-menu { position-area: top span-right; }
+#rate-menu, #channels-menu, #depth-menu { position-area: top span-right; }
 /* A dropdown: a picture's options or the settings, every group in sight, its choices as keys, what the chosen one does
    said under them */
 .dropdown { position: fixed; inset: auto; width: min(360px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); margin: 0; padding: 6px; overflow: auto; border: 0; border-radius: 12px; background: var(--color-screen-raised); color: var(--color-screen-soft); box-shadow: var(--shadow-menu); }
@@ -725,13 +745,21 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
 /* On a touchscreen there is nothing to drop: the ways in say it */
 @media (hover: none) and (pointer: coarse) { .empty-title { display: none; } }
 /* A narrow bar: what the sound holds goes, then the digits are smaller, then the levels, the rate and the length, each
-   whole where the bar has the room for it and the message a hundred pixels or so */
-@container (max-width: 970px) { .heard { display: none; } }
-@container (max-width: 790px) { .clock { --time-size: 28px; } }
-@container (max-width: 400px) { .clock { --time-size: 22px; } }
-@container (max-width: 715px) { .readout { display: none; } }
-@container (max-width: 540px) { .facts { display: none; } }
-@container (max-width: 430px) { .length { display: none; } }
+   whole where the bar has the room for it and the message a hundred pixels or so; the pictures' switch stays, on a
+   phone Before giving way to it (the Play menu has it: Hear it before the edits). With the panel open, the picture's
+   side of the bar alone, the rate and Before under the panel: the same, by its own room */
+@container bar (max-width: 1060px) { .heard { display: none; } }
+@container bar (max-width: 870px) { .clock { --time-size: 28px; } }
+@container bar (max-width: 400px) { .clock { --time-size: 22px; padding: 0; } }
+@container bar (max-width: 740px) { .readout { display: none; } }
+@container bar (max-width: 625px) { .facts { display: none; } }
+@container bar (max-width: 515px) { .length { display: none; } }
+@container bar (max-width: 430px) { .before { display: none; } .status .tabs.display { margin-left: 0; } .status .tabs.display button { width: 26px; } }
+@container picture (max-width: 970px) { .heard { display: none; } }
+@container picture (max-width: 790px) { .clock { --time-size: 28px; } }
+@container picture (max-width: 655px) { .readout { display: none; } }
+@container picture (max-width: 400px) { .clock { --time-size: 22px; padding: 0; } }
+@container picture (max-width: 450px) { .length { display: none; } }
 /* narrow windows: the menu's names go small before anything else */
 @media (max-width: 900px) { .menubar-item { padding: 0 6px; font-size: 12.5px; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

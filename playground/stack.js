@@ -97,13 +97,13 @@ export default function stack(root, { ed, describe = async () => null, duration 
       if ((call.sound || call.origin) && track()) {
         const acts = head.appendChild(document.createElement('div'))
         acts.className = 'step-acts'
-        button(acts, 'step-remove', null, AWAY, () => onuntrack(), `Delete the track ${track()}`, `Delete track ${track()}`)
+        button(acts, 'step-remove', null, AWAY, () => onuntrack(), 'Delete the track', `Delete track ${track()}`)
       }
       else if (!call.sound && !call.origin) {
         const acts = head.appendChild(document.createElement('div'))
         acts.className = 'step-acts'
         card.on = button(acts, 'step-on', null, ON, () => onOff(card))
-        button(acts, 'step-remove', null, 'm7 7 10 10M17 7 7 17', () => drop(card), `Remove .${call.name}() from the chain`, `Remove ${call.name}`)
+        button(acts, 'step-remove', null, 'm7 7 10 10M17 7 7 17', () => drop(card), 'Remove', `Remove ${call.name}`)
       }
       card.fold = groupOf(call)
       return card
@@ -126,7 +126,7 @@ export default function stack(root, { ed, describe = async () => null, duration 
       const acts = head.appendChild(document.createElement('div'))
       acts.className = 'step-acts'
       fold.on = button(acts, 'step-on', null, ON, () => switchAll(fold))
-      button(acts, 'step-remove', null, 'm7 7 10 10M17 7 7 17', () => dropAll(fold), `Remove ${group.name}: all its steps`, `Remove ${group.name}`)
+      button(acts, 'step-remove', null, 'm7 7 10 10M17 7 7 17', () => dropAll(fold), 'Remove', `Remove ${group.name}`)
       return fold
     })
     const items = []
@@ -314,15 +314,12 @@ export default function stack(root, { ed, describe = async () => null, duration 
       c.toggle.setAttribute('aria-pressed', String(n === at))
       const others = shared[call.part] ?? []
       c.li.classList.toggle('shared', others.length > 0)
-      c.toggle.title = (n === at ? call.off ? 'Close (Esc)' : 'Back to the whole chain (Esc)'
-        : call.off ? `.${call.name}() is bypassed: open, its settings set without a render; its switch turns it back on`
-        : call.sound ? `${call.name}: the sound alone, before any step`
-        : `${ops[call.name]?.text || '.' + call.name + '()'}: the output up to here, and its settings`) + (others.length ? `\nShared with ${others.join(', ')}: a change here changes ${others.length > 1 ? 'them' : 'it'} too` : "")
+      c.toggle.title = (n === at ? 'Whole chain (Esc)' : call.off ? 'Bypassed' : call.sound ? 'The source' : ops[call.name]?.text || `.${call.name}()`) + (others.length ? `\nShared with ${others.join(', ')}` : '')
       c.args.textContent = call.sound ? '' : summary(code, call)
       if (c.on) {
         c.on.setAttribute('aria-pressed', String(!call.off))
         c.on.querySelector('path').setAttribute('d', call.off ? SHUT : ON)
-        c.on.title = call.off ? `Bypassed: turn .${call.name}() back on` : `Bypass .${call.name}(): hear the output without it`
+        c.on.title = call.off ? 'Turn on' : 'Bypass'
         c.on.setAttribute('aria-label', call.off ? `Turn ${call.name} on` : `Turn ${call.name} off`)
       }
       if (open && !c.params) { c.params = params(c); c.li.append(c.params.dom); c.params.load() }
@@ -333,13 +330,13 @@ export default function stack(root, { ed, describe = async () => null, duration 
     for (const fold of folds) {
       const steps = members(fold), open = unfolded.has(fold.key) || steps.some(c => cards.indexOf(c) === at), off = steps.every(c => c.call.off)
       fold.toggle.setAttribute('aria-expanded', String(open))
-      fold.toggle.title = open ? `Fold ${fold.group.name}` : `${fold.group.name}: its ${steps.length} steps, one step of the edits`
+      fold.toggle.title = open ? 'Fold' : 'Unfold'
       fold.toggle.querySelector('.step-args').textContent = `${steps.length} steps`
       fold.li.classList.toggle('off', off)
       fold.li.classList.toggle('rolled', steps.every(c => c.li.classList.contains('rolled')))
       fold.on.setAttribute('aria-pressed', String(!off))
       fold.on.querySelector('path').setAttribute('d', off ? SHUT : ON)
-      fold.on.title = off ? `Bypassed: turn ${fold.group.name} back on` : `Bypass ${fold.group.name}: hear the output without its steps`
+      fold.on.title = off ? 'Turn on' : 'Bypass'
       fold.on.setAttribute('aria-label', off ? `Turn ${fold.group.name} on` : `Turn ${fold.group.name} off`)
       for (const c of steps) { c.li.hidden = !open; c.li.classList.add('grouped') }
     }
@@ -434,7 +431,7 @@ export default function stack(root, { ed, describe = async () => null, duration 
     dom.className = 'params'
     // what the step takes out, heard and drawn; a step that moves time, rate or channels has nothing that lines up to
     // take away
-    const takes = reshapes(card.call.name) ? null : dom.appendChild(Object.assign(document.createElement('button'), { type: 'button', className: 'step-delta', textContent: 'Δ What it takes out', title: `Hear and see what .${card.call.name}() takes out: the output before it less the output after it` }))
+    const takes = reshapes(card.call.name) ? null : dom.appendChild(Object.assign(document.createElement('button'), { type: 'button', className: 'step-delta', textContent: 'Δ What it takes out', title: 'Before minus after' }))
     takes?.addEventListener('mousedown', event => event.preventDefault())
     takes?.addEventListener('click', () => hear(card))
     let rows = [], dragging = null
@@ -514,7 +511,6 @@ export default function stack(root, { ed, describe = async () => null, duration 
       more.className = 'step-more'
       more.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>Advanced <span></span>'
       more.lastChild.textContent = back.length
-      more.title = `Settings few need to touch: ${folded.join(', ')}`
       const fold = open => { more.setAttribute('aria-expanded', String(open)); for (const r of back) r.row.hidden = !open }
       more.addEventListener('mousedown', event => event.preventDefault())
       more.addEventListener('click', () => fold(more.getAttribute('aria-expanded') !== 'true'))

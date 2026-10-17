@@ -1,6 +1,7 @@
 // The app menu: every act the page offers, grouped as desktop apps group them, each with its keys, so the menu is also
 // the map of the page. `model()` gives the menus afresh each time one opens (what is checked, what can't be done now):
-//   [{ name, items: [{ label, keys?, hint?, run?, checked?, disabled?, items? } | '-' | { group: 'Heading' }] }]
+//   [{ name, items: [{ label, keys?, hint?, tip?, run?, checked?, disabled?, items? } | '-' | { group: 'Heading' }] }]
+// An item's `tip`, its tooltip (popoff): only what the row and a try don't say
 // Keys as in desktop menus (WAI-ARIA menubar): ←/→ across the bar, ↓, Enter or Space opens, ↑/↓ through a menu, → into
 // a submenu, ← back out, Enter runs, Esc closes; F10 reaches the bar. Hovering across the bar while a menu is open
 // opens the one under the pointer. After an item runs, the keys go back to where they were, so Space still plays.
@@ -9,13 +10,13 @@
 export default function menubar(root, model) {
   let open = null, back = null, hovering = 0
   const narrow = matchMedia('(max-width: 720px)')
-  const menus = () => narrow.matches ? [{ name: 'Menu', title: 'Everything the page does', items: model().map(m => ({ label: m.name, items: m.items })) }] : model()
+  const menus = () => narrow.matches ? [{ name: 'Menu', items: model().map(m => ({ label: m.name, items: m.items })) }] : model()
 
   function draw() {
     close(false)
     root.replaceChildren(...menus().map((menu, i) => {
       const button = document.createElement('button')
-      Object.assign(button, { type: 'button', className: 'menubar-item', textContent: menu.name, title: menu.title || menu.name, tabIndex: i ? -1 : 0 })
+      Object.assign(button, { type: 'button', className: 'menubar-item', textContent: menu.name, tabIndex: i ? -1 : 0 })
       button.setAttribute('role', 'menuitem')
       button.setAttribute('aria-haspopup', 'menu')
       button.setAttribute('aria-expanded', 'false')
@@ -98,7 +99,7 @@ export default function menubar(root, model) {
       if (it.checked != null) row.setAttribute('aria-checked', String(!!it.checked))
       if (it.disabled) row.setAttribute('aria-disabled', 'true')
       row.tabIndex = -1
-      row.title = it.hint || ''
+      if (it.tip) row.title = it.tip
       row.innerHTML = '<span class="menu-check" aria-hidden="true"></span><span class="menu-label"></span><span class="menu-keys"></span>'
       row.children[1].textContent = it.label
       // its icon, in the check's place, where it has one (a path of the page's own)

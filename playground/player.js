@@ -1,4 +1,3 @@
-import { cycle } from './meters.js'
 import { heard } from './heard.js'
 
 // The library, the page's largest module after CodeMirror, which only playback needs: loaded once the page shows, or with
@@ -115,21 +114,6 @@ export default function player({ onend = () => {} } = {}) {
   return {
     get playing() { return !!voice?.playing && !voice.paused },
     get time() { return aim ?? (voice ? voice.currentTime : at) },
-    // What the speakers play now, as RMS over the 50 ms around the playhead, all channels; 0 when stopped
-    get level() {
-      const w = this.playing && near(voice.currentTime)
-      if (!w) return 0
-      const i = Math.round(voice.currentTime * rate) - w.from, half = Math.round(rate * .025)
-      let sum = 0, n = 0
-      for (const x of w.x) for (let k = Math.max(0, i - half); k < Math.min(x.length, i + half); k++, n++) sum += x[k] * x[k]
-      return n ? Math.sqrt(sum / n) : 0
-    },
-    // What the speakers play now, one cycle of it eased into the trace t (meters.js); left as it was when stopped
-    trace(t) {
-      const w = this.playing && near(voice.currentTime)
-      if (w) cycle(w.x, voice.currentTime * rate - w.from, rate, t)
-      return t
-    },
     // A new output, `pcm` at `sampleRate`, `n` samples long, and what opens it to play (made); a long one with no samples
     // here (pcm null), played by the engine alone, its samples near where it is heard fetched by `fetching(from, to)`.
     // With tracks, `tracks`: their lanes, each its channels averaged, or what fetches them (from, to) for a long one. While

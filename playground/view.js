@@ -29,10 +29,10 @@ import centre, { hue, temperature, colormap, inked, lightness } from './tint.js'
 // text, a drag going on with it; the pointer an I-beam with a chevron the way it goes). Alt adds (another caret, VS
 // Code's, the one Shift then extends, or another range; dragged inside the selection, a copy of its audio, Finder's
 // and Figma's Alt-drag; the pointer with a plus), and measures, as Figma's: how far the pointer is from what is
-// selected. ⌘ (Ctrl) empowers what a press does: inside the selection its audio moves (Finder's ⌘-drag); a range's end
-// sets its length, as its grip does; the cues light and drag, the audio either side stretching; on the spectrogram a
-// press makes a box of time and frequency, a band, as Photoshop's selections; and any drag aims finely (its moves a
-// quarter as far, nothing snapping).
+// selected, the length on the time row, every cue showing where a press would snap. ⌘ (Ctrl) empowers what a press
+// does: inside the selection its audio moves (Finder's ⌘-drag); a range's end sets its length, as its grip does; the
+// cues light and drag, the audio either side stretching; on the spectrogram a press makes a box of time and frequency,
+// a band, as Photoshop's selections; and any drag aims finely (its moves a quarter as far, nothing snapping).
 // A pressed or dragged time goes onto a cue (shown or not) or a marker within a few pixels of it, which lights, as
 // Figma's objects snap (`snapping`). A range's handles each do one thing, the range under the pointer's
 // among several, say what when the pointer is on one, and a click on one turns it to its next way (`onmode`), as a
@@ -93,8 +93,9 @@ export function stylize(times, f0, res = 2) {
   }
   return knots
 }
-// A press held this long without moving, as a touch's long press puts a text's caret (iOS's loupe): no selection, the
-// caret, and the sound under it as it is dragged
+// A press held this long without moving opens what the press holds, as a touch's long press does (iOS's own, 0.5 s):
+// on the picture the caret, no selection, the sound under it as it is dragged (iOS's loupe); on Play the speed's line.
+// The page's one long press: whatever else opens on a hold takes this
 export const HOLD = 500
 // Pointers of their own: a stretch's arrows out from a wave, time pulled longer (the resize arrows are the edges')
 const pointer = (path, hx = 12, hy = 12) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='none' stroke-linecap='round' stroke-linejoin='round'><path d='${path}' stroke='white' stroke-width='4'/><path d='${path}' stroke='black' stroke-width='1.5'/></svg>`)}") ${hx} ${hy}`
@@ -116,6 +117,11 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
   // the selection under the pictures, as a selection is behind text: the sound drawn over it, a quiet spectrogram's
   // clear ground showing it; the grid between the pictures: over the spectrogram, under the waveform
   const selectCanvas = layer('select'), specCanvas = layer('spectrum'), gridCanvas = layer('grid'), waveCanvas = layer('waveform'), overlay = layer('overlay')
+  // the playhead as it moves, over the overlay: a layer of its own, its line down the lanes, its tick and time on the
+  // time row, moved by the compositor (slide), within the lanes' width
+  const element = (tag, className, parent) => parent.appendChild(Object.assign(document.createElement(tag), { className }))
+  const runway = element('div', 'playhead', root), head = element('div', 'head', runway), headLines = element('div', 'lines', head), headTick = element('i', 'tick', head), headTime = element('span', 'when', head)
+  runway.hidden = true
   // gl-waveform draws its own anti-aliased coverage; the context needs premultiplied alpha, not multisampling
   const gl = waveCanvas.getContext('webgl2', { premultipliedAlpha: true, antialias: false })
   // gl-spectrogram computes what a lane shows as it draws it, on the GPU, from the samples it holds: nothing to wait
@@ -185,7 +191,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
   // waveform draws silence (`silent`, standing in for none of the output). None: the output as it is.
   let pieces = null
   // the time shown [start, end], and the part of the spectrogram's frequency axis shown, 0..1 on its scale
-  let start = 0, end = 0, fview = [0, 1], selection = null, band = null, cursor = 0, playhead = null, played = 0, guides = []
+  let start = 0, end = 0, fview = [0, 1], selection = null, band = null, cursor = 0, playhead = null, played = 0, speed = 1, guides = []
   // followed, where the playhead is drawn past where it is, < a device pixel: the view's start on the pixels' grid
   let nudge = 0
   // the view moved by hand while it plays (the wheel, the scrollbar, a zoom to a range): it stays where it was put, the
@@ -245,7 +251,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
       b.hidden = t.muted == null
       b.setAttribute('aria-pressed', !!t.muted)
       b.ariaLabel = `Mute ${t.name}`
-      b.title = t.muted ? `${t.name} is muted: the mix is without it. Click to hear it` : `Mute ${t.name}: the mix without it`
+      b.title = t.muted ? 'Unmute' : 'Mute'
       b.querySelector('.sound').setAttribute('d', t.muted ? SOUND_OFF : SOUND_ON)
     })
   }
@@ -685,24 +691,28 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     // one's), the labels there giving way to it; its level or frequency by its lane
     const at = hovered && hovered[0] >= 0 && hovered[0] <= w && !drag?.scroll && !onBar(...hovered) && !onAway(...hovered) ? hovered : null, lane = at && all.find(r => inside(r, ...at))
     const pointed = at && (drag?.span ? drag.p : drag?.stretch ? drag.to : drag?.hear ?? stuck(snap(time(at[0]))))
+    // held Alt over the picture, as Figma's: every cue, where a press would snap, and how far the pointer is from what is
+    // selected, or from the caret (measured)
+    const alt = !!hovered && !drag && !!held.altKey, measure = alt && lane ? measured(pointed) : null, ends = new Set(measure?.spans.flat())
     // the times on the row, each tick the colour of the line it runs on from: an edge lit (`hot`, or dragged) bright
     const caret = color('--color-screen-caret'), bright = color('--color-screen-bright')
     const litEdge = drag?.resizing && sel ? sel[sel[0] === drag.anchor ? 1 : 0] : !drag && hot ? hot.t : null
     const edges = sel && !drag?.span ? sel.map((t, edge) => ({ t, fill: t === litEdge ? bright : caret, edge, of: sel })) : []
     // the pointer's time, or the caret's, where an edge is: the edge's, which says as much
     const apart = t => !edges.some(m => X(m.t) === X(t))
-    paintRuler([
+    const headMark = paintRuler([
       ...(at && apart(pointed) ? [{ t: pointed, fill: caret }] : []),
       ...edges,
-      ...(playhead != null ? [{ t: playhead, at: playhead + nudge, fill: bright }] : apart(cursor) ? [{ t: cursor, fill: caret }] : []),
+      ...(playhead != null ? [{ t: playhead, at: playhead + nudge, fill: bright, head: true }] : apart(cursor) ? [{ t: cursor, fill: caret }] : []),
       ...(dropped != null ? [{ t: dropped, fill: accent() }] : [])
-    ])
+    ].map(m => ends.has(m.t) ? { ...m, fill: accent() } : m), measure?.spans)
+    if (playhead != null) layHead(L, headMark)
     paintBar()
     // a file held over the picture: where it goes in, a caret of its own, as a text editor shows where a drop lands
     if (dropped != null) { c.fillStyle = accent(); across(X(dropped), 2, mine); c.font = label(); tag('Insert here', X(dropped) + 6, extent(mine)[0] + 8, 'left', accent()) }
     // the times a drag's edges are at, or the caret dragged: the cues and markers they sit on light
     const lit = drag?.caret ? [cursor] : drag?.anchor != null || drag?.carry || drag?.stretch ? sel || [] : drag?.span || []
-    if (show.hits) paintCues(mine, lit)
+    if (show.hits || alt) paintCues(mine, measure ? [...lit, measure.t] : lit, alt)
     paintMarkers(all, lit)
     paintOvers(L)
     // what is edited over the sound: its level (the gain line) or, editing pitch, its pitch (the pitch line on the
@@ -713,7 +723,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     // moving; while an output arrives, where it has come to
     // moving; while an output arrives, where it has come to. With a band selected on the spectrogram, the caret and the
     // playhead run through the band alone, which is what plays
-    // the caret in the edited track's lane, the playhead through all of them
+    // the caret in the edited track's lane; the playhead is its own layer's (slide)
     const line = (t, fill, only = null, lanes = T) => {
       const px = X(t)
       if (px < 0 || px > w) return
@@ -730,8 +740,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
       if (b > a) for (const rect of L.wave) c.fillRect(a, Math.round(ay(rect, 0)), b - a, 1)
       c.globalAlpha = 1
     }
-    if (playhead != null) line(playhead + nudge, color('--color-screen-bright'), band, L)
-    else line(cursor, caret, band)
+    if (playhead == null) line(cursor, caret, band)
     for (const r of more) if (r.length === 2 && r[0] === r[1]) line(r[0], caret)
     // each track's head over its lane; under the handles
     if (tracks) all.forEach(([, y, , lh], i) => tracks[i] && paintHead(tracks[i], i, y, lh, i === focus))
@@ -739,7 +748,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     paintGrips(T, at)
     paintEdge(T, sel)
     if (away) paintAway(!drag && !!hovered && onAway(...hovered))
-    if (at && lane && held.altKey && !drag) paintMeasure(at)
+    if (measure) paintMeasure(measure, at[1], [...T.wave, ...T.spec])
     // a selection's edge under the pointer says which it is and where
     if (at && lane && hot && !drag) {
       const { t, edge } = hot, text = `${!edge ? 'Start' : editing(held) ? `${gripName('stretch')}, end` : 'End'} ${stamp(t)}`, ex = X(t)
@@ -1134,16 +1143,24 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     const v = 20 * Math.log10(Math.abs(a))
     return v > -99 ? `${v < 0 ? '−' : '+'}${Math.abs(v).toFixed(1)}dB` : '−∞dB'
   }
-  // Held Alt, how far the pointer is from what is selected, or from the caret, as Figma's Alt measures: a helper line at
-  // the pointer's height from the nearer edge to it, its length over it; none inside the selection
-  function paintMeasure(at) {
-    const [a, b] = selection ?? [cursor, cursor], t = stuck(snap(time(at[0]))), from = t > b ? b : t < a ? a : null
-    const p = from == null ? 0 : X(from), q = X(t), y = Math.round(at[1])
-    if (from == null || Math.abs(q - p) < 12) return
+  // Held Alt, how far the pointer at `t` is from what is selected, or from the caret, as Figma's Alt measures: from the
+  // nearer edge to it, or inside the selection from each edge, { t, spans: [[from, to], …] }; none on an edge. While it
+  // plays, from the playhead, the caret moving
+  function measured(t) {
+    const [a, b] = playhead != null ? [playhead, playhead] : selection ?? [cursor, cursor], spans = t > b ? [[b, t]] : t < a ? [[t, a]] : t > a && t < b ? [[a, t], [t, b]] : []
+    return spans.length ? { t, spans } : null
+  }
+  // in the accent: the edge or caret measured from, down the lanes, and a helper line from it to the pointer at its
+  // height, a stop at each end; the lengths are on the time row (paintRuler)
+  function paintMeasure({ t, spans }, py, rects) {
+    const y = Math.round(py)
     c.fillStyle = accent()
-    c.fillRect(Math.min(p, q), y, Math.abs(q - p), 1)
-    c.fillRect(p, y - 3, 1, 7)
-    tag(stamp(Math.abs(t - from)), (p + q) / 2, y - 10, 'center', accent())
+    for (const [p, q] of spans) {
+      const from = p === t ? q : p, px = X(from), x0 = X(p), x1 = X(q)
+      if (px >= 0 && px <= plot().w) for (const [, ly, , lh] of rects) c.fillRect(px, ly, 1, lh)
+      c.fillRect(Math.min(x0, x1), y, Math.abs(x1 - x0), 1)
+      for (const e of [x0, x1]) c.fillRect(e, y - 3, 1, 7)
+    }
   }
   // A track's head: its name, its mute beside it (an HTML button, set where the name ends); the one edited, its name
   // bright and a bar down its band's left edge. The names part the bands, no rule between them
@@ -1157,15 +1174,17 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     if (b && (b.style.left !== left || b.style.top !== at)) Object.assign(b.style, { left, top: at })
   }
   // A value by the pointer, on a patch of the screen so the labels under it give way
-  function tag(text, px, py, align, fill = color('--color-screen-bright')) {
+  function tag(text, px, py, align, fill = color('--color-screen-bright'), pill = null) {
     const tw = c.measureText(text).width
     if (align === 'center') px = Math.max(tw / 2 + 3, Math.min(plot().w - tw / 2 - 3, px))
     // the pointer's value on the axis, wider than its labels, kept whole within the picture
     if (align === 'left') px = Math.min(px, W - tw - 3)
     const left = align === 'center' ? px - tw / 2 : px
     const lh = size() + 4
-    c.fillStyle = color('--color-screen')
-    c.fillRect(left - 3, py - lh / 2, tw + 6, lh)
+    // on a patch of the screen; or a pill of its own colour, a little wider
+    c.fillStyle = pill ?? color('--color-screen')
+    if (pill) { c.beginPath(); c.roundRect(left - 4, py - lh / 2, tw + 8, lh, 3); c.fill() }
+    else c.fillRect(left - 3, py - lh / 2, tw + 6, lh)
     c.fillStyle = fill
     c.textAlign = align
     c.fillText(text, px, py)
@@ -1286,14 +1305,21 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     const minor = steps.findLast(s => s <= step / 3 * (1 + 1e-9) && Math.abs(step / s - Math.round(step / s)) < 1e-6)
     return { step, minor, digits: Math.max(0, Math.ceil(-Math.log10(step) - 1e-9)), first: Math.max(0, Math.ceil(start / step - 1e-9)) }
   }
-  function paintRuler(marks) {
+  function paintRuler(marks, spans = []) {
     // the tick and chevron of what is out of sight (away) taken first: the labels give way to them
     const { w, h } = plot(), y = row(), { step, digits, first } = labelled(), taken = away ? [[away.x0 - 2, away.x1 + 2]] : []
     c.textAlign = 'left'
     const shown = []
+    // held Alt, each length measured, on a pill in the accent over the middle of its span, as Figma labels a gap it
+    // measures; before all else here, the other labels giving way to it
+    const pills = spans.map(([p, q]) => {
+      const text = stamp(q - p), tw = c.measureText(text).width, lx = Math.max(4, Math.min(lanesEnd(lanes()) - tw - 4, (X(p) + X(q) - tw) / 2))
+      taken.push([lx - 5, lx + tw + 5])
+      return { text, lx }
+    })
     // a time past the lanes' end, under the meters, is out of sight as one before the view is: the edge says so (away)
     for (const m of marks) {
-      const px = X(m.at ?? m.t), text = stamp(m.t), tw = c.measureText(text).width
+      const px = m.head ? x(m.at) : X(m.t), text = stamp(m.t), tw = c.measureText(text).width
       let lx = px + 4
       if (m.of && !m.edge && tw + 8 > x(m.of[1]) - x(m.of[0])) lx = px - 4 - tw
       lx = Math.max(0, Math.min(w - tw - 3, lx))
@@ -1310,10 +1336,57 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
       if (ruler === 'labels') { c.fillStyle = color('--color-screen-ruler'); c.fillText(text, px + 4, y) }
     }
     for (const m of shown) {
+      if (m.head) continue
       c.fillStyle = m.fill
       c.fillRect(m.px, h, 1, TICK)
       tag(m.text, m.lx, y, 'left')
     }
+    for (const { text, lx } of pills) tag(text, lx, y, 'left', color('--color-screen'), accent())
+    // the playhead's, where the ruler has room for it, for its own layer to show (layHead)
+    return shown.find(m => m.head) ?? null
+  }
+  // The playhead's layer laid out as the overlay is: its line down the lanes, through the band alone with one selected on
+  // the spectrogram, and its tick and time on the time row where the ruler has room for them (`m`, none), relative to
+  // where the line is; each written only as it changes
+  let laid = ''
+  function layHead(L, m) {
+    const { w, h } = plot(), lh = size() + 4
+    const segs = (band ? L.spec.map(r => [Math.max(r[1], fy(r, band[1])), Math.min(r[1] + r[3], fy(r, band[0]))]) : [...L.wave, ...L.spec].map(r => [r[1], r[1] + r[3]])).filter(([a, b]) => b > a)
+    const key = `${w} ${h} ${row()} ${label()} ${segs.join(' ')}`
+    if (key !== laid) {
+      laid = key
+      runway.style.width = `${w}px`
+      headLines.replaceChildren(...segs.map(([a, b]) => Object.assign(document.createElement('i'), { style: `top: ${a}px; height: ${b - a}px` })))
+      Object.assign(headTick.style, { top: `${h}px`, height: `${TICK}px` })
+      Object.assign(headTime.style, { top: `${row() - lh / 2}px`, height: `${lh}px`, lineHeight: `${lh}px`, font: label() })
+    }
+    headTick.hidden = headTime.hidden = !m
+    if (!m) return
+    if (headTime.textContent !== m.text) headTime.textContent = m.text
+    const left = `${m.lx - m.px - 3}px`
+    if (headTime.style.left !== left) headTime.style.left = left
+    if (headTick.dataset.fill !== m.fill) headTick.style.background = headTick.dataset.fill = m.fill
+  }
+  // The playhead's layer where the playhead is (`px`, CSS px) at the frame's own time, and on at `v` px a second, the
+  // speed it plays at, by an animation of its transform, which the compositor runs: however late or busy the page's
+  // thread, it moves on as smoothly as the display. Set again only when it is off where that has it by a quarter of a
+  // device pixel (the clock trimmed, a jump, the view zoomed, another speed), or it stops or starts; followed, the view
+  // scrolls and the playhead stands (v 0), its layer set where it is
+  let sliding = null
+  function slide(px, v) {
+    const now = document.timeline?.currentTime ?? performance.now()
+    if (sliding && !sliding.v === !v && Math.abs(sliding.px + sliding.v * (now - sliding.at) / 1000 - px) < .25 / dpr) return
+    const far = v > 0 ? plot().w + 2 - px : v < 0 ? px + 2 : 0, was = sliding?.animation
+    head.style.transform = `translateX(${px}px)`
+    const animation = far > 0 ? head.animate([{ transform: `translateX(${px}px)` }, { transform: `translateX(${px + Math.sign(v) * far}px)` }], { duration: far / Math.abs(v) * 1000, fill: 'forwards' }) : null
+    if (animation) animation.startTime = now
+    was?.cancel()
+    sliding = { px, v, at: now, animation }
+  }
+  function unslide() {
+    sliding?.animation?.cancel()
+    sliding = null
+    runway.hidden = true
   }
   // The playhead, else the caret or the selection, wholly out of sight, past the lanes' end under the meters too: it
   // stays at the edge of the lanes it is past, as a sticky element does, its line as it is drawn in sight, and on the
@@ -1544,16 +1617,17 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
   // a time as the whole page writes it, in the units chosen (time.js): 0:05, 5.0s, 240000
   const stamp = (t, d = digits()) => clock(t, units, { digits: d, rate })
   // Cues: shown only where they matter, never as a forest over the sound: the one dragged, bright where it will land;
-  // those a dragged edge or caret sits on (`lit`); held ⌘ (Ctrl), the one under the pointer a press would take
+  // those a dragged edge or caret sits on (`lit`); held ⌘ (Ctrl), the one under the pointer a press would take; held Alt
+  // (`all`), every one, faint, as Figma shows what there is to snap to, the one the pointer is on bright
   const on = (lit, px) => lit.some(t => Math.abs(x(t) - px) < .5)
   const editing = (keys = held) => !!(mac ? keys.metaKey : keys.ctrlKey)
-  function paintCues(rects, lit) {
+  function paintCues(rects, lit, all = false) {
     const near = !drag && hovered ? nearCue(...hovered, held) : -1
     c.fillStyle = accent()
     for (const [i, t] of (cues ?? []).entries()) {
       const moving = drag?.cue === i, at = moving ? drag.to : moved(t), px = X(at)
-      if (at == null || px < 0 || px > plot().w || !(moving || i === near || on(lit, px))) continue
-      c.globalAlpha = moving || on(lit, px) ? 1 : .7
+      if (at == null || px < 0 || px > plot().w || !(moving || i === near || on(lit, px) || all)) continue
+      c.globalAlpha = moving || on(lit, px) ? 1 : all && i !== near ? .4 : .7
       for (const [, ly, , lh] of rects) c.fillRect(px, ly, 1, lh)
     }
     c.globalAlpha = 1
@@ -2963,8 +3037,8 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     // before, e^(-dt / GLIDE) of it kept (`played`: that frame's time), so it settles in the middle at any speed. A jump
     // (a caret put elsewhere as it plays) leads from where it lands; one out of sight, a loop come round, is centred at
     // once. A view moved by hand (`steered`) is left where it is, ahead of the playhead or behind it, till the playhead,
-    // seen in it, passes its edge: then it glides to the middle from there. The playhead is the overlay's: the pictures
-    // are drawn again only as the view scrolls
+    // seen in it, passes its edge: then it glides to the middle from there. The playhead is a layer of its own, moved by
+    // the compositor (slide), at `speed`; the pictures are drawn again only as the view scrolls
     get playhead() { return playhead },
     set playhead(t) {
       // what the lanes show of the view, the meters' part of it hidden; followed, the view's start on the device pixels'
@@ -2977,14 +3051,21 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
       if (t == null || steered && seen && t > to) steered = false
       playhead = t
       played = t == null ? 0 : now
+      let scrolled = false
       if (t != null && !drag && !steered && !moving && !whole()) {
-        const follow = a => { const g = Math.round(a / q) * q; setRange(g, g + span); nudge = start === g ? g - a : 0 }
+        const follow = a => { const g = Math.round(a / q) * q; setRange(g, g + span); nudge = start === g ? g - a : 0; scrolled = true }
         if (!seen) follow(t - half)
         else if (t > mid) follow(t - half - Math.max(0, was - mid) * Math.exp(-dt / GLIDE))
         else if (mid - t > q) nudge = 0
       } else nudge = 0
+      if (t == null) { speed = 1; unslide() }
+      else { runway.hidden = false; slide(x(t + nudge), scrolled ? 0 : speed * plot().w / (end - start || 1)) }
       invalidate(true)
     },
+    // how fast the playhead goes, its time a second: as it plays, its speed; back, under a search, less than 0; 1 till
+    // the playhead goes
+    get speed() { return speed },
+    set speed(r) { speed = r },
     // The picture a step's new settings will leave, drawn at once from what shows: its level changed by `gain(t)` (ops.js
     // previews), step by step, a pixel's time apart where it is in view, until its output comes; null draws the output
     preview(gain) {

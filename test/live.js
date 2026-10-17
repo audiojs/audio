@@ -30,13 +30,13 @@ await check('playground opens on an empty tab, its ways in offered', async page 
 })
 await check('playground opens a link\'s sound, measured', async page => {
   await page.goto(chime)
-  await page.locator('.readout', { hasText: 'LUFS' }).waitFor({ timeout: 60000 })
+  await page.locator('.readout', { hasText: 'peak' }).waitFor({ timeout: 60000 })
 })
 // GitHub Pages sends no COOP or COEP: sw.js adds them, so a model's wasm runs on threads
 await check('playground cross-origin isolated', async page => {
   await page.goto(chime)
   await page.waitForFunction(() => crossOriginIsolated, null, { timeout: 30000 })
-  await page.locator('.readout', { hasText: 'LUFS' }).waitFor({ timeout: 60000 })
+  await page.locator('.readout', { hasText: 'peak' }).waitFor({ timeout: 60000 })
 })
 await check('editor.html still leads to the playground', async page => {
   await page.goto(base + 'editor.html#code=x')

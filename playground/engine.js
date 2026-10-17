@@ -1,16 +1,17 @@
-// The page's handle on the engine worker. Scripts run one at a time, the newest waiting its turn: a slider sends many
-// versions, only the latest queued one runs next. A run answers once its script has run; its output then streams to
-// the listener it came with, as events: `loading` (a file it opens, as it decodes, while the output has nothing yet),
-// `arrived` (all of that file come, the output still nothing), `doing` (the steps it applies, or the one reading its
-// input whole first, by name), `tracks` (a script's tracks, each its own picture, before their mix), `chunk` (the
-// output), then `done` or `error`; or `skip`, when a newer script runs and its output takes over. An output made before (worker.js, renders kept) comes whole at once. A page that draws peaks
-// (`peaks`) gets those of a sound longer than it holds, in place of its samples (`long`, worker.js feed), and asks for
-// the samples where it zooms in (samples).
-// Stop ends a run where the worker is free to hear it, its outputs kept; a worker held by a step that reads its input
-// whole (a model's pass, a plugin over all of it) for longer than HELD ms is replaced instead, as it is when a newer
-// run waits on it, or when such a step still runs for what no longer takes it (a step turned off or taken away while
-// its model runs: the worker says it is `held`), as nothing else stops it: the outputs it kept then go with it
-// (onrestart).
+// The page's handle on the engine worker. Scripts run one at a time, each tab's newest waiting its turn: a slider sends
+// many versions, only the latest queued one of its tab runs next. A run answers once its script has run; its output
+// then streams to the listener it came with, as events: `loading` (a file it opens, as it decodes, while the output has
+// nothing yet), `arrived` (all of that file come, the output still nothing), `doing` (the steps it applies, or the one
+// reading its input whole first, by name), `tracks` (a script's tracks, each its own picture, before their mix),
+// `chunk` (the output), then `done` or `error`; or `skip`, when a newer script of its tab runs and its output takes
+// over: another tab's run leaves it streaming, a tab left while it renders still rendering. An output made before
+// (worker.js, renders kept) comes whole at once. A page that draws peaks (`peaks`) gets those of a sound longer than it
+// holds, in place of its samples (`long`, worker.js feed), and asks for the samples where it zooms in (samples).
+// Stop ends the tab's run where the worker is free to hear it, its outputs kept; a worker held by a step of that tab
+// that reads its input whole (a model's pass, a plugin over all of it) for longer than HELD ms is replaced instead, as
+// it is when a newer run of the tab waits on it, or when such a step still runs for what the tab no longer takes (a step
+// turned off or taken away while its model runs: the worker says it is `held`), as nothing else stops it: the outputs it
+// kept then go with it (onrestart), every tab's. Held by another tab's step, it is waited for.
 const HELD = 500
 // calls a worker replaced would lose work of its own in: what an export or a check is still making
 const LASTING = new Set(['export', 'bake', 'check', 'eval'])
@@ -72,8 +73,11 @@ function decks(url) {
 export default function engine(url = WORKER) {
   // `held`: run id → { again: the run sent to a new worker in place of this one, timer: again unless the worker says it
   // took the run (taken) by then }; till the run's reply
-  const files = new Map(), pending = new Map(), described = new Map(), listeners = new Map(), held = new Map()
-  let worker, ids = 0, running = null, queued = null
+  // `queued`: tab → its newest run waiting its turn; `tabOf`: a run's listener → its tab; `passing`: run id → its tab,
+  // while a step of its reads its input whole (its `doing` step)
+  const files = new Map(), pending = new Map(), described = new Map(), listeners = new Map(), held = new Map(), queued = new Map(), passing = new Map()
+  const tabOf = new WeakMap()
+  let worker, ids = 0, running = null
 
   function spawn(resend = true) {
     const ahead = url === WORKER && early && !early.failed
@@ -87,7 +91,8 @@ export default function engine(url = WORKER) {
       if (data.event === 'held') return held.get(data.id)?.again()
       if (data.event) {
         const on = listeners.get(data.id)
-        if (data.event === 'done' || data.event === 'error') listeners.delete(data.id)
+        if (data.event === 'doing' && 'step' in data) data.step ? passing.set(data.id, data.tab) : passing.delete(data.id)
+        if (data.event === 'done' || data.event === 'error') { listeners.delete(data.id); passing.delete(data.id) }
         return on?.[data.event]?.(data)
       }
       const call = pending.get(data.id)
@@ -113,6 +118,7 @@ export default function engine(url = WORKER) {
     pending.clear()
     for (const on of listeners.values()) ended(on)
     listeners.clear()
+    passing.clear()
   }
   const call = (message, transfer = [], on) => new Promise(resolve => {
     const id = ++ids
@@ -133,19 +139,20 @@ export default function engine(url = WORKER) {
     for (const [id, c] of again) { pending.set(id, c); worker.postMessage({ ...c.message, id }) }
     self.onrestart?.()
   }
-  // Whether the worker may be replaced for run `id`: an older output streams, which it no longer needs, and nothing of
-  // lasting work waits on it
+  // Whether the worker may be replaced for run `id` of tab `tab`: an older output of the tab streams, which it no longer
+  // needs, no other tab's step holds it, and nothing of lasting work waits on it
   const lasting = () => [...pending.values()].some(c => LASTING.has(c.type))
-  const replaceable = id => [...listeners.keys()].some(k => k < id) && !lasting()
+  const others = tab => [...passing.values()].some(t => t !== undefined && t !== tab)
+  const replaceable = (id, tab) => [...listeners].some(([k, on]) => k < id && tabOf.get(on) === tab) && !others(tab) && !lasting()
 
   async function drain() {
-    while (queued) {
-      const { script, on, resolve } = queued
-      queued = null
+    while (queued.size) {
+      const [tab, { script, on, resolve }] = queued.entries().next().value
+      queued.delete(tab)
       running = script
       const reply = await submit(script, on)
-      // older outputs still streaming stop; each hears it was skipped
-      if (!reply.error) for (const [id, older] of listeners) if (id < reply.id) { listeners.delete(id); older.skip?.() }
+      // the tab's older outputs still streaming stop; each hears it was skipped
+      if (!reply.error) for (const [id, older] of listeners) if (id < reply.id && tabOf.get(older) === tab) { listeners.delete(id); older.skip?.() }
       if (reply.error || !reply.output) listeners.delete(reply.id)
       resolve(reply)
     }
@@ -155,6 +162,7 @@ export default function engine(url = WORKER) {
   // step, and one that says it is held runs a step no longer taken: replaced, the older output skipped, and the run sent
   // to the new one
   function submit(script, on) {
+    tabOf.set(on, script.tab)
     const reply = call({ type: 'run', ...script }, [], on), id = ids
     return new Promise(resolve => {
       reply.then(r => { clearTimeout(held.get(id)?.timer); held.delete(id); resolve(r) })
@@ -167,7 +175,7 @@ export default function engine(url = WORKER) {
         replace('Stopped.', on => on.skip?.())
         call({ type: 'run', ...script }, [], on).then(resolve)
       }
-      held.set(id, { again, timer: replaceable(id) && setTimeout(() => replaceable(id) && again(), HELD) })
+      held.set(id, { again, timer: replaceable(id, script.tab) && setTimeout(() => replaceable(id, script.tab) && again(), HELD) })
     })
   }
 
@@ -186,11 +194,13 @@ export default function engine(url = WORKER) {
     },
     has: name => files.has(name),
     get names() { return [...files.keys()] },
-    // Runs a prepared script, its output streaming to `on`; a newer run() before it starts supersedes it, resolving
-    // the older one with { skipped }.
+    // Runs a prepared script, its output streaming to `on`; a newer run() of its tab before it starts supersedes it,
+    // resolving the older one with { skipped }.
     run(script, on = {}) {
-      queued?.resolve({ skipped: true })
-      const result = new Promise(resolve => { queued = { script: { ...script, tab: self.tab, peaks: self.peaks }, on, resolve } })
+      const tab = self.tab
+      queued.get(tab)?.resolve({ skipped: true })
+      queued.delete(tab)
+      const result = new Promise(resolve => { queued.set(tab, { script: { ...script, tab, peaks: self.peaks }, on, resolve }) })
       if (!running) drain()
       return result
     },
@@ -223,17 +233,17 @@ export default function engine(url = WORKER) {
         }).then(r => { reply = r; settle() })
       })
     },
-    // A run's output, or a script, stopped: the worker told to, its outputs kept, or, held past HELD ms or by a step
-    // reading its input whole (a model's pass, which nothing else stops), replaced; true when it was (what it kept went
-    // with it)
+    // The tab's run's output, or its script, stopped: the worker told to, its outputs kept, or, held past HELD ms or by a
+    // step of the tab reading its input whole (a model's pass, which nothing else stops), replaced; true when it was
+    // (what it kept went with it). Held by another tab's step alone, it hears the stop once that step is done
     async stop() {
-      queued?.resolve({ skipped: true })
-      queued = null
-      const told = call({ type: 'stop' }), late = new Promise(resolve => setTimeout(resolve, HELD, 'late'))
+      const tab = self.tab
+      queued.get(tab)?.resolve({ skipped: true })
+      queued.delete(tab)
+      const told = call({ type: 'stop', tab }), late = new Promise(resolve => setTimeout(resolve, HELD, 'late'))
       const r = await Promise.race([told, late])
-      if (r === 'late' || r.held) { replace('Stopped.'); return true }
-      for (const on of listeners.values()) on.error?.({ error: { message: 'Stopped.' } })
-      listeners.clear()
+      if (r === 'late' && !others(tab) || r.held) { replace('Stopped.'); return true }
+      for (const [id, on] of listeners) if (tabOf.get(on) === tab) { listeners.delete(id); on.error?.({ error: { message: 'Stopped.' } }) }
       return false
     },
     // The worker replaced, all it kept gone: set by the page
@@ -251,8 +261,13 @@ export default function engine(url = WORKER) {
     // its step(i) reads (code.js stages, each script prepared; a track's with `track`, its index), as JSON: { value,
     // measured } or { error }
     evaluate: script => call({ type: 'eval', ...script, tab: self.tab }),
-    // A tab closed: its output goes
-    close: tab => call({ type: 'close', tab }),
+    // A tab closed: its run waiting goes, its output streaming stops, heard as skipped, and its output goes
+    close(tab) {
+      queued.get(tab)?.resolve({ skipped: true })
+      queued.delete(tab)
+      for (const [id, on] of listeners) if (tabOf.get(on) === tab) { listeners.delete(id); on.skip?.() }
+      return call({ type: 'close', tab })
+    },
     // A prepared script's sound whole, as the edits make it (the chain flattened up to a step): { channels, sampleRate,
     // markers, regions } or { error }
     bake: script => call({ type: 'bake', ...script }),

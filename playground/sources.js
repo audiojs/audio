@@ -1,7 +1,6 @@
 // Where sound comes from: files, the microphone, a sound search, the built-in samples.
 // Each becomes a name the script opens with audio('name').
 import { samples, RATE } from '../site/samples.js'
-import { cycle } from './meters.js'
 
 // A name that is free in `taken`: voice.wav, voice-2.wav, …
 export function unique(name, taken) {
@@ -24,9 +23,9 @@ export function sample(name) {
 // loads while the browser asks. Nothing is kept until take(onblock): from then each block goes to `onblock`, the
 // channels of it, and stop() returns them all. `channels`: 1, the input's first alone (a voice, one microphone, as
 // a recorder takes it, mono, however many the device gives: a laptop's twin the same); 2, both as the device gives them.
-// { sampleRate, recent, heard, trace(t), take(onblock), stop(), cancel() }: each block to `onblock` as it comes; `recent` holds
-// each channel's last 16384 samples (the meters read them), `heard` is the RMS of the last 50 ms, and trace(t) eases one
-// cycle of them into the trace t (meters.js).
+// { sampleRate, recent, time, take(onblock), stop(), cancel() }: each block to `onblock` as it comes; `recent` holds each
+// channel's last 16384 samples (the meters read them); `time` is the microphone's own clock, s, running on however late
+// its blocks come.
 export async function microphone({ channels = 1 } = {}) {
   const context = new AudioContext()
   context.resume()
@@ -38,15 +37,8 @@ export async function microphone({ channels = 1 } = {}) {
   try {
     const [stream] = await Promise.all([asked, context.audioWorklet.addModule(url)])
     const source = context.createMediaStreamSource(stream), node = new AudioWorkletNode(context, 'take', { numberOfOutputs: 0, processorOptions: { channels } })
-    const rate = context.sampleRate, mic = { sampleRate: rate, recent: [] }
+    const rate = context.sampleRate, mic = { sampleRate: rate, recent: [], get time() { return context.currentTime } }
     let onblock = null
-    Object.defineProperty(mic, 'heard', { get() {
-      const x = mic.recent, n = x[0]?.length ?? 0, w = Math.round(rate * .05)
-      let sum = 0
-      for (let i = n - w; i < n; i++) { let v = 0; for (const c of x) v += c[i]; v /= x.length; sum += v * v }
-      return x.length ? Math.sqrt(sum / w) : 0
-    } })
-    mic.trace = t => cycle(mic.recent, (mic.recent[0]?.length ?? 0) - 1600, rate, t)
     mic.take = f => { onblock = f }
     node.port.onmessage = ({ data }) => {
       onblock?.(data)

@@ -76,11 +76,13 @@ function click() {
  * is set: see logo.js); hover (a key of HOVERS, or its own), lift, sound; hold, to keep it from catching in its pose
  * while something else turns it by turn(); tap, whether a tap gives the next signal, and ontap(signal) to hear which;
  * ondraw(), called after each frame drawn; area, an element whose hover and drag stand for the canvas's, as a whole title for its mark; favicon, to
- * show the wave in the tab; hidden, to keep moving while the page is hidden, where the tab's icon is all that shows.
+ * show the wave in the tab; hidden, to keep moving while the page is hidden, where the tab's icon is all that shows;
+ * loop, turns a second to turn at as a loop: the drawing as its settings leave it, a turn of it drawn once, which the
+ * compositor steps through, nothing drawn on the page's thread nor answering a hand till loop is 0 again.
  * set() changes settings, and set({}) redraws; turn(turns) turns it at once, and phase reads where it has turned to.
  */
 export function motion(view, canvas, settings = {}) {
-  const o = { speed: 0, cycles: 1, amplitude: 1, signal: 'sine', hover: 'stir', lift: 'none', sound: 'none', tap: true, hidden: false, axis: 0, ...settings }
+  const o = { speed: 0, cycles: 1, amplitude: 1, signal: 'sine', hover: 'stir', lift: 'none', sound: 'none', tap: true, hidden: false, axis: 0, loop: 0, ...settings }
   // velocity is the motor's drive and what a hand gave, the fling; pose, the rest turn it is caught toward
   const s = { hovered: false, over: false, seen: null, follow: 0, pressed: false, dragging: false, lift: 0, phase: 0, velocity: 0, drive: 0, fling: 0, pose: null, launch: -Infinity, ran: -Infinity, was: false, spin: 0, cycles: typeof o.cycles === 'function' ? 1 : o.cycles, cyclesVelocity: 0, amplitude: 1, amplitudeVelocity: 0, axis: 0, grab: null, tick: peak(0), tone: null }
   const surface = o.area ?? canvas
@@ -211,9 +213,56 @@ export function motion(view, canvas, settings = {}) {
   arrive()
   addEventListener('pageshow', e => { if (e.persisted) arrive() })
 
+  // A loop: a turn of the drawing as POSES poses side by side on a strip, drawn once for its settings and size and kept,
+  // in a box over the canvas, stepped through by a transform animation, which the compositor runs; the tab's icon, eight
+  // of them, a few times a second. Ended, the turn goes on from the pose it showed, at the loop's speed, eased from there
+  const POSES = 40
+  let looped = null, poses = null
+  function loop(speed) {
+    unloop()
+    const dark = matchMedia('(prefers-color-scheme: dark)').matches, { width: W, height: H } = canvas
+    if (!W || !H) return
+    const value = (v, was) => typeof v === 'function' ? was : v
+    s.cycles = value(o.cycles, s.cycles); s.amplitude = value(o.amplitude, s.amplitude); s.axis = Math.min(1, Math.max(0, value(o.axis, s.axis)))
+    const key = [W, H, s.cycles, s.amplitude, s.axis, o.signal, view.state.figure, dark].join()
+    if (poses?.key !== key) {
+      const strip = Object.assign(document.createElement('canvas'), { width: W * POSES, height: H }), g = strip.getContext('2d'), icons = []
+      Object.assign(strip.style, { display: 'block', width: `${POSES * 100}%`, height: '100%' })
+      for (let k = 0; k < POSES; k++) {
+        view.set({ phase: k / POSES, cycles: s.cycles, amplitude: s.amplitude, axis: s.axis, signal: o.signal })
+        view.render()
+        g.drawImage(canvas, k * W, 0)
+        if (tab && k % (POSES / 8) === 0) icons.push(view.favicon(dark ? '#F2F4F8' : '#141414'))
+      }
+      poses = { key, strip, icons }
+    }
+    const cs = getComputedStyle(canvas), box = canvas.parentNode.appendChild(document.createElement('div'))
+    Object.assign(box.style, { position: 'absolute', top: cs.top, left: cs.left, width: cs.width, height: cs.height, translate: cs.translate, overflow: 'hidden', pointerEvents: 'none' })
+    box.append(poses.strip)
+    const animation = poses.strip.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-100%)' }], { duration: 1000 / speed, iterations: Infinity, easing: `steps(${POSES})` })
+    animation.currentTime = (s.phase % 1 + 1) % 1 / speed * 1000
+    const turned = () => Math.floor(animation.currentTime / 1000 * speed * POSES) / POSES, { icons } = poses
+    const timer = tab && icons.length && setInterval(() => { tab.href = icons[Math.floor(turned() % 1 * icons.length)] }, 125)
+    canvas.style.visibility = 'hidden'
+    o.ondraw?.()
+    looped = { box, animation, timer, turned, speed }
+  }
+  function unloop() {
+    if (!looped) return
+    const { box, animation, timer, turned, speed } = looped
+    Object.assign(s, { phase: turned(), drive: speed, fling: 0, pose: null })
+    animation.cancel()
+    box.remove()
+    clearInterval(timer)
+    canvas.style.visibility = ''
+    looped = null
+    changed = true
+  }
+
   let last = performance.now(), failed = false
   // A frame that throws is reported once and does not end the animation: the mark carries on with the next
   function frame(now) {
+    if (looped) return
     try { step(now) } catch (error) { if (!failed) console.error(error); failed = true }
     next()
   }
@@ -284,19 +333,21 @@ export function motion(view, canvas, settings = {}) {
     timed = document.hidden && o.hidden && !!tab
     pending = timed ? setTimeout(() => frame(performance.now()), 125) : requestAnimationFrame(frame)
   }
-  const restart = () => { (timed ? clearTimeout : cancelAnimationFrame)(pending); next() }
+  const restart = () => { (timed ? clearTimeout : cancelAnimationFrame)(pending); if (!looped) next() }
   document.addEventListener('visibilitychange', restart)
   next()
 
   return {
     // Where its wave has turned to, in turns, what a mimic is still to turn included
-    get phase() { return s.phase + s.follow },
+    get phase() { return looped ? looped.turned() : s.phase + s.follow },
     // Turns it by so many turns at once, as a hand or a scrubbed sound would
     turn(turns) { s.phase += turns; s.pose = null; changed = true },
     set(changes) {
       Object.assign(o, changes)
       changed = true
       if (o.sound !== 'none' && navigator.userActivation?.isActive) hear()
+      if (o.loop) { (timed ? clearTimeout : cancelAnimationFrame)(pending); return loop(o.loop) }
+      if (looped) { unloop(); return restart() }
       if (document.hidden) restart()
     },
   }
