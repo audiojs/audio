@@ -7,7 +7,7 @@
 import audio from '../audio.js'
 import { LOAD } from '../core.js'
 import plugins from 'editor:plugins'
-import { attacks, hits } from '../fn/hits.js'
+import { attacks, rises } from '../fn/hits.js'
 import { steadyTempo } from '../fn/beat.js'
 import { contour as pitchOf } from '../fn/pitch-detect.js'
 import { expose } from '../worker.js'
@@ -548,12 +548,12 @@ function recall(key) {
 // put after a step would be lost on what the steps before it made)
 const marksOf = a => (a.meta, JSON.stringify([a._.markers ?? [], a._.regions ?? [], a._.marks ?? []]))
 // The keys of an output's start and of each step after it, [the source, its first edit, …]; none for a sound the script
-// made from nothing
-function keysOf(a) {
-  const root = roots.get(a)
-  if (!root) return Object.assign([], { marked: true })
-  const marks = marksOf(a), keys = Object.assign([`${idOf(root)}|${marks}|`], { marked: marks !== marksOf(root) })
-  for (const e of a.edits) { const s = sig(e); if (s == null) break; keys.push(`${keys.at(-1)}${s};`) }
+// made from nothing. Each source named by `id` (idOf: this worker's own count; fileOf: its file, the same past a reload)
+function keysOf(a, id = idOf) {
+  const root = roots.get(a), own = root && id(root)
+  if (own == null) return Object.assign([], { marked: true })
+  const marks = marksOf(a), keys = Object.assign([`${own}|${marks}|`], { marked: marks !== marksOf(root) })
+  for (const e of a.edits) { const s = sig(e, id); if (s == null) break; keys.push(`${keys.at(-1)}${s};`) }
   return keys
 }
 // A run's start: its whole output kept ({ hit }), else the longest of its starts kept with the steps after it on its
@@ -579,25 +579,35 @@ function from(e, edits) {
 // sound made here as the WAV it is kept as, 32-bit float); one it reads from elsewhere (a web address), which may change
 // there, nothing kept
 const build = fetch(import.meta.url).then(r => r.text()).then(digest).catch(() => null)
+const sizeOfFile = n => { const f = files.get(n); return f instanceof Blob ? f.size : f?.channels ? 44 + f.channels.length * f.channels[0].length * 4 : null }
 async function contentOf(code, names) {
-  const sizes = names.map(n => { const f = files.get(n); return f instanceof Blob ? f.size : f?.channels ? 44 + f.channels.length * f.channels[0].length * 4 : null })
+  const sizes = names.map(sizeOfFile)
   const b = await build
   return b && !sizes.includes(null) ? digest(JSON.stringify([b, code, names, sizes])) : null
+}
+// A source as the browser's files know it, by its name and size; null for one opened from no file of the page's
+const fileOf = root => { const name = [...sources].find(([, s]) => s === root)?.[0], size = name == null ? null : sizeOfFile(name); return size == null ? null : `${name}:${size}` }
+// A sound's name in the browser's files, as an output's (contentOf), by what makes it alone: the build, the files it
+// reads by their names and sizes, its marks and its edits (keysOf); null where one of them can't be said. A track's: what
+// another track changes, or the script around it, leaves it found
+async function soundContent(a) {
+  const keys = keysOf(a, fileOf), b = await build
+  return b && keys.length === a.edits.length + 1 ? digest(JSON.stringify([b, keys.at(-1)])) : null
 }
 async function digest(text) {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(x => x.toString(16).padStart(2, '0')).join('')
 }
 
-// An edit as a string to compare, or null where it holds what cannot be compared: a copy of a source as that source and
-// its own edits; a function or samples, never the same as another's
+// An edit as a string to compare, or null where it holds what cannot be compared: a copy of a source as that source
+// (named by `id`, as keysOf) and its own edits; a function or samples, never the same as another's
 const ids = new WeakMap()
 let lastId = 0
 const idOf = o => ids.get(o) ?? (ids.set(o, ++lastId), lastId)
-function sig(v) {
+function sig(v, id = idOf) {
   if (typeof v === 'function' || ArrayBuffer.isView(v)) return null
   if (v == null || typeof v !== 'object') return JSON.stringify(v) ?? 'undefined'
-  if (isAudio(v)) { const root = roots.get(v), edits = sig(v.edits); return root && edits != null ? `a${idOf(root)}${edits}` : null }
-  const parts = Array.isArray(v) ? v.map(sig) : Object.keys(v).sort().map(k => { const x = sig(v[k]); return x == null ? null : `${k}:${x}` })
+  if (isAudio(v)) { const root = roots.get(v), own = root && id(root), edits = sig(v.edits, id); return own != null && edits != null ? `a${own}${edits}` : null }
+  const parts = Array.isArray(v) ? v.map(x => sig(x, id)) : Object.keys(v).sort().map(k => { const x = sig(v[k], id); return x == null ? null : `${k}:${x}` })
   return parts.includes(null) ? null : Array.isArray(v) ? `[${parts}]` : `{${parts}}`
 }
 
@@ -677,7 +687,8 @@ async function render(r) {
   }
 }
 // Tracks (code.js tracks): each made as an output is, from what is kept of it (made: a track edited renders alone, the
-// others are kept), then summed from their starts into the output, but those the page mutes (`muted`, by name): as long
+// others are kept, here and in the browser's files, so a reload makes none of them again), then summed from their
+// starts into the output, but those the page mutes (`muted`, by name): as long
 // as the longest, at the first's rate (another resampled to it), as many channels as the widest has (a narrower one's in
 // turn across them, as mix() spreads a mono sound), muted or not; with a master, the output is the master's (a lane of its own, the last), made as the script says. The page gets each track's own picture first (`tracks`: its channels averaged, its length, its pauses), then
 // the mix as any output comes, the tracks' markers on it, each with its track's name; past the channel samples the page holds, the mix's and the
@@ -690,7 +701,7 @@ async function mixTracks(r, alive) {
       // its file whole first: a track is made whole, its rate and channels known
       await t.instance.ready
       if (!alive()) return
-      const e = await made(t.instance, keysOf(t.instance), alive, r)
+      const e = await made(t.instance, keysOf(t.instance), alive, r, true)
       if (!e) return
       Object.assign(t, e, { made: e })
       // one not kept (a sound made in the script) goes with the run
@@ -704,16 +715,13 @@ async function mixTracks(r, alive) {
       r.created.push(t.sound)
       t.sampleRate = rate
     }
-    // the mix: the master's, or the widest track (silenced, muted), padded with silence to the longest's end, the others
-    // heard mixed in (the library's mix(), rendered a block at a time onto a tape: nothing held whole)
-    const n = Math.max(...r.tracks.map(t => t.sound.length)), mastered = r.tracks.find(t => t.master), heard = t => !r.muted?.has(t.name)
-    const wide = mastered ?? r.tracks.reduce((p, q) => q.sound.channels > p.sound.channels ? q : p), k = wide.sound.channels
+    // the mix: the master's, or the tracks' but those muted (mixOf), rendered a block at a time onto a tape: nothing held
+    // whole
+    const n = Math.max(...r.tracks.map(t => t.sound.length)), mastered = r.tracks.find(t => t.master)
+    const k = (mastered ?? r.tracks.reduce((p, q) => q.sound.channels > p.sound.channels ? q : p)).sound.channels
     let sound = mastered?.sound
     if (!mastered) {
-      const m = wide.sound.clone()
-      if (!heard(wide)) m.gain(-Infinity)
-      if (n > m.length) m.pad(0, (n - m.length) / rate)
-      for (const t of r.tracks) if (t !== wide && heard(t)) m.mix(t.sound)
+      const m = mixOf(r.tracks, t => !r.muted?.has(t.name))
       sound = await collect(m, alive)
       m.dispose?.()
       if (!sound) return
@@ -746,6 +754,16 @@ async function mixTracks(r, alive) {
     post({ id: r.id, event: 'error', error: failure(failed ? opening(failed, error) : error) })
     drop(r)
   }
+}
+// Tracks' sum (made, at one rate), as an instance made as it is read: the widest, silenced where it is not `heard`,
+// padded with silence to the longest's end, the others heard mixed in (the library's mix(), a narrower one's channels in
+// turn across the wider's)
+function mixOf(tracks, heard) {
+  const n = Math.max(...tracks.map(t => t.sound.length)), wide = tracks.reduce((p, q) => q.sound.channels > p.sound.channels ? q : p), m = wide.sound.clone()
+  if (!heard(wide)) m.gain(-Infinity)
+  if (n > m.length) m.pad(0, (n - m.length) / wide.sampleRate)
+  for (const t of tracks) if (t !== wide && heard(t)) m.mix(t.sound)
+  return m
 }
 // A track's lane as the page draws it, its channels averaged: its samples ({ mono }); or, `n` given (the page holds
 // pictures alone), its leaves and spectra as long as the mix, silence after its end. Null once `alive()` says to stop
@@ -871,7 +889,8 @@ function rendered(r, k) {
   finally { p.dispose?.() }
 }
 // An instance's sound, rendered a block at a time onto a tape, giving way to whatever the page asks (turns); null once
-// `going()` says to stop
+// `going()` says to stop, at the end too: an instance let go as its run gave way (a model still reading it) streams
+// nothing, which kept would be the sound for the run taking its place
 async function collect(a, going, blocks = a.stream()) {
   const t = tape(a.sampleRate, a.channels), turn = turns()
   for await (const block of blocks) {
@@ -879,12 +898,14 @@ async function collect(a, going, blocks = a.stream()) {
     await turn()
     if (!going()) { t.dispose(); return null }
   }
+  if (!going()) { t.dispose(); return null }
   return t.stop()
 }
 // An instance's sound, as kept: whole if it is, else rendered from the longest of its starts kept, then kept; null once
-// `going()` says to stop; for run `owner`'s output, where it is one's
-async function made(a, keys = keysOf(a), going = () => true, owner = null) {
-  const n = a.edits.length
+// `going()` says to stop; for run `owner`'s output, where it is one's. `shelved`: kept in the browser's files too, by
+// what makes it (soundContent), and found there before anything renders: a track, whose model ran once, never again
+async function made(a, keys = keysOf(a), going = () => true, owner = null, shelved = false) {
+  const n = a.edits.length, whole = keys.length === n + 1
   let b = a
   for (let k = Math.min(keys.length - 1, n); k >= 0; k--) {
     const e = recall(keys[k])
@@ -893,6 +914,13 @@ async function made(a, keys = keysOf(a), going = () => true, owner = null) {
     try { b = from(e, a.edits.slice(k)) } catch {}
     break
   }
+  const content = shelved && whole ? await soundContent(a) : null, got = content && await renders.get(content)
+  if (got) {
+    if (b !== a) b.dispose?.()
+    const e = { ...got.meta, sound: got.sound }
+    store(keys[n], e)
+    return e
+  }
   inputs.set(b, keys.slice(n - b.edits.length))
   if (owner) owners.set(b, owner)
   try {
@@ -900,7 +928,8 @@ async function made(a, keys = keysOf(a), going = () => true, owner = null) {
     const sound = await collect(b, going)
     if (!sound) return null
     const e = { sound, sampleRate: b.sampleRate, ...marksAt(b) }
-    if (keys.length === n + 1) store(keys[n], e)
+    if (whole) store(keys[n], e)
+    shelve(content, e)
     return e
   } finally { if (b !== a) b.dispose?.() }
 }
@@ -919,7 +948,7 @@ const local = ([type, opts]) => { const d = audio.op(type); return !!d && !['cop
 async function fragment(r) {
   const o = [...outputs.values()].findLast(x => x.done && x !== r && x.tab === r.tab && x.keys)
   if (!o || r.keys.marked || o.keys[0] !== r.keys[0] || !keyed(r) || !keyed(o)) return null
-  const was = o.instance.edits.map(sig), now = r.instance.edits.map(sig)
+  const was = o.instance.edits.map(e => sig(e)), now = r.instance.edits.map(e => sig(e))
   let p = 0, q = 0
   while (p < was.length && p < now.length && was[p] === now[p]) p++
   while (q < was.length - p && q < now.length - p && was[was.length - 1 - q] === now[now.length - 1 - q]) q++
@@ -1100,16 +1129,18 @@ const gaps = async (a, min) => a.duration ? (await a.silence({ minDuration: min 
 // The output's cues, in seconds: points to snap to, slice at and warp by. `edges` (a voice's, a solo instrument's): where
 // each sound starts and ends, the edges of the pauses between them, as words are found; each start where its attack
 // starts (fn/hits.js), each end where the quiet begins, at most a block (23 ms) after the sound falls under the level.
-// `hits` (drums, struck notes, gates): where the level jumps, up where an attack starts, down where a sound stops, read
-// the same both ways, so a reversed sound's are its own mirrored (fn/hits.js). After a closing warp() they are the cues
-// of the audio before it, where its markers take them: stretching makes none, though its smear can read as hits.
-// Null for an output a newer one has replaced: the page reads cues against the code that made them.
+// `hits` (drums, struck notes, words struck): where the level jumps up, where an attack starts (fn/hits.js rises), not
+// where it falls to a dip, which a pause's edge marks where it goes quiet; each ranked by how far it jumps, dB, the
+// page showing the larger first where they crowd. After a closing warp() they are the cues of the audio before it,
+// where its markers take them: stretching makes none, though its smear can read as hits. { times, ranks } (none for
+// edges, which rank over every hit); times null for an output a newer one has replaced: the page reads cues against
+// the code that made them.
 const FIND = {
-  hits,
+  hits: (pcm, rate) => { const r = rises(pcm, rate); return { times: r.map(h => h.t), ranks: r.map(h => h.db) } },
   edges: (pcm, rate) => reading(pcm, rate, async a => {
     const quiet = await gaps(a, PAUSE), end = pcm[0].length / rate
     const starts = attacks(quiet.map(g => g[1]).filter(t => t < end), pcm, rate)
-    return [...quiet.map(g => g[0]).filter(t => t > 0), ...starts].sort((p, q) => p - q)
+    return { times: [...quiet.map(g => g[0]).filter(t => t > 0), ...starts].sort((p, q) => p - q), ranks: null }
   })
 }
 // `pcm` read as audio for `read`, let go after
@@ -1125,7 +1156,7 @@ async function cues({ output, kind = 'edges', track }) {
   if (!p.sound.length) return { times: [] }
   p.cues ??= {}
   p.cues[kind] ??= await found(p, FIND[kind])
-  return { times: p.cues[kind] }
+  return p.cues[kind]
 }
 // An output, or one of its tracks (`track`, its index, mixTracks): what the page reads of either alike, its instance, its
 // sound and its rate; null for one there is not
@@ -1136,8 +1167,8 @@ async function found(r, find) {
   const before = r.instance.clone()
   before.undo()
   try {
-    const pcm = await before.read()
-    return carry(await find(pcm, r.sampleRate), warp[1].markers, pcm[0].length / r.sampleRate)
+    const pcm = await before.read(), f = await find(pcm, r.sampleRate)
+    return { ...f, times: carry(f.times, warp[1].markers, pcm[0].length / r.sampleRate) }
   } finally { before.dispose?.() }
 }
 // Times before a warp() to where its markers put them: straight between markers; the start and the end stay, but a
@@ -1275,7 +1306,7 @@ async function monoOf(sound, from, to, rate) {
 // its key), as the page asks to hear it (heard.js): a band of it, its boxes, or a moment of it [from, to] through an
 // edit, [type, ...args] (a pitch dragged). The page adopts it (audio/worker) and plays it, rendered here into the page's
 // deck as it plays; it lets it go when done. Each a copy of one kept, sharing its samples
-async function voice({ output, source, held, loudness, ...as }) {
+async function voice({ output, source, held, loudness, muted, ...as }) {
   let a
   if (held != null) {
     const h = holding.get(held)
@@ -1290,7 +1321,9 @@ async function voice({ output, source, held, loudness, ...as }) {
   } else {
     const r = await whole(output)
     if (!r) return { inst: null }
-    a = r.sound.clone()
+    // with tracks, their sum but those `muted` (by name), made as it plays: a mute heard at once, the mix made again
+    // without them coming after
+    a = muted && r.tracks && !r.tracks.some(t => t.master) ? mixOf(r.tracks, t => !muted.includes(t.name)) : r.sound.clone()
   }
   if (as.edit && !audio.op(as.edit[0])) await audio.use(as.edit[0])
   return { inst: expose(heard(a, as)) }

@@ -1,6 +1,6 @@
 import { ops, methods, format, fromManifest, reshapes, labelOf, icons } from './ops.js'
 import opIcons from './icons.js'
-import { chain, setArg, number, offCalls, turnOff, turnOn, groups, steps as stepsOf, moveStep, moveLines, group as groupSteps, ungroup, renameGroup, upTo, sharing } from './code.js'
+import { chain, setArg, number, offCalls, turnOff, turnOn, groups, steps as stepsOf, moveStep, moveLines, group as groupSteps, ungroup, renameGroup, upTo, sharing, unsplit } from './code.js'
 import { help, layout } from './help.js'
 
 // The edits: the chain's steps as cards, in order, as Luminar's edits or a history panel; the same chain as the code,
@@ -368,11 +368,12 @@ export default function stack(root, { ed, describe = async () => null, duration 
     i >= 0 ? view(i, null) : view(null, kept())
   }
   // A call out of the chain: from the end of what is before it in its statement (a call, the source) to its own end, with
-  // the line break; one turned off, its comment
+  // the line break; one turned off, its comment. The step a model's split parted the track by takes the split with it
+  // (code.js unsplit)
   function drop(c) {
     if (c.call.off) return ed.change({ from: c.call.from, to: c.call.to, insert: '' })
     const k = chain(ed.code)?.calls.find(x => x.list.from === c.call.list.from)
-    if (k) ed.change({ from: k.prev, to: k.to, insert: '' })
+    if (k) ed.change(unsplit(ed.code, k, { from: k.prev, to: k.to }))
   }
   // The change that takes the steps after a card away, those turned off too, a closing save() or play() kept (from the
   // sound the chain starts from, every step), or null when there are none

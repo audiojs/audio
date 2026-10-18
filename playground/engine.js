@@ -11,7 +11,9 @@
 // that reads its input whole (a model's pass, a plugin over all of it) for longer than HELD ms is replaced instead, as
 // it is when a newer run of the tab waits on it, or when such a step still runs for what the tab no longer takes (a step
 // turned off or taken away while its model runs: the worker says it is `held`), as nothing else stops it: the outputs it
-// kept then go with it (onrestart), every tab's. Held by another tab's step, it is waited for.
+// kept then go with it (onrestart), every tab's. Held by another tab's step, it is waited for; held by a model's pass
+// the newer run still calls (`calls`, code.js prepare: another track edited, a step added after it), too, till the worker
+// takes the run and judges it: replaced, that pass would start over, an edit of a second taking the model's minutes.
 const HELD = 500
 // calls a worker replaced would lose work of its own in: what an export or a check is still making
 const LASTING = new Set(['export', 'bake', 'check', 'eval'])
@@ -73,8 +75,8 @@ function decks(url) {
 export default function engine(url = WORKER) {
   // `held`: run id → { again: the run sent to a new worker in place of this one, timer: again unless the worker says it
   // took the run (taken) by then }; till the run's reply
-  // `queued`: tab → its newest run waiting its turn; `tabOf`: a run's listener → its tab; `passing`: run id → its tab,
-  // while a step of its reads its input whole (its `doing` step)
+  // `queued`: tab → its newest run waiting its turn; `tabOf`: a run's listener → its tab; `passing`: run id → { tab, op },
+  // while a step of its reads its input whole (its `doing` step, `op` its method)
   const files = new Map(), pending = new Map(), described = new Map(), listeners = new Map(), held = new Map(), queued = new Map(), passing = new Map()
   const tabOf = new WeakMap()
   let worker, ids = 0, running = null
@@ -91,7 +93,7 @@ export default function engine(url = WORKER) {
       if (data.event === 'held') return held.get(data.id)?.again()
       if (data.event) {
         const on = listeners.get(data.id)
-        if (data.event === 'doing' && 'step' in data) data.step ? passing.set(data.id, data.tab) : passing.delete(data.id)
+        if (data.event === 'doing' && 'step' in data) data.step ? passing.set(data.id, { tab: data.tab, op: String(data.step).split(':')[0] }) : passing.delete(data.id)
         if (data.event === 'done' || data.event === 'error') { listeners.delete(data.id); passing.delete(data.id) }
         return on?.[data.event]?.(data)
       }
@@ -139,11 +141,13 @@ export default function engine(url = WORKER) {
     for (const [id, c] of again) { pending.set(id, c); worker.postMessage({ ...c.message, id }) }
     self.onrestart?.()
   }
-  // Whether the worker may be replaced for run `id` of tab `tab`: an older output of the tab streams, which it no longer
-  // needs, no other tab's step holds it, and nothing of lasting work waits on it
+  // Whether the worker may be replaced for run `id` of tab `tab`, calling `calls`: an older output of the tab streams,
+  // which it no longer needs, no other tab's step holds it, nor one of the tab's it calls again, and nothing of lasting
+  // work waits on it
   const lasting = () => [...pending.values()].some(c => LASTING.has(c.type))
-  const others = tab => [...passing.values()].some(t => t !== undefined && t !== tab)
-  const replaceable = (id, tab) => [...listeners].some(([k, on]) => k < id && tabOf.get(on) === tab) && !others(tab) && !lasting()
+  const others = tab => [...passing.values()].some(p => p.tab !== undefined && p.tab !== tab)
+  const needed = (tab, calls) => [...passing.values()].some(p => p.tab === tab && calls?.includes(p.op))
+  const replaceable = (id, tab, calls) => [...listeners].some(([k, on]) => k < id && tabOf.get(on) === tab) && !others(tab) && !needed(tab, calls) && !lasting()
 
   async function drain() {
     while (queued.size) {
@@ -175,7 +179,7 @@ export default function engine(url = WORKER) {
         replace('Stopped.', on => on.skip?.())
         call({ type: 'run', ...script }, [], on).then(resolve)
       }
-      held.set(id, { again, timer: replaceable(id, script.tab) && setTimeout(() => replaceable(id, script.tab) && again(), HELD) })
+      held.set(id, { again, timer: replaceable(id, script.tab, script.calls) && setTimeout(() => replaceable(id, script.tab, script.calls) && again(), HELD) })
     })
   }
 
@@ -249,8 +253,9 @@ export default function engine(url = WORKER) {
     // The worker replaced, all it kept gone: set by the page
     onrestart: null,
     // an output's cues (`kind`: the edges of its pauses, or its hits) and pitch, named by the run that made it, or one of
-    // its tracks' (`track`, its index); cues null once a newer output replaced it
-    cues: (output, kind, track) => call({ type: 'cues', output, kind, track }).then(r => r.times ?? null),
+    // its tracks' (`track`, its index); cues [{ t, rank }] (a hit's rank how far it jumps, dB; an edge's none), null once
+    // a newer output replaced it
+    cues: (output, kind, track) => call({ type: 'cues', output, kind, track }).then(r => r.times?.map((t, i) => ({ t, rank: r.ranks?.[i] ?? Infinity })) ?? null),
     contour: (output, track) => call({ type: 'contour', output, track }).then(r => r.f0 ? r : { times: [], f0: [] }),
     // what it holds, as a musician says it: the note over `note` [from, to] s, the tempo and key over `span`
     listen: (output, note, span) => call({ type: 'listen', output, note, span }),

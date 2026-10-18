@@ -9,8 +9,10 @@
 :root {
   /* the accent: what an edit draws on the sound, its handles and curves */
   --color-screen-accent: oklch(76% .15 58);
-  /* a selection's wash, behind the sound as a selection is behind text (view.js); the caret, white at the opacity that
-     reads as --color-screen-muted over the screen */
+  /* what is measured, held Alt (view.js): the record's red-orange, as Figma's measuring red */
+  --color-screen-measure: var(--color-screen-record);
+  /* a selection's wash, behind the sound as a selection is behind text (view.js); the caret white, as the playhead it
+     becomes, focused or not: a grey one sank into the sound's own grey */
   --color-screen-select: oklch(100% 0 0 / .05);
   /* the same wash under a spectrogram, whose speckle hides a lift a waveform's even ground shows */
   --color-screen-select-spectrum: oklch(100% 0 0 / .16);
@@ -23,7 +25,7 @@
   --color-screen-grid: oklch(100% 0 0 / .12);
   --color-screen-grid-dot: oklch(100% 0 0 / .26);
   --color-screen-grid-line: oklch(100% 0 0 / .06);
-  --color-screen-caret: oklch(100% 0 0 / .55);
+  --color-screen-caret: var(--color-screen-bright);
   /* the waveform's colour (a file arriving is the same, drawn dimmer: editor.css); the notch a handle leaves */
   --color-screen-wave: oklch(78% 0 0);
   --color-notch: oklch(12% 0 0);

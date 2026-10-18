@@ -101,9 +101,9 @@ export const focus = name => { focused = name ?? null }
 
 // The script as a function body: imports become dynamic (`audio` is given), each loop checks its time,
 // and the last expression, or the last declared name, is returned; with tracks, all of them, by name. Lines keep their
-// numbers.
+// numbers. With it, the files it opens (`names`) and the methods it calls (`calls`), those turned off not among them
 export function prepare(code) {
-  const tree = parse(code), edits = [], names = new Set()
+  const tree = parse(code), edits = [], names = new Set(), calls = new Set()
   const at = (pos, insert, to = pos) => edits.push({ from: pos, to, insert })
   tree.iterate({
     enter: ref => {
@@ -121,6 +121,8 @@ export function prepare(code) {
         else if (body) { at(body.from, '{__loop();'); at(body.to, '}') }
       }
       if (node.name === 'CallExpression' && isAudio(code, node)) for (const s of sourcesOf(node)) names.add(unquote(text(code, s)))
+      const prop = node.name === 'CallExpression' && node.firstChild?.name === 'MemberExpression' && node.firstChild.getChild('PropertyName')
+      if (prop) calls.add(text(code, prop))
     }
   })
   const last = statements(tree).at(-1), list = tracks(code), m = master(code)
@@ -135,7 +137,7 @@ export function prepare(code) {
     const name = last.getChildren('VariableDefinition').at(-1)
     if (name) at(last.to, `;return __out(${text(code, name)})`)
   }
-  return { code: apply(code, edits), names: [...names] }
+  return { code: apply(code, edits), names: [...names], calls: [...calls] }
 }
 const blank = s => s.replace(/[^\n]/g, ' ')
 function importing(clause, spec) {
@@ -309,10 +311,36 @@ function piece(code, { from, to }) {
   const line = lineOf(code, from), alone = !code.slice(line.from, from).trim() && !code.slice(to, lineOf(code, to).to).trim()
   return alone && line.from ? { from: line.from - 1, to } : { from, to }
 }
-// The change that takes step `i` of steps() away, on or off
+// The change that takes step `i` of steps() away, on or off; the step a model's split parted the track by, the split with
+// it (unsplit)
 export function dropStep(code, i) {
   const s = steps(code)[i]
-  return s ? { ...piece(code, s.call), insert: '' } : null
+  return s ? unsplit(code, s.call, piece(code, s.call)) : null
+}
+// The change that takes a call of the track edited away, `range` where it stands. Where it is the step a model's split
+// parted the track by (its first own step, splitOf), the tracks split with it go too (dropTrack: a sound one of them alone
+// still copies going back into it), so the sound is whole again: the rest of a song with its voice, bass and drums left
+// beside it would sound them twice, and a mute of one would take nothing away
+export function unsplit(code, call, range) {
+  const c = chain(code), first = c?.parts.at(-1).calls[0], parts = c?.declared && first && call.list?.from === first.list.from ? splitOf(code, c.declared) : []
+  let out = put(code, { ...range, insert: '' })
+  for (const t of parts) { const d = dropTrack(out, t); if (d) out = put(out, d) }
+  return parts.length ? between(code, out) : { ...range, insert: '' }
+}
+// The tracks a model's split made with track `name` (voiceTrack, stemTracks): those starting from the very sound it
+// starts from (the file, or the sound they all copy), the first of their own steps a call of the method its first is,
+// one of SPLITS; none where its first own step is none of them
+const SPLITS = new Set(['rebalance', 'scene', 'vocals'])
+export function splitOf(code, name) {
+  const me = ownOf(code, name), k = me?.calls[0]
+  if (!k || !SPLITS.has(k.name)) return []
+  return tracks(code).map(t => t.name).filter(n => { const o = n !== name && ownOf(code, n); return o?.base === me.base && o.calls[0]?.name === k.name })
+}
+// A track's own statement: the sound it starts from as written (`audio('a.wav')`, `aTake.clone()`), and its own calls
+function ownOf(code, name) {
+  const was = focused
+  focused = name
+  try { const p = chain(code)?.parts.at(-1); return p ? { base: code.slice(p.expr.from, p.head), calls: p.calls } : null } finally { focused = was }
 }
 // The change that moves live step `i` of steps() to stand at `j` among them: taken out where it stands and put in after
 // the step at `j` (moving later) or before it (earlier); null for a step turned off, or no move, or one out of the part
@@ -577,17 +605,26 @@ export const voiceTrack = (code, model = 'mel-roformer') => parted(code, `vocals
 const SOLO = (k, rest = ', { residual: -Infinity }') => `rebalance(${[0, 1, 2, 3].map(i => i === k ? 0 : '-Infinity').join(', ')}${rest})`
 export const stemTracks = code => parted(code, 'rebalance(-Infinity, -Infinity, -Infinity)',
   ['voice', 'bass', 'drums'].map((n, k) => [() => n, SOLO(k)]))
-// Track `name`'s sound written out on one line, its steps turned off left out: what another track takes as a reference
-// (align(), match()) without reading its name, which would take that track away (tracks are the sounds nothing reads);
-// null for no track of that name
+// Track `name`'s sound written out on one line, its steps turned off left out, the sounds it copies written into it:
+// what another track takes as a reference (align(), match()) or a piece of (a piece dragged into it) without reading a
+// name, which would take that track away (tracks are the sounds nothing reads), nor one declared after it; null for no
+// track of that name
 export function soundOf(code, name) {
-  const t = tracks(code).find(t => t.name === name)
-  let expr = t?.statement.getChildren('VariableDefinition')[0].nextSibling?.nextSibling
-  if (expr?.name === 'AwaitExpression') expr = expr.lastChild
-  if (!expr) return null
-  let out = code.slice(expr.from, expr.to)
-  parse(code).iterate({ from: expr.from, to: expr.to, enter: ref => { if (quiet(ref) && ref.from >= expr.from && ref.to <= expr.to) out = out.slice(0, ref.from - expr.from) + blank(text(code, ref)) + out.slice(ref.to - expr.from) } })
-  return out.replace(/\s*\n\s*/g, '').replace(/\)\s+\./g, ').')
+  if (!tracks(code).some(t => t.name === name)) return null
+  const was = focused
+  focused = name
+  try {
+    const c = chain(code)
+    if (!c) return null
+    // each part, from the first's start and each copy's own steps on, its comments blanked
+    const out = c.parts.map((p, i) => {
+      const from = i ? p.head : p.expr.from, to = p.expr.to
+      let s = code.slice(from, to)
+      parse(code).iterate({ from, to, enter: ref => { if (quiet(ref) && ref.from >= from && ref.to <= to) s = s.slice(0, ref.from - from) + blank(text(code, ref)) + s.slice(ref.to - from) } })
+      return s
+    }).join('')
+    return out.replace(/\s*\n\s*/g, '').replace(/\)\s+\./g, ').')
+  } finally { focused = was }
 }
 // The track the page edits in parts that sound as it did: `here` appended to it, and under it, for each of `there`, [base,
 // ...calls], a track of its own, named by `base` of its name, from what it was with those calls appended; { code, name },

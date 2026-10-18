@@ -77,7 +77,8 @@ Page rule: one page, one search query, one problem. Hear it (A/B) → try your f
 * [ ] Detect current type of sound in track
 
 * [x] tracks, to meet classical SAAS layout (.work/editor.md Tracks)
-  * [ ] mute and solo; record into a new track; a piece dragged between tracks; a track's start dragged (its pad)
+  * [x] mute, heard at once; a piece dragged between tracks; a range on the time row through every track; tabs playing at once, each muted from its tab
+  * [ ] solo; record into a new track; a track's start dragged (its pad)
 
 ## Enhance and remix: the cheap plan (this laptop)
 

@@ -89,7 +89,7 @@ svg { flex: none; }
    slab, no line between, all one width so nothing moves as it turns from one to another, and the bar along the foot of
    both. The panel's left edge drags its width (--panel, kept); the button that opened it, again, closes it. Opening it,
    the picture keeps where it starts and its scale (view.js): it shows less of the sound, never squeezed. */
-.panes { --panel: clamp(320px, 30vw, 440px); position: relative; display: grid; min-height: 0; margin: 0 var(--gutter) var(--gutter); border-radius: var(--radius-slab); background: repeating-linear-gradient(var(--color-scanline) 0 1px, var(--color-transparent) 1px 3px), linear-gradient(var(--color-screen), var(--color-screen-low)); color: var(--color-screen-soft); box-shadow: var(--shadow-panes); grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr) auto; }
+.panes { --panel: clamp(320px, 30vw, 440px); position: relative; display: grid; container: bar / inline-size; min-height: 0; margin: 0 var(--gutter) var(--gutter); border-radius: var(--radius-slab); background: repeating-linear-gradient(var(--color-scanline) 0 1px, var(--color-transparent) 1px 3px), linear-gradient(var(--color-screen), var(--color-screen-low)); color: var(--color-screen-soft); box-shadow: var(--shadow-panes); grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr) auto; }
 .panes > .view-head { grid-area: 1 / 1; }
 .panes > .side-head { grid-area: 1 / 2; }
 .view-slab { grid-area: 2 / 1; }
@@ -97,6 +97,18 @@ svg { flex: none; }
 .panes > .side-slab { grid-area: 2 / 2; width: var(--panel); max-width: 60vw; }
 .panes[data-side="none"] > .side-slab { display: none; }
 .panes > .status { grid-area: 3 / 1 / 4 / -1; }
+/* the bar on the panes' own columns (a subgrid: the panes, as wide as the bar, are what its container queries measure,
+   `bar`, a container being no subgrid): the picture's side under the picture, the display switch ending it under the
+   axis, the spectrogram's button under the settings' (the view head's, over the axis's ticks); the facts and Before
+   under the panel. Shut, the facts at the picture's end, the switch after them under the axis */
+.status { display: grid; grid-template-columns: subgrid; align-items: center; }
+.status-main { grid-area: 1 / 1; padding-right: calc(var(--axis, 40px) + 44px); }
+.status .tabs.display { grid-area: 1 / 1; justify-self: end; margin-right: calc(var(--axis, 40px) - 21px); }
+.status-end { grid-area: 1 / 2; display: flex; align-items: center; justify-content: flex-end; min-width: 0; padding-right: 20px; }
+.panes[data-side="none"] > .status { grid-template-columns: minmax(0, 1fr) auto auto; }
+.panes[data-side="none"] .status-main { padding-right: 0; }
+.panes[data-side="none"] .status-end { padding-right: 0; }
+.panes[data-side="none"] .status .tabs.display { grid-area: 1 / 3; }
 /* the panels' buttons over the panel */
 .side-head { display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-height: 38px; padding: 4px 8px 0 6px; }
 /* undo and redo, set off from the tabs, then the picture's settings at the head of its axis: the glyph (its faders 18
@@ -110,10 +122,6 @@ svg { flex: none; }
 .view-head .history .icon-button:hover:not([aria-disabled="true"]):not(:disabled) { background: var(--color-screen-hover); color: var(--color-screen-bright); }
 .view-head .history .icon-button:is([aria-disabled="true"], :disabled) { opacity: .35; }
 .panes[data-side="open"] .view-head { padding-right: calc(var(--axis, 40px) - 21px); }
-/* the bar under both: what the output holds (its note, key, levels) and how the picture shows end where the picture
-   ends, what the sound is (its rate, channels, depth) at the bar's end, under the panel; the panel's width less the
-   bar's end, the 14 px before the facts and the 6 px gap keeping the picture's end's 20 */
-.panes[data-side="open"] .facts { width: calc(min(var(--panel), 60vw) - 20px); justify-content: flex-end; }
 /* its left edge: a rule in the slab's own rule colour, as the home page's slab rules off its parts, as far from the
    panel's content as that is from the slab's edge (a panel's sides inset alike); a strip 7 px wide to drag for its width,
    the rule brighter where pointed at */
@@ -124,7 +132,7 @@ svg { flex: none; }
 .slab { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 /* The bar along the foot of the output and the panel, one with them, a status bar as an editor's: play and the time,
    then what is happening; at its right what the output is */
-.status { --time-size: 40px; display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 60px; padding: 0 20px 0 12px; container: bar / inline-size; }
+.status { --time-size: 40px; min-width: 0; min-height: 60px; padding: 0 0 0 12px; }
 /* the picture's side of it: with the panel open, the facts under the panel, a container of its own, so the queries below
    that hide what it shows measure the room beside the panel; closed, the bar's, the facts in it */
 .status-main { display: flex; flex: 1 1 0; align-items: center; gap: 6px; min-width: 0; }
@@ -289,14 +297,17 @@ svg { flex: none; }
 .file-close:hover { background: var(--color-screen-hover); color: var(--color-screen-bright); }
 .file-close svg { width: 12px; height: 12px; }
 /* What a tab's sound is doing, in its close button's place till that is pointed at, as an editor marks a file unsaved:
-   a quarter of a ring turning while it is on its way, a speaker while it plays, a dot once it is made with the tab not
-   shown, till it is */
+   a quarter of a ring turning while it is on its way, a dot once it is made with the tab not shown, till it is */
 .file-mark { display: none; color: var(--color-screen-accent); }
 .file[data-mark] .file-close { opacity: 1; }
 .file[data-mark]:not(:hover) .file-close:not(:focus-visible) > svg { display: none; }
 .file[data-mark]:not(:hover) .file-close:not(:focus-visible) .file-mark { display: block; }
-.file-mark svg { display: none; }
-.file[data-mark="playing"] .file-mark svg { display: block; }
+/* its speaker before its name while it plays, a browser tab's: lit as it sounds, crossed out and plain muted */
+.file-sound { display: grid; flex: none; place-items: center; width: 20px; height: 20px; margin: 0 4px 0 -5px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--color-screen-accent); }
+.file-sound[aria-pressed="true"] { color: var(--color-screen-muted); }
+.file-sound:hover { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+.file-sound:focus-visible { outline: 1px solid var(--color-screen-muted); outline-offset: 1px; }
+.file-sound svg { width: 13px; height: 13px; }
 .file[data-mark="working"] .file-mark { width: 10px; height: 10px; border: 1.5px solid var(--color-screen-rule); border-top-color: var(--color-screen-accent); border-radius: 50%; animation: spin .8s linear infinite; }
 .file[data-mark="ready"] .file-mark { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 @media (prefers-reduced-motion: reduce) { .file[data-mark="working"] .file-mark { animation: none; border-color: var(--color-screen-accent); opacity: .7; } }
@@ -319,9 +330,12 @@ svg { flex: none; }
 .plot .playhead .when { position: absolute; padding: 0 3px; background: var(--color-screen); color: var(--color-screen-bright); white-space: pre; }
 /* the pictures end --end px from the right (view.js sets it: before the labels, or before the meters, nothing behind
    them), square above the time row: clipped, a rectangle the compositor cuts for nothing, where a mask costs a pass of
-   its own over each window-wide layer, every frame the view scrolls */
+   its own over each window-wide layer. They are on a reel drawn past the view's end, which the compositor moves as the
+   view scrolls (view.js roll), under a cut that stays and holds it: what is past the view's end is no overflow of the
+   page's to scroll to (a focus or a reveal scrolled the picture half off its pane) */
 .plot { --end: 52px; }
-.plot canvas.waveform, .plot canvas.spectrum, .plot canvas.grid { clip-path: inset(0 var(--end) 0 0); }
+.plot .reel-cut { position: absolute; inset: 0; overflow: hidden; clip-path: inset(0 var(--end) 0 0); pointer-events: none; }
+.plot .reel { position: absolute; top: 0; left: 0; height: 100%; will-change: transform; }
 /* How brightly the sound is drawn is the layer's own (view.js, light): none before any of it is here, dim while it is
    the file arriving, full once it is the output; what is drawn over it comes with it. It only ever fades between them,
    so a sound never blinks, and empty lanes never wait for one. */
@@ -414,9 +428,7 @@ svg { flex: none; }
 /* the words cut short before the figure after them (how far, how long) is: it stands apart by its room and its tone */
 .message-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* while the engine works: a quarter of a ring turning before its words, still where motion is asked to be less */
-.message-spin { flex: none; width: 10px; height: 10px; margin-right: -4px; border: 1.5px solid var(--color-screen-rule); border-top-color: var(--color-screen-accent); border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { rotate: 1turn; } }
-@media (prefers-reduced-motion: reduce) { .message-spin { animation: none; border-color: var(--color-screen-accent); opacity: .7; } }
 .message-figure { flex: none; color: var(--color-screen-dim); }
 .message-figure:empty { display: none; }
 .message.problem { color: var(--color-screen-error); }
@@ -726,7 +738,6 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
   .app .panes > .side-slab { position: absolute; z-index: 3; grid-area: 2 / 1 / 3 / -1; inset: auto 6px 6px; width: auto; max-width: none; height: max(min(260px, calc(100% - 12px)), calc(100% - 80px)); border-radius: 10px; background: var(--color-screen-raised); box-shadow: var(--shadow-menu); }
   .app .panes[data-side="none"] > .view-slab, .app .panes > .view-slab { grid-column: 1 / -1; }
   .app .panel-edge { display: none; }
-  .app .panes[data-side="open"] .facts { width: auto; }
 }
 /* A phone held upright: the slab split, the picture over the panel, half of it each, the bar between them; over the
    picture its own head alone, the tabs' names in reach. The panels' buttons along the slab's foot, under the thumb, each
@@ -736,7 +747,9 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
   html:not(.embed) .app .panes[data-side="open"] { grid-template-rows: auto minmax(0, 1fr) auto minmax(0, 1fr) auto; }
   html:not(.embed) .app .panes > .view-head { grid-area: 1 / 1; padding-right: calc(var(--axis, 40px) - 21px); }
   html:not(.embed) .app .panes > .view-slab { grid-area: 2 / 1; }
-  html:not(.embed) .app .panes > .status { grid-area: 3 / 1; }
+  html:not(.embed) .app .panes > .status { grid-area: 3 / 1; grid-template-columns: minmax(0, 1fr) auto auto; }
+  html:not(.embed) .app :is(.status-main, .status-end) { padding-right: 0; }
+  html:not(.embed) .app .status .tabs.display { grid-area: 1 / 3; }
   html:not(.embed) .app .panes > .side-slab { position: relative; z-index: auto; grid-area: 4 / 1; inset: auto; height: auto; border-top: 1px solid var(--color-screen-rule); border-radius: 0; background: none; box-shadow: none; }
   html:not(.embed) .app .panes > .side-head { grid-area: -2 / 1; min-height: 0; padding: 0 6px env(safe-area-inset-bottom); border-top: 1px solid var(--color-screen-rule); }
   html:not(.embed) .app .side-head .tabs.icons { flex: 1; justify-content: space-around; }
@@ -784,9 +797,10 @@ html.embed .panes[data-side="none"] .view-head { padding-right: calc(var(--axis,
   html.embed .app .panes { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(96px, 1fr) auto auto; }
   html.embed .app .panes > .view-head { grid-area: 1 / 1; }
   html.embed .app .panes > .view-slab { grid-area: 2 / 1; }
-  html.embed .app .panes > .status { grid-area: 3 / 1; }
+  html.embed .app .panes > .status { grid-area: 3 / 1; grid-template-columns: minmax(0, 1fr) auto auto; }
+  html.embed .app :is(.status-main, .status-end) { padding-right: 0; }
+  html.embed .app .status .tabs.display { grid-area: 1 / 3; }
   html.embed .app .panes > .side-slab { position: relative; z-index: auto; grid-area: 4 / 1; inset: auto; width: auto; max-width: none; height: 45dvh; border-radius: 0; background: none; box-shadow: none; border-top: 1px solid var(--color-screen-rule); }
-  html.embed .app .panes[data-side="open"] .facts { width: auto; }
 }
 @media (min-width: 641px) and (max-height: 520px) {
   html.embed .app .panes > .side-slab { position: relative; z-index: auto; grid-area: 2 / 2; inset: auto; width: var(--panel); max-width: 60vw; height: auto; border-radius: 0; background: none; box-shadow: none; }

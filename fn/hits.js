@@ -4,6 +4,7 @@
  *
  * a.stat('hits', { at?, duration? }) → Float64Array of times (seconds)
  * hits(channels, rate)                → the same, from samples
+ * rises(channels, rate)               → the ups alone, [{ t, db }]: where each attack starts, and how far it jumps
  * attacks(times, channels, rate)      → where the attack near each time starts (a slice point)
  * stops(times, channels, rate)        → where the sound near each time stops
  *
@@ -73,6 +74,17 @@ export function stops(times, channels, rate, block = 1024) {
 // compares, and half the 5 ms window attacks() reads.
 const STEP = .005, JUMP = 6, APART = .05, AROUND = .1, NEAR = .0125, RANGE = 40, OVER = 12
 export function hits(channels, rate) {
+  const { ups, downs } = jumps(channels, rate), near = Math.round(rate * NEAR)
+  return [...attacks(ups.map(u => u[0]), channels, rate, near), ...stops(downs.map(d => d[0]), channels, rate, near)].sort((p, q) => p - q)
+}
+// The rises alone, where a sound strikes or a note or a word starts, not where one falls to a dip: { t, its attack's
+// start, db, how far the level jumps there }, in time order, the larger the plainer to an ear
+export function rises(channels, rate) {
+  const { ups } = jumps(channels, rate)
+  return attacks(ups.map(u => u[0]), channels, rate, Math.round(rate * NEAR)).map((t, i) => ({ t, db: ups[i][1] }))
+}
+// The jumps hits() keeps, [time, dB] each: { ups, downs }
+function jumps(channels, rate) {
   const n = channels[0]?.length ?? 0, hop = Math.max(1, Math.round(rate * STEP)), K = Math.floor(n / hop)
   const e = new Float64Array(K)
   let top = 0
@@ -98,10 +110,9 @@ export function hits(channels, rate) {
     if (j < 2 * (near[near.length >> 1] ?? 0)) continue
     // the louder side: after a rise, before a fall
     if ((jump[k] > 0 ? Math.max(level[k], level[k + 1]) : Math.max(level[k - 2], level[k - 3] ?? -Infinity)) - background < OVER) continue
-    ;(jump[k] > 0 ? ups : downs).push(k * hop / rate)
+    ;(jump[k] > 0 ? ups : downs).push([k * hop / rate, j])
   }
-  const near = Math.round(rate * NEAR)
-  return [...attacks(ups, channels, rate, near), ...stops(downs, channels, rate, near)].sort((p, q) => p - q)
+  return { ups, downs }
 }
 
 audio.fn.hits = async function(opts) {

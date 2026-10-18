@@ -104,18 +104,6 @@ await build({
       }))
     }
   }, {
-    // the neural ops' ONNX runtime, which @audio/neural-runtime imports by a name it picks as it runs, import(spec): the
-    // browser's wasm build, and its WebGPU build for a model written for the GPU (Mel-RoFormer's vocals), as literal
-    // imports (their .wasm copied beside them, below; the WebGPU one fetched only when such a model runs)
-    name: 'onnx-runtime',
-    setup(build) {
-      build.onLoad({ filter: /@audio[\\/]neural-runtime[\\/]runtime\.js$/ }, async args => {
-        const code = await readFile(args.path, 'utf8')
-        if (!code.includes('import(spec)')) throw new Error('@audio/neural-runtime no longer imports its runtime by import(spec): see .site-build.js')
-        return { loader: 'js', contents: code.replace('import(spec)', "(spec === 'onnxruntime-web' ? import('onnxruntime-web/wasm') : spec === 'onnxruntime-web/webgpu' ? import('onnxruntime-web/webgpu') : Promise.reject(new Error(`${spec}: the editor runs the wasm and WebGPU backends`)))") }
-      })
-    }
-  }, {
     // an optional codec that is not installed stays an import that fails only if a file needs it
     name: 'optional-codecs',
     setup(build) {

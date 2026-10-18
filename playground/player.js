@@ -17,7 +17,8 @@ requestAnimationFrame(() => requestAnimationFrame(library))
 // over silence (heard.js); loop seams, starts and stops are the library's, crossfaded. The position is what the speakers
 // play now: the library reads the device's own clock.
 // Scrubbing plays the moment under a caret instead (scrub.js), for as long as it is held, as it moves, on the same
-// context; with tracks, one track's alone, as its lane has it. Playback pauses while it sounds.
+// context; with tracks, one track's alone, as its lane has it. Playback pauses while it sounds. A player a tab: several
+// play at once on the one context, each muted on its own (a tab's speaker).
 export default function player({ onend = () => {} } = {}) {
   let channels = null, length = 0, rate = 0, open = null, local = null, voice = null, only = null, at = 0, outs = 0
   // a long sound's samples near where it is heard (near), and its tracks' lanes (lane): windows of them, fetched as they
@@ -29,6 +30,8 @@ export default function player({ onend = () => {} } = {}) {
   let hearing = null, auditions = 0
   // the latest of play and pause wins: a play still opening the device when a pause comes stays paused
   let intent = 0
+  // what it plays muted (a tab's speaker pressed), playing on where it is; a scrub, a gesture to hear, still sounds
+  let hushed = false
   // where a play asked to start, the clock's until the voice goes there: what plays meanwhile is the place it left
   let aim = null
 
@@ -45,6 +48,7 @@ export default function player({ onend = () => {} } = {}) {
   // a voice tells the page when it reaches its end by itself; one taken over or stopped goes quietly
   function watch(v) {
     v.on('ended', () => { if (voice === v && v.ended) { at = v.currentTime; voice = null; onend() } })
+    v.muted = hushed
     return v
   }
   // a voice done with stops and goes; the samples here stay, for the next play
@@ -177,6 +181,9 @@ export default function player({ onend = () => {} } = {}) {
       await voice.played
     },
     pause() { intent++; aim = null; if (voice?.playing && !voice.paused) { voice.pause(); at = voice.currentTime } },
+    // muted, it plays on where it is, unheard, as a browser's tab muted does
+    get muted() { return hushed },
+    set muted(m) { hushed = !!m; if (voice) voice.muted = hushed },
     // the speed it plays at, as a tape's: the pitch with it, at once while it plays (the library glides it)
     get rate() { return speed },
     set rate(r) { speed = r; if (voice) voice.playbackRate = r },
@@ -231,6 +238,8 @@ export default function player({ onend = () => {} } = {}) {
       ctx.resume().catch(() => {})
       loaded ||= ctx.audioWorklet.addModule(new URL('./scrub.js', import.meta.url))
     },
+    // its voices let go, the page's device left to the other players (a tab closed)
+    dispose() { intent++; release(voice); release(hearing); voice = hearing = null; scrubbing?.node.disconnect(); scrubbing = null; local?.dispose?.() },
     close() { release(voice); audio?.context.close?.() }
   }
 }

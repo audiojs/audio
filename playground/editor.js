@@ -88,12 +88,12 @@ const icons = {
 // drag of one moves it and the audio around it stretches), the pitch curve (dragged, the whole pitch line), the gain
 // line (its points drag; a press on the line adds one), the meters at the right
 const overlays = [['hits', 'Cues', 'Where sounds start, end and hit'], ['gain', 'Gain line', 'Drag its points'], ['meters', 'Meters', 'Level and spectrum'], ['guides', 'Guides', 'What the hovered edit sets']]
-// The cues (worker.js), both kinds as one: the edges of the pauses, where a voice's words or a solo's phrases start and
-// end, and the hits, where the level jumps (a strike, a struck or plucked note, a sudden stop); one of each within 30 ms
-// is one place, the edge's, which its attack placed
+// The cues (worker.js), both kinds as one, [{ t, rank }]: the edges of the pauses, where a voice's words or a solo's
+// phrases start and end, and the hits, where the level jumps up (a strike, a struck or plucked note, a word struck);
+// one of each within 30 ms is one place, the edge's, which its attack placed
 function cueTimes(edges, hits) {
-  const near = t => edges.some(e => Math.abs(e - t) < .03)
-  return [...edges, ...hits.filter(t => !near(t))].sort((a, b) => a - b)
+  const near = t => edges.some(e => Math.abs(e.t - t) < .03)
+  return [...edges, ...hits.filter(h => !near(h.t))].sort((a, b) => a.t - b.t)
 }
 // How the time row marks time: labels and their ticks, ticks alone, or nothing but the times that matter now (the caret's,
 // the pointer's, a selection's)
@@ -300,12 +300,20 @@ function hear(a, m, what) {
   a.heard = `arriving ${++arrivals}`
   eng.arrive(a.heard, m.sampleRate, m.channels.length)
   for (const p of parts) eng.push(a.heard, p.channels)
+  pl.out = null
   pl.arrive(m.sampleRate, o => eng.voice({ ...o, held: { key: a.heard } }), parts.reduce((n, p) => n + p.channels[0].length, 0))
   state.arriving = true
 }
 let ed, v, rk
-// the caret is where playback ends, as it is where it pauses
-const pl = player({ onend: () => { state.playing = false; state.speed = pl.rate = 1; v.playhead = null; v.setCursor(pl.time); state.time = stamp(v.cursor); sway() } })
+// Each tab plays on its own, as a browser's tabs do: one left as it plays plays on, heard with the one shown, its speaker
+// on its tab muting it (toggleTabMute). `pl`, the shown tab's player (switchTab), each tab's made as it is first shown
+const playerOf = doc => doc.player ??= Object.assign(player({ onend: () => ended(doc) }), { scrubMode: state.scrub })
+let pl = null
+// the caret is where playback ends, as it is where it pauses; a tab not shown, its speaker goes
+function ended(doc) {
+  if (doc.player !== pl) return sway()
+  state.playing = false; state.speed = pl.rate = 1; v.playhead = null; v.setCursor(pl.time); state.time = stamp(v.cursor); sway()
+}
 // the whole output the page has; the newest run's output as it arrives; the run whose output the view shows
 let output = null, incoming = null, showing = 0
 // the view holds the tab's sound as it was left (its lanes, its length, where it was looked at) until the sound comes
@@ -353,7 +361,7 @@ const beneath = () => { const w = output && pl.heard(scrubbed), i = w && Math.ro
 // while the engine works it turns gently, the same whether a file arrives or an output renders, no smaller or paler
 let swaying = ''
 function sway() {
-  const mode = still.matches ? 'rest' : scrubbed != null && output?.duration ? 'scrub' : recorder && !state.recording?.pending ? 'record' : pl.playing ? 'play' : waiting() || incoming ? 'work' : 'rest'
+  const mode = still.matches ? 'rest' : scrubbed != null && output?.duration ? 'scrub' : recorder && !state.recording?.pending ? 'record' : docs.some(d => d.player?.playing) ? 'play' : waiting() || incoming ? 'work' : 'rest'
   badges()
   if (mode === swaying) return
   swaying = mode
@@ -386,7 +394,7 @@ const state = sprae(root, {
   display: stored.display === 'spec' ? 'spec' : 'wave', scale: scales[stored.scale] ? stored.scale : 'log', displays, rates, layouts, sound: null, viewing: '',
   show: { hits: true, gain: true, meters: true, guides: true, ...stored.show }, units: oneOf(stored.units, UNITS.map(u => u[0]), 'clock'),
   embed: EMBED, full: '', side: sideOf(stored.side), panel: Number.isFinite(stored.panel) ? stored.panel : null, pick: 0, keys,
-  tabs: [], marks: {}, markWords: { working: 'Rendering', playing: 'Playing', ready: 'Done' }, recents: [], tab: 0, name: 'untitled', duration: 0, hasOutput: false, whole: false, ran: false, problem: '', missing: '', notice: '', noticeKind: '', dropping: false, track: null, muted: [],
+  tabs: [], marks: {}, sounding: {}, markWords: { working: 'Rendering', ready: 'Done' }, recents: [], tab: 0, name: 'untitled', duration: 0, hasOutput: false, whole: false, ran: false, problem: '', missing: '', notice: '', noticeKind: '', dropping: false, track: null, muted: [],
   progress: '', figure: '', arrived: null, working: false, loading: false, arriving: false, lines: [], saves: [], exporting: false, shared: false, canUndo: false, canRedo: false,
   time: '0:00.000', span: 0, readout: '', readoutTip: '', heard: null, selection: null, band: null, ranges: 0, boxes: 0, carets: 1, pauses: false, canPaste: false, playing: false, loop: false, recording: null,
   // the ring in Play's place (status), unless it plays or records
@@ -435,7 +443,7 @@ const state = sprae(root, {
     return `Selected ${what}: ${clock(length)}, ${Math.round(length * rate)} samples`
   },
   get plotHelp() {
-    return `${this.display === 'spec' ? 'Spectrogram' : 'Waveform'}. Click to put the caret and hear the moment there, by a marker's line on the marker; drag to select a time range, a dragged edge or caret going onto the cues and markers near it; double-click selects the fragment between its cues, triple-click the sound between its pauses. Shift sums: a press or a drag extends the selection to it. Alt adds: another caret, range or fragment; dragged inside the selection, a copy of its audio, put in where it lands; held, every cue to snap to and how far the pointer is from the selection, on the time row. ⌘ empowers: dragged inside the selection, its audio moves over what is there; a range's end sets its length; the cue under the pointer lights and drags; on the spectrogram, a box of time and frequency; a drag aims finely. A caret's line, the time row or a range's edge drags, the others staying. A range's top corners fade it, outward crossfading; its pill sets its level, the tools at its foot a voice's pitch, intonation and formants; the square past its end trims, stretches or speeds it, a click on each turning it to the next; with none, the square past the caret opens silence. Right-click for the edits there; ⌘P finds any. The wheel scrolls; a pinch, or Ctrl and the wheel, zooms the frequencies or the levels over them and time elsewhere.${this.track ? ` Tracks, a lane each, play together: a press in a lane edits its track, a marker over it its own, a held caret there hears it alone; the speaker by its name mutes it; Move to a new track takes a selection to one of its own, Move the track to its own tab a track to a tab.` : ''}`
+    return `${this.display === 'spec' ? 'Spectrogram' : 'Waveform'}. Click to put the caret and hear the moment there, by a marker's line on the marker; drag to select a time range, a dragged edge or caret going onto the cues and markers near it; double-click selects the fragment between its cues, triple-click the sound between its pauses. Shift sums: a press or a drag extends the selection to it. Alt adds: another caret, range or fragment; dragged inside the selection, a copy of its audio, put in where it lands; held, it measures: every cue to snap to, the pointer's place out to the axes, and how far it is from the selection, on the time row. ⌘ aims: held, the cue under the pointer, to drag; dragged inside the selection, its audio moves over what is there; a range's end sets its length; the cue under the pointer drags; on the spectrogram, a box of time and frequency; a drag aims finely. A caret's line, the time row or a range's edge drags, the others staying. A range's top corners fade it, outward crossfading; its pill sets its level, the tools at its foot a voice's pitch, intonation and formants; the square past its end trims, stretches or speeds it, a click on each turning it to the next; with none, the square past the caret opens silence. Right-click for the edits there; ⌘P finds any. The wheel scrolls; a pinch, or Ctrl and the wheel, zooms the frequencies or the levels over them and time elsewhere.${this.track ? ` Tracks, a lane each, play together: a press in a lane edits its track, a marker over it its own, a held caret there hears it alone; dragged on the time row, a range runs through every track, an edit of it each one's; ⌘-dragged into another track's lane, a selection's audio goes into that track; the speaker by its name mutes it; Move to a new track takes a selection to one of its own, Move the track to its own tab a track to a tab.` : ''}`
   },
   // a tab opens the panel on it; the tab shown, again, closes it (its tabs stay, to open it again)
   setSide(name) { state.side = state.side === name ? null : name; store() },
@@ -496,7 +504,7 @@ const state = sprae(root, {
   toggleShow, setUnits, setLevels, setRuler, setStep, setLook, setSplice, setScrub,
   setDisplay, settingsMenu, dropToggle, fold, toggleLoop, undoList, goTo, toggleRecording, resampleTo, remixTo,
   togglePlay, playPress, playClick, stop, redo: () => ed.redo(), mac, share, exportFiles,
-  switchTab, newTab, closeTab, dragTab, scrollTabs, pickFiles, openFiles, startRecording, stopRecording, armRecording, useSample, useCode, useRecipe, addOp, editSelection, toolKey, openTools,
+  switchTab, newTab, closeTab, dragTab, scrollTabs, toggleTabMute, pickFiles, openFiles, startRecording, stopRecording, armRecording, useSample, useCode, useRecipe, addOp, editSelection, toolKey, openTools,
   openSearch, closeSearch, runSearch, typeSearch, preview, useResult
 })
 
@@ -507,6 +515,7 @@ const hints = hint(document.body)
 import('../assets/popoff.js').then(({ default: popoff }) => popoff()).catch(() => {})
 // The script editor, on the document shown, the files its tabs open kept from before
 const first = await initialDocs()
+pl = playerOf(first)
 // the kept files are listed as the page comes up, not before it: the first run waits for them (evaluate)
 const restoring = EMBED ? Promise.resolve() : kept().then(files => { shelf = files; restock() })
 ed = codeEditor(root.querySelector('.script-editor'), {
@@ -579,6 +588,8 @@ if (webview()) {
 v = view(root.querySelector('.plot'), {
   // the axis as wide as its labels: the settings' button over it (editor.css --axis)
   onaxis: px => root.querySelector('.panes').style.setProperty('--axis', `${px}px`),
+  // measuring on the spectrogram, the spectrum meter reads under the pointer, then where it did again
+  onprobe: t => meter(null, t),
   // a long output's samples where the view zooms in
   onsamples: (from, to) => output?.long ? eng.samples(output.id, from, to) : null,
   // another track's lane pressed: it is the one edited
@@ -604,7 +615,12 @@ v = view(root.querySelector('.plot'), {
   // the caret put elsewhere while it plays: playback goes there, over what is selected now (all of it, if nothing)
   oncursor(t) { if (pl.playing) pl.play(plays(t)); else { state.time = stamp(t); meter(); pl.seek(t); listen(); later() } },
   // an edit made on the picture: true once it is written in the script
-  onedit(type, detail) { const act = { warp, envelope, pitch: shift, intonation: tone, formant, carry, tab: toTab, stretch, trim, lift, fade, crossfade, unmark, remark, relabel, pitchline, insert: silence }[type]; return !!(act ? act(detail, type) : editSelection(type, detail)) },
+  // what a selection's handles and its audio dragged do, through every track the same, when it runs through them (spread)
+  onedit(type, detail) {
+    const act = { warp, envelope, pitch: shift, intonation: tone, formant, carry, tab: toTab, stretch, trim, lift, fade, crossfade, unmark, remark, relabel, pitchline, insert: silence }[type]
+    const run = () => !!(act ? act(detail, type) : editSelection(type, detail))
+    return ['carry', 'stretch', 'trim', 'lift', 'fade', 'crossfade'].includes(type) && !detail?.into ? spread(run) : run()
+  },
   // a handle clicked: its next way, in turn, as a tool's options cycle, no menu (a fade corner's curve, the grip's trim,
   // stretch or speed; the pitch tool's curve shown or not)
   onmode(kind) {
@@ -1139,7 +1155,7 @@ function arrival(names) {
       showing = 0
       v.stream({ sampleRate: m.sampleRate, channels: (m.channels ?? m.peaks).length, total: m.estimate ? Math.round(m.estimate * m.sampleRate) : null, dim: true, keep: holding })
       aim(false, true)
-      pl.set(null)
+      lend(null)
       state.whole = false
       state.hasOutput = true
       state.loading = true
@@ -1328,7 +1344,8 @@ function settle(out, draw = true, behind = false) {
   // the markers as the script has them: an older script's output, the newer one on its way, leaves those the view
   // drew ahead of it (made, named, moved) as they are
   if (!behind) v.markers = out?.markers
-  pl.set(has ? out.channels : null, out?.sampleRate, has ? hears(out) : null, has ? out.length : 0, fetches(out), has ? lanesOf(out) : null)
+  // a tab shown again whose player plays its output already plays on as it is
+  if (pl.out !== out || !has) lend(out)
   if (!has && pl.playing) togglePlay()
   state.duration = has ? out.duration : 0
   state.ab = false
@@ -1339,6 +1356,12 @@ function settle(out, draw = true, behind = false) {
   meter()
   scheduleCheck()
 }
+// What the shown tab's player plays: output `out` (none: nothing), the output it holds (`out`) known by it
+function lend(out) {
+  const has = !!out?.duration
+  pl.out = has ? out : null
+  pl.set(has ? out.channels : null, out?.sampleRate, has ? hears(out) : null, has ? out.length : 0, fetches(out), has ? lanesOf(out) : null)
+}
 // The tracks as their lanes show them, each muted or not; none muted with a master, which mixes them as its script says
 const lanesShown = out => out?.tracks?.map(t => ({ name: t.name, end: t.length / out.sampleRate, muted: masterOf(ed.code) ? null : state.muted.includes(t.name) })) ?? null
 // A track muted, or heard again (its lane's index): the mix made again without it, or with it; its lane says so at once
@@ -1347,6 +1370,11 @@ function toggleMute(i) {
   if (!name || masterOf(ed.code)) return
   state.muted = state.muted.includes(name) ? state.muted.filter(n => n !== name) : [...state.muted, name]
   v.tracks = lanesShown(output)
+  // heard at once: the tracks' sum made as it plays, those muted left out (worker.js voice), taking over where it plays;
+  // the mix made again without them comes after, for the levels and the export, and takes over in its turn
+  const out = output, muted = [...state.muted]
+  pl.out = null
+  pl.set(out.channels, out.sampleRate, o => eng.voice({ ...o, output: out.id, muted }), out.length, fetches(out), lanesOf(out))
   store()
   schedule(0)
 }
@@ -1453,7 +1481,7 @@ async function toggleAB() {
   const name = sourceName()
   if (!state.hasOutput) return
   if (!name) return note('A generated sound has no file as it opened to hear it against.')
-  if (state.ab) { state.ab = false; pl.set(output.channels, output.sampleRate, hears(output), output.length, fetches(output), lanesOf(output)); return note('Hearing the output, after the edits') }
+  if (state.ab) { state.ab = false; lend(output); return note('Hearing the output, after the edits') }
   const loudness = output.stats.loudness
   if (original?.name !== name || original.loudness !== loudness) {
     const r = await eng.original(name, loudness)
@@ -1462,6 +1490,7 @@ async function toggleAB() {
   }
   state.ab = true
   state.abGain = original.gain
+  pl.out = null
   pl.set(original.channels, original.sampleRate, o => eng.voice({ ...o, source: name, loudness, ...original.channels && { held: { key: `original ${name} ${loudness}`, channels: original.channels, sampleRate: original.sampleRate } } }), original.length)
   note(`Hearing before the edits: the file as it opened, level-matched (${original.gain >= 0 ? '+' : '−'}${Math.abs(original.gain).toFixed(1)}dB). B for after`)
 }
@@ -1488,10 +1517,11 @@ function toggleShow(name) {
   meter()
 }
 // The meters at the view's right: the output's level and spectrum where it is heard (the 50 ms before the playhead, a
-// spectrum frame ending there), across the selection, or around the caret (meters.js); as it plays or records, the
-// level as a peak meter shows it, its peak held a while (ballistics, from the last frame's: `peaked`)
+// spectrum frame ending there), across the selection, or around the caret (meters.js), or around `probe`, a time
+// measured on the spectrogram (view.js onprobe); as it plays or records, the level as a peak meter shows it, its peak
+// held a while (ballistics, from the last frame's: `peaked`)
 let peaked = null
-function meter(t = null) {
+function meter(t = null, probe = null) {
   const size = 4096, now = performance.now()
   const live = l => { const dt = peaked ? (now - peaked.at) / 1000 : 0; peaked = { levels: ballistics(l, peaked?.levels, dt), at: now }; return peaked.levels }
   if (t == null && !recorder) peaked = null
@@ -1507,10 +1537,10 @@ function meter(t = null) {
   }
   if (!output?.duration) { v.meters = null; return }
   // with tracks, each lane's own; a long output's, the samples about it the player has (none till they come)
-  const rate = output.sampleRate, sel = t == null && v.selection, at = t ?? (sel ? sel[0] : v.cursor), w = output.tracks ? pl.lanes(at) : pl.near(at)
+  const rate = output.sampleRate, caret = probe ?? v.cursor, sel = t == null && probe == null && v.selection, at = t ?? (sel ? sel[0] : caret), w = output.tracks ? pl.lanes(at) : pl.near(at)
   if (!w) { v.meters = null; return }
-  const [a, b] = t != null ? [t - .05, t] : sel || [v.cursor - .025, v.cursor + .025], from = Math.round(a * rate) - w.from, to = Math.round(b * rate) - w.from
-  const c = Math.round(v.cursor * rate) - w.from, [s0, s1] = t != null ? [to - size, to] : sel ? [from, Math.max(to, from + size)] : [c - size / 2, c + size / 2]
+  const [a, b] = t != null ? [t - .05, t] : sel || [caret - .025, caret + .025], from = Math.round(a * rate) - w.from, to = Math.round(b * rate) - w.from
+  const c = Math.round(caret * rate) - w.from, [s0, s1] = t != null ? [to - size, to] : sel ? [from, Math.max(to, from + size)] : [c - size / 2, c + size / 2]
   const l = levels(w.x, from, to)
   v.meters = read(t != null ? live(l) : l, () => spectra(w.x, s0, s1, { size }), rate)
 }
@@ -1527,7 +1557,7 @@ function setDisplay(name, event) {
 function setScale(name) { state.scale = v.scale = name; store() }
 function setWave(key, value) { state.wave = { ...state.wave, [key]: value }; v.waveform = state.wave; store() }
 // How a held caret sounds (scrub.js), one of the lab's ways
-function setScrub(name) { state.scrub = pl.scrubMode = name; store() }
+function setScrub(name) { state.scrub = name; for (const d of docs) if (d.player) d.player.scrubMode = name; store() }
 
 // What the output is, at the status bar's right: its level, short (the output's peak, or the selection's, or the band
 // selected), all of them when pointed at (the loudness, the RMS); then its rate, channels and the depth it is written
@@ -1655,11 +1685,11 @@ function goTo(index) {
 // A step in a few words: the sound opened, a call added, removed or set again
 const verbs = { remove: 'Delete', cut: 'Cut', copy: 'Copy', paste: 'Paste', move: 'Move', crop: 'Keep only', gain: 'Level', spectral: 'Band level', repair: 'Rebuild', stretch: 'Stretch', pitch: 'Pitch', warp: 'Move a cue', fade: 'Fade', insert: 'Silence' }
 function said(before, after) {
-  // a track made or taken away, by its name
+  // a track made or taken away, by its name; several, a split undone, by theirs
   const named = code => tracksOf(code).map(t => t.name), had = named(before), has = named(after)
-  const made = has.length > had.length && has.findLast(t => !declared(before).has(t)), gone = has.length < had.length && had.find(t => !declared(after).has(t))
+  const made = has.length > had.length && has.findLast(t => !declared(before).has(t)), gone = has.length < had.length ? had.filter(t => !declared(after).has(t)) : []
   if (made) return `New track ${made}`
-  if (gone) return `Delete track ${gone}`
+  if (gone.length) return `Delete track${gone.length > 1 ? 's' : ''} ${gone.join(', ')}`
   const was = chain(before)?.calls || [], now = chain(after)?.calls || []
   const text = (code, k) => code.slice(k.list.from + 1, k.list.to - 1).replace(/\s+/g, ' ').trim()
   const same = (i, j) => was[i]?.name === now[j]?.name && text(before, was[i]) === text(after, now[j])
@@ -1724,11 +1754,11 @@ function follower() {
 // Held and dragged across, it searches (SHUTTLE): a line over it, the pointer hidden, a tenth of 1× each 4 px from the
 // speed it plays at, a step taken only three quarters of the way to the next, so a hand resting between two holds one;
 // let go forward, it plays on at that speed, at 0 or back it stops there. Held still for HOLD, the line shows, to be
-// seen or dragged. So a press while it plays pauses at its release, unless it was dragged or held, with the caret where
-// it was pressed.
+// seen or dragged. So a press while it plays pauses at its release, unless it was dragged or held, the caret where the
+// playhead got to, as a key's pause leaves it.
 function playPress(event) {
   if (event.button !== 0 || state.recording) return
-  const button = event.currentTarget, x0 = event.clientX, was = pl.playing, t0 = pl.time, step = SHUTTLE.px / 10
+  const button = event.currentTarget, x0 = event.clientX, was = pl.playing, step = SHUTTLE.px / 10
   let moved = false, shown = false, at = state.speed * 10, back = null
   if (!was) togglePlay()
   button.setPointerCapture?.(event.pointerId)
@@ -1755,12 +1785,15 @@ function playPress(event) {
     }
     back = { id: requestAnimationFrame(frame), at: () => t }
   }
+  // the search back stopped: the playhead, its line run back, goes, the caret where it stood (forward again, playing
+  // brings the playhead back from there)
   const halt = () => {
     cancelAnimationFrame(back.id)
     const t = back.at()
     back = null
     resume = false
     onscrub(null)
+    v.playhead = null
     v.setCursor(t)
   }
   const forward = () => { halt(); togglePlay() }
@@ -1784,7 +1817,7 @@ function playPress(event) {
     if (back) { halt(); state.speed = pl.rate = 1 }
     else if (moved) state.speed = pl.rate
     state.shuttle = null
-    if (!shown && was) togglePlay(t0)
+    if (!shown && was) togglePlay()
   }
   const on = [['pointermove', move], ['pointerup', up], ['pointercancel', up]]
   for (const [type, f] of on) button.addEventListener(type, f)
@@ -1793,33 +1826,49 @@ function playPress(event) {
 function setSpeed(r) { state.speed = pl.rate = SPEEDS.range(r) }
 function playClick(event) { if (!event.detail) togglePlay() }
 // Playing and recording are one or the other: while it records, Play is off (Space stops the recording)
-async function togglePlay(at) {
+async function togglePlay() {
   if (!(state.whole || state.arriving) || state.recording) return
+  // paused, the caret where the playhead line is, what was last heard: the line becomes it, nothing jumps
   if (pl.playing) {
+    const t = v.playhead ?? pl.time
     pl.pause()
     cancelAnimationFrame(ticker)
     state.playing = false
     state.speed = pl.rate = 1
     v.playhead = null
-    v.setCursor(at ?? pl.time)
+    v.setCursor(t)
     sway()
     return
   }
   state.playing = true
   // The clock follows once the device has started. A band selection plays only its frequencies.
-  await pl.play(plays())
+  const p = pl
+  await p.play(plays())
+  if (p !== pl) return
   if (!pl.playing) { state.playing = false; return }
   sway()
-  // The playhead where the speakers are at the frame's own time, drawn as it runs (follow)
-  const follow = follower()
+  chase()
+}
+// The playhead where the speakers are at the frame's own time, drawn as it runs (follow): the shown tab's, till it stops
+// or another tab shows
+function chase() {
+  cancelAnimationFrame(ticker)
+  const follow = follower(), p = pl
   const tick = frame => {
-    if (!pl.playing) return
-    const t = follow(pl.time, frame ?? performance.now(), pl.rate)
+    if (!p.playing || p !== pl) return
+    const t = follow(p.time, frame ?? performance.now(), p.rate)
     v.speed = follow.speed
     v.playhead = t; state.time = stamp(t); state.played = t / (v.duration || 1); meter(t)
     ticker = requestAnimationFrame(tick)
   }
   tick()
+}
+// A tab's speaker pressed: its playback muted, or heard again, as it plays on
+function toggleTabMute(id) {
+  const p = docOf(id)?.player
+  if (!p) return
+  p.muted = !p.muted
+  badges()
 }
 
 // Scrubbing: the moment under a held or dragged caret, or an edge, sounds; playback pauses for it and plays on from the
@@ -1854,6 +1903,8 @@ function editSelection(type, range = v.selection) {
     const at = Array.isArray(range?.[0]) ? range.map(r => r[0]) : v.carets.length ? v.carets : [v.cursor]
     return !!write(at.sort((p, q) => q - p).map(t => `paste(${number(t, v.unit)}${seam()})`).join('.'))
   }
+  // a selection through every track: the same edit of each (spread)
+  if (v.across && !spreading) return spread(() => editSelection(type, range))
   // an op that learns from the selection takes it whole, every range; declick looks for its clicks in each range or box
   if (ops[type]?.params?.some(s => s.selection)) return addOp(type)
   if (type === 'declick') return !!addOp(type, false)
@@ -1926,7 +1977,7 @@ const markersOf = last => Array.isArray(last?.call.args[0]?.value) ? last.call.a
 // is the marker it made, not one found near it. A cue at the very start is the start, which warp() holds.
 function cuesOf(found, code) {
   const placed = markersOf(lastEdit(code, 'warp')).map(p => p[1])
-  return [...found.filter(t => t > 0 && !placed.some(d => Math.abs(d - t) < .03)), ...placed].sort((a, b) => a - b)
+  return [...found.filter(c => c.t > 0 && !placed.some(d => Math.abs(d - c.t) < .03)), ...placed.map(t => ({ t, rank: Infinity }))].sort((a, b) => a.t - b.t)
 }
 
 // A cue dragged from `from` to `to` between its neighbours: one warp() call, updated as cues keep moving. Its markers
@@ -1954,9 +2005,34 @@ function warp({ from, to, prev, next }) {
 // A selection's audio dragged elsewhere: moved over what is where it lands, silence where it was, as a graphic
 // editor's object or a DAW's clip slides (fn/move.js); with Alt, a copy of it put in where it lands, what was there
 // moving on after it, as a text's dragged copy goes in. One step, so one undo.
-function carry({ at, duration, to, copy }) {
+function carry({ at, duration, to, copy, into }) {
   const s = t => number(t, v.unit)
+  if (into != null) return carryInto({ at, duration, to, copy, into })
   return write(copy ? `copy({ at: ${s(at)}, d: ${s(duration)} }).paste(${s(to)}${seam()})` : `move({ at: ${s(at)}, d: ${s(duration)}, to: ${s(to)}${splice()} })`)
+}
+// ... dragged into another track's lane (`into`, its index): written over what is there in that track where it lands
+// (write(), as move() lands it in its own), silence where it was (gain −∞ dB over it, as Move to a new track leaves),
+// or with Alt left there too. The piece is this track's sound as it stands, written out (code.js soundOf: its name read
+// would take it away as a track), cropped to it. One step, the track it went to the one edited
+function carryInto({ at, duration, to, copy, into }) {
+  const from = state.track, name = output?.tracks?.[into]?.name, sound = from && soundOf(ed.code, from), s = t => number(t, v.unit)
+  if (!sound || !name || name === from || mastering() || masterOf(ed.code)?.name === name) return false
+  let code = ed.code
+  try {
+    focus(name)
+    const put = append(code, `write(${sound}.crop({ at: ${s(at)}, d: ${s(duration)} }), { at: ${s(to)} })`)
+    if (!put) return false
+    code = applied(code, put)
+    if (!copy) {
+      focus(from)
+      const out = append(code, `gain(-Infinity, { at: ${s(at)}, d: ${s(duration)} })`)
+      if (!out) return false
+      code = applied(code, out)
+    }
+  } finally { focus(from) }
+  ed.change(between(ed.code, code))
+  focusOn(name)
+  return true
 }
 // A selection's audio dragged up onto the tabs: a tab of its own, its script this one's cropped to it, so its sound is
 // the same (the chain as shown, rolled back or not); moved, it leaves this one, the rest closing up as a cut's, one step
@@ -2271,6 +2347,8 @@ function bandLevel(sign, [a, b]) {
 // chosen among the edits, open, its sliders in hand (the panel turns to them from the palette and the menus, not from
 // the context menu, which edits in place), and the code's caret goes into it.
 function addOp(name, open = true) {
+  // a selection through every track: each track's alike, no card opened (spread)
+  if (v.across && !spreading) return spread(() => addOp(name, false))
   const op = ops[name], learn = op?.params?.find(s => s.selection), several = v.boxes.length > 1 ? v.boxes : v.ranges.length > 1 && !v.band ? v.ranges : null
   const span = ([a, b]) => `{ at: ${number(a, v.unit)}, d: ${number(b - a, v.unit)} }`
   const call = args => /^[\w$]+$/.test(name) ? `${name}(${args})` : `['${name}'](${args})`
@@ -2323,6 +2401,26 @@ function write(...calls) {
   return change
 }
 const applied = (code, { from, to = from, insert }) => code.slice(0, from) + insert + code.slice(to)
+// a change as the editor takes it, one or several over the same text, made to `code`
+const changed = (code, c) => (Array.isArray(c) ? c : [c]).filter(Boolean).sort((p, q) => q.from - p.from).reduce(applied, code)
+// A selection through every track (view.js across): an edit of it is the same edit of each track, each in turn the one
+// edited, what each makes gathered into one change, one step of the history, so a cut keeps them in time; the track
+// edited before, edited after. Each edit reads and writes the script as the ones before it left it, `ed` standing in for
+// the editor meanwhile, and `rk` for the edits, no card of one track's chosen for another's
+let spreading = false
+function spread(edit) {
+  const names = tracksOf(ed.code).map(t => t.name)
+  if (spreading || !v.across || names.length < 2 || mastering()) return edit()
+  const real = ed, edits = rk, was = state.track
+  let code = real.code, done = false
+  ed = Object.create(real, { code: { get: () => code }, change: { value: c => { code = changed(code, c) } }, select: { value: () => {} } })
+  rk = Object.create(edits, { at: { value: () => null }, choose: { value: () => {} } })
+  spreading = true
+  try { for (const name of names) { focus(name); done = !!edit() || done } }
+  finally { spreading = false; ed = real; rk = edits; focus(was) }
+  if (code !== real.code) real.change(between(real.code, code))
+  return done
+}
 // The chain up to a step made one sound (`to`, where that step ends; all of it with none): rendered as it shows there
 // (worker.js bake, from the renders kept), kept in this browser as a recording is, and the script opening it in place
 // of the sound and the steps it holds, its markers marked on it again, the steps after it going on from it. One step of
@@ -3170,6 +3268,12 @@ function switchTab(id) {
   if (was) Object.assign(was, { code: ed.code, name: nameOf(ed.code), steps, depthWas, frame: was.frame ?? v.frame, view: was.view ?? v.state, track: state.track, muted: state.muted })
   ;({ steps = [], depthWas = 0 } = next)
   state.tab = eng.tab = id
+  // the tab left plays on, if it plays, its player its own; the one shown plays as it was left, its playhead running
+  cancelAnimationFrame(ticker)
+  v.playhead = null
+  pl = playerOf(next)
+  state.playing = pl.playing
+  state.speed = pl.rate
   // its track edited, as it was left (its script, opened, keeps it valid: focusOn)
   state.track = next.track ?? null
   state.muted = next.muted ?? []
@@ -3183,6 +3287,7 @@ function switchTab(id) {
   incoming = null
   settle(next.output ?? null)
   if (!next.output) standIn(next)
+  if (pl.playing) chase()
   ed.open(id, next.code)
   const out = next.output, a = next.coming
   if (a?.said && a.code === a.editor && a.editor === ed.code) { clearTimeout(timer); state.viewing = ''; retell(a.said); takeUp(a) }
@@ -3210,14 +3315,18 @@ function takeUp(a) {
 }
 // Each tab's mark, in its close button's place till that is pointed at: its sound on its way, playing (the tab shown),
 // or made while the tab was not shown, till it is
+// Its speaker, before its name, while it plays or is muted, as a browser's tab's: 'playing' or 'muted' (sounding)
 function badges() {
-  const marks = {}
+  const marks = {}, sounding = {}
   for (const d of docs) {
     const shown = d.id === state.tab
-    const m = shown && state.playing ? 'playing' : (shown ? state.working : asking.get(d.id) || d.coming) ? 'working' : d.ready ? 'ready' : null
+    const m = (shown ? state.working : asking.get(d.id) || d.coming) ? 'working' : d.ready ? 'ready' : null
     if (m) marks[d.id] = m
+    if (d.player?.muted) sounding[d.id] = 'muted'
+    else if (shown ? state.playing : d.player?.playing) sounding[d.id] = 'playing'
   }
   if (JSON.stringify(marks) !== JSON.stringify(state.marks)) state.marks = marks
+  if (JSON.stringify(sounding) !== JSON.stringify(state.sounding)) state.sounding = sounding
 }
 // More tabs than fit scroll, as a code editor's: the wheel, up and down as across, moves them along; the tab shown is
 // brought into sight
@@ -3284,6 +3393,9 @@ function closeTab(id = state.tab) {
   else if (docs.length === 1) newTab()
   docs.splice(i, 1)
   eng.close(id)
+  // what it plays stops with it
+  doc.player?.dispose()
+  doc.player = null
   doc.coming = null
   doc.ready = false
   if (kept.code.trim()) {
