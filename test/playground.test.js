@@ -6066,7 +6066,10 @@ test('editor: embedded, another page\'s script runs alone, its panel as asked, n
   await wholeLevels().waitFor()
   // the element, in a page of its own: its text in the frame's link; the editor's tabs as it left them
   await page.goto(origin + '/blank.html')
-  const kept = await page.evaluate(() => localStorage.getItem('audio-repl'))
+  // the editor's last write lands as it goes, in its own process (its COOP page left for one without): what it kept is
+  // what stays a while
+  let kept = null
+  for (let was; kept == null || kept !== was; await page.waitForTimeout(300)) { was = kept; kept = await page.evaluate(() => localStorage.getItem('audio-repl')) }
   assert.ok(kept)
   const src = await page.evaluate(async () => {
     await import('/embed.js')
