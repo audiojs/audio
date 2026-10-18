@@ -1683,7 +1683,7 @@ const tipOf = el => el.title || el.dataset.tip || ''
 const wholeLevels = () => page.locator('.readout:is([title^="Loudness"], [data-tip^="Loudness"])')
 const levelsTip = () => page.locator('.readout').evaluate(tipOf)
 // The output's length, from the name's tooltip ("chime.wav · 0:06.525"): the axes show it, so the page doesn't repeat it
-const lengthText = () => page.evaluate(() => (e => e.title || e.dataset.tip)(document.querySelector('.source')).split(' · ').pop())
+const lengthText = () => page.evaluate(() => (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop())
 const seconds = async () => { const [m, s] = (await lengthText()).split(':'); return +m * 60 + +s }
 async function open() {
   await page.goto(origin + '/playground.html')
@@ -2198,7 +2198,7 @@ test('editor: a slice dragged onto the tabs goes to a tab of its own; moved, it 
   await page.waitForFunction(() => scriptText() === "audio('chime.wav')")
   await lengthIs('0:08.000')
   // the tab's selection as it was left
-  await page.waitForFunction(() => (e => e.title || e.dataset.tip)(document.querySelector('.clock')).startsWith('Selected 0:01.000–0:02.000:'))
+  await page.waitForFunction(() => (e => e.title || e.dataset.tip || '')(document.querySelector('.clock')).startsWith('Selected 0:01.000–0:02.000:'))
   await up(['ControlOrMeta'], false)
   await page.waitForFunction(() => document.querySelectorAll('.file').length === 3)
   await page.waitForFunction(() => scriptText() === "audio('chime.wav')\n  .crop({ at: 1, d: 1 })")
@@ -2591,12 +2591,12 @@ test('editor: deleting a selection writes remove() and shortens the output by it
   // each time goes to the zoom's 1-2-5 step, at most 2.5 pixels
   const px = before / await spans(box)
   assert.ok(Math.abs(+at - before * .25) < 3 * px && Math.abs(+duration - before * .25) < 3 * px, `${at} ${duration}`)
-  await page.waitForFunction(expected => Math.abs(+(e => e.title || e.dataset.tip)(document.querySelector('.source')).split(' · ').pop().split(':')[1] - expected) < .002, before - +duration)
+  await page.waitForFunction(expected => Math.abs(+(e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop().split(':')[1] - expected) < .002, before - +duration)
   // the waveform shares the script's history
   await page.locator('.plot').focus()
   await page.keyboard.press('ControlOrMeta+Z')
   await page.waitForFunction(() => !scriptText().includes('.remove('))
-  await page.waitForFunction(expected => Math.abs(+(e => e.title || e.dataset.tip)(document.querySelector('.source')).split(' · ').pop().split(':')[1] - expected) < .002, before)
+  await page.waitForFunction(expected => Math.abs(+(e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop().split(':')[1] - expected) < .002, before)
 })
 
 test('editor: completion lists methods by group and a chosen one opens its sliders', async () => {
@@ -2979,7 +2979,7 @@ test('editor: an output of no samples shows the empty view; the next output repl
 test('editor: a file dropped on the waveform of a generated sound goes in where it is dropped', async () => {
   await open()
   await write(`audio.from(0.5)`)
-  await page.waitForFunction(() => (e => e.title || e.dataset.tip)(document.querySelector('.source')).split(' · ').pop() === '0:00.500')
+  await page.waitForFunction(() => (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop() === '0:00.500')
   const bytes = await wavBytes([sine(.5, 440, .5)]), { x } = await axis(.5)
   await page.evaluate(({ bytes, x }) => {
     const target = document.querySelector('.plot'), rect = target.getBoundingClientRect(), data = new DataTransfer()
@@ -2989,7 +2989,7 @@ test('editor: a file dropped on the waveform of a generated sound goes in where 
     target.dispatchEvent(new DragEvent('drop', at))
   }, { bytes: [...bytes], x: x(.5) })
   await page.waitForFunction(() => scriptText() === "audio.from(0.5)\n  .insert(audio('tone.wav'), { at: 0.5, xfade: 0.01 })")
-  await page.waitForFunction(() => (e => e.title || e.dataset.tip)(document.querySelector('.source')).split(' · ').pop() === '0:01.000')
+  await page.waitForFunction(() => (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop() === '0:01.000')
 })
 
 // While the worker is held (a loop, until its 5 s guard), a script naming a sample not made yet, then a newer script:
@@ -3070,7 +3070,7 @@ test('editor: a sound longer than the page holds is drawn from its peaks and spe
   const cdp = await page.context().newCDPSession(page)
   const heap = () => cdp.send('Runtime.getHeapUsage').then(u => u.usedSize + (u.backingStorageSize ?? 0))
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * (.25 + .2 * Math.sin(t / 40)), { duration: 1820, sampleRate: 48000 })`)
-  await page.waitForFunction(() => (e => e.title || e.dataset.tip)(document.querySelector('.source')).endsWith('30:20.000'), null, { timeout: 120000 })
+  await page.waitForFunction(() => (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).endsWith('30:20.000'), null, { timeout: 120000 })
   await page.waitForFunction(() => !document.querySelector('.message').textContent, null, { timeout: 120000 })
   await cdp.send('HeapProfiler.collectGarbage')
   const used = await heap()
@@ -3141,7 +3141,7 @@ test('editor: a sound longer than the page holds is drawn from its peaks and spe
   await page.getByRole('button', { name: 'Pause' }).click()
   // a selection's levels, from its leaves
   await page.keyboard.press('Shift+ArrowRight')
-  await page.waitForFunction(() => /^RMS −\d+\.\d dBFS$/.test((e => e.title || e.dataset.tip)(document.querySelector('.readout'))))
+  await page.waitForFunction(() => /^RMS −\d+\.\d dBFS$/.test((e => e.title || e.dataset.tip || '')(document.querySelector('.readout'))))
 })
 
 test('editor: playback goes on without a gap while the page is busy', async () => {
@@ -3248,7 +3248,7 @@ test('editor: a recording becomes a file the script opens', async () => {
   await page.waitForFunction(() => +document.querySelector('.time').textContent.split(':')[1] > .9)
   // the take itself, untrimmed: about as long as the recording ran (a slow machine's run, however long)
   await write(`audio('recording.wav')`)
-  const long = () => page.waitForFunction(most => { const s = +(e => e.title || e.dataset.tip)(document.querySelector('.source')).split(' · ').pop().split(':')[1]; return s > .9 && s < most }, ran + .5)
+  const long = () => page.waitForFunction(most => { const s = +(e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop().split(':')[1]; return s > .9 && s < most }, ran + .5)
   await long()
   const before = await lengthText()
   // kept for the next visit, as a file is (a 32-bit float WAV): the same length after a reload, nothing missing
@@ -3327,7 +3327,7 @@ async function drag([x, y], [dx, dy]) {
   await page.mouse.move(x + dx, y + dy, { steps: 6 })
   await page.mouse.up()
 }
-const lengthIs = text => page.waitForFunction(text => (e => e.title || e.dataset.tip)(document.querySelector('.source')).endsWith(' · ' + text), text)
+const lengthIs = text => page.waitForFunction(text => (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).endsWith(' · ' + text), text)
 // What reaches the speakers: every AudioContext's destination becomes a tap recording its left channel, run before the page
 function tap() {
   const Real = window.AudioContext
@@ -3433,21 +3433,21 @@ test('editor: zoomed out, only the plainer cues show, none within 8 px of anothe
   const box = await page.locator('.plot').boundingBox(), y = box.y + 40
   await page.mouse.move(box.x + 30, y)
   let shown = []
-  await page.keyboard.down('ControlOrMeta')
+  await page.keyboard.down('Alt')
   // a minute's cues found on a slow runner in half a minute or so
   for (const until = Date.now() + 60000; shown.length < 20 && Date.now() < until; await page.waitForTimeout(300)) shown = await runs()
   const apart = Math.min(...shown.slice(1).map((x, i) => x - shown[i]))
-  await page.keyboard.up('ControlOrMeta')
+  await page.keyboard.up('Alt')
   assert.ok(shown.length > 20 && shown.length < (box.width - await gutter()) / 8 + 2, `${shown.length} shown across ${Math.round(box.width)} px`)
   assert.ok(apart >= 7, `the closest ${apart} px apart`)
   // zoomed in five halvings, under 2 s across: each of its 18 or so strikes, tens of px apart
   await page.locator('.plot').focus()
   for (let i = 0; i < 5; i++) await page.keyboard.press('=')
   await page.mouse.move(box.x + 30, y)
-  await page.keyboard.down('ControlOrMeta')
+  await page.keyboard.down('Alt')
   await page.waitForTimeout(400)
   const near = await runs()
-  await page.keyboard.up('ControlOrMeta')
+  await page.keyboard.up('Alt')
   assert.ok(near.length >= 15, `zoomed in: ${near.length}`)
 })
 
@@ -4952,7 +4952,7 @@ test('editor: a sound longer than the page holds sounds under the caret as it is
   await page.addInitScript(tap)
   await open()
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .5, { duration: 1820, sampleRate: 48000 })`)
-  await page.waitForFunction(() => (e => e.title || e.dataset.tip)(document.querySelector('.source')).endsWith('30:20.000'), null, { timeout: 120000 })
+  await page.waitForFunction(() => (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).endsWith('30:20.000'), null, { timeout: 120000 })
   await page.waitForFunction(() => !document.querySelector('.message').textContent, null, { timeout: 120000 })
   const { box, x } = await axis(1820), row = box.y + box.height - 8
   await page.waitForTimeout(300)
@@ -5610,7 +5610,7 @@ test('editor: pauses selected together are shortened or deleted together, in one
   await page.waitForFunction(() => (scriptText().match(/\.remove\(/g) || []).length === 3)
   const ats = [...(await code()).matchAll(/remove\(\{ at: ([\d.]+)/g)].map(m => +m[1])
   assert.ok(ats[0] > ats[1] && ats[1] > ats[2] && Math.abs(ats[2] - .4) < .03, JSON.stringify(ats))
-  await page.waitForFunction(() => +(e => e.title || e.dataset.tip)(document.querySelector('.source')).split(':').pop() < 1.8)
+  await page.waitForFunction(() => +(e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(':').pop() < 1.8)
   await page.keyboard.press('ControlOrMeta+Z')
   await page.waitForFunction(() => !scriptText().includes('.remove('))
 })
@@ -5916,7 +5916,7 @@ test('editor: a stretch dragged anywhere ends where it was let go, to the sample
   await page.waitForFunction(() => /\.stretch\(/.test(scriptText()))
   const [a, to] = (await selected()).split('–').map(Number)
   // its length, in the samples the times are in, no longer 8 s'
-  await page.waitForFunction(() => !(e => e.title || e.dataset.tip)(document.querySelector('.source')).endsWith(' · 352800'))
+  await page.waitForFunction(() => !(e => e.title || e.dataset.tip || '')(document.querySelector('.source')).endsWith(' · 352800'))
   // all of it selected, in samples: 0 to its length
   await page.locator('.plot').focus()
   await page.keyboard.press('ControlOrMeta+A')
@@ -6155,14 +6155,14 @@ test('editor: a closed tab opens again where it was, as it was left, after a rel
   await menu('File', 'Samples', 'handpan.wav')
   await page.waitForFunction(() => scriptText().trim() === "audio('handpan.wav')")
   await page.getByRole('tab', { name: 'chime.wav' }).click()
-  await page.waitForFunction(was => (e => e.title || e.dataset.tip)(document.querySelector('.clock')).startsWith(`Selected ${was}:`), was)
+  await page.waitForFunction(was => (e => e.title || e.dataset.tip || '')(document.querySelector('.clock')).startsWith(`Selected ${was}:`), was)
   await menu('File', 'Close tab')
   assert.deepEqual(await tabs(), ['handpan.wav'])
   await page.locator('.plot').focus()
   await page.keyboard.press('ControlOrMeta+Shift+T')
   assert.deepEqual(await tabs(), ['chime.wav', 'handpan.wav'])
   assert.equal(scriptOf(await code()), `audio('chime.wav').gain(-3)`)
-  await page.waitForFunction(was => (e => e.title || e.dataset.tip)(document.querySelector('.clock')).startsWith(`Selected ${was}:`), was)
+  await page.waitForFunction(was => (e => e.title || e.dataset.tip || '')(document.querySelector('.clock')).startsWith(`Selected ${was}:`), was)
   // in this visit, the tab itself: its history with it
   await menu('Edit', 'Undo')
   await page.waitForFunction(() => !scriptText().includes('gain(-3)'))
@@ -6176,7 +6176,7 @@ test('editor: a closed tab opens again where it was, as it was left, after a rel
   await menu('File', 'Reopen closed tab')
   assert.deepEqual(await tabs(), ['chime.wav', 'handpan.wav'])
   await lengthIs('0:08.000')
-  await page.waitForFunction(was => (e => e.title || e.dataset.tip)(document.querySelector('.clock')).startsWith(`Selected ${was}:`), was)
+  await page.waitForFunction(was => (e => e.title || e.dataset.tip || '')(document.querySelector('.clock')).startsWith(`Selected ${was}:`), was)
   // none left to open
   await page.locator('.menubar-item', { hasText: /^File$/ }).click()
   assert.equal(await menuRow('Reopen closed tab').getAttribute('aria-disabled'), 'true')
@@ -6334,7 +6334,7 @@ test('editor: a second tab asks to be the editor; the first stores and steps asi
 // Every setting kept comes back as it was kept; a value the page no longer has, its default; a store that does not read
 // is set aside, not written over
 test('editor: every setting comes back as it was kept; one the page no longer has, its default', async () => {
-  const all = { display: 'spec', scale: 'mel', format: 'flac', encoding: { markers: false, bitDepth: 24 }, spec: 'podcast', cuts: { format: 'otio', fps: 25 }, side: 'code', show: { hits: false, gain: false, meters: false, guides: false }, units: 'samples', snap: false, curve: 'cos', levels: 'db', ruler: 'ticks', step: 3, look: { map: 'magma', gamma: .5, depth: 100, size: 2048, method: 'tapers' }, wave: { colour: 'temperature', lanes: 'one', fill: 'flat' }, agent: { url: 'http://127.0.0.1:7778', key: '' }, splice: 20, scrub: 'grains', grip: 'speed', speed: 1.5 }
+  const all = { display: 'spec', scale: 'mel', format: 'flac', encoding: { markers: false, bitDepth: 24 }, spec: 'podcast', cuts: { format: 'otio', fps: 25 }, side: 'code', show: { hits: false, gain: false, meters: false, guides: false }, units: 'samples', snap: false, curve: 'cos', levels: 'db', ruler: 'ticks', step: 3, look: { map: 'magma', gamma: .5, depth: 100, size: 2048, method: 'tapers' }, wave: { colour: 'temperature', lanes: 'one', fill: 'flat' }, agent: { url: 'http://127.0.0.1:7778', key: '' }, splice: 20, scrub: 'grains', grip: 'speed' }
   await page.addInitScript(all => { if (!sessionStorage.seeded) { sessionStorage.seeded = 1; localStorage.setItem('audio-repl', JSON.stringify({ ...all, docs: [{ code: "audio('chime.wav')" }] })) } }, all)
   await open()
   const kept = () => page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')))
@@ -6616,9 +6616,9 @@ test('editor: a track ends where its sound does, its lane running on past it', a
     return n`, { width: box.width, a: x(3.2) - box.x, b: x(7.5) - box.x })
   assert.equal(lower, 0, 'past its end the lower lane is plain')
   await page.mouse.dblclick(x(2.6), bottom)
-  await page.waitForFunction(() => /–0:03\.000:/.test((e => e.title || e.dataset.tip)(document.querySelector('.clock'))))
+  await page.waitForFunction(() => /–0:03\.000:/.test((e => e.title || e.dataset.tip || '')(document.querySelector('.clock'))))
   await page.mouse.dblclick(x(5), bottom)
-  await page.waitForFunction(() => (e => e.title || e.dataset.tip)(document.querySelector('.clock')).startsWith('Selected 0:03.000–0:08.000:'))
+  await page.waitForFunction(() => (e => e.title || e.dataset.tip || '')(document.querySelector('.clock')).startsWith('Selected 0:03.000–0:08.000:'))
   await page.mouse.click(x(6), box.y + (box.height - 22) * .25)
   await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'chime · chime.wav')
   await page.mouse.dblclick(x(2.9), bottom)
@@ -6918,7 +6918,7 @@ test('editor: at the end, the square before the caret opens silence past the pic
   await page.waitForFunction(() => /\.insert\([\d.]+, \{ at: 8, xfade: 0\.01 \}\)$/.test(scriptText()))
   const d = +(await code()).match(/\.insert\(([\d.]+),/)[1]
   assert.ok(d > 1, `as far as it was pulled: ${d} s`)
-  await page.waitForFunction(total => { const [m, s] = (e => e.title || e.dataset.tip)(document.querySelector('.source')).split(' · ').pop().split(':'); return Math.abs(+m * 60 + +s - total) < 1e-3 }, 8 + d)
+  await page.waitForFunction(total => { const [m, s] = (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop().split(':'); return Math.abs(+m * 60 + +s - total) < 1e-3 }, 8 + d)
 })
 
 // The fade squares on whole pixels, flush with what they sit by and never over it: the one in from the pixel after the
@@ -7198,7 +7198,7 @@ test('editor: dragged inside the selection, Alt puts a copy of its audio in wher
   await keyed(['Alt'], () => drag([x(1.5), y], [x(4) - x(1), 0]))
   await page.waitForFunction(() => /\.copy\(\{ at: 1, d: 1 \}\)\.paste\(4, 0\.01\)$/.test(scriptText()))
   assert.equal(await selected(), '0:04.000–0:05.000', 'the copy selected where it went')
-  await page.waitForFunction(expected => Math.abs(+(e => e.title || e.dataset.tip)(document.querySelector('.source')).split(' · ').pop().split(':')[1] - expected) < .002, before + 1)
+  await page.waitForFunction(expected => Math.abs(+(e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop().split(':')[1] - expected) < .002, before + 1)
   await page.keyboard.press('ControlOrMeta+Z')
   await page.waitForFunction(() => scriptText() === "audio('chime.wav')")
   await page.mouse.click(x(7.5), y)
@@ -7566,7 +7566,7 @@ test('editor: an output rendering in place of the one shown keeps the zoom, the 
   const before = await left()
   assert.ok(before > 2 && before < 4, `zoomed in about the caret: the view from ${before}`)
   await write(`audio('chime.wav').pitch(3)`)
-  await page.waitForFunction(() => !document.querySelector('.message').textContent && (e => e.title || e.dataset.tip)(document.querySelector('.source')).endsWith('0:08.000'), null, { timeout: 30000 })
+  await page.waitForFunction(() => !document.querySelector('.message').textContent && (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).endsWith('0:08.000'), null, { timeout: 30000 })
   await page.waitForTimeout(500)
   assert.ok(Math.abs(await left() - before) < .01, 'the view where it was')
   // zoomed in while a sound still arrives, it stays zoomed in once the sound is whole (it went back to all of it)
@@ -7574,7 +7574,7 @@ test('editor: an output rendering in place of the one shown keeps the zoom, the 
   await page.locator('.message', { hasText: /^Decoding/ }).waitFor()
   await page.locator('.plot').focus()
   for (let i = 0; i < 2; i++) await page.keyboard.press('=')
-  await page.waitForFunction(() => !document.querySelector('.message').textContent && (e => e.title || e.dataset.tip)(document.querySelector('.source')).endsWith('0:02.000'), null, { timeout: 30000 })
+  await page.waitForFunction(() => !document.querySelector('.message').textContent && (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).endsWith('0:02.000'), null, { timeout: 30000 })
   await page.waitForTimeout(300)
   assert.ok(await left() > .2, 'still zoomed in')
 })
@@ -7656,7 +7656,7 @@ test('editor: after a reload the view is where it was left while its sound still
   await open()
   await noCues()
   await write(`audio('${origin}/slow/test/fixture.wav')`)
-  await page.waitForFunction(() => !document.querySelector('.message').textContent && (e => e.title || e.dataset.tip)(document.querySelector('.source')).endsWith('0:02.000'), null, { timeout: 30000 })
+  await page.waitForFunction(() => !document.querySelector('.message').textContent && (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).endsWith('0:02.000'), null, { timeout: 30000 })
   const { box, x } = await axis(2), y = box.y + box.height * .3
   const left = async () => { await page.mouse.click(box.x + 1, y); return (await page.locator('.time').innerText()).split(':').reduce((m, s) => m * 60 + +s, 0) }
   await page.mouse.click(x(1.5), y)
@@ -7678,18 +7678,18 @@ test('editor: after a reload the view is where it was left while its sound still
   await page.locator('.message', { hasText: /^Decoding/ }).waitFor()
   await page.waitForTimeout(300)
   assert.ok(Math.abs(await left() - before) < .01, 'where it was, while it loads')
-  await page.waitForFunction(() => !document.querySelector('.message').textContent && (e => e.title || e.dataset.tip)(document.querySelector('.source')).endsWith('0:02.000'), null, { timeout: 30000 })
+  await page.waitForFunction(() => !document.querySelector('.message').textContent && (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).endsWith('0:02.000'), null, { timeout: 30000 })
   await page.waitForTimeout(300)
   assert.ok(Math.abs(await left() - before) < .01, 'and once it is whole')
   // an edit that waits for the whole file (normalize): the file shows dim as it arrives, in the view as it was left
   await write(`audio('${origin}/slow/test/fixture.wav').normalize()`)
-  await page.waitForFunction(() => !document.querySelector('.message').textContent && (e => e.title || e.dataset.tip)(document.querySelector('.source')).endsWith('0:02.000'), null, { timeout: 30000 })
+  await page.waitForFunction(() => !document.querySelector('.message').textContent && (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).endsWith('0:02.000'), null, { timeout: 30000 })
   await page.waitForTimeout(700)
   await page.reload()
   await page.locator('.message', { hasText: /^Decoding/ }).waitFor()
   await page.waitForTimeout(300)
   assert.ok(Math.abs(await left() - before) < .01, 'the file, dim, where it was')
-  await page.waitForFunction(() => !document.querySelector('.message').textContent && (e => e.title || e.dataset.tip)(document.querySelector('.source')).endsWith('0:02.000'), null, { timeout: 30000 })
+  await page.waitForFunction(() => !document.querySelector('.message').textContent && (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).endsWith('0:02.000'), null, { timeout: 30000 })
   await page.waitForTimeout(300)
   assert.ok(Math.abs(await left() - before) < .01, 'its output too')
 })
@@ -7939,7 +7939,7 @@ test('editor: the record button records over the sound from the caret, into the 
   }, await gutter(), { timeout: 10000 })
   await page.getByRole('button', { name: 'Stop recording', exact: true }).click()
   await page.waitForFunction(() => /\.write\(audio\('take\.wav'\), \{ at: 7\.5 \}\)$/.test(scriptText()))
-  await page.waitForFunction(() => +(e => e.title || e.dataset.tip)(document.querySelector('.source')).split(' · ').pop().split(':')[1] > 8.2)
+  await page.waitForFunction(() => +(e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop().split(':')[1] > 8.2)
   // stopped, the caret waits where the take ended, as a tape's head: Record again records on from there, the takes
   // meeting to the sample
   const ended = +(await page.locator('.time').innerText()).split(':')[1]
@@ -8160,7 +8160,7 @@ test('editor: the pitch tool goes by cents near, semitones far, says the note it
   await show('wave')
   const { box, x } = await axis(2), { pitch } = tools(x, box, .5, 1.5)
   await drag([x(.5), box.y + 80], [x(1.5) - x(.5), 0])
-  const said = () => page.locator('.hint').innerText()
+  const said = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))).then(() => page.locator('.hint').innerText())
   for (const until = Date.now() + 8000; Date.now() < until; await page.waitForTimeout(200)) { await page.mouse.move(...pitch); if (/^Pitch A3/.test(await said())) break; await page.mouse.move(pitch[0] + 30, pitch[1] - 40) }
   assert.match(await said(), /^Pitch A3([+−][1-5]ct)?, by cents; a click hides the curve$/)
   // the plot's height, one lane: st = 12 (dy / lh)²
@@ -8197,7 +8197,7 @@ test('editor: the tools set a voice\'s intonation and its formants, heard as the
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * (200 * t + 2 * Math.sin(2 * Math.PI * 2 * t))), { duration: 2 })`)
   await lengthIs('0:02.000')
   await menu('View', 'Pitch curve')
-  const { box, x } = await axis(2), lh = box.height - 22, { intonation, formant } = tools(x, box, .5, 1.5), said = () => page.locator('.hint').innerText()
+  const { box, x } = await axis(2), lh = box.height - 22, { intonation, formant } = tools(x, box, .5, 1.5), said = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))).then(() => page.locator('.hint').innerText())
   await drag([x(.5), box.y + 80], [x(1.5) - x(.5), 0])
   await page.mouse.move(...intonation)
   assert.equal(await said(), 'Intonation, wider or flatter')
@@ -8746,7 +8746,7 @@ test('editor: a tab shown again shows its sound at once', async () => {
   await page.getByRole('button', { name: 'New tab' }).click()
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 220 * t), { d: 3 })`)
   await lengthIs('0:03.000')
-  const length = () => page.evaluate(() => (e => e.title || e.dataset.tip)(document.querySelector('.source')).split(' · ').pop())
+  const length = () => page.evaluate(() => (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop())
   await page.locator('.file [role="tab"]').first().click()
   assert.equal(await length(), '0:06.525', 'the chime at once')
   await page.locator('.file [role="tab"]').last().click()
