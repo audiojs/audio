@@ -293,7 +293,7 @@ test('declip (streaming:false): reconstructs a clipped sine closer to the unclip
 	let mse = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += (a[i] - b[i]) ** 2; return s / a.length }
 	let errBefore = mse(clean, clipped), errAfter = mse(clean, out)
 	ok(errAfter < errBefore, `defining property: closer to the clean reference (MSE ${errBefore.toExponential(2)} -> ${errAfter.toExponential(2)})`)
-})
+}, { timeout: 60000 })  // its rebuild on worker threads, which a CI runner's Node 20 starts past the default 5 s
 
 // declip's rebuild made on worker threads (fn/declip.js, parallel.js): the kernel's own samples, bit for bit, each channel
 // of its own, a range's outside kept as it was

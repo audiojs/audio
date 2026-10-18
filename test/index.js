@@ -6210,8 +6210,9 @@ test('align — a moved copy back to the sample, a remade part to its attacks', 
 })
 
 // Align's drift: a part played 3 % slower in another timbre, stretched back onto its original by its attacks; a copy on
-// a clock 100 ppm fast, read back at the original's rate, to the sample; a copy with no drift, its lag alone
-test('align — a part at another tempo stretched back, a copy on another clock read back at its rate', async t => {
+// a clock 100 ppm fast, read back at the original's rate, to the sample; a copy with no drift, its lag alone. Node's: its
+// helpers come from fn/align.js, which takes core's own (arrived, memo), not the browser bundle's public ones
+test('align — a part at another tempo stretched back, a copy on another clock read back at its rate', { skip: !isNode }, async t => {
   let { drift, lag } = await import('../fn/align.js'), sr = 16000, n = 30 * sr, seed = 7
   const noise = () => (seed = seed * 16807 % 2147483647) / 2147483647 - .5
   // 90 notes at uneven times, `at(t)` where a note of time t lands
@@ -6250,8 +6251,8 @@ test('align — a part at another tempo stretched back, a copy on another clock 
 })
 
 // Recover: a voice cut at 4 kHz (resampled to 8 kHz and back) has the band above rebuilt from its harmonics, near
-// where the voice had it, nothing put under the cut; a voice with its band whole gets nothing
-test('recover — a band cut off rebuilt from the voice\'s harmonics, nothing under it; a whole band left alone', async t => {
+// where the voice had it, nothing put under the cut; a voice with its band whole gets nothing. Node's, as align's
+test('recover — a band cut off rebuilt from the voice\'s harmonics, nothing under it; a whole band left alone', { skip: !isNode }, async t => {
   let { ltas, cutoffOf } = await import('../fn/recover.js'), sr = 48000
   // a voice of harmonics falling 9 dB an octave, its pitch swaying, half a second of breath's noise after it, falling 3
   let seed = 3, rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647 - .5, ph = 0
