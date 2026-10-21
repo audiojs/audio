@@ -49,6 +49,7 @@
   <link rel="modulepreload" href="assets/gl-waveform.js" fetchpriority="low">
   <link rel="modulepreload" href="assets/gl-spectrogram.js" fetchpriority="low">
   <link rel="modulepreload" href="playground/tint.js" fetchpriority="low">
+  <link rel="modulepreload" href="playground/kept.js" fetchpriority="low">
   <link rel="modulepreload" href="playground/heard.js" fetchpriority="low">
   <link rel="modulepreload" href="assets/lezer.js" fetchpriority="low">
   <link rel="modulepreload" href="playground/help.js" fetchpriority="low">
@@ -91,7 +92,7 @@
     </header>
 
     <main class="panes" :data-side="side ? 'open' : 'none'">
-      <!-- over the picture: the open sounds; at its right undo and redo, how it shows, and at the head of its axis its settings -->
+      <!-- over the picture: the open sounds; at its right, over its axis, undo and redo -->
       <header class="view-head">
         <!-- embedded: where the tabs are, the way to the whole editor with this script, as it reads now -->
         <a class="embed-open" :if="embed" :href="full || './playground.html'" target="_blank" rel="noopener" title="Open in the playground"><span class="embed-name">audio</span><span class="embed-label">Open in playground</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6m0-6-9 9M18 14v5H5V6h5"/></svg></a>
@@ -116,12 +117,8 @@
           <button class="icon-button undo" :aria-disabled="canUndo ? null : 'true'" :onclick="undo" aria-label="Undo" :title="'Undo (' + keys('⌘Z') + ')'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
           <button class="icon-button" :onclick="redo" :disabled="!canRedo" aria-label="Redo" :title="'Redo (' + keys('⇧⌘Z') + ')'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5m5 5H10a6 6 0 0 0 0 12h3"/></svg></button>
         </div>
-        <!-- the picture's settings, at the head of its axis -->
-        <div class="tabs icons view-settings">
-          <button type="button" aria-haspopup="dialog" aria-expanded="false" :onclick="settingsMenu" aria-label="Settings" title="View settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="settingsIcon"/></svg></button>
-        </div>
       </header>
-      <!-- over the panel, at the slab's right, as an editor's activity bar: the panels, a button each -->
+      <!-- over the panel, at the slab's right, as an editor's activity bar: the panels, a button each, the settings last -->
       <header class="side-head">
         <div class="tabs icons panels" role="tablist" aria-label="Panels">
           <button role="tab" :aria-selected="side === 'recipes' ? 'true' : 'false'" :onclick="setSide('recipes')" aria-label="Recipes" title="Recipes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="recipesIcon"/></svg></button>
@@ -129,6 +126,7 @@
           <button role="tab" :aria-selected="side === 'edits' ? 'true' : 'false'" :onclick="setSide('edits')" aria-label="Edits" title="Edits"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 3 7.5l9 4.5 9-4.5L12 3ZM3 12l9 4.5 9-4.5M3 16.5 12 21l9-4.5"/></svg></button>
           <button role="tab" :aria-selected="side === 'code' ? 'true' : 'false'" :onclick="setSide('code')" aria-label="Code" title="Code"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 7-5 5 5 5m8-10 5 5-5 5m-2-12-4 16"/></svg></button>
           <button role="tab" :aria-selected="side === 'export' ? 'true' : 'false'" :onclick="setSide('export')" aria-label="Export" title="Export"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m-5-5 5 5 5-5M4 19h16"/></svg></button>
+          <button role="tab" :aria-selected="side === 'settings' ? 'true' : 'false'" :onclick="setSide('settings')" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="settingsIcon"/></svg></button>
         </div>
       </header>
       <section class="slab view-slab" aria-label="Output">
@@ -156,7 +154,7 @@
       </section>
 
       <!-- the panel beside the picture at its right: the recipes, the agent, the edits (the chain's steps), the code that is
-           both, the export (the checks and the file); its left edge drags its width, a grip on it -->
+           both, the export (the checks and the file), the settings; its left edge drags its width, a grip on it -->
       <section class="slab side-slab" :aria-label="sideTitle">
         <div class="panel-edge" aria-hidden="true" :onpointerdown="resizePanel" title="Drag to resize"></div>
         <div class="stack" :hidden="side !== 'edits'">
@@ -295,6 +293,21 @@
             <p class="check-note" :if="report"><a :href="report?.url" target="_blank" rel="noopener" :text="report?.name + ' spec'"></a></p>
           </details>
         </div>
+        <!-- the settings: what holds everywhere, a section each, as the export's forms, folded by a press and kept so: what
+             shows over the sound and how time reads; how an edit steps and joins; how a held caret sounds and a take
+             records. Each group its choices, what each does said when pointed at. How a picture draws is its own, in the
+             dropdown its switch opens -->
+        <div class="settings" :hidden="side !== 'settings'">
+          <details class="form" :each="s in settingSections" :data-section="s.kind" :open="s.open ? true : null" :ontoggle="e => fold(s.kind, e.target.open)">
+            <summary class="panel-group"><span class="panel-name" :text="s.label"></span><span :text="s.text"></span></summary>
+            <section class="option-group" :each="g in s.groups">
+              <p class="option-label" :text="g.label"></p>
+              <div class="choices" role="group" :aria-label="g.label">
+                <button type="button" :each="o in g.options" :aria-pressed="o.on ? 'true' : 'false'" :onclick="o.run" :title="o.hint || null" :text="o.label"></button>
+              </div>
+            </section>
+          </details>
+        </div>
       </section>
 
       <footer class="status" id="status">
@@ -333,26 +346,34 @@
           <p class="facts" :if="sound"><button class="fact" popovertarget="rate-menu" title="Resample" :text="sound?.rate"></button><button class="fact" popovertarget="channels-menu" title="Remix channels" :text="sound?.channels"></button><button class="fact" :if="depth" popovertarget="depth-menu" title="Export bit depth" :text="depth + '-bit'"></button></p>
           <button class="before" :aria-pressed="ab ? 'true' : 'false'" :onclick="toggleAB" :disabled="!canCompare" :title="canCompare ? (ab ? 'Back to the edit (B)' : 'Hear the original (B)\nLevel-matched') : 'No original to compare'">Before</button>
         </div>
-        <!-- how the picture shows: the waveform, the spectrogram (again, its frequencies on the next scale), under the
-           meters at the picture's end; dimmed with no sound to show, where it will be when one comes -->
+        <!-- how the picture shows: the waveform, the spectrogram; the one shown, pressed again, its dropdown, how it draws.
+             Under the meters at the picture's end; dimmed with no sound to show, where it will be when one comes -->
         <div class="tabs icons display" role="tablist" aria-label="The output as" :inert="!hasOutput">
-          <button role="tab" :each="d in displays" :aria-selected="display === d.name ? 'true' : 'false'" :aria-label="d.label" :title="displayTitle(d)" :onclick="e => setDisplay(d.name, e)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path :d="d.icon"/></svg></button>
+          <button role="tab" :each="d in displays" :aria-selected="display === d.name ? 'true' : 'false'" :aria-haspopup="display === d.name ? 'dialog' : null" aria-expanded="false" :aria-label="d.label" :title="displayTitle(d)" :onclick="e => setDisplay(d.name, e)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path :d="d.icon"/></svg></button>
         </div>
       </footer>
     </main>
-    <!-- the settings: a dropdown of sections, each folded to its name and what is chosen in it; opened, its groups, their
-         choices, what the chosen one does. How each picture draws, a section under its name -->
-    <div class="dropdown" popover="manual" role="dialog" aria-label="Settings" :ontoggle="dropToggle">
-      <details class="dropdown-section" :each="s in dropdownSections" :data-section="s.kind" :open="s.open ? true : null" :ontoggle="e => fold(s.kind, e.target.open)">
-        <summary><span class="dropdown-title" :text="s.label"></span><span class="dropdown-chosen" :text="s.chosen"></span></summary>
-        <section class="dropdown-group" :each="g in s.groups">
-          <p class="dropdown-label" :text="g.label"></p>
-          <div class="choices" role="group" :aria-label="g.label">
-            <button type="button" :each="o in g.options" :aria-pressed="o.on ? 'true' : 'false'" :onclick="o.run" :text="o.label"></button>
+    <!-- how the picture shown draws, the dropdown over its switch: the waveform's or the spectrogram's, every group in
+         sight, its choices as keys, what the chosen one does under them -->
+    <div class="dropdown" popover="manual" role="dialog" :aria-label="display === 'spec' ? 'Spectrogram' : 'Waveform'" :ontoggle="dropToggle">
+      <section class="option-group" :each="g in displayGroups">
+        <p class="option-label" :text="g.label"></p>
+        <!-- a quantity, a fader through its steps, each named under its notch; a look, a select, each with its preview, as
+             Figma's; else keys -->
+        <div class="option-slider" :if="g.slider" :title="g.options.find(o => o.on)?.hint || null">
+          <input type="range" min="0" :max="g.options.length - 1" step="1" :value="g.options.findIndex(o => o.on)" :aria-label="g.label" :aria-valuetext="g.options.find(o => o.on)?.label" :oninput="e => g.options[e.target.value].run()">
+          <div class="option-ticks" aria-hidden="true"><span :each="o in g.options" :class="{ on: o.on }" :text="o.label"></span></div>
+        </div>
+        <div class="select" :if="g.select">
+          <button type="button" class="select-button" :popovertarget="'select-' + g.label" aria-haspopup="listbox" :aria-label="g.label + ': ' + g.options.find(o => o.on)?.label"><i class="swatch" :style="'background: ' + g.options.find(o => o.on)?.swatch" aria-hidden="true"></i><span :text="g.options.find(o => o.on)?.label"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button>
+          <div class="select-list" popover :id="'select-' + g.label" role="listbox" :aria-label="g.label" :ontoggle="placeList">
+            <button type="button" role="option" :each="o in g.options" :aria-selected="o.on ? 'true' : 'false'" :title="o.hint || null" :onclick="e => { o.run(); e.currentTarget.closest('[popover]').hidePopover() }"><i class="swatch" :style="'background: ' + o.swatch" aria-hidden="true"></i><span :text="o.label"></span></button>
           </div>
-          <p class="dropdown-note" :text="g.note || g.options.find(o => o.on)?.hint || ''"></p>
-        </section>
-      </details>
+        </div>
+        <div class="choices" role="group" :aria-label="g.label" :if="!g.slider && !g.select">
+          <button type="button" :each="o in g.options" :aria-pressed="o.on ? 'true' : 'false'" :onclick="o.run" :title="o.hint || null" :text="o.label"></button>
+        </div>
+      </section>
     </div>
     <div id="open-menu" class="menu" popover>
       <button class="menu-item" :onclick="pickFiles"><strong>Open file…</strong><span>Audio or video, several at once</span></button>
@@ -430,7 +451,8 @@
     <dialog class="help" :onclick="e => e.target === e.currentTarget && e.target.close()">
       <form method="dialog" class="help-head"><p class="menu-group">Mouse and keys</p><button class="icon-button" aria-label="Close" title="Close (Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></form>
       <dl class="help-list">
-        <dt>Click</dt><dd>Put the caret there, all else gone at once, and hear the moment under it; by a marker's line, on the marker. On a caret's line or the time row, drag the caret: the others stay; with tracks, a drag on the time row selects through every track</dd>
+        <dt>Click</dt><dd>Put the caret there, all else gone at once, and hear the moment under it; by a marker's line, on the marker. On a caret's line, drag the caret: the others stay</dd>
+        <dt>The time row</dt><dd>As a ruler's: a click puts the caret there alone, what is selected staying; a drag selects, with tracks through every track; held, the caret, dragged</dd>
         <dt>Drag</dt><dd>Select a time range. An edge goes onto a cue or a marker a few pixels from it, which lights</dd>
         <dt>Double-click</dt><dd>Select the fragment: between the cues either side (where sounds start and end, where they hit; the markers); in a pause, the pause</dd>
         <dt>Triple-click</dt><dd>Select the sound: between the pauses either side, a word spoken, a note held</dd>
@@ -442,13 +464,13 @@
         <dt>The pill on its top edge</dt><dd>Up or down: its level, in steps (the settings)</dd>
         <dt>The tools at its foot</dt><dd>A voice's pitch, intonation and formants, side by side, each dragged up or down: its pitch, a few cents near where it was pressed and semitones further, 12 a picture's height away, the note it goes to said; its intonation, its rises and falls wider or flatter about their median; its formants alike, the pitch kept; each heard as it goes, from the first move</dd>
         <dt>Pitch curve (View, or a click on the pitch tool)</dt><dd>The picture turns to the spectrogram, framed on the voice, and draws the pitch curve on its harmonics: dragged up or down, the whole pitch line with it, by cents as the pitch tool goes; its bends (Praat's stylization, 2 semitones) as hollow handles, one dragged bending the voice between the handles either side; a click on it a point of the line, dragged as the gain line's, a double-click taking it away. On the waveform, the pitch line itself, one pitch() curve in semitones (an octave over half a lane)</dd>
-        <dt>A press held</dt><dd>Half a second, still: the caret, dragged, no selection, the sound under it heard as it goes</dd>
+        <dt>A press held</dt><dd>Half a second, still, in the picture or on the time row: the caret, dragged, the sound under it heard as it goes. On Play, the speed's line: one hold everywhere, gone if the press moves 3 px first</dd>
         <dt>The square past its end</dt><dd>Its length: trimmed back or with silence added, stretched with the pitch kept, or sped up or slowed down with the pitch following. A click: the next. None of them while it plays</dd>
         <dt>The square past the caret</dt><dd>With nothing selected, drag it across: silence opens there, that long, as trimming out does. At the end, it is before the caret, and pulled out past the picture's edge the view widens, the silence as long as it goes</dd>
         <dt>Right-click</dt><dd>The edits for what is under the pointer: the selection, else the caret put there; the methods used last, again; every method by kind, and the search for one; on a selection, an edit of the chain turned off over it alone. On a caret, an edge or a handle, all stays as it is</dd>
         <dt>Space</dt><dd>Play or pause: the selection (from where it paused, inside it), else from the caret. Put the caret elsewhere while it plays and it plays from there. While recording, it stops the recording</dd>
         <dt>Play, held</dt><dd>Held, the speed's line shows. Dragged: faster to the right, to 4×; to the left slower, then backwards, to −2×. Let go, it plays on at that speed until stopped; at 0 or backwards, it stops there</dd>
-        <dt>Waveform, spectrogram</dt><dd>In the bar under the picture, after its levels: how the output shows. How it draws is in the settings, a section each (the waveform's colour, lanes, fill, levels in dB or sample values; the spectrogram's method, from frames as they are to reassigned or Wigner–Ville, its scale, colours, range and FFT size). The spectrogram's again: its frequencies on the next scale, octaves, mel, hertz. Over the picture, at the head of its axis, the settings, a dropdown</dd>
+        <dt>Waveform, spectrogram</dt><dd>In the bar under the picture, after its levels: how the output shows. The one shown, pressed again, its dropdown: how it draws, every option in sight. The waveform's levels in sample values or dB, its colour, fill and lanes; the spectrogram's frequency scale (octaves, mel, ERB, hertz), its method (frames as they are, reassigned, by band, tapers), its colours, gamma, range and FFT size</dd>
         <dt>Arrows, ⌥ arrows, ⌘ arrows</dt><dd>Move the caret a little, to the next cue, to the next sound, the selection kept; ⌘ ↑ ↓ (Home, End), to the start, the end; Shift extends</dd>
         <dt>The time</dt><dd>The caret's, or the playhead's; after it, how long all that is selected is, or, nothing selected, all of the sound, softer. Pointed at, the selection and its samples. Clicked, the time brings the view to the caret or the playhead; the length shows the selection whole, again all of the sound. Out of sight, the caret or the playhead stays at the edge of the picture it is past, and under it on the time row a chevron points out to it: clicked, the view goes there</dd>
         <dt>The bar's right</dt><dd>What the sound is: the note at the caret, or over the selection (a melody's compass), and the tempo and key of the selection or of all of it, each where it is clear (pointed at, how it was found); its peak level (pointed at, the loudness, or the selection's RMS); its rate and channels, a click from changing them; the depth the export writes, the file's kept unless another is picked there or in Export (the edits run in 32-bit float)</dd>
@@ -461,7 +483,7 @@
         <dt>R, Record</dt><dd>Into the picture from the caret, drawn as the waveform or the spectrogram, its level and spectrum on the meters, over what is there, as a tape; into a selection, to its end (with the loop on, pass after pass). Stopped, the caret waits where the take ended: Record again records on. Undo takes it back</dd>
         <dt>M</dt><dd>A marker at the caret, or over the selection, its flag over the picture, its name asked for; drag the flag (a range's bar) to move it, click its name or double-click the flag to rename it; right-click it to name it or take it away</dd>
         <dt>Edits</dt><dd>Every step of the chain, a panel. Choose one: the output up to it, and its settings; again, or Esc, the whole chain. An edit made then goes in right after it, the steps after it kept. Its power switch bypasses it, to hear the output without it; its × takes it away; open, its Δ: what it takes out. Dragged, a row goes where it is let go, into a group or out of one. Shift picks a range, ⌘G makes it a group, ⇧⌘G unmakes it, a double-click names it. Right-clicked, its menu: mute, move, group, flatten up to it or all of it (made one sound, kept as a take is), remove. A recipe's steps are one group under its name, folded; a press unfolds it, its switch and × act on all of them. Add an edit, under them: the palette</dd>
-        <dt>Recipes, Agent, Edits, Code, Export</dt><dd>At the top right, a panel each, beside the picture (on a phone, the buttons along the foot, the panel under the picture), which keeps where it starts and its scale: a goal's whole chain, found by its words, folded by what it is for, put after the script's own over the selection or all of it; your own agent, through the local bridge (npx audio --bridge, its key here), its words as they come, each call it makes in plain words, its conversations kept with the tab; the chain's steps; the script, its numbers dragged across, or selected and stepped by ↑ ↓ (Shift, ten steps), what each sets said by it; the file (its format, what it is written with, its markers, its name; ⌘S), the cuts as an edit list for a video editor (EDL, OTIO, FCPXML), the output checked against a delivery spec. Its button again closes it; its left edge drags its width. The settings, over the meters, a dropdown: what holds everywhere</dd>
+        <dt>Recipes, Agent, Edits, Code, Export, Settings</dt><dd>At the top right, a panel each, beside the picture (on a phone, the buttons along the foot, the panel under the picture), which keeps where it starts and its scale: a goal's whole chain, found by its words, folded by what it is for, put after the script's own over the selection or all of it; your own agent, through the local bridge (npx audio --bridge, its key here), its words as they come, each call it makes in plain words, its conversations kept with the tab; the chain's steps; the script, its numbers dragged across, or selected and stepped by ↑ ↓ (Shift, ten steps), what each sets said by it; the file (its format, what it is written with, its markers, its name; ⌘S), the cuts as an edit list for a video editor (EDL, OTIO, FCPXML), the output checked against a delivery spec; the settings, what holds everywhere: what shows over the sound and how time reads, how an edit steps and joins, how a held caret sounds and a take records. Its button again closes it; its left edge drags its width</dd>
         <dt>Tracks</dt><dd>Sounds side by side in time, a lane each, played and exported together. Move to a new track (Edit, right-click, ⌘P) takes the selection to a track of its own under this one, where it was, silence left behind, so it sounds as before and is edited alone; Open as a new track (File) adds a file; Split the voice to a new track (Edit, right-click, ⌘P) puts a song's voice, by a separation model, on a track of its own, the rest left on this one, each then repaired alone; Split into four stems puts its voice, bass and drums on three, the rest left here; Export the track alone (File) takes one elsewhere, to be remade, and Line up with (Edit) puts what comes back, opened as a new track, where the original stood, Match with (Edit) at its tone and loudness; Duck under (Edit) takes the track 15 dB down while another sounds, a bed under a voice; Add a master (Edit) puts the tracks' sum through steps of its own, a lane of its own, the last: in the code, `voice.clone().mix(bed)` and its steps. A press in a lane edits its track: the caret, the selection, the edits and their panel are its own, its name bright. Dragged on the time row, a range runs through every track, an edit of it (Delete, a level, a fade, its audio ⌘-dragged) each track's alike, so they stay in time; ⌘-dragged up or down into another track's lane, a selection's audio goes into that track over what is there, silence where it was (Alt: a copy). The speaker by a track's name mutes it, at once. Taking away the step a split parted a track by (the voice's, the stems') takes the split with it, the sound whole again. In the code, each a sound declared, `let voice = audio(…)`, that no other reads</dd>
         <dt>Tabs</dt><dd>Above the picture, a sound each, its own script and edits, dragged along to reorder. A sound opened goes into a tab of its own; + a new one, × closes one, ⇧⌘T opens the last closed again, as it was left. A tab left while its sound renders renders on: a ring turns in its × place till it is done, then a dot till it is shown. Tabs play at once, as a browser's: one left playing plays on, a speaker before its name, a press on it muting it. A selection dragged up onto them with Alt goes to a tab of its own, copied; with ⌘, moved. A tab dragged down onto the picture is a track of the sound there; Edit › Move the track to its own tab, the other way</dd>
         <dt>F10</dt><dd>The menu</dd>

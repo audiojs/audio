@@ -99,8 +99,8 @@ svg { flex: none; }
 .panes > .status { grid-area: 3 / 1 / 4 / -1; }
 /* the bar on the panes' own columns (a subgrid: the panes, as wide as the bar, are what its container queries measure,
    `bar`, a container being no subgrid): the picture's side under the picture, the display switch ending it under the
-   axis, the spectrogram's button under the settings' (the view head's, over the axis's ticks); the facts and Before
-   under the panel. Shut, the facts at the picture's end, the switch after them under the axis */
+   axis, its end redo's over it; the facts and Before under the panel. Shut, the facts at the picture's end, the switch
+   after them under the axis */
 .status { display: grid; grid-template-columns: subgrid; align-items: center; }
 .status-main { grid-area: 1 / 1; padding-right: calc(var(--axis, 40px) + 44px); }
 .status .tabs.display { grid-area: 1 / 1; justify-self: end; margin-right: calc(var(--axis, 40px) - 21px); }
@@ -111,14 +111,11 @@ svg { flex: none; }
 .panes[data-side="none"] .status .tabs.display { grid-area: 1 / 3; }
 /* the panels' buttons over the panel */
 .side-head { display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-height: 38px; padding: 4px 8px 0 6px; }
-/* undo and redo, set off from the tabs, then the picture's settings at the head of its axis: the glyph (its faders 18
-   of its 24 units tall, 20 px in a 28 px button) over the axis's ticks, which run 12 px from a pixel inside the axis (as
-   wide as its labels, --axis, view.js), so the button ends the axis less 21 px before the picture does */
+/* undo and redo, set off from the tabs, at the head of the axis: redo ends where the display switch under the picture
+   does, the axis less 21 px before the picture's end */
 .view-head .history { display: flex; flex: none; gap: 1px; margin-left: 6px; }
-.view-head :is(.history .icon-button, .view-settings button) { width: 28px; height: 28px; min-height: 28px; border-radius: 6px; }
+.view-head .history .icon-button { width: 28px; height: 28px; min-height: 28px; border-radius: 6px; color: var(--color-screen-soft); }
 .view-head .history .icon-button svg { width: 17px; height: 17px; }
-.view-head .view-settings svg { width: 20px; height: 20px; }
-.view-head .history .icon-button { color: var(--color-screen-soft); }
 .view-head .history .icon-button:hover:not([aria-disabled="true"]):not(:disabled) { background: var(--color-screen-hover); color: var(--color-screen-bright); }
 .view-head .history .icon-button:is([aria-disabled="true"], :disabled) { opacity: .35; }
 .panes[data-side="open"] .view-head { padding-right: calc(var(--axis, 40px) - 21px); }
@@ -157,8 +154,7 @@ svg { flex: none; }
 .tabs button { position: relative; min-height: 28px; padding: 0; border: 0; background: none; color: var(--color-screen-dim); font: 500 12px var(--font-body); }
 .tabs button:hover { color: var(--color-screen-soft); }
 .tabs button:is([aria-selected="true"], [aria-expanded="true"]) { color: var(--color-screen-bright); }
-/* an icon each: the panels' at the head's right (the code's brackets, the export's arrow down), the settings' sliders,
-   the picture's in the bar before its levels (the waveform's bars, the spectrogram's partials) */
+/* an icon each: the panels' at the head's right (the code's brackets, the export's arrow down, the settings' faders) */
 .tabs.icons { gap: 4px; }
 .tabs.icons button { display: grid; place-items: center; width: 34px; min-height: 30px; border-radius: 7px; }
 .tabs.icons button:hover { background: var(--color-screen-hover); }
@@ -438,10 +434,12 @@ svg { flex: none; }
 .facts { margin-left: 14px; color: var(--color-screen-soft); }
 /* the level as digits turn: room for the longest (peak −10.0dBFS), at the right; the rest of them pointed at */
 .readout { display: block; min-width: 14ch; margin-left: 6px; color: var(--color-screen-muted); text-align: right; }
-/* how the picture shows, a pair of keys after the levels; with no sound, dimmed as undo is, in sight where it will be */
+/* how the picture shows, a pair of keys after the levels, the one shown a press from its dropdown; with no sound,
+   dimmed as undo is, in sight where it will be */
 .status .tabs.display { display: flex; gap: 1px; margin-left: 8px; }
 .status .tabs.display button { width: 28px; height: 28px; min-height: 28px; border-radius: 6px; }
 .status .tabs.display svg { width: 17px; height: 17px; }
+.status .tabs.display button[aria-expanded="true"] { background: var(--color-screen-hover); }
 .status .tabs.display[inert] { opacity: .35; }
 .heard { display: block; flex: 0 1 auto; margin-left: 6px; color: var(--color-screen-dim); }
 /* Scenarios: a goal's whole chain each, found by their words, a card each: its name, what it does, the spec it delivers */
@@ -587,50 +585,65 @@ svg { flex: none; }
 .menu.wide { width: 380px; }
 .menu.narrow { width: 230px; }
 #rate-menu, #channels-menu, #depth-menu { position-area: top span-right; }
-/* A dropdown: a picture's options or the settings, every group in sight, its choices as keys, what the chosen one does
-   said under them */
-.dropdown { position: fixed; inset: auto; width: min(360px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); margin: 0; padding: 6px; overflow: auto; border: 0; border-radius: 12px; background: var(--color-screen-raised); color: var(--color-screen-soft); box-shadow: var(--shadow-menu); }
-/* a section a row: a chevron, its name, what is chosen in it, cut short at the right; open, its groups under it, what is
-   chosen then said by them */
-.dropdown-section + .dropdown-section { margin-top: 2px; }
-.dropdown-section > summary { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 10px 0 8px; border-radius: 7px; list-style: none; cursor: default; }
-.dropdown-section > summary::-webkit-details-marker { display: none; }
-.dropdown-section > summary::before { content: ''; flex: none; width: 5px; height: 5px; margin: 0 3px 0 2px; border: solid var(--color-screen-muted); border-width: 0 1.5px 1.5px 0; rotate: -45deg; transition: rotate var(--dur-micro) var(--ease-out); }
-.dropdown-section[open] > summary::before { rotate: 45deg; translate: 0 -2px; }
-.dropdown-section > summary:hover { background: var(--color-screen-hover); }
-.dropdown-section > summary:focus-visible { outline: 2px solid var(--color-screen-muted); outline-offset: -2px; }
-.dropdown-title { flex: none; color: var(--color-screen-ink); font: 500 12.5px var(--font-body); }
-.dropdown-chosen { min-width: 0; margin-left: auto; overflow: hidden; color: var(--color-screen-dim); font: 11.5px var(--font-body); text-overflow: ellipsis; white-space: nowrap; }
-.dropdown-section[open] > summary .dropdown-chosen { visibility: hidden; }
-.dropdown-section[open] { padding-bottom: 8px; }
-.dropdown-group { padding: 8px 10px 0 26px; }
-.dropdown-label { margin: 0 0 6px; color: var(--color-screen-ink); font: 500 12px var(--font-body); }
-.dropdown .choices button { min-height: 26px; padding: 0 9px; font-size: 11.5px; }
-.dropdown-note { min-height: 15px; margin: 5px 0 0; color: var(--color-screen-dim); font: 11.5px/15px var(--font-body); }
-/* The export: the checks, rule by rule, and the file */
-.export { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: auto; padding: 0 14px 14px; container-type: inline-size; }
-.export > .panel-group:first-child, .export > .form:first-child > .panel-group:first-child { margin-top: 4px; }
+/* Options, a group each: its name, its choices as keys, what each does in its tooltip (the settings, a picture's
+   dropdown) */
+.option-label { margin: 0 0 6px; color: var(--color-screen-muted); font: 12px var(--font-body); }
+.option-group .choices button { min-height: 26px; padding: 0 9px; font-size: 11.5px; }
+/* a look, a select as Figma's, in the keys' own bezel: the one chosen, its preview (a strip of its colours) and its
+   name, a chevron; pressed, its list under it, each with its preview, the chosen one checked as the menus' are */
+.swatch { flex: none; width: 28px; height: 10px; border-radius: 2px; box-shadow: inset 0 0 0 1px oklch(0% 0 0 / .35); }
+.select-button { display: flex; align-items: center; gap: 8px; min-width: 170px; height: 28px; padding: 0 6px 0 7px; border: 0; border-radius: 7px; background: var(--key-face), var(--key-bezel); box-shadow: inset 0 1px 0 var(--key-light), 0 0 0 1px var(--key-bezel), 0 1px 0 1px var(--key-bezel-light); color: var(--color-screen-ink); font: 11.5px var(--font-mono); text-align: left; }
+.select-button:hover, .select-button:has(+ :popover-open) { color: var(--color-screen-bright); }
+.select-button svg { width: 13px; height: 13px; margin-left: auto; color: var(--color-screen-muted); }
+.select-list { position: fixed; inset: auto; margin: 0; padding: 4px; border: 0; border-radius: 8px; background: var(--color-screen-raised); box-shadow: var(--shadow-menu); }
+.select-list:popover-open { display: grid; }
+.select-list button { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 10px 0 6px; border: 0; border-radius: 5px; background: none; color: var(--color-screen-soft); font: 11.5px var(--font-mono); text-align: left; }
+.select-list button:hover { background: var(--color-screen-hover); color: var(--color-screen-bright); }
+.select-list button[aria-selected="true"] { color: var(--color-screen-bright); }
+.select-list button[aria-selected="true"]::after { content: '✓'; margin-left: auto; padding-left: 14px; font-size: 12px; }
+/* a quantity, a fader as the keys are made: its slot sunk in their bezel, notched at each step, its cap a key, raised;
+   each step named under its notch */
+.option-slider { display: grid; gap: 3px; max-width: 220px; }
+.option-slider input { width: 100%; height: 22px; margin: 0; background: none; -webkit-appearance: none; appearance: none; }
+.option-slider input::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: var(--key-bezel); box-shadow: inset 0 1px 2px var(--key-pressed-shadow), 0 1px 0 var(--key-bezel-light); }
+.option-slider input::-moz-range-track { height: 6px; border-radius: 3px; background: var(--key-bezel); box-shadow: inset 0 1px 2px var(--key-pressed-shadow), 0 1px 0 var(--key-bezel-light); }
+.option-slider input::-webkit-slider-thumb { width: 14px; height: 20px; margin-top: -7px; border: 0; border-radius: 4px; background: linear-gradient(90deg, transparent 6px, var(--key-seam) 6px 8px, transparent 8px), var(--key-face), var(--color-screen-raised); box-shadow: inset 0 1px 0 var(--key-light), 0 0 0 1px var(--key-bezel), 0 2px 3px var(--key-pressed-shadow); -webkit-appearance: none; }
+.option-slider input::-moz-range-thumb { width: 14px; height: 20px; border: 0; border-radius: 4px; background: linear-gradient(90deg, transparent 6px, var(--key-seam) 6px 8px, transparent 8px), var(--key-face), var(--color-screen-raised); box-shadow: inset 0 1px 0 var(--key-light), 0 0 0 1px var(--key-bezel), 0 2px 3px var(--key-pressed-shadow); }
+/* each notch under where the cap's middle stops: a span as wide as the cap, its name centred on it past its sides */
+.option-ticks { display: flex; justify-content: space-between; color: var(--color-screen-dim); font: 11px var(--font-mono); }
+.option-ticks span { display: flex; flex-direction: column; align-items: center; width: 14px; white-space: nowrap; }
+.option-ticks span::before { content: ''; width: 1px; height: 4px; margin-bottom: 2px; background: var(--color-screen-muted); }
+.option-ticks .on { color: var(--color-screen-bright); }
+/* The dropdown: how the picture shown draws, every group in sight */
+.dropdown { position: fixed; inset: auto; width: min(360px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); margin: 0; padding: 8px 10px 10px; overflow: auto; border: 0; border-radius: 12px; background: var(--color-screen-raised); color: var(--color-screen-soft); box-shadow: var(--shadow-menu); }
+.dropdown .option-group + .option-group { margin-top: 14px; }
+.dropdown .option-label { color: var(--color-screen-ink); font-weight: 500; }
+/* The export: the checks, rule by rule, and the file; the settings, laid out as it is */
+:is(.export, .settings) { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: auto; padding: 0 14px 14px; container-type: inline-size; }
+.export > .panel-group:first-child, :is(.export, .settings) > .form:first-child > .panel-group:first-child { margin-top: 4px; }
 .panel-group { display: flex; flex: none; align-items: baseline; gap: 8px; margin: 16px 0 8px; overflow: hidden; color: var(--color-screen-ink); font-size: 12px; font-weight: 500; white-space: nowrap; }
-/* what it is for, in a few words after it */
+/* what it is for, in a few words after it; its name a span of its own where the page writes it (the settings') */
 .panel-group span { min-width: 0; overflow: hidden; color: var(--color-screen-dim); font-weight: 400; text-overflow: ellipsis; }
+.panel-group .panel-name { flex: none; color: inherit; font-weight: inherit; }
 .export .choices button { min-height: 26px; padding: 0 9px; font-size: 11.5px; }
 .export .check-table { margin-top: 12px; }
 /* a long limit wraps in a narrow panel */
 .export .check-table .limit { white-space: normal; }
 .export .check-note { margin: 10px 2px 0; }
 /* The export's forms, one after another, a rule between, each folded or open: the file (open), the edit list, the
-   check (open while a spec is chosen). A field each: its name in a column of its own, its control, what it means */
-.export .form { padding-bottom: 6px; }
-.export .form + .form { border-top: 1px solid var(--color-screen-rule); }
-.export .form[open] { display: grid; gap: 14px; padding-bottom: 20px; }
+   check (open while a spec is chosen). A field each: its name in a column of its own, its control, what it means. The
+   settings' sections alike, a group of options each field */
+:is(.export, .settings) .form { padding-bottom: 6px; }
+:is(.export, .settings) .form + .form { border-top: 1px solid var(--color-screen-rule); }
+:is(.export, .settings) .form[open] { display: grid; gap: 14px; padding-bottom: 20px; }
 /* what a form holds lays out in its details' own box, which the grid above would take as one item: the fields' gap is
    that box's */
-.export .form[open]::details-content { display: grid; gap: 14px; }
-.export .form > summary { margin: 12px 0 6px; list-style: none; cursor: pointer; }
-.export .form > summary::-webkit-details-marker { display: none; }
-.export .form > summary::before { content: '›'; width: 8px; color: var(--color-screen-dim); transition: rotate var(--dur-micro) var(--ease-out); }
-.export .form[open] > summary::before { rotate: 90deg; }
-.export .form > summary:hover { color: var(--color-screen-bright); }
+:is(.export, .settings) .form[open]::details-content { display: grid; gap: 14px; }
+:is(.export, .settings) .form > summary { margin: 12px 0 6px; list-style: none; cursor: pointer; }
+:is(.export, .settings) .form > summary::-webkit-details-marker { display: none; }
+:is(.export, .settings) .form > summary::before { content: '›'; width: 8px; color: var(--color-screen-dim); transition: rotate var(--dur-micro) var(--ease-out); }
+:is(.export, .settings) .form[open] > summary::before { rotate: 90deg; }
+:is(.export, .settings) .form > summary:hover { color: var(--color-screen-bright); }
 .export .choices.wide { width: 100%; }
 /* each as wide as its label, the room left shared out: a long label is never broken to make them even */
 .export .choices.wide { flex-wrap: nowrap; }

@@ -1,7 +1,7 @@
 import sprae from '../assets/sprae.js'
 import engine from './engine.js'
 import codeEditor from './script.js'
-import view, { HOLD, NOTES, noteOf } from './view.js'
+import view, { HOLD, SLOP, NOTES, noteOf } from './view.js'
 import player from './player.js'
 import stack, { valuesOf } from './stack.js'
 import { mark as drawMark } from '../logo/mark.js'
@@ -21,6 +21,7 @@ import agent from './agent.js'
 import md from './markdown.js'
 import doing, { measures, noted } from './doing.js'
 import { THEMES, load, parse, skin, fonts, wear, webview, webviewFonts } from './theme.js'
+import { temperature } from './tint.js'
 
 // The editor: its output, and at its right a panel that opens and closes, as Luminar's: the tools, every method by kind,
 // one click adding it; the edits, the chain that makes the output as a stack of steps; the same chain as code; and the
@@ -121,14 +122,16 @@ const MAPS = {
 }
 const LOOK = { map: 'grey', gamma: 1, depth: 80, size: null, method: 'reassigned' }
 const looks = { map: ['grey', ...Object.keys(MAPS)], gamma: [.5, .75, 1, 1.5], depth: [60, 80, 100, 120], size: [null, 1024, 2048, 4096] }
-// How a column draws its frames (gl-spectrogram's methods, after the lab's Seeing sound: audiojs.dev/lab/spectrogram)
+// How a column draws its frames (gl-spectrogram's methods, after the lab's Seeing sound: audiojs.dev/lab/spectrogram),
+// those an editor's display is served by, as RX's are (a plain STFT, reassignment, multi-resolution): measured against
+// frames on tones, two tones 50 Hz apart, clicks, a chirp and noise, synchrosqueezing never beat reassignment (a click a
+// frame wide, a fast chirp 9 Hz off where reassignment is 1 Hz), and Wigner–Ville drew a ghost between any two tones as
+// bright as they are and tilted noise 8 dB up the octaves; neither is offered
 const specMethods = [
   ['frames', 'Frames', 'Each column its frame\'s spectrum, as it is: no sharper than the frame'],
   ['reassigned', 'Reassigned', 'Each bin\'s energy where its phase puts it: a tone one row thin, a click one column'],
-  ['synchrosqueezed', 'Squeezed', 'Moved in frequency only: tones thin, time as the frames have it'],
   ['bands', 'By band', 'Long frames for the lows, short for the highs, as editors blend them'],
-  ['tapers', 'Tapers', 'Three tapers averaged: noise steadier, tones kept'],
-  ['wigner', 'Wigner–Ville', 'No frames: a line as thin as it is, and a ghost between any two']
+  ['tapers', 'Tapers', 'Three tapers averaged: noise steadier, to judge a floor by; tones and clicks wider']
 ]
 // The waveform's look (view.js waveLook, after the lab's waveforms): coloured for what it holds, its channels in a lane
 // each or one, its fill
@@ -136,8 +139,15 @@ const WAVE = { colour: 'none', lanes: 'split', fill: 'density' }
 const waveLooks = {
   colour: [['none', 'One colour', 'The screen\'s'], ['temperature', 'Temperature', 'Low warm, high cool: where its spectrum centres, as the colour of light'], ['colormap', 'Colormap', 'Where its spectrum centres, in the spectrogram\'s colours: low at their middle, high at their top']],
   lanes: [['split', 'A lane each', 'Each channel on its own'], ['one', 'One lane', 'All the channels over each other, each its own hue']],
-  fill: [['density', 'Density', 'Brighter where the sound is most often'], ['rms', 'RMS', 'A lighter core as loud as its RMS'], ['flat', 'Flat', 'One solid shade, peak to peak']]
+  // gl-waveform's three densities (the generalized normal at β 2, 1 and 4, Nadarajah 2005), its RMS band, its peaks
+  fill: [['density', 'Density', 'Brighter where the sound is most often: a full body'], ['cloud', 'Cloud', 'A soft cloud, bright at the axis, fading early: as speech spreads (Gazor & Zhang 2003)'], ['body', 'Body', 'One shade to about its RMS, soft past it'], ['rms', 'RMS', 'A lighter core as loud as its RMS'], ['flat', 'Flat', 'One solid shade, peak to peak']]
 }
+// A look's preview, a gradient across a key: a colormap's stops; the waveform's colour, its temperatures from 100 Hz to
+// 10 kHz (tint.js), or the colormap's upper half, as it colours it; grey's, the screen to its ink
+const swatch = stops => `linear-gradient(90deg, ${stops.join(', ')})`
+const GREY = ['var(--color-screen)', 'var(--color-screen-ink)']
+const mapSwatch = (map, upper = false) => swatch(MAPS[map] ? MAPS[map].slice(upper ? 4 : 0) : upper ? ['var(--color-screen-muted)', GREY[1]] : GREY)
+const warmth = swatch(Array.from({ length: 9 }, (_, k) => `rgb(${temperature(k / 8).slice(0, 3).map(v => Math.round(v * 255)).join(' ')})`))
 // the look as gl-spectrogram takes it: 17 stops of a colormap, bent by the gamma; grey's none, its levels the skin's
 // ink over the screen, which the picture makes (view.js shades)
 function paint({ map, gamma, depth, size, method }) {
@@ -160,16 +170,13 @@ const glyphs = { up: 'M12 19V5m-6 6 6-6 6 6', down: 'M12 5v14m-6-6 6 6 6-6', mar
 // (remove, insert), stretches it, the pitch kept (fn/stretch.js), or speeds it, the pitch following, as a tape
 // (fn/speed.js)
 const gripModes = [['trim', 'Trim', 'Cut back, or silence added'], ['stretch', 'Stretch', 'The pitch kept'], ['speed', 'Speed', 'The pitch follows, as a tape’s']].map(([name, label, text]) => ({ name, label, text }))
-// The settings' icon, on the 24 grid of the others: two faders, upright as a mixer's, set apart from the waveform's and
-// the spectrogram's lines; the agent's, a
-// spark; the recipes', an open book
-const SETTINGS_ICON = 'M6 3v3.5m0 5V21M18 3v9.5m0 5V21M6 11.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5Zm12 6a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5Z'
+// The settings' icon, on the 24 grid of the others: three faders lying down, as a phone's settings draw them, 16 units
+// across as the others' weight is, their knobs 4.5 across, staggered; the agent's, a spark; the recipes', an open book
+const SETTINGS_ICON = 'M4 6h7.75m4.5 0H20M4 12h2.75m4.5 0H20M4 18h8.75m4.5 0H20M14 8.25a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5Zm-5 6a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5Zm6 6a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5Z'
 const AGENT_ICON = 'M12 3c.6 4.7 4.3 8.4 9 9-4.7.6-8.4 4.3-9 9-.6-4.7-4.3-8.4-9-9 4.7-.6 8.4-4.3 9-9Z'
 const RECIPES_ICON = 'M3 5h5a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H3Zm18 0h-5a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h6Z'
-// What the picture shows, a tab each: the waveform, or the spectrogram, never both (each zooms its own way); the
-// spectrogram's again, its frequencies on the next scale
+// What the picture shows: the waveform, or the spectrogram, never both (each zooms its own way), its icon by its name
 const displays = [['wave', 'Waveform', 'M4 10v4m4-8v12m4-15v18m4-14v10m4-6v2'], ['spec', 'Spectrogram', 'M4 5h16M4 9.5h10M4 14h13M4 18.5h6']].map(([name, label, icon]) => ({ name, label, icon }))
-const nextScale = name => { const list = Object.keys(scales); return list[(list.indexOf(name) + 1) % list.length] }
 // Speeds a playback can take from the Play menu: 0.5× to 3×, as players offer them, a word still followed at 2×, a part
 // learned slowly at half; the fastest at the top, up as faster. A speed lasts while it plays: stopped, 1× again
 const SPEEDS = {
@@ -376,7 +383,7 @@ function sway() {
 }
 
 // the panel's tabs; one stored under a name it no longer has opens on the edits, and a closed panel stays closed
-const sides = ['recipes', 'chat', 'edits', 'code', 'export'], sideOf = name => name == null ? null : sides.includes(name) ? name : 'edits'
+const sides = ['recipes', 'chat', 'edits', 'code', 'export', 'settings'], sideOf = name => name == null ? null : sides.includes(name) ? name : 'edits'
 
 const state = sprae(root, {
   format: oneOf(stored.format, formats.map(f => f.name), 'wav'), encoding: { markers: true, ...stored.encoding }, snapping: stored.snap ?? true, fadeCurve: oneOf(stored.curve, curves.map(c => c.name), 'linear'), gripMode: ['trim', 'speed'].includes(stored.grip) ? stored.grip : 'stretch', pitch: false, settingsIcon: SETTINGS_ICON, recipesIcon: RECIPES_ICON, agentIcon: AGENT_ICON,
@@ -384,10 +391,12 @@ const state = sprae(root, {
   unitList: UNITS.map(([name, label, example, short]) => ({ name, label, example, short })), levelList, levels: oneOf(stored.levels, ['db'], 'linear'),
   rulers, ruler: oneOf(stored.ruler, rulers.map(r => r.name), 'labels'), scroll: oneOf(stored.scroll, scrolls.map(s => s[0]), 'bar'), grid: oneOf(stored.grid, grids.map(g => g[0]), 'marks'), splices: [0, 5, 10, 20], splice: oneOf(stored.splice, [0, 5, 10, 20], 10), steps: [.1, 1, 3], levelStep: oneOf(stored.step, [.1, 1, 3], 1), look: Object.fromEntries(Object.entries(LOOK).map(([k, d]) => [k, oneOf(stored.look?.[k], k === 'method' ? specMethods.map(m => m[0]) : looks[k], d)])), wave: Object.fromEntries(Object.entries(WAVE).map(([k, d]) => [k, waveLooks[k].some(([v]) => v === stored.wave?.[k]) ? stored.wave[k] : d])),
   scrubs, scrub: scrubbers[stored.scrub] ? stored.scrub : 'hybrid', recordIn: stored.record === 2 ? 2 : 1,
+  // the settings' sections while their panel shows, each folded or not as it was left (`folds`); the picture's groups
+  // while its dropdown is open
+  get settingSections() { return this.side === 'settings' ? settingSections(this) : [] }, folds: stored.folds && typeof stored.folds === 'object' ? stored.folds : {},
+  dropdown: false, get displayGroups() { return this.dropdown ? optionGroups(this.display, this) : [] },
   // the speed it plays at, the pitch kept; how far through the sound it plays (Play's ring); the scale a held Play shows
   // while dragged
-  dropdown: false, get dropdownSections() { return this.dropdown ? settingSections() : [] },
-  folds: stored.folds && typeof stored.folds === 'object' ? stored.folds : {},
   speed: 1, played: 0, speedAxis: null, shuttle: null, speedTicks: SHUTTLE.ticks.map(t => ({ t, label: times(t), at: SHUTTLE.at(t) })),
   get shuttleText() { return tenths(this.shuttle ?? this.speed) },
   get shuttleAt() { return SHUTTLE.at(this.shuttle ?? this.speed) },
@@ -443,12 +452,12 @@ const state = sprae(root, {
     return `Selected ${what}: ${clock(length)}, ${Math.round(length * rate)} samples`
   },
   get plotHelp() {
-    return `${this.display === 'spec' ? 'Spectrogram' : 'Waveform'}. Click to put the caret and hear the moment there, by a marker's line on the marker; drag to select a time range, a dragged edge or caret going onto the cues and markers near it; double-click selects the fragment between its cues, triple-click the sound between its pauses. Shift sums: a press or a drag extends the selection to it. Alt adds: another caret, range or fragment; dragged inside the selection, a copy of its audio, put in where it lands; held, it measures: every cue to snap to, the pointer's place out to the axes, and how far it is from the selection, on the time row. ⌘ aims: held, the cue under the pointer, to drag; dragged inside the selection, its audio moves over what is there; a range's end sets its length; the cue under the pointer drags; on the spectrogram, a box of time and frequency; a drag aims finely. A caret's line, the time row or a range's edge drags, the others staying. A range's top corners fade it, outward crossfading; its pill sets its level, the tools at its foot a voice's pitch, intonation and formants; the square past its end trims, stretches or speeds it, a click on each turning it to the next; with none, the square past the caret opens silence. Right-click for the edits there; ⌘P finds any. The wheel scrolls; a pinch, or Ctrl and the wheel, zooms the frequencies or the levels over them and time elsewhere.${this.track ? ` Tracks, a lane each, play together: a press in a lane edits its track, a marker over it its own, a held caret there hears it alone; dragged on the time row, a range runs through every track, an edit of it each one's; ⌘-dragged into another track's lane, a selection's audio goes into that track; the speaker by its name mutes it; Move to a new track takes a selection to one of its own, Move the track to its own tab a track to a tab.` : ''}`
+    return `${this.display === 'spec' ? 'Spectrogram' : 'Waveform'}. Click to put the caret and hear the moment there, by a marker's line on the marker; drag to select a time range, a dragged edge or caret going onto the cues and markers near it; double-click selects the fragment between its cues, triple-click the sound between its pauses. Shift sums: a press or a drag extends the selection to it. Alt adds: another caret, range or fragment; dragged inside the selection, a copy of its audio, put in where it lands; held, it measures: every cue to snap to, the pointer's place out to the axes, and how far it is from the selection, on the time row. ⌘ aims: held, the cue under the pointer, to drag; dragged inside the selection, its audio moves over what is there; a range's end sets its length; the cue under the pointer drags; on the spectrogram, a box of time and frequency; a drag aims finely. A caret's line or a range's edge drags, the others staying. On the time row, a press moves the caret alone, a drag selects, a hold drags the caret. A range's top corners fade it, outward crossfading; its pill sets its level, the tools at its foot a voice's pitch, intonation and formants; the square past its end trims, stretches or speeds it, a click on each turning it to the next; with none, the square past the caret opens silence. Right-click for the edits there; ⌘P finds any. The wheel scrolls; a pinch, or Ctrl and the wheel, zooms the frequencies or the levels over them and time elsewhere.${this.track ? ` Tracks, a lane each, play together: a press in a lane edits its track, a marker over it its own, a held caret there hears it alone; dragged on the time row, a range runs through every track, an edit of it each one's; ⌘-dragged into another track's lane, a selection's audio goes into that track; the speaker by its name mutes it; Move to a new track takes a selection to one of its own, Move the track to its own tab a track to a tab.` : ''}`
   },
   // a tab opens the panel on it; the tab shown, again, closes it (its tabs stay, to open it again)
   setSide(name) { state.side = state.side === name ? null : name; store() },
   toggleSide() { state.side = state.side ? null : 'edits'; store() },
-  get sideTitle() { return { recipes: 'Recipes', chat: 'Agent', edits: 'Edits', code: 'Code', export: 'Export' }[this.side] ?? 'Panel' },
+  get sideTitle() { return { recipes: 'Recipes', chat: 'Agent', edits: 'Edits', code: 'Code', export: 'Export', settings: 'Settings' }[this.side] ?? 'Panel' },
   // The recipes by group, those whose words have every word typed
   scenarioQuery: '',
   get scenarioGroups() {
@@ -466,12 +475,8 @@ const state = sprae(root, {
   get chatTitle() { return this.chats.find(c => c.open)?.title ?? 'New conversation' },
   connectAgent, pickAgent, sendChat, chatKey, newChat, openChat, dropChat, showChat, md, partsOf, visit, tick: Date.now(), elapsed,
   undo: () => ed.undo(), resizePanel,
-  // a display's tab says what it shows; the spectrogram's, shown, what a click on it again does: the next scale
-  displayTitle(d) {
-    const as = name => scaleNames[name].toLowerCase()
-    const again = this.display === d.name && d.name === 'spec' ? `\nClick for ${as(nextScale(this.scale))}` : ''
-    return d.name === 'wave' ? 'Waveform' : `Spectrogram${again}`
-  },
+  // a display's tab says what it shows; the one shown, what a press on it again does: its dropdown
+  displayTitle(d) { return this.display === d.name ? `${d.label}\nClick for how it draws` : d.label },
   // the output as the whole chain makes it, from what a step takes out or the chain rolled back
   showAll: () => rk.choose(null),
   setFormat(name) { state.format = name; store() },
@@ -502,13 +507,13 @@ const state = sprae(root, {
   setScale,
   toggleSnap() { state.snapping = v.snapping = !state.snapping; store() },
   toggleShow, setUnits, setLevels, setRuler, setStep, setLook, setSplice, setScrub,
-  setDisplay, settingsMenu, dropToggle, fold, toggleLoop, undoList, goTo, toggleRecording, resampleTo, remixTo,
+  setDisplay, dropToggle, placeList, fold, toggleLoop, undoList, goTo, toggleRecording, resampleTo, remixTo,
   togglePlay, playPress, playClick, stop, redo: () => ed.redo(), mac, share, exportFiles,
   switchTab, newTab, closeTab, dragTab, scrollTabs, toggleTabMute, pickFiles, openFiles, startRecording, stopRecording, armRecording, useSample, useCode, useRecipe, addOp, editSelection, toolKey, openTools,
   openSearch, closeSearch, runSearch, typeSearch, preview, useResult
 })
 
-// The page's hints (hint.js): what a number in the code sets, what a drag on the picture does, what a click just did
+// The page's hints (hint.js): what a number in the code sets, what a drag on the picture does
 const hints = hint(document.body)
 // Its controls' tooltips, popoff's: every title, its name, its keys and a word more, on a tag pointing at it; loaded
 // aside, so the page is whole without it (the browser's own titles then)
@@ -586,7 +591,7 @@ if (webview()) {
 
 // The output view
 v = view(root.querySelector('.plot'), {
-  // the axis as wide as its labels: the settings' button over it (editor.css --axis)
+  // the axis as wide as its labels: undo and redo over it, the display switch under it (editor.css --axis)
   onaxis: px => root.querySelector('.panes').style.setProperty('--axis', `${px}px`),
   // measuring on the spectrogram, the spectrum meter reads under the pointer, then where it did again
   onprobe: t => meter(null, t),
@@ -810,6 +815,7 @@ function menus() {
       check('Its edits', state.side === 'edits', () => state.setSide('edits')),
       check('Its code', state.side === 'code', () => state.setSide('code')),
       check('Its export', state.side === 'export', () => state.setSide('export')),
+      check('Its settings', state.side === 'settings', () => state.setSide('settings')),
       { label: 'Times in', items: UNITS.map(([name, label, example]) => check(label, state.units === name, () => setUnits(name), { hint: example })) },
       '-',
       { label: 'Reset the view', run: resetView }
@@ -852,53 +858,54 @@ const recents = (lead = {}) => {
 // an edit of the selection, as a menu item: dimmed while there is nothing it can act on
 const edit = (label, type, key, when, tip) => ({ label, keys: key && keys(key), tip, run: () => editSelection(type), disabled: !when })
 const bar = menubar(root.querySelector('.menubar'), menus)
-// What the settings hold, group by group: each its choices, what the chosen one does said under them; a section of
-// them by kind (sections): what shows over the sound and how time reads; how an edit steps and joins; how a held caret
-// sounds and a take records; how each picture draws, the waveform's colour, lanes, fill and level units, the
-// spectrogram's method, frequency scale, colours, gamma, range and FFT size
-function optionGroups(kind) {
-  const group = (label, list, now, set) => ({ label, options: list.map(([value, name, hint]) => ({ label: name, hint, on: now === value, run: () => set(value) })) })
+// The options, group by group: each its choices, what the chosen one does said under them. How each picture draws, in
+// its dropdown (its tab pressed again): the waveform's level units, colour, fill and lanes, the spectrogram's frequency scale,
+// method, colours, gamma, range and FFT size; the settings', a section of them by kind (settingSections): what shows
+// over the sound and how time reads; how an edit steps and joins; how a held caret sounds and a take records. Of the
+// state handed in (`s`): the page's, or, drawn as the page is wired, the one being made
+function optionGroups(kind, s = state) {
+  const group = (label, list, now, set, more = {}) => ({ label, ...more, options: list.map(([value, name, hint, swatch]) => ({ label: name, hint, swatch, on: now === value, run: () => set(value) })) })
   if (kind === 'wave') return [
-    group('Colour', waveLooks.colour, state.wave.colour, c => setWave('colour', c)),
-    group('Channels', waveLooks.lanes, state.wave.lanes, c => setWave('lanes', c)),
-    group('Fill', waveLooks.fill, state.wave.fill, c => setWave('fill', c)),
-    group('Levels in', levelList.map(l => [l.name, l.label, `The level axis in ${l.label.toLowerCase()}: ${l.example}`]), state.levels, setLevels)
+    group('Levels in', levelList.map(l => [l.name, l.label, `The level axis in ${l.label.toLowerCase()}: ${l.example}`]), s.levels, setLevels),
+    group('Colour', waveLooks.colour.map(([v, name, hint]) => [v, name, hint, v === 'temperature' ? warmth : v === 'colormap' ? mapSwatch(s.look.map, true) : swatch(['var(--color-screen-wave)', 'var(--color-screen-wave)'])]), s.wave.colour, c => setWave('colour', c), { select: true }),
+    group('Fill', waveLooks.fill, s.wave.fill, c => setWave('fill', c)),
+    group('Channels', waveLooks.lanes, s.wave.lanes, c => setWave('lanes', c))
   ]
   if (kind === 'spec') return [
-    group('Method', specMethods, state.look.method, m => setLook('method', m)),
-    group('Frequency scale', Object.entries(scales).map(([name, sc]) => [name, scaleNames[name], sc.text[0].toUpperCase() + sc.text.slice(1)]), state.scale, setScale),
-    group('Colours', looks.map.map(m => [m, m[0].toUpperCase() + m.slice(1), m === 'grey' ? 'The screen\'s ink, the page through it' : `Matplotlib's ${m}`]), state.look.map, m => setLook('map', m)),
-    group('Gamma', looks.gamma.map(g => [g, `γ${g}`, g < 1 ? 'Quiet parts brighter' : g > 1 ? 'Quiet parts darker' : 'Levels even']), state.look.gamma, g => setLook('gamma', g)),
-    group('Range', looks.depth.map(d => [d, `${d}dB`, `From the loudest down ${d} dB to the floor`]), state.look.depth, d => setLook('depth', d)),
-    group('FFT size', looks.size.map(n => [n, n ? String(n) : 'Auto', n ? `Frames of ${n} samples` : 'Frames of 40 ms, longer on a zoomed band']), state.look.size, n => setLook('size', n))
+    group('Frequency scale', Object.entries(scales).map(([name, sc]) => [name, scaleNames[name], sc.text[0].toUpperCase() + sc.text.slice(1)]), s.scale, setScale),
+    group('Method', specMethods, s.look.method, m => setLook('method', m)),
+    group('Colours', looks.map.map(m => [m, m[0].toUpperCase() + m.slice(1), m === 'grey' ? 'The screen\'s ink, the page through it' : `Matplotlib's ${m}`, mapSwatch(m)]), s.look.map, m => setLook('map', m), { select: true }),
+    // a curve's exponent, one quantity bending one way: a slider through its steps, not keys
+    group('Gamma', looks.gamma.map(g => [g, String(g), g < 1 ? 'Quiet parts brighter' : g > 1 ? 'Quiet parts darker' : 'Levels even']), s.look.gamma, g => setLook('gamma', g), { slider: true }),
+    group('Range', looks.depth.map(d => [d, `${d}dB`, `From the loudest down ${d} dB to the floor`]), s.look.depth, d => setLook('depth', d)),
+    group('FFT size', looks.size.map(n => [n, n ? String(n) : 'Auto', n ? `Frames of ${n} samples` : 'Frames of 40 ms, longer on a zoomed band']), s.look.size, n => setLook('size', n))
   ]
   if (kind === 'edit') return [
-    group('Level steps', state.steps.map(db => [db, `${db}dB`, `A selection's level, dragged by its pill, goes ${db} dB a step`]), state.levelStep, setStep),
-    group('Splices', state.splices.map(ms => [ms, ms ? `${ms}ms` : 'Off', ms ? `An edit's seams crossfaded over ${ms} ms, so they make no click` : 'At a seam, either side meets as it is']), state.splice, setSplice)
+    group('Level steps', s.steps.map(db => [db, `${db}dB`, `A selection's level, dragged by its pill, goes ${db} dB a step`]), s.levelStep, setStep),
+    group('Splices', s.splices.map(ms => [ms, ms ? `${ms}ms` : 'Off', ms ? `An edit's seams crossfaded over ${ms} ms, so they make no click` : 'At a seam, either side meets as it is']), s.splice, setSplice)
   ]
   if (kind === 'play') return [
-    group('Scrub', scrubs.map(m => [m.name, m.label, m.text]), state.scrub, setScrub),
-    group('Record in', [[1, 'Mono', 'One channel, the input\'s first: a voice, one microphone'], [2, 'Stereo', 'Two channels, as the input gives them: a stereo pair, an interface\'s two inputs']], state.recordIn, setRecordIn)
+    group('Scrub', scrubs.map(m => [m.name, m.label, m.text]), s.scrub, setScrub),
+    group('Record in', [[1, 'Mono', 'One channel, the input\'s first: a voice, one microphone'], [2, 'Stereo', 'Two channels, as the input gives them: a stereo pair, an interface\'s two inputs']], s.recordIn, setRecordIn)
   ]
   return [
-    { label: 'Show over the sound', note: 'Each on or off', options: [
-      ...state.overlayList.map(o => ({ label: o.label, hint: o.title, on: !!state.show[o.name], run: () => toggleShow(o.name) })),
-      { label: 'Snap', hint: 'To cues and markers; hold Alt to see them', on: state.snapping, run: () => state.toggleSnap() }
+    { label: 'Show over the sound', options: [
+      ...s.overlayList.map(o => ({ label: o.label, hint: o.title, on: !!s.show[o.name], run: () => toggleShow(o.name) })),
+      { label: 'Snap', hint: 'To cues and markers; hold Alt to see them', on: s.snapping, run: () => state.toggleSnap() }
     ] },
-    group('Times in', state.unitList.map(u => [u.name, u.short, `${u.label}: ${u.example}`]), state.units, setUnits),
-    group('Time row', rulers.map(r => [r.name, r.label, r.name === 'none' ? 'Only the times that matter now' : r.name === 'ticks' ? 'Ticks along the time row, no labels' : 'The times along the row, labelled']), state.ruler, setRuler),
-    group('Scroll', scrolls, state.scroll, setScroll),
-    group('Grid', grids, state.grid, setGrid)
+    group('Times in', s.unitList.map(u => [u.name, u.short, `${u.label}: ${u.example}`]), s.units, setUnits),
+    group('Time row', rulers.map(r => [r.name, r.label, r.name === 'none' ? 'Only the times that matter now' : r.name === 'ticks' ? 'Ticks along the time row, no labels' : 'The times along the row, labelled']), s.ruler, setRuler),
+    group('Scroll', scrolls, s.scroll, setScroll),
+    group('Grid', grids, s.grid, setGrid)
   ]
 }
-// The settings' sections, each folded to its name and what is chosen in it, opened by a press, kept so (`folds`)
-const sections = [['view', 'View'], ['edit', 'Editing'], ['play', 'Scrub and record'], ...displays.map(d => [d.name, d.label])]
-const settingSections = () => sections.map(([kind, label]) => {
-  const groups = optionGroups(kind)
-  return { kind, label, groups, open: !!state.folds[kind], chosen: groups.flatMap(g => g.options.filter(o => o.on).map(o => o.label)).join(', ') }
-})
+// The settings' sections, each its name and in a few words what it holds, open till a press folds it, kept so (`folds`)
+function settingSections(s = state) {
+  return [['view', 'View', 'over the sound, and time'], ['edit', 'Editing', 'steps and seams'], ['play', 'Scrub and record', 'a held caret, a take']]
+    .map(([kind, label, text]) => ({ kind, label, text, groups: optionGroups(kind, s), open: s.folds[kind] ?? true }))
+}
 function fold(kind, open) {
-  if (!!state.folds[kind] === open) return
+  if ((state.folds[kind] ?? true) === open) return
   state.folds = { ...state.folds, [kind]: open }
   store()
 }
@@ -906,8 +913,8 @@ function fold(kind, open) {
 function lookMenu(kind) {
   return { label: kind === 'wave' ? 'Waveform' : 'Spectrogram', items: optionGroups(kind).map(g => ({ label: g.label, items: g.options.map(o => ({ label: o.label, hint: o.hint, checked: o.on, run: o.run })) })) }
 }
-// The settings (their button): a dropdown under it, its sections folded to a row each, unfolded in place, no levels to
-// go through; the button again, a press outside or Esc closes it
+// How the picture shown draws (its tab, pressed again): a dropdown over it, as Figma's, every group in sight, no levels
+// to go through; the tab again, a press outside or Esc closes it
 let dropOwner = null
 function openDropdown(owner) {
   const panel = root.querySelector('.dropdown')
@@ -916,13 +923,12 @@ function openDropdown(owner) {
   state.dropdown = true
   owner.setAttribute('aria-expanded', 'true')
   panel.showPopover()
-  const r = owner.getBoundingClientRect(), w = panel.offsetWidth, h = panel.offsetHeight
+  const r = owner.getBoundingClientRect(), w = panel.offsetWidth, up = r.top > innerHeight - r.bottom
   panel.style.left = `${Math.max(8, Math.min(innerWidth - w - 8, r.right - w))}px`
-  const top = r.bottom + 6 + h > innerHeight - 8 ? Math.max(8, r.top - 6 - h) : r.bottom + 6
-  // what is left of the window below it, scrolled within: the groups fill in after it is placed, the settings' taller
-  // than a short window
-  panel.style.top = `${top}px`
-  panel.style.maxHeight = `${innerHeight - 8 - top}px`
+  // over its tab where the window has more room over it than under it (the bar's foot), held there by its own foot as
+  // its groups fill in, else under it; within what is left of the window that
+  // side, scrolled within: the groups fill in after it is placed
+  Object.assign(panel.style, up ? { top: 'auto', bottom: `${innerHeight - r.top + 6}px`, maxHeight: `${r.top - 14}px` } : { top: `${r.bottom + 6}px`, bottom: 'auto', maxHeight: `${innerHeight - r.bottom - 14}px` })
 }
 // closed: at once by its button or a press outside, or by Esc (the popover's own toggle)
 function closeDropdown() {
@@ -932,8 +938,23 @@ function closeDropdown() {
   dropOwner = null
   state.dropdown = false
 }
-function dropToggle(event) { if (event.newState === 'closed' && dropOwner) closeDropdown() }
-function settingsMenu(event) { openDropdown(event.currentTarget) }
+function dropToggle(event) { if (event.target === event.currentTarget && event.newState === 'closed' && dropOwner) closeDropdown() }
+// A select in it, a look's (colours): its list under its button, as wide at least, or over it where the window ends
+function placeList(event) {
+  if (event.newState !== 'open') return
+  const list = event.target, r = list.previousElementSibling.getBoundingClientRect(), h = list.offsetHeight
+  const top = r.bottom + 4 + h > innerHeight - 8 ? Math.max(8, r.top - 4 - h) : r.bottom + 4
+  Object.assign(list.style, { left: `${r.left}px`, top: `${top}px`, minWidth: `${r.width}px` })
+}
+// Esc with the keys in it (a choice just pressed) closes it too, the keys back on its button
+root.querySelector('.dropdown').addEventListener('keydown', event => {
+  // a select's list open in it closes alone, as a popover of its own
+  if (event.key !== 'Escape' || event.target.closest('.select-list')) return
+  event.preventDefault()
+  const owner = dropOwner
+  closeDropdown()
+  owner?.focus()
+})
 // a press outside the dropdown and its button closes it
 addEventListener('pointerdown', event => {
   const panel = root.querySelector('.dropdown')
@@ -1544,13 +1565,11 @@ function meter(t = null, probe = null) {
   const l = levels(w.x, from, to)
   v.meters = read(t != null ? live(l) : l, () => spectra(w.x, s0, s1, { size }), rate)
 }
-// The picture's switch: the waveform or the spectrogram; the spectrogram's again, its frequencies on the next scale
-// (octaves, mel, hertz), said by it a moment
+// The picture's switch: the waveform or the spectrogram; the one shown, pressed again, its dropdown (the menus and the
+// page's own calls, no press, leave it shut)
 function setDisplay(name, event) {
-  if (name === 'spec' && state.display === 'spec') {
-    setScale(nextScale(state.scale))
-    return hints.flash(scaleNames[state.scale], event?.currentTarget ?? root.querySelector('.display [aria-selected="true"]'), 'display')
-  }
+  if (name === state.display) return event && openDropdown(event.currentTarget)
+  closeDropdown()
   state.display = v.display = name
   store()
 }
@@ -1753,9 +1772,9 @@ function follower() {
 // Play answers the press, as a transport key does, not the release; a key or a script clicking it (detail 0) still works.
 // Held and dragged across, it searches (SHUTTLE): a line over it, the pointer hidden, a tenth of 1× each 4 px from the
 // speed it plays at, a step taken only three quarters of the way to the next, so a hand resting between two holds one;
-// let go forward, it plays on at that speed, at 0 or back it stops there. Held still for HOLD, the line shows, to be
-// seen or dragged. So a press while it plays pauses at its release, unless it was dragged or held, the caret where the
-// playhead got to, as a key's pause leaves it.
+// let go forward, it plays on at that speed, at 0 or back it stops there. Held still for HOLD (within SLOP), as the
+// picture's caret is, the line shows, to be seen or dragged. So a press while it plays pauses at its release, unless it
+// was dragged or held, the caret where the playhead got to, as a key's pause leaves it.
 function playPress(event) {
   if (event.button !== 0 || state.recording) return
   const button = event.currentTarget, x0 = event.clientX, was = pl.playing, step = SHUTTLE.px / 10
@@ -1799,7 +1818,7 @@ function playPress(event) {
   const forward = () => { halt(); togglePlay() }
   const move = e => {
     const dx = e.clientX - x0
-    if (!moved && !shown && Math.abs(dx) < 4) return
+    if (!moved && !shown && Math.abs(dx) < SLOP) return
     moved = true
     show()
     const to = Math.max(SHUTTLE.min * 10, Math.min(SHUTTLE.max * 10, state.speed * 10 + dx / step))
@@ -3355,7 +3374,7 @@ function dragTab(event, id) {
   const onto = e => id !== state.tab && state.hasOutput && e.clientX >= plotBox.left && e.clientX <= plotBox.right && e.clientY >= plotBox.top && e.clientY <= plotBox.bottom
   const move = e => {
     const dx = e.clientX - x0, dy = e.clientY - y0
-    if (!moved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return
+    if (!moved && Math.abs(dx) < SLOP && Math.abs(dy) < SLOP) return
     moved = true
     el.classList.add('dragging')
     state.dropping = onto(e) ? 'track' : false

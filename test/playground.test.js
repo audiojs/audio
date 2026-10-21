@@ -71,13 +71,14 @@ beforeEach(async () => {
   await page.addInitScript(() => {
     // the script, its lines as the editor has them, the code panel open or not
     globalThis.scriptText = () => [...document.querySelectorAll('.cm-content .cm-line')].map(l => l.textContent).join('\n')
-    // what is drawn over the sound as it shows: the reel's marks (view.js marksOf: the time row's times, the carets, the
-    // cues, the markers…) where the reel is, cut where the lanes end, under the overlay; a canvas the overlay's size, its
-    // box the overlay's
+    // what is drawn over the sound as it shows: the reel's time row and marks (view.js marksOf: the time row's times, the
+    // carets, the cues, the markers…) where the reel is, cut where the lanes end, under the overlay; a canvas the
+    // overlay's size, its box the overlay's
     globalThis.__overlay = () => {
-      const plot = document.querySelector('.plot'), o = plot.querySelector('canvas.overlay'), m = plot.querySelector('canvas.marks'), k = o.width / o.clientWidth
+      const plot = document.querySelector('.plot'), o = plot.querySelector('canvas.overlay'), m = plot.querySelector('canvas.marks'), row = plot.querySelector('canvas.row'), k = o.width / o.clientWidth
       const shift = -new DOMMatrix(getComputedStyle(plot.querySelector('.reel')).transform).m41 * k, end = Math.round(parseFloat(getComputedStyle(plot).getPropertyValue('--end')) * k)
       const cv = Object.assign(document.createElement('canvas'), { width: o.width, height: o.height }), g = cv.getContext('2d')
+      if (row?.width && row.height && o.width > end) g.drawImage(row, Math.round(shift), 0, o.width - end, row.height, 0, Math.round(row.offsetTop * k), o.width - end, row.height)
       if (m?.width && o.width > end) g.drawImage(m, Math.round(shift), 0, o.width - end, o.height, 0, 0, o.width - end, o.height)
       g.drawImage(o, 0, 0)
       Object.defineProperties(cv, { clientWidth: { value: o.clientWidth }, clientHeight: { value: o.clientHeight }, getBoundingClientRect: { value: () => o.getBoundingClientRect() } })
@@ -1691,19 +1692,32 @@ async function open() {
 }
 // A row of the menu open, by its label, exactly
 const menuRow = label => page.locator('.menubar-menu .menu-row', { has: page.locator('.menu-label', { hasText: new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }) }).last()
-// A choice in a dropdown open (the settings, a picture's options), by its group's name and its own: its section unfolded
-// first, where it is folded
+// The groups of how a picture draws, in the dropdown its tab opens (playground.html .dropdown); the others are the
+// settings', in their panel
+const DRAWS = ['Levels in', 'Colour', 'Fill', 'Channels', 'Frequency scale', 'Method', 'Colours', 'Gamma', 'Range', 'FFT size']
+// A choice among the options open (a picture's dropdown, the settings' panel), by its group's name and its own: its
+// section unfolded first, where it is folded; a look's, in its select, the select opened first
 function choice(group, name) {
-  const button = page.locator('.dropdown').getByRole('group', { name: group, exact: true }).getByRole('button', { name, exact: true })
-  const unfold = () => page.evaluate(g => { for (const d of document.querySelectorAll('.dropdown details:not([open])')) if (d.querySelector(`[aria-label="${g}"]`)) d.querySelector('summary').click() }, group)
-  return { click: async o => { await unfold(); return button.click(o) }, getAttribute: async a => { await unfold(); return button.getAttribute(a) } }
+  const open = page.locator('.dropdown:popover-open, .settings'), button = open.getByRole('group', { name: group, exact: true }).getByRole('button', { name, exact: true })
+  const option = page.getByRole('listbox', { name: group, exact: true }).getByRole('option', { name, exact: true })
+  const unfold = () => page.evaluate(g => { for (const d of document.querySelectorAll('.settings details:not([open])')) if (d.querySelector(`[aria-label="${g}"]`)) d.querySelector('summary').click() }, group)
+  const listed = () => page.evaluate(g => !!document.querySelector(`.dropdown:popover-open [role="listbox"][aria-label="${g}"]`), group)
+  const pick = async () => { if (await listed()) { await page.locator(`.dropdown:popover-open .select-button[popovertarget="select-${group}"]`).click(); return option } await unfold(); return button }
+  return { click: async o => (await pick()).click(o), getAttribute: async a => (await pick()).getAttribute(a) }
 }
-// A choice in the settings, a dropdown under their button over the meter, closed again after
+// A choice made: how a picture draws in its dropdown, opened by its tab, the one shown, and closed again by it; else in
+// the settings' panel, the panel as it was again after
 async function settings(group, name) {
-  const button = page.getByRole('button', { name: 'Settings', exact: true })
-  await button.click()
+  if (DRAWS.includes(group)) {
+    const button = page.locator('.status .display [aria-selected="true"]')
+    await button.click()
+    await choice(group, name).click()
+    return button.click()
+  }
+  const was = await page.evaluate(() => document.querySelector('.side-head [aria-selected="true"]')?.getAttribute('aria-label') ?? null)
+  await tab('Settings')
   await choice(group, name).click()
-  await button.click()
+  if (was !== 'Settings') await page.getByRole('tab', { name: was ?? 'Settings', exact: true }).click()
 }
 // What is selected, as the clock's title says it ("0:01.000–0:03.000"; '' for none, or several ranges): the clock
 // itself reads the caret
@@ -2016,17 +2030,18 @@ test('editor: an edit from the palette goes on the selection, its card open amon
   assert.equal(await page.locator('.message.problem').count(), 0)
 })
 
-// Over the picture: its tabs, undo and redo, how it shows (the waveform, the spectrogram), then at the head of its axis
-// its settings, none moving as the picture turns. At the slab's top right, as an
-// editor's activity bar, the panels' buttons: the recipes, the agent, the edits, the code, the export. A panel docks
-// beside the picture, part of the slab, a rule between them as the slab's own, no title over it (its button says which); its button
-// again closes it; its left edge drags its width; the choice and the width are remembered. Undo is undo, nothing else
-test('editor: undo, redo and the picture\'s settings over its axis, its switch at the foot, none moving; the panels\' buttons at the top right; a panel docks beside the picture', async () => {
+// Over the picture: its tabs, then undo and redo at the head of its axis; at its foot, in the bar, how it shows (the
+// waveform, the spectrogram), before the rate, its end redo's; none moving as the picture turns. At the slab's top
+// right, as an editor's activity bar, the panels' buttons: the recipes, the agent, the edits, the code, the export, the
+// settings. A panel docks beside the picture, part of the slab, a rule between them as the slab's own, no title over
+// it (its button says which); its button again closes it; its left edge drags its width; the choice and the width are
+// remembered. Undo is undo, nothing else
+test('editor: undo and redo over the picture\'s axis, its switch at the foot, none moving; the panels\' buttons at the top right; a panel docks beside the picture', async () => {
   await open()
   const box = name => page.locator(name).boundingBox()
   const [panes, view] = await Promise.all(['.panes', '.view-slab'].map(box))
   assert.ok(Math.abs(view.width - panes.width) < 2, 'the picture the whole width')
-  const buttons = await Promise.all(['Recipes', 'Agent', 'Edits', 'Code', 'Export'].map(name => page.getByRole('tab', { name, exact: true }).boundingBox()))
+  const buttons = await Promise.all(['Recipes', 'Agent', 'Edits', 'Code', 'Export', 'Settings'].map(name => page.getByRole('tab', { name, exact: true }).boundingBox()))
   assert.ok(buttons.every((b, i) => b.y < view.y && (!i || b.x > buttons[i - 1].x)) && buttons.at(-1).x > panes.x + panes.width * .8, 'the panels\' buttons in order at the slab\'s top right')
   assert.equal(await page.locator('.bar .history, .status .panels').count(), 0, 'none in the page\'s bar, none at the foot')
   await tab('Edits')
@@ -2036,20 +2051,20 @@ test('editor: undo, redo and the picture\'s settings over its axis, its switch a
   assert.equal(await page.locator('.side-slab').getAttribute('aria-label'), 'Edits')
   const [narrow, side, plot] = await Promise.all(['.view-slab', '.side-slab', '.plot'].map(box))
   assert.ok(narrow.width < view.width - 200 && side.x >= narrow.x + narrow.width - 1 && side.y >= buttons[0].y + buttons[0].height, 'docked beside the picture, under the buttons')
-  // over the picture in order: undo, redo, then the settings at the head of the axis, over its ticks (12 px from a pixel
-  // inside the axis, as wide as its labels: --axis, view.js TICK); the pictures' switch in the bar at the foot of the
-  // axis, the spectrogram's button under the settings, before the rate; none moves as the picture turns
-  const heads = () => Promise.all([['button', 'Undo'], ['button', 'Redo'], ['tab', 'Waveform'], ['tab', 'Spectrogram'], ['button', 'Settings']].map(([role, name]) => page.getByRole(role, { name, exact: true }).boundingBox()))
-  const [undo, redo, wave, spec, settings] = await heads()
-  assert.ok(undo.x < redo.x && redo.x < settings.x && settings.y < plot.y, 'undo, redo, the settings')
+  // over the picture in order: undo, redo, at the head of the axis; the pictures' switch in the bar at its foot, the
+  // spectrogram's button under the axis's ticks (12 px from a pixel inside the axis, as wide as its labels: --axis,
+  // view.js TICK), before the rate, ending where redo does; none moves as the picture turns
+  const heads = () => Promise.all([['button', 'Undo'], ['button', 'Redo'], ['tab', 'Waveform'], ['tab', 'Spectrogram']].map(([role, name]) => page.getByRole(role, { name, exact: true }).boundingBox()))
+  const [undo, redo, wave, spec] = await heads()
+  assert.ok(undo.x < redo.x && redo.y + redo.height < plot.y, 'undo, redo over the picture')
   const rate = await box('.facts')
   assert.ok(wave.y > plot.y + plot.height && wave.x < spec.x && spec.x + spec.width <= rate.x, 'the switch at the foot, before the rate')
   const ticks = plot.x + plot.width - await gutter() + 7
-  assert.ok(Math.abs(settings.x + settings.width / 2 - ticks) <= 1, `the settings over the axis: ${settings.x + settings.width / 2}, ${ticks}`)
   assert.ok(Math.abs(spec.x + spec.width / 2 - ticks) <= 1, `the spectrogram's button under the axis: ${spec.x + spec.width / 2}, ${ticks}`)
+  assert.ok(Math.abs(redo.x + redo.width - (spec.x + spec.width)) <= 1, `redo and the switch end alike: ${redo.x + redo.width}, ${spec.x + spec.width}`)
   assert.ok(spec.x - (wave.x + wave.width) <= 2, 'the waveform and the spectrogram a pair, as undo and redo')
   await show('spec')
-  assert.deepEqual((await heads()).map(b => b.x), [undo, redo, wave, spec, settings].map(b => b.x), 'nothing moved as it turned')
+  assert.deepEqual((await heads()).map(b => b.x), [undo, redo, wave, spec].map(b => b.x), 'nothing moved as it turned')
   await show('wave')
   // part of the slab: no ground of its own; between it and the picture a rule in the slab's rule colour, as far from its
   // content as that is from the slab's edge
@@ -2284,10 +2299,11 @@ test('editor: the sound\'s end is where its centre line stops: no rule over it, 
   assert.ok(Math.abs(last - end) <= 1.5, `the centre line ends at the end: ${last} px, the end ${end} px`)
   assert.ok(silent > .95, `the silence before it drawn, its centre line: ${(silent * 100).toFixed(0)}% of its columns`)
   // the overlay, the grid: nothing at the end column or past it in the overlay; the grid where the sound is, not past it
+  await gridShown('Crosses + dots')
   const { rule, inside, beyond } = await page.evaluate(end => {
     const sum = (canvas, from, to) => { const k = canvas.width / canvas.clientWidth, { data, width, height } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height - Math.round(22 * k)); let s = 0; for (let x = Math.round(from * k); x < Math.round(to * k); x++) for (let y = 0; y < height; y++) s += data[(y * width + x) * 4 + 3]; return s }
-    const overlay = document.querySelector('canvas.overlay'), grid = document.querySelector('canvas.grid')
-    return { rule: sum(overlay, end - 1, end * 1.8), inside: sum(grid, 0, end - 1), beyond: sum(grid, end + 1, end * 1.8) }
+    const shown = (from, to) => { const { k, w, h, d } = window.__shown; let s = 0; for (let x = Math.round(from * k); x < Math.round(to * k); x++) for (let y = 0; y < h - Math.round(22 * k); y++) s += d[y * w + x]; return s }
+    return { rule: sum(document.querySelector('canvas.overlay'), end - 1, end * 1.8), inside: shown(0, end - 1), beyond: shown(end + 1, end * 1.8) }
   }, end)
   assert.equal(rule, 0, 'no rule over the end, nothing past it')
   assert.ok(inside > 0, 'the grid where the sound is')
@@ -2357,27 +2373,45 @@ test('editor: dragging a selection draws no picture of the sound again, only wha
   assert.match(await selected(), /–/)
 })
 
-// The axis at the pictures' right is as wide as its labels and the pointer's value read out on it (−12.3dB), which goes
-// on to the right of its tick, never back over the meters. The spectrogram's labels fit it as well, so it stays as one
-// picture turns to the other; the settings' button stands over its ticks
-test('editor: the axis is as wide as its labels, the same for either picture, the settings over its ticks', async () => {
+// The axis at the pictures' right is as wide as its labels and the pointer's value read out on it, five characters at
+// full scale: a sample value to a digit finer than the marks (−0.03), decibels to a tenth with no unit (−12.3), a
+// frequency to three digits (1.23k), the spectrogram's level whole (−100); it goes on to the right of its tick, never
+// back over the meters. Either picture, either unit, the same, so nothing moves as one turns to the other
+test('editor: the axis is five characters wide at full scale, the same for either picture and either unit', async () => {
   await open()
   await tab('Edits')
   const axis = () => page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.panes')).getPropertyValue('--axis')))
   await page.waitForFunction(() => getComputedStyle(document.querySelector('.panes')).getPropertyValue('--axis'))
   const wave = await axis()
-  const widest = await page.evaluate(() => { const g = document.createElement('canvas').getContext('2d'); g.font = `${parseFloat(getComputedStyle(document.querySelector('.plot')).getPropertyValue('--font-size-label')) || 10}px ${getComputedStyle(document.querySelector('.plot')).getPropertyValue('--font-mono')}`; return g.measureText('−12.3dB').width })
-  assert.ok(wave >= widest + 4 && wave <= 48, `${wave} px, the readout ${widest}`)
-  const plot = await page.locator('.plot').boundingBox(), gear = await page.getByRole('button', { name: 'Settings', exact: true }).boundingBox()
-  // the ticks run 12 px from a pixel inside the axis
-  const ticks = plot.x + plot.width - wave + 1 + 6, centre = gear.x + gear.width / 2
-  assert.ok(Math.abs(centre - ticks) <= 1.5, `the settings at ${centre}, the ticks at ${ticks}`)
+  const [five, six] = await page.evaluate(() => { const g = document.createElement('canvas').getContext('2d'); g.font = `${parseFloat(getComputedStyle(document.querySelector('.plot')).getPropertyValue('--font-size-label')) || 10}px ${getComputedStyle(document.querySelector('.plot')).getPropertyValue('--font-mono')}`; return ['−0.03', '−12.3d'].map(t => g.measureText(t).width) })
+  assert.ok(wave >= five + 4 && wave < six + 4, `${wave} px: five characters, ${five} px, and not six`)
+  // what the axis says with the pointer in a lane, 0.4 of full scale up: its labels and the pointer's value, none over
+  // five characters
+  const plot = await page.locator('.plot').boundingBox()
+  await page.evaluate(() => {
+    window.__said = []
+    const text = CanvasRenderingContext2D.prototype.fillText
+    CanvasRenderingContext2D.prototype.fillText = function (s, x, y) { if (this.canvas.matches('.overlay')) window.__said.push({ s, x }); return text.call(this, s, x, y) }
+  })
+  const lane = (plot.height - 22 - 2) / 2, y = plot.y + lane / 2 - lane * .2
+  const said = async () => {
+    await page.evaluate(() => window.__said = [])
+    await page.mouse.move(plot.x + plot.width / 3, y + (said.n = (said.n ?? 0) + 1) % 2 * 4)
+    await page.waitForTimeout(200)
+    const list = (await page.evaluate(() => window.__said)).filter(t => t.x >= plot.width - wave).map(t => t.s)
+    assert.ok(list.length && list.every(t => t.length <= 5), `five characters at most: ${list}`)
+    return list
+  }
+  assert.ok((await said()).some(t => /^0\.\d\d$/.test(t)), 'a sample value to two decimals, 0.40 or so')
   await show('spec')
   await page.waitForTimeout(300)
   assert.equal(await axis(), wave, 'the spectrogram the same')
+  await said()
+  await show('wave')
   await settings('Levels in', 'Decibels')
   await page.waitForTimeout(300)
   assert.equal(await axis(), wave, 'the levels in decibels the same')
+  assert.ok((await said()).some(t => /^−\d{1,2}\.\d$/.test(t)), 'decibels to a tenth, no unit')
 })
 
 // The lanes ruled (Grid: Crosses + dots, the default), where the sound is quiet (2.5 to 3 s): a cross, its arms 3 px, where a
@@ -2392,22 +2426,27 @@ test('editor: the grid crosses where the ticks meet, dots where their finer step
   await page.evaluate(() => {
     window.__ticks = []
     const proto = CanvasRenderingContext2D.prototype, rect = proto.fillRect, text = proto.fillText
-    proto.fillRect = function (x, y, w, h) { if (this.canvas.matches('.overlay, .marks')) window.__ticks.push({ x, y, w, h }); return rect.call(this, x, y, w, h) }
-    proto.fillText = function (s, x, y) { if (this.canvas.matches('.overlay, .marks')) window.__ticks.push({ s }); return text.call(this, s, x, y) }
+    proto.fillRect = function (x, y, w, h) { if (this.canvas.matches('.overlay, .marks, .row')) window.__ticks.push({ x, y, w, h }); return rect.call(this, x, y, w, h) }
+    proto.fillText = function (s, x, y) { if (this.canvas.matches('.overlay, .marks, .row')) window.__ticks.push({ s }); return text.call(this, s, x, y) }
   })
   await settings('Grid', 'Crosses + dots')
+  // the layers laid again, each only as its drawing changes (view.js, kept.js): the pointer over the picture, then off it
+  await page.locator('.plot').hover({ position: { x: 10, y: 10 } })
+  await page.waitForTimeout(100)
+  await page.evaluate(() => window.__ticks = [])
   await page.mouse.move(2, 2)
   await page.waitForTimeout(200)
   const calls = await page.evaluate(() => window.__ticks), at = {}
   calls.forEach((c, i) => { if (c.w && calls[i + 1]?.s) at[calls[i + 1].s] ??= c.h === 1 ? c.y : c.x })
   const [hit, c0, c1, r5, r0] = [at['0:00.5'], at['0:02.5'], at['0:03.0'], at['0.5'], at['0']]
   assert.ok([hit, c0, c1, r5, r0].every(Number.isFinite), `ticks at 0.5 s, 2.5 s, 3 s, 0.5 and 0: ${JSON.stringify(at)}`)
-  // the most a 3 × 3 px square round each point is lit, CSS px on the grid's layer
+  // the most a 3 × 3 px square round each point is lit by the grid as it shows (gridShown), CSS px
   const lit = points => page.evaluate(points => {
-    const canvas = document.querySelector('canvas.grid'), g = canvas.getContext('2d'), k = canvas.width / canvas.clientWidth
-    return points.map(([x, y]) => Math.max(...g.getImageData(Math.floor((x - 1) * k), Math.floor((y - 1) * k), Math.ceil(3 * k), Math.ceil(3 * k)).data.filter((_, i) => i % 4 === 3)))
+    const { k, w, d } = window.__shown
+    return points.map(([x, y]) => { let m = 0; for (let j = Math.floor((y - 1) * k); j < Math.floor((y - 1) * k) + Math.ceil(3 * k); j++) for (let i = Math.floor((x - 1) * k); i < Math.floor((x - 1) * k) + Math.ceil(3 * k); i++) m = Math.max(m, d[j * w + i]); return m })
   }, points)
   const dx = (c1 - c0) / 5, dy = (r0 - r5) / 5
+  await gridShown('Crosses + dots')
   const [cross, ...arms] = await lit([[c0, r5], [c0 - 3, r5], [c0 + 3, r5], [c0, r5 - 3], [c0, r5 + 3]])
   assert.ok(cross && arms.every(Boolean), 'a cross at 2.5 s, 0.5')
   assert.deepEqual((await lit([[c0 + 5, r5], [c0, r5 + 5]])).map(Boolean), [false, false], 'its arms 3 px')
@@ -2416,43 +2455,59 @@ test('editor: the grid crosses where the ticks meet, dots where their finer step
   assert.equal((await lit([[hit, r0]]))[0], 0, 'none behind the waveform')
   // the levels in decibels: a cross at −6 dB's tick, a dot at −3 dB, 0.708 of full scale
   await page.evaluate(() => window.__ticks = [])
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await choice('Levels in', 'Decibels').click()
-  await page.keyboard.press('Escape')
+  await settings('Levels in', 'Decibels')
   await page.mouse.move(2, 2)
   await page.waitForTimeout(200)
   const db = await page.evaluate(() => window.__ticks), r6 = db.find((c, i) => c.w && c.h === 1 && db[i + 1]?.s === '−6')?.y
   assert.ok(Number.isFinite(r6), 'a tick at −6 dB')
+  await gridShown('Crosses + dots')
   assert.ok((await lit([[c0, r6], [c0 + 3, r6], [c0, r6 + 3]])).every(Boolean), 'a cross at 2.5 s, −6 dB')
   assert.ok((await lit([[c0 + dx, r0 - 10 ** (-3 / 20) * (r0 - r5) * 2]]))[0], 'a dot at 2.6 s, −3 dB')
   // lines, from the View menu: down from 2.5 s and across from −6 dB, fainter than the cross was; none at 2.6 s, −3 dB
   const [crossed] = await lit([[c0, r6]])
   await menu('View', 'Grid', 'Lines')
   await page.waitForTimeout(200)
+  await gridShown('Lines')
   const [down, across, meet, finer] = await lit([[c0, r6 - 10], [c0 + 10, r6], [c0, r6], [c0 + dx, r0 - 10 ** (-3 / 20) * (r0 - r5) * 2]])
   assert.ok(down && across, 'a line down from 2.5 s and across from −6 dB')
   assert.ok(meet < crossed, `fainter than a cross: ${meet} < ${crossed}`)
   assert.equal(finer, 0, 'none at the finer steps')
-  const blank = () => page.evaluate(() => { const canvas = document.querySelector('canvas.grid'); return !canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data.some(v => v) })
+  // its rects, drawn as triangles in the waveform's canvas (view.js paintGrid; a waveform draws a strip), counted as the
+  // picture is drawn
+  await page.evaluate(() => {
+    window.__ruled = 0
+    const proto = WebGL2RenderingContext.prototype, draw = proto.drawArrays
+    proto.drawArrays = function (...a) { if (a[0] === this.TRIANGLES && this.canvas.matches('.waveform')) window.__ruled += a[2]; return draw.apply(this, a) }
+  })
+  // none drawn as the picture is drawn again (the window a pixel narrower and back)
+  const blank = async () => {
+    await page.evaluate(() => window.__ruled = 0)
+    const size = page.viewportSize()
+    await page.setViewportSize({ ...size, width: size.width - 1 })
+    await page.waitForTimeout(200)
+    await page.setViewportSize(size)
+    await page.waitForTimeout(200)
+    return !await page.evaluate(() => window.__ruled)
+  }
+  await settings('Grid', 'Crosses + dots')
+  assert.ok(!await blank(), 'its rects drawn')
   await settings('Grid', 'None')
-  await page.waitForTimeout(200)
   assert.ok(await blank(), 'nothing with None')
   // nor where there is no sound: a new tab, empty
   await settings('Grid', 'Crosses + dots')
   await page.getByRole('button', { name: 'New tab' }).click()
   await page.locator('.empty').waitFor()
-  await page.waitForTimeout(200)
   assert.ok(await blank(), 'nothing with no sound')
 })
 
-// Two faders, upright, for the settings, a spark for the agent, an open book for the recipes, the switches joined (raised keys in
-// one bezel), the export's icon an arrow down onto a tray; the pictures' switches open no menu of their own
+// Three faders lying down for the settings, a spark for the agent, an open book for the recipes, the switches joined
+// (raised keys in one bezel), the export's icon an arrow down onto a tray; the pictures' switches open on a click alone
 test('editor: the settled icons; the switches are keys in a bezel; a picture\'s switch right-clicked opens nothing', async () => {
   await open()
-  const icon = name => page.getByRole(name === 'Settings' ? 'button' : 'tab', { name, exact: true }).locator('path').getAttribute('d')
+  const icon = name => page.getByRole('tab', { name, exact: true }).locator('path').getAttribute('d')
   const faders = await icon('Settings')
-  assert.equal(faders.match(/a2\.5 2\.5 0 1 1 0-5/g).length, 2, 'two faders, their round knobs')
-  assert.deepEqual(faders.match(/M\d+ 3v/g), ['M6 3v', 'M18 3v'], 'upright, side by side, wide apart')
+  assert.equal(faders.match(/a2\.25 2\.25 0 1 1 0-4\.5/g).length, 3, 'three faders, their round knobs, 4.5 units across')
+  assert.deepEqual(faders.match(/M4 \d+h/g), ['M4 6h', 'M4 12h', 'M4 18h'], 'lying down, one over another, 16 units across')
   assert.equal(await icon('Agent'), 'M12 3c.6 4.7 4.3 8.4 9 9-4.7.6-8.4 4.3-9 9-.6-4.7-4.3-8.4-9-9 4.7-.6 8.4-4.3 9-9Z', 'a spark, four curved points')
   assert.equal(await icon('Export'), 'M12 4v11m-5-5 5 5 5-5M4 19h16', 'an arrow down onto a tray')
   assert.equal(await icon('Recipes'), 'M3 5h5a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H3Zm18 0h-5a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h6Z', 'an open book')
@@ -2462,11 +2517,11 @@ test('editor: the settled icons; the switches are keys in a bezel; a picture\'s 
   const [first, second] = await group.locator('button').evaluateAll(list => list.slice(0, 2).map(b => b.getBoundingClientRect()).map(r => [r.left, r.right]))
   assert.equal(second[0], first[1], 'raised keys in one bezel')
   assert.notEqual(await group.evaluate(el => getComputedStyle(el).backgroundColor), 'rgba(0, 0, 0, 0)')
-  // how a picture draws is in the settings: its switch right-clicked opens no dropdown, nor shows it
+  // a picture's switch right-clicked opens nothing, nor shows it
   await page.getByRole('tab', { name: 'Export', exact: true }).click()
   await page.getByRole('tab', { name: 'Spectrogram', exact: true }).click({ button: 'right' })
   assert.equal(await page.locator('.dropdown:popover-open').count(), 0, 'no dropdown')
-  assert.equal(await page.getByRole('tab', { name: 'Spectrogram', exact: true }).getAttribute('aria-selected'), 'false', 'not shown')
+  assert.equal(await shown(), 'Waveform', 'not shown')
 })
 
 // The edits as a stack of layers: a step chosen shows the output up to it; an edit made then goes in right after it, the
@@ -3598,7 +3653,7 @@ test('editor: dragging the pitch curve moves the whole pitch line, a voice\'s pi
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 220 * t) * (t > 0.5 && t < 1.5), { duration: 2 })`)
   await lengthIs('0:02.000')
   await menu('View', 'Pitch curve')
-  assert.equal(await page.getByRole('tab', { name: 'Spectrogram', exact: true }).getAttribute('aria-selected'), 'true')
+  assert.equal(await shown(), 'Spectrogram')
   // the curve, wherever the spectrogram's scale puts 220 Hz: up its lane at 1 s
   const { box, x } = await axis(2), up = Array.from({ length: Math.floor((box.height - 22) / 3) }, (_, i) => [x(1), box.y + box.height - 22 - 3 * i])
   // none over the waveform, which has no pitch axis: where the tone's 220 Hz would be on a voice's range (60 Hz to 1 kHz
@@ -3610,9 +3665,9 @@ test('editor: dragging the pitch curve moves the whole pitch line, a voice\'s pi
   // Pitch curve off: back to the waveform the spectrogram was turned to from; on again, the spectrogram
   await show('spec')
   await menu('View', 'Pitch curve')
-  assert.equal(await page.getByRole('tab', { name: 'Waveform', exact: true }).getAttribute('aria-selected'), 'true')
+  assert.equal(await shown(), 'Waveform')
   await menu('View', 'Pitch curve')
-  assert.equal(await page.getByRole('tab', { name: 'Spectrogram', exact: true }).getAttribute('aria-selected'), 'true')
+  assert.equal(await shown(), 'Spectrogram')
   const at = await grab(up, 'ns-resize')
   await page.mouse.move(...at)
   await page.mouse.down()
@@ -3677,7 +3732,7 @@ test('editor: the pitch curve\'s bends drag, bending the voice between the handl
   const { box, x } = await axis(2), lh = box.height - 22, { pitch } = tools(x, box, .5, 1.5)
   await drag([x(.5), box.y + 80], [x(1.5) - x(.5), 0])
   await page.mouse.click(...await grab([pitch], 'ns-resize'))
-  assert.equal(await page.getByRole('tab', { name: 'Spectrogram', exact: true }).getAttribute('aria-selected'), 'true')
+  assert.equal(await shown(), 'Spectrogram')
   await page.keyboard.press('Escape')
   // a handle by the crest at 1 s (Praat's stylization keeps the points a straight line misses most, not the crests
   // themselves: here 0.95 s of a 10 ms track)
@@ -4325,7 +4380,7 @@ test('editor: zoomed in, the playhead goes on by the frames\' own time, however 
   await noCues()
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
   await lengthIs('0:20.000')
-  for (const layer of ['waveform', 'spectrum', 'grid']) assert.equal(await page.locator(`.plot canvas.${layer}`).evaluate(e => getComputedStyle(e).maskImage), 'none', layer)
+  for (const layer of ['waveform', 'spectrum']) assert.equal(await page.locator(`.plot canvas.${layer}`).evaluate(e => getComputedStyle(e).maskImage), 'none', layer)
   const box = await page.locator('.plot').boundingBox(), y = box.y + box.height / 2
   await page.mouse.move(box.x + 20, y)
   for (let i = 0; i < 10; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
@@ -4602,30 +4657,29 @@ test('editor: resizing the panes never shows a blank frame', async () => {
   assert.equal(blank, 0)
 })
 
-// The settings, the panel's last tab: the frequency scale, what shows, snapping; each remembered
-// The frequency scale is the spectrogram's own: its tab again, or its section of the settings from a right-click on
-// it; snapping is a setting; both kept
-test('editor: the spectrogram\'s frequency scale from its tab or a right-click, snapping from the settings, both remembered', async () => {
+// The frequency scale is the spectrogram's own, in the dropdown its tab opens, pressed again; snapping is a setting, the
+// panel's last tab; both kept
+test('editor: the spectrogram\'s frequency scale from its dropdown, snapping from the settings, both remembered', async () => {
   await open()
   await show('spec')
   const plot = page.locator('.plot'), now = () => plot.getAttribute('data-scale')
   assert.equal(await now(), 'log')
   await show('spec')
-  assert.equal(await now(), 'mel')
-  // the settings, the spectrogram's section of them
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  assert.equal(await now(), 'log', 'shown again, the same')
+  // its tab again, its dropdown, the spectrogram's groups in it; Esc closes it, a choice pressed or not
+  await page.getByRole('tab', { name: 'Spectrogram', exact: true }).click()
   await choice('Frequency scale', 'Hertz').click()
   assert.equal(await now(), 'lin')
   await page.keyboard.press('Escape')
-  // a click on the frequencies switches nothing now
+  assert.equal(await page.locator('.dropdown:popover-open').count(), 0, 'Esc closes it')
+  // a click on the frequencies switches nothing
   const box = await plot.boundingBox()
   await page.mouse.click(box.x + box.width - 20, box.y + box.height * .1)
   assert.equal(await now(), 'lin')
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await tab('Settings')
   assert.equal(await choice('Show over the sound', 'Snap').getAttribute('aria-pressed'), 'true')
   await choice('Show over the sound', 'Snap').click()
   assert.equal(await choice('Show over the sound', 'Snap').getAttribute('aria-pressed'), 'false')
-  await page.keyboard.press('Escape')
   await page.waitForTimeout(600)
   await page.reload()
   await wholeLevels().waitFor()
@@ -4634,6 +4688,29 @@ test('editor: the spectrogram\'s frequency scale from its tab or a right-click, 
 })
 
 // Colour in a screenshot of the plot: the largest spread between a pixel's channels, and brightness along a column.
+// The grid as it shows (window.__shown): the plot's screenshot with it less one with Grid: None, the grid being drawn in
+// the waveform's canvas, under the waveform (view.js paintGrid); { k (device px a CSS px), w, h, d (each pixel's largest
+// difference over its channels) }. `name`, the grid set now, set again after
+async function gridShown(name) {
+  const shot = async () => (await page.locator('.plot').screenshot()).toString('base64'), set = async g => { await settings('Grid', g); await page.mouse.move(2, 2); await page.waitForTimeout(200) }
+  const on = await shot()
+  await set('None')
+  const off = await shot()
+  await set(name)
+  await page.evaluate(async ([a, b, width]) => {
+    const read = async src => {
+      const img = new Image()
+      img.src = 'data:image/png;base64,' + src
+      await img.decode()
+      const c = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height }), g = c.getContext('2d')
+      g.drawImage(img, 0, 0)
+      return g.getImageData(0, 0, c.width, c.height)
+    }
+    const [p, q] = [await read(a), await read(b)], d = new Uint8Array(p.width * p.height)
+    for (let i = 0; i < d.length; i++) d[i] = Math.max(Math.abs(p.data[i * 4] - q.data[i * 4]), Math.abs(p.data[i * 4 + 1] - q.data[i * 4 + 1]), Math.abs(p.data[i * 4 + 2] - q.data[i * 4 + 2]))
+    window.__shown = { k: p.width / width, w: p.width, h: p.height, d }
+  }, [on, off, (await page.locator('.plot').boundingBox()).width])
+}
 async function pixels(fn, arg) {
   const png = await page.locator('.plot').screenshot()
   return page.evaluate(async ([b64, src, arg]) => {
@@ -4672,9 +4749,9 @@ audio.from([tone(1000, .5), tone(4000, .05)], { sampleRate: 48000 })`)
   const brightest = async () => pixels(`const k = w / arg.width, x = Math.round(arg.x * k)
     return arg.lanes.map(([a, b]) => { let top = 0, at = 0; for (let y = Math.ceil(a * k); y < Math.floor(b * k); y++) { const v = d[(y * w + x) * 4 + 1]; if (v > top) { top = v; at = y } } return [(at + .5) / k, top] })`, { width: box.width, x: (box.width - (await gutter())) / 2, lanes })
   for (const scale of ['log', 'mel']) {
-    // the spectrogram's tab again: its frequencies on the next scale, octaves to mel
+    // its frequencies on the next scale, octaves to mel
     if (scale === 'mel') {
-      await page.getByRole('tab', { name: 'Spectrogram', exact: true }).click()
+      await settings('Frequency scale', 'Mel')
       await page.waitForTimeout(300)
     }
     const [[y1, loud], [y4, quiet]] = await brightest()
@@ -4760,8 +4837,9 @@ test('editor: output and bar are one block, the panel docked at the output\'s ri
   assert.ok(await edits(), 'a panel stored under an old name opens on the edits')
 })
 
-// Shows the waveform or the spectrogram, by its tab
-const show = name => page.getByRole('tab', { name: name === 'spec' ? 'Spectrogram' : 'Waveform', exact: true }).click()
+// Shows the waveform or the spectrogram, by its tab (shown, it stays); which one shows, by its tab
+const show = async name => { const t = page.getByRole('tab', { name: name === 'spec' ? 'Spectrogram' : 'Waveform', exact: true }); if (await t.getAttribute('aria-selected') !== 'true') await t.click() }
+const shown = () => page.locator('.status .display [aria-selected="true"]').getAttribute('aria-label')
 
 test('editor: a box on the spectrogram selects a band, plays it alone, and Delete writes spectral() for it', async () => {
   await open()
@@ -4788,12 +4866,12 @@ test('editor: a box on the spectrogram selects a band, plays it alone, and Delet
   await show('wave')
   assert.doesNotMatch(await readout(), /Hz/)
   assert.match(await page.locator('button.play').evaluate(tipOf), /^Play the selection/)
-  // its tab again leaves it shown, its frequencies on the next scale; round again (mel, ERB, hertz), on octaves
+  // the spectrogram again, its frequencies on another scale from its dropdown (mel), then on octaves again
   await show('spec')
-  await show('spec')
-  assert.equal(await page.getByRole('tab', { name: 'Spectrogram', exact: true }).getAttribute('aria-selected'), 'true')
+  await settings('Frequency scale', 'Mel')
+  assert.equal(await shown(), 'Spectrogram')
   assert.equal(await page.locator('.plot').getAttribute('data-scale'), 'mel')
-  for (let i = 0; i < 3; i++) await show('spec')
+  await settings('Frequency scale', 'Octaves')
   assert.equal(await page.locator('.plot').getAttribute('data-scale'), 'log')
   await page.keyboard.press('Escape')
   await boxDrag([x(.5), box.y + box.height * .3], [x(1) - x(.5), box.height * .2])
@@ -4969,7 +5047,7 @@ test('editor: a sound longer than the page holds sounds under the caret as it is
   }
 })
 
-test('editor: the caret drags like an edge, from its line or anywhere on the time row, and the moment under it sounds while held', async () => {
+test('editor: the caret drags like an edge from its line, a press on the time row puts it there, and the moment under it sounds while held', async () => {
   await page.addInitScript(tap)
   await open()
   const { box, x } = await axis(6.525), row = box.y + box.height - 8, lane = box.y + box.height / 2
@@ -5025,6 +5103,29 @@ test('editor: the caret drags like an edge, from its line or anywhere on the tim
   let apart = Infinity
   for (let i = 0; i < 30 && apart > .5; i++) { await page.waitForTimeout(100); apart = await gap(await markShot(), rest) }
   assert.ok(apart <= .5, `the mark comes back to the logo, ${apart} apart`)
+})
+
+// The time row is a ruler, as a DAW's: dragged, it selects from where it was pressed; clicked, the caret goes there
+// alone, what is selected staying; held still half a second (HOLD, view.js, as Play's), the caret, dragged, the
+// selection staying; with Alt, another range beside it
+test('editor: a drag on the time row selects, a click there moves the caret alone, held it drags the caret', async () => {
+  await open()
+  await noCues()
+  const { box, x } = await axis(6.525), row = box.y + box.height - 8
+  const caret = async () => { const [m, s] = (await page.locator('.time').innerText()).split(':'); return +m * 60 + +s }
+  const along = async (a, b, wait = 0) => { await page.mouse.move(x(a), row); await page.mouse.down(); await page.waitForTimeout(wait); for (let i = 1; i <= 8; i++) await page.mouse.move(x(a + (b - a) * i / 8), row); await page.mouse.up() }
+  await along(1, 3)
+  const range = await selected(), [a, b] = range.split('–').map(t => +t.split(':')[1])
+  assert.ok(Math.abs(a - 1) < .03 && Math.abs(b - 3) < .03, `dragged, a range: ${range}`)
+  assert.equal(await page.locator('.plot').evaluate(el => el.style.cursor), '', 'the I-beam over it, as over the lanes: it selects')
+  await page.mouse.click(x(5), row)
+  assert.ok(Math.abs(await caret() - 5) < .03, `clicked, the caret there: ${await caret()}`)
+  assert.equal(await selected(), range, 'the range staying')
+  await along(4, 4.5, 700)
+  assert.ok(Math.abs(await caret() - 4.5) < .03, `held, the caret dragged: ${await caret()}`)
+  assert.equal(await selected(), range, 'no range made, the one there staying')
+  await keyed(['Alt'], () => along(5, 6))
+  assert.match(await page.locator('.clock').evaluate(tipOf), /^Selected 2 ranges:/, 'with Alt, another')
 })
 
 // Inside a selection the caret's line drags as it does without one, the selection kept; where a selection puts it, on
@@ -5265,8 +5366,7 @@ test('editor: a shared link restores the script; on a narrow screen the panel op
   const view = await page.locator('.view-slab').boundingBox(), chain = await page.locator('.side-slab').boundingBox(), bar = await page.locator('.status').boundingBox()
   assert.ok(chain.width >= view.width - 14 && chain.y >= bar.y + bar.height - 1 && bar.y >= view.y + view.height - 1, `under the output and its bar: ${JSON.stringify(chain)} under ${JSON.stringify(view)}`)
   assert.ok(Math.abs(chain.height - view.height) < 2, 'as tall as the picture')
-  for (const name of ['Code', 'Export']) assert.ok(await page.getByRole('tab', { name, exact: true }).isVisible(), name)
-  assert.ok(await page.getByRole('button', { name: 'Settings', exact: true }).isVisible())
+  for (const name of ['Code', 'Export', 'Settings']) assert.ok(await page.getByRole('tab', { name, exact: true }).isVisible(), name)
   assert.ok(await page.getByRole('button', { name: 'Undo', exact: true }).isVisible())
 })
 
@@ -6383,9 +6483,7 @@ test('editor: the level axis reads in dB or sample values, and zooms', async () 
   await page.waitForTimeout(300)
   assert.ok(await height() > before * 1.5, 'small steps zoom in')
   // in sample values: the pointer on the lane's top edge reads 1
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await choice('Levels in', 'Sample values').click()
-  await page.keyboard.press('Escape')
+  await settings('Levels in', 'Sample values')
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')).levels), 'linear')
 })
 
@@ -6960,8 +7058,8 @@ test('editor: no handles while it plays', async () => {
   await page.getByRole('button', { name: 'Play' }).waitFor()
 })
 
-// A selection, as a text's: the arrows move the caret and keep it; a press on the time row moves only the caret, as
-// Audacity's; Play goes on from the caret inside it, and paused, from where it paused; a click inside it, as anywhere,
+// A selection, as a text's: the arrows move the caret and keep it; a click on the time row moves only the caret, as
+// a ruler's; Play goes on from the caret inside it, and paused, from where it paused; a click inside it, as anywhere,
 // leaves the caret there alone
 test('editor: the caret moves within a selection from the time row or the arrows; Play goes on from it; a click drops it', async () => {
   await open()
@@ -7635,9 +7733,10 @@ test('editor: zoomed in, the scrollbar at the time row\'s foot moves the view, t
   // the thumb's middle, where the view shows
   const thumb = t => box.x + (t + span / 2) / 8 * w
   // drawn as the page's scrollbars draw theirs (editor.css): 6 px thick, 2 px off the foot, the same under the pointer.
-  // The overlay's rows lit down the thumb's middle, in its last 10 px: [thick, off], CSS px
+  // The rows lit down the thumb's middle on its strip (view.js onStrip, the view's width, to the foot), in its last 10 px:
+  // [thick, off], CSS px
   const drawn = () => page.evaluate(px => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => {
-    const cv = document.querySelector('.plot canvas.overlay'), k = cv.width / cv.getBoundingClientRect().width, { data } = cv.getContext('2d').getImageData(Math.round(px * k), 0, 1, cv.height), rows = []
+    const cv = document.querySelector('.plot canvas.scrollbar'), k = cv.width / cv.getBoundingClientRect().width, { data } = cv.getContext('2d').getImageData(Math.round(px * k), 0, 1, cv.height), rows = []
     for (let y = cv.height - Math.round(10 * k); y < cv.height; y++) if (data[y * 4 + 3] > 0) rows.push(y)
     done([rows.length / k, (cv.height - 1 - rows.at(-1)) / k])
   }))), thumb(before) - box.x)
@@ -7709,6 +7808,8 @@ test('editor: a view kept for a file no longer here gives way to the drop', asyn
 test('editor: a file arriving on the spectrogram draws its spectrogram as it comes', async () => {
   await open()
   await show('spec')
+  // no grid, which is drawn in the waveform's canvas (view.js paintGrid): what that canvas shows is a waveform's
+  await settings('Grid', 'None')
   // an edit that waits for the whole file (normalize): what shows meanwhile is the file itself. Slower than the other
   // slow files (8 KB every 300 ms, 6.6 s in all), so a slow machine's first draw still finds it arriving
   await write(`audio('${origin}/slow/test/fixture.wav?ms=300').normalize()`)
@@ -7927,12 +8028,12 @@ test('editor: the record button records over the sound from the caret, into the 
   assert.equal(await page.locator('button.play').isDisabled(), true)
   // the clock runs from the caret, past the old end
   await page.waitForFunction(() => /^0:0(8\.[3-9]|9)/.test(document.querySelector('.time').textContent), null, { timeout: 15000 })
-  // the level meter by the lanes reads the microphone, not the sound where the caret was: its bar on the overlay, read as
-  // drawn (view.js, 7 px short of the level axis, --axis), up as it beeps and falling back between, by a fifth at
-  // least (its beeps half a second apart, a peak meter falls 6 dB between them: meters.js ballistics)
+  // the level meter by the lanes reads the microphone, not the sound where the caret was: its bar on the meters' strip
+  // (view.js onStrip), read as drawn (7 px short of the level axis, --axis), up as it beeps and falling back between,
+  // by a fifth at least (its beeps half a second apart, a peak meter falls 6 dB between them: meters.js ballistics)
   await page.waitForFunction(gutter => {
-    const c = document.querySelector('.plot canvas.overlay'), k = c.width / c.clientWidth, w = c.clientWidth - gutter
-    const d = c.getContext('2d').getImageData(Math.round((w - 7) * k), 10 * k, Math.round(3 * k), c.height - 40 * k).data
+    const o = document.querySelector('.plot canvas.overlay'), c = document.querySelector('.plot canvas.meters'), k = c.width / c.clientWidth, w = o.clientWidth - gutter
+    const d = c.getContext('2d').getImageData(Math.round((w - 7 - c.offsetLeft) * k), 10 * k, Math.round(3 * k), c.height - 40 * k).data
     let n = 0
     for (let i = 3; i < d.length; i += 4) if (d[i] > 60) n++
     const seen = globalThis.metered ??= { top: 0, down: false }
@@ -8063,11 +8164,7 @@ test('editor: a take draws while it records as its output does after', async () 
   const looks = [['spec'], ['wave'], ['wave', { Colour: 'Temperature', Fill: 'RMS' }]]
   for (const [view, wave] of looks) {
     await open()
-    if (wave) {
-      await page.getByRole('button', { name: 'Settings', exact: true }).click()
-      for (const [group, name] of Object.entries(wave)) await choice(group, name).click()
-      await page.keyboard.press('Escape')
-    }
+    if (wave) for (const [group, name] of Object.entries(wave)) await settings(group, name)
     await write('')
     await page.locator('.empty').waitFor()
     await page.getByRole('button', { name: 'Record', exact: true }).first().click()
@@ -8232,89 +8329,114 @@ test('editor: the tools set a voice\'s intonation and its formants, heard as the
   await page.waitForFunction(() => /\.formant\((2\.9\d?|3(\.0\d?)?), \{ at: 0\.5, d: 1 \}\)$/.test(scriptText()))
 })
 
-// The spectrogram's tab again: its frequencies on the next scale, octaves, mel, hertz, said by it a moment
-test('editor: the spectrogram\'s tab again turns its frequency scale, said by it', async () => {
+// The picture's switch as it was: the other picture's tab shows it; the one shown, pressed again, opens its dropdown
+// over it, as Figma's: how that picture draws, every group in sight, what the chosen one does said under it (the
+// waveform's units, colour, fill and channels; the spectrogram's scale, method, colours, gamma, range and FFT size).
+// The other tab pressed closes it; the tab again, a press outside or Esc too; the picture and its look are kept
+test('editor: the picture shown, its tab pressed again, opens its dropdown: how that picture draws, every group in sight', async () => {
   await open()
-  await show('spec')
-  const spec = page.getByRole('tab', { name: 'Spectrogram', exact: true })
-  assert.match(await spec.evaluate(tipOf), /^Spectrogram\nClick for mel$/)
-  await spec.click()
-  assert.equal(await page.locator('.hint').innerText(), 'Mel')
-  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').scale === 'mel')
-  await spec.click()
-  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').scale === 'erb')
-  await spec.click()
-  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').scale === 'lin')
-})
-
-// The settings, a dropdown under their button over the meter, not a panel and no levels to go through: a section a row,
-// folded to its name and what is chosen in it; unfolded, its groups, their choices, what the chosen one does said under
-// them, the section kept unfolded for the next time. How a held caret sounds is one of the lab's eight ways
-// (scrub-methods.js), kept. The button again closes it. How the pictures draw, a section each: the waveform's colour,
-// lanes, fill and levels, the spectrogram's method, scale, colours, gamma, range and FFT size
-test('editor: the settings are a dropdown of folded sections, what is chosen in each said, the pictures\' a section each', async () => {
-  await open()
-  const button = page.getByRole('button', { name: 'Settings', exact: true }), groups = () => page.locator('.dropdown .dropdown-label:visible').allInnerTexts()
-  const sections = () => page.locator('.dropdown .dropdown-title').allInnerTexts(), chosen = name => page.locator('.dropdown summary', { hasText: name }).locator('.dropdown-chosen').textContent()
-  const unfold = name => page.locator('.dropdown summary', { hasText: name }).click()
-  await button.click()
-  assert.equal(await button.getAttribute('aria-expanded'), 'true')
-  assert.equal(await page.locator('.side-slab').isVisible(), false, 'no panel')
-  assert.equal(await page.locator('.menubar-sub').count(), 0, 'no submenus')
-  assert.deepEqual(await sections(), ['View', 'Editing', 'Scrub and record', 'Waveform', 'Spectrogram'])
-  assert.deepEqual(await groups(), [], 'all folded at first')
-  assert.equal(await chosen('Scrub and record'), 'Vocoder + noise, Mono', 'what is chosen, in its row')
-  for (const name of ['View', 'Editing', 'Scrub and record', 'Waveform', 'Spectrogram']) await unfold(name)
-  assert.deepEqual(await groups(), ['Show over the sound', 'Times in', 'Time row', 'Scroll', 'Grid', 'Level steps', 'Splices', 'Scrub', 'Record in',
-    'Colour', 'Channels', 'Fill', 'Levels in', 'Method', 'Frequency scale', 'Colours', 'Gamma', 'Range', 'FFT size'])
-  assert.deepEqual(await page.locator('.dropdown').getByRole('group', { name: 'Frequency scale', exact: true }).getByRole('button').allInnerTexts(), ['Octaves', 'Mel', 'ERB', 'Hertz'])
-  const ways = page.locator('.dropdown').getByRole('group', { name: 'Scrub', exact: true }).getByRole('button')
-  assert.deepEqual(await ways.allInnerTexts(), ['Vocoder + noise', 'Vocoder', 'Random phase', 'Noisc bank', 'Noisc lines', 'Grains', 'Loop', 'Tape'])
-  const note = group => page.locator('.dropdown-group', { has: page.getByRole('group', { name: group, exact: true }) }).locator('.dropdown-note').innerText()
-  assert.match(await note('Scrub'), /^Tones keep their phase/)
-  await choice('Scrub', 'Tape').click()
-  assert.match(await note('Scrub'), /^A reel's head chasing the caret/, 'what the choice does, said at once')
-  assert.equal(await chosen('Scrub and record'), 'Tape, Mono')
-  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').scrub === 'tape')
-  // folded again, kept so
-  for (const name of ['View', 'Editing', 'Scrub and record', 'Spectrogram']) await unfold(name)
-  await button.click()
-  assert.equal(await page.locator('.dropdown:popover-open').count(), 0, 'its button again closes it')
-  assert.equal(await button.getAttribute('aria-expanded'), 'false')
+  const key = name => page.getByRole('tab', { name, exact: true }), dropdown = page.locator('.dropdown'), groups = () => dropdown.locator('.option-label').allInnerTexts()
+  const opened = () => page.locator('.dropdown:popover-open').count()
+  assert.equal(await shown(), 'Waveform')
+  assert.match(await key('Waveform').evaluate(tipOf), /^Waveform\nClick for how it draws$/)
+  await key('Waveform').click()
+  assert.equal(await key('Waveform').getAttribute('aria-expanded'), 'true')
+  const [b, d] = await Promise.all([key('Waveform').boundingBox(), dropdown.boundingBox()])
+  assert.ok(d.y + d.height <= b.y, 'over its tab')
+  assert.deepEqual(await groups(), ['Levels in', 'Colour', 'Fill', 'Channels'], 'the waveform\'s: its units, its colour, its fill, its channels')
+  assert.deepEqual(await dropdown.getByRole('group', { name: 'Fill', exact: true }).getByRole('button').allInnerTexts(), ['Density', 'Cloud', 'Body', 'RMS', 'Flat'], 'gl-waveform\'s three densities, its RMS band, its peaks')
+  // what a choice does in its tooltip, no line under the group; a colour with its preview
+  assert.match(await choice('Fill', 'Cloud').getAttribute('title'), /^A soft cloud/)
+  assert.equal(await dropdown.locator('.option-note').count(), 0)
+  // the colour a select, as Figma's: the one chosen named on it, its list each with its preview
+  assert.equal(await dropdown.getByRole('button', { name: 'Colour: One colour' }).count(), 1)
+  await dropdown.getByRole('button', { name: 'Colour: One colour' }).click()
+  const colours = page.getByRole('listbox', { name: 'Colour', exact: true })
+  assert.deepEqual(await colours.getByRole('option').allInnerTexts(), ['One colour', 'Temperature', 'Colormap'])
+  assert.equal(await colours.locator('.swatch').count(), 3, 'each its preview')
+  await colours.getByRole('option', { name: 'Temperature' }).click()
+  assert.equal(await colours.isVisible(), false, 'picked, the list closes')
+  assert.equal(await page.locator('.dropdown:popover-open').count(), 1, 'the dropdown stays')
+  assert.equal(await dropdown.getByRole('button', { name: 'Colour: Temperature' }).count(), 1)
+  await choice('Fill', 'RMS').click()
+  await key('Spectrogram').click()
+  assert.equal(await shown(), 'Spectrogram')
+  assert.equal(await opened(), 0, 'the other picture shown, the dropdown shut')
+  await key('Spectrogram').click()
+  assert.deepEqual(await groups(), ['Frequency scale', 'Method', 'Colours', 'Gamma', 'Range', 'FFT size'], 'the spectrogram\'s')
+  assert.deepEqual(await dropdown.getByRole('group', { name: 'Frequency scale', exact: true }).getByRole('button').allInnerTexts(), ['Hertz', 'Mel', 'ERB', 'Octaves'], 'plainest first')
+  assert.deepEqual(await dropdown.getByRole('group', { name: 'Method', exact: true }).getByRole('button').allInnerTexts(), ['Frames', 'Reassigned', 'By band', 'Tapers'])
+  assert.deepEqual(await page.getByRole('listbox', { name: 'Colours', exact: true, includeHidden: true }).getByRole('option', { includeHidden: true }).allTextContents(), ['Grey', 'Magma', 'Inferno', 'Viridis'], 'each colormap in a select, its preview by it')
+  // gamma, one quantity: a slider through its steps; moved, the look follows
+  const gamma = dropdown.getByRole('slider', { name: 'Gamma' })
+  assert.deepEqual(await dropdown.locator('.option-ticks span').allInnerTexts(), ['0.5', '0.75', '1', '1.5'])
+  await gamma.fill('0')
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').look?.gamma === .5)
+  await key('Spectrogram').click()
+  assert.equal(await opened(), 0, 'its tab again closes it')
+  assert.equal(await key('Spectrogram').getAttribute('aria-expanded'), 'false')
+  assert.equal(await page.locator('.plot').getAttribute('data-scale'), 'log', 'the scale as it was')
+  await page.waitForFunction(() => (s => s.display === 'spec' && s.wave?.fill === 'rms')(JSON.parse(localStorage.getItem('audio-repl') || '{}')))
   await page.reload()
   await wholeLevels().waitFor()
-  await button.click()
-  assert.deepEqual(await page.locator('.dropdown details[open] .dropdown-title').allInnerTexts(), ['Waveform'], 'what was unfolded, kept')
+  assert.equal(await shown(), 'Spectrogram', 'kept')
+  await key('Spectrogram').click()
   await page.mouse.click(10, 10)
-  assert.equal(await page.locator('.dropdown:popover-open').count(), 0, 'a press outside closes it')
-  await button.click()
+  assert.equal(await opened(), 0, 'a press outside closes it')
+  await key('Spectrogram').click()
   await page.keyboard.press('Escape')
-  assert.equal(await page.locator('.dropdown:popover-open').count(), 0, 'Esc closes it')
+  assert.equal(await opened(), 0, 'Esc closes it')
+})
+
+// The settings, the panels' last: a section each, as the export's forms, open at first, a press folding one, kept so:
+// its groups, their choices, what the chosen one does said under them. How a held caret sounds is one of the lab's
+// eight ways (scrub-methods.js), kept. How the pictures draw is theirs, in their dropdown, none of it here
+test('editor: the settings are a panel of sections, what holds everywhere, the pictures\' looks not among them', async () => {
+  await open()
+  const groups = () => page.locator('.settings .option-label:visible').allInnerTexts()
+  const sections = () => page.locator('.settings .panel-name').allInnerTexts(), fold = name => page.locator('.settings summary', { hasText: name }).click()
+  await tab('Settings')
+  assert.equal(await page.locator('.side-slab').getAttribute('aria-label'), 'Settings')
+  assert.deepEqual(await sections(), ['View', 'Editing', 'Scrub and record'])
+  assert.deepEqual(await groups(), ['Show over the sound', 'Times in', 'Time row', 'Scroll', 'Grid', 'Level steps', 'Splices', 'Scrub', 'Record in'], 'all open at first')
+  const ways = page.locator('.settings').getByRole('group', { name: 'Scrub', exact: true }).getByRole('button')
+  assert.deepEqual(await ways.allInnerTexts(), ['Vocoder + noise', 'Vocoder', 'Random phase', 'Noisc bank', 'Noisc lines', 'Grains', 'Loop', 'Tape'])
+  assert.match(await choice('Scrub', 'Vocoder + noise').getAttribute('title'), /^Tones keep their phase/, 'what each does, in its tooltip')
+  await choice('Scrub', 'Tape').click()
+  assert.equal(await choice('Scrub', 'Tape').getAttribute('aria-pressed'), 'true')
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').scrub === 'tape')
+  // folded, kept so
+  for (const name of ['View', 'Scrub and record']) await fold(name)
+  assert.deepEqual(await groups(), ['Level steps', 'Splices'])
+  await page.waitForTimeout(600)
+  await page.reload()
+  await wholeLevels().waitFor()
+  await tab('Settings')
+  assert.deepEqual(await groups(), ['Level steps', 'Splices'], 'what was folded, kept')
+  assert.equal(await page.locator('.settings').getByRole('group', { name: 'Frequency scale', exact: true }).count(), 0, 'no picture\'s look')
 })
 
 // How the spectrogram draws its frames (gl-spectrogram's methods): each a picture of its own, kept for the next visit;
-// ERB among the scales, the switch clicked again going through all four
-test('editor: the spectrogram\'s method draws a picture of its own, kept; its scales go round all four', async () => {
+// ERB among the scales, each of the four taken in turn
+test('editor: the spectrogram\'s method draws a picture of its own, kept; each of its four scales', async () => {
   await open()
   await show('spec')
   const plot = page.locator('.plot'), print = () => pixels(`let s = 0; for (let i = 0; i < d.length; i += 4 * 97) s = (s * 31 + d[i]) % 1000000007; return s`)
   await page.waitForTimeout(500)
   const pictures = new Set([await print()])
-  for (const method of ['Frames', 'Squeezed', 'By band', 'Tapers', 'Wigner–Ville']) {
-    await page.getByRole('button', { name: 'Settings', exact: true }).click()
-    await choice('Method', method).click()
-    await page.keyboard.press('Escape')
+  for (const method of ['Frames', 'By band', 'Tapers']) {
+    await settings('Method', method)
     await page.waitForTimeout(500)
     pictures.add(await print())
   }
-  assert.equal(pictures.size, 6, 'six methods, six pictures')
-  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')).look.method), 'wigner')
+  assert.equal(pictures.size, 4, 'four methods, four pictures')
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')).look.method), 'tapers')
   await page.reload()
   await wholeLevels().waitFor()
-  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')).look.method), 'wigner')
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')).look.method), 'tapers')
   const scales = []
-  for (let i = 0; i < 4; i++) { await show('spec'); scales.push(await plot.getAttribute('data-scale')) }
-  assert.deepEqual(scales, ['mel', 'erb', 'lin', 'log'])
+  for (const name of ['Hertz', 'Mel', 'ERB', 'Octaves']) { await settings('Frequency scale', name); scales.push(await plot.getAttribute('data-scale')) }
+  assert.deepEqual(scales, ['lin', 'mel', 'erb', 'log'])
 })
 
 // A number selected in the code: ↑ and ↓ step it by its last decimal's step, ten with Shift, still selected; what it
@@ -8339,10 +8461,10 @@ test('editor: a number selected in the code steps with the arrows, saying what i
   await page.locator('.hint', { hasText: /^fade out 0\.1s, 0s to 5s$/ }).waitFor()
 })
 
-// How the waveform draws, from a right-click on it (the settings, and the View menu): coloured by where its spectrum centres as a
-// colour temperature, 100 Hz at 1,800 K (a warm orange: more red than blue, on the black-body locus, Krystek 1985), its
+// How the waveform draws, from its dropdown (and the View menu): coloured by where its spectrum centres as a colour
+// temperature, 100 Hz at 1,800 K (a warm orange: more red than blue, on the black-body locus, Krystek 1985), its
 // channels in one lane
-test('editor: the waveform\'s look, from a right-click on it: coloured by its spectrum\'s warmth, its channels in one lane', async () => {
+test('editor: the waveform\'s look, from its dropdown: coloured by its spectrum\'s warmth, its channels in one lane', async () => {
   await open()
   await write(`audio.from(t => 0.8 * Math.sin(2 * Math.PI * 100 * t), { duration: 1, channels: 2 }).pan(-1)`)
   await lengthIs('0:01.000')
@@ -8351,11 +8473,9 @@ test('editor: the waveform\'s look, from a right-click on it: coloured by its sp
   const lit = () => pixels(`const out = [0, 0], tint = [0, 0]; for (let y = 0; y < h - 44; y++) for (let x = 0; x < w - 60; x++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 300) { const k = y < (h - 44) / 2 ? 0 : 1; out[k]++; tint[k] += d[i] - d[i + 2] } } return [...out, (tint[0] + tint[1]) / (out[0] + out[1] || 1)]`)
   const [upper, lower, grey] = await lit()
   assert.ok(lower < upper / 10 && Math.abs(grey) < 10, `split, grey: ${[upper, lower, grey]}`)
-  // the settings, the waveform's section of them
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await choice('Channels', 'One lane').click()
-  await choice('Colour', 'Temperature').click()
-  await page.keyboard.press('Escape')
+  // the waveform's dropdown
+  await settings('Channels', 'One lane')
+  await settings('Colour', 'Temperature')
   await page.waitForTimeout(500)
   const [top, bottom, red] = await lit()
   assert.ok(bottom > top / 2 && red > 40, `one lane, red: ${[top, bottom, red]}`)
@@ -8378,9 +8498,7 @@ test('editor: the waveform coloured in the spectrogram\'s colours, low at their 
   // the spectrogram's colours changed, the waveform's with them: viridis, its middle #21908d, a teal, its top #fde725,
   // a yellow (entries 128 and 255)
   await show('spec')
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await choice('Colours', 'Viridis').click()
-  await page.keyboard.press('Escape')
+  await settings('Colours', 'Viridis')
   await show('wave')
   await page.waitForTimeout(500)
   const [teal, yellow] = [await at(1 / 3), await at(2 / 3)]
@@ -8693,12 +8811,13 @@ let loud = audio.from([tone(330, .4), tone(330, .4)], { sampleRate: 48000 })`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await lengthIs('0:01.000')
   const { box, x } = await axis(1), row = box.y + box.height - 8, lane = k => box.y + (box.height - 22) * (k ? .75 : .25)
-  // a track pressed, then the caret dragged along the time row: that track heard
+  // a track pressed, then the caret held and dragged along the time row: that track heard
   const scrub = async k => {
     await page.mouse.click(x(.1), lane(k))
     await page.waitForTimeout(200)
     await page.mouse.move(x(.2), row)
     await page.mouse.down()
+    await page.waitForTimeout(600)
     await heard()
     for (let t = .2; t < .8; t += .03) { await page.mouse.move(x(t), row); await page.waitForTimeout(40) }
     const { peak } = await heard()
@@ -8906,22 +9025,22 @@ const out = l => process.stdout.write(JSON.stringify(l) + '\\n'), wait = ms => n
     // the agent's edit drawn over the picture as its card draws it; a pitch edit's, the pitch curve before it and after,
     // the spectrogram turned to, its look told so; gone once the script moves on
     assert.equal((await call('edit', { call: 'intonation(1.5)' })).result.ok, true)
-    assert.equal(await page.getByRole('tab', { name: 'Spectrogram' }).getAttribute('aria-selected'), 'true')
+    assert.equal(await shown(), 'Spectrogram')
     assert.match((await call('look')).result.text, /the pitch curve before your last edit, dashed, and after it$/)
     await call('undo')
     assert.doesNotMatch((await call('look')).result.text, /pitch curve/)
-    await page.getByRole('tab', { name: 'Waveform' }).click()
+    await show('wave')
     // the caret or a range put where it does not show comes into sight, as the user's own would
     await page.locator('.plot').focus()
     for (let i = 0; i < 4; i++) await page.keyboard.press('=')
-    const shown = async () => (await call('look')).result.text.match(/^([\d:.]+) to ([\d:.]+)/).slice(1).map(t => +t.split(':')[1])
-    const [a0, b0] = await shown()
+    const sight = async () => (await call('look')).result.text.match(/^([\d:.]+) to ([\d:.]+)/).slice(1).map(t => +t.split(':')[1])
+    const [a0, b0] = await sight()
     assert.ok(b0 - a0 < 2 && b0 < 5.5, `zoomed in: ${a0}–${b0}`)
     await call('select', { cursor: 5.5 })
-    const [a1, b1] = await shown()
+    const [a1, b1] = await sight()
     assert.ok(a1 <= 5.5 && 5.5 <= b1 && Math.abs(b1 - a1 - (b0 - a0)) < .01, `the caret in sight, the zoom kept: ${a1}–${b1}`)
     await call('select', { at: .5, d: 5 })
-    const [a2, b2] = await shown()
+    const [a2, b2] = await sight()
     assert.ok(a2 <= .5 && b2 >= 5.5, `a range longer than what shows, all of it: ${a2}–${b2}`)
     // the file as it opened, level-matched, then the output again
     assert.equal((await call('play', { original: true })).result.original, true)
@@ -8932,7 +9051,7 @@ const out = l => process.stdout.write(JSON.stringify(l) + '\\n'), wait = ms => n
     // a box of a band, on the spectrogram, which then shows
     const { result: boxed } = await call('select', { at: 1, d: 1, low: 1000, high: 3000 })
     assert.deepEqual([boxed.selection, boxed.band], [[1, 2], [1000, 3000]])
-    assert.equal(await page.getByRole('tab', { name: 'Spectrogram' }).getAttribute('aria-selected'), 'true')
+    assert.equal(await shown(), 'Spectrogram')
     assert.deepEqual((await call('state')).result.band, [1000, 3000])
     // scrubbed: the caret swept to where it ends, the moment under it sounding on the way
     assert.equal((await call('scrub', { at: 1, to: 2, d: .3 })).result.cursor, 2)
@@ -9608,7 +9727,7 @@ test('editor: a recording is mono, unless the settings say stereo', async () => 
   assert.match(await facts(), / mono 32-bit$/)
   await settings('Record in', 'Stereo')
   await page.reload()
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await tab('Settings')
   assert.equal(await choice('Record in', 'Stereo').getAttribute('aria-pressed'), 'true', 'kept')
 })
 

@@ -4,7 +4,7 @@
  * Zoomed out, every device-pixel column shows the exact min/max of its samples, joined to its neighbours, with an
  * inner RMS band. Zoomed in, an anti-aliased line runs through the samples, with dots once they are 6 CSS px apart.
  * Column statistics come from a min/max/sum² pyramid queried on the CPU in doubles; the GPU draws one quad per
- * viewport from a small texture of per-column (or per-sample) extents.
+ * viewport from a small texture of per-column (or per-sample) extents, shading only the rows each column can ink.
  */
 
 const B = 256        // samples per pyramid leaf
@@ -19,6 +19,8 @@ const EDGE = 1 / 3   // what of it is left at the column's extreme: a peak reach
 
 const ATTRS = { premultipliedAlpha: true, preserveDrawingBuffer: true, antialias: false, depth: false, stencil: false }
 const COLOR = [0.25, 0.45, 0.85, 1]
+
+const AT = `vec4 at(int i) { return texelFetch(data, ivec2(i & ${TW - 1}, i >> ${Math.log2(TW)}), 0); }`
 
 const VERT = `#version 300 es
 void main() { gl_Position = vec4(vec2(gl_VertexID & 1, gl_VertexID >> 1) * 2. - 1., 0, 1); }`
@@ -35,7 +37,7 @@ uniform float zero, fade;        // silence's y, device px; how much a column ho
 uniform vec4 color, rms, peaks;  // premultiplied
 out vec4 frag;
 
-vec4 at(int i) { return texelFetch(data, ivec2(i & ${TW - 1}, i >> ${Math.log2(TW)}), 0); }
+${AT}
 
 float seg(vec2 p, vec2 a, vec2 b) {
   vec2 ab = b - a, ap = p - a;
@@ -44,6 +46,10 @@ float seg(vec2 p, vec2 a, vec2 b) {
 
 void main() {
   vec2 p = gl_FragCoord.xy - origin;
+  // outside the rows the shape can reach in this column (texel count + x, #fill), nothing to draw: only pixels near the
+  // shape do the work
+  vec4 ex = at(count + int(p.x));
+  if (p.y < ex.x || p.y > ex.y) discard;
   float d = 1e9, e = 1e9, r = 0.; // distance to the shape, to the nearest sample; RMS coverage
   vec4 f = color;                  // dense: the fill at this level
   if (line == 0) {
@@ -64,9 +70,10 @@ void main() {
     if (dense.x > 0. && t.x <= t.y) {
       // how often noise of the column's RMS R is at this level, against at zero, g = e^(−(v/α)^β), v = y/R. The body in
       // color as often as that, the rest in peaks, which fades from the axis to EDGE of it at the column's extreme on
-      // that side, so the fill grades all the way out
+      // that side, so the fill grades all the way out. Within the line's half width of the axis, the line itself: a
+      // column under a pixel (silence, a signal far under it) is the zero line, never a shade of it
       float R = max(max(t.w - zero, zero - t.z), 1e-6), y = abs(p.y - zero), v = y / R;
-      float g = exp(-pow(v / dense.y, dense.x)), s = clamp(y / max(p.y > zero ? t.y - zero : zero - t.x, 1e-6), 0., 1.);
+      float g = y <= hw ? 1. : exp(-pow(v / dense.y, dense.x)), s = clamp(y / max(p.y > zero ? t.y - zero : zero - t.x, 1e-6), 0., 1.);
       f = mix(color, color * g + peaks * (1. - g) * (1. - ${1 - EDGE} * s), fade);
     }
     else r = clamp(min(t.w, p.y + .5) - max(t.z, p.y - .5), 0., 1.);
@@ -446,7 +453,7 @@ export default class Waveform {
     d.zero = y(0)
 
     if (spp > 1) {
-      let s = this.#columns(W), t = this.#texels(W), f = Math.min((spp - 1) / 3, 1)
+      let s = this.#columns(W), t = this.#texels(2 * W), f = Math.min((spp - 1) / 3, 1)
       for (let c = 0, k = 0, p = 0; c < W; c++, k += 5, p += 4) {
         let lo = s[k + 2], hi = s[k + 3], r = s[k + 4]
         if (lo > hi) { t[p] = t[p + 2] = 1; t[p + 1] = t[p + 3] = 0; continue }
@@ -462,7 +469,7 @@ export default class Waveform {
       let g = Math.ceil((Math.max(hw, d.rad) + .5) / pps) + 1
       let k0 = Math.max(Math.floor(r0) - g, 0), k1 = Math.min(Math.ceil(r1) + g, this.#n - 1)
       if (k1 < k0) return d
-      let t = this.#texels(k1 - k0 + 1)
+      let t = this.#texels(k1 - k0 + 1 + W)
       for (let k = k0, p = 0; k <= k1; k++, p += 4) {
         let v = this.#at(k)
         if (v === v) t[p] = t[p + 1] = y(v)
@@ -470,7 +477,20 @@ export default class Waveform {
       }
       d.count = k1 - k0 + 1; d.line = 1; d.off = k0 - r0
     }
-    d.rows = Math.ceil(d.count / TW)
+    // after them, per pixel column, the rows its fragments can ink: the texels FRAG reads there, a texel wider either
+    // side for float rounding, padded by the half line width or dot radius and a pixel; lo > hi where none is
+    let t = this.#buf, n = d.count, pad = Math.max(hw, d.rad) + 1, reach = (Math.max(hw, d.rad) + .5) * spp, R = Math.ceil(hw + .5)
+    for (let x = 0, q = n * 4; x < W; x++, q += 4) {
+      let j = (x + .5) * spp - d.off, a = d.line ? Math.floor(j - reach) - 1 : x - R - 1, b = d.line ? Math.ceil(j + reach) + 1 : x + R + 1
+      let lo = Infinity, hi = -Infinity
+      for (let i = Math.max(a, 0), e = Math.min(b, n - 1); i <= e; i++) {
+        let l = t[4 * i], h = t[4 * i + 1]
+        if (l <= h) { if (l < lo) lo = l; if (h > hi) hi = h }
+      }
+      if (lo <= hi) t[q] = lo - pad, t[q + 1] = hi + pad
+      else t[q] = 1, t[q + 1] = 0
+    }
+    d.rows = Math.ceil((n + W) / TW)
     return d
   }
 

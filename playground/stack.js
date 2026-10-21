@@ -2,6 +2,7 @@ import { ops, methods, format, fromManifest, reshapes, labelOf, icons } from './
 import opIcons from './icons.js'
 import { chain, setArg, number, offCalls, turnOff, turnOn, groups, steps as stepsOf, moveStep, moveLines, group as groupSteps, ungroup, renameGroup, upTo, sharing, unsplit } from './code.js'
 import { help, layout } from './help.js'
+import { SLOP } from './view.js'
 
 // The edits: the chain's steps as cards, in order, as Luminar's edits or a history panel; the same chain as the code,
 // as controls, a rack of cards as mel's modules. The sound it starts from is the first card (the file opened, or
@@ -151,7 +152,7 @@ export default function stack(root, { ed, describe = async () => null, duration 
     let moved = false, to = from
     const move = e => {
       const dy = e.clientY - y0
-      if (!moved && Math.abs(dy) < 4) return
+      if (!moved && Math.abs(dy) < SLOP) return
       moved = true
       self.li.classList.add('dragging')
       self.li.style.transform = `translateY(${dy}px)`
