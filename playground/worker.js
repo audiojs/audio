@@ -9,7 +9,7 @@ import { LOAD } from '../core.js'
 import plugins from 'editor:plugins'
 import { attacks, rises } from '../fn/hits.js'
 import { steadyTempo } from '../fn/beat.js'
-import { contour as pitchOf } from '../fn/pitch-detect.js'
+import { contour as pitchOf, harmony } from '../fn/pitch-detect.js'
 import { expose } from '../worker.js'
 import { heard } from './heard.js'
 import { fft } from 'fourier-transform'
@@ -1192,8 +1192,8 @@ async function contour({ output, track }) {
   return p.contour ??= pitchOf(await mixdown(p), p.sampleRate)
 }
 
-// What the output holds, as a musician says it (the status bar): the note over `note` [from, to] s, the tempo and key
-// over `span`, each only where it is clear, else null.
+// What the output holds, as a musician says it (the status bar): the note over `note` [from, to] s, or, where chords
+// sound (chordsOf), the chords there; the tempo and key over `span`, each only where it is clear, else null.
 // The note: the pitch curve's frames over the range (contour(), every 10 ms; the whole one if it was asked for), at most
 // 2,000 (a median needs no more): past 20 s, a second at each of 20 places spread over it; where at least half are
 // voiced: their median [f], or, if their middle half spans more than a semitone, a melody's
@@ -1212,7 +1212,12 @@ async function listen({ output, note, span }) {
   else for (const [p, q] of n1 - n0 <= HEARD ? [[n0, n1]] : Array.from({ length: HEARD }, (_, k) => { const p = n0 + (n1 - n0 - 1) * k / (HEARD - 1); return [p, p + 1] }))
     f0.push(...pitchOf((await mixdown(r)).subarray(Math.round(p * rate), Math.round(q * rate)), rate).f0)
   const voiced = f0.filter(Boolean).sort((p, q) => p - q), at = q => voiced[Math.min(voiced.length - 1, Math.floor(q * voiced.length))]
-  const pitch = voiced.length * 2 < f0.length || !voiced.length ? null : 1200 * Math.log2(at(.75) / at(.25)) > 100 ? [at(.1), at(.9)] : [at(.5)]
+  const sung = voiced.length * 2 < f0.length || !voiced.length ? null : 1200 * Math.log2(at(.75) / at(.25)) > 100 ? [at(.1), at(.9)] : [at(.5)]
+  // the chords, where they sound (chordsOf), in place of the note: Chordino's labels in order, each once; none to read
+  // where it is not installed. A melody's compass stands: a pitch moving over a chroma frame
+  // (0.37 s) lights several pitch classes, as a chord does
+  const chords = sung?.length > 1 || n1 - n0 > MOST ? [] : (await chordsOf(r, n0, n1).catch(() => [])).map(c => c.label).filter((l, i, all) => l !== all[i - 1])
+  const pitch = chords.length ? null : sung
   const [a, b] = [Math.max(0, span[0]), Math.min(end, span[1])], key = `${a},${b}`
   r.heard ??= new Map()
   if (!r.heard.has(key)) r.heard.set(key, b - a < STEADY || b - a > MOST ? {} : await hearing(r.sound, async x => {
@@ -1223,7 +1228,49 @@ async function listen({ output, note, span }) {
       key: keys[0] && keys[0].label !== 'N' && keys.every(k => k?.label === keys[0].label) ? { tonic: keys[0].tonic, mode: keys[0].mode } : null
     }
   }))
-  return { pitch, ...r.heard.get(key) }
+  return { pitch, chords, ...r.heard.get(key) }
+}
+// The chords of an output over [a, b] s, in order: those of the blocks there (chordsIn), a chord only touching the range's
+// edge (a quarter second of it, or half of a shorter range) not counted
+async function chordsOf(r, a, b) {
+  const out = []
+  for (let k = Math.max(0, Math.floor(a / CHORDS)); k * CHORDS < Math.min(b, r.length / r.sampleRate); k++)
+    for (const c of (await chordsIn(r, k)).chords) if (Math.min(c.end, b) - Math.max(c.time, a) >= Math.min(.25, (b - a) / 2)) out.push(c)
+  return out
+}
+// The chords of an output's block k, CHORDS s from k·CHORDS (fn/pitch-detect.js harmony: Chordino on NNLS chroma), where
+// they sound: where most of a chord's chroma frames that are not silent (a tenth of the block's loudest at least) hold
+// three pitch classes or more, each a third of the frame's strongest at least; one note's NNLS chroma holds one (a
+// harmonic tone, a vowel), two notes two, a triad three. { from, to, chords: [{ label, time, end }] }, read once, with
+// PAD s either side, so the chord path has what comes before and after the block's edges as it would over all of it
+const CHORDS = 20, PAD = 4
+function chordsIn(r, k) {
+  r.chords ??= new Map()
+  if (!r.chords.has(k)) r.chords.set(k, hearing(r.sound, async x => {
+    const end = r.length / r.sampleRate, lo = k * CHORDS, hi = Math.min(end, lo + CHORDS), from = Math.max(0, lo - PAD)
+    const h = await harmony(x, { at: from, duration: Math.min(end, hi + PAD) - from })
+    const frames = h.treble.map((c, i) => ({ t: from + h.times[i], c, top: Math.max(...c) })).filter(f => f.t >= lo && f.t < hi)
+    const loud = Math.max(0, ...frames.map(f => f.top)) / 10
+    const sounds = (p, q) => {
+      const heard = frames.filter(f => f.t >= p && f.t < q && f.top > loud)
+      return heard.filter(f => f.c.filter(v => v >= f.top / 3).length >= 3).length * 2 > heard.length
+    }
+    const chords = h.chords.map(c => ({ label: c.label, time: Math.max(lo, from + c.time), end: Math.min(hi, from + c.time + c.duration) }))
+    return { from: lo, to: hi, chords: chords.filter(c => c.end > c.time && c.label !== 'N' && sounds(c.time, c.end)) }
+  }))
+  return r.chords.get(k)
+}
+// The chords of the output's block at `at` s (chordsIn), for the page to say as it plays
+async function chords({ output, at }) {
+  const r = await whole(output)
+  return r?.length ? await chordsIn(r, Math.max(0, Math.floor(at / CHORDS))).catch(() => null) : null
+}
+
+// A range of an output, [at, at + duration] s, as a WAV at `bitDepth`, for the system clipboard (editor.js clip): its
+// samples as rendered, encoded here, off the page's thread, as the page goes on
+async function wav({ output, at, duration, bitDepth }) {
+  const r = await whole(output)
+  return { bytes: r?.length ? await hearing(r.sound, a => a.encode('wav', { at, duration, bitDepth })) : null }
 }
 
 const CUTS = ['edl', 'otio', 'fcpxml']
@@ -1584,7 +1631,7 @@ const handlers = {
     for (const [k, r] of [...paused]) if (r.tab === tab) unpause(k)
     return { held: [...passes].some(p => p.tab === tab) }
   },
-  run: execute, cues, contour, listen, export: exporting, describe, check: checking, original, voice, samples, eval: evaluate,
+  run: execute, cues, contour, listen, chords, wav, export: exporting, describe, check: checking, original, voice, samples, eval: evaluate,
   // a tab closed: its output goes
   close: ({ tab }) => { newest.delete(tab); stopped.delete(tab); for (const r of outputs.values()) if (r.tab === tab) drop(r); for (const [k, r] of [...paused]) if (r.tab === tab) unpause(k); return {} },
   // a script's sound whole, as the edits make it there (the chain flattened up to a step): from the renders kept, as a
@@ -1603,6 +1650,6 @@ self.onmessage = async ({ data }) => {
   let reply
   try { reply = await handlers[data.type](data) }
   catch (error) { reply = { error: failure(error) } }
-  const transfer = data.type === 'original' || data.type === 'bake' || data.type === 'samples' ? reply.channels?.map(c => c.buffer) : data.type === 'export' ? reply.files?.map(f => f.bytes.buffer) : []
+  const transfer = data.type === 'original' || data.type === 'bake' || data.type === 'samples' ? reply.channels?.map(c => c.buffer) : data.type === 'export' ? reply.files?.map(f => f.bytes.buffer) : data.type === 'wav' && reply.bytes ? [reply.bytes.buffer] : []
   post({ id: data.id, ...reply }, transfer || [])
 }

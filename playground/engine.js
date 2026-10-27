@@ -259,6 +259,9 @@ export default function engine(url = WORKER) {
     contour: (output, track) => call({ type: 'contour', output, track }).then(r => r.f0 ? r : { times: [], f0: [] }),
     // what it holds, as a musician says it: the note over `note` [from, to] s, the tempo and key over `span`
     listen: (output, note, span) => call({ type: 'listen', output, note, span }),
+    chords: (output, at) => call({ type: 'chords', output, at }),
+    // [at, at + duration] s of an output as WAV bytes, at `bitDepth`; null once a newer output replaced it
+    wav: (output, at, duration, bitDepth) => call({ type: 'wav', output, at, duration, bitDepth }).then(r => r.bytes ?? null),
     export: request => call({ type: 'export', ...request, tab: self.tab }),
     // The spec's rules for the last output ({ output }, fn/check.js).
     check: spec => call({ type: 'check', spec, tab: self.tab }),

@@ -144,13 +144,18 @@ async function polyNotes(inst, { at, duration, channel, poly, frameSize, hopSize
 
 // ── Chords — Chordino on NNLS chroma ────────────────────────────
 
-audio.fn.chords = perChannel(async function(opts) {
+audio.fn.chords = perChannel(async function(opts) { return (await harmony(this, opts)).chords })
+
+/** stat('chords') of `inst` with the NNLS chroma it reads them from: { chords, times, treble }, frame k's treble chroma
+ *  (12 pitch classes from C) centred at times[k] s. The chroma tells a chord from one note, which Chordino names too
+ *  (a harmonic tone on A3 reads A): NNLS takes a note's overtones back to it, so one note keeps one pitch class. */
+export async function harmony(inst, opts) {
   let [{ default: chromagram }, { default: chordino }] = await loadChords()
-  let cg = await chromagramOf(this, opts, chromagram)
+  let cg = await chromagramOf(inst, opts, chromagram)
   // silence has no chords
-  if (!cg.treble.some(c => c.some(v => v > 0))) return []
-  return chordino(cg, { boostN: opts?.boostN, end: cg.end })
-})
+  let chords = cg.treble.some(c => c.some(v => v > 0)) ? chordino(cg, { boostN: opts?.boostN, end: cg.end }) : []
+  return { chords, times: cg.times, treble: cg.treble }
+}
 
 // ── Key — Krumhansl-Schmuckler on the mean chroma ───────────────
 

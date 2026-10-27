@@ -613,18 +613,23 @@ export function soundOf(code, name) {
   if (!tracks(code).some(t => t.name === name)) return null
   const was = focused
   focused = name
-  try {
-    const c = chain(code)
-    if (!c) return null
-    // each part, from the first's start and each copy's own steps on, its comments blanked
-    const out = c.parts.map((p, i) => {
-      const from = i ? p.head : p.expr.from, to = p.expr.to
-      let s = code.slice(from, to)
-      parse(code).iterate({ from, to, enter: ref => { if (quiet(ref) && ref.from >= from && ref.to <= to) s = s.slice(0, ref.from - from) + blank(text(code, ref)) + s.slice(ref.to - from) } })
-      return s
-    }).join('')
-    return out.replace(/\s*\n\s*/g, '').replace(/\)\s+\./g, ').')
-  } finally { focused = was }
+  try { return written(code) } finally { focused = was }
+}
+// The sound the page edits (chain(): the track edited) written out on one line, the sounds it copies written into it,
+// its comments and its sinks (save, play) left out: a piece of it read where none of its names are (soundOf, another
+// tab's paste); null for none
+export function written(code) {
+  const c = chain(code)
+  if (!c) return null
+  const out = []
+  parse(code).iterate({ from: c.parts[0].expr.from, to: c.expr.to, enter: ref => { if (quiet(ref)) out.push({ from: ref.from, to: ref.to }) } })
+  for (const k of c.calls) if (methods[k.name]?.sink) out.push({ from: k.dot, to: k.to })
+  // each part, from the first's start and each copy's own steps on, what is left out cut from it
+  return c.parts.map((p, i) => {
+    const from = i ? p.head : p.expr.from, to = p.expr.to
+    return out.filter(r => r.from >= from && r.to <= to && !out.some(q => q !== r && q.from <= r.from && r.to <= q.to)).sort((p, q) => q.from - p.from)
+      .reduce((s, r) => s.slice(0, r.from - from) + s.slice(r.to - from), code.slice(from, to))
+  }).join('').replace(/\s*\n\s*/g, '').replace(/\)\s+\./g, ').')
 }
 // The track the page edits in parts that sound as it did: `here` appended to it, and under it, for each of `there`, [base,
 // ...calls], a track of its own, named by `base` of its name, from what it was with those calls appended; { code, name },

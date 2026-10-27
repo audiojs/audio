@@ -7,7 +7,7 @@ import stack, { valuesOf } from './stack.js'
 import { mark as drawMark } from '../logo/mark.js'
 import recipes from './recipes.js'
 import { ops, methods, guides, previews, GROUPS, CURVES, fromManifest, reshapes, labelOf, icons as groupIcons } from './ops.js'
-import { prepare, error, bare, offCalls, append, source, chain, number, rollback, residual, setArg, unsetArg, declared, rename, inline, between, steps as stepsOf, stages, mixed, dropStep, moveStep, turnOff, turnOn, tracks as tracksOf, focus, toTrack, voiceTrack, stemTracks, soundOf, addTrack, dropTrack, master as masterOf, addMaster } from './code.js'
+import { prepare, error, bare, offCalls, append, source, chain, number, rollback, residual, setArg, unsetArg, declared, rename, inline, between, steps as stepsOf, stages, mixed, dropStep, moveStep, turnOff, turnOn, tracks as tracksOf, focus, toTrack, voiceTrack, stemTracks, soundOf, written, addTrack, dropTrack, master as masterOf, addMaster } from './code.js'
 import { builtins, sample, microphone, search, credit, unique } from './sources.js'
 import scales from './scale.js'
 import menubar from './menu.js'
@@ -342,6 +342,42 @@ const CLOSED = 20
 let closed = docsOf(stored.closed).slice(-CLOSED)
 // the files kept in this browser, name → File (hold)
 let shelf = new Map()
+// The clipboard every tab of the editor pastes from, in this window or another: the sound a range was copied from, written
+// out (code.js written), and the range, { sound, at, d, stamp }, stored in the browser as the last copy made anywhere.
+// The tab it was copied in (its `copied` stamp) pastes its own copy step (paste()); any other puts in that sound cropped
+// to the range (insert()), the same audio, made there from the same files and steps.
+// The system's clipboard gets the copy too (system)
+const CLIP = 'audio-repl-clip'
+const clipped = () => { try { const c = JSON.parse(localStorage.getItem(CLIP)); return typeof c?.sound === 'string' ? c : null } catch { return null } }
+const cropped = c => `${c.sound}.crop({ at: ${c.at}, d: ${c.d} })`
+function clip(range) {
+  if (spreading || !Array.isArray(range) || Array.isArray(range[0])) return
+  const cut = rk.ahead(), sound = written(cut ? applied(ed.code, cut) : ed.code), doc = docOf(state.tab)
+  if (!sound || !doc) return
+  const s = t => number(t, v.unit), c = { sound, at: s(range[0]), d: s(range[1] - range[0]), stamp: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }
+  try { localStorage.setItem(CLIP, JSON.stringify(c)); doc.copied = c.stamp } catch {}
+  system(cropped(c), range)
+}
+// The system's clipboard: the sound copied as code, the text pasted where text goes; and where the browser writes web
+// formats (Chrome), the range as a WAV, as Export writes it, for a page this one's storage does not reach (another
+// browser profile, an editor's webview, another site) to paste (pasting), up to WAV_MOST bytes (a quarter of an hour of
+// CD stereo; past it, the text alone). Encoded in the worker, handed to the clipboard as it comes: the key does not
+// wait for it
+const WAV = 'web audio/wav', WAV_MOST = 160e6
+const webWav = () => typeof ClipboardItem === 'function' && !!ClipboardItem.supports?.(WAV)
+function system(text, [a, b]) {
+  if (typeof ClipboardItem !== 'function') return void navigator.clipboard?.writeText(text).catch(() => {})
+  const s = state.sound, depth = writtenDepth('wav', state.encoding.bitDepth, s?.bits)
+  const wav = output && s && webWav() && (b - a) * s.hz * s.count * depth / 8 <= WAV_MOST
+    && eng.wav(output.id, a, b - a, depth).then(bytes => { if (!bytes) throw new Error('No output to copy.'); return new Blob([bytes], { type: 'audio/wav' }) })
+  navigator.clipboard.write([new ClipboardItem({ 'text/plain': new Blob([text], { type: 'text/plain' }), ...wav && { [WAV]: wav } })]).catch(() => navigator.clipboard.writeText(text)).catch(() => {})
+}
+// the clip this tab pastes by its sound: another tab's, or its own once its copy step is gone (undone); null where its
+// own copy step pastes it, or there is none
+const copies = () => !!chain(ed.code)?.calls.some(k => k.name === 'copy' || k.name === 'cut')
+const foreign = () => { const c = clipped(); return c && (c.stamp !== docOf(state.tab)?.copied || !copies()) ? c : null }
+const pastable = () => !!chain(ed.code) && (!!foreign() || copies())
+addEventListener('storage', e => { if (e.key === CLIP && ed) state.canPaste = pastable() })
 // what the output shows when not the whole chain (the stack): what live step `delta` takes out, or the chain rolled
 // back to its first `back` steps
 let viewing = { delta: null, back: null }
@@ -452,7 +488,7 @@ const state = sprae(root, {
     return `Selected ${what}: ${clock(length)}, ${Math.round(length * rate)} samples`
   },
   get plotHelp() {
-    return `${this.display === 'spec' ? 'Spectrogram' : 'Waveform'}. Click to put the caret and hear the moment there, by a marker's line on the marker; drag to select a time range, a dragged edge or caret going onto the cues and markers near it; double-click selects the fragment between its cues, triple-click the sound between its pauses. Shift sums: a press or a drag extends the selection to it. Alt adds: another caret, range or fragment; dragged inside the selection, a copy of its audio, put in where it lands; held, it measures: every cue to snap to, the pointer's place out to the axes, and how far it is from the selection, on the time row. ⌘ aims: held, the cue under the pointer, to drag; dragged inside the selection, its audio moves over what is there; a range's end sets its length; the cue under the pointer drags; on the spectrogram, a box of time and frequency; a drag aims finely. A caret's line or a range's edge drags, the others staying. On the time row, a press moves the caret alone, a drag selects, a hold drags the caret. A range's top corners fade it, outward crossfading; its pill sets its level, the tools at its foot a voice's pitch, intonation and formants; the square past its end trims, stretches or speeds it, a click on each turning it to the next; with none, the square past the caret opens silence. Right-click for the edits there; ⌘P finds any. The wheel scrolls; a pinch, or Ctrl and the wheel, zooms the frequencies or the levels over them and time elsewhere.${this.track ? ` Tracks, a lane each, play together: a press in a lane edits its track, a marker over it its own, a held caret there hears it alone; dragged on the time row, a range runs through every track, an edit of it each one's; ⌘-dragged into another track's lane, a selection's audio goes into that track; the speaker by its name mutes it; Move to a new track takes a selection to one of its own, Move the track to its own tab a track to a tab.` : ''}`
+    return `${this.display === 'spec' ? 'Spectrogram' : 'Waveform'}. Click to put the caret and hear the moment there, by a marker's line on the marker; drag to select a time range, a dragged edge or caret going onto the cues and markers near it; double-click selects the fragment between its cues, triple-click the sound between its pauses. Shift sums: a press or a drag extends the selection to it. Alt adds: another caret, range or fragment; dragged inside the selection, a copy of its audio, put in where it lands; held, it measures: every cue to snap to, the pointer's place out to the axes, and how far it is from the selection, on the time row. Dragged inside the selection, its audio moves over what is there. ⌘ aims: held, the cue under the pointer, to drag; a range's end sets its length; the cue under the pointer drags; on the spectrogram, a box of time and frequency; a drag aims finely. A caret's line or a range's edge drags, the others staying. On the time row, a press moves the caret alone, a drag selects, a hold drags the caret. A range's top corners fade it, outward crossfading; its pill sets its level, the tools at its foot a voice's pitch, intonation and formants; the square past its end trims, stretches or speeds it, a click on each turning it to the next; with none, the square past the caret opens silence. Right-click for the edits there; ⌘P finds any. The wheel scrolls; a pinch, or Ctrl and the wheel, zooms the frequencies or the levels over them and time elsewhere.${this.track ? ` Tracks, a lane each, play together: a press in a lane edits its track, a marker over it its own, a held caret there hears it alone; dragged on the time row, a range runs through every track, an edit of it each one's; dragged into another track's lane, a selection's audio goes into that track; the speaker by its name mutes it; Move to a new track takes a selection to one of its own, Move the track to its own tab a track to a tab.` : ''}`
   },
   // a tab opens the panel on it; the tab shown, again, closes it (its tabs stay, to open it again)
   setSide(name) { state.side = state.side === name ? null : name; store() },
@@ -621,9 +657,9 @@ v = view(root.querySelector('.plot'), {
   oncursor(t) { if (pl.playing) pl.play(plays(t)); else { state.time = stamp(t); meter(); pl.seek(t); listen(); later() } },
   // an edit made on the picture: true once it is written in the script
   // what a selection's handles and its audio dragged do, through every track the same, when it runs through them (spread)
-  onedit(type, detail) {
+  onedit(type, detail, data) {
     const act = { warp, envelope, pitch: shift, intonation: tone, formant, carry, tab: toTab, stretch, trim, lift, fade, crossfade, unmark, remark, relabel, pitchline, insert: silence }[type]
-    const run = () => !!(act ? act(detail, type) : editSelection(type, detail))
+    const run = () => !!(act ? act(detail, type) : editSelection(type, detail, data))
     return ['carry', 'stretch', 'trim', 'lift', 'fade', 'crossfade'].includes(type) && !detail?.into ? spread(run) : run()
   },
   // a handle clicked: its next way, in turn, as a tool's options cycle, no menu (a fade corner's curve, the grip's trim,
@@ -1119,7 +1155,7 @@ function show(result, syntax = false, names = [], coming = null) {
   if (syntax) return
   const line = e?.line && lineOf(ed.code, e.line)
   ed.errors(line ? [{ ...line, message: e.message }] : [])
-  state.canPaste = !!chain(ed.code)?.calls.some(c => c.name === 'copy' || c.name === 'cut')
+  state.canPaste = pastable()
   // an edit drawn ahead of its output that failed: the picture goes back to the output there is
   if (e) { v.expect(null); if (!state.hasOutput) entitle(names, false); return finished({ ok: false, problem }) }
   // exports follow the output the page shows: the last run that succeeded
@@ -1145,7 +1181,7 @@ function lineOf(code, n) {
 function retell({ lines, saves, names }) {
   Object.assign(state, { lines, saves, problem: '', missing: '' })
   ed.errors([])
-  state.canPaste = !!chain(ed.code)?.calls.some(c => c.name === 'copy' || c.name === 'cut')
+  state.canPaste = pastable()
   entitle(names, true)
 }
 // A run's end, for whoever waits on it (an agent's edit): the output's length, or what went wrong; the last (outcome)
@@ -1605,7 +1641,8 @@ function describe() {
   state.readoutTip = state.boxes > 1 || state.band ? '' : `RMS ${rms} dBFS`
 }
 // What the sound holds, as a musician says it (worker.js listen()), before its levels: the note under the caret or over
-// the selection, the tempo and key of the selection or of all of it, each only where it is clear; asked once the caret
+// the selection, or where chords sound, the chords there (at most four, in order), the tempo and key of the selection
+// or of all of it, each only where it is clear; asked once the caret
 // or the selection rests, and dropped if they have moved on since. A note's cents from 5 on: less is about the least
 // change of pitch heard (frequency DLs of 0.2–0.3% at mid frequencies, 3.5–5 cents: Moore, An Introduction to the
 // Psychology of Hearing, 6th ed., 2012, ch. 6), and as close as the pitch curve reads a steady tone (1 cent off on 440 Hz)
@@ -1618,14 +1655,33 @@ function listen() {
   listening = setTimeout(async () => {
     const r = await eng.listen(out.id, sel ? [...sel] : [at - .06, at + .06], sel ? [...sel] : [0, out.duration]).catch(() => null)
     if (!r || !now()) return
-    const { pitch, bpm, key } = r, over = sel ? 'the selection' : 'all of it'
-    const said = [pitch && (pitch.length > 1 ? `${noteOf(pitch[0], Infinity)}–${noteOf(pitch[1], Infinity)}` : noteOf(pitch[0], 5)), bpm && `${bpm} BPM`, key && `${NOTES[key.tonic]} ${key.mode}`].filter(Boolean)
+    const { pitch, bpm, key } = r, over = sel ? 'the selection' : 'all of it', chords = r.chords?.map(chordName)
+    const chord = chords?.length ? chords.slice(0, 4).join(' – ') + (chords.length > 4 ? ' …' : '') : null
+    const said = [pitch ? pitch.length > 1 ? `${noteOf(pitch[0], Infinity)}–${noteOf(pitch[1], Infinity)}` : noteOf(pitch[0], 5) : chord, bpm && `${bpm} BPM`, key && `${NOTES[key.tonic]} ${key.mode}`].filter(Boolean)
     state.heard = said.length ? {
       text: said.join(' · '),
-      title: [pitch && (pitch.length > 1 ? `Its notes, ${said[0]}: the pitch's range over the selection (pYIN, 10th to 90th percentile)` : `The note ${said[0]}: ${sel ? 'the pitch over the selection, its median' : 'the pitch at the caret'} (pYIN; A4 at 440 Hz)`),
+      title: [pitch ? pitch.length > 1 ? `Its notes, ${said[0]}: the pitch's range over the selection (pYIN, 10th to 90th percentile)` : `The note ${said[0]}: ${sel ? 'the pitch over the selection, its median' : 'the pitch at the caret'} (pYIN; A4 at 440 Hz)`
+        : chord && `${chords.length > 1 ? `The chords ${sel ? 'over the selection' : 'at the caret'}` : `The chord ${sel ? 'over the selection' : 'at the caret'}`}, ${chord} (Chordino on NNLS chroma)`,
         bpm && `${bpm} BPM, the tempo of ${over}: its halves agree within 4%`, key && `${NOTES[key.tonic]} ${key.mode}, the key of ${over} (Krumhansl-Schmuckler): its halves agree`].filter(Boolean).join('. ')
     } : null
   }, 250)
+}
+const chordName = label => label.replace(/#/g, '♯')
+// The chord at the playhead as it plays, in the status bar (worker.js chords): the output's chords a block at a time, the
+// one the playhead is in and the next a few seconds before it gets there, each asked for once; said as it changes
+let live = { id: null, blocks: [], asking: false, off: false, text: null }
+function chordAt(t) {
+  if (live.id !== output?.id) live = { id: output?.id, blocks: [], asking: false, off: false, text: null }
+  const has = at => live.blocks.some(b => at >= b.from && at < b.to), want = [t, t + 5].find(at => at < v.duration && !has(at))
+  if (want != null && live.id != null && !live.asking && !live.off) {
+    const was = live
+    was.asking = true
+    eng.chords(was.id, want).then(b => { was.asking = false; if (b) was.blocks.push(b); else was.off = true }, () => { was.asking = false; was.off = true })
+  }
+  const c = live.blocks.flatMap(b => b.chords).find(c => t >= c.time && t < c.end), text = c ? chordName(c.label) : null
+  if (text === live.text) return
+  live.text = text
+  state.heard = text ? { text, title: `The chord playing, ${text} (Chordino on NNLS chroma)` } : null
 }
 function setRecordIn(n) { state.recordIn = n; store() }
 function setUnits(name) {
@@ -1873,11 +1929,12 @@ async function togglePlay() {
 function chase() {
   cancelAnimationFrame(ticker)
   const follow = follower(), p = pl
+  live.text = undefined
   const tick = frame => {
     if (!p.playing || p !== pl) return
     const t = follow(p.time, frame ?? performance.now(), p.rate)
     v.speed = follow.speed
-    v.playhead = t; state.time = stamp(t); state.played = t / (v.duration || 1); meter(t)
+    v.playhead = t; state.time = stamp(t); state.played = t / (v.duration || 1); meter(t); chordAt(t)
     ticker = requestAnimationFrame(tick)
   }
   tick()
@@ -1909,9 +1966,27 @@ function onscrub(t, band) {
   sway()
 }
 
+// What is pasted at the carets `at`, the last first: the clip (another tab's sound cropped, or this tab's copy step)
+function paste(at) {
+  const c = foreign()
+  return !!write(at.map(t => c ? `insert(${cropped(c)}, { at: ${number(t, v.unit)}${splice()} })` : `paste(${number(t, v.unit)}${seam()})`).join('.'))
+}
+// ⌘V, the system's clipboard with it (`data`): audio files copied elsewhere (a Finder's) go in at the carets, as dropped
+// there; else the clip, where its text is what is there; else a WAV another page copied (system), read as the browser
+// lets it, the first time asking the person; the clip where there is none
+async function pasting(at, data) {
+  const files = [...data.files].filter(audible)
+  if (files.length) return openFiles(files, 'insert', at)
+  const c = clipped(), ours = text => !!c && text === cropped(c)
+  if (ours(data.getData('text/plain')) || !webWav()) return paste(at)
+  const item = await navigator.clipboard.read().then(items => items.find(i => i.types.includes(WAV)), () => null)
+  const wav = item && !ours(await item.getType('text/plain').then(b => b.text(), () => '')) && await item.getType(WAV).catch(() => null)
+  return wav ? openFiles([new File([wav], 'pasted.wav', { type: 'audio/wav' })], 'insert', at) : paste(at)
+}
+
 // Edits made on the picture become calls at the end of the output chain, their times to the view's precision. A band
 // selection edits only its frequencies.
-function editSelection(type, range = v.selection) {
+function editSelection(type, range = v.selection, data = null) {
   if (type === 'undo' || type === 'redo') return ed[type]()
   if (type === 'mark') return addMarker()
   if (type === 'track') return toTrackOf(Array.isArray(range?.[0]) ? range[0] : range)
@@ -1919,8 +1994,8 @@ function editSelection(type, range = v.selection) {
   if (type === 'stems') return stemsOut()
   // a paste at each caret, from the last back so each time holds for the ones before it
   if (type === 'paste') {
-    const at = Array.isArray(range?.[0]) ? range.map(r => r[0]) : v.carets.length ? v.carets : [v.cursor]
-    return !!write(at.sort((p, q) => q - p).map(t => `paste(${number(t, v.unit)}${seam()})`).join('.'))
+    const at = (Array.isArray(range?.[0]) ? range.map(r => r[0]) : v.carets.length ? v.carets : [v.cursor]).sort((p, q) => q - p)
+    return data ? !!pasting(at, data) : paste(at)
   }
   // a selection through every track: the same edit of each (spread)
   if (v.across && !spreading) return spread(() => editSelection(type, range))
@@ -1934,6 +2009,8 @@ function editSelection(type, range = v.selection) {
   if (!range) return
   if (type === 'quieter' || type === 'louder') return v.band ? bandLevel(type === 'louder' ? 1 : -1, range) : level(type === 'louder' ? 3 : -3, range)
   const [a, b] = range, s = t => number(t, v.unit), span = `{ at: ${s(a)}, d: ${s(b - a)} }`, band = v.band
+  // the clipboard holds the sound as it is before the cut
+  if (!band && (type === 'copy' || type === 'cut')) clip(range)
   const hz = band && `[${band.map(f => Math.round(f)).join(', ')}]`
   const call = band ? { remove: `spectral(${hz}, ${span})`, repair: `repair(${hz}, ${span})` }[type]
     : type === 'remove' || type === 'cut' ? `${type}({ at: ${s(a)}, d: ${s(b - a)}${splice()} })` : `${type}(${span})`
@@ -2488,11 +2565,12 @@ function note(text, kind = '') {
 // (`missing`) takes the one opened for it (Open it…), or one by its name, and the script runs again.
 // `track`: those picked open as tracks of their own, under the one edited
 let relink = '', asTrack = false
+const audible = f => /^(audio|video)\//.test(f.type) || /\.(wav|mp3|flac|ogg|oga|opus|m4a|aac|aiff?|caf|webm|mp4|mov|wma|amr|mka)$/i.test(f.name)
 function pickFiles(missing = '', track = false) { closeMenus(); relink = typeof missing === 'string' ? missing : ''; asTrack = track === true; root.querySelector('.file-input').click() }
 async function openFiles(list, how = 'new', at = null) {
   root.querySelector('.file-input').value = ''
   if (asTrack) { asTrack = false; how = 'track' }
-  const files = list.filter(f => /^(audio|video)\//.test(f.type) || /\.(wav|mp3|flac|ogg|oga|opus|m4a|aac|aiff?|caf|webm|mp4|mov|wma|amr|mka)$/i.test(f.name))
+  const files = list.filter(audible)
   const into = relink || files.find(f => f.name === state.missing) && state.missing
   relink = ''
   if (!files.length) return note(list.length ? 'Those are not audio files.' : '')
@@ -2568,8 +2646,8 @@ function place(names, how, at = null) {
   const code = ed.code, list = names.map(quote)
   const expr = list.length > 1 ? `[${list.join(', ')}]` : list[0]
   if (how === 'at' && at != null) return ed.change({ from: at, insert: `audio(${expr})` })
-  // in at a time on the picture, the seams crossfaded as an edit's are
-  if (how === 'insert' && at != null && chain(code)) return write(`insert(audio(${expr}), { at: ${number(at, v.unit)}${splice()} })`)
+  // in at a time on the picture (at each of several, the last first), the seams crossfaded as an edit's are
+  if (how === 'insert' && at != null && chain(code)) return write([at].flat().map(t => `insert(audio(${expr}), { at: ${number(t, v.unit)}${splice()} })`).join('.'))
   // each a track of its own, under the one edited, the last of them edited after
   if (how === 'track' && chain(code)) {
     const made = tracked(code, names)

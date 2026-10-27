@@ -25,7 +25,8 @@ import kept from './kept.js'
 // they hit, the markers), or the pause it is in, a triple-click the sound between the pauses either side; however made, a
 // selection puts the caret at its start, the pointer an I-beam: a range is of time, no box. What there is stays when a
 // press takes it: a caret's line, any of them, drags the caret; a range's edge, any of them, drags it, lighting when a
-// press would take it, and meeting the other edge leaves a caret. The time row is a ruler, as a DAW's: pressed, the
+// press would take it, and meeting the other edge leaves a caret; inside it, a drag moves its audio, as selected text
+// is dragged, the pointer a hand. The time row is a ruler, as a DAW's: pressed, the
 // caret goes there alone, what is selected staying (Reaper's); dragged, a range; held still, the caret, dragged. The
 // keys say how, the same everywhere, each its pointer: Shift sums (the selection, or the caret, extended to the press
 // at once from where it was begun, as in a text, a drag going on with it; the I-beam with a chevron the way it goes).
@@ -33,7 +34,7 @@ import kept from './kept.js'
 // copy of its audio, Finder's and Figma's Alt-drag; the I-beam with a plus), and measures, as Figma's Alt does: held,
 // the pointer a cross, every cue showing where a press would snap, the pointer's place dashed out to the axes in the
 // measuring red, and how far it is from what is selected, a line along the time row, its length on it. ⌘ (Ctrl) aims
-// and empowers: held, the pointer a cross, the cue under it lit; what a press does: inside the selection its audio moves (Finder's ⌘-drag); a range's end sets its length, as its grip does; the cues light and
+// and empowers: held, the pointer a cross, the cue under it lit; what a press does: a range's end sets its length, as its grip does; the cues light and
 // drag, the audio either side stretching; on the spectrogram a press makes a box of time and frequency, a band, as
 // Photoshop's selections; and any drag aims finely (its moves a quarter as far, nothing snapping).
 // A pressed or dragged time goes onto a cue (shown or not) or a marker within a few pixels of it, which lights, as
@@ -55,8 +56,9 @@ import kept from './kept.js'
 // The view never changes audio: edits go to the script through `onedit`.
 // GAP between lanes is 2 px, as between the pictures and the meters. GUTTER holds the axis labels at most, seven
 // characters (a frequency marked zoomed far in, 1.005k); the axis is as wide as the labels it has (axisWidth), five at
-// full scale. STICK, how near a dragged time goes onto a cue or a marker
-const GUTTER = 48, RULER = 22, GAP = 2, EDGE = 6, SNAP = 6, STICK = 3, INSET = 3, NOTCH = Math.log(1.5)
+// full scale. STICK, how near a dragged time goes onto a cue or a marker, and the levels zoomed onto full scale: either
+// side, a 10 px reach
+const GUTTER = 48, RULER = 22, GAP = 2, EDGE = 6, SNAP = 6, STICK = 5, INSET = 3, NOTCH = Math.log(1.5)
 // A track's band, with tracks: its head (HEAD px, its name and its mute) over its lane, the bands APART px apart, so a
 // track never reads as a channel (channels are lanes GAP apart, no head)
 const HEAD = 18, APART = 10
@@ -101,9 +103,9 @@ export function stylize(times, f0, res = 2) {
 // selection, the sound under it as it is dragged (iOS's loupe); on Play the speed's line. Moved SLOP px before that, it
 // is a drag: a range, a handle, a card, a tab, Play's search. Whatever else holds or drags takes these
 export const HOLD = 500, SLOP = 3
-// Pointers of their own: a stretch's arrows out from a wave, time pulled longer (the resize arrows are the edges')
+// Pointers of their own: a stretch's, its two ends pushed apart, arrows out to bars (the resize arrows are the edges')
 const pointer = (path, hx = 12, hy = 12) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='none' stroke-linecap='round' stroke-linejoin='round'><path d='${path}' stroke='white' stroke-width='4'/><path d='${path}' stroke='black' stroke-width='1.5'/></svg>`)}") ${hx} ${hy}`
-const STRETCH = `${pointer('M5 8.5 1.5 12 5 15.5M19 8.5l3.5 3.5-3.5 3.5M5 12c1.75-4.5 5.25-4.5 7 0s5.25 4.5 7 0')}, ew-resize`
+const STRETCH = `${pointer('M3 7v10M21 7v10M7 12h10M10 9l-3 3 3 3M14 9l3 3-3 3')}, ew-resize`
 // Shift's, the I-beam with a chevron the way the selection goes out to it; Alt's, with a plus: another
 const EXTEND = [`${pointer('M5 9l3 3-3 3M13 5h4M15 5v14M13 19h4', 15)}, text`, `${pointer('M19 9l-3 3 3 3M7 5h4M9 5v14M7 19h4', 9)}, text`]
 const ADD = `${pointer('M7 5h4M9 5v14M7 19h4M17 13v6M14 16h6', 9)}, copy`
@@ -1006,10 +1008,10 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     // each square on whole pixels, so crisp at any pixel ratio, notched: flush with the top and with the line it sits by,
     // never over it: the caret's, which a range's start has (a pixel wide, its first); a range's end, its last pixel,
     // lit only as it would move, then drawn over the square (paintEdge)
-    // in each lane, a square's height off its foot: off the middle, where the sound is, and away from the fades at the
-    // top; low, as others stretch from low (Audacity's clip handles: the top pair trims, the lower pair, a clock on it,
-    // sets the speed; Cubase and Nuendo stretch from an event's lower corners). By the square's left
-    const lower = left => all.map(([, y, , lh]) => [left + h, Math.round(y + lh - BOX * 1.5)])
+    // in each lane, in the middle of its lower half: off the centre line, where the sound is, and away from the fades at
+    // the top; low, as others stretch from low (Audacity's clip handles: the top pair trims, the lower pair, a clock on
+    // it, sets the speed; Cubase and Nuendo stretch from an event's lower corners). By the square's left
+    const lower = left => all.map(([, y, , lh]) => [left + h, Math.round(y + lh * 3 / 4)])
     if (band || playhead != null || drag?.carry || drag?.stretch || drag?.lift || drag?.pill) return []
     const [a, b] = handled(), xa = X(a), xb = X(b), out = []
     // a caret: silence to pull open where the grip would be, a stretch of nothing; at the end, where there is no room
@@ -2135,14 +2137,15 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
   // The levels at the right of a waveform lane, and its meter: that lane, else null
   const onLevels = (px, py, L = lanes()) => px > plot().w - (meters && show.meters ? 10 : 0) ? L.wave.find(r => py >= r[1] && py <= r[1] + r[3]) ?? null : null
   // Zoom the levels around the value u, which stays where it is on screen: from a thousandth of full scale across to
-  // eight times it, stopping at full scale on the way (a zoom that reaches it or passes it lands on -1..1 exactly, the
-  // next leaves it).
+  // eight times it, held at full scale on the way, a detent: a zoom that crosses it, or brings its line within STICK px of
+  // the lane's edge (`lh` px tall), lands on -1..1 exactly, and stays there until the zoom gathered there (`pull`) takes
+  // the line past STICK px again; a pinch's last small steps as the fingers lift leave it where it is.
   // Zoomed in, what shows stays within full scale; zoomed out, it is centred on 0, what goes over either side.
-  function zoomLevels(factor, u = (aview[0] + aview[1]) / 2) {
-    const [lo, hi] = aview, was = hi - lo
-    let span = Math.max(2e-3, Math.min(8, was * factor))
-    // onto full scale only on the way to it: a step that crosses it or comes within 6% of it; leaving it, never back
-    if (was !== 2 && ((was - 2) * (span - 2) < 0 || Math.abs(span - 2) < .12 && Math.abs(span - 2) < Math.abs(was - 2))) span = 2
+  let pull = 1
+  function zoomLevels(factor, u, lh) {
+    const [lo, hi] = aview, was = hi - lo, to = Math.max(2e-3, Math.min(8, (was === 2 ? 2 * pull : was) * factor))
+    const held = Math.abs(lh / to - lh / 2) <= STICK || was !== 2 && (was - 2) * (to - 2) < 0, span = held ? 2 : to
+    pull = held && was === 2 ? to / 2 : 1
     const a = span >= 2 ? -span / 2 : u - (u - lo) / was * span
     scrollLevels(a, span)
   }
@@ -2162,7 +2165,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
       // a pinch zooms time; on the frequencies, the frequencies; on the levels, the levels
       const pinch = [...pointers.values()], mid = [(pinch[0][0] + pinch[1][0]) / 2, (pinch[0][1] + pinch[1][1]) / 2], rect = onFreqs(...mid)
       const levels = onLevels(...mid)
-      drag = { pinch, range: [start, end], fview, u: rect ? uy(rect, mid[1]) : null, levels: levels && aview, value: levels && ya(levels, mid[1]) }
+      drag = { pinch, range: [start, end], fview, u: rect ? uy(rect, mid[1]) : null, levels: levels && aview, value: levels && ya(levels, mid[1]), lh: levels?.[3] }
       return
     }
     // on the scrollbar, the view dragged: pressed beside the thumb, it centres there first
@@ -2208,17 +2211,18 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
   // any of them, drags it, the others staying, and meeting the range's other edge it leaves the caret there; anywhere
   // else, at once, the caret there and all else gone, and a drag from it a range. Shift sums: at once the selection, or
   // the caret, out to the press from where it was begun (`origin`), as Shift and a click in a text, a drag going on with
-  // it. Alt adds: another caret, or dragged another range (on the spectrogram with a band, another box); dragged inside
-  // the selection, a copy of its audio (Finder's and Figma's Alt-drag). ⌘ (Ctrl) and a drag inside the selection moves
-  // its audio (Finder's ⌘-drag); on the spectrogram elsewhere, a box of time and frequency, a band. Each keeps its
-  // distance from the pointer. `hear` is the time a drag sounds.
+  // it. A drag inside the selection moves its audio, as selected text is dragged; clicked there, the caret there alone.
+  // Alt adds: another caret, or dragged another range (on the spectrogram with a band, another box); dragged inside the
+  // selection, a copy of its audio (Finder's and Figma's Alt-drag). ⌘ (Ctrl) on the spectrogram, a box of time and
+  // frequency, a band. Each keeps its distance from the pointer. `hear` is the time a drag sounds.
   function selectDown(event, px, py, t, L) {
     const row = py > plot().h, spec = !row && L.spec.find(rect => inside(rect, px, py))
-    const within = selection && !band && !row && px > x(selection[0]) + EDGE && px < x(selection[1]) - EDGE
+    // inside the selection, but on a caret's line there (the time row put it there), the caret's
+    const within = selection && !band && !row && px > x(selection[0]) + EDGE && px < x(selection[1]) - EDGE && !caretAt(px, py)
     const box = spec && !within && (editing(event) || event.altKey && band) ? spec : null
     if (event.shiftKey && !event.altKey) { const o = origin(); select(o, t, band, true); anchor = o; return { anchor: o, offset: 0, moved: true, keep: true, hear: t } }
     const [a, b] = selection ?? []
-    if (within && (event.altKey || editing(event))) return { carry: event.altKey ? 'copy' : 'move', a, b, x: px, y: py, to: a, moved: false, alt: event.altKey }
+    if (within) return { carry: event.altKey ? 'copy' : 'move', a, b, x: px, y: py, to: a, moved: false, alt: event.altKey }
     // a box sounds its band once it opens: a press alone has none
     if (event.altKey && !row) return { anchor: t, x: px, y: py, offset: 0, moved: false, adding: true, hear: box ? null : t, ...box && { box, f: snapF(box, py) } }
     // The time row, a ruler's: pressed, the caret there alone, what is selected staying (up); dragged, a range, with
@@ -2406,7 +2410,8 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     if (drag?.pinch && pointers.size === 2) {
       const [a, b] = drag.pinch, [p, q] = [...pointers.values()], [r0, r1] = drag.range
       // on the frequencies or the levels, they zoom, by how far apart the fingers go up and down; else time
-      if (drag.levels) { aview = drag.levels; return zoomLevels(Math.abs(b[1] - a[1]) / Math.max(8, Math.abs(q[1] - p[1])), drag.value) }
+      // (each move from where the fingers went down: nothing gathered)
+      if (drag.levels) { aview = drag.levels; pull = 1; return zoomLevels(Math.abs(b[1] - a[1]) / Math.max(8, Math.abs(q[1] - p[1])), drag.value, drag.lh) }
       if (drag.u != null) {
         const k = Math.abs(b[1] - a[1]) / Math.max(8, Math.abs(q[1] - p[1])), [u0, u1] = drag.fview, f = (drag.u - u0) / (u1 - u0), fspan = (u1 - u0) * k
         return setFreqs(drag.u - f * fspan, drag.u - f * fspan + fspan)
@@ -2609,12 +2614,11 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     const tone = pitchLine() && contour?.f0.length && L.spec.find(r => inside(r, px, py))
     const handle = gripAt(L, px, py)?.[0], end = !handle && editing(keys) && py <= plot().h && edgeAt(px)?.edge === 1
     const cue = !handle && !end && show.hits && nearCue(px, py, keys) >= 0
-    const within = selection && !band && py <= plot().h && px > x(selection[0]) + EDGE && px < x(selection[1]) - EDGE
+    const within = selection && !band && py <= plot().h && px > x(selection[0]) + EDGE && px < x(selection[1]) - EDGE && !caretAt(px, py)
     const other = handle ? gripPointer(handle)
       : end ? gripPointer('stretch')
       : cue ? 'col-resize'
-      : within && keys.altKey ? 'copy'
-      : within && editing(keys) ? 'move'
+      : within ? keys.altKey ? 'copy' : 'grab'
       : nameAt(px, py) >= 0 ? 'text'
       : nearMarker(px, py) >= 0 ? 'pointer'
       : rect && onLine(rect, px, py) && pointAt(rect, px, py) >= 0 || tone && (pointOn(tone, px, py) >= 0 || knotOn(tone, px, py) != null) ? 'move'
@@ -2774,7 +2778,8 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     const pinch = event.ctrlKey && !held.ctrlKey && !held.metaKey, z = event.deltaY * lines * (pinch ? .02 : .004)
     const factor = Math.exp(pinch ? z : Math.max(-NOTCH, Math.min(NOTCH, z)))
     const levels = onLevels(px, py, L), wave = levels || L.wave.find(r => inside(r, px, py))
-    if (event.ctrlKey || event.metaKey) return freqs ? zoomFreqs(factor, uy(freqs, py)) : levels ? zoomLevels(factor, ya(levels, py)) : zoom(factor, clamp(time(px)))
+    // the levels a quarter as keen: their span goes by a quarter of the octaves time's does
+    if (event.ctrlKey || event.metaKey) return freqs ? zoomFreqs(factor, uy(freqs, py)) : levels ? zoomLevels(factor ** .25, ya(levels, py), levels[3]) : zoom(factor, clamp(time(px)))
     if (rect && fview[1] - fview[0] < 1 && !across) {
       const du = event.deltaY * lines / rect[3] * (fview[1] - fview[0])
       return setFreqs(fview[0] - du, fview[1] - du)
@@ -2902,7 +2907,8 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     else if ((k === 'Delete' || k === 'Backspace') && ranges().length) onedit('remove', band ? selection : ranges())
     else if (mod && k.toLowerCase() === 'x' && selection && !band) onedit('cut', selection)
     else if (mod && k.toLowerCase() === 'c' && selection && !band) onedit('copy', selection)
-    else if (mod && k.toLowerCase() === 'v') onedit('paste', (carets().length ? carets() : [cursor]).map(t => [t, t]))
+    // ⌘V: the browser's paste, its clipboard with it (pasted)
+    else if (mod && k.toLowerCase() === 'v') { pasted(); pasting = atCarets(); return }
     else if (mod && k.toLowerCase() === 'z') onedit(event.shiftKey ? 'redo' : 'undo')
     else if (mod && k.toLowerCase() === 'y') onedit('redo')
     else return
@@ -2982,6 +2988,15 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
   root.addEventListener('click', clicked)
   root.addEventListener('contextmenu', context)
   root.addEventListener('keydown', key)
+  // A paste: at the carets ⌘V was pressed at, the system's clipboard with it (a file copied elsewhere comes so); one
+  // ⌘V no paste follows by its key's release (a browser that pastes only where text is written), from the editor's own
+  // clipboard. WebKit pastes where nothing is written once its beforepaste is taken
+  const atCarets = () => (carets().length ? carets() : [cursor]).map(t => [t, t])
+  let pasting = null
+  const pasted = data => { if (pasting) onedit('paste', pasting, data); pasting = null }
+  root.addEventListener('beforepaste', e => e.preventDefault())
+  root.addEventListener('paste', e => { e.preventDefault(); pasting ??= atCarets(); pasted(e.clipboardData) })
+  root.addEventListener('keyup', () => pasted())
   // the selection's colours follow the focus
   for (const type of ['focusin', 'focusout']) root.addEventListener(type, () => invalidate(true))
   addEventListener('focus', () => invalidate(true))
@@ -3138,11 +3153,10 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
       ended()
       if (!opts) { pieces = null; return invalidate() }
       const { at, sampleRate, channels } = opts
-      // into nothing: its lanes, and the scale a take is watched at; its levels as loud as it is so far (grow), from
-      // ±1/64 of full scale, a phone's voice filling its lane, not a thread along its middle. Over a sound, the sound's
-      const fresh = !duration
-      if (fresh) { untrack(); count = channels; rate = sampleRate; lay(count); start = at; end = at + RECORD; aview = [-1 / 64, 1 / 64] }
-      recording = { at, rate: sampleRate, length: 0, total: duration, peak: fresh ? 0 : null, data: Array.from({ length: channels }, () => new Float32Array(sampleRate)),
+      // into nothing: its lanes, and the scale a take is watched at, full scale (±1) as a recording app's, held still as
+      // it comes. Over a sound, the sound's
+      if (!duration) { untrack(); count = channels; rate = sampleRate; lay(count); start = at; end = at + RECORD; aview = [-1, 1] }
+      recording = { at, rate: sampleRate, length: 0, total: duration, data: Array.from({ length: channels }, () => new Float32Array(sampleRate)),
         waves: Array.from({ length: channels }, () => new Waveform(gl)),
         specs: sgl ? Array.from({ length: channels }, () => new Spectrogram(sgl, { background: color('--color-screen'), ...look, color: shades(), sampleRate })) : [] }
       leveled = false
@@ -3160,12 +3174,6 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
         return x
       })
       if (m) for (const list of [recording.waves, recording.specs]) list.forEach((picture, c) => picture.push(blocks[c] ?? blocks[0]))
-      // into nothing, the levels shown widen as it gets louder, by 6 dB steps, a tenth over its peak, to full scale
-      if (m && recording.peak != null) {
-        for (const x of blocks) for (let i = 0; i < x.length; i++) { const v = Math.abs(x[i]); if (v > recording.peak) recording.peak = v }
-        const p = Math.min(1, 2 ** Math.ceil(Math.log2(Math.max(1 / 64, recording.peak * 1.1))))
-        if (p !== aview[1]) aview = [-p, p]
-      }
       // the chunk the last HELD has just left behind, whole
       const gone = Math.floor((n + m - HELD) / CHUNK)
       if (m && gone > Math.floor((n - HELD) / CHUNK) && gone > 0) for (const p of [...recording.waves, ...recording.specs]) p.drop((gone - 1) * CHUNK, gone * CHUNK)

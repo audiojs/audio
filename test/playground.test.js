@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import wav from '@audio/encode-wav'
 import audio from '../audio.js'
-import { prepare, error, bare, chain, append, source, callAt, setArg, cli, groups, steps, dropStep, moveStep, moveLines, group, ungroup, renameGroup, turnOff, turnOn, tracks, focus, toTrack, voiceTrack, stemTracks, soundOf, addTrack, dropTrack, splitOf, master, addMaster, rollback, stages, sharing, residual } from '../playground/code.js'
+import { prepare, error, bare, chain, append, source, callAt, setArg, cli, groups, steps, dropStep, moveStep, moveLines, group, ungroup, renameGroup, turnOff, turnOn, tracks, focus, toTrack, voiceTrack, stemTracks, soundOf, written, addTrack, dropTrack, splitOf, master, addMaster, rollback, stages, sharing, residual } from '../playground/code.js'
 import { ops, guides, previews, SCALES } from '../playground/ops.js'
 import { SCALES as NOTE_SCALES, snapMidi } from '@audio/note'
 import { help, layout, layouts, texts } from '../playground/help.js'
@@ -836,6 +836,12 @@ test('code: tracks are the sounds declared that nothing reads, edited one at a t
   assert.equal(soundOf(sung.code, 'voice'), `audio('chime.wav').trim().normalize(-1).vocals({ model: 'mel-roformer' })`)
   assert.equal(soundOf(`let a = await audio('a .wav')\n  // .fade(1)\n  .gain(-3) /* .trim() */  .reverse()\n\nlet b = audio('b.wav')`, 'a'), `audio('a .wav').gain(-3).reverse()`)
   assert.equal(soundOf(sung.code, 'nothing'), null)
+  // the sound the page edits, as another tab pastes a piece of it: its sinks (save, play) left out, a comment in one too,
+  // the sound a copy starts from written into it; none without a chain
+  assert.equal(written(`audio('a.wav')\n  .gain(-3) // louder\n  // .lowpass(200)\n  .fade(0.1)\n  .save('x.wav' /* here */)`), `audio('a.wav').gain(-3).fade(0.1)`)
+  assert.equal(written(`let a = audio('a.wav').trim()\nlet b = a.clone().gain(-3).play()`), `audio('a.wav').trim().gain(-3)`)
+  assert.equal(written(`audio('a.wav')`), `audio('a.wav')`)
+  assert.equal(written(''), null)
   try {
     // the first edited: its steps, an edit joining it, rolled back with the other kept, a measure's stages of it alone
     focus('chime')
@@ -2552,7 +2558,7 @@ test('editor: rolled back to a step, the grip\'s way leaves a stretch after it a
   await page.locator('.viewing', { hasText: 'The source alone' }).waitFor()
   await lengthIs('0:08.000')
   await drag([x(1), y], [x(2) - x(1), 0])
-  await turn(await grab([[x(2) + 8, box.y + lh - 24]], /^url\(|ew-resize/), 'grip', 'speed')
+  await turn(await grab([[x(2) + 8, box.y + lh * 3 / 4]], /^url\(|ew-resize/), 'grip', 'speed')
   await page.waitForTimeout(300)
   assert.equal(await code(), `audio('chime.wav').stretch(1.5, { at: 1, duration: 1 })`)
 })
@@ -2563,7 +2569,7 @@ test('editor: rolled back to a step, the grip\'s way leaves a stretch after it a
 test('editor: undo brings back what was selected before the step, redo what was selected after it', async () => {
   const { box, x, y } = await chime(), lh = (box.height - 22 - LANES) / 2
   await drag([x(1), y], [x(2) - x(1), 0])
-  await drag(await grab([[x(2) + 8, box.y + lh - 24]], /^url\(|ew-resize/), [x(1.5) - x(1), 0])
+  await drag(await grab([[x(2) + 8, box.y + lh * 3 / 4]], /^url\(|ew-resize/), [x(1.5) - x(1), 0])
   await page.waitForFunction(() => /\.stretch\(1\.5, \{ at: 1, d: 1 \}\)$/.test(scriptText()))
   assert.equal(await selected(), '0:01.000–0:02.500')
   await page.keyboard.press('ControlOrMeta+Z')
@@ -3364,7 +3370,7 @@ async function grab(points, cursor) {
     }
   assert.fail(`nothing to grab with ${cursor}`)
 }
-// the stretch grip's pointer: arrows out from a wave, its own (view.js STRETCH)
+// the stretch grip's pointer: arrows out to bars, its own (view.js STRETCH)
 const STRETCHING = /^url\(.*ew-resize$/
 const warps = async () => JSON.parse((await code()).match(/\.warp\((\[.*\])\)/)[1])
 // A box on the spectrogram, ⌘ (Ctrl) held as it is pressed: a band of time and frequency; with Alt as well, another
@@ -4097,7 +4103,7 @@ test('editor: out of sight, the caret stays at the lanes\' edge; its chevron on 
   // its end in sight; with it past the lanes' end, none under the meters
   for (const [px, shown] of [[e - 40, true], [e + 1, false]]) {
     await page.evaluate(([a, b]) => __view.select(a, b), [await timeAt(e - 200), await timeAt(px)])
-    for (const [py, from] of [[BOX / 2, px - BOX], [h - BOX * 1.5, px]]) {
+    for (const [py, from] of [[BOX / 2, px - BOX], [Math.round(h * 3 / 4) - 4, px]]) {
       const lit = (await cols(py, shown ? 128 : 0)).filter(c => c >= from && c < from + BOX)
       assert.ok(shown ? lit.length >= BOX - 4 : !lit.some(c => c >= e), `a range ending ${px - e} px from the lanes' end, at ${py} px: ${lit.length} lit`)
     }
@@ -4440,6 +4446,43 @@ test('editor: the status bar says the note at the caret, a selection\'s compass,
   await lengthIs('0:08.000')
   await page.waitForFunction(() => / · 120 BPM · C major$/.test(document.querySelector('.heard')?.textContent))
   assert.match(await page.locator('.heard').evaluate(tipOf), /120 BPM, the tempo of all of it: its halves agree within 4%\. C major, the key of all of it/)
+})
+
+// Where chords sound, the status bar names the chord at the caret, a selection's chords in order, and, as it plays, the
+// chord at the playhead (Chordino on NNLS chroma, stat('chords')), not the pitch a triad's tones share (C4 E4 G4, 4:5:6,
+// a period of C2): C major, A minor, F major triads, 2 s each, in equal temperament from A4 = 440 Hz (C4 261.63, E4
+// 329.63, G4 392, A3 220, F3 174.61 Hz)
+test('editor: the status bar names the chord at the caret, a selection\'s chords, and the chord playing', async () => {
+  await open()
+  await noCues()
+  const heard = re => page.waitForFunction(re => new RegExp(re).test(document.querySelector('.heard')?.textContent), re.source)
+  await write(`audio.from(t => [[261.63, 329.63, 392], [220, 261.63, 329.63], [174.61, 220, 261.63]][Math.min(2, Math.floor(t / 2))].reduce((s, f) => s + Math.sin(2 * Math.PI * f * t), 0) * .2, { duration: 6 })`)
+  await lengthIs('0:06.000')
+  const { box, x } = await axis(6), y = box.y + box.height / 2
+  await page.mouse.click(x(1), y)
+  await heard(/^C( · |$)/)
+  assert.match(await page.locator('.heard').evaluate(tipOf), /^The chord at the caret, C \(Chordino on NNLS chroma\)/)
+  await page.mouse.click(x(3), y)
+  await heard(/^Am( · |$)/)
+  await page.mouse.click(x(5), y)
+  await heard(/^F( · |$)/)
+  // a selection just past a change: the chord it only touches is not counted
+  await drag([x(.5), y], [x(4.1) - x(.5), 0])
+  await heard(/^C – Am( · |$)/)
+  // as it plays, the chord at the playhead, said as it changes
+  await page.mouse.click(x(.1), y)
+  await page.locator('button.play').click()
+  const said = await page.evaluate(() => new Promise(done => {
+    const out = []
+    const look = () => {
+      const t = document.querySelector('.heard')?.textContent.split(' · ')[0]
+      if (t && t !== out.at(-1)) out.push(t)
+      if (+document.querySelector('.time').textContent.split(':')[1] > 5.8) return done(out)
+      requestAnimationFrame(look)
+    }
+    look()
+  }))
+  assert.deepEqual(said, ['C', 'Am', 'F'])
 })
 
 // A search held at 0 a while, then let go: it stops there, the playhead gone with it (its layer hidden), the caret where
@@ -5663,7 +5706,7 @@ test('editor: a selection\'s grip trims, stretches or speeds it, its pill sets i
     await page.waitForFunction(() => scriptText() === "audio('chime.wav')")
     await lengthIs('0:08.000')
   }
-  const grip = b => grab([[x(b) + 8, box.y + lh - 24]], /^url\(|ew-resize/), pill = (a, b) => grab([[(x(a) + x(b)) / 2, box.y + 4]], 'ns-resize')
+  const grip = b => grab([[x(b) + 8, box.y + lh * 3 / 4]], /^url\(|ew-resize/), pill = (a, b) => grab([[(x(a) + x(b)) / 2, box.y + 4]], 'ns-resize')
   await select(1, 2)
   await drag(await grip(2), [x(1.5) - x(1), 0])
   assert.match(await last(/\.stretch\(/), /\.stretch\(1\.5, \{ at: 1, d: 1 \}\)$/)
@@ -6011,7 +6054,7 @@ test('editor: a stretch dragged anywhere ends where it was let go, to the sample
   await page.mouse.click(x(7.5), y)
   await drag([x(1), y], [x(1.7) - x(1), 0])
   assert.equal(await selected(), '44100–74970')
-  const grip = await grab([[x(1.7) + 8, box.y + lh - 24]], /^url\(|ew-resize/)
+  const grip = await grab([[x(1.7) + 8, box.y + lh * 3 / 4]], /^url\(|ew-resize/)
   await drag(grip, [x(2.07) - x(1.7) + 3, 0])
   await page.waitForFunction(() => /\.stretch\(/.test(scriptText()))
   const [a, to] = (await selected()).split('–').map(Number)
@@ -6032,7 +6075,7 @@ test('editor: a selection\'s grip only stretches it, its pill dragged up only se
   const { box, x } = await axis(8), y = box.y + box.height * .3, lh = (box.height - 22 - LANES) / 2
   const select = async () => { await page.mouse.click(x(7.5), y); await drag([x(2.2), y], [x(4.2) - x(2.2), 0]) }
   await select()
-  await drag(await grab([[x(4.2) + 8, box.y + lh - 24], [x(4.2) + 8, box.y + lh + LANES + lh - 24]], STRETCHING), [x(5.2) - x(4.2), -80])
+  await drag(await grab([[x(4.2) + 8, box.y + lh * 3 / 4], [x(4.2) + 8, box.y + lh + LANES + lh * 3 / 4]], STRETCHING), [x(5.2) - x(4.2), -80])
   await page.waitForFunction(() => /\.stretch\(1\.5, \{ at: 2\.2, d: 2 \}\)$/.test(scriptText()))
   assert.equal(await selected(), '0:02.200–0:05.200')
   assert.doesNotMatch(await code(), /gain/)
@@ -6468,7 +6511,8 @@ test('editor: the level axis reads in dB or sample values, and zooms', async () 
   const height = () => pixels(`const x = w >> 1; let n = 0; for (let y = 0; y < h - 48; y++) { const i = (y * w + x) * 4; if (d[i] > 120) n++ } return n`)
   const before = await height()
   await page.mouse.move(ax, ay)
-  for (let i = 0; i < 6; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -100); await page.keyboard.up('Control') }
+  // (a quarter as keen as time's zoom: four turns for one of time's)
+  for (let i = 0; i < 24; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -100); await page.keyboard.up('Control') }
   await page.waitForTimeout(300)
   const zoomed = await height()
   assert.ok(zoomed > before * 4, `the quiet sine fills the lane: ${before} → ${zoomed} px`)
@@ -6476,10 +6520,13 @@ test('editor: the level axis reads in dB or sample values, and zooms', async () 
   await page.keyboard.press('0')
   await page.waitForTimeout(300)
   assert.ok(Math.abs(await height() - before) <= 2, 'full scale again')
-  // small steps, as a trackpad's pinch gives, leave full scale too (full scale once held them there, every step within
-  // 6% of it snapping back, the way out as the way in)
+  // full scale a detent: a few small steps, as a trackpad's pinch gives as the fingers lift, leave it there (they once
+  // left it at once, the levels unsnapping as the pinch ended); gathered past 5 px, they zoom in
   await page.mouse.move(ax, ay)
-  for (let i = 0; i < 35; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -10); await page.keyboard.up('Control') }
+  for (let i = 0; i < 3; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -5); await page.keyboard.up('Control') }
+  await page.waitForTimeout(300)
+  assert.ok(Math.abs(await height() - before) <= 2, 'held at full scale')
+  for (let i = 0; i < 80; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -10); await page.keyboard.up('Control') }
   await page.waitForTimeout(300)
   assert.ok(await height() > before * 1.5, 'small steps zoom in')
   // in sample values: the pointer on the lane's top edge reads 1
@@ -6993,7 +7040,7 @@ test('editor: the square past the caret opens silence there', async () => {
   const { box, x } = await axis(8), lh = (box.height - 22 - LANES) / 2
   await page.mouse.click(x(2), box.y + box.height * .3)
   // its pointer trim's, as it does what trimming out does
-  await drag(await grab([[x(2) + 9, box.y + lh - 24]], 'ew-resize'), [x(3) - x(2), 0])
+  await drag(await grab([[x(2) + 9, box.y + lh * 3 / 4]], 'ew-resize'), [x(3) - x(2), 0])
   await page.waitForFunction(() => /\.insert\(1, \{ at: 2, xfade: 0\.01 \}\)$/.test(scriptText()))
   await lengthIs('0:09.000')
 })
@@ -7008,7 +7055,7 @@ test('editor: at the end, the square before the caret opens silence past the pic
   const { box, x } = await axis(8), lh = (box.height - 22 - LANES) / 2
   await page.locator('.plot').focus()
   await page.keyboard.press('End')
-  const at = await grab([[x(8) - 8, box.y + lh - 24]], 'ew-resize')
+  const at = await grab([[x(8) - 8, box.y + lh * 3 / 4]], 'ew-resize')
   await page.mouse.move(...at)
   await page.mouse.down()
   await page.mouse.move(box.x + box.width - 20, at[1], { steps: 5 })
@@ -7047,7 +7094,7 @@ test('editor: a selection\'s fade squares sit on whole pixels, flush with its st
 
 // Handles are for editing: while it plays there are none, the caret's square past it too
 test('editor: no handles while it plays', async () => {
-  const { box, x, y } = await chime(), lh = (box.height - 22 - LANES) / 2, at = [x(2) + 9, box.y + lh - 24]
+  const { box, x, y } = await chime(), lh = (box.height - 22 - LANES) / 2, at = [x(2) + 9, box.y + lh * 3 / 4]
   await page.mouse.click(x(2), y)
   await grab([at], 'ew-resize')
   await page.keyboard.press('Space')
@@ -7120,14 +7167,17 @@ async function marked() {
   return [...c.matchAll(/mark\(([\d.]+)\)/g)].map(m => +m[1])
 }
 
-test('editor: a press inside the selection drops it at once, not when let go', async () => {
+// A press inside the selection keeps it, as a press on selected text does: dragged, its audio moves; let go where it
+// went down, the caret there alone (it once dropped the selection at once, a drag from inside selecting anew)
+test('editor: a press inside the selection keeps it until let go, then the caret there alone', async () => {
   const { x, y } = await chime()
   await drag([x(1), y], [x(3) - x(1), 0])
   await page.mouse.move(x(2), y)
   await page.mouse.down()
+  assert.equal(await selected(), '0:01.000–0:03.000')
+  await page.mouse.up()
   assert.equal(await selected(), '')
   assert.equal(await page.locator('.time').innerText(), '0:02.000')
-  await page.mouse.up()
 })
 
 test('editor: Shift and a click extends from where the selection was begun, or from the caret', async () => {
@@ -7291,8 +7341,9 @@ test('editor: Alt and Shift always make another, never extending', async () => {
 
 // A copy goes in where it is let go, what was there moving on after it, as a text's dragged copy goes in. Moved, the
 // audio slides over what is there, silence where it was, as a graphic editor's object or a DAW's clip (move(), the
-// length kept). Each seam crossfaded as a delete's (the settings, 10 ms)
-test('editor: dragged inside the selection, Alt puts a copy of its audio in where it lands, ⌘ slides it over what is there', async () => {
+// length kept), dragged as selected text is, no key held (once only with ⌘, a drag inside the selection selecting
+// anew). Each seam crossfaded as a delete's (the settings, 10 ms). Clicked inside it, the caret there alone
+test('editor: dragged inside the selection, its audio slides over what is there; with Alt a copy goes in where it lands', async () => {
   const { x, y } = await chime()
   const before = await seconds()
   await drag([x(1), y], [x(2) - x(1), 0])
@@ -7304,10 +7355,14 @@ test('editor: dragged inside the selection, Alt puts a copy of its audio in wher
   await page.waitForFunction(() => scriptText() === "audio('chime.wav')")
   await page.mouse.click(x(7.5), y)
   await drag([x(1), y], [x(2) - x(1), 0])
-  await keyed(['ControlOrMeta'], () => drag([x(1.5), y], [x(4) - x(1), 0]))
+  await drag([x(1.5), y], [x(4) - x(1), 0])
   await page.waitForFunction(() => /\.move\(\{ at: 1, d: 1, to: 4, xfade: 0\.01 \}\)$/.test(scriptText()))
   assert.equal(await selected(), '0:04.000–0:05.000', 'the moved audio stays selected where it went')
   await lengthIs('0:08.000')
+  assert.equal(await page.locator('.plot').evaluate(el => el.style.cursor), 'grab', 'over the selection, a hand')
+  await page.mouse.click(x(4.5), y)
+  assert.equal(await selected(), '', 'clicked inside it, no selection')
+  assert.equal((await code()).match(/\.move\(/g).length, 1)
 })
 
 test('editor: what there is stays as one of it is dragged, a caret by its line, a range by its edge; an edge onto the other leaves a caret', async () => {
@@ -7537,6 +7592,154 @@ test('editor: ⌘C copies the selection, ⌘X cuts it, ⌘V pastes at the caret'
   await page.waitForFunction(() => /\.cut\(\{ at: [\d.]+, d: [\d.]+, xfade: 0\.01 \}\)$/.test(scriptText().trim()))
   await page.waitForTimeout(500)
   assert.equal(await page.locator('.message.problem').count(), 0, await page.locator('.message').allInnerTexts().then(t => t.join()))
+})
+
+// The clipboard is the editor's, not a tab's: a range copied in one tab pastes in another as the sound it was copied
+// from (its sinks left out) cropped to the range; the tab it was copied in pastes its own copy step
+test('editor: a range copied in one tab pastes in another', async () => {
+  await open()
+  await noCues()
+  await write(`audio('chime.wav').gain(-3).save('out.wav')`)
+  await lengthIs('0:08.000')
+  const { box, x } = await axis(8), y = box.y + box.height * .3
+  await drag([x(1), y], [x(2) - x(1), 0])
+  await page.keyboard.press('ControlOrMeta+C')
+  await page.waitForFunction(() => /\.copy\(\{ at: [\d.]+, d: [\d.]+ \}\)/.test(scriptText()))
+  const [, at, d] = (await code()).match(/\.copy\(\{ at: ([\d.]+), d: ([\d.]+) \}\)/)
+  const piece = `audio('chime.wav').gain(-3).crop({ at: ${at}, d: ${d} })`
+  await page.getByRole('button', { name: 'New tab' }).click()
+  await write(`audio('rhodes.wav')`)
+  await lengthIs('0:09.000')
+  const r = await axis(9)
+  await page.mouse.click(r.x(3), y)
+  await page.keyboard.press('ControlOrMeta+V')
+  await page.waitForFunction(p => scriptText().includes(`.insert(${p}, { at: `), piece)
+  await lengthIs(clock(9 + +d))
+  // the first tab pastes its own copy
+  await page.getByRole('tab', { name: 'chime.wav' }).click()
+  await page.waitForFunction(() => scriptText().includes('.copy('))
+  await page.mouse.click(x(5), y)
+  await page.keyboard.press('ControlOrMeta+V')
+  await page.waitForFunction(() => /\.paste\([\d.]+, 0\.01\)/.test(scriptText()))
+  // its copy step undone, it pastes the clip as any other tab does
+  await page.keyboard.press('ControlOrMeta+Z')
+  await page.keyboard.press('ControlOrMeta+Z')
+  await page.waitForFunction(() => !scriptText().includes('.copy('))
+  await page.mouse.click(x(5), y)
+  await page.keyboard.press('ControlOrMeta+V')
+  await page.waitForFunction(p => scriptText().includes(`.insert(${p}, { at: `), piece)
+})
+// ... and from one window of the editor to another of the same browser: one copies all of its chime, the other, used
+// there, pastes it into the same tab, as another's sound
+test('editor: a range copied in one window pastes in another', async () => {
+  const context = await browser.newContext(), first = await context.newPage(), second = await context.newPage()
+  await chimeLeft(context)
+  const script = p => p.evaluate(() => [...document.querySelectorAll('.cm-content .cm-line')].map(l => l.textContent).join('\n'))
+  const caret = async p => { const b = await p.locator('.plot').boundingBox(); await p.mouse.click(b.x + b.width * .3, b.y + b.height * .3) }
+  try {
+    for (const p of [first, second]) p.on('pageerror', e => errors.push(e.message))
+    await first.goto(origin + '/playground.html')
+    await first.locator('.readout:is([title^="Loudness"], [data-tip^="Loudness"])').waitFor()
+    await caret(first)
+    await first.keyboard.press('ControlOrMeta+A')
+    await first.keyboard.press('ControlOrMeta+C')
+    await first.waitForFunction(() => localStorage.getItem('audio-repl-clip'))
+    await second.goto(origin + '/playground.html')
+    await Promise.all([second.waitForEvent('load'), second.getByRole('button', { name: 'Use it here' }).click()])
+    // (all of it selected, as the first left it: the readout the selection's)
+    await second.waitForFunction(() => document.querySelector('.readout')?.textContent.startsWith('peak'))
+    await caret(second)
+    await second.keyboard.press('ControlOrMeta+V')
+    await second.waitForFunction(() => /\.insert\(audio\('chime\.wav'\)\.trim\(\)\.normalize\(-1\)\.fade\(0\.02, 0\.1\)\.crop\(\{ at: 0, d: [\d.]+ \}\), \{ at: [\d.]+, xfade: 0\.01 \}\)$/.test([...document.querySelectorAll('.cm-content .cm-line')].map(l => l.textContent).join('').trim()))
+    assert.equal((await script(second)).match(/\.copy\(/g).length, 1, 'the first window\'s copy step, as it stored it')
+  } finally { await context.close() }
+})
+
+// A copy reaches the system's clipboard: the sound cropped to the range, as code, and in Chrome the range as a WAV (its
+// web format), at the depth Export writes (16 bits for a generated sound), its samples the output's there: the library's
+// own render of the same chain, read in Node, the reference
+test('editor: a copy puts the range on the system clipboard, as code and as a WAV', async () => {
+  await open()
+  await noCues()
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin })
+  await write(`audio('chime.wav').gain(-3)`)
+  await lengthIs('0:08.000')
+  const { box, x } = await axis(8), y = box.y + box.height * .3
+  await drag([x(1), y], [x(2) - x(1), 0])
+  await page.keyboard.press('ControlOrMeta+C')
+  await page.waitForFunction(() => /\.copy\(/.test(scriptText()))
+  const [, at, d] = (await code()).match(/\.copy\(\{ at: ([\d.]+), d: ([\d.]+) \}\)/).map(Number)
+  // the WAV encoded in the worker, the clipboard written once it comes
+  await page.waitForFunction(async () => (await navigator.clipboard.read())[0]?.types.includes('web audio/wav'))
+  const got = await page.evaluate(async () => {
+    const [item] = await navigator.clipboard.read()
+    return { types: item.types, text: await (await item.getType('text/plain')).text(), wav: [...new Uint8Array(await (await item.getType('web audio/wav')).arrayBuffer())] }
+  })
+  assert.equal(got.text, `audio('chime.wav').gain(-3).crop({ at: ${at}, d: ${d} })`)
+  const a = await audio(new Uint8Array(got.wav)), [y0] = await a.read()
+  assert.equal(a.bitDepth, 16)
+  assert.equal(a.sampleRate, SAMPLES)
+  // the range to the view's precision (a millisecond): its samples, wherever in that it starts, the render's to 16 bits
+  assert.ok(Math.abs(y0.length - d * SAMPLES) < SAMPLES / 500, `${y0.length} samples for ${d} s`)
+  const [ref] = await audio.from(samples.chime.make(), { sampleRate: SAMPLES }).gain(-3).read()
+  const off = Math.round(at * SAMPLES), err = k => y0.reduce((m, v, i) => Math.max(m, Math.abs(v - ref[off + k + i])), 0)
+  const best = Math.min(...Array.from({ length: 2 * 45 + 1 }, (_, k) => err(k - 45)))
+  assert.ok(best <= 1 / 32768, `off by ${best}`)
+})
+// ⌘V takes what the system's clipboard holds that is newer than the editor's own copy: a WAV another page copied (as a
+// page of this editor elsewhere does, its storage not this one's), and an audio file copied in the Finder, each going in
+// at the caret as a file dropped there does
+test('editor: ⌘V pastes a WAV another page copied, and an audio file copied elsewhere', async () => {
+  await open()
+  await noCues()
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin })
+  await write(`audio('rhodes.wav')`)
+  await lengthIs('0:09.000')
+  const tone = [...await audio.from([Float32Array.from({ length: SAMPLES }, (_, i) => .5 * Math.sin(2 * Math.PI * 440 * i / SAMPLES))], { sampleRate: SAMPLES }).encode('wav')]
+  await page.evaluate(bytes => navigator.clipboard.write([new ClipboardItem({ 'text/plain': new Blob(['elsewhere'], { type: 'text/plain' }), 'web audio/wav': new Blob([new Uint8Array(bytes)], { type: 'audio/wav' }) })]), tone)
+  const { box, x } = await axis(9), y = box.y + box.height * .3
+  await page.mouse.click(x(3), y)
+  await page.keyboard.press('ControlOrMeta+V')
+  await page.waitForFunction(() => /\.insert\(audio\('pasted\.wav'\), \{ at: 3(\.\d+)?, xfade: 0\.01 \}\)$/.test(scriptText().trim()))
+  await lengthIs('0:10.000')
+  // a file, as the browser hands one copied in the Finder with the paste
+  await page.mouse.click((await axis(10)).x(5), y)
+  await page.locator('.plot').evaluate((plot, bytes) => {
+    const data = new DataTransfer()
+    data.items.add(new File([new Uint8Array(bytes)], 'tone.wav', { type: 'audio/wav' }))
+    plot.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  }, tone)
+  await page.waitForFunction(() => /\.insert\(audio\('tone\.wav'\), \{ at: 5(\.\d+)?, xfade: 0\.01 \}\)$/.test(scriptText().trim()))
+  await lengthIs('0:11.000')
+  const paste = (name, type) => page.locator('.plot').evaluate((plot, [bytes, name, type]) => {
+    const data = new DataTransfer()
+    data.items.add(new File([new Uint8Array(bytes)], name, { type }))
+    plot.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  }, [tone, name, type])
+  // at two carets, at each, the last first
+  const r = await axis(11)
+  await page.mouse.click(r.x(2), y)
+  await page.keyboard.down('Alt')
+  await page.mouse.click(r.x(8), y)
+  await page.keyboard.up('Alt')
+  await paste('tone-2.wav', 'audio/wav')
+  await page.waitForFunction(() => /\.insert\(audio\('tone-2\.wav'\), \{ at: 8(\.\d+)?, xfade: 0\.01 \}\)\.insert\(audio\('tone-2\.wav'\), \{ at: 2(\.\d+)?, xfade: 0\.01 \}\)$/.test(scriptText().trim()))
+  await lengthIs('0:13.000')
+  // a range copied here: its WAV on the system's clipboard is this editor's own, its copy step pasted, a file that is
+  // not audio (an image copied) passed over
+  const q = await axis(13)
+  await page.mouse.click(q.x(6), y)
+  await drag([q.x(1), y], [q.x(2) - q.x(1), 0])
+  await page.keyboard.press('ControlOrMeta+C')
+  await page.waitForFunction(() => /\.copy\(/.test(scriptText()))
+  await page.waitForFunction(async () => { const [i] = await navigator.clipboard.read(); return i?.types.includes('web audio/wav') && (await (await i.getType('text/plain')).text()).startsWith(`audio('rhodes.wav')`) })
+  await page.mouse.click(q.x(4), y)
+  await paste('picture.png', 'image/png')
+  await page.waitForFunction(() => /\.copy\(\{ at: [\d.]+, d: [\d.]+ \}\)\s*\.paste\([\d.]+, 0\.01\)$/.test(scriptText().trim()))
+  // a ⌘V no paste follows (a browser that pastes only where text is written): the editor's own, as its key is let go
+  await page.locator('.plot').evaluate(plot => { for (const type of ['keydown', 'keyup']) plot.dispatchEvent(new KeyboardEvent(type, { key: 'v', metaKey: true, ctrlKey: true, bubbles: true, cancelable: true })) })
+  await page.waitForFunction(() => (scriptText().match(/\.paste\(/g) || []).length === 2)
+  assert.equal((await code()).match(/pasted\.wav/g).length, 1, 'its own WAV not pasted as another page\'s')
 })
 
 // A card's switches: a step turned off (its eye) is commented out where it stands; open, its Δ plays and draws what it
@@ -8112,10 +8315,10 @@ test('editor: recording with the spectrogram shown draws the take as a spectrogr
   assert.equal(waveform, 0)
 })
 
-// Recorded into nothing as quietly as a phone's microphone hears a voice, the take fills its lane: the levels shown
-// widen with it from a 64th of full scale, 6 dB at a time, a tenth over its peak, and stay so once it is the sound. At
-// full scale it was a thread along the lane's middle
-test('editor: a quiet take recorded into nothing fills its lane', async () => {
+// Recorded into nothing, however quiet, a take is watched at full scale (±1), held still as it comes and once it is the
+// sound, as a recording app's: its levels as they are, not widened to fill its lane (they were, 6 dB at a time, the
+// picture jumping as it got louder)
+test('editor: a quiet take recorded into nothing is drawn at full scale', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'audio-take-')), file = join(dir, 'quiet.wav'), rate = 48000, n = rate * 4
   // 220 Hz at 0.08 of full scale, as 16-bit PCM, which Chromium's fake capture reads and loops
   const wav = Buffer.alloc(44 + n * 2)
@@ -8150,9 +8353,9 @@ test('editor: a quiet take recorded into nothing fills its lane', async () => {
     await p.waitForFunction(() => /^Loudness/.test((e => e?.title || e?.dataset.tip)(document.querySelector('.readout'))))
     await p.waitForTimeout(500)
     const taken = await reach()
-    // 0.08 in ±0.125
-    assert.ok(taking > .5 && taking < .8, `as it records: ${taking}`)
-    assert.ok(taken > .5 && taken < .8, `recorded: ${taken}`)
+    // 0.08 in ±1
+    assert.ok(taking > .05 && taking < .15, `as it records: ${taking}`)
+    assert.ok(taken > .05 && taken < .15, `recorded: ${taken}`)
   } finally { await quiet.close(); await rm(dir, { recursive: true, force: true }) }
 })
 
