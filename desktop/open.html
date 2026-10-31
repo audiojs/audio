@@ -1,0 +1,12 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Opening…</title>
+<!-- A file of this machine in the editor: a tab whose script opens it, by the address this app serves it at (/f/PATH),
+     as a link to the editor carries a script (#code=, deflate-raw in base64url: playground/editor.js initialDocs) -->
+<script type="module">
+  const path = new URLSearchParams(location.search).get('path')
+  const code = `audio(${JSON.stringify(`${location.origin}/f${path.split('/').map(encodeURIComponent).join('/')}`)})\n`
+  const bytes = new Uint8Array(await new Response(new Blob([code]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer())
+  const b64 = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  location.replace(`/playground.html#code=${b64}`)
+</script>

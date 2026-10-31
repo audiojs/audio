@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Audio</string>
+  <key>CFBundleDisplayName</key><string>Audio</string>
+  <key>CFBundleIdentifier</key><string>dev.audiojs.audio</string>
+  <key>CFBundleExecutable</key><string>Audio</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>{{VERSION}}</string>
+  <key>CFBundleVersion</key><string>{{VERSION}}</string>
+  <key>CFBundleIconFile</key><string>Audio</string>
+  <key>CFBundleIconName</key><string>Audio</string>
+  <key>LSMinimumSystemVersion</key><string>13.3</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.music</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>Audio records from the inputs you choose.</string>
+  <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
+  <!-- the repo it runs (desktop/server.js) and the port it serves on -->
+  <key>AudioRoot</key><string>{{ROOT}}</string>
+  <key>AudioPort</key><string>7781</string>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>Audio</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Default</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.audio</string>
+        <string>com.microsoft.waveform-audio</string>
+        <string>public.aiff-audio</string>
+        <string>public.aifc-audio</string>
+        <string>public.mp3</string>
+        <string>public.mpeg-4-audio</string>
+        <string>org.xiph.flac</string>
+        <string>org.xiph.ogg-audio</string>
+        <string>com.apple.coreaudio-format</string>
+      </array>
+    </dict>
+  </array>
+</dict>
+</plist>

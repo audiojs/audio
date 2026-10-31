@@ -226,5 +226,7 @@ export default function menubar(root, model) {
   addEventListener('resize', () => close(false))
   narrow.addEventListener('change', draw)
   draw()
+  // the menus as they are now, for a host that shows them its own way (desktop/app.js: the Mac's menu bar)
+  root.menus = model
   return { draw, close, at }
 }
