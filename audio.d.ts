@@ -256,7 +256,7 @@ export interface AudioInstance {
   crossfade(other: AudioSource, duration?: Time, d?: Time, curve?: 'linear' | 'exp' | 'log' | 'cos' | 'equal'): this
   /** No source: crossfade across the range, the audio before it fading into the audio after it; the range goes */
   crossfade(range: { at: Time, duration?: Time, d?: Time }): this
-  /** Overwrite from `at` with samples or another sound; what runs past the end extends it */
+  /** Overwrite from `at` with samples or another sound; what runs past the end extends it; with a duration, all of it, silence past the source's end */
   write(data: Float32Array[] | Float32Array | AudioInstance | AudioBuffer, opts?: { at?: Time, duration?: Time, d?: Time }): this
   remix(channels: number | (number | null)[]): this
   pan(value: number | ((t: number) => number), opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this

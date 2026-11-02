@@ -1059,6 +1059,17 @@ test('write', async t => {
   t.is(pcm[0][3], 0, 'rest unchanged')
 })
 
+// With a duration, all of it written over: silence past the source's end, as a tape erases as it records; past the
+// sound's end, padded out to it; shorter than the source, the source cut there
+test('write — a duration overwrites all of it', async t => {
+  let sr = 1000, base = () => audio.from([new Float32Array(10 * sr).fill(.5)], { sampleRate: sr }), src = [new Float32Array(2 * sr).fill(1)]
+  let at = async (a, ts) => { let [x] = await a.read(); return [...ts.map(s => x[Math.round(s * sr)]), x.length / sr] }
+  t.same(await at(base().write(src, { at: 1, d: 4 }), [.5, 1.5, 3.5, 4.9, 5.1]), [.5, 1, 0, 0, .5, 10], 'silence after the source, to its end')
+  t.same(await at(base().write(src, { at: 8, d: 4 }), [7.5, 8.5, 10.5, 11.9]), [.5, 1, 0, 0, 12], 'past the end, padded to it')
+  t.same(await at(base().write(src, { at: 1, d: 1 }), [1.5, 2.5]), [1, .5, 10], 'shorter, cut there')
+  t.same(await at(base().write(src, { at: 1 }), [3.5]), [.5, 10], 'none: the source alone')
+})
+
 
 // ── Phase 5: Smart ops + define ──────────────────────────────────────────
 

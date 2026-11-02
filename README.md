@@ -382,7 +382,7 @@ a.remix([0, 0])                           // L→both; .remix(1) for mono
 | `.mix(source, at?, gain?)` | overlay at `at` seconds, source level `gain` dB.<br><sub>≡ FFmpeg `amix` weights</sub> |
 | `.crossfade(source, duration?, curve?)` | append with overlap, default 0.5s. `'cos'` (default) suits similar material; `'equal'` (equal-power) keeps loudness across unrelated tracks; each in `audio.op('crossfade').curves`. With no source, `.crossfade({ at, duration })` crossfades across the range, as an editor crossfades a selection: the audio before it fades into the audio after it, and the range goes.<br><sub>≡ FFmpeg `acrossfade`</sub> |
 | `.pan(value, opts?)` | −1 left, 0 center, 1 right. |
-| `.write(data, {at?})` | overwrite from `at` with raw PCM or another sound, as a tape records over what is there; what runs past the end extends it. |
+| `.write(data, {at?, d?})` | overwrite from `at` with raw PCM or another sound, as a tape records over what is there; what runs past the end extends it. With `d`, all of `d` is overwritten, silence past the source's end. |
 | `.transform(fn)` | inline `(input, output, ctx) => void`. Not serialized. |
 
 ```js
