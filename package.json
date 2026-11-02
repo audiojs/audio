@@ -160,6 +160,7 @@
     "@audio/mir-nnls-chroma": "^1.0.0",
     "@audio/neural-denoise": "^0.5.0 || ^0.6.0",
     "@audio/neural-pitch": "^0.1.0",
+    "@audio/neural-restore": "^0.1.0",
     "@audio/neural-separate": "^0.4.0 || ^0.5.0 || ^0.6.0 || ^0.7.0",
     "@audio/neural-transcribe": "^0.1.0",
     "@audio/neural-vocode": "^0.1.0",
@@ -179,6 +180,9 @@
       "optional": true
     },
     "@audio/neural-pitch": {
+      "optional": true
+    },
+    "@audio/neural-restore": {
       "optional": true
     },
     "@audio/neural-separate": {

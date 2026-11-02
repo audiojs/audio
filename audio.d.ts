@@ -334,6 +334,8 @@ export interface AudioInstance {
   dereverb(opts: { reduction?: number, music?: 'pass' | 'enhance', method?: 'roformer' | 'wpe', strength?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   /** A voice made again by Vocos, a neural vocoder (optional @audio/neural-vocode): another vocoder's artifacts (a TTS's frames ringing on) give way to Vocos's own; Vocos makes nothing above 12 kHz, so the input is kept above `crossover` Hz (11000; 0: Vocos's alone) */
   vocos(opts?: { crossover?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
+  restore(strength?: number, opts?: { weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
+  restore(opts: { strength?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   /** RNNoise speech denoising, streaming, through @audio/neural-denoise (optional package, weights inside): 1439
    *  samples of latency at 48 kHz, compensated; other rates resampled in and out. `limit`: dB (default 20; 0: none) */
   rnnoise(limit?: number, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
