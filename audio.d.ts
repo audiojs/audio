@@ -231,6 +231,15 @@ export interface AudioInstance {
    *  wide, below 0 rises turned to falls. Its own glottal cycles re-spaced (optional @audio/tune-curve): timing,
    *  formants and consonants kept, one voice. */
   intonation(factor: number, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
+  /** Each note's vibrato and wobble about its own slow line (Melodyne's pitch modulation): 1 as sung, 0 a smooth line,
+   *  2 twice as wide, below 0 inverted. The notes Tony's; their cycles re-spaced as intonation's. */
+  modulation(factor: number, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
+  /** Each note's slow line about its centre (Melodyne's pitch drift): 1 as sung, 0 held at its centre, its vibrato
+   *  kept, 2 twice the wander. */
+  drift(factor: number, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
+  /** Each note's centre about the nearest note of `scale` up from `root` (semitones above C), A4 at `a4` Hz: 1 as sung,
+   *  0 on the note, all that moves inside it kept. Chromatic by default; @audio/note's scale names, or degrees. */
+  center(factor: number, opts?: { scale?: string | number[], root?: number, a4?: number, at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
   /** Move the formants (the spectral envelope: a voice's vowels, the size of its head), keep the pitch. Semitones: a
    *  number, a curve { t, v } (seconds → semitones) or t => semitones; where it is zero the audio stays as it was. */
   formant(semitones: number | ((t: number) => number) | { t: number[], v: number[] }, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this

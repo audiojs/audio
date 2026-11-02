@@ -726,6 +726,19 @@ test('contour: a gliding voice whole, to within cents; silence and a quiet hum h
   t.ok(off.every(h => h === 0), `no pitch in the silence or the hum (${off.filter(Boolean).length} of ${off.length} frames)`)
   let none = contour(new Float32Array(0), sr), short = contour(new Float32Array(100), sr)
   t.ok(none.times.length === 0 && none.f0.length === 0 && short.f0.every(h => h === 0), 'nothing in, nothing out; a moment of silence, no pitch')
+  // each frame's pitch at the frame's own time: a tone wobbling ±50 cents at 5.5 Hz, its frequency known sample by sample
+  // (no formant filter to delay it), matched best with no lag; YIN's frames read it half a period ahead, 4.5 ms at 112 Hz
+  for (let hz of [112, 448]) {
+    let fm = s => hz * 2 ** (.5 * Math.sin(2 * Math.PI * 5.5 * s) / 12), y = new Float32Array(2 * sr), ph = 0
+    for (let i = 0; i < y.length; i++) { ph += fm(i / sr) / sr; y[i] = .5 * Math.sin(2 * Math.PI * ph) + .2 * Math.sin(4 * Math.PI * ph) }
+    let c = contour(y, sr, { hop: .005 }), best = [Infinity, 0]
+    for (let d = -.006; d <= .006; d += .0001) {
+      let e = 0
+      c.times.forEach((s, i) => { if (s > .3 && s < 1.7 && c.f0[i]) e += Math.log2(c.f0[i] / fm(s + d)) ** 2 })
+      if (e < best[0]) best = [e, d]
+    }
+    t.ok(Math.abs(best[1]) < .0003, `${hz} Hz: its pitch read ${(1000 * best[1]).toFixed(2)} ms off its time`)
+  }
 })
 
 // A voice's melody, wider or flatter: its pitch read back (the contour the editor draws) lies `factor` times as far from
@@ -767,6 +780,96 @@ test('intonation: rises and falls scale about the median; 1 is the input; a rang
   t.ok(await unchanged(x, a => a.intonation()), 'no factor: the input')
   let [blip] = await audio.from([x.slice(0, 880)], { sampleRate: sr }).intonation(2).read()
   t.ok(blip.length === 880 && blip.every(Number.isFinite), 'a moment of voice, 20 ms: its length, numbers')
+})
+
+// A held note in its layers, as Melodyne's pitch tools part them: a centre 30 cents sharp of A3, a drift of ±40 cents at
+// 0.7 Hz, a vibrato of ±50 cents at 4.5, 5.5 or 7 Hz (singers' rates and extents: Sundberg, "Acoustic and psychoacoustic
+// aspects of vocal vibrato", in Vibrato, Singular, 1995). Each layer read back from the pitch the editor draws
+// (contour(), pYIN), by least squares over 0.4–2.6 s onto a constant and each layer's own sine and cosine, so a layer's
+// size is measured apart from the others and from how the op found it
+const held = (rate = 5.5, centre = 57.3) => vowel(s => 440 * 2 ** ((centre + .4 * Math.sin(2 * Math.PI * .7 * s) + .5 * Math.sin(2 * Math.PI * rate * s) - 69) / 12), 3)
+async function layersOf(y, rate = 5.5) {
+  let { contour } = await import('../fn/pitch-detect.js'), { times, f0 } = contour(y, 44100, { hop: .005 }), K = 5, M = Array.from({ length: K }, () => new Float64Array(K + 1))
+  times.forEach((s, i) => {
+    if (!(s > .4 && s < 2.6 && f0[i])) return
+    let r = [1, Math.sin(2 * Math.PI * rate * s), Math.cos(2 * Math.PI * rate * s), Math.sin(2 * Math.PI * .7 * s), Math.cos(2 * Math.PI * .7 * s)], p = 69 + 12 * Math.log2(f0[i] / 440)
+    for (let a = 0; a < K; a++) { for (let b = 0; b < K; b++) M[a][b] += r[a] * r[b]; M[a][K] += r[a] * p }
+  })
+  for (let a = 0; a < K; a++) { let d = M[a][a]; for (let b = a; b <= K; b++) M[a][b] /= d; for (let r = 0; r < K; r++) if (r !== a) { let f = M[r][a]; for (let b = a; b <= K; b++) M[r][b] -= f * M[a][b] } }
+  return { centre: M[0][K], vibrato: Math.hypot(M[1][K], M[2][K]), drift: Math.hypot(M[3][K], M[4][K]) }
+}
+
+test('modulation, drift, center: a note\'s vibrato, drift and centre each scaled apart, the others kept', async t => {
+  if (!await import('@audio/tune-curve').catch(() => null)) return t.ok(true, 'skipped: @audio/tune-curve is not installed')
+  let sr = 44100, x = held(), was = await layersOf(x), run = async f => layersOf((await f(audio.from([x.slice()], { sampleRate: sr })).read())[0])
+  let near = (got, want, tol) => Math.abs(got - want) <= tol
+  let say = l => `vibrato ${l.vibrato.toFixed(3)}, drift ${l.drift.toFixed(3)}, centre ${l.centre.toFixed(3)}`
+  t.ok(near(was.vibrato, .5, .03) && near(was.drift, .4, .03), `as sung: ${say(was)}`)
+  // modulation: the vibrato ×k about the note's own line, within a tenth of it. The line holds 95% of a 0.7 Hz drift
+  // (a triangle two vibrato periods wide passes sinc² of it), the rest goes with the vibrato: kept within 12% (at −1,
+  // that 5% inverted)
+  for (let k of [0, .5, 2, -1]) {
+    let l = await run(a => a.modulation(k))
+    t.ok(near(l.vibrato, Math.abs(k) * was.vibrato, .1 * was.vibrato) && near(l.drift, was.drift, .12 * was.drift), `modulation(${k}): ${say(l)}`)
+  }
+  // drift: the note's line ×k about its centre, the vibrato within 5%
+  for (let k of [0, 2]) {
+    let l = await run(a => a.drift(k))
+    t.ok(near(l.drift, k * was.drift, .1 * was.drift) && near(l.vibrato, was.vibrato, .05 * was.vibrato), `drift(${k}): ${say(l)}`)
+  }
+  // center: its centre ×k about its semitone, A3 (57), within 5 cents
+  for (let k of [0, .5]) {
+    let l = await run(a => a.center(k))
+    t.ok(near(l.centre, 57 + k * (was.centre - 57), .05) && near(l.vibrato, was.vibrato, .05 * was.vibrato) && near(l.drift, was.drift, .05 * was.drift), `center(${k}): ${say(l)}`)
+  }
+  // to a scale: C 30 cents sharp goes to C chromatically, to C♯ in D major (D E F♯ G A B C♯: C is not in it, C♯ nearer than B)
+  let c = held(5.5, 60.3), onto = async o => (await layersOf((await audio.from([c.slice()], { sampleRate: sr }).center(0, o ?? {}).read())[0])).centre
+  let [chromatic, major] = [await onto(), await onto({ scale: 'major', root: 2 })]
+  t.ok(near(chromatic, 60, .05) && near(major, 61, .05), `C+30¢: chromatic ${chromatic.toFixed(3)}, D major ${major.toFixed(3)}`)
+  // any rate a singer uses: its period found, the vibrato within a tenth of itself at 0
+  for (let rate of [4.5, 7]) {
+    let y = held(rate), w = await layersOf(y, rate), l = await layersOf((await audio.from([y], { sampleRate: sr }).modulation(0).read())[0], rate)
+    t.ok(l.vibrato < .1 * w.vibrato, `${rate} Hz: modulation(0) ${w.vibrato.toFixed(3)} → ${l.vibrato.toFixed(3)} semitones`)
+  }
+  // 1, no factor, no voice: the input sample for sample; a range: the rest as it was
+  let same = async (src, f) => { let [o] = await f(audio.from([src.slice()], { sampleRate: sr })).read(); return o.length === src.length && o.every((v, i) => v === src[i]) }
+  let seed = 7, noise = Float32Array.from({ length: sr }, () => .2 * ((seed = seed * 16807 % 2147483647) / 2147483647 - .5))
+  t.ok(await same(x, a => a.modulation(1)) && await same(x, a => a.drift()) && await same(noise, a => a.center(0)), '×1, no factor, noise: the input')
+  let [y] = await audio.from([x.slice()], { sampleRate: sr }).modulation(0, { at: 1, duration: 1 }).read(), err = 0
+  for (let i = 0; i < x.length; i++) if (i < sr || i >= 2 * sr) err = Math.max(err, Math.abs(y[i] - x[i]))
+  t.ok(err < 1e-6 && y.some((v, i) => v !== x[i]), `ranged: outside it the input (${err.toExponential(1)} off), inside it changed`)
+  let wrong = await audio.from([x.slice()], { sampleRate: sr }).center(0, { scale: 'lydian-ish' }).read().then(() => '', e => e.message)
+  t.ok(/unknown scale 'lydian-ish': chromatic, major/.test(wrong), `an unknown scale: ${wrong}`)
+})
+
+// Notes as the editor's notes view has them (Tony's): one after silence, the next tied to it by a 60 ms glide 2.3
+// semitones up. A note's range moved onto its semitone from its first frames, not gliding in as a range across a voice
+// does, the note after it as it was; the step between two notes crossed, not jumped (a jump there reads 0.5 semitones a
+// frame or more, the input's own 0.3); both layers taken out, each note flat at its centre
+test('center, modulation, drift: by the note, from its first frame, the step between notes crossed', async t => {
+  if (!await import('@audio/tune-curve').catch(() => null)) return t.ok(true, 'skipped: @audio/tune-curve is not installed')
+  let { contour } = await import('../fn/pitch-detect.js'), sr = 44100
+  let line = s => s < .97 ? 57.3 : s > 1.03 ? 59.6 : 57.3 + 2.3 * (.5 - .5 * Math.cos(Math.PI * (s - .97) / .06))
+  let x = new Float32Array(Math.round(2.6 * sr))
+  x.set(vowel(s => 440 * 2 ** ((line(s) + .4 * Math.sin(2 * Math.PI * 5.8 * s) - 69) / 12), 2), Math.round(.3 * sr))
+  let pitch = y => { let { times, f0 } = contour(y, sr, { hop: .005 }); return [...times].map((s, i) => [s, f0[i] ? 69 + 12 * Math.log2(f0[i] / 440) : NaN]) }
+  let med = (P, a, b) => { let s = P.filter(([u, p]) => u >= a && u < b && p === p).map(p => p[1]).sort((p, q) => p - q); return s[s.length >> 1] }
+  let spread = (P, a, b) => { let s = P.filter(([u, p]) => u >= a && u < b && p === p).map(p => p[1]).sort((p, q) => p - q); return s[Math.floor(.9 * (s.length - 1))] - s[Math.floor(.1 * (s.length - 1))] }
+  let jump = (P, a, b) => P.reduce((m, [u, p], i) => u >= a && u < b && i && p === p && P[i - 1][1] === P[i - 1][1] ? Math.max(m, Math.abs(p - P[i - 1][1])) : m, 0)
+  let read = async f => (await f(audio.from([x.slice()], { sampleRate: sr })).read())[0], P = pitch(x)
+  // the first note's range, 0.3–1.3 s: its onset 30 cents down at once (the first 50 ms), the note after it untouched
+  let y = await read(a => a.center(0, { at: .3, duration: 1 })), Q = pitch(y), rest = 0
+  for (let i = Math.round(1.3 * sr); i < x.length; i++) rest = Math.max(rest, Math.abs(y[i] - x[i]))
+  let onset = med(Q, .31, .36) - med(P, .31, .36), glide = med(pitch(await read(a => a.pitch(-.3, { at: .3, duration: 1, voice: true }))), .31, .36) - med(P, .31, .36)
+  t.ok(Math.abs(onset + .3) < .05 && rest < 1e-6, `onset moved ${onset.toFixed(3)} semitones (pitch() over the range: ${glide.toFixed(3)}); after the range ${rest.toExponential(1)} off`)
+  // all of it: each note onto its semitone, A3 and C4 (30 cents down, 40 up, within 5), the step between them crossed
+  let all = pitch(await read(a => a.center(0))), [da, db] = [med(all, .5, 1.1) - med(P, .5, 1.1), med(all, 1.5, 2.2) - med(P, 1.5, 2.2)]
+  t.ok(Math.abs(da + .3) < .05 && Math.abs(db - .4) < .05 && jump(all, 1.2, 1.4) < .45,
+    `notes moved ${da.toFixed(3)} and ${db.toFixed(3)} semitones; the step ${jump(all, 1.2, 1.4).toFixed(3)} a frame at most (the input ${jump(P, 1.2, 1.4).toFixed(3)})`)
+  // both layers out: each note flat at its centre
+  let flat = pitch(await read(a => a.drift(0).modulation(0)))
+  t.ok(spread(flat, .5, 1.1) < .1 && spread(flat, 1.5, 2.2) < .1 && spread(P, .5, 1.1) > .6,
+    `drift(0).modulation(0): the notes spread ${spread(flat, .5, 1.1).toFixed(3)} and ${spread(flat, 1.5, 2.2).toFixed(3)} semitones (sung, ${spread(P, .5, 1.1).toFixed(3)})`)
 })
 
 // Formants moved, the pitch kept: a vowel whose resonators are made 3 semitones higher is what formant(3) should give;

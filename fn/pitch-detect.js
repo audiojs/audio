@@ -76,6 +76,24 @@ export function contour(x, fs, opts) {
   return write()
 }
 
+/** The pitch of frames `t` s apart (Hz, 0 unvoiced) at the frames' own times: YIN's difference compares a frame's
+ *  window with itself a period on, so what a frame finds is the pitch half a period past its time (an FM tone at 112 to
+ *  448 Hz read back 4.5 to 1.1 ms ahead, its half periods to 0.05 ms). Each voiced run read again at its frames, straight
+ *  in log frequency between what they found, its first held before it and its last past it. */
+function atFrames(f, t) {
+  let out = Float32Array.from(f)
+  for (let a = 0, b; a < f.length; a = b) {
+    if (!f[a]) { b = a + 1; continue }
+    for (b = a; b < f.length && f[b]; b++);
+    for (let i = a, j = a; i < b; i++) {
+      while (j + 1 < b && (j + 1) * t + .5 / f[j + 1] <= i * t) j++
+      let p = j * t + .5 / f[j], q = (j + 1) * t + .5 / f[j + 1]
+      out[i] = i * t <= p || j + 1 >= b ? f[j] : f[j] * (f[j + 1] / f[j]) ** ((i * t - p) / (q - p))
+    }
+  }
+  return out
+}
+
 /** contour() as the samples come, in memory of the frames, not the audio: `write(x)` takes the next samples, `write()`
  *  ends and gives { times, f0 }. */
 export function contours(fs, { hop = .01, minFreq = 60, maxFreq = 1000 } = {}) {
@@ -99,8 +117,8 @@ export function contours(fs, { hop = .01, minFreq = 60, maxFreq = 1000 } = {}) {
       peaks(true)
       for (let v of write().f0) f0.push(v)
       // a frame whose peak is under 0.03 of the loudest has no pitch
-      let out = Float32Array.from(f0, (v, i) => v && peak[i] < .03 * top ? 0 : v), t = H / fsd
-      return { times: Float32Array.from(out, (_, i) => i * t), f0: out }
+      let f = Float32Array.from(f0, (v, i) => v && peak[i] < .03 * top ? 0 : v), t = H / fsd
+      return { times: Float32Array.from(f, (_, i) => i * t), f0: atFrames(f, t) }
     }
     // x averaged in groups of d, a short last group dropped
     let m = Math.floor((k + x.length) / d), out = new Float32Array(m), o = 0

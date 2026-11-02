@@ -1123,7 +1123,7 @@ test('op help — all built-in ops have help', t => {
   let expected = ['gain', 'fade', 'trim', 'normalize', 'reverse', 'crop', 'clip', 'remove',
     'insert', 'copy', 'cut', 'paste', 'move', 'repeat', 'mix', 'crossfade', 'remix', 'highpass', 'lowpass', 'eq', 'lowshelf',
     'highshelf', 'notch', 'bandpass', 'allpass', 'filter', 'pan', 'pad', 'speed', 'stretch', 'warp',
-    'pitch', 'intonation', 'formant', 'vocals', 'dither', 'crossfeed', 'convolve', 'plugin', 'resample', 'write', 'transform', 'split', 'shrink', 'crossover',
+    'pitch', 'intonation', 'modulation', 'drift', 'center', 'formant', 'vocals', 'dither', 'crossfeed', 'convolve', 'plugin', 'resample', 'write', 'transform', 'split', 'shrink', 'crossover',
     'match', 'master', 'align', 'roomtone', 'spectral', 'repair', 'deepfilter', 'dereverb', 'vocos', 'restore', 'recover', 'derustle', 'denoise', 'declick', 'phase', 'azimuth', 'deconstruct', 'rebalance', 'scene', 'codec',
     // sinks + sources
     'play', 'stat', 'check', 'save', 'record']
