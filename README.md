@@ -613,7 +613,7 @@ m.stop()                                                           // release
 | `'cepstrum'` | MFCCs. |
 | `'bpm'` | tempo. |
 | `'beats'`, `'onsets'` | timestamps as `Float64Array` (seconds). |
-| `'hits'` | where the level jumps, up (a strike) or down (a stop), as `Float64Array` (seconds): each at its attack's zero crossing, the sample to cut at, where `'onsets'` reads 23 ms blocks. |
+| `'hits'` | where the level jumps, up (a strike, a swell out of the ground) or down (a stop), over 10 ms and over 50 ms, as `Float64Array` (seconds): each at its attack's zero crossing, the sample to cut at, where `'onsets'` reads 23 ms blocks. |
 | `'notes'` | `[{time, duration, freq, midi, note, clarity}]` (pYIN + Tony note HMM); with `robust: true`, the same through noise and rooms (a neural pYIN stage 1); with `poly: true`, polyphonic `[{time, duration, freq, midi, note, velocity, bends}]` (Basic Pitch). |
 | `'chords'` | `[{time, duration, label, root, quality, bass, confidence}]`: Chordino on NNLS chroma (Mauch & Dixon 2010), matched to the reference plugin; labels like `'Am'`, `'G7'`, `'C/E'`, `'N'`. |
 | `'key'` | `{tonic, mode, label, confidence}` (Krumhansl-Schmuckler). |

@@ -3,7 +3,7 @@
 // the ground truth these are measured against.
 import test, { ok, is } from 'tst'
 import audio from '../audio.js'
-import { attacks, hits } from '../fn/hits.js'
+import { attacks, hits, rises, plainness } from '../fn/hits.js'
 import { samples, RATE } from '../site/samples.js'
 
 const strikes = { chime: [.5, 1.1, 1.7, 2.3, 3.8, 4.4, 5, 5.6], handpan: [.3, .85, 1.3, 1.75, 2.3, 2.75, 3.25, 3.9] }
@@ -37,6 +37,31 @@ test('hits: each lands at its strike, before it or within the first half millise
   for (const t of [1, 4, 7]) for (let i = 0; i < rate * .5; i++) struck[t * rate + i] += .8 * Math.sin(2 * Math.PI * 440 * i / rate) * Math.exp(-i / rate * 8)
   const found = hits([struck], rate).filter(t => [1, 4, 7].some(s => t > s - .005 && t < s + .005))
   is(found.length, 3, String(hits([struck], rate)))
+})
+
+// A sound swelling out of a ground that flickers as much as it grows in 10 ms, as a blackbird's phrase does (xeno-canto
+// 1059970: 23 dB in 120 ms out of a ground flickering 4 to 8 dB each 10 ms): no jump at 10 ms, a step at 50 ms, its rise
+// where the ground ends, within the 5 ms windows the level is read in; before, none. How plain each cue is: the swell's
+// start and the tone's end step as far as the tone is over the ground, about 25 dB, a moment of the ground hardly at
+// all; the sound each bounds peaks as high as the tone (10^(-27/20), 0.045), or the ground (0.003)
+test('hits: a swell out of a flickering ground rises where the ground ends; how plain each cue is', () => {
+  const rate = 44100, x = new Float32Array(rate * 2)
+  let seed = 1, g = 1
+  const rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647
+  // the ground about 55 dB under full scale, its gain each 10 ms 0 to 8 dB down; from 1 s a 2 kHz tone swelling from
+  // 50 dB under 23 dB in 120 ms, held to 1.42 s
+  for (let i = 0; i < x.length; i++) {
+    if (i % (rate / 100) === 0) g = 10 ** (-8 * rnd() / 20)
+    const t = i / rate, db = t < 1 || t > 1.42 ? -Infinity : -50 + 23 * Math.min(1, (t - 1) / .12)
+    x[i] = .003 * (2 * rnd() - 1) * g + 10 ** (db / 20) * Math.sin(2 * Math.PI * 2000 * t)
+  }
+  const up = rises([x], rate).map(r => r.t)
+  ok(up.length === 1 && up[0] > .995 && up[0] < 1.005, `the swell's rise: ${up}`)
+  const [ground, start, end] = plainness([.5, 1, 1.42], [x], rate)
+  ok(start.rank > 20 && end.rank > 20, `the tone's start and end step ${start.rank.toFixed(1)}, ${end.rank.toFixed(1)} dB`)
+  ok(ground.rank < 3 && ground.peak < .004, `the ground's flicker steps ${ground.rank.toFixed(1)} dB, peaks ${ground.peak.toFixed(4)}`)
+  ok(Math.abs(end.peak - .045) < .004, `the tone's end, the tone's peak: ${end.peak.toFixed(4)}`)
+  is(plainness([], [x], rate), [], 'none asked')
 })
 
 test('hits: an attack starts at a zero crossing, in order, within the sound', () => {
