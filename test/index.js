@@ -2732,7 +2732,8 @@ test('trim, shrink — by the block size of the sound\'s stats, not one set sinc
 
 // A peak read off block stats takes both halves of the wave, wherever it is read (peak, db, crest, the CLI's level as it
 // plays, which read the highs alone and missed a peak that swings low)
-test('peakOf — a peak that swings low', async t => {
+// Node's: peakOf is stats.js's own, which the test page maps to the browser bundle's public exports
+test('peakOf — a peak that swings low', { skip: !isNode }, async t => {
   let { peakOf } = await import('../stats.js')
   let x = new Float32Array(4410).fill(.2); x[100] = -.8
   let a = audio.from([x], { sampleRate: 44100 })
@@ -2743,13 +2744,17 @@ test('peakOf — a peak that swings low', async t => {
 
 // A delivery spec by any of its names, the same for normalize() as for check(): Apple's is the podcast target, EBU's the
 // broadcast one, streaming Spotify's (its former name)
+const ALIASES = [['apple', 'podcast'], ['ebu', 'broadcast'], ['streaming', 'spotify']]
 test('normalize — a spec by any name check() takes, the same target', async t => {
   let sr = 44100, x = Float32Array.from({ length: 2 * sr }, (_, i) => .1 * Math.sin(2 * Math.PI * 440 * i / sr))
   let loud = async name => (await audio.from([x], { sampleRate: sr }).normalize(name).stat('loudness')).toFixed(2)
-  for (let [other, name] of [['apple', 'podcast'], ['ebu', 'broadcast'], ['streaming', 'spotify']]) {
-    t.is(await loud(other), await loud(name), `${other} is ${name}`)
-    t.is((await audio.from([x], { sampleRate: sr }).check(other)).spec, name, `and check() says so`)
-  }
+  for (let [other, name] of ALIASES) t.is(await loud(other), await loud(name), `${other} is ${name}`)
+})
+
+// Node's: check() reads its rules through registry plugins (truepeak, lra) the test page has no import map entries for
+test('check — a spec by any name normalize() takes', { skip: !isNode }, async t => {
+  let x = Float32Array.from({ length: 44100 }, (_, i) => .1 * Math.sin(2 * Math.PI * 440 * i / 44100))
+  for (let [other, name] of ALIASES) t.is((await audio.from([x], { sampleRate: 44100 }).check(other)).spec, name, `${other} is ${name}`)
 })
 
 test('normalize: LUFS preset keeps peaks under the ceiling (stats match the render)', async t => {
