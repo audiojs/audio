@@ -24,6 +24,7 @@ import { THEMES, load, parse, skin, fonts, wear, webview, webviewFonts } from '.
 import { temperature, rgb, MAPS } from './tint.js'
 import { root, params, EMBED, DESKTOP, UI, SHOWN, quickOf, QUICK, GIVEN, APART, keep, generators, formats, ENCODING, writtenDepth, DEPTH_USE, mime, cutFormats, frameRates, KEEPS, icons, overlays, cueTimes, rulers, scrolls, grids, LOOK, looks, specMethods, mapNames, WAVE, waveLooks, levelList, scaleNames, curves, glyphs, gripModes, SETTINGS_ICON, AGENT_ICON, RECIPES_ICON, displays, SPEEDS, SHUTTLE, times, tenths, scrubs, rates, layouts, specs, KEY, stored, oneOf, docsOf, sideOf } from './editor/config.js'
 import { ed, rk, pl, output, incoming, timer, hush, steps, depthWas, rechoose, viewing, shown, carded, notesFor, queued, assign } from './editor/context.js'
+import { dbfs, bytes, ago, mac, keys, clock, stamp, ruled, label, quote, several, hertz, chordName, brief, note } from './editor/format.js'
 
 // The editor: its output, and at its right a panel that opens and closes, as Luminar's: the tools, every method by kind,
 // one click adding it; the edits, the chain that makes the output as a stack of steps; the same chain as code; and the
@@ -109,29 +110,6 @@ const store = () => {
 }
 // stored a moment after the last of a run of changes (typing, selecting)
 const later = () => { clearTimeout(store.timer); store.timer = setTimeout(store, 500) }
-
-// A number and its unit as the page writes them: the unit right after the value, no space (−1.0dB, 44.1kHz)
-const dbfs = db => Number.isFinite(db) ? `${db < 0 ? '−' : ''}${Math.abs(db).toFixed(1)}` : '−∞'
-// a file's size, and a time as a list of past things says it (File › Open recent, the conversations)
-const bytes = n => n >= 1e6 ? `${(n / 1e6).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1e3))}KB`
-const ago = t => { const s = (Date.now() - t) / 1000; return s < 60 ? 'now' : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 86400 ? `${Math.floor(s / 3600)} h ago` : new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) }
-// Keys as this platform names them
-const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform)
-const keys = s => mac ? s : s.replace(/⌘/g, 'Ctrl+').replace(/⇧/g, 'Shift+').replace(/⌥/g, 'Alt+')
-// A time, or a length of time, in the units chosen, as the view writes them (time.js): 0:05.000, 5.000s, 240000
-const clock = (t, digits = 3) => time(t, state.units, { digits, rate: output?.sampleRate })
-const stamp = t => clock(t)
-// A check's numbers as the page prints them: to 0.01 as judged, whole numbers whole, a true minus sign
-const minus = s => s.replace(/^-/, '−')
-const value = v => Number.isFinite(v) ? minus(Number.isInteger(v) ? String(v) : v.toFixed(2)) : v < 0 ? '−∞' : '∞'
-const limit = ({ min, max }) => min != null && max != null ? (min === max ? `= ${value(min)}` : `${value(min)} to ${value(max)}`) : max != null ? `≤ ${value(max)}` : min != null ? `≥ ${value(min)}` : ''
-const mark = pass => pass == null ? '·' : pass ? '✓' : '✗'
-const verdict = pass => pass == null ? 'info' : pass ? 'pass' : 'fail'
-// a check's rule as its table's row: its name, the output's value and mark, its limit (the Export tab's, the chat's)
-const ruled = r => ({ name: r.name, unit: r.unit, limit: limit(r), note: r.note || '', after: value(r.value), afterMark: mark(r.pass), afterClass: verdict(r.pass) })
-// a sound by its address, a URL or a path from the site's root (worker.js address), named by its file
-const label = name => /^(https?|blob|data):|^\/(?!\/)/.test(name) ? decodeURIComponent(name.split(/[?#]/)[0].split('/').pop() || name) : name
-const quote = s => `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
 
 const eng = engine()
 assign({ eng })
@@ -1515,8 +1493,6 @@ function laneIndex(out = output) { const i = out?.tracks?.findIndex(t => t.name 
 // runs that follow one another (a file dropped opens in a tab, then runs) read as one. Play gives way to a ring of the
 // same, its square the way out (`working`): at once while there is nothing to play, after two seconds over a sound there is.
 let ticking = 0, asked = [], began = 0
-// steps by name, two at most, the rest counted: "highpass, compressor and 8 more"
-const several = list => list.length > 2 ? `${list.slice(0, 2).join(', ')} and ${list.length - 2} more` : list.join(' and ')
 function status() {
   const now = performance.now(), a = incoming?.quiet ? null : incoming, asks = waiting() - (hushed.get(state.tab) ?? 0), busy = asks > 0 || !!a
   began = busy ? began || now : 0
@@ -1701,7 +1677,6 @@ function setScrub(name) { state.scrub = name; for (const d of docs) if (d.player
 // What the output is, at the status bar's right: its level, short (the output's peak, or the selection's, or the band
 // selected), all of them when pointed at (the loudness, the RMS); then its rate, channels and the depth it is written
 // at, a click away from resampling, remixing and another depth.
-const hertz = f => f >= 1000 ? `${+(f / 1000).toFixed(2)}kHz` : `${Math.round(f)}Hz`
 // The peak of samples [from, to), where it is, the sum of their squares and how many: of `chs`, their samples; else of
 // `leaves`, a long output's (gl-waveform's, 256 samples a leaf: min, max, sum of squares, count), those the range
 // touches whole, within 256 samples at either end, the peak at its leaf's start. { peak, at, sum, n }
@@ -1816,7 +1791,6 @@ function listen() {
       : chord ? { text: chord, title: `${chords.length > 1 ? 'Chords' : 'Chord'} ${where}` } : null
   }, 250)
 }
-const chordName = label => label.replace(/#/g, '♯')
 // The chord at the playhead as it plays, in the status bar (worker.js chords): the output's chords a block at a time, the
 // one the playhead is in and the next a few seconds before it gets there, each asked for once; said as it changes
 let live = { id: null, track: undefined, blocks: [], asking: false, off: false, text: null }
@@ -1938,7 +1912,6 @@ function said(before, after) {
   if (i === was.length && i === now.length && off.length === on.length && j >= 0 && on[j].name === off[j].name) return `${on[j].name}, bypassed: ${brief(text(before, off[j]))} → ${brief(text(after, on[j]))}`
   return 'Edit the script'
 }
-const brief = t => t.length > 28 ? t.slice(0, 27) + '…' : t || '()'
 function named(code, k) {
   const range = k.args.find(a => a.kind === 'object')?.props, at = range?.find(p => p.name === 'at')?.value, d = range?.find(p => p.name === 'duration')?.value
   const where = typeof at === 'number' && typeof d === 'number' ? ` ${at.toFixed(2)}–${(at + d).toFixed(2)}s` : ''
@@ -2816,13 +2789,6 @@ function toolKey(event) {
   if (k === 'ArrowDown' || k === 'ArrowUp') { event.preventDefault(); state.pick = (state.pick + (k === 'ArrowDown' ? 1 : items.length - 1)) % Math.max(1, items.length) }
   else if (k === 'Enter') { event.preventDefault(); items[Math.min(state.pick, items.length - 1)]?.run() }
   else if (k === 'Escape') { event.preventDefault(); closePalette() }
-}
-// A word over the picture for a few seconds: a hint, or what went wrong (`error`), longer
-function note(text, kind = '') {
-  state.notice = text
-  state.noticeKind = kind
-  clearTimeout(note.timer)
-  note.timer = setTimeout(() => state.notice = '', kind === 'error' ? 8000 : 4000)
 }
 
 // Sources. A new sound opens in a tab of its own, or in the tab shown if it is empty; several at once, a track each in
