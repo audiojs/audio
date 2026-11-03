@@ -9,6 +9,8 @@ See also: [Plugins](plugins.md)
 | `core.js` | Engine — decode, paginate, plugin registry, instance factory, page I/O. The only required file. |
 | `stats.js` | Block-level stat engine — min/max/energy/clip/dc per `BLOCK_SIZE`-sample block during decode. Powers waveform, loudness, stat queries without touching PCM. |
 | `cache.js` | Page cache — LRU eviction to OPFS, on-demand restore. Large files stay playable without exhausting RAM. |
+| `store.js` | Sounds kept by a key — `audio.store(name, { max })`: OPFS where there is one, else memory; `get` (channels, as `audio.memo` takes), `open` (a sound over its pages, its stats with it), `set`. One lock discipline for every file the library keeps (see [Storage](#storage)). |
+| `checkpoint.js` | Renders kept — `keysOf` (a sound's start and each step, one canonical serializer), `recall` (from the longest start kept in a host's store), `keep`. |
 | `plan.js` | Edit pipeline — non-destructive edit list, plan builder, stream renderer. `a.gain(-3).trim()` becomes a declarative plan materialized on read. |
 | `audio.js` | Full bundle — core + stats + cache + plan + all plugins. The default import. |
 | `deck.js` | Playback output — the deck (an AudioWorklet on the page's one AudioContext; Node: @audio/speaker), its main-thread transport, and the playback session over it (play, pause, seek, hand-off, the clock). Engine-free: the worker facade uses it as is. |
@@ -180,6 +182,32 @@ to published packages, installed with `audio` and autowired: registry ops are me
 from the start and their package loads by dynamic import at LOAD, the async gate every
 render passes; ops with a `load` hook resolve their module the same way (`audio.atoms`
 remains as a deprecated alias).
+
+## Storage
+
+What the library keeps in the browser's own file system (OPFS) it takes under a Web Lock named by the file's path:
+shared to read it, or while a sound reads from it; exclusive to write or remove it, or to open it to a sync access
+handle (which the platform gives one at a time). A writer, or the eviction, finding a key in use lets it be.
+
+- **Pages** (`cache.js`): one instance's pages past its `budget`, in a folder of its own, held (a lock by the folder's
+  name) while the instance is and swept once no one holds it. Mutable (a pushed stream's last page fills), written in
+  place through sync access handles in a worker.
+- **Sounds by key** (`store.js`): `audio.store(name, { max })`, a sound or channels per key with its block stats and a
+  meta of the host's, written whole or not at all (`createWritable`), read whole (`get`) or as a sound over its pages
+  (`open`, the file held while the sound is). Past `max` bytes the oldest written goes. Without a name, or in Node, in
+  memory (the least lately used first). `audio.memo` takes one.
+
+The editor's own files (`playground/keep.js`: the files a person opens and the takes they record, bytes kept as given,
+never evicted) are not sounds by key and stay its own, under its own lock (one editor writes at a time).
+
+## Checkpoints
+
+A render kept by what makes it (`checkpoint.js`): `keysOf(a)` names the sound `a` plays (`rootOf`: the one it was copied
+from, at its rate and channels), its marks, then each edit, settings in order; a sound an edit reads by its own key, so
+one edited later changes every key past it. A function, samples, or a sound the host names not end the keys there.
+`recall(a, store)` finds the longest start kept and gives a sound over it with the edits after it; `keep(a, store, { step })`
+keeps an output. A step that renders whole (a `whole` op) is taken from what the render made of it (`wholeOf`), never run
+again. What to keep and when is the host's: the editor keeps every output, and in idle time the steps that took long.
 
 ## Meta, markers, regions
 

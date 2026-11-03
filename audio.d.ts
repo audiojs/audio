@@ -675,6 +675,21 @@ declare namespace audio {
     evict(i: number): Promise<void>
     clear(): Promise<void>
   }>
+  /** Sounds kept by a key: in the browser's files under `name` where there are any (OPFS), else in memory (no name, Node).
+   *  Up to `max` bytes, the oldest let go first, never one in use. Its get/set are those audio.memo takes */
+  function store(name?: string | null, opts?: { max?: number | Promise<number> }): Store
+  function store(opts: { max?: number }): Store
+  interface Store {
+    has(key: string): Promise<boolean>
+    /** Its channels, read whole; null where none are kept */
+    get(key: string): Promise<Float32Array[] | null>
+    /** A sound over its pages (none read till asked), its block stats with it, and the meta kept with it */
+    open(key: string, opts?: { budget?: number }): Promise<{ sound: AudioInstance, meta: any } | null>
+    /** A sound (streamed in) or channels, and a meta (JSON; typed arrays in it kept as bytes). A key in use is let be */
+    set(key: string, value: AudioInstance | Float32Array[], meta?: any): Promise<void>
+    delete(key: string): Promise<void>
+    keys(): Promise<string[]>
+  }
   /** Sync entry — from PCM data, AudioBuffer, audio instance (structural copy), silence, function source, or typed array with format */
   function from(source: Float32Array[] | AudioBuffer | AudioInstance | number, opts?: AudioOpts): AudioInstance
   function from(fn: (t: number, i: number) => number | number[], opts: AudioOpts & { duration: number }): AudioInstance
@@ -725,5 +740,23 @@ declare namespace audio {
   /** Audio instance prototype — extensible (like $.fn) */
   const fn: Record<string, any>
 }
+
+/** Checkpoints (checkpoint.js): the keys of an instance's start and of its output after each edit, as far as they can be
+ *  said; `id` names the sound it plays (this process's name for it, by default), none for one it gives none */
+export function keysOf(a: AudioInstance, id?: (root: AudioInstance) => string | null): string[] & { marked: boolean }
+/** `a` as it renders from the longest of its starts kept in `store`: the output kept, its marks, the edits after it; null where none is */
+export function recall(a: AudioInstance, store: audio.Store, id?: (root: AudioInstance) => string | null): Promise<AudioInstance | null>
+/** Keep `a`'s output after `step` edits (all, by default): `sound`, or rendered from what is kept. Null where it can't be said or still arrives */
+export function keep(a: AudioInstance, store: audio.Store, opts?: { sound?: AudioInstance, meta?: object, step?: number, id?: (root: AudioInstance) => string | null }): Promise<AudioInstance | null>
+/** A kept output with `edits` after it: a sound of its own */
+export function onto(kept: { sound: AudioInstance, meta?: { markers?: Marker[], regions?: Region[] } }, edits: EditOp[]): AudioInstance
+/** The instance with its first `k` edits, its marks with it */
+export function prefix(a: AudioInstance, k: number): AudioInstance
+/** The sound an instance plays: the one it was copied from at its rate and channels, or itself */
+export function rootOf(a: AudioInstance): AudioInstance
+/** This process's name for a sound */
+export function idOf(root: AudioInstance): string
+/** What a whole-render op (edit `index`) made when `a` last rendered; null where it hasn't since its last edit */
+export function wholeOf(a: AudioInstance, index: number): AudioInstance | null
 
 export default audio
