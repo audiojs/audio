@@ -34,6 +34,8 @@ await workers()
 const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '')
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.wasm': 'application/wasm' }
 let server, browser, page, origin, errors
+// files a test made, served at /slow/<name> as the repository's are
+const made = new Map()
 // The page as a visitor left it on the chime's script, which a first visit opened on until it opened on an empty tab:
 // what most tests start from. Stored only where nothing is, so a test's own storage, and the page's as it goes, stand
 const CHIME = `audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .fade(0.02, 0.1)`
@@ -45,9 +47,9 @@ before(async () => {
   server = createServer(async (req, res) => {
     const url = req.url.split('?')[0]
     if (url === '/blank.html') { res.writeHead(200, { 'content-type': 'text/html' }).end('<!doctype html><title>blank</title>'); return }
-    // a file over a slow connection: 8 KB every 120 ms, its length said up front
+    // a file over a slow connection: 8 KB every 120 ms (?ms=), its length said up front; the repository's, or one a test made
     if (url.startsWith('/slow/')) {
-      const data = await readFile(resolve(root, '.' + url.slice(5))), ms = +(req.url.match(/[?&]ms=(\d+)/)?.[1] ?? 120)
+      const data = made.get(url.slice(6)) ?? await readFile(resolve(root, '.' + url.slice(5))), ms = +(req.url.match(/[?&]ms=(\d+)/)?.[1] ?? 120)
       res.writeHead(200, { 'content-type': 'audio/wav', 'content-length': data.length })
       for (let i = 0; i < data.length; i += 8192) { res.write(data.subarray(i, i + 8192)); await new Promise(r => setTimeout(r, ms)) }
       res.end()
@@ -12716,10 +12718,13 @@ test('engine: a long output kept comes back after a reload as the picture it was
 // and kept: each leaf its 256 samples' own [min, max, Σx², count], the last one short, each piece from a leaf's start;
 // each spectra column each bin's mean power over its Hann frames of 2048 (40 ms at 48 kHz) every 1024 samples,
 // as a byte (dB + 150) · 1.6, within a byte of a textbook FFT in doubles. One it holds comes as samples. samples() reads
-// any range, clamped to the output; null once a newer one replaced it
+// any range, clamped to the output; null once a newer one replaced it. The long one arrives over a slow connection (a
+// second of it), so it renders as it comes, in pieces; made in memory, it may render whole before a second piece is due
 test('engine: past what the page holds, an output comes as its peaks and spectra, each its samples\' own', async () => {
+  const n = 96096
+  made.set('long.wav', await wavBytes([Float32Array.from({ length: n }, (_, i) => Math.sin(i / 17) * (.2 + i / n)), Float32Array.from({ length: n }, (_, i) => Math.sin(i / 900) / 3)]))
   await page.goto(origin + '/blank.html')
-  const r = await page.evaluate(async () => {
+  const r = await page.evaluate(async slow => {
     const { default: engine } = await import('/playground/engine.js'), { prepare } = await import('/playground/code.js')
     const e = engine(new URL('/playground/dist/worker.js', location.href))
     e.peaks = 48000
@@ -12768,11 +12773,12 @@ test('engine: past what the page holds, an output comes as its peaks and spectra
     }
     // files, so what they make is kept
     const tone = async (name, n) => { await e.file(name, { channels: [Float32Array.from({ length: n }, (_, i) => Math.sin(i / 17) * (.2 + i / n)), Float32Array.from({ length: n }, (_, i) => Math.sin(i / 900) / 3)], sampleRate: 48000 }); return `audio('${name}').gain(-1)` }
-    const long = await check(await run(await tone('long.wav', 96096))), kept = await check(await run(`audio('long.wav').gain(-1)`))
+    const long = await check(await run(`audio('${slow}').gain(-1)`)), kept = await check(await run(`audio('${slow}').gain(-1)`))
     const edges = [[-10, 300], [96091, 96200], [10, 10]].map(([a, b]) => e.samples(kept.id, a, b).then(x => x?.map(c => c.length)))
     const even = await check(await run(await tone('even.wav', 25600))), short = await check(await run(`audio.from(t => Math.sin(t * 3000), { duration: .5, sampleRate: 48000 })`))
     return { long, kept, edges: await Promise.all(edges), even, short, gone: await e.samples(long.id, 0, 10) }
-  })
+  }, `${origin}/slow/long.wav?ms=10`)
+  made.delete('long.wav')
   assert.ok(r.long.long && r.long.kinds.join() === 'peaks' && r.long.pieces > 1, `rendered: as peaks, in ${r.long.pieces} pieces`)
   assert.ok(r.long.aligned && r.long.exact, 'each piece from where the last left off, each leaf its samples\' own')
   assert.equal(r.long.last, 96096 - 375 * 256, 'the last leaf holds what is left')
