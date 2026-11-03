@@ -1,10 +1,10 @@
-import { select, told, addCaret, setCursor } from '../view.js'
 import { plot, floor } from './geometry.js'
 import { EDGE, STICK, FINE, root, oncursor, onscrub, onaudition, duration, more, selection, band, cursor, cues, bounds, contour, gripMode, anchor, noted, assign } from './model.js'
 import { median, noteAt, linePoints, valueAt, onLine, toneOf, toneAt, pointOn, knotOn } from './notes.js'
 import { TOOLS, handled, gripAt } from './overlay.js'
 import { drag, again, thirdAt } from './pointer.js'
 import { x, time, snap, snapF, seen, stuck, pitchLine, ly, snapV, inside, fy, rowOf, fold, pointAt, lineLanes, pitchLanes } from './scales.js'
+import { select, told, addCaret, setCursor } from './select.js'
 import { editing } from './strips.js'
 
 // What a press starts, by where it lands and the keys held: the caret, a range, a handle, a cue, a box, a grip, a

@@ -1,4 +1,3 @@
-import { around, select, told, addCaret, setCursor } from '../view.js'
 import { lockedAt, haunt, unghost, pointers, plot, spare, tallOf, lanes, floor, inRoom, own, laneAt, trackAt, footAt, bands, resized, refocus, freeze, own0, frozenAt } from './geometry.js'
 import { selectDown, origin, current, caretAt, edgeAt, gripDown, endDown, lifting, lock, aimed, fine, scrub, unscrub, nearCue, cueDown, penDown, toneDown, pitchDown, noteDown, tapped, heardAround } from './gestures.js'
 import { EDGE, ONTO, FINE, HOLD, SLOP, EXTEND, ADD, root, onedit, onmode, onscrub, onaudition, onheight, duration, show, markers, more, pieces, start, end, fview, selection, band, cursor, playhead, steered, cues, envelope, shift, contour, fadeCurve, aview, levelStep, tracks, focus, allLanes, sections, heights, lift, held, assign } from './model.js'
@@ -7,6 +6,7 @@ import { lanesEnd, gripAt, gripPointer, glide } from './overlay.js'
 import { arrange, faded, crossed, invalidate } from './render.js'
 import { steer, onAway, bring } from './ruler.js'
 import { bar, onBar, x, time, clamp, snap, free, snapF, stick, stuck, pitchLine, snapV, local, inside, uy, ya, fold, pointAt, lineLanes, pitchLanes, setRange, setFreqs, zoomSpan, onFreqs, onLevels, zoomLevels } from './scales.js'
+import { around, select, told, addCaret, setCursor } from './select.js'
 import { thumb, liftAt, editing, markAt, labelAt, notch, stripAt, rename } from './strips.js'
 
 // The pointer: down, move, the drags, hover and leave, up, clicks and the context menu, on the picture and its time row
