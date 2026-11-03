@@ -313,6 +313,12 @@ export interface AudioInstance {
   azimuth(delay?: number | 'auto' | ((t: number) => number) | { t: number[], v: number[] }, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
   /** The tonal, noisy and transient parts at their own levels, dB (−Infinity removes one): median-filter HPSS with
    *  Driedger's residual; the parts add back to the input (iZotope RX Deconstruct) */
+  /** Clicks found and rebuilt from the sound around them: a click stands out `threshold` (8) times its local level, none longer than `longest` ms */
+  declick(threshold?: number, longest?: number, order?: number, opts?: { at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
+  /** A song's vocals, bass, drums and the rest, each at its own level in dB (−Infinity mutes), by a separation model (optional @audio/neural-separate) */
+  rebalance(vocals?: number, bass?: number, drums?: number, other?: number, opts?: { residual?: number, model?: string, step?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
+  /** A soundtrack's dialogue, music and effects, each at its own level in dB (−Infinity mutes), by a separation model (optional @audio/neural-separate) */
+  scene(dialogue?: number, music?: number, effects?: number, opts?: { residual?: number, model?: string, step?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   deconstruct(tonal?: number, noise?: number, transient?: number, opts?: { separation?: number, at?: Time, duration?: Time, d?: Time, mix?: Mix, channel?: number | number[] }): this
   /** Encoded and decoded in place, lined up with the input: hear what the codec does (iZotope RX Streaming Preview).
    *  `quality`: MP3 VBR, LAME's -V (0 best, under 10); 'gsm': GSM 06.10 full rate, 13 kbps at 8 kHz */
@@ -344,6 +350,8 @@ export interface AudioInstance {
   dereverb(reduction?: number, opts?: { music?: 'pass' | 'enhance', method?: 'roformer' | 'wpe', strength?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   dereverb(opts: { reduction?: number, music?: 'pass' | 'enhance', method?: 'roformer' | 'wpe', strength?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   /** A voice made again by Vocos, a neural vocoder (optional @audio/neural-vocode): another vocoder's artifacts (a TTS's frames ringing on) give way to Vocos's own; Vocos makes nothing above 12 kHz, so the input is kept above `crossover` Hz (11000; 0: Vocos's alone) */
+  /** A clip-on mic's clothing rustle off the voice, down to `reduction` dB under it (45), the room's tone 12 dB down (`ambience: false` takes it all); deepfilter()'s model */
+  derustle(reduction?: number, opts?: { ambience?: boolean, music?: 'pass' | 'enhance', weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   vocos(opts?: { crossover?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   restore(strength?: number, opts?: { weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this
   restore(opts: { strength?: number, weights?: string, device?: 'auto' | 'node' | 'wasm' | 'webgpu', at?: Time, duration?: Time, d?: Time, channel?: number | number[] }): this

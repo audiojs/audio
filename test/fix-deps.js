@@ -78,3 +78,11 @@ test('fix package.json — the browser bundle imports the deck the worker does, 
     ok(!src.includes('audio.deck'), `${f} holds no deck of its own`)
   }
 })
+
+// the types shipped name every op a call can make: one landed without its declaration is a method TypeScript refuses
+test('fix package.json — audio.d.ts declares every op the library registers', async () => {
+  let { default: audio } = await import('../audio.js')
+  let dts = readFileSync(new URL('../audio.d.ts', import.meta.url), 'utf8')
+  let ops = Object.keys(audio.op()).filter(k => !audio.op(k).hidden)
+  is(ops.filter(k => !new RegExp(`^\\s+${k}\\(`, 'm').test(dts)), [], 'ops without a method in audio.d.ts')
+})
