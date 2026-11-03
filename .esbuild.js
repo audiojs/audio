@@ -16,12 +16,20 @@ const lazyAtoms = {
   }
 }
 
+// deck.js stays the module it is beside dist/, the one `audio/worker` imports too: a page using both runs one deck
+const ownDeck = {
+  name: 'own-deck',
+  setup(build) {
+    build.onResolve({ filter: /(^|\/)deck\.js$/ }, () => ({ path: '../deck.js', external: true }))
+  }
+}
+
 const base = {
   entryPoints: ['audio.js'],
   bundle: true,
   format: 'esm',
   platform: 'browser',
-  plugins: [lazyAtoms],
+  plugins: [lazyAtoms, ownDeck],
 }
 
 // dist/audio.js — core + dispatch, codecs load on demand via import()

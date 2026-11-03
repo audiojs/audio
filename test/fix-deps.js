@@ -66,3 +66,15 @@ console.log(JSON.stringify(out))`
   ok(Number.isFinite(out.core[3]), `loudness measured: ${out.core[3]} LUFS`)
   is(out.missing, ['@audio/dynamics', '@audio/vocals', '@audio/reverb', '@audio/beat'], 'each optional op names the package to install')
 })
+
+// `audio` in a page is dist/audio.js, `audio/worker` is worker.js importing ./deck.js: the bundle importing the same
+// deck.js, a page using both runs one deck (one AudioContext, one worklet), with no copy to reconcile
+test('fix package.json — the browser bundle imports the deck the worker does, not a copy of it', async () => {
+  let { execFileSync } = await import('child_process')
+  execFileSync(process.execPath, ['.esbuild.js'], { cwd: new URL('..', import.meta.url) })
+  for (let f of ['audio.js', 'audio.min.js']) {
+    let src = readFileSync(new URL(`../dist/${f}`, import.meta.url), 'utf8')
+    ok(/from\s*"\.\.\/deck\.js"/.test(src), `${f} imports ../deck.js`)
+    ok(!src.includes('audio.deck'), `${f} holds no deck of its own`)
+  }
+})
