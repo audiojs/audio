@@ -108,31 +108,33 @@ export function resolveBuses (channels = 'any', widths = [], chosen = {}) {
 	return { inputs, outputs, layouts: named ? { inputs: inputs.map(b => b.layout), outputs: outputs.map(b => b.layout) } : undefined }
 }
 
-function makeCtx (factory, opts, state, events) {
-	let specs = factory.params || {}
-	let snapshot = {}
+// The params a factory is made with, `get(name)` held: a number as a one-sample Float32Array
+export function snap (specs, get) {
+	let s = {}
 	for (let name in specs) {
-		let p = state[name]
-		let v = held(specs[name], p.fn ? p.fn(0) : p.value)
-		snapshot[name] = specs[name].type === 'number' ? new Float32Array([v]) : v
+		let v = held(specs[name], get(name))
+		s[name] = specs[name].type === 'number' ? new Float32Array([v]) : v
 	}
+	return s
+}
+
+// The context a factory is made with, offline, in every host (toBatch, toStream, audio's own): `emit` takes only what
+// `events.out` declares, each one handed to `heard(name, args, time)` where the host keeps them
+export function hostCtx (factory, { sampleRate, maxBlockSize, maxChannels = 32, duration, params, layouts }, heard) {
 	let declared = factory.events?.out || {}
 	let ctx = {
-		sampleRate: opts.sampleRate,
-		maxBlockSize: opts.maxBlockSize,
-		maxChannels: opts.maxChannels ?? 32,
-		render: 'offline',
-		duration: opts.duration,
-		params: snapshot,
-		currentTime: 0,
-		layouts: undefined,
-		events: undefined,
+		sampleRate, maxBlockSize, maxChannels, render: 'offline', duration, params, currentTime: 0, layouts, events: undefined,
 		emit (name, ...args) {
 			if (!(name in declared)) throw new Error(`emit: "${name}" not declared in events.out`)
-			events.push({ name, args, time: ctx.currentTime })
+			heard?.(name, args, ctx.currentTime)
 		},
 	}
 	return ctx
+}
+
+function makeCtx (factory, opts, state, events) {
+	let params = snap(factory.params || {}, name => { let p = state[name]; return p.fn ? p.fn(0) : p.value })
+	return hostCtx(factory, { ...opts, params }, (name, args, time) => events.push({ name, args, time }))
 }
 
 /**

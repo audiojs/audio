@@ -11,7 +11,7 @@ import getType from 'audio-type'
 import encode from '@audio/encode'
 import convert, { parse as parseFmt } from 'pcm-convert'
 import parseDuration from 'parse-duration'
-import { resolveBuses, held } from './batch.js'
+import { resolveBuses, held, snap, hostCtx } from './batch.js'
 
 audio.version = '2.14.0'
 
@@ -520,29 +520,17 @@ function useOp(m) {
   // a param's `alias` is its former name: hosts still accept it (contract §Parameter metadata)
   let given = (get, name) => get(name) ?? (specs[name].alias != null ? get(specs[name].alias) : undefined)
 
-  let snapParams = get => {
-    let s = {}
-    for (let name of names) {
-      let sp = specs[name], v = held(sp, given(get, name) ?? sp.default)
-      s[name] = sp.type === 'number' ? new Float32Array([v]) : v
-    }
-    return s
-  }
+  let snapParams = get => snap(specs, name => given(get, name) ?? specs[name].default)
   // Declared latency → plan-level plugin delay compensation (fn form: once per instance)
   let latency = typeof m.latency === 'function'
     ? (o, sr) => m.latency({ sampleRate: sr, params: snapParams(n => o?.[n]) }) | 0
     : m.latency | 0
 
   let init = (ctx, maxBlock = audio.BLOCK_SIZE, width) => {
-    let snapshot = snapParams(name => ctx[name])
-    let mctx = {
-      sampleRate: ctx.sampleRate, maxBlockSize: maxBlock, maxChannels: 32,
-      render: 'offline', duration: ctx.totalDuration, currentTime: 0,
-      // declared layouts (contract §Buses) resolve against the input width; `layouts` option picks
-      params: snapshot, layouts: resolveBuses(m.channels, width == null ? [] : [width], ctx.layouts).layouts, events: undefined,
-      // events.out declaration validated; host routing of emissions is future work
-      emit(name) { if (!(name in (m.events?.out || {}))) throw new Error(`emit: "${name}" not declared in events.out`) }
-    }
+    // declared layouts (contract §Buses) resolve against the input width; `layouts` option picks. Emissions: checked
+    // against events.out, routed nowhere yet
+    let mctx = hostCtx(m, { sampleRate: ctx.sampleRate, maxBlockSize: maxBlock, duration: ctx.totalDuration, params: snapParams(name => ctx[name]),
+      layouts: resolveBuses(m.channels, width == null ? [] : [width], ctx.layouts).layouts })
     let st = { mctx, live: {}, bufs: {} }
     for (let name of names) if (specs[name].type === 'number') st.bufs[name] = new Float32Array(1)
     st.process = m(mctx)
