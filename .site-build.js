@@ -1,19 +1,21 @@
-// Refresh the audio modules used by the static website: node .site-build.js. Watched (npm run serve, which starts the
-// server with --watch): its output cleared first, each bundle made again as its sources change
+// The website's bundles: node .site-build.js makes them all, as Pages does before it deploys. Watched (npm run serve, which
+// starts the server with --watch): the playground's output cleared first, each bundle made again as its sources change.
+// A test makes only the playground's workers (workers()), which git ignores: the bundles committed in assets/ stay as they are
 import { build, context } from 'esbuild'
 import { builtinModules } from 'node:module'
 import { copyFile, readFile, rm } from 'node:fs/promises'
+import { normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import audio from './audio.js'
 
 // Node's own modules stay out of the browser bundles: the library imports them only on Node, when a path is a file
 const node = builtinModules.flatMap(name => [name, `node:${name}`])
 
-const watching = process.argv.includes('--watch')
-const make = async opts => { if (!watching) return build(opts); const ctx = await context(opts); await ctx.rebuild(); return ctx.watch() }
-if (watching) await rm('playground/dist', { recursive: true, force: true })
+// made once, or watched: made, then made again as its sources change
+const make = async (opts, watch) => { if (!watch) return build(opts); const ctx = await context(opts); await ctx.rebuild(); return ctx.watch() }
 
-await make({
+// The library for a page, the logo's functions, the codecs: each one module
+const LIBRARY = {
   entryPoints: {
     audio: 'audio.js',
     // logo/logo.js: any signal through any window
@@ -38,7 +40,7 @@ await make({
     }
   }],
   legalComments: 'linked'
-})
+}
 
 // The editor's code pane: CodeMirror with the JavaScript language, which the page loads once it shows (script.js); and
 // the parser alone, which reads the scripts from the first (code.js). The two share the parser's chunk.
@@ -55,7 +57,7 @@ const entries = {
     export { tags } from '@lezer/highlight'`,
   lezer: `export { parser } from '@lezer/javascript'`
 }
-await make({
+const PANE = {
   entryPoints: Object.keys(entries).map(name => ({ in: `entry:${name}`, out: name })),
   outdir: 'assets',
   // one chunk, the one both read: its name kept, as assets/ is committed
@@ -72,7 +74,7 @@ await make({
       build.onLoad({ filter: /.*/, namespace: 'entry' }, args => ({ contents: entries[args.path], resolveDir: '.' }))
     }
   }]
-})
+}
 
 // What the library loads by name (audio.import): each registry plugin, and the optional packages its own ops load on
 // first use, its peer dependencies (deepfilter's @audio/neural-denoise, vocals' -separate)
@@ -81,7 +83,7 @@ const named = [...new Set([...Object.values(audio.plugins), ...Object.keys(peerD
 
 // The editor's engine worker: the library with every plugin and codec as a chunk that loads on first use.
 // Workers have no import maps, so no bare import is left for the browser to resolve.
-await make({
+const ENGINE = {
   entryPoints: { worker: 'playground/worker.js', jobs: 'playground/jobs.js' },
   outdir: 'playground/dist',
   chunkNames: 'chunks/[name]-[hash]',
@@ -115,11 +117,11 @@ await make({
     }
   }],
   legalComments: 'eof'
-})
+}
 
 // The deck's worker (playground/voices.js): the library as playback needs it, which audio/worker's host takes for the
 // whole library it would otherwise load (its `import('./audio.js')`, here core with the ops voices.js imports)
-await make({
+const VOICES = {
   entryPoints: { voices: 'playground/voices.js' },
   outdir: 'playground/dist',
   chunkNames: 'voices/[name]-[hash]',
@@ -143,11 +145,27 @@ await make({
     }
   }],
   legalComments: 'eof'
-})
+}
 
 // What the worker's chunks fetch beside themselves: the ONNX runtime's wasm, RNNoise's weights, the music guard's
-for (const [from, name] of [['onnxruntime-web/ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.wasm'], ['onnxruntime-web/ort-wasm-simd-threaded.asyncify.wasm', 'ort-wasm-simd-threaded.asyncify.wasm'], ['@audio/neural-denoise/rnnoise.bin', 'rnnoise.bin'], ['@audio/neural-denoise/guard.bin', 'guard.bin']])
-  try { await copyFile(fileURLToPath(import.meta.resolve(from)), `playground/dist/chunks/${name}`) } catch {}
+const FETCHED = [['onnxruntime-web/ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.wasm'], ['onnxruntime-web/ort-wasm-simd-threaded.asyncify.wasm', 'ort-wasm-simd-threaded.asyncify.wasm'], ['@audio/neural-denoise/rnnoise.bin', 'rnnoise.bin'], ['@audio/neural-denoise/guard.bin', 'guard.bin']]
 
-// The editor's pictures: gl-waveform and gl-spectrogram, each one ES module with no dependencies, as published
-for (const name of ['gl-waveform', 'gl-spectrogram']) await copyFile(`node_modules/${name}/index.js`, `assets/${name}.js`)
+/** The bundles committed in assets/: the library, its codecs, the logo's functions, the code pane, the pictures */
+export async function assets(watch = false) {
+  await make(LIBRARY, watch)
+  await make(PANE, watch)
+  // the editor's pictures: gl-waveform and gl-spectrogram, each one ES module with no dependencies, as published
+  for (const name of ['gl-waveform', 'gl-spectrogram']) await copyFile(`node_modules/${name}/index.js`, `assets/${name}.js`)
+}
+/** The playground's workers in playground/dist, which git ignores: the engine and its jobs thread, the deck's voices */
+export async function workers(watch = false) {
+  // only serve clears: a test's build leaves the folder, as another session's suite may be serving it
+  if (watch) await rm('playground/dist', { recursive: true, force: true })
+  await make(ENGINE, watch)
+  await make(VOICES, watch)
+  for (const [from, name] of FETCHED) try { await copyFile(fileURLToPath(import.meta.resolve(from)), `playground/dist/chunks/${name}`) } catch {}
+}
+/** The library as assets/audio.js has it, made in memory, nothing written (memory.test.js): its bytes */
+export const library = async () => (await build({ ...LIBRARY, entryPoints: { audio: 'audio.js' }, write: false })).outputFiles.find(f => f.path.endsWith('.js')).contents
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === normalize(process.argv[1])) { await assets(); await workers() }

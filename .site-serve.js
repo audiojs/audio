@@ -31,7 +31,7 @@ export async function serve(root, pathname, search, res) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === normalize(process.argv[1])) {
-  if (process.argv.includes('--watch')) await import('./.site-build.js')
+  if (process.argv.includes('--watch')) { const { assets, workers } = await import('./.site-build.js'); await assets(true); await workers(true) }
   const root = fileURLToPath(new URL('.', import.meta.url)), port = +(process.argv.slice(2).find(a => /^\d+$/.test(a)) || process.env.PORT || 8080)
   createServer((req, res) => { const { pathname, search } = new URL(req.url, 'http://localhost'); serve(root, pathname, search, res) })
     .on('error', e => { console.error(e.code === 'EADDRINUSE' ? `Port ${port} is taken: node .site-serve.js <port>` : e.message); process.exit(1) })

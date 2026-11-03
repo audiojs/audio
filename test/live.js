@@ -6,7 +6,9 @@
 import { chromium } from 'playwright'
 
 const local = process.argv[2] !== '--local' ? null : await (async () => {
-  await import('../.site-build.js')
+  const { assets, workers } = await import('../.site-build.js')
+  await assets()
+  await workers()
   const { createServer } = await import('node:http'), { serve } = await import('../.site-serve.js'), { fileURLToPath } = await import('node:url')
   const root = fileURLToPath(new URL('..', import.meta.url))
   const server = createServer((req, res) => { const { pathname, search } = new URL(req.url, 'http://localhost'); serve(root, pathname, search, res) })

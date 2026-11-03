@@ -27,8 +27,10 @@ import recipes from '../playground/recipes.js'
 import { cycle, trace, ballistics, spectra } from '../playground/meters.js'
 import md from '../playground/markdown.js'
 import doing, { measures, noted } from '../playground/doing.js'
-import '../.site-build.js'
+import { workers } from '../.site-build.js'
 
+// the playground's workers made from the source as it is (playground/dist, which git ignores); assets/ is committed
+await workers()
 const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '')
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.wasm': 'application/wasm' }
 let server, browser, page, origin, errors
