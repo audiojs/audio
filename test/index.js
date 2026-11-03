@@ -4199,26 +4199,25 @@ test('dither — stream ≡ read statistically (independent TPDF draws)', async 
 
 // A sound decoded or pushed holds its pages alone: the page its samples were gathered in (PAGE_SIZE a channel, 4 MB
 // whatever the sound's length) let go once they are emitted, drained or done. 32 sounds of 1 s kept: the memory they
-// hold grows by about their samples, 5.6 MB as float32, not by a page each, 128 MB
+// hold grows by about their samples, 5.6 MB as float32, not by a page each, 128 MB. Measured in a process of its own,
+// where nothing the rest of the suite made is let go or kept meanwhile (in this one, 7 to 105 MB from run to run)
 test('pages — a short sound decoded or pushed keeps no page it was gathered in', { skip: !isNode }, async t => {
-  let { setFlagsFromString } = await import('node:v8'), { runInNewContext } = await import('node:vm')
-  setFlagsFromString('--expose-gc')
-  let gc = runInNewContext('gc'), held = []
-  let tone = Float32Array.from({ length: 44100 }, (_, i) => .5 * Math.sin(i / 10))
-  let wav = await (await audio([tone], { sampleRate: 44100 })).encode('wav')
-  gc()
-  let before = process.memoryUsage().arrayBuffers
-  for (let k = 0; k < 16; k++) {
-    let p = audio(null, { sampleRate: 44100, channels: 1 })
-    p.push([tone])
-    p.stop()
-    held.push(p, await audio(wav))
-  }
-  gc()
-  let grown = process.memoryUsage().arrayBuffers - before
+  let { execFileSync } = await import('node:child_process')
+  let lib = JSON.stringify(new URL('../audio.js', import.meta.url).href)
+  let make = `let tone = Float32Array.from({ length: 44100 }, (_, i) => .5 * Math.sin(i / 10))
+    let wav = await (await audio([tone], { sampleRate: 44100 })).encode('wav')`
+  let grown = +execFileSync(process.execPath, ['--expose-gc', '--input-type=module', '-e', `
+    let { default: audio } = await import(${lib}), held = []
+    ${make}
+    gc(); let before = process.memoryUsage().arrayBuffers
+    for (let k = 0; k < 16; k++) { let p = audio(null, { sampleRate: 44100, channels: 1 }); p.push([tone]); p.stop(); held.push(p, await audio(wav)) }
+    gc(); process.stdout.write('\\n' + (process.memoryUsage().arrayBuffers - before))`], { encoding: 'utf8' }).trim().split('\n').pop()
   t.ok(grown < 16 * 2 ** 20, `${(grown / 2 ** 20).toFixed(1)} MB held by 32 sounds of 1 s`)
-  t.ok((await held[0].read())[0].every((v, i) => v === tone[i]) && (await held[1].read())[0].length === 44100, 'each reads as it was')
-  for (let s of held) s.dispose()
+  let tone = Float32Array.from({ length: 44100 }, (_, i) => .5 * Math.sin(i / 10)), p = audio(null, { sampleRate: 44100, channels: 1 })
+  p.push([tone]); p.stop()
+  let w = await audio(await (await audio([tone], { sampleRate: 44100 })).encode('wav'))
+  t.ok((await p.read())[0].every((v, i) => v === tone[i]) && (await w.read())[0].length === 44100, 'each reads as it was')
+  p.dispose(); w.dispose()
 })
 
 // ── push-source op coverage ────────────────────────────────────────────────
