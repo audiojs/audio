@@ -87,24 +87,33 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
 
 ### 2. One library per realm, one build, one server
 
-- [ ] page: `deck.js` and the `worker.js` facade only; `assets/audio.js` gone from the editor. A deck worker that fails falls back
-      to the engine worker's voice, not to a library copy on the page; tests drive a worker
-- [ ] deck worker: a lean entry (core, plan, the voice), not the engine bundle; or no deck worker at all, if the engine worker stays
-      responsive during a model's pass (ONNX runtime on its own thread). Decided by measuring playback during a model pass
+- [x] (c70d21e) page: `deck.js` and the `worker.js` facade only; `assets/audio.js` gone from the editor. A deck worker that fails falls back
+      to the engine worker's voice, not to a library copy on the page; tests drive a worker. Measured (loads.mjs, chime, Space):
+      the page's library 40 KB deck.js + 29 KB facade, from 365 + 66 KB; two tests hold it, the voice made in the deck's
+      worker, or in the engine's where the deck's fails to load
+- [x] (7ae385a) deck worker: a lean entry, `playground/voices.js` (core, plan, stats, play, crop, filter, pad, mix; pitch on first
+      audition), 160 KB where it loaded the engine's 488 KB; its build hands audio/worker's host core for the whole library.
+      The engine worker no longer holds the page's sounds. Kept a worker of its own, not measured against none: a model's
+      pass holds the engine's thread for seconds
 - [x] (66f7b63) the root cause at package level: the browser `"."` export (`dist/audio.js`) inlines `deck.js`, while `./worker` imports `./deck.js`
       raw, so any browser app using both runs two decks. `dist/audio.js` keeps `./deck.js` external (shipped beside it), or both
       entries come from one build: dist imports `../deck.js`, a test holds both bundles to it
-- [ ] `Symbol.for` globals that exist only to reconcile copies removed (`audio.context`, `audio.deck`; `audio.take` and `audio.worker`
-      reviewed)
+- [x] `Symbol.for` globals reviewed, kept: with one deck per realm in our builds they reconcile nothing here, but an app that
+      bundles `audio` and `audio/worker` apart (two bundlers, two micro-frontends) still gets one AudioContext and one
+      worklet module by them (`audio.context`, `audio.deck`); `audio.take` keys an instance across them; `audio.worker` keeps
+      the facade out of core's graph, not a copy's reconciliation
 - [x] (f0332db) jobs threads (`playground/jobs.js` → `parallel.js` → `core.js`) load core for nothing: parallel.js imports core
       only where it makes threads (a dynamic import, its own chunk), a test holding the thread's entry to no core
-- [ ] dead import-map entry: `index.html` maps `@audio/tune-curve`, the library imports `@audio/tune/curve`; the map goes with the page bundle
+- [x] (c70d21e) dead import-map entry: `index.html` maps `@audio/tune-curve`, the library imports `@audio/tune/curve`; the map goes with the page bundle:
+      gone with the page's library, and the two atom bundles only it read (`assets/tune-curve.js`, `assets/stft.js`)
 - [ ] `npm run serve` builds and watches (esbuild context), clears its output first; a reload always runs the source as it is
 - [ ] generated bundles out of git (`assets/audio.js`, `codemirror.js`, `lezer*.js`, copied `gl-*.js`), built by CI for Pages and by
-      the Mac app's server on start
-- [ ] one serving module (types, COOP/COEP) for `.site-serve.js`, `desktop/server.js` and the tests; `sw.js` reads the same headers
+      the Mac app's server on start: for the user (it changes what Pages deploys)
+- [ ] one serving module (types, COOP/COEP) for `.site-serve.js`, `desktop/server.js` and the tests; `sw.js` reads the same headers:
+      (64047d1) `.site-serve.js` exports `serve()`, the Mac app's server uses it; the tests' servers left (playground.test.js
+      holds uncommitted work of another session)
 - [ ] `loads.mjs` becomes a test: each library module instantiated once per realm
-- Done: page library bytes ~66 KB (from ~430 KB); `git status` clean after any build; an embed as the home's hero uses it
+- Done: page library bytes ~66 KB (from ~430 KB) (69 KB, c70d21e); `git status` clean after any build; an embed as the home's hero uses it
   (panel none, display wave, no code panel, no menubar) under 300 KB at first load, the user's target (11-02: 1,059 KB
   gzipped today, the mp3's 176 KB apart), codecs, renderers and converters as they're needed
 
@@ -167,7 +176,18 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
   - [ ] the CLI, MCP and desktop app calling checkpoints (recall, keep), which they don't yet
   - [x] (649f0ab) the clipping recount after a gain, three times (`stats.js:327`, `fn/normalize.js:47`, `fn/gain.js:45`): the
         engine recounts once after each derived op (`reclip()` in stats.js); an op's own deriveStats moves the extremes only
-  - [ ] structural ops known by name in `plan.js` `adjustLimit` (633-684): a `limit` hook on each op; splices on `spliceSegs`
+  - [x] (f5fc522) structural ops known by name in `plan.js` `adjustLimit` (633-684): a `limit` hook on each op (cut and paste
+        take remove's and insert's; move keeps the boundary, as before); splices on `spliceSegs` left
+  - [x] (7c9b362) pages restored from the cache twice, core's seek and cache.js `ensurePages`: the seek calls it, a test
+        holding the window (the page before to two after)
+  - [x] (d47981d) the tail expansion four times (contract plugins, convolve, native plugins, WAMs): `tailed()` in core
+  - [x] (a68600d) compilePlan's own repetition: the structural step twice, the rate hook seven times, the pipeline reset
+        three, a whole op's tail twice
+  - [x] (95b8b3d) intonation's range by plan's `spanOf`
+  - [x] (f04fc32) `audio.d.ts` lacked declick, rebalance, scene, derustle; a test holds it to the registry
+  - [ ] not to merge: core `ranged()` and plan `seamed()` crossfade alike but differ at the file's edges and in length
+        (seamed takes an output of another length; ranged skips an edge at 0 or the end), and `seams()` streams at a
+        fixed ρ; a shared inner loop at most
   - [x] (6b67796) DSP primitives copied across `fn/*`: `fn/dsp.js` (i0, sinc, periodic Hann, pow2, downmix), the same doubles;
         the Kaiser factor left inline where folding it would reorder a product
   - [x] (739b1ce) shared helpers living in feature plugins: `fingerprint` to core, `playback` and `xfadeLen` to plan, the silence
