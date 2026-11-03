@@ -1,14 +1,19 @@
-// Refresh the audio modules used by the static website: node .site-build.js
-import { build } from 'esbuild'
+// Refresh the audio modules used by the static website: node .site-build.js. Watched (npm run serve, which starts the
+// server with --watch): its output cleared first, each bundle made again as its sources change
+import { build, context } from 'esbuild'
 import { builtinModules } from 'node:module'
-import { copyFile, readFile } from 'node:fs/promises'
+import { copyFile, readFile, rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import audio from './audio.js'
 
 // Node's own modules stay out of the browser bundles: the library imports them only on Node, when a path is a file
 const node = builtinModules.flatMap(name => [name, `node:${name}`])
 
-await build({
+const watching = process.argv.includes('--watch')
+const make = async opts => { if (!watching) return build(opts); const ctx = await context(opts); await ctx.rebuild(); return ctx.watch() }
+if (watching) await rm('playground/dist', { recursive: true, force: true })
+
+await make({
   entryPoints: {
     audio: 'audio.js',
     // logo/logo.js: any signal through any window
@@ -50,7 +55,7 @@ const entries = {
     export { tags } from '@lezer/highlight'`,
   lezer: `export { parser } from '@lezer/javascript'`
 }
-await build({
+await make({
   entryPoints: Object.keys(entries).map(name => ({ in: `entry:${name}`, out: name })),
   outdir: 'assets',
   // one chunk, the one both read: its name kept, as assets/ is committed
@@ -76,7 +81,7 @@ const named = [...new Set([...Object.values(audio.plugins), ...Object.keys(peerD
 
 // The editor's engine worker: the library with every plugin and codec as a chunk that loads on first use.
 // Workers have no import maps, so no bare import is left for the browser to resolve.
-await build({
+await make({
   entryPoints: { worker: 'playground/worker.js', jobs: 'playground/jobs.js' },
   outdir: 'playground/dist',
   chunkNames: 'chunks/[name]-[hash]',
@@ -114,7 +119,7 @@ await build({
 
 // The deck's worker (playground/voices.js): the library as playback needs it, which audio/worker's host takes for the
 // whole library it would otherwise load (its `import('./audio.js')`, here core with the ops voices.js imports)
-await build({
+await make({
   entryPoints: { voices: 'playground/voices.js' },
   outdir: 'playground/dist',
   chunkNames: 'voices/[name]-[hash]',

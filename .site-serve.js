@@ -2,7 +2,7 @@
 // tests: each with its type, cross-origin isolated (the models' wasm runs on threads, as sw.js makes the playground on
 // GitHub Pages), never cached, so a reload always runs the files as they are; a folder is its index.html, at its path
 // with a slash, so the page's own links resolve inside it; nothing hidden (.git, .work, a .env). Run, it serves this
-// folder: node .site-serve.js [port]
+// folder: node .site-serve.js [port] [--watch] (npm run serve: the bundles made first and again as their sources change)
 import { createServer } from 'node:http'
 import { readFile, stat } from 'node:fs/promises'
 import { extname, join, normalize } from 'node:path'
@@ -31,7 +31,8 @@ export async function serve(root, pathname, search, res) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === normalize(process.argv[1])) {
-  const root = fileURLToPath(new URL('.', import.meta.url)), port = +(process.argv[2] || process.env.PORT || 8080)
+  if (process.argv.includes('--watch')) await import('./.site-build.js')
+  const root = fileURLToPath(new URL('.', import.meta.url)), port = +(process.argv.slice(2).find(a => /^\d+$/.test(a)) || process.env.PORT || 8080)
   createServer((req, res) => { const { pathname, search } = new URL(req.url, 'http://localhost'); serve(root, pathname, search, res) })
     .on('error', e => { console.error(e.code === 'EADDRINUSE' ? `Port ${port} is taken: node .site-serve.js <port>` : e.message); process.exit(1) })
     .listen(port, () => console.log(`http://localhost:${port}/playground/  playground`))
