@@ -444,6 +444,11 @@ export function correlation(p, q, n) {
   return pp && qq ? Math.max(0, Math.min(1, pq / Math.sqrt(pp * qq))) : 0
 }
 
+/** An op's expand into the hidden op `name` that renders it, `o` its options, and its decay, `t` s, as a pad after it:
+ *  the user's edit stays one (undo, serialize whole), the decay renders into the pad (a contract plugin's tail, convolve,
+ *  a native plugin's or a WAM's) */
+export const tailed = (name, o, t) => t > 0 ? [['pad', { before: 0, after: t }], [name, o]] : [[name, o]]
+
 /** A whole-render op over a range: it reads all of its input, its output kept in the range alone, the input as it was
  *  outside it (one that renders in place, channel for channel; a time-stretch's range is its frames hook's). Each edge
  *  crossfades over 10 ms inside the range, from the input into what the op made and back, at the power their
@@ -648,18 +653,14 @@ function useOp(m) {
 
   if (!tail) return reg({ params: args, plugin: m, atom: m, latency, process, ch })
 
-  // Declared tail: expand into pad + hidden proc at compile time — the user edit stays
-  // one atomic entry (undo/serialize whole), the decay renders into the pad
+  // Declared tail: expand into pad + hidden proc at compile time (tailed)
   audio.op('_' + id, { params: args, hidden: true, plugin: m, atom: m, latency, process, ch })
   reg({
     params: args, tail, plugin: m, atom: m, ch,
     expand: (ctx) => {
       let o = {}
       for (let k of args) if (ctx[k] !== undefined) o[k] = ctx[k]
-      let t = typeof tail === 'function'
-        ? tail({ sampleRate: ctx.sampleRate, params: snapParams(n => o[n]) })
-        : tail
-      return [['pad', { before: 0, after: t }], ['_' + id, o]]
+      return tailed('_' + id, o, typeof tail === 'function' ? tail({ sampleRate: ctx.sampleRate, params: snapParams(n => o[n]) }) : tail)
     }
   })
 }

@@ -17,7 +17,7 @@
  * a.plugin('https://…/plugin/index.js', { … })             → a Web Audio Module (WAM 2.0), in a page too (fn/wam.js)
  */
 
-import audio from '../core.js'
+import audio, { tailed } from '../core.js'
 import { isWam, prepare as prepareWam, WAM } from './wam.js'
 
 /* what the edit's options are, besides its plugin's parameters */
@@ -108,12 +108,11 @@ audio.op('plugin', {
   // the processor, and its tail as a pad (as a contract plugin's): the edit stays one, the decay renders
   expand: ctx => {
     if (isWam(ctx.ref, ctx.format)) {
-      let done = ctx[WAM], t = done?.tail ?? 0
-      return t > 0 ? [['pad', { before: 0, after: t }], ['_wam', { ref: ctx.ref, [WAM]: done }]] : [['_wam', { ref: ctx.ref, [WAM]: done }]]
+      let done = ctx[WAM]
+      return tailed('_wam', { ref: ctx.ref, [WAM]: done }, done?.tail ?? 0)
     }
     let o = {}
     for (let k in ctx) if (!NOT_OPTIONS.has(k)) o[k] = ctx[k]
-    let t = tailOf(ctx, ctx.sampleRate)
-    return t > 0 ? [['pad', { before: 0, after: t }], ['_plugin', o]] : [['_plugin', o]]
+    return tailed('_plugin', o, tailOf(ctx, ctx.sampleRate))
   },
 })

@@ -13,7 +13,7 @@
  * length rendered past the end, its decay (`tail: false`, none; a number, seconds).
  */
 
-import audio, { arrived } from '../core.js'
+import audio, { arrived, tailed } from '../core.js'
 import { inputOf } from '../plan.js'
 
 const IR = Symbol('convolve.ir'), RUN = Symbol('convolve.run')
@@ -66,6 +66,6 @@ audio.op('convolve', {
     let ir = ctx[IR], o = { ir: ctx.ir, [IR]: ir }
     if (ctx.mix != null) o.mix = ctx.mix
     let t = ctx.tail === false ? 0 : typeof ctx.tail === 'number' ? ctx.tail : ir ? (ir.length - 1) / ctx.sampleRate : 0
-    return t > 0 ? [['pad', { before: 0, after: t }], ['_convolve', o]] : [['_convolve', o]]
+    return tailed('_convolve', o, t)
   },
 })
