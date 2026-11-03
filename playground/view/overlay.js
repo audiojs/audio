@@ -1,10 +1,11 @@
 import { CURVES } from '../ops.js'
 import { lightness } from '../tint.js'
-import { ownMarks, snappedTo, SIDES, unwritten, frozen, ghost, layout, chips, takeHot, placeTakes, placeFork, drag, gutter, plot, merged, spare, lanes, extent, own, laneAt, rowBand, MAP, onBar, X, time, free, snapF, seen, stick, stuck, pitchLine, inside, fy, yf, rowOf, keyY, keyRows, ay, ampLanes, pitchLanes, veils, placeFrozen, roomLane, touch, ticks, hzMarks, noteMarks, levelMarks, reads, decibel, level, measured, probe, setRange, hot } from '../view.js'
+import { ownMarks, snappedTo, SIDES, unwritten, frozen, ghost, layout, chips, takeHot, placeTakes, placeFork, drag, plot, merged, spare, lanes, extent, own, laneAt, rowBand, MAP, veils, placeFrozen, roomLane, touch, hot } from '../view.js'
 import { ONTO, INSET, FOOT, midiOf, noteOf, STRETCH, TICK, root, hint, timeRow, color, fades, rowStrip, marksCanvas, meterStrip, barStrip, overlayKept, marksKept, selectKept, oc, mc, sel2d, c, lookButton, specs, rate, duration, hovered, show, arriving, more, dropped, meters, recording, pieces, start, end, selection, band, cursor, playhead, guides, nudge, cues, envelope, fadeCurve, cueKinds, gripMode, pitching, levelStep, picked, tracks, focus, allLanes, scroll, noted, held, assign } from './model.js'
 import { pitchRange, semis, pitchSays, intonationSays, median, pitched, clampY, paintGuide, BLACK, paintRoll, paintLine, bent, toneAt, paintContour } from './notes.js'
 import { decibels, drawn, W, H, dpr, half, invalidate, tape, rolled, onTape, running, wash, caretColour, rgba, shades } from './render.js'
 import { paintRuler, layHead, awayOf, onAway, paintAway, THICK, paintBar, barLight } from './ruler.js'
+import { gutter, onBar, X, time, free, snapF, seen, stick, stuck, pitchLine, inside, fy, yf, rowOf, keyY, keyRows, ay, ampLanes, pitchLanes, ticks, hzMarks, noteMarks, levelMarks, reads, decibel, level, measured, probe, setRange } from './scales.js'
 import { paintMeasure, waveAt, placeFades, placeLook, paintRoom, paintLift, tag, accent, gauge, size, label, paintSelection, highlight, paintEdge, stamp, dragged, editing, paintCues, paintMarkers, TRI, strips, stripped, stripAt, paintStrips, naming, paintOvers } from './strips.js'
 
 // The overlay, over the reel: the axes, the pointer's readouts, what is measured; on the reel, the marks drawn in time

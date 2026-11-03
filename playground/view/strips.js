@@ -1,9 +1,10 @@
 import clock from '../time.js'
-import { markLane, ownMarks, snappedTo, placed, ghost, CHUNK, drag, plot, spare, lanes, floor, inRoom, own, laneAt, x, X, time, digits, seen, stick, inside, fy, ay, roomLane, sampled, decibel, fine, nearCue, hot } from '../view.js'
+import { markLane, ownMarks, snappedTo, placed, ghost, CHUNK, drag, plot, spare, lanes, floor, inRoom, own, laneAt, roomLane, fine, nearCue, hot } from '../view.js'
 import { EDGE, FOOT, KINDS, mac, root, onedit, color, fades, sel2d, c, lookButton, rate, duration, units, hovered, markers, more, droppedNew, start, end, band, cursor, playhead, cues, snapping, clips, aview, levelUnits, data, tracks, focus, allLanes, sections, windows, lift, chosen, held, assign } from './model.js'
 import { clipMarks } from './notes.js'
 import { say, triangleAt, WASHED, washFrom, crossAt, lanesEnd, seenTo } from './overlay.js'
 import { W, moved, invalidate, wash } from './render.js'
+import { x, X, time, digits, seen, stick, inside, fy, ay, sampled, decibel } from './scales.js'
 
 // The strips under the lanes and across them: the measure, the fades at the view's edges, each band's look, the room
 // under the tracks, the selection behind the sound, the cues, the markers and the names

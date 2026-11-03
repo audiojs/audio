@@ -2,11 +2,12 @@ import Waveform from '../../assets/gl-waveform.js'
 import scales from '../scale.js'
 import { CURVES, CROSSFADES } from '../ops.js'
 import measure, { coloured, hue, temperature, colormap, inked, lightness, MAPS } from '../tint.js'
-import { scale, unwritten, takes, CHUNK, WAVE, SPAN, HELD, gutter, plot, merged, kindOf, lanes, laneOf, X, freqs, carried, roomLane, spans, room, fitAxis, axisMarks, setRange, whole, told } from '../view.js'
+import { unwritten, takes, CHUNK, WAVE, SPAN, HELD, plot, merged, kindOf, lanes, laneOf, carried, roomLane, spans, told } from '../view.js'
 import { root, onsamples, onheard, color, reel, selectCanvas, specCanvas, waveCanvas, rowStrip, marksCanvas, meterStrip, barStrip, overlay, gl, sgl, waves, specs, rate, duration, display, units, hovered, arriving, more, recording, pieces, guest, start, end, fview, band, fadeCurve, aview, levelUnits, grid, look, waveLook, data, tracks, focus, windows, windowsOf, leveled, scroll, kinds, pictures, cruise, cruised, palette, moving, ruled, under, shaded, assign } from './model.js'
 import { labelled } from './notes.js'
 import { paint, lanesEnd, fitTo } from './overlay.js'
 import { barOn, moveOn } from './ruler.js'
+import { scale, gutter, X, freqs, room, fitAxis, axisMarks, setRange, whole } from './scales.js'
 import { ground } from './strips.js'
 
 // Drawing: the canvases sized, the render loop, the reel and its tape, the waveform and spectrogram per lane, their
