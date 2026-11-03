@@ -1,10 +1,10 @@
 import { own, owner, claim } from '../keep.js'
-import { recent } from '../editor.js'
 import { talks } from './chat.js'
 import { EMBED, GIVEN, APART, KEY } from './config.js'
 import { state, v, ed, pl } from './context.js'
 import { link } from './files.js'
 import { note } from './format.js'
+import { recent } from './menus.js'
 import { recorder, stopRecording } from './recording.js'
 import { docs, closed } from './tabs.js'
 
