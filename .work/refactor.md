@@ -113,7 +113,7 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
       Node tests: a step toggled renders only after it; mute renders nothing; a kept prefix found again after a reload
 - [ ] one summary of a sound for drawing: `stats.js` blocks and the worker's gl-waveform leaves are two pyramids of the same figures
 - [ ] bugs the audit found by reading, each pinned by a failing test before its fix:
-  - [ ] the worker facade decides method kinds from a fixed list (`worker.js:145`): `await a.check('acx')`, `cuts`, `hits`, `notes`,
+  - [x] (922d18a) the worker facade decides method kinds from a fixed list (`worker.js:145`): `await a.check('acx')`, `cuts`, `hits`, `notes`,
         `chords`, `key`, `spectrum` and the other promise methods resolve to the facade, the result dropped; the host already sends
         its registry (`worker.js:565`), unused
   - [ ] a prepared op's stamp (`${a.version}:${a._.len}:…`, `fn/deepfilter.js:127`, `fn/rebalance.js:69` and 16 more) leaves out
@@ -185,3 +185,10 @@ Work sessions have asked for, held until the stage that frees its files lands (t
 - audio-2b: its next work, on the split files (after stage 4)
 - the audiojs.github.io session: an embed that loads only what its UI config uses (folded into stage 2); its host-side
   preview in playground/embed.js was let through after stage 0
+- the audiojs.github.io session, for the home's embed (after stage 4, unless the user overrides):
+  - [ ] the caret in an inactive tone while the picture isn't focused or the window is blurred, as `wash()` does the
+        selection (`focused()`); the playhead bright while it plays
+  - [ ] the spectrogram's top on `auto` fitted to the sound's content (its highest band above a floor, rounded up, never past
+        Nyquist), a number for a fixed top, settable in the ui config
+  - [ ] a scrollbar mode shown only while the view moves or the pointer is on its row, fading about 1 s after, in `scrolls`
+        and the ui config
