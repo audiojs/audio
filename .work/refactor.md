@@ -58,10 +58,11 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
 - [x] full suite on the tree as it is; failures fixed or listed. Fixed: `restore` had no CLI help, README row or entry in the CLI
       test's list; the skill (the MCP tool's description) ran past 2,048 characters; a window blur left the look dropdown's owner
       expanded till a queued toggle event (`closeMenus` now closes it at once). Listed: playground 415 of 420 at load 30:
-      'Denoise learns the noise…' (a double-click in a pause no longer selects the pause, from the cue rework; with audio-f1),
+      'Denoise learns the noise…' (fixed in b9b8180; my diagnosis, also in 9b2cd3a's message, was wrong: the double-click
+      was fine, the test pressed a place reckoned on the earlier sound's scale, which the 1.5× zoom-out limit moved into a burst),
       'recording with the spectrogram shown…' (fails at the parent too), 'the playhead runs on by the frames' own time…' and
-      'a take recorded as the others play…' (pass alone); 'a sound longer than the page holds sounds under the caret…' passes
-      now and then (3 of 3 at the parent). The playback page of `test:browser` fails under load, as CI's advice-only suite does
+      'a take recorded as the others play…' (pass alone); 'a sound longer than the page holds sounds under the caret…': the
+      cues held the worker about 0.5 s on a 30-minute sound; b9b8180 makes them yield between passes, 2 of 3 since at load 30. The playback page of `test:browser` fails under load, as CI's advice-only suite does
 - [x] committed in groups (b1c9507..a6b79b5): restore(); modulation, drift, center; write with d; core take errors and pages;
       hits; the playground (several sessions' work in shared files, one commit, each behavior named); the Mac app; the old home.
       Hunks of shared files staged by their line numbers (scratchpad hunks.py); each library commit run as a snapshot first
