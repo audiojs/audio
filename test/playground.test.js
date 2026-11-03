@@ -2758,7 +2758,7 @@ test('editor: rolled back to a step, the grip\'s way leaves a stretch after it a
   await lengthIs('0:08.000')
   await drag([x(1), y], [x(2) - x(1), 0])
   await turn(await grab([[x(2) + 8, box.y + lh * 3 / 4]], /^url\(|ew-resize/), 'grip', 'speed')
-  await page.waitForTimeout(300)
+  await settled()
   assert.equal(await code(), `audio('chime.wav').stretch(1.5, { at: 1, duration: 1 })`)
 })
 
@@ -3201,7 +3201,7 @@ test('editor: before the script runs, the intro shows nothing dead; while the fi
   // no script at all: the conditional parts (intro, toolbar) stay hidden instead of showing inert buttons
   await page.route('**/playground/editor.js', route => route.abort())
   await page.goto(origin + '/playground/')
-  await page.waitForTimeout(300)
+  await still()
   assert.equal(await page.locator('.empty').isVisible(), false, '.empty')
   // and what does show takes no clicks yet: the File menu stays shut
   assert.equal(await page.locator('#app').evaluate(el => getComputedStyle(el).pointerEvents), 'none')
@@ -3215,7 +3215,8 @@ test('editor: before the script runs, the intro shows nothing dead; while the fi
   await page.route('**/playground/dist/worker.js', async route => { await held; route.continue() })
   await page.goto(origin + '/playground/')
   await page.locator('.cm-content').waitFor({ state: 'attached' })
-  await page.waitForTimeout(300)
+  // its run asked and held a moment, said so
+  await page.locator('.message', { hasText: /^(Decoding|Rendering)/ }).waitFor()
   assert.equal(await page.locator('.empty').isVisible(), false, 'no intro while the first run renders')
   release()
   await wholeLevels().waitFor()
@@ -3304,11 +3305,13 @@ test('editor: the newest script is the one shown, even when an older one waited 
   // the ring that stops it in Record's place, Play still Play
   await page.waitForFunction(() => !document.querySelector('.busy').inert && document.querySelector('.record').inert && !document.querySelector('.play').inert, null, { timeout: 4000 })
   await write(`audio('handpan.wav')`)
-  await page.waitForTimeout(400)
+  // its run asked, the file new to the view
+  await page.locator('.message', { hasText: /^Decoding/ }).waitFor()
   await write(`audio('chime.wav').reverse()`)
   await page.locator('.message', { hasText: 'Rendering' }).waitFor()
   await page.waitForFunction(() => !document.querySelector('.message').textContent && document.querySelector('.readout')?.dataset.of === 'all', null, { timeout: 30000 })
-  await page.waitForTimeout(1000)
+  // every run asked answered: none left to arrive late
+  await settled()
   assert.equal(await page.locator('.source').innerText(), 'chime.wav')
   assert.equal(await lengthText(), '0:08.000')
 })
@@ -3362,7 +3365,7 @@ test('editor: Play let go pauses with the caret where the playhead got to, as Sp
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
   await page.mouse.down()
   const pressed = await page.evaluate(() => __view.playhead)
-  await page.waitForTimeout(300)
+  await page.waitForFunction(p => __view.playhead - p > .25, pressed, { timeout: 5000 }).catch(() => {})
   const before = await page.evaluate(() => __view.playhead)
   await page.mouse.up()
   await page.getByRole('button', { name: 'Play', exact: true }).waitFor()
@@ -3408,8 +3411,7 @@ test('editor: a sound longer than the page holds is drawn from its peaks and spe
   await settings('Scroll', 'Bar')
   // the spectrogram of all of it, from its spectra: the tone a bright row, at 220 Hz
   await show('spec')
-  await page.waitForTimeout(500)
-  const rows = await page.locator('.plot canvas.spectrum').screenshot().then(png => page.evaluate(async b64 => {
+  await poll(() => page.locator('.plot canvas.spectrum').screenshot().then(png => page.evaluate(async b64 => {
     const img = new Image()
     img.src = 'data:image/png;base64,' + b64
     await img.decode()
@@ -3419,14 +3421,14 @@ test('editor: a sound longer than the page holds is drawn from its peaks and spe
     // each row's share of bright pixels, across the lane
     for (let y = 0; y < c.height - 30; y++) { let n = 0; for (let x = 0; x < w; x++) if (d[(y * w + x) * 4] > 100) n++; lit.push(n / w) }
     return lit
-  }, png.toString('base64')))
-  assert.ok(rows.filter(v => v > .9).length >= 1 && rows.filter(v => v > .9).length < rows.length / 10, `a row lit across: ${rows.filter(v => v > .9).length} of ${rows.length}`)
+  }, png.toString('base64'))), rows => assert.ok(rows.filter(v => v > .9).length >= 1 && rows.filter(v => v > .9).length < rows.length / 10, `a row lit across: ${rows.filter(v => v > .9).length} of ${rows.length}`))
   // zoomed in to two minutes and scrolled across a quarter of it: its samples come where it is, those far behind let go,
   // the page's memory bounded (the samples of where it went would be 8 × 2 minutes, twice: waveform and spectrogram)
   const plotBox = await page.locator('.plot').boundingBox()
   await page.mouse.move(plotBox.x + plotBox.width / 2, plotBox.y + plotBox.height / 2)
   await page.locator('.plot').focus()
   for (let i = 0; i < 4; i++) await page.keyboard.press('=')
+  // a while at each place: its samples come as the view rests there, those far behind let go
   for (let i = 0; i < 8; i++) { await page.mouse.wheel(plotBox.width, 0); await page.waitForTimeout(700) }
   await cdp.send('HeapProfiler.collectGarbage')
   const after = await heap()
@@ -3453,9 +3455,7 @@ test('editor: a sound longer than the page holds is drawn from its peaks and spe
     for (let i = 0; i < d.length; i += 4) { const y = Math.floor(i / 4 / c.width), x = i / 4 % c.width; if (d[i] > 120 && Math.abs(y - mid) > 6 && Math.abs(y - mid) < 40 && x < c.width - 60) columns.add(x) }
     return columns.size
   }, png.toString('base64')))
-  let off = 0
-  for (let end = Date.now() + 15000; (off = await ink()) <= 200 && Date.now() < end;) await page.waitForTimeout(250)
-  assert.ok(off > 200, `zoomed in: the line through its samples, ${off} columns off the axis`)
+  await poll(ink, off => assert.ok(off > 200, `zoomed in: the line through its samples, ${off} columns off the axis`), 15000)
   // it plays, from the engine
   await page.keyboard.press('Space')
   await page.getByRole('button', { name: 'Pause' }).waitFor()
@@ -3480,7 +3480,8 @@ test('editor: playback goes on without a gap while the page is busy', async () =
   await page.getByRole('button', { name: 'Pause' }).waitFor()
   await page.waitForFunction(() => document.querySelector('.time').textContent > '0:00.300')
   await page.evaluate(() => { window.__taken.length = 0; const t = performance.now(); while (performance.now() - t < 3000); })
-  await page.waitForTimeout(300)
+  // the feed taken while the page was held, come to it after
+  await page.waitForFunction(() => window.__taken.reduce((n, b) => n + b.length, 0) > window.__rate * 3, null, { timeout: 5000 }).catch(() => {})
   const [x, sr] = await page.evaluate(() => [window.__taken.flatMap(b => [...b]), window.__rate])
   // the longest run of silence while it played: a sine has none longer than a sample or two
   let run = 0, longest = 0
@@ -3505,6 +3506,7 @@ test('editor: playback goes on without a gap while the engine processes, and its
   await page.evaluate(() => { window.__taken.length = 0 })
   await write(`const s0 = performance.now()\nwhile (performance.now() - s0 < 3000);\n${sine}.gain(-1)`)
   await page.locator('.readout', { hasText: '−7.0dBFS' }).waitFor({ timeout: 15000 })
+  // half a second heard past the takeover
   await page.waitForTimeout(500)
   const [x, sr] = await page.evaluate(() => [window.__taken.flatMap(b => [...b]), window.__rate])
   let run = 0, longest = 0
@@ -3532,7 +3534,7 @@ test('editor: an error is said once, beside the time and at its line; the last o
   await page.locator('.message.problem', { hasText: /^missing\.wav is not open here: open it, or drop it on the page$/ }).waitFor()
   await page.getByRole('button', { name: 'Open it…' }).waitFor()
   // the script is kept 500 ms after its last change
-  await page.waitForTimeout(600)
+  await page.waitForFunction(() => { const s = JSON.parse(localStorage.getItem('audio-repl')); return s.docs[s.doc].code === "audio('missing.wav').trim()" })
   await page.reload()
   await page.locator('.message.problem', { hasText: 'missing.wav is not open' }).waitFor()
   assert.equal(await page.locator('.source').innerText(), 'missing.wav')
@@ -3551,6 +3553,7 @@ test('editor: a recording becomes a file the script opens', async () => {
   // stopped before the microphone answers (Record clicked twice at once): nothing recorded, the microphone let go, the
   // next take free to start
   await page.evaluate(() => { const b = document.querySelector('button.record'); b.click(); b.click() })
+  // a moment for the microphone's late answer to start a take, which it must not
   await page.waitForTimeout(500)
   assert.equal(await page.locator('.empty').isVisible(), true, 'nothing recorded')
   assert.equal(await page.getByRole('button', { name: 'Stop recording', exact: true }).count(), 0)
@@ -3579,7 +3582,7 @@ test('editor: a recording becomes a file the script opens', async () => {
   await long()
   const before = await lengthText()
   // kept for the next visit, as a file is (a 32-bit float WAV): the same length after a reload, nothing missing
-  await page.waitForTimeout(500)
+  await page.waitForFunction(() => { const s = JSON.parse(localStorage.getItem('audio-repl')); return s.docs[s.doc].code === "audio('recording.wav')" })
   await page.reload()
   await wholeLevels().waitFor()
   assert.equal(await lengthText(), before)
@@ -3742,10 +3745,8 @@ test('editor: held Alt, every cue shows; held ⌘, only the one under the pointe
   await lengthIs('0:02.000')
   const { box, x } = await axis(2), y = box.y + 40
   const lit = async () => pixels(`let n = 0, run = false; for (let x = 0; x < w - ${await gutter()}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 60; if (on && !run) n++; run = on } return n`)
-  let cue = []
   const w = await spans(box)
-  for (const until = Date.now() + 8000; !cue.length && Date.now() < until; await page.waitForTimeout(200)) cue = (await handles()).map(px => px / w * 2).filter(t => Math.abs(t - 1) < .02)
-  assert.equal(cue.length, 1)
+  const cue = await poll(async () => (await handles()).map(px => px / w * 2).filter(t => Math.abs(t - 1) < .02), cue => assert.equal(cue.length, 1), 8000)
   assert.equal(await lit(), 0, 'none shown')
   await page.mouse.move(x(.75), y)
   await page.keyboard.down('Alt')
@@ -3770,23 +3771,22 @@ test('editor: zoomed out, only the plainer cues show, none within 24 px of anoth
   const box = await page.locator('.plot').boundingBox(), y = box.y + 40
   const runs = async () => (await pixels(`const out = []; let run = false; for (let x = 0; x < ${await spans(box)}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 40; if (on && !run) out.push(x); run = on } return out`)).filter(x => Math.abs(x - 30) > 5)
   await page.mouse.move(box.x + 30, y)
-  let shown = []
+  const g = await gutter()
   await page.keyboard.down('Alt')
   // a minute's cues found on a slow runner in half a minute or so
-  for (const until = Date.now() + 60000; shown.length < 20 && Date.now() < until; await page.waitForTimeout(300)) shown = await runs()
-  const apart = Math.min(...shown.slice(1).map((x, i) => x - shown[i]))
+  await poll(runs, shown => {
+    const apart = Math.min(...shown.slice(1).map((x, i) => x - shown[i]))
+    assert.ok(shown.length > 20 && shown.length < (box.width - g) / 24 + 2, `${shown.length} shown across ${Math.round(box.width)} px`)
+    assert.ok(apart >= 23, `the closest ${apart} px apart`)
+  }, 60000)
   await page.keyboard.up('Alt')
-  assert.ok(shown.length > 20 && shown.length < (box.width - await gutter()) / 24 + 2, `${shown.length} shown across ${Math.round(box.width)} px`)
-  assert.ok(apart >= 23, `the closest ${apart} px apart`)
   // zoomed in five halvings, under 2 s across: each of its 18 or so strikes, tens of px apart
   await page.locator('.plot').focus()
   for (let i = 0; i < 5; i++) await page.keyboard.press('=')
   await page.mouse.move(box.x + 30, y)
   await page.keyboard.down('Alt')
-  await page.waitForTimeout(400)
-  const near = await runs()
+  await poll(runs, near => assert.ok(near.length >= 15, `zoomed in: ${near.length}`))
   await page.keyboard.up('Alt')
-  assert.ok(near.length >= 15, `zoomed in: ${near.length}`)
 })
 
 // Held Alt, a press held still is the caret's all the same, dragged and heard, no caret added, every cue showing as Alt
@@ -3800,13 +3800,13 @@ test('editor: held Alt, a press held takes the caret along, the cues showing; on
   const { box, x } = await axis(2), y = box.y + 40, w = await spans(box)
   // the runs of the cues' colour across the lanes' top row, [x, …] px
   const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 60; if (on && !run) out.push(x); run = on } return out`)
-  let cue = []
-  for (const until = Date.now() + 8000; !cue.length && Date.now() < until; await page.waitForTimeout(200)) cue = (await handles()).map(px => px / w * 2).filter(t => Math.abs(t - 1) < .02)
+  const cue = await poll(async () => (await handles()).map(px => px / w * 2).filter(t => Math.abs(t - 1) < .02), cue => assert.ok(cue.length, 'the cue at 1 s'), 8000)
   const clock = async () => +(await page.locator('.time').innerText()).split(':')[1]
   await page.mouse.move(x(.75), y)
   await page.keyboard.down('Alt')
   await page.mouse.down()
-  await page.waitForTimeout(650)
+  // held still: the caret's (view.js HOLD)
+  await page.waitForFunction(() => document.querySelector('.plot').style.cursor === 'ew-resize')
   await page.mouse.move(x(1.25), y, { steps: 6 })
   const shown = await lit()
   await page.mouse.up()
@@ -3819,16 +3819,14 @@ test('editor: held Alt, a press held takes the caret along, the cues showing; on
   // its line in its own colour (the rows with the cues' colour just before it, where no wash is: a cross's arms)
   await page.mouse.move(x(.75), y)
   await page.mouse.down()
-  await page.waitForTimeout(650)
+  await page.waitForFunction(() => document.querySelector('.plot').style.cursor === 'ew-resize')
   await page.mouse.move(x(cue[0]) + 1, y, { steps: 6 })
-  await page.waitForTimeout(100)
   const px = Math.round(x(cue[0]) - box.x), lane = tall(box)
-  const onto = await pixels(`const orange = (x, y) => { const i = (y * w + x) * 4; return d[i] - d[i + 2] > 30 }, rows = []
+  await poll(() => pixels(`const orange = (x, y) => { const i = (y * w + x) * 4; return d[i] - d[i + 2] > 30 }, rows = []
     for (let y = 0; y < Math.round(arg.lane); y++) if ([-3, -2, -1].some(dx => orange(arg.px + dx, y))) rows.push(y)
-    return { rows, line: [4, Math.round(arg.lane) - 4].some(y => !rows.includes(y) && orange(arg.px, y)) }`, { px, lane })
+    return { rows, line: [4, Math.round(arg.lane) - 4].some(y => !rows.includes(y) && orange(arg.px, y)) }`, { px, lane }), onto => assert.ok(onto.rows.length >= 3 && onto.rows.length <= 14 && !onto.line, `a cross or two where it meets the waveform, its line its own colour: ${JSON.stringify(onto)}`))
   await page.mouse.up()
   assert.ok(Math.abs(await clock() - cue[0]) < 2e-3, `the caret on the cue: ${await clock()}`)
-  assert.ok(onto.rows.length >= 3 && onto.rows.length <= 14 && !onto.line, `a cross or two where it meets the waveform, its line its own colour: ${JSON.stringify(onto)}`)
 })
 
 // A range begun within a few px of a cue starts on it, as the pointer's time said it would; its end dragged onto one is
@@ -3838,8 +3836,7 @@ test('editor: a range begun by a cue starts on it; its end dragged onto one, the
   await write(hits)
   await lengthIs('0:02.000')
   const { box, x } = await axis(2), y = box.y + 40, w = await spans(box)
-  let cues = []
-  for (const until = Date.now() + 8000; !cues.some(t => Math.abs(t - 1) < .02) && Date.now() < until; await page.waitForTimeout(200)) cues = (await handles()).map(px => px / w * 2)
+  const cues = await poll(async () => (await handles()).map(px => px / w * 2), cues => assert.ok(cues.some(t => Math.abs(t - 1) < .02), `the cue at 1 s: ${cues}`), 8000)
   const a = cues.find(t => Math.abs(t - .5) < .02), b = cues.find(t => Math.abs(t - 1) < .02)
   // white down the lane's top rows, over the sound's quiet edge, at a column (or a pixel either side): how many of rows
   // 6 to 16
@@ -3847,8 +3844,7 @@ test('editor: a range begun by a cue starts on it; its end dragged onto one, the
   await page.mouse.move(x(a) + 2, y)
   await page.mouse.down()
   await page.mouse.move(x(b) - 2, y, { steps: 6 })
-  let line = 0
-  for (const until = Date.now() + 2000; line < 8 && Date.now() < until; await page.waitForTimeout(100)) line = await white(x(b))
+  const line = await poll(() => white(x(b)), line => assert.ok(line >= 8, `the end on the cue, a line there: ${line} of 10 rows`), 2000)
   const off = await white(x(b) - 6)
   await page.mouse.up()
   assert.ok(line >= 8 && off < 3, `the end on the cue, a line there: ${line} of 10 rows, beside it ${off}`)
@@ -3865,8 +3861,7 @@ test('editor: a caret dragged onto a cue or a marker says what it went onto', as
   await write(hits + `\n  .mark(0.75, 'Intro')\n  .mark({ at: 1.6, d: 0.2 }, 'Coda')`)
   await lengthIs('0:02.000')
   const { box, x } = await axis(2), y = box.y + 40, w = await spans(box)
-  let cues = []
-  for (const until = Date.now() + 8000; !cues.some(t => Math.abs(t - 1) < .02) && Date.now() < until; await page.waitForTimeout(200)) cues = (await handles()).map(px => px / w * 2)
+  const cues = await poll(async () => (await handles()).map(px => px / w * 2), cues => assert.ok(cues.some(t => Math.abs(t - 1) < .02), `the cue at 1 s: ${cues}`), 8000)
   const start = cues.find(t => Math.abs(t - 1) < .02), end = cues.find(t => t > 1.1 && t < 1.45)
   const said = () => page.locator('.hint').evaluate(e => e.hidden ? '' : e.textContent)
   // the cues' colour 5 px either side of the line (its wash WASH, 8 px), half way down the lane: [before, after]
@@ -3878,18 +3873,17 @@ test('editor: a caret dragged onto a cue or a marker says what it went onto', as
     await page.mouse.move(x(.25), y)
     await page.mouse.down()
     // held, the press is the caret's: dragged, it goes along
-    await page.waitForTimeout(650)
+    await page.waitForFunction(() => document.querySelector('.plot').style.cursor === 'ew-resize')
     await page.mouse.move(x(t) + 1, y, { steps: 6 })
-    await page.waitForTimeout(100)
-    assert.equal(await said(), words, `onto ${t}`)
-    if (wash) assert.deepEqual(await washed(t), wash, `onto ${t}, the wash on the sound's side`)
-    if (words) assert.ok(await crossed(t) >= 4, `onto ${t}, a cross on the line's foot, over its triangle: ${await crossed(t)}`)
+    await frames()
+    await poll(said, s => assert.equal(s, words, `onto ${t}`))
+    if (wash) await poll(() => washed(t), w => assert.deepEqual(w, wash, `onto ${t}, the wash on the sound's side`))
+    if (words) await poll(() => crossed(t), n => assert.ok(n >= 4, `onto ${t}, a cross on the line's foot, over its triangle: ${n}`))
     await page.mouse.up()
   }
   // let go and moved off it, nothing said
   await page.mouse.move(x(1.75), box.y + 40)
-  await page.waitForTimeout(100)
-  assert.equal(await said(), '')
+  await poll(said, s => assert.equal(s, ''))
 })
 
 // A marker by a cue is one snap with it, the marker's: the caret dragged there goes onto the marker's time, a cross over
@@ -3899,21 +3893,18 @@ test('editor: a caret dragged onto a marker by a cue snaps once, a cross at each
   await write(hits + `\n  .mark({ at: 1, d: 0.2 }, 'Hit')`)
   await lengthIs('0:02.000')
   const { box, x } = await axis(2), y = box.y + 40, w = await spans(box), lane = Math.round(tall(box))
-  let cues = []
-  for (const until = Date.now() + 8000; !cues.some(t => Math.abs(t - 1) < .02) && Date.now() < until; await page.waitForTimeout(200)) cues = (await handles()).map(px => px / w * 2)
+  const cues = await poll(async () => (await handles()).map(px => px / w * 2), cues => assert.ok(cues.some(t => Math.abs(t - 1) < .02), `the cue at 1 s: ${cues}`), 8000)
   const cue = cues.find(t => Math.abs(t - 1) < .02)
   await page.mouse.move(x(.25), y)
   await page.mouse.down()
-  await page.waitForTimeout(650)
+  await page.waitForFunction(() => document.querySelector('.plot').style.cursor === 'ew-resize')
   await page.mouse.move(x(cue) + 1, y, { steps: 6 })
-  await page.waitForTimeout(150)
   // the cues' colour just before the line (no wash there: the strike's sound is after it), about its foot and up the lane
-  const marks = await pixels(`const orange = (x, y) => { const i = (y * w + x) * 4; return d[i] - d[i + 2] > 30 }; let foot = 0, up = 0
+  await poll(() => pixels(`const orange = (x, y) => { const i = (y * w + x) * 4; return d[i] - d[i + 2] > 30 }; let foot = 0, up = 0
     for (let y = 0; y <= arg.lane + 2; y++) for (let x = arg.px - 3; x < arg.px; x++) if (orange(x, y)) y >= arg.lane - 4 ? foot++ : up++
-    return { foot, up }`, { px: Math.round(x(1) - box.x), lane })
+    return { foot, up }`, { px: Math.round(x(1) - box.x), lane }), marks => assert.ok(marks.foot >= 2 && marks.up >= 2, `a cross on its foot and where it meets the waveform: ${JSON.stringify(marks)}`))
   await page.mouse.up()
   assert.equal(await page.locator('.time').innerText(), '0:01.000', 'the marker\'s time')
-  assert.ok(marks.foot >= 2 && marks.up >= 2, `a cross on its foot and where it meets the waveform: ${JSON.stringify(marks)}`)
 })
 
 // A drag that snaps shows where it would: the caret held and dragged, or a range's edge, the cues either side of it
@@ -3925,13 +3916,12 @@ test('editor: dragged, the caret or an edge shows the cues either side of it; wi
   await lengthIs('0:02.000')
   const { box, x } = await axis(2), y = box.y + 40, w = await spans(box)
   const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 30; if (on && !run) out.push(x); run = on } return out`)
-  let cues = []
-  for (const until = Date.now() + 8000; cues.length < 5 && Date.now() < until; await page.waitForTimeout(200)) cues = (await handles()).map(px => px / w * 2)
+  const cues = await poll(async () => (await handles()).map(px => px / w * 2), cues => assert.ok(cues.length >= 5, `its cues: ${cues}`), 8000)
   // the caret held at 0.7 s, between the cues at 0.5 s and where that hit falls quiet, a third of a second on
   const [before, after] = [cues.findLast(t => t < .7), cues.find(t => t > .7)]
   await page.mouse.move(x(.65), y)
   await page.mouse.down()
-  await page.waitForTimeout(650)
+  await page.waitForFunction(() => document.querySelector('.plot').style.cursor === 'ew-resize')
   await page.mouse.move(x(.7), y, { steps: 3 })
   const beside = await lit()
   await page.mouse.up()
@@ -3955,17 +3945,20 @@ test('editor: dragged, the caret or an edge shows the cues either side of it; wi
 // flashed the old waveform for a frame, its new samples in before their levels)
 test('editor: weighted, an edit\'s output comes in one step, never a frame of the last one\'s levels', async () => {
   await page.route('**/playground/view.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('  function draw() {\n', '  function draw() {\n    globalThis.__draws?.push({ ahead: !!pieces, stale: twinOf.size > 0 && twinsOf !== heardOf })\n') }) })
-  // the levels as heard withheld at will (`__deaf`), as when the worker has none to give
-  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('onheard: weighting => output', 'onheard: weighting => !globalThis.__deaf && output') }) })
+  // the levels as heard withheld at will (`__deaf`), as when the worker has none to give; those given counted (`__weighed`)
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('onheard: weighting => output && !incoming ? eng.heard(output.id, weighting) : null', 'onheard: weighting => !globalThis.__deaf && output && !incoming ? eng.heard(output.id, weighting).then(l => (globalThis.__weighed = (globalThis.__weighed ?? 0) + 1, l)) : null') }) })
   const { x, y } = await chime()
   await settings('Weighting', 'K-weighted')
-  await page.waitForTimeout(1000)
+  await page.waitForFunction(() => globalThis.__weighed)
+  await settled()
   await drag([x(2), y], [x(3) - x(2), 0])
-  await page.evaluate(() => globalThis.__draws = [])
+  const weighed = await page.evaluate(() => { globalThis.__draws = []; return globalThis.__weighed })
   await page.keyboard.press('Delete')
   await page.waitForFunction(() => /\.remove\(/.test(scriptText()))
   await lengthIs('0:07.000')
-  await page.waitForTimeout(800)
+  // its output's levels as heard come, and drawn
+  await page.waitForFunction(n => globalThis.__weighed > n, weighed)
+  await settled()
   const draws = await page.evaluate(() => globalThis.__draws)
   assert.ok(draws.some(d => d.ahead) && draws.some(d => !d.ahead), `drawn ahead, then its output: ${JSON.stringify(draws)}`)
   assert.deepEqual(draws.filter(d => d.stale), [], 'no picture of its samples with the last one\'s levels')
@@ -3974,7 +3967,7 @@ test('editor: weighted, an edit\'s output comes in one step, never a frame of th
   await page.evaluate(() => { globalThis.__deaf = true; globalThis.__draws = [] })
   await write(`${await code()}\n  .gain(-12, { at: 4, d: 1 })`)
   await page.waitForFunction(() => globalThis.__draws.length > 1)
-  await page.waitForTimeout(800)
+  await settled()
   assert.deepEqual((await page.evaluate(() => globalThis.__draws)).filter(d => d.stale), [], 'none withheld: no picture with the last one\'s levels')
 })
 
@@ -3988,8 +3981,7 @@ test('editor: Shift and a double-click extend the selection to the fragment; Shi
   const { box, x } = await axis(2.5), y = box.y + tall(box) / 3, w = await spans(box)
   const range = async () => (await selected()).split('–').map(t => +t.split(':')[1])
   const near = ([a, b], [p, q]) => Math.abs(a - p) < .03 && Math.abs(b - q) < .03
-  let at = []
-  for (const until = Date.now() + 8000; at.length < 7 && Date.now() < until; await page.waitForTimeout(200)) at = (await handles()).map(h => h / w * 2.5)
+  await poll(async () => (await handles()).map(h => h / w * 2.5), at => assert.ok(at.length >= 7, `its cues: ${at}`), 8000)
   await page.mouse.dblclick(x(.7), y)
   assert.ok(near(await range(), [.5, .9]), String(await range()))
   await keyed(['Shift'], () => page.mouse.dblclick(x(1.7), y))
@@ -4020,14 +4012,15 @@ test('editor: a muted track\'s waveform is dim, its lane\'s ground as it was', a
   await noCues()
   await write(`let a = audio.from(t => .6 * Math.sin(2 * Math.PI * 220 * t), { duration: 3 })\n\nlet b = audio.from(t => .6 * Math.sin(2 * Math.PI * 330 * t), { duration: 3 })`)
   await page.locator('.track-mute').nth(1).waitFor()
-  await page.waitForTimeout(800)
+  await settled()
   const box = await page.locator('.plot').boundingBox()
   const rows = await page.evaluate(() => [...document.querySelectorAll('.layer')].map(l => l.getBoundingClientRect().bottom))
   // the second lane's ground near its top, and its waveform's middle, the brightest across its middle row
   const look = () => pixels(`const at = (x, y) => d[(Math.round(y) * w + Math.round(x)) * 4]; let wave = 0; for (let x = 20; x < 400; x++) wave = Math.max(wave, at(x, arg.mid)); return { ground: at(200, arg.top), wave }`, { top: rows[1] - box.y + 6, mid: rows[1] - box.y + 80 })
   const was = await look()
   await page.locator('.track-mute').nth(1).click()
-  await page.waitForTimeout(500)
+  await settled()
+  await still()
   const now = await look()
   assert.ok(Math.abs(now.ground - was.ground) <= 2, `the ground as it was: ${was.ground} → ${now.ground}`)
   assert.ok(now.wave < was.wave - 40, `the waveform dim: ${was.wave} → ${now.wave}`)
@@ -4047,7 +4040,7 @@ test('editor: a triple-click\'s third press, nudged, moves no audio', async () =
   await page.mouse.down()
   await page.mouse.move(x(.7) + 20, y, { steps: 4 })
   await page.mouse.up()
-  await page.waitForTimeout(400)
+  await settled()
   assert.equal(await code(), before, 'no audio moved')
 })
 
@@ -4058,8 +4051,7 @@ test('editor: a quiet sound has its cues by a loud one; within 0.02 of zero, non
   await write(`audio.from(t => Math.sin(2 * Math.PI * 440 * t) * Math.exp(-(t % 1) * 20) * (t < 1 ? 0 : t < 2 ? .5 : t < 4 ? .03 : .01), { duration: 5 })`)
   await lengthIs('0:05.000')
   const w = await spans(await page.locator('.plot').boundingBox()), near = (at, t) => at.some(s => Math.abs(s - t) < .03)
-  let at = []
-  for (const until = Date.now() + 8000; !(near(at, 1) && near(at, 3)) && Date.now() < until; await page.waitForTimeout(200)) at = (await handles()).map(h => h / w * 5)
+  const at = await poll(async () => (await handles()).map(h => h / w * 5), at => assert.ok(near(at, 1) && near(at, 3), `the loud strike's and the quiet ones': ${at}`), 8000)
   assert.ok(near(at, 1) && near(at, 2) && near(at, 3), `the loud strike's and the quiet ones': ${at}`)
   assert.deepEqual(at.filter(t => t > 3.9), [], `none of the ground's: ${at}`)
 })
@@ -4071,15 +4063,15 @@ test('editor: blips of the ground between two sounds make no cues; the sounds\' 
   await write(`audio.from(t => t > .2 && t < .6 || t > 2.4 && t < 2.8 ? .5 * Math.sin(2 * Math.PI * 440 * t) : t > .6 && t < 2.4 && Math.floor(t * 10) % 2 ? .006 * Math.sin(2 * Math.PI * 1000 * t) : 0, { duration: 3 })`)
   await lengthIs('0:03.000')
   const w = await spans(await page.locator('.plot').boundingBox()), near = (at, t) => at.some(s => Math.abs(s - t) < .03)
-  let at = []
-  for (const until = Date.now() + 8000; !(near(at, .6) && near(at, 2.4)) && Date.now() < until; await page.waitForTimeout(200)) at = (await handles()).map(h => h / w * 3)
-  assert.ok(near(at, .6) && near(at, 2.4), `the bursts' edges: ${at}`)
+  const at = await poll(async () => (await handles()).map(h => h / w * 3), at => assert.ok(near(at, .6) && near(at, 2.4), `the bursts' edges: ${at}`), 8000)
   assert.deepEqual(at.filter(t => t > .65 && t < 2.35), [], 'none in the blips between')
 })
 
 // The cues are where sounds start and end and where they hit, one list: each hit here (0.5 s apart), and where each falls
 // quiet before the next. A cue dragged warps the audio between the cues either side, which hold.
 test('editor: dragging a cue moves it, the audio on either side stretching to fit, the cues either side holding', async () => {
+  // the cues each output brings, counted as the view takes them (__cued)
+  await page.route('**/playground/view.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('    set cues(list) {\n', '    set cues(list) {\n      if (list) globalThis.__cued = (globalThis.__cued ?? 0) + 1\n') }) })
   await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('let output = null, incoming', 'globalThis.__output = () => output\nlet output = null, incoming') }) })
   await open()
   await write(hits)
@@ -4087,9 +4079,8 @@ test('editor: dragging a cue moves it, the audio on either side stretching to fi
   // the cues are lines in the lanes, each grabbed there with ⌘ (Ctrl) held; without it, a press there is the caret's
   const { box, x } = await axis(2), y = box.y + 20, cursor = () => page.locator('.plot').evaluate(el => el.style.cursor)
   // the hit at 1 s, and the cues either side of it, before it moves
-  let cues = []
   const w = await spans(box)
-  for (const until = Date.now() + 8000; !cues.some(t => Math.abs(t - 1) < .02) && Date.now() < until; await page.waitForTimeout(200)) cues = (await handles()).map(px => px / w * 2)
+  const cues = await poll(async () => (await handles()).map(px => px / w * 2), cues => assert.ok(cues.some(t => Math.abs(t - 1) < .02), `the cue at 1 s: ${cues}`), 8000)
   const prev = cues.findLast(t => t < .95), next = cues.find(t => t > 1.05)
   assert.ok(prev > .5 && next < 1.5, `a cue where the hit before falls quiet, and where this one does: ${JSON.stringify(cues)}`)
   await page.keyboard.down('ControlOrMeta')
@@ -4103,6 +4094,7 @@ test('editor: dragging a cue moves it, the audio on either side stretching to fi
   await page.mouse.move(...at)
   assert.notEqual(await cursor(), 'col-resize', 'no cue to take without ⌘')
   await page.keyboard.down('ControlOrMeta')
+  const cued = await page.evaluate(() => globalThis.__cued)
   await drag(await grab([at], 'col-resize'), [x(1.2) - x(1), 0])
   await page.keyboard.up('ControlOrMeta')
   await page.waitForFunction(() => /\.warp\(/.test(scriptText()))
@@ -4113,8 +4105,7 @@ test('editor: dragging a cue moves it, the audio on either side stretching to fi
   assert.ok(Math.abs(held[0] - prev) < .01 && Math.abs(held[1] - next) < .01, JSON.stringify([held, prev, next]))
   // the moved hit is its marker now: dragged again, that marker moves on, once the output of the first drag has come and
   // its cues with it (they replace the ones the view moved, a few pixels off, under a press on its way)
-  await page.waitForFunction(() => globalThis.__output()?.editor?.includes('.warp('))
-  await page.waitForTimeout(400)
+  await page.waitForFunction(n => globalThis.__output()?.editor?.includes('.warp(') && globalThis.__cued > n, cued)
   await dragCue(Array.from({ length: 13 }, (_, i) => [x(moved[1]) - 6 + i, y]), [x(.1) - x(0), 0])
   await page.waitForFunction(to => scriptText().includes(`, ${to}`) === false, moved[1])
   const later = await warps()
@@ -4124,8 +4115,7 @@ test('editor: dragging a cue moves it, the audio on either side stretching to fi
   const [first] = later
   await dragCue(Array.from({ length: 13 }, (_, i) => [x(first[1]) - 6 + i, y]), [x(.1) - x(0), 0])
   const it = list => list.find(([a]) => a === first[0])
-  let last = later
-  for (const until = Date.now() + 5000; Math.abs(it(last)[1] - first[1] - .1) >= .01 && Date.now() < until; await page.waitForTimeout(100)) last = await warps()
+  const last = await poll(warps, last => assert.ok(Math.abs(it(last)[1] - first[1] - .1) < .01, JSON.stringify(last)))
   assert.equal((await code()).match(/\.warp\(/g).length, 1)
   // it moved, the cue before it now holding too (the hit at 0.5 s), the rest as they were
   assert.ok(Math.abs(it(last)[1] - first[1] - .1) < .01, JSON.stringify(last))
@@ -4139,19 +4129,23 @@ test('editor: dragging a cue moves it, the audio on either side stretching to fi
 // The chime rings on, its partials beating: its cues are its eight strikes and where its rings fall quiet, not the swells
 // of its rings, and one dragged moves alone.
 test('editor: a dragged cue moves alone; the sound stretched around it makes no new cues', async () => {
+  // the cues each output brings, counted as the view takes them (__cued)
+  await page.route('**/playground/view.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('    set cues(list) {\n', '    set cues(list) {\n      if (list) globalThis.__cued = (globalThis.__cued ?? 0) + 1\n') }) })
   await open()
   // the chime's strikes after its first, which the caret starts on
-  let before = []
-  for (const until = Date.now() + 8000; before.length < 7 && Date.now() < until; await page.waitForTimeout(200)) before = await handles()
-  assert.ok(before.length >= 7, JSON.stringify(before))
+  const before = await poll(handles, before => assert.ok(before.length >= 7, JSON.stringify(before)), 8000)
   // 0.2 s later, a cue with room for it either side
   const box = await page.locator('.plot').boundingBox(), dx = .2 / 6.525 * await spans(box)
   const k = before.findIndex((p, i) => i > 0 && i < before.length - 1 && before[i + 1] - p > dx * 1.5 && p - before[i - 1] > dx * .5)
   assert.ok(k > 0, JSON.stringify(before))
+  const cued = await page.evaluate(() => globalThis.__cued)
   await dragCue([[box.x + before[k], box.y + 20]], [dx, 0])
   await page.waitForFunction(() => /\.warp\(/.test(scriptText()))
-  await page.waitForTimeout(1500)
+  // the warped output's own cues come
+  await page.waitForFunction(n => globalThis.__cued > n, cued)
+  await settled()
   const after = await handles()
+  // a while on, none moving after
   await page.waitForTimeout(1000)
   assert.deepEqual(await handles(), after, 'settled')
   assert.equal(after.length, before.length, JSON.stringify(after))
@@ -4162,18 +4156,23 @@ test('editor: a dragged cue moves alone; the sound stretched around it makes no 
 // A chord's ring, stretched, swells anew under the piano's tremolo: found again in the warped output, a drag would
 // grow cues in the spans it stretched. Carried from before warp(), every other cue stays on its pixel.
 test('editor: a cue dragged over a sustained sound leaves every other cue where it was', async () => {
+  // the cues each output brings, counted as the view takes them (__cued)
+  await page.route('**/playground/view.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('    set cues(list) {\n', '    set cues(list) {\n      if (list) globalThis.__cued = (globalThis.__cued ?? 0) + 1\n') }) })
   await open()
   await write(`audio('rhodes.wav')`)
   await lengthIs('0:09.000')
   const { box, x } = await axis(9), y = box.y + 20
-  let before = []
-  for (const until = Date.now() + 8000; !before.length && Date.now() < until; await page.waitForTimeout(200)) before = await handles()
+  const before = await poll(handles, before => assert.ok(before.length, 'its cues'), 8000)
   // the chord struck at 4.85 s, moved half a second earlier
   const from = before.reduce((a, h) => Math.abs(h - (x(4.853) - box.x)) < Math.abs(a - (x(4.853) - box.x)) ? h : a), to = from - (x(.5) - x(0))
+  const cued = await page.evaluate(() => globalThis.__cued)
   await dragCue([[box.x + from, y]], [to - from, 0])
   await page.waitForFunction(() => /\.warp\(/.test(scriptText()))
-  await page.waitForTimeout(1500)
+  // the warped output's own cues come
+  await page.waitForFunction(n => globalThis.__cued > n, cued)
+  await settled()
   const after = await handles()
+  // a while on, none moving after
   await page.waitForTimeout(1000)
   assert.deepEqual(await handles(), after, 'settled')
   const others = list => list.filter(h => Math.abs(h - from) > 8 && Math.abs(h - to) > 8)
@@ -4190,7 +4189,7 @@ test('editor: a level change draws the gain line; its points drag, above or mirr
   await lengthIs('0:02.000')
   // the edits open, beside the picture, all of the sound shown again in what is left of it
   await tab('Edits')
-  await page.waitForTimeout(400)
+  await still()
   await page.locator('.plot').focus()
   await page.keyboard.press('0')
   const { box, x } = await axis(2), mid = box.y + tall(box) * .4
@@ -4294,10 +4293,8 @@ test('editor: a click on the pitch curve makes a point of the pitch line; dragge
   await page.mouse.down()
   const lh = tall(box)
   await page.mouse.move(point[0], point[1] - lh * Math.sqrt(1.5 / 12), { steps: 6 })
-  await page.waitForTimeout(500)
-  assert.match(await page.locator('.hint').innerText(), /^\+1st [3-6]\dct, A3([+−]\d+ct)? → /)
-  const { peak } = await heard()
-  assert.ok(peak > .05, `heard as it goes: ${peak}`)
+  await poll(() => page.locator('.hint').innerText(), hint => assert.match(hint, /^\+1st [3-6]\dct, A3([+−]\d+ct)? → /))
+  await poll(heard, ({ peak }) => assert.ok(peak > .05, `heard as it goes: ${peak}`))
   await page.mouse.up()
   await page.waitForFunction(() => /\.pitch\(\{ t: \[0\.7, 1, 1\.3\], v: \[0, [1-9][\d.]*, 0\] \}, \{ voice: true \}\)$/.test(scriptText().trim()))
   // on the curve as it now is, a double-click takes it away; the two either side stay
@@ -4330,7 +4327,7 @@ test('editor: the pitch curve\'s bends drag, bending the voice between the handl
   const knot = await grab(scan, 'move')
   // a click alone changes nothing
   await page.mouse.click(...knot)
-  await page.waitForTimeout(300)
+  await settled()
   assert.doesNotMatch(await code(), /\.pitch\(/)
   await drag(knot, [0, -lh * Math.sqrt(2 / 12)])
   await page.waitForFunction(() => /\.pitch\(\{ t: \[[\d.]+, [\d.]+, [\d.]+\], v: \[0, [\d.]+, 0\] \}, \{ voice: true \}\)$/.test(scriptText().trim()))
@@ -4374,7 +4371,7 @@ test('editor: the caret goes where the pointer presses; Play starts on its press
   await page.mouse.down()
   await page.getByRole('button', { name: 'Pause' }).waitFor()
   await page.mouse.up()
-  await page.waitForTimeout(100)
+  await frames()
   assert.ok(await page.getByRole('button', { name: 'Pause' }).isVisible())
   await page.keyboard.press('Space')
   await page.getByRole('button', { name: 'Play', exact: true }).waitFor()
@@ -4408,12 +4405,14 @@ for (const width of [1280, 880]) test(`repl: the status bar holds still as a sel
   await page.mouse.down()
   for (let i = 1; i <= 4; i++) {
     await page.mouse.move(x(1 + i / 4), y, { steps: 3 })
+    // a moment for what the drag sets off (the selection's levels) to land
     await page.waitForTimeout(80)
     assert.deepEqual(await still(), idle, 'its start held and dragged')
   }
   await page.mouse.up()
   await page.keyboard.press('Space')
   await page.getByRole('button', { name: 'Pause' }).waitFor()
+  // playing a moment, the clock running
   await page.waitForTimeout(200)
   assert.deepEqual(await still(), idle, 'played')
   assert.ok(await page.locator('.readout').evaluate(e => e.scrollWidth <= e.clientWidth), 'the levels whole')
@@ -4500,7 +4499,7 @@ test('editor: the caret put elsewhere while it plays goes there at once, never b
       read()
     })
     await page.mouse.click(x(to), y)
-    await page.waitForTimeout(600)
+    await page.waitForFunction(() => window.__clock.filter(([t]) => t > window.__pressed).length >= 20, null, { timeout: 2000 }).catch(() => {})
     return page.evaluate(() => window.__clock.filter(([t]) => t > window.__pressed).slice(0, 20).map(([, s]) => s))
   }
   for (const to of [4, .5]) {
@@ -4535,6 +4534,7 @@ test('editor: played from past the middle of a zoomed view, the view glides the 
     await page.mouse.click(at(.85), y)
     await page.keyboard.press('Space')
     await page.waitForFunction(() => document.querySelector('.play')?.getAttribute('aria-label') === 'Pause')
+    // played `ms`: just started, or long enough to have glided
     await page.waitForTimeout(ms)
     await page.keyboard.press('Space')
     return across()
@@ -4560,11 +4560,13 @@ test('editor: scrolled while it plays, the view stays where it was put till the 
   await page.keyboard.press('Space')
   await page.waitForFunction(() => document.querySelector('.play')?.getAttribute('aria-label') === 'Pause')
   const range = () => page.evaluate(() => __view.range), time = async () => { const [m, s] = (await page.locator('.time').innerText()).split(':'); return +m * 60 + +s }
+  // played a while, followed
   await page.waitForTimeout(600)
   for (const [where, by] of [['ahead', 3], ['behind', -5]]) {
     await page.mouse.wheel(0, w * by)
-    await page.waitForTimeout(100)
+    await frames()
     const put = await range()
+    // half a second on, playing: not taken back to the playhead
     await page.waitForTimeout(500)
     assert.deepEqual(await range(), put, `${where}, left where it was put`)
   }
@@ -4573,12 +4575,11 @@ test('editor: scrolled while it plays, the view stays where it was put till the 
   const [a, b] = await range(), t = await time()
   await page.mouse.wheel(0, (t - .1 * (b - a) - a) / (b - a) * w)
   const put = await range()
+  // a moment on, playing: not taken back to the playhead
   await page.waitForTimeout(100)
   assert.deepEqual(await range(), put, 'in sight, left where it was put')
-  await page.waitForTimeout(1500)
   // the clock and the view read in one go: a frame apart, the view's span is a few frames' play
-  const [c, at] = await page.evaluate(() => { const [m, s] = document.querySelector('.time').textContent.split(':'), [p, q] = __view.range; return [p, (+m * 60 + +s - p) / (q - p)] })
-  assert.ok(c > put[0] && Math.abs(at - .5) < .15, `past the edge, followed: ${at.toFixed(2)} across`)
+  await poll(() => page.evaluate(() => { const [m, s] = document.querySelector('.time').textContent.split(':'), [p, q] = __view.range; return [p, (+m * 60 + +s - p) / (q - p)] }), ([c, at]) => assert.ok(c > put[0] && Math.abs(at - .5) < .15, `past the edge, followed: ${at.toFixed(2)} across`))
   // over the scrollbar, at the time row's top, the arrow, as over any scrollbar
   await page.mouse.move(box.x + w / 2, box.y + box.height - 22 + 4)
   assert.equal(await page.locator('.plot').evaluate(e => e.style.cursor), 'default')
@@ -4634,6 +4635,7 @@ test('editor: zoomed while it plays, about the playhead, still followed', async 
   await page.mouse.click(box.x + 20, y)
   await page.keyboard.press('Space')
   await page.waitForFunction(() => document.querySelector('.play')?.getAttribute('aria-label') === 'Pause')
+  // played a while: followed, the playhead held in the middle
   await page.waitForTimeout(1000)
   const range = () => page.evaluate(() => __view.range)
   const across = () => page.evaluate(() => { const [a, b] = __view.range; return (__view.playhead - a) / (b - a) })
@@ -4645,17 +4647,16 @@ test('editor: zoomed while it plays, about the playhead, still followed', async 
     if (key) await page.keyboard.press(key)
     assert.ok(Math.abs(await across() - was) < .05, `the playhead where it was: ${was.toFixed(2)} → ${(await across()).toFixed(2)} across`)
   }
-  await page.waitForTimeout(1000)
-  const at = await across()
-  assert.ok(Math.abs(at - .5) < .1, `followed on: ${at.toFixed(2)} across`)
+  await poll(across, at => assert.ok(Math.abs(at - .5) < .1, `followed on: ${at.toFixed(2)} across`))
   // scrolled away by hand, the view the hand's: a zoom there keeps the time under the pointer, the playhead not followed
   await page.mouse.move(box.x + w / 2, y)
   await page.mouse.wheel(0, w * 3)
-  await page.waitForTimeout(100)
+  await frames()
   const pointed = async () => { const [a, b] = await range(); return a + (b - a) / 2 }, t = await pointed()
   await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control')
   const put = await range()
   assert.ok(Math.abs(await pointed() - t) < 1e-3 * (put[1] - put[0]), `the time under the pointer kept: ${t.toFixed(3)} → ${(await pointed()).toFixed(3)}`)
+  // half a second on, playing: not taken back to the playhead
   await page.waitForTimeout(500)
   assert.deepEqual(await range(), put, 'left where it was put')
   await page.keyboard.press('Space')
@@ -4674,13 +4675,15 @@ test('editor: out of sight, the caret stays at the lanes\' edge; its chevron at 
   await lengthIs('0:20.000')
   const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + tall(box) / 3
   const range = () => page.evaluate(() => __view.range), seen = async t => { const [a, b] = await range(); return t >= a && t <= a + (b - a) * .9 }
+  // the view where it goes, its travel there over (no frame moving it)
+  const rest = async () => { let now = await range(), was; do { was = now; await frames(1); now = await range() } while (now[0] !== was[0] || now[1] !== was[1]); return now }
   await page.mouse.move(box.x + w / 2, y)
   for (let i = 0; i < 10; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
   await page.mouse.click(box.x + w / 2, y)
   const caret = await page.evaluate(() => __view.cursor)
   // scrolled past it: at the lanes' left edge, its chevron at the foot of its line there
   await page.mouse.wheel(0, w * 3)
-  await page.waitForTimeout(100)
+  await frames()
   assert.ok(!await seen(caret), 'scrolled out of sight')
   const foot = box.y + tall(box) - 7
   await page.mouse.move(box.x + 6, foot)
@@ -4690,23 +4693,22 @@ test('editor: out of sight, the caret stays at the lanes\' edge; its chevron at 
   const was = await range()
   await page.mouse.click(box.x + 6, foot)
   const on = await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(__view.range[0])))))
-  await page.waitForTimeout(400)
-  const [a, b] = await range()
+  const [a, b] = await rest()
   assert.ok(on < was[0] && on > a, `on its way: ${was[0].toFixed(3)} → ${on.toFixed(3)} → ${a.toFixed(3)}`)
   assert.ok(Math.abs((caret - a) / (b - a) - .45) < .1, `brought to the middle: ${((caret - a) / (b - a)).toFixed(2)} across`)
   // the clock's time does the same, from either side
   await page.mouse.wheel(0, -w * 3)
-  await page.waitForTimeout(100)
+  await frames()
   assert.ok(!await seen(caret), 'scrolled the other way out of sight')
   await page.locator('.time').click()
-  await page.waitForTimeout(400)
+  await rest()
   assert.ok(await seen(caret), 'the clock\'s time brings it back')
   // past it the other way, its chevron at the lanes' right end, before the meters, brings it back too
   await page.mouse.wheel(0, -w * 3)
-  await page.waitForTimeout(100)
+  await frames()
   const end = await page.locator('.plot').evaluate(el => parseFloat(getComputedStyle(el).getPropertyValue('--end')))
   await page.mouse.click(box.x + box.width - end - 6, foot)
-  await page.waitForTimeout(400)
+  await rest()
   assert.ok(await seen(caret), 'the right edge\'s chevron brings it back')
   // under the meters, out of sight too: none of its line past the lanes' end (e), at it a pixel short, as opaque as its
   // line in sight, its chevron on the time row before its tick; on the lanes' last pixel, in sight, its line. The
@@ -4742,7 +4744,7 @@ test('editor: out of sight, the caret stays at the lanes\' edge; its chevron at 
   }
   // a selection: the length frames it, then shows all of it, then frames it again
   await page.evaluate(() => __view.select(5, 7))
-  const framed = async () => { await page.locator('.length').click(); await page.waitForTimeout(400); return range() }
+  const framed = async () => { await page.locator('.length').click(); return rest() }
   let [p, q] = await framed()
   assert.ok(p <= 5 && p > 4.5 && (q - p) < 3, `the selection framed: ${p.toFixed(2)}–${q.toFixed(2)}`)
   ;[p, q] = await framed()
@@ -4753,17 +4755,16 @@ test('editor: out of sight, the caret stays at the lanes\' edge; its chevron at 
   await page.mouse.click(box.x + w / 2, y)
   await page.keyboard.press('Space')
   await page.waitForFunction(() => document.querySelector('.play')?.getAttribute('aria-label') === 'Pause')
+  // played a while, followed
   await page.waitForTimeout(600)
   await page.mouse.wheel(0, w * 3)
-  await page.waitForTimeout(300)
+  await frames()
   const clock = () => page.evaluate(() => { const [m, s] = document.querySelector('.time').textContent.split(':'), [a, b] = __view.range; return (+m * 60 + +s - a) / (b - a) })
   assert.ok(await clock() < 0, 'scrolled past the playhead')
   await page.mouse.move(box.x + 6, foot)
   await page.waitForFunction(() => !document.querySelector('.hint').hidden && document.querySelector('.hint').textContent === 'To the playhead')
   await page.locator('.time').click()
-  await page.waitForTimeout(800)
-  const at = await clock()
-  assert.ok(Math.abs(at - .45) < .15, `followed again: ${at.toFixed(2)} across`)
+  await poll(clock, at => assert.ok(Math.abs(at - .45) < .15, `followed again: ${at.toFixed(2)} across`))
   await page.keyboard.press('Space')
 })
 
@@ -4813,7 +4814,7 @@ test('editor: with tracks, the overview shows the track edited', async () => {
   const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter())
   // (lit in any channel: a track's own colour, its waveform's)
   const ink = f => pixels(`const x = Math.round(arg); let n = 0; for (let y = h - 26; y < h - 4; y++) { const i = (y * w + x) * 4; if (Math.max(d[i], d[i + 1], d[i + 2]) > 60) n++ } return n`, w * f)
-  const drawn = async (first, second) => { for (let i = 0; i < 20; i++) { if ((await ink(.25) > 4) === first && (await ink(.75) > 4) === second) return true; await page.waitForTimeout(50) } return false }
+  const drawn = async (first, second) => { for (let i = 0; i < 20; i++) { if ((await ink(.25) > 4) === first && (await ink(.75) > 4) === second) return true; await frames(1) } return false }
   const lane = async i => (await tracksAt())[i].y + 20
   await page.mouse.click(box.x + w / 2, await lane(0))
   assert.ok(await drawn(true, false), 'a\'s: its first half')
@@ -4832,8 +4833,7 @@ test('editor: the overview draws the sound as its lanes do, its body brightest a
   const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter())
   // a column at the middle: the brightest of each row of the strip, its lit rows' middle and a fifth of the way in
   const shades = () => pixels(`const x = Math.round(arg), rows = []; for (let y = h - 26; y < h - 4; y++) { const i = (y * w + x) * 4; rows.push(Math.max(d[i], d[i + 1], d[i + 2])) } return rows`, w / 2)
-  let rows = []
-  for (let i = 0; i < 20 && rows.filter(v => v > 40).length < 6; i++) { rows = await shades(); await page.waitForTimeout(100) }
+  const rows = await poll(shades, rows => assert.ok(rows.filter(v => v > 40).length >= 6, `the strip drawn: ${rows.join(' ')}`))
   const lit = rows.map((v, i) => v > 40 ? i : -1).filter(i => i >= 0), top = lit[0], bottom = lit.at(-1), mid = Math.round((top + bottom) / 2), near = Math.round(top + (mid - top) / 5)
   assert.ok(rows[mid] > rows[near] * 1.3, `the body brighter at its centre than near its peak: ${rows[mid]}, ${rows[near]} (${rows.join(' ')})`)
 })
@@ -4860,6 +4860,7 @@ test('editor: followed, the reel runs on by the compositor, its pictures not dra
   })
   await page.keyboard.press('Space')
   await page.waitForFunction(() => document.querySelector('.play')?.getAttribute('aria-label') === 'Pause')
+  // played a while: followed, the view steady
   await page.waitForTimeout(1500)
   const [set0, drawn0, frames] = await page.evaluate(() => new Promise(done => { const s = [window.__set, window.__drawn]; let n = 0; const f = () => ++n < 60 ? requestAnimationFrame(f) : done([...s, n]); requestAnimationFrame(f) }))
   const [set1, drawn1, running, wide] = await page.evaluate(() => [window.__set, window.__drawn, document.querySelector('.plot .reel').getAnimations().filter(a => a.playState === 'running').length, document.querySelector('.plot canvas.waveform').clientWidth / document.querySelector('.plot').clientWidth])
@@ -4891,6 +4892,7 @@ test('editor: followed, the view steps by whole device pixels and the playhead h
   await page.mouse.move(box.x + w * .1, box.y - 20)
   await page.keyboard.press('Space')
   await page.waitForFunction(() => document.querySelector('.play')?.getAttribute('aria-label') === 'Pause')
+  // played a while: followed, the view steady
   await page.waitForTimeout(1500)
   // each frame: the view's start in device pixels, and where the playhead's layer stands, in device pixels
   const frames = await page.evaluate(() => new Promise(done => {
@@ -4929,6 +4931,7 @@ test('editor: the playhead is a layer the compositor moves at the speed it plays
   await page.locator('.plot').focus()
   await page.keyboard.press('Space')
   await page.waitForFunction(() => document.querySelector('.play')?.getAttribute('aria-label') === 'Pause')
+  // playing a moment, past its start
   await page.waitForTimeout(500)
   // each frame for a second and a half: where the layer is, where the playhead is, the view's width a second
   const { frames, slid, overlay, dpr } = await page.evaluate(() => new Promise(done => {
@@ -4985,6 +4988,7 @@ test('editor: the playhead runs on by the frames\' own time, not by the device c
   await page.locator('.plot').focus()
   await page.keyboard.press('Space')
   await page.waitForFunction(() => document.querySelector('.play')?.getAttribute('aria-label') === 'Pause')
+  // playing a moment, past its start
   await page.waitForTimeout(500)
   const frames = await page.evaluate(() => new Promise(done => {
     const out = []
@@ -5011,6 +5015,7 @@ test('editor: the playhead keeps its speed on a clock that moves by the audio ca
   await page.locator('.plot').focus()
   await page.keyboard.press('Space')
   await page.waitForFunction(() => document.querySelector('.play')?.getAttribute('aria-label') === 'Pause')
+  // playing a moment, past its start
   await page.waitForTimeout(500)
   const frames = await page.evaluate(() => new Promise(done => {
     const out = []
@@ -5107,7 +5112,9 @@ test('editor: the status bar says the note at the caret, a selection\'s compass,
   await heard('A4–E5')
   // no pitch, no note; too short for a tempo or a key
   await write(`audio.from(t => 0, { duration: 2 })`)
+  await settled()
   await page.mouse.click(x(.5), y)
+  // time for what is heard at the caret to come, which must be nothing
   await page.waitForTimeout(600)
   assert.equal(await page.locator('.heard').count(), 0)
   await write(`audio.from(t => { const b = t % 0.5; return (b < 0.03 ? Math.sin(2 * Math.PI * 1000 * t) * Math.exp(-b * 150) : 0) * .6 + [261.63, 329.63, 392].reduce((s, f) => s + Math.sin(2 * Math.PI * f * t), 0) / 15 }, { duration: 8 })`)
@@ -5192,14 +5199,15 @@ test('editor: Play held at 0, let go, stops there, the caret drawn where the pla
   await page.mouse.move(cx, cy)
   await page.mouse.down()
   await page.getByRole('button', { name: 'Pause' }).waitFor()
-  await page.waitForTimeout(400)
+  // played past the start
+  await page.waitForFunction(() => document.querySelector('.time').textContent > '0:00.100')
   await page.mouse.move(cx - 40, cy, { steps: 4 })
   assert.equal(await page.locator('.speed-mark').innerText(), '0.0×')
+  // held at 0 a while
   await page.waitForTimeout(600)
   await page.mouse.up()
   await page.getByRole('button', { name: 'Play', exact: true }).waitFor()
-  await page.waitForTimeout(200)
-  assert.equal(await page.locator('.plot .playhead').evaluate(e => e.hidden), true, 'no playhead left')
+  await poll(() => page.locator('.plot .playhead').evaluate(e => e.hidden), hidden => assert.equal(hidden, true, 'no playhead left'))
   const t = await page.locator('.time').innerText().then(s => { const [m, x] = s.split(':'); return +m * 60 + +x })
   assert.ok(t > .05, `the caret where it stood, past the start: ${t}`)
 })
@@ -5232,6 +5240,7 @@ test('editor: Play held and dragged searches, let go it plays on at that speed t
   assert.deepEqual(await page.locator('.speed-tick').allInnerTexts(), ['−2×', '−1×', '0', '1×', '2×', '3×', '4×'])
   assert.equal(await page.locator('#app').evaluate(el => getComputedStyle(el).cursor), 'none')
   assert.deepEqual(await record(), [true, false, 'visible'], 'record off while it plays')
+  // the speed taken up before it is timed
   await page.waitForTimeout(300)
   const [rolling, p0] = await ring(), fast = await runs(), [, p1] = await ring()
   assert.ok(fast > .8 && fast < 1.7, `at 3× 400 ms ran ${fast} s`)
@@ -5240,11 +5249,13 @@ test('editor: Play held and dragged searches, let go it plays on at that speed t
   // at 0 the moment holds; back, at −2×, the clock runs back and the moments it passes sound
   await page.mouse.move(cx - 40, cy, { steps: 4 })
   assert.equal(await mark(), '0.0×')
+  // the speed taken up before it is timed
   await page.waitForTimeout(100)
   assert.equal(await runs(), 0, 'held at 0')
   assert.ok(await page.getByRole('button', { name: 'Pause' }).isVisible(), 'a search, Play its pause')
   await page.mouse.move(cx - 120, cy, { steps: 4 })
   assert.equal(await mark(), '−2.0×')
+  // the speed taken up before it is timed
   await page.waitForTimeout(100)
   await heard()
   const back = await runs(), sounded = await heard()
@@ -5274,6 +5285,7 @@ test('editor: Play held and dragged searches, let go it plays on at that speed t
   await page.mouse.move(cx, cy)
   await page.mouse.down()
   const pressed = await clock()
+  // held 150 ms
   await page.waitForTimeout(150)
   await page.mouse.up()
   await page.getByRole('button', { name: 'Play', exact: true }).waitFor()
@@ -5283,12 +5295,14 @@ test('editor: Play held and dragged searches, let go it plays on at that speed t
   assert.equal((await ring())[0], false, 'no ring at rest')
   await page.locator('button.play').click()
   await page.getByRole('button', { name: 'Pause' }).waitFor()
+  // playing a moment, past its start, before it is timed
   await page.waitForTimeout(200)
   const again = await runs()
   assert.ok(again > .25 && again < .6, `played again, 1×: 400 ms ran ${again} s`)
   // held still past HOLD (400 ms, view.js), the line shows, the speed marked; let go, it plays on as it was
   await page.mouse.move(cx, cy)
   await page.mouse.down()
+  // held, short of HOLD
   await page.waitForTimeout(200)
   assert.equal(await page.locator('.speed-axis').count(), 0, 'not yet')
   await page.locator('.speed-axis').waitFor({ timeout: 600 })
@@ -5301,6 +5315,7 @@ test('editor: Play held and dragged searches, let go it plays on at that speed t
   await page.mouse.down()
   await page.mouse.move(cx - 80, cy, { steps: 4 })
   assert.equal(await mark(), '−1.0×')
+  // searching back a moment before it is let go
   await page.waitForTimeout(200)
   await page.mouse.up()
   await page.getByRole('button', { name: 'Play', exact: true }).waitFor()
@@ -5313,6 +5328,7 @@ test('editor: Play held and dragged searches, let go it plays on at that speed t
   await menu('Transport', 'Speed', '1.5×')
   await page.locator('button.play').click()
   await page.getByRole('button', { name: 'Pause' }).waitFor()
+  // playing a moment, past its start, before it is timed
   await page.waitForTimeout(200)
   const chosen = await runs()
   assert.ok(chosen > .4 && chosen < .85, `at 1.5× 400 ms ran ${chosen} s`)
