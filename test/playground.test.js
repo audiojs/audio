@@ -6684,6 +6684,27 @@ test('editor: markers: a range\'s triangles drag its ends; a moment is one trian
   await page.waitForFunction(() => { const [, a, d] = scriptText().match(/\.mark\(\{ at: ([\d.]+), d: ([\d.]+) \}\)/) ?? []; return +a > 4.9 && +a < 5 && Math.abs(+a + +d - 5) < 1e-6 })
 })
 
+// A marker's triangle dragged goes onto a cue it comes within a few px of, as a selection's edge does, not onto where
+// the marker was: a range's end, its length to the hit; 5 px past it, where it was let go
+test('editor: markers: a range\'s end dragged by its triangle snaps to a cue near it', async () => {
+  await open()
+  await write(`${hits}.mark({ at: 0.6, d: 0.2 })`)
+  await lengthIs('0:02.000')
+  const { box, x } = await axis(2), strip = box.y + tall(box) + FOOT / 2
+  let cues = []
+  for (const until = Date.now() + 8000; cues.length < 3 && Date.now() < until; await page.waitForTimeout(200)) cues = await handles()
+  const cue = box.x + cues.find(h => Math.abs(h - (x(1) - box.x)) < 20)
+  const end = async was => { await page.waitForFunction(was => !scriptText().includes(was), was); const [, a, d] = (await code()).match(/\.mark\(\{ at: ([\d.]+), d: ([\d.]+) \}\)/); return +a + +d }
+  // 2 px past the cue at 1 s, where the hit starts: on it
+  await drag(await grab([[x(.8) + 3, strip]], 'ew-resize'), [cue + 2 - x(.8), 0])
+  const on = await end('d: 0.2 }')
+  assert.ok(Math.abs(on - 1) < .012, `on the cue at 1 s: ${on}`)
+  // 5 px past it, where it was let go
+  await drag(await grab([[x(on) + 3, strip]], 'ew-resize'), [5, 0])
+  const past = await end(`d: ${+(on - .6).toFixed(6)} }`)
+  assert.ok(past - on > .005, `5 px past it, where it was put: ${past}, the cue ${on}`)
+})
+
 // A selection's top corners, each drawn as the fade it makes, fade it: inward, in from its start or out to its end;
 // outward, past its edge, the audio out there goes, crossfading into the selection (fn/crossfade.js). A click on one
 // turns the curve to the next: the fade just made takes it, and so do the next.
@@ -9606,8 +9627,9 @@ test('editor: the record button records over the sound from the caret, into the 
 })
 
 // The strip under the lanes, as Photoshop's split slider marks a range under its bar: a named range ◢ its name ◣
-// there, small triangles hanging from the lanes' foot, nothing between them but a fill only pointed at, nothing
-// of it over the sound; its name still in sight once it is selected, no line of the selection in the strip. Plain
+// there, small triangles hanging from the lanes' foot, nothing between them but a fill while it is selected, nothing of
+// it over the sound but its stretch pointed at; its name still in sight once it is selected, no line of the selection
+// in the strip. Plain
 // hovered over the lanes, as a scrub shows them: the cues either side of the pointer, a line each down the lanes in the
 // cues' colour; on one, a short wash on its sound's side
 test('editor: the strip under the lanes marks a range ◢ named ◣, nothing over the sound; hovered, the cues either side', async () => {
@@ -9625,11 +9647,12 @@ test('editor: the strip under the lanes marks a range ◢ named ◣, nothing ove
   assert.equal(await marked([px(1.9), px(2) + 1], [lane + 10, lane + FOOT]), 0, 'as tall as its name\'s capitals')
   // from its name to its end nothing of it: no line, no fill
   assert.equal(await marked([px(3.2), px(3.8)], [lane, lane + 9], 30), 0, 'nothing between its name and its end')
-  // pointed at, filled, as a press there would select it
+  // pointed at, its stretch lit over the sound, as a press there would select it; between its triangles, nothing
   await page.mouse.move(x(3.5), box.y + lane + 4)
-  let lit = 0
-  for (const until = Date.now() + 2000; lit < (px(3.8) - px(3.2)) * 3 && Date.now() < until; await page.waitForTimeout(100)) lit = await marked([px(3.2), px(3.8)], [lane + 1, lane + 7], 15)
-  assert.ok(lit >= (px(3.8) - px(3.2)) * 3, `filled pointed at: ${lit}`)
+  let over = 0
+  for (const until = Date.now() + 2000; over < (px(3.8) - px(3.2)) * 3 && Date.now() < until; await page.waitForTimeout(100)) over = await marked([px(3.2), px(3.8)], [2, 6], 15)
+  assert.ok(over >= (px(3.8) - px(3.2)) * 3, `lit over the sound pointed at: ${over}`)
+  assert.equal(await marked([px(3.2), px(3.8)], [lane + 1, lane + 7], 15), 0, 'nothing between its triangles pointed at')
   await page.mouse.move(box.x + 5, box.y + box.height - 8)
   // its name after its start
   assert.ok(await marked([px(2) + 3, px(2) + 50], row, 240) > 15, 'its name between them')
@@ -9641,6 +9664,7 @@ test('editor: the strip under the lanes marks a range ◢ named ◣, nothing ove
   assert.equal(await selected(), '0:02.000–0:04.000')
   await page.mouse.move(box.x + 5, box.y + box.height - 8)
   assert.ok(await marked([px(2) + 3, px(2) + 50], row, 240) > 15, 'its name, selected')
+  assert.ok(await marked([px(3.2), px(3.8)], [lane + 1, lane + 7], 15) >= (px(3.8) - px(3.2)) * 3, 'selected, filled between its triangles')
   await drag([x(5), box.y + lane / 2], [x(6) - x(5), 0])
   await page.mouse.move(box.x + 5, box.y + box.height - 8)
   assert.equal(await marked([px(5.2), px(5.8)], [lane + 1, lane + FOOT - 1]), 0, 'no line of the selection in the strip')
