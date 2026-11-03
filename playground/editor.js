@@ -14,6 +14,7 @@ import { methods as scrubbers } from './scrub-methods.js'
 import md from './markdown.js'
 import { connectAgent, pickAgent, partsOf, showChat, newChat, openChat, dropChat, visit, elapsed, sendChat, chatKey, wire as wireChat } from './editor/chat.js'
 import { wire as wireClipboard } from './editor/clipboard.js'
+import { command, shortcut, tip, scriptKeys, pressed } from './editor/commands.js'
 import { root, params, EMBED, UI, SHOWN, QUICK, GIVEN, formats, ENCODING, writtenDepth, DEPTH_USE, cutFormats, frameRates, KEEPS, overlays, rulers, scrolls, grids, LOOK, looks, specMethods, WAVE, waveLooks, levelList, curves, glyphs, gripModes, SETTINGS_ICON, AGENT_ICON, RECIPES_ICON, displays, SHUTTLE, times, tenths, scrubs, rates, layouts, specs, stored, oneOf, sideOf } from './editor/config.js'
 import { ed, rk, pl, output, incoming, rechoose, shown, carded, queued, assign } from './editor/context.js'
 import { remember, undoList, goTo, editSelection, warp, carry, toTab, addOp, spread, flatten } from './editor/edits.js'
@@ -77,6 +78,8 @@ const state = sprae(root, {
   display: oneOf(stored.display, displays.map(d => d.name), 'wave'), scale: scales[stored.scale] ? stored.scale : 'log', rates, layouts, sound: null, viewing: '',
   show: { hits: true, gain: true, meters: true, spectrum: stored.show?.meters ?? true, keys: true, guides: true, ...stored.show }, units: oneOf(stored.units, UNITS.map(u => u[0]), 'clock'),
   embed: EMBED, quick: QUICK, made: 0, soundMenu, opsMenu, saveMenu, flipView, lookIcons: KINDS, full: '', side: sideOf(stored.side), panel: Number.isFinite(stored.panel) ? stored.panel : null, pick: 0, keys,
+  // the commands' keys and tooltips, as the menus have them (commands.js)
+  shortcut, tip,
   tabs: [], marks: {}, sounding: {}, markWords: { working: 'Rendering', ready: 'Done' }, tab: 0, name: 'untitled', duration: 0, hasOutput: false, whole: false, ran: false, problem: '', missing: '', notice: '', noticeKind: '', dropping: false, track: null, muted: [], locked: [], frozen: false, layout: null, trackRows: null, ghost: false, renaming: null, renamingTab: null,
   progress: '', figure: '', arrived: null, working: false, loading: false, arriving: false, lines: [], saves: [], exporting: false, shared: false, canUndo: false, canRedo: false,
   time: '0:00.000', span: 0, readout: '', reading: { of: '', head: '', rows: [] }, heard: null, selection: null, band: null, ranges: 0, boxes: 0, carets: 1, pauses: false, canPaste: false, playing: false, loop: false, recording: null,
@@ -159,7 +162,7 @@ const state = sprae(root, {
   get agentNote() { return { off: 'Put the key in, then connect', connecting: 'Connecting…', offline: 'Not running: npx audio --bridge', replaced: 'Taken by another page', online: 'No agent on that machine: install one (Claude Code, Codex, Pi, Gemini CLI, Kimi Code…), then start the bridge again' }[this.agentStatus] },
   get chatTitle() { return this.chats.find(c => c.open)?.title ?? 'New conversation' },
   connectAgent, pickAgent, sendChat, chatKey, newChat, openChat, dropChat, showChat, md, partsOf, visit, tick: Date.now(), elapsed,
-  undo: () => ed.undo(), resizePanel,
+  undo: () => command('undo').run(), resizePanel,
   // the output as the whole chain makes it, from what a step takes out or the chain rolled back
   showAll: () => rk.choose(null),
   setFormat(name) { state.format = name; store() },
@@ -192,7 +195,7 @@ const state = sprae(root, {
   layerPress, layerName, layerLook, layerMenu, toggleLock, toggleMute, renameLayer, renamed, nameNewTrack, fitField,
   toggleShow, setUnits, setLevels, setRuler, setStep, setLook, setSplice, setScrub,
   blankView: on => { if (v) v.blank = on }, setDisplay, dropToggle, placeList, fold, toggleLoop, undoList, goTo, toggleRecording, resampleTo, remixTo, pickReading, pickHeard, markLevel, unmarkLevel,
-  togglePlay, playPress, playClick, stop, redo: () => ed.redo(), mac, share, exportFiles,
+  togglePlay, playPress, playClick, stop, redo: () => command('redo').run(), mac, share, exportFiles,
   switchTab, tabPress, tabRenamed, newTab, closeTab, dragTab, scrollTabs, toggleTabMute, pickFiles, openFiles, startRecording, stopRecording, armRecording, useSample, useCode, useRecipe, addOp, editSelection, toolKey, openTools,
   openSearch, closeSearch, runSearch, typeSearch, preview, useResult
 })
@@ -233,7 +236,7 @@ assign({ ed: codeEditor(root.querySelector('.script-editor'), {
   onready() { state.canUndo = ed.canUndo; state.canRedo = ed.canRedo; if (QUICK.length) state.made = stepsOf(ed.code).filter(s => s.on).length },
   files: () => [...taken()],
   describe: name => eng.describe(name),
-  keys: { 'Mod-Enter': togglePlay, 'Mod-s': () => exportFiles() }
+  keys: scriptKeys()
 }) })
 ed.open(first.id)
 state.tab = eng.tab = first.id
@@ -341,6 +344,8 @@ v = view(root.querySelector('.plot'), {
   },
   // a marker's own menu: its name, its going; else the edits for what is under the pointer
   oncontext({ x, y, marker, room, track }) { bar.at(room ? roomMenu() : track != null ? trackMenu(track) : marker ? [{ label: 'Name…', hint: marker.label || '', run: marker.rename, icon: glyphs.marker }, { label: 'Delete the marker', run: () => unmark(marker), icon: opIcons.remove }] : contextMenu(), x, y) },
+  // a key the picture doesn't take itself (its caret, the marker chosen, a paste): the command for it there, if any
+  onkey(event) { const c = pressed(event, true); c?.run(event); return !!c },
   onscrub,
   // a pitch, an intonation or formants dragged, heard as they will sound: the first 2 s of what they move, through the
   // library's pitch() (a voice's: a semitones, or the pitch line's curve, its times from where it is heard),

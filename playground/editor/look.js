@@ -122,9 +122,9 @@ export function fold(kind, open) {
   state.folds = { ...state.folds, [kind]: open }
   store()
 }
-// the View menu's submenus, the same groups
+// the View menu's submenus, the same groups (commands.js look.wave, look.spec)
 export function lookMenu(kind) {
-  return { label: kind === 'wave' ? 'Waveform options' : 'Spectrogram options', items: optionGroups(kind).map(g => ({ label: g.label, items: g.options.map(o => ({ label: o.label, hint: o.hint, checked: o.on, run: o.run })) })) }
+  return optionGroups(kind).map(g => ({ label: g.label, items: g.options.map(o => ({ label: o.label, hint: o.hint, checked: o.on, run: o.run })) }))
 }
 export function resetView() {
   v.fit()

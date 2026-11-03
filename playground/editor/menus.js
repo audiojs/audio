@@ -1,168 +1,37 @@
-import recipes from '../recipes.js'
 import { ops, GROUPS, labelOf, icons as groupIcons } from '../ops.js'
-import { steps as stepsOf, dropStep, tracks as tracksOf, master as masterOf } from '../code.js'
+import { steps as stepsOf, dropStep } from '../code.js'
 import { builtins } from '../sources.js'
 import menubar from '../menu.js'
-import { UNITS } from '../time.js'
 import opIcons from '../icons.js'
-import { THEMES } from '../theme.js'
-import { root, quickOf, QUICK, generators, formats, icons, overlays, grids, glyphs, displays, SPEEDS, specs, stored } from './config.js'
-import { state, v, ed, rk, output, steps } from './context.js'
-import { undoList, goTo, editSelection, addOp } from './edits.js'
-import { pickFiles, shelved, reopenable, unshelve, useSample, NOTE, SOUND, useCode, useRecipe, openSearch, exportFiles, share } from './files.js'
+import { root, quickOf, QUICK, formats, icons, glyphs, displays, stored } from './config.js'
+import { command, snapshot, item, keysOf } from './commands.js'
+import { state, v, ed } from './context.js'
+import { editSelection, addOp } from './edits.js'
+import { pickFiles, reopenable, useSample, NOTE, SOUND, exportFiles } from './files.js'
 import { keys } from './format.js'
-import { worn, dress, setTheme, openTheme, lookMenu, resetView, toggleShow, setDisplay, setUnits, setGrid } from './look.js'
 import { later } from './persist.js'
-import { toggleAB, toggleLoop, setSpeed, togglePlay } from './play.js'
-import { toggleRecording, retakeHere, startRecording, takesHere, takeList, deletion, takesMenu } from './recording.js'
-import { closed, newTab, closeTab, reopenTab } from './tabs.js'
-import { newTrack, others, mastering, lineUp, matchUp, duckUnder, masterOut, untrack, detach } from './tracks.js'
-import { addMarker, setPitch } from './writers.js'
+import { toggleRecording, takesHere, takesMenu } from './recording.js'
+import { others } from './tracks.js'
 
 // Menus: the app menu, the context menu, the picture's dropdown and the palette, the menus a button opens, each
 // placed and closed
 
 // the methods last used, the newest first (used)
 export let recent = Array.isArray(stored.recent) ? stored.recent.filter(n => typeof n === 'string').slice(0, 3) : []
-// The app menu: everything the page does, each where apps put it, with its keys (menu.js). Items that can't act now
-// show, dimmed, so the menu also says what there is.
+// The app menu: everything the page does, each where apps put it, with its keys (menu.js), as the commands have it
+// (commands.js). Items that can't act now show, dimmed, so the menu also says what there is.
 function menus() {
-  const sel = v.selection, band = v.band, whole = state.whole, none = !whole, here = state.hasOutput && takesHere(), lately = reopenable(), names = others()
-  const check = (label, checked, run, extra) => ({ label, checked, run, ...extra })
-  const recipesMenu = [...new Set(recipes.map(r => r.group))].flatMap(group => [{ group }, ...recipes.filter(r => r.group === group).map(r => ({ label: r.name, hint: r.text, run: () => useRecipe(r) }))])
-  // a track's own edits with another (others): one submenu each, that one's name picked
-  const withOther = (label, hint, act) => ({ label, hint, items: names.map(name => ({ label: name, run: () => act(name) })), disabled: !names.length })
+  const s = { ...snapshot(), here: state.hasOutput && takesHere(), lately: reopenable(), names: others() }
+  const at = (...ids) => ids.map(id => id === '-' ? '-' : item(id, s))
   return [
-    // the sound: where it comes from, where it goes, its tab
-    { name: 'File', items: [
-      { label: 'New tab', hint: 'An empty track', run: () => newTab() },
-      { label: 'Open file…', keys: keys('⌘O'), run: pickFiles },
-      { label: 'Open recent', items: [...lately.map(r => ({ label: r.name, hint: r.meta, run: r.run })), '-', { label: 'Delete kept sounds…', hint: 'Opened or recorded here, in no tab', run: unshelve, disabled: !shelved().length }], disabled: !lately.length },
-      { label: 'Find a sound…', tip: 'Freesound, Jamendo, Wikimedia', run: openSearch },
-      { label: 'Sample or generate', items: [{ group: 'Samples' }, ...Object.entries(builtins).map(([name, text]) => ({ label: name, hint: text, run: () => useSample(name) })), { group: 'Generate' }, ...generators.map(g => ({ label: g.name, hint: g.text, run: () => useCode(g.code) }))] },
-      '-',
-      { label: state.saves.length > 1 ? `Export ${state.saves.length} files` : 'Export', keys: keys('⌘S'), run: exportFiles, disabled: none || state.exporting },
-      { label: 'Export as', items: [
-        ...formats.map(f => check(f.name.toUpperCase(), state.format === f.name, () => state.setFormat(f.name), { hint: f.text, disabled: state.saves.length > 0 })),
-        '-',
-        { label: 'Each part between markers', tip: 'A file per part', run: () => exportFiles(true), disabled: none || !output?.markers?.some(m => !m.duration) },
-        { label: 'The track alone', hint: state.track ?? '', run: () => exportFiles(false, state.track), disabled: none || !state.track },
-        { label: 'Each track', hint: state.track ? `${tracksOf(ed.code).length} files` : '', run: () => exportFiles(false, true), disabled: none || !state.track }
-      ] },
-      { label: 'Check against', items: specs.map(sp => check(sp.label, state.spec === sp.key, () => state.setSpec(sp.key))) },
-      { label: 'Copy a link to this script', tip: 'Files opened here are not in it', run: share },
-      '-',
-      { label: 'Close tab', run: () => closeTab() },
-      { label: 'Reopen closed tab', keys: keys('⇧⌘T'), run: reopenTab, disabled: !closed.length }
-    ] },
-    // what is selected, and the script's own history and groups
-    { name: 'Edit', items: [
-      { label: 'Undo', keys: keys('⌘Z'), run: () => ed.undo(), disabled: !state.canUndo },
-      { label: 'Redo', keys: keys('⇧⌘Z'), run: () => ed.redo(), disabled: !state.canRedo },
-      { label: 'History', items: undoList().map(step => check(step.label, step.current, () => goTo(step.index), { hint: step.ahead ? 'undone' : '' })), disabled: steps.length < 2 },
-      '-',
-      edit('Cut', 'cut', '⌘X', sel && !band),
-      edit('Copy', 'copy', '⌘C', sel && !band),
-      edit('Paste', 'paste', '⌘V', state.canPaste),
-      edit('Delete', 'remove', '⌫', sel),
-      edit('Crop', 'crop', 'K', sel && !band),
-      '-',
-      { label: sel ? 'Mark the selection' : 'Add a marker', keys: 'M', tip: 'A click on a marker\'s name renames it', run: addMarker, disabled: none },
-      '-',
-      { label: 'Group the edits', hint: 'Those picked with Shift, or the one chosen', keys: keys('⌘G'), run: () => rk.group(), disabled: none },
-      { label: 'Ungroup', keys: keys('⇧⌘G'), run: () => rk.ungroup(), disabled: none }
-    ] },
-    { name: 'Select', items: [
-      { label: 'All', keys: keys('⌘A'), run: () => v.select(0, v.duration), disabled: none },
-      { label: 'None', keys: 'Esc', run: () => v.select(0, 0), disabled: !sel },
-      '-',
-      { label: 'The fragment at the caret', hint: 'between its cues', keys: 'double-click', run: () => v.around('fragment'), disabled: none },
-      { label: 'The sound at the caret', hint: 'between its pauses', keys: 'triple-click', run: () => v.around('sound'), disabled: none },
-      { label: 'The next one like it, too', keys: keys('⌘D'), tip: 'The next pause, or stretch between cues\nAlt and drag adds any other range', run: () => v.addNext(), disabled: !sel || !!band },
-      '-',
-      { label: 'Move the caret', hint: 'With Shift, the selection', items: [
-        { label: 'To the next cue', keys: keys('⌥→'), run: () => v.step('fragment', 1) },
-        { label: 'To the cue before', keys: keys('⌥←'), run: () => v.step('fragment', -1) },
-        { label: 'To the next sound', keys: keys('⌘→'), run: () => v.step('sound', 1) },
-        { label: 'To the sound before', keys: keys('⌘←'), run: () => v.step('sound', -1) },
-        { label: 'To the start', keys: 'Home', run: () => v.setCursor(0) },
-        { label: 'To the end', keys: 'End', run: () => v.setCursor(v.duration) }
-      ], disabled: none }
-    ] },
-    { name: 'View', items: [
-      ...displays.map(d => check(d.label, state.display === d.name, () => setDisplay(d.name))),
-      lookMenu('wave'), lookMenu('spec'),
-      { label: 'Grid', items: grids.map(([name, label, hint]) => check(label, state.grid === name, () => setGrid(name), { hint })) },
-      '-',
-      { label: 'Show', items: [
-        ...overlays.map(([name, label, tip]) => check(label, state.show[name], () => toggleShow(name), { tip })),
-        check('Pitch curve', state.pitch, () => setPitch(!state.pitch), { tip: 'The voice\'s pitch on the spectrogram, dragged whole or by its bends; a click on a selection\'s pitch tool shows it too' })
-      ] },
-      check('Snap to cues and markers', state.snapping, () => state.toggleSnap(), { tip: 'Hold Alt to see them' }),
-      { label: 'Zoom', items: [
-        { label: 'In', keys: '=', run: () => v.zoom(.5) },
-        { label: 'Out', keys: '−', run: () => v.zoom(2) },
-        { label: 'To the selection', run: () => v.zoomTo(...sel), disabled: !sel },
-        { label: 'All of it', keys: '0', run: () => v.fit() }
-      ], disabled: none },
-      '-',
-      { label: 'Panel', items: [
-        check('Shown', !!state.side, () => state.toggleSide()),
-        '-',
-        ...[['recipes', 'Recipes'], ['chat', 'Agent'], ['edits', 'Edits'], ['code', 'Code'], ['export', 'Export'], ['settings', 'Settings']].map(([name, label]) => check(label, state.side === name, () => state.setSide(name)))
-      ] },
-      { label: 'Theme', items: [
-        check('The screen', !worn, () => dress(null), { hint: 'Grey on black, as the site draws it' }),
-        ...[['Light', /^light/], ['Dark', /^dark/], ['High contrast', /^hc/]].flatMap(([group, kind]) => ['-', { group }, ...THEMES.filter(t => kind.test(t.kind)).map(t => check(t.name, worn?.name === t.name, () => setTheme(t)))]),
-        ...worn && !THEMES.some(t => t.name === worn.name) ? ['-', check(worn.name, true, () => {})] : [],
-        '-',
-        { label: 'Open a VS Code theme…', hint: 'Any theme\'s .json file', run: openTheme }
-      ] },
-      { label: 'Times in', items: UNITS.map(([name, label, example]) => check(label, state.units === name, () => setUnits(name), { hint: example })) },
-      '-',
-      { label: 'Reset the view', run: resetView }
-    ] },
-    // the sounds side by side: one made, split off, set against another, mixed, taken away
-    { name: 'Track', items: [
-      { label: 'New track', hint: 'Or double-click under the lanes', run: newTrack, disabled: none || mastering() },
-      { label: 'New track from a file…', hint: 'Under the one edited, played with it', run: () => pickFiles('', true), disabled: none },
-      edit('Move to a new track', 'track', '', sel && !band && state.ranges < 2),
-      { label: 'Split the voice to a new track', hint: 'The rest stays here', run: () => editSelection('voice'), disabled: none || mastering() },
-      { label: 'Split into four stems', hint: 'Voice, bass, drums; the rest stays here', run: () => editSelection('stems'), disabled: none || mastering() },
-      '-',
-      withOther('Line up with', 'In time, by where the two agree', lineUp),
-      withOther('Match with', 'Its tone, then its loudness', matchUp),
-      withOther('Duck under', 'Quieter while it sounds', duckUnder),
-      { label: 'Add a master', hint: 'The tracks\' sum, through steps of its own', run: masterOut, disabled: !state.track || !!masterOf(ed.code) },
-      '-',
-      { label: 'Move the track to its own tab', hint: state.track ?? '', run: detach, disabled: !state.track || mastering() },
-      { label: 'Delete the track', hint: state.track ?? '', run: untrack, disabled: !state.track }
-    ] },
-    { name: 'Process', items: [
-      { label: 'Recipes', items: recipesMenu },
-      '-',
-      ...kinds().map(k => ({ ...k, disabled: none })),
-      '-',
-      { label: sel ? 'Find an edit for the selection…' : 'Find an edit…', keys: keys('⌘P'), run: () => openTools(), disabled: none }
-    ] },
-    // what plays and what records, the takes recorded
-    { name: 'Transport', items: [
-      { label: state.playing ? 'Pause' : sel ? 'Play the selection' : 'Play from the caret', keys: 'Space', tip: 'Hold Play and drag to rewind or skip', run: togglePlay, disabled: !whole || !!state.recording },
-      check('Loop', state.loop, toggleLoop, { keys: 'L', disabled: !whole }),
-      check('Hear it before the edits', state.ab, toggleAB, { keys: 'B', tip: 'The original, level-matched', disabled: !state.canCompare }),
-      { label: 'Speed', hint: 'Pitch kept', items: SPEEDS.list.map(r => check(`${r}×`, state.speed === r, () => setSpeed(r))) },
-      '-',
-      { label: state.whole ? 'Record at the caret' : 'Record', keys: 'R', run: startRecording, disabled: !!state.recording },
-      { label: 'Record a new track', hint: 'The others playing', keys: '⇧R', run: () => startRecording(true), disabled: !!state.recording || none },
-      { label: 'Record another take', hint: 'Of the recording at the caret', keys: '⌥R', run: retakeHere, disabled: !!state.recording || none },
-      here ? { label: 'Takes', hint: `${here.list.length} here`, items: [...takeList(here), '-', deletion(here)] }
-        : { label: 'Takes', hint: 'Record again where a take went in, or with the loop on', disabled: true }
-    ] },
-    { name: 'Help', items: [
-      { label: 'Mouse and keys', run: () => root.querySelector('dialog.help').showModal() },
-      { label: 'The library, audio', run: () => open('https://github.com/audiojs/audio#readme', '_blank', 'noopener') },
-      { label: 'This page’s source', run: () => open('https://github.com/audiojs/audio/tree/master/playground', '_blank', 'noopener') }
-    ] }
+    { name: 'File', items: at('tab.new', 'file.open', 'file.recent', 'sound.find', 'sound.make', '-', 'export', 'export.as', 'check', 'link.copy', '-', 'tab.close', 'tab.reopen') },
+    { name: 'Edit', items: at('undo', 'redo', 'history', '-', 'cut', 'copy', 'paste', 'delete', 'crop', '-', 'mark', '-', 'group', 'ungroup') },
+    { name: 'Select', items: at('select.all', 'select.none', '-', 'select.fragment', 'select.sound', 'select.next', '-', 'caret') },
+    { name: 'View', items: at(...displays.map(d => `display.${d.name}`), 'look.wave', 'look.spec', 'grid', '-', 'show', 'snap', 'zoom', '-', 'panel', 'theme', 'units', '-', 'view.reset') },
+    { name: 'Track', items: at('track.new', 'track.fromFile', 'track.move', 'track.voice', 'track.stems', '-', 'track.lineUp', 'track.match', 'track.duck', 'track.master', '-', 'track.toTab', 'track.delete') },
+    { name: 'Process', items: [...at('recipes', '-'), ...kinds().map(k => ({ ...k, disabled: s.none })), ...at('-', 'palette')] },
+    { name: 'Transport', items: at('play', 'loop', 'compare', 'speed', '-', 'record', 'record.track', 'record.take', 'takes') },
+    { name: 'Help', items: at('help.keys', 'help.library', 'help.source') }
   ]
 }
 // Every method by kind, a submenu each, for the output or what is selected (addOp): first what the selection is most
@@ -180,8 +49,6 @@ const recents = (lead = {}) => {
   const own = Object.values(lead).flat(), list = recent.filter(n => ops[n]).map(n => own.find(it => it.op === n) ?? { ...method(n, false), icon: opIcons[n] })
   return list.length ? ['-', { group: 'Recent' }, ...list] : []
 }
-// an edit of the selection, as a menu item: dimmed while there is nothing it can act on
-const edit = (label, type, key, when, tip) => ({ label, keys: key && keys(key), tip, run: () => editSelection(type), disabled: !when })
 export let bar
 // How a band shows (its look, in its layer): a dropdown by it, as Figma's, every group in sight, no levels to go
 // through; the look again, a press outside or Esc closes it, another band's moves it there
@@ -233,25 +100,29 @@ export function placeList(event) {
 // taken out, a rebuild, the noise learned there), each a step of the chain; ⌘P finds any. At the caret: paste, a
 // marker, all of it, and the methods for all of it
 export function contextMenu() {
-  const list = v.ranges, several = list.length > 1, here = takesHere()
+  const list = v.ranges, several = list.length > 1, here = takesHere(), s = snapshot()
   const lead = (label, name) => ({ label, run: () => addOp(name, false), icon: opIcons[name], op: name })
-  const act = (label, type, key, when, icon) => ({ ...edit(label, type, key, when), icon, op: type })
-  const repair = [act(several || v.boxes.length > 1 ? 'Remove the clicks in each' : 'Remove the clicks here', 'declick', '', true, opIcons.declick), act('Rebuild from around it', 'repair', '', !several, opIcons.repair), act('Take this noise out everywhere', 'denoise', '', true, opIcons.denoise)]
+  // an edit of what is selected (`op`, its type, which the methods' lists then leave out): a command, worded and dimmed
+  // as here (`own`), or one only a context offers
+  const use = (id, own) => ({ ...item(id, s, own), op: command(id).edit })
+  const act = (label, type, when, icon) => ({ label, run: () => editSelection(type), disabled: !when, icon, op: type })
+  const mark = label => item('mark', s, { label, tip: null, when: null, icon: glyphs.marker })
+  const repair = [act(several || v.boxes.length > 1 ? 'Remove the clicks in each' : 'Remove the clicks here', 'declick', true, opIcons.declick), act('Rebuild from around it', 'repair', !several, opIcons.repair), act('Take this noise out everywhere', 'denoise', true, opIcons.denoise)]
   // what the press means to do with what is there, then every method under one Process, the last used first, none twice
-  const process = (own, leads = {}) => [...own, '-', { label: 'Process', icon: groupIcons.Level, items: [...recents(leads).slice(1), ...recents(leads).length ? ['-'] : [], ...kinds(leads, false, own.map(it => it.op)), '-', { label: 'Find an edit…', keys: keys('⌘P'), run: () => openTools(), icon: glyphs.find }] }]
+  const process = (own, leads = {}) => [...own, '-', { label: 'Process', icon: groupIcons.Level, items: [...recents(leads).slice(1), ...recents(leads).length ? ['-'] : [], ...kinds(leads, false, own.map(it => it.op)), '-', item('palette', s, { label: 'Find an edit…', when: null, icon: glyphs.find })] }]
   // a band has no pill: its level stays here
-  if (v.band) return process([act('Delete the band', 'remove', '⌫', true, opIcons.remove), act('6 dB quieter', 'quieter', '', true, glyphs.down), act('6 dB louder', 'louder', '', true, glyphs.up)], { Repair: repair })
+  if (v.band) return process([use('delete', { label: 'Delete the band', when: null, icon: opIcons.remove }), act('6 dB quieter', 'quieter', true, glyphs.down), act('6 dB louder', 'louder', true, glyphs.up)], { Repair: repair })
   if (!list.length) return process([
-    act(v.carets.length > 1 ? `Paste at all ${v.carets.length} carets` : 'Paste', 'paste', '⌘V', state.canPaste, opIcons.paste),
-    { label: v.carets.length > 1 ? 'A marker at each caret' : 'Add a marker', keys: 'M', run: addMarker, icon: glyphs.marker },
+    use('paste', { label: v.carets.length > 1 ? `Paste at all ${v.carets.length} carets` : 'Paste', icon: opIcons.paste }),
+    mark(v.carets.length > 1 ? 'A marker at each caret' : 'Add a marker'),
     ...here ? takesMenu(here) : []
   ])
   // (to a new track by a drag under the tracks; zoomed to by the length in the bar)
   return [
     ...process([
-      act('Cut', 'cut', '⌘X', !several, opIcons.cut), act('Copy', 'copy', '⌘C', !several, opIcons.copy), act('Paste', 'paste', '⌘V', state.canPaste && !several, opIcons.paste), act('Delete', 'remove', '⌫', true, opIcons.remove),
-      act('Crop', 'crop', 'K', !several, opIcons.crop),
-      { label: several ? 'Mark each' : 'Mark it', keys: 'M', run: addMarker, icon: glyphs.marker },
+      use('cut', { when: () => !several, icon: opIcons.cut }), use('copy', { when: () => !several, icon: opIcons.copy }), use('paste', { when: () => state.canPaste && !several, icon: opIcons.paste }), use('delete', { when: null, icon: opIcons.remove }),
+      use('crop', { when: () => !several, icon: opIcons.crop }),
+      mark(several ? 'Mark each' : 'Mark it'),
       ...here ? takesMenu(here) : []
     ], { Edit: [lead('Reverse', 'reverse')], Level: [lead('Crossfade across it', 'crossfade'), lead('Normalize', 'normalize')], Repair: repair })
   ]
@@ -271,15 +142,16 @@ export function openTools() {
 export const closePalette = () => root.querySelector('#palette').hidePopover()
 // The edits for what is selected: a time range, a band of it on the spectrogram, several ranges, or at the caret a paste
 export function quick({ band, boxes, ranges, selection, carets, canPaste, pauses, whole }) {
-  const t = (type, label, keys, icon = type) => ({ type, label, keys, icon: icons[icon] ?? opIcons[icon] ?? groupIcons.Level })
-  if (boxes > 1) return [t('remove', `Remove all ${boxes} bands`, '⌫'), t('quieter', 'Each 6 dB quieter'), t('louder', 'Each 6 dB louder'), t('repair', 'Rebuild each from its surroundings'), t('declick', 'The clicks in each, taken out'), t('denoise', 'The noise in each, taken 12 dB down in its band everywhere', '', 'repair')]
-  if (band) return [t('remove', 'Remove this band', '⌫'), t('quieter', 'This band 6 dB quieter'), t('louder', 'This band 6 dB louder'), t('repair', 'Rebuild this band from its surroundings'), t('declick', 'The clicks here, taken out'), t('denoise', 'The noise here, taken 12 dB down in this band everywhere', '', 'repair')]
+  // each with the keys of the command that makes it (commands.js)
+  const t = (type, label, icon = type) => ({ type, label, keys: keysOf(type), icon: icons[icon] ?? opIcons[icon] ?? groupIcons.Level })
+  if (boxes > 1) return [t('remove', `Remove all ${boxes} bands`), t('quieter', 'Each 6 dB quieter'), t('louder', 'Each 6 dB louder'), t('repair', 'Rebuild each from its surroundings'), t('declick', 'The clicks in each, taken out'), t('denoise', 'The noise in each, taken 12 dB down in its band everywhere', 'repair')]
+  if (band) return [t('remove', 'Remove this band'), t('quieter', 'This band 6 dB quieter'), t('louder', 'This band 6 dB louder'), t('repair', 'Rebuild this band from its surroundings'), t('declick', 'The clicks here, taken out'), t('denoise', 'The noise here, taken 12 dB down in this band everywhere', 'repair')]
   // several ranges: what acts on each alike; pauses, each shortened
-  if (ranges > 1) return [t('remove', `Delete all ${ranges}`, '⌫'), t('quieter', 'Each 3 dB quieter'), t('louder', 'Each 3 dB louder'), ...(pauses ? [t('shorten', 'Shorten each pause to a quarter second', '', 'cut')] : []), t('declick', 'The clicks in each, taken out'), t('denoise', `The noise alone in all ${ranges}: learned there, taken 12 dB down everywhere`, '', 'repair')]
-  if (selection) return [t('crop', 'Crop', 'K'), t('remove', 'Delete', '⌫'), t('cut', 'Cut', '⌘X'), t('copy', 'Copy', '⌘C'), t('track', 'Move to a new track'), t('quieter', '3 dB quieter'), t('louder', '3 dB louder'), t('declick', 'The clicks here, taken out'), t('repair', 'Rebuild from its surroundings'), t('denoise', 'The noise here, taken 12 dB down everywhere', '', 'repair')]
+  if (ranges > 1) return [t('remove', `Delete all ${ranges}`), t('quieter', 'Each 3 dB quieter'), t('louder', 'Each 3 dB louder'), ...(pauses ? [t('shorten', 'Shorten each pause to a quarter second', 'cut')] : []), t('declick', 'The clicks in each, taken out'), t('denoise', `The noise alone in all ${ranges}: learned there, taken 12 dB down everywhere`, 'repair')]
+  if (selection) return [t('crop', 'Crop'), t('remove', 'Delete'), t('cut', 'Cut'), t('copy', 'Copy'), t('track', 'Move to a new track'), t('quieter', '3 dB quieter'), t('louder', '3 dB louder'), t('declick', 'The clicks here, taken out'), t('repair', 'Rebuild from its surroundings'), t('denoise', 'The noise here, taken 12 dB down everywhere', 'repair')]
   // several carets: a paste at each, a marker at each
-  if (carets > 1) return [...(canPaste ? [t('paste', `Paste at all ${carets}`, '⌘V')] : []), t('mark', `A marker at each of the ${carets} carets`, 'M', 'paste')]
-  return [...canPaste ? [t('paste', 'Paste at the caret', '⌘V')] : [], ...whole ? [t('voice', 'Split the voice to a new track', '', 'vocals'), t('stems', 'Split into four stems: voice, bass, drums, the rest', '', 'rebalance')] : []]
+  if (carets > 1) return [...(canPaste ? [t('paste', `Paste at all ${carets}`)] : []), t('mark', `A marker at each of the ${carets} carets`, 'paste')]
+  return [...canPaste ? [t('paste', 'Paste at the caret')] : [], ...whole ? [t('voice', 'Split the voice to a new track', 'vocals'), t('stems', 'Split into four stems: voice, bass, drums, the rest', 'rebalance')] : []]
 }
 // The palette's keys: the arrows go through what it found, Enter takes it, Escape closes it
 export function toolKey(event) {

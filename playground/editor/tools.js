@@ -2,15 +2,16 @@ import { valuesOf } from '../stack.js'
 import { ops, guides, fromManifest, reshapes } from '../ops.js'
 import { prepare, chain, number, setArg, unsetArg, steps as stepsOf, stages, mixed, dropStep, moveStep, turnOff, turnOn, tracks as tracksOf, useTake } from '../code.js'
 import { bridge } from './chat.js'
+import { command } from './commands.js'
 import { formats, scaleNames } from './config.js'
 import { state, eng, v, ed, rk, pl, output, shown, carded, assign } from './context.js'
 import { write, applied } from './edits.js'
 import { shelf, openFiles, encodingOf } from './files.js'
 import { stamp } from './format.js'
 import { shows, showAs } from './look.js'
-import { toggleAB, togglePlay, onscrub } from './play.js'
+import { toggleAB, onscrub } from './play.js'
 import { ran, within, sourceName } from './run.js'
-import { docs, retitle, switchTab, closeTab } from './tabs.js'
+import { docs, retitle, switchTab } from './tabs.js'
 import { focusOn, laneIndex } from './tracks.js'
 
 // The page as the agent's tools reach it (page): its state, the script, each edit and step, what it measures and
@@ -138,7 +139,7 @@ export const page = {
   tabs({ to, close }) {
     if (to != null && close != null) throw new Error('tabs: to or close, not both')
     const id = i => { if (!docs[i]) throw new Error(`No tab ${i}: there are ${docs.length}`); return docs[i].id }
-    if (close != null) closeTab(id(close))
+    if (close != null) command('tab.close').run(id(close))
     else if (to != null) switchTab(id(to))
     retitle()
     return state.tabs.map((t, index) => ({ index, name: t.name, shown: t.id === state.tab }))
@@ -149,7 +150,7 @@ export const page = {
     await (step != null ? showStep(+step, takes) : whole(true))
     if (original != null && !!original !== !!state.ab) await toggleAB()
     if (at != null) page.select({ at, duration: duration ?? Math.max(0, (output?.duration ?? 0) - at) })
-    if (!pl.playing) await togglePlay()
+    if (!pl.playing) await command('play').run()
     return { playing: pl.playing, original: !!state.ab }
   },
   // anything the library measures, on the output shown and its source, and the edits (step(i)), changing nothing (worker.js
@@ -175,10 +176,11 @@ export const page = {
     const toned = state.show.guides && shown?.code === ed.code && shown.guides.some(g => g.pitch)
     return { image: v.snapshot(range), text: `${stamp(from)} to ${stamp(to)}: the waveform, levels ${state.levels === 'db' ? 'in dB' : 'as sample values'}, over the spectrogram, frequencies in ${scaleNames[state.scale].toLowerCase()}${toned ? '; on it the pitch curve before your last edit, dashed, and after it' : ''}` }
   },
-  stop() { if (pl.playing) togglePlay(); return { playing: false } },
+  stop() { if (pl.playing) command('play').run(); return { playing: false } },
   async check({ spec }) { const r = await eng.check(spec); if (r.error) throw new Error(r.error.message); return r.output },
-  async undo() { if (!ed.canUndo) return { ok: false, problem: 'Nothing to undo' }; const done = ran(); ed.undo(); return within(done) },
-  async redo() { if (!ed.canRedo) return { ok: false, problem: 'Nothing to redo' }; const done = ran(); ed.redo(); return within(done) }
+  // the menus' own (commands.js)
+  async undo() { const c = command('undo'); if (!c.when()) return { ok: false, problem: 'Nothing to undo' }; const done = ran(); c.run(); return within(done) },
+  async redo() { const c = command('redo'); if (!c.when()) return { ok: false, problem: 'Nothing to redo' }; const done = ran(); c.run(); return within(done) }
 }
 // The agent's view of the Edits panel. State's step `index` as its card is known: where its "(" is (null: turned off)
 const cardOf = index => { const s = stepsOf(ed.code)[index]; return s?.on ? s.call.list.from : null }

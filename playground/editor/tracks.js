@@ -1,5 +1,6 @@
 import { source, chain, number, between, tracks as tracksOf, focus, toTrack, voiceTrack, stemTracks, soundOf, addTrack, dropTrack, renameTrack, master as masterOf, addMaster } from '../code.js'
 import opIcons from '../icons.js'
+import { snapshot, item } from './commands.js'
 import { root, icons, glyphs, displays } from './config.js'
 import { state, eng, v, ed, rk, pl, output, assign } from './context.js'
 import { write } from './edits.js'
@@ -8,7 +9,6 @@ import { setKind, trackKinds, shows } from './look.js'
 import { bar, openDropdown } from './menus.js'
 import { store } from './persist.js'
 import { marks, describe } from './readouts.js'
-import { startRecording } from './recording.js'
 import { schedule } from './run.js'
 import { docs, docOf, newTab, closeTab } from './tabs.js'
 import { envelopeShown, shiftOf } from './writers.js'
@@ -25,7 +25,7 @@ export const trackMenu = i => [
   '-',
   ...displays.map(d => ({ label: d.label, checked: shows(state.track) === d.name, run: () => setKind(state.track, d.name) })),
   '-',
-  { label: 'Delete the track', hint: state.track ?? '', run: untrack, icon: opIcons.remove }
+  item('track.delete', snapshot(), { when: null, icon: opIcons.remove })
 ]
 // The tracks' layers, each on its band's head line over its lane (view.js onlayout): its look (how it shows, the
 // dropdown by it), its name (clicked, named anew), its mute (with Alt, solo) and its lock; pressed, the one edited, as
@@ -87,7 +87,7 @@ export function renamed(event, l) {
 // hand to write, as a layer named as it is made
 export function nameNewTrack() { if (newTrack()) renameLayer(tracksOf(ed.code).at(-1)?.name) }
 // Under the tracks, a track to make: empty, or recorded as the others play
-export const roomMenu = () => [{ label: 'New track', run: newTrack, icon: icons.track }, { label: 'Record a new track', hint: 'The others playing', keys: '⇧R', run: () => startRecording(true), disabled: !!state.recording }]
+export const roomMenu = () => [item('track.new', snapshot(), { hint: null, when: null, icon: icons.track }), item('record.track', snapshot(), { when: () => !state.recording })]
 // The tracks as their lanes show them, each muted or not, locked or not; none muted with a master, which mixes them as
 // its script says
 export const lanesShown = out => out?.tracks?.map(t => ({ name: t.name, end: t.length / out.sampleRate, muted: masterOf(ed.code) ? null : state.muted.includes(t.name), locked: state.locked.includes(t.name) })) ?? null

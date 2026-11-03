@@ -2,6 +2,7 @@ import { append, number, between, steps as stepsOf, turnOff, tracks as tracksOf,
 import { builtins, sample, microphone, hold as holdInput, unique } from '../sources.js'
 import opIcons from '../icons.js'
 import { tape } from '../keep.js'
+import { item } from './commands.js'
 import { root, DESKTOP, keep } from './config.js'
 import { state, eng, v, ed, pl, output } from './context.js'
 import { write, applied, changed } from './edits.js'
@@ -295,7 +296,7 @@ function onTop(run, change) {
 }
 export const takeList = run => run.list.map((x, k) => ({ label: `Take ${k + 1}`, hint: x.name || 'empty', checked: x.on, run: () => useTakeOf(run, k) }))
 export const deletion = run => ({ label: 'Delete take', hint: `Take ${Math.max(0, run.list.findLastIndex(x => x.on)) + 1}`, run: () => deleteTake(run), icon: opIcons.remove })
-export const takesMenu = run => [{ label: 'Takes', hint: `${run.list.length} here`, items: takeList(run) }, deletion(run)]
+export const takesMenu = run => [item('takes', { here: run }, { items: () => takeList(run) }), deletion(run)]
 
 export function wire() {
   navigator.permissions?.query({ name: 'microphone' }).then(p => { allowed ||= p.state === 'granted' }, () => {})

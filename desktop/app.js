@@ -12,14 +12,15 @@ const panels = () => [...document.querySelectorAll('.side-head .panels button[ro
 function panel(label) { panels().find(b => b.getAttribute('aria-label') === label)?.click(); push() }
 
 // ---- the menus: the page's own, as its menu bar has them now (an icon where it has one), to the Mac's; an item
-// picked there runs here ----
+// picked there runs here, by its command's id (playground/editor/commands.js), or one made for the menu by its place
+// under it ----
 let runs = new Map(), queued = 0
 function serialize(menus) {
   runs = new Map()
   const walk = (items, path) => items.map((it, i) => {
     if (it === '-') return { separator: true }
     if (it.group) return { group: it.group }
-    const id = `${path}.${i}`
+    const id = it.id ?? `${path}.${i}`
     if (it.run) runs.set(id, it.run)
     return { id, label: it.label, keys: it.keys || '', hint: it.hint || '', tip: it.tip || '', icon: it.icon ? glyph(it.icon) : '', checked: !!it.checked, disabled: !!it.disabled || (!it.run && !it.items?.length), ...it.items && { items: walk(it.items, id) } }
   })

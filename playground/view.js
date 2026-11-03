@@ -74,8 +74,8 @@ const modifier = event => {
   invalidate(true)
 }
 
-export default function view(root, { onaxis = () => {}, onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onaudition = () => {}, onfocus = () => {}, ontake = () => {}, onfork = () => {}, onghost = () => {}, onlayout = () => {}, onheight = () => {}, onlook = () => {}, onbusy = () => {}, onprobe = () => {}, onsamples = null, onheard = null, hint = null, keepRoom = true, zoom: { in: closest = 32, out: farthest = 4 / 3 } = {}, overshoot = .5, timeRow = 'foot' } = {}) {
-  mount(root, { onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onaudition, onfocus, ontake, onfork, onghost, onlayout, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, closest, farthest, overshoot, timeRow })
+export default function view(root, { onaxis = () => {}, onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onkey = () => false, onaudition = () => {}, onfocus = () => {}, ontake = () => {}, onfork = () => {}, onghost = () => {}, onlayout = () => {}, onheight = () => {}, onlook = () => {}, onbusy = () => {}, onprobe = () => {}, onsamples = null, onheard = null, hint = null, keepRoom = true, zoom: { in: closest = 32, out: farthest = 4 / 3 } = {}, overshoot = .5, timeRow = 'foot' } = {}) {
+  mount(root, { onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, closest, farthest, overshoot, timeRow })
   root.tabIndex = 0
   root.addEventListener('pointerdown', down)
   root.addEventListener('pointermove', move)
@@ -469,6 +469,8 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     // every range selected, in time order, and every caret; addNext() adds the next like the selection (⌘D); `across`,
     // with tracks, whether the ranges run through every track's lane, an edit of them every track's
     get ranges() { return ranges() }, get carets() { return carets() }, get boxes() { return boxes() }, addNext,
+    // whether anything is selected but the caret: a range, a box, another caret (Esc lets them go)
+    get selected() { return !!selection || more.length > 0 },
     get across() { return !!tracks && allLanes },
     select, setCursor, around, step: stepTo,
     zoom, zoomTo: (a, b) => { const pad = (b - a) * .05; steer(); fitTo(a - pad, b + pad) }, fit: fitAll, frameSelected, bring,

@@ -1,8 +1,7 @@
 import { ownMarks } from './data.js'
 import { ghost, unghost, rowH, plot, spare, bandOf, lanes, inRoom, refocus } from './geometry.js'
 import { origin, current, before } from './gestures.js'
-import { EDGE, NOTCH, mac, root, onselect, oncursor, onedit, oncontext, duration, hovered, segments, markers, more, start, end, fview, selection, band, cursor, playhead, cues, aview, tracks, focus, anchor, lift, zoomed, chosen, held, assign } from './model.js'
-import { fitTo } from './overlay.js'
+import { EDGE, NOTCH, mac, root, onselect, oncursor, onedit, oncontext, onkey, duration, hovered, segments, markers, more, start, end, fview, selection, band, cursor, cues, aview, tracks, focus, anchor, lift, zoomed, chosen, held, assign } from './model.js'
 import { drag, grabbing, hover } from './pointer.js'
 import { moved, invalidate } from './render.js'
 import { steer } from './ruler.js'
@@ -167,8 +166,9 @@ export function context(event) {
   oncontext({ x: event.clientX, y: event.clientY })
 }
 // Keys while the view has focus: arrows move the caret a hundredth of the view, by cues or sounds as a text's
-// words or lines, the selection kept; Shift extends the selection from where it started. Space and the transport
-// belong to the page.
+// words or lines, the selection kept; Shift extends the selection from where it started. Esc and Delete act on the
+// marker chosen; ⌘V pastes. The rest are the page's commands for the picture (onkey: zoom, Esc, ⌘A ⌘D, Delete, ⌘X ⌘C,
+// ⌘Z ⇧⌘Z ⌘Y); Space and the transport belong to the page.
 export function key(event) {
   assign({ moving: null })
   const mod = event.metaKey || event.ctrlKey, step = (end - start) / 100, k = event.key
@@ -190,23 +190,13 @@ export function key(event) {
   else if (dir && (k === 'ArrowUp' || k === 'ArrowDown') && (word || event.altKey && mac)) stepTo('sound', dir, event.shiftKey)
   else if (k === 'ArrowLeft' || k === 'ArrowRight') to(clamp((event.shiftKey ? head : cursor) + (k === 'ArrowLeft' ? -step : step)))
   else if (k === 'Home' || k === 'End' || line && (k === 'ArrowUp' || k === 'ArrowDown')) to(k === 'Home' || k === 'ArrowUp' ? 0 : duration)
-  else if (k === '=' || k === '+') zoom(.5, playhead ?? (selection ? (selection[0] + selection[1]) / 2 : cursor))
-  else if (k === '-' || k === '_') zoom(2, playhead ?? cursor)
-  else if (k === '0' && !mod) { assign({ fview: [0, 1] }); assign({ aview: [-1, 1] }); assign({ zoomed: {} }); fitTo(0, duration) }
+  // the marker chosen goes before what is selected: Esc lets it go, Delete takes it away (its triangle dragged leaves the
+  // selection as it was)
   else if (k === 'Escape' && chosen) { assign({ chosen: null }); invalidate(true) }
-  else if (k === 'Escape' && (selection || more.length)) select(0, 0)
-  else if (mod && k.toLowerCase() === 'd') addNext()
-  else if (mod && k.toLowerCase() === 'a') select(0, duration)
-  // the marker chosen goes before what is selected: its triangle dragged leaves the selection as it was
   else if ((k === 'Delete' || k === 'Backspace') && chosen) { const m = chosen; assign({ chosen: null }); if (onedit('unmark', m)) assign({ markers: markers.filter(n => !same(n, m)) }); invalidate(true) }
-  else if ((k === 'Delete' || k === 'Backspace') && ranges().length) onedit('remove', band ? selection : ranges())
-  else if (mod && k.toLowerCase() === 'x' && selection && !band) onedit('cut', selection)
-  else if (mod && k.toLowerCase() === 'c' && selection && !band) onedit('copy', selection)
   // ⌘V: the browser's paste, its clipboard with it (pasted)
   else if (mod && k.toLowerCase() === 'v') { pasted(); pasting = atCarets(); return }
-  else if (mod && k.toLowerCase() === 'z') onedit(event.shiftKey ? 'redo' : 'undo')
-  else if (mod && k.toLowerCase() === 'y') onedit('redo')
-  else return
+  else if (!onkey(event)) return
   event.preventDefault()
 }
 // A paste: at the carets ⌘V was pressed at, the system's clipboard with it (a file copied elsewhere comes so); one

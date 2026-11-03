@@ -255,3 +255,20 @@ Where the moves part from the map above, and why:
 - select.js holds the paste's listeners in a wire() that view() calls where they were (V12): `pasting` keeps one writer.
 - After V13 no view module imports view.js and no editor module imports editor.js; every module is under 600 lines
   (overlay.js 592 the largest).
+
+## 8. As built (stage 4, part two: the command list)
+
+- `playground/editor/commands.js`: 78 commands, 25 with keys (8 the page's, 6 in fields too, 11 the picture's). A command's `press` tests the key and what it acts on as the keys
+  always have, apart from its `when` (a menu's dimming), where today's two differ (B, Space, ⌘S, ⌘P, ⌘G, ⇧⌘T, Esc,
+  Delete); `run(e)` is given the key's event where a key's act differs from a menu's (Space stops a recording; = and −
+  zoom about the playhead, a menu about the view's middle; Delete takes every range).
+- `keys` are kept as the page shows them on this platform (`keys('⌘O')`), and ⇧R and ⌥R as the menus wrote them, unturned
+  on Windows: each place shows the text it showed.
+- The view keeps its caret, its paste and the marker chosen (Esc lets it go, Delete takes it away); its other keys go
+  to the page's commands of scope 'view' through `onkey`, which view() is given; `v.selected` says whether Esc has
+  anything to let go.
+- Menus are layouts of ids (menus.js menus()); the context, track, room and takes menus take a command's keys and run,
+  each its own words, icon and dimming (`item(id, s, own)`). Submenus' own lists (recent files, themes, takes, history)
+  stay the commands' `items`; deletion() and takeList() stay recording.js's. soundMenu, opsMenu and saveMenu, a button's
+  own, are not commands.
+- desktop/app.js runs an item by its command's id, one of a submenu's own lists by its place under it.

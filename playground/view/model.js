@@ -85,7 +85,7 @@ export const GLIDE = .3                               // a playhead past the vie
 
 
 // What view() is given (editor.js), kept as it mounts: its element, its callbacks, its zoom's limits and overshoot
-export let root, onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onaudition, onfocus, ontake, onfork, onghost, onlayout, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, closest, farthest, overshoot, timeRow
+export let root, onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, closest, farthest, overshoot, timeRow
 export const element = (tag, className, parent) => parent.appendChild(Object.assign(document.createElement(tag), { className }))
 const layer = (name, parent = root) => element('canvas', name, parent)
 export const color = name => style.getPropertyValue(name).trim()
@@ -261,7 +261,7 @@ export let ahead = false
 // The view mounted on its element, once: what it is given kept, its layers made and laid in their order
 export function mount(el, given) {
   root = el
-  ;({ onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onaudition, onfocus, ontake, onfork, onghost, onlayout, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, closest, farthest, overshoot, timeRow } = given)
+  ;({ onaxis, onselect, oncursor, onedit, onmode, onscrub, oncontext, onkey, onaudition, onfocus, ontake, onfork, onghost, onlayout, onheight, onlook, onbusy, onprobe, onsamples, onheard, hint, keepRoom, closest, farthest, overshoot, timeRow } = given)
   // the selection under the pictures, as a selection is behind text: the sound drawn over it, a quiet spectrogram's
   // clear ground showing it; the grid over the spectrogram, under the waveform, in the waveform's canvas (paintGrid). The
   // pictures on a reel (roll), cut where the lanes end (editor.css --end): drawn past the view's right end, the reel
