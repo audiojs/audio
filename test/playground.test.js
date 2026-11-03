@@ -6434,12 +6434,13 @@ test('editor: markers: M at the caret, its flag over the picture dragged, named,
 // M over a selection marks it, a range: mark({ at, d }), a region in the file. A marker made asks for its name at once,
 // over its flag (not while it plays, where M marks moment after moment); a double-click on the name asks again. A
 // range's bar drags the range and, let go, selects it.
-test('editor: markers: M over the selection a range, named as it is made, renamed from its name, its bar pressed', async () => {
+test('editor: markers: M over the selection a range, named as it is made, renamed from its name, pressed in its strip', async () => {
   await open()
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3, row = box.y + 4
+  // a moment's flag on the lanes' top row; a range ◢ its name ◣ in the strip under them
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3, row = box.y + 4, strip = box.y + tall(box) + FOOT / 2
   const named = () => page.evaluate(() => document.activeElement.className === 'marker-name')
   // a moment, named as it is made
   await page.mouse.click(x(1), y)
@@ -6464,20 +6465,22 @@ test('editor: markers: M over the selection a range, named as it is made, rename
   await page.keyboard.type('Start')
   await page.keyboard.press('Enter')
   await page.waitForFunction(() => /\.mark\(1, 'Start'\)/.test(scriptText()) && scriptText().includes("'Chorus'"))
-  // its bar pressed: its audio selected at once, as the takes' line selects their place; dragged on, nothing moves
+  // pressed in its strip: its audio selected at once, as the takes' place selects theirs; dragged on, nothing moves
   await page.mouse.click(x(7.5), y)
-  await page.mouse.move(x(4.5), row)
+  await page.mouse.move(x(4.5), strip)
   await page.mouse.down()
   await page.locator('.clock').evaluate(el => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
   assert.equal(await selected(), '0:03.000–0:05.000', 'selected before it is let go')
-  await page.mouse.move(x(5.5), row, { steps: 5 })
+  await page.mouse.move(x(5.5), strip, { steps: 5 })
   await page.mouse.up()
-  await page.waitForTimeout(300)
-  assert.match(await code(), /\.mark\(\{ at: 3, d: 2 \}, 'Chorus'\)/)
+  await page.waitForFunction(() => /\.mark\(\{ at: 3, d: 2 \}, 'Chorus'\)/.test(scriptText()))
   assert.equal(await selected(), '0:03.000–0:05.000')
-  // its name, under the selection its press made, double-clicked past the fade's grip in that corner: named anew
-  await page.mouse.dblclick(x(3) + 30, row + 6)
+  // its name in the strip, the selection its press made over it, double-clicked: named anew, the selection's handles gone
+  // while it is written (its fade's corner no grip to the pointer)
+  await page.mouse.dblclick(x(3) + 20, strip)
   assert.ok(await named(), 'a double-click on a range\'s name')
+  await page.mouse.move(x(3) + 9, box.y + 9)
+  assert.notEqual(await page.locator('.plot').evaluate(el => el.style.cursor), 'ew-resize', 'no handle while it is named')
   await page.keyboard.press('Escape')
   assert.match(await code(), /\.mark\(\{ at: 3, d: 2 \}, 'Chorus'\)/)
   // to the page, the moments and the ranges in one list, in time order
@@ -6557,7 +6560,8 @@ test('editor: markers: Delete takes away the marker whose flag was pressed', asy
   await noCues()
   await write(`audio('chime.wav').mark(2).mark({ at: 5, d: 1 })`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + tall(box) * .3, row = box.y + 4
+  // a moment's flag on the lanes' top row; a range in the strip under them
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3, row = box.y + 4, strip = box.y + tall(box) + FOOT / 2
   // chosen, then let go of: Delete with nothing selected does nothing
   await page.mouse.click(...await grab([[x(2), row]], 'pointer'))
   await page.keyboard.press('Escape')
@@ -6573,8 +6577,8 @@ test('editor: markers: Delete takes away the marker whose flag was pressed', asy
   await page.mouse.click(x(2), row)
   await page.keyboard.press('Delete')
   await page.waitForFunction(() => scriptText() === `audio('chime.wav').mark({ at: 5, d: 1 })`)
-  // a range's: its audio selected, not chosen; Delete takes the audio, the marker staying
-  await page.mouse.click(x(5.5), row)
+  // a range's, pressed in its strip: its audio selected, not chosen; Delete takes the audio, the marker staying
+  await page.mouse.click(x(5.5), strip)
   assert.equal(await selected(), '0:05.000–0:06.000')
   await page.keyboard.press('Backspace')
   await lengthIs('0:07.000')
@@ -6582,7 +6586,7 @@ test('editor: markers: Delete takes away the marker whose flag was pressed', asy
   // its menu takes the marker away, the audio as it is
   await write(`audio('chime.wav').mark({ at: 5, d: 1 })`)
   await lengthIs('0:08.000')
-  await page.mouse.click(x(5.5), row, { button: 'right' })
+  await page.mouse.click(x(5.5), strip, { button: 'right' })
   await contextRow('Delete the marker').click()
   await page.waitForFunction(() => scriptText() === `audio('chime.wav')`)
   await lengthIs('0:08.000')
@@ -9151,12 +9155,12 @@ test('editor: markers on a file opened come back where they were after a reload'
   await page.waitForTimeout(600)
   await page.reload()
   await wholeLevels().waitFor()
-  const { box, x } = await axis(2), row = box.y + 4
-  const at = async t => { await page.mouse.move(x(t), row); return page.locator('.plot').evaluate(el => el.style.cursor) }
+  const { box, x } = await axis(2), row = box.y + 4, strip = box.y + tall(box) + FOOT / 2
+  const at = async (t, y = strip) => { await page.mouse.move(x(t), y); return page.locator('.plot').evaluate(el => el.style.cursor) }
   await grab([[x(0.5), row]], 'pointer')
-  assert.equal(await at(1.4), 'pointer', "the range's bar")
-  assert.notEqual(await at(0.02), 'pointer', 'none at the start')
-  assert.notEqual(await at(1.8), 'pointer', 'none past the range')
+  assert.equal(await at(1.4), 'pointer', 'the range, in its strip')
+  assert.notEqual(await at(0.9), 'pointer', 'none before it')
+  assert.notEqual(await at(1.8), 'pointer', 'none past it')
 })
 
 // Zoomed out as far as it goes, the lanes show the sound and half of it again: two presses of −, the second held there
@@ -9475,10 +9479,41 @@ test('editor: the record button records over the sound from the caret, into the 
   await lengthIs('0:08.000')
 })
 
-// Takes are a region of the picture, from where they go in to where the longest of them ends (each measured, those
-// turned off too, a sample's or a file kept as a recording's), its line along the top pressed selecting all of it, as a
-// range marker's, their numbers in its bottom left corner, + selecting their place; on a visit's first run too
-test('editor: takes are drawn over all they span, their line selects it, their numbers at its foot', async () => {
+// The strip under the lanes, as Photoshop's split slider marks a range under its bar: a named range ◢ its name ◣ there,
+// nothing of it over the sound; its name still in sight once it is selected; the selection a line along the strip's
+// top, its ends ticked; plain hovered over the lanes, the cues either side of the pointer ticked in it
+test('editor: the strip under the lanes marks a range ◢ named ◣ and the selection, nothing over the sound', async () => {
+  await open()
+  await write(`audio('chime.wav').mark({ at: 2, d: 2 }, 'Chorus')`)
+  await lengthIs('0:08.000')
+  const { box, x } = await axis(8), lane = Math.round(tall(box)), px = t => Math.round(x(t) - box.x)
+  // in a strip of columns [a, b) and rows [y0, y1), the pixels unlike the ground there (its column at 7 s, where nothing is)
+  const marked = ([a, b], [y0, y1]) => pixels(`let n = 0; for (let y = arg.y0; y < arg.y1; y++) { const g = (y * w + arg.g) * 4; for (let x = arg.a; x < arg.b; x++) { const i = (y * w + x) * 4; if (Math.abs(d[i] - d[g]) + Math.abs(d[i + 1] - d[g + 1]) + Math.abs(d[i + 2] - d[g + 2]) > 45) n++ } } return n`, { a, b, y0, y1, g: px(7) })
+  const row = [lane + 1, lane + FOOT - 1]
+  await page.mouse.move(box.x + 5, box.y + box.height - 8)
+  await page.waitForFunction(() => document.querySelector('.readout')?.dataset.of === 'all')
+  assert.ok(await marked([px(2) - 6, px(2) + 1], row) > 10 && await marked([px(4), px(4) + 7], row) > 10, 'its edges in the strip, its start and its end')
+  assert.ok(await marked([px(2) + 3, px(2) + 50], row) > 30, 'its name between them')
+  // nothing of it over the sound: the lanes' top row, over it and past it, alike
+  const top = [2, 6]
+  assert.equal(await marked([px(2.5), px(3.5)], top), 0, 'no wash over the sound')
+  // pressed there: selected, its name still in sight, the selection a line along the strip's top
+  await page.mouse.click(x(3), box.y + lane + FOOT / 2)
+  assert.equal(await selected(), '0:02.000–0:04.000')
+  await page.mouse.move(box.x + 5, box.y + box.height - 8)
+  assert.ok(await marked([px(2) + 3, px(2) + 50], [lane + 5, lane + FOOT - 1]) > 30, 'its name, selected')
+  assert.ok(await marked([px(2.5), px(3.5)], [lane, lane + 4]) > px(3.5) - px(2.5) - 4, 'the selection along the strip\'s top')
+  // plain hovered over the lanes between two strikes: the cue either side ticked in the strip, in the cues' colour
+  const ticks = () => pixels(`const out = []; for (let x = 0; x < arg.w; x++) { const i = ((arg.y) * w + x) * 4; if (d[i] - d[i + 2] > 30 && (!out.length || x - out.at(-1) > 2)) out.push(x) } return out`, { y: lane + 3, w: px(7.9) })
+  let near = []
+  for (const until = Date.now() + 8000; near.length < 2 && Date.now() < until; await page.waitForTimeout(200)) { await page.mouse.move(x(5.3), box.y + lane / 3); near = await ticks() }
+  assert.ok(near.length === 2 && near[0] < px(5.3) && near[1] > px(5.3), `a tick either side of 5.3 s: ${near}`)
+})
+
+// Takes are marked in the strip under the lanes, from where they go in to where the longest of them ends (each measured,
+// those turned off too, a sample's or a file kept as a recording's), pressed there selecting all of it, as a range
+// marker's, their numbers inside its start, + selecting their place; on a visit's first run too
+test('editor: takes are marked in the strip under all they span, pressed there selecting it, their numbers in it', async () => {
   await open()
   // the one heard 4.5 s long, the one turned off 8 s: to 9 s, the sound's end
   await write(`audio('rhodes.wav')\n  // .write(audio('chime.wav'), { at: 1 })\n  .write(audio('birdsong.wav'), { at: 1 })`)
@@ -9486,11 +9521,12 @@ test('editor: takes are drawn over all they span, their line selects it, their n
   const { box, x } = await axis(9), chip = page.locator('.plot .takes:not([hidden])')
   await chip.waitFor()
   const corner = await chip.boundingBox()
-  assert.ok(Math.abs(corner.x - x(1) - 1) < 1.5 && Math.abs(corner.y - box.y - tall(box) - 1) < 1.5, `in its foot, under its start: ${JSON.stringify(corner)}`)
-  // its line, pressed near its end: all of it selected, to 9 s
-  const line = async () => { await page.mouse.move(x(8.7), box.y + 2); return page.evaluate(() => document.querySelector('.plot').style.cursor) }
+  assert.ok(Math.abs(corner.x - x(1) - 1) < 1.5 && Math.abs(corner.y - box.y - tall(box) - 1) < 1.5, `in its strip, inside its start: ${JSON.stringify(corner)}`)
+  // its place in the strip, pressed near its end: all of it selected, to 9 s
+  const strip = box.y + tall(box) + FOOT / 2
+  const line = async () => { await page.mouse.move(x(8.7), strip); return page.evaluate(() => document.querySelector('.plot').style.cursor) }
   assert.equal(await line(), 'pointer')
-  await page.mouse.click(x(8.7), box.y + 2)
+  await page.mouse.click(x(8.7), strip)
   assert.equal(await selected(), '0:01.000–0:09.000')
   // + adds an empty take there, as long as the place, heard, its place selected, recording nothing; + then off till it
   // is recorded into or deleted (Delete take, a right-click there: the one before heard again)
@@ -9574,8 +9610,8 @@ test('editor: a take recorded where takes are under a later write brings them ov
   await lengthIs('0:09.500')
   const { box, x } = await axis(9.5), chip = page.locator('.plot .takes:not([hidden])')
   await chip.waitFor()
-  // their place selected (their line), Record records into it, from its start
-  await page.mouse.click(x(8.7), box.y + 2)
+  // their place selected (pressed in the strip), Record records into it, from its start
+  await page.mouse.click(x(8.7), box.y + tall(box) + FOOT / 2)
   assert.equal(await selected(), '0:01.000–0:09.000')
   await page.getByRole('button', { name: 'Record', exact: true }).click()
   await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
