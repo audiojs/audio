@@ -3948,7 +3948,7 @@ test('editor: dragged, the caret or an edge shows the cues either side of it; wi
 // from its samples with the last output's levels as heard, the edit drawn ahead holding till they come (a delete once
 // flashed the old waveform for a frame, its new samples in before their levels)
 test('editor: weighted, an edit\'s output comes in one step, never a frame of the last one\'s levels', async () => {
-  await page.route('**/playground/view.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('  function draw() {\n', '  function draw() {\n    globalThis.__draws?.push({ ahead: !!pieces, stale: twinOf.size > 0 && twinsOf !== heardOf })\n') }) })
+  await page.route('**/playground/view.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('function draw() {\n', 'function draw() {\n  globalThis.__draws?.push({ ahead: !!pieces, stale: twinOf.size > 0 && twinsOf !== heardOf })\n') }) })
   // the levels as heard withheld at will (`__deaf`), as when the worker has none to give; those given counted (`__weighed`)
   await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('onheard: weighting => output && !incoming ? eng.heard(output.id, weighting) : null', 'onheard: weighting => !globalThis.__deaf && output && !incoming ? eng.heard(output.id, weighting).then(l => (globalThis.__weighed = (globalThis.__weighed ?? 0) + 1, l)) : null') }) })
   const { x, y } = await chime()

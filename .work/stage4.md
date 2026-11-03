@@ -241,3 +241,14 @@ Where the moves part from the map above, and why:
 - The section comment over `hertz` (the status bar's right) stays with the readouts it heads.
 - files.js has one wire(), at `restoring`'s place (623): its drop listeners register there, not at 4246. Nothing else on
   the page listens for drag events, so no listener's order changes.
+- V1 is model.js with view.js's module-level constants alone; `mount()` comes with the lift (V2), where the closure's
+  lets it assigns are.
+- V2: model.js's lets are the API's 72 (§2's 69, and `cursor`, `anchor`, `bounds`), the shared 13, `c` (mount sets it,
+  overlay switches it), `under` (the lost-context listener in mount clears it, render sets it) and `waves`, `specs`
+  (written by none). 296 writes became `assign()`, five destructurings by hand; `assign()` gives back the last value,
+  as `=` does, so a write inside an expression (`fill(data = channels)`, `palette ??= …`) keeps its value.
+- A let lives with the one module that writes it, not with the range it was declared in: `scale`, `gutter` to scales,
+  `frozen` to geometry, `decibels`, `drawn`, `W H dpr frame` to render, `settle`, `away` to overlay, `drag`, `touch` to
+  pointer, `barOn`, `barTimer` to ruler, `before` to gestures (two declarations split for it: `drawn, settle` and
+  `W, H, dpr, frame, drag`).
+- The draw patch (test 3946) anchors on `function draw() {\n` at column 0 in view.js from V2, in view/render.js from V7.
