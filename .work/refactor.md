@@ -151,6 +151,8 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
         deltas now carrying every field decode's stats do
   - [x] (944a193) peak and dB from block stats in five places: `peakOf()` in stats.js; the CLI's level as it plays read the highs
         alone (0.2 shown for a -0.8 peak)
+  - [ ] the playground worker's `turns()` beside core's `yieldTask` (left by the store's branch); the CLI, MCP and desktop app
+        calling checkpoints (recall, keep), which they don't yet
   - [ ] the clipping recount after a gain, three times (`stats.js:327`, `fn/normalize.js:47`, `fn/gain.js:45`): one helper beside
         peakOf, once the store's branch has merged (it may touch stats.js)
   - [ ] structural ops known by name in `plan.js` `adjustLimit` (633-684): a `limit` hook on each op; splices on `spliceSegs`
