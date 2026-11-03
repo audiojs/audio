@@ -1179,21 +1179,27 @@ const gaps = async (a, min) => a.duration ? (await a.silence({ minDuration: min,
 // makes none, though its smear can read as hits. { times, ranks }; times null for an output a newer one has replaced:
 // the page reads cues against the code that made them.
 // Each with its kind, for the page to say what a time went onto: 'start' or 'end' of a sound, or 'hit'.
+// Each pass a task of its own, the worker between them free for what else is asked of it (a scrub's samples, a long
+// sound's cues taking a second or so)
 const FIND = {
-  hits: (pcm, rate) => { const times = rises(pcm, rate).map(h => h.t); return ranked(times, pcm, rate, times.map(() => 'hit')) },
-  edges: (pcm, rate) => reading(pcm, rate, async a => {
+  hits: async (pcm, rate, sound) => {
+    const times = rises(pcm, rate).map(h => h.t)
+    await yielded()
+    return ranked(times, pcm, rate, times.map(() => 'hit'), await sound.stat('db'))
+  },
+  edges: (pcm, rate, sound) => reading(pcm, rate, async a => {
     const quiet = await gaps(a, PAUSE), end = pcm[0].length / rate
     const starts = attacks(quiet.map(g => g[1]).filter(t => t < end), pcm, rate)
     const all = [...quiet.map(g => [g[0], 'end']).filter(([t]) => t > 0), ...starts.map(t => [t, 'start'])].sort((p, q) => p[0] - q[0])
-    const edges = ranked(all.map(e => e[0]), pcm, rate, all.map(e => e[1]))
+    await yielded()
+    const edges = ranked(all.map(e => e[0]), pcm, rate, all.map(e => e[1]), await sound.stat('db'))
     return { ...edges, ranks: edges.ranks.map(() => Infinity) }
   })
 }
-// `times` of a sound past its pauses' level, with how plain each is, and their `kinds`
-function ranked(times, pcm, rate, kinds) {
-  let top = 0
-  for (const x of pcm) for (const v of x) top = Math.max(top, Math.abs(v))
-  const quiet = Math.min(GROUND, top / 10), plain = plainness(times, pcm, rate), kept = times.flatMap((t, i) => plain[i].peak > quiet ? [i] : [])
+const yielded = () => new Promise(r => setTimeout(r))
+// `times` of a sound past its pauses' level (its peak `db`), with how plain each is, and their `kinds`
+function ranked(times, pcm, rate, kinds, db) {
+  const quiet = Math.min(GROUND, 10 ** (db / 20) / 10), plain = plainness(times, pcm, rate), kept = times.flatMap((t, i) => plain[i].peak > quiet ? [i] : [])
   return { times: kept.map(i => times[i]), ranks: kept.map(i => plain[i].rank), kinds: kept.map(i => kinds[i]) }
 }
 // `pcm` read as audio for `read`, let go after
@@ -1216,11 +1222,11 @@ async function cues({ output, kind = 'edges', track }) {
 const part = (r, track) => track == null ? r : r?.tracks?.[track] ?? null
 async function found(r, find) {
   const warp = r.instance.edits?.at(-1)
-  if (warp?.[0] !== 'warp') return find(await r.sound.read(), r.sampleRate)
+  if (warp?.[0] !== 'warp') return find(await r.sound.read(), r.sampleRate, r.sound)
   const before = r.instance.clone()
   before.undo()
   try {
-    const pcm = await before.read(), f = await find(pcm, r.sampleRate)
+    const pcm = await before.read(), f = await find(pcm, r.sampleRate, before)
     return { ...f, times: carry(f.times, warp[1].markers, pcm[0].length / r.sampleRate) }
   } finally { before.dispose?.() }
 }

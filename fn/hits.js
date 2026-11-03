@@ -121,8 +121,12 @@ function jumpsOver(e, top, m) {
   }
   return { ups, downs }
 }
-// Each STEP's power, the channels' mean square, and the loudest: { e, hop, top }
+// Each STEP's power, the channels' mean square, and the loudest: { e, hop, top }; read once for the same channels (rises
+// then plainness, a cue finder's two passes)
+const powers = new WeakMap()
 function power(channels, rate) {
+  const was = powers.get(channels)
+  if (was?.rate === rate) return was
   const n = channels[0]?.length ?? 0, hop = Math.max(1, Math.round(rate * STEP)), K = Math.floor(n / hop)
   const e = new Float64Array(K)
   let top = 0
@@ -131,7 +135,9 @@ function power(channels, rate) {
     for (const x of channels) for (let i = k * hop; i < (k + 1) * hop; i++) s += x[i] * x[i]
     top = Math.max(top, e[k] = s / hop / channels.length)
   }
-  return { e, hop, top }
+  const out = { e, hop, top, rate }
+  powers.set(channels, out)
+  return out
 }
 // The level every STEP, of the `m` steps from there, in dB down to RANGE under the loudest step (`top`)
 function levels(e, top, m) {
@@ -145,6 +151,7 @@ function levels(e, top, m) {
 // pause ranks as far as the sound is over the pause, a short pause's too (its edges' quieter side the pause alone), a
 // strike as far as it is over what sounded since the cue before, an edge between two flickers of the ground a few dB.
 export function plainness(times, channels, rate) {
+  if (!times.length) return []
   const { e, hop, top } = power(channels, rate), level = levels(e, top, 2), K = level.length, w = Math.round(AROUND / STEP)
   const ground = 10 * Math.log10(Math.max(1e-10, top * 10 ** (-RANGE / 10)))
   // the loudest of the 10 ms windows from step `a` up to `b`, the one before `b` at least

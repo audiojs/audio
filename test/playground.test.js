@@ -6643,8 +6643,12 @@ test('editor: Denoise learns the noise where it is selected and takes it out eve
   await tab('Code')
   await write(bursts.replace('Math.sin(2 * Math.PI * 440 * t)', 'Math.sin(2 * Math.PI * 440 * t) + .002 * Math.sin(2 * Math.PI * 7919 * t)'))
   await lengthIs('0:02.500')
+  // all of it in view (a shorter sound keeps the last one's scale), so the pause at 0.45 s is where it is pressed
+  await page.locator('.plot').focus()
+  await page.keyboard.press('0')
   const at = await axis(2.5)
   await page.mouse.dblclick(at.x(.45), at.box.y + tall(at.box) / 3)
+  await page.waitForFunction(() => /^Selected 0:00\.4\d+–0:00\.4\d+/.test((e => e.title || e.dataset.tip || '')(document.querySelector('.clock'))))
   await page.keyboard.press('ControlOrMeta+D')
   await page.keyboard.press('ControlOrMeta+D')
   await palette('The noise alone in all 3')
