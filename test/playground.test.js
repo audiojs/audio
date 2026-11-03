@@ -2472,12 +2472,14 @@ test('editor: a tab left as it renders renders on, marked, its sound there when 
 })
 
 // The page's state is one object literal, as are its menus' and its views': a key written twice there is silently the
-// last one (the ring's share of the sound, named `progress` for a moment, took the status bar's word away), so none is
+// last one (the ring's share of the sound, named `progress` for a moment, took the status bar's word away), so none is.
+// Nor does a module write a binding it imports, which throws (a module's own `let` is written there, or through
+// editor/context.js assign()): every module of the page, playground/dist's builds aside
 test('editor: no object literal in the page names a key twice', async () => {
   const { build } = await import('esbuild')
-  const entryPoints = (await readdir(`${root}/playground`)).filter(f => f.endsWith('.js')).map(f => `${root}/playground/${f}`)
+  const entryPoints = (await readdir(`${root}/playground`, { recursive: true })).filter(f => f.endsWith('.js') && f.split(sep)[0] !== 'dist').map(f => `${root}/playground/${f}`)
   const { warnings } = await build({ entryPoints, write: false, bundle: false, outdir: 'out', logLevel: 'silent' })
-  assert.deepEqual(warnings.filter(w => w.id === 'duplicate-object-key').map(w => `${w.location.file}:${w.location.line} ${w.text}`), [])
+  assert.deepEqual(warnings.filter(w => w.id === 'duplicate-object-key' || w.id === 'assign-to-import').map(w => `${w.location.file}:${w.location.line} ${w.text}`), [])
 })
 
 // The sound's end, three quarters across the view zoomed out as far as it goes: where its centre line stops, its silence
