@@ -13,7 +13,7 @@
 // audio('/sounds/take.mp3'), is that site's file. Its mark's moves come out as `mark` events, for a page's own logo to
 // move with it.
 //
-// What it shows, the frame takes as one JSON (?ui=, playground/editor.js reads it): the element's `ui` attribute, as
+// What it shows, the frame takes as one JSON (?ui=, playground/editor/config.js reads it): the element's `ui` attribute, as
 // that JSON, and over it these attributes, each one key of it:
 //   panel       code (the script beside the picture), edits (its steps, each with its settings) or none
 //   display     wave or spec
@@ -129,7 +129,7 @@ class AudioRepl extends HTMLElement {
     // shown once its sound is in, its mark first at rest; or a while after it loads, whatever its script does
     const ready = () => { if ('ready' in this.dataset) return; this.dataset.ready = ''; this.sizes?.disconnect(); setTimeout(() => this.wait?.remove(), 400) }
     frame.addEventListener('load', () => setTimeout(ready, 8000), { once: true })
-    // how its mark moves (playground/editor.js), a `mark` event on the element: { mode: rest, work, play, record or
+    // how its mark moves (playground/editor/play.js), a `mark` event on the element: { mode: rest, work, play, record or
     // scrub } as it changes, { turn } for each turn a scrub gives it; a page's own mark moves with it (../logo/mark.js sways)
     addEventListener('message', e => {
       if (e.source !== frame.contentWindow || e.data?.audio !== 'mark') return

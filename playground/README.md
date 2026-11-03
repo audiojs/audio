@@ -27,7 +27,7 @@ The element sends `mark` events as the playground's mark moves: `{ mode }` (`res
 
 ## UI config
 
-One JSON object, the `ui` attribute's, which the frame reads as `?ui=` (playground/editor.js `UI`). Every key is optional.
+One JSON object, the `ui` attribute's, which the frame reads as `?ui=` (playground/editor/config.js `UI`). Every key is optional.
 
 | Key | Value | Default |
 |---|---|---|

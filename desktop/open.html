@@ -2,7 +2,7 @@
 <meta charset="utf-8">
 <title>Opening…</title>
 <!-- A file of this machine in the editor: a tab whose script opens it, by the address this app serves it at (/f/PATH),
-     as a link to the editor carries a script (#code=, deflate-raw in base64url: playground/editor.js initialDocs) -->
+     as a link to the editor carries a script (#code=, deflate-raw in base64url: playground/editor/tabs.js initialDocs) -->
 <script type="module">
   const path = new URLSearchParams(location.search).get('path')
   const code = `audio(${JSON.stringify(`${location.origin}/f${path.split('/').map(encodeURIComponent).join('/')}`)})\n`
