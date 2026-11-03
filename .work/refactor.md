@@ -226,9 +226,14 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
 
 ### 4. Feature modules and one command list
 
-- [ ] `playground/editor.js` (4,207 lines, 244 functions, 44 module-level `let`s) and `view.js` (one closure, line 137 to the end,
-      18 callbacks) moved into feature modules of ≤ ~600 lines around one shared context (state, view, code, player, engine).
-      A move first, no behavior change, a commit per feature, suite green after each
+- [x] (58a3f46..this commit) `playground/editor.js` (4,207 lines, 244 functions, 44 module-level `let`s) and `view.js` (one
+      closure, line 137 to the end, 18 callbacks) moved into feature modules of ≤ ~600 lines around one shared context
+      (state, view, code, player, engine). A move first, no behavior change, a commit per feature, each with its tests
+      (`.work/stage4.md` §4). editor.js is the boot (441 lines) over 19 modules in `playground/editor/`; view.js the
+      view's signature, root listeners and API (478) over 12 in `playground/view/`; the largest overlay.js, 592. Full
+      suite (447) after 2, 13, 17, V2, V13: 444, 445, 446, 445, 445 passed. The failures: the playhead by the frames' own
+      time, dragged inside the selection, a take recorded as the others play, each passing 3 of 3 alone; a sound longer
+      than the page holds, 3 of 5 alone at V13 as at master. Where the moves part from the design: `.work/stage4.md` §7
 - [ ] one command list `{ id, label, keys, when, run }`: menus, context menu, shortcuts, tooltips, the Mac menu bar and the agent's
       tools read it. Today the same actions are written three times (`menus()`, two keydown handlers, the agent's `page` API)
 - [ ] `test/playground.test.js` (848 KB, 407 tests) split the same way; `test/scope.js` picks by feature

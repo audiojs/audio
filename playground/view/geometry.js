@@ -1,4 +1,4 @@
-import { markLane } from '../view.js'
+import { markLane } from './data.js'
 import { RULER, GAP, EDGE, HEAD, FOOT, TRACK, LOW, ROOM, midiOf, TICK, VOICE, root, oncursor, onfocus, ontake, onghost, onlayout, onbusy, keepRoom, timeRow, element, FORK, forkButton, count, rate, duration, display, hovered, markers, recording, empty, pieces, guest, start, end, selection, band, cursor, ruler, waveLook, tracks, focus, allLanes, sections, scroll, heights, lift, kinds, noted, zoomed, assign } from './model.js'
 import { lanesEnd } from './overlay.js'
 import { drag } from './pointer.js'

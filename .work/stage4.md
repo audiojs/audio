@@ -253,3 +253,5 @@ Where the moves part from the map above, and why:
   `W, H, dpr, frame, drag`).
 - The draw patch (test 3946) anchors on `function draw() {\n` at column 0 in view.js from V2, in view/render.js from V7.
 - select.js holds the paste's listeners in a wire() that view() calls where they were (V12): `pasting` keeps one writer.
+- After V13 no view module imports view.js and no editor module imports editor.js; every module is under 600 lines
+  (overlay.js 592 the largest).

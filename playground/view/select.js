@@ -1,4 +1,4 @@
-import { ownMarks } from '../view.js'
+import { ownMarks } from './data.js'
 import { ghost, unghost, rowH, plot, spare, bandOf, lanes, inRoom, refocus } from './geometry.js'
 import { origin, current, before } from './gestures.js'
 import { EDGE, NOTCH, mac, root, onselect, oncursor, onedit, oncontext, duration, hovered, segments, markers, more, start, end, fview, selection, band, cursor, playhead, cues, aview, tracks, focus, anchor, lift, zoomed, chosen, held, assign } from './model.js'

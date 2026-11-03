@@ -1,129 +1,68 @@
 import Waveform from '../assets/gl-waveform.js'
 import Spectrogram from '../assets/gl-spectrogram.js'
 import { CURVES } from './ops.js'
+import { RECORD, taking, ended, put, lay, fill, renew, grown, replace } from './view/data.js'
 import { frozen, untrack, ghost, unghost, layout, CHUNK, HELD, plot, lanes, inRoom, resized, freeze, own0 } from './view/geometry.js'
 import { aimed } from './view/gestures.js'
-import { stylize, GLIDE, color, runway, gl, sgl, waves, specs, count, rate, duration, display, hovered, markers, arriving, more, dropped, droppedNew, recording, empty, asking, pieces, start, end, fview, selection, band, cursor, playhead, played, speed, guides, nudge, steered, cues, ranks, cueKinds, aview, pitching, look, waveLook, data, tracks, focus, allLanes, sections, windows, windowsOf, anchor, moving, unframed, held, ahead, mount, assign } from './view/model.js'
-import { lanesEnd, reach, seenTo, fitTo, metered } from './view/overlay.js'
+import { stylize, GLIDE, color, runway, gl, sgl, waves, specs, count, rate, duration, display, hovered, markers, arriving, more, dropped, droppedNew, recording, empty, asking, pieces, start, end, fview, selection, band, cursor, playhead, played, speed, guides, nudge, steered, aview, pitching, look, waveLook, data, tracks, focus, allLanes, sections, windows, windowsOf, anchor, moving, unframed, held, mount, assign } from './view/model.js'
+import { reach, seenTo, fitTo, metered } from './view/overlay.js'
 import { drag, down, move, drags, hover, leave, up, clicked } from './view/pointer.js'
-import { twinsFor, dpr, resize, arrange, moved, invalidate, tints, tonesOf, twinOf, unheard, reshow, snapshot, hues, rgba, channel, shades } from './view/render.js'
+import { dpr, resize, arrange, invalidate, tints, tonesOf, twinOf, unheard, reshow, snapshot, shades } from './view/render.js'
 import { steer, slide, unslide, bring, fitAll, frameSelected } from './view/ruler.js'
 import { scale, x, time, clamp, unit, snap, stuck, local, setRange, setFreqs, frameVoice, zoom, whole, scrollLevels, setScale, reveal } from './view/scales.js'
 import { around, stepTo, wheel, select, told, ranges, carets, boxes, addNext, setCursor, context, key, wire as wireSelect } from './view/select.js'
 import { same, rename } from './view/strips.js'
 export { KINDS, NOTES, noteOf, stylize, HOLD, SLOP } from './view/model.js'
-// the times a marker marks: a moment, or a range's start and end
-const marked = m => m.duration ? [m.time, m.time + m.duration] : [m.time]
-// a marker's lane with tracks (one of a track gone, the edited one's), null without: it runs through them all
-const markLane = m => { if (!tracks) return null; const i = tracks.findIndex(t => t.name === m.track); return i < 0 ? focus : i }
-// the edited track's markers: those a press, a drag, a double-click or an edit drawn ahead (moved) go by; every one
-// without tracks
-const ours = m => !tracks || markLane(m) === focus
-// and the ends of the places takes went in there (sections), as a range marker's: what a dragged edge or a caret snaps to
-// (a marker dragged, not to where it was)
-const ownMarks = () => [...markers.filter((m, i) => ours(m) && i !== drag?.marker).flatMap(marked), ...ownTakes().flatMap(t => [t.at, Math.min(t.end, duration)])]
-const ownTakes = () => sections.filter(t => t.lane == null || !tracks || t.lane === focus)
-// What a dragged time went onto (stick): a marker, by its name (a range's start or end), as Figma names what an object
-// snapped to, { text }; a sound's start or a hit, the takes' start, the side the sound is on, { side: 1 }; its end or
-// the takes' end, { side: -1 }; a cue a warp placed, nothing. A marker's or the takes' place, in the strip: `strip`
-function snappedTo(q) {
-  for (const m of markers.filter(ours)) {
-    const [a, b] = marked(m), name = m.label || 'Marker'
-    if (q === a) return { text: b == null ? name : `${name} start`, strip: true }
-    if (q === b) return { text: `${name} end`, strip: true }
-  }
-  for (const t of ownTakes()) if (q === t.at || q === Math.min(t.end, duration)) return { side: q === t.at ? 1 : -1, strip: true }
-  const side = SIDES[cueKinds[cues?.indexOf(q) ?? -1]]
-  return side ? { side } : {}
-}
-// the side a cue's sound is on, by its kind
-const SIDES = { start: 1, hit: 1, end: -1 }
-// where a marker is now: the edited track's where an edit drawn ahead takes it (null where it takes it out), another's
-// where it is
-const placed = m => ours(m) ? moved(m.time) : m.time
-const RECORD = 10, unwritten = () => empty && !duration && !arriving && !recording && end > start
-function taking() {
-  const { at, total } = recording, last = at + (recording.length - recording.lead) / recording.rate
-  assign({ duration: Math.max(total, last) })
-  const span = end - start, head = span * .9 * lanesEnd(lanes()) / plot().w
-  if (last > start + head) setRange(last - head, last - head + span, true)
-  assign({ pieces: [{ s0: 0, s1: at, d0: 0, d1: at }, { s0: last, s1: total, d0: last, d1: total }].filter(p => p.s1 > p.s0) })
-  invalidate()
-}
-// where the take is drawn, px from the plot's left
-const takes = () => [x(recording.at), x(recording.at + (recording.length - recording.lead) / recording.rate)]
-function ended() {
-  if (!recording) return
-  for (const picture of [...recording.waves, ...recording.specs]) picture.destroy()
-  assign({ duration: recording.total })
-  assign({ recording: null })
-  assign({ leveled: false })
-}
-function put(channels, sampleRate, leaves = null) {
-  channels ||= []
-  const all = replace(channels[0]?.length ? channels[0].length / (sampleRate || rate) : 0)
-  if (!arriving && !windows && channels.length && channels.length === data.length && (sampleRate || rate) === rate && channels.every((y, c) => y.length === data[c].length)) {
-    ended()
-    const [i0, i1] = changed(data, channels)
-    assign({ data: channels })
-    if (i1 > i0) channels.forEach((y, c) => { waves[c].set(y.subarray(i0, i1), i0); specs[c]?.set(y.subarray(i0, i1), i0) })
-    tints.clear()
-    // the twins of the samples before, where none came weighed for these, gone: never the last one's levels over them
-    if (i1 > i0) unheard(!!leaves || !twinOf.size)
-    twinsFor(leaves)
-    return invalidate()
-  }
-  assign({ arriving: null })
-  ended()
-  assign({ count: channels.length }); assign({ rate: sampleRate || rate })
-  assign({ duration: channels[0]?.length ? channels[0].length / rate : 0 })
-  lay(count)
-  assign({ windows: null }); assign({ windowsOf: windowsOf + 1 }); assign({ leavesOf: null })
-  unheard()
-  fill(assign({ data: channels }))
-  renew(all)
-  twinsFor(leaves)
-}
-// Every lane's waveform the screen's colour, a track's as a channel's, or coloured as its look has it (drawWave); a
-// sound's channels in one lane each its own hue
-function lay(n) {
-  while (waves.length > n) waves.pop().destroy()
-  while (specs.length > n) specs.pop().destroy()
-  for (let i = 0; i < n; i++) {
-    hues[i] = !tracks && waveLook.lanes === 'one' && n > 1 ? channel(i, n) : rgba(color('--color-screen-wave'))
-    waves[i] ||= new Waveform(gl)
-    if (sgl) (specs[i] ||= new Spectrogram(sgl, { ...look })).update({ background: color('--color-screen'), color: shades() })
-  }
-}
-// The samples [i0, i1) where two outputs of one length differ, in any channel; [0, 0] where none do
-function changed(was, now) {
-  let i0 = Infinity, i1 = 0
-  now.forEach((y, c) => {
-    const x = was[c]
-    let a = 0, b = y.length
-    while (a < b && x[a] === y[a]) a++
-    if (a === b) return
-    while (b > a && x[b - 1] === y[b - 1]) b--
-    i0 = Math.min(i0, a); i1 = Math.max(i1, b)
-  })
-  return i1 > 0 ? [i0, i1] : [0, 0]
-}
-// Each channel's samples for its pictures: the whole output, or none yet of one arriving
-const fill = channels => { tints.clear(); channels.forEach((data, i) => { waves[i].update({ data }); specs[i]?.update({ data, sampleRate: rate, levels: null }) }) }
-// After new samples: the levels again, the selection and the caret within them, and the range kept where it still fits;
-// for an output an edit here drew ahead (`stay`), even where the sound now ends before it, unless none of it is left
-function renew(all) {
-  assign({ leveled: false })
-  if (!duration) { assign({ band: null, selection: null }); assign({ more: [] }); assign({ cursor: 0 }); assign({ start: 0 }); assign({ end: RECORD }); invalidate(); return }
-  if (selection) assign({ selection: [Math.min(selection[0], duration), Math.min(selection[1], duration)] })
-  if (selection && selection[1] - selection[0] <= 0) assign({ band: null, selection: null })
-  assign({ more: more.map(([a, b, ...f]) => [Math.min(a, duration), Math.min(b, duration), ...f]).filter(([a, b]) => b > a || a === b && b < duration) })
-  assign({ cursor: Math.min(cursor, duration) })
-  if (all || end - start <= 0) fitTo(0, duration)
-  // a sound arriving, its length not known yet, is kept within it once it is (finish)
-  else if (!(arriving && arriving.total == null) && (start >= duration || !stay && seenTo() > duration + 1e-9)) { const a = duration - (seenTo() - start); setRange(a, a + end - start) }
-  else invalidate()
-}
+
+// The output as a picture: the waveform, the spectrogram or the notes, a sound's lanes alike, each track's its own
+// (`kinds`). A lane per channel, apart by a gap: each
+// channel reads on its own (a sound panned to one side, a different take); the caret, the playhead, a selection and the
+// cues are drawn in each lane, never across the gap, which holds no sound. With tracks, a lane per track, the one edited
+// holding the caret and the selection (`tracks`). Levels (in dB or as sample values, `levels`)
+// or frequencies on the right, each under its tick, the lowest frequency at the lane's foot; the meters just before
+// them; times on the row right under the lanes (`ruler`), each label with its tick running down from them, and over
+// them the times that matter now, the pointer's (where a press would take it), the caret's, a selection's, each tick
+// joined to its line. Times go by the zoom's precision, a 1-2-5 step of a pixel or a little more, and read with all its
+// decimals, so the script gets the numbers the view shows. Near a mark on the right (a frequency, a level) the pointer
+// takes its value. The wheel scrolls, through time or through zoomed-in frequencies or levels; a pinch, or Ctrl and the
+// wheel, zooms the axis under the pointer: time, the frequencies, or the levels (a quiet sound magnified, or what goes
+// over full scale shown). Zoomed in, a faint scrollbar at the time row's top, over its ticks, says where the view is in the sound and
+// drags it. On the spectrogram the pointer reads the level under it, marked on the spectrum meter, whose fill is the
+// spectrogram's colours over its levels: the legend.
+// One gesture, select, as in a text: a press puts the caret and sounds the moment under it, all else gone at once, a
+// drag selects, a double-click the fragment around it (between the cues around it: where sounds start and end, where
+// they hit, the markers), or the pause it is in, a triple-click the sound between the pauses either side; however made, a
+// selection puts the caret at its start, the pointer an I-beam: a range is of time, no box. What there is stays when a
+// press takes it: a caret's line, any of them, drags the caret; a range's edge, any of them, drags it, lighting when a
+// press would take it, and meeting the other edge leaves a caret; inside it, a drag moves its audio, as selected text
+// is dragged, the pointer a hand. The time row is a ruler, as a DAW's: pressed, the
+// caret goes there alone, what is selected staying (Reaper's); dragged, a range; held still, the caret, dragged. The
+// keys say how, the same everywhere, each its pointer: Shift sums (the selection, or the caret, extended to the press
+// at once from where it was begun, as in a text, a drag going on with it; the I-beam with a chevron the way it goes).
+// Alt adds (another caret, VS Code's, the one Shift then extends, or another range; dragged inside the selection, a
+// copy of its audio, Finder's and Figma's Alt-drag; the I-beam with a plus), and measures, as Figma's Alt does: held,
+// the pointer a cross, every cue showing where a press would snap, the pointer's place dashed out to the axes in the
+// measuring red, and how far it is from what is selected, a line along the time row, its length on it. ⌘ (Ctrl) aims
+// and empowers: held, the pointer a cross, the cue under it lit; what a press does: a range's end sets its length, as its grip does; the cues light and
+// drag, the audio either side stretching; on the spectrogram a press makes a box of time and frequency, a band, as
+// Photoshop's selections; and any drag aims finely (its moves a quarter as far, nothing snapping).
+// A pressed or dragged time goes onto a cue (shown or not) or a marker within a few pixels of it, which lights, as
+// Figma's objects snap (`snapping`). A range's handles, shown with the pointer on or by it, each do one thing, the
+// range under the pointer's among several, say what when the pointer is on one, and a click on one turns it to its next way (`onmode`), as a
+// tool's options cycle, no menu: its top corners, drawn as the fade they make, fade it (inward, from its edge; outward,
+// the audio past it goes, crossfading into it; a click, the next curve); the pill on its top edge, dragged up or down,
+// sets its level; the tools at its foot, side by side, a voice's pitch, intonation and formants, each dragged up or down
+// (the pitch's clicked, its curve);
+// the square past its end, a square's height off each lane's foot, trims it (cut back, or silence added), stretches it
+// or speeds it (a click, the next). With none, the square past the caret pulls silence open there, as trimming out
+// does. None while it plays. What else shows (`show`) is grabbed where it is, never through a mode: the cues (held ⌘),
+// the gain line and its points; editing pitch (`pitching`), on the spectrogram framed on the voice, the pitch curve, dragged
+// up or down the whole pitch line with it, a click on it a point of the line there, dragged, as RX's Dialogue Contour has
+// them, and its bends, each dragged bending the voice between its neighbours, as Praat's Manipulation; on the
+// waveform the pitch line itself. Holding the caret or dragging it, or an edge, hears the moment under it (`onscrub`; a box, only its band).
+// What a drag does as it goes, what a handle or an edge does, is said by the pointer in the page's hints (`hint`,
+// hint.js); a pitch, an intonation or formants dragged are heard as they will sound, from where they start (`onaudition`).
+// The view never changes audio: edits go to the script through `onedit`.
 // The modifiers, wherever the focus is: what a press would do shows at once, before the pointer moves
 const modifier = event => {
   if (!['Meta', 'Control', 'Alt', 'Shift'].includes(event.key)) return
@@ -133,38 +72,6 @@ const modifier = event => {
   // pressed or let go during a drag, as though the pointer moved: a range on the spectrogram may become a box
   if (drag?.raw && !drag.pinch) { const keys = { pointerType: drag.last[0].pointerType, metaKey: event.metaKey, ctrlKey: event.ctrlKey, altKey: event.altKey, shiftKey: event.shiftKey }; drags(keys, ...aimed(keys, ...drag.raw)) }
   invalidate(true)
-}
-// A new output in place of the one shown. One an edit here drew ahead (`pieces`) takes its place without a move: the
-// view where it was, at its scale, the cues and markers where the edit took them. Another shows all of it where all
-// of the last showed; zoomed out past its end, the room on its right, at the same scale, while it fits there (a
-// reload, an edit that shortens it); its cues go if its length changed (they were the last one's), until its own
-// come, unless the view moved them to where they are in it (a cue dragged, `ahead`).
-// What has arrived grown to `n` samples: past what was expected, or with nothing expected, as long as what has come;
-// all of it shown as it grows, unless the view was zoomed in meanwhile
-function grown(n) {
-  arriving.length = Math.max(arriving.length, n)
-  const all = arriving.fit && whole()
-  if (arriving.length / rate > duration) assign({ duration: arriving.length / rate })
-  if (all) fitTo(0, duration)
-  else invalidate()
-}
-let stay = false
-function replace(total) {
-  const seen = seenTo(), roomy = seen > duration + 1e-9 && total != null && total <= seen
-  const expected = stay = !!pieces, all = !duration || !expected && whole() && !roomy
-  if (expected) {
-    // the cues where the edit took them, each as plain as it was
-    const kept = (cues ?? []).flatMap(t => moved(t) == null ? [] : [[t, moved(t)]])
-    cues && assign({ cues: kept.map(([, m]) => m) })
-    assign({ ranks: new Map(kept.map(([t, m]) => [m, ranks.get(t)])) })
-    assign({ markers: markers.map(m => ({ ...m, time: placed(m) })).filter(m => m.time != null) })
-  }
-  else if (!ahead && total != null && Math.abs(total - duration) > 1e-9) assign({ cues: null })
-  assign({ ahead: false })
-  // an edit still being dragged keeps what it draws: the output arriving is an older one, from before the drag, and
-  // the next move of the pointer lays the pieces out again over it
-  if (!drag) { assign({ guest: null, pieces: null }); freeze([]) }
-  return all
 }
 
 export default function view(root, { onaxis = () => {}, onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onaudition = () => {}, onfocus = () => {}, ontake = () => {}, onfork = () => {}, onghost = () => {}, onlayout = () => {}, onheight = () => {}, onlook = () => {}, onbusy = () => {}, onprobe = () => {}, onsamples = null, onheard = null, hint = null, keepRoom = true, zoom: { in: closest = 32, out: farthest = 4 / 3 } = {}, overshoot = .5, timeRow = 'foot' } = {}) {
@@ -569,4 +476,3 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     snapshot, reveal
   }
 }
-export { markLane, ownMarks, snappedTo, SIDES, placed, RECORD, unwritten, takes }

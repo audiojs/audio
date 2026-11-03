@@ -1,5 +1,5 @@
 import scales from '../scale.js'
-import { ownMarks, RECORD } from '../view.js'
+import { ownMarks, RECORD } from './data.js'
 import { plot, bandOf, lanes, BAR, THUMB, MAP } from './geometry.js'
 import { fine } from './gestures.js'
 import { GUTTER, EDGE, SNAP, STICK, ONTO, FINE, NOTES, midiOf, LEVELS, TICK, GAIN, root, onaxis, onprobe, closest, farthest, overshoot, color, c, rate, duration, show, meters, recording, start, end, fview, selection, cursor, playhead, nudge, steered, cues, ranks, contour, snapping, aview, levelUnits, pitching, scroll, zoomed, framed, unframed, pull, assign } from './model.js'
@@ -11,55 +11,6 @@ import { size, label } from './strips.js'
 
 // Scales: time and value to pixels and back, the ticks' steps, the axis' width, zoom and pinch, the ranges in view
 
-// The output as a picture: the waveform, the spectrogram or the notes, a sound's lanes alike, each track's its own
-// (`kinds`). A lane per channel, apart by a gap: each
-// channel reads on its own (a sound panned to one side, a different take); the caret, the playhead, a selection and the
-// cues are drawn in each lane, never across the gap, which holds no sound. With tracks, a lane per track, the one edited
-// holding the caret and the selection (`tracks`). Levels (in dB or as sample values, `levels`)
-// or frequencies on the right, each under its tick, the lowest frequency at the lane's foot; the meters just before
-// them; times on the row right under the lanes (`ruler`), each label with its tick running down from them, and over
-// them the times that matter now, the pointer's (where a press would take it), the caret's, a selection's, each tick
-// joined to its line. Times go by the zoom's precision, a 1-2-5 step of a pixel or a little more, and read with all its
-// decimals, so the script gets the numbers the view shows. Near a mark on the right (a frequency, a level) the pointer
-// takes its value. The wheel scrolls, through time or through zoomed-in frequencies or levels; a pinch, or Ctrl and the
-// wheel, zooms the axis under the pointer: time, the frequencies, or the levels (a quiet sound magnified, or what goes
-// over full scale shown). Zoomed in, a faint scrollbar at the time row's top, over its ticks, says where the view is in the sound and
-// drags it. On the spectrogram the pointer reads the level under it, marked on the spectrum meter, whose fill is the
-// spectrogram's colours over its levels: the legend.
-// One gesture, select, as in a text: a press puts the caret and sounds the moment under it, all else gone at once, a
-// drag selects, a double-click the fragment around it (between the cues around it: where sounds start and end, where
-// they hit, the markers), or the pause it is in, a triple-click the sound between the pauses either side; however made, a
-// selection puts the caret at its start, the pointer an I-beam: a range is of time, no box. What there is stays when a
-// press takes it: a caret's line, any of them, drags the caret; a range's edge, any of them, drags it, lighting when a
-// press would take it, and meeting the other edge leaves a caret; inside it, a drag moves its audio, as selected text
-// is dragged, the pointer a hand. The time row is a ruler, as a DAW's: pressed, the
-// caret goes there alone, what is selected staying (Reaper's); dragged, a range; held still, the caret, dragged. The
-// keys say how, the same everywhere, each its pointer: Shift sums (the selection, or the caret, extended to the press
-// at once from where it was begun, as in a text, a drag going on with it; the I-beam with a chevron the way it goes).
-// Alt adds (another caret, VS Code's, the one Shift then extends, or another range; dragged inside the selection, a
-// copy of its audio, Finder's and Figma's Alt-drag; the I-beam with a plus), and measures, as Figma's Alt does: held,
-// the pointer a cross, every cue showing where a press would snap, the pointer's place dashed out to the axes in the
-// measuring red, and how far it is from what is selected, a line along the time row, its length on it. ⌘ (Ctrl) aims
-// and empowers: held, the pointer a cross, the cue under it lit; what a press does: a range's end sets its length, as its grip does; the cues light and
-// drag, the audio either side stretching; on the spectrogram a press makes a box of time and frequency, a band, as
-// Photoshop's selections; and any drag aims finely (its moves a quarter as far, nothing snapping).
-// A pressed or dragged time goes onto a cue (shown or not) or a marker within a few pixels of it, which lights, as
-// Figma's objects snap (`snapping`). A range's handles, shown with the pointer on or by it, each do one thing, the
-// range under the pointer's among several, say what when the pointer is on one, and a click on one turns it to its next way (`onmode`), as a
-// tool's options cycle, no menu: its top corners, drawn as the fade they make, fade it (inward, from its edge; outward,
-// the audio past it goes, crossfading into it; a click, the next curve); the pill on its top edge, dragged up or down,
-// sets its level; the tools at its foot, side by side, a voice's pitch, intonation and formants, each dragged up or down
-// (the pitch's clicked, its curve);
-// the square past its end, a square's height off each lane's foot, trims it (cut back, or silence added), stretches it
-// or speeds it (a click, the next). With none, the square past the caret pulls silence open there, as trimming out
-// does. None while it plays. What else shows (`show`) is grabbed where it is, never through a mode: the cues (held ⌘),
-// the gain line and its points; editing pitch (`pitching`), on the spectrogram framed on the voice, the pitch curve, dragged
-// up or down the whole pitch line with it, a click on it a point of the line there, dragged, as RX's Dialogue Contour has
-// them, and its bends, each dragged bending the voice between its neighbours, as Praat's Manipulation; on the
-// waveform the pitch line itself. Holding the caret or dragging it, or an edge, hears the moment under it (`onscrub`; a box, only its band).
-// What a drag does as it goes, what a handle or an edge does, is said by the pointer in the page's hints (`hint`,
-// hint.js); a pitch, an intonation or formants dragged are heard as they will sound, from where they start (`onaudition`).
-// The view never changes audio: edits go to the script through `onedit`.
 export let scale = 'log'
 // Geometry, in CSS pixels; `gutter`, the axis' width at the right (fitAxis)
 export let gutter = GUTTER
