@@ -11,7 +11,7 @@ import getType from 'audio-type'
 import encode from '@audio/encode'
 import convert, { parse as parseFmt } from 'pcm-convert'
 import parseDuration from 'parse-duration'
-import { resolveBuses } from './batch.js'
+import { resolveBuses, held } from './batch.js'
 
 audio.version = '2.14.0'
 
@@ -511,7 +511,7 @@ function useOp(m) {
   let snapParams = get => {
     let s = {}
     for (let name of names) {
-      let sp = specs[name], v = given(get, name) ?? sp.default
+      let sp = specs[name], v = held(sp, given(get, name) ?? sp.default)
       s[name] = sp.type === 'number' ? new Float32Array([v]) : v
     }
     return s
@@ -540,13 +540,9 @@ function useOp(m) {
   let fill = (st, ctx) => {
     for (let name of names) {
       let sp = specs[name]
-      let v = given(n => ctx[n], name) ?? sp.default
-      if (sp.type === 'number') {
-        if (v < sp.min) v = sp.min
-        else if (v > sp.max) v = sp.max
-        st.bufs[name][0] = v
-        st.live[name] = st.bufs[name]
-      } else st.live[name] = sp.type === 'enum' && !sp.values.includes(v) ? sp.default : v
+      let v = held(sp, given(n => ctx[n], name) ?? sp.default)
+      if (sp.type === 'number') { st.bufs[name][0] = v; st.live[name] = st.bufs[name] }
+      else st.live[name] = v
     }
   }
 

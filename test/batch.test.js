@@ -180,3 +180,23 @@ test('layouts — count declarations keep ctx.layouts undefined and their widths
 	assert.equal(toBatch(any)(x).length, 1024, 'a bare channel in, a bare channel out')
 	assert.equal(seen.pop(), undefined)
 })
+
+// One value rule wherever an atom runs, as a worklet's AudioParam holds a value: a number within [min, max], an enum one
+// of its values, else its default. toBatch, toStream and audio.use alike
+test('params: out of range, held as the worklet holds them, in every host', async () => {
+	const { default: audio } = await import('../audio.js')
+	function scale (ctx) {
+		return (ins, outs, p) => {
+			let g = p.gain[0] * (p.sign === 'minus' ? -1 : 1)
+			for (let c = 0; c < outs[0].length; c++) for (let i = 0; i < outs[0][c].length; i++) outs[0][c][i] = ins[0][c][i] * g
+		}
+	}
+	scale.params = { gain: { type: 'number', min: 0, max: 2, default: 1 }, sign: { type: 'enum', values: ['plus', 'minus'], default: 'plus' } }
+	let x = new Float32Array(256).fill(.25), asked = { gain: 5, sign: 'sideways' }
+	assert.deepEqual([...toBatch(scale)(x, { params: asked })], [...x].map(v => v * 2), 'toBatch')
+	let s = toStream(scale, { params: asked })
+	assert.deepEqual([...s.write(x)], [...x].map(v => v * 2), 'toStream')
+	audio.use(scale)
+	let [y] = await audio.from([x], { sampleRate: SR }).scale(asked).read()
+	assert.deepEqual([...y], [...x].map(v => v * 2), 'audio.use')
+})

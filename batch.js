@@ -7,12 +7,16 @@
 
 const DEFAULTS = { sampleRate: 44100, maxBlockSize: 2048 }
 
+// A value as its param's spec allows it, as a worklet's AudioParam holds one: a number within [min, max], an enum one of
+// its values, else its default. Every host's rule: toBatch, toStream, and audio's own (core.js useOp)
+export const held = (s, v) => s.type === 'number' ? (v < s.min ? s.min : v > s.max ? s.max : v) : s.type === 'enum' && !s.values?.includes(v) ? s.default : v
+
 function paramState (specs, init = {}) {
 	let state = {}
 	for (let name in specs) {
 		let s = specs[name]
 		let given = init[name] !== undefined ? init[name] : s.alias != null ? init[s.alias] : undefined   // alias: the param's former name
-		let v = given !== undefined && typeof given !== 'function' ? given : s.default
+		let v = held(s, given !== undefined && typeof given !== 'function' ? given : s.default)
 		state[name] = {
 			spec: s,
 			fn: typeof given === 'function' ? given : null,
@@ -29,7 +33,7 @@ function paramState (specs, init = {}) {
 function updateParams (state, live, t, blockFrames, sampleRate) {
 	for (let name in state) {
 		let p = state[name], s = p.spec
-		let target = p.fn ? p.fn(t) : p.value
+		let target = held(s, p.fn ? p.fn(t) : p.value)
 		if (s.type !== 'number') { live[name] = target; continue }
 		if (p.init) { p.current = target; p.init = false; p.rampFrom = null }
 		else if (s.smoothing > 0 && p.current !== target) {
@@ -109,7 +113,8 @@ function makeCtx (factory, opts, state, events) {
 	let snapshot = {}
 	for (let name in specs) {
 		let p = state[name]
-		snapshot[name] = specs[name].type === 'number' ? new Float32Array([p.fn ? p.fn(0) : p.value]) : (p.fn ? p.fn(0) : p.value)
+		let v = held(specs[name], p.fn ? p.fn(0) : p.value)
+		snapshot[name] = specs[name].type === 'number' ? new Float32Array([v]) : v
 	}
 	let declared = factory.events?.out || {}
 	let ctx = {
