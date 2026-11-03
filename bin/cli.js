@@ -17,7 +17,7 @@ import { lufsFromEnergy } from '../fn/loudness.js'
 import { specs } from '../fn/check.js'
 import { LOUDNESS } from '../fn/specs.js'
 import { formats as cutFormats } from '../fn/cuts.js'
-import parseDuration from 'parse-duration'
+import { parseTime, TIMECODE } from '../core.js'
 import fft from 'fourier-transform'
 
 // FIXME: why do we have so many dynamic imports here? They can be static, no?
@@ -76,21 +76,12 @@ function parseValue(str) {
   if (/^[\d,_]+$/.test(str) && str.includes(',')) {
     return str.split(',').map(s => s === '_' ? null : Number(s))
   }
-  // timecode: MM:SS or HH:MM:SS[.mmm]
-  let tc = str.match(/^(\d+):(\d{1,2})(?::(\d{1,2}))?(?:\.(\d+))?$/)
-  if (tc) {
-    let [, a, b, c, frac] = tc
-    let s = c != null ? +a * 3600 + +b * 60 + +c : +a * 60 + +b
-    if (frac) s += +('0.' + frac)
-    return s
-  }
+  // timecode (MM:SS, HH:MM:SS[.mmm]): core's, read as core reads it
+  if (TIMECODE.test(str)) return parseTime(str)
   // duration — only parse if string is purely time tokens (digits + time units),
   // never on path-like input (e.g. tmp-1.wav must not become 1). Leading `-?` supports
   // the fade-out shorthand (`fade .2s -1s cos`).
-  if (new RegExp(`^-?${NUM}(ms|[smhdwy])(${NUM}(ms|[smhdwy]))*$`, 'i').test(str)) {
-    let d = parseDuration(str, 's')
-    if (d != null && isFinite(d)) return d
-  }
+  if (new RegExp(`^-?${NUM}(ms|[smhdwy])(${NUM}(ms|[smhdwy]))*$`, 'i').test(str)) return parseTime(str)
   // Malformed numeric/unit value (e.g. extra decimal points, "1.2.3db") — reject rather
   // than silently NaN-poisoning downstream math or passing it through as a bogus string.
   if (/^-?[\d.]+(db|khz|hz)$/i.test(str) || /^-?[\d.]+(ms|[smhdwy])([\d.]+(ms|[smhdwy]))*$/i.test(str) || /^-?[\d.]+$/.test(str))
@@ -120,7 +111,7 @@ function isTime(s) {
   if (typeof s !== 'string') return false
   if (s.includes('..')) return isRange(s)
   if (/^-?[\d.]+$/.test(s)) return false  // bare number — ambiguous, don't treat as time
-  if (/^(\d+):(\d{1,2})(?::(\d{1,2}))?(?:\.(\d+))?$/.test(s)) return true  // timecode
+  if (TIMECODE.test(s)) return true
   return /^-?[\d.]+(ms|[smhdwy])([\d.]+(ms|[smhdwy]))*$/i.test(s)  // strict: digits + time units, no path-like input
 }
 

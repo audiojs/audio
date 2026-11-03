@@ -25,12 +25,14 @@ export function named(o) {
   return rest
 }
 
+/** A timecode: HH:MM:SS.mmm, MM:SS.mmm or MM:SS */
+export const TIMECODE = /^(\d+):(\d{1,2})(?::(\d{1,2}))?(?:\.(\d+))?$/
+
 /** Parse time value: number passthrough, string via parse-duration or timecode. */
 export function parseTime(v) {
   if (v == null) return v
   if (typeof v === 'number') { if (!Number.isFinite(v)) throw new Error(`Invalid time: ${v}`); return v }
-  // Timecode: HH:MM:SS.mmm, MM:SS.mmm, or MM:SS
-  let tc = v.match(/^(\d+):(\d{1,2})(?::(\d{1,2}))?(?:\.(\d+))?$/)
+  let tc = v.match(TIMECODE)
   if (tc) {
     let [, a, b, c, frac] = tc
     let s = c != null ? +a * 3600 + +b * 60 + +c : +a * 60 + +b
