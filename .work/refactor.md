@@ -121,13 +121,13 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
         same in the `length` getter's cache, found beside it: an inserted sound cropped left the old length
   - [x] (4484f6e: fn/specs.js) `normalize('apple' | 'ebu')` throws (`fn/normalize.js:7`, `:316`) where `check('apple' | 'ebu')` works (`fn/check.js:113`)
   - [x] (bf72448) `trim` and `shrink` count blocks by `audio.BLOCK_SIZE`, `silence` by `stats.blockSize` (`fn/trim.js:52`, `fn/shrink.js:17`)
-  - [ ] the facade's playback has no `preservesPitch` and no paused clock (`worker.js:223-398` against `fn/play.js:172-332`)
+  - [x] (1792254, 6fafadc) the facade's playback had no `preservesPitch` and no paused clock: fixed by the session below; a seek
+        made paused before the deck opened was lost locally (the facade kept it): fixed too
   - [x] (cc611f4: `held()` in batch.js) `toBatch` and `audio.use` feed one plugin different values: core clamps to [min, max] and resets a bad enum, batch doesn't
         (`core.js:545`, `batch.js:10-46`)
 - [ ] duplicates inside the library (audit 11-02; the ones marked † checked against the code):
   - [x] (6995b46) the input an edit reads, written 18 times: `inputOf()` in `plan.js`; (2263b84) the stamp, `stampOf()`
   - [ ] the rest of prepare-once-then-play-by-offset (the arrived wait, the fingerprint key, the restamp): one `prepared()`
-  - [ ] the playback session twice, `fn/play.js:172-332` and `worker.js:223-398`: one engine-free session in `deck.js` (~100)
   - [ ] `{ at, duration }` → samples resolved by hand in ~30 places, `opRange` and `rangeOf` in two modules: one `span()` in core (~60)
   - [ ] the contract plugin host twice, `core.js:498-669` and `batch.js`: batch.js owns it (~35)
   - [x] (4484f6e) delivery targets in `normalize.js`, `check.js`, `audio.d.ts`, `cli.js`, `SKILL.md`: one table, fn/specs.js
@@ -143,8 +143,9 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
   - [x] (739b1ce) shared helpers living in feature plugins: `fingerprint` to core, `playback` and `xfadeLen` to plan, the silence
         threshold to stats; importing `fn/align.js` alone no longer registers `vocals`. Left as domain reuse: pitch on stretch's
         shifter, derustle and auto on deepfilter's model run, analyses on spectrum's mel bands
-  - [ ] (with an agent, in a worktree) the playback session twice, `fn/play.js` and `worker.js`: one in `deck.js`; the facade
-        gains `preservesPitch` and the paused clock
+  - [x] (1792254, 6fafadc) the playback session twice, `fn/play.js` and `worker.js`: one `playback()` in `deck.js`, each side an
+        adapter of about 20 lines (58 lines fewer). Playback page A/B over 12 pairs at load 13 to 18: the same failures both sides
+        (loop seams every run; clicks 3 of 14 on the branch, 2 of 13 on master); playground's 58 playback tests pass on it
   - [ ] not to merge (different on purpose): the deck worklet's own sinc and WSOLA (its source becomes the worklet), the
         interpolation kernels, periodic vs symmetric Hann, the crossfade laws, exact vs streaming loudness gating
 - Done: `playground/worker.js` is the script runner and the page protocol only; full suite green; `docs/architecture.md` updated
@@ -189,6 +190,8 @@ Work sessions have asked for, held until the stage that frees its files lands (t
   - [ ] more room between `.layer-name` and `.track-mute`; the rename field without the accent outline, as wide as its text
   - [ ] the layer menu's Track section: mute and solo, lock, rename, delete
 - audio-2b: its next work, on the split files (after stage 4)
+- playground/player.js says the speed plays "as a tape's: the pitch with it"; preservesPitch is true by default on both
+  sides now, as before on the local one: the comment is stale
 - the audiojs.github.io session: an embed that loads only what its UI config uses (folded into stage 2); its host-side
   preview in playground/embed.js was let through after stage 0
 - the audiojs.github.io session, for the home's embed (after stage 4, unless the user overrides):
