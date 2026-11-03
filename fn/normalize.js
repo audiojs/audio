@@ -1,4 +1,5 @@
 import { dcOffsets, peakDb, rmsDb, lufsDb, lufsFromStats, printed } from './loudness.js'
+import { i0, sinc } from './dsp.js'
 import audio, { resolveChannels, FULL, blockAt } from '../core.js'
 import { buildPlan, render } from '../plan.js'
 import { LOUDNESS, specOf } from './specs.js'
@@ -60,8 +61,6 @@ audio.op('dc', {
 // before this one let limited speech out up to 0.22 dB over the ceiling at 8 kHz, 0.06 at
 // 16 kHz.) With the newest input at n, phases ¼ ½ ¾ land inside the interval (n−48, n−47).
 const HALF = 48, TAPS = 2 * HALF, MID = HALF, LOOK = 0.005, RELEASE = 0.1, BETA = 8
-const sinc = x => x === 0 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x)
-const i0 = x => { let s = 1, t = 1; for (let k = 1; k < 50; k++) s += t *= (x / 2 / k) ** 2; return s }
 // The ¼ filter, the ¾ its mirror, the ½ its own: folded about the middle, each pair of taps x[n − k], x[n − 95 + k]
 // reads as their sum and difference, 3 products a pair for the 3 phases (ODD: half the ¼ filter's odd part)
 const fir = f => { let h = new Float64Array(TAPS), w = 0; for (let j = 0; j < TAPS; j++) { let x = HALF - j - f; w += h[j] = sinc(x) * i0(BETA * Math.sqrt(1 - (x / HALF) ** 2)) / i0(BETA) }; return h.map(v => v / w) }

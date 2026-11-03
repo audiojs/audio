@@ -20,6 +20,7 @@
  */
 
 import { seg, subSeg, spliceSegs, planOffset, isCurve, curveFn } from '../plan.js'
+import { i0, sinc } from './dsp.js'
 import audio, { xfade } from '../core.js'
 import pvocLock from '@audio/stretch/pvoc-lock'
 import * as wsola from '@audio/stretch/wsola'
@@ -173,10 +174,10 @@ const dryAt = (h, c, n) => n >= h.start && n < h.start + h.len ? h.buf[c][n - h.
 // timeline. A stretch's plan put its range there by linear interpolation; read back with a cubic, a range sped up 20×
 // imaged at −32 dB (Catmull-Rom on a tone at a fifth of the rate), and every frame took that junk for partials. Whole
 // places read exactly.
-const ZC = 8, RES = 512, I0 = x => { let s = 1, t = 1; for (let k = 1; k < 25; k++) { t *= (x / 2 / k) ** 2; s += t } return s }
+const ZC = 8, RES = 512
 const KERNEL = Float64Array.from({ length: ZC * RES + 2 }, (_, i) => {
   let x = i / RES
-  return x >= ZC ? 0 : (x ? Math.sin(Math.PI * x) / (Math.PI * x) : 1) * I0(8 * Math.sqrt(1 - (x / ZC) ** 2)) / I0(8)
+  return x >= ZC ? 0 : sinc(x) * i0(8 * Math.sqrt(1 - (x / ZC) ** 2)) / i0(8)
 })
 function dryBand(h, c, x, cut = 1) {
   let fl = Math.floor(x)

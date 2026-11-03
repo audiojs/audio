@@ -20,6 +20,7 @@
  * sample for sample.
  */
 import audio from '../core.js'
+import { hann } from './dsp.js'
 import { fft, ifft } from 'fourier-transform'
 
 // frame, s; the medians' reach: over time each side, s; over frequency each side, Hz (the masks' slope is 4)
@@ -55,7 +56,7 @@ function init(ctx, nch) {
   return {
     N, H, M, Q, K, F, L, R,
     g: [lin(ctx.tonal), lin(ctx.noise), lin(ctx.transient)], beta: ctx.separation ?? 2,
-    win: Float64Array.from({ length: N }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N)),
+    win: hann(N),
     p: Math.round((ctx.blockOffset || 0) * sr),
     in: Array.from({ length: nch }, () => new Float64Array(N)), dry: Array.from({ length: nch }, () => new Float32Array(R)),
     out: Array.from({ length: nch }, () => new Float64Array(R)),

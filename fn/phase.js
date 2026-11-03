@@ -29,6 +29,7 @@
  * untouched. Each output sample turns by the angle at its own time.
  */
 import audio, { arrived, parseTime } from '../core.js'
+import { i0 } from './dsp.js'
 import { isCurve, curveFn, stampOf, inputOf } from '../plan.js'
 import { fft, ifft } from 'fourier-transform'
 
@@ -36,8 +37,6 @@ const TURNS = Symbol('phase.turns'), RAMP = 0.01, REACH = 0.093, BETA = 10
 // the search: a node every SEG s, STEPS angles over half a turn (|y| repeats every 180°), at most WIDE steps apart
 const SEG = 0.2, STEPS = 36, WIDE = 6
 const rad = Math.PI / 180
-
-const i0 = x => { let s = 1, t = 1; for (let k = 1; k < 80; k++) s += t *= (x / 2 / k) ** 2; return s }
 
 // The transformer at a rate: its causal taps' spectrum on an FFT of N = 4(D + 1), blocks of B = N / 2 (N − B ≥ 2D,
 // the taps' reach, so the block's last B outputs are the linear convolution)

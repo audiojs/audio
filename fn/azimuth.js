@@ -25,6 +25,7 @@
  * and back over its last.
  */
 import audio, { arrived, parseTime } from '../core.js'
+import { hann } from './dsp.js'
 import { isCurve, curveFn, stampOf, inputOf } from '../plan.js'
 import { sincInterp } from './resample.js'
 import { fft } from 'fourier-transform'
@@ -113,7 +114,7 @@ async function prepare(a, index) {
 /** Each channel after the first, against it: { curve: { t: s, v: ms }, sign } where it is out of line, else null. */
 export async function measure(stream, sr, chs) {
   let N = 2 ** Math.round(Math.log2(FRAME * sr)), hop = N / 2, K = N / 2, per = Math.max(1, Math.round(WIN * sr / hop))
-  let win = Float64Array.from({ length: N }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N))
+  let win = hann(N)
   let nch = 0, hist = null, fill = 0, frames = 0, t = 0, G = null, wins = []
   const start = () => G = Array.from({ length: nch }, () => ({ re: new Float64Array(K), im: new Float64Array(K), p: new Float64Array(K) }))
   const frame = () => {

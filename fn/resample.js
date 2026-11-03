@@ -16,6 +16,7 @@
  */
 
 import { seg } from '../plan.js'
+import { sinc } from './dsp.js'
 import audio from '../core.js'
 
 // ── Sinc interpolator (Lanczos-windowed) ───────────────────────────────
@@ -25,7 +26,6 @@ import audio from '../core.js'
 // crossings, and with them its transition band and stopband, up to MAX_HALF taps each side (margin: the context
 // plan.js reads around each block).
 const SINC_HALF = 16, MAX_HALF = 64
-const sinc = x => x === 0 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x)
 // Lanczos: the sinc under the central lobe of one `a` times wider, zero at the support's ends (±a zero crossings)
 const lanczos = (x, a) => sinc(x) * sinc(x / a)
 

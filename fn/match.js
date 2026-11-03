@@ -17,6 +17,7 @@
  * the K-weighting (BS.1770) and made up.
  */
 import audio from '../core.js'
+import { downmix } from './dsp.js'
 import { fft } from 'fourier-transform'
 import kWeighting from '@audio/weighting/k'
 import { peaking, lowshelf, highshelf, process as biquad, state } from '@audio/biquad'
@@ -41,12 +42,6 @@ function welch() {
     },
     power: () => frames ? acc.map(v => v / frames) : null,
   }
-}
-
-const mono = (chs, n) => {
-  let m = new Float64Array(n)
-  for (let c of chs) for (let k = 0; k < n; k++) m[k] += c[k] / chs.length
-  return m
 }
 
 /** Power spectrum → ⅓-octave smoothed f ↦ dB (null when silent). */
@@ -102,12 +97,12 @@ function match(input, output, ctx) {
   if (!st) {
     let ref = ctx.source, rsr = ref.sampleRate ?? sr, rn = refLen(ref, rsr)
     // parts matched separately: the channels' mix, or a stereo pair's mid and side
-    let ms = !!ctx.midside && nch === 2, parts = ms ? [ch => mid(ch[0], ch[1]), ch => side(ch[0], ch[1])] : [ch => mono(ch, ch[0].length)]
+    let ms = !!ctx.midside && nch === 2, parts = ms ? [ch => mid(ch[0], ch[1]), ch => side(ch[0], ch[1])] : [ch => downmix(ch, ch[0].length)]
     let rw = parts.map(() => welch())
     for (let off = 0; off < rn; off += 1 << 16) {
       let pcm = ctx.render(ref, off, Math.min(1 << 16, rn - off))
       // a mono reference is all mid: the mid matches it, the side stays as it is
-      parts.forEach((f, p) => !ms ? rw[p].push(mono(pcm, pcm[0].length)) : pcm.length > 1 ? rw[p].push(f(pcm)) : p === 0 && rw[0].push(pcm[0]))
+      parts.forEach((f, p) => !ms ? rw[p].push(downmix(pcm, pcm[0].length)) : pcm.length > 1 ? rw[p].push(f(pcm)) : p === 0 && rw[0].push(pcm[0]))
     }
     let L = Math.max(FRAME, Math.round((ctx.lookahead ?? 10) * sr))
     st = ctx._m = {
@@ -117,7 +112,7 @@ function match(input, output, ctx) {
     }
   }
   // analysis runs L ahead of the output; refit whenever the analyzed length doubles
-  st.parts.forEach((f, p) => st.p[p].sw.push(st.ms ? f(input) : mono(input, len)))
+  st.parts.forEach((f, p) => st.p[p].sw.push(st.ms ? f(input) : downmix(input, len)))
   let end = st.n + len, X = Math.round(XFADE * sr)
   if (end >= st.next) {
     let fitted = st.p.map(q => cascade(fitEq(ctx, q.sw.power(), q.dst, st.kp), st.ms ? 1 : nch))

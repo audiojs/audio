@@ -23,12 +23,12 @@
  * better than sbr().
  */
 import audio, { arrived, fingerprint } from '../core.js'
+import { downmix, pow2, hann } from './dsp.js'
 import { stampOf, inputOf } from '../plan.js'
 import { fft, ifft } from 'fourier-transform'
 import { track } from '@audio/pitch/pyin'
 
 const RECOVERED = Symbol('recover.made')
-const pow2 = n => 2 ** Math.ceil(Math.log2(Math.max(2, n)))
 const db = p => 10 * Math.log10(p + 1e-30)
 // a band limit's edge: CLIFF dB over a third of an octave, staying down: voices fall at most 20 (VoiceBank, 269 of its
 // clean and noisy takes: 19.6); a sinc resampler's edge, 39 to 67; an 8th-order Butterworth's, 26 to 41
@@ -41,7 +41,7 @@ const ramp = (f, a, b) => f <= a ? 0 : f >= b ? 1 : 0.5 - 0.5 * Math.cos(Math.PI
 /** The frames: Hann, N long (a sinusoid of amplitude A peaks at A·N/4), H apart */
 function frames(sr) {
   let N = pow2(2048 * sr / 48000)
-  return { N, H: N / 4, w: Float64Array.from({ length: N }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N)) }
+  return { N, H: N / 4, w: hann(N) }
 }
 
 /** Power spectrum of x's frame centred at c (zero past its ends) */
@@ -93,8 +93,7 @@ export function extension(chs, sr, { cutoff = null, l = null } = {}) {
   let len = chs[0]?.length ?? 0, out = chs.map(() => new Float32Array(len)), top = Math.min(20000, 0.48 * sr)
   let hi = cutoff > 0 && cutoff < top ? cutoff : null
   if (!len || !hi) return out
-  let mono = new Float32Array(len)
-  for (let x of chs) for (let i = 0; i < len; i++) mono[i] += x[i] / chs.length
+  let mono = downmix(chs, len, Float32Array)
   l ??= ltas(mono, sr)
   let f = frames(sr), { N, H } = f, K = N / 2 + 1, bin = sr / N, M = Math.ceil(len / H) + 1
   if (l.length !== K) return out
@@ -173,8 +172,7 @@ async function prepare(a, index) {
   let input = inputOf(a, index)
   let pcm = await input.read(), sr = input.sampleRate, key = `${opts}:${sr}:${fingerprint(pcm)}`
   if (done?.key === key) { done.stamp = stamp; return }
-  let len = pcm[0]?.length ?? 0, mono = new Float32Array(len)
-  for (let x of pcm) for (let i = 0; i < len; i++) mono[i] += x[i] / pcm.length
+  let mono = downmix(pcm, Infinity, Float32Array)
   let l = ltas(mono, sr), cutoff = o.cutoff ?? cutoffOf(l, sr)
   o[RECOVERED] = { key, stamp, cutoff, add: extension(pcm, sr, { cutoff, l }) }
 }

@@ -28,21 +28,16 @@
  * waits for its end.
  */
 import audio, { arrived, fingerprint } from '../core.js'
+import { downmix, pow2, hann } from './dsp.js'
 import { stampOf, inputOf } from '../plan.js'
 import { fft, ifft } from 'fourier-transform'
 
 const ALIGNED = Symbol('align.lag'), WITHIN = 10, SPAN = 60
 
-const mono = (chs, n) => {
-  let m = new Float64Array(Math.min(n, chs[0]?.length ?? 0))
-  for (let ch of chs) for (let i = 0; i < m.length; i++) m[i] += ch[i] / chs.length
-  return m
-}
-const pow2 = n => 2 ** Math.ceil(Math.log2(Math.max(2, n)))
 
 /** Onset envelope: per hop, the sum over bins of the rise in log magnitude (spectral flux), its mean taken off */
 function envelope(x, N, H) {
-  let K = N / 2 + 1, win = Float64Array.from({ length: N }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N))
+  let K = N / 2 + 1, win = hann(N)
   let F = Math.max(0, Math.floor((x.length - N) / H) + 1), e = new Float64Array(F), prev = new Float64Array(K), f = new Float64Array(N)
   for (let t = 0; t < F; t++) {
     for (let i = 0; i < N; i++) f[i] = x[t * H + i] * win[i]
@@ -200,8 +195,8 @@ async function prepare(a, index) {
   let key = `${sr}:${opts}:${fingerprint(pcm)}:${fingerprint(r)}`
   if (got?.key === key) { got.stamp = stamp; return }
   let n = Math.round((o.span ?? SPAN) * sr), max = Math.round((o.within ?? WITHIN) * sr)
-  let d = o.drift === false ? null : drift(mono(pcm, Infinity), mono(r, Infinity), sr, max)
-  o[ALIGNED] = { key, stamp, sr, ...d ? { D: d.b, rho: d.rho !== 1 && d.rho, shared: d.shared } : { D: lag(mono(pcm, n), mono(r, n), sr, max) } }
+  let d = o.drift === false ? null : drift(downmix(pcm, Infinity), downmix(r, Infinity), sr, max)
+  o[ALIGNED] = { key, stamp, sr, ...d ? { D: d.b, rho: d.rho !== 1 && d.rho, shared: d.shared } : { D: lag(downmix(pcm, n), downmix(r, n), sr, max) } }
 }
 
 // the lag found: the head cut, or silence before it; where it drifts, the rate first: a copy (or a rate no ear hears as
