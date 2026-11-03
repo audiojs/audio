@@ -1820,6 +1820,23 @@ async function open() {
   // the whole sound's levels read, shown or not (a narrow bar gives them way)
   await wholeLevels().waitFor({ state: 'attached' })
 }
+// The page settled (editor.js __settled): no run waiting to start, asked or on its way, then two frames drawn; within `ms`
+async function settled(p = page, ms = 30000) {
+  await p.waitForFunction(() => globalThis.__settled, null, { timeout: ms })
+  await p.evaluate(ms => Promise.race([__settled(), new Promise((_, no) => setTimeout(() => no(new Error(`Not settled in ${ms} ms`)), ms))]), ms)
+}
+// Frames drawn, `n`: what the last input changed is on the screen (the view draws on the next animation frame)
+const frames = (n = 2, p = page) => p.evaluate(async n => { for (let i = 0; i < n; i++) await new Promise(requestAnimationFrame) }, n)
+// What `read` reads once `check` (its assertions) passes on it, read again a frame after each failing check, `ms` at
+// most: the reading that passed, else the last failure thrown
+async function poll(read, check, ms = 5000, p = page) {
+  for (const end = Date.now() + ms; ; await frames(1, p)) {
+    const got = await read()
+    try { await check(got); return got } catch (e) { if (Date.now() > end) throw e }
+  }
+}
+// The page still: no transition running (a panel opening, a fade), then two frames drawn
+const still = (p = page) => p.waitForFunction(() => !document.getAnimations().some(a => a instanceof CSSTransition && a.playState === 'running')).then(() => frames(2, p))
 // A row of the menu open, by its label, exactly
 const menuRow = label => page.locator('.menubar-menu .menu-row', { has: page.locator('.menu-label', { hasText: new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }) }).last()
 // The groups of how a picture draws, in the dropdown a band's look opens (playground/index.html .dropdown); the others are the
@@ -1942,17 +1959,11 @@ test('editor: the readout marks the level it reads on the sound, a row of its ta
     return { col, row }`, { w, h })
   await page.locator('.readout').hover()
   await page.locator('#levels').waitFor()
-  await page.waitForTimeout(200)
-  const peak = await marks()
-  assert.ok(peak.col > h * .8 && peak.row > w * .8, `the peak, through its place and at its level: ${JSON.stringify(peak)}`)
+  await poll(marks, peak => assert.ok(peak.col > h * .8 && peak.row > w * .8, `the peak, through its place and at its level: ${JSON.stringify(peak)}`))
   await page.locator('#levels tr', { hasText: 'RMS' }).hover()
-  await page.waitForTimeout(200)
-  const rms = await marks()
-  assert.ok(rms.col < h * .2 && rms.row > w * .8, `the RMS alone, at its level: ${JSON.stringify(rms)}`)
+  await poll(marks, rms => assert.ok(rms.col < h * .2 && rms.row > w * .8, `the RMS alone, at its level: ${JSON.stringify(rms)}`))
   await page.mouse.move(box.x + 10, box.y + 10)
-  await page.waitForTimeout(200)
-  const none = await marks()
-  assert.ok(none.col < h * .2 && none.row < w * .2, `let go, none: ${JSON.stringify(none)}`)
+  await poll(marks, none => assert.ok(none.col < h * .2 && none.row < w * .2, `let go, none: ${JSON.stringify(none)}`))
 })
 
 // The tracks mixed have no lane of their own: the level the readout reads is marked on every track's, the one not
@@ -1968,9 +1979,7 @@ test('editor: with tracks, the readout marks the mix\'s level on every track\'s 
   const rows = () => pixels(`return arg.lanes.map(([y0, y1]) => { let row = 0; for (let y = y0; y < y1; y++) { let n = 0; for (let x = 0; x < arg.w; x++) { const i = (y * w + x) * 4; n += d[i] - d[i + 2] > 60 } row = Math.max(row, n) } return row })`, { w, lanes: lanes.map(r => [Math.round(r.y - box.y), Math.round(r.y - box.y + r.h)]) })
   await page.locator('.readout').hover()
   await page.locator('#levels').waitFor()
-  let got = []
-  for (const until = Date.now() + 3000; !(got.length && got.every(n => n > w * .8)) && Date.now() < until; await page.waitForTimeout(100)) got = await rows()
-  assert.ok(got.length === 2 && got.every(n => n > w * .8), `a line at its level across each lane: ${got} of ${w}`)
+  await poll(rows, got => assert.ok(got.length === 2 && got.every(n => n > w * .8), `a line at its level across each lane: ${got} of ${w}`), 3000)
 })
 
 // A control pointed at says what it is on a tag pointing at it, after a moment, the next at once; the browser's own
@@ -1990,6 +1999,7 @@ test('editor: a control pointed at says what it is and does, on a tag pointing a
   // across to the next: after the same moment, none on the way
   await page.locator('button.loop').hover()
   await tip.waitFor({ state: 'hidden' })
+  // a moment, short of popoff's 500 ms
   await page.waitForTimeout(250)
   assert.ok(!await tip.isVisible(), 'not at once')
   await page.waitForFunction(() => document.querySelector('.popoff-tip:popover-open .popoff-tip-name')?.textContent === 'Loop')
@@ -2001,6 +2011,7 @@ test('editor: a control pointed at says what it is and does, on a tag pointing a
   // left and pointed at again, the press forgotten: still none while its menu is open
   await page.mouse.move(4, 4)
   await depth.hover({ position: { x: 3, y: 3 } })
+  // past popoff's 500 ms: a tip that would show has
   await page.waitForTimeout(700)
   assert.ok(!await tip.isVisible(), 'none over its open menu\'s control')
   await page.keyboard.press('Escape')
@@ -2154,15 +2165,12 @@ test('editor: a step chosen among the edits shows the output up to it and opens 
   // across each lane, twice
   const orange = () => pixels(`let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] - d[i + 2] > 60) n++; return n`)
   await page.mouse.move(0, 0)
-  await page.waitForTimeout(200)
-  const away = await orange()
+  await settled()
+  const away = await orange(), width = (await page.locator('.plot').boundingBox()).width
   await card('Normalize').hover()
-  await page.waitForTimeout(200)
-  const over = await orange(), width = (await page.locator('.plot').boundingBox()).width
-  assert.ok(over - away > width, `the level lines: ${away} orange pixels, ${over} over its card`)
+  await poll(orange, over => assert.ok(over - away > width, `the level lines: ${away} orange pixels, ${over} over its card`))
   await page.mouse.move(0, 0)
-  await page.waitForTimeout(200)
-  assert.ok(Math.abs(await orange() - away) < width / 4, 'gone with the pointer')
+  await poll(orange, n => assert.ok(Math.abs(n - away) < width / 4, 'gone with the pointer'))
   // keys on the picture, or Tab to the next control, draw no focus ring
   await page.locator('.plot').focus()
   await page.keyboard.press('ArrowRight')
@@ -2317,10 +2325,10 @@ test('editor: a panel opening, or the window narrowing, keeps where the picture 
   const before = await edges()
   assert.ok(before[1] - before[0] > 190, JSON.stringify(before))
   await tab('Export')
-  await page.waitForTimeout(200)
+  await still()
   assert.deepEqual(await edges(), before, 'the panel open')
   await page.setViewportSize({ width: 1000, height: 720 })
-  await page.waitForTimeout(200)
+  await still()
   assert.deepEqual(await edges(), before, 'the window narrower')
 })
 
@@ -2350,7 +2358,7 @@ test('editor: a number in the code drags, the output following, one step of the 
   // only pressed, the caret goes there and nothing changes
   const before = await code(), two = page.locator('.cm-line', { hasText: '.fade(' }).locator('span', { hasText: /^0\.1$/ }), b = await two.boundingBox()
   await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2)
-  await page.waitForTimeout(200)
+  await frames()
   assert.equal(await code(), before)
 })
 
@@ -2366,12 +2374,13 @@ test('editor: an older output arriving while a newer edit is drawn ahead leaves 
   const { box, x } = await axis(8), y = box.y + tall(box) * .3
   await drag([x(1), y], [x(2) - x(1), 0])
   await page.keyboard.press('Delete')
-  await page.waitForTimeout(700)
+  // its run under way (1.5 s at least), said once it takes a moment
+  await page.locator('.message', { hasText: /^(Rendering|Applying)/ }).waitFor()
   await drag([x(3), y], [x(4) - x(3), 0])
   await page.keyboard.press('Delete')
   await page.waitForFunction(() => (scriptText().match(/\.remove\(/g) || []).length === 2)
   await lengthIs('0:06.000')
-  await page.waitForTimeout(300)
+  await settled()
   await drag([x(5), y], [x(5.5) - x(5), 0])
   assert.equal(await selected(), '0:05.000–0:05.500', 'the scale as it was: 8 s across')
 })
@@ -2433,7 +2442,7 @@ test('editor: a tab dragged along the others goes where it is let go, kept for t
   await page.mouse.up()
   assert.deepEqual(await names(), ['untitled', 'chime.wav'])
   assert.deepEqual(await page.locator('.file').evaluateAll(els => els.map(el => el.style.transform)), ['', ''], 'laid out as it was let go')
-  await page.waitForTimeout(600)
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl')).docs.map(d => d.code.includes('chime.wav')).join() === 'false,true')
   await page.reload()
   await page.locator('.file').first().waitFor()
   assert.deepEqual(await names(), ['untitled', 'chime.wav'])
@@ -2479,7 +2488,7 @@ test('editor: the sound\'s end is where its centre line stops: no rule over it, 
   await lengthIs('0:02.000')
   await page.evaluate(() => { __view.frame = { range: [0, 8 / 3] } })
   await page.mouse.move(2, 2)
-  await page.waitForTimeout(300)
+  await settled()
   assert.deepEqual(await page.evaluate(() => __view.range), [0, 8 / 3])
   // the plot's CSS px: the end three quarters across; a column bright anywhere down the lane, in the screenshot (the
   // centre line, 78% grey, over a near-black screen); past it, to 0.9 of the way, short of the meters
@@ -2515,13 +2524,13 @@ test('editor: zoomed in, the lanes fade at their end into the slab\'s own ground
   await page.locator('.plot').focus()
   await page.keyboard.press('=')
   await page.mouse.move(2, 2)
-  await page.waitForTimeout(600)
   const box = await page.locator('.plot').boundingBox(), end = Math.round(await spans(box)) + TAIL, lane = tall(box)
-  const r = await pixels(`const at = (x, y) => d[(Math.round(y) * w + Math.round(x)) * 4], row = y => [at(arg.end - 2, y), at(arg.end - 100, y)]
-    return { top: row(3), foot: row(arg.lane - 6), under: row(arg.lane + 8), centre: row(arg.lane / 2) }`, { end, lane })
   const same = ([a, b]) => Math.abs(a - b) <= 2
-  assert.ok(same(r.top) && same(r.foot) && same(r.under), `the ground's colour at the fade's end: ${JSON.stringify(r)}`)
-  assert.ok(r.centre[0] < r.centre[1] - 40, `the centre line faded: ${JSON.stringify(r.centre)}`)
+  await poll(() => pixels(`const at = (x, y) => d[(Math.round(y) * w + Math.round(x)) * 4], row = y => [at(arg.end - 2, y), at(arg.end - 100, y)]
+    return { top: row(3), foot: row(arg.lane - 6), under: row(arg.lane + 8), centre: row(arg.lane / 2) }`, { end, lane }), r => {
+    assert.ok(same(r.top) && same(r.foot) && same(r.under), `the ground's colour at the fade's end: ${JSON.stringify(r)}`)
+    assert.ok(r.centre[0] < r.centre[1] - 40, `the centre line faded: ${JSON.stringify(r.centre)}`)
+  })
 })
 
 // The slab is plain, its ground shaded to its foot: no lines over it, which read as the lanes' rules
@@ -2568,7 +2577,7 @@ test('editor: dragging a selection draws no picture of the sound again, only wha
     WebGL2RenderingContext.prototype.drawArrays = function (...args) { if (this.canvas.closest?.('.plot')) window.drawn++; return draw.apply(this, args) }
   })
   await open()
-  await page.waitForTimeout(500)
+  await settled()
   const box = await page.locator('.plot').boundingBox(), y = box.y + tall(box) / 3, frame = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
   await page.mouse.move(box.x + 100, y)
   await page.mouse.down()
@@ -2605,19 +2614,19 @@ test('editor: the axis is five characters wide at full scale, the same for eithe
   const said = async () => {
     await page.evaluate(() => window.__said = [])
     await page.mouse.move(plot.x + plot.width / 3, y + (said.n = (said.n ?? 0) + 1) % 2 * 4)
-    await page.waitForTimeout(200)
+    await frames()
     const list = (await page.evaluate(() => window.__said)).filter(t => t.x >= plot.width - wave).map(t => t.s)
     assert.ok(list.length && list.every(t => t.length <= 5), `five characters at most: ${list}`)
     return list
   }
   assert.ok((await said()).some(t => /^0\.\d\d$/.test(t)), 'a sample value to two decimals, 0.40 or so')
   await show('spec')
-  await page.waitForTimeout(300)
+  await settled()
   assert.equal(await axis(), wave, 'the spectrogram the same')
   await said()
   await show('wave')
   await settings('Levels in', 'Decibels')
-  await page.waitForTimeout(300)
+  await settled()
   assert.equal(await axis(), wave, 'the levels in decibels the same')
   assert.ok((await said()).some(t => /^−\d{1,2}\.\d$/.test(t)), 'decibels to a tenth, no unit')
 })
@@ -2648,19 +2657,19 @@ test('editor: the lanes bare, or lines from the ticks; hidden behind the wavefor
     await page.evaluate(() => window.__ruled = 0)
     const size = page.viewportSize()
     await page.setViewportSize({ ...size, width: size.width - 1 })
-    await page.waitForTimeout(200)
+    await frames()
     await page.setViewportSize(size)
-    await page.waitForTimeout(200)
+    await frames()
     return !await page.evaluate(() => window.__ruled)
   }
   assert.ok(await blank(), 'bare by default: nothing ruled')
   await settings('Grid', 'Lines')
   // the layers laid again, each only as its drawing changes (view.js, kept.js): the pointer over the picture, then off it
   await page.locator('.plot').hover({ position: { x: 10, y: 10 } })
-  await page.waitForTimeout(100)
+  await frames()
   await page.evaluate(() => window.__ticks = [])
   await page.mouse.move(2, 2)
-  await page.waitForTimeout(200)
+  await frames()
   const calls = await page.evaluate(() => window.__ticks), at = {}
   calls.forEach((c, i) => { if (c.w && calls[i + 1]?.s) at[calls[i + 1].s] ??= c.h === 1 ? c.y : c.x })
   const [hit, c0, c1, r5, r0] = [at['0:00.5'], at['0:02.5'], at['0:03.0'], at['0.5'], at['0']]
@@ -2680,7 +2689,7 @@ test('editor: the lanes bare, or lines from the ticks; hidden behind the wavefor
   await page.evaluate(() => window.__ticks = [])
   await settings('Levels in', 'Decibels')
   await page.mouse.move(2, 2)
-  await page.waitForTimeout(200)
+  await settled()
   const db = await page.evaluate(() => window.__ticks), r6 = db.find((c, i) => c.w && c.h === 1 && db[i + 1]?.s === '−6')?.y
   assert.ok(Number.isFinite(r6), 'a tick at −6 dB')
   await gridShown('Lines')
