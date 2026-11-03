@@ -211,6 +211,19 @@ test('stats: a nonlinear pointwise op drops the fields it cannot derive', async 
   t.almost(await a.stat('loudness'), await rendered.stat('loudness'), 1e-3, 'loudness renders, not pre-clip')
 })
 
+test('stats: an op deriving its extremes past full scale clips there, without counting it itself', async t => {
+  let calls = 0
+  audio.op('_test_x2', { hidden: true, params: [],
+    process: (i, o) => { calls++; for (let k = 0; k < i.length; k++) for (let j = 0; j < i[k].length; j++) o[k][j] = 2 * i[k][j] },
+    deriveStats: s => { for (let f of ['min', 'max']) for (let c of s[f]) for (let j = 0; j < c.length; j++) c[j] *= 2 } })
+  let ch = Float32Array.from({ length: 48000 }, (_, i) => (i < 24000 ? 0.3 : 0.6) * Math.sin(2 * Math.PI * 440 * i / 48000))
+  let a = audio.from([ch], { sampleRate: 48000 }).run(['_test_x2', {}])
+  let clips = [...await a.stat('clipping')]
+  t.is(calls, 0, 'derived, not rendered')
+  t.is(clips, [...await audio.from(await a.read(), { sampleRate: 48000 }).stat('clipping')], 'the blocks the render clips in')
+  t.is(Math.round(clips[0] * 48000 / audio.BLOCK_SIZE), Math.floor(24000 / audio.BLOCK_SIZE), 'from the block the louder half starts in')
+})
+
 // ITU-R BS.1770-4 Table 3: L/R/C weight 1.0, Ls/Rs 1.41; LFE not measured (§1).
 test('loudness: 5.1 channel weights per BS.1770-4', async t => {
   let tone = Float32Array.from({ length: 48000 * 3 }, (_, i) => 0.1 * Math.sin(2 * Math.PI * 997 * i / 48000))

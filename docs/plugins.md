@@ -376,7 +376,7 @@ The engine auto-derives min/max/clipping stats by probing `process` with edge va
 
 Don't use for stateful ops (filters) or position-dependent ops (fades, automation).
 
-For advanced cases where rms/dc/energy need algebraic precision, use `deriveStats: (stats, opts) => {}` instead — see `gain` and `dc` ops for examples.
+For advanced cases where rms/dc/energy need algebraic precision, use `deriveStats: (stats, opts) => {}` instead — see `gain` and `dc` ops for examples. It moves the fields it can (min, max, dc, ms, energy); the engine recounts clipping from the new extremes.
 
 ### Persistent ctx
 

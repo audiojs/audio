@@ -297,6 +297,7 @@ function tryDeriveStats(srcStats, pipeline) {
     } else if (desc.pointwise) {
       derivePointwise(desc, stats, opts)
     } else return null
+    reclip(stats)
   }
   return stats
 }
@@ -323,9 +324,15 @@ function derivePointwise(desc, stats, opts) {
       stats.min[c][i] = Math.min(outA[c][i], outB[c][i])
       stats.max[c][i] = Math.max(outA[c][i], outB[c][i])
     }
-    if (stats.clipping) for (let i = 0; i < n; i++)
-      stats.clipping[c][i] = (stats.min[c][i] <= -FULL || stats.max[c][i] >= FULL) ? Math.max(1, stats.clipping[c][i]) : 0
   }
+}
+
+/** A block clips where its derived extremes reach full scale: its count kept (one at least), else none */
+function reclip(stats) {
+  if (stats.clipping) stats.clipping.forEach((cl, c) => {
+    let lo = stats.min[c], hi = stats.max[c]
+    for (let i = 0; i < cl.length; i++) cl[i] = lo[i] <= -FULL || hi[i] >= FULL ? Math.max(1, cl[i]) : 0
+  })
 }
 
 /** Resolve block range from opts. Recomputes stats if edits are dirty, or if the

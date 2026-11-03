@@ -606,7 +606,7 @@ export interface OpDescriptor {
   prepare?: (a: AudioInstance, index: number) => Promise<void>
   /** Whole-render processing, once over the entire signal (materialized plan so far) */
   whole?: (input: Float32Array[], output: Float32Array[], ctx: Record<string, any>) => void
-  /** Algebraic stats update for advanced cases pointwise can't cover (e.g. rms/dc/energy) — mutate `stats` in place, or return `false` to bail to a full recompute. */
+  /** Algebraic stats update for advanced cases pointwise can't cover (e.g. rms/dc/energy) — mutate `stats` in place, or return `false` to bail to a full recompute. Clipping is recounted from the new min/max after it. */
   deriveStats?: (stats: AudioStats, opts: Record<string, any>) => void | false
   /** Output delay in samples (delay compensation), or per options */
   latency?: number | ((opts: Record<string, any>, sampleRate: number) => number)

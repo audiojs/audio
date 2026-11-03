@@ -1,6 +1,6 @@
 import { dcOffsets, peakDb, rmsDb, lufsDb, lufsFromStats, printed } from './loudness.js'
 import { i0, sinc } from './dsp.js'
-import audio, { resolveChannels, FULL, blockAt } from '../core.js'
+import audio, { resolveChannels, blockAt } from '../core.js'
 import { buildPlan, render } from '../plan.js'
 import { LOUDNESS, specOf } from './specs.js'
 
@@ -43,8 +43,6 @@ audio.op('dc', {
         stats.max[c][i] -= d
         if (stats.dc) stats.dc[c][i] -= d
       }
-      if (stats.clipping) for (let i = 0; i < n; i++)
-        stats.clipping[c][i] = (stats.min[c][i] <= -FULL || stats.max[c][i] >= FULL) ? Math.max(1, stats.clipping[c][i]) : 0
     }
     // energy: k-weighting high-passes, DC offset has no effect
   }
