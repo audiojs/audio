@@ -543,6 +543,8 @@ export interface PlayOpts {
   loop?: boolean
   volume?: number
   rate?: number
+  /** At a rate other than 1, the pitch kept (default) or following the speed, as a tape's */
+  preservesPitch?: boolean
   /** An output by id or name (audio.devices()), else the one whose name holds it; default the system's */
   device?: string
   /** Open without sounding; resume() plays */

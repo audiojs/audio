@@ -305,11 +305,11 @@ test('worker: pause/resume/stop', async t => {
   await new Promise(r => setTimeout(r, 150))
   c.pause()
   t.ok(c.playing && c.paused && !c.ended, 'paused mid-play')
-  // currentTime is what the speakers play: it runs on while they play out what they had, then holds exactly
+  // currentTime holds where playback resumes, the deck's head, while the speakers play out what they had
   let tPause = c.currentTime
   await new Promise(r => setTimeout(r, 150))
   let held = c.currentTime
-  t.ok(held >= tPause && held - tPause < 0.15, `ran on only by the output latency (${((held - tPause) * 1000).toFixed(0)} ms)`)
+  t.ok(held >= tPause && held - tPause < 0.15, `held (${((held - tPause) * 1000).toFixed(0)} ms on)`)
   await new Promise(r => setTimeout(r, 120))
   t.is(c.currentTime, held, 'time holds while paused')
   c.play()
@@ -317,6 +317,31 @@ test('worker: pause/resume/stop', async t => {
   t.ok(c.currentTime > held && c.currentTime < held + 0.2, `resumes from where it held (${c.currentTime.toFixed(3)})`)
   await c.stop()
   t.ok(!c.playing, 'stopped')
+})
+
+// As the local instance's (test/deck.js): Node's deck renders a block at a time as the device drains, so its head
+// stands between blocks, and a pause holds at once where the deck will stand, not where the speakers still are
+test('worker: paused, currentTime holds at once where the deck stands, no step once it does', async t => {
+  let sr = 44100, w = audioWorker(null, { sampleRate: sr, channels: 1 }), drift = []
+  const sleep = ms => new Promise(r => setTimeout(r, ms))
+  await w.push([genTone(440, 3, 0.5, sr)])
+  await w.stop()
+  w.volume = 0
+  await w.play()
+  for (let i = 0; i < 4; i++) {
+    // the last at 1.5×: the ramp down moves the head 1.5× as far
+    if (i === 3) { w.playbackRate = 1.5; await sleep(300) }
+    await sleep(150 + 40 * i)
+    w.pause()
+    let at = w.currentTime
+    await sleep(120)
+    drift.push(Math.abs(w.currentTime - at))
+    w.resume()
+  }
+  await w.stop()
+  let most = Math.max(...drift)
+  t.ok(most < 0.0005, `held from the pause on: ≤ ${(most * 1000).toFixed(2)} ms over ${drift.length} pauses`)
+  await w.dispose()
 })
 
 test('worker: live playbackRate — varispeed pump, source-time currentTime', async t => {
@@ -348,6 +373,50 @@ test('worker: live playbackRate — varispeed pump, source-time currentTime', as
   wall = (performance.now() - t0) / 1000
   t.ok(wall < 0.75, `live ramp 1→4 mid-play: ${wall.toFixed(2)}s wall (expect ≈0.4)`)
   await w.dispose()
+})
+
+// As the local instance's (fn/play.js): at a rate other than 1 the pitch is kept unless preservesPitch is false. Set,
+// given to play(), carried by a hand-off either way, given to the deck the facade opens and told it as it changes: the
+// deck here a fake context's worklet node, keeping what it is given (as test/deck.js's transport test)
+test('worker: preservesPitch, as the local instance has it: set, given to play(), handed over, given to the deck', async t => {
+  let sr = 44100, tone = genTone(440, 3, 0.5, sr)
+  let w = audioWorker(null, { sampleRate: sr, channels: 1 })
+  await w.push([tone])
+  await w.stop()
+  t.is(w.preservesPitch, true, 'kept by default')
+  let changes = 0
+  w.on('ratechange', () => changes++)
+  w.preservesPitch = false
+  t.ok(w.preservesPitch === false && changes === 1, 'set: a ratechange')
+  w.preservesPitch = true
+
+  w.volume = 0
+  await w.play()
+  let l = audio.from([tone], { sampleRate: sr })
+  l.preservesPitch = false
+  l.play({ from: w })
+  t.is(l.preservesPitch, true, 'a local instance taking over has it as the facade had it')
+  let b = await w.clone()
+  l.preservesPitch = false
+  b.play({ from: l })
+  t.is(b.preservesPitch, false, 'a facade taking over from a local instance, as that had it')
+  b.play({ preservesPitch: true })
+  t.is(b.preservesPitch, true, 'play({ preservesPitch }) sets it')
+  await b.stop()
+
+  let nodes = [], ctx = { sampleRate: 48000, state: 'running', destination: {}, currentTime: 0, baseLatency: 0, outputLatency: 0, audioWorklet: { addModule: async () => {} } }
+  globalThis.AudioWorkletNode = class { constructor(c, name, o) { nodes.push(this); this.init = o.processorOptions; this.sent = []; this.port = { postMessage: m => this.sent.push(m), close() {} } } connect() {} disconnect() {} }
+  try {
+    audioWorker.context = ctx
+    w.play({ at: 0, rate: 2, preservesPitch: false })
+    for (let i = 0; i < 400 && !nodes.length; i++) await new Promise(r => setTimeout(r, 5))
+    await new Promise(r => setTimeout(r, 5))
+    t.is(nodes[0]?.init.preservesPitch, false, 'the deck opens with it')
+    w.preservesPitch = true
+    t.ok(nodes[0]?.sent.some(m => m.preservesPitch === true && m.rate === 2), 'and is told it as it changes')
+    await w.stop()
+  } finally { audioWorker.context = null; delete globalThis.AudioWorkletNode }
+  await Promise.all([w.dispose(), b.dispose()])
 })
 
 test('worker: P4 — audio(src, {worker: true}) dispatches to the worker facade', async t => {

@@ -23,12 +23,14 @@ export interface WorkerFacade extends PromiseLike<WorkerFacade> {
   volume: number
   muted: boolean
   playbackRate: number
+  /** At a rate other than 1, the pitch kept (WSOLA), as a media element's; false: it follows the speed, as a tape's. Default true. */
+  preservesPitch: boolean
   /** Settable while playing: the span repeats, each seam a 10 ms equal-power crossfade */
   loop: boolean
   /** Resolves when playback sounds */
   readonly played: Promise<void> | null
   /** Same options as the local play(); `from` takes over another instance's or facade's playback where it is */
-  play(opts?: { at?: number, duration?: number, loop?: boolean, volume?: number, rate?: number, paused?: boolean, from?: { currentTime: number } }): Promise<void>
+  play(opts?: { at?: number, duration?: number, loop?: boolean, volume?: number, rate?: number, preservesPitch?: boolean, device?: string, paused?: boolean, from?: { currentTime: number } }): Promise<void>
   pause(): WorkerFacade
   resume(): WorkerFacade
   /** Live stats of what plays: measured in the worker, delivered on the page as heard */

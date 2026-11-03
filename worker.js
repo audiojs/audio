@@ -36,7 +36,7 @@
  *    Node: @audio/speaker
  */
 
-import { open, context, TAKE } from './deck.js'   // the output (no engine deps)
+import { context, playback, TAKE } from './deck.js'   // the output and playback over it (no engine deps)
 
 // ── Self-host: imported inside a Worker, this module becomes the engine host ──
 const nodeWT = typeof process !== 'undefined' && process.versions?.node
@@ -146,7 +146,6 @@ const ASYNC = ['read', 'stat', 'encode', 'save', 'undo', 'push', 'detect', 'toJS
 const WRAPPED = ['clip', 'clone', 'split']  // return new instance(s) → sub-facades
 // events the facade raises itself; any other needs a worker-side subscription
 const LOCAL = ['change', 'error', 'play', 'pause', 'ended', 'timeupdate', 'volumechange', 'ratechange']
-const EDIT = 0.02
 
 /** Deep-encode outgoing values: sibling facades → {__ref}, functions rejected
  *  (can't cross the boundary — P3 breakpoint curves), containers copied. */
@@ -222,65 +221,34 @@ function facade(chan, opened) {
 
     // ── Transport: the worker renders straight into the page's deck (deck.js); the facade holds its clock
     playing: false, paused: false, ended: false, seeking: false, played: null,
-    get currentTime() { let h = session?.tp?.heard(); return h && h.run >= session.seekRun ? h.time : ct },
+    get currentTime() { return side.s ? side.s.clock() : ct },
     set currentTime(v) { ct = v },
     get volume() { return vol },
-    set volume(v) { v = Math.max(0, Math.min(1, +v || 0)); if (vol !== v) { vol = v; level(); target._emit('volumechange') } },
+    set volume(v) { v = Math.max(0, Math.min(1, +v || 0)); if (vol !== v) { vol = v; target._emit('volumechange') } },
     get muted() { return mute },
-    set muted(v) { v = !!v; if (mute !== v) { mute = v; level(); target._emit('volumechange') } },
+    set muted(v) { v = !!v; if (mute !== v) { mute = v; target._emit('volumechange') } },
     get playbackRate() { return rate },
-    set playbackRate(v) {
-      v = Math.max(0.0625, Math.min(16, +v || 1))
-      if (rate !== v) { rate = v; session?.tp?.set({ rate }); target._emit('ratechange') }
-    },
+    set playbackRate(v) { v = Math.max(0.0625, Math.min(16, +v || 1)); if (rate !== v) { rate = v; target._emit('ratechange') } },
+    // at a rate other than 1, the pitch kept (true, as a media element's) or following the speed, as a tape's
+    get preservesPitch() { return keep },
+    set preservesPitch(v) { v = !!v; if (keep !== v) { keep = v; target._emit('ratechange') } },
     get loop() { return loop },
-    set loop(v) { v = !!v; if (loop !== v) { loop = v; if (session) target._call('_loop', [v]).catch(() => {}) } },
+    set loop(v) { v = !!v; if (loop !== v) { loop = v; side.s?.loop(v) } },
 
     play(opts = {}) {
       if (disposed) return Promise.reject(new Error('audio/worker: instance disposed'))
-      if (opts.volume != null) target.volume = opts.volume
-      if (opts.rate != null) target.playbackRate = opts.rate
-      if (opts.from) return handoff(opts.from, opts)
-      if (session && target.playing) {
-        if (opts.loop != null) target.loop = opts.loop
-        if (opts.at != null || opts.duration !== undefined) {
-          span = [opts.at ?? span[0], opts.duration]
-          target._call('_span', span).catch(() => {})
-          target.seek(span[0])
-        }
-        if (target.paused && !opts.paused) target.resume()
-        return target.played
-      }
-      loop = !!opts.loop
-      return begin({ at: opts.at ?? (target.ended ? 0 : ct), duration: opts.duration, paused: opts.paused })
+      playback(side, opts)
+      return target.played
     },
-    pause() {
-      if (!target.playing || target.paused) return proxy
-      target.paused = true
-      session?.tp?.set({ playing: false })
-      target._emit('pause')
-      return proxy
-    },
-    resume() {
-      if (!target.paused) return proxy
-      target.paused = false
-      session?.tp?.set({ playing: true })
-      target._emit('play')
-      return proxy
-    },
-    // While it plays, the clock holds the place asked for until the worker says which run plays it (the speakers' run
-    // before it is not), as the local deck's does; a later seek's answer is the one that counts
+    pause() { side.s?.pause(); return proxy },
+    resume() { side.s?.resume(); return proxy },
     seek(t) {
-      ct = t = Math.max(0, t)
-      if (!session || !target.playing) return target._call('seek', [t])
-      target.seeking = true
-      let s = session, n = ++s.seeks
-      s.seekRun = Infinity
-      let done = r => { if (s === session && n === s.seeks) { s.seekRun = r?.run ?? 0; if (r) ct = r.at } }
-      return target._call('_seek', [t]).then(done, e => { done(); throw e })
+      t = Math.max(0, t)
+      if (!side.s || !target.playing) { ct = t; return target._call('seek', [t]) }
+      return Promise.resolve(side.s.seek(t))
     },
     stop() {
-      end(false)
+      side.s?.end(false)
       return target._call('stop', [])
     },
     /** Live stats of what plays, released as it is heard: same arguments as the local meter() */
@@ -292,14 +260,7 @@ function facade(chan, opened) {
       probe.stop = () => { if (probes.delete(id)) target._call('_meter', [id, null]).catch(() => {}) }
       return probe
     },
-    [TAKE]() {
-      let s = session
-      if (!s || !target.playing) return null
-      let t = { tp: s.tp, head: s.tp?.head(), time: target.currentTime, span, loop, paused: target.paused, volume: vol, muted: mute, rate }
-      s.taken = !!s.tp
-      end(false)
-      return t
-    },
+    [TAKE]() { return side.s?.take() ?? null },
 
     dispose() {
       if (disposal) return disposal
@@ -315,83 +276,34 @@ function facade(chan, opened) {
   for (let m of ASYNC) target[m] ??= (...args) => target._call(m, args)
   for (let m of WRAPPED) target[m] = (...args) => target._call(m, args)
 
-  // ── Playback session ─────────────────────────────────────────────────
-  let session = null, ct = 0, vol = 1, mute = false, rate = 1, loop = false, span = [0, undefined], probeId = 0
+  // ── Playback: the facade's side of it (deck.js playback): its voice renders in the worker, its meters are measured
+  // there and released here when heard
+  let ct = 0, vol = 1, mute = false, rate = 1, keep = true, loop = false, probeId = 0
   let probes = new Map()
-  const level = () => session?.tp?.set({ volume: mute ? 0 : vol })
-
-  function begin(o, taken) {
-    end(false)
-    let s = session = { tp: null, taken: false, done: false, first: true, seekRun: 0, seeks: 0, ok: null, fail: null }
-    target.playing = true; target.paused = !!o.paused; target.ended = false; target.seeking = false
-    span = [o.at, o.duration]
-    ct = o.time ?? Math.max(0, o.at)
-    target.played = new Promise((r, j) => { s.ok = r; s.fail = j })
-    target.played.catch(() => {})
-    if (!target.paused) target._emit('play')
-    ;(async () => {
-      try {
-        await target._ready
-        // the rate and channels arrive with the source's header
-        while (!target.sampleRate && !s.done) await new Promise(r => { let f = () => { target.off('change', f); r() }; target.on('change', f) })
-        let tp = taken ?? await open({ channels: target.channels, sampleRate: target.sampleRate, playing: !target.paused, volume: mute ? 0 : vol, rate })
-        if (s.done) { if (!taken) tp.stop(); return }
-        s.tp = tp
-        if (taken) tp.set({ playing: !target.paused, volume: mute ? 0 : vol, rate })
-        tp.emit = (type, m) => {
-          if (session !== s) return
-          if (type === 'end') return end(true)
-          if (type === 'error') return end(false, m)
-          if (m.pos == null) return
-          if (s.first && m.speed > 0) { s.first = false; s.ok() }
-          if (target.seeking && m.run >= s.seekRun) target.seeking = false
-          if (target.playing && !target.paused) target._emit('timeupdate', target.currentTime)
-        }
-        // the span and a seek asked for before the deck opened: as they are now
-        let port = tp.port()
-        await target._call('_play', [{ at: span[0], duration: span[1], loop, from: o.from ?? (target.seeking ? ct : undefined), splice: o.splice, runs: tp.runs(), port }], [port])
-      } catch (e) { if (session === s) end(false, e) }
-    })()
-    return target.played
-  }
-  // playback ends: at its end, by stop(), an error, or taken over
-  function end(natural, err) {
-    let s = session
-    if (!s || s.done) return
-    s.done = true
-    let h = s.tp?.heard()
-    if (h && h.run >= s.seekRun) ct = h.time
-    session = null
-    if (!s.taken) s.tp?.stop()
-    if (!disposed && target._inst != null) target._call('_stop', []).catch(() => {})
-    target.playing = target.paused = target.seeking = false
-    if (natural) target.ended = true
-    if (err && s.first) s.fail(err)
-    else s.ok()
-    if (err && !s.first) target._emit('error', err)
-    target._emit('ended')
-  }
-  function handoff(from, opts) {
-    let t = from[TAKE]?.()
-    if (t) {
-      if (opts.volume == null) target.volume = t.volume
-      if (opts.rate == null) target.playbackRate = t.rate
-      target.muted = t.muted
-    }
-    loop = opts.loop ?? t?.loop ?? from.loop ?? false
-    let sp = t?.span ?? [from.currentTime ?? 0, undefined]
-    // the deck carries on when it has the channels; else a new one starts where the other stopped, over the same span
-    if (!t?.tp || t.head == null || Math.max(2, target.channels | 0) > t.tp.ch) {
-      t?.tp?.stop()
-      return begin({ at: sp[0], duration: sp[1], paused: opts.paused ?? t?.paused, time: t?.time, from: t?.time })
-    }
-    let P = t.head + (t.paused ? 0 : 0.05 * t.rate)
-    return begin({ at: sp[0], duration: sp[1], paused: t.paused, time: t.time, from: P, splice: { at: P, fade: EDIT } }, t.tp)
+  const side = {
+    x: target, s: null,
+    get ct() { return ct }, set ct(t) { ct = t },
+    emit: (type, ...args) => target._emit(type, ...args),
+    // the rate and channels arrive with the source's header
+    async ready() {
+      await target._ready
+      while (!target.sampleRate) await new Promise(r => { let f = () => { target.off('change', f); r() }; target.on('change', f) })
+    },
+    voice(tp, o, s) {
+      let port = tp.port()
+      target._call('_play', [{ ...o, port }], [port]).catch(s.fail)
+      return {
+        seek: t => target._call('_seek', [t]),
+        loop: v => { target._call('_loop', [v]).catch(() => {}) },
+        span: (at, duration) => { target._call('_span', [at, duration]).catch(() => {}) },
+        stop: () => { if (!disposed) target._call('_stop', []).catch(() => {}) },
+      }
+    },
   }
 
   const release = () => {
     disposed = true
-    end(false)
+    side.s?.end(false)
     target.edits.length = 0
     for (const check of [...waiters]) check(new Error('audio/worker: instance disposed'))
     ev = {}
@@ -456,11 +368,9 @@ function facade(chan, opened) {
       } else if (msg.event === '_meter') {
         // values measured as the worker rendered, released as they are heard
         let [run, pos, vals] = msg.args
-        session?.tp?.defer(run, pos, () => { for (let [id, v] of vals) { let p = probes.get(id); if (p) { p.value = v; p.cb?.(v) } } })
+        side.s?.tp?.defer(run, pos, () => { for (let [id, v] of vals) { let p = probes.get(id); if (p) { p.value = v; p.cb?.(v) } } })
       } else if (msg.event === '_playerror') {
-        let e = remoteErr(msg.args[0])
-        console.error('Playback error:', e)
-        end(false, e)
+        side.s?.fail(remoteErr(msg.args[0]))
       } else if (msg.event === 'error') {
         target._emit('error', remoteErr(msg.args[0]))
       } else target._emit(msg.event, ...msg.args)
