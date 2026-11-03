@@ -6716,7 +6716,7 @@ test('editor: markers: Delete takes away the marker whose triangle was pressed',
 })
 
 // A range's triangles in its strip drag its ends, as a moment's drags it: its start, its end staying; its end, its
-// length; each short of the other by a step at most. A moment is one triangle there, ▲ on its line, nothing of it at
+// length; as far as the other, let go there one moment. A moment is one triangle there, ▲ on its line, nothing of it at
 // the lanes' top nor down them, but the caret's ghost where a press would put it as its triangle is pointed at; held
 // Alt, its triangle dragged apart into a range from it, either way, as Photoshop's split slider's is
 test('editor: markers: a range\'s triangles drag its ends; a moment is one triangle in the strip, Alt pulls it apart', async () => {
@@ -6753,9 +6753,9 @@ test('editor: markers: a range\'s triangles drag its ends; a moment is one trian
   // its start dragged on a second: from 3 s, its end where it was
   await drag(await grab([[x(2) - 3, strip]], 'ew-resize'), [x(3) - x(2), 0])
   await page.waitForFunction(() => /\.mark\(\{ at: 3, d: 2 \}\)/.test(scriptText()))
-  // its start dragged past its end: held short of it, by a step
+  // its start dragged past its end: held at it, and let go there, one moment at its end
   await drag(await grab([[x(3) - 3, strip]], 'ew-resize'), [x(7) - x(3), 0])
-  await page.waitForFunction(() => { const [, a, d] = scriptText().match(/\.mark\(\{ at: ([\d.]+), d: ([\d.]+) \}\)/) ?? []; return +a > 4.9 && +a < 5 && Math.abs(+a + +d - 5) < 1e-6 })
+  await page.waitForFunction(() => /\.mark\(5\)\.mark\(6\)$/.test(scriptText()))
   // a moment, held Alt, dragged half a second back: a range from there to it, its name kept; another, on a second
   await write(`audio('chime.wav').mark(6.5, 'Bell')`)
   const split = async (t, to) => { const at = await grab([[x(t), strip]], 'ew-resize'); await page.keyboard.down('Alt'); await drag(at, [x(to) - x(t), 0]); await page.keyboard.up('Alt') }
@@ -6764,6 +6764,46 @@ test('editor: markers: a range\'s triangles drag its ends; a moment is one trian
   await write(`audio('chime.wav').mark(5, 'Bell')`)
   await split(5, 6)
   await page.waitForFunction(() => /\.mark\(\{ at: 5, d: 1 \}, 'Bell'\)/.test(scriptText()))
+  // its end dragged back onto its start (within a few px), let go: one moment there again
+  await drag(await grab([[x(6) + 3, strip]], 'ew-resize'), [x(5) + 2 - x(6), 0])
+  await page.waitForFunction(() => /\.mark\(5, 'Bell'\)/.test(scriptText()))
+})
+
+// A named range pointed at in its strip shows a fork (⌥) at its end inside it, where takes' numbers stand: pressed, takes
+// start there, an empty take over it, turned off, the sound heard as it was, its place selected for R to record into.
+// Its number pressed hears it; pressed again, turned off, the sound as it was again. None on a range with takes
+test('editor: markers: a named range\'s fork starts takes there; the take heard, pressed again, off', async () => {
+  await open()
+  await noCues()
+  await write(`audio('chime.wav').mark({ at: 3, d: 2 }, 'Chorus')`)
+  await lengthIs('0:08.000')
+  const { box, x } = await axis(8), strip = box.y + tall(box) + FOOT / 2, fork = page.locator('.plot .fork')
+  assert.ok(await fork.isHidden(), 'none till it is pointed at')
+  await page.mouse.move(x(4), strip)
+  await fork.waitFor()
+  const at = await fork.boundingBox()
+  assert.ok(Math.abs(at.x + at.width - x(5) + 2) < 2, `at its end, inside: ${at.x + at.width - x(5)}`)
+  await fork.click()
+  await page.waitForFunction(() => scriptText().endsWith(`// .write(audio.from(2), { at: 3 })`))
+  assert.equal(await selected(), '0:03.000–0:05.000')
+  const chip = page.locator('.plot .takes:not([hidden])')
+  await chip.waitFor()
+  const numbers = () => chip.locator('button').evaluateAll(b => b.map(x => [x.textContent, x.getAttribute('aria-pressed') ?? x.getAttribute('aria-disabled')]))
+  assert.deepEqual(await numbers(), [['1', 'false'], ['+', 'true']])
+  await page.mouse.move(x(4), strip)
+  await page.waitForTimeout(200)
+  assert.ok(await fork.isHidden(), 'no fork where takes are')
+  await chip.locator('button[value="0"]').click()
+  await page.waitForFunction(() => scriptText().endsWith(`\n  .write(audio.from(2), { at: 3 })`))
+  await chip.locator('button[value="0"]').click()
+  await page.waitForFunction(() => scriptText().endsWith(`// .write(audio.from(2), { at: 3 })`))
+  // its place selected (pressed in the strip), Record records into the empty take, heard from then on, stopping at the
+  // place's end by itself
+  await page.mouse.click(x(4.5), strip)
+  assert.equal(await selected(), '0:03.000–0:05.000')
+  await page.getByRole('button', { name: 'Record', exact: true }).click()
+  await page.getByRole('button', { name: 'Record', exact: true }).waitFor({ timeout: 15000 })
+  await page.waitForFunction(() => /\n {2}\.write\(audio\('take(-\d)?\.wav'\), \{ at: 3[^)]*\)$/.test(scriptText()) && !scriptText().includes('audio.from(2)'))
 })
 
 // A marker's triangle dragged goes onto a cue it comes within a few px of, as a selection's edge does, not onto where
@@ -8736,13 +8776,19 @@ test('editor: a click on a fade corner turns it to the next curve, no menu, the 
 })
 
 test('editor: Alt-click adds carets; M puts a marker at each', async () => {
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
   await open()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
   const { box, x } = await axis(8), y = box.y + tall(box) * .3
   await page.mouse.click(x(2.2), y)
   await page.keyboard.down('Alt')
-  await page.mouse.click(x(4.2), y)
+  // the caret there as the press goes down, not as it is let go
+  await page.mouse.move(x(4.2), y)
+  await page.mouse.down()
+  const pressed = await page.evaluate(() => __view.carets)
+  await page.mouse.up()
+  assert.ok(pressed.length === 2 && Math.abs(pressed[1] - 4.2) < .05, `pressed, a caret there: ${pressed}`)
   await page.mouse.click(x(6.2), y)
   await page.keyboard.up('Alt')
   assert.ok(await offered('A marker at each of the 3 carets'))
@@ -9846,8 +9892,8 @@ test('editor: a range selected, pointed at in its strip, is not lit over the sou
 
 // Takes are marked in the strip under the lanes, from where they go in to where the longest of them ends (each measured,
 // those turned off too, a sample's or a file kept as a recording's), pressed there selecting all of it, as a range
-// marker's, their numbers past its end (held in sight at the picture's right), on a name's line, + selecting their
-// place, nothing said by them; on a visit's first run too
+// marker's, their numbers at its end inside it (held in sight at the picture's right), on a name's line, + selecting
+// their place, nothing said by them; on a visit's first run too
 test('editor: takes are marked in the strip under all they span, pressed there selecting it, their numbers in it', async () => {
   await open()
   // the one heard 4.5 s long, the one turned off 8 s: to 9 s, the sound's end
@@ -9855,8 +9901,7 @@ test('editor: takes are marked in the strip under all they span, pressed there s
   await lengthIs('0:09.000')
   const { box, x } = await axis(9), chip = page.locator('.plot .takes:not([hidden])')
   await chip.waitFor()
-  // past its end, here the sound's: held in at the picture's right, by its end; its middle NAMES (5) px under the
-  // lanes' foot
+  // at its end inside it, here the sound's; its middle NAMES (5) px under the lanes' foot
   const corner = await chip.boundingBox()
   assert.ok(corner.x > x(8) && corner.x + corner.width <= x(9) + TAIL + 1 && Math.abs(corner.y + corner.height / 2 - box.y - tall(box) - 5) < 2, `in its strip, by its end: ${JSON.stringify(corner)}`)
   // its place in the strip, pressed near its end: all of it selected, to 9 s
@@ -9893,15 +9938,16 @@ test('editor: takes are marked in the strip under all they span, pressed there s
   assert.equal(await line(), 'pointer', 'shown again, its takes there')
 })
 
-// A range marked over the takes' place names it: its name at their start, their numbers past their end
-test('editor: a range over the takes\' place names it, its name at their start, their numbers past their end', async () => {
+// A range marked over the takes' place names it: its name at their start, their numbers at their end, inside it (as
+// far from it as the name is from the start: the last number's padding, 2 px, then 2 px)
+test('editor: a range over the takes\' place names it, its name at their start, their numbers at their end', async () => {
   await open()
   await write(`audio('rhodes.wav')\n  // .write(audio('chime.wav'), { at: 1 })\n  .write(audio('birdsong.wav'), { at: 1 })\n  .pad(0, 3)\n  .mark({ at: 1, d: 8 }, 'Verse')`)
   await lengthIs('0:12.000')
   const { box, x } = await axis(12), lane = Math.round(tall(box)), chip = page.locator('.plot .takes:not([hidden])')
   await chip.waitFor()
   const at = await chip.boundingBox()
-  assert.ok(Math.abs(at.x - x(9) - 6) < 2, `past their end: ${at.x - x(9)} px`)
+  assert.ok(Math.abs(at.x + at.width - x(9) + 2) < 2, `at their end, inside: ${at.x + at.width - x(9)} px`)
   assert.ok(Math.abs(at.y + at.height / 2 - box.y - lane - 5) < 2, `on its name's line: ${at.y + at.height / 2 - box.y - lane}`)
   // its name from 4 px past their start, bright on the strip's line (once its marker has come with the output)
   const name = () => pixels(`let n = 0; for (let y = arg.y0; y < arg.y1; y++) for (let x = arg.a; x < arg.b; x++) { const i = (y * w + x) * 4; if (d[i] > 120) n++ } return n`, { a: Math.round(x(1) - box.x) + 3, b: Math.round(x(1) - box.x) + 34, y0: lane + 1, y1: lane + 12 })
@@ -10100,9 +10146,9 @@ test('editor: a paste into the room under the tracks makes a track as tall as th
   assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('audio-repl'))).docs[0].heights.track, short)
 })
 
-// Under the tracks, where a new one's title would be, a placeholder: pressed, the track made, empty, its name in hand,
-// written and Enter, the track so named. The caret in the room a plus by its top; the meters by the lanes read nothing
-// there, nothing being there yet
+// Under the tracks, where a new one's title would be, a placeholder, + New track: pressed, the track made, empty, its
+// name in hand, written and Enter, the track so named. The caret in the room a plus by its top; the meters by the lanes
+// read nothing there, nothing being there yet
 test('editor: under the tracks, New track where its title would be: pressed, made and named', async () => {
   await open()
   await noCues()
@@ -10111,6 +10157,9 @@ test('editor: under the tracks, New track where its title would be: pressed, mad
   const placeholder = page.locator('.layer-new')
   await placeholder.waitFor()
   assert.equal(await placeholder.innerText(), 'New track')
+  // a plus where a layer's look is, its words where a layer's name starts
+  const starts = await page.evaluate(() => { const text = el => { const r = document.createRange(); r.selectNodeContents([...el.childNodes].find(n => n.nodeType === 3)); return r.getBoundingClientRect().left }; return [text(document.querySelector('.layer-name')), text(document.querySelector('.layer-new')), document.querySelector('.layer-new svg path')?.getAttribute('d')] })
+  assert.ok(Math.abs(starts[0] - starts[1]) <= 1 && starts[2] === 'M12 5v14M5 12h14', `a plus, then its words where a name starts: ${starts}`)
   const [, b] = await tracksAt(), head = await placeholder.boundingBox()
   assert.ok(Math.abs(head.y - (b.y + b.h + FOOT)) <= 1, `where its title would be: ${head.y}, under ${b.y + b.h + FOOT}`)
   // the meters read the caret's place in a lane; in the room, nothing

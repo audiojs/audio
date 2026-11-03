@@ -593,8 +593,10 @@ svg { flex: none; }
 .layer-rows { position: absolute; top: 0; left: 0; right: 0; overflow: hidden; }
 .layer { position: absolute; left: 0; max-width: 100%; display: flex; align-items: center; gap: 2px; padding: 0 4px 0 0; color: var(--color-screen-soft); font: 11px/16px var(--font-mono); cursor: pointer; pointer-events: auto; }
 .layer.on { color: var(--color-screen-bright); }
-/* the title a new track would have: a placeholder, as an empty field's, where a layer's name is */
-.layer-new { position: absolute; left: 0; display: flex; align-items: center; padding-left: 22px; color: var(--color-screen-muted); font: 11px/16px var(--font-mono); cursor: pointer; pointer-events: auto; }
+/* the title a new track would have: a placeholder, as an empty field's, where a layer's name is, a plus where its look
+   is */
+.layer-new { position: absolute; left: 0; display: flex; align-items: center; color: var(--color-screen-muted); font: 11px/16px var(--font-mono); cursor: pointer; pointer-events: auto; }
+.layer-new svg { flex: none; width: 16px; height: 13px; margin-right: 4px; }
 .layer-new:hover { color: var(--color-screen-soft); }
 .layer.muted > :not(.track-mute) { opacity: .45; }
 .layer.locked { cursor: default; }
@@ -629,6 +631,11 @@ svg { flex: none; }
 .plot .takes button:focus-visible { outline: 1px solid var(--color-screen-accent); outline-offset: -1px; }
 .plot .takes .takes-add { color: var(--color-screen-soft); }
 .plot .takes .takes-add[aria-disabled="true"] { color: var(--color-screen-muted); cursor: default; }
+/* a named range's fork (view.js placeFork), where takes' numbers stand: takes started there */
+.plot .fork { position: absolute; z-index: 1; display: grid; place-items: center; width: 14px; height: 14px; padding: 0; border: 0; background: none; color: var(--color-screen-muted); cursor: pointer; }
+.plot .fork[hidden] { display: none; }
+.plot .fork svg { width: 12px; height: 12px; }
+.plot .fork:hover { color: var(--color-screen-bright); }
 
 /* a name written on where it is drawn (view.js named): its text in place, as wide as it, no box round it */
 .marker-name { position: absolute; z-index: 2; min-width: 2ch; padding: 0; border: 0; background: none; color: var(--color-screen-bright); caret-color: var(--color-screen-bright); font: 11px var(--font-mono); line-height: 18px; outline: none; }

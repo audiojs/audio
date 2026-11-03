@@ -740,6 +740,8 @@ v = view(root.querySelector('.plot'), {
     v.select(p, Math.min(q, v.duration))
     note(`Take ${run.list.length + 1} added, empty: R records into it`)
   },
+  // a named range's fork pressed: takes start there
+  onfork: forkRange,
   // an edit still being made over part of the picture: nothing more is edited there till its output comes; playing goes
   // on as ever, the output it makes taking over as it comes
   onbusy(on) {
@@ -2748,7 +2750,8 @@ function markCall({ time, duration = 0, track }) {
 const unmarked = () => note('This marker comes from the file; no mark() in the script sets it.')
 // A marker taken away (from its menu), or moved (a drag of its triangle): its mark() call gone, or its time moved
 // as much (a range's end dragged, its length too: `d`; a moment pulled apart, a range from then on, its time an options
-// object), the edits after it being what they were
+// object; a range's ends let go on each other, `d` 0, a moment, its time a number), the edits after it being what they
+// were
 function unmark(marker) {
   const call = markCall(marker)
   if (!call) return unmarked()
@@ -2768,6 +2771,7 @@ function remark({ to, d, ...marker }) {
   if (typeof at?.value !== 'number') return unmarked()
   const s = t => number(Math.max(0, t), v.unit), set = (p, t) => ({ from: p.valueFrom ?? p.from, to: p.valueTo ?? p.to, insert: s(t) })
   if (arg.kind !== 'object' && d) ed.change({ from: arg.from, to: arg.to, insert: `{ at: ${s(at.value + to - marker.time)}, d: ${s(d)} }` })
+  else if (arg.kind === 'object' && d === 0) ed.change({ from: arg.from, to: arg.to, insert: s(at.value + to - marker.time) })
   else ed.change([set(at, at.value + to - marker.time), d != null && typeof length?.value === 'number' && set(length, length.value + d - marker.duration)].filter(Boolean))
   return true
 }
@@ -3410,7 +3414,8 @@ function places() {
       for (const r of takes(code)) {
         const run = { ...r, track, lane, shown: carried(code, r, reach(r)) }
         all.push(run)
-        if (r.list.length > 1 && run.shown) shown.push(run)
+        // two or more, or one empty (forked: forkRange) for a recording to go into
+        if ((r.list.length > 1 || r.list.some(x => x.empty != null)) && run.shown) shown.push(run)
       }
     }
   } finally { focus(state.track) }
@@ -3446,11 +3451,25 @@ function takesHere(alone = false) {
   return within.findLast(r => alone || r.list.length > 1) ?? (alone ? null : many.findLast(r => span(r)[0] <= t + 1e-6) ?? many[0] ?? null)
 }
 // A take there heard, the others turned off, as a take folder's are switched (Logic's): playing, it takes over where it
-// plays. One step, which Undo takes back
+// plays; the one heard, turned off, the sound heard there as it was without them. One step, which Undo takes back
 function useTakeOf(run, k) {
-  const change = onTop(run, useTake(ed.code, run.list[k].from))
+  const heard = run.list[k].on, change = heard ? turnOff(ed.code, stepsOf(ed.code)[run.list[k].i].call) : onTop(run, useTake(ed.code, run.list[k].from))
   if (change) ed.change(change)
-  note(`Take ${k + 1} of ${run.list.length}, ${run.list[k].name || 'empty'}`)
+  note(heard ? 'No take heard here: the sound as it was' : `Take ${k + 1} of ${run.list.length}, ${run.list[k].name || 'empty'}`)
+}
+// A named range forked (its fork, view.js placeFork): takes start there, an empty take over it, turned off, the sound
+// heard there as it was; Record records into it (retake), heard from then on, its place selected for that. One step,
+// which Undo takes back
+function forkRange({ time, duration, track }) {
+  if (state.recording) return
+  if (track != null && track !== state.track) focusOn(track)
+  const code = ed.code, call = `write(audio.from(${number(duration, v.unit)}), { at: ${number(time, v.unit)} })`, put = append(code, call)
+  if (!put) return note('Open or generate a sound first.')
+  const out = applied(code, put), step = stepsOf(out).findLast(x => out.slice(x.call.dot + 1, x.call.to) === call), off = step && turnOff(out, step.call)
+  if (!off) return
+  ed.change(between(code, changed(out, off)))
+  v.select(time, Math.min(time + duration, v.duration))
+  note('Takes here, the sound heard as it was: R records the first')
 }
 // The take heard there taken away, the one before it heard in its place; one step, which Undo takes back
 function deleteTake(run) {

@@ -134,7 +134,7 @@ const GAIN = [-36, 12]                        // the gain line's scale, dB: the 
                                               // three quarters of the way out, so a boost shows above it
 const GLIDE = .3                               // a playhead past the view's middle is drawn to it in this time constant, s
 
-export default function view(root, { onaxis = () => {}, onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onaudition = () => {}, onfocus = () => {}, ontake = () => {}, onghost = () => {}, onlayout = () => {}, onheight = () => {}, onlook = () => {}, onbusy = () => {}, onprobe = () => {}, onsamples = null, onheard = null, hint = null, keepRoom = true, zoom: { in: closest = 32, out: farthest = 4 / 3 } = {}, overshoot = .5, timeRow = 'foot' } = {}) {
+export default function view(root, { onaxis = () => {}, onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onaudition = () => {}, onfocus = () => {}, ontake = () => {}, onfork = () => {}, onghost = () => {}, onlayout = () => {}, onheight = () => {}, onlook = () => {}, onbusy = () => {}, onprobe = () => {}, onsamples = null, onheard = null, hint = null, keepRoom = true, zoom: { in: closest = 32, out: farthest = 4 / 3 } = {}, overshoot = .5, timeRow = 'foot' } = {}) {
   const element = (tag, className, parent) => parent.appendChild(Object.assign(document.createElement(tag), { className }))
   const layer = (name, parent = root) => element('canvas', name, parent)
   // the selection under the pictures, as a selection is behind text: the sound drawn over it, a quiet spectrogram's
@@ -378,8 +378,8 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
   // Takes (editor.js places): where recordings of one stretch went in, one heard, the others turned off (`sections`,
   // [{ at, end, on, names, lane, open }], `lane` the track's, or none for a sound's, a name '' an empty take's, `open`
   // while one is there); each a section of its lanes, from where they go in to where the longest ends, drawn as a range
-  // marker is, always, its place pressed selecting it as a range marker's does, and past its end their numbers, written
-  // as a range's name is, the one heard lit: a press on one hears it, on + an empty take is added there, for the next
+  // marker is, always, its place pressed selecting it as a range marker's does, and at its end inside it their numbers,
+  // written as a range's name is, the one heard lit: a press on one hears it, on + an empty take is added there, for the next
   // recording to go into, + off till one has (ontake, its index, the take's or 'add'). A range marked over the same
   // place names it, its name at its start, these at its end. More than FOLD + 1 fold past the FOLD-th into …, a menu of
   // them all (ontake 'more', the button), the one heard, if folded, after it: in sight, as a pager keeps its page
@@ -423,12 +423,27 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
           + (fold ? `<button type="button" value="more" class="takes-more" aria-haspopup="menu" aria-expanded="false" aria-label="All ${n} takes" title="Takes ${FOLD + 1} to ${n}">…</button>${t.on >= FOLD ? take(t.on) : ''}` : '')
           + `<button type="button" value="add" class="takes-add" ${t.open ? 'aria-disabled="true" title="An empty take is there: R records into it"' : 'title="Another take, empty, heard\nR then records into it; ⌥R records one at once"'} aria-label="Another take">+</button>`
       }
-      // in its band's strip on a name's line, past its end's triangle, where a range's name would be past it (its start
-      // free for a range's name over it), held at the picture's right while the section runs past it; each number's
-      // padding (2 px) before it
-      const left = `${Math.round(Math.min(x1 + TRI + 1, end - el.offsetWidth))}px`, at = `${Math.round(fieldTop(bottom + NAMES, NAMEH))}px`
+      // in its band's strip on a name's line, at its end inside it, as far from its end as a name is from its start (its
+      // start free for a range's name over it), held at the picture's right while the section runs past it; each
+      // number's padding (2 px) after it
+      const left = `${Math.round(Math.min(x1, end) - 2 - el.offsetWidth)}px`, at = `${Math.round(fieldTop(bottom + NAMES, NAMEH))}px`
       if (el.style.left !== left || el.style.top !== at) Object.assign(el.style, { left, right: 'auto', top: at })
     })
+  }
+  // A named range pointed at in its strip, no takes from where it starts: a fork (⌥, a branch) at its end inside it, where
+  // takes' numbers stand, a press on it starting takes there (onfork, the marker)
+  const forkButton = element('button', 'fork', root)
+  Object.assign(forkButton, { type: 'button', hidden: true, ariaLabel: 'Takes here', title: 'Takes here\nAn empty take over it, turned off: R records into it, the sound heard as it was till then', innerHTML: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h6l6 10h6M15 7h6"/></svg>' })
+  for (const type of ['pointerdown', 'pointerup', 'contextmenu', 'dblclick']) forkButton.addEventListener(type, e => e.stopPropagation())
+  forkButton.addEventListener('click', e => { e.stopPropagation(); const m = markers[+forkButton.dataset.i]; if (m) onfork(m) })
+  function placeFork(L) {
+    const m = !drag && hovered ? stripAt(...hovered, L) : null, mark = m?.kind === 'mark' && markers[m.i]
+    const seen = mark?.duration && mark.label && !sections.some(t => (t.lane ?? null) === markLane(mark) && Math.abs(X(t.at) - m.x0) < 1)
+    forkButton.hidden = !seen
+    if (!seen) return
+    forkButton.dataset.i = m.i
+    const left = `${Math.round(Math.min(m.x1, lanesEnd(L)) - 2 - forkButton.offsetWidth)}px`, top = `${Math.round(fieldTop(m.y + NAMES, NAMEH))}px`
+    if (forkButton.style.left !== left || forkButton.style.top !== top) Object.assign(forkButton.style, { left, top })
   }
   // A sound longer than the page holds (summary): drawn from its picture, the waveform from its leaves and the spectrogram
   // from its spectra, its samples fetched where it is zoomed in (onsamples, a chunk of CHUNK at a time, as the pictures
@@ -1326,6 +1341,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
       placeFades(L)
       placeFrozen(L)
       placeTakes(L)
+      placeFork(L)
       paintRoom(L, at)
       endLanes(L)
       paintLift(!drag && at)
@@ -2584,7 +2600,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
   // hanging from the lanes' foot, their upright edges at its start and its end (a selection's edges going on down them),
   // its name after the first, cut short where it has no room, nothing between them, lit while it is active (its stretch
   // selected, the marker chosen or dragged); a moment ▲ its name, the two halves one at its time; the takes' place as a
-  // range's, their numbers past its end (placeTakes). Pressed, a range's or the takes' place selected and
+  // range's, their numbers at its end inside it (placeTakes). Pressed, a range's or the takes' place selected and
   // heard while held (down); a marker's triangle dragged, it moves (a range's, that end; a moment's held Alt, pulled
   // apart into a range), snapping as an edge does, clicked, the caret goes to it and the marker is chosen; a name
   // clicked, named in place (clicked); a press elsewhere in the strip the band's height (footAt). Over the sound,
@@ -3012,6 +3028,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     const d = drag
     if (d.anchor != null && !d.moved && !d.caret && !d.box && !d.keep) d.hold = setTimeout(() => {
       if (drag !== d || d.moved) return
+      if (d.was) { ({ selection, band, cursor } = d.was); more = d.was.more; told() }
       Object.assign(d, { caret: true, adding: false, offset: 0, from: cursor, keep: true })
       root.style.cursor = 'ew-resize'
     }, HOLD)
@@ -3048,8 +3065,14 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
       if (e.r) take(e.r)
       return { anchor: selection[1 - e.edge], edge: e.edge, offset: selection[e.edge] - t, moved: true, resizing: true, keep: true, hear: selection[e.edge] }
     }
-    // a box sounds its band once it opens: a press alone has none
-    if (event.altKey && !row) return { anchor: t, x: px, y: py, offset: 0, moved: false, adding: true, hear: box ? null : t, ...box && { box, f: snapF(box, py) } }
+    // a box sounds its band once it opens: a press alone has none. Another caret there at once, as the press goes down
+    // (what was there kept, `was`, for a press held still: the caret's, no caret added), a drag on from it a range
+    if (event.altKey && !row) {
+      if (box) return { anchor: t, x: px, y: py, offset: 0, moved: false, adding: true, hear: null, box, f: snapF(box, py) }
+      const was = { selection, band, cursor, more: [...more] }, n = more.length
+      addCaret(t)
+      return { anchor: t, x: px, y: py, offset: 0, moved: false, adding: true, placed: true, started: more.length > n, was, hear: t }
+    }
     // The time row, a ruler's: pressed, the caret there alone, what is selected staying (up); dragged, a range, with
     // tracks through every lane (with Alt, another); held still, the caret, dragged (down)
     if (row) {
@@ -3291,16 +3314,16 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     // a drag draws what it does (the helpers, the picture as it will be): the pointer goes while it does, once it moves
     if (drag.x == null || Math.abs(px - drag.x) >= SLOP || Math.abs(py - (drag.y ?? py)) >= SLOP) root.style.cursor = 'none'
     // a marker held by its triangle: a moment, it moves (held Alt as it was pressed, pulled apart into a range from it, as
-    // Photoshop's split slider's triangle is); a range, the end held, short of the other by a step at least; onto the
-    // cues and markers near it, as an edge goes (stuck)
+    // Photoshop's split slider's triangle is); a range, the end held, as far as the other, onto it within ONTO px (one
+    // there as it is let go: a moment, up); onto the cues and markers near it, as an edge goes (stuck)
     if (drag.marker != null) {
       if (!drag.moved && Math.abs(px - drag.x) < SLOP) return
       drag.moved = true
       const m = markers[drag.marker], to = t => stuck(snap(t + time(px) - time(drag.x)))
       if (drag.split) { const t = Math.min(duration, Math.max(0, to(m.time))); drag.edge = +(t > m.time); [drag.to, drag.end] = drag.edge ? [m.time, t] : [t, m.time] }
       else if (!m.duration) drag.to = drag.end = Math.min(duration, Math.max(0, to(m.time)))
-      else if (drag.edge) drag.end = Math.min(duration, Math.max(drag.to + unit(), to(m.time + m.duration)))
-      else drag.to = Math.max(0, Math.min(drag.end - unit(), to(m.time)))
+      else if (drag.edge) { const t = Math.min(duration, Math.max(drag.to, to(m.time + m.duration))); drag.end = x(t) - x(drag.to) <= ONTO ? drag.to : t }
+      else { const t = Math.max(0, Math.min(drag.end, to(m.time))); drag.to = x(drag.end) - x(t) <= ONTO ? drag.end : t }
       return invalidate(true)
     }
     if (drag.cue != null) {
@@ -3518,10 +3541,11 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     if (d.preview) { onaudition(null); return invalidate(true) }
     if (d.foot != null) { onheight(Object.fromEntries((d.all ? bands() : [d.foot]).map(n => [n, tallOf(n)]))); hover(...local(event), event); return invalidate(true) }
     if (d.marker != null) {
+      // a range's ends let go on each other, a moment there; a moment pulled apart, a range
       const m = markers[d.marker], length = d.end - d.to
       if (d.moved && (Math.abs(d.to - m.time) > 1e-6 || Math.abs(length - (m.duration ?? 0)) > 1e-6)) {
-        markers = markers.with(d.marker, { ...m, time: d.to, ...length > 0 && { duration: length } })
-        onedit('remark', { time: m.time, duration: m.duration, track: m.track, to: d.to, ...length > 0 && { d: length } })
+        markers = markers.with(d.marker, { ...m, time: d.to, duration: length || undefined })
+        onedit('remark', { time: m.time, duration: m.duration, track: m.track, to: d.to, ...(length || m.duration) && { d: length } })
       }
       else if (!d.moved) { select(0, 0); setCursor(d.edge ? m.time + m.duration : m.time) }
       chosen = markers[d.marker]
@@ -3581,7 +3605,8 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     }
     else if (d.fade) { if (!(d.span[1] > d.span[0] && onedit('fade', { kind: d.fade, from: d.span[0], to: d.span[1], curve: fadeCurve }))) pieces = null }
     else if (d.gap) { if (!(d.to > d.at && onedit('insert', { at: d.at, duration: d.to - d.at }))) pieces = null; else freeze([{ lane: own0(), a: d.at, b: d.to }]) }
-    else if (d.adding && !d.moved) addCaret(d.anchor)
+    // (Alt's caret put down as it was pressed: placed)
+    else if (d.adding && !d.moved) { if (!d.placed) addCaret(d.anchor) }
     else if (d.caret && d.still && (selection || more.length)) { selection = band = null; more = []; told() }
     // a click on the time row moves the caret alone, as a ruler's does
     else if (!d.moved && (selection || more.length) && !d.keep && !d.row) { selection = null; band = null; more = []; told() }
