@@ -597,7 +597,8 @@ svg { flex: none; }
    is */
 .layer-new { position: absolute; left: 0; display: flex; align-items: center; color: var(--color-screen-muted); font: 11px/16px var(--font-mono); cursor: pointer; pointer-events: auto; }
 .layer-new svg { flex: none; width: 16px; height: 13px; margin-right: 4px; }
-.layer-new:hover { color: var(--color-screen-soft); }
+/* lit as it, or the room under the lanes (view.js paintRoom, data-room), is pointed at */
+.layer-new:hover, .view:has(> .plot[data-room]) .layer-new { color: var(--color-screen-soft); }
 .layer.muted > :not(.track-mute) { opacity: .45; }
 .layer.locked { cursor: default; }
 .layer-name { flex: none; max-width: 24em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 2px; }
@@ -622,16 +623,18 @@ svg { flex: none; }
 :is(.lane-look, .layer button):focus-visible { outline: 1px solid var(--color-screen-accent); outline-offset: 1px; }
 
 /* the takes of a place (view.js placeTakes): its numbers in its strip, written as a range's name is (view.js NAMEH,
-   label()), side by side, the one heard lit, … lit while its menu is open; + adds an empty take there, off while one is */
+   label()), side by side, the one heard lit, … lit while its menu is open; the fork adds an empty take there, off while
+   one is */
 .plot .takes { position: absolute; z-index: 1; display: flex; }
 .plot .takes[hidden] { display: none; }
-.plot .takes button { height: 14px; padding: 0 2px; border: 0; border-radius: 0; background: none; color: var(--color-screen-muted); font: var(--font-size-label)/14px var(--font-mono); cursor: pointer; }
+.plot .takes button { height: 14px; padding: 0 2px; border: 0; border-radius: 0; background: none; color: var(--color-screen-muted); font: var(--font-size-label) var(--font-mono); cursor: pointer; }
 .plot .takes button:hover:not([aria-disabled="true"]) { color: var(--color-screen-bright); }
 .plot .takes button:is([aria-pressed="true"], [aria-expanded="true"]) { color: var(--color-screen-bright); }
 .plot .takes button:focus-visible { outline: 1px solid var(--color-screen-accent); outline-offset: -1px; }
 .plot .takes .takes-add { color: var(--color-screen-soft); }
+.plot .takes button svg { display: block; width: 12px; height: 12px; }
 .plot .takes .takes-add[aria-disabled="true"] { color: var(--color-screen-muted); cursor: default; }
-/* a named range's fork (view.js placeFork), where takes' numbers stand: takes started there */
+/* a range's fork (view.js placeFork), where takes' numbers stand: takes started there */
 .plot .fork { position: absolute; z-index: 1; display: grid; place-items: center; width: 14px; height: 14px; padding: 0; border: 0; background: none; color: var(--color-screen-muted); cursor: pointer; }
 .plot .fork[hidden] { display: none; }
 .plot .fork svg { width: 12px; height: 12px; }

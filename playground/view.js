@@ -379,10 +379,12 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
   // [{ at, end, on, names, lane, open }], `lane` the track's, or none for a sound's, a name '' an empty take's, `open`
   // while one is there); each a section of its lanes, from where they go in to where the longest ends, drawn as a range
   // marker is, always, its place pressed selecting it as a range marker's does, and at its end inside it their numbers,
-  // written as a range's name is, the one heard lit: a press on one hears it, on + an empty take is added there, for the next
-  // recording to go into, + off till one has (ontake, its index, the take's or 'add'). A range marked over the same
-  // place names it, its name at its start, these at its end. More than FOLD + 1 fold past the FOLD-th into …, a menu of
-  // them all (ontake 'more', the button), the one heard, if folded, after it: in sight, as a pager keeps its page
+  // written as a range's name is, the one heard lit, then a fork (another take, as a range's): a press on one hears it,
+  // the one heard pressed again is turned off; on the fork an empty take is added there, for the next recording to go
+  // into, the fork off till one has (ontake, its index, the take's or 'add'). A range marked over the same place names
+  // it, its name at its start, these at its end. More than FOLD + 1: FOLD of
+  // them about the one heard, in sight as a pager keeps its page, … either side for those past them, a menu of them all
+  // (ontake 'more', the button)
   let sections = []
   const FOLD = 3
   // the section whose numbers are pointed at, or -1
@@ -417,32 +419,34 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
       if (el.dataset.key !== key) {
         el.dataset.key = key
         el.ariaLabel = 'Takes'
-        const n = t.names.length, fold = n > FOLD + 1
+        // FOLD of them about the one heard (from the first, none heard), … either side for those past them
+        const n = t.names.length, a = n > FOLD + 1 ? Math.max(0, Math.min(n - FOLD, t.on - 1)) : 0, b = n > FOLD + 1 ? a + FOLD : n
         const take = k => `<button type="button" value="${k}" aria-pressed="${k === t.on}" title="Take ${k + 1}, ${t.names[k] || 'empty: R records into it'}${k === t.on ? ', heard' : ''}">${k + 1}</button>`
-        el.innerHTML = t.names.slice(0, fold ? FOLD : n).map((_, k) => take(k)).join('')
-          + (fold ? `<button type="button" value="more" class="takes-more" aria-haspopup="menu" aria-expanded="false" aria-label="All ${n} takes" title="Takes ${FOLD + 1} to ${n}">…</button>${t.on >= FOLD ? take(t.on) : ''}` : '')
-          + `<button type="button" value="add" class="takes-add" ${t.open ? 'aria-disabled="true" title="An empty take is there: R records into it"' : 'title="Another take, empty, heard\nR then records into it; ⌥R records one at once"'} aria-label="Another take">+</button>`
+        const more = `<button type="button" value="more" class="takes-more" aria-haspopup="menu" aria-expanded="false" aria-label="All ${n} takes" title="All ${n} takes">…</button>`
+        el.innerHTML = (a > 0 ? more : '') + Array.from({ length: b - a }, (_, k) => take(a + k)).join('') + (b < n ? more : '')
+          + `<button type="button" value="add" class="takes-add" ${t.open ? 'aria-disabled="true" title="An empty take is there: R records into it"' : 'title="Another take"'} aria-label="Another take">${FORK}</button>`
       }
       // in its band's strip on a name's line, at its end inside it, as far from its end as a name is from its start (its
       // start free for a range's name over it), held at the picture's right while the section runs past it; each
-      // number's padding (2 px) after it
-      const left = `${Math.round(Math.min(x1, end) - 2 - el.offsetWidth)}px`, at = `${Math.round(fieldTop(bottom + NAMES, NAMEH))}px`
+      // number's padding (2 px) after it. Its top as a name's field's, not rounded, so its text lands on the name's rows
+      const left = `${Math.round(Math.min(x1, end) - 2 - el.offsetWidth)}px`, at = `${fieldTop(bottom + NAMES, NAMEH)}px`
       if (el.style.left !== left || el.style.top !== at) Object.assign(el.style, { left, right: 'auto', top: at })
     })
   }
-  // A named range pointed at in its strip, no takes from where it starts: a fork (⌥, a branch) at its end inside it, where
-  // takes' numbers stand, a press on it starting takes there (onfork, the marker)
+  // A range pointed at in its strip, no takes from where it starts: a fork (⌥, a branch) at its end inside it, where
+  // takes' numbers stand, as their own one, a press on it starting takes there (onfork, the marker)
+  const FORK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h6l6 10h6M15 7h6"/></svg>'
   const forkButton = element('button', 'fork', root)
-  Object.assign(forkButton, { type: 'button', hidden: true, ariaLabel: 'Takes here', title: 'Takes here\nAn empty take over it, turned off: R records into it, the sound heard as it was till then', innerHTML: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h6l6 10h6M15 7h6"/></svg>' })
+  Object.assign(forkButton, { type: 'button', hidden: true, ariaLabel: 'Another take', title: 'Another take', innerHTML: FORK })
   for (const type of ['pointerdown', 'pointerup', 'contextmenu', 'dblclick']) forkButton.addEventListener(type, e => e.stopPropagation())
   forkButton.addEventListener('click', e => { e.stopPropagation(); const m = markers[+forkButton.dataset.i]; if (m) onfork(m) })
   function placeFork(L) {
     const m = !drag && hovered ? stripAt(...hovered, L) : null, mark = m?.kind === 'mark' && markers[m.i]
-    const seen = mark?.duration && mark.label && !sections.some(t => (t.lane ?? null) === markLane(mark) && Math.abs(X(t.at) - m.x0) < 1)
+    const seen = mark?.duration && !sections.some(t => (t.lane ?? null) === markLane(mark) && Math.abs(X(t.at) - m.x0) < 1)
     forkButton.hidden = !seen
     if (!seen) return
     forkButton.dataset.i = m.i
-    const left = `${Math.round(Math.min(m.x1, lanesEnd(L)) - 2 - forkButton.offsetWidth)}px`, top = `${Math.round(fieldTop(m.y + NAMES, NAMEH))}px`
+    const left = `${Math.round(Math.min(m.x1, lanesEnd(L)) - 2 - forkButton.offsetWidth)}px`, top = `${fieldTop(m.y + NAMES, NAMEH)}px`
     if (forkButton.style.left !== left || forkButton.style.top !== top) Object.assign(forkButton.style, { left, top })
   }
   // A sound longer than the page holds (summary): drawn from its picture, the waveform from its leaves and the spectrogram
@@ -1155,7 +1159,8 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     // the pointer, read out on the axes: its time on the time row, as the script will get it (a dragged edge's, a snapped
     // one's), the labels there giving way to it; its level or frequency by its lane
     const at = hovered && hovered[0] >= 0 && hovered[0] <= w && !drag?.scroll && !onBar(...hovered) && !onAway(...hovered) ? hovered : null, lane = at && all.find(r => inside(r, ...at))
-    const pointed = at && (drag?.span ? drag.p : drag?.stretch ? drag.to : drag?.hear ?? stuck(snap(time(at[0]))))
+    // (past the end too, where nothing is yet: the time there all the same)
+    const pointed = at && (drag?.span ? drag.p : drag?.stretch ? drag.to : drag?.hear ?? stuck(free(time(at[0]))))
     // held Alt over the picture, as Figma's: every cue, where a press would snap (the caret held, an edge or a range's
     // end, dragged, where it would), and how far the pointer is from what is selected, or from the caret (measured); held
     // ⌘ (Ctrl), the cue under the pointer alone (paintCues)
@@ -1178,18 +1183,19 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     // the notes lanes' keys and notes, under all that is drawn over them, a muted track's veil too
     for (const rect of L.notes) paintRoll(rect, lanesEnd(L), !tracks || rect.i === focus, sel)
     // a muted track's spectrogram or notes veiled, under all that is drawn over them (its waveform drawn dim itself,
-    // drawWave: the ground under it as it is); a track that ends before the longest, its centre line on, faint, to where
-    // that one ends, as far as the mix and its export go
+    // drawWave: the ground under it as it is)
     if (tracks) {
       c.fillStyle = color('--color-screen')
       c.globalAlpha = .6
       all.forEach((rect, i) => tracks[i]?.muted && rect.kind !== 'wave' && c.fillRect(0, rect[1], lanesEnd(L), rect[3]))
-      const last = Math.max(...tracks.map(t => t.end)), to = Math.min(lanesEnd(L), X(last))
-      c.fillStyle = color('--color-screen-wave')
-      c.globalAlpha = .3
-      for (const r of L.wave) { const from = Math.max(0, X(tracks[r.i]?.end ?? last)); if (to > from) c.fillRect(from, Math.round(r[1] + r[3] / 2), to - from, 1) }
       c.globalAlpha = 1
     }
+    // a waveform that ends before the view does (a track's before the longest, the sound's in the room zoomed out past
+    // it), its centre line on, faint, to the view's end, as the room's new track's is: nothing there yet
+    c.fillStyle = color('--color-screen-wave')
+    c.globalAlpha = .35
+    for (const r of L.wave) { const from = Math.max(0, X(tracks ? tracks[r.i]?.end ?? duration : duration)), to = lanesEnd(L); if (to > from) c.fillRect(from, Math.round(r[1] + r[3] / 2), to - from, 1) }
+    c.globalAlpha = 1
     // what runs through time is drawn in each lane (`rects`: all of them, or the edited track's), never across the gap
     // between two, which holds no sound
     const across = (px, width, rects = all) => { for (const [, y, , lh] of rects) c.fillRect(px, y, width, lh) }
@@ -1269,8 +1275,9 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     if (stuckTo?.d < .5) {
       const rects = (allLanes ? L : T).all, px = X(onto), here = t => Math.abs(X(t) - px) < 1, { text, side } = snappedTo(stuckTo.t)
       const cue = seen().find(i => Math.abs(X(cues[i]) - px) <= ONTO), foot = ownMarks().some(here) ? strips(L).find(s => s.i === (tracks ? focus : null))?.y : null
+      // as thick as a clip's cross (paintOvers)
       c.strokeStyle = accent()
-      c.lineWidth = 1
+      c.lineWidth = 1.5
       if (foot != null) crossAt(px + .5, Math.round(foot) - .5)
       if (cue != null || foot == null) for (const rect of rects) {
         const [, y, , lh] = rect, top = waveAt(rect, onto, y), low = top && waveAt(rect, onto, y + lh)
@@ -1893,6 +1900,8 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
   // its centre line faint, as a lane with nothing in it yet; pointed at, named by the pointer
   function paintRoom(L, at) {
     const lane = roomLane(L), on = at && !drag && inRoom(at[1], L)
+    // the placeholder by it lit as it is pointed at (editor.css .layer-new)
+    if (root.hasAttribute('data-room') !== !!(lane && on)) root.toggleAttribute('data-room', !!(lane && on))
     if (!lane || !on && !ghost && !droppedNew) return
     c.fillStyle = color('--color-screen-wave')
     c.globalAlpha = .35
@@ -2525,7 +2534,8 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
   function paintEdge(L, sel) {
     const lit = drag?.resizing && sel && !band ? { edge: sel[0] === drag.anchor ? 1 : 0, t: sel[sel[0] === drag.anchor ? 1 : 0] } : !drag && hot
     if (!lit) return
-    const px = X(lit.t) - lit.edge
+    // an end's last pixel, but where the caret is on it (the end a drag left it at): the caret's line, lit, one line
+    const px = X(lit.t) - (playhead == null && lit.t === cursor ? 0 : lit.edge)
     c.fillStyle = color('--color-screen-bright')
     if (px >= 0 && px < lanesEnd(L)) for (const [, y, , lh] of L.all) c.fillRect(px, y, 1, lh)
   }
@@ -2606,7 +2616,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
   // clicked, named in place (clicked); a press elsewhere in the strip the band's height (footAt). Over the sound,
   // nothing of them but one pointed at, its stretch as a press would select it, or dragged, and a line as the caret
   // would go (paintMarkers, marksOf)
-  const TRI = 5, MARKED = 9, NAMES = 5, NAMEH = 14
+  const TRI = 5, MARKED = 9, NAMES = 6, NAMEH = 14
   // where each marker's name is drawn, [{ i, from, to, y }] px: a click there names it anew (clicked)
   let labels = []
   const labelAt = (px, py) => labels.find(n => py >= n.y && py < n.y + FOOT && px >= n.from && px <= n.to)?.i ?? -1
@@ -4263,7 +4273,13 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
       rename(markers.findIndex(n => same(n, m)))
     },
     // the cues found, [{ t, rank }] (s, how plain: the larger shown first where they crowd); null till they are
-    set cues(list) { cues = list?.map(c => c.t) ?? null; ranks = new Map(list?.map(c => [c.t, c.rank])); cueKinds = list?.map(c => c.kind) ?? []; invalidate() },
+    set cues(list) {
+      // the sound's own start and end among them (the edited track's), where none of its own is: shown and snapped to
+      // as any, before any where they crowd
+      const end = tracks ? tracks[focus]?.end : duration, own = ([t, kind]) => t != null && !(kind === 'end' && t <= 0) && !list.some(c => Math.abs(c.t - t) < 1e-3)
+      list = list && [...list, ...[[0, 'start'], [end, 'end']].filter(own).map(([t, kind]) => ({ t, kind, rank: Infinity }))].sort((p, q) => p.t - q.t)
+      cues = list?.map(c => c.t) ?? null; ranks = new Map(list?.map(c => [c.t, c.rank])); cueKinds = list?.map(c => c.kind) ?? []; invalidate()
+    },
     // what the grip does: 'trim', 'stretch' or 'speed'; whether pitch is edited
     set gripMode(mode) { gripMode = ['trim', 'speed'].includes(mode) ? mode : 'stretch'; invalidate(true) },
     set pitching(on) {

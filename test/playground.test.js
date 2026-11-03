@@ -6769,16 +6769,20 @@ test('editor: markers: a range\'s triangles drag its ends; a moment is one trian
   await page.waitForFunction(() => /\.mark\(5, 'Bell'\)/.test(scriptText()))
 })
 
-// A named range pointed at in its strip shows a fork (⌥) at its end inside it, where takes' numbers stand: pressed, takes
+// A range pointed at in its strip shows a fork (⌥) at its end inside it, where takes' numbers stand: pressed, takes
 // start there, an empty take over it, turned off, the sound heard as it was, its place selected for R to record into.
 // Its number pressed hears it; pressed again, turned off, the sound as it was again. None on a range with takes
 test('editor: markers: a named range\'s fork starts takes there; the take heard, pressed again, off', async () => {
   await open()
   await noCues()
-  await write(`audio('chime.wav').mark({ at: 3, d: 2 }, 'Chorus')`)
+  await write(`audio('chime.wav').mark({ at: 3, d: 2 }, 'Chorus').mark({ at: 6, d: 1 })`)
   await lengthIs('0:08.000')
   const { box, x } = await axis(8), strip = box.y + tall(box) + FOOT / 2, fork = page.locator('.plot .fork')
   assert.ok(await fork.isHidden(), 'none till it is pointed at')
+  // a range with no name has it too
+  await page.mouse.move(x(6.5), strip)
+  await fork.waitFor()
+  assert.equal(await fork.getAttribute('title'), 'Another take')
   await page.mouse.move(x(4), strip)
   await fork.waitFor()
   const at = await fork.boundingBox()
@@ -6788,8 +6792,8 @@ test('editor: markers: a named range\'s fork starts takes there; the take heard,
   assert.equal(await selected(), '0:03.000–0:05.000')
   const chip = page.locator('.plot .takes:not([hidden])')
   await chip.waitFor()
-  const numbers = () => chip.locator('button').evaluateAll(b => b.map(x => [x.textContent, x.getAttribute('aria-pressed') ?? x.getAttribute('aria-disabled')]))
-  assert.deepEqual(await numbers(), [['1', 'false'], ['+', 'true']])
+  const numbers = () => chip.locator('button').evaluateAll(b => b.map(x => [x.value === 'add' ? 'fork' : x.textContent, x.getAttribute('aria-pressed') ?? x.getAttribute('aria-disabled')]))
+  assert.deepEqual(await numbers(), [['1', 'false'], ['fork', 'true']])
   await page.mouse.move(x(4), strip)
   await page.waitForTimeout(200)
   assert.ok(await fork.isHidden(), 'no fork where takes are')
@@ -9740,9 +9744,9 @@ test('editor: the record button records over the sound from the caret, into the 
   await hearing(Array.from({ length: n }, (_, i) => i === n - 1))
   // on the picture, the place's numbers in its corner, the one heard lit, then +; a press on one hears it
   const chip = page.locator('.plot .takes')
-  const numbers = () => chip.locator('button').evaluateAll(b => b.map(x => [x.textContent, x.getAttribute('aria-pressed')]))
+  const numbers = () => chip.locator('button').evaluateAll(b => b.map(x => [x.value === 'add' ? 'fork' : x.textContent, x.getAttribute('aria-pressed')]))
   await page.waitForFunction(k => document.querySelector('.plot .takes:not([hidden]) button[aria-pressed="true"]')?.value === k, String(n - 1))
-  assert.deepEqual(await numbers(), [...Array.from({ length: n }, (_, k) => [String(k + 1), String(k === n - 1)]), ['+', null]])
+  assert.deepEqual(await numbers(), [...Array.from({ length: n }, (_, k) => [String(k + 1), String(k === n - 1)]), ['fork', null]])
   await chip.locator('button[value="1"]').click()
   await hearing(Array.from({ length: n }, (_, i) => i === 1))
   await page.waitForFunction(() => document.querySelector('.plot .takes button[aria-pressed="true"]')?.value === '1')
@@ -9757,6 +9761,62 @@ test('editor: the record button records over the sound from the caret, into the 
   await hearing(Array.from({ length: n + 1 }, (_, i) => i === n))
   assert.match(await code(), /\.write\(audio\('take-\d+\.wav'\), \{ at: 2 \}\)$/)
   await lengthIs('0:08.000')
+})
+
+// A selection's end dragged leaves the caret there (the end a drag moves), its line the end's, one pixel wide: the end
+// lit on the caret's own line, not its last pixel beside it
+test('editor: the end of a selection dragged, the caret its one line', async () => {
+  await open()
+  await noCues()
+  await write(`audio('chime.wav')`)
+  await lengthIs('0:08.000')
+  const { box, x } = await axis(8), y = box.y + tall(box) * .5, px = t => Math.round(x(t) - box.x)
+  await drag([x(2), y], [x(3) - x(2), 0])
+  await drag([x(3), y], [x(4) - x(3), 0])
+  assert.equal(await selected(), '0:02.000–0:04.000')
+  // pointed at, the end lit: the bright columns by it in the lanes' top rows (over the sound's quiet edge)
+  await page.mouse.move(x(4) - 2, y)
+  await page.waitForTimeout(200)
+  const lit = await pixels(`const out = []; for (let x = arg - 3; x <= arg + 3; x++) { const i = (4 * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 600) out.push(x - arg) } return out`, px(4))
+  assert.equal(lit.length, 1, `one line at its end: ${lit}`)
+})
+
+// The sound's own start and end are cues as any: a press within a few px of them, there
+test('editor: a press by the sound\'s start or end goes onto it', async () => {
+  await open()
+  await write(`audio('chime.wav')`)
+  await lengthIs('0:08.000')
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3
+  for (const [t, dx, want] of [[0, 2, '0:00.000'], [8, -2, '0:08.000']]) {
+    for (const until = Date.now() + 8000; Date.now() < until; await page.waitForTimeout(200)) {
+      await page.mouse.click(x(t) + dx, y)
+      if (await page.locator('.time').innerText() === want) break
+    }
+    assert.equal(await page.locator('.time').innerText(), want, `by ${t} s, onto it`)
+  }
+})
+
+// Zoomed out past the sound's end: its lanes' centre line on, faint, to the view's end, as the room's new track's is; the
+// pointer's time on the time row there too, past the end, where nothing is yet
+test('editor: past the sound\'s end, its centre line on to the view\'s end, the pointer\'s time on the row', async () => {
+  await open()
+  await noCues()
+  await write(`audio('chime.wav')`)
+  await lengthIs('0:08.000')
+  await page.locator('.plot').focus()
+  for (let i = 0; i < 2; i++) await page.keyboard.press('-')
+  await page.waitForTimeout(500)
+  const box = await page.locator('.plot').boundingBox(), w = await spans(box), lane = tall(box)
+  // the first lane's middle row past the end (the last tenth of the lanes, where the sound is not), its ink
+  const line = () => pixels(`let n = 0; for (let x = Math.round(arg.w * .92); x < arg.w - 2; x++) { let most = 0; for (let y = arg.y - 1; y <= arg.y + 1; y++) { const i = (y * w + x) * 4; most = Math.max(most, d[i] + d[i + 1] + d[i + 2]) } if (most > 120) n++ } return n`, { w, y: Math.round(lane / 4) })
+  await page.mouse.move(box.x + 5, box.y + box.height - 4)
+  assert.ok(await line() > w * .07 - 4, `its centre line on past its end: ${await line()}`)
+  // the pointer past the end, over the lanes: its tick on the row, where it is, bright
+  const at = Math.round(w * .95)
+  await page.mouse.move(box.x + at, box.y + lane / 2)
+  await page.waitForTimeout(200)
+  const tick = await pixels(`for (let x = arg.at - 2; x <= arg.at + 2; x++) { const i = ((h - 6) * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 450) return x - arg.at } return null`, { at })
+  assert.ok(tick != null, 'its time on the row, past the end')
 })
 
 // The strip under the lanes, as Photoshop's split slider marks a range under its bar: a named range ◢ its name ◣
@@ -9901,9 +9961,9 @@ test('editor: takes are marked in the strip under all they span, pressed there s
   await lengthIs('0:09.000')
   const { box, x } = await axis(9), chip = page.locator('.plot .takes:not([hidden])')
   await chip.waitFor()
-  // at its end inside it, here the sound's; its middle NAMES (5) px under the lanes' foot
+  // at its end inside it, here the sound's, on a name's line (NAMES, 6 px under the lanes' foot)
   const corner = await chip.boundingBox()
-  assert.ok(corner.x > x(8) && corner.x + corner.width <= x(9) + TAIL + 1 && Math.abs(corner.y + corner.height / 2 - box.y - tall(box) - 5) < 2, `in its strip, by its end: ${JSON.stringify(corner)}`)
+  assert.ok(corner.x > x(8) && corner.x + corner.width <= x(9) + TAIL + 1 && Math.abs(corner.y + corner.height / 2 - box.y - tall(box) - 6) < 2, `in its strip, by its end: ${JSON.stringify(corner)}`)
   // its place in the strip, pressed near its end: all of it selected, to 9 s
   const strip = box.y + tall(box) + FOOT / 2
   const line = async () => { await page.mouse.move(x(8.7), strip); return page.evaluate(() => document.querySelector('.plot').style.cursor) }
@@ -9948,35 +10008,40 @@ test('editor: a range over the takes\' place names it, its name at their start, 
   await chip.waitFor()
   const at = await chip.boundingBox()
   assert.ok(Math.abs(at.x + at.width - x(9) + 2) < 2, `at their end, inside: ${at.x + at.width - x(9)} px`)
-  assert.ok(Math.abs(at.y + at.height / 2 - box.y - lane - 5) < 2, `on its name's line: ${at.y + at.height / 2 - box.y - lane}`)
+  // the rows the bright ink of columns [a, b) takes in the strip, from the lanes' foot
+  const rows = (a, b) => pixels(`const out = []; for (let y = arg.y0; y < arg.y1; y++) { for (let x = arg.a; x < arg.b; x++) { const i = (y * w + x) * 4; if (d[i] > 120) { out.push(y - arg.lane); break } } } return out`, { a, b, y0: lane, y1: lane + 18, lane })
   // its name from 4 px past their start, bright on the strip's line (once its marker has come with the output)
-  const name = () => pixels(`let n = 0; for (let y = arg.y0; y < arg.y1; y++) for (let x = arg.a; x < arg.b; x++) { const i = (y * w + x) * 4; if (d[i] > 120) n++ } return n`, { a: Math.round(x(1) - box.x) + 3, b: Math.round(x(1) - box.x) + 34, y0: lane + 1, y1: lane + 12 })
+  const ink = () => pixels(`let n = 0; for (let y = arg.y0; y < arg.y1; y++) for (let x = arg.a; x < arg.b; x++) { const i = (y * w + x) * 4; if (d[i] > 120) n++ } return n`, { a: Math.round(x(1) - box.x) + 3, b: Math.round(x(1) - box.x) + 34, y0: lane + 1, y1: lane + 12 })
   let lit = 0
-  for (const until = Date.now() + 5000; lit < 15 && Date.now() < until; await page.waitForTimeout(100)) lit = await name()
+  for (const until = Date.now() + 5000; lit < 15 && Date.now() < until; await page.waitForTimeout(100)) lit = await ink()
   assert.ok(lit >= 15, `its name at their start: ${lit}`)
+  // their numbers' text on its name's rows, from a pixel under the lanes' foot (its middle NAMES, 6 px, under it)
+  const named = await rows(Math.round(x(1) - box.x) + 3, Math.round(x(1) - box.x) + 34), numbers = await rows(Math.round(at.x - box.x), Math.round(at.x - box.x + at.width))
+  assert.ok(named[0] === 1 && JSON.stringify(numbers) === JSON.stringify(named), `the numbers on the name's rows: ${numbers}, ${named}`)
 })
 
-// More takes than four fold past the third into …, a menu of them all, the one heard checked; the one heard, folded,
-// after it, in sight, as a pager keeps its page; four, each its number (… would take a number's room and hide one)
+// More takes than four show three about the one heard, in sight, as a pager keeps its page, … either side for those
+// past them, a menu of them all, the one heard checked; four, each its number (… would take a number's room and hide
+// one); after them a fork, another take
 test('editor: takes past the third fold into a menu, the one heard in sight', async () => {
   await open()
   const takes = (n, k) => `audio('rhodes.wav')` + Array.from({ length: n }, (_, i) => `\n  ${i === k ? '' : '// '}.write(audio('chime.wav'), { at: 1 })`).join('')
   const chip = page.locator('.plot .takes:not([hidden])')
-  const shown = () => chip.locator('button').evaluateAll(b => b.map(x => x.textContent + (x.getAttribute('aria-pressed') === 'true' ? '*' : '')))
+  const shown = () => chip.locator('button').evaluateAll(b => b.map(x => x.value === 'add' ? (x.querySelector('svg') ? 'fork' : x.textContent) : x.textContent + (x.getAttribute('aria-pressed') === 'true' ? '*' : '')))
   const heard = k => page.waitForFunction(k => document.querySelector('.plot .takes:not([hidden]) button[aria-pressed="true"]')?.value === k, String(k))
   await write(takes(4, 3))
   await heard(3)
-  assert.deepEqual(await shown(), ['1', '2', '3', '4*', '+'])
-  // five, the fewest that fold, the fourth heard, the first folded: after …
+  assert.deepEqual(await shown(), ['1', '2', '3', '4*', 'fork'])
+  // five, the fewest that fold, the fourth heard: the third to the fifth, the first two folded before them
   await write(takes(5, 3))
   await page.waitForFunction(() => document.querySelector('.plot .takes:not([hidden]) button[value="more"]'))
-  assert.deepEqual(await shown(), ['1', '2', '3', '…', '4*', '+'])
+  assert.deepEqual(await shown(), ['…', '3', '4*', '5', 'fork'])
   await write(takes(6, 1))
   await heard(1)
-  assert.deepEqual(await shown(), ['1', '2*', '3', '…', '+'])
+  assert.deepEqual(await shown(), ['1', '2*', '3', '…', 'fork'])
   await write(takes(6, 4))
   await heard(4)
-  assert.deepEqual(await shown(), ['1', '2', '3', '…', '5*', '+'])
+  assert.deepEqual(await shown(), ['…', '4', '5*', '6', 'fork'])
   // … pressed: all six as a menu under it, the one heard checked; one picked there, heard, in sight after …
   await chip.locator('button[value="more"]').click()
   assert.equal(await chip.locator('button[value="more"]').getAttribute('aria-expanded'), 'true')
@@ -9985,7 +10050,11 @@ test('editor: takes past the third fold into a menu, the one heard in sight', as
   await contextRow('Take 6').click()
   await heard(5)
   assert.match(await code(), /\/\/ \.write\(audio\('chime\.wav'\), \{ at: 1 \}\)\n {2}\.write\(audio\('chime\.wav'\), \{ at: 1 \}\)$/)
-  assert.deepEqual(await shown(), ['1', '2', '3', '…', '6*', '+'])
+  assert.deepEqual(await shown(), ['…', '4', '5', '6*', 'fork'])
+  // the third heard of six: the second to the fourth, … either side
+  await write(takes(6, 2))
+  await heard(2)
+  assert.deepEqual(await shown(), ['…', '2', '3*', '4', '…', 'fork'])
 })
 
 // Takes stay drawn through an edit after them that leaves their place where it is (a delete of the tail), drawn where it
@@ -10162,6 +10231,11 @@ test('editor: under the tracks, New track where its title would be: pressed, mad
   assert.ok(Math.abs(starts[0] - starts[1]) <= 1 && starts[2] === 'M12 5v14M5 12h14', `a plus, then its words where a name starts: ${starts}`)
   const [, b] = await tracksAt(), head = await placeholder.boundingBox()
   assert.ok(Math.abs(head.y - (b.y + b.h + FOOT)) <= 1, `where its title would be: ${head.y}, under ${b.y + b.h + FOOT}`)
+  // lit as the room under the lanes is pointed at, as if it were
+  const tint = () => placeholder.evaluate(e => getComputedStyle(e).color)
+  const idle = await tint()
+  await page.mouse.move(head.x + 300, head.y + 40)
+  await page.waitForFunction(was => getComputedStyle(document.querySelector('.layer-new')).color !== was, idle)
   // the meters read the caret's place in a lane; in the room, nothing
   const box = await page.locator('.plot').boundingBox(), lit = () => page.evaluate(() => { const m = document.querySelector('.plot canvas.meters'), d = m.getContext('2d').getImageData(0, 0, m.width, m.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) n += d[i] > 0; return n })
   await page.mouse.click(box.x + 300, b.y + b.h / 2)
@@ -10806,9 +10880,9 @@ test('editor: recorded into a track over a selection, the loop on, pass after pa
   await page.keyboard.press('r')
   await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
   // the second pass under way: the first a take there, the one recording lit, nothing to switch to yet
-  const numbers = () => page.locator('.plot .takes:not([hidden]) button').evaluateAll(b => b.map(x => x.textContent + (x.getAttribute('aria-pressed') === 'true' ? '*' : '')))
+  const numbers = () => page.locator('.plot .takes:not([hidden]) button').evaluateAll(b => b.map(x => x.value === 'add' ? 'fork' : x.textContent + (x.getAttribute('aria-pressed') === 'true' ? '*' : '')))
   await page.waitForFunction(() => document.querySelectorAll('.plot .takes:not([hidden]) button').length === 3, null, { timeout: 15000 })
-  assert.deepEqual(await numbers(), ['1', '2*', '+'])
+  assert.deepEqual(await numbers(), ['1', '2*', 'fork'])
   await page.waitForFunction(() => document.querySelectorAll('.plot .takes:not([hidden]) button').length === 4, null, { timeout: 15000 })
   await page.keyboard.press('r')
   await page.waitForFunction(() => (scriptText().match(/\.write\(audio\('take/g) ?? []).length >= 2)
