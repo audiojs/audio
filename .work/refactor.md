@@ -1,0 +1,157 @@
+# Refactor: one library, one engine, small modules, tests on state
+
+Approved 2026-11-02. Nothing else lands in `playground/`, `test/playground.test.js` or the library's root modules until this is done.
+Owner: session audio-9e. Other sessions: finish what you have, report to audio-9e (don't commit), start nothing new here.
+
+## Why
+
+| Recurring problem | Sessions (2026) | Cause |
+|---|---|---|
+| Playhead or scroll stutter | 10-09, 10-10, 10-15, 10-17, 10-20, 11-02 | fixed by mechanism each time; nothing measures frame times under load |
+| A non-audio action waits on a render | 10-03, 10-09, 10-12, 10-14, 10-18, 10-27, 10-28 | the render cache lives in the playground worker, added case by case |
+| Unrelated parts regress | 10-11, 10-28, 10-30, 11-02 | agents read fragments of 4,000-line files; no visual baseline |
+| Parallel sessions collide | 312763f, 10-05, 11-02 | many features in two files, one working tree |
+
+## The library loads three times in the editor (measured 2026-11-02)
+
+Chromium, `/playground/` on chime.wav, then Space (scratchpad `loads.mjs`):
+
+| Realm | What loads | Library bytes |
+|---|---|---|
+| page | `assets/audio.js`, the whole library (core, plan, stats, cache, every `fn/*`, deck), committed, minified | 365 KB |
+| page, on play | raw `worker.js` and `deck.js`: deck.js a second time on the same page | 66 KB |
+| engine worker | `playground/dist/worker.js` + library chunk + plugin chunks | ~400 KB |
+| deck worker (`engine.js` `decks()`) | the same engine bundle again, to play | ~400 KB |
+
+The page uses the full bundle for `audio.context` (deck.js has it) and for `audio.from(samples)`, the fallback taken where
+no worker voice opens (a test, or the deck worker failed: `player.js` `made()`). deck.js keeps `Symbol.for('audio.context')` and `Symbol.for('audio.deck')` on `globalThis` so
+the copies agree. `playground/dist/chunks` holds 2,730 files, at most 1,129 referenced: the build never clears it.
+
+## Stages
+
+Each stage: its own commits, full suite green before and after (`npm run test:all`), merged before the next starts.
+Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master and the Mac app stay usable between stages.
+
+### 0. Integrate the working tree
+
+- [x] audio-2b reports its batch (11-02 18:00): no tests yet for the level readout near the centre line and for a snapped
+      selection edge drawing no lit cue line; its suite run: 407 of 420, 'Denoise learns the noise…' and 'the spectrogram's
+      frequency scale… snapping…' failing, 'recording with the spectrogram shown' timing out under load
+- [x] audio-f1 holds its approved strip (named ranges, takes, selection, cues in each band's foot row) until stage 0 lands,
+      then commits it itself; its report is in (zoom limits as UI config, handles on hover, cues at 10 and 50 ms ranked by
+      plainness, Shift-extend, edge turn-over, level readout, takes drawn live, weighted twins swapped whole, muted dimmed)
+- [ ] `assets/popoff.js` is popoff 3.1.0, committed in ~/projects/popoff (f167343) but not published: the user decides whether to publish
+      before this repo commits a copy of it
+- [ ] `test/index.js` 'pages — a short sound decoded or pushed keeps no page it was gathered in' (audio-2b's, beside its
+      `core.js` pageAccumulator fix) reported failing by audio-f1 at 105.5 MB
+- [ ] the other idle sessions' uncommitted work identified (themes and tracks 10-29..11-02, site move 11-02, snapping and embed 11-02)
+- [x] the site move finished in the tree (user, 11-02: no site pages here): `site/`, `workshop/`, `CNAME` (Pages has no custom
+      domain here: audio.js.org/audio/ is the org site's), `test/site.test.js` (all 118 tests needed the old landing page; not in CI)
+      and `npm run test:site` removed; `assets/README.md` cut to the assets. The logo's lab moved to audiojs.github.io `lab/logo/`
+      with its 9 tests (committed there, 811b790); `logo/*.js` stay here, the playground's bar and the site's home import them
+- [ ] lost with the old landing page, for the user: the mark carried from the editor to the home (view transitions, `motion.js`
+      `CARRY`): the playground half (`editor.css` view-transition names) remains; the new home doesn't take it up
+- [ ] root `editor.html` and `playground.html` (old shared links, tested in `playground.test.js`) folded into one `404.html` in stage 2,
+      when the test server answers misses as Pages does
+- [ ] full suite on the tree as it is; failures fixed or listed
+- [ ] committed in groups, one behavior per commit where files allow; where one file mixes several, one commit naming each
+
+### 1. Tests wait on state
+
+- [ ] the page answers "settled" (no run pending, output drawn): the `ran()` the agent bridge awaits, exposed to tests
+- [ ] the 294 `waitForTimeout`s in `test/playground.test.js` (120 s of sleeping per run) replaced by it or by `waitForFunction` on state;
+      a sleep that stays says why in a comment
+- [ ] tests stop rebuilding committed files (`playground.test.js` and `site.test.js` import `.site-build.js`): build once before the browser suites
+- [ ] three guards for what was caught by eye:
+  - [ ] no engine run for a non-audio action: mute, solo, rename, resize, view switch, tab switch, theme
+  - [ ] followed playback with two tracks under 4× CPU throttle (CDP `Emulation.setCPUThrottlingRate`): frame-time p99 within budget
+  - [ ] screenshots of the bar (time, length, status, undo/redo) at desktop, tablet and phone widths
+- Done: suite green twice in a row; playground suite time recorded before and after
+
+### 2. One library per realm, one build, one server
+
+- [ ] page: `deck.js` and the `worker.js` facade only; `assets/audio.js` gone from the editor. A deck worker that fails falls back
+      to the engine worker's voice, not to a library copy on the page; tests drive a worker
+- [ ] deck worker: a lean entry (core, plan, the voice), not the engine bundle; or no deck worker at all, if the engine worker stays
+      responsive during a model's pass (ONNX runtime on its own thread). Decided by measuring playback during a model pass
+- [ ] the root cause at package level: the browser `"."` export (`dist/audio.js`) inlines `deck.js`, while `./worker` imports `./deck.js`
+      raw, so any browser app using both runs two decks. `dist/audio.js` keeps `./deck.js` external (shipped beside it), or both
+      entries come from one build
+- [ ] `Symbol.for` globals that exist only to reconcile copies removed (`audio.context`, `audio.deck`; `audio.take` and `audio.worker`
+      reviewed)
+- [ ] jobs threads (`playground/jobs.js` → `parallel.js` → `core.js`) load core for nothing: `serve` moves to a core-free module
+- [ ] dead import-map entry: `index.html` maps `@audio/tune-curve`, the library imports `@audio/tune/curve`; the map goes with the page bundle
+- [ ] `npm run serve` builds and watches (esbuild context), clears its output first; a reload always runs the source as it is
+- [ ] generated bundles out of git (`assets/audio.js`, `codemirror.js`, `lezer*.js`, copied `gl-*.js`), built by CI for Pages and by
+      the Mac app's server on start
+- [ ] one serving module (types, COOP/COEP) for `.site-serve.js`, `desktop/server.js` and the tests; `sw.js` reads the same headers
+- [ ] `loads.mjs` becomes a test: each library module instantiated once per realm
+- Done: page library bytes ~66 KB (from ~430 KB); `git status` clean after any build; an embed as the home's hero uses it
+  (panel none, display wave, no code panel, no menubar) under 300 KB at first load, the user's target (11-02: 1,059 KB
+  gzipped today, the mp3's 176 KB apart), codecs, renderers and converters as they're needed
+
+### 3. The library owns engine concerns; duplicates removed
+
+- [ ] one keyed store of channels (OPFS, one lock discipline) under `cache.js` pages, `audio.memo`, checkpoints and the playground's kept files.
+      Today four writers: `cache.js`, `playground/keep.js`, `playground/worker.js` `disk()` and `shelf()`
+- [ ] checkpoints in the library: a render kept by source and edits prefix, resumed from the longest kept prefix
+      (now `playground/worker.js` "Renders kept": `keysOf`, `based`, `store`, `recall`), behind a host store like `audio.memo`.
+      Node tests: a step toggled renders only after it; mute renders nothing; a kept prefix found again after a reload
+- [ ] one summary of a sound for drawing: `stats.js` blocks and the worker's gl-waveform leaves are two pyramids of the same figures
+- [ ] bugs the audit found by reading, each pinned by a failing test before its fix:
+  - [ ] the worker facade decides method kinds from a fixed list (`worker.js:145`): `await a.check('acx')`, `cuts`, `hits`, `notes`,
+        `chords`, `key`, `spectrum` and the other promise methods resolve to the facade, the result dropped; the host already sends
+        its registry (`worker.js:565`), unused
+  - [ ] a prepared op's stamp (`${a.version}:${a._.len}:…`, `fn/deepfilter.js:127`, `fn/rebalance.js:69` and 16 more) leaves out
+        `refVersion(a)` (`plan.js:978`): an inserted sound edited later may replay a stale model result
+  - [ ] `normalize('apple' | 'ebu')` throws (`fn/normalize.js:7`, `:316`) where `check('apple' | 'ebu')` works (`fn/check.js:113`)
+  - [ ] `trim` and `shrink` count blocks by `audio.BLOCK_SIZE`, `silence` by `stats.blockSize` (`fn/trim.js:52`, `fn/shrink.js:17`)
+  - [ ] the facade's playback has no `preservesPitch` and no paused clock (`worker.js:223-398` against `fn/play.js:172-332`)
+  - [ ] `toBatch` and `audio.use` feed one plugin different values: core clamps to [min, max] and resets a bad enum, batch doesn't
+        (`core.js:545`, `batch.js:10-46`)
+- [ ] duplicates inside the library (audit 11-02; the ones marked † checked against the code):
+  - [ ] prepare-once-then-play-by-offset written 18 times in `fn/*` († `deepfilter.js:119`, `rebalance.js:59`): one `prepared()` and
+        `inputOf()` in `plan.js` (~195 lines)
+  - [ ] the playback session twice, `fn/play.js:172-332` and `worker.js:223-398`: one engine-free session in `deck.js` (~100)
+  - [ ] `{ at, duration }` → samples resolved by hand in ~30 places, `opRange` and `rangeOf` in two modules: one `span()` in core (~60)
+  - [ ] the contract plugin host twice, `core.js:498-669` and `batch.js`: batch.js owns it (~35)
+  - [ ] delivery targets in `normalize.js`, `check.js`, `audio.d.ts`, `cli.js`, `mcp.js`, `SKILL.md`: one specs table († above)
+  - [ ] the CLI's own time grammar (`cli.js:78-91`) beside core's `parseTime`: one grammar, the CLI's unit gate kept
+  - [ ] op help, completions, types and MCP lists kept by hand (`cli.js:153-235`, `:1100-1113`, `mcp.js:73-94`, and the test's own
+        `expected` list in `test/cli.js` 'op help'): read from the registry, a test holding `audio.d.ts` to each op's `params`.
+        Stage 0 met this drift twice: `restore()` landed with no CLI help, README row or `expected` entry, and three new ops pushed
+        the skill (the MCP tool's description) past its 2,048 characters, so they were taken out of it
+  - [ ] the block-stat pass twice (`stats.js:26` copied to `meter.js:11`); peak and dB from block stats in five places
+  - [ ] structural ops known by name in `plan.js` `adjustLimit` (633-684): a `limit` hook on each op; splices on `spliceSegs`
+  - [ ] DSP primitives (I0, sinc, Kaiser, Hann, pow2, downmix, FNV) copied across `fn/*`: `fn/dsp.js`, importing nothing
+  - [ ] shared helpers living in feature plugins (`fingerprint` in `vocals.js`: importing `align.js` registers `vocals`): moved out
+  - [ ] not to merge (different on purpose): the deck worklet's own sinc and WSOLA (its source becomes the worklet), the
+        interpolation kernels, periodic vs symmetric Hann, the crossfade laws, exact vs streaming loudness gating
+- Done: `playground/worker.js` is the script runner and the page protocol only; full suite green; `docs/architecture.md` updated
+
+### 4. Feature modules and one command list
+
+- [ ] `playground/editor.js` (4,207 lines, 244 functions, 44 module-level `let`s) and `view.js` (one closure, line 137 to the end,
+      18 callbacks) moved into feature modules of ≤ ~600 lines around one shared context (state, view, code, player, engine).
+      A move first, no behavior change, a commit per feature, suite green after each
+- [ ] one command list `{ id, label, keys, when, run }`: menus, context menu, shortcuts, tooltips, the Mac menu bar and the agent's
+      tools read it. Today the same actions are written three times (`menus()`, two keydown handlers, the agent's `page` API)
+- [ ] `test/playground.test.js` (848 KB, 407 tests) split the same way; `test/scope.js` picks by feature
+- Done: each command defined once; no playground module past ~600 lines without a reason written at its top
+
+### 5. The playground's architecture, written
+
+- [ ] `playground/README.md` (now: embedding only) gains the realms, the data flow (code → model → run → output → view and player),
+      what is cached where, and the invariants now spread through comments, each linked to its test
+- [ ] the track grammar `code.js` infers, stated; side state kept by track name reconciled with the code on every change
+- Written as each stage lands; finished last
+
+## Draft feature boundaries (final map after stage 0, from the integrated files)
+
+editor.js: theme · menus and dropdowns · run and output (evaluate, perform, show, arrival) · tracks (lanes, mute, solo, new, move,
+voice and stems out) · edit writers (silence, stretch, trim, fade, level, pitch, curves, write, spread) · markers · recording and takes ·
+clipboard · files and samples · search · export · agent and chat · tabs · keyboard
+
+view.js: geometry (layout, lanes, rooms) · axes and scales · takes · freeze and tape · drawing (render, draw, waveform, spectrogram,
+snapshot) · overlay (marks, grips, meters, keys) · pitch and notes · ruler, follow and overview · grid, selection, cues, markers ·
+zoom · pointer gestures · selection model · keyboard · data
