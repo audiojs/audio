@@ -299,7 +299,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
   // the cues, [t, …] s, in time order, null till they are found (a track just pressed, an output of a new length); how
   // plain each is (`ranks`, time → how far the level steps across a hit, dB; Infinity for a pause's edge or a cue moved,
   // which outrank every hit)
-  let cues = null, ranks = new Map(), envelope = null, shift = null, contour = null, snapping = true, fadeCurve = 'linear'
+  let cues = null, bounds = new Set(), ranks = new Map(), envelope = null, shift = null, contour = null, snapping = true, fadeCurve = 'linear'
   // each cue's kind, by its index: 'start' or 'end' of a sound, 'hit', or none (one a warp placed)
   let cueKinds = []
   // a pitch or an intonation a tool let go on the selection: the pitch curve shows it until the output it makes comes
@@ -3213,8 +3213,8 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     if (drag?.scrubbing) { drag.scrubbing = false; onscrub(null) }
   }
   // A cue's line, held ⌘ (Ctrl): pressed and let go, the caret on the cue; dragged, the cue moves, the audio either side
-  // stretching to meet it
-  const nearCue = (px, py, keys) => editing(keys) && py <= floor() ? seen().find(i => Math.abs(x(cues[i]) - px) <= STICK) ?? -1 : -1
+  // stretching to meet it. Not the sound's own start or end (bounds), which warp holds
+  const nearCue = (px, py, keys) => editing(keys) && py <= floor() ? seen().find(i => !bounds.has(cues[i]) && Math.abs(x(cues[i]) - px) <= STICK) ?? -1 : -1
   function cueDown(px, py, keys) {
     const i = nearCue(px, py, keys)
     if (i < 0) return null
@@ -4298,8 +4298,11 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     set cues(list) {
       // the sound's own start and end among them (the edited track's), where none of its own is: shown and snapped to
       // as any, before any where they crowd
+      // (`bounds`: theirs, which warp holds, so never dragged: nearCue)
       const end = tracks ? tracks[focus]?.end : duration, own = ([t, kind]) => t != null && !(kind === 'end' && t <= 0) && !list.some(c => Math.abs(c.t - t) < 1e-3)
-      list = list && [...list, ...[[0, 'start'], [end, 'end']].filter(own).map(([t, kind]) => ({ t, kind, rank: Infinity }))].sort((p, q) => p.t - q.t)
+      const added = list ? [[0, 'start'], [end, 'end']].filter(own).map(([t, kind]) => ({ t, kind, rank: Infinity })) : []
+      bounds = new Set(added.map(c => c.t))
+      list = list && [...list, ...added].sort((p, q) => p.t - q.t)
       cues = list?.map(c => c.t) ?? null; ranks = new Map(list?.map(c => [c.t, c.rank])); cueKinds = list?.map(c => c.kind) ?? []; invalidate()
     },
     // what the grip does: 'trim', 'stretch' or 'speed'; whether pitch is edited

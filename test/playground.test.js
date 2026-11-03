@@ -10199,7 +10199,7 @@ test('editor: a take recorded where takes are under a later write brings them ov
   const { box, x } = await axis(9.5), chip = page.locator('.plot .takes:not([hidden])')
   await chip.waitFor()
   // their place selected (pressed in the strip), Record records into it, from its start
-  await page.mouse.click(x(8.7), box.y + tall(box) + FOOT / 2)
+  await page.mouse.click(x(5), box.y + tall(box) + FOOT / 2)
   assert.equal(await selected(), '0:01.000–0:09.000')
   await page.getByRole('button', { name: 'Record', exact: true }).click()
   await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
