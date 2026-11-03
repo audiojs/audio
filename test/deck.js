@@ -262,6 +262,20 @@ test('play: a seek right after play() starts it there; the loop still comes roun
   a.stop()
 })
 
+// Paused, a seek before the deck has opened is where it stands, and where it resumes from (the voice starts there)
+test('play: paused, a seek right after play() stands there and resumes there', async t => {
+  let a = sine(440, 0.5, 3, 44100)
+  a.play({ paused: true, volume: 0 })
+  a.seek(2)
+  await new Promise(r => setTimeout(r, 300))
+  t.ok(Math.abs(a.currentTime - 2) < 1e-6, `stands at the seek (${a.currentTime.toFixed(3)})`)
+  a.resume()
+  await a.played
+  await new Promise(r => setTimeout(r, 100))
+  t.ok(a.currentTime > 2 && a.currentTime < 2.3, `resumed from there (${a.currentTime.toFixed(3)})`)
+  a.stop()
+})
+
 // The playhead from the deck's reports runs on between them, but only as far as the audio the deck had waiting: a
 // starved deck (or late reports, on a loaded machine) holds it, and it never steps back when the next report comes
 test('transport: the heard position runs on from the last report, never past the audio the deck had', t => {

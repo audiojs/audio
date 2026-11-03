@@ -4,7 +4,7 @@
  */
 import audio, { emit, yieldTask, fromEnd, named } from '../core.js'
 import { emitMeter } from './meter.js'
-import { open, timeline, context, TAKE } from '../deck.js'
+import { timeline, context, playback, TAKE } from '../deck.js'
 
 const AHEAD = 2      // seconds rendered ahead of what plays, when the audio is there: a busy thread does not starve it
 const SEAM = 0.01    // a loop's seam: its last 10 ms crossfade (equal power) into the 10 ms before its start
@@ -172,6 +172,25 @@ Object.defineProperty(audio, 'context', { get: () => context(), set: ctx => cont
 // the worker host plays through the engine it loads (one module: a bundle of audio.js carries these along)
 audio[Symbol.for('audio.play')] = { voice, emitMeter }
 
+// The instance's side of its playback (deck.js playback): its voice renders here, and what it renders is measured here
+// as it is heard (a.block, meters)
+const side = a => ({
+  x: a,
+  get s() { return a._.play }, set s(s) { a._.play = s },
+  get ct() { return a._.ct }, set ct(t) { a._.ct = t },
+  emit: (type, ...args) => emit(a, type, ...args),
+  ready: () => a._.ready,
+  voice: (tp, o, s) => voice(a, tp.port(), {
+    ...o,
+    // the block heard: kept (a copy: the block itself goes to the deck) and measured when it plays
+    meter: (b, run, pos, time, sr) => {
+      let k = b.map(c => c.slice())
+      tp.defer(run, pos + b[0].length / 2 / sr, () => { a.block = k[0]; if (a._.meters?.length) emitMeter(a, k, time) })
+    },
+    error: s.fail,
+  }),
+})
+
 /** play({ at, duration, loop, volume, rate, preservesPitch, paused, from }): `at` defaults to where playback is (the
  *  start once ended). Playing already, it goes to `at` (or the new span) without a gap. `from`: take over that
  *  instance's playback where it is, crossfaded: its span, loop, volume, rate and pause; it stops. At a `rate` other
@@ -179,154 +198,15 @@ audio[Symbol.for('audio.play')] = { voice, emitMeter }
  *  follows the speed, as a tape's. */
 audio.fn.play = function(opts = {}) {
   opts = named(opts)
-  let a = this
-  if (a._.disposed) throw new Error('audio: instance disposed')
-  if (opts.volume != null) a.volume = opts.volume
-  if (opts.rate != null) a.playbackRate = opts.rate
-  if (opts.preservesPitch != null) a.preservesPitch = opts.preservesPitch
-  if (opts.from) return handoff(a, opts.from, opts), a
-  let s = a._.play
-  if (s && a.playing) {
-    if (opts.loop != null) a.loop = opts.loop
-    if (opts.at != null || opts.duration !== undefined) s.span(opts.at ?? a._.span[0], opts.duration)
-    if (a.paused && !opts.paused) a.resume()
-    return a
-  }
-  a.loop = opts.loop ?? false
-  let at = opts.at ?? (a.ended ? 0 : a._.ct)
-  begin(a, { at, duration: opts.duration, paused: opts.paused, device: opts.device })
-  return a
+  if (this._.disposed) throw new Error('audio: instance disposed')
+  let s = this._.play
+  playback(side(this), opts)
+  if (this._.play !== s) this.block = null   // a playback begun: no block heard yet
+  return this
 }
 
 let proto = audio.fn
-proto.pause = function() {
-  if (!this.playing || this.paused) return this
-  this.paused = true
-  let s = this._.play
-  // currentTime holds at once where playback resumes (the deck's head), not run on while the speakers play out the
-  // ~80 ms written ahead of them (Node's device ring; a page's output latency)
-  if (s) s.held = s.tp?.held() ?? null
-  s?.tp?.set({ playing: false })
-  emit(this, 'pause')
-  return this
-}
-proto.resume = function() {
-  if (!this.paused) return this
-  this.paused = false
-  if (this._.play) this._.play.held = null
-  this._.play?.tp?.set({ playing: true })
-  emit(this, 'play')
-  return this
-}
+proto.pause = function() { this._.play?.pause(); return this }
+proto.resume = function() { this._.play?.resume(); return this }
 /** Let go of playback for another instance to continue it (deck.js TAKE) */
-proto[TAKE] = function() {
-  let s = this._.play
-  if (!s || !this.playing) return null
-  let t = { tp: s.tp, head: s.tp?.head(), time: this.currentTime, span: this._.span, loop: this.loop, paused: this.paused, volume: this.volume, muted: this.muted, rate: this.playbackRate, keep: this.preservesPitch }
-  s.taken = !!s.tp
-  s.end(false)
-  return t
-}
-
-function handoff(b, a, opts) {
-  let t = a[TAKE]?.()
-  let span = t?.span ?? [a.currentTime ?? 0, undefined]
-  b.loop = opts.loop ?? t?.loop ?? a.loop ?? false
-  if (t) {
-    if (opts.volume == null) b.volume = t.volume
-    if (opts.rate == null) b.playbackRate = t.rate
-    if (opts.preservesPitch == null) b.preservesPitch = t.keep
-    b.muted = t.muted
-  }
-  // the deck carries on when it has the channels; else a new one starts where the other stopped, over the same span
-  if (!t?.tp || t.head == null || Math.max(2, b.channels | 0) > t.tp.ch) {
-    t?.tp?.stop()
-    return begin(b, { at: span[0], duration: span[1], paused: opts.paused ?? t?.paused, time: t?.time, from: t?.time })
-  }
-  let P = t.head + (t.paused ? 0 : 0.05 * t.rate)
-  begin(b, { at: span[0], duration: span[1], paused: t.paused, time: t.time, from: P, splice: { at: P, fade: EDIT } }, t.tp)
-}
-
-function begin(a, o, taken) {
-  a._.cancelPlay?.()   // one playback per instance
-  let s = a._.play = { tp: null, v: null, taken: false, end: null, seekRun: 0, held: null }, done = false, first = true
-  a.playing = true; a.paused = !!o.paused; a.ended = false; a.seeking = false; a.block = null
-  a._.span = [o.at, o.duration]
-  a.currentTime = o.time ?? Math.max(0, o.at)
-  let ok, fail
-  a.played = new Promise((r, j) => { ok = r; fail = j })
-  a.played.catch(() => {})
-
-  const volume = () => s.tp?.set({ volume: a.muted ? 0 : a.volume })
-  const rate = () => s.tp?.set({ rate: a.playbackRate, preservesPitch: a.preservesPitch })
-  // playback ends: at its end, by stop(), by an error, or taken over
-  const end = (natural, err) => {
-    if (done) return
-    done = true
-    let h = s.tp?.heard()
-    if (h && h.run >= s.seekRun) a.currentTime = h.time
-    if (a._.play === s) { a._.play = a._.clock = a._.seek = a._.onloop = a._.cancelPlay = null }
-    s.v?.stop()
-    if (!s.taken) s.tp?.stop()
-    a.off('volumechange', volume); a.off('ratechange', rate)
-    a.playing = a.paused = a.seeking = false
-    if (natural) a.ended = true
-    if (err && first) fail(err)
-    else ok()
-    if (err && !first) emit(a, 'error', err)
-    emit(a, 'ended')
-  }
-  s.end = end
-  s.span = (at, duration) => { a._.span = [at, duration]; s.v?.span(at, duration); a._.seek(at) }
-  a._.cancelPlay = () => end(false)
-  // what the speakers play; after a seek, its target until the new place is heard
-  a._.clock = () => {
-    if (a.paused && s.held && s.held.run >= s.seekRun) return s.held.time
-    let h = s.tp?.heard(); return h && h.run >= s.seekRun ? h.time : a._.ct
-  }
-  // paused, a seek is done once the voice stands at its place: nothing plays to wait for (it stayed seeking until resumed)
-  a._.seek = t => {
-    a.seeking = !a.paused; a._.ct = t
-    if (!s.v) return
-    let r = s.v.seek(t)
-    s.seekRun = r.run; a._.ct = r.at
-  }
-  a._.onloop = v => s.v?.loop(v)
-  a.on('volumechange', volume); a.on('ratechange', rate)
-  if (!a.paused) emit(a, 'play')
-
-  ;(async () => {
-    try {
-      if (!taken && a._.ready) await a._.ready
-      let tp = taken ?? await open({ channels: a.channels, sampleRate: a.sampleRate, playing: !a.paused, volume: a.muted ? 0 : a.volume, rate: a.playbackRate, preservesPitch: a.preservesPitch, device: o.device })
-      if (done) { if (!taken) tp.stop(); return }
-      s.tp = tp
-      if (taken) { tp.set({ playing: !a.paused, volume: a.muted ? 0 : a.volume, rate: a.playbackRate, preservesPitch: a.preservesPitch }) }
-      tp.emit = (type, m) => {
-        if (a._.play !== s) return
-        if (type === 'end') return end(true)
-        if (type === 'error') return end(false, m)
-        if (m.pos == null) return
-        // paused, the deck stands still where it ramped down: the place currentTime holds, exactly
-        if (a.paused && m.speed === 0 && m.run >= s.seekRun) s.held = { run: m.run, time: timeline(m.pos, m.loop) }
-        if (first && m.speed > 0) { first = false; ok() }
-        if (a.seeking && m.run >= s.seekRun) a.seeking = false
-        if (a.playing && !a.paused) emit(a, 'timeupdate', a.currentTime)
-      }
-      // the span and a seek asked for before the deck opened: as they are now
-      s.v = voice(a, tp.port(), {
-        at: a._.span[0], duration: a._.span[1], loop: a.loop, from: o.from ?? (a.seeking ? a._.ct : undefined), splice: o.splice, runs: tp.runs(),
-        // the block heard: kept (a copy: the block itself goes to the deck) and measured when it plays
-        meter: (b, run, pos, time, sr) => {
-          let k = b.map(c => c.slice())
-          tp.defer(run, pos + b[0].length / 2 / sr, () => { a.block = k[0]; if (a._.meters?.length) emitMeter(a, k, time) })
-        },
-        error: err => { console.error('Playback error:', err); end(false, err) },
-      })
-    } catch (err) {
-      if (done) return
-      console.error('Playback error:', err)
-      end(false, err)
-    }
-  })()
-}
+proto[TAKE] = function() { return this._.play?.take() ?? null }

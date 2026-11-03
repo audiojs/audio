@@ -713,8 +713,8 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
   Object.defineProperties(a, {
     currentTime: {
       get() {
-        // playing: what the speakers play now (fn/play.js)
-        let heard = this._.clock?.()
+        // playing: what the speakers play now (deck.js playback)
+        let heard = this._.play?.clock()
         if (heard != null) return heard
         if (this.playing && !this.paused) {
           let t = this._.ct + (performance.now() - this._.ctStamp) / 1000 * (this._.rate || 1)
@@ -749,7 +749,7 @@ function create(pages, sampleRate, ch, length, opts = {}, stats) {
     },
     loop: {
       get() { return this._.loop },
-      set(v) { v = !!v; if (this._.loop !== v) { this._.loop = v; this._.onloop?.(v) } },
+      set(v) { v = !!v; if (this._.loop !== v) { this._.loop = v; this._.play?.loop(v) } },
       enumerable: true, configurable: true
     },
   })
@@ -946,7 +946,7 @@ fn.push = function(data, fmt) {
  *  while mid-decode, and must not be finalized by a transport-level stop(). */
 fn.stop = function() {
   this.playing = false; this.paused = false; this.seeking = false
-  this._.cancelPlay?.()
+  this._.play?.end(false)
   if (this.recording) {
     this.recording = false
     this._.recording = null
@@ -1040,7 +1040,7 @@ fn.seek = function(t) {
       }
     })().catch(() => {})
   }
-  if (this.playing && this._.seek) this._.seek(t)
+  if (this.playing && this._.play) this._.play.seek(t)
   else this.seeking = false
   return this
 }

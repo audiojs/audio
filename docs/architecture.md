@@ -11,7 +11,7 @@ See also: [Plugins](plugins.md)
 | `cache.js` | Page cache — LRU eviction to OPFS, on-demand restore. Large files stay playable without exhausting RAM. |
 | `plan.js` | Edit pipeline — non-destructive edit list, plan builder, stream renderer. `a.gain(-3).trim()` becomes a declarative plan materialized on read. |
 | `audio.js` | Full bundle — core + stats + cache + plan + all plugins. The default import. |
-| `deck.js` | Playback output — the deck (an AudioWorklet on the page's one AudioContext; Node: @audio/speaker) and its main-thread transport. Engine-free: the worker facade uses it as is. |
+| `deck.js` | Playback output — the deck (an AudioWorklet on the page's one AudioContext; Node: @audio/speaker), its main-thread transport, and the playback session over it (play, pause, seek, hand-off, the clock). Engine-free: the worker facade uses it as is. |
 | `fn/*.js` | Plugins — each file is one op, stat, or method. Self-contained, independently importable. |
 | `bin/cli.js` | CLI — arg parsing, plugin auto-discovery, batch/glob/macro/playback. |
 
@@ -66,6 +66,8 @@ voice (engine: main thread or worker) ──port──▶ deck (AudioWorklet) �
   seek), ramps start, pause, stop and underrun over 5 ms, and reports its head.
 - **Transport** (main thread) maps the reports to what the speakers play now, compensating the output latency
   (`getOutputTimestamp`): `currentTime`, `timeupdate`, `ended`, and meter values released when heard.
+- **Session** (`deck.js` `playback()`) is play, pause, a seek, a loop switched, a hand-off and the clock over one
+  deck: one for an instance and a worker facade alike, each driving its own voice (here, or in the worker).
 
 One AudioContext per page (`audio.context`, on a global symbol shared by every copy of the library), made on first
 use and resumed by the first gesture; the deck resamples, so any source rate plays on it. Node runs the same deck
