@@ -1,6 +1,6 @@
 import { source, chain, number, between, tracks as tracksOf, focus, toTrack, voiceTrack, stemTracks, soundOf, addTrack, dropTrack, renameTrack, master as masterOf, addMaster } from '../code.js'
 import opIcons from '../icons.js'
-import { docs, docOf, bar, openDropdown, schedule, startRecording, newTab, closeTab } from '../editor.js'
+import { docs, docOf, bar, openDropdown, schedule, newTab, closeTab } from '../editor.js'
 import { root, icons, glyphs, displays } from './config.js'
 import { state, eng, v, ed, rk, pl, output, assign } from './context.js'
 import { write } from './edits.js'
@@ -8,6 +8,7 @@ import { label, note } from './format.js'
 import { setKind, trackKinds, shows } from './look.js'
 import { store } from './persist.js'
 import { marks, describe } from './readouts.js'
+import { startRecording } from './recording.js'
 import { envelopeShown, shiftOf } from './writers.js'
 
 // Tracks: their lanes and layers, the one edited, mute, solo and lock, a track made, named, moved, split out (a voice,
