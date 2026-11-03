@@ -71,19 +71,40 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
 
 ### 1. Tests wait on state
 
-- [ ] the page answers "settled" (no run pending, output drawn): the `ran()` the agent bridge awaits, exposed to tests
-- [ ] the 294 `waitForTimeout`s in `test/playground.test.js` (120 s of sleeping per run) replaced by it or by `waitForFunction` on state;
-      a sleep that stays says why in a comment
-- [ ] tests stop rebuilding committed files (`playground.test.js` imports `.site-build.js`): build once before the browser suites
-- [ ] 'engine: past what the page holds, an output comes as its peaks and spectra…' asserts the long output comes in more than
-      one piece: a render quicker than the messages comes in one (alone: 4 of 4 failing at 9b2cd3a, 1 of 4 at 90c5458). Its
-      sound through the test server's slow route (8 KB every 120 ms) makes the pieces certain
+- [x] (a290ff8) the page answers "settled": `__settled()` in editor.js resolves once the kept files are read and no run is
+      waiting to start (the schedule's timer cleared as it fires or is dropped), asked or on its way, then two frames drawn;
+      the tests' `settled()` waits on it. `ran()` alone resolves at the next run's end: it can't say nothing is pending
+- [x] (2af475a..680e5e6) the `waitForTimeout`s in `test/playground.test.js`: 338 → 89; the fixed ones 273 → 66, 121 s → 37 s of
+      sleeping a run. Waits now: `settled()`, `frames()`, `still()` (transitions run out), `poll(read, assertion)`, the stored
+      state, the hold by its cursor, cues counted as each output brings them, heard levels as they are answered. Each that
+      stays says why: 66 time playback, a press, a drag, or a linger that must not come; 13 pace a retry that acts; 6 pace a
+      drag or a sampling; 3 watch for stillness; 1 the grid shots' margin (gridShown, its comment: nothing fading still)
+- [x] (55147f9) tests stop rebuilding committed files: `.site-build.js` exports `assets()`, `workers()` and `library()`; the
+      playground suite builds `workers()` (playground/dist), the memory suite the library in memory; `node .site-build.js`,
+      `npm run serve` and `test/live.js --local` (it stands for the deploy) build everything
+- [x] (1ef3ebc) 'engine: past what the page holds, an output comes as its peaks and spectra…': its long sound over the test
+      server's slow route (a file the test made, 8 KB every 10 ms): 20 pieces, the kept one 1
 - [x] (this stage 3 run) `test/index.js` 'pages' measured in a process of its own: 7 MB steady, where it read 7 to 105 MB
-- [ ] three guards for what was caught by eye:
-  - [ ] no engine run for a non-audio action: mute, solo, rename, resize, view switch, tab switch, theme
-  - [ ] followed playback with two tracks under 4× CPU throttle (CDP `Emulation.setCPUThrottlingRate`): frame-time p99 within budget
-  - [ ] screenshots of the bar (time, length, status, undo/redo) at desktop, tablet and phone widths
-- Done: suite green twice in a row; playground suite time recorded before and after
+- [x] three guards for what was caught by eye (two; the third measured and left, below):
+  - [x] (95449e4) no engine run for a view-only action: a resize, the spectrogram, a theme, a tab shown again run nothing.
+        A mute, a solo, a rename run once, the mix again (for the levels and the export), no track's block made again
+        (each track's step counts its blocks). The plan's "no run" for these three needs the page to stop asking that mix:
+        for the user
+  - [ ] followed playback under 4× CPU throttle, frame-time p99: not robust here, not added. Measured (load ~20, two
+        tracks zoomed in, 3 s followed, three runs each): as it is, p99 16.7–83 ms, max 50–100; with the pictures drawn
+        again each frame, the regression it would catch, p99 50–83, max 66–100, p95 33 against 16.7, ~130 frames against
+        ~177. The load's spread covers the regression at p99; the share of dropped frames separates them on a quiet
+        machine, not on a shared one. The mechanism has its guard: 'followed, the reel runs on by the compositor, its
+        pictures not drawn' counts the draws
+  - [x] (95449e4) the bar (time, length, status, undo/redo) at desktop, tablet and phone widths, a sound shown and a file
+        decoding: from the boxes, not pixels (one row in reading order, each part whole in the bar and the window, none over
+        another, the time and the length never cut)
+- Done: suite green twice in a row; playground suite time recorded before and after. 72eb1b6, two runs in a row (447 tests):
+  444 and 443 pass, the failures those that fail at 1edca04 too. 'dragging a cue moves it…' asserts no cue line at the
+  sound's start (x(0) + 2), where 4fdc1e8 put a cue: the test or the view, for the user. 'a take recorded where takes are
+  under a later write…' finds nothing selected after its empty take is added (4 of 4, at master too). 'a take recorded as the
+  others play…' fails under load, passes alone. Time: 26:33 at 1edca04 (443 tests, load 16 to 26, sessions running beside
+  it) → 22:48, 22:24, 21:41 (load 12 to 20); `git status` clean after each run
 
 ### 2. One library per realm, one build, one server
 
