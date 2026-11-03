@@ -109,15 +109,16 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
 
 ### 3. The library owns engine concerns; duplicates removed
 
-- [ ] (branch engine-store, rebased on master, reviewed; library suites pass: 1,014, fixes, CLI, MCP, memory 28; the scrub
-      test A/B against master pending) store.js, one keyed store: OPFS in a page, memory elsewhere; a Web Lock per key, a sound
+- [x] (7f1a50c..30988d1, merged after review; library suites 1,014, fixes, CLI, MCP, memory 28; the playground 425 of 428, its
+      failures matched on master; press-to-sound on a long sound alike on both at load 60: 600 s 156–630 ms master, 458–656
+      the branch; 1500 s 460–1117, 854–1128) store.js, one keyed store: OPFS in a page, memory elsewhere; a Web Lock per key, a sound
       opened from a file holding it shared till collected, writers taking it only if free; one size eviction skipping keys in
       use. checkpoint.js: keysOf (one serializer), recall, keep. The playground worker: −261 +72. keep.js stays the editor's
       (the user's original bytes, kept forever). Known, not new: a file is named by its name and size past a reload, so one
       replaced by another of the same name and size reuses what was kept
-- [ ] (superseded by the line above) one keyed store of channels (OPFS, one lock discipline) under `cache.js` pages, `audio.memo`, checkpoints and the playground's kept files.
+- [x] (done by the line above) one keyed store of channels (OPFS, one lock discipline) under `cache.js` pages, `audio.memo`, checkpoints and the playground's kept files.
       Today four writers: `cache.js`, `playground/keep.js`, `playground/worker.js` `disk()` and `shelf()`
-- [ ] checkpoints in the library: a render kept by source and edits prefix, resumed from the longest kept prefix
+- [x] (5672286, 5b85485) checkpoints in the library: a render kept by source and edits prefix, resumed from the longest kept prefix
       (now `playground/worker.js` "Renders kept": `keysOf`, `based`, `store`, `recall`), behind a host store like `audio.memo`.
       Node tests: a step toggled renders only after it; mute renders nothing; a kept prefix found again after a reload
 - [ ] one summary of a sound for drawing: `stats.js` blocks and the worker's gl-waveform leaves are two pyramids of the same figures
