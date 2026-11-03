@@ -56,7 +56,7 @@
  * they are the same.
  */
 import audio, { parseTime, named } from '../core.js'
-import { stampOf } from '../plan.js'
+import { stampOf, inputOf } from '../plan.js'
 import { fingerprint } from './vocals.js'
 
 const LEARNED = Symbol('denoise.learned'), REDUCTION = 12
@@ -120,9 +120,7 @@ async function prepare(a, index) {
   // same instance state as last time: the input is too (read() and stream() both prepare)
   let stamp = `${stampOf(a)}:${id}`, done = o[LEARNED]
   if (done?.stamp === stamp) return
-  let input = audio.from(a, { sampleRate: a._.sr })     // follows a source still arriving: the read waits for the range
-  input.edits = a.edits.slice(0, index)
-  input.version = index
+  let input = inputOf(a, index)     // follows a source still arriving: the read waits for the range
   let parts = []
   for (let r of list) { let pcm = await input.read(r); parts.push(chs ? chs.map(c => pcm[c]) : pcm) }
   let sr = input.sampleRate, key = `${id}:${sr}:${parts.map(fingerprint).join()}`

@@ -14,6 +14,7 @@
  */
 
 import audio, { arrived } from '../core.js'
+import { inputOf } from '../plan.js'
 
 const IR = Symbol('convolve.ir'), RUN = Symbol('convolve.run')
 
@@ -22,9 +23,7 @@ async function prepare(a, index) {
   let o = a.edits[index][1], src = o.ir
   if (src == null || src === '' || src.length === 0) throw new RangeError('convolve: an impulse response is needed: a file, an audio instance or samples')
   await arrived(a)
-  let stage = audio.from(a, { sampleRate: a._.sr })
-  stage.edits = a.edits.slice(0, index)
-  stage.version = index
+  let stage = inputOf(a, index)
   let sr = stage.sampleRate
   let ref = typeof src === 'string' || src?.pages ? src : null, stamp = `${sr}:${!!o.normalize}:${ref?.version ?? ''}`
   if (o[IR]?.src === src && o[IR].stamp === stamp) return

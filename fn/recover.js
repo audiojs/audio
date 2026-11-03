@@ -23,7 +23,7 @@
  * better than sbr().
  */
 import audio, { arrived } from '../core.js'
-import { stampOf } from '../plan.js'
+import { stampOf, inputOf } from '../plan.js'
 import { fft, ifft } from 'fourier-transform'
 import { track } from '@audio/pitch/pyin'
 import { fingerprint } from './vocals.js'
@@ -171,9 +171,7 @@ async function prepare(a, index) {
   await arrived(a)
   let opts = `${o.cutoff ?? ''}`, stamp = `${stampOf(a)}:${opts}`, done = o[RECOVERED]
   if (done?.stamp === stamp) return
-  let input = audio.from(a, { sampleRate: a._.sr })
-  input.edits = a.edits.slice(0, index)
-  input.version = index
+  let input = inputOf(a, index)
   let pcm = await input.read(), sr = input.sampleRate, key = `${opts}:${sr}:${fingerprint(pcm)}`
   if (done?.key === key) { done.stamp = stamp; return }
   let len = pcm[0]?.length ?? 0, mono = new Float32Array(len)

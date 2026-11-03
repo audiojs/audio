@@ -11,7 +11,7 @@
  * none). A page's Web Audio, or web-audio-api in Node (a module on disk there: Node imports no http URL).
  */
 import audio, { arrived } from '../core.js'
-import { isCurve, curveFn, stampOf } from '../plan.js'
+import { isCurve, curveFn, stampOf, inputOf } from '../plan.js'
 
 export const WAM = Symbol('plugin.wam')
 // pre-roll: the plugin runs a quarter second before the input reaches it, its parameters' smoothing settled (the
@@ -125,9 +125,7 @@ export async function prepare(a, index, params) {
   let o = a.edits[index][1]
   await arrived(a)
   if (!a.decoded) throw new Error('plugin: a WAM renders its whole input first: a live source plays through native plugins')
-  let input = audio.from(a, { sampleRate: a._.sr })
-  input.edits = a.edits.slice(0, index)
-  input.version = index
+  let input = inputOf(a, index)
   let sr = input.sampleRate, settings = JSON.stringify(params, (k, v) => typeof v === 'function' ? String(v) : v)
   let stamp = `${stampOf(a)}:${sr}:${settings}:${o.tail}:${o.bpm}:${JSON.stringify([o.notes, o.midi, o.timeSignature, o.transport, o.state])}`
   if (o[WAM]?.stamp === stamp) return

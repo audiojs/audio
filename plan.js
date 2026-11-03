@@ -759,9 +759,7 @@ function compilePlan(a, len, final, measure = false) {
   // Share pages, never a full PCM copy; the edit prefix replays the processed audio
   // and preserves format derivation and ordinary ref/cache behavior.
   const snapshot = index => {
-    let ref = audio.from(a, { sampleRate: a._.sr })
-    ref.edits = a.edits.slice(0, index)
-    ref.version = ref.edits.length
+    let ref = inputOf(a, index)
     return ref
   }
 
@@ -986,6 +984,14 @@ function refVersion(a) {
 /** What an edit's input is now, the key a prepared edit keeps its result by: the instance's edits and length, and those
  *  of every sound its edits read (one inserted, then edited, changes the input though the instance's own edits don't) */
 export const stampOf = a => `${a.version}:${a._.len}:${refVersion(a)}`
+
+/** The sound an edit at `index` reads: the instance with the edits before it, a sound of its own over the same source */
+export function inputOf(a, index) {
+  let input = audio.from(a, { sampleRate: a._.sr })
+  input.edits = a.edits.slice(0, index)
+  input.version = index
+  return input
+}
 
 // Instances mid-compile — a self-ref (a.insert(a)) re-enters via the length getter
 const compileStack = new Set()

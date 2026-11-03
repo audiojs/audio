@@ -22,7 +22,7 @@
  */
 
 import audio, { arrived, memo } from '../core.js'
-import { stampOf } from '../plan.js'
+import { stampOf, inputOf } from '../plan.js'
 
 const SEPARATED = Symbol('vocals.separated')
 
@@ -45,9 +45,7 @@ async function prepare(a, index) {
   // same instance state as last time: the input is too (read() and stream() both prepare)
   let stamp = `${stampOf(a)}:${o.model}:${o.weights ?? ''}`, sep = o[SEPARATED]
   if (sep?.stamp === stamp) return
-  let input = audio.from(a, { sampleRate: a._.sr })
-  input.edits = a.edits.slice(0, index)
-  input.version = index
+  let input = inputOf(a, index)
   let pcm = await input.read()
   let key = `${o.model}:${o.weights ?? ''}:${fingerprint(pcm)}`
   if (sep?.key === key) { sep.stamp = stamp; return }

@@ -12,7 +12,7 @@
  */
 
 import audio, { named } from '../core.js'
-import { buildPlan, dominant, planLen } from '../plan.js'
+import { buildPlan, dominant, planLen, inputOf } from '../plan.js'
 import * as parsers from '@audio/decode/meta'
 
 
@@ -157,7 +157,7 @@ const unprepared = (a, n) => a._.prepared !== a.version && a.edits.slice(0, n).s
 function timelineAt(a, n = a.edits?.length ?? 0) {
   if (n) {
     let ref = a
-    if (n < a.edits.length) { ref = audio.from(a, { sampleRate: a._.sr }); ref.edits = a.edits.slice(0, n); ref.version = n }
+    if (n < a.edits.length) { ref = inputOf(a, n) }
     let plan = buildPlan(ref)
     return { segs: plan.segs, sr: plan.sr, end: a.decoded ? planLen(plan.segs) : Infinity }
   }

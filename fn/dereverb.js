@@ -31,7 +31,7 @@
  */
 
 import audio, { arrived, memo } from '../core.js'
-import { stampOf } from '../plan.js'
+import { stampOf, inputOf } from '../plan.js'
 import { fingerprint } from './vocals.js'
 import { playback } from './deepfilter.js'
 
@@ -75,9 +75,7 @@ async function prepare(a, index) {
   // same instance state as last time: the input is too (read() and stream() both prepare)
   let stamp = `${stampOf(a)}:${key0}`, done = o[MADE]
   if (done?.stamp === stamp) return
-  let input = audio.from(a, { sampleRate: a._.sr })
-  input.edits = a.edits.slice(0, index)
-  input.version = index
+  let input = inputOf(a, index)
   let pcm = await input.read(), fs = input.sampleRate
   if (chs) pcm = chs.map(c => pcm[c])
   let key = `${key0}:${fingerprint(pcm)}`

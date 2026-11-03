@@ -41,7 +41,7 @@
  */
 
 import audio, { arrived, memo } from '../core.js'
-import { stampOf } from '../plan.js'
+import { stampOf, inputOf } from '../plan.js'
 import { fingerprint } from './vocals.js'
 
 const lin = db => db == null ? 1 : 10 ** (db / 20)
@@ -69,9 +69,7 @@ function rebalancer(name, STEMS, MODEL, STEP) {
     // same instance state as last time: the input is too (read() and stream() both prepare)
     let run = `${model}:${o.weights ?? ''}:${step ?? ''}`, stamp = `${stampOf(a)}:${run}`, sep = o[SEPARATED]
     if (sep?.stamp === stamp) return
-    let input = audio.from(a, { sampleRate: a._.sr })
-    input.edits = a.edits.slice(0, index)
-    input.version = index
+    let input = inputOf(a, index)
     let pcm = await input.read(), key = `${run}:${fingerprint(pcm)}`
     if (sep?.key === key) { sep.stamp = stamp; return }
     // the stems kept by the model and its input (core.js memo), never by the gains: moved, they are read back

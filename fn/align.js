@@ -28,7 +28,7 @@
  * waits for its end.
  */
 import audio, { arrived } from '../core.js'
-import { stampOf } from '../plan.js'
+import { stampOf, inputOf } from '../plan.js'
 import { fft, ifft } from 'fourier-transform'
 import { fingerprint } from './vocals.js'
 
@@ -195,9 +195,7 @@ async function prepare(a, index) {
   await arrived(a)
   let opts = `${o.within ?? ''}:${o.span ?? ''}:${o.drift ?? ''}`, stamp = `${stampOf(a)}:${ref.version ?? ''}:${ref._?.len ?? ref[0]?.length}:${opts}`, got = o[ALIGNED]
   if (got?.stamp === stamp) return
-  let input = audio.from(a, { sampleRate: a._.sr })
-  input.edits = a.edits.slice(0, index)
-  input.version = index
+  let input = inputOf(a, index)
   let pcm = await input.read(), sr = input.sampleRate
   let r = Array.isArray(ref) ? ref : (ref.sampleRate ?? sr) === sr ? await ref.read() : await audio.from(ref).resample(sr).read()
   let key = `${sr}:${opts}:${fingerprint(pcm)}:${fingerprint(r)}`

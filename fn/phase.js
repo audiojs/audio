@@ -29,7 +29,7 @@
  * untouched. Each output sample turns by the angle at its own time.
  */
 import audio, { arrived, parseTime } from '../core.js'
-import { isCurve, curveFn, stampOf } from '../plan.js'
+import { isCurve, curveFn, stampOf, inputOf } from '../plan.js'
 import { fft, ifft } from 'fourier-transform'
 
 const TURNS = Symbol('phase.turns'), RAMP = 0.01, REACH = 0.093, BETA = 10
@@ -131,9 +131,7 @@ async function prepare(a, index) {
   let chs = o.channel == null ? null : [o.channel].flat()
   let stamp = `${stampOf(a)}:${o.at}:${o.duration}:${chs ?? ''}`
   if (o[TURNS]?.stamp === stamp) return
-  let input = audio.from(a, { sampleRate: a._.sr })
-  input.edits = a.edits.slice(0, index)
-  input.version = index
+  let input = inputOf(a, index)
   let sr = input.sampleRate, T = input.duration, at = parseTime(o.at) ?? 0, d = parseTime(o.duration)
   if (at < 0) at = Math.max(0, T + at)
   let n = Math.max(0, Math.round(Math.min(d ?? Infinity, T - at) * sr))

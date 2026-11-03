@@ -18,7 +18,7 @@
  * recipe, chain's code() included, names the denoiser that ran.
  */
 import audio, { arrived, emit } from '../core.js'
-import { stampOf } from '../plan.js'
+import { stampOf, inputOf } from '../plan.js'
 import { fingerprint } from './vocals.js'
 import { removal, playback } from './deepfilter.js'
 import { declipped } from './declip.js'
@@ -96,9 +96,7 @@ async function prepare(a, index, specs) {
   // input is too (read() and stream() both prepare)
   let chs = o.channel == null ? null : [o.channel].flat(), own = `${JSON.stringify(opts)}:${chs ?? ''}`, stamp = `${stampOf(a)}:${own}`, done = o[RENDERED]
   if (done?.stamp === stamp) return
-  let input = audio.from(a, { sampleRate: a._.sr })
-  input.edits = a.edits.slice(0, index)
-  input.version = index
+  let input = inputOf(a, index)
   let pcm = await input.read()
   if (chs) pcm = chs.map(c => pcm[c])
   let key = `${own}:${fingerprint(pcm)}`
