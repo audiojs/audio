@@ -109,7 +109,7 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
 
 ### 3. The library owns engine concerns; duplicates removed
 
-- [ ] one keyed store of channels (OPFS, one lock discipline) under `cache.js` pages, `audio.memo`, checkpoints and the playground's kept files.
+- [ ] (with an agent, worktree ../audio-store, branch engine-store) one keyed store of channels (OPFS, one lock discipline) under `cache.js` pages, `audio.memo`, checkpoints and the playground's kept files.
       Today four writers: `cache.js`, `playground/keep.js`, `playground/worker.js` `disk()` and `shelf()`
 - [ ] checkpoints in the library: a render kept by source and edits prefix, resumed from the longest kept prefix
       (now `playground/worker.js` "Renders kept": `keysOf`, `based`, `store`, `recall`), behind a host store like `audio.memo`.
@@ -142,9 +142,11 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
         the skill (the MCP tool's description) past its 2,048 characters, so they were taken out of it
   - [x] (this run) the block-stat pass twice (`stats.js:26` copied to `meter.js:11`): `blockGroups()` in stats.js, the meter's
         deltas now carrying every field decode's stats do
-  - [ ] peak and dB from block stats in five places
+  - [x] (944a193) peak and dB from block stats in five places: `peakOf()` in stats.js; the CLI's level as it plays read the highs
+        alone (0.2 shown for a -0.8 peak)
   - [ ] structural ops known by name in `plan.js` `adjustLimit` (633-684): a `limit` hook on each op; splices on `spliceSegs`
-  - [ ] DSP primitives (I0, sinc, Kaiser, Hann, pow2, downmix, FNV) copied across `fn/*`: `fn/dsp.js`, importing nothing
+  - [x] (6b67796) DSP primitives copied across `fn/*`: `fn/dsp.js` (i0, sinc, periodic Hann, pow2, downmix), the same doubles;
+        the Kaiser factor left inline where folding it would reorder a product
   - [x] (739b1ce) shared helpers living in feature plugins: `fingerprint` to core, `playback` and `xfadeLen` to plan, the silence
         threshold to stats; importing `fn/align.js` alone no longer registers `vocals`. Left as domain reuse: pitch on stretch's
         shifter, derustle and auto on deepfilter's model run, analyses on spectrum's mel bands
