@@ -292,6 +292,10 @@ svg { flex: none; }
 .file.dragging { z-index: 1; transition: none; background: var(--color-tab); box-shadow: var(--shadow-lifted); }
 .file.current { background: var(--color-tab); color: var(--color-tab-ink); }
 .file [role="tab"] { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; color: inherit; font: 12px var(--font-mono); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A name written anew in place (a tab's, a track's): its text where the name's was, in its font and colour, no box
+   round it, as wide as what is written (fitField); the caret and the selection say it is being written */
+.file-field, .layer-field { flex: none; min-width: 2ch; max-width: 100%; padding: 0; border: 0; border-radius: 0; outline: none; background: none; color: inherit; caret-color: var(--color-screen-bright); font: inherit; }
+.file-field { height: 100%; font: 12px var(--font-mono); }
 .file-close { display: grid; flex: none; place-items: center; width: 20px; height: 20px; margin-left: 4px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--color-screen-muted); opacity: 0; }
 .file:hover .file-close, .file.current .file-close, .file-close:focus-visible { opacity: 1; }
 .file-close:hover { background: var(--color-screen-hover); color: var(--color-screen-bright); }
@@ -595,7 +599,7 @@ svg { flex: none; }
 .layer.muted > :not(.track-mute) { opacity: .45; }
 .layer.locked { cursor: default; }
 .layer-name { flex: none; max-width: 24em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 2px; }
-.layer-field { flex: 1; min-width: 0; height: 16px; padding: 0 2px; border: 0; border-radius: 3px; outline: 1px solid var(--color-screen-accent); background: var(--color-screen); color: var(--color-screen-bright); font: inherit; }
+.layer-field { height: 16px; padding-left: 2px; }
 .track-mute[aria-pressed="true"], .layer-lock[aria-pressed="true"] { color: var(--color-screen-accent); }
 .layer-lock:not([aria-pressed="true"]):not(:focus-visible) { opacity: 0; }
 .layer:hover .layer-lock { opacity: 1; }

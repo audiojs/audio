@@ -22,10 +22,11 @@ const VERBS = {
   remove: ['Removing', 'Removed'], move: ['Moving', 'Moved'], off: ['Turning off', 'Turned off'], on: ['Turning on', 'Turned on'],
   save: ['Saving', 'Saved'], switch: ['Switching to', 'Switched to'], close: ['Closing', 'Closed']
 }
-// the units a stat reads in, as the page writes them; peak and rms are sample values, db their dBFS
+// the units a stat reads in, as the page writes them, right after the value (−1.0dB, 44.1kHz); beats a minute a count's,
+// spaced; peak and rms are sample values, db their dBFS
 const UNITS = {
   db: 'dBFS', noisefloor: 'dBFS', loudness: 'LUFS', momentary: 'LUFS', shortterm: 'LUFS', dialog: 'LUFS',
-  truepeak: 'dBTP', lra: 'LU', dr: 'dB', crest: 'dB', replaygain: 'dB', bpm: 'BPM', centroid: 'Hz', rolloff: 'Hz', hnr: 'dB', harmonic: 'dBFS'
+  truepeak: 'dBTP', lra: 'LU', dr: 'dB', crest: 'dB', replaygain: 'dB', bpm: ' BPM', centroid: 'Hz', rolloff: 'Hz', hnr: 'dB', harmonic: 'dBFS'
 }
 const list = new Intl.ListFormat('en', { type: 'conjunction' })
 const line = s => String(s ?? '').trim().split('\n')[0]
@@ -45,7 +46,7 @@ function measuring(code = '') {
   return words.length ? `${list.format(words)}${of}${/\bbins\s*:/.test(code) ? ' over time' : ''}` : ''
 }
 
-const hz = f => f >= 1000 ? `${+(f / 1000).toFixed(2)} kHz` : `${Math.round(f)} Hz`
+const hz = f => f >= 1000 ? `${+(f / 1000).toFixed(2)}kHz` : `${Math.round(f)}Hz`
 
 // [verb, what, show], the verb a key of VERBS, or [text] said as it is both ways
 function said(tool, o, { time, spec }) {
@@ -86,7 +87,7 @@ function said(tool, o, { time, spec }) {
   }
 }
 
-export default function doing(tool, input, { time = t => `${t} s`, spec = s => s } = {}) {
+export default function doing(tool, input, { time = t => `${t}s`, spec = s => s } = {}) {
   const [verb, what = '', show = null] = said(tool, input && typeof input === 'object' ? input : {}, { time, spec })
   const [now, then] = VERBS[verb]?.map(v => what ? `${v} ${what}` : v) ?? [verb, verb]
   return { now, then, show }
@@ -107,11 +108,11 @@ const VECTORS = { spectrum: 'bands', ltas: 'bands', cepstrum: 'coefficients' }
 // A stat's value as the page writes it: a level in its units, a frequency in Hz or kHz, a series its span, events how
 // many, a key its name, pauses how many and the longest
 function reading(name, v) {
-  const list = ArrayBuffer.isView(v) ? Array.from(v) : v, unit = UNITS[name] ? ` ${UNITS[name]}` : ''
+  const list = ArrayBuffer.isView(v) ? Array.from(v) : v, unit = UNITS[name] ?? ''
   if (num(list) != null) return name === 'centroid' || name === 'rolloff' ? hz(list) : num(list) + unit
   if (VECTORS[name] && Array.isArray(list)) return `${list.length} ${VECTORS[name]}`
   if (TIMES.has(name) && Array.isArray(list)) return list.length ? String(list.length) : 'none'
-  if (name === 'silence' && Array.isArray(list)) return list.length ? `${list.length}, the longest ${num(Math.max(...list.map(p => +p.duration || 0)))} s` : 'none'
+  if (name === 'silence' && Array.isArray(list)) return list.length ? `${list.length}, the longest ${num(Math.max(...list.map(p => +p.duration || 0)))}s` : 'none'
   if (name === 'notes' && Array.isArray(list)) {
     const by = list.filter(n => n.midi != null).sort((a, b) => a.midi - b.midi)
     return by.length ? `${by.length}, ${by[0].note} to ${by.at(-1).note}` : 'none'
@@ -122,7 +123,7 @@ function reading(name, v) {
     return f.length ? `${hz(Math.min(...f))} to ${hz(Math.max(...f))}` : 'unvoiced'
   }
   if (name === 'key' && list?.label) return list.label
-  if (name === 'replaygain' && list?.gain != null) return `${num(list.gain)} dB`
+  if (name === 'replaygain' && list?.gain != null) return `${num(list.gain)}dB`
   if (name === 'detect' && list?.bpm != null) return `${num(list.bpm)} BPM`
   if (Array.isArray(list) && list.every(x => num(x) != null || x === 'NaN')) return list.length > 3 ? span(list.map(x => typeof x === 'number' ? x : x === '-Infinity' ? -Infinity : NaN), unit) : list.map(x => num(x) ?? '–').map(x => x + unit).join(', ')
   return json(v)
@@ -130,7 +131,7 @@ function reading(name, v) {
 const channels = c => Array.isArray(c) ? `channels ${c.map(i => +i + 1).join(', ')}` : `channel ${+c + 1}`
 // What a measure call measured, stat by stat as the page noted them (worker.js evaluate): each its name, where it was
 // taken (over time, a range, a channel, the original), its value
-export function measures(told, { time = t => `${t} s` } = {}) {
+export function measures(told, { time = t => `${t}s` } = {}) {
   return (Array.isArray(told) ? told : []).map(({ of, name, opts = {}, value }) => {
     const d = opts.d ?? opts.duration, word = STATS[name] ?? String(name)
     const where = [
@@ -148,15 +149,15 @@ export function noted(tool, input, result, told) {
   const o = input && typeof input === 'object' ? input : {}, r = result
   if (tool === 'measure') {
     if (told?.length) return told.length === 1 ? measures(told)[0].after : ''
-    const names = named(o.code), unit = i => UNITS[names[i]] ? ` ${UNITS[names[i]]}` : ''
+    const names = named(o.code), unit = i => UNITS[names[i]] ?? ''
     const one = (v, i = 0) => num(v) != null ? num(v) + unit(i) : null
     if (one(r) != null) return one(r)
     if (Array.isArray(r) && r.length && r.length === names.length && r.every(v => num(v) != null)) return r.map(one).join(', ')
     if (Array.isArray(r) && r.length > 3 && r.every(v => num(v) != null)) return span(r.map(v => typeof v === 'number' ? v : v === '-Infinity' ? -Infinity : Infinity), unit(0))
     return json(r)
   }
-  if (r && typeof r === 'object' && 'ok' in r) return r.ok === false ? r.problem ?? 'failed' : r.loudness != null ? `now ${num(r.loudness)} LUFS, peak ${num(r.peak)} dBFS` : ''
+  if (r && typeof r === 'object' && 'ok' in r) return r.ok === false ? r.problem ?? 'failed' : r.loudness != null ? `now ${num(r.loudness)}LUFS, peak ${num(r.peak)}dBFS` : ''
   if (tool === 'check' && r) return r.pass ? 'passes' : `fails ${list.format(r.rules.filter(x => x.pass === false).map(x => x.name.toLowerCase()))}`
-  if (tool === 'state' && r) return r.sampleRate ? `${num(r.duration)} s, ${r.channels} ch, ${+(r.sampleRate / 1000).toFixed(3)} kHz` : r.problem ? line(r.problem) : 'no sound open'
+  if (tool === 'state' && r) return r.sampleRate ? `${num(r.duration)}s, ${r.channels} ch, ${+(r.sampleRate / 1000).toFixed(3)}kHz` : r.problem ? line(r.problem) : 'no sound open'
   return ''
 }

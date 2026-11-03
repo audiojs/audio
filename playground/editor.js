@@ -283,7 +283,7 @@ const talk = (() => {
 // A tab as it is kept: its script, where it was looked at and what was selected
 const saved = d => {
   const shown = d.id === state.tab
-  return { code: shown ? ed.code : d.code, frame: d.frame ?? (shown ? v?.frame : null), view: d.view ?? (shown ? v?.state : null), track: shown ? state.track : d.track ?? null, muted: shown ? state.muted : d.muted ?? [], locked: shown ? state.locked : d.locked ?? [], heights: d.heights ?? {}, kinds: d.kinds ?? {} }
+  return { code: shown ? ed.code : d.code, title: d.title ?? null, frame: d.frame ?? (shown ? v?.frame : null), view: d.view ?? (shown ? v?.state : null), track: shown ? state.track : d.track ?? null, muted: shown ? state.muted : d.muted ?? [], locked: shown ? state.locked : d.locked ?? [], heights: d.heights ?? {}, kinds: d.kinds ?? {} }
 }
 // the storage full, the tabs and the settings are kept without their conversations, and the page says so, once
 let full = false
@@ -485,7 +485,7 @@ const state = sprae(root, {
   display: oneOf(stored.display, displays.map(d => d.name), 'wave'), scale: scales[stored.scale] ? stored.scale : 'log', rates, layouts, sound: null, viewing: '',
   show: { hits: true, gain: true, meters: true, spectrum: stored.show?.meters ?? true, keys: true, guides: true, ...stored.show }, units: oneOf(stored.units, UNITS.map(u => u[0]), 'clock'),
   embed: EMBED, quick: QUICK, soundMenu, opsMenu, saveMenu, flipView, lookIcons: KINDS, full: '', side: sideOf(stored.side), panel: Number.isFinite(stored.panel) ? stored.panel : null, pick: 0, keys,
-  tabs: [], marks: {}, sounding: {}, markWords: { working: 'Rendering', ready: 'Done' }, tab: 0, name: 'untitled', duration: 0, hasOutput: false, whole: false, ran: false, problem: '', missing: '', notice: '', noticeKind: '', dropping: false, track: null, muted: [], locked: [], frozen: false, layout: null, trackRows: null, ghost: false, renaming: null,
+  tabs: [], marks: {}, sounding: {}, markWords: { working: 'Rendering', ready: 'Done' }, tab: 0, name: 'untitled', duration: 0, hasOutput: false, whole: false, ran: false, problem: '', missing: '', notice: '', noticeKind: '', dropping: false, track: null, muted: [], locked: [], frozen: false, layout: null, trackRows: null, ghost: false, renaming: null, renamingTab: null,
   progress: '', figure: '', arrived: null, working: false, loading: false, arriving: false, lines: [], saves: [], exporting: false, shared: false, canUndo: false, canRedo: false,
   time: '0:00.000', span: 0, readout: '', reading: { of: '', head: '', rows: [] }, heard: null, selection: null, band: null, ranges: 0, boxes: 0, carets: 1, pauses: false, canPaste: false, playing: false, loop: false, recording: null,
   // the ring in Play's place (status), unless it plays or records
@@ -597,11 +597,11 @@ const state = sprae(root, {
   exportCuts,
   setScale,
   toggleSnap() { state.snapping = v.snapping = !state.snapping; store() },
-  layerPress, layerLook, layerMenu, toggleLock, toggleMute, renameLayer, renamed, nameNewTrack,
+  layerPress, layerName, layerLook, layerMenu, toggleLock, toggleMute, renameLayer, renamed, nameNewTrack, fitField,
   toggleShow, setUnits, setLevels, setRuler, setStep, setLook, setSplice, setScrub,
   blankView: on => { if (v) v.blank = on }, setDisplay, dropToggle, placeList, fold, toggleLoop, undoList, goTo, toggleRecording, resampleTo, remixTo, pickReading, pickHeard, markLevel, unmarkLevel,
   togglePlay, playPress, playClick, stop, redo: () => ed.redo(), mac, share, exportFiles,
-  switchTab, newTab, closeTab, dragTab, scrollTabs, toggleTabMute, pickFiles, openFiles, startRecording, stopRecording, armRecording, useSample, useCode, useRecipe, addOp, editSelection, toolKey, openTools,
+  switchTab, tabPress, tabRenamed, newTab, closeTab, dragTab, scrollTabs, toggleTabMute, pickFiles, openFiles, startRecording, stopRecording, armRecording, useSample, useCode, useRecipe, addOp, editSelection, toolKey, openTools,
   openSearch, closeSearch, runSearch, typeSearch, preview, useResult
 })
 
@@ -750,8 +750,9 @@ v = view(root.querySelector('.plot'), {
   onselect(selection, band, ranges = [], boxes = []) {
     state.selection = selection
     state.boxes = boxes.length
-    // the caret goes to the selection's start (view.js); once the selection is gone the clock and play start there
-    if (selection && !pl.playing) { state.time = stamp(selection[0]); pl.seek(selection[0]) }
+    // the clock reads the caret, where a drag left the selection's moving end (view.js select), as it stays once the
+    // selection is gone; play starts at the selection's start
+    if (selection && !pl.playing) { state.time = stamp(v.cursor); pl.seek(selection[0]) }
     state.band = band
     state.ranges = ranges.length
     // how long all that is selected is, every range of it
@@ -783,11 +784,12 @@ v = view(root.querySelector('.plot'), {
   onscrub,
   // a pitch, an intonation or formants dragged, heard as they will sound: the first 2 s of what they move, through the
   // library's pitch() (a voice's: a semitones, or the pitch line's curve, its times from where it is heard),
-  // intonation() or formant(), as the script will have it; at none, as it is
+  // intonation() or formant(), as the script will have it; at none, as it is. A range or a note held (`whole`), all of
+  // it as it is
   onaudition(o) {
     if (!o) return pl.audition(null)
     const { at } = o, voice = { voice: true }
-    pl.audition(at, at + Math.min(o.duration, 2), o.curve ? ['pitch', { t: o.curve.t.map(t => t - at), v: o.curve.v }, voice]
+    pl.audition(at, at + (o.whole ? o.duration : Math.min(o.duration, 2)), o.curve ? ['pitch', { t: o.curve.t.map(t => t - at), v: o.curve.v }, voice]
       : o.pitch ? ['pitch', o.pitch, voice] : o.intonation != null && o.intonation !== 1 ? ['intonation', o.intonation] : o.formant ? ['formant', o.formant] : o.gain ? ['gain', o.gain] : null)
   },
   hint: hints
@@ -1193,12 +1195,20 @@ const trackMenu = i => [
   { label: 'Delete the track', hint: state.track ?? '', run: untrack, icon: opIcons.remove }
 ]
 // The tracks' layers, each on its band's head line over its lane (view.js onlayout): its look (how it shows, the
-// dropdown by it), its name (double-clicked, named anew), its mute (with Alt, solo) and its lock; pressed, the one
-// edited, as a press in its lane makes it; right-clicked, its menu
+// dropdown by it), its name (clicked, named anew), its mute (with Alt, solo) and its lock; pressed, the one edited, as
+// a press in its lane makes it; right-clicked, its menu
 function layerPress(l, event) {
   if (event.detail > 1 || l.locked) return
   focusOn(l.name)
   v.focus = l.i
+}
+// its name clicked: in hand to write anew at once, as a field's text is, the track the one edited (a locked one stays
+// as it is): another's, once its layers are laid out as that one's, so the field drawn is the one written in
+function layerName(l, event) {
+  event.stopPropagation()
+  if (l.locked || l.name === state.track) return renameLayer(l.name)
+  layerPress(l, event)
+  requestAnimationFrame(() => requestAnimationFrame(() => renameLayer(l.name)))
 }
 function layerLook(l, event) { state.dropLane = l.band; openDropdown(event.currentTarget) }
 function layerMenu(l, event) {
@@ -1217,15 +1227,21 @@ function toggleLock(name) {
   showTracks(output?.tracks ? lanesShown(output) : v.tracks?.map(t => ({ ...t, locked: state.locked.includes(t.name) })) ?? null)
   store()
 }
-// A layer's name written anew where it stands (Rename in its menu, its name double-clicked): Enter or a press elsewhere
-// names the track (renameTrackTo), Esc leaves it
+// A layer's name written anew where it stands (Rename in its menu, its name clicked): Enter or a press elsewhere names
+// the track (renameTrackTo), Esc leaves it
 function renameLayer(name) {
   if (!name) return
   state.renaming = name
-  const field = () => { const el = root.querySelector('.layer-field'); if (el && document.activeElement !== el) { el.focus(); el.select() } }
+  fieldFocus('.layer-field')
+}
+// A name's field, as it shows in place of the name: focused, its text selected, now and once it is drawn
+function fieldFocus(selector) {
+  const field = () => { const el = root.querySelector(selector); if (el && document.activeElement !== el) { el.focus(); el.select() } }
   field()
   requestAnimationFrame(field)
 }
+// a name's field as wide as what is written in it, a character more for the caret (a monospace font's)
+function fitField(el) { el.style.width = `${Math.max(2, el.value.length) + 1}ch` }
 function renamed(event, l) {
   const input = event.currentTarget, to = input.value.trim()
   if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== 'Escape') return
@@ -1911,12 +1927,12 @@ function describe() {
   if (!output?.duration) { state.readout = ''; return }
   const { sampleRate, channels, peaks, stats, bitDepth } = output, k = (channels ?? peaks).length
   state.sound = { hz: sampleRate, rate: `${+(sampleRate / 1000).toFixed(3)}kHz`, count: k, channels: layouts.find(l => l.count === k)?.label ?? `${k} ch`, bits: bitDepth }
-  const sel = state.selection, lufs = Number.isFinite(stats.loudness) ? `${dbfs(stats.loudness)} LUFS` : '−∞ LUFS', clips = output.clips?.length
-  // pointed at, every level in a table (index.html #levels), the peak's place among them, and marked on the sound
-  // (the tracks mixed have no lane of their own to draw a level on: the peak's place alone)
+  const sel = state.selection, lufs = Number.isFinite(stats.loudness) ? `${dbfs(stats.loudness)}LUFS` : '−∞LUFS', clips = output.clips?.length
+  // pointed at, every level in a table (index.html #levels), the peak's place among them, and marked on the sound (the
+  // tracks mixed, having no lane of their own, on every track's: `every`)
   const table = (of, head, pk, rms, at, rows = [], reads = state.reads) => {
-    const lane = !(of === 'all' && output.tracks), peak = Number.isFinite(pk) ? [{ at, ...lane && { level: pk } }] : [], mean = lane && Number.isFinite(rms) ? [{ level: rms }] : []
-    state.reading = { of, head, rows: [['Peak', `${dbfs(pk)} dBFS`, `at ${stamp(at)}`, peak], ['RMS', `${dbfs(rms)} dBFS`, '', mean], ['Crest', Number.isFinite(pk - rms) ? `${(pk - rms).toFixed(1)} dB` : '–', '', [...peak.map(({ level }) => ({ level })).filter(g => g.level != null), ...mean]], ...rows] }
+    const every = of === 'all' && !!output.tracks, peak = Number.isFinite(pk) ? [{ at, level: pk, every }] : [], mean = Number.isFinite(rms) ? [{ level: rms, every }] : []
+    state.reading = { of, head, rows: [['Peak', `${dbfs(pk)}dBFS`, `at ${stamp(at)}`, peak], ['RMS', `${dbfs(rms)}dBFS`, '', mean], ['Crest', Number.isFinite(pk - rms) ? `${(pk - rms).toFixed(1)}dB` : '–', '', [...peak.map(({ level }) => ({ level, every })), ...mean]], ...rows] }
     readMarks = reads === 'rms' ? mean : reads === 'loudness' ? [] : peak
   }
   if (!sel) {
@@ -1924,8 +1940,8 @@ function describe() {
     const r = state.reads
     // (the RMS a sample value, stat('rms'), the peak dBFS already); the peak's place read once an output
     const rms = 20 * Math.log10(stats.rms)
-    state.readout = r === 'loudness' ? lufs : `${dbfs(r === 'rms' ? rms : stats.peak)} dBFS`
-    readings = { peak: `${dbfs(stats.peak)} dBFS`, rms: `${dbfs(rms)} dBFS`, loudness: lufs }
+    state.readout = r === 'loudness' ? lufs : `${dbfs(r === 'rms' ? rms : stats.peak)}dBFS`
+    readings = { peak: `${dbfs(stats.peak)}dBFS`, rms: `${dbfs(rms)}dBFS`, loudness: lufs }
     output.peakAt ??= levelsIn(channels, peaks, 0, Infinity).at / sampleRate
     table('all', output.tracks ? 'The tracks mixed' : '', stats.peak, rms, output.peakAt, [['Loudness', lufs, 'integrated'], ...clips ? [['Clipped', `${clips} ${clips > 1 ? 'places' : 'place'}`, '']] : []])
     return
@@ -1936,9 +1952,9 @@ function describe() {
   const pk = 20 * Math.log10(peak), rms = 10 * Math.log10(sum / Math.max(1, n))
   // a selection's peak or RMS; its loudness is all of it's, read on its own (the loudness of a part needs it whole)
   const r = state.reads === 'rms' ? 'rms' : 'peak'
-  state.readout = state.boxes > 1 ? `${state.boxes} bands` : state.band ? `${hertz(state.band[0])}–${hertz(state.band[1])}` : `${dbfs(r === 'rms' ? rms : pk)} dBFS`
+  state.readout = state.boxes > 1 ? `${state.boxes} bands` : state.band ? `${hertz(state.band[0])}–${hertz(state.band[1])}` : `${dbfs(r === 'rms' ? rms : pk)}dBFS`
   if (state.boxes > 1 || state.band) return
-  readings = { peak: `${dbfs(pk)} dBFS`, rms: `${dbfs(rms)} dBFS`, loudness: `${lufs}, all of it` }
+  readings = { peak: `${dbfs(pk)}dBFS`, rms: `${dbfs(rms)}dBFS`, loudness: `${lufs}, all of it` }
   table('selection', `${output.tracks?.[i] ? `${output.tracks[i].name}, ` : ''}${stamp(a)}–${stamp(b)}`, pk, rms, at / rate, [], r)
 }
 // A level pointed at, marked on the sound (view.js paintGuide), the one alone: the readout, what it reads; a row of its
@@ -3959,7 +3975,7 @@ async function initialDocs() {
   // the link is all there is, so a reload runs it again
   if (hash && !EMBED) history.replaceState(null, '', location.pathname + location.search)
   const names = list => Array.isArray(list) ? list.filter(n => typeof n === 'string') : []
-  docs = list.map(({ code, frame, view, track, muted, locked, heights, kinds }) => ({ id: ++docIds, code, frame, view, track: typeof track === 'string' ? track : null, muted: names(muted), locked: names(locked),
+  docs = list.map(({ code, title, frame, view, track, muted, locked, heights, kinds }) => ({ id: ++docIds, code, title: typeof title === 'string' && title ? title : null, frame, view, track: typeof track === 'string' ? track : null, muted: names(muted), locked: names(locked),
     heights: heights && typeof heights === 'object' ? Object.fromEntries(Object.entries(heights).filter(([, h]) => Number.isFinite(h))) : {},
     kinds: kinds && typeof kinds === 'object' ? Object.fromEntries(Object.entries(kinds).filter(([, k]) => displays.some(d => d.name === k))) : {} }))
   return docs[at]
@@ -3969,7 +3985,27 @@ async function initialDocs() {
 // own steps (remember) and its last output, shown at once when it is (settle). A sound opened goes into a tab of its own,
 // unless the tab shown is empty.
 // each tab named by the sound its script opens (nameOf), the one shown as its script now reads; the others kept
-function retitle() { state.tabs = docs.map(d => ({ id: d.id, name: d.id === state.tab ? nameOf(ed.code) : d.name ??= nameOf(d.code) })) }
+function retitle() { state.tabs = docs.map(d => ({ id: d.id, name: d.title ?? (d.id === state.tab ? nameOf(ed.code) : d.name ??= nameOf(d.code)) })) }
+// A tab pressed: another, shown; the one shown, its name in hand to write anew, as a track's (a click is enough):
+// Enter or a press elsewhere keeps it, its title over its sound's name (emptied, the sound's again), Esc leaves it
+function tabPress(id) {
+  if (id !== state.tab) return switchTab(id)
+  if (tabMoved) return
+  state.renamingTab = id
+  fieldFocus('.file-field')
+}
+function tabRenamed(event, t) {
+  const to = event.currentTarget.value.trim()
+  if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== 'Escape') return
+  event.stopPropagation()
+  if (state.renamingTab !== t.id) return
+  state.renamingTab = null
+  const d = docs.find(d => d.id === t.id)
+  if (!d || event.key === 'Escape') return
+  d.title = to && to !== nameOf(d.id === state.tab ? ed.code : d.code) ? to : null
+  retitle()
+  store()
+}
 function nameOf(code) { return soundName(code, source(code)?.strings.map(x => x.name), !!chain(code)) }
 // A sound's name: with tracks, theirs, as their layers have them (not every file their takes open, a dozen, none of them
 // the track); else the files it opens; else 'generated' (`made`) or 'untitled'
@@ -4086,7 +4122,10 @@ function newTab(code = '') {
 }
 // A tab dragged along the others is held under the pointer, the others stepping aside as it passes their middles, and
 // goes where it is let go, as a browser's tabs do; a press that stays put is a click
+// a tab dragged, not clicked: the click its letting go makes names nothing (tabPress)
+let tabMoved = false
 function dragTab(event, id) {
+  tabMoved = false
   if (event.button) return
   const el = event.currentTarget.closest('.file'), tabs = [...el.parentElement.querySelectorAll('.file')], from = tabs.indexOf(el)
   const boxes = tabs.map(t => t.getBoundingClientRect()), step = boxes[from].width + 2, x0 = event.clientX, center = b => b.left + b.width / 2
@@ -4111,6 +4150,7 @@ function dragTab(event, id) {
   const up = e => {
     removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up)
     if (!moved) return
+    tabMoved = true
     const track = e.type === 'pointerup' && onto(e)
     state.dropping = false
     // laid out in the new order at once, nothing sliding back to where it was
