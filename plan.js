@@ -296,10 +296,12 @@ Object.defineProperties(fn, {
     set(v) { this._.sr = v; this._.fmtV = -1 },
     enumerable: true, configurable: true
   },
+  // kept by the edits, the length and the sounds the edits read: one inserted and cropped later shortens this one too
   length: { get() {
-    if (this._.lenV === this.version && this._.lenL === this._.len) return this._.lenC
+    let rv = refVersion(this)
+    if (this._.lenV === this.version && this._.lenL === this._.len && this._.lenR === rv) return this._.lenC
     let len = this.edits.length ? lengthOf(this) : this._.len
-    this._.lenC = len; this._.lenV = this.version; this._.lenL = this._.len
+    this._.lenC = len; this._.lenV = this.version; this._.lenL = this._.len; this._.lenR = rv
     return len
   }, configurable: true },
   channels: {
@@ -980,6 +982,10 @@ function refVersion(a) {
   eachRef(a, r => v += r.version + r._.len)
   return v
 }
+
+/** What an edit's input is now, the key a prepared edit keeps its result by: the instance's edits and length, and those
+ *  of every sound its edits read (one inserted, then edited, changes the input though the instance's own edits don't) */
+export const stampOf = a => `${a.version}:${a._.len}:${refVersion(a)}`
 
 // Instances mid-compile — a self-ref (a.insert(a)) re-enters via the length getter
 const compileStack = new Set()

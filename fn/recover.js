@@ -23,6 +23,7 @@
  * better than sbr().
  */
 import audio, { arrived } from '../core.js'
+import { stampOf } from '../plan.js'
 import { fft, ifft } from 'fourier-transform'
 import { track } from '@audio/pitch/pyin'
 import { fingerprint } from './vocals.js'
@@ -168,7 +169,7 @@ async function prepare(a, index) {
   let o = a.edits[index][1]
   if (o.cutoff != null && !(o.cutoff > 0)) throw new TypeError(`recover: cutoff is Hz, not ${o.cutoff}`)
   await arrived(a)
-  let opts = `${o.cutoff ?? ''}`, stamp = `${a.version}:${a._.len}:${opts}`, done = o[RECOVERED]
+  let opts = `${o.cutoff ?? ''}`, stamp = `${stampOf(a)}:${opts}`, done = o[RECOVERED]
   if (done?.stamp === stamp) return
   let input = audio.from(a, { sampleRate: a._.sr })
   input.edits = a.edits.slice(0, index)

@@ -41,6 +41,7 @@
  */
 
 import audio, { arrived, memo } from '../core.js'
+import { stampOf } from '../plan.js'
 import { fingerprint } from './vocals.js'
 
 const lin = db => db == null ? 1 : 10 ** (db / 20)
@@ -66,7 +67,7 @@ function rebalancer(name, STEMS, MODEL, STEP) {
     if (!Object.hasOwn(models, model) || !fits(model)) throw new Error(`${name}: unknown model '${model}', expected ${Object.keys(models).filter(fits).join(', ')}`)
     await arrived(a)
     // same instance state as last time: the input is too (read() and stream() both prepare)
-    let run = `${model}:${o.weights ?? ''}:${step ?? ''}`, stamp = `${a.version}:${a._.len}:${run}`, sep = o[SEPARATED]
+    let run = `${model}:${o.weights ?? ''}:${step ?? ''}`, stamp = `${stampOf(a)}:${run}`, sep = o[SEPARATED]
     if (sep?.stamp === stamp) return
     let input = audio.from(a, { sampleRate: a._.sr })
     input.edits = a.edits.slice(0, index)

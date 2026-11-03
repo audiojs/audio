@@ -18,6 +18,7 @@
  * recipe, chain's code() included, names the denoiser that ran.
  */
 import audio, { arrived, emit } from '../core.js'
+import { stampOf } from '../plan.js'
 import { fingerprint } from './vocals.js'
 import { removal, playback } from './deepfilter.js'
 import { declipped } from './declip.js'
@@ -93,7 +94,7 @@ async function prepare(a, index, specs) {
   await arrived(a)
   // the channels it runs on, in the order the engine hands them to process(); same instance state as last time: the
   // input is too (read() and stream() both prepare)
-  let chs = o.channel == null ? null : [o.channel].flat(), own = `${JSON.stringify(opts)}:${chs ?? ''}`, stamp = `${a.version}:${a._.len}:${own}`, done = o[RENDERED]
+  let chs = o.channel == null ? null : [o.channel].flat(), own = `${JSON.stringify(opts)}:${chs ?? ''}`, stamp = `${stampOf(a)}:${own}`, done = o[RENDERED]
   if (done?.stamp === stamp) return
   let input = audio.from(a, { sampleRate: a._.sr })
   input.edits = a.edits.slice(0, index)

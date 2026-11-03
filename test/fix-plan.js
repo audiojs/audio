@@ -755,3 +755,26 @@ test('mix — an edit blended with its input: a share, a curve over time, throug
   t.throws(() => dc(1).remove({ at: 0, d: .1, mix: .5 }), /keep the timeline/, 'structural')
   t.throws(() => dc(1).gain(-3, { mix: 2 }), /a share, 0 to 1/, 'over 1')
 })
+
+// An edit made once ahead from its whole input (a model's pass, a codec's round trip) is made again when a sound an
+// edit before it reads is edited: its input changes though the instance's own edits don't
+test('prepared — made again when a sound it reads is edited', async t => {
+  let sr = 44100, sound = v => audio.from([Float32Array.from({ length: sr }, (_, i) => v * Math.sin(i / 10))], { sampleRate: sr })
+  let b = sound(.5), a = sound(.1).insert(b, { at: .5 }).codec('mp3')
+  let peak = async () => { let [x] = await a.read({ at: .6, duration: .5 }); return x.reduce((m, v) => Math.max(m, Math.abs(v)), 0) }
+  let loud = await peak()
+  b.gain(-20)
+  let quiet = await peak()
+  t.ok(loud > .4 && quiet < .1, `the codec hears the inserted sound turned down: ${loud.toFixed(3)} → ${quiet.toFixed(3)}`)
+})
+
+// The length is the edits' over what they read now: a sound inserted and then cropped shortens the one it is in
+test('length — follows a sound an edit reads, edited after', async t => {
+  let sr = 1000, s = (v, n) => audio.from([new Float32Array(n).fill(v)], { sampleRate: sr })
+  let b = s(.5, 1000), a = s(.1, 2000).insert(b, { at: .5 })
+  t.is(a.length, 3000, 'with all of it')
+  b.crop({ at: 0, duration: .25 })
+  t.is(a.length, 2250, 'the inserted sound cropped')
+  t.is(a.duration, 2.25)
+  t.is((await a.read())[0].length, 2250, 'as read')
+})

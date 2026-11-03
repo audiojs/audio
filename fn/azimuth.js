@@ -25,7 +25,7 @@
  * and back over its last.
  */
 import audio, { arrived, parseTime } from '../core.js'
-import { isCurve, curveFn } from '../plan.js'
+import { isCurve, curveFn, stampOf } from '../plan.js'
 import { sincInterp } from './resample.js'
 import { fft } from 'fourier-transform'
 
@@ -100,7 +100,7 @@ async function prepare(a, index) {
   if (!isAuto(o.delay)) { delete o[ALIGN]; return }
   await arrived(a)
   let chs = o.channel == null ? null : [o.channel].flat()
-  let stamp = `${a.version}:${a._.len}:${o.at}:${o.duration}:${chs ?? ''}`
+  let stamp = `${stampOf(a)}:${o.at}:${o.duration}:${chs ?? ''}`
   if (o[ALIGN]?.stamp === stamp) return
   let input = audio.from(a, { sampleRate: a._.sr })
   input.edits = a.edits.slice(0, index)

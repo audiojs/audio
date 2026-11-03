@@ -53,6 +53,7 @@
  */
 
 import audio, { arrived, memo } from '../core.js'
+import { stampOf } from '../plan.js'
 import { fingerprint } from './vocals.js'
 
 const LIMIT = 18
@@ -124,7 +125,7 @@ export function enhancer(name, id, finish, again) {
     // the channels it runs on, in the order the engine hands them to process()
     let chs = o.channel == null ? null : [o.channel].flat(), key0 = `${own}:${music}:${o.weights ?? ''}:${chs ?? ''}`
     // same instance state as last time: the input is too (read() and stream() both prepare)
-    let stamp = `${a.version}:${a._.len}:${key0}`, done = o[ENHANCED]
+    let stamp = `${stampOf(a)}:${key0}`, done = o[ENHANCED]
     if (done?.stamp === stamp) return
     let input = audio.from(a, { sampleRate: a._.sr })
     input.edits = a.edits.slice(0, index)

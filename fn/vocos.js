@@ -19,6 +19,7 @@
  */
 
 import audio, { arrived, memo } from '../core.js'
+import { stampOf } from '../plan.js'
 import { fingerprint } from './vocals.js'
 import { playback } from './deepfilter.js'
 import { highpass, lowpass } from '@audio/filter/biquad'
@@ -56,7 +57,7 @@ async function prepare(a, index) {
   await arrived(a)
   let chs = o.channel == null ? null : [o.channel].flat(), key0 = `${own}:${chs ?? ''}`
   // same instance state as last time: the input is too (read() and stream() both prepare)
-  let stamp = `${a.version}:${a._.len}:${key0}`, done = o[MADE]
+  let stamp = `${stampOf(a)}:${key0}`, done = o[MADE]
   if (done?.stamp === stamp) return
   let input = audio.from(a, { sampleRate: a._.sr })
   input.edits = a.edits.slice(0, index)

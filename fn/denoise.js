@@ -56,6 +56,7 @@
  * they are the same.
  */
 import audio, { parseTime, named } from '../core.js'
+import { stampOf } from '../plan.js'
 import { fingerprint } from './vocals.js'
 
 const LEARNED = Symbol('denoise.learned'), REDUCTION = 12
@@ -117,7 +118,7 @@ async function prepare(a, index) {
   if (list.some(r => !(r.duration > 0))) throw new RangeError('denoise: a noise range needs a duration over 0 s')
   let chs = o.channel == null ? null : [o.channel].flat(), id = `${JSON.stringify(list)}:${chs ?? ''}`
   // same instance state as last time: the input is too (read() and stream() both prepare)
-  let stamp = `${a.version}:${a._.len}:${id}`, done = o[LEARNED]
+  let stamp = `${stampOf(a)}:${id}`, done = o[LEARNED]
   if (done?.stamp === stamp) return
   let input = audio.from(a, { sampleRate: a._.sr })     // follows a source still arriving: the read waits for the range
   input.edits = a.edits.slice(0, index)

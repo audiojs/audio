@@ -22,6 +22,7 @@
  */
 
 import audio, { arrived, memo } from '../core.js'
+import { stampOf } from '../plan.js'
 
 const SEPARATED = Symbol('vocals.separated')
 
@@ -42,7 +43,7 @@ async function prepare(a, index) {
   if (!Object.hasOwn(models, o.model)) throw new Error(`vocals({ model }): unknown model '${o.model}', expected ${Object.keys(models).join(', ')}`)
   await arrived(a)
   // same instance state as last time: the input is too (read() and stream() both prepare)
-  let stamp = `${a.version}:${a._.len}:${o.model}:${o.weights ?? ''}`, sep = o[SEPARATED]
+  let stamp = `${stampOf(a)}:${o.model}:${o.weights ?? ''}`, sep = o[SEPARATED]
   if (sep?.stamp === stamp) return
   let input = audio.from(a, { sampleRate: a._.sr })
   input.edits = a.edits.slice(0, index)

@@ -6,6 +6,7 @@
  * (another input) makes it in turn. auto() runs its declip stage through declipped() too.
  */
 import audio, { arrived, ranged } from '../core.js'
+import { stampOf } from '../plan.js'
 import parallel from '../parallel.js'
 
 const MOD = '@audio/denoise/declip', MADE = Symbol('declip.made')
@@ -22,7 +23,7 @@ export async function declipped(pcm, opts) {
 async function prepare(a, index) {
   let o = a.edits[index][1]
   await arrived(a)
-  let chs = o.channel == null ? null : [o.channel].flat(), stamp = `${a.version}:${a._.len}:${o.clipLevel}:${o.order}:${chs ?? ''}`
+  let chs = o.channel == null ? null : [o.channel].flat(), stamp = `${stampOf(a)}:${o.clipLevel}:${o.order}:${chs ?? ''}`
   if (o[MADE]?.stamp === stamp) return
   let input = audio.from(a, { sampleRate: a._.sr })
   input.edits = a.edits.slice(0, index)

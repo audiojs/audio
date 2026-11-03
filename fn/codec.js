@@ -23,6 +23,7 @@
  * and a second either side) is encoded once, before rendering.
  */
 import audio, { arrived, parseTime } from '../core.js'
+import { stampOf } from '../plan.js'
 import { cfft, cifft } from 'fourier-transform'
 
 const CODED = Symbol('codec.coded'), MARGIN = 1, LAG = 4096
@@ -53,7 +54,7 @@ async function prepare(a, index) {
   check(o)
   await arrived(a)
   let fmt = name(o), kbps = o.bitrate ?? 128, chs = o.channel == null ? null : [o.channel].flat()
-  let stamp = `${a.version}:${a._.len}:${fmt}:${kbps}:${o.quality}:${o.at}:${o.duration}:${chs ?? ''}`
+  let stamp = `${stampOf(a)}:${fmt}:${kbps}:${o.quality}:${o.at}:${o.duration}:${chs ?? ''}`
   if (o[CODED]?.stamp === stamp) return
   let input = audio.from(a, { sampleRate: a._.sr })
   input.edits = a.edits.slice(0, index)

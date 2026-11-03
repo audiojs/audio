@@ -28,6 +28,7 @@
  * waits for its end.
  */
 import audio, { arrived } from '../core.js'
+import { stampOf } from '../plan.js'
 import { fft, ifft } from 'fourier-transform'
 import { fingerprint } from './vocals.js'
 
@@ -192,7 +193,7 @@ async function prepare(a, index) {
   let o = a.edits[index][1], ref = o.source
   if (!ref?.read && !Array.isArray(ref)) throw new TypeError('align: the reference is a sound (an audio instance) or its channels')
   await arrived(a)
-  let opts = `${o.within ?? ''}:${o.span ?? ''}:${o.drift ?? ''}`, stamp = `${a.version}:${a._.len}:${ref.version ?? ''}:${ref._?.len ?? ref[0]?.length}:${opts}`, got = o[ALIGNED]
+  let opts = `${o.within ?? ''}:${o.span ?? ''}:${o.drift ?? ''}`, stamp = `${stampOf(a)}:${ref.version ?? ''}:${ref._?.len ?? ref[0]?.length}:${opts}`, got = o[ALIGNED]
   if (got?.stamp === stamp) return
   let input = audio.from(a, { sampleRate: a._.sr })
   input.edits = a.edits.slice(0, index)
