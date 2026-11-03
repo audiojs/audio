@@ -42,9 +42,11 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
       plainness, Shift-extend, edge turn-over, level readout, takes drawn live, weighted twins swapped whole, muted dimmed)
 - [ ] `assets/popoff.js` is popoff 3.1.0, committed in ~/projects/popoff (f167343) but not published: the user decides whether to publish
       before this repo commits a copy of it
-- [ ] `test/index.js` 'pages — a short sound decoded or pushed keeps no page it was gathered in' (audio-2b's, beside its
-      `core.js` pageAccumulator fix) reported failing by audio-f1 at 105.5 MB
-- [ ] the other idle sessions' uncommitted work identified (themes and tracks 10-29..11-02, site move 11-02, snapping and embed 11-02)
+- [x] `test/index.js` 'pages — a short sound decoded or pushed keeps no page it was gathered in': the fix holds 7 MB where the
+      parent held 144 (the test's body alone, in place and in a copy); the whole file passes in place and fails at 80 MB in a copy
+      outside the repo with node_modules linked: it measures the process's array buffers, so it goes to stage 1 below
+- [x] the other sessions' uncommitted work identified, back to Oct 23 (restore), Oct 27–28 (tracks, takes, menus), Oct 29–Nov 2
+      (themes, per-track views, notes, desktop, site move, cues, embed): ten sessions
 - [x] the site move finished in the tree (user, 11-02: no site pages here): `site/`, `workshop/`, `CNAME` (Pages has no custom
       domain here: audio.js.org/audio/ is the org site's), `test/site.test.js` (all 118 tests needed the old landing page; not in CI)
       and `npm run test:site` removed; `assets/README.md` cut to the assets. The logo's lab moved to audiojs.github.io `lab/logo/`
@@ -53,15 +55,26 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
       `CARRY`): the playground half (`editor.css` view-transition names) remains; the new home doesn't take it up
 - [ ] root `editor.html` and `playground.html` (old shared links, tested in `playground.test.js`) folded into one `404.html` in stage 2,
       when the test server answers misses as Pages does
-- [ ] full suite on the tree as it is; failures fixed or listed
-- [ ] committed in groups, one behavior per commit where files allow; where one file mixes several, one commit naming each
+- [x] full suite on the tree as it is; failures fixed or listed. Fixed: `restore` had no CLI help, README row or entry in the CLI
+      test's list; the skill (the MCP tool's description) ran past 2,048 characters; a window blur left the look dropdown's owner
+      expanded till a queued toggle event (`closeMenus` now closes it at once). Listed: playground 415 of 420 at load 30:
+      'Denoise learns the noise…' (a double-click in a pause no longer selects the pause, from the cue rework; with audio-f1),
+      'recording with the spectrogram shown…' (fails at the parent too), 'the playhead runs on by the frames' own time…' and
+      'a take recorded as the others play…' (pass alone); 'a sound longer than the page holds sounds under the caret…' passes
+      now and then (3 of 3 at the parent). The playback page of `test:browser` fails under load, as CI's advice-only suite does
+- [x] committed in groups (b1c9507..a6b79b5): restore(); modulation, drift, center; write with d; core take errors and pages;
+      hits; the playground (several sessions' work in shared files, one commit, each behavior named); the Mac app; the old home.
+      Hunks of shared files staged by their line numbers (scratchpad hunks.py); each library commit run as a snapshot first
+- [ ] for the user: `.work/stack-prototype.patch` (the `?layout=stack` prototype, rejected 10-29, kept on purpose) left
+      untracked; the Delete on a named range now deletes its audio (764d91ca, 10-30), a change that asked for the user's call
 
 ### 1. Tests wait on state
 
 - [ ] the page answers "settled" (no run pending, output drawn): the `ran()` the agent bridge awaits, exposed to tests
 - [ ] the 294 `waitForTimeout`s in `test/playground.test.js` (120 s of sleeping per run) replaced by it or by `waitForFunction` on state;
       a sleep that stays says why in a comment
-- [ ] tests stop rebuilding committed files (`playground.test.js` and `site.test.js` import `.site-build.js`): build once before the browser suites
+- [ ] tests stop rebuilding committed files (`playground.test.js` imports `.site-build.js`): build once before the browser suites
+- [ ] `test/index.js` 'pages' measures its sounds' own pages, not the process's array buffers (80 MB in a copy, 7 MB in place)
 - [ ] three guards for what was caught by eye:
   - [ ] no engine run for a non-audio action: mute, solo, rename, resize, view switch, tab switch, theme
   - [ ] followed playback with two tracks under 4× CPU throttle (CDP `Emulation.setCPUThrottlingRate`): frame-time p99 within budget
