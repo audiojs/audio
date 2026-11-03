@@ -109,7 +109,13 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
 
 ### 3. The library owns engine concerns; duplicates removed
 
-- [ ] (with an agent, worktree ../audio-store, branch engine-store) one keyed store of channels (OPFS, one lock discipline) under `cache.js` pages, `audio.memo`, checkpoints and the playground's kept files.
+- [ ] (branch engine-store, rebased on master, reviewed; library suites pass: 1,014, fixes, CLI, MCP, memory 28; the scrub
+      test A/B against master pending) store.js, one keyed store: OPFS in a page, memory elsewhere; a Web Lock per key, a sound
+      opened from a file holding it shared till collected, writers taking it only if free; one size eviction skipping keys in
+      use. checkpoint.js: keysOf (one serializer), recall, keep. The playground worker: −261 +72. keep.js stays the editor's
+      (the user's original bytes, kept forever). Known, not new: a file is named by its name and size past a reload, so one
+      replaced by another of the same name and size reuses what was kept
+- [ ] (superseded by the line above) one keyed store of channels (OPFS, one lock discipline) under `cache.js` pages, `audio.memo`, checkpoints and the playground's kept files.
       Today four writers: `cache.js`, `playground/keep.js`, `playground/worker.js` `disk()` and `shelf()`
 - [ ] checkpoints in the library: a render kept by source and edits prefix, resumed from the longest kept prefix
       (now `playground/worker.js` "Renders kept": `keysOf`, `based`, `store`, `recall`), behind a host store like `audio.memo`.
