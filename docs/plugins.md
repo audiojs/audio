@@ -95,6 +95,7 @@ audio.op('myOp', {
   params: ['arg1', 'arg2'],               // named positional arguments → ctx.arg1, ctx.arg2
   process: (input, output, ctx) => { },   // per-block PCM transform (read input, write output)
   plan: (segs, ctx) => segs,              // structural segment rewrite
+  limit: (limit, ctx) => limit,           // with plan: of `limit` input samples while decoding, the output that is final
   expand: (ctx) => edit,                  // macro: rewrite into simpler edit(s), no stats
   resolve: (ctx) => edit,                 // stat-conditioned: replace using decoded stats
   ranged: true,                           // op handles {at, duration} itself — engine skips its range scoping

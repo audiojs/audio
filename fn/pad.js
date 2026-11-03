@@ -16,4 +16,4 @@ const padPlan = (segs, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('pad', { params: ['before', 'after'], plan: padPlan })
+audio.op('pad', { params: ['before', 'after'], plan: padPlan, limit: (limit, ctx) => limit + Math.round((ctx.before ?? 0) * ctx.sampleRate) })

@@ -135,7 +135,8 @@ const resamplePlan = (segs, ctx) => {
   return resampleSegs(segs, factor, interp)
 }
 
-audio.op('_resample_seg', { hidden: true, plan: resamplePlan, sr: (curSr, ctx) => readRate(ctx.rate) })
+audio.op('_resample_seg', { hidden: true, plan: resamplePlan, sr: (curSr, ctx) => readRate(ctx.rate),
+  limit: (limit, ctx) => Math.round(limit * (ctx.rate || ctx.sampleRate) / ctx.sampleRate) })
 
 audio.op('resample', {
   params: ['rate'],

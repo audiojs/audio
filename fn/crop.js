@@ -9,4 +9,7 @@ const cropPlan = (segs, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('crop', { plan: cropPlan })
+// of `limit` input samples, the output that is final: those in the range
+const limit = (limit, { offset, length }) => { let at = offset ?? 0; return Math.max(0, Math.min(length ?? limit - at, limit - at)) }
+
+audio.op('crop', { plan: cropPlan, limit })

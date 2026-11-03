@@ -508,7 +508,15 @@ const via = ({ method, ...o }) => {
   return [to, o]
 }
 
-audio.op('_stretch_seg', { params: ['factor'], plan: stretchPlan, hidden: true })
+// of `limit` input samples, the output that is final; a sliding stretch's piecewise factors, integrated over the input
+function stretchLimit(limit, ctx) {
+  if (!ctx.fv) return Math.round(limit * (ctx.factor || 1))
+  let q = ctx.q || 2048, out = 0
+  for (let k = 0; k * q < limit; k++) out += Math.round(Math.min(q, limit - k * q) * (ctx.fv[Math.min(k, ctx.fv.length - 1)] || 1))
+  return out
+}
+
+audio.op('_stretch_seg', { params: ['factor'], plan: stretchPlan, hidden: true, limit: stretchLimit })
 audio.op('_stretch_dsp', { params: ['factor'], process: stretchDsp, hidden: true, ranged: true, latency: stretchLatency })
 audio.op('stretch', {
   params: ['factor'],

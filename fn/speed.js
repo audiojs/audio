@@ -29,4 +29,4 @@ const speedPlan = (segs, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('speed', { params: ['rate'], plan: speedPlan })
+audio.op('speed', { params: ['rate'], plan: speedPlan, limit: (limit, ctx) => Math.round(limit / Math.abs(ctx.rate || 1)) })

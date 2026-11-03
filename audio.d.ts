@@ -589,6 +589,8 @@ export interface OpDescriptor {
   curves?: Record<string, (x: number) => number>
   process?: (input: Float32Array[], output: Float32Array[], ctx: Record<string, any>) => void
   plan?: (segs: any[], ctx: Record<string, any>) => any[]
+  /** With `plan`, while the source still decodes: of `limit` input samples, how many output samples are final (crop, remove, insert…); none, the same */
+  limit?: (limit: number, ctx: Record<string, any>) => number
   resolve?: (ctx: Record<string, any>) => EditOp | EditOp[] | false | null
   ch?: (channels: number, ctx: Record<string, any>) => number
   /** Sample-rate transform (e.g. resample). Return the new rate, or falsy to leave it unchanged. */

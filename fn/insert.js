@@ -57,5 +57,17 @@ const insertPlan = (segs, ctx) => {
   return insertSegs(segs, off, iLen, typeof source === 'number' ? null : source, rate, xfadeLen(ctx))
 }
 
-import audio from '../core.js'
-audio.op('insert', { params: ['source', 'at', 'crossfade'], plan: insertPlan })
+import audio, { parseTime } from '../core.js'
+
+// of `limit` input samples, the output that is final. An entry-seam crossfade overlaps or fades in place depending on the
+// source running X past the insertion point (clamped to the current end), and in place it touches X before it: held
+// there until that's known
+function limit(limit, { offset, length, crossfade, sampleRate: sr, total, source: s }) {
+  let x = Math.round((parseTime(crossfade) || 0) * sr)
+  if (x && offset != null && limit < offset + x) return Math.max(0, Math.min(limit, Math.min(offset, total) - x))
+  if (offset == null || offset > limit) return limit
+  let n = typeof s === 'number' ? Math.round(s * sr) : s?.sampleRate && s.sampleRate !== sr ? Math.round((s.length ?? 0) * sr / s.sampleRate) : (s?.length ?? 0)
+  return limit + (length != null ? Math.min(n, length) : n)
+}
+
+audio.op('insert', { params: ['source', 'at', 'crossfade'], plan: insertPlan, limit })

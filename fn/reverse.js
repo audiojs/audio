@@ -21,4 +21,7 @@ const reversePlan = (segs, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('reverse', { plan: reversePlan })
+// a reversed range starts with its last sample: held at its start until all of it is in
+const limit = (limit, { offset, length }) => length == null || limit < (offset ?? 0) + length ? Math.min(limit, offset ?? 0) : limit
+
+audio.op('reverse', { plan: reversePlan, limit })

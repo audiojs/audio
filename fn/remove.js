@@ -35,5 +35,14 @@ const removePlan = (segs, ctx) => {
   return removeSegs(segs, s, Math.max(0, Math.min(ctx.length ?? (total - s), total - s)), xfadeLen(ctx))
 }
 
-import audio from '../core.js'
-audio.op('remove', { params: ['at', 'duration', 'crossfade'], plan: removePlan })
+import audio, { parseTime } from '../core.js'
+
+// of `limit` input samples, the output that is final: a crossfade reads h past the cut, so the splice is final only once
+// that source is in
+function limit(limit, { offset, length, crossfade, sampleRate: sr }) {
+  let at = offset ?? 0, dur = length ?? limit - at, h = Math.round((parseTime(crossfade) || 0) * sr / 2)
+  if (h && limit < at + dur + h) return Math.max(0, Math.min(limit, at - h))
+  return at < limit ? limit - Math.min(dur, limit - at) : limit
+}
+
+audio.op('remove', { params: ['at', 'duration', 'crossfade'], plan: removePlan, limit })

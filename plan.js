@@ -640,58 +640,11 @@ export function render(a, offset, count) {
 
 export function planLen(segs) { let m = 0; for (let s of segs) m = Math.max(m, s[2] + s[1]); return m }
 
-/** How a plan op transforms the safe output boundary during incremental decode. */
+/** How a plan op transforms the safe output boundary during incremental decode: of `limit` input samples, the output
+ *  that is final, as the op's `limit` hook says; one without keeps it */
 function adjustLimit(limit, type, ctx) {
   if (limit <= 0) return 0
-  let { offset, length, sampleRate: sr } = ctx
-  if (type === 'speed') return Math.round(limit / Math.abs(ctx.rate || 1))
-  if (type === 'crop') {
-    let at = offset ?? 0, dur = length ?? limit - at
-    return Math.max(0, Math.min(dur, limit - at))
-  }
-  if (type === 'remove') {
-    let at = offset ?? 0, dur = length ?? limit - at
-    // a crossfade reads h past the cut: the splice is final only once that source is in
-    let h = Math.round((parseTime(ctx.crossfade) || 0) * sr / 2)
-    if (h && limit < at + dur + h) return Math.max(0, Math.min(limit, at - h))
-    return at < limit ? limit - Math.min(dur, limit - at) : limit
-  }
-  if (type === 'insert') {
-    // an entry-seam crossfade overlaps or fades in place depending on the source running X past
-    // the insertion point (clamped to the current end), and in place it touches X before it:
-    // hold there until that's known
-    let x = Math.round((parseTime(ctx.crossfade) || 0) * sr)
-    if (x && offset != null && limit < offset + x) return Math.max(0, Math.min(limit, Math.min(offset, ctx.total) - x))
-    if (offset != null && offset <= limit) {
-      let s = ctx.source
-      let iLen = typeof s === 'number' ? Math.round(s * sr)
-        : s?.sampleRate && s.sampleRate !== sr ? Math.round((s.length ?? 0) * sr / s.sampleRate)
-        : (s?.length ?? 0)
-      if (length != null) iLen = Math.min(iLen, length)
-      return limit + iLen
-    }
-    return limit
-  }
-  if (type === 'repeat') {
-    let at = offset ?? 0, dur = length ?? limit - at
-    if (at < limit) return limit + dur * (ctx.times ?? 1)
-    return limit
-  }
-  if (type === 'pad') return limit + Math.round((ctx.before ?? 0) * sr)
-  // a reversed range starts with its last sample: hold at its start until all of it is in
-  if (type === 'reverse') return length == null || limit < (offset ?? 0) + length ? Math.min(limit, offset ?? 0) : limit
-  if (type === '_resample_seg') return Math.round(limit * (ctx.rate || sr) / sr)
-  if (type === '_stretch_seg') {
-    // Sliding stretch: piecewise factors — integrate output samples over available input
-    if (ctx.fv) {
-      let q = ctx.q || 2048, out = 0
-      for (let k = 0; k * q < limit; k++)
-        out += Math.round(Math.min(q, limit - k * q) * (ctx.fv[Math.min(k, ctx.fv.length - 1)] || 1))
-      return out
-    }
-    return Math.round(limit * (ctx.factor || 1))
-  }
-  return limit
+  return audio.op(type)?.limit?.(limit, ctx) ?? limit
 }
 
 /** Build plan ctx for a plan hook or adjustLimit. */

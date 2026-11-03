@@ -31,4 +31,7 @@ const repeatPlan = (segs, ctx) => {
 }
 
 import audio from '../core.js'
-audio.op('repeat', { params: ['times'], plan: repeatPlan })
+// of `limit` input samples, the output that is final: the repeats too, once the range is in
+const limit = (limit, { offset, length, times }) => { let at = offset ?? 0; return at < limit ? limit + (length ?? limit - at) * (times ?? 1) : limit }
+
+audio.op('repeat', { params: ['times'], plan: repeatPlan, limit })
