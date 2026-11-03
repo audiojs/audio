@@ -1,5 +1,8 @@
 // Icons for the edit operations in ops.js, one path each on the 24 × 24 grid of the group icons: strokes 1.6 wide,
 // round caps and joins, no fills. Variants of one idea share a motif and differ in one mark.
+// An icon drawn: its path on that grid, so, in the text's colour; the page's menus and the Mac app's menu bar and
+// toolbar (desktop/app.js) draw this one markup
+export const glyph = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`
 export default {
   // Edit: the sound cut, closed up or extended, and the clipboard
   trim: 'M3 7l3 5-3 5M21 7l-3 5 3 5M9 9v6M12 5v14M15 9v6',
@@ -97,6 +100,7 @@ export default {
   recover: 'M3 20h18M3 15.5h18M3 11h7.5M13.5 11H21M3 6.5h3.5M9.25 6.5h5.5M17.5 6.5H21',
   dereverb: 'M4 4v16M8 6.5v11M12 8.5v7M16 10v4M20 11v2M9 21 21 5',
   // a voice's frames, made again as one wave
+  restore: 'M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0',
   vocos: 'M3 9v6M6 6v12M9 10v4M12 12c1.5-6 3-6 4.5 0s3 6 4.5 0',
   deplosive: 'M5 21V4h5a4.5 4.5 0 0 1 0 9H5M17 8h4M16.5 12h4.5M17 16h4',
   dewind: 'M2 8h9.5a2.5 2.5 0 1 0-2.5-2.5M2 12h15a3 3 0 1 1-3 3M2 16h6',
@@ -114,6 +118,11 @@ export default {
   pitch: 'M9 17.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0V5h4M18 4v16M15.5 6.5 18 4l2.5 2.5M15.5 17.5 18 20l2.5-2.5',
   // a melody's rises and falls going wider; a spectrum's two peaks, its formants
   intonation: 'M2 12q1.5-2 3 0t3 0q1.5-6 3 0t3 0M18 4v16M15.5 6.5 18 4l2.5 2.5M15.5 17.5 18 20l2.5-2.5',
+  // a note's layers: its vibrato, even waves on its line; its drift, the line itself slowly bending; its centre, a
+  // wavy note between two notes' lines
+  modulation: 'M2 12q1-3 2 0t2 0 2 0 2 0 2 0 2 0M18 4v16M15.5 6.5 18 4l2.5 2.5M15.5 17.5 18 20l2.5-2.5',
+  drift: 'M2 15c4-9 8 5 12-5M18 4v16M15.5 6.5 18 4l2.5 2.5M15.5 17.5 18 20l2.5-2.5',
+  center: 'M2 7h12M2 17h12M2 12q1.5-2 3 0t3 0 3 0 3 0M18 4v16M15.5 6.5 18 4l2.5 2.5M15.5 17.5 18 20l2.5-2.5',
   formant: 'M2 20c1.5-11 3.5-11 5 0 1-7 3-7 4.5 0M18 4v16M15.5 6.5 18 4l2.5 2.5M15.5 17.5 18 20l2.5-2.5',
   tune: 'M9 3v7a3 3 0 0 0 6 0V3M12 13v8',
   resample: 'M4 21v-7.2M9 21V7.8M14 21v-10.7M19 21v-4.7M5.8 12a1.8 1.8 0 1 1-3.6 0 1.8 1.8 0 0 1 3.6 0M10.8 6a1.8 1.8 0 1 1-3.6 0 1.8 1.8 0 0 1 3.6 0M15.8 8.5a1.8 1.8 0 1 1-3.6 0 1.8 1.8 0 0 1 3.6 0M20.8 14.5a1.8 1.8 0 1 1-3.6 0 1.8 1.8 0 0 1 3.6 0',

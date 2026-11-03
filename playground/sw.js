@@ -1,8 +1,7 @@
-// The site cross-origin isolated where its host sets no headers (GitHub Pages): each of its own responses given COOP
+// The playground cross-origin isolated where its host sets no headers (GitHub Pages): each of its own responses given COOP
 // and COEP, so the playground's ONNX Runtime wasm runs a model on threads (SharedArrayBuffer), not on one. COEP credentialless:
 // a found sound previews from its host as before, fetched without cookies. Others' responses pass as they are.
-// playground.html registers it, for the whole site: a page apart from the others (COOP) would cross to them in another
-// browsing context group, and the wordmark's spin would not carry over.
+// The playground's page registers it, for its folder: the page and its workers.
 const isolated = { 'cross-origin-opener-policy': 'same-origin', 'cross-origin-embedder-policy': 'credentialless' }
 
 self.addEventListener('install', () => self.skipWaiting())

@@ -115,8 +115,7 @@ function codemirror(lib, parent, { onchange, oncaret, files = () => [], describe
     { tag: tags.variableName, color: 'var(--color-screen-variable)' },
     { tag: tags.propertyName, color: 'var(--color-screen-property)' },
     { tag: [tags.className, tags.typeName], color: 'var(--color-screen-type)' },
-    { tag: tags.string, color: 'var(--color-screen-string)' },
-    { tag: tags.regexp, color: 'var(--color-screen-regexp)' },
+    { tag: [tags.string, tags.regexp], color: 'var(--color-screen-string)' },
     { tag: [tags.bool, tags.null], color: 'var(--color-screen-constant)' },
     // a number drags (scrub): the pointer says so
     { tag: tags.number, color: 'var(--color-screen-number)', cursor: 'ew-resize' },
@@ -126,7 +125,7 @@ function codemirror(lib, parent, { onchange, oncaret, files = () => [], describe
 
   // The code slab's look, the same as the site's code examples: grey syntax on the dark screen, or a theme's (skin.css).
   const theme = EditorView.theme({
-    '&': { height: '100%', color: 'var(--color-screen-text)', backgroundColor: 'transparent', fontSize: 'var(--font-size-code)' },
+    '&': { height: '100%', color: 'var(--color-screen-ink)', backgroundColor: 'transparent', fontSize: 'var(--font-size-code)' },
     '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.75' },
     // the code scrolled across goes under the line numbers, cut off at their edge (under)
     '.cm-content': { padding: '14px 0 40px', caretColor: 'var(--color-screen-bright)', clipPath: 'inset(0 0 0 var(--under, 0px))' },
@@ -134,20 +133,21 @@ function codemirror(lib, parent, { onchange, oncaret, files = () => [], describe
     '.cm-gutters': { backgroundColor: 'transparent', border: 'none', color: 'var(--color-screen-line-number)' },
     '.cm-layer': { clipPath: 'inset(-1e5px -1e5px -1e5px var(--under-layer, 0px))' },
     '.cm-lineNumbers .cm-gutterElement': { padding: '0 6px 0 16px', minWidth: '22px' },
-    '.cm-activeLine': { backgroundColor: 'var(--color-screen-line)', boxShadow: 'inset 0 0 0 2px var(--color-screen-line-border)' },
-    '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--color-screen-line-number-active)' },
+    '.cm-activeLine': { backgroundColor: 'var(--color-screen-line)' },
+    '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--color-screen-ink)' },
     '&.cm-focused': { outline: 'none' },
     '&.cm-focused .cm-cursor': { borderLeftColor: 'var(--color-screen-bright)', borderLeftWidth: '1.5px' },
     // the selection, and while the focus is elsewhere the inactive one, as an editor's goes
-    '.cm-selectionBackground': { backgroundColor: 'var(--color-screen-selection-inactive)' },
-    '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': { backgroundColor: 'var(--color-screen-selection)' },
-    '.cm-matchingBracket, &.cm-focused .cm-matchingBracket': { backgroundColor: 'var(--color-screen-bracket)', color: 'inherit', outline: 'none' },
+    '.cm-selectionBackground': { backgroundColor: 'var(--color-screen-select-inactive)' },
+    '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': { backgroundColor: 'var(--color-screen-select)' },
+    '.cm-matchingBracket, &.cm-focused .cm-matchingBracket': { backgroundColor: 'var(--color-screen-match)', color: 'inherit', outline: 'none' },
     '.cm-selectionMatch': { backgroundColor: 'var(--color-screen-match)' },
-    '.cm-tooltip': { backgroundColor: 'var(--color-screen-raised)', color: 'var(--color-screen-soft)', border: 'none', borderRadius: '8px', boxShadow: 'var(--shadow-menu)', fontFamily: 'var(--font-body)', fontSize: '12px' },
+    '.cm-tooltip': { backgroundColor: 'var(--color-menu)', color: 'var(--color-screen-soft)', border: 'none', borderRadius: '8px', boxShadow: 'var(--shadow-menu)', fontFamily: 'var(--font-body)', fontSize: '12px' },
     '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'var(--font-mono)', maxHeight: '19em', minWidth: '300px', padding: '4px' },
     '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { padding: '2px 8px', lineHeight: '1.7', borderRadius: '4px' },
-    '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: 'var(--color-screen-pill-active)', color: 'var(--color-screen-bright)' },
-    '.cm-tooltip.cm-tooltip-autocomplete > ul > completion-section': { display: 'block', padding: '8px 8px 2px', fontFamily: 'var(--font-body)', fontSize: '10px', letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--color-screen-dim)', border: 'none' },
+    '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: 'var(--color-menu-select)', color: 'var(--color-menu-select-ink)' },
+    '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] :is(.cm-completionLabel, .cm-completionMatchedText, .cm-completionDetail)': { color: 'inherit' },
+    '.cm-tooltip.cm-tooltip-autocomplete > ul > completion-section': { display: 'block', padding: '8px 8px 2px', fontFamily: 'var(--font-body)', fontSize: '10px', letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--color-screen-muted)', border: 'none' },
     '.cm-completionLabel': { color: 'var(--color-screen-ink)' },
     '.cm-completionMatchedText': { textDecoration: 'none', color: 'var(--color-screen-bright)' },
     '.cm-completionDetail': { fontFamily: 'var(--font-body)', fontStyle: 'normal', color: 'var(--color-screen-muted)', marginLeft: '14px' },
@@ -155,7 +155,7 @@ function codemirror(lib, parent, { onchange, oncaret, files = () => [], describe
     '.cm-diagnostic': { padding: '4px 8px' },
     '.cm-diagnostic-error': { borderLeft: '2px solid var(--color-screen-error)' },
     '.cm-lintRange-error': { backgroundImage: 'none', textDecoration: 'underline wavy var(--color-screen-error)', textDecorationSkipInk: 'none', textUnderlineOffset: '4px' },
-    '.cm-panels': { backgroundColor: 'var(--color-screen-raised)', color: 'var(--color-screen-soft)' }
+    '.cm-panels': { backgroundColor: 'var(--color-menu)', color: 'var(--color-screen-soft)' }
   }, { dark: true })
 
   // Completions: methods after a dot (grouped as the menu groups them), sources and names inside strings.
@@ -315,7 +315,7 @@ function codemirror(lib, parent, { onchange, oncaret, files = () => [], describe
   }
   // The line numbers stand over the code scrolled across under them: what passes beneath is cut off a line's own margin
   // (6px) past their edge, as far from them as unscrolled, the slab's ground showing through them as everywhere (a gutter
-  // painted over the code would break its scanlines and shading). The code is cut where the scroll has taken it; the
+  // painted over the code would break its shading). The code is cut where the scroll has taken it; the
   // selection and caret, drawn from the scroll's start, past the line numbers too
   function under(v) {
     const s = v.scrollDOM.scrollLeft, g = v.dom.querySelector('.cm-gutters')?.offsetWidth ?? 0, cut = s + Math.min(s, 6)

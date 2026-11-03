@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process'
 // the library as the pages load it: its modules, the bundle they become, what that bundle pulls in
 const LIB = ['audio.js', 'core.js', 'plan.js', 'cache.js', 'stats.js', 'batch.js', 'worker.js', 'deck.js', 'fn/', '.esbuild.js', 'package-lock.json']
 // the website as served: its pages, their scripts and the bundles .site-build.js makes
-const SITE = ['index.html', 'sw.js', 'site/', 'logo/', 'assets/', '.site-build.js', 'package-lock.json']
+const SITE = ['index.html', 'logo/', 'assets/', '.site-build.js', 'package-lock.json']
 
 // advice: on a shared runner the audio thread misses deadlines now and then, so these report and don't fail the run
 const SUITES = [
@@ -15,7 +15,7 @@ const SUITES = [
   // its resources released and its heap bounded, on a bare page and on the demo
   { name: 'memory', run: 'npm run test:memory', on: [...LIB, ...SITE, 'test/memory.test.js', 'test/memory-core.test.js'] },
   // the editor whole: its engine against the library in Node, its code against the CLI
-  { name: 'playground', run: 'npm run test:playground', on: [...SITE, 'playground.html', 'editor.html', 'playground/', 'worker.js', 'deck.js', 'fn/curves.js', 'bin/', 'test/playground.test.js', 'test/gen.js', 'test/fixture.wav'] },
+  { name: 'playground', run: 'npm run test:playground', on: [...SITE, 'playground/', 'worker.js', 'deck.js', 'fn/curves.js', 'bin/', 'test/playground.test.js', 'test/gen.js', 'test/fixture.wav'] },
   { name: 'recording', run: 'CI= node --test --test-name-pattern="recording with the spectrogram shown" test/playground.test.js', advice: true, on: ['playground/', 'test/playground.test.js'] },
   // real-time playback, clicks and gaps measured as heard
   { name: 'playback', run: 'TEST_PAGES=playback node test/browser.js', advice: true, on: [...LIB, 'test/play.html', 'test/play.js', 'test/browser.js'] },

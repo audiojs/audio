@@ -7,12 +7,15 @@
 import audio from '../audio.js'
 import { LOAD } from '../core.js'
 import plugins from 'editor:plugins'
-import { attacks, rises } from '../fn/hits.js'
+import { attacks, rises, plainness } from '../fn/hits.js'
 import { steadyTempo } from '../fn/beat.js'
 import { contour as pitchOf, harmony } from '../fn/pitch-detect.js'
+import { notes as noted } from '@audio/pitch/pyin'
 import { expose } from '../worker.js'
 import { heard } from './heard.js'
 import { fft } from 'fourier-transform'
+import aWeighting from '@audio/weighting/a'
+import kWeighting from '@audio/weighting/k'
 
 // Registry plugins load from their chunks: the build writes one literal import per plugin.
 audio.import = spec => plugins[spec]?.() ?? import(spec)
@@ -87,18 +90,44 @@ const grower = (k, Type) => {
     from: i => all.map(a => a.slice(i, n))
   }
 }
-function pictured(k, rate, total) {
-  const size = sizeOf(rate), half = size / 2, bins = half + 1, hop = hopOf(total, size), norm = 1 / (size / 4) ** 2
-  const win = Float64Array.from({ length: size }, (_, i) => .5 - .5 * Math.cos(2 * Math.PI * i / size))
-  const leaves = grower(k, Float32Array), levels = grower(k, Uint8Array), cur = Array.from({ length: k }, () => [Infinity, -Infinity, 0, 0])
-  // samples from `base` on, for the frames still to come; the next frame's center `t`; the column `o`, the sum of its
-  // frames' powers so far and how many
-  let tail = Array.from({ length: k }, () => new Float32Array(2 * size)), base = 0, have = 0, t = half, o = 0, fill = 0, n = 0, frames = 0
-  const sum = Array.from({ length: k }, () => new Float64Array(bins)), frame = new Float64Array(size)
+// Leaves as the samples come, each channel's
+function leafed(k) {
+  const leaves = grower(k, Float32Array), cur = Array.from({ length: k }, () => [Infinity, -Infinity, 0, 0])
+  let fill = 0
   const leaf = () => {
     for (let c = 0; c < k; c++) { leaves.add(c, cur[c]); cur[c][0] = Infinity; cur[c][1] = -Infinity; cur[c][2] = cur[c][3] = 0 }
     leaves.grow(4); fill = 0
   }
+  return {
+    push(channels) {
+      const m = channels[0].length
+      for (let i = 0; i < m;) {
+        const r = Math.min(m - i, LEAF - fill)
+        for (let c = 0; c < k; c++) {
+          const x = channels[c], v = cur[c]
+          let lo = v[0], hi = v[1], q = v[2], cnt = v[3]
+          for (let j = i; j < i + r; j++) { const y = x[j]; if (y !== y) continue; if (y < lo) lo = y; if (y > hi) hi = y; q += y * y; cnt++ }
+          v[0] = lo; v[1] = hi; v[2] = q; v[3] = cnt
+        }
+        i += r; fill += r
+        if (fill === LEAF) leaf()
+      }
+    },
+    // all of it come: the last leaf short
+    end() { if (fill) leaf() },
+    // each channel's from leaf `i`, and how many there are
+    from: i => leaves.from(4 * i),
+    get count() { return leaves.length / 4 }
+  }
+}
+function pictured(k, rate, total) {
+  const size = sizeOf(rate), half = size / 2, bins = half + 1, hop = hopOf(total, size), norm = 1 / (size / 4) ** 2
+  const win = Float64Array.from({ length: size }, (_, i) => .5 - .5 * Math.cos(2 * Math.PI * i / size))
+  const leaves = leafed(k), levels = grower(k, Uint8Array)
+  // samples from `base` on, for the frames still to come; the next frame's center `t`; the column `o`, the sum of its
+  // frames' powers so far and how many
+  let tail = Array.from({ length: k }, () => new Float32Array(2 * size)), base = 0, have = 0, t = half, o = 0, n = 0, frames = 0
+  const sum = Array.from({ length: k }, () => new Float64Array(bins)), frame = new Float64Array(size)
   const column = () => {
     const q = new Uint8Array(bins)
     for (let c = 0; c < k; c++) {
@@ -124,18 +153,7 @@ function pictured(k, rate, total) {
     size, hop,
     push(channels) {
       const m = channels[0].length
-      // leaves
-      for (let i = 0; i < m;) {
-        const r = Math.min(m - i, LEAF - fill)
-        for (let c = 0; c < k; c++) {
-          const x = channels[c], v = cur[c]
-          let lo = v[0], hi = v[1], q = v[2], cnt = v[3]
-          for (let j = i; j < i + r; j++) { const y = x[j]; if (y !== y) continue; if (y < lo) lo = y; if (y > hi) hi = y; q += y * y; cnt++ }
-          v[0] = lo; v[1] = hi; v[2] = q; v[3] = cnt
-        }
-        i += r; fill += r
-        if (fill === LEAF) leaf()
-      }
+      leaves.push(channels)
       // spectra: the samples kept from the next frame's start, then each frame they now reach
       const keep = Math.max(0, Math.min(t - half - base, have))
       if (have - keep + m > tail[0].length) tail = tail.map(x => { const y = new Float32Array(2 * (have - keep + m)); y.set(x.subarray(keep, have)); return y })
@@ -147,13 +165,13 @@ function pictured(k, rate, total) {
     },
     // all of it come: the last leaf short; the frames over its end, the last column
     end() {
-      if (fill) leaf()
+      leaves.end()
       while (t - half < n && Math.floor(t / hop) < Math.ceil(n / hop)) transform()
       if (n) column()
     },
     // what has come since `from` ({ leaves, columns } counted as count() gives them): each channel's
-    since: (from = { leaves: 0, columns: 0 }) => ({ leaves: leaves.from(4 * from.leaves), spectra: { size, hop, at: from.columns, levels: levels.from(from.columns * bins) } }),
-    count: () => ({ leaves: leaves.length / 4, columns: levels.length / bins })
+    since: (from = { leaves: 0, columns: 0 }) => ({ leaves: leaves.from(from.leaves), spectra: { size, hop, at: from.columns, levels: levels.from(from.columns * bins) } }),
+    count: () => ({ leaves: leaves.count, columns: levels.length / bins })
   }
 }
 // A loop over a stream's blocks giving way to whatever the page asks (a newer run, Stop) every 20 ms of work: the blocks
@@ -334,10 +352,13 @@ audio.fn.play = function () { return this }
 audio.fn.record = function () { throw new Error('Record with the Record button; a script cannot open the microphone.') }
 
 const isAudio = value => value != null && typeof value === 'object' && typeof value.read === 'function' && Array.isArray(value.edits)
+// a source by its address: a URL, or a path from the site's root, as a page names its own files (a page on that site
+// embedding the playground, its sound beside it)
+const address = name => /^(https?|data|blob):/.test(name) ? name : /^\/(?!\/)/.test(name) ? new URL(name, location.origin).href : null
 const load = name => {
   const file = files.get(name)
   if (file && !(file instanceof Blob)) return audio.from(file.channels, { sampleRate: file.sampleRate, ...KEEP })
-  if (file || /^(https?|data|blob):/.test(name)) return audio(file || name, KEEP)
+  if (file || address(name)) return audio(file || address(name), KEEP)
   // a file the page never had, or lost with a reload: the page asks for it by name
   throw Object.assign(new Error(`${name} is not open here: open it, or drop it on the page`), { missing: name })
 }
@@ -363,9 +384,19 @@ function scoped(track) {
     if (Array.isArray(source) && source.some(s => typeof s === 'string')) return track(audio(source.map(s => typeof s === 'string' ? api(s) : s), opts))
     return track(audio(source, opts))
   }, {
-    get: (target, key) => key === 'from' ? (...args) => track(audio.from(...args)) : audio[key]
+    get: (target, key) => key === 'from' ? (...args) => track(typeof args[0] === 'number' ? silent(...args) : audio.from(...args)) : audio[key]
   })
   return api
+}
+// Silence, audio.from(seconds): a source of its own, the same each run, as a file is, so what is made from it is kept by
+// its edits (keysOf): a track made empty and recorded into is not made again each time another is edited
+const silences = new Map()
+function silent(seconds, opts) {
+  const key = JSON.stringify([seconds, opts ?? {}])
+  if (!silences.has(key)) silences.set(key, audio.from(seconds, opts))
+  const root = silences.get(key), a = root.clone()
+  roots.set(a, root)
+  return a
 }
 const api = scoped(a => (run?.created.push(a), a))
 // A copy a script makes of a sound (`take.clone()`, the sound tracks copy, their shared steps in it) knows the source
@@ -525,11 +556,12 @@ function adopt(record, r) {
 // A run that starts as one kept renders only what follows it, on its samples (based): an edit added at the end, a step
 // turned off or on, a card chosen, a tab shown again; what that leaves as it was passes through block by block, only
 // what it changes is processed (a ranged op copies the rest). The steps of each output are kept too, once it has come and
-// nothing else runs (checkpoints), so a step changed renders from the one before it. Kept here up to KEPT samples, the
-// least lately used let go first; each output also in the browser's own file system by its script and the files it opens
+// nothing else runs (checkpoints), so a step changed renders from the one before it. Kept here up to KEPT samples (128 MB
+// as float32: the sound edited and a few of its steps, a 5 minute stereo song's output whole), the least lately used let
+// go first, the one just kept never; each output also in the browser's own file system by its script and the files it opens
 // (renders), so a reload, or a tab shown for the first time since, shows it at once. Anything the edits can't say is the
 // same (a function, samples made in the script) is kept no further than the step before it.
-const KEPT = 2 ** 29
+const KEPT = 2 ** 25
 const kept = new Map()         // key → { sound, sampleRate, markers, regions, figures }
 const renders = shelf('audio-editor-renders', 2 ** 31)
 const size = e => e.sound.length * e.sound.channels
@@ -537,7 +569,7 @@ function store(key, entry) {
   kept.delete(key)
   kept.set(key, entry)
   let total = 0
-  for (const [k, e] of [...kept].reverse()) if ((total += size(e)) > KEPT) kept.delete(k)
+  for (const [k, e] of [...kept].reverse()) if ((total += size(e)) > KEPT && k !== key) kept.delete(k)
 }
 function recall(key) {
   const e = kept.get(key)
@@ -707,12 +739,20 @@ async function mixTracks(r, alive) {
       // one not kept (a sound made in the script) goes with the run
       if (![...kept.values()].includes(e)) r.created.push(e.sound)
     }
+    // a track at another rate resampled to the first's, once for what is kept of it (a take recorded at the device's
+    // rate under a file's: each edit of another track once resampled it all again)
     const rate = r.tracks[0].sampleRate
     for (const t of r.tracks) if (t.sampleRate !== rate) {
-      const a = t.sound.clone().resample(rate)
-      try { t.sound = await collect(a, alive) } finally { a.dispose?.() }
-      if (!t.sound) return
-      r.created.push(t.sound)
+      const rates = t.made.rates ??= new Map()
+      let sound = rates.get(rate)
+      if (!sound) {
+        const a = t.sound.clone().resample(rate)
+        try { sound = await collect(a, alive) } finally { a.dispose?.() }
+        if (!sound) return
+        if ([...kept.values()].includes(t.made)) rates.set(rate, sound)
+        else r.created.push(sound)
+      }
+      t.sound = sound
       t.sampleRate = rate
     }
     // the mix: the master's, or the tracks' but those muted (mixOf), rendered a block at a time onto a tape: nothing held
@@ -1122,26 +1162,39 @@ async function whole(output) {
   return r?.done ? r : null
 }
 
-// Its pauses, as a text's spaces: under the level its quiet tenth sets (trim.js), 60 ms at least between sounds
-const PAUSE = .06
-const gaps = async (a, min) => a.duration ? (await a.silence({ minDuration: min })).map(g => [g.at, g.at + g.duration]) : []
+// Its pauses, as a text's spaces: where every sample is within GROUND of zero (0.02, a waveform's ground drawn flat at
+// any scale but zoomed far in), or of a tenth of its loudest if that is lower (a quiet recording's), 60 ms at least
+// between sounds. A sound's tail fading into them ends there, its end a cue, so nothing selected hangs on into a pause.
+const PAUSE = .06, GROUND = .02
+const gaps = async (a, min) => a.duration ? (await a.silence({ minDuration: min, threshold: Math.min(20 * Math.log10(GROUND), await a.stat('db') - 20) })).map(g => [g.at, g.at + g.duration]) : []
 
 // The output's cues, in seconds: points to snap to, slice at and warp by. `edges` (a voice's, a solo instrument's): where
 // each sound starts and ends, the edges of the pauses between them, as words are found; each start where its attack
 // starts (fn/hits.js), each end where the quiet begins, at most a block (23 ms) after the sound falls under the level.
 // `hits` (drums, struck notes, words struck): where the level jumps up, where an attack starts (fn/hits.js rises), not
-// where it falls to a dip, which a pause's edge marks where it goes quiet; each ranked by how far it jumps, dB, the
-// page showing the larger first where they crowd. After a closing warp() they are the cues of the audio before it,
-// where its markers take them: stretching makes none, though its smear can read as hits. { times, ranks } (none for
-// edges, which rank over every hit); times null for an output a newer one has replaced: the page reads cues against
-// the code that made them.
+// where it falls to a dip, which a pause's edge marks where it goes quiet. Each ranked by how far the level steps
+// across it, dB (fn/hits.js plainness), the page showing the larger first where they crowd, a pause's edge over every
+// hit (a sound's start or end before a strike by it); none of a sound whose samples stay within its pauses' level, the
+// ground's flicker. After a closing warp() they are the cues of the audio before it, where its markers take them: stretching
+// makes none, though its smear can read as hits. { times, ranks }; times null for an output a newer one has replaced:
+// the page reads cues against the code that made them.
+// Each with its kind, for the page to say what a time went onto: 'start' or 'end' of a sound, or 'hit'.
 const FIND = {
-  hits: (pcm, rate) => { const r = rises(pcm, rate); return { times: r.map(h => h.t), ranks: r.map(h => h.db) } },
+  hits: (pcm, rate) => { const times = rises(pcm, rate).map(h => h.t); return ranked(times, pcm, rate, times.map(() => 'hit')) },
   edges: (pcm, rate) => reading(pcm, rate, async a => {
     const quiet = await gaps(a, PAUSE), end = pcm[0].length / rate
     const starts = attacks(quiet.map(g => g[1]).filter(t => t < end), pcm, rate)
-    return { times: [...quiet.map(g => g[0]).filter(t => t > 0), ...starts].sort((p, q) => p - q), ranks: null }
+    const all = [...quiet.map(g => [g[0], 'end']).filter(([t]) => t > 0), ...starts.map(t => [t, 'start'])].sort((p, q) => p[0] - q[0])
+    const edges = ranked(all.map(e => e[0]), pcm, rate, all.map(e => e[1]))
+    return { ...edges, ranks: edges.ranks.map(() => Infinity) }
   })
+}
+// `times` of a sound past its pauses' level, with how plain each is, and their `kinds`
+function ranked(times, pcm, rate, kinds) {
+  let top = 0
+  for (const x of pcm) for (const v of x) top = Math.max(top, Math.abs(v))
+  const quiet = Math.min(GROUND, top / 10), plain = plainness(times, pcm, rate), kept = times.flatMap((t, i) => plain[i].peak > quiet ? [i] : [])
+  return { times: kept.map(i => times[i]), ranks: kept.map(i => plain[i].rank), kinds: kept.map(i => kinds[i]) }
 }
 // `pcm` read as audio for `read`, let go after
 const reading = (pcm, rate, read) => hearing(audio.from(pcm, { sampleRate: rate }), read)
@@ -1192,6 +1245,27 @@ async function contour({ output, track }) {
   return p.contour ??= pitchOf(await mixdown(p), p.sampleRate)
 }
 
+// A voice's notes, as the notes view shows them (Melodyne's): Tony's note HMM over pYIN, as stat('notes') finds them, on
+// the mono mix or a track's; each with its pitch and its level as they go, a frame of the pitch curve's every 10 ms
+// (contour): { time, duration, freq, midi, t0, hop, f0 (Hz, 0 unvoiced), level (RMS over two frames, full scale 1) }
+async function notes({ output, track }) {
+  const p = part(await whole(output), track)
+  if (!p?.sound.length) return { notes: [] }
+  const x = await mixdown(p), fs = p.sampleRate, { times, f0 } = p.contour ??= pitchOf(x, fs), hop = times[1] - times[0] || .01, w = Math.round(hop * fs)
+  p.notes ??= noted(x, { fs }).map(({ time, duration, freq, midi }) => {
+    const k0 = Math.max(0, Math.ceil(time / hop)), k1 = Math.min(times.length, Math.floor((time + duration) / hop) + 1), pitch = [], level = []
+    for (let k = k0; k < k1; k++) {
+      const at = Math.round(times[k] * fs), a = Math.max(0, at - w), b = Math.min(x.length, at + w)
+      let sum = 0
+      for (let j = a; j < b; j++) sum += x[j] * x[j]
+      pitch.push(f0[k])
+      level.push(b > a ? Math.sqrt(sum / (b - a)) : 0)
+    }
+    return { time, duration, freq, midi, t0: k0 * hop, hop, f0: pitch, level }
+  })
+  return { notes: p.notes }
+}
+
 // What the output holds, as a musician says it (the status bar): the note over `note` [from, to] s, or, where chords
 // sound (chordsOf), the chords there; the tempo and key over `span`, each only where it is clear, else null.
 // The note: the pitch curve's frames over the range (contour(), every 10 ms; the whole one if it was asked for), at most
@@ -1200,13 +1274,15 @@ async function contour({ output, track }) {
 // compass, its 10th to 90th percentile [low, high]. Tempo (steadyTempo, the CLI's too: detect()'s spectral flux, within
 // 1 BPM where stat('bpm') is 2 off, where the range and its halves agree within 4%, Gouyon et al. 2006) and key
 // (stat('key') 'pcp': Krumhansl-Schmuckler over its chroma, one key over the range and its halves) only over 6 s at
-// least, and over 3 minutes at most, so the reading (about 2 ms of work a second of sound, three times over) never holds
-// up a run for long.
+// least, and over 3 minutes at most, the middle 3 of a longer range, so the reading (about 2 ms of work a second of
+// sound, three times over) never holds up a run for long. With tracks, of the one `track` (its index) where asked, as the page edits it, not their mix: a
+// bass under a chord would be the note
 const STEADY = 6, MOST = 180, HEARD = 20
-async function listen({ output, note, span }) {
-  const r = await whole(output)
-  if (!r?.length) return {}
-  const rate = r.sampleRate, end = r.length / rate
+const lengthOf = r => r.length ?? r.sound.length
+async function listen({ output, note, span, track }) {
+  const r = part(await whole(output), track)
+  if (!r || !lengthOf(r)) return {}
+  const rate = r.sampleRate, end = lengthOf(r) / rate
   const [n0, n1] = [Math.max(0, note[0]), Math.min(end, note[1])], f0 = []
   if (r.contour) r.contour.times.forEach((t, i) => { if (t >= n0 && t <= n1) f0.push(r.contour.f0[i]) })
   else for (const [p, q] of n1 - n0 <= HEARD ? [[n0, n1]] : Array.from({ length: HEARD }, (_, k) => { const p = n0 + (n1 - n0 - 1) * k / (HEARD - 1); return [p, p + 1] }))
@@ -1218,9 +1294,10 @@ async function listen({ output, note, span }) {
   // (0.37 s) lights several pitch classes, as a chord does
   const chords = sung?.length > 1 || n1 - n0 > MOST ? [] : (await chordsOf(r, n0, n1).catch(() => [])).map(c => c.label).filter((l, i, all) => l !== all[i - 1])
   const pitch = chords.length ? null : sung
-  const [a, b] = [Math.max(0, span[0]), Math.min(end, span[1])], key = `${a},${b}`
+  // a span past MOST, its middle MOST s: a song's key and tempo hold through it (`span`, what was read)
+  const [a0, b0] = [Math.max(0, span[0]), Math.min(end, span[1])], [a, b] = b0 - a0 > MOST ? [(a0 + b0 - MOST) / 2, (a0 + b0 + MOST) / 2] : [a0, b0], key = `${a},${b}`
   r.heard ??= new Map()
-  if (!r.heard.has(key)) r.heard.set(key, b - a < STEADY || b - a > MOST ? {} : await hearing(r.sound, async x => {
+  if (!r.heard.has(key)) r.heard.set(key, b - a < STEADY ? {} : await hearing(r.sound, async x => {
     const half = (b - a) / 2, parts = [[a, b - a], [a, half], [a + half, half]].map(([at, duration]) => ({ at, duration }))
     const [bpm, keys] = await Promise.all([steadyTempo(x, parts[0]), Promise.all(parts.map(o => x.stat('key', { ...o, method: 'pcp' }).catch(() => null)))])
     return {
@@ -1228,13 +1305,13 @@ async function listen({ output, note, span }) {
       key: keys[0] && keys[0].label !== 'N' && keys.every(k => k?.label === keys[0].label) ? { tonic: keys[0].tonic, mode: keys[0].mode } : null
     }
   }))
-  return { pitch, chords, ...r.heard.get(key) }
+  return { pitch, chords, span: [a, b], ...r.heard.get(key) }
 }
 // The chords of an output over [a, b] s, in order: those of the blocks there (chordsIn), a chord only touching the range's
 // edge (a quarter second of it, or half of a shorter range) not counted
 async function chordsOf(r, a, b) {
   const out = []
-  for (let k = Math.max(0, Math.floor(a / CHORDS)); k * CHORDS < Math.min(b, r.length / r.sampleRate); k++)
+  for (let k = Math.max(0, Math.floor(a / CHORDS)); k * CHORDS < Math.min(b, lengthOf(r) / r.sampleRate); k++)
     for (const c of (await chordsIn(r, k)).chords) if (Math.min(c.end, b) - Math.max(c.time, a) >= Math.min(.25, (b - a) / 2)) out.push(c)
   return out
 }
@@ -1247,7 +1324,7 @@ const CHORDS = 20, PAD = 4
 function chordsIn(r, k) {
   r.chords ??= new Map()
   if (!r.chords.has(k)) r.chords.set(k, hearing(r.sound, async x => {
-    const end = r.length / r.sampleRate, lo = k * CHORDS, hi = Math.min(end, lo + CHORDS), from = Math.max(0, lo - PAD)
+    const end = lengthOf(r) / r.sampleRate, lo = k * CHORDS, hi = Math.min(end, lo + CHORDS), from = Math.max(0, lo - PAD)
     const h = await harmony(x, { at: from, duration: Math.min(end, hi + PAD) - from })
     const frames = h.treble.map((c, i) => ({ t: from + h.times[i], c, top: Math.max(...c) })).filter(f => f.t >= lo && f.t < hi)
     const loud = Math.max(0, ...frames.map(f => f.top)) / 10
@@ -1260,10 +1337,10 @@ function chordsIn(r, k) {
   }))
   return r.chords.get(k)
 }
-// The chords of the output's block at `at` s (chordsIn), for the page to say as it plays
-async function chords({ output, at }) {
-  const r = await whole(output)
-  return r?.length ? await chordsIn(r, Math.max(0, Math.floor(at / CHORDS))).catch(() => null) : null
+// The chords of the output's block at `at` s (chordsIn), or its track's, for the page to say as it plays
+async function chords({ output, at, track }) {
+  const r = part(await whole(output), track)
+  return r && lengthOf(r) ? await chordsIn(r, Math.max(0, Math.floor(at / CHORDS))).catch(() => null) : null
 }
 
 // A range of an output, [at, at + duration] s, as a WAV at `bitDepth`, for the system clipboard (editor.js clip): its
@@ -1346,6 +1423,32 @@ async function monoOf(sound, from, to, rate) {
   const x = new Float32Array(to - from), end = Math.min(to, sound.length)
   if (end > from) for (const c of await sound.read({ at: from / rate, duration: (end - from) / rate })) for (let i = 0; i < c.length && i < x.length; i++) x[i] += c[i] / sound.channels
   return x
+}
+
+// An output's levels as heard, for the page to draw zoomed out (view.js weigh): its samples weighted, 'a' by IEC
+// 61672-1's A, as a sound level meter weighs them, or 'k' by ITU-R BS.1770's K, as loud as they sound (@audio/weighting),
+// as leaves (pictured), each channel's, or with tracks each track's channels averaged, as its lane draws them (samples).
+// Read block by block, each filter's state carried from one to the next; made once an output and a weighting, the page
+// sent a copy
+const WEIGHTS = { a: aWeighting, k: kWeighting }
+async function levelsHeard({ output, weighting }) {
+  const r = await whole(output), weigh = WEIGHTS[weighting]
+  if (!r || !weigh) return { leaves: null }
+  r.weighed ??= {}
+  r.weighed[weighting] ??= Promise.all(r.tracks ? r.tracks.map(t => weighed(t.sound, weigh, r.sampleRate, true)) : [weighed(r.sound, weigh, r.sampleRate)]).then(all => all.flat())
+  return { leaves: (await r.weighed[weighting]).map(l => l.slice()) }
+}
+async function weighed(sound, weigh, rate, mono = false) {
+  const k = mono ? 1 : sound.channels, filters = Array.from({ length: k }, () => ({ fs: rate })), p = leafed(k), turn = turns()
+  for await (const block of sound.stream()) {
+    const x = mono ? [new Float32Array(block[0].length)] : block.map(c => c.slice())
+    if (mono) for (const c of block) for (let i = 0; i < c.length; i++) x[0][i] += c[i] / block.length
+    x.forEach((c, i) => weigh(c, filters[i]))
+    p.push(x)
+    await turn()
+  }
+  p.end()
+  return p.from(0)
 }
 
 // What plays (player.js): an output (`output`, the run that made it), the file it opened (`source`, at the output's
@@ -1617,6 +1720,8 @@ const handlers = {
     return {}
   },
   push: ({ key, channels }) => { holding.get(key)?.push(channels); return {} },
+  // files' lengths, s, each opened as a script opens it; null where one won't open: where a take ends (editor.js places)
+  lengths: ({ names }) => Promise.all(names.map(async name => { try { const a = open(name); await a.ready; return a.duration } catch { return null } })).then(lengths => ({ lengths })),
   // a file changed: what was made of it goes
   file: ({ name, data }) => {
     const was = sources.get(name)
@@ -1631,7 +1736,7 @@ const handlers = {
     for (const [k, r] of [...paused]) if (r.tab === tab) unpause(k)
     return { held: [...passes].some(p => p.tab === tab) }
   },
-  run: execute, cues, contour, listen, chords, wav, export: exporting, describe, check: checking, original, voice, samples, eval: evaluate,
+  run: execute, cues, contour, notes, listen, chords, wav, export: exporting, describe, check: checking, original, voice, samples, heard: levelsHeard, eval: evaluate,
   // a tab closed: its output goes
   close: ({ tab }) => { newest.delete(tab); stopped.delete(tab); for (const r of outputs.values()) if (r.tab === tab) drop(r); for (const [k, r] of [...paused]) if (r.tab === tab) unpause(k); return {} },
   // a script's sound whole, as the edits make it there (the chain flattened up to a step): from the renders kept, as a
@@ -1650,6 +1755,6 @@ self.onmessage = async ({ data }) => {
   let reply
   try { reply = await handlers[data.type](data) }
   catch (error) { reply = { error: failure(error) } }
-  const transfer = data.type === 'original' || data.type === 'bake' || data.type === 'samples' ? reply.channels?.map(c => c.buffer) : data.type === 'export' ? reply.files?.map(f => f.bytes.buffer) : data.type === 'wav' && reply.bytes ? [reply.bytes.buffer] : []
+  const transfer = data.type === 'original' || data.type === 'bake' || data.type === 'samples' ? reply.channels?.map(c => c.buffer) : data.type === 'heard' ? reply.leaves?.map(l => l.buffer) : data.type === 'export' ? reply.files?.map(f => f.bytes.buffer) : data.type === 'wav' && reply.bytes ? [reply.bytes.buffer] : []
   post({ id: data.id, ...reply }, transfer || [])
 }

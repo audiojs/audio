@@ -1,24 +1,18 @@
-// The playground in the Mac app: its layout, menus and window toolbar.
+// The playground in the Mac app (playground/?desktop, which loads this; editor.css lays it out): its menus to the Mac's
+// menu bar, its panels' buttons to the window's toolbar, an item picked there run here.
+import { glyph } from '../playground/icons.js'
+
 const app = window.webkit?.messageHandlers?.app
 const post = message => app?.postMessage(message)
 
-// ---- the window: the page all of it, no bar of its own (its menus are the Mac's), the panes edge to edge ----
-document.documentElement.classList.add('desktop')
-document.head.append(Object.assign(document.createElement('style'), { textContent: `
-  html.desktop .app { grid-template-rows: minmax(0, 1fr); }
-  html.desktop .app > .bar { display: none; }
-  html.desktop .panes { margin: 0; border-radius: 0; box-shadow: none; background: var(--color-screen); }
-  html.desktop body { background: var(--color-screen); }
-  html.desktop .panes > .side-head { display: none; }
-` }))
-
 globalThis.audioHost = { run, push, panel }
 
-// ---- the panels (the page's own buttons at its top right) as the window's toolbar ----
+// ---- the panels (the page's own buttons at its top right) as the window's toolbar, each its button's icon ----
 const panels = () => [...document.querySelectorAll('.side-head .panels button[role="tab"]')]
 function panel(label) { panels().find(b => b.getAttribute('aria-label') === label)?.click(); push() }
 
-// ---- the menus: the page's own, as its menu bar has them now, to the Mac's; an item picked there runs here ----
+// ---- the menus: the page's own, as its menu bar has them now (an icon where it has one), to the Mac's; an item
+// picked there runs here ----
 let runs = new Map(), queued = 0
 function serialize(menus) {
   runs = new Map()
@@ -27,7 +21,7 @@ function serialize(menus) {
     if (it.group) return { group: it.group }
     const id = `${path}.${i}`
     if (it.run) runs.set(id, it.run)
-    return { id, label: it.label, keys: it.keys || '', hint: it.hint || '', tip: it.tip || '', checked: !!it.checked, disabled: !!it.disabled || (!it.run && !it.items?.length), ...it.items && { items: walk(it.items, id) } }
+    return { id, label: it.label, keys: it.keys || '', hint: it.hint || '', tip: it.tip || '', icon: it.icon ? glyph(it.icon) : '', checked: !!it.checked, disabled: !!it.disabled || (!it.run && !it.items?.length), ...it.items && { items: walk(it.items, id) } }
   })
   return menus.map((m, i) => ({ name: m.name, items: walk(m.items, `${i}`) }))
 }
@@ -52,7 +46,7 @@ function push() {
     const menus = document.querySelector('.menubar')?.menus?.()
     if (!menus) return
     const editing = !!document.activeElement?.closest?.('input, textarea, select, [contenteditable="true"], .cm-editor')
-    const toolbar = panels().map(b => ({ label: b.getAttribute('aria-label'), selected: b.getAttribute('aria-selected') === 'true' }))
+    const toolbar = panels().map(b => ({ label: b.getAttribute('aria-label'), icon: b.querySelector('svg')?.outerHTML ?? '', selected: b.getAttribute('aria-selected') === 'true' }))
     const title = document.title.replace(/ · audio playground$/, '')
     post({ menus: serialize(menus), recording: !!document.querySelector('button.record.on'), editing, background: colour(), toolbar, title })
   }, 30)

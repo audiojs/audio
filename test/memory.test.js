@@ -1,15 +1,14 @@
-// Real browser resource lifetimes, plus retained heap after repeated demo use.
+// Real browser resource lifetimes.
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { execFileSync } from 'node:child_process'
 import { chromium } from 'playwright'
 import '../.site-build.js'
 
-let server, browser, origin, browserCDP
+let server, browser, origin
 const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '')
 before(async () => {
   server = createServer(async (req, res) => {
@@ -24,7 +23,6 @@ before(async () => {
   await new Promise(r => server.listen(0, '127.0.0.1', r))
   origin = `http://127.0.0.1:${server.address().port}`
   browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] })
-  browserCDP = await browser.newBrowserCDPSession()
 })
 after(async () => { await browser?.close(); if (server) await new Promise(r => server.close(r)) })
 
@@ -78,17 +76,6 @@ async function open(t, path = '/api.html') {
   })
   await page.goto(origin + path)
   return page
-}
-
-async function resident() {
-  // JS heap excludes native audio and GPU allocations. Report the fresh test
-  // browser's total resident memory too; allocator high-water marks vary by OS.
-  if (!['darwin', 'linux'].includes(process.platform)) return null
-  try {
-    const { processInfo } = await browserCDP.send('SystemInfo.getProcessInfo')
-    const rss = execFileSync('ps', ['-o', 'rss=', '-p', processInfo.map(p => p.id).join(',')], { encoding: 'utf8' })
-    return rss.trim().split(/\s+/).reduce((sum, kb) => sum + Number(kb) * 1024, 0)
-  } catch { return null }
 }
 
 test('memory: repeated API playback reuses the page\'s one context and releases every deck', { timeout: 30000 }, async t => {
@@ -409,79 +396,4 @@ test('memory: worker looping reuses its device and empty loops terminate', { tim
   assert(result.laps >= 3, `looped (${result.laps} passes)`)
   assert.equal(result.openedForLoops, 1)
   assert.equal(result.decksLive, 0, 'every deck released')
-})
-
-test('memory: demo repeated playback and sample replacement has bounded retained heap', { timeout: 60000 }, async t => {
-  const page = await open(t, '/index.html')
-  const cdp = await page.context().newCDPSession(page)
-  const sample = async () => {
-    await cdp.send('HeapProfiler.collectGarbage')
-    const heap = await cdp.send('Runtime.getHeapUsage')
-    const dom = await cdp.send('Memory.getDOMCounters')
-    return { ...heap, ...dom, rssBytes: await resident() }
-  }
-  const idle = () => page.locator('.demo[aria-busy="false"]').waitFor()
-  await idle()
-  const rounds = async count => {
-    for (let i = 0; i < count; i++) {
-      const play = page.getByRole('button', { name: 'Play edited audio', exact: true })
-      await play.click()
-      await page.waitForTimeout(70)
-      await page.getByRole('button', { name: 'Pause edited audio', exact: true }).click()
-      await page.locator('.pill[data-key="source"]').click()
-      const samples = page.locator('#pill-menu .method-option')
-      await samples.nth(2 + i % (await samples.count() - 2)).click()
-      await idle()
-    }
-    await page.waitForTimeout(200)
-  }
-  await rounds(3)
-  const before = await sample()
-  await rounds(30)
-  const after = await sample()
-  t.diagnostic(JSON.stringify({ before, after, resources: await page.evaluate(() => resources) }))
-  assert(after.usedSize - before.usedSize < 8 * 1024 * 1024, 'retained JS heap grows by less than 8 MiB')
-  assert(after.backingStorageSize - before.backingStorageSize < 16 * 1024 * 1024, 'retained buffer storage grows by less than 16 MiB')
-  assert(after.nodes - before.nodes < 100, 'DOM nodes do not accumulate across replacements')
-})
-
-const soak = Number(process.env.AUDIO_MEMORY_SOAK_MS) || 5000
-test('memory: demo tiny loops keep scheduled audio bounded', { timeout: soak + 15000 }, async t => {
-  const page = await open(t)
-  // Count retained loop anchors without retaining their objects or exposing a production hook.
-  const source = await readFile(resolve(root, 'site/site.js'), 'utf8')
-  const instrumented = source.replace('laps.push(lap)', 'laps.push(lap); resources.lapPeak = Math.max(resources.lapPeak || 0, laps.length)')
-  assert.notEqual(instrumented, source, 'loop history instrumentation is installed')
-  await page.route('**/site/site.js', route => route.fulfill({ contentType: 'text/javascript', body: instrumented }))
-  await page.goto(origin + '/index.html')
-  await page.locator('.demo[aria-busy="false"]').waitFor()
-  const seek = page.getByRole('slider', { name: 'Seek edited audio' })
-  await seek.focus()
-  await page.keyboard.press('Home')
-  await page.keyboard.press('Shift+ArrowRight')
-  await page.getByRole('button', { name: 'Loop playback', exact: true }).click()
-  await page.getByRole('button', { name: 'Play edited audio', exact: true }).click()
-  const cdp = await page.context().newCDPSession(page)
-  const sample = async () => {
-    await cdp.send('HeapProfiler.collectGarbage')
-    return { ...await cdp.send('Runtime.getHeapUsage'), rssBytes: await resident() }
-  }
-  await page.waitForTimeout(500)
-  const before = await sample()
-  // Simulate the missing animation frames of a background tab while its audio
-  // clock continues; playback must retire its own resources and loop history.
-  await page.evaluate(() => { window.requestAnimationFrame = () => 0 })
-  await page.waitForTimeout(soak)
-  await page.getByRole('button', { name: 'Pause edited audio', exact: true }).click()
-  await page.waitForTimeout(200)
-  const after = await sample(), counts = await page.evaluate(() => resources)
-  t.diagnostic(JSON.stringify({ milliseconds: soak, before, after, resources: counts }))
-  assert(counts.sources > 100, 'many loop blocks were actually scheduled')
-  assert(counts.sourcePeak <= 12, 'scheduled native buffers stay bounded')
-  assert(counts.lapPeak > 0 && counts.lapPeak <= 12, 'loop history stays bounded without animation frames')
-  assert.equal(counts.activeSources, 0, 'pause stops queued buffers')
-  assert(after.usedSize - before.usedSize < 8 * 1024 * 1024)
-  assert(after.backingStorageSize - before.backingStorageSize < 2 * 1024 * 1024)
-  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')))
-  await page.waitForFunction(() => resources.live === 0)
 })

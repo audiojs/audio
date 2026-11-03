@@ -1,3 +1,5 @@
+import { glyph } from './icons.js'
+
 // The app menu: every act the page offers, grouped as desktop apps group them, each with its keys, so the menu is also
 // the map of the page. `model()` gives the menus afresh each time one opens (what is checked, what can't be done now):
 //   [{ name, items: [{ label, keys?, hint?, tip?, run?, checked?, disabled?, items? } | '-' | { group: 'Heading' }] }]
@@ -7,8 +9,12 @@
 // opens the one under the pointer. After an item runs, the keys go back to where they were, so Space still plays.
 // A narrow window has one Menu, the menus inside it, each opening in place. The same menus open at a point, as a
 // context menu (`at`), with the same keys but ← and →.
+// The row under the pointer is the one at once, its submenu opening OPEN ms on; on the way to an open submenu the pointer
+// crosses other rows, which let it pass while it heads into the submenu (aims), and take it once it rests REST ms there
+const OPEN = 100, REST = 300
 export default function menubar(root, model) {
-  let open = null, back = null, hovering = 0
+  // what the pointer does next (a submenu to open, a row it rests on), and where it was its last few moves
+  let open = null, back = null, hovering = 0, trail = []
   const narrow = matchMedia('(max-width: 720px)')
   const menus = () => narrow.matches ? [{ name: 'Menu', items: model().map(m => ({ label: m.name, items: m.items })) }] : model()
 
@@ -58,7 +64,7 @@ export default function menubar(root, model) {
     document.body.append(panel)
     panel.showPopover()
     const r = owner?.getBoundingClientRect()
-    place(panel, r ? { left: r.right - panel.offsetWidth, right: r.right, top: r.bottom, bottom: r.bottom } : { left: x, right: x, top: y - 4, bottom: y - 4 }, 'below')
+    place(panel, r ? { left: r.right - panel.offsetWidth, right: r.right, top: r.top, bottom: r.bottom } : { left: x, right: x, top: y - 4, bottom: y - 4 }, 'below')
     addEventListener('pointerdown', outside, true)
     owner?.setAttribute('aria-expanded', 'true')
     panel.addEventListener('toggle', event => { if (event.newState === 'closed') { removeEventListener('pointerdown', outside, true); owner?.setAttribute('aria-expanded', 'false') } })
@@ -66,6 +72,7 @@ export default function menubar(root, model) {
   }
   function opened(o, focus) {
     const { panel, button } = open = o
+    trail = []
     panel.addEventListener('toggle', event => { if (event.newState === 'closed' && open?.panel === panel) finish() })
     // opened by the pointer, the menu itself has the keys until an item does
     panel.addEventListener('keydown', event => {
@@ -89,6 +96,9 @@ export default function menubar(root, model) {
     panel.setAttribute('aria-label', label)
     panel.popover = 'auto'
     panel.tabIndex = -1
+    // its own rows', not its submenus' (inside it), each move; none where the pointer goes out of the menus
+    panel.addEventListener('pointermove', event => { if (event.pointerType !== 'touch' && event.target.closest('.menubar-list') === panel) moved(panel, event.target.closest('.menu-row'), event) })
+    panel.addEventListener('pointerleave', () => { clearTimeout(hovering); trail = [] })
     for (const it of items) {
       if (it === '-') { const hr = panel.appendChild(document.createElement('hr')); hr.setAttribute('role', 'separator'); continue }
       if (it.group) { const p = panel.appendChild(document.createElement('p')); p.className = 'menu-group'; p.textContent = it.group; continue }
@@ -103,7 +113,7 @@ export default function menubar(root, model) {
       row.innerHTML = '<span class="menu-check" aria-hidden="true"></span><span class="menu-label"></span><span class="menu-keys"></span>'
       row.children[1].textContent = it.label
       // its icon, in the check's place, where it has one (a path of the page's own)
-      if (it.icon) row.children[0].innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="${it.icon}"/></svg>`
+      if (it.icon) row.children[0].innerHTML = glyph(it.icon)
       // its keys, or a word on what it is
       row.children[2].textContent = it.items ? '' : it.keys || it.hint || ''
       if (!it.keys && it.hint) row.children[2].classList.add('menu-hint')
@@ -117,17 +127,45 @@ export default function menubar(root, model) {
         if (narrow.matches) { sub.popover = null; sub.hidden = true; sub.classList.add('inline') }
         row.after(sub)
         row.sub = sub
-        if (!narrow.matches) row.addEventListener('pointerenter', () => { clearTimeout(hovering); hovering = setTimeout(() => expand(row), 120) })
         row.addEventListener('click', () => expand(row, true))
-      } else {
-        row.addEventListener('pointerenter', () => { clearTimeout(hovering); hovering = setTimeout(() => collapse(panel), 120); row.focus({ preventScroll: true }) })
-        row.addEventListener('click', () => { if (!it.disabled) run(it) })
       }
+      else row.addEventListener('click', () => { if (!it.disabled) run(it) })
       row.addEventListener('pointerdown', event => event.preventDefault())
       row.addEventListener('keydown', event => menuKey(event, row, panel))
     }
     return panel
   }
+  // The pointer over `row` of `panel` (or between its rows): heading into the panel's open submenu, from another row,
+  // that row's submenu stays, the row it rests on the one only once it has rested (Amazon's menus, as Ben Kamens took them
+  // apart: jQuery-menu-aim, 2013; the grace area of Radix's submenus, Floating UI's safePolygon); else that row is the one
+  // now
+  function moved(panel, row, event) {
+    trail = [...trail.slice(-2), [event.clientX, event.clientY]]
+    clearTimeout(hovering)
+    const sub = panel.querySelector(':scope > .menubar-sub:popover-open')
+    if (sub && row?.sub !== sub && aims(sub)) hovering = setTimeout(() => point(panel, row), REST)
+    else point(panel, row)
+  }
+  // The row the pointer is on: lit, its submenu opening a moment on, any other the panel has closing now
+  function point(panel, row) {
+    if (!row || !live(panel)) return
+    row.focus({ preventScroll: true })
+    if (row.sub?.matches(':popover-open')) return
+    collapse(panel)
+    if (row.sub && !narrow.matches) hovering = setTimeout(() => live(panel) && expand(row), OPEN)
+  }
+  const live = panel => panel.matches(':popover-open, .inline:not([hidden])')
+  // Whether the pointer heads into `sub`: from where it was a few moves ago, into the triangle that point makes with the
+  // submenu's near edge. A move straight down the rows never does, nor one that stays put
+  function aims(sub) {
+    const p = trail[0], q = trail.at(-1)
+    if (p[0] === q[0] && p[1] === q[1]) return false
+    const r = sub.getBoundingClientRect(), x = r.left >= p[0] ? r.left : r.right, a = [x, r.top], b = [x, r.bottom]
+    const s = [cross(p, a, q), cross(a, b, q), cross(b, p, q)]
+    return s.every(v => v >= 0) || s.every(v => v <= 0)
+  }
+  // which side of the line o→u v is on, by its sign
+  const cross = (o, u, v) => (u[0] - o[0]) * (v[1] - o[1]) - (u[1] - o[1]) * (v[0] - o[0])
   // A submenu opens beside its row, or, where there is no room beside, under it; in a narrow window, in place
   function expand(row, focus = false) {
     const panel = row.parentElement
@@ -152,13 +190,14 @@ export default function menubar(root, model) {
       sub.previousElementSibling?.setAttribute('aria-expanded', 'false')
     }
   }
-  // Within the window: below its button, or beside its row, else the other side
+  // Within the window: below its button, or beside its row, else the other side; one with no room below opens over its
+  // button where it fits there (a status bar's at the window's foot), else as low as the window lets it
   function place(panel, at, where) {
     const w = panel.offsetWidth, h = panel.offsetHeight, W = innerWidth, H = innerHeight
     let x = where === 'below' ? at.left : at.right - 2, y = where === 'below' ? at.bottom + 4 : at.top - 6
     if (x + w > W - 8) x = where === 'below' ? W - 8 - w : at.left - w + 2
     if (x < 8) x = 8
-    if (y + h > H - 8) y = Math.max(8, where === 'below' ? H - 8 - h : H - 8 - h)
+    if (y + h > H - 8) y = where === 'below' && at.top - 4 - h >= 8 ? at.top - 4 - h : Math.max(8, H - 8 - h)
     Object.assign(panel.style, { left: `${x}px`, top: `${y}px` })
   }
   // a panel's rows, and those of the submenus open in place inside it
@@ -194,6 +233,8 @@ export default function menubar(root, model) {
     event.preventDefault()
   }
   function menuKey(event, row, panel) {
+    // the keys lead now: nothing the pointer was about to do
+    clearTimeout(hovering)
     const k = event.key, list = rows(panel), at = list.indexOf(row), sub = panel.classList.contains('menubar-sub')
     const move = d => { let j = at; do j = (j + d + list.length) % list.length; while (list[j].getAttribute('aria-disabled') === 'true' && j !== at); list[j].focus() }
     if (k === 'ArrowDown') move(1)
@@ -224,6 +265,9 @@ export default function menubar(root, model) {
     buttons()[0]?.focus()
   })
   addEventListener('resize', () => close(false))
+  // the window left (another app; embedded, a press on the page around it, which no press outside here sees): closed,
+  // as a desktop app's menus close
+  addEventListener('blur', () => close(false))
   narrow.addEventListener('change', draw)
   draw()
   // the menus as they are now, for a host that shows them its own way (desktop/app.js: the Mac's menu bar)

@@ -86,8 +86,8 @@ export default function player({ onend = () => {} } = {}) {
     const w = lanesNear(t)
     return w?.x[k] ? { x: [w.x[k]], from: w.from } : null
   }
-  // what a scrub hears about time `t`, and what is still coming of it
-  const heard = t => solo == null ? near(t) : lane(t, solo)
+  // what a scrub hears about time `t`, and what is still coming of it (not `heard`, heard.js's, which made() plays by)
+  const scrubbedAt = t => solo == null ? near(t) : lane(t, solo)
   const coming = () => (solo == null ? fetched : laneWindow)?.coming?.()
 
   // The scrub voice hears the output as it is, every channel at its own rate (scrub.js reads it at the device's), or a
@@ -98,7 +98,7 @@ export default function player({ onend = () => {} } = {}) {
     await ctx.resume()
     loaded ||= ctx.audioWorklet.addModule(new URL('./scrub.js', import.meta.url))
     await loaded
-    const w = heard(scrubbed ?? 0), n = w?.x.length || 1
+    const w = scrubbedAt(scrubbed ?? 0), n = w?.x.length || 1
     if (!scrubbing || scrubbing.channels !== n) {
       scrubbing?.node.disconnect()
       const node = new AudioWorkletNode(ctx, 'scrub', { outputChannelCount: [n] })
@@ -135,7 +135,10 @@ export default function player({ onend = () => {} } = {}) {
       open = opens
       local = null
       if (heldBy) scrubber()
-      if (!(prev?.playing && length)) {
+      // nothing sounding to take over: a voice paused stops, its place kept (`at`), the next play a voice of the new
+      // output's from where it is asked to start (one taking a paused voice over kept that one's place over a seek)
+      if (!(prev?.playing && !prev.paused && length)) {
+        if (prev?.playing) at = prev.currentTime
         release(prev)
         if (prev !== was) was?.dispose()
         voice = only = null
@@ -204,15 +207,15 @@ export default function player({ onend = () => {} } = {}) {
       scrubbed = time
       solo = track
       // a long sound's window about the caret, once it has come
-      while (!heard(time) && coming()) await coming()
+      while (!scrubbedAt(time) && coming()) await coming()
       const call = heldBy = {}, s = await scrubber()
-      if (heldBy === call && heard(time)) s.node.port.postMessage({ caret: time * rate - s.from, band, on: true })
+      if (heldBy === call && scrubbedAt(time)) s.node.port.postMessage({ caret: time * rate - s.from, band, on: true })
     },
     // The samples about `t` the page has (near): { x, from }, or null till they come; with tracks, their lanes'
     near,
     lanes: lanesNear,
     // what a scrub hears about `t`: the output's samples, or the lane of the track it hears
-    heard,
+    heard: scrubbedAt,
     // A moment heard as an edit will leave it, while the edit is dragged (a pitch): [from, to] of the output through
     // `edit`, a call of the library's on it [type, ...args], once, in place of the one before; null stops it. Playback
     // pauses for it.

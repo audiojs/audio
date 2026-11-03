@@ -17,7 +17,7 @@ await build({
     'window-function': 'node_modules/window-function/index.js',
     'periodic-function': 'node_modules/periodic-function/index.js',
     ...Object.fromEntries(['wav', 'mp3', 'flac', 'aiff', 'ogg'].map(format => [format, `node_modules/@audio/encode-${format}/${format}-encode.js`])),
-    // what the editor page's library loads on demand, by playground.html's import map: a voice's pitch, its formants, heard as
+    // what the editor page's library loads on demand, by playground/index.html's import map: a voice's pitch, its formants, heard as
     // they are dragged
     ...atoms(['@audio/tune-curve', '@audio/stft'])
   },

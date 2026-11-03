@@ -20,6 +20,21 @@ const RANGE = [p('at', 0, 1, 0, 's', { step: .01 }), p('duration', 0, 1, 1, 's',
 
 export const GROUPS = ['Edit', 'Level', 'Filter', 'Dynamics', 'Repair', 'Time & pitch', 'Effect', 'Color', 'Reverb', 'Space', 'Generate']
 
+// The scales tune() and center() snap to, as semitones up from the root: @audio/note's SCALES, which @audio/tune-snap snaps by
+export const SCALES = {
+  chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  major: [0, 2, 4, 5, 7, 9, 11],
+  minor: [0, 2, 3, 5, 7, 8, 10],
+  'harmonic-minor': [0, 2, 3, 5, 7, 8, 11],
+  'melodic-minor': [0, 2, 3, 5, 7, 9, 11],
+  'pentatonic-major': [0, 2, 4, 7, 9],
+  'pentatonic-minor': [0, 3, 5, 7, 10],
+  blues: [0, 3, 5, 6, 7, 10],
+  dorian: [0, 2, 3, 5, 7, 9, 10],
+  mixolydian: [0, 2, 4, 5, 7, 9, 10],
+  whole: [0, 2, 4, 6, 8, 10]
+}
+
 // name: [group, description, params] – params omitted for plugins (read from their manifests), `range` for range-only calls.
 const table = {
   // Edit
@@ -123,6 +138,8 @@ const table = {
   dereverb: ['Repair', 'Remove room echo from a voice', [db('reduction', 0, 60, 60), choice('music', ['pass', 'enhance']), choice('method', ['roformer', 'wpe'])]],
   // a voice made again by a neural vocoder, the input kept above the crossover (fn/vocos.js)
   vocos: ['Repair', 'Rebuild a synthetic voice with a neural vocoder', [hz('crossover', 11000, 2000, 12000)]],
+  // a voice back to a studio take by a neural model, the input mixed back by 1 − strength (fn/restore.js)
+  restore: ['Repair', 'Restore a voice to a studio take with a neural model', [p('strength', 0, 1, 1, '', { step: .01 })]],
   deplosive: ['Repair', 'Soften p and b pops'],
   dewind: ['Repair', 'Reduce wind rumble'],
   debreath: ['Repair', 'Lower breaths between words'],
@@ -140,6 +157,10 @@ const table = {
   // its algorithm a choice, each but the vocoder its own module, loaded only when chosen (fn/pitch.js)
   pitch: ['Time & pitch', 'Higher or lower, same length', [p('semitones', -24, 24, 0, 'st', { step: 1 }), { ...choice('method', ['phase-lock', 'vocoder', 'formant', 'psola', 'wsola', 'lpc', 'transient', 'hybrid', 'hpss', 'sms', 'sample', 'delay', 'ola', 'granular', 'paulstretch', 'auto']), option: true }]],
   intonation: ['Time & pitch', 'A voice\'s rises and falls, wider or flatter', [p('factor', 0, 3, 1, '×', { step: .05 })]],
+  // each note's layer (fn/intonation.js): its vibrato about its line, its line about its centre, its centre about its note
+  modulation: ['Time & pitch', 'A voice\'s vibrato in each note, deeper or flatter', [p('factor', -1, 3, 1, '×', { step: .05 })]],
+  drift: ['Time & pitch', 'A voice\'s slow wander in each note, more or less', [p('factor', 0, 3, 1, '×', { step: .05 })]],
+  center: ['Time & pitch', 'Each note\'s centre onto its note, its movement kept', [p('factor', 0, 2, 1, '×', { step: .05 }), { ...choice('scale', Object.keys(SCALES)), option: true }, p('root', 0, 11, 0, '', { step: 1, option: true })]],
   formant: ['Time & pitch', 'Move a voice\'s formants, pitch kept', [p('semitones', -12, 12, 0, 'st', { step: .5 })]],
   tune: ['Time & pitch', 'Snap pitch to a scale'],
   resample: ['Time & pitch', 'Change the sample rate', [need(choice('rate', [8000, 16000, 22050, 32000, 44100, 48000, 96000], 48000))]],
@@ -341,18 +362,4 @@ export function guides(name, args, duration) {
     out.push({ notes, root, a4: typeof args.a4 === 'number' ? args.a4 : 440, ...range && { span: range } })
   }
   return out
-}
-// The scales tune() snaps to, as semitones up from the root: @audio/note's SCALES, which @audio/tune-snap snaps by
-export const SCALES = {
-  chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
-  major: [0, 2, 4, 5, 7, 9, 11],
-  minor: [0, 2, 3, 5, 7, 8, 10],
-  'harmonic-minor': [0, 2, 3, 5, 7, 8, 11],
-  'melodic-minor': [0, 2, 3, 5, 7, 9, 11],
-  'pentatonic-major': [0, 2, 4, 7, 9],
-  'pentatonic-minor': [0, 3, 5, 7, 10],
-  blues: [0, 3, 5, 6, 7, 10],
-  dorian: [0, 2, 3, 5, 7, 9, 10],
-  mixolydian: [0, 2, 4, 5, 7, 9, 10],
-  whole: [0, 2, 4, 6, 8, 10]
 }

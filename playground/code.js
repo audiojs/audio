@@ -149,6 +149,8 @@ function importing(clause, spec) {
   return out.join('; ')
 }
 const apply = (code, edits) => edits.sort((a, b) => b.from - a.from || b.to - a.to).reduce((s, e) => s.slice(0, e.from) + e.insert + s.slice(e.to), code)
+// a change made: one edit or several, as the editor takes them ({ from, to = from, insert = '' })
+const made = (code, change) => apply(code, [change].flat().map(x => ({ to: x.from, insert: '', ...x })))
 
 // `audio(...)` itself: its callee is the name audio.
 const isAudio = (code, call) => { const callee = call.firstChild; return callee?.name === 'VariableName' && text(code, callee) === 'audio' }
@@ -350,6 +352,130 @@ export function moveStep(code, i, j) {
   if (!s?.on || !t || i === j || s.call.part !== t.call.part) return null
   const p = piece(code, s.call), at = j > i ? t.call.to : piece(code, t.call).from
   return [{ from: p.from, to: p.to, insert: '' }, { from: at, insert: code.slice(p.from, p.to) }]
+}
+
+// Takes: recordings of one place, each a write() of its file where they all go in, side by side in the chain, one heard,
+// the others turned off, as a take folder holds them (Logic's) or an item its takes (REAPER's). [{ at, part, list }] in
+// order, `list` the takes as they stand, each { i, from, name, on, empty }: its step (steps()), where it starts, its file,
+// whether it is heard; an empty one added for a recording to go into (addTake), its length, s, its name ''; a recording
+// written alone, a list of one
+export function takes(code) {
+  const out = []
+  steps(code).forEach((s, i) => {
+    const t = recording(code, s.call), run = out.at(-1)
+    if (!t) return
+    const one = { i, from: s.call.from, name: t.name, on: s.on, ...t.d != null && { d: t.d }, ...t.empty != null && { empty: t.empty } }
+    if (run?.list.at(-1).i === i - 1 && run.part === s.call.part && Math.abs(run.at - t.at) < 1e-6) run.list.push(one)
+    else out.push({ at: t.at, part: s.call.part, list: [one] })
+  })
+  return out
+}
+// A call writing a file where it goes in, `write(audio('take.wav'), { at: 2 })`: { name, at }, with the length of its
+// place, `{ at: 2, d: 4 }`, all of which it writes over (silence past its end, fn/write.js), `d`; or silence, an empty
+// take, `write(audio.from(1.5), { at: 2 })`: { name: '', at, empty: 1.5 }; else null
+function recording(code, call) {
+  const [src, o, more] = call.args ?? [], props = o?.props ?? [], of = k => props.find(p => p.name === k)?.value, at = of('at'), d = of('duration')
+  if (call.name !== 'write' || !src || more || typeof at !== 'number' || !props.every(p => p.name === 'at' || p.name === 'duration' && typeof p.value === 'number')) return null
+  const text = code.slice(src.from, src.to), name = /^audio\(\s*(['"`])([^'"`\\]+)\1\s*\)$/.exec(text)?.[2], empty = /^audio\.from\(\s*(\d*\.?\d+)\s*\)$/.exec(text)?.[1]
+  return name ? { name, at, ...d != null && { d } } : empty ? { name: '', at, empty: +empty } : null
+}
+// Where a place in the sound at takes' step (`run`, takes()) is once the live steps after them are done, [a, b] s: where
+// it was past a step that keeps time (a gain, a filter, a marker, a delete past its end); moved or cut short by one
+// that takes a stretch out (remove, cut, crop) or puts silence before it (pad), as its literal arguments say; null where
+// a later step moves time in a way the script alone doesn't say (a trim, a move, a stretch, a paste: the engine's to
+// know), or takes all of the place out
+export function carried(code, run, [a, b]) {
+  for (const s of steps(code).slice(run.list.at(-1).i + 1)) {
+    if (!s.on) continue
+    const f = retiming(s.call)
+    if (f === undefined) return null
+    if (f) [a, b] = [f(a), f(b)]
+    if (!(b > a)) return null
+  }
+  return [a, b]
+}
+// What a call does to time, t s to where it goes: null where it keeps it; undefined where the script alone can't say
+const RETIMES = new Set(['trim', 'shrink', 'crop', 'remove', 'cut', 'move', 'paste', 'insert', 'pad', 'repeat', 'reverse', 'speed', 'stretch', 'warp'])
+function retiming(call) {
+  if (!RETIMES.has(call.name)) return null
+  const [x, y] = call.args ?? [], of = k => x?.props?.find(p => p.name === k)?.value
+  const [at, d] = x?.kind === 'number' ? [x.value, y?.value] : [of('at'), of('duration')]
+  const span = typeof at === 'number' && at >= 0 && typeof d === 'number' && d >= 0
+  if ((call.name === 'remove' || call.name === 'cut') && span) return t => t <= at ? t : t >= at + d ? t - d : at
+  if (call.name === 'crop' && span) return t => Math.min(Math.max(t - at, 0), d)
+  if (call.name === 'pad' && x?.kind === 'number') return t => t + x.value
+}
+// The change that makes the take starting at `from` (takes()) the one heard at its place, the others there turned off;
+// null where it is none, or is heard alone already
+export function useTake(code, from) {
+  const run = takes(code).find(r => r.list.some(t => t.from === from)), list = steps(code)
+  const changes = (run?.list ?? []).filter(t => t.on !== (t.from === from)).map(t => t.on ? turnOff(code, list[t.i].call) : turnOn(code, list[t.i].call))
+  return changes.length && changes.every(Boolean) ? changes.flat() : null
+}
+// The change that writes a recording (`call`, a write() as takes() reads one) as one more take of the place it goes in,
+// in the chain's own part: after the takes there, on a line of its own as they stand, heard, they turned off; into an
+// empty take there (addTake) in its place, heard. Where the place has a length (an empty take's, a take's `d`), the
+// recording writes over all of it: one shorter leaves silence, not what was there before. The takes then brought over
+// what is laid on their place after them (raise; `len`, the files' lengths), so the recording is heard. Null where none
+// is there, or they can't be brought over it: written on top then, it is heard as a take of its own
+export function retake(code, call, len) {
+  if (!/^write\(audio(\(|\.from\()/.test(String(call))) return null
+  let k = chain(`_.${call}`)?.calls[0], t = k && recording(`_.${call}`, k), c = t && chain(code)
+  const run = c && takes(code).findLast(r => r.part === c.parts.length - 1 && Math.abs(r.at - t.at) < 1e-6)
+  if (!run) return null
+  const place = Math.max(0, ...run.list.map(x => x.d ?? x.empty ?? 0))
+  if (place && t.empty == null && t.d == null) { call = String(call).replace(/ \}\)$/, `, d: ${number(place)} })`); k = chain(`_.${call}`).calls[0] }
+  // the takes there as the recording leaves them, brought over what is laid on their place: the one change from `code`
+  const heard = out => { const up = raise(out, takes(out).findLast(r => r.part === run.part && Math.abs(r.at - run.at) < 1e-6), len); return up && between(code, up) }
+  const empty = t.empty == null && run.list.find(x => x.empty != null)
+  if (empty) {
+    // its silence the recording, where it is written: what it is of the call, the call's own source and place
+    const into = steps(code)[empty.i].call, filled = made(code, { from: into.args[0].from, to: into.args[1].to, insert: `_.${call}`.slice(k.args[0].from, k.args[1].to) }), on = useTake(filled, into.from)
+    return heard(on ? made(filled, on) : filled)
+  }
+  let out = code
+  for (const x of run.list) if (x.on) {
+    const off = turnOff(out, steps(out)[x.i].call)
+    if (!off) return null
+    out = made(out, off)
+  }
+  const last = steps(out)[run.list.at(-1).i].call, line = lineOf(out, last.from)
+  const alone = !out.slice(line.from, last.from).trim() && !out.slice(last.to, lineOf(out, last.to).to).trim()
+  const add = alone ? { from: last.to, insert: `\n${line.indent}.${call}` } : append(out, call, last.to < chain(out).expr.to ? last.to : null)
+  return add && heard(made(out, add))
+}
+// The script with the takes of a place (`run`, takes()) moved, as they stand, over what is laid on that place after
+// them, so the take heard there is heard: after the last live write() past them that may cover it (to where its file
+// ends, `len(name)` s; one of no length known, as far as it may), past writes alone (two writes covering nothing of
+// each other's sound the same in either order). As it is where none covers it; null where another step lies between
+// (moved past it, it would no longer change them: a gain, a filter) or they share a line
+export function raise(code, run, len = () => null) {
+  const list = steps(code), long = x => x.d ?? x.empty ?? len(x.name) ?? Infinity, a = run.at, b = a + Math.max(0, ...run.list.map(long))
+  let top = null, other = false
+  for (const s of list.slice(run.list.at(-1).i + 1)) {
+    if (!s.on || s.call.part !== run.part) continue
+    if (s.name !== 'write') { other = true; continue }
+    const w = recording(code, s.call)
+    if (w && (w.at >= b || w.at + long(w) <= a)) continue
+    if (other) return null
+    top = s
+  }
+  if (!top) return code
+  const move = moveLines(code, { from: list[run.list[0].i].call.from, to: list[run.list.at(-1).i].call.to }, top.call, { after: true })
+  return move && made(code, move)
+}
+// The change that adds an empty take to `run` (takes()), silence as long as `d` s, after the others, heard, they turned
+// off: a place for the next recording there (retake); null while one is there, nothing recorded into it yet
+export const addTake = (code, run, d, len) => run.list.some(x => x.empty != null) ? null : retake(code, `write(audio.from(${number(d)}), { at: ${number(run.at)} })`, len)
+// The change that takes away the take starting at `from` (takes()); it heard, the one before it heard in its place (the
+// next, for the first)
+export function dropTake(code, from) {
+  const run = takes(code).find(r => r.list.some(t => t.from === from)), k = run?.list.findIndex(t => t.from === from)
+  if (!run) return null
+  const gone = dropStep(code, run.list[k].i), out = made(code, gone)
+  const next = run.list[k].on && run.list.length > 1 && takes(out).find(r => Math.abs(r.at - run.at) < 1e-6 && r.part === run.part)?.list[Math.max(0, k - 1)]
+  const on = next && useTake(out, next.from)
+  return between(code, on ? made(out, on) : out)
 }
 
 // Layers: a step or a group moved, set in, made, unmade or named, each as one change, each on lines of their own (the
@@ -658,13 +784,22 @@ function parted(code, here, there) {
   }
   return { code: remix(out, names), name: names[0] }
 }
-// A sound, `sound` as written (audio('b.wav')), a track of its own under the one the page edits, named for its `file`
-export function addTrack(code, sound, file) {
+// A sound, `sound` as written (audio('b.wav')), a track of its own under the one the page edits, named for its `file`;
+// `last`, under the last track (an empty one, made under the lanes)
+export function addTrack(code, sound, file, { last } = {}) {
   const own = declaredTrack(code), m = master(code)
   if (!own && !m) return null
   // where a master is, before it, and mixed into it
-  const text = own?.code ?? code, name = unused(text, identifier(file)), end = m ? mixing(text, statements(parse(text)).at(-1)).statement.from : chain(text).end
+  const text = own?.code ?? code, name = unused(text, identifier(file)), end = m ? mixing(text, statements(parse(text)).at(-1)).statement.from : last ? text.length : chain(text).end
   return { code: remix(placed(text, end, `let ${name} = ${sound}`), [name]), name }
+}
+// Track `from` named `to`, as a script names a sound (identifier: Lead vocal → leadVocal), a name no other sound has:
+// { code, name }, or null where there is no such track, or `to` makes no name or the one it has
+export function renameTrack(code, from, to) {
+  const base = identifier(to, '')
+  if (!tracks(code).some(t => t.name === from) || !base || base === from) return null
+  const name = unused(code, base)
+  return { code: rename(code, { [from]: name }), name }
 }
 // A master after the tracks: `first` a copy, each other track mixed into it; { code, name }, or null where the script
 // has a master, or no tracks

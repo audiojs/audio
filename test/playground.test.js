@@ -14,14 +14,14 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import wav from '@audio/encode-wav'
 import audio from '../audio.js'
-import { prepare, error, bare, chain, append, source, callAt, setArg, cli, groups, steps, dropStep, moveStep, moveLines, group, ungroup, renameGroup, turnOff, turnOn, tracks, focus, toTrack, voiceTrack, stemTracks, soundOf, written, addTrack, dropTrack, splitOf, master, addMaster, rollback, stages, sharing, residual } from '../playground/code.js'
+import { prepare, error, bare, chain, append, source, callAt, setArg, cli, groups, steps, dropStep, moveStep, moveLines, group, ungroup, renameGroup, turnOff, turnOn, tracks, focus, toTrack, voiceTrack, stemTracks, soundOf, written, addTrack, dropTrack, renameTrack, splitOf, master, addMaster, rollback, stages, sharing, residual, takes, carried, useTake, retake, addTake, dropTake, raise } from '../playground/code.js'
 import { ops, guides, previews, SCALES } from '../playground/ops.js'
 import { SCALES as NOTE_SCALES, snapMidi } from '@audio/note'
 import { help, layout, layouts, texts } from '../playground/help.js'
 import { boxed } from '../playground/heard.js'
 import opIcons from '../playground/icons.js'
 import clock from '../playground/time.js'
-import { samples, RATE as SAMPLES } from '../site/samples.js'
+import { samples, RATE as SAMPLES } from '../playground/samples.js'
 import { vowel } from './gen.js'
 import recipes from '../playground/recipes.js'
 import { cycle, trace, ballistics, spectra } from '../playground/meters.js'
@@ -36,7 +36,7 @@ let server, browser, page, origin, errors
 // what most tests start from. Stored only where nothing is, so a test's own storage, and the page's as it goes, stand
 const CHIME = `audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .fade(0.02, 0.1)`
 const chimeLeft = target => target.addInitScript(code => {
-  if (location.pathname === '/playground.html' && !new URLSearchParams(location.search).has('embed') && localStorage.getItem('audio-repl') == null) localStorage.setItem('audio-repl', JSON.stringify({ code }))
+  if (location.pathname === '/playground/' && !new URLSearchParams(location.search).has('embed') && localStorage.getItem('audio-repl') == null) localStorage.setItem('audio-repl', JSON.stringify({ code }))
 }, CHIME)
 
 before(async () => {
@@ -51,10 +51,11 @@ before(async () => {
       res.end()
       return
     }
-    const path = resolve(root, '.' + (url === '/' ? '/playground.html' : url))
+    const path = resolve(root, '.' + (url === '/' ? '/playground/' : url) + (url.endsWith('/') ? 'index.html' : ''))
     if (!path.startsWith(root + sep)) { res.writeHead(403).end(); return }
     // cross-origin isolated, as .site-serve.js serves it (sw.js stays out: a page reloaded under a test would lose it)
-    try { res.writeHead(200, { 'content-type': types[extname(path)] || 'application/octet-stream', 'cross-origin-opener-policy': 'same-origin', 'cross-origin-embedder-policy': 'credentialless' }).end(await readFile(path)) }
+    // read before the head is sent: a file not there is a 404, not a head sent twice and a reply that never ends
+    try { const body = await readFile(path); res.writeHead(200, { 'content-type': types[extname(path)] || 'application/octet-stream', 'cross-origin-opener-policy': 'same-origin', 'cross-origin-embedder-policy': 'credentialless' }).end(body) }
     catch { res.writeHead(404).end() }
   })
   await new Promise(r => server.listen(0, '127.0.0.1', r))
@@ -772,6 +773,112 @@ test('code: layers moved by their lines, made a group, unmade, named; a step put
   assert.equal(bare(`a /* b\nc */ d // e`), `a  \n  d  `, 'its line breaks kept')
 })
 
+// Takes: recordings of one place, a write() of each side by side, one heard, the others turned off. One recorded where
+// another went in joins it, after it, heard, the one heard before turned off, the steps after them kept after them; one
+// turned on is heard alone. A write of a sound made in the script, or with more than where it goes, is no take
+test('code: takes of one place side by side, one heard; another recorded there joins them; one turned on, the others off', () => {
+  const apply = (code, change) => [change].flat().sort((p, q) => q.from - p.from).reduce((c, x) => c.slice(0, x.from) + (x.insert ?? '') + c.slice(x.to ?? x.from), code)
+  const at2 = name => `write(audio('${name}'), { at: 2 })`
+  const a = `audio('a.wav')\n  .gain(-3)\n  .write(audio('take.wav'), { at: 2 })\n  .fade(1)`
+  assert.deepEqual(takes(a).map(r => [r.at, r.list.map(x => [x.name, x.on])]), [[2, [['take.wav', true]]]], 'a recording alone, a take of one')
+  const b = apply(a, retake(a, at2('take-2.wav')))
+  assert.equal(b, `audio('a.wav')\n  .gain(-3)\n  // .write(audio('take.wav'), { at: 2 })\n  .write(audio('take-2.wav'), { at: 2 })\n  .fade(1)`)
+  const c = apply(b, retake(b, at2('take-3.wav')))
+  assert.deepEqual(takes(c).map(r => r.list.map(x => [x.name, x.on])), [[['take.wav', false], ['take-2.wav', false], ['take-3.wav', true]]])
+  assert.equal(retake(c, `write(audio('x.wav'), { at: 3 })`), null, 'another place: none there')
+  assert.equal(retake(c, `gain(-1)`), null, 'no recording')
+  const [run] = takes(c), first = apply(c, useTake(c, run.list[0].from))
+  assert.equal(first, `audio('a.wav')\n  .gain(-3)\n  .write(audio('take.wav'), { at: 2 })\n  // .write(audio('take-2.wav'), { at: 2 })\n  // .write(audio('take-3.wav'), { at: 2 })\n  .fade(1)`)
+  assert.equal(useTake(first, takes(first)[0].list[0].from), null, 'heard alone already')
+  assert.equal(useTake(first, steps(first).find(s => s.name === 'fade').call.from), null, 'no take')
+  // on one line: turned off within it, the new one after the sound
+  const d = `audio('a.wav').write(audio('take.wav'), { at: 2 })`, e = apply(d, retake(d, at2('take-2.wav')))
+  assert.deepEqual(takes(e).map(r => r.list.map(x => [x.name, x.on])), [[['take-2.wav', true], ['take.wav', false]]])
+  // no takes: a sound made in the script, a write with more than its place and its length, two places apart
+  assert.deepEqual(takes(`audio('a.wav')\n  .write(audio('b.wav').gain(-3), { at: 2 })\n  .write(audio('c.wav'), { at: 2, channel: 1 })`), [])
+  assert.deepEqual(takes(`audio('a.wav')\n  .write(audio('b.wav'), { at: 2 })\n  .write(audio('c.wav'), { at: 3 })`).map(r => r.list.length), [1, 1])
+  // nothing to read or join: no script, a group of calls, a take in the steps a copy shares (its own part's alone join)
+  assert.deepEqual([takes(''), useTake('', 0), retake('', at2('t.wav')), retake(a, { name: 'Group', calls: ['gain(-1)'] })], [[], null, null, null])
+  const g = `let take = audio('a.wav')\n  .write(audio('take.wav'), { at: 2 })\n\nlet copy = take.clone()\n  .gain(-1)`
+  assert.equal(retake(g, at2('take-2.wav')), null, 'not into the steps it shares')
+  assert.deepEqual(takes(g).map(r => r.part), [0])
+})
+
+// An empty take added to a place (+ on its numbers): silence as long as the place, heard, the others off; no second while
+// it is there; a recording there goes into it, heard. The take heard deleted, the one before heard in its place
+test('code: an empty take added, recorded into; the one heard deleted, the one before heard', () => {
+  const apply = (code, change) => [change].flat().sort((p, q) => q.from - p.from).reduce((c, x) => c.slice(0, x.from) + (x.insert ?? '') + c.slice(x.to ?? x.from), code)
+  const a = `audio('a.wav')\n  // .write(audio('take.wav'), { at: 2 })\n  .write(audio('take-2.wav'), { at: 2 })`
+  const b = apply(a, addTake(a, takes(a)[0], 1.5))
+  assert.equal(b, `audio('a.wav')\n  // .write(audio('take.wav'), { at: 2 })\n  // .write(audio('take-2.wav'), { at: 2 })\n  .write(audio.from(1.5), { at: 2 })`)
+  assert.deepEqual(takes(b)[0].list.map(x => [x.name, x.on, x.empty ?? null]), [['take.wav', false, null], ['take-2.wav', false, null], ['', true, 1.5]])
+  assert.equal(addTake(b, takes(b)[0], 1.5), null, 'one empty take at a time')
+  // recorded into, the empty one heard or not
+  // (the place's length kept: what is not recorded of it is silence, not what was there before)
+  const filled = `audio('a.wav')\n  // .write(audio('take.wav'), { at: 2 })\n  // .write(audio('take-2.wav'), { at: 2 })\n  .write(audio('take-3.wav'), { at: 2, d: 1.5 })`
+  assert.equal(apply(b, retake(b, `write(audio('take-3.wav'), { at: 2 })`)), filled)
+  const off = apply(b, useTake(b, takes(b)[0].list[0].from))
+  assert.equal(apply(off, retake(off, `write(audio('take-3.wav'), { at: 2 })`)), filled)
+  // the one heard deleted, the one before heard; the first deleted, the next
+  assert.deepEqual(takes(filled)[0].list.map(x => x.d ?? null), [null, null, 1.5])
+  // another recorded there writes over the place too
+  assert.match(apply(filled, retake(filled, `write(audio('take-4.wav'), { at: 2 })`)), /\.write\(audio\('take-4\.wav'\), \{ at: 2, d: 1\.5 \}\)$/)
+  assert.equal(apply(filled, dropTake(filled, takes(filled)[0].list[2].from)), `audio('a.wav')\n  // .write(audio('take.wav'), { at: 2 })\n  .write(audio('take-2.wav'), { at: 2 })`)
+  const first = apply(filled, useTake(filled, takes(filled)[0].list[0].from))
+  assert.equal(apply(first, dropTake(first, takes(first)[0].list[0].from)), `audio('a.wav')\n  .write(audio('take-2.wav'), { at: 2 })\n  // .write(audio('take-3.wav'), { at: 2, d: 1.5 })`)
+  assert.equal(dropTake(a, 999), null, 'no take there')
+})
+
+// Takes under a write after them over their place (a recording at another caret): one more recorded there brings them
+// over it, the newest heard (it once stayed under it, unheard, the picture going back to what covered it as it stopped);
+// past writes alone, which sound the same in either order where they cover nothing of each other's place, those that
+// don't cover it (as long as their files are, `len`; one of no length known may) left after them
+test('code: takes under a later write brought over it as one more is recorded there, past writes alone', () => {
+  const apply = (code, change) => [change].flat().sort((p, q) => q.from - p.from).reduce((c, x) => c.slice(0, x.from) + (x.insert ?? '') + c.slice(x.to ?? x.from), code)
+  const at2 = name => `write(audio('${name}'), { at: 2 })`, len = name => ({ 'take.wav': 3, 'take-2.wav': 3, 'over.wav': 2, 'far.wav': 1 })[name]
+  // over.wav, 3 to 5 s, over their place, 2 to 5: they go after it, as they stood, the new one heard; the fade after
+  // them still after them
+  const a = `audio('a.wav')\n  .write(audio('take.wav'), { at: 2 })\n  .write(audio('over.wav'), { at: 3 })\n  .fade(1)`
+  assert.equal(apply(a, retake(a, at2('take-2.wav'), len)), `audio('a.wav')\n  .write(audio('over.wav'), { at: 3 })\n  // .write(audio('take.wav'), { at: 2 })\n  .write(audio('take-2.wav'), { at: 2 })\n  .fade(1)`)
+  // far.wav, 6 to 7 s, past it: left after them, the takes where they stand; of no length known, it may cover it
+  const b = `audio('a.wav')\n  .write(audio('take.wav'), { at: 2 })\n  .write(audio('far.wav'), { at: 6 })`
+  assert.equal(apply(b, retake(b, at2('take-2.wav'), len)), `audio('a.wav')\n  // .write(audio('take.wav'), { at: 2 })\n  .write(audio('take-2.wav'), { at: 2 })\n  .write(audio('far.wav'), { at: 6 })`)
+  assert.equal(apply(b, retake(b, at2('take-2.wav'))), `audio('a.wav')\n  .write(audio('far.wav'), { at: 6 })\n  // .write(audio('take.wav'), { at: 2 })\n  .write(audio('take-2.wav'), { at: 2 })`)
+  // a step that changes the sound between: past it, it would no longer change them; none (the page writes the
+  // recording on top, a take of its own)
+  const c = `audio('a.wav')\n  .write(audio('take.wav'), { at: 2 })\n  .gain(-3)\n  .write(audio('over.wav'), { at: 3 })`
+  assert.equal(retake(c, at2('take-2.wav'), len), null)
+  assert.equal(raise(c, takes(c)[0], len), null)
+  // as they stand, turned off or heard, past a step turned off; nothing over them, as it is
+  const d = `audio('a.wav')\n  // .write(audio('take.wav'), { at: 2 })\n  .write(audio('take-2.wav'), { at: 2 })\n  // .gain(-3)\n  .write(audio('over.wav'), { at: 3 })`
+  assert.equal(raise(d, takes(d)[0], len), `audio('a.wav')\n  // .gain(-3)\n  .write(audio('over.wav'), { at: 3 })\n  // .write(audio('take.wav'), { at: 2 })\n  .write(audio('take-2.wav'), { at: 2 })`)
+  assert.equal(raise(b, takes(b)[0], len), b)
+  // an empty take added there brought over it too, heard, for the next recording to go into
+  assert.equal(apply(d, addTake(d, takes(d)[0], 3, len)), `audio('a.wav')\n  // .gain(-3)\n  .write(audio('over.wav'), { at: 3 })\n  // .write(audio('take.wav'), { at: 2 })\n  // .write(audio('take-2.wav'), { at: 2 })\n  .write(audio.from(3), { at: 2 })`)
+})
+
+// Where takes' place is once the steps after them are done: where it was past a step that keeps time (a fade, a marker,
+// a delete past its end, a step turned off); a delete before it moves it back by as much, one over its end cuts it
+// short, a crop moves it to the crop's start, a pad on by the silence before; gone with a delete of all of it; unknown
+// past a step whose time the script alone doesn't say (a trim)
+test('code: takes\' place carried through the steps after them', () => {
+  const a = `audio('a.wav')\n  // .write(audio('take.wav'), { at: 2 })\n  .write(audio('take-2.wav'), { at: 2 })`
+  const at = tail => { const code = `${a}\n  ${tail}`; return carried(code, takes(code)[0], [2, 5]) }
+  assert.deepEqual(carried(a, takes(a)[0], [2, 5]), [2, 5])
+  for (const tail of ['.fade(1)', '.mark(1, \'A\')', '.remove({ at: 7, d: 2 })', '.remove({ at: 5, d: 1 })', '// .trim()', '.gain(-3, { at: 0, d: 1 })']) assert.deepEqual(at(tail), [2, 5], tail)
+  assert.deepEqual(at('.remove({ at: 0.5, d: 1 })'), [1, 4], 'a delete before it')
+  assert.deepEqual(at('.cut({ at: 0, d: 0.5, xfade: 0.01 })'), [1.5, 4.5], 'a cut before it, crossfaded: as long as without')
+  assert.deepEqual(at('.remove({ at: 4, d: 2 })'), [2, 4], 'a delete over its end')
+  assert.deepEqual(at('.remove(1, 2)'), [1, 3], 'its place and length as arguments')
+  assert.deepEqual(at('.crop({ at: 1, d: 10 })'), [1, 4])
+  assert.deepEqual(at('.pad(1, 2)'), [3, 6])
+  // a delete ending where it starts, or starting where it ends, at the boundary: moved back whole, or left as it is
+  assert.deepEqual([at('.remove({ at: 1, d: 1 })'), at('.remove({ at: 5, d: 1 })')], [[1, 4], [2, 5]])
+  assert.deepEqual([at('.remove({ at: 1, d: 6 })'), at('.crop({ at: 0, d: 1 })'), at('.trim()'), at('.speed(2)'), at('.remove({ at: start, d: 1 })'), at('.remove({ at: -1, d: 1 })'), at('.remove({ at: 1 })'), at('.pad({ before: 1 })')], [null, null, null, null, null, null, null, null], 'gone, or not for the script to say')
+  // one after another, each where the one before left it
+  assert.deepEqual(at('.remove({ at: 9, d: 1 })\n  .remove({ at: 0, d: 1 })\n  .pad(0.5)'), [1.5, 4.5])
+})
+
 // The chain's edits as an agent acts on them (step): listed in order, those turned off among them; one taken away,
 // on its line or within one; one moved, before or after another, a group's comment staying where it stands
 test('code: the edits listed in order, one taken away or moved where it stands', () => {
@@ -881,6 +988,11 @@ test('code: tracks are the sounds declared that nothing reads, edited one at a t
     focus('chime')
     assert.equal(addTrack(one, `audio('My take-2.wav')`, 'My take-2.wav').code, `let chime = audio('chime.wav')\n  .trim()\n  .normalize(-1)\n\nlet myTake2 = audio('My take-2.wav')`)
     assert.equal(addTrack(one, `audio('audio.wav')`, 'audio.wav').name, 'sound', 'no name the script cannot take')
+    // a file under the track edited; an empty one, made under the lanes, under the last, whichever is edited
+    focus('a')
+    assert.equal(addTrack(off, `audio('c.wav')`, 'c.wav').code, `let a = audio('a.wav')\n  .trim()\n  // .fade(1)\n\nlet c = audio('c.wav')\n\nlet b = audio('b.wav')\n  // .gain(-3)\n  .reverse()`)
+    assert.equal(addTrack(off, 'audio.from(0)', 'track', { last: true }).code, `${off}\n\nlet track = audio.from(0)`)
+    focus('chime')
     // the other part taken away, the shared steps go back into the one left: one sound, as before they parted
     assert.equal(apply(two, dropTrack(two, 'chime2')), `let chime = audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .gain(-Infinity, { at: 0.5, d: 0.25 })`)
     assert.equal(apply(two, dropTrack(two, 'chime')), `let chime2 = audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .crop({ at: 0.5, d: 0.25 })\n  .pad(0.5, 0)`)
@@ -914,6 +1026,15 @@ test('code: tracks are the sounds declared that nothing reads, edited one at a t
 // A sidechain's key keeps the track it reads (a voice the bed ducks under is still heard); a master, the last statement a
 // copy of one track with the others mixed in, then steps of its own, leaves them tracks and is edited as one: its steps
 // those after the mix; tracks made, opened or taken away keep it mixing every track; a key's step goes with its track
+// A track named anew as a script names a sound, every reference to it with it (a key that ducks another under it), a
+// name no other sound has; a name that makes none, the one it has, or no such track: nothing
+test('code: a track renamed, its references with it, to a name of its own', () => {
+  const code = "let chime = audio('chime.wav')\n\nlet track = audio.from(0)\n  .write(audio('take.wav'), { at: 1 })\n\nlet bed = audio('rhodes.wav').ducker({ key: track, range: -15 })"
+  assert.deepEqual(renameTrack(code, 'track', 'Lead vocal'), { name: 'leadVocal', code: code.replace('let track', 'let leadVocal').replace('key: track', 'key: leadVocal') })
+  assert.equal(renameTrack(code, 'track', 'chime').name, 'chime2')
+  for (const [from, to] of [['track', '!!!'], ['track', 'track'], ['nope', 'x']]) assert.equal(renameTrack(code, from, to), null, `${from} → ${to}`)
+})
+
 test('code: a key keeps a track; a master mixes the tracks, then steps of its own', () => {
   const apply = (code, change) => code.slice(0, change.from) + change.insert + code.slice(change.to ?? change.from)
   const names = code => tracks(code).map(t => t.name)
@@ -1682,25 +1803,26 @@ test('engine: plugin parameters come from their manifests', async () => {
 
 // the script, its lines as the editor has them, the code panel open or not
 const code = () => page.evaluate(() => [...document.querySelectorAll('.cm-content .cm-line')].map(l => l.textContent).join('\n').replace(/ /g, ' '))
-const readout = () => page.locator('.readout').innerText()
+const readout = () => page.locator('.readout').textContent()
 // A title, or, pointed at, what the tooltip took of it (popoff keeps it as data-tip till the pointer leaves)
 const tipOf = el => el.title || el.dataset.tip || ''
-// The levels of all of it, nothing selected: the peak on the bar, the loudness in its tooltip (popoff keeps a title
-// pointed at as data-tip)
-const wholeLevels = () => page.locator('.readout:is([title^="Loudness"], [data-tip^="Loudness"])')
-const levelsTip = () => page.locator('.readout').evaluate(tipOf)
+// The levels of all of it, nothing selected: the peak on the bar, every level in its table (#levels), pointed at
+const wholeLevels = () => page.locator('.readout[data-of="all"]')
+// that table, its head and a row a line, its cells apart: "Peak −1.0 dBFS at 0:00.120"
+const levelsTable = () => page.locator('#levels').evaluate(el => [el.querySelector('.levels-head')?.textContent, ...[...el.querySelectorAll('tr')].map(r => [...r.cells].map(c => c.textContent).filter(Boolean).join(' '))].filter(Boolean).join('\n'))
 // The output's length, from the name's tooltip ("chime.wav · 0:06.525"): the axes show it, so the page doesn't repeat it
 const lengthText = () => page.evaluate(() => (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop())
 const seconds = async () => { const [m, s] = (await lengthText()).split(':'); return +m * 60 + +s }
 async function open() {
-  await page.goto(origin + '/playground.html')
-  await wholeLevels().waitFor()
+  await page.goto(origin + '/playground/')
+  // the whole sound's levels read, shown or not (a narrow bar gives them way)
+  await wholeLevels().waitFor({ state: 'attached' })
 }
 // A row of the menu open, by its label, exactly
 const menuRow = label => page.locator('.menubar-menu .menu-row', { has: page.locator('.menu-label', { hasText: new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }) }).last()
-// The groups of how a picture draws, in the dropdown its tab opens (playground.html .dropdown); the others are the
+// The groups of how a picture draws, in the dropdown a band's look opens (playground/index.html .dropdown); the others are the
 // settings', in their panel
-const DRAWS = ['Levels in', 'Colour', 'Fill', 'Channels', 'Frequency scale', 'Method', 'Colours', 'Gamma', 'Range', 'FFT size']
+const DRAWS = ['Levels in', 'Weighting', 'Colour', 'Colormap', 'Fill', 'Channels', 'Frequency scale', 'Method', 'Colours', 'Gamma', 'Range', 'FFT size', 'Meter']
 // A choice among the options open (a picture's dropdown, the settings' panel), by its group's name and its own: its
 // section unfolded first, where it is folded; a look's, in its select, the select opened first
 function choice(group, name) {
@@ -1711,11 +1833,11 @@ function choice(group, name) {
   const pick = async () => { if (await listed()) { await page.locator(`.dropdown:popover-open .select-button[popovertarget="select-${group}"]`).click(); return option } await unfold(); return button }
   return { click: async o => (await pick()).click(o), getAttribute: async a => (await pick()).getAttribute(a) }
 }
-// A choice made: how a picture draws in its dropdown, opened by its tab, the one shown, and closed again by it; else in
-// the settings' panel, the panel as it was again after
+// A choice made: how a picture draws in its dropdown, opened by the band's look in its layer (the last band's), and
+// closed again by it; else in the settings' panel, the panel as it was again after
 async function settings(group, name) {
   if (DRAWS.includes(group)) {
-    const button = page.locator('.status .display [aria-selected="true"]')
+    const button = page.locator(':is(.lane-look, .layer-look):visible').last()
     await button.click()
     await choice(group, name).click()
     return button.click()
@@ -1764,7 +1886,7 @@ async function palette(words) {
 }
 // The cues hidden and snapping off: a dragged edge goes where it is let go, not onto a cue near it, shown or not (a test
 // of snapping keeps them)
-const noCues = async () => { await menu('View', 'Cues'); await menu('View', 'Snap to cues and markers') }
+const noCues = async () => { await menu('View', 'Show', 'Cues'); await menu('View', 'Snap to cues and markers') }
 // The script written in the code panel (over the picture, from the bar), the panel then as it was
 async function write(text) {
   const shown = await page.getByRole('tab', { name: 'Code', exact: true }).getAttribute('aria-selected') === 'true'
@@ -1796,9 +1918,39 @@ test('editor: opens on the chime with its script, drawn and measured', async () 
   assert.equal(await page.locator('.source').innerText(), 'chime.wav')
   // the depth the export writes, the library's 16 for a sound of no depth (fn/save.js)
   assert.equal(await facts(), '44.1kHz stereo 16-bit')
-  assert.equal(await readout(), 'peak −1.0dBFS')
-  assert.match(await levelsTip(), /^Loudness −\d+\.\d LUFS$/)
-  assert.ok(await drawn() > .05, 'the waveform covers the plot')
+  assert.equal(await readout(), '−1.0 dBFS')
+  assert.match(await levelsTable(), /^Peak −1\.0 dBFS at 0:0\d\.\d{3}\nRMS −\d+\.\d dBFS\nCrest \d+\.\d dB\nLoudness −\d+\.\d LUFS integrated$/)
+  // its lanes TRACK px of the plot, the room under them
+  const box = await page.locator('.plot').boundingBox()
+  assert.ok(await drawn() > .05 * tall(box) / (box.height - 22), 'the waveform covers its lanes')
+})
+
+// The readout pointed at marks what it reads on the sound, the peak: a plain line through where it is and at its level,
+// each end crossed; a row of its table pointed at, that row's alone: the RMS, its level, no line through the peak
+test('editor: the readout marks the level it reads on the sound, a row of its table that row\'s alone', async () => {
+  await open()
+  await noCues()
+  await wholeLevels().waitFor()
+  const box = await page.locator('.plot').boundingBox(), w = Math.round(await spans(box)), h = Math.round(tall(box))
+  // in the cues' colour, the tallest column and the widest row of the lane, px
+  const marks = () => pixels(`const on = (x, y) => { const i = (y * w + x) * 4; return d[i] - d[i + 2] > 60 }
+    let col = 0, row = 0
+    for (let x = 0; x < arg.w; x++) { let n = 0; for (let y = 0; y < arg.h; y++) n += on(x, y); col = Math.max(col, n) }
+    for (let y = 0; y < arg.h; y++) { let n = 0; for (let x = 0; x < arg.w; x++) n += on(x, y); row = Math.max(row, n) }
+    return { col, row }`, { w, h })
+  await page.locator('.readout').hover()
+  await page.locator('#levels').waitFor()
+  await page.waitForTimeout(200)
+  const peak = await marks()
+  assert.ok(peak.col > h * .8 && peak.row > w * .8, `the peak, through its place and at its level: ${JSON.stringify(peak)}`)
+  await page.locator('#levels tr', { hasText: 'RMS' }).hover()
+  await page.waitForTimeout(200)
+  const rms = await marks()
+  assert.ok(rms.col < h * .2 && rms.row > w * .8, `the RMS alone, at its level: ${JSON.stringify(rms)}`)
+  await page.mouse.move(box.x + 10, box.y + 10)
+  await page.waitForTimeout(200)
+  const none = await marks()
+  assert.ok(none.col < h * .2 && none.row < w * .2, `let go, none: ${JSON.stringify(none)}`)
 })
 
 // A control pointed at says what it is on a tag pointing at it, after a moment, the next at once; the browser's own
@@ -1840,7 +1992,7 @@ test('editor: a control pointed at says what it is and does, on a tag pointing a
   await page.locator('.menubar-list .menu-row', { hasText: 'The next one like it' }).hover()
   await tip.waitFor()
   assert.equal(await tip.getAttribute('data-side'), 'right')
-  assert.equal(await tip.innerText(), 'The next pause, or stretch between cues')
+  assert.equal(await tip.innerText(), 'The next pause, or stretch between cues\n\nAlt and drag adds any other range')
   await page.keyboard.press('Escape')
 })
 
@@ -1873,7 +2025,7 @@ test('editor: a slider rewrites its argument, the output and its guide follow', 
   assert.equal(await page.locator('.step.open .step-name').innerText(), 'Normalize')
   await slider.fill('500')
   await page.waitForFunction(() => scriptText().includes('normalize(-18)'))
-  await page.locator('.readout', { hasText: 'peak −18.0dBFS' }).waitFor()
+  await page.locator('.readout', { hasText: '−18.0 dBFS' }).waitFor()
   // one move, one step back
   await menu('Edit', 'Undo')
   await page.waitForFunction(() => scriptText().includes('normalize(-1)'))
@@ -2015,7 +2167,7 @@ test('editor: a step chosen among the edits shows the output up to it and opens 
 // its card open. One the library can't run without a value gets its default written. Escape closes it.
 test('editor: an edit from the palette goes on the selection, its card open among the edits', async () => {
   await open()
-  const { box, x } = await axis(6.525), y = box.y + box.height * .3
+  const { box, x } = await axis(6.525), y = box.y + tall(box) * .3
   await drag([x(1.01), y], [x(2.01) - x(1.01), 0])
   await page.keyboard.press('ControlOrMeta+K')
   const groups = await page.locator('.palette-group').allInnerTexts()
@@ -2036,17 +2188,20 @@ test('editor: an edit from the palette goes on the selection, its card open amon
   assert.equal(await page.locator('.message.problem').count(), 0)
 })
 
-// Over the picture: its tabs, then undo and redo at the head of its axis; at its foot, in the bar, how it shows (the
-// waveform, the spectrogram), before the rate, its end redo's; none moving as the picture turns. At the slab's top
+// Over the picture: its tabs; at its foot, in the bar, undo and redo after the length, before the rate; what it shows
+// chosen by its look, in the sound's foot under its axis; none moving as the picture turns. At the slab's top
 // right, as an editor's activity bar, the panels' buttons: the recipes, the agent, the edits, the code, the export, the
 // settings. A panel docks beside the picture, part of the slab, a rule between them as the slab's own, no title over
 // it (its button says which); its button again closes it; its left edge drags its width; the choice and the width are
 // remembered. Undo is undo, nothing else
-test('editor: undo and redo over the picture\'s axis, its switch at the foot, none moving; the panels\' buttons at the top right; a panel docks beside the picture', async () => {
+test('editor: undo and redo after the length, a band\'s look in its foot, none moving; the panels\' buttons at the top right; a panel docks beside the picture', async () => {
   await open()
   const box = name => page.locator(name).boundingBox()
   const [panes, view] = await Promise.all(['.panes', '.view-slab'].map(box))
   assert.ok(Math.abs(view.width - panes.width) < 2, 'the picture the whole width')
+  // the bar's last, Before, as far in from the slab's right edge as Play is from its left
+  const before = await box('.before')
+  assert.ok(panes.x + panes.width - before.x - before.width >= 12, `Before clear of the edge: ${panes.x + panes.width - before.x - before.width}`)
   const buttons = await Promise.all(['Recipes', 'Agent', 'Edits', 'Code', 'Export', 'Settings'].map(name => page.getByRole('tab', { name, exact: true }).boundingBox()))
   assert.ok(buttons.every((b, i) => b.y < view.y && (!i || b.x > buttons[i - 1].x)) && buttons.at(-1).x > panes.x + panes.width * .8, 'the panels\' buttons in order at the slab\'s top right')
   assert.equal(await page.locator('.bar .history, .status .panels').count(), 0, 'none in the page\'s bar, none at the foot')
@@ -2057,20 +2212,29 @@ test('editor: undo and redo over the picture\'s axis, its switch at the foot, no
   assert.equal(await page.locator('.side-slab').getAttribute('aria-label'), 'Edits')
   const [narrow, side, plot] = await Promise.all(['.view-slab', '.side-slab', '.plot'].map(box))
   assert.ok(narrow.width < view.width - 200 && side.x >= narrow.x + narrow.width - 1 && side.y >= buttons[0].y + buttons[0].height, 'docked beside the picture, under the buttons')
-  // over the picture in order: undo, redo, at the head of the axis; the pictures' switch in the bar at its foot, the
-  // spectrogram's button under the axis's ticks (12 px from a pixel inside the axis, as wide as its labels: --axis,
-  // view.js TICK), before the rate, ending where redo does; none moves as the picture turns
-  const heads = () => Promise.all([['button', 'Undo'], ['button', 'Redo'], ['tab', 'Waveform'], ['tab', 'Spectrogram']].map(([role, name]) => page.getByRole(role, { name, exact: true }).boundingBox()))
-  const [undo, redo, wave, spec] = await heads()
-  assert.ok(undo.x < redo.x && redo.y + redo.height < plot.y, 'undo, redo over the picture')
-  const rate = await box('.facts')
-  assert.ok(wave.y > plot.y + plot.height && wave.x < spec.x && spec.x + spec.width <= rate.x, 'the switch at the foot, before the rate')
-  const ticks = plot.x + plot.width - await gutter() + 7
-  assert.ok(Math.abs(spec.x + spec.width / 2 - ticks) <= 1, `the spectrogram's button under the axis: ${spec.x + spec.width / 2}, ${ticks}`)
-  assert.ok(Math.abs(redo.x + redo.width - (spec.x + spec.width)) <= 1, `redo and the switch end alike: ${redo.x + redo.width}, ${spec.x + spec.width}`)
-  assert.ok(spec.x - (wave.x + wave.width) <= 2, 'the waveform and the spectrogram a pair, as undo and redo')
+  // in the bar at the picture's foot: undo, redo, after the length, before the rate; what the picture shows, chosen by
+  // its look in the sound's foot under its axis, none of them moving as the picture turns
+  const heads = () => Promise.all([page.getByRole('button', { name: 'Undo', exact: true }), page.getByRole('button', { name: 'Redo', exact: true }), page.locator(':is(.lane-look, .layer-look):visible')].map(b => b.boundingBox()))
+  const [undo, redo, look] = await heads()
+  const length = await box('.length'), rate = await box('.facts')
+  assert.ok(undo.y > plot.y + plot.height && undo.x >= length.x + length.width && undo.x < redo.x && redo.x + redo.width < rate.x, 'undo, redo at the foot, after the length, before the rate')
+  // one baseline: the time's, the length's, the status's words, the arrows' feet; a narrower bar's smaller time keeps it
+  const baselines = () => page.evaluate(() => {
+    const base = e => { const i = document.createElement('i'); i.style.cssText = 'display: inline-block; width: 0; height: 0'; e.append(i); const y = i.getBoundingClientRect().y; i.remove(); return y }
+    return { time: base(document.querySelector('.time')), length: base(document.querySelector('.length')), facts: base(document.querySelector('.facts .fact')), feet: document.querySelector('.status .undo path').getBoundingClientRect().bottom }
+  })
+  const wide = await baselines()
+  assert.ok(Object.values(wide).every(y => Math.abs(y - wide.length) <= 1.5), `on one baseline: ${JSON.stringify(wide)}`)
+  const size = await page.viewportSize()
+  await page.setViewportSize({ width: 860, height: size.height })
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.clock')).getPropertyValue('--time-size').trim() === '28px')
+  const smaller = await baselines()
+  assert.ok(Math.abs(smaller.time - wide.time) <= 1 && Math.abs(smaller.feet - wide.feet) <= 1, `the smaller time on the same baseline: ${JSON.stringify(smaller)}`)
+  await page.setViewportSize(size)
+  const axis = plot.x + plot.width - await gutter(), foot = plot.y + tall(plot)
+  assert.ok(Math.abs(look.x - axis - 1) <= 1 && Math.abs(look.y - foot - 1) <= 1, `the look in the sound's foot, under its axis: ${look.x}, ${look.y}; ${axis}, ${foot}`)
   await show('spec')
-  assert.deepEqual((await heads()).map(b => b.x), [undo, redo, wave, spec].map(b => b.x), 'nothing moved as it turned')
+  assert.deepEqual((await heads()).map(b => b.x), [undo, redo, look].map(b => b.x), 'nothing moved as it turned')
   await show('wave')
   // part of the slab: no ground of its own; between it and the picture a rule in the slab's rule colour, as far from its
   // content as that is from the slab's edge
@@ -2082,7 +2246,7 @@ test('editor: undo and redo over the picture\'s axis, its switch at the foot, no
   assert.ok(Math.abs((card.x - (rule.x + 1)) - (panel.x + panel.width - (card.x + card.width))) <= 1, `as far from the cards as they are from the edge: ${card.x - rule.x - 1}, ${panel.x + panel.width - card.x - card.width}`)
   await page.locator('.step-name', { hasText: 'Normalize' }).click()
   await page.locator('.step.open .params input[type=range]').first().fill('500')
-  await page.locator('.readout', { hasText: 'peak −18.0dBFS' }).waitFor()
+  await page.locator('.readout', { hasText: '−18.0 dBFS' }).waitFor()
   // a right-click on undo undoes nothing and opens nothing; a click undoes
   await page.getByRole('button', { name: 'Undo', exact: true }).click({ button: 'right' })
   await page.keyboard.press('Escape')
@@ -2127,7 +2291,8 @@ test('editor: a panel opening, or the window narrowing, keeps where the picture 
   const view = await page.locator('.view-slab').boundingBox()
   await drag([view.x + 300, view.y + 60], [200, 0])
   await page.mouse.move(view.x + 5, view.y + view.height - 30)
-  const edges = () => pixels(`const at = px => d[(40 * w + px) * 4]; let line = 0, end = -1; for (let px = 1; px < w - 60; px++) { if (at(px) > at(line)) line = px; if (at(px) > at(px + 1) + 4) end = px } return [line, end]`)
+  // read on a row 60 px down the lane
+  const edges = () => pixels(`const at = px => d[(60 * w + px) * 4]; let line = 0, end = -1; for (let px = 1; px < w - 60; px++) { if (at(px) > at(line)) line = px; if (at(px) > at(px + 1) + 4) end = px } return [line, end]`)
   const before = await edges()
   assert.ok(before[1] - before[0] > 190, JSON.stringify(before))
   await tab('Export')
@@ -2150,7 +2315,7 @@ test('editor: a number in the code drags, the output following, one step of the 
   assert.equal(await one.evaluate(el => getComputedStyle(el).cursor), 'ew-resize', 'its pointer says it drags')
   await page.mouse.move(at.x + at.width / 2 - 22, y, { steps: 5 })
   await page.waitForFunction(() => scriptText().includes('.normalize(-6)'))
-  await page.locator('.readout', { hasText: 'peak −6.0dBFS' }).waitFor()
+  await page.locator('.readout', { hasText: '−6.0 dBFS' }).waitFor()
   await page.mouse.up()
   await page.keyboard.press('ControlOrMeta+Z')
   await page.waitForFunction(() => scriptText().includes('.normalize(-1)'))
@@ -2177,7 +2342,7 @@ test('editor: an older output arriving while a newer edit is drawn ahead leaves 
   await noCues()
   await write(`for (const t = Date.now(); Date.now() - t < 1500;);\naudio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3
   await drag([x(1), y], [x(2) - x(1), 0])
   await page.keyboard.press('Delete')
   await page.waitForTimeout(700)
@@ -2283,21 +2448,21 @@ test('editor: no object literal in the page names a key twice', async () => {
   assert.deepEqual(warnings.filter(w => w.id === 'duplicate-object-key').map(w => `${w.location.file}:${w.location.line} ${w.text}`), [])
 })
 
-// The sound's end, at the view's middle: where its centre line stops, its silence drawn up to it as the level it is, and
-// the grid with it; no rule over it, nothing past it
+// The sound's end, two thirds across the view zoomed out as far as it goes: where its centre line stops, its silence
+// drawn up to it as the level it is, and the grid with it; no rule over it, nothing past it
 test('editor: the sound\'s end is where its centre line stops: no rule over it, nothing past it, no grid either', async () => {
   await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
   await open()
   await noCues()
   await write(`audio.from(t => t < 1 ? .5 * Math.sin(2 * Math.PI * 220 * t) : 0, { duration: 2 })`)
   await lengthIs('0:02.000')
-  await page.evaluate(() => { __view.frame = { range: [0, 4] } })
+  await page.evaluate(() => { __view.frame = { range: [0, 3] } })
   await page.mouse.move(2, 2)
   await page.waitForTimeout(300)
-  assert.deepEqual(await page.evaluate(() => __view.range), [0, 4])
-  // the plot's CSS px: the end at the lanes' middle; a column bright anywhere down the lane, in the screenshot (the
+  assert.deepEqual(await page.evaluate(() => __view.range), [0, 3])
+  // the plot's CSS px: the end two thirds across; a column bright anywhere down the lane, in the screenshot (the
   // centre line, 78% grey, over a near-black screen)
-  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), end = w / 2
+  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), end = w * 2 / 3
   const { k, lit } = await pixels(`const k = w / arg.width, lane = h - 22 * k, lit = []
     for (let x = 0; x < Math.round(arg.to * k); x++) for (let y = 0; y < lane; y++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 300) { lit.push(x / k); break } }
     return { k, lit }`, { width: box.width, to: w * .9 })
@@ -2305,46 +2470,62 @@ test('editor: the sound\'s end is where its centre line stops: no rule over it, 
   assert.ok(Math.abs(last - end) <= 1.5, `the centre line ends at the end: ${last} px, the end ${end} px`)
   assert.ok(silent > .95, `the silence before it drawn, its centre line: ${(silent * 100).toFixed(0)}% of its columns`)
   // the overlay, the grid: nothing at the end column or past it in the overlay; the grid where the sound is, not past it
-  await gridShown('Crosses + dots')
+  await settings('Grid', 'Lines')
+  await gridShown('Lines')
   const { rule, inside, beyond } = await page.evaluate(end => {
     const sum = (canvas, from, to) => { const k = canvas.width / canvas.clientWidth, { data, width, height } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height - Math.round(22 * k)); let s = 0; for (let x = Math.round(from * k); x < Math.round(to * k); x++) for (let y = 0; y < height; y++) s += data[(y * width + x) * 4 + 3]; return s }
-    const shown = (from, to) => { const { k, w, h, d } = window.__shown; let s = 0; for (let x = Math.round(from * k); x < Math.round(to * k); x++) for (let y = 0; y < h - Math.round(22 * k); y++) s += d[y * w + x]; return s }
-    return { rule: sum(document.querySelector('canvas.overlay'), end - 1, end * 1.8), inside: shown(0, end - 1), beyond: shown(end + 1, end * 1.8) }
+    // what shows of it: a level apart or more (a canvas composited a fraction of a pixel over is a level off here and there)
+    const shown = (from, to) => { const { k, w, h, d } = window.__shown; let s = 0; for (let x = Math.round(from * k); x < Math.round(to * k); x++) for (let y = 0; y < h - Math.round(22 * k); y++) s += d[y * w + x] > 1 ? d[y * w + x] : 0; return s }
+    return { rule: sum(document.querySelector('canvas.overlay'), end - 1, end * 1.35), inside: shown(0, end - 1), beyond: shown(end + 1, end * 1.35) }
   }, end)
   assert.equal(rule, 0, 'no rule over the end, nothing past it')
   assert.ok(inside > 0, 'the grid where the sound is')
   assert.equal(beyond, 0, 'none past its end')
 })
 
-// A touch screen's CSS pixel is rarely whole device pixels, which 1 px scanlines alias on: the slabs there are flat
-test('editor: on a touch screen the slabs have no scanlines', async () => {
-  const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true })
-  const p = await phone.newPage()
-  await p.goto(origin + '/playground.html')
-  const [coarse, scanline] = await p.evaluate(() => [matchMedia('(pointer: coarse)').matches, getComputedStyle(document.documentElement).getPropertyValue('--color-scanline').trim()])
-  await phone.close()
-  assert.ok(coarse, 'the page sees a coarse pointer')
-  assert.equal(scanline, 'transparent')
-  assert.notEqual(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--color-scanline').trim()), 'transparent', 'with a mouse, the scanlines')
+// The view short of the sound's end, its lanes fade there into the ground they lie on, the slab's, shaded to its foot: at
+// the lane's foot as at its top, the fade's last column the ground's colour, no band of another; the centre line fading
+// into it; the foot under the lanes, past the caret's reach, untouched
+test('editor: zoomed in, the lanes fade at their end into the slab\'s own ground, as tall as the caret', async () => {
+  await open()
+  await noCues()
+  await write(`audio.from(t => .2 * Math.sin(2 * Math.PI * 220 * t), { duration: 4 })`)
+  await lengthIs('0:04.000')
+  await page.locator('.plot').focus()
+  await page.keyboard.press('=')
+  await page.mouse.move(2, 2)
+  await page.waitForTimeout(600)
+  const box = await page.locator('.plot').boundingBox(), end = Math.round(await spans(box)) + TAIL, lane = tall(box)
+  const r = await pixels(`const at = (x, y) => d[(Math.round(y) * w + Math.round(x)) * 4], row = y => [at(arg.end - 2, y), at(arg.end - 100, y)]
+    return { top: row(3), foot: row(arg.lane - 6), under: row(arg.lane + 8), centre: row(arg.lane / 2) }`, { end, lane })
+  const same = ([a, b]) => Math.abs(a - b) <= 2
+  assert.ok(same(r.top) && same(r.foot) && same(r.under), `the ground's colour at the fade's end: ${JSON.stringify(r)}`)
+  assert.ok(r.centre[0] < r.centre[1] - 40, `the centre line faded: ${JSON.stringify(r.centre)}`)
+})
+
+// The slab is plain, its ground shaded to its foot: no lines over it, which read as the lanes' rules
+test('editor: the slab has no scanlines', async () => {
+  await open()
+  assert.equal(await page.locator('.panes').evaluate(e => getComputedStyle(e).backgroundImage.match(/gradient/g).length), 1)
 })
 
 // A phone held upright: the picture over the panel, half of the slab each, the bar between them; the panels' buttons
 // along the slab's foot, each staying where it is as its panel opens and closes; over the picture its head alone, undo
-// set apart from the tabs' new one
+// in the bar after the time
 test('editor: on a phone the panel opens under the picture, its buttons at the foot where they stay', async () => {
   const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true })
   const p = await phone.newPage()
   await chimeLeft(p)
   p.on('pageerror', e => errors.push(e.message))
   try {
-    await p.goto(origin + '/playground.html')
-    await p.waitForFunction(() => /^Loudness/.test((e => e?.title || e?.dataset.tip)(document.querySelector('.readout'))))
+    await p.goto(origin + '/playground/')
+    await p.waitForFunction(() => document.querySelector('.readout')?.dataset.of === 'all')
     const box = selector => p.locator(selector).boundingBox(), edits = p.getByRole('tab', { name: 'Edits', exact: true })
     const [slab, status, button] = [await box('.panes'), await box('.status'), await edits.boundingBox()]
     assert.ok(button.y >= status.y + status.height - 1 && slab.y + slab.height - (button.y + button.height) < 12, `at the foot: ${JSON.stringify({ slab, status, button })}`)
     assert.ok(button.width >= 44 && button.height >= 44, 'a finger\'s size')
-    const plus = await box('.file-new'), undo = await box('.history .undo')
-    assert.ok(undo.x - (plus.x + plus.width) >= 12, `undo apart from the tabs: ${undo.x - (plus.x + plus.width)} px`)
+    const time = await box('.time'), undo = await box('.history .undo')
+    assert.ok(undo.x >= time.x + time.width && undo.y >= status.y && undo.y + undo.height <= status.y + status.height, `undo in the bar after the time: ${JSON.stringify({ time, undo })}`)
     await edits.tap()
     await p.locator('.side-slab .add-step').waitFor()
     assert.deepEqual(await edits.boundingBox(), button, 'where it was')
@@ -2367,7 +2548,7 @@ test('editor: dragging a selection draws no picture of the sound again, only wha
   })
   await open()
   await page.waitForTimeout(500)
-  const box = await page.locator('.plot').boundingBox(), y = box.y + box.height / 3, frame = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
+  const box = await page.locator('.plot').boundingBox(), y = box.y + tall(box) / 3, frame = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
   await page.mouse.move(box.x + 100, y)
   await page.mouse.down()
   await frame()
@@ -2399,7 +2580,7 @@ test('editor: the axis is five characters wide at full scale, the same for eithe
     const text = CanvasRenderingContext2D.prototype.fillText
     CanvasRenderingContext2D.prototype.fillText = function (s, x, y) { if (this.canvas.matches('.overlay')) window.__said.push({ s, x }); return text.call(this, s, x, y) }
   })
-  const lane = (plot.height - 22 - 2) / 2, y = plot.y + lane / 2 - lane * .2
+  const lane = (tall(plot) - LANES) / 2, y = plot.y + lane / 2 - lane * .2
   const said = async () => {
     await page.evaluate(() => window.__said = [])
     await page.mouse.move(plot.x + plot.width / 3, y + (said.n = (said.n ?? 0) + 1) % 2 * 4)
@@ -2420,12 +2601,11 @@ test('editor: the axis is five characters wide at full scale, the same for eithe
   assert.ok((await said()).some(t => /^−\d{1,2}\.\d$/.test(t)), 'decibels to a tenth, no unit')
 })
 
-// The lanes ruled (Grid: Crosses + dots, the default), where the sound is quiet (2.5 to 3 s): a cross, its arms 3 px, where a
-// time row's tick meets a level's; a dot where their fifths meet (2.6 s, 0.3 of full scale, between the ticks at 2.5 s
-// and 3 s, 0.5 and 0); nothing halfway between those. Behind the waveform: none where a hit is (0.5 s, 0). In decibels,
-// a dot every 3 dB between the ticks (−3 dB). Lines (View, Grid): a line from each tick across the lane, fainter than a
-// cross, none at the finer steps. With None, or with no sound, nothing at all
-test('editor: the grid crosses where the ticks meet, dots where their finer steps do, or lines from the ticks; hides behind the waveform, and is gone with None or no sound', async () => {
+// The lanes bare (Grid: None, the default); with Lines (View, Grid), a faint line down from each of the time row's ticks
+// and across from each of the level axis', where the sound is quiet (2.5 to 3 s): at 2.5 s and at 0.5, none between the
+// ticks, none behind the waveform where a hit is (0.5 s, 0). In decibels, across from −6 dB's tick. With None, or with no
+// sound, nothing at all
+test('editor: the lanes bare, or lines from the ticks; hidden behind the waveform, and gone with None or no sound', async () => {
   await open()
   await page.mouse.move(2, 2)
   // the ticks drawn over the sound (the overlay's, the reel's marks: the time row's), each followed by its label
@@ -2435,49 +2615,6 @@ test('editor: the grid crosses where the ticks meet, dots where their finer step
     proto.fillRect = function (x, y, w, h) { if (this.canvas.matches('.overlay, .marks, .row')) window.__ticks.push({ x, y, w, h }); return rect.call(this, x, y, w, h) }
     proto.fillText = function (s, x, y) { if (this.canvas.matches('.overlay, .marks, .row')) window.__ticks.push({ s }); return text.call(this, s, x, y) }
   })
-  await settings('Grid', 'Crosses + dots')
-  // the layers laid again, each only as its drawing changes (view.js, kept.js): the pointer over the picture, then off it
-  await page.locator('.plot').hover({ position: { x: 10, y: 10 } })
-  await page.waitForTimeout(100)
-  await page.evaluate(() => window.__ticks = [])
-  await page.mouse.move(2, 2)
-  await page.waitForTimeout(200)
-  const calls = await page.evaluate(() => window.__ticks), at = {}
-  calls.forEach((c, i) => { if (c.w && calls[i + 1]?.s) at[calls[i + 1].s] ??= c.h === 1 ? c.y : c.x })
-  const [hit, c0, c1, r5, r0] = [at['0:00.5'], at['0:02.5'], at['0:03.0'], at['0.5'], at['0']]
-  assert.ok([hit, c0, c1, r5, r0].every(Number.isFinite), `ticks at 0.5 s, 2.5 s, 3 s, 0.5 and 0: ${JSON.stringify(at)}`)
-  // the most a 3 × 3 px square round each point is lit by the grid as it shows (gridShown), CSS px
-  const lit = points => page.evaluate(points => {
-    const { k, w, d } = window.__shown
-    return points.map(([x, y]) => { let m = 0; for (let j = Math.floor((y - 1) * k); j < Math.floor((y - 1) * k) + Math.ceil(3 * k); j++) for (let i = Math.floor((x - 1) * k); i < Math.floor((x - 1) * k) + Math.ceil(3 * k); i++) m = Math.max(m, d[j * w + i]); return m })
-  }, points)
-  const dx = (c1 - c0) / 5, dy = (r0 - r5) / 5
-  await gridShown('Crosses + dots')
-  const [cross, ...arms] = await lit([[c0, r5], [c0 - 3, r5], [c0 + 3, r5], [c0, r5 - 3], [c0, r5 + 3]])
-  assert.ok(cross && arms.every(Boolean), 'a cross at 2.5 s, 0.5')
-  assert.deepEqual((await lit([[c0 + 5, r5], [c0, r5 + 5]])).map(Boolean), [false, false], 'its arms 3 px')
-  assert.ok((await lit([[c0 + dx, r5 + dy * 2]]))[0], 'a dot at 2.6 s, 0.3')
-  assert.equal((await lit([[c0 + dx / 2, r5 + dy / 2]]))[0], 0, 'none between the dots')
-  assert.equal((await lit([[hit, r0]]))[0], 0, 'none behind the waveform')
-  // the levels in decibels: a cross at −6 dB's tick, a dot at −3 dB, 0.708 of full scale
-  await page.evaluate(() => window.__ticks = [])
-  await settings('Levels in', 'Decibels')
-  await page.mouse.move(2, 2)
-  await page.waitForTimeout(200)
-  const db = await page.evaluate(() => window.__ticks), r6 = db.find((c, i) => c.w && c.h === 1 && db[i + 1]?.s === '−6')?.y
-  assert.ok(Number.isFinite(r6), 'a tick at −6 dB')
-  await gridShown('Crosses + dots')
-  assert.ok((await lit([[c0, r6], [c0 + 3, r6], [c0, r6 + 3]])).every(Boolean), 'a cross at 2.5 s, −6 dB')
-  assert.ok((await lit([[c0 + dx, r0 - 10 ** (-3 / 20) * (r0 - r5) * 2]]))[0], 'a dot at 2.6 s, −3 dB')
-  // lines, from the View menu: down from 2.5 s and across from −6 dB, fainter than the cross was; none at 2.6 s, −3 dB
-  const [crossed] = await lit([[c0, r6]])
-  await menu('View', 'Grid', 'Lines')
-  await page.waitForTimeout(200)
-  await gridShown('Lines')
-  const [down, across, meet, finer] = await lit([[c0, r6 - 10], [c0 + 10, r6], [c0, r6], [c0 + dx, r0 - 10 ** (-3 / 20) * (r0 - r5) * 2]])
-  assert.ok(down && across, 'a line down from 2.5 s and across from −6 dB')
-  assert.ok(meet < crossed, `fainter than a cross: ${meet} < ${crossed}`)
-  assert.equal(finer, 0, 'none at the finer steps')
   // its rects, drawn as triangles in the waveform's canvas (view.js paintGrid; a waveform draws a strip), counted as the
   // picture is drawn
   await page.evaluate(() => {
@@ -2495,20 +2632,52 @@ test('editor: the grid crosses where the ticks meet, dots where their finer step
     await page.waitForTimeout(200)
     return !await page.evaluate(() => window.__ruled)
   }
-  await settings('Grid', 'Crosses + dots')
+  assert.ok(await blank(), 'bare by default: nothing ruled')
+  await settings('Grid', 'Lines')
+  // the layers laid again, each only as its drawing changes (view.js, kept.js): the pointer over the picture, then off it
+  await page.locator('.plot').hover({ position: { x: 10, y: 10 } })
+  await page.waitForTimeout(100)
+  await page.evaluate(() => window.__ticks = [])
+  await page.mouse.move(2, 2)
+  await page.waitForTimeout(200)
+  const calls = await page.evaluate(() => window.__ticks), at = {}
+  calls.forEach((c, i) => { if (c.w && calls[i + 1]?.s) at[calls[i + 1].s] ??= c.h === 1 ? c.y : c.x })
+  const [hit, c0, c1, r5, r0] = [at['0:00.5'], at['0:02.5'], at['0:03.0'], at['0.5'], at['0']]
+  assert.ok([hit, c0, c1, r5, r0].every(Number.isFinite), `ticks at 0.5 s, 2.5 s, 3 s, 0.5 and 0: ${JSON.stringify(at)}`)
+  // the most a 3 × 3 px square round each point is lit by the grid as it shows (gridShown), CSS px
+  const lit = points => page.evaluate(points => {
+    const { k, w, d } = window.__shown
+    return points.map(([x, y]) => { let m = 0; for (let j = Math.floor((y - 1) * k); j < Math.floor((y - 1) * k) + Math.ceil(3 * k); j++) for (let i = Math.floor((x - 1) * k); i < Math.floor((x - 1) * k) + Math.ceil(3 * k); i++) m = Math.max(m, d[j * w + i]); return m })
+  }, points)
+  const mid = [(c0 + c1) / 2, (r5 + r0) / 2]
+  await gridShown('Lines')
+  const [down, across, between, behind] = await lit([[c0, mid[1]], [mid[0], r5], mid, [hit, r0]])
+  assert.ok(down && across, 'a line down from 2.5 s and across from 0.5')
+  assert.equal(between, 0, 'none between the ticks')
+  assert.equal(behind, 0, 'none behind the waveform')
+  // the levels in decibels: a line across from −6 dB's tick
+  await page.evaluate(() => window.__ticks = [])
+  await settings('Levels in', 'Decibels')
+  await page.mouse.move(2, 2)
+  await page.waitForTimeout(200)
+  const db = await page.evaluate(() => window.__ticks), r6 = db.find((c, i) => c.w && c.h === 1 && db[i + 1]?.s === '−6')?.y
+  assert.ok(Number.isFinite(r6), 'a tick at −6 dB')
+  await gridShown('Lines')
+  assert.ok((await lit([[mid[0], r6]]))[0], 'a line across from −6 dB')
+  await settings('Grid', 'Lines')
   assert.ok(!await blank(), 'its rects drawn')
   await settings('Grid', 'None')
   assert.ok(await blank(), 'nothing with None')
   // nor where there is no sound: a new tab, empty
-  await settings('Grid', 'Crosses + dots')
+  await settings('Grid', 'Lines')
   await page.getByRole('button', { name: 'New tab' }).click()
   await page.locator('.empty').waitFor()
   assert.ok(await blank(), 'nothing with no sound')
 })
 
 // Three faders lying down for the settings, a spark for the agent, an open book for the recipes, the switches joined
-// (raised keys in one bezel), the export's icon an arrow down onto a tray; the pictures' switches open on a click alone
-test('editor: the settled icons; the switches are keys in a bezel; a picture\'s switch right-clicked opens nothing', async () => {
+// (raised keys in one bezel), the export's icon an arrow down onto a tray; a band's look opens on a click alone
+test('editor: the settled icons; the switches are keys in a bezel; a band\'s look right-clicked opens nothing', async () => {
   await open()
   const icon = name => page.getByRole('tab', { name, exact: true }).locator('path').getAttribute('d')
   const faders = await icon('Settings')
@@ -2522,12 +2691,12 @@ test('editor: the settled icons; the switches are keys in a bezel; a picture\'s 
   const group = page.locator('.export .choices').first()
   const [first, second] = await group.locator('button').evaluateAll(list => list.slice(0, 2).map(b => b.getBoundingClientRect()).map(r => [r.left, r.right]))
   assert.equal(second[0], first[1], 'raised keys in one bezel')
-  assert.notEqual(await group.evaluate(el => getComputedStyle(el).backgroundColor), 'rgba(0, 0, 0, 0)')
-  // a picture's switch right-clicked opens nothing, nor shows it
+  assert.match(await group.evaluate(el => getComputedStyle(el).boxShadow), /0px 0px 0px 1px inset/, 'the bezel a ring round them')
+  // a band's look right-clicked opens nothing, nor turns it
   await page.getByRole('tab', { name: 'Export', exact: true }).click()
-  await page.getByRole('tab', { name: 'Spectrogram', exact: true }).click({ button: 'right' })
+  await page.locator(':is(.lane-look, .layer-look):visible').click({ button: 'right' })
   assert.equal(await page.locator('.dropdown:popover-open').count(), 0, 'no dropdown')
-  assert.equal(await shown(), 'Waveform', 'not shown')
+  assert.equal(await shown(), 'Waveform', 'not turned')
 })
 
 // The edits as a stack of layers: a step chosen shows the output up to it; an edit made then goes in right after it, the
@@ -2550,7 +2719,7 @@ test('editor: an edit made with the output rolled back to a step goes in right a
 // Rolled back, a choice that sets the last step again in place (the grip's way, a fade's curve) leaves the steps after
 // the one shown alone: only what shows is set again, never a step hidden
 test('editor: rolled back to a step, the grip\'s way leaves a stretch after it as it is', async () => {
-  const { box, x, y } = await chime(), lh = (box.height - 22 - LANES) / 2
+  const { box, x, y } = await chime(), lh = (tall(box) - LANES) / 2
   await write(`audio('chime.wav').stretch(1.5, { at: 1, duration: 1 })`)
   await lengthIs('0:08.500')
   await tab('Edits')
@@ -2567,7 +2736,7 @@ test('editor: rolled back to a step, the grip\'s way leaves a stretch after it a
 // was selected before the step, redo what was selected after it. A stretch makes its range longer: undone, the range is
 // as long as it was; a delete leaves a caret: undone, its range is selected again
 test('editor: undo brings back what was selected before the step, redo what was selected after it', async () => {
-  const { box, x, y } = await chime(), lh = (box.height - 22 - LANES) / 2
+  const { box, x, y } = await chime(), lh = (tall(box) - LANES) / 2
   await drag([x(1), y], [x(2) - x(1), 0])
   await drag(await grab([[x(2) + 8, box.y + lh * 3 / 4]], /^url\(|ew-resize/), [x(1.5) - x(1), 0])
   await page.waitForFunction(() => /\.stretch\(1\.5, \{ at: 1, d: 1 \}\)$/.test(scriptText()))
@@ -2585,6 +2754,27 @@ test('editor: undo brings back what was selected before the step, redo what was 
   await page.keyboard.press('ControlOrMeta+Z')
   await page.waitForFunction(() => !/\.remove\(/.test(scriptText()))
   assert.equal(await selected(), '0:01.000–0:02.500', 'the range deleted, selected again')
+})
+
+// The menus by what they act on: the file, the selection, what is selected, the view, the tracks, the methods, what
+// plays and records. Each row does something: no row that only says what to do elsewhere (a disabled sentence), the
+// methods once (Process, not Edit too), the takes under Transport, as Record is
+test('editor: the menus, each by what it acts on, every row an action', async () => {
+  await open()
+  assert.deepEqual(await page.locator('.menubar-item').allInnerTexts(), ['File', 'Edit', 'Select', 'View', 'Track', 'Process', 'Transport', 'Help'])
+  const rows = async name => {
+    await page.locator('.menubar-item', { hasText: new RegExp(`^${name}$`) }).click()
+    const list = await page.locator('.menubar-list:popover-open > .menu-row').evaluateAll(r => r.map(x => ({ label: x.querySelector('.menu-label').textContent, sub: x.classList.contains('has-sub') })))
+    await page.keyboard.press('Escape')
+    return list
+  }
+  const all = {}
+  for (const name of ['File', 'Edit', 'Select', 'View', 'Track', 'Process', 'Transport']) all[name] = await rows(name)
+  const labels = Object.values(all).flat().map(r => r.label)
+  assert.ok(labels.every(l => !/^(A click|Another range|Shift with)/.test(l)), 'no sentence for a row')
+  assert.deepEqual(labels.filter((l, i) => labels.indexOf(l) !== i), [], 'each row once')
+  assert.ok(all.Edit.length <= 12 && all.Select.length <= 7, `Edit ${all.Edit.length}, Select ${all.Select.length}`)
+  assert.ok(all.Transport.some(r => r.label === 'Takes') && all.Transport.some(r => /^Record/.test(r.label)))
 })
 
 test('editor: Undo steps back through the script, a slider drag one step however long it pauses', async () => {
@@ -2687,24 +2877,24 @@ test('editor: a recipe goes on the sound as it is, over the selection when there
   await page.route(/huggingface\.co/, route => route.abort())
   await open()
   const chime = `audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .fade(0.02, 0.1)`
-  await menu('File', 'Recipes', 'Reduce noise')
+  await menu('Process', 'Recipes', 'Reduce noise')
   assert.equal(await code(), `${chime}\n  .omlsa()`)
   await menu('Edit', 'Undo')
   await page.waitForFunction(c => scriptText() === c, chime)
   await noCues()
-  const { box, x } = await axis(6.525), y = box.y + box.height / 3
+  const { box, x } = await axis(6.525), y = box.y + tall(box) / 3
   await drag([x(1), y], [x(2) - x(1), 0])
-  await menu('File', 'Recipes', 'Remove room echo')
+  await menu('Process', 'Recipes', 'Remove room echo')
   await page.waitForFunction(c => scriptText() === c, `${chime}\n  // Remove room echo\n    .highpass(80, { at: 1, d: 1 })\n    .dereverb({ at: 1, d: 1 })`)
   await menu('Edit', 'Undo')
   await page.waitForFunction(c => scriptText() === c, chime)
-  await menu('File', 'Recipes', 'Measure loudness')
+  await menu('Process', 'Recipes', 'Measure loudness')
   assert.match(await code(), /^let a = audio\('chime\.wav'\)\n  \.trim\(\)\n  \.normalize\(-1\)\n  \.fade\(0\.02, 0\.1\)\nlet \[lufs/)
-  await menu('File', 'Recipes', 'Measure loudness')
+  await menu('Process', 'Recipes', 'Measure loudness')
   assert.match(await code(), /\nlet a2 = a\nlet \[lufs2, peak2, range2\] = await a2\.stat\(\['loudness', 'db', 'lra'\]\)\nconsole\.log\(`\$\{lufs2\.toFixed\(1\)\} LUFS · peak \$\{peak2/)
   await page.waitForFunction(() => !document.querySelector('.message.problem'))
   const tabs = await page.locator('.files .file').count()
-  await menu('File', 'Recipes', 'Noise')
+  await menu('Process', 'Recipes', 'Noise')
   await page.waitForFunction(n => document.querySelectorAll('.files .file').length === n + 1, tabs)
   assert.equal(await code(), `audio.from(3).noise({ color: 'pink' })`)
 })
@@ -2742,7 +2932,7 @@ test('editor: a delivery check shows each rule for the result, and follows the s
 
 test('editor: a recipe made for a delivery spec checks the output against it', async () => {
   await open()
-  await menu('File', 'Recipes', 'Podcast episode')
+  await menu('Process', 'Recipes', 'Podcast episode')
   await tab('Export')
   assert.equal(await page.locator('.export').getByRole('button', { name: 'Apple Podcasts' }).getAttribute('aria-pressed'), 'true')
   await page.waitForFunction(() => { const r = [...document.querySelectorAll('.check-table:not(.stale) tbody td:nth-of-type(1)')]; return r.length && r.every(td => !td.textContent.includes('✗')) }, null, { timeout: 30000 })
@@ -2797,7 +2987,7 @@ test('editor: Before, at the bar\'s right, hears the file as it opened, lit whil
 // and checked in Play > Hear it before the edits
 test('editor: B plays the file as it opened, level-matched to the result, and a new output returns to the result', async () => {
   await open()
-  const heardBefore = async () => { await page.locator('.menubar-item', { hasText: /^Play$/ }).click(); const on = await page.locator('.menubar-list .menu-row', { has: page.locator('.menu-label', { hasText: /^Hear it before the edits$/ }) }).getAttribute('aria-checked'); await page.keyboard.press('Escape'); return on === 'true' }
+  const heardBefore = async () => { await page.locator('.menubar-item', { hasText: /^Transport$/ }).click(); const on = await page.locator('.menubar-list .menu-row', { has: page.locator('.menu-label', { hasText: /^Hear it before the edits$/ }) }).getAttribute('aria-checked'); await page.keyboard.press('Escape'); return on === 'true' }
   await page.locator('body').press('b')
   await page.locator('.message', { hasText: /^Hearing before the edits: the file as it opened, level-matched \([+−]\d+\.\ddB\)/ }).waitFor()
   assert.ok(await heardBefore())
@@ -2807,7 +2997,7 @@ test('editor: B plays the file as it opened, level-matched to the result, and a 
   await page.locator('body').press('b')
   await page.locator('.message', { hasText: /^Hearing before the edits/ }).waitFor()
   await write(`audio('chime.wav').normalize(-6)`)
-  await page.locator('.readout', { hasText: 'peak −6.0dBFS' }).waitFor()
+  await page.locator('.readout', { hasText: '−6.0 dBFS' }).waitFor()
   assert.ok(!await heardBefore(), 'the new output is heard')
   await write(`audio.from(t => Math.sin(2 * Math.PI * 440 * t), { duration: 1 })`)
   await page.locator('.source', { hasText: 'generated' }).waitFor()
@@ -2866,7 +3056,7 @@ test('editor: several files dropped open as tracks of one tab, exported a file e
   await lengthIs('0:00.750')
   const files = []
   page.on('download', d => files.push(d))
-  await menu('File', 'Export each track')
+  await menu('File', 'Export as', 'Each track')
   while (files.length < 2) await new Promise(r => setTimeout(r, 50))
   assert.deepEqual(files.map(d => d.suggestedFilename().replace(/^.*-/, '')), ['low.wav', 'high.wav'])
   const lengths = []
@@ -2891,7 +3081,7 @@ test('editor: the engine\'s worker loads ahead of the page\'s scripts, and the p
   await page.route('**/playground/editor.js', async route => { await held; route.continue() })
   await page.addInitScript(() => { const W = Worker; window.workers = 0; window.Worker = class extends W { constructor(...a) { super(...a); workers++ } } })
   const asked = page.waitForRequest('**/playground/dist/worker.js')
-  await page.goto(origin + '/playground.html', { waitUntil: 'commit' })
+  await page.goto(origin + '/playground/', { waitUntil: 'commit' })
   await asked
   release()
   await wholeLevels().waitFor()
@@ -2901,7 +3091,7 @@ test('editor: the engine\'s worker loads ahead of the page\'s scripts, and the p
 test('editor: an engine worker that fails to load ahead is replaced by the page\'s own', async () => {
   let first = true
   await page.route('**/playground/dist/worker.js', route => first ? (first = false, route.abort()) : route.continue())
-  await page.goto(origin + '/playground.html')
+  await page.goto(origin + '/playground/')
   await wholeLevels().waitFor()
   assert.equal(first, false, 'the first one failed')
 })
@@ -2915,8 +3105,8 @@ test('editor: a first visit opens on an empty tab, its ways in shown before the 
   const held = new Promise(r => release = r)
   await p.route(/\/(playground\/dist\/worker\.js|assets\/codemirror\.js|assets\/audio\.js)$/, async route => { await held; route.continue() })
   try {
-    await p.goto(origin + '/playground.html')
-    await p.locator('.empty-button', { hasText: 'Record' }).waitFor()
+    await p.goto(origin + '/playground/')
+    await p.locator('.empty').waitFor()
     assert.equal(await p.locator('#app').getAttribute('data-boot'), null, 'shown')
     assert.deepEqual(await p.locator('.files [role="tab"]').allInnerTexts(), ['untitled'])
     assert.equal(await p.locator('.cm-content').count(), 0, 'CodeMirror not come yet')
@@ -2925,9 +3115,9 @@ test('editor: a first visit opens on an empty tab, its ways in shown before the 
 
 // Every module the editor imports, however deep, is preloaded by the page, and none it doesn't import: none is found
 // an import at a time, a round trip each, and CodeMirror and the library, which come after the page shows, are not
-// among them (playground.html)
+// among them (playground/index.html)
 test('editor: the page preloads every module the editor imports, and nothing else', async () => {
-  const html = await readFile(resolve(root, 'playground.html'), 'utf8'), preloaded = [...html.matchAll(/<link rel="modulepreload" href="([^"]+)"/g)].map(m => m[1])
+  const html = await readFile(resolve(root, 'playground/index.html'), 'utf8'), preloaded = [...html.matchAll(/<link rel="modulepreload" href="([^"]+)"/g)].map(m => relative(root, resolve(root, 'playground', m[1])))
   const graph = new Set()
   const walk = async file => {
     if (graph.has(file)) return
@@ -2950,10 +3140,11 @@ test('editor: an edit made before CodeMirror comes is undone and redone once it 
   await p.route('**/assets/codemirror.js', async route => { await held; route.continue() })
   const text = () => p.evaluate(() => [...document.querySelectorAll('.cm-content .cm-line')].map(l => l.textContent).join('\n'))
   try {
-    await p.goto(origin + '/playground.html')
-    await p.locator('.empty-button', { hasText: 'Sample or generate' }).click()
-    await p.locator('#open-menu .menu-item', { hasText: 'chime.wav' }).first().click()
-    await p.waitForFunction(() => /^Loudness/.test((e => e?.title || e?.dataset.tip)(document.querySelector('.readout'))))
+    await p.goto(origin + '/playground/')
+    await p.locator('.empty').waitFor()
+    await p.locator('.menubar-item', { hasText: /^File$/ }).click()
+    for (const name of ['Sample or generate', 'chime.wav']) await p.locator('.menubar-list .menu-row:visible').filter({ has: p.locator('.menu-label', { hasText: new RegExp(`^${name.replace('.', '\\.')}$`) }) }).last().click()
+    await p.waitForFunction(() => document.querySelector('.readout')?.dataset.of === 'all')
     assert.equal(await p.locator('.history .undo').getAttribute('aria-disabled'), null, 'undoable already')
     release()
     await p.locator('.cm-content').waitFor({ state: 'attached' })
@@ -2962,7 +3153,7 @@ test('editor: an edit made before CodeMirror comes is undone and redone once it 
     await p.locator('.empty').waitFor()
     assert.equal(await text(), '')
     await p.getByRole('button', { name: 'Redo', exact: true }).click()
-    await p.waitForFunction(() => /^Loudness/.test((e => e?.title || e?.dataset.tip)(document.querySelector('.readout'))))
+    await p.waitForFunction(() => document.querySelector('.readout')?.dataset.of === 'all')
     assert.equal(await text(), `audio('chime.wav')`)
   } finally { release(); await p.close() }
 })
@@ -2970,20 +3161,20 @@ test('editor: an edit made before CodeMirror comes is undone and redone once it 
 test('editor: before the script runs, the intro shows nothing dead; while the first run renders, it stays away', async () => {
   // no script at all: the conditional parts (intro, toolbar) stay hidden instead of showing inert buttons
   await page.route('**/playground/editor.js', route => route.abort())
-  await page.goto(origin + '/playground.html')
+  await page.goto(origin + '/playground/')
   await page.waitForTimeout(300)
   assert.equal(await page.locator('.empty').isVisible(), false, '.empty')
-  // and what does show takes no clicks yet: the Open menu stays shut
+  // and what does show takes no clicks yet: the File menu stays shut
   assert.equal(await page.locator('#app').evaluate(el => getComputedStyle(el).pointerEvents), 'none')
-  await page.locator('.bar button', { hasText: 'Open' }).first().click({ force: true, timeout: 2000 }).catch(() => {})
-  assert.equal(await page.locator('#open-menu').evaluate(el => el.matches(':popover-open')), false)
+  await page.locator('.menubar-item', { hasText: /^File$/ }).click({ force: true, timeout: 2000 }).catch(() => {})
+  assert.equal(await page.locator('.menubar-list:popover-open').count(), 0)
   await page.unroute('**/playground/editor.js')
   errors.splice(0)  // the script this part withheld on purpose
   // a slow engine: the script is up, the first output isn't, and the view doesn't claim there's no sound
   let release
   const held = new Promise(r => release = r)
   await page.route('**/playground/dist/worker.js', async route => { await held; route.continue() })
-  await page.goto(origin + '/playground.html')
+  await page.goto(origin + '/playground/')
   await page.locator('.cm-content').waitFor({ state: 'attached' })
   await page.waitForTimeout(300)
   assert.equal(await page.locator('.empty').isVisible(), false, 'no intro while the first run renders')
@@ -3000,9 +3191,9 @@ test('editor: a new sound opens in a tab of its own, the script shown before it 
   await open()
   // a note alone: it stays, in its tab; the file in a tab after it
   await write('// my notes')
-  await page.locator('.empty-title').waitFor()
+  await page.locator('.empty').waitFor()
   const chooser = page.waitForEvent('filechooser')
-  await page.getByRole('button', { name: 'Open file', exact: true }).click()
+  await menu('File', 'Open file…')
   await (await chooser).setFiles({ name: 'tone.wav', mimeType: 'audio/wav', buffer: bytes })
   await page.waitForFunction(() => scriptText() === "audio('tone.wav')")
   await lengthIs('0:00.500')
@@ -3014,12 +3205,10 @@ test('editor: a new sound opens in a tab of its own, the script shown before it 
   await page.locator('.cm-content').click()
   await page.keyboard.press('ControlOrMeta+A')
   await page.keyboard.press('Backspace')
-  await page.locator('.empty-title').waitFor()
-  await page.getByRole('button', { name: 'Sample or generate', exact: true }).click()
-  const generator = await page.locator('#open-menu .menu-item').last().evaluate(tipOf)
-  await page.locator('#open-menu .menu-item').last().click()
-  await page.waitForFunction(g => scriptText() === g, generator)
-  await menu('File', 'Samples', 'chime.wav')
+  await page.locator('.empty').waitFor()
+  await menu('File', 'Sample or generate', 'Noise')
+  await page.waitForFunction(() => /^audio\.from/.test(scriptText()))
+  await menu('File', 'Sample or generate', 'chime.wav')
   await page.waitForFunction(() => scriptText() === "audio('chime.wav')")
   await lengthIs('0:08.000')
   assert.deepEqual(await tabs(), ['generated', 'tone.wav', 'chime.wav'])
@@ -3028,7 +3217,7 @@ test('editor: a new sound opens in a tab of its own, the script shown before it 
 test('editor: an output of no samples shows the empty view; the next output replaces it', async () => {
   await open()
   await write(`audio('chime.wav').crop({ at: 0, duration: 0 })`)
-  await page.locator('.empty-title', { hasText: 'Drop audio here' }).waitFor()
+  await page.locator('.empty', { hasText: 'Drop audio here' }).waitFor()
   assert.equal(await readout(), '')
   assert.ok(await page.getByRole('button', { name: 'Play' }).isDisabled())
   await write(`audio('chime.wav').reverse()`)
@@ -3053,6 +3242,20 @@ test('editor: a file dropped on the waveform of a generated sound goes in where 
   await page.waitForFunction(() => (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).split(' · ').pop() === '0:01.000')
 })
 
+// A file dropped under the lanes, in the room: a track of its own, named for it, from where it was let go
+test('editor: a file dropped under the lanes goes into a new track of its own there', async () => {
+  const { box, x } = await chime()
+  const bytes = await wavBytes([sine(.5, 440, .5)])
+  await page.evaluate(({ bytes, x, y }) => {
+    const target = document.querySelector('.plot'), data = new DataTransfer()
+    data.items.add(new File([new Uint8Array(bytes)], 'tone.wav', { type: 'audio/wav' }))
+    const at = { bubbles: true, cancelable: true, dataTransfer: data, clientX: x, clientY: y }
+    target.dispatchEvent(new DragEvent('dragover', at))
+    target.dispatchEvent(new DragEvent('drop', at))
+  }, { bytes: [...bytes], x: x(2), y: box.y + tall(box) + FOOT + ROOM / 2 })
+  await page.waitForFunction(() => /^let chime = audio\('chime\.wav'\)\n\nlet tone = audio\.from\(0\)\n  \.write\(audio\('tone\.wav'\), \{ at: (1\.99|2|2\.01) \}\)$/.test(scriptText()))
+})
+
 // While the worker is held (a loop, until its 5 s guard), a script naming a sample not made yet, then a newer script:
 // the page must end on the newer one, not on the older one arriving late.
 test('editor: the newest script is the one shown, even when an older one waited for a sample', async () => {
@@ -3065,7 +3268,7 @@ test('editor: the newest script is the one shown, even when an older one waited 
   await page.waitForTimeout(400)
   await write(`audio('chime.wav').reverse()`)
   await page.locator('.message', { hasText: 'Rendering' }).waitFor()
-  await page.waitForFunction(() => !document.querySelector('.message').textContent && /^Loudness/.test((e => e?.title || e?.dataset.tip)(document.querySelector('.readout'))), null, { timeout: 30000 })
+  await page.waitForFunction(() => !document.querySelector('.message').textContent && document.querySelector('.readout')?.dataset.of === 'all', null, { timeout: 30000 })
   await page.waitForTimeout(1000)
   assert.equal(await page.locator('.source').innerText(), 'chime.wav')
   assert.equal(await lengthText(), '0:08.000')
@@ -3113,7 +3316,7 @@ test('editor: play moves the clock, and a new output keeps playing where it was'
   await page.getByRole('button', { name: 'Pause' }).waitFor()
   await page.waitForFunction(() => document.querySelector('.time').textContent > '0:00.300')
   await write(`audio('chime.wav').normalize(-6)`)
-  await page.locator('.readout', { hasText: 'peak −6.0dBFS' }).waitFor()
+  await page.locator('.readout', { hasText: '−6.0 dBFS' }).waitFor()
   assert.ok(await page.getByRole('button', { name: 'Pause' }).isVisible())
   await page.getByRole('button', { name: 'Pause' }).click()
   await page.getByRole('button', { name: 'Play' }).waitFor()
@@ -3172,7 +3375,7 @@ test('editor: a sound longer than the page holds is drawn from its peaks and spe
   // zoomed in on the caret, 20 ms or so across, under a sample a pixel: the samples come, the line through them (the
   // peaks alone draw nothing there)
   const { box } = await axis(1820)
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height * .3)
+  await page.mouse.click(box.x + box.width / 2, box.y + tall(box) * .3)
   await page.locator('.plot').focus()
   for (let i = 0; i < 17; i++) await page.keyboard.press('=')
   // columns with ink off the silence line: the sine's, a twentieth of full scale either side; without its samples, at
@@ -3202,14 +3405,15 @@ test('editor: a sound longer than the page holds is drawn from its peaks and spe
   await page.getByRole('button', { name: 'Pause' }).click()
   // a selection's levels, from its leaves
   await page.keyboard.press('Shift+ArrowRight')
-  await page.waitForFunction(() => /^RMS −\d+\.\d dBFS$/.test((e => e.title || e.dataset.tip || '')(document.querySelector('.readout'))))
+  await page.locator('.readout[data-of="selection"]').waitFor()
+  assert.match(await levelsTable(), /^\S+–\S+\nPeak −\d+\.\d dBFS at \S+\nRMS −\d+\.\d dBFS\nCrest \d+\.\d dB$/)
 })
 
 test('editor: playback goes on without a gap while the page is busy', async () => {
   await page.addInitScript(taken)
   await open()
   await write(`audio.from(t => Math.sin(2 * Math.PI * 440 * t) / 2, { duration: 8 })`)
-  await page.locator('.readout', { hasText: 'peak −6.0dBFS' }).waitFor()
+  await page.locator('.readout', { hasText: '−6.0 dBFS' }).waitFor()
   await page.locator('.plot').focus()
   await page.keyboard.press('Space')
   await page.getByRole('button', { name: 'Pause' }).waitFor()
@@ -3232,14 +3436,14 @@ test('editor: playback goes on without a gap while the engine processes, and its
   await open()
   const sine = `audio.from(t => Math.sin(2 * Math.PI * 440 * t) / 2, { duration: 12 })`
   await write(sine)
-  await page.locator('.readout', { hasText: 'peak −6.0dBFS' }).waitFor()
+  await page.locator('.readout', { hasText: '−6.0 dBFS' }).waitFor()
   await page.locator('.plot').focus()
   await page.keyboard.press('Space')
   await page.getByRole('button', { name: 'Pause' }).waitFor()
   await page.waitForFunction(() => document.querySelector('.time').textContent > '0:00.300')
   await page.evaluate(() => { window.__taken.length = 0 })
   await write(`const s0 = performance.now()\nwhile (performance.now() - s0 < 3000);\n${sine}.gain(-1)`)
-  await page.locator('.readout', { hasText: 'peak −7.0dBFS' }).waitFor({ timeout: 15000 })
+  await page.locator('.readout', { hasText: '−7.0 dBFS' }).waitFor({ timeout: 15000 })
   await page.waitForTimeout(500)
   const [x, sr] = await page.evaluate(() => [window.__taken.flatMap(b => [...b]), window.__rate])
   let run = 0, longest = 0
@@ -3255,7 +3459,8 @@ test('editor: an error is said once, beside the time and at its line; the last o
   await write(`audio('chime.wav').gain(`)
   // said once, beside the time, in place of the output's figures; the output stays
   await page.locator('.message.problem', { hasText: 'Syntax error on line 1' }).waitFor()
-  assert.ok(await drawn() > .05, 'the last output still drawn')
+  const box = await page.locator('.plot').boundingBox()
+  assert.ok(await drawn() > .05 * tall(box) / (box.height - 22), 'the last output still drawn')
   await write(`let a = audio('chime.wav')\na.nope()`)
   await page.locator('.message.problem', { hasText: /nope.*line 2/ }).waitFor()
   await tab('Code')
@@ -3270,7 +3475,7 @@ test('editor: an error is said once, beside the time and at its line; the last o
   await page.reload()
   await page.locator('.message.problem', { hasText: 'missing.wav is not open' }).waitFor()
   assert.equal(await page.locator('.source').innerText(), 'missing.wav')
-  assert.equal(await page.locator('.empty-title').innerText(), 'Drop audio here')
+  assert.match(await page.locator('.empty').innerText(), /^Drop audio here/)
   // the fix clears it and the figures return
   await write(`audio('chime.wav')`)
   await wholeLevels().waitFor()
@@ -3345,12 +3550,20 @@ test('editor: every button of no words says what it is when pointed at', async (
   const untitled = await page.evaluate(() => [...document.querySelectorAll('button, output')]
     .filter(el => !el.textContent.trim() && !el.closest('[title], [data-tip], .cm-editor')).map(el => el.outerHTML.slice(0, 100)))
   assert.deepEqual(untitled, [])
-  assert.match(await page.locator('.readout').evaluate(tipOf), /^Loudness /)
+  assert.equal(await page.locator('.readout').getAttribute('data-of'), 'all')
 })
 
 // The time axis spans the plot less the level axis at its right, as wide as its labels (view.js axisWidth, --axis on the
 // slab); the lanes are 2 px apart (GAP), over the time row (RULER, 22 px)
 const LANES = 2
+// A sound's lanes fill the picture all told but their foot (FOOT px) and the room under it (ROOM px); a track's lane
+// TRACK px, its head line HEAD px over it where the layers are not beside the picture (view.js). `tall(box)`: a sound's
+// lanes, all told, in the plot `box`
+const TRACK = 160, ROOM = 80, FOOT = 18, HEAD = 20
+const tall = box => box.height - 22 - FOOT - ROOM
+// Each track's lane, as its layer has it (data-lane: its top and height from the picture's top), CSS px in the page:
+// { y, h } in order
+const tracksAt = () => page.locator('.layer').evaluateAll(els => els.map(e => { const [y, h] = e.dataset.lane.split(' ').map(Number), p = document.querySelector('.plot').getBoundingClientRect(); return { y: p.y + y, h } }))
 const gutter = () => page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.panes')).getPropertyValue('--axis')))
 // All of a sound shown spans the lanes less TAIL px (view.js): to --end px short of the plot's right, the meters past it
 const TAIL = 4
@@ -3432,8 +3645,9 @@ const heard = () => page.evaluate(() => {
   return { peak, finite }
 })
 
-// A 440 Hz hit every half second, decaying from full scale.
-const hits = `audio.from(t => Math.sin(2 * Math.PI * 440 * t) * Math.exp(-(t % 0.5) * 20), { duration: 2 })`
+// A 440 Hz hit every half second, decaying from full scale, within 0.02 of zero (its end, the ground's) a third of a
+// second after.
+const hits = `audio.from(t => Math.sin(2 * Math.PI * 440 * t) * Math.exp(-(t % 0.5) * 12), { duration: 2 })`
 // The hits' lines, where the caret steps by cues as by words (⌥ → on a Mac, Ctrl → elsewhere) from the start to the end,
 // each time it lands on as the clock says it, in px from the plot's left; the caret back at the start
 async function handles() {
@@ -3484,14 +3698,15 @@ test('editor: held Alt, every cue shows; held ⌘, only the one under the pointe
   await page.keyboard.up('ControlOrMeta')
 })
 
-// Zoomed out, the cues crowd: those shown none within 8 px of a plainer one, the main ones, as a map names its larger
+// Zoomed out, the cues crowd: those shown none within 24 px of a plainer one, the main ones, as a map names its larger
 // towns first; zoomed in, the rest come. A strike every 0.1 s for 60 s: 600, a few px apart across the view.
-test('editor: zoomed out, only the plainer cues show, none within 8 px of another; zoomed in, all', async () => {
+test('editor: zoomed out, only the plainer cues show, none within 24 px of another; zoomed in, all', async () => {
   await open()
   await write(`audio.from(t => Math.sin(2 * Math.PI * 440 * t) * Math.exp(-(t % 0.1) * 60) * (1 + (Math.floor(t / 0.1) % 5 === 0)), { duration: 60 })`)
   await lengthIs('1:00.000')
-  const runs = async () => pixels(`const out = []; let run = false; for (let x = 0; x < w - ${await gutter()}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 40; if (on && !run) out.push(x); run = on } return out`)
+  // the cues drawn, held Alt, across the lanes (the meter after them left out), the pointer's own line at 30 px too
   const box = await page.locator('.plot').boundingBox(), y = box.y + 40
+  const runs = async () => (await pixels(`const out = []; let run = false; for (let x = 0; x < ${await spans(box)}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 40; if (on && !run) out.push(x); run = on } return out`)).filter(x => Math.abs(x - 30) > 2)
   await page.mouse.move(box.x + 30, y)
   let shown = []
   await page.keyboard.down('Alt')
@@ -3499,8 +3714,8 @@ test('editor: zoomed out, only the plainer cues show, none within 8 px of anothe
   for (const until = Date.now() + 60000; shown.length < 20 && Date.now() < until; await page.waitForTimeout(300)) shown = await runs()
   const apart = Math.min(...shown.slice(1).map((x, i) => x - shown[i]))
   await page.keyboard.up('Alt')
-  assert.ok(shown.length > 20 && shown.length < (box.width - await gutter()) / 8 + 2, `${shown.length} shown across ${Math.round(box.width)} px`)
-  assert.ok(apart >= 7, `the closest ${apart} px apart`)
+  assert.ok(shown.length > 20 && shown.length < (box.width - await gutter()) / 24 + 2, `${shown.length} shown across ${Math.round(box.width)} px`)
+  assert.ok(apart >= 23, `the closest ${apart} px apart`)
   // zoomed in five halvings, under 2 s across: each of its 18 or so strikes, tens of px apart
   await page.locator('.plot').focus()
   for (let i = 0; i < 5; i++) await page.keyboard.press('=')
@@ -3512,9 +3727,243 @@ test('editor: zoomed out, only the plainer cues show, none within 8 px of anothe
   assert.ok(near.length >= 15, `zoomed in: ${near.length}`)
 })
 
+// Held Alt, a press held still is the caret's all the same, dragged and heard, no caret added, every cue showing as Alt
+// shows them while it goes; without Alt, the caret dragged onto a cue keeps its colour, a small triangle in the cues'
+// colour at its top and its foot marking the snap
+test('editor: held Alt, a press held takes the caret along, the cues showing; onto a cue, a triangle at its ends', async () => {
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
+  await open()
+  await write(hits)
+  await lengthIs('0:02.000')
+  const { box, x } = await axis(2), y = box.y + 40, w = await spans(box)
+  // the runs of the cues' colour across the lanes' top row, [x, …] px
+  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 60; if (on && !run) out.push(x); run = on } return out`)
+  let cue = []
+  for (const until = Date.now() + 8000; !cue.length && Date.now() < until; await page.waitForTimeout(200)) cue = (await handles()).map(px => px / w * 2).filter(t => Math.abs(t - 1) < .02)
+  const clock = async () => +(await page.locator('.time').innerText()).split(':')[1]
+  await page.mouse.move(x(.75), y)
+  await page.keyboard.down('Alt')
+  await page.mouse.down()
+  await page.waitForTimeout(650)
+  await page.mouse.move(x(1.25), y, { steps: 6 })
+  const shown = await lit()
+  await page.mouse.up()
+  await page.keyboard.up('Alt')
+  assert.ok(shown.length >= 3, `held Alt, the caret dragged: every cue, ${shown}`)
+  assert.equal(await selected(), '', 'nothing selected')
+  assert.ok(Math.abs(await clock() - 1.25) < .03, `the caret where it was let go: ${await clock()}`)
+  assert.equal(await page.evaluate(() => __view.carets.length), 1, 'no caret added')
+  // without Alt, the caret dragged onto the cue at 1 s: in the cues' colour, across 5 px about it, at its top and at its
+  // foot, its line in its own colour between
+  await page.mouse.move(x(.75), y)
+  await page.mouse.down()
+  await page.waitForTimeout(650)
+  await page.mouse.move(x(cue[0]) + 1, y, { steps: 6 })
+  await page.waitForTimeout(100)
+  const px = Math.round(x(cue[0]) - box.x), lane = tall(box)
+  const onto = await pixels(`const orange = (x, y) => { const i = (y * w + x) * 4; return d[i] - d[i + 2] > 30 }, row = y => [-3, -2, 2, 3].filter(dx => orange(arg.px + dx, y)).length
+    return { top: Math.max(row(1), row(2), row(4), row(5)), foot: Math.max(...[1, 2, 4, 5].map(dy => row(Math.round(arg.lane) - dy))), middle: orange(arg.px, Math.round(arg.lane / 2)) }`, { px, lane })
+  await page.mouse.up()
+  assert.ok(Math.abs(await clock() - cue[0]) < 2e-3, `the caret on the cue: ${await clock()}`)
+  assert.ok(onto.top >= 2 && onto.foot >= 2 && !onto.middle, `triangles at the caret's top and foot, its line its own colour: ${JSON.stringify(onto)}`)
+})
+
+// What a drag went onto: a marker by its name, a range's end by its name and end, as Figma names what an object snapped
+// to; a cue, nothing said, a faint wash fading from it to the side its sound is on (here a tone struck every half second,
+// gone quiet between: each strike where a sound starts, after it; where it has faded under the pauses' level, before)
+test('editor: a caret dragged onto a cue or a marker says what it went onto', async () => {
+  await open()
+  await write(hits + `\n  .mark(0.75, 'Intro')\n  .mark({ at: 1.6, d: 0.2 }, 'Coda')`)
+  await lengthIs('0:02.000')
+  const { box, x } = await axis(2), y = box.y + 40, w = await spans(box)
+  let cues = []
+  for (const until = Date.now() + 8000; !cues.some(t => Math.abs(t - 1) < .02) && Date.now() < until; await page.waitForTimeout(200)) cues = (await handles()).map(px => px / w * 2)
+  const start = cues.find(t => Math.abs(t - 1) < .02), end = cues.find(t => t > 1.1 && t < 1.45)
+  const said = () => page.locator('.hint').evaluate(e => e.hidden ? '' : e.textContent)
+  // the cues' colour 12 px either side of the line, half way down the lane: [before, after]
+  const washed = t => pixels(`const orange = x => { const i = (arg.y * w + x) * 4; return d[i] - d[i + 2] > 12 }; return [orange(arg.px - 12), orange(arg.px + 12)]`, { px: Math.round(x(t) - box.x), y: Math.round(tall(box) / 2) })
+  for (const [t, words, wash] of [[start, '', [false, true]], [end, '', [true, false]], [.75, 'Intro'], [1.8, 'Coda end']]) {
+    await page.mouse.move(x(.25), y)
+    await page.mouse.down()
+    // held, the press is the caret's: dragged, it goes along
+    await page.waitForTimeout(650)
+    await page.mouse.move(x(t) + 1, y, { steps: 6 })
+    await page.waitForTimeout(100)
+    assert.equal(await said(), words, `onto ${t}`)
+    if (wash) assert.deepEqual(await washed(t), wash, `onto ${t}, the wash on the sound's side`)
+    await page.mouse.up()
+  }
+  // let go and moved off it, nothing said
+  await page.mouse.move(x(1.75), box.y + 40)
+  await page.waitForTimeout(100)
+  assert.equal(await said(), '')
+})
+
+// A drag that snaps shows where it would: the caret held and dragged, or a range's edge, the cues either side of it
+// faint; held Alt, every one, the edge's drag too; pressed with Alt on a range's edge, the edge, as the caret held with
+// Alt is the caret, no range added
+test('editor: dragged, the caret or an edge shows the cues either side of it; with Alt every one, an edge pressed with Alt its own', async () => {
+  await open()
+  await write(hits)
+  await lengthIs('0:02.000')
+  const { box, x } = await axis(2), y = box.y + 40, w = await spans(box)
+  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 30; if (on && !run) out.push(x); run = on } return out`)
+  let cues = []
+  for (const until = Date.now() + 8000; cues.length < 5 && Date.now() < until; await page.waitForTimeout(200)) cues = (await handles()).map(px => px / w * 2)
+  // the caret held at 0.7 s, between the cues at 0.5 s and where that hit falls quiet, a third of a second on
+  const [before, after] = [cues.findLast(t => t < .7), cues.find(t => t > .7)]
+  await page.mouse.move(x(.65), y)
+  await page.mouse.down()
+  await page.waitForTimeout(650)
+  await page.mouse.move(x(.7), y, { steps: 3 })
+  const beside = await lit()
+  await page.mouse.up()
+  const near = (px, t) => Math.abs(px - (x(t) - box.x)) < 2
+  assert.ok(beside.length === 2 && near(beside[0], before) && near(beside[1], after), `the cues either side, at ${before} and ${after} s: ${beside}`)
+  // a range's edge pressed with Alt, dragged: the edge's own drag, every cue showing
+  await drag([x(.6), y], [x(1.2) - x(.6), 0])
+  await page.keyboard.down('Alt')
+  await page.mouse.move(x(1.2), y)
+  await page.mouse.down()
+  await page.mouse.move(x(1.4), y, { steps: 4 })
+  const all = await lit()
+  await page.mouse.up()
+  await page.keyboard.up('Alt')
+  assert.ok(all.length >= 5, `held Alt, every cue: ${all}`)
+  assert.match(await selected(), /^0:00\.\d+–0:01\.[34]\d+$/, 'its end dragged, no range added')
+})
+
+// An edit's output takes the picture in one step, all that is drawn of it ready: weighted (K), never a picture drawn
+// from its samples with the last output's levels as heard, the edit drawn ahead holding till they come (a delete once
+// flashed the old waveform for a frame, its new samples in before their levels)
+test('editor: weighted, an edit\'s output comes in one step, never a frame of the last one\'s levels', async () => {
+  await page.route('**/playground/view.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('  function draw() {\n', '  function draw() {\n    globalThis.__draws?.push({ ahead: !!pieces, stale: twinOf.size > 0 && twinsOf !== heardOf })\n') }) })
+  // the levels as heard withheld at will (`__deaf`), as when the worker has none to give
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('onheard: weighting => output', 'onheard: weighting => !globalThis.__deaf && output') }) })
+  const { x, y } = await chime()
+  await settings('Weighting', 'K-weighted')
+  await page.waitForTimeout(1000)
+  await drag([x(2), y], [x(3) - x(2), 0])
+  await page.evaluate(() => globalThis.__draws = [])
+  await page.keyboard.press('Delete')
+  await page.waitForFunction(() => /\.remove\(/.test(scriptText()))
+  await lengthIs('0:07.000')
+  await page.waitForTimeout(800)
+  const draws = await page.evaluate(() => globalThis.__draws)
+  assert.ok(draws.some(d => d.ahead) && draws.some(d => !d.ahead), `drawn ahead, then its output: ${JSON.stringify(draws)}`)
+  assert.deepEqual(draws.filter(d => d.stale), [], 'no picture of its samples with the last one\'s levels')
+  // none to be had for the next, as long as it (a level over a stretch): its samples drawn as they are, the last one's
+  // levels gone, never over them
+  await page.evaluate(() => { globalThis.__deaf = true; globalThis.__draws = [] })
+  await write(`${await code()}\n  .gain(-12, { at: 4, d: 1 })`)
+  await page.waitForFunction(() => globalThis.__draws.length > 1)
+  await page.waitForTimeout(800)
+  assert.deepEqual((await page.evaluate(() => globalThis.__draws)).filter(d => d.stale), [], 'none withheld: no picture with the last one\'s levels')
+})
+
+// Shift and a double-click extend what is selected to the fragment clicked, as Shift and a double-click extend a text's
+// selection by words: before it or after it, what was selected staying in it; from the caret, the caret to it. Shift and
+// a drag, held before the press or after it, show the cues either side of the end it moves, as an edge's drag does
+test('editor: Shift and a double-click extend the selection to the fragment; Shift and a drag shows the cues either side', async () => {
+  await open()
+  await write(bursts)
+  await lengthIs('0:02.500')
+  const { box, x } = await axis(2.5), y = box.y + tall(box) / 3, w = await spans(box)
+  const range = async () => (await selected()).split('–').map(t => +t.split(':')[1])
+  const near = ([a, b], [p, q]) => Math.abs(a - p) < .03 && Math.abs(b - q) < .03
+  let at = []
+  for (const until = Date.now() + 8000; at.length < 7 && Date.now() < until; await page.waitForTimeout(200)) at = (await handles()).map(h => h / w * 2.5)
+  await page.mouse.dblclick(x(.7), y)
+  assert.ok(near(await range(), [.5, .9]), String(await range()))
+  await keyed(['Shift'], () => page.mouse.dblclick(x(1.7), y))
+  assert.ok(near(await range(), [.5, 1.9]), `after it: ${await range()}`)
+  await keyed(['Shift'], () => page.mouse.dblclick(x(.2), y))
+  assert.ok(near(await range(), [0, 1.9]), `before it, what was selected staying: ${await range()}`)
+  await page.mouse.click(x(1.2), y)
+  await keyed(['Shift'], () => page.mouse.dblclick(x(2.2), y))
+  assert.ok(near(await range(), [1.2, 2.4]), `from the caret: ${await range()}`)
+  // Shift held, a drag from the caret: the cues either side of where its end is
+  await page.mouse.click(x(.2), y)
+  const lit = async () => pixels(`const out = []; let run = false; for (let x = 0; x < ${w}; x++) { const i = (4 * w + x) * 4, on = d[i] - d[i + 2] > 30; if (on && !run) out.push(x); run = on } return out`)
+  await page.keyboard.down('Shift')
+  await page.mouse.move(x(1.1), y)
+  await page.mouse.down()
+  await page.mouse.move(x(1.2), y, { steps: 3 })
+  const beside = await lit()
+  await page.mouse.up()
+  await page.keyboard.up('Shift')
+  const edge = t => beside.some(px => Math.abs(px - (x(t) - box.x)) < 3)
+  assert.ok(beside.length === 2 && edge(.9) && edge(1.5), `the cues either side of 1.2 s, where the pause before is: ${beside}`)
+})
+
+// A muted track's waveform drawn dim, the ground under it as it is: no veil over its lane, which lit the ground as a
+// selection does
+test('editor: a muted track\'s waveform is dim, its lane\'s ground as it was', async () => {
+  await open()
+  await noCues()
+  await write(`let a = audio.from(t => .6 * Math.sin(2 * Math.PI * 220 * t), { duration: 3 })\n\nlet b = audio.from(t => .6 * Math.sin(2 * Math.PI * 330 * t), { duration: 3 })`)
+  await page.locator('.track-mute').nth(1).waitFor()
+  await page.waitForTimeout(800)
+  const box = await page.locator('.plot').boundingBox()
+  const rows = await page.evaluate(() => [...document.querySelectorAll('.layer')].map(l => l.getBoundingClientRect().bottom))
+  // the second lane's ground near its top, and its waveform's middle, the brightest across its middle row
+  const look = () => pixels(`const at = (x, y) => d[(Math.round(y) * w + Math.round(x)) * 4]; let wave = 0; for (let x = 20; x < 400; x++) wave = Math.max(wave, at(x, arg.mid)); return { ground: at(200, arg.top), wave }`, { top: rows[1] - box.y + 6, mid: rows[1] - box.y + 80 })
+  const was = await look()
+  await page.locator('.track-mute').nth(1).click()
+  await page.waitForTimeout(500)
+  const now = await look()
+  assert.ok(Math.abs(now.ground - was.ground) <= 2, `the ground as it was: ${was.ground} → ${now.ground}`)
+  assert.ok(now.wave < was.wave - 40, `the waveform dim: ${was.wave} → ${now.wave}`)
+})
+
+// The third click of a triple-click, where the double one was, is a click: dragged a little on its way, never the audio
+// the double-click selected, which a press inside a selection otherwise carries
+test('editor: a triple-click\'s third press, nudged, moves no audio', async () => {
+  await open()
+  await noCues()
+  await write(bursts)
+  await lengthIs('0:02.500')
+  const { box, x } = await axis(2.5), y = box.y + tall(box) / 3
+  await page.mouse.dblclick(x(.7), y)
+  assert.notEqual(await selected(), '', 'the burst selected')
+  const before = await code()
+  await page.mouse.down()
+  await page.mouse.move(x(.7) + 20, y, { steps: 4 })
+  await page.mouse.up()
+  await page.waitForTimeout(400)
+  assert.equal(await code(), before, 'no audio moved')
+})
+
+// A sound's cues, however quiet it is beside a loud one, at any zoom, but none of the ground's: strikes every second, the
+// first 0.5 high, the next two 0.03 (a noise that is a sound), the last 0.01 (within 0.02 of zero, the ground)
+test('editor: a quiet sound has its cues by a loud one; within 0.02 of zero, none', async () => {
+  await open()
+  await write(`audio.from(t => Math.sin(2 * Math.PI * 440 * t) * Math.exp(-(t % 1) * 20) * (t < 1 ? 0 : t < 2 ? .5 : t < 4 ? .03 : .01), { duration: 5 })`)
+  await lengthIs('0:05.000')
+  const w = await spans(await page.locator('.plot').boundingBox()), near = (at, t) => at.some(s => Math.abs(s - t) < .03)
+  let at = []
+  for (const until = Date.now() + 8000; !(near(at, 1) && near(at, 3)) && Date.now() < until; await page.waitForTimeout(200)) at = (await handles()).map(h => h / w * 5)
+  assert.ok(near(at, 1) && near(at, 2) && near(at, 3), `the loud strike's and the quiet ones': ${at}`)
+  assert.deepEqual(at.filter(t => t > 3.9), [], `none of the ground's: ${at}`)
+})
+
+// The ground is no sound: between two bursts, blips of a tone 0.006 high, 100 ms on and off, within 0.02 of zero, where
+// the pauses are read (once over their level, an edge each); none of them a cue, the bursts' own edges staying
+test('editor: blips of the ground between two sounds make no cues; the sounds\' edges stay', async () => {
+  await open()
+  await write(`audio.from(t => t > .2 && t < .6 || t > 2.4 && t < 2.8 ? .5 * Math.sin(2 * Math.PI * 440 * t) : t > .6 && t < 2.4 && Math.floor(t * 10) % 2 ? .006 * Math.sin(2 * Math.PI * 1000 * t) : 0, { duration: 3 })`)
+  await lengthIs('0:03.000')
+  const w = await spans(await page.locator('.plot').boundingBox()), near = (at, t) => at.some(s => Math.abs(s - t) < .03)
+  let at = []
+  for (const until = Date.now() + 8000; !(near(at, .6) && near(at, 2.4)) && Date.now() < until; await page.waitForTimeout(200)) at = (await handles()).map(h => h / w * 3)
+  assert.ok(near(at, .6) && near(at, 2.4), `the bursts' edges: ${at}`)
+  assert.deepEqual(at.filter(t => t > .65 && t < 2.35), [], 'none in the blips between')
+})
+
 // The cues are where sounds start and end and where they hit, one list: each hit here (0.5 s apart), and where each falls
 // quiet before the next. A cue dragged warps the audio between the cues either side, which hold.
 test('editor: dragging a cue moves it, the audio on either side stretching to fit, the cues either side holding', async () => {
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('let output = null, incoming', 'globalThis.__output = () => output\nlet output = null, incoming') }) })
   await open()
   await write(hits)
   await lengthIs('0:02.000')
@@ -3545,7 +3994,10 @@ test('editor: dragging a cue moves it, the audio on either side stretching to fi
   assert.equal(markers.length, 3, JSON.stringify(markers))
   assert.ok(Math.abs(moved[0] - 1) < .03 && Math.abs(moved[1] - moved[0] - .2) < .01, JSON.stringify(markers))
   assert.ok(Math.abs(held[0] - prev) < .01 && Math.abs(held[1] - next) < .01, JSON.stringify([held, prev, next]))
-  // the moved hit is its marker now: dragged again, that marker moves on
+  // the moved hit is its marker now: dragged again, that marker moves on, once the output of the first drag has come and
+  // its cues with it (they replace the ones the view moved, a few pixels off, under a press on its way)
+  await page.waitForFunction(() => globalThis.__output()?.editor?.includes('.warp('))
+  await page.waitForTimeout(400)
   await dragCue(Array.from({ length: 13 }, (_, i) => [x(moved[1]) - 6 + i, y]), [x(.1) - x(0), 0])
   await page.waitForFunction(to => scriptText().includes(`, ${to}`) === false, moved[1])
   const later = await warps()
@@ -3571,9 +4023,10 @@ test('editor: dragging a cue moves it, the audio on either side stretching to fi
 // of its rings, and one dragged moves alone.
 test('editor: a dragged cue moves alone; the sound stretched around it makes no new cues', async () => {
   await open()
+  // the chime's strikes after its first, which the caret starts on
   let before = []
-  for (const until = Date.now() + 8000; before.length < 8 && Date.now() < until; await page.waitForTimeout(200)) before = await handles()
-  assert.ok(before.length >= 8, JSON.stringify(before))
+  for (const until = Date.now() + 8000; before.length < 7 && Date.now() < until; await page.waitForTimeout(200)) before = await handles()
+  assert.ok(before.length >= 7, JSON.stringify(before))
   // 0.2 s later, a cue with room for it either side
   const box = await page.locator('.plot').boundingBox(), dx = .2 / 6.525 * await spans(box)
   const k = before.findIndex((p, i) => i > 0 && i < before.length - 1 && before[i + 1] - p > dx * 1.5 && p - before[i - 1] > dx * .5)
@@ -3613,11 +4066,17 @@ test('editor: a cue dragged over a sustained sound leaves every other cue where 
 })
 
 // The gain line shows once there is a curve: a level change on a selection makes one (a trapezoid, its ramps 5 ms)
+// The line shows while its step is chosen in the edits, to be worked on; else it is out of sight
 test('editor: a level change draws the gain line; its points drag, above or mirrored below, and a double-click takes one away', async () => {
   await open()
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 440 * t), { duration: 2 })`)
   await lengthIs('0:02.000')
-  const { box, x } = await axis(2), mid = box.y + box.height * .4
+  // the edits open, beside the picture, all of the sound shown again in what is left of it
+  await tab('Edits')
+  await page.waitForTimeout(400)
+  await page.locator('.plot').focus()
+  await page.keyboard.press('0')
+  const { box, x } = await axis(2), mid = box.y + tall(box) * .4
   await page.mouse.move(x(.5), mid)
   await page.mouse.down()
   await page.mouse.move(x(1.5), mid, { steps: 5 })
@@ -3628,13 +4087,20 @@ test('editor: a level change draws the gain line; its points drag, above or mirr
   const [t, v] = await curve()
   assert.deepEqual(v, [0, 3, 3, 0])
   // the sine's −6.02 dBFS (20·log10 .5), 3 dB up where the curve is flat: −3.0, the selection's and the output's
-  // the selection's: its peak on the bar, its RMS in the tooltip
-  await page.waitForFunction(() => (e => (e.title || e.dataset.tip).startsWith('RMS ') && e.textContent === 'peak −3.0dBFS')(document.querySelector('.readout')))
+  // the selection's: its peak on the bar, its levels in the tooltip
+  await page.waitForFunction(() => (e => e.dataset.of === 'selection' && e.textContent === '−3.0 dBFS')(document.querySelector('.readout')))
+  assert.match(await levelsTable(), /\nPeak −3\.0 dBFS at /)
   await page.keyboard.press('Escape')
-  await wholeLevels().filter({ hasText: 'peak −3.0dBFS' }).waitFor()
+  await wholeLevels().filter({ hasText: '−3.0 dBFS' }).waitFor()
+  // none till its step is chosen
+  const card = page.locator('.step', { has: page.locator('.step-name', { hasText: 'Gain' }) })
+  await card.locator('.step-toggle').click()
+  // nothing selected, so a press on the line is the line's, not the selection's audio
+  await page.mouse.click(x(1.9), mid)
   // the line on its own scale (view.js GAIN): −36 dB at the lane's centre line to +12 at its edges, mirrored below
-  const lane = box.height - 22, centre = box.y + lane / 2, gy = (db, sign = 1) => centre - sign * (db + 36) / 48 * lane / 2
-  const near = (t, db, sign = 1) => Array.from({ length: 11 }, (_, i) => [x(t), gy(db, sign) - 5 + i])
+  const lane = tall(box), centre = box.y + lane / 2, gy = (db, sign = 1) => centre - sign * (db + 36) / 48 * lane / 2
+  // its height first, then out to 5 px either side: the points of a 5 ms ramp, 3 px across and 5 px up the lane, apart
+  const near = (t, db, sign = 1) => Array.from({ length: 11 }, (_, i) => [x(t), gy(db, sign) + (i % 2 ? -1 : 1) * Math.ceil(i / 2)])
   // between its points, the line itself: a press there adds one
   const line = await grab(near(1, 3), 'ns-resize')
   // a point, dragged toward the centre line: quieter
@@ -3658,26 +4124,26 @@ test('editor: dragging the pitch curve moves the whole pitch line, a voice\'s pi
   await open()
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 220 * t) * (t > 0.5 && t < 1.5), { duration: 2 })`)
   await lengthIs('0:02.000')
-  await menu('View', 'Pitch curve')
+  await menu('View', 'Show', 'Pitch curve')
   assert.equal(await shown(), 'Spectrogram')
   // the curve, wherever the spectrogram's scale puts 220 Hz: up its lane at 1 s
-  const { box, x } = await axis(2), up = Array.from({ length: Math.floor((box.height - 22) / 3) }, (_, i) => [x(1), box.y + box.height - 22 - 3 * i])
+  const { box, x } = await axis(2), up = Array.from({ length: Math.floor(tall(box) / 3) }, (_, i) => [x(1), box.y + tall(box) - 3 * i])
   // none over the waveform, which has no pitch axis: where the tone's 220 Hz would be on a voice's range (60 Hz to 1 kHz
   // on octaves, view.js VOICE), nothing to grab, the pitch line's 0 half a lane away from it
   await grab(up, 'ns-resize')
   await show('wave')
-  const f0y = box.y + (box.height - 22) * (1 - Math.log(220 / 60) / Math.log(1000 / 60))
+  const f0y = box.y + tall(box) * (1 - Math.log(220 / 60) / Math.log(1000 / 60))
   for (let i = 0; i < 9; i++) { await page.mouse.move(x(1), f0y - 4 + i); assert.notEqual(await page.locator('.plot').evaluate(el => el.style.cursor), 'ns-resize') }
   // Pitch curve off: back to the waveform the spectrogram was turned to from; on again, the spectrogram
   await show('spec')
-  await menu('View', 'Pitch curve')
+  await menu('View', 'Show', 'Pitch curve')
   assert.equal(await shown(), 'Waveform')
-  await menu('View', 'Pitch curve')
+  await menu('View', 'Show', 'Pitch curve')
   assert.equal(await shown(), 'Spectrogram')
   const at = await grab(up, 'ns-resize')
   await page.mouse.move(...at)
   await page.mouse.down()
-  const lh = box.height - 22
+  const lh = tall(box)
   await page.mouse.move(at[0], at[1] - lh * Math.sqrt(2.5 / 12), { steps: 6 })
   assert.match(await page.locator('.hint').innerText(), /^\+2st [3-6]\dct, A3([+−]\d+ct)? → .+, all of it$/)
   await page.mouse.up()
@@ -3696,8 +4162,8 @@ test('editor: a click on the pitch curve makes a point of the pitch line; dragge
   await open()
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 220 * t) * (t > 0.5 && t < 1.5), { duration: 2 })`)
   await lengthIs('0:02.000')
-  await menu('View', 'Pitch curve')
-  const { box, x } = await axis(2), up = t => Array.from({ length: Math.floor((box.height - 22) / 3) }, (_, i) => [x(t), box.y + box.height - 22 - 3 * i])
+  await menu('View', 'Show', 'Pitch curve')
+  const { box, x } = await axis(2), up = t => Array.from({ length: Math.floor(tall(box) / 3) }, (_, i) => [x(t), box.y + tall(box) - 3 * i])
   await page.mouse.click(...await grab(up(.7), 'ns-resize'))
   await page.waitForFunction(() => /\.pitch\(\{ t: \[0\.7\], v: \[0\] \}, \{ voice: true \}\)$/.test(scriptText().trim()))
   await page.mouse.click(...await grab(up(1.3), 'ns-resize'))
@@ -3709,7 +4175,7 @@ test('editor: a click on the pitch curve makes a point of the pitch line; dragge
   await heard()
   await page.mouse.move(...point)
   await page.mouse.down()
-  const lh = box.height - 22
+  const lh = tall(box)
   await page.mouse.move(point[0], point[1] - lh * Math.sqrt(1.5 / 12), { steps: 6 })
   await page.waitForTimeout(500)
   assert.match(await page.locator('.hint').innerText(), /^\+1st [3-6]\dct, A3([+−]\d+ct)? → /)
@@ -3735,7 +4201,8 @@ test('editor: the pitch curve\'s bends drag, bending the voice between the handl
   // a voice swinging ±2.2 semitones about 200 Hz twice a second: highest at 0.5, 1 and 1.5 s (200 + 8π cos 4πt Hz)
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * (200 * t + 2 * Math.sin(2 * Math.PI * 2 * t))), { duration: 2 })`)
   await lengthIs('0:02.000')
-  const { box, x } = await axis(2), lh = box.height - 22, { pitch } = tools(x, box, .5, 1.5)
+  // the pitch tool at the waveform lane's foot; the spectrogram it turns to fills the plot (lh)
+  const { box, x } = await axis(2), lh = tall(box), pitch = [tools(x, box, .5, 1.5).pitch[0], box.y + tall(box) + FOOT / 2]
   await drag([x(.5), box.y + 80], [x(1.5) - x(.5), 0])
   await page.mouse.click(...await grab([pitch], 'ns-resize'))
   assert.equal(await shown(), 'Spectrogram')
@@ -3758,11 +4225,11 @@ test('editor: the pitch curve\'s bends drag, bending the voice between the handl
 test('editor: the caret goes where the pointer presses; Play starts on its press; the loop switch leaves Space to play', async () => {
   await open()
   const { box, x } = await axis(6.525)
-  await page.mouse.move(x(2), box.y + box.height / 2)
+  await page.mouse.move(x(2), box.y + tall(box) / 2)
   await page.mouse.down()
   // times go by the zoom's 1-2-5 step just above a pixel (view.js unit): 6.5 s over this plot, 0.02 s
   await page.locator('.time', { hasText: /^0:02\.000$/ }).waitFor()
-  await page.mouse.move(x(3), box.y + box.height / 2, { steps: 4 })
+  await page.mouse.move(x(3), box.y + tall(box) / 2, { steps: 4 })
   await page.mouse.up()
   // the clock shows the caret, one time always, in the units the settings choose, as the time row writes them; after
   // it how long the selection is, in white, between bars as a length is marked; pointed at, the selection and its samples. The
@@ -3774,7 +4241,7 @@ test('editor: the caret goes where the pointer presses; Play starts on its press
   assert.equal(await page.locator('.length').evaluate(el => getComputedStyle(el).color), white)
   assert.match(await page.locator('.clock').evaluate(tipOf), /^Selected 0:02\.000–0:03\.000: 0:01\.000, 44100 samples/)
   assert.equal(await facts(), '44.1kHz stereo 16-bit')
-  assert.match(await readout(), /^peak −/)
+  assert.match(await readout(), /^−/)
   await settings('Times in', 's')
   assert.equal(await page.locator('.time').innerText(), '2.000s')
   assert.equal(await length(), '1.000s')
@@ -3812,7 +4279,7 @@ for (const width of [1280, 880]) test(`repl: the status bar holds still as a sel
     const rect = s => { const r = document.querySelector(`#status ${s}`).getBoundingClientRect(); return [Math.round(r.left), Math.round(r.width)] }
     return { ...Object.fromEntries(['.play', '.record', '.loop', '.clock', '.readout', '.facts'].map(s => [s, rect(s)])), message: rect('.message')[0] }
   })
-  const idle = await still(), { box, x } = await axis(6.525), y = box.y + box.height / 2
+  const idle = await still(), { box, x } = await axis(6.525), y = box.y + tall(box) / 2
   await page.mouse.move(x(1), y)
   await page.mouse.down()
   await page.mouse.move(x(3), y, { steps: 6 })
@@ -3834,10 +4301,55 @@ for (const width of [1280, 880]) test(`repl: the status bar holds still as a sel
   assert.ok(await page.locator('.readout').evaluate(e => e.scrollWidth <= e.clientWidth), 'the levels whole')
 })
 
+// The level and the facts after it one row of figures, as far apart each from the next, embedded as in the whole editor
+// (where nothing comes before the level, it keeps by the facts); a tablet's bar, an iPad's 768 px held upright, has
+// them all
+test('repl: the level and the facts as far apart as each other, embedded or not, a tablet\'s bar showing them', async () => {
+  const gaps = () => page.evaluate(() => {
+    const text = el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect() }
+    const all = [document.querySelector('.readout'), ...document.querySelectorAll('.facts .fact')].filter(e => getComputedStyle(e).display !== 'none' && e.getClientRects().length).map(text)
+    return all.slice(1).map((b, i) => Math.round(b.left - all[i].right))
+  })
+  await page.setViewportSize({ width: 768, height: 720 })
+  await open()
+  await wholeLevels().waitFor()
+  const whole = await gaps()
+  assert.ok(whole.length === 3 && whole.every(g => g === whole[0]), `the level and three facts, evenly: ${whole}`)
+  await page.goto(origin + '/blank.html')
+  const src = await page.evaluate(async () => {
+    await import('/playground/embed.js')
+    document.body.innerHTML = `<audio-repl panel="none" controls="play clock history loudness rate channels"><pre><code>audio('chime.wav')</code></pre></audio-repl>`
+    return new Promise(r => { const t = setInterval(() => { const f = document.querySelector('audio-repl iframe'); if (f) { clearInterval(t); r(f.getAttribute('src')) } }, 20) })
+  })
+  await page.setViewportSize({ width: 560, height: 400 })
+  await page.goto(new URL(src, origin).href)
+  await page.waitForFunction(() => /LUFS$/.test(document.querySelector('.readout')?.textContent))
+  const embedded = await gaps()
+  assert.ok(embedded.length === 2 && embedded.every(g => g === whole[0]), `embedded, as far apart: ${embedded}, the whole editor's ${whole[0]}`)
+})
+
+// Nothing in the bar runs past its end at any width, the panel shut or open: as it narrows, its parts give way (editor.css
+// @container bar, picture), the time and the length keeping their size where they did before undo and redo came after them
+test('repl: the status bar never runs past its end, from a wide window to a phone\'s', async () => {
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await open()
+  assert.equal(await page.locator('.clock').evaluate(e => getComputedStyle(e).getPropertyValue('--time-size').trim()), '40px', 'the time at its full size, wide')
+  const over = []
+  for (const side of [false, true]) {
+    if (side) await tab('Edits')
+    for (let width = 1400; width >= 340; width -= 6) {
+      await page.setViewportSize({ width, height: 720 })
+      const o = await page.evaluate(() => ['.status', '.status-main'].map(s => { const e = document.querySelector(s); return e.scrollWidth - e.clientWidth }))
+      if (Math.max(...o) > 1) over.push(`${width}${side ? ' open' : ''}: ${o}`)
+    }
+  }
+  assert.deepEqual(over, [])
+})
+
 test('editor: the playhead starts at the caret and only moves on, however late the device sounds', async () => {
   await open()
   const { box, x } = await axis(6.525)
-  await page.mouse.click(x(2), box.y + box.height / 2)
+  await page.mouse.click(x(2), box.y + tall(box) / 2)
   await page.locator('.time', { hasText: '0:02.000' }).waitFor()
   await page.keyboard.press('Space')
   // the clock each frame for half a second: never before 2 s (the device lags the render), never backwards
@@ -3855,7 +4367,7 @@ test('editor: the playhead starts at the caret and only moves on, however late t
 // there, never a frame where it was (what the speakers still play of it)
 test('editor: the caret put elsewhere while it plays goes there at once, never back', async () => {
   await open()
-  const { box, x } = await axis(6.525), y = box.y + box.height / 2
+  const { box, x } = await axis(6.525), y = box.y + tall(box) / 2
   await page.mouse.click(x(1), y)
   await page.keyboard.press('Space')
   await page.waitForFunction(() => document.querySelector('.play')?.getAttribute('aria-label') === 'Pause')
@@ -3889,7 +4401,7 @@ test('editor: played from past the middle of a zoomed view, the view glides the 
   await noCues()
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
   await lengthIs('0:20.000')
-  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + box.height / 2, at = f => box.x + f * w
+  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + tall(box) / 2, at = f => box.x + f * w
   await page.mouse.move(at(.5), y)
   for (let i = 0; i < 7; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
   const time = async () => { const [m, s] = (await page.locator('.time').innerText()).split(':'); return +m * 60 + +s }
@@ -3923,7 +4435,7 @@ test('editor: scrolled while it plays, the view stays where it was put till the 
   await noCues()
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
   await lengthIs('0:20.000')
-  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + box.height / 3
+  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + tall(box) / 3
   await page.mouse.move(box.x + 20, y)
   for (let i = 0; i < 10; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
   await page.mouse.click(box.x + 20, y)
@@ -3949,8 +4461,8 @@ test('editor: scrolled while it plays, the view stays where it was put till the 
   // the clock and the view read in one go: a frame apart, the view's span is a few frames' play
   const [c, at] = await page.evaluate(() => { const [m, s] = document.querySelector('.time').textContent.split(':'), [p, q] = __view.range; return [p, (+m * 60 + +s - p) / (q - p)] })
   assert.ok(c > put[0] && Math.abs(at - .5) < .15, `past the edge, followed: ${at.toFixed(2)} across`)
-  // over the scrollbar, at the time row's foot, the arrow, as over any scrollbar
-  await page.mouse.move(box.x + w / 2, box.y + box.height - 3)
+  // over the scrollbar, at the time row's top, the arrow, as over any scrollbar
+  await page.mouse.move(box.x + w / 2, box.y + box.height - 22 + 4)
   assert.equal(await page.locator('.plot').evaluate(e => e.style.cursor), 'default')
   await page.keyboard.press('Space')
 })
@@ -3982,7 +4494,8 @@ test('editor: a pinch zooms twice as far as the fingers spread, the wheel with C
   await page.evaluate(([x, y]) => document.querySelector('.plot').dispatchEvent(new WheelEvent('wheel', { deltaY: 100 * Math.log(2), ctrlKey: true, clientX: x, clientY: y, bubbles: true, cancelable: true })), [px, y])
   assert.ok(Math.abs(await span() / (q - p) - 4) < 1e-6, `merged, the span ×${(await span() / (q - p)).toFixed(3)}`)
   await page.mouse.move(px, y)
-  for (const dy of [100, 40, -100, -40]) {
+  // in, then out again, within the half again past the whole it zooms out to
+  for (const dy of [-100, -40, 100, 40]) {
     const was = await span()
     await page.keyboard.down('Control'); await page.mouse.wheel(0, dy); await page.keyboard.up('Control')
     assert.ok(Math.abs(await span() / was - Math.exp(.004 * dy)) < 1e-6, `a ${dy} px notch: ×${(await span() / was).toFixed(3)}`)
@@ -3997,7 +4510,7 @@ test('editor: zoomed while it plays, about the playhead, still followed', async 
   await noCues()
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
   await lengthIs('0:20.000')
-  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + box.height / 3
+  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + tall(box) / 3
   await page.mouse.move(box.x + 20, y)
   for (let i = 0; i < 10; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
   await page.mouse.click(box.x + 20, y)
@@ -4035,23 +4548,23 @@ test('editor: zoomed while it plays, about the playhead, still followed', async 
 // out to it, a press there bringing the view to it; a click on the clock's time does the same. Nothing of its line shows
 // past the lanes' end, between the meters and the labels. A click on the length shows the selection whole, again all of
 // it. Each goes there over 300 ms, not at once
-test('editor: out of sight, the caret stays at the lanes\' edge; its chevron on the time row, or the clock\'s time, brings the view to it; the length frames the selection, then all', async () => {
+test('editor: out of sight, the caret stays at the lanes\' edge; its chevron at its line\'s foot, or the clock\'s time, brings the view to it; the length frames the selection, then all', async () => {
   await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
   await open()
   await noCues()
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
   await lengthIs('0:20.000')
-  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + box.height / 3
+  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), y = box.y + tall(box) / 3
   const range = () => page.evaluate(() => __view.range), seen = async t => { const [a, b] = await range(); return t >= a && t <= a + (b - a) * .9 }
   await page.mouse.move(box.x + w / 2, y)
   for (let i = 0; i < 10; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
   await page.mouse.click(box.x + w / 2, y)
   const caret = await page.evaluate(() => __view.cursor)
-  // scrolled past it: at the lanes' left edge, its chevron on the time row there
+  // scrolled past it: at the lanes' left edge, its chevron at the foot of its line there
   await page.mouse.wheel(0, w * 3)
   await page.waitForTimeout(100)
   assert.ok(!await seen(caret), 'scrolled out of sight')
-  const foot = box.y + box.height - 22 + 7
+  const foot = box.y + tall(box) - 7
   await page.mouse.move(box.x + 6, foot)
   assert.equal(await page.locator('.plot').evaluate(e => e.style.cursor), 'pointer')
   assert.equal(await page.locator('.hint').evaluate(e => e.hidden ? '' : e.textContent), 'To the caret')
@@ -4096,14 +4609,15 @@ test('editor: out of sight, the caret stays at the lanes\' edge; its chevron on 
     opacity ??= lit[e - 1]
     assert.equal(lit[e - 1], opacity, `a caret at ${px - e} px from the lanes' end: as opaque as in sight`)
     if (px < e) continue
-    const chevron = (await cols(h + 7)).filter(c => c >= e - 9 && c < e - 1)
-    assert.ok(chevron.length >= 3, `a caret at ${px - e} px from the lanes' end: its chevron on the time row, ${chevron.length} columns`)
+    const chevron = (await cols(tall(box) - 7)).filter(c => c >= e - 9 && c < e - 1)
+    assert.ok(chevron.length >= 3, `a caret at ${px - e} px from the lanes' end: its chevron at its line's foot, ${chevron.length} columns`)
   }
-  // a range ending there: the squares of its end, its fade's in its top corner and its grip past it low in the lane, with
-  // its end in sight; with it past the lanes' end, none under the meters
+  // a range ending there, the pointer in it: the squares of its end, its fade's in its top corner and its grip past it
+  // 3/4 down the lane, with its end in sight; with it past the lanes' end, none under the meters
   for (const [px, shown] of [[e - 40, true], [e + 1, false]]) {
     await page.evaluate(([a, b]) => __view.select(a, b), [await timeAt(e - 200), await timeAt(px)])
-    for (const [py, from] of [[BOX / 2, px - BOX], [Math.round(h * 3 / 4) - 4, px]]) {
+    await page.mouse.move(box.x + e - 100, box.y + 30)
+    for (const [py, from] of [[BOX / 2, px - BOX], [Math.round(tall(box) * 3 / 4) - 4, px]]) {
       const lit = (await cols(py, shown ? 128 : 0)).filter(c => c >= from && c < from + BOX)
       assert.ok(shown ? lit.length >= BOX - 4 : !lit.some(c => c >= e), `a range ending ${px - e} px from the lanes' end, at ${py} px: ${lit.length} lit`)
     }
@@ -4168,6 +4682,42 @@ test('editor: the overview shows the whole sound under the time row; pressed or 
   await page.mouse.up()
   const [c] = await range()
   assert.ok(Math.abs(c - a + 2) < .1, `dragged 2 s back: ${a.toFixed(2)} → ${c.toFixed(2)}`)
+})
+
+// With tracks, the overview is the edited track's, as the bar's view is of it: another's lane pressed, that one's
+test('editor: with tracks, the overview shows the track edited', async () => {
+  await open()
+  await noCues()
+  await write(`let a = audio.from(t => t < 5 ? Math.sin(2 * Math.PI * 220 * t) * .5 : 0, { duration: 10 })\n\nlet b = audio.from(t => t < 5 ? 0 : Math.sin(2 * Math.PI * 220 * t) * .5, { duration: 10 })`)
+  await lengthIs('0:10.000')
+  await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
+  await settings('Scroll', 'Overview')
+  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter())
+  // (lit in any channel: a track's own colour, its waveform's)
+  const ink = f => pixels(`const x = Math.round(arg); let n = 0; for (let y = h - 26; y < h - 4; y++) { const i = (y * w + x) * 4; if (Math.max(d[i], d[i + 1], d[i + 2]) > 60) n++ } return n`, w * f)
+  const drawn = async (first, second) => { for (let i = 0; i < 20; i++) { if ((await ink(.25) > 4) === first && (await ink(.75) > 4) === second) return true; await page.waitForTimeout(50) } return false }
+  const lane = async i => (await tracksAt())[i].y + 20
+  await page.mouse.click(box.x + w / 2, await lane(0))
+  assert.ok(await drawn(true, false), 'a\'s: its first half')
+  await page.mouse.click(box.x + w / 2, await lane(1))
+  assert.ok(await drawn(false, true), 'b\'s: its second half')
+})
+
+// The overview drawn as a lane draws its waveform: gl-waveform's envelope, its body (Density) brightest at the centre
+// line and fading out to the peaks, where it was one shade, edge to edge (its min and max a column, at .55)
+test('editor: the overview draws the sound as its lanes do, its body brightest at its centre', async () => {
+  await open()
+  await noCues()
+  await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .5, { duration: 4 })`)
+  await lengthIs('0:04.000')
+  await settings('Scroll', 'Overview')
+  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter())
+  // a column at the middle: the brightest of each row of the strip, its lit rows' middle and a fifth of the way in
+  const shades = () => pixels(`const x = Math.round(arg), rows = []; for (let y = h - 26; y < h - 4; y++) { const i = (y * w + x) * 4; rows.push(Math.max(d[i], d[i + 1], d[i + 2])) } return rows`, w / 2)
+  let rows = []
+  for (let i = 0; i < 20 && rows.filter(v => v > 40).length < 6; i++) { rows = await shades(); await page.waitForTimeout(100) }
+  const lit = rows.map((v, i) => v > 40 ? i : -1).filter(i => i >= 0), top = lit[0], bottom = lit.at(-1), mid = Math.round((top + bottom) / 2), near = Math.round(top + (mid - top) / 5)
+  assert.ok(rows[mid] > rows[near] * 1.3, `the body brighter at its centre than near its peak: ${rows[mid]}, ${rows[near]} (${rows.join(' ')})`)
 })
 
 // Followed, the pictures and what is drawn in time over them are on a reel drawn past the view's end: the compositor
@@ -4423,18 +4973,18 @@ test('editor: zoomed in, the playhead goes on by the frames\' own time, however 
 // What the sound holds, in the status bar: the note at the caret (440 Hz is A4, ISO 16), a melody's compass over a
 // selection (A4 then E5, 659.26 Hz, 2^(7/12) × 440), and, over 6 s at least, the tempo and the key of all of it: clicks
 // every 0.5 s are 120 BPM, a C major triad (C4 E4 G4, 261.63, 329.63, 392 Hz) over them is in C major (Krumhansl-Kessler)
-test('editor: the status bar says the note at the caret, a selection\'s compass, the tempo and the key', async () => {
+test('editor: the status bar says the note at the caret, a selection\'s compass, or the tempo or the key, as chosen', async () => {
   await open()
   await noCues()
   const heard = text => page.waitForFunction(text => document.querySelector('.heard')?.textContent === text, text)
   await write(`audio.from(t => (t < 1 ? Math.sin(2 * Math.PI * 440 * t) : Math.sin(2 * Math.PI * 659.26 * t)) * .5, { duration: 2 })`)
   await lengthIs('0:02.000')
-  const { box, x } = await axis(2), y = box.y + box.height / 2
+  const { box, x } = await axis(2), y = box.y + tall(box) / 2
   await page.mouse.click(x(.5), y)
   await heard('A4')
   await page.mouse.click(x(1.5), y)
   await heard('E5')
-  assert.match(await page.locator('.heard').evaluate(tipOf), /^The note E5: the pitch at the caret/)
+  assert.equal(await page.locator('.heard').evaluate(tipOf), 'Note at the caret')
   await drag([x(.2), y], [x(1.8) - x(.2), 0])
   await heard('A4–E5')
   // no pitch, no note; too short for a tempo or a key
@@ -4444,8 +4994,23 @@ test('editor: the status bar says the note at the caret, a selection\'s compass,
   assert.equal(await page.locator('.heard').count(), 0)
   await write(`audio.from(t => { const b = t % 0.5; return (b < 0.03 ? Math.sin(2 * Math.PI * 1000 * t) * Math.exp(-b * 150) : 0) * .6 + [261.63, 329.63, 392].reduce((s, f) => s + Math.sin(2 * Math.PI * f * t), 0) / 15 }, { duration: 8 })`)
   await lengthIs('0:08.000')
-  await page.waitForFunction(() => / · 120 BPM · C major$/.test(document.querySelector('.heard')?.textContent))
-  assert.match(await page.locator('.heard').evaluate(tipOf), /120 BPM, the tempo of all of it: its halves agree within 4%\. C major, the key of all of it/)
+  // one thing said, chosen from its menu, pressed: the tempo, the key, each of all of it
+  const choose = async label => { await page.locator('.heard').click(); await menuRow(label).click() }
+  await page.locator('.heard').waitFor()
+  await choose('Tempo')
+  await heard('120 BPM')
+  assert.equal(await page.locator('.heard').evaluate(tipOf), 'Tempo of all of it')
+  await choose('Key')
+  await heard('C major')
+  assert.equal(await page.locator('.heard').evaluate(tipOf), 'Key of all of it')
+  // none clear (2 s, short of the 6 a key is read over): said so, its menu still there to choose another
+  await write(`audio.from(t => Math.sin(2 * Math.PI * 440 * t) * .5, { duration: 2 })`)
+  await lengthIs('0:02.000')
+  await heard('no key')
+  assert.match(await page.locator('.heard').evaluate(tipOf), /^No key clear in all of it: 6 s at least/)
+  await choose('Note or chord')
+  await page.mouse.click(x(1), y)
+  await heard('A4')
 })
 
 // Where chords sound, the status bar names the chord at the caret, a selection's chords in order, and, as it plays, the
@@ -4458,24 +5023,24 @@ test('editor: the status bar names the chord at the caret, a selection\'s chords
   const heard = re => page.waitForFunction(re => new RegExp(re).test(document.querySelector('.heard')?.textContent), re.source)
   await write(`audio.from(t => [[261.63, 329.63, 392], [220, 261.63, 329.63], [174.61, 220, 261.63]][Math.min(2, Math.floor(t / 2))].reduce((s, f) => s + Math.sin(2 * Math.PI * f * t), 0) * .2, { duration: 6 })`)
   await lengthIs('0:06.000')
-  const { box, x } = await axis(6), y = box.y + box.height / 2
+  const { box, x } = await axis(6), y = box.y + tall(box) / 2
   await page.mouse.click(x(1), y)
-  await heard(/^C( · |$)/)
-  assert.match(await page.locator('.heard').evaluate(tipOf), /^The chord at the caret, C \(Chordino on NNLS chroma\)/)
+  await heard(/^C$/)
+  assert.equal(await page.locator('.heard').evaluate(tipOf), 'Chord at the caret')
   await page.mouse.click(x(3), y)
-  await heard(/^Am( · |$)/)
+  await heard(/^Am$/)
   await page.mouse.click(x(5), y)
-  await heard(/^F( · |$)/)
+  await heard(/^F$/)
   // a selection just past a change: the chord it only touches is not counted
   await drag([x(.5), y], [x(4.1) - x(.5), 0])
-  await heard(/^C – Am( · |$)/)
+  await heard(/^C – Am$/)
   // as it plays, the chord at the playhead, said as it changes
   await page.mouse.click(x(.1), y)
   await page.locator('button.play').click()
   const said = await page.evaluate(() => new Promise(done => {
     const out = []
     const look = () => {
-      const t = document.querySelector('.heard')?.textContent.split(' · ')[0]
+      const t = document.querySelector('.heard')?.textContent
       if (t && t !== out.at(-1)) out.push(t)
       if (+document.querySelector('.time').textContent.split(':')[1] > 5.8) return done(out)
       requestAnimationFrame(look)
@@ -4483,6 +5048,22 @@ test('editor: the status bar names the chord at the caret, a selection\'s chords
     look()
   }))
   assert.deepEqual(said, ['C', 'Am', 'F'])
+})
+
+// With tracks, what is heard is the edited track's, not their mix's: a C major triad over a louder C2 bass (65.41 Hz)
+// is the chord in its own track, the note in the bass's
+test('editor: with tracks, the status bar names what the edited track holds', async () => {
+  await open()
+  await noCues()
+  const heard = re => page.waitForFunction(re => new RegExp(re).test(document.querySelector('.heard')?.textContent), re.source)
+  await write(`let keys = audio.from(t => [261.63, 329.63, 392].reduce((s, f) => s + Math.sin(2 * Math.PI * f * t), 0) * .15, { duration: 8 })\nlet bass = audio.from(t => Math.sin(2 * Math.PI * 65.41 * t) * .8, { duration: 8 })`)
+  await lengthIs('0:08.000')
+  await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
+  const { x } = await axis(8), lane = async i => (await tracksAt())[i].y + 20
+  await page.mouse.click(x(3), await lane(0))
+  await heard(/^C$/)
+  await page.mouse.click(x(3), await lane(1))
+  await heard(/^C2/)
 })
 
 // A search held at 0 a while, then let go: it stops there, the playhead gone with it (its layer hidden), the caret where
@@ -4587,10 +5168,10 @@ test('editor: Play held and dragged searches, let go it plays on at that speed t
   await page.waitForTimeout(200)
   const again = await runs()
   assert.ok(again > .25 && again < .6, `played again, 1×: 400 ms ran ${again} s`)
-  // held still past HOLD (500 ms, view.js), the line shows, the speed marked; let go, it plays on as it was
+  // held still past HOLD (400 ms, view.js), the line shows, the speed marked; let go, it plays on as it was
   await page.mouse.move(cx, cy)
   await page.mouse.down()
-  await page.waitForTimeout(300)
+  await page.waitForTimeout(200)
   assert.equal(await page.locator('.speed-axis').count(), 0, 'not yet')
   await page.locator('.speed-axis').waitFor({ timeout: 600 })
   assert.equal(await mark(), '1.0×')
@@ -4607,11 +5188,11 @@ test('editor: Play held and dragged searches, let go it plays on at that speed t
   await page.getByRole('button', { name: 'Play', exact: true }).waitFor()
   assert.equal(await runs(), 0, 'stopped there')
   // the Play menu, fastest at the top, sets the next playback's speed
-  await menu('Play', 'Speed')
+  await menu('Transport', 'Speed')
   assert.deepEqual((await page.locator('.menubar-list .menu-row:visible .menu-label').allInnerTexts()).filter(t => /×$/.test(t)), ['3×', '2×', '1.5×', '1.25×', '1×', '0.75×', '0.5×'], 'the fastest at the top')
   await page.keyboard.press('Escape')
   await page.keyboard.press('Escape')
-  await menu('Play', 'Speed', '1.5×')
+  await menu('Transport', 'Speed', '1.5×')
   await page.locator('button.play').click()
   await page.getByRole('button', { name: 'Pause' }).waitFor()
   await page.waitForTimeout(200)
@@ -4632,7 +5213,7 @@ test('editor: a pinch zooms the axis under the pointer, the frequencies or the t
   const { box, x } = await axis(2)
   // a box, as a ratio of its top frequency to its bottom, and its times
   const band = async () => {
-    await boxDrag([x(.5), box.y + box.height * .4], [x(1) - x(.5), box.height * .2 * (box.height - 24) / box.height])
+    await boxDrag([x(.5), box.y + tall(box) * .4], [x(1) - x(.5), tall(box) * .2])
     const [lo, hi] = (await readout()).match(/[\d.]+k?Hz/g).map(v => parseFloat(v) * (v.includes('k') ? 1000 : 1))
     const times = await selected()
     // the caret away from where the next box starts, which would drag it instead
@@ -4709,12 +5290,18 @@ test('editor: the spectrogram\'s frequency scale from its dropdown, snapping fro
   assert.equal(await now(), 'log')
   await show('spec')
   assert.equal(await now(), 'log', 'shown again, the same')
-  // its tab again, its dropdown, the spectrogram's groups in it; Esc closes it, a choice pressed or not
-  await page.getByRole('tab', { name: 'Spectrogram', exact: true }).click()
+  // its look, its dropdown, the spectrogram's groups in it; Esc closes it, a choice pressed or not
+  await page.locator(':is(.lane-look, .layer-look):visible').click()
   await choice('Frequency scale', 'Hertz').click()
   assert.equal(await now(), 'lin')
   await page.keyboard.press('Escape')
   assert.equal(await page.locator('.dropdown:popover-open').count(), 0, 'Esc closes it')
+  // the window left (another app; embedded, a press on the page around it): it closes, as the menus do, its look let go
+  await page.locator(':is(.lane-look, .layer-look):visible').click()
+  await page.locator('.dropdown:popover-open').waitFor()
+  await page.evaluate(() => dispatchEvent(new Event('blur')))
+  assert.equal(await page.locator('.dropdown:popover-open').count(), 0, 'it closes as the window leaves')
+  assert.equal(await page.locator(':is(.lane-look, .layer-look):visible').getAttribute('aria-expanded'), 'false')
   // a click on the frequencies switches nothing
   const box = await plot.boundingBox()
   await page.mouse.click(box.x + box.width - 20, box.y + box.height * .1)
@@ -4735,11 +5322,20 @@ test('editor: the spectrogram\'s frequency scale from its dropdown, snapping fro
 // the waveform's canvas, under the waveform (view.js paintGrid); { k (device px a CSS px), w, h, d (each pixel's largest
 // difference over its channels) }. `name`, the grid set now, set again after
 async function gridShown(name) {
-  const shot = async () => (await page.locator('.plot').screenshot()).toString('base64'), set = async g => { await settings('Grid', g); await page.mouse.move(2, 2); await page.waitForTimeout(200) }
+  // each shot of the page at rest: the settings' panel closed and gone, the plot its width again, nothing fading still
+  // (a hint going, a panel closing, faint over the picture)
+  const width = await page.locator('.plot').evaluate(el => el.clientWidth)
+  const rest = async () => {
+    await page.mouse.move(2, 2)
+    await page.waitForFunction(w => document.querySelector('.plot').clientWidth === w && !document.getAnimations().some(a => a instanceof CSSTransition && a.playState === 'running'), width)
+    await page.waitForTimeout(200)
+  }
+  const shot = async () => { await rest(); return (await page.locator('.plot').screenshot()).toString('base64') }
   const on = await shot()
-  await set('None')
+  await settings('Grid', 'None')
   const off = await shot()
-  await set(name)
+  await settings('Grid', name)
+  await rest()
   await page.evaluate(async ([a, b, width]) => {
     const read = async src => {
       const img = new Image()
@@ -4786,7 +5382,7 @@ audio.from([tone(1000, .5), tone(4000, .05)], { sampleRate: 48000 })`)
   await lengthIs('0:01.000')
   await show('spec')
   await page.waitForTimeout(300)
-  const box = await page.locator('.plot').boundingBox(), lh = (box.height - 22 - LANES) / 2, lanes = [[0, lh], [lh + LANES, 2 * lh + LANES]]
+  const box = await page.locator('.plot').boundingBox(), lh = (tall(box) - LANES) / 2, lanes = [[0, lh], [lh + LANES, 2 * lh + LANES]]
   const mel = f => 2595 * Math.log10(1 + f / 700), at = { log: f => Math.log2(f / 20) / Math.log2(24000 / 20), mel: f => mel(f) / mel(24000) }
   // the brightest pixel down the middle of each lane: its height in CSS px, its level
   const brightest = async () => pixels(`const k = w / arg.width, x = Math.round(arg.x * k)
@@ -4815,7 +5411,7 @@ audio.from([tone(1000, .5), tone(4000, .05)], { sampleRate: 48000 })`)
   await lengthIs('0:01.000')
   await show('spec')
   await page.waitForTimeout(300)
-  const box = await page.locator('.plot').boundingBox(), lh = (box.height - 22 - LANES) / 2, left = box.width - (await gutter()) - 42
+  const box = await page.locator('.plot').boundingBox(), lh = (tall(box) - LANES) / 2, left = box.width - (await gutter()) - 45
   const at = f => 1 - Math.log2(f / 20) / Math.log2(24000 / 20)
   // the meter's columns in the measuring red along a row a pixel under the pointer's (its guide runs on the pointer's)
   const red = y => page.evaluate(([y, left]) => {
@@ -4846,7 +5442,8 @@ test('editor: the waveform fill is as bright as the signal is often at that leve
   await page.waitForTimeout(800)
   // brightness down the middle column, from the top of the lane to its centre line
   const column = await pixels(`const x = w >> 1, out = []; for (let y = 0; y < h; y++) { const i = (y * w + x) * 4; out.push(d[i] + d[i + 1] + d[i + 2]) } return out`)
-  const lit = column.map((v, y) => [v, y]).filter(([v]) => v > 90), top = lit[0][1], mid = Math.round(column.length * (1 - 22 / (await page.locator('.plot').boundingBox()).height) / 2)
+  const box = await page.locator('.plot').boundingBox()
+  const lit = column.map((v, y) => [v, y]).filter(([v]) => v > 90), top = lit[0][1], mid = Math.round(column.length * tall(box) / box.height / 2)
   const near = column[mid - 2], far = column[Math.round(top + (mid - top) * .15)]
   assert.ok(near > far * 1.4, `near the centre line ${near}, near the peak ${far}`)
   // a body, not a line at silence: a tenth of the way out to the peak nearly as bright as by the centre line (gl-waveform
@@ -4880,9 +5477,12 @@ test('editor: output and bar are one block, the panel docked at the output\'s ri
   assert.ok(await edits(), 'a panel stored under an old name opens on the edits')
 })
 
-// Shows the waveform or the spectrogram, by its tab (shown, it stays); which one shows, by its tab
-const show = async name => { const t = page.getByRole('tab', { name: name === 'spec' ? 'Spectrogram' : 'Waveform', exact: true }); if (await t.getAttribute('aria-selected') !== 'true') await t.click() }
-const shown = () => page.locator('.status .display [aria-selected="true"]').getAttribute('aria-label')
+// Shows the waveform or the spectrogram, every band (View; shown, it stays); what the last band shows, by its look
+const show = name => menu('View', name === 'spec' ? 'Spectrogram' : 'Waveform')
+const shown = async () => {
+  await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
+  return (await page.locator(':is(.lane-look, .layer-look):visible').last().getAttribute('aria-label')).replace(/^.*: /, '')
+}
 
 test('editor: a box on the spectrogram selects a band, plays it alone, and Delete writes spectral() for it', async () => {
   await open()
@@ -4892,11 +5492,11 @@ test('editor: a box on the spectrogram selects a band, plays it alone, and Delet
   await show('spec')
   const { box, x } = await axis(2)
   // a drag there selects time, as on the waveform
-  await drag([x(.5), box.y + box.height * .3], [x(1) - x(.5), box.height * .2])
+  await drag([x(.5), box.y + tall(box) * .3], [x(1) - x(.5), box.height * .2])
   assert.match(await selected(), /^0:00\.50\d–0:01\.00\d$/)
   assert.doesNotMatch(await readout(), /Hz/)
   await page.keyboard.press('Escape')
-  await boxDrag([x(.5), box.y + box.height * .3], [x(1) - x(.5), box.height * .2])
+  await boxDrag([x(.5), box.y + tall(box) * .3], [x(1) - x(.5), box.height * .2])
   // the palette offers what a band takes first
   await page.keyboard.press('ControlOrMeta+K')
   assert.equal(await page.locator('.palette-group').first().innerText(), 'For the band')
@@ -4917,14 +5517,14 @@ test('editor: a box on the spectrogram selects a band, plays it alone, and Delet
   await settings('Frequency scale', 'Octaves')
   assert.equal(await page.locator('.plot').getAttribute('data-scale'), 'log')
   await page.keyboard.press('Escape')
-  await boxDrag([x(.5), box.y + box.height * .3], [x(1) - x(.5), box.height * .2])
+  await boxDrag([x(.5), box.y + tall(box) * .3], [x(1) - x(.5), box.height * .2])
   await page.keyboard.press('Delete')
   await page.waitForFunction(() => /\.spectral\(/.test(scriptText()))
   const [, lo, hi, at, duration] = (await code()).match(/\.spectral\(\[([\d.]+), ([\d.]+)\], \{ at: ([\d.]+), d: ([\d.]+) \}\)/).map(Number)
   assert.ok(30 < lo && lo < hi && hi < 22050, `${lo} ${hi}`)
   assert.ok(Math.abs(at - .5) < .01 && Math.abs(at + duration - 1) < .01, `${at} ${duration}`)
   // near a mark on the frequency axis, an edge takes its value: 2 kHz and 500 Hz on the log axis, 20 Hz to Nyquist
-  const lane = box.height - 22, fy = f => box.y + lane - Math.log2(f / 20) / Math.log2(22050 / 20) * lane
+  const lane = tall(box), fy = f => box.y + lane - Math.log2(f / 20) / Math.log2(22050 / 20) * lane
   await page.mouse.click(x(1.9), box.y + 20)
   await boxDrag([x(1.2), fy(2000) + 3], [x(1.6) - x(1.2), fy(500) - fy(2000) - 5])
   await page.keyboard.press('Delete')
@@ -4960,7 +5560,7 @@ test('editor: a band taken out redraws only where it was, the rest of the pictur
   await write(`audio.from(240).noise({ color: 'pink' }).gain(-20)`)
   await lengthIs('4:00.000')
   await show('spec')
-  const { box, x } = await axis(240), lane = box.height - 22
+  const { box, x } = await axis(240), lane = tall(box)
   // the left quarter of the lanes, as a fingerprint of its pixels
   const left = () => pixels(`let s = 0; for (let y = 10; y < h - 30; y += 3) for (let x = 0; x < arg; x += 2) { const i = (y * w + x) * 4; s = (s * 31 + d[i] + d[i + 1] * 7 + d[i + 2] * 13) % 1000000007 } return s`, Math.round(x(54) - box.x))
   await page.mouse.click(x(180), box.y + lane * .5)
@@ -4990,7 +5590,7 @@ test('editor: ⌘ pressed while a range is dragged on the spectrogram makes it a
   await write(hits)
   await lengthIs('0:02.000')
   await show('spec')
-  const { box, x } = await axis(2), lane = box.height - 22
+  const { box, x } = await axis(2), lane = tall(box)
   await page.mouse.move(x(.25), box.y + lane * .3)
   await page.mouse.down()
   await page.mouse.move(x(.5), box.y + lane * .5, { steps: 4 })
@@ -5015,7 +5615,7 @@ test('editor: Alt and a drag on the spectrogram adds another box; Delete takes e
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
   await show('spec')
-  const { box, x } = await axis(8), lane = box.height - 22
+  const { box, x } = await axis(8), lane = tall(box)
   await boxDrag([x(1), box.y + lane * .2], [x(2) - x(1), lane * .1])
   // Shift pressed and let go on the way loses none
   await page.keyboard.down('Alt')
@@ -5035,6 +5635,7 @@ test('editor: Alt and a drag on the spectrogram adds another box; Delete takes e
   await page.keyboard.press('Escape')
   // a method from the context menu, for each box's time: the clicks in each taken out
   await page.mouse.click(x(1.5), box.y + lane * .25, { button: 'right' })
+  await menuRow('Process').click()
   await menuRow('Repair').click()
   await menuRow('Remove the clicks in each').click()
   await page.waitForFunction(() => (scriptText().match(/\.declick\(\{ at: [\d.]+, d: [\d.]+ \}\)/g) || []).length === 2)
@@ -5093,7 +5694,7 @@ test('editor: a sound longer than the page holds sounds under the caret as it is
 test('editor: the caret drags like an edge from its line, a press on the time row puts it there, and the moment under it sounds while held', async () => {
   await page.addInitScript(tap)
   await open()
-  const { box, x } = await axis(6.525), row = box.y + box.height - 8, lane = box.y + box.height / 2
+  const { box, x } = await axis(6.525), row = box.y + box.height - 8, lane = box.y + tall(box) / 2
   // the mark in the bar: the logo at rest, the wave under the caret while it sounds, turned by the caret's travel
   const markShot = () => page.locator('.bar .wordmark .logo > canvas').screenshot()
   // how far apart two shots are, gray levels a pixel: a turn that ends back at the pose leaves a hair's width of it
@@ -5149,7 +5750,7 @@ test('editor: the caret drags like an edge from its line, a press on the time ro
 })
 
 // The time row is a ruler, as a DAW's: dragged, it selects from where it was pressed; clicked, the caret goes there
-// alone, what is selected staying; held still half a second (HOLD, view.js, as Play's), the caret, dragged, the
+// alone, what is selected staying; held still 0.4 s (HOLD, view.js, as Play's), the caret, dragged, the
 // selection staying; with Alt, another range beside it
 test('editor: a drag on the time row selects, a click there moves the caret alone, held it drags the caret', async () => {
   await open()
@@ -5175,7 +5776,7 @@ test('editor: a drag on the time row selects, a click there moves the caret alon
 // its start, the edge takes the press; only clicked, it is a click: the caret there alone
 test('editor: inside a selection the caret drags, the selection kept; on the selection\'s edge, the edge drags', async () => {
   await open()
-  const { box, x } = await axis(6.525), row = box.y + box.height - 8, lane = box.y + box.height / 2
+  const { box, x } = await axis(6.525), row = box.y + box.height - 8, lane = box.y + tall(box) / 2
   const drag = async (a, b) => { await page.mouse.move(x(a), lane); await page.mouse.down(); for (let i = 1; i <= 8; i++) await page.mouse.move(x(a + (b - a) * i / 8), lane); await page.mouse.up() }
   const caret = async () => { const [m, s] = (await page.locator('.time').innerText()).split(':'); return +m * 60 + +s }
   await drag(1, 3)
@@ -5375,7 +5976,7 @@ test('editor: a band quieter or louder is one spectral() call, changed in place 
   await lengthIs('0:02.000')
   await show('spec')
   const { box, x } = await axis(2)
-  await boxDrag([x(.5), box.y + box.height * .3], [x(1) - x(.5), box.height * .2])
+  await boxDrag([x(.5), box.y + tall(box) * .3], [x(1) - x(.5), box.height * .2])
   await palette('This band 6 dB quieter')
   await page.waitForFunction(() => /\.spectral\(\[\d+, \d+\], -6, \{ at: 0\.5, d: 0\.5 \}\)$/.test(scriptText()))
   await palette('This band 6 dB quieter')
@@ -5388,6 +5989,15 @@ test('editor: a script that opens with gain() loads, its gain line drawn', async
   await page.addInitScript(() => localStorage.setItem('audio-repl', JSON.stringify({ side: 'code', code: `audio('chime.wav').gain(-6).gain({ t: [0, 1], v: [0, -6] })` })))
   await open()
   assert.match(await code(), /\.gain\(-6\)/)
+})
+
+// Wide and short, a laptop's window or a landscape phone's: the panel beside the picture, not a sheet over its tracks
+test('editor: a wide, short window keeps the panel beside the picture', async () => {
+  await page.setViewportSize({ width: 1280, height: 480 })
+  await open()
+  await tab('Edits')
+  const [side, view] = await Promise.all(['.side-slab', '.view-slab'].map(s => page.locator(s).boundingBox()))
+  assert.ok(side.x >= view.x + view.width - 1 && side.y < view.y + view.height / 2, `the panel at ${side.x},${side.y}, the picture ${view.x}–${view.x + view.width}`)
 })
 
 // On a narrow screen held upright a panel opens under the output, the whole width, the bar between them, as much of the
@@ -5422,6 +6032,9 @@ test('editor: a file over a slow connection shows as it arrives, with how much h
   await write(`audio('${origin}/slow/test/fixture.wav').gain(-1)`)
   // under 60% of it come: some drawn, not all
   await page.locator('.message', { hasText: /^Decoding [1-5]?\d%$/ }).waitFor()
+  // its length not yet known: in its place an ellipsis between the bars, plain, how much has come in its title
+  assert.deepEqual(await page.locator('.length').evaluate(e => [e.textContent, getComputedStyle(e).visibility, getComputedStyle(e).backgroundImage, getComputedStyle(e, '::before').content]), ['…', 'visible', 'none', '"|"'])
+  assert.match(await page.locator('.length').evaluate(tipOf), /^Length\n[1-5]?\d% here$/)
   // in Record's place, a ring of how much has come, which stops it
   const ring = page.getByRole('button', { name: 'Stop', exact: true })
   assert.ok(await ring.isVisible(), 'the ring in Record\'s place')
@@ -5430,7 +6043,7 @@ test('editor: a file over a slow connection shows as it arrives, with how much h
   assert.ok(arrived > 0 && arrived < .6, `the ring as far as it has come: ${arrived}`)
   const early = await drawn()
   assert.ok(early > 0, 'some of it is drawn before it has all come')
-  await page.waitForFunction(() => !document.querySelector('.message').textContent && /^Loudness/.test((e => e?.title || e?.dataset.tip)(document.querySelector('.readout'))), null, { timeout: 20000 })
+  await page.waitForFunction(() => !document.querySelector('.message').textContent && document.querySelector('.readout')?.dataset.of === 'all', null, { timeout: 20000 })
   assert.ok(await drawn() > early, 'more once it has')
   await lengthIs('0:02.000')
 })
@@ -5445,16 +6058,16 @@ test('editor: a file arriving draws as it decodes, what is still to come a centr
   await page.locator('.message', { hasText: /^Decoding/ }).waitFor()
   const { box, x } = await axis(2), end = Math.min(x(2), box.x + box.width - (await gutter()) - 50) - box.x
   // CSS px: where the line of how far it has come is (past the caret's), and the share of the columns after it, to the
-  // end, that the centre line lights
-  const read = () => page.evaluate(end => {
-    const cv = __overlay(), k = cv.width / cv.clientWidth, g = cv.getContext('2d'), h = cv.clientHeight - 22
+  // end, that the centre line lights; in its lane, at most TRACK px tall
+  const read = () => page.evaluate(([end, most, room]) => {
+    const cv = __overlay(), k = cv.width / cv.clientWidth, g = cv.getContext('2d'), h = Math.max(most, cv.clientHeight - 22 - 18 - room)
     const row = y => g.getImageData(0, Math.round(y) * k, cv.width, 1).data, top = row(h * .25), mid = row(h / 2)
     let come = -1
     for (let i = 3 * k; i < cv.width; i++) if (top[4 * i + 3] > 100) { come = i / k; break }
     let lit = 0, n = 0
     for (let i = Math.ceil((come + 3) * k); i < end * k; i++, n++) lit += mid[4 * i + 3] > 0
     return { come, line: n ? lit / n : 1, decoding: /^Decoding/.test(document.querySelector('.message').textContent) }
-  }, end)
+  }, [end, TRACK, ROOM])
   const early = await read()
   await page.waitForTimeout(700)
   const later = await read()
@@ -5480,33 +6093,41 @@ test('editor: the file shows while a step reading it whole holds the output, its
   await page.locator('.message-figure', { hasText: /^ \d+\.\ds$/ }).waitFor()
   const words = await page.locator('.message-words').textContent()
   assert.doesNotMatch(words, /[·…+]/, `in words: ${words}`)
-  await page.waitForFunction(() => !document.querySelector('.message').textContent && /^Loudness/.test((e => e?.title || e?.dataset.tip)(document.querySelector('.readout'))), null, { timeout: 60000 })
+  await page.waitForFunction(() => !document.querySelector('.message').textContent && document.querySelector('.readout')?.dataset.of === 'all', null, { timeout: 60000 })
 })
 
-// An empty tab offers what to open again, under the ways in: a tab closed, as it was left, its edits counted, which opens
-// in the empty tab's place; the pictures' switch dimmed in its place, inert
-test('editor: an empty tab lists the tabs closed, to open again in its place, the pictures\' switch dimmed', async () => {
+// An empty tab is an empty track, its caret at its start, its time row over 10 s, a word in it of what goes there, and
+// nothing to press: File › Open recent lists what to open again, a tab closed, as it was left, its edits counted, which
+// opens in the empty tab's place; no band's look while there is no sound to show
+test('editor: an empty tab is an empty track; File › Open recent opens a closed tab in its place, no look while there is no sound', async () => {
   await open()
   await write(`audio('chime.wav').gain(-3)`)
   await menu('File', 'Close tab')
   await page.locator('.empty').waitFor()
-  const display = page.locator('.status .display')
-  assert.ok(await display.isVisible() && await display.evaluate(e => e.inert && +getComputedStyle(e).opacity < .5), 'the switch, dimmed and inert')
-  const row = page.locator('.recent').first()
-  assert.equal(await row.locator('.recent-name').innerText(), 'chime.wav')
-  assert.equal(await row.locator('.recent-meta').innerText(), '1 edit, closed just now')
+  await page.waitForFunction(() => ![...document.querySelectorAll('.view button')].some(b => b.checkVisibility()))
+  // the time row's labels drawn, 0 to 9 s, as a take into it is first watched over
+  await page.waitForFunction(() => document.querySelector('.plot canvas.row').style.opacity === '1')
+  await page.locator('.menubar-item', { hasText: /^File$/ }).click()
+  await menuRow('Open recent').click()
+  const row = page.locator('.menubar-sub:popover-open .menu-row').first()
+  assert.equal(await row.locator('.menu-label').innerText(), 'chime.wav')
+  assert.equal(await row.locator('.menu-keys').innerText(), '1 edit, closed just now')
   await row.click()
   await page.waitForFunction(() => scriptText().includes('gain(-3)'))
   assert.deepEqual(await page.locator('.files [role="tab"]').allInnerTexts(), ['chime.wav'], 'in the empty tab\'s place')
   await wholeLevels().waitFor()
-  assert.equal(await display.evaluate(e => e.inert), false)
+  await page.locator(':is(.lane-look, .layer-look):visible').waitFor()
   // a sound made in the script, opening no file: named by its first line; the newest first (chime.wav, closed after it)
   await page.getByRole('button', { name: 'New tab' }).click()
   await write(`audio.from(t => Math.sin(t * 2000), { duration: 1 })`)
   await menu('File', 'Close tab')
   await menu('File', 'Close tab')
   await page.locator('.empty').waitFor()
-  assert.deepEqual(await page.locator('.recent-name').allInnerTexts(), ['chime.wav', 'audio.from(t => Math.sin(t * 2000), { du'])
+  await page.locator('.menubar-item', { hasText: /^File$/ }).click()
+  await menuRow('Open recent').click()
+  await page.locator('.menubar-sub:popover-open .menu-row').first().waitFor()
+  assert.deepEqual(await page.locator('.menubar-sub:popover-open .menu-row .menu-label').allInnerTexts(), ['chime.wav', 'audio.from(t => Math.sin(t * 2000), { du', 'Delete kept sounds…'])
+  await page.keyboard.press('Escape')
 })
 
 // A file still arriving plays as far as it has come, its pieces pushed to the deck as they come: the file's own, where
@@ -5565,9 +6186,9 @@ test('editor: Stop while an edit renders undoes it, the caret still stepping by 
   assert.equal(await page.evaluate(() => scriptText()), bursts)
   await lengthIs('0:02.500')
   const { box, x } = await axis(2.5), step = async () => { await page.keyboard.press(process.platform === 'darwin' ? 'Alt+ArrowRight' : 'Control+ArrowRight'); return +(await page.locator('.time').innerText()).split(':')[1] }
-  await page.mouse.click(x(.1), box.y + box.height / 3)
+  await page.mouse.click(x(.1), box.y + tall(box) / 3)
   let at = 0
-  for (const until = Date.now() + 5000; !(Math.abs(at - .4) < .03) && Date.now() < until; await page.waitForTimeout(200)) { await page.mouse.click(x(.1), box.y + box.height / 3); at = await step() }
+  for (const until = Date.now() + 5000; !(Math.abs(at - .4) < .03) && Date.now() < until; await page.waitForTimeout(200)) { await page.mouse.click(x(.1), box.y + tall(box) / 3); at = await step() }
   assert.ok(Math.abs(at - .4) < .03, `to the next cue: ${at}`)
   assert.ok(Math.abs(await step() - .5) < .03, 'and the one after')
 })
@@ -5580,7 +6201,7 @@ test('editor: an edit made while a step holds the engine takes over at once', as
   await page.locator('.message', { hasText: /decrackle [1-9]/ }).waitFor({ timeout: 20000 })
   const t0 = Date.now()
   await write(`audio('chime.wav').gain(-3)`)
-  await page.waitForFunction(() => !document.querySelector('.message').textContent && /^Loudness/.test((e => e?.title || e?.dataset.tip)(document.querySelector('.readout'))), null, { timeout: 10000 })
+  await page.waitForFunction(() => !document.querySelector('.message').textContent && document.querySelector('.readout')?.dataset.of === 'all', null, { timeout: 10000 })
   assert.ok(Date.now() - t0 < 5000, `${Date.now() - t0} ms`)
   await lengthIs('0:08.000')
   // Stopped there, the worker is replaced too: the edit undone, the output shown made again in the new one, the caret
@@ -5601,7 +6222,7 @@ test('editor: a file that will not open says so, until another sound is chosen',
   await open()
   await write(`audio('nowhere.wav')`)
   await page.locator('.message.problem', { hasText: 'nowhere.wav is not open' }).waitFor()
-  await menu('File', 'Samples', 'handpan.wav')
+  await menu('File', 'Sample or generate', 'handpan.wav')
   assert.equal(await page.locator('.message.problem').count(), 0)
   await wholeLevels().waitFor()
 })
@@ -5610,26 +6231,27 @@ test('editor: a file that will not open says so, until another sound is chosen',
 // at 1.5–1.9 s and 2–2.4 s. Pauses are read in blocks of 1024 samples (23 ms at 44.1 kHz), so edges land within one.
 const bursts = `audio.from(t => (t < .4 || (t > .5 && t < .9) || (t > 1.5 && t < 1.9) || (t > 2 && t < 2.4)) * .5 * Math.sin(2 * Math.PI * 440 * t), { duration: 2.5 })`
 // Their cues are the pauses' edges, each burst's start and end, as a text's words are found.
-// A bell rings on with no pause, so nothing parts a strike from its ring: a double-click on its tail takes it from its
-// strike to the next. The page's chime rings from its fourth strike (1.81 s once trimmed) into its fifth (3.31 s).
-test('editor: a double-click on a ringing tail selects from its strike to the next', async () => {
+// A bell's ring is its strike's till it falls within 0.02 of zero, where it ends, and a double-click on its tail takes it
+// from its strike to there: no tail hanging on over the quiet to the next. The page's chime rings from its fourth strike
+// (1.81 s once trimmed) down into the quiet before its fifth (3.31 s), 60 ms of it at least.
+test('editor: a double-click on a ringing tail selects from its strike to where it falls quiet', async () => {
   await open()
   const { box, x } = await axis(6.525), seconds = t => t.split(':').reduce((m, s) => m * 60 + +s, 0)
   let range = []
   for (const until = Date.now() + 8000; Date.now() < until && !(range[1] < 6); await page.waitForTimeout(200)) {
-    await page.mouse.dblclick(x(2.8), box.y + box.height * .3)
+    await page.mouse.dblclick(x(2.8), box.y + tall(box) * .3)
     range = (await selected()).split('–').map(seconds)
   }
-  assert.ok(Math.abs(range[0] - 1.81) < .02 && Math.abs(range[1] - 3.31) < .02, range.join('–'))
+  assert.ok(Math.abs(range[0] - 1.81) < .02 && range[1] > 3 && range[1] < 3.25, range.join('–'))
 })
 
 test('editor: a double-click selects the fragment between its cues, or the pause it is in; a triple-click the sound between its pauses; ⌥ and ⌘ arrows step by them', async () => {
   await open()
   await write(bursts)
   await lengthIs('0:02.500')
-  const { box, x } = await axis(2.5), y = box.y + box.height / 3
+  const { box, x } = await axis(2.5), y = box.y + tall(box) / 3
   const range = async () => (await selected()).split('–').map(t => +t.split(':')[1])
-  const near = ([a, b], [p, q]) => Math.abs(a - p) < .03 && Math.abs(b - q) < .03
+  const near =([a, b], [p, q]) => Math.abs(a - p) < .03 && Math.abs(b - q) < .03
   // its cues, each burst's start (where its attack starts) and end (where the quiet begins, within a block)
   // (the chime's stay until the new output's come)
   const edges = [.4, .5, .9, 1.5, 1.9, 2, 2.4], found = at => at.length === edges.length && at.every((t, i) => t - edges[i] > -.005 && t - edges[i] < .03)
@@ -5681,7 +6303,7 @@ test('editor: on strikes with no pause between them, a double-click takes one st
   await open()
   await write(struck)
   await lengthIs('0:02.000')
-  const { box, x } = await axis(2), y = box.y + box.height / 3
+  const { box, x } = await axis(2), y = box.y + tall(box) / 3
   const range = async () => (await selected()).split('–').map(t => +t.split(':')[1])
   let r = []
   for (const until = Date.now() + 8000; Date.now() < until && !(Math.abs(r[0] - .5) < .02 && Math.abs(r[1] - 1) < .02); await page.waitForTimeout(200)) {
@@ -5693,12 +6315,12 @@ test('editor: on strikes with no pause between them, a double-click takes one st
   assert.deepEqual(await range(), [0, 2], 'the whole sound')
 })
 
-// A selection's grip, past its end a square's height off each lane's foot, sets its length: trimmed (cut back, the seam
+// A selection's grip, past its end three quarters down each lane, sets its length: trimmed (cut back, the seam
 // crossfaded as a delete's, or silence added), stretched with the pitch kept, or sped with the pitch following, a click
 // on it turning it to the next; a stretch just made changes with it. Its pill sets its level; the first of the tools at
-// its foot, its pitch. Each is one step.
+// the lanes' foot, its pitch. Each is one step.
 test('editor: a selection\'s grip trims, stretches or speeds it, its pill sets its level and its pitch tool its pitch', async () => {
-  const { box, x, y } = await chime(), lh = (box.height - 22 - LANES) / 2
+  const { box, x, y } = await chime(), lh = (tall(box) - LANES) / 2
   const select = async (a, b) => { await page.mouse.click(x(7.5), y); await drag([x(a), y], [x(b) - x(a), 0]) }
   const last = async pattern => { await page.waitForFunction(p => new RegExp(p).test(scriptText()), pattern.source); return code() }
   const undo = async () => {
@@ -5733,7 +6355,7 @@ test('editor: a selection\'s grip trims, stretches or speeds it, its pill sets i
   await undo()
   await select(1, 2)
   // the tools at its foot, side by side from its middle (view.js BOX, 16 px, 2 apart): pitch, intonation, formants
-  await drag(await grab([[(x(1) + x(2)) / 2 - 18, box.y + box.height - 22 - 8]], 'ns-resize'), [0, -box.height / 10])
+  await drag(await grab([[(x(1) + x(2)) / 2 - 18, box.y + tall(box) + FOOT / 2]], 'ns-resize'), [0, -box.height / 10])
   await last(/\.pitch\(/)
 })
 
@@ -5743,7 +6365,7 @@ test('editor: pauses selected together are shortened or deleted together, in one
   await open()
   await write(bursts)
   await lengthIs('0:02.500')
-  const { box, x } = await axis(2.5), y = box.y + box.height / 3
+  const { box, x } = await axis(2.5), y = box.y + tall(box) / 3
   await page.mouse.dblclick(x(.45), y)
   await page.keyboard.press('ControlOrMeta+D')
   await page.keyboard.press('ControlOrMeta+D')
@@ -5765,7 +6387,7 @@ test('editor: markers: M at the caret, its flag over the picture dragged, named,
   await open()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3, row = box.y + 4
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3, row = box.y + 4
   // the times the script gets: the caret's, to the zoom's step
   const marks = async n => { await page.waitForFunction(n => (scriptText().match(/\.mark\(/g) || []).length === n, n); return [...(await code()).matchAll(/\.mark\(([\d.]+)/g)].map(m => +m[1]) }
   await page.mouse.click(x(2), y)
@@ -5780,11 +6402,12 @@ test('editor: markers: M at the caret, its flag over the picture dragged, named,
   // the menu as the output it opens over: opened again till that output has come, with its markers
   for (const until = Date.now() + 8000; Date.now() < until; await page.keyboard.press('Escape')) {
     await page.locator('.menubar-item', { hasText: /^File$/ }).click()
-    if (await menuRow('Export the parts between markers').getAttribute('aria-disabled') !== 'true') break
+    await menuRow('Export as').click()
+    if (await menuRow('Each part between markers').getAttribute('aria-disabled') !== 'true') break
   }
   const downloads = []
   page.on('download', d => downloads.push(d.suggestedFilename()))
-  await menuRow('Export the parts between markers').click()
+  await menuRow('Each part between markers').click()
   await page.waitForFunction(() => !document.querySelector('.export-button').textContent.includes('Exporting'))
   await page.waitForTimeout(300)
   assert.deepEqual(downloads.sort(), ['chime-edited-01.wav', 'chime-edited-02.wav', 'chime-edited-03.wav'])
@@ -5809,14 +6432,14 @@ test('editor: markers: M at the caret, its flag over the picture dragged, named,
 })
 
 // M over a selection marks it, a range: mark({ at, d }), a region in the file. A marker made asks for its name at once,
-// over its flag (not while it plays, where M marks moment after moment); a click on the name asks again. A range's bar
-// drags the range and, let go, selects it.
-test('editor: markers: M over the selection a range, named as it is made, renamed from its name, its bar dragged', async () => {
+// over its flag (not while it plays, where M marks moment after moment); a double-click on the name asks again. A
+// range's bar drags the range and, let go, selects it.
+test('editor: markers: M over the selection a range, named as it is made, renamed from its name, its bar pressed', async () => {
   await open()
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3, row = box.y + 4
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3, row = box.y + 4
   const named = () => page.evaluate(() => document.activeElement.className === 'marker-name')
   // a moment, named as it is made
   await page.mouse.click(x(1), y)
@@ -5833,22 +6456,30 @@ test('editor: markers: M over the selection a range, named as it is made, rename
   await page.keyboard.type('Chorus')
   await page.keyboard.press('Enter')
   await page.waitForFunction(() => /\.mark\(\{ at: 3, d: 2 \}, 'Chorus'\)/.test(scriptText()))
-  // its name clicked: named anew
+  // its name double-clicked: named anew
   await page.mouse.click(x(7.5), y)
-  await page.mouse.click(x(1) + 20, row)
-  assert.ok(await named(), 'a click on its name')
+  await page.mouse.dblclick(x(1) + 20, row + 6)
+  assert.ok(await named(), 'a double-click on its name')
   await page.keyboard.press('ControlOrMeta+A')
   await page.keyboard.type('Start')
   await page.keyboard.press('Enter')
   await page.waitForFunction(() => /\.mark\(1, 'Start'\)/.test(scriptText()) && scriptText().includes("'Chorus'"))
-  // its bar dragged: the range moves, what is selected and the caret staying as they were; clicked, it is selected
+  // its bar pressed: its audio selected at once, as the takes' line selects their place; dragged on, nothing moves
   await page.mouse.click(x(7.5), y)
-  await drag([x(4.5), row], [x(5.5) - x(4.5), 0])
-  await page.waitForFunction(() => /\.mark\(\{ at: 4, d: 2 \}, 'Chorus'\)/.test(scriptText()))
-  assert.equal(await selected(), '')
-  assert.equal(await page.locator('.time').innerText(), '0:07.500')
-  await page.mouse.click(x(5), row)
-  assert.equal(await selected(), '0:04.000–0:06.000')
+  await page.mouse.move(x(4.5), row)
+  await page.mouse.down()
+  await page.locator('.clock').evaluate(el => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
+  assert.equal(await selected(), '0:03.000–0:05.000', 'selected before it is let go')
+  await page.mouse.move(x(5.5), row, { steps: 5 })
+  await page.mouse.up()
+  await page.waitForTimeout(300)
+  assert.match(await code(), /\.mark\(\{ at: 3, d: 2 \}, 'Chorus'\)/)
+  assert.equal(await selected(), '0:03.000–0:05.000')
+  // its name, under the selection its press made, double-clicked past the fade's grip in that corner: named anew
+  await page.mouse.dblclick(x(3) + 30, row + 6)
+  assert.ok(await named(), 'a double-click on a range\'s name')
+  await page.keyboard.press('Escape')
+  assert.match(await code(), /\.mark\(\{ at: 3, d: 2 \}, 'Chorus'\)/)
   // to the page, the moments and the ranges in one list, in time order
   const [r] = await engine([`audio('x.wav').mark({ at: 0.5, d: 0.25 }, 'Chorus').mark(0.75).mark(0.25, 'In')`], { 'x.wav': [sine(1, 440)] })
   assert.deepEqual(r.output.markers, [{ time: 0.25, label: 'In' }, { time: 0.5, duration: 0.25, label: 'Chorus' }, { time: 0.75, label: '' }])
@@ -5860,22 +6491,22 @@ test('editor: markers: a marker named before its output comes keeps its name thr
   await open()
   await write(`audio('chime.wav').stretch(2)`)
   await lengthIs('0:16.000')
-  const { box, x } = await axis(16), y = box.y + box.height * .3, row = box.y + 6
+  const { box, x } = await axis(16), y = box.y + tall(box) * .3, row = box.y + 6
   await page.mouse.click(x(3), y)
   await page.keyboard.press('m')
   // its run under way, the name written
   await page.waitForTimeout(400)
   await page.keyboard.type('Hello')
   await page.keyboard.press('Enter')
-  // the name is there from the next frame, where a click names it again (a text pointer), till the output with it
-  // comes and after
+  // the name is there from the next frame, where a press takes hold of it (a pointer), till the output with it comes
+  // and after
   await page.waitForTimeout(50)
   const seen = []
   for (const until = Date.now() + 4000; Date.now() < until; await page.waitForTimeout(100)) {
     await page.mouse.move(x(3) + 22 + seen.length % 2, row)
     seen.push(await page.locator('.plot').evaluate(el => el.style.cursor))
   }
-  assert.ok(seen.every(c => c === 'text'), JSON.stringify(seen))
+  assert.ok(seen.every(c => c === 'pointer'), JSON.stringify(seen))
   assert.match(await code(), /\.mark\([\d.]+, 'Hello'\)/)
 })
 
@@ -5885,7 +6516,7 @@ test('editor: markers: a press by a marker line puts the caret on it', async () 
   await open()
   await write(`audio('chime.wav').mark(2).mark({ at: 5, d: 1 })`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3
   const caret = async () => +(await page.locator('.time').innerText()).split(':')[1]
   for (const t of [2, 5, 6]) {
     await grab([[x(t) + 4, y]], 'pointer')
@@ -5905,7 +6536,7 @@ test('editor: markers: one in silence past the sound stays there, and drags on w
   await open()
   await write(`audio('chime.wav').pad(0, 2).mark(9)`)
   await lengthIs('0:10.000')
-  const { box, x } = await axis(10), y = box.y + box.height * .3, row = box.y + 4
+  const { box, x } = await axis(10), y = box.y + tall(box) * .3, row = box.y + 4
   const caret = async () => +(await page.locator('.time').innerText()).split(':')[1]
   await page.mouse.click(...await grab([[x(9) + 4, y]], 'pointer'))
   assert.equal(await caret(), 9, 'its line where it was put, from the output')
@@ -5919,14 +6550,14 @@ test('editor: markers: one in silence past the sound stays there, and drags on w
   assert.equal(await caret(), 9.75)
 })
 
-// A press on a marker's flag chooses it, and Delete takes it away, not the audio: a range's selects its audio as well,
-// which stays. A press anywhere else, or Escape, and Delete is what it was
+// A press on a moment's flag chooses it, and Delete takes it away, not the audio. A press anywhere else, or Escape, and
+// Delete is what it was. A range's press selects its audio and nothing more: Delete takes the audio, its menu the marker
 test('editor: markers: Delete takes away the marker whose flag was pressed', async () => {
   await open()
   await noCues()
   await write(`audio('chime.wav').mark(2).mark({ at: 5, d: 1 })`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3, row = box.y + 4
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3, row = box.y + 4
   // chosen, then let go of: Delete with nothing selected does nothing
   await page.mouse.click(...await grab([[x(2), row]], 'pointer'))
   await page.keyboard.press('Escape')
@@ -5942,12 +6573,18 @@ test('editor: markers: Delete takes away the marker whose flag was pressed', asy
   await page.mouse.click(x(2), row)
   await page.keyboard.press('Delete')
   await page.waitForFunction(() => scriptText() === `audio('chime.wav').mark({ at: 5, d: 1 })`)
-  // a range's: its audio selected, kept
+  // a range's: its audio selected, not chosen; Delete takes the audio, the marker staying
   await page.mouse.click(x(5.5), row)
   assert.equal(await selected(), '0:05.000–0:06.000')
   await page.keyboard.press('Backspace')
+  await lengthIs('0:07.000')
+  assert.match(await code(), /\.mark\(\{ at: 5, d: 1 \}\)/)
+  // its menu takes the marker away, the audio as it is
+  await write(`audio('chime.wav').mark({ at: 5, d: 1 })`)
+  await lengthIs('0:08.000')
+  await page.mouse.click(x(5.5), row, { button: 'right' })
+  await contextRow('Delete the marker').click()
   await page.waitForFunction(() => scriptText() === `audio('chime.wav')`)
-  assert.equal(await selected(), '0:05.000–0:06.000')
   await lengthIs('0:08.000')
 })
 
@@ -5959,7 +6596,7 @@ test('editor: a selection fades from its top corners: inward from its edge, outw
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3, dot = box.y + 9
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3, dot = box.y + 9
   const select = async () => { await page.mouse.click(x(7.5), y); await page.mouse.move(x(2.2), y); await page.mouse.down(); await page.mouse.move(x(4.2), y, { steps: 4 }); await page.mouse.up() }
   await select()
   await drag(await grab([[x(2.2) + 9, dot]], 'ew-resize'), [x(2.7) - x(2.2), 0])
@@ -5992,7 +6629,7 @@ test('editor: Denoise learns the noise where it is selected and takes it out eve
   await lengthIs('0:08.000')
   await menu('Process', 'Repair', 'Denoise')
   await page.locator('.message', { hasText: 'Select where the noise plays alone first.' }).waitFor()
-  const { box, x } = await axis(8), y = box.y + box.height * .3, readout = await page.locator('.readout').innerText()
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3, readout = await page.locator('.readout').textContent()
   await page.mouse.move(x(6), y); await page.mouse.down(); await page.mouse.move(x(7.5), y, { steps: 4 }); await page.mouse.up()
   await palette('The noise here, taken 12 dB down everywhere')
   await page.waitForFunction(() => /\.denoise\(\{ noise: \{ at: 6, d: 1\.5 \} \}\)$/.test(scriptText()))
@@ -6007,7 +6644,7 @@ test('editor: Denoise learns the noise where it is selected and takes it out eve
   await write(bursts.replace('Math.sin(2 * Math.PI * 440 * t)', 'Math.sin(2 * Math.PI * 440 * t) + .002 * Math.sin(2 * Math.PI * 7919 * t)'))
   await lengthIs('0:02.500')
   const at = await axis(2.5)
-  await page.mouse.dblclick(at.x(.45), at.box.y + at.box.height / 3)
+  await page.mouse.dblclick(at.x(.45), at.box.y + tall(at.box) / 3)
   await page.keyboard.press('ControlOrMeta+D')
   await page.keyboard.press('ControlOrMeta+D')
   await palette('The noise alone in all 3')
@@ -6015,7 +6652,7 @@ test('editor: Denoise learns the noise where it is selected and takes it out eve
   // a box on the spectrogram: its time where the noise plays alone, its band where it goes, the rest as it was
   await page.keyboard.press('ControlOrMeta+Z')
   await show('spec')
-  const lane = at.box.height - 22
+  const lane = tall(at.box)
   await page.mouse.click(at.x(.2), at.box.y + lane * .5)
   await page.keyboard.press('0')
   await boxDrag([at.x(1), at.box.y + lane * .1], [at.x(1.4) - at.x(1), lane * .15])
@@ -6030,7 +6667,7 @@ test('editor: Denoise learns the noise where it is selected and takes it out eve
 // While a selection loops, the caret put elsewhere takes playback there, over all of the output (nothing is selected)
 test('editor: the caret put elsewhere while a selection loops plays from there, past the old loop', async () => {
   await open()
-  const { box, x } = await axis(6.525), y = box.y + box.height * .3
+  const { box, x } = await axis(6.525), y = box.y + tall(box) * .3
   await drag([x(1), y], [x(1.5) - x(1), 0])
   await page.getByRole('button', { name: 'Loop' }).click()
   await page.keyboard.press('Space')
@@ -6049,7 +6686,7 @@ test('editor: the caret put elsewhere while a selection loops plays from there, 
 // A stretch dragged to anywhere, not a round factor: the output it makes ends the stretched range where the drag let go,
 // to the sample, so nothing after it moves when it comes (the library's length, round(n × factor), fn/stretch.js)
 test('editor: a stretch dragged anywhere ends where it was let go, to the sample', async () => {
-  const { box, x, y } = await chime(), lh = (box.height - 22 - LANES) / 2
+  const { box, x, y } = await chime(), lh = (tall(box) - LANES) / 2
   await settings('Times in', 'samples')
   await page.mouse.click(x(7.5), y)
   await drag([x(1), y], [x(1.7) - x(1), 0])
@@ -6068,11 +6705,12 @@ test('editor: a stretch dragged anywhere ends where it was let go, to the sample
 })
 
 test('editor: a selection\'s grip only stretches it, its pill dragged up only sets its level', async () => {
+  await page.addInitScript(tap)
   await open()
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3, lh = (box.height - 22 - LANES) / 2
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3, lh = (tall(box) - LANES) / 2
   const select = async () => { await page.mouse.click(x(7.5), y); await drag([x(2.2), y], [x(4.2) - x(2.2), 0]) }
   await select()
   await drag(await grab([[x(4.2) + 8, box.y + lh * 3 / 4], [x(4.2) + 8, box.y + lh + LANES + lh * 3 / 4]], STRETCHING), [x(5.2) - x(4.2), -80])
@@ -6084,24 +6722,38 @@ test('editor: a selection\'s grip only stretches it, its pill dragged up only se
   // the 8 s output back in view before selecting on it: x() maps 8 s, and the 9 s stretched one may still show
   await lengthIs('0:08.000')
   await select()
-  await drag(await grab([[(x(2.2) + x(4.2)) / 2, box.y + 4]], 'ns-resize'), [60, -80])
+  // the pill dragged: heard at the level it goes to as it goes, as a pitch dragged is
+  const pill = await grab([[(x(2.2) + x(4.2)) / 2, box.y + 4]], 'ns-resize')
+  await heard()
+  await page.mouse.move(...pill)
+  await page.mouse.down()
+  for (let i = 1; i <= 6; i++) await page.mouse.move(pill[0] + 10 * i, pill[1] - 80 * i / 6)
+  await page.waitForTimeout(500)
+  // (the chime peaks at half of full scale: 12 dB up, past it)
+  const { peak } = await heard()
+  assert.ok(peak > .9, `heard as the level goes, 12 dB up: ${peak}`)
+  await page.mouse.up()
   await page.waitForFunction(() => /\.gain\(\{ t: \[2\.2, 2\.205, 4\.195, 4\.2\], v: \[0, [\d.]+, [\d.]+, 0\] \}\)$/.test(scriptText()))
   assert.doesNotMatch(await code(), /stretch/)
 })
 
-// A dragged edge, or the caret, goes onto a cue it comes within a few pixels of, as Figma's objects snap; one short of
-// it stays
+// A dragged edge, or the caret, goes onto a cue it comes within 3 px of, as Figma's objects snap; one short of it, or 5 px
+// past it, stays
 test('editor: a selection\'s dragged edge, or the caret, snaps to a cue near it', async () => {
   await open()
   await write(hits)
   await lengthIs('0:02.000')
-  const { box, x } = await axis(2), y = box.y + box.height * .3
+  const { box, x } = await axis(2), y = box.y + tall(box) * .3
   let cues = []
   for (const until = Date.now() + 8000; cues.length < 3 && Date.now() < until; await page.waitForTimeout(200)) cues = await handles()
   const at = cues.find(h => Math.abs(h - (x(1) - box.x)) < 20)
   await drag([x(.7), y], [box.x + at + 2 - x(.7), 0])
   const end = +(await selected()).split('–')[1].split(':')[1]
   assert.ok(Math.abs(end - 1) < .012, `on the cue at 1 s, where the hit starts: ${end}`)
+  await page.mouse.click(x(1.8), y)
+  await drag([x(.7), y], [box.x + at + 5 - x(.7), 0])
+  const past = +(await selected()).split('–')[1].split(':')[1]
+  assert.ok(past - end > .005, `5 px past it, where it was put: ${past}, the cue ${end}`)
   await page.mouse.click(x(1.8), y)
   await drag([x(.3), y], [x(.45) - x(.3), 0])
   assert.match(await selected(), /^0:00\.30\d–0:00\.45\d$/)
@@ -6112,10 +6764,26 @@ test('editor: a selection\'s dragged edge, or the caret, snaps to a cue near it'
   const caret = +(await page.locator('.time').innerText()).split(':')[1]
   assert.ok(Math.abs(caret - end) < 1e-3, `the caret on the hit: ${caret}, the edge was ${end}`)
   // the cues hidden, an edge still goes onto them
-  await menu('View', 'Cues')
+  await menu('View', 'Show', 'Cues')
   await page.mouse.click(x(1.8), y)
   await drag([x(.7), y], [box.x + at + 2 - x(.7), 0])
   assert.ok(Math.abs(+(await selected()).split('–')[1].split(':')[1] - end) < .012, 'snapped, hidden')
+})
+
+// A dragged edge goes onto a marked range's ends, and onto the ends of the place takes went in, as onto a marker
+test('editor: a selection\'s dragged edge snaps to a range\'s ends and to the takes\' place', async () => {
+  await open()
+  // a steady tone, no cue in it; a range 2–5 s; takes from 1 s, the longer to 9 s (chime.wav 8 s)
+  await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 10 })\n  .mark({ at: 2, d: 3 }, 'verse')\n  // .write(audio('chime.wav'), { at: 1 })\n  .write(audio('birdsong.wav'), { at: 1 })`)
+  await lengthIs('0:10.000')
+  await page.locator('.plot .takes:not([hidden])').waitFor()
+  const { box, x } = await axis(10), y = box.y + tall(box) * .6
+  const end = async (to, by = 2) => { await page.mouse.click(x(9.8), y); await drag([x(.4), y], [x(to) + by - x(.4), 0]); return (await selected()).split('–')[1] }
+  assert.equal(await end(5), '0:05.000', 'the range\'s end')
+  assert.equal(await end(2), '0:02.000', 'its start')
+  // (from before it: the birdsong's first cue a few pixels after it is the nearer from after)
+  assert.equal(await end(1, -2), '0:01.000', 'where the takes go in')
+  assert.equal(await end(9), '0:09.000', 'where the longest ends')
 })
 
 // Crossfade on a selection, as an editor's: the audio either side meets across it, and it goes (fn/crossfade.js)
@@ -6124,7 +6792,7 @@ test('editor: the crossfade tool on a selection crossfades across it', async () 
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3
   await drag([x(2.2), y], [x(2.3) - x(2.2), 0])
   await page.keyboard.press('ControlOrMeta+K')
   await page.keyboard.type('crossfade')
@@ -6151,7 +6819,7 @@ test('editor: each sound opens in a tab of its own, with its own script and hist
   const shown = () => code().then(c => c.replace(/\s+/g, ''))
   await write(`audio('chime.wav').gain(-3)`)
   await lengthIs('0:08.000')
-  await menu('File', 'Samples', 'handpan.wav')
+  await menu('File', 'Sample or generate', 'handpan.wav')
   await page.waitForFunction(() => scriptText().trim() === "audio('handpan.wav')")
   assert.deepEqual(await tabs(), ['chime.wav', 'handpan.wav'])
   await tab('Code')
@@ -6175,7 +6843,7 @@ test('editor: each sound opens in a tab of its own, with its own script and hist
   // a link's script: in a tab of its own, or in the tab that holds it already
   const link = text => page.evaluate(async text => {
     const bytes = new Uint8Array(await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer())
-    return location.origin + '/playground.html#code=' + btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    return location.origin + '/playground/#code=' + btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
   }, text)
   const visit = async url => { await page.goto(url); await page.reload(); await wholeLevels().waitFor() }
   const reversed = await link(`audio('chime.wav').reverse()`)
@@ -6201,11 +6869,32 @@ test('editor: each sound opens in a tab of its own, with its own script and hist
   assert.deepEqual(errors, [])
 })
 
+// From before the playground moved to playground/: a link shared then (playground.html, editor.html) opens it there, its
+// query and its hash along (a script's #code=…); the embed loaded from where it was (embed.js, as audio.js.org/embed.js
+// loads it) is the playground's own, its frame the playground's
+test('editor: links and the embed from before the playground moved open it at playground/', async () => {
+  for (const [old, now] of [['/playground.html?panel=none#x', '/playground/?panel=none#x'], ['/editor.html#x', '/playground/#x']]) {
+    await page.goto(origin + old)
+    await page.waitForURL(url => url.pathname === '/playground/')
+    assert.equal(page.url().slice(origin.length), now)
+  }
+  await page.goto(origin + '/blank.html')
+  const frame = await page.evaluate(async () => {
+    await import('/embed.js')
+    const el = Object.assign(document.createElement('audio-repl'), { textContent: "audio('chime.wav')" })
+    document.body.append(el)
+    const found = () => el.querySelector('iframe') ?? el.shadowRoot?.querySelector('iframe')
+    for (let i = 0; i < 100 && !found(); i++) await new Promise(r => setTimeout(r, 50))
+    return found() && new URL(found().src).pathname
+  })
+  assert.equal(frame, '/playground/')
+})
+
 // Embedded in another page (embed.js, <audio-repl>): the element's text becomes the frame's link; the frame runs that
 // script alone, its panel as asked, the tabs and the panels' tabs gone, and reads nothing from the browser nor writes to
 // it, so an editor open in another tab keeps its tabs and is not asked to step aside
 test('editor: embedded, another page\'s script runs alone, its panel as asked, nothing of the editor\'s touched', async () => {
-  await page.goto(origin + '/playground.html')
+  await page.goto(origin + '/playground/')
   await wholeLevels().waitFor()
   // the element, in a page of its own: its text in the frame's link; the editor's tabs as it left them
   await page.goto(origin + '/blank.html')
@@ -6215,7 +6904,7 @@ test('editor: embedded, another page\'s script runs alone, its panel as asked, n
   for (let was; kept == null || kept !== was; await page.waitForTimeout(300)) { was = kept; kept = await page.evaluate(() => localStorage.getItem('audio-repl')) }
   assert.ok(kept)
   const src = await page.evaluate(async () => {
-    await import('/embed.js')
+    await import('/playground/embed.js')
     // as a page writes it: the whole of it indented with the page's markup, which comes off
     document.body.innerHTML = `<audio-repl panel="edits" height="300"><pre><code>
       audio('handpan.wav')
@@ -6225,8 +6914,8 @@ test('editor: embedded, another page\'s script runs alone, its panel as asked, n
     return frame.getAttribute('src')
   })
   const url = new URL(src, origin)
-  assert.equal(url.pathname, '/playground.html')
-  assert.deepEqual([...url.searchParams], [['embed', ''], ['panel', 'edits']])
+  assert.equal(url.pathname, '/playground/')
+  assert.deepEqual([...url.searchParams], [['embed', ''], ['ui', JSON.stringify({ panel: 'edits' })]])
   const script = await page.evaluate(async hash => {
     const bytes = Uint8Array.from(atob(hash.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))
     return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text()
@@ -6266,8 +6955,8 @@ test('editor: embedded, another page\'s script runs alone, its panel as asked, n
     return p
   }
   try {
-    const editor = await open(origin + '/playground.html')
-    await editor.locator('.readout:is([title^="Loudness"], [data-tip^="Loudness"])').waitFor()
+    const editor = await open(origin + '/playground/')
+    await editor.locator('.readout[data-of="all"]').waitFor()
     await editor.waitForTimeout(700)
     const tabs = await editor.evaluate(() => localStorage.getItem('audio-repl'))
     // the whole editor's lines run on, scrolled, as a code editor's do
@@ -6279,10 +6968,178 @@ test('editor: embedded, another page\'s script runs alone, its panel as asked, n
     for (const p of [editor, ...frames]) assert.equal(await p.evaluate(() => document.querySelector('dialog.elsewhere').open), false)
     assert.equal(await editor.evaluate(() => localStorage.getItem('audio-repl')), tabs)
     // no link, or one that does not read: an empty tab, its ways in, as a first visit's; no panel asked for, none
-    await frames[0].goto(origin + '/playground.html?embed&panel=none#code=@@')
+    await frames[0].goto(origin + '/playground/?embed&panel=none#code=@@')
     await frames[0].locator('.empty').waitFor()
     assert.equal(await frames[0].locator('.panes').getAttribute('data-side'), 'none')
   } finally { await context.close() }
+  assert.deepEqual(errors, [])
+})
+
+// Embedded with the parts the page names and edits a press away (embed.js controls, ops, background): the parts named
+// there and no others, record's slot gone with it; the readout reading the level named; after the history one button,
+// a menu of the edits, each with its icon, none the library has left out; one picked, its call written with its own
+// arguments, as the menus write theirs, the sound made by it; undone, as it was; over the picture the sound's name, a
+// menu of its ways in, a sample taken in its place; a file opened in its place, the result saved; no slab where the
+// page asks for its own ground
+// How far time zooms and scrolls past the sound's end, as the page asks (ui zoom and overshoot, playground/README.md): a
+// hero's picture, zoomed out no further than the sound, scrolled never past its end, zoomed in no closer than 0.1 s
+test('editor: embedded, the page sets how far time zooms and how far past the end it scrolls', async () => {
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
+  await page.goto(origin + '/blank.html')
+  const src = await page.evaluate(async () => {
+    await import('/playground/embed.js')
+    document.body.innerHTML = `<audio-repl panel="none" ui='{"zoom":{"in":4410,"out":1},"overshoot":0}'><pre><code>audio('chime.wav')</code></pre></audio-repl>`
+    return new Promise(r => { const t = setInterval(() => { const f = document.querySelector('audio-repl iframe'); if (f) { clearInterval(t); r(f.getAttribute('src')) } }, 20) })
+  })
+  await page.goto(new URL(src, origin).href)
+  await wholeLevels().waitFor()
+  const range = () => page.evaluate(() => __view.range), box = await page.locator('.plot').boundingBox()
+  const fit = await range()
+  await page.locator('.plot').focus()
+  await page.keyboard.press('-')
+  await page.waitForTimeout(300)
+  assert.deepEqual(await range(), fit, 'zoomed out: the sound across the view, no further')
+  for (let i = 0; i < 10; i++) await page.keyboard.press('=')
+  await page.waitForTimeout(300)
+  const [a, b] = await range()
+  assert.ok(Math.abs(b - a - .1) < 1e-6, `zoomed in: 0.1 s across at the closest, ${b - a}`)
+  // scrolled on and on: the sound's end no further left than the lanes' end (their 0.9 of the view, at least)
+  await page.mouse.move(box.x + box.width / 2, box.y + 40)
+  for (let i = 0; i < 40; i++) await page.mouse.wheel(4000, 0)
+  await page.waitForTimeout(300)
+  const [p, q] = await range()
+  assert.ok(p > 7.5 && p + (q - p) * .9 <= 8, `scrolled to the end, not past it: ${p}–${q}`)
+})
+
+test('editor: embedded, the parts the page names, its edits a press away, its files in and out', async () => {
+  await page.goto(origin + '/blank.html')
+  const src = await page.evaluate(async () => {
+    await import('/playground/embed.js')
+    document.body.innerHTML = `<audio-repl panel="none" controls="sound play  history open save loudness rate view link" ops="stretch(1.25) fade(1, 1) reverse nosuch" background="page"><pre><code>audio('chime.wav')</code></pre></audio-repl>`
+    const frame = await new Promise(r => { const t = setInterval(() => { const f = document.querySelector('audio-repl iframe'); if (f) { clearInterval(t); r(f) } }, 20) })
+    return frame.getAttribute('src')
+  })
+  const url = new URL(src, origin)
+  // one JSON of it all, the page's ground read off the page (blank.html paints none: the page's own, white)
+  assert.deepEqual([...url.searchParams.keys()], ['embed', 'ui'])
+  assert.deepEqual(JSON.parse(url.searchParams.get('ui')), { panel: 'none', background: 'white', controls: ['sound', 'play', 'history', 'open', 'save', 'loudness', 'rate', 'view', 'link'], ops: ['stretch(1.25)', 'fade(1, 1)', 'reverse', 'nosuch'] })
+  // the page told how its mark moves (a mark event on the element): at rest once the sound is in, playing as it plays
+  await page.evaluate(() => { window.moods = []; document.querySelector('audio-repl').addEventListener('mark', e => e.detail.mode && moods.push(e.detail.mode)) })
+  await page.waitForFunction(() => moods.at(-1) === 'rest', null, { timeout: 30000 })
+  await page.frameLocator('audio-repl iframe').locator('.play').click()
+  await page.waitForFunction(() => moods.at(-1) === 'play', null, { timeout: 10000 })
+  await page.frameLocator('audio-repl iframe').locator('.play').click()
+  // a press on the page around it closes what is open in it, its menus and its lists, as a press in it would
+  const inside = page.frameLocator('audio-repl iframe')
+  for (const [opener, open] of [['.embed-sound', '.menubar-menu'], ['.embed-ops', '.menubar-menu'], ['.fact[popovertarget="rate-menu"]', '#rate-menu:popover-open']]) {
+    await inside.locator(opener).click()
+    await inside.locator(open).waitFor()
+    await page.mouse.click(2, 2)
+    await inside.locator(open).waitFor({ state: 'detached' })
+  }
+  await page.goto(url.href)
+  await wholeLevels().waitFor()
+  const length = text => page.waitForFunction(text => document.querySelector('.clock .length')?.textContent.includes(text), text)
+  await length('0:08.000')
+  const shown = sel => page.locator(sel).first().isVisible()
+  for (const part of ['.embed-sound', '.play', '.history', '.embed-open-file', '.embed-save', '.readout', '.fact[popovertarget="rate-menu"]', '.embed-view', '.embed-open', '.embed-ops']) assert.equal(await shown(`.panes ${part}`), true, part)
+  for (const part of ['.record', '.deck-slot:has(.record)', '.loop', '.clock', '.message', '.before', '.fact[popovertarget="channels-menu"]', '.embed-name', '.lane-look']) assert.equal(await shown(`.panes ${part}`), false, part)
+  // on the page's ground, no slab's edge to keep off: the play button under the sound's name
+  const lefts = await page.evaluate(() => ['.play .play-icon', '.embed-sound svg'].map(s => document.querySelector(`.panes ${s}`).getBoundingClientRect().left))
+  assert.ok(Math.abs(lefts[0] - lefts[1]) < 3, `play at ${lefts[0]}, the sound's icon at ${lefts[1]}`)
+  // the level as the facts beside it are: its value and its unit apart, in their colour
+  assert.match(await page.locator('.panes .readout').textContent(), /^−\d+\.\d LUFS$/)
+  assert.equal(...await page.evaluate(() => ['.readout', '.facts'].map(s => getComputedStyle(document.querySelector(`.panes ${s}`)).color)))
+  // the view, a switch among the facts, the look's icon: pressed, the other picture, its icon
+  const look = () => page.locator('.lane-look').last().getAttribute('aria-label')
+  assert.deepEqual([await page.locator('.embed-view').getAttribute('aria-label'), await look()], ['Waveform', 'Waveform'])
+  await page.locator('.embed-view').click()
+  await page.waitForFunction(() => document.querySelector('.embed-view').ariaLabel === 'Spectrogram')
+  await page.waitForFunction(() => [...document.querySelectorAll('.lane-look')].at(-1)?.getAttribute('aria-label') === 'Spectrogram', null, { timeout: 5000 })
+  assert.equal(await page.locator('.embed-view path').getAttribute('d'), await page.locator('.lane-look path').last().getAttribute('d'))
+  await page.locator('.embed-view').click()
+  await page.waitForFunction(() => document.querySelector('.embed-view').ariaLabel === 'Waveform')
+  // on the page's ground, the slab's gradient gone (its edges, masked, fade into whatever is under them)
+  assert.deepEqual(await page.evaluate(() => [getComputedStyle(document.querySelector('.panes')).backgroundColor, getComputedStyle(document.querySelector('.panes')).backgroundImage]), ['rgb(255, 255, 255)', 'none'])
+  // the edits after the history, in the bar
+  assert.equal(await page.evaluate(() => document.querySelector('.status .history').nextElementSibling?.classList.contains('embed-ops')), true)
+  const menu = () => page.locator('.menubar-menu .menu-row')
+  await page.locator('.embed-ops').click()
+  assert.deepEqual(await menu().locator('.menu-label').allTextContents(), ['Stretch', 'Fade', 'Reverse'])
+  // each its values at the right, in the units its settings read in
+  assert.deepEqual(await menu().locator('.menu-keys').allTextContents(), ['1.25×', '1s · 1s', ''])
+  assert.equal(await menu().locator('.menu-check svg').count(), 3)
+  await menu().filter({ hasText: 'Stretch' }).click()
+  await length('0:10.000')
+  assert.equal(scriptOf(await page.evaluate(() => scriptText())), scriptOf(`audio('chime.wav').stretch(1.25)`))
+  await page.locator('.history .undo').click()
+  await length('0:08.000')
+  assert.equal(scriptOf(await page.evaluate(() => scriptText())), scriptOf(`audio('chime.wav')`))
+  // the sound's name over the picture; pressed, its ways in: a file, a take, the samples; one picked, in its place
+  assert.equal(await page.locator('.embed-sound-name').textContent(), 'chime.wav')
+  await page.locator('.embed-sound').click()
+  const ways = await menu().locator('.menu-label').allTextContents()
+  assert.deepEqual(ways.slice(0, 2), ['Open a file…', 'Record'])
+  assert.ok(ways.includes('handpan.wav'), ways.join(', '))
+  await menu().filter({ hasText: 'handpan.wav' }).click()
+  await page.waitForFunction(() => document.querySelector('.embed-sound-name')?.textContent === 'handpan.wav')
+  assert.equal(scriptOf(await page.evaluate(() => scriptText())), scriptOf(`audio('handpan.wav')`))
+  // saved: the format picked from its menu, the result as the export saves it; opened: a file of the reader's in its place
+  await page.locator('.embed-save').click()
+  assert.deepEqual(await menu().locator('.menu-label').allTextContents(), ['WAV', 'FLAC', 'MP3', 'OGG', 'AIFF'])
+  const [saved] = await Promise.all([page.waitForEvent('download'), menu().filter({ hasText: 'FLAC' }).click()])
+  assert.match(saved.suggestedFilename(), /\.flac$/)
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.locator('.embed-open-file').click()])
+  await chooser.setFiles(fileURLToPath(new URL('fixture.wav', import.meta.url)))
+  await page.waitForFunction(() => document.querySelector('.cm-content')?.textContent.includes('fixture.wav'))
+  // no controls asked for: the parts as ever, the files' buttons not among them; no ops, no row of them
+  await page.goto(origin + '/playground/?embed&panel=none' + url.hash)
+  await wholeLevels().waitFor()
+  assert.equal(await page.locator('.embed-ops').count(), 0)
+  for (const part of ['.record', '.loop', '.before', '.embed-name']) assert.equal(await shown(`.panes ${part}`), true, part)
+  for (const part of ['.embed-sound', '.embed-open-file', '.embed-save', '.embed-view']) assert.equal(await shown(`.panes ${part}`), false, part)
+  assert.equal(await shown('.panes .lane-look'), true, 'the look, where no list names the parts')
+  assert.notEqual(await page.evaluate(() => getComputedStyle(document.querySelector('.panes')).backgroundImage), 'none')
+  // the lanes fill the picture: no room kept under them for a new track, as the whole editor keeps
+  const gap = () => page.evaluate(() => document.querySelector('.plot').getBoundingClientRect().bottom - document.querySelector('.lane-look').getBoundingClientRect().bottom)
+  assert.ok(await gap() < 40, `embedded, the lanes reach the picture's foot (${await gap()} px short)`)
+  const ruled = await gap()
+  // no ruler asked for: no time row, the lanes reaching on into its place, and no time for the playhead on it
+  await page.goto(origin + '/playground/?embed&ui=' + encodeURIComponent(JSON.stringify({ panel: 'none', controls: ['play', 'clock', 'look'] })) + url.hash)
+  await length('0:08.000')
+  assert.ok(await gap() < ruled - 15, `no time row: the lanes ${ruled - await gap()} px further down`)
+  await page.locator('.play').click()
+  await page.waitForTimeout(300)
+  assert.equal(await page.locator('.playhead .when').isVisible(), false)
+  await page.locator('.play').click()
+  // the whole editor keeps its room under the lanes
+  await page.goto(origin + '/playground/' + url.hash)
+  await wholeLevels().waitFor()
+  assert.ok(await gap() > 80, `whole, the room under the lanes kept (${await gap()} px)`)
+  // a sound by its path from the site's root, as the page around it names its own files: opened, not asked for
+  const rooted = await page.evaluate(async () => {
+    await import('/playground/embed.js')
+    document.body.innerHTML = `<audio-repl panel="none"><pre><code>audio('/test/fixture.wav')</code></pre></audio-repl>`
+    const frame = await new Promise(r => { const t = setInterval(() => { const f = document.querySelector('audio-repl iframe'); if (f) { clearInterval(t); r(f) } }, 20) })
+    return frame.getAttribute('src')
+  })
+  await page.goto(new URL(rooted, origin).href)
+  await wholeLevels().waitFor()
+  assert.equal(await page.locator('.message').textContent().then(t => /not open here/.test(t)), false)
+  assert.equal(await page.locator('.panes .text-button', { hasText: 'Open it' }).count(), 0)
+  // two slashes are another host's, not a path of this site: asked for as a file, never fetched
+  const fetched = []
+  page.on('request', r => r.url().includes('elsewhere.example') && fetched.push(r.url()))
+  await page.goto(origin + '/blank.html')
+  const other = await page.evaluate(async () => {
+    await import('/playground/embed.js')
+    document.body.innerHTML = `<audio-repl panel="none"><pre><code>audio('//elsewhere.example/x.wav')</code></pre></audio-repl>`
+    const frame = await new Promise(r => { const t = setInterval(() => { const f = document.querySelector('audio-repl iframe'); if (f) { clearInterval(t); r(f) } }, 20) })
+    return frame.getAttribute('src')
+  })
+  await page.goto(new URL(other, origin).href)
+  await page.locator('.panes .text-button', { hasText: 'Open it' }).waitFor()
+  assert.deepEqual(fetched, [])
   assert.deepEqual(errors, [])
 })
 
@@ -6298,7 +7155,7 @@ test('editor: a closed tab opens again where it was, as it was left, after a rel
   await drag([x(1), y], [x(3) - x(1), 0])
   const was = await selected()
   assert.match(was, /^0:0[01]\.\d+–0:0[23]\.\d+$/)
-  await menu('File', 'Samples', 'handpan.wav')
+  await menu('File', 'Sample or generate', 'handpan.wav')
   await page.waitForFunction(() => scriptText().trim() === "audio('handpan.wav')")
   await page.getByRole('tab', { name: 'chime.wav' }).click()
   await page.waitForFunction(was => (e => e.title || e.dataset.tip || '')(document.querySelector('.clock')).startsWith(`Selected ${was}:`), was)
@@ -6329,7 +7186,7 @@ test('editor: a closed tab opens again where it was, as it was left, after a rel
 })
 
 // A recording, the only copy there is, is kept until the person deletes it: its tab closed and the page reloaded, it
-// waits under Kept sounds, opened again from there; deleted only once they say so
+// waits under File › Open recent, opened again from there; deleted only once they say so
 const keptFiles = () => page.evaluate(async () => {
   const names = []
   try { for await (const k of (await (await navigator.storage.getDirectory()).getDirectoryHandle('audio-repl-files')).keys()) if (!k.endsWith('.crswap')) names.push(decodeURIComponent(k)) } catch {}
@@ -6344,7 +7201,7 @@ async function recordFor(seconds) {
   await page.getByRole('button', { name: 'Record', exact: true }).first().click()
   await page.waitForFunction(s => { const [m, sec] = document.querySelector('.time').textContent.split(':'); return +m * 60 + +sec >= s }, seconds)
 }
-test('editor: a recording is kept until it is deleted: its tab closed, it waits under Kept sounds', async () => {
+test('editor: a recording is kept until it is deleted: its tab closed, it waits under Open recent', async () => {
   await open()
   await write('')
   await page.locator('.empty').waitFor()
@@ -6361,7 +7218,7 @@ test('editor: a recording is kept until it is deleted: its tab closed, it waits 
   await page.reload()
   await page.locator('.empty').waitFor()
   assert.deepEqual(await keptFiles(), ['recording.wav'])
-  await menu('File', 'Kept sounds', 'recording.wav')
+  await menu('File', 'Open recent', 'recording.wav')
   await page.waitForFunction(() => scriptText().startsWith("audio('recording.wav')"))
   await wholeLevels().waitFor()
   assert.equal(await lengthText(), before)
@@ -6375,11 +7232,11 @@ test('editor: a recording is kept until it is deleted: its tab closed, it waits 
   for (const until = Date.now() + 5000; (await keptFiles()).length < 2; await page.waitForTimeout(100)) assert.ok(Date.now() < until)
   // deleted when asked, and only once said: dismissed, it stays
   page.once('dialog', d => d.dismiss())
-  await menu('File', 'Kept sounds', 'Delete them…')
+  await menu('File', 'Open recent', 'Delete kept sounds…')
   await page.waitForTimeout(200)
   assert.deepEqual(await keptFiles(), ['recording-2.wav', 'recording.wav'])
   page.once('dialog', d => { assert.match(d.message(), /^Delete recording\.wav kept in this browser/); d.accept() })
-  await menu('File', 'Kept sounds', 'Delete them…')
+  await menu('File', 'Open recent', 'Delete kept sounds…')
   for (const until = Date.now() + 3000; (await keptFiles()).length > 1; await page.waitForTimeout(100)) assert.ok(Date.now() < until)
   assert.deepEqual(await keptFiles(), ['recording-2.wav'], 'the one a tab opens stays')
 })
@@ -6395,8 +7252,9 @@ test('editor: a take the page closes on as it records is kept on the next visit'
   page.once('dialog', d => { assert.equal(d.type(), 'beforeunload'); d.accept() })
   await page.reload()
   await page.waitForFunction(() => scriptText().startsWith("audio('recording.wav')"))
-  await wholeLevels().waitFor()
+  // said as it is kept, for a few seconds (note), likely gone by the time the levels of all of it are read
   await page.locator('.message', { hasText: 'recording.wav, recorded as the page closed, is kept.' }).waitFor()
+  await wholeLevels().waitFor()
   const s = +(await lengthText()).split(':')[1]
   assert.ok(s >= 1.5 && s < 3.5, `${s} s kept`)
   for (const until = Date.now() + 3000; await takesLeft(); await page.waitForTimeout(100)) assert.ok(Date.now() < until, 'its parts let go')
@@ -6457,21 +7315,21 @@ test('editor: a second tab asks to be the editor; the first stores and steps asi
   const script = p => p.evaluate(() => [...document.querySelectorAll('.cm-content .cm-line')].map(l => l.textContent).join('\n'))
   try {
     for (const p of [first, second]) p.on('pageerror', e => errors.push(e.message))
-    await first.goto(origin + '/playground.html')
-    await first.locator('.readout:is([title^="Loudness"], [data-tip^="Loudness"])').waitFor()
+    await first.goto(origin + '/playground/')
+    await first.locator('.readout[data-of="all"]').waitFor()
     await first.getByRole('tab', { name: 'Code' }).click()
     await first.locator('.cm-content').click()
     await first.keyboard.press('ControlOrMeta+End')
     await first.keyboard.insertText('.gain(-2)')
-    await second.goto(origin + '/playground.html')
+    await second.goto(origin + '/playground/')
     // the page asking came up as it was stored, behind the question; once the first has stored, it reads it again
     await Promise.all([second.waitForEvent('load'), second.getByRole('button', { name: 'Use it here' }).click()])
-    await second.locator('.readout:is([title^="Loudness"], [data-tip^="Loudness"])').waitFor()
+    await second.locator('.readout[data-of="all"]').waitFor()
     assert.match(scriptOf(await script(second)), /\.gain\(-2\)$/, 'the change made a moment before')
     await first.locator('dialog.elsewhere[open]').waitFor()
     // and back, with one click there
     await Promise.all([first.waitForEvent('load'), first.getByRole('button', { name: 'Use it here' }).click()])
-    await first.locator('.readout:is([title^="Loudness"], [data-tip^="Loudness"])').waitFor()
+    await first.locator('.readout[data-of="all"]').waitFor()
     await second.locator('dialog.elsewhere[open]').waitFor()
     assert.match(scriptOf(await script(first)), /\.gain\(-2\)$/)
   } finally { await context.close() }
@@ -6480,14 +7338,14 @@ test('editor: a second tab asks to be the editor; the first stores and steps asi
 // Every setting kept comes back as it was kept; a value the page no longer has, its default; a store that does not read
 // is set aside, not written over
 test('editor: every setting comes back as it was kept; one the page no longer has, its default', async () => {
-  const all = { display: 'spec', scale: 'mel', format: 'flac', encoding: { markers: false, bitDepth: 24 }, spec: 'podcast', cuts: { format: 'otio', fps: 25 }, side: 'code', show: { hits: false, gain: false, meters: false, guides: false }, units: 'samples', snap: false, curve: 'cos', levels: 'db', ruler: 'ticks', step: 3, look: { map: 'magma', gamma: .5, depth: 100, size: 2048, method: 'tapers' }, wave: { colour: 'temperature', lanes: 'one', fill: 'flat' }, agent: { url: 'http://127.0.0.1:7778', key: '' }, splice: 20, scrub: 'grains', grip: 'speed' }
+  const all = { display: 'spec', scale: 'mel', format: 'flac', encoding: { markers: false, bitDepth: 24 }, spec: 'podcast', cuts: { format: 'otio', fps: 25 }, side: 'code', show: { hits: false, gain: false, meters: false, spectrum: false, keys: false, guides: false }, units: 'samples', snap: false, curve: 'cos', levels: 'db', ruler: 'ticks', step: 3, look: { map: 'magma', gamma: .5, depth: 100, size: 2048, method: 'bands' }, wave: { colour: 'centroid', lanes: 'one', fill: 'flat', map: 'magma', weighting: 'k' }, agent: { url: 'http://127.0.0.1:7778', key: '' }, splice: 20, scrub: 'grains', grip: 'speed' }
   await page.addInitScript(all => { if (!sessionStorage.seeded) { sessionStorage.seeded = 1; localStorage.setItem('audio-repl', JSON.stringify({ ...all, docs: [{ code: "audio('chime.wav')" }] })) } }, all)
   await open()
   const kept = () => page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')))
   const now = await kept()
   for (const [key, value] of Object.entries(all)) assert.deepEqual(now[key], value, key)
   // written from another page of the site, so the editor's own store as it closes doesn't write over it
-  const seed = async value => { await page.goto(origin + '/blank.html'); await page.evaluate(v => localStorage.setItem('audio-repl', v), value); await page.goto(origin + '/playground.html') }
+  const seed = async value => { await page.goto(origin + '/blank.html'); await page.evaluate(v => localStorage.setItem('audio-repl', v), value); await page.goto(origin + '/playground/') }
   await seed(JSON.stringify({ units: 'bogus', ruler: 7, step: 'x', format: 'wma', look: { map: 'nope', gamma: 2 }, spec: 'radio', docs: [{ code: 5 }, { code: "audio('chime.wav')" }] }))
   await wholeLevels().waitFor()
   const fixed = await kept()
@@ -6506,7 +7364,7 @@ test('editor: the level axis reads in dB or sample values, and zooms', async () 
   await lengthIs('0:01.000')
   await page.waitForTimeout(300)
   // the pointer on the axis at the lane's middle, 0: the levels zoom about it
-  const box = await page.locator('.plot').boundingBox(), ax = box.x + box.width - 26, ay = box.y + (box.height - 22) / 2
+  const box = await page.locator('.plot').boundingBox(), ax = box.x + box.width - 26, ay = box.y + tall(box) / 2
   // the waveform's height: bright pixels down the middle column
   const height = () => pixels(`const x = w >> 1; let n = 0; for (let y = 0; y < h - 48; y++) { const i = (y * w + x) * 4; if (d[i] > 120) n++ } return n`)
   const before = await height()
@@ -6542,14 +7400,14 @@ test('editor: where the output clips is underlined red on the time row; zoomed o
   await lengthIs('0:01.000')
   await page.waitForTimeout(800)
   const box = await page.locator('.plot').boundingBox(), h = box.height - 22, w = box.width - (await gutter())
-  // red pixels in the row under the lanes: their first and last x, as a share of the plot's width
+  // red pixels along the time row's top, under the room: their first and last x, as a share of the plot's width
   const red = () => pixels(`const y = Math.round(arg + 1), xs = []; for (let x = 0; x < w; x++) { const i = (y * w + x) * 4; if (d[i] - d[i + 2] > 80 && d[i] > 120) xs.push(x) } return xs.length ? [xs[0], xs.at(-1)] : []`, h)
   const [first, last] = await red()
   assert.ok(Math.abs(first / w - .5) < .03 && last / w > .95, `clipping from ${first / w} to ${last / w} of the width`)
   // zoomed out past full scale: a red tint over what lies beyond ±1
   const tint = () => pixels(`const x = Math.round(arg), y = 3, i = (y * w + x) * 4; return d[i] - d[i + 2]`, w * .25)
   const flat = await tint()
-  await page.mouse.move(box.x + box.width - 26, box.y + h / 2)
+  await page.mouse.move(box.x + box.width - 26, box.y + tall(box) / 2)
   for (let i = 0; i < 4; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, 60); await page.keyboard.up('Control') }
   await page.waitForTimeout(300)
   assert.ok(await tint() > flat + 3, 'past full scale, red')
@@ -6581,14 +7439,14 @@ test('editor: nothing is drawn behind the meters', async () => {
   const lit = at => pixels(`const x = Math.round(arg); let n = 0; for (let y = 0; y < h - 30; y++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 300) n++ } return n`, at)
   assert.ok(await lit(w - 40) > 20, 'the waveform runs up to the meters')
   assert.equal(await lit(w - 9), 0, 'and stops before the level bar')
-  // all of it shown, its end 4 px short of where the lanes end (view.js TAIL), 2 px before the bar, 2 px before the
-  // spectrum on the spectrogram: its last moment in sight, never behind the meters
-  assert.ok(await lit(w - 14) > 20, 'its last moment by the bar')
-  assert.equal(await lit(w - 12), 0, 'its end 6 px before it')
+  // all of it shown, its end 4 px short of where the lanes end (view.js TAIL), SPACE (6 px) before the bar, as before
+  // the spectrum on the spectrogram: its last moment in sight, never behind the meters
+  assert.ok(await lit(w - 19) > 20, 'its last moment by the bar')
+  assert.equal(await lit(w - 17), 0, 'its end 10 px before it')
   await show('spec')
   await page.waitForTimeout(800)
-  assert.ok(await lit(w - 49) > 0, 'its last moment by the spectrum')
-  assert.equal(await lit(w - 47), 0, 'its end 6 px before it')
+  assert.ok(await lit(w - 56) > 0, 'its last moment by the spectrum')
+  assert.equal(await lit(w - 54), 0, 'its end 10 px before it')
 })
 
 // Crop is clicked, never dragged, so it is no handle: the context menu has it, and K
@@ -6597,10 +7455,10 @@ test('editor: the context menu, or K, keeps only the selection', async () => {
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3
   await drag([x(2), y], [x(4) - x(2), 0])
   await page.mouse.click(x(3), y, { button: 'right' })
-  await page.locator('.menubar-menu .menu-row', { has: page.locator('.menu-label', { hasText: /^Keep only this$/ }) }).click()
+  await page.locator('.menubar-menu .menu-row', { has: page.locator('.menu-label', { hasText: /^Crop$/ }) }).click()
   await page.waitForFunction(() => /\.crop\(\{ at: 2(\.0\d*)?, d: 2(\.0\d*)? \}\)$/.test(scriptText().trim()))
   await lengthIs('0:02.000')
   await page.keyboard.press('ControlOrMeta+Z')
@@ -6622,10 +7480,11 @@ test('editor: a selection moved to a track of its own, a lane each, each edited 
   await lengthIs('0:08.000')
   // the edits' first card, the sound they start from, the panel open or not
   const card = () => page.locator('.steps-list .step-name').first().textContent()
-  const { box, x } = await axis(8), top = box.y + (box.height - 22) * .25, bottom = box.y + (box.height - 22) * .75
-  await drag([x(2), top], [x(3) - x(2), 0])
-  await page.mouse.click(x(2.5), top, { button: 'right' })
-  await contextRow('Move to a new track').click()
+  // in the sound's lanes before there are tracks; then each track's lane's middle, the edited one's tall, the other's a
+  // strip, as their layers have them
+  let { box, x } = await axis(8), mid = async i => (r => r.y + r.h / 2)((await tracksAt())[i])
+  await drag([x(2), box.y + tall(box) / 4], [x(3) - x(2), 0])
+  await menu('Track', 'Move to a new track')
   await page.waitForFunction(() => scriptText().includes('let chime2 = '))
   assert.equal(await code(), `let chime = audio('chime.wav')\n  .gain(-Infinity, { at: 2, d: 1 })\n\nlet chime2 = audio('chime.wav')\n  .crop({ at: 2, d: 1 })\n  .pad(2, 0)`)
   await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'chime2 · chime.wav')
@@ -6633,22 +7492,25 @@ test('editor: a selection moved to a track of its own, a lane each, each edited 
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await lengthIs('0:08.000')
   await page.waitForTimeout(600)
-  const [upper, lower] = await pixels(`const k = w / arg.width, mid = (h - 22 * k) / 2, lit = [0, 0]
-    for (let y = 0; y < h - 22 * k; y++) for (let x = Math.round(arg.a * k); x < Math.round(arg.b * k); x++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 300) lit[y < mid ? 0 : 1]++ }
-    return lit`, { width: box.width, a: x(4.5) - box.x, b: x(7) - box.x })
-  assert.ok(upper > 1000 && lower < upper / 20, `4.5 s to 7 s: the upper lane ${upper} lit, the lower ${lower}`)
+  // (the layers beside the picture now, the picture after them)
+  ;({ box, x } = await axis(8))
+  const [u, l] = await tracksAt()
+  const [upper, lower] = await pixels(`const k = w / arg.width, lit = [0, 0]
+    for (let y = 0; y < Math.round(arg.foot * k); y++) for (let x = Math.round(arg.a * k); x < Math.round(arg.b * k); x++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 300) lit[y < arg.mid * k ? 0 : 1]++ }
+    return lit`, { width: box.width, mid: l.y - box.y, foot: l.y + l.h - box.y, a: x(4.5) - box.x, b: x(7) - box.x })
+  assert.ok(upper > 200 && lower < upper / 20, `4.5 s to 7 s: the upper lane ${upper} lit, the lower ${lower}`)
   assert.equal(await selected(), '0:02.000–0:03.000', 'the piece stays selected, in its own lane')
   // the upper lane: the first track's, a range deleted there alone
-  await page.mouse.click(x(6), top)
+  await page.mouse.click(x(6), await mid(0))
   await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'chime · chime.wav')
-  await drag([x(5), top], [x(6) - x(5), 0])
+  await drag([x(5), await mid(0)], [x(6) - x(5), 0])
   await page.keyboard.press('Backspace')
   await page.waitForFunction(() => /\.gain\(-Infinity, \{ at: 2, d: 1 \}\)\n {2}\.remove\(\{ at: 5, d: 1(, xfade: [\d.]+)? \}\)\n\nlet chime2/.test(scriptText()))
   await lengthIs('0:07.000')
   // the lower lane's track taken away: one sound, its steps as they were
-  await page.mouse.click(x(1), bottom)
+  await page.mouse.click(x(1), await mid(1))
   await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'chime2 · chime.wav')
-  await menu('Edit', 'Delete the track')
+  await menu('Track', 'Delete the track')
   await page.waitForFunction(() => !scriptText().includes('chime2'))
   assert.equal(await card(), 'chime.wav')
   await page.waitForFunction(() => !('tracks' in document.querySelector('.plot').dataset))
@@ -6665,7 +7527,8 @@ test('editor: a range on the time row is every track\'s; a selection ⌘-dragged
   await write(`let a = audio('chime.wav')\n\nlet b = audio('chime.wav')`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), top = box.y + (box.height - 22) * .25, bottom = box.y + (box.height - 22) * .75, row = box.y + box.height - 11
+  // the lanes' middles, as their layers have them; the time row under them
+  const { box, x } = await axis(8), mid = async i => (r => r.y + r.h / 2)((await tracksAt())[i]), row = box.y + box.height - 11
   await drag([x(2), row], [x(3) - x(2), 0])
   assert.equal(await selected(), '0:02.000–0:03.000')
   await page.keyboard.press('Backspace')
@@ -6675,7 +7538,8 @@ test('editor: a range on the time row is every track\'s; a selection ⌘-dragged
   await page.waitForFunction(() => !scriptText().includes('remove'))
   await lengthIs('0:08.000')
   // the lower lane's own range, ⌘-dragged up into the upper lane, 4 s on
-  await page.mouse.click(x(6), bottom)
+  await page.mouse.click(x(6), await mid(1))
+  const top = await mid(0), bottom = await mid(1)
   await drag([x(1), bottom], [x(2) - x(1), 0])
   await page.keyboard.down('ControlOrMeta')
   await drag([x(1.5), bottom], [x(5.5) - x(1.5), top - bottom])
@@ -6724,8 +7588,7 @@ test('editor: the steps two tracks share are written once, listed in each, said 
   await lengthIs('0:08.000')
   const { box, x } = await axis(8), top = box.y + (box.height - 22) * .25
   await drag([x(2), top], [x(3) - x(2), 0])
-  await page.mouse.click(x(2.5), top, { button: 'right' })
-  await contextRow('Move to a new track').click()
+  await menu('Track', 'Move to a new track')
   await page.waitForFunction(() => scriptText().includes('let chime2 = '))
   assert.equal(await code(), `let chimeTake = audio('chime.wav')\n  .gain(-3)\n\nlet chime = chimeTake.clone()\n  .gain(-Infinity, { at: 2, d: 1 })\n\nlet chime2 = chimeTake.clone()\n  .crop({ at: 2, d: 1 })\n  .pad(2, 0)`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
@@ -6734,12 +7597,12 @@ test('editor: the steps two tracks share are written once, listed in each, said 
   const cards = () => page.evaluate(() => [...document.querySelectorAll('.steps-list > li')].map(li => [li.querySelector('.step-name')?.textContent, li.classList.contains('shared'), li.dataset.shared ?? '']))
   await page.waitForFunction(() => document.querySelectorAll('.steps-list > li').length === 4)
   assert.deepEqual(await cards(), [['chime2 · chime.wav', true, ''], ['Gain', true, 'Shared with chime'], ['Crop', false, ''], ['Pad', false, '']])
-  // the other track's: the same shared steps, its own after
-  await page.mouse.click(x(6), top)
+  // the other track's (its lane a strip over the edited one's): the same shared steps, its own after
+  await page.mouse.click(x(6), (r => r.y + r.h / 2)((await tracksAt())[0]))
   await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'chime · chime.wav')
   assert.deepEqual(await cards(), [['chime · chime.wav', true, ''], ['Gain', true, 'Shared with chime2'], ['Gain', false, '']])
   // that track deleted: one sound, the shared steps back in the chain of the one left
-  await menu('Edit', 'Delete the track')
+  await menu('Track', 'Delete the track')
   await page.waitForFunction(() => !scriptText().includes('chimeTake'))
   assert.equal(await code(), `let chime2 = audio('chime.wav')\n  .gain(-3)\n  .crop({ at: 2, d: 1 })\n  .pad(2, 0)`)
   await page.waitForFunction(() => !('tracks' in document.querySelector('.plot').dataset))
@@ -6757,19 +7620,21 @@ test('editor: a track ends where its sound does, its lane running on past it', a
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await lengthIs('0:08.000')
   await page.waitForTimeout(600)
-  const { box, x } = await axis(8), bottom = box.y + (box.height - 22) * .75
+  // the lanes' middles, as their layers have them: the upper a strip, the lower, edited, tall
+  const { box, x } = await axis(8), mid = async i => (r => r.y + r.h / 2)((await tracksAt())[i]), [, l] = await tracksAt()
   // past the lower track's end, nothing bright in its lane: neither its centre line nor a rule
-  const lower = await pixels(`const k = w / arg.width, mid = (h - 22 * k) / 2; let n = 0
-    for (let y = Math.round(mid); y < h - 22 * k; y++) for (let x = Math.round(arg.a * k); x < Math.round(arg.b * k); x++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 300) n++ }
-    return n`, { width: box.width, a: x(3.2) - box.x, b: x(7.5) - box.x })
+  const lower = await pixels(`const k = w / arg.width; let n = 0
+    for (let y = Math.round(arg.top * k); y < Math.round(arg.foot * k); y++) for (let x = Math.round(arg.a * k); x < Math.round(arg.b * k); x++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 300) n++ }
+    return n`, { width: box.width, top: l.y - box.y, foot: l.y + l.h - box.y, a: x(3.2) - box.x, b: x(7.5) - box.x })
   assert.equal(lower, 0, 'past its end the lower lane is plain')
-  await page.mouse.dblclick(x(2.6), bottom)
+  await page.mouse.dblclick(x(2.6), await mid(1))
   await page.waitForFunction(() => /–0:03\.000:/.test((e => e.title || e.dataset.tip || '')(document.querySelector('.clock'))))
-  await page.mouse.dblclick(x(5), bottom)
+  await page.mouse.dblclick(x(5), await mid(1))
   await page.waitForFunction(() => (e => e.title || e.dataset.tip || '')(document.querySelector('.clock')).startsWith('Selected 0:03.000–0:08.000:'))
-  await page.mouse.click(x(6), box.y + (box.height - 22) * .25)
+  await page.mouse.click(x(6), await mid(0))
   await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'chime · chime.wav')
-  await page.mouse.dblclick(x(2.9), bottom)
+  // the lower, a strip now, double-clicked: it is edited at the first press, tall from where it was, the second in it still
+  await page.mouse.dblclick(x(2.9), await mid(1))
   const [a, b] = (await selected()).split('–').map(t => +t.split(':')[1])
   assert.ok(a > 1.9 && b === 3, `the piece, not from the start: ${a}–${b}`)
 })
@@ -6779,6 +7644,7 @@ test('editor: pitch editing is off when the page opens', async () => {
   await page.addInitScript(code => localStorage.setItem('audio-repl', JSON.stringify({ code, pitch: true })), CHIME)
   await open()
   await page.locator('.menubar-item', { hasText: /^View$/ }).click()
+  await menuRow('Show').click()
   assert.equal(await menuRow('Pitch curve').getAttribute('aria-checked'), 'false')
   await page.keyboard.press('Escape')
 })
@@ -6792,16 +7658,15 @@ test('editor: the voice split to a track of its own, edited apart, undone in one
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
   const { box, x } = await axis(8)
-  await page.mouse.click(x(1), box.y + box.height * .3)
-  await page.mouse.click(x(1), box.y + box.height * .3, { button: 'right' })
-  await contextRow('Split the voice to a new track').click()
+  await page.mouse.click(x(1), box.y + tall(box) * .3)
+  await menu('Track', 'Split the voice to a new track')
   await page.waitForFunction(() => scriptText().includes('let voice = '))
   // headless Chromium's WebGPU is SwiftShader, on the CPU: the split takes SCNet-large there (Mel-RoFormer on a GPU)
   assert.equal(await code(), `let chime = audio('chime.wav')\n  .vocals('remove', { model: 'scnet-large' })\n\nlet voice = audio('chime.wav')\n  .vocals({ model: 'scnet-large' })`)
   await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'voice · chime.wav')
   await page.keyboard.press('ControlOrMeta+Z')
   await page.waitForFunction(() => !scriptText().includes('voice'))
-  await menu('Edit', 'Split the voice to a new track')
+  await menu('Track', 'Split the voice to a new track')
   await page.waitForFunction(() => scriptText().includes('let voice = '))
 })
 
@@ -6812,12 +7677,12 @@ test('editor: a track exported alone; another lined up with it, both tracks stil
   await write(`let chime = audio('chime.wav')\n\nlet late = audio('chime.wav')\n  .pad(0.25, 0)`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'late · chime.wav')
-  const [d] = await Promise.all([page.waitForEvent('download'), menu('File', 'Export the track alone')])
+  const [d] = await Promise.all([page.waitForEvent('download'), menu('File', 'Export as', 'The track alone')])
   assert.match(d.suggestedFilename(), /-late\.\w+$/)
   const alone = await audio(await readFile(await d.path()))
   await alone.read()
   assert.ok(Math.abs(alone.duration - 8.25) < .01, `that track alone, 0.25 s late: ${alone.duration} s`)
-  await menu('Edit', 'Line up with', 'chime')
+  await menu('Track', 'Line up with', 'chime')
   await page.waitForFunction(() => scriptText().includes('.align('))
   assert.equal(await code(), `let chime = audio('chime.wav')\n\nlet late = audio('chime.wav')\n  .pad(0.25, 0)\n  .align(audio('chime.wav'))`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
@@ -6831,16 +7696,16 @@ test('editor: a bed ducked under the voice, a master over both, a lane of its ow
   await write(`let chime = audio('chime.wav')\n\nlet bed = audio('chime.wav')\n  .gain(-12)`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'bed · chime.wav')
-  await menu('Edit', 'Duck under', 'chime')
+  await menu('Track', 'Duck under', 'chime')
   await page.waitForFunction(() => scriptText().includes('.ducker('))
   assert.equal(await code(), `let chime = audio('chime.wav')\n\nlet bed = audio('chime.wav')\n  .gain(-12)\n  .ducker({ key: chime, range: -15 })`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
-  await menu('Edit', 'Add a master')
+  await menu('Track', 'Add a master')
   await page.waitForFunction(() => scriptText().includes('.clone().mix('))
   assert.equal(await code(), `let chime = audio('chime.wav')\n\nlet bed = audio('chime.wav')\n  .gain(-12)\n  .ducker({ key: chime, range: -15 })\n\nchime.clone().mix(bed)`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '3')
   await lengthIs('0:08.000')
-  await menu('Edit', 'Delete the track')
+  await menu('Track', 'Delete the track')
   await page.waitForFunction(() => !scriptText().includes('.clone()'))
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
 })
@@ -6853,7 +7718,7 @@ test('editor: a link to a script with tracks and a master opens, the master edit
   await page.goto(origin + '/blank.html')
   const url = await page.evaluate(async text => {
     const bytes = new Uint8Array(await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer())
-    return location.origin + '/playground.html#code=' + btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    return location.origin + '/playground/#code=' + btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
   }, `let chime = audio('chime.wav')\n\nlet bed = audio('chime.wav')\n  .ducker({ key: chime })\n\nchime.clone().mix(bed)\n  .gain(-6)`)
   await page.goto(url)
   await page.waitForFunction(() => document.querySelector('.plot')?.dataset.tracks === '3')
@@ -6868,9 +7733,9 @@ test('editor: with tracks, a marker of a track not edited is taken away from its
   await write(`let a = audio('chime.wav')\n  .mark(1, 'here')\n\nlet b = audio('chime.wav')\n  .gain(-6)`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await lengthIs('0:08.000')
-  // its flag at its lane's top, under the track's head (view.js HEAD, 18 px)
-  const { box, x } = await axis(8)
-  await page.mouse.click(x(1), box.y + 18 + 4, { button: 'right' })
+  // its flag at its lane's top, under its head line
+  const { x } = await axis(8)
+  await page.mouse.click(x(1), (await tracksAt())[0].y + 4, { button: 'right' })
   await contextRow('Delete the marker').click()
   await page.waitForFunction(() => !scriptText().includes('.mark('))
   assert.match(await code(), /^let a = audio\('chime.wav'\)\s*let b = audio\('chime.wav'\)\n {2}\.gain\(-6\)$/)
@@ -6884,14 +7749,15 @@ test('editor: with tracks, a track\'s markers are its own', async () => {
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await lengthIs('0:08.000')
   await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'b · chime.wav')
-  const { box, x } = await axis(8), top = box.y + (box.height - 22) * .25, bottom = box.y + (box.height - 22) * .75
+  // the lanes' middles, as their layers have them; a's flags at its lane's top
+  const { box, x } = await axis(8), mid = async i => (r => r.y + r.h / 2)((await tracksAt())[i])
   const from = async () => +(await selected()).split('–')[0].split(':')[1]
-  await page.mouse.dblclick(x(1.05), bottom)
+  await page.mouse.dblclick(x(1.05), await mid(1))
   assert.ok(await from() < .99, `b's fragment from ${await from()}, past a's marker`)
-  await page.mouse.dblclick(x(1.05), top)
+  await page.mouse.dblclick(x(1.05), await mid(0))
   await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'a · chime.wav')
   assert.equal(await from(), 1, 'a\'s fragment from its marker')
-  await page.mouse.click(x(6), bottom)
+  await page.mouse.click(x(6), await mid(1))
   await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'b · chime.wav')
   await page.mouse.click(x(1), box.y + 4)
   await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'a · chime.wav')
@@ -6907,7 +7773,8 @@ test('editor: with tracks, the caret out of sight stays at the edge in its track
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await lengthIs('0:08.000')
   await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'b · chime.wav')
-  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), h = box.height - 22, top = box.y + h * .25, bottom = box.y + h * .75
+  // the lanes' middles, as their layers have them: a's a strip, b's, edited, tall
+  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), [a, b] = await tracksAt(), top = a.y + a.h / 2, bottom = b.y + b.h / 2
   await page.mouse.move(box.x + w / 2, bottom)
   for (let i = 0; i < 7; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
   await page.mouse.click(box.x + w / 2, bottom)
@@ -6921,8 +7788,47 @@ test('editor: with tracks, the caret out of sight stays at the edge in its track
   }))), py)
   assert.ok(await edge(bottom - box.y) > 0, 'at the edge of b\'s lane')
   assert.equal(await edge(top - box.y), 0, 'none in a\'s')
-  await page.mouse.move(box.x + 6, box.y + h + 7)
-  assert.equal(await page.locator('.plot').evaluate(e => e.style.cursor), 'pointer', 'its chevron on the time row')
+  // its chevron at the foot of its line in b's lane
+  await page.mouse.move(box.x + 6, b.y + b.h - 7)
+  assert.equal(await page.locator('.plot').evaluate(e => e.style.cursor), 'pointer', 'its chevron at its line\'s foot')
+})
+
+// Dragged into another track, a piece shows there as it goes, over what it covers, and where it left, silence; let go,
+// both stay so at once, frozen (veiled, a light passing along, nothing pressed there) till the output comes, as Suno
+// Studio's parts calculating; it was gone from both till then
+test('editor: a piece dragged into another track shows there as it goes; dropped, both lanes as they will be, frozen till done', async () => {
+  await open()
+  await noCues()
+  await write(`let a = audio('chime.wav')\n\nlet b = audio.from(t => 0, { duration: 8 })`)
+  await page.locator('.layer').nth(1).waitFor()
+  // a edited (a press in its strip), its lane tall, b's a strip under it, as their layers have them
+  const { box, x } = await axis(8)
+  await page.mouse.click(x(6), (r => r.y + r.h / 2)((await tracksAt())[0]))
+  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent === 'a · chime.wav')
+  const mid = (await tracksAt()).map(r => r.y + r.h / 2)
+  // bright pixels in a lane's upper half, as the lanes are laid out then, off its centre line, over [t0, t1], the caret's
+  // line at its start left out, whichever side of x(t0) it rounds to (bright: a track's colour, its waveform's, is lit at
+  // 400 as the screen's white at 540)
+  const lit = async (k, t0, t1) => { const r = (await tracksAt())[k]; return pixels(`let n = 0; for (let y = Math.round(arg.top); y < arg.mid - 4; y++) for (let x = arg.x0; x < arg.x1; x++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 400) n++ } return n`,
+    { top: r.y - box.y, mid: r.y + r.h / 2 - box.y, x0: Math.floor(x(t0) - box.x) + 2, x1: Math.round(x(t1) - box.x) }) }
+  await drag([x(1), mid[0]], [x(3) - x(1), 0])
+  const before = [await lit(0, 1, 3), await lit(1, 4, 6)]
+  assert.ok(before[0] > 100 && before[1] === 0, `the chime in a, silence in b: ${before}`)
+  await page.mouse.move(x(2), mid[0])
+  await page.mouse.down()
+  for (let i = 1; i <= 8; i++) await page.mouse.move(x(2 + 3 * i / 8), mid[0] + (mid[1] - mid[0]) * i / 8)
+  await page.waitForTimeout(200)
+  const going = [await lit(0, 1, 3), await lit(1, 4, 6)]
+  assert.ok(going[0] < before[0] / 10 && going[1] > 20, `a silent where it was, b (a strip) with it where it goes: ${going}`)
+  // the most lights at once from the drop on, each frame (the edit may be made a frame or two after)
+  await page.evaluate(() => { window.__veils = 0; const look = () => { window.__veils = Math.max(window.__veils, document.querySelectorAll('.plot .veil:not([hidden])').length); if (!window.__veiled) requestAnimationFrame(look) }; requestAnimationFrame(look) })
+  await page.mouse.up()
+  await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
+  const [left, landed] = [await lit(0, 1, 3), await lit(1, 4, 6)]
+  assert.ok(left < before[0] / 10 && landed > 20, `let go, at once as it will be: ${left}, ${landed}`)
+  assert.equal(await page.evaluate(() => (window.__veiled = true, window.__veils)), 2, 'where it left and where it went, a light along them while they are made')
+  await page.waitForFunction(() => /let b = audio\.from\(t => 0, \{ duration: 8 \}\)\n  \.write\(audio\('chime\.wav'\)\.crop\(\{ at: 1, d: 2 \}\), \{ at: 4 \}\)/.test(scriptText()))
+  await page.waitForFunction(() => !document.querySelector('.plot .veil:not([hidden])'))
 })
 
 // A slice of a track dragged onto the tabs: a tab of that track's alone, its chain cropped to it
@@ -6932,7 +7838,8 @@ test('editor: with tracks, a slice dragged onto the tabs is the edited track\'s 
   await write(`let a = audio('chime.wav')\n\nlet b = audio('chime.wav')\n  .gain(-6)`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + (box.height - 22) * .75, files = await page.locator('.files').boundingBox()
+  // b's lane's middle, edited, tall under a's strip
+  const { box, x } = await axis(8), y = (r => r.y + r.h / 2)((await tracksAt())[1]), files = await page.locator('.files').boundingBox()
   await drag([x(1), y], [x(2) - x(1), 0])
   await keyed(['Alt'], () => drag([x(1.5), y], [files.x + files.width / 2 - x(1.5), files.y + files.height / 2 - y]))
   await page.waitForFunction(() => document.querySelectorAll('.file').length === 2)
@@ -6954,7 +7861,7 @@ test('editor: with tracks, the edited track flattened is that track alone', asyn
   await contextRow('Flatten all').click()
   await page.waitForFunction(() => scriptText() === "let a = audio('chime.wav')\n  .gain(-6)\n\nlet b = audio('chime-flat.wav')")
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
-  await page.waitForFunction(level => document.querySelector('.readout').innerText === level, level)
+  await page.waitForFunction(level => document.querySelector('.readout').textContent === level, level)
 })
 
 // A file opened as a track of its own (File): under the one edited, named for it, the one edited after; the sound as
@@ -6964,7 +7871,7 @@ test('editor: a file opened as a new track goes under the one edited', async () 
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
   const chooser = page.waitForEvent('filechooser')
-  await menu('File', 'Open as a new track…')
+  await menu('Track', 'New track from a file…')
   await (await chooser).setFiles({ name: 'bed.wav', mimeType: 'audio/wav', buffer: await wavBytes([sine(10, 220, .1)]) })
   await page.waitForFunction(() => scriptText().includes('let bed = '))
   assert.equal(await code(), `let chime = audio('chime.wav')\n\nlet bed = audio('bed.wav')`)
@@ -6979,7 +7886,7 @@ test('editor: a tab dragged onto the picture is a track; a track moved to its ow
   await open()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  await menu('File', 'Samples', 'handpan.wav')
+  await menu('File', 'Sample or generate', 'handpan.wav')
   await page.waitForFunction(() => scriptText().trim() === "audio('handpan.wav')")
   await page.getByRole('tab', { name: 'chime.wav' }).click()
   await page.waitForFunction(() => scriptText().trim() === "audio('chime.wav')")
@@ -6991,9 +7898,11 @@ test('editor: a tab dragged onto the picture is a track; a track moved to its ow
   await page.mouse.up()
   await page.waitForFunction(() => scriptText().includes("let handpan = audio('handpan.wav')"))
   assert.equal(await code(), `let chime = audio('chime.wav')\n\nlet handpan = audio('handpan.wav')`)
-  assert.deepEqual(await page.locator('.files [role="tab"]').allInnerTexts(), ['chime.wav + handpan.wav'])
+  // named by its tracks, as their layers are
+  assert.deepEqual(await page.locator('.files [role="tab"]').allInnerTexts(), ['chime + handpan'])
+  await page.waitForFunction(() => document.title === 'chime + handpan · audio playground')
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
-  await menu('Edit', 'Move the track to its own tab')
+  await menu('Track', 'Move the track to its own tab')
   await page.waitForFunction(() => scriptText().trim() === "audio('handpan.wav')")
   assert.deepEqual(await page.locator('.files [role="tab"]').allInnerTexts(), ['chime.wav', 'handpan.wav'])
   await page.getByRole('tab', { name: 'chime.wav' }).click()
@@ -7008,19 +7917,22 @@ test('editor: the context menu takes the clicks out of the selection, or rebuild
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3
   await drag([x(2), y], [x(4) - x(2), 0])
   await page.mouse.click(x(3), y, { button: 'right' })
+  await menuRow('Process').click()
   await menuRow('Repair').click()
   await menuRow('Remove the clicks here').click()
   await page.waitForFunction(() => /\.declick\(\{ at: 2(\.0\d*)?, d: 2(\.0\d*)? \}\)$/.test(scriptText().trim()))
   await page.mouse.click(x(3), y, { button: 'right' })
+  await menuRow('Process').click()
   await menuRow('Repair').click()
   await menuRow('Rebuild from around it').click()
   await page.waitForFunction(() => /\.repair\(\{ at: 2(\.0\d*)?, d: 2(\.0\d*)? \}\)$/.test(scriptText().trim()))
   await lengthIs('0:08.000')
   // any method, by its kind: a filter over the selection
   await page.mouse.click(x(3), y, { button: 'right' })
+  await menuRow('Process').click()
   await menuRow('Filter').click()
   // what each does, said in its row (the menus' words once took the tooltip's place, all at the window's corner)
   const row = await menuRow('Highpass').boundingBox(), said = await menuRow('Highpass').locator('.menu-keys').boundingBox()
@@ -7037,8 +7949,8 @@ test('editor: the square past the caret opens silence there', async () => {
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), lh = (box.height - 22 - LANES) / 2
-  await page.mouse.click(x(2), box.y + box.height * .3)
+  const { box, x } = await axis(8), lh = (tall(box) - LANES) / 2
+  await page.mouse.click(x(2), box.y + tall(box) * .3)
   // its pointer trim's, as it does what trimming out does
   await drag(await grab([[x(2) + 9, box.y + lh * 3 / 4]], 'ew-resize'), [x(3) - x(2), 0])
   await page.waitForFunction(() => /\.insert\(1, \{ at: 2, xfade: 0\.01 \}\)$/.test(scriptText()))
@@ -7052,7 +7964,7 @@ test('editor: at the end, the square before the caret opens silence past the pic
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), lh = (box.height - 22 - LANES) / 2
+  const { box, x } = await axis(8), lh = (tall(box) - LANES) / 2
   await page.locator('.plot').focus()
   await page.keyboard.press('End')
   const at = await grab([[x(8) - 8, box.y + lh * 3 / 4]], 'ew-resize')
@@ -7079,22 +7991,57 @@ test('editor: a selection\'s fade squares sit on whole pixels, flush with its st
   await lengthIs('0:02.000')
   const { box, x } = await axis(2)
   await drag([x(.5) + .3, box.y + 60], [x(1.5) - x(.5), 0])
-  await page.mouse.move(box.x + 5, box.y + box.height - 30)
+  // the pointer by it, so its squares show, in its middle on the time row, clear of the rows measured
+  await page.mouse.move(x(1), box.y + box.height - 11)
   await page.waitForTimeout(300)
   const r = await pixels(`
     const at = (px, y) => d[(y * w + px) * 4]
-    // on a row under the squares: the caret's line, the brightest, and the wash's last column
+    // on a row under the squares, between the grid's dots (a tenth of full scale apart, 8 px in a lane TRACK px tall):
+    // the caret's line, the brightest, and the wash's last column
     let line = 0, end = -1
-    for (let px = 1; px < w - 60; px++) { if (at(px, 40) > at(line, 40)) line = px; if (at(px, 40) > at(px + 1, 40) + 4) end = px }
+    for (let px = 1; px < w - 60; px++) { if (at(px, 20) > at(line, 20)) line = px; if (at(px, 20) > at(px + 1, 20) + 4) end = px }
     return { line, end, row: [line + 1, line + 8, line + 16, line + 17, end - 16, end - 15, end - 8, end].map(px => at(px, 1)) }`)
   const [in0, inMid, in1, washIn, washOut, out0, outMid, out1] = r.row
   assert.ok(in0 < washIn - 4 && in1 < washIn - 4 && out0 < washOut - 4 && out1 < washOut - 4, `squares darker than the wash at their edges: ${JSON.stringify(r)}`)
   assert.ok(Math.abs(in0 - inMid) <= 2 && Math.abs(in1 - inMid) <= 2 && Math.abs(out0 - outMid) <= 2 && Math.abs(out1 - outMid) <= 2, `edges as dark as middles: ${JSON.stringify(r)}`)
 })
 
+// The handles show with the pointer on or by what they are for, none with it away: a selection's fade square in its
+// top corner, the caret's square past it; to a touch or a pen, which may have no pointer to bring near, always. On
+// silence, so only the wash, the lines and the squares show: a square's pixels, with the pointer away and by it, the
+// pointer's own line clear of them
+test('editor: the handles show only with the pointer on or by the selection or the caret', async () => {
+  await open()
+  await noCues()
+  await write(`audio.from(2)`)
+  await lengthIs('0:02.000')
+  const { box, x } = await axis(2), y = box.y + 60, away = [box.x + 5, y]
+  const region = ([x0, y0]) => pixels(`const out = []; for (let y = arg[1]; y < arg[1] + 12; y++) for (let x = arg[0]; x < arg[0] + 12; x++) out.push(d[(y * w + x) * 4]); return out`, [Math.round(x0 - box.x), Math.round(y0)])
+  const differ = (a, b) => a.filter((v, i) => Math.abs(v - b[i]) > 8).length
+  const seen = async (at, square) => { await page.mouse.move(...at); await page.waitForTimeout(200); return region(square) }
+  // a selection's fade-in square, in from its start's line at its top
+  await drag([x(.5) + .3, y], [x(1.5) - x(.5), 0])
+  const fade = [x(.5) + 3, 2], none = await seen(away, fade)
+  assert.ok(differ(none, await seen([x(1), y], fade)) > 20, 'the pointer in it: its square')
+  assert.ok(differ(none, await seen([x(1.5) + 12, y], fade)) > 20, 'the pointer just past its end: its square')
+  assert.ok(differ(none, await seen(away, fade)) <= 2, 'the pointer away again: none')
+  // to a touch or a pen, the selection's handles with no pointer by it
+  for (const pointerType of ['touch', 'pen']) {
+    await page.mouse.move(...away)
+    await page.locator('.plot').dispatchEvent('pointermove', { pointerType, clientX: away[0], clientY: y })
+    await page.waitForTimeout(200)
+    assert.ok(differ(none, await region(fade)) > 20, `${pointerType}: its square`)
+  }
+  // the caret's square, past it in the middle of the lane's lower half (one lane, a mono sound's)
+  await page.mouse.click(x(1), y)
+  const gap = [x(1) + 3, tall(box) * 3 / 4 - 6], bare = await seen(away, gap)
+  assert.ok(differ(bare, await seen([x(1) - 12, y], gap)) > 20, 'the pointer by the caret: its square')
+  assert.ok(differ(bare, await seen(away, gap)) <= 2, 'the pointer away again: none')
+})
+
 // Handles are for editing: while it plays there are none, the caret's square past it too
 test('editor: no handles while it plays', async () => {
-  const { box, x, y } = await chime(), lh = (box.height - 22 - LANES) / 2, at = [x(2) + 9, box.y + lh * 3 / 4]
+  const { box, x, y } = await chime(), lh = (tall(box) - LANES) / 2, at = [x(2) + 9, box.y + lh * 3 / 4]
   await page.mouse.click(x(2), y)
   await grab([at], 'ew-resize')
   await page.keyboard.press('Space')
@@ -7113,7 +8060,7 @@ test('editor: the caret moves within a selection from the time row or the arrows
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3, row = box.y + box.height - 11
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3, row = box.y + box.height - 11
   const clock = () => page.locator('.time').innerText(), seconds = t => t.split(':').reduce((m, s) => m * 60 + +s, 0)
   await drag([x(1), y], [x(5) - x(1), 0])
   assert.equal(await selected(), '0:01.000–0:05.000')
@@ -7155,7 +8102,7 @@ async function chime() {
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
   const { box, x } = await axis(8)
-  return { box, x, y: box.y + box.height * .3, ranges: async () => (await page.locator('.clock').evaluate(tipOf)).match(/^Selected (\d+) ranges: ([\d:.]+),/)?.slice(1) ?? [] }
+  return { box, x, y: box.y + tall(box) * .3, ranges: async () => (await page.locator('.clock').evaluate(tipOf)).match(/^Selected (\d+) ranges: ([\d:.]+),/)?.slice(1) ?? [] }
 }
 // every caret, as M marks them (and takes them back)
 async function marked() {
@@ -7201,14 +8148,14 @@ test('editor: Shift and a drag inside the selection moves its far end from where
 })
 
 // Shift sums, as Shift and a press in a text: the selection goes out to the press at once, from where it was begun, a
-// drag going on with it, never another range; held, the pointer an I-beam with a chevron the way it goes
+// drag going on with it, never another range; held, the pointer an I-beam with a plus on the side it goes out from
 const pointed = () => page.locator('.plot').evaluate(el => decodeURIComponent(el.style.cursor))
 test('editor: Shift and a press elsewhere extends the selection at once, a drag going on with it; the pointer says which way', async () => {
   const { x, y, ranges } = await chime()
   await drag([x(1), y], [x(2) - x(1), 0])
   await page.mouse.move(x(4), y)
   await page.keyboard.down('Shift')
-  await page.waitForFunction(() => decodeURIComponent(document.querySelector('.plot').style.cursor).includes('M5 9l3 3-3 3'))
+  await page.waitForFunction(() => decodeURIComponent(document.querySelector('.plot').style.cursor).includes('M6 9v6M3 12h6'))
   await page.mouse.down()
   assert.equal(await selected(), '0:01.000–0:04.000', 'on the press')
   await page.mouse.move(x(5), y, { steps: 3 })
@@ -7216,12 +8163,12 @@ test('editor: Shift and a press elsewhere extends the selection at once, a drag 
   assert.equal(await selected(), '0:01.000–0:05.000', 'the drag goes on with it')
   assert.deepEqual(await ranges(), [], 'no other range')
   await page.mouse.move(x(.5), y)
-  assert.match(await pointed(), /M19 9l-3 3 3 3/, 'before it, the chevron the other way')
+  assert.match(await pointed(), /M18 9v6M15 12h6/, 'before it, the plus on the other side')
   await page.keyboard.up('Shift')
 })
 
 // Held Alt, what the time row has in the measuring red between `a` and `b` (page x): on its row most lit, how many pixels
-const measuredOnRow = (box, a, b) => pixels(`let best = 0; for (let y = h - 20; y < h - 8; y++) { let n = 0; for (let x = ${Math.round(a - box.x)}; x < ${Math.round(b - box.x)}; x++) { const i = (y * w + x) * 4; if (d[i] - d[i + 2] > 60) n++ } best = Math.max(best, n) } return best`)
+const measuredOnRow = (box, a, b) => pixels(`let best = 0; for (let y = h - 20; y < h - 2; y++) { let n = 0; for (let x = ${Math.round(a - box.x)}; x < ${Math.round(b - box.x)}; x++) { const i = (y * w + x) * 4; if (d[i] - d[i + 2] > 60) n++ } best = Math.max(best, n) } return best`)
 const crossed = () => page.waitForFunction(() => document.querySelector('.plot').style.cursor === 'crosshair')
 // Alt measures as Figma's Alt does: held, the pointer a cross, its place dashed in the measuring red down to the time row
 // and across to the level axis, and on the time row a line from the selection's nearer edge to it, how far it is; let
@@ -7360,6 +8307,8 @@ test('editor: dragged inside the selection, its audio slides over what is there;
   assert.equal(await selected(), '0:04.000–0:05.000', 'the moved audio stays selected where it went')
   await lengthIs('0:08.000')
   assert.equal(await page.locator('.plot').evaluate(el => el.style.cursor), 'grab', 'over the selection, a hand')
+  // (once made: till then what it moved is frozen, no press taking it)
+  await page.waitForFunction(() => !document.querySelector('.plot .veil:not([hidden])'))
   await page.mouse.click(x(4.5), y)
   assert.equal(await selected(), '', 'clicked inside it, no selection')
   assert.equal((await code()).match(/\.move\(/g).length, 1)
@@ -7379,10 +8328,21 @@ test('editor: what there is stays as one of it is dragged, a caret by its line, 
   await drag(await grab([[x(2), y]], 'ew-resize'), [x(2.5) - x(2), 0])
   assert.deepEqual(await ranges(), ['2', '0:02.500'])
   // its start onto its end: a caret there, the other range staying
-  await drag(await grab([[x(1), y]], 'ew-resize'), [x(2.6) - x(1), 0])
+  await drag(await grab([[x(1), y]], 'ew-resize'), [x(2.5) - x(1), 0])
   assert.equal(await page.locator('.time').innerText(), '0:02.500')
   await page.keyboard.press('Delete')
   await page.waitForFunction(() => /\.remove\(\{ at: 4, d: 1, xfade: 0\.01 \}\)$/.test(scriptText()))
+})
+
+// An edge dragged on past the other turns the range over, as a drag from the other edge would make it: its end past its
+// start, the range from its start back to where it is let go, its start past its end the same the other way
+test('editor: a range\'s edge dragged past the other turns it over from there', async () => {
+  const { x, y } = await chime()
+  await drag([x(3), y], [x(4) - x(3), 0])
+  await drag(await grab([[x(4), y]], 'ew-resize'), [x(2) - x(4), 0])
+  assert.equal(await selected(), '0:02.000–0:03.000', 'its end past its start')
+  await drag(await grab([[x(2), y]], 'ew-resize'), [x(5) - x(2), 0])
+  assert.equal(await selected(), '0:03.000–0:05.000', 'its start past its end')
 })
 
 test('editor: ⌘ aims, a drag going a quarter as far; a right-click on what a press would take moves nothing', async () => {
@@ -7408,7 +8368,7 @@ test('editor: Alt and a double-click adds a word; Shift and a double-click exten
   await open()
   await write(bursts)
   await lengthIs('0:02.500')
-  const { box, x } = await axis(2.5), y = box.y + box.height / 3
+  const { box, x } = await axis(2.5), y = box.y + tall(box) / 3
   for (const until = Date.now() + 8000; Date.now() < until; await page.waitForTimeout(200)) { await page.mouse.dblclick(x(.2), y); if (/^0:00\.4/.test((await selected()).split('–')[1] ?? '')) break }
   await page.keyboard.down('Alt'); await page.mouse.dblclick(x(1.7), y); await page.keyboard.up('Alt')
   assert.match(await page.locator('.clock').evaluate(tipOf), /^Selected 2 ranges: 0:00\.8/)
@@ -7427,21 +8387,25 @@ test('editor: Alt and a double-click adds a word; Shift and a double-click exten
   assert.match(await selected(), /^0:00\.000–0:00\.9\d*$/)
 })
 
-// A right-click, as in a text: inside the selection, the edits for it, a method among them written for it (by its kind),
-// offered again among the recent ones; what the picture has a handle for (the fades, the level) and
-// how it draws are not its. Elsewhere the caret goes there first, the selection gone, and the menu has what a caret takes
+// A right-click, as in a text: inside the selection, the edits for it, then every method under one Process, by its kind,
+// one written for it offered again first there among the recent ones; what the picture has a handle for (the fades, the
+// level), how it draws, what the menus have for the sound as a whole (Select all, the voice split) are not its. Elsewhere
+// the caret goes there first, the selection gone, and the menu has what a caret takes
 test('editor: a right-click gives the edits for the selection, or puts the caret there and gives the caret\'s', async () => {
   await open()
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3
   const item = name => page.locator('.menubar-menu .menu-row', { has: page.locator('.menu-label', { hasText: new RegExp(`^${name}$`) }) })
   await drag([x(1), y], [x(3) - x(1), 0])
   await page.mouse.click(x(2), y, { button: 'right' })
-  // its own: the edits of what is there, then the methods by kind and the search for one, no more
+  // its own: the edits of what is there, then Process, the methods by kind and the search for one, no more
   const own = () => page.locator('.menubar-menu > .menu-row .menu-label').allInnerTexts(), kinds = ['Edit', 'Level', 'Filter', 'Dynamics', 'Repair', 'Time & pitch', 'Effect', 'Color', 'Reverb', 'Space', 'Generate', 'Find an edit…']
-  assert.deepEqual(await own(), ['Cut', 'Copy', 'Paste', 'Delete', 'Keep only this', 'Move to a new track', ...kinds, 'Mark it', 'Zoom to it'])
+  const processed = () => page.locator('.menubar-sub:popover-open > .menu-row .menu-label').allInnerTexts()
+  assert.deepEqual(await own(), ['Cut', 'Copy', 'Paste', 'Delete', 'Crop', 'Mark it', 'Process'])
+  await item('Process').click()
+  assert.deepEqual(await processed(), kinds)
   // under its kind, Edit, the first of it
   await item('Edit').click()
   await item('Reverse').click()
@@ -7451,14 +8415,15 @@ test('editor: a right-click gives the edits for the selection, or puts the caret
   assert.equal(await page.locator('.side-slab').isVisible(), false, 'the edits stay closed')
   // offered again, at once, as it was worded; kept with the page
   await page.mouse.click(x(2), y, { button: 'right' })
-  assert.equal(await page.locator('.menubar-menu > .menu-group').innerText(), 'Recent')
-  assert.deepEqual((await own()).slice(6, 8), ['Reverse', 'Edit'])
-  await page.locator('.menubar-menu > .menu-row', { hasText: /^Reverse/ }).click()
+  await item('Process').click()
+  assert.equal(await page.locator('.menubar-sub:popover-open > .menu-group').innerText(), 'Recent')
+  assert.deepEqual((await processed()).slice(0, 2), ['Reverse', 'Edit'])
+  await page.locator('.menubar-sub:popover-open > .menu-row', { hasText: /^Reverse/ }).click()
   await page.waitForFunction(() => (scriptText().match(/\.reverse\(\{ at: 1, d: 2 \}\)/g) || []).length === 2)
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').recent?.[0] === 'reverse')
   await page.mouse.click(x(6), y, { button: 'right' })
   assert.equal(await page.locator('.time').innerText(), '0:06.000')
-  assert.deepEqual((await own()).slice(0, 4), ['Paste', 'Add a marker', 'Select all', 'Split the voice to a new track'], 'the caret\'s own, no Cut')
+  assert.deepEqual(await own(), ['Paste', 'Add a marker', 'Process'], 'the caret\'s own, no Cut')
   // Esc closes it, the caret staying
   await page.keyboard.press('Escape')
   await page.locator('.menubar-menu').waitFor({ state: 'detached' })
@@ -7474,8 +8439,9 @@ test('editor: one Stretch, its algorithm a choice; the menus name each method in
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3
   await page.mouse.click(x(2), y, { button: 'right' })
+  await menuRow('Process').click()
   await menuRow('Time & pitch').click()
   const names = await page.locator('.menubar-sub:popover-open .menu-label').allInnerTexts()
   assert.deepEqual(names.filter(n => /^stretch/i.test(n)), ['Stretch'], names.join(', '))
@@ -7502,7 +8468,7 @@ test('editor: Delete crossfades the seam it leaves, as long as the settings say'
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3
   await drag([x(1), y], [x(2) - x(1), 0])
   await page.keyboard.press('Delete')
   await page.waitForFunction(() => /\.remove\(\{ at: 1, d: 1, xfade: 0\.01 \}\)$/.test(scriptText()))
@@ -7524,7 +8490,7 @@ test('editor: a click on a fade corner turns it to the next curve, no menu, the 
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3
   await drag([x(2), y], [x(4) - x(2), 0])
   for (const curve of ['exp', 'log', 'cos', 'linear']) {
     await page.mouse.click(x(2) + 8, box.y + 8)
@@ -7538,7 +8504,7 @@ test('editor: Alt-click adds carets; M puts a marker at each', async () => {
   await open()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3
   await page.mouse.click(x(2.2), y)
   await page.keyboard.down('Alt')
   await page.mouse.click(x(4.2), y)
@@ -7573,7 +8539,7 @@ test('editor: ⌘C copies the selection, ⌘X cuts it, ⌘V pastes at the caret'
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3, last = () => code().then(c => c.trim().split('\n').at(-1))
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3, last = () => code().then(c => c.trim().split('\n').at(-1))
   await drag([x(1), y], [x(2) - x(1), 0])
   await page.keyboard.press('ControlOrMeta+C')
   await page.waitForFunction(() => /\.copy\(\{ at: [\d.]+, d: [\d.]+ \}\)$/.test(scriptText().trim()))
@@ -7601,7 +8567,7 @@ test('editor: a range copied in one tab pastes in another', async () => {
   await noCues()
   await write(`audio('chime.wav').gain(-3).save('out.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3
   await drag([x(1), y], [x(2) - x(1), 0])
   await page.keyboard.press('ControlOrMeta+C')
   await page.waitForFunction(() => /\.copy\(\{ at: [\d.]+, d: [\d.]+ \}\)/.test(scriptText()))
@@ -7638,16 +8604,16 @@ test('editor: a range copied in one window pastes in another', async () => {
   const caret = async p => { const b = await p.locator('.plot').boundingBox(); await p.mouse.click(b.x + b.width * .3, b.y + b.height * .3) }
   try {
     for (const p of [first, second]) p.on('pageerror', e => errors.push(e.message))
-    await first.goto(origin + '/playground.html')
-    await first.locator('.readout:is([title^="Loudness"], [data-tip^="Loudness"])').waitFor()
+    await first.goto(origin + '/playground/')
+    await first.locator('.readout[data-of="all"]').waitFor()
     await caret(first)
     await first.keyboard.press('ControlOrMeta+A')
     await first.keyboard.press('ControlOrMeta+C')
     await first.waitForFunction(() => localStorage.getItem('audio-repl-clip'))
-    await second.goto(origin + '/playground.html')
+    await second.goto(origin + '/playground/')
     await Promise.all([second.waitForEvent('load'), second.getByRole('button', { name: 'Use it here' }).click()])
     // (all of it selected, as the first left it: the readout the selection's)
-    await second.waitForFunction(() => document.querySelector('.readout')?.textContent.startsWith('peak'))
+    await second.waitForFunction(() => document.querySelector('.readout')?.dataset.of === 'selection')
     await caret(second)
     await second.keyboard.press('ControlOrMeta+V')
     await second.waitForFunction(() => /\.insert\(audio\('chime\.wav'\)\.trim\(\)\.normalize\(-1\)\.fade\(0\.02, 0\.1\)\.crop\(\{ at: 0, d: [\d.]+ \}\), \{ at: [\d.]+, xfade: 0\.01 \}\)$/.test([...document.querySelectorAll('.cm-content .cm-line')].map(l => l.textContent).join('').trim()))
@@ -7664,13 +8630,13 @@ test('editor: a copy puts the range on the system clipboard, as code and as a WA
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin })
   await write(`audio('chime.wav').gain(-3)`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3
   await drag([x(1), y], [x(2) - x(1), 0])
   await page.keyboard.press('ControlOrMeta+C')
   await page.waitForFunction(() => /\.copy\(/.test(scriptText()))
   const [, at, d] = (await code()).match(/\.copy\(\{ at: ([\d.]+), d: ([\d.]+) \}\)/).map(Number)
   // the WAV encoded in the worker, the clipboard written once it comes
-  await page.waitForFunction(async () => (await navigator.clipboard.read())[0]?.types.includes('web audio/wav'))
+  await page.waitForFunction(async () => { try { return (await navigator.clipboard.read())[0]?.types.includes('web audio/wav') } catch { return false } })
   const got = await page.evaluate(async () => {
     const [item] = await navigator.clipboard.read()
     return { types: item.types, text: await (await item.getType('text/plain')).text(), wav: [...new Uint8Array(await (await item.getType('web audio/wav')).arrayBuffer())] }
@@ -7697,7 +8663,7 @@ test('editor: ⌘V pastes a WAV another page copied, and an audio file copied el
   await lengthIs('0:09.000')
   const tone = [...await audio.from([Float32Array.from({ length: SAMPLES }, (_, i) => .5 * Math.sin(2 * Math.PI * 440 * i / SAMPLES))], { sampleRate: SAMPLES }).encode('wav')]
   await page.evaluate(bytes => navigator.clipboard.write([new ClipboardItem({ 'text/plain': new Blob(['elsewhere'], { type: 'text/plain' }), 'web audio/wav': new Blob([new Uint8Array(bytes)], { type: 'audio/wav' }) })]), tone)
-  const { box, x } = await axis(9), y = box.y + box.height * .3
+  const { box, x } = await axis(9), y = box.y + tall(box) * .3
   await page.mouse.click(x(3), y)
   await page.keyboard.press('ControlOrMeta+V')
   await page.waitForFunction(() => /\.insert\(audio\('pasted\.wav'\), \{ at: 3(\.\d+)?, xfade: 0\.01 \}\)$/.test(scriptText().trim()))
@@ -7732,7 +8698,8 @@ test('editor: ⌘V pastes a WAV another page copied, and an audio file copied el
   await drag([q.x(1), y], [q.x(2) - q.x(1), 0])
   await page.keyboard.press('ControlOrMeta+C')
   await page.waitForFunction(() => /\.copy\(/.test(scriptText()))
-  await page.waitForFunction(async () => { const [i] = await navigator.clipboard.read(); return i?.types.includes('web audio/wav') && (await (await i.getType('text/plain')).text()).startsWith(`audio('rhodes.wav')`) })
+  // (read as it changes, the write's WAV landing, a read throws: read again)
+  await page.waitForFunction(async () => { try { const [i] = await navigator.clipboard.read(); return i?.types.includes('web audio/wav') && (await (await i.getType('text/plain')).text()).startsWith(`audio('rhodes.wav')`) } catch { return false } })
   await page.mouse.click(q.x(4), y)
   await paste('picture.png', 'image/png')
   await page.waitForFunction(() => /\.copy\(\{ at: [\d.]+, d: [\d.]+ \}\)\s*\.paste\([\d.]+, 0\.01\)$/.test(scriptText().trim()))
@@ -7751,20 +8718,20 @@ test('editor: a step turns off and on, Δ shows what it takes out', async () => 
   await card('Normalize').hover()
   await page.getByRole('button', { name: 'Turn normalize off' }).click()
   await page.waitForFunction(() => document.querySelector('.cm-content').textContent.includes('// .normalize(-1)'))
-  await page.waitForFunction(() => !document.querySelector('.readout').textContent.startsWith('peak −1.0'))
+  await page.waitForFunction(() => !document.querySelector('.readout').textContent.startsWith('−1.0'))
   assert.ok(await card('Normalize').evaluate(el => el.classList.contains('off')))
   await card('Normalize').hover()
   await page.getByRole('button', { name: 'Turn normalize on' }).click()
   await page.waitForFunction(() => !document.querySelector('.cm-content').textContent.includes('//'))
-  await page.locator('.readout', { hasText: 'peak −1.0dBFS' }).waitFor()
+  await page.locator('.readout', { hasText: '−1.0 dBFS' }).waitFor()
   // what the fade takes out, from its card open: the start and end it softens, far under the output
   await card('Fade').locator('.step-name').click()
   await card('Fade').getByRole('button', { name: 'Δ What it takes out' }).click()
   await page.locator('.viewing', { hasText: 'What Fade takes out' }).waitFor()
-  await page.waitForFunction(() => { const m = document.querySelector('.readout').textContent.match(/^peak −([\d.]+)dBFS/); return m && +m[1] > 6 })
+  await page.waitForFunction(() => { const m = document.querySelector('.readout').textContent.match(/^−([\d.]+) dBFS/); return m && +m[1] > 6 })
   await card('Fade').getByRole('button', { name: 'Δ What it takes out' }).click()
   await page.locator('.viewing').waitFor({ state: 'detached' })
-  await page.locator('.readout', { hasText: 'peak −1.0dBFS' }).waitFor()
+  await page.locator('.readout', { hasText: '−1.0 dBFS' }).waitFor()
 })
 
 // The caret dragged, Shift held on the way: a range from where the caret was pressed
@@ -7860,7 +8827,7 @@ test('editor: an output rendering in place of the one shown keeps the zoom, the 
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3
   await page.mouse.click(x(4), y)
   await page.locator('.plot').focus()
   for (let i = 0; i < 2; i++) await page.keyboard.press('=')
@@ -7890,7 +8857,7 @@ test('editor: each tab keeps where its sound was zoomed, switched away and back 
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3
   // the time at the view's left edge, from a click there
   const left = async () => { await page.mouse.click(box.x + 1, y); return (await page.locator('.time').innerText()).split(':').reduce((m, s) => m * 60 + +s, 0) }
   await page.mouse.click(x(4), y)
@@ -7914,15 +8881,16 @@ test('editor: each tab keeps where its sound was zoomed, switched away and back 
   await page.waitForTimeout(300)
   assert.ok(Math.abs(await left() - before) < .01, 'and after a reload')
 })
-// Zoomed in, the scrollbar at the time row's foot (view.js bar): its thumb dragged a quarter of the row across moves the
-// view a quarter of the sound on, a press beside it takes the view there; the caret stays where it was. Showing all of
-// it, there is none, and a press there moves the caret, as on the rest of the time row
-test('editor: zoomed in, the scrollbar at the time row\'s foot moves the view, the caret staying', async () => {
+// Zoomed in, the scrollbar at the time row's top, its labels under it, at the row's foot (view.js bar): its thumb
+// dragged a quarter of the row across moves the view a quarter of the sound on, a press beside it takes the view there;
+// the caret stays where it was. Showing all of it, there is none, and a press there moves the caret, as on the rest of
+// the time row
+test('editor: zoomed in, the scrollbar at the time row\'s top moves the view, the caret staying', async () => {
   await open()
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3, foot = box.y + box.height - 3, w = box.width - (await gutter())
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3, foot = box.y + box.height - 22 + 4, w = box.width - (await gutter())
   const time = async () => (await page.locator('.time').innerText()).split(':').reduce((m, s) => m * 60 + +s, 0)
   const left = async () => { await page.mouse.click(box.x + 1, y); return time() }
   await page.mouse.click(x(6), foot)
@@ -7935,21 +8903,25 @@ test('editor: zoomed in, the scrollbar at the time row\'s foot moves the view, t
   assert.ok(before > .5 && before < 2, `zoomed in: the view from ${before}`)
   // the thumb's middle, where the view shows
   const thumb = t => box.x + (t + span / 2) / 8 * w
-  // drawn as the page's scrollbars draw theirs (editor.css): 6 px thick, 2 px off the foot, the same under the pointer.
-  // The rows lit down the thumb's middle on its strip (view.js onStrip, the view's width, to the foot), in its last 10 px:
+  // drawn as the page's scrollbars draw theirs (editor.css): 6 px thick, a pixel under the lanes, the same under the
+  // pointer. The rows lit down the thumb's middle on its strip (view.js onStrip, the view's width, from the lanes' foot):
   // [thick, off], CSS px
   const drawn = () => page.evaluate(px => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => {
     const cv = document.querySelector('.plot canvas.scrollbar'), k = cv.width / cv.getBoundingClientRect().width, { data } = cv.getContext('2d').getImageData(Math.round(px * k), 0, 1, cv.height), rows = []
-    for (let y = cv.height - Math.round(10 * k); y < cv.height; y++) if (data[y * 4 + 3] > 0) rows.push(y)
-    done([rows.length / k, (cv.height - 1 - rows.at(-1)) / k])
+    for (let y = 0; y < cv.height; y++) if (data[y * 4 + 3] > 0) rows.push(y)
+    done([rows.length / k, rows[0] / k])
   }))), thumb(before) - box.x)
-  assert.deepEqual(await drawn(), [6, 2], 'the thumb, 6 px thick, 2 px off the foot')
+  assert.deepEqual(await drawn(), [6, 1], 'the thumb, 6 px thick, a pixel under the lanes')
   await page.mouse.move(thumb(before), foot)
-  assert.deepEqual(await drawn(), [6, 2], 'the same under the pointer')
+  assert.deepEqual(await drawn(), [6, 1], 'the same under the pointer')
+  // the strip laid anew as the thumb moves, cleared as its canvas is resized (kept.js), never by reset(): WebKit's
+  // clears the bitmap but leaves the thumbs laid before on screen, a trail of them along the row
+  await page.evaluate(() => { const reset = CanvasRenderingContext2D.prototype.reset; window.__resets = 0; CanvasRenderingContext2D.prototype.reset = function () { window.__resets++; return reset.call(this) } })
   await page.mouse.down()
   await page.mouse.move(thumb(before) + w / 8, foot, { steps: 4 })
   await page.mouse.move(thumb(before) + w / 4, foot, { steps: 4 })
   await page.mouse.up()
+  assert.equal(await page.evaluate(() => window.__resets), 0, 'no layer reset()')
   assert.equal(await time(), caret, 'the caret where it was')
   const dragged = await left()
   assert.ok(Math.abs(dragged - before - 2) < .1, `a quarter of the row, a quarter of the sound: from ${before} to ${dragged}`)
@@ -7962,7 +8934,7 @@ test('editor: after a reload the view is where it was left while its sound still
   await noCues()
   await write(`audio('${origin}/slow/test/fixture.wav')`)
   await page.waitForFunction(() => !document.querySelector('.message').textContent && (e => e.title || e.dataset.tip || '')(document.querySelector('.source')).endsWith('0:02.000'), null, { timeout: 30000 })
-  const { box, x } = await axis(2), y = box.y + box.height * .3
+  const { box, x } = await axis(2), y = box.y + tall(box) * .3
   const left = async () => { await page.mouse.click(box.x + 1, y); return (await page.locator('.time').innerText()).split(':').reduce((m, s) => m * 60 + +s, 0) }
   await page.mouse.click(x(1.5), y)
   await page.locator('.plot').focus()
@@ -8002,8 +8974,8 @@ test('editor: after a reload the view is where it was left while its sound still
 // The sound held as it was left, its file gone: the view lets it go and invites a drop, as with nothing kept
 test('editor: a view kept for a file no longer here gives way to the drop', async () => {
   await page.addInitScript(() => localStorage.setItem('audio-repl', JSON.stringify({ docs: [{ code: `audio('missing.wav')`, frame: { range: [1, 2], freqs: [0, 1], levels: [-1, 1], duration: 8, rate: 44100, channels: 2 } }] })))
-  await page.goto(origin + '/playground.html')
-  await page.locator('.empty-title', { hasText: 'Drop audio here' }).waitFor()
+  await page.goto(origin + '/playground/')
+  await page.locator('.empty', { hasText: 'Drop audio here' }).waitFor()
   await page.locator('.message.problem', { hasText: 'missing.wav is not open' }).waitFor({ state: 'attached' })
 })
 
@@ -8051,7 +9023,7 @@ test('editor: the page comes up once, whole, and the sound only rises into it', 
         light: spec ? +(spec.style.opacity || 0) : null,
         over: spec ? +(plot.querySelector('canvas.overlay').style.opacity || 0) : null,
         end: plot ? getComputedStyle(plot).getPropertyValue('--end').trim() : null,
-        undo: Math.round(app.querySelector('.view-head .undo').getBoundingClientRect().x)
+        undo: Math.round(app.querySelector('.status .undo').getBoundingClientRect().x)
       })
       requestAnimationFrame(tick)
     }
@@ -8073,11 +9045,11 @@ test('editor: the page comes up once, whole, and the sound only rises into it', 
   const ends = new Set(seen.filter(f => !f.boot).map(f => f.end))
   assert.equal(ends.size, 1, `the lanes keep their end: ${[...ends]}`)
   const heads = new Set(seen.filter(f => !f.boot).map(f => f.undo))
-  assert.equal(heads.size, 1, `nothing over the picture moves as the sound comes: ${[...heads]}`)
+  assert.equal(heads.size, 1, `undo stays where it is as the sound comes: ${[...heads]}`)
 })
 
 // The black-and-white spectrogram is screened over the page (editor.js paint): where the sound is quiet the page shows
-// through it, scanlines and all, and the louder is the whiter, up to white
+// through it, its shading and all, and the louder is the whiter, up to white
 test('editor: the black-and-white spectrogram is screened over the page, the page seen through it', async () => {
   await open()
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 440 * t), { duration: 1 })`)
@@ -8099,7 +9071,7 @@ test('editor: a kept view that makes no sense shows the sound whole', async () =
   await page.addInitScript(() => localStorage.setItem('audio-repl', JSON.stringify({ docs: [{ code: `audio('chime.wav')`, frame: { range: [5, 'x'], freqs: [1, 0], levels: null, duration: 8, rate: 0, channels: 1e6 } }] })))
   await open()
   await lengthIs('0:08.000')
-  const { box } = await axis(8), y = box.y + box.height * .3
+  const { box } = await axis(8), y = box.y + tall(box) * .3
   await page.mouse.click(box.x + 1, y)
   assert.ok((await page.locator('.time').innerText()).split(':').reduce((m, s) => m * 60 + +s, 0) < .05, 'from its start')
 })
@@ -8112,7 +9084,7 @@ test('editor: an edit on the picture keeps the view where it is, at its scale, a
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3
   // the time at a pixel, from a click there (the caret's)
   const at = async px => { await page.mouse.click(px, y); return (await page.locator('.time').innerText()).split(':').reduce((m, s) => m * 60 + +s, 0) }
   await drag([x(1), y], [x(2) - x(1), 0])
@@ -8183,6 +9155,7 @@ test('editor: markers on a file opened come back where they were after a reload'
   assert.notEqual(await at(1.8), 'pointer', 'none past the range')
 })
 
+// Zoomed out as far as it goes, the lanes show the sound and half of it again: two presses of −, the second held there
 test('editor: zoomed out past the whole, the sound starts at the left and the room is on its right', async () => {
   await open()
   await page.locator('.plot').focus()
@@ -8190,7 +9163,9 @@ test('editor: zoomed out past the whole, the sound starts at the left and the ro
   await page.waitForTimeout(400)
   // lit columns of the picture, the labels at its right left out
   const [first, last] = await pixels(`let a = -1, b = -1; for (let x = 0; x < w - 60; x++) { let lit = 0; for (let y = 0; y < h * .8; y += 2) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 300) lit++ } if (lit > 3) { if (a < 0) a = x; b = x } } return [a / w, b / w]`)
-  assert.ok(first < .03 && last < .45, `lit from ${first} to ${last}`)
+  const box = await page.locator('.plot').boundingBox(), lanes = await spans(box) / box.width
+  // its end, its tail faint, short of two thirds of the lanes and past half of them (zoomed out to twice it, it would end there)
+  assert.ok(first < .03 && last < lanes * 2 / 3 && last > lanes / 2, `lit from ${first} to ${last}, the lanes to ${lanes}`)
 })
 
 // A fade drags from a selection's dot and shows on the waveform as it goes, before its output comes
@@ -8199,7 +9174,7 @@ test('editor: a fade shows on the waveform while its dot is dragged', async () =
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3
   await drag([x(2), y], [x(4) - x(2), 0])
   // the waveform's bright pixels there: a fade draws it smaller
   const light = () => pixels(`let n = 0; for (let x = Math.round(arg[0] * w); x < arg[1] * w; x++) for (let y = 0; y < h * .9; y++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 450) n++ } return n`, [(x(2.05) - box.x) / box.width, (x(2.6) - box.x) / box.width])
@@ -8214,6 +9189,167 @@ test('editor: a fade shows on the waveform while its dot is dragged', async () =
   await page.waitForFunction(() => /\.fade\(1, \{ at: 2 \}\)$/.test(scriptText()))
 })
 
+// Stopped, the caret is where the take ended from the first frame on: what stopping waits for after (the tape read
+// back, the engine given the file) takes frames, in which it once showed where the take had begun
+test('editor: a take stopped, the caret at its end from the first frame, never back at its start', async () => {
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
+  await open()
+  await noCues()
+  await write(`audio('chime.wav')`)
+  await lengthIs('0:08.000')
+  await page.evaluate(() => __view.setCursor(2))
+  await page.getByRole('button', { name: 'Record', exact: true }).click()
+  await page.waitForFunction(() => __view.playhead > 2.6, null, { timeout: 15000 })
+  // the stop's own task, before anything it waits for: the next frame drawn already has the caret there
+  const frames = await page.evaluate(async () => {
+    document.querySelector('button.record').click()
+    const out = [[__view.playhead, __view.cursor]]
+    for (let i = 0; i < 12; i++) { await new Promise(r => requestAnimationFrame(r)); out.push([__view.playhead, __view.cursor]) }
+    return out
+  })
+  for (const [playhead, cursor] of frames) assert.ok(playhead != null || cursor > 2.5, `a frame after stop: playhead ${playhead}, caret ${cursor}`)
+})
+
+// The microphone is opened once and kept between takes (sources.js): the second take asks the device for nothing and
+// starts on the next block; a hidden page lets it go (its tracks ended), the next take opens it again; another channel
+// count opens another
+test('editor: the microphone kept between takes, let go once the page is hidden, opened again for stereo', async () => {
+  await open()
+  await write('')
+  await page.locator('.empty').waitFor()
+  // mono to start from, whatever an earlier test kept
+  await settings('Record in', 'Mono')
+  await page.evaluate(() => {
+    const md = navigator.mediaDevices, ask = md.getUserMedia.bind(md)
+    window.__asked = []
+    md.getUserMedia = async c => { const s = await ask(c); window.__asked.push(s); return s }
+  })
+  // a take: recording (Record lit, no longer armed: the microphone answered), a third of a second of it, stopped
+  const take = async () => {
+    await page.getByRole('button', { name: 'Record', exact: true }).click()
+    await page.waitForFunction(() => { const b = document.querySelector('button.record'); return b.classList.contains('on') && !b.classList.contains('armed') }, null, { timeout: 15000 })
+    await page.waitForTimeout(300)
+    await page.getByRole('button', { name: 'Stop recording', exact: true }).click()
+    await page.getByRole('button', { name: 'Record', exact: true }).waitFor()
+  }
+  await take()
+  await take()
+  assert.equal(await page.evaluate(() => window.__asked.length), 1, 'the second take asked the device for nothing')
+  assert.equal(await page.evaluate(() => window.__asked[0].getAudioTracks()[0].readyState), 'live', 'kept open')
+  await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')) })
+  await page.waitForFunction(() => window.__asked[0].getAudioTracks()[0].readyState === 'ended')
+  await page.evaluate(() => { delete document.hidden })
+  await take()
+  assert.equal(await page.evaluate(() => window.__asked.length), 2, 'hidden, let go; the next take opened it again')
+  await settings('Record in', 'Stereo')
+  await take()
+  assert.equal(await page.evaluate(() => window.__asked.length), 3, 'stereo: opened again, for two channels')
+  assert.equal(await page.evaluate(() => window.__asked[1].getAudioTracks()[0].readyState), 'ended', 'the mono one let go')
+  await settings('Record in', 'Mono')
+})
+
+// One microphone, many handles (an arming and the take it became, a hover's): a handle let go stops only the take it took
+test('sources: a microphone handle let go stops only its own take', async () => {
+  await open()
+  const [during, after] = await page.evaluate(async () => {
+    const { microphone } = await import(new URL('/playground/sources.js', location.href).href)
+    const a = await microphone(), b = await microphone()
+    let n = 0
+    b.take(() => n++)
+    a.cancel()
+    await new Promise(r => setTimeout(r, 300))
+    const during = n
+    b.stop()
+    await new Promise(r => setTimeout(r, 200))
+    return [during, n - during]
+  })
+  assert.ok(during > 0, `the take goes on after another handle let go: ${during} blocks`)
+  assert.equal(after, 0, 'and stops with its own')
+})
+
+// A Mac's WebKit opens the microphone through a voice processor it lets go 3 s on (sources.js VPIO): low till then, then
+// nothing a tenth of a second, then as it is; and nothing a moment as it starts, too. Here the same, made up: a tone at
+// 0.05, nothing 120 ms at 0.4 s, at 0.05 again till 3 s, nothing 150 ms, then at 0.5. The microphone is ready once it
+// comes back the second time, no sooner: a take's first block is at 0.5. Elsewhere (Chromium as it is here) it is ready
+// as it opens, the other tests' takes
+test('sources: on a Mac\'s WebKit, the microphone ready once its voice processor lets go, no sooner', async () => {
+  await page.addInitScript(() => {
+    for (const [k, v] of Object.entries({ vendor: 'Apple Computer, Inc.', platform: 'MacIntel', maxTouchPoints: 0 })) Object.defineProperty(Navigator.prototype, k, { configurable: true, get: () => v })
+    navigator.mediaDevices.getUserMedia = async () => {
+      const c = new AudioContext(), tone = new OscillatorNode(c, { frequency: 440 }), level = new GainNode(c, { gain: .05 }), out = c.createMediaStreamDestination()
+      await c.resume()
+      const t = c.currentTime
+      level.gain.setValueAtTime(0, t + .4).setValueAtTime(.05, t + .52).setValueAtTime(0, t + 3).setValueAtTime(.5, t + 3.15)
+      tone.connect(level).connect(out)
+      tone.start()
+      return out.stream
+    }
+  })
+  await open()
+  const { waited, first, least, again } = await page.evaluate(async () => {
+    const { microphone } = await import(new URL('/playground/sources.js', location.href).href)
+    const t0 = performance.now(), mic = await microphone(), waited = performance.now() - t0, peaks = []
+    mic.take(([x]) => peaks.push(Math.max(...x.map(Math.abs))))
+    await new Promise(r => setTimeout(r, 300))
+    mic.stop()
+    const t1 = performance.now()
+    ;(await microphone()).cancel()
+    return { waited, first: peaks[0], least: Math.min(...peaks), again: performance.now() - t1 }
+  })
+  assert.ok(waited > 3100 && waited < 4900, `ready ${waited.toFixed(0)} ms on: once it came back the second time`)
+  assert.ok(first > .4 && least > .4, `the take as it is from its first block: ${first}, the least ${least}`)
+  assert.ok(again < 200, `kept, the next take's ready at once: ${again.toFixed(0)} ms`)
+})
+
+// Where no silence comes (a device the voice processor leaves alone), ready SETTLE (5 s) on, no later
+test('sources: on a Mac\'s WebKit, a microphone that never falls silent is ready 5 s on', async () => {
+  await page.addInitScript(() => {
+    for (const [k, v] of Object.entries({ vendor: 'Apple Computer, Inc.', platform: 'MacIntel', maxTouchPoints: 0 })) Object.defineProperty(Navigator.prototype, k, { configurable: true, get: () => v })
+    navigator.mediaDevices.getUserMedia = async () => {
+      const c = new AudioContext(), tone = new OscillatorNode(c, { frequency: 440 }), out = c.createMediaStreamDestination()
+      await c.resume()
+      tone.connect(out)
+      tone.start()
+      return out.stream
+    }
+  })
+  await open()
+  const waited = await page.evaluate(async () => {
+    const { microphone } = await import(new URL('/playground/sources.js', location.href).href)
+    const t0 = performance.now()
+    ;(await microphone()).cancel()
+    return performance.now() - t0
+  })
+  assert.ok(waited > 4900 && waited < 7000, `ready ${waited.toFixed(0)} ms on`)
+})
+
+// sources.js settling, block by block (128 samples): silence before any sound is none (the device starting); one under
+// GAP (2048 samples) is none; one of GAP, then GAP of sound on end, is, not a block sooner; a dropout after it starts the
+// count of sound again. Where it is done, the samples in by then, or null
+test('sources: settling is done once a run of silence after sound has given way to sound GAP samples on end', async () => {
+  await open()
+  const at = await page.evaluate(async () => {
+    const { settling } = await import(new URL('/playground/sources.js', location.href).href)
+    const run = (...parts) => {
+      let n = 0, done = null
+      const s = settling(() => { done ??= n })
+      for (const [v, k] of parts) for (let i = 0; i < k; i += 128) { n += 128; s(new Float32Array(128).fill(v)) }
+      return done
+    }
+    // a silence ending in the input's first `soon` samples none: here 4096, a gap ending at 3072, none, one at 7168, one
+    const soon = (...parts) => { let n = 0, done = null; const s = settling(() => { done ??= n }, 4096); for (const [v, k] of parts) for (let i = 0; i < k; i += 128) { n += 128; s(new Float32Array(128).fill(v)) } return done }
+    return {
+      early: soon([.1, 1024], [0, 2048], [.1, 2048], [0, 2048], [.1, 2048]),
+      leading: run([0, 8192], [.1, 8192]),
+      short: run([.1, 1024], [0, 1920], [.1, 8192]),
+      exact: run([.1, 1024], [0, 2048], [.1, 2048]),
+      shy: run([.1, 1024], [0, 2048], [.1, 1920]),
+      again: run([.1, 1024], [0, 4096], [.1, 1024], [0, 256], [.1, 2048])
+    }
+  })
+  assert.deepEqual(at, { early: 1024 + 2048 + 2048 + 2048 + 2048, leading: null, short: null, exact: 1024 + 2048 + 2048, shy: null, again: 1024 + 4096 + 1024 + 256 + 2048 })
+})
+
 // The bar's record button starts a take and stops it
 // Recording over a sound, as a dictaphone or a tape: from the caret, into the waveform as it comes, what it covers
 // replaced and the end extended past; one write() step, which Undo takes back. Into a selection, it ends at its end.
@@ -8223,7 +9359,7 @@ test('editor: the record button records over the sound from the caret, into the 
   await noCues()
   await write(`audio('chime.wav')`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3
   await page.mouse.click(x(7.5), box.y + box.height - 8)
   await page.getByRole('button', { name: 'Record', exact: true }).click()
   await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
@@ -8232,11 +9368,11 @@ test('editor: the record button records over the sound from the caret, into the 
   // the clock runs from the caret, past the old end
   await page.waitForFunction(() => /^0:0(8\.[3-9]|9)/.test(document.querySelector('.time').textContent), null, { timeout: 15000 })
   // the level meter by the lanes reads the microphone, not the sound where the caret was: its bar on the meters' strip
-  // (view.js onStrip), read as drawn (7 px short of the level axis, --axis), up as it beeps and falling back between,
+  // (view.js onStrip), read as drawn (8 px short of the level axis, --axis: SPACE before it, 3 wide), up as it beeps and falling back between,
   // by a fifth at least (its beeps half a second apart, a peak meter falls 6 dB between them: meters.js ballistics)
   await page.waitForFunction(gutter => {
     const o = document.querySelector('.plot canvas.overlay'), c = document.querySelector('.plot canvas.meters'), k = c.width / c.clientWidth, w = o.clientWidth - gutter
-    const d = c.getContext('2d').getImageData(Math.round((w - 7 - c.offsetLeft) * k), 10 * k, Math.round(3 * k), c.height - 40 * k).data
+    const d = c.getContext('2d').getImageData(Math.round((w - 8 - c.offsetLeft) * k), 10 * k, Math.round(3 * k), c.height - 40 * k).data
     let n = 0
     for (let i = 3; i < d.length; i += 4) if (d[i] > 60) n++
     const seen = globalThis.metered ??= { top: 0, down: false }
@@ -8283,6 +9419,172 @@ test('editor: the record button records over the sound from the caret, into the 
   await page.getByRole('button', { name: 'Stop recording', exact: true }).click()
   await page.waitForFunction(() => /\.write\(audio\('take-\d\.wav'\), \{ at: 2 \}\)$/.test(scriptText()))
   await lengthIs('0:08.000')
+  // each pass a take there, the last heard, the others turned off, the last cut short left out (1.3 s over 0.5 s: two or three, as the microphone starts)
+  const heard = async () => (await code()).split('\n').filter(l => /\.write\(audio\('take/.test(l)).map(l => !l.trim().startsWith('//'))
+  // the takes heard, as the script comes to say, in order
+  const hearing = want => page.waitForFunction(w => JSON.stringify(scriptText().split('\n').filter(l => /\.write\(audio\('take/.test(l)).map(l => !l.trim().startsWith('//'))) === w, JSON.stringify(want))
+  const passes = await heard()
+  assert.ok(passes.length >= 2 && passes.at(-1) && passes.slice(0, -1).every(on => !on), `the passes, the last heard: ${passes}`)
+  await page.locator('.message', { hasText: `Recorded ${passes.length} takes of 0:00.500` }).waitFor()
+  // T hears the next, round to the first; ⇧T the one before, back to the last; each one step Undo takes back
+  await page.keyboard.press('t')
+  await hearing(passes.map((_, i) => i === 0))
+  await page.keyboard.press('Shift+T')
+  await hearing(passes)
+  await page.keyboard.press('ControlOrMeta+Z')
+  await hearing(passes.map((_, i) => i === 0))
+  await lengthIs('0:08.000')
+  // recorded there again, the loop off: one more take, heard, the one heard before turned off
+  await page.getByRole('button', { name: 'Loop' }).click()
+  await page.mouse.click(x(6), y)
+  await drag([x(2), y], [x(2.5) - x(2), 0])
+  await page.getByRole('button', { name: 'Record', exact: true }).click()
+  await page.getByRole('button', { name: 'Record', exact: true }).waitFor({ timeout: 15000 })
+  await page.waitForFunction(n => (scriptText().match(/\.write\(audio\('take/g) ?? []).length === n, passes.length + 1)
+  await hearing([...passes.map(() => false), true])
+  await lengthIs('0:08.000')
+  // Edit › Takes hears the one picked; in the edits, a take turned on is heard alone
+  const n = passes.length + 1
+  await menu('Transport', 'Takes', 'Take 1')
+  await hearing(Array.from({ length: n }, (_, i) => i === 0))
+  await tab('Edits')
+  await page.getByRole('button', { name: 'Turn write on' }).last().click()
+  await hearing(Array.from({ length: n }, (_, i) => i === n - 1))
+  // on the picture, the place's numbers in its corner, the one heard lit, then +; a press on one hears it
+  const chip = page.locator('.plot .takes')
+  const numbers = () => chip.locator('button').evaluateAll(b => b.map(x => [x.textContent, x.getAttribute('aria-pressed')]))
+  await page.waitForFunction(k => document.querySelector('.plot .takes:not([hidden]) button[aria-pressed="true"]')?.value === k, String(n - 1))
+  assert.deepEqual(await numbers(), [...Array.from({ length: n }, (_, k) => [String(k + 1), String(k === n - 1)]), ['+', null]])
+  await chip.locator('button[value="1"]').click()
+  await hearing(Array.from({ length: n }, (_, i) => i === 1))
+  await page.waitForFunction(() => document.querySelector('.plot .takes button[aria-pressed="true"]')?.value === '1')
+  // ⌥R, Alt adding: another take of the place the caret is in, into it, to its end, heard (the picture narrower now,
+  // the panel open)
+  const narrow = await axis(8)
+  await page.mouse.click(narrow.x(2.25), narrow.box.y + narrow.box.height - 8)
+  await page.keyboard.press('Alt+KeyR')
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
+  await page.getByRole('button', { name: 'Record', exact: true }).waitFor({ timeout: 15000 })
+  await page.waitForFunction(n => (scriptText().match(/\.write\(audio\('take/g) ?? []).length === n, n + 1)
+  await hearing(Array.from({ length: n + 1 }, (_, i) => i === n))
+  assert.match(await code(), /\.write\(audio\('take-\d+\.wav'\), \{ at: 2 \}\)$/)
+  await lengthIs('0:08.000')
+})
+
+// Takes are a region of the picture, from where they go in to where the longest of them ends (each measured, those
+// turned off too, a sample's or a file kept as a recording's), its line along the top pressed selecting all of it, as a
+// range marker's, their numbers in its bottom left corner, + selecting their place; on a visit's first run too
+test('editor: takes are drawn over all they span, their line selects it, their numbers at its foot', async () => {
+  await open()
+  // the one heard 4.5 s long, the one turned off 8 s: to 9 s, the sound's end
+  await write(`audio('rhodes.wav')\n  // .write(audio('chime.wav'), { at: 1 })\n  .write(audio('birdsong.wav'), { at: 1 })`)
+  await lengthIs('0:09.000')
+  const { box, x } = await axis(9), chip = page.locator('.plot .takes:not([hidden])')
+  await chip.waitFor()
+  const corner = await chip.boundingBox()
+  assert.ok(Math.abs(corner.x - x(1) - 1) < 1.5 && Math.abs(corner.y - box.y - tall(box) - 1) < 1.5, `in its foot, under its start: ${JSON.stringify(corner)}`)
+  // its line, pressed near its end: all of it selected, to 9 s
+  const line = async () => { await page.mouse.move(x(8.7), box.y + 2); return page.evaluate(() => document.querySelector('.plot').style.cursor) }
+  assert.equal(await line(), 'pointer')
+  await page.mouse.click(x(8.7), box.y + 2)
+  assert.equal(await selected(), '0:01.000–0:09.000')
+  // + adds an empty take there, as long as the place, heard, its place selected, recording nothing; + then off till it
+  // is recorded into or deleted (Delete take, a right-click there: the one before heard again)
+  await page.mouse.click(x(5), box.y + tall(box) * .5)
+  await chip.locator('button[value="add"]').click()
+  await page.waitForFunction(() => scriptText().endsWith(`// .write(audio('birdsong.wav'), { at: 1 })\n  .write(audio.from(8), { at: 1 })`))
+  assert.equal(await selected(), '0:01.000–0:09.000')
+  assert.equal(await page.getByRole('button', { name: 'Stop recording', exact: true }).count(), 0)
+  await page.locator('.plot .takes button[value="add"][aria-disabled="true"]').waitFor()
+  await chip.locator('button[value="add"]').click({ force: true })
+  assert.equal((await code()).match(/audio\.from\(8\)/g).length, 1, 'one empty take at a time')
+  await page.mouse.click(x(5), box.y + tall(box) * .5, { button: 'right' })
+  await page.locator('.menu-row', { hasText: 'Delete take' }).click()
+  await page.waitForFunction(() => scriptText().endsWith(`  .write(audio('birdsong.wav'), { at: 1 })`))
+  await page.mouse.click(x(5), box.y + tall(box) * .5)
+  await page.reload()
+  await wholeLevels().waitFor()
+  for (const until = Date.now() + 5000; await line() !== 'pointer'; await page.waitForTimeout(100)) assert.ok(Date.now() < until, 'measured on the first run too')
+  // another tab shown and this one again, its sound as it was left, nothing run: its takes there still
+  const tabs = page.locator('.file [role="tab"]')
+  await page.getByRole('button', { name: 'New tab' }).click()
+  await page.locator('.plot .takes').waitFor({ state: 'hidden' })
+  await tabs.first().click()
+  await chip.waitFor({ timeout: 2000 })
+  assert.equal(await line(), 'pointer', 'shown again, its takes there')
+})
+
+// More takes than four fold past the third into …, a menu of them all, the one heard checked; the one heard, folded,
+// after it, in sight, as a pager keeps its page; four, each its number (… would take a number's room and hide one)
+test('editor: takes past the third fold into a menu, the one heard in sight', async () => {
+  await open()
+  const takes = (n, k) => `audio('rhodes.wav')` + Array.from({ length: n }, (_, i) => `\n  ${i === k ? '' : '// '}.write(audio('chime.wav'), { at: 1 })`).join('')
+  const chip = page.locator('.plot .takes:not([hidden])')
+  const shown = () => chip.locator('button').evaluateAll(b => b.map(x => x.textContent + (x.getAttribute('aria-pressed') === 'true' ? '*' : '')))
+  const heard = k => page.waitForFunction(k => document.querySelector('.plot .takes:not([hidden]) button[aria-pressed="true"]')?.value === k, String(k))
+  await write(takes(4, 3))
+  await heard(3)
+  assert.deepEqual(await shown(), ['1', '2', '3', '4*', '+'])
+  // five, the fewest that fold, the fourth heard, the first folded: after …
+  await write(takes(5, 3))
+  await page.waitForFunction(() => document.querySelector('.plot .takes:not([hidden]) button[value="more"]'))
+  assert.deepEqual(await shown(), ['1', '2', '3', '…', '4*', '+'])
+  await write(takes(6, 1))
+  await heard(1)
+  assert.deepEqual(await shown(), ['1', '2*', '3', '…', '+'])
+  await write(takes(6, 4))
+  await heard(4)
+  assert.deepEqual(await shown(), ['1', '2', '3', '…', '5*', '+'])
+  // … pressed: all six as a menu under it, the one heard checked; one picked there, heard, in sight after …
+  await chip.locator('button[value="more"]').click()
+  assert.equal(await chip.locator('button[value="more"]').getAttribute('aria-expanded'), 'true')
+  const rows = await page.locator('.menubar-menu .menu-row').evaluateAll(r => r.map(x => [x.querySelector('.menu-label').textContent, x.getAttribute('aria-checked')]))
+  assert.deepEqual(rows, Array.from({ length: 6 }, (_, k) => [`Take ${k + 1}`, String(k === 4)]))
+  await contextRow('Take 6').click()
+  await heard(5)
+  assert.match(await code(), /\/\/ \.write\(audio\('chime\.wav'\), \{ at: 1 \}\)\n {2}\.write\(audio\('chime\.wav'\), \{ at: 1 \}\)$/)
+  assert.deepEqual(await shown(), ['1', '2', '3', '…', '6*', '+'])
+})
+
+// Takes stay drawn through an edit after them that leaves their place where it is (a delete of the tail), drawn where it
+// goes after one that moves it (a delete before them), and as the script alone can't place them (a trim), not drawn
+test('editor: takes drawn where the steps after them take their place', async () => {
+  await open()
+  const takes = `audio('rhodes.wav')\n  // .write(audio('chime.wav'), { at: 1 })\n  .write(audio('birdsong.wav'), { at: 1 })`, chip = page.locator('.plot .takes:not([hidden])')
+  const corner = async (n, t) => { await lengthIs(n); const { x } = await axis(+n.slice(3)); await chip.waitFor(); const c = await chip.boundingBox(); assert.ok(Math.abs(c.x - x(t) - 1) < 1.5, `at ${t} s: ${c.x} ${x(t)}`) }
+  await write(`${takes}\n  .remove({ at: 8, d: 1 })`)
+  await corner('0:08.000', 1)
+  await write(`${takes}\n  .remove({ at: 0, d: 0.5 })`)
+  await corner('0:08.500', .5)
+  await write(`${takes}\n  .trim()`)
+  await page.locator('.plot .takes').waitFor({ state: 'hidden' })
+})
+
+// Takes under a sound written over their place after them: one more recorded there brings them over it, heard (it once
+// stayed under it, the picture going back to what covered it as it stopped, the take unheard); so does T, switching
+// takes there
+test('editor: a take recorded where takes are under a later write brings them over it, heard; T too', async () => {
+  await open()
+  const buried = `audio('rhodes.wav')\n  // .write(audio('chime.wav'), { at: 1 })\n  .write(audio('birdsong.wav'), { at: 1 })\n  .write(audio('chime.wav'), { at: 1.5 })`
+  await write(buried)
+  await lengthIs('0:09.500')
+  const { box, x } = await axis(9.5), chip = page.locator('.plot .takes:not([hidden])')
+  await chip.waitFor()
+  // their place selected (their line), Record records into it, from its start
+  await page.mouse.click(x(8.7), box.y + 2)
+  assert.equal(await selected(), '0:01.000–0:09.000')
+  await page.getByRole('button', { name: 'Record', exact: true }).click()
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
+  await page.waitForFunction(() => /^0:0(1\.[5-9]|[2-9])/.test(document.querySelector('.time').textContent), null, { timeout: 15000 })
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).click()
+  await page.waitForFunction(() => /take\.wav/.test(scriptText()))
+  assert.equal(await code(), `audio('rhodes.wav')\n  .write(audio('chime.wav'), { at: 1.5 })\n  // .write(audio('chime.wav'), { at: 1 })\n  // .write(audio('birdsong.wav'), { at: 1 })\n  .write(audio('take.wav'), { at: 1 })`)
+  // T where they are under it: they come over it, the next heard
+  await write(buried)
+  await chip.waitFor()
+  await page.mouse.click(x(3), box.y + tall(box) * .5)
+  await page.keyboard.press('t')
+  await page.waitForFunction(() => scriptText().endsWith(`.write(audio('chime.wav'), { at: 1.5 })\n  .write(audio('chime.wav'), { at: 1 })\n  // .write(audio('birdsong.wav'), { at: 1 })`))
 })
 
 // Recorded with the spectrogram shown, the take is drawn as one: its columns on the spectrogram's layer where it goes, no
@@ -8315,6 +9617,678 @@ test('editor: recording with the spectrogram shown draws the take as a spectrogr
   assert.equal(waveform, 0)
 })
 
+// Under the lanes, the room, where a new track is made by putting sound there, as a layer in Figma is made by drawing,
+// never added empty: pointed at, a new track's lane there, its centre line faint; pressed, its caret, the selection
+// gone; a paste there makes the track, the clip in it where the caret was, the one edited then. A double-click there
+// makes nothing; its right-click menu makes an empty one (Ableton's, Reaper's), under the last, whichever is edited
+test('editor: under the lanes, a press puts a new track\'s caret; a paste there makes the track; its menu makes an empty one', async () => {
+  const { box, x } = await chime()
+  await drag([x(1), box.y + 40], [x(2) - x(1), 0])
+  await page.keyboard.press('ControlOrMeta+C')
+  await page.waitForFunction(() => scriptText().includes('.copy('))
+  // the room ROOM px tall, under the sound's lanes' foot
+  const under = box.y + tall(box) + FOOT + ROOM / 2
+  await page.mouse.dblclick(x(4), under)
+  assert.equal(await selected(), '', 'pressed, the selection gone, the caret there')
+  assert.ok(!/let track/.test(await code()), 'a double-click makes no track')
+  await page.keyboard.press('ControlOrMeta+V')
+  await page.waitForFunction(() => /^let chime = audio\('chime\.wav'\)\n  \.copy\(\{ at: 1, d: 1 \}\)\n\nlet track = audio\.from\(0\)\n  \.write\(audio\('chime\.wav'\)\.crop\(\{ at: 1, d: 1 \}\), \{ at: [\d.]+ \}\)$/.test(scriptText()))
+  // the new track the edited one, its layer the second
+  await page.waitForFunction(() => document.querySelectorAll('.layer')[1]?.classList.contains('on'))
+  // an empty one from its menu, under the last, the first edited
+  await page.waitForFunction(() => (l => l.length === 2 && l.every(e => e.dataset.lane))([...document.querySelectorAll('.layer')]))
+  await page.mouse.click(x(4), (r => r.y + r.h / 2)((await tracksAt())[0]))
+  await page.waitForFunction(() => (l => l.length === 2 && l.every(e => e.dataset.lane))([...document.querySelectorAll('.layer')]))
+  const [, last] = await tracksAt()
+  await page.mouse.click(x(4), last.y + last.h + FOOT + ROOM / 2, { button: 'right' })
+  await page.locator('.menu-row', { hasText: /^New track/ }).click()
+  await page.waitForFunction(() => /\n\nlet track2 = audio\.from\(0\)$/.test(scriptText()))
+})
+
+// The room under tracks: a new track's band, its lane as tall as the last's (one dragged shorter here); pressed, the caret
+// down that lane alone, and the track made there has that lane, where the caret was, as tall as the last
+test('editor: the room under the tracks is a new track\'s lane as tall as the last; the track made there has it', async () => {
+  await open()
+  await noCues()
+  await write(`let a = audio('chime.wav')\n\nlet b = audio('rhodes.wav')`)
+  await lengthIs('0:09.000')
+  await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
+  const box = await page.locator('.plot').boundingBox(), short = TRACK - 40
+  let [, b] = await tracksAt()
+  await drag([box.x + 300, b.y + b.h + FOOT / 2], [0, -40])
+  await page.waitForFunction(h => document.querySelectorAll('.layer')[1].dataset.lane.split(' ')[1] === String(h), short)
+  ;[, b] = await tracksAt()
+  const top = b.y + b.h + FOOT + HEAD, x = 300
+  await page.mouse.click(box.x + x, top + short / 2)
+  // the pointer off it, over a's lane: none of the room's words over the caret
+  await page.mouse.move(box.x + 40, b.y - 60)
+  // the caret's rows, CSS px from the plot's top: the column at x lit past half opacity
+  const [from, to] = await page.evaluate(x => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => {
+    const cv = __overlay(), k = cv.width / cv.clientWidth, g = cv.getContext('2d'), d = g.getImageData(Math.round(x * k), 0, 1, cv.height - Math.round(22 * k)).data, lit = []
+    for (let y = 0; y < d.length / 4; y++) if (d[y * 4 + 3] > 128) lit.push(y / k)
+    done([Math.min(...lit), Math.max(...lit)])
+  }))), x)
+  assert.ok(Math.abs(box.y + from - top) <= 2 && Math.abs(box.y + to - (top + short)) <= 2, `the caret down the new lane: ${box.y + from}…${box.y + to}, the lane ${top}…${top + short}`)
+  await page.mouse.click(box.x + x, top + short / 2, { button: 'right' })
+  await page.locator('.menu-row', { hasText: /^New track/ }).click()
+  await page.waitForFunction(() => document.querySelectorAll('.layer').length === 3)
+  const [, , made] = await tracksAt()
+  assert.ok(Math.abs(made.y - top) <= 1 && Math.round(made.h) === short, `the track made where the lane was, as tall: ${made.y}, ${made.h}`)
+  assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('audio-repl'))).docs[0].heights.track, short, 'kept with the tab')
+})
+
+// A track made by a paste into the room is as tall as the last too (editor.js intoNew: the last read before the paste
+// writes the new one in)
+test('editor: a paste into the room under the tracks makes a track as tall as the last', async () => {
+  await open()
+  await noCues()
+  await write(`let a = audio('chime.wav')\n\nlet b = audio('rhodes.wav')`)
+  await lengthIs('0:09.000')
+  await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
+  const { box, x } = await axis(9), short = TRACK - 40
+  let [a, b] = await tracksAt()
+  await page.mouse.click(x(4), a.y + 40)
+  await drag([x(1), a.y + 40], [x(2) - x(1), 0])
+  await page.keyboard.press('ControlOrMeta+C')
+  await page.waitForFunction(() => scriptText().includes('.copy('))
+  await drag([box.x + 300, b.y + b.h + FOOT / 2], [0, -40])
+  await page.waitForFunction(h => document.querySelectorAll('.layer')[1].dataset.lane.split(' ')[1] === String(h), short)
+  ;[, b] = await tracksAt()
+  await page.mouse.click(x(4), b.y + b.h + FOOT + HEAD + short / 2)
+  await page.keyboard.press('ControlOrMeta+V')
+  await page.waitForFunction(() => document.querySelectorAll('.layer').length === 3)
+  assert.match(await code(), /\n\nlet track = audio\.from\(0\)\n  \.write\(/)
+  assert.equal(Math.round((await tracksAt())[2].h), short)
+  assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('audio-repl'))).docs[0].heights.track, short)
+})
+
+// Under the tracks, where a new one's title would be, a placeholder: pressed, the track made, empty, its name in hand,
+// written and Enter, the track so named. The caret in the room a plus by its top; the meters by the lanes read nothing
+// there, nothing being there yet
+test('editor: under the tracks, New track where its title would be: pressed, made and named', async () => {
+  await open()
+  await noCues()
+  await write(`let a = audio('chime.wav')\n\nlet b = audio('rhodes.wav')`)
+  await lengthIs('0:09.000')
+  const placeholder = page.locator('.layer-new')
+  await placeholder.waitFor()
+  assert.equal(await placeholder.innerText(), 'New track')
+  const [, b] = await tracksAt(), head = await placeholder.boundingBox()
+  assert.ok(Math.abs(head.y - (b.y + b.h + FOOT)) <= 1, `where its title would be: ${head.y}, under ${b.y + b.h + FOOT}`)
+  // the meters read the caret's place in a lane; in the room, nothing
+  const box = await page.locator('.plot').boundingBox(), lit = () => page.evaluate(() => { const m = document.querySelector('.plot canvas.meters'), d = m.getContext('2d').getImageData(0, 0, m.width, m.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) n += d[i] > 0; return n })
+  await page.mouse.click(box.x + 300, b.y + b.h / 2)
+  await page.waitForFunction(() => { const m = document.querySelector('.plot canvas.meters'), d = m.getContext('2d').getImageData(0, 0, m.width, m.height).data; for (let i = 3; i < d.length; i += 4) if (d[i]) return true })
+  await page.mouse.click(box.x + 300, head.y + 40)
+  await page.waitForTimeout(200)
+  assert.equal(await lit(), 0, 'in the room, no meters')
+  await placeholder.click()
+  await page.waitForFunction(() => /\n\nlet track = audio\.from\(0\)$/.test(scriptText()))
+  await page.waitForFunction(() => document.activeElement?.classList.contains('layer-field'))
+  await page.keyboard.type('drums')
+  await page.keyboard.press('Enter')
+  await page.waitForFunction(() => /\n\nlet drums = audio\.from\(0\)$/.test(scriptText()))
+})
+
+// Held Alt over a lane, the pointer's guides out to the axes, dashed in the measuring red, at once, on the caret too,
+// where there is nothing to measure; and as a drag sets a time, Alt pressed on the way
+test('editor: held Alt, the guides to the axes at once, on the caret and as a drag goes', async () => {
+  const { x, y } = await chime()
+  const guides = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => { const o = document.querySelector('.plot canvas.overlay'), d = o.getContext('2d').getImageData(0, 0, o.width, o.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] > 180 && d[i + 1] < 120 && d[i + 3] > 100) n++; done(n) }))))
+  await page.mouse.click(x(2), y)
+  assert.equal(await guides(), 0, 'none without Alt')
+  await page.keyboard.down('Alt')
+  assert.ok(await guides() > 50, 'Alt pressed, the pointer on the caret: at once')
+  await page.keyboard.up('Alt')
+  assert.equal(await guides(), 0, 'let go, gone')
+  await page.mouse.move(x(3), y)
+  await page.mouse.down()
+  await page.mouse.move(x(4), y, { steps: 4 })
+  await page.keyboard.down('Alt')
+  await page.mouse.move(x(4.5), y, { steps: 2 })
+  assert.ok(await guides() > 50, 'a range dragged, Alt pressed on the way')
+  await page.mouse.up()
+  await page.keyboard.up('Alt')
+})
+
+// Where a sound crosses full scale, a small cross on the line it crosses, in the measuring red, where it first does in
+// each stretch that clips: here a tone pushed past it for 10 ms at half a second
+test('editor: where a sound clips, a cross on the full scale line it crosses', async () => {
+  await open()
+  await write(`audio.from(t => (t > 0.5 && t < 0.51 ? 1.3 : 0.3) * Math.sin(2 * Math.PI * 440 * t), { duration: 1 })`)
+  await lengthIs('0:01.000')
+  const { box, x } = await axis(1)
+  // the measuring red's pixels over the lanes, by column, px from the plot's left
+  const red = () => pixels(`const out = new Set(); for (let y = 0; y < arg.h; y++) for (let x = 0; x < w; x++) { const i = (y * w + x) * 4; if (d[i] > 170 && d[i + 1] < 110 && d[i + 2] < 110) out.add(x) } return [...out]`, { h: Math.round(tall(box)) })
+  let cols = []
+  for (const until = Date.now() + 8000; !cols.length && Date.now() < until; await page.waitForTimeout(200)) cols = await red()
+  const at = x(.5) - box.x
+  assert.ok(cols.length && cols.every(c => Math.abs(c - at) <= 5), `crosses at 0.5 s alone: ${cols.slice(0, 12)} about ${at}`)
+})
+
+// The page is controls, not text: none of it selected by a press that misses; the code, the fields, keep theirs
+test('editor: the page selects no text but where there is text to copy', async () => {
+  await open()
+  const select = sel => page.locator(sel).first().evaluate(e => getComputedStyle(e).userSelect || getComputedStyle(e).webkitUserSelect)
+  assert.equal(await select('.status'), 'none')
+  assert.equal(await select('.view'), 'none')
+  await page.evaluate(() => document.querySelector('.panes .side-head button[aria-label="Code"]')?.click())
+  assert.equal(await select('.cm-content'), 'text')
+})
+
+// The room's caret let go (Esc): back in the sound's lanes, a paste there the sound's own, no track made
+test('editor: Esc takes the caret under the lanes back; a paste then goes into the sound', async () => {
+  const { box, x } = await chime()
+  await drag([x(1), box.y + 40], [x(2) - x(1), 0])
+  await page.keyboard.press('ControlOrMeta+C')
+  await page.waitForFunction(() => scriptText().includes('.copy('))
+  await page.mouse.click(x(4), box.y + tall(box) + FOOT + ROOM / 2)
+  await page.keyboard.press('Escape')
+  // (Edit › Paste: the editor's own clip, not the system's clipboard, which the copy fills a while after)
+  await menu('Edit', 'Paste')
+  await page.waitForFunction(() => /\.paste\([\d.]+/.test(scriptText()))
+  assert.ok(!/let track/.test(await code()), 'no track made')
+})
+
+// Pressed under the lanes, the caret a new track's to be; R records into it from there, the others playing: the track
+// made as the take starts, under the last, the take written into it where the caret was
+test('editor: R at the caret under the lanes records a new track there', async () => {
+  const { box, x } = await chime()
+  await page.mouse.click(x(2), box.y + tall(box) + FOOT + ROOM / 2)
+  await page.keyboard.press('r')
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
+  await page.waitForFunction(() => { const [m, s] = document.querySelector('.time').textContent.split(':'); return +m * 60 + +s >= 3 }, null, { timeout: 15000 })
+  await page.keyboard.press('r')
+  await page.waitForFunction(() => /^let chime = audio\('chime\.wav'\)\n\nlet track = audio\.from\(0\)\n  \.write\(audio\('take\.wav'\), \{ at: 2 \}\)$/.test(scriptText()))
+})
+
+// The same with the Record button, as with R: the caret in the room makes the take a new track's, not the last one's
+test('editor: the Record button with the caret under the lanes records a new track there', async () => {
+  const { box, x } = await chime()
+  await page.mouse.click(x(2), box.y + tall(box) + FOOT + ROOM / 2)
+  await page.getByRole('button', { name: 'Record', exact: true }).click()
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
+  await page.waitForFunction(() => { const [m, s] = document.querySelector('.time').textContent.split(':'); return +m * 60 + +s >= 3 }, null, { timeout: 15000 })
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).click()
+  await page.waitForFunction(() => /^let chime = audio\('chime\.wav'\)\n\nlet track = audio\.from\(0\)\n  \.write\(audio\('take\.wav'\), \{ at: 2 \}\)$/.test(scriptText()))
+})
+
+// A piece dragged under the last track goes to a new track there, as a clip dropped under a DAW's tracks: shown there as
+// it goes, a track made for it once let go, silence where it was; a track taken away and made again under its name is
+// as a new one is, its mute not the one it had
+test('editor: a piece dragged under the tracks goes to a new track; a track made again is as a new one', async () => {
+  const { box, x } = await chime()
+  await drag([x(1), box.y + 40], [x(2) - x(1), 0])
+  await page.waitForTimeout(200)
+  await page.mouse.move(x(1.5), box.y + 40)
+  await page.mouse.down()
+  const under = box.y + tall(box) + FOOT + ROOM / 2
+  for (let i = 1; i <= 8; i++) await page.mouse.move(x(1.5 + 2 * i / 8), box.y + 40 + (under - box.y - 40) * i / 8)
+  await page.mouse.up()
+  await page.waitForFunction(() => /^let chime = audio\('chime\.wav'\)\n  \.gain\(-Infinity, \{ at: 1, d: 1 \}\)\n\nlet track = audio\.from\(0\)\n  \.write\(audio\('chime\.wav'\)\.crop\(\{ at: 1, d: 1 \}\), \{ at: 3 \}\)$/.test(scriptText()))
+  // muted, then taken away (its layer's menu) and made again (the room's): its name again, heard
+  await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
+  await page.getByRole('button', { name: 'Mute track' }).click()
+  await page.locator('.layer').nth(1).click({ button: 'right' })
+  await page.locator('.menu-row', { hasText: /^Delete the track/ }).click()
+  await page.waitForFunction(() => !/let track\b/.test(scriptText()))
+  await page.waitForFunction(() => !document.querySelector('.plot').dataset.tracks)
+  const plot = await page.locator('.plot').boundingBox()
+  await page.mouse.click(plot.x + 300, plot.y + tall(plot) + FOOT + ROOM / 2, { button: 'right' })
+  await page.locator('.menu-row', { hasText: /^New track/ }).click()
+  await page.waitForFunction(() => /let track = audio\.from\(0\)$/.test(scriptText()))
+  await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
+  assert.equal(await page.getByRole('button', { name: 'Mute track' }).getAttribute('aria-pressed'), 'false')
+})
+
+// A track's speaker with Alt: solo, the others muted; so again, every one heard
+test('editor: Alt and a track\'s speaker solos it', async () => {
+  await open()
+  await noCues()
+  await write(`let a = audio('chime.wav')\n\nlet b = audio('rhodes.wav')\n\nlet c = audio('handpan.wav')`)
+  await page.locator('.layer').nth(2).waitFor({ state: 'attached' })
+  const pressed = () => Promise.all(['a', 'b', 'c'].map(n => page.getByRole('button', { name: `Mute ${n}` }).getAttribute('aria-pressed')))
+  await page.getByRole('button', { name: 'Mute b' }).click({ modifiers: ['Alt'] })
+  assert.deepEqual(await pressed(), ['true', 'false', 'true'])
+  await page.getByRole('button', { name: 'Mute b' }).click({ modifiers: ['Alt'] })
+  assert.deepEqual(await pressed(), ['false', 'false', 'false'])
+})
+
+// A track taken away is laid out at once, before the mix without it comes, the mix playing still with it: a lane pressed
+// then edits the track it shows, and its speaker mutes no track it does not show
+test('editor: a track taken away, a lane pressed before the mix without it comes is the track it shows', async () => {
+  await open()
+  await noCues()
+  await write(`let a = audio('chime.wav')\n\nlet b = audio('rhodes.wav')\n\nlet c = audio('handpan.wav')\n\nlet d = audio('chime.wav')`)
+  await page.locator('.layer').nth(3).waitFor({ state: 'attached' })
+  // b's lane a strip, the second; pressed, edited, tall from where it was, as c's then is, shown at once in its place
+  const box = await page.locator('.plot').boundingBox(), second = (r => r.y + r.h / 2)((await tracksAt())[1])
+  const card = () => page.evaluate(() => document.querySelector('.steps-list .step-name')?.textContent)
+  await page.mouse.click(box.x + 200, second)
+  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent.startsWith('b '))
+  await menu('Track', 'Delete the track')
+  // laid out at once: a, c, d. c's lane pressed, c edited (not d, the lane's index in the mix that still has b); its
+  // speaker, c's or none
+  await page.waitForFunction(() => [...document.querySelectorAll('.layer-name')].map(e => e.textContent).join() === 'a,c,d')
+  await page.mouse.click(box.x + 200, (r => r.y + r.h / 2)((await tracksAt())[1]))
+  await page.getByRole('button', { name: 'Mute c' }).click()
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '3' && !/let b\b/.test(scriptText()))
+  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent.startsWith('c '))
+  await page.waitForTimeout(300)
+  assert.match(await card(), /^c · /)
+  assert.ok(!(await page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')).docs[0].muted ?? [])).includes('b'), 'b, gone, not muted in c\'s place')
+})
+
+// A track's lane shows what its own look or its menu chose (Waveform, Spectrogram or Notes: its look in its layer,
+// its name right-clicked), as Audacity's tracks each show a view of their own, kept with the tab; View sets every track's
+test('editor: a track\'s lane shows a waveform, a spectrogram or notes, as its look or menu chose; View sets every track\'s', async () => {
+  await open()
+  await noCues()
+  await write(`let a = audio('chime.wav')\n\nlet b = audio('chime.wav')`)
+  await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
+  // b edited, its lane tall under a's strip, as their layers have them
+  const { box, x } = await axis(8), [a, b] = await tracksAt(), top = b.y, middle = b.y + b.h / 2
+  // a lane's centre line through the quiet before the first strike, a waveform's: none on a spectrogram or under notes
+  const line = y => pixels(`let n = 0; for (let x = 2; x < arg.x1; x++) for (let y = arg.y - 4; y <= arg.y + 4; y++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 360) n++ } return n`, { x1: Math.round(x(.4) - box.x), y: Math.round(y - box.y) })
+  const kinds = () => page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')).docs[0].kinds)
+  const menuOf = () => page.locator('.layer').nth(1).click({ button: 'right', position: { x: 30, y: 10 } })
+  const choose = async label => { await menuOf(); await page.locator('.menu-row:visible', { hasText: new RegExp(`^${label}$`) }).click() }
+  const wave = await line(middle)
+  assert.ok(wave > 20, `b's centre line: ${wave}`)
+  await choose('Spectrogram')
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl')).docs[0].kinds?.b === 'spec')
+  await page.waitForTimeout(300)
+  assert.ok(await line(middle) < wave / 10, 'a spectrogram in b\'s lane')
+  assert.ok(await line(a.y + a.h / 2) > 10, 'a waveform in a\'s strip')
+  // kept: reloaded, b's lane a spectrogram again, its menu saying so
+  await page.reload()
+  await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
+  await page.waitForTimeout(800)
+  assert.ok(await line(middle) < wave / 10, 'b\'s spectrogram kept')
+  await menuOf()
+  assert.equal(await page.locator('.menu-row:visible[aria-checked="true"]').textContent(), 'Spectrogram')
+  await page.keyboard.press('Escape')
+  // Notes, from b's look in its layer: b's notes, one taking the pointer where its blob is, on the chime's first note
+  await page.getByRole('button', { name: 'b: Spectrogram', exact: true }).click()
+  await choice('Shows', 'Notes').click()
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl')).docs[0].kinds?.b === 'notes')
+  await page.getByRole('button', { name: 'b: Notes', exact: true }).waitFor()
+  await grab(Array.from({ length: 120 }, (_, k) => [x(.8), top + 20 + k * 3]), 'ns-resize')
+  // View's Waveform, the one the picture shows: every track's a waveform again
+  await menu('View', 'Waveform')
+  await page.waitForFunction(() => !Object.keys(JSON.parse(localStorage.getItem('audio-repl')).docs[0].kinds ?? {}).length)
+  await page.waitForTimeout(300)
+  assert.ok(await line(middle) > wave / 2, 'b\'s waveform again')
+  assert.deepEqual(await kinds(), {})
+})
+
+// A track's view goes with its name: named anew, it keeps it; taken away, it goes, so one made again under the name shows
+// the picture's. A silent track's notes are none: its lane a voice's keys, nothing taking the pointer, nothing failing
+test('editor: a track\'s view goes with its name; a silent track shows no notes', async () => {
+  await open()
+  await noCues()
+  await write(`let a = audio('chime.wav')\n\nlet b = audio.from(t => 0, { duration: 8 })`)
+  await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
+  const { box, x } = await axis(8), top = (await tracksAt())[1].y
+  const kinds = () => page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')).docs[0].kinds)
+  const menuOf = () => page.locator('.layer').nth(1).click({ button: 'right', position: { x: 30, y: 10 } })
+  await menuOf()
+  await page.locator('.menu-row:visible', { hasText: /^Notes$/ }).click()
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl')).docs[0].kinds?.b === 'notes')
+  await page.waitForTimeout(1000)
+  for (let y = top + 20; y < box.y + box.height - 40; y += 8) {
+    await page.mouse.move(x(2), y)
+    assert.notEqual(await page.locator('.plot').evaluate(el => el.style.cursor), 'ns-resize', `no note at ${y - top}px`)
+  }
+  // named anew from its layer, its name double-clicked
+  await page.locator('.layer-name', { hasText: /^b$/ }).dblclick()
+  await page.keyboard.press('ControlOrMeta+A')
+  await page.keyboard.type('bed')
+  await page.keyboard.press('Enter')
+  await page.waitForFunction(() => /\nlet bed = audio\.from/.test(scriptText()))
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl')).docs[0].kinds?.bed === 'notes')
+  assert.deepEqual(await kinds(), { bed: 'notes' })
+  await menuOf()
+  await page.locator('.menu-row:visible', { hasText: /^Delete the track/ }).click()
+  await page.waitForFunction(() => !/let bed\b/.test(scriptText()))
+  await page.waitForFunction(() => !JSON.parse(localStorage.getItem('audio-repl')).docs[0].kinds?.bed)
+  assert.deepEqual(await kinds(), {})
+})
+
+// The notes, as Melodyne shows them: a voice's notes as blobs on a piano's rows, a row a semitone, the axis naming them;
+// a note pressed is selected, and dragged up two rows goes two semitones up (pitch() over it, a voice's)
+test('editor: Notes shows a sound\'s notes, a row a semitone; a note dragged up two rows goes two semitones up', async () => {
+  const { box, x } = await chime()
+  await menu('View', 'Notes')
+  // the chime's C4 to C5, two rows past them either way, two octaves at least: MIDI 54 to 78, 25 rows filling the lane
+  const h = tall(box), row = h / 25, c4 = box.y + h - (60 - 54 + .5) * row
+  const [px, py] = await grab([[x(.8), c4]], 'ns-resize')
+  await drag([px, py], [0, -2 * row])
+  await page.waitForFunction(() => /\.pitch\(2, \{ at: 0\.5\d*, d: 0\.5\d*, voice: true \}\)/.test(scriptText()))
+})
+
+// A note sung apart (quiet either side) dragged moves whole, from its first cycle to its last: its pitch curve stepping in
+// the quiet, half way into it (50 ms at most), not a range gliding in and out over the note's first and last 90 ms
+test('editor: a note sung apart, dragged, steps in the quiet either side', async () => {
+  await open()
+  await noCues()
+  await write(`audio.from(t => (t > .4 && t < .9 ? Math.sin(2 * Math.PI * 220 * t) : t > 1.3 && t < 1.8 ? Math.sin(2 * Math.PI * 330 * t) : 0) * .5, { duration: 2.2 })`)
+  await lengthIs('0:02.200')
+  await menu('View', 'Notes')
+  // A3 (MIDI 57) and E4 (64), two rows past them either way, two octaves at least: MIDI 49 to 73, 25 rows
+  const { box, x } = await axis(2.2), h = tall(box), row = h / 25, a3 = box.y + h - (57 - 49 + .5) * row
+  const [px, py] = await grab([[x(.65), a3], [x(.65), a3 - row / 3], [x(.65), a3 + row / 3]], 'ns-resize')
+  await drag([px, py], [0, -2 * row])
+  await page.waitForFunction(() => /\.pitch\(\{ t: \[0\.3[5-9]\d*, 0\.3[5-9]\d*, 0\.9\d*, 0\.9\d*\], v: \[0, 2, 2, 0\] \}, \{ voice: true \}\)/.test(scriptText()))
+  // dragged again a row, once its notes are found again (the keys about them: a row or two on): the same steps a
+  // semitone higher, one call
+  const steps = (await code()).match(/t: \[[^\]]+\]/)[0]
+  const [qx, qy] = await grab(Array.from({ length: 13 }, (_, k) => [x(.65), a3 - 3 * row + k * row / 3]), 'ns-resize')
+  await drag([qx, qy], [0, -row])
+  await page.waitForFunction(() => /v: \[0, 3, 3, 0\]/.test(scriptText()))
+  assert.equal((await code()).match(/\.pitch\(/g).length, 1, 'one call')
+  assert.equal((await code()).match(/t: \[[^\]]+\]/)[0], steps, 'the same steps')
+})
+
+// A notes lane's keys zoom as the levels and the frequencies do: a pinch, or Ctrl and the wheel, on them, about the key
+// under the pointer, which stays where it is; zoomed, the wheel scrolls them; 0 shows them all again
+test('editor: a notes lane\'s keys zoom about the key under the pointer, a row then taller', async () => {
+  const { box, x } = await chime()
+  await menu('View', 'Notes')
+  // 25 rows, MIDI 54 to 78 (as above); a notch of Ctrl and the wheel on the keys takes them to 25 × e^−0.4, C4 kept
+  const h = tall(box), c4 = box.y + h - (60 - 54 + .5) * h / 25, row = h / (25 * Math.exp(-.4))
+  await grab([[x(.8), c4]], 'ns-resize')
+  await page.mouse.move(box.x + box.width - 20, c4)
+  await page.keyboard.down('Control')
+  await page.mouse.wheel(0, -100)
+  await page.keyboard.up('Control')
+  // the C4 where it was, two of its new rows up two semitones (three of the old)
+  const [px, py] = await grab([[x(.8), c4]], 'ns-resize')
+  await drag([px, py], [0, -2 * row])
+  await page.waitForFunction(() => /\.pitch\(2, \{ at: 0\.5\d*, d: 0\.5\d*, voice: true \}\)/.test(scriptText()))
+  // undone; zoomed, the wheel over the lane scrolls the keys, the C4 gone from where it was; 0 shows them as they were,
+  // the C4 back
+  await page.keyboard.press('ControlOrMeta+Z')
+  await page.waitForFunction(() => !scriptText().includes('pitch('))
+  await grab([[x(.8), c4]], 'ns-resize')
+  await page.mouse.move(x(4), c4)
+  for (let i = 0; i < 3; i++) await page.mouse.wheel(0, 100)
+  await page.mouse.move(x(.8), c4)
+  assert.notEqual(await page.locator('.plot').evaluate(el => el.style.cursor), 'ns-resize', 'scrolled, no note where the C4 was')
+  await page.keyboard.press('0')
+  await grab([[x(.8), c4]], 'ns-resize')
+})
+
+// The level at the bar's right, one measure, chosen from its menu (the readout pressed) and kept: the peak, the RMS, the
+// loudness of all of it; with a selection, its peak or RMS
+test('editor: the level reads the peak, the RMS or the loudness, as chosen', async () => {
+  const { box, x } = await chime()
+  const read = () => page.locator('.readout').textContent()
+  assert.match(await read(), /^−\d+\.\d dBFS$/)
+  await page.locator('.readout').click()
+  await menuRow('Loudness').click()
+  await page.waitForFunction(() => /^−\d+\.\d LUFS$/.test(document.querySelector('.readout').textContent))
+  assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('audio-repl'))).reads, 'loudness')
+  // a selection's own: its peak, the loudness being all of it's; its RMS, under its peak (the value alone, no word: the
+  // menu and the tip say which)
+  await drag([x(1), box.y + 40], [x(2) - x(1), 0])
+  const peak = await read()
+  assert.match(peak, /^−\d+\.\d dBFS$/)
+  await page.locator('.readout').click()
+  await menuRow('RMS').click()
+  await page.waitForFunction(peak => { const t = document.querySelector('.readout').textContent; return /^−\d+\.\d dBFS$/.test(t) && parseFloat(t.slice(1)) > parseFloat(peak.slice(1)) }, peak)
+})
+
+// The tracks' layers, each on a head line over its lane, the picture as wide as without them. A layer's name
+// double-clicked, a field there, Enter names the track, as a script names a sound. Each lane as tall as its foot was
+// dragged (with Alt, every one), none grown for being edited; a locked one's taken by no press, the edited one locked
+// giving way to the next. More tracks than the picture holds scroll up and down through it, their layers with them, as
+// a DAW's, the room under them always in reach
+test('editor: the layers over each lane name and lock the tracks; a foot dragged, its height, with Alt every one\'s; more tracks than fit scroll', async () => {
+  await open()
+  await noCues()
+  const wide = (await page.locator('.plot').boundingBox()).width
+  await write(`let a = audio('chime.wav')\n\nlet b = audio('rhodes.wav')`)
+  await lengthIs('0:09.000')
+  await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
+  assert.equal((await page.locator('.plot').boundingBox()).width, wide, 'the picture as wide as with one sound')
+  // on a head line over its lane, the head's top over the lane's
+  const [a0] = await tracksAt(), head0 = await page.locator('.layer').first().boundingBox()
+  assert.ok(Math.abs(head0.y + HEAD - a0.y) <= 1 && head0.height <= HEAD + 1, `its head line over its lane: ${head0.y}, ${head0.height}, ${a0.y}`)
+  await page.locator('.layer-name', { hasText: /^b$/ }).dblclick()
+  await page.keyboard.press('ControlOrMeta+A')
+  await page.keyboard.type('Lead vocal')
+  await page.keyboard.press('Enter')
+  await page.waitForFunction(() => scriptText() === "let a = audio('chime.wav')\n\nlet leadVocal = audio('rhodes.wav')")
+  // each TRACK px, the edited one too; a's foot dragged 60 px down, a 60 px taller, kept with the tab; double-clicked,
+  // as it was made
+  const card = () => page.evaluate(() => document.querySelector('.steps-list .step-name')?.textContent)
+  const box = await page.locator('.plot').boundingBox(), heights = async () => (await tracksAt()).map(r => Math.round(r.h))
+  assert.deepEqual(await heights(), [TRACK, TRACK], 'none grown for being edited')
+  const [a1] = await tracksAt(), foot = a1.y + a1.h + FOOT / 2
+  await page.mouse.move(box.x + 300, foot)
+  assert.equal(await page.locator('.plot').evaluate(el => el.style.cursor), 'row-resize', 'its foot, its height to drag')
+  await drag([box.x + 300, foot], [0, 60])
+  await page.waitForFunction(() => document.querySelector('.layer').dataset.lane.split(' ')[1] === String(160 + 60))
+  assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('audio-repl'))).docs[0].heights.a, TRACK + 60)
+  await page.mouse.dblclick(box.x + 300, foot + 60)
+  await page.waitForFunction(() => document.querySelector('.layer').dataset.lane.split(' ')[1] === '160')
+  // with Alt, pressed on the way, every band to the one dragged; with Alt double-clicked, every band as it was made
+  const tall = () => page.evaluate(() => [...document.querySelectorAll('.layer')].map(e => +e.dataset.lane.split(' ')[1]))
+  await page.mouse.move(box.x + 300, foot)
+  await page.mouse.down()
+  await page.mouse.move(box.x + 300, foot + 20, { steps: 3 })
+  await page.keyboard.down('Alt')
+  await page.mouse.move(box.x + 300, foot + 40, { steps: 3 })
+  await page.mouse.up()
+  await page.keyboard.up('Alt')
+  await page.waitForFunction(() => [...document.querySelectorAll('.layer')].every(e => e.dataset.lane.split(' ')[1] === '200'))
+  assert.deepEqual(await tall(), [TRACK + 40, TRACK + 40], 'every band')
+  assert.deepEqual(JSON.parse(await page.evaluate(() => localStorage.getItem('audio-repl'))).docs[0].heights, { a: TRACK + 40, leadVocal: TRACK + 40 })
+  // Alt let go on the way: the others as they were where it was pressed, the one dragged alone
+  await page.mouse.move(box.x + 300, foot + 40)
+  await page.mouse.down()
+  await page.keyboard.down('Alt')
+  await page.mouse.move(box.x + 300, foot + 60, { steps: 3 })
+  await page.keyboard.up('Alt')
+  await page.mouse.move(box.x + 300, foot + 50, { steps: 3 })
+  await page.mouse.up()
+  await page.waitForFunction(() => [...document.querySelectorAll('.layer')].map(e => e.dataset.lane.split(' ')[1]).join() === '210,200')
+  await page.keyboard.down('Alt')
+  await page.mouse.dblclick(box.x + 300, foot + 50)
+  await page.keyboard.up('Alt')
+  await page.waitForFunction(() => [...document.querySelectorAll('.layer')].every(e => e.dataset.lane.split(' ')[1] === '160'))
+  // a locked while edited: leadVocal edited; a press in a's lane takes it no more
+  await page.getByRole('button', { name: 'Lock a' }).click()
+  await page.waitForFunction(() => document.querySelector('.steps-list .step-name')?.textContent.startsWith('leadVocal '))
+  await page.mouse.click(box.x + 300, (await tracksAt())[0].y + 20)
+  await page.waitForTimeout(300)
+  assert.match(await card(), /^leadVocal /, 'a locked, a press in its lane edits nothing there')
+  assert.deepEqual(JSON.parse(await page.evaluate(() => localStorage.getItem('audio-repl'))).docs[0].locked, ['a'])
+  // a range dragged on the time row, through every track, deleted: a, locked, untouched
+  await drag([box.x + 300, box.y + box.height - 11], [100, 0])
+  await page.keyboard.press('Backspace')
+  await page.waitForFunction(() => /let leadVocal = audio\('rhodes\.wav'\)\n  \.remove\(/.test(scriptText()))
+  assert.match(await code(), /^let a = audio\('chime\.wav'\)\n\n/, 'a as it was')
+  await page.keyboard.press('ControlOrMeta+Z')
+  await page.waitForFunction(() => !scriptText().includes('remove('))
+  // four tracks: more than the picture holds; the wheel over the lanes brings the last into sight, its layer with it, and
+  // the room under it, where a press puts a new track's caret
+  await write(Array.from({ length: 4 }, (_, i) => `let t${i} = audio.from(t => Math.sin(2 * Math.PI * ${220 + 20 * i} * t) * .2, { duration: 2 })`).join('\n\n'))
+  await page.locator('.layer').nth(3).waitFor({ state: 'attached' })
+  const time = box.y + box.height - 22, last = async () => (await tracksAt())[3]
+  assert.ok((r => r.y + r.h > time)(await last()), 'the last out of sight')
+  await page.mouse.move(box.x + box.width / 2, box.y + 100)
+  for (let i = 0; i < 8; i++) await page.mouse.wheel(0, 120)
+  await page.waitForFunction(time => (([y, h]) => document.querySelector('.plot').getBoundingClientRect().y + y + h + 18 + 40 <= time + 1)(document.querySelectorAll('.layer')[3].dataset.lane.split(' ').map(Number)), time)
+  const r = await last()
+  await page.mouse.move(box.x + 300, r.y + r.h + FOOT + ROOM / 2)
+  assert.equal(await page.locator('.plot').evaluate(el => el.style.cursor), '', 'the room in reach')
+  // the scrollbar at the right edge, its thumb dragged to the top: the first in sight again
+  await drag([box.x + box.width - 2, time - 30], [0, -(box.height - 22)])
+  assert.ok(Math.abs((await tracksAt())[0].y - box.y - HEAD) < 1, 'the first at the top again, under its head line')
+})
+
+// Recorded into a track, the others play as it records, the track it goes into muted; the take goes where what played
+// was as the microphone heard it: both clocks read at once, the speakers' and the microphone's, less the microphone's
+// latency. Here the microphone hears the page's own output, digitally, as it is rendered, before the speakers: the take
+// lands that much early, the output's latency (the browser's, baseLatency and outputLatency), give or take the stream
+// between the two contexts, which holds it some tens of ms more (Chromium's: 20 to 30). Not lined up, it would land as
+// late as the device took to start playing, 0.2 to 0.5 s here
+test('editor: ⇧R records a new track as the others play, lined up with what played', async () => {
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('const eng = engine()', 'const eng = globalThis.__eng = engine()').replace('let output = null, incoming', 'globalThis.__output = () => output\nlet output = null, incoming') }) })
+  // the microphone: what the page plays, tapped where it goes out
+  await page.addInitScript(() => {
+    const connect = AudioNode.prototype.connect, taps = new Map()
+    AudioNode.prototype.connect = function (dest, ...rest) {
+      const r = connect.call(this, dest, ...rest)
+      if (dest instanceof AudioDestinationNode) {
+        let t = taps.get(dest.context)
+        if (!t) taps.set(dest.context, t = dest.context.createMediaStreamDestination())
+        connect.call(this, t)
+        globalThis.__tapped = { stream: t.stream, context: dest.context }
+      }
+      return r
+    }
+    navigator.mediaDevices.getUserMedia = async () => globalThis.__tapped.stream
+  })
+  const { box, x, y } = await chime()
+  // played once, so its output goes somewhere to be tapped
+  await page.keyboard.press('Space')
+  await page.waitForTimeout(300)
+  await page.keyboard.press('Space')
+  await page.mouse.click(x(.01), y)
+  await page.keyboard.press('Home')
+  await page.keyboard.press('Shift+R')
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
+  await page.waitForFunction(() => { const [m, s] = document.querySelector('.time').textContent.split(':'); return +m * 60 + +s >= 3 }, null, { timeout: 15000 })
+  await page.keyboard.press('r')
+  await page.waitForFunction(() => /^let chime = audio\('chime\.wav'\)\n\nlet track = audio\.from\(0\)\n  \.write\(audio\('take\.wav'\), \{ at: [\d.]+ \}\)$/.test(scriptText()))
+  await page.waitForFunction(() => __output()?.tracks?.length === 2)
+  // the lag of the take's lane against the chime's, over its first 3 s, ms; read off the output shown once the engine has
+  // it whole (none of one a newer output replaced as it came: the one shown then is that one)
+  const { lag, late } = await page.evaluate(async () => {
+    let out, lanes
+    for (const until = Date.now() + 8000; !lanes && Date.now() < until;) lanes = await __eng.samples((out = __output()).id, 0, Math.round(3 * out.sampleRate)) ?? await new Promise(r => setTimeout(r, 100))
+    const n = Math.round(3 * out.sampleRate), [a, b] = lanes, rate = out.sampleRate
+    let best = { lag: 0, c: -Infinity }
+    for (let k = -4000; k <= 4000; k += 2) { let c = 0; for (let i = 8000; i < n - 8000; i += 3) c += a[i] * (b[i + k] ?? 0); if (c > best.c) best = { lag: k, c } }
+    return { lag: best.lag / rate * 1000, late: (__tapped.context.baseLatency + __tapped.context.outputLatency) * 1000 }
+  })
+  assert.ok(Math.abs(lag + late) < 60, `the take ${lag.toFixed(1)} ms from the chime, the output's latency ${late.toFixed(1)} ms`)
+})
+
+// A take recorded as the others play is drawn as it comes where its output will put it, lined up with what played: the
+// same strike in the same column as it records and once it is done, no shift as it stops (it once jumped left by the
+// output's latency, the samples heard before its start left out only once it was written)
+test('editor: a take recorded as the others play is drawn where it will be, no shift once it is done', async () => {
+  await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('const state = sprae(root, {', 'const state = globalThis.__state = sprae(root, {').replace('let output = null, incoming', 'globalThis.__output = () => output\nlet output = null, incoming') }) })
+  // the microphone: what the page plays, tapped where it goes out
+  await page.addInitScript(() => {
+    const connect = AudioNode.prototype.connect, taps = new Map()
+    AudioNode.prototype.connect = function (dest, ...rest) {
+      const r = connect.call(this, dest, ...rest)
+      if (dest instanceof AudioDestinationNode) {
+        let t = taps.get(dest.context)
+        if (!t) taps.set(dest.context, t = dest.context.createMediaStreamDestination())
+        connect.call(this, t)
+        globalThis.__tapped = { stream: t.stream, context: dest.context }
+      }
+      return r
+    }
+    navigator.mediaDevices.getUserMedia = async () => globalThis.__tapped.stream
+  })
+  const { x, y } = await chime()
+  await page.keyboard.press('Space')
+  await page.waitForTimeout(300)
+  await page.keyboard.press('Space')
+  await page.mouse.click(x(.01), y)
+  await page.keyboard.press('Home')
+  await page.keyboard.press('Shift+R')
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
+  // the first of three columns running of the take's lane lit, px: its first strike (the caret's and the playhead's
+  // lines a column wide)
+  const strike = () => page.evaluate(() => __state.layout?.rows?.[1]).then(row => row && pixels(`let run = 0; for (let x = 0; x < w - 60; x++) { let n = 0; for (let y = Math.round(arg.y); y < arg.y + arg.h; y++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 450) n++ } run = n > 8 ? run + 1 : 0; if (run === 3) return x - 2 } return -1`, row))
+  await page.waitForFunction(() => { const [m, s] = document.querySelector('.time').textContent.split(':'); return +m * 60 + +s >= 3 }, null, { timeout: 15000 })
+  // (a busy runner draws the take a few frames behind the clock)
+  let during = -1
+  for (const until = Date.now() + 5000; during < 0 && Date.now() < until; await page.waitForTimeout(100)) during = await strike()
+  await page.keyboard.press('r')
+  await page.waitForFunction(() => /\.write\(audio\('take\.wav'\)/.test(scriptText()))
+  await page.waitForFunction(() => __output()?.tracks?.length === 2 && !document.querySelector('.message').textContent.includes('Rendering'))
+  await page.waitForTimeout(600)
+  const after = await strike()
+  assert.ok(during > 0 && Math.abs(after - during) <= 1, `its first strike at ${during} px as it recorded, ${after} px done`)
+})
+
+// Record pressed with Shift, as ⇧R: a new track, recorded into as the others play
+test('editor: Record with Shift records a new track', async () => {
+  const { box, x } = await chime()
+  await page.mouse.click(x(1), box.y + 40)
+  await page.getByRole('button', { name: 'Record', exact: true }).click({ modifiers: ['Shift'] })
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
+  await page.waitForFunction(() => /let track = audio\.from\(0\)$/.test(scriptText()))
+  await page.waitForFunction(() => { const [m, s] = document.querySelector('.time').textContent.split(':'); return +m * 60 + +s >= 2 }, null, { timeout: 15000 })
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).click()
+  await page.waitForFunction(() => /let track = audio\.from\(0\)\n  \.write\(audio\('take\.wav'\), \{ at: 1 \}\)$/.test(scriptText()))
+})
+
+// A take recorded again into a track, from earlier than the last ended: the others play from the caret, so it goes
+// where the caret was (it once went where the last take had stopped them: the player took the voice paused there over,
+// its place over the new start, the take written seconds late and the track ever longer)
+test('editor: a second take into a track goes where its caret was, after a first that ran on past it', async () => {
+  const { box, x } = await chime()
+  await page.mouse.click(x(1), box.y + 40)
+  await page.keyboard.press('Shift+R')
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
+  await page.waitForFunction(() => { const [m, s] = document.querySelector('.time').textContent.split(':'); return +m * 60 + +s >= 3 }, null, { timeout: 15000 })
+  await page.keyboard.press('r')
+  await page.waitForFunction(() => /\.write\(audio\('take\.wav'\), \{ at: 1 \}\)$/.test(scriptText()))
+  await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
+  // (the layers beside the picture now, the picture after them)
+  await page.waitForTimeout(300)
+  const { x: x8 } = await axis(8)
+  await page.mouse.click(x8(.5), (r => r.y + r.h / 2)((await tracksAt())[1]))
+  await page.keyboard.press('r')
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
+  await page.waitForFunction(() => { const [m, s] = document.querySelector('.time').textContent.split(':'); return +m * 60 + +s >= 1.5 }, null, { timeout: 15000 })
+  await page.keyboard.press('r')
+  await page.waitForFunction(() => /\.write\(audio\('take-2\.wav'\), \{ at: [\d.]+ \}\)$/.test(scriptText()))
+  const at = +(await code()).match(/take-2\.wav'\), \{ at: ([\d.]+) \}/)[1]
+  assert.ok(Math.abs(at - .5) < .02, `the second take at ${at} s, the caret at 0.5`)
+  await lengthIs('0:08.000')
+})
+
+// Into a track, the others playing, over a selection with the loop on: pass after pass, the others looping with it,
+// each a take, shown as one as it is done, the one recording lit (it once stopped after the first, short of the
+// selection's end by the microphone's latency)
+test('editor: recorded into a track over a selection, the loop on, pass after pass, each a take as it goes', async () => {
+  await open()
+  await noCues()
+  await write(`let a = audio('rhodes.wav')\n\nlet b = audio('chime.wav')`)
+  await lengthIs('0:09.000')
+  await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
+  const { x } = await axis(9), lane = (r => r.y + r.h / 2)((await tracksAt())[1])
+  await page.mouse.click(x(1), lane)
+  await drag([x(6), lane], [x(7) - x(6), 0])
+  assert.equal(await selected(), '0:06.000–0:07.000')
+  await page.getByRole('button', { name: 'Loop' }).click()
+  await page.keyboard.press('r')
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).waitFor()
+  // the second pass under way: the first a take there, the one recording lit, nothing to switch to yet
+  const numbers = () => page.locator('.plot .takes:not([hidden]) button').evaluateAll(b => b.map(x => x.textContent + (x.getAttribute('aria-pressed') === 'true' ? '*' : '')))
+  await page.waitForFunction(() => document.querySelectorAll('.plot .takes:not([hidden]) button').length === 3, null, { timeout: 15000 })
+  assert.deepEqual(await numbers(), ['1', '2*', '+'])
+  await page.waitForFunction(() => document.querySelectorAll('.plot .takes:not([hidden]) button').length === 4, null, { timeout: 15000 })
+  await page.keyboard.press('r')
+  await page.waitForFunction(() => (scriptText().match(/\.write\(audio\('take/g) ?? []).length >= 2)
+  const lines = (await code()).split('\n').filter(l => /\.write\(audio\('take/.test(l))
+  assert.ok(lines.length >= 2 && lines.every(l => /\{ at: 6 \}\)$/.test(l)), lines.join('\n'))
+  assert.ok(lines.slice(0, -1).every(l => l.trim().startsWith('//')) && !lines.at(-1).trim().startsWith('//'), 'the last heard')
+  assert.match(await code(), /^let b = audio\('chime\.wav'\)$/m, 'into the track recorded into')
+})
+
 // Recorded into nothing, however quiet, a take is watched at full scale (±1), held still as it comes and once it is the
 // sound, as a recording app's: its levels as they are, not widened to fill its lane (they were, 6 dB at a time, the
 // picture jumping as it got louder)
@@ -8330,29 +10304,32 @@ test('editor: a quiet take recorded into nothing is drawn at full scale', async 
   try {
     const p = await quiet.newPage()
     p.on('pageerror', e => errors.push(e.message))
-    // how far up its lane the waveform reaches over the first fifth of the view, from the centre line: 1 at its top
-    const reach = async () => {
+    // how far up its lane the waveform reaches over the first fifth of the view, from the centre line: 1 at its top. Its
+    // one lane the picture's, TRACK px at least, but the room under it, kept as it records and once it is a sound (`room`,
+    // px), so its lane is the same as it comes and done
+    const reach = async (room = 0) => {
       const png = await p.locator('.plot').screenshot()
-      return p.evaluate(async b64 => {
+      return p.evaluate(async ([b64, most, room]) => {
         const img = new Image()
         img.src = 'data:image/png;base64,' + b64
         await img.decode()
         const c = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height }), g = c.getContext('2d')
         g.drawImage(img, 0, 0)
-        const d = g.getImageData(0, 0, c.width, c.height).data, mid = (c.height - 22) / 2
+        const d = g.getImageData(0, 0, c.width, c.height).data, mid = Math.max(most, c.height - 22 - 18 - room) / 2
         let top = mid
         for (let y = 0; y < mid; y++) for (let x = Math.round(c.width * .04); x < c.width * .2; x++) { const i = (y * c.width + x) * 4; if (Math.max(d[i], d[i + 1], d[i + 2]) > 120 && y < top) top = y }
         return (mid - top) / mid
-      }, png.toString('base64'))
+      }, [png.toString('base64'), TRACK, room])
     }
-    await p.goto(origin + '/playground.html')
-    await p.locator('.empty-button', { hasText: 'Record' }).click()
+    await p.goto(origin + '/playground/')
+    await p.locator('.empty').waitFor()
+    await p.locator('button.record').click()
     await p.waitForFunction(() => { const [m, s] = document.querySelector('.time').textContent.split(':'); return +m * 60 + +s >= 2.5 })
-    const taking = await reach()
+    const taking = await reach(ROOM)
     await p.getByRole('button', { name: 'Stop recording', exact: true }).click()
-    await p.waitForFunction(() => /^Loudness/.test((e => e?.title || e?.dataset.tip)(document.querySelector('.readout'))))
+    await p.waitForFunction(() => document.querySelector('.readout')?.dataset.of === 'all')
     await p.waitForTimeout(500)
-    const taken = await reach()
+    const taken = await reach(ROOM)
     // 0.08 in ±1
     assert.ok(taking > .05 && taking < .15, `as it records: ${taking}`)
     assert.ok(taken > .05 && taken < .15, `recorded: ${taken}`)
@@ -8364,7 +10341,7 @@ test('editor: a quiet take recorded into nothing is drawn at full scale', async 
 // the loudest cell is a beep's, and how loud depends on how that beep's frames align, so the take's levels can move a
 // little once it is whole (two runs' outputs differ by up to 6%; a slow runner's take gets more beeps before the stop)
 test('editor: a take draws while it records as its output does after', async () => {
-  const looks = [['spec'], ['wave'], ['wave', { Colour: 'Temperature', Fill: 'RMS' }]]
+  const looks = [['spec'], ['wave'], ['wave', { Colour: 'Centroid', Fill: 'RMS' }]]
   for (const [view, wave] of looks) {
     await open()
     if (wave) for (const [group, name] of Object.entries(wave)) await settings(group, name)
@@ -8417,6 +10394,42 @@ test('editor: the menu works from the keys, and gives them back', async () => {
   assert.ok(await page.locator('.plot').evaluate(el => el === document.activeElement), 'the keys are back on the picture')
 })
 
+// A submenu and the pointer on its way to it (menu.js aims): crossing the rows under its own, heading into it, they let
+// it pass, the submenu staying; resting on one, that one takes it; moved straight up or down, the next row takes it at once
+test('editor: the pointer on its way to a submenu crosses the rows between, which take it only once it rests', async () => {
+  await open()
+  const lit = () => page.evaluate(() => document.activeElement.querySelector?.('.menu-label')?.textContent ?? '')
+  const subs = () => page.locator('.menubar-sub:popover-open').count()
+  const frame = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
+  await page.locator('.menubar-item', { hasText: /^View$/ }).click()
+  const show = await menuRow('Show').boundingBox(), zoom = await menuRow('Zoom').boundingBox()
+  await page.mouse.move(show.x + 30, show.y + show.height / 2)
+  await page.locator('.menubar-sub:popover-open').waitFor()
+  const sub = await page.locator('.menubar-sub:popover-open').boundingBox()
+  assert.ok(sub.y + sub.height > zoom.y + zoom.height, 'the Show submenu reaches past Zoom, two rows down')
+  // down and right over Snap and onto Zoom's far end, by the submenu's edge
+  await page.mouse.move(zoom.x + zoom.width - 4, zoom.y + zoom.height / 2, { steps: 12 })
+  await frame()
+  assert.equal(await lit(), 'Show', 'the row crossed lets it pass')
+  assert.equal(await subs(), 1, 'Show\'s submenu still open')
+  // gone out of the menus from there and resting: nothing, the row it last crossed taking nothing
+  await page.mouse.move(zoom.x + zoom.width - 4, zoom.y + zoom.height + 400)
+  await page.waitForTimeout(500)
+  assert.equal(await lit(), 'Show', 'out of the menus, nothing changes')
+  assert.equal(await subs(), 1)
+  await page.mouse.move(show.x + 30, show.y + show.height / 2)
+  await page.mouse.move(zoom.x + zoom.width - 4, zoom.y + zoom.height / 2, { steps: 12 })
+  // rested there: Zoom's, its own submenu opening a moment on
+  await page.waitForFunction(() => document.activeElement.querySelector?.('.menu-label')?.textContent === 'Zoom')
+  await page.locator('.menubar-sub:popover-open .menu-row', { hasText: /^In/ }).waitFor()
+  // straight up a row: Snap's at once, Zoom's submenu gone
+  await page.mouse.move(zoom.x + zoom.width - 4, zoom.y - zoom.height / 2, { steps: 4 })
+  await frame()
+  assert.equal(await lit(), 'Snap to cues and markers')
+  assert.equal(await subs(), 0)
+  await page.keyboard.press('Escape')
+})
+
 
 // The context menu's row by its words, a submenu's too
 const contextRow = name => page.locator('.menubar-menu .menu-row', { has: page.locator('.menu-label', { hasText: new RegExp(`^${name}$`) }) }).last()
@@ -8448,7 +10461,7 @@ test('editor: a crossfade dragged out of a range\'s end draws both sides\' fades
 
 // A selection's tools at its foot, side by side from its middle (view.js BOX, 16 px, 2 apart): pitch, intonation,
 // formants; the pill on its top edge its level alone
-const tools = (x, box, a, b) => Object.fromEntries(['pitch', 'intonation', 'formant'].map((name, i) => [name, [(x(a) + x(b)) / 2 + (i - 1) * 18, box.y + box.height - 22 - 8]]))
+const tools = (x, box, a, b) => Object.fromEntries(['pitch', 'intonation', 'formant'].map((name, i) => [name, [(x(a) + x(b)) / 2 + (i - 1) * 18, box.y + tall(box) + FOOT / 2]]))
 
 // The pitch tool: dragged up, by the square of how far, a few cents near where it was pressed, semitones further, 12 a
 // picture's height away; the note it goes to said by it (a 220 Hz tone is A3, A4 being 440 Hz, ISO 16), the range heard
@@ -8459,15 +10472,16 @@ test('editor: the pitch tool goes by cents near, semitones far, says the note it
   await noCues()
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 220 * t), { duration: 2 })`)
   await lengthIs('0:02.000')
-  await menu('View', 'Pitch curve')
+  await menu('View', 'Show', 'Pitch curve')
   await show('wave')
-  const { box, x } = await axis(2), { pitch } = tools(x, box, .5, 1.5)
-  await drag([x(.5), box.y + 80], [x(1.5) - x(.5), 0])
+  // the waveform's tools at its lane's foot, TRACK px down at most; selected off its centre line, where the pitch line is
+  const { box, x } = await axis(2), pitch = [tools(x, box, .5, 1.5).pitch[0], box.y + tall(box) + FOOT / 2]
+  await drag([x(.5), box.y + tall(box) * .3], [x(1.5) - x(.5), 0])
   const said = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))).then(() => page.locator('.hint').innerText())
   for (const until = Date.now() + 8000; Date.now() < until; await page.waitForTimeout(200)) { await page.mouse.move(...pitch); if (/^Pitch A3/.test(await said())) break; await page.mouse.move(pitch[0] + 30, pitch[1] - 40) }
   assert.match(await said(), /^Pitch A3([+−][1-5]ct)?, by cents; a click hides the curve$/)
-  // the plot's height, one lane: st = 12 (dy / lh)²
-  const lh = box.height - 22, at = st => pitch[1] - lh * Math.sqrt(st / 12)
+  // 12 semitones a lane's height away (view.js glide): st = 12 (dy / lh)²; the tool at the lane's foot, all of it over it
+  const lh = tall(box), at = st => pitch[1] - lh * Math.sqrt(st / 12)
   await heard()
   await page.mouse.down()
   // pressed and moved a little: at 0, heard as it is
@@ -8480,11 +10494,15 @@ test('editor: the pitch tool goes by cents near, semitones far, says the note it
   assert.match(await said(), /^\+(1\d|2\d)ct, A3([+−][1-5]ct)? → A3\+\d+ct$/)
   const { peak } = await heard()
   assert.ok(peak > .05, `heard as it goes: ${peak}`)
-  // two and a half semitones, then most of the plot's height: ten and more
+  // two and a half semitones, then most of the lane's height: ten and more
+  // the words where it was pressed, the pointer hidden: only what they say changes
+  const place = () => page.locator('.hint').evaluate(e => { const r = e.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top)] })
+  const was = await place()
   await page.mouse.move(pitch[0], at(2.5), { steps: 6 })
   assert.match(await said(), /^\+2st [3-6]\dct, A3/)
   await page.mouse.move(pitch[0], pitch[1] - lh * .95, { steps: 6 })
   assert.match(await said(), /^\+10st [6-9]\dct, /)
+  assert.deepEqual(await place(), was, 'the words stay where it was pressed')
   await page.mouse.up()
   await page.waitForFunction(() => /\.pitch\(10\.\d\d?, \{ at: 0\.5, d: 1, voice: true \}\)$/.test(scriptText()))
 })
@@ -8499,8 +10517,8 @@ test('editor: the tools set a voice\'s intonation and its formants, heard as the
   // a voice whose pitch rises and falls, ±2 semitones about 200 Hz twice a second
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * (200 * t + 2 * Math.sin(2 * Math.PI * 2 * t))), { duration: 2 })`)
   await lengthIs('0:02.000')
-  await menu('View', 'Pitch curve')
-  const { box, x } = await axis(2), lh = box.height - 22, { intonation, formant } = tools(x, box, .5, 1.5), said = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))).then(() => page.locator('.hint').innerText())
+  await menu('View', 'Show', 'Pitch curve')
+  const { box, x } = await axis(2), lh = tall(box), { intonation, formant } = tools(x, box, .5, 1.5), said = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))).then(() => page.locator('.hint').innerText())
   await drag([x(.5), box.y + 80], [x(1.5) - x(.5), 0])
   await page.mouse.move(...intonation)
   assert.equal(await said(), 'Intonation, wider or flatter')
@@ -8532,21 +10550,34 @@ test('editor: the tools set a voice\'s intonation and its formants, heard as the
   await page.waitForFunction(() => /\.formant\((2\.9\d?|3(\.0\d?)?), \{ at: 0\.5, d: 1 \}\)$/.test(scriptText()))
 })
 
-// The picture's switch as it was: the other picture's tab shows it; the one shown, pressed again, opens its dropdown
-// over it, as Figma's: how that picture draws, every group in sight, what the chosen one does said under it (the
-// waveform's units, colour, fill and channels; the spectrogram's scale, method, colours, gamma, range and FFT size).
-// The other tab pressed closes it; the tab again, a press outside or Esc too; the picture and its look are kept
-test('editor: the picture shown, its tab pressed again, opens its dropdown: how that picture draws, every group in sight', async () => {
+// How a band shows, its look in its layer pressed: a dropdown by it, as Figma's: what it shows (the waveform, the
+// spectrogram, the notes), then how that draws, every group in sight, what the chosen one does said under it (the
+// waveform's units, weighting, colour, colormap, fill, channels and its level meter; the spectrogram's scale, method, colours, gamma, range,
+// FFT size and its spectrum; the notes' piano keys). The View menu has no meters. Turned there, the band and the groups turn at once, the dropdown open; the look again, a press outside or
+// Esc closes it; what it shows and its looks are kept
+test('editor: a band\'s look in its layer opens how it shows: what it shows, then how that draws', async () => {
   await open()
-  const key = name => page.getByRole('tab', { name, exact: true }), dropdown = page.locator('.dropdown'), groups = () => dropdown.locator('.option-label').allInnerTexts()
+  const look = page.locator(':is(.lane-look, .layer-look):visible'), dropdown = page.locator('.dropdown'), groups = () => dropdown.locator('.option-label').allInnerTexts()
   const opened = () => page.locator('.dropdown:popover-open').count()
+  assert.equal(await look.count(), 1, 'a sound\'s one, its channels\' lanes alike')
   assert.equal(await shown(), 'Waveform')
-  assert.match(await key('Waveform').evaluate(tipOf), /^Waveform\nClick for how it draws$/)
-  await key('Waveform').click()
-  assert.equal(await key('Waveform').getAttribute('aria-expanded'), 'true')
-  const [b, d] = await Promise.all([key('Waveform').boundingBox(), dropdown.boundingBox()])
-  assert.ok(d.y + d.height <= b.y, 'over its tab')
-  assert.deepEqual(await groups(), ['Levels in', 'Colour', 'Fill', 'Channels'], 'the waveform\'s: its units, its colour, its fill, its channels')
+  assert.match(await look.evaluate(tipOf), /^Waveform\nClick for how it shows$/)
+  await look.click()
+  assert.equal(await look.getAttribute('aria-expanded'), 'true')
+  const [b, d] = await Promise.all([look.boundingBox(), dropdown.boundingBox()])
+  assert.ok(Math.abs(d.x + d.width - b.x - b.width) <= 1 && (d.y >= b.y + b.height || d.y + d.height <= b.y), 'by it, its right edge at its look\'s, under the axis')
+  assert.deepEqual(await groups(), ['Shows', 'Levels in', 'Weighting', 'Colour', 'Colormap', 'Fill', 'Channels', 'Meter'], 'what it shows, then the waveform\'s: its units, its weighting, its colour, its colormap, its fill, its channels, its meter')
+  // its meter its own: the level bar by the lanes' end, let go there, the waveform then running on to the labels
+  const end = () => page.locator('.plot').evaluate(p => parseFloat(getComputedStyle(p).getPropertyValue('--end')))
+  assert.equal(await choice('Meter', 'Level').getAttribute('aria-pressed'), 'true')
+  const metered = await end()
+  await choice('Meter', 'Level').click()
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').show?.meters === false)
+  const ends = (m, less) => page.waitForFunction(([m, less]) => (e => less ? e < m : e === m)(parseFloat(getComputedStyle(document.querySelector('.plot')).getPropertyValue('--end'))), [m, less], { timeout: 2000 })
+  await ends(metered, true)
+  await choice('Meter', 'Level').click()
+  await ends(metered)
+  assert.deepEqual(await dropdown.getByRole('group', { name: 'Shows', exact: true }).getByRole('button').allInnerTexts(), ['Waveform', 'Spectrogram', 'Notes'])
   assert.deepEqual(await dropdown.getByRole('group', { name: 'Fill', exact: true }).getByRole('button').allInnerTexts(), ['Density', 'Cloud', 'Body', 'RMS', 'Flat'], 'gl-waveform\'s three densities, its RMS band, its peaks')
   // what a choice does in its tooltip, no line under the group; a colour with its preview
   assert.match(await choice('Fill', 'Cloud').getAttribute('title'), /^A soft cloud/)
@@ -8555,38 +10586,54 @@ test('editor: the picture shown, its tab pressed again, opens its dropdown: how 
   assert.equal(await dropdown.getByRole('button', { name: 'Colour: One colour' }).count(), 1)
   await dropdown.getByRole('button', { name: 'Colour: One colour' }).click()
   const colours = page.getByRole('listbox', { name: 'Colour', exact: true })
-  assert.deepEqual(await colours.getByRole('option').allInnerTexts(), ['One colour', 'Temperature', 'Colormap'])
-  assert.equal(await colours.locator('.swatch').count(), 3, 'each its preview')
-  await colours.getByRole('option', { name: 'Temperature' }).click()
+  assert.deepEqual(await colours.getByRole('option').allInnerTexts(), ['One colour', 'RGB', 'Three bands', 'Centroid', 'Dominant'], 'one, then as DJ software and DAWs colour it')
+  assert.equal(await colours.locator('.swatch').count(), 5, 'each its preview')
+  await colours.getByRole('option', { name: 'Centroid' }).click()
   assert.equal(await colours.isVisible(), false, 'picked, the list closes')
-  assert.equal(await page.locator('.dropdown:popover-open').count(), 1, 'the dropdown stays')
-  assert.equal(await dropdown.getByRole('button', { name: 'Colour: Temperature' }).count(), 1)
+  assert.equal(await opened(), 1, 'the dropdown stays')
+  assert.equal(await dropdown.getByRole('button', { name: 'Colour: Centroid' }).count(), 1)
+  // its colormap the spectrogram's list, temperature its own first; its weighting none, K or A
+  assert.equal(await dropdown.getByRole('button', { name: 'Colormap: Temperature' }).count(), 1)
+  assert.deepEqual(await page.getByRole('listbox', { name: 'Colormap', exact: true, includeHidden: true }).getByRole('option', { includeHidden: true }).allTextContents(), ['Grey', 'Magma', 'Inferno', 'Viridis', 'Temperature'])
+  assert.deepEqual(await dropdown.getByRole('group', { name: 'Weighting', exact: true }).getByRole('button').allInnerTexts(), ['None', 'K-weighted', 'A-weighted'])
   await choice('Fill', 'RMS').click()
-  await key('Spectrogram').click()
+  await choice('Shows', 'Spectrogram').click()
   assert.equal(await shown(), 'Spectrogram')
-  assert.equal(await opened(), 0, 'the other picture shown, the dropdown shut')
-  await key('Spectrogram').click()
-  assert.deepEqual(await groups(), ['Frequency scale', 'Method', 'Colours', 'Gamma', 'Range', 'FFT size'], 'the spectrogram\'s')
+  assert.equal(await opened(), 1, 'turned, the dropdown stays')
+  assert.deepEqual(await groups(), ['Shows', 'Frequency scale', 'Method', 'Colours', 'Gamma', 'Range', 'FFT size', 'Meter'], 'the spectrogram\'s')
+  assert.deepEqual(await dropdown.getByRole('group', { name: 'Meter', exact: true }).getByRole('button').allInnerTexts(), ['Spectrum'])
   assert.deepEqual(await dropdown.getByRole('group', { name: 'Frequency scale', exact: true }).getByRole('button').allInnerTexts(), ['Hertz', 'Mel', 'ERB', 'Octaves'], 'plainest first')
-  assert.deepEqual(await dropdown.getByRole('group', { name: 'Method', exact: true }).getByRole('button').allInnerTexts(), ['Frames', 'Reassigned', 'By band', 'Tapers'])
-  assert.deepEqual(await page.getByRole('listbox', { name: 'Colours', exact: true, includeHidden: true }).getByRole('option', { includeHidden: true }).allTextContents(), ['Grey', 'Magma', 'Inferno', 'Viridis'], 'each colormap in a select, its preview by it')
+  assert.deepEqual(await dropdown.getByRole('group', { name: 'Method', exact: true }).getByRole('button').allInnerTexts(), ['Frames', 'Reassigned', 'By band'])
+  assert.deepEqual(await page.getByRole('listbox', { name: 'Colours', exact: true, includeHidden: true }).getByRole('option', { includeHidden: true }).allTextContents(), ['Grey', 'Magma', 'Inferno', 'Viridis', 'Temperature'], 'each colormap in a select, its preview, the waveform\'s list')
   // gamma, one quantity: a slider through its steps; moved, the look follows
   const gamma = dropdown.getByRole('slider', { name: 'Gamma' })
   assert.deepEqual(await dropdown.locator('.option-ticks span').allInnerTexts(), ['0.5', '0.75', '1', '1.5'])
   await gamma.fill('0')
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').look?.gamma === .5)
-  await key('Spectrogram').click()
-  assert.equal(await opened(), 0, 'its tab again closes it')
-  assert.equal(await key('Spectrogram').getAttribute('aria-expanded'), 'false')
+  // the notes: what it shows, then their meter, a piano's keys by the lanes' end, let go there as the level is
+  await choice('Shows', 'Notes').click()
+  assert.deepEqual(await groups(), ['Shows', 'Meter'], 'the notes\'')
+  assert.deepEqual(await dropdown.getByRole('group', { name: 'Meter', exact: true }).getByRole('button').allInnerTexts(), ['Keys'])
+  // (measured once the notes' lanes are drawn, their keys' column with them)
+  await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
+  const keyed = await end()
+  await choice('Meter', 'Keys').click()
+  await ends(keyed, true)
+  await choice('Meter', 'Keys').click()
+  await ends(keyed)
+  await choice('Shows', 'Spectrogram').click()
+  await look.click()
+  assert.equal(await opened(), 0, 'its look again closes it')
+  assert.equal(await look.getAttribute('aria-expanded'), 'false')
   assert.equal(await page.locator('.plot').getAttribute('data-scale'), 'log', 'the scale as it was')
   await page.waitForFunction(() => (s => s.display === 'spec' && s.wave?.fill === 'rms')(JSON.parse(localStorage.getItem('audio-repl') || '{}')))
   await page.reload()
   await wholeLevels().waitFor()
   assert.equal(await shown(), 'Spectrogram', 'kept')
-  await key('Spectrogram').click()
+  await look.click()
   await page.mouse.click(10, 10)
   assert.equal(await opened(), 0, 'a press outside closes it')
-  await key('Spectrogram').click()
+  await look.click()
   await page.keyboard.press('Escape')
   assert.equal(await opened(), 0, 'Esc closes it')
 })
@@ -8627,16 +10674,16 @@ test('editor: the spectrogram\'s method draws a picture of its own, kept; each o
   const plot = page.locator('.plot'), print = () => pixels(`let s = 0; for (let i = 0; i < d.length; i += 4 * 97) s = (s * 31 + d[i]) % 1000000007; return s`)
   await page.waitForTimeout(500)
   const pictures = new Set([await print()])
-  for (const method of ['Frames', 'By band', 'Tapers']) {
+  for (const method of ['Frames', 'By band']) {
     await settings('Method', method)
     await page.waitForTimeout(500)
     pictures.add(await print())
   }
-  assert.equal(pictures.size, 4, 'four methods, four pictures')
-  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')).look.method), 'tapers')
+  assert.equal(pictures.size, 3, 'three methods, three pictures')
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')).look.method), 'bands')
   await page.reload()
   await wholeLevels().waitFor()
-  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')).look.method), 'tapers')
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('audio-repl')).look.method), 'bands')
   const scales = []
   for (const name of ['Hertz', 'Mel', 'ERB', 'Octaves']) { await settings('Frequency scale', name); scales.push(await plot.getAttribute('data-scale')) }
   assert.deepEqual(scales, ['lin', 'mel', 'erb', 'log'])
@@ -8672,72 +10719,252 @@ test('editor: the waveform\'s look, from its dropdown: coloured by its spectrum\
   await write(`audio.from(t => 0.8 * Math.sin(2 * Math.PI * 100 * t), { duration: 1, channels: 2 }).pan(-1)`)
   await lengthIs('0:01.000')
   await page.waitForTimeout(500)
-  // lit pixels in the upper and lower half of the lanes, and how red they are
-  const lit = () => pixels(`const out = [0, 0], tint = [0, 0]; for (let y = 0; y < h - 44; y++) for (let x = 0; x < w - 60; x++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 300) { const k = y < (h - 44) / 2 ? 0 : 1; out[k]++; tint[k] += d[i] - d[i + 2] } } return [...out, (tint[0] + tint[1]) / (out[0] + out[1] || 1)]`)
+  // lit pixels in the upper and lower half of the lanes, TRACK px all told, and how red they are
+  const lanes = tall(await page.locator('.plot').boundingBox())
+  const lit = () => pixels(`const out = [0, 0], tint = [0, 0]; for (let y = 0; y < arg; y++) for (let x = 0; x < w - 60; x++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 300) { const k = y < arg / 2 ? 0 : 1; out[k]++; tint[k] += d[i] - d[i + 2] } } return [...out, (tint[0] + tint[1]) / (out[0] + out[1] || 1)]`, lanes)
   const [upper, lower, grey] = await lit()
   assert.ok(lower < upper / 10 && Math.abs(grey) < 10, `split, grey: ${[upper, lower, grey]}`)
   // the waveform's dropdown
   await settings('Channels', 'One lane')
-  await settings('Colour', 'Temperature')
+  await settings('Colour', 'Centroid')
   await page.waitForTimeout(500)
   const [top, bottom, red] = await lit()
   assert.ok(bottom > top / 2 && red > 40, `one lane, red: ${[top, bottom, red]}`)
-  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').wave?.colour === 'temperature')
+  await page.waitForFunction(() => (w => w?.colour === 'centroid' && w.map === 'temperature')(JSON.parse(localStorage.getItem('audio-repl') || '{}').wave))
 })
 
-// Coloured in the spectrogram's colours, flat: where the spectrum centres, 100 Hz up to 10 kHz in octaves, along the
-// colormap's upper half, so 100 Hz takes magma's middle, #b5367a, a pink, and 10 kHz its top, #fcfdbf, a pale yellow
-// (matplotlib _cm_listed.py, entries 128 and 255)
-test('editor: the waveform coloured in the spectrogram\'s colours, low at their middle, high at their top', async () => {
-  await page.addInitScript(() => { if (!sessionStorage.seeded) { sessionStorage.seeded = 1; localStorage.setItem('audio-repl', JSON.stringify({ look: { map: 'magma' }, wave: { colour: 'colormap', fill: 'flat' }, docs: [{ code: 'audio.from(t => 0.8 * Math.sin(2 * Math.PI * (t < 1 ? 100 : 10000) * t), { duration: 2 })' }] })) } })
+// Coloured in a colormap, flat, the spectrogram's list: where the spectrum centres, 100 Hz up to 10 kHz in octaves,
+// along the colormap's upper half, so 100 Hz takes magma's middle, #b5367a, a pink, and 10 kHz its top, #fcfdbf, a pale
+// yellow (matplotlib _cm_listed.py, entries 128 and 255)
+test('editor: the waveform coloured in a colormap of the spectrogram\'s list, low at its middle, high at its top', async () => {
+  await page.addInitScript(() => { if (!sessionStorage.seeded) { sessionStorage.seeded = 1; localStorage.setItem('audio-repl', JSON.stringify({ wave: { colour: 'centroid', map: 'magma', fill: 'flat' }, docs: [{ code: 'audio.from(t => 0.8 * Math.sin(2 * Math.PI * (t < 1 ? 100 : 10000) * t), { duration: 2 })' }] })) } })
   await open()
   await lengthIs('0:02.000')
   await page.waitForTimeout(500)
-  // the lit pixels' mean colour about the zero line, a third of the way in and two thirds (100 Hz's cycles stand apart)
-  const at = x => pixels(`const y = Math.round((h - 44) / 2), s = [0, 0, 0]; let n = 0; for (let dx = -20; dx < 20; dx++) for (let dy = -3; dy <= 3; dy++) { const i = ((y + dy) * w + Math.round(w * arg) + dx) * 4; if (d[i] + d[i + 1] + d[i + 2] < 250) continue; s[0] += d[i]; s[1] += d[i + 1]; s[2] += d[i + 2]; n++ } return s.map(v => Math.round(v / n))`, x)
+  // the lit pixels' mean colour about the zero line, mid its lane (TRACK px), a third of the way in and two thirds
+  // (100 Hz's cycles stand apart)
+  const lane = tall(await page.locator('.plot').boundingBox())
+  const at = x => pixels(`const y = Math.round(arg.lane / 2), s = [0, 0, 0]; let n = 0; for (let dx = -20; dx < 20; dx++) for (let dy = -3; dy <= 3; dy++) { const i = ((y + dy) * w + Math.round(w * arg.x) + dx) * 4; if (d[i] + d[i + 1] + d[i + 2] < 250) continue; s[0] += d[i]; s[1] += d[i + 1]; s[2] += d[i + 2]; n++ } return s.map(v => Math.round(v / n))`, { x, lane })
   const [low, high] = [await at(1 / 3), await at(2 / 3)]
   assert.ok(low[0] - low[1] > 80 && low[2] > low[1], `100 Hz pink, red over green, blue over green: ${low}`)
   assert.ok(high[1] > 200 && Math.abs(high[0] - high[1]) < 30 && high[2] < high[1], `10 kHz pale yellow: ${high}`)
-  // the spectrogram's colours changed, the waveform's with them: viridis, its middle #21908d, a teal, its top #fde725,
-  // a yellow (entries 128 and 255)
-  await show('spec')
-  await settings('Colours', 'Viridis')
-  await show('wave')
+  // its own colormap changed, the spectrogram's as it was: viridis, its middle #21908d, a teal, its top #fde725, a
+  // yellow (entries 128 and 255)
+  await settings('Colormap', 'Viridis')
   await page.waitForTimeout(500)
   const [teal, yellow] = [await at(1 / 3), await at(2 / 3)]
   assert.ok(teal[1] - teal[0] > 60 && teal[2] - teal[0] > 60, `100 Hz teal: ${teal}`)
   assert.ok(yellow[0] > 200 && yellow[1] > 180 && yellow[2] < 100, `10 kHz yellow: ${yellow}`)
+  assert.deepEqual(await page.evaluate(() => (s => [s.wave.map, s.look?.map ?? 'grey'])(JSON.parse(localStorage.getItem('audio-repl')))), ['viridis', 'grey'])
+})
+
+// The colour modes, as DJ software and DAWs colour a waveform, on a 100 Hz sine, then a 10 kHz one, each 0.8, flat
+// (tint.js coloured): RGB, the lows red and the highs blue (Serato's, Mixxx's: 600 Hz and 4 kHz its bands); three
+// bands, each band a waveform of its own, the 100 Hz one in the colormap's low (magma's middle, #b5367a), the 10 kHz
+// one in its top (#fcfdbf); dominant, a tone in full colour, white noise greyed (REAPER's: its tonality its saturation)
+test('editor: the waveform coloured by its bands, in layers, or by its strongest frequency greyed as it is noisy', async () => {
+  await page.addInitScript(() => { if (!sessionStorage.seeded) { sessionStorage.seeded = 1; localStorage.setItem('audio-repl', JSON.stringify({ wave: { colour: 'bands', map: 'magma', fill: 'flat' }, docs: [{ code: 'audio.from(t => 0.8 * Math.sin(2 * Math.PI * (t < 1 ? 100 : 10000) * t), { duration: 2 })' }] })) } })
+  await open()
+  await lengthIs('0:02.000')
+  await page.waitForTimeout(500)
+  const lane = tall(await page.locator('.plot').boundingBox())
+  const at = x => pixels(`const y = Math.round(arg.lane / 2), s = [0, 0, 0]; let n = 0; for (let dx = -20; dx < 20; dx++) for (let dy = -3; dy <= 3; dy++) { const i = ((y + dy) * w + Math.round(w * arg.x) + dx) * 4; if (d[i] + d[i + 1] + d[i + 2] < 250) continue; s[0] += d[i]; s[1] += d[i + 1]; s[2] += d[i + 2]; n++ } return s.map(v => Math.round(v / n))`, { x, lane })
+  const [red, blue] = [await at(1 / 3), await at(2 / 3)]
+  assert.ok(red[0] - red[2] > 60 && red[0] - red[1] > 60, `100 Hz red: ${red}`)
+  assert.ok(blue[2] - blue[0] > 60 && blue[2] > blue[1], `10 kHz blue: ${blue}`)
+  await settings('Colour', 'Three bands')
+  await page.waitForTimeout(500)
+  const [pink, pale] = [await at(1 / 3), await at(2 / 3)]
+  assert.ok(pink[0] - pink[1] > 80 && pink[2] > pink[1], `100 Hz in the lows' layer, pink: ${pink}`)
+  assert.ok(pale[1] > 200 && Math.abs(pale[0] - pale[1]) < 30 && pale[2] < pale[1], `10 kHz in the highs' layer, pale yellow: ${pale}`)
+  // a tone, then noise: the strongest frequency in colour, the noise grey
+  await write('audio.from(t => t < 1 ? 0.8 * Math.sin(2 * Math.PI * 300 * t) : 0.5 * (Math.random() * 2 - 1), { duration: 2 })')
+  await settings('Colour', 'Dominant')
+  await page.waitForTimeout(800)
+  const chroma = ([r, g, b]) => Math.max(r, g, b) - Math.min(r, g, b)
+  const [tone, noise] = [await at(1 / 3), await at(2 / 3)]
+  assert.ok(chroma(tone) > 80 && chroma(noise) < chroma(tone) / 3, `the tone in colour, the noise grey: ${tone}, ${noise}`)
+})
+
+// A track's waveform coloured as a sound's is, by its colour mode, not a hue of its own: two tracks, a 100 Hz tone over
+// a 10 kHz one, RGB, each lane's middle red and blue (it was each track's own colour, the mode left out for tracks)
+test('editor: tracks\' waveforms coloured by the colour mode, as a sound\'s', async () => {
+  await page.addInitScript(() => { if (!sessionStorage.seeded) { sessionStorage.seeded = 1; localStorage.setItem('audio-repl', JSON.stringify({ wave: { colour: 'bands', map: 'magma', fill: 'flat' }, docs: [{ code: 'let low = audio.from(t => 0.8 * Math.sin(2 * Math.PI * 100 * t), { duration: 2 })\n\nlet high = audio.from(t => 0.8 * Math.sin(2 * Math.PI * 10000 * t), { duration: 2 })' }] })) } })
+  await open()
+  await lengthIs('0:02.000')
+  await page.locator('.layer').nth(1).waitFor({ state: 'attached' })
+  await page.waitForTimeout(500)
+  const box = await page.locator('.plot').boundingBox(), lanes = await tracksAt()
+  const at = r => pixels(`const y = Math.round(arg.y), s = [0, 0, 0]; let n = 0; for (let dx = -20; dx < 20; dx++) for (let dy = -3; dy <= 3; dy++) { const i = ((y + dy) * w + Math.round(w / 2) + dx) * 4; if (d[i] + d[i + 1] + d[i + 2] < 250) continue; s[0] += d[i]; s[1] += d[i + 1]; s[2] += d[i + 2]; n++ } return s.map(v => Math.round(v / n))`, { y: r.y + r.h / 2 - box.y })
+  const [red, blue] = [await at(lanes[0]), await at(lanes[1])]
+  assert.ok(red[0] - red[2] > 60 && red[0] - red[1] > 60, `the 100 Hz track red: ${red}`)
+  assert.ok(blue[2] - blue[0] > 60 && blue[2] > blue[1], `the 10 kHz track blue: ${blue}`)
+})
+
+// Where the view stops short of the sound, its lanes fade out at that edge: zoomed in at its start, at the lanes' end;
+// scrolled on, at their start too; all of it shown, at neither
+test('editor: the lanes fade out at an edge the sound runs on past', async () => {
+  const { box, x } = await chime()
+  const fades = () => page.evaluate(() => [...document.querySelectorAll('.plot .fade')].map(f => !f.hidden))
+  assert.deepEqual(await fades(), [false, false], 'all of it shown')
+  await page.mouse.move(x(.5), box.y + 40)
+  for (let i = 0; i < 4; i++) { await page.keyboard.down('Control'); await page.mouse.wheel(0, -120); await page.keyboard.up('Control') }
+  await page.waitForFunction(() => (([a, b]) => !a.hidden || !b.hidden)(document.querySelectorAll('.plot .fade')))
+  const [, end] = await fades()
+  assert.ok(end, 'the sound on past the lanes\' end')
+  await page.mouse.wheel(box.width, 0)
+  await page.waitForFunction(() => !document.querySelector('.plot .fade-start').hidden)
+  await page.locator('.plot').focus()
+  await page.keyboard.press('0')
+  await page.waitForFunction(() => [...document.querySelectorAll('.plot .fade')].every(f => f.hidden))
+})
+
+// Weighted, the waveform zoomed out is its levels as heard, zoomed in its samples as they are (view.js weigh): a 100 Hz
+// sine, then a 1 kHz one, 0.8 each, at 44.1 kHz, flat, 12 s across the view, so zoomed out past a leaf a px. A-weighted, the 100 Hz
+// one as tall as 0.8 at −19.1 dB, the 1 kHz one at 0 dB (IEC 61672-1:2013, Table 3), its heights against the weighting
+// package's own response (@audio/weighting-a, the filter the worker runs); K-weighted, 100 Hz at the package's −1.1 dB
+// (@audio/weighting-k, ITU-R BS.1770-4's two stages). Zoomed in on the 100 Hz one, the sine itself, 0.8
+test('editor: the waveform weighted zoomed out, as heard, and as it is zoomed in', async () => {
+  const { default: a } = await import('@audio/weighting/a'), { default: k } = await import('@audio/weighting/k')
+  const dB = v => 20 * Math.log10(v)
+  // the package's response against IEC 61672-1's table, to its tenth of a dB
+  assert.ok(Math.abs(dB(a.response(100, 44100)) + 19.1) < .1 && Math.abs(dB(a.response(1000, 44100))) < .05, 'A as IEC 61672-1 has it at 100 Hz and 1 kHz')
+  await page.addInitScript(() => { if (!sessionStorage.seeded) { sessionStorage.seeded = 1; localStorage.setItem('audio-repl', JSON.stringify({ wave: { fill: 'flat' }, docs: [{ code: 'audio.from(t => 0.8 * Math.sin(2 * Math.PI * (t < 6 ? 100 : 1000) * t), { duration: 12 })' }] })) } })
+  await open()
+  await lengthIs('0:12.000')
+  await page.waitForTimeout(500)
+  const box = await page.locator('.plot').boundingBox(), lane = tall(box)
+  // the rows lit across most of 40 px about a share `x` of the way in: the waveform's height there, px
+  const high = x => pixels(`let n = 0; for (let y = 0; y < arg.lane; y++) { let m = 0; for (let dx = -20; dx < 20; dx++) { const i = (y * w + Math.round(w * arg.x) + dx) * 4; if (d[i] + d[i + 1] + d[i + 2] > 250) m++ } if (m > 30) n++ } return n`, { x, lane })
+  const heights = async () => [await high(.25), await high(.7)]
+  const [low, mid] = await heights()
+  assert.ok(Math.abs(low / lane - .8) < .06 && Math.abs(mid / lane - .8) < .06, `as it is, 0.8 of the lane: ${low}, ${mid} of ${lane}`)
+  // the worker weighs it: the heights as it comes
+  const weighed = async (name, want) => {
+    await settings('Weighting', name)
+    let got
+    for (let i = 0; i < 40; i++) { got = await heights(); if (Math.abs(got[0] / low - want[0]) < .2 * want[0]) break; await page.waitForTimeout(250) }
+    return got
+  }
+  const A = [a.response(100, 44100), a.response(1000, 44100)], [aLow, aMid] = await weighed('A-weighted', A)
+  // within 2 px of the weighted height, a px each side of the band rounding
+  assert.ok(Math.abs(aLow - low * A[0]) <= 2.5 && Math.abs(aMid - mid * A[1]) <= 2.5, `A: 100 Hz ${aLow} px for ${(low * A[0]).toFixed(1)}, 1 kHz ${aMid} for ${(mid * A[1]).toFixed(1)}`)
+  const K = [k.response(100, 44100), k.response(1000, 44100)], [kLow] = await weighed('K-weighted', K)
+  assert.ok(Math.abs(kLow - low * K[0]) <= 2.5, `K: 100 Hz ${kLow} px for ${(low * K[0]).toFixed(1)}`)
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').wave?.weighting === 'k')
+  // zoomed in 16× on the 100 Hz sine, under 64 samples a px: the sine as it is
+  const [px, py] = [box.x + box.width * .25, box.y + lane / 2]
+  await page.evaluate(([x, y]) => document.querySelector('.plot').dispatchEvent(new WheelEvent('wheel', { deltaY: 50 * Math.log(1 / 16), ctrlKey: true, clientX: x, clientY: y, bubbles: true, cancelable: true })), [px, py])
+  await page.waitForTimeout(800)
+  // the rows the line lights across the middle of the view (its cycles' crests, a few px each, many), top to bottom
+  const span = await pixels(`let top = -1, bottom = -1; for (let y = 0; y < arg.lane; y++) { let m = 0; for (let x = Math.round(w * .1); x < w * .8; x++) { const i = (y * w + x) * 4; if (d[i] + d[i + 1] + d[i + 2] > 250) m++ } if (m > 20) { if (top < 0) top = y; bottom = y } } return bottom - top + 1`, { lane })
+  assert.ok(Math.abs(span / lane - .8) < .06, `zoomed in, the sine at 0.8: ${span} of ${lane}`)
 })
 
 // VS Code's colour themes (theme.js), read from its own files (playground/themes, as microsoft/vscode ships them): each
-// part of the picture in the colour of the word or the part of the editor it stands for, as the theme writes it, or
-// VS Code's default where it does not (src/vs/platform/theme/common/colors/*.ts, editorColorRegistry.ts). Dark+: the
-// text #D4D4D4, numbers #b5cea8, headings #569cd6, the background #1E1E1E, the inactive selection #3A3D41
-// (dark_vs.json); defaults: line numbers #858585, a group's border #444444, an input #3C3C3C, the selection #264F78,
-// the focus #007FD4. Light+: the text #000000, numbers #098658, headings #800000, the background #FFFFFF, the inactive
-// selection #E5EBF1 (light_vs.json); defaults: line numbers #237893, a group's border #E7E7E7, an input #FFFFFF, the
-// selection #ADD6FF, the focus #0090F1. Monokai: the text #f8f8f2, the background #272822, a group's border #34352f,
-// an input #414339, the focus #99947c, headings #A6E22E, the selection #878b9180 over the background, no inactive
-// one, so the selection at half (monokai-color-theme.json)
+// part of the editor in the colour of the part of VS Code it stands for (theme.js MAP), as the theme writes it, or VS
+// Code's default for its kind where it does not (registerColor, VS Code 1.143: src/vs/platform/theme/common/colors/*.ts,
+// src/vs/workbench/common/theme.ts). Dark+ (dark_plus.json over dark_vs.json): the background #1E1E1E, the text
+// #D4D4D4, numbers #b5cea8, headings #569cd6, the inactive selection #3A3D41, a menu #252526 and its row #0078d4, an
+// inactive tab's words #A6A6A6; defaults for dark: line numbers #858585, a group's border #444444, an input #3C3C3C, the
+// selection #264F78, the focus #007FD4, a menu row's words #FFFFFF (list.activeSelectionForeground), the active tab the
+// editor's background, its words #FFFFFF, the tabs' row and the sidebar #252526, a range #ffffff0b, the title bar
+// #3C3C3C. Light+ (light_plus.json over light_vs.json): #FFFFFF, #000000, #098658, #800000, the inactive selection
+// #E5EBF1, a list's row pointed at #E8E8E8, an inactive tab's words #616161; defaults for light: #237893, #E7E7E7,
+// #FFFFFF, #ADD6FF, #0090F1, a menu #FFFFFF (dropdown.background) and its row #0060C0 (list.activeSelectionBackground),
+// the active tab's words #333333, the tabs' row and the sidebar #F3F3F3, a range #fdff0033, the title bar #DDDDDD.
+// Monokai (monokai-color-theme.json): #272822, #f8f8f2, a group's border #34352f, an input #414339, the focus #99947c,
+// headings #A6E22E, the selection #878b9180, no inactive one, so the selection at half (#878b9140), a menu #1e1f1c and
+// its row the list's selection #75715E, the tabs' row, the sidebar and the title bar #1e1f1c
 const themed = async name => {
   const { THEMES, load, skin } = await import('../playground/theme.js'), t = THEMES.find(t => t.name === name)
   return skin(await load(new URL(`../playground/themes/${t.file}`, import.meta.url).href, { kind: t.kind, get: u => readFile(new URL(u), 'utf8') }))
 }
-test('theme: a VS Code theme read into the skin, the waveform its text, the accent its focus, a marker its headings', async () => {
-  const rgb = hex => `rgb(${[1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).join(' ')})`
+test('theme: a VS Code theme read into the skin, each part the colour of the part of VS Code it stands for', async () => {
+  const rgb = hex => `rgb(${[1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).join(' ')}${hex.length > 7 ? ` / ${Math.round(parseInt(hex.slice(7), 16) / 255 * 1e3) / 1e3}` : ''})`
   for (const [name, want] of [
-    ['Dark+', { screen: '#1E1E1E', wave: '#D4D4D4', spectrum: '#D4D4D4', accent: '#007FD4', mark: '#569cd6', ruler: '#858585', number: '#b5cea8', bezel: '#444444', well: '#3C3C3C', select: '#264F78', 'select-inactive': '#3A3D41' }],
-    ['Light+', { screen: '#FFFFFF', wave: '#000000', spectrum: '#000000', accent: '#0090F1', mark: '#800000', ruler: '#237893', number: '#098658', bezel: '#E7E7E7', well: '#FFFFFF', select: '#ADD6FF', 'select-inactive': '#E5EBF1' }],
-    // #878b91 at .5 over #272822, and at .25
-    ['Monokai', { screen: '#272822', wave: '#f8f8f2', spectrum: '#f8f8f2', accent: '#99947c', mark: '#A6E22E', number: '#AE81FF', bezel: '#34352f', well: '#414339', select: '#575A5A', 'select-inactive': '#3F413E' }]
+    ['Dark+', { screen: '#1E1E1E', 'screen-ink': '#D4D4D4', 'screen-accent': '#007FD4', 'screen-mark': '#569cd6', 'screen-line-number': '#858585', 'screen-number': '#b5cea8', bezel: '#444444', 'screen-well': '#3C3C3C', 'screen-select': '#264F78', 'screen-select-inactive': '#3A3D41',
+      menu: '#252526', 'menu-select': '#0078d4', 'menu-select-ink': '#FFFFFF', tab: '#1E1E1E', 'tab-ink': '#FFFFFF', 'tab-off-ink': '#A6A6A6', tabs: '#252526', side: '#252526', 'screen-range': '#ffffff0b', paper: '#3C3C3C' }],
+    ['Light+', { screen: '#FFFFFF', 'screen-ink': '#000000', 'screen-accent': '#0090F1', 'screen-mark': '#800000', 'screen-line-number': '#237893', 'screen-number': '#098658', bezel: '#E7E7E7', 'screen-well': '#FFFFFF', 'screen-select': '#ADD6FF', 'screen-select-inactive': '#E5EBF1',
+      menu: '#FFFFFF', 'menu-select': '#0060C0', 'tab-ink': '#333333', 'tab-off-ink': '#616161', tabs: '#F3F3F3', side: '#F3F3F3', 'screen-hover': '#E8E8E8', 'screen-range': '#fdff0033', paper: '#DDDDDD' }],
+    ['Monokai', { screen: '#272822', 'screen-ink': '#f8f8f2', 'screen-accent': '#99947c', 'screen-mark': '#A6E22E', 'screen-number': '#AE81FF', bezel: '#34352f', 'screen-well': '#414339', 'screen-select': '#878b9180', 'screen-select-inactive': '#878b9140',
+      menu: '#1e1f1c', 'menu-select': '#75715E', tabs: '#1e1f1c', side: '#1e1f1c', paper: '#1e1f1c' }]
   ]) {
-    const s = await themed(name), token = k => ({ screen: '--color-screen', bezel: '--color-bezel' })[k] ?? `--color-screen-${k}`
-    for (const [k, hex] of Object.entries(want)) assert.equal(s[token(k)], rgb(hex), `${name}: ${k}`)
-    assert.equal(s['--color-screen-channel-1'], s['--color-screen-wave'], `${name}: the first channel the waveform's colour`)
+    const s = await themed(name)
+    for (const [k, hex] of Object.entries(want)) assert.equal(s[`--color-${k}`], rgb(hex), `${name}: ${k}`)
+    assert.equal(s['--color-screen-wave'], s['--color-screen-ink'], `${name}: the waveform the text's colour`)
+    assert.equal(s['--color-screen-channel-1'], s['--color-screen-ink'], `${name}: the first channel the text's colour`)
   }
   // every theme VS Code ships reads whole: a colour for every part, each one a canvas takes
-  const { THEMES } = await import('../playground/theme.js')
-  for (const t of THEMES) for (const [k, v] of Object.entries(await themed(t.name))) assert.match(v, /^(rgb\(\d+ \d+ \d+( \/ [\d.]+)?\)|transparent)$/, `${t.name}: ${k}`)
+  const { THEMES, MAP } = await import('../playground/theme.js')
+  for (const t of THEMES) {
+    const s = await themed(t.name)
+    for (const k of Object.keys(MAP)) assert.ok(k in s, `${t.name}: ${k}`)
+    for (const [k, v] of Object.entries(s)) assert.match(v, /^(rgb\(\d+ \d+ \d+( \/ [\d.]+)?\)|transparent)$/, `${t.name}: ${k}`)
+  }
+})
+
+// The skin's own default is a theme (themes/screen.json): skin.css's colours are what the theme reads as, token for
+// token, so the first paint and the theme worn are one. Every part mapped (theme.js MAP) a colour skin.css declares
+test('theme: the screen a theme, skin.css its colours', async () => {
+  const { MAP, load, skin } = await import('../playground/theme.js')
+  const screen = skin(await load(new URL('../playground/themes/screen.json', import.meta.url).href, { get: u => readFile(new URL(u), 'utf8') }))
+  const css = await readFile(new URL('../playground/skin.css', import.meta.url), 'utf8'), root = css.slice(css.indexOf(':root {'), css.indexOf('\n}', css.indexOf(':root {')))
+  const declared = Object.fromEntries([...root.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map(m => [m[1], m[2].trim()]))
+  for (const k of Object.keys(MAP)) assert.equal(declared[k], screen[k], k)
+  // a theme of greys gives no channel hues: the screen's channels the even round
+  assert.equal(screen['--color-screen-channel-2'], undefined)
+})
+
+// The registry the skin reads a theme by is VS Code's own: each colour's default as VS Code 1.143 registers it
+// (themes/vscode-colors.json, read out of its workbench), and every colour a part or a default names is in it
+test('theme: VS Code\'s colours and their defaults, as VS Code registers them', async () => {
+  const { MAP, REGISTRY } = await import('../playground/theme.js')
+  const all = JSON.parse(await readFile(new URL('../playground/themes/vscode-colors.json', import.meta.url), 'utf8'))
+  for (const [id, v] of Object.entries(REGISTRY)) if (!id.startsWith('audio.')) assert.deepEqual(v, all[id], id)
+  const ids = v => typeof v === 'string' ? (v[0] === '#' ? [] : [v]) : Array.isArray(v) ? v.slice(1).flatMap(ids) : v && typeof v === 'object' ? Object.values(v).flatMap(ids) : []
+  for (const v of [...Object.values(MAP).filter(v => v[0] !== 'scope'), ...Object.values(REGISTRY)]) for (const id of ids(v)) assert.ok(id in REGISTRY, id)
+})
+
+// The colours made of others as VS Code makes them, against VS Code's own Color (src/vs/base/common/color.ts) and its
+// registry's defaults, read out of the workbench VS Code ships, where it is installed: for random themes, every colour
+// the skin reads, the same to the bit
+test('theme: colours made of others as VS Code\'s own Color makes them', async t => {
+  const app = '/Applications/Visual Studio Code.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js'
+  let src
+  try { src = await readFile(app, 'utf8') } catch { return t.skip('VS Code is not installed here') }
+  const a = src.indexOf('function Ace('), b = src.indexOf('static{this.white=new s(new bi(255,255,255,1))}'), e = src.indexOf('}', src.indexOf('static{this.cyan', b))
+  if (a < 0 || b < 0 || e < 0) return t.skip('this VS Code\'s Color is not where 1.143\'s was')
+  const { Je: Color, bi: RGBA } = new Function(`${src.slice(a, e + 1)}}; return { Je, bi }`)()
+  const { REGISTRY, resolver } = await import('../playground/theme.js')
+  const parse = h => { h = h.slice(1); const n = i => parseInt(h.slice(i, i + 2), 16); return new Color(new RGBA(n(0), n(2), n(4), h.length > 6 ? n(6) / 255 : 1)) }
+  const vscode = (kind, colors) => {
+    const memo = {}, color = id => id in memo ? memo[id] : (memo[id] = colors[id] ? parse(colors[id]) : value(REGISTRY[id]))
+    const value = v => {
+      if (v == null) return undefined
+      if (typeof v === 'string') return v[0] === '#' ? parse(v) : color(v)
+      if (!Array.isArray(v)) return value(v[kind])
+      const [op, x, y, f, k] = v
+      if (op === 'transparent') return value(x)?.transparent(y)
+      if (op === 'lighten') return value(x)?.lighten(y)
+      if (op === 'darken') return value(x)?.darken(y)
+      if (op === 'oneOf') { for (const w of v.slice(1)) { const c = value(w); if (c) return c } return }
+      const c = value(x), bg = value(y)
+      if (op === 'lessProminent') return c && (bg ? c.isDarkerThan(bg) ? Color.getLighterColor(c, bg, f).transparent(k) : Color.getDarkerColor(c, bg, f).transparent(k) : c.transparent(f * k))
+      throw new Error(op)
+    }
+    return color
+  }
+  let seed = 7
+  const random = () => (seed = seed * 16807 % 2147483647) / 2147483647, hex = () => '#' + Array.from({ length: 4 }, () => Math.floor(random() * 256).toString(16).padStart(2, '0')).join('')
+  for (let n = 0; n < 100; n++) for (const kind of ['dark', 'light', 'hcDark', 'hcLight']) {
+    const colors = Object.fromEntries(Object.keys(REGISTRY).filter(() => random() < .3).map(id => [id, hex()]))
+    const mine = resolver({ kind, colors }), theirs = vscode(kind, colors)
+    for (const id of Object.keys(REGISTRY)) {
+      const p = mine(id), q = theirs(id)?.rgba
+      assert.deepEqual(p && [p.r, p.g, p.b, p.a], q && [q.r, q.g, q.b, q.a], `${kind} ${id} ${JSON.stringify(colors)}`)
+    }
+  }
 })
 
 // A word's colour as VS Code's own TextMate engine resolves it (vscode-textmate, Theme.match), for every word the skin
@@ -8775,6 +11002,38 @@ test('theme: the spectrogram\'s grey in white ink is the grey screened over the 
   black.forEach((a, k) => assert.ok(Math.abs(lightness([1 - a, 1 - a, 1 - a]) - (1 - k / 4)) < 1e-3, `step ${k}`))
 })
 
+// What a stretch holds in frequency (tint.js measure), on signals whose answer is known, its places in octaves from 100
+// Hz to 10 kHz: a sine centres and peaks at its own frequency, its strongest found between bins to a hundredth of an
+// octave (a parabola through the peak's three bins in dB), a tone through and through, all of it in its band (Mixxx's,
+// split at 600 Hz and 4 kHz); white noise, flat by definition, far from a tone, each band's power as wide as the band
+// (600 Hz, 3.4 kHz and the rest of 24 kHz), its amplitude's share the root of that. Its colours: RGB of the lows the
+// red, at the waveform's lightness, to the just noticeable difference CSS Color 4's gamut mapping allows (ΔEOK .02); a
+// colour greyed all the way, no chroma; three bands each their share of the height, in the colormap's low, middle and
+// top; the centroid's one, its place's
+test('theme: a stretch\'s frequencies measured, and coloured as DJ software and DAWs colour them', async () => {
+  const { default: measure, coloured, rgb, greyed, lightness } = await import('../playground/tint.js')
+  const rate = 48000, n = 4096, place = f => Math.log2(f / 100) / Math.log2(100), octaves = Math.log2(100)
+  const sine = f => Float32Array.from({ length: n }, (_, i) => .8 * Math.sin(2 * Math.PI * f * i / rate))
+  for (const [f, band] of [[100, 0], [300, 0], [1000, 1], [3000, 1], [7000, 2]]) {
+    const m = measure(sine(f), 0, n, rate)
+    assert.ok(Math.abs(m.centroid - place(f)) * octaves < .01 && Math.abs(m.dominant - place(f)) * octaves < .01, `${f} Hz at ${place(f).toFixed(3)}: ${m.centroid.toFixed(3)}, ${m.dominant.toFixed(3)}`)
+    assert.ok(m.tonal > .99 && m.bands[band] > .99, `${f} Hz a tone, in band ${band}: ${m.tonal}, ${m.bands}`)
+  }
+  let seed = 1
+  const random = () => (seed = seed * 16807 % 2147483647) / 2147483647, noise = Float32Array.from({ length: n }, () => random() * 2 - 1)
+  const m = measure(noise, 0, n, rate), wide = [600, 3400, 20000].map(w => Math.sqrt(w / 24000))
+  assert.ok(m.tonal < .1, `noise no tone: ${m.tonal}`)
+  m.bands.forEach((s, j) => assert.ok(Math.abs(s - wide[j]) < .06, `band ${j}: ${s.toFixed(3)} for ${wide[j].toFixed(3)}`))
+  assert.equal(measure(new Float32Array(n), 0, n, rate), null, 'silence, none')
+  const red = rgb([1, 0, 0], .7)
+  assert.ok(Math.abs(lightness(red) - .7) <= .02 && red[0] > red[1] + .3 && red[0] > red[2] + .3, `the lows red at L .7: ${red}`)
+  const grey = greyed([.9, .3, .2, 1], 0)
+  assert.ok(Math.max(...grey.slice(0, 3)) - Math.min(...grey.slice(0, 3)) < .01 && Math.abs(lightness(grey) - lightness([.9, .3, .2])) < .01, `greyed, its lightness kept: ${grey}`)
+  const tone = u => [u, u, u, 1], tones = coloured('layers', m, tone)
+  assert.deepEqual(tones, m.bands.map((s, j) => [tone(j / 2), s]))
+  assert.deepEqual(coloured('centroid', m, tone), [[tone(m.centroid), 1]])
+})
+
 // The least a theme can be, and the odd forms VS Code reads: `{}`, VS Code's defaults for a dark theme (the background
 // #1E1E1E, the foreground #BBBBBB: src/vs/platform/theme/common/colors/editorColors.ts), every word the foreground as
 // VS Code draws a word no rule colours; a light background alone, a light theme; tokenColors as a .tmTheme path, no
@@ -8783,14 +11042,16 @@ test('theme: the spectrogram\'s grey in white ink is the grey screened over the 
 test('theme: the least a theme can be, and the odd forms VS Code reads', async () => {
   const { parse, load, skin, scoper, hex } = await import('../playground/theme.js')
   const empty = skin({})
-  assert.deepEqual([empty['--color-screen'], empty['--color-screen-ink'], empty['--color-screen-wave'], empty['--color-screen-mark']], ['rgb(30 30 30)', 'rgb(187 187 187)', 'rgb(187 187 187)', 'rgb(187 187 187)'])
+  assert.deepEqual([empty['--color-screen'], empty['--color-screen-ink'], empty['--color-screen-mark']], ['rgb(30 30 30)', 'rgb(187 187 187)', 'rgb(187 187 187)'])
+  // the softer words a fifth of the way from the text to the ground in OKLab: #BBBBBB to #1E1E1E, L .797 to .235
+  assert.equal(empty['--color-screen-soft'], 'rgb(154 154 154)')
   assert.equal(empty['--color-screen-channel-1'], 'rgb(187 187 187)')
   assert.equal(empty['--color-screen-channel-2'], undefined, 'one hue only: the rest the even round')
-  // no inactive selection given: the selection at half over the screen, as VS Code's default is; at .7 in high contrast
-  // dark (editor.inactiveSelectionBackground): #264F78 over #1E1E1E, #F3F518 over #000000
-  assert.deepEqual([empty['--color-screen-select-inactive'], empty['--color-screen-selection-inactive']], ['rgb(34 55 75)', 'rgb(34 55 75)'])
-  assert.equal(skin({ kind: 'hcDark' })['--color-screen-select-inactive'], 'rgb(170 171 17)')
-  assert.equal(skin({ colors: { 'editor.background': '#fafafa' } })['--color-screen-ruler'], 'rgb(35 120 147)', 'light, by its background: the light line numbers, #237893')
+  // no inactive selection given: the selection at half, as VS Code's default is; at .7 in high contrast dark
+  // (editor.inactiveSelectionBackground: transparent(editor.selectionBackground, .5), .7 for hcDark): #264F78, #f3f518
+  assert.equal(empty['--color-screen-select-inactive'], 'rgb(38 79 120 / 0.5)')
+  assert.equal(skin({ kind: 'hcDark' })['--color-screen-select-inactive'], 'rgb(243 245 24 / 0.7)')
+  assert.equal(skin({ colors: { 'editor.background': '#fafafa' } })['--color-screen-line-number'], 'rgb(35 120 147)', 'light, by its background: the light line numbers, #237893')
   assert.deepEqual((await load(null, { theme: { tokenColors: './x.tmTheme' } })).tokenColors, [])
   assert.deepEqual(parse('{ /* a */ "url": "http://a//b", // c\n "list": [1, 2,], }'), { url: 'http://a//b', list: [1, 2] })
   assert.throws(() => parse('not a theme'))
@@ -8822,7 +11083,7 @@ test('editor: a VS Code theme opened from its file; one to another, nothing of t
     "type": "dark", "colors": { "editor.background": "#102030" },
     "tokenColors": [{ "scope": "constant.numeric", "settings": { "foreground": "#ff8000" } }, { "scope": "string", "settings": { "foreground": "#00c0ff" } },] }`)
   await page.waitForFunction(() => document.documentElement.style.getPropertyValue('--color-screen') === 'rgb(16 32 48)')
-  assert.deepEqual([await style('--color-screen-wave'), await style('--color-screen-channel-2'), await style('--color-screen-channel-3')], ['rgb(187 187 187)', 'rgb(255 128 0)', 'rgb(0 192 255)'])
+  assert.deepEqual([await style('--color-screen-ink'), await style('--color-screen-channel-2'), await style('--color-screen-channel-3')], ['rgb(187 187 187)', 'rgb(255 128 0)', 'rgb(0 192 255)'])
   await pick('other.json', `{ "name": "Other", "colors": { "editor.background": "#f0f0f0" } }`)
   await page.waitForFunction(() => document.documentElement.style.getPropertyValue('--color-screen') === 'rgb(240 240 240)')
   assert.equal(await style('--color-screen-channel-3'), '', 'the first theme\'s third hue gone')
@@ -8836,6 +11097,22 @@ test('editor: a VS Code theme opened from its file; one to another, nothing of t
   await page.reload()
   await wholeLevels().waitFor()
   assert.equal(await style('--color-screen'), '')
+})
+
+// The mark in the bar drawn in the bar's ink as a theme changes it: on Dark Modern's title bar (#181818) its words'
+// #CCCCCC, never the screen's dark ink left on a dark page
+test('editor: the mark in the bar takes the theme\'s ink', async () => {
+  await open()
+  const light = async () => { const png = (await page.locator('.bar .wordmark .logo').screenshot()).toString('base64'); return page.evaluate(async png => {
+    const image = new Image(); image.src = 'data:image/png;base64,' + png; await image.decode()
+    const g = new OffscreenCanvas(image.width, image.height).getContext('2d'); g.drawImage(image, 0, 0)
+    const d = g.getImageData(0, 0, image.width, image.height).data; let n = 0
+    for (let i = 0; i < d.length; i += 4) if (d[i] > 150 && d[i + 1] > 150 && d[i + 2] > 150) n++
+    return n / (d.length / 4)
+  }, png) }
+  await menu('View', 'Theme', 'Dark Modern')
+  await page.waitForFunction(() => document.documentElement.style.getPropertyValue('--color-ink') === 'rgb(204 204 204)')
+  for (const until = Date.now() + 3000; await light() < .05; await page.waitForTimeout(100)) assert.ok(Date.now() < until, 'the mark in the light ink')
 })
 
 // VS Code's fonts, not a theme's (a theme has none): unset, its defaults by platform, the editor's EDITOR_FONT_DEFAULTS
@@ -8869,7 +11146,7 @@ test('editor: the waveform\'s Flat fill one solid shade; Density graded', async 
   const solid = () => pixels(`let ink = 0, black = 0; for (let y = 0; y < h - 44; y++) for (let x = 0; x < w - 60; x++) { const i = (y * w + x) * 4, v = d[i] + d[i + 1] + d[i + 2]; if (v < 600 && d[i + 2] < 240) { ink++; if (v < 60) black++ } } return black / (ink || 1)`)
   await page.waitForTimeout(500)
   const graded = await solid()
-  await menu('View', 'Waveform', 'Fill', 'Flat')
+  await menu('View', 'Waveform options', 'Fill', 'Flat')
   await page.waitForTimeout(500)
   const flat = await solid()
   assert.ok(flat > .6 && graded < flat - .3, `flat ${flat.toFixed(2)}, density ${graded.toFixed(2)}`)
@@ -8889,15 +11166,17 @@ test('editor: a selection behind the sound, as behind text; focused elsewhere, t
   await wholeLevels().waitFor()
   await write(`audio.from(t => 0.3 * Math.sin(2 * Math.PI * 220 * t), { duration: 2 })`)
   await lengthIs('0:02.000')
-  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter())
-  await page.mouse.move(box.x + w * .3, box.y + box.height * .5)
+  const box = await page.locator('.plot').boundingBox(), w = box.width - (await gutter()), lane = tall(box)
+  await page.mouse.move(box.x + w * .3, box.y + lane * .5)
   await page.mouse.down()
-  await page.mouse.move(box.x + w * .6, box.y + box.height * .5, { steps: 4 })
+  await page.mouse.move(box.x + w * .6, box.y + lane * .5, { steps: 4 })
   await page.mouse.up()
   await page.mouse.move(box.x + w * .9, box.y + 5)
   await page.waitForTimeout(400)
-  // the colour in the selection's middle, above the sound (an eighth of the way down its one lane) and on its centre line
-  const at = () => pixels(`const px = (y, x) => { const i = (Math.round(y) * w + Math.round(x)) * 4; return [d[i], d[i + 1], d[i + 2]] }; return [px((h - 44) / 8, w * .45), px((h - 44) / 2, w * .45)]`)
+  // the colour in the selection's middle, above the sound (an eighth of the way down its one lane, TRACK px), and the
+  // darkest of four on its centre line (a column holds a third of a cycle, not always where it crosses the line)
+  const at = () => pixels(`const px = (y, x) => { const i = (Math.round(y) * w + Math.round(x)) * 4; return [d[i], d[i + 1], d[i + 2]] }, sum = c => c[0] + c[1] + c[2]
+    return [px(arg / 8, w * .45), [0, 1, 2, 3].map(dx => px(arg / 2, w * .45 + dx)).reduce((a, b) => sum(a) <= sum(b) ? a : b)]`, lane)
   const near = (c, rgb) => c.every((v, i) => Math.abs(v - rgb[i]) < 6)
   let [clear, sound] = await at()
   assert.ok(near(clear, [173, 214, 255]), `behind the sound, the selection: ${clear}`)
@@ -8915,8 +11194,9 @@ test('editor: a VS Code theme from the View menu, the waveform in its text\'s co
   await open()
   await write(`audio.from(t => 0.8 * Math.sin(2 * Math.PI * 220 * t), { duration: 1 })`)
   await lengthIs('0:01.000')
-  // the share of the lanes' pixels near a colour
-  const near = rgb => pixels(`const [r, g, b] = arg; let n = 0, all = 0; for (let y = 0; y < h - 44; y++) for (let x = 0; x < w - 60; x++) { const i = (y * w + x) * 4; all++; if (Math.abs(d[i] - r) + Math.abs(d[i + 1] - g) + Math.abs(d[i + 2] - b) < 40) n++ } return n / all`, rgb)
+  // the share of the lane's pixels near a colour, TRACK px down
+  const lane = tall(await page.locator('.plot').boundingBox())
+  const near = rgb => pixels(`const [r, g, b] = arg.rgb; let n = 0, all = 0; for (let y = 0; y < arg.lane; y++) for (let x = 0; x < w - 60; x++) { const i = (y * w + x) * 4; all++; if (Math.abs(d[i] - r) + Math.abs(d[i + 1] - g) + Math.abs(d[i + 2] - b) < 40) n++ } return n / all`, { rgb, lane })
   await menu('View', 'Theme', 'Light+')
   await page.waitForTimeout(500)
   // its density fill lightens most of it; at its densest, the text's black itself
@@ -8943,7 +11223,7 @@ test('editor: in a VS Code webview, the theme VS Code wears', async () => {
     document.body.classList.add('vscode-light')
   }, { once: true }))
   await open()
-  assert.deepEqual(await page.evaluate(() => ['--color-screen', '--color-screen-ruler', '--color-screen-wave', '--color-screen-grid', '--font-mono', '--font-body', '--font-size-label'].map(k => document.documentElement.style.getPropertyValue(k))), ['rgb(255 255 254)', 'rgb(35 120 147)', 'rgb(32 32 32)', 'rgb(10 20 30 / 0.502)', 'Fira Code', 'Inter', '15px'])
+  assert.deepEqual(await page.evaluate(() => ['--color-screen', '--color-screen-line-number', '--color-screen-ink', '--color-screen-grid', '--font-mono', '--font-body', '--font-size-label'].map(k => document.documentElement.style.getPropertyValue(k))), ['rgb(255 255 254)', 'rgb(35 120 147)', 'rgb(32 32 32)', 'rgb(10 20 30 / 0.502)', 'Fira Code', 'Inter', '15px'])
 })
 
 // The edits' cards are as wide as the panel: a long call's settings, folded, are cut short with an ellipsis, never
@@ -9013,10 +11293,11 @@ let quiet = audio.from([tone(220, .1)], { sampleRate: 48000 })
 let loud = audio.from([tone(330, .4), tone(330, .4)], { sampleRate: 48000 })`)
   await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
   await lengthIs('0:01.000')
-  const { box, x } = await axis(1), row = box.y + box.height - 8, lane = k => box.y + (box.height - 22) * (k ? .75 : .25)
+  // the layers open (their mutes in sight), each lane's middle as they have it
+  const { box, x } = await axis(1), row = box.y + box.height - 8, lane = async k => (r => r.y + r.h / 2)((await tracksAt())[k])
   // a track pressed, then the caret held and dragged along the time row: that track heard
   const scrub = async k => {
-    await page.mouse.click(x(.1), lane(k))
+    await page.mouse.click(x(.1), await lane(k))
     await page.waitForTimeout(200)
     await page.mouse.move(x(.2), row)
     await page.mouse.down()
@@ -9032,21 +11313,21 @@ let loud = audio.from([tone(330, .4), tone(330, .4)], { sampleRate: 48000 })`)
   assert.ok(loud > .25, `the loud track: ${loud}`)
   // the loud one muted: the mix the quiet one's alone (−20 dBFS, 20 · log10 0.1); heard again, both (over −8: 0.4 and
   // 0.1 summed)
-  const mutes = page.locator('.track-mute'), both = /^peak −[0-7]\.\ddBFS/
+  const mutes = page.locator('.track-mute'), both = /^−[0-7]\.\d dBFS/
   assert.deepEqual(await mutes.evaluateAll(b => b.map(b => [b.ariaLabel, b.getAttribute('aria-pressed')])), [['Mute quiet', 'false'], ['Mute loud', 'false']])
   await page.keyboard.press('Escape')
-  await page.waitForFunction(re => new RegExp(re).test(document.querySelector('.readout').innerText), both.source)
+  await page.waitForFunction(re => new RegExp(re).test(document.querySelector('.readout').textContent), both.source)
   await mutes.nth(1).click()
-  await page.waitForFunction(() => /^peak −20\.0dBFS/.test(document.querySelector('.readout').innerText))
+  await page.waitForFunction(() => /^−20\.0 dBFS/.test(document.querySelector('.readout').textContent))
   assert.equal(await mutes.nth(1).getAttribute('aria-pressed'), 'true')
   assert.equal(await page.locator('.plot').getAttribute('data-tracks'), '2', 'its lane still there')
   // kept with the tab, past a reload
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').docs?.some(d => d.muted?.includes('loud')))
   await page.reload()
-  await page.waitForFunction(() => document.querySelector('.track-mute[aria-pressed="true"]')?.ariaLabel === 'Mute loud')
-  await page.waitForFunction(() => /^peak −20\.0dBFS/.test(document.querySelector('.readout').innerText))
+  await page.waitForFunction(() => document.querySelector('.track-mute[aria-pressed="true"]')?.ariaLabel === 'Mute loud', null, { timeout: 15000 })
+  await page.waitForFunction(() => /^−20\.0 dBFS/.test(document.querySelector('.readout').textContent))
   await page.locator('.track-mute').nth(1).click()
-  await page.waitForFunction(re => new RegExp(re).test(document.querySelector('.readout').innerText), both.source)
+  await page.waitForFunction(re => new RegExp(re).test(document.querySelector('.readout').textContent), both.source)
 })
 
 // A press held still half a second, as a touch's long press puts a text's caret: no selection, the caret dragged, the
@@ -9102,7 +11383,7 @@ test('editor: a recipe is one card of the edits, its steps folded under it, turn
   await page.route(/huggingface\.co/, route => route.abort())
   await open()
   const chime = `audio('chime.wav')\n  .trim()\n  .normalize(-1)\n  .fade(0.02, 0.1)`
-  await menu('File', 'Recipes', 'Remove room echo')
+  await menu('Process', 'Recipes', 'Remove room echo')
   const grouped = `${chime}\n  // Remove room echo\n    .highpass(80)\n    .dereverb()`
   await page.waitForFunction(c => scriptText() === c, grouped)
   await tab('Edits')
@@ -9424,10 +11705,11 @@ test('editor: the pitch line, in the pitch context, edits a pitch() curve as the
   await noCues()
   await write(`audio.from(t => 0.5 * Math.sin(2 * Math.PI * 220 * t), { d: 2 })`)
   await lengthIs('0:02.000')
-  await menu('View', 'Pitch curve')
+  await menu('View', 'Show', 'Pitch curve')
   // the line on the waveform (the spectrogram, which the picture turns to, draws its points on the pitch curve)
   await show('wave')
-  const { box, x } = await axis(2), lh = box.height - 22, mid = box.y + lh / 2, st = lh / 2 / 12
+  // its one lane, TRACK px tall
+  const { box, x } = await axis(2), lh = tall(box), mid = box.y + lh / 2, st = lh / 2 / 12
   const near = v => page.waitForFunction(v => { const m = scriptText().trim().match(/\.pitch\(\{ t: \[1\], v: \[([\d.]+)\] \}, \{ voice: true \}\)$/); return m && Math.abs(m[1] - v) < .1 }, v)
   await drag(await grab([[x(1), mid]], 'ns-resize'), [0, -3 * st])
   await near(3)
@@ -9522,7 +11804,8 @@ test('editor: a tab shown again runs nothing; its sound, its words and its expor
   assert.equal(await page.locator('.length').innerText(), '0:08.000', 'all of it, nothing selected')
   assert.ok(await page.locator('.length').evaluate(el => el.classList.contains('whole')))
   await page.getByRole('button', { name: 'New tab' }).click()
-  assert.equal(await page.locator('.length').evaluate(el => getComputedStyle(el).display), 'none', 'no sound, no length')
+  // no sound: its length nothing, 0:00.000, as a player's with nothing in it
+  assert.deepEqual(await page.locator('.length').evaluate(e => [e.textContent, getComputedStyle(e).visibility]), ['0:00.000', 'visible'], 'no sound')
   await write(`audio.from(2)`)
   await lengthIs('0:02.000')
   const ran = await page.evaluate(() => runs)
@@ -9548,7 +11831,8 @@ test('editor: a tab shown again runs nothing; its sound, its words and its expor
 })
 
 // A view zoomed out past the sound's end, the room on its right, is kept as it was left: a reload shows the sound at the
-// same scale, not fitted to the view, and so does an edit that shortens it; one that makes it longer than the view, fitted
+// same scale, not fitted to the view; an edit that shortens it, as far out as the shorter one goes, not fitted either;
+// one that makes it longer than the view, fitted
 test('editor: a view zoomed out past the end stays so after a reload', async () => {
   await open()
   await noCues()
@@ -9557,10 +11841,11 @@ test('editor: a view zoomed out past the end stays so after a reload', async () 
   await page.locator('.plot').focus()
   for (let i = 0; i < 2; i++) await page.keyboard.press('-')
   await page.waitForTimeout(700)
-  // the view 32 s wide: an eighth of the way across is 4 s in, where fitted to the sound it would be 1 s
-  const at = async (t = 4) => {
-    const { box, x } = await axis(32)
-    await page.mouse.click(x(t), box.y + box.height * .3)
+  // the time at `t` s on a view `across` s wide: zoomed out as far as it goes, the sound and half of it again, 12 s, a
+  // third of the way across is 4 s in, where fitted to the sound it would be 2.67 s
+  const at = async (t = 4, across = 12) => {
+    const { box, x } = await axis(across)
+    await page.mouse.click(x(t), box.y + tall(box) * .3)
     return (await page.locator('.time').innerText()).split(':').reduce((m, s) => m * 60 + +s, 0)
   }
   assert.ok(Math.abs(await at() - 4) < .1, 'zoomed out')
@@ -9572,11 +11857,12 @@ test('editor: a view zoomed out past the end stays so after a reload', async () 
   await write(`audio('chime.wav').crop({ at: 0, duration: 4 })`)
   await lengthIs('0:04.000')
   await page.waitForTimeout(300)
-  assert.ok(Math.abs(await at(2) - 2) < .1, 'shortened: the same scale')
+  // 6 s wide: a third of the way across is 2 s in, where fitted it would be 1.33 s
+  assert.ok(Math.abs(await at(2, 6) - 2) < .1, 'shortened: as far out as it goes')
   await write(`audio('chime.wav').speed(0.2)`)
   await lengthIs('0:40.000')
   await page.waitForTimeout(300)
-  assert.ok(Math.abs(await at() - 5) < .1, 'longer than the view: all of it')
+  assert.ok(Math.abs(await at(10, 40) - 10) < .1, 'longer than the view: all of it')
 })
 
 // A file all come while the output has nothing yet (a model runs over all of it, deepfilter's): the engine says so,
@@ -9810,7 +12096,7 @@ test('editor: an edit made rolled back to a card, undone and redone, brings back
   const card = name => page.locator('.steps-list .step', { has: page.locator('.step-name', { hasText: new RegExp(`^${name}$`) }) })
   await card('Gain').locator('.step-toggle').click()
   await page.locator('.viewing', { hasText: 'Up to Gain: 2 later steps bypassed' }).waitFor()
-  const { box, x } = await axis(8), y = box.y + box.height * .3
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3
   await drag([x(2), y], [x(3) - x(2), 0])
   await page.keyboard.press('Delete')
   await page.waitForFunction(() => /\.gain\(-3\)\s*\.remove\([^)]*\)\s*\.reverse\(\)\s*\.highpass\(80\)$/.test(scriptText().trim()))
@@ -9876,7 +12162,7 @@ test('editor: a marker dragged moves alone, the caret and what plays staying whe
   await noCues()
   await write(`audio('chime.wav').mark(2)`)
   await lengthIs('0:08.000')
-  const { box, x } = await axis(8), y = box.y + box.height * .3, row = box.y + 4
+  const { box, x } = await axis(8), y = box.y + tall(box) * .3, row = box.y + 4
   const now = async () => +(await page.locator('.time').innerText()).split(':')[1]
   await page.mouse.click(x(6), y)
   await drag(await grab([[x(2), row]], 'pointer'), [x(3) - x(2), 0])
@@ -9895,7 +12181,8 @@ test('editor: a marker dragged moves alone, the caret and what plays staying whe
   assert.ok(Math.abs(await now() - 5) < .05, String(await now()))
 })
 
-// More tabs than fit keep their width and scroll, as a code editor's: the one shown in sight, the wheel moving them along
+// More tabs than fit keep their width and scroll, as a code editor's: the one shown in sight, the wheel moving them along,
+// no scrollbar, a side with more past it faded
 test('editor: tabs keep their width and scroll, the one shown in sight', async () => {
   await page.setViewportSize({ width: 900, height: 700 })
   await open()
@@ -9908,9 +12195,12 @@ test('editor: tabs keep their width and scroll, the one shown in sight', async (
   const sight = () => page.locator('.file.current').evaluate(e => { const r = e.getBoundingClientRect(), s = e.parentElement.getBoundingClientRect(); return r.left >= s.left - 1 && r.right <= s.right + 1 })
   await page.waitForTimeout(100)
   assert.ok(await sight(), 'the one shown, the last made, in sight')
+  assert.equal(await strip.evaluate(e => e.offsetHeight - e.clientHeight), 0, 'no scrollbar')
+  await page.waitForFunction(() => document.querySelector('.files-list').dataset.more === 'start')
   await strip.hover()
   await page.mouse.wheel(0, -4000)
   await page.waitForFunction(() => document.querySelector('.files-list').scrollLeft === 0)
+  await page.waitForFunction(() => document.querySelector('.files-list').dataset.more === 'end')
   await page.locator('.file [role="tab"]').first().click()
   await page.waitForTimeout(100)
   assert.ok(await sight())
@@ -10011,4 +12301,60 @@ test('editor: layers: a chevron while open; a row\'s menu mutes, moves, groups a
   await page.waitForFunction(() => /^audio\('chime-flat-2\.wav'\)\n  \.mark\(1, 'one'\)$/.test(scriptText()))
   await menu('Edit', 'Undo')
   await page.waitForFunction(() => /^audio\('chime-flat\.wav'\)\n  \.mark\(1, 'one'\)\n  \/\/ Group/.test(scriptText()))
+})
+
+// The page in the Mac app (desktop/app.js, put in as the shell puts it): the app told the panels, each with its button's
+// icon as the page draws it, and the menus, each item with its icon drawn as the page's menus draw it (icons.js glyph),
+// none where it has none, so the toolbar and the menu bar wear the page's icons and no set of their own; an item
+// picked in the app's menu runs here
+// In the Mac app, as a DAW: the microphone opened as the page opens, nothing pressed, its permission asked then, and
+// kept, the page hidden too (sources.js hold), so a take starts on the next block
+test('desktop: the microphone opens as the app opens and stays open', async () => {
+  await page.addInitScript(() => {
+    const md = navigator.mediaDevices, ask = md.getUserMedia.bind(md)
+    window.__asked = []
+    md.getUserMedia = async c => { const s = await ask(c); window.__asked.push(s); return s }
+  })
+  await page.goto(origin + '/playground/?desktop')
+  await page.waitForFunction(() => window.__asked.length === 1 && window.__asked[0].getAudioTracks()[0].readyState === 'live', null, { timeout: 15000 })
+  await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')) })
+  await page.waitForTimeout(300)
+  assert.equal(await page.evaluate(() => window.__asked[0].getAudioTracks()[0].readyState), 'live', 'hidden, still open')
+  assert.equal(await page.evaluate(() => window.__asked.length), 1, 'asked once')
+})
+
+test('desktop: the app is told the panels and the menus with the page\'s own icons; an item picked there runs here', async () => {
+  await page.addInitScript(() => {
+    globalThis.__told = []
+    globalThis.webkit = { messageHandlers: { app: { postMessage: m => __told.push(JSON.parse(JSON.stringify(m))) } } }
+  })
+  // the page as the app opens it (?desktop): laid out for it from the first paint, its bar and its panels' buttons the
+  // app's own; the bridge to the app (desktop/app.js) the page's to load
+  await page.goto(origin + '/playground/?desktop')
+  await wholeLevels().waitFor({ state: 'attached' })
+  assert.deepEqual(await page.evaluate(() => [document.documentElement.classList.contains('desktop'), ...['.app > .bar', '.panes > .side-head'].map(s => getComputedStyle(document.querySelector(s)).display)]), [true, 'none', 'none'])
+  await page.waitForFunction(() => __told.some(m => m.menus && m.toolbar?.length))
+  const { told, panels, drawn } = await page.evaluate(async () => {
+    const { glyph } = await import('/playground/icons.js')
+    const walk = items => items.filter(it => it !== '-' && !it.group).map(it => ({ label: it.label, icon: it.icon ? glyph(it.icon) : '', ...it.items && { items: walk(it.items) } }))
+    const shape = items => items.filter(it => !it.separator && !it.group).map(it => ({ label: it.label, icon: it.icon, ...it.items && { items: shape(it.items) } }))
+    const told = __told.findLast(m => m.menus)
+    return {
+      told: { toolbar: told.toolbar.map(({ label, icon }) => ({ label, icon })), menus: told.menus.map(m => shape(m.items)) },
+      panels: [...document.querySelectorAll('.side-head .panels button[role="tab"]')].map(b => ({ label: b.getAttribute('aria-label'), icon: b.querySelector('svg').outerHTML })),
+      drawn: document.querySelector('.menubar').menus().map(m => walk(m.items))
+    }
+  })
+  assert.deepEqual(told.toolbar, panels, 'each panel, its button\'s icon')
+  assert.ok(panels.length >= 6 && panels.every(p => /<path d="[^"]+"/.test(p.icon)))
+  assert.deepEqual(told.menus, drawn, 'each item\'s icon as the page\'s menus draw it, none where it has none')
+  const icons = told.menus.flat(Infinity).flatMap(function all(it) { return [it, ...(it.items ?? []).flatMap(all)] }).filter(it => it.icon)
+  assert.ok(icons.length >= 11, 'the Process menu\'s kinds at least, an icon each')
+  // View › Waveform options › Colormap › Magma, picked in the app's menu
+  const id = await page.evaluate(() => {
+    const menus = __told.findLast(m => m.menus).menus, find = (items, label) => items.find(it => it.label === label)
+    return find(find(find(menus.find(m => m.name === 'View').items, 'Waveform options').items, 'Colormap').items, 'Magma').id
+  })
+  await page.evaluate(id => audioHost.run(id), id)
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('audio-repl') || '{}').wave?.map === 'magma')
 })

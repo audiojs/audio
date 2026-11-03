@@ -20,9 +20,10 @@ export default function kept(target) {
     },
     set(t, k, v) { t[k] = v; if (list) list.push(k, v); else laid = null; return true }
   })
+  // cleared as the canvas is resized, not by reset(): WebKit's clears the bitmap but leaves the frames laid before on
+  // screen where the next draws nothing
   function lay(ops) {
-    if (target.reset) target.reset()
-    else target.canvas.width = target.canvas.width
+    target.canvas.width = target.canvas.width
     for (let i = 0; i < ops.length; i += 2) typeof target[ops[i]] === 'function' ? target[ops[i]](...ops[i + 1]) : target[ops[i]] = ops[i + 1]
   }
   function draw(fn) {

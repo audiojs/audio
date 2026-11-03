@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Theme bench</title>
+  <link rel="icon" href="../assets/logo.svg" type="image/svg+xml">
+  <!-- The skin's tokens under each theme, worn by the real editor in a few staged states (editor.js ?state=), to see
+       which token draws what: a token pointed at lights up where it is drawn; each the VS Code colour it takes
+       (theme.js MAP), which one edited takes in its place in every theme (another colour's id, a transform, or a CSS
+       value over them), to calibrate the mapping before writing it there -->
+  <link rel="stylesheet" href="./skin.css">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body { display: grid; grid-template-columns: 248px minmax(0, 1fr) 400px; background: var(--color-paper); color: var(--color-ink); font: 13px/1.4 var(--font-body); }
+    body > * { min-height: 0; overflow: auto; }
+    button, input { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    h2 { margin: 0; font-size: 13px; font-weight: 600; }
+    .note { color: var(--color-muted); font-size: 12px; }
+    kbd { font: 11px var(--font-mono); }
+    input[type="search"], .value { width: 100%; height: 28px; padding: 0 8px; border: 1px solid var(--color-rule); border-radius: 6px; background: oklch(100% 0 0 / .6); outline: none; }
+    input:focus-visible, button:focus-visible { outline: 2px solid var(--color-ink); outline-offset: 1px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+    .chips button { height: 24px; padding: 0 9px; border: 1px solid var(--color-rule); border-radius: 12px; background: none; font-size: 12px; }
+    .chips button[aria-pressed="true"] { border-color: var(--color-ink); background: var(--color-ink); color: var(--color-paper); }
+
+    /* the themes, a card each: its name and a picture of the editor in its colours */
+    .themes { display: flex; flex-direction: column; gap: 10px; padding: 14px 12px 20px; border-right: 1px solid var(--color-rule); }
+    .cards { display: flex; flex-direction: column; gap: 8px; }
+    .card { display: block; width: 100%; padding: 0; border: 0; border-radius: 9px; background: none; text-align: left; }
+    .card svg { display: block; width: 100%; height: auto; border-radius: 8px; box-shadow: 0 0 0 1px oklch(0% 0 0 / .12); }
+    .card[aria-current="true"] svg { box-shadow: 0 0 0 2px var(--color-paper), 0 0 0 4px var(--color-ink); }
+    .card span { display: flex; justify-content: space-between; padding: 4px 2px 0; font-size: 12px; }
+    .card em { color: var(--color-muted); font-style: normal; }
+    .open-theme { height: 28px; border: 1px dashed var(--color-rule); border-radius: 6px; background: none; color: var(--color-soft-ink); }
+
+    /* the editor, staged */
+    .specimens { display: flex; flex-direction: column; gap: 18px; padding: 14px 18px 24px; }
+    .specimens header { display: flex; align-items: baseline; gap: 12px; }
+    .specimens header .note { margin-left: auto; }
+    figure { margin: 0; }
+    figcaption { display: flex; align-items: baseline; gap: 8px; padding: 0 2px 6px; }
+    figcaption .note { flex: 1; }
+    .focus { padding: 1px 7px; border-radius: 10px; background: var(--color-rule); font-size: 11px; }
+    .focus.on { background: var(--color-ink); color: var(--color-paper); }
+    iframe { display: block; width: 100%; border: 0; border-radius: 12px; background: var(--color-screen); box-shadow: var(--shadow-slab); }
+
+    /* the tokens: each its value worn now, where it is drawn, what it derives from */
+    .tokens { display: flex; flex-direction: column; border-left: 1px solid var(--color-rule); overflow: hidden; }
+    .tokens > header { display: flex; flex-direction: column; gap: 8px; padding: 14px 14px 10px; border-bottom: 1px solid var(--color-rule); }
+    .tokens .row-actions { display: flex; align-items: center; gap: 6px; }
+    .tokens .row-actions .note { flex: 1; }
+    .tokens .row-actions button { height: 24px; padding: 0 9px; border: 1px solid var(--color-rule); border-radius: 6px; background: none; font-size: 12px; }
+    .tokens .row-actions label { display: flex; align-items: center; gap: 5px; font-size: 12px; }
+    .list { flex: 1; overflow: auto; padding: 4px 0 24px; }
+    .group { position: sticky; top: 0; z-index: 1; padding: 8px 14px 4px; background: var(--color-paper); color: var(--color-muted); font: 600 11px var(--font-mono); text-transform: uppercase; letter-spacing: .04em; }
+    .token { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 2px 8px; padding: 5px 14px; cursor: default; }
+    .token:hover { background: var(--color-hover); }
+    .token.open { background: var(--color-hover); }
+    .chip { grid-row: span 2; width: 30px; height: 30px; padding: 5px; border-radius: 6px; background: var(--chip-screen); box-shadow: 0 0 0 1px oklch(0% 0 0 / .14); }
+    .chip i { display: block; width: 100%; height: 100%; border-radius: 3px; box-shadow: inset 0 0 0 1px oklch(50% 0 0 / .25); }
+    .name { display: flex; gap: 6px; align-items: baseline; min-width: 0; font: 12px var(--font-mono); }
+    .name b { overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+    .name small { flex: none; padding: 0 5px; border-radius: 3px; background: var(--color-rule); font: 10px var(--font-body); }
+    .name small.edited { background: oklch(70% .32 330); color: white; }
+    .name .count { margin-left: auto; color: var(--color-muted); font: 11px var(--font-body); }
+    .key { overflow: hidden; color: var(--color-muted); font: 11px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+    .key.edited { color: oklch(55% .3 330); }
+    .computed { overflow: hidden; color: var(--color-soft-ink); font: 11px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+    .detail { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 6px; padding: 6px 0 4px; font: 11px/1.45 var(--font-mono); }
+    .detail .value { height: 26px; font: 11px var(--font-mono); }
+    .detail ul { margin: 0; padding: 0; list-style: none; }
+    .detail li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .detail li span { color: var(--color-muted); }
+    .detail h3 { margin: 4px 0 0; color: var(--color-muted); font: 600 10px var(--font-body); text-transform: uppercase; letter-spacing: .05em; }
+    .detail a { color: inherit; text-decoration: underline; text-decoration-color: var(--color-rule); cursor: pointer; }
+    .colors .token { grid-template-columns: 30px minmax(0, 1fr); }
+  </style>
+</head>
+<body>
+  <aside class="themes" aria-label="Themes">
+    <h2>Themes</h2>
+    <input type="search" class="theme-search" placeholder="Find a theme" aria-label="Find a theme">
+    <div class="chips kinds" role="group" aria-label="Kind"></div>
+    <div class="cards"></div>
+    <button class="open-theme" type="button">Open a VS Code theme…</button>
+    <p class="note"><kbd>⌥↑</kbd> <kbd>⌥↓</kbd> the theme before, after, from anywhere</p>
+  </aside>
+
+  <main class="specimens">
+    <header><h2 class="worn">The screen</h2><span class="note">The editor itself, staged by its link (index.html?state=); live, interactive</span></header>
+  </main>
+
+  <aside class="tokens" aria-label="Tokens">
+    <header>
+      <div class="chips views" role="tablist" aria-label="List">
+        <button type="button" data-view="skin" aria-pressed="true">Skin tokens</button>
+        <button type="button" data-view="all" aria-pressed="false">All tokens</button>
+        <button type="button" data-view="colors" aria-pressed="false">Theme’s colours</button>
+      </div>
+      <input type="search" class="token-search" placeholder="Find by name, VS Code colour, selector or line: tab, menu., .file…" aria-label="Find a token">
+      <datalist id="vscode-colors"></datalist>
+      <div class="row-actions">
+        <label><input type="checkbox" class="flashing" checked> Light up on hover</label>
+        <span class="note edits-note"></span>
+        <button type="button" class="copy">Copy edits</button>
+        <button type="button" class="reset">Reset</button>
+      </div>
+    </header>
+    <div class="list"></div>
+  </aside>
+
+  <script type="module">
+    import { THEMES, MAP, REGISTRY, load, parse, skin, fonts } from './theme.js'
+
+    // What the bench keeps: the theme worn, and the edits, a token's each, worn by every theme: a VS Code colour's id or a
+    // transform of colours as theme.js writes one (JSON), the token mapped to it in MAP's place; else a CSS value, over
+    // the theme's
+    const KEY = 'audio-theme-bench'
+    const kept = (() => { try { return JSON.parse(localStorage.getItem(KEY)) ?? {} } catch { return {} } })()
+    const keep = () => { try { localStorage.setItem(KEY, JSON.stringify({ theme: worn?.name ?? null, edits })) } catch {} }
+    let edits = kept.edits && typeof kept.edits === 'object' ? kept.edits : {}
+    // what lights up a token where it is drawn: no theme's
+    const FLASH = '#ff1ad9'
+    const $ = s => document.querySelector(s)
+    const h = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e }
+
+    // The states staged: each a page as the editor keeps it (editor.js store), given in its link, then what a hand would
+    // do to it once it is drawn (stage). Times within the built-in samples' lengths (playground/samples.js: chime 8 s, handpan
+    // 6.4, birdsong 4.5, rhodes 9, monitor 5): the takes at 4 s, as long as the longest, end with rhodes, the mix 9 s
+    const TRACKS = `let voice = audio('handpan.wav')\n  .write(audio('birdsong.wav'), { at: 4 })\n  // .write(audio('monitor.wav'), { at: 4 })\n  .mark(0.8, 'Verse')\n  .mark({ at: 1.4, duration: 1.6 }, 'Chorus')\nlet keys = audio('rhodes.wav').gain(-6)\nlet bell = audio('chime.wav')`
+    const CHAIN = `audio('birdsong.wav')\n  .trim()\n  .highpass(120)\n  .normalize(-1)\n  .fade(0.05, 0.4)`
+    const at = (selection, more = []) => ({ selection, band: null, more, cursor: selection?.[0] ?? 0, anchor: selection?.[0] ?? 0 })
+    const SCENES = [
+      { id: 'tracks', title: 'Tracks', height: 640, focus: true, stage: ['context', 'marks'],
+        note: 'Three tracks, the first edited, the last muted; a selection and a second range; a marker, a range marker and two takes; three tabs, one rendering, one done; the edits; the context menu',
+        state: { docs: [{ code: TRACKS, track: 'voice', muted: ['bell'], view: at([5.8, 7.6], [[0.3, 0.9]]) }, { code: `audio('birdsong.wav')` }, { code: `audio('monitor.wav').trim()` }], doc: 0, side: 'edits' } },
+      { id: 'spectrum', title: 'Spectrogram, code', height: 540, stage: ['menu'],
+        note: 'A selection and a band on the spectrogram, a second range; the code; the File menu',
+        state: { docs: [{ code: CHAIN, view: { selection: [1.2, 2.6], band: [1500, 7000], more: [[3.2, 3.8]], cursor: 1.2, anchor: 1.2 } }], doc: 0, side: 'code', display: 'spec' } },
+      { id: 'settings', title: 'Settings', height: 600, stage: ['hint'],
+        note: 'The settings, their keys and switches; the caret alone; a hint (a .hint laid in, as hint.js shows one)',
+        state: { docs: [{ code: `audio('rhodes.wav')`, view: at(null) }], doc: 0, side: 'settings' } }
+    ]
+    // Themes: the screen (skin.css's own, as a theme), VS Code's shipped ones, any opened; read before the frames come,
+    // which ask for them as they come. All of VS Code's colours, to map a token to any of them (themes/vscode-colors.json)
+    const themes = [{ name: 'The screen', file: 'screen.json', kind: 'dark' }, ...THEMES].map(t => ({ ...t, theme: null }))
+    const [VSCODE] = await Promise.all([fetch('./themes/vscode-colors.json').then(r => r.json()).then(all => ({ ...all, ...REGISTRY })),
+      ...themes.map(async t => { t.theme = await load(new URL(`./themes/${t.file}`, location.href).href, { kind: t.kind }) })])
+    $('#vscode-colors').append(...Object.keys(VSCODE).map(value => h('option', { value })))
+    // an edit a mapping (a colour's id or a transform), or null: a CSS value
+    const mapping = v => { if (typeof v !== 'string') return null; if (v in VSCODE) return v; if (v.startsWith('[')) try { return JSON.parse(v) } catch {} return null }
+    const map = () => ({ ...MAP, ...Object.fromEntries(Object.entries(edits).map(([k, v]) => [k, mapping(v)]).filter(([, m]) => m)) })
+    const css = () => Object.fromEntries(Object.entries(edits).filter(([, v]) => !mapping(v)))
+    const fmt = m => typeof m === 'string' ? m : JSON.stringify(m)
+    // a default by kind, the theme's; a theme of no kind, light or dark by its background, as theme.js reads it
+    const byKind = (v, k) => v && typeof v === 'object' && !Array.isArray(v) ? v[k] : v, kindOf = t => t.theme.kind ?? 'dark'
+    const tokensOf = t => ({ ...skin(t.theme, map(), VSCODE), ...fonts() })
+    const reskin = () => { for (const t of themes) { t.tokens = tokensOf(t); t.picture = null } }
+    reskin()
+    const frames = SCENES.map(scene => {
+      const q = new URLSearchParams({ state: JSON.stringify(scene.state) })
+      const el = Object.assign(document.createElement('iframe'), { src: `./?${q}`, title: scene.title, style: `height: ${scene.height}px` })
+      const flag = h('span', { className: 'focus', textContent: 'not focused' })
+      $('.specimens').append(h('figure', {}, h('figcaption', {}, h('h2', { textContent: scene.title }), h('span', { className: 'note', textContent: scene.note }), flag), el))
+      return { scene, el, flag, ready: false }
+    })
+    const win = f => f.el.contentWindow, doc = f => f.el.contentDocument
+
+    let worn = themes.find(t => t.name === kept.theme) ?? themes[0], kind = 'all', flashing = null
+
+    // what the frames wear: the theme's tokens as mapped, the CSS edits over them, the one pointed at lit
+    const dress = () => ({ ...worn.tokens, ...css(), ...flashing && { [flashing]: FLASH } })
+    function send() {
+      for (const f of frames) if (f.ready) win(f).postMessage({ skin: dress() }, location.origin)
+      clearTimeout(send.timer); send.timer = setTimeout(renderTokens, 40)
+    }
+
+    // A card's picture: the editor's screen in the theme's colours: tabs, a lane with a selection and its handle, a
+    // marker, the caret, the channels' hues
+    const WAVE = (() => {
+      const n = 90, top = [], bottom = []
+      for (let i = 0; i <= n; i++) { const t = i / n, a = 14 * (.25 + .75 * Math.abs(Math.sin(t * 9.3) * Math.sin(t * 2.1 + .4))) * (1 - .6 * t); top.push(`${(8 + t * 184).toFixed(1)},${(44 - a).toFixed(1)}`); bottom.unshift(`${(8 + t * 184).toFixed(1)},${(44 + a).toFixed(1)}`) }
+      return `M${top.join('L')}L${bottom.join('L')}Z`
+    })()
+    const base = getComputedStyle(document.documentElement), tok = (t, k) => t.tokens?.[k] ?? base.getPropertyValue(k).trim()
+    function picture(t) {
+      const c = k => tok(t, k), hues = Object.keys(t.tokens ?? {}).filter(k => k.startsWith('--color-screen-channel-')).map(k => t.tokens[k])
+      return `<svg viewBox="0 0 200 76" aria-hidden="true">
+        <rect width="200" height="76" fill="${c('--color-screen')}"/>
+        <rect width="150" height="19" fill="${c('--color-tabs')}"/>
+        <rect x="150" width="50" height="76" fill="${c('--color-side')}"/>
+        <rect x="6" y="5" width="44" height="11" rx="3" fill="${c('--color-tab')}"/>
+        <rect x="11" y="9" width="30" height="3" rx="1.5" fill="${c('--color-tab-ink')}"/>
+        <rect x="56" y="9" width="26" height="3" rx="1.5" fill="${c('--color-tab-off-ink')}"/>
+        <rect x="88" y="9" width="22" height="3" rx="1.5" fill="${c('--color-tab-off-ink')}"/>
+        <rect x="18" y="22" width="44" height="44" fill="${c('--color-screen-range')}"/>
+        <rect x="84" y="22" width="52" height="44" fill="${c('--color-screen-select')}"/>
+        <path d="${WAVE}" fill="${c('--color-screen-wave')}"/>
+        <rect x="21" y="24" width="18" height="3" rx="1.5" fill="${c('--color-screen-mark')}"/>
+        <rect x="156" y="26" width="38" height="9" rx="2" fill="${c('--color-list-select')}"/>
+        <rect x="156" y="40" width="38" height="9" rx="2" fill="${c('--color-menu')}"/><rect x="158" y="42" width="34" height="5" rx="1.5" fill="${c('--color-menu-select')}"/>
+        <rect x="83" y="22" width="2" height="44" fill="${c('--color-screen-accent')}"/>
+        <line x1="160.5" y1="22" x2="160.5" y2="66" stroke="${c('--color-screen-caret')}"/>
+        ${hues.map((hue, i) => `<circle cx="${190 - i * 7}" cy="71" r="2.4" fill="${hue}"/>`).join('')}
+      </svg>`
+    }
+    const KINDS = [['all', 'All'], ['light', 'Light'], ['dark', 'Dark'], ['hc', 'High contrast']]
+    $('.kinds').append(...KINDS.map(([k, label]) => h('button', { type: 'button', textContent: label, onclick: () => { kind = k; renderCards() } })))
+    function shownThemes() {
+      const q = $('.theme-search').value.trim().toLowerCase()
+      return themes.filter(t => (kind === 'all' || (kind === 'hc' ? t.kind?.startsWith('hc') : t.kind === kind)) && t.name.toLowerCase().includes(q))
+    }
+    function renderCards() {
+      for (const b of $('.kinds').children) b.setAttribute('aria-pressed', String(KINDS[[...b.parentNode.children].indexOf(b)][0] === kind))
+      $('.cards').replaceChildren(...shownThemes().map(t => {
+        const b = h('button', { type: 'button', className: 'card', onclick: () => wear(t, true) })
+        b.innerHTML = `${t.picture ??= picture(t)}<span>${t.name}<em>${{ light: 'light', dark: 'dark', hcDark: 'hc dark', hcLight: 'hc light' }[t.kind] ?? ''}</em></span>`
+        b.setAttribute('aria-current', String(t === worn))
+        return b
+      }))
+    }
+    // A theme worn: the frames dressed in it, the focused one focused again (its selection drawn as focused)
+    function wear(t, refocus = false) {
+      worn = t
+      $('.worn').textContent = t.name
+      keep(); renderCards(); send()
+      if (refocus) focusFirst()
+    }
+    const step = d => { const list = shownThemes(), i = list.indexOf(worn); if (list.length) wear(list[(i + d + list.length) % list.length], true) }
+    const keys = event => { if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) { event.preventDefault(); event.stopImmediatePropagation(); step(event.key === 'ArrowUp' ? -1 : 1) } }
+    addEventListener('keydown', keys, true)
+    $('.theme-search').oninput = renderCards
+    $('.theme-search').onkeydown = e => { if (e.key === 'Enter' && shownThemes()[0]) wear(shownThemes()[0], true) }
+    $('.open-theme').onclick = () => {
+      const input = Object.assign(document.createElement('input'), { type: 'file', accept: '.json,application/json' })
+      input.onchange = async () => {
+        const file = input.files[0]
+        if (!file) return
+        try {
+          const own = parse(await file.text()), theme = await load(null, { theme: own })
+          const t = { name: own.name ?? file.name.replace(/\.json$/i, ''), kind: theme.kind ?? 'dark', theme }
+          t.tokens = tokensOf(t)
+          themes.splice(1, 0, t); wear(t, true)
+        } catch (e) { alert(`${file.name} is not a VS Code colour theme: ${e.message}`) }
+      }
+      input.click()
+    }
+
+    // The frames: each says when it listens (editor.js), is dressed then, and staged once its sound is drawn
+    addEventListener('message', ({ source, data }) => {
+      const f = frames.find(f => win(f) === source)
+      if (!f || !data?.ready || f.ready) return
+      f.ready = true
+      win(f).addEventListener('keydown', keys, true)
+      const focused = on => { f.flag.classList.toggle('on', on); f.flag.textContent = on ? 'focused' : 'not focused' }
+      win(f).addEventListener('focus', () => focused(true))
+      win(f).addEventListener('blur', () => focused(false))
+      send()
+      stage(f)
+      if (f === frames[0]) inventory(f)
+    })
+    const until = (test, ms = 15000) => new Promise((resolve, reject) => { const t0 = performance.now(); (function poll() { const v = test(); if (v) resolve(v); else if (performance.now() - t0 > ms) reject(new Error('timed out')); else setTimeout(poll, 100) })() })
+    const focusFirst = () => { const f = frames.find(f => f.scene.focus && f.ready); if (f) { win(f).focus(); doc(f).querySelector('.plot')?.focus({ preventScroll: true }) } }
+    async function stage(f) {
+      const d = doc(f), w = win(f)
+      // drawn: the tab shown names its length
+      await until(() => d.querySelector('.file [role="tab"].source')?.title.includes(' · ')).catch(() => {})
+      await new Promise(r => setTimeout(r, 300))
+      for (const what of f.scene.stage) ({
+        // the right press on the selection, in the edited lane (its first): the editor's own context menu
+        context() {
+          const plot = d.querySelector('.plot'), r = plot.getBoundingClientRect(), axis = parseFloat(getComputedStyle(d.querySelector('.panes')).getPropertyValue('--axis')) || 40
+          focusFirst()
+          plot.dispatchEvent(new w.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: r.left + (r.width - axis) * (6.7 / 9), clientY: r.top + r.height * .22 }))
+        },
+        // the other tabs' marks, as the editor sets them (data-mark): one rendering, one done
+        marks() { const files = d.querySelectorAll('.file:not(.current)'); files[0]?.setAttribute('data-mark', 'working'); files[1]?.setAttribute('data-mark', 'ready') },
+        // the first menu of the bar, opened as a click opens it
+        menu() { d.querySelector('.menubar-item')?.click() },
+        // a hint, laid over the picture as hint.js lays one
+        hint() {
+          const r = d.querySelector('.plot').getBoundingClientRect()
+          d.body.append(Object.assign(d.createElement('div'), { className: 'hint', textContent: 'Drag to move the selection, ⌥ to copy it', style: `left: ${Math.round(r.left + r.width * .3)}px; top: ${Math.round(r.top + r.height * .45)}px` }))
+        }
+      })[what]()
+      focusFirst()
+    }
+
+    // Tokens: every custom property the frame's stylesheets declare on :root (tokens.css, skin.css, editor.css), and
+    // those a theme sets; where each is read: the rules naming it in var(), the playground's scripts naming it
+    let tokens = [], open = new Set(), view = 'skin', seen = new Map()
+    async function inventory(f) {
+      const d = doc(f), declared = new Map(), uses = new Map(), use = (name, u) => (uses.get(name) ?? uses.set(name, []).get(name)).push(u)
+      const file = s => (s?.href ?? '').split('/').pop() || 'inline'
+      const walk = (rules, sheet, at = '') => {
+        for (const r of rules) {
+          if (r.styleSheet) { walk(r.styleSheet.cssRules, r.styleSheet); continue }
+          if (r.style) {
+            const sel = r.selectorText ?? '', decls = r.style.cssText.split(/;(?![^(]*\))/)
+            for (const decl of decls) {
+              const i = decl.indexOf(':'); if (i < 0) continue
+              const prop = decl.slice(0, i).trim(), value = decl.slice(i + 1).trim()
+              if (prop.startsWith('--') && /^:root$/.test(sel.trim())) (declared.get(prop) ?? declared.set(prop, []).get(prop)).push({ file: file(sheet), value })
+              for (const m of value.matchAll(/var\(\s*(--[\w-]+)/g)) use(m[1], { kind: 'css', where: `${at}${sel}`, prop, file: file(sheet) })
+            }
+          }
+          if (r.cssRules) walk(r.cssRules, sheet, r.conditionText ? `@${r.constructor.name.replace(/^CSS|Rule$/g, '').toLowerCase()} ${r.conditionText} ` : at)
+        }
+      }
+      for (const s of d.styleSheets) try { walk(s.cssRules, s) } catch {}
+      const scripts = [...new Set(win(f).performance.getEntriesByType('resource').map(e => e.name).filter(n => /\/playground\/[\w-]+\.js$/.test(new URL(n).pathname)))]
+      await Promise.all(scripts.map(async url => {
+        const text = await fetch(url).then(r => r.text()), name = url.split('/').pop()
+        text.split('\n').forEach((line, i) => { for (const m of line.matchAll(/['"`](--[a-z][\w-]*)['"`]/g)) use(m[1], { kind: 'js', where: line.trim().slice(0, 160), file: name, line: i + 1 }) })
+      }))
+      const themed = new Set(themes.flatMap(t => Object.keys(t.tokens ?? {})))
+      const names = [...new Set([...declared.keys(), ...themed])]
+      // declared in cascade order (an import's before what imports it), the last the one that holds
+      tokens = names.map(name => ({ name, declared: declared.get(name)?.at(-1) ?? null, under: declared.get(name)?.slice(0, -1) ?? [], uses: uses.get(name) ?? [], themed: themed.has(name),
+        skin: themed.has(name) || ['skin.css', 'editor.css'].includes(declared.get(name)?.file) }))
+      // what derives from each: the tokens declared with it in their value
+      for (const t of tokens) t.derived = tokens.filter(o => o.declared && new RegExp(`var\\(\\s*${t.name}[,)\\s]`).test(o.declared.value)).map(o => o.name)
+      renderTokens()
+    }
+    const paint = v => v && (CSS.supports('color', v) || /gradient\(/.test(v))
+    function renderTokens() {
+      const list = $('.list'), q = $('.token-search').value.trim().toLowerCase()
+      $('.edits-note').textContent = Object.keys(edits).length ? `${Object.keys(edits).length} edited` : ''
+      if (view === 'colors') return renderColors(list, q)
+      const f = frames[0]
+      if (!f.ready || !tokens.length) return list.replaceChildren(h('p', { className: 'note', textContent: 'Waiting for the editor…', style: 'padding: 14px' }))
+      const style = win(f).getComputedStyle(doc(f).documentElement), read = n => n === flashing ? seen.get(n) ?? '' : (seen.set(n, style.getPropertyValue(n).trim()), seen.get(n)), screen = read('--color-screen')
+      const hit = t => !q || t.name.includes(q) || fmt(map()[t.name] ?? '').toLowerCase().includes(q) || t.uses.some(u => u.where.toLowerCase().includes(q) || u.prop?.includes(q))
+      const shown = tokens.filter(t => (view === 'all' || t.skin) && hit(t))
+      const groups = Map.groupBy(shown, t => t.declared?.file ?? 'set by the theme alone')
+      const nodes = []
+      for (const [group, list] of groups) {
+        nodes.push(h('div', { className: 'group', textContent: `${group} · ${list.length}` }))
+        for (const t of list) nodes.push(row(t, read(t.name), screen))
+      }
+      const top = list.scrollTop
+      list.replaceChildren(...nodes)
+      list.scrollTop = top
+    }
+    function row(t, value, screen) {
+      const el = h('div', { className: 'token' + (open.has(t.name) ? ' open' : '') })
+      el.style.setProperty('--chip-screen', screen)
+      const chip = h('span', { className: 'chip' }, h('i', { style: paint(value) ? `background: ${value}` : 'background: none' }))
+      const m = map()[t.name], own = m != null && mapping(edits[t.name]) != null
+      el.append(chip,
+        h('div', { className: 'name' }, h('b', { textContent: t.name, title: t.name }), ...edits[t.name] != null ? [h('small', { className: 'edited', textContent: 'edited' })] : [], h('span', { className: 'count', textContent: `${t.uses.length} use${t.uses.length === 1 ? '' : 's'}` })),
+        ...m != null ? [h('div', { className: 'key' + (own ? ' edited' : ''), textContent: `← ${fmt(m)}`, title: fmt(m) })] : [],
+        h('div', { className: 'computed', textContent: value || '—', title: value }))
+      el.onclick = e => { if (e.target.closest('.detail')) return; open.has(t.name) ? open.delete(t.name) : open.add(t.name); renderTokens() }
+      el.onpointerenter = () => { clearTimeout(row.timer); row.timer = setTimeout(() => light(paint(value) ? t.name : null), 140) }
+      el.onpointerleave = () => { clearTimeout(row.timer); row.timer = setTimeout(() => light(null), 140) }
+      if (open.has(t.name)) el.append(detail(t, value))
+      return el
+    }
+    function light(name) {
+      if (!$('.flashing').checked) name = null
+      if (name === flashing) return
+      flashing = name
+      for (const f of frames) if (f.ready) win(f).postMessage({ skin: dress() }, location.origin)
+    }
+    function detail(t, value) {
+      const d = h('div', { className: 'detail' })
+      const was = MAP[t.name] != null ? fmt(MAP[t.name]) : worn.tokens?.[t.name] ?? t.declared?.value ?? value
+      const input = h('input', { className: 'value', value: edits[t.name] ?? was, title: 'A VS Code colour (its id, or a transform as JSON: ["transparent", "focusBorder", 0.4]), taken by every theme; or a CSS value over them', spellcheck: false })
+      input.setAttribute('list', 'vscode-colors')
+      input.onchange = () => { const v = input.value.trim(); if (v && v !== was) edits[t.name] = v; else delete edits[t.name]; keep(); reskin(); renderCards(); send() }
+      d.append(input)
+      const line = (label, text) => h('li', {}, h('span', { textContent: label + ' ' }), text)
+      // the colours the mapping reads: each the theme's own, or VS Code's default for its kind
+      const ids = [...new Set(JSON.stringify(map()[t.name] ?? null).match(/"[\w.]+"/g)?.map(x => x.slice(1, -1)).filter(x => x in VSCODE) ?? [])]
+      const facts = [
+        ...ids.map(id => worn.theme.colors[id] != null ? line(`${id}, ${worn.name}'s:`, worn.theme.colors[id]) : line(`${id}, VS Code's default for ${kindOf(worn)}:`, fmt(byKind(VSCODE[id], kindOf(worn)) ?? 'none'))),
+        t.declared && line(t.declared.file, t.declared.value),
+        ...t.under.map(u => line(`${u.file}, under it:`, u.value)),
+        worn.tokens?.[t.name] && line(`${worn.name}:`, worn.tokens[t.name])
+      ].filter(Boolean)
+      if (facts.length) d.append(h('h3', { textContent: 'Read from' }), h('ul', {}, ...facts))
+      if (t.derived.length) d.append(h('h3', { textContent: 'Derived from it' }), h('ul', {}, ...t.derived.map(n => h('li', {}, Object.assign(h('a', { textContent: n }), { onclick: () => { open.add(n); $('.token-search').value = n; renderTokens() } })))))
+      const css = t.uses.filter(u => u.kind === 'css'), js = t.uses.filter(u => u.kind === 'js')
+      if (css.length) d.append(h('h3', { textContent: `Rules · ${css.length}` }), h('ul', {}, ...css.map(u => Object.assign(line(u.file, `${u.where} { ${u.prop} }`), { title: `${u.where} { ${u.prop} }` }))))
+      if (js.length) d.append(h('h3', { textContent: `Scripts · ${js.length}` }), h('ul', {}, ...js.map(u => Object.assign(line(`${u.file}:${u.line}`, u.where), { title: u.where }))))
+      if (!t.uses.length && !t.derived.length) d.append(h('p', { className: 'note', textContent: 'Read by nothing in the stylesheets or the playground’s scripts (a name built at run time, as --color-screen-channel-N, is not found by its text)' }))
+      return d
+    }
+    // the theme's own colours, as VS Code reads them, over its editor's background
+    function renderColors(list, q) {
+      const colors = Object.entries(worn.theme?.colors ?? {}).filter(([k, v]) => !q || k.toLowerCase().includes(q) || String(v).toLowerCase().includes(q))
+      const screen = worn.tokens?.['--color-screen'] ?? base.getPropertyValue('--color-screen')
+      list.replaceChildren(h('div', { className: 'group', textContent: `${worn.name} · ${colors.length} colours · ${worn.theme.tokenColors.length} token rules` }),
+        ...colors.map(([k, v]) => { const el = h('div', { className: 'token' }, h('span', { className: 'chip' }, h('i', { style: `background: ${v}` })), h('div', { className: 'name' }, h('b', { textContent: k, title: k })), h('div', { className: 'computed', textContent: v })); el.style.setProperty('--chip-screen', screen); return el }))
+    }
+    for (const b of $('.views').children) b.onclick = () => { view = b.dataset.view; for (const c of $('.views').children) c.setAttribute('aria-pressed', String(c === b)); renderTokens() }
+    $('.token-search').oninput = renderTokens
+    $('.flashing').onchange = () => light(null)
+    // the edits as they would be written: the mapping's lines (theme.js MAP), the CSS values over it
+    $('.copy').onclick = () => {
+      const m = Object.entries(edits).filter(([, v]) => mapping(v)), c = Object.entries(css())
+      navigator.clipboard.writeText([m.length && m.map(([k, v]) => `  '${k}': ${typeof mapping(v) === 'string' ? `'${v}'` : v},`).join('\n'), c.length && `:root {\n${c.map(([k, v]) => `  ${k}: ${v};`).join('\n')}\n}`].filter(Boolean).join('\n\n') + '\n')
+    }
+    $('.reset').onclick = () => { edits = {}; keep(); reskin(); renderCards(); send() }
+    $('.list').onpointerleave = () => { clearTimeout(row.timer); light(null) }
+
+    wear(worn)
+    renderTokens()
+  </script>
+</body>
+</html>

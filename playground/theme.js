@@ -1,52 +1,169 @@
 import { oklab, srgb, lightness } from './tint.js'
 
 // VS Code colour themes read into the editor's skin (skin.css), so a sound shows in the colours its code does: the
-// picture is a page of the editor, the sound its text. What each part of the picture takes, and why:
-// - the screen, the editor's background; menus and cards over it, its widgets'; the words on it, its foreground
-// - the waveform and the spectrogram, its foreground: the sound is the page's text, in the colour text is
-// - the slab's edge and the menus', the border round an editor group (high contrast's, its contrast border)
-// - a field, an input's; a row of choices, inputs side by side in that border, the one chosen as VS Code shows an
-//   input's option on (Match Case): flat, as its controls are, not keys
-// - the accent (an edit's handles and curves, the play button's progress), the workbench's: its focus colour, the one
-//   a chosen option is tinted with
-// - a marker, a markdown heading's: it names a section of the sound, as a heading names one of a text
-// - the time row's and the level axes' numbers, the line numbers', in the editor's font at its size; their ticks, the
-//   ruler's
-// - the grid, the whitespace marks' dots and the indent guides' lines; the caret, the cursor's; a clip, an error's
-// - a selection, the selection's, behind the sound as a selection is behind text; the picture not focused, the
-//   inactive selection's
-// - the script's line the caret is on, the current line's background and border
-// - channels in one lane, the text's colour first, as one channel is drawn, then the theme's own syntax hues, each made
-//   to read on its background and apart from the others: numbers, strings, keywords, types, variables, control words
-// - the script, every word as the theme colours it
+// picture is a page of the editor, the sound its text. Each of the skin's colours is one of VS Code's, the one for the
+// same part of an editor (MAP): the screen its editor's, a menu's row pointed at its menu's selection, a tab its tab's,
+// the sidebar its sidebar's, a marked range its range highlight, the waveform its text. A colour a theme leaves out is
+// VS Code's own default for it, by the theme's kind, as VS Code's registry makes it (REGISTRY), so a theme of three
+// colours comes out as whole as VS Code draws it. The skin's own default is a theme too (themes/screen.json), skin.css
+// its colours for the first paint.
 // A theme is VS Code's JSON (code.visualstudio.com/api/extension-guides/color-theme): `colors`, the workbench's, by key;
-// `tokenColors`, TextMate rules, a scope to a colour; `type` or the extension's uiTheme, its kind. What it leaves out,
-// VS Code's own default for that kind (DEFAULTS); a word it gives no rule, the foreground, as VS Code draws it.
+// `tokenColors`, TextMate rules, a scope to a colour; `type` or the extension's uiTheme, its kind. A word it gives no
+// rule, the foreground, as VS Code draws it.
 
-// VS Code's defaults for the colours read here, by kind: the registerColor calls of VS Code 1.139
-// (src/vs/platform/theme/common/colors/*.ts, src/vs/editor/common/core/editorColorRegistry.ts)
-const DEFAULTS = {
-  'editor.background': { dark: '#1E1E1E', light: '#FFFFFF', hcDark: '#000000', hcLight: '#FFFFFF' },
-  'editor.foreground': { dark: '#BBBBBB', light: '#333333', hcDark: '#FFFFFF', hcLight: '#292929' },
-  'editorWidget.background': { dark: '#252526', light: '#F3F3F3', hcDark: '#0C141F', hcLight: '#FFFFFF' },
-  'editorLineNumber.foreground': { dark: '#858585', light: '#237893', hcDark: '#FFFFFF', hcLight: '#292929' },
-  'editorLineNumber.activeForeground': { dark: '#C6C6C6', light: '#0B216F', hcDark: '#F38518', hcLight: '#006BBD' },
-  'editorCursor.foreground': { dark: '#AEAFAD', light: '#000000', hcDark: '#FFFFFF', hcLight: '#0F4A85' },
-  'editor.selectionBackground': { dark: '#264F78', light: '#ADD6FF', hcDark: '#F3F518', hcLight: '#0F4A85' },
-  'editorWhitespace.foreground': { dark: '#E3E4E229', light: '#33333333', hcDark: '#E3E4E229', hcLight: '#CCCCCC' },
-  'editorRuler.foreground': { dark: '#5A5A5A', light: '#D3D3D3', hcDark: '#FFFFFF', hcLight: '#292929' },
-  'editorError.foreground': { dark: '#F14C4C', light: '#E51400', hcDark: '#F48771', hcLight: '#B5200D' },
-  'editorGroup.border': { dark: '#444444', light: '#E7E7E7', hcDark: '#6FC3DF', hcLight: '#0F4A85' },
+// VS Code's defaults for the colours read here and those they are made from: the registerColor calls of VS Code 1.143
+// (src/vs/platform/theme/common/colors/*.ts, src/vs/workbench/common/theme.ts), read out of its workbench as they
+// are. A colour as #hex, another by its id, a transform of one as its ColorTransform is ([op, ...its arguments]), or
+// one by the theme's kind; null, none. Then the editor's own, as an extension contributes colours (contributes.colors):
+// what only the skin's default draws, none in a theme, which leaves the slab flat as VS Code's editor is
+export const REGISTRY = {
+  'titleBar.activeBackground': { dark: '#3C3C3C', light: '#DDDDDD', hcDark: '#000000', hcLight: '#FFFFFF' },
+  'titleBar.activeForeground': { dark: '#CCCCCC', light: '#333333', hcDark: '#FFFFFF', hcLight: '#292929' },
+  'toolbar.hoverBackground': { dark: '#5a5d5e50', light: '#b8b8b850', hcDark: null, hcLight: null },
+  'menubar.selectionBackground': { dark: 'toolbar.hoverBackground', light: 'toolbar.hoverBackground', hcDark: null, hcLight: null },
+  'editor.background': { dark: '#1E1E1E', light: '#ffffff', hcDark: '#000000', hcLight: '#FFFFFF' },
+  'contrastBorder': { dark: null, light: null, hcDark: '#6FC3DF', hcLight: '#0F4A85' },
+  'editorGroup.border': { dark: '#444444', light: '#E7E7E7', hcDark: 'contrastBorder', hcLight: 'contrastBorder' },
+  'panel.border': { dark: ['transparent', '#808080', 0.35], light: ['transparent', '#808080', 0.35], hcDark: 'contrastBorder', hcLight: 'contrastBorder' },
+  'list.hoverBackground': { dark: '#2A2D2E', light: '#F0F0F0', hcDark: ['transparent', '#FFFFFF', 0.1], hcLight: ['transparent', '#0F4A85', 0.1] },
   'input.background': { dark: '#3C3C3C', light: '#FFFFFF', hcDark: '#000000', hcLight: '#FFFFFF' },
-  // a chosen option (Match Case, on): focusBorder at .4 dark and .2 light; high contrast draws it by its border alone,
-  // which a choice here has not, so its focus colour at .4
-  'inputOption.activeBackground': { dark: '#007FD466', light: '#0090F133', hcDark: '#F3851866', hcLight: '#006BBD66' },
-  'inputOption.activeForeground': { dark: '#FFFFFF', light: '#000000', hcDark: '#FFFFFF', hcLight: '#292929' },
+  'strongForeground': { dark: '#FFFFFF', light: '#000000', hcDark: '#FFFFFF', hcLight: '#000000' },
+  'foreground': { dark: '#CCCCCC', light: '#616161', hcDark: '#FFFFFF', hcLight: '#292929' },
+  'editor.foreground': { dark: '#BBBBBB', light: '#333333', hcDark: '#FFFFFF', hcLight: 'foreground' },
+  'descriptionForeground': { dark: ['transparent', 'foreground', 0.7], light: '#717171', hcDark: ['transparent', 'foreground', 0.7], hcLight: ['transparent', 'foreground', 0.7] },
   'focusBorder': { dark: '#007FD4', light: '#0090F1', hcDark: '#F38518', hcLight: '#006BBD' },
-  'editor.lineHighlightBorder': { dark: '#282828', light: '#EEEEEE', hcDark: '#F38518', hcLight: '#0F4A85' }
+  'editorError.foreground': { dark: '#F14C4C', light: '#E51400', hcDark: '#F48771', hcLight: '#B5200D' },
+  'dropdown.background': { dark: '#3C3C3C', light: '#FFFFFF', hcDark: '#000000', hcLight: '#FFFFFF' },
+  'menu.background': 'dropdown.background',
+  'dropdown.foreground': { dark: '#F0F0F0', light: 'foreground', hcDark: '#FFFFFF', hcLight: 'foreground' },
+  'menu.foreground': 'dropdown.foreground',
+  'list.activeSelectionBackground': { dark: '#04395E', light: '#0060C0', hcDark: null, hcLight: ['transparent', '#0F4A85', 0.1] },
+  'menu.selectionBackground': 'list.activeSelectionBackground',
+  'list.activeSelectionForeground': { dark: '#FFFFFF', light: '#FFFFFF', hcDark: null, hcLight: null },
+  'menu.selectionForeground': 'list.activeSelectionForeground',
+  'list.inactiveSelectionBackground': { dark: '#37373D', light: '#E4E6F1', hcDark: null, hcLight: ['transparent', '#0F4A85', 0.1] },
+  'sideBar.background': { dark: '#252526', light: '#F3F3F3', hcDark: '#000000', hcLight: '#FFFFFF' },
+  'editorGroupHeader.tabsBackground': { dark: '#252526', light: '#F3F3F3', hcDark: null, hcLight: null },
+  'tab.activeBackground': 'editor.background',
+  'tab.activeForeground': { dark: '#FFFFFF', light: '#333333', hcDark: '#FFFFFF', hcLight: '#292929' },
+  'tab.inactiveForeground': { dark: ['transparent', 'tab.activeForeground', 0.5], light: ['transparent', 'tab.activeForeground', 0.7], hcDark: '#FFFFFF', hcLight: '#292929' },
+  'button.background': { dark: '#0E639C', light: '#007ACC', hcDark: '#000000', hcLight: '#0F4A85' },
+  'button.foreground': '#FFFFFF',
+  'button.secondaryBackground': { dark: 'list.hoverBackground', light: 'list.hoverBackground', hcDark: null, hcLight: '#FFFFFF' },
+  'inputOption.activeForeground': { dark: '#FFFFFF', light: '#000000', hcDark: 'foreground', hcLight: 'foreground' },
+  'radio.activeForeground': 'inputOption.activeForeground',
+  'radio.inactiveBorder': { dark: ['transparent', 'radio.activeForeground', 0.2], light: ['transparent', 'radio.activeForeground', 0.2], hcDark: ['transparent', 'radio.activeForeground', 0.4], hcLight: ['transparent', 'radio.activeForeground', 0.2] },
+  'radio.inactiveBackground': null,
+  'inputOption.activeBackground': { dark: ['transparent', 'focusBorder', 0.4], light: ['transparent', 'focusBorder', 0.2], hcDark: '#00000000', hcLight: '#00000000' },
+  'radio.activeBackground': 'inputOption.activeBackground',
+  'scrollbarSlider.background': { dark: ['transparent', '#797979', 0.4], light: ['transparent', '#646464', 0.4], hcDark: ['transparent', 'contrastBorder', 0.6], hcLight: ['transparent', 'contrastBorder', 0.4] },
+  'editorWidget.background': { dark: '#252526', light: '#F3F3F3', hcDark: '#0C141F', hcLight: '#FFFFFF' },
+  'editorHoverWidget.background': 'editorWidget.background',
+  'editorCursor.foreground': { dark: '#AEAFAD', light: '#000000', hcDark: '#FFFFFF', hcLight: '#0F4A85' },
+  'editor.selectionBackground': { dark: '#264F78', light: '#ADD6FF', hcDark: '#f3f518', hcLight: '#0F4A85' },
+  'editor.inactiveSelectionBackground': { dark: ['transparent', 'editor.selectionBackground', 0.5], light: ['transparent', 'editor.selectionBackground', 0.5], hcDark: ['transparent', 'editor.selectionBackground', 0.7], hcLight: ['transparent', 'editor.selectionBackground', 0.5] },
+  'editor.rangeHighlightBackground': { dark: '#ffffff0b', light: '#fdff0033', hcDark: null, hcLight: null },
+  'editorWhitespace.foreground': { dark: '#e3e4e229', light: '#33333333', hcDark: '#e3e4e229', hcLight: '#CCCCCC' },
+  'editor.lineHighlightBackground': null,
+  'editorLineNumber.foreground': { dark: '#858585', light: '#237893', hcDark: '#FFFFFF', hcLight: '#292929' },
+  'editor.selectionHighlightBackground': { dark: ['lessProminent', 'editor.selectionBackground', 'editor.background', 0.3, 0.6], light: ['lessProminent', 'editor.selectionBackground', 'editor.background', 0.3, 0.6], hcDark: null, hcLight: null },
+  // the waveform, the text's colour; a selection on a spectrogram, the selection; the slab's shade at its foot, a key's
+  // lit edge and the shadow a key pressed in casts
+  'audio.waveform': 'editor.foreground',
+  'audio.spectrumSelectionBackground': 'editor.selectionBackground',
+  'audio.spectrumInactiveSelectionBackground': 'editor.inactiveSelectionBackground',
+  'audio.slabShade': 'editor.background',
+  'audio.keyHighlight': '#00000000',
+  'audio.keyShadow': '#00000000'
 }
-// The indent guides' colour falls back to the whitespace marks', as VS Code's does
-const FALLBACK = { 'editorIndentGuide.background1': 'editorIndentGuide.background', 'editorIndentGuide.background': 'editorWhitespace.foreground', 'editorLineNumber.activeForeground': 'editorActiveLineNumber.foreground' }
+
+// The skin's colours, each the VS Code colour of the same part (its id), or one made of them as the registry makes its
+// own (a transform), or a word's colour in the theme's rules (['scope', a word of SYNTAX]). Where two parts of the
+// editor are one part of VS Code's, they are one colour: what a theme can't tell apart, the skin doesn't either
+export const MAP = {
+  // the page round the slab, as VS Code's title bar, the menu bar's: its ground, its words, a menu or button pointed at
+  '--color-paper': 'titleBar.activeBackground',
+  '--color-ink': 'titleBar.activeForeground',
+  '--color-hover': ['oneOf', 'menubar.selectionBackground', 'list.hoverBackground'],
+  // the slab, an editor: its ground, shaded to its foot; its rim, an editor group's; the rules between its parts, a
+  // panel's border
+  '--color-screen': 'editor.background',
+  '--color-screen-low': 'audio.slabShade',
+  '--color-bezel': 'editorGroup.border',
+  '--color-screen-rule': 'panel.border',
+  // its words: strong, those pointed at or chosen; the editor's; softer (a panel's own words), a fifth of the way to the
+  // ground; a description's (what a control is, an icon at rest, what is not to be pressed)
+  '--color-screen-bright': 'strongForeground',
+  '--color-screen-ink': 'editor.foreground',
+  '--color-screen-soft': ['oklab', 'editor.foreground', 'editor.background', .19],
+  '--color-screen-muted': 'descriptionForeground',
+  // what an edit draws, its handles and curves, what is on, a focus: the workbench's focus colour; a problem, a clip, a
+  // recording, a measure: an error's
+  '--color-screen-accent': 'focusBorder',
+  '--color-screen-error': 'editorError.foreground',
+  // anything pointed at, a row, an icon, a tab: a list's row's; a field: an input's
+  '--color-screen-hover': 'list.hoverBackground',
+  '--color-screen-well': 'input.background',
+  // what floats over the slab, a menu (the menus, the palette, a select's list, the dropdown, the code's completions): a
+  // menu's, its row pointed at or the arrows' choice its selection; a tooltip, a hint: a hover's
+  '--color-menu': 'menu.background',
+  '--color-menu-select': ['oneOf', 'menu.selectionBackground', 'list.hoverBackground'],
+  '--color-menu-select-ink': ['oneOf', 'menu.selectionForeground', 'menu.foreground'],
+  '--color-tip': 'editorHoverWidget.background',
+  // a row chosen in a list (a step of the edits), the list not focused, as it most often is: an inactive selection's
+  '--color-list-select': ['oneOf', 'list.inactiveSelectionBackground', 'list.hoverBackground'],
+  // the panel, a sidebar's
+  '--color-side': 'sideBar.background',
+  // the open sounds, tabs: their row, the editor group's header; the one shown, the active tab, its words; the others'
+  '--color-tabs': 'editorGroupHeader.tabsBackground',
+  '--color-tab': 'tab.activeBackground',
+  '--color-tab-ink': 'tab.activeForeground',
+  '--color-tab-off-ink': 'tab.inactiveForeground',
+  // the act a part is for (Send, Search), a primary button; a lesser one, a card, a bubble, a code's well, secondary
+  '--color-button': 'button.background',
+  '--color-button-ink': 'button.foreground',
+  '--color-quiet': 'button.secondaryBackground',
+  // a switch, its choices joined, one on, as VS Code's radio buttons are: their border, a choice's ground, the one on
+  // and its words, then the bevel the skin's default gives them
+  '--key-bezel': 'radio.inactiveBorder',
+  '--key-face': 'radio.inactiveBackground',
+  '--key-pressed': 'radio.activeBackground',
+  '--key-pressed-ink': 'radio.activeForeground',
+  '--key-light': 'audio.keyHighlight',
+  '--key-shadow': 'audio.keyShadow',
+  // a scrollbar's thumb, the picture's and the page's, a slider's track
+  '--color-scroll': 'scrollbarSlider.background',
+  // the picture, a page of text: the caret, the cursor's; a selection, the selection's, behind the sound as behind text,
+  // the inactive one's while the picture is not focused (a range marked, pointed at, as a press would select it), on a
+  // spectrogram the same unless the theme gives one of its own; a
+  // range marked, the range highlight (high contrast has none: the selection faint); a marker, a markdown heading, as it
+  // names a section of the sound; the grid, the whitespace marks
+  '--color-screen-caret': 'editorCursor.foreground',
+  '--color-screen-select': 'editor.selectionBackground',
+  '--color-screen-select-inactive': 'editor.inactiveSelectionBackground',
+  '--color-screen-select-spectrum': 'audio.spectrumSelectionBackground',
+  '--color-screen-select-spectrum-inactive': 'audio.spectrumInactiveSelectionBackground',
+  '--color-screen-range': ['oneOf', 'editor.rangeHighlightBackground', ['transparent', 'editor.selectionBackground', .25]],
+  '--color-screen-mark': ['scope', 'heading'],
+  // the sound, the page's text: the text's colour, unless the theme gives the waveform its own
+  '--color-screen-wave': 'audio.waveform',
+  '--color-screen-grid': 'editorWhitespace.foreground',
+  // the script's caret's line; the line numbers, the picture's axes' numbers too; the selection's other matches
+  '--color-screen-line': 'editor.lineHighlightBackground',
+  '--color-screen-line-number': 'editorLineNumber.foreground',
+  '--color-screen-match': 'editor.selectionHighlightBackground',
+  // the script's words, as the theme colours them (SYNTAX)
+  '--color-screen-storage': ['scope', 'storage'],
+  '--color-screen-keyword': ['scope', 'keyword'],
+  '--color-screen-function': ['scope', 'function'],
+  '--color-screen-variable': ['scope', 'variable'],
+  '--color-screen-property': ['scope', 'property'],
+  '--color-screen-type': ['scope', 'type'],
+  '--color-screen-string': ['scope', 'string'],
+  '--color-screen-constant': ['scope', 'constant'],
+  '--color-screen-number': ['scope', 'number'],
+  '--color-screen-comment': ['scope', 'comment']
+}
 
 // The words of a script, each by the scopes VS Code's JavaScript grammar gives it, outermost first; and a markdown
 // heading's text, by its grammar's
@@ -54,7 +171,6 @@ const js = scope => ['source.js', scope]
 export const SYNTAX = {
   number: js('constant.numeric.decimal.js'),
   string: js('string.quoted.single.js'),
-  regexp: js('string.regexp.js'),
   constant: js('constant.language.boolean.true.js'),
   storage: js('storage.type.js'),
   keyword: js('keyword.control.flow.js'),
@@ -107,7 +223,7 @@ const kindOf = type => ({ dark: 'dark', 'vs-dark': 'dark', light: 'light', vs: '
 export function webview(doc = document) {
   const style = getComputedStyle(doc.documentElement), cls = doc.body.classList
   if (!style.getPropertyValue('--vscode-editor-background')) return null
-  const keys = [...Object.keys(DEFAULTS), ...Object.keys(FALLBACK), 'editor.lineHighlightBackground', 'editor.inactiveSelectionBackground', 'editor.selectionHighlightBackground', 'editorBracketMatch.background', 'input.placeholderForeground']
+  const keys = Object.keys(REGISTRY).filter(k => !k.startsWith('audio.'))
   const two = v => Math.round(Math.min(255, Math.max(0, v))).toString(16).padStart(2, '0')
   const read = v => { const m = /^rgba\((\d+), *(\d+), *(\d+), *([\d.]+)\)$/.exec(v); return m ? '#' + [m[1], m[2], m[3]].map(c => two(+c)).join('') + two(m[4] * 255) : v }
   const colors = Object.fromEntries(keys.map(k => [k, read(style.getPropertyValue(`--vscode-${k.replace(/\./g, '-')}`).trim())]).filter(([, v]) => v))
@@ -122,14 +238,81 @@ export function hex(c) {
   const h = m[1].length < 5 ? [...m[1]].map(d => d + d).join('') : m[1]
   return [0, 2, 4, 6].map(i => i < h.length ? parseInt(h.slice(i, i + 2), 16) / 255 : 1)
 }
-const css = ([r, g, b, a = 1]) => `rgb(${[r, g, b].map(v => Math.round(v * 255)).join(' ')}${a < 1 ? ` / ${+a.toFixed(3)}` : ''})`
-// `p` of the way from one opaque colour to another, in OKLab (CSS Color 4 §12.3's color-mix default space), opaque
+// `p` of the way from one opaque colour to another, [r, g, b, a] 0..1, in OKLab (CSS Color 4 §12.3's color-mix default
+// space), opaque
 const decode = v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4
 const mix = (a, b, p) => { const x = oklab(a.map(decode)), y = oklab(b.map(decode)); return [...srgb(x.map((v, i) => v + p * (y[i] - v))), 1] }
-// a colour's own, at most `a` opaque
-const clear = (c, a) => [c[0], c[1], c[2], Math.min(c[3], a)]
-// a colour over the screen, opaque
-const over = (c, bg) => [...c.slice(0, 3).map((v, i) => bg[i] + c[3] * (v - bg[i])), 1]
+
+// VS Code's Color (src/vs/base/common/color.ts) as its registry's transforms take one: { r, g, b, a }, r, g, b whole
+// 0..255, a to three places; one made from HSL keeping it, `hsl`, as VS Code's keeps the HSLA it was made from
+const r3 = v => Math.round(v * 1e3) / 1e3, unit = v => Math.max(Math.min(1, v), 0)
+const rgb = (r, g, b, a = 1) => ({ r: Math.min(255, Math.max(0, r)) | 0, g: Math.min(255, Math.max(0, g)) | 0, b: Math.min(255, Math.max(0, b)) | 0, a: r3(unit(a)) })
+const hslOf = (h, s, l, a) => ({ h: Math.max(Math.min(360, h), 0) | 0, s: r3(unit(s)), l: r3(unit(l)), a: r3(unit(a)) })
+function hsl(c) {
+  if (c.hsl) return c.hsl
+  const r = c.r / 255, g = c.g / 255, b = c.b / 255, max = Math.max(r, g, b), min = Math.min(r, g, b), l = (min + max) / 2, d = max - min
+  let h = 0, s = 0
+  if (d > 0) {
+    s = Math.min(l <= .5 ? d / (2 * l) : d / (2 - 2 * l), 1)
+    h = Math.round((max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4) * 60)
+  }
+  return hslOf(h, s, l, c.a)
+}
+const tone = (p, q, t) => { t = t < 0 ? t + 1 : t > 1 ? t - 1 : t; return t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p }
+function fromHsl(x) {
+  const { h, s, l, a } = x, k = h / 360, q = l < .5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q
+  const [r, g, b] = s === 0 ? [l, l, l] : [tone(p, q, k + 1 / 3), tone(p, q, k), tone(p, q, k - 1 / 3)]
+  return { ...rgb(Math.round(r * 255), Math.round(g * 255), Math.round(b * 255), a), hsl: x }
+}
+const lighten = (c, f) => { const x = hsl(c); return fromHsl(hslOf(x.h, x.s, x.l + x.l * f, x.a)) }
+const darken = (c, f) => { const x = hsl(c); return fromHsl(hslOf(x.h, x.s, x.l - x.l * f, x.a)) }
+const fade = (c, f) => rgb(c.r, c.g, c.b, c.a * f)
+const luminance = c => { const y = v => (v /= 255) <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; return Math.round((.2126 * y(c.r) + .7152 * y(c.g) + .0722 * y(c.b)) * 1e4) / 1e4 }
+const lighter = (c, of, f) => { if (luminance(c) > luminance(of)) return c; f ||= .5; return lighten(c, f * (luminance(of) - luminance(c)) / luminance(of)) }
+const darker = (c, of, f) => { if (luminance(c) < luminance(of)) return c; f ||= .5; return darken(c, f * (luminance(c) - luminance(of)) / luminance(c)) }
+// a theme's colour (hex), as VS Code's
+const colorOf = c => { const v = hex(c); return v && rgb(...v.slice(0, 3).map(x => Math.round(x * 255)), v[3]) }
+// to [r, g, b, a] 0..1 and back; a colour as CSS
+const unitOf = c => [c.r / 255, c.g / 255, c.b / 255, c.a], ofUnit = v => rgb(...v.slice(0, 3).map(x => Math.round(x * 255)), v[3] ?? 1)
+const css = c => c ? `rgb(${c.r} ${c.g} ${c.b}${c.a < 1 ? ` / ${c.a}` : ''})` : 'transparent'
+// a colour over another, opaque
+const over = (c, bg) => c.a === 1 || bg.a !== 1 ? c : rgb(bg.r - c.a * (bg.r - c.r), bg.g - c.a * (bg.g - c.g), bg.b - c.a * (bg.b - c.b), 1)
+
+// A theme's colours as VS Code resolves them (colorRegistry.ts resolveColorValue, executeTransform): an id its theme's
+// own, else its default for the theme's kind (`registry`, REGISTRY or all of VS Code's: themes/vscode-colors.json); a
+// transform made of those; a word's colour, the rules'. `colors`, the theme's by id; undefined where there is none
+export function resolver({ kind, colors = {}, tokenColors = [] }, registry = REGISTRY) {
+  const words = colourer(tokenColors), memo = new Map()
+  const color = id => {
+    if (!memo.has(id)) { memo.set(id, undefined); memo.set(id, colorOf(colors[id]) ?? value(registry[id])) }
+    return memo.get(id)
+  }
+  const value = v => {
+    if (v == null) return undefined
+    if (typeof v === 'string') return v[0] === '#' ? colorOf(v) : color(v)
+    if (!Array.isArray(v)) return value(v[kind])
+    const [op, x, y, f, t] = v
+    switch (op) {
+      case 'transparent': { const c = value(x); return c && fade(c, y) }
+      case 'lighten': { const c = value(x); return c && lighten(c, y) }
+      case 'darken': { const c = value(x); return c && darken(c, y) }
+      case 'opaque': { const c = value(x), bg = value(y); return c && bg ? over(c, bg) : c }
+      case 'oneOf': return v.slice(1).reduce((c, w) => c ?? value(w), undefined)
+      case 'mix': { const a = value(x) ?? rgb(0, 0, 0, 0), b = value(y) ?? rgb(0, 0, 0, 0), p = unit(f); return rgb(a.r + (b.r - a.r) * p, a.g + (b.g - a.g) * p, a.b + (b.b - a.b) * p, a.a + (b.a - a.a) * p) }
+      case 'lessProminent': {
+        const c = value(x), bg = value(y)
+        return !c ? undefined : !bg ? fade(c, f * t) : fade(luminance(c) < luminance(bg) ? lighter(c, bg, f) : darker(c, bg, f), t)
+      }
+      // the skin's own: `f` of the way from one to the other in OKLab, each opaque over the screen; a word's colour, the
+      // foreground's where no rule colours it, opaque over the screen, as text is drawn
+      case 'oklab': { const bg = screen(), a = value(x), b = value(y); return a && b ? ofUnit(mix(unitOf(over(a, bg)), unitOf(over(b, bg)), f)) : a ?? b }
+      case 'scope': { const c = words(SYNTAX[x]); return over(c ? ofUnit(c) : color('editor.foreground'), screen()) }
+    }
+    throw new Error(`no colour transform ${op}`)
+  }
+  const screen = () => over(color('editor.background'), rgb(0, 0, 0))
+  return value
+}
 
 // The rules' colour for a scope: of the selectors matching it (a selector matches the scope it names and those under
 // it, `keyword` matches `keyword.control.js`), the one naming the most of it, the later of two alike, as TextMate
@@ -162,63 +345,23 @@ export function colourer(rules) {
   return stack => { for (let i = stack.length - 1; i >= 0; i--) { const c = rule(stack[i], stack.slice(0, i)); if (c) return c } return null }
 }
 
-// The skin's colours (skin.css's tokens, CSS colours) from a theme: { '--color-screen': …, … }
-export function skin({ kind = null, colors = {}, tokenColors = [] }) {
-  // the rules without a scope set the foreground and background, as a tmTheme's first does
+// The skin's colours (skin.css's tokens, CSS colours) from a theme: { '--color-screen': …, … }, each its part's (MAP,
+// or `map` in its place, read by `registry`), then the channels' hues. The rules without a scope set the foreground and background where
+// the colours don't, as a tmTheme's first does; a theme of no kind, light or dark by its background
+export function skin({ kind = null, colors = {}, tokenColors = [] }, map = MAP, registry = REGISTRY) {
   const global = tokenColors.find(r => r && r.scope == null)?.settings ?? {}
-  const own = key => hex(colors[key]) ?? (FALLBACK[key] ? own(FALLBACK[key]) : null)
-  const bg0 = hex(colors['editor.background']) ?? hex(global.background)
+  colors = { ...hex(global.background) && { 'editor.background': global.background }, ...hex(global.foreground) && { 'editor.foreground': global.foreground }, ...colors }
+  const bg0 = hex(colors['editor.background'])
   kind ??= bg0 ? (lightness(bg0) > .5 ? 'light' : 'dark') : 'dark'
-  const get = key => own(key) ?? hex(DEFAULTS[key]?.[kind]) ?? (FALLBACK[key] && get(FALLBACK[key]))
-  const bg = over(bg0 ?? get('editor.background'), [0, 0, 0]), fg = over(hex(colors['editor.foreground']) ?? hex(global.foreground) ?? get('editor.foreground'), bg)
-  const far = lightness(bg) < .5 ? [1, 1, 1, 1] : [0, 0, 0, 1]
-  const colour = colourer(tokenColors), word = Object.fromEntries(Object.entries(SYNTAX).map(([k, stack]) => [k, colour(stack) ?? fg]))
-  // in high contrast a group's border is the theme's contrast border, as VS Code's is
-  const bezel = over(own('editorGroup.border') ?? (kind.startsWith('hc') ? own('contrastBorder') : null) ?? get('editorGroup.border'), bg), input = over(get('input.background'), bg)
-  const step = p => css(mix(fg, bg, p)), space = get('editorWhitespace.foreground')
-  // the selections, as VS Code draws them behind text, over the screen; the inactive one, where a theme gives none, the
-  // active at half, as VS Code's default is (at .7 in high contrast dark)
-  const active = get('editor.selectionBackground'), select = over(active, bg)
-  const idle = over(own('editor.inactiveSelectionBackground') ?? clear(active, active[3] * (kind === 'hcDark' ? .7 : .5)), bg)
-  // the channels' hues: the words' colours, each apart from those before it and from the screen
-  const apart = (a, b) => { const x = oklab(a.map(decode)), y = oklab(b.map(decode)); return Math.hypot(...x.map((v, i) => v - y[i])) > .08 }
+  const value = resolver({ kind, colors, tokenColors }, registry), bg = unitOf(value(['opaque', 'editor.background', '#000000']))
+  // the channels' hues: the text's, then the words' where they are hues (a grey is none: a theme of greys leaves the
+  // channels the even round), each apart from those before it and from the screen
+  const lab = c => oklab(c.map(decode)), apart = (a, b) => Math.hypot(...lab(a).map((v, i) => v - lab(b)[i])) > .08, hued = c => Math.hypot(...lab(c).slice(1)) > .04
   const hues = []
-  for (const c of [fg, ...CHANNELS.map(k => over(word[k], bg))]) if (apart(c, bg) && hues.every(h => apart(c, h))) hues.push(c)
+  for (const c of [['opaque', 'editor.foreground', ['opaque', 'editor.background', '#000000']], ...CHANNELS.map(k => ['scope', k])].map(w => unitOf(value(w)))) if ((!hues.length || hued(c)) && apart(c, bg) && hues.every(h => apart(c, h))) hues.push(c)
   return {
-    '--color-screen': css(bg), '--color-screen-low': css(bg), '--color-scanline': 'transparent',
-    '--color-screen-raised': css(over(get('editorWidget.background'), bg)),
-    '--color-screen-pill': css(bg), '--color-screen-pill-hover': css(over(get('editorWidget.background'), bg)),
-    '--color-screen-pill-active': step(.82), '--color-screen-hover': step(.88),
-    // what lifts off the screen (skin.css's fills), the foreground, as white lifts off the default's black
-    '--color-screen-lift': css(fg), '--color-screen-edge': css(clear(fg, .16)),
-    '--color-screen-bright': css(mix(fg, far, .5)), '--color-screen-ink': css(fg),
-    '--color-screen-soft': step(.15), '--color-screen-muted': step(.3), '--color-screen-dim': step(.42), '--color-screen-placeholder': step(.5),
-    '--color-screen-rule': css(over(get('editorRuler.foreground'), bg)),
-    '--color-screen-ruler': css(over(get('editorLineNumber.foreground'), bg)),
-    '--color-screen-line-number': css(over(get('editorLineNumber.foreground'), bg)),
-    '--color-screen-line-number-active': css(over(get('editorLineNumber.activeForeground'), bg)),
-    // the grid's dots twice its crosses' opacity, as the default's are
-    '--color-screen-grid': css(space), '--color-screen-grid-dot': css([...space.slice(0, 3), Math.min(1, space[3] * 2)]),
-    '--color-screen-grid-line': css(get('editorIndentGuide.background1')),
-    '--color-screen-caret': css(get('editorCursor.foreground')),
-    '--color-screen-select': css(select), '--color-screen-select-spectrum': css(select),
-    '--color-screen-select-inactive': css(idle), '--color-screen-select-spectrum-inactive': css(idle),
-    '--color-screen-error': css(over(get('editorError.foreground'), bg)), '--color-screen-record': css(over(get('editorError.foreground'), bg)),
-    '--color-screen-wave': css(fg), '--color-screen-spectrum': css(fg),
-    '--color-bezel': css(bezel),
-    '--color-screen-accent': css(over(get('focusBorder'), bg)),
-    '--color-screen-mark': css(over(word.heading, bg)), '--color-screen-mark-name': css(over(word.heading, bg)),
-    '--color-notch': css(bg), '--color-screen-text': css(fg),
-    '--color-screen-well': css(input), '--key-face': css(input), '--key-bezel': css(bezel), '--key-seam': css(bezel),
-    '--key-pressed': css(over(get('inputOption.activeBackground'), input)), '--key-pressed-ink': css(over(get('inputOption.activeForeground'), input)),
-    '--key-light': 'transparent', '--key-bezel-light': 'transparent', '--key-pressed-shadow': 'transparent',
-    '--color-screen-line': css(hex(colors['editor.lineHighlightBackground']) ?? [0, 0, 0, 0]),
-    '--color-screen-line-border': css(get('editor.lineHighlightBorder')),
-    '--color-screen-selection': css(select), '--color-screen-selection-inactive': css(idle),
-    '--color-screen-match': css(hex(colors['editor.selectionHighlightBackground']) ?? clear(select, .5)),
-    '--color-screen-bracket': css(hex(colors['editorBracketMatch.background']) ?? clear(fg, .1)),
-    ...Object.fromEntries(Object.entries(word).map(([k, c]) => [`--color-screen-${k}`, css(over(c, bg))])),
-    ...Object.fromEntries(hues.map((c, i) => [`--color-screen-channel-${i + 1}`, css(c)]))
+    ...Object.fromEntries(Object.entries(map).map(([k, v]) => [k, css(value(v))])),
+    ...Object.fromEntries(hues.map((c, i) => [`--color-screen-channel-${i + 1}`, css(ofUnit(c))]))
   }
 }
 

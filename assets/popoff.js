@@ -2,7 +2,8 @@
 // The markup says what is what; popoff adds what the platform leaves to each page:
 //   title="Name (⌘K)\nWhat it does"    a tooltip: its name, its keys softer, a line of what it does, a tip pointing at it
 //   [popover][data-place="bottom start"] the popover by what opened it: CSS anchor positioning (position-area, flipped
-//                                       by position-try-fallbacks) where the browser has it, measured where it hasn't
+//                                       by position-try-fallbacks) where the browser has it, measured where it hasn't;
+//                                       a tooltip's (role="tooltip"), the tag's tip pointing at it
 //   interestfor="id"                    the popover shown while its invoker is pointed at or focused: a hover card
 //   <dialog closedby="any">             a press on the backdrop closes it, where the browser doesn't yet
 // One set of listeners on the root, nothing per element; a place measured only as something shows.
@@ -22,28 +23,33 @@ export function parse(text) {
   return { name, keys, body: body && body[0].toUpperCase() + body.slice(1) }
 }
 
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
 // Puts `el` (fixed) by `anchor` (an element or a rect) on `side` (top, bottom, left, right), aligned to its start,
-// center or end; on the other side where this one has no room; slid along to stay `edge` px inside the window. The
-// middle of the anchor along that side goes to --popoff-arrow, the side to data-side, for a tip to point. Returns the side
+// center or end; on the other side where this one has no room; slid along to stay `edge` px inside the window; its tip
+// aimed (aim). Returns the side
 export function place(el, anchor, { side = 'bottom', align = 'center', gap = 8, edge = 8 } = {}) {
   const a = anchor.getBoundingClientRect?.() ?? anchor, w = el.offsetWidth, h = el.offsetHeight, W = innerWidth, H = innerHeight
   const flip = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' }
   const room = s => s === 'top' ? a.top - gap - h >= edge : s === 'bottom' ? a.bottom + gap + h <= H - edge : s === 'left' ? a.left - gap - w >= edge : a.right + gap + w <= W - edge
   if (!room(side) && room(flip[side])) side = flip[side]
-  const across = side === 'top' || side === 'bottom', clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
   let x, y
-  if (across) {
+  if (side === 'top' || side === 'bottom') {
     x = clamp(align === 'start' ? a.left : align === 'end' ? a.right - w : a.left + a.width / 2 - w / 2, edge, W - edge - w)
     y = side === 'top' ? a.top - gap - h : a.bottom + gap
   } else {
     y = clamp(align === 'start' ? a.top : align === 'end' ? a.bottom - h : a.top + a.height / 2 - h / 2, edge, H - edge - h)
     x = side === 'left' ? a.left - gap - w : a.right + gap
   }
-  const arrow = across ? clamp(a.left + a.width / 2 - x, 10, w - 10) : clamp(a.top + a.height / 2 - y, 10, h - 10)
   Object.assign(el.style, { position: 'fixed', inset: 'auto', margin: '0', left: `${Math.round(x)}px`, top: `${Math.round(y)}px` })
-  el.style.setProperty('--popoff-arrow', `${Math.round(arrow)}px`)
-  el.dataset.side = side
+  aim(el, a, side, x, y, w, h)
   return side
+}
+// `el`, its box at x, y, w by h, on `side` of rect `a`: the side to data-side, the middle of `a` along it to
+// --popoff-arrow (10 px clear of its corners), for a tip to point
+function aim(el, a, side, x, y, w, h) {
+  const across = side === 'top' || side === 'bottom'
+  el.style.setProperty('--popoff-arrow', `${Math.round(across ? clamp(a.left + a.width / 2 - x, 10, w - 10) : clamp(a.top + a.height / 2 - y, 10, h - 10))}px`)
+  el.dataset.side = side
 }
 
 // data-place as CSS anchor positioning says it: the side, the anchor's edge it lines up with (start, the side's
@@ -55,16 +61,18 @@ const AREA = {
   left: { start: 'left span-bottom', center: 'left', end: 'left span-top' }
 }
 
-// The look, every value a variable to set: a dark tag, as tooltips go, its tip the same. Specific enough that a page's
-// own [popover] rules don't reach it: a page restyles it through the variables, or styles it all itself (style: false)
-const T = `[popover].${TIP}`
+// The look, every value a variable to set: a dark tag, as tooltips go, its tip the same; that tip on every tooltip
+// placed (role="tooltip", data-side), a page's own in its own colour. Specific enough that a page's own [popover] rules
+// don't reach it: a page restyles it through the variables, or styles it all itself (style: false)
+const T = `[popover].${TIP}`, A = '[popover][role=tooltip][data-side]'
 const STYLE = `
 ${T} { position: fixed; inset: auto; width: auto; height: auto; margin: 0; max-width: min(280px, calc(100vw - 16px)); padding: 5px 8px 6px; overflow: visible; border: 0; border-radius: var(--popoff-radius, 6px); background: var(--popoff-bg, #1e1e1e); box-shadow: none; color: var(--popoff-soft, #ffffffb3); filter: var(--popoff-shadow, drop-shadow(0 0 .5px #0006) drop-shadow(0 3px 8px #0004)); font: var(--popoff-font, 11.5px/16px system-ui, sans-serif); text-align: left; pointer-events: none; animation: popoff-in var(--popoff-fade, 90ms) ease-out; }
-${T}::before { content: ''; position: absolute; width: 8px; height: 8px; background: inherit; rotate: 45deg; }
-${T}[data-side=bottom]::before { top: -3px; left: calc(var(--popoff-arrow) - 4px); }
-${T}[data-side=top]::before { bottom: -3px; left: calc(var(--popoff-arrow) - 4px); }
-${T}[data-side=right]::before { left: -3px; top: calc(var(--popoff-arrow) - 4px); }
-${T}[data-side=left]::before { right: -3px; top: calc(var(--popoff-arrow) - 4px); }
+${A} { overflow: visible; }
+${A}::before { content: ''; position: absolute; width: 8px; height: 8px; background: inherit; rotate: 45deg; }
+${A}[data-side=bottom]::before { top: -3px; left: calc(var(--popoff-arrow) - 4px); }
+${A}[data-side=top]::before { bottom: -3px; left: calc(var(--popoff-arrow) - 4px); }
+${A}[data-side=right]::before { left: -3px; top: calc(var(--popoff-arrow) - 4px); }
+${A}[data-side=left]::before { right: -3px; top: calc(var(--popoff-arrow) - 4px); }
 ${T} p { position: relative; margin: 0; padding: 0; color: inherit; font: inherit; }
 ${T} .${TIP}-head { display: flex; align-items: baseline; gap: 10px; color: var(--popoff-ink, #fff); font-weight: 500; }
 ${T} .${TIP}-keys { margin-left: auto; padding: 0; border: 0; background: none; color: var(--popoff-muted, #ffffff80); font: var(--popoff-keys-font, inherit); font-weight: 400; white-space: nowrap; }
@@ -114,8 +122,10 @@ export default function popoff(root = document, { delay = 500, hide = 300, gap =
   const watch = new win.MutationObserver(() => { if (target && take(target) && open(tip)) show() })
   const take = t => { const text = t.getAttribute('title'); if (text == null) return false; t.dataset.tip = text; t.removeAttribute('title'); return true }
   const give = t => { if (t.dataset.tip == null) return; t.setAttribute('title', t.dataset.tip); delete t.dataset.tip }
-  // what it opens is open: its menu (aria-expanded), its popover, its hover card, or another of its menubar's
-  const muted = t => t.getAttribute('aria-expanded') === 'true' || open(t.popoverTargetElement) || open(cardOf(t)) || !!t.closest('[role=menubar]')?.querySelector('[aria-expanded=true]')
+  // what it opens is open: its menu (aria-expanded), its popover, or another of its menubar's; for its tooltip, its
+  // hover card too
+  const busy = t => t.getAttribute('aria-expanded') === 'true' || open(t.popoverTargetElement) || !!t.closest('[role=menubar]')?.querySelector('[aria-expanded=true]')
+  const muted = t => busy(t) || open(cardOf(t))
   const cardOf = i => i.hasAttribute('interestfor') ? i.interestForElement ?? doc.getElementById(i.getAttribute('interestfor')) : null
   function enter(t) {
     if (t === target) return
@@ -179,24 +189,38 @@ export default function popoff(root = document, { delay = 500, hide = 300, gap =
   }
 
   // ── Placed popovers: data-place ("bottom start", "top", "right end"…) by what opened it. Where the browser has anchor
-  // positioning, said as CSS (position-anchor, position-area, flipped by position-try-fallbacks) and left to it; else
-  // measured as it opens and as the page scrolls or resizes
+  // positioning, said as CSS (position-anchor, position-area, flipped by position-try-fallbacks) as it is about to
+  // show, so its first frame is in place, and left to it; else measured as it opens. Either way, once shown and as the
+  // page scrolls or resizes, the side it took and its anchor's middle, for a tip (aim)
   const anchored = win.CSS?.supports?.('position-area: bottom') ?? false
   const invokers = new WeakMap(), placed = new Set()
   let frame = 0
   const anchorOf = p => invokers.get(p) ?? (p.id ? doc.querySelector(`[popovertarget="${CSS.escape(p.id)}"], [interestfor="${CSS.escape(p.id)}"]`) : null)
-  function settle(p) {
-    const a = anchorOf(p), [side = 'bottom', align = 'start'] = (p.dataset.place || '').split(/[\s-]+/).filter(Boolean)
+  const where = p => { const [side = 'bottom', align = 'start'] = (p.dataset.place || '').split(/[\s-]+/).filter(Boolean); return { a: anchorOf(p), side, align } }
+  function pin(p) {
+    const { a, side, align } = where(p)
     if (!a?.isConnected) return
-    if (!anchored) return place(p, a, { side, align, gap, edge })
     // the anchor named on its invoker, once, a name of its own
     const name = a.style.getPropertyValue('anchor-name') || `--popoff-${++anchors}`
     a.style.setProperty('anchor-name', name)
     Object.assign(p.style, { positionAnchor: name, positionArea: AREA[side]?.[align] ?? AREA.bottom.start, positionTryFallbacks: 'flip-block, flip-inline', inset: 'auto', margin: side === 'top' || side === 'bottom' ? `${gap}px 0` : `0 ${gap}px` })
-    p.dataset.side = side
   }
-  const follow = () => { if (!anchored && placed.size) frame ||= requestAnimationFrame(() => { frame = 0; placed.forEach(settle) }) }
+  function settle(p) {
+    const { a, side, align } = where(p)
+    if (!a?.isConnected) return
+    if (!anchored) return place(p, a, { side, align, gap, edge })
+    // where the browser put it: flipped, on the other side
+    const r = p.getBoundingClientRect(), b = a.getBoundingClientRect()
+    aim(p, b, side === 'top' || side === 'bottom' ? (r.top + r.bottom < b.top + b.bottom ? 'top' : 'bottom') : (r.left + r.right < b.left + b.right ? 'left' : 'right'), r.left, r.top, r.width, r.height)
+  }
+  const follow = () => { if (placed.size) frame ||= requestAnimationFrame(() => { frame = 0; placed.forEach(settle) }) }
   listen(root, 'click', e => { const i = e.target.closest?.('[popovertarget]'); if (i?.popoverTargetElement) invokers.set(i.popoverTargetElement, i) })
+  // about to show: what shows it, where the browser says (an interest invoker, showPopover({ source })); placed, as CSS
+  listen(root, 'beforetoggle', e => {
+    if (e.newState !== 'open') return
+    if (e.source) invokers.set(e.target, e.source)
+    if (anchored && e.target.hasAttribute?.('data-place')) pin(e.target)
+  })
   listen(root, 'toggle', e => {
     const p = e.target
     if (p === tip) return
@@ -208,9 +232,19 @@ export default function popoff(root = document, { delay = 500, hide = 300, gap =
   listen(win, 'scroll', follow, { capture: true, passive: true })
   listen(win, 'resize', follow, { passive: true })
 
-  // ── Hover cards (interestfor), where the browser has no interest invokers: the popover shows once its invoker has
-  // been pointed at or focused `delay` ms, and goes `hide` ms after the pointer or the focus has left both
-  if (!('interestForElement' in win.HTMLElement.prototype)) {
+  // ── Hover cards (interestfor), the browser's own or popoff's, as a tooltip: none after a press on its invoker till the
+  // pointer leaves; none while what its invoker opens, but the card, is open (over its own menu)
+  let held = null
+  const away = c => { const i = invokers.get(c); return !!i && cardOf(i) === c && (i === held || i.popoverTargetElement !== c && busy(i)) }
+  listen(root, 'beforetoggle', e => { if (e.newState === 'open' && away(e.target)) e.preventDefault() })
+  // a popover opened, by a click, a key or a script: the hover card of what opened it goes
+  listen(root, 'toggle', e => { if (e.newState === 'open') for (const c of root.querySelectorAll(':popover-open')) if (c !== e.target && away(c)) c.hidePopover() })
+  listen(root, 'pointerdown', e => { held = e.target.closest?.('[interestfor]') ?? null; const c = held && cardOf(held); if (open(c)) c.hidePopover() })
+  listen(root, 'pointerout', e => { if (!held?.contains(e.relatedTarget)) held = null })
+  // where the browser has no interest invokers (Chromium has them on its buttons and links, not on every element): the
+  // popover shows once its invoker has been pointed at or focused `delay` ms, and goes `hide` ms after the pointer or
+  // the focus has left both
+  if (!('interestForElement' in win.HTMLButtonElement.prototype)) {
     let card = null, by = null, wait = 0
     const near = t => !!t && (card?.contains(t) || by?.contains(t))
     const go = () => { clearTimeout(wait); wait = setTimeout(() => { if (open(card)) card.hidePopover(); card = by = null }, hide) }

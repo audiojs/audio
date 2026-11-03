@@ -23,7 +23,7 @@ const WORKER = new URL('./dist/worker.js', import.meta.url)
 // a Stop, holds it up. Each sound goes to it once, a copy, by key; the last KEPT stay, the one playing and the one taking
 // over from it
 const KEPT = 2
-// The worker set off as the page starts (start, playground.html), its library and chunks loading while the page's own
+// The worker set off as the page starts (start, index.html), its library and chunks loading while the page's own
 // scripts still arrive; the first engine() takes it, unless it already failed to load
 let early = null
 export function start() {
@@ -197,6 +197,8 @@ export default function engine(url = WORKER) {
       return call({ type: 'file', name, data })
     },
     has: name => files.has(name),
+    // files' lengths, s, null where one won't open
+    lengths: names => call({ type: 'lengths', names }).then(r => r.lengths ?? names.map(() => null)),
     get names() { return [...files.keys()] },
     // Runs a prepared script, its output streaming to `on`; a newer run() of its tab before it starts supersedes it,
     // resolving the older one with { skipped }.
@@ -253,13 +255,15 @@ export default function engine(url = WORKER) {
     // The worker replaced, all it kept gone: set by the page
     onrestart: null,
     // an output's cues (`kind`: the edges of its pauses, or its hits) and pitch, named by the run that made it, or one of
-    // its tracks' (`track`, its index); cues [{ t, rank }] (a hit's rank how far it jumps, dB; an edge's none), null once
-    // a newer output replaced it
-    cues: (output, kind, track) => call({ type: 'cues', output, kind, track }).then(r => r.times?.map((t, i) => ({ t, rank: r.ranks?.[i] ?? Infinity })) ?? null),
+    // its tracks' (`track`, its index); cues [{ t, rank }] (how far the level steps across a hit, dB: fn/hits.js
+    // plainness; an edge's Infinity), null once a newer output replaced it
+    cues: (output, kind, track) => call({ type: 'cues', output, kind, track }).then(r => r.times?.map((t, i) => ({ t, rank: r.ranks[i], kind: r.kinds?.[i] })) ?? null),
     contour: (output, track) => call({ type: 'contour', output, track }).then(r => r.f0 ? r : { times: [], f0: [] }),
+    // its notes, a voice's, as the notes view shows them (worker.js notes), or a track's; [] where none are found
+    notes: (output, track) => call({ type: 'notes', output, track }).then(r => r.notes ?? []),
     // what it holds, as a musician says it: the note over `note` [from, to] s, the tempo and key over `span`
-    listen: (output, note, span) => call({ type: 'listen', output, note, span }),
-    chords: (output, at) => call({ type: 'chords', output, at }),
+    listen: (output, note, span, track) => call({ type: 'listen', output, note, span, track }),
+    chords: (output, at, track) => call({ type: 'chords', output, at, track }),
     // [at, at + duration] s of an output as WAV bytes, at `bitDepth`; null once a newer output replaced it
     wav: (output, at, duration, bitDepth) => call({ type: 'wav', output, at, duration, bitDepth }).then(r => r.bytes ?? null),
     export: request => call({ type: 'export', ...request, tab: self.tab }),
@@ -294,6 +298,9 @@ export default function engine(url = WORKER) {
     // Samples [from, to) of an output, each channel's (with tracks, each track's lane, or `mix` their mix); null once a
     // newer output replaced it
     samples: (output, from, to, mix = false) => call({ type: 'samples', output, from, to, mix }).then(r => r.channels ?? null),
+    // An output's levels as heard, weighted 'a' or 'k' (worker.js levelsHeard): gl-waveform's leaves, each channel's (with
+    // tracks, each track's lane); null once a newer output replaced it
+    heard: (output, weighting) => call({ type: 'heard', output, weighting }).then(r => r.leaves ?? null),
     // A sound arriving that the page draws as it comes (its key, its rate, its channels' count), to play as far as it has
     // come: its pieces pushed to the deck in order, a voice of it then { held: { key } }
     arrive: (key, sampleRate, count) => deck.arrive(key, sampleRate, count),

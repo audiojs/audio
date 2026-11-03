@@ -464,6 +464,9 @@ export const texts = {
     music: 'pass leaves music as it is, songs included, and takes the room off speech alone; a voice over a music bed counts as speech, and the bed goes with the room. enhance takes everything it hears that is not a voice.',
     method: 'roformer is a trained model: it takes the whole room, and downloads once (60 MB). wpe needs no model: it takes about 6 dB of the late echo, and leaves a dry take or music as it came.'
   },
+  restore: {
+    strength: 'How much of the model\'s take: 1 is the model\'s alone, lower mixes the take as it came back in, where a damaged sound is better than an invented one.'
+  },
   vocos: {
     crossover: 'Above this frequency, in Hz, the sound is kept as it came: the vocoder makes nothing above 12 kHz. Written as 0 in the script, the vocoder\'s alone, its top cut off.'
   },
@@ -518,6 +521,17 @@ export const texts = {
   },
   intonation: {
     factor: 'How far the voice\'s pitch strays from its middle, as a multiple: 1 leaves it, 0 is a monotone, 2 makes every rise and fall twice as wide.'
+  },
+  modulation: {
+    factor: 'How wide each note\'s vibrato and wobble swing about its own slow line, as a multiple: 1 leaves it, 0 makes a smooth line, 2 swings twice as wide, -1 turns it over.'
+  },
+  drift: {
+    factor: 'How far each note\'s slow line wanders from its centre, as a multiple: 1 leaves it, 0 holds the note at its centre with its vibrato, 2 wanders twice as far.'
+  },
+  center: {
+    factor: 'How far each note\'s centre stays from its note, as a multiple: 1 leaves it, 0 puts it on the note, 0.5 half way. What moves inside the note stays.',
+    scale: 'Which notes a centre may land on. chromatic is every note; the others restrict it to that scale around the root.',
+    root: 'The note the scale starts on, in semitones up from C: 0 is C, 2 is D, 7 is G, 9 is A. Not used by the chromatic scale.'
   },
   formant: {
     semitones: 'How far the formants move, in semitones, the pitch staying: up is a smaller, brighter voice, down a larger, darker one. 2 or 3 is a lot.'

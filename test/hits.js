@@ -1,10 +1,10 @@
 // Hits (fn/hits.js): where the level jumps, each at the sample a cut there keeps all of. The built-in samples strike at
-// known times (site/samples.js: the chime's bars at 0.5 + 0.6 n s, 0.9 s more after the fourth; the handpan's phrase),
+// known times (playground/samples.js: the chime's bars at 0.5 + 0.6 n s, 0.9 s more after the fourth; the handpan's phrase),
 // the ground truth these are measured against.
 import test, { ok, is } from 'tst'
 import audio from '../audio.js'
 import { attacks, hits, rises, plainness } from '../fn/hits.js'
-import { samples, RATE } from '../site/samples.js'
+import { samples, RATE } from '../playground/samples.js'
 
 const strikes = { chime: [.5, 1.1, 1.7, 2.3, 3.8, 4.4, 5, 5.6], handpan: [.3, .85, 1.3, 1.75, 2.3, 2.75, 3.25, 3.9] }
 

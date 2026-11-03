@@ -1,4 +1,4 @@
-The colour themes VS Code ships with, as it ships them: [microsoft/vscode](https://github.com/microsoft/vscode), `extensions/theme-*/themes`, at commit 367deb3266 of its main branch.
+The colour themes VS Code ships with, as it ships them: [microsoft/vscode](https://github.com/microsoft/vscode), `extensions/theme-*/themes`, at commit 367deb3266 of its main branch. `vscode-colors.json`: VS Code's colours and their defaults as VS Code 1.143.1 registers them (`registerColor`, `src/vs/platform/theme/common/colors/*.ts`, `src/vs/workbench/common/theme.ts` and the rest), read out of its workbench: 906 of its 923, all but 17 of the diff and merge editors' made from constants of their own; `screen.json` is this editor's own.
 
 MIT License
 

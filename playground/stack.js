@@ -1,6 +1,6 @@
 import { ops, methods, format, fromManifest, reshapes, labelOf, icons } from './ops.js'
 import opIcons from './icons.js'
-import { chain, setArg, number, offCalls, turnOff, turnOn, groups, steps as stepsOf, moveStep, moveLines, group as groupSteps, ungroup, renameGroup, upTo, sharing, unsplit } from './code.js'
+import { chain, setArg, number, offCalls, turnOff, turnOn, groups, steps as stepsOf, moveStep, moveLines, group as groupSteps, ungroup, renameGroup, upTo, sharing, unsplit, useTake } from './code.js'
 import { help, layout } from './help.js'
 import { SLOP } from './view.js'
 
@@ -21,7 +21,7 @@ import { SLOP } from './view.js'
 // folded: a press unfolds it to its steps, its switch bypasses them all and turns them back on, its × removes them all. What the output
 // shows, when it is not the whole chain, goes to `onview({ delta, back })`: `delta` the index of the live step whose
 // difference plays, `back` how many live steps are kept.
-export default function stack(root, { ed, describe = async () => null, duration = () => 1, source = () => null, oncall = () => {}, onview = () => {}, onpreview = () => {}, oncontext = () => {}, onflatten = () => {}, track = () => null, onuntrack = () => {}, keys = k => k }) {
+export default function stack(root, { ed, describe = async () => null, duration = () => 1, source = () => null, oncall = () => {}, onview = () => {}, onchoose = () => {}, onpreview = () => {}, oncontext = () => {}, onflatten = () => {}, track = () => null, onuntrack = () => {}, keys = k => k }) {
   // the cards first, what adds to them after
   const list = root.insertBefore(document.createElement('ol'), root.firstChild)
   list.className = 'steps-list'
@@ -367,6 +367,7 @@ export default function stack(root, { ed, describe = async () => null, duration 
     chosen = id
     const c = cards[position()], i = takes && c && !reshapes(c.call.name) ? live().indexOf(c) : -1
     i >= 0 ? view(i, null) : view(null, kept())
+    onchoose()
   }
   // A call out of the chain: from the end of what is before it in its statement (a call, the source) to its own end, with
   // the line break; one turned off, its comment. The step a model's split parted the track by takes the split with it
@@ -403,8 +404,9 @@ export default function stack(root, { ed, describe = async () => null, duration 
     if (!k) return null
     return { call: c.call.sound ? null : c.call, after: c.call.sound ? k.root.to : c.call.origin ? k.calls[0].to : c.call.to }
   }
+  // a take turned on is the one heard at its place, the others there turned off (code.js takes)
   function onOff(c) {
-    const change = c.call.off ? turnOn(ed.code, c.call) : turnOff(ed.code, c.call)
+    const change = c.call.off ? useTake(ed.code, c.call.dot) ?? turnOn(ed.code, c.call) : turnOff(ed.code, c.call)
     if (change) ed.change(change)
   }
   function hear(c) {
