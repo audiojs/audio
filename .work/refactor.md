@@ -203,6 +203,6 @@ Work sessions have asked for, held until the stage that frees its files lands (t
         selection (`focused()`); the playhead bright while it plays
   - [ ] the spectrogram's top on `auto` fitted to the sound's content (its highest band above a floor, rounded up, never past
         Nyquist), a number for a fixed top, settable in the ui config
-  - [ ] the time scrollbar invisible unless the pointer is over the picture, or it is dragged or scrolled (user, 11-02): the canvas
-        bar `paintBar` painted only then (one source of truth, alike in every browser), or a native overflow element kept in
-        step; pick with the user
+  - [ ] (the audiojs.github.io session, at the user's word 11-03) a third value of the Scroll setting, `hover`: the bar painted
+        only while the pointer is over the picture, it is dragged, or the view moves, fading after; the ui config key `scroll`
+        (`bar` the default, `hover`, `overview`) for an embed's start
