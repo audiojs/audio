@@ -1258,19 +1258,14 @@ async function weighed(sound, weigh, rate, mono = false) {
   return p.from(0)
 }
 
-// What plays (player.js): an output (`output`, the run that made it), the file it opened (`source`, at the output's
-// `loudness`, as original() has it), or, in the worker that plays (engine.js deck), a sound the page handed it (`held`,
-// its key), as the page asks to hear it (heard.js): a band of it, its boxes, or a moment of it [from, to] through an
-// edit, [type, ...args] (a pitch dragged). The page adopts it (audio/worker) and plays it, rendered here into the page's
-// deck as it plays; it lets it go when done. Each a copy of one kept, sharing its samples
-async function voice({ output, source, held, loudness, muted, ...as }) {
+// What plays (player.js) of a sound the page holds none of, or whose deck failed (a sound it holds plays from the deck's
+// worker, voices.js): an output (`output`, the run that made it) or the file it opened (`source`, at the output's
+// `loudness`, as original() has it), as the page asks to hear it (heard.js): a band of it, its boxes, or a moment of it
+// [from, to] through an edit, [type, ...args] (a pitch dragged). The page adopts it (audio/worker) and plays it, rendered
+// here into the page's deck as it plays; it lets it go when done. Each a copy of one kept, sharing its samples
+async function voice({ output, source, loudness, muted, ...as }) {
   let a
-  if (held != null) {
-    const h = holding.get(held)
-    if (!h) return { inst: null }
-    a = h.clone()
-  }
-  else if (source != null) {
+  if (source != null) {
     const src = sources.get(source)
     if (!src) return { inst: null }
     const own = await loudnessOf(src)
@@ -1517,16 +1512,7 @@ async function describe({ name }) {
   return { params: spec && JSON.parse(JSON.stringify(spec)) }
 }
 
-// The sounds the page handed the worker that plays (engine.js deck), by key: whole, or still arriving (`count`
-// channels, its pieces pushed as they come: what plays of it plays what has come); those `keep` names stay, the rest go
-const holding = new Map()
 const handlers = {
-  hold: ({ key, channels, count, sampleRate, keep }) => {
-    holding.set(key, channels ? audio.from(channels, { sampleRate }) : audio(null, { sampleRate, channels: count }))
-    for (const k of holding.keys()) if (!keep.includes(k)) holding.delete(k)
-    return {}
-  },
-  push: ({ key, channels }) => { holding.get(key)?.push(channels); return {} },
   // files' lengths, s, each opened as a script opens it; null where one won't open: where a take ends (editor.js places)
   lengths: ({ names }) => Promise.all(names.map(async name => { try { const a = open(name); await a.ready; return a.duration } catch { return null } })).then(lengths => ({ lengths })),
   // a file changed: what was made of it goes

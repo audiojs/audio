@@ -3316,20 +3316,24 @@ test('editor: export downloads the output, encoded', async () => {
 })
 
 // The page holds no library of its own: it plays through deck.js (its AudioContext, the library's playback on it), the
-// library running in the workers alone; a deck's worker that fails to load plays through the engine's
-test('editor: the page plays through deck.js alone, no library of its own; a deck that fails, through the engine', async () => {
+// library running in the workers alone, the deck's (voices.js) as playback needs it, not the engine's whole; a deck's
+// worker that fails to load plays through the engine's
+for (const failing of [false, true]) test(`editor: the page plays through deck.js alone, no library of its own, ${failing ? 'a deck that fails through the engine' : 'the deck a worker of its own'}`, async () => {
   const asked = []
   page.on('request', r => asked.push(new URL(r.url()).pathname))
+  if (failing) await page.route('**/playground/dist/voices.js', route => route.abort())
+  // what each worker answers, by its script
+  await page.addInitScript(() => { const W = Worker; window.answers = []; window.Worker = class extends W { constructor(url, o) { super(url, o); this.addEventListener('message', e => answers.push([String(url).split('/').pop(), !!e.data?.inst])) } } })
   await page.route('**/playground/editor.js', async route => { const r = await route.fetch(); route.fulfill({ response: r, body: (await r.text()).replace('v = view(', 'v = globalThis.__view = view(') }) })
   await open()
   await write(`audio.from(t => Math.sin(2 * Math.PI * 220 * t) * .3, { duration: 20 })`)
   await lengthIs('0:20.000')
-  // the engine's worker is up: the next one asked for, the deck's, fails
-  await page.route('**/playground/dist/worker.js', route => route.abort())
   await page.locator('.plot').focus()
   await page.keyboard.press('Space')
   await page.waitForFunction(() => __view.playhead > .5)
-  assert.ok(asked.includes('/deck.js'), 'deck.js')
+  assert.ok(asked.includes('/deck.js') && asked.includes('/playground/dist/voices.js'), 'deck.js and the deck\'s worker')
+  const voiced = await page.evaluate(() => answers.filter(([, inst]) => inst).map(([from]) => from))
+  assert.equal(voiced[0], failing ? 'worker.js' : 'voices.js', 'the voice made where it plays')
   assert.deepEqual(asked.filter(p => p === '/assets/audio.js' || p === '/audio.js' || p === '/core.js'), [], 'no library on the page')
 })
 

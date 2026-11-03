@@ -480,7 +480,7 @@ function host(nodePort) {
     const probes = new Map()      // `${id}:${probe}` → meter probe
     let nextStream = 1
     // the ops the facade chains: the registered ones and the registry's, an op before its package loads
-    const ops = () => [...new Set([...Object.entries(audio.op()).filter(([, d]) => !d.hidden).map(([n]) => n), ...Object.keys(audio.plugins)])]
+    const ops = () => [...new Set([...Object.entries(audio.op()).filter(([, d]) => !d.hidden).map(([n]) => n), ...Object.keys(audio.plugins ?? {})])]
 
     // Methods whose fresh result buffers are safe to transfer (never views of live state)
     const TRANSFER = new Set(['read', 'encode'])

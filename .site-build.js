@@ -112,6 +112,34 @@ await build({
   legalComments: 'eof'
 })
 
+// The deck's worker (playground/voices.js): the library as playback needs it, which audio/worker's host takes for the
+// whole library it would otherwise load (its `import('./audio.js')`, here core with the ops voices.js imports)
+await build({
+  entryPoints: { voices: 'playground/voices.js' },
+  outdir: 'playground/dist',
+  chunkNames: 'voices/[name]-[hash]',
+  bundle: true,
+  splitting: true,
+  minify: true,
+  keepNames: true,
+  format: 'esm',
+  platform: 'browser',
+  external: node,
+  plugins: [{
+    name: 'lean',
+    setup(build) {
+      build.onResolve({ filter: /^\.\/audio\.js$/ }, args => /[\\/]worker\.js$/.test(args.importer) ? { path: fileURLToPath(new URL('./core.js', import.meta.url)) } : undefined)
+      // a package not installed (an optional one) stays an import that fails only if it is asked for
+      build.onResolve({ filter: /^@audio\// }, async args => {
+        if (args.pluginData?.resolving) return
+        const found = await build.resolve(args.path, { kind: args.kind, resolveDir: args.resolveDir, importer: args.importer, pluginData: { resolving: true } })
+        return found.errors.length ? { path: args.path, external: true } : found
+      })
+    }
+  }],
+  legalComments: 'eof'
+})
+
 // What the worker's chunks fetch beside themselves: the ONNX runtime's wasm, RNNoise's weights, the music guard's
 for (const [from, name] of [['onnxruntime-web/ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.wasm'], ['onnxruntime-web/ort-wasm-simd-threaded.asyncify.wasm', 'ort-wasm-simd-threaded.asyncify.wasm'], ['@audio/neural-denoise/rnnoise.bin', 'rnnoise.bin'], ['@audio/neural-denoise/guard.bin', 'guard.bin']])
   try { await copyFile(fileURLToPath(import.meta.resolve(from)), `playground/dist/chunks/${name}`) } catch {}

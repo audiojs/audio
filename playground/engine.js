@@ -18,9 +18,9 @@ const HELD = 500
 // calls a worker replaced would lose work of its own in: what an export or a check is still making
 const LASTING = new Set(['export', 'bake', 'check', 'eval'])
 const WORKER = new URL('./dist/worker.js', import.meta.url)
-// The deck: what plays of a sound the page holds is made and rendered in a worker of its own, the engine's code running
-// no script there, so neither the page's thread nor a script's processing (a model's pass, a plugin over all of it), nor
-// a Stop, holds it up. Each sound goes to it once, a copy, by key; the last KEPT stay, the one playing and the one taking
+// The deck: what plays of a sound the page holds is made and rendered in a worker of its own (voices.js: the library as
+// playback needs it), running no script, so neither the page's thread nor a script's processing (a model's pass, a
+// plugin over all of it), nor a Stop, holds it up. Each sound goes to it once, a copy, by key; the last KEPT stay, the one playing and the one taking
 // over from it
 const KEPT = 2
 // The worker set off as the page starts (start, index.html), its library and chunks loading while the page's own
@@ -183,7 +183,7 @@ export default function engine(url = WORKER) {
     })
   }
 
-  const deck = decks(url)
+  const deck = decks(new URL('./voices.js', url))
   const self = {
     // The page's tab whose script runs, and whose output an export, a check or a measure reads: each tab's last output
     // stays in the worker, the page showing it again as it was (close lets it go)
