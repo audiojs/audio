@@ -1,8 +1,9 @@
 import { append, chain, number, between, tracks as tracksOf, focus, written, addTrack } from '../code.js'
-import { docOf, audible, openFiles } from '../editor.js'
+import { docOf } from '../editor.js'
 import { writtenDepth } from './config.js'
 import { state, eng, v, ed, rk, output } from './context.js'
 import { write, applied, spreading } from './edits.js'
+import { audible, openFiles } from './files.js'
 import { anew, relane, mastering } from './tracks.js'
 import { splice, seam } from './writers.js'
 

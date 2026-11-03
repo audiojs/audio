@@ -1,7 +1,8 @@
 import { own, owner, claim } from '../keep.js'
-import { recent, docs, closed, talks, link } from '../editor.js'
+import { recent, docs, closed, talks } from '../editor.js'
 import { EMBED, GIVEN, APART, KEY } from './config.js'
 import { state, v, ed, pl } from './context.js'
+import { link } from './files.js'
 import { note } from './format.js'
 import { recorder, stopRecording } from './recording.js'
 

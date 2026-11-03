@@ -239,3 +239,5 @@ Where the moves part from the map above, and why:
 - 375 split by owner: `recorder` to recording.js, `ticker` and `original` to play.js, `previewAudio` to files.js, `checks`
   to run.js. `logoMark` is play.js's `let`, drawn in its wire(); `heard = trace()` stays a const beside it.
 - The section comment over `hertz` (the status bar's right) stays with the readouts it heads.
+- files.js has one wire(), at `restoring`'s place (623): its drop listeners register there, not at 4246. Nothing else on
+  the page listens for drag events, so no listener's order changes.
