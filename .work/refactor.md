@@ -119,10 +119,10 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
   - [x] (2263b84) a prepared op's stamp (`${a.version}:${a._.len}:…`, fifteen ops) left out `refVersion(a)`: an inserted sound
         edited later replayed a stale result (a codec's 0.475 → 0.475 where 0.05 was due); all key it by `stampOf(a)` now. The
         same in the `length` getter's cache, found beside it: an inserted sound cropped left the old length
-  - [ ] `normalize('apple' | 'ebu')` throws (`fn/normalize.js:7`, `:316`) where `check('apple' | 'ebu')` works (`fn/check.js:113`)
-  - [ ] `trim` and `shrink` count blocks by `audio.BLOCK_SIZE`, `silence` by `stats.blockSize` (`fn/trim.js:52`, `fn/shrink.js:17`)
+  - [x] (4484f6e: fn/specs.js) `normalize('apple' | 'ebu')` throws (`fn/normalize.js:7`, `:316`) where `check('apple' | 'ebu')` works (`fn/check.js:113`)
+  - [x] (bf72448) `trim` and `shrink` count blocks by `audio.BLOCK_SIZE`, `silence` by `stats.blockSize` (`fn/trim.js:52`, `fn/shrink.js:17`)
   - [ ] the facade's playback has no `preservesPitch` and no paused clock (`worker.js:223-398` against `fn/play.js:172-332`)
-  - [ ] `toBatch` and `audio.use` feed one plugin different values: core clamps to [min, max] and resets a bad enum, batch doesn't
+  - [x] (cc611f4: `held()` in batch.js) `toBatch` and `audio.use` feed one plugin different values: core clamps to [min, max] and resets a bad enum, batch doesn't
         (`core.js:545`, `batch.js:10-46`)
 - [ ] duplicates inside the library (audit 11-02; the ones marked † checked against the code):
   - [ ] prepare-once-then-play-by-offset written 18 times in `fn/*` († `deepfilter.js:119`, `rebalance.js:59`): one `prepared()` and
@@ -130,7 +130,8 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
   - [ ] the playback session twice, `fn/play.js:172-332` and `worker.js:223-398`: one engine-free session in `deck.js` (~100)
   - [ ] `{ at, duration }` → samples resolved by hand in ~30 places, `opRange` and `rangeOf` in two modules: one `span()` in core (~60)
   - [ ] the contract plugin host twice, `core.js:498-669` and `batch.js`: batch.js owns it (~35)
-  - [ ] delivery targets in `normalize.js`, `check.js`, `audio.d.ts`, `cli.js`, `mcp.js`, `SKILL.md`: one specs table († above)
+  - [x] (4484f6e) delivery targets in `normalize.js`, `check.js`, `audio.d.ts`, `cli.js`, `SKILL.md`: one table, fn/specs.js
+        (mcp.js's prose names them as text)
   - [ ] the CLI's own time grammar (`cli.js:78-91`) beside core's `parseTime`: one grammar, the CLI's unit gate kept
   - [ ] op help, completions, types and MCP lists kept by hand (`cli.js:153-235`, `:1100-1113`, `mcp.js:73-94`, and the test's own
         `expected` list in `test/cli.js` 'op help'): read from the registry, a test holding `audio.d.ts` to each op's `params`.
