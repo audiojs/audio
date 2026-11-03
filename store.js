@@ -212,10 +212,11 @@ function unpack(json, data) {
 
 // ── Locks ───────────────────────────────────────────────────────
 
-/** Every file the library keeps in the browser's file system is taken by a Web Lock named by its path: shared to read it
- *  or while a sound reads from it, exclusive to write or remove it (or to open it to a sync access handle, which the
- *  platform gives one at a time). `fn` runs holding it, given it, or null where `ifAvailable` and another holds it. Where
- *  the platform has no locks, one turn at a time in this thread. */
+/** A file a store keeps in the browser's file system, which any page or worker of the site may reach, is taken by a Web
+ *  Lock named by its path: shared to read it or while a sound reads from it, exclusive to write or remove it. (A folder
+ *  of pages, cache.js's, is one instance's: held by one lock for its life, its pages take turns in its thread.) `fn` runs
+ *  holding it, given it, or null where `ifAvailable` and another holds it. Where the platform has no locks, one turn at
+ *  a time in this thread. */
 export function locked(name, fn, { mode = 'exclusive', ifAvailable = false } = {}) {
   let locks = typeof navigator !== 'undefined' && navigator.locks
   if (locks) return locks.request(name, { mode, ifAvailable }, fn)

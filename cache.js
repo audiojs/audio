@@ -1,10 +1,10 @@
 /**
- * Page cache — LRU eviction to OPFS and lazy restore. Its files under the locks of store.js.
+ * Page cache — LRU eviction to OPFS and lazy restore. Its folders held by the locks of store.js.
  * Self-registers on import — exposes opfsCache/evict/ensurePages on audio.
  */
 
 import audio, { touchLru } from './core.js'
-import { locked, hold, gone } from './store.js'
+import { hold, gone } from './store.js'
 
 const DEFAULT_BUDGET = 500 * 1024 * 1024  // 500MB
 
@@ -78,9 +78,17 @@ async function opfsCache(dirName = 'audio-cache') {
   let dir = await base.getDirectoryHandle(id, { create: true })
 
   // OPFS opens a file to one access handle or writable at a time, refusing a second (NoModificationAllowedError): a
-  // page's reads and writes take turns under its lock (store.js locked), whoever asks for them (an eviction, a read
-  // restoring the page, a seek's prefetch)
-  let turn = (i, fn) => locked(`${dirName}/${id}/p${i}`, fn)
+  // page's reads and writes take turns, whoever asks for them (an eviction, a read restoring the page, a seek's
+  // prefetch). Turns in this thread: the folder is this store's alone, held for its life, so no other thread reaches its
+  // pages, and a Web Lock for each would be a round trip to the browser per page read or written (a press on a long
+  // sound under load heard nothing for it)
+  let turns = new Map()
+  let turn = (i, fn) => {
+    let p = (turns.get(i) ?? Promise.resolve()).catch(() => {}).then(fn)
+    turns.set(i, p)
+    p.catch(() => {}).finally(() => { if (turns.get(i) === p) turns.delete(i) })
+    return p
+  }
 
   let cache = {
     read: i => turn(i, async () => {

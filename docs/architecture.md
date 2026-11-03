@@ -9,7 +9,7 @@ See also: [Plugins](plugins.md)
 | `core.js` | Engine — decode, paginate, plugin registry, instance factory, page I/O. The only required file. |
 | `stats.js` | Block-level stat engine — min/max/energy/clip/dc per `BLOCK_SIZE`-sample block during decode. Powers waveform, loudness, stat queries without touching PCM. |
 | `cache.js` | Page cache — LRU eviction to OPFS, on-demand restore. Large files stay playable without exhausting RAM. |
-| `store.js` | Sounds kept by a key — `audio.store(name, { max })`: OPFS where there is one, else memory; `get` (channels, as `audio.memo` takes), `open` (a sound over its pages, its stats with it), `set`. One lock discipline for every file the library keeps (see [Storage](#storage)). |
+| `store.js` | Sounds kept by a key — `audio.store(name, { max })`: OPFS where there is one, else memory; `get` (channels, as `audio.memo` takes), `open` (a sound over its pages, its stats with it), `set`. The locks of what the library keeps on disk (see [Storage](#storage)). |
 | `checkpoint.js` | Renders kept — `keysOf` (a sound's start and each step, one canonical serializer), `recall` (from the longest start kept in a host's store), `keep`. |
 | `plan.js` | Edit pipeline — non-destructive edit list, plan builder, stream renderer. `a.gain(-3).trim()` becomes a declarative plan materialized on read. |
 | `audio.js` | Full bundle — core + stats + cache + plan + all plugins. The default import. |
@@ -185,13 +185,15 @@ remains as a deprecated alias).
 
 ## Storage
 
-What the library keeps in the browser's own file system (OPFS) it takes under a Web Lock named by the file's path:
-shared to read it, or while a sound reads from it; exclusive to write or remove it, or to open it to a sync access
-handle (which the platform gives one at a time). A writer, or the eviction, finding a key in use lets it be.
+What the library keeps in the browser's own file system (OPFS) is under Web Locks named by its paths. A file any page or
+worker of the site may reach (a store's) is taken shared to read it, or while a sound reads from it, and exclusive to
+write or remove it; a writer, or the eviction, finding a key in use lets it be. A folder only one instance reaches (its
+pages) is held by one lock for the instance's life.
 
 - **Pages** (`cache.js`): one instance's pages past its `budget`, in a folder of its own, held (a lock by the folder's
   name) while the instance is and swept once no one holds it. Mutable (a pushed stream's last page fills), written in
-  place through sync access handles in a worker.
+  place through sync access handles in a worker; a page's reads and writes take turns in its thread (a Web Lock a page
+  would cost a round trip to the browser per page, which under load delayed what a press on a long sound plays).
 - **Sounds by key** (`store.js`): `audio.store(name, { max })`, a sound or channels per key with its block stats and a
   meta of the host's, written whole or not at all (`createWritable`), read whole (`get`) or as a sound over its pages
   (`open`, the file held while the sound is). Past `max` bytes the oldest written goes. Without a name, or in Node, in
