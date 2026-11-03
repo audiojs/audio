@@ -134,7 +134,7 @@ const GAIN = [-36, 12]                        // the gain line's scale, dB: the 
                                               // three quarters of the way out, so a boost shows above it
 const GLIDE = .3                               // a playhead past the view's middle is drawn to it in this time constant, s
 
-export default function view(root, { onaxis = () => {}, onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onaudition = () => {}, onfocus = () => {}, ontake = () => {}, onghost = () => {}, onlayout = () => {}, onheight = () => {}, onlook = () => {}, onbusy = () => {}, onprobe = () => {}, onsamples = null, onheard = null, hint = null, keepRoom = true, zoom: { in: closest = 32, out: farthest = 4 / 3 } = {}, overshoot = .5 } = {}) {
+export default function view(root, { onaxis = () => {}, onselect = () => {}, oncursor = () => {}, onedit = () => {}, onmode = () => {}, onscrub = () => {}, oncontext = () => {}, onaudition = () => {}, onfocus = () => {}, ontake = () => {}, onghost = () => {}, onlayout = () => {}, onheight = () => {}, onlook = () => {}, onbusy = () => {}, onprobe = () => {}, onsamples = null, onheard = null, hint = null, keepRoom = true, zoom: { in: closest = 32, out: farthest = 4 / 3 } = {}, overshoot = .5, timeRow = 'foot' } = {}) {
   const element = (tag, className, parent) => parent.appendChild(Object.assign(document.createElement(tag), { className }))
   const layer = (name, parent = root) => element('canvas', name, parent)
   // the selection under the pictures, as a selection is behind text: the sound drawn over it, a quiet spectrogram's
@@ -447,8 +447,9 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
 
   // Geometry, in CSS pixels; `gutter`, the axis' width at the right (fitAxis)
   let gutter = GUTTER
-  // the time row's height: none where it is off (`ruler` 'off': an embedding page's big time says it all)
-  const rowH = () => ruler === 'off' ? 0 : RULER
+  // the time row's height: none where it is off (`ruler` 'off': an embedding page's big time says it all); in a band's
+  // strip (`timeRow` 'band'), the scrollbar's alone at the picture's foot
+  const rowH = () => ruler === 'off' ? 0 : timeRow === 'band' ? BAR + 2 : RULER
   const plot = () => ({ w: Math.max(1, W - gutter), h: Math.max(1, H - rowH() - (scroll === 'overview' ? MAP : 0)) })
   // a sound's channels in one lane: as the waveform's look has them, or its notes, a voice's, found on their mix
   const merged = () => !tracks && (display === 'notes' || display === 'wave' && waveLook.lanes === 'one')
@@ -542,8 +543,15 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     told()
   }
   // the time row, at the picture's foot, level with the panel's and the bar's edge, the scrollbar between it and the
-  // lanes: its ticks TICK long from `tickTop` down, its labels beside their tops (row, their middle)
-  const tickTop = () => plot().h + rowH() - TICK - 2, row = () => tickTop() + 7
+  // lanes: its ticks TICK long from `tickTop` down, its labels beside their tops (row, their middle). A trial
+  // (`timeRow` 'band', ?row=band): in the strip of the band pointed at (rowBand), under its sound, its ticks from the
+  // strip's top, its labels level with the strip's names; none with that strip out of sight
+  const tickTop = () => timeRow === 'band' ? (rowBand()?.y ?? -H) + 1 : plot().h + rowH() - TICK - 2, row = () => tickTop() + 7
+  // the strip the time row is in ('band'): the band pointed at's, else the edited one's; or none, out of sight
+  function rowBand(L = lanes()) {
+    const i = tracks && hovered && !drag ? trackAt(L, hovered[1]) : -1, s = strips(L).find(s => s.i === (tracks ? i >= 0 ? i : focus : null))
+    return s && s.y >= 0 && s.y + FOOT <= plot().h ? s : null
+  }
   // Zoomed in, the scrollbar at the time row's top, over its ticks, above its labels, as an overlay scrollbar is: the
   // whole sound across the row (or as far as the view goes past its end), the thumb what shows, at least THUMB px. A
   // press on it drags the view; beside it, the view centres there first. { x0, x1, total }, or null showing all of it
@@ -1115,10 +1123,11 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     c = strip.g
     try { strip.draw(() => { c.setTransform(dpr, 0, 0, dpr, -px, -py); fn() }) } finally { c = oc }
   }
-  // The time row on the reel, from the lanes' foot down, the tape's width (laid as the marks are, paint): drawn on in the
-  // tape's geometry, as the marks are
+  // The time row on the reel, from the lanes' foot down (in a band's strip, 'band': that strip), the tape's width (laid
+  // as the marks are, paint): drawn on in the tape's geometry, as the marks are
   function onRow(fn) {
-    const canvas = rowStrip.g.canvas, top = plot().h, py = Math.floor(top * dpr), cw = marksCanvas.width, ch = Math.max(0, Math.round(H * dpr) - py)
+    const strip = timeRow === 'band' ? rowBand() : null, top = strip ? strip.y : timeRow === 'band' ? H : plot().h, bottom = strip ? top + FOOT : H
+    const canvas = rowStrip.g.canvas, py = Math.floor(top * dpr), cw = marksCanvas.width, ch = Math.max(0, Math.round(bottom * dpr) - py)
     if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch }
     if (rowStrip.at !== py) { rowStrip.at = py; Object.assign(canvas.style, { top: `${py / dpr}px`, height: `${ch / dpr}px` }) }
     const was = c
@@ -1193,12 +1202,14 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     const litEdge = drag?.resizing && sel ? sel[sel[0] === drag.anchor ? 1 : 0] : !drag && hot ? hot.t : null
     const edges = sel && !drag?.span ? sel.map((t, edge) => ({ t, fill: t === litEdge ? bright : caret, edge, of: sel })) : []
     const apart = t => !edges.some(m => X(m.t) === X(t))
+    // in a band's strip ('band'), its labels giving way to the strip's ranges and takes
+    const strip = timeRow === 'band' ? rowBand(L) : null, clear = strip ? stripped(L).filter(m => m.y === strip.y).map(m => [m.x0 - TRI - 2, m.x1 + TRI + 2]) : []
     onRow(() => paintRuler([
       ...(at && apart(pointed) ? [{ t: pointed, fill: caret }] : []),
       ...edges,
       ...(playhead == null && apart(cursor) ? [{ t: cursor, fill: caret }] : []),
       ...(dropped != null ? [{ t: dropped, fill: accent() }] : [])
-    ].map(m => ends.has(m.t) ? { ...m, fill: gauge(), keep: true } : m), measure?.spans))
+    ].map(m => ends.has(m.t) ? { ...m, fill: gauge(), keep: true } : m), measure?.spans, true, clear))
     if (show.hits || aiming) paintCues(mine, measure ? [...lit, measure.t] : lit, aiming)
     paintMarkers(all, lit)
     paintStrips(L, pointedAt)
@@ -2040,9 +2051,10 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
     const minor = steps.findLast(s => s <= step / 3 * (1 + 1e-9) && Math.abs(step / s - Math.round(step / s)) < 1e-6)
     return { step, minor, digits: Math.max(0, Math.ceil(-Math.log10(step) - 1e-9)), first: Math.max(0, Math.ceil(start / step - 1e-9)) }
   }
-  // `labels`: the time row's own times and ticks too (on the reel), or only these marks' (the playhead's)
-  function paintRuler(marks, spans = [], labels = true) {
-    if (ruler === 'off') return null
+  // `labels`: the time row's own times and ticks too (on the reel), or only these marks' (the playhead's); `clear`,
+  // [[x0, x1], …] px its own labels give way to
+  function paintRuler(marks, spans = [], labels = true, clear = []) {
+    if (ruler === 'off' || timeRow === 'band' && !rowBand()) return null
     // the tick and chevron of what is out of sight (away) taken first: the labels give way to them
     const { w } = plot(), y = row(), { step, digits, first } = labelled(), taken = away && c === oc ? [[away.x0 - 2, away.x1 + 2]] : []
     c.textAlign = 'left'
@@ -2068,6 +2080,7 @@ export default function view(root, { onaxis = () => {}, onselect = () => {}, onc
       shown.push({ ...m, px, lx, text })
     }
     for (const [p, q] of spans) taken.push([X(p), X(q)])
+    taken.push(...clear)
     if (labels && ruler !== 'none') for (let i = first; i * step <= end + 1e-9; i++) {
       const t = i * step, px = X(t), text = stamp(t, digits), tw = c.measureText(text).width
       if (px + 4 + tw > w) break

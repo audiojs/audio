@@ -697,6 +697,8 @@ v = view(root.querySelector('.plot'), {
   keepRoom: !EMBED,
   zoom: UI.zoom,
   overshoot: UI.overshoot,
+  // a trial, ?row=band: the time row in the strip of the band pointed at, not at the picture's foot
+  timeRow: params.get('row') === 'band' ? 'band' : 'foot',
   // the axis as wide as its labels: the display switch under it (editor.css --axis)
   onaxis: px => root.querySelector('.panes').style.setProperty('--axis', `${px}px`),
   // measuring on the spectrogram, the spectrum meter reads under the pointer, then where it did again

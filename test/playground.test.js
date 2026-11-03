@@ -9539,6 +9539,37 @@ test('editor: the strip under the lanes marks a range ◢ named ◣, filled, not
   assert.deepEqual(near, [], 'none with the pointer off the lanes')
 })
 
+// A trial (?row=band): the time row in the strip of the track pointed at, under its sound, not at the picture's foot;
+// pointed elsewhere, under the edited track's
+test('editor: ?row=band puts the time row in the strip of the track pointed at', async () => {
+  await page.goto(origin + '/playground/?row=band')
+  await wholeLevels().waitFor({ state: 'attached' })
+  await noCues()
+  await write(`let a = audio('chime.wav')\n\nlet b = audio('chime.wav')\n  .gain(-6)`)
+  await page.waitForFunction(() => document.querySelector('.plot').dataset.tracks === '2')
+  await lengthIs('0:08.000')
+  const box = await page.locator('.plot').boundingBox(), lanes = await tracksAt()
+  // the time row's text in rows [y0, y1) of the plot, across the lanes: light grey pixels
+  const text = ([y0, y1]) => pixels(`let n = 0; for (let y = arg.y0; y < arg.y1; y++) for (let x = 0; x < arg.w; x++) { const i = (y * w + x) * 4; if (d[i] > 90 && Math.abs(d[i] - d[i + 2]) < 20) n++ } return n`, { y0, y1, w: Math.round(box.width - 80) })
+  const strip = i => (y => [y + 2, y + FOOT - 2])(Math.round(lanes[i].y + lanes[i].h - box.y)), foot = [Math.round(box.height) - 10, Math.round(box.height)]
+  // where the row is, once the pointer is at (px, py): the strips' and the foot's text
+  const rowAt = async (px, py, want) => {
+    await page.mouse.move(px, py)
+    let got
+    for (const until = Date.now() + 3000; Date.now() < until; await page.waitForTimeout(100)) {
+      got = [await text(strip(0)), await text(strip(1)), await text(foot)]
+      if (got.map(n => n > 30).join() === want.join()) break
+    }
+    return got
+  }
+  const [a0, a1, af] = await rowAt(box.x + box.width / 2, lanes[0].y + lanes[0].h / 2, [true, false, false])
+  assert.ok(a0 > 30 && a1 < 5 && af < 5, `pointed at a: under a, ${a0}; under b, ${a1}; at the foot, ${af}`)
+  const [b0, b1, bf] = await rowAt(box.x + box.width / 2, lanes[1].y + lanes[1].h / 2, [false, true, false])
+  assert.ok(b0 < 5 && b1 > 30 && bf < 5, `pointed at b: under a, ${b0}; under b, ${b1}; at the foot, ${bf}`)
+  const [r0, r1] = await rowAt(box.x + box.width / 2, box.y + box.height - 4, [false, true, false])
+  assert.ok(r0 < 5 && r1 > 30, `pointed under them: under the edited one, b: ${r0}, ${r1}`)
+})
+
 // Takes are marked in the strip under the lanes, from where they go in to where the longest of them ends (each measured,
 // those turned off too, a sample's or a file kept as a recording's), pressed there selecting all of it, as a range
 // marker's, their numbers inside its start, + selecting their place; on a visit's first run too
