@@ -1,12 +1,13 @@
 import { ops, methods } from '../ops.js'
 import { prepare, offCalls, append, source, chain, number, declared, inline, between, tracks as tracksOf, focus, soundOf, addTrack, master as masterOf, retake } from '../code.js'
 import { unique } from '../sources.js'
-import { lengthOf, shelf, used, focusOn, laneName, toTrackOf, anew, voiceOut, stemsOut, mastering, saving, taken, newTab } from '../editor.js'
+import { lengthOf, shelf, used, saving, taken, newTab } from '../editor.js'
 import { clip, paste, pasteNew, pasting } from './clipboard.js'
 import { keep } from './config.js'
 import { state, eng, v, ed, rk, steps, depthWas, queued, assign } from './context.js'
 import { label, quote, brief, note } from './format.js'
 import { store } from './persist.js'
+import { focusOn, laneName, toTrackOf, anew, voiceOut, stemsOut, mastering } from './tracks.js'
 import { splice, seam, addMarker, level, bandLevel } from './writers.js'
 
 // The script's edits: its history (undo, redo, each step's name), the selection's edits, a method added, the script

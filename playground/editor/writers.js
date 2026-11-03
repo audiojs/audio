@@ -1,11 +1,12 @@
 import { chain, number, setArg, focus } from '../code.js'
-import { lane, closeMenus } from '../editor.js'
+import { closeMenus } from '../editor.js'
 import { state, v, ed, rk, pl, output } from './context.js'
 import { lastEdit, amend, write } from './edits.js'
 import { quote, note } from './format.js'
 import { shows, showAs } from './look.js'
 import { store } from './persist.js'
 import { marks } from './readouts.js'
+import { lane } from './tracks.js'
 
 // The edits the picture writes into the script: silence, stretch, trim, crossfade, fades, markers, the pitch and gain
 // lines, levels; and a sound resampled, remixed, retuned
