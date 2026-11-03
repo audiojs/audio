@@ -91,12 +91,13 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
       to the engine worker's voice, not to a library copy on the page; tests drive a worker
 - [ ] deck worker: a lean entry (core, plan, the voice), not the engine bundle; or no deck worker at all, if the engine worker stays
       responsive during a model's pass (ONNX runtime on its own thread). Decided by measuring playback during a model pass
-- [ ] the root cause at package level: the browser `"."` export (`dist/audio.js`) inlines `deck.js`, while `./worker` imports `./deck.js`
+- [x] (66f7b63) the root cause at package level: the browser `"."` export (`dist/audio.js`) inlines `deck.js`, while `./worker` imports `./deck.js`
       raw, so any browser app using both runs two decks. `dist/audio.js` keeps `./deck.js` external (shipped beside it), or both
-      entries come from one build
+      entries come from one build: dist imports `../deck.js`, a test holds both bundles to it
 - [ ] `Symbol.for` globals that exist only to reconcile copies removed (`audio.context`, `audio.deck`; `audio.take` and `audio.worker`
       reviewed)
-- [ ] jobs threads (`playground/jobs.js` → `parallel.js` → `core.js`) load core for nothing: `serve` moves to a core-free module
+- [x] (f0332db) jobs threads (`playground/jobs.js` → `parallel.js` → `core.js`) load core for nothing: parallel.js imports core
+      only where it makes threads (a dynamic import, its own chunk), a test holding the thread's entry to no core
 - [ ] dead import-map entry: `index.html` maps `@audio/tune-curve`, the library imports `@audio/tune/curve`; the map goes with the page bundle
 - [ ] `npm run serve` builds and watches (esbuild context), clears its output first; a reload always runs the source as it is
 - [ ] generated bundles out of git (`assets/audio.js`, `codemirror.js`, `lezer*.js`, copied `gl-*.js`), built by CI for Pages and by
@@ -137,24 +138,35 @@ Work happens in a worktree (`../audio-refactor`, branch `refactor`), so master a
         (`core.js:545`, `batch.js:10-46`)
 - [ ] duplicates inside the library (audit 11-02; the ones marked † checked against the code):
   - [x] (6995b46) the input an edit reads, written 18 times: `inputOf()` in `plan.js`; (2263b84) the stamp, `stampOf()`
-  - [ ] the rest of prepare-once-then-play-by-offset (the arrived wait, the fingerprint key, the restamp): one `prepared()`
-  - [ ] `{ at, duration }` → samples resolved by hand in ~30 places, `opRange` and `rangeOf` in two modules: one `span()` in core (~60)
-  - [ ] the contract plugin host twice, `core.js:498-669` and `batch.js`: batch.js owns it (~35)
+  - [x] (c70d116) the rest of prepare-once-then-play-by-offset (the arrived wait, the fingerprint key, the restamp): `prepared()`
+        in plan.js beside `playback()`, for dereverb, restore, vocos, declip, deepfilter, derustle, auto (declip gains the
+        fingerprint's skip). Left on their own: those keeping more than samples or reading a part (recover, rebalance, vocals,
+        align, azimuth, phase, codec, denoise, convolve, wam)
+  - [x] (f735ee2) `{ at, duration }` → samples resolved by hand: the op's range on its timeline, seven copies (azimuth, phase,
+        deconstruct, denoise, declick, spectral and formant through it, normalize's ceiling), now `rangeOf()` in plan.js beside
+        `opRange` (stretch's own moved there). Fixed with it, a test over every ranged op: a duration alone is from 0, as opRange
+        reads it, everywhere; `normalize(-6, 'lufs', { duration: 1 })` and the ceiling skipped the limiter (peaks to +6 dBFS),
+        spectral, formant, denoise and deconstruct worked the frames before 0 too. Left: the range in seconds at plan time,
+        `at < 0 ? total + at : at` (normalize resolve, pitch and stretch expand, intonation, core `ranged()`, write), six
+        copies with their own ends
+  - [x] (365e5db) the contract plugin host twice, `core.js:498-669` and `batch.js`: `hostCtx()` and `snap()` in batch.js, the
+        factory's context and params made one way in every host (core's emit still checks and routes nowhere)
   - [x] (4484f6e) delivery targets in `normalize.js`, `check.js`, `audio.d.ts`, `cli.js`, `SKILL.md`: one table, fn/specs.js
         (mcp.js's prose names them as text)
   - [x] (f56da53) the CLI's own time grammar (`cli.js:78-91`) beside core's `parseTime`: one grammar, the CLI's unit gate kept
-  - [ ] op help, completions, types and MCP lists kept by hand (`cli.js:153-235`, `:1100-1113`, `mcp.js:73-94`, and the test's own
-        `expected` list in `test/cli.js` 'op help'): read from the registry, a test holding `audio.d.ts` to each op's `params`.
-        Stage 0 met this drift twice: `restore()` landed with no CLI help, README row or `expected` entry, and three new ops pushed
-        the skill (the MCP tool's description) past its 2,048 characters, so they were taken out of it
+  - [x] (dd1f887) op help, completions, types and MCP lists kept by hand (`cli.js:153-235`, `:1100-1113`, `mcp.js:73-94`, and the
+        test's own `expected` list in `test/cli.js` 'op help'): completions read the registries (plugin ops and all 33 stats were
+        missing; an op's enum values after it); tests hold op help to the registry and the MCP editor's op lists to known ops
+        (the lists stay curated prose, for the 2,048-character skill). Left: `audio.d.ts` against each op's `params`
   - [x] (this run) the block-stat pass twice (`stats.js:26` copied to `meter.js:11`): `blockGroups()` in stats.js, the meter's
         deltas now carrying every field decode's stats do
   - [x] (944a193) peak and dB from block stats in five places: `peakOf()` in stats.js; the CLI's level as it plays read the highs
         alone (0.2 shown for a -0.8 peak)
-  - [ ] the playground worker's `turns()` beside core's `yieldTask` (left by the store's branch); the CLI, MCP and desktop app
-        calling checkpoints (recall, keep), which they don't yet
-  - [ ] the clipping recount after a gain, three times (`stats.js:327`, `fn/normalize.js:47`, `fn/gain.js:45`): one helper beside
-        peakOf, once the store's branch has merged (it may touch stats.js)
+  - [x] (015e028) the paced yield six times (decode, play, save, stats, store, the playground worker's `turns()`): `pacer(ms)` in
+        core beside `yieldTask`
+  - [ ] the CLI, MCP and desktop app calling checkpoints (recall, keep), which they don't yet
+  - [x] (649f0ab) the clipping recount after a gain, three times (`stats.js:327`, `fn/normalize.js:47`, `fn/gain.js:45`): the
+        engine recounts once after each derived op (`reclip()` in stats.js); an op's own deriveStats moves the extremes only
   - [ ] structural ops known by name in `plan.js` `adjustLimit` (633-684): a `limit` hook on each op; splices on `spliceSegs`
   - [x] (6b67796) DSP primitives copied across `fn/*`: `fn/dsp.js` (i0, sinc, periodic Hann, pow2, downmix), the same doubles;
         the Kaiser factor left inline where folding it would reorder a product
@@ -214,8 +226,12 @@ Work sessions have asked for, held until the stage that frees its files lands (t
 - the audiojs.github.io session: an embed that loads only what its UI config uses (folded into stage 2); its host-side
   preview in playground/embed.js was let through after stage 0
 - the audiojs.github.io session, for the home's embed (after stage 4, unless the user overrides):
-  - [ ] the caret in an inactive tone while the picture isn't focused or the window is blurred, as `wash()` does the
-        selection (`focused()`); the playhead bright while it plays
+  - [ ] (taken back 11-03 by the audiojs.github.io session, in playground view.js, editor.js, menu.js, editor.css,
+        index.html: keep out of those till it reports) the caret in an inactive tone while the picture isn't focused or
+        the window is blurred, as `wash()` does the selection (`focused()`); the playhead bright while it plays.
+        With it: the `hover` scrollbar hidden as a mouse leaves (the 1 s linger only after keys or touch), a 4 px thumb,
+        6 px pointed at; the embed's ops menu with a line per item, edits made listed first with a check (a press drops
+        the step), the + button showing the step count
   - [ ] the spectrogram's top on `auto` fitted to the sound's content (its highest band above a floor, rounded up, never past
         Nyquist), a number for a fixed top, settable in the ui config
   - [x] (built by the audiojs.github.io session 11-03, its 2 tests passing; uncommitted till the user says) a third value of
