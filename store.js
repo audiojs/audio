@@ -11,7 +11,7 @@
  * one in use.
  */
 
-import audio, { yieldTask } from './core.js'
+import audio, { pacer } from './core.js'
 
 /** A store of sounds by key: the browser's files under `name` where there are any, else (no name, Node) memory.
  *  `audio.store({ max })`: in memory */
@@ -162,7 +162,7 @@ async function write(out, value, meta) {
   if (!sound) for (let c = 0; c < k; c++) await put(value[c], at + c * n * 4)
   else {
     let session = audio.statSession(sound.sampleRate), PS = audio.PAGE_SIZE, buf = Array.from({ length: k }, () => new Float32Array(Math.max(1, Math.min(PS, n))))
-    let pos = 0, from = 0, t = performance.now()
+    let pos = 0, from = 0, pace = pacer(20)
     let flush = async () => { for (let c = 0; c < k; c++) await put(buf[c].subarray(0, pos - from), at + (c * n + from) * 4); from = pos }
     for await (let block of sound.stream()) {
       let len = Math.min(block[0].length, n - pos), part = block.map(c => c.subarray(0, len))
@@ -174,7 +174,7 @@ async function write(out, value, meta) {
         pos += m; i += m
         if (pos - from === buf[0].length) await flush()
       }
-      if (performance.now() - t > 20) { await yieldTask(); t = performance.now() }
+      await pace()
     }
     if (pos > from) await flush()
     if (pos !== n) throw new Error(`store: ${pos} of ${n} samples`)

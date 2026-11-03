@@ -1,7 +1,7 @@
 import test from 'tst'
 import audio from '../audio.js'  // full bundle (matches test/index.js) — concat test needs .insert(), metadata test needs stats.js wired for 'data'
 import { File } from 'node:buffer'  // global only since Node 20; node:buffer.File (≡ the global, File extends Blob) works on 18.13+ too
-import { emit, memo, blockAt } from '../core.js'
+import { emit, memo, blockAt, pacer } from '../core.js'
 import { execFileSync } from 'child_process'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
@@ -298,4 +298,16 @@ test('blockAt: a range to the sample, then its blocks', t => {
   t.ok(end * sr / 1024 > 28, `its end a hair past its block: ${end * sr / 1024}`)
   t.is([blockAt(at, sr, 1024), blockAt(end, sr, 1024, Math.ceil)], [19, 28], 'blocks 19 to 28, not 29')
   t.is([blockAt(0, sr, 1024), blockAt(1024 / sr, sr, 1024, Math.ceil), blockAt(1025 / sr, sr, 1024, Math.ceil)], [0, 1, 2], 'an edge is its block\'s, a sample past it the next')
+})
+
+test('pacer — a loop gives way to a task once its ms of work have passed, nothing to wait on before', async t => {
+  let pace = pacer(5), heard = false, busy = ms => { let t0 = performance.now(); while (performance.now() - t0 < ms); }
+  t.is(pace(), undefined, 'right away: nothing to wait on')
+  setImmediate(() => heard = true)
+  busy(6)
+  let turn = pace()
+  t.ok(turn instanceof Promise, 'past 5 ms: a task')
+  await turn
+  t.ok(heard, 'what was waiting ran in it')
+  t.is(pace(), undefined, 'counted again from its end')
 })

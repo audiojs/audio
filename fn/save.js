@@ -1,4 +1,4 @@
-import audio, { emit, parseTime, named, fromEnd, LOAD, yieldTask } from '../core.js'
+import audio, { emit, parseTime, named, fromEnd, LOAD, pacer } from '../core.js'
 import { buildPlan, streamPlan, ensurePlan, loadRefs } from '../plan.js'
 import { formats as lists } from './cuts.js'
 import encode from '@audio/encode'
@@ -121,13 +121,12 @@ async function encodeStream(inst, fmt, opts, sink, stream) {
 
   if (live) {
     total ??= inst.duration
-    let written = 0, t = performance.now()
+    let written = 0, pace = pacer()
     for await (let chunk of inst.stream({ at: offset, duration })) {
       let buf = await enc(chunk)
       if (buf.length) await sink(buf)
       written += chunk[0].length
-      let now = performance.now()
-      if (now - t > 8) { await yieldTask(); t = performance.now() }
+      await pace()
       emit(inst, 'progress', { offset: written / inst.sampleRate, total })
     }
     if (!written) throw new Error('encode: nothing to encode — source ended empty')

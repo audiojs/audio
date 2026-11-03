@@ -311,6 +311,14 @@ export const yieldTask =
   }) :
   () => new Promise(r => setTimeout(r, 0))
 
+/** A long loop's turns: once `ms` of its work have passed, a task (yieldTask) to wait on, where what waits on the thread
+ *  runs (a page's message, a newer run, Stop); before that, nothing. Blocks that come as settled promises give way to
+ *  nothing without it. */
+export const pacer = (ms = 8) => {
+  let t = performance.now()
+  return () => { if (performance.now() - t > ms) return yieldTask().then(() => { t = performance.now() }) }
+}
+
 /** Resolve a channel option to concrete indices: null → all, n → [n], [..] → per-channel. */
 export function resolveChannels(channel, total) {
   let perCh = Array.isArray(channel)
@@ -1439,11 +1447,7 @@ async function decodeSource(source, opts = {}) {
 
   // Streaming decode
   let dec = await decode[format]()
-  let t = performance.now()
-  let yieldLoop = () => {
-    let now = performance.now()
-    if (now - t > 8) { t = now; return yieldTask() }
-  }
+  let yieldLoop = pacer()
   let firstResolve
   let origNotify = opts.notify
   let disposed = opts.disposed || (() => false)

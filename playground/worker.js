@@ -5,7 +5,7 @@
 // nothing yet (it needs the whole file, as trim and normalize do), the file itself streams, as it decodes. What a chain
 // made is kept by what made it, its steps too, so what was made before comes at once (renders kept, below).
 import audio, { keysOf, recall, onto, prefix, rootOf, idOf, wholeOf } from '../audio.js'
-import { LOAD } from '../core.js'
+import { LOAD, pacer } from '../core.js'
 import plugins from 'editor:plugins'
 import { attacks, rises, plainness } from '../fn/hits.js'
 import { steadyTempo } from '../fn/beat.js'
@@ -141,17 +141,7 @@ function pictured(k, rate, total) {
 }
 // A loop over a stream's blocks giving way to whatever the page asks (a newer run, Stop) every 20 ms of work: the blocks
 // come as promises already settled, and without a task between them the worker hears nothing till the loop ends
-function turns() {
-  let t = performance.now()
-  return async () => {
-    if (performance.now() - t < 20) return
-    await new Promise(resolve => { turned.push(resolve); channel.port2.postMessage(0) })
-    t = performance.now()
-  }
-}
-// a task through a channel, which a timer's 4 ms clamp on nested timeouts would make a fifth of the work
-const channel = new MessageChannel(), turned = []
-channel.port1.onmessage = () => turned.shift()?.()
+const turns = () => pacer(20)
 // A sound's picture, read through
 async function pictureOf(sound) {
   const p = pictured(sound.channels, sound.sampleRate, sound.length), turn = turns()

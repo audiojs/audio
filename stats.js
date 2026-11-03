@@ -3,7 +3,7 @@
  * Self-registers on import — exposes statSession on audio, adds fn.stat.
  */
 
-import audio, { parseTime, named, LOAD, resolveChannels, yieldTask, FULL, blockAt } from './core.js'
+import audio, { parseTime, named, LOAD, resolveChannels, pacer, FULL, blockAt } from './core.js'
 import { buildPlan, streamPlan, ensurePlan } from './plan.js'
 
 // ── Stat descriptor registry ────────────────────────────────────
@@ -255,13 +255,12 @@ audio.adaptStats = (src, plan, sr) => {
 
 /** Stream plan blocks into stat session, yielding event loop periodically to avoid blocking. */
 async function streamStats(s, inst, plan, offset, duration) {
-  let t = performance.now()
+  let pace = pacer()
   // Keep fields/channel shape even when the plan yields no samples.
   s.page(Array.from({ length: inst.channels }, () => new Float32Array(0)))
   for (let chunk of streamPlan(inst, plan, offset, duration)) {
     s.page(chunk)
-    let now = performance.now()
-    if (now - t > 8) { await yieldTask(); t = performance.now() }
+    await pace()
   }
 }
 

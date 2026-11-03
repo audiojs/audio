@@ -2,7 +2,7 @@
  * Playback: a voice renders the instance's timeline into a deck (deck.js), which plays it. The page's one
  * AudioContext in a browser, @audio/speaker in Node. The voice is shared with the worker, which runs it by its engine.
  */
-import audio, { emit, yieldTask, fromEnd, named } from '../core.js'
+import audio, { emit, pacer, fromEnd, named } from '../core.js'
 import { emitMeter } from './meter.js'
 import { timeline, context, playback, TAKE } from '../deck.js'
 
@@ -98,7 +98,7 @@ export function voice(a, port, { at = 0, duration, loop = false, from, splice = 
       if (a._.ready) await a._.ready
       if (s < 0) { s = await fromEnd(a, s); e = dur != null ? s + dur : null; if (v < 0) v = v0 = s }
       if (rid !== live) return
-      let sr = a.sampleRate, ch = a.channels || 1, pos = v, opened = false, t = now()
+      let sr = a.sampleRate, ch = a.channels || 1, pos = v, opened = false, pace = pacer()
       const begin = () => { opened = true; lat = Math.min(0.25, (now() - t0) / 1000); post({ run: rid, sr, pos: v, loop: span(), splice: sp }) }
       for await (let b of axis(v, sr, ch, rid)) {
         if (rid !== live) return
@@ -107,7 +107,7 @@ export function voice(a, port, { at = 0, duration, loop = false, from, splice = 
         meter?.(b, rid, pos, timeline(pos, span()), sr)
         post({ run: rid, data: b }, b.map(c => c.buffer))
         sent += n / sr; pos += n / sr
-        if (now() - t > 8) { await yieldTask(); t = now() }
+        await pace()
         while (rid === live && deck.buf + sent - deck.got > AHEAD) await new Promise(r => wake = r)
       }
       if (rid !== live) return
